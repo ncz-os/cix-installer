@@ -15,6 +15,13 @@ ASSETS=/usr/local/lib/cix-installer/assets/kernel
 KVER="6.6.10-cix-build-cix-build-generic"
 echo "[10] installing kernel $KVER"
 
+# Ensure kmod (depmod, modprobe, lsmod) is present in the chroot.
+# d-i's minimal base install doesn't always include it, and 10-our-
+# kernel needs depmod to build the module dependency cache. Without
+# this explicit install, run 13 hit '/sbin/depmod: cannot execute:
+# required file not found'.
+apt-get install -y --no-install-recommends kmod
+
 # Kernel binary
 install -D -m 0644 "$ASSETS/Image-cixmini.bin" "/boot/vmlinuz-$KVER"
 
