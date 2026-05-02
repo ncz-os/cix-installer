@@ -146,7 +146,12 @@ insmod gzio
 menuentry "*** Install nclawzero (auto, preseed)" {
     set background_color=black
     echo "Loading nclawzero installer kernel..."
-    linux  /install.a64/vmlinuz auto=true priority=critical preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=60 console=ttyAMA0,115200 console=tty0
+    # preseed.cfg is embedded in the initrd (appended cpio, picked up
+    # at /preseed.cfg in initramfs root). d-i auto-loads it; no
+    # preseed/file= cmdline param needed (and using one with a
+    # /cdrom path failed in QEMU because /cdrom isn't mounted at the
+    # time the preseed loader runs — cdrom-detect happens later).
+    linux  /install.a64/vmlinuz auto=true priority=critical interface=auto netcfg/dhcp_timeout=60 console=ttyAMA0,115200 console=tty0
     echo "Loading initrd..."
     initrd /install.a64/initrd.gz
 }
