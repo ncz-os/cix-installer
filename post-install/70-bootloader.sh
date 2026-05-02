@@ -54,7 +54,8 @@ title   nclawzero (cixmini)
 version $KVER
 linux   /vmlinuz-$KVER
 options root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 \
-        console=tty0 console=ttyAMA0,115200 earlycon clk_ignore_unused $SPLASH
+        console=ttyAMA0,115200 console=tty0 earlycon clk_ignore_unused \
+        loglevel=3 $SPLASH
 EOF
 
 # Copy our kernel to the ESP (systemd-boot reads /boot/efi by default)
