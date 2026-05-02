@@ -67,6 +67,35 @@ for pkg in $STUCK; do
     dpkg --purge --force-remove-reinstreq --force-remove-essential "$pkg" 2>&1 | tail -3 || true
 done
 
+# ----------------------------------------------------------------------
+# Bridge the KERNEL_LOCALVERSION mismatch between our Yocto-rebuilt
+# kernel and Cix's prebuilt out-of-tree module debs.
+#
+# Every cix-*-driver and cix-wlan deb installs its .ko files to:
+#   /lib/modules/6.6.10-cix-build-generic/extra/
+#
+# but our Yocto-built kernel's uname -r is:
+#   6.6.10-cix-build-cix-build-generic
+#
+# (Our meta-cix linux-cix-msr1_6.6.10.bb's KERNEL_LOCALVERSION
+# interacts badly with whatever Cix already has in cix.config's
+# CONFIG_LOCALVERSION — Yocto's plain-kernel.bbclass appends and
+# duplicates the suffix. Real fix is in the recipe; tracked.)
+#
+# Without this bridge, NONE of mali_kbase / aipu / amvx / armcb_isp /
+# csi_* / rtl_btusb / rtl_wlan / wlan / wlan_cnss_core_pcie load on
+# first boot — that's no GPU, no NPU, no VPU, no camera, no WiFi,
+# no BT. Bridge by copying the .ko's into our actual KVER tree and
+# regenerating depmod.
+WRONG_KVER=6.6.10-cix-build-generic
+RIGHT_KVER=6.6.10-cix-build-cix-build-generic
+if [ -d "/lib/modules/$WRONG_KVER/extra" ] && [ -d "/lib/modules/$RIGHT_KVER" ]; then
+    mkdir -p "/lib/modules/$RIGHT_KVER/extra"
+    cp -an "/lib/modules/$WRONG_KVER/extra/"*.ko "/lib/modules/$RIGHT_KVER/extra/" 2>/dev/null || true
+    echo "    bridged $(ls /lib/modules/$RIGHT_KVER/extra/ 2>/dev/null | wc -l) cix-* modules into $RIGHT_KVER/extra"
+    depmod -a "$RIGHT_KVER"
+fi
+
 # Always exit 0 — Cix postinst quirks should not halt the installer.
 # If something is genuinely broken, surfaces during agent runtime
 # rather than killing the install before branding/bootloader land.
