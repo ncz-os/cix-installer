@@ -1,0 +1,24 @@
+# Build outputs
+build/iso-staging/
+build/*.iso
+build/*.qcow2
+build/*.fd
+build/*.sha256
+
+# Upstream downloads
+downloads/
+
+# Gitignored asset blobs (supplied at build time from cixmini-gen-assets
+# on ARGOS, or from a release artifact in CI)
+assets/cix-debs/*.deb
+assets/kernel/*.bin
+assets/kernel/*.tgz
+
+# Editor cruft
+.DS_Store
+*.swp
+*~
+
+# Python / shell editor leftovers
+__pycache__/
+*.pyc
