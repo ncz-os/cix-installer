@@ -46,3 +46,65 @@ systemctl set-default graphical.target
 
 # Enable gdm
 systemctl enable gdm3 || systemctl enable gdm
+
+# ------------------------------------------------------------------
+# Brand the GDM login screen + GNOME default wallpaper
+# ------------------------------------------------------------------
+ASSETS=/usr/local/lib/cix-installer/assets/branding
+
+# Stage canonical assets into /usr/share/nclawzero/branding/ — survives
+# package upgrades that might overwrite /usr/share/backgrounds/ etc.
+install -d /usr/share/nclawzero/branding
+install -m 0644 "$ASSETS/gdm/background.jpg"       /usr/share/nclawzero/branding/gdm-background.jpg
+install -m 0644 "$ASSETS/wallpaper/default.jpg"    /usr/share/nclawzero/branding/wallpaper-default.jpg
+install -m 0644 "$ASSETS/logo/ncz-icon.jpg"        /usr/share/nclawzero/branding/ncz-icon.jpg
+install -m 0644 "$ASSETS/logo/nclawzero-lockup.jpg" /usr/share/nclawzero/branding/nclawzero-lockup.jpg
+
+# Convert ncz-icon to PNG for GDM logo (GNOME prefers PNG for logos)
+apt-get install -y --no-install-recommends imagemagick >/dev/null 2>&1 || true
+convert /usr/share/nclawzero/branding/ncz-icon.jpg \
+        /usr/share/nclawzero/branding/ncz-icon.png 2>/dev/null || \
+    cp /usr/share/nclawzero/branding/ncz-icon.jpg /usr/share/nclawzero/branding/ncz-icon.png
+
+# GDM dconf override — login screen background + logo
+install -d /etc/dconf/db/gdm.d
+cat > /etc/dconf/db/gdm.d/01-nclawzero <<'GDM'
+[org/gnome/login-screen]
+logo='/usr/share/nclawzero/branding/ncz-icon.png'
+
+[org/gnome/desktop/screensaver]
+picture-uri='file:///usr/share/nclawzero/branding/gdm-background.jpg'
+
+[org/gnome/desktop/background]
+picture-uri='file:///usr/share/nclawzero/branding/gdm-background.jpg'
+picture-uri-dark='file:///usr/share/nclawzero/branding/gdm-background.jpg'
+picture-options='zoom'
+GDM
+
+install -d /etc/dconf/profile
+cat > /etc/dconf/profile/gdm <<'PROF'
+user-db:user
+system-db:gdm
+file-db:/usr/share/gdm/greeter-dconf-defaults
+PROF
+
+# GNOME desktop default wallpaper — first-login defaults via dconf
+install -d /etc/dconf/db/local.d
+cat > /etc/dconf/db/local.d/01-nclawzero-wallpaper <<'LOCAL'
+[org/gnome/desktop/background]
+picture-uri='file:///usr/share/nclawzero/branding/wallpaper-default.jpg'
+picture-uri-dark='file:///usr/share/nclawzero/branding/wallpaper-default.jpg'
+picture-options='zoom'
+primary-color='#0b0f14'
+secondary-color='#0b0f14'
+
+[org/gnome/desktop/screensaver]
+picture-uri='file:///usr/share/nclawzero/branding/wallpaper-default.jpg'
+LOCAL
+
+cat > /etc/dconf/profile/user <<'USERPROF'
+user-db:user
+system-db:local
+USERPROF
+
+dconf update || true
