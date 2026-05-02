@@ -67,8 +67,15 @@ echo "[3] injecting preseed.cfg via concatenated cpio (no extraction needed)"
 # without root because it contains device nodes), we just append a
 # tiny cpio that contains only preseed.cfg.
 #
-# Append to ALL initrds present (text + gtk) so preseed.cfg is
-# available regardless of which menu entry the user picks.
+# Strip the gtk (graphical) installer variant entirely. We only ship a
+# character-mode installer — single boot path, no framebuffer console
+# dependency, ~600 MB less in the rootfs.gz. If we ever want the gtk
+# UI back, restore install.a64/gtk/ here and re-add the menu entry.
+if [ -d "$STAGING/install.a64/gtk" ]; then
+    rm -rf "$STAGING/install.a64/gtk"
+    echo "    removed install.a64/gtk/ (text-mode only)"
+fi
+
 PRESEED_WORK="$STAGING/.preseed-cpio"
 rm -rf "$PRESEED_WORK"
 mkdir -p "$PRESEED_WORK"
@@ -76,16 +83,13 @@ cp "$ROOT/preseed/preseed.cfg" "$PRESEED_WORK/preseed.cfg"
 PRESEED_GZ="$STAGING/.preseed.cpio.gz"
 ( cd "$PRESEED_WORK" && echo preseed.cfg | cpio -o -H newc --quiet | gzip ) > "$PRESEED_GZ"
 
-INITRDS_PATCHED=0
-for candidate in "$STAGING/install.a64/initrd.gz" \
-                 "$STAGING/install.a64/gtk/initrd.gz"; do
-    if [ -f "$candidate" ]; then
-        cat "$PRESEED_GZ" >> "$candidate"
-        echo "    preseed appended to $candidate"
-        INITRDS_PATCHED=$((INITRDS_PATCHED+1))
-    fi
-done
-[ $INITRDS_PATCHED -eq 0 ] && { echo "ERROR: no d-i initrd found in ISO layout"; ls -R "$STAGING/install.a64" 2>&1 | head -20; exit 1; }
+if [ ! -f "$STAGING/install.a64/initrd.gz" ]; then
+    echo "ERROR: install.a64/initrd.gz not found"
+    ls -R "$STAGING/install.a64" 2>&1 | head -20
+    exit 1
+fi
+cat "$PRESEED_GZ" >> "$STAGING/install.a64/initrd.gz"
+echo "    preseed appended to install.a64/initrd.gz"
 rm -rf "$PRESEED_WORK" "$PRESEED_GZ"
 
 # ----------------------------------------------------------------------
@@ -113,14 +117,10 @@ if [ -f "$ROOT/assets/kernel/Image-cixmini.bin" ] && \
     echo "[3.5] swapping d-i kernel to linux-cix-msr1 6.6.10 + injecting Cix modules"
     KVER="6.6.10-cix-build-cix-build-generic"
 
-    # Replace install.a64/vmlinuz with our Image. Both text + gtk paths.
-    for v in "$STAGING/install.a64/vmlinuz" \
-             "$STAGING/install.a64/gtk/vmlinuz"; do
-        if [ -f "$v" ]; then
-            install -m 0644 "$ROOT/assets/kernel/Image-cixmini.bin" "$v"
-            echo "    replaced $v ($(du -h "$v" | cut -f1))"
-        fi
-    done
+    # Replace install.a64/vmlinuz with our Image (gtk variant already
+    # stripped above).
+    install -m 0644 "$ROOT/assets/kernel/Image-cixmini.bin" "$STAGING/install.a64/vmlinuz"
+    echo "    replaced install.a64/vmlinuz ($(du -h "$STAGING/install.a64/vmlinuz" | cut -f1))"
 
     # Build a cpio of our modules at the canonical /lib/modules/$KVER/
     # path, then concatenate it onto each initrd. The kernel's
@@ -139,16 +139,8 @@ if [ -f "$ROOT/assets/kernel/Image-cixmini.bin" ] && \
     ( cd "$MOD_WORK" && find lib -print | cpio -o -H newc --quiet | gzip ) > "$MOD_GZ"
     echo "    modules cpio: $(du -h "$MOD_GZ" | cut -f1)"
 
-    INITRDS_MOD_PATCHED=0
-    for candidate in "$STAGING/install.a64/initrd.gz" \
-                     "$STAGING/install.a64/gtk/initrd.gz"; do
-        if [ -f "$candidate" ]; then
-            cat "$MOD_GZ" >> "$candidate"
-            echo "    modules appended to $candidate ($(du -h "$candidate" | cut -f1))"
-            INITRDS_MOD_PATCHED=$((INITRDS_MOD_PATCHED+1))
-        fi
-    done
-    [ $INITRDS_MOD_PATCHED -eq 0 ] && { echo "ERROR: no initrd to patch"; exit 1; }
+    cat "$MOD_GZ" >> "$STAGING/install.a64/initrd.gz"
+    echo "    modules appended to install.a64/initrd.gz ($(du -h "$STAGING/install.a64/initrd.gz" | cut -f1))"
     rm -rf "$MOD_WORK" "$MOD_GZ"
 else
     echo "    WARN: assets/kernel/ missing — d-i will run Debian's stock 6.1 arm64 kernel"
@@ -219,36 +211,40 @@ if [ ! -f "$GRUB_CFG" ]; then
     exit 1
 fi
 
-# Build the new grub.cfg by prepending our auto-install entry +
-# header (timeout, default) to the stock Debian d-i menu.
-NEW_CFG=$(mktemp)
-cat > "$NEW_CFG" <<'GRUB'
-# nclawzero installer — auto-install via preseed.
-# Default boots in 5 seconds. Other Debian d-i entries kept below.
-set timeout=5
+# Replace grub.cfg entirely with a single character-mode auto-install
+# entry. We don't ship the gtk variant or the Debian fallback menu —
+# this ISO has one job (preseed-driven install of nclawzero on Cix
+# Sky1), and the fewer alternate boot paths the cleaner.
+cat > "$GRUB_CFG" <<'GRUB'
+# nclawzero installer — character-mode auto-install via preseed.
+# Boots in 3 seconds. No alternate menu entries.
+set timeout=3
 set default=0
 set menu_color_normal=cyan/blue
 set menu_color_highlight=white/blue
 insmod gzio
 
-menuentry "*** Install nclawzero (auto, preseed)" {
+menuentry "Install nclawzero (cixmini, auto)" {
     set background_color=black
-    echo "Loading nclawzero installer kernel..."
+    echo "Loading linux-cix-msr1 6.6.10..."
     # preseed.cfg is embedded in the initrd (appended cpio, picked up
-    # at /preseed.cfg in initramfs root). d-i auto-loads it; no
-    # preseed/file= cmdline param needed.
+    # at /preseed.cfg in initramfs root). d-i auto-loads it.
     #
-    # DEBCONF_DEBUG=5 + BOOT_DEBUG=2: verbose d-i logging to console.
-    # Helpful while iterating; remove once preseed is stable.
+    # Console: tty0 first so the on-screen kernel msgs are visible
+    # whenever the framebuffer is alive, plus ttyAMA0,115200 mirror so
+    # serial-cable diagnostics keep working when DRM hands off and tty0
+    # blanks. earlycon + keep_bootcon = no missing early-boot lines.
+    # loglevel=8 + ignore_loglevel = every printk visible. printk.time
+    # adds timestamps. panic=10 auto-reboots on panic. clk_ignore_unused
+    # is a Cix Sky1 hard requirement.
+    #
+    # DEBCONF_DEBUG=5 + BOOT_DEBUG=2: verbose d-i logging.
     linux  /install.a64/vmlinuz auto=true priority=critical interface=auto netcfg/dhcp_timeout=60 DEBCONF_DEBUG=5 BOOT_DEBUG=2 log_host=192.168.207.22 console=tty0 console=ttyAMA0,115200 earlycon keep_bootcon loglevel=8 ignore_loglevel printk.time=y panic=10 clk_ignore_unused
     echo "Loading initrd..."
     initrd /install.a64/initrd.gz
 }
-
 GRUB
-cat "$GRUB_CFG" >> "$NEW_CFG"
-mv "$NEW_CFG" "$GRUB_CFG"
-echo "    GRUB cfg patched ($(wc -l < $GRUB_CFG) lines)"
+echo "    GRUB cfg replaced (single entry, $(wc -l < $GRUB_CFG) lines)"
 
 # ----------------------------------------------------------------------
 # Step 6 — rebuild md5sum.txt (d-i checks integrity)
