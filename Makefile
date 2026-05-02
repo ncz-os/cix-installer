@@ -12,10 +12,15 @@
 ROOT          := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 VERSION       := $(shell date -u +%Y.%m.%d)
 DEBIAN_REL    := 12
-DEBIAN_POINT  := 12.7.0
+DEBIAN_POINT  := 12.13.0
 UPSTREAM_ISO  := debian-$(DEBIAN_POINT)-arm64-netinst.iso
-UPSTREAM_URL  := https://cdimage.debian.org/cdimage/release/$(DEBIAN_POINT)/arm64/iso-cd/$(UPSTREAM_ISO)
-UPSTREAM_SHA  := https://cdimage.debian.org/cdimage/release/$(DEBIAN_POINT)/arm64/iso-cd/SHA256SUMS
+# Bookworm has been moved to the archive after Trixie became current.
+# Pin to 12.13.0 (the last Bookworm point release at time of this commit)
+# because Cix's proprietary .debs were built against Bookworm; mixing
+# their bookworm-glibc-2.36 binaries with Trixie's glibc-2.41 risks
+# subtle ABI breakage we don't want to debug.
+UPSTREAM_URL  := https://cdimage.debian.org/cdimage/archive/$(DEBIAN_POINT)/arm64/iso-cd/$(UPSTREAM_ISO)
+UPSTREAM_SHA  := https://cdimage.debian.org/cdimage/archive/$(DEBIAN_POINT)/arm64/iso-cd/SHA256SUMS
 
 DOWNLOADS     := $(ROOT)/downloads
 BUILD         := $(ROOT)/build
