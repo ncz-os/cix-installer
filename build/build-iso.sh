@@ -135,6 +135,25 @@ if [ -f "$ROOT/assets/kernel/Image-cixmini.bin" ] && \
         ls "$MOD_WORK/lib/modules/" 2>&1
         exit 1
     fi
+
+    # Yocto's `make modules_install` ships only the static index files
+    # (modules.builtin, modules.order). modules.alias / modules.dep /
+    # modules.devname / modules.softdep / modules.symbols are generated
+    # by depmod at the *target system's* first boot, not at build time.
+    # The d-i runtime never gets that chance — its initramfs is ours,
+    # whatever's in our cpio is what udev sees forever. Without
+    # modules.alias, udev cannot match hardware uevent MODALIAS strings
+    # to .ko paths, so NO driver auto-loads on hotplug — including USB
+    # ethernet dongles that should "just work". Run depmod here against
+    # the staged module tree so the cpio carries proper alias/dep maps.
+    if ! command -v depmod >/dev/null; then
+        echo "ERROR: depmod not on PATH; install kmod package on builder"
+        exit 1
+    fi
+    depmod -a -b "$MOD_WORK" "$KVER"
+    echo "    depmod-generated index files:"
+    ls -la "$MOD_WORK/lib/modules/$KVER/" | grep -E "modules\.(alias|dep|devname|softdep|symbols)" | awk '{print "      " $NF " (" $5 " bytes)"}'
+
     MOD_GZ="$STAGING/.modules.cpio.gz"
     ( cd "$MOD_WORK" && find lib -print | cpio -o -H newc --quiet | gzip ) > "$MOD_GZ"
     echo "    modules cpio: $(du -h "$MOD_GZ" | cut -f1)"
