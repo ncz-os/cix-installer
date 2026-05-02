@@ -96,13 +96,13 @@ cp -r "$ROOT/post-install/"*.sh "$EXTRA/post-install/"
 chmod 755 "$EXTRA/post-install/"*.sh
 
 # assets/agent-stack — committed quadlet files
-cp -r "$ROOT/assets/agent-stack" "$EXTRA/assets/"
+cp -rL "$ROOT/assets/agent-stack" "$EXTRA/assets/"
 # assets/branding — committed images, themes
-[ -d "$ROOT/assets/branding" ] && cp -r "$ROOT/assets/branding" "$EXTRA/assets/" || true
+[ -d "$ROOT/assets/branding" ] && cp -rL "$ROOT/assets/branding" "$EXTRA/assets/" || true
 
 # assets/cix-debs — gitignored, supplied at build time
 if [ -d "$ROOT/assets/cix-debs" ] && [ "$(ls -A $ROOT/assets/cix-debs 2>/dev/null)" ]; then
-    cp -r "$ROOT/assets/cix-debs" "$EXTRA/assets/"
+    cp -rL "$ROOT/assets/cix-debs" "$EXTRA/assets/"
     echo "    cix-debs: $(ls $EXTRA/assets/cix-debs | wc -l) files, $(du -sh $EXTRA/assets/cix-debs | cut -f1)"
 else
     echo "    WARN: assets/cix-debs/ empty — install will skip Cix proprietary layer"
@@ -110,7 +110,7 @@ fi
 
 # assets/kernel — gitignored, supplied at build time
 if [ -d "$ROOT/assets/kernel" ] && [ "$(ls -A $ROOT/assets/kernel 2>/dev/null)" ]; then
-    cp -r "$ROOT/assets/kernel" "$EXTRA/assets/"
+    cp -rL "$ROOT/assets/kernel" "$EXTRA/assets/"
     echo "    kernel: $(du -sh $EXTRA/assets/kernel | cut -f1)"
 else
     echo "    WARN: assets/kernel/ empty — install will keep Debian's linux-image-arm64"
@@ -153,8 +153,11 @@ done
 [ -z "$EFI_IMG" ] && { echo "ERROR: no EFI image found"; exit 1; }
 EFI_IMG_REL="${EFI_IMG#$STAGING/}"
 
+# Volume label: ISO 9660 limits to 32 chars, all-uppercase/digits/_
+VOLID="NCLAWZERO_CIXMINI"
+
 xorriso -as mkisofs \
-    -r -V "nclawzero-cixmini-$VERSION" \
+    -r -V "$VOLID" \
     -J -joliet-long \
     -e "$EFI_IMG_REL" \
     -no-emul-boot \
