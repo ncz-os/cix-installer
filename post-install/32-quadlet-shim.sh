@@ -1,5 +1,5 @@
 #!/bin/bash
-# 32-quadlet-shim.sh — translate /etc/containers/systemd/*.container
+# 32-quadlet-shim.sh — translate /etc/containers/systemd/*.{container,network}
 # files into native systemd .service units so the agent stack runs
 # under Debian Bookworm's podman 4.3 (no Quadlet support — Quadlet
 # was added in podman 4.4, no backport in Debian 12 stable or
@@ -8,26 +8,6 @@
 # When/if we move to Trixie or backports lands a newer podman, this
 # hook becomes a no-op (Quadlet generator handles .container files
 # natively and the .service files we emit are harmless duplicates).
-#
-# Translation rules:
-#   [Unit]      → [Unit]
-#   [Service]   → fields preserved
-#   [Install]   → preserved, default to multi-user.target
-#   [Container] → translated to ExecStart `podman run` flags:
-#       Image=...           → image arg (positional last)
-#       ContainerName=NAME  → --name=NAME --replace --rm
-#       Entrypoint=...      → --entrypoint=...
-#       Exec=...            → command appended after image
-#       EnvironmentFile=... → --env-file=...
-#       Volume=src:dst:OPT  → -v src:dst:OPT
-#       PublishPort=h:c     → -p h:c
-#       Network=...         → --network=...
-#       AutoUpdate=registry → IGNORED (we pin digests anyway)
-#   [Network]   → translated to ExecStart `podman network create`
-#       NetworkName=NAME    → name positional
-#       IPv6=...            → --ipv6
-#       Internal=true/false → --internal
-#       Subnet=...          → --subnet=...
 set -euo pipefail
 
 echo "[32] quadlet → .service shim (podman 4.3 compatibility)"
@@ -36,92 +16,118 @@ QDIR=/etc/containers/systemd
 SDIR=/etc/systemd/system
 [ -d "$QDIR" ] || { echo "    no quadlet dir; skipping"; exit 0; }
 
+# ----------------------------------------------------------------------
+# Section extractor — prints the lines BETWEEN [SectionName] and the
+# next [.../] header (exclusive). Robust to blank lines and comments.
+# ----------------------------------------------------------------------
+section() {
+    local file="$1" name="$2"
+    awk -v want="[$name]" '
+        BEGIN { in_sec = 0 }
+        /^\[/ { in_sec = ($0 == want); next }
+        in_sec { print }
+    ' "$file"
+}
+
+# Extract a single Key=value line from a section. Returns empty if absent.
+single() {
+    local file="$1" name="$2" key="$3"
+    section "$file" "$name" | awk -F= -v k="$key" '$1 == k { sub(/^[^=]*=/, ""); print; exit }'
+}
+
+# Extract all values of a repeating Key= within a section.
+multi() {
+    local file="$1" name="$2" key="$3"
+    section "$file" "$name" | awk -F= -v k="$key" '$1 == k { sub(/^[^=]*=/, ""); print }'
+}
+
 translate_container() {
-    local f="$1"
-    local name unit_block service_block install_block image entrypoint exec env_files volumes ports networks container_name
+    local f="$1" name container_name image entrypoint exec_cmd
     name=$(basename "$f" .container)
 
-    # Carve into [Unit] / [Container] / [Service] / [Install] sections
-    unit_block=$(awk '/^\[Unit\]/,/^\[/{if(!/^\[Unit\]/&&/^\[/)exit; if(!/^\[Unit\]/)print}' "$f")
-    service_block=$(awk '/^\[Service\]/,/^\[/{if(!/^\[Service\]/&&/^\[/)exit; if(!/^\[Service\]/)print}' "$f")
-    install_block=$(awk '/^\[Install\]/,/^\[/{if(!/^\[Install\]/&&/^\[/)exit; if(!/^\[Install\]/)print}' "$f")
-
-    # Extract Container fields
-    image=$(awk '/^\[Container\]/,/^\[/{print}' "$f" | awk -F= '/^Image=/{$1=""; sub(/^=/,""); print; exit}')
-    entrypoint=$(awk '/^\[Container\]/,/^\[/{print}' "$f" | awk -F= '/^Entrypoint=/{$1=""; sub(/^=/,""); print; exit}')
-    exec_cmd=$(awk '/^\[Container\]/,/^\[/{print}' "$f" | awk -F= '/^Exec=/{$1=""; sub(/^=/,""); print; exit}')
-    container_name=$(awk '/^\[Container\]/,/^\[/{print}' "$f" | awk -F= '/^ContainerName=/{$1=""; sub(/^=/,""); print; exit}')
+    image=$(single "$f" Container Image)
+    entrypoint=$(single "$f" Container Entrypoint)
+    exec_cmd=$(single "$f" Container Exec)
+    container_name=$(single "$f" Container ContainerName)
     [ -z "$container_name" ] && container_name="$name"
 
-    # Multi-value fields: collect all Volume=, PublishPort=, EnvironmentFile=, Network= lines
-    env_files=$(awk '/^\[Container\]/,/^\[/{if(/^EnvironmentFile=/){sub(/^EnvironmentFile=/,""); print "--env-file="$0}}' "$f" | tr '\n' ' ')
-    volumes=$(awk '/^\[Container\]/,/^\[/{if(/^Volume=/){sub(/^Volume=/,""); print "-v " $0}}' "$f" | tr '\n' ' ')
-    ports=$(awk '/^\[Container\]/,/^\[/{if(/^PublishPort=/){sub(/^PublishPort=/,""); print "-p " $0}}' "$f" | tr '\n' ' ')
-    networks=$(awk '/^\[Container\]/,/^\[/{if(/^Network=/){sub(/^Network=/,""); print "--network=" $0}}' "$f" | tr '\n' ' ')
-
     # Build podman run cmdline
-    local podman_args="--name=$container_name --replace --rm"
-    [ -n "$entrypoint" ] && podman_args="$podman_args --entrypoint=$entrypoint"
-    podman_args="$podman_args $env_files $volumes $ports $networks"
+    local args="--name=$container_name --replace --rm"
+    [ -n "$entrypoint" ] && args="$args --entrypoint=$entrypoint"
 
-    # Compose .service file
-    cat > "$SDIR/${name}.service" <<EOF
-# Generated by 32-quadlet-shim.sh from $f
-# Source-of-truth is $f; if you edit this file, regenerate by re-running
-# the post-install hook. Will be replaced by Quadlet when podman 4.4+
-# is available.
-[Unit]
-$unit_block
+    while read -r v; do [ -n "$v" ] && args="$args --env-file=$v"; done < <(multi "$f" Container EnvironmentFile)
+    while read -r v; do [ -n "$v" ] && args="$args -v $v"; done < <(multi "$f" Container Volume)
+    while read -r v; do [ -n "$v" ] && args="$args -p $v"; done < <(multi "$f" Container PublishPort)
+    while read -r v; do [ -n "$v" ] && args="$args --network=$v"; done < <(multi "$f" Container Network)
 
-[Service]
-Type=simple
-TimeoutStartSec=$(echo "$service_block" | awk -F= '/^TimeoutStartSec=/{print $2; exit}')
-$(echo "$service_block" | grep -E '^(Restart|RestartSec|WorkingDirectory|UMask|User|Group|Environment)=' || true)
-ExecStartPre=-/usr/bin/podman stop --ignore --time=10 $container_name
-ExecStartPre=-/usr/bin/podman rm --ignore --force $container_name
-ExecStart=/usr/bin/podman run $podman_args $image $exec_cmd
-ExecStop=/usr/bin/podman stop --time=30 $container_name
+    # Carve [Unit] / [Service] / [Install] sections (preserve as-is)
+    local unit_block service_block install_block
+    unit_block=$(section "$f" Unit)
+    service_block=$(section "$f" Service)
+    install_block=$(section "$f" Install)
+    [ -z "$install_block" ] && install_block="WantedBy=multi-user.target"
 
-[Install]
-${install_block:-WantedBy=multi-user.target}
-EOF
+    # Filter Service block to only Service-relevant fields (preserve
+    # TimeoutStartSec, Restart*, User, Group, WorkingDirectory, UMask,
+    # Environment). Drop anything we don't recognize.
+    local svc_kept
+    svc_kept=$(echo "$service_block" | grep -E '^(TimeoutStartSec|Restart|RestartSec|User|Group|WorkingDirectory|UMask|Environment)=' || true)
 
-    echo "    wrote $SDIR/${name}.service from $f"
+    {
+        echo "# Generated by 32-quadlet-shim.sh from $f"
+        echo "# Source-of-truth: $f. Re-run the hook after editing the .container."
+        echo "# Will be supersedeable by Quadlet once podman 4.4+ ships."
+        echo ""
+        echo "[Unit]"
+        echo "$unit_block"
+        echo ""
+        echo "[Service]"
+        echo "Type=simple"
+        [ -n "$svc_kept" ] && echo "$svc_kept"
+        echo "ExecStartPre=-/usr/bin/podman stop --ignore --time=10 $container_name"
+        echo "ExecStartPre=-/usr/bin/podman rm --ignore --force $container_name"
+        echo "ExecStart=/usr/bin/podman run $args $image ${exec_cmd:-}"
+        echo "ExecStop=/usr/bin/podman stop --time=30 $container_name"
+        echo ""
+        echo "[Install]"
+        echo "$install_block"
+    } > "$SDIR/${name}.service"
+    echo "    wrote $SDIR/${name}.service"
 }
 
 translate_network() {
-    local f="$1"
-    local name network_name subnet ipv6 internal
+    local f="$1" name network_name subnet ipv6 internal
     name=$(basename "$f" .network)
-    network_name=$(awk '/^\[Network\]/,/^\[/{if(/^NetworkName=/){sub(/^NetworkName=/,""); print; exit}}' "$f")
+    network_name=$(single "$f" Network NetworkName)
     [ -z "$network_name" ] && network_name="$name"
-    subnet=$(awk '/^\[Network\]/,/^\[/{if(/^Subnet=/){sub(/^Subnet=/,""); print; exit}}' "$f")
-    ipv6=$(awk '/^\[Network\]/,/^\[/{if(/^IPv6=/){sub(/^IPv6=/,""); print; exit}}' "$f")
-    internal=$(awk '/^\[Network\]/,/^\[/{if(/^Internal=/){sub(/^Internal=/,""); print; exit}}' "$f")
+    subnet=$(single "$f" Network Subnet)
+    ipv6=$(single "$f" Network IPv6)
+    internal=$(single "$f" Network Internal)
 
-    local args=""
-    [ "$ipv6" = "true" ] && args="$args --ipv6"
-    [ "$internal" = "true" ] && args="$args --internal"
-    [ -n "$subnet" ] && args="$args --subnet=$subnet"
+    local netargs=""
+    [ "$ipv6" = "true" ] && netargs="$netargs --ipv6"
+    [ "$internal" = "true" ] && netargs="$netargs --internal"
+    [ -n "$subnet" ] && netargs="$netargs --subnet=$subnet"
 
     cat > "$SDIR/${name}-network.service" <<EOF
+# Generated by 32-quadlet-shim.sh from $f
 [Unit]
-Description=podman network ${network_name}
+Description=podman network $network_name
 After=network-online.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/sh -c '/usr/bin/podman network exists $network_name || /usr/bin/podman network create $args $network_name'
+ExecStart=/bin/sh -c '/usr/bin/podman network exists $network_name || /usr/bin/podman network create $netargs $network_name'
 ExecStop=/usr/bin/podman network rm --force $network_name
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    echo "    wrote $SDIR/${name}-network.service from $f"
+    echo "    wrote $SDIR/${name}-network.service"
 }
 
-# Translate every .container + .network file
+# Translate every .container + .network file in the quadlet dir
 for f in "$QDIR"/*.container; do
     [ -f "$f" ] || continue
     translate_container "$f"
@@ -131,16 +137,19 @@ for f in "$QDIR"/*.network; do
     translate_network "$f"
 done
 
-# daemon-reload — best-effort in chroot, definitive on first boot
 systemctl daemon-reload || true
 
-# Enable each agent service for boot
-for svc in "$SDIR"/*-network.service "$SDIR"/zeroclaw.service "$SDIR"/openclaw.service "$SDIR"/hermes.service; do
+# Enable each generated service for boot. Networks first so containers
+# referencing them find them at startup.
+for svc in "$SDIR"/*-network.service; do
     [ -f "$svc" ] || continue
-    name=$(basename "$svc")
-    systemctl enable "$name" 2>&1 | tail -2 || true
+    systemctl enable "$(basename "$svc")" 2>&1 | tail -1 || true
+done
+for name in zeroclaw openclaw hermes; do
+    [ -f "$SDIR/${name}.service" ] || continue
+    systemctl enable "${name}.service" 2>&1 | tail -1 || true
 done
 
 echo ""
-echo "Generated agent .service units:"
+echo "Final agent .service units:"
 ls -la "$SDIR"/{zeroclaw,openclaw,hermes,hermes-isolated-network}.service 2>/dev/null || true
