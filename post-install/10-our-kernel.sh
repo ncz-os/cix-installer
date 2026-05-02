@@ -26,8 +26,20 @@ apt-get install -y --no-install-recommends kmod
 install -D -m 0644 "$ASSETS/Image-cixmini.bin" "/boot/vmlinuz-$KVER"
 
 # Modules
-mkdir -p "/lib/modules/$KVER"
-tar xzf "$ASSETS/modules-cixmini.tgz" -C / --strip-components=0
+#
+# CAREFUL: the tarball has a top-level `lib/` directory entry. On a
+# usrmerge target (Debian bookworm and later), `/lib` is a SYMLINK to
+# `/usr/lib`. `tar xzf -C /` replaces that symlink with a real dir,
+# orphaning `/lib/ld-linux-aarch64.so.1` and breaking every dynamically
+# linked binary in `/sbin` (depmod -> /bin/kmod, which loads ld-linux).
+# Run 14/15/16 hit this — `depmod` exited "required file not found"
+# because its interpreter was suddenly unreachable.
+#
+# Extract into /usr instead: `lib/` lands at `/usr/lib/` (already a
+# directory) and modules end up at `/usr/lib/modules/$KVER/`, which is
+# the canonical post-usrmerge location. /lib stays a symlink.
+mkdir -p "/usr/lib/modules/$KVER"
+tar xzf "$ASSETS/modules-cixmini.tgz" -C /usr --strip-components=0 --keep-directory-symlink
 depmod -a "$KVER"
 
 # Remove Debian's default linux-image-arm64 — we ship our own.
