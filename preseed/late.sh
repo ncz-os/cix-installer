@@ -63,11 +63,23 @@ fi
 echo "--- selected source: $SRC ---"
 du -sh "$SRC" 2>/dev/null || true
 echo
+echo "--- pre-copy diagnostics: $SRC/post-install/ ---"
+ls -la "$SRC/post-install/" 2>&1 | head -15
+echo "--- pre-copy md5 of 10-our-kernel.sh on $SRC ---"
+md5sum "$SRC/post-install/10-our-kernel.sh" 2>&1 || echo "md5sum unavailable"
+wc -c "$SRC/post-install/10-our-kernel.sh" 2>&1 || true
+echo
+
 echo "--- copying $SRC → /target/usr/local/lib/cix-installer ---"
 mkdir -p /target/usr/local/lib
 cp -r "$SRC" /target/usr/local/lib/cix-installer
 chmod 755 /target/usr/local/lib/cix-installer/post-install/*.sh
-echo "    copy + chmod ok ($(du -sh /target/usr/local/lib/cix-installer | cut -f1))"
+echo "    copy ok"
+echo
+
+echo "--- post-copy md5 of /target/.../10-our-kernel.sh ---"
+md5sum /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 || echo "md5sum unavailable"
+wc -c /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 || true
 echo
 
 echo "--- running post-install in chroot ---"
