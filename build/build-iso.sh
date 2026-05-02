@@ -99,6 +99,13 @@ mkdir -p "$EXTRA/post-install" "$EXTRA/assets"
 cp -r "$ROOT/post-install/"*.sh "$EXTRA/post-install/"
 chmod 755 "$EXTRA/post-install/"*.sh
 
+# late.sh — invoked by preseed late_command from /cdrom/cixmini/late.sh
+# (with fallback path detection). Lives at the top of /cixmini/ on the
+# ISO so a single hard-coded path can find it across cdrom / hd-media
+# / live-medium mountpoint variants.
+cp "$ROOT/preseed/late.sh" "$EXTRA/late.sh"
+chmod 755 "$EXTRA/late.sh"
+
 # assets/agent-stack — committed quadlet files
 cp -rL "$ROOT/assets/agent-stack" "$EXTRA/assets/"
 # assets/branding — committed images + Plymouth theme.
