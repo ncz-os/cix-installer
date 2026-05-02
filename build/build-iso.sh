@@ -66,23 +66,27 @@ echo "[3] injecting preseed.cfg via concatenated cpio (no extraction needed)"
 # them in order. So instead of extracting the d-i initrd (which fails
 # without root because it contains device nodes), we just append a
 # tiny cpio that contains only preseed.cfg.
-INITRD=""
-for candidate in "$STAGING/install.a64/initrd.gz" \
-                 "$STAGING/install.a64/gtk/initrd.gz"; do
-    [ -f "$candidate" ] && INITRD="$candidate"
-done
-[ -z "$INITRD" ] && { echo "ERROR: couldn't find d-i initrd in ISO layout"; ls -R "$STAGING/install.a64" 2>&1 | head -20; exit 1; }
-echo "    initrd: $INITRD"
-
+#
+# Append to ALL initrds present (text + gtk) so preseed.cfg is
+# available regardless of which menu entry the user picks.
 PRESEED_WORK="$STAGING/.preseed-cpio"
 rm -rf "$PRESEED_WORK"
 mkdir -p "$PRESEED_WORK"
 cp "$ROOT/preseed/preseed.cfg" "$PRESEED_WORK/preseed.cfg"
-# Build cpio of just preseed.cfg, gzip it, append to initrd
-( cd "$PRESEED_WORK" && echo preseed.cfg | cpio -o -H newc --quiet | gzip ) > "$STAGING/.preseed.cpio.gz"
-cat "$STAGING/.preseed.cpio.gz" >> "$INITRD"
-rm -rf "$PRESEED_WORK" "$STAGING/.preseed.cpio.gz"
-echo "    preseed.cfg appended"
+PRESEED_GZ="$STAGING/.preseed.cpio.gz"
+( cd "$PRESEED_WORK" && echo preseed.cfg | cpio -o -H newc --quiet | gzip ) > "$PRESEED_GZ"
+
+INITRDS_PATCHED=0
+for candidate in "$STAGING/install.a64/initrd.gz" \
+                 "$STAGING/install.a64/gtk/initrd.gz"; do
+    if [ -f "$candidate" ]; then
+        cat "$PRESEED_GZ" >> "$candidate"
+        echo "    preseed appended to $candidate"
+        INITRDS_PATCHED=$((INITRDS_PATCHED+1))
+    fi
+done
+[ $INITRDS_PATCHED -eq 0 ] && { echo "ERROR: no d-i initrd found in ISO layout"; ls -R "$STAGING/install.a64" 2>&1 | head -20; exit 1; }
+rm -rf "$PRESEED_WORK" "$PRESEED_GZ"
 
 # ----------------------------------------------------------------------
 # Step 4 — stage our extras at /cixmini on the ISO
