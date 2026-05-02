@@ -16,8 +16,18 @@ KVER="6.6.10-cix-build-cix-build-generic"
 # bootctl ships in the systemd-boot package on bookworm; the base d-i
 # install doesn't pull it in. Install it now (idempotent if already
 # present from another path).
+#
+# systemd-boot's postinst tries to register an EFI boot variable. In a
+# chroot — and in QEMU without efivarfs — that fails with "Failed to
+# create EFI Boot variable entry: No such file or directory" and apt
+# exits 1, killing the hook under set -e. The actual file install
+# (binaries to /boot/efi) completes successfully before the postinst's
+# NVRAM step fires, so tolerate the apt error and verify bootctl is
+# present.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    systemd-boot efibootmgr
+    systemd-boot efibootmgr || true
+
+command -v bootctl >/dev/null || { echo "ERROR: bootctl not installed"; exit 1; }
 
 # Install systemd-boot binaries to /boot/efi
 bootctl install --esp-path=/boot/efi --no-variables || \
