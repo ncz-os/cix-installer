@@ -123,18 +123,38 @@ fi
 # ----------------------------------------------------------------------
 # Step 5 — patch GRUB cmdline to default to auto-install
 # ----------------------------------------------------------------------
-echo "[5] patching GRUB to auto-launch with preseed"
-GRUB_CFG=""
-for candidate in "$STAGING/boot/grub/grub.cfg" \
-                 "$STAGING/EFI/debian/grub.cfg"; do
-    [ -f "$candidate" ] && GRUB_CFG="$candidate"
-done
-if [ -n "$GRUB_CFG" ]; then
-    # Add an auto-install menu entry at the top
-    sed -i '0,/menuentry/{s|menuentry|menuentry "*** Install nclawzero (auto, preseed)" {\n    set background_color=black\n    linux /install.a64/vmlinuz auto=true priority=critical preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=60 quiet\n    initrd /install.a64/initrd.gz\n}\nmenuentry|}' "$GRUB_CFG" || true
-    # Set timeout 5s + first entry default
-    sed -i 's/^set default=.*/set default="0"/; s/^set timeout=.*/set timeout=5/' "$GRUB_CFG" || true
+echo "[5] prepending nclawzero auto-install entry to GRUB menu"
+GRUB_CFG="$STAGING/boot/grub/grub.cfg"
+if [ ! -f "$GRUB_CFG" ]; then
+    echo "ERROR: $GRUB_CFG not found" >&2
+    ls -la "$STAGING/boot/grub/" 2>&1 | head -5
+    exit 1
 fi
+
+# Build the new grub.cfg by prepending our auto-install entry +
+# header (timeout, default) to the stock Debian d-i menu.
+NEW_CFG=$(mktemp)
+cat > "$NEW_CFG" <<'GRUB'
+# nclawzero installer — auto-install via preseed.
+# Default boots in 5 seconds. Other Debian d-i entries kept below.
+set timeout=5
+set default=0
+set menu_color_normal=cyan/blue
+set menu_color_highlight=white/blue
+insmod gzio
+
+menuentry "*** Install nclawzero (auto, preseed)" {
+    set background_color=black
+    echo "Loading nclawzero installer kernel..."
+    linux  /install.a64/vmlinuz auto=true priority=critical preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=60 console=ttyAMA0,115200 console=tty0
+    echo "Loading initrd..."
+    initrd /install.a64/initrd.gz
+}
+
+GRUB
+cat "$GRUB_CFG" >> "$NEW_CFG"
+mv "$NEW_CFG" "$GRUB_CFG"
+echo "    GRUB cfg patched ($(wc -l < $GRUB_CFG) lines)"
 
 # ----------------------------------------------------------------------
 # Step 6 — rebuild md5sum.txt (d-i checks integrity)
