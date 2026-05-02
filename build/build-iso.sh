@@ -258,7 +258,7 @@ menuentry "Install nclawzero (cixmini, auto)" {
     # is a Cix Sky1 hard requirement.
     #
     # DEBCONF_DEBUG=5 + BOOT_DEBUG=2: verbose d-i logging.
-    linux  /install.a64/vmlinuz priority=medium preseed/file=/preseed.cfg interface=auto netcfg/dhcp_timeout=60 DEBCONF_DEBUG=developer BOOT_DEBUG=1 log_host=192.168.207.22 console=ttyAMA0,115200 console=tty0 earlycon keep_bootcon loglevel=4 printk.time=y panic=10 clk_ignore_unused consoleblank=0 video=DP-1:1024x768@60e module_blacklist=trilin_drm,trilin_dpsub,linlondp,linlondp_drv,cix_display,cix_dsp_rproc,cix_sfh_rproc,snd_hda_cix_ipbloq,snd_soc_sky1_sound_card,snd_soc_rt5682s,snd_soc_cdns_i2s_mc,snd_soc_cdns_i2s_sc,btusb,rtk_btusb
+    linux  /install.a64/vmlinuz priority=medium preseed/file=/preseed.cfg interface=auto netcfg/dhcp_timeout=60 DEBCONF_DEBUG=developer BOOT_DEBUG=1 log_host=192.168.207.22 console=ttyAMA0,115200 console=tty0 earlycon keep_bootcon loglevel=7 printk.time=y panic=10 clk_ignore_unused consoleblank=0 video=DP-1:1024x768@60e module_blacklist=trilin_drm,trilin_dpsub,linlondp,linlondp_drv,cix_display,cix_dsp_rproc,cix_sfh_rproc,snd_hda_cix_ipbloq,snd_soc_sky1_sound_card,snd_soc_rt5682s,snd_soc_cdns_i2s_mc,snd_soc_cdns_i2s_sc,btusb,rtk_btusb
     echo "Loading initrd..."
     initrd /install.a64/initrd.gz
 }
