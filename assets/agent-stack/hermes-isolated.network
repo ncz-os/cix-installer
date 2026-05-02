@@ -1,0 +1,33 @@
+# Dedicated Podman network for hermes — NOT shared with zeroclaw or
+# openclaw. Sibling containers on the default bridge cannot reach
+# hermes via container IP. Combined with PublishPort=127.0.0.1:8642:
+# 8642 in hermes.container, this gives:
+#   - Host loopback (127.0.0.1) → hermes dashboard:    REACHABLE
+#   - Host non-loopback / LAN  → hermes dashboard:    NOT REACHABLE (PublishPort restriction)
+#   - Default-bridge containers → hermes container IP: NOT REACHABLE (different network)
+#   - Hermes container          → host-loopback services: NOT REACHABLE (own namespace, not Network=host)
+# This is the fleet-conservative default. Operators wanting LAN access
+# add an SSH tunnel or reverse proxy with TLS+auth on top.
+
+[Network]
+# Note: NetworkName intentionally bumped to *-v2 from the never-shipped
+# hermes-isolated to make this layer's first deploy a clean create
+# (avoiding the Podman in-place-update gap where Options changes don't
+# update an existing network — see review-mon70cqn-cxaisv). Future
+# Options changes likewise rotate the suffix.
+NetworkName=hermes-isolated-v2
+Driver=bridge
+DisableDNS=false
+# Internal=false so hermes can reach LLM providers outbound; we don't
+# want full network isolation, only cross-bridge isolation from the
+# default Podman bridge that zeroclaw/openclaw use.
+Internal=false
+# Options=isolate=strict tells netavark (Podman 4+ default backend) to
+# unilaterally block cross-bridge traffic. Critical: isolate=true
+# only blocks pairs of isolated networks (both sides need the flag);
+# isolate=strict blocks regardless of other-side configuration. The
+# default Podman bridge that zeroclaw + openclaw share does NOT have
+# isolate set, so we MUST use strict to enforce hermes isolation
+# unilaterally. netavark installs the nftables rules that close the
+# cross-bridge bypass PublishPort=127.0.0.1 alone doesn't catch.
+Options=isolate=strict
