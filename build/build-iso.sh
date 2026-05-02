@@ -258,7 +258,7 @@ menuentry "Install nclawzero (cixmini, auto)" {
     # is a Cix Sky1 hard requirement.
     #
     # DEBCONF_DEBUG=5 + BOOT_DEBUG=2: verbose d-i logging.
-    linux  /install.a64/vmlinuz auto=true priority=critical interface=auto netcfg/dhcp_timeout=60 DEBCONF_DEBUG=5 BOOT_DEBUG=2 log_host=192.168.207.22 console=tty0 console=ttyAMA0,115200 earlycon keep_bootcon loglevel=8 ignore_loglevel printk.time=y panic=10 clk_ignore_unused
+    linux  /install.a64/vmlinuz priority=medium preseed/file=/preseed.cfg interface=auto netcfg/dhcp_timeout=60 DEBCONF_DEBUG=developer BOOT_DEBUG=3 log_host=192.168.207.22 console=tty0 console=ttyAMA0,115200 earlycon keep_bootcon loglevel=8 ignore_loglevel printk.time=y panic=10 clk_ignore_unused
     echo "Loading initrd..."
     initrd /install.a64/initrd.gz
 }
