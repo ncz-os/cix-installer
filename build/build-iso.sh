@@ -60,7 +60,12 @@ echo "[2] extracting upstream ISO via 7z"
 # The d-i initrd (initrd.gz under install.a64/ on bookworm-arm64)
 # auto-loads /preseed.cfg if present.
 # ----------------------------------------------------------------------
-echo "[3] injecting preseed.cfg into d-i initrd"
+echo "[3] injecting preseed.cfg via concatenated cpio (no extraction needed)"
+# Linux initramfs supports concatenated cpio archives — kernel's
+# init/initramfs.c reads multiple back-to-back cpio streams and overlays
+# them in order. So instead of extracting the d-i initrd (which fails
+# without root because it contains device nodes), we just append a
+# tiny cpio that contains only preseed.cfg.
 INITRD=""
 for candidate in "$STAGING/install.a64/initrd.gz" \
                  "$STAGING/install.a64/gtk/initrd.gz"; do
@@ -69,13 +74,15 @@ done
 [ -z "$INITRD" ] && { echo "ERROR: couldn't find d-i initrd in ISO layout"; ls -R "$STAGING/install.a64" 2>&1 | head -20; exit 1; }
 echo "    initrd: $INITRD"
 
-WORK="$STAGING/.initrd-work"
-rm -rf "$WORK"
-mkdir -p "$WORK"
-( cd "$WORK" && gunzip -c "$INITRD" | cpio -idm --quiet )
-cp "$ROOT/preseed/preseed.cfg" "$WORK/preseed.cfg"
-( cd "$WORK" && find . | cpio --create --format=newc --quiet | gzip -9 ) > "$INITRD"
-rm -rf "$WORK"
+PRESEED_WORK="$STAGING/.preseed-cpio"
+rm -rf "$PRESEED_WORK"
+mkdir -p "$PRESEED_WORK"
+cp "$ROOT/preseed/preseed.cfg" "$PRESEED_WORK/preseed.cfg"
+# Build cpio of just preseed.cfg, gzip it, append to initrd
+( cd "$PRESEED_WORK" && echo preseed.cfg | cpio -o -H newc --quiet | gzip ) > "$STAGING/.preseed.cpio.gz"
+cat "$STAGING/.preseed.cpio.gz" >> "$INITRD"
+rm -rf "$PRESEED_WORK" "$STAGING/.preseed.cpio.gz"
+echo "    preseed.cfg appended"
 
 # ----------------------------------------------------------------------
 # Step 4 — stage our extras at /cixmini on the ISO
