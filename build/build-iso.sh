@@ -80,8 +80,55 @@ PRESEED_WORK="$STAGING/.preseed-cpio"
 rm -rf "$PRESEED_WORK"
 mkdir -p "$PRESEED_WORK"
 cp "$ROOT/preseed/preseed.cfg" "$PRESEED_WORK/preseed.cfg"
+
+# d-i UI theme — drop a startup-script into /lib/debian-installer-startup.d/
+# that sets NEWT_COLORS before cdebconf-newt-frontend runs. Filename
+# starts with S05 so it sources BEFORE S60frontend. Not executable, so
+# debian-installer-startup `.`s it and the export propagates to every
+# subsequent script in the same shell.
+mkdir -p "$PRESEED_WORK/lib/debian-installer-startup.d"
+cat > "$PRESEED_WORK/lib/debian-installer-startup.d/S05nclawzero-theme" <<'NEWT'
+# nclawzero d-i UI theme — dark navy + bright cyan + white. See
+# newt(3) for the colorset format. Each line is `slot=fg,bg`. Slots
+# referenced by cdebconf:
+#   root        — root window background (visible behind dialogs)
+#   window      — dialog body background
+#   border      — dialog border
+#   title       — dialog title bar
+#   button/actbutton — buttons
+#   listbox/actlistbox/actsellistbox — selectable lists
+#   textbox     — multiline read-only text
+#   checkbox/actcheckbox — checkboxes
+#   entry       — text entry fields
+#   helpline    — bottom-of-screen instruction line
+#   shadow      — drop shadow
+export NEWT_COLORS="
+root=,blue
+window=,black
+border=brightcyan,black
+title=brightcyan,black
+textbox=white,black
+button=black,brightcyan
+actbutton=white,brightcyan
+listbox=brightcyan,black
+actlistbox=black,brightcyan
+actsellistbox=black,brightcyan
+sellistbox=white,black
+checkbox=brightcyan,black
+actcheckbox=black,brightcyan
+roottext=brightcyan,blue
+emptyscale=,black
+fullscale=,brightcyan
+helpline=white,black
+shadow=,black
+entry=white,black
+disentry=brightcyan,black
+"
+NEWT
+chmod 644 "$PRESEED_WORK/lib/debian-installer-startup.d/S05nclawzero-theme"
+
 PRESEED_GZ="$STAGING/.preseed.cpio.gz"
-( cd "$PRESEED_WORK" && echo preseed.cfg | cpio -o -H newc --quiet | gzip ) > "$PRESEED_GZ"
+( cd "$PRESEED_WORK" && find . -mindepth 1 ! -name '.' | cpio -o -H newc --quiet | gzip ) > "$PRESEED_GZ"
 
 if [ ! -f "$STAGING/install.a64/initrd.gz" ]; then
     echo "ERROR: install.a64/initrd.gz not found"
@@ -236,14 +283,24 @@ fi
 # Sky1), and the fewer alternate boot paths the cleaner.
 cat > "$GRUB_CFG" <<'GRUB'
 # nclawzero installer — character-mode auto-install via preseed.
-# Boots in 3 seconds. No alternate menu entries.
-set timeout=3
+# Boots in 5 seconds. No alternate menu entries.
+set timeout=5
 set default=0
-set menu_color_normal=cyan/blue
-set menu_color_highlight=white/blue
+set menu_color_normal=light-cyan/black
+set menu_color_highlight=black/light-cyan
+set color_normal=light-cyan/black
+set color_highlight=black/light-cyan
 insmod gzio
+clear
 
-menuentry "Install nclawzero (cixmini, auto)" {
+echo ""
+echo "  ┌─────────────────────────────────────────────────────────┐"
+echo "  │                    n c l a w z e r o                    │"
+echo "  │             cixmini installer — Cix Sky1 / CP8180       │"
+echo "  └─────────────────────────────────────────────────────────┘"
+echo ""
+
+menuentry "Install nclawzero (cixmini, unattended)" {
     set background_color=black
     echo "Loading linux-cix-msr1 6.6.10..."
     # preseed.cfg is embedded in the initrd (appended cpio, picked up
