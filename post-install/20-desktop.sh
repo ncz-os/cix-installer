@@ -115,3 +115,27 @@ system-db:local
 USERPROF
 
 dconf update || true
+
+# ----------------------------------------------------------------------
+# Skip gnome-initial-setup wizard on first login.
+#
+# /etc/skel is copied into every new user's home; placing this marker
+# there means d-i's preseed-prompted user account starts directly at
+# the GNOME desktop instead of the language/keyboard/account-merge
+# wizard. We already collected those answers via d-i.
+# ----------------------------------------------------------------------
+install -d -m 0755 /etc/skel/.config
+touch /etc/skel/.config/gnome-initial-setup-done
+
+# ----------------------------------------------------------------------
+# Deduplicate XorgEnable lines in /etc/gdm3/daemon.conf.
+#
+# cix-debian-misc.postinst appends `XorgEnable=false` without checking
+# for an existing entry, so a fresh install ends up with the line
+# present 2-3 times. GDM still parses it correctly, but it's ugly and
+# may confuse operators. Keep the first occurrence, drop the rest.
+# ----------------------------------------------------------------------
+if [ -f /etc/gdm3/daemon.conf ]; then
+    awk '!/^XorgEnable=/||!seen++' /etc/gdm3/daemon.conf > /tmp/daemon.conf.clean
+    mv /tmp/daemon.conf.clean /etc/gdm3/daemon.conf
+fi
