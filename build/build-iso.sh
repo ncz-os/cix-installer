@@ -89,6 +89,73 @@ done
 rm -rf "$PRESEED_WORK" "$PRESEED_GZ"
 
 # ----------------------------------------------------------------------
+# Step 3.5 — replace d-i's stock arm64 kernel + modules with our
+#            Yocto-built linux-cix-msr1 6.6.10 kernel
+#
+# Debian's netinst-arm64 ships a generic linux-image-6.1.0-42-arm64
+# kernel that doesn't know Cix Sky1 hardware (no GMAC ethernet, no
+# Cix MMC controller, no GIC bindings, no Sky1 USB host glue).
+# Running d-i on real MS-R1 with that kernel = ethernet autodetect
+# fails, drives don't probe, and the screen fills with "wonky kernel
+# messages". Our 6.6.10 kernel is the only one that boots this SoC
+# cleanly, so we use it for the d-i runtime as well as the installed
+# system.
+#
+# The d-i userspace (busybox + cdebconf + partman + udebs) is kernel-
+# agnostic and works fine when run against a different kernel — what
+# matters is that /lib/modules/<uname -r>/ inside the initrd matches
+# the kernel that's booting. Append a cpio of our modules so that
+# directory exists at the right path; d-i's modprobe + hotplug pick
+# it up the same way it would for the stock kernel.
+# ----------------------------------------------------------------------
+if [ -f "$ROOT/assets/kernel/Image-cixmini.bin" ] && \
+   [ -f "$ROOT/assets/kernel/modules-cixmini.tgz" ]; then
+    echo "[3.5] swapping d-i kernel to linux-cix-msr1 6.6.10 + injecting Cix modules"
+    KVER="6.6.10-cix-build-cix-build-generic"
+
+    # Replace install.a64/vmlinuz with our Image. Both text + gtk paths.
+    for v in "$STAGING/install.a64/vmlinuz" \
+             "$STAGING/install.a64/gtk/vmlinuz"; do
+        if [ -f "$v" ]; then
+            install -m 0644 "$ROOT/assets/kernel/Image-cixmini.bin" "$v"
+            echo "    replaced $v ($(du -h "$v" | cut -f1))"
+        fi
+    done
+
+    # Build a cpio of our modules at the canonical /lib/modules/$KVER/
+    # path, then concatenate it onto each initrd. The kernel's
+    # initramfs reader merges concatenated cpio streams so this stacks
+    # cleanly on top of the preseed cpio + the original Debian initrd.
+    MOD_WORK="$STAGING/.modules-cpio"
+    rm -rf "$MOD_WORK"
+    mkdir -p "$MOD_WORK"
+    tar xzf "$ROOT/assets/kernel/modules-cixmini.tgz" -C "$MOD_WORK"
+    if [ ! -d "$MOD_WORK/lib/modules/$KVER" ]; then
+        echo "ERROR: modules tarball didn't extract to lib/modules/$KVER"
+        ls "$MOD_WORK/lib/modules/" 2>&1
+        exit 1
+    fi
+    MOD_GZ="$STAGING/.modules.cpio.gz"
+    ( cd "$MOD_WORK" && find lib -print | cpio -o -H newc --quiet | gzip ) > "$MOD_GZ"
+    echo "    modules cpio: $(du -h "$MOD_GZ" | cut -f1)"
+
+    INITRDS_MOD_PATCHED=0
+    for candidate in "$STAGING/install.a64/initrd.gz" \
+                     "$STAGING/install.a64/gtk/initrd.gz"; do
+        if [ -f "$candidate" ]; then
+            cat "$MOD_GZ" >> "$candidate"
+            echo "    modules appended to $candidate ($(du -h "$candidate" | cut -f1))"
+            INITRDS_MOD_PATCHED=$((INITRDS_MOD_PATCHED+1))
+        fi
+    done
+    [ $INITRDS_MOD_PATCHED -eq 0 ] && { echo "ERROR: no initrd to patch"; exit 1; }
+    rm -rf "$MOD_WORK" "$MOD_GZ"
+else
+    echo "    WARN: assets/kernel/ missing — d-i will run Debian's stock 6.1 arm64 kernel"
+    echo "    expect: ethernet autodetect fail, no Cix block probes, kernel msg noise"
+fi
+
+# ----------------------------------------------------------------------
 # Step 4 — stage our extras at /cixmini on the ISO
 #
 # preseed late_command copies /cdrom/cixmini → /target/usr/local/lib/
@@ -173,7 +240,7 @@ menuentry "*** Install nclawzero (auto, preseed)" {
     #
     # DEBCONF_DEBUG=5 + BOOT_DEBUG=2: verbose d-i logging to console.
     # Helpful while iterating; remove once preseed is stable.
-    linux  /install.a64/vmlinuz auto=true priority=critical interface=auto netcfg/dhcp_timeout=60 DEBCONF_DEBUG=5 BOOT_DEBUG=2 log_host=192.168.207.22 console=ttyAMA0,115200 console=tty0
+    linux  /install.a64/vmlinuz auto=true priority=critical interface=auto netcfg/dhcp_timeout=60 DEBCONF_DEBUG=5 BOOT_DEBUG=2 log_host=192.168.207.22 console=tty0 console=ttyAMA0,115200 earlycon keep_bootcon loglevel=8 ignore_loglevel printk.time=y panic=10 clk_ignore_unused
     echo "Loading initrd..."
     initrd /install.a64/initrd.gz
 }
