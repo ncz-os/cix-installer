@@ -14,8 +14,15 @@ set -euo pipefail
 
 echo "[30] agent stack (podman + zeroclaw + openclaw + hermes)"
 
+# Tolerate apt error codes from leftover half-configured Cix packages
+# whose postinsts fail every retry — 25-cix-proprietary force-purges
+# them so this should normally be clean, but the || true keeps us
+# resilient if a new flavor of postinst breakage shows up.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    podman crun conmon netavark aardvark-dns catatonit
+    podman crun conmon netavark aardvark-dns catatonit || true
+
+# Verify the actual deliverables landed — that's what matters.
+command -v podman >/dev/null || { echo "ERROR: podman did not install"; exit 1; }
 
 # Quadlet drop-in dir
 install -d -m 0755 /etc/containers/systemd
