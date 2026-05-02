@@ -8,6 +8,13 @@ set -euo pipefail
 
 echo "[20] desktop layer (GNOME + chromium + RDP)"
 
+# Drop the d-i-injected `deb cdrom:[...]` line. By the time post-install
+# runs, the install media is no longer available to the chroot via apt;
+# a stale cdrom: entry makes every `apt-get update` exit non-zero with
+# "does not have a Release file", which set -e then kills the hook.
+# Comment-out is preferable to deletion so the line stays auditable.
+sed -i 's|^deb cdrom:|# deb cdrom:|' /etc/apt/sources.list
+
 apt-get update -q
 
 # Core desktop
