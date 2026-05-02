@@ -74,4 +74,9 @@ efibootmgr -c -d "/dev/$EFI_DISK" -p "$EFI_PART" \
 
 echo ""
 echo "Final EFI boot entries:"
-efibootmgr -v 2>&1 | head -10
+# Tolerate "EFI variables are not supported on this system" — happens
+# in QEMU and any chroot without RW efivarfs. The actual boot entry
+# was either created above (real hardware) or has nothing to write to
+# (virtualized). pipefail would otherwise turn this informational dump
+# into a hook failure exactly when everything else succeeded.
+efibootmgr -v 2>&1 | head -10 || true
