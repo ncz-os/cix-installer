@@ -37,8 +37,14 @@ cat > /etc/motd <<'EOF'
 
 EOF
 
-# Branded hostname (already set via preseed but reinforcing)
-hostnamectl set-hostname cixmini || echo cixmini > /etc/hostname
+# Hostname — operator picked at install time via preseed prompt.
+# Whatever they typed is in /etc/hostname; mirror it in /etc/hosts so
+# sudo + apps that resolve own-host don't log "unable to resolve host"
+# warnings on every invocation.
+HOSTNAME=$(cat /etc/hostname 2>/dev/null | tr -d ' \t\r\n')
+if [ -n "$HOSTNAME" ]; then
+    grep -q "127.0.1.1.*$HOSTNAME" /etc/hosts 2>/dev/null || echo "127.0.1.1 $HOSTNAME" >> /etc/hosts
+fi
 
 # /etc/issue (login banner)
 cat > /etc/issue <<'EOF'

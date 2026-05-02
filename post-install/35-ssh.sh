@@ -14,7 +14,7 @@ set -euo pipefail
 echo "[35] openssh-server + fleet authorized_keys"
 
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    openssh-server
+    openssh-server sudo
 
 # Ensure the daemon comes up on boot. d-i tends to leave services
 # disabled until first manual enable; explicit enable + ssh.socket make
