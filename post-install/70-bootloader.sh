@@ -13,6 +13,12 @@ echo "[70] systemd-boot bootloader"
 
 KVER="6.6.10-cix-build-cix-build-generic"
 
+# bootctl ships in the systemd-boot package on bookworm; the base d-i
+# install doesn't pull it in. Install it now (idempotent if already
+# present from another path).
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    systemd-boot efibootmgr
+
 # Install systemd-boot binaries to /boot/efi
 bootctl install --esp-path=/boot/efi --no-variables || \
     bootctl install --esp-path=/boot/efi || true
@@ -44,9 +50,15 @@ EOF
 # Copy our kernel to the ESP (systemd-boot reads /boot/efi by default)
 install -m 0644 /boot/vmlinuz-$KVER /boot/efi/vmlinuz-$KVER
 
-# Add a UEFI boot entry pointing at systemd-boot
-EFI_DISK=$(lsblk -no PKNAME $(findmnt -no SOURCE /boot/efi))
-EFI_PART=$(lsblk -no PARTN $(findmnt -no SOURCE /boot/efi))
+# Add a UEFI boot entry pointing at systemd-boot.
+#
+# `lsblk -no PARTN` is unsupported on the chroot's util-linux version
+# (run 19 hit "lsblk: unknown column: PARTN" and tripped set -e).
+# Strip the trailing partition number off the source path instead —
+# /dev/vda1 → 1, /dev/nvme0n1p2 → 2 — which is portable.
+EFI_DEV=$(findmnt -no SOURCE /boot/efi)
+EFI_DISK=$(lsblk -no PKNAME "$EFI_DEV")
+EFI_PART="${EFI_DEV##*[!0-9]}"
 efibootmgr -c -d "/dev/$EFI_DISK" -p "$EFI_PART" \
     -L "nclawzero" -l '\EFI\systemd\systemd-bootaa64.efi' || true
 
