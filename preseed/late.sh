@@ -86,4 +86,16 @@ echo "--- running post-install in chroot ---"
 in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
 echo "in-target run-all.sh exited: $RET"
+
+# Eject the install media on success. We turned cdrom-detect/eject off
+# in preseed.cfg so /cdrom would survive into late.sh — now that we're
+# done with it, eject it manually. Without this, a real hardware reboot
+# would still boot from the USB stick (UEFI BootOrder put it first), and
+# in QEMU the next pass of `-boot d` would re-enter d-i for a second
+# install pass on top of the just-installed system.
+if [ "$RET" = "0" ]; then
+    echo "--- ejecting install media ---"
+    eject /cdrom 2>&1 || echo "eject /cdrom failed (non-fatal)"
+fi
+
 exit $RET
