@@ -54,7 +54,18 @@ dpkg -l | awk '/^ii.*cix-/ {print "  " $2 " " $3}' | tee /var/log/cix-install/25
 
 echo ""
 echo "Cix packages with known issues (iU/iF — half-installed):"
-dpkg -l 2>/dev/null | awk '/^iU|^iF/ {print "  " $2 " " $3}'
+STUCK=$(dpkg -l 2>/dev/null | awk '/^iU|^iF/ {print $2}')
+echo "$STUCK" | sed 's/^/  /'
+
+# Force-purge any half-configured packages. Without this, every later
+# apt-get call retries the broken postinst and exits non-zero, which
+# kills downstream hooks (30-agents, 50-brand, ...) that have set -e.
+# We've already captured what landed cleanly via dpkg -l above; the
+# stuck packages weren't going to work anyway.
+for pkg in $STUCK; do
+    echo "    purging stuck package: $pkg"
+    dpkg --purge --force-remove-reinstreq --force-remove-essential "$pkg" 2>&1 | tail -3 || true
+done
 
 # Always exit 0 — Cix postinst quirks should not halt the installer.
 # If something is genuinely broken, surfaces during agent runtime
