@@ -47,9 +47,14 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 	@mkdir -p $(DOWNLOADS)
 	@curl -fL -o $@.tmp $(UPSTREAM_URL)
 	@curl -fL -o $(DOWNLOADS)/SHA256SUMS $(UPSTREAM_SHA)
-	@cd $(DOWNLOADS) && grep '$(UPSTREAM_ISO)' SHA256SUMS | sha256sum -c -
+	@expected=$$(grep '$(UPSTREAM_ISO)' $(DOWNLOADS)/SHA256SUMS | awk '{print $$1}'); \
+	    actual=$$(sha256sum $@.tmp | awk '{print $$1}'); \
+	    if [ "$$expected" != "$$actual" ]; then \
+	        echo "[download] SHA256 MISMATCH: expected=$$expected actual=$$actual"; \
+	        exit 1; \
+	    fi
 	@mv $@.tmp $@
-	@echo "[download] OK"
+	@echo "[download] OK ($(shell du -h $@.tmp 2>/dev/null | cut -f1))"
 
 # -----------------------------------------------------------------------
 # Step 2 — build the customized ISO via the staged build script.
