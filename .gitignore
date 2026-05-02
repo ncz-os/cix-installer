@@ -5,6 +5,9 @@ build/*.qcow2
 build/*.fd
 build/*.sha256
 
+# AI image-gen candidates (only the canonical-promoted assets are committed)
+assets/branding/_candidates/
+
 # Upstream downloads
 downloads/
 

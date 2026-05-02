@@ -101,8 +101,22 @@ chmod 755 "$EXTRA/post-install/"*.sh
 
 # assets/agent-stack — committed quadlet files
 cp -rL "$ROOT/assets/agent-stack" "$EXTRA/assets/"
-# assets/branding — committed images, themes
-[ -d "$ROOT/assets/branding" ] && cp -rL "$ROOT/assets/branding" "$EXTRA/assets/" || true
+# assets/branding — committed images + Plymouth theme.
+# Skip _candidates/ subdir (the AI-image-gen exploration set);
+# only ship the canonical-promoted assets that the post-install hooks
+# actually consume.
+if [ -d "$ROOT/assets/branding" ]; then
+    mkdir -p "$EXTRA/assets/branding"
+    for sub in logo plymouth gdm wallpaper; do
+        if [ -d "$ROOT/assets/branding/$sub" ]; then
+            cp -rL "$ROOT/assets/branding/$sub" "$EXTRA/assets/branding/"
+        fi
+    done
+    # also copy the README if present
+    [ -f "$ROOT/assets/branding/README.md" ] && cp "$ROOT/assets/branding/README.md" "$EXTRA/assets/branding/" || true
+    bytes=$(du -sh "$EXTRA/assets/branding" 2>/dev/null | cut -f1)
+    echo "    branding assets: $bytes"
+fi
 
 # assets/cix-debs — gitignored, supplied at build time
 if [ -d "$ROOT/assets/cix-debs" ] && [ "$(ls -A $ROOT/assets/cix-debs 2>/dev/null)" ]; then
