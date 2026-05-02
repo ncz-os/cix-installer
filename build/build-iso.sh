@@ -148,10 +148,11 @@ menuentry "*** Install nclawzero (auto, preseed)" {
     echo "Loading nclawzero installer kernel..."
     # preseed.cfg is embedded in the initrd (appended cpio, picked up
     # at /preseed.cfg in initramfs root). d-i auto-loads it; no
-    # preseed/file= cmdline param needed (and using one with a
-    # /cdrom path failed in QEMU because /cdrom isn't mounted at the
-    # time the preseed loader runs — cdrom-detect happens later).
-    linux  /install.a64/vmlinuz auto=true priority=critical interface=auto netcfg/dhcp_timeout=60 console=ttyAMA0,115200 console=tty0
+    # preseed/file= cmdline param needed.
+    #
+    # DEBCONF_DEBUG=5 + BOOT_DEBUG=2: verbose d-i logging to console.
+    # Helpful while iterating; remove once preseed is stable.
+    linux  /install.a64/vmlinuz auto=true priority=critical interface=auto netcfg/dhcp_timeout=60 DEBCONF_DEBUG=5 BOOT_DEBUG=2 log_host=192.168.207.22 console=ttyAMA0,115200 console=tty0
     echo "Loading initrd..."
     initrd /install.a64/initrd.gz
 }
