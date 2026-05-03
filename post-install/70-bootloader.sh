@@ -113,7 +113,7 @@ echo "  root PARTUUID=$ROOT_PARTUUID"
 # add module blacklists here — the configs already disable everything
 # that would cause boot trouble on MS-R1.
 # ----------------------------------------------------------------------
-MARTJOHNSON_CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30"
+MARTJOHNSON_CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
 
 # Optional Plymouth splash flags (if 60-plymouth.sh ran)
 SPLASH=""

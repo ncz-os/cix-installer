@@ -49,20 +49,33 @@ done
 # assets/kernel/{lts,next}/KVER with the exact uname -r value of each
 # baked kernel — single source of truth, no hardcoded version strings
 # scattered across this script + post-install hooks.
+#
+# RULE (effective 2026-05-03): every cixmini ISO MUST ship BOTH kernels.
+# Hard-fail if either set is missing — no LTS-only fallback. r6 violated
+# this and shipped LTS-only; when LTS wedged on the IRQ 151 conflict, no
+# BETA boot option was available to A/B test. See feedback_dual_kernel_cixmini.md.
 KVER_LTS=""
 KVER_NEXT=""
-if [ -f "$ROOT/assets/kernel/lts/KVER" ]; then
-    KVER_LTS=$(cat "$ROOT/assets/kernel/lts/KVER")
-    echo "[info] LTS kernel KVER:  $KVER_LTS"
-fi
-if [ -f "$ROOT/assets/kernel/next/KVER" ]; then
-    KVER_NEXT=$(cat "$ROOT/assets/kernel/next/KVER")
-    echo "[info] NEXT kernel KVER: $KVER_NEXT (BETA)"
-fi
-if [ -z "$KVER_LTS" ]; then
-    echo "WARN: assets/kernel/lts/KVER missing — d-i will run Debian's stock arm64 kernel"
-    echo "      run assemble-kernel-assets.sh after Yocto bake to populate"
-fi
+for label in lts next; do
+    KVER_FILE="$ROOT/assets/kernel/$label/KVER"
+    IMG_FILE="$ROOT/assets/kernel/$label/Image-cixmini.bin"
+    MOD_FILE="$ROOT/assets/kernel/$label/modules-cixmini.tgz"
+    missing=""
+    [ -f "$KVER_FILE" ] || missing="$missing KVER"
+    [ -f "$IMG_FILE" ] || missing="$missing Image-cixmini.bin"
+    [ -f "$MOD_FILE" ] || missing="$missing modules-cixmini.tgz"
+    if [ -n "$missing" ]; then
+        echo "ERROR: dual-kernel RULE violation — assets/kernel/$label/ missing:$missing"
+        echo "       Run assemble-kernel-assets.sh after baking BOTH kernels."
+        echo "       This RULE forbids fallback to single-kernel ISOs."
+        echo "       (See ~/.claude/projects/-Users-jperlow/memory/feedback_dual_kernel_cixmini.md)"
+        exit 1
+    fi
+done
+KVER_LTS=$(cat "$ROOT/assets/kernel/lts/KVER")
+KVER_NEXT=$(cat "$ROOT/assets/kernel/next/KVER")
+echo "[info] LTS kernel KVER:  $KVER_LTS"
+echo "[info] NEXT kernel KVER: $KVER_NEXT (BETA)"
 
 # ----------------------------------------------------------------------
 # Step 1 — fresh staging dir
@@ -279,7 +292,7 @@ GRUB_CFG="$STAGING/boot/grub/grub.cfg"
 #
 # BETA cmdline adds nothing extra — same flags work for both 6.18 LTS
 # and 7.0 next per MartJohnson 2026-04-30.
-MARTJOHNSON_CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30"
+MARTJOHNSON_CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
 DI_PRESEED="auto=true priority=high preseed/file=/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
 
 # Compute conditional banner lines BEFORE the heredoc, then expand into
