@@ -240,3 +240,37 @@ A persistent Monitor is running on `Sky1-Linux/linux-sky1`, polling every 5 min 
 ---
 
 *Handoff written 2026-05-03 ~06:30 UTC after successful r6 ship. Total session: ~4.5 hours unattended.*
+## r7 STATE (2026-05-03 ~07:43 UTC) — DUAL-KERNEL SHIPPED
+
+After r6 wedged on IRQ 151 (rts5453h conflict) and the user issued the dual-kernel RULE, rebuilt with:
+
+- **LTS rebake**: cleansstate'd to settle basehash damage from r6's mid-bake comment edit. Rebuilt clean. rc=0.
+- **NEXT bake**: 38 patches against mainline v7.0.1 (42 patches-next/ minus 0014 audio + 0038-0042 audio-deps, plus PR#18 0140). All applied cleanly with KERNEL_PACKAGE_NAME = "kernel-${PN}" (Codex's HIGH finding from the recipe review, validated). rc=0.
+- **Cmdline updated** in build-iso.sh + 70-bootloader.sh to include `module_blacklist=typec_rts5453,rts5453` — bypasses the IRQ 151 conflict that wedged r6.
+- **build-iso.sh hard-fails** if either kernel set is missing (RULE enforced).
+
+### r7 ISO
+
+- Path: `argos:/home/jasonperlow/cix-installer-build/cix-installer/build/nclawzero-installer-cixmini-2026.05.03-r7.iso`
+- Size: 1.1 GB
+- sha256: `b33ad4d0b82c5a1709311ce1bf1fe1c13bc3135794eb5b7cbec1de19d2226d94`
+- USB at `argos:/dev/sda` (label `NCLAWZERO_CIXMINI`) — bytes-exact match verified ✓
+
+### Both kernels
+
+| Kernel | KVER | Image size | Modules count | Patches |
+|---|---|---|---|---|
+| LTS | 6.18.26-cix-sky1-lts | 60 MB | 1568 | 140 (139 LTS + PR#18 0140) |
+| NEXT | 7.0.1-cix-sky1-next | 61 MB | 1570 | 38 (42 next minus audio chain + PR#18 0140) |
+
+### Trade-off accepted
+
+Module blacklist sacrifices USB-C PD (no charging negotiation, no DisplayPort-over-USB-C alt-mode) on both kernels. USB-A, HDMI, ethernet, NVMe, GPU all unaffected. Acceptable for a desktop / dev-box MS-R1 deployment.
+
+Posted to issue #12: TBD (post `docs/upstream/issue-12-comment-draft.md` after confirming r7 boots).
+
+### What's still BETA on NEXT
+
+- Audio entirely missing (we omitted patch 0014 + 0038-0042 audio chain — need alc269 hand-merge for v7.0.1 base)
+- Per MartJohnson 2026-04-30: 7.0.x has known SCMI transition errors and occasional boot freezes / shutdown crashes due to MS-R1 BIOS missing required SCMI updates
+- Use BETA for A/B testing only. Production on LTS.
