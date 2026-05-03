@@ -27,7 +27,7 @@ KVER="6.6.10-cix-build-cix-build-generic"
 # can build an initrd against our kernel (Plymouth splash + readahead).
 # ----------------------------------------------------------------------
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    systemd-boot efibootmgr initramfs-tools || true
+    systemd-boot efibootmgr || true
 
 command -v bootctl >/dev/null || { echo "ERROR: bootctl not installed"; exit 1; }
 
@@ -36,28 +36,36 @@ bootctl install --esp-path=/boot/efi --no-variables || \
     bootctl install --esp-path=/boot/efi || true
 
 # ----------------------------------------------------------------------
-# Generate /boot/config-$KVER + /boot/initrd.img-$KVER.
+# Initrd generation INTENTIONALLY DISABLED.
 #
-# Yocto's kernel deploy doesn't ship the kconfig file as /boot/config-*
-# the way Debian's linux-image debs do, but initramfs-tools needs it to
-# decide which compression to use. Extract from /proc/config.gz at
-# install-time (kernel was built with CONFIG_IKCONFIG_PROC=y per Cix
-# defconfig, so /proc/config.gz is available). Without the config
-# file, update-initramfs falls through every compression check and
-# fails — fixed live on the first deployed unit on 2026-05-02.
+# We tried building an initrd via update-initramfs against our
+# 6.6.10 Cix kernel + extracting /boot/config-$KVER from /proc/config.gz
+# so initramfs-tools could pick a compression. update-initramfs then
+# warned `cp: cannot stat /usr/share/initramfs-tools/init: No such
+# file or directory` and built a 221 MB initrd that's missing its
+# /init script — likely because cix-debian-misc.postinst renamed
+# /usr/share/initramfs-tools/init earlier in 25-cix-proprietary
+# (its known list of mv calls includes that path).
+#
+# Booting against the broken initrd panics the kernel ("can't run /
+# init") and triggers an infinite reboot loop on real hardware.
+# Tested: cixmini.66 boot-looped on 2026-05-02 evening after I
+# referenced this initrd from the loader entry.
+#
+# Workaround: skip initrd entirely. Our kernel has NVMe + ext4 + USB
+# host built-in (per usb-rootfs.cfg), so it can mount root from
+# /dev/nvme0n1p2 directly without any initramfs help. Plymouth splash
+# DOES require an initrd to render before fbcon hands off, so we lose
+# that polish for now — but the kernel boots cleanly.
+#
+# Real fix needed before re-enabling initrd:
+#   - In 25-cix-proprietary, after cix-debian-misc unpacks, RESTORE
+#     /usr/share/initramfs-tools/init from the initramfs-tools-core
+#     deb (file is at /usr/share/initramfs-tools/init in that deb).
+#     OR work upstream to fix cix-debian-misc.postinst's mv calls.
+#   - Verify update-initramfs runs without the "cp: cannot stat" warn
+#   - Verify resulting initrd has /init via lsinitramfs.
 # ----------------------------------------------------------------------
-if [ ! -f "/boot/config-$KVER" ] && [ -f /proc/config.gz ]; then
-    zcat /proc/config.gz > "/boot/config-$KVER"
-    echo "    extracted /boot/config-$KVER from /proc/config.gz"
-fi
-
-# Build the initrd. Many "missing firmware" warnings are harmless —
-# initramfs-tools warns about every built-in driver whose firmware
-# blob isn't in /lib/firmware/, even if that driver isn't bound to
-# any active hardware. Tolerate.
-if [ -f "/boot/config-$KVER" ]; then
-    update-initramfs -c -k "$KVER" 2>&1 | tail -5 || true
-fi
 
 # Discover root partition by PARTUUID (stable across flashes)
 ROOT_PARTUUID=$(blkid -s PARTUUID -o value $(findmnt -no SOURCE /))
@@ -94,23 +102,14 @@ OPTIONS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 console=ttyAMA0,1
 [ -n "$SPLASH" ] && OPTIONS="$OPTIONS $SPLASH"
 OPTIONS="$OPTIONS module_blacklist=trilin_drm,trilin_dpsub,linlondp,linlondp_drv,cix_display"
 
-if [ -f "/boot/initrd.img-$KVER" ]; then
-    cat > /boot/efi/loader/entries/nclawzero.conf <<EOF
-title   nclawzero (cixmini)
-version $KVER
-linux   /vmlinuz-$KVER
-initrd  /initrd.img-$KVER
-options $OPTIONS
-EOF
-    install -m 0644 "/boot/initrd.img-$KVER" "/boot/efi/initrd.img-$KVER"
-else
-    cat > /boot/efi/loader/entries/nclawzero.conf <<EOF
+# No-initrd loader entry — see comment above re: cix-debian-misc damage
+# to /usr/share/initramfs-tools/init.
+cat > /boot/efi/loader/entries/nclawzero.conf <<EOF
 title   nclawzero (cixmini)
 version $KVER
 linux   /vmlinuz-$KVER
 options $OPTIONS
 EOF
-fi
 
 # Copy our kernel to the ESP (systemd-boot reads /boot/efi by default)
 install -m 0644 "/boot/vmlinuz-$KVER" "/boot/efi/vmlinuz-$KVER"
