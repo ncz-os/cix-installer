@@ -35,8 +35,48 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 
 command -v bootctl >/dev/null || { echo "ERROR: bootctl not installed"; exit 1; }
 
-bootctl install --esp-path=/boot/efi --no-variables || \
-    bootctl install --esp-path=/boot/efi || true
+# Validate /boot/efi is actually mounted as the ESP — without this, a
+# missing ESP mount (e.g. preseed partman edge case) would let
+# `bootctl install` write loader files into a plain directory on the
+# rootfs, then we'd write entries that go nowhere, and the disk would
+# boot to nothing. Fail fast with clear diagnostics.
+if ! findmnt -no FSTYPE /boot/efi >/dev/null 2>&1; then
+    echo "ERROR: /boot/efi is not mounted — cannot install systemd-boot."
+    echo "  findmnt /boot/efi → not found"
+    echo "  block devices:"
+    lsblk 2>&1 | head -10 || true
+    echo "  fstab entry for /boot/efi:"
+    grep -E "/boot/efi" /etc/fstab 2>&1 || echo "  (no /boot/efi entry)"
+    exit 1
+fi
+ESP_FSTYPE=$(findmnt -no FSTYPE /boot/efi)
+if [ "$ESP_FSTYPE" != "vfat" ]; then
+    echo "ERROR: /boot/efi is mounted as $ESP_FSTYPE, expected vfat (FAT32 ESP)."
+    exit 1
+fi
+echo "  /boot/efi is mounted (vfat) — proceeding with systemd-boot install"
+
+# Two-stage install — first try without efivar registration (works in
+# chroot / QEMU without RW efivarfs), fall back to default if that
+# rejects. If BOTH fail, that's a hard error; without bootctl install,
+# /boot/efi/EFI/systemd/systemd-bootaa64.efi won't be on the ESP and
+# anything we write under loader/ goes nowhere.
+if ! bootctl install --esp-path=/boot/efi --no-variables 2>&1; then
+    echo "  --no-variables install failed; retrying with efivar reg"
+    if ! bootctl install --esp-path=/boot/efi 2>&1; then
+        echo "ERROR: both bootctl install attempts failed."
+        echo "  Check /boot/efi mount + writability + /sys/firmware/efi/efivars."
+        exit 1
+    fi
+fi
+# Verify the systemd-boot binary actually landed on the ESP
+if [ ! -f /boot/efi/EFI/systemd/systemd-bootaa64.efi ]; then
+    echo "ERROR: bootctl install reported success but"
+    echo "       /boot/efi/EFI/systemd/systemd-bootaa64.efi is missing."
+    ls -la /boot/efi/EFI/ 2>&1 | head -10 || true
+    exit 1
+fi
+echo "  systemd-bootaa64.efi present on ESP"
 
 # ----------------------------------------------------------------------
 # loader.conf

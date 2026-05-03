@@ -307,8 +307,11 @@ echo "  │                                                         │"
 echo "  │   build $VERSION                                        "
 echo "  │   $BUILD_DATE                                           "
 echo "  │                                                         │"
-echo "  │   default kernel: 6.18.26 LTS (production-stable)       │"
-echo "  │   beta kernel:    7.0.1-next   (testing, may not boot)  │"
+echo "  │   d-i kernel:     6.18.26 LTS (production-stable)      │"
+NEXT_LINE="${KVER_NEXT:+  │   also installed: 7.0.1-next BETA — UNSTABLE on MS-R1   │}"
+[ -n "$NEXT_LINE" ] && echo "$NEXT_LINE"
+echo "  │   BETA appears as a separate entry in systemd-boot      │"
+echo "  │   on first reboot — pick LTS unless A/B-testing 7.0     │"
 echo "  └─────────────────────────────────────────────────────────┘"
 echo ""
 
@@ -321,55 +324,14 @@ menuentry "Install nclawzero (cixmini, 6.18.26 LTS — default, RECOMMENDED) —
 }
 GRUB
 
-# Optional BETA d-i entry — only if the NEXT kernel was baked AND its
-# Image-cixmini.bin is staged in the ISO. We point at a SECOND vmlinuz
-# (install.a64/vmlinuz-next) so swapping kernels at d-i time doesn't
-# require rebuilding the ISO.
-if [ -n "$KVER_NEXT" ] && [ -f "$ROOT/assets/kernel/next/Image-cixmini.bin" ]; then
-    echo "    [grub] adding BETA 7.0.1 d-i entry"
-    install -m 0644 "$ROOT/assets/kernel/next/Image-cixmini.bin" "$STAGING/install.a64/vmlinuz-next"
-    # Build a SECOND initrd that injects the NEXT modules instead of LTS.
-    # Reuses the original (post-preseed) initrd state but appends NEXT
-    # modules instead of LTS modules.
-    NEXT_MOD_WORK="$STAGING/.next-modules-cpio"
-    rm -rf "$NEXT_MOD_WORK"
-    mkdir -p "$NEXT_MOD_WORK"
-    tar xzf "$ROOT/assets/kernel/next/modules-cixmini.tgz" -C "$NEXT_MOD_WORK"
-    depmod -a -b "$NEXT_MOD_WORK" "$KVER_NEXT"
-    NEXT_MOD_GZ="$STAGING/.next-modules.cpio.gz"
-    ( cd "$NEXT_MOD_WORK" && find lib -print | cpio -o -H newc --quiet | gzip ) > "$NEXT_MOD_GZ"
-    # initrd.gz already has preseed.cpio.gz + LTS modules.cpio.gz appended.
-    # To get a NEXT-modules variant, start fresh from the upstream initrd
-    # (in 7z extracted it again) — but that would lose the preseed cpio.
-    # Easier path: copy current initrd.gz then append NEXT modules.
-    # Note: this means the BETA initrd has BOTH LTS and NEXT modules
-    # mounted at /lib/modules/{KVER_LTS,KVER_NEXT}/. The kernel is what
-    # picks which dir to use via uname -r. Harmless overhead (~150MB);
-    # avoids needing a separate base-initrd extraction.
-    cp "$STAGING/install.a64/initrd.gz" "$STAGING/install.a64/initrd-next.gz"
-    cat "$NEXT_MOD_GZ" >> "$STAGING/install.a64/initrd-next.gz"
-    rm -rf "$NEXT_MOD_WORK" "$NEXT_MOD_GZ"
-    echo "    initrd-next.gz (with NEXT modules): $(du -h "$STAGING/install.a64/initrd-next.gz" | cut -f1)"
-
-cat <<GRUB
-
-menuentry "[BETA — UNSTABLE] Install with 7.0.1-next ($KVER_NEXT) — KNOWN-BUGGY on MS-R1" {
-    set background_color=black
-    echo ""
-    echo "*** BETA 7.0.1-next kernel — known issues on MS-R1: ***"
-    echo "    - SCMI transition errors (BIOS missing required updates)"
-    echo "    - Occasional boot freezes / shutdown crashes"
-    echo "    - Audio NOT functional (alc269 patch deferred)"
-    echo "    Use 6.18.26 LTS for production. This entry is for"
-    echo "    A/B testing the 7.0 path only."
-    echo ""
-    echo "Loading linux-cix-sky1-next BETA ($KVER_NEXT)..."
-    linux  /install.a64/vmlinuz-next $DI_PRESEED $MARTJOHNSON_CMDLINE
-    echo "Loading initrd-next..."
-    initrd /install.a64/initrd-next.gz
-}
-GRUB
-fi
+# d-i ALWAYS runs on LTS only — running d-i with the known-buggy NEXT
+# kernel (SCMI errors, boot freezes per Sky1-Linux issue #12) risks
+# wedging the install itself. The user picks BETA only at post-install
+# systemd-boot, where a wedge is recoverable (reboot → pick LTS).
+#
+# The NEXT kernel artifacts are staged into /cixmini/assets/kernel/next/
+# on the ISO so post-install (10-our-kernel.sh) installs both kernels;
+# the user just doesn't choose NEXT during d-i.
 
 cat <<GRUB
 

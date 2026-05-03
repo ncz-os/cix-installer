@@ -57,8 +57,26 @@ install_kernel() {
     # which loads ld-linux).
     # Extract into /usr instead: `lib/` lands at `/usr/lib/` (already
     # a real dir) and modules end up at `/usr/lib/modules/$kver/`.
-    mkdir -p "/usr/lib/modules/$kver"
+    #
+    # NOTE: do NOT pre-create /usr/lib/modules/$kver before extracting.
+    # If the tarball is malformed (wrong KVER root), the dir-already-
+    # exists state would let depmod -a "$kver" succeed with zero
+    # modules — silent failure → unbootable kernel. Let tar create it,
+    # then verify content count.
     tar xzf "$ASSETS/$label/modules-cixmini.tgz" -C /usr --strip-components=0 --keep-directory-symlink
+    if [ ! -d "/usr/lib/modules/$kver" ]; then
+        echo "[10] ERROR: $label tarball did not produce /usr/lib/modules/$kver/"
+        echo "       found instead under /usr/lib/modules/:"
+        ls /usr/lib/modules/ 2>&1
+        return 1
+    fi
+    local modcount
+    modcount=$(find "/usr/lib/modules/$kver" -name '*.ko' 2>/dev/null | wc -l)
+    if [ "$modcount" -lt 50 ]; then
+        echo "[10] ERROR: $label modules dir suspiciously small (.ko count=$modcount, expected hundreds)"
+        return 1
+    fi
+    echo "    extracted $modcount .ko modules → /usr/lib/modules/$kver/"
     depmod -a "$kver"
 }
 
