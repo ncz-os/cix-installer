@@ -149,3 +149,32 @@ Our 32-quadlet-shim is a stop-gap for Bookworm's old podman 4.3.1. Long-term: mo
 5. **systemd-boot postinst divert** — clean up the iU/iF state.
 
 6. Optional polish: GNOME shell extensions baked in, custom GTK theme, NetworkManager defaults, default desktop apps association tuning.
+
+---
+
+## Vendor BSP survey results (added late session)
+
+Surveyed Cix CP8180 ecosystem (Minisforum, Framework Desktop / MetaComputing, Radxa Orion O6, Orange Pi 6 Plus, Sky1-Linux community). Full report at `codex-vendor-bsp-survey.md`. **Headline: Sky1-Linux community tree (`github.com/Sky1-Linux/linux-sky1`) is the single highest-leverage source — 140 patches with direct fixes for our exact bugs.**
+
+### Key direct hits
+
+- **Patch 0127** *"prevents stale stream count from causing DP TX misconfiguration (black screen) after USB-C replug"* — identical to our HDMI handoff bug
+- **Patch 0102** `cix_dsp_rproc` ACPI boot + `memremap(MEMREMAP_WB)` for the 0xcde00000 DSP firmware load area — exact match to our `rsv mem err: 0xCDE08000` dmesg
+- **Patches 0022, 0052, 0097, 0117, 0124, 0126, 0130, 0134** — full DPTX/linlon-dp fix family
+- **`build-debs.sh` LOCALVERSION pattern** — solves the doubled-suffix bug cleanly
+- **TF-A in `cixtech/cix_opensource__arm-trusted-firmware`** branch `cix_p1_k6.6_2025q3_tfa_open_dev` has both Cix Sky1 SiP plat AND `plat/qemu/` — buildable with `PLAT=qemu` to unblock QEMU validation
+
+### Plymouth — no vendor solver
+
+No Cix-platform vendor publicly fixes Plymouth-on-Cix. Sky1-Linux sidesteps by not running cix-debian-misc.postinst (uses their own image-build flow). Cleanest path for us: dpkg-divert or otherwise neutralize the Cix-vendor init-rename, then update-initramfs works as on any Debian arm64 + Plymouth splash works.
+
+### Multi-disk awareness already shipped
+
+`preseed.cfg` `partman/early_command` was updated tonight (commit `7c6af62`) to detect disk count and only auto-target when single-disk (Minisforum). Multi-disk machines (Framework dual NVMe, Radxa Orion O6 dual NVMe, Orange Pi 6 Plus NVMe+microSD) get d-i's "Select disk to partition" prompt with `init_automatically_partition` pre-selected to "use entire disk".
+
+### Next session game plan (tasks #12-#15 in the tracker)
+
+1. Cherry-pick Sky1-Linux DPTX + DSP patches as SRC_URI files in `meta-cix/recipes-kernel/linux-cix-msr1/`. Yocto rebake on ARGOS. Validates on real cixmini — HDMI should light up.
+2. Build TF-A `PLAT=qemu` → unblock QEMU validation (full installer test loops finally possible)
+3. Strip cix-debian-misc init-rename → Plymouth splash works → re-enable initrd in 70-bootloader
+4. Adopt Sky1 LOCALVERSION recipe → eliminates KVER bridge AND mali_kbase/aipu ABI warnings
