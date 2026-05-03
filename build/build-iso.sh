@@ -1,13 +1,17 @@
 #!/bin/bash
 # build-iso.sh — repack Debian netinst-arm64 ISO with our customizations.
 #
+# DUAL-KERNEL build (2026-05-03+):
+#   - 6.18.26 LTS  → primary kernel, d-i + installed-default
+#   - 7.0.1 next   → BETA, installed alongside; user picks at systemd-boot
+#
 # Process:
-#   1. Extract the upstream ISO contents to a staging dir
-#   2. Inject preseed.cfg into the initrd of d-i
-#   3. Patch GRUB cmdline to autoload the preseed (auto + url=...)
-#   4. Stage our /cixmini/ subdir on the ISO with assets + post-install
-#      hooks (preseed late_command picks them up via /cdrom/cixmini)
-#   5. Repack as UEFI-bootable hybrid ISO via xorriso
+#   1. Extract upstream ISO contents to a staging dir
+#   2. Inject preseed.cfg + theme into the d-i initrd
+#   3. Replace d-i vmlinuz with our LTS kernel + inject LTS modules
+#   4. Stage /cixmini/ subdir on the ISO with assets + post-install hooks
+#   5. Patch GRUB menu (LTS default + optional BETA 7.0.1)
+#   6. Repack as UEFI-bootable hybrid ISO via xorriso
 #
 # Reference: https://wiki.debian.org/DebianInstaller/Preseed/EditIso
 
@@ -41,6 +45,25 @@ for t in xorriso 7z cpio gzip find; do
     command -v "$t" >/dev/null 2>&1 || { echo "ERROR: missing tool: $t"; exit 1; }
 done
 
+# Detect KVERs from assemble-kernel-assets.sh sidecars. assemble writes
+# assets/kernel/{lts,next}/KVER with the exact uname -r value of each
+# baked kernel — single source of truth, no hardcoded version strings
+# scattered across this script + post-install hooks.
+KVER_LTS=""
+KVER_NEXT=""
+if [ -f "$ROOT/assets/kernel/lts/KVER" ]; then
+    KVER_LTS=$(cat "$ROOT/assets/kernel/lts/KVER")
+    echo "[info] LTS kernel KVER:  $KVER_LTS"
+fi
+if [ -f "$ROOT/assets/kernel/next/KVER" ]; then
+    KVER_NEXT=$(cat "$ROOT/assets/kernel/next/KVER")
+    echo "[info] NEXT kernel KVER: $KVER_NEXT (BETA)"
+fi
+if [ -z "$KVER_LTS" ]; then
+    echo "WARN: assets/kernel/lts/KVER missing — d-i will run Debian's stock arm64 kernel"
+    echo "      run assemble-kernel-assets.sh after Yocto bake to populate"
+fi
+
 # ----------------------------------------------------------------------
 # Step 1 — fresh staging dir
 # ----------------------------------------------------------------------
@@ -55,25 +78,13 @@ echo "[2] extracting upstream ISO via 7z"
 7z x -y -o"$STAGING" "$UPSTREAM" >/dev/null
 
 # ----------------------------------------------------------------------
-# Step 3 — inject preseed.cfg into d-i initrd
-#
-# The d-i initrd (initrd.gz under install.a64/ on bookworm-arm64)
-# auto-loads /preseed.cfg if present.
+# Step 3 — inject preseed.cfg + theme into d-i initrd
 # ----------------------------------------------------------------------
-echo "[3] injecting preseed.cfg via concatenated cpio (no extraction needed)"
-# Linux initramfs supports concatenated cpio archives — kernel's
-# init/initramfs.c reads multiple back-to-back cpio streams and overlays
-# them in order. So instead of extracting the d-i initrd (which fails
-# without root because it contains device nodes), we just append a
-# tiny cpio that contains only preseed.cfg.
-#
-# Strip the gtk (graphical) installer variant entirely. We only ship a
-# character-mode installer — single boot path, no framebuffer console
-# dependency, ~600 MB less in the rootfs.gz. If we ever want the gtk
-# UI back, restore install.a64/gtk/ here and re-add the menu entry.
+echo "[3] injecting preseed.cfg via concatenated cpio"
+# Drop gtk variant (text-mode only)
 if [ -d "$STAGING/install.a64/gtk" ]; then
     rm -rf "$STAGING/install.a64/gtk"
-    echo "    removed install.a64/gtk/ (text-mode only)"
+    echo "    removed install.a64/gtk/"
 fi
 
 PRESEED_WORK="$STAGING/.preseed-cpio"
@@ -81,27 +92,9 @@ rm -rf "$PRESEED_WORK"
 mkdir -p "$PRESEED_WORK"
 cp "$ROOT/preseed/preseed.cfg" "$PRESEED_WORK/preseed.cfg"
 
-# d-i UI theme — drop a startup-script into /lib/debian-installer-startup.d/
-# that sets NEWT_COLORS before cdebconf-newt-frontend runs. Filename
-# starts with S05 so it sources BEFORE S60frontend. Not executable, so
-# debian-installer-startup `.`s it and the export propagates to every
-# subsequent script in the same shell.
+# d-i UI theme
 mkdir -p "$PRESEED_WORK/lib/debian-installer-startup.d"
 cat > "$PRESEED_WORK/lib/debian-installer-startup.d/S05nclawzero-theme" <<'NEWT'
-# nclawzero d-i UI theme — dark navy + bright cyan + white. See
-# newt(3) for the colorset format. Each line is `slot=fg,bg`. Slots
-# referenced by cdebconf:
-#   root        — root window background (visible behind dialogs)
-#   window      — dialog body background
-#   border      — dialog border
-#   title       — dialog title bar
-#   button/actbutton — buttons
-#   listbox/actlistbox/actsellistbox — selectable lists
-#   textbox     — multiline read-only text
-#   checkbox/actcheckbox — checkboxes
-#   entry       — text entry fields
-#   helpline    — bottom-of-screen instruction line
-#   shadow      — drop shadow
 export NEWT_COLORS="
 root=,blue
 window=,black
@@ -132,7 +125,6 @@ PRESEED_GZ="$STAGING/.preseed.cpio.gz"
 
 if [ ! -f "$STAGING/install.a64/initrd.gz" ]; then
     echo "ERROR: install.a64/initrd.gz not found"
-    ls -R "$STAGING/install.a64" 2>&1 | head -20
     exit 1
 fi
 cat "$PRESEED_GZ" >> "$STAGING/install.a64/initrd.gz"
@@ -140,66 +132,44 @@ echo "    preseed appended to install.a64/initrd.gz"
 rm -rf "$PRESEED_WORK" "$PRESEED_GZ"
 
 # ----------------------------------------------------------------------
-# Step 3.5 — replace d-i's stock arm64 kernel + modules with our
-#            Yocto-built linux-cix-msr1 6.6.10 kernel
+# Step 3.5 — swap d-i kernel to our LTS Sky1 6.18.26 kernel
 #
-# Debian's netinst-arm64 ships a generic linux-image-6.1.0-42-arm64
-# kernel that doesn't know Cix Sky1 hardware (no GMAC ethernet, no
-# Cix MMC controller, no GIC bindings, no Sky1 USB host glue).
-# Running d-i on real MS-R1 with that kernel = ethernet autodetect
-# fails, drives don't probe, and the screen fills with "wonky kernel
-# messages". Our 6.6.10 kernel is the only one that boots this SoC
-# cleanly, so we use it for the d-i runtime as well as the installed
-# system.
+# d-i userspace is kernel-agnostic — what matters is that
+# /lib/modules/<uname -r>/ inside the running kernel matches. We swap
+# vmlinuz + append a cpio with our modules at the right path.
 #
-# The d-i userspace (busybox + cdebconf + partman + udebs) is kernel-
-# agnostic and works fine when run against a different kernel — what
-# matters is that /lib/modules/<uname -r>/ inside the initrd matches
-# the kernel that's booting. Append a cpio of our modules so that
-# directory exists at the right path; d-i's modprobe + hotplug pick
-# it up the same way it would for the stock kernel.
+# d-i runs LTS only. The NEXT 7.0.1 BETA kernel is staged onto the
+# ISO at /cixmini/assets/kernel/next/ for post-install to drop on
+# the target system; it is NOT used during install (BETA is for
+# post-install A/B testing, not for the install process itself).
 # ----------------------------------------------------------------------
-if [ -f "$ROOT/assets/kernel/Image-cixmini.bin" ] && \
-   [ -f "$ROOT/assets/kernel/modules-cixmini.tgz" ]; then
-    echo "[3.5] swapping d-i kernel to linux-cix-msr1 6.6.10 + injecting Cix modules"
-    KVER="6.6.10-cix-build-cix-build-generic"
+if [ -n "$KVER_LTS" ] && \
+   [ -f "$ROOT/assets/kernel/lts/Image-cixmini.bin" ] && \
+   [ -f "$ROOT/assets/kernel/lts/modules-cixmini.tgz" ]; then
+    echo "[3.5] swapping d-i kernel to linux-cix-sky1 LTS ($KVER_LTS)"
 
-    # Replace install.a64/vmlinuz with our Image (gtk variant already
-    # stripped above).
-    install -m 0644 "$ROOT/assets/kernel/Image-cixmini.bin" "$STAGING/install.a64/vmlinuz"
+    install -m 0644 "$ROOT/assets/kernel/lts/Image-cixmini.bin" "$STAGING/install.a64/vmlinuz"
     echo "    replaced install.a64/vmlinuz ($(du -h "$STAGING/install.a64/vmlinuz" | cut -f1))"
 
-    # Build a cpio of our modules at the canonical /lib/modules/$KVER/
-    # path, then concatenate it onto each initrd. The kernel's
-    # initramfs reader merges concatenated cpio streams so this stacks
-    # cleanly on top of the preseed cpio + the original Debian initrd.
     MOD_WORK="$STAGING/.modules-cpio"
     rm -rf "$MOD_WORK"
     mkdir -p "$MOD_WORK"
-    tar xzf "$ROOT/assets/kernel/modules-cixmini.tgz" -C "$MOD_WORK"
-    if [ ! -d "$MOD_WORK/lib/modules/$KVER" ]; then
-        echo "ERROR: modules tarball didn't extract to lib/modules/$KVER"
+    tar xzf "$ROOT/assets/kernel/lts/modules-cixmini.tgz" -C "$MOD_WORK"
+    if [ ! -d "$MOD_WORK/lib/modules/$KVER_LTS" ]; then
+        echo "ERROR: lts modules tarball didn't extract to lib/modules/$KVER_LTS"
         ls "$MOD_WORK/lib/modules/" 2>&1
         exit 1
     fi
 
-    # Yocto's `make modules_install` ships only the static index files
-    # (modules.builtin, modules.order). modules.alias / modules.dep /
-    # modules.devname / modules.softdep / modules.symbols are generated
-    # by depmod at the *target system's* first boot, not at build time.
-    # The d-i runtime never gets that chance — its initramfs is ours,
-    # whatever's in our cpio is what udev sees forever. Without
-    # modules.alias, udev cannot match hardware uevent MODALIAS strings
-    # to .ko paths, so NO driver auto-loads on hotplug — including USB
-    # ethernet dongles that should "just work". Run depmod here against
-    # the staged module tree so the cpio carries proper alias/dep maps.
+    # Run depmod against the staged tree so udev MODALIAS matching works
+    # in the d-i runtime (Yocto only ships static index files).
     if ! command -v depmod >/dev/null; then
         echo "ERROR: depmod not on PATH; install kmod package on builder"
         exit 1
     fi
-    depmod -a -b "$MOD_WORK" "$KVER"
-    echo "    depmod-generated index files:"
-    ls -la "$MOD_WORK/lib/modules/$KVER/" | grep -E "modules\.(alias|dep|devname|softdep|symbols)" | awk '{print "      " $NF " (" $5 " bytes)"}'
+    depmod -a -b "$MOD_WORK" "$KVER_LTS"
+    echo "    depmod-generated index files for $KVER_LTS:"
+    ls -la "$MOD_WORK/lib/modules/$KVER_LTS/" | grep -E "modules\.(alias|dep|devname|softdep|symbols)" | awk '{print "      " $NF " (" $5 " bytes)"}'
 
     MOD_GZ="$STAGING/.modules.cpio.gz"
     ( cd "$MOD_WORK" && find lib -print | cpio -o -H newc --quiet | gzip ) > "$MOD_GZ"
@@ -209,34 +179,35 @@ if [ -f "$ROOT/assets/kernel/Image-cixmini.bin" ] && \
     echo "    modules appended to install.a64/initrd.gz ($(du -h "$STAGING/install.a64/initrd.gz" | cut -f1))"
     rm -rf "$MOD_WORK" "$MOD_GZ"
 else
-    echo "    WARN: assets/kernel/ missing — d-i will run Debian's stock 6.1 arm64 kernel"
-    echo "    expect: ethernet autodetect fail, no Cix block probes, kernel msg noise"
+    echo "    WARN: assets/kernel/lts/ missing — d-i will run Debian's stock 6.1 arm64 kernel"
 fi
 
 # ----------------------------------------------------------------------
-# Step 4 — stage our extras at /cixmini on the ISO
-#
-# preseed late_command copies /cdrom/cixmini → /target/usr/local/lib/
-# cix-installer, then runs run-all.sh in the target chroot.
+# Step 4 — stage /cixmini extras on the ISO
 # ----------------------------------------------------------------------
 echo "[4] staging /cixmini extras"
 mkdir -p "$EXTRA/post-install" "$EXTRA/assets"
 cp -r "$ROOT/post-install/"*.sh "$EXTRA/post-install/"
 chmod 755 "$EXTRA/post-install/"*.sh
 
-# late.sh — invoked by preseed late_command from /cdrom/cixmini/late.sh
-# (with fallback path detection). Lives at the top of /cixmini/ on the
-# ISO so a single hard-coded path can find it across cdrom / hd-media
-# / live-medium mountpoint variants.
+# Build identification — single-line files consumed by:
+#   - GRUB menu title on the installer USB itself
+#   - late.sh (copies to /etc/cix-installer/ on installed system)
+#   - 70-bootloader.sh (embeds in systemd-boot loader entry titles)
+BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+BUILD_HOST=$(hostname -s 2>/dev/null || echo unknown)
+echo "$VERSION"     > "$EXTRA/BUILD_VERSION"
+echo "$BUILD_DATE"  > "$EXTRA/BUILD_DATE"
+echo "$BUILD_HOST"  > "$EXTRA/BUILD_HOST"
+echo "$KVER_LTS"    > "$EXTRA/KVER_LTS"
+echo "$KVER_NEXT"   > "$EXTRA/KVER_NEXT"
+echo "    build id: $VERSION  ($BUILD_DATE on $BUILD_HOST)"
+
 cp "$ROOT/preseed/late.sh" "$EXTRA/late.sh"
 chmod 755 "$EXTRA/late.sh"
 
-# assets/agent-stack — committed quadlet files
-cp -rL "$ROOT/assets/agent-stack" "$EXTRA/assets/"
-# assets/branding — committed images + Plymouth theme.
-# Skip _candidates/ subdir (the AI-image-gen exploration set);
-# only ship the canonical-promoted assets that the post-install hooks
-# actually consume.
+# Stage agent stack + branding + cix-debs (existing logic)
+[ -d "$ROOT/assets/agent-stack" ] && cp -rL "$ROOT/assets/agent-stack" "$EXTRA/assets/"
 if [ -d "$ROOT/assets/branding" ]; then
     mkdir -p "$EXTRA/assets/branding"
     for sub in logo plymouth gdm wallpaper; do
@@ -244,47 +215,82 @@ if [ -d "$ROOT/assets/branding" ]; then
             cp -rL "$ROOT/assets/branding/$sub" "$EXTRA/assets/branding/"
         fi
     done
-    # also copy the README if present
     [ -f "$ROOT/assets/branding/README.md" ] && cp "$ROOT/assets/branding/README.md" "$EXTRA/assets/branding/" || true
     bytes=$(du -sh "$EXTRA/assets/branding" 2>/dev/null | cut -f1)
-    echo "    branding assets: $bytes"
+    echo "    branding: $bytes"
 fi
-
-# assets/cix-debs — gitignored, supplied at build time
 if [ -d "$ROOT/assets/cix-debs" ] && [ "$(ls -A $ROOT/assets/cix-debs 2>/dev/null)" ]; then
     cp -rL "$ROOT/assets/cix-debs" "$EXTRA/assets/"
     echo "    cix-debs: $(ls $EXTRA/assets/cix-debs | wc -l) files, $(du -sh $EXTRA/assets/cix-debs | cut -f1)"
-else
-    echo "    WARN: assets/cix-debs/ empty — install will skip Cix proprietary layer"
 fi
 
-# assets/kernel — gitignored, supplied at build time
+# Stage BOTH kernel sets — post-install reads them from /cdrom/cixmini/assets/kernel/{lts,next}/.
 if [ -d "$ROOT/assets/kernel" ] && [ "$(ls -A $ROOT/assets/kernel 2>/dev/null)" ]; then
     cp -rL "$ROOT/assets/kernel" "$EXTRA/assets/"
     echo "    kernel: $(du -sh $EXTRA/assets/kernel | cut -f1)"
+    if [ -d "$EXTRA/assets/kernel/lts" ]; then
+        echo "      lts/  $(du -sh $EXTRA/assets/kernel/lts | cut -f1)"
+    fi
+    if [ -d "$EXTRA/assets/kernel/next" ]; then
+        echo "      next/ $(du -sh $EXTRA/assets/kernel/next | cut -f1) [BETA]"
+    fi
 else
-    echo "    WARN: assets/kernel/ empty — install will keep Debian's linux-image-arm64"
+    echo "    WARN: assets/kernel/ empty"
+fi
+
+# Sky1 firmware (panthor mali_csffw, cix_dsp_rproc dsp_fw, linlon vpu *.fwb)
+if [ -d "$ROOT/assets/sky1-firmware" ] && [ "$(ls -A $ROOT/assets/sky1-firmware 2>/dev/null)" ]; then
+    cp -rL "$ROOT/assets/sky1-firmware" "$EXTRA/assets/"
+    echo "    sky1-firmware: $(du -sh $EXTRA/assets/sky1-firmware | cut -f1)"
+else
+    echo "    WARN: assets/sky1-firmware/ empty — GPU/DSP/VPU drivers will fail to init"
 fi
 
 # ----------------------------------------------------------------------
-# Step 5 — patch GRUB cmdline to default to auto-install
+# Step 5 — patch GRUB menu
+#
+# d-i menu structure (this ISO):
+#   1. Install with LTS 6.18.26 (default, recommended)
+#   2. [BETA] Install with 7.0.1-next (only present if NEXT kernel was baked)
+#   3. SAFE rescue (rescue.target + d-i base, kernel 6.18.26)
+#
+# The BETA d-i entry runs d-i with the 7.0.1 kernel — useful for the
+# user to verify 7.0.1 boots on their MS-R1 firmware before committing
+# to install. The installed system always gets BOTH kernels regardless
+# of which d-i menu entry was used.
 # ----------------------------------------------------------------------
-echo "[5] prepending nclawzero auto-install entry to GRUB menu"
+echo "[5] writing GRUB menu (dual-kernel + BETA gating)"
 GRUB_CFG="$STAGING/boot/grub/grub.cfg"
-if [ ! -f "$GRUB_CFG" ]; then
-    echo "ERROR: $GRUB_CFG not found" >&2
-    ls -la "$STAGING/boot/grub/" 2>&1 | head -5
-    exit 1
-fi
+[ -f "$GRUB_CFG" ] || { echo "ERROR: $GRUB_CFG not found"; exit 1; }
 
-# Replace grub.cfg entirely with a single character-mode auto-install
-# entry. We don't ship the gtk variant or the Debian fallback menu —
-# this ISO has one job (preseed-driven install of nclawzero on Cix
-# Sky1), and the fewer alternate boot paths the cleaner.
-cat > "$GRUB_CFG" <<'GRUB'
+# MartJohnson's working MS-R1 cmdline (issue #12, 2026-04-30 update):
+#   loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force
+#   arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused
+#   keep_bootcon panic=30
+#
+# Critical flags vs the old (failing) cmdline:
+#   efi=noruntime              — disables EFI runtime services that MS-R1 BIOS impl is buggy on
+#   acpi=force                 — overrides default ACPI-table preference checks
+#   arm-smmu-v3.disable_bypass=0 — keep SMMU bypass active (IORT compatibility)
+#   audit_backlog_limit=8192   — boot-time audit subsystem doesn't drop early msgs
+#   clk_ignore_unused          — Cix Sky1 hard requirement (clock auto-disable breaks SCMI)
+#   keep_bootcon               — early boot console persists past handoff
+#   panic=30                   — 30s grace before reboot on panic (room to read msg)
+#
+# BETA cmdline adds nothing extra — same flags work for both 6.18 LTS
+# and 7.0 next per MartJohnson 2026-04-30.
+MARTJOHNSON_CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30"
+DI_PRESEED="auto=true priority=high preseed/file=/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
+
+# Heredoc UNQUOTED — $VERSION, $BUILD_DATE, $KVER_LTS, $KVER_NEXT,
+# $MARTJOHNSON_CMDLINE, $DI_PRESEED expand at build time. No GRUB-script
+# inner $vars to escape (we use plain literals everywhere).
+{
+cat <<GRUB
 # nclawzero installer — character-mode auto-install via preseed.
-# Boots in 5 seconds. No alternate menu entries.
-set timeout=5
+# Build: $VERSION  ($BUILD_DATE)  Host: $BUILD_HOST
+# Kernels: LTS=$KVER_LTS  NEXT=${KVER_NEXT:-(not baked)}
+set timeout=10
 set default=0
 set menu_color_normal=light-cyan/black
 set menu_color_highlight=black/light-cyan
@@ -297,33 +303,89 @@ echo ""
 echo "  ┌─────────────────────────────────────────────────────────┐"
 echo "  │                    n c l a w z e r o                    │"
 echo "  │             cixmini installer — Cix Sky1 / CP8180       │"
+echo "  │                                                         │"
+echo "  │   build $VERSION                                        "
+echo "  │   $BUILD_DATE                                           "
+echo "  │                                                         │"
+echo "  │   default kernel: 6.18.26 LTS (production-stable)       │"
+echo "  │   beta kernel:    7.0.1-next   (testing, may not boot)  │"
 echo "  └─────────────────────────────────────────────────────────┘"
 echo ""
 
-menuentry "Install nclawzero (cixmini, unattended)" {
+menuentry "Install nclawzero (cixmini, 6.18.26 LTS — default, RECOMMENDED) — $VERSION" {
     set background_color=black
-    echo "Loading linux-cix-msr1 6.6.10..."
-    # preseed.cfg is embedded in the initrd (appended cpio, picked up
-    # at /preseed.cfg in initramfs root). d-i auto-loads it.
-    #
-    # Console: tty0 first so the on-screen kernel msgs are visible
-    # whenever the framebuffer is alive, plus ttyAMA0,115200 mirror so
-    # serial-cable diagnostics keep working when DRM hands off and tty0
-    # blanks. earlycon + keep_bootcon = no missing early-boot lines.
-    # loglevel=8 + ignore_loglevel = every printk visible. printk.time
-    # adds timestamps. panic=10 auto-reboots on panic. clk_ignore_unused
-    # is a Cix Sky1 hard requirement.
-    #
-    # DEBCONF_DEBUG=5 + BOOT_DEBUG=2: verbose d-i logging.
-    linux  /install.a64/vmlinuz auto=true priority=high preseed/file=/preseed.cfg interface=auto netcfg/dhcp_timeout=120 BOOT_DEBUG=0 log_host=192.168.207.22 console=tty0 earlycon keep_bootcon loglevel=4 quiet panic=10 clk_ignore_unused consoleblank=0 video=DP-1:1024x768@60e module_blacklist=trilin_drm,trilin_dpsub,linlondp,linlondp_drv,cix_display,cix_dsp_rproc,cix_sfh_rproc,snd_hda_cix_ipbloq,snd_soc_sky1_sound_card,snd_soc_rt5682s,snd_soc_cdns_i2s_mc,snd_soc_cdns_i2s_sc,btusb,rtk_btusb
+    echo "Loading linux-cix-sky1 LTS ($KVER_LTS)..."
+    linux  /install.a64/vmlinuz $DI_PRESEED $MARTJOHNSON_CMDLINE
     echo "Loading initrd..."
     initrd /install.a64/initrd.gz
 }
 GRUB
-echo "    GRUB cfg replaced (single entry, $(wc -l < $GRUB_CFG) lines)"
+
+# Optional BETA d-i entry — only if the NEXT kernel was baked AND its
+# Image-cixmini.bin is staged in the ISO. We point at a SECOND vmlinuz
+# (install.a64/vmlinuz-next) so swapping kernels at d-i time doesn't
+# require rebuilding the ISO.
+if [ -n "$KVER_NEXT" ] && [ -f "$ROOT/assets/kernel/next/Image-cixmini.bin" ]; then
+    echo "    [grub] adding BETA 7.0.1 d-i entry"
+    install -m 0644 "$ROOT/assets/kernel/next/Image-cixmini.bin" "$STAGING/install.a64/vmlinuz-next"
+    # Build a SECOND initrd that injects the NEXT modules instead of LTS.
+    # Reuses the original (post-preseed) initrd state but appends NEXT
+    # modules instead of LTS modules.
+    NEXT_MOD_WORK="$STAGING/.next-modules-cpio"
+    rm -rf "$NEXT_MOD_WORK"
+    mkdir -p "$NEXT_MOD_WORK"
+    tar xzf "$ROOT/assets/kernel/next/modules-cixmini.tgz" -C "$NEXT_MOD_WORK"
+    depmod -a -b "$NEXT_MOD_WORK" "$KVER_NEXT"
+    NEXT_MOD_GZ="$STAGING/.next-modules.cpio.gz"
+    ( cd "$NEXT_MOD_WORK" && find lib -print | cpio -o -H newc --quiet | gzip ) > "$NEXT_MOD_GZ"
+    # initrd.gz already has preseed.cpio.gz + LTS modules.cpio.gz appended.
+    # To get a NEXT-modules variant, start fresh from the upstream initrd
+    # (in 7z extracted it again) — but that would lose the preseed cpio.
+    # Easier path: copy current initrd.gz then append NEXT modules.
+    # Note: this means the BETA initrd has BOTH LTS and NEXT modules
+    # mounted at /lib/modules/{KVER_LTS,KVER_NEXT}/. The kernel is what
+    # picks which dir to use via uname -r. Harmless overhead (~150MB);
+    # avoids needing a separate base-initrd extraction.
+    cp "$STAGING/install.a64/initrd.gz" "$STAGING/install.a64/initrd-next.gz"
+    cat "$NEXT_MOD_GZ" >> "$STAGING/install.a64/initrd-next.gz"
+    rm -rf "$NEXT_MOD_WORK" "$NEXT_MOD_GZ"
+    echo "    initrd-next.gz (with NEXT modules): $(du -h "$STAGING/install.a64/initrd-next.gz" | cut -f1)"
+
+cat <<GRUB
+
+menuentry "[BETA — UNSTABLE] Install with 7.0.1-next ($KVER_NEXT) — KNOWN-BUGGY on MS-R1" {
+    set background_color=black
+    echo ""
+    echo "*** BETA 7.0.1-next kernel — known issues on MS-R1: ***"
+    echo "    - SCMI transition errors (BIOS missing required updates)"
+    echo "    - Occasional boot freezes / shutdown crashes"
+    echo "    - Audio NOT functional (alc269 patch deferred)"
+    echo "    Use 6.18.26 LTS for production. This entry is for"
+    echo "    A/B testing the 7.0 path only."
+    echo ""
+    echo "Loading linux-cix-sky1-next BETA ($KVER_NEXT)..."
+    linux  /install.a64/vmlinuz-next $DI_PRESEED $MARTJOHNSON_CMDLINE
+    echo "Loading initrd-next..."
+    initrd /install.a64/initrd-next.gz
+}
+GRUB
+fi
+
+cat <<GRUB
+
+menuentry "SAFE — rescue shell (kernel $KVER_LTS, no auto-install)" {
+    set background_color=black
+    echo "Loading rescue mode (kernel $KVER_LTS)..."
+    linux  /install.a64/vmlinuz rescue/enable=true $MARTJOHNSON_CMDLINE
+    echo "Loading initrd..."
+    initrd /install.a64/initrd.gz
+}
+GRUB
+} > "$GRUB_CFG"
+echo "    GRUB cfg written ($(wc -l < "$GRUB_CFG") lines)"
 
 # ----------------------------------------------------------------------
-# Step 6 — rebuild md5sum.txt (d-i checks integrity)
+# Step 6 — rebuild md5sum.txt
 # ----------------------------------------------------------------------
 echo "[6] regenerating md5sum.txt"
 ( cd "$STAGING" && find . -type f \! -name md5sum.txt -print0 | xargs -0 md5sum > md5sum.txt )
@@ -334,7 +396,6 @@ echo "[6] regenerating md5sum.txt"
 echo "[7] repacking via xorriso → $OUTPUT"
 mkdir -p "$(dirname "$OUTPUT")"
 
-# Find the EFI image (varies by Debian release layout)
 EFI_IMG=""
 for candidate in "$STAGING/boot/grub/efi.img" \
                  "$STAGING/efi.img"; do
@@ -343,7 +404,6 @@ done
 [ -z "$EFI_IMG" ] && { echo "ERROR: no EFI image found"; exit 1; }
 EFI_IMG_REL="${EFI_IMG#$STAGING/}"
 
-# Volume label: ISO 9660 limits to 32 chars, all-uppercase/digits/_
 VOLID="NCLAWZERO_CIXMINI"
 
 xorriso -as mkisofs \

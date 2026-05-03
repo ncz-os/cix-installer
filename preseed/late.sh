@@ -77,6 +77,28 @@ chmod 755 /target/usr/local/lib/cix-installer/post-install/*.sh
 echo "    copy ok"
 echo
 
+# Stamp the install with the build serial + dual-kernel KVERs so
+# 10-our-kernel.sh + 70-bootloader.sh can read them. Files land at
+# both /etc/cix-installer/ (easy `cat` from running system) and
+# /usr/local/lib/cix-installer/ (where post-install scripts read).
+mkdir -p /target/etc/cix-installer
+for f in BUILD_VERSION BUILD_DATE BUILD_HOST KVER_LTS KVER_NEXT; do
+    if [ -f "$SRC/$f" ]; then
+        cp "$SRC/$f" /target/etc/cix-installer/"$f"
+        cp "$SRC/$f" /target/usr/local/lib/cix-installer/"$f"
+    fi
+done
+if [ -f /target/etc/cix-installer/BUILD_VERSION ]; then
+    echo "    build stamp: $(cat /target/etc/cix-installer/BUILD_VERSION) ($(cat /target/etc/cix-installer/BUILD_DATE 2>/dev/null))"
+fi
+if [ -f /target/etc/cix-installer/KVER_LTS ]; then
+    echo "    KVER_LTS:  $(cat /target/etc/cix-installer/KVER_LTS)"
+fi
+if [ -f /target/etc/cix-installer/KVER_NEXT ] && [ -s /target/etc/cix-installer/KVER_NEXT ]; then
+    echo "    KVER_NEXT: $(cat /target/etc/cix-installer/KVER_NEXT) [BETA]"
+fi
+echo
+
 echo "--- post-copy md5 of /target/.../10-our-kernel.sh ---"
 md5sum /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 || echo "md5sum unavailable"
 wc -c /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 || true
