@@ -282,6 +282,14 @@ GRUB_CFG="$STAGING/boot/grub/grub.cfg"
 MARTJOHNSON_CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30"
 DI_PRESEED="auto=true priority=high preseed/file=/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
 
+# Compute conditional banner lines BEFORE the heredoc, then expand into
+# the heredoc body. GRUB doesn't have bash-style parameter expansion,
+# so we must materialize bash-side and emit GRUB-side echo commands.
+NEXT_BANNER_LINE=""
+if [ -n "$KVER_NEXT" ]; then
+    NEXT_BANNER_LINE='echo "  │   also installed: 7.0.1-next BETA — UNSTABLE on MS-R1   │"'
+fi
+
 # Heredoc UNQUOTED — $VERSION, $BUILD_DATE, $KVER_LTS, $KVER_NEXT,
 # $MARTJOHNSON_CMDLINE, $DI_PRESEED expand at build time. No GRUB-script
 # inner $vars to escape (we use plain literals everywhere).
@@ -308,8 +316,7 @@ echo "  │   build $VERSION                                        "
 echo "  │   $BUILD_DATE                                           "
 echo "  │                                                         │"
 echo "  │   d-i kernel:     6.18.26 LTS (production-stable)      │"
-NEXT_LINE="${KVER_NEXT:+  │   also installed: 7.0.1-next BETA — UNSTABLE on MS-R1   │}"
-[ -n "$NEXT_LINE" ] && echo "$NEXT_LINE"
+$NEXT_BANNER_LINE
 echo "  │   BETA appears as a separate entry in systemd-boot      │"
 echo "  │   on first reboot — pick LTS unless A/B-testing 7.0     │"
 echo "  └─────────────────────────────────────────────────────────┘"
