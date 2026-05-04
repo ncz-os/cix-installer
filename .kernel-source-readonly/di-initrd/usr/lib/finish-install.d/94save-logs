@@ -1,0 +1,34 @@
+#!/bin/sh
+# Intentionally not set -e.
+logsavedir=/target/var/log/installer
+
+mkdir -p $logsavedir/cdebconf
+
+# Make sure debconf has saved the database.
+. /usr/share/debconf/confmodule
+db_x_save
+
+cp /var/log/* $logsavedir
+chmod 600 $logsavedir/*
+chmod 755 $logsavedir/cdebconf # done this way for idempotency
+
+report-hw > $logsavedir/hardware-summary
+cp /var/lib/dpkg/status $logsavedir
+cp /etc/lsb-release $logsavedir
+
+cp /var/lib/cdebconf/questions.dat /var/lib/cdebconf/templates.dat \
+	$logsavedir/cdebconf
+chmod 600 $logsavedir/cdebconf/*
+
+# Prettify that one, and make it readable by everyone:
+fw=$logsavedir/firmware-summary
+if [ -f "$fw" ]; then
+  printf "%-30s   %-17s   %s\n" '#Package' 'Component' 'Reason' > $fw.pretty
+  while read package component reason; do
+    printf "%-30s   %-17s   %s\n" $package $component $reason
+  done < $fw >> $fw.pretty
+  mv -f $fw.pretty $fw
+else
+  echo "# No firmware or microcode packages deployed by the installer" > $fw
+fi
+chmod 644 $fw

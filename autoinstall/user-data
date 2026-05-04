@@ -1,0 +1,115 @@
+#cloud-config
+autoinstall:
+  version: 1
+
+  # ----- locale + identity -------------------------------------------
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+    variant: ''
+
+  # ----- networking — DHCP all up interfaces -------------------------
+  network:
+    version: 2
+    ethernets:
+      enp:
+        match:
+          name: 'en*'
+        dhcp4: true
+        dhcp6: false
+        optional: true
+
+  # ----- storage — full-disk install on first NVMe -------------------
+  # subiquity 'direct' layout = single root partition; we customize
+  # below to match our preseed.cfg expectations: GPT + 1GiB ESP +
+  # rest as ext4 root, no swap.
+  storage:
+    grub:
+      reorder_uefi: false  # don't push our UEFI entry above firmware default
+    config:
+      - id: nvme
+        type: disk
+        match:
+          path: /dev/nvme0n1
+        ptable: gpt
+        wipe: superblock-recursive
+        preserve: false
+        grub_device: true
+      - id: esp
+        type: partition
+        device: nvme
+        size: 1G
+        flag: boot
+        wipe: superblock
+      - id: esp_fs
+        type: format
+        volume: esp
+        fstype: fat32
+      - id: esp_mount
+        type: mount
+        device: esp_fs
+        path: /boot/efi
+      - id: root_part
+        type: partition
+        device: nvme
+        size: -1
+        wipe: superblock
+      - id: root_fs
+        type: format
+        volume: root_part
+        fstype: ext4
+      - id: root_mount
+        type: mount
+        device: root_fs
+        path: /
+
+  # ----- identity (auto-create user 'mini' password 'mini') ----------
+  identity:
+    hostname: cixmini
+    realname: nclawzero operator
+    username: mini
+    # password = "mini" (mkpasswd -m sha-512 mini)
+    password: '$6$abc123abc123$Ws7lU/x.U5xQUO/eaB5VeR9fqCvYbz1U9P9.HwS9XSFD/qJMbLnXvR2UNlhcW2EDspxK4qb5KbGqfRz0OtV9V0'
+
+  # ----- install minimal base — we layer our packages in late-commands
+  packages:
+    - openssh-server
+    - sudo
+
+  # ----- ssh: subiquity should bring up sshd in the running installer
+  # so we can debug if display fails (same role as preseed network-console)
+  ssh:
+    install-server: true
+    allow-pw: true
+    authorized-keys: []
+
+  # ----- skip the apt-mirror / proxy probe (use defaults) -------------
+  apt:
+    geoip: true
+
+  # ----- early-commands: fire BEFORE subiquity starts, but after
+  # cdrom is mounted. We use this for kernel + display module load.
+  early-commands:
+    - 'modprobe linlondp 2>/dev/null || true'
+    - 'modprobe trilin_dp_cix 2>/dev/null || true'
+    - 'modprobe trilin_dpsub 2>/dev/null || true'
+    - 'modprobe panthor 2>/dev/null || true'
+
+  # ----- late-commands: run AFTER package install, BEFORE reboot.
+  # Run in the target chroot via /target prefix or `curtin in-target`.
+  # We invoke our existing late.sh which finds the /cdrom/cixmini/
+  # source dir and runs run-all.sh against the target root.
+  late-commands:
+    # Stage cixmini extras + run all post-install hooks
+    - 'cp -r /cdrom/cixmini /target/usr/local/lib/cix-installer'
+    - 'curtin in-target -- bash /usr/local/lib/cix-installer/post-install/run-all.sh'
+    # Build version + KVER sidecars under /etc and /usr/local/lib for runtime reads
+    - 'mkdir -p /target/etc/cix-installer'
+    - 'cp /cdrom/cixmini/BUILD_VERSION /target/etc/cix-installer/ 2>/dev/null || true'
+    - 'cp /cdrom/cixmini/BUILD_DATE /target/etc/cix-installer/ 2>/dev/null || true'
+    - 'cp /cdrom/cixmini/BUILD_HOST /target/etc/cix-installer/ 2>/dev/null || true'
+    - 'cp /cdrom/cixmini/KVER_LTS /target/etc/cix-installer/ 2>/dev/null || true'
+    - 'cp /cdrom/cixmini/KVER_NEXT /target/etc/cix-installer/ 2>/dev/null || true'
+
+  # ----- final action: reboot ----------------------------------------
+  shutdown: reboot

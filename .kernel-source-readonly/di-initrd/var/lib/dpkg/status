@@ -1,0 +1,564 @@
+Package: anna
+Status: install ok unpacked
+Version: 1.91
+Depends: libc6-udeb (>= 2.36), libdebconfclient0-udeb (>= 0.269), libdebian-installer4-udeb (>= 0.124), cdebconf-udeb
+Description: anna's not nearly apt, but for the Debian installer, it will do
+
+Package: archdetect
+Status: install ok unpacked
+Version: 1.159
+Depends: libc6-udeb (>= 2.36), libdebian-installer4-udeb (>= 0.124)
+Description: Hardware architecture detector
+
+Package: ata-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: ata-modules
+Depends: kernel-image-6.1.0-42-arm64-di, scsi-core-modules-6.1.0-42-arm64-di
+Description: ATA disk modules
+
+Package: bogl-bterm-udeb
+Status: install ok unpacked
+Version: 0.1.18-20
+Depends: libc6-udeb (>= 2.34)
+Description: Ben's Own Graphics Library - graphical terminal
+
+Package: brltty-udeb
+Status: install ok unpacked
+Version: 6.5-7+deb12u1
+Depends: libasound2-udeb (>= 1.2.8), libc6-udeb (>= 2.36), libcap2-udeb (>= 1:2.63), libexpat1-udeb (>= 1.95.8), preseed-common
+Description: Access software for a blind person using a braille display
+Installer-Menu-Item: 1050
+
+Package: busybox-udeb
+Status: install ok unpacked
+Version: 1:1.35.0-4+b7
+Depends: libc6-udeb (>= 2.36)
+Description: Tiny utilities for the debian-installer
+
+Package: ca-certificates-udeb
+Status: install ok unpacked
+Version: 20230311+deb12u1
+Description: Common CA certificates - udeb
+
+Package: cdebconf-newt-terminal
+Status: install ok unpacked
+Version: 0.43
+Provides: cdebconf-terminal
+Depends: cdebconf-newt-udeb (>= 0.146), libc6-udeb (>= 2.36), libnewt0.52-udeb (>= 0.52.23)
+Description: cdebconf newt plugin to provide a clean terminal
+
+Package: cdebconf-newt-udeb
+Status: install ok unpacked
+Version: 0.270
+Depends: cdebconf-udeb, di-utils-terminfo, libc6-udeb (>= 2.36), libnewt0.52-udeb (>= 0.52.23), libslang2-udeb (>= 2.3.3), libtextwrap1-udeb (>= 0.1)
+Description: Newt frontend for Debian Configuration Management System
+
+Package: cdebconf-priority
+Status: install ok unpacked
+Version: 0.270
+Depends: cdebconf-udeb
+Description: Change debconf priority
+Installer-Menu-Item: 93000
+
+Package: cdebconf-text-udeb
+Status: install ok unpacked
+Version: 0.270
+Depends: cdebconf-udeb, libc6-udeb (>= 2.36), libreadline8-udeb
+Description: Plain text frontend for Debian Configuration Management System
+
+Package: cdebconf-udeb
+Status: install ok unpacked
+Version: 0.270
+Provides: debconf-2.0
+Depends: libc6-udeb (>= 2.36), libdebian-installer4-udeb (>= 0.124), libtextwrap1-udeb (>= 0.1)
+Description: Debian Configuration Management System (C-implementation)
+
+Package: cdrom-checker
+Status: install ok unpacked
+Version: 1.61
+Depends: cdrom-detect, cdebconf-udeb
+Description: Verify the cd contents
+Installer-Menu-Item: 94000
+
+Package: cdrom-core-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: cdrom-core-modules
+Depends: kernel-image-6.1.0-42-arm64-di, scsi-core-modules-6.1.0-42-arm64-di
+Description: CDROM support
+
+Package: cdrom-detect
+Status: install ok unpacked
+Version: 1.106
+Depends: cdebconf-udeb, hw-detect, di-utils
+Description: Detect CDROM devices and mount the CD
+Installer-Menu-Item: 1300
+
+Package: cdrom-retriever
+Status: install ok unpacked
+Version: 1.63
+Provides: retriever
+Depends: cdebconf-udeb, cdrom-detect
+Description: Fetch modules from a CDROM
+
+Package: console-setup-pc-ekmap
+Status: install ok unpacked
+Version: 1.221
+Provides: console-setup-ekmap
+Description: encoded Linux keyboard layouts for PC keyboards
+
+Package: console-setup-udeb
+Status: install ok unpacked
+Version: 1.221
+Provides: keyboard-setup
+Depends: archdetect, cdebconf-udeb, kbd-udeb | kbdcontrol-udeb | hurd-udeb
+Description: Configure the keyboard
+Installer-Menu-Item: 1200
+
+Package: crc-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: crc-modules
+Depends: kernel-image-6.1.0-42-arm64-di
+Description: CRC modules
+
+Package: di-utils
+Status: install ok unpacked
+Version: 1.146
+Depends: libc6-udeb (>= 2.36), libdebian-installer4-udeb (>= 0.124), cdebconf-udeb, busybox-udeb (>= 1:1.35.0-2)
+Description: Miscellaneous utilities for the debian installer
+
+Package: di-utils-reboot
+Status: install ok unpacked
+Version: 1.146
+Depends: cdebconf-udeb
+Description: Reboot
+Installer-Menu-Item: 99500
+
+Package: di-utils-shell
+Status: install ok unpacked
+Version: 1.146
+Depends: cdebconf-udeb, di-utils
+Description: Execute a shell
+Installer-Menu-Item: 95000
+
+Package: di-utils-terminfo
+Status: install ok unpacked
+Version: 1.146
+Description: Terminfo entries needed by newt/slang in debian installer
+
+Package: env-preseed
+Status: install ok unpacked
+Version: 1.117
+Description: debconf preseeding via environment variables
+
+Package: fat-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: fat-modules
+Depends: kernel-image-6.1.0-42-arm64-di
+Description: FAT filesystem support
+
+Package: fb-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: fb-modules
+Depends: kernel-image-6.1.0-42-arm64-di, i2c-modules-6.1.0-42-arm64-di
+Description: Frame buffer support
+
+Package: file-preseed
+Status: install ok unpacked
+Version: 1.117
+Depends: cdebconf-udeb, di-utils, preseed-common
+Description: load debconf preseed file
+Installer-Menu-Item: 1400
+
+Package: haveged-udeb
+Status: install ok unpacked
+Version: 1.9.14-1+b1
+Depends: libc6-udeb (>= 2.35)
+Description: Linux entropy source using the HAVEGE algorithm -- udeb
+
+Package: hw-detect
+Status: install ok unpacked
+Version: 1.159
+Depends: rootskel, archdetect, cdebconf-udeb, di-utils, pciutils-udeb, udpkg
+Description: Detect hardware and load kernel drivers for it
+
+Package: i2c-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: i2c-modules
+Depends: kernel-image-6.1.0-42-arm64-di
+Description: i2c support modules
+
+Package: initrd-preseed
+Status: install ok unpacked
+Version: 1.117
+Depends: preseed-common
+Description: load debconf preseed file from /preseed.cfg on the initrd
+
+Package: input-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: input-modules
+Depends: kernel-image-6.1.0-42-arm64-di, usb-modules-6.1.0-42-arm64-di, i2c-modules-6.1.0-42-arm64-di, crc-modules-6.1.0-42-arm64-di
+Description: Input devices support
+
+Package: installation-locale
+Status: install ok unpacked
+Version: 1.9
+Depends: rootskel
+Description: UTF-8 C locale
+
+Package: isofs-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: isofs-modules
+Depends: kernel-image-6.1.0-42-arm64-di, cdrom-core-modules-6.1.0-42-arm64-di
+Description: ISOFS filesystem support
+
+Package: kbd-udeb
+Status: install ok unpacked
+Version: 2.5.1-1+b1
+Depends: libc6-udeb (>= 2.36)
+Description: Linux console keyboard setup utilities
+
+Package: kernel-image-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: kernel-image, mmc-core-modules
+Description: Linux kernel image and core modules for the Debian installer
+
+Package: kmod-udeb
+Status: install ok unpacked
+Version: 30+20221128-1
+Depends: libc6-udeb (>= 2.36)
+Description: libkmod shared library
+
+Package: libacl1-udeb
+Status: install ok unpacked
+Version: 2.3.1-3
+Depends: libc6-udeb (>= 2.36)
+Description: access control list - udeb shared library
+
+Package: libasound2-udeb
+Status: install ok unpacked
+Version: 1.2.8-1+b1
+Depends: libc6-udeb (>= 2.36)
+Description: shared library for ALSA applications (udeb)
+
+Package: libblkid1-udeb
+Status: install ok unpacked
+Version: 2.38.1-5+deb12u3
+Depends: libc6-udeb (>= 2.36)
+Description: stripped down block device ID library, for debian-installer
+
+Package: libc6-udeb
+Status: install ok unpacked
+Version: 2.36-9+deb12u13
+Provides: libc-udeb, libc6, libnss-dns-udeb, libnss-files-udeb
+Description: GNU C Library: Shared libraries - udeb
+
+Package: libcap2-udeb
+Status: install ok unpacked
+Version: 1:2.66-4+deb12u2+b2
+Depends: libc6-udeb (>= 2.36)
+Description: POSIX 1003.1e capabilities (library)
+
+Package: libcrypt1-udeb
+Status: install ok unpacked
+Version: 1:4.4.33-2
+Description: libcrypt shared library
+
+Package: libcrypto3-udeb
+Status: install ok unpacked
+Version: 3.0.18-1~deb12u1
+Depends: libc6-udeb (>= 2.36)
+Description: Secure Sockets Layer toolkit - libcrypto udeb
+
+Package: libdebconfclient0-udeb
+Status: install ok unpacked
+Version: 0.270
+Depends: libc6-udeb (>= 2.36), cdebconf-udeb
+Description: Debian Configuration Management System (C-implementation)
+
+Package: libdebian-installer4-udeb
+Status: install ok unpacked
+Version: 0.124
+Depends: libc6-udeb (>= 2.35)
+Description: Library of common debian-installer functions
+
+Package: libexpat1-udeb
+Status: install ok unpacked
+Version: 2.5.0-1+deb12u2
+Depends: libc6-udeb (>= 2.36)
+Description: XML parsing C library - runtime library
+
+Package: libfribidi0-udeb
+Status: install ok unpacked
+Version: 1.0.8-2.1
+Depends: libc6-udeb (>= 2.33)
+Description: Free Implementation of the Unicode BiDi algorithm
+
+Package: libkmod2-udeb
+Status: install ok unpacked
+Version: 30+20221128-1
+Depends: libc6-udeb (>= 2.36)
+Description: libkmod shared library
+
+Package: libncursesw6-udeb
+Status: install ok unpacked
+Version: 6.4-4
+Depends: libtinfo6-udeb (= 6.4-4), libc6-udeb (>= 2.36)
+Description: shared libraries for terminal handling (wide character support) - udeb
+
+Package: libnewt0.52-udeb
+Status: install ok unpacked
+Version: 0.52.23-1+b1
+Depends: libc6-udeb (>= 2.36), libslang2-udeb (>= 2.3.3)
+Description: Not Erik's Windowing Toolkit for Debian Installer
+
+Package: libpci3-udeb
+Status: install ok unpacked
+Version: 1:3.9.0-4
+Depends: libc6-udeb (>= 2.36), libudev1-udeb (>= 252.4), zlib1g-udeb (>= 1:1.2.3.3.dfsg-1)
+Description: PCI Utilities (udeb shared library)
+
+Package: libpcre2-8-0-udeb
+Status: install ok unpacked
+Version: 10.42-1
+Depends: libc6-udeb (>= 2.36)
+Description: New Perl Compatible Regular Expression Library- 8 bit runtime files (udeb)
+
+Package: libreadline8-udeb
+Status: install ok unpacked
+Version: 8.2-1.3
+Depends: readline-common-udeb, libc6-udeb (>= 2.36), libtinfo6-udeb (>= 6.3+20220423)
+Description: GNU readline and history libraries, run-time libraries (d-i)
+
+Package: libselinux1-udeb
+Status: install ok unpacked
+Version: 3.4-1+b6
+Depends: libc6-udeb (>= 2.36), libpcre2-8-0-udeb (>= 10.42)
+Description: SELinux runtime shared libraries
+
+Package: libslang2-udeb
+Status: install ok unpacked
+Version: 2.3.3-3
+Depends: libc6-udeb (>= 2.36)
+Description: S-Lang library for Debian Installer
+
+Package: libssl3-udeb
+Status: install ok unpacked
+Version: 3.0.18-1~deb12u1
+Depends: libc6-udeb (>= 2.36), libcrypto3-udeb (>= 3.0.18)
+Description: ssl shared library - udeb
+
+Package: libtextwrap1-udeb
+Status: install ok unpacked
+Version: 0.1-16
+Depends: libc6-udeb (>= 2.36)
+Description: text-wrapping library with i18n - runtime udeb
+
+Package: libtinfo6-udeb
+Status: install ok unpacked
+Version: 6.4-4
+Depends: libc6-udeb (>= 2.36)
+Description: shared low-level terminfo library for terminal handling - udeb
+
+Package: libudev1-udeb
+Status: install ok unpacked
+Version: 252.39-1~deb12u1
+Depends: libc6-udeb (>= 2.36)
+Description: libudev shared library
+
+Package: libuuid1-udeb
+Status: install ok unpacked
+Version: 2.38.1-5+deb12u3
+Depends: libc6-udeb (>= 2.36)
+Description: stripped down Universally Unique ID library, for debian-installer
+
+Package: load-cdrom
+Status: install ok unpacked
+Version: 1.63
+Depends: cdebconf-udeb, cdrom-retriever, anna
+Description: Load installer components from CD
+Installer-Menu-Item: 1600
+
+Package: localechooser
+Status: install ok unpacked
+Version: 2.103
+Depends: cdebconf-udeb
+Description: choose language/country/locale
+Installer-Menu-Item: 1000
+
+Package: lowmemcheck
+Status: install ok unpacked
+Version: 1.51
+Depends: libc6-udeb (>= 2.33), cdebconf-udeb, main-menu
+Description: detect low-memory systems and enter lowmem mode
+
+Package: main-menu
+Status: install ok unpacked
+Version: 1.65
+Depends: libc6-udeb (>= 2.33), libdebconfclient0-udeb (>= 0.263), libdebian-installer4-udeb (>= 0.123), cdebconf-udeb
+Description: Debian installer main menu
+
+Package: media-retriever
+Status: install ok unpacked
+Version: 1.57
+Provides: retriever
+Depends: cdebconf-udeb, mountmedia
+Description: Fetches modules from removable media
+
+Package: mmc-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: mmc-modules
+Depends: kernel-image-6.1.0-42-arm64-di, usb-modules-6.1.0-42-arm64-di, crc-modules-6.1.0-42-arm64-di
+Description: MMC/SD card modules
+
+Package: mountmedia
+Status: install ok unpacked
+Version: 0.26
+Depends: di-utils (>= 1.66)
+Description: Mounts media
+
+Package: nano-udeb
+Status: install ok unpacked
+Version: 7.2-1+deb12u1
+Depends: libc6-udeb (>= 2.36), libncursesw6-udeb (>= 6.3+20220423), libtinfo6-udeb (>= 6.3+20220423)
+Description: small, friendly text editor inspired by Pico - udeb
+
+Package: pciutils-udeb
+Status: install ok unpacked
+Version: 1:3.9.0-4
+Depends: libc6-udeb (>= 2.36), libkmod2-udeb (>= 30~), libpci3-udeb (>= 1:3.5.2-1)
+Description: PCI Utilities (udeb)
+
+Package: preseed-common
+Status: install ok unpacked
+Version: 1.117
+Depends: cdebconf-udeb, di-utils
+Description: common files for preseeding
+
+Package: readline-common-udeb
+Status: install ok unpacked
+Version: 8.2-1.3
+Description: GNU readline and history libraries, common files (d-i)
+
+Package: rescue-check
+Status: install ok unpacked
+Version: 1.93+deb12u1
+Depends: cdebconf-udeb, main-menu, di-utils
+Description: enter d-i rescue mode if requested
+
+Package: rootskel
+Status: install ok unpacked
+Version: 1.136
+Depends: di-utils, udev-udeb, cdebconf-udeb
+Description: Skeleton root filesystem used by debian-installer
+
+Package: sata-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: sata-modules
+Depends: kernel-image-6.1.0-42-arm64-di, scsi-core-modules-6.1.0-42-arm64-di, ata-modules-6.1.0-42-arm64-di
+Description: SATA drivers
+
+Package: save-logs
+Status: install ok unpacked
+Version: 2.89
+Depends: cdebconf-udeb
+Description: save logs and configuration for debug purposes
+Installer-Menu-Item: 94000
+
+Package: screen-udeb
+Status: install ok unpacked
+Version: 4.9.0-4
+Depends: libc6-udeb (>= 2.36), libcrypt1-udeb (>= 1:4.4.33), libtinfo6-udeb (>= 6.3+20220423)
+Description: terminal multiplexer with VT100/ANSI terminal emulation - udeb
+
+Package: scsi-core-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: scsi-core-modules
+Depends: kernel-image-6.1.0-42-arm64-di, crc-modules-6.1.0-42-arm64-di
+Description: Core SCSI subsystem
+
+Package: scsi-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: scsi-modules
+Depends: kernel-image-6.1.0-42-arm64-di, scsi-core-modules-6.1.0-42-arm64-di, cdrom-core-modules-6.1.0-42-arm64-di, ata-modules-6.1.0-42-arm64-di
+Description: SCSI drivers
+
+Package: udev-udeb
+Status: install ok unpacked
+Version: 252.39-1~deb12u1
+Depends: libacl1-udeb (>= 2.3.1), libblkid1-udeb (>= 2.31), libc6-udeb (>= 2.36), libcap2-udeb (>= 1:2.63), libkmod2-udeb (>= 30~), libselinux1-udeb (>= 3.4), util-linux-udeb
+Description: /dev/ and hotplug management daemon
+
+Package: udpkg
+Status: install ok unpacked
+Version: 1.21
+Depends: libc6-udeb (>= 2.32), libdebian-installer4-udeb (>= 0.122)
+Description: tiny dpkg clone
+
+Package: uinput-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: uinput-modules
+Depends: kernel-image-6.1.0-42-arm64-di
+Description: uinput support
+
+Package: usb-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: usb-modules
+Depends: kernel-image-6.1.0-42-arm64-di
+Description: USB support
+
+Package: usb-serial-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: usb-serial-modules
+Depends: kernel-image-6.1.0-42-arm64-di, usb-modules-6.1.0-42-arm64-di
+Description: USB serial drivers
+
+Package: usb-storage-modules-6.1.0-42-arm64-di
+Status: install ok unpacked
+Version: 6.1.159-1
+Provides: usb-storage-modules
+Depends: kernel-image-6.1.0-42-arm64-di, scsi-core-modules-6.1.0-42-arm64-di, usb-modules-6.1.0-42-arm64-di
+Description: USB storage support
+
+Package: util-linux-udeb
+Status: install ok unpacked
+Version: 2.38.1-5+deb12u3
+Depends: libc6-udeb (>= 2.36)
+Description: stripped down miscellaneous system utilities, for debian-installer
+
+Package: wget-udeb
+Status: install ok unpacked
+Version: 1.21.3-1+deb12u1
+Depends: libc6-udeb (>= 2.36), libcrypto3-udeb (>= 3.0.15), libpcre2-8-0-udeb (>= 10.42), libssl3-udeb (>= 3.0.15), libuuid1-udeb (>= 2.31), zlib1g-udeb (>= 1:1.2.3.3.dfsg-1)
+Description: retrieves files from the web
+
+Package: wireless-regdb-udeb
+Status: install ok unpacked
+Version: 2025.07.10-1~deb12u1
+Description: wireless regulatory database for Linux - udeb
+
+Package: zlib1g-udeb
+Status: install ok unpacked
+Version: 1:1.2.13.dfsg-1
+Description: compression library - runtime for Debian installer
+
+Package: debian-installer
+Status: install ok installed
+Version: cdrom-grub-20230607+deb12u13
+Description: debian installation image
+

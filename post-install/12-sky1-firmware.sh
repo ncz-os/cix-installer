@@ -25,8 +25,22 @@ echo "[12] copying Sky1 firmware blobs $SRC → $DEST"
 mkdir -p "$DEST"
 cp -rn "$SRC"/* "$DEST"/
 echo "    installed: $(find "$DEST" -newer "$SRC" -type f 2>/dev/null | wc -l) files"
+
+# panthor (Mali-G720) request_firmware() path fix.
+# Our sky1-firmware ships mali_csffw.bin at arm/mali/mali_csffw.bin, but:
+#   - cix-sky1 LTS kernel's panthor requests bare 'mali_csffw.bin'
+#     (dmesg: panthor CIXH5000:00: [drm] *ERROR* Failed to load firmware
+#     image 'mali_csffw.bin' / probe with driver panthor failed -2)
+#   - upstream panthor (6.10+) requests 'arm/mali_csffw.bin'
+# Drop both symlinks so either driver flavour resolves the file.
+if [ -f "$DEST/arm/mali/mali_csffw.bin" ]; then
+    ln -sfn arm/mali/mali_csffw.bin "$DEST/mali_csffw.bin"
+    ln -sfn mali/mali_csffw.bin     "$DEST/arm/mali_csffw.bin"
+    echo "    symlinks: /lib/firmware/mali_csffw.bin + /lib/firmware/arm/mali_csffw.bin"
+fi
+
 echo "    key blobs:"
-for f in mali_csffw.bin dsp_fw.bin h264dec.fwb hevcdec.fwb av1dec.fwb arm/mali; do
+for f in mali_csffw.bin arm/mali_csffw.bin arm/mali/mali_csffw.bin dsp_fw.bin h264dec.fwb hevcdec.fwb av1dec.fwb; do
     if [ -e "$DEST/$f" ]; then
         echo "      ✓ $f"
     else

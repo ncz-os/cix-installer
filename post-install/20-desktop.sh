@@ -1,12 +1,18 @@
 #!/bin/bash
-# 20-desktop.sh — GNOME desktop + chromium + Wayland-native RDP.
+# 20-desktop.sh — GNOME + XFCE desktop layer.
 #
-# Apt-installs the same set Cix's stock factory image ships, layered
-# on top of our base install. apt resolves all deps from Debian's
-# bookworm + cix non-free + bookworm-updates archives.
+# r9 (2026-05-03+, post-trixie pivot): install BOTH GNOME and XFCE.
+# GNOME doesn't fully work on Mali-G720 yet (Mesa panthor/panvk landed
+# in Mesa 24.x — trixie has it but driver maturity is incomplete).
+# XFCE doesn't require GPU compositing and works reliably on Sky1.
+#
+# User picks session at GDM login (gear icon next to login button).
+# Default session = XFCE (safer until Mesa+panthor matures).
+#
+# Plus: chromium, mesa-utils, vulkan-tools, common dev tools.
 set -euo pipefail
 
-echo "[20] desktop layer (GNOME + chromium + RDP)"
+echo "[20] desktop layer (GNOME + XFCE + diagnostics + dev tools)"
 
 # Drop the d-i-injected `deb cdrom:[...]` line. By the time post-install
 # runs, the install media is no longer available to the chroot via apt;
@@ -17,36 +23,58 @@ sed -i 's|^deb cdrom:|# deb cdrom:|' /etc/apt/sources.list
 
 apt-get update -q
 
-# Core desktop
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    gnome-core \
-    gdm3 \
-    gnome-terminal \
-    gnome-system-monitor \
-    gnome-text-editor \
-    gnome-disk-utility \
-    gnome-keyring \
-    gnome-tweaks \
-    nautilus \
-    network-manager-gnome \
-    pipewire \
-    wireplumber \
-    pavucontrol \
-    fonts-dejavu \
-    fonts-liberation \
-    fonts-noto \
-    fonts-noto-color-emoji \
-    xdg-utils \
-    xdg-user-dirs
+# GNOME (Ubuntu's curated minimal desktop — pulls gdm3 + ubuntu-session)
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    ubuntu-desktop-minimal \
+    gnome-tweaks
 
-# Browser
+# XFCE (Ubuntu's xubuntu-core metapackage — full session, lighter than ubuntu-desktop)
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    chromium
+    xubuntu-core \
+    xfce4-terminal \
+    xfce4-power-manager \
+    xfce4-screenshooter \
+    xfce4-taskmanager
+
+# Browser — Ubuntu's chromium is a snap; install firefox-esr from .deb instead
+# (snaps don't work well in our minimal-desktop layered install)
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    firefox \
+    || DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    firefox-esr \
+    || true
 
 # RDP — Wayland-native
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     gnome-remote-desktop || \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xrdp
+
+# Mesa diagnostics + Vulkan tools — useful for live triage of GPU issues
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    mesa-utils \
+    vulkan-tools \
+    libglu1-mesa \
+    || true
+
+# Dev / sysadmin basics
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    htop \
+    btop \
+    iotop \
+    vim \
+    git \
+    curl \
+    wget \
+    tmux \
+    zstd \
+    pciutils \
+    usbutils \
+    || true
+
+# Flatpak — sideways for newer-than-distro userspace (Mesa, browsers, dev tools)
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    flatpak \
+    || true
 
 # Default to graphical login
 systemctl set-default graphical.target
@@ -115,6 +143,29 @@ system-db:local
 USERPROF
 
 dconf update || true
+
+# ----------------------------------------------------------------------
+# Default GDM session = XFCE (until Mesa+panthor matures for GNOME on
+# Mali-G720). User can switch via the gear icon at GDM login.
+#
+# AccountsService stores per-user default session; we set a fleet-wide
+# default by writing /var/lib/AccountsService/users/<user>.template.
+# Actual user account file is created at first login from /etc/skel.
+# ----------------------------------------------------------------------
+install -d /var/lib/AccountsService/users
+cat > /var/lib/AccountsService/users/.fleet-default <<'AS'
+[User]
+Session=xfce
+XSession=xfce
+SystemAccount=false
+AS
+
+# Also set systemwide default in /etc/dconf so first-login lands on XFCE
+cat >> /etc/dconf/db/local.d/01-nclawzero-wallpaper <<'XFCEDEF'
+
+[org/gnome/desktop/session]
+session-name='xfce'
+XFCEDEF
 
 # ----------------------------------------------------------------------
 # Skip gnome-initial-setup wizard on first login.

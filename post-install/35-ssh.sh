@@ -22,6 +22,33 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 systemctl enable ssh || true
 systemctl enable ssh.socket || true
 
+# Make sshd ALSO start in rescue.target — so cixmini-rescue.conf boots
+# get a remote shell for diagnostics. By default rescue.target only
+# runs emergency-grade services (no sshd). Drop-in pulls sshd in via
+# WantedBy=rescue.target alongside multi-user.target. Critical when
+# normal boot wedges and the only way to inspect /var/log/cix-install/
+# is via SSH.
+mkdir -p /etc/systemd/system/ssh.service.d
+cat > /etc/systemd/system/ssh.service.d/run-in-rescue.conf <<'EOF'
+[Install]
+WantedBy=rescue.target
+EOF
+# sshd ALSO needs networking active in rescue.target. By default
+# rescue.target doesn't pull NetworkManager (it's pulled by
+# multi-user.target). Add a drop-in to NetworkManager so it joins
+# rescue.target — without this, sshd is up but has no IP, so SSH
+# from another fleet host can't reach the box (discovered 2026-05-03
+# when cixmini wedged into rescue and we couldn't ssh in to inspect
+# /var/log/cix-install/).
+mkdir -p /etc/systemd/system/NetworkManager.service.d
+cat > /etc/systemd/system/NetworkManager.service.d/run-in-rescue.conf <<'EOF'
+[Install]
+WantedBy=rescue.target
+EOF
+# Re-trigger preset so the drop-in WantedBy gets symlink-installed
+systemctl reenable ssh || true
+systemctl reenable NetworkManager 2>/dev/null || true
+
 # ---- authorized_keys -------------------------------------------------
 # Fleet-canonical keys baked here so the device is reachable immediately
 # after first boot. Operators can rotate via sync-fleet-keys.sh later.

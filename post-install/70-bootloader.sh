@@ -79,11 +79,32 @@ fi
 echo "  systemd-bootaa64.efi present on ESP"
 
 # ----------------------------------------------------------------------
+# WIPE STALE ESP STATE before writing fresh entries.
+#
+# Every prior install accumulated loader entry .conf files and
+# vmlinuz copies on the ESP. systemd-boot reads ALL *.conf files in
+# /boot/efi/loader/entries/ — leftover entries from r1/r2/r3 installs
+# show up alongside the new ones, defaulting to whichever has the
+# lowest sort name. This caused multiple "nclawzero (cixmini)"
+# entries on cixmini.66 (r6 era + earlier) and confused systemd-boot's
+# default selection.
+#
+# Wipe everything we own here. If the user has an out-of-band entry
+# they want preserved, they can re-add it after install.
+echo "  wiping stale ESP entries + kernel images..."
+rm -f /boot/efi/loader/entries/*.conf
+rm -f /boot/efi/vmlinuz-*
+# Some installs put kernels in /boot/efi/EFI/Linux/ via systemd-boot's
+# automatic discovery. Wipe those too.
+rm -f /boot/efi/EFI/Linux/*.efi 2>/dev/null
+echo "  ESP wiped — about to write fresh dual-kernel entries"
+
+# ----------------------------------------------------------------------
 # loader.conf
 # ----------------------------------------------------------------------
 mkdir -p /boot/efi/loader/entries
 cat > /boot/efi/loader/loader.conf <<'EOF'
-default cixmini-lts
+default cixmini-next
 timeout 5
 console-mode auto
 editor yes
@@ -122,29 +143,58 @@ SPLASH=""
 ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 rw"
 
 # ----------------------------------------------------------------------
-# Stage kernels onto ESP — systemd-boot reads /boot/efi by default
+# Stage kernels onto ESP — systemd-boot reads /boot/efi by default.
+#
+# Tolerant: if a kernel image is missing (because 10-our-kernel.sh
+# couldn't install it), log a clear warning and skip writing that
+# loader entry. Don't hard-fail the whole bootloader hook.
 # ----------------------------------------------------------------------
-install -m 0644 "/boot/vmlinuz-$KVER_LTS" "/boot/efi/vmlinuz-$KVER_LTS"
-echo "  staged /boot/efi/vmlinuz-$KVER_LTS"
+LTS_AVAILABLE=0
+NEXT_AVAILABLE=0
+
+if [ -f "/boot/vmlinuz-$KVER_LTS" ]; then
+    install -m 0644 "/boot/vmlinuz-$KVER_LTS" "/boot/efi/vmlinuz-$KVER_LTS"
+    echo "  staged /boot/efi/vmlinuz-$KVER_LTS"
+    LTS_AVAILABLE=1
+else
+    echo "  WARN: /boot/vmlinuz-$KVER_LTS missing — LTS entry will be SKIPPED"
+fi
 
 if [ -n "$KVER_NEXT" ] && [ -f "/boot/vmlinuz-$KVER_NEXT" ]; then
     install -m 0644 "/boot/vmlinuz-$KVER_NEXT" "/boot/efi/vmlinuz-$KVER_NEXT"
     echo "  staged /boot/efi/vmlinuz-$KVER_NEXT"
+    NEXT_AVAILABLE=1
+elif [ -n "$KVER_NEXT" ]; then
+    echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — BETA entry will be SKIPPED"
+fi
+
+if [ "$LTS_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
+    echo "ERROR: NEITHER kernel installed — system is unbootable."
+    echo "       Check 10-our-kernel.sh log for failures."
+    exit 1
 fi
 
 # ----------------------------------------------------------------------
-# Entry 1 — cixmini-lts.conf (DEFAULT, production-stable)
+# Entry 1 — cixmini-lts.conf (DEFAULT, production-stable, only if LTS available)
 # ----------------------------------------------------------------------
-LTS_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
-[ -n "$SPLASH" ] && LTS_OPTIONS="$LTS_OPTIONS $SPLASH"
+if [ "$LTS_AVAILABLE" = "1" ]; then
+    LTS_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
+    [ -n "$SPLASH" ] && LTS_OPTIONS="$LTS_OPTIONS $SPLASH"
 
-cat > /boot/efi/loader/entries/cixmini-lts.conf <<EOF
-title   nclawzero (cixmini) — kernel $KVER_LTS [LTS, default]
+    # sort-key forces menu-order (systemd-boot 252+).
+    # Order (per RULE 2026-05-03 update): NEXT (7.x) first/default,
+    # LTS (6.18) second/fallback, rescue last.
+    cat > /boot/efi/loader/entries/cixmini-lts.conf <<EOF
+title   nclawzero (cixmini) — kernel $KVER_LTS [LTS, fallback] — $BUILD_VERSION
+sort-key 2-lts
 version $KVER_LTS
 linux   /vmlinuz-$KVER_LTS
 options $LTS_OPTIONS
 EOF
-echo "  wrote cixmini-lts.conf (default)"
+    echo "  wrote cixmini-lts.conf (sort-key 2-lts, fallback)"
+else
+    echo "  skipping cixmini-lts.conf (LTS kernel not installed)"
+fi
 
 # ----------------------------------------------------------------------
 # Entry 2 — cixmini-next.conf ([BETA] — only if NEXT kernel was installed)
@@ -157,17 +207,18 @@ echo "  wrote cixmini-lts.conf (default)"
 # 7.0 expects yet. 6.18.26 LTS does NOT have these issues. This BETA
 # entry is for A/B testing only; production users should pick LTS.
 # ----------------------------------------------------------------------
-if [ -n "$KVER_NEXT" ] && [ -f "/boot/efi/vmlinuz-$KVER_NEXT" ]; then
+if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 
     cat > /boot/efi/loader/entries/cixmini-next.conf <<EOF
-title   *** [BETA — UNSTABLE] nclawzero kernel $KVER_NEXT — KNOWN-BUGGY on MS-R1 ***
+title   nclawzero (cixmini) — kernel $KVER_NEXT [next, default] — $BUILD_VERSION
+sort-key 1-next
 version $KVER_NEXT
 linux   /vmlinuz-$KVER_NEXT
 options $NEXT_OPTIONS
 EOF
-    echo "  wrote cixmini-next.conf (BETA — known SCMI errors on MS-R1)"
+    echo "  wrote cixmini-next.conf (sort-key 1-next, default)"
 else
     echo "  skipping cixmini-next.conf (BETA kernel not installed)"
 fi
@@ -180,15 +231,45 @@ fi
 # for recovery. Useful when default cixmini-lts.conf wedges from a bad
 # config + we need to roll something back.
 # ----------------------------------------------------------------------
-RESCUE_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE systemd.unit=rescue.target"
+# Rescue uses LTS by preference, falls back to NEXT if LTS missing.
+if [ "$LTS_AVAILABLE" = "1" ]; then
+    RESCUE_KVER="$KVER_LTS"
+elif [ "$NEXT_AVAILABLE" = "1" ]; then
+    RESCUE_KVER="$KVER_NEXT"
+else
+    RESCUE_KVER=""
+fi
 
-cat > /boot/efi/loader/entries/cixmini-rescue.conf <<EOF
-title   SAFE rescue (cixmini) — kernel $KVER_LTS rescue.target
-version $KVER_LTS
-linux   /vmlinuz-$KVER_LTS
+if [ -n "$RESCUE_KVER" ]; then
+    RESCUE_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE systemd.unit=rescue.target"
+
+    cat > /boot/efi/loader/entries/cixmini-rescue.conf <<EOF
+title   SAFE rescue (cixmini) — kernel $RESCUE_KVER rescue.target — $BUILD_VERSION
+sort-key 3-rescue
+version $RESCUE_KVER
+linux   /vmlinuz-$RESCUE_KVER
 options $RESCUE_OPTIONS
 EOF
-echo "  wrote cixmini-rescue.conf"
+    echo "  wrote cixmini-rescue.conf (sort-key 3-rescue)"
+fi
+
+# Per RULE update (2026-05-03): default = NEXT (7.x), with LTS (6.18)
+# as fallback. If NEXT missing for some reason, fall back to LTS.
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    DEFAULT_ENTRY="cixmini-next"
+elif [ "$LTS_AVAILABLE" = "1" ]; then
+    DEFAULT_ENTRY="cixmini-lts"
+else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
+    exit 1
+fi
+cat > /boot/efi/loader/loader.conf <<EOF
+default $DEFAULT_ENTRY
+timeout 5
+console-mode auto
+editor yes
+EOF
+echo "  loader.conf default = $DEFAULT_ENTRY"
 
 # ----------------------------------------------------------------------
 # Add a UEFI boot entry pointing at systemd-boot.

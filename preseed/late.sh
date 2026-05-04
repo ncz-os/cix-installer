@@ -104,9 +104,32 @@ md5sum /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 ||
 wc -c /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 || true
 echo
 
+# Codex A2 CRITICAL #2 fix: Mount /cdrom inside /target so post-install
+# hooks can `apt-get install` from our offline mirror via file:///cdrom.
+# Without this, 10-our-kernel.sh + 70-bootloader.sh + 20-desktop.sh fail
+# because preseed has apt-setup/use_mirror=false (offline-only install).
+echo "--- mounting cdrom into /target for offline apt-get during post-install ---"
+mkdir -p /target/cdrom
+mount --bind /cdrom /target/cdrom 2>&1 || \
+    { echo "WARN: bind-mount /cdrom into /target failed; post-install apt-get may fail"; }
+
+# Add file:///cdrom apt source to /target's sources.list so apt-get install
+# in chroot can find packages locally. [trusted=yes] bypasses GPG (we
+# don't sign our offline mirror Release file yet).
+cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'CDROM_LIST'
+deb [trusted=yes] file:///cdrom questing main
+CDROM_LIST
+echo "    /target/etc/apt/sources.list.d/cixmini-cdrom.list installed"
+in-target apt-get update 2>&1 | tail -3 || \
+    { echo "WARN: in-target apt-get update from cdrom failed"; }
+
 echo "--- running post-install in chroot ---"
 in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
+
+# Codex A2 fix: don't leave bind-mount around after late_command finishes
+umount /target/cdrom 2>&1 || true
+rmdir /target/cdrom 2>&1 || true
 echo "in-target run-all.sh exited: $RET"
 
 # Eject the install media on success. We turned cdrom-detect/eject off

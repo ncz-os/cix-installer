@@ -1,0 +1,57 @@
+# /etc/screenrc
+# Stripped down version for udeb (debian-installer)
+# 2016  Roger Shimizu <rogershimizu@gmail.com>
+
+# SETTINGS
+
+startup_message off
+
+#defflow on # will force screen to process ^S/^Q
+deflogin on
+#autodetach off
+
+vbell on
+vbell_msg "   Wuff  ----  Wuff!!  "
+
+defscrollback 1024
+
+# KEYBINDINGS
+
+# Remove some stupid / dangerous key bindings
+bind ^k
+#bind L
+bind ^\
+# Make them better
+bind \\ quit
+bind K kill
+bind I login on
+bind O login off
+bind } history
+
+# TERMINAL SETTINGS
+
+hardstatus alwaysfirstline "%{= kG}[%= %{= kw}%?%-Lw%?%{r} (%{W}%n*%f%t%?(%u)%?%{r})%{w}%?%+Lw%?%?%= %{g}][%{B} %M %d %{W}%c %{g}]"
+
+# Enable non-blocking mode to better cope with flaky ssh connections.
+defnonblock 5
+
+# STARTUP SCREENS
+
+# window 0: maps to window 1
+# window 1: debian installer
+# window 2: shell
+# window 3: shell
+# window 4: syslog
+
+shell /bin/sh
+defutf8 on
+
+bind c screen 1
+bind ^c screen 1
+bind 0 select 1
+
+screen -t start	0 sleep 1
+screen -t shell	2 /bin/sh
+screen -t shell	3 /bin/sh
+screen -t log	4 tail -f /var/log/syslog
+shelltitle shell

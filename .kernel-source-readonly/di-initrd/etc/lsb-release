@@ -1,0 +1,4 @@
+DISTRIB_ID=Debian
+DISTRIB_DESCRIPTION="Debian GNU/Linux installer"
+DISTRIB_RELEASE="12 (bookworm) - installer build 20230607+deb12u13"
+X_INSTALLATION_MEDIUM=cdrom

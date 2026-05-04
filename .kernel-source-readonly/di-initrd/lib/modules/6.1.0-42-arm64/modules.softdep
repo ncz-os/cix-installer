@@ -1,0 +1,7 @@
+# Soft dependencies extracted from modules themselves.
+softdep crc_t10dif pre: crct10dif
+softdep libcrc32c pre: crc32c
+softdep crc64_rocksoft pre: crc64
+softdep wm8994 pre: wm8994_regulator
+softdep csiostor pre: cxgb4
+softdep ohci_pci pre: ehci_pci
