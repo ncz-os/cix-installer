@@ -31,29 +31,61 @@ set +e
 # Origin: Jeff Hunter's r74 wireless-only install bug — 'Invalid
 # hostname ""' from netcfg blank, then downstream scripts crashed.
 ncz_default_hostname() {
-    # First non-loopback ethernet MAC, last 4 hex chars, lowercase.
-    # /sys/class/net/*/address is the most-portable source on Linux.
+    # r75 Codex LOW fix — uniqueness + collision space.
+    # Strategy ladder:
+    #   1. First wired-ethernet MAC, last 8 hex chars (32-bit space, ~4 B)
+    #   2. First wireless MAC if no wired (still 8 hex; wireless rand is per
+    #      association so the burned-in MAC under /sys is stable)
+    #   3. systemd machine-id sha256 prefix (8 hex) if no networking at all
+    # All paths produce a hostname like ncz-<8-hex>. /sys/class/net/*/address
+    # is the most-portable Linux source.
     local mac iface
+    # Pass 1: wired
     for iface in $(ls /sys/class/net 2>/dev/null); do
-        case "$iface" in
-            lo|virbr*|docker*|veth*|br-*|tun*|tap*) continue ;;
-        esac
-        # Skip wireless interfaces — we want the persistent identity, and
-        # wireless MACs can be randomized per-association on some configs.
-        if [ -d "/sys/class/net/$iface/wireless" ] || [ -d "/sys/class/net/$iface/phy80211" ]; then
-            continue
-        fi
+        case "$iface" in lo|virbr*|docker*|veth*|br-*|tun*|tap*) continue ;; esac
+        if [ -d "/sys/class/net/$iface/wireless" ] || [ -d "/sys/class/net/$iface/phy80211" ]; then continue; fi
         if [ -r "/sys/class/net/$iface/address" ]; then
             mac=$(cat "/sys/class/net/$iface/address" | tr -d ":" | tr "[:upper:]" "[:lower:]")
             if [ -n "$mac" ] && [ "$mac" != "000000000000" ]; then
-                printf "ncz-%s" "${mac: -4}"
+                printf "ncz-%s" "${mac: -8}"
                 return 0
             fi
         fi
     done
-    # No non-virtual ethernet — fall back to a static identifier to keep
-    # downstream scripts that depend on a non-empty hostname working.
-    echo "ncz-noeth"
+    # Pass 2: wireless (still better than a constant). Per-association MAC
+    # randomization happens at the supplicant layer; the burned-in MAC under
+    # /sys/class/net/<wif>/address is the persistent identifier.
+    for iface in $(ls /sys/class/net 2>/dev/null); do
+        case "$iface" in lo|virbr*|docker*|veth*|br-*|tun*|tap*) continue ;; esac
+        if [ -d "/sys/class/net/$iface/wireless" ] || [ -d "/sys/class/net/$iface/phy80211" ]; then
+            if [ -r "/sys/class/net/$iface/address" ]; then
+                mac=$(cat "/sys/class/net/$iface/address" | tr -d ":" | tr "[:upper:]" "[:lower:]")
+                if [ -n "$mac" ] && [ "$mac" != "000000000000" ]; then
+                    printf "ncz-%s" "${mac: -8}"
+                    return 0
+                fi
+            fi
+        fi
+    done
+    # Pass 3: machine-id hash. systemd populates /etc/machine-id at first
+    # boot to a 128-bit random; sha256-prefix gives a stable identifier
+    # for diskless / DUT-without-NIC edge cases. This is preferable to a
+    # collision-prone "ncz-noeth" constant.
+    if [ -r /etc/machine-id ]; then
+        local mid
+        mid=$(cat /etc/machine-id | tr -d "\r\n")
+        if [ -n "$mid" ]; then
+            local h
+            h=$(printf "%s" "$mid" | sha256sum | cut -c1-8)
+            printf "ncz-%s" "$h"
+            return 0
+        fi
+    fi
+    # Last resort. Should never be hit on a Linux system that has booted
+    # systemd at least once (machine-id is generated then). If we DO get
+    # here, downstream needs a non-empty hostname; "ncz-unset" makes the
+    # state visible to operators.
+    echo "ncz-unset"
 }
 
 EXISTING=$(cat /etc/hostname 2>/dev/null | tr -d ' \t\r\n')

@@ -103,9 +103,14 @@ ncz_desktop_on() {
     echo "[ncz] desktop ON"
     systemctl set-default graphical.target
     if dm=$(ncz_dm_unit); then
+        # r75 Codex MED fix: 48-magnetar-variant.sh masks DM units in the
+        # server variant. systemctl enable fails under set -e on a masked
+        # unit, so always unmask first. Unmask is a no-op on unmasked
+        # units, so this is safe in the desktop-already-active case too.
+        systemctl unmask "$dm" 2>&1 | sed 's/^/  /' || true
         systemctl enable "$dm"
         systemctl start "$dm"
-        echo "[ncz] $dm started"
+        echo "[ncz] $dm unmasked + enabled + started"
     else
         echo "[ncz] no display-manager unit installed; graphical.target set anyway."
         echo "      install one (lightdm/gdm3/sddm) and re-run 'ncz desktop on'."

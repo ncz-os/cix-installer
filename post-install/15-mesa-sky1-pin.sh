@@ -61,14 +61,17 @@ Pin-Priority: 1001
 
 # libdisplay-info3 is needed by Mesa 26+ but Ubuntu questing only ships
 # libdisplay-info1. The Sky1-Linux apt repo provides libdisplay-info3.
+# r75 Codex MED fix — version-glob the sky1 suffix so random apt origins
+# offering the same package name cannot outrank this priority-1001 pin.
 Package: libdisplay-info3
-Pin: origin "*"
+Pin: version *sky1*
 Pin-Priority: 1001
 
 # libllvm21 — Mesa 26's gallium-drivers depend on this; questing ships
-# libllvm20. Sky1-Linux ships 21 alongside.
+# libllvm20. Sky1-Linux ships 21 alongside (epoch 1: prefix is the
+# Debian/Ubuntu llvm package convention).
 Package: libllvm21
-Pin: origin "*"
+Pin: version *sky1*
 Pin-Priority: 1001
 PIN
 

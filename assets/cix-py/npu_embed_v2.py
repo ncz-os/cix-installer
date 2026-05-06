@@ -81,7 +81,15 @@ class NPUEmbedder:
         self.scale = d.scale if d.scale != 0 else 1.0
         self.zero_point = d.zero_point
         self.pooled_size = d.size
-        self.pooled_dtype = np.int16 if d.data_type == 5 else np.int8
+        # Cix NoE tensor data_type values (from libnoe headers):
+        #   2 = int8, 4 = uint8, 5 = int16, 7 = float32
+        # Reject unknown values explicitly rather than defaulting to int8 —
+        # a hidden mismatch would let noe_get_tensor write past the numpy
+        # buffer (Codex r75 review HIGH).
+        _DTYPE_MAP = {2: np.int8, 4: np.uint8, 5: np.int16, 7: np.float32}
+        if d.data_type not in _DTYPE_MAP:
+            raise ValueError(f"NPU descriptor data_type={d.data_type} not in known map {sorted(_DTYPE_MAP)}; refusing to embed")
+        self.pooled_dtype = _DTYPE_MAP[d.data_type]
 
     def _bind(self):
         L = self.lib
@@ -145,7 +153,14 @@ class NPUEmbedder:
             self._chk(self.lib.noe_load_tensor(self.ctx, job_id, 2, ttype.ctypes.data), "load[2]")
             self._chk(self.lib.noe_job_infer_sync(self.ctx, job_id, 5000), "infer")
 
-            pooled = np.zeros(self.pooled_size // 2, dtype=self.pooled_dtype)
+            # r75 Codex review HIGH fix: compute element count from dtype
+            # itemsize, not hardcoded /2. The /2 was correct only for int16
+            # outputs and would underallocate by half for int8 models, letting
+            # noe_get_tensor write past the numpy buffer into adjacent memory.
+            itemsize = np.dtype(self.pooled_dtype).itemsize
+            if self.pooled_size % itemsize != 0:
+                raise ValueError(f"NPU output buffer size {self.pooled_size} not divisible by dtype itemsize {itemsize}")
+            pooled = np.zeros(self.pooled_size // itemsize, dtype=self.pooled_dtype)
             self._chk(self.lib.noe_get_tensor(self.ctx, job_id, NOE_TENSOR_TYPE_OUTPUT,
                                               1, pooled.ctypes.data), "get_pooled")
         finally:
