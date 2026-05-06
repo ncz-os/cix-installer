@@ -84,7 +84,7 @@ Full Codex logs at `~/.claude/plugins/data/codex-openai-codex/state/cix-installe
 - ncz CLI: `desktop on` unmasks DM units before enabling (was failing under set -e on Magnetar systems)
 
 **Deferred (operator action when convenient):**
-- K2 NPU n4hy v4 patch — patch source not located on fleet during unattended pass; pipeline (K1) is ready
+- K2 NPU patch upstream — what earlier docs called "n4hy v4" is actually `visorcraft/orange-pi-6-plus-npu` (Patch 4 IOVA bypass + Patch 5 MODULE_IMPORT_NS workaround). visorcraft's patches let the aipu module compile against mainline kernel 6.18; they do NOT close the 0x23 NOE_STATUS_TIMEOUT recreate-job-per-call workaround that gates the 70-80 emb/sec target. That separate libnoe userspace fix is closed-source-cixtech or community reverse-engineering territory. See MNEMOS `mem_1778108263413_61ff71` for the attribution + analysis.
 - P4 scope-2 #98 — `ncz install mnemos` body (depends on `ncz models pull` LFS strategy)
 - P6/P7 #98/#99 — ncz install mnemos / models pull bodies
 - M1 server bake test — operator runs `bash build/build-iso-di.sh --variant server ...` on .66
@@ -129,7 +129,7 @@ Full Codex logs at `~/.claude/plugins/data/codex-openai-codex/state/cix-installe
 
 - **9.3 GB ISO** — questing-mirror + rootfs.tar.zst dominate. r75 task #61 (`BUILD_MODE=thin|max` flag) deferred — not autopilot-safe to refactor build pipeline. Operator can flash to 16 GB+ USB; r76+ should split.
 - **EFI runtime on NEXT untested on real hardware** — round-5 fix removed `efi=noruntime` from NEXT_CMDLINE_BASE based on systemd documentation + the assumption that `linux-cix-sky1-next 7.0.x` handles EFI runtime cleaner than the 6.6.10 fork the noruntime workaround was originally added for. If NEXT proves unstable on .66 without noruntime, the rollback path is to manually pick LTS from systemd-boot menu, then in r76 re-add efi=noruntime to NEXT_CMDLINE_BASE and drop boot-counting.
-- **K2 n4hy v4 patch deferred** — NPU stays at the 39.55 emb/sec cold envelope from r74. The `~70-80 emb/sec` target remains for r76+ once the patch source is located.
+- **K2 NPU recreate-job workaround unresolved** — NPU stays at the 39.55 emb/sec cold envelope from r74. The `~70-80 emb/sec` target requires fixing libnoe userspace so it doesn't need a fresh job creation per call (the 0x23 NOE_STATUS_TIMEOUT workaround). This is closed-source-cixtech or community-reverse-engineering territory; visorcraft/orange-pi-6-plus-npu kernel patches do NOT close this gap.
 - **Install + boot smoke test on real .66 hardware not yet performed** — bash -n syntax + Codex review approve. Runtime behavior on real hardware is verified by the operator post-flash.
 
 ---
