@@ -20,6 +20,7 @@ BOOKWORM_ISO=""
 ROOT=""
 VERSION=""
 OUTPUT=""
+VARIANT="desktop"   # r75 M1: 'desktop' (Reinhardt SKU) | 'server' (Magnetar SKU)
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -27,9 +28,16 @@ while [ $# -gt 0 ]; do
         --root)         ROOT="$2"; shift 2 ;;
         --version)      VERSION="$2"; shift 2 ;;
         --output)       OUTPUT="$2"; shift 2 ;;
+        --variant)      VARIANT="$2"; shift 2 ;;
         *) echo "unknown arg: $1" >&2; exit 1 ;;
     esac
 done
+
+# Validate VARIANT before staging
+case "$VARIANT" in
+    desktop|server) ;;
+    *) echo "ERROR: --variant must be 'desktop' or 'server' (got '$VARIANT')" >&2; exit 1 ;;
+esac
 
 [ -f "$BOOKWORM_ISO" ] || { echo "ERROR: --bookworm-iso not a file"; exit 1; }
 [ -d "$ROOT" ]         || { echo "ERROR: --root not a dir"; exit 1; }
@@ -956,6 +964,7 @@ fi
 echo "$VERSION"     > "$EXTRA/BUILD_VERSION"
 echo "$BUILD_DATE"  > "$EXTRA/BUILD_DATE"
 echo "$BUILD_HOST"  > "$EXTRA/BUILD_HOST"
+echo "$VARIANT"     > "$EXTRA/BUILD_VARIANT"   # r75 M1: read by 48-magnetar-variant.sh
 # r40: stage the pre-built rootfs tarball so partman/late_command can extract
 # it into /target before bootstrap-base runs.
 ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-questing-arm64.tar.zst"
