@@ -916,6 +916,12 @@ if [ -f "$ROOT/assets/kernel/lts/Image-cixmini.bin" ] && [ -f "$ROOT/assets/kern
     mkdir -p "$EXTRA/assets/kernel/lts"
     cp -L "$ROOT/assets/kernel/lts/Image-cixmini.bin"   "$EXTRA/assets/kernel/lts/"
     cp -L "$ROOT/assets/kernel/lts/modules-cixmini.tgz" "$EXTRA/assets/kernel/lts/"
+    if [ -f "$ROOT/assets/kernel/lts/headers-cixmini.tar.zst" ]; then
+        cp -L "$ROOT/assets/kernel/lts/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/lts/"
+        echo "    LTS headers staged: $(du -h "$EXTRA/assets/kernel/lts/headers-cixmini.tar.zst" | cut -f1)"
+    else
+        echo "    LTS headers: not present (skip — DKMS rebuild will fail on target)"
+    fi
     echo "    LTS kernel staged: $(du -h "$EXTRA/assets/kernel/lts/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/lts/modules-cixmini.tgz" | cut -f1) modules"
 else
     echo "ERROR: assets/kernel/lts/{Image-cixmini.bin,modules-cixmini.tgz} missing — re-run assemble-kernel-assets.sh" >&2
@@ -928,6 +934,12 @@ if [ -f "$NEXT_KVER_FILE" ] && [ -f "$ROOT/assets/kernel/next/Image-cixmini.bin"
     mkdir -p "$EXTRA/assets/kernel/next"
     cp -L "$ROOT/assets/kernel/next/Image-cixmini.bin"   "$EXTRA/assets/kernel/next/"
     cp -L "$ROOT/assets/kernel/next/modules-cixmini.tgz" "$EXTRA/assets/kernel/next/"
+    if [ -f "$ROOT/assets/kernel/next/headers-cixmini.tar.zst" ]; then
+        cp -L "$ROOT/assets/kernel/next/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/next/"
+        echo "    NEXT headers staged: $(du -h "$EXTRA/assets/kernel/next/headers-cixmini.tar.zst" | cut -f1)"
+    else
+        echo "    NEXT headers: not present (skip — DKMS rebuild will fail on target)"
+    fi
     echo "    NEXT kernel staged: $KVER_NEXT  ($(du -h "$EXTRA/assets/kernel/next/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/next/modules-cixmini.tgz" | cut -f1) modules)"
 else
     KVER_NEXT=""
