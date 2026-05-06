@@ -292,14 +292,16 @@ EOF
     echo "  wrote cixmini-rescue.conf (sort-key 3-rescue)"
 fi
 
-# Per 2026-05-04 codex review: default = LTS (6.18.26, stable on Sky1), with
-# NEXT (7.x BETA) as opt-in via boot menu. NEXT has documented SCMI freezes on
-# Sky1 hardware (recipe header + issue #25); making it default risks an
-# unattended first-boot wedge. User can still pick NEXT from systemd-boot menu.
-if [ "$LTS_AVAILABLE" = "1" ]; then
+# r75 K3 v2: prefer NEXT default with auto-rollback (closes Codex
+# adversarial-review HIGH 'NEXT is not actually default'). NEXT entry uses
+# systemd-boot boot-counting (cixmini-next+3-0.conf); after 3 failed boots
+# the entry .failed-renames and systemd-boot falls back to cixmini-lts.
+# This block overrides the early default cixmini-next* in loader.conf at
+# line 108 only when NEXT is missing.
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    DEFAULT_ENTRY="cixmini-next*"   # glob matches +N-M boot-counter rotations
+elif [ "$LTS_AVAILABLE" = "1" ]; then
     DEFAULT_ENTRY="cixmini-lts"
-elif [ "$NEXT_AVAILABLE" = "1" ]; then
-    DEFAULT_ENTRY="cixmini-next"
 else
     echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
@@ -311,6 +313,23 @@ console-mode auto
 editor yes
 EOF
 echo "  loader.conf default = $DEFAULT_ENTRY"
+
+# Verify the default actually resolves to a written entry. systemd-boot
+# treats default as a glob; for cixmini-next* match either the canonical
+# +3-0.conf (boot-counter) or any later +N-M rotation.
+if [ "$DEFAULT_ENTRY" = "cixmini-next*" ]; then
+    if ! ls /boot/efi/loader/entries/cixmini-next*.conf >/dev/null 2>&1; then
+        echo "ERROR: loader.conf default=cixmini-next* but no cixmini-next*.conf in entries/" >&2
+        ls /boot/efi/loader/entries/ 2>&1 | sed 's/^/  /'
+        exit 1
+    fi
+else
+    if ! [ -f "/boot/efi/loader/entries/${DEFAULT_ENTRY}.conf" ]; then
+        echo "ERROR: loader.conf default=$DEFAULT_ENTRY but ${DEFAULT_ENTRY}.conf not in entries/" >&2
+        exit 1
+    fi
+fi
+echo "  loader.conf default resolves to a real entry — verified"
 
 # ----------------------------------------------------------------------
 # Add a UEFI boot entry pointing at systemd-boot.
