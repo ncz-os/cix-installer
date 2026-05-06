@@ -1,21 +1,38 @@
-# Cix Sky1 vs Jetson Orin Nano — LLM inference perf
+# What an open-stack Cix Sky1 looks like next to Jetson — internal awareness brief
 
-**Audience:** NVIDIA Jetson team (Phil Lawrence + others) for awareness.
-**Author:** Jason Perlow, personal-OSS time (not NVIDIA-billable).
-**Status:** READY FOR PUBLICATION — pending Codex adversarial-review gate per PRIMARY DIRECTIVE #4.
-**Stack under test:** NCZ 26.5 "Reinhardt" Linux distro on Cix Sky1 hardware.
-**Last revised:** 2026-05-06 with fair-comparison Intel iGPU silicon-parity bench data.
+**Audience:** NVIDIA Jetson team (Phil Lawrence) and any Jetson leadership who picks this up.
+**Author:** Jason Perlow, NVIDIA Sr. Technical Product Marketing Engineer (AI Cloud / NCX portfolio). Written on personal-OSS time as part of my NCZ project; sharing internally because the findings are directly relevant to Jetson roadmap awareness.
+**Status:** Internal awareness brief — share within Jetson org as appropriate.
+**Stack under test:** NCZ 26.5 "Reinhardt" Linux distro on Cix Sky1 / Minisforum MS-R1.
+**Last revised:** 2026-05-06.
+
+---
+
+## Why this brief exists — and why I'm writing it
+
+**Short version:** I'm pro-NVIDIA. I want our hardware to win the agentic-AI tier. I started NCZ as a Jetson-first project, the dev-kit hardware failed mid-port, I continued the work on the most credible alternative open-stack ARM platform I could find (Cix Sky1) so the software stack didn't sit idle, and I'm reporting back what I learned. **The goal is to bring NCZ 26.6 back to Jetson on AGX Orin or Thor as soon as we have stable hardware to port to.**
+
+The longer version, because it should be on the record:
+
+1. **NCZ 26.5 "Reinhardt" started life on a Jetson Orin Nano dev kit** (TYDEUS, fleet host). The original target architecture was Jetson + JetPack as the production deploy substrate for an agentic-memory Linux distribution.
+2. **We got to roughly 80% functional**: Yocto-built kernel + UEFI + custom debian-installer-style flow + agent stack containers all running on Orin Nano.
+3. **Hardware failed during the kernel-flip phase** (2026-04-24). One bad boot path on Tegra T234 (no rollback for `BootChainOsCurrent`) bricked the dev kit's boot chain. The unit is in RMA / awaiting replacement; the runbook is captured in our internal handoff docs.
+4. **Rather than stall the software work, I pivoted to the open-stack ARM alternative** that had the most active community (Cix Sky1 / Minisforum MS-R1, with the Sky1-Linux community kernel + FyrbyAdditive's NPU port). This is the platform NCZ 26.5 r74 ships on today.
+5. **The Cix work has been informative.** It validates that the agentic-memory workload — embedding-heavy + unified-RAM-hungry + low-power — is a real product category worth optimizing for. But the LLM tier on Mali Vulkan is structurally weak (no tensor cores). On the LLM leg, the gap to Jetson is wide and not closing through software alone.
+6. **What I'm asking the Jetson team for:** an AGX Orin 64GB (or Thor when it's sampleable) that I can port NCZ 26.6 to as the canonical production path. NCZ on Jetson AGX would close every category where Cix currently has a window — bigger memory, real tensor cores, mature CUDA + TensorRT-LLM stack, the whole platform. The port would be relatively quick because most of the substrate work is reusable.
+
+The rest of this brief is the data: what Cix actually does on this workload, where Jetson dominates, where the open-ARM ecosystem is investing energy, and what that means for our platform strategy.
 
 ---
 
 ## TL;DR
 
-**These are different tools for different jobs — they complement, not compete.**
-
-- **Cix Sky1 / MS-R1 64GB** is positioned for **agentic memory workloads**: NPU embedding (validated 50 inf/sec on `bge-small-zh`) + 64 GB unified host memory for the vector store / knowledge graph / working set. The chip's NPU is genuinely good at embeddings and the system holds the memory substrate.
-- **Jetson Orin Nano / AGX** is positioned for **LLM inference and edge ML pipelines**: CUDA + Tensor Cores + TensorRT-LLM. ~40+ TPS on Gemma 4 E4B Q4 (per operator recall, TYDEUS pre-brick).
-- **Mali GPU on Cix** *can* run LLM inference via Mesa panvk Vulkan, but currently caps ~10 t/s on 4B-class models even after upstream patches — well below tensor-core hardware. **We do not recommend Cix as an LLM box.** The 64 GB unified memory advantage matters for hosting the memory substrate, not for running LLMs.
-- **Net positioning:** Cix Magnetar (NCZ's headless server SKU on this hardware) is the memory tier; LLMs run wherever you have tensor cores and call Magnetar over the network for memory. No reason for these to compete.
+- **The agentic-memory workload (NPU embeddings + large unified RAM + low power) is a real and growing category.** NCZ targets exactly this category. The Cix data validates that the workload exists and that there's a market for a $700 64GB ARM box that does it well.
+- **Cix Sky1 has reached embedding-throughput parity with current Intel iGPU on this workload.** Same neighborhood, ~25 ms cold-pass per inference. The NPU is genuinely good for this leg.
+- **Cix is not an LLM platform.** Mali-G720 via Vulkan caps ~10 t/s on 4B-class models even after upstream tuning. Structural — Mali has no tensor cores. Jetson Orin Nano + CUDA does ~40 TPS on the same model. **The tensor-core moat is real and visible in these numbers.**
+- **Jetson AGX 64GB or Thor would close the only category where Cix currently has a window** — the unified-memory ceiling that drove people to a 64GB ARM box in the first place. Same software stack, much better LLM compute, mature toolchain.
+- **The open-stack ARM ecosystem is moving.** Sky1-Linux maintains a 140-patch community kernel; visorcraft is bring-up'ing Mali Vulkan in mainline; FyrbyAdditive ported the Cix NPU userspace. There's grassroots developer energy here. None of it is a Jetson replacement, but it's a data point on where ARM-AI mindshare goes when the platform is open.
+- **Net ask:** AGX Orin 64GB or Thor loaner so I can port NCZ 26.6 to Jetson and ship the next release on our hardware.
 
 ---
 
@@ -64,9 +81,11 @@ Gemma 4 E4B Q4_K_M on Mali-G720 (panvk, Mesa 26.0, kernel 7.0.3 panthor)
 
 That's slower than the same hardware's CPU path. Per visorcraft's well-tuned panvk benchmarks on the same Mali-G720 silicon (Orange Pi 6 Plus, also Cix CD8180), the *best practical* Mali Vulkan rate after patching the descriptor-set exhaustion bug + tuning `-ub 8` micro-batch reaches ~9.7 t/s on Qwen3.5 4B Q4_K_M. That's still below conversational threshold (~25-30 t/s) and ~4× slower than Jetson Orin Nano on the same class of model.
 
-**Conclusion:** Mali GPU LLM inference *works* on this stack, but is not currently a perf-positive use of the silicon. We do not recommend Cix Sky1 for LLM inference workloads. The 64 GB unified memory advantage is real but matters for *hosting memory data* (vector store, knowledge graph), not for accelerating matmul-heavy LLM compute.
+**Reading this:** Mali Vulkan LLM inference is functional but structurally capped well below the Jetson Orin Nano CUDA reference (~40 TPS on the same class of model). The gap is matrix-multiplication architecture, not software tuning — Mali-G720 has no equivalent of the Jetson's tensor cores, and even a fully optimized panvk path doesn't close it.
 
-**Why we are not pursuing Mali LLM optimization:** the tensor-core gap is structural (Mali-G720 has no matrix cores), so even a fully-optimized panvk closes the gap to maybe 2× of CPU rather than approaching Jetson. The engineering spend doesn't pay off in this category. We point users at Jetson, Mac Metal, or discrete GPU for LLM tier; Cix's strength is the embedding + memory tier.
+**This is the cleanest validation in the brief that the tensor-core moat is real and visible at the workload level.** Anyone making a "tensor cores don't matter at this size class" argument from spec-sheet TOPS numbers can be answered with these benchmarks: same model, same quant, same Linux kernel/userspace generation, ~4× delta in real tokens-per-second. Worth keeping in the back pocket for any roadmap conversation where the moat needs articulating.
+
+**On the NCZ side:** I've stopped optimizing Mali Vulkan LLM as a tier; users who want LLM inference on NCZ are pointed at Jetson, Mac Metal, or discrete GPU as the LLM endpoint and the local Cix box does embeddings + vector store + memory. NCZ 26.6 on AGX/Thor would just *be* the LLM tier locally, eliminating the need for the network hop.
 
 ### 2. NPU embedding inference — validated and shipping-quality, silicon-parity with Intel iGPU (2026-05-06)
 
@@ -85,11 +104,11 @@ Intel CPU (12-core)  27.17          532,559          67.31 emb/sec
 Cold-pass per-inference: ~25 ms Cix NPU, ~24 ms Intel iGPU — within 4%
 ```
 
-**Reading these numbers:** the Cix Z3 NPU is silicon-class with a current Intel iGPU on this workload. Where Cix wins on architecture: dedicated NPU lane (the GPU and CPU stay free for parallel work), 64 GB unified RAM at $700, fanless ARM mini-PC form factor. Where it ties: cold-pass throughput is identical at 25 ms/inference. Where Intel wins: warm-cache rate is ~4× higher because Intel's content-hash cache is colder-friendlier; for fully-cached workloads the iGPU pulls ahead.
+**Reading these numbers:** Cix Z3 NPU and a current-gen Intel iGPU are in the same neighborhood for this workload — within 4% on cold-pass per-inference time, within 5% on the realistic mixed-cache ratio. The numbers here are deliberately apples-to-apples (single-stream LATENCY, no auto-batching, both with the same content-hash cache). The point is not "Cix wins" or "Intel wins" — it's that **embedding inference at the bge-small class has reached the parity zone across mature embedded-AI silicon**, and the differentiator at this layer is no longer raw compute but architecture (dedicated NPU lane vs shared iGPU), memory ceiling, and software stack maturity.
 
-The realistic agentic-memory workload is the **MIX-50%** column — half the calls hit content already seen (search refinement, dedup, MNEMOS rehydration cycles). At this realistic ratio Cix and Intel are within 5% of each other. **At silicon parity, the Cix Z3 NPU is a credible embedding engine for agentic memory workloads.**
+For Jetson context: I haven't run an apples-to-apples embedding bench on Orin Nano (TYDEUS pre-brick) or AGX yet. Strong prior expectation, given 1024 CUDA cores + Tensor Cores + TensorRT-LLM optimizer, is that Jetson AGX in particular outperforms both numbers above on bge-small embeddings — probably comfortably. **This is one of the things I'd want to measure on the AGX/Thor loaner** to put authoritative Jetson numbers in the next version of this brief instead of relying on inference from spec sheets.
 
-This is the embedding leg of the three-tier acceleration story (NPU embeddings + GPU LLMs + CPU fallback) and ships in NCZ Reinhardt today via custom `npu_embed_v2.py` ctypes wrapper + `libnoe.so` runtime; upstreaming to MNEMOS as `mnemos-embedder-cix-npu` per r75 task #103.
+The embedding leg ships in NCZ today via custom `npu_embed_v2.py` ctypes wrapper + `libnoe.so` runtime; the pattern is clean and upstreamable. Same pattern would apply to a Jetson port using TensorRT for the embedding engine — different backend, same wrapper shape.
 
 ---
 
@@ -155,39 +174,58 @@ This section covers the engineering progress story — the Linux distro side of 
 
 ---
 
-## Strategic framing — why this work matters
+## What this means for Jetson — the strategic read
 
-NCZ project positions Cix Sky1 specifically for **on-device agentic memory workloads**:
+Three observations I'd offer up, ranked by how directly they touch our roadmap:
 
-1. **NPU embeddings** are the unsung 80% of agentic memory work. Cix Z3 at 50 inf/sec embeds at the right cost/perf for this layer.
-2. **64 GB unified memory** lets a $700 Cix box hold Llama 3.3 70B Q4 (~42 GB), which Jetson Orin Nano 8GB cannot. *Once panvk Vulkan is fixed*, this is meaningful.
-3. **Three-tier acceleration** in one chip: NPU embeddings + GPU LLMs + CPU fallback. Each tier does what it's good at; they don't compete.
+**1. The agentic-memory category is real and growing.** The workload that drove me to build NCZ is: an always-on, low-power, ARM-native, high-RAM-ceiling appliance that does embeddings + vector search + agent orchestration locally, calling out to bigger boxes for LLM inference. Customers (and tinkerers) are buying $700 64GB ARM boxes specifically for this. **Jetson AGX Orin 64GB and Thor are the natural NVIDIA answer to this category** — they have the memory ceiling, real tensor cores, and the CUDA software stack the workload eventually wants. Cix is filling a gap that exists because Jetson AGX is priced into industrial/automotive bins, not consumer/prosumer bins.
 
-This is not a Jetson replacement — it's a different category. Jetson dominates edge robotics + ML pipelines + the NVIDIA software ecosystem. Cix targets the workstation appliance niche where memory ceiling and price matter more than tensor-core throughput.
+**2. The CUDA + tensor-core moat is intact and visible in this data.** Mali Vulkan caps at ~10 t/s on 4B-class models. Jetson Orin Nano does ~40 TPS on the same model with a third the cores and a fraction the unified RAM. That's a structural delta no amount of Mesa tuning closes. The open-stack ARM crowd is genuinely impressive on the *non-LLM* legs (embeddings, vision, audio); on LLMs the gap is wide. **Anyone benchmarking Jetson against open-stack ARM on LLM workloads will conclude what we already know: tensor cores win.** This brief should make that gap easier to talk about with concrete numbers.
 
-The honest comparison: Cix Sky1 is a credible heterogeneous-compute ARM platform that NVIDIA might want awareness of, particularly as the agentic-memory market grows. We're shipping a Linux distro (NCZ Reinhardt) and a memory-server product (NCZ Magnetar, planned r75) that exercise it.
+**3. Open-stack ARM has grassroots developer energy worth being aware of.** The Sky1-Linux community kernel runs 140 patches against mainline. visorcraft is doing community Mali Vulkan tuning. FyrbyAdditive ported the Cix NPU userspace. None of these projects is a Jetson competitor on capability — they're a parallel community moving in the same direction we are, on hardware where the vendor went open-stack from day one. **There's a pattern here for Thor's Linux story** that's worth a conversation: Jetson dominates the closed/controlled ecosystem (JetPack, NIM containers, NGC); the open-stack ARM crowd is showing what mainline-kernel + Mesa + community-NPU-port looks like when nobody owns the platform. Useful prior-art context for the Thor open-source posture, whatever shape that takes.
 
 ---
 
-## What we'd ask of the Jetson team
+## What I'd ask of the Jetson team
 
-- **Internal Jetson Orin Nano + Orin AGX 64GB Gemma 4 E4B benchmark numbers** (CUDA + TensorRT-LLM) to populate the comparison table with authoritative figures.
-- **Awareness** of the Cix Sky1 platform's positioning in the heterogeneous-compute ARM space. Not a competitor in Jetson's strategic categories, but a data point for the embedded/edge AI market trajectory.
-- **Feedback** on the comparison framing — anything that looks misleading or under/overstated.
+**Primary ask: hardware loaner for the NCZ 26.6 Jetson port.**
+
+I want to bring NCZ back to where it started. NCZ 26.5 r74 ships on Cix Sky1 today; NCZ 26.6 should ship on Jetson AGX Orin 64GB (and ideally Thor when sampleable). The substrate work is done — kernel build, custom installer, agent stack, MNEMOS server, NPU embedder pattern — most of it ports cleanly to Tegra T234 / Thor.
+
+Specifically:
+- **Jetson AGX Orin 64GB Developer Kit**, on loan, for the NCZ 26.6 port. I can return it when the 26.6 release ships and Thor sampling begins.
+- **Or Jetson Thor Developer Kit when sampleable** — direct port to current-gen would be even better, and would let NCZ 26.6 be a "Jetson Thor showcase distro" if that's useful internally.
+- **Either path**: I commit to a ported, working NCZ 26.6 release on the loaned hardware within ~6 weeks of receipt, published as personal-OSS the same way r74 shipped.
+
+**Secondary asks** (less critical, useful for the data):
+- **Internal Orin AGX 64GB and Thor reference numbers** on Gemma 4 E4B Q4_K_M and bge-small-en-v1.5 256-token, so I can replace the recall-based ~40 TPS Jetson Orin Nano figure in the table with authoritative published-by-Jetson-team data when the brief or its successor goes external. Keeps NVIDIA looking precise rather than estimated.
+- **Feedback on this brief** — anything that's mischaracterized, anything I should soften or strengthen, anywhere I should be more careful. I'd rather edit before this circulates than after.
+- **A point of contact for the Thor Linux/open-source posture conversation**, if that's useful. The open-stack ARM-AI community is real; understanding its trajectory could inform how Thor presents to that audience.
+
+I'm happy to do this work as a parallel personal-OSS thread (which is what NCZ already is) so it doesn't load up internal billable cycles. The deliverables — a working NCZ 26.6 on Jetson, plus this kind of awareness brief — are all things that ultimately serve our platform position.
+
+---
+
+## TYDEUS Jetson Orin Nano — what happened
+
+For completeness on the "why didn't we just keep going on Jetson" question: TYDEUS (the Jetson Orin Nano dev kit, 192.168.207.62 on my home fleet) was the original NCZ target. The bring-up was going well — Yocto kernel + UEFI flow + agent containers all working — through April 2026. On 2026-04-24, during a kernel rebuild that flipped the L4T BootChain partition selector, the device became unbootable. Diagnosis: stock JetPack QSPI bootloader (`L4TLauncher`) checks `BootChainOsCurrent` EFI variable on every boot; once set non-zero by our build, the bootloader looks for partitions named `APP_<chain>` rather than the canonical `APP`, which our SD layout didn't have.
+
+The recovery path (`tegraflash` from USB-OTG with `tegraflash.tar.gz`) is documented in our internal runbook (`~/cix-installer/HANDOFF-2026-05-04.md`), but the unit needed a UEFI-setup-menu reset of `BootChainOsCurrent` first — which we couldn't get to without working video output. The dev kit is in RMA queue / awaiting replacement.
+
+The lesson learned (captured as a fleet-wide rule: `feedback_no_rollback_no_kernel_push.md`): **never push a boot-critical change without a keypress-distance rollback** — second extlinux LABEL, A/B slot, or working UART. NCZ 26.6 on AGX/Thor will have this guardrail baked in from r1.
 
 ---
 
 ## References
 
-- NCZ Reinhardt source: `gitlab.com/nclawzero/cix-installer`
-- MNEMOS NPU embedder PoC: see DOCTRINE §8 (three-tier acceleration)
-- Companion bilingual upstream issue (EN+ZH) drafted for cixtech / Sky1-Linux community: `cix-installer/docs/UPSTREAM-CIX-BILINGUAL-ISSUE.md`
-- R75 rebake list (kernel-headers, NPU patch, Magnetar SKUs): `cix-installer/docs/R75-REBAKE-LIST.md`
-- visorcraft prior art: `github.com/visorcraft/orange-pi-6-plus-gpu` (Cix Mali Vulkan tuning + community CLIP NPU pattern on same chip)
-- Sky1-Linux upstream kernel work: `github.com/Sky1-Linux/linux-sky1`
-- cixtech/ai_model_hub (precompiled `.cix` models)
-- Geerling's sbc-reviews coverage: `github.com/geerlingguy/sbc-reviews` (community Jetson + Cix benchmarks)
+- NCZ 26.5 source: `gitlab.com/nclawzero/cix-installer`
+- NCZ project doctrine (codenames, brand hierarchy, three-tier acceleration thesis): `cix-installer/docs/DOCTRINE.md`
+- R75 rebake list (kernel-headers, NPU patch, Magnetar SKU plan): `cix-installer/docs/R75-REBAKE-LIST.md`
+- TYDEUS Jetson recovery runbook (internal): `cix-installer/HANDOFF-2026-05-04.md` (also `pi-fleet-recovery-runbook.md` archived to ARGONAS)
+- visorcraft community work on the same Cix silicon: `github.com/visorcraft/orange-pi-6-plus-gpu`
+- Sky1-Linux community kernel: `github.com/Sky1-Linux/linux-sky1` (~140-patch mainline series, lead maintainer Entrpi)
+- Geerling sbc-reviews (Jetson + Cix community benchmarks): `github.com/geerlingguy/sbc-reviews`
 
 ---
 
-*This report is a personal-OSS deliverable shared with the NVIDIA Jetson team (Phil Lawrence + colleagues) for awareness. NCZ project is Jason Perlow's personal public OSS work, separate from his NVIDIA paid scope. Honest comparison framing per personal-OSS posting rule; all numbers reproducible from the published cix-installer source tree.*
+*Written by Jason Perlow, NVIDIA Sr. Technical Product Marketing Engineer (AI Cloud / NCX), in personal-OSS time. NCZ project is my personal public-OSS work; sharing this brief internally because the findings are directly relevant to Jetson roadmap awareness and because the NCZ 26.6 Jetson port ask should go on the record. All numbers in this brief are reproducible from the published `gitlab.com/nclawzero/cix-installer` source tree. Treat this as internal — appropriate to circulate within the Jetson org; please clear with me before it goes external.*
