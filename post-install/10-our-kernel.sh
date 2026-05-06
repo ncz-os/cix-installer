@@ -77,6 +77,26 @@ install_kernel() {
         return 1
     fi
     echo "    extracted $modcount .ko modules → /usr/lib/modules/$kver/"
+
+    # Headers for DKMS (NPU/GPU drivers). Optional asset — if missing,
+    # warn loudly because any DKMS rebuild on target will then fail.
+    if [ -f "$ASSETS/$label/headers-cixmini.tar.zst" ]; then
+        if ! command -v zstd >/dev/null 2>&1; then
+            apt-get install -y --no-install-recommends zstd
+        fi
+        zstd -dc "$ASSETS/$label/headers-cixmini.tar.zst" \
+            | tar -xf - -C / --keep-directory-symlink
+        if [ -d "/lib/modules/$kver/build" ] && [ -f "/lib/modules/$kver/build/Makefile" ]; then
+            local hdrcount
+            hdrcount=$(find "/lib/modules/$kver/build/include" -name '*.h' 2>/dev/null | wc -l)
+            echo "    extracted $hdrcount header files → /lib/modules/$kver/build/"
+        else
+            echo "    WARN: $label headers tarball present but /lib/modules/$kver/build/Makefile missing — DKMS will fail" >&2
+        fi
+    else
+        echo "    WARN: $label headers asset missing ($ASSETS/$label/headers-cixmini.tar.zst) — DKMS rebuild blocked on target" >&2
+    fi
+
     depmod -a "$kver"
 }
 
