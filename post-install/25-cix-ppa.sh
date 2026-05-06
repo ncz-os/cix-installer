@@ -39,6 +39,29 @@ apt-get update 2>&1 | tail -5 || echo "[25] apt-get update warn (network or repo
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     cix-noe-umd 2>&1 | tail -3 || echo "[25] cix-noe-umd not installable (network/headers issue)"
 
+# r75 P3: cix-noe-umd's postinst runs `pip install libnoe`; that wheel
+# requires Python <3.13. Ubuntu 25.10 questing ships Python 3.13.7, so
+# postinst fails and apt is left wedged with cix-noe-umd in iF state.
+# The C library we actually use (libnoe.so via ctypes wrapper in
+# npu_embed_v2.py) is installed by the package's data tar before
+# postinst runs, so the binary payload is fine. Detect iF, drop the
+# broken postinst, mark the package configured, and clean up.
+if dpkg -l cix-noe-umd 2>/dev/null | awk '/^[ip][FU]/ {found=1} END {exit !found}'; then
+    echo "[25] cix-noe-umd in failed-config state (likely Python 3.13 libnoe pip incompat)"
+    if [ -f /var/lib/dpkg/info/cix-noe-umd.postinst ]; then
+        # Replace with a no-op postinst — package payload is already on disk
+        cat > /var/lib/dpkg/info/cix-noe-umd.postinst <<'NOOP'
+#!/bin/sh
+# r75 P3 stub: original postinst tried `pip install libnoe` which fails
+# on Python >=3.13. Library files are already extracted; nothing to do.
+exit 0
+NOOP
+        chmod 0755 /var/lib/dpkg/info/cix-noe-umd.postinst
+    fi
+    dpkg --configure cix-noe-umd 2>&1 | tail -3 || true
+    apt-get -f install -y 2>&1 | tail -3 || true
+fi
+
 # Try cix-npu-driver-dkms — needs linux-headers for our kernel; will build if headers present
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     cix-npu-driver-dkms 2>&1 | tail -5 || echo "[25] cix-npu-driver-dkms install incomplete (headers TBD r53)"
