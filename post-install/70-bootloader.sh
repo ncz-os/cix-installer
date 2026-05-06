@@ -105,7 +105,7 @@ echo "  ESP wiped — about to write fresh dual-kernel entries"
 # ----------------------------------------------------------------------
 mkdir -p /boot/efi/loader/entries
 cat > /boot/efi/loader/loader.conf <<'EOF'
-default cixmini-next
+default cixmini-next*
 timeout 5
 console-mode auto
 editor yes
@@ -230,7 +230,13 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 
-    cat > /boot/efi/loader/entries/cixmini-next.conf <<EOF
+    # r75 K3 v2: filename uses systemd-boot boot-counting suffix +3-0
+    # (3 tries left, 0 successful boots). systemd-bless-boot.service
+    # decrements tries at boot; on a successful userspace handoff it
+    # writes back +N-(M+1). After 3 failed boots the file is renamed
+    # .failed and systemd-boot falls back to cixmini-lts (sort-key 2-lts).
+    # Closes the Codex finding "NEXT default without rollback".
+    cat > /boot/efi/loader/entries/cixmini-next+3-0.conf <<EOF
 title   nclawzero (cixmini) — kernel $KVER_NEXT [NEXT, default] — $BUILD_VERSION
 sort-key 1-next
 version $KVER_NEXT
@@ -238,10 +244,14 @@ linux   /vmlinuz-$KVER_NEXT
 options $NEXT_OPTIONS
 EOF
     if [ "$NEXT_INITRD_AVAILABLE" = "1" ]; then
-        sed -i "/^linux /a initrd  /initrd.img-$KVER_NEXT" /boot/efi/loader/entries/cixmini-next.conf
-        echo "  added initrd line to cixmini-next.conf"
+        sed -i "/^linux /a initrd  /initrd.img-$KVER_NEXT" /boot/efi/loader/entries/cixmini-next+3-0.conf
+        echo "  added initrd line to cixmini-next+3-0.conf"
     fi
-    echo "  wrote cixmini-next.conf (sort-key 1-next, default)"
+    # Ensure systemd-bless-boot is enabled — it's the agent that decrements
+    # the tries-counter and renames .failed on exhaustion. Stock systemd unit;
+    # idempotent.
+    systemctl enable systemd-bless-boot.service 2>/dev/null || true
+    echo "  wrote cixmini-next+3-0.conf (sort-key 1-next, default, 3-try rollback to LTS)"
 else
     echo "  skipping cixmini-next.conf (BETA kernel not installed)"
 fi
