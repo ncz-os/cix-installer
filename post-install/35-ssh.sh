@@ -22,6 +22,33 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 systemctl enable ssh || true
 systemctl enable ssh.socket || true
 
+# Make sshd ALSO start in rescue.target — so cixmini-rescue.conf boots
+# get a remote shell for diagnostics. By default rescue.target only
+# runs emergency-grade services (no sshd). Drop-in pulls sshd in via
+# WantedBy=rescue.target alongside multi-user.target. Critical when
+# normal boot wedges and the only way to inspect /var/log/cix-install/
+# is via SSH.
+mkdir -p /etc/systemd/system/ssh.service.d
+cat > /etc/systemd/system/ssh.service.d/run-in-rescue.conf <<'EOF'
+[Install]
+WantedBy=rescue.target
+EOF
+# sshd ALSO needs networking active in rescue.target. By default
+# rescue.target doesn't pull NetworkManager (it's pulled by
+# multi-user.target). Add a drop-in to NetworkManager so it joins
+# rescue.target — without this, sshd is up but has no IP, so SSH
+# from another fleet host can't reach the box (discovered 2026-05-03
+# when cixmini wedged into rescue and we couldn't ssh in to inspect
+# /var/log/cix-install/).
+mkdir -p /etc/systemd/system/NetworkManager.service.d
+cat > /etc/systemd/system/NetworkManager.service.d/run-in-rescue.conf <<'EOF'
+[Install]
+WantedBy=rescue.target
+EOF
+# Re-trigger preset so the drop-in WantedBy gets symlink-installed
+systemctl reenable ssh || true
+systemctl reenable NetworkManager 2>/dev/null || true
+
 # ---- authorized_keys -------------------------------------------------
 # Fleet-canonical keys baked here so the device is reachable immediately
 # after first boot. Operators can rotate via sync-fleet-keys.sh later.
@@ -33,18 +60,37 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBJ3z+8UX2oPt3cmN1X9XU8RWrgp7VvdHPd0vW+m/AoR
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKCDT5Busd1J+j4kpzkZ/jT/GtUQylaZCUCTftY2sYk argos-backup
 EOF
 
-# Root account
+# Root account — only seed if absent (codex review: don't clobber operator-rotated keys)
 install -d -m 0700 -o root -g root /root/.ssh
-echo "$KEYS" > /root/.ssh/authorized_keys
-chmod 0600 /root/.ssh/authorized_keys
-chown root:root /root/.ssh/authorized_keys
+if [ ! -s /root/.ssh/authorized_keys ]; then
+    echo "$KEYS" > /root/.ssh/authorized_keys
+    chmod 0600 /root/.ssh/authorized_keys
+    chown root:root /root/.ssh/authorized_keys
+    echo "  /root/.ssh/authorized_keys seeded (was empty)"
+else
+    echo "  /root/.ssh/authorized_keys exists ($(wc -l < /root/.ssh/authorized_keys) lines) — preserving"
+fi
 
-# ncz operator account (created by preseed; passwd entry already exists)
-if id ncz >/dev/null 2>&1; then
-    install -d -m 0700 -o ncz -g ncz /home/ncz/.ssh
-    echo "$KEYS" > /home/ncz/.ssh/authorized_keys
-    chmod 0600 /home/ncz/.ssh/authorized_keys
-    chown ncz:ncz /home/ncz/.ssh/authorized_keys
+# Operator account — preseed creates 'ncz' by default but be defensive: detect
+# the first UID >= 1000 < 65000 user dynamically so this still works if the
+# preseed prompts the user for a different name (or no longer auto-creates ncz).
+OPERATOR_USER=$(awk -F: '$3 >= 1000 && $3 < 65000 {print $1; exit}' /etc/passwd)
+if [ -z "$OPERATOR_USER" ] && id ncz >/dev/null 2>&1; then
+    OPERATOR_USER=ncz  # explicit fallback
+fi
+if [ -n "$OPERATOR_USER" ] && id "$OPERATOR_USER" >/dev/null 2>&1; then
+    OPERATOR_HOME=$(getent passwd "$OPERATOR_USER" | cut -d: -f6)
+    OPERATOR_GROUP=$(id -gn "$OPERATOR_USER")
+    install -d -m 0700 -o "$OPERATOR_USER" -g "$OPERATOR_GROUP" "$OPERATOR_HOME/.ssh"
+    # r63 (codex review): only seed if absent — don't clobber operator-rotated keys
+    if [ ! -s "$OPERATOR_HOME/.ssh/authorized_keys" ]; then
+        echo "$KEYS" > "$OPERATOR_HOME/.ssh/authorized_keys"
+        chmod 0600 "$OPERATOR_HOME/.ssh/authorized_keys"
+        chown "$OPERATOR_USER:$OPERATOR_GROUP" "$OPERATOR_HOME/.ssh/authorized_keys"
+        echo "  $OPERATOR_HOME/.ssh/authorized_keys seeded (was empty)"
+    else
+        echo "  $OPERATOR_HOME/.ssh/authorized_keys exists — preserving"
+    fi
 fi
 
 # ---- sshd_config tweaks ---------------------------------------------
@@ -64,7 +110,7 @@ chmod 0644 "$SSHD_DROPIN"
 
 echo ""
 echo "Installed authorized_keys (count, files):"
-wc -l /root/.ssh/authorized_keys /home/ncz/.ssh/authorized_keys 2>&1 || true
+wc -l /root/.ssh/authorized_keys "${OPERATOR_HOME:-/home/ncz}/.ssh/authorized_keys" 2>&1 || true
 
 echo ""
 echo "ssh service state:"

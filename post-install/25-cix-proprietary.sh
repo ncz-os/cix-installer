@@ -34,8 +34,72 @@ echo "    package count: $(ls $ASSETS | wc -l)"
 echo ""
 
 cd "$ASSETS"
-# Skip Cix's kernel debs — we installed our linux-cix-msr1 in 10-.
-DEBS=$(ls *.deb | grep -vE '^linux-(image|headers)-.*-cix-build-generic_')
+# Skip:
+#   1. Cix's kernel image/headers debs (we installed our own in 10-)
+#   2. Cix's kernel-module driver debs (post 2026-05-03 kernel jump
+#      from 6.6.10 → 6.18.14-cix-sky1, these prebuilt .ko's are
+#      vermagic-incompatible — they install into /lib/modules/6.6.10-
+#      cix-build-generic/extra but the kernel won't load them. Same
+#      hardware is now driven by in-tree drivers shipped with the new
+#      kernel: panthor (GPU, was mali_kbase), armchina-npu (NPU, was
+#      aipu), amvx in-tree (VPU, replaces vendor amvx blob), drm/cix
+#      (display, replaces trilin_dptx), cix_dsp_rproc with ACPI fix.
+#      Installing the 6.6 .ko packages just pollutes the modules tree
+#      with files that fail vermagic check. Skip entirely.)
+DEBS=$(ls *.deb | grep -vE '^linux-(image|headers)-.*-cix-build-generic_' \
+                | grep -vE '^cix-(npu-driver|gpu-driver|vpu-driver|isp-driver|wlan|csi-driver|noe-kmd)_' \
+                | grep -vE '^cix-(npu-umd|noe-umd|npu-onnxruntime)_')
+
+echo "Skipping vermagic-incompatible cix-*-driver debs (post-Sky1-switch):"
+ls *.deb | grep -E '^cix-(npu-driver|gpu-driver|vpu-driver|isp-driver|wlan|csi-driver|noe-kmd)_' | sed 's/^/    /' || true
+
+# ----------------------------------------------------------------------
+# Patch cix-debian-misc.deb to remove its broken initramfs-tools rename
+# block. The postinst unconditionally runs:
+#
+#   mv /usr/share/initramfs-tools/init                       original/
+#   mv /usr/share/initramfs-tools/original/cix_init          init
+#   mv /usr/share/initramfs-tools/scripts/init-top/udev      original/
+#   mv /usr/share/initramfs-tools/original/cix_udev          init-top/udev
+#   mv /usr/share/initramfs-tools/scripts/init-premount/plymouth original/
+#   mv /usr/share/initramfs-tools/original/cix_plymouth      init-premount/
+#
+# But cix_init / cix_udev / cix_plymouth are NOT actually shipped in
+# the deb's data.tar (verified 2026-05-03: only `original/` empty dir
+# and `hooks/cix_ko` ship). The first mv of each pair succeeds — moving
+# Debian's working scripts into original/ — then the matched mv fails
+# on a missing source. End state: /usr/share/initramfs-tools/init is
+# gone, and update-initramfs warns `cp: cannot stat /usr/share/
+# initramfs-tools/init: No such file or directory` and builds a 221MB
+# initrd that's missing /init. Booting it kernel-panics ("can't run /
+# init") and triggers an infinite reboot loop on real hardware.
+#
+# Workaround: extract the deb, comment out only the 6 mv lines, repack,
+# install the patched version. All other Cix postinst behavior (glib
+# schema rebuild, gdm3 daemon.conf, logind tweaks, fcitx, pulseaudio)
+# is preserved. Real fix is upstream at Cix — they need to either ship
+# the cix_init etc. files or drop the rename block.
+# ----------------------------------------------------------------------
+CDM_ORIG="$ASSETS/cix-debian-misc_1.0.0_arm64.deb"
+CDM_PATCHED=/tmp/cix-debian-misc-noinitrd-patch.deb
+if [ -f "$CDM_ORIG" ]; then
+    echo "--- patching cix-debian-misc.deb to neuter init-rename block ---"
+    rm -rf /tmp/cdm-patch
+    mkdir -p /tmp/cdm-patch
+    dpkg-deb -R "$CDM_ORIG" /tmp/cdm-patch
+    if [ -f /tmp/cdm-patch/DEBIAN/postinst ]; then
+        # Comment any mv touching /usr/share/initramfs-tools/{init,scripts/...,original/cix_*}
+        sed -i -E '\#^[[:space:]]*mv[[:space:]]+/usr/share/initramfs-tools/(init|scripts/init-(top|premount)/(udev|plymouth)|original/cix_(init|udev|plymouth))#s|^|# [25-patched] |' \
+            /tmp/cdm-patch/DEBIAN/postinst
+        echo "    patched postinst — commented mv lines:"
+        grep -nE '^# \[25-patched\]' /tmp/cdm-patch/DEBIAN/postinst | sed 's/^/      /'
+    fi
+    dpkg-deb -b /tmp/cdm-patch "$CDM_PATCHED" >/dev/null
+    # Swap the patched deb into the install set
+    DEBS=$(echo "$DEBS" | grep -v '^cix-debian-misc_')
+    cp "$CDM_PATCHED" "$ASSETS/cix-debian-misc_1.0.0_arm64.patched.deb"
+    DEBS="$DEBS cix-debian-misc_1.0.0_arm64.patched.deb"
+fi
 
 echo "--- dpkg -i (collect failures, continue) ---"
 dpkg -i --force-depends $DEBS 2>&1 | tee /var/log/cix-install/25-dpkg.log || true
@@ -67,34 +131,13 @@ for pkg in $STUCK; do
     dpkg --purge --force-remove-reinstreq --force-remove-essential "$pkg" 2>&1 | tail -3 || true
 done
 
-# ----------------------------------------------------------------------
-# Bridge the KERNEL_LOCALVERSION mismatch between our Yocto-rebuilt
-# kernel and Cix's prebuilt out-of-tree module debs.
-#
-# Every cix-*-driver and cix-wlan deb installs its .ko files to:
-#   /lib/modules/6.6.10-cix-build-generic/extra/
-#
-# but our Yocto-built kernel's uname -r is:
-#   6.6.10-cix-build-cix-build-generic
-#
-# (Our meta-cix linux-cix-msr1_6.6.10.bb's KERNEL_LOCALVERSION
-# interacts badly with whatever Cix already has in cix.config's
-# CONFIG_LOCALVERSION — Yocto's plain-kernel.bbclass appends and
-# duplicates the suffix. Real fix is in the recipe; tracked.)
-#
-# Without this bridge, NONE of mali_kbase / aipu / amvx / armcb_isp /
-# csi_* / rtl_btusb / rtl_wlan / wlan / wlan_cnss_core_pcie load on
-# first boot — that's no GPU, no NPU, no VPU, no camera, no WiFi,
-# no BT. Bridge by copying the .ko's into our actual KVER tree and
-# regenerating depmod.
-WRONG_KVER=6.6.10-cix-build-generic
-RIGHT_KVER=6.6.10-cix-build-cix-build-generic
-if [ -d "/lib/modules/$WRONG_KVER/extra" ] && [ -d "/lib/modules/$RIGHT_KVER" ]; then
-    mkdir -p "/lib/modules/$RIGHT_KVER/extra"
-    cp -an "/lib/modules/$WRONG_KVER/extra/"*.ko "/lib/modules/$RIGHT_KVER/extra/" 2>/dev/null || true
-    echo "    bridged $(ls /lib/modules/$RIGHT_KVER/extra/ 2>/dev/null | wc -l) cix-* modules into $RIGHT_KVER/extra"
-    depmod -a "$RIGHT_KVER"
-fi
+# Bridge between vendor 6.6 .ko vermagic and our built kernel's KVER:
+# RETIRED 2026-05-03 with the Sky1-Linux 6.18.14 switch. The cix-*-
+# driver debs are now skipped entirely above (DEBS filter), and the
+# in-tree 6.18 drivers (panthor, armchina-npu, in-tree amvx, drm/cix,
+# cix_dsp_rproc with ACPI fix) take their place. No bridge needed.
+RUNNING_KVER=$(uname -r)
+echo "    running kernel: $RUNNING_KVER (no OoT bridge — Sky1-Linux in-tree)"
 
 # Always exit 0 — Cix postinst quirks should not halt the installer.
 # If something is genuinely broken, surfaces during agent runtime
