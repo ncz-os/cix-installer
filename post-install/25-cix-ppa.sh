@@ -127,12 +127,57 @@ if dpkg -l cix-noe-umd >/dev/null 2>&1; then
     echo "[25] libnoe.so present — cix-noe-umd usable for ctypes wrapper"
 fi
 
-# Try cix-npu-driver-dkms — needs linux-headers for our kernel; will build if headers present
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    cix-npu-driver-dkms 2>&1 | tail -5 || echo "[25] cix-npu-driver-dkms install incomplete (headers TBD r53)"
+# r75 Codex round-4 HIGH fix — cix-npu-driver-dkms is intentionally NOT
+# installed. Per task #87 (completed) we ship FyrbyAdditive's prebuilt
+# armchina_npu.ko via 80-npu.sh; the vendor DKMS package conflicts with
+# that and builds against headers we don't always have. Leaving it
+# uninstalled avoids the iF/iU wedge path Codex flagged.
+echo "[25] cix-npu-driver-dkms intentionally NOT installed (use FyrbyAdditive prebuilt via 80-npu.sh — task #87)"
 
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    cix-vpu-driver-dkms 2>&1 | tail -5 || echo "[25] cix-vpu-driver-dkms install incomplete (headers TBD r53)"
+# r75 Codex round-4 HIGH fix — cix-vpu-driver-dkms also requires
+# /lib/modules/$KVER/build (kernel-headers). Until task #66's headers
+# asset ships, this DKMS install can leave the package in iF/iU and
+# wedge dpkg. Probe headers first; only attempt install when present.
+# State-recovery pattern matches cix-noe-umd above.
+KVER_LTS_HEADERS=0
+KVER_NEXT_HEADERS=0
+if [ -f /usr/local/lib/cix-installer/KVER_LTS ]; then
+    klts=$(cat /usr/local/lib/cix-installer/KVER_LTS 2>/dev/null | tr -d ' \t\r\n')
+    [ -n "$klts" ] && [ -d "/lib/modules/$klts/build" ] && [ -f "/lib/modules/$klts/build/Makefile" ] && KVER_LTS_HEADERS=1
+fi
+if [ -f /usr/local/lib/cix-installer/KVER_NEXT ]; then
+    knext=$(cat /usr/local/lib/cix-installer/KVER_NEXT 2>/dev/null | tr -d ' \t\r\n')
+    [ -n "$knext" ] && [ -d "/lib/modules/$knext/build" ] && [ -f "/lib/modules/$knext/build/Makefile" ] && KVER_NEXT_HEADERS=1
+fi
+
+if [ "$KVER_LTS_HEADERS" = "1" ] || [ "$KVER_NEXT_HEADERS" = "1" ]; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        cix-vpu-driver-dkms 2>&1 | tail -5 || echo "[25] cix-vpu-driver-dkms install attempt completed with non-zero exit"
+    # Apply same state-recovery pattern as cix-noe-umd. DKMS package
+    # ending in iF/iU after install means a build failure; the fix is
+    # operator-driven (rebuild against working headers), so we hard-fail.
+    VPU_STATE=$(dpkg-query -W -f='${db:Status-Abbrev}\n' cix-vpu-driver-dkms 2>/dev/null | tr -d ' ' || true)
+    case "$VPU_STATE" in
+        ii)
+            echo "[25] cix-vpu-driver-dkms installed (ii)"
+            ;;
+        "")
+            echo "[25] cix-vpu-driver-dkms not present (offline mirror or apt failed) — VPU acceleration unavailable"
+            ;;
+        iF|iU)
+            echo "[25] ERROR: cix-vpu-driver-dkms in $VPU_STATE state — DKMS build failed against /lib/modules/<kver>/build" >&2
+            echo "       Purging to avoid wedging dpkg state for downstream commands." >&2
+            DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove cix-vpu-driver-dkms 2>&1 | tail -3 || true
+            ;;
+        *)
+            echo "[25] ERROR: cix-vpu-driver-dkms in unexpected state '$VPU_STATE' — refusing to silently continue" >&2
+            dpkg -l cix-vpu-driver-dkms 2>&1 | sed 's/^/         /' >&2 || true
+            exit 1
+            ;;
+    esac
+else
+    echo "[25] kernel-headers not staged (r75 task #66 asset gated) — skipping cix-vpu-driver-dkms install"
+fi
 
 # Detect NPU device node creation
 if [ -e /dev/zhouyi0 ] || [ -e /dev/cix-noe0 ] || [ -e /dev/aipu0 ]; then
