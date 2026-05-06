@@ -1,11 +1,24 @@
 # Build outputs
 build/iso-staging/
+build/iso-staging-di/
+build/r*-thin-stage/
+build/r*-stage/
+build/r*-efi-*.img
+build/questing-bootstrap/
+build/questing-mirror/
+build/tool-cache/
+build/refind-bin/
 build/*.iso
 build/*.qcow2
 build/*.fd
 build/*.sha256
+build/*.bak-*
+build/build-iso-di.sh.bak-*
 
-# AI image-gen candidates (only the canonical-promoted assets are committed)
+# r73-bak (Codex review baseline — not committed)
+post-install/.r73-bak/
+
+# AI image-gen candidates (only canonical-promoted assets are committed)
 assets/branding/_candidates/
 
 # Upstream downloads
@@ -14,8 +27,16 @@ downloads/
 # Gitignored asset blobs (supplied at build time from cixmini-gen-assets
 # on ARGOS, or from a release artifact in CI)
 assets/cix-debs/*.deb
+assets/kernel/lts/
+assets/kernel/next/
 assets/kernel/*.bin
 assets/kernel/*.tgz
+assets/sky1-firmware/
+assets/npu/
+assets/rootfs/
+
+# Autoinstall scaffolding (work-in-progress, not r74-shippable)
+autoinstall/
 
 # Editor cruft
 .DS_Store

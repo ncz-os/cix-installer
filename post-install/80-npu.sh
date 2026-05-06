@@ -1,0 +1,191 @@
+#!/bin/bash
+# 80-npu.sh — install NCZ NPU stack for Cix Sky1 / Zhouyi v3
+#
+# Source: FyrbyAdditive/ms-r1-npu-hack (BSD-2-Clause-Patent)
+#   + cixtech/cix_opensource__release__npu_driver branch cix_mainline_dev
+#
+# Four MS-R1 fixes applied in the kernel module:
+#   1. ACPI SSDT override: _HID="CIXH4010" on NPU cores (missing in shipped BIOS)
+#   2. v0-compat ioctl handlers: translates cix-noe-umd 2.0.x struct layouts
+#   3. SMMU 32-bit constraint: forces bus_dma_limit=0xc0000000, dma_mask=32
+#   4. asid_base[4]->asid_base[32] widening for QUERY_CAP UMD ABI compat
+#
+# Result: mobilenet_v2.cix runs at ~640 inf/s (1.5ms avg) via cix-noe-umd 2.0.2
+#
+# RUNS INSIDE CHROOT (via run-all.sh). All paths are relative to the
+# installed system root (no /target/ prefix).
+#
+# Ordering: this hook runs before 70-bootloader.sh (which fires on EXIT trap).
+# Sequence:
+#   1. install .ko into /usr/lib/modules/$KVER/extra/
+#   2. depmod -a $KVER
+#   3. update-initramfs -c -k $KVER  (our kernels were tar-extracted, no initrd yet)
+#   4. prepend npu-acpi-override.cpio to /boot/initrd.img-$KVER
+#   5. configure modules-load.d
+# Then 70-bootloader.sh stages /boot/initrd.img-$KVER → /boot/efi/initrd.img-$KVER
+# and adds `initrd /initrd.img-$KVER` to the systemd-boot loader entries.
+
+set +e
+
+ASSETS=/cdrom/cixmini/assets/npu
+LTS_VER="6.18.26-cix-sky1-lts"
+NEXT_VER="7.0.3-cix-sky1-next"
+SSDT_CPIO="$ASSETS/npu-acpi-override.cpio"
+
+echo "[80] installing NCZ NPU stack (FyrbyAdditive MS-R1 fixes)..."
+
+# --- Step 1: install kernel modules ---
+for KVER in "$LTS_VER" "$NEXT_VER"; do
+    if [ -d "/usr/lib/modules/$KVER" ]; then
+        case "$KVER" in
+            *lts*)  SRC="$ASSETS/armchina_npu-${LTS_VER}.ko" ;;
+            *next*) SRC="$ASSETS/armchina_npu-${NEXT_VER}.ko" ;;
+        esac
+        if [ -f "$SRC" ]; then
+            install -D -m 0644 "$SRC" "/usr/lib/modules/$KVER/extra/armchina_npu.ko"
+            depmod -a "$KVER" 2>/dev/null
+            echo "[80] installed armchina_npu.ko for $KVER"
+        else
+            echo "[80] WARN: $SRC missing, skipping $KVER"
+        fi
+    else
+        echo "[80] WARN: /usr/lib/modules/$KVER does not exist; skipping $KVER"
+    fi
+done
+
+# --- Step 2: ensure initrd exists for each NCZ kernel ---
+# Our kernels were tar-extracted by 10-our-kernel.sh, so update-initramfs
+# was never triggered for them. Generate initrds now.
+for KVER in "$LTS_VER" "$NEXT_VER"; do
+    if [ -d "/usr/lib/modules/$KVER" ]; then
+        if [ ! -f "/boot/initrd.img-$KVER" ]; then
+            echo "[80] generating initrd for $KVER..."
+            update-initramfs -c -k "$KVER" 2>&1 | tail -5
+        else
+            echo "[80] initrd already present for $KVER"
+        fi
+    fi
+done
+
+# --- Step 3: ACPI SSDT override (MS-R1 BIOS missing _HID on NPU cores) ---
+# Prepend the 1024-byte SSDT CPIO archive to each kernel's initrd.
+# The kernel reads CPIO archives stacked before the main initramfs;
+# the SSDT injects via the ACPI override mechanism before any driver probes.
+if [ -f "$SSDT_CPIO" ]; then
+    install -D -m 0644 "$SSDT_CPIO" /boot/npu-acpi-override.cpio
+    for KVER in "$LTS_VER" "$NEXT_VER"; do
+        INITRD="/boot/initrd.img-$KVER"
+        if [ -f "$INITRD" ]; then
+            # Idempotent: only prepend if not already prepended (check first 4 bytes).
+            # CPIO archives start with "070701" (newc magic) — if initrd starts with
+            # those bytes we know it's already been prepended.
+            head -c 6 "$INITRD" 2>/dev/null | grep -q '070701' && {
+                echo "[80] $INITRD already has SSDT prepended, skipping"
+                continue
+            }
+            cp -n "$INITRD" "${INITRD}.pre-npu-override"
+            cat "$SSDT_CPIO" "${INITRD}.pre-npu-override" > "${INITRD}.tmp" \
+                && mv "${INITRD}.tmp" "$INITRD" \
+                && rm -f "${INITRD}.pre-npu-override" \
+                && echo "[80] SSDT override prepended to $INITRD"
+        else
+            echo "[80] WARN: $INITRD not found after update-initramfs; SSDT skipped for $KVER"
+        fi
+    done
+else
+    echo "[80] WARN: SSDT CPIO missing at $SSDT_CPIO; NPU cores may not enumerate on MS-R1"
+fi
+
+# --- Step 4: auto-load on boot ---
+mkdir -p /etc/modules-load.d
+cat > /etc/modules-load.d/ncz-npu.conf << 'EOF'
+# NCZ 26.5: Cix Sky1 / Zhouyi v3 NPU driver
+# Probes CIXH4000:00 (\_SB_.NPU0) + CIXH4010:0[012] (3 cores via SSDT override)
+# Creates /dev/aipu chardev; inference via cix-noe-umd 2.0.2
+armchina_npu
+EOF
+
+# --- Step 5: drop NPU-STATUS.md ---
+mkdir -p /usr/share/doc/ncz
+cat > /usr/share/doc/ncz/NPU-STATUS.md << 'EOF'
+# NCZ 26.5 "Reinhardt" — Cix Sky1 / Zhouyi v3 NPU
+
+## What works
+
+- **Kernel module** `armchina_npu.ko` probes clean on MS-R1 for both NCZ kernels:
+  - 6.18.26-cix-sky1-lts (default)
+  - 7.0.3-cix-sky1-next (BETA opt-in)
+- **ACPI SSDT override** corrects the missing `_HID="CIXH4010"` on NPU cores
+  (CRE0/CRE1/CRE2) — a bug in Minisforum's shipped BIOS omitted by the OEM.
+  Injected via initramfs CPIO prepend; fully reversible.
+- **v0-compat ioctl handlers** bridge the struct-layout gap between
+  `cix-noe-umd 2.0.x` (k6.6 ABI) and the current kernel driver.
+- **SMMU 32-bit constraint** forces `bus_dma_limit=0xc0000000` and `dma_mask=32`;
+  without this the IOMMU hands out 35-bit IOVAs that the NPU's 32-bit address
+  bus truncates, causing SMMU faults on every memory access.
+- NPU enumeration after boot:
+  ```
+  /sys/bus/acpi/devices/CIXH4000:00    (NPU device)
+  /sys/bus/acpi/devices/CIXH4010:0[012]  (3 cores)
+  /dev/aipu                             (char device)
+  ```
+- **MobileNet V2 inference: ~640 inf/s (1.5 ms avg)** via `cix-noe-umd 2.0.2`
+  + pre-compiled `.cix` models from Cix AI Model Hub.
+
+## Installing the userspace runtime
+
+```bash
+# Install cix-noe-umd 2.0.2 (compatible with our v0-compat ioctl layer)
+curl -LO https://github.com/radxa-pkg/cix-prebuilt/releases/download/rc3.3-2601/cix-noe-umd_2.0.2_arm64.deb
+sudo dpkg -i cix-noe-umd_2.0.2_arm64.deb
+
+# Get pre-compiled .cix models
+sudo apt install -y python3-pip python3-numpy python3-pillow git git-lfs
+git lfs install
+git clone --depth 1 https://www.modelscope.cn/cix/ai_model_hub_25_Q3.git
+```
+
+## Running inference
+
+```bash
+cd ai_model_hub_25_Q3
+git lfs pull --include="models/ComputeVision/Image_Classification/onnx_mobilenet_v2/*"
+cd models/ComputeVision/Image_Classification/onnx_mobilenet_v2
+python3 run_onnx.py
+```
+
+Other available pre-compiled models: YOLOv8n, CLIP ViT-B/32, Whisper, ResNet50,
+SDXL-Turbo (see https://modelscope.cn/models/cix/ai_model_hub_25_Q3)
+
+## What's still open
+
+- **LLM on Zhouyi v3.** The Compass NN compiler is static-graph only —
+  transformer models with KV-cache / variable sequence length don't compile
+  cleanly. This is unsolved by anyone (Cix included). Vision models, audio
+  (Whisper), and image-gen all work via the Cix model hub.
+- **UMD 4.0.0 compat.** Only `cix-noe-umd 2.0.2` is confirmed working.
+
+## Credits
+
+- **FyrbyAdditive/ms-r1-npu-hack** — identified and fixed all four root causes
+  on MS-R1 (Armbian). NCZ integrates their patches into the installer.
+- **cixtech/cix_opensource__release__npu_driver** (`cix_mainline_dev`)
+- **radxa-pkg/cix-prebuilt** — `cix-noe-umd_2.0.2_arm64.deb`
+- **Cix AI Model Hub** on ModelScope — pre-compiled `.cix` inference graphs
+
+## References
+
+- [FyrbyAdditive/ms-r1-npu-hack](https://github.com/FyrbyAdditive/ms-r1-npu-hack)
+- [cixtech/cix_opensource__release__npu_driver](https://github.com/cixtech/cix_opensource__release__npu_driver)
+- [radxa-pkg/cix-prebuilt](https://github.com/radxa-pkg/cix-prebuilt)
+- [Cix AI Model Hub](https://www.modelscope.cn/cix/ai_model_hub_25_Q3)
+EOF
+chmod 0644 /usr/share/doc/ncz/NPU-STATUS.md
+
+# Marker for 70-bootloader.sh: NPU initrds need staging
+mkdir -p /var/lib/ncz
+echo "$LTS_VER" > /var/lib/ncz/npu-initrd-staging.list
+echo "$NEXT_VER" >> /var/lib/ncz/npu-initrd-staging.list
+
+echo "[80] NPU stack installed: modules + SSDT override + autoload + status doc"
+echo "[80] Install cix-noe-umd 2.0.2 from radxa-pkg/cix-prebuilt to enable inference"

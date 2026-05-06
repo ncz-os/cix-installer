@@ -72,9 +72,34 @@ echo
 
 echo "--- copying $SRC → /target/usr/local/lib/cix-installer ---"
 mkdir -p /target/usr/local/lib
-cp -r "$SRC" /target/usr/local/lib/cix-installer
+# 2026-05-04 codex review: rm -rf + cp -a so reruns don't nest cixmini/
+# inside existing /target/usr/local/lib/cix-installer/.
+rm -rf /target/usr/local/lib/cix-installer
+cp -a "$SRC" /target/usr/local/lib/cix-installer
 chmod 755 /target/usr/local/lib/cix-installer/post-install/*.sh
 echo "    copy ok"
+echo
+
+# Stamp the install with the build serial + dual-kernel KVERs so
+# 10-our-kernel.sh + 70-bootloader.sh can read them. Files land at
+# both /etc/cix-installer/ (easy `cat` from running system) and
+# /usr/local/lib/cix-installer/ (where post-install scripts read).
+mkdir -p /target/etc/cix-installer
+for f in BUILD_VERSION BUILD_DATE BUILD_HOST KVER_LTS KVER_NEXT; do
+    if [ -f "$SRC/$f" ]; then
+        cp "$SRC/$f" /target/etc/cix-installer/"$f"
+        cp "$SRC/$f" /target/usr/local/lib/cix-installer/"$f"
+    fi
+done
+if [ -f /target/etc/cix-installer/BUILD_VERSION ]; then
+    echo "    build stamp: $(cat /target/etc/cix-installer/BUILD_VERSION) ($(cat /target/etc/cix-installer/BUILD_DATE 2>/dev/null))"
+fi
+if [ -f /target/etc/cix-installer/KVER_LTS ]; then
+    echo "    KVER_LTS:  $(cat /target/etc/cix-installer/KVER_LTS)"
+fi
+if [ -f /target/etc/cix-installer/KVER_NEXT ] && [ -s /target/etc/cix-installer/KVER_NEXT ]; then
+    echo "    KVER_NEXT: $(cat /target/etc/cix-installer/KVER_NEXT) [BETA]"
+fi
 echo
 
 echo "--- post-copy md5 of /target/.../10-our-kernel.sh ---"
@@ -82,9 +107,32 @@ md5sum /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 ||
 wc -c /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 || true
 echo
 
+# Codex A2 CRITICAL #2 fix: Mount /cdrom inside /target so post-install
+# hooks can `apt-get install` from our offline mirror via file:///cdrom.
+# Without this, 10-our-kernel.sh + 70-bootloader.sh + 20-desktop.sh fail
+# because preseed has apt-setup/use_mirror=false (offline-only install).
+echo "--- mounting cdrom into /target for offline apt-get during post-install ---"
+mkdir -p /target/cdrom
+mount --bind /cdrom /target/cdrom 2>&1 || \
+    { echo "WARN: bind-mount /cdrom into /target failed; post-install apt-get may fail"; }
+
+# Add file:///cdrom apt source to /target's sources.list so apt-get install
+# in chroot can find packages locally. [trusted=yes] bypasses GPG (we
+# don't sign our offline mirror Release file yet).
+cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'CDROM_LIST'
+deb [trusted=yes] file:///cdrom questing main
+CDROM_LIST
+echo "    /target/etc/apt/sources.list.d/cixmini-cdrom.list installed"
+in-target apt-get update 2>&1 | tail -3 || \
+    { echo "WARN: in-target apt-get update from cdrom failed"; }
+
 echo "--- running post-install in chroot ---"
 in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
+
+# Codex A2 fix: don't leave bind-mount around after late_command finishes
+umount /target/cdrom 2>&1 || true
+rmdir /target/cdrom 2>&1 || true
 echo "in-target run-all.sh exited: $RET"
 
 # Eject the install media on success. We turned cdrom-detect/eject off
@@ -98,4 +146,29 @@ if [ "$RET" = "0" ]; then
     eject /cdrom 2>&1 || echo "eject /cdrom failed (non-fatal)"
 fi
 
+
+# r56: hydrate /etc/skel content into existing user homes that d-i created before late_command fired.
+# Without this, post-install hooks that populate /etc/skel/Desktop and /etc/skel/.config don't
+# reach the user (because d-i's user-creation step copies /etc/skel BEFORE late_command runs).
+if [ "$RET" = "0" ]; then
+    for home in /target/home/*; do
+        [ -d "$home" ] || continue
+        user=$(basename "$home")
+        in-target rsync -a --ignore-existing /etc/skel/ /home/"$user"/ 2>/dev/null || true
+        in-target chown -R "$user":"$user" /home/"$user" 2>/dev/null || true
+    done
+fi
+
+# r56: loud REMOVE-USB banner so user sees it on every TTY before d-i reboots.
+# d-i preseed (reboot_in_progress no longer set to note) will then prompt the
+# user to dismiss before the actual reboot fires.
+if [ "$RET" = "0" ]; then
+    BANNER='\n\n  ============================================================\n  \n    NCZ 26.5 INSTALL COMPLETE\n    \n    >>> REMOVE THE USB STICK NOW <<<\n    \n    Then press Enter on the next dialog to reboot.\n    \n    If you forget, the system will boot back into the\n    installer (USB has higher boot priority than NVMe).\n  \n  ============================================================\n'
+    for tty in /dev/tty1 /dev/tty2 /dev/tty3 /dev/tty4 /dev/tty5 /dev/console; do
+        if [ -w "$tty" ]; then
+            printf '%b' "$BANNER" >> "$tty" 2>/dev/null || true
+        fi
+    done
+    sleep 5
+fi
 exit $RET
