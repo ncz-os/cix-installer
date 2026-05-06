@@ -173,7 +173,15 @@ class NPUEmbedder:
         return f
 
     def embed(self, text: str) -> np.ndarray:
-        """Embed text. Cache hit returns immediately; miss runs NPU."""
+        """Embed text. Cache hit returns immediately; miss runs NPU.
+
+        Cache contract (r75 Codex round-2 MED): cached vectors are stored
+        with WRITEABLE=False. Callers that mutate the returned array in
+        place (e.g. in-place L2-normalize, dtype cast on top of the
+        buffer) will get a numpy ValueError instead of silently
+        corrupting the cache for that text. To mutate, copy first:
+            v = embedder.embed(text).copy()
+        """
         # SHA256 of the bytes — collision-resistant + stable across processes
         key = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
         v = self._cache.get(key)
@@ -182,6 +190,10 @@ class NPUEmbedder:
             return v
         self.cache_misses += 1
         v = self._embed_uncached(text)
+        # Lock the cached vector against in-place mutation. The flag is
+        # propagated through views, so a caller doing `v[:] = something`
+        # also fails. Copies they make are writeable as expected.
+        v.setflags(write=False)
         # Bound the cache to avoid runaway growth
         if len(self._cache) >= self.cache_size:
             # Drop oldest 10% (FIFO eviction; insertion-ordered dict)
