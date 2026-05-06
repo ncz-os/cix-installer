@@ -1,10 +1,11 @@
 #!/bin/bash
 # 70-bootloader.sh — systemd-boot install + DUAL-kernel loader entries.
+# r75 K3: NEXT is the default boot path; LTS stays as fallback menu entry.
 #
-# Three loader entries:
-#   1. cixmini-lts.conf   (default — Sky1 6.18.26 LTS)
-#   2. cixmini-next.conf  ([BETA] Sky1 7.0.1 next — only if NEXT was baked)
-#   3. cixmini-rescue.conf (rescue.target on LTS kernel)
+# Three loader entries (in menu order):
+#   1. cixmini-next.conf   (DEFAULT — Sky1 linux-cix-sky1-next 7.0.x)
+#   2. cixmini-lts.conf    (FALLBACK — Sky1 linux-cix-sky1-lts 6.18.x)
+#   3. cixmini-rescue.conf (rescue.target — defaults to LTS kernel)
 #
 # CRITICAL: systemd-boot's loader entry parser does NOT support
 # backslash line-continuation — every line MUST be standalone. Earlier
@@ -12,7 +13,7 @@
 # half the cmdline.
 set -euo pipefail
 
-echo "[70] systemd-boot bootloader (DUAL kernel — LTS default + BETA)"
+echo "[70] systemd-boot bootloader (DUAL kernel — NEXT default + LTS fallback)"
 
 INSTALLER_META=/usr/local/lib/cix-installer
 [ -f "$INSTALLER_META/KVER_LTS" ] || { echo "ERROR: KVER_LTS sidecar missing"; exit 1; }
@@ -198,8 +199,8 @@ if [ "$LTS_AVAILABLE" = "1" ]; then
     # Order (per RULE 2026-05-03 update): NEXT (7.x) first/default,
     # LTS (6.18) second/fallback, rescue last.
     cat > /boot/efi/loader/entries/cixmini-lts.conf <<EOF
-title   nclawzero (cixmini) — kernel $KVER_LTS [LTS, default] — $BUILD_VERSION
-sort-key 1-lts
+title   nclawzero (cixmini) — kernel $KVER_LTS [LTS, fallback] — $BUILD_VERSION
+sort-key 2-lts
 version $KVER_LTS
 linux   /vmlinuz-$KVER_LTS
 options $LTS_OPTIONS
@@ -209,7 +210,7 @@ EOF
         sed -i "/^linux /a initrd  /initrd.img-$KVER_LTS" /boot/efi/loader/entries/cixmini-lts.conf
         echo "  added initrd line to cixmini-lts.conf"
     fi
-    echo "  wrote cixmini-lts.conf (sort-key 1-lts, fallback)"
+    echo "  wrote cixmini-lts.conf (sort-key 2-lts, fallback)"
 else
     echo "  skipping cixmini-lts.conf (LTS kernel not installed)"
 fi
@@ -230,8 +231,8 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 
     cat > /boot/efi/loader/entries/cixmini-next.conf <<EOF
-title   nclawzero (cixmini) — kernel $KVER_NEXT [next, BETA] — $BUILD_VERSION
-sort-key 2-next
+title   nclawzero (cixmini) — kernel $KVER_NEXT [NEXT, default] — $BUILD_VERSION
+sort-key 1-next
 version $KVER_NEXT
 linux   /vmlinuz-$KVER_NEXT
 options $NEXT_OPTIONS
@@ -240,7 +241,7 @@ EOF
         sed -i "/^linux /a initrd  /initrd.img-$KVER_NEXT" /boot/efi/loader/entries/cixmini-next.conf
         echo "  added initrd line to cixmini-next.conf"
     fi
-    echo "  wrote cixmini-next.conf (sort-key 2-next, default)"
+    echo "  wrote cixmini-next.conf (sort-key 1-next, default)"
 else
     echo "  skipping cixmini-next.conf (BETA kernel not installed)"
 fi

@@ -91,8 +91,32 @@ systemctl enable xrdp
 install -d -m 0755 /etc/skel/.config
 touch /etc/skel/.config/gnome-initial-setup-done
 
-# Ensure user is in render+video groups (live patch carryover)
-echo "render" >> /etc/initramfs-tools/modules 2>/dev/null || true
+# r75 P1: ensure operator is in render,video,audio,plugdev,input groups
+# for Vulkan (/dev/dri/renderD128), V4L2, audio, and removable-media access.
+# r74 was missing this — Vulkan failed silently with 'Permission denied'
+# until the operator manually ran usermod + logged out / back in.
+#
+# Discovery pattern matches 35-ssh.sh (first UID >= 1000 < 65000),
+# with 'ncz' as explicit fallback.
+OPERATOR_USER=$(awk -F: '$3 >= 1000 && $3 < 65000 {print $1; exit}' /etc/passwd)
+if [ -z "$OPERATOR_USER" ] && id ncz >/dev/null 2>&1; then
+    OPERATOR_USER=ncz
+fi
+if [ -n "$OPERATOR_USER" ] && id "$OPERATOR_USER" >/dev/null 2>&1; then
+    # Add only the groups that already exist on the system. Some
+    # (e.g. render) are package-installed later; usermod -aG against
+    # a missing group hard-errors otherwise.
+    for g in render video audio plugdev input; do
+        if getent group "$g" >/dev/null 2>&1; then
+            usermod -aG "$g" "$OPERATOR_USER" 2>&1 | sed 's/^/    /'
+        else
+            echo "    skip group '$g' — not yet present (often appears after later post-install hooks add the package)"
+        fi
+    done
+    echo "[20] operator '$OPERATOR_USER' added to render/video/audio/plugdev/input (those that exist)"
+else
+    echo "[20] WARN: no operator user found for usermod — Vulkan/V4L2/audio may fail until added manually" >&2
+fi
 
 echo "[20] LightDM + XFCE + xrdp + Mesa panthor-override installed"
 
