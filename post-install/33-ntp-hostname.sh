@@ -18,14 +18,49 @@ set +e
 # `systemctl enable --now` calls are expected to fail when systemd is
 # not PID 1, and `ls | head` summary pipes can SIGPIPE-fail under pipefail.
 
-# r63: only override hostname if it's blank or default (debian/ubuntu).
-# Operator may have set their own hostname during preseed — preserve it.
-DEFAULT_HOSTNAME=mini
+# r75 P2: hostname fallback strategy. r74 used a fleet-wide 'mini'
+# default which is bad debug UX (every NCZ box on a LAN is named the
+# same). r75 generates ncz-<MAC4hex> from the first ethernet MAC for
+# machines that arrived here with a blank/default hostname. Operators
+# who set their own hostname during preseed always win.
+#
+# Why MAC-based: deterministic across reboots (MAC is hardware-bound),
+# unique across NCZ boxes on the same LAN, easy to type from a sticker
+# on the chassis.
+#
+# Origin: Jeff Hunter's r74 wireless-only install bug — 'Invalid
+# hostname ""' from netcfg blank, then downstream scripts crashed.
+ncz_default_hostname() {
+    # First non-loopback ethernet MAC, last 4 hex chars, lowercase.
+    # /sys/class/net/*/address is the most-portable source on Linux.
+    local mac iface
+    for iface in $(ls /sys/class/net 2>/dev/null); do
+        case "$iface" in
+            lo|virbr*|docker*|veth*|br-*|tun*|tap*) continue ;;
+        esac
+        # Skip wireless interfaces — we want the persistent identity, and
+        # wireless MACs can be randomized per-association on some configs.
+        if [ -d "/sys/class/net/$iface/wireless" ] || [ -d "/sys/class/net/$iface/phy80211" ]; then
+            continue
+        fi
+        if [ -r "/sys/class/net/$iface/address" ]; then
+            mac=$(cat "/sys/class/net/$iface/address" | tr -d ":" | tr "[:upper:]" "[:lower:]")
+            if [ -n "$mac" ] && [ "$mac" != "000000000000" ]; then
+                printf "ncz-%s" "${mac: -4}"
+                return 0
+            fi
+        fi
+    done
+    # No non-virtual ethernet — fall back to a static identifier to keep
+    # downstream scripts that depend on a non-empty hostname working.
+    echo "ncz-noeth"
+}
+
 EXISTING=$(cat /etc/hostname 2>/dev/null | tr -d ' \t\r\n')
 case "$EXISTING" in
-    ""|debian|ubuntu|localhost|raspbian|"(none)")
-        TARGET_HOSTNAME="$DEFAULT_HOSTNAME"
-        echo "[33] hostname '$EXISTING' is default — overriding to $TARGET_HOSTNAME"
+    ""|debian|ubuntu|localhost|raspbian|"(none)"|mini)
+        TARGET_HOSTNAME=$(ncz_default_hostname)
+        echo "[33] hostname '$EXISTING' is default/blank — generated $TARGET_HOSTNAME (MAC-derived)"
         ;;
     *)
         TARGET_HOSTNAME="$EXISTING"
