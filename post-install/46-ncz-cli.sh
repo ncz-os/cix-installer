@@ -65,6 +65,8 @@ Subcommands:
                         (STUB in r75 — see task #99).
   install mnemos        Wire MNEMOS server + Cix NPU embedder backend
                         (STUB in r75 — see task #98).
+  status                Print system summary: ncz version, BUILD_VARIANT,
+                        kernel, default-target, NPU + GPU presence.
   version               Print version.
   help                  Show this help.
 
@@ -211,6 +213,43 @@ MSG
     esac
 }
 
+# --- status subcommand ---------------------------------------------------
+
+ncz_status() {
+    local sidecar=/usr/local/lib/cix-installer/BUILD_VARIANT
+    local variant=desktop
+    [ -f "$sidecar" ] && variant="$(tr -d ' \t\r\n' < "$sidecar")"
+    local target
+    target="$(systemctl get-default 2>/dev/null || echo unknown)"
+    local kver
+    kver="$(uname -r 2>/dev/null || echo unknown)"
+    local hostname
+    hostname="$(hostname 2>/dev/null || echo unknown)"
+
+    printf '%-26s %s\n' 'ncz:' "$NCZ_VERSION"
+    printf '%-26s %s\n' 'hostname:' "$hostname"
+    printf '%-26s %s\n' 'kernel:' "$kver"
+    printf '%-26s %s\n' 'BUILD_VARIANT:' "$variant"
+    printf '%-26s %s\n' 'default-target:' "$target"
+    printf '%-26s %s\n' 'NPU /dev/aipu0:' "$([ -e /dev/aipu0 ] && echo present || echo absent)"
+    printf '%-26s %s\n' 'NPU /dev/cix-noe0:' "$([ -e /dev/cix-noe0 ] && echo present || echo absent)"
+    if [ -e /dev/dri/renderD128 ]; then
+        printf '%-26s %s\n' 'GPU /dev/dri/renderD128:' "present"
+        if command -v vulkaninfo >/dev/null 2>&1; then
+            local devs
+            devs="$(vulkaninfo --summary 2>/dev/null | awk -F: '/deviceName/ {gsub(/^ +/, "", $2); print $2}' | head -3 | paste -sd, -)"
+            [ -n "$devs" ] && printf '%-26s %s\n' 'Vulkan devices:' "$devs"
+        fi
+    else
+        printf '%-26s %s\n' 'GPU /dev/dri/renderD128:' "absent"
+    fi
+    if [ -d /opt/ncz/models ]; then
+        local nmodels
+        nmodels="$(find /opt/ncz/models -name '*.cix' 2>/dev/null | wc -l | tr -d ' ')"
+        printf '%-26s %s .cix files in /opt/ncz/models\n' 'models:' "$nmodels"
+    fi
+}
+
 # --- main dispatch -------------------------------------------------------
 
 main() {
@@ -220,6 +259,7 @@ main() {
         desktop)        ncz_desktop "$@" ;;
         models)         ncz_models  "$@" ;;
         install)        ncz_install "$@" ;;
+        status)         ncz_status ;;
         version|--version|-V) echo "ncz $NCZ_VERSION" ;;
         help|--help|-h) ncz_help ;;
         '')             ncz_help ;;
