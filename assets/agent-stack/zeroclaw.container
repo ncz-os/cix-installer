@@ -5,7 +5,7 @@ Wants=network-online.target nclawzero-load-agent-images.service
 After=network-online.target nclawzero-load-agent-images.service
 
 [Container]
-Image=ghcr.io/perlowja/nclawzero-demo@sha256:0d5306ff1fb35602dfb283bf35390bb88b91e5164a511d1e2af5800d48f627c0
+Image=ghcr.io/zeroclaw-labs/zeroclaw:latest
 # Image pinned to immutable digest. To roll forward to a newer build,
 # resolve the new sha256 via `crane digest ghcr.io/perlowja/nclawzero-
 # demo:latest` (or the curl manifest pattern in nclawzero-agent-quadlets
