@@ -53,34 +53,51 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # failures are now hard-fatal so partial installs cannot be reported as
 # success. Final check verifies libnoe.so is on disk before declaring OK.
 NOE_STATE=$(dpkg-query -W -f='${db:Status-Abbrev}\n' cix-noe-umd 2>/dev/null | tr -d ' ')
-if [ "$NOE_STATE" = "iF" ]; then
-    echo "[25] cix-noe-umd in iF (failed-config) state — diagnosing"
-    POSTINST=/var/lib/dpkg/info/cix-noe-umd.postinst
-    if [ -f "$POSTINST" ] && grep -qE "pip3? install.*libnoe|python3? -m pip install.*libnoe" "$POSTINST"; then
-        echo "[25] confirmed: postinst contains libnoe pip line — patching that stanza only"
-        # Save canonical copy for the build record + comment-out the libnoe pip line(s)
-        cp -a "$POSTINST" "$POSTINST.r75-orig"
-        sed -i -E 's|^([[:space:]]*)((python3?[[:space:]]+-m[[:space:]]+pip|pip3?)[[:space:]]+install[[:space:]]+.*libnoe.*)$|\1: # r75 P3: skipped on Py3.13 -- \2|' "$POSTINST"
-        chmod 0755 "$POSTINST"
-        if dpkg --configure cix-noe-umd 2>&1 | tail -3; then
-            apt-get -f install -y 2>&1 | tail -3 || { echo "[25] ERROR: apt-get -f install failed after postinst patch" >&2; exit 1; }
+# r75 Codex round-2 MED: treat iF AND iU as blocking. Round-1 fix
+# silently skipped iU (unpacked-not-configured), letting later apt
+# commands fail with a wedged dpkg state. Both states need the
+# postinst-stanza patch then dpkg --configure to land in ii.
+case "$NOE_STATE" in
+    iF|iU)
+        echo "[25] cix-noe-umd in $NOE_STATE state — applying P3 recovery"
+        POSTINST=/var/lib/dpkg/info/cix-noe-umd.postinst
+        if [ -f "$POSTINST" ] && grep -qE "pip3? install.*libnoe|python3? -m pip install.*libnoe" "$POSTINST"; then
+            echo "[25] confirmed: postinst contains libnoe pip line — patching that stanza only"
+            cp -a "$POSTINST" "$POSTINST.r75-orig"
+            sed -i -E 's|^([[:space:]]*)((python3?[[:space:]]+-m[[:space:]]+pip|pip3?)[[:space:]]+install[[:space:]]+.*libnoe.*)$|\1: # r75 P3: skipped on Py3.13 -- \2|' "$POSTINST"
+            chmod 0755 "$POSTINST"
+            if dpkg --configure cix-noe-umd 2>&1 | tail -3; then
+                apt-get -f install -y 2>&1 | tail -3 || { echo "[25] ERROR: apt-get -f install failed after postinst patch" >&2; exit 1; }
+            else
+                echo "[25] ERROR: dpkg --configure still failed after libnoe-pip-line patch" >&2
+                exit 1
+            fi
         else
-            echo "[25] ERROR: dpkg --configure still failed after libnoe-pip-line patch" >&2
+            echo "[25] ERROR: cix-noe-umd in $NOE_STATE but postinst does not contain expected libnoe pip line" >&2
+            echo "       Cause unknown — refusing to silently mask. Operator must investigate:" >&2
+            echo "       /var/lib/dpkg/info/cix-noe-umd.postinst:" >&2
+            sed -n '1,30p' "$POSTINST" 2>&1 | sed 's/^/         /' >&2 || true
             exit 1
         fi
-    else
-        echo "[25] ERROR: cix-noe-umd in iF but postinst does not contain expected libnoe pip line" >&2
-        echo "       Cause unknown — refusing to silently mask. Operator must investigate:" >&2
-        echo "       /var/lib/dpkg/info/cix-noe-umd.postinst:" >&2
-        sed -n '1,30p' "$POSTINST" 2>&1 | sed 's/^/         /' >&2 || true
-        exit 1
-    fi
-elif [ "$NOE_STATE" = "iU" ]; then
-    echo "[25] WARN: cix-noe-umd in iU (unpacked-not-configured) — not the known Py3.13 case; skipping P3 recovery" >&2
-fi
+        # Re-check state after recovery — must be ii (installed).
+        NOE_STATE=$(dpkg-query -W -f='${db:Status-Abbrev}\n' cix-noe-umd 2>/dev/null | tr -d ' ')
+        if [ "$NOE_STATE" != "ii" ]; then
+            echo "[25] ERROR: cix-noe-umd recovery left package in '$NOE_STATE' state, expected 'ii'" >&2
+            exit 1
+        fi
+        echo "[25] cix-noe-umd recovered to ii state"
+        ;;
+    ii|"")
+        : # ii = good, "" = not installed (apt failed earlier or network), nothing to recover
+        ;;
+    *)
+        echo "[25] WARN: cix-noe-umd in unexpected state '$NOE_STATE' — not in known recovery set" >&2
+        ;;
+esac
 
 # Verify the libnoe.so we actually use lives on disk after install/recovery.
-if [ "$NOE_STATE" = "iF" ] || dpkg -l cix-noe-umd >/dev/null 2>&1; then
+# Only check if the package is supposed to be installed (was attempted above).
+if dpkg -l cix-noe-umd >/dev/null 2>&1; then
     if ! [ -e /usr/share/cix/lib/libnoe.so ] && ! [ -e /usr/lib/aarch64-linux-gnu/libnoe.so ] && ! find /usr -name "libnoe.so*" 2>/dev/null | grep -q .; then
         echo "[25] ERROR: cix-noe-umd reported installed but libnoe.so not found anywhere under /usr" >&2
         exit 1

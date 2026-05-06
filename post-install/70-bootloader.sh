@@ -247,10 +247,32 @@ EOF
         sed -i "/^linux /a initrd  /initrd.img-$KVER_NEXT" /boot/efi/loader/entries/cixmini-next+3-0.conf
         echo "  added initrd line to cixmini-next+3-0.conf"
     fi
-    # Ensure systemd-bless-boot is enabled — it's the agent that decrements
-    # the tries-counter and renames .failed on exhaustion. Stock systemd unit;
-    # idempotent.
-    systemctl enable systemd-bless-boot.service 2>/dev/null || true
+    # r75 Codex round-2 HIGH fix: enable systemd-bless-boot.service hard
+    # (was best-effort 2>/dev/null || true). Without this unit the
+    # tries-counter never decrements and the +3-0 boot-counted entry is
+    # functionally indistinguishable from a plain entry — losing the
+    # auto-rollback that closes round-1 HIGH "NEXT default without
+    # rollback".
+    #
+    # If the unit is missing OR cannot be enabled, fall back to LTS as
+    # the menu default rather than ship a broken-rollback default.
+    BLESS_BOOT_OK=0
+    if systemctl list-unit-files systemd-bless-boot.service 2>/dev/null | grep -q "^systemd-bless-boot.service"; then
+        if systemctl enable systemd-bless-boot.service 2>&1 | sed 's/^/  /'; then
+            if systemctl is-enabled systemd-bless-boot.service >/dev/null 2>&1; then
+                BLESS_BOOT_OK=1
+                echo "  systemd-bless-boot.service: enabled (boot-count rollback active)"
+            fi
+        fi
+    fi
+    if [ "$BLESS_BOOT_OK" = "0" ]; then
+        echo "  WARN: systemd-bless-boot.service not enabled — boot-count rollback NOT active." >&2
+        echo "        Renaming +3-0.conf to plain cixmini-next.conf (no boot-count) and forcing LTS-default fallback." >&2
+        if [ -f /boot/efi/loader/entries/cixmini-next+3-0.conf ]; then
+            mv /boot/efi/loader/entries/cixmini-next+3-0.conf /boot/efi/loader/entries/cixmini-next.conf
+        fi
+        FORCE_LTS_DEFAULT=1
+    fi
     echo "  wrote cixmini-next+3-0.conf (sort-key 1-next, default, 3-try rollback to LTS)"
 else
     echo "  skipping cixmini-next.conf (BETA kernel not installed)"
@@ -298,10 +320,14 @@ fi
 # the entry .failed-renames and systemd-boot falls back to cixmini-lts.
 # This block overrides the early default cixmini-next* in loader.conf at
 # line 108 only when NEXT is missing.
-if [ "$NEXT_AVAILABLE" = "1" ]; then
+if [ "$NEXT_AVAILABLE" = "1" ] && [ "${FORCE_LTS_DEFAULT:-0}" = "0" ]; then
     DEFAULT_ENTRY="cixmini-next*"   # glob matches +N-M boot-counter rotations
 elif [ "$LTS_AVAILABLE" = "1" ]; then
     DEFAULT_ENTRY="cixmini-lts"
+elif [ "$NEXT_AVAILABLE" = "1" ]; then
+    # NEXT available but FORCE_LTS_DEFAULT was set without LTS — degraded
+    # mode (no rollback, but boot still reachable). Use plain entry.
+    DEFAULT_ENTRY="cixmini-next"
 else
     echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
