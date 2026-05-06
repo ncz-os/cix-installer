@@ -52,7 +52,12 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # replacing the whole script. dpkg --configure / apt-get -f install
 # failures are now hard-fatal so partial installs cannot be reported as
 # success. Final check verifies libnoe.so is on disk before declaring OK.
-NOE_STATE=$(dpkg-query -W -f='${db:Status-Abbrev}\n' cix-noe-umd 2>/dev/null | tr -d ' ')
+# r75 Codex round-3 MED: dpkg-query exits non-zero when the package is
+# unknown (absent). Without `|| true` the set -euo pipefail trap aborts
+# the hook before we can hit the empty-state branch — making the
+# "offline-mirror failed, cix-noe-umd not installed" path unrecoverable.
+NOE_STATE=$(dpkg-query -W -f='${db:Status-Abbrev}\n' cix-noe-umd 2>/dev/null | tr -d ' ' || true)
+
 # r75 Codex round-2 MED: treat iF AND iU as blocking. Round-1 fix
 # silently skipped iU (unpacked-not-configured), letting later apt
 # commands fail with a wedged dpkg state. Both states need the
@@ -87,11 +92,28 @@ case "$NOE_STATE" in
         fi
         echo "[25] cix-noe-umd recovered to ii state"
         ;;
-    ii|"")
-        : # ii = good, "" = not installed (apt failed earlier or network), nothing to recover
+    ii)
+        echo "[25] cix-noe-umd in ii (installed) — no recovery needed"
+        ;;
+    "")
+        # Package is absent / unknown to dpkg. This is the offline-mirror
+        # path: apt-get install above either silently failed (the "|| echo"
+        # at line 40) or never ran. We treat this as best-effort skip;
+        # downstream NPU work will fail-loud at the libnoe.so check below
+        # if the runtime is actually missing.
+        echo "[25] cix-noe-umd not present (offline mirror or apt failed) — skipping NPU runtime"
         ;;
     *)
-        echo "[25] WARN: cix-noe-umd in unexpected state '$NOE_STATE' — not in known recovery set" >&2
+        # r75 Codex round-3 MED — hard-fail any other non-ii state instead of
+        # WARN-only. Held (iH), trigger-pending (iT/iWiR), half-installed (iH+H),
+        # etc. could let later apt commands silently fail. We don't know the
+        # right recovery for unknown states, so fail loud.
+        echo "[25] ERROR: cix-noe-umd in unexpected state '$NOE_STATE' — refusing to silently continue" >&2
+        echo "       Known-recoverable: iF (failed-config), iU (unpacked-not-configured)" >&2
+        echo "       Known-OK: ii (installed), '' (absent)" >&2
+        echo "       This state needs operator investigation:" >&2
+        dpkg -l cix-noe-umd 2>&1 | sed 's/^/         /' >&2 || true
+        exit 1
         ;;
 esac
 
