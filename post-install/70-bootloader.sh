@@ -135,7 +135,22 @@ echo "  root PARTUUID=$ROOT_PARTUUID"
 # add module blacklists here — the configs already disable everything
 # that would cause boot trouble on MS-R1.
 # ----------------------------------------------------------------------
-MARTJOHNSON_CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
+# r75 Codex round-5 HIGH fix — per-entry cmdline split.
+#
+# LTS keeps efi=noruntime (r74 ship stability; original MS-R1 EFI
+# runtime quirk worked around by disabling it). NEXT drops it because
+# systemd-bless-boot requires EFI runtime variables (LoaderBootCountPath)
+# to mark a successful boot as good — without that, repeated successful
+# NEXT boots burn the +N-M counter to .failed and roll back to LTS.
+# linux-cix-sky1-next 7.0.x has newer EFI handling than the 6.6 fork
+# the noruntime workaround was originally added for; defaulting to
+# runtime-enabled on NEXT lets the auto-rollback semantics actually
+# work as designed.
+LTS_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
+NEXT_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA2,115200 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
+
+# Backward-compat for any consumer still referencing the old name
+MARTJOHNSON_CMDLINE="$LTS_CMDLINE_BASE"
 
 # Optional Plymouth splash flags (if 60-plymouth.sh ran)
 SPLASH=""
@@ -192,7 +207,7 @@ fi
 # Entry 1 — cixmini-lts.conf (DEFAULT, production-stable, only if LTS available)
 # ----------------------------------------------------------------------
 if [ "$LTS_AVAILABLE" = "1" ]; then
-    LTS_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
+    LTS_OPTIONS="$ROOT_OPTS $LTS_CMDLINE_BASE"
     [ -n "$SPLASH" ] && LTS_OPTIONS="$LTS_OPTIONS $SPLASH"
 
     # sort-key forces menu-order (systemd-boot 252+).
@@ -227,7 +242,11 @@ fi
 # entry is for A/B testing only; production users should pick LTS.
 # ----------------------------------------------------------------------
 if [ "$NEXT_AVAILABLE" = "1" ]; then
-    NEXT_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
+    # NEXT uses NEXT_CMDLINE_BASE (no efi=noruntime) so systemd-bless-boot
+    # can write LoaderBootCountPath EFI variable to mark a successful
+    # boot as good. Without this, the +3-0 boot-counter burns down to
+    # .failed even on healthy NEXT boots — defeating the rollback design.
+    NEXT_OPTIONS="$ROOT_OPTS $NEXT_CMDLINE_BASE"
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 
     # r75 K3 v2: filename uses systemd-boot boot-counting suffix +3-0
