@@ -20,7 +20,7 @@ Hi Cix engineering team,
 
 We've been doing systematic benchmarking of the Cix Sky1 / CD8180 SoC for agentic-memory workloads (vector embeddings via the Z3 NPU at 256-token sequence length on `bge-small-zh.cix`). The hardware is genuinely competitive — and after one week of tooling work, we have honest, reproducible numbers that we want to share back.
 
-**TL;DR:** Cix Sky1 NPU at the silicon level is **statistical parity with current Intel iGPU + OpenVINO 2026.1.0** on this workload. The toolchain is what's holding it back from being the dominant choice on this silicon class. We've identified five specific gaps and would value team feedback on the right paths to close them.
+**TL;DR:** On our test harness, Cix Sky1 NPU and current-gen Intel iGPU + OpenVINO 2026.1.0 land in **the same performance neighborhood** for this workload (cold-pass per-inference time within 4-7%). We can't yet attribute the residual gap to silicon, software-tuning, or model variant from this single dataset alone — and that's part of why we want the Cix team's read. What we can say plainly is that toolchain gaps in `libnoe`/CixBuilder are blocking us from evaluating + adopting this silicon at the rate the hardware seems to permit. We've identified five specific gaps and would value team feedback on the right paths to close them.
 
 **Hardware setup:**
 - Minisforum MS-R1 (Cix CD8180), 64 GB unified RAM premium SKU, kernel 7.0.3-cix-sky1-next, NCZ Reinhardt 26.5 r74 distro
