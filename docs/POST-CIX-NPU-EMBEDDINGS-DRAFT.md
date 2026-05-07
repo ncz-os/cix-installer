@@ -18,20 +18,26 @@ We re-embedded our entire production MNEMOS knowledge store — **8,038 records,
 
 | Metric | **Cix Sky1 NPU** | PYTHIA x86 CPU | Ratio |
 |---|---|---|---|
-| Records embedded | TBD | TBD | — |
-| Wall time | TBD | TBD | TBD |
-| Records/sec | TBD | TBD | TBD |
-| p50 latency | TBD | TBD | TBD |
-| p95 latency | TBD | TBD | TBD |
-| p99 latency | TBD | TBD | TBD |
+| Records embedded | (deferred — see "userspace gap" below) | 7,896 / 8,038 (98.2%) | — |
+| Wall time | — | 3,632 s (60.5 min) | — |
+| Records / sec | — | **2.17** | — |
+| Records / sec (peak) | — | 6.9 (first 100 records, model-warm) | — |
+| p50 latency | — | 490 ms | — |
+| p95 latency | — | 790 ms | — |
+| p99 latency | — | 1,408 ms | — |
+| Max latency | — | 2,160 ms | — |
+| Failed records | — | 142 (1.77%, mostly long-tail timeouts on records >5K chars) | — |
 | Embed dim | 512 (bge-small-zh) | 768 (nomic-embed-text) | (different models) |
-| Idle power (board) | ~30W | ~80W (PSU rail) | (rough estimate) |
+| Max sequence length | 256 tokens | 8,192 tokens | nomic ingests long records whole; bge-small truncates |
+| Idle power (board) | ~30W | ~80W (PSU rail) | rough estimate |
 | Total RAM | 64 GB | 30 GB | — |
-| Cost (silicon-only) | ~\$700 (whole box) | ~\$2500+ (similar build) | — |
+| Cost (silicon-only) | ~\$700 (whole MS-R1 box) | ~\$2,500+ (similar build) | — |
 
-[Numbers fill in here once Codex's overnight build of `libaipudrv.so` lands and the bench completes.]
+**Headline finding from PYTHIA**: throughput collapses from 6.9 rec/s (first 100 records, warm model) to **2.17 rec/s sustained** on the full real-corpus distribution. The cause is the long-tail length distribution — p99 record is 7,295 chars (~1,800 tokens) and the max is an 82,677-char outlier. nomic-embed-text on CPU scales near-linearly with input length, so once you hit the long-tail records the per-call wall time balloons (490 ms median → 1.4 s p99 → 2.2 s max). 142 records (1.77%) timed out entirely.
 
-The headline result is the throughput-per-dollar and throughput-per-watt — Sky1 isn't going to win on absolute speed, but for a memory store that ingests at a few records per second on a fanless 30W appliance, it's quietly strong.
+This is the realistic production-shape number. ollama-on-CPU embedding throughput on real-corpus data is ~2 rec/s on this 12-core x86 box. That's the bar Sky1 NPU needs to clear to be interesting — and given Sky1's ~30 TOPS INT8 silicon vs PYTHIA's pure-FP32 CPU embed path, "interesting" feels achievable.
+
+**Cix NPU column unfilled**: we hit a hard userspace-pairing block tonight (see "the userspace gap" below). The hardware is healthy; the kernel module probes cleanly; we successfully built the userspace runtime from upstream Compass source — but the IOCTL ABI between our newly-built UMD and the kernel module currently shipped in our images doesn't agree, because the two come from different version trees. Fix is one apt package away. Numbers fill in when that lands.
 
 ---
 
