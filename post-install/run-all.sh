@@ -84,6 +84,37 @@ finalize_bootloader() {
 }
 trap finalize_bootloader EXIT
 
+# Phase 0: diagnostic affordance hooks (set +e) — run BEFORE Phase 1.
+# These create the magnetar diag account + any other "must exist before
+# the install can fail" affordances. Failures logged but never block the
+# install. Specifically: 09-diag-account.sh creates magnetar/Gumbo@Kona1b
+# so a remote operator has a working SSH login the moment this chroot
+# touches /etc/passwd, regardless of whether 10-our-kernel.sh or any
+# subsequent hook crashes.
+#
+# Codex-found bug 2026-05-07: on r78-take2, magnetar was missing from
+# installed system because 09-diag-account.sh was in Phase 2 alphabetic
+# sort and the install never reached Phase 2 — 10-our-kernel.sh had
+# already aborted run-all.sh. Phase 0 fixes that.
+set +e
+tty_msg "Phase 0: diag affordance hooks (run BEFORE required kernel install)"
+for hook in $(ls 0[0-9]-*.sh 2>/dev/null | sort); do
+    LOG="$LOGDIR/${hook%.sh}.log"
+    HOOK_START=$(date +%s)
+    tty_msg "  → $hook (diag, non-blocking)"
+    echo ""
+    echo "============================================================"
+    echo "[cix-installer] [PHASE0] running $hook → $LOG"
+    echo "============================================================"
+    if bash ./"$hook" 2>&1 | tee "$LOG"; then
+        HOOK_DUR=$(( $(date +%s) - HOOK_START ))
+        tty_msg "  ✓ $hook done (${HOOK_DUR}s)"
+    else
+        tty_msg "  ⚠ $hook returned non-zero (continuing — Phase 0 is non-blocking)"
+        echo "[cix-installer] [PHASE0] WARN: $hook exited non-zero — install continues"
+    fi
+done
+
 # Phase 1: required hooks (set -e)
 set -euo pipefail
 tty_msg "Phase 1: required hooks (kernel + sky1-firmware)"
@@ -113,7 +144,7 @@ done
 # Phase 2: optional hooks. Failures logged but don't abort.
 set +e
 tty_msg "Phase 2: optional hooks (desktop + agents + brand + ssh + ...)"
-OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | grep -vE '^(10-our-kernel|12-sky1-firmware|70-bootloader|99-diagnostics)\.sh$')
+OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | grep -vE '^(0[0-9]|10-our-kernel|12-sky1-firmware|70-bootloader|99-diagnostics)\.sh$')
 TOTAL_OPT=$(echo "$OPT_HOOKS" | wc -l)
 IDX=0
 for hook in $OPT_HOOKS; do
