@@ -21,22 +21,88 @@ ROOT=""
 VERSION=""
 OUTPUT=""
 VARIANT="desktop"   # r75 M1: 'desktop' (Reinhardt SKU) | 'server' (Magnetar SKU)
+MODE="full"         # r78: full | thin | netinstall
+
+usage() {
+    cat <<'EOF'
+Usage: build/build-iso-di.sh --bookworm-iso PATH --root PATH --version VERSION --output PATH [options]
+
+Options:
+  --mode {full|thin|netinstall}
+      full       default; bundled rootfs.tar.zst + embedded questing mirror
+      thin       embedded questing mirror, real debootstrap, no rootfs.tar.zst
+      netinstall canonical ports.ubuntu.com debootstrap, NEXT kernel only, <500 MB
+  --variant {desktop|server}
+      Bake-time default variant; GRUB chooser can override via ncz_variant=
+  --bookworm-iso PATH
+  --root PATH
+  --version VERSION
+  --output PATH
+  -h, --help
+EOF
+}
+
+if [ "$#" -eq 0 ]; then
+    usage
+    exit 0
+fi
+
+need_arg() {
+    local opt="$1"
+    local argc="$2"
+    if [ "$argc" -lt 2 ]; then
+        echo "ERROR: $opt requires an argument" >&2
+        exit 1
+    fi
+}
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --bookworm-iso) BOOKWORM_ISO="$2"; shift 2 ;;
-        --root)         ROOT="$2"; shift 2 ;;
-        --version)      VERSION="$2"; shift 2 ;;
-        --output)       OUTPUT="$2"; shift 2 ;;
-        --variant)      VARIANT="$2"; shift 2 ;;
+        --bookworm-iso) need_arg "$1" "$#"; BOOKWORM_ISO="$2"; shift 2 ;;
+        --root)         need_arg "$1" "$#"; ROOT="$2"; shift 2 ;;
+        --version)      need_arg "$1" "$#"; VERSION="$2"; shift 2 ;;
+        --output)       need_arg "$1" "$#"; OUTPUT="$2"; shift 2 ;;
+        --variant)      need_arg "$1" "$#"; VARIANT="$2"; shift 2 ;;
+        --mode)         need_arg "$1" "$#"; MODE="$2"; shift 2 ;;
+        -h|--help)      usage; exit 0 ;;
         *) echo "unknown arg: $1" >&2; exit 1 ;;
     esac
 done
+
+# Validate MODE before staging
+case "$MODE" in
+    full|thin|netinstall) ;;
+    *) echo "ERROR: --mode must be 'full', 'thin', or 'netinstall' (got '$MODE')" >&2; exit 1 ;;
+esac
 
 # Validate VARIANT before staging
 case "$VARIANT" in
     desktop|server) ;;
     *) echo "ERROR: --variant must be 'desktop' or 'server' (got '$VARIANT')" >&2; exit 1 ;;
+esac
+
+EMBED_MIRROR=1
+STAGE_ROOTFS=1
+PATCH_DEBOOTSTRAP_STUB=1
+STAGE_LTS_KERNEL=1
+STAGE_NEXT_KERNEL=1
+INSTALLER_KERNEL_FLAVOR=lts
+NETINSTALL_MAX_BYTES=$((500 * 1024 * 1024))
+
+case "$MODE" in
+    full)
+        ;;
+    thin)
+        STAGE_ROOTFS=0
+        PATCH_DEBOOTSTRAP_STUB=0
+        ;;
+    netinstall)
+        EMBED_MIRROR=0
+        STAGE_ROOTFS=0
+        PATCH_DEBOOTSTRAP_STUB=0
+        STAGE_LTS_KERNEL=0
+        INSTALLER_KERNEL_FLAVOR=next
+        ;;
 esac
 
 [ -f "$BOOKWORM_ISO" ] || { echo "ERROR: --bookworm-iso not a file"; exit 1; }
@@ -249,13 +315,49 @@ EOF
 LTS_KERN="$ROOT/assets/kernel/lts/Image-cixmini.bin"
 LTS_TGZ="$ROOT/assets/kernel/lts/modules-cixmini.tgz"
 LTS_KVER_FILE="$ROOT/assets/kernel/lts/KVER"
-for f in "$LTS_KERN" "$LTS_TGZ" "$LTS_KVER_FILE"; do
-    [ -f "$f" ] || { echo "ERROR: missing $f"; exit 1; }
-done
+NEXT_KERN="$ROOT/assets/kernel/next/Image-cixmini.bin"
+NEXT_TGZ="$ROOT/assets/kernel/next/modules-cixmini.tgz"
+NEXT_KVER_FILE="$ROOT/assets/kernel/next/KVER"
 
-KVER_LTS=$(cat "$LTS_KVER_FILE")
-[ -n "$KVER_LTS" ] || { echo "ERROR: empty KVER file"; exit 1; }
-echo "[info] LTS kernel KVER: $KVER_LTS"
+KVER_LTS=""
+KVER_NEXT=""
+
+if [ "$STAGE_LTS_KERNEL" = "1" ] || [ "$INSTALLER_KERNEL_FLAVOR" = "lts" ]; then
+    for f in "$LTS_KERN" "$LTS_TGZ" "$LTS_KVER_FILE"; do
+        [ -f "$f" ] || { echo "ERROR: missing $f"; exit 1; }
+    done
+    KVER_LTS=$(cat "$LTS_KVER_FILE")
+    [ -n "$KVER_LTS" ] || { echo "ERROR: empty KVER file: $LTS_KVER_FILE"; exit 1; }
+    echo "[info] LTS kernel KVER: $KVER_LTS"
+fi
+
+if [ -f "$NEXT_KVER_FILE" ] && [ -f "$NEXT_KERN" ] && [ -f "$NEXT_TGZ" ]; then
+    KVER_NEXT=$(cat "$NEXT_KVER_FILE")
+    [ -n "$KVER_NEXT" ] || { echo "ERROR: empty KVER file: $NEXT_KVER_FILE"; exit 1; }
+    echo "[info] NEXT kernel KVER: $KVER_NEXT"
+elif [ "$INSTALLER_KERNEL_FLAVOR" = "next" ] || [ "$MODE" = "netinstall" ]; then
+    echo "ERROR: --mode netinstall requires assets/kernel/next/{KVER,Image-cixmini.bin,modules-cixmini.tgz}" >&2
+    exit 1
+fi
+
+case "$INSTALLER_KERNEL_FLAVOR" in
+    lts)
+        INSTALLER_KERN="$LTS_KERN"
+        INSTALLER_TGZ="$LTS_TGZ"
+        KVER_INSTALLER="$KVER_LTS"
+        INSTALLER_KERNEL_LABEL="LTS"
+        ;;
+    next)
+        INSTALLER_KERN="$NEXT_KERN"
+        INSTALLER_TGZ="$NEXT_TGZ"
+        KVER_INSTALLER="$KVER_NEXT"
+        INSTALLER_KERNEL_LABEL="NEXT"
+        ;;
+    *)
+        echo "ERROR: internal unknown installer kernel flavor: $INSTALLER_KERNEL_FLAVOR" >&2
+        exit 1
+        ;;
+esac
 
 # ----------------------------------------------------------------------
 # Step 1 — extract bookworm netinst
@@ -296,14 +398,19 @@ rm -rf "$STAGING/pool" "$STAGING/dists" "$STAGING/doc" "$STAGING/firmware" 2>/de
 
 # Step 3: embed our offline questing mirror (regular debs + Release)
 MIRROR_DIR="${MIRROR_DIR:-$ROOT/build/questing-mirror}"
-if [ -d "$MIRROR_DIR/pool" ] && [ -d "$MIRROR_DIR/dists" ]; then
-    echo "    embedding questing mirror from $MIRROR_DIR"
-    cp -a "$MIRROR_DIR/pool"  "$STAGING/pool"
-    cp -a "$MIRROR_DIR/dists" "$STAGING/dists"
-    echo "    questing mirror embedded: $(du -sh "$STAGING/pool" "$STAGING/dists" | head -1 | cut -f1)"
+if [ "$EMBED_MIRROR" = "1" ]; then
+    if [ -d "$MIRROR_DIR/pool" ] && [ -d "$MIRROR_DIR/dists" ]; then
+        echo "    embedding questing mirror from $MIRROR_DIR"
+        cp -a "$MIRROR_DIR/pool"  "$STAGING/pool"
+        cp -a "$MIRROR_DIR/dists" "$STAGING/dists"
+        echo "    questing mirror embedded: $(du -sh "$STAGING/pool" "$STAGING/dists" | head -1 | cut -f1)"
+    else
+        echo "    ERROR: $MIRROR_DIR missing — abort"
+        exit 1
+    fi
 else
-    echo "    ERROR: $MIRROR_DIR missing — abort"
-    exit 1
+    echo "    netinstall mode: skipping embedded questing mirror"
+    mkdir -p "$STAGING/pool" "$STAGING/dists"
 fi
 
 # Step 4: merge bookworm udebs into questing pool/main/<letter>/<pkg>/
@@ -375,12 +482,9 @@ if true; then
     rm -rf "$TRIXIE_TMP"
 fi
 
-# r40: replace /usr/sbin/debootstrap in the staged debootstrap-udeb with a stub.
-# partman/late_command extracts rootfs.tar.zst into /target BEFORE bootstrap-base
-# runs. Then bookworm bootstrap-base.run-debootstrap calls /usr/sbin/debootstrap
-# (our stub), which detects /target is populated and exits 0. base-installer
-# proceeds to finish-install, which fires preseed/late_command (our late.sh).
-echo "    replacing /usr/sbin/debootstrap with r40 stub (rootfs.tar.zst install path)"
+# r40 full mode: replace /usr/sbin/debootstrap in the staged debootstrap-udeb
+# with a stub. thin/netinstall deliberately skip this so bookworm
+# bootstrap-base.run-debootstrap executes the real trixie debootstrap shell.
 DEBOOTSTRAP_UDEBS=( "$STAGING"/pool/main/d/debootstrap/debootstrap-udeb_*_all.udeb )
 if [ ! -e "${DEBOOTSTRAP_UDEBS[0]}" ]; then
     echo "ERROR: staged debootstrap-udeb not found in $STAGING/pool/main/d/debootstrap/" >&2
@@ -396,6 +500,9 @@ DEBOOTSTRAP_UDEB="${DEBOOTSTRAP_UDEBS[0]}"
 DEBOOTSTRAP_PATCH_TMP="$STAGING/.tmp-debootstrap-udeb"
 DEBOOTSTRAP_PATCH_AR="$DEBOOTSTRAP_PATCH_TMP/ar"
 DEBOOTSTRAP_PATCH_DATA="$DEBOOTSTRAP_PATCH_TMP/data"
+
+if [ "$PATCH_DEBOOTSTRAP_STUB" = "1" ]; then
+    echo "    replacing /usr/sbin/debootstrap with r40 stub (rootfs.tar.zst install path)"
 rm -rf "$DEBOOTSTRAP_PATCH_TMP"
 mkdir -p "$DEBOOTSTRAP_PATCH_AR" "$DEBOOTSTRAP_PATCH_DATA"
 
@@ -534,6 +641,12 @@ DEBOOTSTRAP_NEW_UDEB="$DEBOOTSTRAP_PATCH_TMP/$(basename "$DEBOOTSTRAP_UDEB")"
 )
 mv "$DEBOOTSTRAP_NEW_UDEB" "$DEBOOTSTRAP_UDEB"
 rm -rf "$DEBOOTSTRAP_PATCH_TMP"
+else
+    echo "    skipping r40 debootstrap stub; real debootstrap will run for --mode $MODE"
+fi
+
+echo "    patching debootstrap usrmerge chroot wrappers"
+rm -rf "$DEBOOTSTRAP_PATCH_TMP"
 mkdir -p "$DEBOOTSTRAP_PATCH_AR" "$DEBOOTSTRAP_PATCH_DATA"
 
 DEBOOTSTRAP_UDEB_ABS="$(readlink -f "$DEBOOTSTRAP_UDEB")"
@@ -664,6 +777,14 @@ mkdir -p "$STAGING/dists/questing/main/debian-installer/binary-arm64"
     echo "    udeb Packages: $UDEBCT entries indexed"
 )
 
+if [ "$EMBED_MIRROR" = "0" ]; then
+    echo "    netinstall mode: writing empty regular Packages index for late.sh cdrom source"
+    mkdir -p "$STAGING/dists/questing/main/binary-arm64"
+    : > "$STAGING/dists/questing/main/binary-arm64/Packages"
+    gzip -9cn "$STAGING/dists/questing/main/binary-arm64/Packages" \
+        > "$STAGING/dists/questing/main/binary-arm64/Packages.gz"
+fi
+
 # Step 6: regenerate dists/questing/Release to include BOTH the regular
 # Packages indexes AND the debian-installer Packages indexes. apt-ftparchive
 # reads the entire dists/questing/ tree and computes hashes for everything.
@@ -672,7 +793,11 @@ echo "    regenerating dists/questing/Release with both regular + udeb indexes"
     cd "$STAGING"
     write_translation_indexes questing main
     write_component_release_files questing arm64
-    write_suite_release questing arm64 main "nclawzero cixmini offline mirror — questing arm64 (regular + udebs)"
+    if [ "$EMBED_MIRROR" = "1" ]; then
+        write_suite_release questing arm64 main "nclawzero cixmini offline mirror — questing arm64 (regular + udebs)"
+    else
+        write_suite_release questing arm64 main "nclawzero cixmini netinstall udeb substrate — questing arm64"
+    fi
 )
 echo "    Release file regenerated:"
 head -16 "$STAGING/dists/questing/Release" | sed 's/^/      /'
@@ -688,41 +813,51 @@ rm -rf "$TMP_UDEBS"
 
 # Rewrite .disk/ — d-i's cdrom-detect needs these markers to recognize
 # the media as a valid install source. Bookworm's .disk/info pointed at
-# Debian; ours points at our offline mirror.
-echo "    rewriting .disk/ markers for offline mirror"
+# Debian; ours points at our installer payload.
+echo "    rewriting .disk/ markers for $MODE mode"
 mkdir -p "$STAGING/.disk" "$STAGING/.disk/id"
 printf 'main\n' > "$STAGING/.disk/base_components"
 : > "$STAGING/.disk/base_installable"
 printf 'dvd\n' > "$STAGING/.disk/cd_type"
-printf 'nclawzero cixmini questing - Offline arm64 Binary 1\n' > "$STAGING/.disk/info"
+case "$MODE" in
+    netinstall)
+        printf 'nclawzero cixmini questing - Netinstall arm64 Binary 1\n' > "$STAGING/.disk/info"
+        ;;
+    thin)
+        printf 'nclawzero cixmini questing - Thin arm64 Binary 1\n' > "$STAGING/.disk/info"
+        ;;
+    *)
+        printf 'nclawzero cixmini questing - Offline arm64 Binary 1\n' > "$STAGING/.disk/info"
+        ;;
+esac
 # .disk/udeb_include: tells d-i to use our network-console udeb etc.
 echo "    .disk/info:    $(cat "$STAGING/.disk/info")"
 
 # ----------------------------------------------------------------------
-# Step 2 — replace install.a64/vmlinuz with our LTS kernel
+# Step 2 — replace install.a64/vmlinuz with our Sky1 installer kernel
 # ----------------------------------------------------------------------
-echo "[2] swapping /install.a64/vmlinuz to linux-cix-sky1 LTS ($KVER_LTS)"
+echo "[2] swapping /install.a64/vmlinuz to linux-cix-sky1 $INSTALLER_KERNEL_LABEL ($KVER_INSTALLER)"
 [ -f "$STAGING/install.a64/vmlinuz" ] || { echo "ERROR: bookworm has no /install.a64/vmlinuz"; exit 1; }
-cp -L "$LTS_KERN" "$STAGING/install.a64/vmlinuz"
+cp -L "$INSTALLER_KERN" "$STAGING/install.a64/vmlinuz"
 echo "    replaced: $(du -h "$STAGING/install.a64/vmlinuz" | cut -f1)"
 
 # ----------------------------------------------------------------------
 # Step 3 — concat our modules cpio onto install.a64/initrd.gz
 # ----------------------------------------------------------------------
-echo "[3] appending modules cpio to /install.a64/initrd.gz ($KVER_LTS)"
+echo "[3] appending modules cpio to /install.a64/initrd.gz ($KVER_INSTALLER)"
 
-WORK="$STAGING/.lts-overlay"
+WORK="$STAGING/.installer-kernel-overlay"
 rm -rf "$WORK"
 mkdir -p "$WORK"
-tar xzf "$LTS_TGZ" -C "$WORK"
-[ -d "$WORK/lib/modules/$KVER_LTS" ] || \
-    { echo "ERROR: tarball didn't extract to lib/modules/$KVER_LTS"; exit 1; }
+tar xzf "$INSTALLER_TGZ" -C "$WORK"
+[ -d "$WORK/lib/modules/$KVER_INSTALLER" ] || \
+    { echo "ERROR: tarball didn't extract to lib/modules/$KVER_INSTALLER"; exit 1; }
 
-depmod -a -b "$WORK" "$KVER_LTS"
-[ -f "$WORK/lib/modules/$KVER_LTS/modules.dep" ] || \
+depmod -a -b "$WORK" "$KVER_INSTALLER"
+[ -f "$WORK/lib/modules/$KVER_INSTALLER/modules.dep" ] || \
     { echo "ERROR: depmod failed"; exit 1; }
 
-OVERLAY_GZ="$STAGING/.lts-overlay.cpio.gz"
+OVERLAY_GZ="$STAGING/.installer-kernel-overlay.cpio.gz"
 ( cd "$WORK" && find lib -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$OVERLAY_GZ"
 gzip -t "$OVERLAY_GZ"
 echo "    overlay cpio: $(du -h "$OVERLAY_GZ" | cut -f1)"
@@ -893,7 +1028,36 @@ echo "    initrd.gz now: $(du -h "$STAGING/install.a64/initrd.gz" | cut -f1)"
 # Step 4 — stage /cixmini/ with preseed.cfg + late.sh + post-install + assets
 # ----------------------------------------------------------------------
 echo "[4] staging /cixmini extras"
-cp "$ROOT/preseed/preseed-ubuntu.cfg" "$EXTRA/preseed.cfg"
+if [ "$MODE" = "full" ]; then
+    cp "$ROOT/preseed/preseed-ubuntu.cfg" "$EXTRA/preseed.cfg"
+else
+    awk -v mode="$MODE" '
+        function disabled(line) {
+            print "# disabled by build/build-iso-di.sh --mode " mode ": " line
+        }
+        /^d-i partman\/late_command / {
+            disabled($0)
+            next
+        }
+        /^d-i partman\/late_command seen / {
+            disabled($0)
+            next
+        }
+        mode == "netinstall" && /^d-i cdrom\/(suite|codename) / {
+            disabled($0)
+            next
+        }
+        mode == "netinstall" && $0 == "d-i apt-setup/use_mirror boolean false" {
+            print "d-i apt-setup/use_mirror boolean true"
+            next
+        }
+        mode == "netinstall" && $0 == "d-i apt-cdrom-setup/no-cd boolean false" {
+            print "d-i apt-cdrom-setup/no-cd boolean true"
+            next
+        }
+        { print }
+    ' "$ROOT/preseed/preseed-ubuntu.cfg" > "$EXTRA/preseed.cfg"
+fi
 cp "$ROOT/preseed/late.sh"            "$EXTRA/late.sh"
 cp "$ROOT/preseed/extract-rootfs.sh"  "$EXTRA/extract-rootfs.sh"
 chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh"
@@ -903,27 +1067,30 @@ cp -a "$ROOT/post-install" "$EXTRA/post-install"
 if [ -d "$ROOT/assets" ]; then
     mkdir -p "$EXTRA/assets"
     # Stage all asset trees except the raw kernel images (handled below
-    # in their own block — both LTS and NEXT need to land in the ISO so
-    # 10-our-kernel.sh can install them on the target).
+    # in their own block so mode-specific kernel payloads stay explicit).
     for d in "$ROOT/assets"/*; do
         bn=$(basename "$d")
         case "$bn" in
             kernel) ;;  # handled below — staged into /cixmini/assets/kernel/
+            rootfs)
+                if [ "$STAGE_ROOTFS" = "1" ]; then
+                    cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true
+                else
+                    echo "    assets/rootfs skipped in --mode $MODE"
+                fi
+                ;;
             *) cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true ;;
         esac
     done
 fi
 
-# Stage both kernels for sibling install. The d-i installer's own
-# /install.a64/vmlinuz was already swapped to LTS at step [2]; this
-# block ships the SAME LTS kernel plus the NEXT kernel into the ISO at
-# /cixmini/assets/kernel/{lts,next}/ so 10-our-kernel.sh can install
-# both onto the target via late.sh "cp -r /cdrom/cixmini".
+# Stage target kernels. full/thin ship the historical LTS+NEXT payload;
+# netinstall ships NEXT only per R76-NETINSTALL-DESIGN.md.
 mkdir -p "$EXTRA/assets/kernel"
-if [ -f "$ROOT/assets/kernel/lts/Image-cixmini.bin" ] && [ -f "$ROOT/assets/kernel/lts/modules-cixmini.tgz" ]; then
+if [ "$STAGE_LTS_KERNEL" = "1" ]; then
     mkdir -p "$EXTRA/assets/kernel/lts"
-    cp -L "$ROOT/assets/kernel/lts/Image-cixmini.bin"   "$EXTRA/assets/kernel/lts/"
-    cp -L "$ROOT/assets/kernel/lts/modules-cixmini.tgz" "$EXTRA/assets/kernel/lts/"
+    cp -L "$LTS_KERN" "$EXTRA/assets/kernel/lts/"
+    cp -L "$LTS_TGZ"  "$EXTRA/assets/kernel/lts/"
     if [ -f "$ROOT/assets/kernel/lts/headers-cixmini.tar.zst" ]; then
         cp -L "$ROOT/assets/kernel/lts/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/lts/"
         echo "    LTS headers staged: $(du -h "$EXTRA/assets/kernel/lts/headers-cixmini.tar.zst" | cut -f1)"
@@ -932,16 +1099,13 @@ if [ -f "$ROOT/assets/kernel/lts/Image-cixmini.bin" ] && [ -f "$ROOT/assets/kern
     fi
     echo "    LTS kernel staged: $(du -h "$EXTRA/assets/kernel/lts/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/lts/modules-cixmini.tgz" | cut -f1) modules"
 else
-    echo "ERROR: assets/kernel/lts/{Image-cixmini.bin,modules-cixmini.tgz} missing — re-run assemble-kernel-assets.sh" >&2
-    exit 1
+    echo "    netinstall mode: LTS kernel assets intentionally not staged"
 fi
 
-NEXT_KVER_FILE="$ROOT/assets/kernel/next/KVER"
-if [ -f "$NEXT_KVER_FILE" ] && [ -f "$ROOT/assets/kernel/next/Image-cixmini.bin" ] && [ -f "$ROOT/assets/kernel/next/modules-cixmini.tgz" ]; then
-    KVER_NEXT=$(cat "$NEXT_KVER_FILE")
+if [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
     mkdir -p "$EXTRA/assets/kernel/next"
-    cp -L "$ROOT/assets/kernel/next/Image-cixmini.bin"   "$EXTRA/assets/kernel/next/"
-    cp -L "$ROOT/assets/kernel/next/modules-cixmini.tgz" "$EXTRA/assets/kernel/next/"
+    cp -L "$NEXT_KERN" "$EXTRA/assets/kernel/next/"
+    cp -L "$NEXT_TGZ"  "$EXTRA/assets/kernel/next/"
     if [ -f "$ROOT/assets/kernel/next/headers-cixmini.tar.zst" ]; then
         cp -L "$ROOT/assets/kernel/next/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/next/"
         echo "    NEXT headers staged: $(du -h "$EXTRA/assets/kernel/next/headers-cixmini.tar.zst" | cut -f1)"
@@ -950,7 +1114,6 @@ if [ -f "$NEXT_KVER_FILE" ] && [ -f "$ROOT/assets/kernel/next/Image-cixmini.bin"
     fi
     echo "    NEXT kernel staged: $KVER_NEXT  ($(du -h "$EXTRA/assets/kernel/next/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/next/modules-cixmini.tgz" | cut -f1) modules)"
 else
-    KVER_NEXT=""
     echo "    NEXT kernel: not present — installer will ship LTS only"
 fi
 
@@ -964,19 +1127,26 @@ fi
 echo "$VERSION"     > "$EXTRA/BUILD_VERSION"
 echo "$BUILD_DATE"  > "$EXTRA/BUILD_DATE"
 echo "$BUILD_HOST"  > "$EXTRA/BUILD_HOST"
+echo "$MODE"        > "$EXTRA/BUILD_MODE"
 echo "$VARIANT"     > "$EXTRA/BUILD_VARIANT"   # r75 M1: read by 48-magnetar-variant.sh
-# r40: stage the pre-built rootfs tarball so partman/late_command can extract
-# it into /target before bootstrap-base runs.
-ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-questing-arm64.tar.zst"
-if [ -f "$ROOTFS_TARBALL" ]; then
-    cp -L "$ROOTFS_TARBALL" "$EXTRA/rootfs.tar.zst"
-    echo "    rootfs.tar.zst staged: $(du -h "$EXTRA/rootfs.tar.zst" | cut -f1) (questing arm64 pre-built target)"
+# r40 full mode: stage the pre-built rootfs tarball so the debootstrap stub
+# can populate /target without a real bootstrap.
+if [ "$STAGE_ROOTFS" = "1" ]; then
+    ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-questing-arm64.tar.zst"
+    if [ -f "$ROOTFS_TARBALL" ]; then
+        cp -L "$ROOTFS_TARBALL" "$EXTRA/rootfs.tar.zst"
+        echo "    rootfs.tar.zst staged: $(du -h "$EXTRA/rootfs.tar.zst" | cut -f1) (questing arm64 pre-built target)"
+    else
+        echo "ERROR: $ROOTFS_TARBALL missing — run build-rootfs.sh first" >&2
+        exit 1
+    fi
 else
-    echo "ERROR: $ROOTFS_TARBALL missing — run build-rootfs.sh first" >&2
-    exit 1
+    echo "    rootfs.tar.zst not staged in --mode $MODE"
 fi
 
-echo "$KVER_LTS"    > "$EXTRA/KVER_LTS"
+if [ -n "$KVER_LTS" ]; then
+    echo "$KVER_LTS" > "$EXTRA/KVER_LTS"
+fi
 if [ -n "${KVER_NEXT:-}" ]; then
     echo "$KVER_NEXT" > "$EXTRA/KVER_NEXT"
 fi
@@ -995,15 +1165,26 @@ mkdir -p "$STAGING/boot/grub"
 # Working r6 cmdline (extracted from running cixmini install /proc/cmdline).
 # Plus auto/priority/preseed/file for unattended d-i operation.
 MARTJOHNSON_R6="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
-DI_OPTS="auto=true priority=high preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
+DI_PRIORITY=high
+if [ "$MODE" = "netinstall" ]; then
+    DI_PRIORITY=critical
+fi
+DI_OPTS="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
 
 CODENAME="${BUILD_CODENAME:-Reinhardt}"
+GRUB_KERNEL_SUMMARY="$INSTALLER_KERNEL_LABEL=$KVER_INSTALLER"
+GRUB_DESKTOP_TITLE='Install NCZ \"Reinhardt\" — Desktop (XFCE)'
+GRUB_SERVER_TITLE='Install NCZ \"Magnetar\" — Server (headless, agent appliance)'
+if [ "$MODE" = "netinstall" ]; then
+    GRUB_DESKTOP_TITLE='Install NCZ \"Reinhardt\" — Desktop (XFCE, wired link required)'
+    GRUB_SERVER_TITLE='Install NCZ \"Magnetar\" — Server (headless, wired link required)'
+fi
 cat > "$GRUB_CFG" <<GRUB
 # ncz-installer (cixmini "$CODENAME" / $VERSION)
-# bookworm d-i busybox boot substrate + trixie udeb graft + Sky1 LTS kernel
-# + offline Ubuntu questing mirror
+# bookworm d-i busybox boot substrate + trixie udeb graft + Sky1 $INSTALLER_KERNEL_LABEL kernel
+# Mode: $MODE
 # Build: $VERSION  ($BUILD_DATE)  Host: $BUILD_HOST
-# Kernel: LTS=$KVER_LTS
+# Kernel: $GRUB_KERNEL_SUMMARY
 set timeout=10
 set default=0
 # Green-on-black VT100 phosphor terminal aesthetic
@@ -1032,32 +1213,32 @@ echo "                  ARM64  ·  questing 25.10"
 echo ""
 echo "                     $VERSION"
 echo "                     \"$CODENAME\""
-echo "               kernel: $KVER_LTS"
+echo "               kernel: $KVER_INSTALLER ($INSTALLER_KERNEL_LABEL)"
 echo "               build:  $BUILD_DATE"
 echo ""
 
-menuentry "Install NCZ \"Reinhardt\" — Desktop (XFCE)" {
+menuentry "$GRUB_DESKTOP_TITLE" {
     set background_color=black
     set color_normal=light-green/black
-    echo ">> ncz-installer loading Sky1 LTS kernel + d-i (Reinhardt / desktop)..."
+    echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Reinhardt / desktop)..."
     linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop $MARTJOHNSON_R6
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
 }
 
-menuentry "Install NCZ \"Magnetar\" — Server (headless, agent appliance)" {
+menuentry "$GRUB_SERVER_TITLE" {
     set background_color=black
     set color_normal=light-green/black
-    echo ">> ncz-installer loading Sky1 LTS kernel + d-i (Magnetar / server)..."
+    echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Magnetar / server)..."
     linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=server $MARTJOHNSON_R6
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
 }
 
-menuentry "SAFE — rescue shell (LTS, no install)" {
+menuentry "SAFE — rescue shell ($INSTALLER_KERNEL_LABEL, no install)" {
     set background_color=black
     set color_normal=light-green/black
-    echo ">> Loading rescue mode (LTS $KVER_LTS)..."
+    echo ">> Loading rescue mode ($INSTALLER_KERNEL_LABEL $KVER_INSTALLER)..."
     linux  /install.a64/vmlinuz rescue/enable=true $MARTJOHNSON_R6
     initrd /install.a64/initrd.gz
 }
@@ -1100,3 +1281,16 @@ xorriso -as mkisofs \
 echo ""
 echo "OUTPUT: $OUTPUT"
 ls -lh "$OUTPUT"
+
+if [ "$MODE" = "netinstall" ]; then
+    ISO_SIZE_BYTES=$(stat -f %z "$OUTPUT" 2>/dev/null || stat -c %s "$OUTPUT" 2>/dev/null || echo 0)
+    if [ "$ISO_SIZE_BYTES" -le 0 ]; then
+        echo "ERROR: could not determine netinstall ISO size for $OUTPUT" >&2
+        exit 1
+    fi
+    if [ "$ISO_SIZE_BYTES" -ge "$NETINSTALL_MAX_BYTES" ]; then
+        echo "ERROR: netinstall ISO is ${ISO_SIZE_BYTES} bytes, expected < ${NETINSTALL_MAX_BYTES} bytes (<500 MB)" >&2
+        exit 1
+    fi
+    echo "netinstall size OK: ${ISO_SIZE_BYTES} bytes (<500 MB)"
+fi
