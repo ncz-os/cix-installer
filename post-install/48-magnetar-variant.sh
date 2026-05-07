@@ -110,18 +110,32 @@ echo "[48] getty@tty2 enabled (default operator console)"
 # r76 fix #4 — issue.d pointer so the user knows where to log in.
 # Shows on tty2-tty6 above the login prompt.
 mkdir -p /etc/issue.d
+# Pure ASCII — agetty/console may not have a font with Unicode box-draw
+# chars; broken renderings on tty2 looked worse than no border at all.
+# Classic 1970s Unix / mainframe MOTD aesthetic.
 cat > /etc/issue.d/10-ncz-magnetar.issue <<'EOF'
 
-  ╔══════════════════════════════════════════════════════════╗
-  ║  NCZ Magnetar (headless server)                          ║
-  ║                                                           ║
-  ║  Login on this console (tty2). tty1 is reserved for      ║
-  ║  boot diagnostics and will not show a prompt.            ║
-  ║                                                           ║
-  ║  SSH:        port 22                                      ║
-  ║  NoMachine:  port 4000 (if installed)                     ║
-  ║  Re-enable desktop:  sudo ncz desktop on                  ║
-  ╚══════════════════════════════════════════════════════════╝
+****************************************************************
+*                                                              *
+*           N C Z   M A G N E T A R   ( h e a d l e s s )      *
+*                                                              *
+*--------------------------------------------------------------*
+*                                                              *
+*   THIS SYSTEM IS RUNNING IN HEADLESS SERVER MODE             *
+*                                                              *
+*   Console login is available on this terminal (tty2).        *
+*   tty1 is reserved for kernel boot diagnostics and will      *
+*   NOT present a login prompt.                                *
+*                                                              *
+*   Switch consoles:    Alt + F2 .. F6                         *
+*                                                              *
+*--------------------------------------------------------------*
+*                                                              *
+*   Remote access ......... ssh   port 22                      *
+*   Remote desktop ........ NoMachine  port 4000  (if instd)   *
+*   Re-enable graphical ... sudo ncz desktop on                *
+*                                                              *
+****************************************************************
 
 EOF
 chmod 0644 /etc/issue.d/10-ncz-magnetar.issue
