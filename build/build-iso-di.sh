@@ -1060,7 +1060,8 @@ else
 fi
 cp "$ROOT/preseed/late.sh"            "$EXTRA/late.sh"
 cp "$ROOT/preseed/extract-rootfs.sh"  "$EXTRA/extract-rootfs.sh"
-chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh"
+cp "$ROOT/preseed/sshd-watcher.sh"    "$EXTRA/sshd-watcher.sh"
+chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh"
 
 cp -a "$ROOT/post-install" "$EXTRA/post-install"
 
