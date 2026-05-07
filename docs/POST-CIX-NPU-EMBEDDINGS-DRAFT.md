@@ -116,9 +116,47 @@ noe_api.cpp ERROR:184 - noe_init_context: Failed to initialize adapter
 
 The closed-source kernel-6.6 stack ships a complete bundle (it depends on `cix-npu-driver`, `cix-npu-onnxruntime`, `cix-mnn`, `cix-ai-engine`, etc.). The kernel-7.0 open-source path has `cix-npu-driver-dkms` (kernel module) but no userspace pair. The result: **a fresh install of the official open-source path can't run a single inference on the NPU it ships with**.
 
-We built `libaipudrv.so` ourselves from `Arm-China/Compass_NPU_Driver` (Apache 2.0). [Build details and the patch we needed: TBD — Codex is producing this overnight.] The fix is one apt package away from being a non-issue for every Sky1 user.
+### What we tried, what worked, what didn't
 
-This is a packaging gap, not a hardware problem. The hardware works.
+So we set out to build `libaipudrv.so` ourselves from `Arm-China/Compass_NPU_Driver` (Apache 2.0).
+
+1. **Clone + dependency install** — clean. `git clone https://github.com/Arm-China/Compass_NPU_Driver` lands at `2868d53 [UMD][KMD].align with 4.3.0 release`.
+2. **Bypass `bash_env_setup.sh`** — the upstream env-setup hardcodes Cix-internal paths like `/project/ai/scratch01/AIPU_BSP/...` (their internal build farm) and references `LD_LIBRARY_PATH` without a default-empty guard, so it dies under any `set -u` shell. We built directly with `make standard_api CXX=g++ AR=ar` after exporting the eight `COMPASS_DRV_BTENVAR_UMD_*` variables the Makefile actually consumes.
+3. **Compile** — clean. All 25 `.cpp` files compile with `-DZHOUYI_V12 -DZHOUYI_V3 -DMACRO_UMD_VERSION="6.1.1"`. Output: `libaipudrv.so.6.1.1` (788 KB) and `libaipudrv.a.6.1.1` (1.5 MB) under `Linux/bin/`.
+4. **Install** — clean. `cp libaipudrv.so.6.1.1 /usr/share/cix/lib/libaipudrv.so + ldconfig` registers it: `libaipudrv.so (libc6,AArch64) => /usr/share/cix/lib/libaipudrv.so`. The first error class (`Failed to load backend`) is gone.
+5. **Smoke test** (cixtech's `inference_npu.py`) — fails at the next layer:
+
+```
+[UMD ERR] aipu.cpp:50:<tid:7779>: query capability [fail]
+noe_api.cpp ERROR:184 - noe_init_context: Failed to initialize adapter
+```
+
+This is happening at `driver/umd/src/device/aipu/aipu.cpp:50`, where the userspace issues `ioctl(m_fd, AIPU_IOCTL_QUERY_CAP, &cap)` against `/dev/aipu`. The IOCTL returns either an error code, or returns success with `cap.partition_cnt == 0`. Either way: **the kernel-side advertises zero NPU partitions to the userspace we just built**.
+
+### Why: a three-version-tree problem
+
+The Cix NPU stack today has three independent version axes:
+
+| Component | Version |
+|---|---|
+| Compass_NPU_Driver upstream (`Arm-China/Compass_NPU_Driver`, Apache 2.0) | release **4.3.0** (just one commit on `main`, no tags) |
+| cixtech kernel module DKMS source (`/usr/src/aipu-6.0.0/`, ships with `cix-npu-driver` 4.0.0 deb) | KMD source **6.0.0** |
+| FyrbyAdditive prebuilt module loaded on .66 (kernel 7.0.3 port of cixtech KMD) | dmesg reports **AIPU KMD v6.1.1-2** |
+
+The KMD is "6.x" versioning; the Compass HEAD is "4.x" versioning. They are different version axes. The IOCTL ABI ( `struct aipu_cap`, `struct aipu_partition_cap`, the meaning of `partition_cnt`) drifted across these trees. The 4.3.0-built UMD on Sky1 sees the FyrbyAdditive 6.1.1-2 KMD's QUERY_CAP response as "0 partitions" because the struct layouts don't agree.
+
+The fix is **one of**:
+- Cixtech ships `libaipudrv.so` in the apt repo paired with their KMD revision (the right answer)
+- A user builds Compass_NPU_Driver KMD from the *same source HEAD* as their UMD and replaces the FyrbyAdditive module (requires kernel headers for `7.0.3-cix-sky1-next` which aren't currently distributed; community kernel doesn't ship a `linux-headers-cix-sky1-next` deb)
+- Visorcraft-style: the older monolithic `cix-noe-umd_2.0.2.deb` from Orange Pi pre-dates the frontend/backend split. (Per `task #82` in this project, that combo did work — but Orange Pi's repo has since reorganized; the .deb isn't at the URL the README says.)
+
+### What this means
+
+**The hardware works.** Kernel module probes cleanly (`zhouyi-v3 detected`, `############# ZHOUYI V3 AIPU #############`), `/dev/aipu` is present, `cix-noe-umd` Python bindings load, our self-built `libaipudrv.so` links and dlopens. The only thing missing is a maintained pairing between Cix's open-source UMD and one specific KMD revision.
+
+That's not a hardware story — it's a **distribution and versioning story**. And it's the exact gap that a properly-shipped `libaipudrv.so` deb in `archive.cixtech.com/debian trixie main` would close in an afternoon.
+
+We documented this upstream in [UPSTREAM-CIX-BILINGUAL-ISSUE.md](./UPSTREAM-CIX-BILINGUAL-ISSUE.md).
 
 ---
 
