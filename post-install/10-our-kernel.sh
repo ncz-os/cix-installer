@@ -1,42 +1,46 @@
 #!/bin/bash
-# 10-our-kernel.sh — install BOTH our linux-cix-sky1 6.18.26 LTS kernel
-# (default) and linux-cix-sky1-next 7.0.1 BETA kernel (alongside).
+# 10-our-kernel.sh — install the staged linux-cix-sky1 kernel payload.
+# full/thin ISOs stage LTS+NEXT; netinstall stages NEXT only.
 #
 # Source layout (from build-iso.sh staging):
 #   /usr/local/lib/cix-installer/assets/kernel/
-#     KVER_LTS                            (single-line file written by build-iso.sh)
-#     KVER_NEXT
+#     KVER_LTS                            (full/thin)
+#     KVER_NEXT                           (full/thin/netinstall)
 #     lts/Image-cixmini.bin
 #     lts/modules-cixmini.tgz
 #     next/Image-cixmini.bin              (optional — only if BETA was baked)
 #     next/modules-cixmini.tgz
 #
 # Result on target:
-#   /boot/vmlinuz-$KVER_LTS                (always)
+#   /boot/vmlinuz-$KVER_LTS                (if LTS was baked)
 #   /boot/vmlinuz-$KVER_NEXT               (if NEXT was baked)
-#   /usr/lib/modules/$KVER_LTS/            (always)
+#   /usr/lib/modules/$KVER_LTS/            (if LTS was baked)
 #   /usr/lib/modules/$KVER_NEXT/           (if NEXT was baked)
-#
-# 70-bootloader.sh wires these into systemd-boot loader entries with
-# LTS as default and NEXT marked [BETA].
 set -euo pipefail
 
 ASSETS=/usr/local/lib/cix-installer/assets/kernel
 INSTALLER_META=/usr/local/lib/cix-installer
 
 # Pull KVERs from sidecars staged by build-iso.sh
-[ -f "$INSTALLER_META/KVER_LTS" ] || { echo "ERROR: KVER_LTS sidecar missing"; exit 1; }
-KVER_LTS=$(cat "$INSTALLER_META/KVER_LTS")
+KVER_LTS=""
+if [ -f "$INSTALLER_META/KVER_LTS" ]; then
+    KVER_LTS=$(cat "$INSTALLER_META/KVER_LTS" 2>/dev/null || true)
+fi
 KVER_NEXT=""
 if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
     KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
 fi
 
-[ -n "$KVER_LTS" ] || { echo "ERROR: KVER_LTS empty"; exit 1; }
-[ -f "$ASSETS/lts/Image-cixmini.bin" ]   || { echo "ERROR: LTS kernel binary missing"; exit 1; }
-[ -f "$ASSETS/lts/modules-cixmini.tgz" ] || { echo "ERROR: LTS modules tarball missing"; exit 1; }
+if [ -z "$KVER_LTS" ] && [ -z "$KVER_NEXT" ]; then
+    echo "ERROR: no KVER_LTS or KVER_NEXT sidecar present"
+    exit 1
+fi
+if [ -n "$KVER_LTS" ]; then
+    [ -f "$ASSETS/lts/Image-cixmini.bin" ]   || { echo "ERROR: LTS kernel binary missing"; exit 1; }
+    [ -f "$ASSETS/lts/modules-cixmini.tgz" ] || { echo "ERROR: LTS modules tarball missing"; exit 1; }
+fi
 
-echo "[10] installing dual kernel — LTS=$KVER_LTS  NEXT=${KVER_NEXT:-(not present)}"
+echo "[10] installing kernel payload — LTS=${KVER_LTS:-(not present)}  NEXT=${KVER_NEXT:-(not present)}"
 
 # Ensure kmod (depmod, modprobe, lsmod) is present.
 apt-get install -y --no-install-recommends kmod
@@ -100,14 +104,27 @@ install_kernel() {
     depmod -a "$kver"
 }
 
-install_kernel lts "$KVER_LTS"
+INSTALLED_KERNELS=0
+
+if [ -n "$KVER_LTS" ]; then
+    install_kernel lts "$KVER_LTS"
+    INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
+else
+    echo "  [lts] not present in ISO — skipping"
+fi
 
 if [ -n "$KVER_NEXT" ] && \
    [ -f "$ASSETS/next/Image-cixmini.bin" ] && \
    [ -f "$ASSETS/next/modules-cixmini.tgz" ]; then
     install_kernel next "$KVER_NEXT"
+    INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
 else
     echo "  [next] BETA kernel not present in ISO — skipping"
+fi
+
+if [ "$INSTALLED_KERNELS" -eq 0 ]; then
+    echo "[10] ERROR: no staged kernel assets were installed"
+    exit 1
 fi
 
 # Remove Debian's default linux-image-arm64 — we ship our own.
@@ -116,10 +133,11 @@ apt-get autoremove -y --purge || true
 
 echo ""
 echo "Kernel summary:"
-ls -lh "/boot/vmlinuz-$KVER_LTS"
+[ -n "$KVER_LTS" ] && ls -lh "/boot/vmlinuz-$KVER_LTS" 2>/dev/null || true
 [ -n "$KVER_NEXT" ] && ls -lh "/boot/vmlinuz-$KVER_NEXT" 2>/dev/null || true
 echo ""
 echo "Module trees:"
-ls "/lib/modules/$KVER_LTS" | head -5
+[ -n "$KVER_LTS" ] && [ -d "/lib/modules/$KVER_LTS" ] && \
+    { echo "  --- lts ---"; ls "/lib/modules/$KVER_LTS" | head -5; } || true
 [ -n "$KVER_NEXT" ] && [ -d "/lib/modules/$KVER_NEXT" ] && \
     { echo "  --- next ---"; ls "/lib/modules/$KVER_NEXT" | head -5; } || true

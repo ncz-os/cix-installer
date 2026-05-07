@@ -14,6 +14,10 @@ set -euo pipefail
 
 echo "[25] adding CIX official PPA (archive.cixtech.com)"
 
+# r78 netinstall note: this hook is the only source of CIX-specific .debs
+# because the ISO carries no embedded questing mirror. Keep archive/network
+# failures warn-and-continue unless dpkg lands in a known-bad partial state.
+
 # Trust CIX's signing key
 mkdir -p /usr/share/keyrings
 if [ -f /usr/local/lib/cix-installer/assets/cix-deb-repo.gpg ]; then
