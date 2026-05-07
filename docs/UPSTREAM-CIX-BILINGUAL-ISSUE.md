@@ -144,7 +144,7 @@ PYTHIA Intel CPU        27.17 嵌入/秒    532,559 嵌入/秒     67.31 嵌入/
 
 **为什么发这个帖子:** Cix Sky1 是我们见过的第一个在 $700 价位上集成此 TOPS 等级 NPU 加上如此多统一内存的 ARM SoC。我们想讲的产品故事是"Cix Sky1 是 agentic memory 工作负载的正确硬件"。硅片今天就支持这个说法;工具链是我们想请 Cix 团队投资的部分。
 
-很乐意提供可复现的基准测试脚本、原始数据、环境详情或测试补丁。数据和方法在 `gitlab.com/nclawzero/cix-installer/docs/CIX-VS-JETSON-PERF-REPORT.md`。
+很乐意提供可复现的基准测试脚本、原始数据、环境详情或测试补丁。方法学:2000 条生产记录语料,单流顺序,内容哈希缓存(SHA256 → 向量),`bge-small` 256-token / 512 维,无自动批处理。Cix 基准测试与 Intel 集显的对比说明在 `gitlab.com/nclawzero/cix-installer/docs/`(将与本 issue 同步发布一份 Cix-only 的方法学说明)。
 
 感谢硅片和这个月早些时候在帖子里的回应。
 
