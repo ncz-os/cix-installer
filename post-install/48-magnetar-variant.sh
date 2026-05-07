@@ -107,6 +107,58 @@ echo "[48] getty@tty1 masked — operators use tty2+ (Alt+F2)"
 systemctl enable getty@tty2.service 2>&1 | sed 's/^/    /' || true
 echo "[48] getty@tty2 enabled (default operator console)"
 
+# Replace the kernel-printk-frozen tty1 with a clear redirect banner.
+# Without this, after boot completes tty1 is stuck on whatever systemd
+# wrote last (status table) and operators looking at it think the box
+# is broken. A oneshot writes a static "Use Alt-F2" banner; tty1
+# clears + redraws once at multi-user.target ready.
+cat > /etc/ncz-tty1-banner <<'BANNER'
+
+****************************************************************
+*                                                              *
+*           N C Z   M A G N E T A R                            *
+*                                                              *
+*--------------------------------------------------------------*
+*                                                              *
+*   This terminal (tty1) is reserved for kernel boot           *
+*   diagnostics.  No login prompt is provided here.            *
+*                                                              *
+*       --->   FOR LOGIN, PRESS   Alt + F2                     *
+*                                                              *
+*--------------------------------------------------------------*
+*                                                              *
+*   Remote shell:    ssh <user>@<host>     (port 22)           *
+*   Remote desktop:  NoMachine             (port 4000)         *
+*                                                              *
+****************************************************************
+
+BANNER
+chmod 0644 /etc/ncz-tty1-banner
+
+cat > /etc/systemd/system/ncz-tty1-banner.service <<'UNIT'
+[Unit]
+Description=NCZ Magnetar tty1 redirect banner
+After=multi-user.target getty@tty2.service
+ConditionPathExists=/etc/ncz-tty1-banner
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+StandardInput=null
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+ExecStart=/bin/sh -c "clear; cat /etc/ncz-tty1-banner"
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+chmod 0644 /etc/systemd/system/ncz-tty1-banner.service
+systemctl enable ncz-tty1-banner.service 2>&1 | sed 's/^/    /' || true
+echo "[48] ncz-tty1-banner.service installed (tty1 = Alt-F2 redirect banner)"
+
 # r76 fix #4 — issue.d pointer so the user knows where to log in.
 # Shows on tty2-tty6 above the login prompt.
 mkdir -p /etc/issue.d
