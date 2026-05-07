@@ -87,9 +87,9 @@ That's slower than the same hardware's CPU path. Per visorcraft's well-tuned pan
 
 **On the NCZ side:** I've stopped optimizing Mali Vulkan LLM as a tier; users who want LLM inference on NCZ are pointed at Jetson, Mac Metal, or discrete GPU as the LLM endpoint and the local Cix box does embeddings + vector store + memory. NCZ 26.6 on AGX/Thor would just *be* the LLM tier locally, eliminating the need for the network hop.
 
-### 2. NPU embedding inference — validated and shipping-quality, silicon-parity with Intel iGPU (2026-05-06)
+### 2. NPU embedding inference — validated and shipping-quality, same neighborhood as Intel iGPU on this harness (2026-05-06)
 
-Distinct from LLM work: the Cix Z3 NPU runs `bge-small-zh-v1.5` 256-token embeddings end-to-end through MNEMOS at production scale. We benchmarked this against an Intel Raptor Lake-P iGPU running OpenVINO 2026.1.0 at **silicon-level parity** — same workload (2000 production memories), same content-hash cache layer, single-stream LATENCY mode, no auto-batching tricks (verified via OpenVINO source inspection):
+Distinct from LLM work: the Cix Z3 NPU runs `bge-small-zh-v1.5` 256-token embeddings end-to-end through MNEMOS at production scale. We benchmarked this against an Intel Raptor Lake-P iGPU running OpenVINO 2026.1.0 — same harness shape (2000 production memories, single-stream LATENCY mode, content-hash cache, no auto-batching tricks; the OpenVINO side verified by source inspection). Note: Cix ran the `-zh` variant of bge-small, Intel ran `-en` — same architecture and same 512-dim output, but quantization tables and tokenizer details differ:
 
 ```
 Workload: 2000 production memories, bge-small (Cix=zh / Intel=en, both 512-dim)
@@ -104,7 +104,9 @@ Intel CPU (12-core)  27.17          532,559          67.31 emb/sec
 Cold-pass per-inference: ~25 ms Cix NPU, ~24 ms Intel iGPU — within 4%
 ```
 
-**Reading these numbers:** Cix Z3 NPU and a current-gen Intel iGPU are in the same neighborhood for this workload — within 4% on cold-pass per-inference time, within 5% on the realistic mixed-cache ratio. The numbers here are deliberately apples-to-apples (single-stream LATENCY, no auto-batching, both with the same content-hash cache). The point is not "Cix wins" or "Intel wins" — it's that **embedding inference at the bge-small class has reached the parity zone across mature embedded-AI silicon**, and the differentiator at this layer is no longer raw compute but architecture (dedicated NPU lane vs shared iGPU), memory ceiling, and software stack maturity.
+**Reading these numbers:** on this harness, Cix Z3 NPU and a current-gen Intel iGPU sit in the same neighborhood for this workload — within 4% on cold-pass per-inference time, within 5% on the mixed-cache ratio. Caveats before drawing strong conclusions: (a) different language variants (`bge-small-zh` on Cix, `bge-small-en` on Intel — same 512-dim architecture but quantization + tokenizer differ); (b) the MIX-50 column is dominated by the content-hash cache (cache-hit path is ~8 µs each side) rather than raw accelerator throughput; (c) single-harness point estimates without published variance bars. We can fairly say neither side dominates by a wide margin on this workload as measured; we cannot yet attribute the residual cold-pass gap to silicon, software-tuning, or model variant from this dataset alone.
+
+The takeaway for Jetson is the framing — **embedding inference at the bge-small class is no longer where Tensor Cores are the deciding differentiator**. At this layer the differentiators are architecture (dedicated NPU lane vs shared iGPU), memory ceiling, and software stack maturity. The Tensor-Core advantage shows up in *LLM* inference (Finding #1 above is the cleanest demo of that gap) where the matmul math actually exercises tensor hardware.
 
 For Jetson context: I haven't run an apples-to-apples embedding bench on Orin Nano (TYDEUS pre-brick) or AGX yet. Strong prior expectation, given 1024 CUDA cores + Tensor Cores + TensorRT-LLM optimizer, is that Jetson AGX in particular outperforms both numbers above on bge-small embeddings — probably comfortably. **This is one of the things I'd want to measure on the AGX/Thor loaner** to put authoritative Jetson numbers in the next version of this brief instead of relying on inference from spec sheets.
 
