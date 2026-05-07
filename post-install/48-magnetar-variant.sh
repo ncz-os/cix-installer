@@ -69,10 +69,160 @@ else
     echo "[48] NoMachine .deb not in /cdrom payload — skipping (canonical install: ncz install nomachine on first boot)"
 fi
 
+# r76 fix #2 — defensive SSH enable for Magnetar (server SKU is
+# broken-by-definition without sshd). 35-ssh.sh already enables ssh,
+# but on r75 .66 something silently failed and the box came up with
+# port 22 closed. This is a belt-and-suspenders re-enable so any
+# transient failure in 35-ssh.sh doesn't ship a headless box you
+# can't reach. Loud on failure.
+echo "[48] defensive SSH enable for Magnetar"
+if systemctl enable ssh 2>&1 | sed 's/^/    /'; then
+    echo "[48] ssh.service enabled (defensive)"
+else
+    echo "[48] ERROR: ssh.service enable failed — Magnetar will ship without SSH" >&2
+    # Don't exit; let the install complete so the operator can fix on the
+    # console. But make the failure obvious in the hook log.
+fi
+
+# r76 fix #3 — mask getty@tty1 on Magnetar.
+#
+# Symptom on r75: tty1 unusable for login (kernel printk to console=tty0
+# fights agetty's prompt; user sees only boot diag spam). tty2-tty4 work
+# fine. On a desktop variant Reinhardt the X session takes over so it's
+# not noticed; on headless Magnetar tty1 is the operator's primary
+# physical-console entry point and the bad UX is critical.
+#
+# Fix: stop spawning agetty on tty1 entirely. Operators land on tty2 by
+# pressing Alt+F2 (or just default-spawn there). tty1 stays as the
+# kernel's console for boot diag, which is what the cmdline already
+# requested via console=tty0.
+#
+# Lower-risk than touching the kernel cmdline (which would lose video
+# console for non-serial-attached operators).
+systemctl mask getty@tty1.service 2>&1 | sed 's/^/    /' || true
+echo "[48] getty@tty1 masked — operators use tty2+ (Alt+F2)"
+
+# Force-enable getty@tty2 statically so we know there's a working login
+# prompt regardless of systemd's ConditionPathExists or autovt logic.
+systemctl enable getty@tty2.service 2>&1 | sed 's/^/    /' || true
+echo "[48] getty@tty2 enabled (default operator console)"
+
+# Replace the kernel-printk-frozen tty1 with a clear redirect banner.
+# Without this, after boot completes tty1 is stuck on whatever systemd
+# wrote last (status table) and operators looking at it think the box
+# is broken. A oneshot writes a static "Use Alt-F2" banner; tty1
+# clears + redraws once at multi-user.target ready.
+cat > /etc/ncz-tty1-banner <<'BANNER'
+
+****************************************************************
+*                                                              *
+*           N C Z   M A G N E T A R                            *
+*                                                              *
+*--------------------------------------------------------------*
+*                                                              *
+*   This terminal (tty1) is reserved for kernel boot           *
+*   diagnostics.  No login prompt is provided here.            *
+*                                                              *
+*       --->   FOR LOGIN, PRESS   Alt + F2                     *
+*                                                              *
+*--------------------------------------------------------------*
+*                                                              *
+*   Remote shell:    ssh <user>@<host>     (port 22)           *
+*   Remote desktop:  NoMachine             (port 4000)         *
+*                                                              *
+****************************************************************
+
+BANNER
+chmod 0644 /etc/ncz-tty1-banner
+
+cat > /etc/systemd/system/ncz-tty1-banner.service <<'UNIT'
+[Unit]
+Description=NCZ Magnetar tty1 redirect banner
+After=multi-user.target getty@tty2.service
+ConditionPathExists=/etc/ncz-tty1-banner
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+StandardInput=null
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+ExecStart=/bin/sh -c "clear; cat /etc/ncz-tty1-banner"
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+chmod 0644 /etc/systemd/system/ncz-tty1-banner.service
+systemctl enable ncz-tty1-banner.service 2>&1 | sed 's/^/    /' || true
+echo "[48] ncz-tty1-banner.service installed (tty1 = Alt-F2 redirect banner)"
+
+# r76 fix #4 — issue.d pointer so the user knows where to log in.
+# Shows on tty2-tty6 above the login prompt.
+mkdir -p /etc/issue.d
+# Pure ASCII — agetty/console may not have a font with Unicode box-draw
+# chars; broken renderings on tty2 looked worse than no border at all.
+# Classic 1970s Unix / mainframe MOTD aesthetic.
+cat > /etc/issue.d/10-ncz-magnetar.issue <<'EOF'
+
+****************************************************************
+*                                                              *
+*           N C Z   M A G N E T A R   ( h e a d l e s s )      *
+*                                                              *
+*--------------------------------------------------------------*
+*                                                              *
+*   THIS SYSTEM IS RUNNING IN HEADLESS SERVER MODE             *
+*                                                              *
+*   Console login is available on this terminal (tty2).        *
+*   tty1 is reserved for kernel boot diagnostics and will      *
+*   NOT present a login prompt.                                *
+*                                                              *
+*   Switch consoles:    Alt + F2 .. F6                         *
+*                                                              *
+*--------------------------------------------------------------*
+*                                                              *
+*   Remote access ......... ssh   port 22                      *
+*   Remote desktop ........ NoMachine  port 4000  (if instd)   *
+*   Re-enable graphical ... sudo ncz desktop on                *
+*                                                              *
+****************************************************************
+
+EOF
+chmod 0644 /etc/issue.d/10-ncz-magnetar.issue
+echo "[48] /etc/issue.d/10-ncz-magnetar.issue written"
+
+# r76 fix #5 — defensive NetworkManager wired auto-up.
+# If the wired link is down at boot, SSH-on-port-22 doesn't help. Make
+# sure NM has an auto-connect ethernet profile so any plugged cable
+# gets DHCP without operator intervention.
+if command -v nmcli >/dev/null 2>&1; then
+    # Find the first ethernet device (skip lo, virtual, wireless)
+    ETH_DEV=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="ethernet"{print $1; exit}')
+    if [ -n "$ETH_DEV" ]; then
+        # Only add a profile if there isn't one already for this device.
+        if ! nmcli -t -f NAME,DEVICE connection show 2>/dev/null | grep -q ":${ETH_DEV}$"; then
+            nmcli connection add type ethernet con-name "ncz-wired-${ETH_DEV}" \
+                ifname "$ETH_DEV" connection.autoconnect yes ipv4.method auto ipv6.method auto \
+                2>&1 | sed 's/^/    /' || \
+                echo "[48] WARN: failed to add wired auto-profile for $ETH_DEV (will retry post-boot)"
+            echo "[48] wired auto-connect profile added for $ETH_DEV"
+        else
+            echo "[48] wired profile for $ETH_DEV already present — skipping"
+        fi
+    else
+        echo "[48] no ethernet device visible in chroot — defer profile to first boot"
+    fi
+else
+    echo "[48] nmcli not available in chroot — defer profile to first boot"
+fi
+
 # Persist canonical name
 echo "server" > "$VARIANT_FILE"
 
 echo
-echo "[48] Magnetar (server) variant applied. Boot-up will land in tty1 multi-user."
-echo "     SSH stays on; reach the box at port 22 / 4000 (NoMachine)."
+echo "[48] Magnetar (server) variant applied. Boot-up will land in tty2 multi-user."
+echo "     tty1 reserved for kernel boot diag; press Alt+F2 for login prompt."
+echo "     SSH on port 22; NoMachine 4000 (if installed)."
 echo "     Switch back to desktop with: sudo ncz desktop on"

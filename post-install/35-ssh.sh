@@ -19,8 +19,18 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # Ensure the daemon comes up on boot. d-i tends to leave services
 # disabled until first manual enable; explicit enable + ssh.socket make
 # this idempotent if either path is in use.
-systemctl enable ssh || true
-systemctl enable ssh.socket || true
+#
+# r76: dropped `|| true` — silent failure here on r75 Magnetar smoke
+# left .66 unreachable on port 22. Fail loud so run-all.sh records the
+# hook failure in $LOGDIR and the operator sees it. Magnetar without
+# SSH is broken-by-definition; better to flag at install than to ship
+# headless boxes without remote access.
+systemctl enable ssh
+# ssh.socket is generator-pulled on some systemd configs; tolerate
+# a "static" non-zero from `enable` here, but record it.
+if ! systemctl enable ssh.socket; then
+    echo "  WARN: 'systemctl enable ssh.socket' returned non-zero (likely static-unit config — safe to ignore if ssh.service is enabled)"
+fi
 
 # Make sshd ALSO start in rescue.target — so cixmini-rescue.conf boots
 # get a remote shell for diagnostics. By default rescue.target only
