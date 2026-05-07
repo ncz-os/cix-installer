@@ -35,7 +35,7 @@ This is the apples-to-apples table. Same BGE architecture across every row — Q
 
 | Box / silicon | rec/sec | p50 | wall (s) | engine path | status |
 |---|---|---|---|---|---|
-| **zeropi** — Pi 4 Model B 2 GB, ARM CPU only | TBD | TBD | TBD | BGE-Q8 GGUF, n_ctx=2048 (RAM-tight) | in-flight |
+| **zeropi** — Pi 4 Model B 2 GB, ARM CPU only | **1.15** | 1056 ms | 6989 | BGE-Q8 GGUF, n_ctx=2048 (RAM-tight) | done |
 | **bigpi** — Pi 5 Model B 16 GB, ARM CPU only | **3.44** | 304.6 ms | 2334 | BGE-Q8 GGUF, n_ctx=8192 | done (slowed by concurrent wheel build) |
 | **NCZ Magnetar** — Cix Sky1 12-core ARM CPU | **12.03** | 100.3 ms | 668 | BGE-Q8 GGUF, n_ctx=8192 | done |
 | **NCZ Magnetar** — Cix Zhouyi V3 NPU (INT8 .cix) | **54.86** | 14.6 ms | 146 | `bge-small-zh-v1.5_256.cix`, libnoe 2.0.0 | done |
