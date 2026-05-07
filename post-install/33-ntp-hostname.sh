@@ -39,13 +39,15 @@ ncz_default_hostname() {
     #   3. systemd machine-id sha256 prefix (8 hex) if no networking at all
     # All paths produce a hostname like ncz-<8-hex>. /sys/class/net/*/address
     # is the most-portable Linux source.
-    local mac iface
+    local mac iface ifpath
     # Pass 1: wired
-    for iface in $(ls /sys/class/net 2>/dev/null); do
+    for ifpath in /sys/class/net/*; do
+        [ -e "$ifpath" ] || continue   # nullglob fallback if /sys empty
+        iface=${ifpath##*/}
         case "$iface" in lo|virbr*|docker*|veth*|br-*|tun*|tap*) continue ;; esac
-        if [ -d "/sys/class/net/$iface/wireless" ] || [ -d "/sys/class/net/$iface/phy80211" ]; then continue; fi
-        if [ -r "/sys/class/net/$iface/address" ]; then
-            mac=$(cat "/sys/class/net/$iface/address" | tr -d ":" | tr "[:upper:]" "[:lower:]")
+        if [ -d "$ifpath/wireless" ] || [ -d "$ifpath/phy80211" ]; then continue; fi
+        if [ -r "$ifpath/address" ]; then
+            mac=$(tr -d ":" < "$ifpath/address" | tr "[:upper:]" "[:lower:]")
             if [ -n "$mac" ] && [ "$mac" != "000000000000" ]; then
                 printf "ncz-%s" "${mac: -8}"
                 return 0
@@ -55,11 +57,13 @@ ncz_default_hostname() {
     # Pass 2: wireless (still better than a constant). Per-association MAC
     # randomization happens at the supplicant layer; the burned-in MAC under
     # /sys/class/net/<wif>/address is the persistent identifier.
-    for iface in $(ls /sys/class/net 2>/dev/null); do
+    for ifpath in /sys/class/net/*; do
+        [ -e "$ifpath" ] || continue
+        iface=${ifpath##*/}
         case "$iface" in lo|virbr*|docker*|veth*|br-*|tun*|tap*) continue ;; esac
-        if [ -d "/sys/class/net/$iface/wireless" ] || [ -d "/sys/class/net/$iface/phy80211" ]; then
-            if [ -r "/sys/class/net/$iface/address" ]; then
-                mac=$(cat "/sys/class/net/$iface/address" | tr -d ":" | tr "[:upper:]" "[:lower:]")
+        if [ -d "$ifpath/wireless" ] || [ -d "$ifpath/phy80211" ]; then
+            if [ -r "$ifpath/address" ]; then
+                mac=$(tr -d ":" < "$ifpath/address" | tr "[:upper:]" "[:lower:]")
                 if [ -n "$mac" ] && [ "$mac" != "000000000000" ]; then
                     printf "ncz-%s" "${mac: -8}"
                     return 0
