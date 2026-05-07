@@ -106,12 +106,18 @@ for hook in $(ls 0[0-9]-*.sh 2>/dev/null | sort); do
     echo "============================================================"
     echo "[cix-installer] [PHASE0] running $hook → $LOG"
     echo "============================================================"
-    if bash ./"$hook" 2>&1 | tee "$LOG"; then
-        HOOK_DUR=$(( $(date +%s) - HOOK_START ))
+    # Codex r78 audit MEDIUM (2026-05-07): pipefail is not enabled
+    # until Phase 1, so `if bash | tee ...` checks tee's exit code, not
+    # the hook's — hook syntax errors get reported as ✓ success on
+    # tty3. Mirror Phase 2's PIPESTATUS pattern instead.
+    bash ./"$hook" 2>&1 | tee "$LOG"
+    rc=${PIPESTATUS[0]}
+    HOOK_DUR=$(( $(date +%s) - HOOK_START ))
+    if [ "$rc" -eq 0 ]; then
         tty_msg "  ✓ $hook done (${HOOK_DUR}s)"
     else
-        tty_msg "  ⚠ $hook returned non-zero (continuing — Phase 0 is non-blocking)"
-        echo "[cix-installer] [PHASE0] WARN: $hook exited non-zero — install continues"
+        tty_msg "  ⚠ $hook rc=$rc (${HOOK_DUR}s, continuing — Phase 0 is non-blocking)"
+        echo "[cix-installer] [PHASE0] WARN: $hook exited rc=$rc — install continues"
     fi
 done
 
