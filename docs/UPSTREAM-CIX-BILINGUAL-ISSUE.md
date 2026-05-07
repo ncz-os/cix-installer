@@ -45,11 +45,17 @@ PYTHIA Intel iGPU       42.45 emb/sec         534,775 emb/sec     105.06 emb/sec
 PYTHIA Intel CPU        27.17 emb/sec         532,559 emb/sec      67.31 emb/sec
 ```
 
-The Cix NPU is 7% behind Intel iGPU on cold — a software-tuning gap, not silicon. At the realistic 50%-repeat mixed workload, the two are statistically tied.
+Cix Sky1 NPU and current-gen Intel iGPU are in the same neighborhood for cold-pass per-inference time on this harness — within 4-7%. **Caveats before drawing strong conclusions:**
+
+- The two sides ran different language variants (`bge-small-zh` on Cix, `bge-small-en` on Intel) — same architecture and same 512-dim output, but quantization tables and tokenizer details differ.
+- The MIX-50 column is dominated by the content-hash cache (cache-hit path is ~8 µs each on either side), not by raw accelerator throughput. The gap there reflects cache machinery, not silicon.
+- The COLD column is point estimates from one harness run each side; we have not yet published variance bars or a same-model controlled run.
+
+What we can say honestly: **at this harness, on this workload, neither accelerator dominates by a wide margin.** Whether the residual cold-pass gap is silicon, software-tuning, or model-variant we cannot yet attribute from this data alone — and that's part of why we want the Cix team's read.
 
 **Five specific software gaps blocking the silicon's full potential:**
 
-1. **Re-create-job-per-call workaround for the 0x23 NOE_STATUS_TIMEOUT bug.** The current pattern (visorcraft documented this) is to call `noe_create_job` + `noe_clean_job` around every `noe_job_infer_sync` to avoid hangs on second-and-subsequent inferences with the same job_id. This adds material per-call overhead. n4hy's [install_npu_fix_v4.sh](https://github.com/n4hy/NPU_OrangePi6Plus/blob/main/install_npu_fix_v4.sh) destroys the HW command pool before CREATE on stale-pool detection — kernel-side fix that lets us use persistent jobs. **Ask:** can the Cix kernel team upstream this fix (or the equivalent) into `cix-noe-umd`'s aipu module so persistent-job inference is the default, not an opt-in patch?
+1. **Persistent-job inference times out with NOE_STATUS_TIMEOUT 0x23.** Empirically, calling `noe_job_infer_sync` repeatedly against the same `job_id` returns 0x23 after the first call; the only working pattern we and visorcraft have found is calling `noe_create_job` + `noe_clean_job` around every inference. This adds material per-call overhead and caps sustained throughput well below what the silicon should support. We don't yet know whether the bug lives in the kernel-side aipu module or in `libnoe` userspace state machine. **Ask:** can the Cix team confirm the layer, and is there (or could there be) a supported persistent-job API where one job_id can serve many sequential `noe_job_infer_sync` calls? That single change is likely the bridge between our 39 emb/sec measured and a 70+ emb/sec target on the same silicon.
 
 2. **No persistent inference daemon shipped.** Both visorcraft and we have written our own OpenAI-compat HTTP wrappers around `libnoe`. OpenVINO ships `OpenVINO Model Server` for the equivalent role. **Ask:** would the Cix team consider shipping a `noe-server` binary in `cix-noe-umd` that does the standard "load .cix model → expose REST/gRPC endpoint → route inferences" pattern? This would cut hours off every implementer's onboarding.
 
@@ -65,7 +71,7 @@ The Cix NPU is 7% behind Intel iGPU on cold — a software-tuning gap, not silic
 
 **Why we're posting this:** Cix Sky1 silicon is the first ARM SoC we've seen that ships an integrated NPU at this TOPS class with this much unified RAM at a $700 price point. The product story we want to be able to tell is "Cix Sky1 is the right hardware for agentic memory workloads." The silicon supports that claim today; the toolchain is what we'd ask the Cix team to invest in.
 
-Happy to provide reproducible benchmark scripts, raw data, environment details, or to test patches. Numbers and methodology in `gitlab.com/nclawzero/cix-installer/docs/CIX-VS-JETSON-PERF-REPORT.md` (note: comparison report is shared with NVIDIA Jetson team for ecosystem awareness; not adversarial — both NVIDIA and Intel are partner-ecosystem dialogues for us, especially after the NVIDIA-Intel Sep 2025 strategic alignment).
+Happy to provide reproducible benchmark scripts, raw data, environment details, or to test patches. Methodology: 2000-memory production corpus, single-stream sequential, content-hash cache (SHA256 → vector), `bge-small` 256-token / 512-dim, no auto-batching tricks. Cix-vs-Intel-iGPU baseline write-up at `gitlab.com/nclawzero/cix-installer/docs/` (we'll publish a Cix-only methodology note alongside this issue).
 
 Thanks for the silicon and for engaging on the threads earlier this month.
 
@@ -79,7 +85,7 @@ NCZ Reinhardt project maintainer
 
 ### 标题
 
-> Cix Sky1 Z3 NPU 硅片在嵌入式工作负载上有竞争力 — 但五个具体的软件工具链缺口在阻碍用户充分利用它
+> Cix Sky1 Z3 NPU 在向量嵌入工作负载上具有竞争力 — 但五个具体的软件工具链缺口阻碍用户充分发挥硅片潜力
 
 ### 正文
 
@@ -116,7 +122,7 @@ PYTHIA Intel CPU        27.17 嵌入/秒    532,559 嵌入/秒     67.31 嵌入/
 
 **阻碍硅片潜力的五个具体软件缺口:**
 
-1. **0x23 NOE_STATUS_TIMEOUT bug 的"每次调用重建 job"绕过方案。** 当前模式(visorcraft 已记录)是在每次 `noe_job_infer_sync` 周围调用 `noe_create_job` + `noe_clean_job`,以避免相同 job_id 的第二次及后续推理挂起。这增加了每次调用的实质性开销。n4hy 的 [install_npu_fix_v4.sh](https://github.com/n4hy/NPU_OrangePi6Plus/blob/main/install_npu_fix_v4.sh) 在检测到陈旧池时在 CREATE 之前销毁硬件命令池 — 内核侧修复,让我们可以使用持久化 job。**请求:** Cix 内核团队能否将此修复(或等效修复)上游到 `cix-noe-umd` 的 aipu 模块,使持久化 job 推理成为默认行为而不是可选补丁?
+1. **持久化 job 推理触发 NOE_STATUS_TIMEOUT 0x23 错误。** 经验上,对同一个 `job_id` 重复调用 `noe_job_infer_sync` 在第一次之后会返回 0x23;我们和 visorcraft 找到的唯一可用模式是在每次推理前后调用 `noe_create_job` + `noe_clean_job`。这增加了实质性的每次调用开销,使持续吞吐量远低于硅片应该能支持的水平。我们目前还无法判断该 bug 位于内核侧 aipu 模块还是 `libnoe` 用户空间状态机。**请求:** Cix 团队能否确认该 bug 所在层级,以及是否存在(或可以提供)受支持的持久化 job API,让一个 job_id 可以服务多次连续的 `noe_job_infer_sync` 调用?这一项变更很可能是从我们测得的 39 emb/sec 跨越到同一硅片 70+ emb/sec 目标的关键桥梁。
 
 2. **未提供持久化推理守护进程。** visorcraft 和我们都写了自己的 OpenAI 兼容 HTTP 包装器调用 `libnoe`。OpenVINO 提供 `OpenVINO Model Server` 充当相同角色。**请求:** Cix 团队是否考虑在 `cix-noe-umd` 中提供 `noe-server` 二进制文件,执行标准的"加载 .cix 模型 → 暴露 REST/gRPC 端点 → 路由推理"模式?这将为每个实施者节省数小时的入门时间。
 
