@@ -33,7 +33,7 @@ echo "[25] Cix proprietary userspace .debs from $ASSETS"
 echo "    package count: $(ls $ASSETS | wc -l)"
 echo ""
 
-cd "$ASSETS"
+cd "$ASSETS" || { echo "ERROR: cannot cd to $ASSETS"; exit 1; }
 # Skip:
 #   1. Cix's kernel image/headers debs (we installed our own in 10-)
 #   2. Cix's kernel-module driver debs (post 2026-05-03 kernel jump
@@ -46,11 +46,13 @@ cd "$ASSETS"
 #      (display, replaces trilin_dptx), cix_dsp_rproc with ACPI fix.
 #      Installing the 6.6 .ko packages just pollutes the modules tree
 #      with files that fail vermagic check. Skip entirely.)
+# shellcheck disable=SC2010  # Cix .deb names are alphanumeric; ls|grep is fine here
 DEBS=$(ls *.deb | grep -vE '^linux-(image|headers)-.*-cix-build-generic_' \
                 | grep -vE '^cix-(npu-driver|gpu-driver|vpu-driver|isp-driver|wlan|csi-driver|noe-kmd)_' \
                 | grep -vE '^cix-(npu-umd|noe-umd|npu-onnxruntime)_')
 
 echo "Skipping vermagic-incompatible cix-*-driver debs (post-Sky1-switch):"
+# shellcheck disable=SC2010  # informational listing of known-safe .deb names
 ls *.deb | grep -E '^cix-(npu-driver|gpu-driver|vpu-driver|isp-driver|wlan|csi-driver|noe-kmd)_' | sed 's/^/    /' || true
 
 # ----------------------------------------------------------------------

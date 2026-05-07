@@ -422,8 +422,8 @@ cat > "$REFIND_CONF" <<REFINDCONF
 # rEFInd configuration for nclawzero installer (cixmini r23)
 # Build: $VERSION  ($BUILD_DATE)  Host: $BUILD_HOST
 # Kernels: LTS=$KVER_LTS  NEXT=$KVER_NEXT
-# CRITICAL: every install + SAFE entry includes `boot=casper` so Ubuntu's
-# casper initrd actually runs (without it, init panics → busybox).
+# CRITICAL: every install + SAFE entry includes 'boot=casper' so Ubuntu's
+# casper initrd actually runs (without it, init panics -> busybox).
 timeout 10
 log_level 4
 showtools none
