@@ -13,11 +13,13 @@ LOG=/var/log/cix-rootfs-extract.log
 TTY=/dev/tty3
 exec > "$LOG" 2>&1
 
-# msg <text> — log AND print to tty3 with timestamp
+# msg <text> — log AND print to tty3 with timestamp.
+# Avoid `local` (non-POSIX) so the script stays portable to busybox sh
+# in the d-i partman late_command environment.
 msg() {
-    local s="[$(date -u +%H:%M:%S)] $*"
-    echo "$s"
-    printf '%s\n' "$s" >"$TTY" 2>/dev/null || true
+    msg_s="[$(date -u +%H:%M:%S)] $*"
+    echo "$msg_s"
+    printf '%s\n' "$msg_s" >"$TTY" 2>/dev/null || true
 }
 
 msg "=== r40 rootfs extract starting ==="
@@ -69,6 +71,7 @@ EXTRACTED_TOTAL_KB=3000000  # rootfs decompresses to ~3 GB; rough estimate for %
     done
 ) &
 PROG_PID=$!
+# shellcheck disable=SC2064  # PROG_PID set at trap-arm time and never reassigned, intentional
 trap "kill $PROG_PID 2>/dev/null || true" EXIT
 
 # Try to advance d-i's main progress bar via debconf — best effort, OK if it

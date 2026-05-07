@@ -1,14 +1,27 @@
 #!/bin/bash
-# 56-icon-theme.sh — NeXT-style black-hole trash icon. NCX inherits Adwaita.
+# 56-icon-theme.sh — NeXT-style black-hole trash icon. NCZ inherits Adwaita.
 set -euo pipefail
 
 echo "[56] installing NCZ icon theme (black-hole user-trash)"
 
 ASSETS=/usr/local/lib/cix-installer/assets/branding/icon-theme
-DEST=/usr/share/icons/NCZ
-[ -d "\$ASSETS/NCZ" ] || { echo "[56] WARN: NCZ icon theme assets missing — skipping"; exit 0; }
+# Source dir is named "NCX" historically (NeXT homage); destination is the
+# canonical NCZ brand. r74 had \$ASSETS/NCZ literal-escape that always
+# tested the literal string "$ASSETS/NCZ" and silently exited 0, so the
+# icon theme never installed. Find whichever source dir is present.
+SRC=""
+for candidate in "$ASSETS/NCZ" "$ASSETS/NCX"; do
+    if [ -d "$candidate" ]; then SRC="$candidate"; break; fi
+done
+if [ -z "$SRC" ]; then
+    echo "[56] WARN: NCZ/NCX icon theme assets missing under $ASSETS — skipping"
+    exit 0
+fi
 
-cp -r "\$ASSETS/NCZ" /usr/share/icons/
+# Always install under /usr/share/icons/NCZ — the canonical brand path
+# referenced by 50-brand.sh, xsettings, and the GNOME dconf override below.
+rm -rf /usr/share/icons/NCZ
+cp -r "$SRC" /usr/share/icons/NCZ
 chmod -R a+r /usr/share/icons/NCZ
 find /usr/share/icons/NCZ -type d -exec chmod a+rx {} \;
 
@@ -17,12 +30,17 @@ gtk-update-icon-cache /usr/share/icons/NCZ 2>/dev/null || true
 gtk-update-icon-cache /usr/share/icons/Adwaita 2>/dev/null || true
 gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
 
-# === Set NCX as default icon theme — both XFCE and GNOME ===
+# === Set NCZ as default icon theme — both XFCE and GNOME ===
 # GNOME default-set via dconf
 install -d /etc/dconf/db/local.d
-cat > /etc/dconf/db/local.d/02-ncx-icon-theme <<'GNOME'
+# r74 stale-brand cleanup: dconf db file + theme name now use NCZ to match
+# /usr/share/icons/NCZ install path + 50-brand.sh icon-theme-name=NCZ.
+# The 02-ncx-icon-theme legacy file is removed if present so dconf-update
+# doesn't merge two competing settings.
+rm -f /etc/dconf/db/local.d/02-ncx-icon-theme
+cat > /etc/dconf/db/local.d/02-ncz-icon-theme <<'GNOME'
 [org/gnome/desktop/interface]
-icon-theme='NCX'
+icon-theme='NCZ'
 GNOME
 
 # XFCE default-set via xfconf channel xsettings
@@ -44,7 +62,7 @@ XSET
 dconf update 2>/dev/null || true
 
 echo "[56] icon theme installed at /usr/share/icons/NCZ"
-echo "    GNOME default set via /etc/dconf/db/local.d/02-ncx-icon-theme"
+echo "    GNOME default set via /etc/dconf/db/local.d/02-ncz-icon-theme"
 echo "    XFCE default set via /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml"
 
 # === r55: rewrite NCX index.theme with Inherits= so Qt apps (LXQt) cascade ===
@@ -52,7 +70,7 @@ echo "    XFCE default set via /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xm
 # icons for everything except the 10 places/* assets we ship.
 cat > /usr/share/icons/NCZ/index.theme <<'INDEX'
 [Icon Theme]
-Name=NCX
+Name=NCZ
 Comment=NCZ 26.5 Reinhardt black-hole trash + Adwaita-dark fallback
 Inherits=Adwaita-dark,Adwaita,elementary-xfce-dark,elementary-xfce,hicolor
 Directories=places/scalable,places/256,places/128,places/96,places/64,places/48,places/32,places/24,places/22,places/16,scalable
@@ -121,7 +139,7 @@ gtk-update-icon-cache -f -t /usr/share/icons/NCZ 2>&1 | tail -1 || true
 
 
 # === r55: MATE — set icon-theme via dconf ===
-cat >> /etc/dconf/db/local.d/02-ncx-icon-theme <<'MATE'
+cat >> /etc/dconf/db/local.d/02-ncz-icon-theme <<'MATE'
 
 MATE
 dconf update 2>/dev/null || true
