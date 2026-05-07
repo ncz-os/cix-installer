@@ -1,6 +1,6 @@
 # R76 — Netinstall ISO design (Reinhardt + Magnetar selector)
 
-**Status:** DESIGN draft 2026-05-06.
+**Status:** IMPLEMENTED in r78.
 **Targets:** r75 task #60 (netinstall ISO ~500 MB) + #61 (BUILD_MODE flag) + a head/headless selector at install time so one ISO covers both SKUs.
 **Strategic frame:** This is the bridge between r75's "ship-something-that-works-on-Sky1" forked-d-i path and a future Subiquity-based unified arm64/x86 installer (gated on the upstream Casper-on-Sky1 fix — see `docs/UPSTREAM-CASPER-SKY1-PANIC.md`).
 
@@ -68,8 +68,8 @@ New `--mode {full|thin|netinstall}` flag (sibling to `--variant`):
 | `netinstall` | no | no | no — real debootstrap reads ports.ubuntu.com | NEXT only | ~380 MB |
 
 The `--variant` flag stays orthogonal:
-- For `full` / `thin`: `--variant` writes `BUILD_VARIANT` into the staged sidecar at bake time → the ISO is single-SKU.
-- For `netinstall`: `--variant` becomes a *bake-time default* (operator can override at install-time via the GRUB menu choice). Default for the canonical netinstall ISO is "desktop" so a no-pick boot lands at Reinhardt.
+- For all modes: the GRUB chooser writes `ncz_variant=desktop|server` at install time.
+- `--variant` writes the bake-time default `BUILD_VARIANT` sidecar for direct/non-chooser boots. Default for the canonical netinstall ISO is "desktop" so a no-pick boot lands at Reinhardt.
 
 ### `preseed/preseed-ubuntu.cfg`
 
@@ -111,7 +111,7 @@ echo "[late.sh] BUILD_VARIANT = $ncz_variant (from kernel cmdline)"
 
 ### GRUB cfg
 
-The d-i GRUB menu (currently single "Install NCZ Reinhardt" entry) gets two menuentry blocks for netinstall mode:
+The d-i GRUB menu uses the same two-entry Reinhardt/Magnetar chooser in all modes. In netinstall mode, the menu text adds "wired link required" and the installer kernel is NEXT only:
 
 ```
 menuentry "Install NCZ Reinhardt — Desktop (XFCE)" {
@@ -135,7 +135,7 @@ menuentry "Rescue / Advanced" {
 }
 ```
 
-The menu emission gets a conditional in `build-iso-di.sh` — `full`/`thin` modes write a single entry (the bake-time variant); `netinstall` mode writes both.
+The menu emission gets a conditional in `build-iso-di.sh` for netinstall text/kernel details, but the chooser contract stays the same across modes.
 
 ## Risk surface
 

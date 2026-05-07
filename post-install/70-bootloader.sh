@@ -1,8 +1,9 @@
 #!/bin/bash
-# 70-bootloader.sh — systemd-boot install + DUAL-kernel loader entries.
-# r75 K3: NEXT is the default boot path; LTS stays as fallback menu entry.
+# 70-bootloader.sh — systemd-boot install + staged kernel loader entries.
+# r75 K3: full/thin default to NEXT with LTS as fallback. r78 netinstall
+# stages NEXT only.
 #
-# Three loader entries (in menu order):
+# Loader entries (in menu order when all staged kernels exist):
 #   1. cixmini-next.conf   (DEFAULT — Sky1 linux-cix-sky1-next 7.0.x)
 #   2. cixmini-lts.conf    (FALLBACK — Sky1 linux-cix-sky1-lts 6.18.x)
 #   3. cixmini-rescue.conf (rescue.target — defaults to LTS kernel)
@@ -13,13 +14,18 @@
 # half the cmdline.
 set -euo pipefail
 
-echo "[70] systemd-boot bootloader (DUAL kernel — NEXT default + LTS fallback)"
+echo "[70] systemd-boot bootloader (staged kernel payload)"
 
 INSTALLER_META=/usr/local/lib/cix-installer
-[ -f "$INSTALLER_META/KVER_LTS" ] || { echo "ERROR: KVER_LTS sidecar missing"; exit 1; }
-KVER_LTS=$(cat "$INSTALLER_META/KVER_LTS")
+KVER_LTS=""
+[ -f "$INSTALLER_META/KVER_LTS" ] && KVER_LTS=$(cat "$INSTALLER_META/KVER_LTS" 2>/dev/null || true)
 KVER_NEXT=""
 [ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
+
+if [ -z "$KVER_LTS" ] && [ -z "$KVER_NEXT" ]; then
+    echo "ERROR: no KVER_LTS or KVER_NEXT sidecar present"
+    exit 1
+fi
 
 BUILD_VERSION="(unknown)"
 [ -f "$INSTALLER_META/BUILD_VERSION" ] && BUILD_VERSION=$(cat "$INSTALLER_META/BUILD_VERSION" 2>/dev/null || true)
@@ -149,9 +155,6 @@ echo "  root PARTUUID=$ROOT_PARTUUID"
 LTS_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
 NEXT_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA2,115200 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
 
-# Backward-compat for any consumer still referencing the old name
-MARTJOHNSON_CMDLINE="$LTS_CMDLINE_BASE"
-
 # Optional Plymouth splash flags (if 60-plymouth.sh ran)
 SPLASH=""
 [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
@@ -170,7 +173,7 @@ NEXT_AVAILABLE=0
 LTS_INITRD_AVAILABLE=0
 NEXT_INITRD_AVAILABLE=0
 
-if [ -f "/boot/vmlinuz-$KVER_LTS" ]; then
+if [ -n "$KVER_LTS" ] && [ -f "/boot/vmlinuz-$KVER_LTS" ]; then
     install -m 0644 "/boot/vmlinuz-$KVER_LTS" "/boot/efi/vmlinuz-$KVER_LTS"
     echo "  staged /boot/efi/vmlinuz-$KVER_LTS"
     LTS_AVAILABLE=1
@@ -180,8 +183,10 @@ if [ -f "/boot/vmlinuz-$KVER_LTS" ]; then
         echo "  staged /boot/efi/initrd.img-$KVER_LTS"
         LTS_INITRD_AVAILABLE=1
     fi
-else
+elif [ -n "$KVER_LTS" ]; then
     echo "  WARN: /boot/vmlinuz-$KVER_LTS missing — LTS entry will be SKIPPED"
+else
+    echo "  LTS kernel not staged — skipping LTS fallback entry"
 fi
 
 if [ -n "$KVER_NEXT" ] && [ -f "/boot/vmlinuz-$KVER_NEXT" ]; then
@@ -307,14 +312,17 @@ fi
 # Rescue uses LTS by preference, falls back to NEXT if LTS missing.
 if [ "$LTS_AVAILABLE" = "1" ]; then
     RESCUE_KVER="$KVER_LTS"
+    RESCUE_CMDLINE_BASE="$LTS_CMDLINE_BASE"
 elif [ "$NEXT_AVAILABLE" = "1" ]; then
     RESCUE_KVER="$KVER_NEXT"
+    RESCUE_CMDLINE_BASE="$NEXT_CMDLINE_BASE"
 else
     RESCUE_KVER=""
+    RESCUE_CMDLINE_BASE=""
 fi
 
 if [ -n "$RESCUE_KVER" ]; then
-    RESCUE_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE systemd.unit=rescue.target"
+    RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_BASE systemd.unit=rescue.target"
 
     cat > /boot/efi/loader/entries/cixmini-rescue.conf <<EOF
 title   SAFE rescue (cixmini) — kernel $RESCUE_KVER rescue.target — $BUILD_VERSION
