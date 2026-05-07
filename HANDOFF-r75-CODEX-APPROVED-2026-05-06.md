@@ -145,3 +145,61 @@ Full Codex logs at `~/.claude/plugins/data/codex-openai-codex/state/cix-installe
 ---
 
 *Living doc — update inline as operator verifies items 1–6.*
+
+
+---
+
+## Post-APPROVE polish (2026-05-06 evening, dynamic /loop continued)
+
+After the 6-round Codex APPROVE on the Reinhardt patches at 18:24 UTC, the dynamic /loop ran further unattended polish:
+
+### Magnetar Server SKU bake validated
+
+Added `--variant server` flag to `build/build-iso-di.sh` (M1 task #102). `48-magnetar-variant.sh` reads `BUILD_VARIANT` sidecar at first boot, sets multi-user.target + masks display-managers + pre-installs NoMachine. Validation bake produced two parallel r75 ISOs at canonical ARGOS path:
+
+| SKU | Sidecar | sha256 |
+|---|---|---|
+| Reinhardt | `BUILD_VARIANT=desktop` | `eebfe1df88782c23c32a02f9fd529a9035040347f2f86b5f15553250eb04cc35` |
+| Magnetar | `BUILD_VARIANT=server` | `df46049a7f3a46a480c5c38075b7e63b504b3a926d95cef8b5f4056304b14669` |
+
+Both 9.3 GB. M1 task #102 closed.
+
+### F5 NPU embedder upstream PR candidate staged
+
+`assets/cix-py/README.md` published with full upstream-PR-ready spec: perf numbers (39.55 cold / 110.51 mixed-50 emb/sec, parity with PYTHIA Intel iGPU), API surface, cache contract (write=False protected), dtype dispatch table, license, attribution to visorcraft + FyrbyAdditive. Wrapper at `assets/cix-py/npu_embed_v2.py` is the candidate for `mnemos.embedders.cix_npu` plugin or standalone `mnemos-embedder-cix-npu` pip package — operator picks shape with mnemos-os maintainers.
+
+### F3 bilingual upstream issue Codex APPROVED (5 rounds)
+
+`docs/UPSTREAM-CIX-BILINGUAL-ISSUE.md` round-trip closed:
+
+| Round | Findings | Fix commit |
+|---|---|---|
+| 1 | n4hy attribution drift, NVIDIA/Jetson framing, parity overclaim, ZH 嵌入式 -> 向量嵌入 | `2c8806c` |
+| 2 | ZH body symmetry to match EN caveats | `7abf223` |
+| 3 | EN TL;DR mirror | `f22be8b` |
+| 4 | ZH reference symmetry (drop CIX-VS-JETSON cross-link) | `bcde483` |
+| 5 | **APPROVE** — ship | (review only) |
+
+MNEMOS `mem_1778117337736_3f9971`. F3 task #117 closed for code/content; operator action: publish per the doc's distribution plan.
+
+### Attribution fix shipped
+
+`n4hy` references in earlier docs were a memory drift; canonical Cix NPU community work is `visorcraft/orange-pi-6-plus-npu`. visorcraft's patches address kernel compile-against-mainline issues, NOT the 0x23 NOE_STATUS_TIMEOUT user-space recreate-job workaround (that's a libnoe userspace ask in the bilingual upstream issue). MNEMOS `mem_1778108263413_61ff71`.
+
+### Repo state at end of polish round
+
+* ARGOS `main` + ARGONAS bare both at the latest r75-review HEAD
+* Local Mac `r75-review` branch tracks ARGONAS main
+* Local Mac `feat/sky1-7.0-next-msr1` retains the earlier handoff + jetson brief commits (separate branch)
+* gitlab.com push deferred (token not on ARGOS — operator does this from Mac)
+
+---
+
+## What's left for operator return
+
+1. Pull Reinhardt or Magnetar ISO from ARGOS, flash to 16+ GB USB, install on .66 (Reinhardt) or a fresh box (Magnetar).
+2. Verify the per-patch behavior list in this doc.
+3. Push to gitlab.com from Mac.
+4. F3 publish: post the bilingual upstream issue per the distribution plan.
+5. F5 publish: open a PR to `mnemos-os/mnemos` (or stand up `mnemos-embedder-cix-npu` as a separate pip package) using the staged wrapper + README at `assets/cix-py/`.
+6. K2 follow-up: file a tracking issue with cixtech (or `cixtech/cix-linux-main` directly) about the libnoe persistent-job API ask — the bilingual doc covers this.
