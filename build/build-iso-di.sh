@@ -1036,11 +1036,20 @@ echo "               kernel: $KVER_LTS"
 echo "               build:  $BUILD_DATE"
 echo ""
 
-menuentry "Install ncz-installer \"$CODENAME\" (LTS 6.18.26 + Ubuntu questing)" {
+menuentry "Install NCZ \"Reinhardt\" — Desktop (XFCE)" {
     set background_color=black
     set color_normal=light-green/black
-    echo ">> ncz-installer loading Sky1 LTS kernel + d-i..."
-    linux  /install.a64/vmlinuz $DI_OPTS $MARTJOHNSON_R6
+    echo ">> ncz-installer loading Sky1 LTS kernel + d-i (Reinhardt / desktop)..."
+    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop $MARTJOHNSON_R6
+    echo ">> Loading initrd (modules + preseed + zstd)..."
+    initrd /install.a64/initrd.gz
+}
+
+menuentry "Install NCZ \"Magnetar\" — Server (headless, agent appliance)" {
+    set background_color=black
+    set color_normal=light-green/black
+    echo ">> ncz-installer loading Sky1 LTS kernel + d-i (Magnetar / server)..."
+    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=server $MARTJOHNSON_R6
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
 }

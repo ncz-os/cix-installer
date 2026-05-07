@@ -91,6 +91,35 @@ for f in BUILD_VERSION BUILD_DATE BUILD_HOST KVER_LTS KVER_NEXT; do
         cp "$SRC/$f" /target/usr/local/lib/cix-installer/"$f"
     fi
 done
+
+# r77: capture install-time variant choice from kernel cmdline.
+# When the unified ISO offers a GRUB chooser between Desktop (Reinhardt)
+# and Server (Magnetar), the operator's pick lands as ncz_variant=
+# desktop|server on the kernel cmdline. 48-magnetar-variant.sh reads
+# the BUILD_VARIANT sidecar at first boot and applies the headless
+# toggle when value is "server".
+#
+# Default: if the cmdline didn't carry ncz_variant (because this isn't
+# a unified-chooser ISO, or the operator boot directly to a non-chooser
+# entry), fall back to the build's bake-time --variant. The
+# BUILD_VARIANT sidecar may already be set on $SRC by build-iso-di.sh
+# at bake time; only overwrite it when the kernel cmdline explicitly
+# selected one.
+ncz_variant=$(sed -n 's/.*\(^\| \)ncz_variant=\([a-z]*\).*/\2/p' /proc/cmdline 2>/dev/null || echo "")
+case "$ncz_variant" in
+    desktop|server)
+        echo "$ncz_variant" > /target/usr/local/lib/cix-installer/BUILD_VARIANT
+        echo "    ncz_variant=$ncz_variant captured from kernel cmdline"
+        ;;
+    *)
+        if [ -f "$SRC/BUILD_VARIANT" ]; then
+            echo "    ncz_variant from bake-time BUILD_VARIANT: $(cat $SRC/BUILD_VARIANT)"
+        else
+            echo "desktop" > /target/usr/local/lib/cix-installer/BUILD_VARIANT
+            echo "    ncz_variant defaulted to 'desktop' (no cmdline, no bake stamp)"
+        fi
+        ;;
+esac
 if [ -f /target/etc/cix-installer/BUILD_VERSION ]; then
     echo "    build stamp: $(cat /target/etc/cix-installer/BUILD_VERSION) ($(cat /target/etc/cix-installer/BUILD_DATE 2>/dev/null))"
 fi
