@@ -6,8 +6,9 @@ distribution.**
 Produces a fully-unattended UEFI-bootable installer ISO that
 partitions the target disk, debootstraps Ubuntu 25.10 questing,
 layers a hardware-appropriate kernel + vendor userspace runtimes +
-desktop environment + agent stack (`zeroclaw`, `openclaw`, `hermes`,
-`claude-code`, optionally `nemoclaw`), and brands the system as NCZ
+desktop environment + Claude Code + the NCZ agent stack (`zeroclaw`
+default-active; `openclaw`, `hermes`, `portainer`, and `nemoclaw`
+opt-in), and brands the system as NCZ
 (Reinhardt for desktop, Magnetar for server / always-on agent
 appliance).
 
@@ -35,9 +36,10 @@ x86 platform, when sample hardware is obtainable for validation.
   Python kit that auto-detects the highest-tier accelerator (NPU >
   GPU > CPU) at runtime. Same `Engine.auto()` call works on every
   silicon path.
-- **Agent runtimes**: side-by-side selectable. Operators choose at
-  install time among `zeroclaw`, `openclaw`, `hermes`, `nemoclaw`
-  (NVIDIA's branded fork, planned), and others as they ship.
+- **Agent runtimes**: side-by-side selectable. `zeroclaw` is active by
+  default; operators opt in to `openclaw`, `hermes`, and `portainer`
+  with `ncz agent install`, or to NVIDIA NemoClaw with
+  `ncz install nemoclaw`.
 
 The current build path inside `build/build-iso-di.sh` is the Cix Sky1
 implementation; the architecture is the reusable scaffold.
@@ -83,11 +85,13 @@ make
 The ISO ships its own copy of:
 - 37 Cix proprietary `.debs` (~1.9 GB) — closed-source userspace
 - `linux-cix-msr1` kernel binary + modules tarball (~640 MB)
-- Quadlet definitions for the 4-agent stack
+- Quadlet definitions for zeroclaw plus optional OpenClaw, Hermes, and
+  NemoClaw templates
 - Plymouth theme (custom nclawzero splash)
 
-So the install is fully offline-capable for the agent + Cix layers; only
-the Debian base packages need network access during install.
+So the install is offline-capable for the Cix layers and ships only the
+default zeroclaw activation path; optional agent runtimes are pulled by
+the operator after install.
 
 ## Inputs
 
@@ -107,7 +111,7 @@ the Debian base packages need network access during install.
 1. `00-cix-proprietary.sh` — `dpkg -i` 37 Cix `.deb` files
 2. `10-our-kernel.sh` — install `linux-cix-msr1` kernel binary + modules
 3. `20-desktop.sh` — apt install GNOME + chromium + gnome-remote-desktop
-4. `30-agents.sh` — install podman + 3 quadlets + nclawzero-load-agent-images service
+4. `30-agents.sh` — install podman + zeroclaw default quadlet + optional agent templates
 5. `40-claude-code.sh` — `npm install -g @anthropic-ai/claude-code`
 6. `50-brand.sh` — `/etc/os-release`, motd, hostname
 7. `60-plymouth.sh` — Plymouth boot splash + nclawzero theme
