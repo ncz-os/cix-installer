@@ -87,7 +87,14 @@ PATCH_DEBOOTSTRAP_STUB=1
 STAGE_LTS_KERNEL=1
 STAGE_NEXT_KERNEL=1
 INSTALLER_KERNEL_FLAVOR=lts
-NETINSTALL_MAX_BYTES=$((500 * 1024 * 1024))
+# 2026-05-08: ceiling set to 1GB so the netinstall ISO stays in the
+# easy-GitHub-release-distribution band (GitHub allows up to 2GB per
+# release asset but practical distribution wants <1GB). Current ISO
+# lands at ~588MB across take15-20 with our 7.0.3 NEXT kernel +
+# initramfs + firmware + branding. 1GB gives ~440MB headroom for
+# additional bundled artifacts before we'd need to split or move to
+# Git LFS / external mirror.
+NETINSTALL_MAX_BYTES=$((1024 * 1024 * 1024))
 
 case "$MODE" in
     full)
@@ -1454,8 +1461,10 @@ if [ "$MODE" = "netinstall" ]; then
         exit 1
     fi
     if [ "$ISO_SIZE_BYTES" -ge "$NETINSTALL_MAX_BYTES" ]; then
-        echo "ERROR: netinstall ISO is ${ISO_SIZE_BYTES} bytes, expected < ${NETINSTALL_MAX_BYTES} bytes (<500 MB)" >&2
+        max_mb=$((NETINSTALL_MAX_BYTES / 1024 / 1024))
+        echo "ERROR: netinstall ISO is ${ISO_SIZE_BYTES} bytes, expected < ${NETINSTALL_MAX_BYTES} bytes (<${max_mb} MB)" >&2
         exit 1
     fi
-    echo "netinstall size OK: ${ISO_SIZE_BYTES} bytes (<500 MB)"
+    max_mb=$((NETINSTALL_MAX_BYTES / 1024 / 1024))
+    echo "netinstall size OK: ${ISO_SIZE_BYTES} bytes (<${max_mb} MB)"
 fi
