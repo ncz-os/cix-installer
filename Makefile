@@ -11,6 +11,8 @@
 
 ROOT          := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 VERSION       := $(shell date -u +%Y.%m.%d)
+MODE          ?= full
+VARIANT       ?= desktop
 DEBIAN_REL    := 12
 DEBIAN_POINT  := 12.13.0
 UPSTREAM_ISO  := debian-$(DEBIAN_POINT)-arm64-netinst.iso
@@ -28,7 +30,8 @@ ASSETS        := $(ROOT)/assets
 PRESEED       := $(ROOT)/preseed
 POST          := $(ROOT)/post-install
 
-OUTPUT_ISO    := $(BUILD)/nclawzero-installer-cixmini-$(VERSION).iso
+MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))
+OUTPUT_ISO    := $(BUILD)/nclawzero-installer-cixmini-$(VERSION)$(MODE_SUFFIX).iso
 
 .PHONY: all download iso verify clean distclean qemu help
 
@@ -54,7 +57,7 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 	        exit 1; \
 	    fi
 	@mv $@.tmp $@
-	@echo "[download] OK ($(shell du -h $@.tmp 2>/dev/null | cut -f1))"
+	@echo "[download] OK ($$(du -h $@ 2>/dev/null | cut -f1))"
 
 # -----------------------------------------------------------------------
 # Step 2 — build the customized ISO via the staged build script.
@@ -62,21 +65,29 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 iso: $(OUTPUT_ISO)
 
 $(OUTPUT_ISO): $(DOWNLOADS)/$(UPSTREAM_ISO) \
-               $(PRESEED)/preseed.cfg \
-               $(wildcard $(POST)/*.sh) \
-               $(wildcard $(ASSETS)/agent-stack/*) \
-               $(wildcard $(ASSETS)/branding/*)
+	               $(ROOT)/build/build-iso-di.sh \
+	               $(PRESEED)/preseed-ubuntu.cfg \
+	               $(PRESEED)/late.sh \
+	               $(PRESEED)/extract-rootfs.sh \
+	               $(PRESEED)/sshd-watcher.sh \
+	               $(wildcard $(POST)/*.sh) \
+	               $(wildcard $(ASSETS)/agent-stack/*) \
+	               $(wildcard $(ASSETS)/branding/*) \
+	               $(wildcard $(ASSETS)/kernel/*/*) \
+	               $(wildcard $(ASSETS)/rootfs/*) \
+	               $(wildcard $(ASSETS)/sky1-firmware/*)
 	@echo "[iso] building $@ from $(DOWNLOADS)/$(UPSTREAM_ISO)"
-	@bash $(ROOT)/build/build-iso.sh \
-	    --upstream $(DOWNLOADS)/$(UPSTREAM_ISO) \
+	@bash $(ROOT)/build/build-iso-di.sh \
+	    --bookworm-iso $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	    --root $(ROOT) \
 	    --version $(VERSION) \
-	    --output $@
-	@echo "[iso] DONE — $@ ($(shell du -h $@ 2>/dev/null | cut -f1))"
+	    --output $@ \
+	    --mode $(MODE) \
+	    --variant $(VARIANT)
+	@echo "[iso] DONE — $@ ($$(du -h $@ 2>/dev/null | cut -f1))"
 
 verify: $(OUTPUT_ISO)
-	@cd $(BUILD) && sha256sum nclawzero-installer-cixmini-$(VERSION).iso \
-	    | tee nclawzero-installer-cixmini-$(VERSION).iso.sha256
+	@sha256sum $(OUTPUT_ISO) | tee $(OUTPUT_ISO).sha256
 
 # -----------------------------------------------------------------------
 # Step 3 — boot test in qemu-aarch64 with edk2 UEFI firmware (faster
@@ -89,7 +100,7 @@ qemu: $(OUTPUT_ISO)
 # Cleanup
 # -----------------------------------------------------------------------
 clean:
-	rm -rf $(BUILD)/iso-staging $(BUILD)/*.iso $(BUILD)/*.sha256
+	rm -rf $(BUILD)/iso-staging $(BUILD)/iso-staging-di $(BUILD)/*.iso $(BUILD)/*.sha256
 
 distclean: clean
 	rm -rf $(DOWNLOADS)

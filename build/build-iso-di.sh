@@ -113,9 +113,59 @@ esac
 STAGING="$ROOT/build/iso-staging-di"
 EXTRA="$STAGING/cixmini"
 
-for t in xorriso 7z cpio gzip find depmod dd ar; do
+for t in xorriso 7z cpio gzip gunzip find depmod dd ar tar stat apt-ftparchive \
+         dpkg-scanpackages python3 awk sed sort uniq grep head du wc md5sum \
+         xargs readlink install bash; do
     command -v "$t" >/dev/null 2>&1 || { echo "ERROR: missing tool: $t"; exit 1; }
 done
+
+file_size_bytes() {
+    local path="$1"
+    local size=""
+
+    if size=$(stat -c %s "$path" 2>/dev/null); then
+        case "$size" in
+            ''|*[!0-9]*)
+                echo "ERROR: malformed GNU stat size for $path: '$size'" >&2
+                return 1
+                ;;
+            *)
+                printf '%s\n' "$size"
+                return 0
+                ;;
+        esac
+    fi
+
+    if size=$(stat -f %z "$path" 2>/dev/null); then
+        case "$size" in
+            ''|*[!0-9]*)
+                echo "ERROR: malformed BSD stat size for $path: '$size'" >&2
+                return 1
+                ;;
+            *)
+                printf '%s\n' "$size"
+                return 0
+                ;;
+        esac
+    fi
+
+    if size=$(wc -c < "$path" 2>/dev/null); then
+        size="${size//[[:space:]]/}"
+        case "$size" in
+            ''|*[!0-9]*)
+                echo "ERROR: malformed wc size for $path: '$size'" >&2
+                return 1
+                ;;
+            *)
+                printf '%s\n' "$size"
+                return 0
+                ;;
+        esac
+    fi
+
+    echo "ERROR: could not determine file size for $path" >&2
+    return 1
+}
 
 BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 BUILD_HOST=$(hostname -s 2>/dev/null || echo unknown)
@@ -1363,7 +1413,8 @@ echo "    grub.cfg written ($(wc -l < "$GRUB_CFG") lines)"
 # Step 6 — regenerate md5sum.txt
 # ----------------------------------------------------------------------
 echo "[6] regenerating md5sum.txt"
-( cd "$STAGING" && find . -type f \! -name md5sum.txt -print0 | xargs -0 md5sum > md5sum.txt 2>/dev/null || true )
+( cd "$STAGING" && find . -type f \! -name md5sum.txt -print0 | xargs -0 md5sum > md5sum.txt )
+[ -s "$STAGING/md5sum.txt" ] || { echo "ERROR: md5sum.txt generation produced no entries" >&2; exit 1; }
 
 # ----------------------------------------------------------------------
 # Step 7 — repack as UEFI-bootable hybrid ISO via xorriso
@@ -1397,7 +1448,7 @@ echo "OUTPUT: $OUTPUT"
 ls -lh "$OUTPUT"
 
 if [ "$MODE" = "netinstall" ]; then
-    ISO_SIZE_BYTES=$(stat -f %z "$OUTPUT" 2>/dev/null || stat -c %s "$OUTPUT" 2>/dev/null || echo 0)
+    ISO_SIZE_BYTES=$(file_size_bytes "$OUTPUT") || exit 1
     if [ "$ISO_SIZE_BYTES" -le 0 ]; then
         echo "ERROR: could not determine netinstall ISO size for $OUTPUT" >&2
         exit 1

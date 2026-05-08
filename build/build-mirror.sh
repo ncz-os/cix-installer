@@ -20,6 +20,15 @@ UBUNTU_URL="${5:-http://ports.ubuntu.com/ubuntu-ports}"
 [ -d "$CHROOT" ] || { echo "ERROR: chroot $CHROOT does not exist"; exit 1; }
 [ -d "$CHROOT/var/cache/apt" ] || { echo "ERROR: chroot doesn't look bootstrapped"; exit 1; }
 
+for t in apt-ftparchive awk basename chroot cp cut dpkg-deb du find gzip head \
+         mkdir mount mountpoint mv rm sed sort sudo tail tee tr umount wc; do
+    command -v "$t" >/dev/null 2>&1 || { echo "ERROR: missing tool: $t" >&2; exit 1; }
+done
+
+for t in /usr/bin/env /usr/bin/apt-get /usr/bin/dpkg-query; do
+    [ -x "$CHROOT$t" ] || { echo "ERROR: chroot missing executable: $t" >&2; exit 1; }
+done
+
 echo "[mirror] chroot:   $CHROOT"
 echo "[mirror] mirror:   $MIRROR_DIR"
 echo "[mirror] suite:    $SUITE"
@@ -214,17 +223,26 @@ PKGS=(
 echo ""
 echo "[mirror] downloading ${#PKGS[@]} explicit packages + dependencies..."
 
-# Per-package fallback: if any single package is unavailable, don't let it
-# kill the whole download. apt-get install -d aborts on first error, so
-# loop one-by-one if the bulk install fails.
+# Per-package fallback identifies every unavailable package instead of stopping
+# at the first apt error, but an incomplete mirror is still a hard failure.
 if ! sudo chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive \
     apt-get install -d -y "${PKGS[@]}" 2>&1 | tail -20; then
     echo "[mirror] bulk install failed — falling back to per-package downloads"
+    FAILED_PKGS=()
     for pkg in "${PKGS[@]}"; do
-        sudo chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive \
-            apt-get install -d -y "$pkg" 2>&1 | tail -2 || \
-            echo "[mirror]   skip: $pkg"
+        if sudo chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive \
+            apt-get install -d -y "$pkg" 2>&1 | tail -2; then
+            :
+        else
+            echo "[mirror]   FAIL: $pkg" >&2
+            FAILED_PKGS+=("$pkg")
+        fi
     done
+    if [ "${#FAILED_PKGS[@]}" -gt 0 ]; then
+        echo "[mirror] ERROR: package downloads failed; refusing to build incomplete mirror" >&2
+        printf '    %s\n' "${FAILED_PKGS[@]}" >&2
+        exit 1
+    fi
 fi
 
 # CRITICAL (codex r26 review, rank 3): pull the bootstrap base set too.
@@ -236,9 +254,11 @@ fi
 echo "[mirror] forcing re-download of bootstrap base set (--reinstall every installed pkg)..."
 INSTALLED_LIST=$(sudo chroot "$CHROOT" dpkg-query -W -f='${Package}\n' 2>/dev/null | tr '\n' ' ')
 if [ -n "$INSTALLED_LIST" ]; then
-    sudo chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive \
-        apt-get install -d -y --reinstall $INSTALLED_LIST 2>&1 | tail -5 || \
-        echo "[mirror] WARNING: --reinstall pull had errors (some pkgs may be unavailable)"
+    if ! sudo chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive \
+        apt-get install -d -y --reinstall $INSTALLED_LIST 2>&1 | tail -20; then
+        echo "[mirror] ERROR: --reinstall base-set pull failed; refusing incomplete mirror" >&2
+        exit 1
+    fi
 fi
 echo "[mirror] base-set re-download complete"
 
