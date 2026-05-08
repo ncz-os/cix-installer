@@ -101,6 +101,87 @@ NCZDNSHOOK
 }
 install_ncz_dns_hooks
 
+# Netinstall-bootstrap carries a small regular-deb pool on the ISO but keeps
+# .disk/base_installable absent so base-installer still debootstraps from the
+# HTTP mirror. This pre-pkgsel hook activates only when that non-empty regular
+# Packages index exists, then makes file:///cdrom the pinned first source for
+# pkgsel/include.
+install_ncz_bootstrap_pool_hook() {
+    hook_dir=/usr/lib/pre-pkgsel.d
+    hook_tmp="$hook_dir/.20ncz-bootstrap-pool.$$"
+    hook_final="$hook_dir/20ncz-bootstrap-pool"
+
+    mkdir -p "$hook_dir"
+    rm -f "$hook_tmp"
+    cat > "$hook_tmp" <<'NCZBOOTSTRAPPOOL'
+#!/bin/sh
+# 20ncz-bootstrap-pool - prefer the ISO pkgsel bootstrap pool when present.
+set +e
+LOG=/var/log/early_command.log
+INDEX=/cdrom/dists/questing/main/binary-arm64/Packages
+
+if [ -e /cdrom/.disk/base_installable ]; then
+    echo "[ncz-bootstrap-pool] base-installable media already uses cdrom; skipping" >> "$LOG"
+    exit 0
+fi
+if [ ! -s "$INDEX" ]; then
+    echo "[ncz-bootstrap-pool] no non-empty cdrom Packages index; skipping" >> "$LOG"
+    exit 0
+fi
+if [ ! -d /target/etc/apt ]; then
+    echo "[ncz-bootstrap-pool] /target/etc/apt missing; skipping" >> "$LOG"
+    exit 0
+fi
+
+mkdir -p /target/cdrom /target/etc/apt/sources.list.d /target/etc/apt/preferences.d
+if ! grep -qs ' /target/cdrom ' /proc/mounts; then
+    if mount --bind /cdrom /target/cdrom >> "$LOG" 2>&1; then
+        echo "[ncz-bootstrap-pool] mounted /cdrom at /target/cdrom" >> "$LOG"
+    else
+        echo "[ncz-bootstrap-pool] failed to bind-mount /cdrom into /target" >> "$LOG"
+        exit 0
+    fi
+fi
+
+cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'EOF'
+deb [trusted=yes] file:///cdrom questing main
+EOF
+cat > /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref <<'EOF'
+Package: *
+Pin: release o=nclawzero
+Pin-Priority: 1001
+EOF
+
+CHROOT_BIN=""
+for c in /usr/sbin/chroot /usr/bin/chroot /bin/chroot; do
+    if [ -x "$c" ]; then
+        CHROOT_BIN="$c"
+        break
+    fi
+done
+
+if [ -x /target/usr/bin/apt-get ] && [ -n "$CHROOT_BIN" ]; then
+    "$CHROOT_BIN" /target /usr/bin/apt-get \
+        -o Dir::Etc::sourcelist="sources.list.d/cixmini-cdrom.list" \
+        -o Dir::Etc::sourceparts="-" \
+        -o APT::Get::List-Cleanup="0" \
+        update >> "$LOG" 2>&1 \
+        || echo "[ncz-bootstrap-pool] local apt-get update failed; pkgsel may use network fallback" >> "$LOG"
+fi
+
+echo "[ncz-bootstrap-pool] file:///cdrom source and nclawzero pin installed" >> "$LOG"
+exit 0
+NCZBOOTSTRAPPOOL
+
+    if grep -q '^exit 0$' "$hook_tmp" && chmod 0755 "$hook_tmp" && mv -f "$hook_tmp" "$hook_final"; then
+        echo "[watcher] installed ncz bootstrap-pool hook for pre-pkgsel.d"
+    else
+        rm -f "$hook_tmp"
+        echo "[watcher] failed to publish $hook_final"
+    fi
+}
+install_ncz_bootstrap_pool_hook
+
 # 2026-05-08 take15: install a custom /etc/udhcpc/default.script that
 # unconditionally writes /etc/resolv.conf with our 3-nameserver chain
 # (8.8.8.8 + 1.1.1.1 + DHCP-provided). udhcpc on bookworm d-i runs

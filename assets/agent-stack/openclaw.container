@@ -1,7 +1,8 @@
 [Unit]
 Description=openclaw agent (upstream NemoClaw OSS)
 Documentation=https://github.com/openclaw/openclaw
-Wants=network-online.target nclawzero-load-agent-images.service
+Requires=nclawzero-load-agent-images.service
+Wants=network-online.target
 After=network-online.target nclawzero-load-agent-images.service
 
 [Container]
@@ -11,6 +12,7 @@ Image=ghcr.io/openclaw/openclaw@sha256:06b4f3dfa3c88d49c92e99d635dc62053d4afd045
 # here. AutoUpdate=registry intentionally OMITTED to prevent unreviewed
 # upstream changes from running with API keys.
 ContainerName=openclaw
+Pull=never
 EnvironmentFile=/etc/nclawzero/agent-env
 Volume=openclaw-data:/openclaw-data:Z
 Volume=/var/lib/nclawzero/openclaw-home:/home/node/.openclaw:Z

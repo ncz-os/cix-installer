@@ -8,6 +8,17 @@ set -euo pipefail
 
 echo "[22] installing dynamic primary-display detector + Xorg config"
 
+VARIANT=desktop
+if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
+    VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
+fi
+case "$VARIANT" in
+    server|magnetar|headless)
+        echo "[22] BUILD_VARIANT=server - Magnetar headless SKU; skipping Xorg display detector"
+        exit 0
+        ;;
+esac
+
 install -d /usr/local/lib/cix-installer
 cat > /usr/local/lib/cix-installer/detect-primary-display.sh <<'DET'
 #!/bin/sh

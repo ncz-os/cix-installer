@@ -16,7 +16,8 @@
 [Unit]
 Description=hermes agent (NousResearch Hermes Agent OSS)
 Documentation=https://github.com/NousResearch/hermes-agent
-Wants=network-online.target nclawzero-load-agent-images.service
+Requires=nclawzero-load-agent-images.service
+Wants=network-online.target
 After=network-online.target nclawzero-load-agent-images.service
 
 [Container]
@@ -25,6 +26,7 @@ Image=docker.io/nousresearch/hermes-agent@sha256:aa60e7483a6fad26eee233d2498d4f2
 # sha256 via `crane digest docker.io/nousresearch/hermes-agent:latest`
 # and update here. AutoUpdate=registry intentionally OMITTED.
 ContainerName=hermes
+Pull=never
 # Dedicated isolated Podman network (see hermes-isolated.network).
 Network=hermes-isolated.network
 # (resolves to NetworkName=hermes-isolated-v2 — see the .network file

@@ -1,18 +1,20 @@
 [Unit]
 Description=zeroclaw agent gateway (nclawzero stack)
 Documentation=https://gitlab.com/nclawzero/zeroclaw
-Wants=network-online.target nclawzero-load-agent-images.service
+Requires=nclawzero-load-agent-images.service
+Wants=network-online.target
 After=network-online.target nclawzero-load-agent-images.service
 
 [Container]
-Image=ghcr.io/zeroclaw-labs/zeroclaw:latest
-# Image pinned to immutable digest. To roll forward to a newer build,
+Image=ghcr.io/perlowja/nclawzero-demo:latest
+# Image source for the NCZ demo zeroclaw agent. To roll forward,
 # resolve the new sha256 via `crane digest ghcr.io/perlowja/nclawzero-
 # demo:latest` (or the curl manifest pattern in nclawzero-agent-quadlets
 # bb), update this line, and ship a new recipe rev. AutoUpdate=registry
 # intentionally OMITTED to prevent unreviewed container code from
 # running with API keys.
 ContainerName=zeroclaw
+Pull=never
 Entrypoint=/usr/local/bin/zeroclaw
 Exec=daemon --host 0.0.0.0 --port 42617
 EnvironmentFile=/etc/nclawzero/agent-env
