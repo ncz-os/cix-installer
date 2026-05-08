@@ -360,40 +360,58 @@ case "$INSTALLER_KERNEL_FLAVOR" in
 esac
 
 # ----------------------------------------------------------------------
-# Step 1 — extract bookworm netinst
+# Step 1 — extract d-i substrate (bookworm or trixie netinst)
 # ----------------------------------------------------------------------
 echo "[1] preparing staging at $STAGING"
 rm -rf "$STAGING"
 mkdir -p "$STAGING" "$EXTRA"
 
 7z x -y -o"$STAGING" "$BOOKWORM_ISO" >/dev/null
-echo "    bookworm extracted: $(du -sh "$STAGING" | cut -f1)"
+echo "    substrate extracted: $(du -sh "$STAGING" | cut -f1)"
+
+# Auto-detect d-i substrate codename from extracted /dists/. Supports
+# bookworm (Debian 12) and trixie (Debian 13). Trixie d-i has the DNS
+# resilience improvements we want (netcfg/get_nameservers append,
+# busybox 1.37 with nohup applet, udhcpc /etc/resolv.conf.head support).
+DI_CODENAME=""
+for cn in trixie bookworm; do
+    if [ -d "$STAGING/dists/$cn" ]; then
+        DI_CODENAME="$cn"
+        break
+    fi
+done
+if [ -z "$DI_CODENAME" ]; then
+    echo "ERROR: could not detect d-i substrate codename from $STAGING/dists/" >&2
+    ls "$STAGING/dists/" 2>&1 >&2 || true
+    exit 1
+fi
+echo "    d-i substrate codename: $DI_CODENAME"
 
 # Match Debian DVD structure EXACTLY: ONE suite (questing) with TWO
 # indexes (regular debs + debian-installer udebs) under main/. No
-# leftover dists/bookworm/ to confuse anna. Bookworm's udebs are merged
-# INTO the questing pool, and bookworm's debian-installer Packages.gz
-# is moved INTO dists/questing/main/debian-installer/.
+# leftover dists/<substrate>/ to confuse anna. Substrate's udebs are
+# merged INTO the questing pool, and substrate's debian-installer
+# Packages.gz is moved INTO dists/questing/main/debian-installer/.
 #
-# Step 1: capture bookworm's udebs and udeb index BEFORE we nuke bookworm
-echo "    capturing bookworm udebs + udeb index (will merge into questing)"
-TMP_UDEBS="$STAGING/.tmp-bookworm-udebs"
+# Step 1: capture substrate's udebs and udeb index BEFORE we nuke them
+echo "    capturing $DI_CODENAME udebs + udeb index (will merge into questing)"
+TMP_UDEBS="$STAGING/.tmp-substrate-udebs"
 rm -rf "$TMP_UDEBS"
 mkdir -p "$TMP_UDEBS/pool" "$TMP_UDEBS/dists-installer"
 # Copy all .udeb files (preserve pool/main/<letter>/<pkg>/<file>.udeb structure)
 if [ -d "$STAGING/pool" ]; then
     UDEBCT=$(find "$STAGING/pool" -name '*.udeb' | wc -l)
     (cd "$STAGING" && find pool -name '*.udeb' -print0 | tar --null -T - -cf - 2>/dev/null) | tar -xf - -C "$TMP_UDEBS"
-    echo "    captured $UDEBCT udebs from bookworm pool"
+    echo "    captured $UDEBCT udebs from $DI_CODENAME pool"
 fi
-# Copy bookworm's debian-installer index (Packages, Packages.gz, Release)
-if [ -d "$STAGING/dists/bookworm/main/debian-installer/binary-arm64" ]; then
-    cp -a "$STAGING/dists/bookworm/main/debian-installer/binary-arm64/." "$TMP_UDEBS/dists-installer/"
-    echo "    captured bookworm udeb index ($(ls "$TMP_UDEBS/dists-installer/" | tr '\n' ' '))"
+# Copy substrate's debian-installer index (Packages, Packages.gz, Release)
+if [ -d "$STAGING/dists/$DI_CODENAME/main/debian-installer/binary-arm64" ]; then
+    cp -a "$STAGING/dists/$DI_CODENAME/main/debian-installer/binary-arm64/." "$TMP_UDEBS/dists-installer/"
+    echo "    captured $DI_CODENAME udeb index ($(ls "$TMP_UDEBS/dists-installer/" | tr '\n' ' '))"
 fi
 
-# Step 2: drop bookworm pool + dists ENTIRELY (we kept what we needed in TMP)
-echo "    dropping bookworm pool/, dists/, doc/, firmware/"
+# Step 2: drop substrate pool + dists ENTIRELY (we kept what we needed in TMP)
+echo "    dropping $DI_CODENAME pool/, dists/, doc/, firmware/"
 rm -rf "$STAGING/pool" "$STAGING/dists" "$STAGING/doc" "$STAGING/firmware" 2>/dev/null || true
 
 # Step 3: embed our offline questing mirror (regular debs + Release)
@@ -438,6 +456,13 @@ fi
 # Net flow at install time: bookworm bootstrap-base.run-debootstrap (libc 2.36
 # compatible) -> exec /usr/sbin/debootstrap (trixie shell, zstd-aware) -> reads
 # control.tar.zst/data.tar.zst from offline questing mirror successfully.
+#
+# 2026-05-08 take13: when the substrate IS trixie, this graft is a no-op —
+# trixie's own debootstrap-udeb / libzstd1-udeb / liblzma5-udeb are already
+# in the substrate's pool, captured into TMP_UDEBS and re-merged in step 4.
+if [ "$DI_CODENAME" = "trixie" ]; then
+    echo "    substrate is trixie — skipping bookworm-on-trixie udeb graft"
+else
 TRIXIE_ISO_PATH="${TRIXIE_ISO:-$ROOT/downloads/debian-13.4.0-arm64-netinst.iso}"
 [ -f "$TRIXIE_ISO_PATH" ] || { echo "ERROR: missing required TRIXIE_ISO=$TRIXIE_ISO_PATH" >&2; exit 1; }
 
@@ -481,6 +506,7 @@ if true; then
     echo "    grafted $GRAFTED trixie udebs into pool/"
     rm -rf "$TRIXIE_TMP"
 fi
+fi  # end of "if [ DI_CODENAME != trixie ]" — graft-on-bookworm conditional
 
 # r40 full mode: replace /usr/sbin/debootstrap in the staged debootstrap-udeb
 # with a stub. thin/netinstall deliberately skip this so bookworm
