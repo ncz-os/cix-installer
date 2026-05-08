@@ -920,6 +920,21 @@ echo "    overlay cpio: $(du -h "$OVERLAY_GZ" | cut -f1)"
 # The only fix is to binary-patch cdebconf-newt's palette pointers IN-PLACE
 # to use yellow+black+white instead of red+blue+grey, then ship the patched
 # newt.so via cpio overlay (later cpio entries supersede earlier).
+#
+# 2026-05-08 take13: the binary-patch step was calibrated against bookworm's
+# newt.so layout (palette[0] = 0x5985 at offset 0x10380). Trixie's newt.so
+# has a different palette[0] value and the safety check refuses to patch.
+# Until we calibrate trixie palette offsets, skip the binary-patch step
+# entirely on trixie substrate. NEWT_COLORS env-var injection still runs
+# (which is the load-bearing path; binary patch was a fallback for older
+# libnewt versions). User-visible effect: install dialogs use libnewt's
+# default red/blue/grey on trixie d-i instead of amber phosphor. Cosmetic.
+if [ "$DI_CODENAME" = "trixie" ]; then
+    echo "[3.5] SKIP amber-phosphor binary patch on trixie (NEWT_COLORS env-var still applied below)"
+    SKIP_NEWT_BINARY_PATCH=1
+else
+    SKIP_NEWT_BINARY_PATCH=0
+fi
 echo "[3.5] patching d-i for amber phosphor palette + injecting NEWT_COLORS"
 INITRD_PATCH_TMP="$STAGING/.init-patch-tmp"
 rm -rf "$INITRD_PATCH_TMP"
@@ -979,6 +994,13 @@ PYEOF1
 #   black     0x5a1a    lightgray 0x5a27
 #   gray      0x5a2c    brightred 0x5a31  (kept available, not used in patch)
 #   blue      0x5a3b    brown     0x5a40
+if [ "$SKIP_NEWT_BINARY_PATCH" = "1" ]; then
+    # Trixie newt.so has different palette[0] value at 0x10380; copy
+    # unmodified so the chmod + cpio overlay assembly still works.
+    cp "$INITRD_PATCH_TMP/extract/usr/lib/cdebconf/frontend/newt.so" \
+       "$INITRD_PATCH_TMP/overlay/usr/lib/cdebconf/frontend/newt.so"
+    echo "    SKIP: newt.so binary patch (trixie substrate; NEWT_COLORS env-var path is sufficient)"
+else
 python3 - "$INITRD_PATCH_TMP/extract/usr/lib/cdebconf/frontend/newt.so" "$INITRD_PATCH_TMP/overlay/usr/lib/cdebconf/frontend/newt.so" <<'PYEOF2'
 import sys, struct
 src_path, dst_path = sys.argv[1], sys.argv[2]
@@ -1032,6 +1054,7 @@ for i, ptr in enumerate(PALETTE):
 open(dst_path, "wb").write(bytes(data))
 print(f"    OK: cdebconf-newt newt.so palette repointed for amber phosphor (44 ptrs)")
 PYEOF2
+fi  # end SKIP_NEWT_BINARY_PATCH conditional
 
 # Preserve permissions on overlay files
 chmod 0755 "$INITRD_PATCH_TMP/overlay/init"
