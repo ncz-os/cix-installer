@@ -778,11 +778,21 @@ mkdir -p "$STAGING/dists/questing/main/debian-installer/binary-arm64"
 )
 
 if [ "$EMBED_MIRROR" = "0" ]; then
-    echo "    netinstall mode: writing empty regular Packages index for late.sh cdrom source"
-    mkdir -p "$STAGING/dists/questing/main/binary-arm64"
-    : > "$STAGING/dists/questing/main/binary-arm64/Packages"
-    gzip -9cn "$STAGING/dists/questing/main/binary-arm64/Packages" \
-        > "$STAGING/dists/questing/main/binary-arm64/Packages.gz"
+    # 2026-05-07 (take6 chroot-target failure root-cause): previous behavior
+    # was to write an empty `main/binary-arm64/Packages` so late.sh's
+    # cdrom apt source wouldn't 404. But that made base-installer SEE
+    # /cdrom as advertising a `main` component, and debootstrap fired
+    # with `file:///cdrom/` as the bootstrap source — which has no
+    # actual .debs (only udebs in pool/), so /target/bin/true was never
+    # installed and chroot failed.
+    #
+    # Fix: in netinstall mode, do NOT advertise `main/binary-arm64`
+    # at all on /cdrom. Without it in dists/.../Release hashes,
+    # base-installer falls through to ports.ubuntu.com (the http
+    # mirror set via preseed). late.sh detects the absent main
+    # component and skips its file:///cdrom apt-source block.
+    echo "    netinstall mode: NOT writing main/binary-arm64 — forces base-installer onto http mirror"
+    rm -rf "$STAGING/dists/questing/main/binary-arm64"
 fi
 
 # Step 6: regenerate dists/questing/Release to include BOTH the regular
