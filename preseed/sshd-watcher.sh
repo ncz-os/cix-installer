@@ -25,32 +25,36 @@ set +e
 exec >> /var/log/early_command.log 2>&1
 echo "[watcher] start $(date -u +%FT%TZ) pid=$$"
 
-# 2026-05-07 take11: append fallback nameservers to d-i's /etc/resolv.conf
-# once DHCP has populated it. The LAN router (192.168.207.1) is the
-# DHCP-provided primary on the .66 fleet; if its DNS service is flaky
-# (observed dropping queries during pkgsel + grub-installer batch
-# fetches), apt-get errors with "Temporary failure resolving" and the
-# whole download batch aborts. With 8.8.8.8 + 1.1.1.1 appended,
-# resolver auto-fails-over within ~6s instead of giving up.
+# 2026-05-07 take12: CONTINUOUSLY append fallback nameservers to d-i's
+# /etc/resolv.conf, surviving DHCP renewals. The LAN router on the .66
+# fleet (Island Router Pro at 192.168.207.1) is the DHCP-provided primary
+# resolver, and its DNS proxy drops queries under apt batch load. Even
+# with the router's UPSTREAM set to Cloudflare, the router's local
+# proxy/cache is the one that dies — we need to bypass it entirely from
+# the d-i client.
 #
-# Polls 30s for resolv.conf to be non-empty (DHCP completion), then
-# appends fallbacks if not already present. Idempotent.
+# Take11 used a 30s-bounded poll. That hit a race where DHCP completion
+# arrived after the poll timed out, OR DHCP renewal at +5min clobbered
+# our appended lines. Take12 runs forever (until d-i is shut down):
+# every 10s, ensure 8.8.8.8 + 1.1.1.1 + options are present in
+# /etc/resolv.conf. Idempotent (grep guards).
 (
-    j=0
-    while [ "$j" -lt 30 ]; do
+    while true; do
         if [ -s /etc/resolv.conf ] && grep -q '^nameserver ' /etc/resolv.conf; then
-            grep -q '^nameserver 8\.8\.8\.8' /etc/resolv.conf || \
+            grep -q '^nameserver 8\.8\.8\.8' /etc/resolv.conf || {
                 echo 'nameserver 8.8.8.8' >> /etc/resolv.conf
-            grep -q '^nameserver 1\.1\.1\.1' /etc/resolv.conf || \
+                echo "[watcher] $(date -u +%FT%TZ) appended 8.8.8.8 to /etc/resolv.conf"
+            }
+            grep -q '^nameserver 1\.1\.1\.1' /etc/resolv.conf || {
                 echo 'nameserver 1.1.1.1' >> /etc/resolv.conf
-            grep -q '^options ' /etc/resolv.conf || \
+                echo "[watcher] $(date -u +%FT%TZ) appended 1.1.1.1 to /etc/resolv.conf"
+            }
+            grep -q '^options ' /etc/resolv.conf || {
                 echo 'options timeout:2 attempts:3' >> /etc/resolv.conf
-            echo "[watcher] /etc/resolv.conf fallbacks appended at j=$j:"
-            cat /etc/resolv.conf | sed 's/^/    /'
-            break
+                echo "[watcher] $(date -u +%FT%TZ) appended options to /etc/resolv.conf"
+            }
         fi
-        sleep 1
-        j=$((j + 1))
+        sleep 10
     done
 ) &
 
