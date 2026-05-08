@@ -96,9 +96,37 @@ echo "[watcher] installed custom /etc/udhcpc/default.script for resolv.conf fall
 } > /etc/resolv.conf
 echo "[watcher] pre-DHCP /etc/resolv.conf seeded with public fallbacks"
 
+# 2026-05-08 take17 (per .66 take16 install failure at 95% / pkgsel
+# "Temporary failure resolving 'ports.ubuntu.com'"): the udhcpc
+# default.script keeps the d-i RAMDISK /etc/resolv.conf populated
+# with our 3-nameserver chain (8.8.8.8 + 1.1.1.1 + LAN router), but
+# pkgsel runs in-target chroot and reads /target/etc/resolv.conf,
+# which d-i base-installer seeds from netcfg with DHCP-only DNS
+# (192.168.207.1 LAN router) — and that clobbers when the router
+# DNS goes flaky. Result: 18 of ~30 pkgsel packages fail at once
+# with "Temporary failure resolving" inside the chroot.
+#
+# Fix: continuously sync /etc/resolv.conf → /target/etc/resolv.conf
+# every poll tick, so the moment base-installer mounts /target and
+# debootstrap creates /target/etc, our 3-nameserver chain is there
+# and stays there through every chroot reentry (apt-setup, pkgsel,
+# late_command).
+TARGET_LAST_SYNC=""
+sync_target_resolv() {
+    [ -d /target/etc ] || return 0
+    if [ ! -f /target/etc/resolv.conf ] \
+       || ! cmp -s /etc/resolv.conf /target/etc/resolv.conf 2>/dev/null; then
+        cp /etc/resolv.conf /target/etc/resolv.conf 2>/dev/null \
+            && TARGET_LAST_SYNC="$(date -u +%H:%M:%S)" \
+            && echo "[watcher] synced /target/etc/resolv.conf at $TARGET_LAST_SYNC"
+    fi
+}
+
+SSHD_PATCHED=0
 i=0
-while [ "$i" -lt 600 ]; do
-    if [ -f /etc/ssh/sshd_config ] && pidof sshd >/dev/null 2>&1; then
+while [ "$i" -lt 1800 ]; do
+    sync_target_resolv
+    if [ "$SSHD_PATCHED" -eq 0 ] && [ -f /etc/ssh/sshd_config ] && pidof sshd >/dev/null 2>&1; then
         echo "[watcher] sshd live + sshd_config present at i=$i"
 
         sed -i \
@@ -126,12 +154,18 @@ while [ "$i" -lt 600 ]; do
         echo "[watcher] post-patch sshd procs:"
         # shellcheck disable=SC2009  # busybox d-i has no pgrep
         ps | grep -E '[s]shd' | head -5
-        echo "[watcher] done $(date -u +%FT%TZ)"
-        exit 0
+        echo "[watcher] sshd patch DONE $(date -u +%FT%TZ) — continuing /target resolv.conf sync"
+        SSHD_PATCHED=1
+        # Do NOT exit — keep looping to maintain /target/etc/resolv.conf
+        # against pkgsel/apt-setup chroot DNS clobber.
     fi
     sleep 1
     i=$((i + 1))
 done
 
-echo "[watcher] TIMEOUT after 600s — sshd never came up"
-exit 1
+if [ "$SSHD_PATCHED" -eq 0 ]; then
+    echo "[watcher] TIMEOUT after 1800s — sshd never came up"
+    exit 1
+fi
+echo "[watcher] TIMEOUT after 1800s with sshd patched — install presumed complete"
+exit 0
