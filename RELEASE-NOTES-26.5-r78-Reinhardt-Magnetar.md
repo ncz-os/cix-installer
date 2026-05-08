@@ -49,7 +49,7 @@ Reference benchmark on .66 (NCZ Magnetar reference appliance):
 | Cix Zhouyi V3 NPU (INT8 .cix) | 54.86 | 14.6 ms |
 | Cix Sky1 12-core ARM CPU (Q8 GGUF) | 12.03 | 100 ms |
 
-Cross-platform numbers live in the `mnemos-os/mnemos-embedkit` repo at `benches/results.md` — RTX 5060 CUDA, Apple M1 Max + M3 Pro Metal, PYTHIA Intel NUC15 Pro CPU, bigpi Pi 5, zeropi Pi 4, all on the same `bge-small-zh-v1.5` model.
+Cross-platform numbers live in the `mnemos-os/mnemos-embedkit` repo at `benches/results.md` — consumer 8 GB dGPU (CUDA), Apple M1 Max + M3 Pro Metal, Intel NUC15 Pro CPU, bigpi Pi 5, zeropi Pi 4, all on the same `bge-small-zh-v1.5` model.
 
 ### 3. Post-install pipeline lint pass
 

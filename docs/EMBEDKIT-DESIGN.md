@@ -26,8 +26,8 @@ Vendors covered as first-class adapters (alphabetical, no ordering implied):
 - **Apple MLX** (M1-M4 unified memory)
 - **Cix Zhouyi V3 NPU** (Sky1 / CD8180 / P1)
 - **Intel iGPU + NPU** (Lunar Lake, Arrow Lake, Meteor Lake via OpenVINO)
-- **NVIDIA CUDA** (consumer GeForce, RTX Pro / Ada, datacenter Hopper / Blackwell)
-- **NVIDIA TensorRT** (specialized fp16/int8 path on the same hardware)
+- **NVIDIA CUDA runtime** (any current-gen tier — consumer dGPU, professional GPU, datacenter GPU, embedded GPU + CUDA)
+- **NVIDIA TensorRT runtime** (specialized fp16/int8 path on the same hardware tiers)
 - **MediaTek APU** (Genio + Dimensity)
 - **Mali GPU via Vulkan** (Cix, Rockchip, Allwinner, etc.)
 - **Rockchip RKNN NPU** (RK3588 / RK3576 / RK3566)
@@ -51,7 +51,7 @@ embedkit does **not bundle vendor drivers, kernel modules, or closed-source SDKs
 
 This separation is intentional. Embedkit must run on any box without privilege, without rewriting `/etc`, without a custom kernel. If the host has CUDA installed, the CUDA adapter works. If it has Cix Zhouyi UMD installed, the Cix adapter works. If it has nothing but a CPU, the llama-cpp-python adapter works. **No silicon is preferred or required.**
 
-The NCZ Magnetar/Reinhardt OS distribution is one consumer of embedkit, not a dependency. Magnetar bakes the Cix proprietary stack at install time so embedkit's `npu_cix_zhouyi` adapter has something to talk to — but embedkit ships separately as a public OSS Python package, runs on ARGOS x86, on PYTHIA x86, on bigpi ARM64, on a Mac Studio, on a CERBERUS RTX 4500 ADA box, on a Ryzen AI Max workstation, identically.
+The NCZ Magnetar/Reinhardt OS distribution is one consumer of embedkit, not a dependency. Magnetar bakes the Cix proprietary stack at install time so embedkit's `npu_cix_zhouyi` adapter has something to talk to — but embedkit ships separately as a public OSS Python package, runs on x86 mini-PCs, ARM64 SBCs, Apple Silicon Macs, professional dGPU workstations, and Ryzen AI Max workstations, identically.
 
 ---
 
@@ -362,7 +362,7 @@ That single import is what we PR upstream as the canonical demo. The MNEMOS serv
 
 **Phase 2 (~1 week):**
 1. `cpu-sbert` adapter (sentence-transformers reference)
-2. `gpu-onnx-cuda` adapter (NVIDIA path — TYPHON RTX 5060 baseline)
+2. `gpu-onnx-cuda` adapter (CUDA path — consumer dGPU baseline)
 3. `gpu-onnx-vulkan` adapter (when panvk stabilizes — currently parked)
 4. Heterogeneous routing (`Engine.heterogeneous(...)`)
 5. `embedkit-doctor` command (audits hardware + suggests adapter)

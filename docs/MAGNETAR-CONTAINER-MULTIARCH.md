@@ -30,7 +30,7 @@
 
 **Anti-fragmentation**: Pi-arm64 (Magnetar Pi M2) and Cix-arm64 (Magnetar Cix M1) are **bare-metal ISO** deploys, not container deploys. The container is for users who want Magnetar without flashing hardware. Two manifest entries (amd64 + arm64) cover that surface; we don't need a separate Pi-flavored container.
 
-**Drift prevention**: rule F2 + F4 (fair-comparison doctrine, surface to Intel team in parallel with Jetson). One image means there's one binary path the user experiences, regardless of hardware. Differences live at runtime config (MNEMOS_EMBEDDER), not at image-build time.
+**Drift prevention**: rule F2 + F4 (fair-comparison doctrine, surface findings to all silicon vendors in parallel). One image means there's one binary path the user experiences, regardless of hardware. Differences live at runtime config (MNEMOS_EMBEDDER), not at image-build time.
 
 ---
 
@@ -40,7 +40,7 @@ Per fleet build-routing-matrix (`~/.claude/projects/-Users-jperlow/memory/refere
 
 | Layer | Build host | Why |
 |---|---|---|
-| linux/amd64 layers | TYPHON (192.168.207.61) | x86_64 native, RTX 5060 for any GPU-touching test stages |
+| linux/amd64 layers | TYPHON (192.168.207.61) | x86_64 native, consumer 8 GB dGPU (CUDA path) for any GPU-touching test stages |
 | linux/arm64 layers | ULTRA (192.168.207.60) | macOS arm64 host running Podman 5.8.2 in Linux container env (`~/build-env/podman-rust-build.sh`) |
 | Manifest combine | jperlow-mlt | Mac-side `podman manifest create + add + push` — no compute, just OCI metadata stitching |
 | Registry | `quay.io/nclawzero/magnetar` (canonical) + `ghcr.io/perlowja/magnetar` (mirror) | quay = OSS-friendly tier; ghcr = mirror for users who already have GitHub auth wired |

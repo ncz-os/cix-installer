@@ -1,13 +1,46 @@
 # cix-installer
 
-**Customized Debian Installer ISO builder for the nclawzero distro on
-Cix Sky1 / CP8180 hardware** (Minisforum MS-R1 and successors).
+**Customized debian-installer ISO builder for the NCZ Linux
+distribution.**
 
-Produces a fully-unattended UEFI-bootable installer ISO that, on boot,
-partitions the target disk, installs Debian Bookworm arm64 base, layers
-our `linux-cix-msr1` kernel + Cix proprietary userspace + GNOME desktop
-+ nclawzero agent stack (`zeroclaw`, `openclaw`, `hermes`, `claude-code`),
-and brands the system as nclawzero.
+Produces a fully-unattended UEFI-bootable installer ISO that
+partitions the target disk, debootstraps Ubuntu 25.10 questing,
+layers a hardware-appropriate kernel + vendor userspace runtimes +
+desktop environment + agent stack (`zeroclaw`, `openclaw`, `hermes`,
+`claude-code`, optionally `nemoclaw`), and brands the system as NCZ
+(Reinhardt for desktop, Magnetar for server / always-on agent
+appliance).
+
+## Vendor-neutral by design
+
+NCZ is **vendor-neutral by design and intent.** Goal: support every
+Arm silicon system shipping in the marketplace and every mainstream
+x86 platform, when sample hardware is obtainable for validation.
+
+- **Current proof-of-concept target**: Cix Sky1 / CP8180 (Minisforum
+  MS-R1 and successors). This is where the build path is most
+  exercised and where the offline-capable proprietary-userspace layer
+  is wired in. The repo name reflects history; the project scope does
+  not.
+- **Arm roadmap**: Radxa Orion O6 / O6N (Sky1, different board),
+  Radxa Qualcomm-platform boards (Snapdragon + Hexagon NPU), Rockchip
+  RK3588 / RK3576 family, MediaTek Genio, Apple Silicon (kit-only,
+  not OS), and any Arm SoC shipping in volume that we can sample.
+- **x86 roadmap**: parallel build path, both **Intel** (CPU + iGPU +
+  NPU via OpenVINO 2026.x) and **AMD** (Ryzen / XDNA NPU / ROCm) as
+  first-class targets. The build script already takes
+  `--platform=x86_64`; only adapter-level work is gated.
+- **Embedding inference**: handled by `mnemos-embedkit`
+  (https://github.com/mnemos-os/mnemos-embedkit) — vendor-agnostic
+  Python kit that auto-detects the highest-tier accelerator (NPU >
+  GPU > CPU) at runtime. Same `Engine.auto()` call works on every
+  silicon path.
+- **Agent runtimes**: side-by-side selectable. Operators choose at
+  install time among `zeroclaw`, `openclaw`, `hermes`, `nemoclaw`
+  (NVIDIA's branded fork, planned), and others as they ship.
+
+The current build path inside `build/build-iso-di.sh` is the Cix Sky1
+implementation; the architecture is the reusable scaffold.
 
 ## Quick start (build the ISO)
 

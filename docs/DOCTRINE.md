@@ -227,8 +227,8 @@ The Cix Sky1 SoC has three discrete compute domains, each with a different speci
 | MS-R1 32 GB (base SKU) | 32 GB | ~24 GB | Gemma 3 27B at Q4_K_M (~16 GB) with headroom |
 | **MS-R1 64 GB (our `.66` test rig — premium SKU)** | 64 GB | ~52 GB | **Gemma 3 27B at Q6/Q8; Llama 3.3 70B Q4_K_M (~42 GB) fits** |
 | Orion O6 64 GB (Radxa equivalent) | 64 GB | ~52 GB | same envelope as MS-R1 64 GB |
-| Jetson Orin Nano 8 GB | 8 GB | ~6 GB | Gemma 3 4B at Q4 (~2 GB), capped fast |
-| Jetson Orin AGX 64 GB | 64 GB | ~52 GB | similar headroom — fair compare tier, ~$2k |
+| Embedded GPU + CUDA, 8 GB unified | 8 GB | ~6 GB | Gemma 3 4B at Q4 (~2 GB), capped fast |
+| Embedded GPU + CUDA, 64 GB unified | 64 GB | ~52 GB | similar headroom — fair compare tier, ~$2k |
 | (compare) consumer 16 GB discrete GPU | 32 GB sys + 16 GB VRAM | 16 GB | Gemma 3 27B Q4_K_M, no 70B |
 | (compare) Tinybox 24 GB-class | 64 GB sys + 24 GB VRAM | 24 GB | Gemma 3 70B doesn't fit; 27B Q8 ok; 5–10× the price of MS-R1 |
 
