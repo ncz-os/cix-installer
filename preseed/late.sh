@@ -169,6 +169,23 @@ else
     CDROM_BIND_MOUNTED=0
 fi
 
+# 2026-05-07 take9 (per .66 take8 pkgsel cascade fail): pre-write apt
+# retries config so post-install hooks 10-our-kernel.sh / 20-desktop.sh
+# / etc retry transient DNS/network blips when fetching packages from
+# ports.ubuntu.com. pkgsel itself runs BEFORE late.sh so this doesn't
+# help that step — pkgsel/install-recommends=false in preseed handles
+# pkgsel resilience by minimizing the dep cascade. This config covers
+# everything our hooks do after.
+mkdir -p /target/etc/apt/apt.conf.d/
+cat > /target/etc/apt/apt.conf.d/99retries <<'APTRETRIES'
+# nclawzero — apt resilience for transient DNS/network failures.
+# Auto-injected by preseed/late.sh.
+Acquire::Retries "5";
+Acquire::http::Timeout "60";
+Acquire::http::Pipeline-Depth "0";
+APTRETRIES
+echo "--- /target/etc/apt/apt.conf.d/99retries installed ---"
+
 echo "--- running post-install in chroot ---"
 in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
