@@ -8,12 +8,13 @@
 #   2. Cold-RTC clock skew on first boot caused TLS cert validation
 #      to fail on portainer-bootstrap (cert validity window vs. RTC).
 #
-# Current contract: the three core agents are active Quadlets on first boot.
+# Current contract: only zeroclaw is active as a rootful Quadlet on first boot.
+# OpenClaw, Hermes, Portainer, and NemoClaw are operator opt-in after install.
 # The image ships:
 #   - podman + crun + conmon + netavark + aardvark-dns
 #   - quadlet templates at /usr/share/ncz/quadlets/
-#   - active quadlets staged at /etc/containers/systemd/
-#   - nclawzero-load-agent-images.service to load OCI tarballs or pull refs
+#   - zeroclaw active quadlet staged at /etc/containers/systemd/
+#   - nclawzero-load-agent-images.service to load/pull zeroclaw
 #   - /etc/nclawzero/agent-env.sample + agent-env (operator API keys)
 #   - /usr/local/bin/ncz CLI with agent management helpers
 #
@@ -21,7 +22,7 @@
 # Same upstream image digests as the Pi fleet (bigpi/clawpi).
 
 set +e
-echo '[30] agent stack (podman + active quadlets + ncz CLI)'
+echo '[30] agent stack (podman + zeroclaw default quadlet + ncz CLI)'
 
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     podman crun conmon netavark aardvark-dns catatonit librsvg2-bin whiptail \
@@ -45,8 +46,7 @@ else
     echo "[30] WARN: agent-stack assets missing; quadlet templates will be absent"
 fi
 
-# Remove only stale Portainer bootstrap units from older revs. The three
-# agent quadlets are intentionally active on first boot.
+# Remove only stale Portainer bootstrap units from older revs.
 rm -f /etc/systemd/system/portainer-bootstrap.service \
       /etc/systemd/system/{default,multi-user}.target.wants/portainer-bootstrap.service
 
@@ -71,7 +71,7 @@ fi
 groupadd -r nclawzero 2>/dev/null
 mkdir -p /etc/nclawzero
 cat > /etc/nclawzero/agent-env.sample << 'ENV'
-# /etc/nclawzero/agent-env — fleet API keys for zeroclaw + openclaw + hermes
+# /etc/nclawzero/agent-env — fleet API keys for zeroclaw/openclaw/hermes/nemoclaw
 # Edit, then: sudo ncz agent restart <name>
 TOGETHER_API_KEY=
 GROQ_API_KEY=
@@ -80,6 +80,7 @@ GEMINI_API_KEY=
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 PERPLEXITY_API_KEY=
+NVIDIA_API_KEY=
 MISTRAL_API_KEY=
 ENV
 chmod 0644 /etc/nclawzero/agent-env.sample
@@ -114,10 +115,10 @@ elif [ -d /cdrom/cixmini/assets/agent-images ]; then
 fi
 
 cat > /usr/share/ncz/agent-images.manifest << 'MANIFEST'
+# Default-active agent image manifest.
+# Optional agents are pulled by `ncz agent install <name>` or `ncz install nemoclaw`.
 # agent|image-ref|oci-tarball-under-/var/lib/nclawzero/agent-images
 zeroclaw|ghcr.io/perlowja/nclawzero-demo:latest|zeroclaw.oci.tar
-openclaw|ghcr.io/openclaw/openclaw@sha256:06b4f3dfa3c88d49c92e99d635dc62053d4afd045d6220e811dff6190040f3de|openclaw.oci.tar
-hermes|docker.io/nousresearch/hermes-agent@sha256:aa60e7483a6fad26eee233d2498d4f2b4223bf9d8990e3b07017f19b6ba7b6fe|hermes.oci.tar
 MANIFEST
 chmod 0644 /usr/share/ncz/agent-images.manifest
 
@@ -188,7 +189,7 @@ Description=Load or pull NCZ agent container images
 Documentation=man:podman-load(1) man:podman-pull(1)
 Wants=network-online.target
 After=network-online.target
-Before=zeroclaw.service openclaw.service hermes.service
+Before=zeroclaw.service
 ConditionPathExists=/var/lib/nclawzero/agent-images
 
 [Service]
@@ -204,15 +205,23 @@ chmod 0644 /etc/systemd/system/nclawzero-load-agent-images.service
 
 # Named volumes are also created lazily by podman run, but pre-creating them
 # makes the target state explicit for operator inspection.
-for v in zeroclaw-data openclaw-data hermes-data; do
+for v in zeroclaw-data; do
     podman volume exists "$v" 2>/dev/null || podman volume create "$v" 2>/dev/null || true
 done
 
-# Activate the three first-boot agent quadlets. The [Install] sections are
-# consumed by the Podman systemd generator at boot.
+# Activate only the first-boot zeroclaw quadlet. OpenClaw, Hermes, and
+# NemoClaw remain templates until an operator opts in.
 mkdir -p "$QUADLET_ACTIVE"
-cp -a "$QUADLET_TEMPLATES"/*.container "$QUADLET_ACTIVE"/ 2>/dev/null || true
-cp -a "$QUADLET_TEMPLATES"/*.network "$QUADLET_ACTIVE"/ 2>/dev/null || true
+if [ ! -e /var/lib/nclawzero/.agents-installed ]; then
+    rm -f "$QUADLET_ACTIVE/openclaw.container" \
+          "$QUADLET_ACTIVE/hermes.container" \
+          "$QUADLET_ACTIVE/hermes-isolated.network"
+fi
+if [ -f "$QUADLET_TEMPLATES/zeroclaw.container" ]; then
+    cp -a "$QUADLET_TEMPLATES/zeroclaw.container" "$QUADLET_ACTIVE/zeroclaw.container"
+else
+    echo "[30] WARN: zeroclaw quadlet template missing; default agent will not start"
+fi
 systemctl enable nclawzero-load-agent-images.service 2>/dev/null || true
 systemctl daemon-reload 2>/dev/null || true
 
@@ -241,7 +250,7 @@ AGENT_IMAGE[portainer]='docker.io/portainer/portainer-ce:lts'
 
 declare -A AGENT_DESC
 AGENT_DESC[zeroclaw]='ZeroClaw daemon — gateway + agents (~109 MB)'
-AGENT_DESC[openclaw]='OpenClaw — NemoClaw upstream OSS (~756 MB)'
+AGENT_DESC[openclaw]='OpenClaw upstream OSS (~756 MB)'
 AGENT_DESC[hermes]='Hermes Agent — NousResearch (~2.55 GB, slowest)'
 AGENT_DESC[portainer]='Portainer CE — container management web UI (~50 MB)'
 
@@ -349,10 +358,10 @@ cmd_agent_install() {
         choices=$(whiptail --title "NCZ Agent Installer" \
             --checklist "Select agents to install (space toggles, enter confirms):" \
             16 78 5 \
-            "zeroclaw"  "${AGENT_DESC[zeroclaw]}"  ON \
+            "zeroclaw"  "${AGENT_DESC[zeroclaw]}"  OFF \
             "openclaw"  "${AGENT_DESC[openclaw]}"  OFF \
             "hermes"    "${AGENT_DESC[hermes]}"    OFF \
-            "portainer" "${AGENT_DESC[portainer]}" ON \
+            "portainer" "${AGENT_DESC[portainer]}" OFF \
             3>&1 1>&2 2>&3)
         local rc=$?
         if [ $rc -ne 0 ]; then
@@ -363,7 +372,7 @@ cmd_agent_install() {
         # because the values come from our own hardcoded list above.
         eval "selected=($choices)"
     else
-        echo "no TTY and no agents specified — try: ncz agent install zeroclaw openclaw"
+        echo "no TTY and no agents specified — try: ncz agent install openclaw hermes"
         exit 2
     fi
 
@@ -527,7 +536,7 @@ ncz — NCZ 26.5 "Reinhardt" CLI
 
 Agent management:
   ncz agent install [name...]      install agents (interactive if no args)
-  ncz agent install --all          install all 4 (~3.5 GB pull)
+  ncz agent install --all          install zeroclaw/openclaw/hermes/portainer
   ncz agent uninstall <name>       remove agent (stops + removes container)
   ncz agent list                   show install state + URLs
   ncz agent status <name>          systemctl status of agent service
@@ -565,6 +574,9 @@ case "$1 $2" in
 esac
 NCZSCRIPT
 chmod 0755 /usr/local/bin/ncz
+# 46-ncz-cli.sh installs the final unified `ncz` binary later in hook order.
+# Preserve this richer agent-management implementation for that CLI to exec.
+install -D -m 0755 /usr/local/bin/ncz /usr/local/lib/ncz-agent-cli
 
 # r74: desktop launchers — ONLY install once-and-done items pre-staged.
 # Agent launchers (ZeroClaw/OpenClaw/Hermes/Portainer) get written by
@@ -581,7 +593,7 @@ cat > /etc/skel/Desktop/Install-NCZ-Agents.desktop <<'IA'
 Version=1.0
 Type=Application
 Name=Install NCZ Agents
-GenericName=Agent installer (zeroclaw / openclaw / hermes / portainer)
+GenericName=Agent installer (openclaw / hermes / portainer)
 Comment=Pull + start optional agent containers (one-time per agent)
 Exec=xfce4-terminal --title="Install NCZ Agents" --hold --command="sudo ncz agent install"
 Icon=ncz-rocket
@@ -612,26 +624,37 @@ cat > /etc/skel/Desktop/NCZ-Help.md << 'HELP'
 
 ## First-time setup (5 minutes)
 
-The base image ships with **only Claude Code** pre-installed. Everything
-else is opt-in via the `ncz` CLI.
+The base image ships with **Claude Code** and a default-active
+**zeroclaw** rootful Podman quadlet. Other agents are opt-in via the
+`ncz` CLI.
 
-### 1. Install agents (interactive)
+### 1. Add optional agents (interactive)
 
 ```
 sudo ncz agent install
 ```
 
-A checkbox menu appears. Pick the ones you want, hit Enter:
+A checkbox menu appears. Pick the optional agents you want, hit Enter:
 
 ```
-  [x] zeroclaw    NCZ daemon — gateway + agents (~109 MB)
-  [ ] openclaw    OpenClaw — NemoClaw upstream OSS (~756 MB)
+  [ ] openclaw    OpenClaw upstream OSS (~756 MB)
   [ ] hermes      Hermes Agent — NousResearch (~2.55 GB, slowest)
-  [x] portainer   Container management web UI (~50 MB)
+  [ ] portainer   Container management web UI (~50 MB)
 ```
 
 After install, a desktop launcher for each agent appears. Click to open
 its dashboard. Re-run `sudo ncz agent install` later to add more.
+
+Install NVIDIA NemoClaw separately:
+
+```
+sudo ncz install nemoclaw
+```
+
+NemoClaw pulls about 2.4 GB from
+`ghcr.io/nvidia/nemoclaw/sandbox-base:latest`, needs network, and runs
+the sandbox-base + OpenShell runtime. Its OpenShell-gated inference
+endpoint is `https://inference.local/v1`.
 
 ### 2. Set API keys
 
@@ -651,6 +674,7 @@ GEMINI_API_KEY=...
 ANTHROPIC_API_KEY=...
 OPENAI_API_KEY=...
 PERPLEXITY_API_KEY=...
+NVIDIA_API_KEY=...
 MISTRAL_API_KEY=...
 ```
 
@@ -663,9 +687,10 @@ sudo ncz agent restart zeroclaw
 ## Non-interactive install (scripting)
 
 ```
-sudo ncz agent install zeroclaw              # one agent
-sudo ncz agent install zeroclaw portainer    # multiple
-sudo ncz agent install --all                 # all four (~3.5 GB pull)
+sudo ncz agent install openclaw              # one optional agent
+sudo ncz agent install openclaw portainer    # multiple optional agents
+sudo ncz agent install --all                 # zeroclaw/openclaw/hermes/portainer
+sudo ncz install nemoclaw                    # NVIDIA NemoClaw (~2.4 GB pull)
 ```
 
 ## Daily operation
@@ -679,20 +704,26 @@ sudo ncz agent restart <name>
 sudo ncz agent logs    <name>   # follow journal (Ctrl-C to exit)
 ncz agent shell <name>          # shell into container
 ncz agent web                   # show dashboard URLs (alias for list)
+systemctl status nemoclaw.service
 ncz version
 ncz help
 ```
 
-Available agents: **zeroclaw**, **openclaw**, **hermes**, **portainer**
+Default-active: **zeroclaw**
 
-## Web dashboards
+Opt-in via `ncz agent install`: **openclaw**, **hermes**, **portainer**
 
-| Agent     | URL                      | What                            |
-|-----------|--------------------------|---------------------------------|
-| zeroclaw  | http://127.0.0.1:42617/  | NCZ gateway daemon + web UI     |
-| openclaw  | http://127.0.0.1:18789/  | OpenClaw (NemoClaw upstream)    |
-| hermes    | http://127.0.0.1:8642/   | Hermes Agent (NousResearch)     |
-| Portainer | http://127.0.0.1:9000/   | Container management            |
+Opt-in via `ncz install`: **nemoclaw**
+
+## Web dashboards and endpoints
+
+| Agent     | URL / endpoint                 | What                              |
+|-----------|--------------------------------|-----------------------------------|
+| zeroclaw  | http://127.0.0.1:42617/        | NCZ gateway daemon + web UI       |
+| openclaw  | http://127.0.0.1:18789/        | OpenClaw                          |
+| hermes    | http://127.0.0.1:8642/         | Hermes Agent (NousResearch)       |
+| Portainer | http://127.0.0.1:9000/         | Container management              |
+| nemoclaw  | https://inference.local/v1     | OpenShell-gated inference API     |
 
 ## Uninstall
 
@@ -711,9 +742,11 @@ zeroclaw   ghcr.io/perlowja/nclawzero-demo:latest      (NCZ demo, web UI baked)
 openclaw   ghcr.io/openclaw/openclaw@sha256:06b4f3df...
 hermes     docker.io/nousresearch/hermes-agent@sha256:aa60e748...
 portainer  docker.io/portainer/portainer-ce:lts
+nemoclaw   ghcr.io/nvidia/nemoclaw/sandbox-base:latest
 ```
 
 Quadlet templates: `/usr/share/ncz/quadlets/`
+Default-active quadlet: `/etc/containers/systemd/zeroclaw.container`
 
 ## NPU inference (Cix Zhouyi)
 
@@ -738,6 +771,7 @@ If a pull fails on first try (clock skew on cold boot), retry:
 
 ```
 sudo ncz agent install <name>
+sudo ncz install nemoclaw
 ```
 
 By second login the system clock has resynced via NTP and the registry
@@ -899,7 +933,7 @@ update-desktop-database 2>&1 | tail -1
 # AFTER the operator runs `ncz agent install portainer`.
 systemctl enable podman.socket 2>/dev/null
 
-# Agent image load/pull is ordered before the three active quadlets.
+# Agent image load/pull is ordered before the default-active zeroclaw quadlet.
 systemctl enable nclawzero-load-agent-images.service 2>/dev/null || true
 
 # disable cix-npu-driver-dkms — we ship FyrbyAdditive prebuilt .ko at
@@ -908,5 +942,6 @@ systemctl mask dkms.service 2>&1 | tail -1
 rm -rf /var/lib/dkms/aipu /var/lib/dkms/cix-vpu-driver 2>/dev/null
 echo '[30] dkms.service masked (FyrbyAdditive prebuilt .ko ships at /usr/lib/modules/<KVER>/extra/)'
 
-echo '[30] agent stack active: zeroclaw/openclaw/hermes quadlets staged'
-echo '     templates at /usr/share/ncz/quadlets/, active units at /etc/containers/systemd/'
+echo '[30] agent stack active: zeroclaw quadlet staged'
+echo '     openclaw/hermes/nemoclaw remain templates at /usr/share/ncz/quadlets/'
+echo '     active units live at /etc/containers/systemd/'

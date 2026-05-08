@@ -1,10 +1,22 @@
 #!/bin/bash
-# 31-remote-access.sh — NoMachine (preferred for Mali) + xrdp (fallback) for graphical remote access.
+# 31-remote-access.sh - NoMachine (preferred for Mali) + xrdp (fallback) for graphical remote access.
 # r55: xrdp had broken WM (default startwm.sh ran /etc/X11/Xsession which didnt
 # wrap with dbus-launch, plus xfwm4 compositor failed over RDP-side Xorg).
 # Fixed both. NoMachine added as first-class option since NX protocol handles
 # Mali GPU graceful-fallback better than xrdp.
 set -euo pipefail
+
+VARIANT="desktop"
+if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
+    VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
+fi
+
+case "$VARIANT" in
+    server|magnetar|headless)
+        echo "[31] BUILD_VARIANT=server - Magnetar headless SKU; skipping graphical remote access"
+        exit 0
+        ;;
+esac
 
 echo "[31] NoMachine + xrdp setup"
 
@@ -23,7 +35,7 @@ fi
 cat > /etc/xrdp/startwm.sh <<'XRDP'
 #!/bin/sh
 # NCZ 26.5 xrdp session: XFCE with dbus-launch wrapper.
-# Without dbus-launch the WM exits in <1s. Disable xfwm4 compositor —
+# Without dbus-launch the WM exits in <1s. Disable xfwm4 compositor -
 # the RDP-side Xorg has no panthor/DRI, so GL accel attempts cause window-decoration glitches.
 unset DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR
 [ -r /etc/profile ] && . /etc/profile
