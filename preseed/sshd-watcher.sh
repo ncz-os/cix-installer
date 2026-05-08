@@ -25,6 +25,35 @@ set +e
 exec >> /var/log/early_command.log 2>&1
 echo "[watcher] start $(date -u +%FT%TZ) pid=$$"
 
+# 2026-05-07 take11: append fallback nameservers to d-i's /etc/resolv.conf
+# once DHCP has populated it. The LAN router (192.168.207.1) is the
+# DHCP-provided primary on the .66 fleet; if its DNS service is flaky
+# (observed dropping queries during pkgsel + grub-installer batch
+# fetches), apt-get errors with "Temporary failure resolving" and the
+# whole download batch aborts. With 8.8.8.8 + 1.1.1.1 appended,
+# resolver auto-fails-over within ~6s instead of giving up.
+#
+# Polls 30s for resolv.conf to be non-empty (DHCP completion), then
+# appends fallbacks if not already present. Idempotent.
+(
+    j=0
+    while [ "$j" -lt 30 ]; do
+        if [ -s /etc/resolv.conf ] && grep -q '^nameserver ' /etc/resolv.conf; then
+            grep -q '^nameserver 8\.8\.8\.8' /etc/resolv.conf || \
+                echo 'nameserver 8.8.8.8' >> /etc/resolv.conf
+            grep -q '^nameserver 1\.1\.1\.1' /etc/resolv.conf || \
+                echo 'nameserver 1.1.1.1' >> /etc/resolv.conf
+            grep -q '^options ' /etc/resolv.conf || \
+                echo 'options timeout:2 attempts:3' >> /etc/resolv.conf
+            echo "[watcher] /etc/resolv.conf fallbacks appended at j=$j:"
+            cat /etc/resolv.conf | sed 's/^/    /'
+            break
+        fi
+        sleep 1
+        j=$((j + 1))
+    done
+) &
+
 i=0
 while [ "$i" -lt 600 ]; do
     if [ -f /etc/ssh/sshd_config ] && pidof sshd >/dev/null 2>&1; then
