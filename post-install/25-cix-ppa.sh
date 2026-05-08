@@ -125,6 +125,17 @@ case "$NOE_STATE" in
         if [ -f "$POSTINST" ] && grep -qE "pip3? install.*libnoe|python3? -m pip install.*libnoe" "$POSTINST"; then
             echo "[25] confirmed: postinst contains libnoe pip line — patching that stanza only"
             cp -a "$POSTINST" "$POSTINST.r75-orig"
+            # 2026-05-08 take23 (per .66 take22 install): cix-noe-umd 4.0.0
+            # postinst is `#!/bin/sh` + `set -e` but uses bash `[[ ]]` syntax
+            # at line 11 (Ubuntu codename gating for --break-system-packages).
+            # dash errors with `[[: not found`, set -e exits, package goes
+            # to iF before our libnoe pip-line patch is even reached.
+            # Swap shebang to /bin/bash so Cix's bash-style postinst runs
+            # as upstream intended. Idempotent: grep gates the change.
+            if head -1 "$POSTINST" | grep -q '^#!/bin/sh\b'; then
+                sed -i '1s|^#!/bin/sh\b|#!/bin/bash|' "$POSTINST"
+                echo "[25] patched cix-noe-umd.postinst shebang /bin/sh → /bin/bash"
+            fi
             sed -i -E 's|^([[:space:]]*)((python3?[[:space:]]+-m[[:space:]]+pip|pip3?)[[:space:]]+install[[:space:]]+.*libnoe.*)$|\1: # r75 P3: skipped on Py3.13 -- \2|' "$POSTINST"
             chmod 0755 "$POSTINST"
             if dpkg --configure cix-noe-umd 2>&1 | tail -3; then
