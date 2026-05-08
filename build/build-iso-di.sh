@@ -373,19 +373,38 @@ echo "    substrate extracted: $(du -sh "$STAGING" | cut -f1)"
 # bookworm (Debian 12) and trixie (Debian 13). Trixie d-i has the DNS
 # resilience improvements we want (netcfg/get_nameservers append,
 # busybox 1.37 with nohup applet, udhcpc /etc/resolv.conf.head support).
+# 2026-05-08 (Codex r78 take13 audit MEDIUM #2): if both bookworm AND trixie
+# directories are present, refuse to silently pick one — fragile for
+# multi-codename or symlink-heavy media, since `find pool -name '*.udeb'`
+# would mix runtime udebs across substrates. Operator can force via
+# DI_CODENAME_OVERRIDE=trixie (or bookworm) env var.
 DI_CODENAME=""
+DI_CODENAMES_FOUND=()
 for cn in trixie bookworm; do
     if [ -d "$STAGING/dists/$cn" ]; then
-        DI_CODENAME="$cn"
-        break
+        DI_CODENAMES_FOUND+=("$cn")
     fi
 done
-if [ -z "$DI_CODENAME" ]; then
+if [ -n "${DI_CODENAME_OVERRIDE:-}" ]; then
+    if [ -d "$STAGING/dists/$DI_CODENAME_OVERRIDE" ]; then
+        DI_CODENAME="$DI_CODENAME_OVERRIDE"
+        echo "    d-i substrate codename: $DI_CODENAME (DI_CODENAME_OVERRIDE)"
+    else
+        echo "ERROR: DI_CODENAME_OVERRIDE=$DI_CODENAME_OVERRIDE but $STAGING/dists/$DI_CODENAME_OVERRIDE not present" >&2
+        exit 1
+    fi
+elif [ "${#DI_CODENAMES_FOUND[@]}" -eq 0 ]; then
     echo "ERROR: could not detect d-i substrate codename from $STAGING/dists/" >&2
     ls "$STAGING/dists/" 2>&1 >&2 || true
     exit 1
+elif [ "${#DI_CODENAMES_FOUND[@]}" -gt 1 ]; then
+    echo "ERROR: multiple d-i substrate codenames present in $STAGING/dists/: ${DI_CODENAMES_FOUND[*]}" >&2
+    echo "       set DI_CODENAME_OVERRIDE=<codename> to choose one explicitly" >&2
+    exit 1
+else
+    DI_CODENAME="${DI_CODENAMES_FOUND[0]}"
+    echo "    d-i substrate codename: $DI_CODENAME"
 fi
-echo "    d-i substrate codename: $DI_CODENAME"
 
 # Match Debian DVD structure EXACTLY: ONE suite (questing) with TWO
 # indexes (regular debs + debian-installer udebs) under main/. No
@@ -507,6 +526,20 @@ if true; then
     rm -rf "$TRIXIE_TMP"
 fi
 fi  # end of "if [ DI_CODENAME != trixie ]" — graft-on-bookworm conditional
+
+# 2026-05-08 (Codex r78 take13 audit MEDIUM #3): assert critical
+# debootstrap-shell + zstd runtime udebs present in the merged pool
+# regardless of substrate path. Bookworm-graft path already checked
+# inline (lines 480-482); the trixie-substrate path skipped these,
+# leaving runtime-deps presence undetected until install-time.
+for need_pkg in debootstrap-udeb libzstd1-udeb liblzma5-udeb; do
+    HITS=$(find "$STAGING/pool" -name "${need_pkg}_*.udeb" 2>/dev/null | wc -l)
+    if [ "$HITS" -eq 0 ]; then
+        echo "ERROR: substrate=$DI_CODENAME merged pool missing $need_pkg (search: $STAGING/pool/**/${need_pkg}_*.udeb)" >&2
+        exit 1
+    fi
+done
+echo "    udeb assertions: debootstrap-udeb + libzstd1-udeb + liblzma5-udeb present"
 
 # r40 full mode: replace /usr/sbin/debootstrap in the staged debootstrap-udeb
 # with a stub. thin/netinstall deliberately skip this so bookworm
@@ -1016,10 +1049,16 @@ BLUE    = 0x5a3b
 
 # Verify the pointer at offset 0x10380 still points to "white" (0x5985);
 # confirms we're patching the right binary version.
+# 2026-05-08 (Codex r78 take13 audit MEDIUM #4): on unknown pointer,
+# downgrade to non-fatal — copy unmodified newt.so so the bake doesn't
+# block on a cosmetic palette change. NEWT_COLORS env-var path in the
+# /init overlay is the primary amber-phosphor mechanism; binary palette
+# patch is the belt-and-suspenders pass.
 existing = struct.unpack_from("<Q", data, PALETTE_OFFSET)[0]
 if existing != WHITE:
-    print(f"    ERROR: palette[0] at 0x{PALETTE_OFFSET:x} = 0x{existing:x}, expected 0x{WHITE:x}", file=sys.stderr)
-    sys.exit(1)
+    print(f"    WARN: palette[0] at 0x{PALETTE_OFFSET:x} = 0x{existing:x}, expected 0x{WHITE:x} — skipping binary palette patch (NEWT_COLORS env path remains active)", file=sys.stderr)
+    open(dst_path, "wb").write(bytes(data))
+    sys.exit(0)
 
 # 22 pairs (44 pointers): fg, bg, fg, bg, ...
 PALETTE = [
