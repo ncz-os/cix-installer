@@ -118,7 +118,7 @@ install_ncz_bootstrap_pool_hook() {
 # 20ncz-bootstrap-pool - prefer the ISO pkgsel bootstrap pool when present.
 set +e
 LOG=/var/log/early_command.log
-INDEX=/cdrom/dists/questing/main/binary-arm64/Packages
+INDEX=/cdrom/dists/resolute/main/binary-arm64/Packages
 
 if [ -e /cdrom/.disk/base_installable ]; then
     echo "[ncz-bootstrap-pool] base-installable media already uses cdrom; skipping" >> "$LOG"
@@ -144,7 +144,7 @@ if ! grep -qs ' /target/cdrom ' /proc/mounts; then
 fi
 
 cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'EOF'
-deb [trusted=yes] file:///cdrom questing main
+deb [trusted=yes] file:///cdrom resolute main
 EOF
 cat > /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref <<'EOF'
 Package: *

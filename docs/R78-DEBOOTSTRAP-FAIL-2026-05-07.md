@@ -18,7 +18,7 @@ From the d-i syslog on .66:
 ```
 May  8 00:31:05 debootstrap: /usr/sbin/debootstrap \
     --components=main --debian-installer --resolve-deps --no-check-gpg \
-    questing /target file:///cdrom/ /usr/share/debootstrap/scripts/gutsy
+    resolute /target file:///cdrom/ /usr/share/debootstrap/scripts/gutsy
 May  8 00:31:06 debootstrap: mknod: /target/dev/null: No such file or directory
 May  8 00:31:06 debootstrap: chroot: can't execute '/bin/true': No such file or directory
 ```
@@ -29,29 +29,31 @@ base-essential pkgs (`coreutils`, `bash`, `dash`) → /target/bin/true
 never gets installed → chroot fails.
 
 Why is debootstrap using `/cdrom/` instead of the HTTP mirror?
-Because base-installer detects that `/cdrom/dists/questing/Release`
+Because base-installer detects that `/cdrom/dists/resolute/Release`
 exists with a `main` component listed, and prefers /cdrom over the
 network mirror.
 
 Our build/build-iso-di.sh in netinstall mode does:
 ```
 netinstall mode: writing empty regular Packages index for late.sh cdrom source
-regenerating dists/questing/Release with both regular + udeb indexes
+regenerating dists/resolute/Release with both regular + udeb indexes
 ```
 
 We write an EMPTY `main/binary-arm64/Packages` so that late.sh's
 sources.list snippet doesn't 404 — but base-installer takes that to
 mean "/cdrom is a valid mirror" and uses it first.
 
-### Bug B — debootstrap script `questing` doesn't exist; falls back to `gutsy`
+### Bug B — debootstrap script `resolute` doesn't exist; falls back to `gutsy`
 
 The script path resolved to `/usr/share/debootstrap/scripts/gutsy`
 (Ubuntu 7.10, 2007). That's d-i's hardcoded fallback when the
 codename's script isn't present.
 
-We grafted trixie's debootstrap (commit `r78-take2`-era), but trixie
-froze ~Jul 2025; questing (Ubuntu 25.10) released Oct 2025. So even
-trixie's debootstrap doesn't ship a `questing` script.
+We grafted trixie's debootstrap (commit `r78-take2`-era), but that
+local graft is still debootstrap 1.0.141. Ubuntu added the resolute
+symlink in 1.0.141ubuntu1, and Debian picked it up in 1.0.142, so the
+installer still needs a resolute -> gutsy fallback when using the older
+grafted udeb.
 
 ## Fix plan
 
@@ -59,7 +61,7 @@ trixie's debootstrap doesn't ship a `questing` script.
 
 Modify `build/build-iso-di.sh` in netinstall mode to NOT advertise the
 regular `main` component on /cdrom. Drop the empty Packages index +
-remove `main` from /cdrom/dists/questing/Release components list. Keep
+remove `main` from /cdrom/dists/resolute/Release components list. Keep
 only `debian-installer` so anna can still load udebs.
 
 Code site: around line 1046-1058 of `build/build-iso-di.sh` (the awk
@@ -70,22 +72,22 @@ base-installer will then see:
 - /cdrom has no main component (so it can't be the bootstrap source)
 - preseed says use ports.ubuntu.com → debootstrap fetches from there
 
-### Fix B — ship a `questing` debootstrap script
+### Fix B — ship a `resolute` debootstrap script
 
-Stage `preseed/debootstrap-scripts/questing` (a copy of Ubuntu's
-upstream `questing` script, or the latest known-good `noble`/`plucky`
-script renamed) into the ISO as `/cixmini/debootstrap-scripts/questing`.
+Stage `preseed/debootstrap-scripts/resolute` (a copy of Ubuntu's
+upstream `resolute` script, or the latest known-good `noble`/`plucky`
+script renamed) into the ISO as `/cixmini/debootstrap-scripts/resolute`.
 
 Add a one-line copy in `preseed/early_command` BEFORE any d-i step
 that invokes debootstrap:
 ```
-cp /cdrom/cixmini/debootstrap-scripts/questing \
-   /usr/share/debootstrap/scripts/questing
+cp /cdrom/cixmini/debootstrap-scripts/resolute \
+   /usr/share/debootstrap/scripts/resolute
 ```
 
-Source for the questing script: Ubuntu launchpad
+Source for the resolute script: Ubuntu launchpad
 `git.launchpad.net/ubuntu/+source/debootstrap` HEAD on jammy/noble/etc.
-The questing script is essentially the same as plucky/noble with the
+The resolute script is essentially the same as plucky/noble with the
 codename swapped — Ubuntu's debootstrap scripts have been stable for
 many releases.
 
@@ -157,6 +159,6 @@ the higher priority items.
 ```
 48e9c91     tools(di-diag): add expect-based d-i shell driver
 <NEXT>      fix(build): netinstall must not list main component on /cdrom
-<NEXT2>     feat(preseed): ship questing debootstrap script + early-stage copy-in
+<NEXT2>     feat(preseed): ship resolute debootstrap script + early-stage copy-in
 <NEXT3>     [r78-take7 baked]
 ```

@@ -1,9 +1,9 @@
 #!/bin/bash
-# build-mirror.sh — build offline questing arm64 apt mirror for r26 ISO
+# build-mirror.sh — build offline resolute arm64 apt mirror for r26 ISO
 #
 # Run AFTER debootstrap finishes. Inside the chroot, runs apt-get update +
 # apt-get -d install for our full package set. Then assembles the result
-# into /pool + /dists/questing/ structure with apt-ftparchive-generated
+# into /pool + /dists/resolute/ structure with apt-ftparchive-generated
 # Packages files + Release file.
 #
 # Result: $MIRROR_DIR/{pool,dists}/ — drop into ISO at root, point d-i
@@ -11,9 +11,9 @@
 
 set -euo pipefail
 
-CHROOT="${1:-/home/jasonperlow/cix-installer-build/cix-installer/build/questing-bootstrap}"
-MIRROR_DIR="${2:-/home/jasonperlow/cix-installer-build/cix-installer/build/questing-mirror}"
-SUITE="${3:-questing}"
+CHROOT="${1:-/home/jasonperlow/cix-installer-build/cix-installer/build/resolute-bootstrap}"
+MIRROR_DIR="${2:-/home/jasonperlow/cix-installer-build/cix-installer/build/resolute-mirror}"
+SUITE="${3:-resolute}"
 ARCH="${4:-arm64}"
 UBUNTU_URL="${5:-http://ports.ubuntu.com/ubuntu-ports}"
 
@@ -52,7 +52,7 @@ write_component_release_files() {
         cat > "$dir/Release" <<EOF
 Archive: stable
 Origin: nclawzero
-Label: nclawzero-cixmini-questing
+Label: nclawzero-cixmini-resolute
 Version: 1.0
 Acquire-By-Hash: yes
 Component: $component

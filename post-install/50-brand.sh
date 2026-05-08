@@ -16,18 +16,18 @@ fi
 [ -z "$BUILD_ID_VALUE" ] && BUILD_ID_VALUE=unknown
 
 cat > /etc/os-release <<EOF
-PRETTY_NAME="NCZ 26.5 \\"Reinhardt\\""
+PRETTY_NAME="Reinhardt 26.5 (based on Ubuntu 26.04 Resolute Raccoon)"
 NAME="NCZ"
-VERSION_ID="26.5"
+VERSION_ID="26.04"
 BUILD_ID="$BUILD_ID_VALUE"
-VERSION="26.5 (Reinhardt)"
+VERSION="26.5 (Reinhardt; based on Ubuntu 26.04 Resolute Raccoon)"
 VERSION_CODENAME=reinhardt
 ID=ncz
 ID_LIKE=ubuntu
 HOME_URL="https://gitlab.com/nclawzero"
 SUPPORT_URL="https://gitlab.com/nclawzero/cix-installer/-/issues"
 BUG_REPORT_URL="https://gitlab.com/nclawzero/cix-installer/-/issues"
-UBUNTU_CODENAME=questing
+UBUNTU_CODENAME=resolute
 LOGO=ncz
 EOF
 ln -sf /etc/os-release /usr/lib/os-release 2>/dev/null || true
@@ -36,7 +36,7 @@ cat > /etc/lsb-release <<EOF
 DISTRIB_ID=NCZ
 DISTRIB_RELEASE=26.5
 DISTRIB_CODENAME=reinhardt
-DISTRIB_DESCRIPTION="NCZ 26.5 \\"Reinhardt\\""
+DISTRIB_DESCRIPTION="Reinhardt 26.5 (based on Ubuntu 26.04 Resolute Raccoon)"
 EOF
 
 cat > /etc/issue <<EOF

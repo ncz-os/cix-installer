@@ -147,7 +147,7 @@ echo
 # 2026-05-08 netinstall-bootstrap keeps base_installable absent but adds a
 # small non-empty regular Packages index for pkgsel/include. In that mode,
 # file:///cdrom is valid for pkgsel/post-install package fallback.
-CDROM_REGULAR_INDEX=/cdrom/dists/questing/main/binary-arm64/Packages
+CDROM_REGULAR_INDEX=/cdrom/dists/resolute/main/binary-arm64/Packages
 if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     echo "--- mounting cdrom into /target for offline apt-get during post-install ---"
     mkdir -p /target/cdrom
@@ -162,7 +162,7 @@ if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     # install in chroot can find packages locally. [trusted=yes] bypasses
     # GPG (we don't sign our offline mirror Release file yet).
     cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'CDROM_LIST'
-deb [trusted=yes] file:///cdrom questing main
+deb [trusted=yes] file:///cdrom resolute main
 CDROM_LIST
     mkdir -p /target/etc/apt/preferences.d
     cat > /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref <<'CDROM_PREF'
