@@ -85,6 +85,27 @@ if [ ! -f /boot/efi/EFI/systemd/systemd-bootaa64.efi ]; then
 fi
 echo "  systemd-bootaa64.efi present on ESP"
 
+# 2026-05-08 take22 (per .66 take21 install: target booted into UEFI menu,
+# manual boot-from-drive fell back to UEFI menu — firmware found no
+# bootable EFI binary at the default fallback path):
+#
+# Cix Sky1 / MS-R1 firmware (and most arm64 UEFI firmwares) WILL boot
+# from the well-known fallback path EFI/BOOT/BOOTAA64.EFI without
+# needing an NVRAM EFI variable entry. `bootctl install --no-variables`
+# (which we use to avoid efivar write issues in d-i chroot) does NOT
+# write that fallback. We must copy it explicitly.
+#
+# Without this copy, install completes cleanly but the firmware sees
+# no bootable target → returns to the UEFI menu after every "boot from
+# drive" attempt.
+install -d -m 0755 /boot/efi/EFI/BOOT
+cp /boot/efi/EFI/systemd/systemd-bootaa64.efi /boot/efi/EFI/BOOT/BOOTAA64.EFI
+if [ ! -f /boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
+    echo "ERROR: failed to install firmware fallback EFI/BOOT/BOOTAA64.EFI"
+    exit 1
+fi
+echo "  EFI/BOOT/BOOTAA64.EFI fallback installed (firmware-default path)"
+
 # ----------------------------------------------------------------------
 # WIPE STALE ESP STATE before writing fresh entries.
 #
