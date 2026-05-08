@@ -138,30 +138,45 @@ echo
 
 # Codex A2 CRITICAL #2 fix: Mount /cdrom inside /target so post-install
 # hooks can `apt-get install` from our offline mirror via file:///cdrom.
-# Without this, 10-our-kernel.sh + 70-bootloader.sh + 20-desktop.sh fail
-# because preseed has apt-setup/use_mirror=false (offline-only install).
-echo "--- mounting cdrom into /target for offline apt-get during post-install ---"
-mkdir -p /target/cdrom
-mount --bind /cdrom /target/cdrom 2>&1 || \
-    { echo "WARN: bind-mount /cdrom into /target failed; post-install apt-get may fail"; }
+# Without this, FULL/THIN mode 10-our-kernel.sh + 70-bootloader.sh +
+# 20-desktop.sh fail because they need offline pkgs.
+#
+# 2026-05-07 take7: in NETINSTALL mode the build script doesn't ship a
+# main component on /cdrom (forces base-installer onto http mirror).
+# Detect that case and skip the cdrom apt source — apt-setup has
+# already wired ports.ubuntu.com via mirror/* preseed values.
+if [ -f /cdrom/dists/questing/main/binary-arm64/Packages ] || \
+   [ -f /cdrom/dists/questing/main/binary-arm64/Packages.gz ]; then
+    echo "--- mounting cdrom into /target for offline apt-get during post-install ---"
+    mkdir -p /target/cdrom
+    mount --bind /cdrom /target/cdrom 2>&1 || \
+        { echo "WARN: bind-mount /cdrom into /target failed; post-install apt-get may fail"; }
 
-# Add file:///cdrom apt source to /target's sources.list so apt-get install
-# in chroot can find packages locally. [trusted=yes] bypasses GPG (we
-# don't sign our offline mirror Release file yet).
-cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'CDROM_LIST'
+    # Add file:///cdrom apt source to /target's sources.list so apt-get
+    # install in chroot can find packages locally. [trusted=yes] bypasses
+    # GPG (we don't sign our offline mirror Release file yet).
+    cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'CDROM_LIST'
 deb [trusted=yes] file:///cdrom questing main
 CDROM_LIST
-echo "    /target/etc/apt/sources.list.d/cixmini-cdrom.list installed"
-in-target apt-get update 2>&1 | tail -3 || \
-    { echo "WARN: in-target apt-get update from cdrom failed"; }
+    echo "    /target/etc/apt/sources.list.d/cixmini-cdrom.list installed"
+    in-target apt-get update 2>&1 | tail -3 || \
+        { echo "WARN: in-target apt-get update from cdrom failed"; }
+    CDROM_BIND_MOUNTED=1
+else
+    echo "--- netinstall mode: cdrom has no main component, skipping cdrom apt source ---"
+    echo "    (post-install hooks rely on ports.ubuntu.com via apt-setup)"
+    CDROM_BIND_MOUNTED=0
+fi
 
 echo "--- running post-install in chroot ---"
 in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
 
 # Codex A2 fix: don't leave bind-mount around after late_command finishes
-umount /target/cdrom 2>&1 || true
-rmdir /target/cdrom 2>&1 || true
+if [ "${CDROM_BIND_MOUNTED:-0}" = "1" ]; then
+    umount /target/cdrom 2>&1 || true
+    rmdir /target/cdrom 2>&1 || true
+fi
 echo "in-target run-all.sh exited: $RET"
 
 # Eject the install media on success. We turned cdrom-detect/eject off
