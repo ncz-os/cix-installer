@@ -18,15 +18,67 @@ echo "[25] adding CIX official PPA (archive.cixtech.com)"
 # because the ISO carries no embedded questing mirror. Keep archive/network
 # failures warn-and-continue unless dpkg lands in a known-bad partial state.
 
-# Trust CIX's signing key
+# Trust CIX's signing key only after fingerprint verification.
+readonly CIX_KEY_FINGERPRINT="03953A5B64B263FECF6B55771736B9F1A2FAE91E"
+readonly CIX_KEYRING=/usr/share/keyrings/cix-deb-repo.gpg
+readonly CIX_KEY_ASSET=/usr/local/lib/cix-installer/assets/cix-deb-repo.gpg
+
+cix_key_fingerprint() {
+    local keyring="$1"
+    local tmp_gnupg fpr
+    tmp_gnupg=$(mktemp -d)
+    fpr=$(GNUPGHOME="$tmp_gnupg" gpg --batch --show-keys --with-colons --fingerprint "$keyring" 2>/dev/null \
+        | awk -F: '/^fpr:/ {print $10; exit}' || true)
+    rm -rf "$tmp_gnupg"
+    echo "$fpr"
+}
+
+install_cix_keyring() {
+    local candidate="$1"
+    local fpr
+    fpr=$(cix_key_fingerprint "$candidate")
+    if [ "$fpr" != "$CIX_KEY_FINGERPRINT" ]; then
+        echo "[25] ERROR: CIX signing key fingerprint mismatch" >&2
+        echo "       expected: $CIX_KEY_FINGERPRINT" >&2
+        echo "       actual:   ${fpr:-unreadable}" >&2
+        return 1
+    fi
+    install -m 0644 "$candidate" "$CIX_KEYRING"
+}
+
+if ! command -v gpg >/dev/null 2>&1; then
+    echo "[25] ERROR: gpg is required to verify the CIX apt signing key" >&2
+    exit 1
+fi
+
 mkdir -p /usr/share/keyrings
-if [ -f /usr/local/lib/cix-installer/assets/cix-deb-repo.gpg ]; then
-    cp /usr/local/lib/cix-installer/assets/cix-deb-repo.gpg /usr/share/keyrings/cix-deb-repo.gpg
+if [ -f "$CIX_KEY_ASSET" ]; then
+    install_cix_keyring "$CIX_KEY_ASSET" || exit 1
 else
     # Fallback: fetch online (network needed)
-    curl -fsSL https://archive.cixtech.com/ppa-gpg-public-key.asc \
-        | gpg --dearmor -o /usr/share/keyrings/cix-deb-repo.gpg 2>&1 || \
-        echo "[25] WARN: could not fetch CIX GPG key online — repo will be unavailable"
+    tmp_asc=$(mktemp)
+    tmp_keyring=$(mktemp)
+    if curl -fsSL https://archive.cixtech.com/ppa-gpg-public-key.asc -o "$tmp_asc" \
+        && gpg --batch --yes --dearmor -o "$tmp_keyring" "$tmp_asc" 2>/dev/null; then
+        install_cix_keyring "$tmp_keyring" || { rm -f "$tmp_asc" "$tmp_keyring"; exit 1; }
+    else
+        echo "[25] WARN: could not fetch CIX GPG key online - repo will be unavailable"
+    fi
+    rm -f "$tmp_asc" "$tmp_keyring"
+fi
+
+if [ ! -s "$CIX_KEYRING" ]; then
+    echo "[25] WARN: no verified CIX signing key installed; skipping CIX PPA setup"
+    rm -f /etc/apt/sources.list.d/cix-ppa.list
+    exit 0
+fi
+
+current_fpr=$(cix_key_fingerprint "$CIX_KEYRING")
+if [ "$current_fpr" != "$CIX_KEY_FINGERPRINT" ]; then
+    echo "[25] ERROR: installed CIX keyring fingerprint mismatch" >&2
+    echo "       expected: $CIX_KEY_FINGERPRINT" >&2
+    echo "       actual:   ${current_fpr:-unreadable}" >&2
+    exit 1
 fi
 
 # Add the source list (trixie main since CIX targets Debian 13)

@@ -25,13 +25,28 @@
 set -uo pipefail
 
 ASSETS=/usr/local/lib/cix-installer/assets/cix-debs
-[ -d "$ASSETS" ] || { echo "ERROR: $ASSETS missing"; exit 1; }
+if [ ! -d "$ASSETS" ] && [ -d /cdrom/cixmini/assets/cix-debs ]; then
+    ASSETS=/cdrom/cixmini/assets/cix-debs
+fi
 
 mkdir -p /var/log/cix-install
 
+if [ ! -d "$ASSETS" ]; then
+    echo "[25] Cix proprietary userspace .debs: asset directory missing at $ASSETS"
+    echo "[25] skipping proprietary Cix .debs (netinstall/no bundled payload)"
+    exit 0
+fi
+
+DEB_COUNT=$(find "$ASSETS" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')
+
 echo "[25] Cix proprietary userspace .debs from $ASSETS"
-echo "    package count: $(ls $ASSETS | wc -l)"
+echo "    package count: $DEB_COUNT"
 echo ""
+
+if [ "$DEB_COUNT" = "0" ]; then
+    echo "[25] no bundled proprietary Cix .debs found; skipping (netinstall mode)"
+    exit 0
+fi
 
 cd "$ASSETS" || { echo "ERROR: cannot cd to $ASSETS"; exit 1; }
 # Skip:
@@ -46,14 +61,28 @@ cd "$ASSETS" || { echo "ERROR: cannot cd to $ASSETS"; exit 1; }
 #      (display, replaces trilin_dptx), cix_dsp_rproc with ACPI fix.
 #      Installing the 6.6 .ko packages just pollutes the modules tree
 #      with files that fail vermagic check. Skip entirely.)
-# shellcheck disable=SC2010  # Cix .deb names are alphanumeric; ls|grep is fine here
-DEBS=$(ls *.deb | grep -vE '^linux-(image|headers)-.*-cix-build-generic_' \
-                | grep -vE '^cix-(npu-driver|gpu-driver|vpu-driver|isp-driver|wlan|csi-driver|noe-kmd)_' \
-                | grep -vE '^cix-(npu-umd|noe-umd|npu-onnxruntime)_')
+DEBS=()
+for deb in ./*.deb; do
+    [ -e "$deb" ] || continue
+    deb=${deb#./}
+    case "$deb" in
+        linux-image-*-cix-build-generic_*.deb|linux-headers-*-cix-build-generic_*.deb) continue ;;
+        cix-npu-driver_*.deb|cix-gpu-driver_*.deb|cix-vpu-driver_*.deb|cix-isp-driver_*.deb|cix-wlan_*.deb|cix-csi-driver_*.deb|cix-noe-kmd_*.deb) continue ;;
+        cix-npu-umd_*.deb|cix-noe-umd_*.deb|cix-npu-onnxruntime_*.deb) continue ;;
+    esac
+    DEBS+=("$deb")
+done
 
 echo "Skipping vermagic-incompatible cix-*-driver debs (post-Sky1-switch):"
-# shellcheck disable=SC2010  # informational listing of known-safe .deb names
-ls *.deb | grep -E '^cix-(npu-driver|gpu-driver|vpu-driver|isp-driver|wlan|csi-driver|noe-kmd)_' | sed 's/^/    /' || true
+for deb in ./*.deb; do
+    [ -e "$deb" ] || continue
+    deb=${deb#./}
+    case "$deb" in
+        cix-npu-driver_*.deb|cix-gpu-driver_*.deb|cix-vpu-driver_*.deb|cix-isp-driver_*.deb|cix-wlan_*.deb|cix-csi-driver_*.deb|cix-noe-kmd_*.deb)
+            echo "    $deb"
+            ;;
+    esac
+done
 
 # ----------------------------------------------------------------------
 # Patch cix-debian-misc.deb to remove its broken initramfs-tools rename
@@ -98,13 +127,22 @@ if [ -f "$CDM_ORIG" ]; then
     fi
     dpkg-deb -b /tmp/cdm-patch "$CDM_PATCHED" >/dev/null
     # Swap the patched deb into the install set
-    DEBS=$(echo "$DEBS" | grep -v '^cix-debian-misc_')
+    for i in "${!DEBS[@]}"; do
+        case "${DEBS[$i]}" in
+            cix-debian-misc_*) unset 'DEBS[i]' ;;
+        esac
+    done
     cp "$CDM_PATCHED" "$ASSETS/cix-debian-misc_1.0.0_arm64.patched.deb"
-    DEBS="$DEBS cix-debian-misc_1.0.0_arm64.patched.deb"
+    DEBS+=("cix-debian-misc_1.0.0_arm64.patched.deb")
+fi
+
+if [ "${#DEBS[@]}" -eq 0 ]; then
+    echo "[25] no installable Cix proprietary .debs remain after kernel/driver/NPU filters; skipping"
+    exit 0
 fi
 
 echo "--- dpkg -i (collect failures, continue) ---"
-dpkg -i --force-depends $DEBS 2>&1 | tee /var/log/cix-install/25-dpkg.log || true
+dpkg -i --force-depends "${DEBS[@]}" 2>&1 | tee /var/log/cix-install/25-dpkg.log || true
 
 echo ""
 echo "--- apt-get install -fy (resolve unmet apt deps) ---"
