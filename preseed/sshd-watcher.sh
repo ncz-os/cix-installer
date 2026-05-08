@@ -25,6 +25,61 @@ set +e
 exec >> /var/log/early_command.log 2>&1
 echo "[watcher] start $(date -u +%FT%TZ) pid=$$"
 
+# 2026-05-08 take19 (per Codex DNS deep dive in
+# docs/R78-DNS-DEEP-DIVE-2026-05-08.md): the actual fix is to drop
+# scripts into d-i's documented hook directories so they run AT the
+# right moment in the install flow:
+#
+#   /usr/lib/base-installer.d/  — fires before base-installer's
+#       chrooted apt-get update inside /target. This is the FIRST
+#       chroot apt operation, so /target/etc/resolv.conf must be
+#       correct here.
+#   /usr/lib/pre-pkgsel.d/      — fires immediately before pkgsel
+#       package selection runs apt update + install in /target.
+#       Belt-and-suspenders against any intervening clobber.
+#
+# Each hook authoritatively REWRITES /target/etc/resolv.conf as a
+# regular file (replacing systemd-resolved's stub-resolv symlink so
+# it can't redirect us elsewhere), with the 3-NS chain. Router
+# pulled from default-route at hook-fire time.
+#
+# This replaces the long-running watcher-loop sync approach that
+# raced with the 1800s timeout. The hooks fire ONCE, deterministically,
+# at the right d-i waypoints. Watcher still maintains sshd_config patch
+# + a separate continuous resolv.conf rewrite as belt-and-suspenders.
+install_ncz_dns_hooks() {
+    mkdir -p /usr/lib/base-installer.d /usr/lib/pre-pkgsel.d
+    cat > /usr/lib/base-installer.d/05ncz-dns <<'NCZDNSHOOK'
+#!/bin/sh
+# 05ncz-dns — d-i hook: write /target/etc/resolv.conf with public-fallback
+# chain BEFORE base-installer or pkgsel runs apt-get inside the chroot.
+# Replaces any pre-existing symlink (systemd-resolved stub) with a real file.
+set +e
+LOG=/var/log/early_command.log
+router="$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}')"
+[ -n "$router" ] || router=192.168.207.1
+
+if [ -d /target/etc ]; then
+    rm -f /target/etc/resolv.conf
+    cat > /target/etc/resolv.conf <<EOF
+search nclawzero.lan
+nameserver $router
+nameserver 8.8.8.8
+nameserver 1.1.1.1
+options timeout:2 attempts:3
+EOF
+    echo "[ncz-dns] wrote /target/etc/resolv.conf router=$router at $(date -u +%FT%TZ)" >> "$LOG"
+else
+    echo "[ncz-dns] /target/etc missing at $(date -u +%FT%TZ)" >> "$LOG"
+fi
+exit 0
+NCZDNSHOOK
+    chmod 0755 /usr/lib/base-installer.d/05ncz-dns
+    cp /usr/lib/base-installer.d/05ncz-dns /usr/lib/pre-pkgsel.d/05ncz-dns
+    echo "[watcher] installed ncz DNS hooks for base-installer.d + pre-pkgsel.d"
+}
+install_ncz_dns_hooks
+
 # 2026-05-08 take15: install a custom /etc/udhcpc/default.script that
 # unconditionally writes /etc/resolv.conf with our 3-nameserver chain
 # (8.8.8.8 + 1.1.1.1 + DHCP-provided). udhcpc on bookworm d-i runs
@@ -162,7 +217,10 @@ sync_target_resolv() {
 
 SSHD_PATCHED=0
 i=0
-while [ "$i" -lt 1800 ]; do
+# Take19 per Codex audit: drop the 1800s ceiling — the d-i hooks are now
+# the deterministic fix, but keep the watcher running for the full install
+# duration so belt-and-suspenders sync_target_resolv() never expires.
+while :; do
     sync_target_resolv
     if [ "$SSHD_PATCHED" -eq 0 ] && [ -f /etc/ssh/sshd_config ] && pidof sshd >/dev/null 2>&1; then
         echo "[watcher] sshd live + sshd_config present at i=$i"
@@ -200,10 +258,3 @@ while [ "$i" -lt 1800 ]; do
     sleep 1
     i=$((i + 1))
 done
-
-if [ "$SSHD_PATCHED" -eq 0 ]; then
-    echo "[watcher] TIMEOUT after 1800s — sshd never came up"
-    exit 1
-fi
-echo "[watcher] TIMEOUT after 1800s with sshd patched — install presumed complete"
-exit 0
