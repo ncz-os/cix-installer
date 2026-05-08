@@ -186,6 +186,30 @@ Acquire::http::Pipeline-Depth "0";
 APTRETRIES
 echo "--- /target/etc/apt/apt.conf.d/99retries installed ---"
 
+# 2026-05-07 take10: replace /target/etc/resolv.conf with a STATIC file
+# containing multiple nameservers. d-i + Ubuntu chains symlink it to
+# /run/systemd/resolve/stub-resolv.conf, but systemd-resolved isn't
+# running inside the chroot — and the host stub points at only the
+# DHCP-provided nameserver (one IP, often the LAN router). On flaky
+# LAN DNS this single source dropped queries on .66 take8.
+#
+# A real file with three nameservers (LAN router + Google + Cloudflare)
+# survives any one being slow. Once the system boots and systemd-resolved
+# starts, /etc/resolv.conf gets re-symlinked to the stub during normal
+# boot, so this is install-time only.
+echo "--- writing static /target/etc/resolv.conf with fallback nameservers ---"
+rm -f /target/etc/resolv.conf
+cat > /target/etc/resolv.conf <<'RESOLVCONF'
+# nclawzero install-time DNS — replaced by systemd-resolved on boot.
+search nclawzero.lan
+nameserver 192.168.207.1
+nameserver 8.8.8.8
+nameserver 1.1.1.1
+options timeout:2 attempts:3
+RESOLVCONF
+echo "    /target/etc/resolv.conf:"
+cat /target/etc/resolv.conf | sed 's/^/      /'
+
 echo "--- running post-install in chroot ---"
 in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
