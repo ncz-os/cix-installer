@@ -1239,7 +1239,7 @@ mkdir -p "$STAGING/boot/grub"
 
 # Working r6 cmdline (extracted from running cixmini install /proc/cmdline).
 # Plus auto/priority/preseed/file for unattended d-i operation.
-MARTJOHNSON_R6="loglevel=4 console=ttyAMA2,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
+MARTJOHNSON_R6="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
 DI_PRIORITY=high
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical

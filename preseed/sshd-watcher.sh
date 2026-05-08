@@ -25,38 +25,76 @@ set +e
 exec >> /var/log/early_command.log 2>&1
 echo "[watcher] start $(date -u +%FT%TZ) pid=$$"
 
-# 2026-05-07 take12: CONTINUOUSLY append fallback nameservers to d-i's
-# /etc/resolv.conf, surviving DHCP renewals. The LAN router on the .66
-# fleet (Island Router Pro at 192.168.207.1) is the DHCP-provided primary
-# resolver, and its DNS proxy drops queries under apt batch load. Even
-# with the router's UPSTREAM set to Cloudflare, the router's local
-# proxy/cache is the one that dies — we need to bypass it entirely from
-# the d-i client.
+# 2026-05-08 take15: install a custom /etc/udhcpc/default.script that
+# unconditionally writes /etc/resolv.conf with our 3-nameserver chain
+# (8.8.8.8 + 1.1.1.1 + DHCP-provided). udhcpc on bookworm d-i runs
+# this script on every DHCP bound|renew|deconfig event. By replacing
+# the script BEFORE DHCP runs (early_command fires before netcfg),
+# our resolv.conf survives every renewal natively — no backgrounded
+# subshell that could die when parent exits, no race with the DHCP
+# clobberer.
 #
-# Take11 used a 30s-bounded poll. That hit a race where DHCP completion
-# arrived after the poll timed out, OR DHCP renewal at +5min clobbered
-# our appended lines. Take12 runs forever (until d-i is shut down):
-# every 10s, ensure 8.8.8.8 + 1.1.1.1 + options are present in
-# /etc/resolv.conf. Idempotent (grep guards).
-(
-    while true; do
-        if [ -s /etc/resolv.conf ] && grep -q '^nameserver ' /etc/resolv.conf; then
-            grep -q '^nameserver 8\.8\.8\.8' /etc/resolv.conf || {
-                echo 'nameserver 8.8.8.8' >> /etc/resolv.conf
-                echo "[watcher] $(date -u +%FT%TZ) appended 8.8.8.8 to /etc/resolv.conf"
-            }
-            grep -q '^nameserver 1\.1\.1\.1' /etc/resolv.conf || {
-                echo 'nameserver 1.1.1.1' >> /etc/resolv.conf
-                echo "[watcher] $(date -u +%FT%TZ) appended 1.1.1.1 to /etc/resolv.conf"
-            }
-            grep -q '^options ' /etc/resolv.conf || {
-                echo 'options timeout:2 attempts:3' >> /etc/resolv.conf
-                echo "[watcher] $(date -u +%FT%TZ) appended options to /etc/resolv.conf"
-            }
+# Take11/take12 used a backgrounded `( while true ) &` watcher.
+# Operator-confirmed evidence on .66 (resolv.conf had only the LAN
+# router IP after several minutes) suggests the subshell didn't
+# survive parent exit on busybox 1.35 ash. The udhcpc script approach
+# avoids the daemonization problem entirely.
+mkdir -p /etc/udhcpc
+cat > /etc/udhcpc/default.script <<'UDHCPCDEFAULT'
+#!/bin/sh
+# nclawzero d-i custom udhcpc script — installs resolv.conf with
+# fallback nameservers (8.8.8.8 + 1.1.1.1) ALWAYS present, regardless
+# of what DHCP serves. The LAN router DNS may or may not be reliable;
+# the public anycast resolvers always are.
+#
+# Called by udhcpc with $1 in {deconfig, leasefail, nak, bound, renew}
+# and DHCP options exposed as env vars (interface, ip, subnet, router,
+# dns, domain, ...).
+
+case "$1" in
+    bound|renew)
+        # Configure the IP + default route from DHCP
+        ip addr flush dev "$interface" 2>/dev/null
+        ip addr add "$ip/$(echo "$subnet" | awk -F. '{c=0; for(i=1;i<=4;i++){n=$i; while(n){c+=n%2; n=int(n/2)}}; print c}')" dev "$interface" 2>/dev/null \
+            || ifconfig "$interface" "$ip" netmask "$subnet" 2>/dev/null
+        if [ -n "$router" ]; then
+            for r in $router; do
+                ip route add default via "$r" 2>/dev/null \
+                    || route add default gw "$r" 2>/dev/null
+                break
+            done
         fi
-        sleep 10
-    done
-) &
+        # Build resolv.conf with fallback chain
+        {
+            [ -n "$domain" ] && echo "search $domain"
+            for ns in $dns; do
+                echo "nameserver $ns"
+            done
+            echo "nameserver 8.8.8.8"
+            echo "nameserver 1.1.1.1"
+            echo "options timeout:2 attempts:3"
+        } > /etc/resolv.conf
+        ;;
+    deconfig)
+        ip addr flush dev "$interface" 2>/dev/null
+        ;;
+esac
+exit 0
+UDHCPCDEFAULT
+chmod +x /etc/udhcpc/default.script
+echo "[watcher] installed custom /etc/udhcpc/default.script for resolv.conf fallback chain"
+
+# Belt-and-suspenders: write /etc/resolv.conf NOW with fallback nameservers
+# in case any d-i step uses DNS BEFORE DHCP populates it. udhcpc will
+# overwrite this with the full chain (LAN router + 8.8.8.8 + 1.1.1.1)
+# on first bound event.
+{
+    echo "search nclawzero.lan"
+    echo "nameserver 8.8.8.8"
+    echo "nameserver 1.1.1.1"
+    echo "options timeout:2 attempts:3"
+} > /etc/resolv.conf
+echo "[watcher] pre-DHCP /etc/resolv.conf seeded with public fallbacks"
 
 i=0
 while [ "$i" -lt 600 ]; do
