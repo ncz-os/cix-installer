@@ -23,7 +23,7 @@
 # embedkit Engine.auto() picks at runtime: on Cix Sky1 it sees libnoe
 # + /dev/aipu and selects the npu-cix adapter; on a hypothetical x86
 # variant of this image it would fall back to cpu-llamacpp.
-set -uo pipefail
+set -euo pipefail
 
 ASSETS=/usr/local/lib/cix-installer/assets/embedkit
 MODELS_SRC=/usr/local/lib/cix-installer/assets/models
@@ -56,9 +56,14 @@ elif [ -d "$ASSETS/repo" ]; then
     echo "[47]   installing embedkit from bundled source"
     "$VENV/bin/pip" install --quiet "$ASSETS/repo" 2>&1 | tail -2
 else
-    echo "[47]   WARN: no embedkit wheel/repo bundled; skipping pip install"
-    echo "[47]   operator can run: $VENV/bin/pip install mnemos-embedkit"
+    echo "[47]   WARN: no embedkit wheel/repo bundled; trying PyPI"
+    "$VENV/bin/pip" install --quiet mnemos-embedkit 2>&1 | tail -2
 fi
+
+"$VENV/bin/python" - << 'PY'
+import embedkit
+print(f"[47]   embedkit import OK: {getattr(embedkit, '__version__', 'unknown')}")
+PY
 
 # ----------------------------------------------------------------------
 # 3. Vendor python bindings for the on-device adapters.
@@ -85,6 +90,7 @@ echo "[47]   installing llama-cpp-python (CPU baseline)"
 #    Operator can add more models via `ncz model add ...` post-install.
 # ----------------------------------------------------------------------
 mkdir -p "$MODELS"
+missing_models=()
 for m in bge-small-zh-v1.5_256.cix bge-small-zh-v1.5-q8_0.gguf; do
     src="$MODELS_SRC/$m"
     dst="$MODELS/$m"
@@ -94,9 +100,19 @@ for m in bge-small-zh-v1.5_256.cix bge-small-zh-v1.5-q8_0.gguf; do
     elif [ -f "$dst" ]; then
         echo "[47]   already present: $dst"
     else
-        echo "[47]   WARN: $src not in image — skipping ($m)"
+        echo "[47]   ERROR: $src not in image - missing $m"
+        missing_models+=("$m")
     fi
 done
+
+if [ "${EMBEDKIT_DEFER_NPU:-0}" != "1" ]; then
+    for missing in "${missing_models[@]}"; do
+        if [ "$missing" = "bge-small-zh-v1.5_256.cix" ]; then
+            echo "[47]   ERROR: required Cix NPU model missing; set EMBEDKIT_DEFER_NPU=1 only for explicit defer builds" >&2
+            exit 1
+        fi
+    done
+fi
 
 # README so the operator knows what's in /opt/ncz/models/
 cat > "$MODELS/MODELS-README.md" << 'EOF'
@@ -134,17 +150,17 @@ mkdir -p /var/log/cix-install
     > /var/log/cix-install/47-embedkit-installed.log || true
 
 # ----------------------------------------------------------------------
-# 6. Smoke test (non-fatal — recorded but doesn't halt install)
+# 6. Smoke test (fatal - a missing package must not look installed)
 # ----------------------------------------------------------------------
 echo "[47]   smoke: embedkit.Engine.list_adapters()"
-"$VENV/bin/python" - 2>&1 << 'PY' | head -20 | tee /var/log/cix-install/47-embedkit-smoke.log || true
-try:
-    import embedkit
-    for a in embedkit.Engine.list_adapters():
-        print(f"    {a['tier']:3s} {a['name']:18s} {a['available']!s:5s} {a['reason']}")
-except Exception as e:
-    print(f"  embedkit import failed: {e}")
+if ! "$VENV/bin/python" - 2>&1 << 'PY' | tee /var/log/cix-install/47-embedkit-smoke.log; then
+import embedkit
+for a in embedkit.Engine.list_adapters():
+    print(f"    {a['tier']:3s} {a['name']:18s} {a['available']!s:5s} {a['reason']}")
 PY
+    echo "[47]   ERROR: embedkit smoke failed" >&2
+    exit 1
+fi
 
 echo "[47] done — $(ls $MODELS 2>/dev/null | wc -l) models, venv at $VENV"
 exit 0
