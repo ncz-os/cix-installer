@@ -20,6 +20,35 @@ set -euo pipefail
 
 echo "[33-network] verifying NetworkManager + writing netplan"
 
+# 2026-05-08 take23 (per .66 take22 install: GUI booted, no LAN):
+# MS-R1 ships a Realtek RTL8125 (2.5GbE). Cix's Yocto kernel config
+# uses the out-of-tree Realtek vendor drivers (r8125 + r8126) instead
+# of mainline r8169. The .ko files are present in our modules tarball,
+# but resolute's systemd-modules-load.service has no config telling
+# it to load them, and the PCI alias auto-load path silently fails
+# (likely ABI quirk with these out-of-tree drivers under newer udev).
+#
+# Force-load r8125 + r8126 at every boot via systemd-modules-load.
+# Idempotent (cat > overwrites). belt-and-suspenders: also
+# blacklist mainline r8169 so it doesn't grab the chip first if
+# Ubuntu's userspace ever pulls it in via initramfs.
+install -d -m 0755 /etc/modules-load.d /etc/modprobe.d
+cat > /etc/modules-load.d/ncz-realtek.conf <<'EOF'
+# Realtek RTL8125 / RTL8126 NICs on MS-R1 / Cix Sky1 hardware.
+# Out-of-tree vendor drivers; auto-load via systemd-modules-load.
+r8125
+r8126
+EOF
+cat > /etc/modprobe.d/ncz-blacklist-r8169.conf <<'EOF'
+# Cix linux-cix-msr1 kernel ships out-of-tree r8125 + r8126 vendor
+# drivers; ensure mainline r8169 doesn't claim the same PCI device
+# (would conflict with vendor driver if Ubuntu userspace ever pulls
+# it in).
+blacklist r8169
+EOF
+echo "[33-network] forced-load r8125 + r8126 via /etc/modules-load.d/ncz-realtek.conf"
+
+
 # (a) Hard-fail if NM is not installed. preseed pkgsel/include puts it
 # there; if it is missing, the netinstall apt fetch failed silently and
 # the operator-visible symptom (no network) is exactly what we are
