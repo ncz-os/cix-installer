@@ -4,8 +4,8 @@
 # stages NEXT only.
 #
 # Loader entries (in menu order when all staged kernels exist):
-#   1. cixmini-next.conf   (DEFAULT — Sky1 linux-cix-sky1-next 7.0.x)
-#   2. cixmini-lts.conf    (FALLBACK — Sky1 linux-cix-sky1-lts 6.18.x)
+#   1. cixmini-next+3-0.conf (DEFAULT — Sky1 linux-cix-sky1-next 7.0.x)
+#   2. cixmini-lts.conf      (FALLBACK — Sky1 linux-cix-sky1-lts 6.18.x)
 #   3. cixmini-rescue.conf (rescue.target — defaults to LTS kernel)
 #
 # CRITICAL: systemd-boot's loader entry parser does NOT support
@@ -162,11 +162,12 @@ SPLASH=""
 ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 rw"
 
 # ----------------------------------------------------------------------
-# Stage kernels onto ESP — systemd-boot reads /boot/efi by default.
+# Stage kernels/initrds onto ESP — systemd-boot reads /boot/efi by default.
 #
-# Tolerant: if a kernel image is missing (because 10-our-kernel.sh
-# couldn't install it), log a clear warning and skip writing that
-# loader entry. Don't hard-fail the whole bootloader hook.
+# Tolerant only for an absent kernel image: if a KVER sidecar exists but
+# that kernel was not installed, log a clear warning and skip that entry.
+# A present kernel without a present initrd is a hard error, because it means
+# the required 10-our-kernel.sh initramfs step failed.
 # ----------------------------------------------------------------------
 LTS_AVAILABLE=0
 NEXT_AVAILABLE=0
@@ -174,15 +175,18 @@ LTS_INITRD_AVAILABLE=0
 NEXT_INITRD_AVAILABLE=0
 
 if [ -n "$KVER_LTS" ] && [ -f "/boot/vmlinuz-$KVER_LTS" ]; then
+    if [ ! -s "/boot/initrd.img-$KVER_LTS" ]; then
+        echo "ERROR: /boot/vmlinuz-$KVER_LTS exists but /boot/initrd.img-$KVER_LTS is missing or empty."
+        echo "       Refusing to write an LTS loader entry without an initrd."
+        exit 1
+    fi
     install -m 0644 "/boot/vmlinuz-$KVER_LTS" "/boot/efi/vmlinuz-$KVER_LTS"
     echo "  staged /boot/efi/vmlinuz-$KVER_LTS"
     LTS_AVAILABLE=1
-    # Stage initrd if present (NPU SSDT override is prepended by 80-npu.sh)
-    if [ -f "/boot/initrd.img-$KVER_LTS" ]; then
-        install -m 0644 "/boot/initrd.img-$KVER_LTS" "/boot/efi/initrd.img-$KVER_LTS"
-        echo "  staged /boot/efi/initrd.img-$KVER_LTS"
-        LTS_INITRD_AVAILABLE=1
-    fi
+    # Stage initrd (NPU SSDT override is prepended by 80-npu.sh)
+    install -m 0644 "/boot/initrd.img-$KVER_LTS" "/boot/efi/initrd.img-$KVER_LTS"
+    echo "  staged /boot/efi/initrd.img-$KVER_LTS"
+    LTS_INITRD_AVAILABLE=1
 elif [ -n "$KVER_LTS" ]; then
     echo "  WARN: /boot/vmlinuz-$KVER_LTS missing — LTS entry will be SKIPPED"
 else
@@ -190,14 +194,17 @@ else
 fi
 
 if [ -n "$KVER_NEXT" ] && [ -f "/boot/vmlinuz-$KVER_NEXT" ]; then
+    if [ ! -s "/boot/initrd.img-$KVER_NEXT" ]; then
+        echo "ERROR: /boot/vmlinuz-$KVER_NEXT exists but /boot/initrd.img-$KVER_NEXT is missing or empty."
+        echo "       Refusing to write a NEXT loader entry without an initrd."
+        exit 1
+    fi
     install -m 0644 "/boot/vmlinuz-$KVER_NEXT" "/boot/efi/vmlinuz-$KVER_NEXT"
     echo "  staged /boot/efi/vmlinuz-$KVER_NEXT"
     NEXT_AVAILABLE=1
-    if [ -f "/boot/initrd.img-$KVER_NEXT" ]; then
-        install -m 0644 "/boot/initrd.img-$KVER_NEXT" "/boot/efi/initrd.img-$KVER_NEXT"
-        echo "  staged /boot/efi/initrd.img-$KVER_NEXT"
-        NEXT_INITRD_AVAILABLE=1
-    fi
+    install -m 0644 "/boot/initrd.img-$KVER_NEXT" "/boot/efi/initrd.img-$KVER_NEXT"
+    echo "  staged /boot/efi/initrd.img-$KVER_NEXT"
+    NEXT_INITRD_AVAILABLE=1
 elif [ -n "$KVER_NEXT" ]; then
     echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — BETA entry will be SKIPPED"
 fi

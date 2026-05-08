@@ -48,6 +48,7 @@ echo "[09] $DIAG_USER added to: sudo adm dialout plugdev video audio render inpu
 
 # Passwordless sudo via dedicated drop-in (so removal is one-line).
 SUDOERS=/etc/sudoers.d/09-diag-magnetar
+install -d -m 0755 /etc/sudoers.d
 cat > "$SUDOERS" <<EOF
 # TEMPORARY — testing-only diagnostic account. Remove before distribution.
 # See post-install/09-diag-account.sh for context.
