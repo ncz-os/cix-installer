@@ -15,7 +15,7 @@ set -euo pipefail
 echo "[25] adding CIX official PPA (archive.cixtech.com)"
 
 # r78 netinstall note: this hook is the only source of CIX-specific .debs
-# because the ISO carries no embedded questing mirror. Keep archive/network
+# because the ISO carries no embedded resolute mirror. Keep archive/network
 # failures warn-and-continue unless dpkg lands in a known-bad partial state.
 
 # Trust CIX's signing key only after fingerprint verification.
@@ -96,7 +96,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     cix-noe-umd 2>&1 | tail -3 || echo "[25] cix-noe-umd not installable (network/headers issue)"
 
 # r75 P3: cix-noe-umd's postinst runs `pip install libnoe`; that wheel
-# requires Python <3.13. Ubuntu 25.10 questing ships Python 3.13.7, so
+# requires Python <3.13. Ubuntu 26.04 resolute is still newer than that, so
 # postinst fails and apt is left wedged with cix-noe-umd in iF state.
 # The C library we actually use (libnoe.so via ctypes wrapper in
 # npu_embed_v2.py) is installed by the package's data tar before

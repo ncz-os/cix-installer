@@ -71,7 +71,7 @@ Form factor: both are mini-PC-class. Cix targets desktop/server; Jetson targets 
 
 ### 1. Mali Vulkan via Mesa panvk — functional, but not perf-positive at LLM scale
 
-The path is now working as of 2026-05-06 after upgrading from Ubuntu 25.10's Mesa 25.2.8 to Sky1-Linux's Mesa 26.0.0-1sky1.2 + booting kernel 7.0.3-cix-sky1-next (newer panthor + CSF firmware) + adding the user to the `render` group. Mali-G720 MC10 enumerates as Vulkan device 0; llama.cpp completes Gemma 4 E4B Q4_K_M inference end-to-end without crash:
+The path is now working as of 2026-05-06 with a Mesa 26-class stack: resolute stock Mesa is 26.0.3, while the r74 hardware validation path used Sky1-Linux's Mesa 26.0.0-1sky1.2 + kernel 7.0.3-cix-sky1-next (newer panthor + CSF firmware) + render-group access. Mali-G720 MC10 enumerates as Vulkan device 0; llama.cpp completes Gemma 4 E4B Q4_K_M inference end-to-end without crash:
 
 ```
 Gemma 4 E4B Q4_K_M on Mali-G720 (panvk, Mesa 26.0, kernel 7.0.3 panthor)
@@ -160,7 +160,7 @@ This section covers the engineering progress story — the Linux distro side of 
 
 ### Worked
 
-- **Custom debian-installer (`cix-installer`)** with bookworm-d-i busybox base + trixie udeb graft (debootstrap, libzstd, base-installer 1.226). Boots Ubuntu 25.10 questing on Cix Sky1 from a flashable USB ISO. Currently r74 ship.
+- **Custom debian-installer (`cix-installer`)** with bookworm-d-i busybox base + trixie udeb graft (debootstrap, libzstd, base-installer 1.226). Boots Ubuntu 26.04 resolute on Cix Sky1 from a flashable USB ISO. Currently r74 ship.
 - **Dual-kernel ship** — `linux-cix-sky1` 6.18.26 LTS + 7.0.3 NEXT both baked into the same ISO. Kernel selection via systemd-boot loader entry.
 - **NPU end-to-end** — kernel module (FyrbyAdditive's port) + `cix-noe-umd` userspace + `libaipu_driver.so` + custom Python ctypes wrapper. `bge-small-zh.cix` at 50 inf/sec validated.
 - **Mali GPU visible to Vulkan** — Mesa 25.2.8 panvk reports the device cleanly; basic compute works for short-lived workloads.

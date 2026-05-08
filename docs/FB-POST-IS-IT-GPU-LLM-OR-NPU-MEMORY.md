@@ -86,7 +86,7 @@
 >
 > ---
 >
-> Test stack: NCZ 26.5 "Reinhardt" (Ubuntu 25.10 questing on Cix Sky1, dual-kernel 6.18 LTS / 7.0.3 NEXT) — `gitlab.com/nclawzero/cix-installer`. Embeddings via FyrbyAdditive's NPU port + `cix-noe-umd 2.0.2` + custom Python wrapper. LLMs via llama.cpp Vulkan with Mesa 26 panvk from Sky1-Linux. Honest math, all numbers reproducible — happy to share the install scripts.
+> Test stack: NCZ 26.5 "Reinhardt" (Ubuntu 26.04 resolute on Cix Sky1, dual-kernel 6.18 LTS / 7.0.3 NEXT) — `gitlab.com/nclawzero/cix-installer`. Embeddings via FyrbyAdditive's NPU port + `cix-noe-umd 2.0.2` + custom Python wrapper. LLMs via llama.cpp Vulkan with Mesa 26 panvk from Sky1-Linux. Honest math, all numbers reproducible — happy to share the install scripts.
 >
 > [link to NCZ Reinhardt r74 release]
 

@@ -49,7 +49,7 @@ for f in mali_csffw.bin arm/mali_csffw.bin arm/mali/mali_csffw.bin dsp_fw.bin h2
 done
 
 # r49: kernel 6.18.26-cix-sky1-lts may lack CONFIG_FW_LOADER_COMPRESS_ZSTD,
-# so .zst-compressed firmware blobs (Ubuntu questing default for linux-firmware)
+# so .zst-compressed firmware blobs (Ubuntu resolute default for linux-firmware)
 # fail to load with -2 (ENOENT). MT7921e WiFi was bricked in r45-r48 because of
 # this. Decompress all .zst firmware in-place so the bare-name kernel requests
 # work. zstd is in the rootfs (we added it via TYPHON SERVER_PACKAGES).

@@ -5,7 +5,7 @@
 # UEFI on MS-R1, with two extensions:
 #   1. Latest post-install hooks (incl. mali_csffw.bin symlink fix)
 #   2. late_command swaps /etc/apt/sources.list from Debian to Ubuntu
-#      after Debian 12 base lands, then apt full-upgrade to Ubuntu noble.
+#      after Debian 12 base lands, then apt full-upgrade to Ubuntu resolute.
 #      End-state is an Ubuntu system on disk with our Sky1 LTS kernel.
 #
 # Why d-i not casper: r17-r24 proved Ubuntu casper kernel-panics on Sky1
@@ -29,8 +29,8 @@ Usage: build/build-iso-di.sh --bookworm-iso PATH --root PATH --version VERSION -
 
 Options:
   --mode {full|thin|netinstall|netinstall-bootstrap}
-      full       default; bundled rootfs.tar.zst + embedded questing mirror
-      thin       embedded questing mirror, real debootstrap, no rootfs.tar.zst
+      full       default; bundled rootfs.tar.zst + embedded resolute mirror
+      thin       embedded resolute mirror, real debootstrap, no rootfs.tar.zst
       netinstall canonical ports.ubuntu.com debootstrap, NEXT kernel only, <500 MB
       netinstall-bootstrap
                  netinstall + local pkgsel bootstrap pool, still <1 GB
@@ -189,7 +189,7 @@ BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 BUILD_HOST=$(hostname -s 2>/dev/null || echo unknown)
 
 # r27-compat-fix:
-# Ubuntu questing .debs use control.tar.zst/data.tar.zst. Bookworm d-i's
+# Ubuntu resolute .debs use control.tar.zst/data.tar.zst. Bookworm d-i's
 # bootstrap extractor recognizes the member but shells out to zstdcat, which
 # the busybox initrd does not ship. Build or reuse a static arm64 zstd and add
 # it to the initrd as a separate concatenated cpio member.
@@ -261,7 +261,7 @@ prepare_static_zstd_aarch64() {
 # r27-compat-fix:
 # Fail fast on package member formats that this bookworm d-i flow does not
 # handle. zstd is allowed because we append zstdcat below; lzma is deliberately
-# rejected because this initrd has no lzmacat symlink and questing should not
+# rejected because this initrd has no lzmacat symlink and resolute should not
 # need it. If it appears, use REPACK_DEBS_TO_XZ=1 in build-mirror.sh.
 check_deb_member_formats_for_di() {
     local root="$1"
@@ -308,7 +308,7 @@ write_component_release_files() {
         cat > "$dir/Release" <<EOF
 Archive: stable
 Origin: nclawzero
-Label: nclawzero-cixmini-questing
+Label: nclawzero-cixmini-resolute
 Version: 1.0
 Acquire-By-Hash: yes
 Component: $component
@@ -474,14 +474,14 @@ else
     echo "    d-i substrate codename: $DI_CODENAME"
 fi
 
-# Match Debian DVD structure EXACTLY: ONE suite (questing) with TWO
+# Match Debian DVD structure EXACTLY: ONE suite (resolute) with TWO
 # indexes (regular debs + debian-installer udebs) under main/. No
 # leftover dists/<substrate>/ to confuse anna. Substrate's udebs are
-# merged INTO the questing pool, and substrate's debian-installer
-# Packages.gz is moved INTO dists/questing/main/debian-installer/.
+# merged INTO the resolute pool, and substrate's debian-installer
+# Packages.gz is moved INTO dists/resolute/main/debian-installer/.
 #
 # Step 1: capture substrate's udebs and udeb index BEFORE we nuke them
-echo "    capturing $DI_CODENAME udebs + udeb index (will merge into questing)"
+echo "    capturing $DI_CODENAME udebs + udeb index (will merge into resolute)"
 TMP_UDEBS="$STAGING/.tmp-substrate-udebs"
 rm -rf "$TMP_UDEBS"
 mkdir -p "$TMP_UDEBS/pool" "$TMP_UDEBS/dists-installer"
@@ -501,14 +501,14 @@ fi
 echo "    dropping $DI_CODENAME pool/, dists/, doc/, firmware/"
 rm -rf "$STAGING/pool" "$STAGING/dists" "$STAGING/doc" "$STAGING/firmware" 2>/dev/null || true
 
-# Step 3: embed our offline questing mirror or bootstrap pool
-MIRROR_DIR="${MIRROR_DIR:-$ROOT/build/questing-mirror}"
+# Step 3: embed our offline resolute mirror or bootstrap pool
+MIRROR_DIR="${MIRROR_DIR:-$ROOT/build/resolute-mirror}"
 if [ "$EMBED_MIRROR" = "1" ]; then
     if [ -d "$MIRROR_DIR/pool" ] && [ -d "$MIRROR_DIR/dists" ]; then
-        echo "    embedding questing mirror from $MIRROR_DIR"
+        echo "    embedding resolute mirror from $MIRROR_DIR"
         cp -a "$MIRROR_DIR/pool"  "$STAGING/pool"
         cp -a "$MIRROR_DIR/dists" "$STAGING/dists"
-        echo "    questing mirror embedded: $(du -sh "$STAGING/pool" "$STAGING/dists" | head -1 | cut -f1)"
+        echo "    resolute mirror embedded: $(du -sh "$STAGING/pool" "$STAGING/dists" | head -1 | cut -f1)"
     else
         echo "    ERROR: $MIRROR_DIR missing — abort"
         exit 1
@@ -516,8 +516,8 @@ if [ "$EMBED_MIRROR" = "1" ]; then
 else
     mkdir -p "$STAGING/pool" "$STAGING/dists"
     if [ "$BOOTSTRAP_POOL" = "1" ]; then
-        BOOTSTRAP_POOL_DIR="${BOOTSTRAP_POOL_DIR:-$ROOT/build/questing-bootstrap-pool}"
-        BOOTSTRAP_POOL_CHROOT="${BOOTSTRAP_POOL_CHROOT:-$ROOT/build/questing-bootstrap}"
+        BOOTSTRAP_POOL_DIR="${BOOTSTRAP_POOL_DIR:-$ROOT/build/resolute-bootstrap-pool}"
+        BOOTSTRAP_POOL_CHROOT="${BOOTSTRAP_POOL_CHROOT:-$ROOT/build/resolute-bootstrap}"
         BOOTSTRAP_POOL_UPSTREAM="${BOOTSTRAP_POOL_UPSTREAM:-http://ports.ubuntu.com/ubuntu-ports}"
 
         if [ "${REFRESH_BOOTSTRAP_POOL:-0}" = "1" ] || [ ! -d "$BOOTSTRAP_POOL_DIR/pool" ] || [ ! -d "$BOOTSTRAP_POOL_DIR/dists" ]; then
@@ -525,7 +525,7 @@ else
             "$ROOT/build/build-bootstrap-pool.sh" \
                 "$BOOTSTRAP_POOL_CHROOT" \
                 "$BOOTSTRAP_POOL_DIR" \
-                questing \
+                resolute \
                 arm64 \
                 "$BOOTSTRAP_POOL_UPSTREAM"
         fi
@@ -540,16 +540,16 @@ else
             exit 1
         fi
     else
-        echo "    netinstall mode: skipping embedded questing mirror"
+        echo "    netinstall mode: skipping embedded resolute mirror"
     fi
 fi
 
-# Step 4: merge bookworm udebs into questing pool/main/<letter>/<pkg>/
-echo "    merging bookworm udebs into questing pool/"
+# Step 4: merge bookworm udebs into resolute pool/main/<letter>/<pkg>/
+echo "    merging bookworm udebs into resolute pool/"
 if [ -d "$TMP_UDEBS/pool" ]; then
     cp -a "$TMP_UDEBS/pool/." "$STAGING/pool/"
     MERGED=$(find "$STAGING/pool" -name '*.udeb' | wc -l)
-    echo "    pool/ now has $MERGED udebs alongside the questing debs"
+    echo "    pool/ now has $MERGED udebs alongside the resolute debs"
 fi
 
 # Step 4.5: GRAFT trixie's debootstrap + zstd shell-side udebs onto bookworm.
@@ -568,7 +568,7 @@ fi
 #
 # Net flow at install time: bookworm bootstrap-base.run-debootstrap (libc 2.36
 # compatible) -> exec /usr/sbin/debootstrap (trixie shell, zstd-aware) -> reads
-# control.tar.zst/data.tar.zst from offline questing mirror successfully.
+# control.tar.zst/data.tar.zst from offline resolute mirror successfully.
 #
 # 2026-05-08 take13: when the substrate IS trixie, this graft is a no-op —
 # trixie's own debootstrap-udeb / libzstd1-udeb / liblzma5-udeb are already
@@ -914,19 +914,19 @@ DEBOOTSTRAP_NEW_UDEB="$DEBOOTSTRAP_PATCH_TMP/$(basename "$DEBOOTSTRAP_UDEB")"
 mv "$DEBOOTSTRAP_NEW_UDEB" "$DEBOOTSTRAP_UDEB"
 rm -rf "$DEBOOTSTRAP_PATCH_TMP"
 
-# Step 5: regenerate dists/questing/main/debian-installer/binary-arm64/Packages
+# Step 5: regenerate dists/resolute/main/debian-installer/binary-arm64/Packages
 # from the actual pool contents (not just copy bookworm's stale Packages).
 # After the trixie graft, the d-i Packages index MUST reflect the new udeb set
 # or anna can't find the new udebs.
 echo "    regenerating udeb Packages index from actual pool contents"
-mkdir -p "$STAGING/dists/questing/main/debian-installer/binary-arm64"
+mkdir -p "$STAGING/dists/resolute/main/debian-installer/binary-arm64"
 (
     cd "$STAGING"
     dpkg-scanpackages --type udeb --multiversion pool/main /dev/null 2>/dev/null \
-        > dists/questing/main/debian-installer/binary-arm64/Packages
-    gzip -9cn dists/questing/main/debian-installer/binary-arm64/Packages \
-        > dists/questing/main/debian-installer/binary-arm64/Packages.gz
-    UDEBCT=$(grep -c '^Package: ' dists/questing/main/debian-installer/binary-arm64/Packages || echo 0)
+        > dists/resolute/main/debian-installer/binary-arm64/Packages
+    gzip -9cn dists/resolute/main/debian-installer/binary-arm64/Packages \
+        > dists/resolute/main/debian-installer/binary-arm64/Packages.gz
+    UDEBCT=$(grep -c '^Package: ' dists/resolute/main/debian-installer/binary-arm64/Packages || echo 0)
     echo "    udeb Packages: $UDEBCT entries indexed"
 )
 
@@ -935,7 +935,7 @@ if [ "$EMBED_MIRROR" = "0" ] && [ "$BOOTSTRAP_POOL" = "0" ]; then
     # Codex R78-INVALID-RELEASE-AUDIT):
     #
     # take7 attempted to force base-installer onto the http mirror by
-    # removing /cdrom/dists/questing/main/binary-arm64 entirely. That
+    # removing /cdrom/dists/resolute/main/binary-arm64 entirely. That
     # broke debootstrap's Release validation — it sees Components: main
     # declared but no main/binary-arm64/Packages hashes → "Invalid
     # Release file" red dialog.
@@ -946,41 +946,41 @@ if [ "$EMBED_MIRROR" = "0" ] && [ "$BOOTSTRAP_POOL" = "0" ]; then
     # is consistent with `Components: main` and anna can still find
     # main/debian-installer/binary-arm64/Packages for udeb loading.
     echo "    netinstall mode: writing empty regular Packages index for Release-file consistency"
-    mkdir -p "$STAGING/dists/questing/main/binary-arm64"
-    : > "$STAGING/dists/questing/main/binary-arm64/Packages"
-    gzip -9cn "$STAGING/dists/questing/main/binary-arm64/Packages" \
-        > "$STAGING/dists/questing/main/binary-arm64/Packages.gz"
+    mkdir -p "$STAGING/dists/resolute/main/binary-arm64"
+    : > "$STAGING/dists/resolute/main/binary-arm64/Packages"
+    gzip -9cn "$STAGING/dists/resolute/main/binary-arm64/Packages" \
+        > "$STAGING/dists/resolute/main/binary-arm64/Packages.gz"
 elif [ "$BOOTSTRAP_POOL" = "1" ]; then
-    if [ ! -s "$STAGING/dists/questing/main/binary-arm64/Packages" ]; then
+    if [ ! -s "$STAGING/dists/resolute/main/binary-arm64/Packages" ]; then
         echo "ERROR: bootstrap pool did not provide a non-empty regular Packages index" >&2
         exit 1
     fi
-    BOOTSTRAP_DEBCT=$(grep -c '^Package: ' "$STAGING/dists/questing/main/binary-arm64/Packages" || echo 0)
+    BOOTSTRAP_DEBCT=$(grep -c '^Package: ' "$STAGING/dists/resolute/main/binary-arm64/Packages" || echo 0)
     echo "    bootstrap pool regular Packages: $BOOTSTRAP_DEBCT entries indexed"
 fi
 
-# Step 6: regenerate dists/questing/Release to include BOTH the regular
+# Step 6: regenerate dists/resolute/Release to include BOTH the regular
 # Packages indexes AND the debian-installer Packages indexes. apt-ftparchive
-# reads the entire dists/questing/ tree and computes hashes for everything.
-echo "    regenerating dists/questing/Release with both regular + udeb indexes"
+# reads the entire dists/resolute/ tree and computes hashes for everything.
+echo "    regenerating dists/resolute/Release with both regular + udeb indexes"
 (
     cd "$STAGING"
-    write_translation_indexes questing main
-    write_component_release_files questing arm64
+    write_translation_indexes resolute main
+    write_component_release_files resolute arm64
     if [ "$EMBED_MIRROR" = "1" ]; then
-        write_suite_release questing arm64 main "nclawzero cixmini offline mirror — questing arm64 (regular + udebs)"
+        write_suite_release resolute arm64 main "nclawzero cixmini offline mirror — resolute arm64 (regular + udebs)"
     elif [ "$BOOTSTRAP_POOL" = "1" ]; then
-        write_suite_release questing arm64 main "nclawzero cixmini netinstall bootstrap pool - questing arm64"
+        write_suite_release resolute arm64 main "nclawzero cixmini netinstall bootstrap pool - resolute arm64"
     else
-        write_suite_release questing arm64 main "nclawzero cixmini netinstall udeb substrate — questing arm64"
+        write_suite_release resolute arm64 main "nclawzero cixmini netinstall udeb substrate — resolute arm64"
     fi
 )
 echo "    Release file regenerated:"
-head -16 "$STAGING/dists/questing/Release" | sed 's/^/      /'
+head -16 "$STAGING/dists/resolute/Release" | sed 's/^/      /'
 
 # r27-compat-fix:
 # Verify the actual embedded mirror payload formats before we build an ISO.
-# This is the authoritative check for "what Questing packages use" in this
+# This is the authoritative check for "what Resolute packages use" in this
 # offline image.
 check_deb_member_formats_for_di "$STAGING" "$STAGING/.deb-format-report.tsv"
 
@@ -1008,16 +1008,16 @@ fi
 printf 'dvd\n' > "$STAGING/.disk/cd_type"
 case "$MODE" in
     netinstall)
-        printf 'nclawzero cixmini questing - Netinstall arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'nclawzero cixmini resolute - Netinstall arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
     netinstall-bootstrap)
-        printf 'nclawzero cixmini questing - Netinstall Bootstrap arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'nclawzero cixmini resolute - Netinstall Bootstrap arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
     thin)
-        printf 'nclawzero cixmini questing - Thin arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'nclawzero cixmini resolute - Thin arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
     *)
-        printf 'nclawzero cixmini questing - Offline arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'nclawzero cixmini resolute - Offline arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
 esac
 # .disk/udeb_include: tells d-i to use our network-console udeb etc.
@@ -1218,9 +1218,9 @@ rm -f "$OVERLAY_GZ"
 echo "    initrd.gz now: $(du -h "$STAGING/install.a64/initrd.gz" | cut -f1)"
 
 # ----------------------------------------------------------------------
-# Step 3.1 — append zstd tools for questing data.tar.zst/control.tar.zst
+# Step 3.1 — append zstd tools for resolute data.tar.zst/control.tar.zst
 # ----------------------------------------------------------------------
-echo "[3.1] appending zstdcat for questing .deb extraction"
+echo "[3.1] appending zstdcat for resolute .deb extraction"
 
 # r27-compat-fix:
 # d-i's bootstrap extractor shells out to zstdcat for .tar.zst members.
@@ -1356,10 +1356,10 @@ echo "$VARIANT"     > "$EXTRA/BUILD_VARIANT"   # r75 M1: read by 48-magnetar-var
 # r40 full mode: stage the pre-built rootfs tarball so the debootstrap stub
 # can populate /target without a real bootstrap.
 if [ "$STAGE_ROOTFS" = "1" ]; then
-    ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-questing-arm64.tar.zst"
+    ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst"
     if [ -f "$ROOTFS_TARBALL" ]; then
         cp -L "$ROOTFS_TARBALL" "$EXTRA/rootfs.tar.zst"
-        echo "    rootfs.tar.zst staged: $(du -h "$EXTRA/rootfs.tar.zst" | cut -f1) (questing arm64 pre-built target)"
+        echo "    rootfs.tar.zst staged: $(du -h "$EXTRA/rootfs.tar.zst" | cut -f1) (resolute arm64 pre-built target)"
     else
         echo "ERROR: $ROOTFS_TARBALL missing — run build-rootfs.sh first" >&2
         exit 1
@@ -1433,7 +1433,7 @@ echo ""
 echo "               N C X   2 6 . 5   I N S T A L L E R"
 echo ""
 echo "                cixmini  ·  Sky1 / CP8180"
-echo "                  ARM64  ·  questing 25.10"
+echo "                  ARM64  ·  resolute 26.04"
 echo ""
 echo "                     $VERSION"
 echo "                     \"$CODENAME\""

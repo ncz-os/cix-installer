@@ -59,7 +59,7 @@ bootstrap-pool.install-plan.txt
 ```
 
 The observed take16/take20 failures should be represented in that closure
-where they are still current questing package names:
+where they are still current resolute package names:
 
 ```text
 libcbor0.10 libfido2-1 openssh-client openssh-sftp-server libwrap0
@@ -69,7 +69,7 @@ libassuan9 gpgconf libksba8 libnpth0t64 dirmngr gpg pinentry-curses
 gpg-agent gpgsm gnupg openssh-server lsb-release sudo ca-certificates
 ```
 
-Questing is a development suite, so package names and versions can roll. This
+Resolute is a development suite, so package names and versions can roll. This
 patch accepts "current at bake time" and records the exact package manifest in
 the build output. A future deterministic variant can point `BOOTSTRAP_POOL_UPSTREAM`
 at an apt snapshot URL.
@@ -93,7 +93,7 @@ to `/target/cdrom`, so apt running inside `/target` can read the ISO through a
 plain file source:
 
 ```text
-deb [trusted=yes] file:///cdrom questing main
+deb [trusted=yes] file:///cdrom resolute main
 ```
 
 The hook writes an apt preferences file:
@@ -173,13 +173,13 @@ Patch shape:
 +        "$ROOT/build/build-bootstrap-pool.sh" \
 +            "$BOOTSTRAP_POOL_CHROOT" \
 +            "$BOOTSTRAP_POOL_DIR" \
-+            questing arm64 "$BOOTSTRAP_POOL_UPSTREAM"
++            resolute arm64 "$BOOTSTRAP_POOL_UPSTREAM"
 @@
 -if [ "$EMBED_MIRROR" = "0" ]; then
 +if [ "$EMBED_MIRROR" = "0" ] && [ "$BOOTSTRAP_POOL" = "0" ]; then
 @@
 +elif [ "$BOOTSTRAP_POOL" = "1" ]; then
-+    [ -s "$STAGING/dists/questing/main/binary-arm64/Packages" ] || exit 1
++    [ -s "$STAGING/dists/resolute/main/binary-arm64/Packages" ] || exit 1
 @@
 -if [ "$MODE" = "netinstall" ]; then
 +if [ "$MODE" = "netinstall" ] || [ "$MODE" = "netinstall-bootstrap" ]; then
@@ -212,7 +212,7 @@ Patch shape:
 @@
 -if [ -e /cdrom/.disk/base_installable ]; then
 +if [ -e /cdrom/.disk/base_installable ] || \
-+   [ -s /cdrom/dists/questing/main/binary-arm64/Packages ]; then
++   [ -s /cdrom/dists/resolute/main/binary-arm64/Packages ]; then
 +    # keep /cdrom bind-mounted in /target and preserve the same pin
 ```
 
@@ -227,7 +227,7 @@ Build:
 
 ```sh
 REFRESH_BOOTSTRAP_POOL=1 \
-BOOTSTRAP_POOL_CHROOT=/path/to/questing-arm64-chroot \
+BOOTSTRAP_POOL_CHROOT=/path/to/resolute-arm64-chroot \
 bash build/build-iso-di.sh \
   --mode netinstall-bootstrap \
   --bookworm-iso /path/to/debian-arm64-netinst.iso \
@@ -240,8 +240,8 @@ ISO inspection before flashing:
 
 ```sh
 bsdtar -tf take21.iso | rg '^pool/main/.+\.deb$' | wc -l
-bsdtar -xOf take21.iso dists/questing/main/binary-arm64/Packages | rg '^Package: (openssh-server|ca-certificates|curl|gnupg|lsb-release|sudo)$'
-bsdtar -xOf take21.iso dists/questing/Release | rg '^(Origin|Suite|Codename|Components):'
+bsdtar -xOf take21.iso dists/resolute/main/binary-arm64/Packages | rg '^Package: (openssh-server|ca-certificates|curl|gnupg|lsb-release|sudo)$'
+bsdtar -xOf take21.iso dists/resolute/Release | rg '^(Origin|Suite|Codename|Components):'
 bsdtar -xOf take21.iso cixmini/preseed.cfg | rg 'pkgsel/upgrade|apt-setup/use_mirror|apt-cdrom-setup/no-cd'
 ```
 
@@ -257,7 +257,7 @@ d-i pkgsel/upgrade select none
 During take21, before or during pkgsel:
 
 ```sh
-bash tools/di-diag.sh 192.168.207.66 'echo ==pool==; ls -lh /cdrom/dists/questing/main/binary-arm64/Packages* 2>&1; grep -c "^Package: " /cdrom/dists/questing/main/binary-arm64/Packages 2>&1; echo ==apt-source==; cat /target/etc/apt/sources.list.d/cixmini-cdrom.list 2>&1; echo ==pin==; cat /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref 2>&1; echo ==policy==; chroot /target apt-cache policy openssh-server curl gnupg sudo ca-certificates lsb-release 2>&1 | sed -n "1,160p"; echo ==hook-log==; grep -E "ncz-bootstrap-pool|pkgsel" /var/log/early_command.log /var/log/syslog 2>/dev/null | tail -80'
+bash tools/di-diag.sh 192.168.207.66 'echo ==pool==; ls -lh /cdrom/dists/resolute/main/binary-arm64/Packages* 2>&1; grep -c "^Package: " /cdrom/dists/resolute/main/binary-arm64/Packages 2>&1; echo ==apt-source==; cat /target/etc/apt/sources.list.d/cixmini-cdrom.list 2>&1; echo ==pin==; cat /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref 2>&1; echo ==policy==; chroot /target apt-cache policy openssh-server curl gnupg sudo ca-certificates lsb-release 2>&1 | sed -n "1,160p"; echo ==hook-log==; grep -E "ncz-bootstrap-pool|pkgsel" /var/log/early_command.log /var/log/syslog 2>/dev/null | tail -80'
 ```
 
 Expected:

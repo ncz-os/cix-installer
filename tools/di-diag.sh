@@ -134,7 +134,7 @@ if {$inter == 1} {
     send -- "$cmd\r"
     send -- "rc=\$?; echo $marker:\$rc\r"
     expect {
-        -re "$marker:([0-9]+)" { set remote_rc $expect_out(1,string) }
+        -re "$marker:(\[0-9\]+)" { set remote_rc $expect_out(1,string) }
         timeout {
             send_user "\ncommand timed out waiting for completion marker\n"
             set remote_rc 124

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 20-desktop.sh — XFCE on LightDM (questing's GDM/Wayland on Mali panthor → black screen).
+# 20-desktop.sh — XFCE on LightDM (resolute's GDM/Wayland on Mali panthor → black screen).
 # r52: LightDM + Xorg + XFCE = reliable; xrdp for remote access.
 set -euo pipefail
 
@@ -16,22 +16,22 @@ case "$VARIANT" in
         ;;
 esac
 
-# Drop bogus cdrom-list left over from d-i + use online questing ports repo
+# Drop bogus cdrom-list left over from d-i + use online resolute ports repo
 rm -f /etc/apt/sources.list.d/cixmini-cdrom.list 2>/dev/null
 cat > /etc/apt/sources.list <<'APT'
-deb http://ports.ubuntu.com/ubuntu-ports questing main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports questing-updates main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports questing-security main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports questing-backports main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports resolute main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports resolute-updates main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports resolute-backports main universe restricted multiverse
 APT
 
 apt-get update -q
 
-# Pre-purge gdm3 if present in the rootfs.tar.zst (questing's default DM).
+# Pre-purge gdm3 if present in the rootfs.tar.zst (resolute's default DM).
 # Without this, both gdm3 and lightdm fight for /etc/systemd/system/display-manager.service
 # and the resulting boot lands on a black screen.
 if dpkg -l gdm3 2>/dev/null | grep -q '^ii'; then
-    echo "[20] purging gdm3 (questing default DM, conflicts with lightdm)"
+    echo "[20] purging gdm3 (resolute default DM, conflicts with lightdm)"
     DEBIAN_FRONTEND=noninteractive apt-get purge -y gdm3 ubuntu-session 2>&1 | tail -3 || true
     rm -f /etc/systemd/system/display-manager.service
 fi
@@ -208,8 +208,8 @@ After install, log out, then pick the flavor at the LightDM greeter (gear icon).
 
 # What does NOT work yet (r52)
 
-- GNOME (gnome-shell on Wayland) — blocked on Mesa panvk gaps + questing GDM-only Wayland
-- KDE Plasma 6 — questing dropped X11 startplasma, Wayland-only
+- GNOME (gnome-shell on Wayland) — blocked on Mesa panvk gaps + resolute GDM-only Wayland
+- KDE Plasma 6 — resolute dropped X11 startplasma, Wayland-only
 - Sway / Hyprland — Wayland deps, same panvk gaps
 - Cinnamon — muffin (mutter fork), likely same issues
 
@@ -221,7 +221,7 @@ echo "[20] flavor docs at /usr/share/ncx/flavors/README.md"
 # Real chromium via Flathub (arm64). Vivaldi as primary. Falkon + Epiphany as Qt/WebKit alternatives.
 # Brave is amd64-only on apt — no ARM64 .deb published.
 #
-# Pre-create the Qt5 dir falkon's postinst expects (questing is Qt6-only by default; falkon postinst
+# Pre-create the Qt5 dir falkon's postinst expects (resolute is Qt6-only by default; falkon postinst
 # tries `ln -s ../hunspell-bdic /usr/share/qt5/qtwebengine_dictionaries` and fails without it).
 mkdir -p /usr/share/qt5/qtwebengine_dictionaries
 

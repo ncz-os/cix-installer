@@ -24,7 +24,7 @@ We've been doing systematic benchmarking of the Cix Sky1 / CD8180 SoC for agenti
 
 **Hardware setup:**
 - Minisforum MS-R1 (Cix CD8180), 64 GB unified RAM premium SKU, kernel 7.0.3-cix-sky1-next, NCZ Reinhardt 26.5 r74 distro
-- Mali-G720 panvk + kernel panthor with Sky1-Linux Mesa 26.0.0-1sky1.2 (after upgrading from Ubuntu 25.10's stock Mesa 25.2.8 which has a panvk command-buffer pool bug)
+- Mali-G720 panvk + kernel panthor with Sky1-Linux Mesa 26.0.0-1sky1.2 (resolute stock Mesa is 26.0.3; Sky1-Linux remains the validation baseline)
 - Cix Z3 NPU via FyrbyAdditive's aipu kernel module port + libnoe.so.0.6.0 + libaipu_driver.so + custom Python ctypes wrapper
 - bge-small-zh-v1.5 256-token .cix model from `cixtech/ai_model_hub`
 
@@ -63,7 +63,7 @@ What we can say honestly: **at this harness, on this workload, neither accelerat
 
 4. **No transformer-attention support documented as in-development.** We've seen multiple reports (visorcraft, our own attempts via Zhouyi Execution Provider, Cixtech's own [ai_model_hub#1](https://github.com/cixtech/ai_model_hub/issues/1) thread) that transformer attention layers are not currently mappable to Z3. **Ask:** is there a public roadmap for transformer-attention support, even if speculative? Knowing that "attention is on the roadmap for v3.x of Compass" vs "attention is not planned" lets community make different deployment decisions today.
 
-5. **`cix-noe-umd` deb postinst pip-installs libnoe wheel locked to Python 3.11/3.12.** Ubuntu 25.10 ships Python 3.13.7; the postinst always fails on current Ubuntu. We patched ours locally to gracefully degrade. **Ask:** can a wheel for Python 3.13+ be added, or the postinst made tolerant of Python version skew? This bites every Ubuntu-25.10-or-newer user.
+5. **`cix-noe-umd` deb postinst pip-installs libnoe wheel locked to Python 3.11/3.12.** Ubuntu 26.04 ships Python >=3.13; the postinst always fails on current Ubuntu. We patched ours locally to gracefully degrade. **Ask:** can a wheel for Python 3.13+ be added, or the postinst made tolerant of Python version skew? This bites every Ubuntu-26.04-or-newer user.
 
 **What we're shipping:**
 - The benchmark harness, results, and Python ctypes wrapper are open in `gitlab.com/nclawzero/cix-installer/docs/`
@@ -97,7 +97,7 @@ NCZ Reinhardt project maintainer
 
 **硬件配置:**
 - Minisforum MS-R1 (Cix CD8180), 64 GB 统一内存高端版本, 内核 7.0.3-cix-sky1-next, NCZ Reinhardt 26.5 r74 发行版
-- Mali-G720 panvk + 内核 panthor + Sky1-Linux Mesa 26.0.0-1sky1.2 (Ubuntu 25.10 的 Mesa 25.2.8 有 panvk 命令缓冲池 bug,升级后修复)
+- Mali-G720 panvk + 内核 panthor + Sky1-Linux Mesa 26.0.0-1sky1.2 (Ubuntu resolute Mesa 26.0.3; Sky1-Linux validation baseline)
 - Cix Z3 NPU 通过 FyrbyAdditive 的 aipu 内核模块移植 + libnoe.so.0.6.0 + libaipu_driver.so + 自定义 Python ctypes 包装器
 - bge-small-zh-v1.5 256-token .cix 模型(来自 `cixtech/ai_model_hub`)
 
@@ -136,7 +136,7 @@ PYTHIA Intel CPU        27.17 嵌入/秒    532,559 嵌入/秒     67.31 嵌入/
 
 4. **未发布 transformer 注意力支持开发路线。** 我们看到多份报告(visorcraft、我们自己的 Zhouyi Execution Provider 尝试、cixtech 自己的 [ai_model_hub#1](https://github.com/cixtech/ai_model_hub/issues/1) 讨论)显示 transformer 注意力层目前无法映射到 Z3。**请求:** transformer 注意力支持是否有公开的路线图,即使是推测性的?知道"注意力在 Compass v3.x 路线图上"vs"注意力不在计划内"会让社区今天做出不同的部署决定。
 
-5. **`cix-noe-umd` deb postinst pip 安装锁定到 Python 3.11/3.12 的 libnoe wheel。** Ubuntu 25.10 ships Python 3.13.7;postinst 在当前 Ubuntu 上总是失败。我们在本地修补让其优雅降级。**请求:** 能否为 Python 3.13+ 添加 wheel,或让 postinst 容忍 Python 版本偏差?这影响每个 Ubuntu 25.10 或更新版本的用户。
+5. **`cix-noe-umd` deb postinst pip 安装锁定到 Python 3.11/3.12 的 libnoe wheel。** Ubuntu 26.04 ships Python >=3.13;postinst 在当前 Ubuntu 上总是失败。我们在本地修补让其优雅降级。**请求:** 能否为 Python 3.13+ 添加 wheel,或让 postinst 容忍 Python 版本偏差?这影响每个 Ubuntu 26.04 或更新版本的用户。
 
 **我们正在贡献:**
 - 基准测试工具、结果和 Python ctypes 包装器在 `gitlab.com/nclawzero/cix-installer/docs/` 开源
