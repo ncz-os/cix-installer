@@ -43,6 +43,11 @@ tty_msg "==== run-all.sh: post-install hooks starting ===="
 # through the failure-tracking machinery, since this trap fires after
 # any earlier `exit` or `set -e` propagation).
 finalize_bootloader() {
+    ORIGINAL_RC=$?
+    # The trap may run while Phase 1's `set -euo pipefail` is active.
+    # Keep finalization best-effort so bootloader failure cannot skip
+    # the diagnostics hook.
+    set +e
     BOOTLOADER_RC=0
     if [ -f /usr/local/lib/cix-installer/post-install/70-bootloader.sh ]; then
         echo ""
@@ -65,8 +70,11 @@ finalize_bootloader() {
         echo "[cix-installer] EXIT trap → final diagnostics dump"
         echo "============================================================"
         bash /usr/local/lib/cix-installer/post-install/99-diagnostics.sh \
-            2>&1 | tee "$LOGDIR/99-diagnostics.log" || \
-            echo "[cix-installer] WARN: 99-diagnostics.sh hit errors"
+            2>&1 | tee "$LOGDIR/99-diagnostics.log"
+        DIAGNOSTICS_RC=${PIPESTATUS[0]}
+        if [ "$DIAGNOSTICS_RC" -ne 0 ]; then
+            echo "[cix-installer] WARN: 99-diagnostics.sh hit errors rc=$DIAGNOSTICS_RC"
+        fi
     fi
     if [ -n "$FAILED_HOOKS" ]; then
         echo ""
@@ -80,6 +88,9 @@ finalize_bootloader() {
     # boots to nothing.
     if [ "$BOOTLOADER_RC" -ne 0 ]; then
         exit "$BOOTLOADER_RC"
+    fi
+    if [ "$ORIGINAL_RC" -ne 0 ]; then
+        exit "$ORIGINAL_RC"
     fi
 }
 trap finalize_bootloader EXIT
@@ -134,12 +145,16 @@ for hook in $(ls [0-9][0-9]-*.sh | sort); do
             echo "============================================================"
             echo "[cix-installer] [REQUIRED] running $hook → $LOG"
             echo "============================================================"
-            if ! bash ./"$hook" 2>&1 | tee "$LOG"; then
-                tty_msg "  ✗ $hook FAILED — install aborts"
-                echo "[cix-installer] FATAL on $hook — install cannot continue"
+            set +e
+            bash ./"$hook" 2>&1 | tee "$LOG"
+            rc=${PIPESTATUS[0]}
+            set -e
+            if [ "$rc" -ne 0 ]; then
+                tty_msg "  ✗ $hook FAILED rc=$rc — install aborts"
+                echo "[cix-installer] FATAL on $hook rc=$rc — install cannot continue"
                 # Bootloader trap will still fire, but with no kernel images
-                # nothing useful can be written. Exit anyway.
-                exit 1
+                # nothing useful can be written. Preserve hook rc anyway.
+                exit "$rc"
             fi
             HOOK_DUR=$(( $(date +%s) - HOOK_START ))
             tty_msg "  ✓ $hook done (${HOOK_DUR}s)"

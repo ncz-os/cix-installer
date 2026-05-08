@@ -14,6 +14,8 @@
 # Result on target:
 #   /boot/vmlinuz-$KVER_LTS                (if LTS was baked)
 #   /boot/vmlinuz-$KVER_NEXT               (if NEXT was baked)
+#   /boot/initrd.img-$KVER_LTS             (if LTS was baked)
+#   /boot/initrd.img-$KVER_NEXT            (if NEXT was baked)
 #   /usr/lib/modules/$KVER_LTS/            (if LTS was baked)
 #   /usr/lib/modules/$KVER_NEXT/           (if NEXT was baked)
 set -euo pipefail
@@ -42,8 +44,10 @@ fi
 
 echo "[10] installing kernel payload — LTS=${KVER_LTS:-(not present)}  NEXT=${KVER_NEXT:-(not present)}"
 
-# Ensure kmod (depmod, modprobe, lsmod) is present.
-apt-get install -y --no-install-recommends kmod
+# Ensure depmod and initramfs generation are present. This is a required
+# hook: if initrd generation is not available, 70-bootloader.sh must not be
+# left to write kernel entries that silently omit initrd lines.
+apt-get install -y --no-install-recommends kmod initramfs-tools
 
 install_kernel() {
     local label=$1            # lts or next
@@ -102,6 +106,21 @@ install_kernel() {
     fi
 
     depmod -a "$kver"
+
+    # Generate the target initrd here, while this required hook is still in
+    # fail-fast mode. 80-npu.sh may later prepend its SSDT CPIO, and
+    # 70-bootloader.sh only stages already-created initrds to the ESP.
+    if [ -f "/boot/initrd.img-$kver" ]; then
+        echo "    regenerating initrd -> /boot/initrd.img-$kver"
+        update-initramfs -u -k "$kver"
+    else
+        echo "    generating initrd -> /boot/initrd.img-$kver"
+        update-initramfs -c -k "$kver"
+    fi
+    if [ ! -s "/boot/initrd.img-$kver" ]; then
+        echo "[10] ERROR: update-initramfs did not create /boot/initrd.img-$kver"
+        return 1
+    fi
 }
 
 INSTALLED_KERNELS=0
@@ -113,9 +132,9 @@ else
     echo "  [lts] not present in ISO — skipping"
 fi
 
-if [ -n "$KVER_NEXT" ] && \
-   [ -f "$ASSETS/next/Image-cixmini.bin" ] && \
-   [ -f "$ASSETS/next/modules-cixmini.tgz" ]; then
+if [ -n "$KVER_NEXT" ]; then
+    [ -f "$ASSETS/next/Image-cixmini.bin" ]   || { echo "ERROR: NEXT kernel binary missing"; exit 1; }
+    [ -f "$ASSETS/next/modules-cixmini.tgz" ] || { echo "ERROR: NEXT modules tarball missing"; exit 1; }
     install_kernel next "$KVER_NEXT"
     INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
 else
