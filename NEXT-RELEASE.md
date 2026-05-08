@@ -41,7 +41,7 @@ A **single netinstall ISO** that installs either NCZ Reinhardt (Desktop) or NCZ 
 - ✅ `47-embedkit.sh` post-install hook (commit `cfd93e4`).
 - ✅ `assets/models/bge-small-zh-v1.5-q8_0.gguf` bundled (commit `cfd93e4`).
 - 🟡 `--mode netinstall` flag in `build/build-iso-di.sh` — Codex agent `a1b77fdf37e4591ac` actively implementing per `docs/R76-NETINSTALL-DESIGN.md`.
-- 🟡 mnemos-embedkit adapter implementations (cpu-llamacpp, cix-npu, nvidia-cuda, apple-mlx) — Codex implementing in `~/embedkit/` repo (`mnemos-os/mnemos-embedkit` on GitHub).
+- 🟡 mnemos-embedkit adapter implementations (cpu-llamacpp, cix-npu, gpu-cuda, apple-mlx) — Codex implementing in `~/embedkit/` repo (`mnemos-os/mnemos-embedkit` on GitHub). Additional adapters planned: AMD ROCm/XDNA, Intel OpenVINO (CPU/iGPU/NPU), Qualcomm Hexagon — vendor-agnostic, runtime auto-detect.
 
 ## When ready to ship
 

@@ -11,7 +11,7 @@
 
 > **Is the Cix Sky1 a GPU LLM box, or is it an NPU memory box?**
 >
-> Spent the day on the Minisforum MS-R1 (Cix CD8180, 64 GB unified RAM) running real LLM benchmarks against Jetson Orin Nano. The hardware spec sheet says yes — Mali-G720 Immortalis MC10, 1 GHz, 10 shader cores, 64 GB you'd think the GPU could see — and on paper it should be a great LLM box.
+> Spent the day on the Minisforum MS-R1 (Cix CD8180, 64 GB unified RAM) running real LLM benchmarks against an embedded GPU + CUDA dev kit at similar TDP. The hardware spec sheet says yes — Mali-G720 Immortalis MC10, 1 GHz, 10 shader cores, 64 GB you'd think the GPU could see — and on paper it should be a great LLM box.
 >
 > Here are the actual numbers.
 >
@@ -23,7 +23,7 @@
 > tg32:   X.XX t/s   ← with -ub 8 micro-batch tuning  ← TBD
 > ```
 >
-> Ten tokens/sec at the *best* tuned numbers other people in the community are reporting on this exact silicon. That's below conversational threshold. Jetson Orin Nano gets ~40 t/s on the same model with CUDA + Tensor Cores.
+> Ten tokens/sec at the *best* tuned numbers other people in the community are reporting on this exact silicon. That's below conversational threshold. An embedded GPU + CUDA dev kit at similar TDP gets ~40 t/s on the same model.
 >
 > **CPU on the same box (12-core ARMv9, no GPU):**
 >
@@ -33,7 +33,7 @@
 > Qwen 2.5 Coder 7B   —  6.5 t/s tg128
 > ```
 >
-> The CPU on this box is comparable to the GPU. Mali Vulkan doesn't add useful acceleration for LLMs today. (panvk is improving — but the gap to tensor-core hardware is structural; even fully optimized it stays roughly 4× behind Jetson.)
+> The CPU on this box is comparable to the GPU. Mali Vulkan doesn't add useful acceleration for LLMs today. (panvk is improving — but the gap to dedicated AI-accelerator hardware is structural; even fully optimized it stays roughly 4× behind an embedded GPU + CUDA dev kit at the same TDP.)
 >
 > **Same hardware, NPU side (Cix Zhouyi Z3 via libnoe, bge-small-zh 256-token embeddings, direct in-process ctypes):**
 >
@@ -78,8 +78,8 @@
 >
 > Use case fit:
 >
-> - LLM inference on a budget — Jetson, Mac M-series, used 16-24 GB discrete GPU
-> - Edge ML pipelines — Jetson, Coral
+> - LLM inference on a budget — embedded GPU + CUDA dev kits, Apple Silicon, used 16-24 GB consumer dGPU
+> - Edge ML pipelines — embedded GPU + CUDA dev kits, Coral, dedicated AI accelerators
 > - **Agentic memory at scale** — Cix Sky1 with NPU embeddings + 64 GB RAM hosting MNEMOS or your vector store of choice. Plug your favorite LLM in over the network for inference. The Cix box does the boring durable infrastructure work.
 >
 > That's the workload it's actually good at. Don't try to make it run a 7B model interactively; let it be the memory tier for your agent stack and point your LLM at it.
