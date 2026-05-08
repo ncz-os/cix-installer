@@ -778,21 +778,25 @@ mkdir -p "$STAGING/dists/questing/main/debian-installer/binary-arm64"
 )
 
 if [ "$EMBED_MIRROR" = "0" ]; then
-    # 2026-05-07 (take6 chroot-target failure root-cause): previous behavior
-    # was to write an empty `main/binary-arm64/Packages` so late.sh's
-    # cdrom apt source wouldn't 404. But that made base-installer SEE
-    # /cdrom as advertising a `main` component, and debootstrap fired
-    # with `file:///cdrom/` as the bootstrap source — which has no
-    # actual .debs (only udebs in pool/), so /target/bin/true was never
-    # installed and chroot failed.
+    # 2026-05-07 (take7 chroot-target failure → take8 fix per
+    # Codex R78-INVALID-RELEASE-AUDIT):
     #
-    # Fix: in netinstall mode, do NOT advertise `main/binary-arm64`
-    # at all on /cdrom. Without it in dists/.../Release hashes,
-    # base-installer falls through to ports.ubuntu.com (the http
-    # mirror set via preseed). late.sh detects the absent main
-    # component and skips its file:///cdrom apt-source block.
-    echo "    netinstall mode: NOT writing main/binary-arm64 — forces base-installer onto http mirror"
-    rm -rf "$STAGING/dists/questing/main/binary-arm64"
+    # take7 attempted to force base-installer onto the http mirror by
+    # removing /cdrom/dists/questing/main/binary-arm64 entirely. That
+    # broke debootstrap's Release validation — it sees Components: main
+    # declared but no main/binary-arm64/Packages hashes → "Invalid
+    # Release file" red dialog.
+    #
+    # The actual lever for "use http, not cdrom" is `.disk/base_installable`,
+    # NOT the regular Packages content. We remove the .disk markers
+    # above; here we keep an empty regular Packages so the Release file
+    # is consistent with `Components: main` and anna can still find
+    # main/debian-installer/binary-arm64/Packages for udeb loading.
+    echo "    netinstall mode: writing empty regular Packages index for Release-file consistency"
+    mkdir -p "$STAGING/dists/questing/main/binary-arm64"
+    : > "$STAGING/dists/questing/main/binary-arm64/Packages"
+    gzip -9cn "$STAGING/dists/questing/main/binary-arm64/Packages" \
+        > "$STAGING/dists/questing/main/binary-arm64/Packages.gz"
 fi
 
 # Step 6: regenerate dists/questing/Release to include BOTH the regular
@@ -826,8 +830,19 @@ rm -rf "$TMP_UDEBS"
 # Debian; ours points at our installer payload.
 echo "    rewriting .disk/ markers for $MODE mode"
 mkdir -p "$STAGING/.disk" "$STAGING/.disk/id"
-printf 'main\n' > "$STAGING/.disk/base_components"
-: > "$STAGING/.disk/base_installable"
+# 2026-05-07 (take8 / Codex R78-INVALID-RELEASE-AUDIT): in netinstall
+# mode the medium is NOT base-installable. base-installer's
+# get_mirror_info checks for /cdrom/.disk/base_installable FIRST and,
+# if present, forces PROTOCOL=file MIRROR= DIRECTORY=/cdrom/ regardless
+# of mirror/* preseed values. Removing the marker (and its companion
+# base_components) is the supported way to tell base-installer "use
+# the configured HTTP mirror; this medium is for udebs/boot only".
+if [ "$MODE" = "netinstall" ]; then
+    rm -f "$STAGING/.disk/base_installable" "$STAGING/.disk/base_components"
+else
+    printf 'main\n' > "$STAGING/.disk/base_components"
+    : > "$STAGING/.disk/base_installable"
+fi
 printf 'dvd\n' > "$STAGING/.disk/cd_type"
 case "$MODE" in
     netinstall)

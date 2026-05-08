@@ -141,12 +141,13 @@ echo
 # Without this, FULL/THIN mode 10-our-kernel.sh + 70-bootloader.sh +
 # 20-desktop.sh fail because they need offline pkgs.
 #
-# 2026-05-07 take7: in NETINSTALL mode the build script doesn't ship a
-# main component on /cdrom (forces base-installer onto http mirror).
-# Detect that case and skip the cdrom apt source — apt-setup has
-# already wired ports.ubuntu.com via mirror/* preseed values.
-if [ -f /cdrom/dists/questing/main/binary-arm64/Packages ] || \
-   [ -f /cdrom/dists/questing/main/binary-arm64/Packages.gz ]; then
+# 2026-05-07 take8 (per Codex R78-INVALID-RELEASE-AUDIT): in NETINSTALL
+# mode the build script ships an EMPTY main/binary-arm64/Packages (so
+# Release validation passes) and removes /cdrom/.disk/base_installable
+# (so base-installer uses the http mirror). Detect netinstall via the
+# absence of .disk/base_installable, and skip the file:///cdrom apt
+# source — there are no regular debs in pool/ for it to provide.
+if [ -e /cdrom/.disk/base_installable ]; then
     echo "--- mounting cdrom into /target for offline apt-get during post-install ---"
     mkdir -p /target/cdrom
     mount --bind /cdrom /target/cdrom 2>&1 || \
