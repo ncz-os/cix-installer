@@ -1,5 +1,5 @@
 #!/bin/bash
-# 30-agents.sh — r74: opt-in agent stack via `ncz agent install`.
+# 30-agents.sh - agent stack via Podman Quadlet.
 #
 # r73 and earlier auto-pulled all 3 agent containers + portainer at
 # first boot. That hit two failure modes:
@@ -8,47 +8,48 @@
 #   2. Cold-RTC clock skew on first boot caused TLS cert validation
 #      to fail on portainer-bootstrap (cert validity window vs. RTC).
 #
-# r74 inverts: NOTHING auto-pulls. The image ships:
+# Current contract: the three core agents are active Quadlets on first boot.
+# The image ships:
 #   - podman + crun + conmon + netavark + aardvark-dns
-#   - quadlet TEMPLATES staged at /usr/share/ncz/quadlets/
+#   - quadlet templates at /usr/share/ncz/quadlets/
+#   - active quadlets staged at /etc/containers/systemd/
+#   - nclawzero-load-agent-images.service to load OCI tarballs or pull refs
 #   - /etc/nclawzero/agent-env.sample + agent-env (operator API keys)
-#   - /usr/local/bin/ncz CLI with full agent management
-#   - "NCZ Agents" desktop launcher that opens a terminal running
-#     `sudo ncz agent install` (whiptail checkbox UI).
+#   - /usr/local/bin/ncz CLI with agent management helpers
 #
-# Operator selects which agents to pull/start. Re-runnable, idempotent.
+# Re-runnable, idempotent.
 # Same upstream image digests as the Pi fleet (bigpi/clawpi).
 
 set +e
-echo '[30] agent stack (podman + ncz CLI, opt-in via ncz agent install)'
+echo '[30] agent stack (podman + active quadlets + ncz CLI)'
 
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     podman crun conmon netavark aardvark-dns catatonit librsvg2-bin whiptail \
     2>&1 | tail -3
 
-# r74: stage quadlet templates at /usr/share/ncz/quadlets/ (NOT auto-active)
-# `ncz agent install` copies the selected ones into /etc/containers/systemd/.
-ASSETS=/cdrom/cixmini/assets/agent-stack
+# Stage quadlet templates from the copied installer payload. /cdrom is not
+# bind-mounted in netinstall mode, so prefer the late.sh copy and only fall
+# back to /cdrom for older/manual recovery runs.
+ASSETS=/usr/local/lib/cix-installer/assets/agent-stack
+if [ ! -d "$ASSETS" ] && [ -d /cdrom/cixmini/assets/agent-stack ]; then
+    ASSETS=/cdrom/cixmini/assets/agent-stack
+fi
 QUADLET_TEMPLATES=/usr/share/ncz/quadlets
+QUADLET_ACTIVE=/etc/containers/systemd
+IMAGE_DIR=/var/lib/nclawzero/agent-images
 mkdir -p "$QUADLET_TEMPLATES"
 if [ -d "$ASSETS" ]; then
     cp -a "$ASSETS"/*.container "$QUADLET_TEMPLATES"/ 2>/dev/null
     cp -a "$ASSETS"/*.network "$QUADLET_TEMPLATES"/ 2>/dev/null
+else
+    echo "[30] WARN: agent-stack assets missing; quadlet templates will be absent"
 fi
 
-# r74: defensive nuke of any stale auto-placed quadlets from older revs.
-# A re-installed system getting a fresh r74 should not inherit r73's
-# auto-start behavior.
-rm -f /etc/containers/systemd/zeroclaw.container \
-      /etc/containers/systemd/openclaw.container \
-      /etc/containers/systemd/hermes.container \
-      /etc/containers/systemd/hermes-isolated.network \
-      /etc/systemd/system/portainer-bootstrap.service \
+# Remove only stale Portainer bootstrap units from older revs. The three
+# agent quadlets are intentionally active on first boot.
+rm -f /etc/systemd/system/portainer-bootstrap.service \
       /etc/systemd/system/{default,multi-user}.target.wants/portainer-bootstrap.service
 
-# r61: hermes Network=hermes-isolated-v2 (literal podman network name, NOT .network filename)
-sed -i 's|^Network=hermes-isolated.network|Network=hermes-isolated-v2|' \
-    "$QUADLET_TEMPLATES"/hermes.container 2>/dev/null
 # r61: --insecure for non-TLS dashboard
 grep -q -- '--insecure' "$QUADLET_TEMPLATES"/hermes.container 2>/dev/null || \
     sed -i 's|^Exec=dashboard --host 0.0.0.0 --port 8642 --no-open$|Exec=dashboard --host 0.0.0.0 --port 8642 --no-open --insecure|' \
@@ -58,16 +59,9 @@ grep -q -- '--insecure' "$QUADLET_TEMPLATES"/hermes.container 2>/dev/null || \
 sed -i 's|^PublishPort=127.0.0.1:8642:8642$|PublishPort=8642:8642|' \
     "$QUADLET_TEMPLATES"/hermes.container 2>/dev/null
 
-# r74: remove WANT for nclawzero-load-agent-images.service from the
-# template — we don't ship OCI tarballs in the ISO; pull from registry
-# at install-time instead.
-sed -i -E '/^(Wants|After)=.*nclawzero-load-agent-images\.service/d' \
-    "$QUADLET_TEMPLATES"/*.container 2>/dev/null
-
 # r74 (codex): assert sed patches landed (template drift would silently no-op above)
 HERMES_TPL="$QUADLET_TEMPLATES/hermes.container"
 if [ -f "$HERMES_TPL" ]; then
-    grep -q "^Network=hermes-isolated-v2$" "$HERMES_TPL" ||         echo "[30] WARN: hermes Network rename did not match — upstream template may have drifted"
     grep -q -- "--insecure" "$HERMES_TPL" ||         echo "[30] WARN: hermes --insecure injection did not match"
     grep -q "^PublishPort=8642:8642$" "$HERMES_TPL" ||         echo "[30] WARN: hermes PublishPort relax did not match"
 fi
@@ -109,6 +103,119 @@ cat > /var/lib/nclawzero/openclaw-home/openclaw.json << 'OPENCLAW'
 OPENCLAW
 chown 1000:1000 /var/lib/nclawzero/openclaw-home/openclaw.json
 
+# Agent image manifest + first-boot loader. Full/offline images may stage OCI
+# tarballs under assets/agent-images; netinstall images leave the tarballs
+# absent and the loader pulls the pinned refs from registries instead.
+mkdir -p "$IMAGE_DIR" /usr/local/sbin /etc/systemd/system
+if [ -d /usr/local/lib/cix-installer/assets/agent-images ]; then
+    cp -an /usr/local/lib/cix-installer/assets/agent-images/. "$IMAGE_DIR"/ 2>/dev/null || true
+elif [ -d /cdrom/cixmini/assets/agent-images ]; then
+    cp -an /cdrom/cixmini/assets/agent-images/. "$IMAGE_DIR"/ 2>/dev/null || true
+fi
+
+cat > /usr/share/ncz/agent-images.manifest << 'MANIFEST'
+# agent|image-ref|oci-tarball-under-/var/lib/nclawzero/agent-images
+zeroclaw|ghcr.io/perlowja/nclawzero-demo:latest|zeroclaw.oci.tar
+openclaw|ghcr.io/openclaw/openclaw@sha256:06b4f3dfa3c88d49c92e99d635dc62053d4afd045d6220e811dff6190040f3de|openclaw.oci.tar
+hermes|docker.io/nousresearch/hermes-agent@sha256:aa60e7483a6fad26eee233d2498d4f2b4223bf9d8990e3b07017f19b6ba7b6fe|hermes.oci.tar
+MANIFEST
+chmod 0644 /usr/share/ncz/agent-images.manifest
+
+cat > /usr/local/sbin/nclawzero-load-agent-images << 'LOADSCRIPT'
+#!/bin/bash
+set -uo pipefail
+
+MANIFEST=/usr/share/ncz/agent-images.manifest
+IMAGE_DIR=/var/lib/nclawzero/agent-images
+PODMAN=/usr/bin/podman
+rc=0
+
+if [ ! -x "$PODMAN" ]; then
+    echo "[agent-images] ERROR: podman missing"
+    exit 1
+fi
+if [ ! -f "$MANIFEST" ]; then
+    echo "[agent-images] ERROR: manifest missing: $MANIFEST"
+    exit 1
+fi
+
+while IFS='|' read -r agent image tarball; do
+    case "$agent" in
+        ""|\#*) continue ;;
+    esac
+
+    if "$PODMAN" image exists "$image" 2>/dev/null; then
+        echo "[agent-images] $agent already present: $image"
+        continue
+    fi
+
+    path="$tarball"
+    case "$path" in
+        /*) ;;
+        *) path="$IMAGE_DIR/$path" ;;
+    esac
+
+    if [ -f "$path" ]; then
+        echo "[agent-images] loading $agent from $path"
+        if ! "$PODMAN" load -i "$path"; then
+            echo "[agent-images] ERROR: podman load failed for $agent"
+            rc=1
+            continue
+        fi
+    else
+        echo "[agent-images] no OCI tarball for $agent; pulling $image"
+        if ! "$PODMAN" pull "$image"; then
+            echo "[agent-images] ERROR: podman pull failed for $agent"
+            rc=1
+            continue
+        fi
+    fi
+
+    if "$PODMAN" image exists "$image" 2>/dev/null; then
+        echo "[agent-images] ready: $agent"
+    else
+        echo "[agent-images] WARN: $agent loaded/pulled but exact ref not found by podman image exists"
+    fi
+done < "$MANIFEST"
+
+exit "$rc"
+LOADSCRIPT
+chmod 0755 /usr/local/sbin/nclawzero-load-agent-images
+
+cat > /etc/systemd/system/nclawzero-load-agent-images.service << 'UNIT'
+[Unit]
+Description=Load or pull NCZ agent container images
+Documentation=man:podman-load(1) man:podman-pull(1)
+Wants=network-online.target
+After=network-online.target
+Before=zeroclaw.service openclaw.service hermes.service
+ConditionPathExists=/var/lib/nclawzero/agent-images
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=3600
+ExecStart=/usr/local/sbin/nclawzero-load-agent-images
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+chmod 0644 /etc/systemd/system/nclawzero-load-agent-images.service
+
+# Named volumes are also created lazily by podman run, but pre-creating them
+# makes the target state explicit for operator inspection.
+for v in zeroclaw-data openclaw-data hermes-data; do
+    podman volume exists "$v" 2>/dev/null || podman volume create "$v" 2>/dev/null || true
+done
+
+# Activate the three first-boot agent quadlets. The [Install] sections are
+# consumed by the Podman systemd generator at boot.
+mkdir -p "$QUADLET_ACTIVE"
+cp -a "$QUADLET_TEMPLATES"/*.container "$QUADLET_ACTIVE"/ 2>/dev/null || true
+cp -a "$QUADLET_TEMPLATES"/*.network "$QUADLET_ACTIVE"/ 2>/dev/null || true
+systemctl enable nclawzero-load-agent-images.service 2>/dev/null || true
+systemctl daemon-reload 2>/dev/null || true
+
 # r74: full ncz CLI with `agent install` subcommand (whiptail UI).
 mkdir -p /usr/local/bin
 cat > /usr/local/bin/ncz << 'NCZSCRIPT'
@@ -127,7 +234,7 @@ AGENTS=(zeroclaw openclaw hermes)
 
 # Image digests (pinned, fleet-canonical — must match Pi fleet quadlets)
 declare -A AGENT_IMAGE
-AGENT_IMAGE[zeroclaw]='ghcr.io/zeroclaw-labs/zeroclaw:latest'
+AGENT_IMAGE[zeroclaw]='ghcr.io/perlowja/nclawzero-demo:latest'
 AGENT_IMAGE[openclaw]='ghcr.io/openclaw/openclaw@sha256:06b4f3dfa3c88d49c92e99d635dc62053d4afd045d6220e811dff6190040f3de'
 AGENT_IMAGE[hermes]='docker.io/nousresearch/hermes-agent@sha256:aa60e7483a6fad26eee233d2498d4f2b4223bf9d8990e3b07017f19b6ba7b6fe'
 AGENT_IMAGE[portainer]='docker.io/portainer/portainer-ce:lts'
@@ -600,7 +707,7 @@ launcher. Re-runnable.
 ## Image sources (pinned)
 
 ```
-zeroclaw   ghcr.io/zeroclaw-labs/zeroclaw:latest      (upstream, web UI baked)
+zeroclaw   ghcr.io/perlowja/nclawzero-demo:latest      (NCZ demo, web UI baked)
 openclaw   ghcr.io/openclaw/openclaw@sha256:06b4f3df...
 hermes     docker.io/nousresearch/hermes-agent@sha256:aa60e748...
 portainer  docker.io/portainer/portainer-ce:lts
@@ -792,8 +899,8 @@ update-desktop-database 2>&1 | tail -1
 # AFTER the operator runs `ncz agent install portainer`.
 systemctl enable podman.socket 2>/dev/null
 
-# r74: drop nclawzero-load-agent-images.service from auto-load (no OCI tarballs shipped)
-systemctl disable nclawzero-load-agent-images.service 2>/dev/null
+# Agent image load/pull is ordered before the three active quadlets.
+systemctl enable nclawzero-load-agent-images.service 2>/dev/null || true
 
 # disable cix-npu-driver-dkms — we ship FyrbyAdditive prebuilt .ko at
 # /usr/lib/modules/<KVER>/extra/armchina_npu.ko (handled by 80-npu.sh).
@@ -801,5 +908,5 @@ systemctl mask dkms.service 2>&1 | tail -1
 rm -rf /var/lib/dkms/aipu /var/lib/dkms/cix-vpu-driver 2>/dev/null
 echo '[30] dkms.service masked (FyrbyAdditive prebuilt .ko ships at /usr/lib/modules/<KVER>/extra/)'
 
-echo '[30] r74 agent stack: opt-in via `sudo ncz agent install` (whiptail)'
-echo '     templates at /usr/share/ncz/quadlets/, only Claude pre-installed'
+echo '[30] agent stack active: zeroclaw/openclaw/hermes quadlets staged'
+echo '     templates at /usr/share/ncz/quadlets/, active units at /etc/containers/systemd/'

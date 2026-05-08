@@ -6,14 +6,24 @@ set +e
 
 echo "[50] NCZ 26.5 brand identity"
 
+BUILD_ID_VALUE=""
+if [ -f /usr/local/lib/cix-installer/BUILD_VERSION ]; then
+    BUILD_ID_VALUE=$(tr -cd 'A-Za-z0-9._-' < /usr/local/lib/cix-installer/BUILD_VERSION)
+fi
+if [ -z "$BUILD_ID_VALUE" ] && [ -f /etc/cix-installer/BUILD_VERSION ]; then
+    BUILD_ID_VALUE=$(tr -cd 'A-Za-z0-9._-' < /etc/cix-installer/BUILD_VERSION)
+fi
+[ -z "$BUILD_ID_VALUE" ] && BUILD_ID_VALUE=unknown
+
 cat > /etc/os-release <<EOF
 PRETTY_NAME="NCZ 26.5 \\"Reinhardt\\""
 NAME="NCZ"
 VERSION_ID="26.5"
+BUILD_ID="$BUILD_ID_VALUE"
 VERSION="26.5 (Reinhardt)"
 VERSION_CODENAME=reinhardt
 ID=ncz
-ID_LIKE="ubuntu debian"
+ID_LIKE=ubuntu
 HOME_URL="https://gitlab.com/nclawzero"
 SUPPORT_URL="https://gitlab.com/nclawzero/cix-installer/-/issues"
 BUG_REPORT_URL="https://gitlab.com/nclawzero/cix-installer/-/issues"

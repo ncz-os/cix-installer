@@ -4,6 +4,17 @@ set -euo pipefail
 
 echo "[56] installing NCZ icon theme (black-hole user-trash)"
 
+VARIANT=desktop
+if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
+    VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
+fi
+case "$VARIANT" in
+    server|magnetar|headless)
+        echo "[56] BUILD_VARIANT=server - Magnetar headless SKU; skipping desktop icon theme"
+        exit 0
+        ;;
+esac
+
 ASSETS=/usr/local/lib/cix-installer/assets/branding/icon-theme
 # Source dir is named "NCX" historically (NeXT homage); destination is the
 # canonical NCZ brand. r74 had \$ASSETS/NCZ literal-escape that always

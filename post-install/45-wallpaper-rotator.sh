@@ -1,10 +1,21 @@
 #!/bin/bash
-# 55-wallpaper-rotator.sh — install 6 NCX FLUX-generated wallpapers + auto-rotate
+# 45-wallpaper-rotator.sh - install 6 NCZ wallpapers + auto-rotate
 # every 10 minutes. r55: instant apply on login (was 30s) + xrandr-driven monitor
 # discovery so wallpaper sticks across xfconf monitor-name shifts.
 set -euo pipefail
 
 echo "[55] installing 6 NCZ wallpapers + 10-minute autoswitcher"
+
+VARIANT=desktop
+if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
+    VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
+fi
+case "$VARIANT" in
+    server|magnetar|headless)
+        echo "[55] BUILD_VARIANT=server - Magnetar headless SKU; skipping wallpaper rotator"
+        exit 0
+        ;;
+esac
 
 ASSETS=/usr/local/lib/cix-installer/assets/branding/wallpaper
 DEST=/usr/share/backgrounds/ncz
@@ -25,11 +36,13 @@ ln -sfn "$(basename "$PIC")" "$WP_DIR/default.jpg" 2>/dev/null || true
 DE=""
 case "${XDG_CURRENT_DESKTOP:-}${DESKTOP_SESSION:-}" in
     *XFCE*|*xfce*)        DE=xfce ;;
+    *GNOME*|*gnome*)      DE=gnome ;;
     *Openbox*|*openbox*)  DE=openbox ;;
     *Window*Maker*|*wmaker*) DE=wmaker ;;
 esac
 if [ -z "$DE" ]; then
     if   pgrep -u "$USER" -x xfdesktop >/dev/null 2>&1; then DE=xfce
+    elif pgrep -u "$USER" -x gnome-shell >/dev/null 2>&1; then DE=gnome
     elif pgrep -u "$USER" -x wmaker    >/dev/null 2>&1; then DE=wmaker
     elif pgrep -u "$USER" -x openbox   >/dev/null 2>&1; then DE=openbox
     fi
@@ -49,6 +62,12 @@ case "$DE" in
         ;;
     wmaker)  wmsetbg -s -u "$PIC" 2>/dev/null || true ;;
     openbox) feh --bg-fill "$PIC" 2>/dev/null || true ;;
+    gnome)
+        URI="file://$PIC"
+        gsettings set org.gnome.desktop.background picture-uri "$URI" 2>/dev/null || true
+        gsettings set org.gnome.desktop.background picture-uri-dark "$URI" 2>/dev/null || true
+        gsettings set org.gnome.desktop.background picture-options zoom 2>/dev/null || true
+        ;;
 esac
 echo "$PIC" > ${XDG_RUNTIME_DIR:-/tmp}/ncz-wallpaper-state 2>/dev/null
 ROT

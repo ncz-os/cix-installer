@@ -1,5 +1,5 @@
 #!/bin/bash
-# 60-plymouth.sh — Plymouth boot splash (NCX black-hole theme). Optional.
+# 60-plymouth.sh - Plymouth boot splash (NCZ black-hole theme). Optional.
 # r52: handle plymouth-quit.service failures gracefully (cosmetic, doesn't block boot).
 set -euo pipefail
 
@@ -15,20 +15,44 @@ THEME_DIR=/usr/share/plymouth/themes/nclawzero
 mkdir -p "$THEME_DIR"
 
 ASSETS=/usr/local/lib/cix-installer/assets/branding
+PLYMOUTH_ASSETS="$ASSETS/plymouth"
+LOGO_ASSETS="$ASSETS/logo"
 
-# Lay down the theme files (best-effort)
-[ -f "$ASSETS/plymouth/nclawzero.plymouth" ] && \
-    install -m 0644 "$ASSETS/plymouth/nclawzero.plymouth" "$THEME_DIR/" || true
-[ -f "$ASSETS/plymouth/nclawzero.script" ] && \
-    install -m 0644 "$ASSETS/plymouth/nclawzero.script" "$THEME_DIR/" || true
+# Lay down the theme files.
+[ -f "$PLYMOUTH_ASSETS/nclawzero.plymouth" ] && \
+    install -m 0644 "$PLYMOUTH_ASSETS/nclawzero.plymouth" "$THEME_DIR/" || true
+[ -f "$PLYMOUTH_ASSETS/nclawzero.script" ] && \
+    install -m 0644 "$PLYMOUTH_ASSETS/nclawzero.script" "$THEME_DIR/" || true
 
-# Convert background JPG → PNG for plymouth (best-effort)
-if command -v convert >/dev/null 2>&1; then
-    [ -f "$ASSETS/plymouth/background.jpg" ] && \
-        convert "$ASSETS/plymouth/background.jpg" "$THEME_DIR/background.png" 2>/dev/null || true
+# Convert JPG assets to the PNG names referenced by nclawzero.script.
+if command -v magick >/dev/null 2>&1; then
+    [ -f "$PLYMOUTH_ASSETS/background.jpg" ] && \
+        magick "$PLYMOUTH_ASSETS/background.jpg" "$THEME_DIR/background.png" 2>/dev/null || true
+    [ -f "$LOGO_ASSETS/nclawzero-lockup.jpg" ] && \
+        magick "$LOGO_ASSETS/nclawzero-lockup.jpg" "$THEME_DIR/lockup.png" 2>/dev/null || true
+elif command -v convert >/dev/null 2>&1; then
+    [ -f "$PLYMOUTH_ASSETS/background.jpg" ] && \
+        convert "$PLYMOUTH_ASSETS/background.jpg" "$THEME_DIR/background.png" 2>/dev/null || true
+    [ -f "$LOGO_ASSETS/nclawzero-lockup.jpg" ] && \
+        convert "$LOGO_ASSETS/nclawzero-lockup.jpg" "$THEME_DIR/lockup.png" 2>/dev/null || true
 fi
 
-# Set as default — accept failure (theme may not be fully populated)
+MISSING_THEME_ASSETS=0
+for required in \
+    "$THEME_DIR/nclawzero.plymouth" \
+    "$THEME_DIR/nclawzero.script" \
+    "$THEME_DIR/background.png" \
+    "$THEME_DIR/lockup.png"; do
+    if [ ! -s "$required" ]; then
+        echo "[60] ERROR: missing Plymouth theme asset: $required" >&2
+        MISSING_THEME_ASSETS=1
+    fi
+done
+if [ "$MISSING_THEME_ASSETS" -ne 0 ]; then
+    exit 1
+fi
+
+# Set as default; explicit target-kernel rebuild happens below.
 if command -v plymouth-set-default-theme >/dev/null 2>&1; then
     plymouth-set-default-theme -R nclawzero 2>&1 || \
         plymouth-set-default-theme -R spinner 2>&1 || \
@@ -50,5 +74,34 @@ Theme=nclawzero
 ShowDelay=0
 DeviceTimeout=8
 EOF
-update-initramfs -u 2>&1 | tail -3 || true
-echo "[60] plymouth: nclawzero theme set + initramfs rebuilt"
+
+KERNELS=""
+for sidecar in /usr/local/lib/cix-installer/KVER_LTS /usr/local/lib/cix-installer/KVER_NEXT; do
+    if [ -s "$sidecar" ]; then
+        kver=$(tr -d ' \t\r\n' < "$sidecar")
+        if [ -n "$kver" ] && [ -d "/lib/modules/$kver" ]; then
+            KERNELS="$KERNELS $kver"
+        fi
+    fi
+done
+if [ -z "$KERNELS" ]; then
+    for initrd in /boot/initrd.img-*; do
+        [ -e "$initrd" ] || continue
+        kver=${initrd#/boot/initrd.img-}
+        [ -d "/lib/modules/$kver" ] && KERNELS="$KERNELS $kver"
+    done
+fi
+KERNELS=$(printf '%s\n' $KERNELS | awk 'NF && !seen[$0]++')
+if [ -z "$KERNELS" ]; then
+    echo "[60] ERROR: no target kernels found for Plymouth initramfs rebuild" >&2
+    exit 1
+fi
+
+for kver in $KERNELS; do
+    if [ -f "/boot/initrd.img-$kver" ]; then
+        update-initramfs -u -k "$kver" 2>&1 | tail -3
+    else
+        update-initramfs -c -k "$kver" 2>&1 | tail -3
+    fi
+done
+echo "[60] plymouth: nclawzero theme set + target initramfs rebuilt for:$KERNELS"
