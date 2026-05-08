@@ -49,7 +49,14 @@ echo "[watcher] start $(date -u +%FT%TZ) pid=$$"
 # + a separate continuous resolv.conf rewrite as belt-and-suspenders.
 install_ncz_dns_hooks() {
     mkdir -p /usr/lib/base-installer.d /usr/lib/pre-pkgsel.d
-    cat > /usr/lib/base-installer.d/05ncz-dns <<'NCZDNSHOOK'
+
+    write_ncz_dns_hook() {
+        hook_dir="$1"
+        hook_tmp="$hook_dir/.05ncz-dns.$$"
+        hook_final="$hook_dir/05ncz-dns"
+
+        rm -f "$hook_tmp"
+        cat > "$hook_tmp" <<'NCZDNSHOOK'
 #!/bin/sh
 # 05ncz-dns — d-i hook: write /target/etc/resolv.conf with public-fallback
 # chain BEFORE base-installer or pkgsel runs apt-get inside the chroot.
@@ -60,22 +67,36 @@ router="$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}')"
 [ -n "$router" ] || router=192.168.207.1
 
 if [ -d /target/etc ]; then
-    rm -f /target/etc/resolv.conf
-    cat > /target/etc/resolv.conf <<EOF
+    rc_tmp="/target/etc/.resolv.conf.ncz.$$"
+    rm -f "$rc_tmp"
+    cat > "$rc_tmp" <<EOF
 search nclawzero.lan
 nameserver $router
 nameserver 8.8.8.8
 nameserver 1.1.1.1
 options timeout:2 attempts:3
 EOF
-    echo "[ncz-dns] wrote /target/etc/resolv.conf router=$router at $(date -u +%FT%TZ)" >> "$LOG"
+    if grep -q '^options timeout:2 attempts:3$' "$rc_tmp" && mv -f "$rc_tmp" /target/etc/resolv.conf; then
+        echo "[ncz-dns] wrote /target/etc/resolv.conf router=$router at $(date -u +%FT%TZ)" >> "$LOG"
+    else
+        rm -f "$rc_tmp"
+        echo "[ncz-dns] failed to publish /target/etc/resolv.conf at $(date -u +%FT%TZ)" >> "$LOG"
+    fi
 else
     echo "[ncz-dns] /target/etc missing at $(date -u +%FT%TZ)" >> "$LOG"
 fi
 exit 0
 NCZDNSHOOK
-    chmod 0755 /usr/lib/base-installer.d/05ncz-dns
-    cp /usr/lib/base-installer.d/05ncz-dns /usr/lib/pre-pkgsel.d/05ncz-dns
+        if grep -q '^exit 0$' "$hook_tmp" && chmod 0755 "$hook_tmp" && mv -f "$hook_tmp" "$hook_final"; then
+            :
+        else
+            rm -f "$hook_tmp"
+            echo "[watcher] failed to publish $hook_final"
+        fi
+    }
+
+    write_ncz_dns_hook /usr/lib/base-installer.d
+    write_ncz_dns_hook /usr/lib/pre-pkgsel.d
     echo "[watcher] installed ncz DNS hooks for base-installer.d + pre-pkgsel.d"
 }
 install_ncz_dns_hooks
