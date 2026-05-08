@@ -96,30 +96,68 @@ echo "[watcher] installed custom /etc/udhcpc/default.script for resolv.conf fall
 } > /etc/resolv.conf
 echo "[watcher] pre-DHCP /etc/resolv.conf seeded with public fallbacks"
 
-# 2026-05-08 take17 (per .66 take16 install failure at 95% / pkgsel
-# "Temporary failure resolving 'ports.ubuntu.com'"): the udhcpc
-# default.script keeps the d-i RAMDISK /etc/resolv.conf populated
-# with our 3-nameserver chain (8.8.8.8 + 1.1.1.1 + LAN router), but
-# pkgsel runs in-target chroot and reads /target/etc/resolv.conf,
-# which d-i base-installer seeds from netcfg with DHCP-only DNS
-# (192.168.207.1 LAN router) — and that clobbers when the router
-# DNS goes flaky. Result: 18 of ~30 pkgsel packages fail at once
-# with "Temporary failure resolving" inside the chroot.
+# 2026-05-08 take18 (per .66 take17 install failure at 95% / pkgsel
+# "Temporary failure resolving 'ports.ubuntu.com'"):
 #
-# Fix: continuously sync /etc/resolv.conf → /target/etc/resolv.conf
-# every poll tick, so the moment base-installer mounts /target and
-# debootstrap creates /target/etc, our 3-nameserver chain is there
-# and stays there through every chroot reentry (apt-setup, pkgsel,
-# late_command).
-TARGET_LAST_SYNC=""
-sync_target_resolv() {
-    [ -d /target/etc ] || return 0
-    if [ ! -f /target/etc/resolv.conf ] \
-       || ! cmp -s /etc/resolv.conf /target/etc/resolv.conf 2>/dev/null; then
-        cp /etc/resolv.conf /target/etc/resolv.conf 2>/dev/null \
-            && TARGET_LAST_SYNC="$(date -u +%H:%M:%S)" \
-            && echo "[watcher] synced /target/etc/resolv.conf at $TARGET_LAST_SYNC"
+# Take15-take17 evolution:
+#   take15 — installed custom /etc/udhcpc/default.script (3-NS chain)
+#   take16 — confirmed via di-diag that approach got OVERWRITTEN by
+#            netcfg's own resolv.conf writer post-DHCP. Took15-16's
+#            /etc/resolv.conf ended up with single LAN-router NS only.
+#   take17 — added /target/etc/resolv.conf sync from /etc/resolv.conf,
+#            but since /etc/resolv.conf was ALREADY single-NS by then,
+#            /target/etc/resolv.conf inherited single-NS too. Pkgsel
+#            failed when LAN router DNS glitched — no public fallback.
+#
+# Take18: stop using udhcpc default.script as the writer. The watcher
+# itself authoritatively REWRITES BOTH resolv.conf files on every poll
+# tick with the full 3-nameserver chain (LAN router + 8.8.8.8 +
+# 1.1.1.1). LAN router pulled dynamically from default-route; if it
+# changes (e.g. DHCP renewal moves us), we re-pin on next tick.
+#
+# /target/etc/resolv.conf may be a symlink → ../run/systemd/resolve/
+# stub-resolv.conf. cat > follows the symlink, so writing to the
+# canonical path Just Works. We pre-create the target dir if missing.
+RESOLV_LAST_WROTE=""
+
+ensure_resolv_conf() {
+    rc_path="$1"
+    [ -d "$(dirname "$rc_path")" ] || return 0
+    # If rc_path is a symlink to a missing target dir, mkdir -p the
+    # target dir so cat > $rc_path can follow + write.
+    if [ -L "$rc_path" ]; then
+        rc_target="$(readlink -f "$rc_path" 2>/dev/null)"
+        [ -n "$rc_target" ] && mkdir -p "$(dirname "$rc_target")" 2>/dev/null
     fi
+
+    # Pull current LAN gateway from default route. Fall back to
+    # 192.168.207.1 if no default route yet.
+    ROUTER="$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}')"
+    [ -z "$ROUTER" ] && ROUTER="192.168.207.1"
+
+    rc_tmp="/tmp/.watcher-resolv.tmp.$$"
+    {
+        echo "search nclawzero.lan"
+        echo "nameserver $ROUTER"
+        echo "nameserver 8.8.8.8"
+        echo "nameserver 1.1.1.1"
+        echo "options timeout:2 attempts:3"
+    } > "$rc_tmp"
+
+    if [ ! -f "$rc_path" ] || ! cmp -s "$rc_tmp" "$rc_path" 2>/dev/null; then
+        # cat > follows symlink; cp would dereference and write to symlink target
+        # (same behavior). Either way, we don't want to clobber a symlink with
+        # a regular file, since systemd-resolved expects the symlink shape.
+        cat "$rc_tmp" > "$rc_path" 2>/dev/null \
+            && RESOLV_LAST_WROTE="$(date -u +%H:%M:%S)" \
+            && echo "[watcher] (re)wrote $rc_path with 3-NS chain (router=$ROUTER) at $RESOLV_LAST_WROTE"
+    fi
+    rm -f "$rc_tmp"
+}
+
+sync_target_resolv() {
+    ensure_resolv_conf /etc/resolv.conf
+    [ -d /target/etc ] && ensure_resolv_conf /target/etc/resolv.conf
 }
 
 SSHD_PATCHED=0
