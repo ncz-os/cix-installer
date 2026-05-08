@@ -6,12 +6,12 @@ The failing take7 ISO is `/Users/jperlow/ncz-installer-cixmini-26.5-r78-Reinhard
 
 The immediate failure is debootstrap's Release index validation:
 
-- The ISO has `dists/questing/Release` with `Components: main`.
+- The ISO has `dists/resolute/Release` with `Components: main`.
 - The same Release file has hashes only for:
   - `main/debian-installer/binary-arm64/Packages`
   - `main/debian-installer/binary-arm64/Packages.gz`
   - `main/i18n/Translation-en*`
-- The ISO does not contain `dists/questing/main/binary-arm64/Packages` or `Packages.gz`.
+- The ISO does not contain `dists/resolute/main/binary-arm64/Packages` or `Packages.gz`.
 - The ISO still contains `.disk/base_installable` and `.disk/base_components` with `main`.
 - The ISO has 279 udebs and 0 regular debs under `pool/`.
 
@@ -21,7 +21,7 @@ That combination is invalid for a base-installable CD. In debootstrap 1.0.141, `
 Invalid Release file, no entry for main/binary-arm64/Packages
 ```
 
-The red dialog is therefore Hypothesis A, with an important extra detail: it is triggered because the medium is still advertised as base-installable by `.disk/base_installable`. The problem is not the missing GPG signature, not date freshness, and not Suite/Codename mismatch. `Suite: questing` and `Codename: questing` are present, and unauthenticated installs are already allowed.
+The red dialog is therefore Hypothesis A, with an important extra detail: it is triggered because the medium is still advertised as base-installable by `.disk/base_installable`. The problem is not the missing GPG signature, not date freshness, and not Suite/Codename mismatch. `Suite: resolute` and `Codename: resolute` are present, and unauthenticated installs are already allowed.
 
 Why take7 still chooses `/cdrom` despite the netinstall preseed:
 
@@ -60,14 +60,14 @@ Our r78 take7 ISO instead has:
 ```
 .disk/base_installable       # still present - wrong for this ISO
 .disk/base_components        # main
-dists/questing/Release       # Components: main
-dists/questing/main/debian-installer/binary-arm64/Packages.gz
-no dists/questing/main/binary-arm64/Packages*
+dists/resolute/Release       # Components: main
+dists/resolute/main/debian-installer/binary-arm64/Packages.gz
+no dists/resolute/main/binary-arm64/Packages*
 pool/.../*.udeb              # 279
 pool/.../*.deb               # 0
 ```
 
-Ubuntu questing arm64 netboot media does not use a CD-local `/dists` tree for the base system. The published questing netboot arm64 directory contains boot files (`bootaa64.efi`, GRUB, `initrd`, `linux`) and expects archive access over the network. The Ubuntu ports archive itself has the normal repository structure, including `dists/questing/main/binary-arm64/Packages.gz` and `dists/questing/main/debian-installer/...`; debootstrap should read that over HTTP, not from our USB media.
+Ubuntu resolute arm64 netboot media does not use a CD-local `/dists` tree for the base system. The published resolute netboot arm64 directory contains boot files (`bootaa64.efi`, GRUB, `initrd`, `linux`) and expects archive access over the network. The Ubuntu ports archive itself has the normal repository structure, including `dists/resolute/main/binary-arm64/Packages.gz` and `dists/resolute/main/debian-installer/...`; debootstrap should read that over HTTP, not from our USB media.
 
 So there are two valid upstream patterns:
 
@@ -84,7 +84,7 @@ Do not restore the empty `main/binary-arm64/Packages` as the primary fix. That w
 
 Do not use `Components: main/debian-installer` or an empty `Components` field. `cdrom-retriever` reads `Components:` and then looks for `$component/debian-installer/binary-$arch/Packages`. With `Components: main`, it finds `main/debian-installer/binary-arm64/Packages`. With `Components: main/debian-installer`, it would look for `main/debian-installer/debian-installer/binary-arm64/Packages`. With empty Components, it has no udeb component to scan.
 
-Do not stage a minimal Ubuntu questing base mirror unless the product direction changes back to a larger offline/thin ISO. A practical base-installable ISO needs more than a token Essential set: debootstrap needs the required base chain, apt/dpkg, libc, shell/coreutils, compression tooling, and dependency closure. Debian and Ubuntu netinst images solve this by shipping a real regular package subset. That is exactly what the 602 MB take7 netinstall was trying not to do.
+Do not stage a minimal Ubuntu resolute base mirror unless the product direction changes back to a larger offline/thin ISO. A practical base-installable ISO needs more than a token Essential set: debootstrap needs the required base chain, apt/dpkg, libc, shell/coreutils, compression tooling, and dependency closure. Debian and Ubuntu netinst images solve this by shipping a real regular package subset. That is exactly what the 602 MB take7 netinstall was trying not to do.
 
 Concrete patch recipe:
 
@@ -108,7 +108,7 @@ fi
 printf 'dvd\n' > "$STAGING/.disk/cd_type"
 ```
 
-Leave `write_suite_release questing arm64 main ...` alone. `Components: main` is still needed for anna/cdrom-retriever to find `main/debian-installer/binary-arm64/Packages`.
+Leave `write_suite_release resolute arm64 main ...` alone. `Components: main` is still needed for anna/cdrom-retriever to find `main/debian-installer/binary-arm64/Packages`.
 
 Optional comment cleanup in `build/build-iso-di.sh` lines 789-792 and `preseed/late.sh` lines 144-147: replace "forces base-installer onto http mirror" with "removes the regular cdrom apt component; netinstall also omits `.disk/base_installable` so base-installer uses the HTTP mirror." The functional fix is the `.disk` marker change above.
 
@@ -125,19 +125,19 @@ bsdtar -tf take8.iso | rg '^\.disk/base_installable$|^\.disk/base_components$'
 Expected: no output in netinstall mode.
 
 ```sh
-bsdtar -tf take8.iso | rg '^dists/questing/main/binary-arm64/Packages'
+bsdtar -tf take8.iso | rg '^dists/resolute/main/binary-arm64/Packages'
 ```
 
 Expected: no output in netinstall mode.
 
 ```sh
-bsdtar -xOf take8.iso dists/questing/Release | sed -n '1,80p'
+bsdtar -xOf take8.iso dists/resolute/Release | sed -n '1,80p'
 ```
 
 Expected:
 
-- `Suite: questing`
-- `Codename: questing`
+- `Suite: resolute`
+- `Codename: resolute`
 - `Components: main`
 - hashes for `main/debian-installer/binary-arm64/Packages`
 - no hashes for `main/binary-arm64/Packages`
@@ -152,7 +152,7 @@ Expected:
 - `apt-cdrom-setup/no-cd boolean true`
 - `mirror/http/hostname string ports.ubuntu.com`
 - `mirror/http/directory string /ubuntu-ports`
-- `mirror/codename string questing`
+- `mirror/codename string resolute`
 - `cdrom/suite` and `cdrom/codename` lines commented as disabled by netinstall
 
 ```sh
@@ -167,6 +167,6 @@ Boot expectation on .66:
 - cdrom-detect still mounts and recognizes the media via `.disk/info`.
 - anna still reads local udebs via `main/debian-installer/binary-arm64/Packages`.
 - base-installer no longer treats `/cdrom` as base-installable.
-- debootstrap uses `http://ports.ubuntu.com/ubuntu-ports`, suite `questing`, component `main`.
+- debootstrap uses `http://ports.ubuntu.com/ubuntu-ports`, suite `resolute`, component `main`.
 
 Patch recipe summary: in `build/build-iso-di.sh` lines 824-831, make `.disk/base_installable` and `.disk/base_components` conditional on `MODE != netinstall`; for netinstall, explicitly remove both markers after extracting the bookworm substrate.

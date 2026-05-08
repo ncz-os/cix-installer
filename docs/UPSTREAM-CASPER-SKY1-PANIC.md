@@ -17,7 +17,7 @@
 Booting any Ubuntu casper-based ISO from USB on Cix Sky1 / CD8180 silicon (Minisforum MS-R1, Radxa Orion O6, Orange Pi 6 Plus) results in a kernel panic during initrd execution. The panic is reproducible across:
 
 - multiple bootloaders (rEFInd, GRUB, systemd-boot)
-- Ubuntu 25.10 questing, Ubuntu 26.04 (when available), and Ubuntu 24.04 noble installer ISOs
+- Ubuntu 26.04 resolute and Ubuntu 24.04 noble installer ISOs
 - Cix Sky1 LTS kernel `linux-cix-sky1 6.18.x` and NEXT `7.0.x`
 - the Sky1-Linux community kernel patch series
 
@@ -45,7 +45,7 @@ Substituting a Debian `bookworm-d-i` busybox initrd (with the *same* Cix Sky1 vm
 
 Currently anyone with Sky1 hardware + a recent Ubuntu desktop or server ISO sees this. Specifically:
 
-1. Download `ubuntu-25.10-desktop-arm64.iso` (or `live-server-arm64.iso`)
+1. Download `ubuntu-26.04-desktop-arm64.iso` (or `live-server-arm64.iso`)
 2. Flash to USB with `dd` or balenaEtcher
 3. Boot a Cix CD8180 / Sky1 system from the USB
 4. Observe panic shortly after kernel handoff

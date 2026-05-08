@@ -33,7 +33,7 @@ What needs to land in NCZ r75 builds (cix-installer + Yocto + post-install hooks
 |---|---|---|---|
 | P1 | **`usermod -aG render,video,audio,plugdev`** for first-boot user | r74 didn't add to render group → Vulkan failed silently with "Permission denied" on /dev/dri/renderD128 | #114 |
 | P2 | **Hostname fallback to `ncz-<MAC4hex>`** if blank + early-abort on wireless-only env | Jeff Hunter first-external-user bug: empty hostname on wireless install crashed downstream | #109 |
-| P3 | **Patch `cix-noe-umd` postinst** to gracefully skip libnoe pip install when Python ≥ 3.13 | Ubuntu 25.10 ships Python 3.13.7; libnoe wheel requires <3.13. C lib still works, just need `\|\| true` | #116 |
+| P3 | **Patch `cix-noe-umd` postinst** to gracefully skip libnoe pip install when Python ≥ 3.13 | Ubuntu 26.04 ships Python >=3.13; libnoe wheel requires <3.13. C lib still works, just need `\|\| true` | #116 |
 | P4 | **Bake GPU/NPU/LLM stack** — Vulkan dev (libvulkan-dev, glslang-tools, glslc, spirv-tools, spirv-headers), llama.cpp Vulkan binaries, NPU embedder Python (`npu_embed_v2.py` with cache + server), bge-small-zh.cix model, libnoe runtime | r75 image should ship "plug-in-and-it-works" — current PoC requires manual builds | #111 |
 | P5 | **`ncz desktop on/off` toggle CLI** + Magnetar Server SKU defaults to `multi-user.target` + NoMachine pre-installed enabled | Headless server appliance baseline; Reinhardt Desktop SKU keeps graphical | #115 |
 | P6 | **`ncz install mnemos`** wires MNEMOS server with NPU embedder backend at first boot (Cix-arm64 path) or OpenVINO embedder backend (Intel-x86 path) | The killer-app that justifies the SKU; PoC validated on .66 already | #98 |

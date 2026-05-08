@@ -9,9 +9,9 @@
 
 set -euo pipefail
 
-CHROOT="${1:-/home/jasonperlow/cix-installer-build/cix-installer/build/questing-bootstrap}"
-MIRROR_DIR="${2:-/home/jasonperlow/cix-installer-build/cix-installer/build/questing-bootstrap-pool}"
-SUITE="${3:-questing}"
+CHROOT="${1:-/home/jasonperlow/cix-installer-build/cix-installer/build/resolute-bootstrap}"
+MIRROR_DIR="${2:-/home/jasonperlow/cix-installer-build/cix-installer/build/resolute-bootstrap-pool}"
+SUITE="${3:-resolute}"
 ARCH="${4:-arm64}"
 UBUNTU_URL="${5:-http://ports.ubuntu.com/ubuntu-ports}"
 
@@ -60,7 +60,7 @@ write_component_release_files() {
         cat > "$dir/Release" <<EOF
 Archive: stable
 Origin: nclawzero
-Label: nclawzero-cixmini-questing
+Label: nclawzero-cixmini-resolute
 Version: 1.0
 Acquire-By-Hash: yes
 Component: $component

@@ -131,7 +131,7 @@ Action: make the binary palette patch substrate-version keyed or non-fatal.
 
 - Step 4 works for trixie in shape: all substrate udebs are captured, copied
   into `pool/`, then `dpkg-scanpackages --type udeb --multiversion` regenerates
-  the `questing` udeb index from actual pool contents. The later debootstrap
+  the `resolute` udeb index from actual pool contents. The later debootstrap
   patch uses the same staged udeb whether it came from substrate capture or
   explicit graft.
 

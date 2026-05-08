@@ -61,7 +61,7 @@ The boot-counting auto-rollback machinery (cixmini-next+3-0.conf) STAYS — if N
 
 New `--mode {full|thin|netinstall}` flag (sibling to `--variant`):
 
-| Mode | rootfs.tar.zst | questing-mirror | r40 debootstrap stub | Single kernel | Size |
+| Mode | rootfs.tar.zst | resolute-mirror | r40 debootstrap stub | Single kernel | Size |
 |---|---|---|---|---|---|
 | `full` | yes | yes | yes (bypasses real debootstrap) | LTS+NEXT | 9.3 GB |
 | `thin` | no | yes | no — real debootstrap reads embedded mirror | LTS+NEXT | ~5 GB |
@@ -80,11 +80,11 @@ d-i mirror/protocol string http
 d-i mirror/http/hostname string ports.ubuntu.com
 d-i mirror/http/directory string /ubuntu-ports
 d-i mirror/http/proxy string
-d-i mirror/http/suite string questing
+d-i mirror/http/suite string resolute
 d-i mirror/country string manual
 ```
 
-Ubuntu pinned to current questing release. When questing goes EOL we cut a fresh netinstall ISO bound to the next non-LTS or to the next LTS — ISO is per-release.
+Ubuntu pinned to current resolute release. When resolute goes EOL we cut a fresh netinstall ISO bound to the next non-LTS or to the next LTS — ISO is per-release.
 
 ### `preseed/late.sh` (runs in d-i context, before chroot post-install)
 
@@ -145,7 +145,7 @@ The menu emission gets a conditional in `build-iso-di.sh` for netinstall text/ke
 
 3. **Cixtech archive at install time.** `25-cix-ppa.sh` adds `archive.cixtech.com`. Codex round-3 hardened the cix-noe-umd recovery path against archive flakiness — net result is a warn-not-fail with libnoe.so post-check. Acceptable.
 
-4. **Mirror suite drift.** preseed pins `questing`. When Ubuntu cuts the next non-LTS, we either cut a new netinstall ISO bound to it or accept that the questing ISO becomes vintage. Standard Ubuntu install lifecycle.
+4. **Mirror suite drift.** preseed pins `resolute`. When Ubuntu cuts the next non-LTS, we either cut a new netinstall ISO bound to it or accept that the resolute ISO becomes vintage. Standard Ubuntu install lifecycle.
 
 5. **Kernel cmdline parsing.** The `sed` regex assumes `ncz_variant=` is space-delimited or at start. If GRUB injects extra params before/after, the regex still works. Tested mentally; should add a unit test (or shell test harness) when the patch lands.
 
