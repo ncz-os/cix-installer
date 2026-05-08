@@ -5,6 +5,17 @@ set -euo pipefail
 
 echo "[20] desktop layer (XFCE + LightDM + xrdp)"
 
+VARIANT=desktop
+if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
+    VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
+fi
+case "$VARIANT" in
+    server|magnetar|headless)
+        echo "[20] BUILD_VARIANT=server - Magnetar headless SKU; skipping desktop install"
+        exit 0
+        ;;
+esac
+
 # Drop bogus cdrom-list left over from d-i + use online questing ports repo
 rm -f /etc/apt/sources.list.d/cixmini-cdrom.list 2>/dev/null
 cat > /etc/apt/sources.list <<'APT'

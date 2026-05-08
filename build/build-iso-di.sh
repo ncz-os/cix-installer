@@ -21,17 +21,19 @@ ROOT=""
 VERSION=""
 OUTPUT=""
 VARIANT="desktop"   # r75 M1: 'desktop' (Reinhardt SKU) | 'server' (Magnetar SKU)
-MODE="full"         # r78: full | thin | netinstall
+MODE="full"         # r78: full | thin | netinstall | netinstall-bootstrap
 
 usage() {
     cat <<'EOF'
 Usage: build/build-iso-di.sh --bookworm-iso PATH --root PATH --version VERSION --output PATH [options]
 
 Options:
-  --mode {full|thin|netinstall}
+  --mode {full|thin|netinstall|netinstall-bootstrap}
       full       default; bundled rootfs.tar.zst + embedded questing mirror
       thin       embedded questing mirror, real debootstrap, no rootfs.tar.zst
       netinstall canonical ports.ubuntu.com debootstrap, NEXT kernel only, <500 MB
+      netinstall-bootstrap
+                 netinstall + local pkgsel bootstrap pool, still <1 GB
   --variant {desktop|server}
       Bake-time default variant; GRUB chooser can override via ncz_variant=
   --bookworm-iso PATH
@@ -71,8 +73,8 @@ done
 
 # Validate MODE before staging
 case "$MODE" in
-    full|thin|netinstall) ;;
-    *) echo "ERROR: --mode must be 'full', 'thin', or 'netinstall' (got '$MODE')" >&2; exit 1 ;;
+    full|thin|netinstall|netinstall-bootstrap) ;;
+    *) echo "ERROR: --mode must be 'full', 'thin', 'netinstall', or 'netinstall-bootstrap' (got '$MODE')" >&2; exit 1 ;;
 esac
 
 # Validate VARIANT before staging
@@ -87,6 +89,7 @@ PATCH_DEBOOTSTRAP_STUB=1
 STAGE_LTS_KERNEL=1
 STAGE_NEXT_KERNEL=1
 INSTALLER_KERNEL_FLAVOR=lts
+BOOTSTRAP_POOL=0
 # 2026-05-08: ceiling set to 1GB so the netinstall ISO stays in the
 # easy-GitHub-release-distribution band (GitHub allows up to 2GB per
 # release asset but practical distribution wants <1GB). Current ISO
@@ -109,6 +112,14 @@ case "$MODE" in
         PATCH_DEBOOTSTRAP_STUB=0
         STAGE_LTS_KERNEL=0
         INSTALLER_KERNEL_FLAVOR=next
+        ;;
+    netinstall-bootstrap)
+        EMBED_MIRROR=0
+        STAGE_ROOTFS=0
+        PATCH_DEBOOTSTRAP_STUB=0
+        STAGE_LTS_KERNEL=0
+        INSTALLER_KERNEL_FLAVOR=next
+        BOOTSTRAP_POOL=1
         ;;
 esac
 
@@ -490,7 +501,7 @@ fi
 echo "    dropping $DI_CODENAME pool/, dists/, doc/, firmware/"
 rm -rf "$STAGING/pool" "$STAGING/dists" "$STAGING/doc" "$STAGING/firmware" 2>/dev/null || true
 
-# Step 3: embed our offline questing mirror (regular debs + Release)
+# Step 3: embed our offline questing mirror or bootstrap pool
 MIRROR_DIR="${MIRROR_DIR:-$ROOT/build/questing-mirror}"
 if [ "$EMBED_MIRROR" = "1" ]; then
     if [ -d "$MIRROR_DIR/pool" ] && [ -d "$MIRROR_DIR/dists" ]; then
@@ -503,8 +514,34 @@ if [ "$EMBED_MIRROR" = "1" ]; then
         exit 1
     fi
 else
-    echo "    netinstall mode: skipping embedded questing mirror"
     mkdir -p "$STAGING/pool" "$STAGING/dists"
+    if [ "$BOOTSTRAP_POOL" = "1" ]; then
+        BOOTSTRAP_POOL_DIR="${BOOTSTRAP_POOL_DIR:-$ROOT/build/questing-bootstrap-pool}"
+        BOOTSTRAP_POOL_CHROOT="${BOOTSTRAP_POOL_CHROOT:-$ROOT/build/questing-bootstrap}"
+        BOOTSTRAP_POOL_UPSTREAM="${BOOTSTRAP_POOL_UPSTREAM:-http://ports.ubuntu.com/ubuntu-ports}"
+
+        if [ "${REFRESH_BOOTSTRAP_POOL:-0}" = "1" ] || [ ! -d "$BOOTSTRAP_POOL_DIR/pool" ] || [ ! -d "$BOOTSTRAP_POOL_DIR/dists" ]; then
+            echo "    building netinstall bootstrap pool at $BOOTSTRAP_POOL_DIR"
+            "$ROOT/build/build-bootstrap-pool.sh" \
+                "$BOOTSTRAP_POOL_CHROOT" \
+                "$BOOTSTRAP_POOL_DIR" \
+                questing \
+                arm64 \
+                "$BOOTSTRAP_POOL_UPSTREAM"
+        fi
+
+        if [ -d "$BOOTSTRAP_POOL_DIR/pool" ] && [ -d "$BOOTSTRAP_POOL_DIR/dists" ]; then
+            echo "    embedding netinstall bootstrap pool from $BOOTSTRAP_POOL_DIR"
+            cp -a "$BOOTSTRAP_POOL_DIR/pool/." "$STAGING/pool/"
+            cp -a "$BOOTSTRAP_POOL_DIR/dists/." "$STAGING/dists/"
+            echo "    bootstrap pool embedded: $(du -sh "$STAGING/pool" "$STAGING/dists" | head -1 | cut -f1)"
+        else
+            echo "    ERROR: $BOOTSTRAP_POOL_DIR missing pool/ or dists/ after bootstrap build" >&2
+            exit 1
+        fi
+    else
+        echo "    netinstall mode: skipping embedded questing mirror"
+    fi
 fi
 
 # Step 4: merge bookworm udebs into questing pool/main/<letter>/<pkg>/
@@ -893,7 +930,7 @@ mkdir -p "$STAGING/dists/questing/main/debian-installer/binary-arm64"
     echo "    udeb Packages: $UDEBCT entries indexed"
 )
 
-if [ "$EMBED_MIRROR" = "0" ]; then
+if [ "$EMBED_MIRROR" = "0" ] && [ "$BOOTSTRAP_POOL" = "0" ]; then
     # 2026-05-07 (take7 chroot-target failure → take8 fix per
     # Codex R78-INVALID-RELEASE-AUDIT):
     #
@@ -913,6 +950,13 @@ if [ "$EMBED_MIRROR" = "0" ]; then
     : > "$STAGING/dists/questing/main/binary-arm64/Packages"
     gzip -9cn "$STAGING/dists/questing/main/binary-arm64/Packages" \
         > "$STAGING/dists/questing/main/binary-arm64/Packages.gz"
+elif [ "$BOOTSTRAP_POOL" = "1" ]; then
+    if [ ! -s "$STAGING/dists/questing/main/binary-arm64/Packages" ]; then
+        echo "ERROR: bootstrap pool did not provide a non-empty regular Packages index" >&2
+        exit 1
+    fi
+    BOOTSTRAP_DEBCT=$(grep -c '^Package: ' "$STAGING/dists/questing/main/binary-arm64/Packages" || echo 0)
+    echo "    bootstrap pool regular Packages: $BOOTSTRAP_DEBCT entries indexed"
 fi
 
 # Step 6: regenerate dists/questing/Release to include BOTH the regular
@@ -925,6 +969,8 @@ echo "    regenerating dists/questing/Release with both regular + udeb indexes"
     write_component_release_files questing arm64
     if [ "$EMBED_MIRROR" = "1" ]; then
         write_suite_release questing arm64 main "nclawzero cixmini offline mirror — questing arm64 (regular + udebs)"
+    elif [ "$BOOTSTRAP_POOL" = "1" ]; then
+        write_suite_release questing arm64 main "nclawzero cixmini netinstall bootstrap pool - questing arm64"
     else
         write_suite_release questing arm64 main "nclawzero cixmini netinstall udeb substrate — questing arm64"
     fi
@@ -953,7 +999,7 @@ mkdir -p "$STAGING/.disk" "$STAGING/.disk/id"
 # of mirror/* preseed values. Removing the marker (and its companion
 # base_components) is the supported way to tell base-installer "use
 # the configured HTTP mirror; this medium is for udebs/boot only".
-if [ "$MODE" = "netinstall" ]; then
+if [ "$MODE" = "netinstall" ] || [ "$MODE" = "netinstall-bootstrap" ]; then
     rm -f "$STAGING/.disk/base_installable" "$STAGING/.disk/base_components"
 else
     printf 'main\n' > "$STAGING/.disk/base_components"
@@ -963,6 +1009,9 @@ printf 'dvd\n' > "$STAGING/.disk/cd_type"
 case "$MODE" in
     netinstall)
         printf 'nclawzero cixmini questing - Netinstall arm64 Binary 1\n' > "$STAGING/.disk/info"
+        ;;
+    netinstall-bootstrap)
+        printf 'nclawzero cixmini questing - Netinstall Bootstrap arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
     thin)
         printf 'nclawzero cixmini questing - Thin arm64 Binary 1\n' > "$STAGING/.disk/info"
@@ -1213,16 +1262,20 @@ else
             disabled($0)
             next
         }
-        mode == "netinstall" && /^d-i cdrom\/(suite|codename) / {
+        mode ~ /^netinstall/ && /^d-i cdrom\/(suite|codename) / {
             disabled($0)
             next
         }
-        mode == "netinstall" && $0 == "d-i apt-setup/use_mirror boolean false" {
+        mode ~ /^netinstall/ && $0 == "d-i apt-setup/use_mirror boolean false" {
             print "d-i apt-setup/use_mirror boolean true"
             next
         }
-        mode == "netinstall" && $0 == "d-i apt-cdrom-setup/no-cd boolean false" {
+        mode ~ /^netinstall/ && $0 == "d-i apt-cdrom-setup/no-cd boolean false" {
             print "d-i apt-cdrom-setup/no-cd boolean true"
+            next
+        }
+        mode == "netinstall-bootstrap" && $0 == "d-i pkgsel/upgrade select full-upgrade" {
+            print "d-i pkgsel/upgrade select none"
             next
         }
         { print }
@@ -1454,17 +1507,17 @@ echo ""
 echo "OUTPUT: $OUTPUT"
 ls -lh "$OUTPUT"
 
-if [ "$MODE" = "netinstall" ]; then
+if [ "$MODE" = "netinstall" ] || [ "$MODE" = "netinstall-bootstrap" ]; then
     ISO_SIZE_BYTES=$(file_size_bytes "$OUTPUT") || exit 1
     if [ "$ISO_SIZE_BYTES" -le 0 ]; then
-        echo "ERROR: could not determine netinstall ISO size for $OUTPUT" >&2
+        echo "ERROR: could not determine $MODE ISO size for $OUTPUT" >&2
         exit 1
     fi
     if [ "$ISO_SIZE_BYTES" -ge "$NETINSTALL_MAX_BYTES" ]; then
         max_mb=$((NETINSTALL_MAX_BYTES / 1024 / 1024))
-        echo "ERROR: netinstall ISO is ${ISO_SIZE_BYTES} bytes, expected < ${NETINSTALL_MAX_BYTES} bytes (<${max_mb} MB)" >&2
+        echo "ERROR: $MODE ISO is ${ISO_SIZE_BYTES} bytes, expected < ${NETINSTALL_MAX_BYTES} bytes (<${max_mb} MB)" >&2
         exit 1
     fi
     max_mb=$((NETINSTALL_MAX_BYTES / 1024 / 1024))
-    echo "netinstall size OK: ${ISO_SIZE_BYTES} bytes (<${max_mb} MB)"
+    echo "$MODE size OK: ${ISO_SIZE_BYTES} bytes (<${max_mb} MB)"
 fi

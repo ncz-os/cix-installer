@@ -141,17 +141,22 @@ echo
 # Without this, FULL/THIN mode 10-our-kernel.sh + 70-bootloader.sh +
 # 20-desktop.sh fail because they need offline pkgs.
 #
-# 2026-05-07 take8 (per Codex R78-INVALID-RELEASE-AUDIT): in NETINSTALL
-# mode the build script ships an EMPTY main/binary-arm64/Packages (so
-# Release validation passes) and removes /cdrom/.disk/base_installable
-# (so base-installer uses the http mirror). Detect netinstall via the
-# absence of .disk/base_installable, and skip the file:///cdrom apt
-# source — there are no regular debs in pool/ for it to provide.
-if [ -e /cdrom/.disk/base_installable ]; then
+# 2026-05-07 take8 (per Codex R78-INVALID-RELEASE-AUDIT): minimal
+# NETINSTALL ships an EMPTY main/binary-arm64/Packages and removes
+# /cdrom/.disk/base_installable so base-installer uses the HTTP mirror.
+# 2026-05-08 netinstall-bootstrap keeps base_installable absent but adds a
+# small non-empty regular Packages index for pkgsel/include. In that mode,
+# file:///cdrom is valid for pkgsel/post-install package fallback.
+CDROM_REGULAR_INDEX=/cdrom/dists/questing/main/binary-arm64/Packages
+if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     echo "--- mounting cdrom into /target for offline apt-get during post-install ---"
     mkdir -p /target/cdrom
-    mount --bind /cdrom /target/cdrom 2>&1 || \
-        { echo "WARN: bind-mount /cdrom into /target failed; post-install apt-get may fail"; }
+    if grep -qs ' /target/cdrom ' /proc/mounts; then
+        echo "    /target/cdrom already mounted"
+    else
+        mount --bind /cdrom /target/cdrom 2>&1 || \
+            { echo "WARN: bind-mount /cdrom into /target failed; post-install apt-get may fail"; }
+    fi
 
     # Add file:///cdrom apt source to /target's sources.list so apt-get
     # install in chroot can find packages locally. [trusted=yes] bypasses
@@ -159,12 +164,27 @@ if [ -e /cdrom/.disk/base_installable ]; then
     cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'CDROM_LIST'
 deb [trusted=yes] file:///cdrom questing main
 CDROM_LIST
+    mkdir -p /target/etc/apt/preferences.d
+    cat > /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref <<'CDROM_PREF'
+Package: *
+Pin: release o=nclawzero
+Pin-Priority: 1001
+CDROM_PREF
     echo "    /target/etc/apt/sources.list.d/cixmini-cdrom.list installed"
-    in-target apt-get update 2>&1 | tail -3 || \
-        { echo "WARN: in-target apt-get update from cdrom failed"; }
+    if [ ! -e /cdrom/.disk/base_installable ] && [ -s "$CDROM_REGULAR_INDEX" ]; then
+        chroot /target /usr/bin/apt-get \
+            -o Dir::Etc::sourcelist="sources.list.d/cixmini-cdrom.list" \
+            -o Dir::Etc::sourceparts="-" \
+            -o APT::Get::List-Cleanup="0" \
+            update 2>&1 | tail -3 || \
+            { echo "WARN: local apt-get update from bootstrap pool failed"; }
+    else
+        in-target apt-get update 2>&1 | tail -3 || \
+            { echo "WARN: in-target apt-get update from cdrom failed"; }
+    fi
     CDROM_BIND_MOUNTED=1
 else
-    echo "--- netinstall mode: cdrom has no main component, skipping cdrom apt source ---"
+    echo "--- netinstall mode: cdrom has no regular deb component, skipping cdrom apt source ---"
     echo "    (post-install hooks rely on ports.ubuntu.com via apt-setup)"
     CDROM_BIND_MOUNTED=0
 fi
