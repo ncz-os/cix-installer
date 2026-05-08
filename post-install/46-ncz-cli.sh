@@ -5,13 +5,12 @@
 #   * desktop {on,off,status}      — graphical/multi-user toggle (P5)
 #   * models pull                  — fetch cixtech/ai_model_hub_25_Q3 LFS
 #   * install mnemos               — wire MNEMOS server with NPU embedder
+#   * install nemoclaw             — pull + start NVIDIA NemoClaw runtime
 #   * version, help
 #
 # `models pull` and `install mnemos` are STUBS in r75 — they print clear
-# "not yet implemented; see task #99/#98" messages and exit 2. This locks
-# the CLI surface so users + scripts can rely on the command names; the
-# actual fetch/wire logic lands in r76+ once the LFS pull strategy is
-# settled (cixtech raw .git LFS over HTTPS vs ARGONAS-mirror local pull).
+# "not yet implemented; see task #99/#98" messages and exit 2. NemoClaw is
+# implemented because the runtime image is pulled on demand from GHCR.
 #
 # Also stages the canonical npu_embed_v2.py wrapper (Python ctypes around
 # libnoe.so) to /opt/cix/npu_embed_v2.py so users can invoke it directly
@@ -42,12 +41,17 @@ install -D -m 0755 /dev/stdin /usr/local/bin/ncz <<'NCZ'
 #   desktop {on|off|status}  — graphical/multi-user toggle
 #   models pull              — fetch cixtech/ai_model_hub_25_Q3 LFS to /opt/ncz/models
 #   install mnemos           — wire MNEMOS + NPU embedder backend (stub r75)
+#   install nemoclaw         — pull + start NVIDIA NemoClaw runtime
 #   version, help
 set -euo pipefail
 
 readonly NCZ_VERSION="0.2.0"
 readonly NCZ_MODELS_DIR="/opt/ncz/models"
 readonly NCZ_CIX_LIB_DIR="/opt/cix"
+readonly NCZ_AGENT_HELPER="/usr/local/lib/ncz-agent-cli"
+readonly NCZ_QUADLET_TEMPLATES="/usr/share/ncz/quadlets"
+readonly NCZ_QUADLET_ACTIVE="/etc/containers/systemd"
+readonly NEMOCLAW_IMAGE="ghcr.io/nvidia/nemoclaw/sandbox-base:latest"
 
 ncz_help() {
     cat <<HELP
@@ -65,6 +69,8 @@ Subcommands:
                         (STUB in r75 — see task #99).
   install mnemos        Wire MNEMOS server + Cix NPU embedder backend
                         (STUB in r75 — see task #98).
+  install nemoclaw      Pull + start NVIDIA NemoClaw OpenShell sandbox runtime.
+  agent ...             Manage zeroclaw/openclaw/hermes/portainer agents.
   status                Print system summary: ncz version, BUILD_VARIANT,
                         kernel, default-target, NPU + GPU presence.
   version               Print version.
@@ -73,6 +79,17 @@ Subcommands:
 For server-class deploys (Magnetar SKU), 'ncz desktop off' is the
 canonical post-install step. Reinhardt SKU ships graphical-by-default.
 HELP
+}
+
+# --- agent subcommand ----------------------------------------------------
+
+ncz_agent() {
+    if [ -x "$NCZ_AGENT_HELPER" ]; then
+        exec "$NCZ_AGENT_HELPER" agent "$@"
+    fi
+    echo "ncz agent: helper missing: $NCZ_AGENT_HELPER" >&2
+    echo "This system did not preserve the agent installer from 30-agents.sh." >&2
+    exit 1
 }
 
 # --- desktop subcommand --------------------------------------------------
@@ -181,9 +198,64 @@ MSG
 
 # --- install subcommand --------------------------------------------------
 
+ncz_install_nemoclaw() {
+    if ! [ "$(id -u)" = "0" ]; then
+        echo "ncz install nemoclaw: requires root (use sudo)" >&2
+        exit 1
+    fi
+    if ! command -v podman >/dev/null 2>&1; then
+        echo "ncz install nemoclaw: podman is not installed" >&2
+        exit 1
+    fi
+    if ! command -v systemctl >/dev/null 2>&1; then
+        echo "ncz install nemoclaw: systemctl is not available" >&2
+        exit 1
+    fi
+
+    local template="$NCZ_QUADLET_TEMPLATES/nemoclaw.container"
+    local active="$NCZ_QUADLET_ACTIVE/nemoclaw.container"
+    if [ ! -f "$template" ]; then
+        echo "ncz install nemoclaw: missing quadlet template: $template" >&2
+        exit 1
+    fi
+
+    echo "[ncz] installing NemoClaw"
+    echo "[ncz] pulling $NEMOCLAW_IMAGE (about 2.4 GB compressed; network required)"
+    if ! podman pull "$NEMOCLAW_IMAGE"; then
+        echo "ncz install nemoclaw: podman pull failed" >&2
+        exit 1
+    fi
+
+    mkdir -p "$NCZ_QUADLET_ACTIVE"
+    podman volume exists nemoclaw-data 2>/dev/null || podman volume create nemoclaw-data >/dev/null
+
+    if [ -f "$active" ]; then
+        echo "[ncz] active quadlet already exists; preserving $active"
+    else
+        install -m 0644 "$template" "$active"
+        echo "[ncz] staged $active"
+    fi
+
+    systemctl daemon-reload
+    systemctl start nemoclaw.service
+
+    echo "[ncz] NemoClaw started."
+    echo "[ncz] OpenShell-gated inference endpoint: https://inference.local/v1"
+    echo "[ncz] Service: systemctl status nemoclaw.service"
+}
+
 ncz_install() {
     local component="${1:-help}"
     case "$component" in
+        help|--help|-h)
+            cat <<MSG
+Usage: ncz install <component>
+
+Components:
+  mnemos     Wire MNEMOS server + Cix NPU embedder backend (STUB in r75)
+  nemoclaw   Pull + start NVIDIA NemoClaw OpenShell sandbox runtime
+MSG
+            ;;
         mnemos)
             cat >&2 <<MSG
 ncz install mnemos — STUB (r75)
@@ -211,8 +283,11 @@ at /opt/cix/npu_embed_v2.py can be imported directly:
 MSG
             exit 2
             ;;
+        nemoclaw)
+            ncz_install_nemoclaw
+            ;;
         *)
-            echo "ncz install: unknown component '$component' (expected mnemos)" >&2
+            echo "ncz install: unknown component '$component' (expected: mnemos | nemoclaw)" >&2
             exit 1
             ;;
     esac
@@ -261,6 +336,7 @@ main() {
     local cmd="${1:-help}"
     shift || true
     case "$cmd" in
+        agent)          ncz_agent "$@" ;;
         desktop)        ncz_desktop "$@" ;;
         models)         ncz_models  "$@" ;;
         install)        ncz_install "$@" ;;

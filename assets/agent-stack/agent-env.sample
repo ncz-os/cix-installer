@@ -1,7 +1,7 @@
 # /etc/nclawzero/agent-env
 #
-# Shared environment file for the three nclawzero agents (zeroclaw,
-# openclaw, hermes) — each container's quadlet has EnvironmentFile=
+# Shared environment file for nclawzero agents (zeroclaw, openclaw,
+# hermes, nemoclaw) — each container's quadlet has EnvironmentFile=
 # pointing here. Mode 0640, group nclawzero (read-only for the
 # nclawzero group, no world read).
 #
@@ -34,3 +34,6 @@ ZEROCLAW_DEFAULT_MODEL=together/MiniMaxAI/MiniMax-M1-80k
 # openclaw container's /home/node/.openclaw).
 
 # Hermes — same provider catalog. No Anthropic.
+
+# NemoClaw — consumed by the OpenShell sandbox runtime when installed
+# with `ncz install nemoclaw`.
