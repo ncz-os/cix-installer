@@ -41,7 +41,8 @@ echo "[47] embedkit install + NPU runtime stage"
 # Install uv into /root/.local/bin if absent — curl is in pkgsel/include.
 if ! command -v uv >/dev/null 2>&1 && [ ! -f /root/.local/bin/uv ]; then
     echo "[47]   installing uv (Python 3.13 manager)"
-    HOME=/root curl -LsSf https://astral.sh/uv/install.sh | sh 2>&1 | tail -2
+    HOME=/root curl -LsSf https://astral.sh/uv/install.sh | sh 2>&1 | tail -2 \
+        || echo "[47] WARN: uv install failed — will fall back to system Python"
 fi
 export PATH="/root/.local/bin:$PATH"
 if command -v uv >/dev/null 2>&1; then
@@ -58,6 +59,12 @@ if [ ! -d "$VENV" ]; then
         uv venv "$VENV" --python 3.13 2>&1 | tail -3
     else
         echo "[47]   creating venv at $VENV (system Python)"
+        # python3-venv may be in universe; ensure universe + install it
+        if ! grep -qE '^\s*deb\b[^#]*\bresolute\b.*\buniverse\b' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+            sed -i 's/ resolute main$/ resolute main universe/' /etc/apt/sources.list
+            apt-get update -qq 2>&1 | tail -2 || true
+        fi
+        apt-get install -y --no-install-recommends python3-venv 2>&1 | tail -2 || true
         python3 -m venv "$VENV" 2>&1 | tail -3
     fi
 fi

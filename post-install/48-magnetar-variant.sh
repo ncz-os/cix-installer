@@ -199,7 +199,7 @@ echo "[48] /etc/issue.d/10-ncz-magnetar.issue written"
 # gets DHCP without operator intervention.
 if command -v nmcli >/dev/null 2>&1; then
     # Find the first ethernet device (skip lo, virtual, wireless)
-    ETH_DEV=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="ethernet"{print $1; exit}')
+    ETH_DEV=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="ethernet"{print $1; exit}') || true
     if [ -n "$ETH_DEV" ]; then
         # Only add a profile if there isn't one already for this device.
         if ! nmcli -t -f NAME,DEVICE connection show 2>/dev/null | grep -q ":${ETH_DEV}$"; then
