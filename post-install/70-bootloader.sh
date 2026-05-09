@@ -39,7 +39,7 @@ echo "  BUILD_VERSION=$BUILD_VERSION"
 # systemd-boot is in Ubuntu universe. Magnetar skips 20-desktop.sh so
 # universe may not be in sources.list. Add it before installing.
 # ----------------------------------------------------------------------
-if ! grep -qE '^\s*deb\b[^#]*\bresolute\b.*\buniverse\b' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+if ! grep -qE '^\s*deb\b[^#]* resolute [^-].*\buniverse\b' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
     echo "[70] adding universe to sources.list (needed for systemd-boot)"
     sed -i 's/ resolute main$/ resolute main universe/' /etc/apt/sources.list
     apt-get update -qq 2>&1 | tail -2

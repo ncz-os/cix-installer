@@ -13,7 +13,7 @@ set -euo pipefail
 echo "[40] Claude Code CLI substrate"
 
 # nodejs/npm are in Ubuntu universe; ensure it's available
-if ! grep -qE '^\s*deb\b[^#]*\bresolute\b.*\buniverse\b' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+if ! grep -qE '^\s*deb\b[^#]* resolute [^-].*\buniverse\b' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
     sed -i 's/ resolute main$/ resolute main universe/' /etc/apt/sources.list
     apt-get update -qq 2>&1 | tail -2
 fi
