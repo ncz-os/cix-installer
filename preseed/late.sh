@@ -277,11 +277,4 @@ if [ "$RET" = "0" ]; then
     done
     sleep 5
 fi
-# Forward full late.sh + run-all log to remote syslog loghost (192.168.207.22:514).
-# Captured by rsyslog on ARGOS at /var/log/ncz-di-install.log.
-if command -v logger >/dev/null 2>&1; then
-    logger -t cix-late -p user.notice "=== BEGIN cix-installer-late.log ==="
-    while IFS= read -r _line; do logger -t cix-late -p user.info "$_line"; done < "$LOG" 2>/dev/null || true
-    logger -t cix-late -p user.notice "=== END cix-installer-late.log (exit=$RET) ==="
-fi
 exit $RET

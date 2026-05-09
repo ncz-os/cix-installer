@@ -63,11 +63,9 @@ systemctl reenable NetworkManager 2>/dev/null || true
 # Fleet-canonical keys baked here so the device is reachable immediately
 # after first boot. Operators can rotate via sync-fleet-keys.sh later.
 read -r -d '' KEYS <<'EOF' || true
-# === nclawzero fleet-default authorized_keys (cixmini factory image) ===
-# jperlow-mlt (this Mac, primary operator workstation)
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBJ3z+8UX2oPt3cmN1X9XU8RWrgp7VvdHPd0vW+m/AoR jperlow@work-laptop
-# ARGOS (192.168.207.22, fleet build host - used for live diagnostics)
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKCDT5Busd1J+j4kpzkZ/jT/GtUQylaZCUCTftY2sYk argos-backup
+# No pre-seeded keys in distribution build.
+# Add your SSH public key after first boot:
+#   ssh-copy-id -i ~/.ssh/id_ed25519.pub mini@<host>
 EOF
 
 # Root account - only seed if absent (codex review: don't clobber
