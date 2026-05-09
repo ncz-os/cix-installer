@@ -37,13 +37,37 @@ echo "[47] embedkit install + NPU runtime stage"
 #    after-install convention; the venv is rebuilt by the operator if
 #    they want to upgrade embedkit out of band)
 # ----------------------------------------------------------------------
+# take27: use uv with Python 3.13 to avoid libnoe <3.14 constraint.
+# Install uv into /root/.local/bin if absent — curl is in pkgsel/include.
+if ! command -v uv >/dev/null 2>&1 && [ ! -f /root/.local/bin/uv ]; then
+    echo "[47]   installing uv (Python 3.13 manager)"
+    HOME=/root curl -LsSf https://astral.sh/uv/install.sh | sh 2>&1 | tail -2
+fi
+export PATH="/root/.local/bin:$PATH"
+if command -v uv >/dev/null 2>&1; then
+    UV_AVAILABLE=1
+    echo "[47]   uv available: $(uv --version)"
+else
+    UV_AVAILABLE=0
+    echo "[47]   WARN: uv not available — embedkit will use system Python (libnoe may fail on Python 3.14)"
+fi
+
 if [ ! -d "$VENV" ]; then
-    echo "[47]   creating venv at $VENV"
-    python3 -m venv "$VENV" 2>&1 | tail -3
+    if [ "$UV_AVAILABLE" = "1" ]; then
+        echo "[47]   creating venv at $VENV (Python 3.13 via uv)"
+        uv venv "$VENV" --python 3.13 2>&1 | tail -3
+    else
+        echo "[47]   creating venv at $VENV (system Python)"
+        python3 -m venv "$VENV" 2>&1 | tail -3
+    fi
 fi
 
 # Pip + wheel + setuptools refresh
-"$VENV/bin/pip" install --quiet --upgrade pip wheel setuptools 2>&1 | tail -2
+if [ "$UV_AVAILABLE" = "1" ]; then
+    uv pip install --python "$VENV/bin/python" --quiet pip wheel setuptools 2>&1 | tail -2
+else
+    "$VENV/bin/pip" install --quiet --upgrade pip wheel setuptools 2>&1 | tail -2
+fi
 
 # ----------------------------------------------------------------------
 # 2. Install embedkit from the bundled wheel (or git clone if the wheel
@@ -70,11 +94,16 @@ PY
 #    On Cix Sky1: libnoe wheel (Cix-shipped at /usr/share/cix/pypi/) +
 #    llama-cpp-python (CPU fallback adapter).
 # ----------------------------------------------------------------------
-LIBNOE_WHL=/usr/share/cix/pypi/libnoe-2.0.0-py3-none-manylinux2014_aarch64.whl
+# take27: use wildcard to pick whatever libnoe version is installed
+LIBNOE_WHL=$(ls /usr/share/cix/pypi/libnoe-*-py3-none-manylinux2014_aarch64.whl 2>/dev/null | head -1)
 if [ -f "$LIBNOE_WHL" ]; then
-    echo "[47]   installing libnoe (Cix NPU userspace binding)"
-    "$VENV/bin/pip" install --quiet "$LIBNOE_WHL" 2>&1 | tail -2
+    echo "[47]   installing libnoe (Cix NPU userspace binding, Python 3.13, no-deps)"
+    if [ "$UV_AVAILABLE" = "1" ]; then uv pip install --python "$VENV/bin/python" --no-deps "$LIBNOE_WHL" 2>&1 | tail -2; else "$VENV/bin/pip" install --no-deps "$LIBNOE_WHL" 2>&1 | tail -2; fi
 fi
+    # take27: fastembed provides CPU ONNX embedding fallback (754 emb/sec on Cix Sky1 CPU)
+    if [ "$UV_AVAILABLE" = "1" ]; then uv pip install --python "$VENV/bin/python" --quiet fastembed 2>&1 | tail -2 \
+        && echo "[47]   fastembed installed (CPU ONNX backend)" \
+        || echo "[47]   WARN: fastembed install failed (network/PyPI unavailable) — CPU ONNX path will not be available"
 
 # llama-cpp-python — CPU baseline + Vulkan fallback. Use the prebuilt
 # CPU wheel index so we don't compile from source on the install host.

@@ -99,6 +99,16 @@ chmod 0755 /etc/xrdp/startwm.sh
 systemctl enable xrdp
 
 # Skip gnome-initial-setup wizard (we already collected user creds via d-i)
+# take27: nm-applet autostart so network widget appears at first login
+mkdir -p /etc/skel/.config/autostart
+cat > /etc/skel/.config/autostart/nm-applet.desktop <<'NMDESK'
+[Desktop Entry]
+Type=Application
+Name=NetworkManager Applet
+Exec=nm-applet
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+NMDESK
 install -d -m 0755 /etc/skel/.config
 touch /etc/skel/.config/gnome-initial-setup-done
 

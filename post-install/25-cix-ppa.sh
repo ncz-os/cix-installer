@@ -136,7 +136,7 @@ case "$NOE_STATE" in
                 sed -i '1s|^#!/bin/sh\b|#!/bin/bash|' "$POSTINST"
                 echo "[25] patched cix-noe-umd.postinst shebang /bin/sh → /bin/bash"
             fi
-            sed -i -E 's|^([[:space:]]*)((python3?[[:space:]]+-m[[:space:]]+pip|pip3?)[[:space:]]+install[[:space:]]+.*libnoe.*)$|\1: # r75 P3: skipped on Py3.13 -- \2|' "$POSTINST"
+            sed -i -E 's@^([[:space:]]*)((python3?[[:space:]]+-m[[:space:]]+pip|pip3?)[[:space:]]+install[[:space:]]+.*libnoe.*)$@\1: # r75 P3: skipped on Py3.13 -- \2@' "$POSTINST"
             chmod 0755 "$POSTINST"
             if dpkg --configure cix-noe-umd 2>&1 | tail -3; then
                 apt-get -f install -y 2>&1 | tail -3 || { echo "[25] ERROR: apt-get -f install failed after postinst patch" >&2; exit 1; }
