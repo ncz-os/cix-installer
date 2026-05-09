@@ -16,8 +16,20 @@ set -euo pipefail
 echo "[34] /etc/fstab generation"
 
 if [ -s /etc/fstab ] && grep -Eq "[[:space:]]/boot/efi[[:space:]]" /etc/fstab && grep -Eq "[[:space:]]/[[:space:]]" /etc/fstab; then
-    echo "  /etc/fstab already has root + ESP entries - leaving alone"
-    exit 0
+    # take33: do NOT skip — 05-efi-reformat.sh changed the ESP UUID after partman
+    # wrote this fstab. Force-update the /boot/efi UUID line with the current
+    # blkid value so boot does not hit 'UUID not found' emergency mode.
+    _ESP_DEV=$(findmnt -no SOURCE /boot/efi 2>/dev/null || true)
+    CURRENT_ESP_UUID=$([ -n "$_ESP_DEV" ] && blkid -s UUID -o value "$_ESP_DEV" 2>/dev/null || true)
+    if [ -n "$CURRENT_ESP_UUID" ]; then
+        # Remove any existing /boot/efi line (UUID=, PARTUUID=, /dev/...) and rewrite
+        sed -i "\|[[:space:]]/boot/efi[[:space:]]|d" /etc/fstab
+        printf "UUID=%s  /boot/efi     vfat    defaults,umask=0077 0      2\n" "$CURRENT_ESP_UUID" >> /etc/fstab
+        echo "  /etc/fstab existed — replaced /boot/efi line with UUID=$CURRENT_ESP_UUID (post-reformat sync)"
+        exit 0
+    fi
+    # UUID not readable — fall through to full fstab regeneration below
+    echo "  /etc/fstab existed but ESP UUID unreadable — regenerating fstab fully"
 fi
 
 find_mount_source() {
