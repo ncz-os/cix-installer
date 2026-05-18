@@ -36,6 +36,9 @@ echo "    installed: $(find "$DEST" -newer "$SRC" -type f 2>/dev/null | wc -l) f
 if [ -f "$DEST/arm/mali/mali_csffw.bin" ]; then
     ln -sfn arm/mali/mali_csffw.bin "$DEST/mali_csffw.bin"
     ln -sfn mali/mali_csffw.bin     "$DEST/arm/mali_csffw.bin"
+    mkdir -p "$DEST/arm/mali/arch12.8"
+    ln -sfn /lib/firmware/arm/mali/mali_csffw.bin "$DEST/arm/mali/arch12.8/mali_csffw.bin"
+    echo "    symlinks: arch12.8/mali_csffw.bin (7.0.9-next panthor)"
     echo "    symlinks: /lib/firmware/mali_csffw.bin + /lib/firmware/arm/mali_csffw.bin"
 fi
 
