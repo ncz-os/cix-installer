@@ -98,7 +98,7 @@ chmod 0755 /usr/local/lib/cix-installer/detect-primary-display.sh
 
 cat > /etc/systemd/system/cix-detect-display.service <<UNIT
 [Unit]
-Description=NCX Sky1 connected-display autodetect
+Description=NCZ Sky1 connected-display autodetect
 DefaultDependencies=no
 After=systemd-udev-settle.service
 Before=display-manager.service lightdm.service basic.target

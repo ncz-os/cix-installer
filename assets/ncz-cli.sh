@@ -93,7 +93,7 @@ ncx — NCZ 26.5 agent CLI
   ncx agent shell <name>        shell into the container
   ncx agent token <name>        print the auth token (openclaw + hermes)
   ncx agent show <name>         full info: URL, token, instructions
-  ncx version                   NCX version + build info
+  ncx version                   NCZ version + build info
 Available agents: zeroclaw, openclaw, hermes
 USAGE
         ;;

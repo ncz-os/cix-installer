@@ -178,7 +178,7 @@ NCZ_USER_IMG=""
 [ -f /usr/share/icons/ncz/ncz-rocket-256.png ] && \
     NCZ_USER_IMG=/usr/share/icons/ncz/ncz-rocket-256.png
 [ -z "$NCZ_USER_IMG" ] && \
-    NCZ_USER_IMG=$(find /usr/share/icons/NCZ /usr/share/icons/NCX -name 'user-trash*.png' 2>/dev/null | head -1 || true)
+    NCZ_USER_IMG=$(find /usr/share/icons/NCZ /usr/share/icons/NCZ -name 'user-trash*.png' 2>/dev/null | head -1 || true)
 [ -z "$NCZ_USER_IMG" ] && [ -f /usr/share/icons/hicolor/256x256/apps/mnemos.png ] && \
     NCZ_USER_IMG=/usr/share/icons/hicolor/256x256/apps/mnemos.png
 [ -z "$NCZ_USER_IMG" ] && NCZ_USER_IMG=/usr/share/icons/hicolor/256x256/status/avatar-default.png

@@ -386,7 +386,7 @@ rm -f /etc/lightdm/lightdm.conf.d/55-gnome-xorg.conf
 
 echo "[20] wallpapers unified across XFCE/MATE/LXQt/WMaker/Openbox; default session = xfce"
 
-# r55 NCX-themed xscreensaver default config (system-wide via /etc/skel)
+# r55 NCZ-themed xscreensaver default config (system-wide via /etc/skel)
 cat > /etc/skel/.xscreensaver <<'XSS'
 timeout:		0:10:00
 cycle:			0:05:00

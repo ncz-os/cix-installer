@@ -1,7 +1,7 @@
 #!/bin/bash
 # /usr/local/lib/ncx/upstream-watch.sh
 #
-# NCX upstream-watch agent — polls every 6 hours for relevant updates from:
+# NCZ upstream-watch agent — polls every 6 hours for relevant updates from:
 #   - Mesa3D (panthor/panvk Gallium + Vulkan driver progress)
 #   - Sky1-Linux GitHub org (kernel patches, mesa-sky1, vulkan-wsi-layer, sky1-gpu-support)
 #   - CIX official PPA (archive.cixtech.com new package versions)
@@ -136,11 +136,11 @@ log "=== upstream-watch run end: $NCHANGES change(s) ==="
 
 if [ "$NCHANGES" -gt 0 ]; then
     echo ""
-    echo "NCX upstream-watch — $NCHANGES new finding(s) at $(ts):"
+    echo "NCZ upstream-watch — $NCHANGES new finding(s) at $(ts):"
     cat "$CHANGES"
 
     # Optional email notification
     if [ -n "$NOTIFY_EMAIL" ] && command -v mail >/dev/null 2>&1; then
-        cat "$CHANGES" | mail -s "[NCX] $NCHANGES upstream changes" "$NOTIFY_EMAIL" || true
+        cat "$CHANGES" | mail -s "[NCZ] $NCHANGES upstream changes" "$NOTIFY_EMAIL" || true
     fi
 fi
