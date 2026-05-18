@@ -51,20 +51,32 @@ NCZ 26.5 "Reinhardt"  (Cix Sky1 / CP8180)
 
 EOF
 
-cat > /etc/motd <<MOTD
-
-   ┌─────────────────────────────────────────────────────────┐
-   │  NCZ 26.5 "Reinhardt"  —  Cix Sky1 / CP8180 edge agent  │
-   │                                                         │
-   │  Agents:  zeroclaw · openclaw · hermes · claude-code    │
-   │  Kernel:  linux-cix-sky1 6.18.26-lts (Yocto-built)      │
-   │  GPU:     Mali-G720  (Mesa Zink+PanVK accel)            │
-   │  NPU:     Zhouyi v3  (3 cores · 12 TECs · /dev/aipu)    │
-   │                                                         │
-   │  ✦  Workloads. Not wallpapers.                          │
-   └─────────────────────────────────────────────────────────┘
-
-MOTD
+# Dynamic MOTD box — idempotent, runs at every login so kernel/NPU status is live.
+# Overwrites same path on each 50-brand.sh invocation (safe to rerun).
+cat > /etc/update-motd.d/10-ncz-box << 'NCZMOTD'
+#!/bin/sh
+KVER=$(uname -r)
+if test -c /dev/aipu; then
+    NPU="Zhouyi V3  (/dev/aipu · 3 cores · 12 TECs)"
+else
+    NPU="Zhouyi V3  (modprobe armchina_npu to activate)"
+fi
+printf "\n"
+printf "   ┌──────────────────────────────────────────────────────────┐\n"
+printf "   │  NCZ 26.5 \"Reinhardt\"  —  Cix Sky1 / CP8180 edge agent   │\n"
+printf "   │                                                          │\n"
+printf "   │  Agents:  zeroclaw · openclaw · hermes · claude-code    │\n"
+printf "   │  Kernel:  %-46s│\n" "${KVER}"
+printf "   │  GPU:     Mali-G720  (Panthor DRM / Vulkan)              │\n"
+printf "   │  NPU:     %-46s│\n" "${NPU}"
+printf "   │                                                          │\n"
+printf "   │  ✦  Workloads. Not wallpapers.                          │\n"
+printf "   └──────────────────────────────────────────────────────────┘\n"
+printf "\n"
+NCZMOTD
+chmod 0755 /etc/update-motd.d/10-ncz-box
+# Clear static /etc/motd — dynamic scripts in update-motd.d handle all output
+printf "" > /etc/motd
 
 cat > /etc/update-motd.d/00-header <<HEADER
 #!/bin/sh
