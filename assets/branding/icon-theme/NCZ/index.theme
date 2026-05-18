@@ -1,6 +1,6 @@
 [Icon Theme]
-Name=NCX
-Comment=NCX black-hole trash on top of Adwaita (NeXTSTEP homage)
+Name=NCZ
+Comment=NCZ black-hole trash on top of Adwaita (NeXTSTEP homage)
 Inherits=Adwaita,hicolor
 Example=user-trash
 Directories=places/16,places/22,places/24,places/32,places/48,places/64,places/96,places/128,places/256,places/scalable

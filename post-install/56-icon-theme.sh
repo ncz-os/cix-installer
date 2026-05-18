@@ -16,16 +16,16 @@ case "$VARIANT" in
 esac
 
 ASSETS=/usr/local/lib/cix-installer/assets/branding/icon-theme
-# Source dir is named "NCX" historically (NeXT homage); destination is the
+# Source dir is named "NCZ" historically (NeXT homage); destination is the
 # canonical NCZ brand. r74 had \$ASSETS/NCZ literal-escape that always
 # tested the literal string "$ASSETS/NCZ" and silently exited 0, so the
 # icon theme never installed. Find whichever source dir is present.
 SRC=""
-for candidate in "$ASSETS/NCZ" "$ASSETS/NCX"; do
+for candidate in "$ASSETS/NCZ" "$ASSETS/NCZ"; do
     if [ -d "$candidate" ]; then SRC="$candidate"; break; fi
 done
 if [ -z "$SRC" ]; then
-    echo "[56] WARN: NCZ/NCX icon theme assets missing under $ASSETS — skipping"
+    echo "[56] WARN: NCZ/NCZ icon theme assets missing under $ASSETS — skipping"
     exit 0
 fi
 
@@ -76,8 +76,8 @@ echo "[56] icon theme installed at /usr/share/icons/NCZ"
 echo "    GNOME default set via /etc/dconf/db/local.d/02-ncz-icon-theme"
 echo "    XFCE default set via /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml"
 
-# === r55: rewrite NCX index.theme with Inherits= so Qt apps (LXQt) cascade ===
-# Without Inherits=, Qt icon engine treats NCX as standalone and shows broken
+# === r55: rewrite NCZ index.theme with Inherits= so Qt apps (LXQt) cascade ===
+# Without Inherits=, Qt icon engine treats NCZ as standalone and shows broken
 # icons for everything except the 10 places/* assets we ship.
 cat > /usr/share/icons/NCZ/index.theme <<'INDEX'
 [Icon Theme]
