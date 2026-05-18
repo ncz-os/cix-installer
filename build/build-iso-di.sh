@@ -1281,6 +1281,20 @@ else
         { print }
     ' "$ROOT/preseed/preseed-ubuntu.cfg" > "$EXTRA/preseed.cfg"
 fi
+# Substitute build-time recipe placeholders based on VARIANT.
+# Only ONE recipe is baked in per ISO — no runtime shell selection needed.
+if [ "$VARIANT" = "server" ]; then
+    _RECIPE='cixmini-btrfs :: 512 512 512 fat32 $primary{ } $bootable{ } method{ efi } format{ } use_filesystem{ } filesystem{ fat32 } mountpoint{ /boot/efi } . 4096 8192 -1 btrfs $primary{ } method{ format } format{ } use_filesystem{ } filesystem{ btrfs } mountpoint{ / } . 512 1024 200% linux-swap $primary{ } method{ swap } format{ } .'
+    _CHOOSE="cixmini-btrfs"
+else
+    _RECIPE='atomic :: 500 500 500 fat32 $primary{ } $bootable{ } method{ efi } format{ } use_filesystem{ } filesystem{ fat32 } mountpoint{ /boot/efi } . 1024 1024 1000000 ext4 $primary{ } method{ format } format{ } use_filesystem{ } filesystem{ ext4 } mountpoint{ / } . 512 1024 200% linux-swap $primary{ } method{ swap } format{ } .'
+    _CHOOSE="atomic"
+fi
+sed -i "s|@@EXPERT_RECIPE@@|${_RECIPE}|g" "$EXTRA/preseed.cfg"
+sed -i "s|@@CHOOSE_RECIPE@@|${_CHOOSE}|g" "$EXTRA/preseed.cfg"
+echo "[4] preseed recipe: VARIANT=$VARIANT -> choose_recipe=$_CHOOSE"
+unset _RECIPE _CHOOSE
+
 cp "$ROOT/preseed/late.sh"            "$EXTRA/late.sh"
 cp "$ROOT/preseed/extract-rootfs.sh"  "$EXTRA/extract-rootfs.sh"
 cp "$ROOT/preseed/sshd-watcher.sh"    "$EXTRA/sshd-watcher.sh"
