@@ -78,11 +78,8 @@ chmod 0755 /etc/update-motd.d/10-ncz-box
 # Clear static /etc/motd — dynamic scripts in update-motd.d handle all output
 printf "" > /etc/motd
 
-cat > /etc/update-motd.d/00-header <<HEADER
-#!/bin/sh
-printf "\nNCZ 26.5 \\"Reinhardt\\"  (GNU/Linux %s %s)\n" "\$(uname -r)" "\$(uname -m)"
-printf "  Cix Sky1 / CP8180  ·  Dr. Reinhardt has gone into the Black Hole.\n\n"
-HEADER
+# 00-header: no-op — 10-ncz-box provides full dynamic banner
+printf '#!/bin/sh\n# reserved\n' > /etc/update-motd.d/00-header
 chmod 0755 /etc/update-motd.d/00-header
 
 mkdir -p /usr/share/ncz
