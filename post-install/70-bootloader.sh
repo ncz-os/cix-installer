@@ -339,6 +339,10 @@ fi
 # ----------------------------------------------------------------------
 # Entry 3 — cixmini-rescue.conf (rescue shell on LTS kernel)
 #
+# OPERATOR RULE: THIS ENTRY IS MANDATORY AND PROTECTED.
+# NEVER remove, rename, or disable cixmini-rescue.conf at runtime.
+# There must always be a rescue kernel choice. Violation = reinstall.
+#
 # rescue.target boots multi-user services down (no graphical, no
 # auto-mount of network FS) but leaves the system bootable + login-able
 # for recovery. Useful when default cixmini-lts.conf wedges from a bad
