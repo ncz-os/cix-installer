@@ -25,7 +25,13 @@ fi
 case "$VARIANT" in
     desktop|reinhardt|"")
         echo "[48] BUILD_VARIANT=desktop — Reinhardt SKU, no Magnetar overrides applied"
-        # Persist canonical name for ncz reporting
+        # Enable serial console getty for serial login on ttyAMA0
+# The kernel registers the CIX debug UART (ARMH0011:02) as ttyAMA0,
+# even though the kernel cmdline says ttyAMA2 (only one PL011 registers).
+systemctl enable serial-getty@ttyAMA0.service 2>&1 | sed "s/^/    /" || true
+echo "[48] serial-getty@ttyAMA0 enabled (serial console login)"
+
+# Persist canonical name for ncz reporting
         echo "desktop" > "$VARIANT_FILE"
         exit 0
         ;;

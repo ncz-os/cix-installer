@@ -155,7 +155,7 @@ echo "  root PARTUUID=$ROOT_PARTUUID"
 # Cmdline (MartJohnson 2026-04-30 working set for MS-R1, both LTS+NEXT)
 #
 #   loglevel=4                          — visible kernel msgs through boot
-#   console=tty0 console=ttyAMA2,115200 — HDMI primary + serial mirror
+#   console=tty0 console=ttyAMA0,115200 — HDMI primary + serial mirror
 #   efi=noruntime                       — disable buggy MS-R1 EFI runtime services
 #   acpi=force                          — bypass DSDT preference checks
 #   arm-smmu-v3.disable_bypass=0        — SMMUv3 IORT compatibility
@@ -180,8 +180,8 @@ echo "  root PARTUUID=$ROOT_PARTUUID"
 # the noruntime workaround was originally added for; defaulting to
 # runtime-enabled on NEXT lets the auto-rollback semantics actually
 # work as designed.
-LTS_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
-NEXT_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA2,115200 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
+LTS_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA0,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
+NEXT_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA0,115200 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
 
 # Optional Plymouth splash flags (if 60-plymouth.sh ran)
 SPLASH=""
