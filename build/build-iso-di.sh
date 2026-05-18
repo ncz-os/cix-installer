@@ -1283,19 +1283,20 @@ else
         { print }
     ' "$ROOT/preseed/preseed-ubuntu.cfg" > "$EXTRA/preseed.cfg"
 fi
-# Substitute build-time recipe placeholders based on VARIANT.
-# Only ONE recipe is baked in per ISO — no runtime shell selection needed.
-if [ "$VARIANT" = "server" ]; then
-    _RECIPE='cixmini-btrfs :: 512 512 512 fat32 $primary{ } $bootable{ } method{ efi } format{ } use_filesystem{ } filesystem{ fat32 } mountpoint{ /boot/efi } . 4096 8192 -1 btrfs $primary{ } method{ format } format{ } use_filesystem{ } filesystem{ btrfs } mountpoint{ / } . 512 1024 200% linux-swap $primary{ } method{ swap } format{ } .'
-    _CHOOSE="cixmini-btrfs"
-else
-    _RECIPE='atomic :: 500 500 500 fat32 $primary{ } $bootable{ } method{ efi } format{ } use_filesystem{ } filesystem{ fat32 } mountpoint{ /boot/efi } . 1024 1024 1000000 ext4 $primary{ } method{ format } format{ } use_filesystem{ } filesystem{ ext4 } mountpoint{ / } . 512 1024 200% linux-swap $primary{ } method{ swap } format{ } .'
-    _CHOOSE="atomic"
-fi
-sed -i "s|@@EXPERT_RECIPE@@|${_RECIPE}|g" "$EXTRA/preseed.cfg"
-sed -i "s|@@CHOOSE_RECIPE@@|${_CHOOSE}|g" "$EXTRA/preseed.cfg"
-echo "[4] preseed recipe: VARIANT=$VARIANT -> choose_recipe=$_CHOOSE"
-unset _RECIPE _CHOOSE
+# Generate preseed-reinhardt.cfg (atomic/ext4) and preseed-magnetar.cfg (btrfs)
+# regardless of --variant. GRUB entries point each variant at its own preseed.
+_RECIPE_REINHARDT='atomic :: 500 500 500 fat32 $primary{ } $bootable{ } method{ efi } format{ } use_filesystem{ } filesystem{ fat32 } mountpoint{ /boot/efi } . 1024 1024 1000000 ext4 $primary{ } method{ format } format{ } use_filesystem{ } filesystem{ ext4 } mountpoint{ / } . 512 1024 200% linux-swap $primary{ } method{ swap } format{ } .'
+_RECIPE_MAGNETAR='cixmini-btrfs :: 512 512 512 fat32 $primary{ } $bootable{ } method{ efi } format{ } use_filesystem{ } filesystem{ fat32 } mountpoint{ /boot/efi } . 4096 8192 -1 btrfs $primary{ } method{ format } format{ } use_filesystem{ } filesystem{ btrfs } mountpoint{ / } . 512 1024 200% linux-swap $primary{ } method{ swap } format{ } .'
+cp "$EXTRA/preseed.cfg" "$EXTRA/preseed-reinhardt.cfg"
+sed -i "s|@@EXPERT_RECIPE@@|${_RECIPE_REINHARDT}|g" "$EXTRA/preseed-reinhardt.cfg"
+sed -i "s|@@CHOOSE_RECIPE@@|atomic|g" "$EXTRA/preseed-reinhardt.cfg"
+cp "$EXTRA/preseed.cfg" "$EXTRA/preseed-magnetar.cfg"
+sed -i "s|@@EXPERT_RECIPE@@|${_RECIPE_MAGNETAR}|g" "$EXTRA/preseed-magnetar.cfg"
+sed -i "s|@@CHOOSE_RECIPE@@|cixmini-btrfs|g" "$EXTRA/preseed-magnetar.cfg"
+# preseed.cfg = reinhardt default (for legacy/unspecified boot entries)
+cp "$EXTRA/preseed-reinhardt.cfg" "$EXTRA/preseed.cfg"
+echo "[4] preseed: preseed-reinhardt.cfg (atomic) + preseed-magnetar.cfg (btrfs) generated"
+unset _RECIPE_REINHARDT _RECIPE_MAGNETAR
 
 cp "$ROOT/preseed/late.sh"            "$EXTRA/late.sh"
 cp "$ROOT/preseed/extract-rootfs.sh"  "$EXTRA/extract-rootfs.sh"
@@ -1409,7 +1410,8 @@ DI_PRIORITY=high
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
 fi
-DI_OPTS="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
+DI_OPTS_REINHARDT="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed-reinhardt.cfg interface=auto netcfg/dhcp_timeout=120"
+DI_OPTS_MAGNETAR="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed-magnetar.cfg interface=auto netcfg/dhcp_timeout=120"
 
 CODENAME="${BUILD_CODENAME:-Reinhardt}"
 GRUB_KERNEL_SUMMARY="$INSTALLER_KERNEL_LABEL=$KVER_INSTALLER"
@@ -1461,7 +1463,7 @@ menuentry "$GRUB_DESKTOP_TITLE" {
     set background_color=black
     set color_normal=light-green/black
     echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Reinhardt / desktop)..."
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop $MARTJOHNSON_R6
+    linux  /install.a64/vmlinuz $DI_OPTS_REINHARDT $MARTJOHNSON_R6
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
 }
@@ -1470,7 +1472,7 @@ menuentry "$GRUB_SERVER_TITLE" {
     set background_color=black
     set color_normal=light-green/black
     echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Magnetar / server)..."
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=server $MARTJOHNSON_R6
+    linux  /install.a64/vmlinuz $DI_OPTS_MAGNETAR $MARTJOHNSON_R6
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
 }
