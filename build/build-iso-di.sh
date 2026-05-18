@@ -125,6 +125,8 @@ esac
 
 [ -f "$BOOKWORM_ISO" ] || { echo "ERROR: --bookworm-iso not a file"; exit 1; }
 [ -d "$ROOT" ]         || { echo "ERROR: --root not a dir"; exit 1; }
+ROOT="$(readlink -f "$ROOT")"
+BOOKWORM_ISO="$(readlink -f "$BOOKWORM_ISO")"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
