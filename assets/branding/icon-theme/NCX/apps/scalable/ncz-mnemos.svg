@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <circle cx="32" cy="32" r="30" fill="#0d1117" stroke="#2d4a8a" stroke-width="2"/>
+  <!-- Neural network nodes -->
+  <circle cx="22" cy="24" r="5" fill="#4a9eff" opacity="0.8"/>
+  <circle cx="42" cy="24" r="5" fill="#4a9eff" opacity="0.8"/>
+  <circle cx="32" cy="40" r="5" fill="#7bb8ff" opacity="0.9"/>
+  <circle cx="16" cy="40" r="3" fill="#2d6abf" opacity="0.6"/>
+  <circle cx="48" cy="40" r="3" fill="#2d6abf" opacity="0.6"/>
+  <!-- Connections -->
+  <line x1="22" y1="24" x2="42" y2="24" stroke="#4a9eff" stroke-width="1.5" opacity="0.5"/>
+  <line x1="22" y1="24" x2="32" y2="40" stroke="#4a9eff" stroke-width="1.5" opacity="0.5"/>
+  <line x1="42" y1="24" x2="32" y2="40" stroke="#4a9eff" stroke-width="1.5" opacity="0.5"/>
+  <line x1="16" y1="40" x2="32" y2="40" stroke="#2d6abf" stroke-width="1" opacity="0.5"/>
+  <line x1="48" y1="40" x2="32" y2="40" stroke="#2d6abf" stroke-width="1" opacity="0.5"/>
+  <line x1="22" y1="24" x2="16" y2="40" stroke="#2d6abf" stroke-width="1" opacity="0.4"/>
+  <line x1="42" y1="24" x2="48" y2="40" stroke="#2d6abf" stroke-width="1" opacity="0.4"/>
+</svg>

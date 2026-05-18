@@ -596,7 +596,7 @@ Name=Install NCZ Agents
 GenericName=Agent installer (openclaw / hermes / portainer)
 Comment=Pull + start optional agent containers (one-time per agent)
 Exec=xfce4-terminal --title="Install NCZ Agents" --hold --command="sudo ncz agent install"
-Icon=ncz-rocket
+Icon=ncz-brand
 Terminal=false
 Categories=System;Settings;Network;
 IA
@@ -612,7 +612,7 @@ Name="Through and beyond!" — Dr. Hans Reinhardt
 GenericName=The Black Hole (1979)
 Comment=Required viewing for NCZ users.
 URL=https://www.youtube.com/watch?v=HI5vaKdFnCA
-Icon=ncz-rocket
+Icon=ncz-brand
 RT
 chmod 0755 /etc/skel/Desktop/Rheinhardt-Through-and-Beyond.desktop
 
@@ -794,7 +794,7 @@ Type=Application
 Name=NCZ CLI
 Comment=NCZ command-line — agents, NPU status (ncz help)
 Exec=xfce4-terminal --title=NCZ --hold --command="ncz help"
-Icon=ncz-rocket
+Icon=ncz-brand
 Terminal=false
 Categories=System;Settings;
 NCZCLI
