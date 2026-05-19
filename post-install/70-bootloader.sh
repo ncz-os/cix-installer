@@ -148,7 +148,9 @@ EOF
 # ----------------------------------------------------------------------
 # Discover root partition by PARTUUID
 # ----------------------------------------------------------------------
-ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$(findmnt -no SOURCE /)")
+ROOT_SOURCE=$(findmnt -no SOURCE /)
+ROOT_DEV="${ROOT_SOURCE%%[*}"
+ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_DEV")
 echo "  root PARTUUID=$ROOT_PARTUUID"
 
 # ----------------------------------------------------------------------
