@@ -222,7 +222,9 @@ if [ -f "$QUADLET_TEMPLATES/zeroclaw.container" ]; then
 else
     echo "[30] WARN: zeroclaw quadlet template missing; default agent will not start"
 fi
-systemctl enable nclawzero-load-agent-images.service 2>/dev/null || true
+# nclawzero-load-agent-images.service is installed but NOT enabled at install time.
+# Operators enable it by running: ncz agent install <name>
+# This keeps first-boot offline — no automatic registry pulls.
 systemctl daemon-reload 2>/dev/null || true
 
 # r74: full ncz CLI with `agent install` subcommand (whiptail UI).

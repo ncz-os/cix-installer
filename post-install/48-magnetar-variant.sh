@@ -232,3 +232,20 @@ echo "[48] Magnetar (server) variant applied. Boot-up will land in tty2 multi-us
 echo "     tty1 reserved for kernel boot diag; press Alt+F2 for login prompt."
 echo "     SSH on port 22; NoMachine 4000 (if installed)."
 echo "     Switch back to desktop with: sudo ncz desktop on"
+
+# First-boot MOTD — tells operator to run ncz agent install
+cat > /etc/update-motd.d/99-ncz-agents << 'MOTD'
+#!/bin/bash
+echo ''
+echo ' ╔══════════════════════════════════════════════════════╗'
+echo ' ║  NCZ Magnetar — agent stack not yet installed         ║'
+echo ' ║                                                        ║'
+echo ' ║  To set up zeroclaw + openclaw + hermes:              ║'
+echo ' ║    sudo ncz agent install --all                        ║'
+echo ' ║                                                        ║'
+echo ' ║  Or install individually:                             ║'
+echo ' ║    sudo ncz agent install zeroclaw                    ║'
+echo ' ╚══════════════════════════════════════════════════════╝'
+echo ''
+MOTD
+chmod 0755 /etc/update-motd.d/99-ncz-agents
