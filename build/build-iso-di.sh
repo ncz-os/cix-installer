@@ -907,22 +907,21 @@ bash -n "$DEBOOTSTRAP_FUNCTIONS"
 # (2) create standard utility symlinks from gnu-prefixed versions
 #     Ubuntu 26.04 gnu-coreutils installs /usr/bin/gnutrue not /usr/bin/true.
 #     Without symlinks, chroot /bin/true test fails at end of first stage.
+# NCZ: patch the Ubuntu gutsy suite-script to create gnu→standard symlinks
+# before in_target /bin/true at start of second_stage_install().
+# Ubuntu 26.04 gnu-coreutils installs /usr/bin/gnutrue not /usr/bin/true.
+# The /bin/true test is in the gutsy script, not the main debootstrap binary.
+DEBOOTSTRAP_GUTSY="$DEBOOTSTRAP_PATCH_DATA/usr/share/debootstrap/scripts/gutsy"
+if [ -f "$DEBOOTSTRAP_GUTSY" ]; then
+    sed -i '/^	second_stage_install () {$/{n; s|^	in_target /bin/true$|	# NCZ: create standard utility symlinks from gnu-prefixed versions\n	# Ubuntu 26.04 gnu-coreutils installs /usr/bin/gnutrue not /usr/bin/true\n	for _ncz_cmd in true false cat ls cp mv rm mkdir rmdir ln echo; do\n		if [ ! -f "$TARGET/usr/bin/$_ncz_cmd" ] \&\& [ ! -L "$TARGET/usr/bin/$_ncz_cmd" ]; then\n			if [ -f "$TARGET/usr/bin/gnu$_ncz_cmd" ]; then\n				ln -sf "gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null\n			fi\n		fi\n	done\n	in_target /bin/true|}' "$DEBOOTSTRAP_GUTSY" 2>/dev/null || true
+    grep -c "_ncz_cmd" "$DEBOOTSTRAP_GUTSY" > /dev/null 2>&1 && \
+        echo "    NCZ: patched gutsy suite-script gnu→standard symlinks" || \
+        echo "    WARN: gutsy patch may not have matched — check sed pattern"
+fi
+
 DEBOOTSTRAP_MAIN="$DEBOOTSTRAP_PATCH_DATA/usr/sbin/debootstrap"
 if [ -f "$DEBOOTSTRAP_MAIN" ]; then
-    # Inject gnu→standard symlink creation after first-stage extraction
-    # Find the line that does "chroot $TARGET /bin/true" (first-stage test)
-    # and insert our symlink creation before it
-    sed -i '/chroot.*TARGET.*\/bin\/true/i\
-	# NCZ: create standard utility symlinks from gnu-prefixed versions\
-	# Ubuntu 26.04 gnu-coreutils installs gnutrue not true\
-	for _ncz_cmd in true false cat ls cp mv rm mkdir rmdir ln echo; do\
-		if [ ! -f "$TARGET/usr/bin/$_ncz_cmd" ] && [ ! -L "$TARGET/usr/bin/$_ncz_cmd" ]; then\
-			if [ -f "$TARGET/usr/bin/gnu$_ncz_cmd" ]; then\
-				ln -sf "gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null || true\
-			fi\
-		fi\
-	done' "$DEBOOTSTRAP_MAIN" 2>/dev/null || true
-    echo "    NCZ: patched debootstrap first stage gnu→standard symlinks"
+    echo "    NCZ: debootstrap main script present (SECOND_STAGE_ONLY patch already applied)"
 fi
 
 # NCZ: patch main debootstrap script to pre-extract gnu-coreutils before second stage
