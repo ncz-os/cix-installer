@@ -187,7 +187,13 @@ NEXT_CMDLINE_BASE="loglevel=4 console=tty0 acpi=force arm-smmu-v3.disable_bypass
 SPLASH=""
 [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 
-ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 rw"
+ROOT_FSTYPE=$(findmnt -no FSTYPE / 2>/dev/null || echo ext4)
+if [ "$ROOT_FSTYPE" = "btrfs" ]; then
+    ROOT_SUBVOL=$(findmnt -no OPTIONS / | tr "," "\n" | grep "^subvol=" | head -1 | sed "s/subvol=//")
+    ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=btrfs rootflags=subvol=${ROOT_SUBVOL:-@rootfs} rw"
+else
+    ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=${ROOT_FSTYPE:-ext4} rw"
+fi
 
 # ----------------------------------------------------------------------
 # Stage kernels/initrds onto ESP — systemd-boot reads /boot/efi by default.
