@@ -913,7 +913,7 @@ bash -n "$DEBOOTSTRAP_FUNCTIONS"
 # The /bin/true test is in the gutsy script, not the main debootstrap binary.
 DEBOOTSTRAP_GUTSY="$DEBOOTSTRAP_PATCH_DATA/usr/share/debootstrap/scripts/gutsy"
 if [ -f "$DEBOOTSTRAP_GUTSY" ]; then
-    sed -i '/^	second_stage_install () {$/{n; s|^	in_target /bin/true$|	# NCZ: create standard utility symlinks from gnu-prefixed versions\n	# Ubuntu 26.04 gnu-coreutils installs /usr/bin/gnutrue not /usr/bin/true\n	for _ncz_cmd in true false cat ls cp mv rm mkdir rmdir ln echo; do\n		if [ ! -f "$TARGET/usr/bin/$_ncz_cmd" ] \&\& [ ! -L "$TARGET/usr/bin/$_ncz_cmd" ]; then\n			if [ -f "$TARGET/usr/bin/gnu$_ncz_cmd" ]; then\n				ln -sf "gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null\n			fi\n		fi\n	done\n	in_target /bin/true|}' "$DEBOOTSTRAP_GUTSY" 2>/dev/null || true
+    sed -i '/^second_stage_install () {$/{n; s|^	in_target /bin/true$|	# NCZ: create standard utility symlinks from gnu-prefixed versions\n	# Ubuntu 26.04 gnu-coreutils installs /usr/bin/gnutrue not /usr/bin/true\n	for _ncz_cmd in true false cat ls cp mv rm mkdir rmdir ln echo; do\n		if [ ! -f "$TARGET/usr/bin/$_ncz_cmd" ] \&\& [ ! -L "$TARGET/usr/bin/$_ncz_cmd" ]; then\n			if [ -f "$TARGET/usr/bin/gnu$_ncz_cmd" ]; then\n				ln -sf "gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null\n			fi\n		fi\n	done\n	in_target /bin/true|}' "$DEBOOTSTRAP_GUTSY" 2>/dev/null || true
     grep -c "_ncz_cmd" "$DEBOOTSTRAP_GUTSY" > /dev/null 2>&1 && \
         echo "    NCZ: patched gutsy suite-script gnu→standard symlinks" || \
         echo "    WARN: gutsy patch may not have matched — check sed pattern"
