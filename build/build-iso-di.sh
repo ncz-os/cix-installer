@@ -913,10 +913,35 @@ bash -n "$DEBOOTSTRAP_FUNCTIONS"
 # The /bin/true test is in the gutsy script, not the main debootstrap binary.
 DEBOOTSTRAP_GUTSY="$DEBOOTSTRAP_PATCH_DATA/usr/share/debootstrap/scripts/gutsy"
 if [ -f "$DEBOOTSTRAP_GUTSY" ]; then
-    sed -i '/^second_stage_install () {$/{n; s|^\tin_target /bin/true$|\t# NCZ: create gnu->standard symlinks (uses /bin/ln = host busybox)\n\tfor _ncz_cmd in true false cat ls cp mv rm mkdir rmdir ln echo env; do\n\t\tif [ ! -f "$TARGET/usr/bin/$_ncz_cmd" ] \&\& [ -f "$TARGET/usr/bin/gnu$_ncz_cmd" ]; then\n\t\t\t/bin/ln -sf "gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null || cp -a "$TARGET/usr/bin/gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null || true\n\t\tfi\n\tdone\n\tin_target /bin/true|}'  "$DEBOOTSTRAP_GUTSY" 2>/dev/null || true
-    grep -c "_ncz_cmd" "$DEBOOTSTRAP_GUTSY" > /dev/null 2>&1 && \
-        echo "    NCZ: patched gutsy suite-script gnu→standard symlinks" || \
-        echo "    WARN: gutsy patch may not have matched — check sed pattern"
+    if ! awk '
+        $0 ~ /^second_stage_install[[:space:]]*\(\)[[:space:]]*\{$/ {
+            in_second = 1
+            print
+            next
+        }
+        in_second && !inserted && $0 ~ /^[[:space:]]*in_target[[:space:]]+\/bin\/true[[:space:]]*$/ {
+            print "\t# NCZ: create gnu->standard symlinks before the initial chroot /bin/true probe."
+            print "\t# In normal d-i debootstrap this runs outside the target and /bin/ln is"
+            print "\t# the installer busybox/coreutils. In --second-stage-only TARGET=/, so"
+            print "\t# also try the target gnuln/gnucp directly."
+            print "\tfor _ncz_cmd in [ b2sum base32 base64 basename basenc cat chcon chgrp chmod chown chroot cksum comm cp csplit cut date dd df dir dircolors dirname du echo env expand expr factor false fmt fold groups head hostid id install join link ln logname ls md5sum mkdir mkfifo mknod mktemp mv nice nl nohup nproc numfmt od paste pathchk pinky pr printenv printf ptx pwd readlink realpath rm rmdir runcon seq sha1sum sha224sum sha256sum sha384sum sha512sum shred shuf sleep sort split stat stdbuf stty sum sync tac tail tee test timeout touch tr true truncate tsort tty uname unexpand uniq unlink users vdir wc who whoami yes; do"
+            print "\t\tif [ ! -e \"$TARGET/usr/bin/$_ncz_cmd\" ] && [ -e \"$TARGET/usr/bin/gnu$_ncz_cmd\" ]; then"
+            print "\t\t\t/bin/ln -sf \"gnu$_ncz_cmd\" \"$TARGET/usr/bin/$_ncz_cmd\" 2>/dev/null || ln -sf \"gnu$_ncz_cmd\" \"$TARGET/usr/bin/$_ncz_cmd\" 2>/dev/null || /usr/bin/gnuln -sf \"gnu$_ncz_cmd\" \"$TARGET/usr/bin/$_ncz_cmd\" 2>/dev/null || /bin/cp -a \"$TARGET/usr/bin/gnu$_ncz_cmd\" \"$TARGET/usr/bin/$_ncz_cmd\" 2>/dev/null || cp -a \"$TARGET/usr/bin/gnu$_ncz_cmd\" \"$TARGET/usr/bin/$_ncz_cmd\" 2>/dev/null || /usr/bin/gnucp -a \"$TARGET/usr/bin/gnu$_ncz_cmd\" \"$TARGET/usr/bin/$_ncz_cmd\" 2>/dev/null || true"
+            print "\t\tfi"
+            print "\tdone"
+            print
+            inserted = 1
+            in_second = 0
+            next
+        }
+        { print }
+        END { if (!inserted) exit 42 }
+    ' "$DEBOOTSTRAP_GUTSY" > "$DEBOOTSTRAP_GUTSY.patched"; then
+        echo "ERROR: failed to patch gutsy suite-script gnu→standard symlinks" >&2
+        exit 1
+    fi
+    mv "$DEBOOTSTRAP_GUTSY.patched" "$DEBOOTSTRAP_GUTSY"
+    echo "    NCZ: patched gutsy suite-script gnu→standard symlinks"
 fi
 
 DEBOOTSTRAP_MAIN="$DEBOOTSTRAP_PATCH_DATA/usr/sbin/debootstrap"
