@@ -1472,7 +1472,7 @@ menuentry "$GRUB_SERVER_TITLE" {
     set background_color=black
     set color_normal=light-green/black
     echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Magnetar / server)..."
-    linux  /install.a64/vmlinuz $DI_OPTS_MAGNETAR $MARTJOHNSON_R6
+    linux  /install.a64/vmlinuz $DI_OPTS_MAGNETAR ncz_variant=server $MARTJOHNSON_R6
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
 }
