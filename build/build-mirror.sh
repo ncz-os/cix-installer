@@ -147,77 +147,29 @@ sudo chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
 # Comprehensive package list — server + full GNOME + XFCE + drivers +
 # dev tools + multimedia + native driver support. Ubuntu-correct names.
 PKGS=(
-  # Server / infrastructure
-  ubuntu-server openssh-server openssh-client
-  network-manager systemd-resolved
-  sudo apt-utils ca-certificates gnupg lsb-release
-  curl wget rsync less vim nano
-  htop btop iotop ncdu tree lsof strace ltrace
-  zstd xz-utils p7zip-full unzip pigz
-  pciutils usbutils dmidecode acpid
-  dnsutils iputils-ping iputils-tracepath mtr-tiny
-  tcpdump nmap netcat-openbsd
-  ethtool iproute2 net-tools
-  bash-completion software-properties-common
-  unattended-upgrades update-manager-core
+  # NCZ Magnetar server-only package set
+  # Base server
+  ubuntu-minimal ubuntu-server openssh-server openssh-client
+  network-manager systemd systemd-resolved chrony
+  sudo apt apt-utils ca-certificates gnupg lsb-release
+  curl wget rsync less
+  btrfs-progs e2fsprogs dosfstools parted util-linux
+  bash-completion unattended-upgrades
 
-  # GNOME desktop (full)
-  ubuntu-desktop-minimal ubuntu-desktop
-  gnome-tweaks gnome-shell-extensions
-  gnome-software gnome-software-plugin-flatpak
-  gnome-remote-desktop nautilus gedit
-  gnome-terminal
+  # Container runtime (podman agent stack)
+  podman crun conmon netavark aardvark-dns catatonit
 
-  # XFCE desktop (full)
-  xubuntu-core xfce4 xfce4-goodies
-  xfce4-terminal xfce4-power-manager
-  xfce4-screenshooter xfce4-taskmanager
-  xfce4-pulseaudio-plugin mousepad thunar
-  lightdm
+  # NCZ tooling
+  pciutils usbutils iproute2 iputils-ping
+  htop iotop lsof strace
+  zstd xz-utils unzip
+  dnsutils mtr-tiny
+  ethtool net-tools
+  git vim nano
+  python3 python3-pip python3-venv
 
-  # Login / plymouth
-  gdm3 plymouth plymouth-themes
-  xrdp
-
-  # Graphics / Mesa / Vulkan / firmware
-  mesa-utils mesa-vulkan-drivers mesa-va-drivers
-  libdrm2 libgbm1 libegl1 libgl1-mesa-dri libglu1-mesa
-  vulkan-tools glmark2-x11 glmark2-wayland
-  linux-firmware
-
-  # Multimedia
-  ffmpeg mpv vlc
-  gstreamer1.0-libav
-  gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
-  gstreamer1.0-plugins-ugly gstreamer1.0-vaapi
-  pipewire pipewire-pulse
-
-  # Dev tooling
-  build-essential git neovim tmux gdb
-  python3 python3-pip python3-venv python3-dev
-  nodejs npm
-  golang
-  rustc cargo
-
-  # Containers
-  podman skopeo buildah
-  docker.io docker-compose
-
-  # Flatpak (newer apps later)
-  flatpak
-
-  # Branding / image manipulation
-  imagemagick
-
-  # Browsers — Ubuntu uses 'firefox' (deb pulls snap on default Ubuntu;
-  # we accept that for now since snap support is included)
-  firefox
-
-  # Bluetooth + audio
-  bluez bluetooth
-
-  # Misc essentials
-  file man-db manpages
+  # Branding
+  file man-db
 )
 
 echo ""
