@@ -902,6 +902,29 @@ fi
 mv "$DEBOOTSTRAP_FUNCTIONS.patched" "$DEBOOTSTRAP_FUNCTIONS"
 bash -n "$DEBOOTSTRAP_FUNCTIONS"
 
+# NCZ: patch main debootstrap script
+# (1) pre-extract gnu-coreutils before second stage cat calls
+# (2) create standard utility symlinks from gnu-prefixed versions
+#     Ubuntu 26.04 gnu-coreutils installs /usr/bin/gnutrue not /usr/bin/true.
+#     Without symlinks, chroot /bin/true test fails at end of first stage.
+DEBOOTSTRAP_MAIN="$DEBOOTSTRAP_PATCH_DATA/usr/sbin/debootstrap"
+if [ -f "$DEBOOTSTRAP_MAIN" ]; then
+    # Inject gnu→standard symlink creation after first-stage extraction
+    # Find the line that does "chroot $TARGET /bin/true" (first-stage test)
+    # and insert our symlink creation before it
+    sed -i '/chroot.*TARGET.*\/bin\/true/i\
+	# NCZ: create standard utility symlinks from gnu-prefixed versions\
+	# Ubuntu 26.04 gnu-coreutils installs gnutrue not true\
+	for _ncz_cmd in true false cat ls cp mv rm mkdir rmdir ln echo; do\
+		if [ ! -f "$TARGET/usr/bin/$_ncz_cmd" ] && [ ! -L "$TARGET/usr/bin/$_ncz_cmd" ]; then\
+			if [ -f "$TARGET/usr/bin/gnu$_ncz_cmd" ]; then\
+				ln -sf "gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null || true\
+			fi\
+		fi\
+	done' "$DEBOOTSTRAP_MAIN" 2>/dev/null || true
+    echo "    NCZ: patched debootstrap first stage gnu→standard symlinks"
+fi
+
 # NCZ: patch main debootstrap script to pre-extract gnu-coreutils before second stage
 # The second stage starts with "SUITE=$(cat ...)" at line ~482 which fails if
 # gnu-coreutils was not extracted in first stage due to Pre-Depends ordering.
