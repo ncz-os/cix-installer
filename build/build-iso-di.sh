@@ -902,6 +902,22 @@ fi
 mv "$DEBOOTSTRAP_FUNCTIONS.patched" "$DEBOOTSTRAP_FUNCTIONS"
 bash -n "$DEBOOTSTRAP_FUNCTIONS"
 
+# NCZ: patch main debootstrap script to pre-extract gnu-coreutils before second stage
+# The second stage starts with "SUITE=$(cat ...)" at line ~482 which fails if
+# gnu-coreutils was not extracted in first stage due to Pre-Depends ordering.
+# This patch adds a dpkg --force-all --unpack fallback before the cat calls.
+DEBOOTSTRAP_MAIN="$DEBOOTSTRAP_PATCH_DATA/usr/sbin/debootstrap"
+if [ -f "$DEBOOTSTRAP_MAIN" ]; then
+    sed -i '/^if \[ "\$SECOND_STAGE_ONLY" = "true" \]; then$/a\
+	# NCZ: ensure cat is available before using it below\
+	if [ ! -x /usr/bin/cat ]; then\
+		for _ncz_deb in /var/cache/apt/archives/gnu-coreutils_*.deb; do\
+			[ -f "$_ncz_deb" ] && dpkg --force-all --unpack "$_ncz_deb" 2>/dev/null && break\
+		done\
+	fi' "$DEBOOTSTRAP_MAIN" 2>/dev/null || true
+    echo "    NCZ: patched debootstrap second stage coreutils pre-extraction"
+fi
+
 rm -f "$DEBOOTSTRAP_PATCH_AR/$DEBOOTSTRAP_DATA_MEMBER"
 (
     cd "$DEBOOTSTRAP_PATCH_DATA"
