@@ -132,10 +132,14 @@ SSHD_DROPIN=/etc/ssh/sshd_config.d/10-nclawzero.conf
 install -d -m 0755 /etc/ssh/sshd_config.d
 cat > "$SSHD_DROPIN" <<'EOF'
 # nclawzero factory defaults - see /etc/motd for rotation guidance.
+# 2026-05-20: PasswordAuthentication=yes enabled as fleet is LAN-only.
+# When sshd config breaks, key access fails, or fleet-auth not yet
+# bootstrapped, operator needs password fallback. Telnet (port 23) is
+# secondary backup via 36-telnetd.sh.
 PermitRootLogin prohibit-password
-PasswordAuthentication no
-KbdInteractiveAuthentication no
-ChallengeResponseAuthentication no
+PasswordAuthentication yes
+KbdInteractiveAuthentication yes
+ChallengeResponseAuthentication yes
 PubkeyAuthentication yes
 EOF
 chmod 0644 "$SSHD_DROPIN"
