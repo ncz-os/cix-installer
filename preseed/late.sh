@@ -161,6 +161,13 @@ if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     # Add file:///cdrom apt source to /target's sources.list so apt-get
     # install in chroot can find packages locally. [trusted=yes] bypasses
     # GPG (we don't sign our offline mirror Release file yet).
+    # Disable Release valid-until check (cixmini has no RTC, clock may be in past)
+    mkdir -p /target/etc/apt/apt.conf.d
+    cat > /target/etc/apt/apt.conf.d/99ncz-time <<'NCZ_TIME'
+Acquire::Check-Valid-Until "false";
+Acquire::AllowInsecureRepositories "true";
+APT::Get::AllowUnauthenticated "true";
+NCZ_TIME
     cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'CDROM_LIST'
 deb [trusted=yes] file:///cdrom resolute main
 CDROM_LIST
