@@ -35,17 +35,32 @@ echo "  KVER_NEXT=${KVER_NEXT:-(not present)}"
 echo "  BUILD_VERSION=$BUILD_VERSION"
 
 # ----------------------------------------------------------------------
-# Install systemd-boot + efibootmgr
-# systemd-boot is in Ubuntu universe. Magnetar skips 20-desktop.sh so
-# universe may not be in sources.list. Add it before installing.
+# Install systemd-boot + efibootmgr.
+#
+# NCZ offline media carries systemd-boot in the local resolute/main mirror.
+# Do not try to add universe or run a broad apt-get update when the cdrom
+# source is active: offline installs have only main, and the local source is
+# installed under sources.list.d/cixmini-cdrom.list rather than sources.list.
 # ----------------------------------------------------------------------
-if ! grep -qE '^\s*deb\b[^#]* resolute [^-].*\buniverse\b' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
-    echo "[70] adding universe to sources.list (needed for systemd-boot)"
-    sed -i 's/ resolute main$/ resolute main universe/' /etc/apt/sources.list
-    apt-get update -qq 2>&1 | tail -2
+OFFLINE_APT=0
+if grep -RqsE '^[[:space:]]*deb\b.*file:///cdrom[[:space:]]+resolute[[:space:]]+main\b' \
+    /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+    OFFLINE_APT=1
+fi
+
+if [ "$OFFLINE_APT" = "1" ]; then
+    echo "[70] offline cdrom apt source active; skipping universe enablement"
+elif ! grep -qE '^\s*deb\b[^#]* resolute [^-].*\buniverse\b' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+    if [ -f /etc/apt/sources.list ] && grep -qE ' resolute main$' /etc/apt/sources.list; then
+        echo "[70] adding universe to sources.list for online fallback"
+        sed -i 's/ resolute main$/ resolute main universe/' /etc/apt/sources.list
+        apt-get update -qq 2>&1 | tail -2
+    else
+        echo "[70] universe not enabled; proceeding with existing apt sources"
+    fi
 fi
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    systemd-boot efibootmgr || true
+    systemd-boot efibootmgr
 
 command -v bootctl >/dev/null || { echo "ERROR: bootctl not installed"; exit 1; }
 
@@ -146,12 +161,27 @@ editor yes
 EOF
 
 # ----------------------------------------------------------------------
-# Discover root partition by PARTUUID
+# Discover root partition. Prefer PARTUUID for stable systemd-boot root=,
+# fall back to filesystem UUID if the block device lacks a PARTUUID.
 # ----------------------------------------------------------------------
-ROOT_SOURCE=$(findmnt -no SOURCE /)
+ROOT_SOURCE=$(findmnt -no SOURCE / 2>/dev/null || true)
 ROOT_DEV="${ROOT_SOURCE%%[*}"
-ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_DEV")
-echo "  root PARTUUID=$ROOT_PARTUUID"
+if [ -z "$ROOT_DEV" ]; then
+    echo "ERROR: could not determine root mount source"
+    exit 1
+fi
+ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_DEV" 2>/dev/null || true)
+ROOT_UUID=$(blkid -s UUID -o value "$ROOT_DEV" 2>/dev/null || true)
+if [ -n "$ROOT_PARTUUID" ]; then
+    ROOT_SPEC="PARTUUID=$ROOT_PARTUUID"
+    echo "  root PARTUUID=$ROOT_PARTUUID"
+elif [ -n "$ROOT_UUID" ]; then
+    ROOT_SPEC="UUID=$ROOT_UUID"
+    echo "  root PARTUUID unavailable; falling back to root UUID=$ROOT_UUID"
+else
+    echo "ERROR: could not derive PARTUUID or UUID for root device $ROOT_DEV"
+    exit 1
+fi
 
 # ----------------------------------------------------------------------
 # Cmdline (MartJohnson 2026-04-30 working set for MS-R1, both LTS+NEXT)
@@ -199,12 +229,12 @@ if [ "$ROOT_FSTYPE" = "btrfs" ]; then
         fi
     fi
     if [ -n "$ROOT_SUBVOL" ]; then
-        ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=btrfs rootflags=subvol=$ROOT_SUBVOL rw"
+        ROOT_OPTS="root=$ROOT_SPEC rootwait rootfstype=btrfs rootflags=subvol=$ROOT_SUBVOL rw"
     else
-        ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=btrfs rw"
+        ROOT_OPTS="root=$ROOT_SPEC rootwait rootfstype=btrfs rw"
     fi
 else
-    ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=${ROOT_FSTYPE:-ext4} rw"
+    ROOT_OPTS="root=$ROOT_SPEC rootwait rootfstype=${ROOT_FSTYPE:-ext4} rw"
 fi
 
 # ----------------------------------------------------------------------

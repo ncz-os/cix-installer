@@ -47,7 +47,7 @@ echo "[10] installing kernel payload — LTS=${KVER_LTS:-(not present)}  NEXT=${
 # Ensure depmod and initramfs generation are present. This is a required
 # hook: if initrd generation is not available, 70-bootloader.sh must not be
 # left to write kernel entries that silently omit initrd lines.
-apt-get install -y --no-install-recommends kmod initramfs-tools
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends kmod initramfs-tools
 
 install_kernel() {
     local label=$1            # lts or next
@@ -90,7 +90,7 @@ install_kernel() {
     # warn loudly because any DKMS rebuild on target will then fail.
     if [ -f "$ASSETS/$label/headers-cixmini.tar.zst" ]; then
         if ! command -v zstd >/dev/null 2>&1; then
-            apt-get install -y --no-install-recommends zstd
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends zstd
         fi
         zstd -dc "$ASSETS/$label/headers-cixmini.tar.zst" \
             | tar -xf - -C / --keep-directory-symlink
@@ -147,8 +147,8 @@ if [ "$INSTALLED_KERNELS" -eq 0 ]; then
 fi
 
 # Remove Debian's default linux-image-arm64 — we ship our own.
-apt-get remove -y --purge "linux-image-arm64" || true
-apt-get autoremove -y --purge || true
+DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge "linux-image-arm64" || true
+DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge || true
 
 echo ""
 echo "Kernel summary:"

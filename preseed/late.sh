@@ -136,6 +136,17 @@ md5sum /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 ||
 wc -c /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 || true
 echo
 
+# Install this before any target apt source/update and before post-install
+# hooks. cixmini often has no valid RTC during install, and both cdrom and
+# network apt paths need the same tolerance.
+mkdir -p /target/etc/apt/apt.conf.d
+cat > /target/etc/apt/apt.conf.d/99ncz-time <<'NCZ_TIME'
+Acquire::Check-Valid-Until "false";
+Acquire::AllowInsecureRepositories "true";
+APT::Get::AllowUnauthenticated "true";
+NCZ_TIME
+echo "--- /target/etc/apt/apt.conf.d/99ncz-time installed ---"
+
 # Codex A2 CRITICAL #2 fix: Mount /cdrom inside /target so post-install
 # hooks can `apt-get install` from our offline mirror via file:///cdrom.
 # Without this, FULL/THIN mode 10-our-kernel.sh + 70-bootloader.sh +
@@ -161,13 +172,6 @@ if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     # Add file:///cdrom apt source to /target's sources.list so apt-get
     # install in chroot can find packages locally. [trusted=yes] bypasses
     # GPG (we don't sign our offline mirror Release file yet).
-    # Disable Release valid-until check (cixmini has no RTC, clock may be in past)
-    mkdir -p /target/etc/apt/apt.conf.d
-    cat > /target/etc/apt/apt.conf.d/99ncz-time <<'NCZ_TIME'
-Acquire::Check-Valid-Until "false";
-Acquire::AllowInsecureRepositories "true";
-APT::Get::AllowUnauthenticated "true";
-NCZ_TIME
     cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'CDROM_LIST'
 deb [trusted=yes] file:///cdrom resolute main
 CDROM_LIST
