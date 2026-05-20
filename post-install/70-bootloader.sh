@@ -1,12 +1,12 @@
 #!/bin/bash
 # 70-bootloader.sh — systemd-boot install + staged kernel loader entries.
-# r75 K3: full/thin default to NEXT with LTS as fallback. r78 netinstall
-# stages NEXT only.
+# r79 (2026-05-20): LTS is now DEFAULT (working NPU + MNEMOS embedkit).
+# NEXT is opt-in [EXPERIMENTAL — NPU WIP]. Supersedes r75 K3 NEXT-default.
 #
 # Loader entries (in menu order when all staged kernels exist):
-#   1. cixmini-next+3-0.conf (DEFAULT — Sky1 linux-cix-sky1-next 7.0.x)
-#   2. cixmini-lts.conf      (FALLBACK — Sky1 linux-cix-sky1-lts 6.18.x)
-#   3. cixmini-rescue.conf (rescue.target — defaults to LTS kernel)
+#   1. cixmini-lts+3-0.conf  (DEFAULT — Sky1 linux-cix-sky1-lts 6.18.x + NPU)
+#   2. cixmini-next.conf     (EXPERIMENTAL — Sky1 linux-cix-sky1-next 7.0.x)
+#   3. cixmini-rescue.conf   (rescue.target — defaults to LTS kernel)
 #
 # CRITICAL: systemd-boot's loader entry parser does NOT support
 # backslash line-continuation — every line MUST be standalone. Earlier
@@ -154,7 +154,7 @@ echo "  ESP wiped — about to write fresh dual-kernel entries"
 # ----------------------------------------------------------------------
 mkdir -p /boot/efi/loader/entries
 cat > /boot/efi/loader/loader.conf <<'EOF'
-default cixmini-next*
+default cixmini-lts*
 timeout 5
 console-mode auto
 editor yes
@@ -201,18 +201,16 @@ fi
 # add module blacklists here — the configs already disable everything
 # that would cause boot trouble on MS-R1.
 # ----------------------------------------------------------------------
-# r75 Codex round-5 HIGH fix — per-entry cmdline split.
+# r79: LTS is the boot-counted default, so it requires EFI runtime.
+# systemd-bless-boot must be able to read LoaderBootCountPath and write
+# the successful boot state; disabling EFI runtime would burn the LTS
+# +N-M counter to .failed even after successful boots.
 #
-# LTS keeps efi=noruntime (r74 ship stability; original MS-R1 EFI
-# runtime quirk worked around by disabling it). NEXT drops it because
-# systemd-bless-boot requires EFI runtime variables (LoaderBootCountPath)
-# to mark a successful boot as good — without that, repeated successful
-# NEXT boots burn the +N-M counter to .failed and roll back to LTS.
-# linux-cix-sky1-next 7.0.x has newer EFI handling than the 6.6 fork
-# the noruntime workaround was originally added for; defaulting to
-# runtime-enabled on NEXT lets the auto-rollback semantics actually
-# work as designed.
-LTS_CMDLINE_BASE="loglevel=4 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
+# NEXT is manual-selection only and does not require EFI runtime for
+# boot-counting semantics. The r74-era rationale for putting
+# efi=noruntime on LTS was written when NEXT was the default and LTS was
+# the non-counted fallback; those roles are now reversed.
+LTS_CMDLINE_BASE="loglevel=4 console=tty0 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
 NEXT_CMDLINE_BASE="loglevel=4 console=tty0 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
 
 # Optional Plymouth splash flags (if 60-plymouth.sh ran)
@@ -299,89 +297,78 @@ if [ "$LTS_AVAILABLE" = "1" ]; then
     [ -n "$SPLASH" ] && LTS_OPTIONS="$LTS_OPTIONS $SPLASH"
 
     # sort-key forces menu-order (systemd-boot 252+).
-    # Order (per RULE 2026-05-03 update): NEXT (7.x) first/default,
-    # LTS (6.18) second/fallback, rescue last.
-    cat > /boot/efi/loader/entries/cixmini-lts.conf <<EOF
-title   nclawzero (cixmini) — kernel $KVER_LTS [LTS, fallback] — $BUILD_VERSION
-sort-key 2-lts
+    # Order (per RULE 2026-05-20 update — supersedes 2026-05-03):
+    #   LTS (6.18) first/default with working NPU stack for MNEMOS appliance
+    #   NEXT (7.x) second/experimental — GPU stable, NPU still in progress
+    #   rescue last
+    # Rationale: NPU is required for MNEMOS embedkit hybrid inference;
+    # armchina_npu builds in-tree for 6.18.26-lts with known-good Compass
+    # NN + ONNX runtime paths. NEXT 7.x has newer panthor GPU but NPU
+    # power-on still depends on BIOS v1.2 + SCMI proto 13 (not yet shipped
+    # by Minisforum). Production = LTS; dev/A-B = NEXT.
+    #
+    # LTS now uses +3-0 boot-counting suffix (was NEXT-only). Rollback
+    # target on .failed = the NEXT entry (sort-key 2-next).
+    cat > /boot/efi/loader/entries/cixmini-lts+3-0.conf <<EOF
+title   nclawzero (cixmini) — kernel $KVER_LTS [LTS, default] — $BUILD_VERSION
+sort-key 1-lts
 version $KVER_LTS
 linux   /vmlinuz-$KVER_LTS
 options $LTS_OPTIONS
 EOF
     if [ "$LTS_INITRD_AVAILABLE" = "1" ]; then
         # Insert initrd line after "linux" — required for NPU SSDT override
-        sed -i "/^linux /a initrd  /initrd.img-$KVER_LTS" /boot/efi/loader/entries/cixmini-lts.conf
-        echo "  added initrd line to cixmini-lts.conf"
+        sed -i "/^linux /a initrd  /initrd.img-$KVER_LTS" /boot/efi/loader/entries/cixmini-lts+3-0.conf
+        echo "  added initrd line to cixmini-lts+3-0.conf"
     fi
-    echo "  wrote cixmini-lts.conf (sort-key 2-lts, fallback)"
+    echo "  wrote cixmini-lts+3-0.conf (sort-key 1-lts, default, 3-try rollback to NEXT)"
 else
     echo "  skipping cixmini-lts.conf (LTS kernel not installed)"
 fi
 
 # ----------------------------------------------------------------------
-# Entry 2 — cixmini-next.conf ([BETA] — only if NEXT kernel was installed)
+# Entry 2 — cixmini-next.conf ([EXPERIMENTAL] — only if NEXT kernel was installed)
 #
-# Title is intentionally LOUD with [BETA] markers so the user cannot
-# misclick this in the boot menu thinking it's the stable choice.
-# Per Sky1-Linux issue #12 (MartJohnson 2026-04-30): kernel 7.0.1 boots
-# on MS-R1 but has known SCMI transition errors and occasional boot
+# Title is intentionally LOUD with [EXPERIMENTAL — NPU WIP] markers so
+# the user cannot misclick this in the boot menu thinking it's the stable
+# choice. Per Sky1-Linux issue #12 (MartJohnson 2026-04-30): kernel 7.0.1
+# boots on MS-R1 but has known SCMI transition errors and occasional boot
 # freezes / shutdown crashes — the BIOS doesn't have the SCMI updates
-# 7.0 expects yet. 6.18.26 LTS does NOT have these issues. This BETA
-# entry is for A/B testing only; production users should pick LTS.
+# 7.0 expects yet. 6.18.26 LTS does NOT have these issues.
+#
+# Role: NEXT entry exists for newer panthor GPU stack (7.0.9 mali_csffw)
+# and A/B kernel testing. NPU on NEXT is in-progress (armchina_npu module
+# is built but power-on path still depends on BIOS v1.2). Production users
+# select LTS for working NPU + MNEMOS embedkit appliance.
+#
+# NEXT is no longer boot-counted (manual selection only). The LTS entry
+# is the boot-counted default; on .failed it rolls back to NEXT.
 # ----------------------------------------------------------------------
 if [ "$NEXT_AVAILABLE" = "1" ]; then
-    # NEXT uses NEXT_CMDLINE_BASE (no efi=noruntime) so systemd-bless-boot
-    # can write LoaderBootCountPath EFI variable to mark a successful
-    # boot as good. Without this, the +3-0 boot-counter burns down to
-    # .failed even on healthy NEXT boots — defeating the rollback design.
     NEXT_OPTIONS="$ROOT_OPTS $NEXT_CMDLINE_BASE"
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 
-    # r75 K3 v2: filename uses systemd-boot boot-counting suffix +3-0
-    # (3 tries left, 0 successful boots). systemd-bless-boot.service
-    # decrements tries at boot; on a successful userspace handoff it
-    # writes back +N-(M+1). After 3 failed boots the file is renamed
-    # .failed and systemd-boot falls back to cixmini-lts (sort-key 2-lts).
-    # Closes the Codex finding "NEXT default without rollback".
-    cat > /boot/efi/loader/entries/cixmini-next+3-0.conf <<EOF
-title   nclawzero (cixmini) — kernel $KVER_NEXT [NEXT, default] — $BUILD_VERSION
-sort-key 1-next
+    cat > /boot/efi/loader/entries/cixmini-next.conf <<EOF
+title   nclawzero (cixmini) — kernel $KVER_NEXT [NEXT EXPERIMENTAL — NPU WIP] — $BUILD_VERSION
+sort-key 2-next
 version $KVER_NEXT
 linux   /vmlinuz-$KVER_NEXT
 options $NEXT_OPTIONS
 EOF
     if [ "$NEXT_INITRD_AVAILABLE" = "1" ]; then
-        sed -i "/^linux /a initrd  /initrd.img-$KVER_NEXT" /boot/efi/loader/entries/cixmini-next+3-0.conf
-        echo "  added initrd line to cixmini-next+3-0.conf"
+        sed -i "/^linux /a initrd  /initrd.img-$KVER_NEXT" /boot/efi/loader/entries/cixmini-next.conf
+        echo "  added initrd line to cixmini-next.conf"
     fi
-    # r75 Codex round-4 HIGH fix — drop the systemctl enable+is-enabled
-    # gate. Codex round-3 added the gate to close "bless-boot best-effort"
-    # but the gate itself was over-aggressive: systemd-bless-boot.service
-    # is generator-pulled via boot-counted entries (per systemd docs;
-    # systemd-boot-system-token.service + systemd-bless-boot.service are
-    # both static units pulled implicitly when +N-M.conf entries exist).
-    # `systemctl list-unit-files` may not show generator-pulled static
-    # units in all systemd configurations, and `systemctl enable` of a
-    # static unit fails non-zero — both made the gate falsely flip every
-    # NEXT-default install to LTS.
-    #
-    # New approach: write the boot-counted entry. Trust the generator.
-    # The `efi=noruntime` cmdline does NOT prevent boot-counting because
-    # systemd-bless-boot uses ESP filename rename (not EFI variables) per
-    # https://systemd.io/AUTOMATIC_BOOT_ASSESSMENT/ — so this is safe on
-    # the MS-R1 even with EFI runtime disabled.
-    #
-    # If a future deploy proves boot-counting non-functional on Sky1,
-    # the runtime fix is `ncz desktop status`-style operator tooling
-    # rather than gating at install time.
+    # systemd-bless-boot is now driven by the LTS entry's +3-0 boot-counting
+    # filename. NEXT is opt-in via menu pick; no boot-counting.
     if systemctl list-unit-files systemd-bless-boot.service systemd-boot-check-no-failures.service 2>/dev/null | grep -q "^systemd-bless"; then
         echo "  systemd-bless-boot.service is in unit-files set — generator path active"
     else
         echo "  systemd-bless-boot.service not in list-unit-files (likely generator-pulled at boot — typical) — proceeding"
     fi
-    echo "  wrote cixmini-next+3-0.conf (sort-key 1-next, default, 3-try rollback to LTS)"
+    echo "  wrote cixmini-next.conf (sort-key 2-next, experimental, no boot-counting)"
 else
-    echo "  skipping cixmini-next.conf (BETA kernel not installed)"
+    echo "  skipping cixmini-next.conf (NEXT kernel not installed)"
 fi
 
 # ----------------------------------------------------------------------
@@ -427,19 +414,22 @@ EOF
     echo "  wrote cixmini-rescue.conf (sort-key 3-rescue)"
 fi
 
-# r75 K3 v2: prefer NEXT default with auto-rollback (closes Codex
-# adversarial-review HIGH 'NEXT is not actually default'). NEXT entry uses
-# systemd-boot boot-counting (cixmini-next+3-0.conf); after 3 failed boots
-# the entry .failed-renames and systemd-boot falls back to cixmini-lts.
-# This block overrides the early default cixmini-next* in loader.conf at
-# line 108 only when NEXT is missing.
-if [ "$NEXT_AVAILABLE" = "1" ]; then
-    # cixmini-next* glob matches the +N-M.conf boot-counter rotations
+# r79 (2026-05-20): LTS is DEFAULT with boot-counted rollback to NEXT.
+# Working NPU stack lives on LTS 6.18.26 (armchina_npu in-tree + Compass
+# NN + ONNX runtime) — required for MNEMOS embedkit appliance. NEXT 7.x
+# has newer panthor GPU but NPU power-on still gated on BIOS v1.2.
+#
+# LTS entry uses systemd-boot boot-counting (cixmini-lts+3-0.conf); after
+# 3 failed boots the entry .failed-renames and systemd-boot falls back
+# to cixmini-next.conf (sort-key 2-next). If only NEXT is staged
+# (netinstall path), NEXT becomes default.
+if [ "$LTS_AVAILABLE" = "1" ]; then
+    # cixmini-lts* glob matches the +N-M.conf boot-counter rotations
     # written by systemd-bless-boot. Per Codex round-4: trust the
-    # systemd generator; do not gate this on systemctl enable success.
-    DEFAULT_ENTRY="cixmini-next*"
-elif [ "$LTS_AVAILABLE" = "1" ]; then
-    DEFAULT_ENTRY="cixmini-lts"
+    # systemd generator; do not gate on systemctl enable success.
+    DEFAULT_ENTRY="cixmini-lts*"
+elif [ "$NEXT_AVAILABLE" = "1" ]; then
+    DEFAULT_ENTRY="cixmini-next"
 else
     echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
@@ -453,11 +443,11 @@ EOF
 echo "  loader.conf default = $DEFAULT_ENTRY"
 
 # Verify the default actually resolves to a written entry. systemd-boot
-# treats default as a glob; for cixmini-next* match either the canonical
+# treats default as a glob; for cixmini-lts* match either the canonical
 # +3-0.conf (boot-counter) or any later +N-M rotation.
-if [ "$DEFAULT_ENTRY" = "cixmini-next*" ]; then
-    if ! ls /boot/efi/loader/entries/cixmini-next*.conf >/dev/null 2>&1; then
-        echo "ERROR: loader.conf default=cixmini-next* but no cixmini-next*.conf in entries/" >&2
+if [ "$DEFAULT_ENTRY" = "cixmini-lts*" ]; then
+    if ! ls /boot/efi/loader/entries/cixmini-lts*.conf >/dev/null 2>&1; then
+        echo "ERROR: loader.conf default=cixmini-lts* but no cixmini-lts*.conf in entries/" >&2
         ls /boot/efi/loader/entries/ 2>&1 | sed 's/^/  /'
         exit 1
     fi

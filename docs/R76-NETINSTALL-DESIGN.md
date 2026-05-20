@@ -1,3 +1,4 @@
+# r78-historical: NEXT was default
 # R76 — Netinstall ISO design (Reinhardt + Magnetar selector)
 
 **Status:** IMPLEMENTED in r78.

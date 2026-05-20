@@ -1,3 +1,4 @@
+# r78-historical: NEXT was default
 # Stability Sweep 4 - Bootloader and Kernel Staging - 2026-05-08
 
 ## Executive summary

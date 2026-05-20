@@ -59,11 +59,20 @@ if command -v plymouth-set-default-theme >/dev/null 2>&1; then
         echo "[60] plymouth theme set failed — keeping default"
 fi
 
-# Mask plymouth-quit if it keeps failing (cosmetic, doesn't affect boot)
-# r51 saw "plymouth-quit.service Failed to start" in journal. Disable cleanly.
-systemctl mask plymouth-quit.service plymouth-quit-wait.service 2>/dev/null || true
+# r78: DO NOT mask plymouth-quit.service OR plymouth-quit-wait.service.
+# - plymouth-quit.service issues the actual `plymouth quit` to plymouthd
+#   (TimeoutSec=20, so cannot hang indefinitely).
+# - plymouth-quit-wait.service is the systemd ordering barrier (`plymouth
+#   --wait`); getty@tty1.service is After= this unit, so masking it
+#   prevents getty@tty1 from ever starting.
+# Masking BOTH (per r51) caused tty1 to be unusable on r74 install — only
+# tty2 worked for console login. The r51 "Failed to start" journal noise
+# was cosmetic; accept it rather than break tty1.
+# Both units must stay unmasked together: masking only -quit leaves -wait
+# waiting forever (no quit event ever arrives).
+systemctl unmask plymouth-quit.service plymouth-quit-wait.service 2>/dev/null || true
 
-echo "[60] plymouth splash configured (or fallback) + plymouth-quit.service masked"
+echo "[60] plymouth splash configured (quit + quit-wait both unmasked for tty1)"
 
 # r56: explicit plymouth theme set + initramfs rebuild
 # (the older plymouth-set-default-theme binary isn't always installed; do it by hand)

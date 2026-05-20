@@ -25,6 +25,10 @@
 # variant of this image it would fall back to cpu-llamacpp.
 set -euo pipefail
 
+if [ "$(dpkg-query -W -f='${Status}' cix-noe-umd 2>/dev/null || true)" != "install ok installed" ]; then
+    echo "[47] WARN: cix-noe-umd is not installed; the NPU adapter will fail at runtime. 25-cix-proprietary.sh must have skipped or failed."
+fi
+
 ASSETS=/usr/local/lib/cix-installer/assets/embedkit
 MODELS_SRC=/usr/local/lib/cix-installer/assets/models
 VENV=/opt/ncz/embed-venv

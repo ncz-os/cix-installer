@@ -183,7 +183,7 @@ if [ "$LTS_AVAILABLE" = "1" ]; then
 
     # sort-key forces menu-order (systemd-boot 252+) — without it,
     # entries sort by version DESC and BETA (7.0.1) lands at top.
-    cat > /boot/efi/loader/entries/cixmini-lts.conf <<EOF
+    cat > /boot/efi/loader/entries/cixmini-lts+3-0.conf <<EOF
 title   nclawzero (cixmini) — kernel $KVER_LTS [LTS, default] — $BUILD_VERSION
 sort-key 1-lts
 version $KVER_LTS

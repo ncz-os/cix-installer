@@ -66,9 +66,15 @@ for deb in ./*.deb; do
     [ -e "$deb" ] || continue
     deb=${deb#./}
     case "$deb" in
+        # vendor kernel + KMD: vermagic incompatible with Sky1 6.18/7.x — skip
         linux-image-*-cix-build-generic_*.deb|linux-headers-*-cix-build-generic_*.deb) continue ;;
         cix-npu-driver_*.deb|cix-gpu-driver_*.deb|cix-vpu-driver_*.deb|cix-isp-driver_*.deb|cix-wlan_*.deb|cix-csi-driver_*.deb|cix-noe-kmd_*.deb) continue ;;
-        cix-npu-umd_*.deb|cix-noe-umd_*.deb|cix-npu-onnxruntime_*.deb) continue ;;
+        # r79: userspace NPU debs (cix-noe-umd + cix-npu-onnxruntime + cix-npu-umd)
+        # are NOT vermagic-bound — they ride atop the in-tree armchina_npu kernel
+        # driver shipped with linux-cix-sky1-lts 6.18.x. Both inference paths
+        # (Compass NN via libnoe + ONNX via cix-npu-onnxruntime) are required for
+        # the MNEMOS embedkit hybrid GPU/NPU appliance, so install both here.
+        # TODO: Inspect ONNX postinst behavior — requires vendor deb access to verify side effects. Flag for validation before ship.
     esac
     DEBS+=("$deb")
 done
@@ -79,6 +85,16 @@ for deb in ./*.deb; do
     deb=${deb#./}
     case "$deb" in
         cix-npu-driver_*.deb|cix-gpu-driver_*.deb|cix-vpu-driver_*.deb|cix-isp-driver_*.deb|cix-wlan_*.deb|cix-csi-driver_*.deb|cix-noe-kmd_*.deb)
+            echo "    $deb"
+            ;;
+    esac
+done
+echo "Installing userspace NPU runtime (both inference paths):"
+for deb in ./*.deb; do
+    [ -e "$deb" ] || continue
+    deb=${deb#./}
+    case "$deb" in
+        cix-noe-umd_*.deb|cix-npu-onnxruntime_*.deb|cix-npu-umd_*.deb)
             echo "    $deb"
             ;;
     esac
