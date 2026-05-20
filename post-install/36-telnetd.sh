@@ -21,7 +21,16 @@ INETD_CONF=/etc/inetd.conf
 if [ -f "$INETD_CONF" ]; then
     # Remove any existing telnet line, add fresh enabled one
     sed -i '/^[[:space:]]*#*[[:space:]]*telnet[[:space:]]/d' "$INETD_CONF"
-    echo "telnet  stream  tcp     nowait  telnetd /usr/sbin/tcpd  /usr/sbin/in.telnetd" >> "$INETD_CONF"
+    # Debian 13/Ubuntu 26.04 inetutils-telnetd ships /usr/sbin/telnetd (no in. prefix).
+    # Fall back to /usr/sbin/in.telnetd for older releases.
+    if [ -x /usr/sbin/telnetd ]; then
+        TELNETD_BIN=/usr/sbin/telnetd
+    elif [ -x /usr/sbin/in.telnetd ]; then
+        TELNETD_BIN=/usr/sbin/in.telnetd
+    else
+        TELNETD_BIN=/usr/sbin/telnetd  # default; install must provide
+    fi
+    echo "telnet  stream  tcp     nowait  telnetd /usr/sbin/tcpd  $TELNETD_BIN" >> "$INETD_CONF"
     echo "  added telnet line to $INETD_CONF"
 fi
 
