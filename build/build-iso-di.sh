@@ -961,6 +961,11 @@ if [ -f "$DEBOOTSTRAP_MAIN" ]; then
 		for _ncz_deb in /var/cache/apt/archives/gnu-coreutils_*.deb; do\
 			[ -f "$_ncz_deb" ] && dpkg --force-all --unpack "$_ncz_deb" 2>/dev/null && break\
 		done\
+		for _ncz_cmd in cat ln cp true false env; do\
+			if [ ! -e "/usr/bin/$_ncz_cmd" ] && [ -e "/usr/bin/gnu$_ncz_cmd" ]; then\
+				/usr/bin/gnuln -sf "gnu$_ncz_cmd" "/usr/bin/$_ncz_cmd" 2>/dev/null || /usr/bin/gnucp -a "/usr/bin/gnu$_ncz_cmd" "/usr/bin/$_ncz_cmd" 2>/dev/null || true\
+			fi\
+		done\
 	fi' "$DEBOOTSTRAP_MAIN" 2>/dev/null || true
     echo "    NCZ: patched debootstrap second stage coreutils pre-extraction"
 fi

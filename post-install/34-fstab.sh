@@ -71,6 +71,16 @@ ROOT_PASS=1
 if [ "$ROOT_FSTYPE" = "btrfs" ]; then
     ROOT_OPTS="defaults,noatime,compress=zstd"
     ROOT_PASS=0
+    ROOT_SUBVOL=$(findmnt -no OPTIONS / 2>/dev/null | tr "," "\n" | grep "^subvol=" | head -1 | sed "s/subvol=//" || true)
+    if [ -z "$ROOT_SUBVOL" ]; then
+        ROOT_FSROOT=$(findmnt -no FSROOT / 2>/dev/null || true)
+        if [ -n "$ROOT_FSROOT" ] && [ "$ROOT_FSROOT" != "/" ]; then
+            ROOT_SUBVOL="$ROOT_FSROOT"
+        fi
+    fi
+    if [ -n "$ROOT_SUBVOL" ]; then
+        ROOT_OPTS="$ROOT_OPTS,subvol=$ROOT_SUBVOL"
+    fi
 fi
 
 ESP_DEV=$(find_mount_source /boot/efi)

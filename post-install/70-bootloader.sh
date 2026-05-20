@@ -191,8 +191,18 @@ SPLASH=""
 
 ROOT_FSTYPE=$(findmnt -no FSTYPE / 2>/dev/null || echo ext4)
 if [ "$ROOT_FSTYPE" = "btrfs" ]; then
-    ROOT_SUBVOL=$(findmnt -no OPTIONS / | tr "," "\n" | grep "^subvol=" | head -1 | sed "s/subvol=//")
-    ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=btrfs rootflags=subvol=${ROOT_SUBVOL:-@rootfs} rw"
+    ROOT_SUBVOL=$(findmnt -no OPTIONS / 2>/dev/null | tr "," "\n" | grep "^subvol=" | head -1 | sed "s/subvol=//" || true)
+    if [ -z "$ROOT_SUBVOL" ]; then
+        ROOT_FSROOT=$(findmnt -no FSROOT / 2>/dev/null || true)
+        if [ -n "$ROOT_FSROOT" ] && [ "$ROOT_FSROOT" != "/" ]; then
+            ROOT_SUBVOL="$ROOT_FSROOT"
+        fi
+    fi
+    if [ -n "$ROOT_SUBVOL" ]; then
+        ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=btrfs rootflags=subvol=$ROOT_SUBVOL rw"
+    else
+        ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=btrfs rw"
+    fi
 else
     ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=${ROOT_FSTYPE:-ext4} rw"
 fi
