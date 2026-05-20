@@ -1,0 +1,96 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mnemos-embedkit"
+version = "0.1.0-dev"
+description = "Open embedding devkit — same API across NPU / GPU / CPU silicon (Cix, NVIDIA, AMD, Intel, Apple, Rockchip, MediaTek)"
+authors = [{ name = "Jason Perlow", email = "jperlow@gmail.com" }]
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.26",
+    "transformers>=4.40",
+]
+
+# Optional extras — install only what your host can use.
+# Listed alphabetically by vendor; the order has no semantic meaning.
+# The kit itself does not bundle vendor drivers; these extras pull
+# the python bindings that talk to drivers the OS already provides.
+[project.optional-dependencies]
+cpu-llamacpp     = ["llama-cpp-python>=0.3"]
+cpu-sbert        = ["sentence-transformers>=3.0"]
+# AMD
+gpu-amd-rocm     = ["onnxruntime-rocm>=1.18"]
+npu-amd-xdna     = ["onnxruntime-vitisai>=1.18"]
+# Apple
+gpu-apple-mlx    = ["mlx>=0.19", "mlx-lm>=0.18"]
+# Cix
+npu-cix          = []  # cix-noe-umd from OS apt; libnoe wheel from /usr/share/cix/pypi
+# Intel
+gpu-intel-igpu   = ["openvino>=2026.0"]
+npu-intel        = ["openvino>=2026.0"]
+# MediaTek (preview)
+npu-mediatek-apu = ["mtk-genio-apu>=0.1"]
+# NVIDIA
+gpu-nvidia-cuda  = ["onnxruntime-gpu>=1.18"]
+gpu-nvidia-trt   = ["tensorrt>=10.0", "onnxruntime-gpu>=1.18"]
+# Rockchip
+npu-rockchip     = ["rknn-toolkit2>=2.0"]
+# Vulkan (vendor-agnostic GPU path)
+gpu-vulkan       = ["llama-cpp-python>=0.3"]   # built with -DGGML_VULKAN=1
+
+# Bundled extras — convenience installs for common box classes.
+# These do NOT prefer any vendor; they reflect what tends to be
+# present on a given form factor.
+all-cpu          = ["mnemos-embedkit[cpu-llamacpp,cpu-sbert]"]
+all-x86-cuda     = ["mnemos-embedkit[cpu-llamacpp,gpu-nvidia-cuda]"]
+all-x86-rocm     = ["mnemos-embedkit[cpu-llamacpp,gpu-amd-rocm,npu-amd-xdna]"]
+all-x86-intel    = ["mnemos-embedkit[cpu-llamacpp,gpu-intel-igpu,npu-intel]"]
+all-arm-cix      = ["mnemos-embedkit[cpu-llamacpp,npu-cix,gpu-vulkan]"]
+all-arm-rockchip = ["mnemos-embedkit[cpu-llamacpp,npu-rockchip,gpu-vulkan]"]
+all-apple        = ["mnemos-embedkit[cpu-llamacpp,cpu-sbert,gpu-apple-mlx]"]
+all              = ["mnemos-embedkit[all-cpu,all-x86-cuda,all-x86-rocm,all-x86-intel,all-arm-cix,all-arm-rockchip,all-apple]"]
+
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+embedkit-bench  = "embedkit.bench:main"
+embedkit-doctor = "embedkit.doctor:main"
+
+[project.urls]
+Homepage = "https://github.com/mnemos-os/mnemos-embedkit"
+Repository = "https://github.com/mnemos-os/mnemos-embedkit"
+Issues = "https://github.com/mnemos-os/mnemos-embedkit/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/embedkit"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
