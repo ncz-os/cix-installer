@@ -35,10 +35,13 @@ unreachable.
 
 **Remaining work for next image:**
 
-- [ ] Bake STUDIO + magnetar ssh keys into the rootfs via cloud-init seed or
-      `nclawzero-ssh-keys` recipe. Today `09-diag-account.sh` creates the
-      `magnetar/REDACTED-CREDENTIAL` user but no fleet pubkeys are pre-authorized,
-      forcing a `sshpass mini/mini` bootstrap on every install.
+- [x] **STUDIO ssh key bake** — done 2026-05-21 in
+      `post-install/28-restore-toolsets.sh`. The new hook also installs
+      codex CLI / node / npm / uv / dev essentials (htop / vim / tmux /
+      jq / ripgrep / rsync / git) per CLAUDE.md directive 6 + operator
+      restore-toolsets-after-reflash requirement.
+- [ ] magnetar diag account key not bake-injected (still
+      `REDACTED-CREDENTIAL` password-only) — defer.
 - [ ] Verify telnetd persists across reboot on the next reflash test (.66 was
       validated via manual sshpass-driven install, not from-fresh-iso path).
 
