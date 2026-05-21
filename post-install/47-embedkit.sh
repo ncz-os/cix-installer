@@ -73,6 +73,21 @@ if [ ! -d "$VENV" ]; then
     fi
 fi
 
+# take79: verify venv has a working `pip` before continuing. take77/take78
+# install logs (per .66 r79-take78) showed venv creation appeared to
+# succeed but pip was absent because python3-venv install failed
+# (offline mirror lacked the deb, uv install failed, no fallback wheel).
+# Without this gate the rest of 47 silently no-ops and the operator sees
+# "no embedkit module" on first boot.
+if [ ! -x "$VENV/bin/pip" ] && [ ! -x "$VENV/bin/python3" ]; then
+    echo "[47] ERROR: venv $VENV created without pip/python3 — likely python3-venv missing in mirror"
+    echo "[47]        Options to recover on first boot:"
+    echo "[47]          sudo apt-get install python3-venv && rm -rf $VENV && sudo /usr/local/lib/cix-installer/post-install/47-embedkit.sh"
+    echo "[47]          OR install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    echo "[47]        Skipping embedkit install — NPU/Vulkan adapters will not be loadable until repaired."
+    exit 0
+fi
+
 # Pip + wheel + setuptools refresh
 if [ "$UV_AVAILABLE" = "1" ]; then
     uv pip install --python "$VENV/bin/python" --quiet pip wheel setuptools 2>&1 | tail -2
@@ -134,9 +149,16 @@ else
     fi
 fi
 
-# llama-cpp-python — CPU baseline + Vulkan fallback. Use the prebuilt
-# CPU wheel index so we don't compile from source on the install host.
-echo "[47]   installing llama-cpp-python (CPU baseline)"
+# llama-cpp-python — abetlen.github.io ships pre-built wheels for cpu /
+# cu121-124 / metal only. No vulkan / rocm / openblas index. arm64 cpu
+# wheels exist, so we use the cpu index here for the bake.
+#
+# v0.2 follow-up: build a Vulkan-enabled wheel for arm64-cixmini in CI
+# (CMAKE_ARGS="-DGGML_VULKAN=on" + vulkan-headers + libvulkan-dev) and
+# bundle in assets/embedkit/wheels/. 47-embedkit.sh will then prefer
+# that local wheel over the cpu PyPI index so the gpu_vulkan adapter
+# in mnemos-embedkit actually offloads to panthor Mali-G720.
+echo "[47]   installing llama-cpp-python (CPU baseline — Vulkan wheel pending v0.2)"
 "$VENV/bin/pip" install --quiet \
     --extra-index-url=https://abetlen.github.io/llama-cpp-python/whl/cpu \
     llama-cpp-python 2>&1 | tail -2
