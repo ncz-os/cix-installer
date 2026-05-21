@@ -210,26 +210,42 @@ nodes per `fleet-roles-canonical-2026-05-06.md`. Today's smoke test on .66:
 **Cause:** No post-install hook populates `/opt/ncz/embed-venv/` with the
 runtime deps. Even the staged libnoe wheel is unused.
 
-**Fix for next image:**
+**Fix for next image (updated 2026-05-20 — Path 3 ONNX unblock):**
 
-- [ ] New `post-install/27-cix-runtime.sh` after `21-internet-apt.sh` + the
-      NPU userspace install. Does:
+Operator handoff 2026-05-20 (MNEMOS `mem_1779334429091_4260f2`):
+ship the **embedkit `cix-npu-onnx` adapter with `bge-small-zh-v1.5`
+ONNX from HuggingFace** instead of the compass `.cixmodel` AOT
+path. Same Zhouyi V3 silicon, no AOT compile through Compass NN
+needed. Path 3 unblocks the userspace + model-format layer entirely.
+
+- [ ] New `post-install/27-cix-runtime.sh` after `21-internet-apt.sh`
+      + the NPU userspace install. Does:
       ```
       python3 -m venv --system-site-packages /opt/ncz/embed-venv
       /opt/ncz/embed-venv/bin/pip install --break-system-packages \
           /usr/share/cix/pypi/libnoe-*.whl \
-          numpy transformers sentence-transformers \
-          llama-cpp-python
+          embedkit                          # provides cix-npu-onnx adapter
+          numpy onnxruntime                 # ONNX inference runtime
+          huggingface-hub                   # for bge-small-zh fetch
       ```
       Stage the heavy deps as offline wheels under `assets/embed-wheels/`
       so net-down installs still complete.
-- [ ] Ship a Sky1 NoE-compiled embedding model at `/opt/ncz/embed-models/
-      mnemos-default.cixmodel` (MiniLM-L6-v2 or `bge-small` quantized for
-      NPU). Pull from `archive.cixtech.com` model registry or bake into
-      `assets/embed-models/`.
+- [ ] Pull `bge-small-zh-v1.5` ONNX from HuggingFace into
+      `/opt/ncz/embed-models/bge-small-zh-v1.5/` — either bake-time
+      pull during image build (~100 MB) or first-boot
+      `huggingface-cli download BAAI/bge-small-zh-v1.5 --include "*.onnx"`.
 - [ ] Wire `/etc/nclawzero/embed.env` so MNEMOS clients on cixmini auto-
       route to `localhost:<port>` for embedding generation instead of
-      round-tripping to PYTHIA.
+      round-tripping to PYTHIA. Embedkit `cix-npu-onnx` adapter is the
+      backend; bge-small-zh-v1.5 ONNX is the model path.
+- [ ] **SUPERSEDED:** earlier expectation of a `.cixmodel` /
+      Compass-NN-compiled payload. The ONNX path eliminates that
+      requirement entirely. Do not chase the AOT compile pipeline.
+
+**Caveat still relevant:** even with Path 3 userspace running, the
+kernel driver must bind first (P0 #2 hw_version=5 mismatch). The
+ONNX adapter calls into libnoe via `/dev/aipu0` which the in-tree
+`armchina_npu` driver does not yet create on 7.0.9-cix-sky1-next.
 
 **Out-of-scope for cix-installer (PYTHIA-side fleet issue):**
 
