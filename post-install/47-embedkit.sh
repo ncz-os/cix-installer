@@ -109,12 +109,30 @@ PY
 LIBNOE_WHL=$(ls /usr/share/cix/pypi/libnoe-*-py3-none-manylinux2014_aarch64.whl 2>/dev/null | head -1)
 if [ -f "$LIBNOE_WHL" ]; then
     echo "[47]   installing libnoe (Cix NPU userspace binding, Python 3.13, no-deps)"
-    if [ "$UV_AVAILABLE" = "1" ]; then uv pip install --python "$VENV/bin/python" --no-deps "$LIBNOE_WHL" 2>&1 | tail -2; else "$VENV/bin/pip" install --no-deps "$LIBNOE_WHL" 2>&1 | tail -2; fi
+    if [ "$UV_AVAILABLE" = "1" ]; then
+        uv pip install --python "$VENV/bin/python" --no-deps "$LIBNOE_WHL" 2>&1 | tail -2
+    else
+        "$VENV/bin/pip" install --no-deps "$LIBNOE_WHL" 2>&1 | tail -2
+    fi
 fi
-    # take27: fastembed provides CPU ONNX embedding fallback (754 emb/sec on Cix Sky1 CPU)
-    if [ "$UV_AVAILABLE" = "1" ]; then uv pip install --python "$VENV/bin/python" --quiet fastembed 2>&1 | tail -2 \
-        && echo "[47]   fastembed installed (CPU ONNX backend)" \
-        || echo "[47]   WARN: fastembed install failed (network/PyPI unavailable) — CPU ONNX path will not be available"
+
+# take27: fastembed provides CPU ONNX embedding fallback (754 emb/sec on Cix Sky1 CPU).
+# r79-take75: closes the missing-fi bash syntax error that caused 47-embedkit.sh
+# to abort early (per MNEMOS mem_1779321748830_7bcdde) — installer silently
+# skipped embedkit setup despite "successful" completion.
+if [ "$UV_AVAILABLE" = "1" ]; then
+    if uv pip install --python "$VENV/bin/python" --quiet fastembed 2>&1 | tail -2; then
+        echo "[47]   fastembed installed (CPU ONNX backend)"
+    else
+        echo "[47]   WARN: fastembed install failed (network/PyPI unavailable) — CPU ONNX path will not be available"
+    fi
+else
+    if "$VENV/bin/pip" install --quiet fastembed 2>&1 | tail -2; then
+        echo "[47]   fastembed installed (CPU ONNX backend, pip path)"
+    else
+        echo "[47]   WARN: fastembed install failed (network/PyPI unavailable) — CPU ONNX path will not be available"
+    fi
+fi
 
 # llama-cpp-python — CPU baseline + Vulkan fallback. Use the prebuilt
 # CPU wheel index so we don't compile from source on the install host.
