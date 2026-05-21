@@ -6,6 +6,9 @@ build/r*-stage/
 build/r*-efi-*.img
 build/questing-bootstrap/
 build/questing-mirror/
+build/resolute-bootstrap/
+build/resolute-mirror/
+build/build-*.log
 build/tool-cache/
 build/refind-bin/
 build/*.iso
@@ -20,6 +23,9 @@ post-install/.r73-bak/
 
 # AI image-gen candidates (only canonical-promoted assets are committed)
 assets/branding/_candidates/
+
+# Dev-scratch (operator working files, never shipped)
+assets/dev/
 
 # Upstream downloads
 downloads/
