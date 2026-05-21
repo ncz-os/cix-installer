@@ -11,7 +11,19 @@ set -uo pipefail
 
 echo "[36] enabling telnetd as backup LAN console"
 
-# inetutils-telnetd + openbsd-inetd installed via pkgsel/include.
+# take78: pkgsel no longer auto-includes inetutils-telnetd + openbsd-inetd
+# (offline questing-mirror lacked the debs → installer red screen at pkgsel).
+# Best-effort apt-get here; skip silently if packages unavailable so the
+# installer never red-screens for a non-critical backup access path.
+if ! command -v in.telnetd >/dev/null 2>&1 && ! command -v telnetd >/dev/null 2>&1; then
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            inetutils-telnetd openbsd-inetd 2>&1 | tail -3; then
+        echo "[36] WARN: inetutils-telnetd / openbsd-inetd not in apt mirror — skipping telnet setup"
+        echo "[36]       Add the debs to the offline mirror or apt-get install manually post-install"
+        exit 0
+    fi
+fi
+
 # openbsd-inetd reads /etc/inetd.conf and spawns telnetd on incoming
 # connections to TCP 23.
 
