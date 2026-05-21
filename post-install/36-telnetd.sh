@@ -11,15 +11,21 @@ set -uo pipefail
 
 echo "[36] enabling telnetd as backup LAN console"
 
-# take78: pkgsel no longer auto-includes inetutils-telnetd + openbsd-inetd
-# (offline questing-mirror lacked the debs → installer red screen at pkgsel).
-# Best-effort apt-get here; skip silently if packages unavailable so the
-# installer never red-screens for a non-critical backup access path.
+# 21-internet-apt.sh runs earlier in Phase 2 and adds the Ubuntu ports
+# archive (ports.ubuntu.com) so inetutils-telnetd + openbsd-inetd are
+# fetchable even though the Thin cdrom mirror omits them. If that hook
+# failed (network unreachable at install time), we still try here —
+# the source list will exist on disk and apt may now have connectivity.
 if ! command -v in.telnetd >/dev/null 2>&1 && ! command -v telnetd >/dev/null 2>&1; then
     if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             inetutils-telnetd openbsd-inetd 2>&1 | tail -3; then
-        echo "[36] WARN: inetutils-telnetd / openbsd-inetd not in apt mirror — skipping telnet setup"
-        echo "[36]       Add the debs to the offline mirror or apt-get install manually post-install"
+        echo "[36] WARN: inetutils-telnetd / openbsd-inetd not installable"
+        echo "[36]       network at install time may be down; on first boot the"
+        echo "[36]       operator can run:"
+        echo "[36]         sudo apt-get update && \\"
+        echo "[36]         sudo apt-get install -y inetutils-telnetd openbsd-inetd && \\"
+        echo "[36]         sudo systemctl enable --now openbsd-inetd"
+        echo "[36]       (CLAUDE.md rule 9 — every fleet host needs telnetd on tcp/23)"
         exit 0
     fi
 fi
