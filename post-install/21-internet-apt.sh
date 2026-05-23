@@ -32,6 +32,17 @@ set -uo pipefail
 
 echo "[21] writing Ubuntu ports archive source list"
 
+# Comment out deb cdrom://... lines in /etc/apt/sources.list to silence
+# the "Failed to fetch cdrom://..." errors that come from the installer
+# leaving a dead cdrom entry behind. The ports.ubuntu.com source we
+# write below replaces it entirely. Commenting (vs deleting) preserves
+# the line for forensics if something needs to reference the original
+# Thin-cdrom mirror layout.
+if [ -f /etc/apt/sources.list ]; then
+    sed -i 's|^\(deb \+cdrom:\)|# \1|' /etc/apt/sources.list
+    echo "[21] commented out any deb cdrom:// lines in /etc/apt/sources.list"
+fi
+
 # Discover the Ubuntu codename. NCZ derives from a specific Ubuntu
 # release; /etc/os-release records UBUNTU_CODENAME=resolute for 26.04.
 # Default to "resolute" if /etc/os-release is missing in the chroot.
