@@ -58,7 +58,7 @@ RESCUE_HOME="/home/${RESCUE_USER}"
 NFS_MNT="/mnt/argonas"
 RISKYEATS_NFS_PATH="${NFS_MNT}/datapool/projects/riskyeats"
 VENV_DIR="${RESCUE_HOME}/.riskyeats-venv-mini"
-ARGOS_PUBKEY_URL="http://192.168.207.22/argos-rescue.pub"
+ARGOS_PUBKEY_NFS="${NFS_MNT}/datapool/projects/fleet-secrets/argos-rescue.pub"
 
 # Wait for NFS reachable (automount will mount on first access; force a stat)
 for i in $(seq 1 30); do
@@ -103,15 +103,14 @@ chmod 0700 "${RESCUE_HOME}/.ssh"
 touch "${RESCUE_HOME}/.ssh/authorized_keys"
 chmod 0600 "${RESCUE_HOME}/.ssh/authorized_keys"
 chown -R "${RESCUE_USER}:${RESCUE_USER}" "${RESCUE_HOME}/.ssh"
-if curl -fsS --max-time 8 "${ARGOS_PUBKEY_URL}" 2>/dev/null > /tmp/argos-rescue.pub; then
-    fp="$(ssh-keygen -lf /tmp/argos-rescue.pub 2>/dev/null | awk '{print $2}')"
+if [ -f "${ARGOS_PUBKEY_NFS}" ]; then
+    fp="$(ssh-keygen -lf "${ARGOS_PUBKEY_NFS}" 2>/dev/null | awk '{print $2}')"
     if [ -n "$fp" ] && ! ssh-keygen -lf "${RESCUE_HOME}/.ssh/authorized_keys" 2>/dev/null | grep -qF "$fp"; then
-        cat /tmp/argos-rescue.pub >> "${RESCUE_HOME}/.ssh/authorized_keys"
-        echo "  ARGOS pubkey authorized"
+        cat "${ARGOS_PUBKEY_NFS}" >> "${RESCUE_HOME}/.ssh/authorized_keys"
+        echo "  ARGOS pubkey authorized from NFS"
     fi
-    rm -f /tmp/argos-rescue.pub
 else
-    echo "  WARN: ARGOS rescue pubkey unavailable at ${ARGOS_PUBKEY_URL}"
+    echo "  WARN: ARGOS rescue pubkey not found at ${ARGOS_PUBKEY_NFS}"
 fi
 
 # Build venv once (~45s); subsequent runs short-circuit via stamp
