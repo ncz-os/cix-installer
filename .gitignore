@@ -40,6 +40,8 @@ assets/kernel/*.tgz
 assets/sky1-firmware/
 assets/npu/
 !assets/npu/npu_embed_v2.py
+!assets/npu/aipu-*.ko
+!assets/npu/aipu-*.ko.sha256
 assets/rootfs/
 
 # Autoinstall scaffolding (work-in-progress, not r74-shippable)
