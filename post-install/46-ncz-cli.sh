@@ -25,13 +25,34 @@ set -euo pipefail
 
 echo "[46] installing ncz CLI + /opt/cix/npu_embed_v2.py"
 
-# Stage the canonical Python NPU wrapper from cix-installer/assets/npu/
-NPU_WRAPPER_SRC=/cdrom/cixmini/assets/cix-py/npu_embed_v2.py
-if [ -f "$NPU_WRAPPER_SRC" ]; then
+# Stage the canonical Python NPU wrapper.
+#
+# late.sh copies the installer payload to /usr/local/lib/cix-installer/
+# inside the target chroot, so /cdrom/... is only present during the
+# initial install (live ISO mounts cdrom). On re-runs of post-install
+# hooks (manual operator invocations, ncz update scripts, future
+# in-place ncz revisions), /cdrom is not mounted and the wrapper was
+# silently skipped. Prefer the copied payload path; fall back to
+# /cdrom only if the payload path is absent.
+NPU_WRAPPER_CANDIDATES=(
+    /usr/local/lib/cix-installer/assets/cix-py/npu_embed_v2.py
+    /cdrom/cixmini/assets/cix-py/npu_embed_v2.py
+)
+NPU_WRAPPER_SRC=""
+for cand in "${NPU_WRAPPER_CANDIDATES[@]}"; do
+    if [ -f "$cand" ]; then
+        NPU_WRAPPER_SRC="$cand"
+        break
+    fi
+done
+if [ -n "$NPU_WRAPPER_SRC" ]; then
     install -D -m 0644 "$NPU_WRAPPER_SRC" /opt/cix/npu_embed_v2.py
-    echo "    /opt/cix/npu_embed_v2.py staged ($(wc -l < /opt/cix/npu_embed_v2.py) lines)"
+    echo "    /opt/cix/npu_embed_v2.py staged ($(wc -l < /opt/cix/npu_embed_v2.py) lines, src=$NPU_WRAPPER_SRC)"
 else
-    echo "    WARN: $NPU_WRAPPER_SRC not in cdrom payload — /opt/cix/npu_embed_v2.py NOT staged" >&2
+    # ncz CLI documents direct NPU wrapper support — make absence fatal
+    # so a fresh install never quietly drops the wrapper.
+    echo "    ERROR: NPU wrapper not found at any of: ${NPU_WRAPPER_CANDIDATES[*]}" >&2
+    exit 1
 fi
 
 install -D -m 0755 /dev/stdin /usr/local/bin/ncz <<'NCZ'
