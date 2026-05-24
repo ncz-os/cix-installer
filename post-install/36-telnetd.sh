@@ -1,0 +1,1 @@
+telnet is not installed by default and is not accessible from outside the LAN interface.
