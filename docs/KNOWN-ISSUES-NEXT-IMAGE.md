@@ -47,7 +47,37 @@ unreachable.
 
 ---
 
-## P0 #2 — Sky1 NPU: kernel driver does not bind on 7.0.9-cix-sky1-next (⏳)
+## P0 #2 — Sky1 NPU: kernel driver does not bind on 7.0.9-cix-sky1-next (✅ functionally resolved 2026-05-23 via meta-cix 8-patch series; devfreq off pending BIOS v1.2)
+
+> **STATUS 2026-05-23 (MEMO from hive job 019e5615-e882):** Functionally resolved.
+> meta-cix `b5bd78b` (gitlab.com/ncz-os/meta-cix branch `feat/msr1-rebake-2026-05-01`)
+> ships an 8-patch series against the in-tree `armchina_npu` driver for kernel
+> 6.18/7.0.x BSP changes:
+>
+> 1. SCMI removal (no longer in BSP)
+> 2. `ccflags-y` modernization
+> 3. `MODULE_IMPORT_NS` quoted-string per kernel 6.13+ ABI
+> 4. `sky1_npu_remove` returns `void` per kernel 6.11+ ABI
+> 5. `pm_runtime_put` returns `void` per kernel 6.10+ ABI
+> 6. Module metadata refresh
+> 7. `v3_1` objs build inclusion
+> 8. `IRQF_ONESHOT` drop on edge-triggered IRQ + redundant `pm_runtime_enable` drop
+>
+> Result on cixmini `192.168.207.66`:
+>
+> - `aipu.ko` loads + binds `CIXH4000:00`
+> - Zhouyi V3 (1×3×4 cores) detected
+> - `/dev/aipu` char device present
+> - IOMMU SMMUv3 attached
+> - `devfreq` disabled — BIOS v1.0 missing perf power domain
+>   (separate hive job `cixmini-os:npu-bios-v12-upgrade-research`, p5)
+>
+> Asset ships to cix-installer at `assets/npu/aipu-7.0.9-cix-sky1-next.ko` via
+> `post-install/81-npu-module.sh`. The original "hw_version=5 / probe ret -22"
+> failure mode described below is **superseded** — kept here for historical
+> reference only.
+
+
 
 **Problem:** `armchina_npu` kernel module loads but probe fails with:
 
