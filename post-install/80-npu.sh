@@ -157,6 +157,22 @@ python3 run_onnx.py
 Other available pre-compiled models: YOLOv8n, CLIP ViT-B/32, Whisper, ResNet50,
 SDXL-Turbo (see https://modelscope.cn/models/cix/ai_model_hub_25_Q3)
 
+## Python 3.14 workaround (r79+)
+
+The `libnoe` Python wheel ships `.so` files compiled for CPython 3.10–3.13.
+Ubuntu 26.04 ships Python 3.14, so the system pip refuses the wheel. The
+installer hook `82-noe-python.sh` solves this by:
+
+1. Installing `uv` (Astral's Rust-based pip/venv replacement)
+2. Using `uv python install 3.13` to download a managed CPython 3.13
+3. Creating `/opt/ncz/noe-env` — a uv venv with Python 3.13
+4. Installing `libnoe` + `NOE_Engine` wheels from `assets/pypi/`
+5. Patching the `cix-noe-umd` deb postinst to skip its own failed `pip install`
+6. Writing `/etc/nclawzero/embed.env` so MNEMOS finds the venv
+
+**Result:** `libnoe 3.1.0` + `NOE_Engine` working on Ubuntu 26.04 via
+managed Python 3.13 in `/opt/ncz/noe-env`.
+
 ## What's still open
 
 - **LLM on Zhouyi v3.** The Compass NN compiler is static-graph only —
@@ -164,6 +180,7 @@ SDXL-Turbo (see https://modelscope.cn/models/cix/ai_model_hub_25_Q3)
   cleanly. This is unsolved by anyone (Cix included). Vision models, audio
   (Whisper), and image-gen all work via the Cix model hub.
 - **UMD 4.0.0 compat.** Only `cix-noe-umd 2.0.2` is confirmed working.
+  The `device_type_t` enum changed between r2p0 and r2p1 SDK releases.
 
 ## Credits
 
@@ -171,6 +188,7 @@ SDXL-Turbo (see https://modelscope.cn/models/cix/ai_model_hub_25_Q3)
   on MS-R1 (Armbian). NCZ integrates their patches into the installer.
 - **cixtech/cix_opensource__release__npu_driver** (`cix_mainline_dev`)
 - **radxa-pkg/cix-prebuilt** — `cix-noe-umd_2.0.2_arm64.deb`
+- **Astral uv** — managed Python 3.13 venv for libnoe on Ubuntu 26.04+ (86-npu-python.sh)
 - **Cix AI Model Hub** on ModelScope — pre-compiled `.cix` inference graphs
 
 ## References
