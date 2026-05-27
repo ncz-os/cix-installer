@@ -129,7 +129,31 @@ The ModelScope repository was reachable. This hosts pre-compiled `.cix` model fi
 
 ---
 
-## 6. Recommendations
+## 6. Resolution (2026-05-27)
+
+### Path A — Userspace fix (APPLIED)
+
+| Fix | Status | Details |
+|---|---|---|
+| libnoe Python 3.14 compat | ✅ Applied | `uv` + Python 3.13 managed venv at `/opt/ncz/noe-env`. libnoe 3.1.0 + NOE_Engine working. |
+| cix-noe-umd postinst bypass | ✅ Applied | Postinst patched (shebang + pip disable). `cix-noe-umd 2.0.2` installed from radxa-pkg. |
+| cix-npu-umd 4.0.0 | ✅ Present | Provides `libaipudrv.so.6` for low-level AIPU access. |
+| embed.env | ✅ Applied | `/etc/nclawzero/embed.env` points at venv. |
+| 82-noe-python.sh | ✅ Committed | New post-install hook installs uv + venv + wheels. |
+
+### Path B — DKMS (APPLIED)
+
+| Component | Status | Details |
+|---|---|---|
+| DKMS source package | ✅ Bundled | `cix-npu-driver-dkms_6.1.1-2_all.deb` from FyrbyAdditive/ms-r1-npu-hack |
+| Sky1 + V3 support | ✅ Built-in | `dkms.conf` targets `BUILD_PLATFORM_SKY1` + `BUILD_ZHOUYI_V3` |
+| First-boot build service | ✅ Added | `npu-dkms-build.service` runs `dkms install` on first boot |
+| 83-npu-dkms.sh | ✅ Committed | New post-install hook installs DKMS deb + service |
+| In-tree fallback | ✅ Preserved | `armchina_npu.ko` in kernel remains available |
+
+---
+
+## 6. Recommendations (pre-resolution)
 
 ### Short-term (unblock this session)
 1. **Attempt SDK download from alternate network** — e.g., local Mac (jperlow-mlt) via home ISP, which may not be WAF-blocked
