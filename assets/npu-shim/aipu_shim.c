@@ -39,12 +39,59 @@ static void track(const char *path, int fd) {
     if (fd >= 0 && fd < 256 && path && strstr(path, "/dev/aipu"))
         aipu_fds[fd] = 1;
 }
+
+static int needs_open_mode(int flags) {
+    if ((flags & O_CREAT)
+#ifdef O_TMPFILE
+        || ((flags & O_TMPFILE) == O_TMPFILE)
+#endif
+    )
+        return 1;
+    return 0;
+}
+
+static mode_t get_open_mode(int flags, va_list ap) {
+    if (needs_open_mode(flags))
+        return va_arg(ap, mode_t);
+    return 0;
+}
+
 static int (*real_open)(const char *, int, ...);
 int open(const char *path, int flags, ...) {
     if (!real_open) real_open = dlsym(RTLD_NEXT, "open");
     va_list ap; va_start(ap, flags);
-    mode_t mode = va_arg(ap, mode_t); va_end(ap);
-    int fd = (flags & O_CREAT) ? real_open(path, flags, mode) : real_open(path, flags);
+    mode_t mode = get_open_mode(flags, ap); va_end(ap);
+    int fd = needs_open_mode(flags) ? real_open(path, flags, mode) : real_open(path, flags);
+    track(path, fd);
+    return fd;
+}
+
+static int (*real_open64)(const char *, int, ...);
+int open64(const char *path, int flags, ...) {
+    if (!real_open64) real_open64 = dlsym(RTLD_NEXT, "open64");
+    va_list ap; va_start(ap, flags);
+    mode_t mode = get_open_mode(flags, ap); va_end(ap);
+    int fd = needs_open_mode(flags) ? real_open64(path, flags, mode) : real_open64(path, flags);
+    track(path, fd);
+    return fd;
+}
+
+static int (*real_openat)(int, const char *, int, ...);
+int openat(int dirfd, const char *path, int flags, ...) {
+    if (!real_openat) real_openat = dlsym(RTLD_NEXT, "openat");
+    va_list ap; va_start(ap, flags);
+    mode_t mode = get_open_mode(flags, ap); va_end(ap);
+    int fd = needs_open_mode(flags) ? real_openat(dirfd, path, flags, mode) : real_openat(dirfd, path, flags);
+    track(path, fd);
+    return fd;
+}
+
+static int (*real_openat64)(int, const char *, int, ...);
+int openat64(int dirfd, const char *path, int flags, ...) {
+    if (!real_openat64) real_openat64 = dlsym(RTLD_NEXT, "openat64");
+    va_list ap; va_start(ap, flags);
+    mode_t mode = get_open_mode(flags, ap); va_end(ap);
+    int fd = needs_open_mode(flags) ? real_openat64(dirfd, path, flags, mode) : real_openat64(dirfd, path, flags);
     track(path, fd);
     return fd;
 }
