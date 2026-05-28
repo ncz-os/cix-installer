@@ -203,4 +203,73 @@ Since the latest SDK could not be downloaded, no byte-level diff was possible. T
 
 ---
 
+## 9. June 1 Release Summary
+
+All approaches tried and their results:
+
+| Approach | Build | Probe | Init | Load Graph | Schedule | Inference |
+|---|---|---|---|---|---|---|
+| **armchina_npu + shim** | N/A | ✅ | ✅ | ✅ | ✅ (kernel) | 🔄 WIP |
+| **SDK DKMS 6.0.1** | ✅ | ❌ Oops | — | — | — | — |
+| **FyrbyAdditive 6.1.1-2** | ✅ | ❌ Crash | — | — | — | — |
+| **Upstream v7.1-rc5** | — | — | — | — | — | No Sky1 support |
+
+### Final Architecture
+
+```
+Userspace: NOE_Engine (r2p1 SDK 3.1.2)
+              │
+              ▼
+      LD_PRELOAD Shim (aipu_shim.so)
+     ┌────────────────────────────┐
+     │ QUERY_CAP:  200→424 bytes  │  field remap
+     │ REQ_BUF:    80→56 bytes    │  field remap + align
+     │ SCHED_JOB:  passthrough     │  kernel handles ↓
+     └────────────────────────────┘
+              │ ioctl()
+              ▼
+      Kernel: armchina_npu.ko (r2p0)
+     ┌────────────────────────────┐
+     │ QUERY_CAP:  424 bytes       │  asid_base[32]
+     │ REQ_BUF:    56 bytes        │
+     │ SCHED_JOB:  144→128 bypass  │  is_coredump_en truncated
+     └────────────────────────────┘
+              │
+              ▼
+         /dev/aipu → NPU Hardware
+```
+
+### Deployment Scripts
+
+- **Shim source**: `assets/npu-shim/aipu_shim.c`
+- **Kernel patch**: Applied to `drivers/misc/armchina-npu/aipu.c` — adds SCHEDULE_JOB 144→128 bypass
+- **Post-install hook**: `post-install/82-noe-python.sh` — uv venv + libnoe wheel install
+- **Kernel config**: `CONFIG_ARMCHINA_NPU=m, ARCH_V3=y, ARCH_V3_1=y, SOC_SKY1=y`
+
+### June 1 Release Status
+
+| Feature | Status |
+|---|---|
+| **GPU Vulkan** (Mali-G720, panvk) | ✅ Ready |
+| **CPU Embeddings** (fastembed, 200 docs/sec) | ✅ Ready |
+| **NPU Init + Load** (1. init_context 2. load_graph 3. create_job) | ✅ Ready |
+| **NPU Schedule** (SCHEDULE_JOB ioctl) | ✅ Kernel patch ready |
+| **NPU Full Inference** | 🔄 Final shim verification needed |
+
+### Remaining Work
+
+1. Verify shim binary passes all ioctls consistently (REQ_BUF handler stability)
+2. Run `timeout 90 python3 test_npu_final.py` after clean boot
+3. If inference succeeds: measure throughput, integrate into MNEMOS embedkit
+4. If inference fails: debug REQ_BUF response field mapping
+
+### MNEMOS Embedkit Updates Needed
+
+The embedkit hook (`47-embedkit.sh`) from Magnetar r78 needs updating:
+- Use `uv` + managed Python 3.13 venv (not system venv)
+- Use `fastembed` for CPU embeddings (200 docs/sec vs llama-cpp)
+- Use `libnoe 3.1.2` (not 2.0.0)
+- Add LD_PRELOAD shim path
+- Add bge-small-en-v1.5 model
+
 *Report produced by opencode/STUDIO via hive job `019e64bb-edb1-70b7-807d-e70bab4bd24f`.*
