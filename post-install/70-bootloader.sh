@@ -391,6 +391,15 @@ if [ -n "$RESCUE_KVER" ]; then
     # above already cleared stale vmlinuz-*; we recreate the pin fresh from
     # the LTS binary we just staged to the ESP.
     RESCUE_PIN="${RESCUE_KVER}-rescue"
+    # Refuse to pin a zero-byte kernel (Codex 26.6 HIGH): the LTS/NEXT
+    # staging above uses -f not -s, so a truncated bake could leave an empty
+    # /boot/efi/vmlinuz-$RESCUE_KVER. Pinning that would hand the operator a
+    # rescue entry that loads nothing — the exact unbootable state rescue
+    # exists to prevent.
+    if [ ! -s "/boot/efi/vmlinuz-$RESCUE_KVER" ]; then
+        echo "ERROR: /boot/efi/vmlinuz-$RESCUE_KVER is missing or empty — cannot pin a clean rescue kernel."
+        exit 1
+    fi
     install -m 0644 "/boot/efi/vmlinuz-$RESCUE_KVER" "/boot/efi/vmlinuz-$RESCUE_PIN"
     echo "  staged pinned clean/rescue kernel /boot/efi/vmlinuz-$RESCUE_PIN"
     RESCUE_HAS_INITRD=0
