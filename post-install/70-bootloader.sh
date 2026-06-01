@@ -1,20 +1,21 @@
 #!/bin/bash
 # 70-bootloader.sh — systemd-boot install + staged kernel loader entries.
-# 26.6-take1: DEFAULT flipped to LTS 6.18 (stable, all working drivers).
-# 7.1 NEXT ships as an explicit, clearly-labeled [BETA] choice — its SCMI
-# transport still times out on MS-R1 firmware, so it is NOT the default
-# for a recovery-focused release. r78 netinstall may stage NEXT only.
+# 26.6-take1: DEFAULT is the LTS 6.18 stable channel (all working drivers).
+# The 7.1 edge channel ships as an explicit, clearly-labeled [BETA] choice —
+# its SCMI transport has historically timed out on MS-R1 firmware, so it is
+# NOT the default for a recovery-focused release. r78 netinstall may stage
+# the edge channel only.
 #
 # Loader entries (in menu order when all staged kernels exist):
-#   1. cixmini-lts.conf       (DEFAULT — Sky1 linux-cix-sky1-lts 6.18.x)
-#   2. cixmini-next+3-0.conf  ([BETA] — Sky1 linux-cix-sky1-next 7.1.x, 3-try rollback)
-#   3. cixmini-rescue.conf    (FULLY SAFE: rescue.target on a PINNED clean
+#   1. cixmini-stable.conf      (DEFAULT — NCZ LTS kernel 6.18.x)
+#   2. cixmini-edge+3-0.conf    ([BETA] — NCZ edge kernel 7.1.x, 3-try rollback)
+#   3. cixmini-rescue.conf      (FULLY SAFE: rescue.target on a PINNED clean
 #                              kernel, NPU/GPU/VPU/KMS blacklisted)
 #
 # THREE PHYSICAL KERNELS on the ESP (operator requirement 2026-06-01 — "3
 # kernels"):
 #   /vmlinuz-$KVER_LTS          daily driver (default)
-#   /vmlinuz-$KVER_NEXT         7.1 NEXT [BETA]
+#   /vmlinuz-$KVER_NEXT         7.1 edge [BETA]
 #   /vmlinuz-$KVER_LTS-rescue   clean/rescue/dev — an independent, pinned
 #                               copy of the proven 6.18.26 BSP binary. Same
 #                               bits as LTS today, but a SEPARATE file so a
@@ -147,7 +148,7 @@ echo "  ESP wiped — about to write fresh dual-kernel entries"
 # ----------------------------------------------------------------------
 mkdir -p /boot/efi/loader/entries
 cat > /boot/efi/loader/loader.conf <<'EOF'
-default cixmini-lts
+default cixmini-stable
 timeout 5
 console-mode auto
 editor yes
@@ -252,34 +253,34 @@ if [ "$LTS_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
 fi
 
 # ----------------------------------------------------------------------
-# Entry 1 — cixmini-lts.conf (DEFAULT, production-stable, only if LTS available)
+# Entry 1 — cixmini-stable.conf (DEFAULT, production-stable, only if LTS available)
 # ----------------------------------------------------------------------
 if [ "$LTS_AVAILABLE" = "1" ]; then
     LTS_OPTIONS="$ROOT_OPTS $LTS_CMDLINE_BASE"
     [ -n "$SPLASH" ] && LTS_OPTIONS="$LTS_OPTIONS $SPLASH"
 
     # sort-key forces menu-order (systemd-boot 252+).
-    # Order (per RULE 2026-05-03 update): NEXT (7.x) first/default,
-    # LTS (6.18) second/fallback, rescue last.
-    cat > /boot/efi/loader/entries/cixmini-lts.conf <<EOF
-title   nclawzero (cixmini) — kernel $KVER_LTS [LTS 6.18, default] — $BUILD_VERSION
-sort-key 1-lts
+    # Order (26.6-take1): stable/LTS (6.18) first/default, edge (7.x)
+    # second/BETA, rescue last.
+    cat > /boot/efi/loader/entries/cixmini-stable.conf <<EOF
+title   NCZ kernel $KVER_LTS [LTS 6.18, default] — $BUILD_VERSION
+sort-key 1-stable
 version $KVER_LTS
 linux   /vmlinuz-$KVER_LTS
 options $LTS_OPTIONS
 EOF
     if [ "$LTS_INITRD_AVAILABLE" = "1" ]; then
         # Insert initrd line after "linux" — required for NPU SSDT override
-        sed -i "/^linux /a initrd  /initrd.img-$KVER_LTS" /boot/efi/loader/entries/cixmini-lts.conf
-        echo "  added initrd line to cixmini-lts.conf"
+        sed -i "/^linux /a initrd  /initrd.img-$KVER_LTS" /boot/efi/loader/entries/cixmini-stable.conf
+        echo "  added initrd line to cixmini-stable.conf"
     fi
-    echo "  wrote cixmini-lts.conf (sort-key 1-lts, default)"
+    echo "  wrote cixmini-stable.conf (sort-key 1-stable, default)"
 else
-    echo "  skipping cixmini-lts.conf (LTS kernel not installed)"
+    echo "  skipping cixmini-stable.conf (LTS kernel not installed)"
 fi
 
 # ----------------------------------------------------------------------
-# Entry 2 — cixmini-next.conf ([BETA] — only if NEXT kernel was installed)
+# Entry 2 — cixmini-edge+3-0.conf ([BETA] — only if edge kernel was installed)
 #
 # Title is intentionally LOUD with [BETA] markers so the user cannot
 # misclick this in the boot menu thinking it's the stable choice.
@@ -301,18 +302,18 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     # (3 tries left, 0 successful boots). systemd-bless-boot.service
     # decrements tries at boot; on a successful userspace handoff it
     # writes back +N-(M+1). After 3 failed boots the file is renamed
-    # .failed and systemd-boot falls back to cixmini-lts (sort-key 2-lts).
+    # .failed and systemd-boot falls back to cixmini-stable (sort-key 1-stable).
     # Closes the Codex finding "NEXT default without rollback".
-    cat > /boot/efi/loader/entries/cixmini-next+3-0.conf <<EOF
-title   *** [BETA — UNSTABLE SCMI] nclawzero kernel $KVER_NEXT [NEXT 7.1, A/B only] — $BUILD_VERSION ***
-sort-key 2-next
+    cat > /boot/efi/loader/entries/cixmini-edge+3-0.conf <<EOF
+title   *** [edge — BETA] NCZ kernel $KVER_NEXT [7.1, A/B only] — $BUILD_VERSION ***
+sort-key 2-edge
 version $KVER_NEXT
 linux   /vmlinuz-$KVER_NEXT
 options $NEXT_OPTIONS
 EOF
     if [ "$NEXT_INITRD_AVAILABLE" = "1" ]; then
-        sed -i "/^linux /a initrd  /initrd.img-$KVER_NEXT" /boot/efi/loader/entries/cixmini-next+3-0.conf
-        echo "  added initrd line to cixmini-next+3-0.conf"
+        sed -i "/^linux /a initrd  /initrd.img-$KVER_NEXT" /boot/efi/loader/entries/cixmini-edge+3-0.conf
+        echo "  added initrd line to cixmini-edge+3-0.conf"
     fi
     # r75 Codex round-4 HIGH fix — drop the systemctl enable+is-enabled
     # gate. Codex round-3 added the gate to close "bless-boot best-effort"
@@ -339,9 +340,9 @@ EOF
     else
         echo "  systemd-bless-boot.service not in list-unit-files (likely generator-pulled at boot — typical) — proceeding"
     fi
-    echo "  wrote cixmini-next+3-0.conf (sort-key 2-next, BETA, 3-try rollback to LTS)"
+    echo "  wrote cixmini-edge+3-0.conf (sort-key 2-edge, BETA, 3-try rollback to stable)"
 else
-    echo "  skipping cixmini-next.conf (BETA kernel not installed)"
+    echo "  skipping cixmini-edge.conf (BETA kernel not installed)"
 fi
 
 # ----------------------------------------------------------------------
@@ -349,7 +350,7 @@ fi
 #
 # rescue.target boots multi-user services down (no graphical, no
 # auto-mount of network FS) but leaves the system bootable + login-able
-# for recovery. Useful when default cixmini-lts.conf wedges from a bad
+# for recovery. Useful when default cixmini-stable.conf wedges from a bad
 # config + we need to roll something back.
 #
 # "FULLY SAFE" (operator requirement 2026-06-01): the rescue entry must
@@ -463,9 +464,9 @@ fi
 # wasn't staged at all (e.g. a NEXT-only netinstall image), in which case
 # NEXT becomes default and its 3-try rollback is the safety net.
 if [ "$LTS_AVAILABLE" = "1" ]; then
-    DEFAULT_ENTRY="cixmini-lts"
+    DEFAULT_ENTRY="cixmini-stable"
 elif [ "$NEXT_AVAILABLE" = "1" ]; then
-    # cixmini-next* glob matches the +N-M.conf boot-counter rotations
+    # cixmini-edge* glob matches the +N-M.conf boot-counter rotations
     # written by systemd-bless-boot. Per Codex round-4: trust the
     # systemd generator; do not gate this on systemctl enable success.
     #
@@ -479,12 +480,12 @@ elif [ "$NEXT_AVAILABLE" = "1" ]; then
     # entry (which also falls back to NEXT) remains selectable by hand.
     echo "##############################################################"
     echo "## WARNING: LTS 6.18 kernel NOT staged — defaulting to 7.1   ##"
-    echo "## NEXT [BETA]. This is a STAGING REGRESSION for a recovery  ##"
+    echo "## edge [BETA]. This is a STAGING REGRESSION for a recovery  ##"
     echo "## release: LTS should always be present (dual-kernel rule). ##"
-    echo "## Safety net: NEXT default has 3-try boot-count rollback;   ##"
+    echo "## Safety net: edge default has 3-try boot-count rollback;   ##"
     echo "## the SAFE rescue entry is still available at the menu.     ##"
     echo "##############################################################"
-    DEFAULT_ENTRY="cixmini-next*"
+    DEFAULT_ENTRY="cixmini-edge*"
 else
     echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
@@ -498,11 +499,11 @@ EOF
 echo "  loader.conf default = $DEFAULT_ENTRY"
 
 # Verify the default actually resolves to a written entry. systemd-boot
-# treats default as a glob; for cixmini-next* match either the canonical
+# treats default as a glob; for cixmini-edge* match either the canonical
 # +3-0.conf (boot-counter) or any later +N-M rotation.
-if [ "$DEFAULT_ENTRY" = "cixmini-next*" ]; then
-    if ! ls /boot/efi/loader/entries/cixmini-next*.conf >/dev/null 2>&1; then
-        echo "ERROR: loader.conf default=cixmini-next* but no cixmini-next*.conf in entries/" >&2
+if [ "$DEFAULT_ENTRY" = "cixmini-edge*" ]; then
+    if ! ls /boot/efi/loader/entries/cixmini-edge*.conf >/dev/null 2>&1; then
+        echo "ERROR: loader.conf default=cixmini-edge* but no cixmini-edge*.conf in entries/" >&2
         ls /boot/efi/loader/entries/ 2>&1 | sed 's/^/  /'
         exit 1
     fi

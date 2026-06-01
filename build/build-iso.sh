@@ -227,7 +227,7 @@ append_live_overlay_to_initrd() {
 # RULE: dual kernel required, no LTS-only fallback.
 KVER_LTS=""
 KVER_NEXT=""
-for label in lts next; do
+for label in stable edge; do
     KVER_FILE="$ROOT/assets/kernel/$label/KVER"
     IMG_FILE="$ROOT/assets/kernel/$label/Image-cixmini.bin"
     MOD_FILE="$ROOT/assets/kernel/$label/modules-cixmini.tgz"
@@ -240,8 +240,8 @@ for label in lts next; do
         exit 1
     fi
 done
-KVER_LTS=$(cat "$ROOT/assets/kernel/lts/KVER")
-KVER_NEXT=$(cat "$ROOT/assets/kernel/next/KVER")
+KVER_LTS=$(cat "$ROOT/assets/kernel/stable/KVER")
+KVER_NEXT=$(cat "$ROOT/assets/kernel/edge/KVER")
 echo "[info] LTS kernel KVER:  $KVER_LTS"
 echo "[info] NEXT kernel KVER: $KVER_NEXT (explicit test entry)"
 
@@ -287,7 +287,7 @@ echo "[3.5] swapping /casper kernel to linux-cix-sky1 LTS ($KVER_LTS)"
 cp "$STAGING/casper/initrd" "$STAGING/casper/initrd-base"
 
 # Replace vmlinuz with our LTS Image
-install -m 0644 "$ROOT/assets/kernel/lts/Image-cixmini.bin" "$STAGING/casper/vmlinuz"
+install -m 0644 "$ROOT/assets/kernel/stable/Image-cixmini.bin" "$STAGING/casper/vmlinuz"
 echo "    replaced /casper/vmlinuz ($(du -h "$STAGING/casper/vmlinuz" | cut -f1))"
 
 # Inject a Sky1 live overlay cpio onto initrd.  The overlay contains:
@@ -296,7 +296,7 @@ echo "    replaced /casper/vmlinuz ($(du -h "$STAGING/casper/vmlinuz" | cut -f1)
 #     loop/squashfs/overlay dependencies plus the Sky1 display stack before
 #     casper/subiquity can redirect or hide the visible VT.
 MOD_GZ="$STAGING/.lts-live-overlay.cpio.gz"
-build_live_overlay_cpio "LTS" "$KVER_LTS" "$ROOT/assets/kernel/lts/modules-cixmini.tgz" "$MOD_GZ"
+build_live_overlay_cpio "LTS" "$KVER_LTS" "$ROOT/assets/kernel/stable/modules-cixmini.tgz" "$MOD_GZ"
 append_live_overlay_to_initrd "$STAGING/casper/initrd" "$MOD_GZ"
 rm -f "$MOD_GZ"
 
@@ -305,12 +305,12 @@ rm -f "$MOD_GZ"
 # ----------------------------------------------------------------------
 echo "[3.6] building NEXT live path: linux-cix-sky1-next ($KVER_NEXT)"
 
-install -m 0644 "$ROOT/assets/kernel/next/Image-cixmini.bin" "$STAGING/casper/vmlinuz-next"
+install -m 0644 "$ROOT/assets/kernel/edge/Image-cixmini.bin" "$STAGING/casper/vmlinuz-next"
 
 # Start NEXT initrd from the upstream base copy + append NEXT modules
 mv "$STAGING/casper/initrd-base" "$STAGING/casper/initrd-next"
 NEXT_MOD_GZ="$STAGING/.next-live-overlay.cpio.gz"
-build_live_overlay_cpio "NEXT" "$KVER_NEXT" "$ROOT/assets/kernel/next/modules-cixmini.tgz" "$NEXT_MOD_GZ"
+build_live_overlay_cpio "NEXT" "$KVER_NEXT" "$ROOT/assets/kernel/edge/modules-cixmini.tgz" "$NEXT_MOD_GZ"
 append_live_overlay_to_initrd "$STAGING/casper/initrd-next" "$NEXT_MOD_GZ"
 rm -f "$NEXT_MOD_GZ"
 echo "    /casper/initrd-next: $(du -h "$STAGING/casper/initrd-next" | cut -f1)"
