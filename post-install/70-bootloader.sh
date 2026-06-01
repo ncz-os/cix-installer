@@ -1,12 +1,14 @@
 #!/bin/bash
 # 70-bootloader.sh — systemd-boot install + staged kernel loader entries.
-# r75 K3: full/thin default to NEXT with LTS as fallback. r78 netinstall
-# stages NEXT only.
+# 26.6-take1: DEFAULT flipped to LTS 6.18 (stable, all working drivers).
+# 7.1 NEXT ships as an explicit, clearly-labeled [BETA] choice — its SCMI
+# transport still times out on MS-R1 firmware, so it is NOT the default
+# for a recovery-focused release. r78 netinstall may stage NEXT only.
 #
 # Loader entries (in menu order when all staged kernels exist):
-#   1. cixmini-next+3-0.conf (DEFAULT — Sky1 linux-cix-sky1-next 7.0.x)
-#   2. cixmini-lts.conf      (FALLBACK — Sky1 linux-cix-sky1-lts 6.18.x)
-#   3. cixmini-rescue.conf (rescue.target — defaults to LTS kernel)
+#   1. cixmini-lts.conf       (DEFAULT — Sky1 linux-cix-sky1-lts 6.18.x)
+#   2. cixmini-next+3-0.conf  ([BETA] — Sky1 linux-cix-sky1-next 7.1.x, 3-try rollback)
+#   3. cixmini-rescue.conf    (FULLY SAFE: rescue.target on LTS, NPU/GPU/VPU blacklisted)
 #
 # CRITICAL: systemd-boot's loader entry parser does NOT support
 # backslash line-continuation — every line MUST be standalone. Earlier
@@ -132,7 +134,7 @@ echo "  ESP wiped — about to write fresh dual-kernel entries"
 # ----------------------------------------------------------------------
 mkdir -p /boot/efi/loader/entries
 cat > /boot/efi/loader/loader.conf <<'EOF'
-default cixmini-next*
+default cixmini-lts
 timeout 5
 console-mode auto
 editor yes
@@ -247,8 +249,8 @@ if [ "$LTS_AVAILABLE" = "1" ]; then
     # Order (per RULE 2026-05-03 update): NEXT (7.x) first/default,
     # LTS (6.18) second/fallback, rescue last.
     cat > /boot/efi/loader/entries/cixmini-lts.conf <<EOF
-title   nclawzero (cixmini) — kernel $KVER_LTS [LTS, fallback] — $BUILD_VERSION
-sort-key 2-lts
+title   nclawzero (cixmini) — kernel $KVER_LTS [LTS 6.18, default] — $BUILD_VERSION
+sort-key 1-lts
 version $KVER_LTS
 linux   /vmlinuz-$KVER_LTS
 options $LTS_OPTIONS
@@ -258,7 +260,7 @@ EOF
         sed -i "/^linux /a initrd  /initrd.img-$KVER_LTS" /boot/efi/loader/entries/cixmini-lts.conf
         echo "  added initrd line to cixmini-lts.conf"
     fi
-    echo "  wrote cixmini-lts.conf (sort-key 2-lts, fallback)"
+    echo "  wrote cixmini-lts.conf (sort-key 1-lts, default)"
 else
     echo "  skipping cixmini-lts.conf (LTS kernel not installed)"
 fi
@@ -289,8 +291,8 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     # .failed and systemd-boot falls back to cixmini-lts (sort-key 2-lts).
     # Closes the Codex finding "NEXT default without rollback".
     cat > /boot/efi/loader/entries/cixmini-next+3-0.conf <<EOF
-title   nclawzero (cixmini) — kernel $KVER_NEXT [NEXT, default] — $BUILD_VERSION
-sort-key 1-next
+title   *** [BETA — UNSTABLE SCMI] nclawzero kernel $KVER_NEXT [NEXT 7.1, A/B only] — $BUILD_VERSION ***
+sort-key 2-next
 version $KVER_NEXT
 linux   /vmlinuz-$KVER_NEXT
 options $NEXT_OPTIONS
@@ -324,18 +326,36 @@ EOF
     else
         echo "  systemd-bless-boot.service not in list-unit-files (likely generator-pulled at boot — typical) — proceeding"
     fi
-    echo "  wrote cixmini-next+3-0.conf (sort-key 1-next, default, 3-try rollback to LTS)"
+    echo "  wrote cixmini-next+3-0.conf (sort-key 2-next, BETA, 3-try rollback to LTS)"
 else
     echo "  skipping cixmini-next.conf (BETA kernel not installed)"
 fi
 
 # ----------------------------------------------------------------------
-# Entry 3 — cixmini-rescue.conf (rescue shell on LTS kernel)
+# Entry 3 — cixmini-rescue.conf (FULLY SAFE rescue shell on LTS kernel)
 #
 # rescue.target boots multi-user services down (no graphical, no
 # auto-mount of network FS) but leaves the system bootable + login-able
 # for recovery. Useful when default cixmini-lts.conf wedges from a bad
 # config + we need to roll something back.
+#
+# "FULLY SAFE" (operator requirement 2026-06-01): the rescue entry must
+# reach a login shell + network even if every accelerator is flaky. So
+# beyond rescue.target we DISABLE all the heavy/optional silicon:
+#   - NPU  : armchina_npu (Zhouyi Z2/Compass)
+#   - GPU  : panthor + mali + bifrost (Arm Mali on Sky1)
+#   - VPU  : cix_vpu + linlon_vpu (Arm Linlon video codec)
+# These are MERGED into the existing typec_rts5453 blacklist (the MS-R1
+# IRQ-151 wedge) so there is a single module_blacklist= token (the
+# kernel keeps only the last one it parses). Blacklisting a module that
+# isn't present is harmless.
+#
+# We DELIBERATELY DO NOT add `nomodeset`: on Sky1 the only console is
+# efifb/simplefb handed over by firmware, and nomodeset can kill it →
+# black screen, the exact failure rescue must avoid (GRAEAE consult
+# 52f790d1, 2026-06-01). We KEEP arm-smmu-v3.disable_bypass=0 so NVMe +
+# RTL8125 NIC DMA still work in rescue (without it the SMMU blocks
+# device DMA → no disk, no network).
 # ----------------------------------------------------------------------
 # Rescue uses LTS by preference, falls back to NEXT if LTS missing.
 if [ "$LTS_AVAILABLE" = "1" ]; then
@@ -350,10 +370,38 @@ else
 fi
 
 if [ -n "$RESCUE_KVER" ]; then
-    RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_BASE systemd.unit=rescue.target"
+    # Modules to keep OUT of the rescue boot. Extends — never replaces —
+    # the production typec_rts5453,rts5453 blacklist.
+    #   GPU/NPU/VPU : armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_vpu
+    #   Display/KMS : trilin_drm,trilin_dpsub,linlondp,linlondp_drv,cix_display
+    # The display/KMS group is the one that actually black-screened the box:
+    # a KMS driver that seizes the panel from the firmware efifb/simplefb
+    # console recreates the exact no-video wedge this recovery release exists
+    # to prevent (Codex 26.6 review blocker 1, 2026-06-01). Rescue relies on
+    # the firmware framebuffer ONLY — no KMS takeover.
+    RESCUE_EXTRA_BLACKLIST="armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_vpu,trilin_drm,trilin_dpsub,linlondp,linlondp_drv,cix_display"
+
+    # Build exactly ONE canonical module_blacklist= token (Codex 26.6 review
+    # blocker 3). The kernel honours only the LAST module_blacklist= it parses,
+    # so a sed that merges into the first occurrence would silently drop our
+    # extras if a second token ever crept into the base cmdline. Instead:
+    # collect every existing module_blacklist= value, strip them all out, then
+    # append a single merged token at the end. Fail-closed for 0, 1, or N
+    # pre-existing tokens.
+    RESCUE_EXISTING_BL=$(printf '%s\n' "$RESCUE_CMDLINE_BASE" \
+        | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
+    RESCUE_CMDLINE_NOBL=$(printf '%s\n' "$RESCUE_CMDLINE_BASE" \
+        | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
+    if [ -n "$RESCUE_EXISTING_BL" ]; then
+        RESCUE_MERGED_BL="$RESCUE_EXISTING_BL,$RESCUE_EXTRA_BLACKLIST"
+    else
+        RESCUE_MERGED_BL="$RESCUE_EXTRA_BLACKLIST"
+    fi
+    RESCUE_CMDLINE_SAFE="$RESCUE_CMDLINE_NOBL module_blacklist=$RESCUE_MERGED_BL"
+    RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_SAFE systemd.unit=rescue.target"
 
     cat > /boot/efi/loader/entries/cixmini-rescue.conf <<EOF
-title   SAFE rescue (cixmini) — kernel $RESCUE_KVER rescue.target — $BUILD_VERSION
+title   SAFE rescue (cixmini) — kernel $RESCUE_KVER rescue.target [no NPU/GPU/VPU] — $BUILD_VERSION
 sort-key 3-rescue
 version $RESCUE_KVER
 linux   /vmlinuz-$RESCUE_KVER
@@ -365,22 +413,40 @@ EOF
     elif [ "$RESCUE_KVER" = "$KVER_NEXT" ] && [ "$NEXT_INITRD_AVAILABLE" = "1" ]; then
         sed -i "/^linux /a initrd  /initrd.img-$RESCUE_KVER" /boot/efi/loader/entries/cixmini-rescue.conf
     fi
-    echo "  wrote cixmini-rescue.conf (sort-key 3-rescue)"
+    echo "  wrote cixmini-rescue.conf (sort-key 3-rescue, accelerators blacklisted)"
+    echo "    rescue options: $RESCUE_OPTIONS"
 fi
 
-# r75 K3 v2: prefer NEXT default with auto-rollback (closes Codex
-# adversarial-review HIGH 'NEXT is not actually default'). NEXT entry uses
-# systemd-boot boot-counting (cixmini-next+3-0.conf); after 3 failed boots
-# the entry .failed-renames and systemd-boot falls back to cixmini-lts.
-# This block overrides the early default cixmini-next* in loader.conf at
-# line 108 only when NEXT is missing.
-if [ "$NEXT_AVAILABLE" = "1" ]; then
+# 26.6-take1: prefer LTS 6.18 as default (stable, all working drivers).
+# 7.1 NEXT is shipped as an explicit [BETA] choice only — its SCMI
+# transport still times out on MS-R1 firmware, so making it the default
+# (even with boot-counting rollback) risks the exact black-screen wedge
+# this recovery release exists to avoid. LTS is only NOT default when it
+# wasn't staged at all (e.g. a NEXT-only netinstall image), in which case
+# NEXT becomes default and its 3-try rollback is the safety net.
+if [ "$LTS_AVAILABLE" = "1" ]; then
+    DEFAULT_ENTRY="cixmini-lts"
+elif [ "$NEXT_AVAILABLE" = "1" ]; then
     # cixmini-next* glob matches the +N-M.conf boot-counter rotations
     # written by systemd-bless-boot. Per Codex round-4: trust the
     # systemd generator; do not gate this on systemctl enable success.
+    #
+    # 26.6-take1 (Codex review blocker 2, 2026-06-01): reaching here in a
+    # recovery release is a STAGING REGRESSION — LTS 6.18 should always be
+    # present per the dual-kernel rule. We deliberately do NOT hard-fail
+    # (a bootloader hook that exits non-zero writes no loader entries =
+    # an unbootable box, which violates "there must always be a boot/rescue
+    # choice"). Instead: scream loudly in the install log, and rely on the
+    # NEXT +3-0 boot-counter to auto-roll-back if 7.1 wedges. The rescue
+    # entry (which also falls back to NEXT) remains selectable by hand.
+    echo "##############################################################"
+    echo "## WARNING: LTS 6.18 kernel NOT staged — defaulting to 7.1   ##"
+    echo "## NEXT [BETA]. This is a STAGING REGRESSION for a recovery  ##"
+    echo "## release: LTS should always be present (dual-kernel rule). ##"
+    echo "## Safety net: NEXT default has 3-try boot-count rollback;   ##"
+    echo "## the SAFE rescue entry is still available at the menu.     ##"
+    echo "##############################################################"
     DEFAULT_ENTRY="cixmini-next*"
-elif [ "$LTS_AVAILABLE" = "1" ]; then
-    DEFAULT_ENTRY="cixmini-lts"
 else
     echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
