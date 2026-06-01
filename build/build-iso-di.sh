@@ -125,6 +125,10 @@ esac
 
 [ -f "$BOOKWORM_ISO" ] || { echo "ERROR: --bookworm-iso not a file"; exit 1; }
 [ -d "$ROOT" ]         || { echo "ERROR: --root not a dir"; exit 1; }
+# Absolutize ROOT: derived paths (STAGING, DEBOOTSTRAP_PATCH_TMP) are used as
+# `ar`/output targets inside `cd`'d subshells, where a relative --root resolves
+# against the wrong cwd and fails (e.g. debootstrap-udeb repack: ar rc).
+ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
