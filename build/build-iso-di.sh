@@ -904,6 +904,96 @@ fi
 mv "$DEBOOTSTRAP_FUNCTIONS.patched" "$DEBOOTSTRAP_FUNCTIONS"
 bash -n "$DEBOOTSTRAP_FUNCTIONS"
 
+# NCZ: gnu-coreutils naming fix (restored from take79, lost in 26.6-take1).
+# resolute coreutils installs binaries as /usr/bin/gnuXXX (gnutrue, gnucat...).
+# The chroot "/bin/true" sanity probe in second_stage_install fails unless the
+# standard names exist. Patch BOTH the gutsy suite script (target symlinks
+# before the in_target probe) and /usr/sbin/debootstrap (--second-stage-only
+# path: pre-extract gnu-coreutils + symlink before any use of cat).
+echo "    patching debootstrap gnu-coreutils naming (gutsy + sbin/debootstrap)"
+
+DEBOOTSTRAP_GUTSY="$DEBOOTSTRAP_PATCH_DATA/usr/share/debootstrap/scripts/gutsy"
+DEBOOTSTRAP_SBIN="$DEBOOTSTRAP_PATCH_DATA/usr/sbin/debootstrap"
+[ -f "$DEBOOTSTRAP_GUTSY" ] || { echo "ERROR: debootstrap-udeb missing scripts/gutsy" >&2; exit 1; }
+[ -f "$DEBOOTSTRAP_SBIN" ]  || { echo "ERROR: debootstrap-udeb missing usr/sbin/debootstrap" >&2; exit 1; }
+
+if grep -q '_ncz_cmd' "$DEBOOTSTRAP_GUTSY"; then
+    echo "ERROR: gutsy already contains _ncz_cmd patch" >&2
+    exit 1
+fi
+
+printf '%s\n' \
+'	# NCZ: create gnu->standard symlinks before the initial chroot /bin/true probe.' \
+'	# In normal d-i debootstrap this runs outside the target and /bin/ln is' \
+'	# the installer busybox/coreutils. In --second-stage-only TARGET=/, so' \
+'	# also try the target gnuln/gnucp directly.' \
+'	for _ncz_cmd in [ b2sum base32 base64 basename basenc cat chcon chgrp chmod chown chroot cksum comm cp csplit cut date dd df dir dircolors dirname du echo env expand expr factor false fmt fold groups head hostid id install join link ln logname ls md5sum mkdir mkfifo mknod mktemp mv nice nl nohup nproc numfmt od paste pathchk pinky pr printenv printf ptx pwd readlink realpath rm rmdir runcon seq sha1sum sha224sum sha256sum sha384sum sha512sum shred shuf sleep sort split stat stdbuf stty sum sync tac tail tee test timeout touch tr true truncate tsort tty uname unexpand uniq unlink users vdir wc who whoami yes; do' \
+'		if [ ! -e "$TARGET/usr/bin/$_ncz_cmd" ] && [ -e "$TARGET/usr/bin/gnu$_ncz_cmd" ]; then' \
+'			/bin/ln -sf "gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null || ln -sf "gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null || /usr/bin/gnuln -sf "gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null || /bin/cp -a "$TARGET/usr/bin/gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null || cp -a "$TARGET/usr/bin/gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null || /usr/bin/gnucp -a "$TARGET/usr/bin/gnu$_ncz_cmd" "$TARGET/usr/bin/$_ncz_cmd" 2>/dev/null || true' \
+'		fi' \
+'	done' \
+> "$DEBOOTSTRAP_PATCH_TMP/ncz_gutsy_block.sh"
+
+printf '%s\n' \
+'	# NCZ: ensure cat is available before using it below' \
+'	if [ ! -x /usr/bin/cat ]; then' \
+'		for _ncz_deb in /var/cache/apt/archives/gnu-coreutils_*.deb; do' \
+'			[ -f "$_ncz_deb" ] && dpkg --force-all --unpack "$_ncz_deb" 2>/dev/null && break' \
+'		done' \
+'		for _ncz_cmd in cat ln cp true false env; do' \
+'			if [ ! -e "/usr/bin/$_ncz_cmd" ] && [ -e "/usr/bin/gnu$_ncz_cmd" ]; then' \
+'				/usr/bin/gnuln -sf "gnu$_ncz_cmd" "/usr/bin/$_ncz_cmd" 2>/dev/null || /usr/bin/gnucp -a "/usr/bin/gnu$_ncz_cmd" "/usr/bin/$_ncz_cmd" 2>/dev/null || true' \
+'			fi' \
+'		done' \
+'	fi' \
+> "$DEBOOTSTRAP_PATCH_TMP/ncz_sbin_block.sh"
+
+if ! awk -v block="$DEBOOTSTRAP_PATCH_TMP/ncz_gutsy_block.sh" '
+    $0 == "second_stage_install () {" {
+        print
+        while ((getline line < block) > 0) print line
+        close(block)
+        count++
+        next
+    }
+    { print }
+    END { if (count != 1) exit 42 }
+' "$DEBOOTSTRAP_GUTSY" > "$DEBOOTSTRAP_GUTSY.patched"; then
+    echo "ERROR: failed to patch gutsy (second_stage_install anchor not found exactly once)" >&2
+    exit 1
+fi
+mv "$DEBOOTSTRAP_GUTSY.patched" "$DEBOOTSTRAP_GUTSY"
+bash -n "$DEBOOTSTRAP_GUTSY"
+
+# Only patch /usr/sbin/debootstrap when the REAL debootstrap is shipped (thin /
+# netinstall modes). In full mode PATCH_DEBOOTSTRAP_STUB=1 replaces it with the
+# r40 stub, which has no SECOND_STAGE_ONLY anchor and never runs debootstrap.
+if [ "$PATCH_DEBOOTSTRAP_STUB" != "1" ]; then
+    if grep -q '_ncz_deb' "$DEBOOTSTRAP_SBIN"; then
+        echo "ERROR: usr/sbin/debootstrap already contains _ncz_deb patch" >&2
+        exit 1
+    fi
+    if ! awk -v block="$DEBOOTSTRAP_PATCH_TMP/ncz_sbin_block.sh" '
+        $0 == "if [ \"$SECOND_STAGE_ONLY\" = \"true\" ]; then" {
+            print
+            while ((getline line < block) > 0) print line
+            close(block)
+            count++
+            next
+        }
+        { print }
+        END { if (count != 1) exit 42 }
+    ' "$DEBOOTSTRAP_SBIN" > "$DEBOOTSTRAP_SBIN.patched"; then
+        echo "ERROR: failed to patch usr/sbin/debootstrap (SECOND_STAGE_ONLY anchor not found exactly once)" >&2
+        exit 1
+    fi
+    mv "$DEBOOTSTRAP_SBIN.patched" "$DEBOOTSTRAP_SBIN"
+    chmod 0755 "$DEBOOTSTRAP_SBIN"
+    bash -n "$DEBOOTSTRAP_SBIN"
+else
+    echo "    skipping usr/sbin/debootstrap gnu-coreutils patch (stub mode)"
+fi
+
 rm -f "$DEBOOTSTRAP_PATCH_AR/$DEBOOTSTRAP_DATA_MEMBER"
 (
     cd "$DEBOOTSTRAP_PATCH_DATA"
