@@ -8,7 +8,20 @@
 # Loader entries (in menu order when all staged kernels exist):
 #   1. cixmini-lts.conf       (DEFAULT — Sky1 linux-cix-sky1-lts 6.18.x)
 #   2. cixmini-next+3-0.conf  ([BETA] — Sky1 linux-cix-sky1-next 7.1.x, 3-try rollback)
-#   3. cixmini-rescue.conf    (FULLY SAFE: rescue.target on LTS, NPU/GPU/VPU blacklisted)
+#   3. cixmini-rescue.conf    (FULLY SAFE: rescue.target on a PINNED clean
+#                              kernel, NPU/GPU/VPU/KMS blacklisted)
+#
+# THREE PHYSICAL KERNELS on the ESP (operator requirement 2026-06-01 — "3
+# kernels"):
+#   /vmlinuz-$KVER_LTS          daily driver (default)
+#   /vmlinuz-$KVER_NEXT         7.1 NEXT [BETA]
+#   /vmlinuz-$KVER_LTS-rescue   clean/rescue/dev — an independent, pinned
+#                               copy of the proven 6.18.26 BSP binary. Same
+#                               bits as LTS today, but a SEPARATE file so a
+#                               later daily-LTS kernel swap can never disturb
+#                               the known-good recovery kernel. This is "there
+#                               must always be a rescue kernel choice" in its
+#                               strongest form.
 #
 # CRITICAL: systemd-boot's loader entry parser does NOT support
 # backslash line-continuation — every line MUST be standalone. Earlier
@@ -370,6 +383,24 @@ else
 fi
 
 if [ -n "$RESCUE_KVER" ]; then
+    # 3-kernel layout (operator requirement 2026-06-01): the rescue/clean
+    # kernel is a PHYSICALLY INDEPENDENT copy of the proven BSP binary,
+    # staged under -rescue filenames. Same 6.18.26 BSP bits as the daily
+    # LTS today, but a separate file/inode — so a future daily-LTS kernel
+    # swap can never touch the known-good recovery kernel. The wipe step
+    # above already cleared stale vmlinuz-*; we recreate the pin fresh from
+    # the LTS binary we just staged to the ESP.
+    RESCUE_PIN="${RESCUE_KVER}-rescue"
+    install -m 0644 "/boot/efi/vmlinuz-$RESCUE_KVER" "/boot/efi/vmlinuz-$RESCUE_PIN"
+    echo "  staged pinned clean/rescue kernel /boot/efi/vmlinuz-$RESCUE_PIN"
+    RESCUE_HAS_INITRD=0
+    if { [ "$RESCUE_KVER" = "$KVER_LTS" ] && [ "$LTS_INITRD_AVAILABLE" = "1" ]; } || \
+       { [ "$RESCUE_KVER" = "$KVER_NEXT" ] && [ "$NEXT_INITRD_AVAILABLE" = "1" ]; }; then
+        install -m 0644 "/boot/efi/initrd.img-$RESCUE_KVER" "/boot/efi/initrd.img-$RESCUE_PIN"
+        echo "  staged pinned clean/rescue initrd /boot/efi/initrd.img-$RESCUE_PIN"
+        RESCUE_HAS_INITRD=1
+    fi
+
     # Modules to keep OUT of the rescue boot. Extends — never replaces —
     # the production typec_rts5453,rts5453 blacklist.
     #   GPU/NPU/VPU : armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_vpu
@@ -401,19 +432,17 @@ if [ -n "$RESCUE_KVER" ]; then
     RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_SAFE systemd.unit=rescue.target"
 
     cat > /boot/efi/loader/entries/cixmini-rescue.conf <<EOF
-title   SAFE rescue (cixmini) — kernel $RESCUE_KVER rescue.target [no NPU/GPU/VPU] — $BUILD_VERSION
+title   SAFE rescue (cixmini) — clean kernel $RESCUE_PIN rescue.target [no NPU/GPU/VPU] — $BUILD_VERSION
 sort-key 3-rescue
-version $RESCUE_KVER
-linux   /vmlinuz-$RESCUE_KVER
+version $RESCUE_PIN
+linux   /vmlinuz-$RESCUE_PIN
 options $RESCUE_OPTIONS
 EOF
-    # Rescue entry uses initrd if available for the chosen kernel
-    if [ "$RESCUE_KVER" = "$KVER_LTS" ] && [ "$LTS_INITRD_AVAILABLE" = "1" ]; then
-        sed -i "/^linux /a initrd  /initrd.img-$RESCUE_KVER" /boot/efi/loader/entries/cixmini-rescue.conf
-    elif [ "$RESCUE_KVER" = "$KVER_NEXT" ] && [ "$NEXT_INITRD_AVAILABLE" = "1" ]; then
-        sed -i "/^linux /a initrd  /initrd.img-$RESCUE_KVER" /boot/efi/loader/entries/cixmini-rescue.conf
+    # Rescue entry uses the pinned initrd if we staged one above
+    if [ "$RESCUE_HAS_INITRD" = "1" ]; then
+        sed -i "/^linux /a initrd  /initrd.img-$RESCUE_PIN" /boot/efi/loader/entries/cixmini-rescue.conf
     fi
-    echo "  wrote cixmini-rescue.conf (sort-key 3-rescue, accelerators blacklisted)"
+    echo "  wrote cixmini-rescue.conf (sort-key 3-rescue, independent pinned kernel, accelerators blacklisted)"
     echo "    rescue options: $RESCUE_OPTIONS"
 fi
 
