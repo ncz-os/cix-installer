@@ -380,16 +380,16 @@ EOF
 
 # ----------------------------------------------------------------------
 # Kernel discovery — match build-iso.sh asset paths:
-#   $ROOT/assets/kernel/lts/Image-cixmini.bin
-#   $ROOT/assets/kernel/lts/modules-cixmini.tgz
-#   $ROOT/assets/kernel/lts/KVER
+#   $ROOT/assets/kernel/stable/Image-cixmini.bin
+#   $ROOT/assets/kernel/stable/modules-cixmini.tgz
+#   $ROOT/assets/kernel/stable/KVER
 # ----------------------------------------------------------------------
-LTS_KERN="$ROOT/assets/kernel/lts/Image-cixmini.bin"
-LTS_TGZ="$ROOT/assets/kernel/lts/modules-cixmini.tgz"
-LTS_KVER_FILE="$ROOT/assets/kernel/lts/KVER"
-NEXT_KERN="$ROOT/assets/kernel/next/Image-cixmini.bin"
-NEXT_TGZ="$ROOT/assets/kernel/next/modules-cixmini.tgz"
-NEXT_KVER_FILE="$ROOT/assets/kernel/next/KVER"
+LTS_KERN="$ROOT/assets/kernel/stable/Image-cixmini.bin"
+LTS_TGZ="$ROOT/assets/kernel/stable/modules-cixmini.tgz"
+LTS_KVER_FILE="$ROOT/assets/kernel/stable/KVER"
+NEXT_KERN="$ROOT/assets/kernel/edge/Image-cixmini.bin"
+NEXT_TGZ="$ROOT/assets/kernel/edge/modules-cixmini.tgz"
+NEXT_KVER_FILE="$ROOT/assets/kernel/edge/KVER"
 
 KVER_LTS=""
 KVER_NEXT=""
@@ -408,7 +408,7 @@ if [ -f "$NEXT_KVER_FILE" ] && [ -f "$NEXT_KERN" ] && [ -f "$NEXT_TGZ" ]; then
     [ -n "$KVER_NEXT" ] || { echo "ERROR: empty KVER file: $NEXT_KVER_FILE"; exit 1; }
     echo "[info] NEXT kernel KVER: $KVER_NEXT"
 elif [ "$INSTALLER_KERNEL_FLAVOR" = "next" ] || [ "$MODE" = "netinstall" ]; then
-    echo "ERROR: --mode netinstall requires assets/kernel/next/{KVER,Image-cixmini.bin,modules-cixmini.tgz}" >&2
+    echo "ERROR: --mode netinstall requires assets/kernel/edge/{KVER,Image-cixmini.bin,modules-cixmini.tgz}" >&2
     exit 1
 fi
 
@@ -1406,31 +1406,31 @@ fi
 # netinstall ships NEXT only per R76-NETINSTALL-DESIGN.md.
 mkdir -p "$EXTRA/assets/kernel"
 if [ "$STAGE_LTS_KERNEL" = "1" ]; then
-    mkdir -p "$EXTRA/assets/kernel/lts"
-    cp -L "$LTS_KERN" "$EXTRA/assets/kernel/lts/"
-    cp -L "$LTS_TGZ"  "$EXTRA/assets/kernel/lts/"
-    if [ -f "$ROOT/assets/kernel/lts/headers-cixmini.tar.zst" ]; then
-        cp -L "$ROOT/assets/kernel/lts/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/lts/"
-        echo "    LTS headers staged: $(du -h "$EXTRA/assets/kernel/lts/headers-cixmini.tar.zst" | cut -f1)"
+    mkdir -p "$EXTRA/assets/kernel/stable"
+    cp -L "$LTS_KERN" "$EXTRA/assets/kernel/stable/"
+    cp -L "$LTS_TGZ"  "$EXTRA/assets/kernel/stable/"
+    if [ -f "$ROOT/assets/kernel/stable/headers-cixmini.tar.zst" ]; then
+        cp -L "$ROOT/assets/kernel/stable/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/stable/"
+        echo "    LTS headers staged: $(du -h "$EXTRA/assets/kernel/stable/headers-cixmini.tar.zst" | cut -f1)"
     else
         echo "    LTS headers: not present (skip — DKMS rebuild will fail on target)"
     fi
-    echo "    LTS kernel staged: $(du -h "$EXTRA/assets/kernel/lts/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/lts/modules-cixmini.tgz" | cut -f1) modules"
+    echo "    LTS kernel staged: $(du -h "$EXTRA/assets/kernel/stable/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/stable/modules-cixmini.tgz" | cut -f1) modules"
 else
     echo "    netinstall mode: LTS kernel assets intentionally not staged"
 fi
 
 if [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
-    mkdir -p "$EXTRA/assets/kernel/next"
-    cp -L "$NEXT_KERN" "$EXTRA/assets/kernel/next/"
-    cp -L "$NEXT_TGZ"  "$EXTRA/assets/kernel/next/"
-    if [ -f "$ROOT/assets/kernel/next/headers-cixmini.tar.zst" ]; then
-        cp -L "$ROOT/assets/kernel/next/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/next/"
-        echo "    NEXT headers staged: $(du -h "$EXTRA/assets/kernel/next/headers-cixmini.tar.zst" | cut -f1)"
+    mkdir -p "$EXTRA/assets/kernel/edge"
+    cp -L "$NEXT_KERN" "$EXTRA/assets/kernel/edge/"
+    cp -L "$NEXT_TGZ"  "$EXTRA/assets/kernel/edge/"
+    if [ -f "$ROOT/assets/kernel/edge/headers-cixmini.tar.zst" ]; then
+        cp -L "$ROOT/assets/kernel/edge/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/edge/"
+        echo "    NEXT headers staged: $(du -h "$EXTRA/assets/kernel/edge/headers-cixmini.tar.zst" | cut -f1)"
     else
         echo "    NEXT headers: not present (skip — DKMS rebuild will fail on target)"
     fi
-    echo "    NEXT kernel staged: $KVER_NEXT  ($(du -h "$EXTRA/assets/kernel/next/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/next/modules-cixmini.tgz" | cut -f1) modules)"
+    echo "    NEXT kernel staged: $KVER_NEXT  ($(du -h "$EXTRA/assets/kernel/edge/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/edge/modules-cixmini.tgz" | cut -f1) modules)"
 else
     echo "    NEXT kernel: not present — installer will ship LTS only"
 fi
