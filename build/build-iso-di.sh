@@ -1524,7 +1524,7 @@ echo "      ╚═╝  ╚═══╝  ╚═════╝  ╚════�
 echo ""
 echo "      Dr. Reinhardt has gone into the Black Hole."
 echo ""
-echo "               N C X   2 6 . 5   I N S T A L L E R"
+echo "               N C Z   I N S T A L L E R"
 echo ""
 echo "                cixmini  ·  Sky1 / CP8180"
 echo "                  ARM64  ·  resolute 26.04"
