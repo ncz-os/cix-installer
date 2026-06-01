@@ -6,10 +6,10 @@
 #   /usr/local/lib/cix-installer/assets/kernel/
 #     KVER_LTS                            (full/thin)
 #     KVER_NEXT                           (full/thin/netinstall)
-#     lts/Image-cixmini.bin
-#     lts/modules-cixmini.tgz
-#     next/Image-cixmini.bin              (optional — only if BETA was baked)
-#     next/modules-cixmini.tgz
+#     stable/Image-cixmini.bin
+#     stable/modules-cixmini.tgz
+#     edge/Image-cixmini.bin              (optional — only if BETA was baked)
+#     edge/modules-cixmini.tgz
 #
 # Result on target:
 #   /boot/vmlinuz-$KVER_LTS                (if LTS was baked)
@@ -38,8 +38,8 @@ if [ -z "$KVER_LTS" ] && [ -z "$KVER_NEXT" ]; then
     exit 1
 fi
 if [ -n "$KVER_LTS" ]; then
-    [ -f "$ASSETS/lts/Image-cixmini.bin" ]   || { echo "ERROR: LTS kernel binary missing"; exit 1; }
-    [ -f "$ASSETS/lts/modules-cixmini.tgz" ] || { echo "ERROR: LTS modules tarball missing"; exit 1; }
+    [ -f "$ASSETS/stable/Image-cixmini.bin" ]   || { echo "ERROR: LTS kernel binary missing"; exit 1; }
+    [ -f "$ASSETS/stable/modules-cixmini.tgz" ] || { echo "ERROR: LTS modules tarball missing"; exit 1; }
 fi
 
 echo "[10] installing kernel payload — LTS=${KVER_LTS:-(not present)}  NEXT=${KVER_NEXT:-(not present)}"
@@ -50,7 +50,7 @@ echo "[10] installing kernel payload — LTS=${KVER_LTS:-(not present)}  NEXT=${
 apt-get install -y --no-install-recommends kmod initramfs-tools
 
 install_kernel() {
-    local label=$1            # lts or next
+    local label=$1            # stable or edge
     local kver=$2
 
     echo "  [$label] $kver"
@@ -126,16 +126,16 @@ install_kernel() {
 INSTALLED_KERNELS=0
 
 if [ -n "$KVER_LTS" ]; then
-    install_kernel lts "$KVER_LTS"
+    install_kernel stable "$KVER_LTS"
     INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
 else
     echo "  [lts] not present in ISO — skipping"
 fi
 
 if [ -n "$KVER_NEXT" ]; then
-    [ -f "$ASSETS/next/Image-cixmini.bin" ]   || { echo "ERROR: NEXT kernel binary missing"; exit 1; }
-    [ -f "$ASSETS/next/modules-cixmini.tgz" ] || { echo "ERROR: NEXT modules tarball missing"; exit 1; }
-    install_kernel next "$KVER_NEXT"
+    [ -f "$ASSETS/edge/Image-cixmini.bin" ]   || { echo "ERROR: edge kernel binary missing"; exit 1; }
+    [ -f "$ASSETS/edge/modules-cixmini.tgz" ] || { echo "ERROR: edge modules tarball missing"; exit 1; }
+    install_kernel edge "$KVER_NEXT"
     INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
 else
     echo "  [next] BETA kernel not present in ISO — skipping"

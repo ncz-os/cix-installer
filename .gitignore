@@ -27,8 +27,8 @@ downloads/
 # Gitignored asset blobs (supplied at build time from cixmini-gen-assets
 # on ARGOS, or from a release artifact in CI)
 assets/cix-debs/*.deb
-assets/kernel/lts/
-assets/kernel/next/
+assets/kernel/stable/
+assets/kernel/edge/
 assets/kernel/*.bin
 assets/kernel/*.tgz
 assets/sky1-firmware/
