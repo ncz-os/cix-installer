@@ -1,4 +1,4 @@
-# Deploying zeroclaw with containers: Docker vs Podman (quadlets) vs OrbStack vs Colima
+# Deploying zeroclaw with containers: Docker vs Podman (quadlets) vs OrbStack vs Colima vs WSL
 
 **Status:** Reference doc — 2026-06-02 by Jason Perlow.
 **Audience:** Anyone deploying `zeroclaw` (the agent runtime) in their own environment — a solo developer on a laptop, or an ops team running it across a fleet of Linux servers. This guide answers one question: *you want to run `zeroclaw` reliably as a container — which runtime do you pick, and how do you deploy it idempotently?*
@@ -7,6 +7,7 @@ The short version:
 
 - **On Linux servers, run zeroclaw under Podman quadlets.** A quadlet gives you a real systemd service with no daemon, rootless by default, auto-restart, journald logs, and a declarative config you can commit to git. This is the recommended production pattern.
 - **On a Mac, run it under OrbStack or Colima** — both are mac-arm-native VMs. OrbStack for a polished GUI, Colima if you want fully-OSS and CLI-first.
+- **On Windows, run it under WSL2** — either Docker Desktop's WSL2 backend (lowest friction) or, fully OSS, Docker Engine or rootless Podman installed directly inside a WSL2 distro. Modern WSL2 runs systemd, so the same Podman-quadlet pattern works inside the distro.
 - **Docker works everywhere** and is the lowest-friction way to start, but on servers you'll usually want to graduate to Podman quadlets for real service lifecycle.
 
 The rest of this doc explains the zeroclaw deployment decision first, then the runtime details behind it (including what a quadlet actually is and why it beats compose for servers).
@@ -19,6 +20,7 @@ The rest of this doc explains the zeroclaw deployment decision first, then the r
 |---|---|---|
 | **Linux server (production)** | **Podman + quadlet** | native systemd lifecycle, rootless, daemonless, auto-restart, declarative config in git, idempotent re-apply |
 | **Mac (development)** | **OrbStack** or **Colima** | mac-arm-native VM; OrbStack for polish, Colima for fully-OSS / CLI-first |
+| **Windows (development)** | **WSL2 + Docker Desktop** or **native Podman/Docker-in-WSL** | Docker Desktop for lowest friction; native Podman-in-WSL for fully-OSS — systemd in WSL2 means quadlets work too |
 | **CI pipeline** | **rootless Podman** | no daemon to provision, no privileged socket, runs as the CI user, reproducible |
 | **You're already on Docker** | **Docker** (then migrate) | lowest friction to start; move servers to Podman + quadlets when you need real service lifecycle |
 
@@ -138,11 +140,74 @@ On macOS there is no native Linux kernel, so *every* option (Docker Desktop, Pod
 
 **Honest framing:** performance is **comparable** for typical dev workloads. OrbStack tends to have lower idle overhead and a more polished UX; Colima is fully open source and CLI-first. The real differentiators are licensing (commercial vs OSS) and UX preference, not raw speed. If idle RAM or build throughput matters to you, **benchmark both on your own machine** — don't take a headline number on faith.
 
-Once either VM is up, you run zeroclaw with the `docker` CLI it provides — see §4. (Note that systemd quadlets are a Linux-host feature; on a Mac you're driving the engine inside the VM with `docker`/`podman` commands, not `systemctl`.)
+Once either VM is up, you run zeroclaw with the `docker` CLI it provides — see §5. (Note that systemd quadlets are a Linux-host feature; on a Mac you're driving the engine inside the VM with `docker`/`podman` commands, not `systemctl`.)
 
 ---
 
-## 4. How to deploy zeroclaw on each runtime
+## 4. WSL2 (Windows)
+
+Like macOS, Windows has no native Linux kernel for containers — but **WSL2** (Windows Subsystem for Linux, version 2) ships a real Linux kernel in a lightweight managed VM, and that's where your containers run. On your Windows machine there are two paths to a zeroclaw host, and they differ mainly in licensing and how much you run yourself.
+
+### Path A — Docker Desktop with the WSL2 backend (lowest friction)
+
+Docker Desktop for Windows runs its engine *inside* a WSL2 VM (the WSL2 backend, the default on modern Windows). You install one GUI app and get a working `docker` CLI in every WSL distro you opt in via **Settings → Resources → WSL Integration** — so the same distro you develop in can talk to the engine, and multiple distros can share it.
+
+- **License caveat:** Docker Desktop is **commercial software** — free for personal use, education, and small businesses, but **a paid subscription is required for larger organizations** (above Docker's published employee/revenue threshold). If that applies to you, prefer Path B.
+- **Multi-distro:** one engine, shared across whichever WSL distros you enable integration for. Convenient if you run several distros.
+
+```powershell
+# Install Docker Desktop (winget), then enable WSL integration in its settings.
+winget install Docker.DockerDesktop
+```
+
+```bash
+# Inside any WSL distro with integration enabled, the docker CLI just works:
+docker run -d --name zeroclaw -p 42617:42617 \
+  ghcr.io/<org>/zeroclaw:${ZEROCLAW_VERSION:-latest}
+```
+
+### Path B — native WSL (no Docker Desktop, fully OSS)
+
+Skip Docker Desktop entirely and install a container engine **directly inside a WSL2 distro** (e.g. Ubuntu on WSL). This is the OSS path — Docker Engine or rootless Podman, your choice — and it sidesteps the Docker Desktop license question completely.
+
+The key fact: **modern WSL2 runs systemd.** Enable it once per distro in `/etc/wsl.conf`:
+
+```ini
+# /etc/wsl.conf  (inside the distro), then `wsl --shutdown` from PowerShell to apply
+[boot]
+systemd=true
+```
+
+With systemd live, **Podman quadlets work inside WSL exactly as on any Linux host** — the same `.container` file + `systemctl` pattern from §2 applies, which makes a WSL2 distro a genuinely viable zeroclaw host on Windows, not just a toy.
+
+```bash
+# Inside the WSL2 distro (Ubuntu shown). Pick ONE engine:
+
+# Option 1 — rootless Podman (recommended, matches the §2 quadlet pattern):
+sudo apt install podman
+# Then deploy zeroclaw as a quadlet exactly as in §2 — rootless variant:
+#   ~/.config/containers/systemd/zeroclaw.container
+#   systemctl --user daemon-reload && systemctl --user restart zeroclaw
+#   loginctl enable-linger $USER   # survive logout / keep running across sessions
+
+# Option 2 — Docker Engine inside the distro (no Docker Desktop, no license question):
+curl -fsSL https://get.docker.com | sh
+sudo systemctl enable --now docker
+docker run -d --name zeroclaw --restart=always -p 42617:42617 \
+  ghcr.io/<org>/zeroclaw:${ZEROCLAW_VERSION:-latest}
+```
+
+### WSL gotchas
+
+- **Clock drift on sleep.** When the Windows host sleeps/hibernates, the WSL2 VM clock can drift out of sync, which breaks TLS handshakes and registry pulls until corrected. Fix with `sudo hwclock -s` (or `wsl --shutdown` and restart the distro) if pulls or auth start failing after a resume.
+- **Networking / localhost forwarding.** WSL2 forwards `localhost` between Windows and the distro, so a port you `PublishPort=`/`-p` inside WSL is usually reachable as `localhost:42617` from Windows. It's convenient but not bulletproof — if forwarding misbehaves, reach the distro by its own IP (`ip addr` inside WSL) or check `localhostForwarding` in `.wslconfig`.
+- **GPU passthrough needs setup.** GPU acceleration (for local inference alongside zeroclaw) requires **WSL2** specifically plus the vendor's WSL GPU driver installed on the Windows host (e.g. the NVIDIA WSL driver) — it does not work on WSL1, and the distro must not have a conflicting in-distro GPU driver. Verify with `nvidia-smi` inside the distro before relying on it.
+
+As with macOS, quadlets are a Linux feature — they work here precisely *because* WSL2 is running a real Linux kernel with systemd, not because of anything Windows-specific. You drive everything from inside the distro just like a native Linux host.
+
+---
+
+## 5. How to deploy zeroclaw on each runtime
 
 In every snippet below, substitute your registry org for `<org>` and your chosen tag for `${ZEROCLAW_VERSION}` (default `latest`).
 
@@ -183,17 +248,38 @@ docker run -d --name zeroclaw -p 42617:42617 \
   ghcr.io/<org>/zeroclaw:${ZEROCLAW_VERSION:-latest}
 ```
 
+### WSL2 + Docker Desktop (Windows, lowest friction)
+
+```bash
+# Docker Desktop installed on Windows with WSL integration enabled for this distro.
+# Inside the WSL distro, the docker CLI talks to the Docker Desktop engine:
+docker run -d --name zeroclaw -p 42617:42617 \
+  ghcr.io/<org>/zeroclaw:${ZEROCLAW_VERSION:-latest}
+```
+
+### Native Podman-in-WSL (Windows, fully OSS)
+
+```bash
+# Inside a WSL2 distro with `systemd=true` in /etc/wsl.conf (see §4).
+sudo apt install podman
+# Quick one-off run; for a real host write a rootless .container quadlet (§2):
+podman run -d --name zeroclaw -p 42617:42617 \
+  ghcr.io/<org>/zeroclaw:${ZEROCLAW_VERSION:-latest}
+```
+
 ### Migration notes
 
 - **`docker` → `podman`** is mostly a **drop-in alias**: `alias docker=podman`. The CLI surface (`run`, `build`, `ps`, `images`, `exec`, `logs`) is compatible for the common cases. Most scripts — including the snippets above — work unchanged.
 - **compose → quadlet** is the **server upgrade path.** `docker compose` (or `podman compose`) is fine for dev, but on a server you want zeroclaw as a real systemd unit. Translate the compose service into a `.container` quadlet (image, ports → `PublishPort=`, volumes → `Volume=`, env → `Environment=`, `depends_on` → `After=`/`Wants=`). You gain journald logging, boot ordering, idempotent re-apply, and `systemctl` management; you lose the single-file convenience (acceptable on a managed host). For a multi-container app you can also keep a `compose.yaml`/Kubernetes YAML and point a single `.kube` quadlet at it.
+- **Docker Desktop → native Podman-in-WSL** is the **Windows OSS upgrade path.** If the Docker Desktop license becomes a constraint, you can move to rootless Podman inside the same WSL2 distro and — because WSL2 runs systemd — adopt the exact `.container` quadlet pattern you'd use on a Linux server. No Windows-specific deployment dialect to learn.
 
 ---
 
-## 5. Summary
+## 6. Summary
 
 - **Deploying zeroclaw on a Linux server?** Podman + a `.container` quadlet. You get a real systemd service — rootless, daemonless, auto-restarting — with a declarative config you commit to git and re-apply idempotently.
 - **On a Mac?** OrbStack (polished) or Colima (OSS, CLI-first). Benchmark both for your workload; they're comparable.
+- **On Windows?** WSL2 — Docker Desktop's WSL2 backend for lowest friction (mind the commercial license for larger orgs), or native Docker Engine / rootless Podman inside a WSL2 distro for the OSS path. Because WSL2 runs systemd, the same Podman quadlet pattern works there too. Watch for clock drift on sleep, localhost forwarding quirks, and GPU-passthrough driver setup.
 - **In CI?** Rootless Podman — no daemon, no privileged socket, reproducible.
 - **Already on Docker?** Start there, then migrate servers to Podman quadlets when you need real service lifecycle.
 - **Versioning:** pin a tag/digest for reproducible, auditable deploys; or use `:latest` + `Pull=newer` + `AutoUpdate=registry` for a managed rolling-upgrade path. Either way the deploy loop stays idempotent.
