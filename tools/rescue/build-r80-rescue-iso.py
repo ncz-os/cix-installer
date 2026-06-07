@@ -364,6 +364,7 @@ def main():
     initrd_dir = WORK / "initrd"
     extract_iso_tree(tree)
     # Boot the same Sky1 LTS kernel that R80 installs, not the generic d-i kernel.
+    (tree / "install.a64" / "vmlinuz").chmod(0o644)
     shutil.copy2(tree / "cixmini" / "assets" / "kernel" / "lts" / "Image-cixmini.bin",
                  tree / "install.a64" / "vmlinuz")
     unpack_initrd(tree / "install.a64" / "initrd.gz", initrd_dir)
