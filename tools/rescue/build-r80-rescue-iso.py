@@ -275,7 +275,7 @@ def make_usb_img(tree: Path):
         dmg.unlink()
     run([
         "hdiutil", "create", "-size", "256m", "-layout", "MBRSPUD",
-        "-fs", "MS-DOS FAT32", "-volname", "NCZRESCUE", "-type", "UDRW",
+        "-fs", "MS-DOS FAT32", "-volname", "NCZRESCUE",
         str(dmg),
     ])
     attach = subprocess.check_output(["hdiutil", "attach", "-readwrite", "-noverify", "-noautoopen", str(dmg)], text=True)
