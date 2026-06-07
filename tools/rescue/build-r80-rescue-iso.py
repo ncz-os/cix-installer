@@ -220,6 +220,15 @@ echo "=== NCZ rescue ready ==="
 
 
 def write_grub(root: Path):
+    # ISO extraction preserves read-only modes; make tree writable before edits.
+    for path in root.rglob("*"):
+        try:
+            if path.is_file():
+                path.chmod(0o644)
+            elif path.is_dir():
+                path.chmod(0o755)
+        except PermissionError:
+            pass
     grub = root / "boot" / "grub" / "grub.cfg"
     grub.parent.mkdir(parents=True, exist_ok=True)
     grub.write_text(r'''set timeout=8
