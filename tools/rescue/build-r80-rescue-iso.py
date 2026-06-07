@@ -77,7 +77,8 @@ def repack_initrd(src: Path, out_gz: Path):
 
 def write_rescue_payload(initrd: Path):
     script = r'''#!/bin/sh
-set -eu
+# Do not use set -e here: rescue must stay alive even when display/mount probes fail.
+set +e
 PATH=/bin:/sbin:/usr/bin:/usr/sbin
 LOG=/tmp/ncz-rescue.log
 exec >>$LOG 2>&1
@@ -203,6 +204,8 @@ EOF
 chmod +x /rescue-tools/force-r80-lts-default
 
 # HTTP file transfer/browser. BusyBox httpd is present in R80 d-i initrd.
+# Kill any d-i/log web server so our full root file browser owns port 80.
+pidof httpd >/dev/null 2>&1 && killall httpd 2>/dev/null || true
 httpd -f -p 80 -h / >/tmp/httpd.log 2>&1 &
 
 # Easy unauthenticated LAN shell. Prefer telnetd if available; otherwise use
@@ -215,7 +218,8 @@ else
       while true; do
         rm -f /tmp/rescue-shell.in
         mkfifo /tmp/rescue-shell.in
-        { echo "NCZ R80 rescue shell. Try: /rescue-tools/status"; /bin/sh -i < /tmp/rescue-shell.in 2>&1; } | nc -l -p 2323 > /tmp/rescue-shell.in
+        # Bidirectional shell over BusyBox nc without requiring nc -e.
+        cat /tmp/rescue-shell.in | /bin/sh -i 2>&1 | nc -l -p 2323 > /tmp/rescue-shell.in
         rm -f /tmp/rescue-shell.in
         sleep 1
       done
@@ -224,6 +228,8 @@ fi
 
 echo "=== NCZ rescue ready ==="
 /rescue-tools/status || true
+# Keep the service process alive; inittab also respawns it if it dies.
+while true; do sleep 3600; done
 '''
     (initrd / "rescue-start.sh").write_text(script)
     os.chmod(initrd / "rescue-start.sh", 0o755)
