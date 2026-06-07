@@ -8,6 +8,7 @@ from pathlib import Path
 
 SRC_ISO = Path(os.environ.get("R80_ISO", "/Users/jperlow/ncz-installer-cixmini-26.6-r80.iso"))
 OUT_ISO = Path(os.environ.get("OUT_ISO", "/Users/jperlow/ncz-r80-rescue-cixmini.iso"))
+OUT_IMG = Path(os.environ.get("OUT_IMG", "/Users/jperlow/ncz-r80-rescue-cixmini.img"))
 WORK = Path(os.environ.get("WORKDIR", "/var/folders/tx/qq80lg3x1zs1b1hkmtk2spgm0000gp/T/opencode/ncz-r80-rescue-build"))
 VOL = "NCZ_R80_RESCUE"
 
@@ -264,6 +265,50 @@ menuentry "Power off" { halt }
     shutil.copy2(grub, root / "boot" / "grub" / "arm64-efi" / "grub.cfg") if (root / "boot" / "grub" / "arm64-efi").exists() else None
 
 
+
+def make_usb_img(tree: Path):
+    """Create an Etcher-friendly raw USB image with an MBR + FAT32 partition."""
+    if OUT_IMG.exists():
+        OUT_IMG.unlink()
+    dmg = WORK / "ncz-r80-rescue-fat.dmg"
+    if dmg.exists():
+        dmg.unlink()
+    run([
+        "hdiutil", "create", "-size", "256m", "-layout", "MBRSPUD",
+        "-fs", "MS-DOS FAT32", "-volname", "NCZRESCUE", "-type", "UDRW",
+        str(dmg),
+    ])
+    attach = subprocess.check_output(["hdiutil", "attach", "-readwrite", "-noverify", "-noautoopen", str(dmg)], text=True)
+    print(attach)
+    mountpoint = None
+    disk = None
+    for line in attach.splitlines():
+        parts = line.split()
+        if parts and parts[0].startswith("/dev/disk"):
+            if disk is None:
+                disk = parts[0].replace("s1", "")
+            if len(parts) >= 3 and parts[-1].startswith("/Volumes/"):
+                mountpoint = Path(parts[-1])
+    if mountpoint is None:
+        raise SystemExit("failed to find mounted FAT partition from hdiutil attach")
+    try:
+        run(["ditto", str(tree) + "/", str(mountpoint) + "/"])
+        run(["sync"])
+    finally:
+        if disk:
+            subprocess.run(["hdiutil", "detach", disk], check=False)
+    # Convert whole disk image to raw. hdiutil UDRW is already raw-ish, but
+    # imageinfo reports a disk image wrapper; convert UFBI gives the full device.
+    raw_tmp = WORK / "ncz-r80-rescue-fat.raw"
+    if raw_tmp.exists():
+        raw_tmp.unlink()
+    run(["hdiutil", "convert", str(dmg), "-format", "UFBI", "-o", str(raw_tmp)])
+    produced = raw_tmp if raw_tmp.exists() else Path(str(raw_tmp) + ".dmg")
+    produced.rename(OUT_IMG)
+    run(["hdiutil", "imageinfo", str(OUT_IMG)])
+    run(["shasum", "-a", "256", str(OUT_IMG)])
+
+
 def make_iso(tree: Path):
     if OUT_ISO.exists():
         OUT_ISO.unlink()
@@ -295,6 +340,7 @@ def main():
     repack_initrd(initrd_dir, tree / "install.a64" / "initrd.gz")
     write_grub(tree)
     (tree / "README-RESCUE.txt").write_text("NCZ R80 rescue ISO. Connect: nc <ip> 2323 or HTTP http://<ip>/\n")
+    make_usb_img(tree)
     make_iso(tree)
 
 
