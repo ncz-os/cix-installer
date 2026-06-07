@@ -241,7 +241,7 @@ insmod part_gpt
 insmod part_msdos
 insmod fat
 insmod iso9660
-search --no-floppy --label NCZ_R80_RESCUE --set=root
+search --no-floppy --file /install.a64/vmlinuz --set=root
 
 menuentry "NCZ R80 RESCUE — network shell + HTTP + read-only disk mounts" {
     echo "Booting NCZ R80 rescue kernel/initrd..."
