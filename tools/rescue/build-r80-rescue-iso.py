@@ -271,10 +271,13 @@ def make_iso(tree: Path):
     if tmp_cdr.exists():
         tmp_cdr.unlink()
     run(["hdiutil", "makehybrid", "-iso", "-joliet", "-default-volume-name", VOL, "-o", str(tmp_cdr), str(tree)])
-    if tmp_cdr.exists():
-        tmp_cdr.rename(OUT_ISO)
-    elif OUT_ISO.with_suffix(".iso.cdr").exists():
-        OUT_ISO.with_suffix(".iso.cdr").rename(OUT_ISO)
+    candidates = [tmp_cdr, Path(str(tmp_cdr) + ".iso"), OUT_ISO.with_suffix(".iso.cdr"), Path(str(OUT_ISO) + ".cdr")]
+    for candidate in candidates:
+        if candidate.exists():
+            candidate.rename(OUT_ISO)
+            break
+    if not OUT_ISO.exists():
+        raise SystemExit(f"hdiutil did not produce expected ISO; checked: {candidates}")
     run(["hdiutil", "imageinfo", str(OUT_ISO)])
     run(["shasum", "-a", "256", str(OUT_ISO)])
 
