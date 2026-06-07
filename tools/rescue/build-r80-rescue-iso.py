@@ -91,10 +91,20 @@ mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 mkdir -p /dev/pts /tmp /run /target-ro /rescue-www
 mount -t devpts devpts /dev/pts 2>/dev/null || true
 
-# Load likely storage/network/fs modules. Ignore failures: d-i kernel may have
-# many built in, and module availability depends on R80 initrd contents.
-for m in nvme nvme-core sd_mod usb-storage uas ahci xhci-hcd xhci-pci r8169 realtek ext4 vfat fat nls_cp437 nls_ascii efivarfs; do
+# Load likely storage/network/fs modules plus Sky1 display stack. Ignore failures:
+# module availability depends on the kernel/initrd, but R80 LTS rescue includes
+# the matching Sky1 module tree.
+for m in \
+    nvme nvme-core sd_mod usb-storage uas ahci xhci-hcd xhci-pci r8169 realtek ext4 vfat fat nls_cp437 nls_ascii efivarfs \
+    cix_mbox scmi_mailbox_transport clk-sky1-acpi reset_sky1 reset_sky1_audss \
+    cix-acpi-resource-lookup cix-usbdp-phy cix-edp-panel pwm_bl \
+    drm drm_kms_helper drm_display_helper drm_dma_helper drm_shmem_helper \
+    cix_virtual trilin-dpsub linlon-dp; do
     modprobe "$m" 2>/dev/null || true
+done
+# Kick modeset if fbcon did not bind automatically.
+for fb in /sys/class/graphics/fbcon/rotate_all /sys/class/graphics/fb0/blank; do
+    [ -w "$fb" ] && echo 0 > "$fb" 2>/dev/null || true
 done
 
 # Bring up network using DHCP on all visible non-loopback interfaces.
