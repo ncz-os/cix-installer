@@ -278,7 +278,7 @@ def make_iso(tree: Path):
             break
     if not OUT_ISO.exists():
         raise SystemExit(f"hdiutil did not produce expected ISO; checked: {candidates}")
-    run(["hdiutil", "imageinfo", str(OUT_ISO)])
+    subprocess.run(["hdiutil", "imageinfo", str(OUT_ISO)], check=False)
     run(["shasum", "-a", "256", str(OUT_ISO)])
 
 
