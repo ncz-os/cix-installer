@@ -192,18 +192,21 @@ chmod +x /rescue-tools/force-r80-lts-default
 # HTTP file transfer/browser. BusyBox httpd is present in R80 d-i initrd.
 httpd -f -p 80 -h / >/tmp/httpd.log 2>&1 &
 
-# Easy unauthenticated LAN shell on 2323. R80 busybox lacks telnetd; nc provides
-# the same emergency no-auth shell access. It respawns after disconnect.
-(
-  while true; do
-    { echo "NCZ R80 rescue shell. Type /rescue-tools/status"; /bin/sh -i; } 2>&1 | nc -l -p 2323
-    sleep 1
-  done
-) &
-
-# If future initrd has telnetd, start it too.
+# Easy unauthenticated LAN shell. Prefer telnetd if available; otherwise use
+# a FIFO-backed nc shell so command input works with BusyBox nc implementations
+# that do not support -e. Respawns after disconnect.
 if command -v telnetd >/dev/null 2>&1; then
     telnetd -l /bin/sh -p 23 2>/tmp/telnetd.log || true
+else
+    (
+      while true; do
+        rm -f /tmp/rescue-shell.in
+        mkfifo /tmp/rescue-shell.in
+        { echo "NCZ R80 rescue shell. Try: /rescue-tools/status"; /bin/sh -i < /tmp/rescue-shell.in 2>&1; } | nc -l -p 2323 > /tmp/rescue-shell.in
+        rm -f /tmp/rescue-shell.in
+        sleep 1
+      done
+    ) &
 fi
 
 echo "=== NCZ rescue ready ==="
