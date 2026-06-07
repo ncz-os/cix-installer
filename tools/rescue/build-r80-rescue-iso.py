@@ -122,20 +122,9 @@ fi
 
 ip -4 addr show || true
 
-# First mount local filesystems read-only for browsing.
-n=0
-for dev in /dev/nvme*n*p* /dev/sd*[0-9] /dev/mmcblk*p*; do
-    [ -b "$dev" ] || continue
-    n=$((n+1))
-    mp="/target-ro/$(basename "$dev")"
-    mkdir -p "$mp"
-    mount -o ro "$dev" "$mp" 2>/dev/null || rmdir "$mp" 2>/dev/null || true
-done
-
 # Automatic local repair unless disabled with kernel arg ncz_rescue_no_autofix.
-# Repairs the specific failure mode that breaks ssh/telnet/userspace: /lib being
-# replaced by a real directory on a usrmerged rootfs. Also forces systemd-boot
-# back to the known-good R80 LTS entry. Handles ext4 and btrfs roots.
+# Do this BEFORE read-only browsing mounts so rw remount is not blocked.
+fixed_any=0
 if ! grep -qw ncz_rescue_no_autofix /proc/cmdline; then
     echo "[AUTO-FIX] starting local filesystem repair scan"
     mkdir -p /target-rw /target-esp
@@ -143,9 +132,13 @@ if ! grep -qw ncz_rescue_no_autofix /proc/cmdline; then
         [ -b "$dev" ] || continue
         umount /target-rw 2>/dev/null || true
         mounted=0
-        for opt in rw rw,subvol=@ rw,subvol=/; do
-            mount -o "$opt" "$dev" /target-rw 2>/dev/null && mounted=1 && break
+        # Try btrfs forms first, then generic rw. Suppress noisy wrong-fs errors.
+        for opt in rw,subvol=@ rw,subvol=/ rw; do
+            mount -t btrfs -o "$opt" "$dev" /target-rw 2>/dev/null && mounted=1 && break
         done
+        if [ "$mounted" != 1 ]; then
+            mount -o rw "$dev" /target-rw 2>/dev/null && mounted=1 || true
+        fi
         [ "$mounted" = 1 ] || continue
         if [ -d /target-rw/usr/lib ] && { [ -e /target-rw/etc/os-release ] || [ -e /target-rw/usr/lib/os-release ]; }; then
             echo "[AUTO-FIX] candidate root on $dev"
@@ -156,6 +149,9 @@ if ! grep -qw ncz_rescue_no_autofix /proc/cmdline; then
                 ln -s usr/lib /target-rw/lib
                 mkdir -p /target-rw/usr/lib/modules
                 cp -a /target-rw/lib.broken.$ts/modules/. /target-rw/usr/lib/modules/ 2>/dev/null || true
+                fixed_any=1
+            else
+                echo "[AUTO-FIX] /lib already ok or absent"
             fi
             sync
         fi
@@ -170,11 +166,30 @@ if ! grep -qw ncz_rescue_no_autofix /proc/cmdline; then
             echo "[AUTO-FIX] found ESP on $dev; forcing cixmini-lts.conf default"
             cp /target-esp/loader/loader.conf /target-esp/loader/loader.conf.rescue-bak.$(date +%Y%m%d-%H%M%S) 2>/dev/null || true
             printf 'default cixmini-lts.conf\ntimeout 5\n' > /target-esp/loader/loader.conf
+            fixed_any=1
             sync
         fi
         umount /target-esp 2>/dev/null || true
     done
-    echo "[AUTO-FIX] complete"
+    echo "[AUTO-FIX] complete fixed_any=$fixed_any"
+fi
+
+# Mount local filesystems read-only for browsing after repair.
+n=0
+for dev in /dev/nvme*n*p* /dev/sd*[0-9] /dev/mmcblk*p*; do
+    [ -b "$dev" ] || continue
+    n=$((n+1))
+    mp="/target-ro/$(basename "$dev")"
+    mkdir -p "$mp"
+    mount -o ro "$dev" "$mp" 2>/dev/null || rmdir "$mp" 2>/dev/null || true
+done
+
+# If auto-fix changed anything, give operator time to read console/log then reboot
+# into the repaired local known-good entry. Disable with ncz_rescue_no_autoreboot.
+if [ "${fixed_any:-0}" = 1 ] && ! grep -qw ncz_rescue_no_autoreboot /proc/cmdline; then
+    echo "[AUTO-FIX] repairs applied; rebooting in 15 seconds"
+    sleep 15
+    reboot -f
 fi
 
 cat > /rescue-www/index.txt <<EOF
