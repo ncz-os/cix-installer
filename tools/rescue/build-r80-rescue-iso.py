@@ -297,14 +297,19 @@ def make_usb_img(tree: Path):
     finally:
         if disk:
             subprocess.run(["hdiutil", "detach", disk], check=False)
+            subprocess.run(["hdiutil", "detach", disk, "-force"], check=False)
     # Convert whole disk image to raw. hdiutil UDRW is already raw-ish, but
     # imageinfo reports a disk image wrapper; convert UFBI gives the full device.
     raw_tmp = WORK / "ncz-r80-rescue-fat.raw"
     if raw_tmp.exists():
         raw_tmp.unlink()
-    run(["hdiutil", "convert", str(dmg), "-format", "UFBI", "-o", str(raw_tmp)])
-    produced = raw_tmp if raw_tmp.exists() else Path(str(raw_tmp) + ".dmg")
-    produced.rename(OUT_IMG)
+    conv = subprocess.run(["hdiutil", "convert", str(dmg), "-format", "UFBI", "-o", str(raw_tmp)], check=False)
+    if conv.returncode != 0:
+        # hdiutil-created MBRSPUD image is already a raw disk image suitable for Etcher.
+        shutil.copy2(dmg, OUT_IMG)
+    else:
+        produced = raw_tmp if raw_tmp.exists() else Path(str(raw_tmp) + ".dmg")
+        produced.rename(OUT_IMG)
     run(["hdiutil", "imageinfo", str(OUT_IMG)])
     run(["shasum", "-a", "256", str(OUT_IMG)])
 
