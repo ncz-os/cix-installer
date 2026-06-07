@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+import gzip
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+SRC_ISO = Path(os.environ.get("R80_ISO", "/Users/jperlow/ncz-installer-cixmini-26.6-r80.iso"))
+OUT_ISO = Path(os.environ.get("OUT_ISO", "/Users/jperlow/ncz-r80-rescue-cixmini.iso"))
+WORK = Path(os.environ.get("WORKDIR", "/var/folders/tx/qq80lg3x1zs1b1hkmtk2spgm0000gp/T/opencode/ncz-r80-rescue-build"))
+VOL = "NCZ_R80_RESCUE"
+
+
+def run(cmd, **kwargs):
+    print("+", " ".join(map(str, cmd)))
+    subprocess.run(cmd, check=True, **kwargs)
+
+
+def ensure_tools():
+    for tool in ["bsdtar", "hdiutil", "cpio", "gzip"]:
+        if not shutil.which(tool):
+            raise SystemExit(f"missing required tool: {tool}")
+    if not SRC_ISO.exists():
+        raise SystemExit(f"source ISO not found: {SRC_ISO}")
+
+
+def extract_iso_tree(root: Path):
+    root.mkdir(parents=True, exist_ok=True)
+    # Extract just the boot pieces and docs/pool needed by the initrd. The ISO
+    # itself does not need the full package pool for rescue because the rescue
+    # script uses tools already present in the d-i initrd.
+    for member in [
+        "EFI/boot/bootaa64.efi",
+        "EFI/boot/grubaa64.efi",
+        "boot/grub/grub.cfg",
+        "install.a64/vmlinuz",
+        "install.a64/initrd.gz",
+    ]:
+        run(["bsdtar", "-xf", str(SRC_ISO), "-C", str(root), member])
+
+
+def unpack_initrd(initrd_gz: Path, out: Path):
+    out.mkdir(parents=True, exist_ok=True)
+    p1 = subprocess.Popen(["gzip", "-dc", str(initrd_gz)], stdout=subprocess.PIPE)
+    p2 = subprocess.run(["cpio", "-id", "--quiet"], cwd=out, stdin=p1.stdout, check=False)
+    if p1.stdout:
+        p1.stdout.close()
+    rc1 = p1.wait()
+    if rc1 != 0 or p2.returncode not in (0, 2):
+        # cpio may return 2 for device nodes when not root on macOS; those are
+        # non-fatal for our modified archive because the original already had them.
+        raise SystemExit(f"initrd unpack failed: gzip={rc1} cpio={p2.returncode}")
+
+
+def repack_initrd(src: Path, out_gz: Path):
+    if out_gz.exists():
+        out_gz.unlink()
+    # Use portable newc cpio; include leading . paths.
+    find = subprocess.Popen(["find", "."], cwd=src, stdout=subprocess.PIPE)
+    cpio = subprocess.Popen(["cpio", "-o", "-H", "newc", "--quiet"], cwd=src, stdin=find.stdout, stdout=subprocess.PIPE)
+    if find.stdout:
+        find.stdout.close()
+    with gzip.open(out_gz, "wb", compresslevel=9) as gz:
+        shutil.copyfileobj(cpio.stdout, gz)
+    if cpio.stdout:
+        cpio.stdout.close()
+    rc_find = find.wait()
+    rc_cpio = cpio.wait()
+    if rc_find or rc_cpio:
+        raise SystemExit(f"initrd repack failed: find={rc_find} cpio={rc_cpio}")
+
+
+def write_rescue_payload(initrd: Path):
+    (initrd / "rescue-tools").mkdir(exist_ok=True)
+    script = r'''#!/bin/sh
+set -eu
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+LOG=/tmp/ncz-rescue.log
+exec >>$LOG 2>&1
+
+echo "=== NCZ R80 rescue startup $(date) ==="
+
+# Make sure basic pseudo-fs and devices exist.
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+mkdir -p /dev/pts /tmp /run /target-ro /rescue-www
+mount -t devpts devpts /dev/pts 2>/dev/null || true
+
+# Load likely storage/network/fs modules. Ignore failures: d-i kernel may have
+# many built in, and module availability depends on R80 initrd contents.
+for m in nvme nvme-core sd_mod usb-storage uas ahci xhci-hcd xhci-pci r8169 realtek ext4 vfat fat nls_cp437 nls_ascii efivarfs; do
+    modprobe "$m" 2>/dev/null || true
+done
+
+# Bring up network using DHCP on all visible non-loopback interfaces.
+for i in $(ls /sys/class/net 2>/dev/null | grep -v '^lo$' || true); do
+    ip link set "$i" up 2>/dev/null || true
+    udhcpc -i "$i" -q -n -t 5 2>/dev/null || true
+done
+
+# Prefer the static rescue address if no DHCP address appeared.
+if ! ip -4 addr show | grep -q 'inet '; then
+    ip addr add 192.168.207.66/24 dev $(ls /sys/class/net | grep -v '^lo$' | head -1) 2>/dev/null || true
+    ip route add default via 192.168.207.1 2>/dev/null || true
+fi
+
+ip -4 addr show || true
+
+# Mount local filesystems read-only by default. Never fsck/mutate automatically.
+n=0
+for dev in /dev/nvme*n*p* /dev/sd*[0-9] /dev/mmcblk*p*; do
+    [ -b "$dev" ] || continue
+    n=$((n+1))
+    mp="/target-ro/$(basename "$dev")"
+    mkdir -p "$mp"
+    mount -o ro "$dev" "$mp" 2>/dev/null || rmdir "$mp" 2>/dev/null || true
+done
+
+cat > /rescue-www/index.txt <<EOF
+NCZ R80 rescue is running.
+
+Remote shell: nc <this-ip> 2323
+HTTP file browser/root: http://<this-ip>/
+Log: /tmp/ncz-rescue.log
+Mounted local filesystems: /target-ro/*
+Helper commands:
+  /rescue-tools/status
+  /rescue-tools/fix-lib-symlink
+  /rescue-tools/force-r80-lts-default
+  /rescue-tools/remount-target-rw <mountpoint>
+EOF
+ln -s /target-ro /rescue-www/target-ro 2>/dev/null || true
+ln -s /tmp/ncz-rescue.log /rescue-www/ncz-rescue.log 2>/dev/null || true
+
+cat > /rescue-tools/status <<'EOF'
+#!/bin/sh
+set -x
+uname -a
+ip addr
+ip route
+mount
+ls -la /target-ro
+cat /tmp/ncz-rescue.log 2>/dev/null | tail -100
+EOF
+chmod +x /rescue-tools/status
+
+cat > /rescue-tools/remount-target-rw <<'EOF'
+#!/bin/sh
+set -eu
+mp=${1:?usage: remount-target-rw /target-ro/<partition>}
+mount -o remount,rw "$mp"
+echo "$mp is now rw"
+EOF
+chmod +x /rescue-tools/remount-target-rw
+
+cat > /rescue-tools/fix-lib-symlink <<'EOF'
+#!/bin/sh
+set -eu
+root=${1:-/target-ro/nvme0n1p2}
+[ -d "$root" ] || { echo "root mount not found: $root"; exit 1; }
+ls -ld "$root/lib" "$root/usr/lib"
+if [ -L "$root/lib" ]; then
+    echo "$root/lib already symlink -> $(readlink "$root/lib")"
+    exit 0
+fi
+mount -o remount,rw "$root"
+ts=$(date +%Y%m%d-%H%M%S)
+mv "$root/lib" "$root/lib.broken.$ts"
+ln -s usr/lib "$root/lib"
+mkdir -p "$root/usr/lib/modules"
+cp -a "$root/lib.broken.$ts/modules/." "$root/usr/lib/modules/" 2>/dev/null || true
+sync
+echo "fixed /lib symlink under $root; backup is lib.broken.$ts"
+EOF
+chmod +x /rescue-tools/fix-lib-symlink
+
+cat > /rescue-tools/force-r80-lts-default <<'EOF'
+#!/bin/sh
+set -eu
+esp=${1:-/target-ro/nvme0n1p1}
+[ -d "$esp/loader" ] || { echo "ESP loader dir not found under $esp"; exit 1; }
+mount -o remount,rw "$esp"
+cp "$esp/loader/loader.conf" "$esp/loader/loader.conf.rescue-bak.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
+printf 'default cixmini-lts.conf\ntimeout 5\n' > "$esp/loader/loader.conf"
+sync
+echo "set $esp loader default to cixmini-lts.conf"
+EOF
+chmod +x /rescue-tools/force-r80-lts-default
+
+# HTTP file transfer/browser. BusyBox httpd is present in R80 d-i initrd.
+httpd -f -p 80 -h / >/tmp/httpd.log 2>&1 &
+
+# Easy unauthenticated LAN shell on 2323. R80 busybox lacks telnetd; nc provides
+# the same emergency no-auth shell access. It respawns after disconnect.
+(
+  while true; do
+    { echo "NCZ R80 rescue shell. Type /rescue-tools/status"; /bin/sh -i; } 2>&1 | nc -l -p 2323
+    sleep 1
+  done
+) &
+
+# If future initrd has telnetd, start it too.
+if command -v telnetd >/dev/null 2>&1; then
+    telnetd -l /bin/sh -p 23 2>/tmp/telnetd.log || true
+fi
+
+echo "=== NCZ rescue ready ==="
+/rescue-tools/status || true
+'''
+    (initrd / "rescue-start.sh").write_text(script)
+    os.chmod(initrd / "rescue-start.sh", 0o755)
+    # d-i startup hook runs after initrd preseed support starts, early enough for rescue.
+    hookdir = initrd / "lib" / "debian-installer-startup.d"
+    hookdir.mkdir(parents=True, exist_ok=True)
+    hook = "#!/bin/sh\n/bin/sh /rescue-start.sh >/dev/console 2>&1 &\nexit 0\n"
+    (hookdir / "S01ncz-rescue").write_text(hook)
+    os.chmod(hookdir / "S01ncz-rescue", 0o755)
+
+
+def write_grub(root: Path):
+    grub = root / "boot" / "grub" / "grub.cfg"
+    grub.parent.mkdir(parents=True, exist_ok=True)
+    grub.write_text(r'''set timeout=8
+set default=0
+set menu_color_normal=light-green/black
+set menu_color_highlight=black/light-green
+insmod gzio
+insmod part_gpt
+insmod part_msdos
+insmod fat
+insmod iso9660
+search --no-floppy --label NCZ_R80_RESCUE --set=root
+
+menuentry "NCZ R80 RESCUE — network shell + HTTP + read-only disk mounts" {
+    echo "Booting NCZ R80 rescue kernel/initrd..."
+    linux /install.a64/vmlinuz rescue/enable=true priority=low loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453
+    initrd /install.a64/initrd.gz
+}
+
+menuentry "NCZ R80 RESCUE — verbose/debug" {
+    linux /install.a64/vmlinuz rescue/enable=true DEBCONF_DEBUG=5 loglevel=7 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453
+    initrd /install.a64/initrd.gz
+}
+
+menuentry "Reboot" { reboot }
+menuentry "Power off" { halt }
+''')
+    # Also write the removable-media fallback config locations.
+    (root / "EFI" / "boot").mkdir(parents=True, exist_ok=True)
+    (root / "EFI" / "debian").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(grub, root / "EFI" / "debian" / "grub.cfg")
+    shutil.copy2(grub, root / "boot" / "grub" / "arm64-efi" / "grub.cfg") if (root / "boot" / "grub" / "arm64-efi").exists() else None
+
+
+def make_iso(tree: Path):
+    if OUT_ISO.exists():
+        OUT_ISO.unlink()
+    # hdiutil creates UDTO ISO from folder. UEFI removable path is present.
+    tmp_cdr = OUT_ISO.with_suffix(".cdr")
+    if tmp_cdr.exists():
+        tmp_cdr.unlink()
+    run(["hdiutil", "makehybrid", "-iso", "-joliet", "-default-volume-name", VOL, "-o", str(tmp_cdr), str(tree)])
+    if tmp_cdr.exists():
+        tmp_cdr.rename(OUT_ISO)
+    elif OUT_ISO.with_suffix(".iso.cdr").exists():
+        OUT_ISO.with_suffix(".iso.cdr").rename(OUT_ISO)
+    run(["hdiutil", "imageinfo", str(OUT_ISO)])
+    run(["shasum", "-a", "256", str(OUT_ISO)])
+
+
+def main():
+    ensure_tools()
+    if WORK.exists():
+        shutil.rmtree(WORK)
+    tree = WORK / "iso-tree"
+    initrd_dir = WORK / "initrd"
+    extract_iso_tree(tree)
+    unpack_initrd(tree / "install.a64" / "initrd.gz", initrd_dir)
+    write_rescue_payload(initrd_dir)
+    repack_initrd(initrd_dir, tree / "install.a64" / "initrd.gz")
+    write_grub(tree)
+    (tree / "README-RESCUE.txt").write_text("NCZ R80 rescue ISO. Connect: nc <ip> 2323 or HTTP http://<ip>/\n")
+    make_iso(tree)
+
+
+if __name__ == "__main__":
+    main()
