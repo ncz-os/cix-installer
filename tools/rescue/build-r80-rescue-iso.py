@@ -297,7 +297,7 @@ def make_usb_img(tree: Path):
     if dmg.exists():
         dmg.unlink()
     run([
-        "hdiutil", "create", "-size", "256m", "-layout", "MBRSPUD",
+        "hdiutil", "create", "-size", "768m", "-layout", "MBRSPUD",
         "-fs", "MS-DOS FAT32", "-volname", "NCZRESCUE",
         str(dmg),
     ])
