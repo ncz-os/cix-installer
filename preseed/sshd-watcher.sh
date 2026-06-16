@@ -330,12 +330,15 @@ while :; do
         sed -i \
             -e 's|^[[:space:]]*#*[[:space:]]*PermitRootLogin.*|PermitRootLogin yes|' \
             -e 's|^[[:space:]]*#*[[:space:]]*PubkeyAuthentication.*|PubkeyAuthentication yes|' \
+            -e 's|^[[:space:]]*#*[[:space:]]*PasswordAuthentication.*|PasswordAuthentication yes|' \
             /etc/ssh/sshd_config
 
         grep -q '^PermitRootLogin yes' /etc/ssh/sshd_config \
             || echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config
         grep -q '^PubkeyAuthentication yes' /etc/ssh/sshd_config \
             || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config
+        grep -q '^PasswordAuthentication yes' /etc/ssh/sshd_config \
+            || echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
 
         # Primary mechanism: kill -HUP makes sshd re-read config.
         # /etc/init.d/ssh fallbacks are guarded with 2>/dev/null; if
@@ -348,7 +351,7 @@ while :; do
         /etc/init.d/ssh reload 2>/dev/null
 
         echo "[watcher] post-patch sshd_config:"
-        grep -E '^(PermitRootLogin|PubkeyAuthentication)' /etc/ssh/sshd_config
+        grep -E '^(PermitRootLogin|PubkeyAuthentication|PasswordAuthentication)' /etc/ssh/sshd_config
         echo "[watcher] post-patch sshd procs:"
         # shellcheck disable=SC2009  # busybox d-i has no pgrep
         ps | grep -E '[s]shd' | head -5
