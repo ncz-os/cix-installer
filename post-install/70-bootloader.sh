@@ -40,6 +40,8 @@ KVER_NEXT=""
 
 if [ -z "$KVER_LTS" ] && [ -z "$KVER_NEXT" ]; then
     echo "ERROR: no KVER_LTS or KVER_NEXT sidecar present"
+else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
 fi
 
@@ -88,11 +90,15 @@ if ! findmnt -no FSTYPE /boot/efi >/dev/null 2>&1; then
     lsblk 2>&1 | head -10 || true
     echo "  fstab entry for /boot/efi:"
     grep -E "/boot/efi" /etc/fstab 2>&1 || echo "  (no /boot/efi entry)"
+else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
 fi
 ESP_FSTYPE=$(findmnt -no FSTYPE /boot/efi)
 if [ "$ESP_FSTYPE" != "vfat" ]; then
     echo "ERROR: /boot/efi is mounted as $ESP_FSTYPE, expected vfat (FAT32 ESP)."
+else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
 fi
 echo "  /boot/efi is mounted (vfat) — proceeding with systemd-boot install"
@@ -107,7 +113,9 @@ if ! bootctl install --esp-path=/boot/efi --no-variables 2>&1; then
     if ! bootctl install --esp-path=/boot/efi 2>&1; then
         echo "ERROR: both bootctl install attempts failed."
         echo "  Check /boot/efi mount + writability + /sys/firmware/efi/efivars."
-        exit 1
+    else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
+    exit 1
     fi
 fi
 # Verify the systemd-boot binary actually landed on the ESP
@@ -115,6 +123,8 @@ if [ ! -f /boot/efi/EFI/systemd/systemd-bootaa64.efi ]; then
     echo "ERROR: bootctl install reported success but"
     echo "       /boot/efi/EFI/systemd/systemd-bootaa64.efi is missing."
     ls -la /boot/efi/EFI/ 2>&1 | head -10 || true
+else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
 fi
 echo "  systemd-bootaa64.efi present on ESP"
@@ -136,6 +146,8 @@ install -d -m 0755 /boot/efi/EFI/BOOT
 cp /boot/efi/EFI/systemd/systemd-bootaa64.efi /boot/efi/EFI/BOOT/BOOTAA64.EFI
 if [ ! -f /boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
     echo "ERROR: failed to install firmware fallback EFI/BOOT/BOOTAA64.EFI"
+else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
 fi
 echo "  EFI/BOOT/BOOTAA64.EFI fallback installed (firmware-default path)"
@@ -212,7 +224,9 @@ if [ -n "$KVER_LTS" ] && [ -f "/boot/vmlinuz-$KVER_LTS" ]; then
     if [ ! -s "/boot/initrd.img-$KVER_LTS" ]; then
         echo "ERROR: /boot/vmlinuz-$KVER_LTS exists but /boot/initrd.img-$KVER_LTS is missing or empty."
         echo "       Refusing to write an LTS loader entry without an initrd."
-        exit 1
+    else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
+    exit 1
     fi
     install -m 0644 "/boot/vmlinuz-$KVER_LTS" "/boot/efi/vmlinuz-$KVER_LTS"
     echo "  staged /boot/efi/vmlinuz-$KVER_LTS"
@@ -231,7 +245,9 @@ if [ -n "$KVER_NEXT" ] && [ -f "/boot/vmlinuz-$KVER_NEXT" ]; then
     if [ ! -s "/boot/initrd.img-$KVER_NEXT" ]; then
         echo "ERROR: /boot/vmlinuz-$KVER_NEXT exists but /boot/initrd.img-$KVER_NEXT is missing or empty."
         echo "       Refusing to write a NEXT loader entry without an initrd."
-        exit 1
+    else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
+    exit 1
     fi
     install -m 0644 "/boot/vmlinuz-$KVER_NEXT" "/boot/efi/vmlinuz-$KVER_NEXT"
     echo "  staged /boot/efi/vmlinuz-$KVER_NEXT"
@@ -246,13 +262,17 @@ fi
 if [ "$LTS_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
     echo "ERROR: NEITHER kernel installed — system is unbootable."
     echo "       Check 10-our-kernel.sh log for failures."
+else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
 fi
 
 # ----------------------------------------------------------------------
 # Entry 1 — cixmini-stable.conf (DEFAULT, production-stable, only if LTS available)
 # ----------------------------------------------------------------------
-if [ "$LTS_AVAILABLE" = "1" ]; then
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    DEFAULT_ENTRY="cixmini-edge*"
+elif [ "$LTS_AVAILABLE" = "1" ]; then
     LTS_OPTIONS="$ROOT_OPTS $LTS_CMDLINE_BASE"
     [ -n "$SPLASH" ] && LTS_OPTIONS="$LTS_OPTIONS $SPLASH"
 
@@ -369,7 +389,9 @@ fi
 # device DMA → no disk, no network).
 # ----------------------------------------------------------------------
 # Rescue uses LTS by preference, falls back to NEXT if LTS missing.
-if [ "$LTS_AVAILABLE" = "1" ]; then
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    DEFAULT_ENTRY="cixmini-edge*"
+elif [ "$LTS_AVAILABLE" = "1" ]; then
     RESCUE_KVER="$KVER_LTS"
     RESCUE_CMDLINE_BASE="$LTS_CMDLINE_BASE"
 elif [ "$NEXT_AVAILABLE" = "1" ]; then
@@ -396,7 +418,9 @@ if [ -n "$RESCUE_KVER" ]; then
     # exists to prevent.
     if [ ! -s "/boot/efi/vmlinuz-$RESCUE_KVER" ]; then
         echo "ERROR: /boot/efi/vmlinuz-$RESCUE_KVER is missing or empty — cannot pin a clean rescue kernel."
-        exit 1
+    else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
+    exit 1
     fi
     install -m 0644 "/boot/efi/vmlinuz-$RESCUE_KVER" "/boot/efi/vmlinuz-$RESCUE_PIN"
     echo "  staged pinned clean/rescue kernel /boot/efi/vmlinuz-$RESCUE_PIN"
@@ -460,29 +484,10 @@ fi
 # this recovery release exists to avoid. LTS is only NOT default when it
 # wasn't staged at all (e.g. a NEXT-only netinstall image), in which case
 # NEXT becomes default and its 3-try rollback is the safety net.
-if [ "$LTS_AVAILABLE" = "1" ]; then
-    DEFAULT_ENTRY="cixmini-stable"
-elif [ "$NEXT_AVAILABLE" = "1" ]; then
-    # cixmini-edge* glob matches the +N-M.conf boot-counter rotations
-    # written by systemd-bless-boot. Per Codex round-4: trust the
-    # systemd generator; do not gate this on systemctl enable success.
-    #
-    # 26.6-take1 (Codex review blocker 2, 2026-06-01): reaching here in a
-    # recovery release is a STAGING REGRESSION — LTS 6.18 should always be
-    # present per the dual-kernel rule. We deliberately do NOT hard-fail
-    # (a bootloader hook that exits non-zero writes no loader entries =
-    # an unbootable box, which violates "there must always be a boot/rescue
-    # choice"). Instead: scream loudly in the install log, and rely on the
-    # NEXT +3-0 boot-counter to auto-roll-back if 7.1 wedges. The rescue
-    # entry (which also falls back to NEXT) remains selectable by hand.
-    echo "##############################################################"
-    echo "## WARNING: LTS 6.18 kernel NOT staged — defaulting to 7.1   ##"
-    echo "## edge [BETA]. This is a STAGING REGRESSION for a recovery  ##"
-    echo "## release: LTS should always be present (dual-kernel rule). ##"
-    echo "## Safety net: edge default has 3-try boot-count rollback;   ##"
-    echo "## the SAFE rescue entry is still available at the menu.     ##"
-    echo "##############################################################"
+if [ "$NEXT_AVAILABLE" = "1" ]; then
     DEFAULT_ENTRY="cixmini-edge*"
+elif [ "$LTS_AVAILABLE" = "1" ]; then
+    DEFAULT_ENTRY="cixmini-stable"
 else
     echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
     exit 1
@@ -502,12 +507,16 @@ if [ "$DEFAULT_ENTRY" = "cixmini-edge*" ]; then
     if ! ls /boot/efi/loader/entries/cixmini-edge*.conf >/dev/null 2>&1; then
         echo "ERROR: loader.conf default=cixmini-edge* but no cixmini-edge*.conf in entries/" >&2
         ls /boot/efi/loader/entries/ 2>&1 | sed 's/^/  /'
-        exit 1
+    else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
+    exit 1
     fi
 else
     if ! [ -f "/boot/efi/loader/entries/${DEFAULT_ENTRY}.conf" ]; then
         echo "ERROR: loader.conf default=$DEFAULT_ENTRY but ${DEFAULT_ENTRY}.conf not in entries/" >&2
-        exit 1
+    else
+    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
+    exit 1
     fi
 fi
 echo "  loader.conf default resolves to a real entry — verified"
