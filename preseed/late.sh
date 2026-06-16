@@ -182,7 +182,7 @@ CDROM_PREF
             { echo "WARN: local apt-get update from bootstrap pool failed"; }
     else
         in-target apt-get update 2>&1 | tail -3 || { echo "WARN: in-target apt-get update from cdrom failed"; }
-        chroot /target /usr/bin/apt-get install -y --allow-unauthenticated linux-firmware cix-noe-umd cix-ai-engine mnemos-cix-integration zeroclaw-agent || { echo "WARN: Custom package install failed"; }
+        chroot /target /usr/bin/apt-get install -y --allow-unauthenticated linux-firmware cix-noe-umd cix-ai-engine || { echo "WARN: Custom package install failed"; true; }
     fi
     CDROM_BIND_MOUNTED=1
 else
