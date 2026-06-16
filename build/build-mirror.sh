@@ -325,4 +325,4 @@ head -20 "dists/$SUITE/Release" | sed 's/^/    /'
 echo ""
 echo "[mirror] mirror tree complete:"
 echo "    $MIRROR_DIR/"
-du -sh "$MIRROR_DIR"
+du -sh .
