@@ -266,9 +266,9 @@ if [ -n "$INSTALLED_LIST" ]; then
 fi
 echo "[mirror] base-set re-download complete"
 
-DEB_COUNT=$(find "$CHROOT/var/cache/apt/archives" -name '*.deb' | wc -l)
+DEB_COUNT=$(find "$CHROOT/var/cache/apt/archives" -maxdepth 1 -type f -name '*.deb' | wc -l)
 echo "[mirror] downloaded $DEB_COUNT .debs"
-echo "[mirror] total size: $(du -sh "$CHROOT/var/cache/apt/archives" | cut -f1)"
+echo "[mirror] total size: $(du -sh --exclude=partial "$CHROOT/var/cache/apt/archives" | cut -f1)"
 
 # ----------------------------------------------------------------------
 # Assemble mirror tree — pool/<component>/<letter>/<pkg>/<file.deb>
@@ -325,4 +325,4 @@ head -20 "dists/$SUITE/Release" | sed 's/^/    /'
 echo ""
 echo "[mirror] mirror tree complete:"
 echo "    $MIRROR_DIR/"
-du -sh "$MIRROR_DIR/"
+du -sh "$MIRROR_DIR"
