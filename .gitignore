@@ -50,3 +50,15 @@ __pycache__/
 build/apt-repo/*.deb
 build/apt-repo/Packages.gz
 public/
+# Generated mirror/bootstrap/build scratch artifacts
+build/resolute-bootstrap/
+build/resolute-mirror/
+build/apt-repo/
+build/*.log
+build/*.orig
+build/*.patch
+build/*.rej
+build/.iso-*-done
+preseed/*.orig
+preseed/*.patch
+preseed/*.rej
