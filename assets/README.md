@@ -53,3 +53,33 @@ To ensure zero performance loss for your LLM or Database workloads, we have expl
 
 ---
 *Built for the NCZ Fleet (2026).*
+
+### Post-Install: Deploying Agents and MNEMOS
+To keep the base operating system footprint light and completely air-gapped, we do not auto-install the heavier Python/Rust agent frameworks from the ISO.
+
+Once your system is booted and connected to the internet, you can easily install the **MNEMOS NPU Embedder** and the **ZeroClaw** orchestration agent:
+
+**Option 1: Using the Desktop Shortcut (Reinhardt only)**
+Double-click the  script located on your Desktop.
+
+**Option 2: Via Command Line (Magnetar / Server)**
+Run the following script provided in the system tools path:
+
+
+This script will automatically configure the official NCZ GitLab APT repository, download the pre-compiled  models, and launch the systemd/podman services isolated to their correct CPU cores.
+
+### Post-Install: Deploying Agents and MNEMOS
+To keep the base operating system footprint light and completely air-gapped, we do not auto-install the heavier Python/Rust agent frameworks from the ISO.
+
+Once your system is booted and connected to the internet, you can easily install the **MNEMOS NPU Embedder** and the **ZeroClaw** orchestration agent:
+
+**Option 1: Using the Desktop Shortcut (Reinhardt only)**
+Double-click the `install_ncz_agents.sh` script located on your Desktop.
+
+**Option 2: Via Command Line (Magnetar / Server)**
+Run the following script provided in the system tools path:
+```bash
+sudo /usr/local/lib/cix-installer/assets/install_ncz_agents.sh
+```
+
+This script will automatically configure the official NCZ GitLab APT repository, download the pre-compiled `.cix` models, and launch the systemd/podman services isolated to their correct CPU cores.

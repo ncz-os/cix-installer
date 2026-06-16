@@ -1,5 +1,9 @@
 #!/bin/bash
 # 20-desktop.sh — XFCE on LightDM (resolute's GDM/Wayland on Mali panthor → black screen).
+n# --- NCZ 26.6: Stage the Agent installer on the Desktop
+cp "/install_ncz_agents.sh" /etc/skel/Desktop/
+chmod +x /etc/skel/Desktop/install_ncz_agents.sh
+
 # r52: LightDM + Xorg + XFCE = reliable; xrdp for remote access.
 set -euo pipefail
 
