@@ -1341,6 +1341,13 @@ echo "    initrd.gz now: $(du -h "$STAGING/install.a64/initrd.gz" | cut -f1)"
 # Step 4 — stage /cixmini/ with preseed.cfg + late.sh + post-install + assets
 # ----------------------------------------------------------------------
 echo "[4] staging /cixmini extras"
+# --- NCZ 26.6: Add custom APT repository to the ISO payload
+if [ -d "$ROOT/build/apt-repo" ]; then
+    echo "--- staging NCZ offline apt repository ---"
+    mkdir -p "$STAGING/cixmini/apt-repo"
+    cp -r "$ROOT/build/apt-repo/"* "$STAGING/cixmini/apt-repo/"
+fi
+
 if [ "$MODE" = "full" ]; then
     cp "$ROOT/preseed/preseed-ubuntu.cfg" "$EXTRA/preseed.cfg"
 else

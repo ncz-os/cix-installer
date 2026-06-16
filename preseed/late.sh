@@ -158,6 +158,8 @@ if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
             { echo "WARN: bind-mount /cdrom into /target failed; post-install apt-get may fail"; }
     fi
 
+    echo "deb [trusted=yes] file:///cdrom/cixmini/apt-repo /" > /target/etc/apt/sources.list.d/cixmini-offline.list
+
     # Add file:///cdrom apt source to /target's sources.list so apt-get
     # install in chroot can find packages locally. [trusted=yes] bypasses
     # GPG (we don't sign our offline mirror Release file yet).
@@ -180,6 +182,8 @@ CDROM_PREF
             { echo "WARN: local apt-get update from bootstrap pool failed"; }
     else
         in-target apt-get update 2>&1 | tail -3 || \
+        chroot /target /usr/bin/apt-get install -y linux-firmware cix-noe-umd cix-ai-engine mnemos-cix-integration
+
             { echo "WARN: in-target apt-get update from cdrom failed"; }
     fi
     CDROM_BIND_MOUNTED=1
