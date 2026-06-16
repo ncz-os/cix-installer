@@ -134,9 +134,9 @@ SSHD_DROPIN=/etc/ssh/sshd_config.d/10-nclawzero.conf
 install -d -m 0755 /etc/ssh/sshd_config.d
 cat > "$SSHD_DROPIN" <<'EOF'
 # nclawzero factory defaults - see /etc/motd for rotation guidance.
-PermitRootLogin prohibit-password
-PasswordAuthentication no
-KbdInteractiveAuthentication no
+PermitRootLogin yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication yes
 ChallengeResponseAuthentication no
 PubkeyAuthentication yes
 EOF
