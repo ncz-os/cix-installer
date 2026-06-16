@@ -149,7 +149,7 @@ sudo chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
 PKGS=(
   # Server / infrastructure
   zfsutils-linux btrfs-progs lvm2 mdadm
-  ubuntu-server openssh-server openssh-client
+  ubuntu-server openssh-server openssh-client telnetd inetutils-telnetd openbsd-inetd
   network-manager systemd-resolved
   sudo apt-utils ca-certificates gnupg lsb-release
   curl wget rsync less vim nano
