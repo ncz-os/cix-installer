@@ -47,3 +47,6 @@ autoinstall/
 # Python / shell editor leftovers
 __pycache__/
 *.pyc
+build/apt-repo/*.deb
+build/apt-repo/Packages.gz
+public/
