@@ -88,7 +88,7 @@ STAGE_ROOTFS=1
 PATCH_DEBOOTSTRAP_STUB=1
 STAGE_LTS_KERNEL=1
 STAGE_NEXT_KERNEL=1
-INSTALLER_KERNEL_FLAVOR=lts
+INSTALLER_KERNEL_FLAVOR=next
 BOOTSTRAP_POOL=0
 # 2026-05-08: ceiling set to 1GB so the netinstall ISO stays in the
 # easy-GitHub-release-distribution band (GitHub allows up to 2GB per
