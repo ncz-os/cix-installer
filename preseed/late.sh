@@ -269,7 +269,7 @@ fi
 # d-i preseed (reboot_in_progress no longer set to note) will then prompt the
 # user to dismiss before the actual reboot fires.
 if [ "$RET" = "0" ]; then
-    BANNER='\n\n  ============================================================\n  \n    NCZ 26.5 INSTALL COMPLETE\n    \n    >>> REMOVE THE USB STICK NOW <<<\n    \n    Then press Enter on the next dialog to reboot.\n    \n    If you forget, the system will boot back into the\n    installer (USB has higher boot priority than NVMe).\n  \n  ============================================================\n'
+    BANNER='\n\n  ============================================================\n  \n    NCZ 26.6 INSTALL COMPLETE\n    \n    >>> REMOVE THE USB STICK NOW <<<\n    \n    Then press Enter on the next dialog to reboot.\n    \n    If you forget, the system will boot back into the\n    installer (USB has higher boot priority than NVMe).\n  \n  ============================================================\n'
     for tty in /dev/tty1 /dev/tty2 /dev/tty3 /dev/tty4 /dev/tty5 /dev/console; do
         if [ -w "$tty" ]; then
             printf '%b' "$BANNER" >> "$tty" 2>/dev/null || true

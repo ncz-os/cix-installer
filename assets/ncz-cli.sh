@@ -1,5 +1,5 @@
 #!/bin/bash
-# ncx — NCZ 26.5 agent management CLI
+# ncx — NCZ 26.6 agent management CLI
 AGENTS="zeroclaw openclaw hermes"
 
 agent_token() {
@@ -79,11 +79,11 @@ case "$1" in
             *) echo "Try: ncx agent {list|status|start|stop|restart|logs|enable|disable|web|shell|token|show}"; exit 1 ;;
         esac ;;
     version|"--version"|"-V")
-        echo "NCZ 26.5 \"Reinhardt\""
+        echo "NCZ 26.6 \"Reinhardt\""
         [ -f /etc/lsb-release ] && grep DISTRIB_DESCRIPTION /etc/lsb-release | cut -d= -f2- | tr -d '"' ;;
     ""|help|--help|-h)
         cat <<USAGE
-ncx — NCZ 26.5 agent CLI
+ncx — NCZ 26.6 agent CLI
   ncx agent list                show all agents + status
   ncx agent status <name>       detailed status
   ncx agent start|stop|restart <name>

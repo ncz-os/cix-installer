@@ -1,10 +1,10 @@
 #!/bin/bash
-# 50-brand.sh — NCZ 26.5 "Reinhardt" identity
+# 50-brand.sh — NCZ 26.6 "Reinhardt" identity
 # Note: NO `set -e` because pipefail + `find /missing/path | head -1` causes early exit.
 # Each step is best-effort; any failure logs and continues.
 set +e
 
-echo "[50] NCZ 26.5 brand identity"
+echo "[50] NCZ 26.6 brand identity"
 
 BUILD_ID_VALUE=""
 if [ -f /usr/local/lib/cix-installer/BUILD_VERSION ]; then
@@ -16,11 +16,11 @@ fi
 [ -z "$BUILD_ID_VALUE" ] && BUILD_ID_VALUE=unknown
 
 cat > /etc/os-release <<EOF
-PRETTY_NAME="Reinhardt 26.5 (based on Ubuntu 26.04 Resolute Raccoon)"
+PRETTY_NAME="Reinhardt 26.6 (based on Ubuntu 26.04 Resolute Raccoon)"
 NAME="NCZ"
 VERSION_ID="26.04"
 BUILD_ID="$BUILD_ID_VALUE"
-VERSION="26.5 (Reinhardt; based on Ubuntu 26.04 Resolute Raccoon)"
+VERSION="26.6 (Reinhardt; based on Ubuntu 26.04 Resolute Raccoon)"
 VERSION_CODENAME=reinhardt
 ID=ncz
 ID_LIKE=ubuntu
@@ -34,27 +34,27 @@ ln -sf /etc/os-release /usr/lib/os-release 2>/dev/null || true
 
 cat > /etc/lsb-release <<EOF
 DISTRIB_ID=NCZ
-DISTRIB_RELEASE=26.5
+DISTRIB_RELEASE=26.6
 DISTRIB_CODENAME=reinhardt
-DISTRIB_DESCRIPTION="Reinhardt 26.5 (based on Ubuntu 26.04 Resolute Raccoon)"
+DISTRIB_DESCRIPTION="Reinhardt 26.6 (based on Ubuntu 26.04 Resolute Raccoon)"
 EOF
 
 cat > /etc/issue <<EOF
-NCZ 26.5 "Reinhardt"  ·  Cix Sky1 / CP8180
+NCZ 26.6 "Reinhardt"  ·  Cix Sky1 / CP8180
 
 Dr. Reinhardt has gone into the Black Hole.
 
 EOF
 
 cat > /etc/issue.net <<EOF
-NCZ 26.5 "Reinhardt"  (Cix Sky1 / CP8180)
+NCZ 26.6 "Reinhardt"  (Cix Sky1 / CP8180)
 
 EOF
 
 cat > /etc/motd <<MOTD
 
    ┌─────────────────────────────────────────────────────────┐
-   │  NCZ 26.5 "Reinhardt"  —  Cix Sky1 / CP8180 edge agent  │
+   │  NCZ 26.6 "Reinhardt"  —  Cix Sky1 / CP8180 edge agent  │
    │                                                         │
    │  Agents:  zeroclaw · openclaw · hermes · claude-code    │
    │  Kernel:  linux-cix-sky1 6.18.26-lts (Yocto-built)      │
@@ -68,7 +68,7 @@ MOTD
 
 cat > /etc/update-motd.d/00-header <<HEADER
 #!/bin/sh
-printf "\nNCZ 26.5 \\"Reinhardt\\"  (GNU/Linux %s %s)\n" "\$(uname -r)" "\$(uname -m)"
+printf "\nNCZ 26.6 \\"Reinhardt\\"  (GNU/Linux %s %s)\n" "\$(uname -r)" "\$(uname -m)"
 printf "  Cix Sky1 / CP8180  ·  Dr. Reinhardt has gone into the Black Hole.\n\n"
 HEADER
 chmod 0755 /etc/update-motd.d/00-header
@@ -108,7 +108,7 @@ fi
 install -d -m 0755 /etc/skel/Desktop
 rm -f /etc/skel/Desktop/Reinhardt-Through-and-Beyond.desktop
 
-echo "[50] NCZ 26.5 Reinhardt identity applied — motd box-aligned, cosmic-quotes, no Ubuntu spam"
+echo "[50] NCZ 26.6 Reinhardt identity applied — motd box-aligned, cosmic-quotes, no Ubuntu spam"
 
 # ----------------------------------------------------------------------
 # r74: backgrounds installed directly to /usr/share/backgrounds/ncz/ by
@@ -202,7 +202,7 @@ font-name=Sans 11
 default-user-image=$NCZ_USER_IMG
 hide-user-image=false
 indicators=~spacer;~clock;~spacer;~session;~language;~a11y;~power
-clock-format=NCZ 26.5 "Reinhardt"  —  %a %b %d  %H:%M
+clock-format=NCZ 26.6 "Reinhardt"  —  %a %b %d  %H:%M
 position=50%,center 50%,center
 xft-antialias=true
 xft-hintstyle=hintslight
@@ -214,11 +214,11 @@ EOF
 # Neuter xubuntu/ubuntu greeter defaults so they cannot stomp ours
 mkdir -p /usr/share/lightdm/lightdm-gtk-greeter.conf.d
 cat > /usr/share/lightdm/lightdm-gtk-greeter.conf.d/30_xubuntu.conf <<'EOF'
-# NCZ 26.5: original xubuntu greeter overrides intentionally emptied
+# NCZ 26.6: original xubuntu greeter overrides intentionally emptied
 # (NCZ uses /etc/lightdm/lightdm-gtk-greeter.conf.d/99-ncz.conf instead)
 EOF
 cat > /usr/share/lightdm/lightdm-gtk-greeter.conf.d/01_ubuntu.conf <<'EOF'
-# NCZ 26.5: original ubuntu greeter overrides intentionally emptied
+# NCZ 26.6: original ubuntu greeter overrides intentionally emptied
 EOF
 
 echo "[50] LightDM greeter rebranded — bg=$NCZ_GREETER_BG, user-img=$NCZ_USER_IMG"

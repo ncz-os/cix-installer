@@ -82,7 +82,7 @@ echo "    XFCE default set via /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xm
 cat > /usr/share/icons/NCZ/index.theme <<'INDEX'
 [Icon Theme]
 Name=NCZ
-Comment=NCZ 26.5 Reinhardt black-hole trash + Adwaita-dark fallback
+Comment=NCZ 26.6 Reinhardt black-hole trash + Adwaita-dark fallback
 Inherits=Adwaita-dark,Adwaita,elementary-xfce-dark,elementary-xfce,hicolor
 Directories=places/scalable,places/256,places/128,places/96,places/64,places/48,places/32,places/24,places/22,places/16,scalable
 

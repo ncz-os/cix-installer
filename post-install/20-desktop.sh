@@ -195,7 +195,7 @@ mkdir -p /usr/share/ncx/flavors
 cat > /usr/share/ncx/flavors/README.md <<'README'
 # NCZ Desktop Flavors
 
-NCZ 26.5 "Reinhardt" ships **XFCE** as the default desktop because it works
+NCZ 26.6 "Reinhardt" ships **XFCE** as the default desktop because it works
 reliably on Cix Sky1 + Mali-G720. Four additional X11-native desktops are
 available via apt (no Vulkan/Wayland deps; will work on this hardware):
 
@@ -248,7 +248,7 @@ flatpak install -y --system flathub org.chromium.Chromium 2>&1 | tail -3 || echo
 DEBIAN_FRONTEND=noninteractive apt-get remove -y chromium-browser 2>&1 | tail -1 || true
 cat > /usr/local/bin/chromium-browser <<'CHROMWRAP'
 #!/bin/sh
-# NCZ 26.5: chromium-browser snap-stub replaced by Vivaldi compat wrapper.
+# NCZ 26.6: chromium-browser snap-stub replaced by Vivaldi compat wrapper.
 exec /usr/bin/vivaldi-stable "$@"
 CHROMWRAP
 chmod +x /usr/local/bin/chromium-browser
@@ -358,7 +358,7 @@ WMEOF
 # Openbox — feh autostart in /etc/skel/.config/openbox
 mkdir -p /etc/skel/.config/openbox
 cat > /etc/skel/.config/openbox/autostart <<OBEOF
-# NCZ 26.5 — set wallpaper from rotator-managed default
+# NCZ 26.6 — set wallpaper from rotator-managed default
 feh --bg-fill $NCZ_WP &
 OBEOF
 chmod +x /etc/skel/.config/openbox/autostart
@@ -412,7 +412,7 @@ cat > /etc/xdg/autostart/xscreensaver.desktop <<'XAUTO'
 [Desktop Entry]
 Type=Application
 Name=XScreenSaver
-Comment=NCZ 26.5 cosmic-themed screensaver daemon
+Comment=NCZ 26.6 cosmic-themed screensaver daemon
 Exec=xscreensaver -no-splash
 OnlyShowIn=XFCE;LXQt;MATE;Openbox;
 StartupNotify=false

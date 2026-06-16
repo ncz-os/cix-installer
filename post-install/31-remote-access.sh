@@ -34,7 +34,7 @@ fi
 # === xrdp fix: dbus-launch + startxfce4 + disable xfwm4 compositor ===
 cat > /etc/xrdp/startwm.sh <<'XRDP'
 #!/bin/sh
-# NCZ 26.5 xrdp session: XFCE with dbus-launch wrapper.
+# NCZ 26.6 xrdp session: XFCE with dbus-launch wrapper.
 # Without dbus-launch the WM exits in <1s. Disable xfwm4 compositor -
 # the RDP-side Xorg has no panthor/DRI, so GL accel attempts cause window-decoration glitches.
 unset DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR

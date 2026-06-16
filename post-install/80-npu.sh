@@ -125,7 +125,7 @@ fi
 # --- Step 4: auto-load on boot ---
 mkdir -p /etc/modules-load.d
 cat > /etc/modules-load.d/ncz-npu.conf << 'EOF'
-# NCZ 26.5: Cix Sky1 / Zhouyi v3 NPU driver
+# NCZ 26.6: Cix Sky1 / Zhouyi v3 NPU driver
 # Probes CIXH4000:00 (\_SB_.NPU0) + CIXH4010:0[012] (3 cores via SSDT override)
 # Creates /dev/aipu chardev; inference via cix-noe-umd 2.0.2
 armchina_npu
@@ -134,7 +134,7 @@ EOF
 # --- Step 5: drop NPU-STATUS.md ---
 mkdir -p /usr/share/doc/ncz
 cat > /usr/share/doc/ncz/NPU-STATUS.md << 'EOF'
-# NCZ 26.5 "Reinhardt" — Cix Sky1 / Zhouyi v3 NPU
+# NCZ 26.6 "Reinhardt" — Cix Sky1 / Zhouyi v3 NPU
 
 ## What works
 
