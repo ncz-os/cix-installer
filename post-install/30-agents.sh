@@ -189,19 +189,29 @@ Description=Load or pull NCZ agent container images
 Documentation=man:podman-load(1) man:podman-pull(1)
 Wants=network-online.target
 After=network-online.target
-Before=zeroclaw.service
 ConditionPathExists=/var/lib/nclawzero/agent-images
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-TimeoutStartSec=3600
+TimeoutStartSec=180
 ExecStart=/usr/local/sbin/nclawzero-load-agent-images
-
-[Install]
-WantedBy=multi-user.target
 UNIT
 chmod 0644 /etc/systemd/system/nclawzero-load-agent-images.service
+
+cat > /etc/systemd/system/nclawzero-load-agent-images.timer << UNIT
+[Unit]
+Description=Timer for loading NCZ agent container images
+
+[Timer]
+OnBootSec=10
+Unit=nclawzero-load-agent-images.service
+
+[Install]
+WantedBy=timers.target
+UNIT
+chmod 0644 /etc/systemd/system/nclawzero-load-agent-images.timer
+
 
 # Named volumes are also created lazily by podman run, but pre-creating them
 # makes the target state explicit for operator inspection.

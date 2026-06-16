@@ -233,8 +233,10 @@ echo "    /target/etc/resolv.conf:"
 cat /target/etc/resolv.conf | sed 's/^/      /'
 
 echo "--- running post-install in chroot ---"
+set +e
 in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
+set -e
 
 # Codex A2 fix: don't leave bind-mount around after late_command finishes
 if [ "${CDROM_BIND_MOUNTED:-0}" = "1" ]; then

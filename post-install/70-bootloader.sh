@@ -53,6 +53,24 @@ echo "  BUILD_VERSION=$BUILD_VERSION"
 # ----------------------------------------------------------------------
 # Install systemd-boot + efibootmgr
 # ----------------------------------------------------------------------
+
+# ----------------------------------------------------------------------
+# WIPE STALE ESP STATE before writing fresh entries.
+#
+# Bug 1 Fix: Wipe happens BEFORE bootctl install to prevent ESP overflow (512M limit).
+echo "  wiping stale ESP entries + kernel images..."
+rm -f /boot/efi/loader/entries/*.conf
+rm -f /boot/efi/vmlinuz-*
+rm -f /boot/efi/initrd.img-*
+rm -rf /boot/efi/[0-9a-f]*  # Wipe 32-hex kernel-install machine-id dirs
+rm -f /boot/efi/EFI/Linux/*.efi 2>/dev/null
+echo "  ESP wiped — proceeding with systemd-boot install"
+
+# Prevent systemd-boot deb postinst from double-staging kernels to the ESP
+mkdir -p /etc/kernel
+echo "layout=other" > /etc/kernel/install.conf
+echo "  /etc/kernel/install.conf set to layout=other (disables double-staging)"
+
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     systemd-boot efibootmgr || true
 
@@ -121,27 +139,6 @@ if [ ! -f /boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
     exit 1
 fi
 echo "  EFI/BOOT/BOOTAA64.EFI fallback installed (firmware-default path)"
-
-# ----------------------------------------------------------------------
-# WIPE STALE ESP STATE before writing fresh entries.
-#
-# Every prior install accumulated loader entry .conf files and
-# vmlinuz copies on the ESP. systemd-boot reads ALL *.conf files in
-# /boot/efi/loader/entries/ — leftover entries from r1/r2/r3 installs
-# show up alongside the new ones, defaulting to whichever has the
-# lowest sort name. This caused multiple "nclawzero (cixmini)"
-# entries on cixmini.66 (r6 era + earlier) and confused systemd-boot's
-# default selection.
-#
-# Wipe everything we own here. If the user has an out-of-band entry
-# they want preserved, they can re-add it after install.
-echo "  wiping stale ESP entries + kernel images..."
-rm -f /boot/efi/loader/entries/*.conf
-rm -f /boot/efi/vmlinuz-*
-# Some installs put kernels in /boot/efi/EFI/Linux/ via systemd-boot's
-# automatic discovery. Wipe those too.
-rm -f /boot/efi/EFI/Linux/*.efi 2>/dev/null
-echo "  ESP wiped — about to write fresh dual-kernel entries"
 
 # ----------------------------------------------------------------------
 # loader.conf
