@@ -1,0 +1,13 @@
+[Unit]
+Description=CIX NPU Embeddings API
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/opt/mnemos
+ExecStart=/opt/mnemos/venv/bin/python3 /opt/mnemos/bin/npu_embedder_api.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
