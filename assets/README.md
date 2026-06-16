@@ -1,6 +1,6 @@
 # NCZ 26.6 (Reinhardt / Magnetar)
 ## CIX Sky1 (CP8180) Edge AI Appliance
-> **IMPORTANT NOTE:** This operating system and hardware support matrix has only been tested on the **Minisforum MS-R1** using the **latest beta BIOS**. The beta BIOS update is highly recommended as it resolves several critical hardware initialization issues present in the factory-shipped Minisforum firmware.
+> **IMPORTANT NOTE:** This operating system and hardware support matrix has only been tested on the **Minisforum MS-R1** using the **latest beta BIOS**. The beta BIOS update is highly recommended as it resolves several critical hardware initialization issues present in the factory-shipped Minisforum firmware. You can find the ARM SystemReady Beta BIOS and EFI flashing instructions in the [Minisforum MS-R1-Docs GitHub Repository](https://github.com/minisforum-docs/MS-R1-Docs/blob/main/PlayBook/MS-R1-ARMSystemReady.md).
 
 
 Welcome to **NCZ 26.6**, a specialized operating system built specifically to unlock the true potential of the CIX Sky1 / CP8180 architecture (used in the Minisforum MS-R1). 
