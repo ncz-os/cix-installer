@@ -1,0 +1,13 @@
+pages:
+  stage: deploy
+  script:
+    - mkdir -p public/pool/main
+    - mkdir -p public/dists/resolute/main/binary-arm64
+    - cp build/apt-repo/*.deb public/pool/main/
+    - cp build/apt-repo/Packages.gz public/dists/resolute/main/binary-arm64/
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == "recovery/26.6-take1"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
