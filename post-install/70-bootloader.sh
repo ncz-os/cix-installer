@@ -55,7 +55,7 @@ echo "layout=other" > /etc/kernel/install.conf
 echo "  /etc/kernel/install.conf set to layout=other (disables double-staging)"
 
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    systemd-boot efibootmgr || true
+    systemd-boot efibootmgr
 
 command -v bootctl >/dev/null || { echo "ERROR: bootctl not installed"; exit 1; }
 
@@ -82,12 +82,30 @@ echo "  /boot/efi is mounted (vfat) — proceeding with systemd-boot install"
 
 # Fail-closed before touching existing ESP contents. A failed required
 # kernel phase must not let this script wipe a previously bootable ESP.
+verify_payload_readable() {
+    local label="$1"
+    local path="$2"
+
+    if [ ! -r "$path" ]; then
+        echo "ERROR: $label payload $path is not readable."
+        echo "       Refusing to wipe the ESP until the source payload can be staged."
+        exit 1
+    fi
+    if ! dd if="$path" of=/dev/null bs=1M status=none; then
+        echo "ERROR: failed read probe for $label payload $path."
+        echo "       Refusing to wipe the ESP until the source payload can be copied."
+        exit 1
+    fi
+}
+
 LTS_PREFLIGHT_READY=0
 NEXT_PREFLIGHT_READY=0
 if [ -n "$KVER_LTS" ]; then
     if [ -s "/boot/vmlinuz-$KVER_LTS" ] && [ -s "/boot/initrd.img-$KVER_LTS" ]; then
+        verify_payload_readable "LTS kernel" "/boot/vmlinuz-$KVER_LTS"
+        verify_payload_readable "LTS initrd" "/boot/initrd.img-$KVER_LTS"
         LTS_PREFLIGHT_READY=1
-        echo "  preflight OK: LTS kernel/initrd present for $KVER_LTS"
+        echo "  preflight OK: LTS kernel/initrd present and readable for $KVER_LTS"
     elif [ -s "/boot/vmlinuz-$KVER_LTS" ] && [ ! -s "/boot/initrd.img-$KVER_LTS" ]; then
         echo "ERROR: /boot/vmlinuz-$KVER_LTS exists but /boot/initrd.img-$KVER_LTS is missing or empty."
         echo "       Refusing to wipe the ESP without a complete LTS kernel payload."
@@ -102,8 +120,10 @@ if [ -n "$KVER_LTS" ]; then
 fi
 if [ -n "$KVER_NEXT" ]; then
     if [ -s "/boot/vmlinuz-$KVER_NEXT" ] && [ -s "/boot/initrd.img-$KVER_NEXT" ]; then
+        verify_payload_readable "NEXT kernel" "/boot/vmlinuz-$KVER_NEXT"
+        verify_payload_readable "NEXT initrd" "/boot/initrd.img-$KVER_NEXT"
         NEXT_PREFLIGHT_READY=1
-        echo "  preflight OK: NEXT kernel/initrd present for $KVER_NEXT"
+        echo "  preflight OK: NEXT kernel/initrd present and readable for $KVER_NEXT"
     elif [ -s "/boot/vmlinuz-$KVER_NEXT" ] && [ ! -s "/boot/initrd.img-$KVER_NEXT" ]; then
         echo "ERROR: /boot/vmlinuz-$KVER_NEXT exists but /boot/initrd.img-$KVER_NEXT is missing or empty."
         echo "       Refusing to wipe the ESP without a complete NEXT kernel payload."
