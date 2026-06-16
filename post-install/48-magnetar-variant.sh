@@ -99,8 +99,6 @@ fi
 #
 # Lower-risk than touching the kernel cmdline (which would lose video
 # console for non-serial-attached operators).
-systemctl mask getty@tty1.service 2>&1 | sed 's/^/    /' || true
-echo "[48] getty@tty1 masked — operators use tty2+ (Alt+F2)"
 
 # Force-enable getty@tty2 statically so we know there's a working login
 # prompt regardless of systemd's ConditionPathExists or autovt logic.

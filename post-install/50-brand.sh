@@ -54,7 +54,7 @@ DISTRIB_DESCRIPTION="${SKU_NAME} 26.6 (based on Ubuntu 26.04 Resolute Raccoon)"
 EOF_LSB
 
 cat > /etc/issue <<EOF_ISSUE
-NCZ 26.6 "${SKU_NAME}"  ·  Cix Sky1 / CP8180  (Kernel: \l)
+NCZ 26.6 "${SKU_NAME}"  ·  Cix Sky1 / CP8180  (Kernel: \r)
 
 EOF_ISSUE
 
