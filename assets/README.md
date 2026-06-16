@@ -47,7 +47,7 @@ To utilize the NPU, we have built a custom FastAPI wrapper (cix-npu-embedder.ser
 
 #### 2. ZeroClaw Orchestration (Hardware Isolated)
 The zeroclaw orchestration agent is deployed as a Podman Quadlet (zeroclaw-agent.service). 
-To ensure zero performance loss for your LLM or Database workloads, we have explicitly jailed ZeroClaw inside a cgroup bound **only to the 4 small CPU cores (CPUs 4-7)** and hard-capped it at 512MB of RAM.
+To ensure zero performance loss for your LLM or Database workloads, we have explicitly jailed ZeroClaw inside a cgroup bound **only to the 4 small CPU cores (CPUs 4-7)** and hard-capped it at 512MB of RAM. This cap is more than enough headroom: the agent requires less than 50MB to initialize (often idling under 10MB), and asynchronous task fan-out does not cause significant memory expansion.
 
 ---
 *Built for the NCZ Fleet (2026).*
