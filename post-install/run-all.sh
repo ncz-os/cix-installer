@@ -28,6 +28,8 @@ cd /usr/local/lib/cix-installer/post-install
 
 # Track failures across phases for end-of-run summary.
 FAILED_HOOKS=""
+# Phase 1 must complete before the EXIT trap is allowed to touch the ESP.
+REQUIRED_PHASE_OK=0
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
 # so users can watch hooks tick by instead of staring at d-i's stuck dialog.
@@ -39,9 +41,10 @@ tty_msg() {
 }
 tty_msg "==== run-all.sh: post-install hooks starting ===="
 
-# EXIT trap: always run 70-bootloader.sh (via direct invocation, NOT
-# through the failure-tracking machinery, since this trap fires after
-# any earlier `exit` or `set -e` propagation).
+# EXIT trap: run 70-bootloader.sh only after Phase 1 required hooks have
+# completed. It is invoked directly, not through the failure-tracking
+# machinery, since this trap fires after any earlier `exit` or `set -e`
+# propagation.
 finalize_bootloader() {
     ORIGINAL_RC=$?
     # The trap may run while Phase 1's `set -euo pipefail` is active.
@@ -49,7 +52,13 @@ finalize_bootloader() {
     # the diagnostics hook.
     set +e
     BOOTLOADER_RC=0
-    if [ -f /usr/local/lib/cix-installer/post-install/70-bootloader.sh ]; then
+    if [ "$ORIGINAL_RC" -ne 0 ] && [ "${REQUIRED_PHASE_OK:-0}" != "1" ]; then
+        echo ""
+        echo "============================================================"
+        echo "[cix-installer] EXIT trap -> required phase failed; skipping bootloader"
+        echo "============================================================"
+        echo "[cix-installer] 70-bootloader.sh skipped so a failed required hook cannot wipe the ESP"
+    elif [ -f /usr/local/lib/cix-installer/post-install/70-bootloader.sh ]; then
         echo ""
         echo "============================================================"
         echo "[cix-installer] EXIT trap → finalizing bootloader"
@@ -152,8 +161,8 @@ for hook in $(ls [0-9][0-9]-*.sh | sort); do
             if [ "$rc" -ne 0 ]; then
                 tty_msg "  ✗ $hook FAILED rc=$rc — install aborts"
                 echo "[cix-installer] FATAL on $hook rc=$rc — install cannot continue"
-                # Bootloader trap will still fire, but with no kernel images
-                # nothing useful can be written. Preserve hook rc anyway.
+                # The EXIT trap will skip the bootloader because Phase 1 did
+                # not complete. Preserve the required hook rc.
                 exit "$rc"
             fi
             HOOK_DUR=$(( $(date +%s) - HOOK_START ))
@@ -161,6 +170,7 @@ for hook in $(ls [0-9][0-9]-*.sh | sort); do
             ;;
     esac
 done
+REQUIRED_PHASE_OK=1
 
 # Phase 2: optional hooks. Failures logged but don't abort.
 set +e

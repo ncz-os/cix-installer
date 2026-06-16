@@ -49,22 +49,6 @@ echo "  KVER_LTS=$KVER_LTS"
 echo "  KVER_NEXT=${KVER_NEXT:-(not present)}"
 echo "  BUILD_VERSION=$BUILD_VERSION"
 
-# ----------------------------------------------------------------------
-# Install systemd-boot + efibootmgr
-# ----------------------------------------------------------------------
-
-# ----------------------------------------------------------------------
-# WIPE STALE ESP STATE before writing fresh entries.
-#
-# Bug 1 Fix: Wipe happens BEFORE bootctl install to prevent ESP overflow (512M limit).
-echo "  wiping stale ESP entries + kernel images..."
-rm -f /boot/efi/loader/entries/*
-rm -f /boot/efi/vmlinuz-*
-rm -f /boot/efi/initrd.img-*
-rm -rf /boot/efi/[0-9a-f]*  # Wipe 32-hex kernel-install machine-id dirs
-rm -f /boot/efi/EFI/Linux/* 2>/dev/null
-echo "  ESP wiped — proceeding with systemd-boot install"
-
 # Prevent systemd-boot deb postinst from double-staging kernels to the ESP
 mkdir -p /etc/kernel
 echo "layout=other" > /etc/kernel/install.conf
@@ -95,6 +79,49 @@ if [ "$ESP_FSTYPE" != "vfat" ]; then
     exit 1
 fi
 echo "  /boot/efi is mounted (vfat) — proceeding with systemd-boot install"
+
+# Fail-closed before touching existing ESP contents. A failed required
+# kernel phase must not let this script wipe a previously bootable ESP.
+LTS_PREFLIGHT_READY=0
+NEXT_PREFLIGHT_READY=0
+if [ -n "$KVER_LTS" ]; then
+    if [ -s "/boot/vmlinuz-$KVER_LTS" ] && [ -s "/boot/initrd.img-$KVER_LTS" ]; then
+        LTS_PREFLIGHT_READY=1
+        echo "  preflight OK: LTS kernel/initrd present for $KVER_LTS"
+    elif [ -s "/boot/vmlinuz-$KVER_LTS" ] && [ ! -s "/boot/initrd.img-$KVER_LTS" ]; then
+        echo "ERROR: /boot/vmlinuz-$KVER_LTS exists but /boot/initrd.img-$KVER_LTS is missing or empty."
+        echo "       Refusing to wipe the ESP without a complete LTS kernel payload."
+        exit 1
+    elif [ -e "/boot/vmlinuz-$KVER_LTS" ]; then
+        echo "ERROR: incomplete LTS kernel payload for $KVER_LTS."
+        echo "       Need non-empty /boot/vmlinuz-$KVER_LTS and /boot/initrd.img-$KVER_LTS before ESP wipe."
+        exit 1
+    else
+        echo "  WARN: LTS kernel payload for $KVER_LTS missing — LTS entry will be skipped"
+    fi
+fi
+if [ -n "$KVER_NEXT" ]; then
+    if [ -s "/boot/vmlinuz-$KVER_NEXT" ] && [ -s "/boot/initrd.img-$KVER_NEXT" ]; then
+        NEXT_PREFLIGHT_READY=1
+        echo "  preflight OK: NEXT kernel/initrd present for $KVER_NEXT"
+    elif [ -s "/boot/vmlinuz-$KVER_NEXT" ] && [ ! -s "/boot/initrd.img-$KVER_NEXT" ]; then
+        echo "ERROR: /boot/vmlinuz-$KVER_NEXT exists but /boot/initrd.img-$KVER_NEXT is missing or empty."
+        echo "       Refusing to wipe the ESP without a complete NEXT kernel payload."
+        exit 1
+    elif [ -e "/boot/vmlinuz-$KVER_NEXT" ]; then
+        echo "ERROR: incomplete NEXT kernel payload for $KVER_NEXT."
+        echo "       Need non-empty /boot/vmlinuz-$KVER_NEXT and /boot/initrd.img-$KVER_NEXT before ESP wipe."
+        exit 1
+    else
+        echo "  WARN: NEXT kernel payload for $KVER_NEXT missing — NEXT entry will be skipped"
+    fi
+fi
+if [ "$LTS_PREFLIGHT_READY" = "0" ] && [ "$NEXT_PREFLIGHT_READY" = "0" ]; then
+    echo "ERROR: no declared kernel has both a non-empty vmlinuz and initrd in /boot."
+    echo "       Refusing to wipe the ESP because there is nothing bootable to restage."
+    exit 1
+fi
+echo "  preflight OK: at least one complete declared kernel payload is present"
 
 # Two-stage install — first try without efivar registration (works in
 # chroot / QEMU without RW efivarfs), fall back to default if that
@@ -195,6 +222,21 @@ SPLASH=""
 ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 rw"
 
 # ----------------------------------------------------------------------
+# WIPE STALE ESP STATE immediately before writing fresh entries + kernels.
+#
+# This broad clear is intentional, but only after the fail-closed preflight
+# has proven /boot/efi is the vfat ESP, bootctl exists, and at least one
+# declared kernel has a complete kernel+initrd payload ready to restage.
+# ----------------------------------------------------------------------
+echo "  wiping stale ESP entries + kernel images..."
+rm -f /boot/efi/loader/entries/*
+rm -f /boot/efi/vmlinuz-*
+rm -f /boot/efi/initrd.img-*
+rm -rf /boot/efi/[0-9a-f]*  # Wipe 32-hex kernel-install machine-id dirs
+rm -f /boot/efi/EFI/Linux/* 2>/dev/null
+echo "  ESP wiped — proceeding with kernel/initrd staging"
+
+# ----------------------------------------------------------------------
 # Stage kernels/initrds onto ESP — systemd-boot reads /boot/efi by default.
 #
 # Tolerant only for an absent kernel image: if a KVER sidecar exists but
@@ -207,7 +249,7 @@ NEXT_AVAILABLE=0
 LTS_INITRD_AVAILABLE=0
 NEXT_INITRD_AVAILABLE=0
 
-if [ -n "$KVER_LTS" ] && [ -f "/boot/vmlinuz-$KVER_LTS" ]; then
+if [ -n "$KVER_LTS" ] && [ -s "/boot/vmlinuz-$KVER_LTS" ]; then
     if [ ! -s "/boot/initrd.img-$KVER_LTS" ]; then
         echo "ERROR: /boot/vmlinuz-$KVER_LTS exists but /boot/initrd.img-$KVER_LTS is missing or empty."
         echo "       Refusing to write an LTS loader entry without an initrd."
@@ -226,7 +268,7 @@ else
     echo "  LTS kernel not staged — skipping LTS fallback entry"
 fi
 
-if [ -n "$KVER_NEXT" ] && [ -f "/boot/vmlinuz-$KVER_NEXT" ]; then
+if [ -n "$KVER_NEXT" ] && [ -s "/boot/vmlinuz-$KVER_NEXT" ]; then
     if [ ! -s "/boot/initrd.img-$KVER_NEXT" ]; then
         echo "ERROR: /boot/vmlinuz-$KVER_NEXT exists but /boot/initrd.img-$KVER_NEXT is missing or empty."
         echo "       Refusing to write a NEXT loader entry without an initrd."
