@@ -148,6 +148,7 @@ sudo chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
 # dev tools + multimedia + native driver support. Ubuntu-correct names.
 PKGS=(
   # Server / infrastructure
+  zfsutils-linux btrfs-progs lvm2 mdadm
   ubuntu-server openssh-server openssh-client
   network-manager systemd-resolved
   sudo apt-utils ca-certificates gnupg lsb-release
@@ -193,7 +194,7 @@ PKGS=(
   pipewire pipewire-pulse
 
   # Dev tooling
-  build-essential git neovim tmux gdb
+  build-essential git neovim tmux gdb jq bc fdisk parted parted e2fsprogs dosfstools
   python3 python3-pip python3-venv python3-dev
   nodejs npm
   golang
@@ -201,7 +202,7 @@ PKGS=(
 
   # Containers
   podman skopeo buildah
-  docker.io docker-compose
+  docker.io docker-compose docker-compose-v2
 
   # Flatpak (newer apps later)
   flatpak
@@ -214,7 +215,10 @@ PKGS=(
   firefox
 
   # Bluetooth + audio
-  bluez bluetooth
+  bluez bluetooth bluez-tools pulseaudio-module-bluetooth
+
+  # AI and Machine Learning
+  python3-numpy python3-scipy python3-pil python3-requests python3-protobuf python3-tqdm python3-yaml
 
   # Misc essentials
   file man-db manpages
