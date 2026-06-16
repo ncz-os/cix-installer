@@ -182,7 +182,7 @@ CDROM_PREF
             { echo "WARN: local apt-get update from bootstrap pool failed"; }
     else
         in-target apt-get update 2>&1 | tail -3 || \
-        chroot /target /usr/bin/apt-get install -y linux-firmware cix-noe-umd cix-ai-engine mnemos-cix-integration
+        chroot /target /usr/bin/apt-get install -y linux-firmware cix-noe-umd cix-ai-engine mnemos-cix-integration zeroclaw-agent
 
             { echo "WARN: in-target apt-get update from cdrom failed"; }
     fi
