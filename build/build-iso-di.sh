@@ -1520,6 +1520,17 @@ if [ -d "$ROOT/assets/sky1-firmware" ]; then
     echo "    sky1-firmware: $(du -sh "$EXTRA/assets/sky1-firmware" | cut -f1)"
 fi
 
+# r104: validated kernel-module overlays (e.g. armchina_npu.ko with ARCH_V3 +
+# iova_region=2 fixes). The 'kernel' subdir is special-cased above so only
+# stable/+edge/ get staged — explicitly stage modules-overlay/ so 80-npu.sh
+# can drop the validated NPU module into /usr/lib/modules/$KVER/updates/.
+# Lands at /usr/local/lib/cix-installer/assets/kernel/modules-overlay/ via late.sh.
+if [ -d "$ROOT/assets/kernel/modules-overlay" ]; then
+    mkdir -p "$EXTRA/assets/kernel/modules-overlay"
+    cp -rL "$ROOT/assets/kernel/modules-overlay/"* "$EXTRA/assets/kernel/modules-overlay/" 2>/dev/null || true
+    echo "    modules-overlay: $(find "$EXTRA/assets/kernel/modules-overlay" -name '*.ko' 2>/dev/null | wc -l) .ko ($(du -sh "$EXTRA/assets/kernel/modules-overlay" 2>/dev/null | cut -f1))"
+fi
+
 echo "$VERSION"     > "$EXTRA/BUILD_VERSION"
 echo "$BUILD_DATE"  > "$EXTRA/BUILD_DATE"
 echo "$BUILD_HOST"  > "$EXTRA/BUILD_HOST"
