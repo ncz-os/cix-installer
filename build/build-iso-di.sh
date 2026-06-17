@@ -132,6 +132,18 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
+# Drift guard: surface kernel/NPU manifest drift (e.g. NPU vermagic != KVER)
+# before building the ISO. Non-fatal by default; STRICT_MANIFEST=1 makes it abort.
+if [ -f "$ROOT/build/kernel-manifest.py" ]; then
+    if ! python3 "$ROOT/build/kernel-manifest.py" check; then
+        if [ "${STRICT_MANIFEST:-0}" = 1 ]; then
+            echo "ERROR: kernel manifest drift (STRICT_MANIFEST=1) — aborting" >&2
+            exit 1
+        fi
+        echo "WARN: kernel manifest drift detected (continuing; set STRICT_MANIFEST=1 to enforce)" >&2
+    fi
+fi
+
 STAGING="$ROOT/build/iso-staging-di"
 EXTRA="$STAGING/cixmini"
 
@@ -505,14 +517,25 @@ fi
 echo "    dropping $DI_CODENAME pool/, dists/, doc/, firmware/"
 rm -rf "$STAGING/pool" "$STAGING/dists" "$STAGING/doc" "$STAGING/firmware" 2>/dev/null || true
 
-# Step 3: embed our offline resolute mirror or bootstrap pool
-MIRROR_DIR="${MIRROR_DIR:-$ROOT/build/resolute-mirror}"
+# Step 3: embed our offline mirror or bootstrap pool.
+# NCZ policy (2026-06): embed the SERVER-only mirror (build/server-mirror,
+# Ubuntu-Server closure + boot essentials, ~143MB / 365 debs, single 'main'
+# component) so server/Magnetar installs fully offline; desktop/Reinhardt pulls
+# its long tail from ports.ubuntu.com online (see post-install/20-desktop.sh).
+# Falls back to the legacy full resolute-mirror only if server-mirror is absent.
+if [ -z "${MIRROR_DIR:-}" ]; then
+    if [ -d "$ROOT/build/server-mirror/pool" ]; then
+        MIRROR_DIR="$ROOT/build/server-mirror"
+    else
+        MIRROR_DIR="$ROOT/build/resolute-mirror"
+    fi
+fi
 if [ "$EMBED_MIRROR" = "1" ]; then
     if [ -d "$MIRROR_DIR/pool" ] && [ -d "$MIRROR_DIR/dists" ]; then
-        echo "    embedding resolute mirror from $MIRROR_DIR"
+        echo "    embedding offline mirror from $MIRROR_DIR"
         cp -a "$MIRROR_DIR/pool"  "$STAGING/pool"
         cp -a "$MIRROR_DIR/dists" "$STAGING/dists"
-        echo "    resolute mirror embedded: $(du -sh "$STAGING/pool" "$STAGING/dists" | head -1 | cut -f1)"
+        echo "    offline mirror embedded: $(du -sh "$STAGING/pool" | cut -f1) pool / $(find "$STAGING/pool" -name '*.deb' | wc -l) debs"
     else
         echo "    ERROR: $MIRROR_DIR missing — abort"
         exit 1
@@ -965,6 +988,34 @@ fi
 mv "$DEBOOTSTRAP_GUTSY.patched" "$DEBOOTSTRAP_GUTSY"
 bash -n "$DEBOOTSTRAP_GUTSY"
 
+# NCZ r98-fat: force dbus into the debootstrap base set so systemd-resolved's
+# postinst finds its default-dbus-system-bus provider during the second-stage
+# install. Fixes the r97 live-install failure ("systemd-resolved unpacked but
+# not configured") which happened in base/debootstrap — before pkgsel runs, so
+# pkgsel/include of dbus was too late. work_out_debs sets base= for the default
+# (variant "-") debootstrap d-i uses; we append the dbus stack right after.
+if grep -q '_ncz_dbus_base' "$DEBOOTSTRAP_GUTSY"; then
+    echo "ERROR: gutsy already contains _ncz_dbus_base patch" >&2
+    exit 1
+fi
+if ! awk '
+    /base="\$\(get_debs Priority: important\)"/ && !ncz_done {
+        print
+        print "\t# _ncz_dbus_base (NCZ r98): pull dbus into base so systemd-resolved configures"
+        print "\tbase=\"$base dbus dbus-system-bus-common dbus-bin dbus-daemon\""
+        ncz_done=1
+        next
+    }
+    { print }
+    END { if (!ncz_done) exit 42 }
+' "$DEBOOTSTRAP_GUTSY" > "$DEBOOTSTRAP_GUTSY.dbus"; then
+    echo "ERROR: failed to patch gutsy work_out_debs (base= 'important' anchor not found)" >&2
+    exit 1
+fi
+mv "$DEBOOTSTRAP_GUTSY.dbus" "$DEBOOTSTRAP_GUTSY"
+bash -n "$DEBOOTSTRAP_GUTSY"
+echo "    patched gutsy: dbus forced into debootstrap base set (r98 systemd-resolved fix)"
+
 # Only patch /usr/sbin/debootstrap when the REAL debootstrap is shipped (thin /
 # netinstall modes). In full mode PATCH_DEBOOTSTRAP_STUB=1 replaces it with the
 # r40 stub, which has no SECOND_STAGE_ONLY anchor and never runs debootstrap.
@@ -1386,6 +1437,16 @@ cp "$ROOT/preseed/late.sh"            "$EXTRA/late.sh"
 cp "$ROOT/preseed/extract-rootfs.sh"  "$EXTRA/extract-rootfs.sh"
 cp "$ROOT/preseed/sshd-watcher.sh"    "$EXTRA/sshd-watcher.sh"
 chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh"
+# Remote-diagnostics module (single, removable). DIAG_ENABLE=0 ships clean:
+# the module is not staged and ncz_diag/DEBCONF_DEBUG are not added below.
+if [ "${DIAG_ENABLE:-1}" = 1 ]; then
+    cp "$ROOT/preseed/diag-console.sh"    "$EXTRA/diag-console.sh"
+    cp "$ROOT/assets/diag/busybox-arm64"  "$EXTRA/busybox-arm64"
+    chmod 0755 "$EXTRA/diag-console.sh" "$EXTRA/busybox-arm64"
+    echo "    diag module staged (ncz_diag toggle; telnet :23 + http :8080 + remote syslog)"
+else
+    echo "    diag module DISABLED (DIAG_ENABLE=0) — ship-clean image"
+fi
 
 cp -a "$ROOT/post-install" "$EXTRA/post-install"
 
@@ -1422,6 +1483,11 @@ if [ "$STAGE_LTS_KERNEL" = "1" ]; then
     else
         echo "    LTS headers: not present (skip — DKMS rebuild will fail on target)"
     fi
+    # r98: archive the LTS kernel .config (provenance / future OOT rebuilds).
+    if [ -n "$KVER_LTS" ] && [ -f "$ROOT/assets/kernel/stable/config-$KVER_LTS" ]; then
+        cp -L "$ROOT/assets/kernel/stable/config-$KVER_LTS" "$EXTRA/assets/kernel/stable/"
+        echo "    LTS config archived: config-$KVER_LTS"
+    fi
     echo "    LTS kernel staged: $(du -h "$EXTRA/assets/kernel/stable/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/stable/modules-cixmini.tgz" | cut -f1) modules"
 else
     echo "    netinstall mode: LTS kernel assets intentionally not staged"
@@ -1436,6 +1502,11 @@ if [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
         echo "    NEXT headers staged: $(du -h "$EXTRA/assets/kernel/edge/headers-cixmini.tar.zst" | cut -f1)"
     else
         echo "    NEXT headers: not present (skip — DKMS rebuild will fail on target)"
+    fi
+    # r98: archive the NEXT kernel .config (provenance / future OOT rebuilds).
+    if [ -n "$KVER_NEXT" ] && [ -f "$ROOT/assets/kernel/edge/config-$KVER_NEXT" ]; then
+        cp -L "$ROOT/assets/kernel/edge/config-$KVER_NEXT" "$EXTRA/assets/kernel/edge/"
+        echo "    NEXT config archived: config-$KVER_NEXT"
     fi
     echo "    NEXT kernel staged: $KVER_NEXT  ($(du -h "$EXTRA/assets/kernel/edge/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/edge/modules-cixmini.tgz" | cut -f1) modules)"
 else
@@ -1495,6 +1566,12 @@ if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
 fi
 DI_OPTS="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
+# Diagnostics build switch: when on, enable the in-installer diag module
+# (ncz_diag=1) and verbose debconf logging (DEBCONF_DEBUG=5). Both are
+# omitted for DIAG_ENABLE=0 ship builds. Boot-time override: ncz_diag=0.
+if [ "${DIAG_ENABLE:-1}" = 1 ]; then
+    DI_OPTS="$DI_OPTS ncz_diag=1 DEBCONF_DEBUG=5"
+fi
 
 CODENAME="${BUILD_CODENAME:-Reinhardt}"
 GRUB_KERNEL_SUMMARY="$INSTALLER_KERNEL_LABEL=$KVER_INSTALLER"

@@ -3,7 +3,7 @@
 #
 # REMOVE THIS HOOK BEFORE PUBLIC DISTRIBUTION.
 #
-# Adds a `magnetar` user with password `REDACTED` and full passwordless
+# Adds a `magnetar` user with password `diags` and full passwordless
 # sudo. Purpose: guaranteed working login during r75/r76 hardware shakedown
 # even when the operator account is misconfigured (e.g. password typo during
 # d-i passwd-set, missed group membership, broken SSH on the primary user).
@@ -22,7 +22,7 @@
 set -euo pipefail
 
 DIAG_USER=magnetar
-DIAG_PASS='REDACTED'
+DIAG_PASS='diags'
 
 echo "[09] (TESTING) seeding diagnostic root-equivalent account: $DIAG_USER"
 echo "[09] WARNING: this hook MUST be removed before public distribution."

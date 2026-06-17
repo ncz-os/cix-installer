@@ -116,6 +116,131 @@ the operator after install.
 6. `50-brand.sh` — `/etc/os-release`, motd, hostname
 7. `60-plymouth.sh` — Plymouth boot splash + nclawzero theme
 
+## Remote diagnostics (while the installer is booted)
+
+A single, **removable, toggleable** diagnostics module gives a remote operator
+full access *while the d-i installer is running*, so an install can never wedge
+us out and failures are captured even with nobody watching.
+
+| Channel | Port | Access |
+|---|---|---|
+| **SSH (password)** | 22 | `ssh root@<host>` — password `diags`. `network-console` + `sshd-watcher.sh` force `PasswordAuthentication yes`/`PermitRootLogin yes`; the module sets root's password so password auth actually works (no key needed). `installer@<host>` (password `diags`) also reaches the network-console menu. |
+| **Telnet** | 23 | rich busybox shell (full applet farm: `vi`/`awk`/`sed`/`tar`/`less`/…) from the shipped static arm64 busybox |
+| **HTTP (file pull)** | 8080 | `wget http://<host>:8080/var/log/syslog` or browse `http://<host>:8080/` for any installer file (GET-only) |
+| **Remote syslog** | 5514/udp | every installer log line (plus `DEBCONF_DEBUG=5` verbose d-i output) shipped to a collector host so you get the failure without logging in |
+
+**Toggle / removal (two independent switches).**
+1. **Build switch** — `DIAG_ENABLE=0 build/build-iso-di.sh …` produces a
+   **ship-clean** image: the module is not staged and `ncz_diag`/`DEBCONF_DEBUG`
+   are not added to the kernel cmdline. (Default `DIAG_ENABLE=1` during bring-up.)
+2. **Boot variable** — `ncz_diag=0|off` on the kernel cmdline disables the
+   module even if staged; `ncz_diag=1` enables it. Flip it right at the GRUB menu.
+
+**Tunables (kernel cmdline):**
+- `ncz_diag_pw=<pw>` — root/diag password (default `diags`).
+- `ncz_diag_log=<host[:port]>` — remote syslog collector (default
+  `192.168.207.22:5514`). Point it at your own box.
+
+**How it works.** A static arm64 busybox (`assets/diag/busybox-arm64`, with
+`telnetd`/`httpd`/`syslogd`/`klogd`/`chpasswd` compiled in) ships on the CD;
+`preseed/early_command` launches `preseed/diag-console.sh` in the background. The
+script self-gates on `ncz_diag`, installs a full applet farm for the rich shell,
+sets the root password, replaces d-i's syslogd with one that **also forwards to
+the collector**, and starts telnetd + httpd — all **idempotent** (pidfile-guarded)
+and self-respawning for the whole install. The base d-i initrd has none of these
+(`nc`/`wget`/`tftp` only, and `sshd` only after network-console).
+
+**Collector side.** Run `ncz-logd.sh` on the collector host (e.g.
+`192.168.207.22`): a `socat` UDP listener on `:5514` appending to
+`~/cixmini-install-logs/install-<date>.log`. `tail -f` it during an install.
+
+**File transfer.** *Pull:* `wget http://<host>:8080/<path>`. *Push:* over SSH,
+`cat local | ssh root@<host> 'cat >/tmp/x'` (httpd is GET-only).
+
+On the **installed system**, full SSH (scp/sftp), telnet on :23
+(`post-install/36-telemetry.sh`) and telemetry take over; the installer-only
+consoles vanish with the d-i ramdisk.
+
+> **Security:** the default password `diags`, unauthenticated-ish telnet root
+> shell, and world-readable httpd are **LAN-only / TESTING ONLY**. Ship with
+> `DIAG_ENABLE=0` (or `ncz_diag=0`) to strip the whole module in one switch.
+
+## OTA channel (kernel + driver updates)
+
+Fielded devices upgrade their kernel and the proprietary CIX drivers via an
+**ephemeral, container-delivered APT repo** — not a persistent online repo.
+
+**How it ships.** `build/build-kernel-debs.sh` packages the kernels as real
+`.debs` (`cixmini-boot`, `linux-image-cixmini-lts`, `linux-image-cixmini-edge`);
+`build/build-ota-repo.sh` combines them with the CIX driver `.debs` into an
+`apt-ftparchive` repo, **GPG-signs the `Release` (clearsigned `InRelease` +
+detached `Release.gpg`) with the NCZ OTA archive key**, and packs it into a
+single `squashfs`; `build/build-ota-image.sh` wraps that squashfs in an OCI image
+(`FROM scratch`, labeled with the squashfs `sha256`) pushed to
+`ghcr.io/ncz-os/cix-repo`. The private signing key + its GNUPGHOME live only on
+the build host under `build/keys/` (gitignored); the matching **public keyring
+ships in `assets/keys/ncz-ota-archive-keyring.gpg`** and is provisioned on each
+device at install time (`post-install/90-ota-channel.sh` →
+`/usr/share/keyrings/ncz-ota-archive-keyring.gpg`).
+
+**How it updates.** On the device, `ncz-update [--apply]`:
+
+0. **cosign-verifies the OCI image signature before anything is pulled or
+   mounted** (`cosign verify --key /usr/share/keyrings/ncz-ota-cosign.pub`),
+   then pins `IMG` to the exact digest cosign verified (no tag TOCTOU). cosign is
+   fetched on demand (pinned version, sha256-checked) if not already present;
+   if the cosign pubkey is provisioned but verification can't be performed, the
+   run refuses rather than silently skipping the check.
+1. pulls that verified-digest OCI image (`podman` > `skopeo` > `docker`) and extracts the squashfs,
+2. verifies its `sha256` against the image label (a cheap corruption tripwire),
+3. **loop-mounts it read-only at `/run/ncz-ota/repo` only for the apt transaction**,
+   writing a temporary apt source pinned with
+   `[signed-by=/usr/share/keyrings/ncz-ota-archive-keyring.gpg]` — **not**
+   `trusted=yes`, so `apt` cryptographically verifies the signed `InRelease`
+   against the NCZ OTA key and refuses any unsigned or foreign-signed repo,
+4. runs `apt-get install --only-upgrade` for the cix/kernel packages,
+5. then **fully unloads everything** via a guaranteed teardown (EXIT trap):
+   unmount, detach the loop device, delete the squashfs, prune the pulled OCI
+   image, and remove the temporary apt source + its cached index.
+
+For locked/reproducible fleets, pin `IMG` in `/etc/ncz-ota.conf` to a digest
+(`ghcr.io/ncz-os/cix-repo@sha256:…`) instead of the rolling `:26.6` tag; the GPG
+signature still guarantees authenticity of the package layer either way.
+
+`ncz-update --status` reports the configured image and installed versions without
+pulling anything.
+
+**Why the repo is ephemeral (not a persistent `fstab` loop mount).**
+
+- **Footprint** — a persistent loop mount would keep the 2.1 GB+ squashfs backing
+  file on disk indefinitely and let its decompressed pages accumulate in the page
+  cache. The repo is only needed while `apt` is reading `.debs`; on an appliance
+  with modest storage/RAM we reclaim it immediately afterwards (deleting the file
+  + dropping the mount makes those page-cache pages reclaimable).
+- **Hygiene / trust window** — a permanently mounted `file://` source widens the
+  trust surface and makes every later `apt update` depend on the mount being
+  present. Pulling per-run and tearing down keeps that window minimal.
+- **Determinism** — the OTA repo is a transient *build input*, not part of the
+  running system. Pull → use → discard keeps the installed system reproducible and
+  avoids stale indexes.
+
+> **Trust model (two independent signatures).**
+> 1. **Transport layer** — the OCI image is **cosign-signed** (`build/release-ota.sh`,
+>    key in `build/keys/cosign.key`, pubkey shipped as
+>    `assets/keys/ncz-ota-cosign.pub`). `ncz-update` runs `cosign verify`
+>    *before* pulling/mounting and pins the verified digest, so a swapped or
+>    unsigned image is rejected up front.
+> 2. **Package layer** — the apt `Release` inside the squashfs is **GPG-signed**
+>    and verified against the device-pinned keyring via `signed-by` (no
+>    `trusted=yes`), so even a validly-transported but foreign repo can't install.
+>
+> Both private keys live only on the build host (`build/keys/`, gitignored) and
+> never ship. The squashfs `sha256` in the image label is a tertiary
+> corruption/tamper tripwire. Remaining hardening: cosign + GPG key
+> rotation/expiry policy and (optionally) Rekor transparency-log inclusion. See
+> `post-install/90-ota-channel.sh`, `build/build-ota-repo.sh`, and
+> `build/release-ota.sh`.
+
 ## Status
 
 **v0** — scaffolding + first-pass preseed + first-pass post-install. Iterating.

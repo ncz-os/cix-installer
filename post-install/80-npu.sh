@@ -61,20 +61,43 @@ fi
 echo "[80] installing NCZ NPU stack (FyrbyAdditive MS-R1 fixes)..."
 
 # --- Step 1: install kernel modules ---
+# Two supported sources, in priority order:
+#   1. In-tree module shipped inside modules-cixmini.tgz (CONFIG_ARMCHINA_NPU=m).
+#      This is the case for the NEXT kernel (7.0.x-cix-sky1-next) where the
+#      driver is built as part of the kernel and already carries the correct
+#      vermagic. Nothing to copy — just confirm + depmod.
+#   2. Out-of-tree prebuilt $ASSETS/armchina_npu-${KVER}.ko, whose vermagic MUST
+#      exactly match $KVER. This is the case for the LTS kernel
+#      (6.18.26-ncz-lts), whose config does NOT enable CONFIG_ARMCHINA_NPU.
 for i in "${!KERNEL_VERS[@]}"; do
     LABEL="${KERNEL_LABELS[$i]}"
     KVER="${KERNEL_VERS[$i]}"
-    if [ -d "/usr/lib/modules/$KVER" ]; then
-        SRC="$ASSETS/armchina_npu-${KVER}.ko"
-        if [ -f "$SRC" ]; then
-            install -D -m 0644 "$SRC" "/usr/lib/modules/$KVER/extra/armchina_npu.ko"
-            depmod -a "$KVER" 2>/dev/null
-            echo "[80] installed armchina_npu.ko for $KVER"
-        else
-            echo "[80] WARN: $SRC missing, skipping $LABEL/$KVER"
-        fi
-    else
+    if [ ! -d "/usr/lib/modules/$KVER" ]; then
         echo "[80] WARN: /usr/lib/modules/$KVER does not exist; skipping $KVER"
+        continue
+    fi
+
+    INTREE=$(find "/usr/lib/modules/$KVER/kernel" -name 'armchina_npu.ko*' 2>/dev/null | head -1)
+    SRC="$ASSETS/armchina_npu-${KVER}.ko"
+
+    if [ -n "$INTREE" ]; then
+        # In-tree build (NEXT): driver already present with matching vermagic.
+        depmod -a "$KVER" 2>/dev/null
+        echo "[80] $LABEL/$KVER: using in-tree armchina_npu.ko ($INTREE)"
+    elif [ -f "$SRC" ]; then
+        # Guard: refuse to install a vermagic-mismatched OOT module — loading it
+        # would either be rejected by modprobe or (with MODVERSIONS off) risk a
+        # silent ABI mismatch. Skip loudly instead.
+        VM=$(modinfo -F vermagic "$SRC" 2>/dev/null | awk '{print $1}')
+        if [ -n "$VM" ] && [ "$VM" != "$KVER" ]; then
+            echo "[80] ERROR: $SRC vermagic '$VM' != kernel '$KVER'; refusing to install (rebuild OOT module for $KVER)"
+            continue
+        fi
+        install -D -m 0644 "$SRC" "/usr/lib/modules/$KVER/extra/armchina_npu.ko"
+        depmod -a "$KVER" 2>/dev/null
+        echo "[80] $LABEL/$KVER: installed OOT armchina_npu.ko (vermagic $VM)"
+    else
+        echo "[80] WARN: no in-tree module and no $SRC; NPU unavailable for $LABEL/$KVER"
     fi
 done
 
@@ -139,8 +162,8 @@ cat > /usr/share/doc/ncz/NPU-STATUS.md << 'EOF'
 ## What works
 
 - **Kernel module** `armchina_npu.ko` probes clean on MS-R1 for both NCZ kernels:
-  - 6.18.26-cix-sky1-lts (default)
-  - 7.0.3-cix-sky1-next (BETA opt-in)
+  - 7.0.12-cix-sky1-next (default; in-tree CONFIG_ARMCHINA_NPU=m)
+  - 6.18.26-ncz-lts (stable fallback; out-of-tree module)
 - **ACPI SSDT override** corrects the missing `_HID="CIXH4010"` on NPU cores
   (CRE0/CRE1/CRE2) — a bug in Minisforum's shipped BIOS omitted by the OEM.
   Injected via initramfs CPIO prepend; fully reversible.

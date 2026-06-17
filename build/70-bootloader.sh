@@ -1,10 +1,12 @@
 #!/bin/bash
 # 70-bootloader.sh — systemd-boot install + DUAL-kernel loader entries.
 #
-# Three loader entries:
-#   1. cixmini-lts.conf   (default — Sky1 6.18.26 LTS)
-#   2. cixmini-next.conf  ([BETA] Sky1 7.0.1 next — only if NEXT was baked)
-#   3. cixmini-rescue.conf (rescue.target on LTS kernel)
+# Loader entries (only TWO kernel binaries on the ESP — LTS + NEXT; the
+# safe/rescue entries reuse the LTS binary):
+#   1. cixmini-next.conf      (DEFAULT — homegrown Sky1 7.0.12, headline kernel)
+#   2. cixmini-lts.conf       (fallback — CIX BSP Sky1 6.18.26-cix-sky1-lts, stable)
+#   3. cixmini-lts-safe.conf  (safe graphics — LTS w/ Sky1 accelerators blacklisted)
+#   4. cixmini-rescue.conf    (rescue.target on LTS kernel)
 #
 # CRITICAL: systemd-boot's loader entry parser does NOT support
 # backslash line-continuation — every line MUST be standalone. Earlier
@@ -12,7 +14,7 @@
 # half the cmdline.
 set -euo pipefail
 
-echo "[70] systemd-boot bootloader (DUAL kernel — LTS default + BETA)"
+echo "[70] systemd-boot bootloader (DUAL kernel — 7.0.12 default + 6.18 LTS fallback)"
 
 INSTALLER_META=/usr/local/lib/cix-installer
 [ -f "$INSTALLER_META/KVER_LTS" ] || { echo "ERROR: KVER_LTS sidecar missing"; exit 1; }
@@ -104,7 +106,7 @@ echo "  ESP wiped — about to write fresh dual-kernel entries"
 # ----------------------------------------------------------------------
 mkdir -p /boot/efi/loader/entries
 cat > /boot/efi/loader/loader.conf <<'EOF'
-default cixmini-lts
+default cixmini-next
 timeout 5
 console-mode auto
 editor yes
@@ -175,51 +177,86 @@ if [ "$LTS_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
 fi
 
 # ----------------------------------------------------------------------
-# Entry 1 — cixmini-lts.conf (DEFAULT, production-stable, only if LTS available)
+# Entry — cixmini-lts.conf (FALLBACK — CIX BSP 6.18.26-cix-sky1-lts, stable)
 # ----------------------------------------------------------------------
 if [ "$LTS_AVAILABLE" = "1" ]; then
     LTS_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
     [ -n "$SPLASH" ] && LTS_OPTIONS="$LTS_OPTIONS $SPLASH"
 
-    # sort-key forces menu-order (systemd-boot 252+) — without it,
-    # entries sort by version DESC and BETA (7.0.1) lands at top.
+    # sort-key forces menu-order (systemd-boot 252+). LTS is the stable
+    # fallback so it sorts below the default 7.0.12 headline entry.
     cat > /boot/efi/loader/entries/cixmini-lts.conf <<EOF
-title   nclawzero (cixmini) — kernel $KVER_LTS [LTS, default] — $BUILD_VERSION
-sort-key 1-lts
+title   nclawzero (cixmini) — kernel $KVER_LTS [LTS — CIX BSP, stable fallback] — $BUILD_VERSION
+sort-key 2-lts
 version $KVER_LTS
 linux   /vmlinuz-$KVER_LTS
 options $LTS_OPTIONS
 EOF
-    echo "  wrote cixmini-lts.conf (default, sort-key 1-lts)"
+    echo "  wrote cixmini-lts.conf (fallback, sort-key 2-lts)"
 else
     echo "  skipping cixmini-lts.conf (LTS kernel not installed)"
 fi
 
 # ----------------------------------------------------------------------
-# Entry 2 — cixmini-next.conf ([BETA] — only if NEXT kernel was installed)
+# Entry — cixmini-lts-safe.conf (SAFE GRAPHICS — 6.18 LTS, accelerators off)
 #
-# Title is intentionally LOUD with [BETA] markers so the user cannot
-# misclick this in the boot menu thinking it's the stable choice.
-# Per Sky1-Linux issue #12 (MartJohnson 2026-04-30): kernel 7.0.1 boots
-# on MS-R1 but has known SCMI transition errors and occasional boot
-# freezes / shutdown crashes — the BIOS doesn't have the SCMI updates
-# 7.0 expects yet. 6.18.26 LTS does NOT have these issues. This BETA
-# entry is for A/B testing only; production users should pick LTS.
+# Boots the 6.18 LTS (CIX BSP) kernel but module_blacklists the heavy Sky1
+# accelerator / display / audio / codec drivers that are the usual culprits
+# for boot hangs (NPU, GPU, the Sky1 DPU/DP, VPUs, DSP, HDA/SOF audio).
+# With no KMS driver bound, video falls back to the UEFI framebuffer
+# (efifb/simplefb via SYSFB); networking, storage and filesystem drivers
+# load normally. Reuses the LTS kernel binary — no extra ESP space. Use this
+# when a full boot wedges during GPU/display/NPU/DSP bring-up.
+# ----------------------------------------------------------------------
+if [ "$LTS_AVAILABLE" = "1" ]; then
+    # Module names normalize '-' to '_'. Keep networking/fb/fs OUT of this list.
+    SAFE_BLACKLIST="armchina_npu,amphion_vpu,hantro_vpu,wave5,panthor,panfrost,mali_dp,sky1_drm,trilin_dpsub,cix_dsp,cix_dsp_rproc,snd_hda_cix_ipbloq,snd_sof_cix_common,snd_sof_cix_sky1"
+    # The base cmdline already carries a module_blacklist= (typec). The kernel
+    # honors only ONE module_blacklist= (last wins), so MERGE our list into the
+    # existing param rather than appending a second one.
+    if [[ "$MARTJOHNSON_CMDLINE" == *module_blacklist=* ]]; then
+        SAFE_CMDLINE="${MARTJOHNSON_CMDLINE/module_blacklist=/module_blacklist=$SAFE_BLACKLIST,}"
+    else
+        SAFE_CMDLINE="$MARTJOHNSON_CMDLINE module_blacklist=$SAFE_BLACKLIST"
+    fi
+    SAFE_OPTIONS="$ROOT_OPTS $SAFE_CMDLINE nomodeset"
+
+    cat > /boot/efi/loader/entries/cixmini-lts-safe.conf <<EOF
+title   SAFE graphics (cixmini) — kernel $KVER_LTS [6.18 LTS, accelerators disabled] — $BUILD_VERSION
+sort-key 3-lts-safe
+version $KVER_LTS
+linux   /vmlinuz-$KVER_LTS
+options $SAFE_OPTIONS
+EOF
+    echo "  wrote cixmini-lts-safe.conf (sort-key 3-lts-safe, blacklist=$SAFE_BLACKLIST)"
+else
+    echo "  skipping cixmini-lts-safe.conf (LTS kernel not installed)"
+fi
+
+# ----------------------------------------------------------------------
+# Entry — cixmini-next.conf (DEFAULT — homegrown headline kernel 7.0.12)
+#
+# 7.0.12 is the homegrown headline kernel with the full Sky1 stack in-tree
+# (display/audio/NPU/etc.) and is the default boot target. The earlier
+# [BETA] warning applied to 7.0.1 (Sky1-Linux #12: SCMI transition errors /
+# boot freezes before the BIOS SCMI updates); 7.0.12 is the validated
+# default. The CIX BSP 6.18 LTS remains as the conservative fallback entry.
 # ----------------------------------------------------------------------
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 
+    # sort-key 1-next keeps the default headline kernel at the top of the menu.
     cat > /boot/efi/loader/entries/cixmini-next.conf <<EOF
-title   *** [BETA — UNSTABLE] nclawzero kernel $KVER_NEXT — $BUILD_VERSION ***
-sort-key 2-next
+title   nclawzero (cixmini) — kernel $KVER_NEXT [headline, default] — $BUILD_VERSION
+sort-key 1-next
 version $KVER_NEXT
 linux   /vmlinuz-$KVER_NEXT
 options $NEXT_OPTIONS
 EOF
-    echo "  wrote cixmini-next.conf (BETA — sort-key 2-next)"
+    echo "  wrote cixmini-next.conf (default, sort-key 1-next)"
 else
-    echo "  skipping cixmini-next.conf (BETA kernel not installed)"
+    echo "  skipping cixmini-next.conf (headline kernel not installed)"
 fi
 
 # ----------------------------------------------------------------------
@@ -243,21 +280,22 @@ if [ -n "$RESCUE_KVER" ]; then
     RESCUE_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE systemd.unit=rescue.target"
 
     cat > /boot/efi/loader/entries/cixmini-rescue.conf <<EOF
-title   SAFE rescue (cixmini) — kernel $RESCUE_KVER rescue.target — $BUILD_VERSION
-sort-key 3-rescue
+title   rescue (cixmini) — kernel $RESCUE_KVER rescue.target — $BUILD_VERSION
+sort-key 4-rescue
 version $RESCUE_KVER
 linux   /vmlinuz-$RESCUE_KVER
 options $RESCUE_OPTIONS
 EOF
-    echo "  wrote cixmini-rescue.conf (sort-key 3-rescue)"
+    echo "  wrote cixmini-rescue.conf (sort-key 4-rescue)"
 fi
 
-# If LTS isn't available but NEXT is, default loader.conf needs to point at NEXT.
-# Re-write loader.conf to match what's actually present.
-if [ "$LTS_AVAILABLE" = "1" ]; then
-    DEFAULT_ENTRY="cixmini-lts"
-else
+# Default to the headline 7.0.12 (cixmini-next); fall back to the CIX BSP 6.18
+# LTS only if the headline kernel isn't present. Re-write loader.conf to match
+# what's actually installed.
+if [ "$NEXT_AVAILABLE" = "1" ]; then
     DEFAULT_ENTRY="cixmini-next"
+else
+    DEFAULT_ENTRY="cixmini-lts"
 fi
 cat > /boot/efi/loader/loader.conf <<EOF
 default $DEFAULT_ENTRY

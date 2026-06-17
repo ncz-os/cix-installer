@@ -1,6 +1,6 @@
 #!/bin/bash
 # 20-desktop.sh — XFCE on LightDM (resolute's GDM/Wayland on Mali panthor → black screen).
-n# --- NCZ 26.6: Stage the Agent installer on the Desktop
+# --- NCZ 26.6: Stage the Agent installer on the Desktop
 cp "/install_ncz_agents.sh" /etc/skel/Desktop/
 chmod +x /etc/skel/Desktop/install_ncz_agents.sh
 
@@ -20,7 +20,12 @@ case "$VARIANT" in
         ;;
 esac
 
-# Drop bogus cdrom-list left over from d-i + use online resolute ports repo
+# NCZ policy (2026-06): the embedded ISO mirror is SERVER-only (Magnetar base);
+# desktop / end-user packages are NOT carried offline. We "follow the Ubuntu
+# Server package library" ourselves and path the desktop long tail out to Ubuntu
+# (ports.ubuntu.com) directly, accepting slower fetches. So the desktop layer
+# always installs ONLINE — the server-only /cdrom mirror has none of these.
+echo "[20] desktop packages install online from ports.ubuntu.com (server-offline policy)"
 rm -f /etc/apt/sources.list.d/cixmini-cdrom.list 2>/dev/null
 cat > /etc/apt/sources.list <<'APT'
 deb http://ports.ubuntu.com/ubuntu-ports resolute main universe restricted multiverse
@@ -29,7 +34,7 @@ deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restric
 deb http://ports.ubuntu.com/ubuntu-ports resolute-backports main universe restricted multiverse
 APT
 
-apt-get update -q
+apt-get update -q || true
 
 # Pre-purge gdm3 if present in the rootfs.tar.zst (resolute's default DM).
 # Without this, both gdm3 and lightdm fight for /etc/systemd/system/display-manager.service

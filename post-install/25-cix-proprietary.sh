@@ -29,6 +29,20 @@ if [ ! -d "$ASSETS" ] && [ -d /cdrom/cixmini/assets/cix-debs ]; then
     ASSETS=/cdrom/cixmini/assets/cix-debs
 fi
 
+# Variant-aware filtering. The dep-closure check (build/check-cix-deps.sh) showed
+# every Cix userland deb installs against the server-only mirror EXCEPT
+# cix-gstreamer, which needs desktop multimedia/graphics libs (libasound2,
+# libcairo2, libdrm-amdgpu1/etnaviv1) that only exist in Ubuntu's desktop set.
+# On Magnetar (headless/server) those libs aren't present and aren't carried
+# offline, so skip cix-gstreamer there; it ships on Reinhardt (desktop) where
+# 20-desktop pulls its libs online from ports.
+IS_SERVER=0
+if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
+    case "$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)" in
+        server|magnetar|headless) IS_SERVER=1 ;;
+    esac
+fi
+
 mkdir -p /var/log/cix-install
 
 if [ ! -d "$ASSETS" ]; then
@@ -70,6 +84,14 @@ for deb in ./*.deb; do
         cix-npu-driver_*.deb|cix-gpu-driver_*.deb|cix-vpu-driver_*.deb|cix-isp-driver_*.deb|cix-wlan_*.deb|cix-csi-driver_*.deb|cix-noe-kmd_*.deb) continue ;;
         cix-npu-umd_*.deb|cix-noe-umd_*.deb|cix-npu-onnxruntime_*.deb) continue ;;
     esac
+    # Magnetar/server: skip desktop-class Cix userland (needs desktop libs).
+    if [ "$IS_SERVER" = 1 ]; then
+        case "$deb" in
+            cix-gstreamer_*.deb)
+                echo "    [server] skipping desktop-class $deb (needs desktop multimedia libs)"
+                continue ;;
+        esac
+    fi
     DEBS+=("$deb")
 done
 

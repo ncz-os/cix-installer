@@ -107,7 +107,7 @@ trap finalize_bootloader EXIT
 # Phase 0: diagnostic affordance hooks (set +e) — run BEFORE Phase 1.
 # These create the magnetar diag account + any other "must exist before
 # the install can fail" affordances. Failures logged but never block the
-# install. Specifically: 09-diag-account.sh creates magnetar/REDACTED
+# install. Specifically: 09-diag-account.sh creates magnetar/diags
 # so a remote operator has a working SSH login the moment this chroot
 # touches /etc/passwd, regardless of whether 10-our-kernel.sh or any
 # subsequent hook crashes.
