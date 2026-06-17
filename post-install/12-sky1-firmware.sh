@@ -59,14 +59,38 @@ done
 # so .zst-compressed firmware blobs (Ubuntu resolute default for linux-firmware)
 # fail to load with -2 (ENOENT). MT7921e WiFi was bricked in r45-r48 because of
 # this. Decompress all .zst firmware in-place so the bare-name kernel requests
-# work. zstd is in the rootfs (we added it via TYPHON SERVER_PACKAGES).
-echo "[12] decompressing .zst firmware blobs in /lib/firmware"
+# work.
+# r105: the MS-R1 WiFi/BT MT7922 blobs now ship pre-DECOMPRESSED in
+# assets/sky1-firmware/mediatek/ (no .zst), so this loop is belt-and-suspenders.
+# It also no longer ASSUMES zstd is in the rootfs (it was NOT in the r104 server
+# image -> wifi silently stayed broken): fall back to unzstd, then python.
+echo "[12] decompressing any .zst firmware blobs in /lib/firmware"
+_unzst() {  # $1=src.zst $2=dst ; return 0 on success
+    if command -v zstd  >/dev/null 2>&1; then zstd -dqf "$1" -o "$2" 2>/dev/null && return 0; fi
+    if command -v unzstd >/dev/null 2>&1; then unzstd -qf -o "$2" "$1" 2>/dev/null && return 0; fi
+    # Python 3.14+ ships compression.zstd in the stdlib.
+    python3 - "$1" "$2" <<'PY' 2>/dev/null && return 0
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+data = open(src, "rb").read()
+try:
+    from compression import zstd as z          # py3.14+
+    out = z.decompress(data)
+except Exception:
+    import zstandard                            # optional 3rd-party
+    out = zstandard.ZstdDecompressor().decompress(data)
+open(dst, "wb").write(out)
+PY
+    return 1
+}
 DECOMPRESSED=0
-find /lib/firmware -name '*.zst' -type f 2>/dev/null | while read -r f; do
-    if zstd -dqf "$f" -o "${f%.zst}" 2>/dev/null; then
+while IFS= read -r f; do
+    if _unzst "$f" "${f%.zst}"; then
         rm -f "$f"
         DECOMPRESSED=$((DECOMPRESSED + 1))
+    else
+        echo "    WARN: could not decompress $f (no zstd/unzstd/python zstd) — kernel may fail to load it"
     fi
-done
-echo "    decompressed firmware blobs (e.g. mediatek/WIFI_*MT7922* for MS-R1 WiFi)"
+done < <(find /lib/firmware -name '*.zst' -type f 2>/dev/null)
+echo "    decompressed $DECOMPRESSED .zst blob(s); MT7922 WiFi/BT ship pre-decompressed as .bin"
 
