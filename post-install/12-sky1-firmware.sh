@@ -37,6 +37,13 @@ if [ -f "$DEST/arm/mali/mali_csffw.bin" ]; then
     ln -sfn arm/mali/mali_csffw.bin "$DEST/mali_csffw.bin"
     ln -sfn mali/mali_csffw.bin     "$DEST/arm/mali_csffw.bin"
     echo "    symlinks: /lib/firmware/mali_csffw.bin + /lib/firmware/arm/mali_csffw.bin"
+    # 7.0.12-cix-sky1-next panthor requests the arch-versioned path
+    # arm/mali/arch12.8/mali_csffw.bin. The real blob is staged there in
+    # assets, but symlink as a fallback so panthor always resolves it.
+    mkdir -p "$DEST/arm/mali/arch12.8"
+    [ -e "$DEST/arm/mali/arch12.8/mali_csffw.bin" ] || \
+        ln -sfn ../mali_csffw.bin "$DEST/arm/mali/arch12.8/mali_csffw.bin"
+    echo "    arch12.8: /lib/firmware/arm/mali/arch12.8/mali_csffw.bin (panthor 7.0.12)"
 fi
 
 echo "    key blobs:"

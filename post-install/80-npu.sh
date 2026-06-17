@@ -99,6 +99,28 @@ for i in "${!KERNEL_VERS[@]}"; do
     else
         echo "[80] WARN: no in-tree module and no $SRC; NPU unavailable for $LABEL/$KVER"
     fi
+
+    # --- Overlay override (NCZ validated fixes, r104) ---
+    # The in-tree armchina_npu.ko in modules-cixmini.tgz may predate the
+    # ARCH_V3=y + iova_region=2 fixes (Zhouyi V3 detection / 32-bit-bus IOVA
+    # cap). A validated overlay installed to updates/ takes depmod precedence
+    # over kernel/, so the correct module loads even on an unrebuilt kernel.
+    OVERLAY=""
+    for cand in \
+        "/usr/local/lib/cix-installer/assets/kernel/modules-overlay/$KVER/armchina_npu.ko" \
+        "/cdrom/cixmini/assets/kernel/modules-overlay/$KVER/armchina_npu.ko"; do
+        [ -f "$cand" ] && { OVERLAY="$cand"; break; }
+    done
+    if [ -n "$OVERLAY" ]; then
+        OVM=$(modinfo -F vermagic "$OVERLAY" 2>/dev/null | awk '{print $1}')
+        if [ -n "$OVM" ] && [ "$OVM" != "$KVER" ]; then
+            echo "[80] WARN: overlay $OVERLAY vermagic '$OVM' != '$KVER'; not applying"
+        else
+            install -D -m 0644 "$OVERLAY" "/usr/lib/modules/$KVER/updates/armchina_npu.ko"
+            depmod -a "$KVER" 2>/dev/null
+            echo "[80] $LABEL/$KVER: applied validated NPU overlay (ARCH_V3+iova=2, vermagic $OVM) -> updates/"
+        fi
+    fi
 done
 
 # --- Step 2: ensure initrd exists for each NCZ kernel ---
