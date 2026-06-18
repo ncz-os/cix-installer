@@ -76,18 +76,28 @@ cd "$ASSETS" || { echo "ERROR: cannot cd to $ASSETS"; exit 1; }
 #      Installing the 6.6 .ko packages just pollutes the modules tree
 #      with files that fail vermagic check. Skip entirely.)
 DEBS=()
+NOE_UMD_DEB=""
 for deb in ./*.deb; do
     [ -e "$deb" ] || continue
     deb=${deb#./}
     case "$deb" in
         linux-image-*-cix-build-generic_*.deb|linux-headers-*-cix-build-generic_*.deb) continue ;;
         cix-npu-driver_*.deb|cix-gpu-driver_*.deb|cix-vpu-driver_*.deb|cix-isp-driver_*.deb|cix-wlan_*.deb|cix-csi-driver_*.deb|cix-noe-kmd_*.deb) continue ;;
-        # KEEP cix-noe-umd 2.0.2: the only UMD validated against our in-tree
-        # armchina_npu (v0-compat) KMD. It lays down libnoe.so.0.6.0 +
+        # cix-noe-umd 2.0.2: the only UMD validated against our in-tree
+        # armchina_npu (v0-compat) KMD. It ships libnoe.so.0.6.0 +
         # /usr/share/cix/pypi/{libnoe,NOE_Engine}-2.0.0 wheels (cp311/cp312),
-        # which 46-python311.sh + 47-embedkit.sh wire into the NPU venv.
+        # which 47-embedkit.sh wires into the py3.11 NPU venv.
         # UMD 1.1.1 (libnoe 0.5.0) and 3.1.2 fail job-submit on this KMD.
-        cix-noe-umd_2.0.2_*.deb) ;;
+        #
+        # We do NOT dpkg -i this deb: its postinst pip-installs the libnoe
+        # wheel into the SYSTEM python (3.14), which the wheel rejects
+        # (requires <3.13,>=3.11) → postinst exits 1 → dpkg leaves the
+        # package half-configured (iF) → the iU/iF purge sweep below removes
+        # it AND deletes /usr/share/cix/lib + /usr/share/cix/pypi. Instead we
+        # record the deb path here and dpkg-deb -x extract its FILES only
+        # (no maintainer scripts) AFTER the purge sweep — see the
+        # "NPU userspace files" block further down.
+        cix-noe-umd_2.0.2_*.deb) NOE_UMD_DEB="$deb"; continue ;;
         cix-npu-umd_*.deb|cix-noe-umd_*.deb|cix-npu-onnxruntime_*.deb) continue ;;
     esac
     # Magnetar/server: skip desktop-class Cix userland (needs desktop libs).
@@ -198,6 +208,29 @@ for pkg in $STUCK; do
     echo "    purging stuck package: $pkg"
     dpkg --purge --force-remove-reinstreq --force-remove-essential "$pkg" 2>&1 | tail -3 || true
 done
+
+# ----------------------------------------------------------------------
+# NPU userspace files: extract cix-noe-umd 2.0.2 data.tar to / WITHOUT
+# running its maintainer scripts (see the DEBS filter above for why we
+# can't dpkg -i it on a py3.14 system). This lands:
+#   /usr/share/cix/lib/libnoe.so{,.0,.0.6.0}
+#   /usr/share/cix/pypi/{libnoe,NOE_Engine}-2.0.0-*.whl
+# and makes libnoe.so discoverable via ld.so. 47-embedkit.sh then installs
+# the wheels into the py3.11 NPU venv. Done AFTER the iU/iF purge sweep so
+# nothing removes the files we just laid down.
+# ----------------------------------------------------------------------
+if [ -n "${NOE_UMD_DEB:-}" ] && [ -e "$NOE_UMD_DEB" ]; then
+    echo "--- staging NPU userspace from $NOE_UMD_DEB (dpkg-deb -x, no postinst) ---"
+    dpkg-deb -x "$NOE_UMD_DEB" / 2>&1 | tail -3 || true
+    if [ -d /usr/share/cix/lib ]; then
+        echo "/usr/share/cix/lib" > /etc/ld.so.conf.d/cix-noe.conf
+        ldconfig 2>/dev/null || true
+    fi
+    ls -l /usr/share/cix/lib/libnoe.so* 2>/dev/null | sed 's/^/    /'
+    ls -l /usr/share/cix/pypi/*.whl     2>/dev/null | sed 's/^/    /'
+else
+    echo "--- NPU userspace: no cix-noe-umd 2.0.2 deb found to stage ---"
+fi
 
 # Bridge between vendor 6.6 .ko vermagic and our built kernel's KVER:
 # RETIRED 2026-05-03 with the Sky1-Linux 6.18.14 switch. The cix-*-

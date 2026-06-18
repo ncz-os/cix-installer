@@ -119,32 +119,44 @@ if [ -z "$UV" ]; then
 fi
 
 # ----------------------------------------------------------------------
-# 2. Install embedkit from the bundled wheel (or git clone if the wheel
-#    isn't shipped). The wheel is preferred — no internet dependency.
+# 2. Install embedkit (OPTIONAL app layer). Prefer a bundled wheel/source,
+#    fall back to PyPI. embedkit is the MNEMOS convenience layer — it is
+#    NOT required for NPU driver fidelity (libnoe + NOE_Engine, installed
+#    in step 3, are). So this whole block is best-effort: if no wheel is
+#    baked and PyPI is unreachable we WARN and continue, and `ncz install
+#    mnemos` can layer embedkit + models post-flash.
+#
+#    (Historical: this used to be fatal — a missing embedkit wheel aborted
+#    the hook under `set -e` BEFORE step 3, shipping an ISO with a working
+#    py3.11 venv but no libnoe in it, i.e. a dark NPU. Driver fidelity must
+#    not depend on an app-layer artifact that may not be baked.)
 # ----------------------------------------------------------------------
+EMBEDKIT_OK=0
 if ls "$ASSETS"/mnemos_embedkit-*.whl >/dev/null 2>&1; then
     echo "[47]   installing embedkit from bundled wheel"
-    pip_install --quiet "$ASSETS"/mnemos_embedkit-*.whl 2>&1 | tail -2
+    pip_install --quiet "$ASSETS"/mnemos_embedkit-*.whl 2>&1 | tail -2 && EMBEDKIT_OK=1 || true
 elif [ -d "$ASSETS/repo" ]; then
     echo "[47]   installing embedkit from bundled source"
-    pip_install --quiet "$ASSETS/repo" 2>&1 | tail -2
+    pip_install --quiet "$ASSETS/repo" 2>&1 | tail -2 && EMBEDKIT_OK=1 || true
 else
-    echo "[47]   WARN: no embedkit wheel/repo bundled; trying PyPI"
-    pip_install --quiet mnemos-embedkit 2>&1 | tail -2
+    echo "[47]   WARN: no embedkit wheel/repo bundled; trying PyPI (best-effort)"
+    pip_install --quiet mnemos-embedkit 2>&1 | tail -2 && EMBEDKIT_OK=1 || \
+        echo "[47]   WARN: embedkit not installed (offline / not on PyPI) — continuing; NPU runtime is installed below and can be used directly, embedkit can be layered via 'ncz install mnemos'"
 fi
 
-"$VENV/bin/python" - << 'PY'
-import embedkit
-print(f"[47]   embedkit import OK: {getattr(embedkit, '__version__', 'unknown')}")
-PY
+if [ "$EMBEDKIT_OK" = "1" ]; then
+    "$VENV/bin/python" -c "import embedkit; print('[47]   embedkit import OK:', getattr(embedkit,'__version__','unknown'))" 2>&1 \
+        || { echo "[47]   WARN: embedkit installed but import failed — continuing"; EMBEDKIT_OK=0; }
+fi
 
 # ----------------------------------------------------------------------
 # 3. Vendor python bindings for the on-device adapters.
 #    On Cix Sky1: libnoe wheel (Cix-shipped at /usr/share/cix/pypi/) +
 #    llama-cpp-python (CPU fallback adapter).
 # ----------------------------------------------------------------------
-# cix-noe-umd 2.0.2 (installed by 25-cix-proprietary.sh) drops both the
-# libnoe binding and the NOE_Engine wrapper here. Install both, but only
+# cix-noe-umd 2.0.2 (staged via dpkg-deb -x by 25-cix-proprietary.sh) drops
+# both the libnoe binding and the NOE_Engine wrapper into
+# /usr/share/cix/pypi. Install both into the venv, but only
 # when the venv is 3.11/3.12 — the wheels carry cp311/cp312 .so only, so
 # on a 3.13+ venv the import would fail at runtime.
 LIBNOE_WHL=$(ls /usr/share/cix/pypi/libnoe-*-py3-none-manylinux2014_aarch64.whl 2>/dev/null | head -1)
@@ -196,13 +208,14 @@ for m in bge-small-zh-v1.5_256.cix bge-small-zh-v1.5-q8_0.gguf; do
     fi
 done
 
-if [ "${EMBEDKIT_DEFER_NPU:-0}" != "1" ]; then
-    for missing in "${missing_models[@]}"; do
-        if [ "$missing" = "bge-small-zh-v1.5_256.cix" ]; then
-            echo "[47]   ERROR: required Cix NPU model missing; set EMBEDKIT_DEFER_NPU=1 only for explicit defer builds" >&2
-            exit 1
-        fi
-    done
+# Models are app-layer artifacts, not driver fidelity. If the canonical
+# .cix/.gguf models aren't baked into this image, WARN but do NOT fail the
+# build: the NPU runtime (libnoe, step 3) is what proves the driver works,
+# and models are layered post-flash via `ncz model add` / `ncz install
+# mnemos`. (Historical: a missing .cix used to exit 1 here.)
+if [ "${#missing_models[@]}" -gt 0 ]; then
+    echo "[47]   WARN: model(s) not baked into image: ${missing_models[*]}"
+    echo "[47]         layer them post-flash with 'ncz model add'; NPU runtime is installed regardless"
 fi
 
 # README so the operator knows what's in /opt/ncz/models/
@@ -244,17 +257,34 @@ fi | grep -iE "^(mnemos-embedkit|noe.engine|llama-cpp-python|libnoe|numpy|transf
     > /var/log/cix-install/47-embedkit-installed.log || true
 
 # ----------------------------------------------------------------------
-# 6. Smoke test (fatal - a missing package must not look installed)
+# 6. Smoke tests.
+#    NPU runtime smoke (import libnoe in the venv) is the SHIP-CRITICAL
+#    driver-fidelity gate — fatal when we built a 3.11/3.12 venv and the
+#    libnoe wheel was present. embedkit smoke is best-effort (the app layer
+#    may be layered post-flash).
 # ----------------------------------------------------------------------
-echo "[47]   smoke: embedkit.Engine.list_adapters()"
-if ! "$VENV/bin/python" - 2>&1 << 'PY' | tee /var/log/cix-install/47-embedkit-smoke.log; then
+if [ "$NPU_PY_OK" = "1" ] && [ -n "$LIBNOE_WHL" ]; then
+    echo "[47]   smoke: import libnoe (NPU userspace binding)"
+    if "$VENV/bin/python" -c "import libnoe; print('[47]   libnoe import OK:', libnoe.__file__)" 2>&1 \
+            | tee /var/log/cix-install/47-libnoe-smoke.log; then
+        :
+    else
+        echo "[47]   ERROR: libnoe smoke failed — NPU adapter would be dark" >&2
+        exit 1
+    fi
+fi
+
+if [ "$EMBEDKIT_OK" = "1" ]; then
+    echo "[47]   smoke: embedkit.Engine.list_adapters()"
+    "$VENV/bin/python" - 2>&1 << 'PY' | tee /var/log/cix-install/47-embedkit-smoke.log \
+        || echo "[47]   WARN: embedkit smoke failed (non-fatal)"
 import embedkit
 for a in embedkit.Engine.list_adapters():
     print(f"    {a['tier']:3s} {a['name']:18s} {a['available']!s:5s} {a['reason']}")
 PY
-    echo "[47]   ERROR: embedkit smoke failed" >&2
-    exit 1
+else
+    echo "[47]   embedkit not installed — skipping embedkit smoke (NPU runtime verified above)"
 fi
 
-echo "[47] done — $(ls $MODELS 2>/dev/null | wc -l) models, venv at $VENV"
+echo "[47] done — $(ls $MODELS 2>/dev/null | wc -l) models, venv at $VENV, embedkit=$EMBEDKIT_OK"
 exit 0
