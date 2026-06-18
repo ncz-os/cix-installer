@@ -236,6 +236,25 @@ consoles vanish with the d-i ramdisk.
 > shell, and world-readable httpd are **LAN-only / TESTING ONLY**. Ship with
 > `DIAG_ENABLE=0` (or `ncz_diag=0`) to strip the whole module in one switch.
 
+### Installed-system access posture (defaults)
+
+- **No diagnostic account on a running appliance.** `post-install/09-diag-account.sh`
+  seeds the `magnetar` rescue account so an install / first boot can never lock
+  you out, but it is **installer-only**: a first-boot oneshot
+  (`nclawzero-diag-selfdestruct.service`) deletes the account and every artifact
+  (sudoers drop-in, AccountsService entry, SSH keys, marker) and then removes
+  itself. After the first clean boot the delivered system carries **no**
+  diagnostic credentials. (If the first boot fails before it runs, the account
+  is still there for rescue.)
+- **Password SSH auth is enabled by default** on the installed system for
+  operator convenience (`PasswordAuthentication yes`). Day-to-day login is the
+  operator account you set at install time. To harden a fleet image to key-only,
+  set `PasswordAuthentication no` / `PermitRootLogin prohibit-password` in
+  `post-install/35-ssh.sh` and re-bake.
+- **Hostname** defaults to `ncz-<mac8>` (last 8 hex of the first wired MAC) so
+  every box on a LAN is uniquely named; the operator hostname (if set during
+  install) always wins. See `post-install/37-ntp-hostname.sh`.
+
 ## OTA channel (kernel + driver updates)
 
 Fielded devices upgrade their kernel and the proprietary CIX drivers via an

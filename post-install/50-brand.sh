@@ -85,4 +85,4 @@ printf "  Cix Sky1 / CP8180 \\n\\n"
 HEADER
 chmod 0755 /etc/update-motd.d/00-header
 
-echo "[50] LightDM greeter rebranded — bg=$NCZ_GREETER_BG, user-img=$NCZ_USER_IMG"
+echo "[50] text branding applied (os-release / issue / motd)"

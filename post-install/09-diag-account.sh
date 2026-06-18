@@ -1,12 +1,18 @@
 #!/bin/bash
-# 09-diag-account.sh — TEMPORARY diagnostic root-equivalent account.
+# 09-diag-account.sh — installer-only diagnostic root-equivalent account.
 #
-# REMOVE THIS HOOK BEFORE PUBLIC DISTRIBUTION.
+# r110 (operator decision): this account is an install-time / first-boot
+# RESCUE + telemetry affordance only. It MUST NOT persist on a normally
+# running installed system. A first-boot systemd oneshot
+# (nclawzero-diag-selfdestruct, installed at the end of this hook) deletes the
+# account + every artifact (sudoers drop-in, AccountsService entry, marker,
+# ssh keys via -r) and then removes itself — so the delivered appliance ships
+# with no diagnostic credentials.
 #
 # Adds a `magnetar` user with password `diags` and full passwordless
-# sudo. Purpose: guaranteed working login during r75/r76 hardware shakedown
-# even when the operator account is misconfigured (e.g. password typo during
-# d-i passwd-set, missed group membership, broken SSH on the primary user).
+# sudo. Purpose: guaranteed working login during hardware shakedown / a
+# botched install, even when the operator account is misconfigured (e.g.
+# password typo during d-i passwd-set, missed group membership, broken SSH).
 #
 # This account is parallel to whatever the d-i preseed creates for the
 # operator (typically `mini` or whatever was typed at install time). It
@@ -81,14 +87,14 @@ User:     $DIAG_USER
 Password: <see post-install/09-diag-account.sh>
 Sudo:     NOPASSWD (full root-equivalent)
 
-This account exists ONLY for r75/r76 hardware shakedown. It MUST be
-removed before any public distribution. To remove on a running system:
+This account is an installer / first-boot rescue affordance only. It is
+AUTOMATICALLY removed on the first successful boot by
+nclawzero-diag-selfdestruct.service. If you are reading this on a running
+system, the self-destruct has not run yet; remove it manually with:
 
-  sudo userdel -r $DIAG_USER
-  sudo rm /etc/sudoers.d/09-diag-magnetar
-  sudo rm /etc/cix-diag-account.txt
+  sudo /usr/local/sbin/nclawzero-diag-selfdestruct
 
-To remove from future builds: delete post-install/09-diag-account.sh
+To remove from future builds entirely: delete post-install/09-diag-account.sh
 and re-bake the ISO.
 EOF
 chmod 0644 /etc/cix-diag-account.txt
@@ -105,8 +111,46 @@ ASVC
 chmod 0644 /var/lib/AccountsService/users/${DIAG_USER}
 echo "[09] ${DIAG_USER} hidden from greeter (AccountsService SystemAccount=true)"
 
+# --- r110: first-boot self-destruct -----------------------------------------
+# The diag account must not exist on a normally running installed system. This
+# oneshot runs on the FIRST boot, removes the account + all artifacts, then
+# deletes itself. If the first boot fails before it runs, the account is still
+# available for rescue; once the system boots cleanly it is gone.
+cat > /usr/local/sbin/nclawzero-diag-selfdestruct <<'SELFDESTRUCT'
+#!/bin/sh
+# Remove the installer-only diagnostic account on first successful boot.
+U=magnetar
+logger -t nclawzero-diag-selfdestruct "removing transient diagnostic account $U" 2>/dev/null || true
+pkill -KILL -u "$U" 2>/dev/null || true
+userdel -r "$U" 2>/dev/null || true
+rm -f /etc/sudoers.d/09-diag-magnetar
+rm -f /var/lib/AccountsService/users/"$U"
+rm -f /etc/cix-diag-account.txt
+systemctl disable nclawzero-diag-selfdestruct.service 2>/dev/null || true
+rm -f /etc/systemd/system/nclawzero-diag-selfdestruct.service
+rm -f /etc/systemd/system/multi-user.target.wants/nclawzero-diag-selfdestruct.service
+rm -f /usr/local/sbin/nclawzero-diag-selfdestruct
+SELFDESTRUCT
+chmod 0755 /usr/local/sbin/nclawzero-diag-selfdestruct
+
+cat > /etc/systemd/system/nclawzero-diag-selfdestruct.service <<'UNIT'
+[Unit]
+Description=Remove installer-only diagnostic account on first boot (NCZ)
+After=multi-user.target
+ConditionPathExists=/usr/local/sbin/nclawzero-diag-selfdestruct
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nclawzero-diag-selfdestruct
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl enable nclawzero-diag-selfdestruct.service 2>&1 | tail -1 || true
+echo "[09] first-boot self-destruct armed (nclawzero-diag-selfdestruct.service)"
+
 echo
-echo "[09] Diagnostic account ready:"
+echo "[09] Diagnostic account ready (installer/first-boot rescue only — self-destructs):"
 echo "     login: $DIAG_USER / <preset password>"
 echo "     sudo:  NOPASSWD"
 echo "     ssh:   pubkey + password both work"

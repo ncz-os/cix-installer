@@ -143,10 +143,10 @@ done
 
 # Phase 1: required hooks (set -e)
 set -euo pipefail
-tty_msg "Phase 1: required hooks (kernel + sky1-firmware)"
+tty_msg "Phase 1: required hooks (kernel + sky1-firmware + network)"
 for hook in $(ls [0-9][0-9]-*.sh | sort); do
     case "$hook" in
-        10-our-kernel.sh|12-sky1-firmware.sh)
+        10-our-kernel.sh|12-sky1-firmware.sh|33-network.sh)
             LOG="$LOGDIR/${hook%.sh}.log"
             HOOK_START=$(date +%s)
             tty_msg "  → $hook (required)"
@@ -175,7 +175,7 @@ REQUIRED_PHASE_OK=1
 # Phase 2: optional hooks. Failures logged but don't abort.
 set +e
 tty_msg "Phase 2: optional hooks (desktop + agents + brand + ssh + ...)"
-OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | grep -vE '^(0[0-9]|10-our-kernel|12-sky1-firmware|70-bootloader|99-diagnostics)\.sh$')
+OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | grep -vE '^(0[0-9]|10-our-kernel|12-sky1-firmware|33-network|70-bootloader|99-diagnostics)\.sh$')
 TOTAL_OPT=$(echo "$OPT_HOOKS" | wc -l)
 IDX=0
 for hook in $OPT_HOOKS; do

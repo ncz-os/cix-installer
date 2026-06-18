@@ -1,8 +1,19 @@
 #!/bin/bash
 # 20-desktop.sh — XFCE on LightDM (resolute's GDM/Wayland on Mali panthor → black screen).
-# --- NCZ 26.6: Stage the Agent installer on the Desktop
-cp "/install_ncz_agents.sh" /etc/skel/Desktop/
-chmod +x /etc/skel/Desktop/install_ncz_agents.sh
+# --- NCZ 26.6: Stage the Agent installer on the Desktop.
+# r110 (codex UX audit): the asset is staged by the installer at
+# /usr/local/lib/cix-installer/assets/, NOT at chroot-root "/". The old
+# `cp /install_ncz_agents.sh` ran before `set -e` and silently no-op'd, so the
+# Desktop launcher never appeared. Use the real staged path, guarded.
+install -d -m 0755 /etc/skel/Desktop
+_agent_launcher=/usr/local/lib/cix-installer/assets/install_ncz_agents.sh
+if [ -f "$_agent_launcher" ]; then
+    install -m 0755 "$_agent_launcher" /etc/skel/Desktop/install_ncz_agents.sh
+elif [ -f /install_ncz_agents.sh ]; then
+    install -m 0755 /install_ncz_agents.sh /etc/skel/Desktop/install_ncz_agents.sh
+else
+    echo "[20] WARN: install_ncz_agents.sh not staged; Desktop launcher skipped"
+fi
 
 # r52: LightDM + Xorg + XFCE = reliable; xrdp for remote access.
 set -euo pipefail
@@ -206,7 +217,10 @@ Type=oneshot
 ExecStart=/usr/local/lib/ncx/upstream-watch.sh
 UNIT
 systemctl daemon-reload
-systemctl enable --now ncx-upstream-watch.timer 2>&1 | tail -2 || true
+# r110 (codex audit): never use --now in the chroot (no PID 1); enable now,
+# let the unit start on first boot. Best-effort start in case we are live.
+systemctl enable ncx-upstream-watch.timer 2>&1 | tail -2 || true
+systemctl start ncx-upstream-watch.timer 2>&1 | tail -2 || true
 echo "[20] GNOME purged, upstream-watch installed (every 6h)"
 
 # r53: ncx-flavor-* metapackage shims — pre-stage apt info but DON'T install by default.
@@ -268,12 +282,38 @@ flatpak install -y --system flathub org.chromium.Chromium 2>&1 | tail -3 || echo
 # Replace the snap-redirect /usr/bin/chromium-browser stub with a wrapper that calls Vivaldi.
 # Many .desktop files and scripts hardcode "chromium-browser"; this keeps them working.
 DEBIAN_FRONTEND=noninteractive apt-get remove -y chromium-browser 2>&1 | tail -1 || true
+# r110 (codex audit): make the chromium-browser shim resolve a browser at
+# RUNTIME so it never execs a missing binary if a network-dependent install
+# (Vivaldi/flatpak Chromium) failed. Falls through Vivaldi -> falkon ->
+# epiphany -> flatpak Chromium -> xdg-open.
 cat > /usr/local/bin/chromium-browser <<'CHROMWRAP'
 #!/bin/sh
-# NCZ 26.6: chromium-browser snap-stub replaced by Vivaldi compat wrapper.
-exec /usr/bin/vivaldi-stable "$@"
+# NCZ 26.6: chromium-browser compat shim — exec the first browser that exists.
+for b in /usr/bin/vivaldi-stable /usr/bin/falkon /usr/bin/epiphany; do
+    [ -x "$b" ] && exec "$b" "$@"
+done
+if command -v flatpak >/dev/null 2>&1 && flatpak info org.chromium.Chromium >/dev/null 2>&1; then
+    exec flatpak run org.chromium.Chromium "$@"
+fi
+exec xdg-open "$@"
 CHROMWRAP
 chmod +x /usr/local/bin/chromium-browser
+
+# r110 (codex audit): resolve the actual default-browser .desktop for the
+# alternatives + mimeapps defaults below, so a failed Vivaldi install does not
+# leave links pointing at a non-existent vivaldi-stable.desktop.
+if command -v vivaldi-stable >/dev/null 2>&1; then
+    BROWSER_BIN=/usr/bin/vivaldi-stable; BROWSER_DESKTOP=vivaldi-stable.desktop
+elif command -v falkon >/dev/null 2>&1; then
+    BROWSER_BIN=/usr/bin/falkon; BROWSER_DESKTOP=org.kde.falkon.desktop
+elif command -v epiphany >/dev/null 2>&1; then
+    BROWSER_BIN=/usr/bin/epiphany; BROWSER_DESKTOP=org.gnome.Epiphany.desktop
+elif flatpak info org.chromium.Chromium >/dev/null 2>&1; then
+    BROWSER_BIN=""; BROWSER_DESKTOP=org.chromium.Chromium.desktop
+else
+    BROWSER_BIN=""; BROWSER_DESKTOP=""
+fi
+echo "[20] default browser resolved to: ${BROWSER_DESKTOP:-<none>} (${BROWSER_BIN:-flatpak/xdg})"
 
 # Hide ALL snap-store launchers (App Center / show-updates) — App Center is broken on Mali.
 # We installed gnome-software (.deb) as the real App Center.
@@ -286,27 +326,34 @@ done
 # Remove orphan plank-preferences launcher (plank dock not installed).
 rm -f /usr/share/applications/plank-preferences.desktop
 
-# Default web browser: Vivaldi (system-wide via update-alternatives + xdg-mime).
-update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/vivaldi-stable 200 2>&1 | tail -1 || true
-update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/bin/vivaldi-stable 200 2>&1 | tail -1 || true
-update-alternatives --set x-www-browser /usr/bin/vivaldi-stable 2>&1 | tail -1 || true
-update-alternatives --set gnome-www-browser /usr/bin/vivaldi-stable 2>&1 | tail -1 || true
+# Default web browser via update-alternatives (only when we have a real binary
+# path — skip for the flatpak-only case, mimeapps below still routes it).
+if [ -n "${BROWSER_BIN:-}" ] && [ -x "$BROWSER_BIN" ]; then
+    update-alternatives --install /usr/bin/x-www-browser x-www-browser "$BROWSER_BIN" 200 2>&1 | tail -1 || true
+    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser "$BROWSER_BIN" 200 2>&1 | tail -1 || true
+    update-alternatives --set x-www-browser "$BROWSER_BIN" 2>&1 | tail -1 || true
+    update-alternatives --set gnome-www-browser "$BROWSER_BIN" 2>&1 | tail -1 || true
+else
+    echo "[20] no single-binary browser for update-alternatives (flatpak/none) — relying on mimeapps"
+fi
 
 # Disable snap-Firefox redirect package if present
 DEBIAN_FRONTEND=noninteractive apt-mark hold firefox 2>&1 | tail -1 || true
 
-# System-wide xdg mimeapps default
+# System-wide xdg mimeapps default. r110: route to the resolved browser
+# .desktop (falls back to vivaldi-stable.desktop only as a last resort).
 mkdir -p /etc/xdg
-cat > /etc/xdg/mimeapps.list <<'MIME'
+_bd=${BROWSER_DESKTOP:-vivaldi-stable.desktop}
+cat > /etc/xdg/mimeapps.list <<MIME
 [Default Applications]
-text/html=vivaldi-stable.desktop
-x-scheme-handler/http=vivaldi-stable.desktop
-x-scheme-handler/https=vivaldi-stable.desktop
-x-scheme-handler/ftp=vivaldi-stable.desktop
-x-scheme-handler/chrome=vivaldi-stable.desktop
-application/x-extension-htm=vivaldi-stable.desktop
-application/x-extension-html=vivaldi-stable.desktop
-application/xhtml+xml=vivaldi-stable.desktop
+text/html=$_bd
+x-scheme-handler/http=$_bd
+x-scheme-handler/https=$_bd
+x-scheme-handler/ftp=$_bd
+x-scheme-handler/chrome=$_bd
+application/x-extension-htm=$_bd
+application/x-extension-html=$_bd
+application/xhtml+xml=$_bd
 inode/directory=thunar.desktop
 MIME
 
@@ -402,7 +449,7 @@ echo "[20] wallpapers unified across XFCE/MATE/LXQt/WMaker/Openbox; default sess
 cat > /etc/skel/.xscreensaver <<'XSS'
 timeout:		0:10:00
 cycle:			0:05:00
-lock:			True
+lock:			False
 fade:			True
 unfade:			True
 fadeSeconds:		0:00:03
@@ -410,7 +457,7 @@ mode:			random
 selected:		0
 chooseRandomImages: True
 imageDirectory:	/usr/share/backgrounds/ncz/
-dpmsEnabled:	True
+dpmsEnabled:	False
 dpmsStandby:	2:00:00
 dpmsSuspend:	2:00:00
 dpmsOff:		4:00:00

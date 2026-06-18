@@ -4,7 +4,7 @@
 # discovery so wallpaper sticks across xfconf monitor-name shifts.
 set -euo pipefail
 
-echo "[55] installing 6 NCZ wallpapers + 10-minute autoswitcher"
+echo "[45] installing 6 NCZ wallpapers + 10-minute autoswitcher"
 
 VARIANT=desktop
 if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
@@ -12,7 +12,7 @@ if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
 fi
 case "$VARIANT" in
     server|magnetar|headless)
-        echo "[55] BUILD_VARIANT=server - Magnetar headless SKU; skipping wallpaper rotator"
+        echo "[45] BUILD_VARIANT=server - Magnetar headless SKU; skipping wallpaper rotator"
         exit 0
         ;;
 esac
@@ -76,6 +76,11 @@ chmod 0755 /usr/local/bin/ncz-wallpaper-rotate
 # Daemon: 2s warm-up (was 30s), then rotate every 10 min
 cat > /usr/local/bin/ncz-wallpaper-daemon <<'DAEMON'
 #!/bin/sh
+# r110: single-instance guard so session restarts don't stack daemons
+LOCK="${XDG_RUNTIME_DIR:-/tmp}/ncz-wallpaper-daemon.lock"
+if [ -e "$LOCK" ] && kill -0 "$(cat "$LOCK" 2>/dev/null)" 2>/dev/null; then exit 0; fi
+echo $$ > "$LOCK"
+trap 'rm -f "$LOCK"' EXIT
 sleep 2
 /usr/local/bin/ncz-wallpaper-rotate
 while true; do
@@ -131,4 +136,4 @@ mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml
     echo "</channel>"
 } > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
 
-echo "[55] rotator + 13-monitor xfconf default written"
+echo "[45] rotator + 13-monitor xfconf default written"
