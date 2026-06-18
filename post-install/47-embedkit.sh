@@ -218,6 +218,25 @@ if [ "${#missing_models[@]}" -gt 0 ]; then
     echo "[47]         layer them post-flash with 'ncz model add'; NPU runtime is installed regardless"
 fi
 
+# Stage the tokenizer for the NPU model so the npu-cix adapter runs fully
+# offline (no HuggingFace download on first embed). embedkit's tokenizer
+# loads from /opt/ncz/models/bge-small-zh-v1.5/.
+if [ -d "$MODELS_SRC/bge-small-zh-v1.5" ]; then
+    mkdir -p "$MODELS/bge-small-zh-v1.5"
+    cp -r "$MODELS_SRC/bge-small-zh-v1.5/." "$MODELS/bge-small-zh-v1.5/"
+    echo "[47]   staged bge-small-zh-v1.5 tokenizer -> $MODELS/bge-small-zh-v1.5/"
+else
+    echo "[47]   WARN: tokenizer $MODELS_SRC/bge-small-zh-v1.5 not baked - npu-cix adapter will fetch it from HF on first use"
+fi
+
+# Back-compat symlink: older embedkit/MNEMOS revisions load the upstream
+# Compass output name (bge-small-zh_256.cix) instead of the vendored
+# bge-small-zh-v1.5_256.cix. Make both names resolve to the same blob.
+if [ -f "$MODELS/bge-small-zh-v1.5_256.cix" ] && [ ! -e "$MODELS/bge-small-zh_256.cix" ]; then
+    ln -s bge-small-zh-v1.5_256.cix "$MODELS/bge-small-zh_256.cix"
+    echo "[47]   compat symlink bge-small-zh_256.cix -> bge-small-zh-v1.5_256.cix"
+fi
+
 # README so the operator knows what's in /opt/ncz/models/
 cat > "$MODELS/MODELS-README.md" << 'EOF'
 # /opt/ncz/models — embedkit model store
@@ -228,6 +247,7 @@ Models shipped with this NCZ image:
 |---|---|---|---|---|
 | `bge-small-zh-v1.5_256.cix` | Cix Compass NN AOT INT8 | `npu-cix` (Cix Sky1 Zhouyi V3) | 512 | 256-token max |
 | `bge-small-zh-v1.5-q8_0.gguf` | llama.cpp Q8 GGUF | `cpu-llamacpp`, `gpu-vulkan` (Mali) | 512 | CPU/Vulkan fallback |
+| `bge-small-zh-v1.5/`        | HF tokenizer (BERT WordPiece) | shared by all adapters | -   | offline tokenizer for the .cix/.gguf |
 
 Add more models with:
 
@@ -236,6 +256,11 @@ Add more models with:
 The kit's `Engine.auto()` picks among installed models + adapters at
 runtime by capability tier (NPU > GPU > CPU) and measured throughput
 within tier. No vendor preference.
+
+Embedding is automatic: MNEMOS calls `embedkit.Engine.auto()`,
+which detects libnoe + /dev/aipu and selects the `npu-cix` adapter,
+loads the `.cix` from this directory, and embeds every memory on
+ingest. No manual embedding step and no per-model wiring.
 
 To override:
 
