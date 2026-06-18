@@ -65,6 +65,17 @@ systemctl mask systemd-networkd 2>/dev/null || true
 
 # (d) NetworkManager enabled at boot.
 systemctl enable NetworkManager 2>&1 | tail -3 || true
+
+# (d2) Restore real network-online semantics. The base rootfs ships
+# NetworkManager-wait-online.service masked (a boot-speed default),
+# which silently neutralises every "After=network-online.target"
+# ordering: timer/oneshot units (e.g. nclawzero-load-agent-images)
+# then fire before DHCP/link is up and fail at boot. Unmask + enable
+# so network-online.target actually waits for NM. This is bounded by
+# NM_ONLINE_TIMEOUT (~30s) and never blocks login/ssh, which are gated
+# on network.target (link present), not network-online.target.
+systemctl unmask NetworkManager-wait-online.service 2>/dev/null || true
+systemctl enable NetworkManager-wait-online.service 2>&1 | tail -2 || true
 # Don't try to start NM in the chroot — the host has no live network
 # stack to manage. First boot will pick it up via the enable.
 
