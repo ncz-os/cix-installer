@@ -1,18 +1,18 @@
 {
-  "generated_utc": "2026-06-17T00:22:36Z",
+  "generated_utc": "2026-06-18T00:21:01Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.0+r98_arm64.deb",
-      "sha256": "449c72ae121aba445ccf0e95fe9575751273aa7e5496a0c2560435f37a3b90b8"
+      "file": "build/kernel-debs/cixmini-boot_1.0+r100_arm64.deb",
+      "sha256": "dd55361385856daffbceb13b7b03e09748469ab32504f37374433434dd365109"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini-edge_7.0.12-cix-sky1-next+r98_arm64.deb",
-      "sha256": "bcd98c44497483c5e438f9171a7276589a8db165010358cd11891c610670d561"
+      "file": "build/kernel-debs/linux-image-cixmini-edge_7.0.12-cix-sky1-next+r100_arm64.deb",
+      "sha256": "63178fdc635f48d19203aae62327ccf71f5d18bec26530eb0f4c6fc388a002f3"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini-lts_6.18.26-ncz-lts+r98_arm64.deb",
-      "sha256": "68a29dba0683fd5a60c153946e070a241844b8deec74fb1f822b6fdcc80f3f2f"
+      "file": "build/kernel-debs/linux-image-cixmini-lts_6.18.26-cix-sky1-lts+r100_arm64.deb",
+      "sha256": "4a7ffe5ebf828fe4f3600f34152ed24547fb9ff68844d390b4839936dd320107"
     }
   ],
   "schema": 1,
@@ -20,19 +20,19 @@
     "edge": {
       "config": {
         "file": "assets/kernel/edge/config-7.0.12-cix-sky1-next",
-        "sha256": "c096e9564f78a82a5d28015d858a858882d9b6193e3f34a00f4c6d7723e13049"
+        "sha256": "c45f88a4df63954cb51458c6475f0d03cbd88af3337e38c9e39141c907648eaf"
       },
       "dir": "assets/kernel/edge",
       "image": {
         "file": "assets/kernel/edge/Image-cixmini.bin",
-        "sha256": "0251266939c00633c0213fa7eb105188d7d5a5d16333fcba0b39bb96fc436c3b",
+        "sha256": "63b24e6c9daebbf815b6bd482668439a36e56de0b2d0f8c400dcee1439c533b1",
         "size": 64453120
       },
       "kver": "7.0.12-cix-sky1-next",
       "modules": {
         "file": "assets/kernel/edge/modules-cixmini.tgz",
-        "sha256": "79199c0aa5bc51acac97f419cc9bdfbf53f5090c74dada5d1b5e48375159b89c",
-        "size": 111923763
+        "sha256": "1124243eae2f6de588dbf61089932202e4a855fedf7d197457768ac0b6b0e09e",
+        "size": 112026896
       },
       "npu": {
         "file": "assets/kernel/edge/modules-cixmini.tgz:lib/modules/7.0.12-cix-sky1-next/kernel/drivers/misc/armchina-npu/armchina_npu.ko",
