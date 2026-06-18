@@ -93,6 +93,77 @@ So the install is offline-capable for the Cix layers and ships only the
 default zeroclaw activation path; optional agent runtimes are pulled by
 the operator after install.
 
+## On-device AI: NPU embeddings & inference
+
+The ISO ships a working **NPU embedding stack** so a freshly-installed
+appliance does semantic memory at NPU latency, offline, with no setup. This is
+the load-bearing AI workload for MNEMOS (the memory layer) and it is wired to be
+**automatic** — the operator never picks a model or an accelerator.
+
+### What's baked into the install
+
+| Component | Lands at | From |
+|---|---|---|
+| NPU kernel driver (`armchina_npu.ko`, `/dev/aipu`) | kernel + `modules-load.d` | `assets/npu`, `80-npu.sh` |
+| NPU userspace (`libnoe.so.0.6.0` + `libnoe`/`NOE_Engine` wheels) | `/usr/share/cix/lib`, `/usr/share/cix/pypi` | `cix-noe-umd 2.0.2`, `25-cix-proprietary.sh` |
+| Python 3.11 venv (libnoe wheels are cp311/cp312 only) | `/opt/ncz/embed-venv` | `46-python311.sh`, `47-embedkit.sh` |
+| **Embedding model** `bge-small-zh-v1.5_256.cix` (INT8, 512-dim) | `/opt/ncz/models/` | `assets/models`, `47-embedkit.sh` |
+| Offline tokenizer | `/opt/ncz/models/bge-small-zh-v1.5/` | `assets/models` |
+| GGUF CPU/GPU fallback | `/opt/ncz/models/` | `assets/models` |
+| Operator docs (this section's deep dives) | `/usr/share/doc/ncz/` | `assets/docs`, `80-npu.sh` |
+
+The `.cix` is the prebuilt Compass-NN artifact pulled from the Cix
+`ai_model_hub` (ModelScope, 26_Q1) and **committed to this repo** so it can
+never be lost on reinstall (the failure mode of cixtech/cix-linux-main#21).
+
+### Embedding is automatic
+
+MNEMOS embeds every memory on ingest via `embedkit.Engine.auto()`, which:
+
+1. probes hardware, sees `libnoe` + `/dev/aipu`, selects the `npu-cix` adapter;
+2. loads the `.cix` from `/opt/ncz/models/` and tokenizes offline;
+3. returns the 512-dim vector for vector search.
+
+No manual embedding step, no per-model wiring. The same `Engine.auto()` call
+falls back to CPU/GPU on non-NPU silicon — the kit is vendor-agnostic. Verified
+on Sky1 (`7.0.12-cix-sky1-next`): correct semantic retrieval, ~51 emb/s.
+
+### Inference hierarchy (what runs where)
+
+| Workload | Use | Avoid |
+|---|---|---|
+| Text embeddings (encoder, ≤256 tok) | **NPU** (`.cix`) | GPU compute |
+| Long-doc embeddings / LLM decode / dynamic shapes | **CPU** | NPU, GPU compute |
+| Vision / CNN (mobilenet, resnet, yolo) | **NPU** | GPU compute |
+| Display / desktop GL/Vulkan | **GPU** (panthor) | — |
+
+NPU = fixed-shape encoders, CPU = everything dynamic, GPU = pixels not ML.
+Mali-G720 has no cooperative-matrix, so GPU ML compute is 6–47× slower than CPU
+— it is wired for display only. Full per-driver matrix with numbers:
+[`docs/INFERENCE_LIMITS.md`](docs/INFERENCE_LIMITS.md).
+
+### Pulling more models
+
+`.cix` models come prebuilt from the Cix hub (the Compass compiler is not
+public). Pull a single file:
+
+```bash
+BASE="https://www.modelscope.cn/models/cix/ai_model_hub/resolve/26_Q1"
+curl -fL "$BASE/models/.../bge-small-zh_256.cix" -o model.cix
+```
+
+Drop it in `assets/models/`, add a row to `assets/models/MODELS-README.md`,
+rebuild. Full guide (single-file + LFS clone + custom ONNX→`.cix`):
+[`docs/MODELSCOPE-MODELS.md`](docs/MODELSCOPE-MODELS.md).
+
+### Deep-dive docs (also shipped to `/usr/share/doc/ncz/` on the appliance)
+
+- [`docs/MNEMOS-NPU-EMBEDDINGS.md`](docs/MNEMOS-NPU-EMBEDDINGS.md) — the automatic embedding chain, I/O contract, verification commands
+- [`docs/INFERENCE_LIMITS.md`](docs/INFERENCE_LIMITS.md) — full per-HW/driver capability + limits matrix
+- [`docs/MODELSCOPE-MODELS.md`](docs/MODELSCOPE-MODELS.md) — pulling/compiling `.cix` models
+- [`docs/POST-CIX-NPU-EMBEDDINGS-DRAFT.md`](docs/POST-CIX-NPU-EMBEDDINGS-DRAFT.md) — the UMD-pairing deep dive (why 2.0.2 + py3.11)
+
+
 ## Inputs
 
 | Path | Source | Notes |
