@@ -66,6 +66,55 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     xrdp \
     mesa-utils vulkan-tools libglu1-mesa
 
+# ----------------------------------------------------------------------
+# r111 (operator request — fuller desktop): a base xubuntu-core leaves the
+# appliance with NO sound server, NO removable-media mounting, NO network
+# applet, NO CJK/emoji fonts, and no archive/PDF/media/image apps. Add them.
+# Online fetch (desktop policy: embedded mirror is server-only). All groups
+# are best-effort — 20-desktop is a Phase 2 optional hook, so a transient
+# mirror miss won't abort the install.
+# ----------------------------------------------------------------------
+
+# Audio: PipeWire + Pulse shim + WirePlumber so the (kernel-verified) HDMI/
+# analog audio actually reaches apps; pavucontrol + panel plugin for control.
+# (recommends on: pulls the helper bits that make the stack work end-to-end)
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    pipewire pipewire-pulse pipewire-alsa wireplumber \
+    pavucontrol xfce4-pulseaudio-plugin 2>&1 | tail -3 || true
+# Enable the PipeWire user stack for the operator + every future login.
+systemctl --global enable pipewire pipewire-pulse wireplumber 2>&1 | tail -2 || true
+
+# Removable media: gvfs + udisks so USB/MTP auto-mount in Thunar; disk GUI.
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    gvfs gvfs-backends udisks2 gnome-disk-utility 2>&1 | tail -3 || true
+
+# Network: panel applet (WiFi/wired picker) for NetworkManager.
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    network-manager-gnome 2>&1 | tail -2 || true
+
+# Bluetooth: stack + GTK applet (Sky1 MT7922 has BT).
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    bluez blueman 2>&1 | tail -3 || true
+systemctl enable bluetooth 2>&1 | tail -1 || true
+
+# Fonts: Noto base + CJK (bge-small-zh model / Chinese web) + colour emoji.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji 2>&1 | tail -3 || true
+
+# Archives: GUI + Thunar right-click extract + 7z/rar.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    xarchiver thunar-archive-plugin p7zip-full unrar-free 2>&1 | tail -3 || true
+
+# Core apps: PDF viewer, media player, image viewer, text editor.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    evince mpv ristretto mousepad 2>&1 | tail -3 || true
+
+# Panel UX: Whisker (modern app menu) + clipboard manager.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    xfce4-whiskermenu-plugin xfce4-clipman-plugin 2>&1 | tail -3 || true
+
+echo "[20] r111 fuller desktop: pipewire-audio + media-mount + nm-applet + bluetooth + Noto/CJK/emoji fonts + archives + evince/mpv/ristretto/mousepad + whisker/clipman"
+
 # r55: NCZ-curated screensaver. xscreensaver replaces xfce4-screensaver because
 # xscreensaver's hack catalog (xanalogtv, galaxy, glmatrix, flyingtoasters,
 # glslideshow over /usr/share/backgrounds/ncz) fits the NCZ cosmic+retro brand.
