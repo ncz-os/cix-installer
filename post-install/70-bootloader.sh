@@ -233,7 +233,24 @@ echo "  root PARTUUID=$ROOT_PARTUUID"
 # runtime-enabled on NEXT lets the auto-rollback semantics actually
 # work as designed.
 LTS_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
-NEXT_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA2,115200 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
+# r105 boot-visibility fix (2026-06-17): NEXT (7.0.x) does NOT get an early
+# framebuffer console like LTS does. With identical fb config, LTS's sysfb
+# registers an efi-framebuffer device → efifb binds → colour console + boot
+# penguins from ~1s. On 7.0.12, sysfb registers NO framebuffer device
+# (screen_info isn't populated for it — a 7.0.x regression vs 6.18), so the
+# panel is a dummy console until linlondp/panthor power on via SCMI at ~5.2s
+# — i.e. the whole early boot is invisible on HDMI.
+#   earlycon=efifb  — write straight to the firmware GOP framebuffer (the one
+#                     systemd-boot drew its menu on) from t=0, so early kernel
+#                     messages are visible on the panel before the real KMS
+#                     display comes up. keep_bootcon holds it through handoff.
+#   loglevel=7      — show info-level boot messages (NOT ignore_loglevel,
+#                     which firehoses debug spam onto the console at runtime).
+# Verified on .66: early messages now render on HDMI from boot. The brief
+# dark gap before the colour linlondp console is the SCMI display power-on
+# latency and is not removable from cmdline (needs efifb to bind early —
+# kernel-side screen_info fix, tracked separately).
+NEXT_CMDLINE_BASE="loglevel=7 earlycon=efifb console=tty0 console=ttyAMA2,115200 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
 
 # Optional Plymouth splash flags (if 60-plymouth.sh ran)
 SPLASH=""
