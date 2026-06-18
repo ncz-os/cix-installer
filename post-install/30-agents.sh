@@ -118,7 +118,7 @@ cat > /usr/share/ncz/agent-images.manifest << 'MANIFEST'
 # Default-active agent image manifest.
 # Optional agents are pulled by `ncz agent install <name>` or `ncz install nemoclaw`.
 # agent|image-ref|oci-tarball-under-/var/lib/nclawzero/agent-images
-zeroclaw|ghcr.io/perlowja/nclawzero-demo:latest|zeroclaw.oci.tar
+zeroclaw|ghcr.io/zeroclaw-labs/zeroclaw:latest|zeroclaw.oci.tar
 MANIFEST
 chmod 0644 /usr/share/ncz/agent-images.manifest
 
@@ -253,7 +253,7 @@ AGENTS=(zeroclaw openclaw hermes)
 
 # Image digests (pinned, fleet-canonical — must match Pi fleet quadlets)
 declare -A AGENT_IMAGE
-AGENT_IMAGE[zeroclaw]='ghcr.io/perlowja/nclawzero-demo:latest'
+AGENT_IMAGE[zeroclaw]='ghcr.io/zeroclaw-labs/zeroclaw:latest'
 AGENT_IMAGE[openclaw]='ghcr.io/openclaw/openclaw@sha256:06b4f3dfa3c88d49c92e99d635dc62053d4afd045d6220e811dff6190040f3de'
 AGENT_IMAGE[hermes]='docker.io/nousresearch/hermes-agent@sha256:aa60e7483a6fad26eee233d2498d4f2b4223bf9d8990e3b07017f19b6ba7b6fe'
 AGENT_IMAGE[portainer]='docker.io/portainer/portainer-ce:lts'
@@ -748,7 +748,7 @@ launcher. Re-runnable.
 ## Image sources (pinned)
 
 ```
-zeroclaw   ghcr.io/perlowja/nclawzero-demo:latest      (NCZ demo, web UI baked)
+zeroclaw   ghcr.io/zeroclaw-labs/zeroclaw:latest      (official zeroclaw-labs gateway)
 openclaw   ghcr.io/openclaw/openclaw@sha256:06b4f3df...
 hermes     docker.io/nousresearch/hermes-agent@sha256:aa60e748...
 portainer  docker.io/portainer/portainer-ce:lts

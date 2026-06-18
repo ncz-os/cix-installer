@@ -1,3 +1,0 @@
-# Configuration for ZeroClaw Hive Worker
-HIVE_URL=http://192.168.207.67:5005
-# Add any required API keys or configuration here
