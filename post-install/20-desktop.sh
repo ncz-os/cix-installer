@@ -115,13 +115,48 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 
 echo "[20] r111 fuller desktop: pipewire-audio + media-mount + nm-applet + bluetooth + Noto/CJK/emoji fonts + archives + evince/mpv/ristretto/mousepad + whisker/clipman"
 
-# r55: NCZ-curated screensaver. xscreensaver replaces xfce4-screensaver because
-# xscreensaver's hack catalog (xanalogtv, galaxy, glmatrix, flyingtoasters,
-# glslideshow over /usr/share/backgrounds/ncz) fits the NCZ cosmic+retro brand.
+# r55: NCZ-curated screensaver. xscreensaver replaces xfce4-screensaver.
+# r112: GL hacks (xscreensaver-gl / -gl-extra) are intentionally NOT installed.
+# The Sky1 desktop runs software-only GL (llvmpipe) and Mesa here has no X11
+# EGL platform, so every GL hack aborts at runtime with "no GL visuals". We
+# ship only the 2D hacks (xscreensaver-data / -data-extra: xanalogtv, galaxy,
+# fireworkx, phosphor, apple2, xmatrix, ...) which render fine and fit the
+# cosmic+retro brand.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    xscreensaver xscreensaver-data xscreensaver-data-extra \
-    xscreensaver-gl xscreensaver-gl-extra 2>&1 | tail -3 || true
+    xscreensaver xscreensaver-data xscreensaver-data-extra 2>&1 | tail -3 || true
+# Belt-and-suspenders: if a metapackage dragged the GL hacks in, drop them so
+# random selection can never land on a hack that aborts.
+DEBIAN_FRONTEND=noninteractive apt-get remove -y xscreensaver-gl xscreensaver-gl-extra 2>&1 | tail -2 || true
 DEBIAN_FRONTEND=noninteractive apt-get remove -y xfce4-screensaver 2>&1 | tail -1 || true
+
+# r112: xscreensaver 6.x ALWAYS runs xscreensaver-gl-visual (an EGL probe) at
+# blank time to pick a GL visual. On this Xorg the probe fails ("eglGetDisplay
+# failed") and that failure blocks the ENTIRE hack-launch pipeline — even 2D
+# hacks never start, leaving a black screen + "no GL visuals" diagnostic.
+# Shim the probe so it reports the default X visual and exits 0; gfx then
+# launches the (2D-only) hacks normally. dpkg-divert keeps the shim across
+# xscreensaver package upgrades.
+if [ -x /usr/libexec/xscreensaver/xscreensaver-gl-visual ]; then
+    dpkg-divert --quiet --local --rename \
+        --divert /usr/libexec/xscreensaver/xscreensaver-gl-visual.real \
+        --add /usr/libexec/xscreensaver/xscreensaver-gl-visual 2>&1 | tail -1 || true
+    cat > /usr/libexec/xscreensaver/xscreensaver-gl-visual <<'GLVSHIM'
+#!/bin/sh
+# NCZ 26.6 shim: this desktop has software-only GL and no X11 EGL platform, so
+# the upstream EGL probe fails and blocks all xscreensaver hacks. Report the
+# default X visual so xscreensaver-gfx proceeds. GL hacks are not installed;
+# only 2D hacks run, which do not need this visual.
+disp="$DISPLAY"
+[ "$1" = "-display" ] && disp="$2"
+vid=$(xdpyinfo -display "$disp" 2>/dev/null | awk '/default visual id/{print $NF; exit}')
+[ -n "$vid" ] && echo "$vid" || echo 0x21
+exit 0
+GLVSHIM
+    chmod 0755 /usr/libexec/xscreensaver/xscreensaver-gl-visual
+    echo "[20] r112: xscreensaver-gl-visual shimmed (no X11 EGL) + GL hacks removed"
+fi
+# xdpyinfo (x11-utils) is needed by the shim at runtime.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends x11-utils 2>&1 | tail -1 || true
 
 # Configure LightDM defaults
 mkdir -p /etc/lightdm/lightdm.conf.d
@@ -494,34 +529,22 @@ rm -f /etc/lightdm/lightdm.conf.d/55-gnome-xorg.conf
 
 echo "[20] wallpapers unified across XFCE/MATE/LXQt/WMaker/Openbox; default session = xfce"
 
-# r55 NCX-themed xscreensaver default config (system-wide via /etc/skel)
+# r55/r112 NCZ xscreensaver default config (system-wide via /etc/skel).
+# NOTE: we deliberately do NOT set a custom "programs:" list. In xscreensaver
+# 6.x, mode "random" ignores a ~/.xscreensaver programs list and instead picks
+# from the installed hack catalog (/usr/share/applications/screensavers/). Since
+# the GL hack packages are not installed, that catalog is 2D-only — exactly what
+# we want — so random just works. lock/dpms are off for appliance behaviour.
 cat > /etc/skel/.xscreensaver <<'XSS'
 timeout:		0:10:00
-cycle:			0:05:00
+cycle:			0:01:00
 lock:			False
 fade:			True
 unfade:			True
 fadeSeconds:		0:00:03
 mode:			random
-selected:		0
-chooseRandomImages: True
-imageDirectory:	/usr/share/backgrounds/ncz/
-dpmsEnabled:	False
-dpmsStandby:	2:00:00
-dpmsSuspend:	2:00:00
-dpmsOff:		4:00:00
-
-programs:								      \
-- glslideshow -root --imageDirectory /usr/share/backgrounds/ncz \n\
-- xanalogtv -root							      \n\
-- galaxy -root							      \n\
-- gleidescope -root							      \n\
-- moebius -root							      \n\
-- glmatrix -root							      \n\
-- flyingtoasters -root						      \n\
-- stonerview -root							      \n\
-- atunnel -root							      \n\
-- endgame -root							      \n\
+selected:		-1
+dpmsEnabled:		False
 XSS
 
 # Autostart xscreensaver in XFCE/MATE/LXQt/Openbox sessions
@@ -536,4 +559,4 @@ OnlyShowIn=XFCE;LXQt;MATE;Openbox;
 StartupNotify=false
 Terminal=false
 XAUTO
-echo "[20] xscreensaver installed with NCZ cosmic theme set"
+echo "[20] xscreensaver installed (2D-only hacks + gl-visual shim; random from catalog)"
