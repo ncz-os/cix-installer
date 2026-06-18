@@ -107,4 +107,30 @@ Recommended sequencing:
 
 ---
 
+## r105 bake assets (NPU py3.11 uv venv) — added 2026-06-17
+
+These are gitignored bake-time blobs that MUST be present in the build tree
+for the NPU-from-Python path to ship. Validated on .66 at ~56 emb/s.
+
+- **assets/python311/cpython-3.11.15+20260610-aarch64-unknown-linux-gnu-install_only.tar.gz**
+  relocatable CPython 3.11 (python-build-standalone). Consumed offline by
+  `46-python311.sh` → `/opt/python3.11`. Refresh URL: resolve latest tag at
+  `https://raw.githubusercontent.com/astral-sh/python-build-standalone/latest-release/latest-release.json`.
+- **assets/python311/uv**
+  uv static binary, `uv-aarch64-unknown-linux-gnu` from
+  `https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-unknown-linux-gnu.tar.gz`.
+  Consumed by `46-python311.sh` → `/usr/local/bin/uv`; `47-embedkit.sh` builds
+  the venv with it.
+- **assets/cix-debs/cix-noe-umd_2.0.2_arm64.deb**
+  the ONLY UMD validated against the in-tree armchina_npu KMD. Source:
+  `https://github.com/radxa-pkg/cix-prebuilt/releases/download/rc3.3-2601/cix-noe-umd_2.0.2_arm64.deb`.
+  Provides `libnoe.so.0.6.0` + `/usr/share/cix/pypi/{libnoe,NOE_Engine}-2.0.0`
+  wheels (cp311/cp312). `25-cix-proprietary.sh` now keeps it (was skipped);
+  the older `cix-noe-umd_1.1.1` in the tree is intentionally still skipped.
+
+See `docs/POST-CIX-NPU-EMBEDDINGS-DRAFT.md` (RESOLVED 2026-06-17) for the
+why. This whole stopgap retires once CIX ships a cp314/abi3 libnoe wheel.
+
+---
+
 *Last revised 2026-05-06 by Claude Opus 4.7 in jperlow-mlt session 85a4aae3 with mnemos-claude cross-checks. When this drifts from MNEMOS or git, reconcile.*

@@ -1520,6 +1520,14 @@ if [ -d "$ROOT/assets/sky1-firmware" ]; then
     echo "    sky1-firmware: $(du -sh "$EXTRA/assets/sky1-firmware" | cut -f1)"
 fi
 
+# NPU py3.11 uv venv toolchain (staged by the generic assets loop above):
+# relocatable CPython 3.11 + uv. 46-python311.sh consumes it offline-first.
+if [ -d "$EXTRA/assets/python311" ]; then
+    echo "    python311 (NPU uv venv): $(du -sh "$EXTRA/assets/python311" | cut -f1) — $(find "$EXTRA/assets/python311" -maxdepth 1 -type f | wc -l | tr -d ' ') file(s)"
+else
+    echo "    python311 (NPU uv venv): NOT staged — NPU-from-Python will need network at install (uv fetches 3.11)"
+fi
+
 # r104: validated kernel-module overlays (e.g. armchina_npu.ko with ARCH_V3 +
 # iova_region=2 fixes). The 'kernel' subdir is special-cased above so only
 # stable/+edge/ get staged — explicitly stage modules-overlay/ so 80-npu.sh
