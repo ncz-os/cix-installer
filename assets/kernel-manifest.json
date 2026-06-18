@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-06-18T00:21:01Z",
+  "generated_utc": "2026-06-18T03:13:05Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
@@ -31,8 +31,8 @@
       "kver": "7.0.12-cix-sky1-next",
       "modules": {
         "file": "assets/kernel/edge/modules-cixmini.tgz",
-        "sha256": "1124243eae2f6de588dbf61089932202e4a855fedf7d197457768ac0b6b0e09e",
-        "size": 112026896
+        "sha256": "60136072197ba2c3c602526b9904cbfeea6b767b8171eb37095b0201377eab3a",
+        "size": 113577573
       },
       "npu": {
         "file": "assets/kernel/edge/modules-cixmini.tgz:lib/modules/7.0.12-cix-sky1-next/kernel/drivers/misc/armchina-npu/armchina_npu.ko",
