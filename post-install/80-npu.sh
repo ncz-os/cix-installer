@@ -253,6 +253,22 @@ SDXL-Turbo (see https://modelscope.cn/models/cix/ai_model_hub_25_Q3)
 EOF
 chmod 0644 /usr/share/doc/ncz/NPU-STATUS.md
 
+# --- Step 5b: install the bundled operator docs (NPU embeddings, inference
+# limits/capability matrix, ModelScope model-pull guide). These are baked from
+# the repo docs/ via assets/docs/ (symlinks dereferenced at build time), so the
+# installed appliance carries the same reference material the repo ships. ---
+DOCS_SRC=/usr/local/lib/cix-installer/assets/docs
+if [ -d "$DOCS_SRC" ]; then
+    for d in "$DOCS_SRC"/*.md; do
+        [ -e "$d" ] || continue
+        install -m 0644 "$d" /usr/share/doc/ncz/ && \
+            echo "[80] doc: /usr/share/doc/ncz/$(basename "$d")"
+    done
+else
+    echo "[80] WARN: $DOCS_SRC not staged - operator docs not installed"
+fi
+
+
 # Marker for 70-bootloader.sh: NPU initrds need staging
 mkdir -p /var/lib/ncz
 : > /var/lib/ncz/npu-initrd-staging.list
