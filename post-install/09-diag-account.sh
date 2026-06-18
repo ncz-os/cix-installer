@@ -93,6 +93,18 @@ and re-bake the ISO.
 EOF
 chmod 0644 /etc/cix-diag-account.txt
 
+# Hide the diagnostic account from the LightDM/GDM greeter user list so it is
+# not shown (and not the default selected user) at the login screen. The
+# account stays fully functional for SSH + manual login (type the username).
+# AccountsService SystemAccount=true is honoured by lightdm-gtk-greeter and gdm.
+install -d -m 0755 /var/lib/AccountsService/users
+cat > /var/lib/AccountsService/users/${DIAG_USER} <<ASVC
+[User]
+SystemAccount=true
+ASVC
+chmod 0644 /var/lib/AccountsService/users/${DIAG_USER}
+echo "[09] ${DIAG_USER} hidden from greeter (AccountsService SystemAccount=true)"
+
 echo
 echo "[09] Diagnostic account ready:"
 echo "     login: $DIAG_USER / <preset password>"

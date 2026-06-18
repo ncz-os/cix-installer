@@ -73,6 +73,19 @@ greeter-show-manual-login=true
 allow-guest=false
 LIDM
 
+# r109: brand the greeter (login) screen with the NCZ wallpaper. Without this
+# the lightdm-gtk-greeter shows the default grey background before login, which
+# reads as "default XFCE" until the user session paints the NCZ backdrop.
+# Points at the rotator-managed default.jpg so it tracks the active wallpaper.
+mkdir -p /etc/lightdm/lightdm-gtk-greeter.conf.d
+cat > /etc/lightdm/lightdm-gtk-greeter.conf.d/50-ncz.conf <<GTKG
+[greeter]
+background=/usr/share/backgrounds/ncz/default.jpg
+user-background=false
+theme-name=Greybird-dark
+icon-theme-name=elementary-xfce-dark
+GTKG
+
 # Mesa env: force panthor / panvk path for accelerated GL on Mali-G720
 mkdir -p /etc/systemd/system/lightdm.service.d
 cat > /etc/systemd/system/lightdm.service.d/cixmini-mesa.conf <<'MESA'
