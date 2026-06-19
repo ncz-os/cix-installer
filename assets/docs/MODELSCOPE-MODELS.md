@@ -1,0 +1,1 @@
+../../docs/MODELSCOPE-MODELS.md
