@@ -1,0 +1,50 @@
+# NOTE: Hermes dashboard runs on a DEDICATED Podman network
+# (hermes-isolated.network) — NOT the default bridge that zeroclaw and
+# openclaw use. This gives clean trust-boundary isolation:
+#   - Host loopback (127.0.0.1) → hermes dashboard:     reachable
+#   - Host non-loopback / LAN   → hermes dashboard:    blocked by PublishPort
+#   - Default-bridge containers → hermes:              blocked (different network)
+#   - Hermes container          → host-loopback svcs:  blocked (own namespace,
+#                                                       not Network=host)
+# Operators wanting LAN access add an SSH tunnel or reverse proxy with
+# TLS+auth on top — never bind hermes Exec to 0.0.0.0 with broad PublishPort.
+#
+# Posture note: bigpi reference deployment runs hermes on the default bridge
+# with PublishPort 8642:8642 (LAN-accessible without TLS). cixmini-on-Yocto
+# is more conservative; LAN access requires an explicit reverse-proxy slice.
+
+[Unit]
+Description=hermes agent (NousResearch Hermes Agent OSS)
+Documentation=https://github.com/NousResearch/hermes-agent
+Requires=nclawzero-load-agent-images.service
+Wants=network-online.target
+After=network-online.target nclawzero-load-agent-images.service
+
+[Container]
+Image=docker.io/nousresearch/hermes-agent@sha256:aa60e7483a6fad26eee233d2498d4f2b4223bf9d8990e3b07017f19b6ba7b6fe
+# Image pinned to immutable digest. To roll forward, resolve a newer
+# sha256 via `crane digest docker.io/nousresearch/hermes-agent:latest`
+# and update here. AutoUpdate=registry intentionally OMITTED.
+ContainerName=hermes
+Pull=never
+# Dedicated isolated Podman network (see hermes-isolated.network).
+Network=hermes-isolated.network
+# (resolves to NetworkName=hermes-isolated-v2 — see the .network file
+# for the version-bump rationale)
+# Bind dashboard to 0.0.0.0 inside the container — fine because the
+# isolated network is not joined by sibling agent containers, and host-
+# side exposure is restricted by PublishPort below.
+Exec=dashboard --host 0.0.0.0 --port 8642 --no-open
+EnvironmentFile=/etc/nclawzero/agent-env
+Volume=hermes-data:/opt/data:Z
+# Host-side restricted to loopback — only on-box clients (e.g. SSH-
+# tunneled operator session) can reach the dashboard.
+PublishPort=127.0.0.1:8642:8642
+
+[Service]
+TimeoutStartSec=600
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target default.target

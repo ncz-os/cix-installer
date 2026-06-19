@@ -1,0 +1,36 @@
+#!/bin/bash
+set -e
+
+# Create directories
+mkdir -p /opt/mnemos/bin
+mkdir -p /usr/share/cix/models
+
+# Install API files
+cp /usr/share/mnemos-cix-integration/npu_embedder_api.py /opt/mnemos/bin/
+cp /usr/share/mnemos-cix-integration/NOE_Engine.py /opt/mnemos/bin/
+cp /usr/share/mnemos-cix-integration/minilm_128.cix /usr/share/cix/models/
+
+# Set up Python venv for the API
+if [ ! -d /opt/mnemos/venv ]; then
+    python3 -m venv /opt/mnemos/venv
+fi
+/opt/mnemos/venv/bin/pip install fastapi uvicorn pydantic transformers sentencepiece protobuf --no-cache-dir
+
+# Install systemd service
+cp /usr/share/mnemos-cix-integration/cix-npu-embedder.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable cix-npu-embedder.service
+
+# Setup MNEMOS API service wrapper
+mkdir -p /etc/mnemos
+cat << ENVC > /etc/mnemos/mnemos.env
+MNEMOS_PORT=5002
+MNEMOS_BIND=0.0.0.0
+MNEMOS_LLM_PROVIDER=openai
+OPENAI_API_KEY=dummy
+OPENAI_BASE_URL=http://localhost:8000/v1
+MNEMOS_EMBEDDING_DIM=384
+MNEMOS_DATABASE_DSN=sqlite:////root/.mnemos/mnemos.db
+ENVC
+
+exit 0

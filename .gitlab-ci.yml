@@ -1,0 +1,24 @@
+pages:
+  stage: deploy
+  script:
+    # We must assume the runner has the .debs available as artifacts from an earlier stage
+    # or they are downloaded here from a remote object store (e.g. S3 or GitLab Package Registry)
+    # since we cannot store 250MB+ of binary blobs in the git repository itself.
+    - echo "Deploying APT repo to GitLab pages..."
+    - mkdir -p public/pool/main
+    - mkdir -p public/dists/resolute/main/binary-arm64
+    - cat << "REL" > public/dists/resolute/Release
+Origin: NCZ
+Label: NCZ
+Suite: resolute
+Codename: resolute
+Architectures: arm64
+Components: main
+Description: NCZ Magnetar CIX Repository
+REL
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == "recovery/26.6-take1"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

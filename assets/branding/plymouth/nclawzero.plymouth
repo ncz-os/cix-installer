@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=nclawzero
+Description=Boot splash for the nclawzero distro — NCZ wordmark over a circuit-mesh background.
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/nclawzero
+ScriptFile=/usr/share/plymouth/themes/nclawzero/nclawzero.script
