@@ -277,6 +277,44 @@ use it to free CPU/GPU during video transcode or camera pipelines.
   the NPU is by far the most power-efficient — prefer it for always-on agent
   tasks.
 
+### 6.4 CPU core allocation (big.LITTLE) & agent pinning
+
+Sky1's 12-core CPU is heterogeneous: **8× Cortex-A720 "big"** cores and
+**4× Cortex-A520 "little"/efficiency** cores. Logical CPU mapping on the `.66`
+reference board:
+
+| Logical CPUs | Core | Max clock | Capacity | Role |
+|---|---|---|---|---|
+| **2, 3, 4, 5** | Cortex-A520 | 1.8 GHz | 279 | little / efficiency |
+| 0, 1 | Cortex-A720 (prime) | 2.6 GHz | 1024 | big |
+| 10, 11 | Cortex-A720 | 2.5 GHz | 984 | big |
+| 6, 7 | Cortex-A720 | 2.3 GHz | 905 | big |
+| 8, 9 | Cortex-A720 | 2.2 GHz | 866 | big |
+
+**The always-on agent (zeroclaw) is biased toward the little cores.** Its hot
+path is an orchestration / poll / MCP-gateway loop, not heavy math, so the
+A520 cluster is plenty — and that keeps the eight A720 big cores clear for the
+latency-sensitive work this guide routes to CPU (**LLM prefill/decode**) plus
+NPU job orchestration and the desktop.
+
+We ship this as a **soft bias, not a hard pin** — the `zeroclaw.container`
+quadlet sets `CPUWeight=20` + `Nice=10` (not `AllowedCPUs=2-5`). Energy-Aware
+Scheduling already prefers little cores for low-utilization tasks; the low
+weight + positive nice reinforce that and make zeroclaw **yield** big-core time
+to inference under load, while still letting it **burst** onto big cores if it
+ever needs to (a hard cpuset cannot burst, and would throttle a CPU fallback).
+
+To inspect or override on a running box:
+
+```bash
+# see where it runs / its weight
+systemctl show zeroclaw -p AllowedCPUs -p CPUWeight -p Nice
+# hard-pin instead (Magnetar appliance, deterministic):
+#   add to the [Service] section of /etc/containers/systemd/zeroclaw.container:
+#   AllowedCPUs=2-5
+# then: systemctl daemon-reload && systemctl restart zeroclaw
+```
+
 ---
 
 ## 7. Quick reference — where everything lives

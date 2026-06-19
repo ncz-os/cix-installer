@@ -268,6 +268,41 @@ huggingface-cli download <repo> <file.gguf> --local-dir /opt/ncz/models
 - **能耗：** 对于重复的固定形状推理（嵌入、分类），NPU 是迄今能效最高的 ——
   常驻型智能体任务优先选它。
 
+### 6.4 CPU 核心分配（big.LITTLE）与智能体绑定
+
+Sky1 的 12 核 CPU 是异构的：**8× Cortex-A720"大"核** + **4× Cortex-A520
+"小"/能效核**。`.66` 参考板上的逻辑 CPU 映射：
+
+| 逻辑 CPU | 核心 | 最高频率 | 容量 | 角色 |
+|---|---|---|---|---|
+| **2、3、4、5** | Cortex-A520 | 1.8 GHz | 279 | 小核 / 能效 |
+| 0、1 | Cortex-A720（主） | 2.6 GHz | 1024 | 大核 |
+| 10、11 | Cortex-A720 | 2.5 GHz | 984 | 大核 |
+| 6、7 | Cortex-A720 | 2.3 GHz | 905 | 大核 |
+| 8、9 | Cortex-A720 | 2.2 GHz | 866 | 大核 |
+
+**常驻智能体（zeroclaw）被偏置到小核上。** 它的热路径是编排 / 轮询 / MCP 网关
+循环，而非重计算，因此 A520 集群足够用 —— 这样就能让 8 个 A720 大核保持空闲，
+留给本指南路由到 CPU 的延迟敏感工作（**LLM 预填充/解码**）以及 NPU 作业编排和
+桌面。
+
+我们以**软偏置而非硬绑定**的方式实现 —— `zeroclaw.container` quadlet 设置
+`CPUWeight=20` + `Nice=10`（而不是 `AllowedCPUs=2-5`）。能耗感知调度（EAS）本就
+偏好把低利用率任务放到小核；低权重 + 正 nice 强化这一点，并让 zeroclaw 在负载下
+把大核时间**让给**推理，同时在需要时仍能**突发**到大核（硬 cpuset 无法突发，会
+拖慢 CPU 回退路径）。
+
+在运行中的机器上查看或覆盖：
+
+```bash
+# 查看运行位置 / 权重
+systemctl show zeroclaw -p AllowedCPUs -p CPUWeight -p Nice
+# 改为硬绑定（Magnetar 设备，确定性）：
+#   在 /etc/containers/systemd/zeroclaw.container 的 [Service] 段添加：
+#   AllowedCPUs=2-5
+# 然后：systemctl daemon-reload && systemctl restart zeroclaw
+```
+
 ---
 
 ## 7. 速查 —— 各组件位置
