@@ -1,0 +1,73 @@
+# server-seed.txt — the NCZ "Ubuntu Server library" seed.
+#
+# Policy (2026-06-16): NCZ maintains a Server-class base offline; end-user /
+# desktop packages are pathed out to Ubuntu (ports.ubuntu.com) online. This
+# file is the explicit server seed layered ON TOP OF every package of
+# Priority required/important/standard (which build-server-mirror.sh adds
+# automatically). The dependency closure of all of these = the offline
+# server mirror. Anything not here and not a dependency = dropped (desktop).
+#
+# One package per line; '#' comments and blank lines ignored.
+
+# --- remote access / admin ---
+openssh-server
+sudo
+bash-completion
+less
+vim
+nano
+htop
+curl
+wget
+rsync
+ca-certificates
+gnupg
+
+# --- system services / time / logging ---
+chrony
+cron
+logrotate
+unattended-upgrades
+software-properties-common
+
+# --- networking (Ubuntu Server uses netplan + systemd-networkd/resolved) ---
+netplan.io
+systemd-resolved
+dbus
+iproute2
+iputils-ping
+
+# --- storage / filesystem tooling ---
+e2fsprogs
+dosfstools
+lvm2
+parted
+gdisk
+
+# --- boot / kernel plumbing (our kernel debs depend on these) ---
+systemd-boot
+efibootmgr
+kmod
+initramfs-tools
+zstd
+squashfs-tools
+
+# --- hardware introspection ---
+pciutils
+usbutils
+
+# --- agent appliance (Magnetar) runtime ---
+podman
+catatonit
+# NPU/onnxruntime inference (cix-npu-onnxruntime depends on pip)
+python3
+python3-pip
+
+# --- installer pkgsel/include extras (added 2026-06-16 after r102 pkgsel exit 100) ---
+# These are requested by preseed pkgsel/include and run OFFLINE during d-i
+# (apt-setup/use_mirror=false), so they MUST be in the embedded mirror or
+# pkgsel exits 100 (installer red screen). network-manager also guarantees the
+# freshly-installed system has working networking before any online post-install.
+network-manager
+inetutils-telnetd
+openbsd-inetd

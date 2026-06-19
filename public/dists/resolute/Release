@@ -1,0 +1,7 @@
+Origin: NCZ
+Label: NCZ
+Suite: resolute
+Codename: resolute
+Architectures: arm64
+Components: main
+Description: NCZ Magnetar CIX Repository

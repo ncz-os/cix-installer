@@ -1,0 +1,31 @@
+[Unit]
+Description=zeroclaw agent gateway (official zeroclaw-labs image)
+Documentation=https://github.com/zeroclaw-labs/zeroclaw
+Requires=nclawzero-load-agent-images.service
+Wants=network-online.target
+After=network-online.target nclawzero-load-agent-images.service
+
+[Container]
+# Official upstream zeroclaw image (NOT the perlowja/nclawzero-demo build).
+# Standalone gateway: entrypoint `zeroclaw`, default cmd `daemon`, listens on
+# 42617, persists state under /zeroclaw-data (image WORKDIR/HOME).
+Image=ghcr.io/zeroclaw-labs/zeroclaw:latest
+ContainerName=zeroclaw
+# Pull policy stays "never": the image is fetched by an EXPLICIT, operator-
+# initiated `podman pull` (nclawzero-load-agent-images.service on boot, or the
+# desktop install/remove launcher). AutoUpdate=registry is intentionally
+# OMITTED so unreviewed container code never runs with the fleet API keys in
+# /etc/nclawzero/agent-env.
+Pull=never
+Exec=daemon --host 0.0.0.0 --port 42617
+EnvironmentFile=/etc/nclawzero/agent-env
+Volume=zeroclaw-data:/zeroclaw-data:Z
+PublishPort=42617:42617
+
+[Service]
+TimeoutStartSec=900
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target default.target
