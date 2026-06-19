@@ -33,7 +33,7 @@ pixels — not for ML compute.**
 | **GPU compute — panvk (Vulkan)** | `panthor.ko` + Mesa panvk | GGUF (llama.cpp Vulkan) | *(none for ML)* | **not recommended** | no cooperative-matrix; non-conformant; 6–47× slower than CPU |
 | **GPU compute — rusticl (OpenCL)** | `panthor.ko` + Mesa rusticl (Gallium) | OpenCL kernels (no ML framework) | raw GEMM only (~1.9 TFLOPS FP32 clpeak) | **experimental** | no ML framework targets it; slow host readback |
 | **GPU compute — libmali (OpenCL, vendor)** | vendor `libmali` OpenCL | vendor blob, no ICD loader | CNN/quantized *if* you bring a framework | **experimental** | not a real ICD; integration-hostile; slow readback |
-| **GPU display — panthor** | `panthor.ko` + Mesa panfrost/panvk | — | KMS, desktop GL/Vulkan, compositing | **production** | — |
+| **GPU display — panthor** | `panthor.ko` + Mesa panfrost/panvk | — | KMS, desktop GL/Vulkan | **production** | GPU **compositing disabled by default** — zink/kopper can't create an X11 swapchain on 7.0.x (see note below) |
 
 ---
 
@@ -124,8 +124,13 @@ for the memory/embedding lane.
 
 ### GPU — panthor (Mali-G720)
 
-- **Display: production.** KMS/GL/Vulkan/compositing all good — this is what the
-  GPU is for on this box.
+- **Display: production**, with one caveat. KMS, desktop GL, and Vulkan all
+  work — this is what the GPU is for on this box. **GPU compositing is disabled
+  by default**, though: on the `7.0.x` kernel the zink/kopper GL compositor
+  cannot create an X11 swapchain (`zink: could not create swapchain`) even with
+  stock panvk, so xfwm4 ships with `use_compositing=false` (it would otherwise
+  hit a fatal GL-init error and exit, leaving the session with no WM). See
+  `DRIVER_FIDELITY_7012.md`.
 - **Compute: avoid for ML.** panvk is non-conformant ("testing use only"), no
   cooperative-matrix → 6–47× slower than CPU on every net tested. rusticl/libmali
   OpenCL have raw FLOPS but no ML framework consumes them and host readback is
