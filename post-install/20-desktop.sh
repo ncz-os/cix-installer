@@ -478,6 +478,22 @@ cat > /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml <<XFCEEOF
 </channel>
 XFCEEOF
 
+# XFCE WM — disable GPU compositing by default. On Mali-G720 (panthor) the
+# zink/kopper GL compositor cannot create an X11 swapchain on the 7.0.x kernel
+# ("zink: could not create swapchain"); xfwm4 treats that GL init failure as
+# fatal and exits -> the session comes up with no window manager. Compositing
+# off keeps the WM stable; the GPU stays fully available for Vulkan/OpenCL/NPU
+# compute (which does not use the GL presentation path). See DRIVER_FIDELITY_7012.md.
+mkdir -p /etc/xdg/xfce4/xfconf/xfce-perchannel-xml
+cat > /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml <<'XFWMEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="use_compositing" type="bool" value="false"/>
+  </property>
+</channel>
+XFWMEOF
+
 # MATE / GNOME / Cinnamon — dconf system-wide default
 mkdir -p /etc/dconf/db/local.d /etc/dconf/profile
 cat > /etc/dconf/profile/user <<'DPROFILE'

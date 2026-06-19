@@ -26,6 +26,13 @@ PublishPort=42617:42617
 TimeoutStartSec=900
 Restart=always
 RestartSec=15
+# Bias the always-on agent toward the efficiency (Cortex-A520) cores. On Sky1
+# (8x A720 big + 4x A520 little) a low CPU weight + positive nice let EAS park
+# zeroclaw on the little cluster when idle and yield big-core time to LLM
+# prefill/decode + NPU orchestration, while still allowing it to burst under
+# load. Soft bias (not a hard AllowedCPUs pin) so nothing is starved.
+CPUWeight=20
+Nice=10
 
 [Install]
 WantedBy=multi-user.target default.target
