@@ -76,3 +76,7 @@ build/server-mirror/
 build/kernel-debs/
 *.r97bak
 build/*.squashfs
+
+# Mesa 26.1.3 GPU compute stack (built from source on .66; staged at build time)
+assets/gpu/*.tar.gz
+assets/gpu/*.tar.zst

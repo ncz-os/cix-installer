@@ -4,7 +4,8 @@
 distribution.**
 
 Produces a fully-unattended UEFI-bootable installer ISO that
-partitions the target disk, debootstraps Ubuntu 25.10 questing,
+partitions the target disk, debootstraps a Debian 12 base and
+full-upgrades it to Ubuntu (resolute) on disk, then
 layers a hardware-appropriate kernel + vendor userspace runtimes +
 desktop environment + Claude Code + the NCZ agent stack (`zeroclaw`
 default-active; `openclaw`, `hermes`, `portainer`, and `nemoclaw`
@@ -43,6 +44,27 @@ x86 platform, when sample hardware is obtainable for validation.
 
 The current build path inside `build/build-iso-di.sh` is the Cix Sky1
 implementation; the architecture is the reusable scaffold.
+
+## Hardware support & testing status
+
+> **Read this before you flash anything.** NCZ is vendor-neutral *by
+> design*, but "designed to support" is not the same as "tested on." Here
+> is the honest state of hardware validation.
+
+| Board | SoC | Status |
+|---|---|---|
+| **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **The only hardware we have tested on.** Every bit of validation — UEFI boot, the installer, GPU (Mesa 26.1.3 panvk + rusticl), NPU (Zhouyi embeddings + vision), audio, and the A/B kernel program — was done on this box. |
+| **Radxa Orion O6 / O6N** | Cix Sky1 | ❌ **Untested — and we need testers badly.** Same SoC, but a *different board* (different device tree, PMIC, BIOS, peripherals). We do **not** own one. **If you have an O6: please install, test, and file issues. And if anyone at Radxa is reading this — we need a board.** |
+| **Framework Cix add-in board / mainboard** | Cix Sky1 | ❌ **Untested.** On our radar; no hardware in hand. |
+| **Orange Pi (Cix variants)** | Cix Sky1 | ❌ **Untested.** No hardware in hand. |
+| Other Arm (RK3588/RK3576, MediaTek Genio, Snapdragon) and x86 (Intel, AMD) | — | 🗺️ Roadmap / adapter-level only — not built or tested yet. |
+
+**What "untested" means for you:** parts of the build path are MS-R1-specific
+— e.g. an ACPI SSDT override that works around the MS-R1 *factory BIOS bug*
+(it omits `_HID="CIXH4010"` so the NPU cores never enumerate), firmware blob
+paths, and board/device-tree quirks. On any other board it may not boot, the
+NPU/GPU/VPU may not initialize, or the installer may need board-specific work.
+**Testers and donated hardware are the fastest way to change a ❌ to a ✅.**
 
 ## Quick start (build the ISO)
 
@@ -162,6 +184,18 @@ rebuild. Full guide (single-file + LFS clone + custom ONNX→`.cix`):
 - [`docs/INFERENCE_LIMITS.md`](docs/INFERENCE_LIMITS.md) — full per-HW/driver capability + limits matrix
 - [`docs/MODELSCOPE-MODELS.md`](docs/MODELSCOPE-MODELS.md) — pulling/compiling `.cix` models
 - [`docs/POST-CIX-NPU-EMBEDDINGS-DRAFT.md`](docs/POST-CIX-NPU-EMBEDDINGS-DRAFT.md) — the UMD-pairing deep dive (why 2.0.2 + py3.11)
+
+## AI/ML stack & project history
+
+The full guide to what AI/ML ships on the appliance, what each binary and
+library is for, how to route a workload across the four compute engines
+(CPU / NPU / GPU / VPU), measured performance, and how to pull new models:
+
+- [`docs/AI-ML-STACK.md`](docs/AI-ML-STACK.md) — AI/ML stack reference
+  · [简体中文 (Simplified Chinese)](docs/AI-ML-STACK.zh-CN.md)
+- [`docs/HOW-DID-WE-GET-HERE.md`](docs/HOW-DID-WE-GET-HERE.md) — schedule
+  post-mortem: the engineering effort behind the first full Linux distro for
+  this silicon · [简体中文 (Simplified Chinese)](docs/HOW-DID-WE-GET-HERE.zh-CN.md)
 
 
 ## Inputs
@@ -333,7 +367,11 @@ pulling anything.
 
 ## Status
 
-**v0** — scaffolding + first-pass preseed + first-pass post-install. Iterating.
+**26.6 (r113)** — first full release with the Mesa 26.1.3 GPU compute stack
+(panvk + rusticl), validated NPU embeddings, and the A/B kernel program
+(6.18 LTS default + 7.0.x edge). Tested on Minisforum MS-R1 only — see
+**Hardware support & testing status** above. Both **Reinhardt** (desktop) and
+**Magnetar** (server) variants build from this tree.
 
 ## Sister projects
 
