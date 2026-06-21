@@ -2,7 +2,7 @@
 
 > **🌐 Language:** English · [简体中文](README.zh-CN.md)
 >
-> **📚 Start here:** [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [How Did We Get Here — engineering post-mortem](docs/HOW-DID-WE-GET-HERE.md) ([中文](docs/HOW-DID-WE-GET-HERE.zh-CN.md)) · [Download the ISO](https://gitlab.com/ncz-os/cix-installer/-/releases/v26.6-r113)
+> **📚 Start here:** [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [How Did We Get Here — engineering post-mortem](docs/HOW-DID-WE-GET-HERE.md) ([中文](docs/HOW-DID-WE-GET-HERE.zh-CN.md)) · [Download the ISO](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
 
 **Customized debian-installer ISO builder for the NCZ Linux
 distribution.**
@@ -58,7 +58,7 @@ implementation; the architecture is the reusable scaffold.
 | Board | SoC | Status |
 |---|---|---|
 | **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **The only hardware we have tested on.** Every bit of validation — UEFI boot, the installer, GPU (Mesa 26.1.3 panvk + rusticl), NPU (Zhouyi embeddings + vision), audio, and the A/B kernel program — was done on this box. |
-| **Radxa Orion O6 / O6N** | Cix Sky1 | ❌ **Untested — and we need testers badly.** Same SoC, but a *different board* (different device tree, PMIC, BIOS, peripherals). We do **not** own one. **If you have an O6: please install, test, and file issues. And if anyone at Radxa is reading this — we need a board.** |
+| **Radxa Orion O6 / O6N** | Cix Sky1 | ❌ **Untested — and we need testers badly.** Same SoC, but a *different board* (different device tree, PMIC, BIOS, peripherals). We do **not** own one. *Networking fix landed:* the O6's Realtek NIC (RTL8125/8126) now ships its `rtl_nic` firmware in both the installer and the installed system, resolving the earlier no-network regression — but the board as a whole is still unvalidated. **If you have an O6: please install, test, and file issues. And if anyone at Radxa is reading this — we need a board.** |
 | **Framework Cix add-in board / mainboard** | Cix Sky1 | ❌ **Untested.** On our radar; no hardware in hand. |
 | **Orange Pi (Cix variants)** | Cix Sky1 | ❌ **Untested.** No hardware in hand. |
 | Other Arm (RK3588/RK3576, MediaTek Genio, Snapdragon) and x86 (Intel, AMD) | — | 🗺️ Roadmap / adapter-level only — not built or tested yet. |
@@ -79,12 +79,21 @@ make
 
 ## Quick start (install on hardware)
 
+> **A wired Ethernet connection is required.** The installer debootstraps the
+> base system and upgrades it over the network, and Wi-Fi isn't available in
+> d-i. Plug in a wired cable **before** powering on. If no link is detected the
+> installer now stops with a clear "Network autoconfiguration failed" message
+> (plug in a cable and Retry) instead of looping silently. Realtek NICs —
+> including the Orion O6's RTL8125/8126 — work out of the box; the `rtl_nic`
+> firmware ships in both the installer and the installed system.
+
 1. Flash the ISO to a USB stick (≥4 GB):
    ```bash
    sudo bmaptool copy --bmap nclawzero-installer-cixmini.iso.bmap \
        nclawzero-installer-cixmini.iso /dev/sdX
    ```
-2. Plug into target (cixmini), power on, hit F-key for UEFI boot menu, pick USB
+2. Plug in a **wired Ethernet cable**, then plug the USB into the target
+   (cixmini / Orion O6), power on, hit the F-key for the UEFI boot menu, pick USB
 3. d-i auto-runs preseed; ~20-30 min unattended install
 4. Reboot, remove USB, target boots nclawzero from internal storage
 
