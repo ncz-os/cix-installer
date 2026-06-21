@@ -16,6 +16,27 @@ set -euo pipefail
 SRC=/usr/local/lib/cix-installer/assets/sky1-firmware
 DEST=/lib/firmware
 
+# ----------------------------------------------------------------------
+# r79: Realtek rtl_nic firmware (upstream linux-firmware). The Orion O6
+# NIC (RTL8125/8126 class) needs an rtl_nic/*.fw blob for the in-tree
+# r8169 driver (CONFIG_R8169=y, built-in) to bring up link. The MS-R1's
+# RTL8127 happens to link without a blob, so the absence was invisible
+# until O6 — where it showed up as a no-link install/runtime regression.
+# Only the firmware was missing; the driver was always present.
+#
+# Done BEFORE the sky1-firmware early-exit below (sky1-firmware may be
+# absent in some modes) and kept best-effort so it can never abort this
+# Phase-1 (required) hook.
+RTL_SRC=/usr/local/lib/cix-installer/assets/firmware/rtl_nic
+if [ -d "$RTL_SRC" ] && [ -n "$(ls -A "$RTL_SRC" 2>/dev/null)" ]; then
+    echo "[12] installing Realtek rtl_nic firmware → $DEST/rtl_nic"
+    mkdir -p "$DEST/rtl_nic"
+    cp -fn "$RTL_SRC"/*.fw "$DEST/rtl_nic/" 2>/dev/null || true
+    echo "    rtl_nic blobs present: $(ls "$DEST/rtl_nic" 2>/dev/null | wc -l)"
+else
+    echo "[12] WARN: $RTL_SRC missing/empty — Orion O6 NIC may not link post-install"
+fi
+
 if [ ! -d "$SRC" ] || [ -z "$(ls -A "$SRC" 2>/dev/null)" ]; then
     echo "[12] WARN: $SRC missing or empty — skipping (GPU/DSP/VPU drivers will fail at runtime)"
     exit 0
