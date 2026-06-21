@@ -3,6 +3,13 @@
 **Customized debian-installer ISO builder for the NCZ Linux
 distribution.**
 
+> ### 📥 Download the ISO
+> **Release ISOs live on GitLab:**
+> **https://gitlab.com/ncz-os/cix-installer/-/releases**
+>
+> GitHub hosts the source mirror only — there are no release artifacts here.
+> If a link sent you to GitHub Releases, use the GitLab releases page above.
+
 Produces a fully-unattended UEFI-bootable installer ISO that
 partitions the target disk, debootstraps Ubuntu 25.10 questing,
 layers a hardware-appropriate kernel + vendor userspace runtimes +
@@ -53,12 +60,21 @@ make
 
 ## Quick start (install on hardware)
 
+> **Wired Ethernet is required.** This is a netinstall — d-i fetches the base
+> system over the network and Wi-Fi is not available in the installer. Plug a
+> wired Ethernet cable into the target **before** powering on. If no link is
+> detected, the installer stops with a clear "Network autoconfiguration failed"
+> message (plug in a cable and choose Retry); it no longer loops silently.
+> Realtek NICs (incl. the Orion O6's RTL8125/8126) are supported out of the box
+> — the `rtl_nic` firmware ships in both the installer and the installed system.
+
 1. Flash the ISO to a USB stick (≥4 GB):
    ```bash
    sudo bmaptool copy --bmap nclawzero-installer-cixmini.iso.bmap \
        nclawzero-installer-cixmini.iso /dev/sdX
    ```
-2. Plug into target (cixmini), power on, hit F-key for UEFI boot menu, pick USB
+2. Plug in a **wired Ethernet cable**, then plug the USB into the target
+   (cixmini / Orion O6), power on, hit the F-key for the UEFI boot menu, pick USB
 3. d-i auto-runs preseed; ~20-30 min unattended install
 4. Reboot, remove USB, target boots nclawzero from internal storage
 

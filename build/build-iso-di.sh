@@ -1141,6 +1141,19 @@ depmod -a -b "$WORK" "$KVER_INSTALLER"
 [ -f "$WORK/lib/modules/$KVER_INSTALLER/modules.dep" ] || \
     { echo "ERROR: depmod failed"; exit 1; }
 
+# r79: stage Realtek rtl_nic firmware into the installer initrd so the
+# built-in r8169 driver can bring up the Orion O6 NIC (RTL8125/8126)
+# during d-i netcfg. Without the blob the O6 link never comes up and
+# netinstall dead-ends at "no network interface". The MS-R1 RTL8127
+# links without fw, which is why this regression only hit O6.
+if [ -d "$ROOT/assets/firmware/rtl_nic" ]; then
+    mkdir -p "$WORK/lib/firmware/rtl_nic"
+    cp -L "$ROOT/assets/firmware/rtl_nic/"*.fw "$WORK/lib/firmware/rtl_nic/" 2>/dev/null || true
+    echo "    rtl_nic firmware → installer initrd: $(ls "$WORK/lib/firmware/rtl_nic" 2>/dev/null | wc -l | tr -d ' ') blobs"
+else
+    echo "    WARN: assets/firmware/rtl_nic absent — O6 NIC will not link in installer"
+fi
+
 OVERLAY_GZ="$STAGING/.installer-kernel-overlay.cpio.gz"
 ( cd "$WORK" && find lib -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$OVERLAY_GZ"
 gzip -t "$OVERLAY_GZ"
@@ -1442,6 +1455,25 @@ if [ -d "$ROOT/assets/sky1-firmware" ]; then
     echo "    sky1-firmware: $(du -sh "$EXTRA/assets/sky1-firmware" | cut -f1)"
 fi
 
+# r79: Realtek rtl_nic firmware (upstream linux-firmware) for the INSTALLED
+# system. late.sh copies all of $EXTRA → /target/usr/local/lib/cix-installer,
+# and 12-sky1-firmware.sh installs assets/firmware/rtl_nic → /lib/firmware.
+# Needed so the Orion O6 NIC keeps linking after first boot, not just during
+# the installer.
+if [ -d "$ROOT/assets/firmware/rtl_nic" ]; then
+    mkdir -p "$EXTRA/assets/firmware/rtl_nic"
+    cp -L "$ROOT/assets/firmware/rtl_nic/"*.fw "$EXTRA/assets/firmware/rtl_nic/" 2>/dev/null || true
+    echo "    rtl_nic firmware (target): $(ls "$EXTRA/assets/firmware/rtl_nic" 2>/dev/null | wc -l | tr -d ' ') blobs"
+fi
+
+# NPU py3.11 uv venv toolchain (staged by the generic assets loop above):
+# relocatable CPython 3.11 + uv. 46-python311.sh consumes it offline-first.
+if [ -d "$EXTRA/assets/python311" ]; then
+    echo "    python311 (NPU uv venv): $(du -sh "$EXTRA/assets/python311" | cut -f1) — $(find "$EXTRA/assets/python311" -maxdepth 1 -type f | wc -l | tr -d ' ') file(s)"
+else
+    echo "    python311 (NPU uv venv): NOT staged — NPU-from-Python will need network at install (uv fetches 3.11)"
+fi
+
 echo "$VERSION"     > "$EXTRA/BUILD_VERSION"
 echo "$BUILD_DATE"  > "$EXTRA/BUILD_DATE"
 echo "$BUILD_HOST"  > "$EXTRA/BUILD_HOST"
@@ -1533,6 +1565,12 @@ echo "                     $VERSION"
 echo "                     \"$CODENAME\""
 echo "               kernel: $KVER_INSTALLER ($INSTALLER_KERNEL_LABEL)"
 echo "               build:  $BUILD_DATE"
+echo ""
+echo "        ┌──────────────────────────────────────────────┐"
+echo "        │  PLUG IN A WIRED ETHERNET CABLE BEFORE INSTALL │"
+echo "        │  netinstall fetches the base system over the   │"
+echo "        │  network. Wi-Fi is not available in d-i.       │"
+echo "        └──────────────────────────────────────────────┘"
 echo ""
 
 menuentry "$GRUB_DESKTOP_TITLE" {
