@@ -129,7 +129,8 @@ set -uo pipefail
 MANIFEST=/usr/share/ncz/agent-images.manifest
 IMAGE_DIR=/var/lib/nclawzero/agent-images
 PODMAN=/usr/bin/podman
-rc=0
+rc=0          # hard errors (podman/manifest/tarball-load) -> fail the unit
+deferred=0    # soft skips (offline / pull failed) -> succeed, retry later
 
 if [ ! -x "$PODMAN" ]; then
     echo "[agent-images] ERROR: podman missing"
@@ -139,6 +140,17 @@ if [ ! -f "$MANIFEST" ]; then
     echo "[agent-images] ERROR: manifest missing: $MANIFEST"
     exit 1
 fi
+
+# Network gate. network-online.target is unreliable as a gate here:
+# NetworkManager-wait-online is masked (for fast boot), so the target is
+# "reached" before DHCP/DNS settle, and LAN-only sites have NO route to a
+# public registry at all. Probe the actual registry before attempting a pull;
+# if unreachable, DEFER rather than fail, so a registry pull can never red-flag
+# the boot. Locally-staged OCI tarballs still load fully offline.
+registry_reachable() {
+    ip route show default 2>/dev/null | grep -q . || return 1   # need a default route
+    timeout 5 bash -c ">/dev/tcp/$1/443" 2>/dev/null            # 5s TCP probe to :443
+}
 
 while IFS='|' read -r agent image tarball; do
     case "$agent" in
@@ -164,10 +176,16 @@ while IFS='|' read -r agent image tarball; do
             continue
         fi
     else
+        reg="${image%%/*}"
+        if ! registry_reachable "$reg"; then
+            echo "[agent-images] DEFER $agent: no route to $reg (offline/LAN-only) — next boot or 'ncz agent install' will retry"
+            deferred=1
+            continue
+        fi
         echo "[agent-images] no OCI tarball for $agent; pulling $image"
         if ! "$PODMAN" pull "$image"; then
-            echo "[agent-images] ERROR: podman pull failed for $agent"
-            rc=1
+            echo "[agent-images] WARN: podman pull failed for $agent (transient) — deferring, not failing boot"
+            deferred=1
             continue
         fi
     fi
@@ -179,7 +197,9 @@ while IFS='|' read -r agent image tarball; do
     fi
 done < "$MANIFEST"
 
-exit "$rc"
+[ "$rc" -ne 0 ] && exit "$rc"
+[ "$deferred" -ne 0 ] && echo "[agent-images] image(s) deferred (no network) — exiting success; will retry on next boot"
+exit 0
 LOADSCRIPT
 chmod 0755 /usr/local/sbin/nclawzero-load-agent-images
 
