@@ -16,8 +16,8 @@
 #      kernel + service logs to a host that stays up.
 #   3. Persistent journald (Storage=persistent) so logs survive the
 #      reboot and can be read from rescue.target afterwards.
-#   4. Serial getty on ttyAMA2 @115200 — a real login over the serial
-#      console that matches the console=ttyAMA2,115200 boot cmdline.
+#   4. Serial getty on ttyAMA0 @115200 — a real login over the on-board
+#      UART (ttyAMA2 does not enumerate on disk-boot; see step 4 below).
 #
 # Failure-tolerant: this is a Phase 2 optional hook. Each step is
 # wrapped so a single missing package can't abort the install. Runs in
@@ -81,10 +81,10 @@ fi
 # account (09-diag-account.sh: magnetar) is the normal telnet login;
 # this just keeps root reachable if that account is gone.
 if [ -f /etc/securetty ]; then
-    for d in ttyAMA2 pts/0 pts/1 pts/2 pts/3 pts/4 pts/5 pts/6 pts/7 pts/8 pts/9; do
+    for d in ttyAMA0 pts/0 pts/1 pts/2 pts/3 pts/4 pts/5 pts/6 pts/7 pts/8 pts/9; do
         grep -qxF "$d" /etc/securetty || echo "$d" >> /etc/securetty
     done
-    echo "[36] /etc/securetty: ttyAMA2 + pts/0..9 permitted (root console/telnet fallback)"
+    echo "[36] /etc/securetty: ttyAMA0 + pts/0..9 permitted (root console/telnet fallback)"
 fi
 
 # ----------------------------------------------------------------------
@@ -133,9 +133,18 @@ mkdir -p /var/log/journal
 echo "[36] journald set persistent (Storage=persistent, ForwardToSyslog=yes)"
 
 # ----------------------------------------------------------------------
-# 4. Serial getty on ttyAMA2 @115200 (matches console= cmdline)
+# 4. Serial getty on ttyAMA0 @115200 (the REAL on-board UART)
+# r123 fix: was serial-getty@ttyAMA2 — but /dev/ttyAMA2 does NOT enumerate on
+# the MS-R1 booting from disk (only the debug harness exposes it). An enabled
+# serial-getty@ttyAMA2 BindsTo dev-ttyAMA2.device, which then blocks getty.target
+# (and thus graphical.target) for the full 90s device timeout on every boot.
+# ttyAMA0 (ARMH0011) is the UART that actually enumerates, so the getty binds
+# instantly and a serial login is still available for debugging.
 # ----------------------------------------------------------------------
-systemctl enable serial-getty@ttyAMA2.service 2>&1 | tail -1
-echo "[36] serial-getty@ttyAMA2 enabled (115200)"
+# Belt-and-braces: ensure a stale ttyAMA2 getty can never be pulled in.
+systemctl disable serial-getty@ttyAMA2.service 2>/dev/null || true
+systemctl mask serial-getty@ttyAMA2.service 2>/dev/null || true
+systemctl enable serial-getty@ttyAMA0.service 2>&1 | tail -1
+echo "[36] serial-getty@ttyAMA0 enabled (115200); ttyAMA2 getty masked"
 
 echo "[36] DONE — telnet:23 + rsyslog→${LOGHOST} + persistent journal + serial console"
