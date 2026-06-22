@@ -26,6 +26,26 @@ exec >"$LOG" 2>&1
 
 echo "=== late.sh ($(date -u)) ==="
 echo
+
+# r116: serialize concurrent late_command invocations. When the operator
+# retries a failed finish-install step, d-i re-runs late_command. A second
+# late.sh that starts while the first is still inside `in-target
+# run-all.sh` previously caused a FATAL race: the new pass's
+# `rm -rf /target/usr/local/lib/cix-installer` (below) deleted the
+# post-install directory out from under the first pass's still-running
+# run-all.sh — which had cd'd into post-install/ — so the remaining hooks
+# aborted with "getcwd: cannot access parent directories" /
+# "./NN-hook.sh: No such file or directory" and never applied (this is how
+# 22-display-fix.sh's cix-detect-display.service silently failed to install,
+# leaving the installed system with no Xorg KMS pin → no GUI on first boot).
+# A blocking flock makes a retry WAIT for the in-flight pass to finish, then
+# run cleanly against a quiescent tree.
+if command -v flock >/dev/null 2>&1; then
+    { exec 9>/var/lock/cix-late.lock; } 2>/dev/null || exec 9>/tmp/cix-late.lock
+    echo "--- acquiring late.sh lock (serialize concurrent late_command retries) ---"
+    flock 9 || echo "WARN: flock failed; proceeding without serialization"
+fi
+
 echo "--- runtime context ---"
 echo "PWD: $(pwd)"
 echo "USER: $(id)"
@@ -182,7 +202,21 @@ CDROM_PREF
             { echo "WARN: local apt-get update from bootstrap pool failed"; }
     else
         in-target apt-get update 2>&1 | tail -3 || { echo "WARN: in-target apt-get update from cdrom failed"; }
-        chroot /target /usr/bin/apt-get install -y --allow-unauthenticated linux-firmware cix-noe-umd cix-ai-engine || { echo "WARN: Custom package install failed"; true; }
+        # r116: install ONLY linux-firmware here. The NPU userspace packages
+        # cix-noe-umd / cix-ai-engine MUST NOT be apt-installed in late.sh.
+        # Their postinsts pip-install libnoe / noe-engine, which refuse to run
+        # on resolute's Python 3.14 (they require <3.14,>=3.10) → postinst
+        # exits 1 → dpkg leaves them HALF-CONFIGURED. That wedged dpkg state —
+        # and, across red-dialog "Continue" retries, a still-running pip
+        # postinst that keeps holding /var/lib/dpkg/lock-frontend — then makes
+        # the REQUIRED 70-bootloader.sh `apt-get install systemd-boot` fail
+        # with exit 100. run-all.sh propagates that, late_command returns
+        # non-zero, and d-i shows the red "installation step failed" dialog
+        # with NO bootloader installed. 25-cix-proprietary.sh already lands the
+        # NPU userspace correctly (dpkg-deb -x files only, no postinst) and
+        # purges any half-configured cix-* packages, so installing them here is
+        # both redundant and actively harmful.
+        chroot /target /usr/bin/apt-get install -y --allow-unauthenticated linux-firmware || { echo "WARN: linux-firmware install failed"; true; }
     fi
     CDROM_BIND_MOUNTED=1
 else
