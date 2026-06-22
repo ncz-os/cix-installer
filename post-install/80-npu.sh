@@ -152,12 +152,13 @@ done
 # bind-mounted, so it reflects the REAL hardware being installed):
 #   0. operator override  /usr/local/lib/cix-installer/NPU_SSDT = force|skip
 #   1. functional ACPI check (authoritative, board-agnostic):
-#        CIXH4010:* present  -> cores enumerate natively      -> SKIP
-#        CIXH4000:00 present, no CIXH4010:* -> MS-R1-class bug -> APPLY
+#        >=3 CIXH4010:* cores present -> enumerate natively   -> SKIP
+#        CIXH4000:00 present, <3 cores -> MS-R1-class bug      -> APPLY
 #   2. DMI board match (only if ACPI gives no signal):
-#        MS-R1 / MINISFORUM -> APPLY ;  Radxa / Orion / O6 -> SKIP
-#   3. unknown + no signal -> APPLY (MS-R1 is the primary validated target;
-#        the override is a no-op there if cores already exist) + warn.
+#        MS-R1 / MINISFORUM -> APPLY ;  Radxa / Orion -> SKIP
+#   3. unknown + no CIX NPU ACPI signal -> SKIP + warn (refuse to inject an
+#        MS-R1 SSDT into unidentified hardware; a real MS-R1 would have matched
+#        step 1 or the MINISFORUM DMI rule). Override with NPU_SSDT=force.
 should_apply_npu_ssdt() {
     local force="$INSTALLER_META/NPU_SSDT"
     if [ -f "$force" ]; then
@@ -168,12 +169,17 @@ should_apply_npu_ssdt() {
     fi
 
     if [ -d /sys/bus/acpi/devices ]; then
-        if ls -d /sys/bus/acpi/devices/CIXH4010:* >/dev/null 2>&1; then
-            echo "[80] NPU SSDT: cores already enumerate (CIXH4010:* present) — SKIP (firmware OK; likely O6/O6N)"
+        # r124: require the FULL complement of cores before declaring firmware OK.
+        # A partial enumeration (1-2 of 3) is still a defect we should fix, so
+        # only >=3 CIXH4010:* cores count as "native".
+        local ncores
+        ncores=$(ls -d /sys/bus/acpi/devices/CIXH4010:* 2>/dev/null | wc -l)
+        if [ "$ncores" -ge 3 ]; then
+            echo "[80] NPU SSDT: $ncores CIXH4010:* cores enumerate natively (>=3) — SKIP (firmware OK; likely O6/O6N)"
             return 1
         fi
         if [ -e /sys/bus/acpi/devices/CIXH4000:00 ]; then
-            echo "[80] NPU SSDT: NPU device present but cores missing — APPLY (MS-R1-class BIOS _HID gap)"
+            echo "[80] NPU SSDT: NPU device present, cores incomplete ($ncores/3) — APPLY (MS-R1-class BIOS _HID gap)"
             return 0
         fi
         echo "[80] NPU SSDT: no CIXH4000 in ACPI view — falling back to DMI board match"
@@ -188,13 +194,18 @@ should_apply_npu_ssdt() {
     case "$pn $pf $sv" in
         *MS-R1*|*MINISFORUM*|*[Mm]inisforum*)
             echo "[80] NPU SSDT: DMI='$pn'/'$pf' (Minisforum MS-R1) — APPLY"; return 0 ;;
-        *Orion*|*O6*|*[Rr]adxa*)
+        *Orion*|*[Rr]adxa*)
             echo "[80] NPU SSDT: DMI='$pn'/'$sv' (Radxa Orion) — SKIP (native _HID expected)"; return 1 ;;
     esac
 
-    echo "[80] NPU SSDT: board UNKNOWN (pn='$pn' pf='$pf' sv='$sv') and no ACPI signal — APPLYING by default"
-    echo "[80]   (override with: echo skip > $INSTALLER_META/NPU_SSDT)"
-    return 0
+    # r124: unknown board WITHOUT any CIX NPU ACPI signal -> SKIP, do NOT inject.
+    # If this were an MS-R1-class board the functional ACPI check above (or the
+    # MINISFORUM DMI match) would have already returned APPLY; reaching here
+    # means it is not recognizable CIX hardware, so injecting an MS-R1 SSDT is
+    # unsafe. Force it on a genuinely-MS-R1-class board with the override file.
+    echo "[80] NPU SSDT: board UNKNOWN (pn='$pn' pf='$pf' sv='$sv') and no CIX NPU ACPI signal — SKIP (refusing to inject MS-R1 SSDT into unidentified hardware)"
+    echo "[80]   (force on a known MS-R1-class board with: echo force > $INSTALLER_META/NPU_SSDT)"
+    return 1
 }
 
 # Prepend the 1024-byte SSDT CPIO archive to each kernel's initrd. The kernel
