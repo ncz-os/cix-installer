@@ -104,9 +104,11 @@ cat > /var/lib/nclawzero/openclaw-home/openclaw.json << 'OPENCLAW'
 OPENCLAW
 chown 1000:1000 /var/lib/nclawzero/openclaw-home/openclaw.json
 
-# Agent image manifest + first-boot loader. Full/offline images may stage OCI
-# tarballs under assets/agent-images; netinstall images leave the tarballs
-# absent and the loader pulls the pinned refs from registries instead.
+# Agent image manifest + offline-only first-boot loader. Full/offline images
+# may stage OCI tarballs under assets/agent-images; the loader pre-loads those
+# so `ncz agent install` is instant. Netinstall images leave the tarballs
+# absent and the loader does nothing at boot — the operator pulls on demand via
+# `ncz agent install` (r124: no agent auto-pulls or auto-starts at boot).
 mkdir -p "$IMAGE_DIR" /usr/local/sbin /etc/systemd/system
 if [ -d /usr/local/lib/cix-installer/assets/agent-images ]; then
     cp -an /usr/local/lib/cix-installer/assets/agent-images/. "$IMAGE_DIR"/ 2>/dev/null || true
@@ -115,8 +117,12 @@ elif [ -d /cdrom/cixmini/assets/agent-images ]; then
 fi
 
 cat > /usr/share/ncz/agent-images.manifest << 'MANIFEST'
-# Default-active agent image manifest.
-# Optional agents are pulled by `ncz agent install <name>` or `ncz install nemoclaw`.
+# Offline-staging manifest. NO agent is auto-installed or auto-started; this
+# only tells the OFFLINE-ONLY boot loader which locally staged OCI tarballs to
+# pre-load (full/offline ISO variants) so a later `ncz agent install` is
+# instant. Netinstall ISOs ship no tarballs -> the loader is a no-op and the
+# operator pulls on demand. All agents (incl. zeroclaw) are opt-in via
+# `ncz agent install <name>` or `ncz install nemoclaw`.
 # agent|image-ref|oci-tarball-under-/var/lib/nclawzero/agent-images
 zeroclaw|ghcr.io/zeroclaw-labs/zeroclaw:latest|zeroclaw.oci.tar
 MANIFEST
@@ -130,7 +136,6 @@ MANIFEST=/usr/share/ncz/agent-images.manifest
 IMAGE_DIR=/var/lib/nclawzero/agent-images
 PODMAN=/usr/bin/podman
 rc=0          # hard errors (podman/manifest/tarball-load) -> fail the unit
-deferred=0    # soft skips (offline / pull failed) -> succeed, retry later
 
 if [ ! -x "$PODMAN" ]; then
     echo "[agent-images] ERROR: podman missing"
@@ -141,17 +146,12 @@ if [ ! -f "$MANIFEST" ]; then
     exit 1
 fi
 
-# Network gate. network-online.target is unreliable as a gate here:
-# NetworkManager-wait-online is masked (for fast boot), so the target is
-# "reached" before DHCP/DNS settle, and LAN-only sites have NO route to a
-# public registry at all. Probe the actual registry before attempting a pull;
-# if unreachable, DEFER rather than fail, so a registry pull can never red-flag
-# the boot. Locally-staged OCI tarballs still load fully offline.
-registry_reachable() {
-    ip route show default 2>/dev/null | grep -q . || return 1   # need a default route
-    timeout 5 bash -c ">/dev/tcp/$1/443" 2>/dev/null            # 5s TCP probe to :443
-}
-
+# r124: the boot loader is OFFLINE-ONLY. It loads locally staged OCI tarballs
+# (full/offline ISO variants) so an operator can `ncz agent install` instantly
+# with no network. It NEVER pulls from a registry at boot — that removes the
+# boot-time network dependency that crash-looped a default-active agent on a
+# fresh box whose DHCP/DNS wasn't up yet. On-demand registry pulls happen only
+# in `ncz agent install <agent>`, where the operator is present and online.
 while IFS='|' read -r agent image tarball; do
     case "$agent" in
         ""|\#*) continue ;;
@@ -176,18 +176,11 @@ while IFS='|' read -r agent image tarball; do
             continue
         fi
     else
-        reg="${image%%/*}"
-        if ! registry_reachable "$reg"; then
-            echo "[agent-images] DEFER $agent: no route to $reg (offline/LAN-only) — next boot or 'ncz agent install' will retry"
-            deferred=1
-            continue
-        fi
-        echo "[agent-images] no OCI tarball for $agent; pulling $image"
-        if ! "$PODMAN" pull "$image"; then
-            echo "[agent-images] WARN: podman pull failed for $agent (transient) — deferring, not failing boot"
-            deferred=1
-            continue
-        fi
+        # No locally staged tarball (e.g. netinstall ISO). Do NOT pull at boot;
+        # the operator installs on demand. This never touches the network and
+        # never red-flags boot.
+        echo "[agent-images] $agent: no local OCI tarball — install on demand with 'ncz agent install $agent'"
+        continue
     fi
 
     if "$PODMAN" image exists "$image" 2>/dev/null; then
@@ -198,7 +191,6 @@ while IFS='|' read -r agent image tarball; do
 done < "$MANIFEST"
 
 [ "$rc" -ne 0 ] && exit "$rc"
-[ "$deferred" -ne 0 ] && echo "[agent-images] image(s) deferred (no network) — exiting success; will retry on next boot"
 exit 0
 LOADSCRIPT
 chmod 0755 /usr/local/sbin/nclawzero-load-agent-images
@@ -239,20 +231,25 @@ for v in zeroclaw-data; do
     podman volume exists "$v" 2>/dev/null || podman volume create "$v" 2>/dev/null || true
 done
 
-# Activate only the first-boot zeroclaw quadlet. OpenClaw, Hermes, and
-# NemoClaw remain templates until an operator opts in.
+# r124: NO agent auto-activates on first boot. ALL agents — including
+# zeroclaw — are opt-in via `ncz agent install` (or the Install-NCZ-Agents
+# desktop launcher). Rationale: a default-active quadlet with Pull=never +
+# Restart=always crash-loops on a fresh box whose DHCP/DNS isn't up when the
+# boot-time image pull races it (observed on MS-R1 r123: network-online.target
+# fires before the link settles -> image-not-known 125 loop). Making every
+# agent opt-in removes the boot-time network dependency entirely and keeps
+# unreviewed container code from running with the fleet API keys in
+# /etc/nclawzero/agent-env until an operator explicitly installs it.
 mkdir -p "$QUADLET_ACTIVE"
 if [ ! -e /var/lib/nclawzero/.agents-installed ]; then
-    rm -f "$QUADLET_ACTIVE/openclaw.container" \
+    # Fresh install (or upgrade from an r<=123 default-active image): strip any
+    # pre-placed active quadlet so nothing auto-starts. `ncz agent install`
+    # re-places + starts them on demand.
+    rm -f "$QUADLET_ACTIVE/zeroclaw.container" \
+          "$QUADLET_ACTIVE/openclaw.container" \
           "$QUADLET_ACTIVE/hermes.container" \
           "$QUADLET_ACTIVE/hermes-isolated.network"
 fi
-if [ -f "$QUADLET_TEMPLATES/zeroclaw.container" ]; then
-    cp -a "$QUADLET_TEMPLATES/zeroclaw.container" "$QUADLET_ACTIVE/zeroclaw.container"
-else
-    echo "[30] WARN: zeroclaw quadlet template missing; default agent will not start"
-fi
-systemctl enable nclawzero-load-agent-images.service 2>/dev/null || true
 systemctl daemon-reload 2>/dev/null || true
 
 # r74: full ncz CLI with `agent install` subcommand (whiptail UI).
@@ -617,21 +614,76 @@ rm -rf /etc/skel/Desktop/Agents 2>/dev/null
 rm -f /etc/skel/Desktop/{ZeroClaw,OpenClaw,Hermes,Portainer}.desktop
 rm -f /usr/share/applications/{ZeroClaw,OpenClaw,Hermes,Portainer}.desktop
 
-# Install-NCZ-Agents launcher — prominent, runs the interactive installer
+# Install-AI-Agents launcher — the primary, most-prominent first-run action.
+# All agents (zeroclaw/openclaw/hermes/portainer) are opt-in and installed
+# here, so this is the headline icon on a fresh desktop.
 cat > /etc/skel/Desktop/Install-NCZ-Agents.desktop <<'IA'
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Install NCZ Agents
-GenericName=Agent installer (openclaw / hermes / portainer)
-Comment=Pull + start optional agent containers (one-time per agent)
-Exec=xfce4-terminal --title="Install NCZ Agents" --hold --command="sudo ncz agent install"
+Name=⭐ Install AI Agents
+GenericName=AI agent installer (zeroclaw / openclaw / hermes / portainer)
+Comment=Start here — pull + launch your AI agents (zeroclaw gateway, OpenClaw, Hermes, Portainer)
+Exec=xfce4-terminal --title="Install AI Agents" --hold --command="sudo ncz agent install"
 Icon=ncz-rocket
 Terminal=false
+StartupNotify=true
 Categories=System;Settings;Network;
 IA
 chmod 0755 /etc/skel/Desktop/Install-NCZ-Agents.desktop
 cp /etc/skel/Desktop/Install-NCZ-Agents.desktop /usr/share/applications/
+
+# r124: one-time first-login notice that points the user at the installer icon.
+# Since no agent auto-starts anymore, a fresh desktop needs a nudge toward
+# "Install AI Agents". Runs once per user (guarded by a marker), prefers a
+# zenity dialog, falls back to a desktop notification, and self-disables.
+cat > /usr/local/bin/ncz-first-login-notice << 'NOTICE'
+#!/bin/bash
+# Shown once on first XFCE login. Non-fatal; never blocks the session.
+set -u
+MARK="${HOME}/.config/ncz/.first-login-done"
+[ -e "$MARK" ] && exit 0
+mkdir -p "${HOME}/.config/ncz" 2>/dev/null
+
+TITLE="Welcome to NCZ 26.6 \"Reinhardt\""
+BODY="AI agents are opt-in on this system — nothing runs until you install it.
+
+To get started, open the \"⭐ Install AI Agents\" icon on your Desktop (or run: sudo ncz agent install). It installs the ZeroClaw gateway and any optional agents (OpenClaw, Hermes, Portainer)."
+
+# Give the desktop a moment to settle before popping UI.
+sleep 8
+
+if command -v zenity >/dev/null 2>&1; then
+    zenity --info --no-wrap --title="$TITLE" \
+           --ok-label="Got it" --text="$BODY" >/dev/null 2>&1
+elif command -v notify-send >/dev/null 2>&1; then
+    notify-send -u normal -t 0 -i ncz-rocket "$TITLE" \
+        "AI agents are opt-in. Open the \"⭐ Install AI Agents\" desktop icon (or run: sudo ncz agent install)."
+elif command -v xmessage >/dev/null 2>&1; then
+    xmessage -center "$TITLE
+
+$BODY"
+fi
+
+# Mark done regardless of which path ran, so it never repeats.
+touch "$MARK" 2>/dev/null
+exit 0
+NOTICE
+chmod 0755 /usr/local/bin/ncz-first-login-notice
+
+mkdir -p /etc/skel/.config/autostart
+cat > /etc/skel/.config/autostart/ncz-first-login.desktop << 'FLAUTOSTART'
+[Desktop Entry]
+Type=Application
+Name=NCZ First-Login Notice
+Comment=One-time welcome pointing to the AI agent installer
+Exec=/usr/local/bin/ncz-first-login-notice
+Terminal=false
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+OnlyShowIn=XFCE;
+FLAUTOSTART
+chmod 0644 /etc/skel/.config/autostart/ncz-first-login.desktop
 
 # Rheinhardt YouTube launcher with custom rocket icon (set in 50-brand.sh)
 cat > /etc/skel/Desktop/Rheinhardt-Through-and-Beyond.desktop << 'RT'
@@ -654,26 +706,32 @@ cat > /etc/skel/Desktop/NCZ-Help.md << 'HELP'
 
 ## First-time setup (5 minutes)
 
-The base image ships with **Claude Code** and a default-active
-**zeroclaw** rootful Podman quadlet. Other agents are opt-in via the
-`ncz` CLI.
+The base image ships with **Claude Code**. Every agent — including
+**zeroclaw** — is **opt-in**: nothing auto-starts on first boot, so a fresh
+box has no boot-time network dependency. A one-time welcome notice on first
+login points you to the installer. Install agents from the **⭐ Install AI
+Agents** desktop icon, or the `ncz` CLI.
 
-### 1. Add optional agents (interactive)
+### 1. Install agents (interactive)
+
+Double-click **⭐ Install AI Agents** on the Desktop, or run:
 
 ```
 sudo ncz agent install
 ```
 
-A checkbox menu appears. Pick the optional agents you want, hit Enter:
+A checkbox menu appears. Pick the agents you want, hit Enter:
 
 ```
+  [ ] zeroclaw    ZeroClaw daemon — gateway + agents (~109 MB)
   [ ] openclaw    OpenClaw upstream OSS (~756 MB)
   [ ] hermes      Hermes Agent — NousResearch (~2.55 GB, slowest)
   [ ] portainer   Container management web UI (~50 MB)
 ```
 
-After install, a desktop launcher for each agent appears. Click to open
-its dashboard. Re-run `sudo ncz agent install` later to add more.
+The image pulls (you're online and present), the quadlet activates, and the
+service starts. A desktop launcher for each agent appears — click to open its
+dashboard. Re-run **Install NCZ Agents** later to add more.
 
 Install NVIDIA NemoClaw separately:
 
@@ -739,11 +797,11 @@ ncz version
 ncz help
 ```
 
-Default-active: **zeroclaw**
-
-Opt-in via `ncz agent install`: **openclaw**, **hermes**, **portainer**
+Opt-in via `ncz agent install`: **zeroclaw**, **openclaw**, **hermes**, **portainer**
 
 Opt-in via `ncz install`: **nemoclaw**
+
+(No agent auto-starts on first boot — all are opt-in.)
 
 ## Web dashboards and endpoints
 
@@ -776,7 +834,7 @@ nemoclaw   ghcr.io/nvidia/nemoclaw/sandbox-base:latest
 ```
 
 Quadlet templates: `/usr/share/ncz/quadlets/`
-Default-active quadlet: `/etc/containers/systemd/zeroclaw.container`
+Active quadlets (after `ncz agent install`): `/etc/containers/systemd/`
 
 ## NPU inference (Cix Zhouyi)
 
@@ -963,7 +1021,8 @@ update-desktop-database 2>&1 | tail -1
 # AFTER the operator runs `ncz agent install portainer`.
 systemctl enable podman.socket 2>/dev/null
 
-# Agent image load/pull is ordered before the default-active zeroclaw quadlet.
+# Offline-only image loader: pre-loads locally staged OCI tarballs at boot
+# (full/offline ISOs) so `ncz agent install` is instant. No-op on netinstall.
 systemctl enable nclawzero-load-agent-images.service 2>/dev/null || true
 
 # disable cix-npu-driver-dkms — we ship FyrbyAdditive prebuilt .ko at
@@ -972,6 +1031,6 @@ systemctl mask dkms.service 2>&1 | tail -1
 rm -rf /var/lib/dkms/aipu /var/lib/dkms/cix-vpu-driver 2>/dev/null
 echo '[30] dkms.service masked (FyrbyAdditive prebuilt .ko ships at /usr/lib/modules/<KVER>/extra/)'
 
-echo '[30] agent stack active: zeroclaw quadlet staged'
-echo '     openclaw/hermes/nemoclaw remain templates at /usr/share/ncz/quadlets/'
-echo '     active units live at /etc/containers/systemd/'
+echo '[30] agent stack: ALL agents opt-in (no auto-start on first boot)'
+echo '     templates at /usr/share/ncz/quadlets/; install via `ncz agent install` or the Install-NCZ-Agents desktop icon'
+echo '     active units land in /etc/containers/systemd/ after install'
