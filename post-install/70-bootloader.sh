@@ -1,37 +1,41 @@
 #!/bin/bash
-# 70-bootloader.sh — systemd-boot install + staged kernel loader entries.
-# 26.6-r92: DEFAULT is the NEXT 7.0.12 edge channel when it is staged.
-# LTS remains present as stable fallback and rescue source. The edge entry
-# keeps systemd-boot +3-0 boot-count rollback semantics so failed NEXT boots
-# automatically fall back to stable/rescue choices.
+# 70-bootloader.sh — rEFInd boot manager install + staged kernel menu.
+# 26.6-r118: switched from systemd-boot to rEFInd (operator preference —
+# "more resilient"; reverts to the 26.5 image-builder bootloader). rEFInd
+# ships as a binary (refind_aa64.efi) under
+# /usr/local/lib/cix-installer/assets/refind/ and is installed to the ESP at
+# the firmware removable-media fallback path /EFI/BOOT/BOOTAA64.EFI, so the
+# box boots even with an empty NVRAM BootOrder (confirmed on Sky1/MS-R1).
 #
-# Loader entries (in menu order when all staged kernels exist):
-#   1. cixmini-stable.conf      (NCZ LTS kernel 6.18.x, stable fallback)
-#   2. cixmini-edge+3-0.conf    (DEFAULT when present — NCZ NEXT kernel, 3-try rollback)
-#   3. cixmini-rescue.conf      (FULLY SAFE: rescue.target on a PINNED clean
-#                              kernel, NPU/GPU/VPU/KMS blacklisted)
+# Kernels + initrds are staged to the FAT ESP root (/boot/efi/vmlinuz-*,
+# /boot/efi/initrd.img-*); rEFInd loads them directly from FAT and the
+# kernel's OWN initramfs mounts the (btrfs) root — so rEFInd needs no
+# btrfs/ext4 EFI filesystem driver.
+#
+# Menu (refind.conf manual entries), in order:
+#   1. stable  — NCZ LTS kernel 6.18.x
+#   2. edge    — NCZ NEXT 7.0.x kernel (DEFAULT when staged)
+#   3. rescue  — pinned clean kernel, rescue.target, NPU/GPU/VPU/KMS blacklisted
 #
 # THREE PHYSICAL KERNELS on the ESP (operator requirement 2026-06-01 — "3
 # kernels"):
-#   /vmlinuz-$KVER_LTS          daily driver (default)
-#   /vmlinuz-$KVER_NEXT         7.1 edge [BETA]
+#   /vmlinuz-$KVER_LTS          daily driver
+#   /vmlinuz-$KVER_NEXT         edge [BETA] (default when staged)
 #   /vmlinuz-$KVER_LTS-rescue   clean/rescue/dev — an independent, pinned
-#                               copy of the proven 6.18.26 BSP binary. Same
-#                               bits as LTS today, but a SEPARATE file so a
-#                               later daily-LTS kernel swap can never disturb
-#                               the known-good recovery kernel. This is "there
-#                               must always be a rescue kernel choice" in its
-#                               strongest form.
+#                               copy of the proven BSP binary so a later
+#                               daily-LTS kernel swap can never disturb the
+#                               known-good recovery kernel.
 #
-# CRITICAL: systemd-boot's loader entry parser does NOT support
-# backslash line-continuation — every line MUST be standalone. Earlier
-# version tried multi-line `options \` and bootctl silently dropped
-# half the cmdline.
+# TRADEOFF vs systemd-boot (deliberate, r118): rEFInd has no boot-counting,
+# so there is NO automatic edge->stable rollback. The 3-entry menu is for
+# MANUAL rescue selection — the refind.conf `timeout` always presents the
+# menu so the operator can pick stable/rescue if an edge boot misbehaves.
 set -euo pipefail
 
-echo "[70] systemd-boot bootloader (staged kernel payload)"
+echo "[70] rEFInd bootloader (staged kernel menu)"
 
 INSTALLER_META=/usr/local/lib/cix-installer
+REFIND_SRC="$INSTALLER_META/assets/refind/refind_aa64.efi"
 KVER_LTS=""
 [ -f "$INSTALLER_META/KVER_LTS" ] && KVER_LTS=$(cat "$INSTALLER_META/KVER_LTS" 2>/dev/null || true)
 KVER_NEXT=""
@@ -54,31 +58,19 @@ mkdir -p /etc/kernel
 echo "layout=other" > /etc/kernel/install.conf
 echo "  /etc/kernel/install.conf set to layout=other (disables double-staging)"
 
-# r116: make this resilient. This hook runs inside run-all.sh's EXIT trap, so
-# a non-zero exit here propagates all the way to d-i's late_command → the red
-# "installation step failed" dialog AND a system with no bootloader. Two
-# real-world failure modes must NOT abort us:
-#   1. the dpkg frontend lock is held by a concurrent apt (e.g. a slow cix-*
-#      pip postinst left running from an earlier red-dialog retry) → apt
-#      exits 100. -o DPkg::Lock::Timeout makes us WAIT for the lock instead.
-#   2. an UNRELATED half-configured package (cix-noe-umd / cix-ai-engine on
-#      py3.14) makes apt return non-zero even though systemd-boot/efibootmgr
-#      themselves unpacked+configured fine.
-# So we DON'T trust apt's exit code here; the authoritative gate is the
-# `command -v bootctl` check below — if the bootloader binary is present we
-# proceed regardless of apt's rc.
-set +e
-DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 \
-    install -y --no-install-recommends systemd-boot efibootmgr
-apt_rc=$?
-set -e
-if [ "$apt_rc" -ne 0 ]; then
-    echo "  WARN: apt-get install systemd-boot efibootmgr returned rc=$apt_rc"
-    echo "        (likely a held dpkg lock or an unrelated half-configured"
-    echo "        package) — verifying the bootloader binary landed anyway..."
+# r118: rEFInd ships as a prebuilt binary in the installer payload — NO apt
+# needed (rEFInd isn't in Ubuntu ports' default pool). This also makes the
+# bootloader install immune to the dpkg-wedge failure modes that previously
+# made `apt install systemd-boot` flaky (a held dpkg frontend lock, or an
+# unrelated half-configured cix-* py3.14 package poisoning apt's exit code).
+if [ ! -s "$REFIND_SRC" ]; then
+    echo "ERROR: rEFInd binary missing/empty at $REFIND_SRC"
+    echo "       (build did not stage build/refind-bin/refind_aa64.efi) — cannot install a bootloader."
+    exit 1
 fi
-
-command -v bootctl >/dev/null || { echo "ERROR: bootctl not installed"; exit 1; }
+echo "  rEFInd binary present: $REFIND_SRC ($(du -h "$REFIND_SRC" | cut -f1))"
+# efibootmgr is best-effort only — we boot via the EFI/BOOT fallback path.
+command -v efibootmgr >/dev/null 2>&1 || echo "  note: efibootmgr not present — relying on /EFI/BOOT/BOOTAA64.EFI fallback"
 
 # Validate /boot/efi is actually mounted as the ESP — without this, a
 # missing ESP mount (e.g. preseed partman edge case) would let
@@ -86,7 +78,7 @@ command -v bootctl >/dev/null || { echo "ERROR: bootctl not installed"; exit 1; 
 # rootfs, then we'd write entries that go nowhere, and the disk would
 # boot to nothing. Fail fast with clear diagnostics.
 if ! findmnt -no FSTYPE /boot/efi >/dev/null 2>&1; then
-    echo "ERROR: /boot/efi is not mounted — cannot install systemd-boot."
+    echo "ERROR: /boot/efi is not mounted — cannot install the bootloader."
     echo "  findmnt /boot/efi → not found"
     echo "  block devices:"
     lsblk 2>&1 | head -10 || true
@@ -99,7 +91,7 @@ if [ "$ESP_FSTYPE" != "vfat" ]; then
     echo "ERROR: /boot/efi is mounted as $ESP_FSTYPE, expected vfat (FAT32 ESP)."
     exit 1
 fi
-echo "  /boot/efi is mounted (vfat) — proceeding with systemd-boot install"
+echo "  /boot/efi is mounted (vfat) — proceeding with rEFInd install"
 
 # Fail-closed before touching existing ESP contents. A failed required
 # kernel phase must not let this script wipe a previously bootable ESP.
@@ -164,65 +156,36 @@ if [ "$LTS_PREFLIGHT_READY" = "0" ] && [ "$NEXT_PREFLIGHT_READY" = "0" ]; then
 fi
 echo "  preflight OK: at least one complete declared kernel payload is present"
 
-# Two-stage install — first try without efivar registration (works in
-# chroot / QEMU without RW efivarfs), fall back to default if that
-# rejects. If BOTH fail, that's a hard error; without bootctl install,
-# /boot/efi/EFI/systemd/systemd-bootaa64.efi won't be on the ESP and
-# anything we write under loader/ goes nowhere.
-if ! bootctl install --esp-path=/boot/efi --no-variables 2>&1; then
-    echo "  --no-variables install failed; retrying with efivar reg"
-    if ! bootctl install --esp-path=/boot/efi 2>&1; then
-        echo "ERROR: both bootctl install attempts failed."
-        echo "  Check /boot/efi mount + writability + /sys/firmware/efi/efivars."
-        exit 1
-    fi
-fi
-# Verify the systemd-boot binary actually landed on the ESP
-if [ ! -f /boot/efi/EFI/systemd/systemd-bootaa64.efi ]; then
-    echo "ERROR: bootctl install reported success but"
-    echo "       /boot/efi/EFI/systemd/systemd-bootaa64.efi is missing."
-    ls -la /boot/efi/EFI/ 2>&1 | head -10 || true
-    exit 1
-fi
-echo "  systemd-bootaa64.efi present on ESP"
-
-# 2026-05-08 take22 (per .66 take21 install: target booted into UEFI menu,
-# manual boot-from-drive fell back to UEFI menu — firmware found no
-# bootable EFI binary at the default fallback path):
-#
-# Cix Sky1 / MS-R1 firmware (and most arm64 UEFI firmwares) WILL boot
-# from the well-known fallback path EFI/BOOT/BOOTAA64.EFI without
-# needing an NVRAM EFI variable entry. `bootctl install --no-variables`
-# (which we use to avoid efivar write issues in d-i chroot) does NOT
-# write that fallback. We must copy it explicitly.
-#
-# Without this copy, install completes cleanly but the firmware sees
-# no bootable target → returns to the UEFI menu after every "boot from
-# drive" attempt.
-install -d -m 0755 /boot/efi/EFI/BOOT
-cp /boot/efi/EFI/systemd/systemd-bootaa64.efi /boot/efi/EFI/BOOT/BOOTAA64.EFI
-if [ ! -f /boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
-    echo "ERROR: failed to install firmware fallback EFI/BOOT/BOOTAA64.EFI"
-    exit 1
-fi
-echo "  EFI/BOOT/BOOTAA64.EFI fallback installed (firmware-default path)"
-
-# ----------------------------------------------------------------------
-# loader.conf
-# ----------------------------------------------------------------------
-mkdir -p /boot/efi/loader/entries
-cat > /boot/efi/loader/loader.conf <<'EOF'
-default cixmini-stable
-timeout 5
-console-mode auto
-editor yes
-EOF
+# r118: the rEFInd binary + refind.conf are installed at the END of this
+# script, AFTER kernels/initrds are staged to the ESP and per-entry cmdlines
+# are computed (see the "Install rEFInd" section below). Nothing to do here.
 
 # ----------------------------------------------------------------------
 # Discover root partition by PARTUUID
+#
+# r121 btrfs fix: on a btrfs root installed into a subvolume (d-i
+# partman-btrfs uses @rootfs), `findmnt -no SOURCE /` returns the device
+# WITH the subvolume bracket, e.g. "/dev/nvme0n1p2[/@rootfs]". Passing that
+# to blkid makes blkid exit 2 ("device not found"), which under
+# `set -euo pipefail` aborted 70-bootloader -> run-all -> late.sh with the
+# red "preseeded command failed (exit 2)" dialog. `--nofsroot` strips the
+# [/subvol] suffix so blkid sees the bare partition device.
 # ----------------------------------------------------------------------
-ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$(findmnt -no SOURCE /)")
-echo "  root PARTUUID=$ROOT_PARTUUID"
+ROOT_SRC=$(findmnt -no SOURCE --nofsroot /)
+ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC")
+ROOT_FSTYPE=$(findmnt -no FSTYPE /)
+# btrfs subvolume (e.g. /@rootfs) -> rootflags=subvol=@rootfs so the kernel
+# mounts the installed subvolume, not the btrfs top-level. Empty / "/" means
+# the root is the top-level volume and no rootflags is needed.
+ROOT_SUBVOL=""
+if [ "$ROOT_FSTYPE" = "btrfs" ]; then
+    ROOT_FSROOT=$(findmnt -no FSROOT / 2>/dev/null || echo "/")
+    case "$ROOT_FSROOT" in
+        ""|"/") ROOT_SUBVOL="" ;;
+        *)      ROOT_SUBVOL="${ROOT_FSROOT#/}" ;;
+    esac
+fi
+echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol=${ROOT_SUBVOL:-(none)}"
 
 # ----------------------------------------------------------------------
 # Cmdline (MartJohnson 2026-04-30 working set for MS-R1, both LTS+NEXT)
@@ -277,7 +240,15 @@ NEXT_CMDLINE_BASE="loglevel=7 earlycon=efifb console=tty0 console=ttyAMA2,115200
 SPLASH=""
 [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 
-ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 rw"
+# r118: rootfstype is DETECTED from the live mount (was hardcoded ext4, which
+# silently broke btrfs roots — the kernel couldn't mount /). btrfs/ext4 both
+# handled; btrfs.ko + deps ship in the -next initramfs.
+# r121: for a btrfs subvolume root, also pass rootflags=subvol=<subvol> so the
+# kernel mounts the installed @rootfs subvolume rather than the top-level.
+ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=$ROOT_FSTYPE rw"
+if [ -n "$ROOT_SUBVOL" ]; then
+    ROOT_OPTS="$ROOT_OPTS rootflags=subvol=$ROOT_SUBVOL"
+fi
 
 # ----------------------------------------------------------------------
 # WIPE STALE ESP STATE immediately before writing fresh entries + kernels.
@@ -287,11 +258,15 @@ ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 rw"
 # declared kernel has a complete kernel+initrd payload ready to restage.
 # ----------------------------------------------------------------------
 echo "  wiping stale ESP entries + kernel images..."
-rm -f /boot/efi/loader/entries/*
 rm -f /boot/efi/vmlinuz-*
 rm -f /boot/efi/initrd.img-*
 rm -rf /boot/efi/[0-9a-f]*  # Wipe 32-hex kernel-install machine-id dirs
 rm -f /boot/efi/EFI/Linux/* 2>/dev/null
+# r118: clear any prior systemd-boot install + stale rEFInd config so a
+# re-run lands a clean rEFInd-only ESP.
+rm -rf /boot/efi/loader 2>/dev/null || true
+rm -rf /boot/efi/EFI/systemd 2>/dev/null || true
+rm -f /boot/efi/EFI/BOOT/refind.conf 2>/dev/null || true
 echo "  ESP wiped — proceeding with kernel/initrd staging"
 
 # ----------------------------------------------------------------------
@@ -348,126 +323,37 @@ if [ "$LTS_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
     exit 1
 fi
 
-# ----------------------------------------------------------------------
-# Entry 1 — cixmini-stable.conf (DEFAULT, production-stable, only if LTS available)
-# ----------------------------------------------------------------------
+# ======================================================================
+# Build per-entry kernel cmdlines (assembled into refind.conf below).
+# No per-entry files for rEFInd — everything lives in one refind.conf.
+# ======================================================================
+LTS_OPTIONS=""
 if [ "$LTS_AVAILABLE" = "1" ]; then
     LTS_OPTIONS="$ROOT_OPTS $LTS_CMDLINE_BASE"
     [ -n "$SPLASH" ] && LTS_OPTIONS="$LTS_OPTIONS $SPLASH"
-
-    # sort-key forces menu-order (systemd-boot 252+).
-    # Order (26.6-take1): stable/LTS (6.18) first/default, edge (7.x)
-    # second/BETA, rescue last.
-    cat > /boot/efi/loader/entries/cixmini-stable.conf <<EOF
-title   NCZ kernel $KVER_LTS [LTS 6.18, stable fallback] — $BUILD_VERSION
-sort-key 1-stable
-version $KVER_LTS
-linux   /vmlinuz-$KVER_LTS
-options $LTS_OPTIONS
-EOF
-    if [ "$LTS_INITRD_AVAILABLE" = "1" ]; then
-        # Insert initrd line after "linux" — required for NPU SSDT override
-        sed -i "/^linux /a initrd  /initrd.img-$KVER_LTS" /boot/efi/loader/entries/cixmini-stable.conf
-        echo "  added initrd line to cixmini-stable.conf"
-    fi
-    echo "  wrote cixmini-stable.conf (sort-key 1-stable, stable fallback)"
-else
-    echo "  skipping cixmini-stable.conf (LTS kernel not installed)"
 fi
 
-# ----------------------------------------------------------------------
-# Entry 2 — cixmini-edge+3-0.conf ([BETA] — only if edge kernel was installed)
-#
-# Title is intentionally LOUD with [BETA] markers so the user cannot
-# misclick this in the boot menu thinking it's the stable choice.
-# Per Sky1-Linux issue #12 (MartJohnson 2026-04-30): kernel 7.0.1 boots
-# on MS-R1 but has known SCMI transition errors and occasional boot
-# freezes / shutdown crashes — the BIOS doesn't have the SCMI updates
-# 7.0 expects yet. 6.18.26 LTS does NOT have these issues. This BETA
-# entry is for A/B testing only; production users should pick LTS.
-# ----------------------------------------------------------------------
+NEXT_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
-    # NEXT uses NEXT_CMDLINE_BASE (no efi=noruntime) so systemd-bless-boot
-    # can write LoaderBootCountPath EFI variable to mark a successful
-    # boot as good. Without this, the +3-0 boot-counter burns down to
-    # .failed even on healthy NEXT boots — defeating the rollback design.
     NEXT_OPTIONS="$ROOT_OPTS $NEXT_CMDLINE_BASE"
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
-
-    # r75 K3 v2: filename uses systemd-boot boot-counting suffix +3-0
-    # (3 tries left, 0 successful boots). systemd-bless-boot.service
-    # decrements tries at boot; on a successful userspace handoff it
-    # writes back +N-(M+1). After 3 failed boots the file is renamed
-    # .failed and systemd-boot falls back to cixmini-stable (sort-key 1-stable).
-    # Closes the Codex finding "NEXT default without rollback".
-    cat > /boot/efi/loader/entries/cixmini-edge+3-0.conf <<EOF
-title   *** [edge — DEFAULT] NCZ kernel $KVER_NEXT [NEXT, 3-try rollback] — $BUILD_VERSION ***
-sort-key 2-edge
-version $KVER_NEXT
-linux   /vmlinuz-$KVER_NEXT
-options $NEXT_OPTIONS
-EOF
-    if [ "$NEXT_INITRD_AVAILABLE" = "1" ]; then
-        sed -i "/^linux /a initrd  /initrd.img-$KVER_NEXT" /boot/efi/loader/entries/cixmini-edge+3-0.conf
-        echo "  added initrd line to cixmini-edge+3-0.conf"
-    fi
-    # r75 Codex round-4 HIGH fix — drop the systemctl enable+is-enabled
-    # gate. Codex round-3 added the gate to close "bless-boot best-effort"
-    # but the gate itself was over-aggressive: systemd-bless-boot.service
-    # is generator-pulled via boot-counted entries (per systemd docs;
-    # systemd-boot-system-token.service + systemd-bless-boot.service are
-    # both static units pulled implicitly when +N-M.conf entries exist).
-    # `systemctl list-unit-files` may not show generator-pulled static
-    # units in all systemd configurations, and `systemctl enable` of a
-    # static unit fails non-zero — both made the gate falsely flip every
-    # NEXT-default install to LTS.
-    #
-    # New approach: write the boot-counted entry. Trust the generator.
-    # The `efi=noruntime` cmdline does NOT prevent boot-counting because
-    # systemd-bless-boot uses ESP filename rename (not EFI variables) per
-    # https://systemd.io/AUTOMATIC_BOOT_ASSESSMENT/ — so this is safe on
-    # the MS-R1 even with EFI runtime disabled.
-    #
-    # If a future deploy proves boot-counting non-functional on Sky1,
-    # the runtime fix is `ncz desktop status`-style operator tooling
-    # rather than gating at install time.
-    if systemctl list-unit-files systemd-bless-boot.service systemd-boot-check-no-failures.service 2>/dev/null | grep -q "^systemd-bless"; then
-        echo "  systemd-bless-boot.service is in unit-files set — generator path active"
-    else
-        echo "  systemd-bless-boot.service not in list-unit-files (likely generator-pulled at boot — typical) — proceeding"
-    fi
-    echo "  wrote cixmini-edge+3-0.conf (sort-key 2-edge, default when present, 3-try rollback to stable)"
-else
-    echo "  skipping cixmini-edge.conf (BETA kernel not installed)"
 fi
 
 # ----------------------------------------------------------------------
-# Entry 3 — cixmini-rescue.conf (FULLY SAFE rescue shell on LTS kernel)
+# Rescue: pin an INDEPENDENT clean kernel copy + a fully-safe cmdline.
 #
-# rescue.target boots multi-user services down (no graphical, no
-# auto-mount of network FS) but leaves the system bootable + login-able
-# for recovery. Useful when default cixmini-stable.conf wedges from a bad
-# config + we need to roll something back.
+# "FULLY SAFE" (operator requirement 2026-06-01): rescue must reach a
+# login shell + network even if every accelerator is flaky. Beyond
+# rescue.target we blacklist NPU/GPU/VPU + the KMS/display drivers that
+# can seize the panel and black-screen the box. We DO NOT add nomodeset
+# (kills the firmware efifb console on Sky1) and we KEEP
+# arm-smmu-v3.disable_bypass=0 so NVMe + NIC DMA still work in rescue.
 #
-# "FULLY SAFE" (operator requirement 2026-06-01): the rescue entry must
-# reach a login shell + network even if every accelerator is flaky. So
-# beyond rescue.target we DISABLE all the heavy/optional silicon:
-#   - NPU  : armchina_npu (Zhouyi Z2/Compass)
-#   - GPU  : panthor + mali + bifrost (Arm Mali on Sky1)
-#   - VPU  : cix_vpu + linlon_vpu (Arm Linlon video codec)
-# These are MERGED into the existing typec_rts5453 blacklist (the MS-R1
-# IRQ-151 wedge) so there is a single module_blacklist= token (the
-# kernel keeps only the last one it parses). Blacklisting a module that
-# isn't present is harmless.
-#
-# We DELIBERATELY DO NOT add `nomodeset`: on Sky1 the only console is
-# efifb/simplefb handed over by firmware, and nomodeset can kill it →
-# black screen, the exact failure rescue must avoid (GRAEAE consult
-# 52f790d1, 2026-06-01). We KEEP arm-smmu-v3.disable_bypass=0 so NVMe +
-# RTL8125 NIC DMA still work in rescue (without it the SMMU blocks
-# device DMA → no disk, no network).
+# 3-kernel layout: the rescue kernel is a PHYSICALLY INDEPENDENT copy of
+# the proven BSP binary (separate inode), so a later daily-LTS kernel
+# swap can never disturb the known-good recovery kernel.
+# (logic unchanged from r116; only the consumer is now refind.conf.)
 # ----------------------------------------------------------------------
-# Rescue uses LTS by preference, falls back to NEXT if LTS missing.
 if [ "$LTS_AVAILABLE" = "1" ]; then
     RESCUE_KVER="$KVER_LTS"
     RESCUE_CMDLINE_BASE="$LTS_CMDLINE_BASE"
@@ -479,27 +365,17 @@ else
     RESCUE_CMDLINE_BASE=""
 fi
 
+RESCUE_PIN=""
+RESCUE_OPTIONS=""
+RESCUE_HAS_INITRD=0
 if [ -n "$RESCUE_KVER" ]; then
-    # 3-kernel layout (operator requirement 2026-06-01): the rescue/clean
-    # kernel is a PHYSICALLY INDEPENDENT copy of the proven BSP binary,
-    # staged under -rescue filenames. Same 6.18.26 BSP bits as the daily
-    # LTS today, but a separate file/inode — so a future daily-LTS kernel
-    # swap can never touch the known-good recovery kernel. The wipe step
-    # above already cleared stale vmlinuz-*; we recreate the pin fresh from
-    # the LTS binary we just staged to the ESP.
     RESCUE_PIN="${RESCUE_KVER}-rescue"
-    # Refuse to pin a zero-byte kernel (Codex 26.6 HIGH): the LTS/NEXT
-    # staging above uses -f not -s, so a truncated bake could leave an empty
-    # /boot/efi/vmlinuz-$RESCUE_KVER. Pinning that would hand the operator a
-    # rescue entry that loads nothing — the exact unbootable state rescue
-    # exists to prevent.
     if [ ! -s "/boot/efi/vmlinuz-$RESCUE_KVER" ]; then
         echo "ERROR: /boot/efi/vmlinuz-$RESCUE_KVER is missing or empty — cannot pin a clean rescue kernel."
         exit 1
     fi
     install -m 0644 "/boot/efi/vmlinuz-$RESCUE_KVER" "/boot/efi/vmlinuz-$RESCUE_PIN"
     echo "  staged pinned clean/rescue kernel /boot/efi/vmlinuz-$RESCUE_PIN"
-    RESCUE_HAS_INITRD=0
     if { [ "$RESCUE_KVER" = "$KVER_LTS" ] && [ "$LTS_INITRD_AVAILABLE" = "1" ]; } || \
        { [ "$RESCUE_KVER" = "$KVER_NEXT" ] && [ "$NEXT_INITRD_AVAILABLE" = "1" ]; }; then
         install -m 0644 "/boot/efi/initrd.img-$RESCUE_KVER" "/boot/efi/initrd.img-$RESCUE_PIN"
@@ -507,24 +383,8 @@ if [ -n "$RESCUE_KVER" ]; then
         RESCUE_HAS_INITRD=1
     fi
 
-    # Modules to keep OUT of the rescue boot. Extends — never replaces —
-    # the production typec_rts5453,rts5453 blacklist.
-    #   GPU/NPU/VPU : armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_vpu
-    #   Display/KMS : trilin_drm,trilin_dpsub,linlondp,linlondp_drv,cix_display
-    # The display/KMS group is the one that actually black-screened the box:
-    # a KMS driver that seizes the panel from the firmware efifb/simplefb
-    # console recreates the exact no-video wedge this recovery release exists
-    # to prevent (Codex 26.6 review blocker 1, 2026-06-01). Rescue relies on
-    # the firmware framebuffer ONLY — no KMS takeover.
+    # Single canonical module_blacklist= token (kernel honours only the last).
     RESCUE_EXTRA_BLACKLIST="armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_vpu,trilin_drm,trilin_dpsub,linlondp,linlondp_drv,cix_display"
-
-    # Build exactly ONE canonical module_blacklist= token (Codex 26.6 review
-    # blocker 3). The kernel honours only the LAST module_blacklist= it parses,
-    # so a sed that merges into the first occurrence would silently drop our
-    # extras if a second token ever crept into the base cmdline. Instead:
-    # collect every existing module_blacklist= value, strip them all out, then
-    # append a single merged token at the end. Fail-closed for 0, 1, or N
-    # pre-existing tokens.
     RESCUE_EXISTING_BL=$(printf '%s\n' "$RESCUE_CMDLINE_BASE" \
         | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
     RESCUE_CMDLINE_NOBL=$(printf '%s\n' "$RESCUE_CMDLINE_BASE" \
@@ -536,94 +396,86 @@ if [ -n "$RESCUE_KVER" ]; then
     fi
     RESCUE_CMDLINE_SAFE="$RESCUE_CMDLINE_NOBL module_blacklist=$RESCUE_MERGED_BL"
     RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_SAFE systemd.unit=rescue.target"
-
-    cat > /boot/efi/loader/entries/cixmini-rescue.conf <<EOF
-title   SAFE rescue (cixmini) — clean kernel $RESCUE_PIN rescue.target [no NPU/GPU/VPU] — $BUILD_VERSION
-sort-key 3-rescue
-version $RESCUE_PIN
-linux   /vmlinuz-$RESCUE_PIN
-options $RESCUE_OPTIONS
-EOF
-    # Rescue entry uses the pinned initrd if we staged one above
-    if [ "$RESCUE_HAS_INITRD" = "1" ]; then
-        sed -i "/^linux /a initrd  /initrd.img-$RESCUE_PIN" /boot/efi/loader/entries/cixmini-rescue.conf
-    fi
-    echo "  wrote cixmini-rescue.conf (sort-key 3-rescue, independent pinned kernel, accelerators blacklisted)"
-    echo "    rescue options: $RESCUE_OPTIONS"
 fi
 
-# 26.6-r92: prefer NEXT as the default when staged, while keeping LTS
-# and the independent pinned rescue entry available. cixmini-edge* is a
-# glob so it follows systemd-boot boot-counter rotations (+3-0, +2-0,
-# .failed handling). If NEXT is absent, LTS becomes the default.
-if [ "$NEXT_AVAILABLE" = "1" ]; then
-    DEFAULT_ENTRY="cixmini-edge*"
-elif [ "$LTS_AVAILABLE" = "1" ]; then
-    DEFAULT_ENTRY="cixmini-stable"
-else
-    echo "ERROR: NEITHER kernel installed — cannot set default loader entry"
+# ======================================================================
+# Install rEFInd: binary at the firmware fallback path + refind.conf menu.
+# ======================================================================
+install -d -m 0755 /boot/efi/EFI/BOOT
+install -m 0644 "$REFIND_SRC" /boot/efi/EFI/BOOT/BOOTAA64.EFI
+if [ ! -s /boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
+    echo "ERROR: failed to install rEFInd to /boot/efi/EFI/BOOT/BOOTAA64.EFI"
     exit 1
 fi
-cat > /boot/efi/loader/loader.conf <<EOF
-default $DEFAULT_ENTRY
-timeout 5
-console-mode auto
-editor yes
-EOF
-echo "  loader.conf default = $DEFAULT_ENTRY"
+echo "  rEFInd installed → /boot/efi/EFI/BOOT/BOOTAA64.EFI (firmware fallback path)"
 
-# Verify the default actually resolves to a written entry. systemd-boot
-# treats default as a glob; for cixmini-edge* match either the canonical
-# +3-0.conf (boot-counter) or any later +N-M rotation.
-if [ "$DEFAULT_ENTRY" = "cixmini-edge*" ]; then
-    if ! ls /boot/efi/loader/entries/cixmini-edge*.conf >/dev/null 2>&1; then
-        echo "ERROR: loader.conf default=cixmini-edge* but no cixmini-edge*.conf in entries/" >&2
-        ls /boot/efi/loader/entries/ 2>&1 | sed 's/^/  /'
-        exit 1
-    fi
+# default_selection matches a substring of the menu-entry title. edge is the
+# default when staged, else stable. rescue is always manual-only.
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    DEFAULT_TOKEN="edge"
 else
-    if ! [ -f "/boot/efi/loader/entries/${DEFAULT_ENTRY}.conf" ]; then
-        echo "ERROR: loader.conf default=$DEFAULT_ENTRY but ${DEFAULT_ENTRY}.conf not in entries/" >&2
-        exit 1
-    fi
-fi
-echo "  loader.conf default resolves to a real entry — verified"
-
-# ----------------------------------------------------------------------
-# Add a UEFI boot entry pointing at systemd-boot.
-# Strip the trailing partition number off the source path
-# (/dev/nvme0n1p2 → 2) — portable across the chroot's util-linux ver.
-# ----------------------------------------------------------------------
-EFI_DEV=$(findmnt -no SOURCE /boot/efi)
-EFI_DISK=$(lsblk -no PKNAME "$EFI_DEV")
-EFI_PART="${EFI_DEV##*[!0-9]}"
-efibootmgr -c -d "/dev/$EFI_DISK" -p "$EFI_PART" \
-    -L "nclawzero" -l '\EFI\systemd\systemd-bootaa64.efi' || true
-
-# UEFI NVRAM fallback per 2026-05-04 codex review: some UEFI implementations
-# (esp. older firmware) don't persist NVRAM entries written via efibootmgr.
-# Drop a copy of systemd-bootaa64.efi at the canonical removable-media fallback
-# path /EFI/BOOT/BOOTAA64.EFI so the device boots even with empty BootOrder.
-if [ -f /boot/efi/EFI/systemd/systemd-bootaa64.efi ]; then
-    install -D -m 0644 /boot/efi/EFI/systemd/systemd-bootaa64.efi \
-        /boot/efi/EFI/BOOT/BOOTAA64.EFI
-    echo "  /EFI/BOOT/BOOTAA64.EFI fallback installed (NVRAM-independent boot)"
-else
-    echo "  WARN: /boot/efi/EFI/systemd/systemd-bootaa64.efi missing — no fallback installed"
+    DEFAULT_TOKEN="stable"
 fi
 
+# refind.conf lives next to the binary; rEFInd resolves loader/initrd paths
+# from the volume (ESP) root, where we staged the kernels.
+REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
+{
+    echo "# rEFInd — NCZ cixmini $BUILD_VERSION (generated by 70-bootloader.sh)"
+    echo "# Kernels live on the FAT ESP; each kernel's initramfs mounts the"
+    echo "# $ROOT_FSTYPE root. No btrfs/ext4 EFI driver is required."
+    echo "timeout 10"
+    echo "log_level 0"
+    echo "use_nvram false"
+    echo "showtools shell,reboot,shutdown,firmware"
+    echo "scanfor manual"
+    echo "scan_all_linux_kernels false"
+    echo "default_selection \"$DEFAULT_TOKEN\""
+    echo
+    if [ "$LTS_AVAILABLE" = "1" ]; then
+        echo "menuentry \"NCZ stable — kernel $KVER_LTS (LTS 6.18)\" {"
+        echo "    loader  /vmlinuz-$KVER_LTS"
+        [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
+        echo "    options \"$LTS_OPTIONS\""
+        echo "}"
+        echo
+    fi
+    if [ "$NEXT_AVAILABLE" = "1" ]; then
+        echo "menuentry \"NCZ edge — kernel $KVER_NEXT (NEXT 7.0.x) [DEFAULT/BETA]\" {"
+        echo "    loader  /vmlinuz-$KVER_NEXT"
+        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
+        echo "    options \"$NEXT_OPTIONS\""
+        echo "}"
+        echo
+    fi
+    if [ -n "$RESCUE_PIN" ]; then
+        echo "menuentry \"NCZ rescue — $RESCUE_PIN (safe: no NPU/GPU/VPU/KMS)\" {"
+        echo "    loader  /vmlinuz-$RESCUE_PIN"
+        [ "$RESCUE_HAS_INITRD" = "1" ] && echo "    initrd  /initrd.img-$RESCUE_PIN"
+        echo "    options \"$RESCUE_OPTIONS\""
+        echo "}"
+        echo
+    fi
+} > "$REFIND_CONF"
+echo "  wrote $REFIND_CONF (default_selection=$DEFAULT_TOKEN)"
+
+# Best-effort NVRAM entry. We boot via the EFI/BOOT fallback path regardless,
+# so this failing (no efibootmgr, RO efivars in chroot) is non-fatal.
+if command -v efibootmgr >/dev/null 2>&1; then
+    EFI_DEV=$(findmnt -no SOURCE /boot/efi)
+    EFI_DISK=$(lsblk -no PKNAME "$EFI_DEV" 2>/dev/null || true)
+    EFI_PART="${EFI_DEV##*[!0-9]}"
+    if [ -n "$EFI_DISK" ] && [ -n "$EFI_PART" ]; then
+        efibootmgr -c -d "/dev/$EFI_DISK" -p "$EFI_PART" \
+            -L "nclawzero (rEFInd)" -l '\EFI\BOOT\BOOTAA64.EFI' >/dev/null 2>&1 || true
+    fi
+fi
+
 echo ""
-echo "===== systemd-boot loader entries written ====="
-ls -la /boot/efi/loader/entries/
+echo "===== rEFInd installed — refind.conf ====="
+cat "$REFIND_CONF"
 echo ""
-for entry in /boot/efi/loader/entries/cixmini-*.conf; do
-    echo "--- $entry ---"
-    cat "$entry"
-    echo ""
-done
-echo ""
-echo "bootctl status — Unknown-line warnings should be EMPTY:"
-bootctl status 2>&1 | grep -E "Unknown line|without value" | head -5 || true
-echo ""
-echo "Final EFI boot entries:"
-efibootmgr -v 2>&1 | head -10 || true
+echo "ESP contents:"
+ls -la /boot/efi/ 2>&1 | sed 's/^/  /' | head -25
+echo "  EFI/BOOT:"
+ls -la /boot/efi/EFI/BOOT/ 2>&1 | sed 's/^/    /'

@@ -1059,6 +1059,73 @@ DEBOOTSTRAP_NEW_UDEB="$DEBOOTSTRAP_PATCH_TMP/$(basename "$DEBOOTSTRAP_UDEB")"
 mv "$DEBOOTSTRAP_NEW_UDEB" "$DEBOOTSTRAP_UDEB"
 rm -rf "$DEBOOTSTRAP_PATCH_TMP"
 
+# r120: neutralize the d-i "Make the system bootable" installers.
+#
+# The installed bootloader is rEFInd (post-install/70-bootloader.sh, run from
+# late_command: stages kernels on the FAT ESP + writes refind.conf). We do NOT
+# want d-i's own bootable-step installers touching the target/ESP because they
+# (a) are redundant with rEFInd and (b) FAIL on a btrfs root / no-EFI / generic
+# arm64 board, red-erroring the whole install at "Make the system bootable".
+#
+# TWO udebs register that menu item on arm64 (lower Installer-Menu-Item runs
+# first):
+#   flash-kernel-installer  Installer-Menu-Item: 7300  (PRIMARY on arm64)
+#   grub-installer          Installer-Menu-Item: 7400
+#
+# d-i main-menu runs the udeb's *postinst* (control.tar) for the menu item —
+# NOT data.tar's /usr/bin/<tool> (the r118 mistake). So we stub each udeb's
+# POSTINST to exit 0. Step-5 index regen below updates the hashes.
+#
+# History: r118 stubbed only grub's data.tar binary (ineffective). r119 stubbed
+# grub's postinst but missed flash-kernel-installer (7300), which still failed.
+# r120 neutralizes BOTH postinsts.
+neutralize_udeb_postinst() {
+    # $1 = udeb path glob (first match used); $2 = human label
+    local _glob="$1" _label="$2"
+    local _matches; _matches=( $_glob )
+    local _udeb="${_matches[0]}"
+    if [ ! -e "$_udeb" ]; then
+        echo "    NOTE: $_label udeb not in pool — nothing to neutralize"
+        return 0
+    fi
+    echo "    neutralizing $_label udeb -> exit-0 postinst stub ($(basename "$_udeb"))"
+    local _tmp="$STAGING/.tmp-neutralize-udeb"
+    local _ar="$_tmp/ar" _ctl="$_tmp/ctl"
+    rm -rf "$_tmp"; mkdir -p "$_ar" "$_ctl"
+    local _udeb_abs; _udeb_abs="$(readlink -f "$_udeb")"
+    ( cd "$_ar" && ar x "$_udeb_abs" )
+    [ -f "$_ar/debian-binary" ] || { echo "ERROR: $_label udeb missing debian-binary" >&2; exit 1; }
+    local _ctl_members=( "$_ar"/control.tar* )
+    local _data_members=( "$_ar"/data.tar* )
+    local _ctl_member; _ctl_member="$(basename "${_ctl_members[0]}")"
+    local _data_member; _data_member="$(basename "${_data_members[0]}")"
+    tar -xf "$_ar/$_ctl_member" -C "$_ctl"
+    [ -f "$_ctl/postinst" ] || { echo "ERROR: $_label udeb missing control/postinst" >&2; exit 1; }
+    cat > "$_ctl/postinst" <<GIPOST
+#! /bin/sh -e
+# ncz r120 stub $_label postinst — d-i "Make the system bootable" no-op.
+# Installed bootloader is rEFInd (post-install/70-bootloader.sh from
+# late_command). Upstream installer is redundant and FAILS on btrfs/no-EFI/
+# generic-arm64; always succeed so the install completes.
+. /usr/share/debconf/confmodule 2>/dev/null || true
+logger -t $_label "ncz stub: skipping bootable step — rEFInd installed by 70-bootloader.sh" 2>/dev/null || true
+exit 0
+GIPOST
+    chmod 0755 "$_ctl/postinst"
+    bash -n "$_ctl/postinst"
+    rm -f "$_ar/$_ctl_member"
+    ( cd "$_ctl" && tar --numeric-owner --owner=0 --group=0 -cf - . ) | gzip -9n > "$_ar/control.tar.gz"
+    # Repack: keep the ORIGINAL data.tar member untouched (its binaries are
+    # never run as the menu action; only the postinst is).
+    local _new_udeb="$_tmp/$(basename "$_udeb")"
+    ( cd "$_ar" && ar rc "$_new_udeb" debian-binary control.tar.gz "$_data_member" )
+    mv "$_new_udeb" "$_udeb"
+    rm -rf "$_tmp"
+    echo "    $_label neutralized: postinst exit-0 (rEFInd installs via 70-bootloader.sh)"
+}
+neutralize_udeb_postinst "$STAGING/pool/main/f/flash-kernel/flash-kernel-installer_*.udeb" "flash-kernel-installer"
+neutralize_udeb_postinst "$STAGING/pool/main/g/grub-installer/grub-installer_*.udeb" "grub-installer"
+
 # Step 5: regenerate dists/resolute/main/debian-installer/binary-arm64/Packages
 # from the actual pool contents (not just copy bookworm's stale Packages).
 # After the trixie graft, the d-i Packages index MUST reflect the new udeb set
@@ -1560,6 +1627,20 @@ if [ -d "$ROOT/assets/kernel/modules-overlay" ]; then
     mkdir -p "$EXTRA/assets/kernel/modules-overlay"
     cp -rL "$ROOT/assets/kernel/modules-overlay/"* "$EXTRA/assets/kernel/modules-overlay/" 2>/dev/null || true
     echo "    modules-overlay: $(find "$EXTRA/assets/kernel/modules-overlay" -name '*.ko' 2>/dev/null | wc -l) .ko ($(du -sh "$EXTRA/assets/kernel/modules-overlay" 2>/dev/null | cut -f1))"
+fi
+
+# r118: rEFInd boot manager binary for the INSTALLED system. 70-bootloader.sh
+# installs it to the target ESP at the firmware fallback path
+# /EFI/BOOT/BOOTAA64.EFI and writes refind.conf. We ship the binary (rEFInd
+# is not in Ubuntu ports' default pool) and let the kernel's own initramfs
+# mount the btrfs root, so rEFInd needs no btrfs/ext4 EFI filesystem driver.
+# Lands at /usr/local/lib/cix-installer/assets/refind/ via late.sh.
+if [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ]; then
+    mkdir -p "$EXTRA/assets/refind"
+    cp -L "$ROOT/build/refind-bin/refind_aa64.efi" "$EXTRA/assets/refind/"
+    echo "    refind: refind_aa64.efi staged ($(du -h "$EXTRA/assets/refind/refind_aa64.efi" | cut -f1))"
+else
+    echo "    refind: build/refind-bin/refind_aa64.efi MISSING — 70-bootloader will FAIL (no installed bootloader)" >&2
 fi
 
 echo "$VERSION"     > "$EXTRA/BUILD_VERSION"
