@@ -54,8 +54,29 @@ mkdir -p /etc/kernel
 echo "layout=other" > /etc/kernel/install.conf
 echo "  /etc/kernel/install.conf set to layout=other (disables double-staging)"
 
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    systemd-boot efibootmgr
+# r116: make this resilient. This hook runs inside run-all.sh's EXIT trap, so
+# a non-zero exit here propagates all the way to d-i's late_command → the red
+# "installation step failed" dialog AND a system with no bootloader. Two
+# real-world failure modes must NOT abort us:
+#   1. the dpkg frontend lock is held by a concurrent apt (e.g. a slow cix-*
+#      pip postinst left running from an earlier red-dialog retry) → apt
+#      exits 100. -o DPkg::Lock::Timeout makes us WAIT for the lock instead.
+#   2. an UNRELATED half-configured package (cix-noe-umd / cix-ai-engine on
+#      py3.14) makes apt return non-zero even though systemd-boot/efibootmgr
+#      themselves unpacked+configured fine.
+# So we DON'T trust apt's exit code here; the authoritative gate is the
+# `command -v bootctl` check below — if the bootloader binary is present we
+# proceed regardless of apt's rc.
+set +e
+DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 \
+    install -y --no-install-recommends systemd-boot efibootmgr
+apt_rc=$?
+set -e
+if [ "$apt_rc" -ne 0 ]; then
+    echo "  WARN: apt-get install systemd-boot efibootmgr returned rc=$apt_rc"
+    echo "        (likely a held dpkg lock or an unrelated half-configured"
+    echo "        package) — verifying the bootloader binary landed anyway..."
+fi
 
 command -v bootctl >/dev/null || { echo "ERROR: bootctl not installed"; exit 1; }
 
