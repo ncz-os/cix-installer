@@ -449,34 +449,36 @@ echo "[20] browsers: vivaldi (default) + flatpak Chromium + falkon + epiphany; g
 NCZ_WP=/usr/share/backgrounds/ncz/default.jpg
 
 # XFCE — system-wide xfconf channel default (read on first session)
+#
+# r116: XFCE's xfdesktop keys the backdrop PER MONITOR as
+# /backdrop/screen0/monitor<connector>/workspace0/last-image, where
+# <connector> is the DRM/RandR output name. On Sky1 the active DP output
+# does NOT enumerate as DP-1 — depending on which of the linlondp pipelines
+# drives the panel it shows up as DP-2..DP-5 (observed: DP-4 on MS-R1). The
+# old config only defined monitor0 / monitorDP-1 / monitorHDMI-1, so on a
+# box whose panel is DP-4 xfdesktop found NO backdrop for the live monitor
+# and painted a blank/black desktop. Enumerate every plausible Sky1
+# connector so the wallpaper applies regardless of which port lights up.
 mkdir -p /etc/xdg/xfce4/xfconf/xfce-perchannel-xml
-cat > /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml <<XFCEEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<channel name="xfce4-desktop" version="1.0">
-  <property name="backdrop" type="empty">
-    <property name="screen0" type="empty">
-      <property name="monitor0" type="empty">
-        <property name="workspace0" type="empty">
-          <property name="last-image" type="string" value="$NCZ_WP"/>
-          <property name="image-style" type="int" value="5"/>
-        </property>
-      </property>
-      <property name="monitorDP-1" type="empty">
-        <property name="workspace0" type="empty">
-          <property name="last-image" type="string" value="$NCZ_WP"/>
-          <property name="image-style" type="int" value="5"/>
-        </property>
-      </property>
-      <property name="monitorHDMI-1" type="empty">
-        <property name="workspace0" type="empty">
-          <property name="last-image" type="string" value="$NCZ_WP"/>
-          <property name="image-style" type="int" value="5"/>
-        </property>
-      </property>
-    </property>
-  </property>
-</channel>
-XFCEEOF
+{
+    echo '<?xml version="1.0" encoding="UTF-8"?>'
+    echo '<channel name="xfce4-desktop" version="1.0">'
+    echo '  <property name="backdrop" type="empty">'
+    echo '    <property name="screen0" type="empty">'
+    for mon in monitor0 \
+               monitorDP-1 monitorDP-2 monitorDP-3 monitorDP-4 monitorDP-5 monitorDP-6 \
+               monitorHDMI-1 monitorHDMI-2 monitorHDMI-A-1 monitoreDP-1; do
+        echo "      <property name=\"$mon\" type=\"empty\">"
+        echo '        <property name="workspace0" type="empty">'
+        echo "          <property name=\"last-image\" type=\"string\" value=\"$NCZ_WP\"/>"
+        echo '          <property name="image-style" type="int" value="5"/>'
+        echo '        </property>'
+        echo '      </property>'
+    done
+    echo '    </property>'
+    echo '  </property>'
+    echo '</channel>'
+} > /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
 
 # XFCE WM — disable GPU compositing by default. On Mali-G720 (panthor) the
 # zink/kopper GL compositor cannot create an X11 swapchain on the 7.0.x kernel
@@ -510,7 +512,16 @@ picture-options='zoom'
 picture-uri='file://$NCZ_WP'
 picture-options='zoom'
 DCONFLOCAL
-dconf update 2>&1 | tail -1 || true
+# r116: guard dconf — the dconf CLI may be absent from the d-i chroot at this
+# stage, which previously spewed "dconf: command not found" and left the DB
+# uncompiled. It's only needed for the MATE/GNOME/Cinnamon defaults (XFCE,
+# the default session, reads the xfconf XML above). Compile if present;
+# otherwise a dconf-using session will compile /etc/dconf/db on first use.
+if command -v dconf >/dev/null 2>&1; then
+    dconf update 2>&1 | tail -1 || true
+else
+    echo "[20] dconf CLI not present in chroot — /etc/dconf/db/local will compile on first dconf use (XFCE default uses xfconf, unaffected)"
+fi
 
 # r74: removed orphan LXQt heredoc tail (no opener — was a no-op)
 
