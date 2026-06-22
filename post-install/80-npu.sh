@@ -138,11 +138,69 @@ for KVER in "${KERNEL_VERS[@]}"; do
     fi
 done
 
-# --- Step 3: ACPI SSDT override (MS-R1 BIOS missing _HID on NPU cores) ---
-# Prepend the 1024-byte SSDT CPIO archive to each kernel's initrd.
-# The kernel reads CPIO archives stacked before the main initramfs;
-# the SSDT injects via the ACPI override mechanism before any driver probes.
-if [ -f "$SSDT_CPIO" ]; then
+# --- Step 3: ACPI SSDT override — BOARD-GATED (r123) ---
+#
+# The SSDT injects _HID="CIXH4010" onto the NPU compute cores (CRE0/CRE1/CRE2).
+# This is a fix for ONE specific defect: the Minisforum MS-R1's shipped BIOS
+# omits that _HID, so the cores never enumerate (CIXH4000:00 appears but no
+# CIXH4010:0x). On boards whose firmware is correct — Radxa Orion O6 / O6N —
+# the cores enumerate natively, and force-loading a second SSDT that redefines
+# the same ACPI named objects risks an AML name-collision (AE_ALREADY_EXISTS).
+# So we only prepend the override when the target actually needs it.
+#
+# Detection priority (runs in the d-i chroot, where /proc /sys /dev are
+# bind-mounted, so it reflects the REAL hardware being installed):
+#   0. operator override  /usr/local/lib/cix-installer/NPU_SSDT = force|skip
+#   1. functional ACPI check (authoritative, board-agnostic):
+#        CIXH4010:* present  -> cores enumerate natively      -> SKIP
+#        CIXH4000:00 present, no CIXH4010:* -> MS-R1-class bug -> APPLY
+#   2. DMI board match (only if ACPI gives no signal):
+#        MS-R1 / MINISFORUM -> APPLY ;  Radxa / Orion / O6 -> SKIP
+#   3. unknown + no signal -> APPLY (MS-R1 is the primary validated target;
+#        the override is a no-op there if cores already exist) + warn.
+should_apply_npu_ssdt() {
+    local force="$INSTALLER_META/NPU_SSDT"
+    if [ -f "$force" ]; then
+        case "$(tr -d ' \t\r\n' < "$force" 2>/dev/null)" in
+            force|apply|on|1) echo "[80] NPU SSDT: forced ON by $force"; return 0 ;;
+            skip|off|0)       echo "[80] NPU SSDT: forced OFF by $force"; return 1 ;;
+        esac
+    fi
+
+    if [ -d /sys/bus/acpi/devices ]; then
+        if ls -d /sys/bus/acpi/devices/CIXH4010:* >/dev/null 2>&1; then
+            echo "[80] NPU SSDT: cores already enumerate (CIXH4010:* present) — SKIP (firmware OK; likely O6/O6N)"
+            return 1
+        fi
+        if [ -e /sys/bus/acpi/devices/CIXH4000:00 ]; then
+            echo "[80] NPU SSDT: NPU device present but cores missing — APPLY (MS-R1-class BIOS _HID gap)"
+            return 0
+        fi
+        echo "[80] NPU SSDT: no CIXH4000 in ACPI view — falling back to DMI board match"
+    else
+        echo "[80] NPU SSDT: /sys/bus/acpi unavailable in chroot — falling back to DMI board match"
+    fi
+
+    local pn pf sv
+    pn=$(cat /sys/class/dmi/id/product_name   2>/dev/null)
+    pf=$(cat /sys/class/dmi/id/product_family 2>/dev/null)
+    sv=$(cat /sys/class/dmi/id/sys_vendor     2>/dev/null)
+    case "$pn $pf $sv" in
+        *MS-R1*|*MINISFORUM*|*[Mm]inisforum*)
+            echo "[80] NPU SSDT: DMI='$pn'/'$pf' (Minisforum MS-R1) — APPLY"; return 0 ;;
+        *Orion*|*O6*|*[Rr]adxa*)
+            echo "[80] NPU SSDT: DMI='$pn'/'$sv' (Radxa Orion) — SKIP (native _HID expected)"; return 1 ;;
+    esac
+
+    echo "[80] NPU SSDT: board UNKNOWN (pn='$pn' pf='$pf' sv='$sv') and no ACPI signal — APPLYING by default"
+    echo "[80]   (override with: echo skip > $INSTALLER_META/NPU_SSDT)"
+    return 0
+}
+
+# Prepend the 1024-byte SSDT CPIO archive to each kernel's initrd. The kernel
+# reads CPIO archives stacked before the main initramfs; the SSDT injects via
+# the ACPI override mechanism before any driver probes.
+if [ -f "$SSDT_CPIO" ] && should_apply_npu_ssdt; then
     install -D -m 0644 "$SSDT_CPIO" /boot/npu-acpi-override.cpio
     for KVER in "${KERNEL_VERS[@]}"; do
         INITRD="/boot/initrd.img-$KVER"
@@ -163,8 +221,10 @@ if [ -f "$SSDT_CPIO" ]; then
             echo "[80] WARN: $INITRD not found after update-initramfs; SSDT skipped for $KVER"
         fi
     done
-else
+elif [ ! -f "$SSDT_CPIO" ]; then
     echo "[80] WARN: SSDT CPIO missing at $SSDT_CPIO; NPU cores may not enumerate on MS-R1"
+else
+    echo "[80] NPU SSDT override staged but NOT applied for this board (see detection above)"
 fi
 
 # --- Step 4: auto-load on boot ---
@@ -188,7 +248,11 @@ cat > /usr/share/doc/ncz/NPU-STATUS.md << 'EOF'
   - 6.18.26-ncz-lts (stable fallback; out-of-tree module)
 - **ACPI SSDT override** corrects the missing `_HID="CIXH4010"` on NPU cores
   (CRE0/CRE1/CRE2) — a bug in Minisforum's shipped BIOS omitted by the OEM.
-  Injected via initramfs CPIO prepend; fully reversible.
+  Injected via initramfs CPIO prepend; fully reversible. **Board-gated (r123):**
+  applied only when the cores don't enumerate natively (MS-R1); skipped on
+  boards whose firmware is correct (Radxa Orion O6 / O6N) to avoid an AML
+  name-collision. Auto-detected at install; force with
+  `echo force|skip > /usr/local/lib/cix-installer/NPU_SSDT`.
 - **v0-compat ioctl handlers** bridge the struct-layout gap between
   `cix-noe-umd 2.0.x` (k6.6 ABI) and the current kernel driver.
 - **SMMU 32-bit constraint** forces `bus_dma_limit=0xc0000000` and `dma_mask=32`;
