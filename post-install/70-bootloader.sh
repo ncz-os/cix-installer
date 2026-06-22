@@ -216,7 +216,17 @@ echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol
 # the noruntime workaround was originally added for; defaulting to
 # runtime-enabled on NEXT lets the auto-rollback semantics actually
 # work as designed.
-LTS_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
+# r123 (2026-06-22) boot speed + cleanliness fix:
+#   - DROPPED console=ttyAMA2,115200 — /dev/ttyAMA2 does NOT enumerate on the
+#     MS-R1 when booting from disk (only the debug-harness exposes it). systemd
+#     auto-generates serial-getty@ttyAMA2 -> BindsTo dev-ttyAMA2.device, which
+#     then blocks boot for the full 90s device timeout. Removing it cuts ~90s.
+#   - DROPPED keep_bootcon — held the verbose early console through handoff,
+#     fighting the Plymouth splash. SPLASH="quiet splash" (below) is appended
+#     to stable+edge for a clean graphical boot; rescue stays verbose.
+#   - DROPPED loglevel — stable/edge get `quiet` (via SPLASH); rescue inherits
+#     this base WITHOUT splash so it boots at the kernel-default verbose level.
+LTS_CMDLINE_BASE="console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
 # r105 boot-visibility fix (2026-06-17): NEXT (7.0.x) does NOT get an early
 # framebuffer console like LTS does. With identical fb config, LTS's sysfb
 # registers an efi-framebuffer device → efifb binds → colour console + boot
@@ -234,10 +244,18 @@ LTS_CMDLINE_BASE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime a
 # dark gap before the colour linlondp console is the SCMI display power-on
 # latency and is not removable from cmdline (needs efifb to bind early —
 # kernel-side screen_info fix, tracked separately).
-NEXT_CMDLINE_BASE="loglevel=7 earlycon=efifb console=tty0 console=ttyAMA2,115200 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
+# r123: also dropped earlycon=efifb here. It was added (r105) to make early
+# NEXT boot text visible on HDMI before KMS, but that is exactly the verbose
+# "ugly" boot we now replace with the Plymouth splash. Early text is still
+# available via the rescue entry (verbose, no splash).
+NEXT_CMDLINE_BASE="console=tty0 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
 
-# Optional Plymouth splash flags (if 60-plymouth.sh ran)
-SPLASH=""
+# Plymouth splash flags for a clean graphical boot. Appended to stable+edge
+# only (see LTS_OPTIONS/NEXT_OPTIONS below) — rescue deliberately omits these
+# so it stays text-verbose. 60-plymouth.sh sets the `nclawzero` default theme
+# and embeds it (+ the script module) in the initramfs; here we just pass the
+# kernel flags. An optional /etc/kernel/cmdline.d/10-splash.conf overrides.
+SPLASH="quiet splash"
 [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 
 # r118: rootfstype is DETECTED from the live mount (was hardcoded ext4, which

@@ -52,12 +52,23 @@ if [ "$MISSING_THEME_ASSETS" -ne 0 ]; then
     exit 1
 fi
 
-# Set as default; explicit target-kernel rebuild happens below.
-if command -v plymouth-set-default-theme >/dev/null 2>&1; then
-    plymouth-set-default-theme -R nclawzero 2>&1 || \
-        plymouth-set-default-theme -R spinner 2>&1 || \
-        echo "[60] plymouth theme set failed — keeping default"
-fi
+# Register nclawzero as the default Plymouth theme. r123 fix: the old path used
+# `plymouth-set-default-theme`, which (a) is often not on PATH in the in-target
+# chroot and (b) registers the alternative in AUTO mode — so xubuntu-logo (from
+# xubuntu-default-settings, higher priority) wins and the initramfs hook embeds
+# THAT, not nclawzero. Result: theme shipped but never actually used. Pin it via
+# update-alternatives --set (MANUAL/sticky) with full paths so it can't be
+# silently reverted by later auto-mode recalculation. The target-kernel
+# initramfs rebuild below then embeds nclawzero + its script module.
+export PATH="/usr/sbin:/sbin:/usr/bin:/bin:${PATH:-}"
+DEFAULT_PLY=/usr/share/plymouth/themes/default.plymouth
+NCZ_PLY="$THEME_DIR/nclawzero.plymouth"
+update-alternatives --install "$DEFAULT_PLY" default.plymouth "$NCZ_PLY" 200
+update-alternatives --set default.plymouth "$NCZ_PLY"
+# Bonus: run the helper too if present (harmless; rebuilds current-kernel initrd).
+command -v plymouth-set-default-theme >/dev/null 2>&1 && \
+    plymouth-set-default-theme nclawzero 2>/dev/null || true
+echo "[60] default.plymouth -> $(readlink -f "$DEFAULT_PLY" 2>/dev/null) (manual)"
 
 # Mask plymouth-quit if it keeps failing (cosmetic, doesn't affect boot)
 # r51 saw "plymouth-quit.service Failed to start" in journal. Disable cleanly.
