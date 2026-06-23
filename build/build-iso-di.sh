@@ -1658,6 +1658,22 @@ if [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ]; then
         cp -L "$ROOT/build/refind-bin/ncz-banner.png" "$EXTRA/assets/refind/"
         echo "    refind: ncz-banner.png staged ($(du -h "$EXTRA/assets/refind/ncz-banner.png" | cut -f1))"
     fi
+    # r128: NCZ tile icon for the rEFInd menu entries (banner_scale fillscreen
+    # turns ncz-banner.png into the full-screen menu background). Optional.
+    if [ -f "$ROOT/build/refind-bin/ncz.png" ]; then
+        cp -L "$ROOT/build/refind-bin/ncz.png" "$EXTRA/assets/refind/"
+        echo "    refind: ncz.png (entry icon) staged ($(du -h "$EXTRA/assets/refind/ncz.png" | cut -f1))"
+    fi
+    # r128: rEFInd's standard icons/ directory. CRITICAL — rEFInd silently
+    # drops to TEXT-ONLY mode (no banner, no graphical menu) when there is no
+    # icons/ subdir next to refind.conf (documented rEFInd behaviour). Shipping
+    # it is what lets the NCZ-OS 26.6 graphical boot menu render on Sky1.
+    if [ -d "$ROOT/build/refind-bin/icons" ]; then
+        cp -a "$ROOT/build/refind-bin/icons" "$EXTRA/assets/refind/"
+        echo "    refind: icons/ staged ($(ls "$EXTRA/assets/refind/icons" | wc -l | tr -d ' ') files)"
+    else
+        echo "    refind: WARN build/refind-bin/icons MISSING — rEFInd boots TEXT-ONLY (no banner)" >&2
+    fi
 else
     echo "    refind: build/refind-bin/refind_aa64.efi MISSING — 70-bootloader will FAIL (no installed bootloader)" >&2
 fi
