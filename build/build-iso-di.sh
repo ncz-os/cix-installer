@@ -1410,6 +1410,17 @@ if [ -d "$ROOT/assets" ]; then
                     echo "    assets/rootfs skipped in --mode $MODE"
                 fi
                 ;;
+            rescue)
+                # r130: dedicated rescue-partition rootfs tarball + AGENTS.md.
+                # Lands at /usr/local/lib/cix-installer/assets/rescue/ on the
+                # target; consumed by post-install/72-rescue-partition.sh.
+                cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true
+                if [ -f "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" ]; then
+                    echo "    rescue-rootfs.tar.zst staged: $(du -h "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" | cut -f1)"
+                else
+                    echo "    assets/rescue present but rescue-rootfs.tar.zst missing — run build/build-rescue-rootfs.sh (rescue partition will be left empty)"
+                fi
+                ;;
             *) cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true ;;
         esac
     done
