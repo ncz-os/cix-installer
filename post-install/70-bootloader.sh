@@ -427,6 +427,19 @@ if [ ! -s /boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
 fi
 echo "  rEFInd installed → /boot/efi/EFI/BOOT/BOOTAA64.EFI (firmware fallback path)"
 
+# r127: startup banner ("NCZ-OS 26.6"). Installed next to refind.conf so
+# rEFInd resolves it by bare filename. Optional — if the asset is absent we
+# simply omit the `banner` directive (rEFInd falls back to its built-in art).
+BANNER_SRC="$INSTALLER_META/assets/refind/ncz-banner.png"
+REFIND_BANNER=""
+if [ -s "$BANNER_SRC" ]; then
+    install -m 0644 "$BANNER_SRC" /boot/efi/EFI/BOOT/ncz-banner.png
+    REFIND_BANNER="ncz-banner.png"
+    echo "  rEFInd banner installed → /boot/efi/EFI/BOOT/ncz-banner.png"
+else
+    echo "  note: rEFInd banner asset absent ($BANNER_SRC) — using default rEFInd art"
+fi
+
 # default_selection matches a substring of the menu-entry title. edge is the
 # default when staged, else stable. rescue is always manual-only.
 if [ "$NEXT_AVAILABLE" = "1" ]; then
@@ -445,13 +458,14 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     echo "timeout 10"
     echo "log_level 0"
     echo "use_nvram false"
+    [ -n "$REFIND_BANNER" ] && echo "banner $REFIND_BANNER"
     echo "showtools shell,reboot,shutdown,firmware"
     echo "scanfor manual"
     echo "scan_all_linux_kernels false"
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$LTS_AVAILABLE" = "1" ]; then
-        echo "menuentry \"NCZ stable — kernel $KVER_LTS (LTS 6.18)\" {"
+        echo "menuentry \"NCZ-OS 26.6  ·  stable — kernel $KVER_LTS (LTS 6.18)\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
         echo "    options \"$LTS_OPTIONS\""
@@ -459,7 +473,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ "$NEXT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"NCZ edge — kernel $KVER_NEXT (NEXT 7.0.x) [DEFAULT/BETA]\" {"
+        echo "menuentry \"NCZ-OS 26.6  ·  edge — kernel $KVER_NEXT (NEXT 7.0.x) [DEFAULT/BETA]\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$NEXT_OPTIONS\""
@@ -467,7 +481,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ -n "$RESCUE_PIN" ]; then
-        echo "menuentry \"NCZ rescue — $RESCUE_PIN (safe: no NPU/GPU/VPU/KMS)\" {"
+        echo "menuentry \"NCZ-OS 26.6  ·  rescue — $RESCUE_PIN (safe: no NPU/GPU/VPU/KMS)\" {"
         echo "    loader  /vmlinuz-$RESCUE_PIN"
         [ "$RESCUE_HAS_INITRD" = "1" ] && echo "    initrd  /initrd.img-$RESCUE_PIN"
         echo "    options \"$RESCUE_OPTIONS\""
