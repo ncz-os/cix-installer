@@ -1,0 +1,90 @@
+# CIX/kernel dep-closure vs SERVER-only mirror — 2026-06-17T01:46:26Z
+# server mirror: 380 debs
+# our packages : 38
+
+OK   cix-audio-dsp  (installs, 5 pkgs incl deps)
+OK   cix-bkup  (installs, 5 pkgs incl deps)
+OK   cix-bt-driver  (installs, 5 pkgs incl deps)
+OK   cix-common-misc  (installs, 1 pkgs incl deps)
+OK   cix-cpipe  (installs, 5 pkgs incl deps)
+OK   cix-csidma-driver  (installs, 5 pkgs incl deps)
+OK   cix-debian-misc  (installs, 13 pkgs incl deps)
+OK   cix-dpu-ddk  (installs, 5 pkgs incl deps)
+OK   cix-env  (installs, 5 pkgs incl deps)
+OK   cix-firmware  (installs, 5 pkgs incl deps)
+OK   cix-gpu-driver  (installs, 5 pkgs incl deps)
+OK   cix-gpu-test  (installs, 5 pkgs incl deps)
+OK   cix-gpu-umd  (installs, 5 pkgs incl deps)
+FAIL cix-gstreamer
+                        Depends: libasound2 but it is not installable
+                        Depends: libcairo2 but it is not installable
+                        Depends: libdrm-amdgpu1 but it is not installable
+                        Depends: libdrm-etnaviv1 but it is not installable
+                        Depends: libdrm-freedreno1 but it is not installable
+                        Depends: libdrm-nouveau2 but it is not installable
+                        Depends: libdrm-radeon1 but it is not installable
+                        Depends: libdrm-tegra0 but it is not installable
+                        Depends: libdrm2 but it is not installable
+                        Depends: libgdk-pixbuf-2.0-0 but it is not installable
+                        Depends: libglib2.0-0
+                        Depends: libglib2.0-bin but it is not going to be installed
+                        Depends: libjpeg62-turbo but it is not installable
+                        Depends: libjson-glib-1.0-0 but it is not installable
+                        Depends: libnettle8
+                        Depends: libnice10 but it is not installable
+                        Depends: libogg0 but it is not installable
+                        Depends: libopus0 but it is not installable
+                        Depends: libpango-1.0-0 but it is not installable
+                        Depends: libpangocairo-1.0-0 but it is not installable
+                        Depends: libpangoft2-1.0-0 but it is not installable
+                        Depends: libpangoxft-1.0-0 but it is not installable
+                        Depends: libpng16-16 but it is not installable
+                        Depends: libsoup-3.0-0 but it is not installable
+                        Depends: libva-drm2 but it is not installable
+                        Depends: libva-glx2 but it is not installable
+                        Depends: libva-wayland2 but it is not installable
+                        Depends: libva-x11-2 but it is not installable
+                        Depends: libva2 but it is not installable
+                        Depends: libvulkan1 but it is not installable
+                        Depends: libwayland-bin but it is not installable
+                        Depends: libwayland-client0 but it is not installable
+                        Depends: libwayland-cursor0 but it is not installable
+                        Depends: libwayland-egl1
+                        Depends: libwayland-server0 but it is not installable
+                        Depends: libwebp7 but it is not installable
+                        Depends: libwebpdemux2 but it is not installable
+                        Depends: libwebpmux3 but it is not installable
+                        Depends: libx11-6 but it is not installable
+                        Depends: libxcb1 but it is not installable
+                        Depends: libxdamage1 but it is not installable
+                        Depends: libxext6 but it is not installable
+                        Depends: libxfixes3 but it is not installable
+                        Depends: libxi6 but it is not installable
+                        Depends: libxkbcommon0 but it is not installable
+                        Depends: libxml2 but it is not installable
+                        Depends: zlib1g but it is not going to be installed
+        cix-gstreamer : Depends: libc6 (>= 2.34) but it is not going to be installed
+OK   cix-hdcp2  (installs, 5 pkgs incl deps)
+OK   cix-isp-driver  (installs, 5 pkgs incl deps)
+OK   cix-isp-umd  (installs, 5 pkgs incl deps)
+OK   cix-libdrm  (installs, 5 pkgs incl deps)
+OK   cix-libglvnd  (installs, 5 pkgs incl deps)
+OK   cix-llama-cpp  (installs, 5 pkgs incl deps)
+OK   cix-ltp  (installs, 5 pkgs incl deps)
+OK   cix-mesa  (installs, 5 pkgs incl deps)
+OK   cix-mnn  (installs, 5 pkgs incl deps)
+OK   cix-noe-umd  (installs, 5 pkgs incl deps)
+OK   cix-npu-driver  (installs, 5 pkgs incl deps)
+OK   cix-npu-onnxruntime  (installs, 36 pkgs incl deps)
+OK   cix-npu-umd  (installs, 5 pkgs incl deps)
+OK   cix-optee  (installs, 5 pkgs incl deps)
+OK   cix-sd-demo  (installs, 5 pkgs incl deps)
+OK   cix-tools  (installs, 5 pkgs incl deps)
+OK   cix-unit-test  (installs, 5 pkgs incl deps)
+OK   cix-vpu-driver  (installs, 5 pkgs incl deps)
+OK   cix-vpu-test  (installs, 5 pkgs incl deps)
+OK   cix-whisper-cpp  (installs, 5 pkgs incl deps)
+OK   cix-wlan  (installs, 5 pkgs incl deps)
+OK   cixmini-boot  (installs, 38 pkgs incl deps)
+OK   linux-image-cixmini-edge  (installs, 62 pkgs incl deps)
+OK   linux-image-cixmini-lts  (installs, 62 pkgs incl deps)

@@ -1,0 +1,9 @@
+Package: mnemos-cix-integration
+Version: 1.0.0
+Architecture: arm64
+Maintainer: Jason Perlow <jason.perlow@gmail.com>
+Depends: python3-venv, python3-pip, cix-noe-umd
+Description: MNEMOS CIX NPU Embedding integration
+ Contains the pre-compiled MiniLM-L6-v2 ONNX graph for the Zhouyi V3 NPU,
+ alongside a FastAPI wrapper to expose it natively to MNEMOS via an OpenAI
+ compatible /v1/embeddings endpoint.

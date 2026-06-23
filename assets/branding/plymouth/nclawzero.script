@@ -1,0 +1,77 @@
+// nclawzero Plymouth theme — script-based theme.
+//
+// Layout:
+//   - dark circuit-mesh background fills the screen
+//   - NCZ + nclawzero lockup centered, fades in
+//   - thin progress bar below the lockup that fills L→R during boot
+//
+// Refs: https://www.freedesktop.org/wiki/Software/Plymouth/Scripts/
+
+Window.SetBackgroundTopColor(0.043, 0.058, 0.078);     // #0b0f14 charcoal-blue
+Window.SetBackgroundBottomColor(0.043, 0.058, 0.078);
+
+screen_width  = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+// ---------------------------------------------------------------
+// Background image (dark-bg). Center and scale to fit the screen.
+// ---------------------------------------------------------------
+bg.image  = Image("background.png");
+bg.sprite = Sprite(bg.image.Scale(screen_width, screen_height));
+bg.sprite.SetPosition(0, 0, 0);
+
+// ---------------------------------------------------------------
+// Logo lockup (NCZ + nclawzero), centered.
+// ---------------------------------------------------------------
+logo.image  = Image("lockup.png");
+// Scale logo to ~40% screen width, preserving aspect.
+logo.scale  = screen_width * 0.40 / logo.image.GetWidth();
+logo.scaled = logo.image.Scale(
+    logo.image.GetWidth()  * logo.scale,
+    logo.image.GetHeight() * logo.scale
+);
+logo.sprite = Sprite(logo.scaled);
+logo.x = (screen_width  - logo.scaled.GetWidth())  / 2;
+logo.y = (screen_height - logo.scaled.GetHeight()) / 2 - 30;
+logo.sprite.SetPosition(logo.x, logo.y, 1);
+logo.sprite.SetOpacity(0.0);
+
+// ---------------------------------------------------------------
+// Fade the logo in over ~1.2s.
+// ---------------------------------------------------------------
+logo.alpha = 0.0;
+fun fade_in() {
+    if (logo.alpha < 1.0) {
+        logo.alpha += 0.04;
+        logo.sprite.SetOpacity(logo.alpha);
+    }
+}
+Plymouth.SetRefreshFunction(fade_in);
+
+// ---------------------------------------------------------------
+// Progress bar — thin horizontal line, fills L→R.
+// Reads progress from systemd's plymouth-watch.
+// ---------------------------------------------------------------
+bar.width   = screen_width * 0.30;
+bar.height  = 2;
+bar.x       = (screen_width - bar.width) / 2;
+bar.y       = logo.y + logo.scaled.GetHeight() + 40;
+bar.bg      = Sprite(Image.Text("", 0.13, 0.20, 0.27, 1.0));    // thin track (dim)
+bar.fg_pos  = 0.0;
+
+fun on_boot_progress(duration, progress) {
+    // progress is 0..1 — set bar.fg_pos to the current fill width.
+    fill = bar.width * progress;
+    if (fill < 1) fill = 1;
+    bar.bg.SetImage(Image.Text("", 0.13, 0.20, 0.27, 0.6));     // unused on dark theme
+}
+Plymouth.SetBootProgressFunction(on_boot_progress);
+
+// ---------------------------------------------------------------
+// Quit fadeout.
+// ---------------------------------------------------------------
+fun on_quit() {
+    logo.sprite.SetOpacity(0);
+    bg.sprite.SetOpacity(0);
+}
+Plymouth.SetQuitFunction(on_quit);

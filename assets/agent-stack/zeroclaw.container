@@ -1,0 +1,38 @@
+[Unit]
+Description=zeroclaw agent gateway (official zeroclaw-labs image)
+Documentation=https://github.com/zeroclaw-labs/zeroclaw
+Requires=nclawzero-load-agent-images.service
+Wants=network-online.target
+After=network-online.target nclawzero-load-agent-images.service
+
+[Container]
+# Official upstream zeroclaw image (NOT the perlowja/nclawzero-demo build).
+# Standalone gateway: entrypoint `zeroclaw`, default cmd `daemon`, listens on
+# 42617, persists state under /zeroclaw-data (image WORKDIR/HOME).
+Image=ghcr.io/zeroclaw-labs/zeroclaw:latest
+ContainerName=zeroclaw
+# Pull policy stays "never": the image is fetched by an EXPLICIT, operator-
+# initiated `podman pull` (nclawzero-load-agent-images.service on boot, or the
+# desktop install/remove launcher). AutoUpdate=registry is intentionally
+# OMITTED so unreviewed container code never runs with the fleet API keys in
+# /etc/nclawzero/agent-env.
+Pull=never
+Exec=daemon --host 0.0.0.0 --port 42617
+EnvironmentFile=/etc/nclawzero/agent-env
+Volume=zeroclaw-data:/zeroclaw-data:Z
+PublishPort=42617:42617
+
+[Service]
+TimeoutStartSec=900
+Restart=always
+RestartSec=15
+# Bias the always-on agent toward the efficiency (Cortex-A520) cores. On Sky1
+# (8x A720 big + 4x A520 little) a low CPU weight + positive nice let EAS park
+# zeroclaw on the little cluster when idle and yield big-core time to LLM
+# prefill/decode + NPU orchestration, while still allowing it to burst under
+# load. Soft bias (not a hard AllowedCPUs pin) so nothing is starved.
+CPUWeight=20
+Nice=10
+
+[Install]
+WantedBy=multi-user.target default.target

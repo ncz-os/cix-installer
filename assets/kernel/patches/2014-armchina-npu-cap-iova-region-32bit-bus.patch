@@ -1,0 +1,30 @@
+From: NCZ cixmini maintainers <cix@ncz-os>
+Subject: [PATCH] armchina-npu: cap IOVA region count to fit 32-bit NPU bus
+
+Zhouyi V3 NPU on Sky1 has a 32-bit address bus (bus_dma_limit forced to
+0xc0000000 by the MS-R1 SMMU fix, patch 2009). aipu_mm_add_iova_region()
+requests up to 6x1GB IOVA regions on >16GB RAM hosts, but only ~2GB of
+usable IOVA fits in the capped aperture, so region idx2 fails
+(dma_alloc_attrs idx 2) and spams the boot log. Cap region count to 2 for
+all large-memory tiers; 32-bit bus is the hard ceiling regardless of RAM.
+
+Signed-off-by: NCZ cixmini maintainers <cix@ncz-os>
+---
+ drivers/misc/armchina-npu/aipu_mm.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/drivers/misc/armchina-npu/aipu_mm.c
++++ b/drivers/misc/armchina-npu/aipu_mm.c
+@@ -921,10 +921,10 @@
+ 		return -EINVAL;
+ 
+ 	if (mem_tot > 0x400000000) { //6GB for 32GB
+-		iova_region = 6;
++		iova_region = 2; /* MS-R1: 32-bit bus caps usable IOVA at ~2GB; avoid idx2 alloc fail */
+ 		iova_region_size = 0x40000000;
+ 	} else if (mem_tot > 0x200000000) { //4GB for 16GB
+-		iova_region = 4;
++		iova_region = 2; /* MS-R1: 32-bit bus caps usable IOVA at ~2GB */
+ 		iova_region_size = 0x40000000;
+ 	} else if (mem_tot > 0x100000000) { //1GB for 8GB
+ 		iova_region = 1;

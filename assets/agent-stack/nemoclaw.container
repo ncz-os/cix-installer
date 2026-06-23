@@ -1,0 +1,23 @@
+[Unit]
+Description=NemoClaw — NVIDIA agent runtime (OpenShell sandbox)
+Documentation=https://github.com/NVIDIA/NemoClaw
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=ghcr.io/nvidia/nemoclaw/sandbox-base:latest
+# Pulled on demand by `ncz install nemoclaw`; intentionally not part of
+# nclawzero-load-agent-images.service or ISO OCI tarball bundling.
+ContainerName=nemoclaw
+Pull=never
+EnvironmentFile=/etc/nclawzero/agent-env
+Volume=nemoclaw-data:/data:Z
+PublishPort=4000:4000
+
+[Service]
+TimeoutStartSec=900
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target default.target
