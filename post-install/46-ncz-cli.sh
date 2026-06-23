@@ -4,13 +4,14 @@
 # r75 P5/P7 (#115/#99): foundational `ncz` command with subcommands:
 #   * desktop {on,off,status}      — graphical/multi-user toggle (P5)
 #   * models pull                  — fetch cixtech/ai_model_hub_25_Q3 LFS
-#   * install mnemos               — wire MNEMOS server with NPU embedder
+#   * install mnemos               — pull + start MNEMOS memory server (:5002)
 #   * install nemoclaw             — pull + start NVIDIA NemoClaw runtime
 #   * version, help
 #
-# `models pull` and `install mnemos` are STUBS in r75 — they print clear
-# "not yet implemented; see task #99/#98" messages and exit 2. NemoClaw is
-# implemented because the runtime image is pulled on demand from GHCR.
+# `models pull` remains a STUB (see task #99). `install mnemos` is now
+# implemented: it pulls ghcr.io/ncz-os/mnemos (overridable via MNEMOS_IMAGE)
+# and starts it as a quadlet service with a persistent sqlite volume. Like
+# NemoClaw, the image is pulled on demand (not bundled in the ISO).
 #
 # Also stages the canonical npu_embed_v2.py wrapper (Python ctypes around
 # libnoe.so) to /opt/cix/npu_embed_v2.py so users can invoke it directly
@@ -40,7 +41,7 @@ install -D -m 0755 /dev/stdin /usr/local/bin/ncz <<'NCZ'
 # Subcommands:
 #   desktop {on|off|status}  — graphical/multi-user toggle
 #   models pull              — fetch cixtech/ai_model_hub_25_Q3 LFS to /opt/ncz/models
-#   install mnemos           — wire MNEMOS + NPU embedder backend (stub r75)
+#   install mnemos           — pull + start MNEMOS memory server (:5002, sqlite)
 #   install nemoclaw         — pull + start NVIDIA NemoClaw runtime
 #   version, help
 set -euo pipefail
@@ -52,6 +53,9 @@ readonly NCZ_AGENT_HELPER="/usr/local/lib/ncz-agent-cli"
 readonly NCZ_QUADLET_TEMPLATES="/usr/share/ncz/quadlets"
 readonly NCZ_QUADLET_ACTIVE="/etc/containers/systemd"
 readonly NEMOCLAW_IMAGE="ghcr.io/nvidia/nemoclaw/sandbox-base:latest"
+# MNEMOS server image. Overridable (e.g. pin a tag) via the MNEMOS_IMAGE env.
+# Multi-arch (linux/arm64 present) — runs on Cix Sky1.
+readonly MNEMOS_IMAGE="${MNEMOS_IMAGE:-ghcr.io/ncz-os/mnemos:latest}"
 
 ncz_help() {
     cat <<HELP
@@ -67,8 +71,8 @@ Subcommands:
   desktop status        Show current default target + display-manager state.
   models pull           Fetch cixtech/ai_model_hub_25_Q3 LFS to $NCZ_MODELS_DIR
                         (STUB in r75 — see task #99).
-  install mnemos        Wire MNEMOS server + Cix NPU embedder backend
-                        (STUB in r75 — see task #98).
+  install mnemos        Pull + start the MNEMOS memory server (REST + MCP +
+                        OpenAI-compatible gateway on :5002, sqlite-backed).
   install nemoclaw      Pull + start NVIDIA NemoClaw OpenShell sandbox runtime.
   agent ...             Manage zeroclaw/openclaw/hermes/portainer agents.
   status                Print system summary: ncz version, BUILD_VARIANT,
@@ -244,6 +248,61 @@ ncz_install_nemoclaw() {
     echo "[ncz] Service: systemctl status nemoclaw.service"
 }
 
+ncz_install_mnemos() {
+    if ! [ "$(id -u)" = "0" ]; then
+        echo "ncz install mnemos: requires root (use sudo)" >&2
+        exit 1
+    fi
+    if ! command -v podman >/dev/null 2>&1; then
+        echo "ncz install mnemos: podman is not installed" >&2
+        exit 1
+    fi
+    if ! command -v systemctl >/dev/null 2>&1; then
+        echo "ncz install mnemos: systemctl is not available" >&2
+        exit 1
+    fi
+
+    local template="$NCZ_QUADLET_TEMPLATES/mnemos.container"
+    local active="$NCZ_QUADLET_ACTIVE/mnemos.container"
+    if [ ! -f "$template" ]; then
+        echo "ncz install mnemos: missing quadlet template: $template" >&2
+        exit 1
+    fi
+
+    echo "[ncz] installing MNEMOS"
+    echo "[ncz] pulling $MNEMOS_IMAGE (multi-arch; arm64; network required)"
+    if ! podman pull "$MNEMOS_IMAGE"; then
+        echo "ncz install mnemos: podman pull failed" >&2
+        exit 1
+    fi
+
+    mkdir -p "$NCZ_QUADLET_ACTIVE"
+    podman volume exists mnemos-data 2>/dev/null || podman volume create mnemos-data >/dev/null
+
+    if [ -f "$active" ]; then
+        echo "[ncz] active quadlet already exists; preserving $active"
+    else
+        install -m 0644 "$template" "$active"
+        # Keep the running image in sync with what we just pulled (honours a
+        # MNEMOS_IMAGE override so the quadlet never points at a stale tag).
+        sed -i "s|^Image=.*|Image=$MNEMOS_IMAGE|" "$active"
+        echo "[ncz] staged $active (Image=$MNEMOS_IMAGE)"
+    fi
+
+    systemctl daemon-reload
+    systemctl start mnemos.service
+
+    echo "[ncz] MNEMOS started."
+    echo "[ncz]   endpoint: http://<host>:5002  (REST /v1/*, MCP, OpenAI-compatible gateway)"
+    echo "[ncz]   health:   curl -fsS http://127.0.0.1:5002/health"
+    echo "[ncz]   data:     volume mnemos-data (sqlite at /data/mnemos.db, persistent)"
+    echo "[ncz]   embedder: in-process CPU (nomic-embed-text-v1.5, 768-dim)"
+    echo "[ncz]   service:  systemctl status mnemos.service"
+    echo "[ncz] NOTE: Cix NPU embedding offload is not enabled by this command —"
+    echo "[ncz]       the stock image has no libnoe/transformers/.cix. It needs a"
+    echo "[ncz]       purpose-built image (those baked in) + /dev/aipu passthrough."
+}
+
 ncz_install() {
     local component="${1:-help}"
     case "$component" in
@@ -252,36 +311,13 @@ ncz_install() {
 Usage: ncz install <component>
 
 Components:
-  mnemos     Wire MNEMOS server + Cix NPU embedder backend (STUB in r75)
+  mnemos     Pull + start the MNEMOS memory server (REST + MCP + OpenAI-compatible
+             gateway on :5002, sqlite-backed, in-process CPU embedder)
   nemoclaw   Pull + start NVIDIA NemoClaw OpenShell sandbox runtime
 MSG
             ;;
         mnemos)
-            cat >&2 <<MSG
-ncz install mnemos — STUB (r75)
-
-Will:
-  1. Pull bge-small-zh_256.cix via 'ncz models pull' if not present
-  2. Verify libnoe.so + cix-noe-umd userspace
-  3. Start the NPU embedder server (FastAPI) on :5040 with content-hash cache
-  4. Pull MNEMOS server container (mnemos-os/mnemos image)
-  5. Configure MNEMOS to use the local NPU embedder (INFERENCE_EMBED_HOST)
-
-Body deferred to r76 (depends on 'models pull' body). See task #98.
-
-For now, on a system with libnoe.so + .cix model in place, the wrapper
-at /opt/cix/npu_embed_v2.py can be imported directly:
-
-    python3 -c "
-    import sys; sys.path.insert(0, '/opt/cix')
-    from npu_embed_v2 import NPUEmbedder
-    e = NPUEmbedder('/opt/ncz/models/.../bge-small-zh_256.cix',
-                    '/usr/share/cix/lib/libnoe.so')
-    v = e.embed('hello cix')
-    print(v.shape, v[:5])
-    "
-MSG
-            exit 2
+            ncz_install_mnemos
             ;;
         nemoclaw)
             ncz_install_nemoclaw
@@ -311,8 +347,19 @@ ncz_status() {
     printf '%-26s %s\n' 'kernel:' "$kver"
     printf '%-26s %s\n' 'BUILD_VARIANT:' "$variant"
     printf '%-26s %s\n' 'default-target:' "$target"
-    printf '%-26s %s\n' 'NPU /dev/aipu0:' "$([ -e /dev/aipu0 ] && echo present || echo absent)"
-    printf '%-26s %s\n' 'NPU /dev/cix-noe0:' "$([ -e /dev/cix-noe0 ] && echo present || echo absent)"
+    # NPU device node. The armchina/Zhouyi driver exposes /dev/aipu (no
+    # numeric suffix) on the cix-sky1 kernels; older names are checked too.
+    local npu_node=""
+    for n in /dev/aipu /dev/aipu0 /dev/cix-noe0; do
+        [ -e "$n" ] && { npu_node="$n"; break; }
+    done
+    if [ -n "$npu_node" ]; then
+        local npu_drv="absent"
+        [ -e /sys/bus/platform/drivers/armchina ] && npu_drv="armchina bound"
+        printf '%-26s %s\n' 'NPU:' "present ($npu_node, $npu_drv)"
+    else
+        printf '%-26s %s\n' 'NPU:' "absent"
+    fi
     if [ -e /dev/dri/renderD128 ]; then
         printf '%-26s %s\n' 'GPU /dev/dri/renderD128:' "present"
         if command -v vulkaninfo >/dev/null 2>&1; then
