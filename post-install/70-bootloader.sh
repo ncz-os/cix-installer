@@ -456,6 +456,52 @@ EOF
     echo "    rescue options: $RESCUE_OPTIONS"
 fi
 
+# ----------------------------------------------------------------------
+# Entry 4 (r130) — cixmini-rescuepart.conf: the DEDICATED on-disk RESCUE
+# PARTITION (edge kernel + full Ubuntu arm64 toolset + AGENTS.md), booted
+# via its OWN root=PARTUUID. This is distinct from cixmini-rescue.conf
+# (which is rescue.target on the SHARED production root): if the main root
+# is unbootable/corrupt, this entry boots an entirely separate rootfs.
+#
+# WHY HERE AND NOT IN 72-rescue-partition.sh: run-all.sh runs this
+# bootloader hook in its EXIT trap, AFTER every numbered hook (incl. 72),
+# and the wipe above clears loader/entries/*.conf + vmlinuz-* on every
+# run. An entry written by 72 would be erased here. So 72 only populates
+# the partition + leaves the RESCUE_READY marker; we write the ESP copy +
+# loader entry now, last, so it survives. Never the default.
+# ----------------------------------------------------------------------
+RESCUE_READY="$INSTALLER_META/RESCUE_READY"
+if [ -f "$RESCUE_READY" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
+    RP_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
+    if [ -n "$RP_PARTUUID" ] && [ -s "/boot/efi/vmlinuz-$KVER_NEXT" ]; then
+        install -m 0644 "/boot/efi/vmlinuz-$KVER_NEXT" /boot/efi/vmlinuz-rescuepart-edge
+        echo "  staged /boot/efi/vmlinuz-rescuepart-edge (edge $KVER_NEXT)"
+        RP_HAS_INITRD=0
+        if [ -s "/boot/efi/initrd.img-$KVER_NEXT" ]; then
+            install -m 0644 "/boot/efi/initrd.img-$KVER_NEXT" /boot/efi/initrd.img-rescuepart-edge
+            RP_HAS_INITRD=1
+            echo "  staged /boot/efi/initrd.img-rescuepart-edge"
+        fi
+        # Edge cmdline base (no efi=noruntime), pointed at the rescue rootfs.
+        RP_OPTIONS="root=PARTUUID=$RP_PARTUUID rootwait rootfstype=ext4 rw $NEXT_CMDLINE_BASE"
+        cat > /boot/efi/loader/entries/cixmini-rescuepart.conf <<EOF
+title   NCZ RESCUE ENVIRONMENT — edge $KVER_NEXT, full toolset (telnet/dropbear/ssh) — $BUILD_VERSION
+sort-key 4-rescuepart
+version $KVER_NEXT-rescuepart
+linux   /vmlinuz-rescuepart-edge
+options $RP_OPTIONS
+EOF
+        if [ "$RP_HAS_INITRD" = "1" ]; then
+            sed -i "/^linux /a initrd  /initrd.img-rescuepart-edge" /boot/efi/loader/entries/cixmini-rescuepart.conf
+        fi
+        echo "  wrote cixmini-rescuepart.conf (sort-key 4-rescuepart, edge kernel, root=PARTUUID=$RP_PARTUUID)"
+    else
+        echo "  rescue-partition marker present but edge kernel/initrd not on ESP — skipping rescuepart entry"
+    fi
+else
+    echo "  no rescue-partition marker ($RESCUE_READY) — skipping rescuepart entry (72 did not populate it)"
+fi
+
 # 26.6-take1: prefer LTS 6.18 as default (stable, all working drivers).
 # 7.1 NEXT is shipped as an explicit [BETA] choice only — its SCMI
 # transport still times out on MS-R1 firmware, so making it the default

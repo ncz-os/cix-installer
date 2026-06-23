@@ -68,6 +68,12 @@ for deb in ./*.deb; do
     case "$deb" in
         linux-image-*-cix-build-generic_*.deb|linux-headers-*-cix-build-generic_*.deb) continue ;;
         cix-npu-driver_*.deb|cix-gpu-driver_*.deb|cix-vpu-driver_*.deb|cix-isp-driver_*.deb|cix-wlan_*.deb|cix-csi-driver_*.deb|cix-noe-kmd_*.deb) continue ;;
+        # KEEP cix-noe-umd 2.0.2: the only UMD validated against our in-tree
+        # armchina_npu (v0-compat) KMD. It lays down libnoe.so.0.6.0 +
+        # /usr/share/cix/pypi/{libnoe,NOE_Engine}-2.0.0 wheels (cp311/cp312),
+        # which 46-python311.sh + 47-embedkit.sh wire into the NPU venv.
+        # UMD 1.1.1 (libnoe 0.5.0) and 3.1.2 fail job-submit on this KMD.
+        cix-noe-umd_2.0.2_*.deb) ;;
         cix-npu-umd_*.deb|cix-noe-umd_*.deb|cix-npu-onnxruntime_*.deb) continue ;;
     esac
     DEBS+=("$deb")
