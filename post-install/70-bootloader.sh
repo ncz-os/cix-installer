@@ -440,6 +440,29 @@ else
     echo "  note: rEFInd banner asset absent ($BANNER_SRC) — using default rEFInd art"
 fi
 
+# r128: NCZ tile icon for each menu entry (replaces rEFInd's generic Linux
+# glyph). Installed next to refind.conf so a bare `icon ncz.png` resolves.
+ICON_SRC="$INSTALLER_META/assets/refind/ncz.png"
+REFIND_ICON=""
+if [ -s "$ICON_SRC" ]; then
+    install -m 0644 "$ICON_SRC" /boot/efi/EFI/BOOT/ncz.png
+    REFIND_ICON="ncz.png"
+    echo "  rEFInd entry icon installed → /boot/efi/EFI/BOOT/ncz.png"
+fi
+
+# r128: rEFInd's standard icons/ directory MUST exist next to refind.conf, or
+# rEFInd silently falls back to TEXT-ONLY mode (no banner, no graphical menu) —
+# this is documented rEFInd behaviour and was why the NCZ-OS 26.6 banner did
+# not paint on Sky1. Installing it enables the graphical boot menu.
+ICONS_SRC="$INSTALLER_META/assets/refind/icons"
+if [ -d "$ICONS_SRC" ]; then
+    rm -rf /boot/efi/EFI/BOOT/icons
+    cp -a "$ICONS_SRC" /boot/efi/EFI/BOOT/icons
+    echo "  rEFInd icons/ installed → /boot/efi/EFI/BOOT/icons ($(ls /boot/efi/EFI/BOOT/icons 2>/dev/null | wc -l | tr -d ' ') files)"
+else
+    echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
+fi
+
 # default_selection matches a substring of the menu-entry title. edge is the
 # default when staged, else stable. rescue is always manual-only.
 if [ "$NEXT_AVAILABLE" = "1" ]; then
@@ -458,7 +481,14 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     echo "timeout 10"
     echo "log_level 0"
     echo "use_nvram false"
+    # r128: force a graphical GOP mode. Without this the Sky1 firmware can leave
+    # rEFInd rendering text-only; `resolution max` selects the largest reported
+    # GOP mode and locks in graphics so the NCZ-OS 26.6 banner + icons paint.
+    echo "resolution max"
     [ -n "$REFIND_BANNER" ] && echo "banner $REFIND_BANNER"
+    # fillscreen makes the NCZ-OS 26.6 art the full menu background (not a
+    # small top strip), so the whole rEFInd main menu is branded.
+    [ -n "$REFIND_BANNER" ] && echo "banner_scale fillscreen"
     echo "showtools shell,reboot,shutdown,firmware"
     echo "scanfor manual"
     echo "scan_all_linux_kernels false"
@@ -467,6 +497,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     if [ "$LTS_AVAILABLE" = "1" ]; then
         echo "menuentry \"NCZ-OS 26.6  ·  stable — kernel $KVER_LTS (LTS 6.18)\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
         echo "    options \"$LTS_OPTIONS\""
         echo "}"
@@ -475,6 +506,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     if [ "$NEXT_AVAILABLE" = "1" ]; then
         echo "menuentry \"NCZ-OS 26.6  ·  edge — kernel $KVER_NEXT (NEXT 7.0.x) [DEFAULT/BETA]\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$NEXT_OPTIONS\""
         echo "}"
@@ -483,6 +515,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     if [ -n "$RESCUE_PIN" ]; then
         echo "menuentry \"NCZ-OS 26.6  ·  rescue — $RESCUE_PIN (safe: no NPU/GPU/VPU/KMS)\" {"
         echo "    loader  /vmlinuz-$RESCUE_PIN"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$RESCUE_HAS_INITRD" = "1" ] && echo "    initrd  /initrd.img-$RESCUE_PIN"
         echo "    options \"$RESCUE_OPTIONS\""
         echo "}"
