@@ -1610,6 +1610,19 @@ if [ -d "$ROOT/assets/firmware/rtl_nic" ]; then
     echo "    rtl_nic firmware (target): $(ls "$EXTRA/assets/firmware/rtl_nic" 2>/dev/null | wc -l | tr -d ' ') blobs"
 fi
 
+# r127: upstream signed wireless-regdb for the INSTALLED system. The stale
+# /lib/firmware/regulatory.db that shipped before was rejected by cfg80211
+# ("malformed or signature invalid"), pinning Wi-Fi to the restrictive world
+# domain (country 00). 12-sky1-firmware.sh installs these → /lib/firmware so
+# the regulatory DB validates and the correct domain (e.g. US/DFS-FCC) applies.
+if [ -d "$ROOT/assets/firmware/regdb" ]; then
+    mkdir -p "$EXTRA/assets/firmware/regdb"
+    cp -L "$ROOT/assets/firmware/regdb/regulatory.db" \
+          "$ROOT/assets/firmware/regdb/regulatory.db.p7s" \
+          "$EXTRA/assets/firmware/regdb/" 2>/dev/null || true
+    echo "    wireless-regdb (target): $(ls "$EXTRA/assets/firmware/regdb" 2>/dev/null | wc -l | tr -d ' ') files"
+fi
+
 # NPU py3.11 uv venv toolchain (staged by the generic assets loop above):
 # relocatable CPython 3.11 + uv. 46-python311.sh consumes it offline-first.
 if [ -d "$EXTRA/assets/python311" ]; then
@@ -1639,6 +1652,12 @@ if [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ]; then
     mkdir -p "$EXTRA/assets/refind"
     cp -L "$ROOT/build/refind-bin/refind_aa64.efi" "$EXTRA/assets/refind/"
     echo "    refind: refind_aa64.efi staged ($(du -h "$EXTRA/assets/refind/refind_aa64.efi" | cut -f1))"
+    # r127: rEFInd startup banner ("NCZ-OS 26.6"). Optional — 70-bootloader.sh
+    # references it via `banner` only when present; rEFInd ignores a missing one.
+    if [ -f "$ROOT/build/refind-bin/ncz-banner.png" ]; then
+        cp -L "$ROOT/build/refind-bin/ncz-banner.png" "$EXTRA/assets/refind/"
+        echo "    refind: ncz-banner.png staged ($(du -h "$EXTRA/assets/refind/ncz-banner.png" | cut -f1))"
+    fi
 else
     echo "    refind: build/refind-bin/refind_aa64.efi MISSING — 70-bootloader will FAIL (no installed bootloader)" >&2
 fi
