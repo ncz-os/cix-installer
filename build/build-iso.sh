@@ -357,6 +357,12 @@ if [ -d "$ROOT/assets/sky1-firmware" ] && [ "$(ls -A $ROOT/assets/sky1-firmware 
     echo "    sky1-firmware: $(du -sh $EXTRA/assets/sky1-firmware | cut -f1)"
 fi
 
+# Mesa 26.1.3 GPU compute stack (panvk + rusticl) — consumed by 16-mesa-gpu-2613.sh
+if [ -d "$ROOT/assets/gpu" ] && [ "$(ls -A $ROOT/assets/gpu 2>/dev/null)" ]; then
+    cp -rL "$ROOT/assets/gpu" "$EXTRA/assets/"
+    echo "    gpu (mesa 26.1.3): $(du -sh $EXTRA/assets/gpu | cut -f1)"
+fi
+
 # ----------------------------------------------------------------------
 # Step 5 — build a fresh 600MB FAT16 ESP with rEFInd + kernels embedded
 # ----------------------------------------------------------------------

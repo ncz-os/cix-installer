@@ -36,6 +36,11 @@ assets/npu/
 !assets/npu/npu_embed_v2.py
 assets/rootfs/
 
+# NPU py3.11 uv venv toolchain: relocatable CPython 3.11 (python-build-
+# standalone, install_only) + uv static binary. Supplied at build time;
+# 46-python311.sh consumes these offline-first. See docs/INFERENCE_LIMITS.md.
+assets/python311/
+
 # Autoinstall scaffolding (work-in-progress, not r74-shippable)
 autoinstall/
 

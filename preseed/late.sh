@@ -241,6 +241,30 @@ if [ "${CDROM_BIND_MOUNTED:-0}" = "1" ]; then
 fi
 echo "in-target run-all.sh exited: $RET"
 
+# r130 fix (MrSBC/COS feedback 2026-06-23): strip ALL CD-ROM apt sources from
+# /target before reboot. The offline mirror sources are required DURING
+# post-install (file:///cdrom for our pool; d-i apt-setup may also add a
+# `deb cdrom:[...]` line), but once the install media is ejected they make the
+# installed system's `apt-get update` fail. Remove them as the last apt action.
+echo "--- stripping CD-ROM apt sources from /target before reboot ---"
+rm -f /target/etc/apt/sources.list.d/cixmini-cdrom.list
+rm -f /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref
+if [ -f /target/etc/apt/sources.list ]; then
+    # drop any `deb`/`deb-src` line referencing cdrom: or file:///cdrom
+    sed -i -E '/^[[:space:]]*deb(-src)?[[:space:]].*(cdrom:|file:\/\/\/cdrom)/Id' \
+        /target/etc/apt/sources.list
+fi
+for f in /target/etc/apt/sources.list.d/*.list; do
+    [ -e "$f" ] || continue
+    sed -i -E '/(cdrom:|file:\/\/\/cdrom)/Id' "$f"
+    # remove the file entirely if stripping left it empty (no active deb lines)
+    grep -qE '^[[:space:]]*deb' "$f" 2>/dev/null || rm -f "$f"
+done
+echo "    remaining apt sources after cdrom strip:"
+grep -rhsE '^[[:space:]]*deb' \
+    /target/etc/apt/sources.list /target/etc/apt/sources.list.d/ 2>/dev/null \
+    | sed 's/^/      /' || echo "      (none)"
+
 # Eject the install media on success. We turned cdrom-detect/eject off
 # in preseed.cfg so /cdrom would survive into late.sh — now that we're
 # done with it, eject it manually. Without this, a real hardware reboot

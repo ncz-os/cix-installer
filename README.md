@@ -1,23 +1,37 @@
 # cix-installer
 
+**English** · [中文](README.zh-CN.md)
+
 **Customized debian-installer ISO builder for the NCZ Linux
 distribution.**
 
 > ### 📥 Download the ISO
-> **Release ISOs live on GitLab:**
-> **https://gitlab.com/ncz-os/cix-installer/-/releases**
+> **Latest release (always current):**
+> **https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest**
 >
-> GitHub hosts the source mirror only — there are no release artifacts here.
-> If a link sent you to GitHub Releases, use the GitLab releases page above.
+> That permalink is idempotent — it always 302-redirects to the newest
+> release, so it never goes stale. All releases:
+> https://gitlab.com/ncz-os/cix-installer/-/releases
+>
+> GitHub hosts the source mirror only — there are **no** release artifacts
+> there (`/releases` 404s). Always download from the GitLab links above.
 
-Produces a fully-unattended UEFI-bootable installer ISO that
-partitions the target disk, debootstraps Ubuntu 25.10 questing,
-layers a hardware-appropriate kernel + vendor userspace runtimes +
-desktop environment + Claude Code + the NCZ agent stack (`zeroclaw`
-default-active; `openclaw`, `hermes`, `portainer`, and `nemoclaw`
-opt-in), and brands the system as NCZ
-(Reinhardt for desktop, Magnetar for server / always-on agent
-appliance).
+Produces a fully-unattended UEFI-bootable **netinstall** ISO (~380 MB)
+that partitions the target disk, debootstraps Ubuntu 26.04 "resolute"
+arm64 over the network, layers a hardware-appropriate kernel + vendor
+userspace runtimes + desktop environment + Claude Code + the NCZ agent
+stack (`zeroclaw` default-active; `openclaw`, `hermes`, `portainer`,
+and `nemoclaw` opt-in), and brands the system as NCZ. A single ISO
+offers both flavours at the boot menu:
+
+- **Reinhardt** — Desktop (XFCE)
+- **Magnetar** — Server / always-on agent appliance (headless)
+
+The shipping kernel is `linux-cix-sky1-next` **7.0.12** (the "edge"
+line, cross-built with the Yocto/`nclawzero` toolchain). Realtek NICs —
+including the Radxa Orion O6's RTL8125/8126 — work out of the box: the
+`rtl_nic` firmware ships in both the installer and the installed
+system.
 
 ## Vendor-neutral by design
 
@@ -85,58 +99,73 @@ make
 │                  nclawzero-installer-cixmini.iso               │
 │                                                                │
 │  ┌─────────────────────────┐    ┌───────────────────────────┐  │
-│  │  Debian d-i base ISO    │    │  Custom assets layer      │  │
-│  │  (debian-12-netinst-    │    │  - preseed.cfg            │  │
-│  │   arm64.iso)            │    │  - post-install/*.sh      │  │
-│  │  - UEFI bootloader      │    │  - assets/cix-debs/*.deb  │  │
-│  │  - kernel + initrd      │    │  - assets/kernel/*        │  │
+│  │  Debian d-i substrate   │    │  Custom assets layer      │  │
+│  │  (debian-13 trixie      │    │  - preseed.cfg            │  │
+│  │   netinst arm64;        │    │  - post-install/*.sh      │  │
+│  │   bookworm fallback)    │    │  - assets/kernel/edge/*   │  │
+│  │  - UEFI / systemd-boot  │    │  - assets/firmware/*      │  │
+│  │  - our kernel + initrd  │    │  - assets/sky1-firmware/* │  │
 │  │  - debootstrap          │    │  - assets/agent-stack/*   │  │
 │  │  - partman              │    │  - assets/branding/*      │  │
-│  │  - tasksel              │    │  (extracted to /target    │  │
-│  │  - apt                  │    │   during late_command)    │  │
+│  │  - apt (ports.ubuntu)   │    │  (extracted to /target    │  │
+│  │                         │    │   during late_command)    │  │
 │  └─────────────────────────┘    └───────────────────────────┘  │
 └────────────────────────────────────────────────────────────────┘
 ```
 
-The ISO ships its own copy of:
-- 37 Cix proprietary `.debs` (~1.9 GB) — closed-source userspace
-- `linux-cix-msr1` kernel binary + modules tarball (~640 MB)
+As a netinstall, the base system is debootstrapped from
+`ports.ubuntu.com` at install time (hence the wired-Ethernet
+requirement). The ISO itself ships only what can't be fetched from a
+canonical mirror:
+- `linux-cix-sky1-next` 7.0.12 kernel `Image` + modules tarball
+  (`assets/kernel/edge/`)
+- `rtl_nic` (Realtek NIC) + Sky1 SoC firmware (`assets/firmware/`,
+  `assets/sky1-firmware/`)
 - Quadlet definitions for zeroclaw plus optional OpenClaw, Hermes, and
   NemoClaw templates
-- Plymouth theme (custom nclawzero splash)
+- mnemos-embedkit + branding (Plymouth theme, os-release, motd)
 
-So the install is offline-capable for the Cix layers and ships only the
-default zeroclaw activation path; optional agent runtimes are pulled by
-the operator after install.
+The Cix proprietary userspace (`cix-noe-umd`, `libnoe`) is pulled from
+`archive.cixtech.com` after the base bootstrap. Only the default
+zeroclaw activation path is enabled; optional agent runtimes are pulled
+by the operator after install.
 
 ## Inputs
 
 | Path | Source | Notes |
 |---|---|---|
-| `assets/cix-debs/` | `dpkg-repack` of stock Cix Debian (gitignored) | 37 closed-source `.debs` |
-| `assets/kernel/Image-cixmini.bin` + `modules-cixmini.tgz` | Yocto build of `meta-cix:linux-cix-msr1` (gitignored) | Our kernel artifacts |
-| `assets/agent-stack/*` | `meta-cix/recipes-nclawzero/agent-stack/files/` | systemd quadlets (committed) |
+| `assets/kernel/edge/Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER` | Yocto/`nclawzero` build of `linux-cix-sky1-next` (gitignored) | 7.0.12 edge kernel artifacts |
+| `assets/firmware/rtl_nic/*.fw` | upstream linux-firmware (committed) | Realtek NIC firmware (Orion O6) |
+| `assets/sky1-firmware/*` | `Sky1-Linux/sky1-firmware` | GPU / DSP / VPU / Wi-Fi SoC blobs |
+| `assets/agent-stack/*` | This repo | systemd quadlets (committed) |
 | `assets/branding/*` | This repo | os-release, motd, Plymouth theme |
 | `preseed/preseed.cfg` | This repo | d-i unattended preseed |
 | `post-install/*.sh` | This repo | numbered hooks run in chroot at install end |
 
 ## Stages (post-install hooks)
 
-`/target/usr/local/lib/cix-installer/` runs these in order via `preseed/late_command`:
+`late.sh` copies the payload to `/target/usr/local/lib/cix-installer/`
+and `run-all.sh` runs the numbered hooks in chroot in phases — Phase 1
+(required) must succeed; Phase 2 (optional) hooks log failures but never
+abort; the bootloader + diagnostics always run via an EXIT trap. Key
+hooks:
 
-1. `00-cix-proprietary.sh` — `dpkg -i` 37 Cix `.deb` files
-2. `10-our-kernel.sh` — install `linux-cix-msr1` kernel binary + modules
-3. `20-desktop.sh` — apt install GNOME + chromium + gnome-remote-desktop
-4. `30-agents.sh` — install podman + zeroclaw default quadlet + optional agent templates
-5. `40-claude-code.sh` — `npm install -g @anthropic-ai/claude-code`
-6. `50-brand.sh` — `/etc/os-release`, motd, hostname
-7. `60-plymouth.sh` — Plymouth boot splash + nclawzero theme
+- `09-diag-account.sh` — create the rescue/diag login before anything else
+- `10-our-kernel.sh` *(required)* — install the `linux-cix-sky1-next` kernel + modules
+- `12-sky1-firmware.sh` *(required)* — install Sky1 SoC + `rtl_nic` firmware to `/lib/firmware`
+- `20-desktop.sh` / `48-magnetar-variant.sh` — XFCE desktop (Reinhardt) or headless server toggle (Magnetar)
+- `30-agents.sh` — podman + zeroclaw default quadlet + optional agent templates
+- `40-claude-code.sh` — `npm install -g @anthropic-ai/claude-code`
+- `47-embedkit.sh` — mnemos-embedkit venv + NPU adapter
+- `50-brand.sh` / `60-plymouth.sh` — os-release, motd, boot splash
+- `70-bootloader.sh` — systemd-boot entries (always runs via EXIT trap)
 
 ## Status
 
-**v0** — scaffolding + first-pass preseed + first-pass post-install. Iterating.
+**Shipping — v26.6** (Reinhardt / Magnetar netinstall). Actively
+iterating; see `NEXT-RELEASE.md` and `RELEASE-NOTES-*.md`.
 
 ## Sister projects
 
-- [`gitlab.com/nclawzero/cix-gen`](https://gitlab.com/nclawzero/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
-- [`gitlab.com/nclawzero/meta-cix`](https://gitlab.com/nclawzero/meta-cix) — Yocto layer for the BSP (kernel + Cix userspace recipes). Provides the `linux-cix-msr1` kernel artifacts consumed here.
+- [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
+- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto layer for the BSP (kernel + Cix userspace recipes). Provides the `linux-cix-sky1-next` kernel artifacts consumed here.
