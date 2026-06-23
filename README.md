@@ -384,11 +384,39 @@ pulling anything.
 
 ## Status
 
-**26.6 (r113)** — first full release with the Mesa 26.1.3 GPU compute stack
-(panvk + rusticl), validated NPU embeddings, and the A/B kernel program
-(6.18 LTS default + 7.0.x edge). Tested on Minisforum MS-R1 only — see
-**Hardware support & testing status** above. Both **Reinhardt** (desktop) and
-**Magnetar** (server) variants build from this tree.
+**26.6 (r126)** — current release. The open Mesa 26.1.3 stack is now the
+complete default GPU provider for **OpenGL/GLX, Vulkan, and OpenCL**, with the
+CIX proprietary stack kept on disk (`.disabled`) for a future opt-in switcher.
+Tested on Minisforum MS-R1 only — see **Hardware support & testing status**
+above. Both **Reinhardt** (desktop) and **Magnetar** (server) variants build
+from this tree.
+
+What changed since the r113 baseline:
+
+- **r126 — open Mesa is the full default; desktop + Vulkan fixed.**
+  `26-gpu-default-open.sh` now demotes *every* CIX GPU component out of the
+  loader paths. Previously the CIX `cix-libglvnd` `libGLX.so.0` ran a "CIX
+  driver check", failed (no `mali_kbase`; panthor owns the GPU), and called
+  `abort()` — taking down Xorg and crash-looping lightdm (boots looked like
+  "server" with no GUI). The CIX Vulkan ICD (`mali.json`) and WSI implicit
+  layer aborted `vkCreateInstance` for every app the same way. Demoting
+  cixgpu-compat (GL/GLX), `mali.json`, and the WSI layer — alongside the
+  existing cixgpu-pro (OpenCL) demote — makes Mesa the default everywhere:
+  desktop boots straight to the XFCE greeter, `panvk` Vulkan and `rusticl`
+  OpenCL both work with no env overrides.
+- **r125 — rusticl OpenCL works out of the box.** Bundled the missing
+  `libclang-cpp` + `libLLVMSPIRVLib` runtime libs (`$ORIGIN` RPATH) and the
+  `libclc` SPIR-V into the Mesa bundle, and demoted the CIX `libOpenCL.so.1`
+  that was shadowing `ocl-icd`. `clinfo` → `Mali-G720 MC10 (Panfrost)`,
+  OpenCL 3.0.
+- **r124 — agents are opt-in; NPU gating hardened.** All agents (including
+  `zeroclaw`) now install on demand via `ncz agent install` (desktop icon +
+  first-login notice) instead of auto-activating, removing the first-boot
+  crash-loop. NPU SSDT injection gating was tightened so it no longer misfires
+  on unidentified boards.
+- **r113 — first full release** with the Mesa 26.1.3 GPU compute stack
+  (panvk + rusticl), validated NPU embeddings, and the A/B kernel program
+  (6.18 LTS default + 7.0.x edge).
 
 ## Sister projects
 
