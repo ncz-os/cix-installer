@@ -52,6 +52,17 @@ mkdir -p /etc/OpenCL/vendors
 echo "$RUSTICL_LIB" > /etc/OpenCL/vendors/rusticl.icd
 echo "    OpenCL ICD: /etc/OpenCL/vendors/rusticl.icd → $RUSTICL_LIB"
 
+# --- OpenCL: libclc SPIR-V (rusticl compiles OpenCL C via spirv64-mesa3d) --
+# Self-contained bundle: it carries libclang-cpp + libLLVMSPIRVLib (resolved by
+# rusticl's $ORIGIN RPATH) plus the libclc spvs. rusticl looks for the spvs in
+# /usr/lib/clc, so stage them there from the bundle.
+if [ -f "$PREFIX/lib/clc/spirv64-mesa3d-.spv" ]; then
+    mkdir -p /usr/lib/clc
+    install -m644 "$PREFIX/lib/clc/spirv-mesa3d-.spv" \
+                  "$PREFIX/lib/clc/spirv64-mesa3d-.spv" /usr/lib/clc/ 2>/dev/null \
+        && echo "    libclc: spirv-mesa3d spvs -> /usr/lib/clc (rusticl OpenCL C frontend)"
+fi
+
 # --- System-wide activation via /etc/environment ---------------------------
 ENVF=/etc/environment
 touch "$ENVF"
