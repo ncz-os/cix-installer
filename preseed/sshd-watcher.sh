@@ -61,23 +61,28 @@ install_ncz_dns_hooks() {
 # 05ncz-dns — d-i hook: write /target/etc/resolv.conf with public-fallback
 # chain BEFORE base-installer or pkgsel runs apt-get inside the chroot.
 # Replaces any pre-existing symlink (systemd-resolved stub) with a real file.
+#
+# r130.2 sanitization: the INSTALLED system's resolv.conf must NOT bake in a
+# site-specific gateway IP or LAN search domain. Two public resolvers are
+# plenty for the chroot's apt during base-installer/pkgsel, and the booted
+# system hands DNS back to systemd-resolved anyway. (The installer's own
+# /etc/resolv.conf may still use the LAN router for speed — that lives in the
+# ephemeral installer ramdisk and is never part of the shipped image.)
 set +e
 LOG=/var/log/early_command.log
-router="$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}')"
-[ -n "$router" ] || router=192.168.207.1
 
 if [ -d /target/etc ]; then
     rc_tmp="/target/etc/.resolv.conf.ncz.$$"
     rm -f "$rc_tmp"
     cat > "$rc_tmp" <<EOF
-search nclawzero.lan
-nameserver $router
+# nclawzero install-time DNS (public-only; no site gateway baked in) —
+# replaced by systemd-resolved on first boot.
 nameserver 8.8.8.8
 nameserver 1.1.1.1
 options timeout:2 attempts:3
 EOF
     if grep -q '^options timeout:2 attempts:3$' "$rc_tmp" && mv -f "$rc_tmp" /target/etc/resolv.conf; then
-        echo "[ncz-dns] wrote /target/etc/resolv.conf router=$router at $(date -u +%FT%TZ)" >> "$LOG"
+        echo "[ncz-dns] wrote public-only /target/etc/resolv.conf at $(date -u +%FT%TZ)" >> "$LOG"
     else
         rm -f "$rc_tmp"
         echo "[ncz-dns] failed to publish /target/etc/resolv.conf at $(date -u +%FT%TZ)" >> "$LOG"
@@ -279,6 +284,12 @@ RESOLV_LAST_WROTE=""
 
 ensure_resolv_conf() {
     rc_path="$1"
+    # r130.2 sanitization: $2 = include_router. "1" (default) = installer
+    # ramdisk /etc/resolv.conf — keep the LAN router first for fast install-time
+    # DNS (ephemeral, never shipped). "0" = the INSTALLED system's
+    # /target/etc/resolv.conf — public resolvers ONLY, no site gateway IP and
+    # no LAN search domain baked into the image.
+    include_router="${2:-1}"
     [ -d "$(dirname "$rc_path")" ] || return 0
     # If rc_path is a symlink to a missing target dir, mkdir -p the
     # target dir so cat > $rc_path can follow + write.
@@ -294,8 +305,10 @@ ensure_resolv_conf() {
 
     rc_tmp="/tmp/.watcher-resolv.tmp.$$"
     {
-        echo "search nclawzero.lan"
-        echo "nameserver $ROUTER"
+        if [ "$include_router" = "1" ]; then
+            echo "search nclawzero.lan"
+            echo "nameserver $ROUTER"
+        fi
         echo "nameserver 8.8.8.8"
         echo "nameserver 1.1.1.1"
         echo "options timeout:2 attempts:3"
@@ -307,14 +320,16 @@ ensure_resolv_conf() {
         # a regular file, since systemd-resolved expects the symlink shape.
         cat "$rc_tmp" > "$rc_path" 2>/dev/null \
             && RESOLV_LAST_WROTE="$(date -u +%H:%M:%S)" \
-            && echo "[watcher] (re)wrote $rc_path with 3-NS chain (router=$ROUTER) at $RESOLV_LAST_WROTE"
+            && echo "[watcher] (re)wrote $rc_path (router=$([ "$include_router" = 1 ] && echo "$ROUTER" || echo none)) at $RESOLV_LAST_WROTE"
     fi
     rm -f "$rc_tmp"
 }
 
 sync_target_resolv() {
-    ensure_resolv_conf /etc/resolv.conf
-    [ -d /target/etc ] && ensure_resolv_conf /target/etc/resolv.conf
+    # installer ramdisk: keep LAN router for speed (ephemeral, not shipped)
+    ensure_resolv_conf /etc/resolv.conf 1
+    # installed system: public resolvers only (no site gateway / search domain)
+    [ -d /target/etc ] && ensure_resolv_conf /target/etc/resolv.conf 0
 }
 
 SSHD_PATCHED=0
