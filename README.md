@@ -69,7 +69,8 @@ implementation; the architecture is the reusable scaffold.
 | Board | SoC | Status |
 |---|---|---|
 | **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **The only hardware we have tested on.** Every bit of validation — UEFI boot, the installer, GPU (Mesa 26.1.3 panvk + rusticl), NPU (Zhouyi embeddings + vision), audio, and the A/B kernel program — was done on this box. |
-| **Radxa Orion O6 / O6N** | Cix Sky1 | ❌ **Untested — and we need testers badly.** Same SoC, but a *different board* (different device tree, PMIC, BIOS, peripherals). We do **not** own one. *Networking fix landed:* the O6's Realtek NIC (RTL8125/8126) now ships its `rtl_nic` firmware in both the installer and the installed system, resolving the earlier no-network regression — but the board as a whole is still unvalidated. **If you have an O6: please install, test, and file issues. And if anyone at Radxa is reading this — we need a board.** |
+| **Radxa Orion O6** | Cix Sky1 | ✅ **Verified working.** A *different board* from the MS-R1 (its own device tree, PMIC, BIOS, and peripherals), now confirmed to install and boot. The Realtek NIC (RTL8125/8126) works out of the box — the `rtl_nic` firmware ships in both the installer and the installed system, resolving the earlier no-network regression. |
+| **Radxa Orion O6N** | Cix Sky1 | ⚠️ **Untested, but expected to work.** Same Sky1 SoC and the same O6 board family (a minor variant); we just have not confirmed it on hardware yet. **If you have an O6N: please install, test, and file issues.** |
 | **Framework Cix add-in board / mainboard** | Cix Sky1 | ❌ **Untested.** On our radar; no hardware in hand. |
 | **Orange Pi (Cix variants)** | Cix Sky1 | ❌ **Untested.** No hardware in hand. |
 | Other Arm (RK3588/RK3576, MediaTek Genio, Snapdragon) and x86 (Intel, AMD) | — | 🗺️ Roadmap / adapter-level only — not built or tested yet. |
