@@ -283,19 +283,33 @@ echo "in-target run-all.sh exited: $RET"
 # `deb cdrom:[...]` line), but once the install media is ejected they make the
 # installed system's `apt-get update` fail. Remove them as the last apt action.
 echo "--- stripping CD-ROM apt sources from /target before reboot ---"
-rm -f /target/etc/apt/sources.list.d/cixmini-cdrom.list
-rm -f /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref
-if [ -f /target/etc/apt/sources.list ]; then
-    # drop any `deb`/`deb-src` line referencing cdrom: or file:///cdrom
-    sed -i -E '/^[[:space:]]*deb(-src)?[[:space:]].*(cdrom:|file:\/\/\/cdrom)/Id' \
-        /target/etc/apt/sources.list
-fi
-for f in /target/etc/apt/sources.list.d/*.list; do
-    [ -e "$f" ] || continue
-    sed -i -E '/(cdrom:|file:\/\/\/cdrom)/Id' "$f"
-    # remove the file entirely if stripping left it empty (no active deb lines)
-    grep -qE '^[[:space:]]*deb' "$f" 2>/dev/null || rm -f "$f"
-done
+# r130.2 fix (Codex analysis of .66 install red-error): this step runs in the
+# d-i runtime under BUSYBOX sed, NOT GNU sed. busybox sed has no `I`
+# case-insensitive address modifier (GNU-only); the old `/.../Id` aborted
+# late.sh with "sed: unsupported command I" AFTER an otherwise-successful
+# install (run-all.sh exited 0), throwing d-i's red error screen at the very
+# end. apt writes the URI scheme lowercase (`deb cdrom:` / `file:///cdrom`),
+# so case-insensitivity is unnecessary — drop the `I` flag and use POSIX BRE
+# (busybox supports the `\|` alternation extension; the cmdline parse above
+# already relies on it). Wrapped in a guarded function so this cosmetic
+# cleanup can NEVER red-screen a good install under `set -e`.
+strip_cdrom_sources() {
+    rm -f /target/etc/apt/sources.list.d/cixmini-cdrom.list
+    rm -f /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref
+    if [ -f /target/etc/apt/sources.list ]; then
+        sed -i \
+            -e '/^[[:space:]]*deb[[:space:]].*\(cdrom:\|file:\/\/\/cdrom\)/d' \
+            -e '/^[[:space:]]*deb-src[[:space:]].*\(cdrom:\|file:\/\/\/cdrom\)/d' \
+            /target/etc/apt/sources.list
+    fi
+    for f in /target/etc/apt/sources.list.d/*.list; do
+        [ -e "$f" ] || continue
+        sed -i '/\(cdrom:\|file:\/\/\/cdrom\)/d' "$f"
+        # remove the file entirely if stripping left it empty (no active deb lines)
+        grep -qE '^[[:space:]]*deb' "$f" 2>/dev/null || rm -f "$f"
+    done
+}
+strip_cdrom_sources || echo "WARN: cdrom source strip failed (non-fatal)"
 echo "    remaining apt sources after cdrom strip:"
 grep -rhsE '^[[:space:]]*deb' \
     /target/etc/apt/sources.list /target/etc/apt/sources.list.d/ 2>/dev/null \
