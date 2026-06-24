@@ -11,11 +11,21 @@ Produces a fully-unattended UEFI-bootable installer ISO that
 partitions the target disk, debootstraps a Debian 12 base and
 full-upgrades it to Ubuntu (resolute) on disk, then
 layers a hardware-appropriate kernel + vendor userspace runtimes +
-desktop environment + Claude Code + the NCZ agent stack (`zeroclaw`
-default-active; `openclaw`, `hermes`, `portainer`, and `nemoclaw`
-opt-in), and brands the system as NCZ
+desktop environment + Claude Code + the (opt-in) NCZ agent stack, and
+brands the system as NCZ
 (Reinhardt for desktop, Magnetar for server / always-on agent
 appliance).
+
+> **🤖 The AI agents are opt-in — the distro is *agent-enabled*, not
+> *agent-on*.** A fresh install is a complete, usable Linux desktop (drivers,
+> GPU, NPU, and audio all work) with **nothing agentic installed or running**.
+> The runtimes, quadlets, and on-device NPU memory stack are *staged and ready*,
+> but no agent and no memory service starts at boot or pulls from the network on
+> its own. You opt in by running **`ncz`** in a terminal: that is what installs
+> the AI agents (`zeroclaw`, and optionally `openclaw`, `hermes`, `portainer`,
+> and NVIDIA NemoClaw) and the **MNEMOS** memory system. Until you run it, the
+> system behaves like any normal Linux desktop. (Earlier ISOs activated
+> `zeroclaw` by default; current ISOs do not.)
 
 ## Vendor-neutral by design
 
@@ -41,10 +51,11 @@ x86 platform, when sample hardware is obtainable for validation.
   Python kit that auto-detects the highest-tier accelerator (NPU >
   GPU > CPU) at runtime. Same `Engine.auto()` call works on every
   silicon path.
-- **Agent runtimes**: side-by-side selectable. `zeroclaw` is active by
-  default; operators opt in to `openclaw`, `hermes`, and `portainer`
-  with `ncz agent install`, or to NVIDIA NemoClaw with
-  `ncz install nemoclaw`.
+- **Agent runtimes**: side-by-side selectable and **fully opt-in — none is
+  installed or active by default.** Run `ncz` (or `ncz agent install <name>`)
+  to install `zeroclaw`, `openclaw`, `hermes`, or `portainer`, `ncz install
+  nemoclaw` for NVIDIA NemoClaw, and `ncz install mnemos` for the MNEMOS memory
+  system. Nothing agentic auto-starts at boot or auto-pulls from the network.
 
 The current build path inside `build/build-iso-di.sh` is the Cix Sky1
 implementation; the architecture is the reusable scaffold.
@@ -121,12 +132,13 @@ The ISO ships its own copy of:
 - 37 Cix proprietary `.debs` (~1.9 GB) — closed-source userspace
 - `linux-cix-msr1` kernel binary + modules tarball (~640 MB)
 - Quadlet definitions for zeroclaw plus optional OpenClaw, Hermes, and
-  NemoClaw templates
+  NemoClaw templates (staged only — none active by default)
 - Plymouth theme (custom nclawzero splash)
 
-So the install is offline-capable for the Cix layers and ships only the
-default zeroclaw activation path; optional agent runtimes are pulled by
-the operator after install.
+So the install is offline-capable for the Cix layers and **stages** the agent
+quadlets + OCI images without activating any of them; every agent (including
+zeroclaw) and the MNEMOS memory system are installed on demand by the operator
+via `ncz` after install.
 
 ## On-device AI: NPU embeddings & inference
 
@@ -228,7 +240,7 @@ library is for, how to route a workload across the four compute engines
 1. `00-cix-proprietary.sh` — `dpkg -i` 37 Cix `.deb` files
 2. `10-our-kernel.sh` — install `linux-cix-msr1` kernel binary + modules
 3. `20-desktop.sh` — apt install GNOME + chromium + gnome-remote-desktop
-4. `30-agents.sh` — install podman + zeroclaw default quadlet + optional agent templates
+4. `30-agents.sh` — install podman + the `ncz` CLI + stage agent quadlet templates and OCI images (no agent activated; all opt-in via `ncz`)
 5. `40-claude-code.sh` — `npm install -g @anthropic-ai/claude-code`
 6. `50-brand.sh` — `/etc/os-release`, motd, hostname
 7. `60-plymouth.sh` — Plymouth boot splash + nclawzero theme
