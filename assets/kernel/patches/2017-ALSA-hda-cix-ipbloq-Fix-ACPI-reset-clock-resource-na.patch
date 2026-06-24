@@ -1,0 +1,60 @@
+From 9a90a0e5560282284af62a8850952d1870847da0 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jasonperlow@users.noreply.github.com>
+Date: Wed, 17 Jun 2026 22:58:12 -0400
+Subject: [PATCH] ALSA: hda: cix-ipbloq: Fix ACPI reset/clock resource names
+
+On MS-R1 (ACPI boot) the mainline cix-ipbloq HDA controller never bound:
+devm_reset_control_get(dev, NULL) returned -ENOENT because the Sky1 AUDSS
+reset lookup registers the HDA reset with con_id "hda", and the clock
+bulk get for "ipg"/"per" likewise failed because the ACPI clock infra
+names the gates "sysclk"/"clk48m" (matching the 6.18 LTS vendor driver).
+
+Request the named "hda" reset (optional-exclusive) and the sysclk/clk48m
+clocks under ACPI, keeping the unnamed reset + ipg/per on the DT path.
+With this the ALC269VC codec enumerates and card 1 (analog playback +
+capture) registers alongside the HDMI/DP card. Verified on .66.
+---
+ sound/hda/controllers/cix-ipbloq.c | 23 ++++++++++++++++++++---
+ 1 file changed, 20 insertions(+), 3 deletions(-)
+
+diff --git a/sound/hda/controllers/cix-ipbloq.c b/sound/hda/controllers/cix-ipbloq.c
+index 1e3d740e16f1..d22a4976d2a6 100644
+--- a/sound/hda/controllers/cix-ipbloq.c
++++ b/sound/hda/controllers/cix-ipbloq.c
+@@ -360,13 +360,30 @@ static int cix_ipbloq_hda_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 	hda->dev = &pdev->dev;
+ 
+-	hda->reset = devm_reset_control_get(hda->dev, NULL);
++	/*
++	 * Resource names differ between the mainline DT binding and the CIX
++	 * Sky1 ACPI infrastructure. Under ACPI on MS-R1 the AUDSS reset lookup
++	 * names the HDA reset "hda" (con_id), and the ACPI clock infra names
++	 * the gates "sysclk"/"clk48m" — matching the 6.18 LTS vendor driver.
++	 * The mainline cix-ipbloq used an unnamed reset + "ipg"/"per", which
++	 * never resolve under ACPI (reset -ENOENT, clk -ENOENT), so the
++	 * controller never bound on MS-R1. Keep the DT names on the DT path.
++	 */
++	if (has_acpi_companion(hda->dev))
++		hda->reset = devm_reset_control_get_optional_exclusive(hda->dev, "hda");
++	else
++		hda->reset = devm_reset_control_get(hda->dev, NULL);
+ 	if (IS_ERR(hda->reset))
+ 		return dev_err_probe(hda->dev, PTR_ERR(hda->reset),
+ 				     "failed to get reset, err = %ld\n", PTR_ERR(hda->reset));
+ 
+-	hda->clocks[hda->nclocks++].id = "ipg";
+-	hda->clocks[hda->nclocks++].id = "per";
++	if (has_acpi_companion(hda->dev)) {
++		hda->clocks[hda->nclocks++].id = "sysclk";
++		hda->clocks[hda->nclocks++].id = "clk48m";
++	} else {
++		hda->clocks[hda->nclocks++].id = "ipg";
++		hda->clocks[hda->nclocks++].id = "per";
++	}
+ 	err = devm_clk_bulk_get(hda->dev, hda->nclocks, hda->clocks);
+ 	if (err < 0)
+ 		return dev_err_probe(hda->dev, err, "failed to get clk, err = %d\n", err);
+-- 
+2.51.0
+
