@@ -24,6 +24,22 @@ LOG=/target/var/log/cix-installer-late.log
 mkdir -p /target/var/log
 exec >"$LOG" 2>&1
 
+# r130.3 progress UX: preseed/late_command is a single opaque step to d-i, so
+# the main "Finishing the installation" bar parks (testers reported a "stuck at
+# 14%" hang) for the entire multi-minute OFFLINE base + desktop + driver install
+# while this script runs silently into its log. Mirror milestones to /dev/tty3
+# (the d-i log console — Alt+F3) and run a heartbeat naming the hook currently
+# executing, so there is always visible motion. Best-effort; never fatal.
+TTY=/dev/tty3
+LATE_T0=$(date +%s 2>/dev/null || echo 0)
+ttymsg() {
+    _el=$(( $(date +%s 2>/dev/null || echo 0) - LATE_T0 ))
+    printf '[ncz %s +%ss] %s\n' "$(date -u +%H:%M:%S)" "$_el" "$*" >"$TTY" 2>/dev/null || true
+}
+ttymsg "nclawzero installer: applying base OS + desktop + drivers (offline)."
+ttymsg "This phase takes several minutes; the main progress bar will not advance"
+ttymsg "during it by design — watch THIS console (Alt+F3) for live status."
+
 echo "=== late.sh ($(date -u)) ==="
 echo
 
@@ -265,10 +281,32 @@ echo "    /target/etc/resolv.conf:"
 cat /target/etc/resolv.conf | sed 's/^/      /'
 
 echo "--- running post-install in chroot ---"
+ttymsg "running post-install hooks (kernel, desktop, GPU/NPU, bootloader, rescue)…"
+# Heartbeat: name the hook currently running by watching which per-hook log in
+# /target/var/log/cix-install/ was touched most recently. Purely observational —
+# it never touches the install and is killed the moment run-all.sh returns.
+HOOK_LOGDIR=/target/var/log/cix-install
+( hb_last=""
+  while :; do
+      sleep 8
+      hb_cur=$(ls -t "$HOOK_LOGDIR"/*.log 2>/dev/null | head -1)
+      hb_cur=${hb_cur##*/}; hb_cur=${hb_cur%.log}
+      [ -z "$hb_cur" ] && hb_cur="(starting)"
+      if [ "$hb_cur" != "$hb_last" ]; then
+          ttymsg "  → now running: $hb_cur"
+          hb_last="$hb_cur"
+      else
+          ttymsg "  … still working: $hb_cur"
+      fi
+  done
+) &
+LATE_HB_PID=$!
 set +e
 in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
 set -e
+kill "$LATE_HB_PID" 2>/dev/null || true
+ttymsg "post-install hooks finished (rc=$RET); finalizing apt sources + bootloader."
 
 # Codex A2 fix: don't leave bind-mount around after late_command finishes
 if [ "${CDROM_BIND_MOUNTED:-0}" = "1" ]; then
