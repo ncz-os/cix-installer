@@ -104,3 +104,55 @@ software-properties-gtk
 
 # --- r130 bucket: image editing ---
 gimp
+
+# --- r130.4 bucket: cix-gstreamer runtime deps (bundle so it force-configures
+#     cleanly offline). The vendor deb declares Debian-style libxml2 /
+#     libjpeg62-turbo (absent on Ubuntu); the runtime .so's ship under the
+#     Ubuntu names libxml2-16 / libjpeg-turbo8, plus the over-broad multi-GPU
+#     libdrm-* family it pulls in. ---
+libxml2-16
+libjpeg-turbo8
+libva-glx2
+libwayland-bin
+libnice10
+libdrm-radeon1
+libdrm-nouveau2
+libdrm-freedreno1
+libdrm-tegra0
+libdrm-etnaviv1
+
+# --- r130.4 bucket: desktop apps 20-desktop installs that were missing from
+#     the offline pool (App Center, Flatpak/portal stack, browsers, tweaks) ---
+flatpak
+gnome-software
+gnome-software-plugin-flatpak
+gnome-tweaks
+gnome-session-canberra
+xdg-desktop-portal-gtk
+epiphany-browser
+falkon
+feh
+
+# --- r130.4 bucket: GPU/Vulkan validation + benchmark tools 47-llm-stack +
+#     16-mesa request (glmark2 is split on Ubuntu: -x11 / -es2-x11 variants;
+#     the bare glmark2 / glmark2-es2 names do not exist) ---
+vulkan-validationlayers
+clinfo
+glmark2-x11
+glmark2-es2-x11
+glmark2-es2-wayland
+glmark2-wayland
+glslc
+
+# --- r130.4 bucket: agents + system utilities (nodejs/npm for ncz agents,
+#     podman DNS, syslog, dialog UI, SVG rasteriser) ---
+nodejs
+npm
+whiptail
+rsyslog
+librsvg2-bin
+aardvark-dns
+
+# --- r130.4 bucket: Plymouth boot splash theme + asset tooling ---
+plymouth-theme-spinner
+imagemagick

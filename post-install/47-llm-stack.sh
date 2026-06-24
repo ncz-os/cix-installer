@@ -37,8 +37,8 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     vulkan-tools \
     vulkan-validationlayers \
     clinfo \
-    glmark2 \
-    glmark2-es2 \
+    glmark2-x11 \
+    glmark2-es2-x11 \
     glmark2-wayland 2>&1 | tail -5 || \
     echo "[47] some Vulkan/SPIR-V packages unavailable — continuing (offline mirror may not have them all)"
 

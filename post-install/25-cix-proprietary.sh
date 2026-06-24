@@ -160,6 +160,27 @@ if [ -f "$CDM_ORIG" ]; then
         # Comment any mv touching /usr/share/initramfs-tools/{init,scripts/...,original/cix_*}
         sed -i -E '\#^[[:space:]]*mv[[:space:]]+/usr/share/initramfs-tools/(init|scripts/init-(top|premount)/(udev|plymouth)|original/cix_(init|udev|plymouth))#s|^|# [25-patched] |' \
             /tmp/cdm-patch/DEBIAN/postinst
+        # r130.4 (Codex review of .66 install): the cix-debian-misc postinst is
+        # written against a Cix factory image (GDM3 + PulseAudio reference paths +
+        # /etc/rc.local). On our XFCE/LightDM target those files are absent, so:
+        #   - the gdm3 daemon.conf sed errors "can't read /etc/gdm3/daemon.conf"
+        #   - the two pulseaudio analog-output-headphones.conf mv's "cannot stat"
+        #   - the FINAL line (cat /etc/rc.local | grep timedatectl … && sed … rc.local)
+        #     fails because /etc/rc.local does not exist → postinst returns exit 2
+        #     (it's the LAST command, so its rc becomes the script's rc) → dpkg
+        #     leaves cix-debian-misc half-configured (iF) → the iU/iF purge sweep
+        #     drops it. That last line ALSO injects `timedatectl set-local-rtc 1`
+        #     (a Windows-dual-boot RTC convention we explicitly do NOT want on a
+        #     Linux box). Neuter the three target-incompatible blocks; keep the
+        #     wanted tweaks (logind lid/power, snd/timer udev MODE, NM p2p unmanage,
+        #     bluetooth-autoconnect, cix-check-display). Append a final `exit 0` so
+        #     a stray non-zero from any remaining best-effort command can never
+        #     half-configure the package again.
+        sed -i -E '\#/etc/gdm3/daemon\.conf#s|^[[:space:]]*|# [25-patched] |' /tmp/cdm-patch/DEBIAN/postinst
+        sed -i -E '\#/usr/share/pulseaudio/alsa-mixer/paths/(cix-)?analog-output-headphones\.conf#s|^[[:space:]]*|# [25-patched] |' /tmp/cdm-patch/DEBIAN/postinst
+        sed -i -E '\#timedatectl[[:space:]]+set-local-rtc#s|^[[:space:]]*|# [25-patched] |' /tmp/cdm-patch/DEBIAN/postinst
+        grep -qE '^[[:space:]]*exit[[:space:]]+0[[:space:]]*$' /tmp/cdm-patch/DEBIAN/postinst \
+            || printf '\n# [25-patched] never half-configure on a best-effort tweak failure\nexit 0\n' >> /tmp/cdm-patch/DEBIAN/postinst
         echo "    patched postinst — commented mv lines:"
         grep -nE '^# \[25-patched\]' /tmp/cdm-patch/DEBIAN/postinst | sed 's/^/      /'
     fi
@@ -180,7 +201,15 @@ if [ "${#DEBS[@]}" -eq 0 ]; then
 fi
 
 echo "--- dpkg -i (collect failures, continue) ---"
-dpkg -i --force-depends "${DEBS[@]}" 2>&1 | tee /var/log/cix-install/25-dpkg.log || true
+# r130.4 (Codex review): add --force-overwrite. cix-env ships
+# /etc/modprobe.d/blacklist.conf (a 13957-byte Sky1-specific blacklist, also
+# at /usr/lib/modprobe.d/blacklist.conf) but declares no Conflicts/Replaces, so
+# it collides with kmod's stock /etc/modprobe.d/blacklist.conf and dpkg aborts
+# ("trying to overwrite '/etc/modprobe.d/blacklist.conf', which is also in
+# package kmod"). Overwriting with the Sky1 blacklist is the intended end state.
+# Scoped to this proprietary cix bundle (consistent with the existing
+# --force-depends posture); upstream fix is a proper Replaces:/Conflicts:.
+dpkg -i --force-depends --force-overwrite "${DEBS[@]}" 2>&1 | tee /var/log/cix-install/25-dpkg.log || true
 
 echo ""
 echo "--- apt-get install -fy (resolve unmet apt deps) ---"
