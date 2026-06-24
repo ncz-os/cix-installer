@@ -11,63 +11,74 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     exit 0
 }
 
-THEME_DIR=/usr/share/plymouth/themes/nclawzero
-mkdir -p "$THEME_DIR"
-
+# r130.5 (operator request): use the STOCK Ubuntu 'spinner' boot animation
+# (same as Xubuntu's) but rebranded with the NCZ logo — we cannot ship the
+# Xubuntu watermark. Earlier builds tried to apply a bespoke 'nclawzero' script
+# theme, but it never actually showed because the plymouth packages were not in
+# the offline pool (the install line failed → hook hit its `|| exit 0` guard →
+# Xubuntu's default logo remained). r130.4 bundles them; here we keep it simple:
+# overwrite the spinner theme's watermark with the NCZ wordmark and tint its
+# background to the NCZ charcoal so the mark blends, then pin spinner as default.
+SPIN_DIR=/usr/share/plymouth/themes/spinner
+SPIN_PLY="$SPIN_DIR/spinner.plymouth"
 ASSETS=/usr/local/lib/cix-installer/assets/branding
-PLYMOUTH_ASSETS="$ASSETS/plymouth"
 LOGO_ASSETS="$ASSETS/logo"
+LOCKUP="$LOGO_ASSETS/nclawzero-lockup.jpg"
 
-# Lay down the theme files.
-[ -f "$PLYMOUTH_ASSETS/nclawzero.plymouth" ] && \
-    install -m 0644 "$PLYMOUTH_ASSETS/nclawzero.plymouth" "$THEME_DIR/" || true
-[ -f "$PLYMOUTH_ASSETS/nclawzero.script" ] && \
-    install -m 0644 "$PLYMOUTH_ASSETS/nclawzero.script" "$THEME_DIR/" || true
-
-# Convert JPG assets to the PNG names referenced by nclawzero.script.
-if command -v magick >/dev/null 2>&1; then
-    [ -f "$PLYMOUTH_ASSETS/background.jpg" ] && \
-        magick "$PLYMOUTH_ASSETS/background.jpg" "$THEME_DIR/background.png" 2>/dev/null || true
-    [ -f "$LOGO_ASSETS/nclawzero-lockup.jpg" ] && \
-        magick "$LOGO_ASSETS/nclawzero-lockup.jpg" "$THEME_DIR/lockup.png" 2>/dev/null || true
-elif command -v convert >/dev/null 2>&1; then
-    [ -f "$PLYMOUTH_ASSETS/background.jpg" ] && \
-        convert "$PLYMOUTH_ASSETS/background.jpg" "$THEME_DIR/background.png" 2>/dev/null || true
-    [ -f "$LOGO_ASSETS/nclawzero-lockup.jpg" ] && \
-        convert "$LOGO_ASSETS/nclawzero-lockup.jpg" "$THEME_DIR/lockup.png" 2>/dev/null || true
+if [ ! -f "$SPIN_PLY" ]; then
+    echo "[60] spinner theme not installed at $SPIN_DIR — cannot rebrand splash; skipping"
+    exit 0
 fi
 
-MISSING_THEME_ASSETS=0
-for required in \
-    "$THEME_DIR/nclawzero.plymouth" \
-    "$THEME_DIR/nclawzero.script" \
-    "$THEME_DIR/background.png" \
-    "$THEME_DIR/lockup.png"; do
-    if [ ! -s "$required" ]; then
-        echo "[60] ERROR: missing Plymouth theme asset: $required" >&2
-        MISSING_THEME_ASSETS=1
+# Pick imagemagick binary (v7 'magick', v6 'convert').
+IM=""
+command -v magick  >/dev/null 2>&1 && IM=magick
+[ -z "$IM" ] && command -v convert >/dev/null 2>&1 && IM=convert
+
+# Replace the distro (Xubuntu) watermark with the NCZ wordmark. The lockup is a
+# 1024x1024 white "NCZ / nclawzero" mark on charcoal #0b0f14; crop the centre
+# band to a tight watermark. If imagemagick is somehow absent, fall back to the
+# full JPG re-saved as PNG so we still ship OUR logo, never Xubuntu's.
+if [ -n "$IM" ] && [ -f "$LOCKUP" ]; then
+    if "$IM" "$LOCKUP" -gravity center -crop 640x300+0+15 +repage "$SPIN_DIR/watermark.png" 2>/dev/null; then
+        echo "[60] installed NCZ watermark into spinner theme (cropped wordmark)"
+    else
+        "$IM" "$LOCKUP" "$SPIN_DIR/watermark.png" 2>/dev/null && \
+            echo "[60] installed NCZ watermark (full lockup; crop failed)"
     fi
-done
-if [ "$MISSING_THEME_ASSETS" -ne 0 ]; then
-    exit 1
+elif [ -f "$LOCKUP" ]; then
+    # No imagemagick: at least make sure the Xubuntu watermark is gone. Copy the
+    # JPG bytes to watermark.png (plymouth reads by content, not extension).
+    cp -f "$LOCKUP" "$SPIN_DIR/watermark.png" && \
+        echo "[60] WARN: no imagemagick — copied raw lockup as watermark (uncropped)"
+else
+    echo "[60] WARN: NCZ lockup asset missing — leaving stock watermark" >&2
 fi
 
-# Register nclawzero as the default Plymouth theme. r123 fix: the old path used
-# `plymouth-set-default-theme`, which (a) is often not on PATH in the in-target
-# chroot and (b) registers the alternative in AUTO mode — so xubuntu-logo (from
-# xubuntu-default-settings, higher priority) wins and the initramfs hook embeds
-# THAT, not nclawzero. Result: theme shipped but never actually used. Pin it via
-# update-alternatives --set (MANUAL/sticky) with full paths so it can't be
-# silently reverted by later auto-mode recalculation. The target-kernel
-# initramfs rebuild below then embeds nclawzero + its script module.
+# Tint the spinner background to NCZ charcoal (#0b0f14) so the cropped wordmark
+# (which carries that same charcoal) blends into a seamless splash. Idempotent.
+if grep -qE '^BackgroundStartColor=' "$SPIN_PLY"; then
+    sed -i -E 's/^BackgroundStartColor=.*/BackgroundStartColor=0x0b0f14/' "$SPIN_PLY"
+else
+    printf 'BackgroundStartColor=0x0b0f14\n' >> "$SPIN_PLY"
+fi
+if grep -qE '^BackgroundEndColor=' "$SPIN_PLY"; then
+    sed -i -E 's/^BackgroundEndColor=.*/BackgroundEndColor=0x0b0f14/' "$SPIN_PLY"
+else
+    printf 'BackgroundEndColor=0x0b0f14\n' >> "$SPIN_PLY"
+fi
+
+# Pin spinner as the default Plymouth theme. r123 lesson: register in MANUAL
+# (sticky) mode via update-alternatives --set so xubuntu-logo (from
+# xubuntu-default-settings, higher AUTO priority) cannot win and get embedded in
+# the initramfs instead. The target-kernel initramfs rebuild below then embeds
+# spinner (two-step module) + our watermark.
 export PATH="/usr/sbin:/sbin:/usr/bin:/bin:${PATH:-}"
 DEFAULT_PLY=/usr/share/plymouth/themes/default.plymouth
-NCZ_PLY="$THEME_DIR/nclawzero.plymouth"
-update-alternatives --install "$DEFAULT_PLY" default.plymouth "$NCZ_PLY" 200
-update-alternatives --set default.plymouth "$NCZ_PLY"
-# Bonus: run the helper too if present (harmless; rebuilds current-kernel initrd).
+update-alternatives --install "$DEFAULT_PLY" default.plymouth "$SPIN_PLY" 200
+update-alternatives --set default.plymouth "$SPIN_PLY"
 command -v plymouth-set-default-theme >/dev/null 2>&1 && \
-    plymouth-set-default-theme nclawzero 2>/dev/null || true
+    plymouth-set-default-theme spinner 2>/dev/null || true
 echo "[60] default.plymouth -> $(readlink -f "$DEFAULT_PLY" 2>/dev/null) (manual)"
 
 # Mask plymouth-quit if it keeps failing (cosmetic, doesn't affect boot)
@@ -81,7 +92,7 @@ echo "[60] plymouth splash configured (or fallback) + plymouth-quit.service mask
 mkdir -p /etc/plymouth
 cat > /etc/plymouth/plymouthd.conf <<EOF
 [Daemon]
-Theme=nclawzero
+Theme=spinner
 ShowDelay=0
 DeviceTimeout=8
 EOF

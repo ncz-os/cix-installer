@@ -56,6 +56,48 @@ for stale in 50-cloud-init.yaml 99_cloud-init.yaml 00-installer-config.yaml; do
     fi
 done
 
+# (b2) r130.5 (CRITICAL — .27/.66 install: wired NIC never got DHCP):
+# d-i's netcfg writes /etc/network/interfaces with the INSTALL-TIME wired NIC
+# as `allow-hotplug <if>` + `iface <if> inet dhcp`, and the stock
+# /etc/NetworkManager/NetworkManager.conf ships `[ifupdown] managed=false`.
+# Together that makes NM HAND OFF any interface named in
+# /etc/network/interfaces to ifupdown (nmcli shows STATE=unmanaged, reason 76
+# "unmanaged by user decision via settings plugin"). On the XFCE/NM desktop
+# ifupdown is not actively raising the link, so the wired port never gets DHCP
+# while wifi (absent from the file) works — exactly the "DHCP broke, wired
+# unmanaged" symptom. Fix BOTH halves so NM owns every real NIC:
+#   1. flip [ifupdown] managed=false -> true (NM manages even listed devices)
+#   2. reset /etc/network/interfaces to loopback-only (drop the d-i dhcp stanza)
+NM_CONF=/etc/NetworkManager/NetworkManager.conf
+install -d -m 0755 "$(dirname "$NM_CONF")"
+if [ -f "$NM_CONF" ] && grep -qE '^[[:space:]]*managed=false' "$NM_CONF"; then
+    sed -i -E 's/^[[:space:]]*managed=false/managed=true/' "$NM_CONF"
+    echo "[33-network] flipped [ifupdown] managed=false -> true in $NM_CONF"
+elif [ -f "$NM_CONF" ] && grep -qE '^\[ifupdown\]' "$NM_CONF" && ! grep -qE '^[[:space:]]*managed=' "$NM_CONF"; then
+    sed -i '/^\[ifupdown\]/a managed=true' "$NM_CONF"
+    echo "[33-network] added managed=true under existing [ifupdown] in $NM_CONF"
+elif [ ! -f "$NM_CONF" ] || ! grep -qE '^\[ifupdown\]' "$NM_CONF"; then
+    printf '\n[ifupdown]\nmanaged=true\n' >> "$NM_CONF"
+    echo "[33-network] appended [ifupdown] managed=true to $NM_CONF"
+fi
+
+ENI=/etc/network/interfaces
+if [ -f "$ENI" ] && grep -qE '^[[:space:]]*(allow-hotplug|auto)[[:space:]]+(en|eth|wl)' "$ENI"; then
+    echo "[33-network] resetting $ENI to loopback-only (d-i had pinned the install NIC to inet dhcp)"
+fi
+cat > "$ENI" <<'ENICONF'
+# Reset by ncz-installer post-install/33-network.sh.
+# All real NICs are owned by NetworkManager (see
+# /etc/netplan/01-ncz-networkmanager.yaml). d-i's netcfg had written the
+# install-time wired NIC here as `iface <if> inet dhcp`, which NM hands off to
+# ifupdown ([ifupdown] managed=false) -> the wired port never got DHCP. Keeping
+# this loopback-only leaves NM in sole control of all wired + wireless links.
+source /etc/network/interfaces.d/*
+
+auto lo
+iface lo inet loopback
+ENICONF
+
 # (c) Disable systemd-networkd so it does not race NM for the link.
 # `mask` is stronger than `disable` because it survives package
 # upgrades that re-enable units.
