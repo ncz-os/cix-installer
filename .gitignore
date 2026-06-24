@@ -80,3 +80,11 @@ build/*.squashfs
 # Mesa 26.1.3 GPU compute stack (built from source on .66; staged at build time)
 assets/gpu/*.tar.gz
 assets/gpu/*.tar.zst
+
+# r130 fat-ISO + rescue build artifacts (rebuildable; do NOT commit)
+build/desktop-mirror/
+build/desktop-mirror.gaps
+build/rescue-rootfs/
+build/r*-gitlab-upload.json
+assets/rescue/*.tar.zst
+preseed/*.pre-btrfs.*

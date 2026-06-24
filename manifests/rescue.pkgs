@@ -1,0 +1,113 @@
+# rescue.pkgs — full toolset for the r130 on-disk RESCUE PARTITION
+#
+# Target: dedicated rescue rootfs (own partition + rEFInd menuentry) booting
+#         the EDGE 7.0.12-cix-sky1-next kernel (has btrfs + Sky1 display/NPU
+#         stack), headless arm64. Reachable over serial + LAN (telnet, dropbear,
+#         sshd). The installed system boots rEFInd (switched from systemd-boot
+#         at r118 by operator preference); refind below is also useful in-rescue
+#         to repair the installed system's refind.conf.
+#
+# This is the SUPERSET: it includes everything in installer-base.pkgs plus the
+# deeper recovery / forensics / fs / net toolset cherry-picked from the
+# SystemRescue 13.01 package list, mapped to Ubuntu 26.04 (resolute) arm64.
+#
+# EXCLUDED on purpose (not applicable to a headless arm64 box):
+#   - all X11/Wayland/XFCE/GTK/Qt GUI apps (gparted, firefox, remmina, thunar,
+#     keepassxc-gui, featherpad, geany, ghex GUI ...)
+#   - x86-only firmware/boot (intel-ucode, amd-ucode, memtest86+, syslinux, ms-sys)
+#   - Windows-centric tooling (chntpw)
+#
+# Format: one binary package per line; blank lines and '# ...' comments ignored.
+# Self-contained: a rescue-rootfs builder can consume this alone.
+
+# ===== filesystems (the class of failure that motivated this) =====
+btrfs-progs         # CRITICAL: our root is btrfs; old 6.18 rescue USB lacked it
+e2fsprogs
+xfsprogs
+f2fs-tools
+ntfs-3g
+exfatprogs
+dosfstools
+mtools
+nilfs-tools
+squashfs-tools
+
+# ===== block / partition / disk =====
+util-linux          # fdisk, sfdisk, cfdisk, lsblk, blkid, wipefs, lscpu
+parted
+gdisk
+nvme-cli            # .66/.O6 boot from NVMe
+smartmontools
+hdparm
+sdparm
+sg3-utils
+lvm2
+mdadm
+cryptsetup
+multipath-tools
+
+# ===== imaging / clone / data recovery =====
+gddrescue           # GNU ddrescue (binary: ddrescue)
+testdisk            # testdisk + photorec
+fsarchiver
+partclone
+pv
+pigz
+xz-utils
+zstd
+
+# ===== network / remote access =====
+iproute2
+net-tools
+iputils-ping
+ethtool
+tcpdump
+mtr-tiny
+traceroute
+socat
+netcat-openbsd
+iperf3
+bind9-dnsutils      # dig, nslookup
+openssh-server
+dropbear-bin
+inetutils-telnetd
+openbsd-inetd
+busybox-static
+curl
+wget
+rsync
+sshfs
+nfs-common
+cifs-utils
+lftp
+rclone
+
+# ===== hardware / diag / boot-repair =====
+pciutils
+usbutils
+dmidecode
+lshw
+hwinfo
+inxi
+efibootmgr
+efivar
+refind              # installed system boots rEFInd — repair its refind.conf from here
+kexec-tools         # chainload a known-good kernel without full reboot
+stress-ng
+memtester
+lm-sensors
+
+# ===== shell / edit / scripting =====
+vim
+nano
+less
+mc
+tmux
+file
+tree
+jq
+htop
+lsof
+strace
+gnupg
+python3             # drives AGENTS.md repair helpers + /lib-symlink fixer

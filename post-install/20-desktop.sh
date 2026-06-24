@@ -31,21 +31,42 @@ case "$VARIANT" in
         ;;
 esac
 
-# NCZ policy (2026-06): the embedded ISO mirror is SERVER-only (Magnetar base);
-# desktop / end-user packages are NOT carried offline. We "follow the Ubuntu
-# Server package library" ourselves and path the desktop long tail out to Ubuntu
-# (ports.ubuntu.com) directly, accepting slower fetches. So the desktop layer
-# always installs ONLINE — the server-only /cdrom mirror has none of these.
-echo "[20] desktop packages install online from ports.ubuntu.com (server-offline policy)"
-rm -f /etc/apt/sources.list.d/cixmini-cdrom.list 2>/dev/null
-cat > /etc/apt/sources.list <<'APT'
+# NCZ policy (r130, 2026-06-23): REVERSED the old "server-only mirror, desktop
+# installs ONLINE" policy. The full desktop closure (curated XFCE set + r130
+# buckets) is now BUNDLED in the ISO pool by build/build-desktop-mirror.sh and
+# embedded by build/build-iso-di.sh. We install the desktop fully OFFLINE from
+# the file:///cdrom mirror that preseed/late.sh already wired (cixmini-cdrom.list,
+# pinned via 00cixmini-bootstrap-pool.pref). This is what fixes the r129 install
+# stalling at 14% in 20-desktop when ports.ubuntu.com was slow/unreachable.
+# We do NOT overwrite sources.list with ports here (that was the stall). ports
+# is added ONLY as an explicit fallback if a package is genuinely absent from
+# the bundled pool (see ncz_ports_fallback).
+echo "[20] desktop packages install OFFLINE from bundled /cdrom pool (r130 fat ISO)"
+
+# Ensure the file:///cdrom apt source late.sh created is present + refreshed.
+if [ ! -f /etc/apt/sources.list.d/cixmini-cdrom.list ]; then
+    echo "[20] cixmini-cdrom.list absent — recreating file:///cdrom source"
+    echo "deb [trusted=yes] file:///cdrom resolute main" \
+        > /etc/apt/sources.list.d/cixmini-cdrom.list
+fi
+apt-get update -q || true
+
+# ncz_ports_fallback: add ports.ubuntu.com (once) and refresh. Invoked ONLY when
+# an install from the bundled pool fails, so a package genuinely missing from the
+# offline closure can still be fetched online. Idempotent.
+ncz_ports_fallback() {
+    if [ -f /etc/apt/sources.list.d/ncz-ports-fallback.list ]; then
+        return 0
+    fi
+    echo "[20] WARN: package(s) missing from bundled pool — enabling ports.ubuntu.com fallback"
+    cat > /etc/apt/sources.list.d/ncz-ports-fallback.list <<'PORTS'
 deb http://ports.ubuntu.com/ubuntu-ports resolute main universe restricted multiverse
 deb http://ports.ubuntu.com/ubuntu-ports resolute-updates main universe restricted multiverse
 deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restricted multiverse
 deb http://ports.ubuntu.com/ubuntu-ports resolute-backports main universe restricted multiverse
-APT
-
-apt-get update -q || true
+PORTS
+    apt-get update -q || true
+}
 
 # Pre-purge gdm3 if present in the rootfs.tar.zst (resolute's default DM).
 # Without this, both gdm3 and lightdm fight for /etc/systemd/system/display-manager.service
@@ -59,12 +80,20 @@ fi
 # Core: XFCE4 + LightDM (display manager) + Xorg fbdev fallback.
 # r55: removed broken backslash-continuation that merged a bogus firefox
 # install onto this command and made apt fail with "0 newly installed".
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    lightdm lightdm-gtk-greeter xubuntu-core xfce4-session xfce4-terminal \
+# r130: install from the bundled /cdrom pool; if that fails (core pkg missing
+# from the offline closure) enable the ports fallback and retry ONCE. This line
+# is NOT best-effort — a usable desktop requires it — but the bundled pool now
+# carries the full closure (manifests/desktop.pkgs), so the fallback should
+# never trigger in practice.
+CORE_DESKTOP="lightdm lightdm-gtk-greeter xubuntu-core xfce4-session xfce4-terminal \
     xfce4-power-manager xfce4-screenshooter xfce4-taskmanager \
     xserver-xorg-video-fbdev xserver-xorg-video-modesetting \
     xrdp \
-    mesa-utils vulkan-tools libglu1-mesa
+    mesa-utils vulkan-tools libglu1-mesa"
+if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP; then
+    ncz_ports_fallback
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP
+fi
 
 # ----------------------------------------------------------------------
 # r111 (operator request — fuller desktop): a base xubuntu-core leaves the
@@ -102,8 +131,11 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji 2>&1 | tail -3 || true
 
 # Archives: GUI + Thunar right-click extract + 7z/rar.
+# r130: p7zip-full was dropped in resolute; the 7z tooling now ships in `7zip`
+# (which Provides: p7zip-full). Use the real package so it's satisfied offline
+# from the bundled pool.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    xarchiver thunar-archive-plugin p7zip-full unrar-free 2>&1 | tail -3 || true
+    xarchiver thunar-archive-plugin 7zip unrar-free 2>&1 | tail -3 || true
 
 # Core apps: PDF viewer, media player, image viewer, text editor.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -114,6 +146,34 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     xfce4-whiskermenu-plugin xfce4-clipman-plugin 2>&1 | tail -3 || true
 
 echo "[20] r111 fuller desktop: pipewire-audio + media-mount + nm-applet + bluetooth + Noto/CJK/emoji fonts + archives + evince/mpv/ristretto/mousepad + whisker/clipman"
+
+# ----------------------------------------------------------------------
+# r130 buckets (operator selection, fat ISO): Xubuntu-default desktop
+# completeness + offline-apt management tools + GIMP. All bundled in the
+# /cdrom pool (manifests/desktop.pkgs), so these install OFFLINE. Best-effort
+# groups (a single missing pkg won't abort the Phase 2 hook).
+# ----------------------------------------------------------------------
+
+# Completeness: file search, menu/profile editors, remote-FS mounts, panel
+# layout backup, disk-usage + system monitor, keyring GUI, and the XFCE panel
+# "goodies" plugin set that Xubuntu ships by default.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    catfish menulibre mugshot gigolo xfce4-panel-profiles \
+    baobab gnome-system-monitor gnome-font-viewer seahorse \
+    xfce4-dict xfce4-cpugraph-plugin xfce4-netload-plugin \
+    xfce4-systemload-plugin xfce4-weather-plugin xfce4-places-plugin \
+    xfce4-verve-plugin xfce4-xkb-plugin 2>&1 | tail -3 || true
+
+# Offline-apt tools: GUI package manager, local-.deb installer, apt-source GUI.
+# These make the bundled /cdrom pool usable from the desktop with no network.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    synaptic gdebi gdebi-core software-properties-gtk 2>&1 | tail -3 || true
+
+# Image editing.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    gimp 2>&1 | tail -3 || true
+
+echo "[20] r130 buckets: completeness (catfish/menulibre/mugshot/gigolo/panel-goodies/baobab/system-monitor/seahorse) + offline-apt (synaptic/gdebi/software-properties-gtk) + gimp"
 
 # r55: NCZ-curated screensaver. xscreensaver replaces xfce4-screensaver.
 # r112: GL hacks (xscreensaver-gl / -gl-extra) are intentionally NOT installed.

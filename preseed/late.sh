@@ -279,6 +279,54 @@ if [ "${CDROM_BIND_MOUNTED:-0}" = "1" ]; then
 fi
 echo "in-target run-all.sh exited: $RET"
 
+# r130 fix (MrSBC/COS feedback 2026-06-23): strip ALL CD-ROM apt sources from
+# /target before reboot. The offline mirror sources are required DURING
+# post-install (file:///cdrom for our pool; d-i apt-setup may also add a
+# `deb cdrom:[...]` line), but once the install media is ejected they make the
+# installed system's `apt-get update` fail. Remove them as the last apt action.
+echo "--- stripping CD-ROM apt sources from /target before reboot ---"
+rm -f /target/etc/apt/sources.list.d/cixmini-cdrom.list
+rm -f /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref
+if [ -f /target/etc/apt/sources.list ]; then
+    # drop any `deb`/`deb-src` line referencing cdrom: or file:///cdrom
+    sed -i -E '/^[[:space:]]*deb(-src)?[[:space:]].*(cdrom:|file:\/\/\/cdrom)/Id' \
+        /target/etc/apt/sources.list
+fi
+for f in /target/etc/apt/sources.list.d/*.list; do
+    [ -e "$f" ] || continue
+    sed -i -E '/(cdrom:|file:\/\/\/cdrom)/Id' "$f"
+    # remove the file entirely if stripping left it empty (no active deb lines)
+    grep -qE '^[[:space:]]*deb' "$f" 2>/dev/null || rm -f "$f"
+done
+echo "    remaining apt sources after cdrom strip:"
+grep -rhsE '^[[:space:]]*deb' \
+    /target/etc/apt/sources.list /target/etc/apt/sources.list.d/ 2>/dev/null \
+    | sed 's/^/      /' || echo "      (none)"
+
+# r130 fix: write the canonical ports.ubuntu.com network sources for the
+# INSTALLED system. Previously post-install/20-desktop.sh overwrote
+# sources.list with ports, which (being a network line) survived the cdrom
+# strip and gave the booted system working apt. r130 makes 20-desktop install
+# OFFLINE from the bundled /cdrom pool and no longer writes sources.list, so
+# without this the strip would leave an EMPTY sources.list and `apt-get update`
+# would have nothing post-boot. Write ports here for ALL variants (server +
+# desktop), as the final apt action, so updates work post-boot (MrSBC/COS
+# requirement). arm64 => ports.ubuntu.com.
+echo "--- writing canonical ports.ubuntu.com network sources for the installed system ---"
+cat > /target/etc/apt/sources.list <<'PORTS'
+deb http://ports.ubuntu.com/ubuntu-ports resolute main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports resolute-updates main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports resolute-backports main universe restricted multiverse
+PORTS
+# Drop the transient ports fallback list 20-desktop may have added; the
+# canonical sources.list above now carries ports, so it is redundant.
+rm -f /target/etc/apt/sources.list.d/ncz-ports-fallback.list
+echo "    final installed-system apt sources:"
+grep -rhsE '^[[:space:]]*deb' \
+    /target/etc/apt/sources.list /target/etc/apt/sources.list.d/ 2>/dev/null \
+    | sed 's/^/      /' || echo "      (none)"
+
 # Eject the install media on success. We turned cdrom-detect/eject off
 # in preseed.cfg so /cdrom would survive into late.sh — now that we're
 # done with it, eject it manually. Without this, a real hardware reboot

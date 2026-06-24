@@ -416,6 +416,33 @@ if [ -n "$RESCUE_KVER" ]; then
     RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_SAFE systemd.unit=rescue.target"
 fi
 
+# ----------------------------------------------------------------------
+# r130: dedicated on-disk RESCUE PARTITION entry. This is DISTINCT from the
+# rescue pin above (which is rescue.target on the SHARED production root): the
+# rescue PARTITION is an entirely separate Ubuntu arm64 rootfs on its own
+# partition (NCZRESCUE), populated by post-install/72-rescue-partition.sh and
+# booted via its OWN root=PARTUUID with the EDGE kernel + full recovery toolset.
+# If the main root is unbootable, this entry still boots.
+#
+# 72 runs as a numbered hook and leaves a RESCUE_READY marker (PARTUUID + kver);
+# we read it here and, if present, emit a 4th rEFInd menuentry. We reuse the
+# already-staged edge kernel/initrd on the ESP (vmlinuz-$KVER_NEXT) — only the
+# root= differs from the edge entry — so no extra ESP kernel copy is needed.
+# ----------------------------------------------------------------------
+RESCUE_READY="$INSTALLER_META/RESCUE_READY"
+RESCUEPART_OPTIONS=""
+if [ -f "$RESCUE_READY" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
+    RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
+    if [ -n "$RESCUEPART_PARTUUID" ]; then
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $NEXT_CMDLINE_BASE"
+        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding rEFInd rescuepart entry"
+    else
+        echo "  rescue-partition marker present but no PARTUUID — skipping rescuepart entry"
+    fi
+else
+    echo "  no rescue-partition marker ($RESCUE_READY) or no edge kernel — skipping rescuepart entry"
+fi
+
 # ======================================================================
 # Install rEFInd: binary at the firmware fallback path + refind.conf menu.
 # ======================================================================
@@ -426,6 +453,42 @@ if [ ! -s /boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
     exit 1
 fi
 echo "  rEFInd installed → /boot/efi/EFI/BOOT/BOOTAA64.EFI (firmware fallback path)"
+
+# r127: startup banner ("NCZ-OS 26.6"). Installed next to refind.conf so
+# rEFInd resolves it by bare filename. Optional — if the asset is absent we
+# simply omit the `banner` directive (rEFInd falls back to its built-in art).
+BANNER_SRC="$INSTALLER_META/assets/refind/ncz-banner.png"
+REFIND_BANNER=""
+if [ -s "$BANNER_SRC" ]; then
+    install -m 0644 "$BANNER_SRC" /boot/efi/EFI/BOOT/ncz-banner.png
+    REFIND_BANNER="ncz-banner.png"
+    echo "  rEFInd banner installed → /boot/efi/EFI/BOOT/ncz-banner.png"
+else
+    echo "  note: rEFInd banner asset absent ($BANNER_SRC) — using default rEFInd art"
+fi
+
+# r128: NCZ tile icon for each menu entry (replaces rEFInd's generic Linux
+# glyph). Installed next to refind.conf so a bare `icon ncz.png` resolves.
+ICON_SRC="$INSTALLER_META/assets/refind/ncz.png"
+REFIND_ICON=""
+if [ -s "$ICON_SRC" ]; then
+    install -m 0644 "$ICON_SRC" /boot/efi/EFI/BOOT/ncz.png
+    REFIND_ICON="ncz.png"
+    echo "  rEFInd entry icon installed → /boot/efi/EFI/BOOT/ncz.png"
+fi
+
+# r128: rEFInd's standard icons/ directory MUST exist next to refind.conf, or
+# rEFInd silently falls back to TEXT-ONLY mode (no banner, no graphical menu) —
+# this is documented rEFInd behaviour and was why the NCZ-OS 26.6 banner did
+# not paint on Sky1. Installing it enables the graphical boot menu.
+ICONS_SRC="$INSTALLER_META/assets/refind/icons"
+if [ -d "$ICONS_SRC" ]; then
+    rm -rf /boot/efi/EFI/BOOT/icons
+    cp -a "$ICONS_SRC" /boot/efi/EFI/BOOT/icons
+    echo "  rEFInd icons/ installed → /boot/efi/EFI/BOOT/icons ($(ls /boot/efi/EFI/BOOT/icons 2>/dev/null | wc -l | tr -d ' ') files)"
+else
+    echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
+fi
 
 # default_selection matches a substring of the menu-entry title. edge is the
 # default when staged, else stable. rescue is always manual-only.
@@ -445,32 +508,54 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     echo "timeout 10"
     echo "log_level 0"
     echo "use_nvram false"
+    # r128: force a graphical GOP mode. Without this the Sky1 firmware can leave
+    # rEFInd rendering text-only; `resolution max` selects the largest reported
+    # GOP mode and locks in graphics so the NCZ-OS 26.6 banner + icons paint.
+    echo "resolution max"
+    [ -n "$REFIND_BANNER" ] && echo "banner $REFIND_BANNER"
+    # fillscreen makes the NCZ-OS 26.6 art the full menu background (not a
+    # small top strip), so the whole rEFInd main menu is branded.
+    [ -n "$REFIND_BANNER" ] && echo "banner_scale fillscreen"
     echo "showtools shell,reboot,shutdown,firmware"
     echo "scanfor manual"
     echo "scan_all_linux_kernels false"
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$LTS_AVAILABLE" = "1" ]; then
-        echo "menuentry \"NCZ stable — kernel $KVER_LTS (LTS 6.18)\" {"
+        echo "menuentry \"NCZ-OS 26.6  ·  stable — kernel $KVER_LTS (LTS 6.18)\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
         echo "    options \"$LTS_OPTIONS\""
         echo "}"
         echo
     fi
     if [ "$NEXT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"NCZ edge — kernel $KVER_NEXT (NEXT 7.0.x) [DEFAULT/BETA]\" {"
+        echo "menuentry \"NCZ-OS 26.6  ·  edge — kernel $KVER_NEXT (NEXT 7.0.x) [DEFAULT/BETA]\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$NEXT_OPTIONS\""
         echo "}"
         echo
     fi
     if [ -n "$RESCUE_PIN" ]; then
-        echo "menuentry \"NCZ rescue — $RESCUE_PIN (safe: no NPU/GPU/VPU/KMS)\" {"
+        echo "menuentry \"NCZ-OS 26.6  ·  rescue — $RESCUE_PIN (safe: no NPU/GPU/VPU/KMS)\" {"
         echo "    loader  /vmlinuz-$RESCUE_PIN"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$RESCUE_HAS_INITRD" = "1" ] && echo "    initrd  /initrd.img-$RESCUE_PIN"
         echo "    options \"$RESCUE_OPTIONS\""
+        echo "}"
+        echo
+    fi
+    # r130: dedicated on-disk RESCUE PARTITION (separate rootfs, edge kernel,
+    # full toolset). Reuses the staged edge kernel/initrd; only root= differs.
+    if [ -n "$RESCUEPART_OPTIONS" ]; then
+        echo "menuentry \"NCZ-OS 26.6  ·  RESCUE PARTITION — edge $KVER_NEXT, full toolset (telnet/dropbear/ssh)\" {"
+        echo "    loader  /vmlinuz-$KVER_NEXT"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
+        echo "    options \"$RESCUEPART_OPTIONS\""
         echo "}"
         echo
     fi

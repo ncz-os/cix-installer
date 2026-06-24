@@ -37,6 +37,21 @@ else
     echo "[12] WARN: $RTL_SRC missing/empty — Orion O6 NIC may not link post-install"
 fi
 
+# r127: upstream signed wireless-regdb. The previously shipped
+# /lib/firmware/regulatory.db was stale and cfg80211 rejected it ("malformed
+# or signature is missing/invalid"), pinning Wi-Fi to the world domain
+# (country 00 — reduced channels/TX power). Overwrite with the current
+# upstream signed DB so the cix kernel validates it and the proper regdomain
+# (e.g. US/DFS-FCC) can apply. Force-copy (-f, not -n) to replace the stale one.
+REGDB_SRC=/usr/local/lib/cix-installer/assets/firmware/regdb
+if [ -f "$REGDB_SRC/regulatory.db" ] && [ -f "$REGDB_SRC/regulatory.db.p7s" ]; then
+    echo "[12] installing upstream wireless-regdb → $DEST/regulatory.db{,.p7s}"
+    install -m 0644 "$REGDB_SRC/regulatory.db" "$REGDB_SRC/regulatory.db.p7s" "$DEST/" 2>/dev/null || true
+    echo "    regulatory.db: $(stat -c%s "$DEST/regulatory.db" 2>/dev/null || echo 0) bytes"
+else
+    echo "[12] note: $REGDB_SRC absent — keeping existing regulatory.db (Wi-Fi may stay in world domain)"
+fi
+
 if [ ! -d "$SRC" ] || [ -z "$(ls -A "$SRC" 2>/dev/null)" ]; then
     echo "[12] WARN: $SRC missing or empty — skipping (GPU/DSP/VPU drivers will fail at runtime)"
     exit 0

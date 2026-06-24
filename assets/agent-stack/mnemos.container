@@ -1,0 +1,29 @@
+[Unit]
+Description=MNEMOS — memory operating system for agentic AI
+Documentation=https://github.com/ncz-os/mnemos
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=ghcr.io/ncz-os/mnemos:latest
+# Pulled on demand by `ncz install mnemos` (honours a MNEMOS_IMAGE override,
+# which rewrites this line when the active quadlet is staged). Intentionally
+# not part of the ISO OCI tarball bundling.
+ContainerName=mnemos
+Pull=never
+Volume=mnemos-data:/data:Z
+PublishPort=5002:5002
+# Stock image embeds in-process on CPU (nomic-embed-text-v1.5 Q8, 768-dim) —
+# no GPU/NPU packages needed. Persistence is sqlite on the mnemos-data volume
+# so memories survive container + host restarts.
+Environment=MNEMOS_PERSISTENCE_BACKEND=sqlite
+Environment=MNEMOS_DATABASE_DSN=sqlite:////data/mnemos.db
+Environment=MNEMOS_SQLITE_PATH=/data/mnemos.db
+
+[Service]
+TimeoutStartSec=900
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target default.target

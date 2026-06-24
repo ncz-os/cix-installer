@@ -536,6 +536,19 @@ if [ "$EMBED_MIRROR" = "1" ]; then
         cp -a "$MIRROR_DIR/pool"  "$STAGING/pool"
         cp -a "$MIRROR_DIR/dists" "$STAGING/dists"
         echo "    offline mirror embedded: $(du -sh "$STAGING/pool" | cut -f1) pool / $(find "$STAGING/pool" -name '*.deb' | wc -l) debs"
+        # r130 fat ISO: merge the desktop closure pool (build-desktop-mirror.sh)
+        # ALONGSIDE the server-mirror so the XFCE desktop + r130 buckets install
+        # fully OFFLINE from file:///cdrom (no ports.ubuntu.com 20-desktop stall).
+        # Only the desktop POOL is merged; the combined regular deb index is
+        # regenerated from pool contents below (Step 5), so desktop debs become
+        # visible to apt — copying its dists/ would be overwritten anyway.
+        DESKTOP_MIRROR="${DESKTOP_MIRROR:-$ROOT/build/desktop-mirror}"
+        if [ -d "$DESKTOP_MIRROR/pool" ]; then
+            cp -a "$DESKTOP_MIRROR/pool/." "$STAGING/pool/"
+            echo "    desktop closure merged from $DESKTOP_MIRROR: $(du -sh "$STAGING/pool" | cut -f1) pool / $(find "$STAGING/pool" -name '*.deb' | wc -l) debs total"
+        else
+            echo "    WARN: $DESKTOP_MIRROR/pool absent — desktop will NOT be offline; run build/build-desktop-mirror.sh"
+        fi
     else
         echo "    ERROR: $MIRROR_DIR missing — abort"
         exit 1
@@ -1142,6 +1155,26 @@ mkdir -p "$STAGING/dists/resolute/main/debian-installer/binary-arm64"
     echo "    udeb Packages: $UDEBCT entries indexed"
 )
 
+# r130 fat ISO: in EMBED_MIRROR mode the regular deb Packages index was copied
+# verbatim from server-mirror and therefore does NOT list the merged desktop
+# debs. Regenerate it from the COMBINED pool (server + desktop) so file:///cdrom
+# apt sees the full offline desktop closure. (--type deb skips the .udeb files,
+# which are indexed separately above.) Runs before the Step 6 Release regen so
+# the Release hashes the rebuilt index.
+if [ "$EMBED_MIRROR" = "1" ]; then
+    echo "    regenerating regular deb Packages index from combined server+desktop pool"
+    mkdir -p "$STAGING/dists/resolute/main/binary-arm64"
+    (
+        cd "$STAGING"
+        dpkg-scanpackages --type deb --multiversion pool/main /dev/null 2>/dev/null \
+            > dists/resolute/main/binary-arm64/Packages
+        gzip -9cn dists/resolute/main/binary-arm64/Packages \
+            > dists/resolute/main/binary-arm64/Packages.gz
+        DEBCT=$(grep -c '^Package: ' dists/resolute/main/binary-arm64/Packages || echo 0)
+        echo "    regular deb Packages: $DEBCT entries indexed (server + desktop)"
+    )
+fi
+
 if [ "$EMBED_MIRROR" = "0" ] && [ "$BOOTSTRAP_POOL" = "0" ]; then
     # 2026-05-07 (take7 chroot-target failure → take8 fix per
     # Codex R78-INVALID-RELEASE-AUDIT):
@@ -1545,6 +1578,17 @@ if [ -d "$ROOT/assets" ]; then
                     echo "    assets/rootfs skipped in --mode $MODE"
                 fi
                 ;;
+            rescue)
+                # r130: dedicated rescue-partition rootfs tarball + AGENTS.md.
+                # Lands at /usr/local/lib/cix-installer/assets/rescue/ on the
+                # target; consumed by post-install/72-rescue-partition.sh.
+                cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true
+                if [ -f "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" ]; then
+                    echo "    rescue-rootfs.tar.zst staged: $(du -h "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" | cut -f1)"
+                else
+                    echo "    assets/rescue present but rescue-rootfs.tar.zst missing — run build/build-rescue-rootfs.sh (rescue partition will be left empty)"
+                fi
+                ;;
             *) cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true ;;
         esac
     done
@@ -1610,6 +1654,19 @@ if [ -d "$ROOT/assets/firmware/rtl_nic" ]; then
     echo "    rtl_nic firmware (target): $(ls "$EXTRA/assets/firmware/rtl_nic" 2>/dev/null | wc -l | tr -d ' ') blobs"
 fi
 
+# r127: upstream signed wireless-regdb for the INSTALLED system. The stale
+# /lib/firmware/regulatory.db that shipped before was rejected by cfg80211
+# ("malformed or signature invalid"), pinning Wi-Fi to the restrictive world
+# domain (country 00). 12-sky1-firmware.sh installs these → /lib/firmware so
+# the regulatory DB validates and the correct domain (e.g. US/DFS-FCC) applies.
+if [ -d "$ROOT/assets/firmware/regdb" ]; then
+    mkdir -p "$EXTRA/assets/firmware/regdb"
+    cp -L "$ROOT/assets/firmware/regdb/regulatory.db" \
+          "$ROOT/assets/firmware/regdb/regulatory.db.p7s" \
+          "$EXTRA/assets/firmware/regdb/" 2>/dev/null || true
+    echo "    wireless-regdb (target): $(ls "$EXTRA/assets/firmware/regdb" 2>/dev/null | wc -l | tr -d ' ') files"
+fi
+
 # NPU py3.11 uv venv toolchain (staged by the generic assets loop above):
 # relocatable CPython 3.11 + uv. 46-python311.sh consumes it offline-first.
 if [ -d "$EXTRA/assets/python311" ]; then
@@ -1639,6 +1696,28 @@ if [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ]; then
     mkdir -p "$EXTRA/assets/refind"
     cp -L "$ROOT/build/refind-bin/refind_aa64.efi" "$EXTRA/assets/refind/"
     echo "    refind: refind_aa64.efi staged ($(du -h "$EXTRA/assets/refind/refind_aa64.efi" | cut -f1))"
+    # r127: rEFInd startup banner ("NCZ-OS 26.6"). Optional — 70-bootloader.sh
+    # references it via `banner` only when present; rEFInd ignores a missing one.
+    if [ -f "$ROOT/build/refind-bin/ncz-banner.png" ]; then
+        cp -L "$ROOT/build/refind-bin/ncz-banner.png" "$EXTRA/assets/refind/"
+        echo "    refind: ncz-banner.png staged ($(du -h "$EXTRA/assets/refind/ncz-banner.png" | cut -f1))"
+    fi
+    # r128: NCZ tile icon for the rEFInd menu entries (banner_scale fillscreen
+    # turns ncz-banner.png into the full-screen menu background). Optional.
+    if [ -f "$ROOT/build/refind-bin/ncz.png" ]; then
+        cp -L "$ROOT/build/refind-bin/ncz.png" "$EXTRA/assets/refind/"
+        echo "    refind: ncz.png (entry icon) staged ($(du -h "$EXTRA/assets/refind/ncz.png" | cut -f1))"
+    fi
+    # r128: rEFInd's standard icons/ directory. CRITICAL — rEFInd silently
+    # drops to TEXT-ONLY mode (no banner, no graphical menu) when there is no
+    # icons/ subdir next to refind.conf (documented rEFInd behaviour). Shipping
+    # it is what lets the NCZ-OS 26.6 graphical boot menu render on Sky1.
+    if [ -d "$ROOT/build/refind-bin/icons" ]; then
+        cp -a "$ROOT/build/refind-bin/icons" "$EXTRA/assets/refind/"
+        echo "    refind: icons/ staged ($(ls "$EXTRA/assets/refind/icons" | wc -l | tr -d ' ') files)"
+    else
+        echo "    refind: WARN build/refind-bin/icons MISSING — rEFInd boots TEXT-ONLY (no banner)" >&2
+    fi
 else
     echo "    refind: build/refind-bin/refind_aa64.efi MISSING — 70-bootloader will FAIL (no installed bootloader)" >&2
 fi

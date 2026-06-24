@@ -1,0 +1,106 @@
+# desktop.pkgs — r130 fat/offline desktop seed (arm64)
+#
+# Seed for build/build-desktop-mirror.sh: the explicit set of desktop packages
+# whose full dependency closure is downloaded from ports.ubuntu.com into
+# build/desktop-mirror/ and embedded in the ISO pool. This reverses the old
+# "server-only mirror, desktop installs ONLINE" policy (post-install/20-desktop.sh)
+# so the desktop layer installs fully offline from file:///cdrom and never stalls
+# on a slow/unreachable Ubuntu mirror (the r129 14% / 20-desktop stall).
+#
+# This list MUST be a superset of everything post-install/20-desktop.sh installs,
+# so the bundled pool carries the full closure of the installed desktop.
+# Names only (one per line); apt resolves the dependency closure. Component of
+# origin (main/universe) is irrelevant — everything is repackaged into our single
+# 'main' offline component.
+
+# --- curated Sky1 core (XFCE + LightDM + Xorg fbdev + xrdp + GL) ---
+lightdm
+lightdm-gtk-greeter
+xubuntu-core
+xfce4-session
+xfce4-terminal
+xfce4-power-manager
+xfce4-screenshooter
+xfce4-taskmanager
+xserver-xorg-video-fbdev
+xserver-xorg-video-modesetting
+xrdp
+mesa-utils
+vulkan-tools
+libglu1-mesa
+
+# --- audio (PipeWire + Pulse shim + WirePlumber + control) ---
+pipewire
+pipewire-pulse
+pipewire-alsa
+wireplumber
+pavucontrol
+xfce4-pulseaudio-plugin
+
+# --- removable media / disks ---
+gvfs
+gvfs-backends
+udisks2
+gnome-disk-utility
+
+# --- network applet ---
+network-manager-gnome
+
+# --- bluetooth (Sky1 MT7922) ---
+bluez
+blueman
+
+# --- fonts (Noto base + CJK + colour emoji) ---
+fonts-noto-core
+fonts-noto-cjk
+fonts-noto-color-emoji
+
+# --- archives ---
+xarchiver
+thunar-archive-plugin
+7zip
+unrar-free
+
+# --- core apps (PDF / media / image / text) ---
+evince
+mpv
+ristretto
+mousepad
+
+# --- panel UX (Whisker menu + clipboard) ---
+xfce4-whiskermenu-plugin
+xfce4-clipman-plugin
+
+# --- screensaver (2D only; GL hacks shimmed/removed at install) ---
+xscreensaver
+xscreensaver-data
+xscreensaver-data-extra
+x11-utils
+
+# --- r130 bucket: desktop completeness (Xubuntu defaults cix lacked) ---
+catfish
+menulibre
+mugshot
+gigolo
+xfce4-panel-profiles
+baobab
+gnome-system-monitor
+gnome-font-viewer
+seahorse
+xfce4-dict
+xfce4-cpugraph-plugin
+xfce4-netload-plugin
+xfce4-systemload-plugin
+xfce4-weather-plugin
+xfce4-places-plugin
+xfce4-verve-plugin
+xfce4-xkb-plugin
+
+# --- r130 bucket: offline-apt management tools ---
+synaptic
+gdebi
+gdebi-core
+software-properties-gtk
+
+# --- r130 bucket: image editing ---
+gimp

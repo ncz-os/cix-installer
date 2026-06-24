@@ -1,0 +1,60 @@
+# installer-base.pkgs — always-on core toolset for the INSTALLED system + installer env
+#
+# Target: Ubuntu 26.04 (resolute) arm64 / cixmini MS-R1 + Orion O6.
+# Scope:  packages that must be present on every installed NCZ-OS box AND in the
+#         installer runtime (esp. the new r130 choose-disk flow needs reliable
+#         lsblk/blkid/parted/nvme-cli to enumerate and label targets).
+#
+# This is a strict SUBSET of rescue.pkgs (the rescue partition is the superset).
+# Format: one binary package per line; blank lines and '# ...' comments ignored.
+# Consume with:  grep -vE '^\s*(#|$)' manifests/installer-base.pkgs
+#
+# NOTE: remote-access (openssh-server, inetutils-telnetd/openbsd-inetd, busybox)
+#       is already provisioned by post-install/36-telemetry.sh + 35-ssh.sh per
+#       CLAUDE.md directive 9; listed here only to document the contract.
+
+# --- disk / partition identify (required by choose-disk UI) ---
+util-linux          # lsblk, blkid, wipefs, fdisk, sfdisk, cfdisk, lscpu
+parted
+gdisk
+nvme-cli
+smartmontools
+
+# --- hardware identify ---
+pciutils            # lspci
+usbutils            # lsusb
+dmidecode
+lshw
+
+# --- filesystems + recovery ---
+btrfs-progs         # installed root is btrfs — must be able to fsck/mount its own root
+e2fsprogs
+testdisk            # testdisk + photorec
+
+# --- boot management ---
+efibootmgr
+
+# --- network / diag ---
+iproute2
+net-tools
+iputils-ping
+ethtool
+tcpdump
+mtr-tiny
+curl
+wget
+rsync
+
+# --- operator quality-of-life ---
+htop
+tmux
+vim
+mc
+tree
+jq
+lsof
+
+# --- remote access (provisioned by post-install; documented here) ---
+openssh-server
+inetutils-telnetd
+openbsd-inetd
