@@ -16,16 +16,34 @@ brands the system as NCZ
 (Reinhardt for desktop, Magnetar for server / always-on agent
 appliance).
 
-> **🤖 The AI agents are opt-in — the distro is *agent-enabled*, not
-> *agent-on*.** A fresh install is a complete, usable Linux desktop (drivers,
-> GPU, NPU, and audio all work) with **nothing agentic installed or running**.
-> The runtimes, quadlets, and on-device NPU memory stack are *staged and ready*,
-> but no agent and no memory service starts at boot or pulls from the network on
-> its own. You opt in by running **`ncz`** in a terminal: that is what installs
-> the AI agents (`zeroclaw`, and optionally `openclaw`, `hermes`, `portainer`,
-> and NVIDIA NemoClaw) and the **MNEMOS** memory system. Until you run it, the
-> system behaves like any normal Linux desktop. (Earlier ISOs activated
-> `zeroclaw` by default; current ISOs do not.)
+### Two distinct layers: a working OS, and an *optional* AI layer
+
+NCZ deliberately separates the operating system from the AI. Installing the
+ISO gives you the first layer; the second is never installed or started until
+you ask for it.
+
+**1. The OS + drivers — installed and working out of the box.**
+A fresh install is a complete, usable Linux desktop, with no AI required:
+- Hardware enablement: the right kernel, **GPU drivers** (Mesa panvk +
+  rusticl), the **NPU driver** (`/dev/aipu`), **audio** (HDMI + analog
+  headphone/speaker jack), and Wi-Fi/Ethernet firmware — drivers work.
+- XFCE desktop + browser, media players, fonts, archive tools — fully usable
+  for ordinary, non-AI work.
+- Claude Code CLI is present as a *tool*; it does not run anything on its own.
+
+**2. The AI agents + memory substrate — optional, installed with the `ncz`
+command.**
+This layer is **agent-enabled but not agent-on**: the runtimes, quadlets, and
+the on-device NPU embedding stack are staged and ready, but **nothing here is
+installed or running until you run `ncz` in a terminal.** Nothing auto-starts at
+boot or auto-pulls from the network.
+- **AI agents** — `ncz agent install <name>` (`zeroclaw`, `openclaw`,
+  `hermes`, `portainer`) or `ncz install nemoclaw` (NVIDIA NemoClaw).
+- **MNEMOS memory substrate** (the on-device semantic memory system) —
+  `ncz install mnemos`.
+
+Until you run `ncz`, the system behaves like any normal Linux desktop.
+(Earlier ISOs activated `zeroclaw` by default; current ISOs do not.)
 
 ## Vendor-neutral by design
 
