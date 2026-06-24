@@ -38,8 +38,12 @@ for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/
 done
 
 if [ -z "$ROOTFS" ]; then
-    msg "FATAL: rootfs.tar.zst not found"
-    exit 1
+    # THIN/netinstall mode ships no rootfs.tar.zst — the base is installed by
+    # real debootstrap, not pre-extracted. This is the normal path for the
+    # canonical builds, so skip cleanly (exit 0) rather than aborting partman.
+    # Only FULL-mode ISOs stage rootfs.tar.zst for the debootstrap-stub path.
+    msg "no rootfs.tar.zst on media (thin/netinstall mode) — base installs via debootstrap; skipping extract"
+    exit 0
 fi
 if ! command -v zstd >/dev/null; then
     msg "FATAL: zstd not in PATH"
