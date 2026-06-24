@@ -291,8 +291,8 @@ us out and failures are captured even with nobody watching.
 
 **Tunables (kernel cmdline):**
 - `ncz_diag_pw=<pw>` — root/diag password (default `diags`).
-- `ncz_diag_log=<host[:port]>` — remote syslog collector (default
-  `192.168.207.22:5514`). Point it at your own box.
+- `ncz_diag_log=<host[:port]>` — remote syslog collector (defaults to the
+  build's internal dev collector on port `5514`). Point it at your own box.
 
 **How it works.** A static arm64 busybox (`assets/diag/busybox-arm64`, with
 `telnetd`/`httpd`/`syslogd`/`klogd`/`chpasswd` compiled in) ships on the CD;
@@ -303,8 +303,8 @@ the collector**, and starts telnetd + httpd — all **idempotent** (pidfile-guar
 and self-respawning for the whole install. The base d-i initrd has none of these
 (`nc`/`wget`/`tftp` only, and `sshd` only after network-console).
 
-**Collector side.** Run `ncz-logd.sh` on the collector host (e.g.
-`192.168.207.22`): a `socat` UDP listener on `:5514` appending to
+**Collector side.** Run `ncz-logd.sh` on your collector host: a `socat` UDP
+listener on `:5514` appending to
 `~/cixmini-install-logs/install-<date>.log`. `tail -f` it during an install.
 
 **File transfer.** *Pull:* `wget http://<host>:8080/<path>`. *Push:* over SSH,

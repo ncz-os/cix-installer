@@ -249,16 +249,14 @@ echo "--- /target/etc/apt/apt.conf.d/99retries installed ---"
 # DHCP-provided nameserver (one IP, often the LAN router). On flaky
 # LAN DNS this single source dropped queries on .66 take8.
 #
-# A real file with three nameservers (LAN router + Google + Cloudflare)
-# survives any one being slow. Once the system boots and systemd-resolved
-# starts, /etc/resolv.conf gets re-symlinked to the stub during normal
-# boot, so this is install-time only.
+# A real file with public resolvers (Google + Cloudflare) survives any one
+# being slow, and is network-neutral (no site-specific gateway baked in). Once
+# the system boots and systemd-resolved starts, /etc/resolv.conf gets
+# re-symlinked to the stub during normal boot, so this is install-time only.
 echo "--- writing static /target/etc/resolv.conf with fallback nameservers ---"
 rm -f /target/etc/resolv.conf
 cat > /target/etc/resolv.conf <<'RESOLVCONF'
 # nclawzero install-time DNS — replaced by systemd-resolved on boot.
-search nclawzero.lan
-nameserver 192.168.207.1
 nameserver 8.8.8.8
 nameserver 1.1.1.1
 options timeout:2 attempts:3
