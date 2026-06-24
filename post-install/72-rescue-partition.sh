@@ -4,7 +4,7 @@
 # The partman recipe in preseed-ubuntu.cfg creates a 4 GiB ext4 partition
 # (NCZRESCUE) with NO mountpoint on the main system. This hook fills it with
 # the pre-built rescue rootfs (assets/rescue/rescue-rootfs.tar.zst) and the
-# EDGE kernel payload, then records a readiness marker.
+# LTS kernel payload, then records a readiness marker.
 #
 # IMPORTANT — division of labour with 70-bootloader.sh:
 #   This hook runs in Phase 2 (numbered hooks). 70-bootloader.sh runs LATER,
@@ -14,8 +14,11 @@
 #   this hook leaves behind. Here we only touch the rescue PARTITION (never the
 #   ESP), so nothing we do gets clobbered.
 #
-# Edge kernel = the same byte-identical payload the main system runs
-# (assets/kernel/edge), so the rescue env exercises live silicon.
+# r130.5 (operator): the dedicated rescue partition now ships the LTS 6.18
+# kernel (assets/kernel/stable), NOT the edge 7.0.x. A recovery environment
+# should be boring and reliable; the edge kernel's full accelerator/display
+# probing caused "sloppy device startup". 70-bootloader.sh boots this partition
+# with the same NPU/GPU/VPU/KMS module_blacklist as the rEFInd "rescue" entry.
 set -uo pipefail   # NOT -e: optional Phase-2 hook, must fail soft
 
 INSTALLER_META=/usr/local/lib/cix-installer
@@ -28,18 +31,18 @@ MARKER="$INSTALLER_META/RESCUE_READY"
 echo "[72] rescue partition population"
 
 # --- preconditions (skip soft) ---
-KVER_NEXT=""
-[ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
-if [ -z "$KVER_NEXT" ]; then
-    echo "[72] no edge (NEXT) kernel staged — rescue partition uses edge kernel; skipping"
+KVER_LTS=""
+[ -f "$INSTALLER_META/KVER_LTS" ] && KVER_LTS=$(cat "$INSTALLER_META/KVER_LTS" 2>/dev/null || true)
+if [ -z "$KVER_LTS" ]; then
+    echo "[72] no LTS kernel staged — cannot build a clean rescue partition; skipping"
     exit 0
 fi
 if [ ! -f "$TARBALL" ]; then
     echo "[72] $TARBALL not present (run build/build-rescue-rootfs.sh at bake time) — skipping"
     exit 0
 fi
-if [ ! -f "$ASSETS_KERNEL/edge/Image-cixmini.bin" ] || [ ! -f "$ASSETS_KERNEL/edge/modules-cixmini.tgz" ]; then
-    echo "[72] edge kernel assets missing under $ASSETS_KERNEL/edge — skipping"
+if [ ! -f "$ASSETS_KERNEL/stable/Image-cixmini.bin" ] || [ ! -f "$ASSETS_KERNEL/stable/modules-cixmini.tgz" ]; then
+    echo "[72] LTS kernel assets missing under $ASSETS_KERNEL/stable — skipping"
     exit 0
 fi
 for t in blkid lsblk findmnt zstd tar depmod mkfs.ext4 e2label; do
@@ -109,22 +112,22 @@ fi
 # tarball carries a top-level lib/ entry, and on a usrmerge rootfs /lib is a
 # symlink to usr/lib. A naive extract would clobber that symlink and orphan
 # ld-linux — the exact failure mode this rescue env exists to repair.
-echo "[72] installing edge kernel $KVER_NEXT into rescue rootfs"
-install -D -m 0644 "$ASSETS_KERNEL/edge/Image-cixmini.bin" "$MNT/boot/vmlinuz-$KVER_NEXT"
-tar xzf "$ASSETS_KERNEL/edge/modules-cixmini.tgz" -C "$MNT/usr" --strip-components=0 --keep-directory-symlink
-if [ ! -d "$MNT/usr/lib/modules/$KVER_NEXT" ]; then
-    echo "[72] WARN: modules tarball did not produce $MNT/usr/lib/modules/$KVER_NEXT"
+echo "[72] installing LTS kernel $KVER_LTS into rescue rootfs"
+install -D -m 0644 "$ASSETS_KERNEL/stable/Image-cixmini.bin" "$MNT/boot/vmlinuz-$KVER_LTS"
+tar xzf "$ASSETS_KERNEL/stable/modules-cixmini.tgz" -C "$MNT/usr" --strip-components=0 --keep-directory-symlink
+if [ ! -d "$MNT/usr/lib/modules/$KVER_LTS" ]; then
+    echo "[72] WARN: modules tarball did not produce $MNT/usr/lib/modules/$KVER_LTS"
     ls "$MNT/usr/lib/modules/" 2>&1 | sed 's/^/        /'
 else
-    MODC=$(find "$MNT/usr/lib/modules/$KVER_NEXT" -name '*.ko*' 2>/dev/null | wc -l)
+    MODC=$(find "$MNT/usr/lib/modules/$KVER_LTS" -name '*.ko*' 2>/dev/null | wc -l)
     echo "[72] $MODC modules staged; running depmod"
-    depmod -b "$MNT" "$KVER_NEXT" 2>/dev/null || echo "[72] WARN: depmod returned non-zero"
+    depmod -b "$MNT" "$KVER_LTS" 2>/dev/null || echo "[72] WARN: depmod returned non-zero"
 fi
 
-# initrd: reuse the main system's edge initrd (generic; mounts root=PARTUUID).
+# initrd: reuse the main system's LTS initrd (generic; mounts root=PARTUUID).
 # 70-bootloader.sh stages the ESP copy; this in-rootfs copy is for completeness.
-if [ -s "/boot/initrd.img-$KVER_NEXT" ]; then
-    install -D -m 0644 "/boot/initrd.img-$KVER_NEXT" "$MNT/boot/initrd.img-$KVER_NEXT"
+if [ -s "/boot/initrd.img-$KVER_LTS" ]; then
+    install -D -m 0644 "/boot/initrd.img-$KVER_LTS" "$MNT/boot/initrd.img-$KVER_LTS"
 fi
 
 # --- AGENTS.md (refresh from asset if present) ---
@@ -146,7 +149,7 @@ fi
 RP_PARTUUID=$(blkid -s PARTUUID -o value "$RESCUE_SRC" 2>/dev/null || true)
 {
     echo "PARTUUID=$RP_PARTUUID"
-    echo "KVER=$KVER_NEXT"
+    echo "KVER=$KVER_LTS"
     echo "DEV=$RESCUE_SRC"
 } > "$MARKER"
 echo "[72] wrote marker $MARKER (PARTUUID=$RP_PARTUUID)"

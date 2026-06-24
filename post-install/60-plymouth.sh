@@ -68,6 +68,17 @@ else
     printf 'BackgroundEndColor=0x0b0f14\n' >> "$SPIN_PLY"
 fi
 
+# r130.5 (operator: logo was at the bottom, wants it at the TOP). The spinner
+# (two-step) module places the watermark by WatermarkVerticalAlignment, a
+# fraction where 0=top and 1=bottom (stock Ubuntu uses ~.96 = bottom). Move it
+# near the top; .08 leaves a small margin so the 640x300 wordmark isn't jammed
+# against the edge on low-res GOP modes.
+if grep -qE '^WatermarkVerticalAlignment=' "$SPIN_PLY"; then
+    sed -i -E 's/^WatermarkVerticalAlignment=.*/WatermarkVerticalAlignment=.08/' "$SPIN_PLY"
+else
+    printf 'WatermarkVerticalAlignment=.08\n' >> "$SPIN_PLY"
+fi
+
 # Pin spinner as the default Plymouth theme. r123 lesson: register in MANUAL
 # (sticky) mode via update-alternatives --set so xubuntu-logo (from
 # xubuntu-default-settings, higher AUTO priority) cannot win and get embedded in
@@ -81,11 +92,19 @@ command -v plymouth-set-default-theme >/dev/null 2>&1 && \
     plymouth-set-default-theme spinner 2>/dev/null || true
 echo "[60] default.plymouth -> $(readlink -f "$DEFAULT_PLY" 2>/dev/null) (manual)"
 
-# Mask plymouth-quit if it keeps failing (cosmetic, doesn't affect boot)
-# r51 saw "plymouth-quit.service Failed to start" in journal. Disable cleanly.
-systemctl mask plymouth-quit.service plymouth-quit-wait.service 2>/dev/null || true
+# r130.5 (CRITICAL — operator: r130.5 hangs at the rebranded splash, box
+# unreachable): DO NOT mask plymouth-quit / plymouth-quit-wait. The old r51/r52
+# mask was only ever REACHED once the plymouth pkgs were bundled (r130.4+);
+# before that the hook exited at the apt-get `|| exit 0` guard, so the mask never
+# applied and boots worked. With the mask now active, the splash is never torn
+# down at the display-manager handoff and — together with the
+# NetworkManager-wait-online unmask in 33-network.sh — boot wedges behind the
+# splash (the operator sees the rendered NCZ logo, then nothing). The original
+# "plymouth-quit.service failed to start" was cosmetic and does NOT block boot.
+# Proactively UNMASK in case an earlier build left these units masked.
+systemctl unmask plymouth-quit.service plymouth-quit-wait.service 2>/dev/null || true
 
-echo "[60] plymouth splash configured (or fallback) + plymouth-quit.service masked"
+echo "[60] plymouth splash configured (spinner + NCZ watermark); plymouth-quit left enabled"
 
 # r56: explicit plymouth theme set + initramfs rebuild
 # (the older plymouth-set-default-theme binary isn't always installed; do it by hand)

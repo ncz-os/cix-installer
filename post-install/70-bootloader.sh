@@ -421,26 +421,34 @@ fi
 # rescue pin above (which is rescue.target on the SHARED production root): the
 # rescue PARTITION is an entirely separate Ubuntu arm64 rootfs on its own
 # partition (NCZRESCUE), populated by post-install/72-rescue-partition.sh and
-# booted via its OWN root=PARTUUID with the EDGE kernel + full recovery toolset.
+# booted via its OWN root=PARTUUID with the LTS kernel + full recovery toolset.
 # If the main root is unbootable, this entry still boots.
+#
+# r130.5 (operator): the rescue partition boots the LTS 6.18 kernel with the
+# same NPU/GPU/VPU/KMS module_blacklist as the rescue.target pin above — a
+# recovery env must be boring/reliable, not exercise edge silicon (the edge
+# kernel's full device probing caused "sloppy device startup").
 #
 # 72 runs as a numbered hook and leaves a RESCUE_READY marker (PARTUUID + kver);
 # we read it here and, if present, emit a 4th rEFInd menuentry. We reuse the
-# already-staged edge kernel/initrd on the ESP (vmlinuz-$KVER_NEXT) — only the
-# root= differs from the edge entry — so no extra ESP kernel copy is needed.
+# already-staged LTS kernel/initrd on the ESP (vmlinuz-$KVER_LTS) — only the
+# root= + cmdline differ from the stable entry — so no extra ESP kernel copy.
 # ----------------------------------------------------------------------
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
 RESCUEPART_OPTIONS=""
-if [ -f "$RESCUE_READY" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
+if [ -f "$RESCUE_READY" ] && [ "$LTS_AVAILABLE" = "1" ]; then
     RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
     if [ -n "$RESCUEPART_PARTUUID" ]; then
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $NEXT_CMDLINE_BASE"
-        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding rEFInd rescuepart entry"
+        # RESCUE_CMDLINE_SAFE carries the NPU/GPU/VPU/KMS blacklist (built above
+        # for the rescue.target pin); reuse it here, minus rescue.target/ROOT_OPTS,
+        # so the dedicated rescue rootfs boots quietly to a normal login.
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $RESCUE_CMDLINE_SAFE"
+        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding rEFInd rescuepart entry (LTS + safe blacklist)"
     else
         echo "  rescue-partition marker present but no PARTUUID — skipping rescuepart entry"
     fi
 else
-    echo "  no rescue-partition marker ($RESCUE_READY) or no edge kernel — skipping rescuepart entry"
+    echo "  no rescue-partition marker ($RESCUE_READY) or no LTS kernel — skipping rescuepart entry"
 fi
 
 # ======================================================================
@@ -548,13 +556,14 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo "}"
         echo
     fi
-    # r130: dedicated on-disk RESCUE PARTITION (separate rootfs, edge kernel,
-    # full toolset). Reuses the staged edge kernel/initrd; only root= differs.
+    # r130.5: dedicated on-disk RESCUE PARTITION (separate rootfs, LTS kernel +
+    # safe NPU/GPU/VPU/KMS blacklist, full toolset). Reuses the staged LTS
+    # kernel/initrd; only root= + the safe cmdline differ from the stable entry.
     if [ -n "$RESCUEPART_OPTIONS" ]; then
-        echo "menuentry \"NCZ-OS 26.6  ·  RESCUE PARTITION — edge $KVER_NEXT, full toolset (telnet/dropbear/ssh)\" {"
-        echo "    loader  /vmlinuz-$KVER_NEXT"
+        echo "menuentry \"NCZ-OS 26.6  ·  RESCUE PARTITION — LTS $KVER_LTS, full toolset (telnet/dropbear/ssh)\" {"
+        echo "    loader  /vmlinuz-$KVER_LTS"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
+        [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
         echo "    options \"$RESCUEPART_OPTIONS\""
         echo "}"
         echo

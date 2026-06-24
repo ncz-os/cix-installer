@@ -2,7 +2,8 @@
 
 You are an agent (or operator) running inside the **NCZ-OS dedicated rescue
 partition**. This is a self-contained Ubuntu (resolute / 26.04) arm64 rootfs on
-its own partition (`NCZRESCUE`), booted via the **edge kernel**, completely
+its own partition (`NCZRESCUE`), booted via the **LTS kernel**
+(`6.18.26-cix-sky1-lts`) with the NPU/GPU/VPU/KMS module blacklist, completely
 independent of the main system root. Your job here is to **inspect, repair, and
 restore** a broken install. This file is the source of truth for system facts.
 
@@ -32,18 +33,20 @@ what you did.
 | Channel | Version string | Notes |
 |---|---|---|
 | stable / LTS (default) | `6.18.26-cix-sky1-lts` | all drivers working; production default |
-| edge / next (BETA) | `7.0.12-cix-sky1-next` | newer; **this rescue env runs the edge kernel** |
+| edge / next (BETA) | `7.0.12-cix-sky1-next` | newer; main-system BETA channel only |
 | rescue pin | `<lts>-rescue` | independent pinned copy of LTS for the rEFInd "rescue" menuentry |
 
-- This rescue partition boots **edge `7.0.12-cix-sky1-next`** so it exercises the
-  same silicon the main edge channel uses, and it has `btrfs` + the Sky1 display
-  stack in-tree (the old 6.18 rescue USB lacked btrfs — that is why it could not
-  mount modern roots).
+- r130.5: this rescue partition boots the **LTS `6.18.26-cix-sky1-lts`** kernel
+  with the NPU/GPU/VPU/KMS `module_blacklist` (the same safe set as the rEFInd
+  "rescue" pin) so device startup is quiet and reliable — a recovery env should
+  be boring, not exercise edge silicon. It still ships `btrfs` + the Sky1
+  storage/NIC drivers in-tree so it can mount modern roots.
 - Boot is **ACPI-driven** (`acpi=force`). There is **no DTB** in the boot path.
 - Kernel modules live at `/usr/lib/modules/<kver>/` (usrmerge). `/lib` is a
   **symlink** to `usr/lib` — see section 6.
 
-Working Sky1 kernel cmdline (edge base):
+Working Sky1 kernel cmdline (LTS base; the rescue partition additionally appends
+the NPU/GPU/VPU/KMS module_blacklist for a quiet recovery boot):
 ```
 loglevel=4 console=tty0 console=ttyAMA2,115200 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453
 ```

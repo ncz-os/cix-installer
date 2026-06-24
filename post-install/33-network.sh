@@ -44,6 +44,27 @@ cat > "$NETPLAN_FILE" <<'YAML'
 network:
   version: 2
   renderer: NetworkManager
+  ethernets:
+    # r130.5 (Codex review): explicit wired DHCP profiles. Two reasons:
+    #   1. guarantees NM has an auto-connect profile for the wired NIC on
+    #      first boot (don't rely solely on NM's implicit auto-default).
+    #   2. optional:true keeps NetworkManager-wait-online.service (which
+    #      33-network unmasks+enables below) from BLOCKING network-online
+    #      at boot when the wired link has no carrier/lease — that stall,
+    #      behind the boot splash, looked like a hang on the .66 install.
+    # Wildcard match survives enp1s0<->enp49s0 rename churn across boots.
+    ncz-wired-en:
+      match:
+        name: "en*"
+      dhcp4: true
+      dhcp6: true
+      optional: true
+    ncz-wired-eth:
+      match:
+        name: "eth*"
+      dhcp4: true
+      dhcp6: true
+      optional: true
 YAML
 chmod 0600 "$NETPLAN_FILE"
 

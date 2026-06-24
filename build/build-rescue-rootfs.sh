@@ -7,8 +7,8 @@
 # + static-IP fallback) with the /lib-usrmerge repair helper baked in.
 #
 # This rootfs is KERNEL-FREE on purpose: post-install/72-rescue-partition.sh
-# drops the EDGE 7.0.12 kernel Image + modules into it at install time (the
-# same byte-identical edge payload the main system runs), and the rescue
+# drops the LTS 6.18 kernel Image + modules into it at install time (a clean,
+# quiet recovery kernel — NOT the edge payload — and the rescue
 # rEFInd "RESCUE PARTITION" menuentry written by 70-bootloader.sh boots it via root=PARTUUID.
 #
 # Runs on the Linux arm64 build host (ARGOS), native debootstrap — no qemu.
@@ -249,7 +249,7 @@ chmod 0755 "$CHROOT/usr/local/sbin/ncz-rescue-chroot"
 # MOTD pointing operators at AGENTS.md
 cat > "$CHROOT/etc/motd" <<EOF
 
-  NCZ-OS RESCUE ENVIRONMENT (edge kernel, full toolset)
+  NCZ-OS RESCUE ENVIRONMENT (LTS 6.18 kernel, full toolset)
   -----------------------------------------------------
   Read /AGENTS.md for system facts, drivers, boot model, and recovery steps.
   Helpers:  ncz-rescue-fixlib <root>   ncz-rescue-chroot <dev>
