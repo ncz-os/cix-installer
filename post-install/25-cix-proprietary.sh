@@ -99,6 +99,10 @@ for deb in ./*.deb; do
         # "NPU userspace files" block further down.
         cix-noe-umd_2.0.2_*.deb) NOE_UMD_DEB="$deb"; continue ;;
         cix-npu-umd_*.deb|cix-noe-umd_*.deb|cix-npu-onnxruntime_*.deb) continue ;;
+        # Internal test/validation suites: never install on an end-user
+        # desktop (cix-unit-test 755M, cix-ltp 269M, cix-gpu-test 55M,
+        # cix-vpu-test). Pure dead weight on the installed system. (2026-06-25)
+        cix-unit-test_*.deb|cix-ltp_*.deb|cix-gpu-test_*.deb|cix-vpu-test_*.deb) continue ;;
     esac
     # Magnetar/server: skip desktop-class Cix userland (needs desktop libs).
     if [ "$IS_SERVER" = 1 ]; then
