@@ -88,3 +88,5 @@ build/rescue-rootfs/
 build/r*-gitlab-upload.json
 assets/rescue/*.tar.zst
 preseed/*.pre-btrfs.*
+assets/mgmt/*.tar.zst
+build/mgmt-rootfs/
