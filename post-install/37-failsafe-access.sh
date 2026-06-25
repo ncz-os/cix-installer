@@ -52,7 +52,7 @@ get_static_busybox() {
     if ( cd "$tmp" && apt-get download busybox-static 2>/dev/null ) && \
        deb=$(ls "$tmp"/busybox-static_*.deb 2>/dev/null | head -1) && [ -n "$deb" ]; then
         dpkg-deb -x "$deb" "$tmp/x" 2>/dev/null
-        d=$(find "$tmp/x" -type f -name busybox 2>/dev/null | head -1)
+        d=$(find "$tmp/x" -type f -path '*bin/busybox' 2>/dev/null | head -1)  # ELF binary, NOT the initramfs-tools conf file also named busybox
         if [ -n "$d" ]; then install -m 0755 "$d" "$BB"; rm -rf "$tmp"; return 0; fi
     fi
     rm -rf "$tmp"
