@@ -332,8 +332,13 @@ NH=$(printf '%s\n' $HOOK_NAMES | grep -c .)
 echo "--- running post-install in chroot ---"
 ttymsg "running post-install hooks (kernel, desktop, GPU/NPU, bootloader, rescue)…"
 db_try db_capb
-db_try db_progress START 0 "$NH" nclawzero/install-progress
-db_try db_subst nclawzero/install-step STEP "preparing…"
+# r130.8 (defect A): do NOT start a NESTED progress bar. finish-install owns the
+# visible "Finishing the installation" bar and parks it at step ~1/N (~14%) for
+# this whole late_command; a nested bar only crawls inside that one step's width
+# and its title is not shown, so it still looks frozen. The d-i-correct primitive
+# here is db_progress INFO, which updates the STATUS-TEXT line under
+# finish-install's bar (visible, proves liveness, shows staged status).
+db_try db_subst nclawzero/install-step STEP "Preparing nclawzero install - please wait (this is normal, not frozen)..."
 db_try db_progress INFO nclawzero/install-step
 
 # Heartbeat: name the hook currently running by watching which per-hook log in
@@ -353,9 +358,8 @@ HOOK_LOGDIR=/target/var/log/cix-install
           if [ "$DEBCONF_OK" = 1 ] && [ "$hb_cur" != "(starting)" ]; then
               idx=$(printf '%s\n' $HOOK_NAMES | grep -nxF "$hb_cur" | head -1 | cut -d: -f1)
               [ -n "$idx" ] || idx=0
-              db_try db_subst nclawzero/install-step STEP "Installing: $hb_cur  ($idx of $NH)"
+              db_try db_subst nclawzero/install-step STEP "Installing nclawzero: $hb_cur  ($idx of $NH) - please wait (not frozen)"
               db_try db_progress INFO nclawzero/install-step
-              db_try db_progress SET "$idx"
           fi
       else
           ttymsg "  … still working: $hb_cur"
@@ -366,12 +370,18 @@ LATE_HB_PID=$!
 set +e
 in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
-set -e
+# r130.8 (defect B): stay under `set +e` through finalization so a non-fatal
+# cleanup step (eject/strip/rsync/banner) can NEVER turn a SUCCESSFUL install
+# (RET=0) into a non-zero late_command that bounces d-i back to the menu. The
+# real run-all.sh rc stays in RET and is still propagated by `exit $RET` below
+# (preserves the intended bootloader-failure -> install-failed behavior).
 kill "$LATE_HB_PID" 2>/dev/null || true
-db_try db_progress SET "$NH"
-db_try db_subst nclawzero/install-step STEP "post-install complete"
+# r130.8 (defect B): do NOT call db_progress STOP/SET. We never START our own
+# bar now, so STOP would pop finish-install's OWN progress bar - on the success
+# path that corrupted finish-install's accounting and bounced d-i back to the
+# preseed/menu instead of showing the "Installation complete" conclusion screen.
+db_try db_subst nclawzero/install-step STEP "nclawzero post-install complete - finalizing..."
 db_try db_progress INFO nclawzero/install-step
-db_try db_progress STOP
 ttymsg "post-install hooks finished (rc=$RET); finalizing apt sources + bootloader."
 
 # Codex A2 fix: don't leave bind-mount around after late_command finishes
