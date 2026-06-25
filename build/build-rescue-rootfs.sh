@@ -169,14 +169,24 @@ chroot "$CHROOT" systemctl enable ssh.service 2>/dev/null || \
 # --- network bring-up: DHCP all NICs, static fallback 192.168.207.66/24 ---
 cat > "$CHROOT/usr/local/sbin/ncz-rescue-net" <<EOF
 #!/bin/sh
-# Bring every wired NIC up, try DHCP (busybox udhcpc), static fallback.
+# Bring wired NICs up, DHCP only the ones with CARRIER (in parallel),
+# static fallback. Earlier version ran udhcpc -t 5 sequentially on EVERY
+# NIC incl. disconnected ports -> each dead port burned ~15s of timeouts
+# and boot blocked on this oneshot (operator: "networking took a long time
+# to run on boot", 2026-06-25). Now: link-up all, settle, then short
+# parallel DHCP on carriers only.
 set +e
-for i in \$(ls /sys/class/net 2>/dev/null | grep -v '^lo\$'); do
-    ip link set "\$i" up 2>/dev/null
-    busybox udhcpc -i "\$i" -q -n -t 5 2>/dev/null
+NICS=\$(ls /sys/class/net 2>/dev/null | grep -v '^lo\$')
+for i in \$NICS; do ip link set "\$i" up 2>/dev/null; done
+sleep 2   # let carrier/auto-neg settle before reading link state
+for i in \$NICS; do
+    [ "\$(cat /sys/class/net/\$i/carrier 2>/dev/null)" = "1" ] || continue
+    ( busybox udhcpc -i "\$i" -q -n -t 3 -T 2 2>/dev/null ) &
 done
+wait
 if ! ip -4 addr show 2>/dev/null | grep -q 'inet '; then
-    iface=\$(ls /sys/class/net 2>/dev/null | grep -v '^lo\$' | head -1)
+    iface=\$(for i in \$NICS; do [ "\$(cat /sys/class/net/\$i/carrier 2>/dev/null)" = "1" ] && { echo "\$i"; break; }; done)
+    [ -z "\$iface" ] && iface=\$(echo "\$NICS" | head -1)
     [ -n "\$iface" ] && ip addr add $RESCUE_STATIC_IP dev "\$iface" 2>/dev/null
     [ -n "\$iface" ] && ip route add default via $RESCUE_STATIC_GW 2>/dev/null
 fi
@@ -185,13 +195,15 @@ EOF
 chmod 0755 "$CHROOT/usr/local/sbin/ncz-rescue-net"
 cat > "$CHROOT/etc/systemd/system/ncz-rescue-net.service" <<'EOF'
 [Unit]
-Description=NCZ rescue network bring-up (DHCP + static fallback)
+Description=NCZ rescue network bring-up (DHCP carriers-only + static fallback)
 After=systemd-udevd.service
 Wants=network.target
 Before=network.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/ncz-rescue-net
+# Hard cap so a stuck link can never hang boot waiting on network.target.
+TimeoutStartSec=25
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
