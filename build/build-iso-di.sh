@@ -1784,7 +1784,7 @@ mkdir -p "$STAGING/boot/grub"
 # Working r6 cmdline (extracted from running cixmini install /proc/cmdline).
 # Plus auto/priority/preseed/file for unattended d-i operation.
 MARTJOHNSON_R6="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453"
-DI_PRIORITY=high
+DI_PRIORITY=critical  # r134: was high; high drops d-i to interactive menu after finish-install (no auto-reboot). critical auto-progresses to the terminal reboot; the remove-media prompt is itself critical so it still shows.
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
 fi
