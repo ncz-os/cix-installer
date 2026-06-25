@@ -1,8 +1,8 @@
-# NCZ server-mirror gap report — 2026-06-17T01:45:45Z
+# NCZ server-mirror gap report — 2026-06-25T22:45:46Z
 # Seed packages apt could not locate at all (bad name / not in resolute):
   (none)
 
-# Closure packages NOT in the local mirror (filled from Ubuntu ports): 12
+# Closure packages NOT in the local mirror (filled from Ubuntu ports): 13
   FROM-PORTS: chrony
   FROM-PORTS: crun
   FROM-PORTS: efibootmgr
@@ -15,6 +15,7 @@
   FROM-PORTS: systemd-boot
   FROM-PORTS: systemd-boot-efi
   FROM-PORTS: systemd-boot-tools
+  FROM-PORTS: systemd-container
 
 # Unmet/uninstallable complaints from dependency resolution:
   (none)

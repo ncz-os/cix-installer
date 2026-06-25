@@ -1591,6 +1591,18 @@ if [ -d "$ROOT/assets" ]; then
                     echo "    assets/rescue present but rescue-rootfs.tar.zst missing — run build/build-rescue-rootfs.sh (rescue partition will be left empty)"
                 fi
                 ;;
+            mgmt)
+                # Magnetar nspawn recovery/management container rootfs.
+                # Lands at /usr/local/lib/cix-installer/assets/mgmt/ on the
+                # target; consumed (server/magnetar only) by
+                # post-install/38-recovery-container.sh.
+                cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true
+                if [ -f "$EXTRA/assets/mgmt/ncz-mgmt-rootfs.tar.zst" ]; then
+                    echo "    ncz-mgmt-rootfs.tar.zst staged: $(du -h "$EXTRA/assets/mgmt/ncz-mgmt-rootfs.tar.zst" | cut -f1)"
+                else
+                    echo "    assets/mgmt present but ncz-mgmt-rootfs.tar.zst missing -- run build/build-mgmt-rootfs.sh (recovery container will be skipped)"
+                fi
+                ;;
             cix-debs)
             # Ship ONLY the cix proprietary userland the installer installs.
             # Exclude internal test/validation suites (cix-unit-test 755M,

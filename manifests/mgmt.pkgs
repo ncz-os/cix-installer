@@ -1,0 +1,32 @@
+# mgmt.pkgs — package set for the Magnetar nspawn recovery/management container
+# (assets/mgmt/ncz-mgmt-rootfs.tar.zst, built by build/build-mgmt-rootfs.sh).
+#
+# Goal: a minimal, self-contained userland that boots under systemd-nspawn with
+# its OWN glibc/NSS/PAM/openssh, so a wedged host /usr/lib cannot break it, and
+# it can ssh + SFTP in and repair the host via the RW /host bind. One package
+# per line; '#' comments and blank lines ignored.
+
+# --- init / pid1 (nspawn Boot=yes) ---
+systemd-sysv
+dbus
+
+# --- networking (own macvlan IP via systemd-networkd + DNS via resolved) ---
+systemd-resolved
+iproute2
+iputils-ping
+
+# --- remote access: ssh + SFTP subsystem (the whole point vs :2323 telnet) ---
+openssh-server
+openssh-sftp-server
+
+# --- transfer / edit / inspect ---
+rsync
+curl
+less
+vim-tiny
+ca-certificates
+
+# --- host-repair tooling (operate on the RW /host bind) ---
+btrfs-progs
+e2fsprogs
+dosfstools
