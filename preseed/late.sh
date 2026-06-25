@@ -313,6 +313,18 @@ Description: Installing nclawzero — please be patient (several minutes)
 Template: nclawzero/install-step
 Type: text
 Description: ${STEP}
+
+Template: nclawzero/remove-media
+Type: note
+Description: NCZ 26.6 install complete - REMOVE THE USB STICK NOW
+ The installation finished successfully.
+ .
+ IMPORTANT: physically remove the USB installation stick NOW, before you
+ continue.
+ .
+ When you select Continue the system reboots into your new NCZ 26.6
+ desktop. If the USB stick is left inserted, the machine may boot back
+ into the installer instead of your new system.
 NCZTPL
     if . /usr/share/debconf/confmodule 2>/dev/null; then
         if debconf-loadtemplate nclawzero /tmp/ncz-progress.templates 2>/dev/null; then
@@ -487,6 +499,16 @@ if [ "$RET" = "0" ]; then
             printf '%b' "$BANNER" >> "$tty" 2>/dev/null || true
         fi
     done
-    sleep 5
+    # r135: BLOCKING graphical dialog so the user removes the USB before the
+    # reboot. priority=critical (r134) means d-i may reboot without its own
+    # final prompt, and the TTY banner above is only visible on Alt+F3. This
+    # pops a note on the same frontend d-i uses and waits for Continue.
+    if [ "$DEBCONF_OK" = 1 ]; then
+        db_try db_fset nclawzero/remove-media seen false
+        db_try db_input critical nclawzero/remove-media
+        db_try db_go
+    else
+        sleep 5
+    fi
 fi
 exit $RET
