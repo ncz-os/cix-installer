@@ -115,6 +115,16 @@ WantedBy=sysinit.target
 UNIT
 systemctl enable cix-detect-display.service 2>&1 | tail -1
 
+# Mask the CIX factory display watchdog. cix-debian-misc ships
+# cix-check-display.service -> /usr/bin/restart-display, hardcoded to
+# GNOME/gdm3; on our lightdm+XFCE stack it fails every boot with
+# "Unit gdm3.service not found" (operator-reported 2026-06-25 on r131).
+# Our cix-detect-display.service above handles display bring-up. Mask via a
+# /etc symlink to /dev/null so it wins even though cix-debian-misc installs
+# later (25-cix-proprietary.sh).
+ln -sf /dev/null /etc/systemd/system/cix-check-display.service
+echo "[22] masked vendor cix-check-display.service (GNOME-only; we use lightdm+XFCE)"
+
 # Run once during install
 /usr/local/lib/cix-installer/detect-primary-display.sh
 
