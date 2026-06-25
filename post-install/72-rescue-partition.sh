@@ -155,6 +155,18 @@ RP_PARTUUID=$(blkid -s PARTUUID -o value "$RESCUE_SRC" 2>/dev/null || true)
 } > "$MARKER"
 echo "[72] wrote marker $MARKER (PARTUUID=$RP_PARTUUID)"
 
+# --- hide the rescue partition from the desktop (udisks/gvfs/xfdesktop) ---
+# It is an internal volume (HintSystem=true), so its auto-shown desktop icon
+# cannot be mounted by an unprivileged click -- udisks polkit returns
+# NotAuthorized (operator-reported 2026-06-25). UDISKS_IGNORE removes it from
+# the volume list entirely; admins still sudo-mount it when needed.
+install -d -m 0755 /etc/udev/rules.d
+cat > /etc/udev/rules.d/99-ncz-rescue-hide.rules <<'UDEV'
+# NCZ rescue partition: internal system volume, not user-mountable data.
+SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="NCZRESCUE", ENV{UDISKS_IGNORE}="1"
+UDEV
+echo "[72] udev rule installed: NCZRESCUE hidden from desktop (UDISKS_IGNORE)"
+
 # --- finish: sync, unmount, reclaim space ---
 sync
 umount "$MNT" 2>/dev/null || true
