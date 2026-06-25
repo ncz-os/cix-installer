@@ -1591,7 +1591,26 @@ if [ -d "$ROOT/assets" ]; then
                     echo "    assets/rescue present but rescue-rootfs.tar.zst missing — run build/build-rescue-rootfs.sh (rescue partition will be left empty)"
                 fi
                 ;;
-            *) cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true ;;
+            cix-debs)
+            # Ship ONLY the cix proprietary userland the installer installs.
+            # Exclude internal test/validation suites (cix-unit-test 755M,
+            # cix-ltp 269M, cix-gpu-test 55M, cix-vpu-test) and dead/duplicate
+            # versions superseded by build/apt-repo (cix-npu-onnxruntime_1.0.0
+            # -> apt-repo 1.2.0; cix-noe-umd_1.1.1 -> 2.0.2 file-extract). These
+            # were never the intended install set yet bloated the ISO by ~1.5G
+            # (and the test suites WERE dpkg-installed onto every target via
+            # 25-cix-proprietary.sh -- ~1G of dead weight per machine). (2026-06-25)
+            mkdir -p "$EXTRA/assets/cix-debs"
+            for f in "$d"/*; do
+                [ -e "$f" ] || continue
+                case "$(basename "$f")" in
+                    cix-unit-test_*|cix-ltp_*|cix-gpu-test_*|cix-vpu-test_*|cix-npu-onnxruntime_*|cix-noe-umd_1.1.1_*)
+                        echo "    cix-debs: excluding bloat $(basename "$f") ($(du -h "$f" | cut -f1))" ;;
+                    *) cp -aL "$f" "$EXTRA/assets/cix-debs/" 2>/dev/null || true ;;
+                esac
+            done
+            ;;
+        *) cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true ;;
         esac
     done
 fi
