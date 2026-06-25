@@ -58,3 +58,7 @@ lsof
 openssh-server
 inetutils-telnetd
 openbsd-inetd
+# Static busybox for the UNWEDGEABLE failsafe console (post-install/37-failsafe-access.sh):
+# extracted (not installed) into /opt/ncz-failsafe so a /usr/lib clobber that wedges
+# every dynamic daemon still leaves a static root recovery shell on telnet :2323.
+busybox-static

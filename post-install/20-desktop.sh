@@ -641,7 +641,9 @@ cat > /etc/xdg/autostart/xscreensaver.desktop <<'XAUTO'
 Type=Application
 Name=XScreenSaver
 Comment=NCZ 26.6 cosmic-themed screensaver daemon
-Exec=xscreensaver -no-splash
+# Force llvmpipe software GL: Mali-G720 panthor GL is flaky for xscreensaver
+# GL hacks (they fall back to blank). Software GL renders them reliably.
+Exec=env LIBGL_ALWAYS_SOFTWARE=1 xscreensaver -no-splash
 OnlyShowIn=XFCE;LXQt;MATE;Openbox;
 StartupNotify=false
 Terminal=false
