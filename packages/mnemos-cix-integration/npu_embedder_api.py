@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Union, Optional
+import atexit
 import numpy as np
 import sys
 import time
@@ -17,6 +18,39 @@ tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v
 print("Loading NPU Model...", flush=True)
 cix_model = NOE_Engine.EngineInfer("/usr/share/cix/models/minilm_128.cix")
 print("NPU Model loaded successfully.", flush=True)
+
+
+# --- clean NPU teardown ---------------------------------------------------
+# NOE_Engine.EngineInfer wraps a native (C++) object that has NO Python
+# __del__. If it is destroyed implicitly at interpreter shutdown, the runtime
+# tears down the C++ object without first unloading the graph / deinit'ing the
+# NPU context, which triggers "pure virtual method called" -> std::terminate
+# -> SIGABRT (exit 134) AFTER work has completed. EngineInfer.clean() performs
+# the orderly release (noe_unload_graph + noe_deinit_context); calling it while
+# the interpreter is still alive avoids the abort. We register it at exit
+# (covers normal exit and uvicorn's SIGTERM graceful shutdown) and guard
+# against a double clean(). Any code that constructs an EngineInfer should do
+# the same (e.g. `try: ... finally: engine.clean()`).
+_npu_cleaned = False
+
+
+def _cleanup_npu():
+    global _npu_cleaned
+    if _npu_cleaned:
+        return
+    _npu_cleaned = True
+    try:
+        cix_model.clean()
+    except Exception:
+        pass
+
+
+atexit.register(_cleanup_npu)
+
+
+@app.on_event("shutdown")
+def _on_shutdown():
+    _cleanup_npu()
 
 class EmbedRequest(BaseModel):
     input: Union[str, List[str]]

@@ -207,15 +207,11 @@ echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol
 # ----------------------------------------------------------------------
 # r75 Codex round-5 HIGH fix — per-entry cmdline split.
 #
-# LTS keeps efi=noruntime (r74 ship stability; original MS-R1 EFI
-# runtime quirk worked around by disabling it). NEXT drops it because
-# systemd-bless-boot requires EFI runtime variables (LoaderBootCountPath)
-# to mark a successful boot as good — without that, repeated successful
-# NEXT boots burn the +N-M counter to .failed and roll back to LTS.
-# linux-cix-sky1-next 7.0.x has newer EFI handling than the 6.6 fork
-# the noruntime workaround was originally added for; defaulting to
-# runtime-enabled on NEXT lets the auto-rollback semantics actually
-# work as designed.
+# r130.6 (Codex audit): LTS and NEXT both keep efi=noruntime. The old
+# rationale for dropping it on NEXT was systemd-bless-boot boot-counting
+# (LoaderBootCountPath needs EFI runtime variables) — but this installer boots
+# via rEFInd with `use_nvram false`, so there is no bless-boot path to protect
+# and the MS-R1 EFI-runtime quirk is still relevant. Keep noruntime on both.
 # r123 (2026-06-22) boot speed + cleanliness fix:
 #   - DROPPED console=ttyAMA2,115200 — /dev/ttyAMA2 does NOT enumerate on the
 #     MS-R1 when booting from disk (only the debug-harness exposes it). systemd
@@ -248,7 +244,7 @@ LTS_CMDLINE_BASE="console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypa
 # NEXT boot text visible on HDMI before KMS, but that is exactly the verbose
 # "ugly" boot we now replace with the Plymouth splash. Early text is still
 # available via the rescue entry (verbose, no splash).
-NEXT_CMDLINE_BASE="console=tty0 acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
+NEXT_CMDLINE_BASE="console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
 
 # Plymouth splash flags for a clean graphical boot. Appended to stable+edge
 # only (see LTS_OPTIONS/NEXT_OPTIONS below) — rescue deliberately omits these
@@ -424,10 +420,12 @@ fi
 # booted via its OWN root=PARTUUID with the LTS kernel + full recovery toolset.
 # If the main root is unbootable, this entry still boots.
 #
-# r130.5 (operator): the rescue partition boots the LTS 6.18 kernel with the
-# same NPU/GPU/VPU/KMS module_blacklist as the rescue.target pin above — a
-# recovery env must be boring/reliable, not exercise edge silicon (the edge
-# kernel's full device probing caused "sloppy device startup").
+# r130.6 (operator: rescue booted but screen was blank): the rescue partition
+# boots the LTS 6.18 kernel with the NORMAL LTS cmdline (display drivers KEPT),
+# NOT the rescue.target NPU/GPU/VPU/KMS blacklist. This is a standalone operator
+# environment — it MUST have a usable local console, so we must not strip the
+# display/KMS drivers. (The rescue.target pin above keeps the blacklist; that
+# one recovers a broken MAIN root and is fine headless-over-serial.)
 #
 # 72 runs as a numbered hook and leaves a RESCUE_READY marker (PARTUUID + kver);
 # we read it here and, if present, emit a 4th rEFInd menuentry. We reuse the
@@ -439,11 +437,11 @@ RESCUEPART_OPTIONS=""
 if [ -f "$RESCUE_READY" ] && [ "$LTS_AVAILABLE" = "1" ]; then
     RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
     if [ -n "$RESCUEPART_PARTUUID" ]; then
-        # RESCUE_CMDLINE_SAFE carries the NPU/GPU/VPU/KMS blacklist (built above
-        # for the rescue.target pin); reuse it here, minus rescue.target/ROOT_OPTS,
-        # so the dedicated rescue rootfs boots quietly to a normal login.
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $RESCUE_CMDLINE_SAFE"
-        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding rEFInd rescuepart entry (LTS + safe blacklist)"
+        # Use the NORMAL LTS cmdline (display drivers kept) so the rescue
+        # partition has a working local console. NO module_blacklist and NO
+        # "quiet splash" (stays text-verbose for recovery visibility).
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $LTS_CMDLINE_BASE"
+        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding rEFInd rescuepart entry (LTS + normal display cmdline)"
     else
         echo "  rescue-partition marker present but no PARTUUID — skipping rescuepart entry"
     fi
@@ -499,7 +497,8 @@ else
 fi
 
 # default_selection matches a substring of the menu-entry title. edge is the
-# default when staged, else stable. rescue is always manual-only.
+# default when staged (operator: edge supports more hardware and is the
+# intended default), else stable. rescue is always manual-only.
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="edge"
 else
@@ -539,7 +538,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ "$NEXT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"NCZ-OS 26.6  ·  edge — kernel $KVER_NEXT (NEXT 7.0.x) [DEFAULT/BETA]\" {"
+        echo "menuentry \"NCZ-OS 26.6  ·  edge — kernel $KVER_NEXT (NEXT 7.0.x) [DEFAULT]\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -556,9 +555,9 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo "}"
         echo
     fi
-    # r130.5: dedicated on-disk RESCUE PARTITION (separate rootfs, LTS kernel +
-    # safe NPU/GPU/VPU/KMS blacklist, full toolset). Reuses the staged LTS
-    # kernel/initrd; only root= + the safe cmdline differ from the stable entry.
+    # r130.6: dedicated on-disk RESCUE PARTITION (separate rootfs, LTS kernel,
+    # NORMAL display cmdline so the local console works, full toolset). Reuses
+    # the staged LTS kernel/initrd; only root= differs from the stable entry.
     if [ -n "$RESCUEPART_OPTIONS" ]; then
         echo "menuentry \"NCZ-OS 26.6  ·  RESCUE PARTITION — LTS $KVER_LTS, full toolset (telnet/dropbear/ssh)\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"

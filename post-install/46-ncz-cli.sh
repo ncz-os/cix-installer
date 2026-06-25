@@ -298,9 +298,13 @@ ncz_install_mnemos() {
     echo "[ncz]   data:     volume mnemos-data (sqlite at /data/mnemos.db, persistent)"
     echo "[ncz]   embedder: in-process CPU (nomic-embed-text-v1.5, 768-dim)"
     echo "[ncz]   service:  systemctl status mnemos.service"
-    echo "[ncz] NOTE: Cix NPU embedding offload is not enabled by this command —"
-    echo "[ncz]       the stock image has no libnoe/transformers/.cix. It needs a"
-    echo "[ncz]       purpose-built image (those baked in) + /dev/aipu passthrough."
+    echo "[ncz] NOTE: this runs MNEMOS with its in-process CPU embedder (768-dim)."
+    echo "[ncz]       To offload embeddings to the Cix NPU instead, install the"
+    echo "[ncz]       host-side embedder (OpenAI-compatible /v1/embeddings on :8000,"
+    echo "[ncz]       MiniLM-L6-v2 384-dim on /dev/aipu):"
+    echo "[ncz]         sudo apt install mnemos-cix-integration"
+    echo "[ncz]       then point MNEMOS at OPENAI_BASE_URL=http://localhost:8000/v1"
+    echo "[ncz]       (requires /dev/aipu passthrough + host networking on the quadlet)."
 }
 
 ncz_install() {

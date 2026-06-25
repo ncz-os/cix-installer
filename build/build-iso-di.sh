@@ -1572,11 +1572,13 @@ if [ -d "$ROOT/assets" ]; then
         case "$bn" in
             kernel) ;;  # handled below — staged into /cixmini/assets/kernel/
             rootfs)
-                if [ "$STAGE_ROOTFS" = "1" ]; then
-                    cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true
-                else
-                    echo "    assets/rootfs skipped in --mode $MODE"
-                fi
+                # NEVER bulk-copy assets/rootfs/ into the ISO. The install
+                # rootfs is staged separately as /cixmini/rootfs.tar.zst (see
+                # ROOTFS_TARBALL below) and extract-rootfs.sh reads only that
+                # path. The *.tar.zst tarballs here are multi-GB; copying the
+                # whole dir duplicated the rootfs (and dragged in obsolete base
+                # tarballs), bloating the ISO by gigabytes.
+                echo "    assets/rootfs NOT bulk-copied (install rootfs staged as /cixmini/rootfs.tar.zst)"
                 ;;
             rescue)
                 # r130: dedicated rescue-partition rootfs tarball + AGENTS.md.

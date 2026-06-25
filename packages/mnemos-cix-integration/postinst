@@ -1,29 +1,112 @@
 #!/bin/bash
-set -e
+# mnemos-cix-integration postinst — stage the CIX NPU embedder (OpenAI-compatible
+# /v1/embeddings on :8000) backed by the MiniLM-L6-v2 .cix on the Zhouyi V3 NPU.
+#
+# This is an OPTIONAL, advanced "native NPU offload" path for MNEMOS. It is not
+# installed by default; `ncz install mnemos` (the container path, in-process CPU
+# embedder) is the canonical default. Install this only to offload embeddings
+# to the NPU.
+#
+# CRITICAL: the NOE_Engine / libnoe wheels ship cp311/cp312 .so extensions ONLY.
+# A venv built from a 3.13+ system python CANNOT `import NOE_Engine`, so the
+# service would crash-loop. We therefore build the venv from a 3.11/3.12
+# interpreter (prefer the relocatable /opt/python3.11 staged by 46-python311.sh)
+# and only enable the service after a successful import smoke test. Best-effort
+# throughout: a failure here must never leave dpkg half-configured.
+set -u
 
-# Create directories
-mkdir -p /opt/mnemos/bin
-mkdir -p /usr/share/cix/models
+SHARE=/usr/share/mnemos-cix-integration
+VENV=/opt/mnemos/venv
+MODELS=/usr/share/cix/models
+SERVICE=cix-npu-embedder.service
 
-# Install API files
-cp /usr/share/mnemos-cix-integration/npu_embedder_api.py /opt/mnemos/bin/
-cp /usr/share/mnemos-cix-integration/NOE_Engine.py /opt/mnemos/bin/
-cp /usr/share/mnemos-cix-integration/minilm_128.cix /usr/share/cix/models/
+log(){ echo "[mnemos-cix] $*"; }
 
-# Set up Python venv for the API
-if [ ! -d /opt/mnemos/venv ]; then
-    python3 -m venv /opt/mnemos/venv
+mkdir -p /opt/mnemos/bin "$MODELS"
+
+# --- stage payload -------------------------------------------------------
+cp -f "$SHARE/npu_embedder_api.py" /opt/mnemos/bin/ 2>/dev/null || log "WARN: npu_embedder_api.py missing"
+cp -f "$SHARE/NOE_Engine.py"       /opt/mnemos/bin/ 2>/dev/null || true
+if [ -f "$SHARE/minilm_128.cix" ]; then
+    cp -f "$SHARE/minilm_128.cix" "$MODELS/" && \
+        log "staged minilm_128.cix -> $MODELS/ ($(stat -c%s "$MODELS/minilm_128.cix" 2>/dev/null) bytes)"
+else
+    log "WARN: minilm_128.cix not in package payload — embedder has no model"
 fi
-/opt/mnemos/venv/bin/pip install fastapi uvicorn pydantic transformers sentencepiece protobuf --no-cache-dir
 
-# Install systemd service
-cp /usr/share/mnemos-cix-integration/cix-npu-embedder.service /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable cix-npu-embedder.service
+# --- pick a 3.11/3.12 interpreter (NPU wheels are cp311/cp312 only) -------
+PYBIN=""
+for cand in /opt/python3.11/bin/python3.11 \
+            "$(command -v python3.11 2>/dev/null)" \
+            "$(command -v python3.12 2>/dev/null)"; do
+    if [ -n "$cand" ] && [ -x "$cand" ]; then PYBIN="$cand"; break; fi
+done
+if [ -z "$PYBIN" ]; then
+    SYS_MINOR=$(python3 -c 'import sys;print(sys.version_info[1])' 2>/dev/null || echo 0)
+    if [ "$SYS_MINOR" = "11" ] || [ "$SYS_MINOR" = "12" ]; then
+        PYBIN=$(command -v python3)
+    fi
+fi
 
-# Setup MNEMOS API service wrapper
+NPU_READY=0
+if [ -z "$PYBIN" ]; then
+    log "WARN: no python3.11/3.12 interpreter found; the NOE_Engine NPU binding"
+    log "      cannot be imported. Staging files but NOT enabling $SERVICE."
+    log "      Install python3.11 (46-python311 provisions /opt/python3.11) and"
+    log "      reconfigure: sudo dpkg-reconfigure mnemos-cix-integration"
+else
+    log "venv interpreter: $PYBIN ($("$PYBIN" --version 2>&1))"
+    # (re)build the venv if it is missing or built from the wrong minor version
+    if [ -x "$VENV/bin/python" ]; then
+        HAVE=$("$VENV/bin/python" -c 'import sys;print(sys.version_info[1])' 2>/dev/null || echo x)
+        WANT=$("$PYBIN" -c 'import sys;print(sys.version_info[1])' 2>/dev/null || echo y)
+        [ "$HAVE" != "$WANT" ] && { log "rebuilding venv (had 3.$HAVE, want 3.$WANT)"; rm -rf "$VENV"; }
+    fi
+    [ -d "$VENV" ] || "$PYBIN" -m venv "$VENV"
+    "$VENV/bin/pip" install --quiet --upgrade pip wheel 2>/dev/null || true
+
+    # FastAPI server deps (PyPI; needs network at install time)
+    "$VENV/bin/pip" install --no-cache-dir \
+        fastapi uvicorn pydantic numpy transformers sentencepiece protobuf 2>&1 | tail -2 || \
+        log "WARN: server-dep install failed (offline?) — service may not start"
+
+    # CIX NPU bindings (cp311/cp312 wheels staged by 25-cix-proprietary)
+    LIBNOE_WHL=$(ls /usr/share/cix/pypi/libnoe-*.whl 2>/dev/null | head -1)
+    NOE_WHL=$(ls /usr/share/cix/pypi/NOE_Engine-*.whl 2>/dev/null | head -1)
+    [ -n "$LIBNOE_WHL" ] && "$VENV/bin/pip" install --no-cache-dir "$LIBNOE_WHL" 2>&1 | tail -1 || \
+        log "WARN: libnoe wheel not found under /usr/share/cix/pypi"
+    [ -n "$NOE_WHL" ]    && "$VENV/bin/pip" install --no-cache-dir "$NOE_WHL"    2>&1 | tail -1 || true
+
+    # make libnoe.so.* discoverable for the cp311 extension
+    if [ -d /usr/share/cix/lib ] && ! grep -rqs '/usr/share/cix/lib' /etc/ld.so.conf.d/ 2>/dev/null; then
+        echo "/usr/share/cix/lib" > /etc/ld.so.conf.d/cix-noe.conf
+        ldconfig 2>/dev/null || true
+    fi
+
+    # smoke test: can the venv import the NPU binding?
+    if "$VENV/bin/python" -c "import NOE_Engine" 2>/dev/null; then
+        NPU_READY=1
+        log "NOE_Engine import OK — NPU embedder ready"
+    else
+        log "WARN: NOE_Engine import failed in venv — NOT enabling $SERVICE"
+    fi
+fi
+
+# --- service + MNEMOS env ------------------------------------------------
+cp -f "$SHARE/$SERVICE" /etc/systemd/system/ 2>/dev/null || true
+systemctl daemon-reload 2>/dev/null || true
+if [ "$NPU_READY" = "1" ]; then
+    systemctl enable "$SERVICE" 2>/dev/null || true
+    systemctl restart "$SERVICE" 2>/dev/null || systemctl start "$SERVICE" 2>/dev/null || true
+    log "$SERVICE enabled + started (OpenAI-compatible embeddings on :8000)"
+else
+    systemctl disable "$SERVICE" 2>/dev/null || true
+    log "$SERVICE installed but DISABLED (NPU binding unavailable); enable later with:"
+    log "  sudo dpkg-reconfigure mnemos-cix-integration"
+fi
+
 mkdir -p /etc/mnemos
-cat << ENVC > /etc/mnemos/mnemos.env
+cat > /etc/mnemos/mnemos.env <<ENVC
 MNEMOS_PORT=5002
 MNEMOS_BIND=0.0.0.0
 MNEMOS_LLM_PROVIDER=openai

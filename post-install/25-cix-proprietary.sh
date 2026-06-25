@@ -211,6 +211,40 @@ echo "--- dpkg -i (collect failures, continue) ---"
 # --force-depends posture); upstream fix is a proper Replaces:/Conflicts:.
 dpkg -i --force-depends --force-overwrite "${DEBS[@]}" 2>&1 | tee /var/log/cix-install/25-dpkg.log || true
 
+# r130.7 (CRITICAL boot fix — operator: NONE of the installed kernels boot,
+# stable + edge + rescue-partition all dead, no video). cix-env's
+# /etc/modprobe.d/blacklist.conf (+ /usr/lib copy) blacklists `btrfs` — but our
+# root filesystem is BTRFS and CONFIG_BTRFS_FS=m in both kernels, so the module
+# can NEVER load -> initramfs cannot mount the root -> every main rEFInd entry
+# dies with no video. (r129 booted only because the dpkg overwrite-conflict
+# aborted cix-env before this file landed; the r130.4 --force-overwrite made it
+# install, which is exactly what bricked boot.) The same file also blacklists
+# fuse/cuse and the ENTIRE kernel crypto family (aes/sha/dm-integrity/IMA/TLS/
+# module-signature deps) — all wrong for a general-purpose desktop. Neutralize
+# those filesystem + crypto blacklists; leave the genuinely board-specific
+# hardware blacklists (absent sensors/gpio/regulators/ipmi/rng/typec) intact.
+# This runs BEFORE 60-plymouth rebuilds the initramfs, so the corrected
+# blacklist.conf is what gets baked into the initrd.
+UNBRICK_MODS="btrfs fuse cuse blocklayoutdriver overlay \
+aes-neon-blk sha512-arm64 aes-neon-bs sha3-ce sha512-ce chacha-neon crct10dif-ce \
+sm3-ce xor-neon xxhash_generic sha256_generic xts af_alg cbc authenc des_generic \
+blake2b_generic ecb ctr crypto_engine dh_generic sha3_generic sm3_generic \
+ecdh_generic ecc sm3 ghash-generic ccm algif_rng gcm authencesn md5 cmac \
+sm4_generic curve25519-generic xor michael_mic sm4"
+for bl in /etc/modprobe.d/blacklist.conf /usr/lib/modprobe.d/blacklist.conf; do
+    [ -f "$bl" ] || continue
+    for m in $UNBRICK_MODS; do
+        sed -i "s/^[[:space:]]*blacklist[[:space:]][[:space:]]*${m}[[:space:]]*$/# [25-unbrick] blacklist ${m}/" "$bl"
+    done
+    n=$(grep -c "^# \[25-unbrick\]" "$bl" 2>/dev/null || echo 0)
+    echo "[25] neutralized $n fs+crypto blacklist lines in $bl (btrfs root MUST be mountable)"
+done
+# Belt-and-suspenders: if btrfs is somehow still blacklisted anywhere, fail loud.
+if grep -rqsE '^[[:space:]]*blacklist[[:space:]]+btrfs[[:space:]]*$' /etc/modprobe.d/ /usr/lib/modprobe.d/ 2>/dev/null; then
+    echo "[25] FATAL: btrfs still blacklisted after neutralize — boot would brick" >&2
+    grep -rnE '^[[:space:]]*blacklist[[:space:]]+btrfs' /etc/modprobe.d/ /usr/lib/modprobe.d/ 2>/dev/null | sed 's/^/    /'
+fi
+
 echo ""
 echo "--- apt-get install -fy (resolve unmet apt deps) ---"
 apt-get install -fy 2>&1 | tee /var/log/cix-install/25-apt-fix.log || true

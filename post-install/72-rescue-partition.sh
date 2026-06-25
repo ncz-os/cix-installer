@@ -14,11 +14,12 @@
 #   this hook leaves behind. Here we only touch the rescue PARTITION (never the
 #   ESP), so nothing we do gets clobbered.
 #
-# r130.5 (operator): the dedicated rescue partition now ships the LTS 6.18
-# kernel (assets/kernel/stable), NOT the edge 7.0.x. A recovery environment
-# should be boring and reliable; the edge kernel's full accelerator/display
-# probing caused "sloppy device startup". 70-bootloader.sh boots this partition
-# with the same NPU/GPU/VPU/KMS module_blacklist as the rEFInd "rescue" entry.
+# r130.6 (operator): the dedicated rescue partition ships the LTS 6.18 kernel
+# (assets/kernel/stable), NOT the edge 7.0.x — a recovery env should be boring
+# and reliable, and LTS has a solid early framebuffer. 70-bootloader.sh boots
+# this partition with the NORMAL LTS cmdline (display drivers KEPT) so the local
+# console is usable; we do NOT apply the rescue.target KMS/display blacklist here
+# (that earlier left the rescue screen blank).
 set -uo pipefail   # NOT -e: optional Phase-2 hook, must fail soft
 
 INSTALLER_META=/usr/local/lib/cix-installer

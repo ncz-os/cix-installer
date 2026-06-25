@@ -27,9 +27,11 @@ exec >"$LOG" 2>&1
 # r130.3 progress UX: preseed/late_command is a single opaque step to d-i, so
 # the main "Finishing the installation" bar parks (testers reported a "stuck at
 # 14%" hang) for the entire multi-minute OFFLINE base + desktop + driver install
-# while this script runs silently into its log. Mirror milestones to /dev/tty3
-# (the d-i log console — Alt+F3) and run a heartbeat naming the hook currently
-# executing, so there is always visible motion. Best-effort; never fatal.
+# while this script runs silently into its log. r130.7 (below, near run-all)
+# drives the REAL main-screen bar with a "be patient / not frozen" title that
+# advances per hook; this tty3 mirror remains as the live per-step detail view
+# (Alt+F3) and as the fallback if the debconf channel is unavailable. Best-
+# effort; never fatal.
 TTY=/dev/tty3
 LATE_T0=$(date +%s 2>/dev/null || echo 0)
 ttymsg() {
@@ -37,8 +39,8 @@ ttymsg() {
     printf '[ncz %s +%ss] %s\n' "$(date -u +%H:%M:%S)" "$_el" "$*" >"$TTY" 2>/dev/null || true
 }
 ttymsg "nclawzero installer: applying base OS + desktop + drivers (offline)."
-ttymsg "This phase takes several minutes; the main progress bar will not advance"
-ttymsg "during it by design — watch THIS console (Alt+F3) for live status."
+ttymsg "This phase takes several minutes. The main screen shows a 'please be"
+ttymsg "patient' bar that advances per step; watch THIS console (Alt+F3) for detail."
 
 echo "=== late.sh ($(date -u)) ==="
 echo
@@ -280,11 +282,64 @@ RESOLVCONF
 echo "    /target/etc/resolv.conf:"
 cat /target/etc/resolv.conf | sed 's/^/      /'
 
+# ----------------------------------------------------------------------
+# r130.7 (operator: "the 14% bar looks frozen — tell the user to be patient").
+# Drive the REAL d-i main-screen progress bar during the long offline
+# post-install. finish-install.d/07preseed runs our late_command via
+# preseed_command's bare `eval` (NO log-output wrapper), so we inherit
+# finish-install's live debconf protocol fds (fd3=command, fd0=reply) — the
+# `exec >LOG` near the top only moved fd1/fd2, leaving the protocol intact.
+# We therefore source confmodule and push a NESTED progress bar whose title is
+# an explicit "be patient / not frozen" message, then advance it as each hook
+# completes (reusing the tty3 heartbeat's current-hook detection below).
+# 100% best-effort: any failure leaves DEBCONF_OK=0 and we fall back to the
+# tty3-only heartbeat (prior behavior). Guarded so it can NEVER abort the
+# install under `set -e`. We require DEBIAN_HAS_FRONTEND + DEBCONF_REDIR to be
+# already set (true inside finish-install) so sourcing confmodule cannot
+# re-exec late.sh from scratch.
+# ----------------------------------------------------------------------
+DEBCONF_OK=0
+db_try() { [ "$DEBCONF_OK" = 1 ] || return 0; "$@" 2>/dev/null || true; }
+if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -n "$DEBCONF_REDIR" ] \
+   && [ -f /usr/share/debconf/confmodule ] && [ -x /usr/bin/debconf-loadtemplate ]; then
+    cat > /tmp/ncz-progress.templates <<'NCZTPL'
+Template: nclawzero/install-progress
+Type: text
+Description: Installing nclawzero — please be patient (several minutes)
+ The full desktop, GPU/NPU drivers, kernels and agents are being installed from
+ the local media. This bar may sit near 14% for a while — that is NORMAL and the
+ system is NOT frozen. Press Alt+F3 at any time for live, per-step detail.
+
+Template: nclawzero/install-step
+Type: text
+Description: ${STEP}
+NCZTPL
+    if . /usr/share/debconf/confmodule 2>/dev/null; then
+        if debconf-loadtemplate nclawzero /tmp/ncz-progress.templates 2>/dev/null; then
+            DEBCONF_OK=1
+        fi
+    fi
+fi
+
+# Ordered hook list (sorted ≈ run order) so the bar position maps to the hook
+# currently executing. Names are basenames sans .sh (matches the per-hook log
+# names run-all.sh writes as $LOGDIR/${hook%.sh}.log).
+HOOK_DIR=/target/usr/local/lib/cix-installer/post-install
+HOOK_NAMES=$(ls "$HOOK_DIR"/[0-9][0-9]*.sh 2>/dev/null | sed 's#.*/##; s#\.sh$##' | sort)
+NH=$(printf '%s\n' $HOOK_NAMES | grep -c .)
+[ "$NH" -gt 0 ] 2>/dev/null || NH=1
+
 echo "--- running post-install in chroot ---"
 ttymsg "running post-install hooks (kernel, desktop, GPU/NPU, bootloader, rescue)…"
+db_try db_capb
+db_try db_progress START 0 "$NH" nclawzero/install-progress
+db_try db_subst nclawzero/install-step STEP "preparing…"
+db_try db_progress INFO nclawzero/install-step
+
 # Heartbeat: name the hook currently running by watching which per-hook log in
 # /target/var/log/cix-install/ was touched most recently. Purely observational —
-# it never touches the install and is killed the moment run-all.sh returns.
+# it never touches the install and is killed the moment run-all.sh returns. It
+# ALSO advances the main-screen debconf bar (best-effort) to that hook's index.
 HOOK_LOGDIR=/target/var/log/cix-install
 ( hb_last=""
   while :; do
@@ -295,6 +350,13 @@ HOOK_LOGDIR=/target/var/log/cix-install
       if [ "$hb_cur" != "$hb_last" ]; then
           ttymsg "  → now running: $hb_cur"
           hb_last="$hb_cur"
+          if [ "$DEBCONF_OK" = 1 ] && [ "$hb_cur" != "(starting)" ]; then
+              idx=$(printf '%s\n' $HOOK_NAMES | grep -nxF "$hb_cur" | head -1 | cut -d: -f1)
+              [ -n "$idx" ] || idx=0
+              db_try db_subst nclawzero/install-step STEP "Installing: $hb_cur  ($idx of $NH)"
+              db_try db_progress INFO nclawzero/install-step
+              db_try db_progress SET "$idx"
+          fi
       else
           ttymsg "  … still working: $hb_cur"
       fi
@@ -306,6 +368,10 @@ in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
 set -e
 kill "$LATE_HB_PID" 2>/dev/null || true
+db_try db_progress SET "$NH"
+db_try db_subst nclawzero/install-step STEP "post-install complete"
+db_try db_progress INFO nclawzero/install-step
+db_try db_progress STOP
 ttymsg "post-install hooks finished (rc=$RET); finalizing apt sources + bootloader."
 
 # Codex A2 fix: don't leave bind-mount around after late_command finishes
