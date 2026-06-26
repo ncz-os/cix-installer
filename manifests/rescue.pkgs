@@ -70,6 +70,7 @@ iperf3
 bind9-dnsutils      # dig, nslookup
 openssh-server
 dropbear-bin
+picocom             # lightweight serial-console client (talk to other fleet boxes)
 inetutils-telnetd
 openbsd-inetd
 busybox-static
@@ -97,6 +98,19 @@ kexec-tools         # chainload a known-good kernel without full reboot
 stress-ng
 memtester
 lm-sensors
+
+# ===== kernel / module / initrd / boot repair =====
+# The class of failure this rescue env now exists for: a bad kernel/module
+# deploy that wedges every on-disk boot (orphaned ld-linux, broken initrd,
+# wrong DTB). These let us repair a chrooted target in place.
+kmod                # depmod/modprobe/lsmod/insmod — module tree repair + blacklist
+initramfs-tools     # update-initramfs/mkinitramfs — rebuild a target's initrd
+cpio                # pack/unpack initrd images + generic archive recovery
+lz4                 # kernel/initrd lz4 (de)compression
+device-tree-compiler # dtc — inspect/patch CIX Sky1 arm64 device trees (.dtb/.dts)
+kpartx              # map partitions inside image files for offline recovery
+binutils            # readelf/objdump/strings/nm — ELF + bootloader forensics
+                    #   (e.g. diagnosing the orphaned-ld-linux usrmerge break)
 
 # ===== shell / edit / scripting =====
 vim
