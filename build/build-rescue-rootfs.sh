@@ -166,36 +166,68 @@ EOF
 chroot "$CHROOT" systemctl enable ssh.service 2>/dev/null || \
     chroot "$CHROOT" systemctl enable sshd.service 2>/dev/null || true
 
-# --- network bring-up: DHCP all NICs, static fallback 192.168.207.66/24 ---
+# --- network bring-up: DHCP (carriers-only) + DECOUPLED static fallback ---
+# Two independent units, by hard-won design:
+#   1. ncz-rescue-net          -> try DHCP (real dhclient first, busybox udhcpc
+#                                 fallback) on carrier NICs only, in parallel,
+#                                 time-capped so a dead port can't hang boot.
+#   2. ncz-rescue-net-fallback -> if NOTHING got a v4 lease, assign the documented
+#                                 static rescue IP. This is a SEPARATE unit ordered
+#                                 After= the DHCP unit (NOT Requires=), so it still
+#                                 runs even when the DHCP unit hangs and systemd
+#                                 kills it on TimeoutStartSec. The old single-oneshot
+#                                 design trapped the static fallback behind a killable
+#                                 DHCP step -> a stuck port meant NO IP at all
+#                                 (operator-burned 2026-06-26: rescue partition came
+#                                 up with no address and no DHCP client to recover).
 cat > "$CHROOT/usr/local/sbin/ncz-rescue-net" <<EOF
 #!/bin/sh
-# Bring wired NICs up, DHCP only the ones with CARRIER (in parallel),
-# static fallback. Earlier version ran udhcpc -t 5 sequentially on EVERY
-# NIC incl. disconnected ports -> each dead port burned ~15s of timeouts
-# and boot blocked on this oneshot (operator: "networking took a long time
-# to run on boot", 2026-06-25). Now: link-up all, settle, then short
-# parallel DHCP on carriers only.
+# DHCP bring-up only. Link-up all NICs, settle, then DHCP carriers in parallel
+# with short hard timeouts. Real dhclient preferred; busybox udhcpc as fallback.
+# Static IP is intentionally handled by ncz-rescue-net-fallback (separate unit).
 set +e
 NICS=\$(ls /sys/class/net 2>/dev/null | grep -v '^lo\$')
 for i in \$NICS; do ip link set "\$i" up 2>/dev/null; done
 sleep 2   # let carrier/auto-neg settle before reading link state
 for i in \$NICS; do
     [ "\$(cat /sys/class/net/\$i/carrier 2>/dev/null)" = "1" ] || continue
-    ( busybox udhcpc -i "\$i" -q -n -t 3 -T 2 2>/dev/null ) &
+    if command -v dhclient >/dev/null 2>&1; then
+        ( dhclient -1 -timeout 8 "\$i" 2>/dev/null ) &
+    else
+        ( busybox udhcpc -i "\$i" -q -n -t 3 -T 2 2>/dev/null ) &
+    fi
 done
 wait
-if ! ip -4 addr show 2>/dev/null | grep -q 'inet '; then
-    iface=\$(for i in \$NICS; do [ "\$(cat /sys/class/net/\$i/carrier 2>/dev/null)" = "1" ] && { echo "\$i"; break; }; done)
-    [ -z "\$iface" ] && iface=\$(echo "\$NICS" | head -1)
-    [ -n "\$iface" ] && ip addr add $RESCUE_STATIC_IP dev "\$iface" 2>/dev/null
-    [ -n "\$iface" ] && ip route add default via $RESCUE_STATIC_GW 2>/dev/null
-fi
 exit 0
 EOF
 chmod 0755 "$CHROOT/usr/local/sbin/ncz-rescue-net"
+
+cat > "$CHROOT/usr/local/sbin/ncz-rescue-net-fallback" <<EOF
+#!/bin/sh
+# Deterministic static-IP fallback. Runs AFTER the DHCP unit and even if that
+# unit was killed for hanging. If no global IPv4 address exists, assign the
+# documented rescue address ($RESCUE_STATIC_IP) so the box is ALWAYS reachable.
+# Idempotent.
+set +e
+if ip -4 -o addr show scope global 2>/dev/null | grep -q 'inet '; then
+    exit 0   # DHCP (or a prior run) already gave us an address
+fi
+NICS=\$(ls /sys/class/net 2>/dev/null | grep -v '^lo\$')
+iface=\$(for i in \$NICS; do [ "\$(cat /sys/class/net/\$i/carrier 2>/dev/null)" = "1" ] && { echo "\$i"; break; }; done)
+[ -z "\$iface" ] && iface=\$(echo "\$NICS" | head -1)
+[ -z "\$iface" ] && exit 0
+ip link set "\$iface" up 2>/dev/null
+ip -4 -o addr show dev "\$iface" 2>/dev/null | grep -q "$RESCUE_STATIC_IP" || \\
+    ip addr add $RESCUE_STATIC_IP dev "\$iface" 2>/dev/null
+ip route show default 2>/dev/null | grep -q default || \\
+    ip route add default via $RESCUE_STATIC_GW 2>/dev/null
+exit 0
+EOF
+chmod 0755 "$CHROOT/usr/local/sbin/ncz-rescue-net-fallback"
+
 cat > "$CHROOT/etc/systemd/system/ncz-rescue-net.service" <<'EOF'
 [Unit]
-Description=NCZ rescue network bring-up (DHCP carriers-only + static fallback)
+Description=NCZ rescue network DHCP bring-up (carriers-only, parallel, time-capped)
 After=systemd-udevd.service
 Wants=network.target
 Before=network.target
@@ -208,7 +240,26 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
+
+cat > "$CHROOT/etc/systemd/system/ncz-rescue-net-fallback.service" <<'EOF'
+[Unit]
+Description=NCZ rescue static-IP fallback (guaranteed LAN address, independent of DHCP)
+# Ordered after the DHCP attempt but NOT bound to it (no Requires=): must run
+# even if ncz-rescue-net.service failed or was killed on TimeoutStartSec.
+After=ncz-rescue-net.service
+Wants=network.target
+Before=network.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ncz-rescue-net-fallback
+TimeoutStartSec=15
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
+EOF
+
 chroot "$CHROOT" systemctl enable ncz-rescue-net.service 2>/dev/null || true
+chroot "$CHROOT" systemctl enable ncz-rescue-net-fallback.service 2>/dev/null || true
 
 # --- /lib usrmerge repair + boot-default fix helper (from R80 rescue) ---
 cat > "$CHROOT/usr/local/sbin/ncz-rescue-fixlib" <<'EOF'

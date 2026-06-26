@@ -73,6 +73,7 @@ dropbear-bin
 inetutils-telnetd
 openbsd-inetd
 busybox-static
+isc-dhcp-client     # real DHCP client (dhclient): primary auto-IP path; busybox udhcpc is only a fallback
 curl
 wget
 rsync
