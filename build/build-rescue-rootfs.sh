@@ -46,11 +46,30 @@ echo "[rescue-rootfs] mirror:   $MIRROR"
 echo "[rescue-rootfs] packages: $(echo "$PKGS" | wc -w | tr -d ' ') from manifest"
 
 # ----------------------------------------------------------------------
-# Clean any prior chroot (best-effort unmount first).
+# Mount-safety helpers. CRITICAL: a leftover mount under $CHROOT (e.g. the
+# host's ESP, bind-mounted by a prior build-iso / grub-install run) would be
+# DESTROYED by the rm -rf below — this exact bug wiped the build host's EFI
+# System Partition on 2026-06-26. Never rm -rf a tree that has live mounts.
 # ----------------------------------------------------------------------
-for d in dev/pts dev proc sys; do
-    mountpoint -q "$CHROOT/$d" && umount -lf "$CHROOT/$d" || true
-done
+mounts_under() {   # print every mountpoint at or under $1
+    findmnt -rno TARGET 2>/dev/null | while IFS= read -r mp; do
+        case "$mp" in "$1"|"$1"/*) printf '%s\n' "$mp";; esac
+    done
+}
+unmount_all_under() {   # unmount everything under $1, deepest path first
+    mounts_under "$1" | awk '{print length, $0}' | sort -rn | cut -d' ' -f2- | \
+    while IFS= read -r mp; do umount -lf "$mp" 2>/dev/null || true; done
+}
+
+# ----------------------------------------------------------------------
+# Clean any prior chroot (unmount EVERYTHING under it first, then verify).
+# ----------------------------------------------------------------------
+unmount_all_under "$CHROOT"
+if [ -n "$(mounts_under "$CHROOT")" ]; then
+    echo "ERROR: mounts still present under $CHROOT after unmount — refusing 'rm -rf' to avoid destroying a mounted filesystem:" >&2
+    mounts_under "$CHROOT" >&2
+    exit 1
+fi
 rm -rf "$CHROOT"
 mkdir -p "$CHROOT" "$(dirname "$OUT")"
 
@@ -76,9 +95,7 @@ mount --bind /dev/pts "$CHROOT/dev/pts"
 mount -t proc proc    "$CHROOT/proc"
 mount -t sysfs sys    "$CHROOT/sys"
 cleanup() {
-    for d in dev/pts dev proc sys; do
-        mountpoint -q "$CHROOT/$d" && umount -lf "$CHROOT/$d" || true
-    done
+    unmount_all_under "$CHROOT"
 }
 trap cleanup EXIT
 
