@@ -15,7 +15,12 @@
 #     READ-WRITE bind of the host root at /host so an operator can repair the
 #     host in place (helpers: ncz-fixlib, ncz-host-chroot inside the container).
 #
-# DESKTOP (Reinhardt) SKU: no-op. Server/Magnetar/headless only.
+# INSTALLED ON ALL VARIANTS (r138): desktop (Reinhardt) AND server/magnetar/
+# headless. It was originally magnetar-only, but on 2026-06-25 a clobbered
+# usr-merge /lib (a stray `tar -C /` of a modules tarball) wedged a DESKTOP host's
+# sshd, and this container -- with its own userland and RW /host -- was the only
+# way back in (`ncz-fixlib /host` restored the /lib symlink). That failure mode
+# is variant-agnostic, so every NCZ box gets the safety net.
 #
 # RUNS INSIDE CHROOT (via run-all.sh), Phase 2 optional hook.
 set -euo pipefail
@@ -24,15 +29,7 @@ VARIANT="desktop"
 VARIANT_FILE=/usr/local/lib/cix-installer/BUILD_VARIANT
 [ -f "$VARIANT_FILE" ] && VARIANT=$(tr -d ' \t\r\n' < "$VARIANT_FILE")
 
-case "$VARIANT" in
-    server|magnetar|headless) ;;
-    *)
-        echo "[38] BUILD_VARIANT=$VARIANT - Reinhardt SKU; skipping nspawn recovery container"
-        exit 0
-        ;;
-esac
-
-echo "[38] Magnetar nspawn recovery/management container (ncz-recovery)"
+echo "[38] nspawn recovery/management container (ncz-recovery) [variant=$VARIANT]"
 
 MACHINE=ncz-recovery
 MACHINE_ROOT=/var/lib/machines/$MACHINE
