@@ -66,3 +66,18 @@ Extract modules with `--keep-directory-symlink` into `/usr`, then `depmod` +
 - Any `/tmp` one-off Docker kernel compiles. **Use the recipe above.**
 
 These are archived for history only; new work goes through the recipe.
+
+## Naming: every kernel we build is an NCZ kernel
+
+**Rule (operator directive 2026-06-26):** any kernel we build *or modify* is an
+**NCZ kernel** — regardless of whose patches, BSP, or DKMS modules are
+incorporated. CIX did not build these kernels; **we** did.
+
+- The label `cix-sky1-official` is **banned** — it falsely implies CIX built or
+  blessed the kernel. Do not use `-official` for any variant.
+- NCZ builds carry an NCZ-branded localversion (`-ncz`). The SoC id `cix-sky1`
+  may remain as a hardware descriptor, but ownership/branding is NCZ.
+- Applies to the consolidated `linux-cix-sky1-next` recipe, all deploy
+  artifacts, and all rEFInd menuentries.
+
+MNEMOS: `mem_1782522729057_42600b`.
