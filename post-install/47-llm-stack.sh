@@ -23,7 +23,7 @@ set -euo pipefail
 echo "[47] baking GPU/NPU/LLM substrate (Vulkan + SPIR-V + tools)"
 
 # Best-effort apt update — offline mirror is present, network may not be.
-apt-get update 2>&1 | tail -3 || true
+apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 -o Acquire::Retries=0 -o Acquire::ForceIPv4=true 2>&1 | tail -3 || true
 
 # Vulkan dev headers + tooling. Aligns with what visorcraft uses for
 # panvk Mali Vulkan testing on Cix CD8180. spirv-headers is the schema
