@@ -517,3 +517,10 @@ What changed since the r113 baseline:
 
 - [`gitlab.com/nclawzero/cix-gen`](https://gitlab.com/nclawzero/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
 - [`gitlab.com/nclawzero/meta-cix`](https://gitlab.com/nclawzero/meta-cix) — Yocto layer for the BSP (kernel + Cix userspace recipes). Provides the `linux-cix-msr1` kernel artifacts consumed here.
+
+## Release r139 (2026-06-28)
+
+- **Kernels:** 6.18.26-cix-sky1-lts (default) + 7.0.12-cix-sky1-next (edge). The 7.1 line is shelved — 7.1.2 boots but NVMe/USB never enumerate (CIX ACPI driver gap).
+- **APT repository:** the [Codeberg `ncz-os` Debian registry](https://codeberg.org/ncz-os/-/packages) (`deb [signed-by=...] https://codeberg.org/api/packages/ncz-os/debian ncz main`). The install-media `file:///cdrom` source is removed post-install; the old GHCR squashfs OTA is retired. `ncz-update` now upgrades CIX/kernel packages from Codeberg.
+- **Recovery partition:** dedicated NCZRESCUE partition with the full repair toolset (btrfs/nvme/lvm/dtc/kmod/initramfs-tools/refind/kexec + full networking) and **automatic IP** (DHCP via `ncz-rescue-net` with a static-`.66` fallback), reachable over ssh/telnet independent of the main rootfs.
+- **Reproduce:** kernels build from kernel.org stable git + the `meta-cix` patch series under Yocto (see [docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)); the ISO builds via `build/build-iso-di.sh` (see [docs/NEXT_ISO.md](docs/NEXT_ISO.md)).
