@@ -87,7 +87,7 @@ deb [signed-by=/usr/share/keyrings/cix-deb-repo.gpg] https://archive.cixtech.com
 APT
 
 # apt update — best-effort (network may not be up post-install)
-apt-get update 2>&1 | tail -5 || echo "[25] apt-get update warn (network or repo not reachable)"
+apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 -o Acquire::Retries=0 -o Acquire::ForceIPv4=true 2>&1 | tail -5 || echo "[25] apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 -o Acquire::Retries=0 -o Acquire::ForceIPv4=true warn (network or repo not reachable)"
 
 # Install CIX userspace runtimes (these don't require DKMS)
 # - cix-noe-umd: NPU Runtime userspace

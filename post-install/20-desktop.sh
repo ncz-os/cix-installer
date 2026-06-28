@@ -49,7 +49,7 @@ if [ ! -f /etc/apt/sources.list.d/cixmini-cdrom.list ]; then
     echo "deb [trusted=yes] file:///cdrom resolute main" \
         > /etc/apt/sources.list.d/cixmini-cdrom.list
 fi
-apt-get update -q || true
+apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q || true
 
 # ncz_ports_fallback: add ports.ubuntu.com (once) and refresh. Invoked ONLY when
 # an install from the bundled pool fails, so a package genuinely missing from the
@@ -65,7 +65,7 @@ deb http://ports.ubuntu.com/ubuntu-ports resolute-updates main universe restrict
 deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restricted multiverse
 deb http://ports.ubuntu.com/ubuntu-ports resolute-backports main universe restricted multiverse
 PORTS
-    apt-get update -q || true
+    apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q || true
 }
 
 # Pre-purge gdm3 if present in the rootfs.tar.zst (resolute's default DM).
