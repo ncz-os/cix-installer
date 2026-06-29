@@ -350,16 +350,6 @@ db_try db_capb
 # and its title is not shown, so it still looks frozen. The d-i-correct primitive
 # here is db_progress INFO, which updates the STATUS-TEXT line under
 # finish-install's bar (visible, proves liveness, shows staged status).
-# r150: nested db_progress bar (0..NH) so the MAIN bar advances per hook instead
-# of parking at ~14%. NESTED_STARTED guard => STOP only fires if START succeeded,
-# so a failed/no-op START can never pop finish-install's own bar (the r130.7/.8
-# bounce-to-menu bug). All db_try => best-effort, never aborts under set +e.
-NESTED_STARTED=0
-if [ "$DEBCONF_OK" = 1 ]; then
-    if db_progress START 0 "$NH" nclawzero/install-progress 2>/dev/null; then
-        NESTED_STARTED=1
-    fi
-fi
 db_try db_subst nclawzero/install-step STEP "Preparing nclawzero install - please wait (this is normal, not frozen)..."
 db_try db_progress INFO nclawzero/install-step
 
@@ -380,7 +370,6 @@ HOOK_LOGDIR=/target/var/log/cix-install
           if [ "$DEBCONF_OK" = 1 ] && [ "$hb_cur" != "(starting)" ]; then
               idx=$(printf '%s\n' $HOOK_NAMES | grep -nxF "$hb_cur" | head -1 | cut -d: -f1)
               [ -n "$idx" ] || idx=0
-              [ "$NESTED_STARTED" = 1 ] && db_try db_progress SET "$idx"
               db_try db_subst nclawzero/install-step STEP "Installing nclawzero: $hb_cur  ($idx of $NH) - please wait (not frozen)"
               db_try db_progress INFO nclawzero/install-step
           fi
@@ -399,12 +388,6 @@ RET=$?
 # real run-all.sh rc stays in RET and is still propagated by `exit $RET` below
 # (preserves the intended bootloader-failure -> install-failed behavior).
 kill "$LATE_HB_PID" 2>/dev/null || true
-# r150: close the nested bar (balanced with the guarded START above). Only when
-# we actually started it, so finish-install's bar is never popped by mistake.
-if [ "$NESTED_STARTED" = 1 ]; then
-    db_try db_progress SET "$NH"
-    db_try db_progress STOP
-fi
 # r130.8 (defect B): do NOT call db_progress STOP/SET. We never START our own
 # bar now, so STOP would pop finish-install's OWN progress bar - on the success
 # path that corrupted finish-install's accounting and bounced d-i back to the
