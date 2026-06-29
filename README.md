@@ -403,45 +403,27 @@ consoles vanish with the d-i ramdisk.
 
 ## OTA channel (kernel + driver updates)
 
-Fielded devices upgrade their kernel and the proprietary CIX drivers via an
-**ephemeral, container-delivered APT repo** — not a persistent online repo.
+Fielded devices upgrade their kernel and the proprietary CIX drivers **over
+standard APT — no reinstall**.
 
-**How it ships.** `build/build-kernel-debs.sh` packages the kernels as real
-`.debs` (`cixmini-boot`, `linux-image-cixmini-lts`, `linux-image-cixmini-edge`);
-`build/build-ota-repo.sh` combines them with the CIX driver `.debs` into an
-`apt-ftparchive` repo, **GPG-signs the `Release` (clearsigned `InRelease` +
-detached `Release.gpg`) with the NCZ OTA archive key**, and packs it into a
-single `squashfs`; `build/build-ota-image.sh` wraps that squashfs in an OCI image
-(`FROM scratch`, labeled with the squashfs `sha256`) pushed to
-`ghcr.io/ncz-os/cix-repo`. The private signing key + its GNUPGHOME live only on
-the build host under `build/keys/` (gitignored); the matching **public keyring
-ships in `assets/keys/ncz-ota-archive-keyring.gpg`** and is provisioned on each
-device at install time (`post-install/90-ota-channel.sh` →
-`/usr/share/keyrings/ncz-ota-archive-keyring.gpg`).
+**Where packages live.**
+- **Kernels** — compiled `linux-image-cixmini-{lts,edge}` + `cixmini-boot`
+  (`build/build-kernel-debs.sh`) → **Buildkite Packages** signed Debian registry
+  `ncz-os/ncz`, wired by `post-install/92-buildkite-apt.sh`:
+  `deb [signed-by=…] https://packages.buildkite.com/ncz-os/ncz/any/ any main`
+- **CIX userspace drivers/runtimes** → **Codeberg** `ncz-os` Debian registry,
+  wired by `post-install/91-codeberg-apt.sh`:
+  `deb [signed-by=…] https://codeberg.org/api/packages/ncz-os/debian ncz main`
+- **Kernel source + Yocto recipes** → GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix).
 
-**How it updates.** On the device, `ncz-update [--apply]`:
+Both apt sources are GPG-signed (`signed-by`, never `trusted=yes`); the
+install-media `file:///cdrom` source is stripped post-install, and the previous
+GHCR/squashfs OTA (`90-ota-channel.sh`) is retired.
 
-0. **cosign-verifies the OCI image signature before anything is pulled or
-   mounted** (`cosign verify --key /usr/share/keyrings/ncz-ota-cosign.pub`),
-   then pins `IMG` to the exact digest cosign verified (no tag TOCTOU). cosign is
-   fetched on demand (pinned version, sha256-checked) if not already present;
-   if the cosign pubkey is provisioned but verification can't be performed, the
-   run refuses rather than silently skipping the check.
-1. pulls that verified-digest OCI image (`podman` > `skopeo` > `docker`) and extracts the squashfs,
-2. verifies its `sha256` against the image label (a cheap corruption tripwire),
-3. **loop-mounts it read-only at `/run/ncz-ota/repo` only for the apt transaction**,
-   writing a temporary apt source pinned with
-   `[signed-by=/usr/share/keyrings/ncz-ota-archive-keyring.gpg]` — **not**
-   `trusted=yes`, so `apt` cryptographically verifies the signed `InRelease`
-   against the NCZ OTA key and refuses any unsigned or foreign-signed repo,
-4. runs `apt-get install --only-upgrade` for the cix/kernel packages,
-5. then **fully unloads everything** via a guaranteed teardown (EXIT trap):
-   unmount, detach the loop device, delete the squashfs, prune the pulled OCI
-   image, and remove the temporary apt source + its cached index.
-
-For locked/reproducible fleets, pin `IMG` in `/etc/ncz-ota.conf` to a digest
-(`ghcr.io/ncz-os/cix-repo@sha256:…`) instead of the rolling `:26.6` tag; the GPG
-signature still guarantees authenticity of the package layer either way.
+**How it updates.** On the device, `apt update && apt upgrade` (or
+`ncz-update [--apply]`) pulls new kernel + CIX packages from the signed
+registries and installs them — moving to a new kernel no longer requires a
+full reinstall.
 
 `ncz-update --status` reports the configured image and installed versions without
 pulling anything.
@@ -516,35 +498,31 @@ What changed since the r113 baseline:
 ## Sister projects
 
 - [`gitlab.com/nclawzero/cix-gen`](https://gitlab.com/nclawzero/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
-- [`gitlab.com/nclawzero/meta-cix`](https://gitlab.com/nclawzero/meta-cix) — Yocto layer for the BSP (kernel + Cix userspace recipes). Provides the `linux-cix-msr1` kernel artifacts consumed here.
+- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto layer for the BSP (kernel + Cix userspace recipes). Provides the `linux-cix-msr1` kernel artifacts consumed here.
 
 
-## r139 — Codeberg APT repo: upgrade kernels & drivers **without reinstalling**
+## Current ISO — r142
 
-**As of r139, NCZ ships a real APT repository on Codeberg** (the `ncz-os` Debian registry). Kernel and CIX driver updates now install with `apt upgrade` / `ncz-update` — **no more full reinstall to move to a new kernel.**
+The single supported installer image. (Older releases are removed; there is one valid ISO at a time.)
 
-- Source (wired automatically by the installer):
-  `deb [signed-by=...] https://codeberg.org/api/packages/ncz-os/debian ncz main`
-- The install-media `file:///cdrom` source is removed post-install; the old GHCR squashfs OTA is retired.
+**Kernels**
+- `6.18.26-cix-sky1-lts` — default, production. Boots to desktop on MS-R1.
+- `7.0.12-cix-sky1-next` — edge; full CIX enablement. (`7.1.2` is experimental and does **not** work — NVMe/USB never enumerate.)
 
-### Kernels
-- **6.18.26-cix-sky1-lts — default, production.** Boots to desktop on MS-R1.
-- **7.0.12-cix-sky1-next — edge.** Full CIX enablement (PCIe/NVMe/USB/GPU/NPU/VPU/audio).
-- **7.1.2 — EXPERIMENTAL, NOT WORKING.** It boots, but NVMe and USB never enumerate (a CIX ACPI driver gap); do not use it for now.
+**Updates without reinstalling.** `apt upgrade` / `ncz-update` pulls signed packages: **kernels** from Buildkite Packages `ncz-os/ncz`, **CIX userspace** from Codeberg `ncz-os`. Kernel source + Yocto recipes: GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix).
 
-### MS-R1 (cixmini) driver support — on 6.18 / 7.0.12
+**Recovery.** Dedicated NCZRESCUE partition with the full repair toolset + automatic networking (DHCP + static-`.66` fallback), reachable over ssh/telnet independent of the main rootfs. Installer diagnostics (telnet:23 / http:8080 / remote syslog) come up on USB boot.
+
+**MS-R1 (cixmini) driver support — on 6.18 / 7.0.12**
+
 | Subsystem | Status |
 |---|---|
-| NVMe / PCIe | ✅ working |
-| USB | ✅ working |
-| Ethernet / Wi-Fi | ✅ working (firmware staged) |
-| Audio (analog + HDMI/DP) | ✅ working |
-| NPU — ArmChina Zhouyi V3 (`/dev/aipu`) | ✅ working (ARCH_V3; ~2 GB IOVA ceiling) |
-| GPU — Mali-G720 / panthor (`renderD128`) | ✅ compute (Mesa 26.1.3 panvk + rusticl). Desktop compositing off (zink X11 swapchain bug on 7.0.x) |
-| VPU | ✅ working (`cma=256M`) |
+| NVMe / PCIe | ✅ |
+| USB | ✅ |
+| Ethernet / Wi-Fi | ✅ (firmware staged) |
+| Audio (analog + HDMI/DP) | ✅ |
+| NPU — ArmChina Zhouyi V3 (`/dev/aipu`) | ✅ (~2 GB IOVA ceiling) |
+| GPU — Mali-G720 / panthor (`renderD128`) | ✅ compute (Mesa 26.1.3 panvk + rusticl); desktop compositing off |
+| VPU | ✅ (`cma=256M`) |
 
-### Recovery partition
-Dedicated NCZRESCUE partition with the full repair toolset + **automatic networking** (DHCP via `ncz-rescue-net`, static-`.66` fallback) — reachable over ssh/telnet independent of the main rootfs.
-
-### Reproduce
-Kernels build from kernel.org stable git + the `meta-cix` patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)); the ISO builds via `build/build-iso-di.sh` ([docs/NEXT_ISO.md](docs/NEXT_ISO.md)).
+**Reproduce.** Kernels: kernel.org stable git + the `meta-cix` patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)). ISO: `build/build-iso-di.sh` ([docs/NEXT_ISO.md](docs/NEXT_ISO.md)).
