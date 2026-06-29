@@ -39,6 +39,10 @@ TTY=/dev/tty3
 tty_msg() {
     printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" >"$TTY" 2>/dev/null || true
 }
+# r141: install the per-package apt-get progress shim ahead of PATH.
+NCZ_SHIM=/tmp/ncz-apt-shim; mkdir -p "$NCZ_SHIM" /var/log/cix-install 2>/dev/null || true
+SHIMSRC="$(dirname "$0")/apt-progress-shim"; [ -f "$SHIMSRC" ] && { cp "$SHIMSRC" "$NCZ_SHIM/apt-get" && chmod 0755 "$NCZ_SHIM/apt-get" && export PATH="$NCZ_SHIM:$PATH" && tty_msg "per-package apt progress shim active (Alt+F3)"; }
+
 tty_msg "==== run-all.sh: post-install hooks starting ===="
 
 # EXIT trap: run 70-bootloader.sh only after Phase 1 required hooks have

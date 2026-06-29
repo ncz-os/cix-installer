@@ -1,0 +1,21 @@
+#!/bin/bash
+# apt-get progress shim (r141) — wraps `apt-get install` with APT::Status-Fd so
+# every package unpack/configure ticks to /dev/tty3 (the d-i log VT, Alt+F3),
+# instead of the bulk transaction freezing the progress bar. Placed ahead of
+# /usr/bin in PATH by run-all.sh. Pass-through for everything except install.
+REAL=/usr/bin/apt-get
+for a in "$@"; do
+  case "$a" in -s|--simulate|--dry-run) exec "$REAL" "$@";; esac
+done
+case " $* " in
+  *" install "*)
+    N=$("$REAL" -s "$@" 2>/dev/null | grep -c '^Inst')
+    printf '  [apt] installing %s packages...\n' "$N" > /dev/tty3 2>/dev/null
+    "$REAL" "$@" -o APT::Status-Fd=3 -o Dpkg::Use-Pty=0 3>&1 1>>/var/log/cix-install/apt.log 2>&1 |
+      while IFS=: read -r k pkg pct desc; do
+        [ "$k" = pmstatus ] && printf '  [apt %s%%] %s %s\n' "${pct%%.*}" "$pkg" "$desc" > /dev/tty3 2>/dev/null
+      done
+    exit "${PIPESTATUS[0]}"
+    ;;
+  *) exec "$REAL" "$@" ;;
+esac
