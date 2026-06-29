@@ -273,7 +273,7 @@ echo "$STUCK" | sed 's/^/  /'
 # stuck packages weren't going to work anyway.
 for pkg in $STUCK; do
     echo "    purging stuck package: $pkg"
-    dpkg --purge --force-remove-reinstreq --force-remove-essential "$pkg" 2>&1 | tail -3 || true
+    dpkg --purge --force-remove-reinstreq  "$pkg" 2>&1 | tail -3 || true
 done
 
 # ----------------------------------------------------------------------
