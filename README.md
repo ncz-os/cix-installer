@@ -501,28 +501,21 @@ What changed since the r113 baseline:
 - [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto layer for the BSP (kernel + Cix userspace recipes). Provides the `linux-cix-msr1` kernel artifacts consumed here.
 
 
-## Current ISO — r142
+## Current ISO — r147 (NCZ-OS 26.6 — official release)
 
-The single supported installer image. (Older releases are removed; there is one valid ISO at a time.)
+The first official NCZ-OS release with **apt-capable kernel upgrades** — move to a new kernel without reinstalling. QEMU-validated end-to-end (full unattended install + boot).
 
-**Kernels**
-- `6.18.26-cix-sky1-lts` — default, production. Boots to desktop on MS-R1.
-- `7.0.12-cix-sky1-next` — edge; full CIX enablement. (`7.1.2` is experimental and does **not** work — NVMe/USB never enumerate.)
+**Upgrade kernels & drivers with apt — no reinstall**
+- Kernels (compiled): **Buildkite Packages** `ncz-os/ncz` — `apt upgrade` / `ncz-update` pulls new `linux-image-cixmini-{lts,edge}`.
+- CIX userspace: **Codeberg** `ncz-os` Debian registry.
+- Kernel source + Yocto recipes: GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix).
 
-**Updates without reinstalling.** `apt upgrade` / `ncz-update` pulls signed packages: **kernels** from Buildkite Packages `ncz-os/ncz`, **CIX userspace** from Codeberg `ncz-os`. Kernel source + Yocto recipes: GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix).
+**Kernels:** 6.18.26-cix-sky1-lts (default, production) + 7.0.12-cix-sky1-next (edge). (7.1.2 experimental/non-working; 7.2 migration in progress.)
 
-**Recovery.** Dedicated NCZRESCUE partition with the full repair toolset + automatic networking (DHCP + static-`.66` fallback), reachable over ssh/telnet independent of the main rootfs. Installer diagnostics (telnet:23 / http:8080 / remote syslog) come up on USB boot.
+**Install:** unattended d-i (auto-partition, ESP + NCZRESCUE rescue partition + btrfs root), boots rEFInd. Installer runs on the proven 6.18 LTS kernel.
 
-**MS-R1 (cixmini) driver support — on 6.18 / 7.0.12**
+**Recovery:** NCZRESCUE partition with full repair toolset + automatic networking, reachable independent of the main rootfs; installer remote-diagnostics (network-console + telnet/http) on USB boot.
 
-| Subsystem | Status |
-|---|---|
-| NVMe / PCIe | ✅ |
-| USB | ✅ |
-| Ethernet / Wi-Fi | ✅ (firmware staged) |
-| Audio (analog + HDMI/DP) | ✅ |
-| NPU — ArmChina Zhouyi V3 (`/dev/aipu`) | ✅ (~2 GB IOVA ceiling) |
-| GPU — Mali-G720 / panthor (`renderD128`) | ✅ compute (Mesa 26.1.3 panvk + rusticl); desktop compositing off |
-| VPU | ✅ (`cma=256M`) |
+**MS-R1 (cixmini) driver support — 6.18 / 7.0.12:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (Mali-G720 panthor renderD128, Mesa 26.1.3 panvk+rusticl; compositing off), VPU — all working.
 
-**Reproduce.** Kernels: kernel.org stable git + the `meta-cix` patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)). ISO: `build/build-iso-di.sh` ([docs/NEXT_ISO.md](docs/NEXT_ISO.md)).
+**Reproduce:** kernels from kernel.org stable git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](docs/NEXT_ISO.md)).
