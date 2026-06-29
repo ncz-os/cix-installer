@@ -101,9 +101,15 @@ finalize_bootloader() {
     if [ "$BOOTLOADER_RC" -ne 0 ]; then
         exit "$BOOTLOADER_RC"
     fi
-    if [ "$ORIGINAL_RC" -ne 0 ]; then
+    # r149: optional (Phase 2) hook failures must NOT abort the install — the
+    # system is fully installed + bootable; only a failed REQUIRED phase or a
+    # bootloader failure is fatal. (Was: bare `exit $ORIGINAL_RC` propagated a
+    # leftover non-zero from a network-dependent optional hook -> d-i
+    # preseed/command_failed.)
+    if [ "$ORIGINAL_RC" -ne 0 ] && [ "${REQUIRED_PHASE_OK:-0}" != "1" ]; then
         exit "$ORIGINAL_RC"
     fi
+    exit 0
 }
 trap finalize_bootloader EXIT
 
