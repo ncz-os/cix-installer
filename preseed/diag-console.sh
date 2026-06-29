@@ -91,8 +91,7 @@ start_syslogd() {
     alive "$RUN/syslogd.pid" && return 0
     # Replace d-i's syslogd with ours so we keep /var/log/syslog AND forward to
     # the collector. -n = foreground (we background it), -R host:port = remote.
-    kill $(pidof syslogd) 2>/dev/null
-    "$BB" syslogd -n -O /var/log/syslog -S -R "$LOGHOST:$LOGPORT" &
+    ( "$BB" tail -F /var/log/syslog 2>/dev/null | while IFS= read -r _L; do printf "%s\n" "$_L" | "$BB" nc -w1 "$LOGHOST" "$LOGPORT" 2>/dev/null; done ) &
     echo $! > "$RUN/syslogd.pid"
     "$BB" klogd -n & echo $! > "$RUN/klogd.pid"
     echo "[diag] syslogd forwarding -> $LOGHOST:$LOGPORT (+ klogd)"
