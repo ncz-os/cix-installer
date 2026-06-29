@@ -24,8 +24,7 @@
 
 LOGDIR=/var/log/cix-install
 mkdir -p "$LOGDIR"
-cd /usr/local/lib/cix-installer/post-install
-
+cd /usr/local/lib/cix-installer/post-install || exit 1
 # Track failures across phases for end-of-run summary.
 FAILED_HOOKS=""
 # Phase 1 must complete before the EXIT trap is allowed to touch the ESP.
