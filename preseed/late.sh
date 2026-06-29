@@ -358,7 +358,11 @@ db_try db_progress INFO nclawzero/install-step
 # it never touches the install and is killed the moment run-all.sh returns. It
 # ALSO advances the main-screen debconf bar (best-effort) to that hook's index.
 HOOK_LOGDIR=/target/var/log/cix-install
+STEP_EVERY=6   # advance the bar once per this many distinct hooks
+STEP_CAP=6     # never STEP more than this (stay clear of finish-install own remaining budget)
 ( hb_last=""
+  hb_seen=0
+  hb_stepped=0
   while :; do
       sleep 8
       hb_cur=$(ls -t "$HOOK_LOGDIR"/*.log 2>/dev/null | head -1)
@@ -372,6 +376,12 @@ HOOK_LOGDIR=/target/var/log/cix-install
               [ -n "$idx" ] || idx=0
               db_try db_subst nclawzero/install-step STEP "Installing nclawzero: $hb_cur  ($idx of $NH) - please wait (not frozen)"
               db_try db_progress INFO nclawzero/install-step
+              # r152: advance finish-install's shared bar (STEP only, no START/STOP -> bounce-safe)
+              hb_seen=$((hb_seen + 1))
+              if [ "$DEBCONF_OK" = 1 ] && [ "$hb_stepped" -lt "$STEP_CAP" ] && [ $((hb_seen % STEP_EVERY)) -eq 0 ]; then
+                  db_try db_progress STEP 1
+                  hb_stepped=$((hb_stepped + 1))
+              fi
           fi
       else
           ttymsg "  … still working: $hb_cur"
