@@ -299,69 +299,29 @@ network-console 之后才有 `sshd`）。
   每台机器都有唯一名称；安装时设置的运维者主机名（若有）始终优先。见
   `post-install/37-ntp-hostname.sh`。
 
-## OTA 通道（内核 + 驱动更新）
+## 通过 APT 升级内核与驱动 —— 无需重装
 
-已部署的设备通过一个**临时的、容器交付的 APT 仓库**升级其内核和专有 CIX 驱动
-—— 而不是一个持久的在线仓库。
+自 r147 起，NCZ-OS 提供真正的 APT 仓库，可直接用 `apt upgrade` / `ncz-update` 升级内核与 CIX 驱动，**无需重装系统即可切换新内核**。
 
-**如何发布。** `build/build-kernel-debs.sh` 把内核打包为真正的 `.deb`
-（`cixmini-boot`、`linux-image-cixmini-lts`、`linux-image-cixmini-edge`）；
-`build/build-ota-repo.sh` 把它们与 CIX 驱动 `.deb` 组合成一个 `apt-ftparchive`
-仓库，**用 NCZ OTA 归档密钥对 `Release` 进行 GPG 签名**（clearsigned `InRelease`
-+ 分离的 `Release.gpg`），并打包进单个 `squashfs`；`build/build-ota-image.sh` 把该
-squashfs 包进一个 OCI 镜像（`FROM scratch`，以 squashfs 的 `sha256` 标注），推送到
-`ghcr.io/ncz-os/cix-repo`。私有签名密钥及其 GNUPGHOME 仅存在于构建主机的
-`build/keys/` 下（gitignore）；配套的**公钥环随
-`assets/keys/ncz-ota-archive-keyring.gpg` 发布**，并在安装时配置到每台设备上
-（`post-install/90-ota-channel.sh` → `/usr/share/keyrings/ncz-ota-archive-keyring.gpg`）。
+- **内核**（已编译）→ **Buildkite Packages** 仓库 `ncz-os/ncz`：`apt upgrade` 拉取新的 `linux-image-cixmini-{lts,edge}`。
+- **CIX 用户态驱动/运行时** → **Codeberg** `ncz-os` Debian 仓库。
+- **内核源码 + Yocto 配方** → GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix)。
 
-**如何更新。** 在设备上，`ncz-update [--apply]`：
+两个 apt 源均经 GPG 签名（`signed-by`，非 `trusted=yes`）；安装介质的 `file:///cdrom` 源在安装后移除；旧的 GHCR/squashfs OTA 机制已废弃。
 
-0. **在拉取或挂载任何东西之前，先用 cosign 验证 OCI 镜像签名**
-   （`cosign verify --key /usr/share/keyrings/ncz-ota-cosign.pub`），然后把 `IMG`
-   钉死到 cosign 验证过的确切摘要（无 tag TOCTOU）。cosign 在需要时按需获取
-   （版本钉死、sha256 校验）；若已配置 cosign 公钥却无法执行验证，则该次运行宁可
-   拒绝也不静默跳过检查。
-1. 拉取该已验证摘要的 OCI 镜像（`podman` > `skopeo` > `docker`）并解出 squashfs，
-2. 对照镜像标签校验其 `sha256`（一个廉价的损坏绊线），
-3. **仅在 apt 事务期间以只读方式 loop 挂载到 `/run/ncz-ota/repo`**，写入一个用
-   `[signed-by=/usr/share/keyrings/ncz-ota-archive-keyring.gpg]` 钉死的临时 apt
-   源 —— **不是** `trusted=yes`，因此 `apt` 会针对 NCZ OTA 密钥对已签名的
-   `InRelease` 做密码学验证，并拒绝任何未签名或外来签名的仓库，
-4. 对 cix/内核包运行 `apt-get install --only-upgrade`，
-5. 然后通过一个有保障的拆解（EXIT trap）**完全卸载一切**：卸载、分离 loop 设备、
-   删除 squashfs、清理拉取的 OCI 镜像，并移除临时 apt 源及其缓存索引。
+## 当前 ISO — r147（NCZ-OS 26.6 正式发布）
 
-对于锁定/可复现的车队，在 `/etc/ncz-ota.conf` 中把 `IMG` 钉死到一个摘要
-（`ghcr.io/ncz-os/cix-repo@sha256:…`）而非滚动的 `:26.6` tag；无论哪种方式，GPG
-签名仍保证包层的真实性。
+首个支持 **APT 内核升级** 的 NCZ-OS 正式版 —— 切换新内核无需重装。已在 QEMU 中端到端验证（完整无人值守安装 + 启动）。
 
-`ncz-update --status` 报告已配置的镜像和已安装的版本，不拉取任何东西。
+**内核：** 6.18.26-cix-sky1-lts（默认，生产）+ 7.0.12-cix-sky1-next（edge）。（7.1.2 为实验性/不可用；7.2 迁移进行中。）
 
-**为什么仓库是临时的（而非持久的 `fstab` loop 挂载）。**
+**安装：** 无人值守 d-i（自动分区：ESP + NCZRESCUE 救援分区 + btrfs 根），rEFInd 引导。安装器运行于经验证的 6.18 LTS 内核。
 
-- **占用** —— 持久 loop 挂载会让 2.1 GB+ 的 squashfs 后备文件无限期留在磁盘上，
-  并让其解压后的页面在页缓存中累积。该仓库只在 `apt` 读取 `.deb` 时才需要；在
-  存储/内存有限的设备上，我们在之后立即回收它（删除文件 + 取消挂载使那些页缓存
-  页面可回收）。
-- **卫生 / 信任窗口** —— 永久挂载的 `file://` 源会扩大信任面，并使之后每一次
-  `apt update` 都依赖该挂载的存在。每次按需拉取并拆解，可把该窗口降到最小。
-- **确定性** —— OTA 仓库是一个临时的*构建输入*，而非运行系统的一部分。
-  拉取 → 使用 → 丢弃，让已安装系统保持可复现，并避免陈旧索引。
+**恢复：** NCZRESCUE 分区含完整修复工具集 + 自动联网，独立于主根文件系统可达；USB 启动时安装器远程诊断（network-console + telnet/http）可用。
 
-> **信任模型（两个独立签名）。**
-> 1. **传输层** —— OCI 镜像是 **cosign 签名**的（`build/release-ota.sh`，密钥在
->    `build/keys/cosign.key`，公钥作为 `assets/keys/ncz-ota-cosign.pub` 发布）。
->    `ncz-update` 在拉取/挂载*之前*运行 `cosign verify` 并钉死验证过的摘要，因此
->    被替换或未签名的镜像会被当场拒绝。
-> 2. **包层** —— squashfs 内的 apt `Release` 是 **GPG 签名**的，并通过 `signed-by`
->    针对设备钉死的密钥环验证（无 `trusted=yes`），因此即使是传输合法但外来的
->    仓库也无法安装。
->
-> 两个私钥都仅存在于构建主机（`build/keys/`，gitignore）且从不发布。镜像标签中的
-> squashfs `sha256` 是第三道损坏/篡改绊线。剩余加固项：cosign + GPG 密钥
-> 轮换/过期策略，以及（可选）Rekor 透明日志收录。见 `post-install/90-ota-channel.sh`、
-> `build/build-ota-repo.sh` 和 `build/release-ota.sh`。
+**MS-R1（cixmini）驱动支持 —— 6.18 / 7.0.12：** NVMe/PCIe、USB、以太网/Wi-Fi、音频、NPU（Zhouyi V3 `/dev/aipu`）、GPU（Mali-G720 panthor `renderD128`，Mesa 26.1.3 panvk+rusticl；合成关闭）、VPU 均正常。
+
+**复现：** 内核源自 kernel.org stable git + meta-cix 补丁系列（Yocto，见 [docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)）；ISO 经 build/build-iso-di.sh 构建（见 [docs/NEXT_ISO.md](docs/NEXT_ISO.md)）。
 
 ## 状态
 
