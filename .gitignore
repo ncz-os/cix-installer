@@ -90,3 +90,4 @@ assets/rescue/*.tar.zst
 preseed/*.pre-btrfs.*
 assets/mgmt/*.tar.zst
 build/mgmt-rootfs/
+post-install/buildkite-read-token
