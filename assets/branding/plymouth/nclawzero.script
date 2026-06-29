@@ -32,7 +32,7 @@ logo.scaled = logo.image.Scale(
 );
 logo.sprite = Sprite(logo.scaled);
 logo.x = (screen_width  - logo.scaled.GetWidth())  / 2;
-logo.y = (screen_height - logo.scaled.GetHeight()) / 2 - 30;
+logo.y = (screen_height - logo.scaled.GetHeight()) / 2 + 30;
 logo.sprite.SetPosition(logo.x, logo.y, 1);
 logo.sprite.SetOpacity(0.0);
 
