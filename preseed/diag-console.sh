@@ -54,10 +54,16 @@ HTTP_PORT=8080
 
 # ---- stage the static busybox + applet farm ---------------------------------
 if [ ! -x "$BB" ]; then
+    # robust: scan every mount for the install medium (USB or CD)
     for src in /cdrom/cixmini/busybox-arm64 /hd-media/cixmini/busybox-arm64 \
                /media/cdrom/cixmini/busybox-arm64 /run/live/medium/cixmini/busybox-arm64; do
         [ -f "$src" ] && { cp "$src" "$BB" && chmod 0755 "$BB" && echo "[diag] staged busybox from $src" && break; }
     done
+    if [ ! -x "$BB" ]; then
+        while read _d _mp _r; do
+            [ -f "$_mp/cixmini/busybox-arm64" ] && { cp "$_mp/cixmini/busybox-arm64" "$BB" && chmod 0755 "$BB" && echo "[diag] staged busybox from $_mp/cixmini (mount-scan)" && break; }
+        done < /proc/mounts
+    fi
 fi
 [ -x "$BB" ] || { echo "[diag] FATAL: static busybox not found on medium"; exit 1; }
 mkdir -p "$BIN"; "$BB" --install -s "$BIN" 2>/dev/null
