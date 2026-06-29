@@ -88,7 +88,7 @@ STAGE_ROOTFS=1
 PATCH_DEBOOTSTRAP_STUB=1
 STAGE_LTS_KERNEL=1
 STAGE_NEXT_KERNEL=1
-INSTALLER_KERNEL_FLAVOR=next
+INSTALLER_KERNEL_FLAVOR=lts
 BOOTSTRAP_POOL=0
 # 2026-05-08: ceiling set to 1GB so the netinstall ISO stays in the
 # easy-GitHub-release-distribution band (GitHub allows up to 2GB per
@@ -1858,7 +1858,7 @@ menuentry "$GRUB_DESKTOP_TITLE" {
     set background_color=black
     set color_normal=light-green/black
     echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Reinhardt / desktop)..."
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop $MARTJOHNSON_R6
+    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION $MARTJOHNSON_R6
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
 }
@@ -1867,7 +1867,7 @@ menuentry "$GRUB_SERVER_TITLE" {
     set background_color=black
     set color_normal=light-green/black
     echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Magnetar / server)..."
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=server $MARTJOHNSON_R6
+    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=server ncz_rev=$VERSION $MARTJOHNSON_R6
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
 }
