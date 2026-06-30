@@ -112,6 +112,9 @@ sudo rm -rf "$A/cix-debs" 2>/dev/null
 sudo rm -rf "$CHROOT/var/lib/apt/lists/"* "$CHROOT/tmp/"* 2>/dev/null
 cleanup
 
+# mark the rootfs as fully-baked so run-all.sh runs only machine-specific hooks at install.
+echo "baked $(date -u +%Y-%m-%dT%H:%M:%SZ) by build-baked-rootfs.sh" | sudo tee "$CHROOT/usr/local/lib/cix-installer/BAKED" >/dev/null
+
 log "repack baked rootfs -> $OUT"
 sudo tar -C "$CHROOT" -cpf - . | zstd -T0 -19 -o "$OUT" -f
 log "DONE. baked=$(du -h "$OUT"|cut -f1)  FAILED_HOOKS:${FAILED:- none}"
