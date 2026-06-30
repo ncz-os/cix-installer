@@ -55,6 +55,17 @@ sudo mount --bind /dev "$CHROOT/dev"
 sudo mount --bind /dev/pts "$CHROOT/dev/pts"
 sudo mount -t tmpfs tmpfs "$CHROOT/run"
 
+# Set up apt sources (ports.ubuntu.com) + update BEFORE the hooks so the first
+# hook (10-our-kernel) can apt-get install initramfs-tools etc. The base rootfs
+# ships no usable sources; 20-desktop set them up itself but runs after kernel.
+log "configure apt sources in chroot (ports.ubuntu.com) + update"
+sudo chroot "$CHROOT" /bin/bash -c 'cat > /etc/apt/sources.list <<APT
+deb http://ports.ubuntu.com/ubuntu-ports resolute main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports resolute-updates main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restricted multiverse
+APT
+DEBIAN_FRONTEND=noninteractive apt-get update' > "$LOGDIR/00-apt-setup.log" 2>&1 || log "  WARN apt-get update issues (see 00-apt-setup.log)"
+
 log "run BAKE hooks in chroot..."
 FAILED=""
 for h in $BAKE_HOOKS; do
