@@ -22,14 +22,14 @@ echo "[31] NoMachine + xrdp setup"
 
 # === NoMachine 9.4 ARM64 ===
 NM_URL="https://web9001.nomachine.com/download/9.4/Arm/nomachine_9.4.14_1_arm64.deb"
-echo "  fetching NoMachine ARM64 .deb..."
-if curl -fsSL -o /tmp/nomachine.deb "$NM_URL" && [ -s /tmp/nomachine.deb ]; then
-    DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/nomachine.deb 2>&1 | tail -5
-    rm -f /tmp/nomachine.deb
-    echo "  NoMachine installed (port 4000)"
-else
-    echo "  WARN: NoMachine .deb fetch failed; xrdp will be the only RDP option"
-fi
+# r155: NEVER pull NoMachine from the network at install time. Defer to a
+# first-boot oneshot (network-online) so the installer stays 100% offline.
+mkdir -p /usr/local/lib/ncz
+printf '#!/bin/sh\ncurl -fsSL -o /tmp/nm.deb "%s" && [ -s /tmp/nm.deb ] && DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/nm.deb && rm -f /tmp/nm.deb && systemctl disable ncz-nomachine.service\n' "$NM_URL" > /usr/local/lib/ncz/install-nomachine.sh
+chmod 0755 /usr/local/lib/ncz/install-nomachine.sh
+printf '[Unit]\nDescription=NCZ first-boot NoMachine install\nAfter=network-online.target\nWants=network-online.target\n[Service]\nType=oneshot\nExecStart=/usr/local/lib/ncz/install-nomachine.sh\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/ncz-nomachine.service
+systemctl enable ncz-nomachine.service 2>/dev/null || true
+echo "  NoMachine deferred to first-boot (ncz-nomachine.service) — no install-time network pull"
 
 # === xrdp fix: dbus-launch + startxfce4 + disable xfwm4 compositor ===
 cat > /etc/xrdp/startwm.sh <<'XRDP'

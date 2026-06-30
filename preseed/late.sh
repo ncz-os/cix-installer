@@ -521,4 +521,16 @@ if [ "$RET" = "0" ]; then
         sleep 5
     fi
 fi
+# r155: a bootable install (rEFInd on the ESP) must NEVER throw d-i's critical
+# preseed/command_failed red error. Optional apt/network hook failures and the
+# Sky1 efivars-unavailable bootloader path leave RET!=0 but the system still
+# boots via /EFI/BOOT/BOOTAA64.EFI. Only red-error when truly unbootable.
+if [ -f /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
+    if [ "$RET" != "0" ]; then
+        echo "[late r155] post-install rc=$RET but rEFInd present at /EFI/BOOT/BOOTAA64.EFI -> system is bootable; exiting 0 (no red error)"
+        ttymsg "install complete (some optional hooks failed, system is bootable)" 2>/dev/null || true
+    fi
+    exit 0
+fi
+echo "[late r155] no rEFInd at /target/boot/efi/EFI/BOOT/BOOTAA64.EFI -> install is NOT bootable; propagating rc=$RET"
 exit $RET

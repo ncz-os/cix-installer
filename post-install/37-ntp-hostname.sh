@@ -13,7 +13,7 @@
 # This hook sets the hostname and enables systemd-timesyncd. chrony was avoided
 # because the offline mirror did not carry it, and timesyncd is sufficient for
 # first-boot step correction on Sky1 systems without a reliable RTC.
-set -euo pipefail
+set -uo pipefail
 # r63 (codex review): don't use `systemctl enable --now` here - chroot-time
 # starts are expected to fail when systemd is not PID 1. Plain enable should
 # still work in the target root; if it does not, first boot will have no time
