@@ -66,6 +66,10 @@ deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restric
 APT
 DEBIAN_FRONTEND=noninteractive apt-get update' > "$LOGDIR/00-apt-setup.log" 2>&1 || log "  WARN apt-get update issues (see 00-apt-setup.log)"
 
+# codex: block daemon starts during bake (postinst scripts try systemctl start)
+printf '#!/bin/sh\nexit 101\n' | sudo tee "$CHROOT/usr/sbin/policy-rc.d" >/dev/null
+sudo chmod 0755 "$CHROOT/usr/sbin/policy-rc.d"
+
 log "run BAKE hooks in chroot..."
 FAILED=""
 for h in $BAKE_HOOKS; do
@@ -79,10 +83,33 @@ for h in $BAKE_HOOKS; do
   if [ "$rc" -eq 0 ]; then log "     ok"; else log "     FAILED rc=$rc (see $LOGDIR/$h.log)"; FAILED="$FAILED $h"; fi
 done
 
+# codex: a failed REQUIRED hook must NOT produce a shippable image.
+for req in 10-our-kernel 12-sky1-firmware 33-network ; do
+  case " $FAILED " in *" $req "*) log "ABORT: required hook $req failed; not packing"; exit 2 ;; esac
+done
 log "clean chroot (apt cache, qemu, staging, logs)"
 sudo chroot "$CHROOT" apt-get clean 2>/dev/null || true
-sudo rm -f "$CHROOT/usr/bin/qemu-aarch64-static"
-sudo rm -rf "$CHROOT/usr/local/lib/cix-installer/assets" "$CHROOT/var/lib/apt/lists/"* "$CHROOT/tmp/"* 2>/dev/null
+sudo rm -f "$CHROOT/usr/bin/qemu-aarch64-static" "$CHROOT/usr/sbin/policy-rc.d"
+# codex CRITICAL: reset cloned identity so every installed machine is unique.
+sudo chroot "$CHROOT" /bin/sh -c '\
+  rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub ; \
+  : > /etc/machine-id ; rm -f /var/lib/dbus/machine-id ; \
+  rm -f /var/lib/systemd/random-seed /var/lib/urandom/random-seed /var/lib/NetworkManager/secret_key ; \
+  rm -rf /var/lib/dhcp/* /var/lib/NetworkManager/*.lease /tmp/* /var/tmp/* ; \
+  find /var/log -type f -delete 2>/dev/null ; true'
+# first-boot identity regen (ssh host keys regenerate via ssh-keygen -A; machine-id via systemd).
+sudo mkdir -p "$CHROOT/usr/local/lib/ncz"
+printf '#!/bin/sh\n[ -s /etc/machine-id ] || systemd-machine-id-setup\nssh-keygen -A 2>/dev/null\nsystemctl disable ncz-firstboot-identity.service 2>/dev/null\n' | sudo tee "$CHROOT/usr/local/lib/ncz/firstboot-identity.sh" >/dev/null
+sudo chmod 0755 "$CHROOT/usr/local/lib/ncz/firstboot-identity.sh"
+printf '[Unit]\nDescription=NCZ first-boot identity regen\nBefore=ssh.service\nConditionFirstBoot=yes\n[Service]\nType=oneshot\nExecStart=/usr/local/lib/ncz/firstboot-identity.sh\n[Install]\nWantedBy=multi-user.target\n' | sudo tee "$CHROOT/etc/systemd/system/ncz-firstboot-identity.service" >/dev/null
+sudo chroot "$CHROOT" systemctl enable ncz-firstboot-identity.service 2>/dev/null || true
+# drop the build-host resolver (installed system manages its own).
+sudo rm -f "$CHROOT/etc/resolv.conf"
+# PRESERVE machine-hook assets (70-bootloader needs assets/refind; 72-rescue needs rescue+kernel);
+# drop only the bulky cix-debs already dpkg-installed at bake.
+A="$CHROOT/usr/local/lib/cix-installer/assets"
+sudo rm -rf "$A/cix-debs" 2>/dev/null
+sudo rm -rf "$CHROOT/var/lib/apt/lists/"* "$CHROOT/tmp/"* 2>/dev/null
 cleanup
 
 log "repack baked rootfs -> $OUT"
