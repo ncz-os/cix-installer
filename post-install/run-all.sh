@@ -29,6 +29,12 @@ cd /usr/local/lib/cix-installer/post-install || exit 1
 FAILED_HOOKS=""
 # Phase 1 must complete before the EXIT trap is allowed to touch the ESP.
 REQUIRED_PHASE_OK=0
+# r156: baked-image mode — generic hooks already ran at build time; run
+# ONLY machine-specific hooks at install (fstab/rescue/bootloader/diag).
+NCZ_BAKED=0
+[ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
+MACHINE_HOOKS_RE="^(34-fstab|72-rescue-partition)\.sh$"
+
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
 # so users can watch hooks tick by instead of staring at d-i's stuck dialog.
@@ -152,6 +158,10 @@ done
 
 # Phase 1: required hooks (set -e)
 set -euo pipefail
+if [ "$NCZ_BAKED" = 1 ]; then
+    tty_msg "Phase 1: SKIPPED (baked image — kernel/firmware/network already installed)"
+    REQUIRED_PHASE_OK=1
+else
 tty_msg "Phase 1: required hooks (kernel + sky1-firmware + network)"
 for hook in $(ls [0-9][0-9]-*.sh | sort); do
     case "$hook" in
@@ -180,11 +190,16 @@ for hook in $(ls [0-9][0-9]-*.sh | sort); do
     esac
 done
 REQUIRED_PHASE_OK=1
+fi
 
 # Phase 2: optional hooks. Failures logged but don't abort.
 set +e
 tty_msg "Phase 2: optional hooks (desktop + agents + brand + ssh + ...)"
 OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | grep -vE '^(0[0-9]|10-our-kernel|12-sky1-firmware|33-network|70-bootloader|99-diagnostics)\.sh$')
+if [ "$NCZ_BAKED" = 1 ]; then
+    OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -E "$MACHINE_HOOKS_RE" || true)
+    tty_msg "Phase 2: baked image — running only machine-specific hooks: $OPT_HOOKS"
+fi
 TOTAL_OPT=$(echo "$OPT_HOOKS" | wc -l)
 IDX=0
 for hook in $OPT_HOOKS; do
