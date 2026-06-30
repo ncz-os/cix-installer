@@ -42,6 +42,11 @@ sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer"
 sudo cp -a "$ROOT/post-install" "$CHROOT/usr/local/lib/cix-installer/"
 sudo cp -a "$ROOT/assets" "$CHROOT/usr/local/lib/cix-installer/" 2>/dev/null || true
 printf '%s' "$VARIANT" | sudo tee "$CHROOT/usr/local/lib/cix-installer/BUILD_VARIANT" >/dev/null
+# stage kernel-version sidecars so 10-our-kernel finds them (build-iso.sh stages
+# these at ISO time; the bake must too).
+KM="$CHROOT/usr/local/lib/cix-installer"
+[ -f "$KM/assets/kernel/stable/KVER" ] && sudo cp "$KM/assets/kernel/stable/KVER" "$KM/KVER_LTS"
+[ -f "$KM/assets/kernel/edge/KVER" ]   && sudo cp "$KM/assets/kernel/edge/KVER"   "$KM/KVER_NEXT"
 
 for m in proc sys dev dev/pts run; do sudo mkdir -p "$CHROOT/$m"; done
 sudo mount -t proc proc "$CHROOT/proc"
