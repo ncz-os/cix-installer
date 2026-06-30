@@ -1763,7 +1763,10 @@ echo "$VARIANT"     > "$EXTRA/BUILD_VARIANT"   # r75 M1: read by 48-magnetar-var
 # r40 full mode: stage the pre-built rootfs tarball so the debootstrap stub
 # can populate /target without a real bootstrap.
 if [ "$STAGE_ROOTFS" = "1" ]; then
-    ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst"
+    # prefer the FULLY-BAKED rootfs (generic hooks pre-applied at build);
+    # fall back to the base rootfs if the bake has not run.
+    ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-resolute-arm64-baked.tar.zst"
+    [ -f "$ROOTFS_TARBALL" ] || ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst"
     if [ -f "$ROOTFS_TARBALL" ]; then
         cp -L "$ROOTFS_TARBALL" "$EXTRA/rootfs.tar.zst"
         echo "    rootfs.tar.zst staged: $(du -h "$EXTRA/rootfs.tar.zst" | cut -f1) (resolute arm64 pre-built target)"
