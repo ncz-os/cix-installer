@@ -490,7 +490,7 @@ fi
 ICONS_SRC="$INSTALLER_META/assets/refind/icons"
 if [ -d "$ICONS_SRC" ]; then
     rm -rf /boot/efi/EFI/BOOT/icons
-    cp -a "$ICONS_SRC" /boot/efi/EFI/BOOT/icons
+    cp -r "$ICONS_SRC" /boot/efi/EFI/BOOT/icons
     echo "  rEFInd icons/ installed → /boot/efi/EFI/BOOT/icons ($(ls /boot/efi/EFI/BOOT/icons 2>/dev/null | wc -l | tr -d ' ') files)"
 else
     echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
