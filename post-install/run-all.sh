@@ -34,6 +34,7 @@ REQUIRED_PHASE_OK=0
 NCZ_BAKED=0
 [ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
 [ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
+{ echo "=== NCZ RUN-ALL DEBUG ==="; echo "NCZ_BAKED=${NCZ_BAKED:-0}"; echo "marker_ulcl=$([ -f /usr/local/lib/cix-installer/BAKED ] && echo YES || echo NO)"; echo "marker_etc=$([ -f /etc/ncz-baked ] && echo YES || echo NO)"; echo "MACHINE_HOOKS_RE=${MACHINE_HOOKS_RE:-unset}"; } > /boot/efi/ncz-debug.txt 2>/dev/null || true
 MACHINE_HOOKS_RE="^(34-fstab|72-rescue-partition)\.sh$"
 
 
@@ -62,6 +63,7 @@ finalize_bootloader() {
     # the diagnostics hook.
     set +e
     BOOTLOADER_RC=0
+    { echo "TRAP ORIGINAL_RC=$ORIGINAL_RC REQUIRED_PHASE_OK=${REQUIRED_PHASE_OK:-unset}"; echo "TRAP 70bl=$([ -f /usr/local/lib/cix-installer/post-install/70-bootloader.sh ] && echo YES || echo NO)"; } >> /boot/efi/ncz-debug.txt 2>/dev/null || true
     if [ "$ORIGINAL_RC" -ne 0 ] && [ "${REQUIRED_PHASE_OK:-0}" != "1" ]; then
         echo ""
         echo "============================================================"
