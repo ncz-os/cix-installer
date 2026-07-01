@@ -76,7 +76,7 @@ finalize_bootloader() {
         echo "[cix-installer] EXIT trap → finalizing bootloader"
         echo "============================================================"
         bash /usr/local/lib/cix-installer/post-install/70-bootloader.sh \
-            2>&1 | tee "$LOGDIR/70-bootloader.log"
+            2>&1 | tee "$LOGDIR/70-bootloader.log" /boot/efi/70bl.log
         BOOTLOADER_RC=${PIPESTATUS[0]}
         if [ "$BOOTLOADER_RC" -ne 0 ]; then
             echo "[cix-installer] CRITICAL: 70-bootloader.sh failed rc=$BOOTLOADER_RC"
