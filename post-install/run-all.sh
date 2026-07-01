@@ -34,7 +34,6 @@ REQUIRED_PHASE_OK=0
 NCZ_BAKED=0
 [ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
 [ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
-{ echo "=== NCZ RUN-ALL DEBUG ==="; echo "NCZ_BAKED=${NCZ_BAKED:-0}"; echo "marker_ulcl=$([ -f /usr/local/lib/cix-installer/BAKED ] && echo YES || echo NO)"; echo "marker_etc=$([ -f /etc/ncz-baked ] && echo YES || echo NO)"; echo "MACHINE_HOOKS_RE=${MACHINE_HOOKS_RE:-unset}"; } > /boot/efi/ncz-debug.txt 2>/dev/null || true
 MACHINE_HOOKS_RE="^(34-fstab|72-rescue-partition)\.sh$"
 
 
@@ -76,7 +75,7 @@ finalize_bootloader() {
         echo "[cix-installer] EXIT trap → finalizing bootloader"
         echo "============================================================"
         bash /usr/local/lib/cix-installer/post-install/70-bootloader.sh \
-            2>&1 | tee "$LOGDIR/70-bootloader.log" /boot/efi/70bl.log
+            2>&1 | tee "$LOGDIR/70-bootloader.log"
         BOOTLOADER_RC=${PIPESTATUS[0]}
         if [ "$BOOTLOADER_RC" -ne 0 ]; then
             echo "[cix-installer] CRITICAL: 70-bootloader.sh failed rc=$BOOTLOADER_RC"
