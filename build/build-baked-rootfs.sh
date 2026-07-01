@@ -44,6 +44,10 @@ sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets"
 for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu plymouth wallpaper; do
   [ -d "$ROOT/assets/$_d" ] && sudo cp -a "$ROOT/assets/$_d" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
 done   # deliberately EXCLUDES assets/rootfs (base tarballs + baked output)
+# stage install-time-hook binaries that live OUTSIDE assets/ in the repo so the
+# baked image is self-contained (70-bootloader needs refind_aa64.efi in /target).
+sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets/refind"
+[ -f "$ROOT/build/refind-bin/refind_aa64.efi" ] && sudo cp "$ROOT/build/refind-bin/refind_aa64.efi" "$CHROOT/usr/local/lib/cix-installer/assets/refind/" || true
 printf '%s' "$VARIANT" | sudo tee "$CHROOT/usr/local/lib/cix-installer/BUILD_VARIANT" >/dev/null
 # stage kernel-version sidecars so 10-our-kernel finds them (build-iso.sh stages
 # these at ISO time; the bake must too).
