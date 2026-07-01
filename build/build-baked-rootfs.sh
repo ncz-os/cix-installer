@@ -40,7 +40,10 @@ sudo cp /usr/bin/qemu-aarch64-static "$CHROOT/usr/bin/"
 sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf"
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer"
 sudo cp -a "$ROOT/post-install" "$CHROOT/usr/local/lib/cix-installer/"
-sudo cp -a "$ROOT/assets" "$CHROOT/usr/local/lib/cix-installer/" 2>/dev/null || true
+sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets"
+for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu plymouth wallpaper; do
+  [ -d "$ROOT/assets/$_d" ] && sudo cp -a "$ROOT/assets/$_d" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
+done   # deliberately EXCLUDES assets/rootfs (base tarballs + baked output)
 printf '%s' "$VARIANT" | sudo tee "$CHROOT/usr/local/lib/cix-installer/BUILD_VARIANT" >/dev/null
 # stage kernel-version sidecars so 10-our-kernel finds them (build-iso.sh stages
 # these at ISO time; the bake must too).
@@ -108,7 +111,9 @@ sudo rm -f "$CHROOT/etc/resolv.conf"
 # PRESERVE machine-hook assets (70-bootloader needs assets/refind; 72-rescue needs rescue+kernel);
 # drop only the bulky cix-debs already dpkg-installed at bake.
 A="$CHROOT/usr/local/lib/cix-installer/assets"
-sudo rm -rf "$A/cix-debs" 2>/dev/null
+for _g in cix-debs models python311 gpu mgmt npu wallpaper branding plymouth; do sudo rm -rf "$A/$_g" 2>/dev/null; done
+# strip stale kernel backups, keep the active Image/KVER/modules for 72-rescue
+sudo find "$A/kernel" -name "*.pre-*" -o -name "*.bak*" 2>/dev/null | sudo xargs -r rm -f 2>/dev/null || true
 sudo rm -rf "$CHROOT/var/lib/apt/lists/"* "$CHROOT/tmp/"* 2>/dev/null
 cleanup
 
