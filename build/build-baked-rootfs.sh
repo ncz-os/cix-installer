@@ -94,6 +94,10 @@ done
 for req in 10-our-kernel 12-sky1-firmware 33-network ; do
   case " $FAILED " in *" $req "*) log "ABORT: required hook $req failed; not packing"; exit 2 ;; esac
 done
+# codex: disable needrestart kernel hints so no apt/dpkg transaction prompts
+# the pending-kernel-upgrade note (baked kernel != running kernel).
+sudo mkdir -p "$CHROOT/etc/needrestart/conf.d"
+printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$CHROOT/etc/needrestart/conf.d/99-baked-rootfs.conf" >/dev/null
 log "clean chroot (apt cache, qemu, staging, logs)"
 sudo chroot "$CHROOT" apt-get clean 2>/dev/null || true
 sudo rm -f "$CHROOT/usr/bin/qemu-aarch64-static" "$CHROOT/usr/sbin/policy-rc.d"
