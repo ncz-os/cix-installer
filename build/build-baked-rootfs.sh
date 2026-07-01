@@ -127,6 +127,7 @@ cleanup
 
 # mark the rootfs as fully-baked so run-all.sh runs only machine-specific hooks at install.
 echo "baked $(date -u +%Y-%m-%dT%H:%M:%SZ) by build-baked-rootfs.sh" | sudo tee "$CHROOT/usr/local/lib/cix-installer/BAKED" >/dev/null
+echo "baked" | sudo tee "$CHROOT/etc/ncz-baked" >/dev/null   # survives late.sh rm -rf; run-all reads this
 
 log "repack baked rootfs -> $OUT"
 sudo tar -C "$CHROOT" -cpf - . | zstd -T0 -19 -o "$OUT" -f

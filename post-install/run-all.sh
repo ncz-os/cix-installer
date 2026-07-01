@@ -33,6 +33,7 @@ REQUIRED_PHASE_OK=0
 # ONLY machine-specific hooks at install (fstab/rescue/bootloader/diag).
 NCZ_BAKED=0
 [ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
+[ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
 MACHINE_HOOKS_RE="^(34-fstab|72-rescue-partition)\.sh$"
 
 
