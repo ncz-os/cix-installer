@@ -156,6 +156,14 @@ if [ "$LTS_PREFLIGHT_READY" = "0" ] && [ "$NEXT_PREFLIGHT_READY" = "0" ]; then
 fi
 echo "  preflight OK: at least one complete declared kernel payload is present"
 
+# r157: preflight (above) validated inputs under `set -euo pipefail`. The ESP is
+# vfat (no ownership/perms). The write section below tolerates vfat quirks (cp
+# ownership warnings, grep-no-match, best-effort efibootmgr). Under strict
+# errexit/pipefail those non-fatal ops silently aborted 70-bootloader BEFORE
+# BOOTAA64.EFI was written -> unbootable. Relax here; the write section keeps its
+# OWN explicit guards (if [ ! -s vmlinuz ]; exit 1 / if [ ! -s BOOTAA64 ]; exit 1).
+set +e +u +o pipefail
+
 # r118: the rEFInd binary + refind.conf are installed at the END of this
 # script, AFTER kernels/initrds are staged to the ESP and per-entry cmdlines
 # are computed (see the "Install rEFInd" section below). Nothing to do here.
