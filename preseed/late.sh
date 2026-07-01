@@ -112,8 +112,20 @@ echo "--- copying $SRC → /target/usr/local/lib/cix-installer ---"
 mkdir -p /target/usr/local/lib
 # 2026-05-04 codex review: rm -rf + cp -a so reruns don't nest cixmini/
 # inside existing /target/usr/local/lib/cix-installer/.
-rm -rf /target/usr/local/lib/cix-installer
-cp -a "$SRC" /target/usr/local/lib/cix-installer
+# r157: a BAKED rootfs already ships /usr/local/lib/cix-installer with the
+# generic-hook results + baked assets (refind_aa64.efi, rescue, kernel) +
+# the BAKED marker. The old unconditional `rm -rf` wiped ALL of that (marker
+# -> run-all fell back to NON-baked mode + kernel hooks; refind -> gone ->
+# 70-bootloader could not install a bootloader). In baked mode, PRESERVE the
+# baked tree and only refresh the post-install scripts from the ISO.
+if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-baked ]; then
+    echo "[late r157] baked rootfs detected — preserving baked assets + marker, refreshing post-install scripts only"
+    rm -rf /target/usr/local/lib/cix-installer/post-install
+    cp -a "$SRC/post-install" /target/usr/local/lib/cix-installer/
+else
+    rm -rf /target/usr/local/lib/cix-installer
+    cp -a "$SRC" /target/usr/local/lib/cix-installer
+fi
 chmod 755 /target/usr/local/lib/cix-installer/post-install/*.sh
 echo "    copy ok"
 echo
