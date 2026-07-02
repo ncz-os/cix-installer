@@ -1766,8 +1766,15 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
     # r157: use the CLEAN resolute base (r154 fat-ISO behavior). The chroot-baked
     # rootfs regressed desktop/network/BT/icons, so the baked-rootfs preference
     # (commit e86dc84) is reverted. Fat ISO = clean base + embedded mirror desktop.
-    ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst"
-    if [ -f "$ROOTFS_TARBALL" ]; then
+    # r158: prefer LAYERED SQUASHFS (base + <variant> delta) if built; the
+    # extract-rootfs stub mounts+overlays+cp them. Fall back to the tarball.
+    if [ -f "$ROOT/assets/squashfs/base.squashfs" ]; then
+        cp -L "$ROOT/assets/squashfs/base.squashfs" "$EXTRA/base.squashfs"
+        _RL="$ROOT/assets/squashfs/$VARIANT.squashfs"
+        [ -f "$_RL" ] && cp -L "$_RL" "$EXTRA/$VARIANT.squashfs"
+        echo "    LAYERED SQUASHFS staged: base $(du -h "$EXTRA/base.squashfs"|cut -f1) + $VARIANT $([ -f "$EXTRA/$VARIANT.squashfs" ] && du -h "$EXTRA/$VARIANT.squashfs"|cut -f1 || echo MISSING)"
+        ROOTFS_TARBALL=""
+    elif ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst"; [ -f "$ROOTFS_TARBALL" ]; then
         cp -L "$ROOTFS_TARBALL" "$EXTRA/rootfs.tar.zst"
         echo "    rootfs.tar.zst staged: $(du -h "$EXTRA/rootfs.tar.zst" | cut -f1) (resolute arm64 pre-built target)"
     else

@@ -26,6 +26,88 @@ msg "=== r40 rootfs extract starting ==="
 echo "--- mounts ---"
 mount | grep -E "cdrom|hd-media|media|target|run/live" || true
 
+# ============================================================================
+# r158: LAYERED SQUASHFS install path (base.squashfs + <role>.squashfs delta).
+# The CIX install kernel has squashfs + overlayfs BUILT-IN, so we mount the
+# layers, overlay them read-only (merged view resolves whiteouts), and cp -a the
+# merged tree into /target. No unsquashfs binary needed. Preferred over the
+# rootfs.tar.zst path; falls through to the tarball if no base.squashfs present.
+# ============================================================================
+SQFS_DIR=""
+for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
+    [ -f "$d/base.squashfs" ] && { SQFS_DIR="$d"; break; }
+done
+if [ -n "$SQFS_DIR" ]; then
+    msg "LAYERED SQUASHFS install from $SQFS_DIR"
+    ROLE=desktop
+    grep -qw "ncz_variant=server" /proc/cmdline 2>/dev/null && ROLE=server
+    msg "role=$ROLE  base=$(du -m "$SQFS_DIR/base.squashfs" 2>/dev/null|cut -f1)MB"
+    mkdir -p /run/sqb /run/sqr /run/sqm
+    if ! mount -t squashfs -o loop "$SQFS_DIR/base.squashfs" /run/sqb; then
+        msg "FATAL: cannot mount base.squashfs (squashfs kernel support?)"; exit 1
+    fi
+    LOWERS="/run/sqb"
+    if [ -f "$SQFS_DIR/$ROLE.squashfs" ]; then
+        if mount -t squashfs -o loop "$SQFS_DIR/$ROLE.squashfs" /run/sqr; then
+            LOWERS="/run/sqr:/run/sqb"
+            msg "role layer $ROLE.squashfs mounted (delta over base)"
+        else
+            msg "WARN: $ROLE.squashfs mount failed — base only"
+        fi
+    else
+        msg "no $ROLE.squashfs on media — base only"
+    fi
+    if ! mount -t overlay overlay -o "lowerdir=$LOWERS" /run/sqm; then
+        msg "FATAL: overlay mount failed"; exit 1
+    fi
+    msg "--- copying merged (base+$ROLE) -> /target (5-6 GB, ~1-2 min) ---"
+    START=$(date +%s)
+    cp -a /run/sqm/. /target/
+    CPRC=$?
+    ELAPSED=$(( $(date +%s) - START ))
+    umount /run/sqm 2>/dev/null || true
+    umount /run/sqr 2>/dev/null || true
+    umount /run/sqb 2>/dev/null || true
+    if [ "$CPRC" -ne 0 ]; then msg "FATAL: merged cp failed rc=$CPRC"; exit "$CPRC"; fi
+    # first-boot oneshot: finish deferred dpkg config (chroot half-configured pkgs
+    # e.g. falkon) + regen machine identity. Runs before the display manager.
+    mkdir -p /target/usr/local/sbin /target/etc/systemd/system/multi-user.target.wants
+    cat > /target/usr/local/sbin/ncz-firstboot <<'FBS'
+#!/bin/sh
+export DEBIAN_FRONTEND=noninteractive
+dpkg --configure -a 2>/dev/null || true
+[ -s /etc/machine-id ] || systemd-machine-id-setup 2>/dev/null || true
+systemctl disable ncz-firstboot.service 2>/dev/null || true
+touch /var/lib/ncz-firstboot-done
+FBS
+    chmod +x /target/usr/local/sbin/ncz-firstboot
+    cat > /target/etc/systemd/system/ncz-firstboot.service <<'FBU'
+[Unit]
+Description=NCZ first-boot finalize (dpkg configure + machine identity)
+ConditionPathExists=!/var/lib/ncz-firstboot-done
+DefaultDependencies=no
+After=local-fs.target systemd-machine-id-commit.service
+Before=display-manager.service gdm.service graphical.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ncz-firstboot
+[Install]
+WantedBy=multi-user.target
+FBU
+    ln -sf ../ncz-firstboot.service /target/etc/systemd/system/multi-user.target.wants/ncz-firstboot.service
+    FINAL_MB=$(du -sm /target 2>/dev/null | awk '{print $1}')
+    msg "--- layered squashfs install done: ${FINAL_MB} MB in ${ELAPSED}s (role=$ROLE) ---"
+    # squashfs rootfs already has kernel+desktop+NM baked in -> BAKED mode so
+    # run-all skips Phase 1 + desktop hooks, runs ONLY machine hooks (fstab/rescue)
+    # + the 70-bootloader EXIT-trap. This is what avoids the desktop-hook regression.
+    mkdir -p /target/etc; : > /target/etc/ncz-baked
+    touch /target/.cix-r40-rootfs-extracted /target/.cix-squashfs-install
+    [ -f /target/etc/os-release ] || msg "WARN: /target/etc/os-release missing after squashfs install"
+    exit 0
+fi
+
+
 ROOTFS=""
 for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
     if [ -f "$d/rootfs.tar.zst" ]; then

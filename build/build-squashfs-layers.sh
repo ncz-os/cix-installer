@@ -94,10 +94,11 @@ build_base(){
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer"
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   # KVER sidecars 10-our-kernel needs (build-iso normally derives these from assets/kernel/*/KVER)
   [ -f "$ROOT/assets/kernel/stable/KVER" ] && sudo cp "$ROOT/assets/kernel/stable/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_LTS"
   [ -f "$ROOT/assets/kernel/edge/KVER" ]   && sudo cp "$ROOT/assets/kernel/edge/KVER"   "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
+  [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ] && { sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets/refind"; sudo cp "$ROOT/build/refind-bin/refind_aa64.efi" "$WORK/base/usr/local/lib/cix-installer/assets/refind/"; }
   # policy-rc.d: block daemon starts in chroot
   echo -e '#!/bin/sh\nexit 101' | sudo tee "$WORK/base/usr/sbin/policy-rc.d" >/dev/null; sudo chmod +x "$WORK/base/usr/sbin/policy-rc.d"
   log "BASE: run machine-agnostic hooks: $BASE_HOOKS"
