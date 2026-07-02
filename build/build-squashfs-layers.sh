@@ -25,7 +25,11 @@ STAGE="${1:-base}"                            # base | desktop | server | all
 
 log(){ echo "[sqfs $(date -u +%H:%M:%S)] $*"; }
 need(){ command -v "$1" >/dev/null || { echo "MISSING: $1"; exit 1; }; }
-need mksquashfs; need debootstrap 2>/dev/null || true; [ -x "$QEMU" ] || { echo "no qemu-aarch64-static"; exit 1; }
+need mksquashfs
+# NATIVE arm64 (e.g. bigpi) needs no qemu-user; x86 (ARGOS) does.
+NATIVE=0; [ "$(uname -m)" = "aarch64" ] && NATIVE=1
+[ "$NATIVE" = 1 ] || { [ -x "$QEMU" ] || { echo "no qemu-aarch64-static (x86 host needs it)"; exit 1; }; }
+log "arch=$(uname -m) native=$NATIVE ROOT=$ROOT WORK=$WORK OUT=$OUT"
 mkdir -p "$OUT" "$WORK"
 
 # machine-AGNOSTIC hooks safe to bake into base (NOT desktop-config)
@@ -34,26 +38,39 @@ BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613"
 mount_chroot(){ local c="$1"
   sudo mount -t proc proc "$c/proc"; sudo mount -t sysfs sys "$c/sys";
   sudo mount -o bind /dev "$c/dev"; sudo mount -o bind /dev/pts "$c/dev/pts";
-  sudo cp "$QEMU" "$c/usr/bin/"; sudo cp /etc/resolv.conf "$c/etc/resolv.conf" 2>/dev/null || true; }
+  [ "$NATIVE" = 1 ] || sudo cp "$QEMU" "$c/usr/bin/"; sudo cp /etc/resolv.conf "$c/etc/resolv.conf" 2>/dev/null || true; }
 umount_chroot(){ local c="$1"
   for m in dev/pts dev sys proc; do sudo umount -lf "$c/$m" 2>/dev/null || true; done; }
 
-# offline apt sources -> point the chroot at the embedded resolute mirror served over file://
+# offline apt sources -> bind BOTH mirrors (server-mirror has the base deps
+# initramfs-tools/kmod that resolute-mirror lacks; build-iso prefers server-mirror
+# for the base install). `resolute main` only (no universe component in the mirrors).
 apt_offline(){ local c="$1"
-  sudo mkdir -p "$c/mnt/mirror"
-  sudo mount -o bind "$MIRROR" "$c/mnt/mirror"
-  echo "deb [trusted=yes] file:///mnt/mirror resolute main universe" | sudo tee "$c/etc/apt/sources.list" >/dev/null
-  sudo chroot "$c" apt-get update -y 2>&1 | tail -2 || true; }
+  sudo rm -f "$c/etc/apt/sources.list"
+  for m in server-mirror resolute-mirror; do
+    [ -d "$ROOT/build/$m/dists/resolute" ] || continue
+    sudo mkdir -p "$c/mnt/$m"; sudo mount -o bind "$ROOT/build/$m" "$c/mnt/$m"
+    echo "deb [trusted=yes] file:///mnt/$m resolute main" | sudo tee -a "$c/etc/apt/sources.list" >/dev/null
+  done
+  sudo chroot "$c" apt-get update -y 2>&1 | tail -4 || true; }
+apt_unmount(){ local c="$1"; for m in server-mirror resolute-mirror; do sudo umount -lf "$c/mnt/$m" 2>/dev/null || true; done; }
 
 build_base(){
   log "BASE: extract resolute base"
   sudo rm -rf "$WORK/base"; mkdir -p "$WORK/base"
   tar -I 'zstd -d' -xf "$BASE_TARBALL" -C "$WORK/base"
-  mount_chroot "$WORK/base"; apt_offline "$WORK/base"
+  mount_chroot "$WORK/base"
+  # base hooks are local-asset (dpkg/copy) — the apt mirror is only needed for the
+  # desktop/server layers, so skip apt_offline here if the mirror isn't present.
+  if [ -d "$ROOT/build/server-mirror/dists/resolute" ] || [ -d "$ROOT/build/resolute-mirror/dists/resolute" ]; then apt_offline "$WORK/base"; else log "no mirror -> skipping apt_offline"; fi
   # stage the installer hook tree + assets the base hooks read
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer"
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
-  for a in cix-debs kernel mesa gpu; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  # KVER sidecars 10-our-kernel needs (build-iso normally derives these from assets/kernel/*/KVER)
+  [ -f "$ROOT/assets/kernel/stable/KVER" ] && sudo cp "$ROOT/assets/kernel/stable/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_LTS"
+  [ -f "$ROOT/assets/kernel/edge/KVER" ]   && sudo cp "$ROOT/assets/kernel/edge/KVER"   "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
   # policy-rc.d: block daemon starts in chroot
   echo -e '#!/bin/sh\nexit 101' | sudo tee "$WORK/base/usr/sbin/policy-rc.d" >/dev/null; sudo chmod +x "$WORK/base/usr/sbin/policy-rc.d"
   log "BASE: run machine-agnostic hooks: $BASE_HOOKS"
@@ -64,11 +81,17 @@ build_base(){
   done
   # enable NetworkManager + bluetooth via presets (NOT the broken 33-network hook)
   sudo chroot "$WORK/base" systemctl enable NetworkManager bluetooth 2>/dev/null || true
+  # GOLDEN-IMAGE identity reset: empty machine-id (systemd regenerates on 1st boot),
+  # drop ssh host keys + random-seed so every install gets a unique identity.
+  sudo truncate -s 0 "$WORK/base/etc/machine-id" 2>/dev/null || echo -n | sudo tee "$WORK/base/etc/machine-id" >/dev/null
+  sudo rm -f "$WORK/base/var/lib/dbus/machine-id" 2>/dev/null || true
+  sudo ln -sf /etc/machine-id "$WORK/base/var/lib/dbus/machine-id" 2>/dev/null || true
+  sudo rm -f "$WORK/base"/etc/ssh/ssh_host_* "$WORK/base/var/lib/systemd/random-seed" 2>/dev/null || true
   # cleanup
   sudo rm -f "$WORK/base/usr/sbin/policy-rc.d" "$WORK/base/usr/bin/qemu-aarch64-static"
   sudo chroot "$WORK/base" apt-get clean 2>/dev/null || true
   sudo rm -rf "$WORK/base/var/lib/apt/lists/"* "$WORK/base/tmp/"* 2>/dev/null || true
-  sudo umount -lf "$WORK/base/mnt/mirror" 2>/dev/null || true; umount_chroot "$WORK/base"
+  apt_unmount "$WORK/base"; umount_chroot "$WORK/base"
   log "BASE: mksquashfs -> $OUT/base.squashfs"
   sudo mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -noappend -no-progress 2>&1 | tail -3
   log "BASE DONE: $(du -h "$OUT/base.squashfs"|cut -f1)"
