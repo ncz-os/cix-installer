@@ -47,13 +47,40 @@ umount_chroot(){ local c="$1"
 # for the base install). `resolute main` only (no universe component in the mirrors).
 apt_offline(){ local c="$1"
   sudo rm -f "$c/etc/apt/sources.list"
-  for m in server-mirror resolute-mirror; do
+  for m in server-mirror resolute-mirror desktop-mirror; do
     [ -d "$ROOT/build/$m/dists/resolute" ] || continue
     sudo mkdir -p "$c/mnt/$m"; sudo mount -o bind "$ROOT/build/$m" "$c/mnt/$m"
     echo "deb [trusted=yes] file:///mnt/$m resolute main" | sudo tee -a "$c/etc/apt/sources.list" >/dev/null
   done
   sudo chroot "$c" apt-get update -y 2>&1 | tail -4 || true; }
-apt_unmount(){ local c="$1"; for m in server-mirror resolute-mirror; do sudo umount -lf "$c/mnt/$m" 2>/dev/null || true; done; }
+apt_unmount(){ local c="$1"; for m in server-mirror resolute-mirror desktop-mirror; do sudo umount -lf "$c/mnt/$m" 2>/dev/null || true; done; }
+
+# build a ROLE delta layer: overlay(base=lower) + apt-install the package set into
+# the upperdir, then squash ONLY the upperdir (the delta). NO NCZ desktop hooks.
+build_layer(){ local role="$1" manifest="$2"
+  [ -f "$OUT/base.squashfs" ] || { echo "base.squashfs missing — build base first"; exit 1; }
+  [ -f "$ROOT/$manifest" ] || { echo "manifest $manifest missing"; exit 1; }
+  local L="$WORK/$role-lower" U="$WORK/$role-up" WK="$WORK/$role-wk" MG="$WORK/$role-mg"
+  sudo umount -lf "$MG" 2>/dev/null || true; sudo rm -rf "$L" "$U" "$WK" "$MG"
+  log "$role: unsquash base as lowerdir"
+  sudo unsquashfs -f -d "$L" "$OUT/base.squashfs" >/dev/null 2>&1
+  mkdir -p "$U" "$WK" "$MG"
+  sudo mount -t overlay overlay -o "lowerdir=$L,upperdir=$U,workdir=$WK" "$MG"
+  mount_chroot "$MG"; apt_offline "$MG"
+  echo -e '#!/bin/sh\nexit 101' | sudo tee "$MG/usr/sbin/policy-rc.d" >/dev/null; sudo chmod +x "$MG/usr/sbin/policy-rc.d"
+  local pkgs; pkgs=$(grep -vE '^#|^[[:space:]]*$' "$ROOT/$manifest" | tr '\n' ' ')
+  log "$role: apt-install $(echo $pkgs|wc -w) top-level packages (complete set + closure)"
+  sudo chroot "$MG" apt-get install -y --no-install-recommends $pkgs 2>&1 | tail -6 || log "  WARN apt rc=$?"
+  sudo rm -f "$MG/usr/sbin/policy-rc.d"
+  sudo chroot "$MG" apt-get clean 2>/dev/null || true
+  apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
+  # clean transient from the UPPER delta only (keep dpkg status/alternatives copy-ups)
+  sudo rm -rf "$U/var/lib/apt/lists/"* "$U/var/cache/apt/"* "$U/tmp/"* "$U/usr/bin/qemu-aarch64-static" 2>/dev/null || true
+  log "$role: mksquashfs upperdir delta -> $OUT/$role.squashfs"
+  sudo mksquashfs "$U" "$OUT/$role.squashfs" -comp zstd -Xcompression-level 15 -noappend -no-progress 2>&1 | tail -2
+  log "$role DONE: delta $(du -h "$OUT/$role.squashfs"|cut -f1)"
+  sudo rm -rf "$L" "$MG" "$WK"
+}
 
 build_base(){
   log "BASE: extract resolute base"
@@ -98,6 +125,9 @@ build_base(){
 }
 
 case "$STAGE" in
-  base) build_base ;;
-  *) echo "usage: $0 base   (desktop/server layers land after base verifies)"; exit 2 ;;
+  base)    build_base ;;
+  desktop) build_layer desktop manifests/desktop.pkgs ;;
+  server)  build_layer server  manifests/server.pkgs ;;
+  all)     build_base; build_layer desktop manifests/desktop.pkgs; build_layer server manifests/server.pkgs ;;
+  *) echo "usage: $0 base|desktop|server|all"; exit 2 ;;
 esac
