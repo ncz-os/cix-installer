@@ -13,6 +13,16 @@ LOG=/var/log/cix-rootfs-extract.log
 TTY=/dev/tty3
 exec > "$LOG" 2>&1
 
+_dumplog() {
+    for p in /dev/nvme0n1p1 /dev/vda1 /dev/sda1; do
+        mkdir -p /run/esplog 2>/dev/null
+        if mount -t vfat "$p" /run/esplog 2>/dev/null; then
+            cp "$LOG" /run/esplog/EXTRACT.LOG 2>/dev/null; sync; umount /run/esplog 2>/dev/null; break
+        fi
+    done
+}
+trap _dumplog EXIT
+
 # msg <text> — log AND print to tty3 with timestamp.
 # Avoid `local` (non-POSIX) so the script stays portable to busybox sh
 # in the d-i partman late_command environment.
@@ -27,50 +37,53 @@ echo "--- mounts ---"
 mount | grep -E "cdrom|hd-media|media|target|run/live" || true
 
 # ============================================================================
-# r158: LAYERED SQUASHFS install path (base.squashfs + <role>.squashfs delta).
-# The CIX install kernel has squashfs + overlayfs BUILT-IN, so we mount the
-# layers, overlay them read-only (merged view resolves whiteouts), and cp -a the
-# merged tree into /target. No unsquashfs binary needed. Preferred over the
+# r159: LAYERED SQUASHFS install via bundled unsquashfs (no kernel mount/overlay/loop
+# — those failed silently in the d-i env). The sqtools bundle (unsquashfs + libs +
+# loader) is staged to <media>/cixmini/sqtools by build-iso. Preferred over the
 # rootfs.tar.zst path; falls through to the tarball if no base.squashfs present.
-# ============================================================================
 SQFS_DIR=""
 for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
     [ -f "$d/base.squashfs" ] && { SQFS_DIR="$d"; break; }
 done
 if [ -n "$SQFS_DIR" ]; then
-    msg "LAYERED SQUASHFS install from $SQFS_DIR"
+    set +e
+    SER=/dev/ttyAMA0
+    msg "LAYERED SQUASHFS install from $SQFS_DIR (unsquashfs bundle)"
+    echo "[sqfs] base=$(ls -la "$SQFS_DIR/base.squashfs" 2>&1)" > $SER 2>&1
+    LDR=$(ls "$SQFS_DIR"/sqtools/ld-* 2>/dev/null | head -1)
+    UNSQ_BIN="$SQFS_DIR/sqtools/unsquashfs"
+    if [ ! -x "$UNSQ_BIN" ] || [ -z "$LDR" ]; then
+        msg "FATAL: sqtools bundle missing (bin=$UNSQ_BIN ldr=$LDR)"
+        echo "[sqfs] FATAL sqtools missing; ls: $(ls -la "$SQFS_DIR/sqtools" 2>&1)" > $SER 2>&1
+        exit 1
+    fi
+    run_unsq() { "$LDR" --library-path "$SQFS_DIR/sqtools" "$UNSQ_BIN" "$@"; }
     ROLE=desktop
     grep -qw "ncz_variant=server" /proc/cmdline 2>/dev/null && ROLE=server
-    msg "role=$ROLE  base=$(du -m "$SQFS_DIR/base.squashfs" 2>/dev/null|cut -f1)MB"
-    mkdir -p /run/sqb /run/sqr /run/sqm
-    if ! mount -t squashfs -o loop "$SQFS_DIR/base.squashfs" /run/sqb; then
-        msg "FATAL: cannot mount base.squashfs (squashfs kernel support?)"; exit 1
-    fi
-    LOWERS="/run/sqb"
+    START=$(date +%s)
+    msg "extracting base.squashfs -> /target"
+    echo "[sqfs] unsquashfs base ..." > $SER 2>&1
+    run_unsq -f -d /target "$SQFS_DIR/base.squashfs" >/dev/null 2>>$SER
+    RC=$?
+    echo "[sqfs] base rc=$RC -> $(find /target -xdev -type f 2>/dev/null | wc -l) files" > $SER 2>&1
+    if [ "$RC" -ne 0 ]; then msg "FATAL: unsquashfs base rc=$RC"; exit 1; fi
     if [ -f "$SQFS_DIR/$ROLE.squashfs" ]; then
-        if mount -t squashfs -o loop "$SQFS_DIR/$ROLE.squashfs" /run/sqr; then
-            LOWERS="/run/sqr:/run/sqb"
-            msg "role layer $ROLE.squashfs mounted (delta over base)"
-        else
-            msg "WARN: $ROLE.squashfs mount failed — base only"
-        fi
+        msg "applying $ROLE.squashfs delta -> /target"
+        run_unsq -f -d /target "$SQFS_DIR/$ROLE.squashfs" >/dev/null 2>>$SER
+        echo "[sqfs] $ROLE rc=$? -> $(find /target -xdev -type f 2>/dev/null | wc -l) files" > $SER 2>&1
+        # apply overlay whiteouts: a char device 0:0 in the delta marks a deletion
+        find /target -xdev -type c 2>/dev/null | while IFS= read -r w; do
+            [ "$(stat -c '%t %T' "$w" 2>/dev/null)" = "0 0" ] && rm -rf "$w"
+        done
     else
         msg "no $ROLE.squashfs on media — base only"
     fi
-    if ! mount -t overlay overlay -o "lowerdir=$LOWERS" /run/sqm; then
-        msg "FATAL: overlay mount failed"; exit 1
-    fi
-    msg "--- copying merged (base+$ROLE) -> /target (5-6 GB, ~1-2 min) ---"
-    START=$(date +%s)
-    cp -a /run/sqm/. /target/
-    CPRC=$?
     ELAPSED=$(( $(date +%s) - START ))
-    umount /run/sqm 2>/dev/null || true
-    umount /run/sqr 2>/dev/null || true
-    umount /run/sqb 2>/dev/null || true
-    if [ "$CPRC" -ne 0 ]; then msg "FATAL: merged cp failed rc=$CPRC"; exit "$CPRC"; fi
+    # BAKED marker: run-all runs ONLY machine hooks (fstab/rescue/bootloader), not
+    # the desktop/kernel/network hooks — this is what avoids the regression.
+    mkdir -p /target/etc; : > /target/etc/ncz-baked
     # first-boot oneshot: finish deferred dpkg config (chroot half-configured pkgs
-    # e.g. falkon) + regen machine identity. Runs before the display manager.
+    # e.g. falkon) + regen machine identity, before the display manager.
     mkdir -p /target/usr/local/sbin /target/etc/systemd/system/multi-user.target.wants
     cat > /target/usr/local/sbin/ncz-firstboot <<'FBS'
 #!/bin/sh
@@ -86,7 +99,7 @@ FBS
 Description=NCZ first-boot finalize (dpkg configure + machine identity)
 ConditionPathExists=!/var/lib/ncz-firstboot-done
 DefaultDependencies=no
-After=local-fs.target systemd-machine-id-commit.service
+After=local-fs.target
 Before=display-manager.service gdm.service graphical.target
 [Service]
 Type=oneshot
@@ -98,12 +111,9 @@ FBU
     ln -sf ../ncz-firstboot.service /target/etc/systemd/system/multi-user.target.wants/ncz-firstboot.service
     FINAL_MB=$(du -sm /target 2>/dev/null | awk '{print $1}')
     msg "--- layered squashfs install done: ${FINAL_MB} MB in ${ELAPSED}s (role=$ROLE) ---"
-    # squashfs rootfs already has kernel+desktop+NM baked in -> BAKED mode so
-    # run-all skips Phase 1 + desktop hooks, runs ONLY machine hooks (fstab/rescue)
-    # + the 70-bootloader EXIT-trap. This is what avoids the desktop-hook regression.
-    mkdir -p /target/etc; : > /target/etc/ncz-baked
+    echo "[sqfs] DONE ${FINAL_MB}MB role=$ROLE files=$(find /target -xdev -type f|wc -l)" > $SER 2>&1
+    [ -f /target/etc/os-release ] || echo "[sqfs] WARN no os-release" > $SER 2>&1
     touch /target/.cix-r40-rootfs-extracted /target/.cix-squashfs-install
-    [ -f /target/etc/os-release ] || msg "WARN: /target/etc/os-release missing after squashfs install"
     exit 0
 fi
 

@@ -1770,6 +1770,7 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
     # extract-rootfs stub mounts+overlays+cp them. Fall back to the tarball.
     if [ -f "$ROOT/assets/squashfs/base.squashfs" ]; then
         cp -L "$ROOT/assets/squashfs/base.squashfs" "$EXTRA/base.squashfs"
+        [ -d "$ROOT/build/sqtools" ] && cp -a "$ROOT/build/sqtools" "$EXTRA/sqtools"
         _RL="$ROOT/assets/squashfs/$VARIANT.squashfs"
         [ -f "$_RL" ] && cp -L "$_RL" "$EXTRA/$VARIANT.squashfs"
         echo "    LAYERED SQUASHFS staged: base $(du -h "$EXTRA/base.squashfs"|cut -f1) + $VARIANT $([ -f "$EXTRA/$VARIANT.squashfs" ] && du -h "$EXTRA/$VARIANT.squashfs"|cut -f1 || echo MISSING)"
