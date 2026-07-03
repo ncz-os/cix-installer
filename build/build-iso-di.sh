@@ -794,6 +794,16 @@ if [ -n "$SQDIR" ]; then
     chroot "$TARGET" dpkg --configure -a 2>/dev/null
     _BAD=$(chroot "$TARGET" dpkg -l 2>/dev/null | awk '$1 ~ /^.[A-Z]/ && $1 != "ii" {print $2}')
     [ -n "$_BAD" ] && { echo "I: r159 stub: purging non-configured: $_BAD" >&2; chroot "$TARGET" dpkg --purge --force-all $_BAD 2>/dev/null; }
+    # r169: drop orphaned dpkg statoverrides whose owning user no longer exists.
+    # The GNOME-purge/autoremove in the squashfs build (and this STUB's own
+    # dpkg --configure/purge above) can leave a statoverride like
+    #   geoclue geoclue 755 /var/lib/geoclue
+    # after the 'geoclue' system user is gone. A dangling override makes dpkg
+    # abort with "unknown system user 'geoclue' in statoverride file" on EVERY
+    # later dpkg op → d-i pkgsel apt-get install fails ("Installation step
+    # failed"). Clean at install time, after configure/purge, before pkgsel runs.
+    chroot "$TARGET" sh -c 'while read u g m f; do getent passwd "$u" >/dev/null 2>&1 || dpkg-statoverride --remove "$f" 2>/dev/null || true; done < /var/lib/dpkg/statoverride 2>/dev/null' 2>/dev/null || true
+    echo "I: r169 stub: pruned statoverrides for missing users" >&2
     for _m in dev/pts dev sys proc; do umount "$TARGET/$_m" 2>/dev/null; done
     # r159: disable needrestart kernel hints so pkgsel/apt does not raise the
     # "pending kernel upgrade / consider rebooting" note (baked kernel != d-i
