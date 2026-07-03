@@ -129,19 +129,21 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
     # TEXT-ONLY (r128 regression, again). Copy any asset dir/file the baked
     # tree lacks; never overwrite what the image already ships (baked wins).
     if [ -d "$SRC/assets" ]; then
-        mkdir -p /target/usr/local/lib/cix-installer/assets
-        for a in "$SRC"/assets/*; do
-            [ -e "$a" ] || continue
-            bn=$(basename "$a")
-            if [ -d "$a" ]; then
-                mkdir -p "/target/usr/local/lib/cix-installer/assets/$bn"
-                # -n: no-clobber — fill gaps only, baked content wins
-                cp -an "$a/." "/target/usr/local/lib/cix-installer/assets/$bn/" 2>/dev/null || true
-            elif [ ! -e "/target/usr/local/lib/cix-installer/assets/$bn" ]; then
-                cp -a "$a" /target/usr/local/lib/cix-installer/assets/ 2>/dev/null || true
-            fi
-        done
-        echo "[late r160] asset union-sync done (refind: $(ls /target/usr/local/lib/cix-installer/assets/refind/ 2>/dev/null | tr '\n' ' '))"
+        # NOTE: this runs under d-i's BUSYBOX sh/cp — no `cp -n` (no-clobber);
+        # the r160 first cut used `cp -an` and busybox cp rejected it silently
+        # (stderr was discarded), leaving the icons gap in place. Do the union
+        # file-by-file: mkdir every dir, copy only files the target lacks.
+        DSTA=/target/usr/local/lib/cix-installer/assets
+        mkdir -p "$DSTA"
+        ( cd "$SRC/assets" || exit 0
+          find . -type d | while read -r d; do
+              mkdir -p "$DSTA/$d"
+          done
+          find . ! -type d | while read -r f; do
+              [ -e "$DSTA/$f" ] || cp -a "$f" "$DSTA/$f" || \
+                  echo "[late r160] WARN union-sync failed on $f"
+          done )
+        echo "[late r160] asset union-sync done (refind: $(ls "$DSTA/refind/" 2>/dev/null | tr '\n' ' '))"
     fi
 else
     rm -rf /target/usr/local/lib/cix-installer
