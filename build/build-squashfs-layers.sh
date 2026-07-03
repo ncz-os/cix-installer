@@ -114,6 +114,11 @@ build_layer(){ local role="$1" manifest="$2"
     # AccountsService per-user session is written at first login; the greeter
     # default above covers new users. update-alternatives keeps x-session-manager -> xfce4.
     sudo chroot "$MG" update-alternatives --set x-session-manager /usr/bin/xfce4-session 2>/dev/null || true
+    # r166: refresh the post-install hook tree in the overlay from the current
+    # repo. The brand hooks below run from base's staged post-install (baked at
+    # base-build time), so an edited hook (e.g. 60-plymouth's non-fatal apt
+    # guard) would NOT take effect on a desktop-only rebuild without this.
+    sudo cp -a "$ROOT/post-install/." "$MG/usr/local/lib/cix-installer/post-install/" 2>/dev/null || true
     # r166: stage the NCZ branding assets the brand hooks read. The base build
     # only staged cix-debs/kernel/mesa/gpu/firmware/refind/rescue — NOT branding —
     # so 45-wallpaper (needs assets/branding/wallpaper), 56-icon-theme (needs
