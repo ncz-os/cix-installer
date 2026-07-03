@@ -786,6 +786,15 @@ if [ -n "$SQDIR" ]; then
     if [ ! -f "$TARGET/etc/os-release" ]; then
         echo "FATAL: r159 stub: squashfs extract produced no os-release" >&2; exit 1
     fi
+    # r159: finish deferred dpkg config; purge pkgs that cannot configure in a
+    # chroot (e.g. falkon needs a display) so d-i pkgsel's apt does not choke on a
+    # half-configured package. Bind-mount for maintainer scripts, then unmount.
+    for _m in proc sys dev; do mount --bind /$_m "$TARGET/$_m" 2>/dev/null; done
+    mount --bind /dev/pts "$TARGET/dev/pts" 2>/dev/null
+    chroot "$TARGET" dpkg --configure -a 2>/dev/null
+    _BAD=$(chroot "$TARGET" dpkg -l 2>/dev/null | awk '$1 ~ /^.[A-Z]/ && $1 != "ii" {print $2}')
+    [ -n "$_BAD" ] && { echo "I: r159 stub: purging non-configured: $_BAD" >&2; chroot "$TARGET" dpkg --purge --force-all $_BAD 2>/dev/null; }
+    for _m in dev/pts dev sys proc; do umount "$TARGET/$_m" 2>/dev/null; done
     : > "$TARGET/etc/ncz-baked"
     mkdir -p "$TARGET/usr/local/sbin" "$TARGET/etc/systemd/system/multi-user.target.wants"
     cat > "$TARGET/usr/local/sbin/ncz-firstboot" <<'FBS'
