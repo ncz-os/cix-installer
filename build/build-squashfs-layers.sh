@@ -103,6 +103,14 @@ build_layer(){ local role="$1" manifest="$2"
         xdg-desktop-portal-gnome ubuntu-session gnome-session-bin \
         gnome-session-common ubuntu-desktop ubuntu-desktop-minimal 2>&1 | tail -4 || log "  WARN gnome purge rc=$?"
     sudo chroot "$MG" env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge 2>&1 | tail -3 || true
+    # r168: purge stale dpkg statoverrides whose owning user/group was removed by
+    # the autoremove above. Autoremoving the GNOME stack drops packages like
+    # geoclue whose postrm cannot delete its statoverride once the 'geoclue'
+    # system user is gone → a DANGLING override makes dpkg abort with "unknown
+    # system user 'geoclue' in statoverride file" on EVERY later dpkg operation,
+    # which broke d-i's pkgsel apt-get install (Sub-process dpkg error code 2 →
+    # "Installation step failed"). Drop any override whose user no longer exists.
+    sudo chroot "$MG" sh -c 'while read u g m f; do getent passwd "$u" >/dev/null 2>&1 || dpkg-statoverride --remove "$f" 2>/dev/null || true; done < /var/lib/dpkg/statoverride 2>/dev/null' || true
     # Pin LightDM as the default display manager (debconf + the plain-file d-i reads).
     echo "/usr/sbin/lightdm" | sudo tee "$MG/etc/X11/default-display-manager" >/dev/null
     echo "set shared/default-x-display-manager select lightdm" | sudo chroot "$MG" debconf-set-selections 2>/dev/null || true
