@@ -87,30 +87,16 @@ build_layer(){ local role="$1" manifest="$2"
   # This bakes an XFCE-default, GNOME-free desktop into desktop.squashfs (the
   # overlay whiteouts the base's gnome files, so the merged /target has no GNOME).
   if [ "$role" = "desktop" ]; then
-    log "desktop: purge GNOME stack + pin LightDM + default session XFCE (r165)"
-    # r165: PROTECT the plymouth splash stack from autoremove. In r164 the
-    # autoremove --purge below stripped plymouth/plymouth-theme-spinner/
-    # imagemagick as gnome orphans, so 60-plymouth's reinstall failed
-    # ("plymouth packages not available") and the boot splash kept the Ubuntu
-    # logo instead of the NCZ wordmark. Mark them manual first so they survive.
-    sudo chroot "$MG" apt-mark manual plymouth plymouth-label plymouth-theme-spinner imagemagick 2>/dev/null || true
-    # r165: also purge gnome-shell + mutter + the GNOME xdg portal explicitly.
-    # r164 left gnome-shell installed because gnome-tweaks (dropped from the
-    # manifest in r165) depended on it; belt-and-suspenders purge here removes
-    # it + mutter (dead weight, XFCE uses xdg-desktop-portal-gtk).
-    sudo chroot "$MG" env DEBIAN_FRONTEND=noninteractive apt-get purge -y \
-        gdm3 gnome-shell gnome-shell-common mutter mutter-common \
-        xdg-desktop-portal-gnome ubuntu-session gnome-session-bin \
-        gnome-session-common ubuntu-desktop ubuntu-desktop-minimal 2>&1 | tail -4 || log "  WARN gnome purge rc=$?"
-    sudo chroot "$MG" env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge 2>&1 | tail -3 || true
-    # r168: purge stale dpkg statoverrides whose owning user/group was removed by
-    # the autoremove above. Autoremoving the GNOME stack drops packages like
-    # geoclue whose postrm cannot delete its statoverride once the 'geoclue'
-    # system user is gone → a DANGLING override makes dpkg abort with "unknown
-    # system user 'geoclue' in statoverride file" on EVERY later dpkg operation,
-    # which broke d-i's pkgsel apt-get install (Sub-process dpkg error code 2 →
-    # "Installation step failed"). Drop any override whose user no longer exists.
-    sudo chroot "$MG" sh -c 'while read u g m f; do getent passwd "$u" >/dev/null 2>&1 || dpkg-statoverride --remove "$f" 2>/dev/null || true; done < /var/lib/dpkg/statoverride 2>/dev/null' || true
+    log "desktop: pin LightDM + default session XFCE + brand (r171 — no in-layer gnome purge)"
+    # r171: DO NOT purge GNOME or run autoremove --purge in the desktop OVERLAY.
+    # Purging ~80 packages inside the overlay chroot ran maintainer scripts that
+    # left the installed system's user DB corrupt: at d-i install time the STUB's
+    # dpkg --configure/purge + pkgsel truncated /etc/passwd,shadow,group to 0
+    # bytes → dpkg aborted "unknown system user root" → Installation step failed
+    # (r166–r170 saga). GNOME is already purged in the BASE (build_base, proven
+    # clean in r164), and the manifest no longer pulls it (gnome-tweaks +
+    # gnome-software dropped in r165), so gnome-shell is simply absent — no
+    # destructive in-layer purge needed. Keep only the safe, cosmetic steps.
     # Pin LightDM as the default display manager (debconf + the plain-file d-i reads).
     echo "/usr/sbin/lightdm" | sudo tee "$MG/etc/X11/default-display-manager" >/dev/null
     echo "set shared/default-x-display-manager select lightdm" | sudo chroot "$MG" debconf-set-selections 2>/dev/null || true
