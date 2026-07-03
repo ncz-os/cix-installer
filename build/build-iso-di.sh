@@ -795,6 +795,11 @@ if [ -n "$SQDIR" ]; then
     _BAD=$(chroot "$TARGET" dpkg -l 2>/dev/null | awk '$1 ~ /^.[A-Z]/ && $1 != "ii" {print $2}')
     [ -n "$_BAD" ] && { echo "I: r159 stub: purging non-configured: $_BAD" >&2; chroot "$TARGET" dpkg --purge --force-all $_BAD 2>/dev/null; }
     for _m in dev/pts dev sys proc; do umount "$TARGET/$_m" 2>/dev/null; done
+    # r159: disable needrestart kernel hints so pkgsel/apt does not raise the
+    # "pending kernel upgrade / consider rebooting" note (baked kernel != d-i
+    # installer kernel) that blocks "Select and install software".
+    mkdir -p "$TARGET/etc/needrestart/conf.d"
+    printf '$nrconf{kernelhints} = 0;\n' > "$TARGET/etc/needrestart/conf.d/99-baked.conf"
     : > "$TARGET/etc/ncz-baked"
     mkdir -p "$TARGET/usr/local/sbin" "$TARGET/etc/systemd/system/multi-user.target.wants"
     cat > "$TARGET/usr/local/sbin/ncz-firstboot" <<'FBS'
