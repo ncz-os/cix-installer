@@ -802,8 +802,24 @@ if [ -n "$SQDIR" ]; then
     # abort with "unknown system user 'geoclue' in statoverride file" on EVERY
     # later dpkg op → d-i pkgsel apt-get install fails ("Installation step
     # failed"). Clean at install time, after configure/purge, before pkgsel runs.
-    chroot "$TARGET" sh -c 'while read u g m f; do getent passwd "$u" >/dev/null 2>&1 || dpkg-statoverride --remove "$f" 2>/dev/null || true; done < /var/lib/dpkg/statoverride 2>/dev/null' 2>/dev/null || true
-    echo "I: r169 stub: pruned statoverrides for missing users" >&2
+    # r170: collect orphan paths in a FIRST read-only pass, then remove them —
+    # dpkg-statoverride --remove rewrites the very file we read, so removing
+    # inside the read loop corrupts it (r169 removed geoclue but mangled the
+    # file into an "unknown system user 'root'" abort). Guard on getent working
+    # so a broken NSS can't nuke every (legitimate, e.g. root:shadow) override.
+    chroot "$TARGET" sh -c '
+        getent passwd root >/dev/null 2>&1 || exit 0
+        orphans=""
+        while read u g m f; do
+            [ -n "$u" ] && [ -n "$f" ] || continue
+            getent passwd "$u" >/dev/null 2>&1 || orphans="$orphans
+$f"
+        done < /var/lib/dpkg/statoverride
+        printf "%s\n" "$orphans" | while IFS= read -r p; do
+            [ -n "$p" ] && dpkg-statoverride --remove "$p" 2>/dev/null || true
+        done
+    ' 2>/dev/null || true
+    echo "I: r170 stub: pruned orphaned statoverrides (missing user)" >&2
     for _m in dev/pts dev sys proc; do umount "$TARGET/$_m" 2>/dev/null; done
     # r159: disable needrestart kernel hints so pkgsel/apt does not raise the
     # "pending kernel upgrade / consider rebooting" note (baked kernel != d-i
