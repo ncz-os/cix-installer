@@ -7,6 +7,7 @@
 #
 # r55+ adds live progress feedback to /dev/tty3 (the d-i log VT — Alt+F3 during
 # install) so the long extract phase no longer sits silent at "1%".
+echo "[EXTRACT-TOP] running pid=$$ $(date 2>/dev/null); base=[$(ls -la /cdrom/cixmini/base.squashfs 2>&1)]; cdrom_mounted=[$(mount|grep -c cdrom)]" > /dev/ttyAMA0 2>&1
 set -e
 
 LOG=/var/log/cix-rootfs-extract.log

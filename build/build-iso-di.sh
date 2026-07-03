@@ -756,6 +756,70 @@ if [ -f "$TARGET/etc/os-release" ] && [ -d "$TARGET/usr/bin" ] && \
     exit 0
 fi
 
+# r159: LAYERED SQUASHFS — prefer base.squashfs (+ <role> delta) via the bundled
+# unsquashfs (loader + libs in sqtools/). Pure userspace, no kernel mount/overlay.
+SQDIR=""
+for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
+    [ -f "$d/base.squashfs" ] && { SQDIR="$d"; break; }
+done
+if [ -n "$SQDIR" ]; then
+    echo "I: r159 stub: LAYERED SQUASHFS install from $SQDIR" >&2
+    LDR=$(ls "$SQDIR"/sqtools/ld-* 2>/dev/null | head -1)
+    UNSQ="$SQDIR/sqtools/unsquashfs"
+    if [ ! -x "$UNSQ" ] || [ -z "$LDR" ]; then
+        echo "FATAL: r159 stub: sqtools bundle missing (bin=$UNSQ ldr=$LDR)" >&2; exit 1
+    fi
+    rm -rf "$TARGET"/* "$TARGET"/.[!.]* 2>/dev/null || true
+    ROLE=desktop
+    grep -qw "ncz_variant=server" /proc/cmdline 2>/dev/null && ROLE=server
+    echo "I: r159 stub: unsquashfs base -> $TARGET" >&2
+    "$LDR" --library-path "$SQDIR/sqtools" "$UNSQ" -f -d "$TARGET" "$SQDIR/base.squashfs" >/dev/null 2>&1 || {
+        echo "FATAL: r159 stub: unsquashfs base failed" >&2; exit 1; }
+    if [ -f "$SQDIR/$ROLE.squashfs" ]; then
+        echo "I: r159 stub: unsquashfs $ROLE delta -> $TARGET" >&2
+        "$LDR" --library-path "$SQDIR/sqtools" "$UNSQ" -f -d "$TARGET" "$SQDIR/$ROLE.squashfs" >/dev/null 2>&1 || \
+            echo "W: r159 stub: $ROLE delta rc=$?" >&2
+        find "$TARGET" -xdev -type c 2>/dev/null | while IFS= read -r w; do
+            [ "$(stat -c '%t %T' "$w" 2>/dev/null)" = "0 0" ] && rm -rf "$w"
+        done
+    fi
+    if [ ! -f "$TARGET/etc/os-release" ]; then
+        echo "FATAL: r159 stub: squashfs extract produced no os-release" >&2; exit 1
+    fi
+    : > "$TARGET/etc/ncz-baked"
+    mkdir -p "$TARGET/usr/local/sbin" "$TARGET/etc/systemd/system/multi-user.target.wants"
+    cat > "$TARGET/usr/local/sbin/ncz-firstboot" <<'FBS'
+#!/bin/sh
+export DEBIAN_FRONTEND=noninteractive
+dpkg --configure -a 2>/dev/null || true
+[ -s /etc/machine-id ] || systemd-machine-id-setup 2>/dev/null || true
+systemctl disable ncz-firstboot.service 2>/dev/null || true
+touch /var/lib/ncz-firstboot-done
+FBS
+    chmod +x "$TARGET/usr/local/sbin/ncz-firstboot"
+    cat > "$TARGET/etc/systemd/system/ncz-firstboot.service" <<'FBU'
+[Unit]
+Description=NCZ first-boot finalize (dpkg configure + machine identity)
+ConditionPathExists=!/var/lib/ncz-firstboot-done
+DefaultDependencies=no
+After=local-fs.target
+Before=display-manager.service gdm.service graphical.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ncz-firstboot
+[Install]
+WantedBy=multi-user.target
+FBU
+    ln -sf ../ncz-firstboot.service "$TARGET/etc/systemd/system/multi-user.target.wants/ncz-firstboot.service"
+    [ -e "$TARGET/etc/fstab" ] || touch "$TARGET/etc/fstab"
+    : > "$TARGET/etc/fstab.orig"
+    [ -e "$TARGET/etc/hostname" ] || touch "$TARGET/etc/hostname"
+    [ -e "$TARGET/etc/resolv.conf" ] || touch "$TARGET/etc/resolv.conf"
+    echo "I: r159 stub: squashfs rootfs ready ($(du -sh "$TARGET" 2>/dev/null | cut -f1))" >&2
+    exit 0
+fi
+
 # Find rootfs.tar.zst on the install media
 ROOTFS=""
 for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
