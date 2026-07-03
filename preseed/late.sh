@@ -548,7 +548,12 @@ if [ "$RET" = "0" ]; then
     # reboot. priority=critical (r134) means d-i may reboot without its own
     # final prompt, and the TTY banner above is only visible on Alt+F3. This
     # pops a note on the same frontend d-i uses and waits for Continue.
-    if [ "$DEBCONF_OK" = 1 ]; then
+    # r162 (codex review): skip the blocking remove-media dialog on unattended
+    # installs (qemu harness / automated runs pass ncz_unattended=1). Metal
+    # USB installs keep the full stop — that dialog is the whole point there.
+    if grep -qw ncz_unattended=1 /proc/cmdline 2>/dev/null; then
+        echo "[late r162] unattended install — skipping remove-media dialog"
+    elif [ "$DEBCONF_OK" = 1 ]; then
         db_try db_fset nclawzero/remove-media seen false
         db_try db_input critical nclawzero/remove-media
         db_try db_go
