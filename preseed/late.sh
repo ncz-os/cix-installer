@@ -433,6 +433,17 @@ RET=$?
 # real run-all.sh rc stays in RET and is still propagated by `exit $RET` below
 # (preserves the intended bootloader-failure -> install-failed behavior).
 kill "$LATE_HB_PID" 2>/dev/null || true
+# r163: finalization (eject / skel / remove-media dialog / reboot stop) must
+# gate on BOOTABILITY, not RET=0. On Sky1 METAL, efivars is unavailable so
+# 70-bootloader's efibootmgr NVRAM write returns non-zero → RET!=0 even though
+# rEFInd is on the ESP and the system boots. The old `if [ "$RET" = "0" ]`
+# gates then SKIPPED the remove-media banner + blocking dialog entirely, so
+# d-i had nothing to consume the finish flow and dropped to the raw MAIN MENU
+# instead of rebooting (observed .66, 2026-07-03). By the time we get here
+# run-all.sh's EXIT trap has already installed the bootloader, so this ESP
+# check is authoritative. FINALIZE_OK = "install succeeded OR is bootable".
+FINALIZE_OK=0
+{ [ "$RET" = "0" ] || [ -f /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ]; } && FINALIZE_OK=1
 # r130.8 (defect B): do NOT call db_progress STOP/SET. We never START our own
 # bar now, so STOP would pop finish-install's OWN progress bar - on the success
 # path that corrupted finish-install's accounting and bounced d-i back to the
@@ -516,7 +527,7 @@ grep -rhsE '^[[:space:]]*deb' \
 # would still boot from the USB stick (UEFI BootOrder put it first), and
 # in QEMU the next pass of `-boot d` would re-enter d-i for a second
 # install pass on top of the just-installed system.
-if [ "$RET" = "0" ]; then
+if [ "$FINALIZE_OK" = "1" ]; then
     echo "--- ejecting install media ---"
     eject /cdrom 2>&1 || echo "eject /cdrom failed (non-fatal)"
 fi
@@ -525,7 +536,7 @@ fi
 # r56: hydrate /etc/skel content into existing user homes that d-i created before late_command fired.
 # Without this, post-install hooks that populate /etc/skel/Desktop and /etc/skel/.config don't
 # reach the user (because d-i's user-creation step copies /etc/skel BEFORE late_command runs).
-if [ "$RET" = "0" ]; then
+if [ "$FINALIZE_OK" = "1" ]; then
     for home in /target/home/*; do
         [ -d "$home" ] || continue
         user=$(basename "$home")
@@ -537,7 +548,7 @@ fi
 # r56: loud REMOVE-USB banner so user sees it on every TTY before d-i reboots.
 # d-i preseed (reboot_in_progress no longer set to note) will then prompt the
 # user to dismiss before the actual reboot fires.
-if [ "$RET" = "0" ]; then
+if [ "$FINALIZE_OK" = "1" ]; then
     BANNER='\n\n  ============================================================\n  \n    NCZ 26.6 INSTALL COMPLETE\n    \n    >>> REMOVE THE USB STICK NOW <<<\n    \n    Then press Enter on the next dialog to reboot.\n    \n    If you forget, the system will boot back into the\n    installer (USB has higher boot priority than NVMe).\n  \n  ============================================================\n'
     for tty in /dev/tty1 /dev/tty2 /dev/tty3 /dev/tty4 /dev/tty5 /dev/console; do
         if [ -w "$tty" ]; then
