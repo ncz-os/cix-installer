@@ -185,6 +185,18 @@ build_base(){
   #    is LAN-only and requires the password fallback (doctrine: lockout
   #    recovery beats plaintext-on-LAN concerns). First-value-wins → 10-.
   sudo chroot "$WORK/base" systemctl disable systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service networkd-dispatcher.service 2>/dev/null || true
+  # r164: make NetworkManager manage ETHERNET too. The Ubuntu desktop base ships
+  # /usr/lib/NetworkManager/conf.d/10-globally-managed-devices.conf =
+  #   unmanaged-devices=*,except:type:wifi,except:type:gsm,except:type:cdma
+  # i.e. NM handles ONLY wifi and leaves ethernet to systemd-networkd — which we
+  # just disabled (de-cloud, above). Net result on real hardware: the wired NIC
+  # is 'unmanaged' and never gets DHCP (wifi works, ethernet dead — observed .66).
+  # Override so NM also manages ethernet; NM-only model, no networkd needed.
+  sudo mkdir -p "$WORK/base/etc/NetworkManager/conf.d"
+  sudo tee "$WORK/base/etc/NetworkManager/conf.d/10-ncz-manage-ethernet.conf" >/dev/null <<'NMETH'
+[keyfile]
+unmanaged-devices=*,except:type:wifi,except:type:gsm,except:type:cdma,except:type:ethernet
+NMETH
   sudo rm -f "$WORK/base/etc/ssh/sshd_config.d/60-cloudimg-settings.conf"
   sudo mkdir -p "$WORK/base/etc/ssh/sshd_config.d"
   printf 'PasswordAuthentication yes\n' | sudo tee "$WORK/base/etc/ssh/sshd_config.d/10-ncz-fleet.conf" >/dev/null

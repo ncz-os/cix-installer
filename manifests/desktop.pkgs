@@ -156,3 +156,7 @@ aardvark-dns
 # --- r130.4 bucket: Plymouth boot splash theme + asset tooling ---
 plymouth-theme-spinner
 imagemagick
+
+# --- r164: IceWM — ultra-light alternate WM (selectable at LightDM greeter)
+icewm
+icewm-common
