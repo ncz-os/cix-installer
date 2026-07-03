@@ -78,6 +78,41 @@ build_layer(){ local role="$1" manifest="$2"
   local pkgs; pkgs=$(grep -vE '^#|^[[:space:]]*$' "$ROOT/$manifest" | tr '\n' ' ')
   log "$role: apt-install $(echo $pkgs|wc -w) top-level packages (complete set + closure)"
   sudo chroot "$MG" apt-get install -y --no-install-recommends $pkgs 2>&1 | tail -6 || log "  WARN apt rc=$?"
+  # r164: the resolute BASE ships the full GNOME desktop (gnome-shell + gdm3 +
+  # ubuntu-session) and defaults /etc/X11/default-display-manager to gdm3, so
+  # even after the XFCE manifest installs lightdm+xubuntu-core, gdm3 stays the
+  # default DM and GNOME (heavy, and Wayland black-screens on Mali panthor per
+  # 20-desktop.sh) is what boots. In the DESKTOP delta only, do what the excluded
+  # 20-desktop.sh did: purge the GNOME stack + pin LightDM + default session XFCE.
+  # This bakes an XFCE-default, GNOME-free desktop into desktop.squashfs (the
+  # overlay whiteouts the base's gnome files, so the merged /target has no GNOME).
+  if [ "$role" = "desktop" ]; then
+    log "desktop: purge GNOME stack + pin LightDM + default session XFCE (r164)"
+    sudo chroot "$MG" env DEBIAN_FRONTEND=noninteractive apt-get purge -y \
+        gdm3 gnome-shell gnome-shell-common ubuntu-session gnome-session-bin \
+        gnome-session-common ubuntu-desktop ubuntu-desktop-minimal 2>&1 | tail -4 || log "  WARN gnome purge rc=$?"
+    sudo chroot "$MG" env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge 2>&1 | tail -3 || true
+    # Pin LightDM as the default display manager (debconf + the plain-file d-i reads).
+    echo "/usr/sbin/lightdm" | sudo tee "$MG/etc/X11/default-display-manager" >/dev/null
+    echo "set shared/default-x-display-manager select lightdm" | sudo chroot "$MG" debconf-set-selections 2>/dev/null || true
+    echo "set lightdm shared/default-x-display-manager lightdm" | sudo chroot "$MG" debconf-set-selections 2>/dev/null || true
+    sudo ln -sf /lib/systemd/system/lightdm.service "$MG/etc/systemd/system/display-manager.service"
+    # Default session = XFCE for lightdm's greeter (autologin/user-session fallback).
+    sudo mkdir -p "$MG/etc/lightdm/lightdm.conf.d"
+    printf '[Seat:*]\nuser-session=xfce\n' | sudo tee "$MG/etc/lightdm/lightdm.conf.d/60-ncz-xfce.conf" >/dev/null
+    # AccountsService per-user session is written at first login; the greeter
+    # default above covers new users. update-alternatives keeps x-session-manager -> xfce4.
+    sudo chroot "$MG" update-alternatives --set x-session-manager /usr/bin/xfce4-session 2>/dev/null || true
+    # r164: apply NCZ branding hooks now that the desktop is XFCE. These are
+    # cosmetic + best-effort (os-release/issue, wallpapers, XFCE icon theme, and
+    # the plymouth spinner rebranded with the NCZ wordmark — operator wants the
+    # xubuntu spinner kept, just NCZ-logo'd, which is exactly 60-plymouth's job).
+    for bh in 50-brand 56-icon-theme 45-wallpaper-rotator 60-plymouth; do
+      [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
+      log "  desktop brand hook -> $bh"
+      sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3 || log "  WARN $bh rc=$?"
+    done
+  fi
   sudo rm -f "$MG/usr/sbin/policy-rc.d"
   sudo chroot "$MG" apt-get clean 2>/dev/null || true
   apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
@@ -128,6 +163,19 @@ build_base(){
   done
   # enable NetworkManager + bluetooth via presets (NOT the broken 33-network hook)
   sudo chroot "$WORK/base" systemctl enable NetworkManager bluetooth 2>/dev/null || true
+  # r164: the resolute base tarball is a FULL GNOME desktop image (gnome-shell +
+  # gdm3 + ubuntu-session + ubuntu-desktop, ~1.5-2GB). Operator decision: XFCE-only,
+  # GNOME too heavy AND it Wayland-black-screens on the Mali panthor GPU. Purge the
+  # GNOME desktop from the BASE (not just whiteout it in the desktop delta) so the
+  # ISO actually shrinks. XFCE + LightDM are installed fresh in the desktop layer.
+  # PROTECT the sky1 mesa + Xorg stack (pinned by 15/16-mesa hooks above) from
+  # autoremove by marking it manual first, so removing gnome orphans can't drag
+  # the GPU userland out with it.
+  sudo chroot "$WORK/base" sh -c 'apt-mark manual $(dpkg-query -W -f="\${Package}\n" 2>/dev/null | grep -E "^(mesa-|libgl1|libglx|libegl|libgbm1|libglapi|xserver-xorg|xinit)") 2>/dev/null' || true
+  log "BASE: purge GNOME desktop stack (XFCE-only, shrink ISO) — mesa/Xorg protected"
+  sudo chroot "$WORK/base" env DEBIAN_FRONTEND=noninteractive apt-get purge -y \
+      gdm3 gnome-shell ubuntu-session ubuntu-desktop ubuntu-desktop-minimal 2>&1 | tail -6 || log "  WARN gnome purge rc=$?"
+  sudo chroot "$WORK/base" env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge 2>&1 | tail -4 || true
   # r160: DE-CLOUD the Ubuntu cloud rootfs (belt; the r160 install-time STUB
   # fixups are the braces — both are idempotent):
   #  - systemd-networkd (+ wait-online + dispatcher) is enabled alongside NM
