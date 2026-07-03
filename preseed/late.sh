@@ -122,6 +122,27 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
     echo "[late r157] baked rootfs detected — preserving baked assets + marker, refreshing post-install scripts only"
     rm -rf /target/usr/local/lib/cix-installer/post-install
     cp -a "$SRC/post-install" /target/usr/local/lib/cix-installer/
+    # r160: union-sync assets from the ISO. The layered-squashfs base stages
+    # only a SUBSET of assets (e.g. assets/refind/ holds just refind_aa64.efi
+    # — no ncz.png / ncz-banner.png / icons/), so preserving the baked tree
+    # alone left 70-bootloader without its banner + icons → rEFInd rendered
+    # TEXT-ONLY (r128 regression, again). Copy any asset dir/file the baked
+    # tree lacks; never overwrite what the image already ships (baked wins).
+    if [ -d "$SRC/assets" ]; then
+        mkdir -p /target/usr/local/lib/cix-installer/assets
+        for a in "$SRC"/assets/*; do
+            [ -e "$a" ] || continue
+            bn=$(basename "$a")
+            if [ -d "$a" ]; then
+                mkdir -p "/target/usr/local/lib/cix-installer/assets/$bn"
+                # -n: no-clobber — fill gaps only, baked content wins
+                cp -an "$a/." "/target/usr/local/lib/cix-installer/assets/$bn/" 2>/dev/null || true
+            elif [ ! -e "/target/usr/local/lib/cix-installer/assets/$bn" ]; then
+                cp -a "$a" /target/usr/local/lib/cix-installer/assets/ 2>/dev/null || true
+            fi
+        done
+        echo "[late r160] asset union-sync done (refind: $(ls /target/usr/local/lib/cix-installer/assets/refind/ 2>/dev/null | tr '\n' ' '))"
+    fi
 else
     rm -rf /target/usr/local/lib/cix-installer
     cp -a "$SRC" /target/usr/local/lib/cix-installer

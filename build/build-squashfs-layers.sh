@@ -13,6 +13,13 @@
 # install / first-boot, not baked.
 #
 # Runs on x86 ARGOS via qemu-aarch64-static + binfmt (same mechanism as the bake).
+#
+# ⚠ LAYER-COHERENCE RULE: the role deltas copy-up /var/lib/dpkg/status into
+# their upperdir. If you change the PACKAGE SET of base.squashfs, the merged
+# view keeps showing the OLD dpkg status from the delta — the new base
+# packages become invisible to dpkg. Any apt/dpkg change to base REQUIRES
+# rebuilding every role delta against the new base (config-only base changes
+# in /etc are fine as long as the delta didn't copy-up the same file).
 set -euo pipefail
 
 ROOT="${ROOT:-$HOME/cix-installer-build/cix-installer}"
@@ -98,7 +105,19 @@ build_base(){
   # KVER sidecars 10-our-kernel needs (build-iso normally derives these from assets/kernel/*/KVER)
   [ -f "$ROOT/assets/kernel/stable/KVER" ] && sudo cp "$ROOT/assets/kernel/stable/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_LTS"
   [ -f "$ROOT/assets/kernel/edge/KVER" ]   && sudo cp "$ROOT/assets/kernel/edge/KVER"   "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
-  [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ] && { sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets/refind"; sudo cp "$ROOT/build/refind-bin/refind_aa64.efi" "$WORK/base/usr/local/lib/cix-installer/assets/refind/"; }
+  # r160: stage the COMPLETE rEFInd asset set, falling back to build/refind-bin
+  # for anything assets/refind didn't provide (on bigpi the NFS sync had only
+  # build/refind-bin — assets/refind was absent, so r159's base shipped just the
+  # binary and rEFInd rendered TEXT-ONLY without banner/icons; r128 lesson).
+  sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets/refind"
+  for f in refind_aa64.efi ncz.png ncz-banner.png; do
+    [ -e "$WORK/base/usr/local/lib/cix-installer/assets/refind/$f" ] && continue
+    [ -f "$ROOT/build/refind-bin/$f" ] && sudo cp "$ROOT/build/refind-bin/$f" "$WORK/base/usr/local/lib/cix-installer/assets/refind/"
+  done
+  if [ ! -d "$WORK/base/usr/local/lib/cix-installer/assets/refind/icons" ] && [ -d "$ROOT/build/refind-bin/icons" ]; then
+    sudo cp -r "$ROOT/build/refind-bin/icons" "$WORK/base/usr/local/lib/cix-installer/assets/refind/"
+  fi
+  [ -f "$WORK/base/usr/local/lib/cix-installer/assets/refind/refind_aa64.efi" ] || log "  WARN: no refind_aa64.efi staged — 70-bootloader will fail at install"
   # policy-rc.d: block daemon starts in chroot
   echo -e '#!/bin/sh\nexit 101' | sudo tee "$WORK/base/usr/sbin/policy-rc.d" >/dev/null; sudo chmod +x "$WORK/base/usr/sbin/policy-rc.d"
   log "BASE: run machine-agnostic hooks: $BASE_HOOKS"
@@ -109,6 +128,18 @@ build_base(){
   done
   # enable NetworkManager + bluetooth via presets (NOT the broken 33-network hook)
   sudo chroot "$WORK/base" systemctl enable NetworkManager bluetooth 2>/dev/null || true
+  # r160: DE-CLOUD the Ubuntu cloud rootfs (belt; the r160 install-time STUB
+  # fixups are the braces — both are idempotent):
+  #  - systemd-networkd (+ wait-online + dispatcher) is enabled alongside NM
+  #    but has no .network config on NCZ → every boot stalls ~120s in
+  #    systemd-networkd-wait-online. NM is the NCZ network manager.
+  #  - 60-cloudimg-settings.conf forces PasswordAuthentication no; the fleet
+  #    is LAN-only and requires the password fallback (doctrine: lockout
+  #    recovery beats plaintext-on-LAN concerns). First-value-wins → 10-.
+  sudo chroot "$WORK/base" systemctl disable systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service networkd-dispatcher.service 2>/dev/null || true
+  sudo rm -f "$WORK/base/etc/ssh/sshd_config.d/60-cloudimg-settings.conf"
+  sudo mkdir -p "$WORK/base/etc/ssh/sshd_config.d"
+  printf 'PasswordAuthentication yes\n' | sudo tee "$WORK/base/etc/ssh/sshd_config.d/10-ncz-fleet.conf" >/dev/null
   # GOLDEN-IMAGE identity reset: empty machine-id (systemd regenerates on 1st boot),
   # drop ssh host keys + random-seed so every install gets a unique identity.
   sudo truncate -s 0 "$WORK/base/etc/machine-id" 2>/dev/null || echo -n | sudo tee "$WORK/base/etc/machine-id" >/dev/null

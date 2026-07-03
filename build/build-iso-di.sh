@@ -800,6 +800,31 @@ if [ -n "$SQDIR" ]; then
     # installer kernel) that blocks "Select and install software".
     mkdir -p "$TARGET/etc/needrestart/conf.d"
     printf '$nrconf{kernelhints} = 0;\n' > "$TARGET/etc/needrestart/conf.d/99-baked.conf"
+    # r160: per-machine ssh host keys. The Ubuntu cloud rootfs ships
+    # openssh-server but STRIPS the host keys (cloud-init would normally
+    # regenerate them); without keys sshd refuses to start and the installed
+    # system is unreachable on :22. Generate here, at install time, so every
+    # machine gets unique keys — never bake host keys into the squashfs.
+    chroot "$TARGET" ssh-keygen -A 2>/dev/null || \
+        echo "W: r160 stub: ssh-keygen -A failed (openssh-server missing from image?)" >&2
+    # r160: fleet remote-access policy. The cloud-image drop-in forces
+    # PasswordAuthentication no; the fleet is LAN-only and wants password
+    # fallback when keys break. OpenSSH keyword resolution is first-value-wins
+    # across lexically-sorted sshd_config.d, so 10- beats any later drop-in.
+    rm -f "$TARGET/etc/ssh/sshd_config.d/60-cloudimg-settings.conf"
+    mkdir -p "$TARGET/etc/ssh/sshd_config.d"
+    printf 'PasswordAuthentication yes\n' > "$TARGET/etc/ssh/sshd_config.d/10-ncz-fleet.conf"
+    # r160: de-cloud the network stack. The cloud rootfs enables
+    # systemd-networkd + its wait-online + networkd-dispatcher ALONGSIDE
+    # NetworkManager; networkd has no .network config on NCZ so
+    # systemd-networkd-wait-online stalls every boot for its full ~120s
+    # timeout. NCZ is NetworkManager-managed — drop the networkd enablement
+    # symlinks (NM + NM-wait-online stay).
+    rm -f "$TARGET/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" \
+          "$TARGET/etc/systemd/system/multi-user.target.wants/networkd-dispatcher.service" \
+          "$TARGET/etc/systemd/system/sockets.target.wants/systemd-networkd.socket" \
+          "$TARGET/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service" \
+          "$TARGET/etc/systemd/system/dbus-org.freedesktop.network1.service" 2>/dev/null
     : > "$TARGET/etc/ncz-baked"
     mkdir -p "$TARGET/usr/local/sbin" "$TARGET/etc/systemd/system/multi-user.target.wants"
     cat > "$TARGET/usr/local/sbin/ncz-firstboot" <<'FBS'
