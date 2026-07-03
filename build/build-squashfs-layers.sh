@@ -87,9 +87,20 @@ build_layer(){ local role="$1" manifest="$2"
   # This bakes an XFCE-default, GNOME-free desktop into desktop.squashfs (the
   # overlay whiteouts the base's gnome files, so the merged /target has no GNOME).
   if [ "$role" = "desktop" ]; then
-    log "desktop: purge GNOME stack + pin LightDM + default session XFCE (r164)"
+    log "desktop: purge GNOME stack + pin LightDM + default session XFCE (r165)"
+    # r165: PROTECT the plymouth splash stack from autoremove. In r164 the
+    # autoremove --purge below stripped plymouth/plymouth-theme-spinner/
+    # imagemagick as gnome orphans, so 60-plymouth's reinstall failed
+    # ("plymouth packages not available") and the boot splash kept the Ubuntu
+    # logo instead of the NCZ wordmark. Mark them manual first so they survive.
+    sudo chroot "$MG" apt-mark manual plymouth plymouth-label plymouth-theme-spinner imagemagick 2>/dev/null || true
+    # r165: also purge gnome-shell + mutter + the GNOME xdg portal explicitly.
+    # r164 left gnome-shell installed because gnome-tweaks (dropped from the
+    # manifest in r165) depended on it; belt-and-suspenders purge here removes
+    # it + mutter (dead weight, XFCE uses xdg-desktop-portal-gtk).
     sudo chroot "$MG" env DEBIAN_FRONTEND=noninteractive apt-get purge -y \
-        gdm3 gnome-shell gnome-shell-common ubuntu-session gnome-session-bin \
+        gdm3 gnome-shell gnome-shell-common mutter mutter-common \
+        xdg-desktop-portal-gnome ubuntu-session gnome-session-bin \
         gnome-session-common ubuntu-desktop ubuntu-desktop-minimal 2>&1 | tail -4 || log "  WARN gnome purge rc=$?"
     sudo chroot "$MG" env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge 2>&1 | tail -3 || true
     # Pin LightDM as the default display manager (debconf + the plain-file d-i reads).

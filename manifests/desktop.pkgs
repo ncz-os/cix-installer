@@ -124,9 +124,6 @@ libdrm-etnaviv1
 # --- r130.4 bucket: desktop apps 20-desktop installs that were missing from
 #     the offline pool (App Center, Flatpak/portal stack, browsers, tweaks) ---
 flatpak
-gnome-software
-gnome-software-plugin-flatpak
-gnome-tweaks
 gnome-session-canberra
 xdg-desktop-portal-gtk
 epiphany-browser
