@@ -5,11 +5,16 @@ set -euo pipefail
 
 echo "[60] Plymouth boot splash"
 
+# r166: make the apt-get install best-effort. In the layered-squashfs build
+# plymouth + plymouth-theme-spinner + imagemagick are already installed by the
+# desktop manifest, but a fresh `apt-get install` here can still return nonzero
+# (offline resolver hiccup / transitional imagemagick), and the old
+# `|| exit 0` then bailed BEFORE the rebrand — so the splash kept the stock
+# Ubuntu logo. Only skip if the spinner theme is genuinely absent (checked
+# below via $SPIN_PLY); a nonzero apt here is not fatal when the theme is present.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    plymouth plymouth-theme-spinner imagemagick || {
-    echo "[60] plymouth packages not available — skipping splash setup"
-    exit 0
-}
+    plymouth plymouth-theme-spinner imagemagick 2>/dev/null || \
+    echo "[60] apt-get install returned nonzero (likely already-installed/offline) — continuing if spinner theme present"
 
 # r130.5 (operator request): use the STOCK Ubuntu 'spinner' boot animation
 # (same as Xubuntu's) but rebranded with the NCZ logo — we cannot ship the

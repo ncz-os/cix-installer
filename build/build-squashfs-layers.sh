@@ -114,6 +114,18 @@ build_layer(){ local role="$1" manifest="$2"
     # AccountsService per-user session is written at first login; the greeter
     # default above covers new users. update-alternatives keeps x-session-manager -> xfce4.
     sudo chroot "$MG" update-alternatives --set x-session-manager /usr/bin/xfce4-session 2>/dev/null || true
+    # r166: stage the NCZ branding assets the brand hooks read. The base build
+    # only staged cix-debs/kernel/mesa/gpu/firmware/refind/rescue — NOT branding —
+    # so 45-wallpaper (needs assets/branding/wallpaper), 56-icon-theme (needs
+    # assets/branding/icon-theme/NCX) and 60-plymouth (needs assets/branding/logo/
+    # nclawzero-lockup.jpg) all silently used stock defaults. Copy branding into
+    # the overlay before the hooks run. (Base list also gains "branding" for the
+    # next base rebuild; this desktop-layer copy makes it work without one.)
+    if [ -d "$ROOT/assets/branding" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/branding"
+      sudo cp -a "$ROOT/assets/branding/." "$MG/usr/local/lib/cix-installer/assets/branding/" 2>/dev/null || true
+      log "  staged branding assets ($(find "$ROOT/assets/branding" -type f | wc -l | tr -d ' ') files)"
+    fi
     # r164: apply NCZ branding hooks now that the desktop is XFCE. These are
     # cosmetic + best-effort (os-release/issue, wallpapers, XFCE icon theme, and
     # the plymouth spinner rebranded with the NCZ wordmark — operator wants the
@@ -147,7 +159,7 @@ build_base(){
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer"
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   # KVER sidecars 10-our-kernel needs (build-iso normally derives these from assets/kernel/*/KVER)
   [ -f "$ROOT/assets/kernel/stable/KVER" ] && sudo cp "$ROOT/assets/kernel/stable/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_LTS"
   [ -f "$ROOT/assets/kernel/edge/KVER" ]   && sudo cp "$ROOT/assets/kernel/edge/KVER"   "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
