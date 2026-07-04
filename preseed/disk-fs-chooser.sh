@@ -128,11 +128,16 @@ if [ -n "$OVR_DISK" ]; then
     [ -n "$_match" ] || abort "ncz_disk=$OVR_DISK ($_ov) is not one of the whole-disk candidates:$CANDIDATES"
     CHOSEN_DISK="$_match"
     log "cmdline override: target disk = $CHOSEN_DISK (validated against candidate list)"
-elif [ "$NDISK" -eq 1 ]; then
-    # Exactly one candidate: no disk ambiguity. The fs prompt below still runs.
-    CHOSEN_DISK=$(echo $CANDIDATES | awk '{print $1}')
-    log "single installable disk present -> $CHOSEN_DISK"
 else
+    # ALWAYS present the disk-selection screen (operator requirement 2026-07-04):
+    # even with a SINGLE installable disk, show the target-disk chooser so the
+    # operator sees + confirms the disk that will be ERASED *before* the fs
+    # chooser. The old `elif NDISK==1` branch silently auto-picked the one disk
+    # and skipped this db_input, so on metal (single nvme) only the root-fs
+    # screen appeared and the operator never saw which disk was targeted. The
+    # one disk is preselected as the default (so Enter accepts it); with several
+    # disks the first is preselected and the operator must still confirm/pick.
+    #
     # Register a cdebconf select with the candidate /dev nodes as Choices, then
     # db_input at CRITICAL so it shows even under priority=critical. A cancel /
     # go-back / template failure ABORTS — we never auto-pick a disk to erase.
@@ -143,6 +148,7 @@ else
         [ -z "$CHOICES" ] && CHOICES="$d" || CHOICES="$CHOICES, $d"
         LONG="$LONG  $d  —  $desc\\n"
     done
+    _first=$(echo $CANDIDATES | awk '{print $1}')
     cat > /tmp/ncz-disk.templates <<TPL
 Template: ncz/target-disk
 Type: select
@@ -159,6 +165,10 @@ TPL
     # particular db_input!=0 means the prompt would NOT be displayed (skipped) —
     # a destructive choice must never proceed on a prompt the operator never saw.
     db_subst ncz/target-disk CHOICES "$CHOICES" || abort "db_subst target-disk failed"
+    # Preselect the first candidate as the current value so the select opens on
+    # it (the ONLY choice when NDISK==1; the top choice when NDISK>1). db_set
+    # does NOT flip `seen`, so the question is still SHOWN.
+    db_set   ncz/target-disk "$_first" 2>/dev/null || true
     db_fset  ncz/target-disk seen false        || abort "db_fset target-disk seen failed"
     db_settitle ncz/target-disk 2>/dev/null
     db_input critical ncz/target-disk          || abort "disk-selection prompt could not be displayed (db_input rc=$?)"
