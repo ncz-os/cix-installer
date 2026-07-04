@@ -464,6 +464,125 @@ LATE_HB_PID=$!
 set +e
 in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
+
+# ----------------------------------------------------------------------
+# NPU (Cix Sky1 / Zhouyi v3) — INSTALL-TIME fixes on the REAL MS-R1.
+#
+# The BAKE runs the post-install hooks in an x86/qemu build chroot that CANNOT
+# see the MS-R1's ACPI (/sys/bus/acpi/CIXH4000) or its DMI, so 80-npu.sh's
+# board gate (should_apply_npu_ssdt) SKIPs the SSDT at build time, and in baked
+# mode run-all.sh does not re-run 80-npu at install. This d-i runtime, by
+# contrast, runs ON the MS-R1 — /sys/bus/acpi here reflects the real board — so
+# it is the correct place to apply the two hardware-visible NPU fixes. Both are
+# proven live on cixmini/.66 (persist across cold boot; /dev/aipu + 3 cores):
+#
+#   FIX A — prepend the NPU-core SSDT (adds the CIXH4010:0[012] core _HIDs the
+#           MS-R1 BIOS omits; without it: probe -22, "failed to find NPU core
+#           device CRE0/1/2") to the initrd rEFInd actually boots. rEFInd loads
+#           the ESP copy (/boot/efi/initrd.img-$KVER), NOT btrfs /boot, and
+#           70-bootloader has already staged the ESP copies by here (EXIT trap
+#           inside run-all.sh above), so we prepend to the ESP copy directly.
+#   FIX B — install the zhouyi_v3 armchina_npu.ko into updates/ so it wins over
+#           the zhouyi-v2-only in-tree KMD ("unidentified hardware version
+#           number: 5" -> probe -22). Machine-agnostic; belt-and-suspenders to
+#           the base.squashfs bake (build-squashfs-layers.sh BASE_HOOKS 80-npu),
+#           so a fresh install works even against the CURRENT (un-rebuilt) base.
+#
+# 100% best-effort: a bootable install must NEVER red-error over the NPU.
+# ----------------------------------------------------------------------
+ncz_npu_install_time() {
+    NPU_KVERS=""
+    for _kf in KVER_NEXT KVER_LTS; do
+        _v=$(cat /target/etc/cix-installer/"$_kf" 2>/dev/null | tr -d ' \t\r\n')
+        [ -n "$_v" ] && NPU_KVERS="$NPU_KVERS $_v"
+    done
+    if [ -z "$NPU_KVERS" ]; then
+        echo "[npu] no KVER_NEXT/KVER_LTS sidecar — skipping NPU install-time fixes"
+        return 0
+    fi
+    echo "[npu] install-time NPU fixes for KVERs:$NPU_KVERS (SRC=$SRC)"
+
+    # --- FIX B: zhouyi_v3 armchina_npu.ko -> updates/ (machine-agnostic) ---
+    # Only lands what the baked base did not already ship; safe to re-run.
+    for _kv in $NPU_KVERS; do
+        _ov="$SRC/assets/kernel/modules-overlay/$_kv/armchina_npu.ko"
+        [ -f "$_ov" ] || continue
+        [ -d "/target/usr/lib/modules/$_kv" ] || { echo "[npu]   no /target modules dir for $_kv"; continue; }
+        if install -D -m 0644 "$_ov" "/target/usr/lib/modules/$_kv/updates/armchina_npu.ko" 2>/dev/null; then
+            in-target depmod -a "$_kv" 2>/dev/null || true
+            echo "[npu]   FIX B: zhouyi_v3 armchina_npu.ko -> /usr/lib/modules/$_kv/updates/ (+ depmod)"
+        fi
+    done
+    # ensure the module auto-loads on boot (baked 80-npu also writes this)
+    mkdir -p /target/etc/modules-load.d
+    if ! grep -qs '^armchina_npu' /target/etc/modules-load.d/ncz-npu.conf 2>/dev/null; then
+        printf '# NCZ: Cix Sky1 / Zhouyi v3 NPU driver\narmchina_npu\n' \
+            > /target/etc/modules-load.d/ncz-npu.conf
+    fi
+
+    # --- FIX A: SSDT prepend to the ESP initrd (REAL-hardware gated) ---
+    NPU_CPIO="$SRC/assets/npu/npu-acpi-override.cpio"
+    if [ ! -f "$NPU_CPIO" ]; then
+        echo "[npu] FIX A: SSDT cpio missing at $NPU_CPIO — cores may not enumerate on MS-R1"
+        return 0
+    fi
+    # Board gate — mirror 80-npu.sh should_apply_npu_ssdt(), but on the LIVE
+    # installer /sys (this IS the MS-R1). Apply iff the NPU device is present
+    # but its cores are incomplete (<3) — the MS-R1 BIOS _HID gap. Skip when the
+    # cores already enumerate natively (>=3; O6/O6N firmware is correct).
+    _apply=0
+    _ovr=/target/usr/local/lib/cix-installer/NPU_SSDT
+    if [ -f "$_ovr" ]; then
+        case "$(tr -d ' \t\r\n' < "$_ovr" 2>/dev/null)" in
+            force|apply|on|1) _apply=1 ;;
+            skip|off|0)       _apply=2 ;;   # 2 = forced-skip
+        esac
+    fi
+    if [ "$_apply" = 0 ] && [ -d /sys/bus/acpi/devices ]; then
+        _nc=$(ls -d /sys/bus/acpi/devices/CIXH4010:* 2>/dev/null | wc -l)
+        if [ "$_nc" -ge 3 ]; then
+            echo "[npu] FIX A: $_nc CIXH4010 cores enumerate natively (>=3) — SKIP (firmware OK)"
+            _apply=2
+        elif [ -e /sys/bus/acpi/devices/CIXH4000:00 ]; then
+            echo "[npu] FIX A: CIXH4000 present, cores $_nc/3 — APPLY (MS-R1 BIOS _HID gap)"
+            _apply=1
+        fi
+    fi
+    if [ "$_apply" = 0 ]; then
+        # No ACPI signal — DMI fallback (MS-R1 / Minisforum only).
+        _pn=$(cat /sys/class/dmi/id/product_name 2>/dev/null)
+        _sv=$(cat /sys/class/dmi/id/sys_vendor   2>/dev/null)
+        case "$_pn $_sv" in
+            *MS-R1*|*MINISFORUM*|*[Mm]inisforum*)
+                echo "[npu] FIX A: DMI='$_pn'/'$_sv' (Minisforum MS-R1) — APPLY"; _apply=1 ;;
+            *)
+                echo "[npu] FIX A: no CIX NPU ACPI signal + DMI='$_pn'/'$_sv' unknown — SKIP" ;;
+        esac
+    fi
+    if [ "$_apply" != 1 ]; then
+        echo "[npu] FIX A: SSDT not applied for this board"
+        return 0
+    fi
+    for _kv in $NPU_KVERS; do
+        _esp="/target/boot/efi/initrd.img-$_kv"
+        [ -f "$_esp" ] || { echo "[npu]   FIX A: no ESP initrd for $_kv (skip)"; continue; }
+        # Idempotent: a non-prepended NCZ initrd is compressed (gzip/zstd magic);
+        # a newc-cpio magic (070701) at the head means the SSDT is already there.
+        if head -c 6 "$_esp" 2>/dev/null | grep -q '070701'; then
+            echo "[npu]   FIX A: $_esp already SSDT-prepended"
+            continue
+        fi
+        if cat "$NPU_CPIO" "$_esp" > "$_esp.npu" 2>/dev/null && mv "$_esp.npu" "$_esp"; then
+            echo "[npu]   FIX A: SSDT prepended to $_esp"
+        else
+            rm -f "$_esp.npu" 2>/dev/null
+            echo "[npu]   FIX A: WARN prepend failed for $_esp"
+        fi
+    done
+    return 0
+}
+ncz_npu_install_time || echo "[npu] install-time NPU fixes returned nonzero (non-fatal)"
+
 # r130.8 (defect B): stay under `set +e` through finalization so a non-fatal
 # cleanup step (eject/strip/rsync/banner) can NEVER turn a SUCCESSFUL install
 # (RET=0) into a non-zero late_command that bounces d-i back to the menu. The

@@ -40,7 +40,16 @@ log "arch=$(uname -m) native=$NATIVE ROOT=$ROOT WORK=$WORK OUT=$OUT"
 mkdir -p "$OUT" "$WORK"
 
 # machine-AGNOSTIC hooks safe to bake into base (NOT desktop-config)
-BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613"
+# 80-npu (last): installs the zhouyi_v3 armchina_npu.ko overlay into
+# /usr/lib/modules/$KVER/updates/ so it wins over the zhouyi-v2-only in-tree
+# KMD ("unidentified hardware version number: 5" -> probe -22 without it). That
+# module install is machine-AGNOSTIC (just drops a .ko + depmod), so it bakes
+# cleanly here. 80-npu's ACPI SSDT step self-SKIPs off real MS-R1 hardware
+# (should_apply_npu_ssdt: no CIXH4000 in the x86/qemu build chroot -> no
+# prepend), so the SSDT is NOT baked here — it is applied install-time on the
+# real board by preseed/late.sh's NPU section. Runs after 10-our-kernel so
+# /usr/lib/modules/$KVER already exists.
+BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 80-npu"
 
 mount_chroot(){ local c="$1"
   sudo mount -t proc proc "$c/proc"; sudo mount -t sysfs sys "$c/sys";
@@ -182,7 +191,11 @@ build_base(){
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer"
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  # npu: assets/npu holds npu-acpi-override.cpio (SSDT) + the LTS OOT
+  # armchina_npu-*.ko that 80-npu.sh reads; assets/kernel/modules-overlay
+  # (under 'kernel') holds the NEXT zhouyi_v3 overlay .ko. Both must be staged
+  # for the baked 80-npu hook to find them.
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding npu; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   # KVER sidecars 10-our-kernel needs (build-iso normally derives these from assets/kernel/*/KVER)
   [ -f "$ROOT/assets/kernel/stable/KVER" ] && sudo cp "$ROOT/assets/kernel/stable/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_LTS"
   [ -f "$ROOT/assets/kernel/edge/KVER" ]   && sudo cp "$ROOT/assets/kernel/edge/KVER"   "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
