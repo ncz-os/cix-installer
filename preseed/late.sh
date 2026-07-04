@@ -599,8 +599,27 @@ if [ "$FINALIZE_OK" = "1" ]; then
     # r162 (codex review): skip the blocking remove-media dialog on unattended
     # installs (qemu harness / automated runs pass ncz_unattended=1). Metal
     # USB installs keep the full stop — that dialog is the whole point there.
+    #
+    # r180 (.66 metal-KVM fix): on the UNATTENDED path the skipped remove-media
+    # db_input was ALSO the thing that drove d-i's finish->reboot. Without it, a
+    # fully-bootable install (BOOTAA64.EFI on the ESP, late.sh exiting 0) left
+    # d-i sitting at the MAIN MENU instead of rebooting (observed on native-arm64
+    # .66; masked on the earlier ULTRA run). So on unattended + bootable we now
+    # drive the reboot OURSELVES: sync + reboot. rEFInd is already on the FAT ESP
+    # (synced) and the root fs is journaled, so a direct reboot here is safe and
+    # deterministic. Metal (non-unattended) keeps the operator-driven dialog.
     if grep -qw ncz_unattended=1 /proc/cmdline 2>/dev/null; then
-        echo "[late r162] unattended install — skipping remove-media dialog"
+        if [ -f /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
+            echo "[late r180] unattended + bootable — forcing clean reboot (skipped dialog would leave d-i at the main menu)"
+            db_try db_set debian-installer/exit/reboot true
+            db_try db_fset debian-installer/exit/reboot seen true
+            sync
+            # best-effort unmount of the target so the reboot is clean; ignore fails
+            for _m in /target/cdrom /target/dev/pts /target/dev /target/proc /target/sys; do umount "$_m" 2>/dev/null || true; done
+            reboot 2>/dev/null || reboot -f 2>/dev/null || true
+        else
+            echo "[late r180] unattended but NOT bootable — leaving to d-i (no forced reboot)"
+        fi
     elif [ "$DEBCONF_OK" = 1 ]; then
         db_try db_fset nclawzero/remove-media seen false
         db_try db_input critical nclawzero/remove-media
