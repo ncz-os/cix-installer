@@ -50,20 +50,19 @@ fi
 rm -f /etc/systemd/system/portainer-bootstrap.service \
       /etc/systemd/system/{default,multi-user}.target.wants/portainer-bootstrap.service
 
-# r61: --insecure for non-TLS dashboard
-grep -q -- '--insecure' "$QUADLET_TEMPLATES"/hermes.container 2>/dev/null || \
-    sed -i 's|^Exec=dashboard --host 0.0.0.0 --port 8642 --no-open$|Exec=dashboard --host 0.0.0.0 --port 8642 --no-open --insecure|' \
-        "$QUADLET_TEMPLATES"/hermes.container 2>/dev/null
-# r74: relax PublishPort to LAN — bigpi reference parity. Operator can
-# tighten via per-host override under /etc/containers/systemd/
-sed -i 's|^PublishPort=127.0.0.1:8642:8642$|PublishPort=8642:8642|' \
-    "$QUADLET_TEMPLATES"/hermes.container 2>/dev/null
-
-# r74 (codex): assert sed patches landed (template drift would silently no-op above)
+# r186: hermes networking is now baked into assets/agent-stack/hermes.container
+# (Network=host + Exec `dashboard --host 127.0.0.1 ... --insecure`). The Cix
+# Sky1 kernel has no veth/bridge (CONFIG_VETH off), so the old isolated-bridge +
+# PublishPort model — and the r61/r74 seds that rewrote it — could not start on
+# metal ("create veth pair: Operation not supported", status=126). --insecure +
+# the loopback bind now ship in the template itself, so no in-place sed rewrite
+# is needed. Assert the template carries the loopback + insecure model instead.
 HERMES_TPL="$QUADLET_TEMPLATES/hermes.container"
 if [ -f "$HERMES_TPL" ]; then
-    grep -q -- "--insecure" "$HERMES_TPL" ||         echo "[30] WARN: hermes --insecure injection did not match"
-    grep -q "^PublishPort=8642:8642$" "$HERMES_TPL" ||         echo "[30] WARN: hermes PublishPort relax did not match"
+    grep -q -- "--host 127.0.0.1" "$HERMES_TPL" || echo "[30] WARN: hermes template not loopback-bound (--host 127.0.0.1 missing)"
+    grep -q -- "--insecure"       "$HERMES_TPL" || echo "[30] WARN: hermes template missing --insecure"
+    grep -q "^Network=host$"       "$HERMES_TPL" || echo "[30] WARN: hermes template not Network=host (will fail on Sky1 veth)"
+    grep -q "^PublishPort="         "$HERMES_TPL" && echo "[30] WARN: hermes template still has PublishPort (fails on Sky1 veth)"
 fi
 
 # /etc/nclawzero/agent-env — fleet API keys. Always write .sample;
@@ -123,6 +122,18 @@ cat > /usr/share/ncz/agent-images.manifest << 'MANIFEST'
 # instant. Netinstall ISOs ship no tarballs -> the loader is a no-op and the
 # operator pulls on demand. All agents (incl. zeroclaw) are opt-in via
 # `ncz agent install <name>` or `ncz install nemoclaw`.
+#
+# r186 offline/network-pull split (all images have a verified arm64 manifest):
+#   OFFLINE-BUNDLED (small/core, staged as assets/agent-images/<name>.oci.tar):
+#     zeroclaw  ghcr.io/zeroclaw-labs/zeroclaw:latest   (~109 MB)
+#     mnemos    ghcr.io/ncz-os/mnemos:latest            (~260 MB, via `ncz install mnemos`)
+#   NETWORK-PULL-ON-DEMAND (too large to bundle on the ISO — `ncz agent install`
+#   pulls the published image while the operator is online):
+#     openclaw  ghcr.io/openclaw/openclaw@sha256:06b4f3df...  (~756 MB)
+#     hermes    docker.io/nousresearch/hermes-agent@sha256:aa60e748...  (~2.55 GB)
+#     nemoclaw  ghcr.io/nvidia/nemoclaw/sandbox-base:latest   (~2.4 GB)
+#     portainer docker.io/portainer/portainer-ce:lts          (installed via
+#               direct `podman run`, not this loader)
 # agent|image-ref|oci-tarball-under-/var/lib/nclawzero/agent-images
 zeroclaw|ghcr.io/zeroclaw-labs/zeroclaw:latest|zeroclaw.oci.tar
 MANIFEST
@@ -312,10 +323,10 @@ is_installed() {
     esac
 }
 
-ensure_network() {
-    podman network exists hermes-isolated-v2 2>/dev/null && return 0
-    podman network create --driver bridge hermes-isolated-v2 2>/dev/null
-}
+# r186: ensure_network() removed. hermes no longer uses a custom Podman bridge
+# (hermes-isolated-v2) — the Cix Sky1 kernel has no veth/bridge (CONFIG_VETH
+# off) so bridge creation fails on metal. hermes now runs Network=host with a
+# 127.0.0.1 dashboard bind (see assets/agent-stack/hermes.container).
 
 ensure_volume() {
     podman volume exists "$1" 2>/dev/null || \
@@ -415,13 +426,9 @@ cmd_agent_install() {
 
     mkdir -p "$QUADLET_ACTIVE" "$SENTINEL_DIR"
 
-    # Hermes needs the dedicated network ahead of the quadlet
-    if [[ " ${selected[*]} " == *" hermes "* ]]; then
-        ensure_network
-        if [ -f "$QUADLET_TEMPLATES/hermes-isolated.network" ]; then
-            cp "$QUADLET_TEMPLATES/hermes-isolated.network" "$QUADLET_ACTIVE/" 2>/dev/null
-        fi
-    fi
+    # r186: hermes needs NO custom network. It runs Network=host with a
+    # 127.0.0.1 dashboard bind (Sky1 kernel has no veth/bridge — the old
+    # hermes-isolated bridge could not be created on metal). Nothing to stage.
 
     local failed=()
     for a in "${selected[@]}"; do
