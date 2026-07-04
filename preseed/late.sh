@@ -479,8 +479,40 @@ kill "$LATE_HB_PID" 2>/dev/null || true
 # instead of rebooting (observed .66, 2026-07-03). By the time we get here
 # run-all.sh's EXIT trap has already installed the bootloader, so this ESP
 # check is authoritative. FINALIZE_OK = "install succeeded OR is bootable".
+# ncz_bootable: TRUE iff rEFInd is on the ESP — INDEPENDENT of efibootmgr /
+# efivars. 70-bootloader writes BOTH /EFI/BOOT/BOOTAA64.EFI and
+# /EFI/BOOT/refind.conf to the removable-media fallback path BEFORE its
+# best-effort efibootmgr NVRAM write, and hard-exits if BOOTAA64.EFI is empty.
+# On Sky1 METAL there is NO efivars, so efibootmgr fails and RET!=0 — but the
+# box still boots via the fallback binary. Key the finish/reboot decision on
+# rEFInd-present, never on efibootmgr success. (refind.conf OR'd in as belt-and-
+# suspenders in case a future ESP layout renames the fallback binary.)
+ncz_bootable() {
+    [ -f /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ] || \
+    [ -f /target/boot/efi/EFI/BOOT/refind.conf ]
+}
+# ncz_force_reboot: drive the reboot OURSELVES rather than trusting
+# finish-install's menu loop. On Sky1 METAL the priority=critical finish-install
+# did NOT auto-reboot after our late_command returned 0 — it dropped to the d-i
+# MAIN MENU (operator report .66, 2026-07-03/04). r180 proved a direct reboot
+# here is clean + deterministic on the unattended path; r181 uses the SAME path
+# for the interactive install (after the operator dismisses the remove-media
+# dialog). rEFInd is already synced to the FAT ESP and the root fs is journaled.
+ncz_force_reboot() {
+    echo "[late r181] forcing clean reboot ($1) — rEFInd on ESP; not relying on finish-install menu"
+    ttymsg "install complete — rebooting into NCZ 26.6" 2>/dev/null || true
+    db_try db_set  debian-installer/exit/reboot true
+    db_try db_fset debian-installer/exit/reboot seen true
+    db_try db_set  debian-installer/exit/poweroff false
+    sync
+    # best-effort unmount of the target so the reboot is clean; ignore fails
+    for _m in /target/cdrom /target/dev/pts /target/dev /target/proc /target/sys; do
+        umount "$_m" 2>/dev/null || true
+    done
+    reboot 2>/dev/null || reboot -f 2>/dev/null || true
+}
 FINALIZE_OK=0
-{ [ "$RET" = "0" ] || [ -f /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ]; } && FINALIZE_OK=1
+{ [ "$RET" = "0" ] || ncz_bootable; } && FINALIZE_OK=1
 # r130.8 (defect B): do NOT call db_progress STOP/SET. We never START our own
 # bar now, so STOP would pop finish-install's OWN progress bar - on the success
 # path that corrupted finish-install's accounting and bounced d-i back to the
@@ -600,39 +632,57 @@ if [ "$FINALIZE_OK" = "1" ]; then
     # installs (qemu harness / automated runs pass ncz_unattended=1). Metal
     # USB installs keep the full stop — that dialog is the whole point there.
     #
-    # r180 (.66 metal-KVM fix): on the UNATTENDED path the skipped remove-media
-    # db_input was ALSO the thing that drove d-i's finish->reboot. Without it, a
-    # fully-bootable install (BOOTAA64.EFI on the ESP, late.sh exiting 0) left
-    # d-i sitting at the MAIN MENU instead of rebooting (observed on native-arm64
-    # .66; masked on the earlier ULTRA run). So on unattended + bootable we now
-    # drive the reboot OURSELVES: sync + reboot. rEFInd is already on the FAT ESP
-    # (synced) and the root fs is journaled, so a direct reboot here is safe and
-    # deterministic. Metal (non-unattended) keeps the operator-driven dialog.
+    # r180/r181 (.66 metal fix): d-i's priority=critical finish-install did NOT
+    # auto-reboot after our late_command (finish-install.d/07preseed) returned —
+    # it dropped to the d-i MAIN MENU on Sky1 metal, on BOTH the unattended and
+    # the interactive path. The skipped/dismissed remove-media db_input used to be
+    # what drove finish->reboot. So we drive the reboot OURSELVES on BOTH paths
+    # (ncz_force_reboot), gated on rEFInd-present bootability (ncz_bootable) which
+    # is efibootmgr/efivars-INDEPENDENT — the metal Sky1 box has no efivars so
+    # efibootmgr fails, but the ESP fallback binary still boots it.
+    #
+    # UNATTENDED (qemu harness / automated): no dialog — reboot immediately.
+    # INTERACTIVE (metal USB install): show the blocking remove-media dialog,
+    # WAIT for the operator to remove the stick + press Continue, THEN reboot.
     if grep -qw ncz_unattended=1 /proc/cmdline 2>/dev/null; then
-        if [ -f /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
-            echo "[late r180] unattended + bootable — forcing clean reboot (skipped dialog would leave d-i at the main menu)"
-            db_try db_set debian-installer/exit/reboot true
-            db_try db_fset debian-installer/exit/reboot seen true
-            sync
-            # best-effort unmount of the target so the reboot is clean; ignore fails
-            for _m in /target/cdrom /target/dev/pts /target/dev /target/proc /target/sys; do umount "$_m" 2>/dev/null || true; done
-            reboot 2>/dev/null || reboot -f 2>/dev/null || true
+        if ncz_bootable; then
+            ncz_force_reboot "unattended"
         else
-            echo "[late r180] unattended but NOT bootable — leaving to d-i (no forced reboot)"
+            echo "[late r181] unattended but NOT bootable — leaving to d-i (no forced reboot)"
         fi
-    elif [ "$DEBCONF_OK" = 1 ]; then
-        db_try db_fset nclawzero/remove-media seen false
-        db_try db_input critical nclawzero/remove-media
-        db_try db_go
     else
-        sleep 5
+        # r135: BLOCKING graphical dialog so the operator removes the USB before
+        # the reboot. priority=critical means d-i may not show its own final
+        # prompt, and the TTY banner above is only visible on Alt+F3. This pops a
+        # note on the same frontend d-i uses and WAITS for Continue.
+        if [ "$DEBCONF_OK" = 1 ]; then
+            db_try db_fset nclawzero/remove-media seen false
+            db_try db_input critical nclawzero/remove-media
+            db_try db_go
+        else
+            # no debconf channel — the TTY banner above is the only notice; give
+            # the operator a moment to read it before we reboot.
+            sleep 5
+        fi
+        # r181: after the operator dismisses the dialog, DRIVE the reboot too.
+        # Relying on finish-install's menu loop here is exactly what left the box
+        # at the d-i MAIN MENU on Sky1 metal — force it, gated on bootability.
+        if ncz_bootable; then
+            ncz_force_reboot "interactive"
+        else
+            echo "[late r181] interactive but NOT bootable — leaving to d-i (will surface the failure, not reboot into an unbootable system)"
+        fi
     fi
 fi
-# r155/r174: a bootable install (rEFInd on the ESP) must NEVER throw d-i's
+# r155/r174/r181: a bootable install (rEFInd on the ESP) must NEVER throw d-i's
 # critical preseed/command_failed red error. Optional apt/network hook failures
 # and the Sky1 efivars-unavailable bootloader path leave RET!=0 but the system
-# still boots via /EFI/BOOT/BOOTAA64.EFI. Only red-error when truly unbootable.
-if [ -f /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
+# still boots via the /EFI/BOOT fallback. This block is a FALLBACK: on the normal
+# path ncz_force_reboot above already rebooted the box; we only reach here if that
+# reboot(8) has not yet taken effect. Reassert reboot + exit 0 so finish-install
+# does NOT red-error a bootable install. ncz_bootable is efibootmgr/efivars-
+# independent (keys on rEFInd-present, not NVRAM), so metal succeeds here too.
+if ncz_bootable; then
     # r174 (#1 finish): reassert the reboot intent ONLY on the bootable path, so
     # the clean finish does not hinge on the priority=critical boot arg AND we
     # never tell finish-install to reboot a NON-bootable install. rEFInd is
