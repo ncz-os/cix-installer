@@ -251,7 +251,14 @@ case "$_root_stanza" in
     *"filesystem{ $CHOSEN_FS }"*) : ;;
     *) abort "pinned ROOT stanza filesystem is not $CHOSEN_FS — refusing to wipe (root stanza: [$_root_stanza])" ;;
 esac
-log "partman pins VERIFIED: disk=$CHOSEN_DISK recipe=cixmini root-fs=$CHOSEN_FS"
+# STRICT EXACT COMPARE (review round-3 #1): the pinned recipe must be
+# byte-identical to the recipe WE set. The root-stanza check above proves the
+# root fs, but a stale `cixmini` recipe with the SAME root fs (e.g. differing
+# only in the ESP/rescue stanzas) would still pass it; exact equality is the real
+# guarantee that partman will use OUR recipe and nothing else. If this fails we
+# abort and wipe nothing.
+[ "$_pinned_recipe" = "$RECIPE" ] || abort "pinned expert_recipe is not byte-identical to the recipe we set (stale/failed pin) — refusing to wipe"
+log "partman pins VERIFIED (exact recipe match): disk=$CHOSEN_DISK recipe=cixmini root-fs=$CHOSEN_FS"
 
 # --- ONLY NOW: prep the chosen disk (swapoff / unmount / wipe stale GPT) -----
 # Replaces the OLD hardcoded /dev/nvme0n1 dd-zap. We wipe only the OPERATOR-
