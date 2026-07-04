@@ -270,6 +270,34 @@ CDROM_PREF
         # purges any half-configured cix-* packages, so installing them here is
         # both redundant and actively harmful.
         chroot /target /usr/bin/apt-get install -y --allow-unauthenticated linux-firmware || { echo "WARN: linux-firmware install failed"; true; }
+        # r178: telnetd (doctrine #9 fleet lockout-prevention) from the OFFLINE
+        # /cdrom pool. pkgsel/include is now EMPTY (the baked squashfs is the
+        # complete system), but inetutils-telnetd + openbsd-inetd are the only
+        # formerly-included packages not yet baked into base/desktop.squashfs.
+        # They ARE in the embedded /cdrom pool (server-mirror), so install them
+        # here fully offline — NOT from a network mirror. Non-fatal (|| true):
+        # a bootable install must never red-error over telnet. Once
+        # manifests/desktop.pkgs bakes them into the squashfs this is redundant.
+        chroot /target /usr/bin/apt-get install -y --allow-unauthenticated inetutils-telnetd openbsd-inetd || { echo "WARN: offline telnetd apt-get returned non-zero (finishing configure below)"; true; }
+        # r178: finish configure in DEPENDENCY ORDER. inetutils-telnetd depends on
+        # inet-superserver (provided by openbsd-inetd); apt unpacks both but may
+        # try to configure telnetd before inetd -> configure error leaving them
+        # 'unpacked'. dpkg --configure -a reconfigures ALL pending packages in the
+        # correct order so telnet lands fully 'ii' at install time (doctrine #9).
+        chroot /target /usr/bin/dpkg --configure -a 2>&1 | tail -3 || true
+        # r178: ENABLE telnet on :23 (doctrine #9). openbsd-inetd's default telnet
+        # entry ships DISABLED (#<off>#) and, in baked mode, run-all skips the
+        # 36-telemetry hook that normally enables it. Activate it here: uncomment
+        # the package entry (tcpd + telnetd are both installed), and belt-and-
+        # suspenders add a direct line if none is active, then enable inetd. This
+        # mirrors post-install/36-telemetry.sh. Non-fatal.
+        if chroot /target dpkg -s inetutils-telnetd >/dev/null 2>&1; then
+            chroot /target update-inetd --enable telnet 2>/dev/null || true
+            chroot /target sh -c "grep -qE '^[[:space:]]*telnet[[:space:]]' /etc/inetd.conf 2>/dev/null || printf 'telnet\tstream\ttcp\tnowait\troot\t/usr/sbin/telnetd\ttelnetd\n' >> /etc/inetd.conf"
+            chroot /target systemctl enable inetd 2>/dev/null || true
+            chroot /target systemctl enable openbsd-inetd 2>/dev/null || true
+            echo "[late r178] telnet enabled on :23 (doctrine #9): inetd.conf active + inetd service enabled"
+        fi
     fi
     CDROM_BIND_MOUNTED=1
 else
