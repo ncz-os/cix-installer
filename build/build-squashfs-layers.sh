@@ -125,11 +125,16 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/branding/." "$MG/usr/local/lib/cix-installer/assets/branding/" 2>/dev/null || true
       log "  staged branding assets ($(find "$ROOT/assets/branding" -type f | wc -l | tr -d ' ') files)"
     fi
-    # r164: apply NCZ branding hooks now that the desktop is XFCE. These are
-    # cosmetic + best-effort (os-release/issue, wallpapers, XFCE icon theme, and
-    # the plymouth spinner rebranded with the NCZ wordmark — operator wants the
-    # xubuntu spinner kept, just NCZ-logo'd, which is exactly 60-plymouth's job).
-    for bh in 50-brand 56-icon-theme 45-wallpaper-rotator 60-plymouth; do
+    # r172: apply the desktop-config + branding hooks now that the desktop is
+    # XFCE. 22-display-fix is CRITICAL on Sky1 metal: the SoC exposes ~6 DRM
+    # cards (card0=panthor render + card1-5=linlondp display pipes), and Xorg
+    # with no card pin dies "Cannot run in framebuffer mode, specify busIDs" →
+    # NO DESKTOP (observed r171 on .66 metal — qemu has 1 card so it never
+    # surfaced). The hook installs the cix-detect-display boot service +
+    # /etc/X11/xorg.conf.d/10-cixmini-primary-display.conf that pins the
+    # connected linlondp display card each boot (handles card-renumber races).
+    # 50-brand/56-icon/45-wallpaper/60-plymouth follow (cosmetic, best-effort).
+    for bh in 22-display-fix 50-brand 56-icon-theme 45-wallpaper-rotator 60-plymouth; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3 || log "  WARN $bh rc=$?"

@@ -73,15 +73,14 @@ else
     printf 'BackgroundEndColor=0x0b0f14\n' >> "$SPIN_PLY"
 fi
 
-# r130.5 (operator: logo was at the bottom, wants it at the TOP). The spinner
-# (two-step) module places the watermark by WatermarkVerticalAlignment, a
-# fraction where 0=top and 1=bottom (stock Ubuntu uses ~.96 = bottom). Move it
-# near the top; .08 leaves a small margin so the 640x300 wordmark isn't jammed
-# against the edge on low-res GOP modes.
+# r172 (operator: CENTER the splash on screen). The spinner (two-step) module
+# places the watermark by WatermarkVerticalAlignment, a fraction where 0=top
+# and 1=bottom (stock Ubuntu ~.96 = bottom; r130.5 used .08 = top). .5 centres
+# the NCZ wordmark vertically. Horizontal is already centred by the module.
 if grep -qE '^WatermarkVerticalAlignment=' "$SPIN_PLY"; then
-    sed -i -E 's/^WatermarkVerticalAlignment=.*/WatermarkVerticalAlignment=.08/' "$SPIN_PLY"
+    sed -i -E 's/^WatermarkVerticalAlignment=.*/WatermarkVerticalAlignment=.5/' "$SPIN_PLY"
 else
-    printf 'WatermarkVerticalAlignment=.08\n' >> "$SPIN_PLY"
+    printf 'WatermarkVerticalAlignment=.5\n' >> "$SPIN_PLY"
 fi
 
 # Pin spinner as the default Plymouth theme. r123 lesson: register in MANUAL
