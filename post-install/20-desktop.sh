@@ -176,17 +176,17 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 echo "[20] r130 buckets: completeness (catfish/menulibre/mugshot/gigolo/panel-goodies/baobab/system-monitor/seahorse) + offline-apt (synaptic/gdebi/software-properties-gtk) + gimp"
 
 # r55: NCZ-curated screensaver. xscreensaver replaces xfce4-screensaver.
-# r112: GL hacks (xscreensaver-gl / -gl-extra) are intentionally NOT installed.
-# The Sky1 desktop runs software-only GL (llvmpipe) and Mesa here has no X11
-# EGL platform, so every GL hack aborts at runtime with "no GL visuals". We
-# ship only the 2D hacks (xscreensaver-data / -data-extra: xanalogtv, galaxy,
-# fireworkx, phosphor, apple2, xmatrix, ...) which render fine and fit the
-# cosmic+retro brand.
+# 2026-07-04: the r112 "GL hacks abort (no X11 EGL / software-only GL)" premise
+# was a SYMPTOM of the CIX libmali/libgbm stack shadowing Mesa on the panthor
+# kernel (see 26-gpu-default-open). With the CIX stack demoted, GL runs natively
+# (Mali-G720 Panfrost, OpenGL 3.1) and the GL hacks render fine. So we now SHIP
+# xscreensaver-gl / -gl-extra (added to manifests/desktop.pkgs) and 57-screensaver
+# owns the GL-enabled config + autostart. DO NOT re-add the GL-hack removal below.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    xscreensaver xscreensaver-data xscreensaver-data-extra 2>&1 | tail -3 || true
-# Belt-and-suspenders: if a metapackage dragged the GL hacks in, drop them so
-# random selection can never land on a hack that aborts.
-DEBIAN_FRONTEND=noninteractive apt-get remove -y xscreensaver-gl xscreensaver-gl-extra 2>&1 | tail -2 || true
+    xscreensaver xscreensaver-data xscreensaver-data-extra \
+    xscreensaver-gl xscreensaver-gl-extra 2>&1 | tail -3 || true
+# (r112 GL-hack removal deleted 2026-07-04 — GL now works natively; 57-screensaver
+#  restores the real xscreensaver-gl-visual probe and enables the GL hacks.)
 DEBIAN_FRONTEND=noninteractive apt-get remove -y xfce4-screensaver 2>&1 | tail -1 || true
 
 # r112: xscreensaver 6.x ALWAYS runs xscreensaver-gl-visual (an EGL probe) at

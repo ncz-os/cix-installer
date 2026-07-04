@@ -71,10 +71,16 @@ mousepad
 xfce4-whiskermenu-plugin
 xfce4-clipman-plugin
 
-# --- screensaver (2D only; GL hacks shimmed/removed at install) ---
+# --- screensaver (2D + GL hacks) ---
+# xscreensaver-gl/-gl-extra add the OpenGL hacks (gears, molecule, cubestorm,
+# pipes, atlantis, ...). They render via native Mali-G720 Panfrost GL 3.1 once
+# 26-gpu-default-open demotes the broken CIX libmali stack (verified .66 metal
+# 2026-07-04). x11-utils ships glxinfo/xwd used to verify GL at install/debug.
 xscreensaver
 xscreensaver-data
 xscreensaver-data-extra
+xscreensaver-gl
+xscreensaver-gl-extra
 x11-utils
 
 # --- r130 bucket: desktop completeness (Xubuntu defaults cix lacked) ---

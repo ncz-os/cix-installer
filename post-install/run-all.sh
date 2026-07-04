@@ -60,7 +60,18 @@ NCZ_BAKED=0
 # ACPI SSDT (which needs the real MS-R1 hardware) are installed directly by
 # preseed/late.sh's ncz_npu_install_time (mem_1783181978470) — adding 80-npu
 # would double-run the SSDT/KMD install.
-MACHINE_HOOKS_RE="^(25-cix-proprietary|34-fstab|46-python311|47-embedkit|72-rescue-partition|81-vpu|92-buildkite-apt)\.sh$"
+#   26-gpu-default-open → REQUIRED after 25: 25 installs the CIX proprietary
+#                        GPU userland (cix-gpu-umd libmali/libgbm/libEGL under
+#                        /opt/cixgpu-*), whose ld.so.conf.d entries SHADOW Mesa.
+#                        libmali is built for the mali_kbase KMD, but this image
+#                        runs in-tree panthor -> "No mali devices found" and the
+#                        broken CIX libgbm makes native Panfrost GL fail, so Mesa
+#                        falls back to zink-over-panvk reporting only GL 2.1.
+#                        26 demotes the CIX ld paths + dead Vulkan ICD/WSI layer,
+#                        restoring native Panfrost OpenGL 3.1 (verified .66 metal
+#                        2026-07-04). WITHOUT this, baked installs shipped zink-2.1
+#                        and GL screensavers/apps mis-rendered. Runs right after 25.
+MACHINE_HOOKS_RE="^(25-cix-proprietary|26-gpu-default-open|34-fstab|46-python311|47-embedkit|72-rescue-partition|81-vpu|92-buildkite-apt)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)

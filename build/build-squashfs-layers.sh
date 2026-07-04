@@ -160,7 +160,7 @@ build_layer(){ local role="$1" manifest="$2"
     # 20-desktop.sh's greeter config; 20-desktop is deliberately NOT baked here —
     # its `apt purge --auto-remove` corrupted the user DB in the overlay, the
     # r166-r170 saga). 60-plymouth LAST (rebuilds the initramfs, heaviest step).
-    for bh in 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 30-agents 46-ncz-cli 60-plymouth; do
+    for bh in 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 57-screensaver 30-agents 46-ncz-cli 60-plymouth; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3 || log "  WARN $bh rc=$?"
