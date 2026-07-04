@@ -99,3 +99,9 @@ assets/squashfs/
 assets/vivaldi/*.deb
 assets/vivaldi/*.gpg
 assets/zoder/
+
+# MNEMOS offline container image — build-time OCI archive (~260MB, staged via
+# NFS/build-host like base.squashfs). Bundled into the ISO for offline
+# `ncz install mnemos`. Regenerate with assets/agent-images/README.md.
+assets/agent-images/*.tar
+assets/agent-images/*.oci.tar

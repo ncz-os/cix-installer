@@ -268,6 +268,28 @@ To override:
 EOF
 
 # ----------------------------------------------------------------------
+# 4b. Ship the model-library docs so the operator can FIND them on-target.
+#     MODELS-README.md is written above into /opt/ncz/models/. The broader
+#     "how to add ModelScope / HuggingFace models" guide ships as
+#     /usr/share/doc/ncz/MODELSCOPE-MODELS.md (discoverable via the desktop
+#     NCZ-Help doc + `ncz models`). Source is staged from assets/docs/.
+# ----------------------------------------------------------------------
+DOCS_SRC=/usr/local/lib/cix-installer/assets/docs
+mkdir -p /usr/share/doc/ncz
+for doc in MODELSCOPE-MODELS.md; do
+    if [ -f "$DOCS_SRC/$doc" ]; then
+        install -m 0644 "$DOCS_SRC/$doc" "/usr/share/doc/ncz/$doc"
+        echo "[47]   shipped model-library doc -> /usr/share/doc/ncz/$doc"
+    else
+        echo "[47]   WARN: $DOCS_SRC/$doc not in image — skipping (doc not shipped)"
+    fi
+done
+# Also drop a copy of the ModelScope guide alongside the models themselves so
+# it travels with /opt/ncz/models even if /usr/share/doc is pruned.
+[ -f "$DOCS_SRC/MODELSCOPE-MODELS.md" ] && \
+    install -m 0644 "$DOCS_SRC/MODELSCOPE-MODELS.md" "$MODELS/MODELSCOPE-MODELS.md" 2>/dev/null || true
+
+# ----------------------------------------------------------------------
 # 5. Wire embedkit into PATH + record provenance for diagnostics.
 # ----------------------------------------------------------------------
 ln -sf "$VENV/bin/embedkit-bench"  /usr/local/bin/embedkit-bench  2>/dev/null || true

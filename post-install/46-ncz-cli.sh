@@ -8,10 +8,12 @@
 #   * install nemoclaw             — pull + start NVIDIA NemoClaw runtime
 #   * version, help
 #
-# `models pull` remains a STUB (see task #99). `install mnemos` is now
-# implemented: it pulls ghcr.io/ncz-os/mnemos (overridable via MNEMOS_IMAGE)
-# and starts it as a quadlet service with a persistent sqlite volume. Like
-# NemoClaw, the image is pulled on demand (not bundled in the ISO).
+# `models pull` remains a STUB (see task #99). `install mnemos` is
+# implemented + OFFLINE-CAPABLE: it `podman load`s the arm64 MNEMOS image
+# bundled on the ISO (assets/agent-images/mnemos.oci.tar), then starts it as
+# a quadlet service (Pull=never) with a persistent sqlite volume. Only if no
+# bundled image is present does it fall back to pulling ghcr.io/ncz-os/mnemos
+# (overridable via MNEMOS_IMAGE). `models` lists the installed model library.
 #
 # Also stages the canonical npu_embed_v2.py wrapper (Python ctypes around
 # libnoe.so) to /opt/cix/npu_embed_v2.py so users can invoke it directly
@@ -69,10 +71,16 @@ Subcommands:
   desktop off           Drop to multi-user (headless) mode. SSH/network stays up.
                         Reversible with 'ncz desktop on'.
   desktop status        Show current default target + display-manager state.
+  models [list]         List the embedding models installed in $NCZ_MODELS_DIR
+                        (.cix NPU + .gguf CPU/GPU). Docs:
+                        $NCZ_MODELS_DIR/MODELS-README.md and
+                        /usr/share/doc/ncz/MODELSCOPE-MODELS.md.
   models pull           Fetch cixtech/ai_model_hub_25_Q3 LFS to $NCZ_MODELS_DIR
                         (STUB in r75 — see task #99).
-  install mnemos        Pull + start the MNEMOS memory server (REST + MCP +
+  install mnemos        Install + start the MNEMOS memory server (REST + MCP +
                         OpenAI-compatible gateway on :5002, sqlite-backed).
+                        Loads the bundled image OFFLINE (no network); falls
+                        back to a ghcr pull only if no bundled image is found.
   install nemoclaw      Pull + start NVIDIA NemoClaw OpenShell sandbox runtime.
   agent ...             Manage zeroclaw/openclaw/hermes/portainer agents.
   status                Print system summary: ncz version, BUILD_VARIANT,
@@ -166,8 +174,51 @@ ncz_desktop() {
 # --- models subcommand ---------------------------------------------------
 
 ncz_models() {
-    local action="${1:-help}"
+    # Bare `ncz models` lists the installed model library (most useful default).
+    local action="${1:-list}"
     case "$action" in
+        list|ls|"")
+            if [ ! -d "$NCZ_MODELS_DIR" ]; then
+                echo "(no models — $NCZ_MODELS_DIR does not exist; run 'ncz models pull' or install MNEMOS)"
+                return 0
+            fi
+            echo "Model library: $NCZ_MODELS_DIR"
+            local found=0
+            # NPU (.cix) + CPU/GPU (.gguf) embedding models.
+            while IFS= read -r m; do
+                [ -n "$m" ] || continue
+                found=1
+                local sz; sz="$(du -h "$m" 2>/dev/null | cut -f1)"
+                case "$m" in
+                    *.cix)  printf '  %-34s %6s  NPU  (npu-cix / Zhouyi, /dev/aipu)\n' "$(basename "$m")" "$sz" ;;
+                    *.gguf) printf '  %-34s %6s  CPU/GPU (llama.cpp / Vulkan)\n' "$(basename "$m")" "$sz" ;;
+                esac
+            done < <(find "$NCZ_MODELS_DIR" -maxdepth 3 -type f \( -name '*.cix' -o -name '*.gguf' \) 2>/dev/null | sort)
+            # Tokenizer dirs (config.json alongside tokenizer.json/vocab).
+            while IFS= read -r t; do
+                [ -n "$t" ] || continue
+                found=1
+                printf '  %-34s %6s  tokenizer (offline BERT WordPiece)\n' "$(basename "$(dirname "$t")")/" "-"
+            done < <(find "$NCZ_MODELS_DIR" -maxdepth 3 -name 'tokenizer_config.json' 2>/dev/null | sort)
+            [ "$found" = 0 ] && echo "  (none installed yet — run 'ncz models pull')"
+            echo
+            echo "Docs: $NCZ_MODELS_DIR/MODELS-README.md"
+            [ -f /usr/share/doc/ncz/MODELSCOPE-MODELS.md ] && \
+                echo "      /usr/share/doc/ncz/MODELSCOPE-MODELS.md  (adding ModelScope/HuggingFace models)"
+            return 0
+            ;;
+        help|--help|-h)
+            cat <<MSG
+Usage: ncz models [list|pull]
+
+  list   (default) Show embedding models installed in $NCZ_MODELS_DIR:
+         .cix (NPU / Zhouyi) + .gguf (CPU/GPU llama.cpp) + tokenizers.
+  pull   Fetch the Cix ai_model_hub_25_Q3 LFS bundle (network; STUB, task #99).
+
+Docs: $NCZ_MODELS_DIR/MODELS-README.md,
+      /usr/share/doc/ncz/MODELSCOPE-MODELS.md
+MSG
+            ;;
         pull)
             cat >&2 <<MSG
 ncz models pull — STUB (r75)
@@ -186,15 +237,8 @@ For now, bootstrap manually:
 MSG
             exit 2
             ;;
-        list)
-            if [ -d "$NCZ_MODELS_DIR" ]; then
-                find "$NCZ_MODELS_DIR" -maxdepth 3 -name '*.cix' 2>/dev/null
-            else
-                echo "(no models — $NCZ_MODELS_DIR does not exist)"
-            fi
-            ;;
         *)
-            echo "ncz models: unknown action '$action' (expected pull|list)" >&2
+            echo "ncz models: unknown action '$action' (expected list|pull)" >&2
             exit 1
             ;;
     esac
@@ -270,9 +314,43 @@ ncz_install_mnemos() {
     fi
 
     echo "[ncz] installing MNEMOS"
-    echo "[ncz] pulling $MNEMOS_IMAGE (multi-arch; arm64; network required)"
-    if ! podman pull "$MNEMOS_IMAGE"; then
-        echo "ncz install mnemos: podman pull failed" >&2
+    # OFFLINE-FIRST image acquisition. The ISO bundles the arm64 MNEMOS image as
+    # an OCI archive (assets/agent-images/mnemos.oci.tar, ~260 MB); load it
+    # locally so `ncz install mnemos` works with NO network. Only if no bundled
+    # image is present (e.g. a netinstall ISO) do we fall back to a registry
+    # pull. The quadlet uses Pull=never, so the image MUST exist locally before
+    # the service starts.
+    if podman image exists "$MNEMOS_IMAGE" 2>/dev/null; then
+        echo "[ncz] image already present: $MNEMOS_IMAGE"
+    else
+        local mnemos_loaded=0 mnemos_tar
+        for mnemos_tar in \
+            /var/lib/nclawzero/agent-images/mnemos.oci.tar \
+            /usr/local/lib/cix-installer/assets/agent-images/mnemos.oci.tar \
+            /cdrom/cixmini/assets/agent-images/mnemos.oci.tar; do
+            [ -f "$mnemos_tar" ] || continue
+            echo "[ncz] loading bundled MNEMOS image OFFLINE from $mnemos_tar"
+            if podman load -i "$mnemos_tar"; then mnemos_loaded=1; break; fi
+            echo "[ncz] WARN: podman load failed for $mnemos_tar — trying next source"
+        done
+        if [ "$mnemos_loaded" != 1 ]; then
+            echo "[ncz] no bundled image found — falling back to network pull of $MNEMOS_IMAGE"
+            if ! podman pull "$MNEMOS_IMAGE"; then
+                echo "ncz install mnemos: no bundled image AND podman pull failed (offline?)" >&2
+                echo "  expected bundled image at /var/lib/nclawzero/agent-images/mnemos.oci.tar" >&2
+                exit 1
+            fi
+        fi
+        # The bundled archive is tagged ghcr.io/ncz-os/mnemos:latest. If the
+        # operator overrode MNEMOS_IMAGE to a different tag, retag the loaded
+        # image so the Pull=never quadlet (Image=$MNEMOS_IMAGE) can resolve it.
+        if ! podman image exists "$MNEMOS_IMAGE" 2>/dev/null \
+           && podman image exists ghcr.io/ncz-os/mnemos:latest 2>/dev/null; then
+            podman tag ghcr.io/ncz-os/mnemos:latest "$MNEMOS_IMAGE" 2>/dev/null || true
+        fi
+    fi
+    if ! podman image exists "$MNEMOS_IMAGE" 2>/dev/null; then
+        echo "ncz install mnemos: image $MNEMOS_IMAGE unavailable after load/pull" >&2
         exit 1
     fi
 

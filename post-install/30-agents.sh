@@ -632,7 +632,7 @@ echo
 echo "Step 2/2: MNEMOS memory server (:5002)"
 if command -v whiptail >/dev/null 2>&1 && [ -t 0 ] \
    && whiptail --title "MNEMOS" --yesno \
-        "Also install the MNEMOS memory server?\n\nPulls the ghcr image and starts it on :5002 (needs network)." 12 70; then
+        "Also install the MNEMOS memory server?\n\nInstalls OFFLINE from the image bundled on the ISO and starts it on :5002 (no network needed; falls back to a ghcr pull if the bundled image is absent)." 12 70; then
     sudo ncz install mnemos
 else
     echo "Skipped MNEMOS. Install later with:  sudo ncz install mnemos"
@@ -771,6 +771,40 @@ NemoClaw pulls about 2.4 GB from
 the sandbox-base + OpenShell runtime. Its OpenShell-gated inference
 endpoint is `https://inference.local/v1`.
 
+### Install MNEMOS (memory server)
+
+MNEMOS is the memory operating system for agentic AI — a REST + MCP +
+OpenAI-compatible memory server on port **5002**, sqlite-backed so your
+memories survive reboots. Double-click **Install MNEMOS** on the Desktop,
+or run:
+
+```
+sudo ncz install mnemos
+```
+
+This installs **OFFLINE** from the MNEMOS container image bundled on the
+ISO — `ncz install mnemos` runs `podman load` on the local image at
+`/var/lib/nclawzero/agent-images/mnemos.oci.tar` (or the staged
+`/usr/local/lib/cix-installer/assets/agent-images/mnemos.oci.tar`), so
+**no network is needed**. If no bundled image is found it falls back to
+pulling `ghcr.io/ncz-os/mnemos:latest` (network required). It then stages
+the `mnemos.container` quadlet, creates the persistent `mnemos-data`
+volume, and starts `mnemos.service`.
+
+Verify it's up:
+
+```
+systemctl status mnemos.service
+curl -fsS http://127.0.0.1:5002/health
+```
+
+Endpoint: `http://<host>:5002` — REST `/v1/*`, MCP, and an
+OpenAI-compatible gateway. Memories persist in the `mnemos-data` podman
+volume (sqlite at `/data/mnemos.db`). The stock image embeds in-process
+on CPU (nomic-embed-text-v1.5, 768-dim); to offload embeddings to the Cix
+NPU instead, `sudo apt install mnemos-cix-integration` and point MNEMOS at
+the on-device embedder (see the notes `ncz install mnemos` prints).
+
 ### 2. Set API keys
 
 Edit `/etc/nclawzero/agent-env` (group: `nclawzero`):
@@ -826,7 +860,7 @@ ncz help
 
 Opt-in via `ncz agent install`: **zeroclaw**, **openclaw**, **hermes**, **portainer**
 
-Opt-in via `ncz install`: **nemoclaw**
+Opt-in via `ncz install`: **mnemos** (memory server, :5002), **nemoclaw**
 
 (No agent auto-starts on first boot — all are opt-in.)
 
@@ -838,6 +872,7 @@ Opt-in via `ncz install`: **nemoclaw**
 | openclaw  | http://127.0.0.1:18789/        | OpenClaw                          |
 | hermes    | http://127.0.0.1:8642/         | Hermes Agent (NousResearch)       |
 | Portainer | http://127.0.0.1:9000/         | Container management              |
+| mnemos    | http://127.0.0.1:5002/         | MNEMOS memory server (REST + MCP) |
 | nemoclaw  | https://inference.local/v1     | OpenShell-gated inference API     |
 
 ## Uninstall
@@ -862,6 +897,31 @@ nemoclaw   ghcr.io/nvidia/nemoclaw/sandbox-base:latest
 
 Quadlet templates: `/usr/share/ncz/quadlets/`
 Active quadlets (after `ncz agent install`): `/etc/containers/systemd/`
+
+## Model library
+
+Embedding models ship in `/opt/ncz/models/` (no download needed):
+
+```
+ncz models              # list installed models (.cix NPU + .gguf CPU/GPU)
+ncz models list         # same
+ncz models pull         # fetch more from the Cix ai_model_hub (network)
+```
+
+| File                          | Format               | Adapter                          |
+|-------------------------------|----------------------|----------------------------------|
+| `bge-small-zh-v1.5_256.cix`   | Cix Compass NN INT8  | `npu-cix` (Zhouyi NPU, /dev/aipu)|
+| `bge-small-zh-v1.5-q8_0.gguf` | llama.cpp Q8 GGUF    | `cpu-llamacpp` / `gpu-vulkan`    |
+
+Model-library docs on this system:
+
+```
+/opt/ncz/models/MODELS-README.md          # what ships + how Engine.auto() picks
+/usr/share/doc/ncz/MODELSCOPE-MODELS.md    # adding ModelScope / HuggingFace models
+```
+
+MNEMOS uses these automatically via `embedkit.Engine.auto()`, which
+detects libnoe + /dev/aipu and selects the NPU `.cix` model.
 
 ## NPU inference (Cix Zhouyi)
 
