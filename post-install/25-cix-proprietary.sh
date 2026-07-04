@@ -229,7 +229,13 @@ dpkg -i --force-depends --force-overwrite "${DEBS[@]}" 2>&1 | tee /var/log/cix-i
 # hardware blacklists (absent sensors/gpio/regulators/ipmi/rng/typec) intact.
 # This runs BEFORE 60-plymouth rebuilds the initramfs, so the corrected
 # blacklist.conf is what gets baked into the initrd.
-UNBRICK_MODS="btrfs fuse cuse blocklayoutdriver overlay \
+#
+# amvx (r186.2): the vendor blacklist also blocks amvx (Linlon MVX VPU), a
+# leftover from when the vendor's own out-of-tree blob was used; the in-tree
+# amvx now replaces that blob and is fixed (cfddef0, vb2 q->lock overlay in
+# 81-vpu.sh). Neutralize it here too so the VPU auto-loads at boot (ACPI
+# match CIXH3010) instead of staying dark despite the fix already shipping.
+UNBRICK_MODS="btrfs fuse cuse blocklayoutdriver overlay amvx \
 aes-neon-blk sha512-arm64 aes-neon-bs sha3-ce sha512-ce chacha-neon crct10dif-ce \
 sm3-ce xor-neon xxhash_generic sha256_generic xts af_alg cbc authenc des_generic \
 blake2b_generic ecb ctr crypto_engine dh_generic sha3_generic sm3_generic \

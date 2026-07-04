@@ -504,13 +504,28 @@ ncz_npu_install_time() {
 
     # --- FIX B: zhouyi_v3 armchina_npu.ko -> updates/ (machine-agnostic) ---
     # Only lands what the baked base did not already ship; safe to re-run.
+    #
+    # r186.1: $SRC (the live ISO /cixmini mount) can be missing this file
+    # even when the repo + the baked rootfs both have it — observed on .66
+    # r186 (cix-installer-late.log: FIX A ran, FIX B silently never fired,
+    # "no CIXH4010 cores" -> unidentified hardware version 5 at boot,
+    # /dev/aipu absent). Root cause is upstream in the squashfs/ISO staging of
+    # assets/kernel/modules-overlay into /cixmini; this fallback makes FIX B
+    # resilient to that regardless: /target/usr/local/lib/cix-installer/assets
+    # is populated from the BAKED image (confirmed present even when $SRC
+    # lacked it) and is unioned from $SRC earlier in this script, so it is at
+    # least as complete as $SRC. Mirrors the existing dual-candidate pattern
+    # in post-install/80-npu.sh and 81-vpu.sh (ISO path + already-staged path).
     for _kv in $NPU_KVERS; do
-        _ov="$SRC/assets/kernel/modules-overlay/$_kv/armchina_npu.ko"
-        [ -f "$_ov" ] || continue
+        _ov=""
+        for _cand in             "$SRC/assets/kernel/modules-overlay/$_kv/armchina_npu.ko"             "/target/usr/local/lib/cix-installer/assets/kernel/modules-overlay/$_kv/armchina_npu.ko"; do
+            [ -f "$_cand" ] && { _ov="$_cand"; break; }
+        done
+        [ -n "$_ov" ] || { echo "[npu]   FIX B: no armchina_npu.ko overlay found for $_kv (checked SRC + baked /target)"; continue; }
         [ -d "/target/usr/lib/modules/$_kv" ] || { echo "[npu]   no /target modules dir for $_kv"; continue; }
         if install -D -m 0644 "$_ov" "/target/usr/lib/modules/$_kv/updates/armchina_npu.ko" 2>/dev/null; then
             in-target depmod -a "$_kv" 2>/dev/null || true
-            echo "[npu]   FIX B: zhouyi_v3 armchina_npu.ko -> /usr/lib/modules/$_kv/updates/ (+ depmod)"
+            echo "[npu]   FIX B: zhouyi_v3 armchina_npu.ko ($_ov) -> /usr/lib/modules/$_kv/updates/ (+ depmod)"
         fi
     done
     # ensure the module auto-loads on boot (baked 80-npu also writes this)
