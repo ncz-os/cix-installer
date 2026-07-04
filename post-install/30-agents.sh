@@ -28,6 +28,29 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     podman crun conmon netavark aardvark-dns catatonit librsvg2-bin whiptail \
     2>&1 | tail -3
 
+# r187.2: pin the storage driver explicitly. Without this, podman's own
+# postinst/first-probe during squashfs baking creates a stale
+# /var/lib/containers/storage/overlay (leftover build-time state that ships
+# baked into desktop.squashfs), and on real Sky1 hardware the FIRST live
+# podman invocation (nclawzero-load-agent-images.service / any `ncz agent
+# install`) auto-detects a different driver (vfs), landing both overlay/ and
+# vfs/ in the same storage root -> "contains several valid graphdrivers"
+# hard error, blocking every agent/mnemos install (observed on .66 r187: ncz
+# install mnemos failed until `podman system reset --force`). Pin overlay
+# explicitly so real hardware always agrees with whatever the bake left
+# behind instead of auto-detecting a second, conflicting driver. No
+# /etc/containers/storage.conf ships by default (containers-storage has no
+# default file, only compiled-in defaults), so writing this is additive, not
+# an override of existing operator config.
+if [ ! -f /etc/containers/storage.conf ]; then
+    mkdir -p /etc/containers
+    cat > /etc/containers/storage.conf << 'STORAGECONF'
+[storage]
+driver = "overlay"
+STORAGECONF
+    echo "[30] pinned podman storage driver=overlay (/etc/containers/storage.conf)"
+fi
+
 # Stage quadlet templates from the copied installer payload. /cdrom is not
 # bind-mounted in netinstall mode, so prefer the late.sh copy and only fall
 # back to /cdrom for older/manual recovery runs.
