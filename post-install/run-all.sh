@@ -88,7 +88,7 @@ NCZ_BAKED=0
 #                        restoring native Panfrost OpenGL 3.1 (verified .66 metal
 #                        2026-07-04). WITHOUT this, baked installs shipped zink-2.1
 #                        and GL screensavers/apps mis-rendered. Runs right after 25.
-MACHINE_HOOKS_RE="^(25-cix-proprietary|26-gpu-default-open|34-fstab|46-python311|47-embedkit|72-rescue-partition|80-npu|81-vpu|92-buildkite-apt)\.sh$"
+MACHINE_HOOKS_RE="^(25-cix-proprietary|26-gpu-default-open|34-fstab|40-claude-code|46-python311|47-embedkit|72-rescue-partition|80-npu|81-vpu|92-buildkite-apt)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
