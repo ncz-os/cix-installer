@@ -34,7 +34,33 @@ REQUIRED_PHASE_OK=0
 NCZ_BAKED=0
 [ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
 [ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
-MACHINE_HOOKS_RE="^(34-fstab|72-rescue-partition)\.sh$"
+# r184: the CIX proprietary userland + NPU-userspace hooks were NEVER running on
+# a fresh baked install — they're not in build-squashfs-layers.sh BASE_HOOKS (so
+# not baked into base.squashfs) and the baked-mode filter below only whitelisted
+# fstab/rescue. Result: no cix SDK, no /opt/python3.11, no /opt/ncz/embed-venv,
+# no libnoe → NPU dark from Python (confirmed absent on .66 r180). These hooks
+# are machine-AGNOSTIC userspace that only need the staged ISO assets (not the
+# hardware), and running them at install-time (rather than baking) avoids the
+# base.squashfs rebuild + the LAYER-COHERENCE delta-rebuild trap (25 changes the
+# dpkg package set; baking it would force rebuilding every role delta). The
+# assets they read are on the ISO and union-synced into /target by late.sh:
+#   25-cix-proprietary → cix userland + stages libnoe.so + libnoe/NOE_Engine
+#                        cp311/cp312 wheels to /usr/share/cix/{lib,pypi}
+#                        (assets/cix-debs/cix-noe-umd_2.0.2, on the ISO)
+#   46-python311       → relocatable CPython 3.11 at /opt/python3.11 + uv
+#                        (assets/python311, on the ISO) — the libnoe wheel only
+#                        ships cp311/cp312 .so, so a 3.11 venv is REQUIRED (the
+#                        resolute system python is 3.14 and cannot import libnoe)
+#   47-embedkit        → /opt/ncz/embed-venv (py3.11) + installs the libnoe wheel;
+#                        ship-critical libnoe import smoke. Ordered AFTER 25+46.
+#   81-vpu             → validated amvx.ko (vb2 q->lock fix) → updates/ for the
+#                        7.0.x-next kernel (assets/kernel/modules-overlay, on ISO)
+# Hooks run in sorted order → 25, 34-fstab, 46, 47, 72-rescue, 81 (deps satisfied:
+# 25+46 both precede 47). 80-npu is deliberately NOT here: the NPU KMD overlay +
+# ACPI SSDT (which needs the real MS-R1 hardware) are installed directly by
+# preseed/late.sh's ncz_npu_install_time (mem_1783181978470) — adding 80-npu
+# would double-run the SSDT/KMD install.
+MACHINE_HOOKS_RE="^(25-cix-proprietary|34-fstab|46-python311|47-embedkit|72-rescue-partition|81-vpu)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
