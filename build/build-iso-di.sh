@@ -1690,7 +1690,9 @@ fi
 cp "$ROOT/preseed/late.sh"            "$EXTRA/late.sh"
 cp "$ROOT/preseed/extract-rootfs.sh"  "$EXTRA/extract-rootfs.sh"
 cp "$ROOT/preseed/sshd-watcher.sh"    "$EXTRA/sshd-watcher.sh"
-chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh"
+# r173: interactive disk + root-filesystem chooser (partman/early_command).
+cp "$ROOT/preseed/disk-fs-chooser.sh" "$EXTRA/disk-fs-chooser.sh"
+chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh" "$EXTRA/disk-fs-chooser.sh"
 # Remote-diagnostics module (single, removable). DIAG_ENABLE=0 ships clean:
 # the module is not staged and ncz_diag/DEBCONF_DEBUG are not added below.
 if [ "${DIAG_ENABLE:-1}" = 1 ]; then
