@@ -1019,17 +1019,32 @@ Categories=Development;
 CC
 chmod 0755 /etc/skel/Desktop/ClaudeCode.desktop
 
-# r181: Zoder (Rust coding CLI). Install the staged arm64-linux binary to
-# /usr/local/bin/zoder if present (staged at assets/zoder/zoder by the build).
-# The launcher still runs through a guarded wrapper so it degrades gracefully if
-# the binary is ever absent. zoder needs the operator's own config/API keys to
-# run — that's their setup; we only wire the binary + launcher.
-ZODER_SRC=/usr/local/lib/cix-installer/assets/zoder/zoder
-if [ -f "$ZODER_SRC" ]; then
-    install -D -m 0755 "$ZODER_SRC" /usr/local/bin/zoder
-    echo "[30] zoder installed: $(/usr/local/bin/zoder --version 2>/dev/null || echo 'arm64 binary staged')"
+# r187.3: Zoder (Rust coding CLI). Always install from current master via
+# the official installer (operator directive 2026-07-05) — never a prebuilt
+# binary asset staged at build/bake time, which goes stale the moment
+# upstream moves. The launcher still runs through a guarded wrapper so it
+# degrades gracefully if the install is ever unavailable (no network during
+# chroot install, upstream down, etc). zoder needs the operator's own
+# config/API keys to run — that's their setup; we only wire the binary +
+# launcher.
+# zoder-review (2026-07-05): without pipefail, if curl fails silently
+# (network hiccup, upstream unreachable) the piped `sh` gets empty stdin,
+# runs nothing, and exits 0 -- the bare pipe exit code alone would report
+# false success. Belt-and-suspenders: pipefail so a curl failure is visible
+# in the pipeline's own exit status, PLUS verify the binary actually landed
+# rather than trusting either command's exit status alone (this whole
+# script runs under `set +e`, so pipefail changes failure visibility, not
+# whether the script continues -- restore the prior setting after).
+ZODER_INSTALL_URL=https://raw.githubusercontent.com/ncz-os/zoder/master/install.sh
+set -o pipefail
+curl -fsSL --max-time 60 "$ZODER_INSTALL_URL" | ZODER_BIN_DIR=/usr/local/bin sh
+ZODER_PIPE_RC=$?
+set +o pipefail
+[ "$ZODER_PIPE_RC" -eq 0 ] || echo "[30] zoder install pipeline exited $ZODER_PIPE_RC (curl or install.sh failed)"
+if [ -x /usr/local/bin/zoder ]; then
+    echo "[30] zoder installed: $(/usr/local/bin/zoder --version 2>&1)"
 else
-    echo "[30] zoder binary not staged (assets/zoder/zoder absent) — launcher will show a friendly notice"
+    echo "[30] zoder install deferred (no network during chroot install, or upstream unreachable) — launcher will show a friendly notice"
 fi
 cat > /usr/local/bin/zoder-launch <<'ZL'
 #!/bin/bash
