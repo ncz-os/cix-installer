@@ -120,6 +120,28 @@ ShowDelay=0
 DeviceTimeout=8
 EOF
 
+# r181 (operator, .66 metal: the boot splash screen is fully DARK). Plymouth
+# needs a DRM framebuffer EARLY, but the CIX Sky1 display-controller DRM modules
+# are NOT pulled into the initramfs by default, so plymouth has no framebuffer
+# until the rootfs mounts + the modules load — by which point the handoff to the
+# DM has happened and nothing ever renders. Force plymouth's framebuffer into the
+# initramfs and add the Sky1 display + render DRM modules so KMS/fb is live from
+# early boot. Verified on .66: the connected panel is card0-DP-1 driven by the
+# `linlon_dp` module (the linlondp/komeda display pipe); `trilin_dpsub` is the
+# DP sub-block; `panthor` is the Mali render GPU. (Needs a metal reboot to
+# confirm the splash renders — qemu has a single virtio card so it never showed.)
+install -d /etc/initramfs-tools/conf.d
+cat > /etc/initramfs-tools/conf.d/10-ncz-splash.conf <<'FB'
+# NCZ: force plymouth + a framebuffer into the initramfs so the boot splash
+# renders on Sky1 (linlondp/komeda DRM comes up late otherwise → dark screen).
+FRAMEBUFFER=y
+FB
+touch /etc/initramfs-tools/modules
+for m in linlon_dp linlondp komeda trilin_dpsub panthor; do
+    grep -qxF "$m" /etc/initramfs-tools/modules || echo "$m" >> /etc/initramfs-tools/modules
+done
+echo "[60] initramfs: FRAMEBUFFER=y + Sky1 DRM modules (linlon_dp/linlondp/komeda/trilin_dpsub/panthor) for early splash"
+
 KERNELS=""
 for sidecar in /usr/local/lib/cix-installer/KVER_LTS /usr/local/lib/cix-installer/KVER_NEXT; do
     if [ -s "$sidecar" ]; then

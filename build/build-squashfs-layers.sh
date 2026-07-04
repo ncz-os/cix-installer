@@ -133,8 +133,19 @@ build_layer(){ local role="$1" manifest="$2"
     # surfaced). The hook installs the cix-detect-display boot service +
     # /etc/X11/xorg.conf.d/10-cixmini-primary-display.conf that pins the
     # connected linlondp display card each boot (handles card-renumber races).
-    # 50-brand/56-icon/45-wallpaper/60-plymouth follow (cosmetic, best-effort).
-    for bh in 22-display-fix 50-brand 56-icon-theme 45-wallpaper-rotator 60-plymouth; do
+    # 50-brand/56-icon/45-wallpaper/55-greeter follow (cosmetic, best-effort).
+    # r181: 30-agents + 46-ncz-cli were EXCLUDED here (same bug class as the
+    # r172 22-display-fix exclusion) — so /etc/skel/Desktop shipped EMPTY on .66
+    # metal: no "ncz" CLI, no "NCZ CLI" launcher, no "⭐ Install AI Agents &
+    # MNEMOS" launcher (operator report). They write the desktop launchers + the
+    # ncz operator CLI, so BAKE them here. 30-agents (set +e, no apt purge) MUST
+    # precede 46-ncz-cli (which overwrites /usr/local/bin/ncz with the unified CLI
+    # that execs the agent helper 30-agents stages at /usr/local/lib/ncz-agent-cli).
+    # 55-greeter = new dark+magenta LightDM greeter (the safe cosmetic subset of
+    # 20-desktop.sh's greeter config; 20-desktop is deliberately NOT baked here —
+    # its `apt purge --auto-remove` corrupted the user DB in the overlay, the
+    # r166-r170 saga). 60-plymouth LAST (rebuilds the initramfs, heaviest step).
+    for bh in 22-display-fix 50-brand 56-icon-theme 45-wallpaper-rotator 55-greeter 30-agents 46-ncz-cli 60-plymouth; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3 || log "  WARN $bh rc=$?"
