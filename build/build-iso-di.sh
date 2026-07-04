@@ -1280,6 +1280,60 @@ GIPOST
 neutralize_udeb_postinst "$STAGING/pool/main/f/flash-kernel/flash-kernel-installer_*.udeb" "flash-kernel-installer"
 neutralize_udeb_postinst "$STAGING/pool/main/g/grub-installer/grub-installer_*.udeb" "grub-installer"
 
+# r173: NCZ-brand the d-i INSTALLER UI. The installer screens ship Debian
+# branding in the udeb debconf TEMPLATES (control.tar's ./templates) — most
+# visibly the "Debian installer main menu" title and "Debian GNU/Linux"
+# references in the menu/finish steps. Patch the templates at source (same
+# ar/tar mechanism as the debootstrap/neutralize patches). We ONLY touch
+# Description/text (case-sensitive "Debian ..." phrases); template KEYS use
+# lowercase "debian-installer/..." and are never matched, so anna/main-menu
+# routing is unaffected. Best-effort per udeb: a missing udeb is a no-op.
+brand_udeb_templates() {
+    # $1 = udeb path glob (first match used); $2 = human label
+    local _glob="$1" _label="$2"
+    local _matches; _matches=( $_glob )
+    local _udeb="${_matches[0]}"
+    if [ ! -e "$_udeb" ]; then
+        echo "    NOTE: $_label udeb not in pool — nothing to brand"
+        return 0
+    fi
+    local _tmp="$STAGING/.tmp-brand-udeb"
+    local _ar="$_tmp/ar" _ctl="$_tmp/ctl"
+    rm -rf "$_tmp"; mkdir -p "$_ar" "$_ctl"
+    local _udeb_abs; _udeb_abs="$(readlink -f "$_udeb")"
+    ( cd "$_ar" && ar x "$_udeb_abs" )
+    [ -f "$_ar/debian-binary" ] || { echo "ERROR: $_label udeb missing debian-binary" >&2; exit 1; }
+    local _ctl_members=( "$_ar"/control.tar* )
+    local _data_members=( "$_ar"/data.tar* )
+    local _ctl_member; _ctl_member="$(basename "${_ctl_members[0]}")"
+    local _data_member; _data_member="$(basename "${_data_members[0]}")"
+    tar -xf "$_ar/$_ctl_member" -C "$_ctl"
+    if [ ! -f "$_ctl/templates" ]; then
+        echo "    NOTE: $_label udeb has no templates — skipping brand"
+        rm -rf "$_tmp"; return 0
+    fi
+    # Case-sensitive phrase replacements (Description text only). Order matters:
+    # longer phrases first so they aren't partially eaten by shorter ones.
+    sed -i \
+        -e 's/Debian installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
+        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS «Reinhardt» installer menu/g' \
+        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
+        -e 's/Debian GNU\/Linux/NCZ-OS/g' \
+        -e 's/the Debian installer/the NCZ-OS installer/g' \
+        -e 's/Debian installer/NCZ-OS installer/g' \
+        "$_ctl/templates"
+    rm -f "$_ar/$_ctl_member"
+    ( cd "$_ctl" && tar --numeric-owner --owner=0 --group=0 -cf - . ) | gzip -9n > "$_ar/control.tar.gz"
+    local _new_udeb="$_tmp/$(basename "$_udeb")"
+    ( cd "$_ar" && ar rc "$_new_udeb" debian-binary control.tar.gz "$_data_member" )
+    mv "$_new_udeb" "$_udeb"
+    rm -rf "$_tmp"
+    echo "    $_label udeb templates NCZ-branded"
+}
+brand_udeb_templates "$STAGING/pool/main/m/main-menu/main-menu_*.udeb"        "main-menu"
+brand_udeb_templates "$STAGING/pool/main/f/finish-install/finish-install_*.udeb" "finish-install"
+brand_udeb_templates "$STAGING/pool/main/c/choose-mirror/choose-mirror_*.udeb"   "choose-mirror"
+
 # Step 5: regenerate dists/resolute/main/debian-installer/binary-arm64/Packages
 # from the actual pool contents (not just copy bookworm's stale Packages).
 # After the trixie graft, the d-i Packages index MUST reflect the new udeb set
@@ -1604,9 +1658,40 @@ fi  # end SKIP_NEWT_BINARY_PATCH conditional
 chmod 0755 "$INITRD_PATCH_TMP/overlay/init"
 chmod 0644 "$INITRD_PATCH_TMP/overlay/usr/lib/cdebconf/frontend/newt.so"
 
-# Build cpio overlay containing both init + newt.so. Append to initrd.
+# r173 (#4 branding): NCZ-brand the d-i INSTALLER UI at source. The main-menu
+# title ("Debian installer main menu") and other Debian strings ship as
+# cdebconf templates BAKED INTO THE INITRD (var/lib/dpkg/info/*.templates) —
+# these components load from the initrd, not the anna-loaded pool, so the pool
+# udeb-template patch (brand_udeb_templates, above) cannot reach them. Overlay
+# branded copies into the initrd via the SAME last-wins cpio append. We only
+# touch Description/_Description TEXT (case-sensitive "Debian ..." phrases);
+# template KEYS use lowercase "debian-installer/..." and never match, so
+# main-menu/anna routing is unaffected.
+echo "    NCZ-branding baked-in d-i initrd templates (main-menu title etc.)"
+for _tpl in main-menu di-utils cdrom-detect cdrom-checker anna; do
+    _src="$INITRD_PATCH_TMP/extract/var/lib/dpkg/info/$_tpl.templates"
+    [ -f "$_src" ] || { echo "      note: $_tpl.templates absent in initrd — skip"; continue; }
+    mkdir -p "$INITRD_PATCH_TMP/overlay/var/lib/dpkg/info"
+    _dst="$INITRD_PATCH_TMP/overlay/var/lib/dpkg/info/$_tpl.templates"
+    sed \
+        -e 's/Debian installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
+        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS «Reinhardt» installer menu/g' \
+        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
+        -e 's/the Debian installer/the NCZ-OS installer/g' \
+        -e 's/Debian installer/NCZ-OS installer/g' \
+        -e 's/Debian GNU\/Linux/NCZ-OS/g' \
+        "$_src" > "$_dst"
+    chmod 0644 "$_dst"
+    if cmp -s "$_src" "$_dst"; then
+        echo "      $_tpl.templates: no Debian strings changed"
+    else
+        echo "      $_tpl.templates: NCZ-branded"
+    fi
+done
+
+# Build cpio overlay containing init + newt.so + branded templates. Append to initrd.
 ( cd "$INITRD_PATCH_TMP/overlay" && find . | cpio -o -H newc --quiet | gzip -9 -n ) >> "$INITRD"
-echo "    initrd patched: amber phosphor palette via cpio overlay"
+echo "    initrd patched: amber phosphor palette + NCZ branding via cpio overlay"
 rm -rf "$INITRD_PATCH_TMP"
 rm -rf "$WORK"
 
