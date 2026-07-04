@@ -393,8 +393,17 @@ db_try db_progress INFO nclawzero/install-step
 # it never touches the install and is killed the moment run-all.sh returns. It
 # ALSO advances the main-screen debconf bar (best-effort) to that hook's index.
 HOOK_LOGDIR=/target/var/log/cix-install
-STEP_EVERY=6   # advance the bar once per this many distinct hooks
-STEP_CAP=6     # never STEP more than this (stay clear of finish-install own remaining budget)
+# r173 progress fix: the OLD constants (STEP_EVERY=6, STEP_CAP=6) advanced the
+# bar only ~NH/6 times over the WHOLE install, so with ~18 hooks the bar took a
+# single step every 6 hooks and still looked parked. finish-install's shared bar
+# has a small total (≈ number of finish-install.d scripts) and we start at its
+# ~1/7 slot; consuming ~STEP_CAP of its remaining budget SMOOTHLY across all NH
+# hooks turns the "stuck at 14%" park into a bar that climbs steadily to ~85%
+# while our hooks run (finish-install fills the last ~15% after we return).
+# Distribute STEP_CAP evenly: STEP_EVERY = ceil(NH / STEP_CAP).
+STEP_CAP=7     # steps of finish-install's remaining budget we consume across the run
+STEP_EVERY=$(( (NH + STEP_CAP - 1) / STEP_CAP ))
+[ "$STEP_EVERY" -ge 1 ] 2>/dev/null || STEP_EVERY=1
 ( hb_last=""
   hb_seen=0
   hb_stepped=0
@@ -572,6 +581,24 @@ if [ "$FINALIZE_OK" = "1" ]; then
         sleep 5
     fi
 fi
+# r173 (#1 finish): reassert the reboot intent on the bootable path so the clean
+# finish does NOT hinge on the priority=critical boot arg. rEFInd is installed
+# DURING finish-install (this late_command runs as finish-install.d/07preseed),
+# so by here d-i's bootloader phase is genuinely complete. The ONLY thing that
+# turns a completed finish-install into a MAIN-MENU return is a finish-install.d
+# script exiting non-zero — which the ESP-guarded `exit 0` below prevents. We
+# additionally (re)assert exit/reboot=true + suppress the reboot_in_progress note
+# so finish-install proceeds straight to reboot at ANY debconf priority, not just
+# critical. Best-effort; guarded so it can never fail the finish.
+if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -f /usr/share/debconf/confmodule ]; then
+    ( . /usr/share/debconf/confmodule 2>/dev/null || exit 0
+      db_set debian-installer/exit/reboot true 2>/dev/null || true
+      db_fset debian-installer/exit/reboot seen true 2>/dev/null || true
+      db_set debian-installer/exit/poweroff false 2>/dev/null || true
+      db_fset finish-install/reboot_in_progress seen true 2>/dev/null || true
+    ) 2>/dev/null || true
+fi
+
 # r155: a bootable install (rEFInd on the ESP) must NEVER throw d-i's critical
 # preseed/command_failed red error. Optional apt/network hook failures and the
 # Sky1 efivars-unavailable bootloader path leave RET!=0 but the system still
