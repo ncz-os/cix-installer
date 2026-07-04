@@ -53,13 +53,30 @@ NCZ_BAKED=0
 #                        resolute system python is 3.14 and cannot import libnoe)
 #   47-embedkit        → /opt/ncz/embed-venv (py3.11) + installs the libnoe wheel;
 #                        ship-critical libnoe import smoke. Ordered AFTER 25+46.
+#   80-npu             → validated armchina_npu.ko (ARCH_V3 fix) → updates/ for
+#                        the 7.0.x-next kernel (assets/kernel/modules-overlay, on
+#                        ISO) + the MS-R1 ACPI SSDT (idempotent, see below).
 #   81-vpu             → validated amvx.ko (vb2 q->lock fix) → updates/ for the
 #                        7.0.x-next kernel (assets/kernel/modules-overlay, on ISO)
-# Hooks run in sorted order → 25, 34-fstab, 46, 47, 72-rescue, 81 (deps satisfied:
-# 25+46 both precede 47). 80-npu is deliberately NOT here: the NPU KMD overlay +
-# ACPI SSDT (which needs the real MS-R1 hardware) are installed directly by
-# preseed/late.sh's ncz_npu_install_time (mem_1783181978470) — adding 80-npu
-# would double-run the SSDT/KMD install.
+# Hooks run in sorted order → 25, 34-fstab, 46, 47, 72-rescue, 80, 81 (deps
+# satisfied: 25+46 both precede 47).
+#
+# r187.1: 80-npu WAS deliberately excluded here (comment used to say adding it
+# would double-run the SSDT/KMD install already done by preseed/late.sh's
+# ncz_npu_install_time) — but that pre-chroot install-time path turned out to
+# be unreliable: on .66 r187, late.sh's FIX B silently failed to write
+# armchina_npu.ko to /target/usr/lib/modules/$KVER/updates/ for the NEXT kernel
+# (no error, no log line — likely an environment quirk of running against
+# /target from OUTSIDE chroot during d-i, before the target filesystem is
+# fully assembled), while the near-identical 81-vpu.sh call for amvx.ko — same
+# overlay mechanism, same install -D pattern, but running INSIDE chroot via
+# run-all.sh — succeeded every time. Root cause of the "unidentified hardware
+# version number: 5" / no /dev/aipu failure on a fresh install, even with the
+# ARCH_V3 kernel-config fix (053b5ce) and the overlay file itself both correct
+# and present. Fix: run 80-npu here too, in the same reliable chroot context
+# that already works for VPU. Its SSDT step is idempotent (checks the initrd's
+# leading CPIO magic bytes and skips if late.sh already prepended it), so
+# running both is safe — it will not double-inject.
 #   26-gpu-default-open → REQUIRED after 25: 25 installs the CIX proprietary
 #                        GPU userland (cix-gpu-umd libmali/libgbm/libEGL under
 #                        /opt/cixgpu-*), whose ld.so.conf.d entries SHADOW Mesa.
@@ -71,7 +88,7 @@ NCZ_BAKED=0
 #                        restoring native Panfrost OpenGL 3.1 (verified .66 metal
 #                        2026-07-04). WITHOUT this, baked installs shipped zink-2.1
 #                        and GL screensavers/apps mis-rendered. Runs right after 25.
-MACHINE_HOOKS_RE="^(25-cix-proprietary|26-gpu-default-open|34-fstab|46-python311|47-embedkit|72-rescue-partition|81-vpu|92-buildkite-apt)\.sh$"
+MACHINE_HOOKS_RE="^(25-cix-proprietary|26-gpu-default-open|34-fstab|46-python311|47-embedkit|72-rescue-partition|80-npu|81-vpu|92-buildkite-apt)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
