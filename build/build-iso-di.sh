@@ -792,8 +792,20 @@ if [ -n "$SQDIR" ]; then
     for _m in proc sys dev; do mount --bind /$_m "$TARGET/$_m" 2>/dev/null; done
     mount --bind /dev/pts "$TARGET/dev/pts" 2>/dev/null
     chroot "$TARGET" dpkg --configure -a 2>/dev/null
-    _BAD=$(chroot "$TARGET" dpkg -l 2>/dev/null | awk '$1 ~ /^.[A-Z]/ && $1 != "ii" {print $2}')
-    [ -n "$_BAD" ] && { echo "I: r159 stub: purging non-configured: $_BAD" >&2; chroot "$TARGET" dpkg --purge --force-all $_BAD 2>/dev/null; }
+    # r172: PRESERVE falkon (the NCZ web browser). It can't finish configuring in
+    # the d-i chroot (its postinst wants a display/dbus), so r159 purged it as
+    # "non-configured" — which left the installed desktop with NO working browser
+    # (firefox on resolute is a snap stub that no-ops in an offline image; only
+    # falkon + epiphany are real debs). Keep falkon (+ its parts) out of the purge
+    # and let ncz-firstboot's `dpkg --configure -a` finish it on first boot where
+    # X/dbus exist. Everything else non-ii is still purged so pkgsel's dpkg stays
+    # clean.
+    _BAD=$(chroot "$TARGET" dpkg -l 2>/dev/null | awk '$1 ~ /^.[A-Z]/ && $1 != "ii" {print $2}' | grep -viE '^falkon')
+    [ -n "$_BAD" ] && { echo "I: r172 stub: purging non-configured (keeping falkon): $_BAD" >&2; chroot "$TARGET" dpkg --purge --force-all $_BAD 2>/dev/null; }
+    # Best-effort configure of falkon now; if it still can't (no display), it stays
+    # unpacked and ncz-firstboot configures it. pkgsel tolerates unpacked (unlike
+    # a broken statoverride) as long as dpkg itself isn't wedged.
+    chroot "$TARGET" dpkg --configure falkon 2>/dev/null || true
     # r169: drop orphaned dpkg statoverrides whose owning user no longer exists.
     # The GNOME-purge/autoremove in the squashfs build (and this STUB's own
     # dpkg --configure/purge above) can leave a statoverride like
