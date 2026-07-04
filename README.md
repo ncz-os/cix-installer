@@ -102,67 +102,78 @@ NPU/GPU/VPU may not initialize, or the installer may need board-specific work.
 
 ### Driver support matrix — O6 / O6N
 
-The 7.1.2-ncz2 kernel (with NCZ patches `9008`–`9011`) supports the full CIX
-Sky1 driver set on both the **Radxa Orion O6** and the **O6N** (same SoC, same
-ACPI device tree, same peripherals — the O6N is a minor variant). The kernel
-artifact at `assets/kernel/Image-cixmini.bin` ships a single DTB
-(`sky1-orion-o6.dtb`) used by both boards.
+The kernel that actually ships in this installer is **7.0.12-cix-sky1-next**
+(`assets/kernel/edge/KVER`, patch series `next-patches/0001`–`0043` +
+`2001`–`2017` in `meta-cix:linux-cix-sky1-next`) — **not** the 7.1.2-ncz2 /
+`linux-cix-sky1-ncz` line referenced in an earlier draft of this table. That
+7.1.x line is a separate, still-unstable fork (a prior README revision marked
+it "not-working"; it still has multiple `.bak-pre-branchfix`/
+`.bak-pre-compilefix` recovery files in the recipe as of 2026-06-27) and is
+not what boots on real hardware today. This table describes the kernel that
+is actually installed.
+
+Sky1 boots via **ACPI, not a device tree** — `/sys/firmware/devicetree/base`
+is empty on both the MS-R1 and (per operator reports) Orion O6. There is no
+`sky1-orion-o6.dtb` shipped or needed; an earlier revision of this table
+claimed one existed in `assets/kernel/` — it doesn't, and never has for this
+kernel line.
 
 | Subsystem | Driver | Config | O6 | O6N | Notes |
 |---|---|---|---|---|---|
-| **Clock** | `clk-sky1-acpi` (CIXHA010) | `=y` | ✅ | ✅ | ACPI CLKT table parser → SCMI clocks. Patch `9010` adds ACPI power mgmt. |
-| **Clock** | `clk-sky1-audss` (CIXH6061) | `=y` | ✅ | ✅ | Audio subsystem clock controller; explicit D0 transition. |
-| **Reset** | `reset-sky1` (CIXHA020/021) | `=y` | ✅ | ✅ | Patch `9008` adds ACPI resource lookup. |
-| **Reset** | `reset-sky1-audss` | `=y` | ✅ | ✅ | Audio subsystem reset. |
-| **Pinctrl** | `pinctrl-sky1` | `=y` | ✅ | ✅ | Patch `0046` adds ACPI support. |
-| **Mailbox** | `cix-mbox` | `=y` | ✅ | ✅ | SCMI mailbox transport. |
-| **SCMI** | `arm-scmi` (clock + perf + power + sensor domains) | `=y` | ✅ | ✅ | Protocol 0x13 perf: fwnode provider deferred to `late_initcall` (patch `9009`). |
-| **Power domain** | `scmi-perf-domain` / `scmi-power-domain` | `=y` | ✅ | ✅ | Patch `0008` series; runtime gated to `late_initcall` (patch `9011`). |
-| **Thermal** | `cix-thermal` + IPA | `=y` | ✅ | ✅ | Patch `0049`/`0050`/`0062`; ACPI thermal binding. |
-| **DSP** | `cix-dsp` + `cix-dsp-rproc` | `=m` | ✅ | ✅ | Patch `0009`/`0020`; DSP remoteproc and IPC. |
-| **Audio (HDA)** | `snd-hda-cix-ipbloq` + Realtek ALC codecs | `=m` | ✅ | ✅ | Analog + digital + HDMI/DP. Verified ALC269VC. |
-| **Audio (SoC)** | `snd-soc-sky1-sound-card` + `snd-soc-sof-cix-toplevel` | `=m` | ✅ | ✅ | SOF + Cadence I2S. |
-| **GPU (Mali-G720)** | `panthor` + `drm-cix` + `drm-trilin-dp-cix` | `=m` | ✅ | ✅ | Mesa 26.1.3 panvk + rusticl shipped (see `post-install/16-mesa-gpu-2613.sh`). |
-| **NPU (Zhouyi V3)** | `armchina-npu` | `=m` (DKMS) | ✅ | ✅ | `ARCH_V3=y` + IOVA cap=2 (`2014-armchina-npu-cap-iova-region-32bit-bus.patch`). `/dev/aipu`. |
-| **USB** | `usb-cdnsp-sky1` (CDNSP) | `=y` | ✅ | ✅ | xHCI host + gadget. Patch `0025`/`0029`/`0052`/`0060`/`0063`. |
-| **USB Type-C** | `typec-rts5453` | `=y` | ✅ | ✅ | Realtek Type-C PD controller. |
-| **Ethernet** | `r8169` (RTL8125/8126/8169) | `=m` | ✅ | ✅ | `rtl_nic` firmware shipped in installer + installed system. |
-| **Wi-Fi** | `mt7921e` (MediaTek MT7921/MT7922) | `=m` | ✅ | ✅ | M.2 Key-E slot. |
-| **Wi-Fi (alt)** | `rtw88` (Realtek 8822B/8822C/8723DE/…) | `=m` | ✅ | ✅ | If equipped. |
-| **PCIe** | `pcie-cadence-host` + `pci-sky1-host-cix` + `phy-cix-pcie` | `=y` | ✅ | ✅ | M.2 + board peripherals. |
-| **USB-PD PHY** | `phy-cix-usbdp` | `=y` | ✅ | ✅ | USB 3.x + DisplayPort alt-mode. |
-| **IOMMU/SMMU** | `arm-smmu-v3` | `=y` | ✅ | ✅ | With Sky1 suspend/resume (patch `0036`). |
-| **GPIO** | `gpio-cadence` | `=m` | ✅ | ✅ | Patch `0017` adds ACPI support. |
-| **I2C** | `i2c-cadence` | `=m` | ✅ | ✅ | Patch `0019` adds ACPI support. |
-| **DMA** | `dma-arm-dma350` | `=m` | ✅ | ✅ | Patch `0016` adds ACPI support. |
-| **PWM** | `pwm-sky1` | `=y` | ✅ | ✅ | Patch `0028` + state-check `0043`. |
-| **Syscon** | `mfd-syscon` (with ACPI) | `=m` | ✅ | ✅ | Patch `0015`/`0023`. |
-| **Regulator** | `regulator-cix` | `=y` | ✅ | ✅ | Patch `0033`. |
-| **Timer** | `clocksource-sky1-gpt-timer` | `=y` | ✅ | ✅ | Patch `0044`. |
-| **IRQ** | `irqchip-sky1-pdc` | `=y` | ✅ | ✅ | Patch `0012`. |
-| **SoC resource** | `cix-acpi-resource-lookup` (CIXA1019) | `=y` | ✅ | ✅ | `subsys_initcall`; walks RSTL/RSNL/DLKL. Patch `0007`/`9007`. |
-| **ACPI USB scan** | `cix-acpi-usb-scan-handler` | `=y` | ✅ | ✅ | Patch `0027`. |
-| **DST** | `cix-dst` | `=y` | ✅ | ✅ | Patch `0064`. |
-| **Power management** | `pmdomain-scmi-perf` (deferred fwnode) | `=y` | ✅ | ✅ | Patch `9009` defers fwnode provider to `late_initcall`. |
-| **Runtime PM gate** | `pm_runtime` global gate | `=y` | ✅ | ✅ | Patch `9011` gates `__pm_runtime_resume` until `late_initcall` to avoid deferred-probe SError. |
+| **Clock** | `clk-sky1-acpi` | `=y` | ✅ | ✅ | ACPI clock infra (patch `0003`); base SoC infra in `0002`. |
+| **Reset** | `reset-sky1` | `=y` | ✅ | ✅ | Reset controllers + ACPI lookup table (patch `0004`). |
+| **Pinctrl** | `pinctrl-sky1` | `=y` | ✅ | ✅ | Patch `0007`. |
+| **Mailbox** | `cix-mbox` | `=y` | ✅ | ✅ | ACPI support + channel lookup (patch `0005`). |
+| **SCMI** | `arm-scmi` (clock + perf + power + sensor domains) | `=y` | ✅ | ✅ | ACPI boot support (patch `0006`); confirmed in `config.sky1-next` (`CONFIG_ARM_SCMI_PERF_DOMAIN=y`, `CONFIG_ARM_SCMI_POWER_DOMAIN=y`). |
+| **Thermal** | `cix-thermal` + IPA + cpufreq | `=y` | ✅ | ✅ | Patch `0017`. |
+| **DSP** | `cix-dsp` + `cix-dsp-rproc` | `=m` | ✅ | ✅ | Remoteproc + rpmsg (patch `0019`); confirmed loaded (`cix_dsp_rproc`) on real Sky1 hardware. |
+| **Audio (HDA)** | `snd-hda-cix-ipbloq` + Realtek ALC codecs | `=m` | ✅ | ✅ | Patches `2015`–`2017`. Verified ALC269VC analog + digital + HDMI/DP on real hardware. |
+| **Audio (SoC)** | `snd-soc-sky1-sound-card` + Cadence I2S + `snd-soc-sof-cix` | `=m` | ✅ | ✅ | Patch `2014`. SOF (`CONFIG_SND_SOC_SOF_CIX_TOPLEVEL=y`, `CONFIG_SND_SOC_SOF_CIX_SKY1=m`) is built but not observed loaded on real hardware — the machine driver (`snd-soc-sky1-sound-card`) handles audio directly; SOF appears to be a dormant/fallback path, not confirmed active. |
+| **GPU (Mali-G720)** | `panthor` + `drm-cix` + `drm-trilin-dp-cix` (DisplayPort) | `=m` | ✅ | ✅ | Patches `0011`/`0012`. `panthor` confirmed loaded + rendering (Mali-G720-Immortalis, CSF FW); `drm-trilin-dp-cix`/`drm-trilin-dpsub` confirmed loaded (`trilin_dpsub`, `linlon_dp`) on real hardware. |
+| **VPU (Linlon MVX)** | `amvx` | `=m` | ✅ | ✅ | Video codec driver (patch `0015`). The in-tree driver has a vb2 `q->lock` bug on this kernel — fixed via a validated overlay (see `post-install/81-vpu.sh`); needs `amvx` neutralized in the vendor blacklist to auto-load (fixed `cd822ed`). |
+| **NPU (Zhouyi V3)** | `armchina-npu` | `=m` | ✅ | ✅ | Patch `0016`. Needs `CONFIG_ARMCHINA_NPU_ARCH_V3=y` — the Sky1 NPU reports ISA version 5 (Zhouyi V3), not 6 (V3_1); both are now enabled (fixed `053b5ce`). ⚠️ The 32-bit SMMU/IOVA DMA constraint (`2009-armchina-npu-msr1-smmu-32bit-dma-constraint.patch`) is titled and written specifically for **MS-R1** — it has not been confirmed necessary or correct for O6/O6N's SMMU topology. Treat NPU on O6/O6N as *should work*, not independently verified. |
+| **Ethernet** | `r8169` (RTL8125/8126/8169) | `=y` | ✅ | ✅ | `rtl_nic` firmware shipped in installer + installed system. Confirmed `CONFIG_R8169=y` (built-in, not a module) in `config.sky1-next`. |
+| **Wi-Fi** | `mt7921e` (MediaTek MT7921/MT7922) | `=m` | ✅ | ✅ | M.2 Key-E slot; confirmed loaded on real hardware. |
+| **Wi-Fi (alt)** | `rtw88`/`rtw89` firmware | `=m` | ✅ | ✅ | If equipped (`rtw8852b`, `rtw8822`, etc. firmware shipped). |
+| **PCIe / USB / PHY** | `pcie-cadence`, `usb-cdnsp`, `phy-cix-usbdp`, `phy-cix-pcie` | `=y` | ✅ | ✅ | Patches `0008`/`0009`/`0010`. |
+| **USB Type-C** | `typec-rts5453` | — | ⚠️ | ⚠️ | Not currently loaded by default — `typec_rts5453`/`rts5453` are in `module_blacklist=` on the boot cmdline (workaround for an unrelated boot issue; see cmdline below). Present in the kernel, not active out of the box. |
+| **IOMMU/SMMU** | `arm-smmu-v3` | `=y` | ✅ | ✅ | Confirmed loaded on real hardware. |
+| **GPIO / I2C / DMA / PWM / Syscon / Regulator / Timer / IRQ** | Sky1 misc peripherals | mixed | ✅ | ✅ | Patch `0018` (misc peripherals) + `0021` (firmware/pinctrl ACPI gaps). |
+| **SoC ACPI resource lookup** | `cix-acpi-resource-lookup` | `=y` | ✅ | ✅ | `CONFIG_CIX_ACPI_RESOURCE_LOOKUP=y` confirmed; folded into patches `0002`/`0008`, not a standalone `9007`-style patch. |
+
+**Known gap — O6-specific deferred-probe ACPI hardening not yet ported.**
+The retired 7.1.2-ncz2 line had four O6-targeted fixes (deferring the SCMI
+perf-domain fwnode provider and the `pm_runtime` resume gate to
+`late_initcall`, plus an ACPI power-management transition for
+`clk-sky1-acpi`) intended to smooth out ACPI probe-ordering issues specific
+to O6's firmware. These do **not** exist in the 7.0.12-next patch series that
+actually ships — checked directly (`0039-pmdomain-scmi_pm_domain-add-fwnode-provider-for-ACPI.patch`
+does not defer to `late_initcall`). If O6/O6N testing turns up deferred-probe
+or SCMI-domain-ordering failures, this is the first place to look; the fix
+needs to be ported forward from the 7.1.x work, not copied verbatim (that
+line doesn't build cleanly as of 2026-06-27).
 
 **What's required for O6 / O6N to boot cleanly:**
 
-1. **Kernel 7.1.2-ncz2** with NCZ patches `9008` + `9009` + `9010` + `9011` (all
-   shipped in `assets/kernel/` from `meta-cix:linux-cix-msr1` /
-   `linux-cix-sky1-ncz`).
-2. **DTB** `sky1-orion-o6.dtb` (single DTB covers both O6 and O6N).
+1. **Kernel 7.0.12-cix-sky1-next** (`assets/kernel/edge/`) — the LTS kernel
+   (`6.18.26-cix-sky1-lts`) is also shipped as a fallback (`assets/kernel/stable/`).
+2. **No separate DTB** — boot is ACPI-based; the same kernel/firmware image
+   is used across MS-R1 and Orion O6/O6N.
 3. **Firmware**: `rtl_nic` (RTL8125/8126), `mali_csffw.bin` (Mali-G720
-   panthor), `armchina-npu` DKMS (NPU).
+   panthor), `armchina-npu` in-tree + validated overlay (NPU), `amvx`
+   validated overlay (VPU).
 4. **ACPI cmdline**: `acpi=force efi=noruntime arm-smmu-v3.disable_bypass=0
    clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453` (the
-   installer adds these to the rEFInd boot entry automatically).
+   installer adds these to the rEFInd boot entry automatically). Confirmed
+   present and unchanged on a real installed system.
 
 **O6N-specific notes:** the O6N is a minor variant of the O6 with the same
-Sky1 SoC, same ACPI DSDT shape, and same peripherals. The kernel + firmware
-set above is expected to work without modification. The only O6N-specific
-risk is firmware/NIC Wi-Fi module differences — if you hit a regression,
-file an issue with `dmesg` and `lspci -nn` output.
+Sky1 SoC and same ACPI DSDT shape. The kernel + firmware set above is
+expected to work without modification, but **has not been tested on O6N
+hardware** — only the MS-R1 (extensively) and the O6 (installer/boot,
+per operator report) have real validation. If you have an O6N: please
+install, test, and file issues — specifically watch for the deferred-probe
+gap noted above and the untested NPU IOVA constraint.
 
 ## Quick start (build the ISO)
 
