@@ -1038,7 +1038,19 @@ fi
 # doesn't. GRAEAE 8-muse consensus 2026-05-04: pre-create empty .orig.
 : > "$TARGET/etc/fstab.orig"
 
-# Same defensive empty-files for any other path d-i might write through:
+# Same defensive empty-files for any other path d-i might write through.
+#
+# r177 NOTE (review): this legacy rootfs.tar.zst extract path is SUPERSEDED and
+# is NOT reached in current builds — the layered-squashfs branch above (taken
+# whenever base.squashfs is on the media, which it always is in full mode)
+# installs the ncz-firstboot hostname-derivation flow + the deterministic
+# ncz-setup placeholder and `exit 0`s before we ever get here. This tarball
+# fallback deliberately does NOT duplicate that flow (it also does not write the
+# BAKED marker, ncz-firstboot, needrestart/ssh/networkd fixups the squashfs path
+# does — it predates all of them). If this path is ever revived as a real
+# install route, port the ncz-firstboot + ncz-setup-placeholder block up from the
+# squashfs branch; a bare empty /etc/hostname here would otherwise leave the box
+# unnamed. Left as a bare touch on purpose since the path is dead.
 [ -e "$TARGET/etc/hostname" ] || touch "$TARGET/etc/hostname"
 [ -e "$TARGET/etc/resolv.conf" ] || touch "$TARGET/etc/resolv.conf"
 
