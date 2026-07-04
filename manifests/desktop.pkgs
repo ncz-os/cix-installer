@@ -153,6 +153,16 @@ rsyslog
 librsvg2-bin
 aardvark-dns
 
+# --- r181: full podman runtime so `ncz agent install` + `ncz install mnemos`
+#     (the MNEMOS desktop icon) work OFFLINE. All present in server/resolute
+#     mirrors (bound at build time), so this is a safe explicit pin — 30-agents.sh
+#     also apt-installs these, this just guarantees they land in the delta. ---
+podman
+crun
+conmon
+netavark
+catatonit
+
 # --- r130.4 bucket: Plymouth boot splash theme + asset tooling ---
 plymouth-theme-spinner
 imagemagick

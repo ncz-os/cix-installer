@@ -929,6 +929,48 @@ Categories=Development;
 CC
 chmod 0755 /etc/skel/Desktop/ClaudeCode.desktop
 
+# r181: Zoder (Rust coding CLI). Install the staged arm64-linux binary to
+# /usr/local/bin/zoder if present (staged at assets/zoder/zoder by the build).
+# The launcher still runs through a guarded wrapper so it degrades gracefully if
+# the binary is ever absent. zoder needs the operator's own config/API keys to
+# run — that's their setup; we only wire the binary + launcher.
+ZODER_SRC=/usr/local/lib/cix-installer/assets/zoder/zoder
+if [ -f "$ZODER_SRC" ]; then
+    install -D -m 0755 "$ZODER_SRC" /usr/local/bin/zoder
+    echo "[30] zoder installed: $(/usr/local/bin/zoder --version 2>/dev/null || echo 'arm64 binary staged')"
+else
+    echo "[30] zoder binary not staged (assets/zoder/zoder absent) — launcher will show a friendly notice"
+fi
+cat > /usr/local/bin/zoder-launch <<'ZL'
+#!/bin/bash
+# zoder-launch — run zoder TUI if installed, else a friendly notice.
+if command -v zoder >/dev/null 2>&1; then
+    exec zoder "$@"
+fi
+echo "Zoder is not installed yet."
+echo
+echo "The arm64-linux 'zoder' binary is pending. Once it is placed at"
+echo "  /usr/local/bin/zoder   (chmod +x)"
+echo "this launcher will start it. Zoder also needs your own config / API keys."
+echo
+read -r -p "Press Enter to close..." _ || true
+ZL
+chmod 0755 /usr/local/bin/zoder-launch
+
+cat > /etc/skel/Desktop/Zoder.desktop <<'ZD'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Zoder
+GenericName=Zoder coding CLI
+Comment=Zoder — Rust coding assistant CLI (terminal)
+Exec=xfce4-terminal --title=Zoder --hold --command="/usr/local/bin/zoder-launch"
+Icon=utilities-terminal
+Terminal=false
+Categories=Development;
+ZD
+chmod 0755 /etc/skel/Desktop/Zoder.desktop
+
 # r74: bake themed PNG icons for the agents at install time so when
 # ncz agent install writes the launchers they have proper icons.
 mkdir -p /tmp/ncz-agent-icons /usr/share/icons/hicolor
@@ -1052,19 +1094,38 @@ fi
 
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>&1 | tail -1
 
-# MNEMOS web launcher (kept — pure-link, no container)
+# r181: the MNEMOS icon INSTALLS MNEMOS (was: opened the github page in a
+# browser). `ncz install mnemos` pulls ghcr.io/ncz-os/mnemos + starts it as a
+# podman quadlet (REST+MCP+OpenAI gateway on :5002). Needs podman (baked via
+# manifests/desktop.pkgs + 30-agents apt-install) + network for the image pull.
 cat > /etc/skel/Desktop/MNEMOS.desktop << 'MN'
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=MNEMOS
-Comment=Hybrid memory stack for AI agents
+Name=Install MNEMOS
+GenericName=MNEMOS memory server installer
+Comment=Pull + start the MNEMOS memory server (REST + MCP + OpenAI gateway on :5002)
+Exec=xfce4-terminal --title="Install MNEMOS" --hold --command="bash -c 'sudo ncz install mnemos'"
+Icon=applications-science
+Terminal=false
+StartupNotify=true
+Categories=System;Development;Network;
+MN
+chmod 0755 /etc/skel/Desktop/MNEMOS.desktop
+
+# Separate docs link (github) — kept as a secondary, clearly-labelled icon.
+cat > /etc/skel/Desktop/MNEMOS-Docs.desktop << 'MND'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=MNEMOS Docs
+Comment=MNEMOS — hybrid memory stack for AI agents (github)
 Exec=/usr/bin/vivaldi-stable https://github.com/mnemos-os/mnemos
 Icon=applications-science
 Terminal=false
 Categories=Development;Network;
-MN
-chmod 0755 /etc/skel/Desktop/MNEMOS.desktop
+MND
+chmod 0755 /etc/skel/Desktop/MNEMOS-Docs.desktop
 
 # Mirror to /usr/share/applications so they show in Whisker / app menu
 cp /etc/skel/Desktop/*.desktop /usr/share/applications/ 2>/dev/null
