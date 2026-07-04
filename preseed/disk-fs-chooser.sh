@@ -87,15 +87,16 @@ MEDIA_PART=$(awk '$2=="/cdrom"||$2=="/hd-media"||$2=="/run/live/medium"||$2=="/m
 MEDIA_DISK=""
 if [ -n "$MEDIA_PART" ]; then
     MEDIA_DISK=$(parent_disk_of_dev "$MEDIA_PART")
-    # FAIL-CLOSED: if we cannot map the install medium to its REAL physical
-    # parent disk, we refuse rather than risk offering the medium's backing disk
-    # as a wipe target. A loop/dm/md result means the physical backing (e.g. a
-    # Ventoy USB) was NOT resolved — never proceed and offer disks in that case.
-    case "$MEDIA_DISK" in
-        "") abort "cannot resolve install-media device $MEDIA_PART to a parent disk (fail-closed: refusing to offer any disk)" ;;
-        /dev/loop*|/dev/dm-*|/dev/md*)
-            abort "install media resolves to $MEDIA_DISK (loop/dm/md) with no physical backing found (fail-closed: the real backing disk must never be offered as a target)" ;;
-    esac
+    # FAIL-CLOSED: the install-media parent MUST resolve to one of the enumerated
+    # whole-disk candidates (DISK_LIST). Anything else — empty, a loop/dm/md node
+    # with no physical backing (Ventoy), /dev/root, or any pseudo/non-sysfs
+    # source — means we cannot prove WHICH physical disk holds the medium, so we
+    # refuse to offer ANY disk rather than risk offering the install/backing disk
+    # as a wipe target. parent_disk_of_dev is best-effort; this DISK_LIST gate is
+    # the authoritative fail-closed check.
+    _mok=0
+    for d in $DISK_LIST; do [ "$d" = "$MEDIA_DISK" ] && _mok=1 && break; done
+    [ "$_mok" = 1 ] || abort "install media ($MEDIA_PART -> '${MEDIA_DISK:-unresolved}') did not resolve to an enumerated whole disk (fail-closed: refusing to offer any disk)"
     log "install media parent disk: $MEDIA_DISK (never a target)"
 fi
 
