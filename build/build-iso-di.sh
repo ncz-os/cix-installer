@@ -875,6 +875,7 @@ dpkg --configure -a 2>/dev/null || true
 # hardware MAC is authoritative HERE (first boot on the actual box), not at bake
 # time. Only rename when the hostname is still a placeholder/default so a
 # user-chosen name on later boots is never clobbered.
+HOSTNAME_SETTLED=1   # set to 0 to keep the service enabled + retry the derive next boot
 _cur=$(cat /etc/hostname 2>/dev/null | tr -d '[:space:]')
 case "$_cur" in
     ""|ncz-setup|mini|cixmini|localhost|localhost.localdomain|debian|ubuntu|nclawzero)
@@ -908,28 +909,53 @@ case "$_cur" in
             _mac=$(_pick_mac) && [ -n "$_mac" ] && break
             _mac=""; _try=$((_try+1)); sleep 1
         done
+        _newname=""
         if [ -n "$_mac" ]; then
             _h6=$(printf '%s' "$_mac" | tr -d ':' | tr 'A-F' 'a-f' | tail -c 6)
-            if [ -n "$_h6" ]; then
-                _newname="ncz-$_h6"
-                if command -v hostnamectl >/dev/null 2>&1 && hostnamectl set-hostname "$_newname" 2>/dev/null; then
-                    :
-                else
-                    printf '%s\n' "$_newname" > /etc/hostname
-                    hostname "$_newname" 2>/dev/null || true
-                fi
-                if grep -q '^127\.0\.1\.1' /etc/hosts 2>/dev/null; then
-                    sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$_newname/" /etc/hosts
-                else
-                    printf '127.0.1.1\t%s\n' "$_newname" >> /etc/hosts
-                fi
+            [ -n "$_h6" ] && _newname="ncz-$_h6"
+        fi
+        if [ -z "$_newname" ]; then
+            # No eligible ethernet MAC this boot. RETRY on the next few boots so a
+            # slow-to-enumerate NIC eventually names the box; after MAXTRIES fall
+            # back to a machine-id-derived name so it is NEVER stuck as ncz-setup.
+            _bt=$(cat /var/lib/ncz-firstboot-tries 2>/dev/null)
+            case "$_bt" in ''|*[!0-9]*) _bt=0 ;; esac
+            _bt=$((_bt + 1))
+            printf '%s\n' "$_bt" > /var/lib/ncz-firstboot-tries 2>/dev/null || true
+            if [ "$_bt" -lt 3 ]; then
+                HOSTNAME_SETTLED=0
+                echo "ncz-firstboot: no eligible ethernet MAC yet (attempt $_bt) — will retry next boot" >&2
+            else
+                _mid=$(tr -cd '0-9a-f' < /etc/machine-id 2>/dev/null | tail -c 6)
+                [ -n "$_mid" ] && _newname="ncz-$_mid"
+                echo "ncz-firstboot: no ethernet MAC after $_bt boots — machine-id fallback ${_newname:-<none>}" >&2
+            fi
+        fi
+        if [ -n "$_newname" ]; then
+            if command -v hostnamectl >/dev/null 2>&1 && hostnamectl set-hostname "$_newname" 2>/dev/null; then
+                :
+            else
+                printf '%s\n' "$_newname" > /etc/hostname
+                hostname "$_newname" 2>/dev/null || true
+            fi
+            if grep -q '^127\.0\.1\.1' /etc/hosts 2>/dev/null; then
+                sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$_newname/" /etc/hosts
+            else
+                printf '127.0.1.1\t%s\n' "$_newname" >> /etc/hosts
             fi
         fi
         ;;
 esac
 
-systemctl disable ncz-firstboot.service 2>/dev/null || true
-touch /var/lib/ncz-firstboot-done
+# Only finalize (disable + mark done) when the hostname is SETTLED. When we are
+# deliberately retrying the MAC-derive on a later boot (HOSTNAME_SETTLED=0), we
+# leave the service enabled and NOT-done so it runs again — dpkg-configure and
+# machine-id above already ran this boot, and the host will never be permanently
+# stuck as ncz-setup (machine-id fallback after MAXTRIES guarantees a name).
+if [ "${HOSTNAME_SETTLED:-1}" = 1 ]; then
+    systemctl disable ncz-firstboot.service 2>/dev/null || true
+    touch /var/lib/ncz-firstboot-done
+fi
 FBS
     chmod +x "$TARGET/usr/local/sbin/ncz-firstboot"
     cat > "$TARGET/etc/systemd/system/ncz-firstboot.service" <<'FBU'
