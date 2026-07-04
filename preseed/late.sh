@@ -581,34 +581,34 @@ if [ "$FINALIZE_OK" = "1" ]; then
         sleep 5
     fi
 fi
-# r173 (#1 finish): reassert the reboot intent on the bootable path so the clean
-# finish does NOT hinge on the priority=critical boot arg. rEFInd is installed
-# DURING finish-install (this late_command runs as finish-install.d/07preseed),
-# so by here d-i's bootloader phase is genuinely complete. The ONLY thing that
-# turns a completed finish-install into a MAIN-MENU return is a finish-install.d
-# script exiting non-zero — which the ESP-guarded `exit 0` below prevents. We
-# additionally (re)assert exit/reboot=true + suppress the reboot_in_progress note
-# so finish-install proceeds straight to reboot at ANY debconf priority, not just
-# critical. Best-effort; guarded so it can never fail the finish.
-if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -f /usr/share/debconf/confmodule ]; then
-    ( . /usr/share/debconf/confmodule 2>/dev/null || exit 0
-      db_set debian-installer/exit/reboot true 2>/dev/null || true
-      db_fset debian-installer/exit/reboot seen true 2>/dev/null || true
-      db_set debian-installer/exit/poweroff false 2>/dev/null || true
-      db_fset finish-install/reboot_in_progress seen true 2>/dev/null || true
-    ) 2>/dev/null || true
-fi
-
-# r155: a bootable install (rEFInd on the ESP) must NEVER throw d-i's critical
-# preseed/command_failed red error. Optional apt/network hook failures and the
-# Sky1 efivars-unavailable bootloader path leave RET!=0 but the system still
-# boots via /EFI/BOOT/BOOTAA64.EFI. Only red-error when truly unbootable.
+# r155/r174: a bootable install (rEFInd on the ESP) must NEVER throw d-i's
+# critical preseed/command_failed red error. Optional apt/network hook failures
+# and the Sky1 efivars-unavailable bootloader path leave RET!=0 but the system
+# still boots via /EFI/BOOT/BOOTAA64.EFI. Only red-error when truly unbootable.
 if [ -f /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ]; then
+    # r174 (#1 finish): reassert the reboot intent ONLY on the bootable path, so
+    # the clean finish does not hinge on the priority=critical boot arg AND we
+    # never tell finish-install to reboot a NON-bootable install. rEFInd is
+    # installed DURING finish-install (this late_command runs as
+    # finish-install.d/07preseed), so by here the bootloader phase is complete.
+    # Best-effort; guarded so it can never fail the finish.
+    if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -f /usr/share/debconf/confmodule ]; then
+        ( . /usr/share/debconf/confmodule 2>/dev/null || exit 0
+          db_set debian-installer/exit/reboot true 2>/dev/null || true
+          db_fset debian-installer/exit/reboot seen true 2>/dev/null || true
+          db_set debian-installer/exit/poweroff false 2>/dev/null || true
+          db_fset finish-install/reboot_in_progress seen true 2>/dev/null || true
+        ) 2>/dev/null || true
+    fi
     if [ "$RET" != "0" ]; then
         echo "[late r155] post-install rc=$RET but rEFInd present at /EFI/BOOT/BOOTAA64.EFI -> system is bootable; exiting 0 (no red error)"
         ttymsg "install complete (some optional hooks failed, system is bootable)" 2>/dev/null || true
     fi
     exit 0
 fi
-echo "[late r155] no rEFInd at /target/boot/efi/EFI/BOOT/BOOTAA64.EFI -> install is NOT bootable; propagating rc=$RET"
+# r174 (#6 review): NOT bootable — do NOT reassert reboot; force a NONZERO exit
+# even when run-all.sh returned 0, so finish-install surfaces the failure and
+# does NOT reboot into an unbootable install.
+echo "[late r174] no rEFInd at /target/boot/efi/EFI/BOOT/BOOTAA64.EFI -> install is NOT bootable; refusing clean reboot"
+if [ "$RET" = "0" ]; then exit 1; fi
 exit $RET
