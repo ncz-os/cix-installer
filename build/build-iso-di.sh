@@ -1949,22 +1949,6 @@ if [ -d "$ROOT/assets" ]; then
                 esac
             done
             ;;
-            squashfs)
-            # Ship ONLY the active layers (base + role deltas) + sqtools loader.
-            # NEVER the *.bak / *-bak intermediate backups agents leave here:
-            # r182 staged 3 desktop.squashfs.*-bak = ~2.17G of dead weight that
-            # the install STUB never reads (it opens base.squashfs + <role>.squashfs
-            # by exact name). (2026-07-04)
-            mkdir -p "$EXTRA/assets/squashfs"
-            for f in "$d"/*; do
-                [ -e "$f" ] || continue
-                case "$(basename "$f")" in
-                    *-bak|*.bak|*.old|*.orig)
-                        echo "    squashfs: excluding backup $(basename "$f") ($(du -h "$f" 2>/dev/null | cut -f1))" ;;
-                    *) cp -aL "$f" "$EXTRA/assets/squashfs/" 2>/dev/null || true ;;
-                esac
-            done
-            ;;
         *) cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true ;;
         esac
     done
