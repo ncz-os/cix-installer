@@ -870,6 +870,64 @@ $f"
 export DEBIAN_FRONTEND=noninteractive
 dpkg --configure -a 2>/dev/null || true
 [ -s /etc/machine-id ] || systemd-machine-id-setup 2>/dev/null || true
+
+# r177: per-machine hostname ncz-<last-6-hex-of-primary-ethernet-MAC>. The real
+# hardware MAC is authoritative HERE (first boot on the actual box), not at bake
+# time. Only rename when the hostname is still a placeholder/default so a
+# user-chosen name on later boots is never clobbered.
+_cur=$(cat /etc/hostname 2>/dev/null | tr -d '[:space:]')
+case "$_cur" in
+    ""|ncz-setup|mini|cixmini|localhost|localhost.localdomain|debian|ubuntu|nclawzero)
+        # Find the primary ethernet MAC. Two passes per attempt: first prefer an
+        # iface with link (carrier=1), else the first eligible ethernet. Retry a
+        # few seconds in case NIC enumeration lags this early oneshot.
+        _pick_mac() {
+            for _pref in 1 0; do
+                for _if in /sys/class/net/*; do
+                    _n=${_if##*/}
+                    case "$_n" in
+                        lo|wl*|ww*|wlan*|docker*|veth*|virbr*|br-*|vmnet*|tap*|tun*|bond*|dummy*|sit*|ip6*) continue ;;
+                    esac
+                    # physical only: must have a backing device, must not be wireless
+                    [ -e "$_if/device" ] || continue
+                    [ -d "$_if/wireless" ] && continue
+                    _m=$(cat "$_if/address" 2>/dev/null)
+                    [ -n "$_m" ] || continue
+                    case "$_m" in 00:00:00:00:00:00) continue ;; esac
+                    if [ "$_pref" = 1 ] && [ "$(cat "$_if/carrier" 2>/dev/null)" != 1 ]; then
+                        continue
+                    fi
+                    printf '%s' "$_m"; return 0
+                done
+            done
+            return 1
+        }
+        _mac=""
+        _try=0
+        while [ "$_try" -lt 15 ]; do
+            _mac=$(_pick_mac) && [ -n "$_mac" ] && break
+            _mac=""; _try=$((_try+1)); sleep 1
+        done
+        if [ -n "$_mac" ]; then
+            _h6=$(printf '%s' "$_mac" | tr -d ':' | tr 'A-F' 'a-f' | tail -c 6)
+            if [ -n "$_h6" ]; then
+                _newname="ncz-$_h6"
+                if command -v hostnamectl >/dev/null 2>&1 && hostnamectl set-hostname "$_newname" 2>/dev/null; then
+                    :
+                else
+                    printf '%s\n' "$_newname" > /etc/hostname
+                    hostname "$_newname" 2>/dev/null || true
+                fi
+                if grep -q '^127\.0\.1\.1' /etc/hosts 2>/dev/null; then
+                    sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$_newname/" /etc/hosts
+                else
+                    printf '127.0.1.1\t%s\n' "$_newname" >> /etc/hosts
+                fi
+            fi
+        fi
+        ;;
+esac
+
 systemctl disable ncz-firstboot.service 2>/dev/null || true
 touch /var/lib/ncz-firstboot-done
 FBS
@@ -891,7 +949,10 @@ FBU
     ln -sf ../ncz-firstboot.service "$TARGET/etc/systemd/system/multi-user.target.wants/ncz-firstboot.service"
     [ -e "$TARGET/etc/fstab" ] || touch "$TARGET/etc/fstab"
     : > "$TARGET/etc/fstab.orig"
-    [ -e "$TARGET/etc/hostname" ] || touch "$TARGET/etc/hostname"
+    # r177: deterministic hostname PLACEHOLDER. ncz-firstboot rewrites this to
+    # ncz-<mac6> on first boot (guarded on the placeholder). Baked squashfs may
+    # ship its own /etc/hostname; force the placeholder so the derive always fires.
+    printf 'ncz-setup\n' > "$TARGET/etc/hostname"
     [ -e "$TARGET/etc/resolv.conf" ] || touch "$TARGET/etc/resolv.conf"
     echo "I: r159 stub: squashfs rootfs ready ($(du -sh "$TARGET" 2>/dev/null | cut -f1))" >&2
     exit 0
