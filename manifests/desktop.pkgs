@@ -127,7 +127,10 @@ flatpak
 gnome-session-canberra
 xdg-desktop-portal-gtk
 epiphany-browser
-falkon
+# r181: falkon dropped — it half-configures (iF) on Sky1/qemu (its postinst was
+# the desktop apt rc=100), and its stale .desktop launcher errored like the
+# mnemos one. Vivaldi (staged .deb, 52-vivaldi.sh) is the default browser now;
+# epiphany stays as a lightweight secondary.
 feh
 
 # --- r130.4 bucket: GPU/Vulkan validation + benchmark tools 47-llm-stack +

@@ -94,3 +94,7 @@ post-install/buildkite-read-token
 
 # squashfs layer artifacts are BUILD OUTPUTS (1-2GB) — NFS/releases only, never git
 assets/squashfs/
+
+# r181: Vivaldi browser .deb — build-time blob (staged via NFS, like base.squashfs)
+assets/vivaldi/*.deb
+assets/vivaldi/*.gpg

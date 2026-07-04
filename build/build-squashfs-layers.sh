@@ -125,6 +125,14 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/branding/." "$MG/usr/local/lib/cix-installer/assets/branding/" 2>/dev/null || true
       log "  staged branding assets ($(find "$ROOT/assets/branding" -type f | wc -l | tr -d ' ') files)"
     fi
+    # r181: stage the Vivaldi .deb so 52-vivaldi.sh installs the browser OFFLINE
+    # (the MNEMOS + agent launchers Exec vivaldi-stable; epiphany can't play
+    # YouTube on arm64). Self-contained .deb, no mirror/closure changes needed.
+    if [ -d "$ROOT/assets/vivaldi" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/vivaldi"
+      sudo cp -a "$ROOT/assets/vivaldi/." "$MG/usr/local/lib/cix-installer/assets/vivaldi/" 2>/dev/null || true
+      log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
+    fi
     # r172: apply the desktop-config + branding hooks now that the desktop is
     # XFCE. 22-display-fix is CRITICAL on Sky1 metal: the SoC exposes ~6 DRM
     # cards (card0=panthor render + card1-5=linlondp display pipes), and Xorg
@@ -145,7 +153,7 @@ build_layer(){ local role="$1" manifest="$2"
     # 20-desktop.sh's greeter config; 20-desktop is deliberately NOT baked here —
     # its `apt purge --auto-remove` corrupted the user DB in the overlay, the
     # r166-r170 saga). 60-plymouth LAST (rebuilds the initramfs, heaviest step).
-    for bh in 22-display-fix 50-brand 56-icon-theme 45-wallpaper-rotator 55-greeter 30-agents 46-ncz-cli 60-plymouth; do
+    for bh in 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 30-agents 46-ncz-cli 60-plymouth; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3 || log "  WARN $bh rc=$?"
