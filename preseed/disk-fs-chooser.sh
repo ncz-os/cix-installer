@@ -154,14 +154,15 @@ Description: NCZ-OS install — select the TARGET DISK (it will be ERASED)
 TPL
     debconf-loadtemplate ncz /tmp/ncz-disk.templates 2>/dev/null \
         || abort "could not load disk-selection template (no auto-pick on a destructive choice)"
-    db_subst ncz/target-disk CHOICES "$CHOICES" 2>/dev/null
-    db_fset  ncz/target-disk seen false 2>/dev/null
+    # Every db_* on the pre-wipe path is checked; any failure ABORTS. In
+    # particular db_input!=0 means the prompt would NOT be displayed (skipped) —
+    # a destructive choice must never proceed on a prompt the operator never saw.
+    db_subst ncz/target-disk CHOICES "$CHOICES" || abort "db_subst target-disk failed"
+    db_fset  ncz/target-disk seen false        || abort "db_fset target-disk seen failed"
     db_settitle ncz/target-disk 2>/dev/null
-    db_input critical ncz/target-disk 2>/dev/null
-    if ! db_go; then
-        abort "disk selection cancelled / backed out"
-    fi
-    db_get ncz/target-disk 2>/dev/null
+    db_input critical ncz/target-disk          || abort "disk-selection prompt could not be displayed (db_input rc=$?)"
+    db_go || abort "disk selection cancelled / backed out"
+    db_get ncz/target-disk || abort "db_get target-disk failed"
     CHOSEN_DISK="$RET"
     [ -n "$CHOSEN_DISK" ] || abort "empty disk selection"
     # Defence in depth: the answer must still be one of the offered candidates.
@@ -197,11 +198,11 @@ Description: NCZ-OS install — root (/) filesystem
 TPL
     debconf-loadtemplate ncz /tmp/ncz-fs.templates 2>/dev/null \
         || abort "could not load root-fs template"
-    db_fset  ncz/root-fs seen false 2>/dev/null
+    db_fset  ncz/root-fs seen false || abort "db_fset root-fs seen failed"
     db_settitle ncz/root-fs 2>/dev/null
-    db_input critical ncz/root-fs 2>/dev/null
+    db_input critical ncz/root-fs   || abort "root-fs prompt could not be displayed (db_input rc=$?)"
     db_go || abort "root-fs selection cancelled / backed out"
-    db_get ncz/root-fs 2>/dev/null
+    db_get ncz/root-fs || abort "db_get root-fs failed"
     CHOSEN_FS="$RET"
 fi
 case "$CHOSEN_FS" in ext4|btrfs) : ;; *) abort "invalid root fs '$CHOSEN_FS'" ;; esac
@@ -215,21 +216,39 @@ RECIPE="cixmini :: \
   4096 4096 4096 ext4 \$primary{ } method{ format } format{ } use_filesystem{ } filesystem{ ext4 } label{ NCZRESCUE } . \
   4096 8192 -1 $CHOSEN_FS \$primary{ } method{ format } format{ } use_filesystem{ } filesystem{ $CHOSEN_FS } mountpoint{ / } ."
 
-db_set partman-auto/disk "$CHOSEN_DISK"      2>/dev/null || abort "db_set partman-auto/disk failed"
-db_set partman-auto/expert_recipe "$RECIPE"  2>/dev/null || abort "db_set partman-auto/expert_recipe failed"
-db_set partman-auto/choose_recipe cixmini    2>/dev/null || abort "db_set partman-auto/choose_recipe failed"
-db_fset partman-auto/disk seen true          2>/dev/null || true
-db_fset partman-auto/expert_recipe seen true 2>/dev/null || true
-db_fset partman-auto/choose_recipe seen true 2>/dev/null || true
+# Every db_* here is checked; any failure ABORTS before the dd.
+db_set  partman-auto/disk "$CHOSEN_DISK"      || abort "db_set partman-auto/disk failed"
+db_set  partman-auto/expert_recipe "$RECIPE"  || abort "db_set partman-auto/expert_recipe failed"
+db_set  partman-auto/choose_recipe cixmini    || abort "db_set partman-auto/choose_recipe failed"
+db_fset partman-auto/disk seen true           || abort "db_fset partman-auto/disk seen failed"
+db_fset partman-auto/expert_recipe seen true  || abort "db_fset partman-auto/expert_recipe seen failed"
+db_fset partman-auto/choose_recipe seen true  || abort "db_fset partman-auto/choose_recipe seen failed"
 
 # VERIFY the pins actually stuck before we zero anything. A debconf hiccup must
 # not leave a stale fallback recipe/disk in place while we erase the chosen disk.
-db_get partman-auto/disk 2>/dev/null;          [ "$RET" = "$CHOSEN_DISK" ] || abort "partman-auto/disk did not pin to $CHOSEN_DISK (got '$RET')"
-db_get partman-auto/choose_recipe 2>/dev/null; [ "$RET" = "cixmini" ]      || abort "partman-auto/choose_recipe did not pin to cixmini (got '$RET')"
-db_get partman-auto/expert_recipe 2>/dev/null
-case "$RET" in
-    *"filesystem{ $CHOSEN_FS }"*"mountpoint{ / }"*) : ;;
-    *) abort "partman-auto/expert_recipe did not pin the chosen root fs ($CHOSEN_FS)" ;;
+db_get partman-auto/disk || abort "db_get partman-auto/disk failed"
+[ "$RET" = "$CHOSEN_DISK" ] || abort "partman-auto/disk did not pin to $CHOSEN_DISK (got '$RET')"
+db_get partman-auto/choose_recipe || abort "db_get partman-auto/choose_recipe failed"
+[ "$RET" = "cixmini" ] || abort "partman-auto/choose_recipe did not pin to cixmini (got '$RET')"
+db_get partman-auto/expert_recipe || abort "db_get partman-auto/expert_recipe failed"
+_pinned_recipe="$RET"
+[ -n "$_pinned_recipe" ] || abort "partman-auto/expert_recipe read back EMPTY"
+# ROOT-STANZA-SPECIFIC verification (review #5): a plain substring test for
+# `filesystem{ $CHOSEN_FS }` is UNSAFE — the RESCUE partition stanza always
+# carries `filesystem{ ext4 }`, so with CHOSEN_FS=ext4 a stale/failed pin (e.g.
+# the static btrfs-root fallback recipe) would falsely pass. Isolate the
+# ` . `-delimited stanza that mounts / (the ONLY partition dots in the recipe
+# are the ` . ` separators) and require ITS filesystem to be exactly CHOSEN_FS.
+_root_stanza=""
+_oldifs=$IFS; IFS='.'
+for _st in $_pinned_recipe; do
+    case "$_st" in *"mountpoint{ / }"*) _root_stanza="$_st" ;; esac
+done
+IFS=$_oldifs
+[ -n "$_root_stanza" ] || abort "pinned expert_recipe has no root (mountpoint / ) stanza"
+case "$_root_stanza" in
+    *"filesystem{ $CHOSEN_FS }"*) : ;;
+    *) abort "pinned ROOT stanza filesystem is not $CHOSEN_FS — refusing to wipe (root stanza: [$_root_stanza])" ;;
 esac
 log "partman pins VERIFIED: disk=$CHOSEN_DISK recipe=cixmini root-fs=$CHOSEN_FS"
 
