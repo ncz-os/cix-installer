@@ -60,7 +60,7 @@ NCZ_BAKED=0
 # ACPI SSDT (which needs the real MS-R1 hardware) are installed directly by
 # preseed/late.sh's ncz_npu_install_time (mem_1783181978470) — adding 80-npu
 # would double-run the SSDT/KMD install.
-MACHINE_HOOKS_RE="^(25-cix-proprietary|34-fstab|46-python311|47-embedkit|72-rescue-partition|81-vpu)\.sh$"
+MACHINE_HOOKS_RE="^(25-cix-proprietary|34-fstab|46-python311|47-embedkit|72-rescue-partition|81-vpu|92-buildkite-apt)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
