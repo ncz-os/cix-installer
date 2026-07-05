@@ -15,10 +15,13 @@
 ## 0. TL;DR of the effort
 
 - **2 kernels maintained side‑by‑side**: `6.18.26-cix-sky1-lts` (production
-  default) and `7.0.12-cix-sky1-next` (beta/edge), plus a stripped
-  `…-lts-rescue` target — all selectable from a single systemd‑boot menu with
-  **3‑try automatic rollback**.
-- **~40+ kernel patches** curated/hand‑merged across the two trees (Sky1‑Linux
+  default) and `7.0.12-cix-sky1-next` (beta/edge), plus a rescue target —
+  all selectable from the rEFInd menu. *(Written when the bootloader was
+  still systemd-boot with 3-try automatic rollback; switched to rEFInd at
+  r118, which has no boot-counting -- rollback is manual now, via the
+  rescue partition.)*
+- **~195 kernel patches** curated/hand‑merged across the two trees (140 for
+  LTS, 55 for NEXT, as of the 2026-07-05 meta-cix consolidation — Sky1‑Linux
   community track + our own validated fixes) before CIX published an official
   patch set.
 - **A complete NPU AI runtime brought up from nothing**: kernel driver →
@@ -230,10 +233,17 @@ serial.
   carries straight over. CIX shipped kernel patches; they did **not** ship a
   distro, an installer, an AI runtime, or a validation harness.
 
-The official kernel is built as a **new sibling** (`7.0.12-cix-sky1-main`) so
-the proven edge stays bootable as fallback while we validate. A forward **7.1
-track** is scaffolded (patches need porting from v7.0 → v7.1; first conflict at
+The official kernel is built as a **new sibling** so the proven edge stays
+bootable as fallback while we validate. A forward **7.1 track** is scaffolded
+(patches need porting from v7.0 → v7.1; first conflict at
 `drivers/clk/Kconfig`).
+
+*(Update: the recipe this became is `linux-cix-sky1-official_7.1.1.bb` --
+based on v7.1.1, not 7.0.12, carrying 74 of CIX's 76 patches (2 dropped:
+mailbox IRQF_NO_SUSPEND, mainlined in 7.1; the pl011 BSP fork, superseded by
+mainline 7.1 pl011) plus 6 NCZ forward-port patches, 80 total. The 7.1 track
+itself did not pan out as a shipping kernel -- see README.md → *Current ISO*
+for why; a 7.2 migration is now the active target.)*
 
 ---
 

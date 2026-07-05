@@ -1,12 +1,13 @@
 # CIX 7.0.12 Driver Fidelity — Validated Fixes (cixmini)
 
 Live-validated on the `.66` reference board. The fixes below were first proven
-on our `7.0.12-cix-sky1-next` build and are re-verified on the official
-`7.0.12-cix-sky1-main` kernel (the A/B **edge** build); the **6.18 LTS** kernel
-is the shipped default. These are the changes required for full driver bring-up.
+on our `7.0.12-cix-sky1-next` build (the A/B **edge** build); the **6.18 LTS**
+kernel is the shipped default. There is no `7.0.12-cix-sky1-main` recipe --
+that name doesn't exist in meta-cix; don't look for it. These are the changes
+required for full driver bring-up.
 
 ## NPU (ArmChina Zhouyi V3)
-- **Kernel config**: `CONFIG_ARMCHINA_NPU_ARCH_V3=y` REQUIRED. Shipped config had only `ARCH_V3_1=y` -> `unidentified hardware version number: 5`, probe fail. With V3=y -> `AIPU detected: zhouyi-v3`, `/dev/aipu` live.
+- **Kernel config**: `CONFIG_ARMCHINA_NPU_ARCH_V3=y` REQUIRED. Shipped config had only `ARCH_V3_1=y` -> `unidentified hardware version number: 5`, probe fail. With V3=y -> `AIPU detected: zhouyi-v3`, `/dev/aipu` live. Fixed in meta-cix (`config.sky1-next`, commit `053b5ce`) as of 2026-07-04, but the kernel binary/config staged in cix-installer (`assets/kernel/edge/config-7.0.12-cix-sky1-next`, dated 2026-06-17) predates that fix -- the edge kernel needs a rebuild from current meta-cix HEAD before this fix is actually reflected in a shipped ISO. NPU has tested working regardless in the interim (V3_1 alone appears sufficient in practice on the hardware tested so far), but don't assume the staged config matches meta-cix until that rebuild happens.
 - **Patch**: `assets/kernel/patches/2014-armchina-npu-cap-iova-region-32bit-bus.patch` caps `iova_region` 6->2. NPU bus is 32-bit (bus_dma_limit=0xc0000000, patch 2009); only ~2GB IOVA fits, so region idx2 failed. Cap removes the failure.
 - **Overlay (no-rebuild stopgap)**: `assets/kernel/modules-overlay/7.0.12-cix-sky1-next/armchina_npu.ko` (vermagic 7.0.12-cix-sky1-next, ARCH_V3 + iova=2). post-install drops to `/lib/modules/$KVER/updates/` + depmod.
 - **Memory**: NPU uses the IOMMU scatter path, NOT CMA. ~2GB IOVA is a HARD ceiling (32-bit address bus) regardless of RAM/CMA.
@@ -26,7 +27,7 @@ is the shipped default. These are the changes required for full driver bring-up.
 ## Audio — WORKING
 - A sound card **is** registered on the current kernel: `card 0: cix-ipbloq-hda`
   (Realtek **ALC269VC** codec) exposes Analog + Digital **playback and capture**
-  devices (`aplay -l` / `arecord -l`). Verified on `.66` (`7.0.12-cix-sky1-main`).
+  devices (`aplay -l` / `arecord -l`). Verified on `.66` (`7.0.12-cix-sky1-next`).
 - The earlier "no sound card registered" state was the `-next` bring-up before the
   HDA fix landed. The enabling change is the analog-HDA path plus
   `2017-ALSA-hda-cix-ipbloq-Fix-ACPI-reset-clock-resource-name` (see
