@@ -2169,12 +2169,18 @@ fi
 # (preseed/extract-rootfs.sh's "no $ROLE.squashfs on media" fallback).
 SERVER_MENUENTRY=""
 if [ -f "$ROOT/assets/squashfs/server.squashfs" ]; then
+  # r189.7 fix (zoder review caught this): the $ vars below must expand
+  # HERE (this is a plain double-quoted assignment, not a heredoc), same as
+  # they did in the original inline menuentry -- escaping them with \$
+  # would store a LITERAL "$DI_OPTS" etc. in the variable, which the outer
+  # heredoc below does NOT re-expand (bash does not double-expand variable
+  # contents), silently dropping the real boot cmdline args from grub.cfg.
   SERVER_MENUENTRY="
-menuentry \"\$GRUB_SERVER_TITLE\" {
+menuentry \"$GRUB_SERVER_TITLE\" {
     set background_color=black
     set color_normal=light-green/black
-    echo \">> ncz-installer loading Sky1 \$INSTALLER_KERNEL_LABEL kernel + d-i (Magnetar / server)...\"
-    linux  /install.a64/vmlinuz \$DI_OPTS ncz_variant=server ncz_rev=\$VERSION \$MARTJOHNSON_R6
+    echo \">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Magnetar / server)...\"
+    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=server ncz_rev=$VERSION $MARTJOHNSON_R6
     echo \">> Loading initrd (modules + preseed + zstd)...\"
     initrd /install.a64/initrd.gz
 }
