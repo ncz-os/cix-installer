@@ -11,6 +11,15 @@ debootstrap 安装 Debian 12 基础系统并在磁盘上全量升级到 Ubuntu�
 然后叠加适配硬件的内核 + 厂商用户态运行时 + 桌面环境 + Claude Code + （可选启用的）
 NCZ 智能体栈，并将系统品牌化为 NCZ（桌面版为 Reinhardt，服务器/常驻智能体设备为 Magnetar）。
 
+> **r192 新增：** 内核和 CIX 用户态升级现已可通过**纯 `apt`** 完成 —— 无需重装。
+> 每次安装都会由 `post-install/24-apt-sources.sh` 接入一个经签名的 Buildkite
+> Packages 仓库（`ncz-os/ncz`）；`apt upgrade`（或 `ncz-update`）会直接从中拉取
+> 新内核和 31 个已镜像的 CIX 专有软件包。详见下文
+> [OTA 更新通道](#通过-apt-升级内核与驱动--无需重装)。r192 还修复了一个约
+> 3GB 的 ISO 体积回归问题（squashfs 层被重复打包），并且是首个 **Reinhardt**
+> （桌面版）与 **Magnetar**（服务器版）真正能从*同一张*光盘安装的 ISO ——
+> 详见 [当前 ISO](#当前-iso--r192ncz-os-266-正式发布)。
+
 ### 两个相互独立的层：可用的操作系统，以及*可选的* AI 层
 
 NCZ 有意将操作系统与 AI 分离。安装 ISO 即可获得第一层；第二层在你主动请求之前，
@@ -94,39 +103,61 @@ make
 > 无限循环。Realtek 网卡 —— 包括 Orion O6 的 RTL8125/8126 —— 开箱即用：
 > `rtl_nic` 固件已在安装器和已安装系统中同时附带。
 
-1. 把 ISO 刷到 U 盘（≥4 GB）：
+1. 把 ISO 刷到 U 盘（≥8 GB）：
    ```bash
    sudo bmaptool copy --bmap nclawzero-installer-cixmini.iso.bmap \
        nclawzero-installer-cixmini.iso /dev/sdX
    ```
 2. 先插好**有线以太网线**，再把 U 盘插入目标机（cixmini / Orion O6），上电，
    按 F 键进入 UEFI 启动菜单，选择 U 盘
-3. d-i 自动运行 preseed；约 20–30 分钟无人值守安装
-4. 重启，拔掉 U 盘，目标机从内部存储启动 nclawzero
+3. **选择磁盘与根文件系统。** 安装器会先显示一个真正的磁盘选择界面（适用于多盘
+   系统），随后是文件系统选择 —— **btrfs**（默认：支持快照与透明压缩）或
+   **ext4**（简单、最稳健）。**暂不支持** ZFS 根文件系统。两项均可通过内核
+   命令行预设，用于无人值守批量部署（`ncz_disk=<设备>`、`ncz_fs=<ext4|btrfs>`）。
+4. d-i 自动运行 preseed；约 20–30 分钟无人值守安装
+5. 重启，拔掉 U 盘，目标机从内部存储启动 nclawzero
 
 ## 架构
 
+安装器围绕**分层 squashfs 镜像**重新设计，取代了安装时实时 debootstrap +
+apt 安装的旧模式。动机是具体的工程考量，不是架构上的偏好：安装**速度**
+（解包预构建、预配置好的 squashfs 远快于 debootstrap 加上数百个软件包的
+postinst 脚本在设备端逐一运行）以及**离线可靠性**（squashfs 增量包要么解压
+成功要么失败，安装过程中不再有依赖网络的包解析步骤——这在旧的"安装时 apt"
+模式下曾是安装失败的常见根源）。
+
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                  nclawzero-installer-cixmini.iso               │
-│                                                                │
-│  ┌─────────────────────────┐    ┌───────────────────────────┐  │
-│  │  Debian d-i 基础 ISO    │    │  定制资产层               │  │
-│  │  (debian-12-netinst-    │    │  - preseed.cfg            │  │
-│  │   arm64.iso)            │    │  - post-install/*.sh      │  │
-│  │  - UEFI 引导器          │    │  - assets/cix-debs/*.deb  │  │
-│  │  - kernel + initrd      │    │  - assets/kernel/*        │  │
-│  │  - debootstrap          │    │  - assets/agent-stack/*   │  │
-│  │  - partman              │    │  - assets/branding/*      │  │
-│  │  - tasksel              │    │  (在 late_command         │  │
-│  │  - apt                  │    │   期间解压到 /target)     │  │
-│  └─────────────────────────┘    └───────────────────────────┘  │
-└────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                   nclawzero-installer-cixmini.iso                 │
+│                                                                     │
+│  ┌─────────────────┐   ┌──────────────────┐   ┌──────────────────┐│
+│  │  base.squashfs   │   │ desktop.squashfs │   │ server.squashfs  ││
+│  │  (1.7 GB)        │   │    (~852 MB)     │   │     (~40 MB)     ││
+│  │  debootstrap 后  │   │  XFCE + 浏览器   │   │  无头版智能体设备 ││
+│  │  的 resolute +   │   │  + 完整桌面包集  │   │  软件包集         ││
+│  │  Sky1 内核/固件  │   │                  │   │                  ││
+│  └────────┬─────────┘   └────────┬─────────┘   └────────┬─────────┘│
+│           │      根据 GRUB 选择在启动时叠加             │         │
+│           └───────────────────────┬────────────────────────┘       │
+│                                    ▼                                │
+│      Debian d-i 基础（UEFI 启动、kernel + initrd、preseed、         │
+│      partman）解压并叠加 base + 所选变体（extract-rootfs.sh），      │
+│      然后运行 post-install/*.sh 钩子                                │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
-ISO 自带以下内容的副本：
-- 37 个 Cix 专有 `.deb`（约 1.9 GB）—— 闭源用户态
-- `linux-cix-msr1` 内核二进制 + 模块 tarball（约 640 MB）
+**两个变体增量包都随每张 ISO 一同发布。** GRUB 菜单在启动时选择 Reinhardt
+（桌面版）或 Magnetar（服务器版），`preseed/extract-rootfs.sh` 将匹配的增量包
+叠加到 base 之上。一张光盘，两种变体。
+
+ISO 还自带：
+- CIX 专有用户态 `.deb`，离线预置在 `assets/cix-debs/`（排除内部测试/验证用
+  构建后约 30 个包，这些从未实际被安装）—— 由
+  `post-install/25-cix-proprietary.sh` 用 dpkg 安装。同一批软件包**也**被
+  镜像进 Buildkite `ncz-os/ncz` apt 仓库（31 个包，约 81MB），以便安装后无需
+  重装即可重新拉取 —— 见 [OTA 更新通道](#通过-apt-升级内核与驱动--无需重装)。
+- 两个内核（默认 `6.18.26-cix-sky1-lts` + edge 版 `7.0.12-cix-sky1-next`）
+  及固件，设备可在两个内核间切换而无需重新下载任何东西。
 - zeroclaw 的 quadlet 定义，外加可选的 OpenClaw、Hermes 和 NemoClaw 模板（仅预置，默认均不激活）
 - Plymouth 主题（定制 nclawzero 启动画面）
 
@@ -213,24 +244,22 @@ curl -fL "$BASE/models/.../bge-small-zh_256.cix" -o model.cix
 
 | 路径 | 来源 | 说明 |
 |---|---|---|
-| `assets/cix-debs/` | 对原厂 Cix Debian 做 `dpkg-repack`（gitignore） | 37 个闭源 `.deb` |
-| `assets/kernel/Image-cixmini.bin` + `modules-cixmini.tgz` | Yocto 构建 `meta-cix:linux-cix-msr1`（gitignore） | 我们的内核产物 |
-| `assets/agent-stack/*` | `meta-cix/recipes-nclawzero/agent-stack/files/` | systemd quadlet（已提交） |
-| `assets/branding/*` | 本仓库 | os-release、motd、Plymouth 主题 |
-| `preseed/preseed.cfg` | 本仓库 | d-i 无人值守 preseed |
-| `post-install/*.sh` | 本仓库 | 安装末尾在 chroot 中按序运行的编号钩子 |
+| `assets/cix-debs/` | 离线预置的 CIX 专有 `.deb`（gitignore） | 同时也镜像进 Buildkite `ncz-os/ncz`（31 个包，见 OTA 章节） |
+| `assets/kernel/{stable,edge}/` | Yocto 构建 `meta-cix:linux-cix-sky1-{lts,next}`（gitignore） | 每个内核对应的 `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER`；另有 `modules-overlay/$KVER/` 子目录存放经验证的修复用 `.ko`（见 `post-install/80-npu.sh`、`81-vpu.sh`） |
+| `assets/agent-stack/*` | 本仓库 | zeroclaw/openclaw/hermes/portainer/mnemos/nemoclaw 的 systemd quadlet |
+| `assets/branding/*` | 本仓库 | os-release、motd、Plymouth 主题、壁纸 |
+| `preseed/preseed.cfg`、`preseed/late.sh` | 本仓库 | d-i 无人值守 preseed + late_command（chroot 之前，仅安装时执行） |
+| `post-install/*.sh` | 本仓库 | 40 多个编号钩子；在 chroot 内运行 |
 
 ## 阶段（安装后钩子）
 
-`/target/usr/local/lib/cix-installer/` 通过 `preseed/late_command` 按序运行：
-
-1. `00-cix-proprietary.sh` —— `dpkg -i` 37 个 Cix `.deb`
-2. `10-our-kernel.sh` —— 安装 `linux-cix-msr1` 内核二进制 + 模块
-3. `20-desktop.sh` —— apt 安装 GNOME + chromium + gnome-remote-desktop
-4. `30-agents.sh` —— 安装 podman + `ncz` CLI + 预置智能体 quadlet 模板与 OCI 镜像（不激活任何智能体；全部通过 `ncz` 可选启用）
-5. `40-claude-code.sh` —— `npm install -g @anthropic-ai/claude-code`
-6. `50-brand.sh` —— `/etc/os-release`、motd、主机名
-7. `60-plymouth.sh` —— Plymouth 启动画面 + nclawzero 主题
+`post-install/run-all.sh` 在 chroot 内按三个阶段运行编号的 `post-install/*.sh`
+钩子：必需的内核/网络钩子（在预烘焙镜像上跳过，因为内核已在 squashfs 中）、
+由 `MACHINE_HOOKS_RE` 门控的机器专属钩子（apt 源、CIX 专有用户态、GPU 固定、
+智能体栈、Python/embedkit、Claude Code、Vivaldi、NPU/VPU 覆盖、救援分区），
+以及从 `EXIT` trap 运行的引导器/诊断钩子。这份清单很容易过时（已经过时两次
+了）——`run-all.sh` 和各个 `post-install/NN-*.sh` 文件才是准确记录实际运行了
+什么、按什么顺序运行的权威来源，而不是这里手写的摘要。
 
 ## 远程诊断（安装器运行期间）
 
@@ -301,37 +330,106 @@ network-console 之后才有 `sshd`）。
 
 ## 通过 APT 升级内核与驱动 —— 无需重装
 
-自 r147 起，NCZ-OS 提供真正的 APT 仓库，可直接用 `apt upgrade` / `ncz-update` 升级内核与 CIX 驱动，**无需重装系统即可切换新内核**。
+`post-install/24-apt-sources.sh` 接入 Buildkite 源并刷新软件包索引，且刻意
+放在很早的位置（在任何安装软件包的钩子之前），这样它们各自的依赖解析步骤都能
+拿到真实、最新的索引数据。这修复了一个 2026-07-05 的回归问题：
+`vivaldi-stable` 在每次全新安装时都会卡在 dpkg 的 `iU`（半配置）状态，因为其
+`fonts-liberation` 依赖无法解析。根因**不是**缺少 apt 源 —— Ubuntu 官方源
+（main+universe+restricted+multiverse，一直默认启用）本来就在那里 —— 而是
+在那个依赖解析步骤需要之前，从未运行过 `apt-get update`，再加上该步骤当时用了
+`--no-download`（已在 `52-vivaldi.sh` 中单独修复）。
 
-- **内核**（已编译）→ **Buildkite Packages** 仓库 `ncz-os/ncz`：`apt upgrade` 拉取新的 `linux-image-cixmini-{lts,edge}`。
-- **CIX 用户态驱动/运行时** → **Codeberg** `ncz-os` Debian 仓库。
+**软件包各自的来源。**
+- **Ubuntu 官方源**（main + universe + restricted + multiverse，以及
+  `-updates`/`-security`/`-backports`）→ `ports.ubuntu.com/ubuntu-ports`
+  （arm64）。每个镜像默认启用于 `/etc/apt/sources.list` —— 这从来都不是
+  "仅限光盘"，尽管仓库里有些注释这样描述过一种"仅离线"的信条；那种信条
+  针对的是特定的单一厂商源（见下文 Vivaldi），而不是 Ubuntu 官方源本身。
+- **内核** —— 编译好的 `linux-image-cixmini-{lts,edge}` + `cixmini-boot`
+  （`build/build-kernel-debs.sh`）→ **Buildkite Packages** 经签名的 Debian
+  仓库 `ncz-os/ncz`，由 `post-install/24-apt-sources.sh` 接入：
+  `deb [signed-by=…] https://packages.buildkite.com/ncz-os/ncz/any/ any main`。
+  Buildkite Packages 通过 CloudFront CDN 提供服务，因此针对这个源的
+  `apt update`/`apt upgrade` 既快，也不依赖任何单一源站点保持在线。
+- **CIX 用户态驱动/运行时** → **同一个** Buildkite `ncz-os/ncz` 仓库（于
+  2026-07-05 从 `archive.cixtech.com` —— 上游 CIX 的中国大陆托管 Debian 仓库，
+  经常直接拒绝连接 —— 镜像而来）。共 31 个包，约 81MB，远低于该仓库
+  1.5GB 的配额；5 个从未实际安装的内部测试/验证用包（`cix-unit-test`、
+  `cix-npu-onnxruntime`、`cix-ltp`、`cix-gpu-test`、`cix-vpu-test`，合计
+  1.6GB）已被排除。这里**不存在** Codeberg apt 源 —— 本文档早期版本描述过
+  一个（`post-install/91-codeberg-apt.sh`），但该脚本在本仓库中从未真正实现过。
 - **内核源码 + Yocto 配方** → GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix)。
 
-两个 apt 源均经 GPG 签名（`signed-by`，非 `trusted=yes`）；安装介质的 `file:///cdrom` 源在安装后移除；旧的 GHCR/squashfs OTA 机制已废弃。
+Buildkite 源经 GPG 签名（`signed-by`，绝非 `trusted=yes`）；安装介质的
+`file:///cdrom` 源在安装后被移除，此前的 GHCR/squashfs OTA 机制
+（`90-ota-channel.sh`）已废弃。
 
-## 当前 ISO — r147（NCZ-OS 26.6 正式发布）
+**如何更新。** 在设备上，`apt update && apt upgrade`（或
+`ncz-update [--apply]`）会从签名仓库拉取新内核 + CIX 软件包并安装 ——
+切换到新内核不再需要重装系统。
 
-首个支持 **APT 内核升级** 的 NCZ-OS 正式版 —— 切换新内核无需重装。已在 QEMU 中端到端验证（完整无人值守安装 + 启动）。
+## 当前 ISO — r192（NCZ-OS 26.6 正式发布）
+
+首个 **Reinhardt（桌面版）与 Magnetar（服务器版）都能从同一张光盘安装**、
+且支持 **APT 内核 + CIX 用户态升级** 的正式版 —— 切换新内核或驱动构建无需
+重装。两个变体均已在 KVM 下完成端到端启动验证（GRUB → 内核 → d-i →
+preseed 启动，在具备硬件加速的通用 aarch64 虚拟主板上确认；完整的
+NPU/GPU/VPU/音频驱动验证仍仅限于 MS-R1 真机，见上文**硬件支持与测试状态**）。
 
 **内核：** 6.18.26-cix-sky1-lts（默认，生产）+ 7.0.12-cix-sky1-next（edge）。（7.1.2 为实验性/不可用；7.2 迁移进行中。）
 
-**安装：** 无人值守 d-i（自动分区：ESP + NCZRESCUE 救援分区 + btrfs 根），rEFInd 引导。安装器运行于经验证的 6.18 LTS 内核。
+两者的来源不同：**6.18.26 LTS** 是主线 Linux 加上
+[Sky1-Linux](https://github.com/Sky1-Linux/linux-sky1) 社区补丁 ——
+一个我们消费、打包的上游友好型社区 fork，并非我们自己的内核工作。
+**7.0.12 NEXT** 则是*我们自己*移植的：我们拿原始的 v7.0.12 稳定版 tag，
+自行完成了 MS-R1 专属的验证与修复（SCMI、GPU、VPU、NPU、显示，以及从
+LTS 代码树移植过来的音频栈）。
+
+**安装：** 无人值守 d-i（自动分区：ESP + NCZRESCUE 救援分区），rEFInd 引导。可交互选择磁盘与根文件系统 —— **btrfs**（默认）或 **ext4**；暂不支持 ZFS 根。安装器运行于经验证的 6.18 LTS 内核。
 
 **恢复：** NCZRESCUE 分区含完整修复工具集 + 自动联网，独立于主根文件系统可达；USB 启动时安装器远程诊断（network-console + telnet/http）可用。
 
 **MS-R1（cixmini）驱动支持 —— 6.18 / 7.0.12：** NVMe/PCIe、USB、以太网/Wi-Fi、音频、NPU（Zhouyi V3 `/dev/aipu`）、GPU（Mali-G720 panthor `renderD128`，Mesa 26.1.3 panvk+rusticl；合成关闭）、VPU 均正常。
 
-**复现：** 内核源自 kernel.org stable git + meta-cix 补丁系列（Yocto，见 [docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)）；ISO 经 build/build-iso-di.sh 构建（见 [docs/NEXT_ISO.md](docs/NEXT_ISO.md)）。
+**复现：** 内核源自 kernel.org stable git + meta-cix 补丁系列（Yocto，见 [docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)）；ISO 经 build/build-iso-di.sh 构建（见 [docs/NEXT_ISO.md](docs/NEXT_ISO.md)）。无需单独的内核源码仓库 —— meta-cix 已将每一个 Sky1 专属补丁作为受版本控制的文件保存。
 
 ## 状态
 
-**26.6（r126）** —— 当前发布。开源 Mesa 26.1.3 栈现已成为 **OpenGL/GLX、Vulkan
+**26.6（r192）** —— 当前发布。开源 Mesa 26.1.3 栈是 **OpenGL/GLX、Vulkan
 和 OpenCL** 的完整默认 GPU 提供方；CIX 专有栈仍保留在磁盘上（`.disabled`），
 供将来的可选切换器使用。仅在 Minisforum MS-R1 上测试 —— 见上文**硬件支持与测试
-状态**。**Reinhardt**（桌面）和 **Magnetar**（服务器）两个变体都从这棵代码树构建。
+状态**。**Reinhardt**（桌面）与 **Magnetar**（服务器）现在都能从*同一张*
+ISO 启动并安装 —— GRUB 选择变体，两个 squashfs 增量包都随每张光盘发布（见
+[架构](#架构)）。
 
-自 r113 基线以来的变更：
+自 r147 基线以来的变更：
 
+- **r192 —— 分层 squashfs 缺陷排查 + 双变体修复 + apt 源加固。** 一整天
+  针对全新安装的端到端验证发现并修复了若干真实缺陷，均非表面问题：
+  - **ISO 曾虚胖约 3GB。** squashfs 层被重复打包了两次 —— 一次是正确的路径，
+    另一次是通过一个通用资产复制步骤（没有为 `assets/squashfs/` 设置排除
+    规则）。已修复；ISO 从 7.98GB 降到 5.0GB。
+  - **服务器变体从未真正登上过 ISO。** `manifests/server.pkgs` 此前不存在，
+    因此 `server.squashfs` 从未被构建过；GRUB 菜单曾提供一个 Magnetar 启动
+    选项，选择后会静默降级为仅有 base 的安装。现已构建、打包，并在 KVM 下
+    完成启动测试。
+  - **`vivaldi-stable` 在每次全新安装时都卡在半配置状态。** 根因：一处
+    manifest 内联注释破坏了整个 apt 事务，连带静默丢弃了 `librsvg2-bin` 及
+    若干 Vulkan/SPIR-V 软件包 —— 并非缺少 apt 源（Ubuntu 官方源其实一直都在）。
+    已在解析器层面修复，防止此类缺陷再次发生；同时修复了一个可能无限期挂起
+    squashfs 构建、且没有 tty 可以应答的 `needrestart` 内核升级提示。
+  - **离线镜像重建现在是增量式的**，不再是每次都完整清空并重新下载约
+    1500 个软件包的闭包。
+  - **内核配置缺口**：Sky1 的 NPU 报告的是 Zhouyi ISA 版本 5（V3），但此前
+    只启用了 `CONFIG_ARMCHINA_NPU_ARCH_V3_1`（版本 6）—— 部分安装上 NPU
+    因此是暗的。现在两者都已启用。
+  - 其他若干小修复：一个（Zoder）桌面图标此前会打开一个空白终端而不是指向
+    项目主页；若干安装时钩子（SSH、telnet 控制台、NTP/主机名、故障保护恢复
+    控制台、NoMachine/xrdp、nspawn 恢复容器、Magnetar 无头模式切换）虽已存在
+    于仓库中，却从未真正接入预烘焙镜像的钩子白名单，因此静默地从未运行过。
+- **r147 —— 首个支持 apt 内核升级的正式版。** `apt upgrade` /
+  `ncz-update` 从 Buildkite Packages 拉取新内核 —— 切换内核无需重装。
+  已在 QEMU 中端到端验证。
 - **r126 —— 开源 Mesa 成为完整默认；修复桌面与 Vulkan。**
   `26-gpu-default-open.sh` 现在会把*所有* CIX GPU 组件从加载器路径中降级。此前
   CIX 的 `cix-libglvnd` `libGLX.so.0` 会执行一次"CIX 驱动检查"，失败后（没有
@@ -353,5 +451,5 @@ network-console 之后才有 `sshd`）。
 
 ## 姊妹项目
 
-- [`gitlab.com/nclawzero/cix-gen`](https://gitlab.com/nclawzero/cix-gen) —— 基于脚本的镜像构建器；从一个可用的 aarch64 系统运行，绕过 d-i 流程。用例不同（原地重建 vs 全新安装）。
-- [`gitlab.com/nclawzero/meta-cix`](https://gitlab.com/nclawzero/meta-cix) —— BSP 的 Yocto 层（内核 + Cix 用户态配方）。提供此处消费的 `linux-cix-msr1` 内核产物。
+- [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) —— 基于脚本的镜像构建器；从一个可用的 aarch64 系统运行，绕过 d-i 流程。用例不同（原地重建 vs 全新安装）。
+- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) —— 提供内核配方（LTS 版 `linux-cix-sky1_6.18.26.bb`、edge 版 `linux-cix-sky1-next_7.0.12.bb`）以及本安装器所消费的 Cix 用户态配方的 Yocto BSP 层。内核源码本身直接取自公开的 `kernel.org` 稳定版代码树的某个固定提交；每一个 Sky1 专属补丁都是本层中受版本控制的文件 —— 复现构建无需另外的内核源码仓库。见 [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md)。

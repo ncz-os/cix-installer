@@ -16,6 +16,17 @@ brands the system as NCZ
 (Reinhardt for desktop, Magnetar for server / always-on agent
 appliance).
 
+> **New in r192:** kernel and CIX-userspace upgrades now work over **plain
+> `apt`** — no reinstall. A signed Buildkite Packages repo
+> (`ncz-os/ncz`) is wired into every install by
+> `post-install/24-apt-sources.sh`; `apt upgrade` (or `ncz-update`) pulls new
+> kernels and the 31 mirrored CIX proprietary packages straight from it. See
+> [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources)
+> below. r192 also fixes a ~3GB ISO-size regression (duplicated squashfs
+> layers) and is the first ISO where **both** Reinhardt (desktop) and
+> Magnetar (server) genuinely install from the *same* disc — see
+> [Current ISO](#current-iso--r192-ncz-os-266--official-release).
+
 ### Two distinct layers: a working OS, and an *optional* AI layer
 
 NCZ deliberately separates the operating system from the AI. Installing the
@@ -192,39 +203,67 @@ make
 > including the Orion O6's RTL8125/8126 — work out of the box; the `rtl_nic`
 > firmware ships in both the installer and the installed system.
 
-1. Flash the ISO to a USB stick (≥4 GB):
+1. Flash the ISO to a USB stick (≥8 GB):
    ```bash
    sudo bmaptool copy --bmap nclawzero-installer-cixmini.iso.bmap \
        nclawzero-installer-cixmini.iso /dev/sdX
    ```
 2. Plug in a **wired Ethernet cable**, then plug the USB into the target
    (cixmini / Orion O6), power on, hit the F-key for the UEFI boot menu, pick USB
-3. d-i auto-runs preseed; ~20-30 min unattended install
-4. Reboot, remove USB, target boots nclawzero from internal storage
+3. **Choose your disk and root filesystem.** The installer shows a real
+   disk-selection screen (for multi-disk systems) followed by a filesystem
+   choice — **btrfs** (default: snapshots + transparent compression) or
+   **ext4** (simple, maximally robust). ZFS root is **not** supported yet.
+   Both choices can be preset non-interactively via kernel cmdline
+   (`ncz_disk=<dev>`, `ncz_fs=<ext4|btrfs>`) for unattended fleets.
+4. d-i auto-runs preseed; ~20-30 min unattended install
+5. Reboot, remove USB, target boots nclawzero from internal storage
 
 ## Architecture
 
+The installer was redesigned around **layered squashfs images** rather than a
+live debootstrap-and-apt-install at install time. The motivation was
+concrete, not architectural taste: install **speed** (unpacking a pre-built,
+pre-configured squashfs is far faster than debootstrap + hundreds of package
+postinst scripts running on-device) and **offline reliability** (a squashfs
+delta either extracts correctly or it doesn't — there's no network-dependent
+package resolution mid-install to fail on a flaky link or an unreachable
+mirror, which was a recurring source of install failures under the old
+apt-at-install-time model).
+
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                  nclawzero-installer-cixmini.iso               │
-│                                                                │
-│  ┌─────────────────────────┐    ┌───────────────────────────┐  │
-│  │  Debian d-i base ISO    │    │  Custom assets layer      │  │
-│  │  (debian-12-netinst-    │    │  - preseed.cfg            │  │
-│  │   arm64.iso)            │    │  - post-install/*.sh      │  │
-│  │  - UEFI bootloader      │    │  - assets/cix-debs/*.deb  │  │
-│  │  - kernel + initrd      │    │  - assets/kernel/*        │  │
-│  │  - debootstrap          │    │  - assets/agent-stack/*   │  │
-│  │  - partman              │    │  - assets/branding/*      │  │
-│  │  - tasksel              │    │  (extracted to /target    │  │
-│  │  - apt                  │    │   during late_command)    │  │
-│  └─────────────────────────┘    └───────────────────────────┘  │
-└────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                   nclawzero-installer-cixmini.iso                 │
+│                                                                     │
+│  ┌─────────────────┐   ┌──────────────────┐   ┌──────────────────┐│
+│  │  base.squashfs   │   │ desktop.squashfs │   │ server.squashfs  ││
+│  │  (1.7 GB)        │   │    (~852 MB)     │   │     (~40 MB)     ││
+│  │  debootstrapped  │   │  XFCE + browser  │   │  headless agent- ││
+│  │  resolute + Sky1 │   │  + full desktop  │   │  appliance pkgs  ││
+│  │  kernel/firmware │   │    package set   │   │                  ││
+│  └────────┬─────────┘   └────────┬─────────┘   └────────┬─────────┘│
+│           │      overlaid at boot per GRUB choice        │         │
+│           └───────────────────────┬────────────────────────┘       │
+│                                    ▼                                │
+│      Debian d-i base (UEFI boot, kernel + initrd, preseed,          │
+│      partman) extracts + overlays base + the selected variant       │
+│      (extract-rootfs.sh), then runs post-install/*.sh hooks         │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
-The ISO ships its own copy of:
-- 37 Cix proprietary `.debs` (~1.9 GB) — closed-source userspace
-- `linux-cix-msr1` kernel binary + modules tarball (~640 MB)
+**Both variant deltas ship on every ISO.** The GRUB menu picks Reinhardt
+(desktop) or Magnetar (server) at boot, and `preseed/extract-rootfs.sh`
+overlays the matching delta onto the base. One disc, both variants.
+
+The ISO also ships:
+- CIX proprietary userspace `.deb`s, staged offline in `assets/cix-debs/`
+  (~30 packages after excluding internal test/validation builds that are
+  never actually installed) — dpkg-installed by `post-install/25-cix-proprietary.sh`.
+  The same package set is **also** mirrored into the Buildkite `ncz-os/ncz`
+  apt repo (31 packages, ~81 MB) so it can be re-pulled post-install without
+  a reinstall — see [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources).
+- Both kernels (`6.18.26-cix-sky1-lts` default + `7.0.12-cix-sky1-next` edge)
+  with firmware, so a device can flip kernels without redownloading anything.
 - Quadlet definitions for zeroclaw plus optional OpenClaw, Hermes, and
   NemoClaw templates (staged only — none active by default)
 - Plymouth theme (custom nclawzero splash)
@@ -437,7 +476,10 @@ that step using `--no-download` (fixed separately in `52-vivaldi.sh`).
 - **Kernels** — compiled `linux-image-cixmini-{lts,edge}` + `cixmini-boot`
   (`build/build-kernel-debs.sh`) → **Buildkite Packages** signed Debian registry
   `ncz-os/ncz`, wired by `post-install/24-apt-sources.sh`:
-  `deb [signed-by=…] https://packages.buildkite.com/ncz-os/ncz/any/ any main`
+  `deb [signed-by=…] https://packages.buildkite.com/ncz-os/ncz/any/ any main`.
+  Buildkite Packages serves over a CloudFront-backed CDN, so `apt update`/
+  `apt upgrade` against this source is fast and doesn't depend on any single
+  origin server staying up.
 - **CIX userspace drivers/runtimes** → the **same** Buildkite `ncz-os/ncz`
   registry (mirrored 2026-07-05 from `archive.cixtech.com`, the upstream CIX
   Debian repo — China-hosted, intermittently refuses connections entirely).
@@ -497,15 +539,47 @@ pulling anything.
 
 ## Status
 
-**26.6 (r126)** — current release. The open Mesa 26.1.3 stack is now the
-complete default GPU provider for **OpenGL/GLX, Vulkan, and OpenCL**, with the
-CIX proprietary stack kept on disk (`.disabled`) for a future opt-in switcher.
+**26.6 (r192)** — current release. The open Mesa 26.1.3 stack is the complete
+default GPU provider for **OpenGL/GLX, Vulkan, and OpenCL**, with the CIX
+proprietary stack kept on disk (`.disabled`) for a future opt-in switcher.
 Tested on Minisforum MS-R1 only — see **Hardware support & testing status**
-above. Both **Reinhardt** (desktop) and **Magnetar** (server) variants build
-from this tree.
+above. **Reinhardt** (desktop) and **Magnetar** (server) both boot and install
+from the *same* ISO — GRUB picks the variant, both squashfs deltas ship on
+every disc (see [Architecture](#architecture)).
 
-What changed since the r113 baseline:
+What changed since the r147 baseline:
 
+- **r192 — layered-squashfs bug sweep + dual-variant fix + apt-source hardening.**
+  A day-long pass validating a fresh install end-to-end turned up and fixed
+  several real bugs, none of which were cosmetic:
+  - **ISO was ~3 GB bloated.** The squashfs layers were being staged twice —
+    once correctly, once redundantly via a generic asset-copy step that had
+    no exclusion for `assets/squashfs/`. Fixed; ISO went 7.98 GB → 5.0 GB.
+  - **Server variant never actually shipped on the ISO.** `manifests/server.pkgs`
+    didn't exist, so `server.squashfs` had never been built; the GRUB menu
+    offered a Magnetar boot option that silently degraded to a base-only
+    install. Now built, staged, and boot-tested under KVM.
+  - **`vivaldi-stable` stuck half-configured on every fresh install.** Root
+    cause: a manifest inline comment corrupted the whole apt transaction,
+    silently dropping `librsvg2-bin` and a handful of Vulkan/SPIR-V packages
+    along with it — not a missing apt source (the Ubuntu archive was there
+    the whole time). Fixed at the parser level so this class of bug can't
+    recur; also fixed a stuck `needrestart` kernel-upgrade prompt that could
+    hang a squashfs build indefinitely with no tty to answer it.
+  - **Offline-mirror rebuilds now incremental**, not a full wipe-and-redownload
+    of the ~1500-package closure every time.
+  - **Kernel config gap**: the Sky1 NPU reports Zhouyi ISA version 5 (V3), but
+    only `CONFIG_ARMCHINA_NPU_ARCH_V3_1` (version 6) was enabled — NPU was
+    dark on a subset of installs. Both are now enabled.
+  - Assorted smaller fixes: a desktop icon (Zoder) that launched a bare
+    terminal instead of pointing at the project page; several install-time
+    hooks (SSH, telnet console, NTP/hostname, failsafe recovery console,
+    NoMachine/xrdp, the nspawn recovery container, the Magnetar headless
+    toggle) that were present in the repo but never actually wired into the
+    baked-image hook allowlist, so they silently never ran.
+- **r147 — first apt-capable kernel-upgrade release.** `apt upgrade` /
+  `ncz-update` pulls new kernels from Buildkite Packages — no reinstall to
+  move kernels. QEMU-validated end-to-end.
 - **r126 — open Mesa is the full default; desktop + Vulkan fixed.**
   `26-gpu-default-open.sh` now demotes *every* CIX GPU component out of the
   loader paths. Previously the CIX `cix-libglvnd` `libGLX.so.0` ran a "CIX
@@ -533,24 +607,37 @@ What changed since the r113 baseline:
 
 ## Sister projects
 
-- [`gitlab.com/nclawzero/cix-gen`](https://gitlab.com/nclawzero/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
-- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto layer for the BSP (kernel + Cix userspace recipes). Provides the `linux-cix-msr1` kernel artifacts consumed here.
+- [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
+- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipes (`linux-cix-sky1_6.18.26.bb` LTS, `linux-cix-sky1-next_7.0.12.bb` edge) and Cix userspace recipes this installer consumes. Kernel source itself is fetched straight from the public `kernel.org` stable tree at a pinned commit; every Sky1-specific patch is a file tracked in this layer — no separate kernel-source repo is needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
 
 
-## Current ISO — r147 (NCZ-OS 26.6 — official release)
+## Current ISO — r192 (NCZ-OS 26.6 — official release)
 
-The first official NCZ-OS release with **apt-capable kernel upgrades** — move to a new kernel without reinstalling. QEMU-validated end-to-end (full unattended install + boot).
+The first release where **both Reinhardt (desktop) and Magnetar (server)
+install from the same disc**, with **apt-capable kernel + CIX-userspace
+upgrades** — move to a new kernel or driver build without reinstalling.
+KVM-boot-validated end-to-end for both variants (GRUB → kernel → d-i →
+preseed start confirmed on a real generic-aarch64-virt board with hardware
+acceleration; full driver validation — NPU/GPU/VPU/audio — remains
+MS-R1-hardware-only, see **Hardware support & testing status** above).
 
 **Upgrade kernels & drivers with apt — no reinstall**
-- Kernels + CIX userspace (compiled/mirrored): **Buildkite Packages** `ncz-os/ncz` — `apt upgrade` / `ncz-update` pulls new `linux-image-cixmini-{lts,edge}` and the 31 mirrored CIX proprietary packages. No Codeberg apt source exists for this (see OTA channel section above).
+- Kernels + CIX userspace (compiled/mirrored): **Buildkite Packages** `ncz-os/ncz`, served over a CloudFront-backed CDN — `apt upgrade` / `ncz-update` pulls new `linux-image-cixmini-{lts,edge}` and the 31 mirrored CIX proprietary packages. No Codeberg apt source exists for this (see OTA channel section above).
 - Kernel source + Yocto recipes: GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix).
 
 **Kernels:** 6.18.26-cix-sky1-lts (default, production) + 7.0.12-cix-sky1-next (edge). (7.1.2 experimental/non-working; 7.2 migration in progress.)
 
-**Install:** unattended d-i (auto-partition, ESP + NCZRESCUE rescue partition + btrfs root), boots rEFInd. Installer runs on the proven 6.18 LTS kernel.
+Provenance differs between the two: **6.18.26 LTS** is mainline Linux plus
+[Sky1-Linux](https://github.com/Sky1-Linux/linux-sky1) community patches — an
+upstream-friendly community fork we consume and package, not our own kernel
+work. **7.0.12 NEXT** is *our* port: we took the raw v7.0.12 stable tag and
+did the MS-R1-specific validation and fixes ourselves (SCMI, GPU, VPU, NPU,
+display, audio-stack port from the LTS tree).
+
+**Install:** unattended d-i (auto-partition, ESP + NCZRESCUE rescue partition), boots rEFInd. Interactive disk + root-filesystem choice — **btrfs** (default) or **ext4**; no ZFS root support yet. Installer runs on the proven 6.18 LTS kernel.
 
 **Recovery:** NCZRESCUE partition with full repair toolset + automatic networking, reachable independent of the main rootfs; installer remote-diagnostics (network-console + telnet/http) on USB boot.
 
 **MS-R1 (cixmini) driver support — 6.18 / 7.0.12:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (Mali-G720 panthor renderD128, Mesa 26.1.3 panvk+rusticl; compositing off), VPU — all working.
 
-**Reproduce:** kernels from kernel.org stable git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](docs/NEXT_ISO.md)).
+**Reproduce:** kernels from kernel.org stable git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](docs/NEXT_ISO.md)). No separate kernel-source repo needed — meta-cix carries every Sky1-specific patch as a tracked file.
