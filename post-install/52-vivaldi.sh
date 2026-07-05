@@ -39,8 +39,14 @@ fi
 
 echo "[52] installing $(basename "$DEB")"
 DEBIAN_FRONTEND=noninteractive dpkg -i "$DEB" 2>&1 | tail -6
-# self-contained, but satisfy anything half-configured without touching network
-DEBIAN_FRONTEND=noninteractive apt-get -y -f install --no-download 2>&1 | tail -3 || true
+# r189.1: was --no-download, relying on Vivaldi's own dependency closure being
+# fully pre-satisfied -- but fonts-liberation was never actually staged that way,
+# leaving vivaldi-stable stuck dpkg `iU` (half-configured) on every fresh install
+# (found validating r189). 24-apt-sources.sh now wires real persistent apt
+# sources (Ubuntu universe + Buildkite, which mirrors fonts-liberation itself)
+# BEFORE this hook runs, so --fix-broken can actually resolve the dependency
+# instead of only working when it happens to already be cached.
+DEBIAN_FRONTEND=noninteractive apt-get -y -f install 2>&1 | tail -6 || true
 
 if [ ! -x /usr/bin/vivaldi-stable ]; then
     echo "[52] ERROR: vivaldi-stable not present after dpkg -i" >&2

@@ -412,24 +412,49 @@ consoles vanish with the d-i ramdisk.
   every box on a LAN is uniquely named; the operator hostname (if set during
   install) always wins. See `post-install/37-ntp-hostname.sh`.
 
-## OTA channel (kernel + driver updates)
+## OTA channel (kernel + driver updates) + persistent apt sources
 
 Fielded devices upgrade their kernel and the proprietary CIX drivers **over
-standard APT — no reinstall**.
+standard APT — no reinstall**. `post-install/24-apt-sources.sh` wires the
+Buildkite source and refreshes the package index, deliberately early
+(before any hook that installs packages, so their own dependency-resolution
+steps have real, current index data to pull from). This fixes a 2026-07-05
+regression: `vivaldi-stable` got stuck dpkg `iU`/half-configured on every
+fresh install because its `fonts-liberation` dependency couldn't resolve.
+The root cause was **not** a missing apt source — the Ubuntu archive
+(main+universe+restricted+multiverse, always enabled by default, see
+below) was there the whole time — it was that nothing ever ran `apt-get
+update` before that dependency-resolution step needed it, compounded by
+that step using `--no-download` (fixed separately in `52-vivaldi.sh`).
 
 **Where packages live.**
+- **Ubuntu archive** (main + universe + restricted + multiverse, plus
+  `-updates`/`-security`/`-backports`) → `ports.ubuntu.com/ubuntu-ports`
+  (arm64). Enabled by default in `/etc/apt/sources.list` on every image —
+  this was never CDROM-only, despite some in-repo comments describing an
+  "offline-only" doctrine; that doctrine applied to specific single-vendor
+  sources (see Vivaldi below), not the base Ubuntu archive.
 - **Kernels** — compiled `linux-image-cixmini-{lts,edge}` + `cixmini-boot`
   (`build/build-kernel-debs.sh`) → **Buildkite Packages** signed Debian registry
-  `ncz-os/ncz`, wired by `post-install/92-buildkite-apt.sh`:
+  `ncz-os/ncz`, wired by `post-install/24-apt-sources.sh`:
   `deb [signed-by=…] https://packages.buildkite.com/ncz-os/ncz/any/ any main`
-- **CIX userspace drivers/runtimes** → **Codeberg** `ncz-os` Debian registry,
-  wired by `post-install/91-codeberg-apt.sh`:
-  `deb [signed-by=…] https://codeberg.org/api/packages/ncz-os/debian ncz main`
+- **CIX userspace drivers/runtimes** → the **same** Buildkite `ncz-os/ncz`
+  registry (mirrored 2026-07-05 from `archive.cixtech.com`, the upstream CIX
+  Debian repo — China-hosted, intermittently refuses connections entirely).
+  31 packages, ~81MB, well under the registry's 1.5GB quota; the 5 test/dev-only
+  packages that are never actually installed (`cix-unit-test`,
+  `cix-npu-onnxruntime`, `cix-ltp`, `cix-gpu-test`, `cix-vpu-test` — 1.6GB
+  combined) were excluded. There is no Codeberg apt source for this — an
+  earlier revision of this doc described one (`post-install/91-codeberg-apt.sh`)
+  that was never actually implemented in this repo.
 - **Kernel source + Yocto recipes** → GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix).
 
-Both apt sources are GPG-signed (`signed-by`, never `trusted=yes`); the
+The Buildkite source is GPG-signed (`signed-by`, never `trusted=yes`); the
 install-media `file:///cdrom` source is stripped post-install, and the previous
-GHCR/squashfs OTA (`90-ota-channel.sh`) is retired.
+GHCR/squashfs OTA (`90-ota-channel.sh`) is retired. The old "CDROM-only, no
+persistent apt source" posture (r180 doctrine) is superseded for the sources
+above; `52-vivaldi.sh` still neutralizes Vivaldi's own single-vendor
+`repo.vivaldi.com` source specifically (a narrower, separate decision).
 
 **How it updates.** On the device, `apt update && apt upgrade` (or
 `ncz-update [--apply]`) pulls new kernel + CIX packages from the signed
