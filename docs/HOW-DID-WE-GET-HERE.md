@@ -16,6 +16,16 @@
 > someone who wasn't in the room. Deep technical detail lives in
 > `ENGINEERING-EFFORT.md`; this is the timeline and the root causes.
 
+> **Update (r192, 2026-07-05):** this doc covers June 1-19 only. Substantial
+> work shipped since: apt-based kernel/driver updates (r147, no reinstall
+> needed), a layered-squashfs installer redesign for install speed +
+> offline reliability, both desktop (Reinhardt) and server (Magnetar)
+> variants now genuinely shipping on one disc, an ~3GB ISO-bloat fix, the
+> bootloader switch to rEFInd noted inline below, and the 7.1→7.2 kernel
+> track move. See README.md → *Status* for the full current changelog. This
+> document stays as-is for the June post-mortem; it isn't being extended
+> to cover every release since.
+
 ---
 
 ## 1. The one-paragraph answer
