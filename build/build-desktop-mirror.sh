@@ -114,14 +114,29 @@ else
     echo "  closure (union): $(wc -l < "$CLOSURE") packages; $bad seed(s) dropped as uninstallable"
 fi
 
-# download the exact closure versions into the new pool
-rm -rf "$OUT"; mkdir -p "$OUT/pool/main"
-echo "  downloading closure debs from ports..."
+# download the exact closure versions into the pool -- INCREMENTAL: keep
+# whatever's already there (`apt-get download` itself skips re-fetching a
+# .deb that's already present at the exact candidate version, verified
+# empirically), so a re-run only pulls what's actually new/changed instead
+# of re-downloading the entire ~1500-package closure every time.
+mkdir -p "$OUT/pool/main"
+echo "  downloading closure debs from ports (incremental)..."
 ( cd "$OUT/pool/main" && apt-get "${APTOPTS[@]}" download $(tr '\n' ' ' < "$CLOSURE") >/dev/null 2>&1 ) \
     || echo "  WARN: some downloads failed (see gaps report)"
 
+# prune debs for packages no longer in the resolved closure (e.g. dropped
+# from the seed, or no longer pulled in as a dependency) so the pool doesn't
+# grow unbounded now that it's no longer wiped on every run.
+PRUNED=0
+for f in "$OUT"/pool/main/*.deb; do
+    [ -e "$f" ] || continue
+    pkgname="${f##*/}"; pkgname="${pkgname%%_*}"
+    grep -qxF "$pkgname" "$CLOSURE" || { rm -f "$f"; PRUNED=$((PRUNED+1)); }
+done
+[ "$PRUNED" -gt 0 ] && echo "  pruned $PRUNED stale deb(s) no longer in the closure"
+
 DEBS=$(find "$OUT/pool" -name '*.deb' | wc -l)
-echo "  downloaded $DEBS debs"
+echo "  downloaded/kept $DEBS debs"
 
 # regenerate indexes (for standalone use; the ISO build regenerates from the
 # combined server+desktop pool, so the ISO does not consume these dists/).
