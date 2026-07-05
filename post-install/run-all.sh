@@ -251,7 +251,7 @@ fi
 # Phase 2: optional hooks. Failures logged but don't abort.
 set +e
 tty_msg "Phase 2: optional hooks (desktop + agents + brand + ssh + ...)"
-OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | grep -vE '^(0[0-9]|10-our-kernel|12-sky1-firmware|33-network|70-bootloader|99-diagnostics)\.sh$')
+OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | grep -vE '^(0[0-9]|10-our-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network|70-bootloader|99-diagnostics)\.sh$')
 if [ "$NCZ_BAKED" = 1 ]; then
     OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -E "$MACHINE_HOOKS_RE" || true)
     tty_msg "Phase 2: baked image — running only machine-specific hooks: $OPT_HOOKS"

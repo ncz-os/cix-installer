@@ -1,29 +1,41 @@
 #!/bin/bash
-# 10-our-kernel.sh — install the staged linux-cix-sky1 kernel payload.
-# full/thin ISOs stage LTS+NEXT; netinstall stages NEXT only.
+# 10-our-kernel.sh — install the LTS/NEXT kernel via apt (dpkg-tracked).
 #
-# Source layout (from build-iso.sh staging):
-#   /usr/local/lib/cix-installer/assets/kernel/
-#     KVER_LTS                            (full/thin)
-#     KVER_NEXT                           (full/thin/netinstall)
-#     stable/Image-cixmini.bin
-#     stable/modules-cixmini.tgz
-#     edge/Image-cixmini.bin              (optional — only if BETA was baked)
-#     edge/modules-cixmini.tgz
+# 26.6-r193: rewritten. Previously this hook raw-copied the kernel
+# (install -D + tar xzf) straight from ISO assets into /boot and
+# /usr/lib/modules -- completely bypassing dpkg. Result: apt/dpkg had
+# ZERO record any kernel package was installed (`apt-cache policy
+# linux-image-cixmini-lts` showed "Installed: (none)" even on a running
+# system using that exact kernel), so `apt upgrade` could never pull a
+# new kernel -- there was nothing dpkg thought needed upgrading. This
+# directly broke the documented "apt upgrade pulls new kernels, no
+# reinstall" OTA story (confirmed live on .66, 2026-07-06).
 #
-# Result on target:
-#   /boot/vmlinuz-$KVER_LTS                (if LTS was baked)
-#   /boot/vmlinuz-$KVER_NEXT               (if NEXT was baked)
-#   /boot/initrd.img-$KVER_LTS             (if LTS was baked)
-#   /boot/initrd.img-$KVER_NEXT            (if NEXT was baked)
-#   /usr/lib/modules/$KVER_LTS/            (if LTS was baked)
-#   /usr/lib/modules/$KVER_NEXT/           (if NEXT was baked)
+# Fix: install via `apt-get install linux-image-cixmini-{lts,edge}` from
+# the same Buildkite repo (ncz-os/ncz) the OTA channel already uses, so
+# dpkg tracks the kernel like any other package and a later `apt upgrade`
+# works as documented. This needs the Buildkite apt source wired +
+# indexed BEFORE we can resolve these packages -- normally done by
+# 24-apt-sources.sh, which sorts numerically AFTER this hook (10 < 24), so
+# we invoke it directly here rather than relying on hook ordering
+# (24-apt-sources.sh is idempotent -- safe to call twice; it still runs
+# again later in its normal position for the machine-gated hooks).
+#
+# What variant to install is still decided by the KVER_LTS/KVER_NEXT
+# sidecars staged by build-iso.sh (full/thin ISOs stage both; netinstall
+# stages NEXT only) -- that decision is about which ISO variant this is,
+# not about how the kernel lands on disk, so it's unchanged.
+#
+# Bootloader wiring for the newly-installed kernel (refind.conf) happens
+# via post-install/70-bootloader.sh later in this same run (install time)
+# and via /etc/kernel/postinst.d/zz1-ncz-refind-refresh (any future
+# apt-driven kernel install/upgrade) -- see that hook + assets/refind/
+# ncz-refind-refresh.sh for why raw-copying broke that path too.
 set -euo pipefail
 
-ASSETS=/usr/local/lib/cix-installer/assets/kernel
 INSTALLER_META=/usr/local/lib/cix-installer
+HERE="$(dirname "$0")"
 
-# Pull KVERs from sidecars staged by build-iso.sh
 KVER_LTS=""
 if [ -f "$INSTALLER_META/KVER_LTS" ]; then
     KVER_LTS=$(cat "$INSTALLER_META/KVER_LTS" 2>/dev/null || true)
@@ -37,114 +49,85 @@ if [ -z "$KVER_LTS" ] && [ -z "$KVER_NEXT" ]; then
     echo "ERROR: no KVER_LTS or KVER_NEXT sidecar present"
     exit 1
 fi
-if [ -n "$KVER_LTS" ]; then
-    [ -f "$ASSETS/stable/Image-cixmini.bin" ]   || { echo "ERROR: LTS kernel binary missing"; exit 1; }
-    [ -f "$ASSETS/stable/modules-cixmini.tgz" ] || { echo "ERROR: LTS modules tarball missing"; exit 1; }
+
+echo "[10] installing kernel via apt — LTS=${KVER_LTS:-(not present)}  NEXT=${KVER_NEXT:-(not present)}"
+
+# Wire the Buildkite apt source + refresh the index. Idempotent (safe to
+# call again later at its normal position). Needed now because the
+# linux-image-cixmini-* packages live only on Buildkite, not the Ubuntu
+# archive.
+if [ -x "$HERE/24-apt-sources.sh" ]; then
+    "$HERE/24-apt-sources.sh"
+else
+    echo "ERROR: $HERE/24-apt-sources.sh missing — cannot wire the apt source needed to install the kernel"
+    exit 1
 fi
 
-echo "[10] installing kernel payload — LTS=${KVER_LTS:-(not present)}  NEXT=${KVER_NEXT:-(not present)}"
-
-# Ensure depmod and initramfs generation are present. This is a required
-# hook: if initrd generation is not available, 70-bootloader.sh must not be
-# left to write kernel entries that silently omit initrd lines.
 apt-get install -y --no-install-recommends kmod initramfs-tools
-
-install_kernel() {
-    local label=$1            # stable or edge
-    local kver=$2
-
-    echo "  [$label] $kver"
-    install -D -m 0644 "$ASSETS/$label/Image-cixmini.bin" "/boot/vmlinuz-$kver"
-
-    # Extract modules into /usr/lib/modules/$kver/ (usrmerge-aware path).
-    # CAREFUL: the tarball has a top-level `lib/` directory entry. On
-    # a usrmerge target (Debian bookworm+), `/lib` is a SYMLINK to
-    # `/usr/lib`. `tar xzf -C /` would replace that symlink with a
-    # real dir, orphaning `/lib/ld-linux-aarch64.so.1` and breaking
-    # every dynamically linked binary in `/sbin` (depmod -> /bin/kmod,
-    # which loads ld-linux).
-    # Extract into /usr instead: `lib/` lands at `/usr/lib/` (already
-    # a real dir) and modules end up at `/usr/lib/modules/$kver/`.
-    #
-    # NOTE: do NOT pre-create /usr/lib/modules/$kver before extracting.
-    # If the tarball is malformed (wrong KVER root), the dir-already-
-    # exists state would let depmod -a "$kver" succeed with zero
-    # modules — silent failure → unbootable kernel. Let tar create it,
-    # then verify content count.
-    tar xzf "$ASSETS/$label/modules-cixmini.tgz" -C /usr --strip-components=0 --keep-directory-symlink
-    if [ ! -d "/usr/lib/modules/$kver" ]; then
-        echo "[10] ERROR: $label tarball did not produce /usr/lib/modules/$kver/"
-        echo "       found instead under /usr/lib/modules/:"
-        ls /usr/lib/modules/ 2>&1
-        return 1
-    fi
-    local modcount
-    modcount=$(find "/usr/lib/modules/$kver" -name '*.ko' 2>/dev/null | wc -l)
-    if [ "$modcount" -lt 50 ]; then
-        echo "[10] ERROR: $label modules dir suspiciously small (.ko count=$modcount, expected hundreds)"
-        return 1
-    fi
-    echo "    extracted $modcount .ko modules → /usr/lib/modules/$kver/"
-
-    # Headers for DKMS (NPU/GPU drivers). Optional asset — if missing,
-    # warn loudly because any DKMS rebuild on target will then fail.
-    if [ -f "$ASSETS/$label/headers-cixmini.tar.zst" ]; then
-        if ! command -v zstd >/dev/null 2>&1; then
-            apt-get install -y --no-install-recommends zstd
-        fi
-        zstd -dc "$ASSETS/$label/headers-cixmini.tar.zst" \
-            | tar -xf - -C / --keep-directory-symlink
-        if [ -d "/lib/modules/$kver/build" ] && [ -f "/lib/modules/$kver/build/Makefile" ]; then
-            local hdrcount
-            hdrcount=$(find "/lib/modules/$kver/build/include" -name '*.h' 2>/dev/null | wc -l)
-            echo "    extracted $hdrcount header files → /lib/modules/$kver/build/"
-        else
-            echo "    WARN: $label headers tarball present but /lib/modules/$kver/build/Makefile missing — DKMS will fail" >&2
-        fi
-    else
-        echo "    WARN: $label headers asset missing ($ASSETS/$label/headers-cixmini.tar.zst) — DKMS rebuild blocked on target" >&2
-    fi
-
-    depmod -a "$kver"
-
-    # Generate the target initrd here, while this required hook is still in
-    # fail-fast mode. 80-npu.sh may later prepend its SSDT CPIO, and
-    # 70-bootloader.sh only stages already-created initrds to the ESP.
-    if [ -f "/boot/initrd.img-$kver" ]; then
-        echo "    regenerating initrd -> /boot/initrd.img-$kver"
-        update-initramfs -u -k "$kver"
-    else
-        echo "    generating initrd -> /boot/initrd.img-$kver"
-        update-initramfs -c -k "$kver"
-    fi
-    if [ ! -s "/boot/initrd.img-$kver" ]; then
-        echo "[10] ERROR: update-initramfs did not create /boot/initrd.img-$kver"
-        return 1
-    fi
-}
 
 INSTALLED_KERNELS=0
 
 if [ -n "$KVER_LTS" ]; then
-    install_kernel stable "$KVER_LTS"
+    echo "  [lts] apt-get install linux-image-cixmini-lts"
+    apt-get install -y --no-install-recommends linux-image-cixmini-lts
+    if [ ! -s "/boot/vmlinuz-$KVER_LTS" ]; then
+        echo "ERROR: linux-image-cixmini-lts installed, but /boot/vmlinuz-$KVER_LTS is missing."
+        echo "       Installed package's kernel-release does not match the KVER_LTS sidecar" \
+             "($KVER_LTS) -- ISO manifest and Buildkite package version have drifted."
+        echo "       /boot contents:"
+        ls -la /boot 2>&1
+        exit 1
+    fi
+    modcount=$(find "/usr/lib/modules/$KVER_LTS" -name '*.ko' 2>/dev/null | wc -l)
+    if [ "$modcount" -lt 50 ]; then
+        echo "ERROR: [lts] modules dir suspiciously small (.ko count=$modcount, expected hundreds)"
+        exit 1
+    fi
+    echo "    OK: /boot/vmlinuz-$KVER_LTS + $modcount .ko modules"
     INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
 else
     echo "  [lts] not present in ISO — skipping"
 fi
 
 if [ -n "$KVER_NEXT" ]; then
-    [ -f "$ASSETS/edge/Image-cixmini.bin" ]   || { echo "ERROR: edge kernel binary missing"; exit 1; }
-    [ -f "$ASSETS/edge/modules-cixmini.tgz" ] || { echo "ERROR: edge modules tarball missing"; exit 1; }
-    install_kernel edge "$KVER_NEXT"
+    echo "  [next] apt-get install linux-image-cixmini-edge"
+    apt-get install -y --no-install-recommends linux-image-cixmini-edge
+    if [ ! -s "/boot/vmlinuz-$KVER_NEXT" ]; then
+        echo "ERROR: linux-image-cixmini-edge installed, but /boot/vmlinuz-$KVER_NEXT is missing."
+        echo "       Installed package's kernel-release does not match the KVER_NEXT sidecar" \
+             "($KVER_NEXT) -- ISO manifest and Buildkite package version have drifted."
+        echo "       /boot contents:"
+        ls -la /boot 2>&1
+        exit 1
+    fi
+    modcount=$(find "/usr/lib/modules/$KVER_NEXT" -name '*.ko' 2>/dev/null | wc -l)
+    if [ "$modcount" -lt 50 ]; then
+        echo "ERROR: [next] modules dir suspiciously small (.ko count=$modcount, expected hundreds)"
+        exit 1
+    fi
+    echo "    OK: /boot/vmlinuz-$KVER_NEXT + $modcount .ko modules"
     INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
 else
     echo "  [next] BETA kernel not present in ISO — skipping"
 fi
 
 if [ "$INSTALLED_KERNELS" -eq 0 ]; then
-    echo "[10] ERROR: no staged kernel assets were installed"
+    echo "[10] ERROR: no kernel packages were installed"
     exit 1
 fi
+
+# Headers for DKMS (NPU/GPU drivers). Not currently packaged separately on
+# Buildkite (no linux-headers-cixmini-* package as of r193) -- warn loudly,
+# same as the previous raw-copy behaviour did when the headers tarball was
+# absent, so any DKMS rebuild attempt on target fails with a clear reason
+# rather than a confusing missing-Makefile error.
+for kver in "$KVER_LTS" "$KVER_NEXT"; do
+    [ -z "$kver" ] && continue
+    if [ ! -f "/lib/modules/$kver/build/Makefile" ]; then
+        echo "    WARN: no kernel headers for $kver (/lib/modules/$kver/build/Makefile absent)" \
+             "— DKMS rebuild blocked on target" >&2
+    fi
+done
 
 # Remove Debian's default linux-image-arm64 — we ship our own.
 apt-get remove -y --purge "linux-image-arm64" || true
