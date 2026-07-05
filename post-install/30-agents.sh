@@ -1071,16 +1071,20 @@ read -r -p "Press Enter to close..." _ || true
 ZL
 chmod 0755 /usr/local/bin/zoder-launch
 
+# r190.4: operator feedback (2026-07-05, .66 fresh-install validation) -- the
+# icon launched zoder bare (no args), which just drops into an interactive
+# TUI with no project/config context and looks like it "does nothing"; the
+# desktop icon should point at the project's GitLab page instead, matching
+# how a user actually gets started with zoder (install docs, config, keys).
 cat > /etc/skel/Desktop/Zoder.desktop <<'ZD'
 [Desktop Entry]
 Version=1.0
-Type=Application
+Type=Link
 Name=Zoder
 GenericName=Zoder coding CLI
-Comment=Zoder — Rust coding assistant CLI (terminal)
-Exec=xterm -fa Monospace -fs 12 -T Zoder -e /usr/local/bin/zoder-launch
-Icon=utilities-terminal
-Terminal=false
+Comment=Zoder — Rust coding assistant CLI (project page)
+URL=https://gitlab.com/ncz-os/zoder
+Icon=web-browser
 Categories=Development;
 ZD
 chmod 0755 /etc/skel/Desktop/Zoder.desktop
