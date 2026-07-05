@@ -183,21 +183,28 @@ Pre-compiled `.cix` models are distributed via the **Cix AI Model Hub**.
   `tflite_alexnet_1core/3core` (each a `noe.cix` + input/golden bins).
 
 Run a shipped test graph directly via `libnoe` (see `/opt/cix/npu_embed_v2.py`
-for the ctypes pattern, or `vision_demo.py` for ResNet50 classification).
+for the ctypes pattern — there is no `vision_demo.py` in this repo; use the
+`libnoe` pattern against the shipped ResNet50 test graphs in
+`/usr/share/cix/testdata/npu/` directly).
 
 ### 5.3 Pulling new models from the repo
-The model hub is `cixtech/ai_model_hub_25_Q3` (Git LFS). Two ways:
+Two distinct repos, don't confuse them (see
+[docs/MODELSCOPE-MODELS.md](MODELSCOPE-MODELS.md) for the full breakdown):
+`cixtech/ai_model_hub` on GitHub is **recipes only** (no `.cix` blobs); the
+actual prebuilt `.cix` binaries live at `cix/ai_model_hub` on modelscope.cn,
+versioned by quarter (current: **`26_Q1`**).
 
 ```bash
-# (a) NCZ CLI helper
-ncz models pull            # → /opt/ncz/models   (fetches the .cix bundle)
-ncz models list            # show installed .cix files
+# (a) NCZ CLI helper — NOTE: `ncz models pull` is a stub as of this writing
+# (post-install/46-ncz-cli.sh prints "STUB (r75)" and exits 2). Use (b) below
+# until it's implemented.
+ncz models list             # show installed .cix files -- this one works
 
 # (b) Manual (full hub: YOLOv8n, CLIP, Whisper, ResNet50, SDXL-Turbo, ...)
 sudo apt install -y git git-lfs python3-numpy python3-pillow
 git lfs install
-git clone https://www.modelscope.cn/cix/ai_model_hub_25_Q3.git
-cd ai_model_hub_25_Q3
+GIT_LFS_SKIP_SMUDGE=1 git clone https://www.modelscope.cn/cix/ai_model_hub.git
+cd ai_model_hub
 git lfs pull --include="models/ComputeVision/Image_Classification/onnx_mobilenet_v2/*"
 cd models/ComputeVision/Image_Classification/onnx_mobilenet_v2
 python3 run_onnx.py        # runs the .cix on the NPU
@@ -218,7 +225,7 @@ huggingface-cli download <repo> <file.gguf> --local-dir /opt/ncz/models
 
 ## 6. Performance & how to choose an engine
 
-All numbers measured on the `.66` board, kernel `7.0.12-cix-sky1-main`,
+All numbers measured on the `.66` board, kernel `7.0.12-cix-sky1-next`,
 Mesa 26.1.3.
 
 ### 6.1 Measured performance
@@ -267,7 +274,7 @@ use it to free CPU/GPU during video transcode or camera pipelines.
   accelerator when a profile shows it's the bottleneck.
 - **For agents:** route a "vision tool" across engines — NPU for
   recognition, CPU for OCR, GPU for CV preprocessing — they run concurrently
-  out of shared memory (validated in `vision_demo.py`).
+  out of shared memory.
 - **For LLMs:** keep decode on CPU, optionally offload prefill to GPU. Don't
   expect the NPU to run LLMs.
 - **Watch the shared memory pool** (64 GB jumbo / 32 GB standard MS-R1). A

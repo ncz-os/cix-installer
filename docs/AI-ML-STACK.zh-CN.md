@@ -174,22 +174,28 @@ Zhouyi NPU 运行**提前编译（AOT）**的图（`.cix` / `noe.cix`），而�
   `tflite_resnet50_3core_3batch`、`onnx_resnet50_3core`、
   `tflite_alexnet_1core/3core`（各含一个 `noe.cix` + 输入/标准答案 bin）。
 
-可通过 `libnoe` 直接运行随附的测试图（ctypes 用法见 `/opt/cix/npu_embed_v2.py`，
-ResNet50 分类见 `vision_demo.py`）。
+可通过 `libnoe` 直接运行随附的测试图（ctypes 用法见 `/opt/cix/npu_embed_v2.py`；
+本仓库中不存在 `vision_demo.py`，请直接针对
+`/usr/share/cix/testdata/npu/` 中随附的 ResNet50 测试图使用 `libnoe` 模式）。
 
 ### 5.3 从仓库拉取新模型
-模型库为 `cixtech/ai_model_hub_25_Q3`（Git LFS）。两种方式：
+两个不同的仓库，不要混淆（完整说明见
+[docs/MODELSCOPE-MODELS.md](MODELSCOPE-MODELS.md)）：GitHub 上的
+`cixtech/ai_model_hub` **只有配方**（无 `.cix` 二进制文件）；真正预编译的
+`.cix` 模型在 modelscope.cn 的 `cix/ai_model_hub`，按季度分版本（当前：
+**`26_Q1`**）。
 
 ```bash
-# (a) NCZ CLI 辅助命令
-ncz models pull            # → /opt/ncz/models   （拉取 .cix 包）
-ncz models list            # 显示已安装的 .cix 文件
+# (a) NCZ CLI 辅助命令 —— 注意：截至本文档撰写时 `ncz models pull` 仍是
+# 一个桩函数（post-install/46-ncz-cli.sh 会打印 "STUB (r75)" 并以 exit 2
+# 退出）。在它被实现之前请使用下面的 (b)。
+ncz models list             # 显示已安装的 .cix 文件 —— 这个可用
 
 # (b) 手动（完整库：YOLOv8n、CLIP、Whisper、ResNet50、SDXL-Turbo……）
 sudo apt install -y git git-lfs python3-numpy python3-pillow
 git lfs install
-git clone https://www.modelscope.cn/cix/ai_model_hub_25_Q3.git
-cd ai_model_hub_25_Q3
+GIT_LFS_SKIP_SMUDGE=1 git clone https://www.modelscope.cn/cix/ai_model_hub.git
+cd ai_model_hub
 git lfs pull --include="models/ComputeVision/Image_Classification/onnx_mobilenet_v2/*"
 cd models/ComputeVision/Image_Classification/onnx_mobilenet_v2
 python3 run_onnx.py        # 在 NPU 上运行该 .cix
@@ -210,7 +216,7 @@ huggingface-cli download <repo> <file.gguf> --local-dir /opt/ncz/models
 
 ## 6. 性能 & 如何选择引擎
 
-所有数字均在 `.66` 主板、内核 `7.0.12-cix-sky1-main`、Mesa 26.1.3 上实测。
+所有数字均在 `.66` 主板、内核 `7.0.12-cix-sky1-next`、Mesa 26.1.3 上实测。
 
 ### 6.1 实测性能
 
@@ -259,7 +265,7 @@ huggingface-cli download <repo> <file.gguf> --local-dir /opt/ncz/models
 - **从 CPU 起步。** 它总能工作，是基线；只有当性能分析显示它是瓶颈时才迁移到
   加速器。
 - **对于智能体：** 把一个"视觉工具"跨引擎路由 —— NPU 做识别、CPU 做 OCR、
-  GPU 做 CV 预处理 —— 它们从共享内存中并发运行（已在 `vision_demo.py` 中验证）。
+  GPU 做 CV 预处理 —— 它们从共享内存中并发运行。
 - **对于 LLM：** 解码保留在 CPU 上，可选地把 prefill 卸载到 GPU。不要指望
   NPU 运行 LLM。
 - **关注共享内存池**（超大杯 64 GB / 标准 MS-R1 32 GB）。GPU 上一个 4 GB 的
