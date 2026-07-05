@@ -310,6 +310,30 @@ network-console 之后才有 `sshd`）。
   每台机器都有唯一名称；安装时设置的运维者主机名（若有）始终优先。见
   `post-install/37-ntp-hostname.sh`。
 
+## 救援分区
+
+每次安装都会附带一个独立的 4 GiB ext4 **NCZRESCUE** 分区，由
+`post-install/72-rescue-partition.sh` 在安装时用预构建的救援根文件系统
+（`build/build-rescue-rootfs.sh`）填充。它有自己的 rEFInd 菜单项
+（"RESCUE PARTITION"），与主根文件系统相互独立 —— 即使主系统（btrfs 或
+ext4）无法启动，救援分区仍能启动。
+
+**登录：** root，密码 **`rescue`**（仅限局域网使用）。主机名 `ncz-rescue`。
+
+**访问方式：** SSH（22 端口，密码认证）、dropbear（2222 端口）、telnet
+（23 端口）、串口控制台（`ttyAMA2@115200`）。DHCP 失败时回退到静态 IP
+`192.168.207.66/24`（网关 `192.168.207.1`）。
+
+**工具集：** 一套真正完整的恢复工具集（不只是最小 shell）——
+文件系统（btrfs-progs、e2fsprogs、xfsprogs 等）、磁盘/分区
+（fdisk、parted、gdisk、nvme-cli、lvm2、cryptsetup）、镜像/数据恢复
+（`ddrescue`、`testdisk`+`photorec`）、网络（完整 iproute2/net-tools、
+tcpdump、socat、rclone）、硬件诊断（pciutils、usbutils、efibootmgr、
+`refind` 本身）、内核/initrd 修复（kmod、initramfs-tools、
+device-tree-compiler，以及两个专用助手 `ncz-rescue-fixlib` 和
+`ncz-rescue-chroot <device>`）、shell/脚本（vim、tmux、python3）。
+`/AGENTS.md` 记录了系统信息与逐步恢复流程。
+
 ## 通过 APT 升级内核与驱动 —— 无需重装
 
 `post-install/24-apt-sources.sh` 接入 Buildkite 源并刷新软件包索引，且刻意
