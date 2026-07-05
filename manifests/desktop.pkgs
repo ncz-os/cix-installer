@@ -54,6 +54,7 @@ blueman
 fonts-noto-core
 fonts-noto-cjk
 fonts-noto-color-emoji
+fonts-liberation  # vivaldi-stable dependency (52-vivaldi.sh)
 
 # --- archives ---
 xarchiver
