@@ -91,23 +91,21 @@ LD_LIBRARY_PATH=/usr/share/cix/lib \
 # 3. embedkit picks the NPU (once embedkit is installed)
 embedkit-doctor          # audits hardware + shows chosen adapter
 
-# 4. end-to-end smoke (bundled test, no torch/transformers needed)
-cd /home/<user>/bge-npu-test && \
-  LD_LIBRARY_PATH=/usr/share/cix/lib \
-  /opt/ncz/embed-venv/bin/python npu_bge_test.py
-# expect: out[1] shape (512,), query->doc0 top match, ~50 emb/s
+# 4. end-to-end smoke (installed helper, no torch/transformers needed)
+embedkit-bench
+# expect: NPU adapter selected, ~50 emb/s
 ```
 
-The standalone smoke uses the lightweight `tokenizers` lib + `NOE_Engine`
-directly, so it validates **driver fidelity** without the MNEMOS/embedkit app
-layer.
+`embedkit-bench` exercises the same `npu-cix` adapter MNEMOS uses via
+`Engine.auto()`, so a pass here validates **driver fidelity** independent of
+whether MNEMOS itself is installed.
 
 ---
 
 ## Performance notes
 
 - ~51 emb/s single-text on `.66` (Zhouyi V3, libnoe 0.6.0). The CPU ONNX path
-  (fastembed on the 12-core Neoverse) is faster per-second (~700 emb/s) but the
+  (fastembed on the 12-core Cortex-A720/A520 CPU) is faster per-second (~700 emb/s) but the
   NPU is far better per-watt — the right tradeoff for a 24/7 always-on
   appliance.
 - The per-call `noe_create_job` / `noe_clean_job` log spam is the **0x23
@@ -121,5 +119,4 @@ layer.
 
 - `assets/models/MODELS-README.md` — what's in the model store.
 - `docs/MODELSCOPE-MODELS.md` — pulling `.cix` models from the Cix hub.
-- `docs/EMBEDKIT-DESIGN.md` — the silicon-agnostic adapter design.
 - cixtech/cix-linux-main#21 — the SDK/`.cix`/libnoe open-source request.

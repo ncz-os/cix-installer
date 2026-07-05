@@ -1,6 +1,6 @@
 # Inference Limits & Capability Matrix — cixmini (CIX Sky1)
 
-**Box:** Minisforum MS-R1 — CIX Sky1 (CD8180): 12-core ARMv9 Neoverse, Mali-G720
+**Box:** Minisforum MS-R1 — CIX Sky1 (CP8180): 12-core big.LITTLE (Cortex-A720 + Cortex-A520), Mali-G720
 (Immortalis) GPU, Zhouyi V3 NPU (~30 TOPS INT8), 64 GB unified LPDDR.
 **Kernel:** `7.0.12-cix-sky1-next`. **Measured:** 2026-05 → 2026-06 on `.66`.
 Raw logs: `/mnt/argonas_backups/cixmini-bench/<ts>/` (ncnn cpu/gpu, embeddings).
@@ -29,10 +29,10 @@ pixels — not for ML compute.**
 | Path | Driver stack | Model formats | Best workloads | Status | Hard limit |
 |---|---|---|---|---|---|
 | **NPU — Zhouyi V3** | `armchina_npu.ko` (in-tree) + `cix-noe-umd 2.0.2` / `libnoe.so.0.6.0` + `NOE_Engine`/`libnoe` py3.11 wheels | `.cix` (Compass NN AOT, INT8/INT16) | encoder embeddings, CNN/vision, OCR, Whisper, CLIP, detection | **production** (prebuilt `.cix` only) | fixed-shape graphs only; ~2 GB IOVA; py3.11/3.12; 0x23 job churn |
-| **CPU — 12-core Neoverse** | native (NEON/SVE) | GGUF (llama.cpp), ONNX (fastembed/ORT), PyTorch | long-token embeddings, LLM decode, anything dynamic-shape, universal fallback | **production** | memory-bandwidth bound on big GEMM |
+| **CPU — 12-core A720/A520** | native (NEON/SVE) | GGUF (llama.cpp), ONNX (fastembed/ORT), PyTorch | long-token embeddings, LLM decode, anything dynamic-shape, universal fallback | **production** | memory-bandwidth bound on big GEMM |
 | **GPU compute — panvk (Vulkan)** | `panthor.ko` + Mesa panvk | GGUF (llama.cpp Vulkan) | *(none for ML)* | **not recommended** | no cooperative-matrix; non-conformant; 6–47× slower than CPU |
 | **GPU compute — rusticl (OpenCL)** | `panthor.ko` + Mesa rusticl (Gallium) | OpenCL kernels (no ML framework) | raw GEMM only (~1.9 TFLOPS FP32 clpeak) | **experimental** | no ML framework targets it; slow host readback |
-| **GPU compute — libmali (OpenCL, vendor)** | vendor `libmali` OpenCL | vendor blob, no ICD loader | CNN/quantized *if* you bring a framework | **experimental** | not a real ICD; integration-hostile; slow readback |
+| **GPU compute — libmali (OpenCL, vendor)** | vendor `libmali` OpenCL | vendor blob, no ICD loader | CNN/quantized *if* you bring a framework | **not shipped** | `post-install/25-cix-proprietary.sh` explicitly skips `cix-gpu-driver_*.deb` (vermagic-incompatible with the panthor-kernel jump) -- not merely flaky, currently absent/unloadable on the shipped image |
 | **GPU display — panthor** | `panthor.ko` + Mesa panfrost/panvk | — | KMS, desktop GL/Vulkan | **production** | GPU **compositing disabled by default** — zink/kopper can't create an X11 swapchain on 7.0.x (see note below) |
 
 ---
@@ -44,7 +44,7 @@ Single-stream, MiniLM-L6 / bge-small class, seq 128–256. Higher = better.
 | Path | Engine / model | emb/s | Notes |
 |---|---:|---:|---|
 | **NPU** | `NOE_Engine` + `bge-small-zh-v1.5_256.cix` | **~51** | measured .66 2026-06-17; 512-dim, retrieval correct |
-| **NPU** | `NOE_Engine` + `minilm_128.cix` (real tokenized) | ~56 | per-call job churn; batch/persistent-job target ~66–80 |
+| **NPU** | `NOE_Engine` + `minilm_128.cix` (real tokenized) | ~56 | per-call job churn; batch/persistent-job target ~66-80. **Not part of the shipped ISO** -- `assets/models/` only ships `bge-small-zh-v1.5_256.cix`; `minilm_128.cix` was pulled ad hoc from the Cix hub for this benchmark. |
 | **CPU** | fastembed / ONNX Runtime (optimized) | ~700 | #21 figure; ORT is *far* faster than llama.cpp for encoders |
 | **CPU** | `llama.cpp` (MiniLM-L6 Q8 GGUF) | 13.3 | GGUF path is not the fast CPU path for embeddings |
 | **GPU** | Mali-G720 panvk (`llama.cpp` Vulkan, MiniLM Q8) | 8.8 | slowest; readback + no coop-matrix |
@@ -75,7 +75,7 @@ loop_count=8, cooling_down=1. CPU = 4 threads.
 | vgg16 | 37.38 | 373.94 | 10× | — |
 | googlenet | 9.78 | 84.63 | 9× | — |
 | mobilenet_yolo | 23.16 | 168.57 | 7× | — |
-| yolov8n | — | — | — | **~14.5 (≈69/s)** |
+| yolov8n | — | — | — | **~14.5 (≈69/s)** (pulled ad hoc from the Cix hub for this benchmark -- not shipped on the ISO) |
 | vision_transformer | 215.70 | 10210.6 | **47×** | — |
 
 NPU vision numbers measured on `.66` (mobilenet_v2 2026-05, yolov8n 2026-06-17).
@@ -95,7 +95,7 @@ no matmul acceleration → always slower than CPU, catastrophically so for ViT.
 - **GPU**: Mali-G720's Vulkan exposes **no cooperative-matrix** (`fp16/int8/bf16/
   fp8-cm=0`), so attention/FFN GEMMs get no acceleration; rusticl has raw FLOPS
   (~1.9 TFLOPS FP32) but no LLM framework targets it and readback is slow.
-- **CPU**: `llama.cpp` on the 12-core Neoverse is the only practical path —
+- **CPU**: `llama.cpp` on the Cortex-A720/A520 big.LITTLE cores is the only practical path —
   fine for small quantized models, modest tok/s. This is the fallback, not a
   showcase.
 
@@ -136,7 +136,7 @@ for the memory/embedding lane.
   OpenCL have raw FLOPS but no ML framework consumes them and host readback is
   slow. Use only for OpenCL-native CV/image processing that keeps data on-device.
 
-### CPU — 12-core Neoverse
+### CPU — 12-core Cortex-A720/A520 (big.LITTLE)
 
 - **The universal path.** Best for long-token embeddings (no 256-tok cap),
   LLM decode, dynamic-shape models, and as the fallback when NPU/GPU can't run a
@@ -166,12 +166,11 @@ for the memory/embedding lane.
   within tier — no vendor preference. On Sky1 it selects the `npu-cix` adapter
   automatically (`docs/MNEMOS-NPU-EMBEDDINGS.md`).
 - NPU runtime + the bge `.cix` + tokenizer are baked into the ISO; models layer
-  via `ncz model add` / the Cix hub (`docs/MODELSCOPE-MODELS.md`).
+  via manual `git lfs` pull from the Cix hub (see `docs/MODELSCOPE-MODELS.md`) -- there is no `ncz model add`/working `ncz models pull` yet, that subcommand is a stub.
 - GPU is wired for display only; nothing routes ML compute to it.
 
 ## References
 
 - `docs/MNEMOS-NPU-EMBEDDINGS.md` — automatic embedding chain
 - `docs/MODELSCOPE-MODELS.md` — pulling `.cix` models
-- `docs/FB-POST-IS-IT-GPU-LLM-OR-NPU-MEMORY.md` — cache-aware throughput
 - cixtech/cix-linux-main#21 — libnoe / `.cix` / persistent-job upstream asks
