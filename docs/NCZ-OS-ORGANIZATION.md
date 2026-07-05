@@ -37,6 +37,9 @@ GitLab ncz-os/*  (CANONICAL)  ──mirror──▶  GitHub + Codeberg + ARGONAS
 
 ┌─ Per-variant BUILDERS (build mechanism differs) ──────────────────────────┐
 │  cix-installer        Cix Sky1   — d-i/debootstrap netinstall   [ACTIVE]   │
+│  cix-gen              Cix Sky1   — script-based, in-place rebuild [ACTIVE] │
+│                       (alt to cix-installer: runs from a live aarch64     │
+│                       system, no d-i; different use case, same target)   │
 │  pi-gen               Raspberry Pi — pi-gen image                [ACTIVE]   │
 │  jetson-installer     NVIDIA Jetson — flash/SDK                  [DEFERRED] │
 └───────────────────────────────────────────────────────────────────────────┘
