@@ -75,7 +75,12 @@ build_layer(){ local role="$1" manifest="$2"
   sudo mount -t overlay overlay -o "lowerdir=$L,upperdir=$U,workdir=$WK" "$MG"
   mount_chroot "$MG"; apt_offline "$MG"
   echo -e '#!/bin/sh\nexit 101' | sudo tee "$MG/usr/sbin/policy-rc.d" >/dev/null; sudo chmod +x "$MG/usr/sbin/policy-rc.d"
-  local pkgs; pkgs=$(grep -vE '^#|^[[:space:]]*$' "$ROOT/$manifest" | tr '\n' ' ')
+  # r190.1: strip inline trailing comments too, not just whole-line ones --
+  # a `pkg  # comment` line used to be passed to apt-get install VERBATIM
+  # (comment text included), which corrupted the whole batch install and
+  # silently dropped unrelated packages (librsvg2-bin, in the 2026-07-05
+  # incident this fixes -- see project_cix_buildkite_mirror_2026_07_05).
+  local pkgs; pkgs=$(sed 's/#.*//' "$ROOT/$manifest" | sed -E 's/[[:space:]]+$//' | grep -vE '^[[:space:]]*$' | tr '\n' ' ')
   log "$role: apt-install $(echo $pkgs|wc -w) top-level packages (complete set + closure)"
   sudo chroot "$MG" apt-get install -y --no-install-recommends $pkgs 2>&1 | tail -6 || log "  WARN apt rc=$?"
   # r164: the resolute BASE ships the full GNOME desktop (gnome-shell + gdm3 +
