@@ -57,12 +57,29 @@ for f in /boot/vmlinuz-*; do
     kver="${f#/boot/vmlinuz-}"
     case "$kver" in
         *-rescue) continue ;;
-        *-lts)  KVER_LTS="$kver" ;;
-        *-next) KVER_NEXT="$kver" ;;
+        *-lts|*-next)
+            # Skip a kernel mid-unpack: if BOTH LTS and NEXT are being
+            # upgraded in the same apt transaction, this hook can fire
+            # (from the first kernel's own postinst) before the second
+            # kernel's postinst has generated its initrd yet. Passing an
+            # incomplete kernel through makes ncz-refind-refresh hard-fail
+            # on a missing initrd and would break a combined LTS+NEXT
+            # upgrade. Skipping it here just means that kernel's entry
+            # isn't refreshed THIS run -- its own postinst calls this same
+            # hook again once its initrd exists.
+            if [ ! -s "/boot/initrd.img-$kver" ]; then
+                echo "cixmini-update-bootloader: $kver has no initrd yet (mid-transaction?) -- skipping this kernel for now"
+                continue
+            fi
+            case "$kver" in
+                *-lts)  KVER_LTS="$kver" ;;
+                *-next) KVER_NEXT="$kver" ;;
+            esac
+            ;;
     esac
 done
 if [ -z "$KVER_LTS" ] && [ -z "$KVER_NEXT" ]; then
-    echo "cixmini-update-bootloader: no LTS/NEXT kernel found, skipping"
+    echo "cixmini-update-bootloader: no LTS/NEXT kernel with a ready initrd found, skipping"
     exit 0
 fi
 
@@ -80,14 +97,21 @@ echo "[11] redirected $WRAPPER_DST -> ncz-refind-refresh (was: systemd-boot)"
 
 # Self-healing: re-apply the override whenever cixmini-boot itself is
 # installed/upgraded/reinstalled (which would otherwise restore dpkg's
-# packaged systemd-boot version, since this path isn't a conffile).
+# packaged systemd-boot version, since this path isn't a conffile). Also
+# re-RUNS the wrapper (not just restores it) as a catch-all: if a single
+# apt transaction upgrades cixmini-boot AND a kernel together, dpkg runs
+# cixmini-boot's postinst (restoring the ORIGINAL systemd-boot version)
+# before the kernel's own postinst calls it -- so the kernel that just
+# installed would get refreshed against the wrong (stale) wrapper. This
+# Post-Invoke re-applies our override AND immediately runs it once more
+# at the end of the transaction, so refind.conf still ends up correct.
 APT_HOOK=/etc/apt/apt.conf.d/91-ncz-fix-cixmini-boot
 cat > "$APT_HOOK" <<HOOKEOF
 // Re-apply the rEFInd redirect for cixmini-update-bootloader after any
 // transaction touching cixmini-boot -- see post-install/11-fix-cixmini-boot.sh
 // in cix-installer for why this file gets overwritten instead of upstream-fixed.
 DPkg::Post-Invoke {
-    "if dpkg -s cixmini-boot >/dev/null 2>&1 && [ -s $WRAPPER_STABLE ]; then install -m 0755 $WRAPPER_STABLE $WRAPPER_DST; fi";
+    "if dpkg -s cixmini-boot >/dev/null 2>&1 && [ -s $WRAPPER_STABLE ]; then install -m 0755 $WRAPPER_STABLE $WRAPPER_DST && $WRAPPER_DST || true; fi";
 }
 HOOKEOF
 echo "[11] installed apt self-healing hook -> $APT_HOOK"

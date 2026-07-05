@@ -221,7 +221,7 @@ else
 tty_msg "Phase 1: required hooks (kernel + sky1-firmware + network)"
 for hook in $(ls [0-9][0-9]-*.sh | sort); do
     case "$hook" in
-        10-our-kernel.sh|12-sky1-firmware.sh|33-network.sh)
+        10-our-kernel.sh|11-fix-cixmini-boot.sh|12-sky1-firmware.sh|33-network.sh)
             LOG="$LOGDIR/${hook%.sh}.log"
             HOOK_START=$(date +%s)
             tty_msg "  → $hook (required)"
