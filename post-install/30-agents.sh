@@ -681,7 +681,7 @@ Type=Application
 Name=⭐ Install AI Agents & MNEMOS
 GenericName=AI agent + MNEMOS installer (zeroclaw / openclaw / hermes / portainer / mnemos)
 Comment=Start here — pull + launch your AI agents and the MNEMOS memory server
-Exec=xfce4-terminal --title="Install AI Agents & MNEMOS" --hold --command="/usr/local/bin/ncz-install-stack"
+Exec=xterm -fa Monospace -fs 12 -T "Install AI Agents and MNEMOS" -e /usr/local/bin/ncz-install-stack
 Icon=ncz-rocket
 Terminal=false
 StartupNotify=true
@@ -998,7 +998,7 @@ Version=1.0
 Type=Application
 Name=NCZ CLI
 Comment=NCZ command-line — agents, NPU status (ncz help)
-Exec=xfce4-terminal --title=NCZ --hold --command="ncz help"
+Exec=xterm -fa Monospace -fs 12 -T NCZ -hold -e /usr/local/bin/ncz help
 Icon=ncz-rocket
 Terminal=false
 Categories=System;Settings;
@@ -1012,7 +1012,7 @@ Version=1.0
 Type=Application
 Name=Claude Code
 Comment=Anthropic Claude Code CLI
-Exec=xfce4-terminal --title=ClaudeCode --command=claude
+Exec=xterm -fa Monospace -fs 12 -T ClaudeCode -e claude
 Icon=utilities-terminal
 Terminal=false
 Categories=Development;
@@ -1078,7 +1078,7 @@ Type=Application
 Name=Zoder
 GenericName=Zoder coding CLI
 Comment=Zoder — Rust coding assistant CLI (terminal)
-Exec=xfce4-terminal --title=Zoder --hold --command="/usr/local/bin/zoder-launch"
+Exec=xterm -fa Monospace -fs 12 -T Zoder -e /usr/local/bin/zoder-launch
 Icon=utilities-terminal
 Terminal=false
 Categories=Development;
@@ -1219,7 +1219,7 @@ Type=Application
 Name=Install MNEMOS
 GenericName=MNEMOS memory server installer
 Comment=Pull + start the MNEMOS memory server (REST + MCP + OpenAI gateway on :5002)
-Exec=xfce4-terminal --title="Install MNEMOS" --hold --command="bash -c 'sudo ncz install mnemos'"
+Exec=xterm -fa Monospace -fs 12 -T "Install MNEMOS" -hold -e bash -c "sudo ncz install mnemos"
 Icon=applications-science
 Terminal=false
 StartupNotify=true
@@ -1245,6 +1245,39 @@ chmod 0755 /etc/skel/Desktop/MNEMOS-Docs.desktop
 cp /etc/skel/Desktop/*.desktop /usr/share/applications/ 2>/dev/null
 chmod 0644 /usr/share/applications/*.desktop 2>/dev/null
 update-desktop-database 2>&1 | tail -1
+
+# r188: xfdesktop 4.20 refuses to launch a ~/Desktop .desktop file unless gvfs
+# metadata::xfce-exe-checksum equals the file's own sha256 -- otherwise every
+# icon prompts "Untrusted application launcher" on first click. gio launch
+# (used to smoke-test these icons) bypasses this gate entirely, which is why
+# the prompt wasn't caught earlier -- confirmed via a real xdotool double-click
+# reproducing the operator's exact error (2026-07-05). Pre-seed trust at every
+# XFCE session start so a fresh user never sees the prompt; also covers
+# per-agent dashboard launchers create_launcher() adds later, and re-seeds
+# after any .desktop is rewritten in place (e.g. this hook's own re-runs).
+cat > /usr/local/bin/ncz-trust-desktop-icons <<'TRUSTSH'
+#!/bin/bash
+# Mark every ~/Desktop/*.desktop file as trusted for xfdesktop 4.20+, which
+# gates launch on gvfs metadata::xfce-exe-checksum == sha256(file).
+for f in "$HOME/Desktop"/*.desktop; do
+    [ -f "$f" ] || continue
+    sum=$(sha256sum "$f" | cut -d' ' -f1)
+    gio set "$f" metadata::xfce-exe-checksum "$sum" 2>/dev/null
+done
+TRUSTSH
+chmod 0755 /usr/local/bin/ncz-trust-desktop-icons
+
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/ncz-trust-desktop-icons.desktop <<'AUTO'
+[Desktop Entry]
+Type=Application
+Name=NCZ Desktop Icon Trust Seeder
+Exec=/usr/local/bin/ncz-trust-desktop-icons
+NoDisplay=true
+X-XFCE-Autostart-enabled=true
+StartupNotify=false
+Terminal=false
+AUTO
 
 # r74: ensure podman.socket is enabled so portainer can talk to it
 # AFTER the operator runs `ncz agent install portainer`.

@@ -85,7 +85,7 @@ fi
 # is NOT best-effort — a usable desktop requires it — but the bundled pool now
 # carries the full closure (manifests/desktop.pkgs), so the fallback should
 # never trigger in practice.
-CORE_DESKTOP="lightdm lightdm-gtk-greeter xubuntu-core xfce4-session xfce4-terminal \
+CORE_DESKTOP="lightdm lightdm-gtk-greeter xubuntu-core xfce4-session \
     xfce4-power-manager xfce4-screenshooter xfce4-taskmanager \
     xserver-xorg-video-fbdev xserver-xorg-video-modesetting \
     xrdp \
