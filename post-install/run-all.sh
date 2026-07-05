@@ -214,39 +214,57 @@ done
 
 # Phase 1: required hooks (set -e)
 set -euo pipefail
+# r193.1 (found on .66, 2026-07-06): a baked image used to skip Phase 1
+# ENTIRELY, on the assumption the kernel/firmware/network are all already
+# present from the bake. True for firmware/network, but the kernel-apt fix
+# (10-our-kernel.sh) needs to run even on a baked image -- otherwise dpkg
+# never learns the kernel is installed (baked images pre-date that fix, or
+# even ones built after it still need the *install* to register the
+# package, since the bake only wrote files to the squashfs, not a dpkg
+# database entry) and `apt upgrade` has nothing it thinks needs upgrading,
+# exactly the bug this whole fix exists to close. 12-sky1-firmware.sh and
+# 33-network.sh remain genuinely bake-safe to skip.
 if [ "$NCZ_BAKED" = 1 ]; then
-    tty_msg "Phase 1: SKIPPED (baked image — kernel/firmware/network already installed)"
-    REQUIRED_PHASE_OK=1
+    tty_msg "Phase 1: baked image — firmware/network skipped, kernel dpkg-tracking still required"
 else
-tty_msg "Phase 1: required hooks (kernel + sky1-firmware + network)"
+    tty_msg "Phase 1: required hooks (kernel + sky1-firmware + network)"
+fi
 for hook in $(ls [0-9][0-9]-*.sh | sort); do
     case "$hook" in
-        10-our-kernel.sh|11-fix-cixmini-boot.sh|12-sky1-firmware.sh|33-network.sh)
-            LOG="$LOGDIR/${hook%.sh}.log"
-            HOOK_START=$(date +%s)
-            tty_msg "  → $hook (required)"
-            echo ""
-            echo "============================================================"
-            echo "[cix-installer] [REQUIRED] running $hook → $LOG"
-            echo "============================================================"
-            set +e
-            bash ./"$hook" 2>&1 | tee "$LOG"
-            rc=${PIPESTATUS[0]}
-            set -e
-            if [ "$rc" -ne 0 ]; then
-                tty_msg "  ✗ $hook FAILED rc=$rc — install aborts"
-                echo "[cix-installer] FATAL on $hook rc=$rc — install cannot continue"
-                # The EXIT trap will skip the bootloader because Phase 1 did
-                # not complete. Preserve the required hook rc.
-                exit "$rc"
+        12-sky1-firmware.sh|33-network.sh)
+            if [ "$NCZ_BAKED" = 1 ]; then
+                tty_msg "  → $hook SKIPPED (baked image)"
+                continue
             fi
-            HOOK_DUR=$(( $(date +%s) - HOOK_START ))
-            tty_msg "  ✓ $hook done (${HOOK_DUR}s)"
+            ;;
+        10-our-kernel.sh|11-fix-cixmini-boot.sh)
+            ;;
+        *)
+            continue
             ;;
     esac
+    LOG="$LOGDIR/${hook%.sh}.log"
+    HOOK_START=$(date +%s)
+    tty_msg "  → $hook (required)"
+    echo ""
+    echo "============================================================"
+    echo "[cix-installer] [REQUIRED] running $hook → $LOG"
+    echo "============================================================"
+    set +e
+    bash ./"$hook" 2>&1 | tee "$LOG"
+    rc=${PIPESTATUS[0]}
+    set -e
+    if [ "$rc" -ne 0 ]; then
+        tty_msg "  ✗ $hook FAILED rc=$rc — install aborts"
+        echo "[cix-installer] FATAL on $hook rc=$rc — install cannot continue"
+        # The EXIT trap will skip the bootloader because Phase 1 did
+        # not complete. Preserve the required hook rc.
+        exit "$rc"
+    fi
+    HOOK_DUR=$(( $(date +%s) - HOOK_START ))
+    tty_msg "  ✓ $hook done (${HOOK_DUR}s)"
 done
 REQUIRED_PHASE_OK=1
-fi
 
 # Phase 2: optional hooks. Failures logged but don't abort.
 set +e
