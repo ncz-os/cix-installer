@@ -111,7 +111,7 @@ paths, and board/device-tree quirks. On any other board it may not boot, the
 NPU/GPU/VPU may not initialize, or the installer may need board-specific work.
 **Testers and donated hardware are the fastest way to change a ❌ to a ✅.**
 
-### Driver support matrix — O6 / O6N
+### Driver support matrix — MS-R1 / O6 / O6N
 
 The kernel that actually ships in this installer is **7.0.12-cix-sky1-next**
 (`assets/kernel/edge/KVER`, patch series `next-patches/0001`–`0043` +
@@ -129,28 +129,32 @@ is empty on both the MS-R1 and (per operator reports) Orion O6. There is no
 claimed one existed in `assets/kernel/` — it doesn't, and never has for this
 kernel line.
 
-| Subsystem | Driver | Config | O6 | O6N | Notes |
-|---|---|---|---|---|---|
-| **Clock** | `clk-sky1-acpi` | `=y` | ✅ | ✅ | ACPI clock infra (patch `0003`); base SoC infra in `0002`. |
-| **Reset** | `reset-sky1` | `=y` | ✅ | ✅ | Reset controllers + ACPI lookup table (patch `0004`). |
-| **Pinctrl** | `pinctrl-sky1` | `=y` | ✅ | ✅ | Patch `0007`. |
-| **Mailbox** | `cix-mbox` | `=y` | ✅ | ✅ | ACPI support + channel lookup (patch `0005`). |
-| **SCMI** | `arm-scmi` (clock + perf + power + sensor domains) | `=y` | ✅ | ✅ | ACPI boot support (patch `0006`); confirmed in `config.sky1-next` (`CONFIG_ARM_SCMI_PERF_DOMAIN=y`, `CONFIG_ARM_SCMI_POWER_DOMAIN=y`). |
-| **Thermal** | `cix-thermal` + IPA + cpufreq | `=y` | ✅ | ✅ | Patch `0017`. |
-| **DSP** | `cix-dsp` + `cix-dsp-rproc` | `=m` | ✅ | ✅ | Remoteproc + rpmsg (patch `0019`); confirmed loaded (`cix_dsp_rproc`) on real Sky1 hardware. |
-| **Audio (HDA)** | `snd-hda-cix-ipbloq` + Realtek ALC codecs | `=m` | ✅ | ✅ | Patches `2015`–`2017`. Verified ALC269VC analog + digital + HDMI/DP on real hardware. |
-| **Audio (SoC)** | `snd-soc-sky1-sound-card` + Cadence I2S + `snd-soc-sof-cix` | `=m` | ✅ | ✅ | Patch `2014`. SOF (`CONFIG_SND_SOC_SOF_CIX_TOPLEVEL=y`, `CONFIG_SND_SOC_SOF_CIX_SKY1=m`) is built but not observed loaded on real hardware — the machine driver (`snd-soc-sky1-sound-card`) handles audio directly; SOF appears to be a dormant/fallback path, not confirmed active. |
-| **GPU (Mali-G720)** | `panthor` + `drm-cix` + `drm-trilin-dp-cix` (DisplayPort) | `=m` | ✅ | ✅ | Patches `0011`/`0012`. `panthor` confirmed loaded + rendering (Mali-G720-Immortalis, CSF FW); `drm-trilin-dp-cix`/`drm-trilin-dpsub` confirmed loaded (`trilin_dpsub`, `linlon_dp`) on real hardware. |
-| **VPU (Linlon MVX)** | `amvx` | `=m` | ✅ | ✅ | Video codec driver (patch `0015`). The in-tree driver has a vb2 `q->lock` bug on this kernel — fixed via a validated overlay (see `post-install/81-vpu.sh`); needs `amvx` neutralized in the vendor blacklist to auto-load (fixed `cd822ed`). |
-| **NPU (Zhouyi V3)** | `armchina-npu` | `=m` | ✅ | ✅ | Patch `0016`. Needs `CONFIG_ARMCHINA_NPU_ARCH_V3=y` — the Sky1 NPU reports ISA version 5 (Zhouyi V3), not 6 (V3_1); both are now enabled (fixed `053b5ce`). ⚠️ The 32-bit SMMU/IOVA DMA constraint (`2009-armchina-npu-msr1-smmu-32bit-dma-constraint.patch`) is titled and written specifically for **MS-R1** — it has not been confirmed necessary or correct for O6/O6N's SMMU topology. Treat NPU on O6/O6N as *should work*, not independently verified. |
-| **Ethernet** | `r8169` (RTL8125/8126/8169) | `=y` | ✅ | ✅ | `rtl_nic` firmware shipped in installer + installed system. Confirmed `CONFIG_R8169=y` (built-in, not a module) in `config.sky1-next`. |
-| **Wi-Fi** | `mt7921e` (MediaTek MT7921/MT7922) | `=m` | ✅ | ✅ | M.2 Key-E slot; confirmed loaded on real hardware. |
-| **Wi-Fi (alt)** | `rtw88`/`rtw89` firmware | `=m` | ✅ | ✅ | If equipped (`rtw8852b`, `rtw8822`, etc. firmware shipped). |
-| **PCIe / USB / PHY** | `pcie-cadence`, `usb-cdnsp`, `phy-cix-usbdp`, `phy-cix-pcie` | `=y` | ✅ | ✅ | Patches `0008`/`0009`/`0010`. |
-| **USB Type-C** | `typec-rts5453` | — | ⚠️ | ⚠️ | Not currently loaded by default — `typec_rts5453`/`rts5453` are in `module_blacklist=` on the boot cmdline (workaround for an unrelated boot issue; see cmdline below). Present in the kernel, not active out of the box. |
-| **IOMMU/SMMU** | `arm-smmu-v3` | `=y` | ✅ | ✅ | Confirmed loaded on real hardware. |
-| **GPIO / I2C / DMA / PWM / Syscon / Regulator / Timer / IRQ** | Sky1 misc peripherals | mixed | ✅ | ✅ | Patch `0018` (misc peripherals) + `0021` (firmware/pinctrl ACPI gaps). |
-| **SoC ACPI resource lookup** | `cix-acpi-resource-lookup` | `=y` | ✅ | ✅ | `CONFIG_CIX_ACPI_RESOURCE_LOOKUP=y` confirmed; folded into patches `0002`/`0008`, not a standalone `9007`-style patch. |
+| Subsystem | Driver | Config | MS-R1 | O6 | O6N | Notes |
+|---|---|---|---|---|---|---|
+| **Clock** | `clk-sky1-acpi` | `=y` | ✅ | ✅ | ✅ | ACPI clock infra (patch `0003`); base SoC infra in `0002`. |
+| **Reset** | `reset-sky1` | `=y` | ✅ | ✅ | ✅ | Reset controllers + ACPI lookup table (patch `0004`). |
+| **Pinctrl** | `pinctrl-sky1` | `=y` | ✅ | ✅ | ✅ | Patch `0007`. |
+| **Mailbox** | `cix-mbox` | `=y` | ✅ | ✅ | ✅ | ACPI support + channel lookup (patch `0005`). |
+| **SCMI** | `arm-scmi` (clock + perf + power + sensor domains) | `=y` | ✅ | ✅ | ✅ | ACPI boot support (patch `0006`); confirmed in `config.sky1-next` (`CONFIG_ARM_SCMI_PERF_DOMAIN=y`, `CONFIG_ARM_SCMI_POWER_DOMAIN=y`). |
+| **Thermal** | `cix-thermal` + IPA + cpufreq | `=y` | ✅ | ✅ | ✅ | Patch `0017`. |
+| **DSP** | `cix-dsp` + `cix-dsp-rproc` | `=m` | ✅ | ✅ | ✅ | Remoteproc + rpmsg (patch `0019`); confirmed loaded (`cix_dsp_rproc`) on real Sky1 hardware (MS-R1). |
+| **Audio (HDA)** | `snd-hda-cix-ipbloq` + Realtek ALC codecs | `=m` | ✅ | ✅ | ✅ | Patches `2015`–`2017`. Verified ALC269VC analog + digital + HDMI/DP on real hardware (MS-R1). |
+| **Audio (SoC)** | `snd-soc-sky1-sound-card` + Cadence I2S + `snd-soc-sof-cix` | `=m` | ✅ | ✅ | ✅ | Patch `2014`. SOF (`CONFIG_SND_SOC_SOF_CIX_TOPLEVEL=y`, `CONFIG_SND_SOC_SOF_CIX_SKY1=m`) is built but not observed loaded on real hardware — the machine driver (`snd-soc-sky1-sound-card`) handles audio directly; SOF appears to be a dormant/fallback path, not confirmed active. |
+| **GPU (Mali-G720)** | `panthor` + `drm-cix` + `drm-trilin-dp-cix` (DisplayPort) | `=m` | ✅ | ✅ | ✅ | Patches `0011`/`0012`. `panthor` confirmed loaded + rendering (Mali-G720-Immortalis, CSF FW) on MS-R1; `drm-trilin-dp-cix`/`drm-trilin-dpsub` confirmed loaded (`trilin_dpsub`, `linlon_dp`) on real hardware. |
+| **VPU (Linlon MVX)** | `amvx` | `=m` | ✅ | ✅ | ✅ | Video codec driver (patch `0015`). The in-tree driver has a vb2 `q->lock` bug on this kernel — fixed via a validated overlay (see `post-install/81-vpu.sh`); needs `amvx` neutralized in the vendor blacklist to auto-load (fixed `cd822ed`). |
+| **NPU (Zhouyi V3)** | `armchina-npu` | `=m` | ✅ | ✅ | ✅ | Patch `0016`. Needs `CONFIG_ARMCHINA_NPU_ARCH_V3=y` — the Sky1 NPU reports ISA version 5 (Zhouyi V3), not 6 (V3_1); both are now enabled (fixed `053b5ce`). ⚠️ The 32-bit SMMU/IOVA DMA constraint (`2009-armchina-npu-msr1-smmu-32bit-dma-constraint.patch`) is titled and written specifically for **MS-R1** (confirmed working there) — it has not been confirmed necessary or correct for O6/O6N's SMMU topology. Treat NPU on O6/O6N as *should work*, not independently verified. |
+| **Ethernet** | `r8169` (RTL8125/8126/8169) | `=y` | ✅ | ✅ | ✅ | `rtl_nic` firmware shipped in installer + installed system. Confirmed `CONFIG_R8169=y` (built-in, not a module) in `config.sky1-next`. |
+| **Wi-Fi** | `mt7921e` (MediaTek MT7921/MT7922) | `=m` | ✅ | ✅ | ✅ | M.2 Key-E slot; confirmed loaded on real hardware (MS-R1). |
+| **Wi-Fi (alt)** | `rtw88`/`rtw89` firmware | `=m` | ✅ | ✅ | ✅ | If equipped (`rtw8852b`, `rtw8822`, etc. firmware shipped). |
+| **PCIe / USB / PHY** | `pcie-cadence`, `usb-cdnsp`, `phy-cix-usbdp`, `phy-cix-pcie` | `=y` | ✅ | ✅ | ✅ | Patches `0008`/`0009`/`0010`. |
+| **USB Type-C** | `typec-rts5453` | — | ⛔ | ⛔ | ⛔ | **Deliberately disabled — not a driver gap.** The stock `rts5453` Type-C PD driver wedges the boot (hangs on an IRQ-151 conflict) on this board; discovered the hard way (board bricking) during cmdline bring-up. `typec_rts5453`/`rts5453` are permanently in `module_blacklist=` on every boot cmdline (installer, installed system, and rescue partition alike) as a deliberate safety measure, not an oversight — see [`docs/ENGINEERING-EFFORT.md`](docs/ENGINEERING-EFFORT.md#21-the-command-line-nobody-documents). The module is present in the kernel and could in principle be re-enabled by a future patch that fixes the IRQ conflict, but that hasn't happened yet. |
+| **IOMMU/SMMU** | `arm-smmu-v3` | `=y` | ✅ | ✅ | ✅ | Confirmed loaded on real hardware (MS-R1). |
+| **GPIO / I2C / DMA / PWM / Syscon / Regulator / Timer / IRQ** | Sky1 misc peripherals | mixed | ✅ | ✅ | ✅ | Patch `0018` (misc peripherals) + `0021` (firmware/pinctrl ACPI gaps). |
+| **SoC ACPI resource lookup** | `cix-acpi-resource-lookup` | `=y` | ✅ | ✅ | ✅ | `CONFIG_CIX_ACPI_RESOURCE_LOOKUP=y` confirmed; folded into patches `0002`/`0008`, not a standalone `9007`-style patch. |
+
+MS-R1 is our validated test system (see **Hardware support & testing status**
+above) — every ✅ in that column reflects direct, real-hardware confirmation,
+not an inference from the O6/O6N columns.
 
 **Known gap — O6-specific deferred-probe ACPI hardening not yet ported.**
 The retired 7.1.2-ncz2 line had four O6-targeted fixes (deferring the SCMI
@@ -450,6 +454,59 @@ consoles vanish with the d-i ramdisk.
 - **Hostname** defaults to `ncz-<mac8>` (last 8 hex of the first wired MAC) so
   every box on a LAN is uniquely named; the operator hostname (if set during
   install) always wins. See `post-install/37-ntp-hostname.sh`.
+
+## Rescue partition
+
+Every install gets a dedicated 4 GiB ext4 **NCZRESCUE** partition, populated
+at install time by `post-install/72-rescue-partition.sh` from a prebuilt
+rescue rootfs (`build/build-rescue-rootfs.sh`, package list in
+`manifests/rescue.pkgs`). It boots from its own rEFInd menu entry
+("RESCUE PARTITION"), independent of the main root filesystem — if the
+installed system's root (btrfs or ext4) won't boot, the rescue partition
+still will.
+
+**Login.** Root, password **`rescue`** (LAN-only; the rescue environment is
+not meant to be internet-facing). Hostname `ncz-rescue`.
+
+**Access channels:**
+
+| Channel | Port | Notes |
+|---|---|---|
+| SSH (openssh, password auth) | 22 | `ssh root@<host>` |
+| Dropbear (lightweight SSH) | 2222 | Alternative if openssh is misbehaving |
+| Telnet | 23 | Full busybox applet shell |
+| Serial console | `ttyAMA2@115200` | Direct hardware console, no network needed |
+
+**Networking.** DHCP by default; falls back to a static IP
+(`192.168.207.66/24`, gateway `192.168.207.1`) if DHCP fails, so the box is
+always reachable on the fleet LAN even with no DHCP server present.
+
+**What's on it.** A genuinely comprehensive recovery toolset (not just a
+minimal shell) — cherry-picked from the SystemRescue package list and mapped
+to Ubuntu 26.04 arm64:
+- **Filesystems** — btrfs-progs (the actual root fs), e2fsprogs, xfsprogs,
+  f2fs-tools, ntfs-3g, exfatprogs, dosfstools, squashfs-tools.
+- **Disk/partition** — full `util-linux` (fdisk/lsblk/blkid/wipefs), parted,
+  gdisk, nvme-cli, smartmontools, lvm2, mdadm, cryptsetup.
+- **Imaging / data recovery** — `ddrescue` (gddrescue), `testdisk` +
+  `photorec`, fsarchiver, partclone.
+- **Networking** — full iproute2/net-tools stack, tcpdump, socat, netcat,
+  iperf3, sshfs, nfs-common, cifs-utils, rclone.
+- **Hardware / boot diagnostics** — pciutils, usbutils, dmidecode, lshw,
+  efibootmgr, `refind` itself (to repair the main system's `refind.conf`
+  from the rescue side), kexec-tools.
+- **Kernel/module/initrd repair** — the specific class of failure this
+  partition exists for: kmod, initramfs-tools, cpio, device-tree-compiler,
+  kpartx, binutils. Two purpose-built helpers ship in `/usr/local/sbin/`:
+  `ncz-rescue-fixlib` (repairs a wedged usr-merge `/lib` symlink — the
+  failure mode from a botched `tar -C /` extraction) and
+  `ncz-rescue-chroot <device>` (mounts a target root + binds `/dev`/`/proc`/
+  `/sys` and drops into a repair chroot in one command).
+- **Shell/scripting** — vim, nano, tmux, mc, python3, jq.
+
+`/AGENTS.md` on the rescue rootfs documents system facts, the boot model, and
+step-by-step recovery procedures for an operator (or an agent) landing in
+this environment cold.
 
 ## OTA channel (kernel + driver updates) + persistent apt sources
 
