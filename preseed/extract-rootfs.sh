@@ -77,7 +77,8 @@ if [ -n "$SQFS_DIR" ]; then
             [ "$(stat -c '%t %T' "$w" 2>/dev/null)" = "0 0" ] && rm -rf "$w"
         done
     else
-        msg "no $ROLE.squashfs on media — base only"
+        msg "WARNING: $ROLE.squashfs not on media -- installing BASE ONLY. This is NOT a working $ROLE system (no desktop, no server packages, missing ssh on server). Rebuild the ISO with $ROLE.squashfs staged."
+        echo "[sqfs] WARNING: $ROLE.squashfs missing -- base-only degraded install" > $SER 2>&1
     fi
     ELAPSED=$(( $(date +%s) - START ))
     # BAKED marker: run-all runs ONLY machine hooks (fstab/rescue/bootloader), not

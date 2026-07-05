@@ -28,8 +28,11 @@ set -euo pipefail
 
 echo "[46] installing ncz CLI + /opt/cix/npu_embed_v2.py"
 
-# Stage the canonical Python NPU wrapper from cix-installer/assets/npu/
-NPU_WRAPPER_SRC=/cdrom/cixmini/assets/cix-py/npu_embed_v2.py
+# Stage the canonical Python NPU wrapper. Baked images stage it at
+# assets/cix-py/ (build-squashfs-layers.sh); a plain install-media chroot
+# still has /cdrom, so check both.
+NPU_WRAPPER_SRC=/usr/local/lib/cix-installer/assets/cix-py/npu_embed_v2.py
+[ -f "$NPU_WRAPPER_SRC" ] || NPU_WRAPPER_SRC=/cdrom/cixmini/assets/cix-py/npu_embed_v2.py
 if [ -f "$NPU_WRAPPER_SRC" ]; then
     install -D -m 0644 "$NPU_WRAPPER_SRC" /opt/cix/npu_embed_v2.py
     echo "    /opt/cix/npu_embed_v2.py staged ($(wc -l < /opt/cix/npu_embed_v2.py) lines)"

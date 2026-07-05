@@ -88,7 +88,7 @@ implementation; the architecture is the reusable scaffold.
 |---|---|---|
 | **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **The only hardware we have tested on.** Every bit of validation — UEFI boot, the installer, GPU (Mesa 26.1.3 panvk + rusticl), NPU (Zhouyi embeddings + vision), audio, and the A/B kernel program — was done on this box. |
 | **Radxa Orion O6** | Cix Sky1 | ✅ **Verified working.** A *different board* from the MS-R1 (its own device tree, PMIC, BIOS, and peripherals), now confirmed to install and boot. The Realtek NIC (RTL8125/8126) works out of the box — the `rtl_nic` firmware ships in both the installer and the installed system, resolving the earlier no-network regression. |
-| **Radxa Orion O6N** | Cix Sky1 | ⚠️ **Untested, but expected to work.** Same Sky1 SoC and the same O6 board family (a minor variant); the 7.1.2-ncz2 kernel ships the same driver set as O6 (see [Driver support matrix — O6 / O6N](#driver-support-matrix--o6--o6n)), so we just have not confirmed it on hardware yet. **If you have an O6N: please install, test, and file issues.** |
+| **Radxa Orion O6N** | Cix Sky1 | ⚠️ **Untested, but expected to work.** Same Sky1 SoC and the same O6 board family (a minor variant); the shipping 7.0.12-cix-sky1-next kernel ships the same driver set as O6 (see [Driver support matrix — O6 / O6N](#driver-support-matrix--o6--o6n)), so we just have not confirmed it on hardware yet. **If you have an O6N: please install, test, and file issues.** |
 | **Framework Cix add-in board / mainboard** | Cix Sky1 | ❌ **Untested.** On our radar; no hardware in hand. |
 | **Orange Pi (Cix variants)** | Cix Sky1 | ❌ **Untested.** No hardware in hand. |
 | Other Arm (RK3588/RK3576, MediaTek Genio, Snapdragon) and x86 (Intel, AMD) | — | 🗺️ Roadmap / adapter-level only — not built or tested yet. |
@@ -320,24 +320,24 @@ library is for, how to route a workload across the four compute engines
 
 | Path | Source | Notes |
 |---|---|---|
-| `assets/cix-debs/` | `dpkg-repack` of stock Cix Debian (gitignored) | 37 closed-source `.debs` |
-| `assets/kernel/Image-cixmini.bin` + `modules-cixmini.tgz` | Yocto build of `meta-cix:linux-cix-msr1` (gitignored) | Our kernel artifacts |
-| `assets/agent-stack/*` | `meta-cix/recipes-nclawzero/agent-stack/files/` | systemd quadlets (committed) |
-| `assets/branding/*` | This repo | os-release, motd, Plymouth theme |
-| `preseed/preseed.cfg` | This repo | d-i unattended preseed |
-| `post-install/*.sh` | This repo | numbered hooks run in chroot at install end |
+| `assets/cix-debs/` | Staged CIX proprietary `.deb`s (gitignored) | Also mirrored into Buildkite `ncz-os/ncz` (31 packages, see OTA channel section) |
+| `assets/kernel/{stable,edge}/` | Yocto build of `meta-cix:linux-cix-sky1-{lts,next}` (gitignored) | `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER` per kernel; also has a `modules-overlay/$KVER/` subdir for validated fixup `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`) |
+| `assets/agent-stack/*` | This repo | systemd quadlets for zeroclaw/openclaw/hermes/portainer/mnemos/nemoclaw |
+| `assets/branding/*` | This repo | os-release, motd, Plymouth theme, wallpapers |
+| `preseed/preseed.cfg`, `preseed/late.sh` | This repo | d-i unattended preseed + late_command (pre-chroot, install-time-only) |
+| `post-install/*.sh` | This repo | 40+ numbered hooks; run inside the chroot |
 
 ## Stages (post-install hooks)
 
-`/target/usr/local/lib/cix-installer/` runs these in order via `preseed/late_command`:
-
-1. `00-cix-proprietary.sh` — `dpkg -i` 37 Cix `.deb` files
-2. `10-our-kernel.sh` — install `linux-cix-msr1` kernel binary + modules
-3. `20-desktop.sh` — apt install GNOME + chromium + gnome-remote-desktop
-4. `30-agents.sh` — install podman + the `ncz` CLI + stage agent quadlet templates and OCI images (no agent activated; all opt-in via `ncz`)
-5. `40-claude-code.sh` — `npm install -g @anthropic-ai/claude-code`
-6. `50-brand.sh` — `/etc/os-release`, motd, hostname
-7. `60-plymouth.sh` — Plymouth boot splash + nclawzero theme
+`post-install/run-all.sh` runs the numbered `post-install/*.sh` hooks inside the
+chroot, in three phases: required kernel/network hooks (skipped on a baked
+image, where the kernel is already in the squashfs), machine-specific hooks
+gated by `MACHINE_HOOKS_RE` on a baked image (apt sources, CIX proprietary
+userland, GPU pin, agent stack, Python/embedkit, Claude Code, Vivaldi, NPU/VPU
+overlays, rescue partition), and the bootloader/diagnostics hooks run from an
+`EXIT` trap. This list goes stale fast (it has twice already) — `run-all.sh`
+and the individual `post-install/NN-*.sh` files are the source of truth for
+exactly what runs and in what order, not a hand-maintained summary here.
 
 ## Remote diagnostics (while the installer is booted)
 
@@ -542,8 +542,7 @@ What changed since the r113 baseline:
 The first official NCZ-OS release with **apt-capable kernel upgrades** — move to a new kernel without reinstalling. QEMU-validated end-to-end (full unattended install + boot).
 
 **Upgrade kernels & drivers with apt — no reinstall**
-- Kernels (compiled): **Buildkite Packages** `ncz-os/ncz` — `apt upgrade` / `ncz-update` pulls new `linux-image-cixmini-{lts,edge}`.
-- CIX userspace: **Codeberg** `ncz-os` Debian registry.
+- Kernels + CIX userspace (compiled/mirrored): **Buildkite Packages** `ncz-os/ncz` — `apt upgrade` / `ncz-update` pulls new `linux-image-cixmini-{lts,edge}` and the 31 mirrored CIX proprietary packages. No Codeberg apt source exists for this (see OTA channel section above).
 - Kernel source + Yocto recipes: GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix).
 
 **Kernels:** 6.18.26-cix-sky1-lts (default, production) + 7.0.12-cix-sky1-next (edge). (7.1.2 experimental/non-working; 7.2 migration in progress.)

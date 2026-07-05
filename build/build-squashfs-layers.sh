@@ -133,13 +133,31 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/vivaldi/." "$MG/usr/local/lib/cix-installer/assets/vivaldi/" 2>/dev/null || true
       log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
     fi
-    # r181: stage the arm64-linux zoder binary so 30-agents.sh installs it to
-    # /usr/local/bin/zoder (the Zoder desktop launcher targets it).
-    if [ -d "$ROOT/assets/zoder" ]; then
-      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/zoder"
-      sudo cp -a "$ROOT/assets/zoder/." "$MG/usr/local/lib/cix-installer/assets/zoder/" 2>/dev/null || true
-      log "  staged zoder assets ($(find "$ROOT/assets/zoder" -type f | wc -l | tr -d ' ') files)"
+    # r189.5: stage assets/cix-py/ so 46-ncz-cli.sh's /opt/cix/npu_embed_v2.py
+    # install actually lands -- it was only ever looking at /cdrom, which
+    # doesn't exist in this chroot (install-media-only mount), so this was
+    # silently skipped on every baked image.
+    if [ -d "$ROOT/assets/cix-py" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/cix-py"
+      sudo cp -a "$ROOT/assets/cix-py/." "$MG/usr/local/lib/cix-installer/assets/cix-py/" 2>/dev/null || true
+      log "  staged cix-py assets ($(find "$ROOT/assets/cix-py" -type f | wc -l | tr -d ' ') files)"
     fi
+    # r189.6: stage assets/mgmt/ncz-mgmt-rootfs.tar.zst so 38-recovery-container.sh
+    # can extract the ncz-recovery nspawn container. Per its own r138 comment
+    # this hook runs on ALL variants (not just Magnetar/server) since the
+    # 2026-06-25 desktop-host lockout showed the failure mode is variant-
+    # agnostic; the asset was never staged so the hook always hard-failed.
+    if [ -f "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/mgmt"
+      sudo cp -a "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" "$MG/usr/local/lib/cix-installer/assets/mgmt/" 2>/dev/null || true
+      log "  staged mgmt rootfs ($(du -h "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" | cut -f1))"
+    fi
+    # r189.2: dropped the r181 zoder-binary staging block. 30-agents.sh no
+    # longer installs a staged binary at all -- it now always installs zoder
+    # via the official GitLab installer (post-install/30-agents.sh, commits
+    # d73d581/8d75ea5), so assets/zoder/ was dead weight this hook silently
+    # skipped every build anyway (the directory hasn't existed since
+    # 2026-07-05).
     # r172: apply the desktop-config + branding hooks now that the desktop is
     # XFCE. 22-display-fix is CRITICAL on Sky1 metal: the SoC exposes ~6 DRM
     # cards (card0=panthor render + card1-5=linlondp display pipes), and Xorg

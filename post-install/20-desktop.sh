@@ -405,9 +405,12 @@ echo "[20] flavor docs at /usr/share/ncx/flavors/README.md"
 # tries `ln -s ../hunspell-bdic /usr/share/qt5/qtwebengine_dictionaries` and fails without it).
 mkdir -p /usr/share/qt5/qtwebengine_dictionaries
 
+# r189.3: dropped falkon (r181 already knows it half-configures/iF on
+# Sky1+qemu, manifests/desktop.pkgs:136) + gnome-software/-plugin-flatpak/
+# gnome-keyring (GNOME-era leftovers -- desktop is XFCE, none of these are
+# used, and they weren't in desktop.pkgs's offline-mirror closure either).
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    falkon epiphany-browser flatpak gnome-software gnome-software-plugin-flatpak \
-    gnome-keyring feh 2>&1 | tail -5 || true
+    epiphany-browser flatpak feh 2>&1 | tail -5 || true
 
 # Vivaldi (ARM64 .deb auto-fetch latest version)
 ARCH=$(dpkg --print-architecture)

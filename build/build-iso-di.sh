@@ -2161,6 +2161,27 @@ if [ "$MODE" = "netinstall" ]; then
     GRUB_DESKTOP_TITLE='Install NCZ \"Reinhardt\" — Desktop (XFCE, wired link required)'
     GRUB_SERVER_TITLE='Install NCZ \"Magnetar\" — Server (headless, wired link required)'
 fi
+
+# r189.7: only offer the Magnetar/server GRUB entry if server.squashfs was
+# actually built -- it never has been yet (manifests/server.pkgs didn't
+# exist until 2026-07-05), so this menu entry was previously always shown
+# and would silently degrade to a base-only install
+# (preseed/extract-rootfs.sh's "no $ROLE.squashfs on media" fallback).
+SERVER_MENUENTRY=""
+if [ -f "$ROOT/assets/squashfs/server.squashfs" ]; then
+  SERVER_MENUENTRY="
+menuentry \"\$GRUB_SERVER_TITLE\" {
+    set background_color=black
+    set color_normal=light-green/black
+    echo \">> ncz-installer loading Sky1 \$INSTALLER_KERNEL_LABEL kernel + d-i (Magnetar / server)...\"
+    linux  /install.a64/vmlinuz \$DI_OPTS ncz_variant=server ncz_rev=\$VERSION \$MARTJOHNSON_R6
+    echo \">> Loading initrd (modules + preseed + zstd)...\"
+    initrd /install.a64/initrd.gz
+}
+"
+else
+  echo "WARN: assets/squashfs/server.squashfs not built -- omitting Magnetar/server GRUB entry (run build-squashfs-layers.sh server first)" >&2
+fi
 cat > "$GRUB_CFG" <<GRUB
 # ncz-installer (cixmini "$CODENAME" / $VERSION)
 # bookworm d-i busybox boot substrate + trixie udeb graft + Sky1 $INSTALLER_KERNEL_LABEL kernel
@@ -2208,15 +2229,7 @@ menuentry "$GRUB_DESKTOP_TITLE" {
     initrd /install.a64/initrd.gz
 }
 
-menuentry "$GRUB_SERVER_TITLE" {
-    set background_color=black
-    set color_normal=light-green/black
-    echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Magnetar / server)..."
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=server ncz_rev=$VERSION $MARTJOHNSON_R6
-    echo ">> Loading initrd (modules + preseed + zstd)..."
-    initrd /install.a64/initrd.gz
-}
-
+$SERVER_MENUENTRY
 menuentry "SAFE — rescue shell ($INSTALLER_KERNEL_LABEL, no install)" {
     set background_color=black
     set color_normal=light-green/black

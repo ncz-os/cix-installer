@@ -181,3 +181,18 @@ icewm-common
 # future desktop.squashfs includes it; until then late.sh installs it offline.
 inetutils-telnetd
 openbsd-inetd
+
+# --- r189.4: 47-llm-stack.sh Vulkan/SPIR-V substrate (was never wired into
+#     MACHINE_HOOKS_RE, so this hook never ran and these packages were never
+#     in the offline-mirror closure either -- fixing both together). ---
+libvulkan-dev
+glslang-tools
+glslang-dev
+spirv-tools
+spirv-headers
+vulkan-tools
+vulkan-validationlayers
+clinfo
+glmark2-x11
+glmark2-es2-x11
+glmark2-wayland
