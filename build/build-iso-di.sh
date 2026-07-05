@@ -1898,6 +1898,19 @@ if [ -d "$ROOT/assets" ]; then
         bn=$(basename "$d")
         case "$bn" in
             kernel) ;;  # handled below — staged into /cixmini/assets/kernel/
+            squashfs)
+                # r191.1: NEVER bulk-copy assets/squashfs/ here -- the LAYERED
+                # SQUASHFS block below already stages base.squashfs +
+                # every built variant delta at the TOP-LEVEL /cixmini/ path
+                # (the one extract-rootfs.sh actually reads). This generic
+                # loop had no exclusion for it, so every build since layered
+                # squashfs was introduced (r158) silently duplicated the full
+                # base+desktop+server set into /cixmini/assets/squashfs/ too --
+                # ~2.6GB of pure waste on the r191 ISO (found 2026-07-06,
+                # operator flagged the 7.98GB ISO size). Same bloat class as
+                # the rootfs exclusion above.
+                echo "    assets/squashfs NOT bulk-copied (already staged at top level by the layered-squashfs block)"
+                ;;
             rootfs)
                 # NEVER bulk-copy assets/rootfs/ into the ISO. The install
                 # rootfs is staged separately as /cixmini/rootfs.tar.zst (see
