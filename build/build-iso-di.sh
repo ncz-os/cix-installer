@@ -2098,9 +2098,24 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
     if [ -f "$ROOT/assets/squashfs/base.squashfs" ]; then
         cp -L "$ROOT/assets/squashfs/base.squashfs" "$EXTRA/base.squashfs"
         [ -d "$ROOT/build/sqtools" ] && cp -a "$ROOT/build/sqtools" "$EXTRA/sqtools"
-        _RL="$ROOT/assets/squashfs/$VARIANT.squashfs"
-        [ -f "$_RL" ] && cp -L "$_RL" "$EXTRA/$VARIANT.squashfs"
-        echo "    LAYERED SQUASHFS staged: base $(du -h "$EXTRA/base.squashfs"|cut -f1) + $VARIANT $([ -f "$EXTRA/$VARIANT.squashfs" ] && du -h "$EXTRA/$VARIANT.squashfs"|cut -f1 || echo MISSING)"
+        # r190.3: stage EVERY built variant delta, not just $VARIANT -- the GRUB
+        # menu offers both desktop and server as separate boot entries (see the
+        # server.squashfs GRUB gate above), but extract-rootfs.sh looks for
+        # $SQFS_DIR/$ROLE.squashfs at this SAME top-level path at boot time.
+        # Only copying $VARIANT.squashfs here meant selecting the OTHER variant
+        # at the GRUB menu would silently degrade to a base-only install
+        # (found 2026-07-05 baking r190: server.squashfs existed on the build
+        # host and even landed elsewhere on the ISO via a generic asset copy,
+        # but never at the path extract-rootfs.sh actually reads).
+        STAGED_VARIANTS=""
+        for _RL in "$ROOT"/assets/squashfs/*.squashfs; do
+            _RLNAME="$(basename "$_RL")"
+            [ "$_RLNAME" = "base.squashfs" ] && continue
+            [ -f "$_RL" ] || continue
+            cp -L "$_RL" "$EXTRA/$_RLNAME"
+            STAGED_VARIANTS="$STAGED_VARIANTS ${_RLNAME%.squashfs}:$(du -h "$EXTRA/$_RLNAME"|cut -f1)"
+        done
+        echo "    LAYERED SQUASHFS staged: base $(du -h "$EXTRA/base.squashfs"|cut -f1) +${STAGED_VARIANTS:- NONE}"
         ROOTFS_TARBALL=""
     elif ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst"; [ -f "$ROOTFS_TARBALL" ]; then
         cp -L "$ROOTFS_TARBALL" "$EXTRA/rootfs.tar.zst"
