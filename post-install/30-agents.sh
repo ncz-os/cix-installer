@@ -1027,6 +1027,15 @@ chmod 0755 /etc/skel/Desktop/ClaudeCode.desktop
 # chroot install, upstream down, etc). zoder needs the operator's own
 # config/API keys to run — that's their setup; we only wire the binary +
 # launcher.
+#
+# GitLab, not the GitHub mirror: zoder ships rolling nightlies off master
+# with no git tags/releases ever (confirmed 2026-07-05), so install.sh
+# resolves the build from a fixed GitLab generic-package location
+# (zoder-nightly/$CHANNEL), not the GitHub Releases API. GitHub's own repo
+# is now explicitly a frozen mirror for zoder, and its raw.githubusercontent
+# CDN also lagged behind a same-day install.sh fix by several minutes
+# (edge-cache purge delay) -- fetch straight from GitLab to avoid both
+# problems at once.
 # zoder-review (2026-07-05): without pipefail, if curl fails silently
 # (network hiccup, upstream unreachable) the piped `sh` gets empty stdin,
 # runs nothing, and exits 0 -- the bare pipe exit code alone would report
@@ -1035,7 +1044,7 @@ chmod 0755 /etc/skel/Desktop/ClaudeCode.desktop
 # rather than trusting either command's exit status alone (this whole
 # script runs under `set +e`, so pipefail changes failure visibility, not
 # whether the script continues -- restore the prior setting after).
-ZODER_INSTALL_URL=https://raw.githubusercontent.com/ncz-os/zoder/master/install.sh
+ZODER_INSTALL_URL=https://gitlab.com/ncz-os/zoder/-/raw/master/install.sh
 set -o pipefail
 curl -fsSL --max-time 60 "$ZODER_INSTALL_URL" | ZODER_BIN_DIR=/usr/local/bin sh
 ZODER_PIPE_RC=$?
