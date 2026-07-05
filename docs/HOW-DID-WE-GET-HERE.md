@@ -4,8 +4,9 @@
 
 > The honest story of the 18-day slip. Short version: we were building a
 > product on top of **two simultaneously-moving targets** — an upstream
-> kernel that went from 6.6 → 6.18 → 7.0 → (and a 7.1 we're now porting)
-> during the release window, and a **vendor (CIX) userspace that was itself
+> kernel that went from 6.6 → 6.18 → 7.0 → 7.1 (now retired as experimental/
+> non-working; a 7.2 migration is the current target) during the release
+> window, and a **vendor (CIX) userspace that was itself
 > a moving target** with no stable ABI, undocumented quirks, and a factory
 > BIOS bug. Neither was under our control, and both changed *after* we'd
 > already validated against the prior version.
@@ -51,7 +52,7 @@ a hardware-fidelity gap that the older tree couldn't close.
 | **May → June** | **7.0.3 → … → 7.0.12-cix-sky1-next** (edge) | The fork's "next" branch advanced through the **entire 7.0.x series, iterating almost daily**. Tracked for STR, thermal, display — but beta and shifting constantly, so it could only ever be the *edge* slot. |
 | **June (parallel)** | **7.1-rc track** | A 7.1 release-candidate cycle ran *concurrently* with 7.0.x and **also iterated**. Shipped as honest `[BETA]` because its **SCMI mailbox transport times out on MS-R1 firmware** (FAST channel 0 never returns a TX-ack IRQ; firmware wants the CIXHA001:06 doorbell channel 8). Self-rolls-back to LTS. |
 | **June 17** | **7.0.12-cix-sky1-main** (official CIX) | CIX published `cixtech/cix-linux-main` — 76 authoritative patches (STR, thermal/energy model, proper `linlondp` display, PCIe, pinctrl ACPI, RTC). Rebased via `git am --3way`. The real foundation we'd been waiting on **the entire window**. |
-| (now) | **7.1 track** | Porting v7.0 → v7.1 (first conflict at `drivers/clk/Kconfig`); SCMI-on-7.1 still open. The target is *still* moving. |
+| June–July | **7.1 track** | Porting v7.0 → v7.1 (first conflict at `drivers/clk/Kconfig`); SCMI-on-7.1 still open. *(Update: 7.1.2-ncz2 ended up experimental/non-working and does not ship. The target moved again — a 7.2 migration is the current in-progress work as of r192.)* |
 
 ### 2.1 What actually worked at the first ship (early May) vs now
 
@@ -98,12 +99,19 @@ gap that the rest of the slip was spent closing:
    automatic rollback**. Sibling kernels can't share `vermagic` or module
    trees, so the Yocto recipes had to be made truly sibling-installable.
    Every kernel move multiplied across all of these.
+   *(Update, r118: the bootloader was later switched to rEFInd, which has no
+   boot-counting mechanism — automatic rollback described here no longer
+   applies; recovery is now manual via the [rescue partition](../README.md#rescue-partition).
+   The multi-kernel A/B staging problem this section describes is otherwise
+   still accurate and still the reason two kernels ship today.)*
 
 5. **Boot-handoff archaeology.** Sky1 needs an undocumented command line
    (`acpi=force arm-smmu-v3.disable_bypass=0 clk_ignore_unused …`); we also
    learned the hard way that `efi=noruntime` silently disables
    `bootctl set-oneshot` (read-only EFI vars), which killed our rollback
-   logic. Every kernel rev had to be re-validated against this.
+   logic (moot after the later rEFInd switch, but the `efi=noruntime`
+   lesson itself still holds — it's still in the boot cmdline today).
+   Every kernel rev had to be re-validated against this.
 
 6. **The ESP is tiny.** Staging multiple kernels + initrds repeatedly filled
    the 512 MB / 600 MB EFI partition, forcing initramfs minimization
