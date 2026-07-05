@@ -235,27 +235,9 @@ package resolution mid-install to fail on a flaky link or an unreachable
 mirror, which was a recurring source of install failures under the old
 apt-at-install-time model).
 
-```
-┌───────────────────────────────────────────────────────────────────┐
-│                   nclawzero-installer-cixmini.iso                 │
-│                                                                     │
-│  ┌─────────────────┐   ┌──────────────────┐   ┌──────────────────┐│
-│  │  base.squashfs   │   │ desktop.squashfs │   │ server.squashfs  ││
-│  │  (1.7 GB)        │   │    (~852 MB)     │   │     (~40 MB)     ││
-│  │  debootstrapped  │   │  XFCE + browser  │   │  headless agent- ││
-│  │  resolute + Sky1 │   │  + full desktop  │   │  appliance pkgs  ││
-│  │  kernel/firmware │   │    package set   │   │                  ││
-│  └────────┬─────────┘   └────────┬─────────┘   └────────┬─────────┘│
-│           │      overlaid at boot per GRUB choice        │         │
-│           └───────────────────────┬────────────────────────┘       │
-│                                    ▼                                │
-│      Debian d-i base (UEFI boot, kernel + initrd, preseed,          │
-│      partman) extracts + overlays base + the selected variant       │
-│      (extract-rootfs.sh), then runs post-install/*.sh hooks         │
-└───────────────────────────────────────────────────────────────────┘
-```
+![Architecture diagram](docs/architecture.svg)
 
-**Both variant deltas ship on every ISO.** The GRUB menu picks Reinhardt
+**Both variant deltas ship on every ISO.** The rEFInd menu picks Reinhardt
 (desktop) or Magnetar (server) at boot, and `preseed/extract-rootfs.sh`
 overlays the matching delta onto the base. One disc, both variants.
 
@@ -405,7 +387,7 @@ us out and failures are captured even with nobody watching.
    **ship-clean** image: the module is not staged and `ncz_diag`/`DEBCONF_DEBUG`
    are not added to the kernel cmdline. (Default `DIAG_ENABLE=1` during bring-up.)
 2. **Boot variable** — `ncz_diag=0|off` on the kernel cmdline disables the
-   module even if staged; `ncz_diag=1` enables it. Flip it right at the GRUB menu.
+   module even if staged; `ncz_diag=1` enables it. Flip it right at the rEFInd menu.
 
 **Tunables (kernel cmdline):**
 - `ncz_diag_pw=<pw>` — root/diag password (default `diags`).
@@ -570,7 +552,7 @@ default GPU provider for **OpenGL/GLX, Vulkan, and OpenCL**, with the CIX
 proprietary stack kept on disk (`.disabled`) for a future opt-in switcher.
 Tested on Minisforum MS-R1 only — see **Hardware support & testing status**
 above. **Reinhardt** (desktop) and **Magnetar** (server) both boot and install
-from the *same* ISO — GRUB picks the variant, both squashfs deltas ship on
+from the *same* ISO — rEFInd picks the variant, both squashfs deltas ship on
 every disc (see [Architecture](#architecture)).
 
 What changed since the r147 baseline:
@@ -582,7 +564,7 @@ What changed since the r147 baseline:
     once correctly, once redundantly via a generic asset-copy step that had
     no exclusion for `assets/squashfs/`. Fixed; ISO went 7.98 GB → 5.0 GB.
   - **Server variant never actually shipped on the ISO.** `manifests/server.pkgs`
-    didn't exist, so `server.squashfs` had never been built; the GRUB menu
+    didn't exist, so `server.squashfs` had never been built; the rEFInd menu
     offered a Magnetar boot option that silently degraded to a base-only
     install. Now built, staged, and boot-tested under KVM.
   - **`vivaldi-stable` stuck half-configured on every fresh install.** Root
@@ -642,7 +624,7 @@ What changed since the r147 baseline:
 The first release where **both Reinhardt (desktop) and Magnetar (server)
 install from the same disc**, with **apt-capable kernel + CIX-userspace
 upgrades** — move to a new kernel or driver build without reinstalling.
-KVM-boot-validated end-to-end for both variants (GRUB → kernel → d-i →
+KVM-boot-validated end-to-end for both variants (rEFInd → kernel → d-i →
 preseed start confirmed on a real generic-aarch64-virt board with hardware
 acceleration; full driver validation — NPU/GPU/VPU/audio — remains
 MS-R1-hardware-only, see **Hardware support & testing status** above).

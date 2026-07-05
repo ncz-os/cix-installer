@@ -126,27 +126,9 @@ postinst 脚本在设备端逐一运行）以及**离线可靠性**（squashfs �
 成功要么失败，安装过程中不再有依赖网络的包解析步骤——这在旧的"安装时 apt"
 模式下曾是安装失败的常见根源）。
 
-```
-┌───────────────────────────────────────────────────────────────────┐
-│                   nclawzero-installer-cixmini.iso                 │
-│                                                                     │
-│  ┌─────────────────┐   ┌──────────────────┐   ┌──────────────────┐│
-│  │  base.squashfs   │   │ desktop.squashfs │   │ server.squashfs  ││
-│  │  (1.7 GB)        │   │    (~852 MB)     │   │     (~40 MB)     ││
-│  │  debootstrap 后  │   │  XFCE + 浏览器   │   │  无头版智能体设备 ││
-│  │  的 resolute +   │   │  + 完整桌面包集  │   │  软件包集         ││
-│  │  Sky1 内核/固件  │   │                  │   │                  ││
-│  └────────┬─────────┘   └────────┬─────────┘   └────────┬─────────┘│
-│           │      根据 GRUB 选择在启动时叠加             │         │
-│           └───────────────────────┬────────────────────────┘       │
-│                                    ▼                                │
-│      Debian d-i 基础（UEFI 启动、kernel + initrd、preseed、         │
-│      partman）解压并叠加 base + 所选变体（extract-rootfs.sh），      │
-│      然后运行 post-install/*.sh 钩子                                │
-└───────────────────────────────────────────────────────────────────┘
-```
+![Architecture diagram](docs/architecture.svg)
 
-**两个变体增量包都随每张 ISO 一同发布。** GRUB 菜单在启动时选择 Reinhardt
+**两个变体增量包都随每张 ISO 一同发布。** rEFInd 菜单在启动时选择 Reinhardt
 （桌面版）或 Magnetar（服务器版），`preseed/extract-rootfs.sh` 将匹配的增量包
 叠加到 base 之上。一张光盘，两种变体。
 
@@ -282,7 +264,7 @@ curl -fL "$BASE/models/.../bge-small-zh_256.cix" -o model.cix
    镜像：模块不会被暂存，`ncz_diag`/`DEBCONF_DEBUG` 也不会加入内核命令行。
    （bring-up 期间默认 `DIAG_ENABLE=1`。）
 2. **启动变量** —— 即使已暂存，`ncz_diag=0|off` 也会在内核命令行禁用该模块；
-   `ncz_diag=1` 启用它。可在 GRUB 菜单处直接切换。
+   `ncz_diag=1` 启用它。可在 rEFInd 菜单处直接切换。
 
 **可调项（内核命令行）：**
 - `ncz_diag_pw=<pw>` —— root/diag 密码（默认 `diags`）。
@@ -372,7 +354,7 @@ Buildkite 源经 GPG 签名（`signed-by`，绝非 `trusted=yes`）；安装介�
 
 首个 **Reinhardt（桌面版）与 Magnetar（服务器版）都能从同一张光盘安装**、
 且支持 **APT 内核 + CIX 用户态升级** 的正式版 —— 切换新内核或驱动构建无需
-重装。两个变体均已在 KVM 下完成端到端启动验证（GRUB → 内核 → d-i →
+重装。两个变体均已在 KVM 下完成端到端启动验证（rEFInd → 内核 → d-i →
 preseed 启动，在具备硬件加速的通用 aarch64 虚拟主板上确认；完整的
 NPU/GPU/VPU/音频驱动验证仍仅限于 MS-R1 真机，见上文**硬件支持与测试状态**）。
 
@@ -399,7 +381,7 @@ LTS 代码树移植过来的音频栈）。
 和 OpenCL** 的完整默认 GPU 提供方；CIX 专有栈仍保留在磁盘上（`.disabled`），
 供将来的可选切换器使用。仅在 Minisforum MS-R1 上测试 —— 见上文**硬件支持与测试
 状态**。**Reinhardt**（桌面）与 **Magnetar**（服务器）现在都能从*同一张*
-ISO 启动并安装 —— GRUB 选择变体，两个 squashfs 增量包都随每张光盘发布（见
+ISO 启动并安装 —— rEFInd 选择变体，两个 squashfs 增量包都随每张光盘发布（见
 [架构](#架构)）。
 
 自 r147 基线以来的变更：
@@ -410,7 +392,7 @@ ISO 启动并安装 —— GRUB 选择变体，两个 squashfs 增量包都随�
     另一次是通过一个通用资产复制步骤（没有为 `assets/squashfs/` 设置排除
     规则）。已修复；ISO 从 7.98GB 降到 5.0GB。
   - **服务器变体从未真正登上过 ISO。** `manifests/server.pkgs` 此前不存在，
-    因此 `server.squashfs` 从未被构建过；GRUB 菜单曾提供一个 Magnetar 启动
+    因此 `server.squashfs` 从未被构建过；rEFInd 菜单曾提供一个 Magnetar 启动
     选项，选择后会静默降级为仅有 base 的安装。现已构建、打包，并在 KVM 下
     完成启动测试。
   - **`vivaldi-stable` 在每次全新安装时都卡在半配置状态。** 根因：一处
