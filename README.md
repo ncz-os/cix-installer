@@ -563,37 +563,6 @@ full reinstall.
 `ncz-update --status` reports the configured image and installed versions without
 pulling anything.
 
-**Why the repo is ephemeral (not a persistent `fstab` loop mount).**
-
-- **Footprint** — a persistent loop mount would keep the 2.1 GB+ squashfs backing
-  file on disk indefinitely and let its decompressed pages accumulate in the page
-  cache. The repo is only needed while `apt` is reading `.debs`; on an appliance
-  with modest storage/RAM we reclaim it immediately afterwards (deleting the file
-  + dropping the mount makes those page-cache pages reclaimable).
-- **Hygiene / trust window** — a permanently mounted `file://` source widens the
-  trust surface and makes every later `apt update` depend on the mount being
-  present. Pulling per-run and tearing down keeps that window minimal.
-- **Determinism** — the OTA repo is a transient *build input*, not part of the
-  running system. Pull → use → discard keeps the installed system reproducible and
-  avoids stale indexes.
-
-> **Trust model (two independent signatures).**
-> 1. **Transport layer** — the OCI image is **cosign-signed** (`build/release-ota.sh`,
->    key in `build/keys/cosign.key`, pubkey shipped as
->    `assets/keys/ncz-ota-cosign.pub`). `ncz-update` runs `cosign verify`
->    *before* pulling/mounting and pins the verified digest, so a swapped or
->    unsigned image is rejected up front.
-> 2. **Package layer** — the apt `Release` inside the squashfs is **GPG-signed**
->    and verified against the device-pinned keyring via `signed-by` (no
->    `trusted=yes`), so even a validly-transported but foreign repo can't install.
->
-> Both private keys live only on the build host (`build/keys/`, gitignored) and
-> never ship. The squashfs `sha256` in the image label is a tertiary
-> corruption/tamper tripwire. Remaining hardening: cosign + GPG key
-> rotation/expiry policy and (optionally) Rekor transparency-log inclusion. See
-> `post-install/90-ota-channel.sh`, `build/build-ota-repo.sh`, and
-> `build/release-ota.sh`.
-
 ## Status
 
 **26.6 (r192)** — current release. The open Mesa 26.1.3 stack is the complete
