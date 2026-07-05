@@ -75,6 +75,15 @@ build_layer(){ local role="$1" manifest="$2"
   sudo mount -t overlay overlay -o "lowerdir=$L,upperdir=$U,workdir=$WK" "$MG"
   mount_chroot "$MG"; apt_offline "$MG"
   echo -e '#!/bin/sh\nexit 101' | sudo tee "$MG/usr/sbin/policy-rc.d" >/dev/null; sudo chmod +x "$MG/usr/sbin/policy-rc.d"
+  # r190.2: disable needrestart kernel hints -- same fix already applied in
+  # build-baked-rootfs.sh and build-iso-di.sh, but never here. Without it,
+  # needrestart pops an interactive whiptail "Pending kernel upgrade" msgbox
+  # mid apt-get-install (the chroot's kernel version differs from the host's
+  # running kernel) with no tty reader available, hanging the build
+  # indefinitely (found 2026-07-05, desktop.squashfs rebuild #2 stalled ~30min
+  # until manually killed).
+  sudo mkdir -p "$MG/etc/needrestart/conf.d"
+  printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$MG/etc/needrestart/conf.d/99-squashfs-layer.conf" >/dev/null
   # r190.1: strip inline trailing comments too, not just whole-line ones --
   # a `pkg  # comment` line used to be passed to apt-get install VERBATIM
   # (comment text included), which corrupted the whole batch install and
@@ -205,6 +214,11 @@ build_base(){
   sudo rm -rf "$WORK/base"; mkdir -p "$WORK/base"
   tar -I 'zstd -d' -xf "$BASE_TARBALL" -C "$WORK/base"
   mount_chroot "$WORK/base"
+  # r190.2: same needrestart-hang fix as build_layer() below -- base hooks
+  # (10-our-kernel etc) also apt-install packages and can hit the same
+  # interactive "Pending kernel upgrade" whiptail hang.
+  sudo mkdir -p "$WORK/base/etc/needrestart/conf.d"
+  printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$WORK/base/etc/needrestart/conf.d/99-squashfs-layer.conf" >/dev/null
   # base hooks are local-asset (dpkg/copy) — the apt mirror is only needed for the
   # desktop/server layers, so skip apt_offline here if the mirror isn't present.
   if [ -d "$ROOT/build/server-mirror/dists/resolute" ] || [ -d "$ROOT/build/resolute-mirror/dists/resolute" ]; then apt_offline "$WORK/base"; else log "no mirror -> skipping apt_offline"; fi
