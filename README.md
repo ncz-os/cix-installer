@@ -16,16 +16,18 @@ brands the system as NCZ
 (Reinhardt for desktop, Magnetar for server / always-on agent
 appliance).
 
-> **New in r192:** kernel and CIX-userspace upgrades now work over **plain
-> `apt`** — no reinstall. A signed Buildkite Packages repo
-> (`ncz-os/ncz`) is wired into every install by
+> **New in r193:** the kernel now installs via `apt-get install
+> linux-image-cixmini-{lts,edge}` (dpkg-tracked), not a raw file-copy — so
+> the `apt upgrade`/no-reinstall kernel-update story introduced in r192 now
+> actually works on a running system, not just at install time. A signed
+> Buildkite Packages repo (`ncz-os/ncz`) is wired into every install by
 > `post-install/24-apt-sources.sh`; `apt upgrade` (or `ncz-update`) pulls new
 > kernels and the 31 mirrored CIX proprietary packages straight from it. See
 > [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources)
-> below. r192 also fixes a ~3GB ISO-size regression (duplicated squashfs
-> layers) and is the first ISO where **both** Reinhardt (desktop) and
-> Magnetar (server) genuinely install from the *same* disc — see
-> [Current ISO](#current-iso--r192-ncz-os-266--official-release).
+> below. r192 fixed a ~3GB ISO-size regression (duplicated squashfs
+> layers) and made **both** Reinhardt (desktop) and Magnetar (server)
+> genuinely install from the *same* disc — see
+> [Current ISO](#current-iso--r193-ncz-os-266--official-release).
 
 ### Two distinct layers: a working OS, and an *optional* AI layer
 
@@ -547,7 +549,7 @@ pulling anything.
 
 ## Status
 
-**26.6 (r192)** — current release. The open Mesa 26.1.3 stack is the complete
+**26.6 (r193)** — current release. The open Mesa 26.1.3 stack is the complete
 default GPU provider for **OpenGL/GLX, Vulkan, and OpenCL**, with the CIX
 proprietary stack kept on disk (`.disabled`) for a future opt-in switcher.
 Tested on Minisforum MS-R1 only — see **Hardware support & testing status**
@@ -557,6 +559,34 @@ every disc (see [Architecture](#architecture)).
 
 What changed since the r147 baseline:
 
+- **r193 — the apt kernel-upgrade promise actually works now.** r147/r192
+  documented "`apt upgrade` pulls new kernels, no reinstall" — true of the
+  *design*, but not of what actually happened on a running system: the
+  installer staged the kernel by raw-copying files (`install -D` + `tar
+  xzf`) straight into `/boot` and `/usr/lib/modules`, completely bypassing
+  dpkg. `apt-cache policy linux-image-cixmini-lts` showed `Installed:
+  (none)` even on a box actively running that exact kernel, so `apt
+  upgrade` had nothing it thought needed upgrading — confirmed live on
+  .66. Three-part fix, each verified against real apt transactions on real
+  hardware:
+  1. The kernel now installs via `apt-get install
+     linux-image-cixmini-{lts,edge}` from Buildkite, so dpkg tracks it
+     like any other package.
+  2. The bootloader ESP-write logic (previously locked inside the
+     install-time-only `70-bootloader.sh`) is now a shared script
+     (`ncz-refind-refresh`) installed to `/usr/local/sbin/`, callable again
+     after install — a plain `apt upgrade` needs a way to regenerate the
+     rEFInd menu for the new kernel, not just install it.
+  3. The `cixmini-boot` package (pulled in as a kernel dependency) has its
+     own hook that fires on every kernel install/upgrade — but it wrote
+     systemd-boot entries, dead code since this distro switched to rEFInd
+     at r118. Redirected it to call the real refresh instead, with an apt
+     hook that keeps the redirect in place across future `cixmini-boot`
+     upgrades.
+  A subsequent adversarial review caught a bug that would have made part 3
+  never run at all (a hook-ordering gap in `run-all.sh`), plus two races
+  in a combined multi-kernel/multi-package apt transaction — all fixed and
+  re-verified before this release.
 - **r192 — layered-squashfs bug sweep + dual-variant fix + apt-source hardening.**
   A day-long pass validating a fresh install end-to-end turned up and fixed
   several real bugs, none of which were cosmetic:
@@ -619,15 +649,19 @@ What changed since the r147 baseline:
 - [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipes (`linux-cix-sky1_6.18.26.bb` LTS, `linux-cix-sky1-next_7.0.12.bb` edge) and Cix userspace recipes this installer consumes. Kernel source itself is fetched straight from the public `kernel.org` stable tree at a pinned commit; every Sky1-specific patch is a file tracked in this layer — no separate kernel-source repo is needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
 
 
-## Current ISO — r192 (NCZ-OS 26.6 — official release)
+## Current ISO — r193 (NCZ-OS 26.6 — official release)
 
-The first release where **both Reinhardt (desktop) and Magnetar (server)
-install from the same disc**, with **apt-capable kernel + CIX-userspace
-upgrades** — move to a new kernel or driver build without reinstalling.
-KVM-boot-validated end-to-end for both variants (rEFInd → kernel → d-i →
-preseed start confirmed on a real generic-aarch64-virt board with hardware
-acceleration; full driver validation — NPU/GPU/VPU/audio — remains
-MS-R1-hardware-only, see **Hardware support & testing status** above).
+The first release where the apt kernel-upgrade story actually works on a
+running system, not just at install time — the kernel now installs via
+`apt-get install linux-image-cixmini-{lts,edge}` (dpkg-tracked), so
+`apt upgrade` genuinely pulls and boots a new kernel with no reinstall.
+Also carries r192's changes: **both Reinhardt (desktop) and Magnetar
+(server) install from the same disc**, and **apt-capable CIX-userspace
+upgrades**. KVM-boot-validated end-to-end for both variants (rEFInd →
+kernel → d-i → preseed start confirmed on a real generic-aarch64-virt
+board with hardware acceleration; full driver validation —
+NPU/GPU/VPU/audio — remains MS-R1-hardware-only, see **Hardware support &
+testing status** above).
 
 **Upgrade kernels & drivers with apt — no reinstall**
 - Kernels + CIX userspace (compiled/mirrored): **Buildkite Packages** `ncz-os/ncz`, served over a CloudFront-backed CDN — `apt upgrade` / `ncz-update` pulls new `linux-image-cixmini-{lts,edge}` and the 31 mirrored CIX proprietary packages. No Codeberg apt source exists for this (see OTA channel section above).
