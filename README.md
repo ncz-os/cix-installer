@@ -16,18 +16,20 @@ brands the system as NCZ
 (Reinhardt for desktop, Magnetar for server / always-on agent
 appliance).
 
-> **New in r193:** the kernel now installs via `apt-get install
-> linux-image-cixmini-{lts,edge}` (dpkg-tracked), not a raw file-copy — so
-> the `apt upgrade`/no-reinstall kernel-update story introduced in r192 now
-> actually works on a running system, not just at install time. A signed
-> Buildkite Packages repo (`ncz-os/ncz`) is wired into every install by
-> `post-install/24-apt-sources.sh`; `apt upgrade` (or `ncz-update`) pulls new
-> kernels and the 31 mirrored CIX proprietary packages straight from it. See
+> **New in r194:** kernel + CIX proprietary packages now ship from a public
+> Cloudflare R2 apt repository, not Buildkite Packages — Buildkite's private
+> registry had an auth bug (and a resource-limit wall once made public) that
+> could hard-fail a fresh install with `403 Forbidden`. `post-install/
+> 24-apt-sources.sh` wires it into every install; `apt upgrade` (or
+> `ncz-update`) pulls new kernels and CIX proprietary packages straight from
+> it, no auth required. See
 > [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources)
-> below. r192 fixed a ~3GB ISO-size regression (duplicated squashfs
-> layers) and made **both** Reinhardt (desktop) and Magnetar (server)
-> genuinely install from the *same* disc — see
-> [Current ISO](#current-iso--r193-ncz-os-266--official-release).
+> below. Also in r194: NoMachine removed (xrdp is now the sole graphical
+> remote-access path — NoMachine's first-boot network install was
+> unreliable), IPv6 DNS fallback added to the installer, and several
+> always-failing/unused services (`cix-audio-switch`, `iscsid`, `apport`)
+> are now masked at install time for a quieter boot journal. See
+> [Current ISO](#current-iso--r194-ncz-os-266--official-release).
 
 ### Two distinct layers: a working OS, and an *optional* AI layer
 
@@ -549,7 +551,7 @@ pulling anything.
 
 ## Status
 
-**26.6 (r193)** — current release. The open Mesa 26.1.3 stack is the complete
+**26.6 (r194)** — current release. The open Mesa 26.1.3 stack is the complete
 default GPU provider for **OpenGL/GLX, Vulkan, and OpenCL**, with the CIX
 proprietary stack kept on disk (`.disabled`) for a future opt-in switcher.
 Tested on Minisforum MS-R1 only — see **Hardware support & testing status**
@@ -570,8 +572,8 @@ What changed since the r147 baseline:
   .66. Three-part fix, each verified against real apt transactions on real
   hardware:
   1. The kernel now installs via `apt-get install
-     linux-image-cixmini-{lts,edge}` from Buildkite, so dpkg tracks it
-     like any other package.
+     linux-image-cixmini-{lts,edge}` from the signed apt repository, so
+     dpkg tracks it like any other package.
   2. The bootloader ESP-write logic (previously locked inside the
      install-time-only `70-bootloader.sh`) is now a shared script
      (`ncz-refind-refresh`) installed to `/usr/local/sbin/`, callable again
@@ -587,6 +589,23 @@ What changed since the r147 baseline:
   never run at all (a hook-ordering gap in `run-all.sh`), plus two races
   in a combined multi-kernel/multi-package apt transaction — all fixed and
   re-verified before this release.
+- **r194 — apt repository migrated to Cloudflare R2; NoMachine removed;
+  quieter boot.** A community member on real hardware hit a hard install
+  failure — `apt-get update` returned `403 Forbidden` fetching the kernel
+  package repository (a required step). Root cause: the private Buildkite
+  registry's auth file used a malformed hostname pattern, so the read token
+  never actually attached to requests; making the registry public to work
+  around that instead tripped a resource-limit wall on the plan tier,
+  blocking downloads either way. Fixed by migrating kernel builds + CIX
+  proprietary userspace to a public Cloudflare R2 bucket — no client-side
+  auth, no plan-tier limits, verified end-to-end on a fresh install. Also
+  this release: IPv6 nameserver fallbacks added to the installer's
+  install-time DNS config (IPv4-only before); NoMachine removed entirely
+  (its first-boot network install was unreliable, confirmed failing on a
+  fresh install) with xrdp as the sole graphical remote-access path; and
+  three services that failed or were misconfigured on every boot for no
+  benefit on this hardware (`cix-audio-switch` — a vendor stub with a
+  blank `ExecStart=`, `iscsid`, `apport`) are now masked at install time.
 - **r192 — layered-squashfs bug sweep + dual-variant fix + apt-source hardening.**
   A day-long pass validating a fresh install end-to-end turned up and fixed
   several real bugs, none of which were cosmetic:
@@ -649,15 +668,17 @@ What changed since the r147 baseline:
 - [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipes (`linux-cix-sky1_6.18.26.bb` LTS, `linux-cix-sky1-next_7.0.12.bb` edge) and Cix userspace recipes this installer consumes. Kernel source itself is fetched straight from the public `kernel.org` stable tree at a pinned commit; every Sky1-specific patch is a file tracked in this layer — no separate kernel-source repo is needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
 
 
-## Current ISO — r193 (NCZ-OS 26.6 — official release)
+## Current ISO — r194 (NCZ-OS 26.6 — official release)
 
-The first release where the apt kernel-upgrade story actually works on a
-running system, not just at install time — the kernel now installs via
-`apt-get install linux-image-cixmini-{lts,edge}` (dpkg-tracked), so
-`apt upgrade` genuinely pulls and boots a new kernel with no reinstall.
-Also carries r192's changes: **both Reinhardt (desktop) and Magnetar
-(server) install from the same disc**, and **apt-capable CIX-userspace
-upgrades**. KVM-boot-validated end-to-end for both variants (rEFInd →
+Kernel + CIX proprietary packages now ship from a public Cloudflare R2 apt
+repository instead of Buildkite Packages, fixing a real install-blocking
+`403 Forbidden` bug hit by a community member on real hardware. NoMachine
+is removed (xrdp is the sole graphical remote-access path); IPv6 DNS
+fallback added to the installer; and several always-failing/unused
+services are now masked for a quieter boot journal. Also carries r192/r193's
+changes: **both Reinhardt (desktop) and Magnetar (server) install from the
+same disc**, apt-capable kernel + CIX-userspace upgrades genuinely
+dpkg-tracked. KVM-boot-validated end-to-end for both variants (rEFInd →
 kernel → d-i → preseed start confirmed on a real generic-aarch64-virt
 board with hardware acceleration; full driver validation —
 NPU/GPU/VPU/audio — remains MS-R1-hardware-only, see **Hardware support &
