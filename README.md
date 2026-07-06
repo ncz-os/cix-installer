@@ -517,7 +517,7 @@ that step using `--no-download` (fixed separately in `52-vivaldi.sh`).
 - **Kernels** — compiled `linux-image-cixmini-{lts,edge}` + `cixmini-boot`
   (`build/build-kernel-debs.sh`) → **Buildkite Packages** signed Debian registry
   `ncz-os/ncz`, wired by `post-install/24-apt-sources.sh`:
-  `deb [signed-by=…] https://packages.buildkite.com/ncz-os/ncz/any/ any main`.
+  `deb [signed-by=…] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main`.
   Buildkite Packages serves over a CloudFront-backed CDN, so `apt update`/
   `apt upgrade` against this source is fast and doesn't depend on any single
   origin server staying up.

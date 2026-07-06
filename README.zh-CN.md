@@ -354,7 +354,7 @@ device-tree-compiler，以及两个专用助手 `ncz-rescue-fixlib` 和
 - **内核** —— 编译好的 `linux-image-cixmini-{lts,edge}` + `cixmini-boot`
   （`build/build-kernel-debs.sh`）→ **Buildkite Packages** 经签名的 Debian
   仓库 `ncz-os/ncz`，由 `post-install/24-apt-sources.sh` 接入：
-  `deb [signed-by=…] https://packages.buildkite.com/ncz-os/ncz/any/ any main`。
+  `deb [signed-by=…] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main`。
   Buildkite Packages 通过 CloudFront CDN 提供服务，因此针对这个源的
   `apt update`/`apt upgrade` 既快，也不依赖任何单一源站点保持在线。
 - **CIX 用户态驱动/运行时** → **同一个** Buildkite `ncz-os/ncz` 仓库（于

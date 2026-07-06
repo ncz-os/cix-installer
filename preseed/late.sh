@@ -340,6 +340,8 @@ cat > /target/etc/resolv.conf <<'RESOLVCONF'
 # nclawzero install-time DNS — replaced by systemd-resolved on boot.
 nameserver 8.8.8.8
 nameserver 1.1.1.1
+nameserver 2001:4860:4860::8888
+nameserver 2606:4700:4700::1111
 options timeout:2 attempts:3
 RESOLVCONF
 echo "    /target/etc/resolv.conf:"
