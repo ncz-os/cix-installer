@@ -11,14 +11,16 @@ debootstrap 安装 Debian 12 基础系统并在磁盘上全量升级到 Ubuntu�
 然后叠加适配硬件的内核 + 厂商用户态运行时 + 桌面环境 + Claude Code + （可选启用的）
 NCZ 智能体栈，并将系统品牌化为 NCZ（桌面版为 Reinhardt，服务器/常驻智能体设备为 Magnetar）。
 
-> **r192 新增：** 内核和 CIX 用户态升级现已可通过**纯 `apt`** 完成 —— 无需重装。
-> 每次安装都会由 `post-install/24-apt-sources.sh` 接入一个经签名的 Buildkite
-> Packages 仓库（`ncz-os/ncz`）；`apt upgrade`（或 `ncz-update`）会直接从中拉取
-> 新内核和 31 个已镜像的 CIX 专有软件包。详见下文
-> [OTA 更新通道](#通过-apt-升级内核与驱动--无需重装)。r192 还修复了一个约
-> 3GB 的 ISO 体积回归问题（squashfs 层被重复打包），并且是首个 **Reinhardt**
-> （桌面版）与 **Magnetar**（服务器版）真正能从*同一张*光盘安装的 ISO ——
-> 详见 [当前 ISO](#当前-iso--r192ncz-os-266-正式发布)。
+> **r194 新增：** 内核 + CIX 专有软件包现已从一个公开的 **Cloudflare R2** apt
+> 仓库分发，不再经由 Buildkite Packages —— 后者的私有仓库存在鉴权 bug（改为公开
+> 后又撞上资源限额），曾在真机全新安装时导致硬性的 `403 Forbidden` 失败。
+> `post-install/24-apt-sources.sh` 在每次安装时接入该仓库；`apt upgrade`（或
+> `ncz-update`）会直接从中拉取新内核和 CIX 专有软件包，无需任何鉴权。详见下文
+> [OTA 更新通道](#通过-apt-升级内核与驱动--无需重装)。r194 还移除了 NoMachine
+> （xrdp 现为唯一的图形化远程访问方式），并屏蔽了几个每次启动都失败、对本平台
+> 毫无用处的服务。r193 则让"`apt upgrade` 可拉取新内核"真正名副其实 ——
+> 内核改由 `apt-get install` 安装，dpkg 能真正跟踪它。详见
+> [当前 ISO](#当前-iso--r194ncz-os-266-正式发布)。
 
 ### 两个相互独立的层：可用的操作系统，以及*可选的* AI 层
 
@@ -136,8 +138,8 @@ ISO 还自带：
 - CIX 专有用户态 `.deb`，离线预置在 `assets/cix-debs/`（排除内部测试/验证用
   构建后约 30 个包，这些从未实际被安装）—— 由
   `post-install/25-cix-proprietary.sh` 用 dpkg 安装。同一批软件包**也**被
-  镜像进 Buildkite `ncz-os/ncz` apt 仓库（31 个包，约 81MB），以便安装后无需
-  重装即可重新拉取 —— 见 [OTA 更新通道](#通过-apt-升级内核与驱动--无需重装)。
+  镜像进 Cloudflare R2 上的 `ncz-os/ncz` apt 仓库（31 个包，约 81MB），以便安装后
+  无需重装即可重新拉取 —— 见 [OTA 更新通道](#通过-apt-升级内核与驱动--无需重装)。
 - 两个内核（默认 `6.18.26-cix-sky1-lts` + edge 版 `7.0.12-cix-sky1-next`）
   及固件，设备可在两个内核间切换而无需重新下载任何东西。
 - zeroclaw 的 quadlet 定义，外加可选的 OpenClaw、Hermes 和 NemoClaw 模板（仅预置，默认均不激活）
@@ -226,7 +228,7 @@ curl -fL "$BASE/models/.../bge-small-zh_256.cix" -o model.cix
 
 | 路径 | 来源 | 说明 |
 |---|---|---|
-| `assets/cix-debs/` | 离线预置的 CIX 专有 `.deb`（gitignore） | 同时也镜像进 Buildkite `ncz-os/ncz`（31 个包，见 OTA 章节） |
+| `assets/cix-debs/` | 离线预置的 CIX 专有 `.deb`（gitignore） | 同时也镜像进 Cloudflare R2 上的 `ncz-os/ncz`（31 个包，见 OTA 章节） |
 | `assets/kernel/{stable,edge}/` | Yocto 构建 `meta-cix:linux-cix-sky1-{lts,next}`（gitignore） | 每个内核对应的 `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER`；另有 `modules-overlay/$KVER/` 子目录存放经验证的修复用 `.ko`（见 `post-install/80-npu.sh`、`81-vpu.sh`） |
 | `assets/agent-stack/*` | 本仓库 | zeroclaw/openclaw/hermes/portainer/mnemos/nemoclaw 的 systemd quadlet |
 | `assets/branding/*` | 本仓库 | os-release、motd、Plymouth 主题、壁纸 |
@@ -336,8 +338,8 @@ device-tree-compiler，以及两个专用助手 `ncz-rescue-fixlib` 和
 
 ## 通过 APT 升级内核与驱动 —— 无需重装
 
-`post-install/24-apt-sources.sh` 接入 Buildkite 源并刷新软件包索引，且刻意
-放在很早的位置（在任何安装软件包的钩子之前），这样它们各自的依赖解析步骤都能
+`post-install/24-apt-sources.sh` 接入 Cloudflare R2 上的 apt 源并刷新软件包索引，
+且刻意放在很早的位置（在任何安装软件包的钩子之前），这样它们各自的依赖解析步骤都能
 拿到真实、最新的索引数据。这修复了一个 2026-07-05 的回归问题：
 `vivaldi-stable` 在每次全新安装时都会卡在 dpkg 的 `iU`（半配置）状态，因为其
 `fonts-liberation` 依赖无法解析。根因**不是**缺少 apt 源 —— Ubuntu 官方源
@@ -352,21 +354,23 @@ device-tree-compiler，以及两个专用助手 `ncz-rescue-fixlib` 和
   "仅限光盘"，尽管仓库里有些注释这样描述过一种"仅离线"的信条；那种信条
   针对的是特定的单一厂商源（见下文 Vivaldi），而不是 Ubuntu 官方源本身。
 - **内核** —— 编译好的 `linux-image-cixmini-{lts,edge}` + `cixmini-boot`
-  （`build/build-kernel-debs.sh`）→ **Buildkite Packages** 经签名的 Debian
-  仓库 `ncz-os/ncz`，由 `post-install/24-apt-sources.sh` 接入：
+  （`build/build-kernel-debs.sh`）→ 一个公开的 **Cloudflare R2** 存储桶上经
+  签名的 Debian 仓库 `ncz-os/ncz`，由 `post-install/24-apt-sources.sh` 接入：
   `deb [signed-by=…] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main`。
-  Buildkite Packages 通过 CloudFront CDN 提供服务，因此针对这个源的
-  `apt update`/`apt upgrade` 既快，也不依赖任何单一源站点保持在线。
-- **CIX 用户态驱动/运行时** → **同一个** Buildkite `ncz-os/ncz` 仓库（于
+  仓库此前托管在 Buildkite Packages 上，但其私有注册表存在鉴权 bug、改为公开后
+  又撞上套餐层级的资源限额，曾在真机上导致 `apt-get update` 返回 `403
+  Forbidden` 的硬性安装失败 —— 已于 2026-07-05 整体迁移至 R2：无需客户端鉴权，
+  也没有套餐配额，且 R2 没有出口流量费用，经由 Cloudflare 边缘节点提供服务。
+- **CIX 用户态驱动/运行时** → **同一个** R2 上的 `ncz-os/ncz` 仓库（于
   2026-07-05 从 `archive.cixtech.com` —— 上游 CIX 的中国大陆托管 Debian 仓库，
-  经常直接拒绝连接 —— 镜像而来）。共 31 个包，约 81MB，远低于该仓库
-  1.5GB 的配额；5 个从未实际安装的内部测试/验证用包（`cix-unit-test`、
-  `cix-npu-onnxruntime`、`cix-ltp`、`cix-gpu-test`、`cix-vpu-test`，合计
-  1.6GB）已被排除。这里**不存在** Codeberg apt 源 —— 本文档早期版本描述过
-  一个（`post-install/91-codeberg-apt.sh`），但该脚本在本仓库中从未真正实现过。
+  经常直接拒绝连接 —— 镜像而来）。共 31 个包，约 81MB；5 个从未实际安装的内部
+  测试/验证用包（`cix-unit-test`、`cix-npu-onnxruntime`、`cix-ltp`、
+  `cix-gpu-test`、`cix-vpu-test`，合计 1.6GB）已被排除。这里**不存在** Codeberg
+  apt 源 —— 本文档早期版本描述过一个（`post-install/91-codeberg-apt.sh`），但该
+  脚本在本仓库中从未真正实现过。
 - **内核源码 + Yocto 配方** → GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix)。
 
-Buildkite 源经 GPG 签名（`signed-by`，绝非 `trusted=yes`）；安装介质的
+R2 上的这个源经 GPG 签名（`signed-by`，绝非 `trusted=yes`）；安装介质的
 `file:///cdrom` 源在安装后被移除，此前的 GHCR/squashfs OTA 机制
 （`90-ota-channel.sh`）已废弃。
 
@@ -374,13 +378,18 @@ Buildkite 源经 GPG 签名（`signed-by`，绝非 `trusted=yes`）；安装介�
 `ncz-update [--apply]`）会从签名仓库拉取新内核 + CIX 软件包并安装 ——
 切换到新内核不再需要重装系统。
 
-## 当前 ISO — r192（NCZ-OS 26.6 正式发布）
+## 当前 ISO — r194（NCZ-OS 26.6 正式发布）
 
-首个 **Reinhardt（桌面版）与 Magnetar（服务器版）都能从同一张光盘安装**、
-且支持 **APT 内核 + CIX 用户态升级** 的正式版 —— 切换新内核或驱动构建无需
-重装。两个变体均已在 KVM 下完成端到端启动验证（rEFInd → 内核 → d-i →
-preseed 启动，在具备硬件加速的通用 aarch64 虚拟主板上确认；完整的
-NPU/GPU/VPU/音频驱动验证仍仅限于 MS-R1 真机，见上文**硬件支持与测试状态**）。
+内核 + CIX 专有软件包现已从一个公开的 **Cloudflare R2** apt 仓库分发，
+不再经由 Buildkite Packages —— 修复了一个曾在真机上导致硬性安装失败
+（`403 Forbidden`）的真实缺陷。NoMachine 已被移除（xrdp 是唯一的图形化
+远程访问方式）；同时屏蔽了几个每次启动都失败、无用的服务以精简启动日志。
+本版本同时携带 r192/r193 的成果：**Reinhardt（桌面版）与 Magnetar（服务器版）
+都能从同一张光盘安装**，且 **APT 内核 + CIX 用户态升级**现已真正由 dpkg
+跟踪 —— 切换新内核或驱动构建无需重装。两个变体均已在 KVM 下完成端到端启动
+验证（rEFInd → 内核 → d-i → preseed 启动，在具备硬件加速的通用 aarch64
+虚拟主板上确认；完整的 NPU/GPU/VPU/音频驱动验证仍仅限于 MS-R1 真机，见上文
+**硬件支持与测试状态**）。
 
 **内核：** 6.18.26-cix-sky1-lts（默认，生产）+ 7.0.12-cix-sky1-next（edge）。（7.1.2 为实验性/不可用；7.2 迁移进行中。）
 
@@ -401,7 +410,7 @@ LTS 代码树移植过来的音频栈）。
 
 ## 状态
 
-**26.6（r192）** —— 当前发布。开源 Mesa 26.1.3 栈是 **OpenGL/GLX、Vulkan
+**26.6（r194）** —— 当前发布。开源 Mesa 26.1.3 栈是 **OpenGL/GLX、Vulkan
 和 OpenCL** 的完整默认 GPU 提供方；CIX 专有栈仍保留在磁盘上（`.disabled`），
 供将来的可选切换器使用。仅在 Minisforum MS-R1 上测试 —— 见上文**硬件支持与测试
 状态**。**Reinhardt**（桌面）与 **Magnetar**（服务器）现在都能从*同一张*
@@ -410,6 +419,24 @@ ISO 启动并安装 —— rEFInd 选择变体，两个 squashfs 增量包都随
 
 自 r147 基线以来的变更：
 
+- **r193 —— apt 内核升级承诺终于名副其实。** r147/r192 就宣称"`apt upgrade`
+  可拉取新内核，无需重装"，但那只是设计意图，实际运行并非如此：内核此前是
+  靠原始文件拷贝（`install -D` + `tar xzf`）直接写入 `/boot` 和
+  `/usr/lib/modules`，完全绕过了 dpkg —— 即便一台机器正在运行该内核，
+  `apt-cache policy` 仍显示"未安装"，`apt upgrade` 自然认为无需升级。现在
+  内核改由 `apt-get install linux-image-cixmini-{lts,edge}` 从签名仓库安装，
+  dpkg 能真正跟踪它；配套修复了 rEFInd 菜单刷新脚本（安装后仍可调用）以及
+  `cixmini-boot` 的钩子（此前误写入已废弃的 systemd-boot 条目）。
+- **r194 —— apt 仓库迁移至 Cloudflare R2；移除 NoMachine；启动更安静。**
+  一位社区用户在真机上遇到安装硬性失败：拉取内核仓库时 `apt-get update`
+  返回 `403 Forbidden`。根因是原 Buildkite 私有仓库的鉴权配置有误，读取令牌
+  从未真正生效；改为公开后又撞上了套餐层级的资源限额。修复方式是把内核构建
+  与 CIX 专有用户态整体迁移到一个公开的 Cloudflare R2 存储桶 —— 无需客户端
+  鉴权，也没有套餐限额，已在真机全新安装上端到端验证。本次还给安装器新增了
+  IPv6 DNS 回退（此前仅 IPv4），彻底移除了 NoMachine（其首次启动网络安装并不
+  可靠，已确认在真机安装上失败），改由 xrdp 作为唯一的图形化远程访问方式；
+  并屏蔽了三个每次启动都失败或配置有误、对本平台毫无用处的服务
+  （`cix-audio-switch`、`iscsid`、`apport`）。
 - **r192 —— 分层 squashfs 缺陷排查 + 双变体修复 + apt 源加固。** 一整天
   针对全新安装的端到端验证发现并修复了若干真实缺陷，均非表面问题：
   - **ISO 曾虚胖约 3GB。** squashfs 层被重复打包了两次 —— 一次是正确的路径，
