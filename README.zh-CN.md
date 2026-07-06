@@ -431,7 +431,7 @@ ISO 启动并安装 —— rEFInd 选择变体，两个 squashfs 增量包都随
     因此是暗的。现在两者都已启用。
   - 其他若干小修复：一个（Zoder）桌面图标此前会打开一个空白终端而不是指向
     项目主页；若干安装时钩子（SSH、telnet 控制台、NTP/主机名、故障保护恢复
-    控制台、NoMachine/xrdp、nspawn 恢复容器、Magnetar 无头模式切换）虽已存在
+    控制台、xrdp、nspawn 恢复容器、Magnetar 无头模式切换）虽已存在
     于仓库中，却从未真正接入预烘焙镜像的钩子白名单，因此静默地从未运行过。
 - **r147 —— 首个支持 apt 内核升级的正式版。** `apt upgrade` /
   `ncz-update` 从 Buildkite Packages 拉取新内核 —— 切换内核无需重装。

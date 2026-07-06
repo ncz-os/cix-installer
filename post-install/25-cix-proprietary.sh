@@ -313,6 +313,16 @@ fi
 RUNNING_KVER=$(uname -r)
 echo "    running kernel: $RUNNING_KVER (no OoT bridge — Sky1-Linux in-tree)"
 
+# cix-debian-misc ships cix-audio-switch.service with ExecStart=
+# deliberately blanked (a stub for a feature never finished) --
+# systemd correctly refuses it ("has no ExecStart=... Refusing"),
+# harmless but noisy in the journal on every boot. Mask it rather
+# than hand-editing the vendor unit file.
+if systemctl list-unit-files cix-audio-switch.service 2>/dev/null | grep -q cix-audio-switch; then
+    systemctl mask cix-audio-switch.service 2>&1 | sed 's/^/    /' || true
+    echo "[25] cix-audio-switch.service masked (vendor stub, empty ExecStart=)"
+fi
+
 # Always exit 0 — Cix postinst quirks should not halt the installer.
 # If something is genuinely broken, surfaces during agent runtime
 # rather than killing the install before branding/bootloader land.

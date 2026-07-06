@@ -1,9 +1,16 @@
 #!/bin/bash
-# 31-remote-access.sh - NoMachine (preferred for Mali) + xrdp (fallback) for graphical remote access.
+# 31-remote-access.sh - xrdp for graphical remote access.
 # r55: xrdp had broken WM (default startwm.sh ran /etc/X11/Xsession which didnt
 # wrap with dbus-launch, plus xfwm4 compositor failed over RDP-side Xorg).
-# Fixed both. NoMachine added as first-class option since NX protocol handles
-# Mali GPU graceful-fallback better than xrdp.
+# Fixed both.
+#
+# 2026-07-07: removed NoMachine. Its first-boot oneshot install
+# (ncz-nomachine.service, curl'd nomachine_9.4.14_1_arm64.deb over the
+# network at boot) was unreliable in practice -- failed on a fresh O6
+# community install (network-online.target race at first boot) and added
+# an external network dependency + a failing systemd unit for no benefit
+# xrdp doesn't already provide. xrdp alone is the graphical remote-access
+# path now.
 set -euo pipefail
 
 VARIANT="desktop"
@@ -18,18 +25,7 @@ case "$VARIANT" in
         ;;
 esac
 
-echo "[31] NoMachine + xrdp setup"
-
-# === NoMachine 9.4 ARM64 ===
-NM_URL="https://web9001.nomachine.com/download/9.4/Arm/nomachine_9.4.14_1_arm64.deb"
-# r155: NEVER pull NoMachine from the network at install time. Defer to a
-# first-boot oneshot (network-online) so the installer stays 100% offline.
-mkdir -p /usr/local/lib/ncz
-printf '#!/bin/sh\ncurl -fsSL -o /tmp/nm.deb "%s" && [ -s /tmp/nm.deb ] && DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/nm.deb && rm -f /tmp/nm.deb && systemctl disable ncz-nomachine.service\n' "$NM_URL" > /usr/local/lib/ncz/install-nomachine.sh
-chmod 0755 /usr/local/lib/ncz/install-nomachine.sh
-printf '[Unit]\nDescription=NCZ first-boot NoMachine install\nAfter=network-online.target\nWants=network-online.target\n[Service]\nType=oneshot\nExecStart=/usr/local/lib/ncz/install-nomachine.sh\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/ncz-nomachine.service
-systemctl enable ncz-nomachine.service 2>/dev/null || true
-echo "  NoMachine deferred to first-boot (ncz-nomachine.service) — no install-time network pull"
+echo "[31] xrdp setup"
 
 # === xrdp fix: dbus-launch + startxfce4 + disable xfwm4 compositor ===
 cat > /etc/xrdp/startwm.sh <<'XRDP'

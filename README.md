@@ -612,7 +612,7 @@ What changed since the r147 baseline:
   - Assorted smaller fixes: a desktop icon (Zoder) that launched a bare
     terminal instead of pointing at the project page; several install-time
     hooks (SSH, telnet console, NTP/hostname, failsafe recovery console,
-    NoMachine/xrdp, the nspawn recovery container, the Magnetar headless
+    xrdp, the nspawn recovery container, the Magnetar headless
     toggle) that were present in the repo but never actually wired into the
     baked-image hook allowlist, so they silently never ran.
 - **r147 — first apt-capable kernel-upgrade release.** `apt upgrade` /

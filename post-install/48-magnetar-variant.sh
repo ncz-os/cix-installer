@@ -43,8 +43,8 @@ esac
 #  1. Default target = multi-user.target
 #  2. Mask any installed display managers so a stray apt install doesn't
 #     pull a desktop back in unexpectedly.
-#  3. Pre-install NoMachine for headless GUI on demand (per r75 P5 spec).
-#     NoMachine .deb is staged under assets/nomachine/ if available.
+#  3. (NoMachine removed 2026-07-07 -- unreliable first-boot network
+#     install, see 31-remote-access.sh for the rationale.)
 
 systemctl set-default multi-user.target
 echo "[48] default target set to multi-user.target"
@@ -56,18 +56,6 @@ for u in lightdm.service gdm3.service gdm.service sddm.service; do
         echo "[48] $u disabled+masked (Magnetar headless)"
     fi
 done
-
-# Pre-install NoMachine if its .deb was staged on the ISO.
-NOMACHINE_DEB="/cdrom/cixmini/assets/nomachine/nomachine_arm64.deb"
-if [ -f "$NOMACHINE_DEB" ]; then
-    DEBIAN_FRONTEND=noninteractive dpkg -i "$NOMACHINE_DEB" 2>&1 | tail -3 || \
-        echo "[48] NoMachine install warn — apt-get -f install"
-    apt-get -f install -y 2>&1 | tail -3 || true
-    systemctl enable nxserver 2>/dev/null || true
-    echo "[48] NoMachine staged + enabled"
-else
-    echo "[48] NoMachine .deb not in /cdrom payload — skipping (canonical install: ncz install nomachine on first boot)"
-fi
 
 # r76 fix #2 — defensive SSH enable for Magnetar (server SKU is
 # broken-by-definition without sshd). 35-ssh.sh already enables ssh,
@@ -129,8 +117,7 @@ cat > /etc/issue.d/10-ncz-magnetar.issue <<'EOF'
 *--------------------------------------------------------------*
 *                                                              *
 *   Remote access ......... ssh   port 22                      *
-*   Remote desktop ........ NoMachine  port 4000  (if instd)   *
-*   Re-enable graphical ... sudo ncz desktop on                *
+*   Re-enable graphical ... sudo ncz desktop on (xrdp)          *
 *                                                              *
 ****************************************************************
 
@@ -169,5 +156,5 @@ echo "server" > "$VARIANT_FILE"
 echo
 echo "[48] Magnetar (server) variant applied. Boot-up will land in tty2 multi-user."
 echo "     tty1 reserved for kernel boot diag; press Alt+F2 for login prompt."
-echo "     SSH on port 22; NoMachine 4000 (if installed)."
+echo "     SSH on port 22."
 echo "     Switch back to desktop with: sudo ncz desktop on"

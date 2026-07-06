@@ -652,3 +652,14 @@ StartupNotify=false
 Terminal=false
 XAUTO
 echo "[20] xscreensaver installed (2D-only hacks + gl-visual shim; random from catalog)"
+
+# Appliance cleanup: mask services that fail on every boot for no benefit on
+# this platform (no iSCSI targets, no apport crash-report backend wired up).
+# Purely noise reduction — masking, not removing the packages.
+for u in iscsid.service apport.service; do
+    if systemctl list-unit-files "$u" 2>/dev/null | grep -q "^$u"; then
+        systemctl disable "$u" 2>&1 | sed 's/^/    /' || true
+        systemctl mask    "$u" 2>&1 | sed 's/^/    /' || true
+        echo "[20] $u masked (not used on this platform)"
+    fi
+done
