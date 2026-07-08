@@ -121,6 +121,8 @@ cat > /etc/issue.d/10-ncz-magnetar.issue <<'EOF'
 *                                                              *
 ****************************************************************
 
+   NCZ-OS  -  running kernel \r  (\m)
+
 EOF
 chmod 0644 /etc/issue.d/10-ncz-magnetar.issue
 echo "[48] /etc/issue.d/10-ncz-magnetar.issue written"
