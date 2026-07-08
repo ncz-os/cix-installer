@@ -704,3 +704,19 @@ display, audio-stack port from the LTS tree).
 **MS-R1 (cixmini) driver support — 6.18 / 7.0.12:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (Mali-G720 panthor renderD128, Mesa 26.1.3 panvk+rusticl; compositing off), VPU — all working.
 
 **Reproduce:** kernels from kernel.org stable git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](docs/NEXT_ISO.md)). No separate kernel-source repo needed — meta-cix carries every Sky1-specific patch as a tracked file.
+
+
+## Build infrastructure & partners
+
+Continuous integration and package distribution for this project are generously
+supported by our open-source infrastructure partners:
+
+- **[GitLab](https://gitlab.com/)** — canonical source hosting and CI pipelines
+  (format / lint / test gates), via the
+  [GitLab for Open Source](https://about.gitlab.com/solutions/open-source/) program.
+- **[Buildkite](https://buildkite.com/)** — CI/CD orchestration with hosted macOS
+  and Linux agents, and our APT package registry host
+  (`packages.buildkite.com/ncz-os/ncz`), via the
+  [Buildkite Open Source](https://buildkite.com/pricing) program.
+
+Thank you to both for backing open-source software.
