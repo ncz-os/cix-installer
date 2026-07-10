@@ -329,7 +329,7 @@ chmod 0755 "$CHROOT/usr/local/sbin/ncz-rescue-chroot"
 # MOTD pointing operators at AGENTS.md
 cat > "$CHROOT/etc/motd" <<EOF
 
-  NCZ-OS RESCUE ENVIRONMENT (LTS 6.18 kernel, full toolset)
+  NCZ-OS RESCUE ENVIRONMENT (stable kernel, full toolset)
   -----------------------------------------------------
   Read /AGENTS.md for system facts, drivers, boot model, and recovery steps.
   Helpers:  ncz-rescue-fixlib <root>   ncz-rescue-chroot <dev>

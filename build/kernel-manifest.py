@@ -62,8 +62,11 @@ def intree_npu(kver, modules_tgz):
         with tarfile.open(modules_tgz, "r:gz") as tf:
             for m in tf:
                 n = m.name
-                if n.endswith("armchina_npu.ko") and ("/modules/%s/" % kver) in n:
+                if (n.endswith("armchina_npu.ko") or n.endswith("armchina_npu.ko.xz")) and ("/modules/%s/" % kver) in n:
                     data = tf.extractfile(m).read()
+                    if n.endswith(".xz"):
+                        import lzma
+                        data = lzma.decompress(data)
                     break
             else:
                 return None

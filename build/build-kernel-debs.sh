@@ -19,7 +19,7 @@ OUT="$REPO/build/kernel-debs"
 BUILD_REV="${BUILD_REV:-r98}"
 MAINT="NCZ <nczero@nclawzero.dev>"
 
-KVER_LTS="${KVER_LTS:-$(cat "$REPO/build/iso-staging-di/cixmini/KVER_LTS" 2>/dev/null || echo 6.18.26-ncz-lts)}"
+KVER_LTS="${KVER_LTS:-$(cat "$REPO/build/iso-staging-di/cixmini/KVER_LTS" 2>/dev/null || echo 7.0.12-cix-sky1-next)}"
 KVER_NEXT="${KVER_NEXT:-$(cat "$REPO/build/iso-staging-di/cixmini/KVER_NEXT" 2>/dev/null || echo 7.0.12-cix-sky1-next)}"
 
 echo "== build-kernel-debs =="
@@ -299,7 +299,7 @@ EOF
 }
 
 build_cixmini_boot
-build_kernel_deb lts  "$KVER_LTS"  stable "$NPU/armchina_npu-${KVER_LTS}.ko"
+build_kernel_deb lts  "$KVER_LTS"  stable ""  # NPU in-tree since 7.0.12
 build_kernel_deb edge "$KVER_NEXT" edge   ""
 
 echo ""

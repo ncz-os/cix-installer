@@ -31,6 +31,32 @@ appliance).
 > are now masked at install time for a quieter boot journal. See
 > [Current ISO](#current-iso--r194-ncz-os-266--official-release).
 
+### Why NCZ-OS, when Canonical / Armbian / vendor images exist?
+
+Fair question — the ARM single-board space has no shortage of images. NCZ-OS
+is not trying to be another generic port. It is an **agentic-targeted Linux
+distribution for ARM**, and the differences are the point:
+
+- **One consistent installer across multiple (often exotic) ARM systems** —
+  the same unattended installer, partitioning, boot, and recovery model on
+  every supported board, instead of a different image with different
+  conventions per vendor.
+- **The proprietary bits actually work out of the box** — GPU, NPU, VPU,
+  audio, and firmware for each system are integrated, patched where the
+  vendor drops lag mainline, and validated on real hardware before release.
+- **Agents, inference, and agentic memory are first-class** — the ncz agent
+  stack, on-device NPU inference, and the memory substrate ship staged
+  (opt-in, never running until you ask) rather than bolted on afterward.
+- **Recoverability as doctrine** — every install carries a bootable rescue
+  partition with self-configuring networking (DHCP + static fallback) and
+  multiple access channels, because a bricked remote ARM box you cannot
+  reach is the normal failure mode this project refuses to accept.
+
+If a general-purpose image already serves you well, use it happily. NCZ-OS
+exists for the case where you want ARM machines that behave like a coherent,
+agent-ready fleet rather than a shelf of one-off boards — injecting some
+standardization into a space that today has very little.
+
 ### Two distinct layers: a working OS, and an *optional* AI layer
 
 NCZ deliberately separates the operating system from the AI. Installing the

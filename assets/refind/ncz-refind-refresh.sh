@@ -338,7 +338,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$LTS_AVAILABLE" = "1" ]; then
-        echo "menuentry \"NCZ-OS 26.6  ·  stable — kernel $KVER_LTS (LTS 6.18)\" {"
+        echo "menuentry \"NCZ-OS 26.6  ·  stable — kernel $KVER_LTS\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
@@ -347,7 +347,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ "$NEXT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"NCZ-OS 26.6  ·  edge — kernel $KVER_NEXT (NEXT 7.0.x) [DEFAULT]\" {"
+        echo "menuentry \"NCZ-OS 26.6  ·  edge — kernel $KVER_NEXT [DEFAULT]\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -365,7 +365,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ -n "$RESCUEPART_OPTIONS" ]; then
-        echo "menuentry \"NCZ-OS 26.6  ·  RESCUE PARTITION — LTS $KVER_LTS, full toolset (telnet/dropbear/ssh)\" {"
+        echo "menuentry \"NCZ-OS 26.6  ·  RESCUE PARTITION — stable $KVER_LTS, full toolset (telnet/dropbear/ssh)\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
