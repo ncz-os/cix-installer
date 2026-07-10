@@ -149,6 +149,14 @@ echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol
 LTS_CMDLINE_BASE="console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
 NEXT_CMDLINE_BASE="console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
 
+# The edge (NEXT) kernel needs board-specific PCIe/SCMI knobs that the stable
+# kernel does not: the 7.2 forward-port was only ever metal-validated with
+# these (r195 shipped edge WITHOUT them and the board hung at boot — the
+# generic cmdline is NOT safe for 7.2 on Sky1). Also carve ramoops so an edge
+# hang leaves a crash record, and prefer fast panic over a silent wedge.
+NEXT_CMDLINE_EXTRA="pcie_aspm=off sky1_pcie_native=off pcie_pnp_en acpi_scmi_en=off loglevel=3 oops=panic panic=6 ramoops.mem_address=0x83d00000 ramoops.mem_size=0x100000 ramoops.record_size=0x40000 ramoops.console_size=0x80000 ramoops.ecc=0"
+NEXT_CMDLINE_BASE="$NEXT_CMDLINE_BASE $NEXT_CMDLINE_EXTRA"
+
 SPLASH="quiet splash"
 [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 
@@ -315,10 +323,13 @@ else
     echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
 fi
 
-if [ "$NEXT_AVAILABLE" = "1" ]; then
-    DEFAULT_TOKEN="edge"
-else
+# Default to STABLE when it exists (r195+: edge is a true RC kernel and must
+# be opt-in from the menu; the old edge-default dated from when edge was the
+# proven 7.0.12). Edge remains one arrow-key away with a 10s menu timeout.
+if [ "$LTS_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="stable"
+else
+    DEFAULT_TOKEN="edge"
 fi
 
 REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
