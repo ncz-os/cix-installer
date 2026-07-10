@@ -78,7 +78,7 @@ if [ -n "$KVER_LTS" ]; then
         ls -la /boot 2>&1
         exit 1
     fi
-    modcount=$(find "/usr/lib/modules/$KVER_LTS" -name '*.ko' 2>/dev/null | wc -l)
+    modcount=$(find "/usr/lib/modules/$KVER_LTS" \( -name '*.ko' -o -name '*.ko.xz' \) 2>/dev/null | wc -l)
     if [ "$modcount" -lt 50 ]; then
         echo "ERROR: [lts] modules dir suspiciously small (.ko count=$modcount, expected hundreds)"
         exit 1
@@ -100,7 +100,7 @@ if [ -n "$KVER_NEXT" ]; then
         ls -la /boot 2>&1
         exit 1
     fi
-    modcount=$(find "/usr/lib/modules/$KVER_NEXT" -name '*.ko' 2>/dev/null | wc -l)
+    modcount=$(find "/usr/lib/modules/$KVER_NEXT" \( -name '*.ko' -o -name '*.ko.xz' \) 2>/dev/null | wc -l)
     if [ "$modcount" -lt 50 ]; then
         echo "ERROR: [next] modules dir suspiciously small (.ko count=$modcount, expected hundreds)"
         exit 1

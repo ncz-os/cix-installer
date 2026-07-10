@@ -16,20 +16,17 @@ brands the system as NCZ
 (Reinhardt for desktop, Magnetar for server / always-on agent
 appliance).
 
-> **New in r194:** kernel + CIX proprietary packages now ship from a public
-> Cloudflare R2 apt repository, not Buildkite Packages — Buildkite's private
-> registry had an auth bug (and a resource-limit wall once made public) that
-> could hard-fail a fresh install with `403 Forbidden`. `post-install/
-> 24-apt-sources.sh` wires it into every install; `apt upgrade` (or
-> `ncz-update`) pulls new kernels and CIX proprietary packages straight from
-> it, no auth required. See
-> [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources)
-> below. Also in r194: NoMachine removed (xrdp is now the sole graphical
-> remote-access path — NoMachine's first-boot network install was
-> unreliable), IPv6 DNS fallback added to the installer, and several
-> always-failing/unused services (`cix-audio-switch`, `iscsid`, `apport`)
-> are now masked at install time for a quieter boot journal. See
-> [Current ISO](#current-iso--r194-ncz-os-266--official-release).
+> **New in r195:** the kernel channels move forward — **7.0.12 is now the
+> stable channel** and **7.2.0-rc1-ncz is the new edge channel** (6.18 LTS is
+> retired from the ISO). The 7.2 edge kernel carries this cycle's real fixes:
+> the VPU boot-hang fix (pm_runtime IRQ/reset ordering, matching CIX's own
+> v1.0.1 driver release), a corrected RTL8127 PCIe ASPM/ClockPM quirk, the
+> in-tree panthor driver removed in favor of the out-of-tree Mali DDK stack,
+> and the linlondp 26q2 -Werror fixes. Kernels are now built under
+> **Yocto Project 6.0 "Wrynose"**. The base image also lost ~2 GB of dead
+> weight (stale test packages are no longer baked in). OTA publication of the
+> new kernel pair to the apt channel follows separately. See
+> [Current ISO](#current-iso--r195-ncz-os-266--official-release).
 
 ### Why NCZ-OS, when Canonical / Armbian / vendor images exist?
 
@@ -694,40 +691,41 @@ What changed since the r147 baseline:
 - [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipes (`linux-cix-sky1_6.18.26.bb` LTS, `linux-cix-sky1-next_7.0.12.bb` edge) and Cix userspace recipes this installer consumes. Kernel source itself is fetched straight from the public `kernel.org` stable tree at a pinned commit; every Sky1-specific patch is a file tracked in this layer — no separate kernel-source repo is needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
 
 
-## Current ISO — r194 (NCZ-OS 26.6 — official release)
+## Current ISO — r195 (NCZ-OS 26.6 — official release)
 
-Kernel + CIX proprietary packages now ship from a public Cloudflare R2 apt
-repository instead of Buildkite Packages, fixing a real install-blocking
-`403 Forbidden` bug hit by a community member on real hardware. NoMachine
-is removed (xrdp is the sole graphical remote-access path); IPv6 DNS
-fallback added to the installer; and several always-failing/unused
-services are now masked for a quieter boot journal. Also carries r192/r193's
-changes: **both Reinhardt (desktop) and Magnetar (server) install from the
-same disc**, apt-capable kernel + CIX-userspace upgrades genuinely
-dpkg-tracked. KVM-boot-validated end-to-end for both variants (rEFInd →
-kernel → d-i → preseed start confirmed on a real generic-aarch64-virt
-board with hardware acceleration; full driver validation —
-NPU/GPU/VPU/audio — remains MS-R1-hardware-only, see **Hardware support &
-testing status** above).
+Kernel-channel refresh: **7.0.12-cix-sky1-next is now the stable channel**
+and **7.2.0-rc1-ncz is the new edge channel**; the 6.18 LTS kernel is
+retired from the ISO. The 7.2 edge kernel fixes a real VPU boot-hang
+(pm_runtime IRQ-before-reset race — the same fix CIX shipped independently
+in their v1.0.1 VPU driver), corrects the RTL8127 PCIe ASPM/ClockPM quirk
+(the ACPI hardware-revision match was wrong, so the quirk could silently
+never fire), removes the in-tree panthor driver from the build entirely
+(the out-of-tree Mali DDK stack is the driver of record), and carries the
+linlondp 26q2 -Werror fixes. Kernels are built under **Yocto Project 6.0
+"Wrynose"** (openembedded-core + bitbake 2.18). base.squashfs shed ~2 GB
+of dead weight (test/validation packages that the installer never installed
+are no longer baked into the image). The rescue partition's self-configuring
+networking (DHCP + static fallback) is verified as a release gate as of this
+release. Also carries r194's changes (Cloudflare R2 apt channel, NoMachine
+removal, quieter boot journal).
 
 **Upgrade kernels & drivers with apt — no reinstall**
 - Kernels + CIX userspace (compiled/mirrored): **Buildkite Packages** `ncz-os/ncz`, served over a CloudFront-backed CDN — `apt upgrade` / `ncz-update` pulls new `linux-image-cixmini-{lts,edge}` and the 31 mirrored CIX proprietary packages. No Codeberg apt source exists for this (see OTA channel section above).
 - Kernel source + Yocto recipes: GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix).
 
-**Kernels:** 6.18.26-cix-sky1-lts (default, production) + 7.0.12-cix-sky1-next (edge). (7.1.2 experimental/non-working; 7.2 migration in progress.)
+**Kernels:** 7.0.12-cix-sky1-next (default, stable) + 7.2.0-rc1-ncz (edge). (6.18 LTS retired from the ISO as of r195; 7.1.2 was experimental/non-working and never shipped.)
 
-Provenance differs between the two: **6.18.26 LTS** is mainline Linux plus
-[Sky1-Linux](https://github.com/Sky1-Linux/linux-sky1) community patches — an
-upstream-friendly community fork we consume and package, not our own kernel
-work. **7.0.12 NEXT** is *our* port: we took the raw v7.0.12 stable tag and
-did the MS-R1-specific validation and fixes ourselves (SCMI, GPU, VPU, NPU,
-display, audio-stack port from the LTS tree).
+Provenance: **7.0.12 stable** is *our* port — the raw v7.0.12 stable tag
+plus our MS-R1-specific validation and fixes (SCMI, GPU, VPU, NPU, display,
+audio). **7.2.0-rc1-ncz edge** goes further: mainline v7.2-rc1 plus our full
+~130-patch forward-port of the CIX Sky1 BSP (tracked as individual patch
+files in meta-cix), including fixes that don't exist in any vendor drop yet.
 
 **Install:** unattended d-i (auto-partition, ESP + NCZRESCUE rescue partition), boots rEFInd. Interactive disk + root-filesystem choice — **btrfs** (default) or **ext4**; no ZFS root support yet. Installer runs on the proven 6.18 LTS kernel.
 
 **Recovery:** NCZRESCUE partition with full repair toolset + automatic networking, reachable independent of the main rootfs; installer remote-diagnostics (network-console + telnet/http) on USB boot.
 
-**MS-R1 (cixmini) driver support — 6.18 / 7.0.12:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (Mali-G720 panthor renderD128, Mesa 26.1.3 panvk+rusticl; compositing off), VPU — all working.
+**MS-R1 (cixmini) driver support — 7.0.12 / 7.2:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (Mali-G720 panthor renderD128, Mesa 26.1.3 panvk+rusticl; compositing off), VPU — all working.
 
 **Reproduce:** kernels from kernel.org stable git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](docs/NEXT_ISO.md)). No separate kernel-source repo needed — meta-cix carries every Sky1-specific patch as a tracked file.
 
