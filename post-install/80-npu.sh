@@ -51,6 +51,27 @@ if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
     fi
 fi
 
+# --- Fallback: fold in an out-of-band NCZ edge (7.2) kernel (r195) ---
+# The KVER_LTS/KVER_NEXT sidecars are authoritative and, on an r195 install,
+# already carry the edge kernel as KVER_NEXT (assets/kernel/edge -> KVER_NEXT),
+# so 7.2 gets the SSDT overlay through the normal LTS/NEXT path below. This
+# fallback only covers the case where a 7.2-class NCZ kernel is present on disk
+# but NOT represented by either sidecar (e.g. a hand-deployed 7.2 .deb, or
+# sidecar drift): without it that kernel's initrd would miss the CIXH4010 _HID
+# overlay and the NPU cores would hard-hang on first register read. De-duped
+# against the sidecars (adds nothing on a normal install where 7.2==KVER_NEXT)
+# and idempotent downstream (the SSDT prepend checks newc-magic first).
+for _mk in /lib/modules/*7.2*-ncz /usr/lib/modules/*7.2*-ncz; do
+    [ -d "$_mk" ] || continue
+    _kv="${_mk##*/}"
+    _known=0
+    for _k in "${KERNEL_VERS[@]}"; do [ "$_k" = "$_kv" ] && { _known=1; break; }; done
+    [ "$_known" = "1" ] && continue
+    echo "[80] fallback: NCZ edge kernel $_kv present but not in KVER_* sidecars — folding in for NPU SSDT"
+    KERNEL_LABELS+=("edge")
+    KERNEL_VERS+=("$_kv")
+done
+
 if [ "${#KERNEL_VERS[@]}" -eq 0 ]; then
     echo "[80] WARN: no KVER_LTS or KVER_NEXT sidecar found; skipping kernel-specific NPU setup"
 fi
