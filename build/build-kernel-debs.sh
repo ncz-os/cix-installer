@@ -234,7 +234,7 @@ build_kernel_deb() {
     tar xzf "$ASSETS/$label/modules-cixmini.tgz" -C "$root/usr" --keep-directory-symlink
     [ -d "$root/usr/lib/modules/$kver" ] || { echo "ERROR: modules tgz did not yield $kver"; exit 1; }
     local mc
-    mc=$(find "$root/usr/lib/modules/$kver" -name '*.ko' | wc -l)
+    mc=$(find "$root/usr/lib/modules/$kver" \( -name '*.ko' -o -name '*.ko.xz' \) | wc -l)
     [ "$mc" -ge 50 ] || { echo "ERROR: suspiciously few modules ($mc) for $kver"; exit 1; }
 
     if [ -n "$with_npu" ]; then
