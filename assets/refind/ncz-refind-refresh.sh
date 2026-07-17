@@ -342,7 +342,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     echo "use_nvram false"
     echo "resolution max"
     [ -n "$REFIND_BANNER" ] && echo "banner $REFIND_BANNER"
-    [ -n "$REFIND_BANNER" ] && echo "banner_scale fillscreen"
+    [ -n "$REFIND_BANNER" ] && echo "banner_scale noscale"
     echo "showtools shell,reboot,shutdown,firmware"
     echo "scanfor manual"
     echo "scan_all_linux_kernels false"

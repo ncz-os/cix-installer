@@ -77,3 +77,9 @@ python3-pip
 # --- lockout-prevention (doctrine #9) ---
 inetutils-telnetd
 openbsd-inetd
+
+# --- boot splash branding (r196: Magnetar shipped stock Xubuntu plymouth
+# theme because these packages were never installed, so 60-plymouth.sh's
+# rebrand hook bailed at its 'spinner theme not installed' guard) ---
+plymouth-theme-spinner
+imagemagick
