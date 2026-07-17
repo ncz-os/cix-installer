@@ -2168,7 +2168,16 @@ mkdir -p "$STAGING/boot/grub"
 # reboot, aborting the install). The short-lived installer does not need lockup
 # detection; the INSTALLED system's cmdline (70-bootloader) is separate and keeps
 # it. Harmless on native metal; essential for reliable native-arm64 KVM testing.
-MARTJOHNSON_R6="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+# r196: dropped console=ttyAMA2,115200 — that device name is MS-R1-specific
+# (this whole MARTJOHNSON_R6 line was captured from a working MS-R1
+# /proc/cmdline) and does not exist on Orion O6N, where the confirmed-working
+# serial console comes up via console=tty0 alone (ACPI SPCR auto-detection),
+# no explicit UART device name required. Symptom on O6N: zero serial output
+# during d-i (wrong/nonexistent tty), independent of the DHCP-during-install
+# issue also observed on that board. If MS-R1 ever needs a fresh d-i install
+# again and wants installer-time serial, ttyAMA2 will need to come back —
+# ideally behind real board detection, not a blind global toggle.
+MARTJOHNSON_R6="loglevel=4 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
 DI_PRIORITY=critical  # r134: was high; high drops d-i to interactive menu after finish-install (no auto-reboot). critical auto-progresses to the terminal reboot; the remove-media prompt is itself critical so it still shows.
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
