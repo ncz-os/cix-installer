@@ -111,6 +111,28 @@ else
     echo "  [next] BETA kernel not present in ISO — skipping"
 fi
 
+# r196c: prune orphaned /usr/lib/modules/<ver> trees that don't match
+# either kernel this hook actually installed. Confirmed 2026-07-18 on O6N:
+# a stale 6.6.10-cix-build-generic/ tree (pre-dates this apt-managed-kernel
+# rewrite, never dpkg-tracked, never cleaned across base-image rebuilds)
+# shipped rtl_btusb.ko built against that old kernel. It can never load
+# against KVER_LTS/KVER_NEXT (vermagic mismatch) and was never going to be
+# needed anyway -- btusb+btrtl already cover Bluetooth for the real
+# kernel -- but kmod still tries it on every boot and logs the mismatch,
+# which reads as a broken driver rather than harmless dead weight. Only
+# KVER_LTS/KVER_NEXT are ever legitimate on this image (see comment at
+# top of file); anything else under /usr/lib/modules is leftover cruft.
+echo "[10] pruning orphaned /usr/lib/modules/* trees (not KVER_LTS/KVER_NEXT)"
+for moddir in /usr/lib/modules/*/; do
+    kver="$(basename "$moddir")"
+    [ "$kver" = "$KVER_LTS" ] && continue
+    [ "$kver" = "$KVER_NEXT" ] && continue
+    echo "    removing orphaned module tree: $kver"
+    rm -rf "$moddir"
+done
+[ -n "$KVER_LTS" ] && depmod -a "$KVER_LTS" 2>/dev/null || true
+[ -n "$KVER_NEXT" ] && depmod -a "$KVER_NEXT" 2>/dev/null || true
+
 if [ "$INSTALLED_KERNELS" -eq 0 ]; then
     echo "[10] ERROR: no kernel packages were installed"
     exit 1
