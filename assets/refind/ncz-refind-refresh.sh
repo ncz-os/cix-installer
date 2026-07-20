@@ -160,7 +160,7 @@ NEXT_CMDLINE_BASE="$NEXT_CMDLINE_BASE $NEXT_CMDLINE_EXTRA"
 SPLASH="quiet splash"
 [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 
-ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=$ROOT_FSTYPE rw"
+ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootdelay=90 rootfstype=$ROOT_FSTYPE rw"
 if [ -n "$ROOT_SUBVOL" ]; then
     ROOT_OPTS="$ROOT_OPTS rootflags=subvol=$ROOT_SUBVOL"
 fi
@@ -279,7 +279,7 @@ RESCUEPART_OPTIONS=""
 if [ -f "$RESCUE_READY" ] && [ "$LTS_AVAILABLE" = "1" ]; then
     RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
     if [ -n "$RESCUEPART_PARTUUID" ]; then
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $LTS_CMDLINE_BASE"
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootdelay=90 rootfstype=ext4 rw $LTS_CMDLINE_BASE"
         echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding rEFInd rescuepart entry (LTS + normal display cmdline)"
     else
         echo "  rescue-partition marker present but no PARTUUID — skipping rescuepart entry"
