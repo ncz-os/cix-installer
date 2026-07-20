@@ -29,7 +29,7 @@ AGENTS_SRC="$ROOT/assets/rescue/AGENTS.md"
 # Rescue console credentials (documented in assets/rescue/AGENTS.md). LAN-only.
 RESCUE_ROOT_PW="${RESCUE_ROOT_PW:-rescue}"
 RESCUE_HOSTNAME="ncz-rescue"
-RESCUE_STATIC_IP="192.168.207.66/24"
+RESCUE_STATIC_IP="192.168.207.199/24"  # dedicated rescue fallback — NOT any production host (was .66/cixmini builder — collision fixed 2026-07-20)
 RESCUE_STATIC_GW="192.168.207.1"
 
 for t in debootstrap chroot zstd tar awk sed grep mountpoint; do
