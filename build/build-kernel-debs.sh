@@ -254,6 +254,9 @@ build_kernel_deb() {
 #!/bin/sh
 set -e
 KVER="$kver"
+# Guard against an empty KVER: a bare "/usr/lib/modules/" in the postrm
+# would rm -rf every kernel's modules. Bail if the version is missing.
+[ -n "\$KVER" ] || exit 0
 if [ "\$1" = configure ]; then
     depmod -a "\$KVER" || true
     if command -v update-initramfs >/dev/null 2>&1; then
@@ -267,6 +270,9 @@ EOF
 #!/bin/sh
 set -e
 KVER="$kver"
+# Guard against an empty KVER: a bare "/usr/lib/modules/" here would
+# rm -rf every kernel's modules. Bail if the version is missing.
+[ -n "\$KVER" ] || exit 0
 case "\$1" in
   remove|purge)
     rm -f "/boot/initrd.img-\$KVER" "/boot/efi/vmlinuz-\$KVER" "/boot/efi/initrd.img-\$KVER" 2>/dev/null || true

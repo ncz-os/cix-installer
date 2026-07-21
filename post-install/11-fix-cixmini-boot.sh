@@ -57,7 +57,7 @@ for f in /boot/vmlinuz-*; do
     kver="${f#/boot/vmlinuz-}"
     case "$kver" in
         *-rescue) continue ;;
-        *-lts|*-next)
+        *-lts|*-next|*-ncz|*-sky1-ncz)
             # Skip a kernel mid-unpack: if BOTH LTS and NEXT are being
             # upgraded in the same apt transaction, this hook can fire
             # (from the first kernel's own postinst) before the second
@@ -71,9 +71,16 @@ for f in /boot/vmlinuz-*; do
                 echo "cixmini-update-bootloader: $kver has no initrd yet (mid-transaction?) -- skipping this kernel for now"
                 continue
             fi
+            # Classify by name suffix. Order matters: an -rcN release
+            # candidate (e.g. 7.2.0-rc4-sky1-ncz) must be caught as edge
+            # BEFORE the *-sky1-ncz stable rule, so -rc always wins the
+            # edge slot. A released -sky1-ncz (no rc) is the stable target.
             case "$kver" in
-                *-lts)  KVER_LTS="$kver" ;;
-                *-next) KVER_NEXT="$kver" ;;
+                *rc[0-9]*)             KVER_NEXT="$kver" ;;  # any -rcN kernel = edge
+                *-cix-sky1-next|*-lts) KVER_LTS="$kver" ;;   # legacy stable name
+                *-sky1-ncz)            KVER_LTS="$kver" ;;   # released stable target
+                *-ncz)                 KVER_NEXT="$kver" ;;  # bare -ncz fallback = edge
+                *-next)                KVER_NEXT="$kver" ;;  # legacy edge name
             esac
             ;;
     esac
