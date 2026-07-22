@@ -231,6 +231,24 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 fi
 
+# 26.7 dual GPU stack — ONE 7.2 kernel image (both GPU drivers built in), two
+# boot entries differing only by which GPU kernel driver is blacklisted:
+#   Mali    = blacklist panthor    -> mali_kbase (DKMS) binds  -> libmali OpenCL
+#   Panthor = blacklist mali_kbase -> panthor (in-tree) binds   -> Mesa/PanVK Vulkan
+# Userspace stays Mesa in BOTH modes — no per-boot EGL/glvnd/ICD swap, so we
+# never repeat the libEGL_cix greeter wedge (2026-07-22). Panthor mode gets
+# hardware GL + Vulkan 1.4 via Mesa/PanVK on the panthor DRM node; Mali mode
+# renders the desktop on llvmpipe (software) and exposes libmali OpenCL for GPU
+# compute. Both are functional; Mali is default per 26.7 policy (mali primary,
+# panthor fallback). The kbase trio (mali_kbase + memory_group_manager +
+# protected_memory_allocator) is blacklisted together for a clean Panthor bind.
+MALI_OPTIONS=""
+PANTHOR_OPTIONS=""
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    MALI_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,panthor/')
+    PANTHOR_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,mali_kbase,memory_group_manager,protected_memory_allocator/')
+fi
+
 if [ "$LTS_AVAILABLE" = "1" ]; then
     RESCUE_KVER="$KVER_LTS"
     RESCUE_CMDLINE_BASE="$LTS_CMDLINE_BASE"
@@ -323,10 +341,15 @@ else
     echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
 fi
 
-# Default to STABLE when it exists (r195+: edge is a true RC kernel and must
-# be opt-in from the menu; the old edge-default dated from when edge was the
-# proven 7.0.12). Edge remains one arrow-key away with a 10s menu timeout.
-if [ "$LTS_AVAILABLE" = "1" ]; then
+# 26.7 policy: default to the 7.2 (Mali) entry — 26.7 IS the 7.2 release, so
+# 7.2 boots by default; 7.0.12 stays as "stable" fallback + rescue partition.
+# If 7.2 is somehow absent, fall back to stable. Both remain one arrow-key away
+# (10s timeout). The token "Mali" uniquely matches the 7.2 (Mali) menuentry
+# title (absent from stable/panthor/rescue titles), so default_selection is
+# unambiguous — the rEFInd-ambiguity boot failure mode does not apply here.
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    DEFAULT_TOKEN="Mali"
+elif [ "$LTS_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="stable"
 else
     DEFAULT_TOKEN="edge"
@@ -349,7 +372,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$LTS_AVAILABLE" = "1" ]; then
-        echo "menuentry \"NCZ-OS 26.6  ·  stable — kernel $KVER_LTS\" {"
+        echo "menuentry \"NCZ-OS 26.7  ·  stable — kernel $KVER_LTS\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
@@ -358,16 +381,23 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ "$NEXT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"NCZ-OS 26.6  ·  edge — kernel $KVER_NEXT [DEFAULT]\" {"
+        echo "menuentry \"NCZ-OS 26.7  ·  7.2 (Mali) — kernel $KVER_NEXT [DEFAULT]\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
-        echo "    options \"$NEXT_OPTIONS\""
+        echo "    options \"$MALI_OPTIONS\""
+        echo "}"
+        echo
+        echo "menuentry \"NCZ-OS 26.7  ·  7.2 (Panthor) — kernel $KVER_NEXT\" {"
+        echo "    loader  /vmlinuz-$KVER_NEXT"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
+        echo "    options \"$PANTHOR_OPTIONS\""
         echo "}"
         echo
     fi
     if [ -n "$RESCUE_PIN" ]; then
-        echo "menuentry \"NCZ-OS 26.6  ·  rescue — $RESCUE_PIN (safe: no NPU/GPU/VPU/KMS)\" {"
+        echo "menuentry \"NCZ-OS 26.7  ·  rescue — $RESCUE_PIN (safe: no NPU/GPU/VPU/KMS)\" {"
         echo "    loader  /vmlinuz-$RESCUE_PIN"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$RESCUE_HAS_INITRD" = "1" ] && echo "    initrd  /initrd.img-$RESCUE_PIN"
@@ -376,7 +406,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ -n "$RESCUEPART_OPTIONS" ]; then
-        echo "menuentry \"NCZ-OS 26.6  ·  RESCUE PARTITION — stable $KVER_LTS, full toolset (telnet/dropbear/ssh)\" {"
+        echo "menuentry \"NCZ-OS 26.7  ·  RESCUE PARTITION — stable $KVER_LTS, full toolset (telnet/dropbear/ssh)\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
