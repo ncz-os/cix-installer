@@ -1414,9 +1414,9 @@ brand_udeb_templates() {
     # Case-sensitive phrase replacements (Description text only). Order matters:
     # longer phrases first so they aren't partially eaten by shorter ones.
     sed -i \
-        -e 's/Debian installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
-        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS «Reinhardt» installer menu/g' \
-        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
+        -e 's/Debian installer main menu/NCZ-OS installer main menu/g' \
+        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS installer menu/g' \
+        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS installer main menu/g' \
         -e 's/Debian GNU\/Linux/NCZ-OS/g' \
         -e 's/the Debian installer/the NCZ-OS installer/g' \
         -e 's/Debian installer/NCZ-OS installer/g' \
@@ -1547,16 +1547,16 @@ fi
 printf 'dvd\n' > "$STAGING/.disk/cd_type"
 case "$MODE" in
     netinstall)
-        printf 'nclawzero cixmini resolute - Netinstall arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'NCZ-OS cixmini resolute - Netinstall arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
     netinstall-bootstrap)
-        printf 'nclawzero cixmini resolute - Netinstall Bootstrap arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'NCZ-OS cixmini resolute - Netinstall Bootstrap arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
     thin)
-        printf 'nclawzero cixmini resolute - Thin arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'NCZ-OS cixmini resolute - Thin arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
     *)
-        printf 'nclawzero cixmini resolute - Offline arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'NCZ-OS cixmini resolute - Offline arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
 esac
 # .disk/udeb_include: tells d-i to use our network-console udeb etc.
@@ -1773,9 +1773,9 @@ for _tpl in main-menu di-utils cdrom-detect cdrom-checker anna; do
     mkdir -p "$INITRD_PATCH_TMP/overlay/var/lib/dpkg/info"
     _dst="$INITRD_PATCH_TMP/overlay/var/lib/dpkg/info/$_tpl.templates"
     sed \
-        -e 's/Debian installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
-        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS «Reinhardt» installer menu/g' \
-        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
+        -e 's/Debian installer main menu/NCZ-OS installer main menu/g' \
+        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS installer menu/g' \
+        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS installer main menu/g' \
         -e 's/the Debian installer/the NCZ-OS installer/g' \
         -e 's/Debian installer/NCZ-OS installer/g' \
         -e 's/Debian GNU\/Linux/NCZ-OS/g' \
@@ -2147,10 +2147,10 @@ fi
 if [ -n "${KVER_NEXT:-}" ]; then
     echo "$KVER_NEXT" > "$EXTRA/KVER_NEXT"
 fi
-echo "${BUILD_CODENAME:-Reinhardt}" > "$EXTRA/BUILD_CODENAME"
+echo "${BUILD_CODENAME:-Maximilian}" > "$EXTRA/BUILD_CODENAME"
 
 echo "    build id: $VERSION  ($BUILD_DATE on $BUILD_HOST)"
-echo "    codename: ${BUILD_CODENAME:-Reinhardt}"
+echo "    codename: ${BUILD_CODENAME:-Maximilian}"
 
 # ----------------------------------------------------------------------
 # Step 5 — write /boot/grub/grub.cfg with r6-style menu
@@ -2181,7 +2181,7 @@ if [ "${DIAG_ENABLE:-1}" = 1 ]; then
     DI_OPTS="$DI_OPTS ncz_diag=1 DEBCONF_DEBUG=5"
 fi
 
-CODENAME="${BUILD_CODENAME:-Reinhardt}"
+CODENAME="${BUILD_CODENAME:-Maximilian}"
 GRUB_KERNEL_SUMMARY="$INSTALLER_KERNEL_LABEL=$KVER_INSTALLER"
 GRUB_DESKTOP_TITLE='Install NCZ \"Reinhardt\" — Desktop (XFCE)'
 GRUB_SERVER_TITLE='Install NCZ \"Magnetar\" — Server (headless, agent appliance)'

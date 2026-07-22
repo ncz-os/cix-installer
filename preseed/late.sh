@@ -38,7 +38,7 @@ ttymsg() {
     _el=$(( $(date +%s 2>/dev/null || echo 0) - LATE_T0 ))
     printf '[ncz %s +%ss] %s\n' "$(date -u +%H:%M:%S)" "$_el" "$*" >"$TTY" 2>/dev/null || true
 }
-ttymsg "nclawzero installer: applying base OS + desktop + drivers (offline)."
+ttymsg "NCZ-OS installer: applying base OS + desktop + drivers (offline)."
 ttymsg "This phase takes several minutes. The main screen shows a 'please be"
 ttymsg "patient' bar that advances per step; watch THIS console (Alt+F3) for detail."
 
@@ -370,7 +370,7 @@ if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -n "$DEBCONF_REDIR" ] \
     cat > /tmp/ncz-progress.templates <<'NCZTPL'
 Template: nclawzero/install-progress
 Type: text
-Description: Installing nclawzero — please be patient (several minutes)
+Description: Installing NCZ-OS — please be patient (several minutes)
  The full desktop, GPU/NPU drivers, kernels and agents are being installed from
  the local media. This bar may sit near 14% for a while — that is NORMAL and the
  system is NOT frozen. Press Alt+F3 at any time for live, per-step detail.
@@ -448,7 +448,7 @@ STEP_EVERY=$(( (NH + STEP_CAP - 1) / STEP_CAP ))
           if [ "$DEBCONF_OK" = 1 ] && [ "$hb_cur" != "(starting)" ]; then
               idx=$(printf '%s\n' $HOOK_NAMES | grep -nxF "$hb_cur" | head -1 | cut -d: -f1)
               [ -n "$idx" ] || idx=0
-              db_try db_subst nclawzero/install-step STEP "Installing nclawzero: $hb_cur  ($idx of $NH) - please wait (not frozen)"
+              db_try db_subst nclawzero/install-step STEP "Installing NCZ-OS: $hb_cur  ($idx of $NH) - please wait (not frozen)"
               db_try db_progress INFO nclawzero/install-step
               # r152: advance finish-install's shared bar (STEP only, no START/STOP -> bounce-safe)
               hb_seen=$((hb_seen + 1))

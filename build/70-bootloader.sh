@@ -87,7 +87,7 @@ echo "  systemd-bootaa64.efi present on ESP"
 # vmlinuz copies on the ESP. systemd-boot reads ALL *.conf files in
 # /boot/efi/loader/entries/ — leftover entries from r1/r2/r3 installs
 # show up alongside the new ones, defaulting to whichever has the
-# lowest sort name. This caused multiple "nclawzero (cixmini)"
+# lowest sort name. This caused multiple "NCZ-OS (cixmini)"
 # entries on cixmini.66 (r6 era + earlier) and confused systemd-boot's
 # default selection.
 #
@@ -186,7 +186,7 @@ if [ "$LTS_AVAILABLE" = "1" ]; then
     # sort-key forces menu-order (systemd-boot 252+). LTS is the stable
     # fallback so it sorts below the default 7.0.12 headline entry.
     cat > /boot/efi/loader/entries/cixmini-lts.conf <<EOF
-title   nclawzero (cixmini) — kernel $KVER_LTS [LTS — CIX BSP, stable fallback] — $BUILD_VERSION
+title   NCZ-OS (cixmini) — kernel $KVER_LTS [LTS — CIX BSP, stable fallback] — $BUILD_VERSION
 sort-key 2-lts
 version $KVER_LTS
 linux   /vmlinuz-$KVER_LTS
@@ -248,7 +248,7 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
 
     # sort-key 1-next keeps the default headline kernel at the top of the menu.
     cat > /boot/efi/loader/entries/cixmini-next.conf <<EOF
-title   nclawzero (cixmini) — kernel $KVER_NEXT [headline, default] — $BUILD_VERSION
+title   NCZ-OS (cixmini) — kernel $KVER_NEXT [headline, default] — $BUILD_VERSION
 sort-key 1-next
 version $KVER_NEXT
 linux   /vmlinuz-$KVER_NEXT
