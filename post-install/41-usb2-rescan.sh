@@ -35,30 +35,37 @@ install -d -m 0755 /usr/local/sbin
 
 cat > /usr/local/sbin/ncz-usb2-rescan <<'EOF'
 #!/bin/bash
-# Rebind CIX xhci controllers whose USB2 companion root failed to enumerate
-# (SuperSpeed root has a device, High-Speed companion is empty). See
-# /usr/share/doc/ncz for background. No-op on a healthy boot.
+# Recover the CIX Sky1 7.2 USB2-companion enumeration failure by rebinding the
+# xhci controllers. The failure is intermittent and its severity varies: on some
+# boots the SuperSpeed root is up while the USB2 companion is empty; on others
+# NOTHING enumerates on the affected controller at all. So an "SuperSpeed-up +
+# USB2-empty" signature is too narrow (misses the everything-empty case, observed
+# 2026-07-22 on O6N r198). Instead rebind every xhci controller that has NO USB
+# mass-storage device downstream — that reliably re-triggers hub/HID enumeration
+# while never disturbing a USB boot/data drive mid-I/O. A rebind of a healthy
+# controller only causes a brief re-enumeration blip, invisible pre-login.
 set -u
 DRV=/sys/bus/platform/drivers/xhci-hcd
-declare -A ss_has hs_has
+declare -A has_storage
 for u in /sys/bus/usb/devices/usb*; do
   [ -e "$u/speed" ] || continue
-  n=$(basename "$u"); busno=${n#usb}
   ctrl=$(basename "$(readlink -f "$u/..")")   # e.g. xhci-hcd.13.auto
-  sp=$(cat "$u/speed" 2>/dev/null)
-  hasdev=no
-  for d in "$u"/"$busno"-*; do [ -e "$d" ] && { hasdev=yes; break; }; done
-  if [ "$sp" = "10000" ]; then ss_has[$ctrl]=$hasdev; else hs_has[$ctrl]=$hasdev; fi
+  # any SCSI/block (USB mass storage) device anywhere under this controller?
+  if find "$u" -maxdepth 8 -type d -name 'block' 2>/dev/null | grep -q .; then
+    has_storage[$ctrl]=1
+  fi
 done
 rebound=0
-for ctrl in "${!ss_has[@]}"; do
-  if [ "${ss_has[$ctrl]}" = "yes" ] && [ "${hs_has[$ctrl]:-no}" = "no" ]; then
-    logger -t ncz-usb2-rescan "rebinding $ctrl (SuperSpeed up, USB2 companion empty)"
-    echo "$ctrl" > "$DRV/unbind" 2>/dev/null
-    sleep 1
-    echo "$ctrl" > "$DRV/bind" 2>/dev/null
-    rebound=$((rebound+1))
+for ctrl in $(ls "$DRV" 2>/dev/null | grep '^xhci-hcd'); do
+  if [ -n "${has_storage[$ctrl]:-}" ]; then
+    logger -t ncz-usb2-rescan "skip $ctrl (has USB storage downstream)"
+    continue
   fi
+  logger -t ncz-usb2-rescan "rebinding $ctrl (USB2 enum recovery)"
+  echo "$ctrl" > "$DRV/unbind" 2>/dev/null
+  sleep 1
+  echo "$ctrl" > "$DRV/bind" 2>/dev/null
+  rebound=$((rebound+1))
 done
 logger -t ncz-usb2-rescan "done, rebound=$rebound"
 exit 0
