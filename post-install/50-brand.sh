@@ -1,10 +1,10 @@
 #!/bin/bash
-# 50-brand.sh — NCZ 26.6 "Reinhardt" / "Magnetar" identity
+# 50-brand.sh — NCZ 26.7 "Maximilian" / "Magnetar" identity
 # Note: NO `set -e` because pipefail + `find /missing/path | head -1` causes early exit.
 # Each step is best-effort; any failure logs and continues.
 set +e
 
-echo "[50] NCZ 26.6 brand identity"
+echo "[50] NCZ 26.7 brand identity"
 
 BUILD_ID_VALUE=""
 if [ -f /usr/local/lib/cix-installer/BUILD_VERSION ]; then
@@ -21,19 +21,19 @@ if [ -f "$VARIANT_FILE" ]; then
     VARIANT=$(tr -d ' \t\r\n' < "$VARIANT_FILE")
 fi
 
-SKU_NAME="Reinhardt"
-SKU_LOWER="reinhardt"
+SKU_NAME="Maximilian"
+SKU_LOWER="maximilian"
 if [ "$VARIANT" = "server" ]; then
     SKU_NAME="Magnetar"
     SKU_LOWER="magnetar"
 fi
 
 cat > /etc/os-release <<EOF_OS
-PRETTY_NAME="${SKU_NAME} 26.6 (based on Ubuntu 26.04 Resolute Raccoon)"
+PRETTY_NAME="${SKU_NAME} 26.7 (based on Ubuntu 26.04 Resolute Raccoon)"
 NAME="NCZ"
 VERSION_ID="26.04"
 BUILD_ID="${BUILD_ID_VALUE}"
-VERSION="26.6 (${SKU_NAME}; based on Ubuntu 26.04 Resolute Raccoon)"
+VERSION="26.7 (${SKU_NAME}; based on Ubuntu 26.04 Resolute Raccoon)"
 VERSION_CODENAME=${SKU_LOWER}
 ID=ncz
 ID_LIKE=ubuntu
@@ -48,25 +48,25 @@ ln -sf /etc/os-release /usr/lib/os-release 2>/dev/null || true
 
 cat > /etc/lsb-release <<EOF_LSB
 DISTRIB_ID=NCZ
-DISTRIB_RELEASE=26.6
+DISTRIB_RELEASE=26.7
 DISTRIB_CODENAME=${SKU_LOWER}
-DISTRIB_DESCRIPTION="${SKU_NAME} 26.6 (based on Ubuntu 26.04 Resolute Raccoon)"
+DISTRIB_DESCRIPTION="${SKU_NAME} 26.7 (based on Ubuntu 26.04 Resolute Raccoon)"
 EOF_LSB
 
 cat > /etc/issue <<EOF_ISSUE
-NCZ 26.6 "${SKU_NAME}"  ·  Cix Sky1 / CP8180  (Kernel: \r)
+NCZ 26.7 "${SKU_NAME}"  ·  Cix Sky1 / CP8180  (Kernel: \r)
 
 EOF_ISSUE
 
 cat > /etc/issue.net <<EOF_ISSUENET
-NCZ 26.6 "${SKU_NAME}"  (Cix Sky1 / CP8180)
+NCZ 26.7 "${SKU_NAME}"  (Cix Sky1 / CP8180)
 
 EOF_ISSUENET
 
 cat > /etc/motd <<MOTD
 
    ┌─────────────────────────────────────────────────────────┐
-   │  NCZ 26.6 "${SKU_NAME}"  —  Cix Sky1 / CP8180 edge agent  │
+   │  NCZ 26.7 "${SKU_NAME}"  —  Cix Sky1 / CP8180 edge agent  │
    │                                                         │
    │  Agents:  zeroclaw · openclaw · hermes · claude-code    │
    │  Kernel:  linux-cix-sky1 7.0.12-next (Yocto-built)      │
