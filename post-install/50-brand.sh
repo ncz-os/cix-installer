@@ -54,35 +54,47 @@ DISTRIB_DESCRIPTION="${SKU_NAME} 26.7 (based on Ubuntu 26.04 Resolute Raccoon)"
 EOF_LSB
 
 cat > /etc/issue <<EOF_ISSUE
-NCZ 26.7 "${SKU_NAME}"  ·  Cix Sky1 / CP8180  (Kernel: \r)
+NCZ-OS 26.7 ${SKU_NAME}  ·  Cix Sky1 / CP8180  (Kernel: \r)
 
 EOF_ISSUE
 
 cat > /etc/issue.net <<EOF_ISSUENET
-NCZ 26.7 "${SKU_NAME}"  (Cix Sky1 / CP8180)
+NCZ-OS 26.7 ${SKU_NAME}  (Cix Sky1 / CP8180)
 
 EOF_ISSUENET
 
-cat > /etc/motd <<MOTD
-
-   ┌─────────────────────────────────────────────────────────┐
-   │  NCZ 26.7 "${SKU_NAME}"  —  Cix Sky1 / CP8180 edge agent  │
-   │                                                         │
-   │  Agents:  zeroclaw · openclaw · hermes · claude-code    │
-   │  Kernel:  linux-cix-sky1 7.0.12-next (Yocto-built)      │
-   │  GPU:     Mali-G720  (Mesa Zink+PanVK accel)            │
-   │  NPU:     Zhouyi v3  (3 cores · 12 TECs · /dev/aipu)    │
-   │                                                         │
-   │  ✦  Workloads. Not wallpapers.                          │
-   └─────────────────────────────────────────────────────────┘
-
-MOTD
-
-cat > /etc/update-motd.d/00-header <<HEADER
-#!/bin/sh
-printf "\\nNCZ 26.6 \\"${SKU_NAME}\\"  (GNU/Linux %s %s)\\n" "\$(uname -r)" "\$(uname -m)"
-printf "  Cix Sky1 / CP8180 \\n\\n"
-HEADER
-chmod 0755 /etc/update-motd.d/00-header
+# Login banner is generated DYNAMICALLY at login (not baked into /etc/motd) so
+# the Kernel line always shows the RUNNING kernel (uname -r), never a stale
+# hard-coded version. SKU is read live from os-release too. The box uses a
+# width-aware row() (wc -m counts display chars, not bytes) so every right-edge
+# │ aligns regardless of SKU length (Maximilian=10 / Magnetar=8) or the
+# multi-byte ┌─│┐ / · / — / ✦ glyphs — the old static heredoc hard-coded
+# trailing spaces sized for "Reinhardt" (9) and skewed the title row.
+: > /etc/motd
+rm -f /etc/update-motd.d/00-header
+cat > /etc/update-motd.d/00-ncz-banner <<'BANNER'
+#!/bin/bash
+# Force UTF-8 so `wc -m` counts display characters (not bytes) regardless of the
+# login shell's locale — otherwise the box right-edge skews under a C/POSIX locale.
+export LC_ALL=C.UTF-8
+SKU=$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME^}")
+[ -z "$SKU" ] && SKU="Maximilian"
+W=58
+bar(){ printf '   %s' "$1"; printf '─%.0s' $(seq 1 $W); printf '%s\n' "$2"; }
+row(){ local c="$1" w; w=$(printf '%s' "$c" | wc -m); printf '   │%s%*s│\n' "$c" $((W - w)) ""; }
+echo
+bar '┌' '┐'
+row "  NCZ-OS 26.7 $SKU  ·  Cix Sky1 / CP8180 edge agent"
+row ""
+row "  Agents:  zeroclaw · openclaw · hermes · claude-code"
+row "  Kernel:  $(uname -r)"
+row "  GPU:     Mali-G720  (libmali GLES + OpenCL)"
+row "  NPU:     Zhouyi v3  (/dev/aipu)"
+row ""
+row "  ✦  Workloads. Not wallpapers."
+bar '└' '┘'
+echo
+BANNER
+chmod 0755 /etc/update-motd.d/00-ncz-banner
 
 echo "[50] text branding applied (os-release / issue / motd)"

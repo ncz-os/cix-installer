@@ -419,7 +419,7 @@ SUBIQUITY_OPTS='autoinstall ds=nocloud;s=/cdrom/cloud-init/'
 # ---- write refind.conf — kernels are on ESP, paths are root-relative ----
 REFIND_CONF=/tmp/refind-r23.conf
 cat > "$REFIND_CONF" <<REFINDCONF
-# rEFInd configuration for nclawzero installer (cixmini r23)
+# rEFInd configuration for NCZ-OS 26.7 "Maximilian" installer (cixmini)
 # Build: $VERSION  ($BUILD_DATE)  Host: $BUILD_HOST
 # Kernels: LTS=$KVER_LTS  NEXT=$KVER_NEXT
 # CRITICAL: every install + SAFE entry includes 'boot=casper' so Ubuntu's
@@ -432,13 +432,13 @@ scan_all_linux_kernels false
 
 default_selection 1
 
-menuentry "Install nclawzero LTS 6.18.26 (DEFAULT)" {
+menuentry "Install NCZ-OS 26.7 Maximilian  (DEFAULT)" {
     loader  /vmlinuz
     initrd  /initrd
     options "$CASPER_BOOT $SUBIQUITY_OPTS $MARTJOHNSON_R6"
 }
 
-menuentry "Install nclawzero NEXT 7.0.1" {
+menuentry "Install NCZ-OS 26.7 Maximilian  (NEXT kernel)" {
     loader  /vmlinuz-next
     initrd  /initrd-next
     options "$CASPER_BOOT $SUBIQUITY_OPTS $MARTJOHNSON_R6"
