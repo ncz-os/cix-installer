@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Thu, 23 Jul 2026 00:00:00 -0400
+Subject: [PATCH] usb: cdns3: sky1: strap host-only controllers as host
+
+Sky1 has one Type-C DRD controller and nine host-only controllers. The
+wrapper currently programs every controller's S5 mode strap as OTG during
+drd_init(), including the host-only Type-C, Type-A and USB2 instances.
+
+That leaves Linux with xHCI root hubs but the SoC-side port logic is not
+forced into host mode, so downstream devices do not connect. Keep OTG only
+for U3_TYPEC_DRD_ID and program every other controller as HOST.
+
+Upstream-Status: Inappropriate [oe-specific]
+---
+ drivers/usb/cdns3/cdnsp-sky1.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/usb/cdns3/cdnsp-sky1.c b/drivers/usb/cdns3/cdnsp-sky1.c
+index 8483e7532eb8..000000000000 100644
+--- a/drivers/usb/cdns3/cdnsp-sky1.c
++++ b/drivers/usb/cdns3/cdnsp-sky1.c
+@@ -283,6 +283,7 @@ static int cdnsp_sky1_drd_init(struct cdnsp_sky1 *data)
+ 	int ret;
+ 	int clk;
+ 	int v0, v1, v2;
++	int mode;
+ 
+ 	reset_control_assert(data->reset);
+ 	reset_control_assert(data->preset);
+@@ -291,7 +292,15 @@ static int cdnsp_sky1_drd_init(struct cdnsp_sky1 *data)
+ 	if (ret)
+ 		return ret;
+ 	writel(CIX_USB_AXI_WR_CACHE_VALUE, data->axi_base);
+-	sky1_set_mode_by_id(data->dev, MODE_STRAP_OTG);
++
++	/*
++	 * Only controller 0 is a real DRD port. All other Sky1 USBSSP
++	 * instances are host-only, so force their S5 mode straps to HOST.
++	 */
++	mode = data->id == U3_TYPEC_DRD_ID ? MODE_STRAP_OTG : MODE_STRAP_HOST;
++	ret = sky1_set_mode_by_id(data->dev, mode);
++	if (ret)
++		return ret;
+ 	reset_control_deassert(data->preset);
+ 	if (data->u3_disable) {
+ 		dev_info(data->dev, "[%s:%d]disable u3 port\n", __func__, __LINE__);
+-- 
+2.51.0
+
