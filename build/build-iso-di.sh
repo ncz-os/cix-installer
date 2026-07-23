@@ -1890,6 +1890,13 @@ fi
 
 cp -a "$ROOT/post-install" "$EXTRA/post-install"
 
+# r202: stage the mali_kbase GPU overlay into /cixmini so 82-mali-gpu can install
+# it at install time (NOT baked into base.squashfs; late.sh union-syncs /cixmini,
+# baked-wins). Without this /dev/mali0 is absent (panthor blacklisted in Mali mode).
+mkdir -p "$EXTRA/assets/kernel"
+[ -d "$ROOT/assets/kernel/mali" ] && cp -a "$ROOT/assets/kernel/mali" "$EXTRA/assets/kernel/" && echo "    staged mali_kbase overlay -> /cixmini/assets/kernel/mali"
+
+
 if [ -d "$ROOT/assets" ]; then
     mkdir -p "$EXTRA/assets"
     # Stage all asset trees except the raw kernel images (handled below
