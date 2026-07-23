@@ -20,16 +20,16 @@ esac
 ASSETS=/usr/local/lib/cix-installer/assets/branding/wallpaper
 DEST=/usr/share/backgrounds/ncz
 mkdir -p "$DEST"
-for f in "$ASSETS"/ncx-wallpaper-0*-2k.jpg; do
+for f in "$ASSETS"/ncz-wallpaper-0*-2k.jpg; do
     [ -f "$f" ] && install -m 0644 "$f" "$DEST/"
 done
-ln -sfn ncx-wallpaper-01-cinematic-2k.jpg "$DEST/default.jpg"
+ln -sfn ncz-wallpaper-01-cinematic-2k.jpg "$DEST/default.jpg"
 
 # Rotator: pick + apply across DEs, use xrandr to discover live monitors
 cat > /usr/local/bin/ncz-wallpaper-rotate <<'ROT'
 #!/bin/sh
 WP_DIR=/usr/share/backgrounds/ncz
-PIC=$(ls $WP_DIR/ncx-wallpaper-0*.jpg 2>/dev/null | shuf -n1)
+PIC=$(ls $WP_DIR/ncz-wallpaper-0*.jpg 2>/dev/null | shuf -n1)
 [ -z "$PIC" ] && exit 0
 ln -sfn "$(basename "$PIC")" "$WP_DIR/default.jpg" 2>/dev/null || true
 
@@ -149,7 +149,7 @@ cat > /usr/local/bin/ncz-greeter-bg <<'GBG'
 # Pick a random NCZ astronomical wallpaper for the LightDM greeter. Runs as
 # root via lightdm greeter-setup-script before each greeter launch.
 WP_DIR=/usr/share/backgrounds/ncz
-PIC=$(ls "$WP_DIR"/ncx-wallpaper-0*.jpg 2>/dev/null | shuf -n1)
+PIC=$(ls "$WP_DIR"/ncz-wallpaper-0*.jpg 2>/dev/null | shuf -n1)
 [ -z "$PIC" ] && exit 0
 CONF=/etc/lightdm/lightdm-gtk-greeter.conf.d/55-ncz-rotate.conf
 mkdir -p "$(dirname "$CONF")"

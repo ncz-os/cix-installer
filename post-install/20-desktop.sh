@@ -338,12 +338,12 @@ for f in /usr/share/wayland-sessions/*.desktop; do
 done
 
 # Install upstream-watch agent
-install -d /usr/local/lib/ncx /var/log/ncx /var/lib/ncx
-install -m 0755 /usr/local/lib/cix-installer/assets/branding/ncx-upstream-watch.sh \
-    /usr/local/lib/ncx/upstream-watch.sh
+install -d /usr/local/lib/ncz /var/log/ncz /var/lib/ncz
+install -m 0755 /usr/local/lib/cix-installer/assets/branding/ncz-upstream-watch.sh \
+    /usr/local/lib/ncz/upstream-watch.sh
 
 # systemd timer: every 6 hours
-cat > /etc/systemd/system/ncx-upstream-watch.timer <<'UNIT'
+cat > /etc/systemd/system/ncz-upstream-watch.timer <<'UNIT'
 [Unit]
 Description=NCZ upstream Mali/Mesa/Cix/Sky1 driver watch
 [Timer]
@@ -353,29 +353,29 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 UNIT
-cat > /etc/systemd/system/ncx-upstream-watch.service <<'UNIT'
+cat > /etc/systemd/system/ncz-upstream-watch.service <<'UNIT'
 [Unit]
 Description=NCZ upstream watcher (one-shot run)
 [Service]
 Type=oneshot
-ExecStart=/usr/local/lib/ncx/upstream-watch.sh
+ExecStart=/usr/local/lib/ncz/upstream-watch.sh
 UNIT
 systemctl daemon-reload
 # r110 (codex audit): never use --now in the chroot (no PID 1); enable now,
 # let the unit start on first boot. Best-effort start in case we are live.
-systemctl enable ncx-upstream-watch.timer 2>&1 | tail -2 || true
-systemctl start ncx-upstream-watch.timer 2>&1 | tail -2 || true
+systemctl enable ncz-upstream-watch.timer 2>&1 | tail -2 || true
+systemctl start ncz-upstream-watch.timer 2>&1 | tail -2 || true
 echo "[20] GNOME purged, upstream-watch installed (every 6h)"
 
-# r53: ncx-flavor-* metapackage shims — pre-stage apt info but DON'T install by default.
-# Users who want alternative DEs run: apt install ncx-flavor-{openbox,wmaker}
+# r53: ncz-flavor-* metapackage shims — pre-stage apt info but DON'T install by default.
+# Users who want alternative DEs run: apt install ncz-flavor-{openbox,wmaker}
 # Each flavor metapackage pulls the right apt deps + writes session file.
 # XFCE remains the default; alternatives are X11-native + work on Mali Sky1.
-mkdir -p /usr/share/ncx/flavors
-cat > /usr/share/ncx/flavors/README.md <<'README'
+mkdir -p /usr/share/ncz/flavors
+cat > /usr/share/ncz/flavors/README.md <<'README'
 # NCZ Desktop Flavors
 
-NCZ 26.6 "Reinhardt" ships **XFCE** as the default desktop because it works
+NCZ 26.7 "Maximilian" ships **XFCE** as the default desktop because it works
 reliably on Cix Sky1 + Mali-G720. Four additional X11-native desktops are
 available via apt (no Vulkan/Wayland deps; will work on this hardware):
 
@@ -393,9 +393,9 @@ After install, log out, then pick the flavor at the LightDM greeter (gear icon).
 - Sway / Hyprland — Wayland deps, same panvk gaps
 - Cinnamon — muffin (mutter fork), likely same issues
 
-These are tracked by the upstream-watch agent (/usr/local/lib/ncx/upstream-watch.sh).
+These are tracked by the upstream-watch agent (/usr/local/lib/ncz/upstream-watch.sh).
 README
-echo "[20] flavor docs at /usr/share/ncx/flavors/README.md"
+echo "[20] flavor docs at /usr/share/ncz/flavors/README.md"
 
 # r54 browsers — Firefox snap is too slow on Mali; chromium-browser .deb is also a snap-stub.
 # Real chromium via Flathub (arm64). Vivaldi as primary. Falkon + Epiphany as Qt/WebKit alternatives.
@@ -565,7 +565,7 @@ cat > /etc/dconf/profile/user <<'DPROFILE'
 user-db:user
 system-db:local
 DPROFILE
-cat > /etc/dconf/db/local.d/00-ncx-wallpaper <<DCONFLOCAL
+cat > /etc/dconf/db/local.d/00-ncz-wallpaper <<DCONFLOCAL
 [org/gnome/desktop/background]
 picture-uri='file://$NCZ_WP'
 picture-uri-dark='file://$NCZ_WP'
@@ -643,7 +643,7 @@ cat > /etc/xdg/autostart/xscreensaver.desktop <<'XAUTO'
 [Desktop Entry]
 Type=Application
 Name=XScreenSaver
-Comment=NCZ 26.6 cosmic-themed screensaver daemon
+Comment=NCZ 26.7 cosmic-themed screensaver daemon
 # Force llvmpipe software GL: Mali-G720 panthor GL is flaky for xscreensaver
 # GL hacks (they fall back to blank). Software GL renders them reliably.
 Exec=env LIBGL_ALWAYS_SOFTWARE=1 xscreensaver -no-splash

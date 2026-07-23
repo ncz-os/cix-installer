@@ -2297,7 +2297,7 @@ EFI_IMG_REL="boot/grub/efi.img"
 # hybrid GPT/MBR layout produces a proper EFI System Partition (type 0xef)
 # at GPT slot 2, which Sky1 UEFI is known to recognize (r6 worked).
 xorriso -as mkisofs \
-    -r -V "NCX_MAXIMILIAN" \
+    -r -V "NCZ_MAXIMILIAN" \
     -J -joliet-long \
     -cache-inodes \
     -e "$EFI_IMG_REL" \

@@ -130,7 +130,7 @@ build_layer(){ local role="$1" manifest="$2"
     # r166: stage the NCZ branding assets the brand hooks read. The base build
     # only staged cix-debs/kernel/mesa/gpu/firmware/refind/rescue — NOT branding —
     # so 45-wallpaper (needs assets/branding/wallpaper), 56-icon-theme (needs
-    # assets/branding/icon-theme/NCX) and 60-plymouth (needs assets/branding/logo/
+    # assets/branding/icon-theme/NCZ) and 60-plymouth (needs assets/branding/logo/
     # nclawzero-lockup.jpg) all silently used stock defaults. Copy branding into
     # the overlay before the hooks run. (Base list also gains "branding" for the
     # next base rebuild; this desktop-layer copy makes it work without one.)
@@ -192,7 +192,7 @@ build_layer(){ local role="$1" manifest="$2"
     # 20-desktop.sh's greeter config; 20-desktop is deliberately NOT baked here —
     # its `apt purge --auto-remove` corrupted the user DB in the overlay, the
     # r166-r170 saga). 60-plymouth LAST (rebuilds the initramfs, heaviest step).
-    for bh in 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 57-screensaver 30-agents 46-ncz-cli 60-plymouth; do
+    for bh in 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 57-screensaver 57-qotd 30-agents 46-ncz-cli 60-plymouth; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3 || log "  WARN $bh rc=$?"

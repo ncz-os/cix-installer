@@ -290,7 +290,7 @@ systemctl daemon-reload 2>/dev/null || true
 mkdir -p /usr/local/bin
 cat > /usr/local/bin/ncz << 'NCZSCRIPT'
 #!/bin/bash
-# ncz — NCZ 26.6 "Reinhardt" CLI
+# ncz — NCZ 26.7 "Maximilian" CLI
 # Manages the optional agent stack (zeroclaw, openclaw, hermes, portainer).
 # Quadlet templates live at /usr/share/ncz/quadlets/.
 # Active quadlets get copied to /etc/containers/systemd/ on install.
@@ -589,7 +589,7 @@ cmd_agent_web() {
 
 cmd_help() {
     cat <<HELP
-ncz — NCZ 26.6 "Reinhardt" CLI
+ncz — NCZ 26.7 "Maximilian" CLI
 
 Agent management:
   ncz agent install [name...]      install agents (interactive if no args)
@@ -625,7 +625,7 @@ case "$1 $2" in
     "agent enable")     require_root agent enable "$3"; systemctl enable --now "$3.service" ;;
     "agent disable")    require_root agent disable "$3"; systemctl disable --now "$3.service" ;;
     "agent shell")      podman exec -it "$3" sh ;;
-    "version "*|"--version "*) echo 'ncz 26.6 r74 (Reinhardt)' ;;
+    "version "*|"--version "*) echo 'ncz 26.7 r74 (Maximilian)' ;;
     "help "*|"--help "*|"-h "*|" "|"") cmd_help ;;
     *) cmd_help; exit 2 ;;
 esac
@@ -702,7 +702,7 @@ MARK="${HOME}/.config/ncz/.first-login-done"
 [ -e "$MARK" ] && exit 0
 mkdir -p "${HOME}/.config/ncz" 2>/dev/null
 
-TITLE="Welcome to NCZ 26.6 \"Reinhardt\""
+TITLE="Welcome to NCZ 26.7 \"Maximilian\""
 BODY="AI agents are opt-in on this system — nothing runs until you install it.
 
 To get started, open the \"⭐ Install AI Agents\" icon on your Desktop (or run: sudo ncz agent install). It installs the ZeroClaw gateway and any optional agents (OpenClaw, Hermes, Portainer)."
@@ -757,7 +757,7 @@ chmod 0755 /etc/skel/Desktop/Rheinhardt-Through-and-Beyond.desktop
 
 # NCZ-Help.md — quick reference doc (updated for r74 ncz CLI)
 cat > /etc/skel/Desktop/NCZ-Help.md << 'HELP'
-# NCZ 26.6 "Reinhardt" — Quick Reference
+# NCZ 26.7 "Maximilian" — Quick Reference
 
 > Dr. Reinhardt has gone into the Black Hole.
 
@@ -984,7 +984,7 @@ TLS handshake succeeds.
 
 ## Brand
 
-NCZ 26.6 "Reinhardt"  ·  Cix Sky1 / CP8180  ·  *Workloads. Not wallpapers.*
+NCZ 26.7 "Maximilian"  ·  Cix Sky1 / CP8180  ·  *Workloads. Not wallpapers.*
 
 Codenames track destructive cosmic phenomena: Reinhardt (black hole),
 future revs Magnetar, Supernova, Vacuum-Decay.

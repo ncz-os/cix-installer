@@ -105,3 +105,10 @@ assets/zoder/
 # `ncz install mnemos`. Regenerate with assets/agent-images/README.md.
 assets/agent-images/*.tar
 assets/agent-images/*.oci.tar
+
+# 26.7: retired kernel channels (build artifacts like stable/edge; pruned from base.squashfs)
+assets/kernel/retired-*/
+# rEFInd banner pre-robot backup (dev artifact)
+assets/refind/*.bak-pre-*
+# split-release ISO parts (leftover build artifacts)
+build/*.iso.*-part*

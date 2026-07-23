@@ -22,7 +22,7 @@ esac
 install -d /usr/local/lib/cix-installer
 cat > /usr/local/lib/cix-installer/detect-primary-display.sh <<'DET'
 #!/bin/sh
-LOG=/var/log/ncx-display-detect.log
+LOG=/var/log/ncz-display-detect.log
 exec >>"$LOG" 2>&1
 echo "=== $(date -u) ==="
 
@@ -98,7 +98,7 @@ chmod 0755 /usr/local/lib/cix-installer/detect-primary-display.sh
 
 cat > /etc/systemd/system/cix-detect-display.service <<UNIT
 [Unit]
-Description=NCX Sky1 connected-display autodetect
+Description=NCZ Sky1 connected-display autodetect
 DefaultDependencies=no
 After=systemd-udev-settle.service
 Before=display-manager.service lightdm.service basic.target

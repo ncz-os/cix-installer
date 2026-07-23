@@ -1,7 +1,7 @@
 #!/bin/bash
-# /usr/local/lib/ncx/upstream-watch.sh
+# /usr/local/lib/ncz/upstream-watch.sh
 #
-# NCX upstream-watch agent — polls every 6 hours for relevant updates from:
+# NCZ upstream-watch agent — polls every 6 hours for relevant updates from:
 #   - Mesa3D (panthor/panvk Gallium + Vulkan driver progress)
 #   - Sky1-Linux GitHub org (kernel patches, mesa-sky1, vulkan-wsi-layer, sky1-gpu-support)
 #   - CIX official PPA (archive.cixtech.com new package versions)
@@ -9,20 +9,20 @@
 #   - ARM-China Compass NPU driver upstream
 #   - GNOME / KDE upstream relevant to ARM/Mali
 #
-# Output: /var/log/ncx/upstream-watch.log (one digest per run)
-# Notification: writes /var/lib/ncx/upstream-watch-changes.txt with new findings
+# Output: /var/log/ncz/upstream-watch.log (one digest per run)
+# Notification: writes /var/lib/ncz/upstream-watch-changes.txt with new findings
 #
 # Designed to be quiet: only logs CHANGES vs last known state.
 
 set -e
-LOG=/var/log/ncx/upstream-watch.log
-STATE=/var/lib/ncx/upstream-watch
-CHANGES=/var/lib/ncx/upstream-watch-changes.txt
-NOTIFY_EMAIL=""  # set by user via /etc/ncx/upstream-watch.conf if desired
+LOG=/var/log/ncz/upstream-watch.log
+STATE=/var/lib/ncz/upstream-watch
+CHANGES=/var/lib/ncz/upstream-watch-changes.txt
+NOTIFY_EMAIL=""  # set by user via /etc/ncz/upstream-watch.conf if desired
 
 mkdir -p "$(dirname $LOG)" "$STATE"
 
-[ -f /etc/ncx/upstream-watch.conf ] && . /etc/ncx/upstream-watch.conf
+[ -f /etc/ncz/upstream-watch.conf ] && . /etc/ncz/upstream-watch.conf
 
 ts() { date -u +'%Y-%m-%d %H:%M:%S UTC'; }
 log() { echo "[$(ts)] $*" >> "$LOG"; }
@@ -136,11 +136,11 @@ log "=== upstream-watch run end: $NCHANGES change(s) ==="
 
 if [ "$NCHANGES" -gt 0 ]; then
     echo ""
-    echo "NCX upstream-watch — $NCHANGES new finding(s) at $(ts):"
+    echo "NCZ upstream-watch — $NCHANGES new finding(s) at $(ts):"
     cat "$CHANGES"
 
     # Optional email notification
     if [ -n "$NOTIFY_EMAIL" ] && command -v mail >/dev/null 2>&1; then
-        cat "$CHANGES" | mail -s "[NCX] $NCHANGES upstream changes" "$NOTIFY_EMAIL" || true
+        cat "$CHANGES" | mail -s "[NCZ] $NCHANGES upstream changes" "$NOTIFY_EMAIL" || true
     fi
 fi
