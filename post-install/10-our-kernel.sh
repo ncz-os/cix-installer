@@ -70,21 +70,28 @@ INSTALLED_KERNELS=0
 if [ -n "$KVER_LTS" ]; then
     echo "  [lts] apt-get install linux-image-cixmini-lts"
     apt-get install -y --no-install-recommends linux-image-cixmini-lts
+    lts_ok=1
     if [ ! -s "/boot/vmlinuz-$KVER_LTS" ]; then
-        echo "ERROR: linux-image-cixmini-lts installed, but /boot/vmlinuz-$KVER_LTS is missing."
-        echo "       Installed package's kernel-release does not match the KVER_LTS sidecar" \
-             "($KVER_LTS) -- ISO manifest and Buildkite package version have drifted."
-        echo "       /boot contents:"
-        ls -la /boot 2>&1
-        exit 1
+        echo "WARN: linux-image-cixmini-lts installed, but /boot/vmlinuz-$KVER_LTS is missing"
+        echo "      (KVER_LTS sidecar / Buildkite package drift). /boot contents:"; ls -la /boot 2>&1
+        lts_ok=0
+    else
+        modcount=$(find "/usr/lib/modules/$KVER_LTS" \( -name '*.ko' -o -name '*.ko.xz' \) 2>/dev/null | wc -l)
+        [ "$modcount" -lt 50 ] && { echo "WARN: [lts] modules dir suspiciously small (.ko=$modcount) — LTS unusable"; lts_ok=0; }
     fi
-    modcount=$(find "/usr/lib/modules/$KVER_LTS" \( -name '*.ko' -o -name '*.ko.xz' \) 2>/dev/null | wc -l)
-    if [ "$modcount" -lt 50 ]; then
-        echo "ERROR: [lts] modules dir suspiciously small (.ko count=$modcount, expected hundreds)"
-        exit 1
+    if [ "$lts_ok" = 1 ]; then
+        echo "    OK: /boot/vmlinuz-$KVER_LTS + $modcount .ko modules"
+        INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
+    else
+        # r201: a broken/drifted kernel package must NOT abort Phase 1 — that
+        # skips the bootloader + ALL Phase-2 software and leaves an unbootable
+        # install. Drop this kernel's sidecar so 70-bootloader makes no entry
+        # pointing at a missing vmlinuz, then continue. The guard after the edge
+        # block enforces that at least one kernel actually installed.
+        echo "WARN: LTS kernel unavailable — suppressing its boot entry, continuing."
+        rm -f "$INSTALLER_META/KVER_LTS" /etc/cix-installer/KVER_LTS 2>/dev/null || true
+        KVER_LTS=""
     fi
-    echo "    OK: /boot/vmlinuz-$KVER_LTS + $modcount .ko modules"
-    INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
 else
     echo "  [lts] not present in ISO — skipping"
 fi
@@ -92,24 +99,42 @@ fi
 if [ -n "$KVER_NEXT" ]; then
     echo "  [next] apt-get install linux-image-cixmini-edge"
     apt-get install -y --no-install-recommends linux-image-cixmini-edge
+    edge_ok=1
     if [ ! -s "/boot/vmlinuz-$KVER_NEXT" ]; then
-        echo "ERROR: linux-image-cixmini-edge installed, but /boot/vmlinuz-$KVER_NEXT is missing."
-        echo "       Installed package's kernel-release does not match the KVER_NEXT sidecar" \
-             "($KVER_NEXT) -- ISO manifest and Buildkite package version have drifted."
-        echo "       /boot contents:"
-        ls -la /boot 2>&1
-        exit 1
+        echo "WARN: linux-image-cixmini-edge installed, but /boot/vmlinuz-$KVER_NEXT is missing"
+        echo "      (KVER_NEXT sidecar / Buildkite package drift). /boot contents:"; ls -la /boot 2>&1
+        edge_ok=0
+    else
+        modcount=$(find "/usr/lib/modules/$KVER_NEXT" \( -name '*.ko' -o -name '*.ko.xz' \) 2>/dev/null | wc -l)
+        [ "$modcount" -lt 50 ] && { echo "WARN: [next] modules dir suspiciously small (.ko=$modcount) — edge unusable"; edge_ok=0; }
     fi
-    modcount=$(find "/usr/lib/modules/$KVER_NEXT" \( -name '*.ko' -o -name '*.ko.xz' \) 2>/dev/null | wc -l)
-    if [ "$modcount" -lt 50 ]; then
-        echo "ERROR: [next] modules dir suspiciously small (.ko count=$modcount, expected hundreds)"
-        exit 1
+    if [ "$edge_ok" = 1 ]; then
+        echo "    OK: /boot/vmlinuz-$KVER_NEXT + $modcount .ko modules"
+        INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
+    else
+        # r201: EDGE (beta/NEXT) is NOT required for a bootable system — LTS is
+        # the safety net. A drifted/broken edge package must not abort Phase 1
+        # (see the LTS block). Drop the KVER_NEXT sidecar so 70-bootloader makes
+        # no edge entry pointing at a missing kernel (LTS becomes the default),
+        # and continue so Phase-2 software + the bootloader still run.
+        echo "WARN: EDGE kernel unavailable — suppressing its boot entry; LTS remains bootable. Continuing."
+        rm -f "$INSTALLER_META/KVER_NEXT" /etc/cix-installer/KVER_NEXT 2>/dev/null || true
+        KVER_NEXT=""
     fi
-    echo "    OK: /boot/vmlinuz-$KVER_NEXT + $modcount .ko modules"
-    INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
 else
     echo "  [next] BETA kernel not present in ISO — skipping"
 fi
+
+# r201: Phase-1 kernel guard — the install needs AT LEAST ONE working kernel.
+# Individual LTS/edge failures above are non-fatal (so a single drifted package
+# never bricks the whole install), but zero installed kernels IS fatal: there is
+# nothing to boot, and letting the bootloader write entries for a kernel-less
+# system would produce an unbootable install that looks successful.
+if [ "$INSTALLED_KERNELS" -eq 0 ]; then
+    echo "ERROR: no kernel installed (both LTS and EDGE failed) — Phase 1 cannot continue."
+    exit 1
+fi
+echo "[10] kernel phase OK — $INSTALLED_KERNELS kernel(s) installed (LTS='${KVER_LTS:-none}' NEXT='${KVER_NEXT:-none}')"
 
 # r196c: prune orphaned /usr/lib/modules/<ver> trees that don't match
 # either kernel this hook actually installed. Confirmed 2026-07-18 on O6N:
