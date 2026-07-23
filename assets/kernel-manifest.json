@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-07-23T15:48:16Z",
+  "generated_utc": "2026-07-23T16:23:16Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
@@ -11,8 +11,8 @@
       "sha256": "c5ab97263703f9a96e3fae4817fa63456ecc592a5f82d07d190c1ad0abe5d68d"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini-lts_7.0.12-cix-sky1-next+r200_arm64.deb",
-      "sha256": "e54e6f7006fe501e749d04a99fb94bbdcc0203f26dbbc19b43fdcf7134f2987a"
+      "file": "build/kernel-debs/linux-image-cixmini-lts_6.18.26-cix-sky1-lts+r100_arm64.deb",
+      "sha256": "4a7ffe5ebf828fe4f3600f34152ed24547fb9ff68844d390b4839936dd320107"
     }
   ],
   "schema": 1,
@@ -44,26 +44,26 @@
     },
     "lts": {
       "config": {
-        "file": "assets/kernel/stable/config-7.0.12-cix-sky1-next",
-        "sha256": "2ebba0155d38b38162caa04755f1d5cc4ded09f0ab1bfb1d480f29f7ab9fb8c0"
+        "file": "assets/kernel/stable/config-6.18.26-cix-sky1-lts",
+        "sha256": "1b5b21bd00745927211c42048297ec5c051abf40c24a69c0892d7a09c98630c5"
       },
       "dir": "assets/kernel/stable",
       "image": {
         "file": "assets/kernel/stable/Image-cixmini.bin",
-        "sha256": "7cfbeb9fffba3fed234e8c8a2a68e7ed0f8e9db981212ea7bfe1ef8b8931875c",
-        "size": 65739264
+        "sha256": "e95bf29a53da6687c6e9247d067ed1f866cbbfed3bdb4d32a50d0b73ac8845b9",
+        "size": 63085056
       },
-      "kver": "7.0.12-cix-sky1-next",
+      "kver": "6.18.26-cix-sky1-lts",
       "modules": {
         "file": "assets/kernel/stable/modules-cixmini.tgz",
-        "sha256": "b341634c30e1fbc1061d43ad0ce5a7c5b1552006b12601fbecd7fb5979678a73",
-        "size": 25334654
+        "sha256": "11350e65e078b8472972f8c36f4571162c8f85b2c6522f5eda9f7a0142a5c6bc",
+        "size": 108646875
       },
       "npu": {
-        "file": "assets/kernel/stable/modules-cixmini.tgz:lib/modules/7.0.12-cix-sky1-next/kernel/drivers/misc/armchina-npu/armchina_npu.ko",
-        "sha256": "7889f4ce876c81cc9e8ec70a5bc4d88a8883f0ebd1daed35c957e660efaa8996",
+        "file": "assets/kernel/stable/modules-cixmini.tgz:lib/modules/6.18.26-cix-sky1-lts/extra/armchina_npu.ko",
+        "sha256": "69e847d24f19ebf1290a6874605ea4084377bdf33d1419ae4ae7401e722bdca5",
         "source": "in-tree",
-        "vermagic": "7.0.12-cix-sky1-next",
+        "vermagic": "6.18.26-cix-sky1-lts",
         "vermagic_matches_kver": true
       }
     }
