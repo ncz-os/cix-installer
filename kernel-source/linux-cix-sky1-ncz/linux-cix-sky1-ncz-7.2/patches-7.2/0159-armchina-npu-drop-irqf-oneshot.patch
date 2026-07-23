@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 18 Jul 2026 12:00:00 -0400
+Subject: [PATCH] armchina-npu: drop IRQF_ONESHOT from request_irq (no
+ threaded handler)
+
+IRQF_ONESHOT is valid only for request_threaded_irq() with a real
+threaded handler. request_irq() wraps to request_threaded_irq(irq,
+handler, NULL, flags, name, dev) with thread_fn=NULL, so IRQF_ONESHOT
+trips a WARN at kernel/irq/manage.c:1502 during __setup_irq on every
+boot (confirmed live on Orion O6N, 2026-07-18, armchina_aipu_probe ->
+aipu_create_irq_object).
+
+Driver does not use a threaded IRQ -- it uses a workqueue (INIT_WORK +
+create_singlethread_workqueue), so IRQF_ONESHOT is inappropriate.
+Driver's own comment calls this out: "Flag IRQF_ONESHOT is used when
+sharing interrupts with other devices using thread_irq. Remove it if
+you have no such a usage scenario." This follows that guidance.
+
+Same fix as recipes-kernel/cix-modules/cix-npu-kmd-1.0's
+0007-armchina-npu-drop-IRQF_ONESHOT.patch (validated there 2026-05-23:
+WARN disappears from probe, IRQ still shared via IRQF_SHARED, still
+uses workqueue bottom half) -- that fix only ever landed in the
+standalone out-of-tree module recipe, never backported to this
+in-tree next-patches series that builds the LTS kernel's baked-in
+armchina_npu.ko. This backports it here.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/misc/armchina-npu/aipu_irq.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/misc/armchina-npu/aipu_irq.c b/drivers/misc/armchina-npu/aipu_irq.c
+index 0000000..0000000 100644
+--- a/drivers/misc/armchina-npu/aipu_irq.c
++++ b/drivers/misc/armchina-npu/aipu_irq.c
+@@ -68,7 +68,7 @@
+ 	 * Remove it if you have no such a usage scenario.
+ 	 */
+ 	ret = request_irq(irqnum, aipu_irq_handler_upper_half,
+-			  IRQF_ONESHOT | IRQF_SHARED | IRQF_PROBE_SHARED,
++			  IRQF_SHARED | IRQF_PROBE_SHARED,
+ 			  description, irq_obj->dev);
+ 	if (ret) {
+ 		dev_err(dev, "request_irq failed: irqnum %u, ret %d", irqnum, ret);
+--
+2.51.0

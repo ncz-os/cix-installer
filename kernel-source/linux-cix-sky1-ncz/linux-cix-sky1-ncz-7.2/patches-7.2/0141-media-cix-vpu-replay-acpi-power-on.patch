@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 12 Jul 2026 18:30:00 -0400
+Subject: [PATCH] media: cix: vpu: replay ACPI top power-on after RCSU reset
+
+The platform bus attaches the generic ACPI PM domain with power_on=true
+before calling the AMVX probe.  On Sky1 that evaluates VPU0.PPRS._ON before
+the driver has acquired and deasserted vpu_rcsu_reset.  The subsequent
+pm_runtime_resume_and_get() normally sees an already-active device and does
+not replay the ACPI transition.
+
+Replay the firmware power-resource _ON method after the register-side reset
+has been deasserted and before deasserting the VPU reset or touching VPU
+MMIO.  Calling acpi_device_set_power(D0) is not sufficient here because the
+ACPI core may have cached D0 at platform-domain attach and elide the
+method.
+
+Fail runtime resume before VPU MMIO if the firmware method cannot be
+evaluated.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/media/platform/cix/dev/mvx_dev.c | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+index 80478f672..95d31f60b 100755
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -1053,6 +1053,26 @@ static void mvx_pdev_remove(struct platform_device *pdev)
+ 
+     mvx_dev_remove(ctx);
+ }
++
++#ifdef CONFIG_ACPI
++static int mvx_acpi_power_on(struct device *dev)
++{
++	acpi_handle handle = ACPI_HANDLE(dev);
++	acpi_status status;
++
++	if (!handle)
++		return 0;
++
++	status = acpi_evaluate_object(handle, "PPRS._ON", NULL, NULL);
++	if (ACPI_FAILURE(status)) {
++		dev_err(dev, "failed to replay VPU ACPI power resource _ON: %s\n",
++			acpi_format_exception(status));
++		return -EIO;
++	}
++
++	return 0;
++}
++#endif
+ 
+ static int mvx_hw_init(struct device *dev)
+ {
+@@ -1211,6 +1230,10 @@ static int mvx_pm_runtime_resume(struct device *dev)
+      */
+     if (ctx->rcsu_rstc)
+         reset_control_deassert(ctx->rcsu_rstc);
++#ifdef CONFIG_ACPI
++	if (has_acpi_companion(dev) && mvx_acpi_power_on(dev))
++		return -EIO;
++#endif
+     reset_control_deassert(ctx->rstc);
+     enable_irq(ctx->irq);
+ 
+-- 
+2.47.3

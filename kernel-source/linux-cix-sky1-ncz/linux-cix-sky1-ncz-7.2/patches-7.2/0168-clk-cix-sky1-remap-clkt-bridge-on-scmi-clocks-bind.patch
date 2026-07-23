@@ -1,0 +1,301 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 21 Jul 2026 07:45:00 +0800
+Subject: [PATCH] clk: cix: sky1: remap CLKT bridge when SCMI clocks device
+ binds
+
+The ACPI CLKT->clkdev bridge walks the ACPI namespace once at probe and
+creates clkdev aliases for the SCMI clocks it can resolve. On CIX Sky1
+there are multiple SCMI clock provider instances that bind at different
+times: on Orion O6N the SCMI clock device (protocol 0x14, name "clocks")
+that owns sof_clk / fch_timer_apb / the usb-dp+usb3 phy apb clocks is not
+created until ~t=1.47s, AFTER this bridge probes at t=1.11s. The bridge
+therefore maps only the clocks the early providers published, and the late
+clocks are never aliased - their consumers (cdnsp-sky1, cdns-i2c,
+sky1_timer, cix-usbdp-phy, cix-usb3-phy) spin in deferred-probe forever
+and O6N hangs pre-network. The reference board only works because there
+the providers happen to bind before the bridge probes.
+
+Earlier attempts to fix this by ordering the single walk failed. Deferring
+the whole probe until every entry maps (a prior approach) caused an
+unbounded retry storm on boards with genuinely-absent CLKT clocks, because
+each -EPROBE_DEFER tore down every clkdev and re-walked from zero. Gating
+the probe on the SCMI clock provider being bound does not work either: the
+provider *device* does not exist yet at probe time, so device_is_bound()
+is satisfied by an earlier instance and the gate passes immediately (also
+confirmed failing on O6N).
+
+Since the provider appears after the bridge runs, react to it. Register a
+notifier on scmi_bus_type; on BUS_NOTIFY_BOUND_DRIVER for the clocks
+device (protocol_id == SCMI_PROTOCOL_CLOCK, name "clocks"), re-run the CLKT
+walk to map the now-available clocks. The walk is made idempotent - each
+successfully-created clkdev is recorded (keyed by SCMI clock id + consumer
+dev_id + con_id) and skipped on subsequent walks, so re-walking never
+duplicates a lookup. A clock that is still absent is simply not recorded
+and is retried on the next clocks-device bind; genuinely-absent clocks are
+never recorded and cause neither an error nor a storm. The notifier, its
+mutex and the mapped list live in the driver`s devm-managed priv; the
+notifier is registered before the initial walk (so no bind is missed) and
+unregistered via devm_add_action_or_reset(); all walks and list updates
+are serialized by priv->lock.
+
+This converges on both boards: O6N maps the early clocks at probe and the
+late sof_clk/fch_timer_apb/phy-apb when scmi_dev clocks binds, so the USB/
+i2c/timer/phy consumers probe and the board reaches network; the reference
+board maps everything at probe and the notifier either never fires or is a
+harmless no-op.
+
+scmi_bus_type is EXPORT_SYMBOL_GPL but only declared in the private
+drivers/firmware/arm_scmi/common.h, so it is declared locally.
+bus_register_notifier() already takes const struct bus_type *, matching
+scmi_bus_type, so no cast is needed (same idiom as
+drivers/firmware/arm_scmi/driver.c).
+
+Supersedes the earlier device_is_bound gate. Compile-verified on cixmini.
+NOT yet boot-verified; requires a supervised O6N boot.
+
+The mapped==0 -> -EPROBE_DEFER fallback is deliberately RETAINED. It is
+not the cause of the earlier retry storm: that came from deferring on
+*partial* maps, which tore down already-created clkdevs on every retry.
+When nothing mapped there is nothing to tear down, and keeping the defer
+means a board whose notifier never fires still gets retried rather than
+silently probing with an empty clkdev table.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/clk/cix/clk-sky1-acpi.c b/drivers/clk/cix/clk-sky1-acpi.c
+index 6cc3108..86a0ec2 100644
+--- a/drivers/clk/cix/clk-sky1-acpi.c
++++ b/drivers/clk/cix/clk-sky1-acpi.c
+@@ -20,11 +20,30 @@
+ #include <linux/acpi.h>
+ #include <linux/clk.h>
+ #include <linux/clkdev.h>
++#include <linux/device/bus.h>
++#include <linux/err.h>
++#include <linux/list.h>
+ #include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/notifier.h>
+ #include <linux/platform_device.h>
++#include <linux/scmi_protocol.h>
++#include <linux/string.h>
++
++extern const struct bus_type scmi_bus_type;
++
++struct sky1_acpi_clk_map {
++	struct list_head node;
++	u64 clock_id;
++	const char *con_id;
++	const char *dev_id;
++};
+ 
+ struct sky1_acpi_clk {
+ 	struct device *dev;
++	struct notifier_block scmi_nb;
++	struct mutex lock;
++	struct list_head mapped_list;
+ 	int mapped;
+ 	int pending;
+ 	int error;
+@@ -35,6 +54,51 @@ static void sky1_clkdev_drop(void *data)
+ 	clkdev_drop(data);
+ }
+ 
++static void sky1_scmi_bus_notifier_unregister(void *data)
++{
++	bus_unregister_notifier(&scmi_bus_type, data);
++}
++
++static bool sky1_clkt_entry_mapped(struct sky1_acpi_clk *priv, u64 clock_id,
++				   const char *con_id, const char *dev_id)
++{
++	struct sky1_acpi_clk_map *map;
++
++	list_for_each_entry(map, &priv->mapped_list, node) {
++		if (map->clock_id == clock_id &&
++		    !strcmp(map->dev_id, dev_id) &&
++		    !strcmp(map->con_id ?: "", con_id ?: ""))
++			return true;
++	}
++
++	return false;
++}
++
++static struct sky1_acpi_clk_map *
++sky1_clkt_alloc_entry(struct sky1_acpi_clk *priv, u64 clock_id,
++		      const char *con_id, const char *dev_id)
++{
++	struct sky1_acpi_clk_map *map;
++
++	map = devm_kzalloc(priv->dev, sizeof(*map), GFP_KERNEL);
++	if (!map)
++		return ERR_PTR(-ENOMEM);
++
++	map->dev_id = devm_kstrdup(priv->dev, dev_id, GFP_KERNEL);
++	if (!map->dev_id)
++		return ERR_PTR(-ENOMEM);
++
++	if (con_id) {
++		map->con_id = devm_kstrdup(priv->dev, con_id, GFP_KERNEL);
++		if (!map->con_id)
++			return ERR_PTR(-ENOMEM);
++	}
++
++	map->clock_id = clock_id;
++
++	return map;
++}
++
+ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
+ 				 const char *consumer_name,
+ 				 union acpi_object *entry)
+@@ -45,6 +109,7 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
+ 	char scmi_id[20];
+ 	struct clk *clk;
+ 	struct clk_lookup *cl;
++	struct sky1_acpi_clk_map *map;
+ 	int ret;
+ 
+ 	if (entry->type != ACPI_TYPE_PACKAGE || entry->package.count < 2)
+@@ -64,6 +129,9 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
+ 	if (con_id[0] == '\0')
+ 		con_id = NULL;
+ 
++	if (sky1_clkt_entry_mapped(priv, clock_id, con_id, consumer_name))
++		return 0;
++
+ 	/* Look up the SCMI clock by its clkdev registration name */
+ 	snprintf(scmi_id, sizeof(scmi_id), "scmi-clk-%llu", clock_id);
+ 	clk = clk_get(NULL, scmi_id);
+@@ -73,6 +141,12 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
+ 		return PTR_ERR(clk);
+ 	}
+ 
++	map = sky1_clkt_alloc_entry(priv, clock_id, con_id, consumer_name);
++	if (IS_ERR(map)) {
++		clk_put(clk);
++		return PTR_ERR(map);
++	}
++
+ 	/* Register consumer lookup */
+ 	cl = clkdev_create(clk, con_id, "%s", consumer_name);
+ 	clk_put(clk);
+@@ -88,6 +162,7 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
+ 	if (ret)
+ 		return ret;
+ 
++	list_add_tail(&map->node, &priv->mapped_list);
+ 	dev_dbg(priv->dev, "Mapped SCMI clock %llu -> %s:%s\n",
+ 		clock_id, consumer_name, con_id ?: "(unnamed)");
+ 	priv->mapped++;
+@@ -157,32 +232,99 @@ out:
+ 	return AE_OK;
+ }
+ 
++static int sky1_clkt_walk(struct sky1_acpi_clk *priv)
++{
++	acpi_status status;
++
++	priv->pending = 0;
++	priv->error = 0;
++
++	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
++				     ACPI_UINT32_MAX, sky1_clkt_walk_cb,
++				     NULL, priv, NULL);
++	if (ACPI_FAILURE(status))
++		return -ENODEV;
++
++	return priv->error;
++}
++
++static int sky1_scmi_bus_notify(struct notifier_block *nb,
++				unsigned long action, void *data)
++{
++	struct sky1_acpi_clk *priv =
++		container_of(nb, struct sky1_acpi_clk, scmi_nb);
++	struct scmi_device *sdev;
++	struct device *dev = data;
++	int old_mapped;
++	int ret;
++
++	if (action != BUS_NOTIFY_BOUND_DRIVER || !dev)
++		return NOTIFY_DONE;
++
++	sdev = to_scmi_dev(dev);
++	if (sdev->protocol_id != SCMI_PROTOCOL_CLOCK ||
++	    strcmp(sdev->name, "clocks"))
++		return NOTIFY_DONE;
++
++	mutex_lock(&priv->lock);
++	old_mapped = priv->mapped;
++	ret = sky1_clkt_walk(priv);
++	if (ret)
++		dev_warn(priv->dev, "ACPI CLKT remap failed: %d\n", ret);
++	else if (priv->mapped != old_mapped)
++		dev_info(priv->dev, "Mapped %d additional ACPI clock lookup entries\n",
++			 priv->mapped - old_mapped);
++	mutex_unlock(&priv->lock);
++
++	return NOTIFY_OK;
++}
++
+ static int sky1_acpi_clk_probe(struct platform_device *pdev)
+ {
+ 	struct sky1_acpi_clk *priv;
+-	acpi_status status;
++	int ret;
+ 
+ 	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
+ 	if (!priv)
+ 		return -ENOMEM;
+ 
+ 	priv->dev = &pdev->dev;
++	mutex_init(&priv->lock);
++	INIT_LIST_HEAD(&priv->mapped_list);
++	priv->scmi_nb.notifier_call = sky1_scmi_bus_notify;
+ 
+-	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
+-				     ACPI_UINT32_MAX, sky1_clkt_walk_cb,
+-				     NULL, priv, NULL);
+-	if (ACPI_FAILURE(status))
++	ret = bus_register_notifier(&scmi_bus_type, &priv->scmi_nb);
++	if (ret)
++		return dev_err_probe(&pdev->dev, ret,
++				     "Failed to register SCMI bus notifier\n");
++
++	ret = devm_add_action_or_reset(&pdev->dev,
++				       sky1_scmi_bus_notifier_unregister,
++				       &priv->scmi_nb);
++	if (ret)
++		return ret;
++
++	mutex_lock(&priv->lock);
++	ret = sky1_clkt_walk(priv);
++	mutex_unlock(&priv->lock);
++	if (ret == -ENODEV)
+ 		return dev_err_probe(&pdev->dev, -ENODEV,
+ 				     "ACPI namespace walk failed\n");
+ 
+-	if (priv->error)
+-		return dev_err_probe(&pdev->dev, priv->error,
++	if (ret)
++		return dev_err_probe(&pdev->dev, ret,
+ 				     "Invalid ACPI CLKT entry\n");
+ 
++	/*
++	 * Nothing mapped at all: no clkdevs exist yet, so deferring here
++	 * cannot cause the teardown/re-walk storm that gating on *partial*
++	 * maps did. A retry re-registers the notifier, so a late clocks
++	 * device is still not missed.
++	 */
+ 	if (priv->mapped == 0)
+ 		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
+ 				     "No SCMI clocks mapped yet\n");
+ 
+ 	if (priv->pending)
+ 		dev_dbg(&pdev->dev,
+ 			"%d ACPI CLKT entries still pending, dependent consumers will retry independently\n",
+-- 
+2.51.0

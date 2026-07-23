@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 13 Jul 2026 00:00:00 -0400
+Subject: [PATCH] media: cix: vpu: power cores before reading hardware ID
+
+Sky1 firmware exposes a separate power resource for each VPU core.  The
+driver currently reads the global hardware ID and core mask before enabling
+those resources, even though firmware performs core power-on and memory
+repair through them.
+
+Avoid that chicken-and-egg dependency by enabling every firmware-described
+core domain before the first VPU aperture access.  Once the core mask is
+readable, release any domain which does not correspond to an implemented
+core.  The existing resume error path continues to unwind every domain that
+remains enabled.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/media/platform/cix/dev/mvx_dev.c | 41 +++++++++++++++++++-----------
+ 1 file changed, 26 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -1299,6 +1299,29 @@ static int mvx_pm_runtime_resume(struct device *dev)
+     core_deasserted = true;
+     usleep_range(MVX_POWER_POLL_MIN_US, MVX_POWER_POLL_MAX_US);
+ 
++    /*
++     * The core mask is in the VPU aperture, but firmware powers and repairs
++     * each core separately.  Bring every described core up before the first
++     * VPU read to avoid depending on a register whose power prerequisite is
++     * the value being read.
++     */
++    for (i = 1; i < ctx->pmdomains_cnt; i++) {
++        if (has_acpi_companion(ctx->pmdomains[i])) {
++#if VPU_CORE_ACPI_REF_POWERSOURCE
++            ret = pm_runtime_resume_and_get(ctx->pmdomains[i]);
++#else
++            ret = ACPI_FAILURE(acpi_evaluate_object(
++                    to_acpi_device(ctx->pmdomains[i])->handle,
++                    VPU_CORE_ACPI_MEMREPAIR_FUNC, NULL, NULL)) ? -EIO : 0;
++#endif
++        } else {
++            ret = pm_runtime_resume_and_get(ctx->pmdomains[i]);
++        }
++        if (ret < 0)
++            goto err_resume;
++        domains_on |= BIT_ULL(i);
++    }
++
+     enable_irq(ctx->irq);
+     irq_enabled = true;
+ 
+@@ -1313,21 +1336,9 @@ static int mvx_pm_runtime_resume(struct device *dev)
+ 
+     mask = mvx_hwreg_get_core_mask(&ctx->hwreg) << 1;
+     for (i = 1; i < ctx->pmdomains_cnt; i++) {
+-        if (mvx_test_bit(i, &mask)) {
+-            if (has_acpi_companion(ctx->pmdomains[i])) {
+-#if VPU_CORE_ACPI_REF_POWERSOURCE
+-                ret = pm_runtime_resume_and_get(ctx->pmdomains[i]);
+-#else
+-                ret = ACPI_FAILURE(acpi_evaluate_object(
+-                        to_acpi_device(ctx->pmdomains[i])->handle,
+-                        VPU_CORE_ACPI_MEMREPAIR_FUNC, NULL, NULL)) ? -EIO : 0;
+-#endif
+-            } else {
+-                ret = pm_runtime_resume_and_get(ctx->pmdomains[i]);
+-            }
+-            if (ret < 0)
+-                goto err_resume;
+-            domains_on |= BIT_ULL(i);
++        if (!mvx_test_bit(i, &mask)) {
++            pm_runtime_put_sync(ctx->pmdomains[i]);
++            domains_on &= ~BIT_ULL(i);
+         }
+     }
+ 
+-- 
+2.47.3

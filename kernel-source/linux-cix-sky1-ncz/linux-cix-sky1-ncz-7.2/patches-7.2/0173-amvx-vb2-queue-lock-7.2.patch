@@ -1,0 +1,53 @@
+From 0173000000000000000000000000000000000173 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 23 Jul 2026 00:00:00 -0400
+Subject: [PATCH] media: cix: amvx: set per-port vb2 queue lock for 7.2
+
+The 7.2 in-tree amvx driver calls vb2_queue_init() without setting
+vb2_queue.lock; v6.x+ vb2_core_queue_init() enforces a non-NULL q->lock,
+so REQBUFS/CREATE_BUFS fail and the VPU codec is non-functional. Add a
+per-port vb2_lock mutex; amvx already serialises ioctls via
+vsession->mutex, so this only satisfies the sanity check.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/media/platform/cix/if/v4l2/mvx_v4l2_session.h	2026-07-04 12:43:45.615516812 -0400
++++ b/drivers/media/platform/cix/if/v4l2/mvx_v4l2_session.h	2026-07-04 12:43:45.627509558 -0400
+@@ -88,6 +88,7 @@
+     unsigned int afbc_crop_top;
+     struct dentry *dentry;
+     bool q_set;
++    struct mutex vb2_lock;
+     struct vb2_queue vb2_queue;
+ };
+ 
+--- a/drivers/media/platform/cix/if/v4l2/mvx_v4l2_session.c	2026-07-04 12:43:45.617032860 -0400
++++ b/drivers/media/platform/cix/if/v4l2/mvx_v4l2_session.c	2026-07-04 12:43:45.627833989 -0400
+@@ -574,6 +574,7 @@
+         vport->vsession = vsession;
+         vport->dir = i;
+         vport->q_set = false;
++        mutex_init(&vport->vb2_lock);
+     }
+ 
+     if (IS_ENABLED(CONFIG_DEBUG_FS)) {
+--- a/drivers/media/platform/cix/if/v4l2/mvx_v4l2_vidioc.c	2026-07-04 12:43:45.619032875 -0400
++++ b/drivers/media/platform/cix/if/v4l2/mvx_v4l2_vidioc.c	2026-07-04 12:43:45.628813870 -0400
+@@ -675,6 +675,16 @@
+     /* Let Vb2 handle mvx_v4l2_buffer allocations. */
+     q->buf_struct_size = sizeof(struct mvx_v4l2_buffer);
+ 
++    /*
++     * From v6.x onwards vb2_core_queue_init() enforces a non-NULL
++     * q->lock (WARN_ON(!q->lock) -> -EINVAL), which breaks REQBUFS/
++     * CREATE_BUFS on the Sky1 7.0 kernel. amvx serialises every ioctl
++     * via vsession->mutex and never enters vb2 through the locking
++     * helpers, so give vb2 a dedicated per-port lock purely to satisfy
++     * the sanity check; it never contends with vsession->mutex.
++     */
++    q->lock = &vport->vb2_lock;
++
+     ret = vb2_queue_init(q);
+ 
+     return ret;

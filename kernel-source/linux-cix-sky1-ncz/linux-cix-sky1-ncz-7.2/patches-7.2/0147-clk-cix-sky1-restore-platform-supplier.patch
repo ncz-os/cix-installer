@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 13 Jul 2026 12:01:00 -0400
+Subject: [PATCH 2/2] clk: cix: restore CIXHA010 platform supplier binding
+
+With acpi_scmi_en=off, ACPI default enumeration creates a platform device
+for CIXHA010 and fw_devlink makes it the supplier of CIXH3010.  Converting
+clk-sky1-acpi to an acpi_driver makes the ACPI companion print the successful
+mapping message, but leaves that platform supplier without a driver.  Its
+device link therefore never reaches DL_STATE_AVAILABLE and the VPU remains
+deferred with "supplier CIXHA010:00 not ready".
+
+Restore the platform-driver binding used by the working 7.0/7.1 stack.  This
+is the smallest fix for the intended acpi_scmi_en=off configuration: the
+same device which is the fw_devlink supplier now binds the clock bridge and
+becomes available after all CLKT aliases have been mapped.
+
+This patch is based on the post-0096, post-0138 Sky1 clock tree.  With SCMI
+enabled, CIXHA010 is suppressed by the CIX ACPI scan handler, so users of
+that configuration must retain the ACPI-driver variant or remove the deny
+policy instead.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/clk/cix/clk-sky1-acpi.c | 25 ++++++++++++++-----------
+ 1 file changed, 14 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/clk/cix/clk-sky1-acpi.c b/drivers/clk/cix/clk-sky1-acpi.c
+index c8035368f9f8..4c5ca954da00 100644
+--- a/drivers/clk/cix/clk-sky1-acpi.c
++++ b/drivers/clk/cix/clk-sky1-acpi.c
+@@ -21,6 +21,7 @@
+ #include <linux/clk.h>
+ #include <linux/clkdev.h>
+ #include <linux/module.h>
++#include <linux/platform_device.h>
+ 
+ struct sky1_acpi_clk {
+ 	struct device *dev;
+@@ -150,29 +151,29 @@ out:
+ 	return AE_OK;
+ }
+ 
+-static int sky1_acpi_clk_add(struct acpi_device *adev)
++static int sky1_acpi_clk_probe(struct platform_device *pdev)
+ {
+ 	struct sky1_acpi_clk *priv;
+ 	acpi_status status;
+ 
+-	priv = devm_kzalloc(&adev->dev, sizeof(*priv), GFP_KERNEL);
++	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
+ 	if (!priv)
+ 		return -ENOMEM;
+ 
+-	priv->dev = &adev->dev;
++	priv->dev = &pdev->dev;
+ 
+ 	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
+ 				     ACPI_UINT32_MAX, sky1_clkt_walk_cb,
+ 				     NULL, priv, NULL);
+ 	if (ACPI_FAILURE(status))
+-		return dev_err_probe(&adev->dev, -ENODEV,
++		return dev_err_probe(&pdev->dev, -ENODEV,
+ 				     "ACPI namespace walk failed\n");
+ 
+ 	if (priv->mapped == 0)
+-		return dev_err_probe(&adev->dev, -EPROBE_DEFER,
++		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
+ 				     "No SCMI clocks mapped yet\n");
+ 
+-	dev_info(&adev->dev, "Mapped %d ACPI clock lookup entries\n",
++	dev_info(&pdev->dev, "Mapped %d ACPI clock lookup entries\n",
+ 		 priv->mapped);
+ 	return 0;
+ }
+@@ -183,12 +184,14 @@ static const struct acpi_device_id sky1_acpi_clk_ids[] = {
+ };
+ MODULE_DEVICE_TABLE(acpi, sky1_acpi_clk_ids);
+ 
+-static struct acpi_driver sky1_acpi_clk_driver = {
+-	.name = "clk-sky1-acpi",
+-	.ids = sky1_acpi_clk_ids,
+-	.ops = { .add = sky1_acpi_clk_add },
++static struct platform_driver sky1_acpi_clk_driver = {
++	.driver = {
++		.name = "clk-sky1-acpi",
++		.acpi_match_table = sky1_acpi_clk_ids,
++	},
++	.probe = sky1_acpi_clk_probe,
+ };
+-module_acpi_driver(sky1_acpi_clk_driver);
++module_platform_driver(sky1_acpi_clk_driver);
+ 
+ MODULE_DESCRIPTION("CIX Sky1 ACPI clock lookup table driver");
+ MODULE_LICENSE("GPL");
+-- 
+2.51.0

@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 27 Jun 2026 23:45:00 -0400
+Subject: [PATCH] pm_runtime: gate ALL callbacks (not just resume) on CIX Sky1
+
+Patch 9011 gated __pm_runtime_resume to prevent the deferred-probe SError.
+That fix prevented one crash path but missed another: during system idle,
+rpm_suspend -> pm_generic_runtime_suspend -> acpi_subsys_runtime_suspend
+calls regmap_read/write on syscon MMIO that is held-in-reset/unclocked.
+
+Crash stack captured on .66 at t=0.596s (7.1.2-ncz2 #1 PREEMPT):
+  el1h_64_error_handler
+  __regmap_has_tag_bits
+  regmap_write
+  regmap_bus_read
+  __pm_runtime_resume
+  rpm_suspend+0xc8
+  pm_generic_runtime_suspend+0x68
+  acpi_subsys_runtime_suspend+0x20
+  rpm_callback+0xa2
+  rpm_suspend+0x3c
+  __schedule+0x218
+
+Fix: extend the 9011 gate from __pm_runtime_resume to __rpm_callback,
+which is the central dispatch for ALL pm callbacks (resume, suspend,
+idle). When cix_system_ready is false, skip every callback and return 0
+(success) so the rpm core proceeds normally. The device's actual
+hardware state is set up later when the system is ready.
+
+__rpm_callback has no 'out' label (only 'fail:'), so return 0 directly
+instead of using goto out.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/base/power/runtime.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+diff --git a/drivers/base/power/runtime.c b/drivers/base/power/runtime.c
+index 69d7cdf0a3d9..e74d7e4454f8 100644
+--- a/drivers/base/power/runtime.c
++++ b/drivers/base/power/runtime.c
+@@ -397,6 +397,23 @@ static int __rpm_callback(int (*cb)(struct device *), struct device *dev)
+ 	int retval = 0, idx;
+ 	bool use_links = dev->power.links_count > 0;
+ 
++	/*
++	 * NCZ CIX Sky1 boot fix (patch 9012): skip ALL runtime PM callbacks
++	 * (resume AND suspend) until late_initcall sets cix_system_ready.
++	 *
++	 * Patch 9011 only gated __pm_runtime_resume, but the crash also
++	 * occurs via rpm_suspend -> acpi_subsys_runtime_suspend ->
++	 * regmap_read/write on unready syscon MMIO during system idle.
++	 *
++	 * Return 0 (success) directly since __rpm_callback has no 'out'
++	 * label (only 'fail:'). The actual hardware state will be set up
++	 * later when the system is ready.
++	 */
++	if (!cix_system_ready && cb) {
++		spin_unlock_irq(&dev->power.lock);
++		return 0;
++	}
++
+ 	if (dev->power.irq_safe) {
+ 		spin_unlock(&dev->power.lock);
+ 	} else {
+--
+2.51.0

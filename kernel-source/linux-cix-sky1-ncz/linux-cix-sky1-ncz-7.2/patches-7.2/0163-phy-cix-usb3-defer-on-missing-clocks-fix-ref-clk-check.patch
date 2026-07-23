@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 19 Jul 2026 03:00:00 -0400
+Subject: [PATCH] phy: cix: usb3: defer on missing clocks, fix ref_clk error-check bug
+
+Confirmed live on Orion O6N, 2026-07-19: the clk-sky1-acpi bridge fix
+(0157) makes sky1_acpi_clk_probe() succeed as soon as ANY CLKT entry
+maps, on the theory that consumers whose specific clock is not yet
+mapped would get their own retryable -EPROBE_DEFER from devm_clk_get()
+and be retried independently (0157s own commit message says exactly
+this, and flags itself UNVERIFIED ON HARDWARE). That theory only holds
+if the consumer actually propagates -EPROBE_DEFER -- this one instead
+returned the raw devm_clk_get() error (-ENOENT, 
+o such clkdev\)
+straight out of probe. -ENOENT is not -EPROBE_DEFER, so the driver
+core never retries it: a clock that legitimately becomes available
+moments later (once the bridge or SCMI catches up) is permanently
+unavailable to this driver for the rest of the boot.
+
+Same fix already proven working for cix-usbdp-phy (0155) and pwm-sky1
+(0158) -- both show as harmless \deferred probe pending\ and
+self-resolve later in boot. This applies the identical
+-ENOENT-to-EPROBE_DEFER translation via dev_err_probe() to the
+remaining consumers that were still hard-failing instead of deferring.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/phy/cix/phy-cix-usb3.c b/drivers/phy/cix/phy-cix-usb3.c
+index 26bd025..9f99f24 100644
+--- a/drivers/phy/cix/phy-cix-usb3.c
++++ b/drivers/phy/cix/phy-cix-usb3.c
+@@ -376,16 +376,18 @@ static int cix_u3phy_probe(struct platform_device *pdev)
+ 				     "%s: failed to get preset\n", __func__);
+ 
+ 	u3phy->apb_clk = devm_clk_get(dev, "apb_clk");
+-	if (IS_ERR(u3phy->apb_clk)) {
+-		dev_err(dev, "phy apb clock not found\n");
+-		return PTR_ERR(u3phy->apb_clk);
+-	}
++	if (IS_ERR(u3phy->apb_clk))
++		return dev_err_probe(dev,
++				     PTR_ERR(u3phy->apb_clk) == -ENOENT ?
++				     -EPROBE_DEFER : PTR_ERR(u3phy->apb_clk),
++				     "phy apb clock not found\n");
+ 
+ 	u3phy->ref_clk = devm_clk_get(dev, "ref_clk");
+-	if (IS_ERR(u3phy->apb_clk)) {
+-		dev_err(dev, "phy apb clock not found\n");
+-		return PTR_ERR(u3phy->apb_clk);
+-	}
++	if (IS_ERR(u3phy->ref_clk))
++		return dev_err_probe(dev,
++				     PTR_ERR(u3phy->ref_clk) == -ENOENT ?
++				     -EPROBE_DEFER : PTR_ERR(u3phy->ref_clk),
++				     "phy ref clock not found\n");
+ 
+ 	u3phy->base = devm_platform_ioremap_resource(pdev, 0);
+ 	if (IS_ERR(u3phy->base))
+--
+2.51.0

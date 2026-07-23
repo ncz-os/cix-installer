@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 11 Jul 2026 00:00:00 -0400
+Subject: [PATCH] firmware: arm_scmi: set up Tx/Rx channel for ACPI-activated
+ protocols
+
+Patch 0093 activates every firmware-implemented SCMI protocol under ACPI
+(the ACPI namespace has no per-protocol child nodes to drive
+scmi_create_protocol_devices from the DT path). But it creates each
+protocol's device WITHOUT first setting up that protocol's Tx/Rx channel,
+which the DT path does via scmi_txrx_setup() before scmi_create_protocol_devices().
+
+Without the channel setup a protocol has no entry in info->tx_idr, so
+do_xfer() -- which outside RAW mode has no Base-channel fallback -- returns
+-EINVAL for every transfer on that protocol. This silently kills genpd:
+SCMI_PROTOCOL_POWER (0x11) registers no power domains, so the consumers
+that depend on them (panthor GPU CIXH1003, armchina NPU CIXH4000, linlondp
+display) touch unpowered MMIO and hang the SoC (~5.96s AXI lock observed on
+cixmini). VPU (amvx) does not use genpd and is unaffected.
+
+Mirror the DT / 7.0.x sky1-next ACPI path: call scmi_txrx_setup(info, NULL,
+prot_id) for each ACPI-activated protocol before creating its device. Under
+ACPI there is no per-protocol channel fwnode, so pass NULL; mailbox_chan_available(NULL, idx)
+returns false and scmi_chan_setup() takes the Base-channel alias fast path
+(no fwnode dereference).
+
+Upstream-Status: Inappropriate [downstream ACPI enablement for CIX Sky1]
+---
+ drivers/firmware/arm_scmi/driver.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/drivers/firmware/arm_scmi/driver.c b/drivers/firmware/arm_scmi/driver.c
+index b38d764..1b99613 100644
+--- a/drivers/firmware/arm_scmi/driver.c
++++ b/drivers/firmware/arm_scmi/driver.c
+@@ -3383,6 +3383,17 @@ static int scmi_probe(struct platform_device *pdev)
+ 			if (idr_find(&info->active_protocols, prot_id))
+ 				continue;
+ 
++			/* Set up the protocol's Tx/Rx channel before creating its
++			 * device.  Under ACPI there's no per-protocol channel node;
++			 * pass NULL fwnode so scmi_chan_setup() aliases this protocol
++			 * to the Base channel.  do_xfer() has no Base fallback outside
++			 * RAW mode, so without this the protocol has no tx_idr entry
++			 * and every xfer returns -EINVAL, silently killing genpd
++			 * (SCMI_PROTOCOL_POWER 0x11) -> GPU/NPU hang.
++			 */
++			if (scmi_txrx_setup(info, NULL, prot_id))
++				continue;
++
+ 			ret = idr_alloc(&info->active_protocols, (void *)np,
+ 					prot_id, prot_id + 1, GFP_KERNEL);
+ 			if (ret != prot_id)
+-- 
+2.51.0

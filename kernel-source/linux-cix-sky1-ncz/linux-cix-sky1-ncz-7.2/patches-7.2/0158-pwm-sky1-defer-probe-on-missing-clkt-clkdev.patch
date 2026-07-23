@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 14 Jul 2026 14:00:00 -0400
+Subject: [PATCH] pwm: sky1: defer probe when CLKT clkdev entries are not
+ registered yet
+
+pwm-sky1's probe path returns devm_clk_get()'s raw error code, including
+-ENOENT, from dev_err_probe(). -ENOENT is not retried by the deferred
+probe framework, so if this driver happens to probe before clk-sky1-acpi
+(the CLKT-to-clkdev bridge, patch 0096) has run at least once, PWM
+permanently fails for that boot with no retry -- the same probe-ordering
+hazard patches 0154/0155 fixed today for cix-usbdp-phy/trilin_dptx, and
+that patch 0137 (never applied, not in this recipe's SRC_URI) originally
+tried to prevent by changing bridge registration timing instead.
+
+Unlike clk-sky1-audss (patch 9014/comment in sky1_audss_clks_get()),
+PWM is not a fw_devlink supplier for anything boot-critical (PCIe/NVMe),
+so there is no reason to warn-and-continue with a NULL clock here --
+correctly deferring and retrying once the bridge succeeds is the right
+fix, matching the existing convention used by cix-usbdp-phy and
+trilin_dptx.
+
+UNVERIFIED ON HARDWARE -- not yet boot-tested, found via static analysis
+while investigating the 0157 clkt-bridge regression.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/pwm/pwm-sky1.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pwm/pwm-sky1.c b/drivers/pwm/pwm-sky1.c
+index d3e4f5a6b7c8..e4f5a6b7c8d9 100644
+--- a/drivers/pwm/pwm-sky1.c
++++ b/drivers/pwm/pwm-sky1.c
+@@ -197,12 +197,16 @@ static int pwm_sky1_probe(struct platform_device *pdev)
+ 
+ 	sky1->pclk = devm_clk_get(dev, "fch_pwm_apb_clk");
+ 	if (IS_ERR(sky1->pclk))
+-		return dev_err_probe(dev, PTR_ERR(sky1->pclk),
++		return dev_err_probe(dev,
++				     PTR_ERR(sky1->pclk) == -ENOENT ?
++				     -EPROBE_DEFER : PTR_ERR(sky1->pclk),
+ 				     "failed to get apb clock\n");
+ 
+ 	sky1->tclk = devm_clk_get(dev, "fch_pwm_func_clk");
+ 	if (IS_ERR(sky1->tclk))
+-		return dev_err_probe(dev, PTR_ERR(sky1->tclk),
++		return dev_err_probe(dev,
++				     PTR_ERR(sky1->tclk) == -ENOENT ?
++				     -EPROBE_DEFER : PTR_ERR(sky1->tclk),
+ 				     "failed to get func clock\n");
+ 
+ 	sky1->func_reset = devm_reset_control_get_optional_shared(dev, "func_reset");
+-- 
+2.51.0

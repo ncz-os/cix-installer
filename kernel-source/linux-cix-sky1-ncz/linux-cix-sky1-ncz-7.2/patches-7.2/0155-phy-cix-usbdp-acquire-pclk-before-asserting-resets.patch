@@ -1,0 +1,57 @@
+From deafaed7c14def92b684db89632f6e2a25d029ec Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 13 Jul 2026 19:05:00 -0400
+Subject: [PATCH] phy: cix: usbdp: acquire pclk before asserting resets
+
+A deferred pclk lookup currently occurs after the PHY resets are asserted,
+so every probe retry toggles the hardware before discovering that its clock
+provider is not ready.
+
+Acquire pclk before the reset block so a deferred probe leaves the hardware
+untouched. Also only log the GOP status value when the status mapping
+succeeds, avoiding use of an uninitialized value on ioremap failure.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/phy/cix/phy-cix-usbdp.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/phy/cix/phy-cix-usbdp.c b/drivers/phy/cix/phy-cix-usbdp.c
+index f01e3f0..1714a2c 100644
+--- a/drivers/phy/cix/phy-cix-usbdp.c
++++ b/drivers/phy/cix/phy-cix-usbdp.c
+@@ -1483,16 +1483,10 @@ static int cix_udphy_probe(struct platform_device *pdev)
+ 			udphy->phy_init_skip_count = 0;
+ 			break;
+ 		}
++		dev_info(dev, "get phy-status:[%d]%d\n", id, gop_value);
+ 		iounmap(g_status);
+ 	}
+ 
+-	dev_info(dev, "get phy-status:[%d]%d\n", id, gop_value);
+-	if (udphy->phy_reset) {
+-		dev_info(dev, "phy reset\n");
+-		reset_control_assert(udphy->reset);
+-		reset_control_assert(udphy->preset);
+-	}
+-
+ 	udphy->apb_clk = devm_clk_get(dev, "pclk");
+ 	if (IS_ERR(udphy->apb_clk))
+ 		return dev_err_probe(dev,
+@@ -1500,6 +1494,12 @@ static int cix_udphy_probe(struct platform_device *pdev)
+ 				     -EPROBE_DEFER : PTR_ERR(udphy->apb_clk),
+ 				     "phy apb clock not found\n");
+ 
++	if (udphy->phy_reset) {
++		dev_info(dev, "phy reset\n");
++		reset_control_assert(udphy->reset);
++		reset_control_assert(udphy->preset);
++	}
++
+ 	udphy->base = devm_platform_ioremap_resource(pdev, 0);
+ 	if (IS_ERR(udphy->base))
+ 		return PTR_ERR(udphy->base);
+-- 
+2.43.0
+
