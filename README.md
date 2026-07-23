@@ -1,3 +1,11 @@
+# ⚠️ This is a mirror — the canonical repo lives on GitLab
+
+### 👉 https://gitlab.com/ncz-os/cix-installer
+
+**Source, releases, issues, merge requests, and CI all live on GitLab.** This GitHub copy is a read-only mirror and may lag. Please file issues and get releases there.
+
+---
+
 # cix-installer
 
 > **🌐 Language:** English · [简体中文](README.zh-CN.md)
