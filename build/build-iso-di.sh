@@ -20,7 +20,7 @@ BOOKWORM_ISO=""
 ROOT=""
 VERSION=""
 OUTPUT=""
-VARIANT="desktop"   # r75 M1: 'desktop' (Reinhardt SKU) | 'server' (Magnetar SKU)
+VARIANT="desktop"   # r75 M1: 'desktop' (Maximilian SKU) | 'server' (Magnetar SKU)
 MODE="full"         # r78: full | thin | netinstall | netinstall-bootstrap
 
 usage() {
@@ -520,7 +520,7 @@ rm -rf "$STAGING/pool" "$STAGING/dists" "$STAGING/doc" "$STAGING/firmware" 2>/de
 # Step 3: embed our offline mirror or bootstrap pool.
 # NCZ policy (2026-06): embed the SERVER-only mirror (build/server-mirror,
 # Ubuntu-Server closure + boot essentials, ~143MB / 365 debs, single 'main'
-# component) so server/Magnetar installs fully offline; desktop/Reinhardt pulls
+# component) so server/Magnetar installs fully offline; desktop/Maximilian pulls
 # its long tail from ports.ubuntu.com online (see post-install/20-desktop.sh).
 # Falls back to the legacy full resolute-mirror only if server-mirror is absent.
 if [ -z "${MIRROR_DIR:-}" ]; then
@@ -1414,9 +1414,9 @@ brand_udeb_templates() {
     # Case-sensitive phrase replacements (Description text only). Order matters:
     # longer phrases first so they aren't partially eaten by shorter ones.
     sed -i \
-        -e 's/Debian installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
-        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS «Reinhardt» installer menu/g' \
-        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
+        -e 's/Debian installer main menu/NCZ-OS «Maximilian» installer main menu/g' \
+        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS «Maximilian» installer menu/g' \
+        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS «Maximilian» installer main menu/g' \
         -e 's/Debian GNU\/Linux/NCZ-OS/g' \
         -e 's/the Debian installer/the NCZ-OS installer/g' \
         -e 's/Debian installer/NCZ-OS installer/g' \
@@ -1773,9 +1773,9 @@ for _tpl in main-menu di-utils cdrom-detect cdrom-checker anna; do
     mkdir -p "$INITRD_PATCH_TMP/overlay/var/lib/dpkg/info"
     _dst="$INITRD_PATCH_TMP/overlay/var/lib/dpkg/info/$_tpl.templates"
     sed \
-        -e 's/Debian installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
-        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS «Reinhardt» installer menu/g' \
-        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS «Reinhardt» installer main menu/g' \
+        -e 's/Debian installer main menu/NCZ-OS «Maximilian» installer main menu/g' \
+        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS «Maximilian» installer menu/g' \
+        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS «Maximilian» installer main menu/g' \
         -e 's/the Debian installer/the NCZ-OS installer/g' \
         -e 's/Debian installer/NCZ-OS installer/g' \
         -e 's/Debian GNU\/Linux/NCZ-OS/g' \
@@ -2147,10 +2147,10 @@ fi
 if [ -n "${KVER_NEXT:-}" ]; then
     echo "$KVER_NEXT" > "$EXTRA/KVER_NEXT"
 fi
-echo "${BUILD_CODENAME:-Reinhardt}" > "$EXTRA/BUILD_CODENAME"
+echo "${BUILD_CODENAME:-Maximilian}" > "$EXTRA/BUILD_CODENAME"
 
 echo "    build id: $VERSION  ($BUILD_DATE on $BUILD_HOST)"
-echo "    codename: ${BUILD_CODENAME:-Reinhardt}"
+echo "    codename: ${BUILD_CODENAME:-Maximilian}"
 
 # ----------------------------------------------------------------------
 # Step 5 — write /boot/grub/grub.cfg with r6-style menu
@@ -2181,13 +2181,13 @@ if [ "${DIAG_ENABLE:-1}" = 1 ]; then
     DI_OPTS="$DI_OPTS ncz_diag=1 DEBCONF_DEBUG=5"
 fi
 
-CODENAME="${BUILD_CODENAME:-Reinhardt}"
+CODENAME="${BUILD_CODENAME:-Maximilian}"
 GRUB_KERNEL_SUMMARY="$INSTALLER_KERNEL_LABEL=$KVER_INSTALLER"
-GRUB_DESKTOP_TITLE='Install NCZ \"Reinhardt\" — Desktop (XFCE)'
-GRUB_SERVER_TITLE='Install NCZ \"Magnetar\" — Server (headless, agent appliance)'
+GRUB_DESKTOP_TITLE="Install NCZ-OS $VERSION — Desktop"
+GRUB_SERVER_TITLE="Install NCZ-OS $VERSION — Server (Headless)"
 if [ "$MODE" = "netinstall" ]; then
-    GRUB_DESKTOP_TITLE='Install NCZ \"Reinhardt\" — Desktop (XFCE, wired link required)'
-    GRUB_SERVER_TITLE='Install NCZ \"Magnetar\" — Server (headless, wired link required)'
+    GRUB_DESKTOP_TITLE="Install NCZ-OS $VERSION — Desktop (wired link required)"
+    GRUB_SERVER_TITLE="Install NCZ-OS $VERSION — Server (Headless, wired link required)"
 fi
 
 # r189.7: only offer the Magnetar/server GRUB entry if server.squashfs was
@@ -2241,7 +2241,7 @@ echo "      ██║╚██╗██║ ██║        ███╔╝"
 echo "      ██║ ╚████║ ╚██████╗  ███████╗"
 echo "      ╚═╝  ╚═══╝  ╚═════╝  ╚══════╝"
 echo ""
-echo "      Dr. Reinhardt has gone into the Black Hole."
+echo "      \"Now, Maximilian, calm down. Don't pick on small people.\""
 echo ""
 echo "               N C Z   I N S T A L L E R"
 echo ""
@@ -2257,7 +2257,7 @@ echo ""
 menuentry "$GRUB_DESKTOP_TITLE" {
     set background_color=black
     set color_normal=light-green/black
-    echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Reinhardt / desktop)..."
+    echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Maximilian / desktop)..."
     linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION $MARTJOHNSON_R6
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
@@ -2297,7 +2297,7 @@ EFI_IMG_REL="boot/grub/efi.img"
 # hybrid GPT/MBR layout produces a proper EFI System Partition (type 0xef)
 # at GPT slot 2, which Sky1 UEFI is known to recognize (r6 worked).
 xorriso -as mkisofs \
-    -r -V "NCX_REINHARDT" \
+    -r -V "NCX_MAXIMILIAN" \
     -J -joliet-long \
     -cache-inodes \
     -e "$EFI_IMG_REL" \
