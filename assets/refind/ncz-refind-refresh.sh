@@ -381,18 +381,20 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ "$NEXT_AVAILABLE" = "1" ]; then
+        # 26.7 ships Mali-only. The 7.2 (Panthor) entry is DELIBERATELY not
+        # emitted: panthor on 7.2 hangs at boot flooding "IDM: GPU secure
+        # access" — with acpi_scmi_en=off (required for PCIe/nvme) the SCMI
+        # power-domain that un-secures the GPU is unavailable, so panthor
+        # touches a secured GPU (metal-confirmed 2026-07-22). The clock
+        # con_id fix (patch 0086) is in-tree and correct, but the GPU
+        # power-domain work is a follow-up UPDATE, which re-adds this entry.
+        # PANTHOR_OPTIONS is still computed above so the update only needs to
+        # restore the menuentry once the power-domain fix lands.
         echo "menuentry \"NCZ-OS 26.7  ·  7.2 (Mali) — kernel $KVER_NEXT [DEFAULT]\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$MALI_OPTIONS\""
-        echo "}"
-        echo
-        echo "menuentry \"NCZ-OS 26.7  ·  7.2 (Panthor) — kernel $KVER_NEXT\" {"
-        echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
-        echo "    options \"$PANTHOR_OPTIONS\""
         echo "}"
         echo
     fi
