@@ -20,7 +20,7 @@
 # desktop loop), NOT via install-time MACHINE_HOOKS.
 
 set -euo pipefail
-echo "[20] Singularity Desktop layer (labwc/wlroots + greetd/regreet Mali greeter)"
+echo "[20] Singularity Desktop layer (labwc/wlroots + greetd/native singularity-greeter, Mali)"
 
 VARIANT=desktop
 if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
@@ -471,13 +471,15 @@ elif [ -f /install_ncz_agents.sh ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# greetd = the display manager (SHIP greeter). regreet (GTK4, Mali) is wired by
-# 55-greeter (config.toml, regreet.toml/.css, labwc config, tmpfiles). Here we
-# make greetd the DM and put the _greetd user in the seat/GPU groups so
-# labwc/wlroots can open the DRM/seat. Singularity is the ONLY session.
-# NOTE (release-track): greetd-on-boot non-hang not yet metal-confirmed — the
-# greeter renders perfectly when greetd is started post-boot; boot-path needs a
-# clean KVM/metal validation (tangled with a separate panthor boot-hang).
+# greetd = the display manager (SHIP greeter). The native singularity-greeter is
+# wired by 55-greeter (config.toml, greeter labwc config, branding, tmpfiles);
+# this hook installs the ncz-singularity-greeter wrapper above. Here we make
+# greetd the DM and put the _greetd user in the seat/GPU groups so labwc/wlroots
+# can open the DRM/seat. Singularity is the ONLY session.
+# VALIDATED (O6N/Mali): the native greeter renders (NCZ Maximilian backdrop,
+# loginui clock, user picker, Password auth, Singularity session) and a real
+# login through greetd succeeds. Boot-path (splash->greeter) metal timing is
+# tangled with the Sky1 DP-link-training work — validate on-metal with that fix.
 # ---------------------------------------------------------------------------
 systemctl disable gdm gdm3 2>/dev/null || true
 systemctl stop gdm gdm3 2>/dev/null || true
@@ -500,7 +502,7 @@ if id _greetd >/dev/null 2>&1; then
     done
     echo "[20] _greetd added to video/render/input/seat"
 fi
-echo "[20] greetd = display manager (regreet greeter wired by 55-greeter)"
+echo "[20] greetd = display manager (native singularity-greeter wired by 55-greeter)"
 
 # Skip gnome-initial-setup wizard (creds already collected by d-i).
 install -d -m 0755 /etc/skel/.config
@@ -593,4 +595,4 @@ for u in iscsid.service apport.service; do
     fi
 done
 
-echo "[20] Singularity Desktop installed: /opt/singularity + greetd/regreet Mali greeter + Wayland-only session"
+echo "[20] Singularity Desktop installed: /opt/singularity + greetd/native singularity-greeter (Mali) + Wayland-only session"
