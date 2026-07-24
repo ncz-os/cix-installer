@@ -79,7 +79,7 @@ CORE_DESKTOP="greetd glycin-loaders \
     libgraphene-1.0-0 \
     foot xsettingsd seatd swaybg grim slurp fuzzel \
     xwayland \
-    polkit polkitd \
+    polkitd \
     mesa-utils vulkan-tools libglu1-mesa \
     libglib2.0-bin"
 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP; then
@@ -102,12 +102,12 @@ systemctl enable bluetooth 2>&1 | tail -1 || true
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation 2>&1 | tail -3 || true
 
-# Video: mpv HW player (84-vpu-mpv wires hwdec=v4l2m2m-copy). Browser (Chromium)
-# comes from the mirror; Vivaldi via 52-vivaldi.
+# Video: mpv HW player (84-vpu-mpv wires hwdec=v4l2m2m-copy). Browser = Vivaldi
+# (52-vivaldi, real arm64 .deb) — resolute has no chromium deb (snap-only).
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    mpv chromium 2>&1 | tail -3 || echo "[20] mpv/chromium: some deferred"
+    mpv 2>&1 | tail -3 || echo "[20] mpv: deferred"
 
-echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv + chromium)"
+echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv)"
 
 # ---------------------------------------------------------------------------
 # Extract the Singularity payload -> /opt/singularity.
@@ -466,8 +466,9 @@ else
     echo "[20] no XFCE/X11-desktop packages present — nothing to purge (Singularity-only)"
 fi
 
-# Default browser routing — Chromium (mirror) primary; Vivaldi (52-vivaldi) if
-# present. mimeapps + a runtime-resolving x-www-browser shim.
+# Default browser routing — Vivaldi (52-vivaldi, real arm64 .deb) primary.
+# mimeapps + a runtime-resolving x-www-browser shim (chromium only if an
+# operator later sideloads it).
 cat > /usr/local/bin/x-www-browser <<'BRWRAP'
 #!/bin/sh
 for b in /usr/bin/vivaldi-stable /usr/bin/chromium /usr/bin/chromium-browser; do
@@ -476,9 +477,7 @@ done
 exec xdg-open "$@"
 BRWRAP
 chmod 0755 /usr/local/bin/x-www-browser
-if command -v chromium >/dev/null 2>&1; then _bd=chromium.desktop
-elif command -v vivaldi-stable >/dev/null 2>&1; then _bd=vivaldi-stable.desktop
-else _bd=chromium.desktop; fi
+_bd=vivaldi-stable.desktop
 mkdir -p /etc/xdg
 cat > /etc/xdg/mimeapps.list <<MIME
 [Default Applications]
@@ -487,7 +486,7 @@ x-scheme-handler/http=$_bd
 x-scheme-handler/https=$_bd
 application/xhtml+xml=$_bd
 MIME
-echo "[20] default browser: $_bd (Chromium shipped; Vivaldi via 52-vivaldi)"
+echo "[20] default browser: $_bd (Vivaldi via 52-vivaldi; resolute has no chromium deb)"
 
 # Appliance noise reduction — mask services that fail for no benefit here.
 for u in iscsid.service apport.service; do
