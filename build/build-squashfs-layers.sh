@@ -101,27 +101,21 @@ build_layer(){ local role="$1" manifest="$2"
   # This bakes an XFCE-default, GNOME-free desktop into desktop.squashfs (the
   # overlay whiteouts the base's gnome files, so the merged /target has no GNOME).
   if [ "$role" = "desktop" ]; then
-    log "desktop: pin LightDM + default session XFCE + brand (r171 — no in-layer gnome purge)"
-    # r171: DO NOT purge GNOME or run autoremove --purge in the desktop OVERLAY.
-    # Purging ~80 packages inside the overlay chroot ran maintainer scripts that
-    # left the installed system's user DB corrupt: at d-i install time the STUB's
-    # dpkg --configure/purge + pkgsel truncated /etc/passwd,shadow,group to 0
-    # bytes → dpkg aborted "unknown system user root" → Installation step failed
-    # (r166–r170 saga). GNOME is already purged in the BASE (build_base, proven
-    # clean in r164), and the manifest no longer pulls it (gnome-tweaks +
-    # gnome-software dropped in r165), so gnome-shell is simply absent — no
-    # destructive in-layer purge needed. Keep only the safe, cosmetic steps.
-    # Pin LightDM as the default display manager (debconf + the plain-file d-i reads).
+    log "desktop: SINGULARITY desktop delta (Wayland-only; XFCE/X11 removed) + brand"
+    # 26.7 "Maximilian": Singularity Desktop (labwc/wlroots, GTK4) REPLACES XFCE.
+    # No user-session=xfce, no x-session-manager -> xfce4, no 60-ncz-xfce.conf.
+    # 20-desktop.sh (run as a brand hook below) does the real work: extract
+    # /opt/singularity, install ncz-gpu-env/ncz-singularity, singularity.desktop
+    # (the ONLY session), gschema defaults, curate sessions, purge XFCE/Xorg
+    # remnants. Here we only pin LightDM as the d-i default DM (beta greeter).
     echo "/usr/sbin/lightdm" | sudo tee "$MG/etc/X11/default-display-manager" >/dev/null
     echo "set shared/default-x-display-manager select lightdm" | sudo chroot "$MG" debconf-set-selections 2>/dev/null || true
     echo "set lightdm shared/default-x-display-manager lightdm" | sudo chroot "$MG" debconf-set-selections 2>/dev/null || true
     sudo ln -sf /lib/systemd/system/lightdm.service "$MG/etc/systemd/system/display-manager.service"
-    # Default session = XFCE for lightdm's greeter (autologin/user-session fallback).
     sudo mkdir -p "$MG/etc/lightdm/lightdm.conf.d"
-    printf '[Seat:*]\nuser-session=xfce\n' | sudo tee "$MG/etc/lightdm/lightdm.conf.d/60-ncz-xfce.conf" >/dev/null
-    # AccountsService per-user session is written at first login; the greeter
-    # default above covers new users. update-alternatives keeps x-session-manager -> xfce4.
-    sudo chroot "$MG" update-alternatives --set x-session-manager /usr/bin/xfce4-session 2>/dev/null || true
+    printf '[Seat:*]\nuser-session=singularity\n' | sudo tee "$MG/etc/lightdm/lightdm.conf.d/60-ncz-singularity.conf" >/dev/null
+    # Remove any stale XFCE pin from an earlier build of this overlay base.
+    sudo rm -f "$MG/etc/lightdm/lightdm.conf.d/60-ncz-xfce.conf" 2>/dev/null || true
     # r166: refresh the post-install hook tree in the overlay from the current
     # repo. The brand hooks below run from base's staged post-install (baked at
     # base-build time), so an edited hook (e.g. 60-plymouth's non-fatal apt
@@ -146,6 +140,17 @@ build_layer(){ local role="$1" manifest="$2"
       sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/vivaldi"
       sudo cp -a "$ROOT/assets/vivaldi/." "$MG/usr/local/lib/cix-installer/assets/vivaldi/" 2>/dev/null || true
       log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
+    fi
+    # 26.7: stage the Singularity Desktop payload so 20-desktop.sh extracts
+    # /opt/singularity into the overlay and bakes it into desktop.squashfs. The
+    # blob is gitignored (build/build-singularity.sh produces it; supplied via
+    # assets/singularity/ on the build host or NFS/ARGONAS).
+    if [ -f "$ROOT/assets/singularity/singularity-opt.tgz" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/singularity"
+      sudo cp -a "$ROOT/assets/singularity/singularity-opt.tgz" "$MG/usr/local/lib/cix-installer/assets/singularity/" 2>/dev/null || true
+      log "  staged singularity payload ($(du -h "$ROOT/assets/singularity/singularity-opt.tgz" | cut -f1))"
+    else
+      log "  WARN: assets/singularity/singularity-opt.tgz ABSENT — 20-desktop will FAIL (run build/build-singularity.sh)"
     fi
     # r189.5: stage assets/cix-py/ so 46-ncz-cli.sh's /opt/cix/npu_embed_v2.py
     # install actually lands -- it was only ever looking at /cdrom, which
@@ -192,11 +197,24 @@ build_layer(){ local role="$1" manifest="$2"
     # 20-desktop.sh's greeter config; 20-desktop is deliberately NOT baked here —
     # its `apt purge --auto-remove` corrupted the user DB in the overlay, the
     # r166-r170 saga). 60-plymouth LAST (rebuilds the initramfs, heaviest step).
-    for bh in 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 57-screensaver 57-qotd 30-agents 46-ncz-cli 60-plymouth; do
+    # 26.7 Singularity brand-hook order. 20-desktop = the Singularity installer
+    # (extracts /opt/singularity, curates sessions, purges XFCE/Xorg) — runs
+    # FIRST so the Wayland desktop exists before the cosmetic hooks. 84-vpu-mpv
+    # writes /etc/mpv HW-decode. 57-screensaver DROPPED (X11 xscreensaver — the
+    # desktop is Wayland-only now). 30-agents before 46-ncz-cli (dep order).
+    for bh in 20-desktop 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 57-qotd 30-agents 46-ncz-cli 60-plymouth; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3 || log "  WARN $bh rc=$?"
     done
+    # Belt-and-braces: whiteout any X11-session .desktop remnants so the MERGED
+    # /target has NO X11 desktop session. FILE-only removal (no apt purge in the
+    # overlay — the r166-r170 saga: a broad purge --auto-remove here ran ~80
+    # maintainer scripts that truncated the target's user DB). XFCE is never
+    # installed anyway (desktop.pkgs dropped xubuntu-core/xfce4-*), so there is
+    # nothing to purge; just guarantee no xsessions ship. Xwayland is KEPT
+    # (/usr/bin/Xwayland from the xwayland pkg, not an X11 session).
+    sudo rm -rf "$MG/usr/share/xsessions" "$MG/usr/share/xsessions.disabled" 2>/dev/null || true
   fi
   sudo rm -f "$MG/usr/sbin/policy-rc.d"
   sudo chroot "$MG" apt-get clean 2>/dev/null || true

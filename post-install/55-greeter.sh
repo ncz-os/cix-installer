@@ -32,10 +32,14 @@ esac
 # wallpaper rotator owns `background` in 55-ncz-rotate.conf. We own theme/icon/
 # avatar in a lower-sorting file so it never fights the rotator's background.
 install -d -m0755 /etc/lightdm/lightdm-gtk-greeter.conf.d
+# 26.7: Greybird-dark / elementary-xfce shipped with xubuntu-core, which is GONE
+# (Singularity replaced XFCE). Use Adwaita-dark + Adwaita icons — always present
+# with the GTK stack. (This is the BETA lightdm greeter; the shipping greeter is
+# greetd/regreet, GTK4/Mali — see the GREETER SWAP POINT in 20-desktop.sh.)
 cat > /etc/lightdm/lightdm-gtk-greeter.conf.d/50-ncz-dark.conf <<'GTKG'
 [greeter]
-theme-name=Greybird-dark
-icon-theme-name=elementary-xfce-dark
+theme-name=Adwaita-dark
+icon-theme-name=Adwaita
 default-user-image=/usr/share/pixmaps/ncz-avatar-magenta.png
 user-background=false
 GTKG

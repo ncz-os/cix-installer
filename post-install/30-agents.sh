@@ -738,7 +738,7 @@ Exec=/usr/local/bin/ncz-first-login-notice
 Terminal=false
 X-GNOME-Autostart-enabled=true
 NoDisplay=true
-OnlyShowIn=XFCE;
+OnlyShowIn=Singularity;
 FLAUTOSTART
 chmod 0644 /etc/skel/.config/autostart/ncz-first-login.desktop
 
@@ -1279,6 +1279,7 @@ Name=NCZ Desktop Icon Trust Seeder
 Exec=/usr/local/bin/ncz-trust-desktop-icons
 NoDisplay=true
 X-XFCE-Autostart-enabled=true
+OnlyShowIn=Singularity;
 StartupNotify=false
 Terminal=false
 AUTO

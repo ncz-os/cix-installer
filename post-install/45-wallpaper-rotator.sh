@@ -23,9 +23,11 @@ mkdir -p "$DEST"
 for f in "$ASSETS"/ncz-wallpaper-0*-2k.jpg; do
     [ -f "$f" ] && install -m 0644 "$f" "$DEST/"
 done
-ln -sfn ncz-wallpaper-01-cinematic-2k.jpg "$DEST/default.jpg"
+# Default = the Maximilian backdrop (26.7 release wallpaper).
+ln -sfn ncz-wallpaper-07-maximilian-blackhole-2k.jpg "$DEST/default.jpg"
 
-# Rotator: pick + apply across DEs, use xrandr to discover live monitors
+# Rotator: pick + apply. 26.7 default DE = Singularity (Wayland, GTK4): set the
+# backdrop via `dev.sinty.desktop background-picture-uri` (gsettings) and swaybg.
 cat > /usr/local/bin/ncz-wallpaper-rotate <<'ROT'
 #!/bin/sh
 WP_DIR=/usr/share/backgrounds/ncz
@@ -35,33 +37,30 @@ ln -sfn "$(basename "$PIC")" "$WP_DIR/default.jpg" 2>/dev/null || true
 
 DE=""
 case "${XDG_CURRENT_DESKTOP:-}${DESKTOP_SESSION:-}" in
-    *XFCE*|*xfce*)        DE=xfce ;;
+    *Singularity*|*singularity*) DE=singularity ;;
     *GNOME*|*gnome*)      DE=gnome ;;
-    *Openbox*|*openbox*)  DE=openbox ;;
-    *Window*Maker*|*wmaker*) DE=wmaker ;;
 esac
 if [ -z "$DE" ]; then
-    if   pgrep -u "$USER" -x xfdesktop >/dev/null 2>&1; then DE=xfce
+    if   pgrep -u "$USER" -x singularity-desktop >/dev/null 2>&1; then DE=singularity
     elif pgrep -u "$USER" -x gnome-shell >/dev/null 2>&1; then DE=gnome
-    elif pgrep -u "$USER" -x wmaker    >/dev/null 2>&1; then DE=wmaker
-    elif pgrep -u "$USER" -x openbox   >/dev/null 2>&1; then DE=openbox
     fi
 fi
 
 case "$DE" in
-    xfce)
-        for prop in $(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep -E "/last-image$"); do
-            xfconf-query -c xfce4-desktop -p "$prop" -s "$PIC" 2>/dev/null || true
-        done
-        if command -v xrandr >/dev/null 2>&1; then
-            for OUT in $(xrandr 2>/dev/null | awk "/ connected/{print \$1}"); do
-                xfconf-query -c xfce4-desktop -p "/backdrop/screen0/monitor${OUT}/workspace0/last-image" -t string -s "$PIC" --create 2>/dev/null || true
-                xfconf-query -c xfce4-desktop -p "/backdrop/screen0/monitor${OUT}/workspace0/image-style" -t int -s 5 --create 2>/dev/null || true
-            done
+    singularity)
+        URI="file://$PIC"
+        # Singularity reads dev.sinty.desktop; its schema lives in the isolated
+        # /opt/singularity prefix, so point gsettings at that schema dir.
+        SSD=/opt/singularity/share/glib-2.0/schemas
+        if command -v gsettings >/dev/null 2>&1 && [ -d "$SSD" ]; then
+            GSETTINGS_SCHEMA_DIR="$SSD" gsettings set dev.sinty.desktop background-picture-uri "$URI" 2>/dev/null || true
+        fi
+        # Belt: repaint the live wallpaper layer via swaybg (single instance).
+        if command -v swaybg >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+            pkill -x swaybg 2>/dev/null || true
+            swaybg -m fill -i "$PIC" >/dev/null 2>&1 &
         fi
         ;;
-    wmaker)  wmsetbg -s -u "$PIC" 2>/dev/null || true ;;
-    openbox) feh --bg-fill "$PIC" 2>/dev/null || true ;;
     gnome)
         URI="file://$PIC"
         gsettings set org.gnome.desktop.background picture-uri "$URI" 2>/dev/null || true
@@ -90,7 +89,7 @@ done
 DAEMON
 chmod 0755 /usr/local/bin/ncz-wallpaper-daemon
 
-# Autostart in XFCE/Openbox/WMaker sessions
+# Autostart via XDG (Singularity/labwc honours /etc/xdg/autostart).
 mkdir -p /etc/xdg/autostart
 cat > /etc/xdg/autostart/ncz-wallpaper-rotator.desktop <<'AUTO'
 [Desktop Entry]
@@ -98,45 +97,12 @@ Type=Application
 Name=NCZ Wallpaper Rotator
 Exec=/usr/local/bin/ncz-wallpaper-daemon
 NoDisplay=true
-X-XFCE-Autostart-enabled=true
+OnlyShowIn=Singularity;
 StartupNotify=false
 Terminal=false
 AUTO
 
-# r55: pre-populate /etc/skel xfce4-desktop.xml with wallpaper on EVERY plausible monitor name
-# so brand-new logins do not show default-blue while waiting for the daemon.
-WP=/usr/share/backgrounds/ncz/default.jpg
-mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml
-{
-    echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-    echo "<channel name=\"xfce4-desktop\" version=\"1.0\">"
-    echo "  <property name=\"backdrop\" type=\"empty\">"
-    echo "    <property name=\"screen0\" type=\"empty\">"
-    for m in monitor0 monitor1 monitorDP-1 monitorDP-2 monitorDP-3 monitorDP-4 monitorDP-5 monitorDP-6 monitorHDMI-1 monitorHDMI-2 monitorVNC-0 monitorVirtual-1 monitorXineRama-0; do
-        echo "      <property name=\"$m\" type=\"empty\">"
-        for ws in workspace0 workspace1 workspace2 workspace3; do
-            echo "        <property name=\"$ws\" type=\"empty\">"
-            echo "          <property name=\"last-image\" type=\"string\" value=\"$WP\"/>"
-            echo "          <property name=\"image-style\" type=\"int\" value=\"5\"/>"
-            echo "        </property>"
-        done
-        echo "      </property>"
-    done
-    echo "    </property>"
-    echo "  </property>"
-    echo "  <property name=\"desktop-icons\" type=\"empty\">"
-    echo "    <property name=\"style\" type=\"int\" value=\"2\"/>"
-    echo "    <property name=\"file-icons\" type=\"empty\">"
-    echo "      <property name=\"show-filesystem\" type=\"bool\" value=\"false\"/>"
-    echo "      <property name=\"show-home\" type=\"bool\" value=\"true\"/>"
-    echo "      <property name=\"show-trash\" type=\"bool\" value=\"true\"/>"
-    echo "      <property name=\"show-removable\" type=\"bool\" value=\"true\"/>"
-    echo "    </property>"
-    echo "  </property>"
-    echo "</channel>"
-} > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
-
-echo "[45] rotator + 13-monitor xfconf default written"
+echo "[45] Singularity wallpaper rotator + autostart written (default = Maximilian)"
 
 # --- greeter (LightDM login screen) astronomical rotation ---------------
 # The session rotator above only repaints the logged-in desktop. Rotate the

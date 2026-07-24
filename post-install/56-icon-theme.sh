@@ -41,57 +41,19 @@ gtk-update-icon-cache /usr/share/icons/NCZ 2>/dev/null || true
 gtk-update-icon-cache /usr/share/icons/Adwaita 2>/dev/null || true
 gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
 
-# === Set NCZ as default icon theme — both XFCE and GNOME ===
-# GNOME default-set via dconf
+# === Set NCZ icon theme default (26.7: Singularity is the desktop) ===
+# Singularity reads dev.sinty.desktop icon-theme (20-desktop's gschema override
+# sets 'Singularity'); the NCZ theme here provides the black-hole trash + a
+# GNOME/GTK fallback. Ship a GNOME dconf default too (harmless if unused).
 install -d /etc/dconf/db/local.d
-# r74 stale-brand cleanup: dconf db file + theme name now use NCZ to match
-# /usr/share/icons/NCZ install path + 50-brand.sh icon-theme-name=NCZ.
-# The 02-ncz-icon-theme legacy file is removed if present so dconf-update
-# doesn't merge two competing settings.
 rm -f /etc/dconf/db/local.d/02-ncz-icon-theme
 cat > /etc/dconf/db/local.d/02-ncz-icon-theme <<'GNOME'
 [org/gnome/desktop/interface]
 icon-theme='NCZ'
 GNOME
-
-# XFCE default-set via xfconf channel xsettings
-# (per-user; landed via /etc/skel xfconf override)
-install -d /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml
-cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml <<'XSET'
-<?xml version="1.0" encoding="UTF-8"?>
-<channel name="xsettings" version="1.0">
-  <property name="Net" type="empty">
-    <property name="IconThemeName" type="string" value="NCZ"/>
-    <property name="ThemeName" type="string" value="Greybird-dark"/>
-  </property>
-  <property name="Gtk" type="empty">
-    <property name="IconSizes" type="string" value=""/>
-    <property name="ApplicationPreferDarkTheme" type="bool" value="true"/>
-  </property>
-</channel>
-XSET
-
-# XFCE window-manager (xfwm4) dark decorations. Without this the WM keeps the
-# stock light "Default" theme, so titlebars/borders stay light even with a dark
-# GTK theme + dark icons (operator explicitly wanted dark window elements).
-# Greybird-dark is the classic Xubuntu dark WM theme (shipped by xubuntu-core)
-# and matches the LightDM greeter set in 20-desktop.sh. use_compositing=false
-# keeps the WM stable on Mali-G720 (panthor) software-GL.
-cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml <<'XFWMEOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<channel name="xfwm4" version="1.0">
-  <property name="general" type="empty">
-    <property name="theme" type="string" value="Greybird-dark"/>
-    <property name="use_compositing" type="bool" value="false"/>
-  </property>
-</channel>
-XFWMEOF
-
 dconf update 2>/dev/null || true
 
-echo "[56] icon theme installed at /usr/share/icons/NCZ"
-echo "    GNOME default set via /etc/dconf/db/local.d/02-ncz-icon-theme"
-echo "    XFCE default set via /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml"
+echo "[56] icon theme installed at /usr/share/icons/NCZ (Singularity uses dev.sinty.desktop icon-theme)"
 
 # === r55: rewrite NCZ index.theme with Inherits= so Qt apps (LXQt) cascade ===
 # Without Inherits=, Qt icon engine treats NCZ as standalone and shows broken
@@ -99,8 +61,8 @@ echo "    XFCE default set via /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xm
 cat > /usr/share/icons/NCZ/index.theme <<'INDEX'
 [Icon Theme]
 Name=NCZ
-Comment=NCZ 26.7 Maximilian black-hole trash + elementary-xfce-dark fallback
-Inherits=elementary-xfce-dark,elementary-xfce,Adwaita-dark,Adwaita,hicolor
+Comment=NCZ 26.7 Maximilian black-hole trash + Adwaita fallback
+Inherits=Adwaita-dark,Adwaita,hicolor
 Directories=places/scalable,places/256,places/128,places/96,places/64,places/48,places/32,places/24,places/22,places/16,scalable
 
 [places/scalable]

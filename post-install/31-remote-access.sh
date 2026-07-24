@@ -1,16 +1,14 @@
 #!/bin/bash
-# 31-remote-access.sh - xrdp for graphical remote access.
-# r55: xrdp had broken WM (default startwm.sh ran /etc/X11/Xsession which didnt
-# wrap with dbus-launch, plus xfwm4 compositor failed over RDP-side Xorg).
-# Fixed both.
+# 31-remote-access.sh — graphical remote access.
 #
-# 2026-07-07: removed NoMachine. Its first-boot oneshot install
-# (ncz-nomachine.service, curl'd nomachine_9.4.14_1_arm64.deb over the
-# network at boot) was unreliable in practice -- failed on a fresh O6
-# community install (network-online.target race at first boot) and added
-# an external network dependency + a failing systemd unit for no benefit
-# xrdp doesn't already provide. xrdp alone is the graphical remote-access
-# path now.
+# 26.7 "Maximilian": the desktop is Singularity (labwc/wlroots, WAYLAND). The
+# old xrdp + startxfce4 path is X11-only and XFCE is gone, so it no longer
+# applies. Wayland remote desktop (wayvnc / labwc screencopy, or
+# gnome-remote-desktop RDP) is a RELEASE-TRACK item — not wired for the beta.
+# SSH remains the remote path; the local Singularity session is the GUI.
+#
+# TODO(release-track): ship wayvnc (wlroots screencopy) or the labwc RDP backend
+# for headed remote access under Wayland.
 set -euo pipefail
 
 VARIANT="desktop"
@@ -20,39 +18,18 @@ fi
 
 case "$VARIANT" in
     server|magnetar|headless)
-        echo "[31] BUILD_VARIANT=server - Magnetar headless SKU; skipping graphical remote access"
+        echo "[31] BUILD_VARIANT=$VARIANT — headless SKU; skipping graphical remote access"
         exit 0
         ;;
 esac
 
-echo "[31] xrdp setup"
+echo "[31] graphical remote access: xrdp/XFCE path RETIRED (desktop is Wayland/Singularity)."
+echo "[31] Wayland RDP/VNC (wayvnc / labwc screencopy) = release-track; SSH is the remote path for beta."
 
-# === xrdp fix: dbus-launch + startxfce4 + disable xfwm4 compositor ===
-cat > /etc/xrdp/startwm.sh <<'XRDP'
-#!/bin/sh
-# NCZ 26.6 xrdp session: XFCE with dbus-launch wrapper.
-# Without dbus-launch the WM exits in <1s. Disable xfwm4 compositor -
-# the RDP-side Xorg has no panthor/DRI, so GL accel attempts cause window-decoration glitches.
-unset DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR
-[ -r /etc/profile ] && . /etc/profile
-[ -r ~/.profile ] && . ~/.profile
-export XFWM4_USE_COMPOSITING=false
-exec dbus-launch --exit-with-session startxfce4
-XRDP
-chmod 0755 /etc/xrdp/startwm.sh
-
-# Disable xfwm4 compositor system-wide via /etc/skel xfconf
-mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml
-cat > /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml <<'XFWM'
-<?xml version="1.1" encoding="UTF-8"?>
-<channel name="xfwm4" version="1.0">
-  <property name="general" type="empty">
-    <property name="use_compositing" type="bool" value="false"/>
-    <property name="theme" type="string" value="Default"/>
-    <property name="title_alignment" type="string" value="center"/>
-  </property>
-</channel>
-XFWM
-
-systemctl enable xrdp xrdp-sesman 2>&1 | tail -1
-echo "[31] xrdp fixed (dbus-launch wrapper + xfwm4 compositor off)"
+# Neutralise any stale xrdp X11 session config a prior XFCE build left behind so
+# it can't half-start a broken session.
+if [ -f /etc/xrdp/startwm.sh ] && grep -q startxfce4 /etc/xrdp/startwm.sh 2>/dev/null; then
+    systemctl disable xrdp xrdp-sesman 2>/dev/null || true
+    echo "[31] disabled stale xfce-based xrdp session"
+fi
+exit 0

@@ -1,0 +1,64 @@
+#!/bin/bash
+# 84-vpu-mpv.sh — mpv default HW video (CIX Sky1 amvx VPU via V4L2 stateful M2M).
+#
+# NCZ-OS 26.7 "Maximilian": mpv is the shipped default video player. The Sky1
+# amvx VPU exposes stateful V4L2 M2M decoders; mpv's `hwdec=v4l2m2m-copy` decodes
+# on the VPU and copies frames to the (Mali GLES) presentation path. This is the
+# HW-video FLOOR for the appliance. (Browser HW decode via the cix-vaapi driver
+# fix is a SEPARATE release-track effort — see docs/upstream + the plan doc;
+# 84-vpu-vaapi stays staged, gated on that driver fix. SW browser video is the
+# beta stop-gap.)
+#
+# RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop / run-all.sh).
+set +e
+
+echo "[84] mpv HW video (hwdec=v4l2m2m-copy — Sky1 amvx VPU)"
+
+VARIANT=desktop
+[ -f /usr/local/lib/cix-installer/BUILD_VARIANT ] && \
+    VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
+case "$VARIANT" in
+    server|magnetar|headless)
+        echo "[84] BUILD_VARIANT=$VARIANT — headless SKU; skipping mpv HW config"
+        exit 0
+        ;;
+esac
+
+# System-wide mpv config. hwdec=v4l2m2m-copy uses the stateful V4L2 M2M decoder
+# and copies decoded frames out (robust with the GLES/gpu-next path). gpu-next +
+# gpu-context=wayland keeps presentation on the Wayland/Mali GLES pipeline.
+install -d -m0755 /etc/mpv
+cat > /etc/mpv/mpv.conf <<'MPVCONF'
+# NCZ-OS 26.7 — HW video on CIX Sky1 (amvx VPU via V4L2 M2M).
+# hwdec: decode on the VPU, copy frames to the GL/Wayland presentation path.
+hwdec=v4l2m2m-copy
+vo=gpu-next
+gpu-api=opengl
+gpu-context=wayland
+# Fall back gracefully if the VPU decoder is unavailable for a given codec.
+hwdec-codecs=all
+# Keep audio on the PipeWire/Pulse stack.
+ao=pipewire,pulse,alsa
+MPVCONF
+
+# Ensure the operator can reach the V4L2 VPU nodes (video group). Best-effort;
+# 20-desktop already adds the operator to video/render.
+OPERATOR_USER=$(awk -F: '$3 >= 1000 && $3 < 65000 {print $1; exit}' /etc/passwd)
+[ -z "$OPERATOR_USER" ] && id ncz >/dev/null 2>&1 && OPERATOR_USER=ncz
+if [ -n "$OPERATOR_USER" ] && getent group video >/dev/null 2>&1; then
+    usermod -aG video "$OPERATOR_USER" 2>/dev/null || true
+fi
+
+# Route common video MIME types to mpv by default (Singularity app dir + system).
+for MD in /etc/xdg/mimeapps.list; do
+    [ -f "$MD" ] || continue
+    grep -q 'video/mp4=mpv.desktop' "$MD" 2>/dev/null && continue
+    cat >> "$MD" <<'MIMEV'
+video/mp4=mpv.desktop
+video/x-matroska=mpv.desktop
+video/webm=mpv.desktop
+video/quicktime=mpv.desktop
+MIMEV
+done
+
+echo "[84] /etc/mpv/mpv.conf written (hwdec=v4l2m2m-copy). Browser HW decode = release-track (84-vpu-vaapi, gated on cix-vaapi fix)."
