@@ -112,3 +112,6 @@ assets/kernel/retired-*/
 assets/refind/*.bak-pre-*
 # split-release ISO parts (leftover build artifacts)
 build/*.iso.*-part*
+
+# Singularity Desktop payload — build-time blob (staged via NFS/ARGONAS, like base.squashfs)
+assets/singularity/*.tgz
