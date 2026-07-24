@@ -1,199 +1,129 @@
-# desktop.pkgs — r130 fat/offline desktop seed (arm64)
+# desktop.pkgs — NCZ-OS 26.7 "Maximilian" Singularity Desktop offline closure.
 #
-# Seed for build/build-desktop-mirror.sh: the explicit set of desktop packages
-# whose full dependency closure is downloaded from ports.ubuntu.com into
-# build/desktop-mirror/ and embedded in the ISO pool. This reverses the old
-# "server-only mirror, desktop installs ONLINE" policy (post-install/20-desktop.sh)
-# so the desktop layer installs fully offline from file:///cdrom and never stalls
-# on a slow/unreachable Ubuntu mirror (the r129 14% / 20-desktop stall).
+# Singularity Desktop (labwc/wlroots, GTK4/Vala, GLES on CIX libmali) replaces
+# XFCE/X11. This seed is the runtime closure build-desktop-mirror.sh resolves +
+# bundles into the ISO pool so post-install/20-desktop.sh installs the desktop
+# fully OFFLINE from file:///cdrom. NO xubuntu-core, NO xfce4-*, NO Xorg display
+# server. Xwayland IS kept (X-app compat under Wayland).
 #
-# This list MUST be a superset of everything post-install/20-desktop.sh installs,
-# so the bundled pool carries the full closure of the installed desktop.
-# Names only (one per line); apt resolves the dependency closure. Component of
-# origin (main/universe) is irrelevant — everything is repackaged into our single
-# 'main' offline component.
+# The Singularity shell binaries ship in /opt/singularity (singularity-opt.tgz);
+# the packages here are the SYSTEM libs they link against + the session infra.
 
-# --- curated Sky1 core (XFCE + LightDM + Xorg fbdev + xrdp + GL) ---
+# --- greeter (beta placeholder) --------------------------------------------
+# lightdm + lightdm-gtk-greeter until the native greetd/regreet lands.
 lightdm
 lightdm-gtk-greeter
-xubuntu-core
-xfce4-session
-xfce4-power-manager
-xfce4-screenshooter
-xfce4-taskmanager
-xserver-xorg-video-fbdev
-xserver-xorg-video-modesetting
-xrdp
+
+# --- Singularity runtime libraries (what /opt/singularity binaries link) ----
+libgtk-4-1
+libadwaita-1-0
+libgtk4-layer-shell0
+libgee-0.8-2
+libpeas-2-0
+libjson-glib-1.0-0
+libsoup-3.0-0
+libvte-2.91-gtk4-0
+libgtksourceview-5-0
+libwebkitgtk-6.0-4
+libgraphene-1.0-0
+gsettings-desktop-schemas
+libglib2.0-bin
+
+# --- Wayland session infra --------------------------------------------------
+foot
+xsettingsd
+seatd
+swaybg
+grim
+slurp
+fuzzel
+xwayland
+polkit
+polkitd
+xdg-desktop-portal
+
+# --- GPU / GL tooling (Mali GLES; Vulkan tools for diagnostics) -------------
 mesa-utils
 vulkan-tools
 libglu1-mesa
+clinfo
+glmark2-es2-wayland
+glmark2-wayland
 
-# --- audio (PipeWire + Pulse shim + WirePlumber + control) ---
+# --- audio (PipeWire) -------------------------------------------------------
 pipewire
 pipewire-pulse
 pipewire-alsa
 wireplumber
 pavucontrol
-xfce4-pulseaudio-plugin
 
-# --- removable media / disks ---
+# --- removable media + network + bluetooth ---------------------------------
 gvfs
 gvfs-backends
 udisks2
 gnome-disk-utility
-
-# --- network applet ---
 network-manager-gnome
-
-# --- bluetooth (Sky1 MT7922) ---
 bluez
 blueman
 
-# --- fonts (Noto base + CJK + colour emoji) ---
+# --- fonts ------------------------------------------------------------------
 fonts-noto-core
 fonts-noto-cjk
 fonts-noto-color-emoji
-# vivaldi-stable dependency (52-vivaldi.sh)
 fonts-liberation
 
-# --- archives ---
+# --- browser + media (Chromium shipped; Vivaldi via 52-vivaldi; mpv HW video)
+chromium
+mpv
+
+# --- archives + PDF + image (GTK, DE-agnostic) -----------------------------
 xarchiver
-thunar-archive-plugin
 7zip
 unrar-free
-
-# --- core apps (PDF / media / image / text) ---
 evince
-mpv
-ristretto
-mousepad
 
-# --- panel UX (Whisker menu + clipboard) ---
-xfce4-whiskermenu-plugin
-xfce4-clipman-plugin
-
-# --- screensaver (2D + GL hacks) ---
-# xscreensaver-gl/-gl-extra add the OpenGL hacks (gears, molecule, cubestorm,
-# pipes, atlantis, ...). They render via native Mali-G720 Panfrost GL 3.1 once
-# 26-gpu-default-open demotes the broken CIX libmali stack (verified .66 metal
-# 2026-07-04). x11-utils ships glxinfo/xwd used to verify GL at install/debug.
-xscreensaver
-xscreensaver-data
-xscreensaver-data-extra
-xscreensaver-gl
-xscreensaver-gl-extra
-x11-utils
-
-# --- r130 bucket: desktop completeness (Xubuntu defaults cix lacked) ---
-catfish
-menulibre
-mugshot
-gigolo
-xfce4-panel-profiles
-baobab
-gnome-system-monitor
-gnome-font-viewer
-seahorse
-xfce4-dict
-xfce4-cpugraph-plugin
-xfce4-netload-plugin
-xfce4-systemload-plugin
-xfce4-weather-plugin
-xfce4-places-plugin
-xfce4-verve-plugin
-xfce4-xkb-plugin
-
-# --- r130 bucket: offline-apt management tools ---
+# --- offline-apt tools (usable from the desktop with no network) -----------
 synaptic
 gdebi
 gdebi-core
 software-properties-gtk
 
-# --- r130 bucket: image editing ---
+# --- keyring / disk-usage ---------------------------------------------------
+seahorse
+baobab
+
+# --- image editing ----------------------------------------------------------
 gimp
 
-# --- r130.4 bucket: cix-gstreamer runtime deps (bundle so it force-configures
-#     cleanly offline). The vendor deb declares Debian-style libxml2 /
-#     libjpeg62-turbo (absent on Ubuntu); the runtime .so's ship under the
-#     Ubuntu names libxml2-16 / libjpeg-turbo8, plus the over-broad multi-GPU
-#     libdrm-* family it pulls in. ---
+# --- flatpak (optional app sideloading) ------------------------------------
+flatpak
+
+# --- runtime deps other hooks rely on (branding/avatars, plymouth, agents) --
+librsvg2-bin
+imagemagick
+plymouth-theme-spinner
+whiptail
+rsyslog
+
+# --- agent stack (podman + helpers; 30-agents) -----------------------------
+podman
+crun
+conmon
+netavark
+aardvark-dns
+catatonit
+
+# --- console fallback (telnet — fleet doctrine) -----------------------------
+inetutils-telnetd
+openbsd-inetd
+
+# --- toolchain bits some post-install hooks use -----------------------------
+nodejs
+npm
+
+# --- libs pulled to satisfy CIX/mesa closure (kept from prior closure) ------
 libxml2-16
 libjpeg-turbo8
 libva-glx2
 libwayland-bin
 libnice10
-libdrm-radeon1
-libdrm-nouveau2
-libdrm-freedreno1
-libdrm-tegra0
-libdrm-etnaviv1
-
-# --- r130.4 bucket: desktop apps 20-desktop installs that were missing from
-#     the offline pool (App Center, Flatpak/portal stack, browsers, tweaks) ---
-flatpak
-gnome-session-canberra
-xdg-desktop-portal-gtk
-epiphany-browser
-# r181: falkon dropped — it half-configures (iF) on Sky1/qemu (its postinst was
-# the desktop apt rc=100), and its stale .desktop launcher errored like the
-# mnemos one. Vivaldi (staged .deb, 52-vivaldi.sh) is the default browser now;
-# epiphany stays as a lightweight secondary.
-feh
-
-# --- r130.4 bucket: GPU/Vulkan validation + benchmark tools 47-llm-stack +
-#     16-mesa request (glmark2 is split on Ubuntu: -x11 / -es2-x11 variants;
-#     the bare glmark2 / glmark2-es2 names do not exist) ---
-vulkan-validationlayers
-clinfo
-glmark2-x11
-glmark2-es2-x11
-glmark2-es2-wayland
-glmark2-wayland
-glslc
-
-# --- r130.4 bucket: agents + system utilities (nodejs/npm for ncz agents,
-#     podman DNS, syslog, dialog UI, SVG rasteriser) ---
-nodejs
-npm
-whiptail
-rsyslog
-librsvg2-bin
-aardvark-dns
-
-# --- r181: full podman runtime so `ncz agent install` + `ncz install mnemos`
-#     (the MNEMOS desktop icon) work OFFLINE. All present in server/resolute
-#     mirrors (bound at build time), so this is a safe explicit pin — 30-agents.sh
-#     also apt-installs these, this just guarantees they land in the delta. ---
-podman
-crun
-conmon
-netavark
-catatonit
-
-# --- r130.4 bucket: Plymouth boot splash theme + asset tooling ---
-plymouth-theme-spinner
-imagemagick
-
-# --- r164: IceWM — ultra-light alternate WM (selectable at LightDM greeter)
-icewm
-icewm-common
-
-# --- r178: telnetd fleet lockout-prevention (doctrine #9). Baked here so
-# future desktop.squashfs includes it; until then late.sh installs it offline.
-inetutils-telnetd
-openbsd-inetd
-
-# --- r189.4: 47-llm-stack.sh Vulkan/SPIR-V substrate (was never wired into
-#     MACHINE_HOOKS_RE, so this hook never ran and these packages were never
-#     in the offline-mirror closure either -- fixing both together). ---
-libvulkan-dev
-glslang-tools
-glslang-dev
-spirv-tools
-spirv-headers
-vulkan-tools
-vulkan-validationlayers
-clinfo
-glmark2-x11
-glmark2-es2-x11
-glmark2-wayland

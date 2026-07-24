@@ -1,24 +1,26 @@
 #!/bin/bash
-# 20-desktop.sh — XFCE on LightDM (resolute's GDM/Wayland on Mali panthor → black screen).
-# --- NCZ 26.6: Stage the Agent installer on the Desktop.
-# r110 (codex UX audit): the asset is staged by the installer at
-# /usr/local/lib/cix-installer/assets/, NOT at chroot-root "/". The old
-# `cp /install_ncz_agents.sh` ran before `set -e` and silently no-op'd, so the
-# Desktop launcher never appeared. Use the real staged path, guarded.
-install -d -m 0755 /etc/skel/Desktop
-_agent_launcher=/usr/local/lib/cix-installer/assets/install_ncz_agents.sh
-if [ -f "$_agent_launcher" ]; then
-    install -m 0755 "$_agent_launcher" /etc/skel/Desktop/install_ncz_agents.sh
-elif [ -f /install_ncz_agents.sh ]; then
-    install -m 0755 /install_ncz_agents.sh /etc/skel/Desktop/install_ncz_agents.sh
-else
-    echo "[20] WARN: install_ncz_agents.sh not staged; Desktop launcher skipped"
-fi
+# 20-desktop.sh — NCZ-OS 26.7 "Maximilian" Singularity Desktop installer.
+#
+# Singularity Desktop (labwc/wlroots, GTK4/Vala, GLES on CIX libmali) is THE
+# desktop. XFCE/X11 is GONE — no Xorg display server, no XFCE session. Wayland
+# native, Mali-accelerated. Xwayland is kept (labwc -Dxwayland=enabled) for
+# X-app compatibility UNDER Wayland — that is rootless X-compat, not an X11
+# desktop.
+#
+# Runtime configs here are the proven-working versions captured from the O6N
+# bring-up box (Radxa Orion O6N, CIX Sky1). GPU userspace is swappable via
+# ncz-gpu-env (Mali libmali GLES today; Panthor/Mesa experimental).
+#
+# GREETER (beta): lightdm + lightdm-gtk-greeter, NCZ-branded. This is a
+# TEMPORARY dev placeholder — the shipping greeter is greetd + regreet (GTK4,
+# Mali-accelerated Wayland), built by a separate agent. The swap is one block:
+# see the "GREETER SWAP POINT" marker below.
+#
+# RUNS INSIDE CHROOT at desktop-layer bake time (build-squashfs-layers.sh
+# desktop loop), NOT via install-time MACHINE_HOOKS.
 
-# r52: LightDM + Xorg + XFCE = reliable; xrdp for remote access.
 set -euo pipefail
-
-echo "[20] desktop layer (XFCE + LightDM + xrdp)"
+echo "[20] Singularity Desktop layer (labwc/wlroots + LightDM-branded greeter [beta])"
 
 VARIANT=desktop
 if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
@@ -26,38 +28,27 @@ if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
 fi
 case "$VARIANT" in
     server|magnetar|headless)
-        echo "[20] BUILD_VARIANT=server - Magnetar headless SKU; skipping desktop install"
+        echo "[20] BUILD_VARIANT=$VARIANT — Magnetar headless SKU; skipping desktop install"
         exit 0
         ;;
 esac
 
-# NCZ policy (r130, 2026-06-23): REVERSED the old "server-only mirror, desktop
-# installs ONLINE" policy. The full desktop closure (curated XFCE set + r130
-# buckets) is now BUNDLED in the ISO pool by build/build-desktop-mirror.sh and
-# embedded by build/build-iso-di.sh. We install the desktop fully OFFLINE from
-# the file:///cdrom mirror that preseed/late.sh already wired (cixmini-cdrom.list,
-# pinned via 00cixmini-bootstrap-pool.pref). This is what fixes the r129 install
-# stalling at 14% in 20-desktop when ports.ubuntu.com was slow/unreachable.
-# We do NOT overwrite sources.list with ports here (that was the stall). ports
-# is added ONLY as an explicit fallback if a package is genuinely absent from
-# the bundled pool (see ncz_ports_fallback).
-echo "[20] desktop packages install OFFLINE from bundled /cdrom pool (r130 fat ISO)"
-
-# Ensure the file:///cdrom apt source late.sh created is present + refreshed.
+# ---------------------------------------------------------------------------
+# Offline package install from the bundled /cdrom pool (r130 fat-ISO doctrine).
+# The full Singularity runtime closure lives in manifests/desktop.pkgs, mirrored
+# by build-desktop-mirror.sh into the ISO pool. ports.ubuntu.com is a fallback
+# only when a package is genuinely absent from the offline closure.
+# ---------------------------------------------------------------------------
+echo "[20] desktop packages install OFFLINE from bundled /cdrom pool"
 if [ ! -f /etc/apt/sources.list.d/cixmini-cdrom.list ]; then
-    echo "[20] cixmini-cdrom.list absent — recreating file:///cdrom source"
     echo "deb [trusted=yes] file:///cdrom resolute main" \
         > /etc/apt/sources.list.d/cixmini-cdrom.list
 fi
-apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q || true
+apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 \
+    -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q || true
 
-# ncz_ports_fallback: add ports.ubuntu.com (once) and refresh. Invoked ONLY when
-# an install from the bundled pool fails, so a package genuinely missing from the
-# offline closure can still be fetched online. Idempotent.
 ncz_ports_fallback() {
-    if [ -f /etc/apt/sources.list.d/ncz-ports-fallback.list ]; then
-        return 0
-    fi
+    if [ -f /etc/apt/sources.list.d/ncz-ports-fallback.list ]; then return 0; fi
     echo "[20] WARN: package(s) missing from bundled pool — enabling ports.ubuntu.com fallback"
     cat > /etc/apt/sources.list.d/ncz-ports-fallback.list <<'PORTS'
 deb http://ports.ubuntu.com/ubuntu-ports resolute main universe restricted multiverse
@@ -65,601 +56,418 @@ deb http://ports.ubuntu.com/ubuntu-ports resolute-updates main universe restrict
 deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restricted multiverse
 deb http://ports.ubuntu.com/ubuntu-ports resolute-backports main universe restricted multiverse
 PORTS
-    apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q || true
+    apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 \
+        -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q || true
 }
 
-# Pre-purge gdm3 if present in the rootfs.tar.zst (resolute's default DM).
-# Without this, both gdm3 and lightdm fight for /etc/systemd/system/display-manager.service
-# and the resulting boot lands on a black screen.
+# Pre-purge resolute's default GNOME display manager — gdm3 + lightdm both claim
+# display-manager.service and the loser black-screens.
 if dpkg -l gdm3 2>/dev/null | grep -q '^ii'; then
     echo "[20] purging gdm3 (resolute default DM, conflicts with lightdm)"
     DEBIAN_FRONTEND=noninteractive apt-get purge -y gdm3 ubuntu-session 2>&1 | tail -3 || true
     rm -f /etc/systemd/system/display-manager.service
 fi
 
-# Core: XFCE4 + LightDM (display manager) + Xorg fbdev fallback.
-# r55: removed broken backslash-continuation that merged a bogus firefox
-# install onto this command and made apt fail with "0 newly installed".
-# r130: install from the bundled /cdrom pool; if that fails (core pkg missing
-# from the offline closure) enable the ports fallback and retry ONCE. This line
-# is NOT best-effort — a usable desktop requires it — but the bundled pool now
-# carries the full closure (manifests/desktop.pkgs), so the fallback should
-# never trigger in practice.
-CORE_DESKTOP="lightdm lightdm-gtk-greeter xubuntu-core xfce4-session \
-    xfce4-power-manager xfce4-screenshooter xfce4-taskmanager \
-    xserver-xorg-video-fbdev xserver-xorg-video-modesetting \
-    xrdp \
-    mesa-utils vulkan-tools libglu1-mesa"
+# Core Singularity runtime + Wayland stack + greeter. These are the SYSTEM libs
+# the /opt/singularity binaries link against, plus the session infra (labwc runs
+# from the tarball; foot terminal; seatd; swaybg; xsettingsd; polkit; Xwayland
+# for X-app compat). LightDM is the beta greeter. NO Xorg server, NO XFCE.
+CORE_DESKTOP="lightdm lightdm-gtk-greeter \
+    libgtk-4-1 libadwaita-1-0 libgtk4-layer-shell0 \
+    libgee-0.8-2 libpeas-2-0 libjson-glib-1.0-0 libsoup-3.0-0 \
+    libvte-2.91-gtk4-0 libgtksourceview-5-0 libwebkitgtk-6.0-4 \
+    libgraphene-1.0-0 \
+    foot xsettingsd seatd swaybg grim slurp fuzzel \
+    xwayland \
+    polkit polkitd \
+    mesa-utils vulkan-tools libglu1-mesa \
+    libglib2.0-bin"
 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP; then
     ncz_ports_fallback
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP || \
+        echo "[20] WARN: some core desktop pkgs failed (see closure)"
 fi
 
-# ----------------------------------------------------------------------
-# r111 (operator request — fuller desktop): a base xubuntu-core leaves the
-# appliance with NO sound server, NO removable-media mounting, NO network
-# applet, NO CJK/emoji fonts, and no archive/PDF/media/image apps. Add them.
-# Online fetch (desktop policy: embedded mirror is server-only). All groups
-# are best-effort — 20-desktop is a Phase 2 optional hook, so a transient
-# mirror miss won't abort the install.
-# ----------------------------------------------------------------------
-
-# Audio: PipeWire + Pulse shim + WirePlumber so the (kernel-verified) HDMI/
-# analog audio actually reaches apps; pavucontrol + panel plugin for control.
-# (recommends on: pulls the helper bits that make the stack work end-to-end)
+# Audio: PipeWire stack so HDMI/analog reaches apps; pavucontrol for control.
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    pipewire pipewire-pulse pipewire-alsa wireplumber \
-    pavucontrol xfce4-pulseaudio-plugin 2>&1 | tail -3 || true
-# Enable the PipeWire user stack for the operator + every future login.
+    pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol 2>&1 | tail -3 || true
 systemctl --global enable pipewire pipewire-pulse wireplumber 2>&1 | tail -2 || true
 
-# Removable media: gvfs + udisks so USB/MTP auto-mount in Thunar; disk GUI.
+# Removable media + network applet + bluetooth.
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    gvfs gvfs-backends udisks2 gnome-disk-utility 2>&1 | tail -3 || true
-
-# Network: panel applet (WiFi/wired picker) for NetworkManager.
-DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    network-manager-gnome 2>&1 | tail -2 || true
-
-# Bluetooth: stack + GTK applet (Sky1 MT7922 has BT).
-DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    bluez blueman 2>&1 | tail -3 || true
+    gvfs gvfs-backends udisks2 network-manager-gnome bluez blueman 2>&1 | tail -3 || true
 systemctl enable bluetooth 2>&1 | tail -1 || true
 
-# Fonts: Noto base + CJK (bge-small-zh model / Chinese web) + colour emoji.
+# Fonts: Noto base + CJK + colour emoji.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji 2>&1 | tail -3 || true
+    fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation 2>&1 | tail -3 || true
 
-# Archives: GUI + Thunar right-click extract + 7z/rar.
-# r130: p7zip-full was dropped in resolute; the 7z tooling now ships in `7zip`
-# (which Provides: p7zip-full). Use the real package so it's satisfied offline
-# from the bundled pool.
+# Video: mpv HW player (84-vpu-mpv wires hwdec=v4l2m2m-copy). Browser (Chromium)
+# comes from the mirror; Vivaldi via 52-vivaldi.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    xarchiver thunar-archive-plugin 7zip unrar-free 2>&1 | tail -3 || true
+    mpv chromium 2>&1 | tail -3 || echo "[20] mpv/chromium: some deferred"
 
-# Core apps: PDF viewer, media player, image viewer, text editor.
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    evince mpv ristretto mousepad 2>&1 | tail -3 || true
+echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv + chromium)"
 
-# Panel UX: Whisker (modern app menu) + clipboard manager.
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    xfce4-whiskermenu-plugin xfce4-clipman-plugin 2>&1 | tail -3 || true
-
-echo "[20] r111 fuller desktop: pipewire-audio + media-mount + nm-applet + bluetooth + Noto/CJK/emoji fonts + archives + evince/mpv/ristretto/mousepad + whisker/clipman"
-
-# ----------------------------------------------------------------------
-# r130 buckets (operator selection, fat ISO): Xubuntu-default desktop
-# completeness + offline-apt management tools + GIMP. All bundled in the
-# /cdrom pool (manifests/desktop.pkgs), so these install OFFLINE. Best-effort
-# groups (a single missing pkg won't abort the Phase 2 hook).
-# ----------------------------------------------------------------------
-
-# Completeness: file search, menu/profile editors, remote-FS mounts, panel
-# layout backup, disk-usage + system monitor, keyring GUI, and the XFCE panel
-# "goodies" plugin set that Xubuntu ships by default.
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    catfish menulibre mugshot gigolo xfce4-panel-profiles \
-    baobab gnome-system-monitor gnome-font-viewer seahorse \
-    xfce4-dict xfce4-cpugraph-plugin xfce4-netload-plugin \
-    xfce4-systemload-plugin xfce4-weather-plugin xfce4-places-plugin \
-    xfce4-verve-plugin xfce4-xkb-plugin 2>&1 | tail -3 || true
-
-# Offline-apt tools: GUI package manager, local-.deb installer, apt-source GUI.
-# These make the bundled /cdrom pool usable from the desktop with no network.
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    synaptic gdebi gdebi-core software-properties-gtk 2>&1 | tail -3 || true
-
-# Image editing.
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    gimp 2>&1 | tail -3 || true
-
-echo "[20] r130 buckets: completeness (catfish/menulibre/mugshot/gigolo/panel-goodies/baobab/system-monitor/seahorse) + offline-apt (synaptic/gdebi/software-properties-gtk) + gimp"
-
-# r55: NCZ-curated screensaver. xscreensaver replaces xfce4-screensaver.
-# 2026-07-04: the r112 "GL hacks abort (no X11 EGL / software-only GL)" premise
-# was a SYMPTOM of the CIX libmali/libgbm stack shadowing Mesa on the panthor
-# kernel (see 26-gpu-default-open). With the CIX stack demoted, GL runs natively
-# (Mali-G720 Panfrost, OpenGL 3.1) and the GL hacks render fine. So we now SHIP
-# xscreensaver-gl / -gl-extra (added to manifests/desktop.pkgs) and 57-screensaver
-# owns the GL-enabled config + autostart. DO NOT re-add the GL-hack removal below.
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    xscreensaver xscreensaver-data xscreensaver-data-extra \
-    xscreensaver-gl xscreensaver-gl-extra 2>&1 | tail -3 || true
-# (r112 GL-hack removal deleted 2026-07-04 — GL now works natively; 57-screensaver
-#  restores the real xscreensaver-gl-visual probe and enables the GL hacks.)
-DEBIAN_FRONTEND=noninteractive apt-get remove -y xfce4-screensaver 2>&1 | tail -1 || true
-
-# r112: xscreensaver 6.x ALWAYS runs xscreensaver-gl-visual (an EGL probe) at
-# blank time to pick a GL visual. On this Xorg the probe fails ("eglGetDisplay
-# failed") and that failure blocks the ENTIRE hack-launch pipeline — even 2D
-# hacks never start, leaving a black screen + "no GL visuals" diagnostic.
-# Shim the probe so it reports the default X visual and exits 0; gfx then
-# launches the (2D-only) hacks normally. dpkg-divert keeps the shim across
-# xscreensaver package upgrades.
-if [ -x /usr/libexec/xscreensaver/xscreensaver-gl-visual ]; then
-    dpkg-divert --quiet --local --rename \
-        --divert /usr/libexec/xscreensaver/xscreensaver-gl-visual.real \
-        --add /usr/libexec/xscreensaver/xscreensaver-gl-visual 2>&1 | tail -1 || true
-    cat > /usr/libexec/xscreensaver/xscreensaver-gl-visual <<'GLVSHIM'
-#!/bin/sh
-# NCZ 26.6 shim: this desktop has software-only GL and no X11 EGL platform, so
-# the upstream EGL probe fails and blocks all xscreensaver hacks. Report the
-# default X visual so xscreensaver-gfx proceeds. GL hacks are not installed;
-# only 2D hacks run, which do not need this visual.
-disp="$DISPLAY"
-[ "$1" = "-display" ] && disp="$2"
-vid=$(xdpyinfo -display "$disp" 2>/dev/null | awk '/default visual id/{print $NF; exit}')
-[ -n "$vid" ] && echo "$vid" || echo 0x21
-exit 0
-GLVSHIM
-    chmod 0755 /usr/libexec/xscreensaver/xscreensaver-gl-visual
-    echo "[20] r112: xscreensaver-gl-visual shimmed (no X11 EGL) + GL hacks removed"
+# ---------------------------------------------------------------------------
+# Extract the Singularity payload -> /opt/singularity.
+# The tarball extracts to opt/singularity/... (touches only /opt/singularity —
+# safe on a live rootfs, never clobbers /lib). Staged by build-squashfs-layers
+# (baked) into /usr/local/lib/cix-installer/assets/singularity/, or at install
+# time under /cdrom/assets/singularity/ (build-iso-di stages both).
+# ---------------------------------------------------------------------------
+SINGTGZ=""
+for c in /usr/local/lib/cix-installer/assets/singularity/singularity-opt.tgz \
+         /cdrom/assets/singularity/singularity-opt.tgz \
+         /run/cixmini/assets/singularity/singularity-opt.tgz; do
+    [ -f "$c" ] && { SINGTGZ="$c"; break; }
+done
+if [ -z "$SINGTGZ" ]; then
+    echo "[20] FATAL: singularity-opt.tgz not staged — desktop cannot install" >&2
+    echo "[20]        expected assets/singularity/singularity-opt.tgz (build/build-singularity.sh)" >&2
+    exit 1
 fi
-# xdpyinfo (x11-utils) is needed by the shim at runtime.
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends x11-utils 2>&1 | tail -1 || true
+echo "[20] extracting Singularity payload: $SINGTGZ -> /opt/singularity"
+tar -C / -xzf "$SINGTGZ"
+test -x /opt/singularity/bin/singularity-desktop
+test -x /opt/singularity/bin/singularity-labwc-session
+# ldconfig for /opt/singularity/lib so the shell resolves libsingularity.
+echo "/opt/singularity/lib" > /etc/ld.so.conf.d/singularity.conf
+ldconfig 2>/dev/null || true
 
-# Configure LightDM defaults
+# ---------------------------------------------------------------------------
+# GPU userspace selector — ncz-gpu-env (Mali branch has NO
+# __EGL_VENDOR_LIBRARY_FILENAMES pin: that pin blackscreens libmali, confirmed
+# on O6N). Panthor branch keeps the mesa vendor ICD. Sourced by every session
+# launcher AND the greeter wrapper so the SAME binaries render on whichever GPU
+# stack booted (chosen per rEFInd entry).
+# ---------------------------------------------------------------------------
+install -d -m0755 /usr/local/bin
+cat > /usr/local/bin/ncz-gpu-env <<'GPUENV'
+#!/bin/sh
+# ncz-gpu-env — driver-aware GPU/GL userspace selector for NCZ-OS (CIX Sky1).
+# SOURCE this ( ". /usr/local/bin/ncz-gpu-env" ) from every NCZ session launcher
+# AND the greeter wrapper, so the SAME binaries render on whichever GPU stack the
+# kernel booted. Mali (CIX libmali GLES blob, /dev/mali0, mali_kbase) and Panthor
+# (open Mesa/panvk, /dev/dri/renderD128, panthor) are mutually exclusive, chosen
+# per rEFInd boot entry. POSIX sh; safe to source.
+if [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
+    NCZ_GPU_BACKEND=mali
+    LD_LIBRARY_PATH="/opt/cixgpu-pro/lib/aarch64-linux-gnu:/opt/cixgpu-compat/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    WLR_DRM_NO_MODIFIERS=1
+    export NCZ_GPU_BACKEND LD_LIBRARY_PATH WLR_DRM_NO_MODIFIERS
+elif grep -q '^panthor ' /proc/modules 2>/dev/null; then
+    # Panthor = open Mesa stack. Point glvnd/EGL at the mesa vendor ICD and strip
+    # inherited CIX libmali paths so EGL/GBM resolve to mesa (panfrost/panvk).
+    NCZ_GPU_BACKEND=panthor
+    __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
+    LD_LIBRARY_PATH=$(printf '%s' "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -v '/opt/cixgpu-' | paste -sd: -)
+    VK_LOADER_LAYERS_DISABLE=VK_LAYER_CIX_window_system_integration
+    WLR_DRM_NO_MODIFIERS=1
+    export NCZ_GPU_BACKEND __EGL_VENDOR_LIBRARY_FILENAMES VK_LOADER_LAYERS_DISABLE WLR_DRM_NO_MODIFIERS
+    if [ -n "$LD_LIBRARY_PATH" ]; then export LD_LIBRARY_PATH; else unset LD_LIBRARY_PATH; fi
+else
+    NCZ_GPU_BACKEND=software
+    export NCZ_GPU_BACKEND
+fi
+GPUENV
+chmod 0755 /usr/local/bin/ncz-gpu-env
+
+# Singularity session launcher (sources ncz-gpu-env; /opt/singularity on
+# PATH/XDG_DATA_DIRS/LD_LIBRARY_PATH; TERMINAL=foot).
+cat > /usr/local/bin/ncz-singularity <<'SINGLAUNCH'
+#!/bin/bash
+# NCZ Singularity Desktop session (isolated /opt/singularity).
+# GPU backend is SWAPPABLE: source the shared selector (Mali/libmali or Panthor/Mesa).
+if [ -r /usr/local/bin/ncz-gpu-env ]; then
+    . /usr/local/bin/ncz-gpu-env
+else
+    export LD_LIBRARY_PATH="/opt/cixgpu-pro/lib/aarch64-linux-gnu:/opt/cixgpu-compat/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export WLR_DRM_NO_MODIFIERS=1
+fi
+# Singularity isolated env (singularity libs must precede GPU libs).
+export PATH="/opt/singularity/bin:$PATH"
+export XDG_DATA_DIRS="/opt/singularity/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export LD_LIBRARY_PATH="/opt/singularity/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export TERMINAL=foot
+exec /opt/singularity/bin/singularity-labwc-session
+SINGLAUNCH
+chmod 0755 /usr/local/bin/ncz-singularity
+
+# Wayland session entry (the ONLY session — Singularity is Wayland-only).
+install -d -m0755 /usr/share/wayland-sessions
+cat > /usr/share/wayland-sessions/singularity.desktop <<'WSESS'
+[Desktop Entry]
+Name=Singularity (NCZ)
+Comment=Singularity Desktop Environment (isolated /opt/singularity, CIX Mali GLES)
+Exec=/usr/local/bin/ncz-singularity
+TryExec=/usr/local/bin/ncz-singularity
+Type=Application
+DesktopNames=Singularity
+WSESS
+echo "[20] ncz-gpu-env + ncz-singularity + singularity.desktop installed"
+
+# ---------------------------------------------------------------------------
+# Packaged gschema defaults — red accent + dark mode + NCZ Maximilian wallpaper.
+# The accent is written by StyleManager to the user gtk.css at runtime; setting
+# it in the schema DEFAULT makes red the out-of-box accent. Wallpaper points at
+# the NCZ Maximilian backdrop (45-wallpaper-rotator installs the NCZ set + can
+# rotate). Compiled into the Singularity schema dir (on the session's
+# GSETTINGS_SCHEMA_DIR).
+# ---------------------------------------------------------------------------
+SCHEMADIR=/opt/singularity/share/glib-2.0/schemas
+if [ -f "$SCHEMADIR/dev.sinty.desktop.gschema.xml" ]; then
+    cat > "$SCHEMADIR/99-ncz-defaults.gschema.override" <<'GSCHEMA'
+[dev.sinty.desktop]
+accent-color='red'
+dark-mode=true
+theme-mode='dark'
+icon-theme='Singularity'
+background-picture-uri='file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg'
+recent-wallpapers=['file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg']
+GSCHEMA
+    glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
+        echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
+    echo "[20] gschema override: accent=red, dark-mode, Maximilian wallpaper"
+else
+    echo "[20] WARN: dev.sinty.desktop schema absent — accent/wallpaper defaults skipped"
+fi
+
+# ---------------------------------------------------------------------------
+# Corner-hint fix — the hot-corner "Overview  Super+Space" hint window
+# (.corner-hint) fails to dismiss on pointer-leave over gtk4-layer-shell
+# surfaces, leaving a stuck pill over the global-menu row. Suppress the visual
+# (the hot-corner ACTION still works). Applied to the THEME gtk.css (not a user
+# file StyleManager rewrites) so it persists. NOT `.pill` alone (would hit legit
+# rounded buttons) — only the corner-hint classes.
+# TODO(release-track): fix the shell's hide_hint() dismiss upstream (Vala) —
+# docs/upstream/singularity/ — and drop this CSS suppression.
+# ---------------------------------------------------------------------------
+CORNERCSS='
+/* === NCZ-corner-hint-suppress (reversible: delete this block) ============= */
+window.corner-hint,
+.corner-hint,
+.corner-hint-tl, .corner-hint-tr,
+.corner-hint-glow, .corner-hint-badge {
+  opacity: 0;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+'
+for tv in gtk-4.0 gtk-3.0; do
+    TC="/opt/singularity/share/themes/Singularity/$tv/gtk.css"
+    if [ -f "$TC" ] && ! grep -q 'NCZ-corner-hint-suppress' "$TC"; then
+        printf '%s\n' "$CORNERCSS" >> "$TC"
+    fi
+done
+echo "[20] corner-hint pill suppressed in Singularity theme (gtk-4.0/gtk-3.0)"
+
+# ---------------------------------------------------------------------------
+# NCZ .desktop launchers — foot-based (not xterm). Installed into the Singularity
+# app dir (on the session XDG_DATA_DIRS). The agent-installer + CLI launchers.
+# ---------------------------------------------------------------------------
+APPDIR=/opt/singularity/share/applications
+install -d -m0755 "$APPDIR"
+cat > "$APPDIR/Install-NCZ-Agents.desktop" <<'DAPP'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=⭐ Install AI Agents & MNEMOS
+GenericName=AI agent + MNEMOS installer
+Comment=Start here — pull + launch your AI agents and the MNEMOS memory server
+Exec=foot -T "Install AI Agents and MNEMOS" /usr/local/bin/ncz-install-stack
+Icon=ncz-rocket
+Terminal=false
+StartupNotify=true
+Categories=System;Settings;Network;
+DAPP
+cat > "$APPDIR/NCZ-CLI.desktop" <<'DAPP'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=NCZ CLI
+Comment=NCZ command-line — agents, NPU status (ncz help)
+Exec=foot --hold -T NCZ /usr/local/bin/ncz help
+Icon=ncz-rocket
+Terminal=false
+Categories=System;Settings;
+DAPP
+cat > "$APPDIR/ClaudeCode.desktop" <<'DAPP'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Claude Code
+Comment=Anthropic Claude Code CLI
+Exec=foot -T ClaudeCode claude
+Icon=utilities-terminal
+Terminal=false
+Categories=Development;
+DAPP
+cat > "$APPDIR/MNEMOS.desktop" <<'DAPP'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Install MNEMOS
+GenericName=MNEMOS memory server installer
+Comment=Pull + start the MNEMOS memory server (REST + MCP + OpenAI gateway on :5002)
+Exec=foot --hold -T "Install MNEMOS" bash -c "sudo ncz install mnemos"
+Icon=applications-science
+Terminal=false
+StartupNotify=true
+Categories=System;Development;Network;
+DAPP
+update-desktop-database "$APPDIR" 2>/dev/null || true
+echo "[20] NCZ .desktop launchers (foot) installed -> $APPDIR"
+
+# Stage the agent installer on the Desktop for new users (r110: use the real
+# staged path, guarded).
+install -d -m0755 /etc/skel/Desktop
+_agent_launcher=/usr/local/lib/cix-installer/assets/install_ncz_agents.sh
+if [ -f "$_agent_launcher" ]; then
+    install -m 0755 "$_agent_launcher" /etc/skel/Desktop/install_ncz_agents.sh
+elif [ -f /install_ncz_agents.sh ]; then
+    install -m 0755 /install_ncz_agents.sh /etc/skel/Desktop/install_ncz_agents.sh
+fi
+
+# ---------------------------------------------------------------------------
+# LightDM — beta greeter. Singularity is the ONLY session. NO X11/XFCE session.
+# ---------------------------------------------------------------------------
 mkdir -p /etc/lightdm/lightdm.conf.d
 cat > /etc/lightdm/lightdm.conf.d/50-cixmini.conf <<'LIDM'
 [Seat:*]
-user-session=xfce
+user-session=singularity
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=true
 allow-guest=false
 LIDM
 
-# r109: brand the greeter (login) screen with the NCZ wallpaper. Without this
-# the lightdm-gtk-greeter shows the default grey background before login, which
-# reads as "default XFCE" until the user session paints the NCZ backdrop.
-# Points at the rotator-managed default.jpg so it tracks the active wallpaper.
+# GREETER SWAP POINT ========================================================
+# BETA: lightdm-gtk-greeter (X11), NCZ-branded. TEMPORARY placeholder.
+# SHIPPING: greetd + regreet (GTK4, Mali-accelerated Wayland) on labwc — built
+# by the native-greeter agent. To cut over, replace the two lines below with the
+# greetd enable + /usr/local/bin/ncz-regreet-greeter wrapper (already proven on
+# O6N: labwc -C /etc/greetd/regreet-labwc, sources ncz-gpu-env), and disable
+# lightdm. That is the ONLY change needed here — the session (singularity.desktop)
+# is greeter-agnostic.
+#   systemctl disable lightdm ; systemctl enable greetd
+#   (ship /etc/greetd/config.toml -> command = "/usr/local/bin/ncz-regreet-greeter")
+# ===========================================================================
+GREETER_BACKEND="${NCZ_GREETER:-lightdm}"   # future: set NCZ_GREETER=greetd to swap
+echo "[20] greeter backend = $GREETER_BACKEND (beta placeholder; greetd/regreet = shipping)"
+
+# Brand the lightdm-gtk-greeter (dark, NCZ Maximilian bg). 55-greeter refines
+# theme + avatar; 45-wallpaper-rotator owns the rotating background.
 mkdir -p /etc/lightdm/lightdm-gtk-greeter.conf.d
-cat > /etc/lightdm/lightdm-gtk-greeter.conf.d/50-ncz.conf <<GTKG
+cat > /etc/lightdm/lightdm-gtk-greeter.conf.d/50-ncz.conf <<'GTKG'
 [greeter]
-background=/usr/share/backgrounds/ncz/default.jpg
+background=/usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg
 user-background=false
-theme-name=Greybird-dark
-icon-theme-name=elementary-xfce-dark
+theme-name=Adwaita-dark
+icon-theme-name=Adwaita
 GTKG
 
-# Mesa env: force panthor / panvk path for accelerated GL on Mali-G720
-mkdir -p /etc/systemd/system/lightdm.service.d
-cat > /etc/systemd/system/lightdm.service.d/cixmini-mesa.conf <<'MESA'
-[Service]
-Environment=MESA_LOADER_DRIVER_OVERRIDE=panthor
-Environment=LIBGL_KOPPER_DRI2=1
-MESA
-grep -q '^MESA_LOADER_DRIVER_OVERRIDE' /etc/environment 2>/dev/null || cat >> /etc/environment <<'ENV'
-MESA_LOADER_DRIVER_OVERRIDE=panthor
-LIBGL_KOPPER_DRI2=1
-ENV
-
-# Mesa needs linlondp_dri.so (fake symlink to libdril dispatcher)
-DRI=/usr/lib/aarch64-linux-gnu/dri
-[ -e $DRI/libdril_dri.so ] && ln -sfn libdril_dri.so $DRI/linlondp_dri.so
-
-# Disable GDM (we're using LightDM)
 systemctl disable gdm gdm3 2>/dev/null || true
 systemctl stop gdm gdm3 2>/dev/null || true
 systemctl set-default graphical.target
 systemctl enable lightdm
 echo "/usr/sbin/lightdm" > /etc/X11/default-display-manager
+ln -sf /lib/systemd/system/lightdm.service /etc/systemd/system/display-manager.service
 DEBIAN_FRONTEND=noninteractive dpkg-reconfigure lightdm 2>&1 | tail -2 || true
 
-# xrdp: use XFCE session
-cat > /etc/xrdp/startwm.sh <<'XRDP'
-#!/bin/sh
-unset DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR
-[ -r /etc/profile ] && . /etc/profile
-exec dbus-launch --exit-with-session startxfce4
-XRDP
-chmod 0755 /etc/xrdp/startwm.sh
-systemctl enable xrdp
+# seatd for seat management under Wayland (labwc/wlroots).
+systemctl enable seatd 2>/dev/null || true
 
-# Skip gnome-initial-setup wizard (we already collected user creds via d-i)
+# Skip gnome-initial-setup wizard (creds already collected by d-i).
 install -d -m 0755 /etc/skel/.config
 touch /etc/skel/.config/gnome-initial-setup-done
 
-# r75 P1: ensure operator is in render,video,audio,plugdev,input groups
-# for Vulkan (/dev/dri/renderD128), V4L2, audio, and removable-media access.
-# r74 was missing this — Vulkan failed silently with 'Permission denied'
-# until the operator manually ran usermod + logged out / back in.
-#
-# Discovery pattern matches 35-ssh.sh (first UID >= 1000 < 65000),
-# with 'ncz' as explicit fallback.
+# ---------------------------------------------------------------------------
+# Operator groups — render/video/audio/plugdev/input (Vulkan/V4L2/audio/media)
+# + seat (seatd). Only groups that already exist (some appear via later hooks).
+# ---------------------------------------------------------------------------
 OPERATOR_USER=$(awk -F: '$3 >= 1000 && $3 < 65000 {print $1; exit}' /etc/passwd)
-if [ -z "$OPERATOR_USER" ] && id ncz >/dev/null 2>&1; then
-    OPERATOR_USER=ncz
-fi
+if [ -z "$OPERATOR_USER" ] && id ncz >/dev/null 2>&1; then OPERATOR_USER=ncz; fi
 if [ -n "$OPERATOR_USER" ] && id "$OPERATOR_USER" >/dev/null 2>&1; then
-    # Add only the groups that already exist on the system. Some
-    # (e.g. render) are package-installed later; usermod -aG against
-    # a missing group hard-errors otherwise.
-    for g in render video audio plugdev input; do
+    for g in render video audio plugdev input seat; do
         if getent group "$g" >/dev/null 2>&1; then
             usermod -aG "$g" "$OPERATOR_USER" 2>&1 | sed 's/^/    /'
-        else
-            echo "    skip group '$g' — not yet present (often appears after later post-install hooks add the package)"
         fi
     done
-    echo "[20] operator '$OPERATOR_USER' added to render/video/audio/plugdev/input (those that exist)"
+    echo "[20] operator '$OPERATOR_USER' added to render/video/audio/plugdev/input/seat"
 else
-    echo "[20] WARN: no operator user found for usermod — Vulkan/V4L2/audio may fail until added manually" >&2
+    echo "[20] WARN: no operator user for usermod — GPU/V4L2/audio may need manual group add" >&2
 fi
 
-echo "[20] LightDM + XFCE + xrdp + Mesa panthor-override installed"
-
-# r52+ session cleanup: hide all non-working session options.
-# GNOME-on-Wayland, GNOME-on-Xorg, Ubuntu-on-Wayland, XFCE-on-Wayland, lightdm-Xsession,
-# xubuntu duplicate — all bounce to black screen on Mali-G720 panthor.
-# Only XFCE-on-Xorg works reliably. Hide the rest.
+# ---------------------------------------------------------------------------
+# Session curation — Singularity is the ONLY session. Remove ALL X11 sessions
+# (Wayland-only) and any non-Singularity wayland sessions.
+# ---------------------------------------------------------------------------
 mkdir -p /usr/share/xsessions.disabled /usr/share/wayland-sessions.disabled
+if [ -d /usr/share/xsessions ]; then
+    for f in /usr/share/xsessions/*.desktop; do
+        [ -f "$f" ] && mv "$f" /usr/share/xsessions.disabled/ 2>/dev/null || true
+    done
+fi
 for f in /usr/share/wayland-sessions/*.desktop; do
-    [ -f "$f" ] && mv "$f" /usr/share/wayland-sessions.disabled/ 2>/dev/null
+    [ -f "$f" ] || continue
+    case "$(basename "$f")" in
+        singularity.desktop) ;;  # keep
+        *) mv "$f" /usr/share/wayland-sessions.disabled/ 2>/dev/null || true ;;
+    esac
 done
-for f in /usr/share/xsessions/gnome-xorg.desktop /usr/share/xsessions/lightdm-xsession.desktop /usr/share/xsessions/xubuntu.desktop /usr/share/xsessions/ubuntu*.desktop; do
-    [ -f "$f" ] && mv "$f" /usr/share/xsessions.disabled/ 2>/dev/null
+echo "[20] sessions curated: Singularity (Wayland) only; X11 sessions = none"
+
+# ---------------------------------------------------------------------------
+# XFCE/Xorg-desktop remnant sweep. In practice NOTHING here is installed:
+# desktop.pkgs dropped xubuntu-core/xfce4-*, and the base already purged GNOME
+# (build_base). So this is a guarded, TARGETED no-op safety net — we purge ONLY
+# packages that are actually present, and NEVER --auto-remove (the r166-r170
+# saga: a broad purge --auto-remove in the overlay cascaded ~80 maintainer
+# scripts and truncated /etc/passwd,shadow,group → dpkg abort → install failed).
+# Xwayland (/usr/bin/Xwayland) is KEPT — do NOT purge xwayland/xserver-common.
+# ---------------------------------------------------------------------------
+_to_purge=""
+for p in xubuntu-core xfce4-session xfdesktop4 xfwm4 gnome-shell mutter; do
+    dpkg -l "$p" 2>/dev/null | grep -q '^ii' && _to_purge="$_to_purge $p"
 done
-ls /usr/share/xsessions/ | head
-echo "[20] only working session retained: xfce.desktop"
-
-# r53: purge GNOME entirely (mutter/gnome-shell don't work on Mali Sky1 yet —
-# r52 ships XFCE only). r53 might re-add GNOME via Sky1-Linux's mesa-sky1 + vk-compat-layer.
-DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove \
-    ubuntu-desktop-minimal gnome-tweaks gnome-shell gnome-shell-common \
-    gnome-shell-extensions gnome-session gnome-session-bin gnome-session-common \
-    gnome-session-canberra mutter gnome-control-center \
-    gdm gdm3 nautilus xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
-    yelp 2>&1 | tail -3 || true
-
-# Hide leftover wayland-sessions (broken on Mali)
-mkdir -p /usr/share/wayland-sessions.disabled
-for f in /usr/share/wayland-sessions/*.desktop; do
-    [ -f "$f" ] && mv "$f" /usr/share/wayland-sessions.disabled/ 2>/dev/null
-done
-
-# Install upstream-watch agent
-install -d /usr/local/lib/ncz /var/log/ncz /var/lib/ncz
-install -m 0755 /usr/local/lib/cix-installer/assets/branding/ncz-upstream-watch.sh \
-    /usr/local/lib/ncz/upstream-watch.sh
-
-# systemd timer: every 6 hours
-cat > /etc/systemd/system/ncz-upstream-watch.timer <<'UNIT'
-[Unit]
-Description=NCZ upstream Mali/Mesa/Cix/Sky1 driver watch
-[Timer]
-OnBootSec=15min
-OnUnitActiveSec=6h
-Persistent=true
-[Install]
-WantedBy=timers.target
-UNIT
-cat > /etc/systemd/system/ncz-upstream-watch.service <<'UNIT'
-[Unit]
-Description=NCZ upstream watcher (one-shot run)
-[Service]
-Type=oneshot
-ExecStart=/usr/local/lib/ncz/upstream-watch.sh
-UNIT
-systemctl daemon-reload
-# r110 (codex audit): never use --now in the chroot (no PID 1); enable now,
-# let the unit start on first boot. Best-effort start in case we are live.
-systemctl enable ncz-upstream-watch.timer 2>&1 | tail -2 || true
-systemctl start ncz-upstream-watch.timer 2>&1 | tail -2 || true
-echo "[20] GNOME purged, upstream-watch installed (every 6h)"
-
-# r53: ncz-flavor-* metapackage shims — pre-stage apt info but DON'T install by default.
-# Users who want alternative DEs run: apt install ncz-flavor-{openbox,wmaker}
-# Each flavor metapackage pulls the right apt deps + writes session file.
-# XFCE remains the default; alternatives are X11-native + work on Mali Sky1.
-mkdir -p /usr/share/ncz/flavors
-cat > /usr/share/ncz/flavors/README.md <<'README'
-# NCZ Desktop Flavors
-
-NCZ 26.7 "Maximilian" ships **XFCE** as the default desktop because it works
-reliably on Cix Sky1 + Mali-G720. Four additional X11-native desktops are
-available via apt (no Vulkan/Wayland deps; will work on this hardware):
-
-| Flavor | Install | Brand fit |
-|---|---|---|
-| Window Maker (NeXTSTEP) | sudo apt install wmaker | PERFECT (NCZ = black-hole = NeXT) |
-| Openbox | sudo apt install openbox | Bare WM |
-
-After install, log out, then pick the flavor at the LightDM greeter (gear icon).
-
-# What does NOT work yet (r52)
-
-- GNOME (gnome-shell on Wayland) — blocked on Mesa panvk gaps + resolute GDM-only Wayland
-- KDE Plasma 6 — resolute dropped X11 startplasma, Wayland-only
-- Sway / Hyprland — Wayland deps, same panvk gaps
-- Cinnamon — muffin (mutter fork), likely same issues
-
-These are tracked by the upstream-watch agent (/usr/local/lib/ncz/upstream-watch.sh).
-README
-echo "[20] flavor docs at /usr/share/ncz/flavors/README.md"
-
-# r54 browsers — Firefox snap is too slow on Mali; chromium-browser .deb is also a snap-stub.
-# Real chromium via Flathub (arm64). Vivaldi as primary. Falkon + Epiphany as Qt/WebKit alternatives.
-# Brave is amd64-only on apt — no ARM64 .deb published.
-#
-# Pre-create the Qt5 dir falkon's postinst expects (resolute is Qt6-only by default; falkon postinst
-# tries `ln -s ../hunspell-bdic /usr/share/qt5/qtwebengine_dictionaries` and fails without it).
-mkdir -p /usr/share/qt5/qtwebengine_dictionaries
-
-# r189.3: dropped falkon (r181 already knows it half-configures/iF on
-# Sky1+qemu, manifests/desktop.pkgs:136) + gnome-software/-plugin-flatpak/
-# gnome-keyring (GNOME-era leftovers -- desktop is XFCE, none of these are
-# used, and they weren't in desktop.pkgs's offline-mirror closure either).
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    epiphany-browser flatpak feh 2>&1 | tail -5 || true
-
-# Vivaldi (ARM64 .deb auto-fetch latest version)
-ARCH=$(dpkg --print-architecture)
-VIVALDI_URL=$(curl -fsSL https://vivaldi.com/download/?platform=linux 2>/dev/null     | grep -oE "https://downloads.vivaldi.com/stable/vivaldi-stable_[^\"]*_${ARCH}.deb" | head -1)
-if [ -n "$VIVALDI_URL" ]; then
-    curl -fsSL -o /tmp/vivaldi.deb "$VIVALDI_URL" 2>&1 | tail -1
-    DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/vivaldi.deb 2>&1 | tail -2 || echo "vivaldi: skipped"
-    rm -f /tmp/vivaldi.deb
+for p in $(dpkg -l 'xfce4-*' 2>/dev/null | awk '/^ii/{print $2}'); do _to_purge="$_to_purge $p"; done
+if [ -n "$_to_purge" ]; then
+    echo "[20] purging installed X11/XFCE remnants (no --auto-remove):$_to_purge"
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y $_to_purge 2>&1 | tail -3 || true
+else
+    echo "[20] no XFCE/X11-desktop packages present — nothing to purge (Singularity-only)"
 fi
 
-# Flathub remote + real Chromium (arm64 Flatpak — works on Mali, sandboxed properly)
-flatpak remote-add --if-not-exists --system flathub https://flathub.org/repo/flathub.flatpakrepo 2>&1 | tail -1 || true
-# Install Chromium in background-friendly way (large download); --noninteractive guards
-flatpak install -y --system flathub org.chromium.Chromium 2>&1 | tail -3 || echo "flatpak chromium: deferred (network or repo not yet reachable)"
-
-# Replace the snap-redirect /usr/bin/chromium-browser stub with a wrapper that calls Vivaldi.
-# Many .desktop files and scripts hardcode "chromium-browser"; this keeps them working.
-DEBIAN_FRONTEND=noninteractive apt-get remove -y chromium-browser 2>&1 | tail -1 || true
-# r110 (codex audit): make the chromium-browser shim resolve a browser at
-# RUNTIME so it never execs a missing binary if a network-dependent install
-# (Vivaldi/flatpak Chromium) failed. Falls through Vivaldi -> falkon ->
-# epiphany -> flatpak Chromium -> xdg-open.
-cat > /usr/local/bin/chromium-browser <<'CHROMWRAP'
+# Default browser routing — Chromium (mirror) primary; Vivaldi (52-vivaldi) if
+# present. mimeapps + a runtime-resolving x-www-browser shim.
+cat > /usr/local/bin/x-www-browser <<'BRWRAP'
 #!/bin/sh
-# NCZ 26.6: chromium-browser compat shim — exec the first browser that exists.
-for b in /usr/bin/vivaldi-stable /usr/bin/falkon /usr/bin/epiphany; do
+for b in /usr/bin/vivaldi-stable /usr/bin/chromium /usr/bin/chromium-browser; do
     [ -x "$b" ] && exec "$b" "$@"
 done
-if command -v flatpak >/dev/null 2>&1 && flatpak info org.chromium.Chromium >/dev/null 2>&1; then
-    exec flatpak run org.chromium.Chromium "$@"
-fi
 exec xdg-open "$@"
-CHROMWRAP
-chmod +x /usr/local/bin/chromium-browser
-
-# r110 (codex audit): resolve the actual default-browser .desktop for the
-# alternatives + mimeapps defaults below, so a failed Vivaldi install does not
-# leave links pointing at a non-existent vivaldi-stable.desktop.
-if command -v vivaldi-stable >/dev/null 2>&1; then
-    BROWSER_BIN=/usr/bin/vivaldi-stable; BROWSER_DESKTOP=vivaldi-stable.desktop
-elif command -v falkon >/dev/null 2>&1; then
-    BROWSER_BIN=/usr/bin/falkon; BROWSER_DESKTOP=org.kde.falkon.desktop
-elif command -v epiphany >/dev/null 2>&1; then
-    BROWSER_BIN=/usr/bin/epiphany; BROWSER_DESKTOP=org.gnome.Epiphany.desktop
-elif flatpak info org.chromium.Chromium >/dev/null 2>&1; then
-    BROWSER_BIN=""; BROWSER_DESKTOP=org.chromium.Chromium.desktop
-else
-    BROWSER_BIN=""; BROWSER_DESKTOP=""
-fi
-echo "[20] default browser resolved to: ${BROWSER_DESKTOP:-<none>} (${BROWSER_BIN:-flatpak/xdg})"
-
-# Hide ALL snap-store launchers (App Center / show-updates) — App Center is broken on Mali.
-# We installed gnome-software (.deb) as the real App Center.
-for f in /var/lib/snapd/desktop/applications/snap-store_*.desktop; do
-    [ -f "$f" ] || continue
-    sed -i '/^NoDisplay=/d' "$f"
-    echo "NoDisplay=true" >> "$f"
-done
-
-# Remove orphan plank-preferences launcher (plank dock not installed).
-rm -f /usr/share/applications/plank-preferences.desktop
-
-# Default web browser via update-alternatives (only when we have a real binary
-# path — skip for the flatpak-only case, mimeapps below still routes it).
-if [ -n "${BROWSER_BIN:-}" ] && [ -x "$BROWSER_BIN" ]; then
-    update-alternatives --install /usr/bin/x-www-browser x-www-browser "$BROWSER_BIN" 200 2>&1 | tail -1 || true
-    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser "$BROWSER_BIN" 200 2>&1 | tail -1 || true
-    update-alternatives --set x-www-browser "$BROWSER_BIN" 2>&1 | tail -1 || true
-    update-alternatives --set gnome-www-browser "$BROWSER_BIN" 2>&1 | tail -1 || true
-else
-    echo "[20] no single-binary browser for update-alternatives (flatpak/none) — relying on mimeapps"
-fi
-
-# Disable snap-Firefox redirect package if present
-DEBIAN_FRONTEND=noninteractive apt-mark hold firefox 2>&1 | tail -1 || true
-
-# System-wide xdg mimeapps default. r110: route to the resolved browser
-# .desktop (falls back to vivaldi-stable.desktop only as a last resort).
+BRWRAP
+chmod 0755 /usr/local/bin/x-www-browser
+if command -v chromium >/dev/null 2>&1; then _bd=chromium.desktop
+elif command -v vivaldi-stable >/dev/null 2>&1; then _bd=vivaldi-stable.desktop
+else _bd=chromium.desktop; fi
 mkdir -p /etc/xdg
-_bd=${BROWSER_DESKTOP:-vivaldi-stable.desktop}
 cat > /etc/xdg/mimeapps.list <<MIME
 [Default Applications]
 text/html=$_bd
 x-scheme-handler/http=$_bd
 x-scheme-handler/https=$_bd
-x-scheme-handler/ftp=$_bd
-x-scheme-handler/chrome=$_bd
-application/x-extension-htm=$_bd
-application/x-extension-html=$_bd
 application/xhtml+xml=$_bd
-inode/directory=thunar.desktop
 MIME
+echo "[20] default browser: $_bd (Chromium shipped; Vivaldi via 52-vivaldi)"
 
-echo "[20] browsers: vivaldi (default) + flatpak Chromium + falkon + epiphany; gnome-software as App Center; firefox/snap-store hidden"
-
-# r54 wallpaper unification — every DE flavor (XFCE, MATE, LXQt, WMaker, Openbox) reads
-# /usr/share/backgrounds/ncz/default.jpg by default. The 10-min rotator (55-wallpaper-rotator.sh)
-# updates default.jpg in place; per-DE configs all point to that fixed path.
-NCZ_WP=/usr/share/backgrounds/ncz/default.jpg
-
-# XFCE — system-wide xfconf channel default (read on first session)
-#
-# r116: XFCE's xfdesktop keys the backdrop PER MONITOR as
-# /backdrop/screen0/monitor<connector>/workspace0/last-image, where
-# <connector> is the DRM/RandR output name. On Sky1 the active DP output
-# does NOT enumerate as DP-1 — depending on which of the linlondp pipelines
-# drives the panel it shows up as DP-2..DP-5 (observed: DP-4 on MS-R1). The
-# old config only defined monitor0 / monitorDP-1 / monitorHDMI-1, so on a
-# box whose panel is DP-4 xfdesktop found NO backdrop for the live monitor
-# and painted a blank/black desktop. Enumerate every plausible Sky1
-# connector so the wallpaper applies regardless of which port lights up.
-mkdir -p /etc/xdg/xfce4/xfconf/xfce-perchannel-xml
-{
-    echo '<?xml version="1.0" encoding="UTF-8"?>'
-    echo '<channel name="xfce4-desktop" version="1.0">'
-    echo '  <property name="backdrop" type="empty">'
-    echo '    <property name="screen0" type="empty">'
-    for mon in monitor0 \
-               monitorDP-1 monitorDP-2 monitorDP-3 monitorDP-4 monitorDP-5 monitorDP-6 \
-               monitorHDMI-1 monitorHDMI-2 monitorHDMI-A-1 monitoreDP-1; do
-        echo "      <property name=\"$mon\" type=\"empty\">"
-        echo '        <property name="workspace0" type="empty">'
-        echo "          <property name=\"last-image\" type=\"string\" value=\"$NCZ_WP\"/>"
-        echo '          <property name="image-style" type="int" value="5"/>'
-        echo '        </property>'
-        echo '      </property>'
-    done
-    echo '    </property>'
-    echo '  </property>'
-    echo '</channel>'
-} > /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
-
-# XFCE WM — disable GPU compositing by default. On Mali-G720 (panthor) the
-# zink/kopper GL compositor cannot create an X11 swapchain on the 7.0.x kernel
-# ("zink: could not create swapchain"); xfwm4 treats that GL init failure as
-# fatal and exits -> the session comes up with no window manager. Compositing
-# off keeps the WM stable; the GPU stays fully available for Vulkan/OpenCL/NPU
-# compute (which does not use the GL presentation path). See DRIVER_FIDELITY_7012.md.
-mkdir -p /etc/xdg/xfce4/xfconf/xfce-perchannel-xml
-cat > /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml <<'XFWMEOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<channel name="xfwm4" version="1.0">
-  <property name="general" type="empty">
-    <property name="use_compositing" type="bool" value="false"/>
-  </property>
-</channel>
-XFWMEOF
-
-# MATE / GNOME / Cinnamon — dconf system-wide default
-mkdir -p /etc/dconf/db/local.d /etc/dconf/profile
-cat > /etc/dconf/profile/user <<'DPROFILE'
-user-db:user
-system-db:local
-DPROFILE
-cat > /etc/dconf/db/local.d/00-ncz-wallpaper <<DCONFLOCAL
-[org/gnome/desktop/background]
-picture-uri='file://$NCZ_WP'
-picture-uri-dark='file://$NCZ_WP'
-picture-options='zoom'
-
-[org/cinnamon/desktop/background]
-picture-uri='file://$NCZ_WP'
-picture-options='zoom'
-DCONFLOCAL
-# r116: guard dconf — the dconf CLI may be absent from the d-i chroot at this
-# stage, which previously spewed "dconf: command not found" and left the DB
-# uncompiled. It's only needed for the MATE/GNOME/Cinnamon defaults (XFCE,
-# the default session, reads the xfconf XML above). Compile if present;
-# otherwise a dconf-using session will compile /etc/dconf/db on first use.
-if command -v dconf >/dev/null 2>&1; then
-    dconf update 2>&1 | tail -1 || true
-else
-    echo "[20] dconf CLI not present in chroot — /etc/dconf/db/local will compile on first dconf use (XFCE default uses xfconf, unaffected)"
-fi
-
-# r74: removed orphan LXQt heredoc tail (no opener — was a no-op)
-
-# Window Maker — system-wide /etc/skel default (per-user GNUstep file)
-mkdir -p /etc/skel/GNUstep/Defaults
-cat > /etc/skel/GNUstep/Defaults/WindowMaker <<WMEOF
-{
-  WorkspaceBack = (spixmap, "$NCZ_WP", "#000000");
-  SmoothWorkspaceBack = Yes;
-  IconBack = (spixmap, "$NCZ_WP", "#000000");
-}
-WMEOF
-
-# Openbox — feh autostart in /etc/skel/.config/openbox
-mkdir -p /etc/skel/.config/openbox
-cat > /etc/skel/.config/openbox/autostart <<OBEOF
-# NCZ 26.6 — set wallpaper from rotator-managed default
-feh --bg-fill $NCZ_WP &
-OBEOF
-chmod +x /etc/skel/.config/openbox/autostart
-
-# Default session = XFCE in /etc/skel (matches lightdm default; prevents
-# new users getting stuck in a less-tested DE)
-cat > /etc/skel/.dmrc <<'DMRC'
-[Desktop]
-Session=xfce
-Language=C.utf8
-DMRC
-
-# Cleanup: remove leftover lightdm conf for GNOME-Xorg (we no longer ship GNOME)
-rm -f /etc/lightdm/lightdm.conf.d/55-gnome-xorg.conf
-
-echo "[20] wallpapers unified across XFCE/MATE/LXQt/WMaker/Openbox; default session = xfce"
-
-# r55/r112 NCZ xscreensaver default config (system-wide via /etc/skel).
-# NOTE: we deliberately do NOT set a custom "programs:" list. In xscreensaver
-# 6.x, mode "random" ignores a ~/.xscreensaver programs list and instead picks
-# from the installed hack catalog (/usr/share/applications/screensavers/). Since
-# the GL hack packages are not installed, that catalog is 2D-only — exactly what
-# we want — so random just works. lock/dpms are off for appliance behaviour.
-cat > /etc/skel/.xscreensaver <<'XSS'
-timeout:		0:10:00
-cycle:			0:01:00
-lock:			False
-fade:			True
-unfade:			True
-fadeSeconds:		0:00:03
-mode:			random
-selected:		-1
-dpmsEnabled:		False
-XSS
-
-# Autostart xscreensaver in XFCE/MATE/LXQt/Openbox sessions
-mkdir -p /etc/xdg/autostart
-cat > /etc/xdg/autostart/xscreensaver.desktop <<'XAUTO'
-[Desktop Entry]
-Type=Application
-Name=XScreenSaver
-Comment=NCZ 26.7 cosmic-themed screensaver daemon
-# Force llvmpipe software GL: Mali-G720 panthor GL is flaky for xscreensaver
-# GL hacks (they fall back to blank). Software GL renders them reliably.
-Exec=env LIBGL_ALWAYS_SOFTWARE=1 xscreensaver -no-splash
-OnlyShowIn=XFCE;LXQt;MATE;Openbox;
-StartupNotify=false
-Terminal=false
-XAUTO
-echo "[20] xscreensaver installed (2D-only hacks + gl-visual shim; random from catalog)"
-
-# Appliance cleanup: mask services that fail on every boot for no benefit on
-# this platform (no iSCSI targets, no apport crash-report backend wired up).
-# Purely noise reduction — masking, not removing the packages.
+# Appliance noise reduction — mask services that fail for no benefit here.
 for u in iscsid.service apport.service; do
     if systemctl list-unit-files "$u" 2>/dev/null | grep -q "^$u"; then
         systemctl disable "$u" 2>&1 | sed 's/^/    /' || true
         systemctl mask    "$u" 2>&1 | sed 's/^/    /' || true
-        echo "[20] $u masked (not used on this platform)"
     fi
 done
+
+echo "[20] Singularity Desktop installed: /opt/singularity + LightDM-branded greeter (beta) + Wayland-only session"

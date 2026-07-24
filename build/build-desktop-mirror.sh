@@ -3,8 +3,9 @@
 #
 # Companion to build-server-mirror.sh. Where server-mirror carries the Ubuntu
 # Server closure (Priority required/important/standard + server seed), THIS
-# builds the closure of the curated Sky1 XFCE desktop set + r130 buckets
-# (completeness / offline-apt tools / GIMP) listed in manifests/desktop.pkgs.
+# builds the closure of the Sky1 SINGULARITY desktop runtime set listed in
+# manifests/desktop.pkgs (Singularity replaced XFCE in 26.7 — NO xubuntu-core,
+# NO xfce4-*; Wayland-native GTK4 runtime libs + Chromium + mpv + Xwayland).
 #
 # build-iso-di.sh merges build/desktop-mirror/pool into the ISO pool alongside
 # server-mirror and regenerates the single 'main' deb index from the combined

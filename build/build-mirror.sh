@@ -169,12 +169,11 @@ PKGS=(
   gnome-remote-desktop nautilus gedit
   gnome-terminal
 
-  # XFCE desktop (full)
-  xubuntu-core xfce4 xfce4-goodies
-  xfce4-terminal xfce4-power-manager
-  xfce4-screenshooter xfce4-taskmanager
-  xfce4-pulseaudio-plugin mousepad thunar
-  lightdm
+  # 26.7: Singularity Desktop (Wayland/GTK4) replaced XFCE. The desktop runtime
+  # closure is built by build-desktop-mirror.sh (manifests/desktop.pkgs). Only
+  # the greeter + Wayland session infra are seeded here.
+  lightdm lightdm-gtk-greeter
+  foot xsettingsd seatd swaybg xwayland
 
   # Login / plymouth
   gdm3 plymouth plymouth-themes
