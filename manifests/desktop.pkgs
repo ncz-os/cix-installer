@@ -43,6 +43,14 @@ xwayland
 polkitd
 xdg-desktop-portal
 
+# --- native Wayland screensaver / idle-lock (57-screensaver) ----------------
+# swayidle = wlroots ext-idle-notify idle timer; swaylock = fallback blank lock
+# (the native Singularity lockscreen is primary); wlopm = wlr-output-power DPMS.
+# These REPLACE X11 xscreensaver (NOT in this closure — wrong stack for Mali/WL).
+swayidle
+swaylock
+wlopm
+
 # --- GPU / GL tooling (Mali GLES; Vulkan tools for diagnostics) -------------
 mesa-utils
 vulkan-tools

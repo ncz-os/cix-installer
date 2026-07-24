@@ -206,9 +206,12 @@ build_layer(){ local role="$1" manifest="$2"
     # 26.7 Singularity brand-hook order. 20-desktop = the Singularity installer
     # (extracts /opt/singularity, curates sessions, purges XFCE/Xorg) — runs
     # FIRST so the Wayland desktop exists before the cosmetic hooks. 84-vpu-mpv
-    # writes /etc/mpv HW-decode. 57-screensaver DROPPED (X11 xscreensaver — the
-    # desktop is Wayland-only now). 30-agents before 46-ncz-cli (dep order).
-    for bh in 20-desktop 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 57-qotd 30-agents 46-ncz-cli 60-plymouth; do
+    # writes /etc/mpv HW-decode. 57-screensaver = NATIVE Wayland idle-lock
+    # (swayidle + Singularity lockscreen; the X11 xscreensaver is purged) — no
+    # longer dropped. 30-agents before 46-ncz-cli (dep order). 59-desktop-curate
+    # LAST of the app hooks (after 20/30-agents/52-vivaldi/46-ncz-cli) so it sees
+    # every app-creating hook's output when it curates the launcher.
+    for bh in 20-desktop 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 57-qotd 30-agents 46-ncz-cli 57-screensaver 59-desktop-curate 60-plymouth; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3 || log "  WARN $bh rc=$?"

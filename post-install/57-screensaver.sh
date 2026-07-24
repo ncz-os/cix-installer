@@ -1,81 +1,144 @@
 #!/bin/bash
-# 57-screensaver.sh — NCZ screensaver: GL-enabled xscreensaver on native Panfrost.
+# 57-screensaver.sh — NCZ native Wayland screensaver / idle-lock.
 #
-# Supersedes the r112 workaround in 20-desktop.sh (which removed the GL hacks,
-# shimmed the xscreensaver-gl-visual EGL probe, and forced LIBGL_ALWAYS_SOFTWARE=1).
-# That workaround was a reaction to broken GL: the CIX proprietary GPU userland
-# (cix-gpu-umd libmali/libgbm/libEGL under /opt/cixgpu-*) is prepended to the
-# loader path via /etc/ld.so.conf.d/{00-cixgpu-pro,01-cixgpu-compat}.conf and
-# SHADOWS Mesa. libmali is built for the out-of-tree mali_kbase KMD, but this
-# image runs the in-tree panthor driver -> "No mali devices found", the broken
-# CIX libgbm made native Panfrost GL fail, and Mesa fell back to zink-over-panvk
-# reporting only OpenGL 2.1 (X11 EGL probes also failed -> "no GL visuals").
+# REPLACES the retired X11 xscreensaver path (Singularity is Wayland-only on CIX
+# Mali; xscreensaver is an Xorg program — wrong stack, and the bake-off XFCE that
+# used to pull it is gone). The lock/idle here is 100% Wayland-native:
 #
-# 26-gpu-default-open now demotes that CIX stack, so GL runs NATIVELY:
-#   Mali-G720 MC10 (Panfrost), OpenGL 3.1 Mesa 26.0.3, direct rendering Yes;
-#   glxgears ~60fps; GL hacks (molecule/gears/cubestorm/pipes/atlantis/...)
-#   render fullscreen via the xscreensaver daemon (verified .66 metal 2026-07-04).
+#   idle timer : swayidle  (a wlroots ext-idle-notify-v1 client — NOT X11)
+#   lock       : the native Singularity lockscreen (/opt/singularity/bin/
+#                singularity-lockscreen, Mali GLES) via /usr/local/bin/ncz-lock,
+#                with swaylock as a blank-screen fallback
+#   screen off : wlopm (wlr-output-power-management) when the compositor supports
+#                it (DPMS-off after the lock)
 #
-# This hook makes the GL screensavers the shipped default:
-#   1. Un-diverts any legacy xscreensaver-gl-visual shim (the real EGL probe
-#      succeeds now on native Panfrost).
-#   2. /etc/skel/.xscreensaver: mode random over the full installed catalog
-#      (GL + 2D), appliance-safe (lock + DPMS off).
-#   3. Autostarts the xscreensaver daemon in XFCE via /etc/xdg/autostart using
-#      HARDWARE GL (no LIBGL_ALWAYS_SOFTWARE) so GL hacks use the Mali GPU.
+# It is driven ENTIRELY by the dev.sinty.lockscreen GSettings schema
+# (lock-enabled / idle-delay / lock-on-suspend), so the operator controls the
+# screensaver/lock from Singularity Settings — no bespoke config file. The daemon
+# (/usr/local/bin/ncz-screensaver) is launched by /usr/local/bin/ncz-singularity
+# (written in 20-desktop.sh) once the compositor socket is up.
 #
-# Config-only + idempotent. Safe in chroot (writes files; starts no daemon).
-# Ordered after 20-desktop (owns the final screensaver config) and after
-# 25/26 (GL driver selection). RUNS INSIDE CHROOT (via run-all.sh / bake loop).
+# Config-only + idempotent. Safe in chroot (writes files + gschema default;
+# starts no daemon). RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop /
+# run-all.sh).
 set -uo pipefail
 
-echo "[57] NCZ GL screensaver setup (native Mali-G720 Panfrost)"
+echo "[57] NCZ native Wayland screensaver (swayidle + Singularity lockscreen)"
 
-# 1. restore the real EGL visual probe if a prior build shimmed it away
-GLV=/usr/libexec/xscreensaver/xscreensaver-gl-visual
-if [ -e "$GLV.real" ]; then
-    rm -f "$GLV"
-    dpkg-divert --quiet --local --rename --remove "$GLV" 2>&1 | tail -1 || true
-    echo "[57] restored real xscreensaver-gl-visual (un-shimmed — native GL works)"
+VARIANT=desktop
+if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
+    VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
+fi
+case "$VARIANT" in
+    server|magnetar|headless)
+        echo "[57] BUILD_VARIANT=$VARIANT — headless SKU; skipping screensaver"
+        exit 0
+        ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 1) Purge the retired X11 xscreensaver + scrub any config a prior build left.
+# ---------------------------------------------------------------------------
+if dpkg -l xscreensaver 2>/dev/null | grep -q '^ii'; then
+    echo "[57] purging xscreensaver (X11 — wrong stack for Wayland/Mali)"
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y xscreensaver 2>&1 | tail -3 || true
+fi
+rm -f /etc/skel/.xscreensaver /etc/xdg/autostart/xscreensaver.desktop 2>/dev/null || true
+for h in /home/*; do [ -f "$h/.xscreensaver" ] && rm -f "$h/.xscreensaver" 2>/dev/null || true; done
+
+# ---------------------------------------------------------------------------
+# 2) Install the Wayland idle/lock utilities (offline from the bundled pool;
+#    also listed in manifests/desktop.pkgs so they're in the closure).
+# ---------------------------------------------------------------------------
+NEED=""
+for p in swayidle swaylock wlopm; do
+    dpkg -l "$p" 2>/dev/null | grep -q '^ii' || NEED="$NEED $p"
+done
+if [ -n "$NEED" ]; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $NEED 2>&1 | tail -3 || \
+        echo "[57] WARN: idle/lock utils not fully installed:$NEED (swayidle is required)"
 fi
 
-# 2. system-wide default config (new users inherit it via /etc/skel)
-cat > /etc/skel/.xscreensaver <<'XSS'
-timeout:	0:05:00
-cycle:		0:05:00
-lock:		False
-fade:		True
-unfade:		True
-fadeSeconds:	0:00:03
-mode:		random
-selected:	-1
-dpmsEnabled:	False
-XSS
-echo "[57] /etc/skel/.xscreensaver (mode random over GL+2D catalog, lock off)"
+# ---------------------------------------------------------------------------
+# 3) ncz-lock — idempotent native lock wrapper.
+# ---------------------------------------------------------------------------
+install -d -m0755 /usr/local/bin
+cat > /usr/local/bin/ncz-lock <<'LOCK'
+#!/bin/sh
+# ncz-lock — lock the screen with the native Singularity lockscreen (Wayland,
+# Mali-accelerated), idempotent (never double-locks). Falls back to swaylock
+# only if the native lock binary is unavailable. Wayland-native; no X11.
+if pgrep -x singularity-lockscreen >/dev/null 2>&1 || pgrep -x swaylock >/dev/null 2>&1; then
+    exit 0
+fi
+if [ -x /opt/singularity/bin/singularity-lockscreen ]; then
+    exec /opt/singularity/bin/singularity-lockscreen "$@"
+elif command -v swaylock >/dev/null 2>&1; then
+    exec swaylock -f -c 000000
+fi
+exit 0
+LOCK
+chmod 0755 /usr/local/bin/ncz-lock
 
-# best-effort: drop the default for an already-provisioned primary user whose
-# home predates the /etc/skel copy (baked images may ship an operator home).
-for h in /home/*; do
-    [ -d "$h" ] || continue
-    u=$(basename "$h")
-    id "$u" >/dev/null 2>&1 || continue
-    [ -e "$h/.xscreensaver" ] && continue
-    cp /etc/skel/.xscreensaver "$h/.xscreensaver" 2>/dev/null && \
-        chown "$u:$u" "$h/.xscreensaver" 2>/dev/null || true
-done
+# ---------------------------------------------------------------------------
+# 4) ncz-screensaver — the idle->lock daemon, driven by dev.sinty.lockscreen.
+# ---------------------------------------------------------------------------
+cat > /usr/local/bin/ncz-screensaver <<'SS'
+#!/bin/sh
+# ncz-screensaver — native Wayland idle->lock (the NCZ "screensaver"/lock).
+# Idle timer = swayidle (a wlroots ext-idle-notify-v1 client; Wayland-native,
+# NOT X11 like the retired xscreensaver). Lock = the native Singularity
+# lockscreen (Mali GLES). Screen power-off via wlopm (wlr-output-power-
+# management) when the compositor supports it. Driven ENTIRELY by the
+# dev.sinty.lockscreen GSettings schema so the operator controls it from
+# Singularity Settings:
+#   lock-enabled (b)    — master on/off
+#   idle-delay   (i)    — seconds of inactivity before lock (0 = never)
+#   lock-on-suspend (b) — handled here via swayidle before-sleep
+# Started (backgrounded, socket-gated) by /usr/local/bin/ncz-singularity.
+command -v swayidle >/dev/null 2>&1 || exit 0
 
-# 3. autostart the daemon in XFCE (hardware GL — GL hacks use the Mali GPU)
-mkdir -p /etc/xdg/autostart
-cat > /etc/xdg/autostart/xscreensaver.desktop <<'XAUTO'
-[Desktop Entry]
-Type=Application
-Name=XScreenSaver
-Comment=NCZ cosmic-themed screensaver daemon (native Mali-G720 Panfrost GL)
-Exec=xscreensaver -no-splash
-OnlyShowIn=XFCE;LXQt;MATE;Openbox;
-StartupNotify=false
-Terminal=false
-XAUTO
-echo "[57] /etc/xdg/autostart/xscreensaver.desktop (hardware GL, XFCE autostart)"
+SCHEMA=dev.sinty.lockscreen
+gs() { GSETTINGS_SCHEMA_DIR=/opt/singularity/share/glib-2.0/schemas gsettings get "$SCHEMA" "$1" 2>/dev/null; }
 
+[ "$(gs lock-enabled)" = "false" ] && exit 0
+delay=$(gs idle-delay)
+case "$delay" in ''|*[!0-9]*) delay=300 ;; esac
+[ "$delay" -eq 0 ] 2>/dev/null && exit 0
+
+LOCK=/usr/local/bin/ncz-lock
+[ -x "$LOCK" ] || LOCK=/opt/singularity/bin/singularity-lockscreen
+DPMS=$((delay + 60))
+
+set -- -w timeout "$delay" "$LOCK" before-sleep "$LOCK"
+if command -v wlopm >/dev/null 2>&1; then
+    set -- "$@" timeout "$DPMS" "wlopm --off '*'" resume "wlopm --on '*'"
+fi
+exec swayidle "$@"
+SS
+chmod 0755 /usr/local/bin/ncz-screensaver
+
+# ---------------------------------------------------------------------------
+# 5) Guarantee the shipped schema defaults (screensaver ON at 5 min). The
+#    dev.sinty.lockscreen defaults already are enabled/300/lock-on-suspend, but
+#    pin them via a gschema override so a future schema change can't silently
+#    turn the screensaver off in the shipped image. Operator can still change it
+#    live in Singularity Settings.
+# ---------------------------------------------------------------------------
+SCHEMADIR=/opt/singularity/share/glib-2.0/schemas
+if [ -f "$SCHEMADIR/dev.sinty.lockscreen.gschema.xml" ]; then
+    cat > "$SCHEMADIR/98-ncz-screensaver.gschema.override" <<'GS'
+[dev.sinty.lockscreen]
+lock-enabled=true
+idle-delay=300
+lock-on-suspend=true
+GS
+    glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
+        echo "[57] WARN: glib-compile-schemas failed (schemas compile on first session)"
+    echo "[57] dev.sinty.lockscreen default pinned: lock on, 5-min idle, lock-on-suspend"
+else
+    echo "[57] NOTE: dev.sinty.lockscreen schema absent — relying on daemon defaults (300s)"
+fi
+
+echo "[57] native Wayland screensaver installed (swayidle idle -> Singularity lockscreen; xscreensaver purged)"
 exit 0
