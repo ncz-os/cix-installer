@@ -146,8 +146,14 @@ if [ "$ROOT_FSTYPE" = "btrfs" ]; then
 fi
 echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol=${ROOT_SUBVOL:-(none)}"
 
-LTS_CMDLINE_BASE="console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
-NEXT_CMDLINE_BASE="console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
+# console: serial (ttyAMA0) FIRST so tty0 stays the primary /dev/console (last
+# console= wins) — plymouth + the graphical greeter own tty0, while the on-board
+# UART still gets kernel messages AND a serial-getty for lockout recovery
+# (doctrine: serial console must work). NEXT drops the base panic=30 because
+# NEXT_CMDLINE_EXTRA sets panic=6 (edge wants fast panic) — carrying both was a
+# confusing duplicate on one cmdline.
+LTS_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
+NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused module_blacklist=typec_rts5453,rts5453"
 
 # The edge (NEXT) kernel needs board-specific PCIe/SCMI knobs that the stable
 # kernel does not: the 7.2 forward-port was only ever metal-validated with
@@ -157,7 +163,11 @@ NEXT_CMDLINE_BASE="console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_byp
 NEXT_CMDLINE_EXTRA="pcie_aspm=off sky1_pcie_native=off pcie_pnp_en acpi_scmi_en=off loglevel=3 oops=panic panic=6 ramoops.mem_address=0x83d00000 ramoops.mem_size=0x100000 ramoops.record_size=0x40000 ramoops.console_size=0x80000 ramoops.ecc=0"
 NEXT_CMDLINE_BASE="$NEXT_CMDLINE_BASE $NEXT_CMDLINE_EXTRA"
 
-SPLASH="quiet splash"
+# Graphical-only cmdline (appended to the desktop entries, NOT rescue): quiet +
+# splash for a clean branded boot, and vt.global_cursor_default=0 to kill the
+# blinking text-console cursor that otherwise flashes on the greetd<->session
+# handoff VT. Rescue keeps a normal cursor (it does not get $SPLASH).
+SPLASH="quiet splash vt.global_cursor_default=0"
 [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 
 ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootdelay=90 rootfstype=$ROOT_FSTYPE rw"

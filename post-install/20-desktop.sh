@@ -245,8 +245,16 @@ export DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null
 export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=labwc
 export GDK_BACKEND=wayland
+# GSK_RENDERER=gl forces GTK4's GL renderer so it never probes Vulkan (there is
+# no Vulkan on the Mali blob) — that probe printed red VK_ERROR_INITIALIZATION_
+# FAILED lines to the VT console during the login/logout handoff.
+export GSK_RENDERER=gl
 export PATH="/opt/regreet/bin:$PATH"
-exec labwc -C /etc/greetd/regreet-labwc
+# Redirect ALL greeter/compositor output to a log so no benign EGL/DBus/GTK
+# warning ever paints on the transition VT (the "red messages on login" the
+# operator saw). Keeps the greetd<->session handoff visually clean.
+mkdir -p /var/log/regreet 2>/dev/null
+exec labwc -C /etc/greetd/regreet-labwc >>/var/log/regreet/greeter.log 2>&1
 REGW
 chmod 0755 /usr/local/bin/ncz-regreet-greeter
 

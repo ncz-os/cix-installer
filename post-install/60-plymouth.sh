@@ -108,6 +108,24 @@ echo "[60] default.plymouth -> $(readlink -f "$DEFAULT_PLY" 2>/dev/null) (manual
 # Proactively UNMASK in case an earlier build left these units masked.
 systemctl unmask plymouth-quit.service plymouth-quit-wait.service 2>/dev/null || true
 
+# --- SMOOTH HANDOFF: retain the splash frame across boot -> greeter ---------
+# Default plymouth-quit runs `plymouth quit`, which tears the splash off the
+# framebuffer the instant it exits — so at the boot->greetd handoff the fb
+# reverts to a raw black text VT (blinking cursor + any late console line) for
+# the ~1s until the greeter compositor (labwc) grabs DRM master and paints.
+# `--retain-splash` leaves the branded splash image ON the framebuffer after
+# plymouthd exits, so that gap shows the NCZ splash instead of a black console
+# VT. Override ExecStart via a drop-in (idempotent). Pairs with
+# vt.global_cursor_default=0 (cmdline) + the quiet-console sysctl (58-hook) so
+# the login/logout transition VT carries no cursor and no leaked kernel text.
+install -d -m0755 /etc/systemd/system/plymouth-quit.service.d
+cat > /etc/systemd/system/plymouth-quit.service.d/10-retain-splash.conf <<'PQ'
+[Service]
+ExecStart=
+ExecStart=-/usr/bin/plymouth quit --retain-splash
+PQ
+echo "[60] plymouth-quit -> 'quit --retain-splash' (branded curtain over the boot->greeter handoff)"
+
 echo "[60] plymouth splash configured (spinner + NCZ watermark); plymouth-quit left enabled"
 
 # r56: explicit plymouth theme set + initramfs rebuild

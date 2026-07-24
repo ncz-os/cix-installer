@@ -11,9 +11,9 @@
 # It sets up four things:
 #   1. telnetd on TCP 23 (CLAUDE.md directive 9 — LAN-only lockout
 #      prevention; backup console when sshd hangs / has bad config).
-#   2. rsyslog forwarding ALL messages to loghost 192.168.207.22 (ARGOS)
-#      over UDP/514 — so a box that wedges mid-boot still streams its
-#      kernel + service logs to a host that stays up.
+#   2. rsyslog installed; remote loghost forwarding is OPT-IN via the
+#      /etc/ncz-loghost marker (off by default — an always-on forward to a
+#      fleet IP spammed "omfwd: Network is unreachable" on shipped images).
 #   3. Persistent journald (Storage=persistent) so logs survive the
 #      reboot and can be read from rescue.target afterwards.
 #   4. Serial getty on ttyAMA0 @115200 — a real login over the on-board
@@ -88,32 +88,46 @@ if [ -f /etc/securetty ]; then
 fi
 
 # ----------------------------------------------------------------------
-# 2. rsyslog → loghost .22  (forward EVERYTHING, best-effort UDP)
+# 2. rsyslog → loghost  (OPT-IN — off by default on a shipped image)
 # ----------------------------------------------------------------------
-echo "[36] installing rsyslog + remote forwarding to $LOGHOST"
+# Forwarding *.* to a hardcoded fleet IP (192.168.207.22) is wrong for a
+# shipped/community image: off-fleet that host is unreachable, so rsyslog's
+# omfwd action logged "omfwd: Network is unreachable" ~26x every boot (the
+# forward is attempted before the network route exists). Persistent journald
+# (below) + serial console + telnet already cover on-box observability, so the
+# remote forward is now OPT-IN: it is only written when the operator drops a
+# marker file /etc/ncz-loghost with the loghost IP (or the legacy default is
+# used when the marker just says "default"). No marker => no forward => no spam.
+echo "[36] installing rsyslog (remote forward is opt-in via /etc/ncz-loghost)"
 timeout 300 env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends rsyslog 2>&1 | tail -3
 
-if dpkg -s rsyslog >/dev/null 2>&1; then
+# Never ship the old always-on forward; remove any stale copy from a prior image.
+rm -f /etc/rsyslog.d/90-loghost.conf
+
+FWD_HOST=""
+if [ -r /etc/ncz-loghost ]; then
+    FWD_HOST=$(tr -d ' \t\r\n' < /etc/ncz-loghost)
+    [ "$FWD_HOST" = "default" ] && FWD_HOST="$LOGHOST"
+fi
+if dpkg -s rsyslog >/dev/null 2>&1 && [ -n "$FWD_HOST" ]; then
     mkdir -p /etc/rsyslog.d
     cat > /etc/rsyslog.d/90-loghost.conf <<EOF
-# NCZ telemetry — forward ALL messages to fleet loghost (ARGOS .22).
-# UDP @ = fire-and-forget (best effort, survives a wedging box better
-# than a blocking TCP queue). Disk-queue so a brief loghost outage
-# doesn't drop local logging.
+# NCZ telemetry — forward ALL messages to loghost (opt-in via /etc/ncz-loghost).
+# reportSuspension off so a brief unreachable-loghost window does not spam the
+# local log with "Network is unreachable".
 \$ActionQueueType LinkedList
 \$ActionQueueFileName loghost_fwd
 \$ActionResumeRetryCount -1
 \$ActionQueueSaveOnShutdown on
-*.*  @${LOGHOST}:514
+*.* action(type="omfwd" target="${FWD_HOST}" port="514" protocol="udp"
+          action.resumeRetryCount="-1" action.reportSuspension="off"
+          action.reportSuspensionContinuation="off"
+          queue.type="LinkedList" queue.filename="loghost_fwd" queue.saveOnShutdown="on")
 EOF
-    # Pull kernel + journal into rsyslog so the forward includes them.
     systemctl enable rsyslog 2>&1 | tail -1
-    echo "[36] rsyslog forwarding *.* to @${LOGHOST}:514 (UDP)"
+    echo "[36] rsyslog forwarding *.* to ${FWD_HOST}:514 (opt-in, suspension reporting off)"
 else
-    echo "[36] WARN: rsyslog unavailable — relying on journald forward only"
-    # journald can forward to a remote via systemd-journal-upload, but
-    # that needs a journal-remote receiver on .22. rsyslog UDP is the
-    # simpler, more universally-received path; log the gap and continue.
+    echo "[36] rsyslog remote forward NOT configured (no /etc/ncz-loghost marker) — journald persistent covers logs"
 fi
 
 # ----------------------------------------------------------------------
