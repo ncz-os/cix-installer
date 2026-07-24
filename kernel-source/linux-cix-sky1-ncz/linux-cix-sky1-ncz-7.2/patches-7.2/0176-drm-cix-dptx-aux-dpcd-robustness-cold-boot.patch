@@ -1,0 +1,177 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Fri, 25 Jul 2026 00:00:00 +0000
+Subject: [PATCH] drm/cix/dptx: make AUX/DPCD robust so DP link training
+ survives cold-boot AUX hiccups
+
+Intermittent no-display-on-boot on the CIX Sky1 (O6N) DP->HDMI converter
+output (trilin-dptx-cix CIXH502F:01 / DP-2, the HDMI-primary path). On the
+failing boots the serial log shows, in order:
+
+  trilin_dp_aux_transfer  failed to do aux transfer (-16)   (-EBUSY)
+  trinlin_dp_panel_read_sink_caps  read dcpd caps failed...
+  trilin_dp_train  failed to trilin_dp_link_train_cr. rate:162000 lanes:4  (x272)
+  trilin_dp_train_loop  failed to train the DP link
+  trilin_dp_link_process_link_status_update  clock_recovery_ok[NO] channel_eq_ok[NO]
+
+Root cause is the AUX channel, not link margin or the cable/monitor:
+
+1. trilin_dp_aux_cmd_submit() returned -EBUSY immediately whenever the AUX
+   status register still showed REQUEST_IN_PROGRESS / REPLY_IN_PROGRESS. At
+   cold boot (and after an aborted transaction, or while the DP->HDMI
+   converter is still settling) the engine has not yet drained, so a
+   perfectly recoverable transient was reported as a hard failure.
+
+2. trilin_dp_aux_transfer() *looked* like it retried (outer loop bounded by
+   aux_timeout_ms) but did "goto err" on the first cmd_submit error, exiting
+   the function and defeating its own retry loop. So a single transient
+   -EBUSY became a permanent DPCD/EDID read failure. (It also had a latent
+   bug: when printk_ratelimit() throttled the message, a failed sub-transfer
+   was counted as accessed_bytes.)
+
+3. With DPCD caps unreadable, link training ran against stale/default link
+   config (1.62 Gbps x4) and every drm_dp_dpcd_read_link_status() inside the
+   CR loop failed over the same broken AUX, so clock-recovery could never
+   complete -- hence the 272-deep failure flood. A greetd restart (fresh
+   modeset seconds later, once the engine had settled) recovered it, which is
+   exactly the signature of a cold-boot AUX-not-ready race.
+
+Fix (robustness, converter path):
+- trilin_dp_aux_cmd_submit(): poll for the AUX engine to drain (up to ~2ms)
+  before returning -EBUSY.
+- trilin_dp_aux_transfer(): actually retry the message on a transient error
+  (-EBUSY/-ETIMEDOUT/-EIO) across the existing aux_timeout_ms budget instead
+  of aborting on the first one; only fail after the budget is exhausted, and
+  stop counting failed sub-transfers as progress.
+- trinlin_dp_panel_read_sink_caps(): retry drm_dp_read_dpcd_caps() a few
+  times with a short delay (the code already flagged "Fixme: may need sleep
+  for ready") so a marginally-late converter does not cost the whole modeset.
+
+Note on link-rate/lane fallback: trilin_dp_train_loop() already downshifts
+the link rate to the 1.62 Gbps floor, and trilin_dp_mode_configure() already
+selects the fewest lanes that carry the pixel clock; on this converter path
+the required config is 1.62 Gbps x4, so further lane reduction cannot carry
+the mode and is not the fix. The failure here is AUX readiness, addressed
+above.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/drm/cix/dptx/trilin_dptx.c	2026-07-25 05:02:56.254940334 +0800
++++ b/drivers/gpu/drm/cix/dptx/trilin_dptx.c	2026-07-25 05:02:56.325636807 +0800
+@@ -809,10 +809,25 @@
+ 	bool is_read = (cmd & AUX_READ_BIT) ? true : false;
+ 	u32 reg, i;
+ 
+-	reg = trilin_dp_read(dp, TRILIN_DPTX_AUX_STATUS);
++	/*
++	 * NCZ: at cold boot (and after an aborted transaction) the AUX engine
++	 * can still report a request/reply in progress from a prior command that
++	 * has not yet drained. Returning -EBUSY immediately here -- combined with
++	 * the missing retry in trilin_dp_aux_transfer() -- turned a transient busy
++	 * into a permanent DPCD/EDID read failure ("read dcpd caps failed") and a
++	 * black screen on the DP->HDMI converter path (CIXH502F:01). Poll for the
++	 * engine to drain (up to ~2ms) before giving up.
++	 */
++	for (i = 0; i < 20; i++) {
++		reg = trilin_dp_read(dp, TRILIN_DPTX_AUX_STATUS);
++		if (!(reg & (TRILIN_DPTX_AUX_STATUS_REQUEST_IN_PROGRESS |
++			     TRILIN_DPTX_AUX_STATUS_REPLY_IN_PROGRESS)))
++			break;
++		usleep_range(100, 150);
++	}
+ 	if (reg & (TRILIN_DPTX_AUX_STATUS_REQUEST_IN_PROGRESS |
+ 		   TRILIN_DPTX_AUX_STATUS_REPLY_IN_PROGRESS)) {
+-		DP_DEBUG("TRILIN_DPTX_AUX_STATUS_REPLY_IN_PROGRESS\n");
++		DP_DEBUG("AUX engine still busy after drain wait\n");
+ 		return -EBUSY;
+ 	}
+ 	trilin_dp_write(dp, TRILIN_DPTX_AUX_ADDRESS, addr);
+@@ -881,9 +896,9 @@
+ 				      struct drm_dp_aux_msg *msg)
+ {
+ 	struct trilin_dp *dp = container_of(aux, struct trilin_dp, aux);
+-	int ret;
++	int ret = 0;
+ 	unsigned int i, iter;
+-	size_t to_access, accessed_bytes;
++	size_t to_access = 0, accessed_bytes = 0;
+ 
+ 	/* Number of loops = timeout in msec / aux delay (400 usec) */
+ 	iter = trilin_dp_aux_timeout_ms * 1000 / 400;
+@@ -896,6 +911,8 @@
+ 		/* after sleep, maybe dp is disconnected, so check again */
+ 		if (!trilin_dp_get_hpd_state(dp))
+ 			goto err;
++
++		ret = 0;
+ 		do {
+ 			to_access = min_t(size_t, DP_AUX_MAX_PAYLOAD_BYTES,
+ 					  msg->size - accessed_bytes);
+@@ -904,20 +921,35 @@
+ 				dp, msg->request, msg->address + accessed_bytes,
+ 				msg->buffer + accessed_bytes, to_access,
+ 				&msg->reply);
+-			if (ret && printk_ratelimit()) {
+-				DP_ERR("failed to do aux transfer (%d)\n", ret);
+-				goto err;
+-			}
++			/*
++			 * NCZ: a transient AUX error (-EBUSY engine not yet drained,
++			 * -ETIMEDOUT no reply yet, -EIO short read) must NOT abort the
++			 * whole transfer. The original code did goto err on the first
++			 * error, defeating this very retry loop and turning a cold-boot
++			 * AUX hiccup into "read dpcd caps failed" -> no link training ->
++			 * black screen. Break out and let the outer loop back off and
++			 * re-submit the message.
++			 */
++			if (ret)
++				break;
+ 
+ 			accessed_bytes += to_access;
+ 		} while (accessed_bytes < msg->size);
+ 
+-		if (accessed_bytes == msg->size)
++		if (!ret && accessed_bytes == msg->size)
+ 			break;
+ 
++		/* transient failure: back off (~400us) and retry the message */
+ 		usleep_range(400, 500);
+ 	}
+ 
++	if (ret) {
++		if (printk_ratelimit())
++			DP_ERR("failed to do aux transfer (%d) after %u retries\n",
++			       ret, i);
++		goto err;
++	}
++
+ 	dev_dbg(dp->dev, "aux done after %d retry\n", i);
+ 	return msg->size;
+ err:
+@@ -2266,8 +2298,24 @@
+ 	struct drm_dp_aux *drm_aux = &dp->aux;
+ 	struct trilin_dp_link_config *config = &dp->link_config;
+ 
+-	/*Fixme: may need sleep for ready...*/
+-	rc = drm_dp_read_dpcd_caps(drm_aux, dp->dpcd);
++	/*
++	 * NCZ: the sink/converter DPCD may not be reachable on the very first
++	 * read at cold boot (AUX engine or DP->HDMI converter still settling).
++	 * Retry a few times with a short delay before declaring failure so a
++	 * marginally-late converter does not cost us the whole modeset.
++	 */
++	{
++		int caps_try;
++
++		for (caps_try = 0; caps_try < 5; caps_try++) {
++			rc = drm_dp_read_dpcd_caps(drm_aux, dp->dpcd);
++			if (!rc)
++				break;
++			DP_WARN("read dpcd caps failed (%d), retry %d/5\n",
++				rc, caps_try + 1);
++			msleep(20);
++		}
++	}
+ 	if (rc) {
+ 		DP_ERR("read dcpd caps failed...\n");
+ 		return rc;

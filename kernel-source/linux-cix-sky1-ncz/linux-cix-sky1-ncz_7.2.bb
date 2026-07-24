@@ -285,6 +285,7 @@ SRC_URI = " \
     file://patches-7.2/0171-asoc-cix-pick-hdmi-codec-child-explicitly.patch \
     file://patches-7.2/0172-thermal-cix-resolve-scmi-perf-domain-via-genpd-acpi.patch \
     file://patches-7.2/0173-amvx-vb2-queue-lock-7.2.patch \
+    file://patches-7.2/0176-drm-cix-dptx-aux-dpcd-robustness-cold-boot.patch \
 "
 
 COMPATIBLE_MACHINE = "(cixmini)"
