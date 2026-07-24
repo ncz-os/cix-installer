@@ -38,7 +38,6 @@ grim
 slurp
 fuzzel
 xwayland
-polkit
 polkitd
 xdg-desktop-portal
 
@@ -72,8 +71,7 @@ fonts-noto-cjk
 fonts-noto-color-emoji
 fonts-liberation
 
-# --- browser + media (Chromium shipped; Vivaldi via 52-vivaldi; mpv HW video)
-chromium
+# --- browser + media (Vivaldi via 52-vivaldi; mpv HW video) ---------------
 mpv
 
 # --- archives + PDF + image (GTK, DE-agnostic) -----------------------------
