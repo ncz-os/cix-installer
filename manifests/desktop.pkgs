@@ -74,11 +74,17 @@ wireplumber
 pavucontrol
 
 # --- removable media + network + bluetooth ---------------------------------
+# NETWORK: NCZ-OS 26.7 ships the NATIVE Singularity network daemon `sinty-nm`
+# (Go, static, /usr/bin/sinty-nmd) which OWNS org.freedesktop.NetworkManager on
+# the system bus (a full NM replacement, wire-compatible with libnm/nmcli). So
+# NetworkManager + network-manager-gnome are NOT shipped (20-desktop purges/masks
+# NM). iwd = the WiFi backend sinty-nm drives; wireguard-tools = its VPN backend.
 gvfs
 gvfs-backends
 udisks2
 gnome-disk-utility
-network-manager-gnome
+iwd
+wireguard-tools
 bluez
 blueman
 
@@ -104,7 +110,11 @@ gdebi-core
 software-properties-gtk
 
 # --- keyring / disk-usage ---------------------------------------------------
-seahorse
+# KEYRING: the NATIVE `singularity-keyring` (in /opt/singularity, D-Bus-activated
+# org.freedesktop.secrets) is THE Secret Service — gnome-keyring is NOT shipped
+# (20-desktop purges it; it would otherwise grab the secrets name first). seahorse
+# is dropped with it (seahorse depends on gnome-keyring; Singularity has its own
+# secret UI).
 baobab
 
 # --- image editing ----------------------------------------------------------

@@ -118,3 +118,6 @@ assets/singularity/*.tgz
 
 # regreet greeter binary — build-time blob (fetch from .66:/tmp/regreet)
 assets/regreet/regreet
+# sinty-nm daemon — build-time blob (build singularityos-lab/sinty-nm; fetch from
+# .66:/home/jasonperlow/sinty-build/nm-build/out/sinty-nmd)
+assets/sinty-nm/sinty-nmd

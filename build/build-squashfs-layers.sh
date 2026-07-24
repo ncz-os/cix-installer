@@ -158,6 +158,20 @@ build_layer(){ local role="$1" manifest="$2"
     else
       log "  WARN: assets/regreet/regreet ABSENT — greetd greeter will have NO UI (fetch .66:/tmp/regreet)"
     fi
+    # 26.7: stage the native sinty-nm daemon (+ unit + D-Bus policy) so
+    # 20-desktop installs /usr/bin/sinty-nmd and swaps out NetworkManager.
+    # sinty-nmd is a gitignored build blob (build via singularityos-lab/sinty-nm;
+    # fetch from .66:/home/jasonperlow/sinty-build/nm-build/out/sinty-nmd).
+    if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/sinty-nm"
+      sudo cp -a "$ROOT/assets/sinty-nm/sinty-nmd" \
+                 "$ROOT/assets/sinty-nm/sinty-nm.service" \
+                 "$ROOT/assets/sinty-nm/org.freedesktop.NetworkManager.conf" \
+                 "$MG/usr/local/lib/cix-installer/assets/sinty-nm/" 2>/dev/null || true
+      log "  staged sinty-nm daemon ($(du -h "$ROOT/assets/sinty-nm/sinty-nmd" | cut -f1))"
+    else
+      log "  WARN: assets/sinty-nm/sinty-nmd ABSENT — 20-desktop falls back to NetworkManager (build singularityos-lab/sinty-nm)"
+    fi
     # r189.5: stage assets/cix-py/ so 46-ncz-cli.sh's /opt/cix/npu_embed_v2.py
     # install actually lands -- it was only ever looking at /cdrom, which
     # doesn't exist in this chroot (install-media-only mount), so this was

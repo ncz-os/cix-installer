@@ -93,10 +93,93 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
     pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol 2>&1 | tail -3 || true
 systemctl --global enable pipewire pipewire-pulse wireplumber 2>&1 | tail -2 || true
 
-# Removable media + network applet + bluetooth.
+# Removable media + bluetooth. (NO network-manager-gnome — the native sinty-nm
+# daemon replaces NetworkManager; see the "Native network" block below.)
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    gvfs gvfs-backends udisks2 network-manager-gnome bluez blueman 2>&1 | tail -3 || true
+    gvfs gvfs-backends udisks2 bluez blueman 2>&1 | tail -3 || true
 systemctl enable bluetooth 2>&1 | tail -1 || true
+
+# ---------------------------------------------------------------------------
+# Native network — sinty-nm (singularityos-lab/sinty-nm).
+# sinty-nm is a static Go daemon that OWNS org.freedesktop.NetworkManager on the
+# system bus and serves the same object tree, so nmcli / libnm / portals / the
+# panel network indicator all keep working unchanged. It is a full NM REPLACEMENT
+# (not a frontend): WiFi via iwd, L2/L3 via rtnetlink, IPv4 via a built-in DHCP
+# client, VPN via WireGuard. Two daemons cannot own the name, so NetworkManager
+# is purged + masked. Binary is a staged build-time blob (assets/sinty-nm/).
+# ---------------------------------------------------------------------------
+echo "[20] native network: sinty-nm (replaces NetworkManager)"
+# Backends: iwd (WiFi) + wireguard-tools (VPN). Installed even on ethernet-only
+# boards (O6N) for completeness across the fleet.
+if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends iwd wireguard-tools; then
+    ncz_ports_fallback
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends iwd wireguard-tools || \
+        echo "[20] WARN: iwd/wireguard-tools install failed (WiFi/VPN backends)"
+fi
+SINTY_NMD=""
+for c in /usr/local/lib/cix-installer/assets/sinty-nm/sinty-nmd \
+         /cdrom/assets/sinty-nm/sinty-nmd \
+         /run/cixmini/assets/sinty-nm/sinty-nmd; do
+    [ -f "$c" ] && { SINTY_NMD="$c"; break; }
+done
+if [ -n "$SINTY_NMD" ]; then
+    _AD="$(dirname "$SINTY_NMD")"
+    install -m0755 "$SINTY_NMD" /usr/bin/sinty-nmd
+    install -D -m0644 "$_AD/sinty-nm.service" /usr/lib/systemd/system/sinty-nm.service
+    # D-Bus system policy — grants sinty-nmd ownership of the NM name (replaces
+    # the policy NetworkManager used to ship; without it the bus refuses the name).
+    install -D -m0644 "$_AD/org.freedesktop.NetworkManager.conf" \
+        /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf
+    # Purge NetworkManager + its GTK applet/editor (present-only, NEVER
+    # --auto-remove — the r166-r170 truncated-/etc/passwd saga). Two daemons
+    # cannot own org.freedesktop.NetworkManager.
+    _nm_present=""
+    for p in network-manager network-manager-gnome network-manager-applet nm-connection-editor; do
+        dpkg -l "$p" 2>/dev/null | grep -q '^ii' && _nm_present="$_nm_present $p"
+    done
+    if [ -n "$_nm_present" ]; then
+        echo "[20] purging NetworkManager (sinty-nm owns the name now):$_nm_present"
+        DEBIAN_FRONTEND=noninteractive apt-get purge -y $_nm_present 2>&1 | tail -3 || true
+    fi
+    # Belt-and-braces: mask any NM units that survive (e.g. NM pulled back as a
+    # dep) so they never contend for the bus name at boot.
+    systemctl disable NetworkManager.service NetworkManager-wait-online.service \
+        NetworkManager-dispatcher.service 2>/dev/null || true
+    systemctl mask NetworkManager.service NetworkManager-wait-online.service 2>/dev/null || true
+    # sinty-nm writes /etc/resolv.conf directly — it must be a writable regular
+    # file, not a read-only/systemd-resolved symlink.
+    if [ -L /etc/resolv.conf ] || [ ! -e /etc/resolv.conf ]; then
+        rm -f /etc/resolv.conf
+        : > /etc/resolv.conf
+        chmod 0644 /etc/resolv.conf
+    fi
+    systemctl enable iwd.service 2>/dev/null || true
+    systemctl enable sinty-nm.service 2>/dev/null || true
+    echo "[20] sinty-nm installed + enabled (iwd WiFi backend, WireGuard VPN); NetworkManager purged/masked"
+else
+    echo "[20] WARN: assets/sinty-nm/sinty-nmd not staged — falling back to NetworkManager" >&2
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends network-manager 2>&1 | tail -2 || true
+    systemctl enable NetworkManager 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
+# Native keyring — singularity-keyring (in /opt/singularity) is THE Secret
+# Service. Its D-Bus-activated org.freedesktop.secrets service ships in the
+# payload; it only wins if gnome-keyring is NOT present (gnome-keyring grabs the
+# name first at session start). Purge gnome-keyring (takes seahorse — a
+# gnome-keyring frontend — with it) and remove its autostart so the native
+# daemon is D-Bus-activated on first secrets request.
+# ---------------------------------------------------------------------------
+_gk_present=""
+for p in gnome-keyring seahorse; do
+    dpkg -l "$p" 2>/dev/null | grep -q '^ii' && _gk_present="$_gk_present $p"
+done
+if [ -n "$_gk_present" ]; then
+    echo "[20] purging gnome-keyring (native singularity-keyring is the Secret Service):$_gk_present"
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y $_gk_present 2>&1 | tail -3 || true
+fi
+rm -f /etc/xdg/autostart/gnome-keyring-*.desktop 2>/dev/null || true
+echo "[20] keyring: native singularity-keyring (org.freedesktop.secrets, D-Bus-activated)"
 
 # Fonts: Noto base + CJK + colour emoji.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -189,7 +272,15 @@ fi
 export PATH="/opt/singularity/bin:$PATH"
 export XDG_DATA_DIRS="/opt/singularity/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 export LD_LIBRARY_PATH="/opt/singularity/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export TERMINAL=foot
+# Default terminal = the native Singularity terminal (singularity-leafs, VTE).
+# foot is kept installed as a fallback for the scripted NCZ installer launchers
+# (they need foot's --hold/-T flags, which leafs does not expose) and greeter
+# recovery.
+if command -v singularity-leafs >/dev/null 2>&1; then
+    export TERMINAL=singularity-leafs
+else
+    export TERMINAL=foot
+fi
 # Native Wayland screensaver (idle->lock). Started once the compositor socket is
 # up; backgrounded, dies with the session. Wayland-native (swayidle -> the native
 # Singularity lockscreen); no X11. ncz-idle-manager reads the dev.ncz.screensaver
