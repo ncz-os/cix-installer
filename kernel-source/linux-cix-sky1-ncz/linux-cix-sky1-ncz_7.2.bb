@@ -286,6 +286,14 @@ SRC_URI = " \
     file://patches-7.2/0172-thermal-cix-resolve-scmi-perf-domain-via-genpd-acpi.patch \
     file://patches-7.2/0173-amvx-vb2-queue-lock-7.2.patch \
     file://patches-7.2/0176-drm-cix-dptx-aux-dpcd-robustness-cold-boot.patch \
+    file://patches-7.2/0177-pinctrl-sky1-quiet-absent-optional-pin-groups.patch \
+    file://patches-7.2/0178-firmware-arm-scmi-quiet-fastchannel-fallback-noise.patch \
+    file://patches-7.2/0179-iommu-arm-smmu-v3-demote-benign-fw-config-notes.patch \
+    file://patches-7.2/0180-usb-cdns3-sky1-fix-runtime-pm-parent-child-order.patch \
+    file://patches-7.2/0181-regulator-cix-handle-unsupported-pmic-constraints-quietly.patch \
+    file://patches-7.2/0182-asoc-cix-hdmi-audio-drop-duplicate-dapm-registration.patch \
+    file://patches-7.2/0183-genpd-cix-dedupe-power-domain-opp-table.patch \
+    file://patches-7.2/0184-thermal-cix-cpufreq-cooling-acpi-no-of-node.patch \
 "
 
 COMPATIBLE_MACHINE = "(cixmini)"
