@@ -11,16 +11,15 @@
 # bring-up box (Radxa Orion O6N, CIX Sky1). GPU userspace is swappable via
 # ncz-gpu-env (Mali libmali GLES today; Panthor/Mesa experimental).
 #
-# GREETER (beta): lightdm + lightdm-gtk-greeter, NCZ-branded. This is a
-# TEMPORARY dev placeholder — the shipping greeter is greetd + regreet (GTK4,
-# Mali-accelerated Wayland), built by a separate agent. The swap is one block:
-# see the "GREETER SWAP POINT" marker below.
+# GREETER (SHIP): greetd + regreet (GTK4, Mali-accelerated Wayland) on labwc —
+# proven Mali-rendered (libmali/libEGL_cix, no llvmpipe), NCZ-branded, zero
+# compromise. regreet binary installed here; 55-greeter writes the config.
 #
 # RUNS INSIDE CHROOT at desktop-layer bake time (build-squashfs-layers.sh
 # desktop loop), NOT via install-time MACHINE_HOOKS.
 
 set -euo pipefail
-echo "[20] Singularity Desktop layer (labwc/wlroots + LightDM-branded greeter [beta])"
+echo "[20] Singularity Desktop layer (labwc/wlroots + greetd/regreet Mali greeter)"
 
 VARIANT=desktop
 if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
@@ -71,8 +70,9 @@ fi
 # Core Singularity runtime + Wayland stack + greeter. These are the SYSTEM libs
 # the /opt/singularity binaries link against, plus the session infra (labwc runs
 # from the tarball; foot terminal; seatd; swaybg; xsettingsd; polkit; Xwayland
-# for X-app compat). LightDM is the beta greeter. NO Xorg server, NO XFCE.
-CORE_DESKTOP="lightdm lightdm-gtk-greeter \
+# for X-app compat). GREETER = greetd + regreet (GTK4, Mali). NO lightdm, NO
+# Xorg server, NO XFCE. glycin-loaders = regreet background image loaders.
+CORE_DESKTOP="greetd glycin-loaders \
     libgtk-4-1 libadwaita-1-0 libgtk4-layer-shell0 \
     libgee-0.8-2 libpeas-2-0 libjson-glib-1.0-0 libsoup-3.0-0 \
     libvte-2.91-gtk4-0 libgtksourceview-5-0 libwebkitgtk-6.0-4 \
@@ -208,6 +208,49 @@ WSESS
 echo "[20] ncz-gpu-env + ncz-singularity + singularity.desktop installed"
 
 # ---------------------------------------------------------------------------
+# regreet greeter binary (GTK4/Rust, Mali-accelerated) -> /opt/regreet/bin.
+# Staged asset (assets/regreet/regreet, arm64); 55-greeter writes the config.
+# The wrapper is THE fix: regreet black-screens without GTK_USE_PORTAL=0 +
+# DBUS_SESSION_BUS_ADDRESS=/dev/null (GTK4 else blocks 120s on
+# xdg-desktop-portal on the _greetd bus). Sources ncz-gpu-env for libmali.
+# ---------------------------------------------------------------------------
+REGREET_BIN=""
+for c in /usr/local/lib/cix-installer/assets/regreet/regreet \
+         /cdrom/assets/regreet/regreet \
+         /run/cixmini/assets/regreet/regreet; do
+    [ -f "$c" ] && { REGREET_BIN="$c"; break; }
+done
+if [ -n "$REGREET_BIN" ]; then
+    install -d -m0755 /opt/regreet/bin
+    install -m0755 "$REGREET_BIN" /opt/regreet/bin/regreet
+    echo "[20] regreet installed -> /opt/regreet/bin/regreet"
+else
+    echo "[20] WARN: assets/regreet/regreet not staged — greetd greeter will have no UI!" >&2
+fi
+
+# Greeter wrapper (labwc + regreet, Mali). Critical env fixes baked in.
+cat > /usr/local/bin/ncz-regreet-greeter <<'REGW'
+#!/bin/sh
+# ncz-regreet-greeter — NCZ-OS greetd greeter. regreet (GTK4/libadwaita) on
+# labwc, rendered on CIX Mali GLES (libmali) exactly like the Singularity shell.
+# GTK3 gtkgreet blackscreened on libmali; GTK4 accelerates. THE fix: without
+# GTK_USE_PORTAL=0 + a dead session bus, GTK4 blocks ~120s on
+# xdg-desktop-portal on the _greetd bus and the greeter shows black.
+if [ -r /usr/local/bin/ncz-gpu-env ]; then
+    . /usr/local/bin/ncz-gpu-env
+fi
+unset LIBGL_ALWAYS_SOFTWARE
+export GTK_USE_PORTAL=0
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=labwc
+export GDK_BACKEND=wayland
+export PATH="/opt/regreet/bin:$PATH"
+exec labwc -C /etc/greetd/regreet-labwc
+REGW
+chmod 0755 /usr/local/bin/ncz-regreet-greeter
+
+# ---------------------------------------------------------------------------
 # Packaged gschema defaults — red accent + dark mode + NCZ Maximilian wallpaper.
 # The accent is written by StyleManager to the user gtk.css at runtime; setting
 # it in the schema DEFAULT makes red the out-of-box accent. Wallpaper points at
@@ -331,52 +374,36 @@ elif [ -f /install_ncz_agents.sh ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# LightDM — beta greeter. Singularity is the ONLY session. NO X11/XFCE session.
+# greetd = the display manager (SHIP greeter). regreet (GTK4, Mali) is wired by
+# 55-greeter (config.toml, regreet.toml/.css, labwc config, tmpfiles). Here we
+# make greetd the DM and put the _greetd user in the seat/GPU groups so
+# labwc/wlroots can open the DRM/seat. Singularity is the ONLY session.
+# NOTE (release-track): greetd-on-boot non-hang not yet metal-confirmed — the
+# greeter renders perfectly when greetd is started post-boot; boot-path needs a
+# clean KVM/metal validation (tangled with a separate panthor boot-hang).
 # ---------------------------------------------------------------------------
-mkdir -p /etc/lightdm/lightdm.conf.d
-cat > /etc/lightdm/lightdm.conf.d/50-cixmini.conf <<'LIDM'
-[Seat:*]
-user-session=singularity
-greeter-session=lightdm-gtk-greeter
-greeter-show-manual-login=true
-allow-guest=false
-LIDM
-
-# GREETER SWAP POINT ========================================================
-# BETA: lightdm-gtk-greeter (X11), NCZ-branded. TEMPORARY placeholder.
-# SHIPPING: greetd + regreet (GTK4, Mali-accelerated Wayland) on labwc — built
-# by the native-greeter agent. To cut over, replace the two lines below with the
-# greetd enable + /usr/local/bin/ncz-regreet-greeter wrapper (already proven on
-# O6N: labwc -C /etc/greetd/regreet-labwc, sources ncz-gpu-env), and disable
-# lightdm. That is the ONLY change needed here — the session (singularity.desktop)
-# is greeter-agnostic.
-#   systemctl disable lightdm ; systemctl enable greetd
-#   (ship /etc/greetd/config.toml -> command = "/usr/local/bin/ncz-regreet-greeter")
-# ===========================================================================
-GREETER_BACKEND="${NCZ_GREETER:-lightdm}"   # future: set NCZ_GREETER=greetd to swap
-echo "[20] greeter backend = $GREETER_BACKEND (beta placeholder; greetd/regreet = shipping)"
-
-# Brand the lightdm-gtk-greeter (dark, NCZ Maximilian bg). 55-greeter refines
-# theme + avatar; 45-wallpaper-rotator owns the rotating background.
-mkdir -p /etc/lightdm/lightdm-gtk-greeter.conf.d
-cat > /etc/lightdm/lightdm-gtk-greeter.conf.d/50-ncz.conf <<'GTKG'
-[greeter]
-background=/usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg
-user-background=false
-theme-name=Adwaita-dark
-icon-theme-name=Adwaita
-GTKG
-
 systemctl disable gdm gdm3 2>/dev/null || true
 systemctl stop gdm gdm3 2>/dev/null || true
+# Ensure no lightdm lingers as a competing DM (belt-and-braces; not installed).
+systemctl disable lightdm 2>/dev/null || true
+rm -f /etc/X11/default-display-manager 2>/dev/null || true
 systemctl set-default graphical.target
-systemctl enable lightdm
-echo "/usr/sbin/lightdm" > /etc/X11/default-display-manager
-ln -sf /lib/systemd/system/lightdm.service /etc/systemd/system/display-manager.service
-DEBIAN_FRONTEND=noninteractive dpkg-reconfigure lightdm 2>&1 | tail -2 || true
+systemctl enable greetd 2>/dev/null || true
+ln -sf /lib/systemd/system/greetd.service /etc/systemd/system/display-manager.service
 
-# seatd for seat management under Wayland (labwc/wlroots).
+# seatd for seat management under Wayland (labwc/wlroots). greetd's labwc opens
+# the seat via seatd/logind.
 systemctl enable seatd 2>/dev/null || true
+
+# _greetd user (created by the greetd package) needs GPU + seat + input access so
+# labwc can render the greeter on Mali.
+if id _greetd >/dev/null 2>&1; then
+    for g in video render input seat; do
+        getent group "$g" >/dev/null 2>&1 && usermod -aG "$g" _greetd 2>/dev/null || true
+    done
+    echo "[20] _greetd added to video/render/input/seat"
+fi
+echo "[20] greetd = display manager (regreet greeter wired by 55-greeter)"
 
 # Skip gnome-initial-setup wizard (creds already collected by d-i).
 install -d -m 0755 /etc/skel/.config
@@ -470,4 +497,4 @@ for u in iscsid.service apport.service; do
     fi
 done
 
-echo "[20] Singularity Desktop installed: /opt/singularity + LightDM-branded greeter (beta) + Wayland-only session"
+echo "[20] Singularity Desktop installed: /opt/singularity + greetd/regreet Mali greeter + Wayland-only session"

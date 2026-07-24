@@ -9,10 +9,12 @@
 # The Singularity shell binaries ship in /opt/singularity (singularity-opt.tgz);
 # the packages here are the SYSTEM libs they link against + the session infra.
 
-# --- greeter (beta placeholder) --------------------------------------------
-# lightdm + lightdm-gtk-greeter until the native greetd/regreet lands.
-lightdm
-lightdm-gtk-greeter
+# --- greeter (SHIP: greetd + regreet, GTK4 Mali-accelerated Wayland) --------
+# greetd is the display manager; regreet (our arm64 binary -> /opt/regreet) is
+# the GTK4 greeter. glycin-loaders = image loaders regreet uses for the NCZ
+# Maximilian background. NO lightdm (X11) — Singularity is Wayland/Mali native.
+greetd
+glycin-loaders
 
 # --- Singularity runtime libraries (what /opt/singularity binaries link) ----
 libgtk-4-1

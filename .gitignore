@@ -115,3 +115,6 @@ build/*.iso.*-part*
 
 # Singularity Desktop payload — build-time blob (staged via NFS/ARGONAS, like base.squashfs)
 assets/singularity/*.tgz
+
+# regreet greeter binary — build-time blob (fetch from .66:/tmp/regreet)
+assets/regreet/regreet

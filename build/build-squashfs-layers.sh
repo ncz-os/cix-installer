@@ -104,18 +104,15 @@ build_layer(){ local role="$1" manifest="$2"
     log "desktop: SINGULARITY desktop delta (Wayland-only; XFCE/X11 removed) + brand"
     # 26.7 "Maximilian": Singularity Desktop (labwc/wlroots, GTK4) REPLACES XFCE.
     # No user-session=xfce, no x-session-manager -> xfce4, no 60-ncz-xfce.conf.
-    # 20-desktop.sh (run as a brand hook below) does the real work: extract
-    # /opt/singularity, install ncz-gpu-env/ncz-singularity, singularity.desktop
-    # (the ONLY session), gschema defaults, curate sessions, purge XFCE/Xorg
-    # remnants. Here we only pin LightDM as the d-i default DM (beta greeter).
-    echo "/usr/sbin/lightdm" | sudo tee "$MG/etc/X11/default-display-manager" >/dev/null
-    echo "set shared/default-x-display-manager select lightdm" | sudo chroot "$MG" debconf-set-selections 2>/dev/null || true
-    echo "set lightdm shared/default-x-display-manager lightdm" | sudo chroot "$MG" debconf-set-selections 2>/dev/null || true
-    sudo ln -sf /lib/systemd/system/lightdm.service "$MG/etc/systemd/system/display-manager.service"
-    sudo mkdir -p "$MG/etc/lightdm/lightdm.conf.d"
-    printf '[Seat:*]\nuser-session=singularity\n' | sudo tee "$MG/etc/lightdm/lightdm.conf.d/60-ncz-singularity.conf" >/dev/null
-    # Remove any stale XFCE pin from an earlier build of this overlay base.
-    sudo rm -f "$MG/etc/lightdm/lightdm.conf.d/60-ncz-xfce.conf" 2>/dev/null || true
+    # GREETER = greetd + regreet (GTK4, Mali) — NOT lightdm. 20-desktop.sh (run
+    # as a brand hook below) does the real work: extract /opt/singularity,
+    # install ncz-gpu-env/ncz-singularity + regreet binary/wrapper,
+    # singularity.desktop (the ONLY session), make greetd the DM, curate
+    # sessions, purge XFCE/Xorg remnants. 55-greeter writes the greetd/regreet
+    # config. Remove any stale lightdm/XFCE pin from an earlier overlay base.
+    sudo rm -f "$MG/etc/lightdm/lightdm.conf.d/60-ncz-xfce.conf" \
+               "$MG/etc/lightdm/lightdm.conf.d/60-ncz-singularity.conf" \
+               "$MG/etc/X11/default-display-manager" 2>/dev/null || true
     # r166: refresh the post-install hook tree in the overlay from the current
     # repo. The brand hooks below run from base's staged post-install (baked at
     # base-build time), so an edited hook (e.g. 60-plymouth's non-fatal apt
@@ -151,6 +148,15 @@ build_layer(){ local role="$1" manifest="$2"
       log "  staged singularity payload ($(du -h "$ROOT/assets/singularity/singularity-opt.tgz" | cut -f1))"
     else
       log "  WARN: assets/singularity/singularity-opt.tgz ABSENT — 20-desktop will FAIL (run build/build-singularity.sh)"
+    fi
+    # 26.7: stage the regreet greeter binary so 20-desktop installs it to
+    # /opt/regreet/bin. Gitignored build blob (fetch from .66:/tmp/regreet).
+    if [ -f "$ROOT/assets/regreet/regreet" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/regreet"
+      sudo cp -a "$ROOT/assets/regreet/regreet" "$MG/usr/local/lib/cix-installer/assets/regreet/" 2>/dev/null || true
+      log "  staged regreet greeter ($(du -h "$ROOT/assets/regreet/regreet" | cut -f1))"
+    else
+      log "  WARN: assets/regreet/regreet ABSENT — greetd greeter will have NO UI (fetch .66:/tmp/regreet)"
     fi
     # r189.5: stage assets/cix-py/ so 46-ncz-cli.sh's /opt/cix/npu_embed_v2.py
     # install actually lands -- it was only ever looking at /cdrom, which

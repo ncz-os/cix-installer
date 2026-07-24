@@ -104,33 +104,7 @@ AUTO
 
 echo "[45] Singularity wallpaper rotator + autostart written (default = Maximilian)"
 
-# --- greeter (LightDM login screen) astronomical rotation ---------------
-# The session rotator above only repaints the logged-in desktop. Rotate the
-# greeter background too: a root greeter-setup-script picks a random astro
-# wallpaper and rewrites the greeter conf each time the greeter starts
-# (boot / logout / lock-to-greeter), so the login screen also cycles the
-# cosmos instead of the static default.jpg set in 20-desktop.sh.
-cat > /usr/local/bin/ncz-greeter-bg <<'GBG'
-#!/bin/sh
-# Pick a random NCZ astronomical wallpaper for the LightDM greeter. Runs as
-# root via lightdm greeter-setup-script before each greeter launch.
-WP_DIR=/usr/share/backgrounds/ncz
-PIC=$(ls "$WP_DIR"/ncz-wallpaper-0*.jpg 2>/dev/null | shuf -n1)
-[ -z "$PIC" ] && exit 0
-CONF=/etc/lightdm/lightdm-gtk-greeter.conf.d/55-ncz-rotate.conf
-mkdir -p "$(dirname "$CONF")"
-printf '[greeter]\nbackground=%s\n' "$PIC" > "$CONF"
-exit 0
-GBG
-chmod 0755 /usr/local/bin/ncz-greeter-bg
-
-mkdir -p /etc/lightdm/lightdm.conf.d
-cat > /etc/lightdm/lightdm.conf.d/55-ncz-greeter-rotate.conf <<'LSEAT'
-[Seat:*]
-greeter-setup-script=/usr/local/bin/ncz-greeter-bg
-LSEAT
-
-# Seed an initial random pick so the FIRST greeter after install is already
-# astronomical (55-ncz-rotate.conf overrides 50-ncz.conf default.jpg).
-/usr/local/bin/ncz-greeter-bg 2>/dev/null || true
-echo "[45] greeter astronomical rotation wired (lightdm greeter-setup-script)"
+# Greeter background = the static NCZ Maximilian wallpaper set in regreet.toml
+# (55-greeter). The old lightdm greeter-setup-script rotation is retired — the
+# greeter is now greetd/regreet (Wayland/Mali), which reads its background from
+# /etc/greetd/regreet.toml, not a lightdm conf.d snippet.
