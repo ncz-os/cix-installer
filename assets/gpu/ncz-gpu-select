@@ -1,0 +1,141 @@
+#!/bin/bash
+# ncz-gpu-select — choose the CIX Sky1 (Mali-G720) kernel GPU driver on NCZ-OS.
+#
+# NCZ-OS ships BOTH GPU kernel drivers as DKMS packages (symmetric):
+#   mali-kbase (cix-gpu-kmd)  -> /dev/mali0, libmali OpenCL + HW GLES (default)
+#   panthor    (panthor-cix)  -> /dev/dri/renderD*, Mesa GL + PanVK Vulkan (experimental)
+#
+# Only ONE may bind the GPU at a time. Selection is by /etc/modprobe.d/ncz-gpu.conf
+# (this file is the single source of truth — there is NO dual rEFInd GPU boot menu):
+#   mode mali    : blacklist panthor                          -> kbase trio binds
+#   mode panthor : blacklist mali_kbase + its two helpers      -> panthor binds
+#
+# `blacklist` stops udev/modules-load autoload; the paired `install ... /bin/true`
+# also neutralises an explicit modprobe (e.g. /etc/modules-load.d/cix-mali.conf),
+# so the losing driver cannot be pulled in as a dependency either.
+#
+# After a switch the initramfs is rebuilt (the GPU can bind early) and a reboot
+# is required. The userspace GL/Vulkan stack auto-adapts at session start via
+# ncz-gpu-env (it probes /dev/mali0 vs the panthor render node) — this tool only
+# selects the KERNEL driver.
+set -uo pipefail
+
+CONF=/etc/modprobe.d/ncz-gpu.conf
+WSI=/etc/vulkan/implicit_layer.d/VkLayer_window_system_integration.json
+KBASE_TRIO=(mali_kbase memory_group_manager protected_memory_allocator)
+
+DO_INITRAMFS=1
+DO_REBOOT_PROMPT=1
+
+usage() {
+    cat >&2 <<EOF
+usage: ncz-gpu-select {mali|panthor|status} [--no-initramfs] [--no-reboot-prompt]
+
+  mali     select the Mali kbase DKMS driver (default, shipping GPU stack)
+  panthor  select the Panthor DKMS driver (experimental: Mesa GL + PanVK Vulkan)
+  status   show the currently selected mode and the bound driver
+
+  --no-initramfs      do not run update-initramfs (chroot/install use)
+  --no-reboot-prompt  do not prompt/notice about the required reboot
+EOF
+    exit 2
+}
+
+[ $# -ge 1 ] || usage
+MODE="$1"; shift
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --no-initramfs)     DO_INITRAMFS=0 ;;
+        --no-reboot-prompt) DO_REBOOT_PROMPT=0 ;;
+        *) usage ;;
+    esac
+    shift
+done
+
+current_mode() {
+    if [ -r "$CONF" ]; then
+        sed -n 's/^# MODE:[[:space:]]*\([a-z]*\).*/\1/p' "$CONF" | head -1
+    fi
+}
+
+if [ "$MODE" = status ]; then
+    echo "configured mode : $(current_mode 2>/dev/null || echo '(unset — mali default)')"
+    echo -n "bound driver    : "
+    if [ -e /dev/mali0 ]; then
+        echo "mali_kbase (/dev/mali0 present)"
+    elif ls /sys/bus/platform/drivers/panthor/*/drm 2>/dev/null | grep -q .; then
+        echo "panthor (panthor DRM node present)"
+    else
+        echo "unknown / not yet bound"
+    fi
+    echo -n "panthor render  : "; ls /dev/dri/renderD* 2>/dev/null | tr '\n' ' '; echo
+    echo "--- loaded kernel GPU modules ---"
+    lsmod 2>/dev/null | grep -E '^(panthor|mali_kbase|memory_group_manager|protected_memory_allocator) ' || echo "(none)"
+    exit 0
+fi
+
+[ "$(id -u)" = 0 ] || { echo "ncz-gpu-select: must run as root" >&2; exit 1; }
+mkdir -p "$(dirname "$CONF")"
+
+write_mali() {
+    cat > "$CONF" <<'EOF'
+# ncz-gpu.conf — NCZ-OS CIX Sky1 GPU kernel-driver selector.
+# Managed by /usr/local/bin/ncz-gpu-select — do not hand-edit; run the tool.
+# MODE: mali  (default — shipping GPU stack: libmali OpenCL + HW GLES)
+#
+# Hold panthor off so the Mali kbase DKMS trio binds the GPU (/dev/mali0).
+blacklist panthor
+install panthor /bin/true
+EOF
+}
+
+write_panthor() {
+    cat > "$CONF" <<'EOF'
+# ncz-gpu.conf — NCZ-OS CIX Sky1 GPU kernel-driver selector.
+# Managed by /usr/local/bin/ncz-gpu-select — do not hand-edit; run the tool.
+# MODE: panthor  (experimental — Mesa GL + PanVK Vulkan on the panthor DRM node)
+#
+# Hold the Mali kbase trio off so the panthor DKMS driver binds the GPU.
+blacklist mali_kbase
+blacklist memory_group_manager
+blacklist protected_memory_allocator
+install mali_kbase /bin/true
+install memory_group_manager /bin/true
+install protected_memory_allocator /bin/true
+EOF
+}
+
+# The CIX WSI Vulkan implicit layer wraps libmali's (absent) Vulkan and breaks
+# PanVK. Disable it in panthor mode; restore it in mali mode.
+disable_wsi_layer() { [ -e "$WSI" ] && mv "$WSI" "$WSI.disabled" && echo "  disabled CIX WSI Vulkan layer (breaks PanVK)"; return 0; }
+restore_wsi_layer() { [ -e "$WSI.disabled" ] && mv "$WSI.disabled" "$WSI" && echo "  restored CIX WSI Vulkan layer"; return 0; }
+
+case "$MODE" in
+    mali)
+        write_mali
+        restore_wsi_layer
+        echo "ncz-gpu-select: selected MALI (kbase). panthor held off."
+        ;;
+    panthor)
+        write_panthor
+        disable_wsi_layer
+        echo "ncz-gpu-select: selected PANTHOR. Mali kbase trio held off."
+        ;;
+    *) usage ;;
+esac
+
+echo "  wrote $CONF (mode=$MODE)"
+
+if [ "$DO_INITRAMFS" = 1 ] && command -v update-initramfs >/dev/null 2>&1; then
+    echo "  rebuilding initramfs (update-initramfs -u -k all) ..."
+    update-initramfs -u -k all >/dev/null 2>&1 \
+        && echo "  initramfs rebuilt" \
+        || echo "  WARN: update-initramfs failed — verify boot config before rebooting"
+fi
+
+if [ "$DO_REBOOT_PROMPT" = 1 ]; then
+    echo
+    echo "GPU driver mode set to '$MODE'. A REBOOT is required for it to take effect."
+    echo "Reboot now?  (run: sudo reboot)"
+fi
+exit 0
