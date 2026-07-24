@@ -1,0 +1,68 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] firmware: arm_scmi: perf: dedupe OPPs by frequency when populating a device
+
+On Sky1 (O6N) the Mali GPU power domain (ACPI HID CIXH5000) is an SCMI
+performance-domain genpd. When the GPU device attaches, scmi_pd_attach_dev()
+calls perf_ops->device_opps_add() -> scmi_dvfs_device_opps_add(), which
+walks the firmware DVFS level table and registers one OPP per level via
+dev_pm_opp_add_dynamic().
+
+The CIX firmware perf table for CIXH5000 exposes two distinct performance
+levels that resolve to the same frequency (800 MHz). The existing
+parse-time dedup only rejects duplicate perf *levels* (xa_insert on
+opp->perf), not duplicate *frequencies*, so both survive and are added as
+OPPs with identical freq. The OPP core then logs, at boot:
+
+  genpd genpd:0:CIXH5000:00: _opp_is_duplicate: duplicate OPPs detected.
+    Existing: freq: 800000000 ... New: freq: 800000000 ...
+
+dev_pm_opp_add_dynamic() does not fail on a duplicate (it returns 0), so
+the only effect is boot log noise; the second same-freq level is redundant.
+
+Root cause: a firmware DVFS table advertising two levels at one frequency,
+added verbatim by the SCMI OPP populate path. Fixed by skipping a
+frequency that an earlier level in the same table already contributed,
+before calling dev_pm_opp_add_dynamic(). SCMI level_set/get use the
+protocol's own opps_by_lvl/opps_by_freq lookup tables, not the OPP table,
+so DVFS operation is unaffected. On well-formed firmware tables the guard
+is a no-op, so the change is safe for all SCMI platforms.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+Upstream-Status: Pending
+---
+--- a/drivers/firmware/arm_scmi/perf.c
++++ b/drivers/firmware/arm_scmi/perf.c
+@@ -864,7 +864,7 @@
+ static int scmi_dvfs_device_opps_add(const struct scmi_protocol_handle *ph,
+ 				     struct device *dev, u32 domain)
+ {
+-	int idx, ret;
++	int idx, j, ret;
+ 	unsigned long freq;
+ 	struct dev_pm_opp_data data = {};
+ 	struct perf_dom_info *dom;
+@@ -879,6 +879,24 @@
+ 		else
+ 			freq = dom->opp[idx].indicative_freq * dom->mult_factor;
+
++		/*
++		 * Some firmware DVFS tables expose several performance levels
++		 * that resolve to the same frequency (e.g. the CIX Sky1 GPU
++		 * perf domain reports 800 MHz twice). Registering both makes
++		 * the OPP core log a spurious "duplicate OPPs detected"
++		 * warning, so skip a frequency an earlier level already added.
++		 */
++		for (j = 0; j < idx; j++) {
++			unsigned long prev = !dom->level_indexing_mode ?
++				dom->opp[j].perf * dom->mult_factor :
++				dom->opp[j].indicative_freq * dom->mult_factor;
++
++			if (prev == freq)
++				break;
++		}
++		if (j < idx)
++			continue;
++
+ 		/* All OPPs above the sustained frequency are treated as turbo */
+ 		data.turbo = freq > dom->sustained_freq_khz * 1000UL;
+
