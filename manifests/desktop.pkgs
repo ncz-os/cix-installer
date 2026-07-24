@@ -9,10 +9,11 @@
 # The Singularity shell binaries ship in /opt/singularity (singularity-opt.tgz);
 # the packages here are the SYSTEM libs they link against + the session infra.
 
-# --- greeter (SHIP: greetd + regreet, GTK4 Mali-accelerated Wayland) --------
-# greetd is the display manager; regreet (our arm64 binary -> /opt/regreet) is
-# the GTK4 greeter. glycin-loaders = image loaders regreet uses for the NCZ
-# Maximilian background. NO lightdm (X11) — Singularity is Wayland/Mali native.
+# --- greeter (SHIP: greetd + NATIVE singularity-greeter) --------------------
+# greetd is the display manager; the greeter is the native singularity-greeter
+# (wlr-layer-shell + Cairo/loginui), shipped in the /opt/singularity payload — no
+# distro greeter package. glycin-loaders = image loaders the Singularity shell
+# uses. NO lightdm (X11), NO regreet — Singularity is Wayland/Mali native.
 greetd
 glycin-loaders
 
@@ -123,10 +124,11 @@ gimp
 # --- flatpak (optional app sideloading) ------------------------------------
 flatpak
 
-# --- runtime deps other hooks rely on (branding/avatars, plymouth, agents) --
+# --- runtime deps other hooks rely on (branding/avatars, agents) -----------
+# NO plymouth — the boot splash is the native KMS singularity-boot-splash
+# (/opt/singularity payload), 60-boot-splash purges plymouth outright.
 librsvg2-bin
 imagemagick
-plymouth-theme-spinner
 whiptail
 rsyslog
 

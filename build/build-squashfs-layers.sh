@@ -104,25 +104,25 @@ build_layer(){ local role="$1" manifest="$2"
     log "desktop: SINGULARITY desktop delta (Wayland-only; XFCE/X11 removed) + brand"
     # 26.7 "Maximilian": Singularity Desktop (labwc/wlroots, GTK4) REPLACES XFCE.
     # No user-session=xfce, no x-session-manager -> xfce4, no 60-ncz-xfce.conf.
-    # GREETER = greetd + regreet (GTK4, Mali) — NOT lightdm. 20-desktop.sh (run
-    # as a brand hook below) does the real work: extract /opt/singularity,
-    # install ncz-gpu-env/ncz-singularity + regreet binary/wrapper,
-    # singularity.desktop (the ONLY session), make greetd the DM, curate
-    # sessions, purge XFCE/Xorg remnants. 55-greeter writes the greetd/regreet
-    # config. Remove any stale lightdm/XFCE pin from an earlier overlay base.
+    # GREETER = greetd + NATIVE singularity-greeter (in the payload) — NOT
+    # lightdm. 20-desktop.sh (run as a brand hook below) does the real work:
+    # extract /opt/singularity, install ncz-gpu-env/ncz-singularity + the
+    # ncz-singularity-greeter wrapper, singularity.desktop (the ONLY session),
+    # make greetd the DM, curate sessions, purge XFCE/Xorg remnants. 55-greeter
+    # writes the greetd config + branding. Remove stale lightdm/XFCE pins.
     sudo rm -f "$MG/etc/lightdm/lightdm.conf.d/60-ncz-xfce.conf" \
                "$MG/etc/lightdm/lightdm.conf.d/60-ncz-singularity.conf" \
                "$MG/etc/X11/default-display-manager" 2>/dev/null || true
     # r166: refresh the post-install hook tree in the overlay from the current
     # repo. The brand hooks below run from base's staged post-install (baked at
-    # base-build time), so an edited hook (e.g. 60-plymouth's non-fatal apt
-    # guard) would NOT take effect on a desktop-only rebuild without this.
+    # base-build time), so an edited hook (e.g. 60-boot-splash's plymouth purge)
+    # would NOT take effect on a desktop-only rebuild without this.
     sudo cp -a "$ROOT/post-install/." "$MG/usr/local/lib/cix-installer/post-install/" 2>/dev/null || true
     # r166: stage the NCZ branding assets the brand hooks read. The base build
     # only staged cix-debs/kernel/mesa/gpu/firmware/refind/rescue — NOT branding —
     # so 45-wallpaper (needs assets/branding/wallpaper), 56-icon-theme (needs
-    # assets/branding/icon-theme/NCZ) and 60-plymouth (needs assets/branding/logo/
-    # nclawzero-lockup.jpg) all silently used stock defaults. Copy branding into
+    # assets/branding/icon-theme/NCZ) and 55-greeter (needs assets/branding/logo/
+    # ncz.png) all silently used stock defaults. Copy branding into
     # the overlay before the hooks run. (Base list also gains "branding" for the
     # next base rebuild; this desktop-layer copy makes it work without one.)
     if [ -d "$ROOT/assets/branding" ]; then
@@ -149,14 +149,17 @@ build_layer(){ local role="$1" manifest="$2"
     else
       log "  WARN: assets/singularity/singularity-opt.tgz ABSENT — 20-desktop will FAIL (run build/build-singularity.sh)"
     fi
-    # 26.7: stage the regreet greeter binary so 20-desktop installs it to
-    # /opt/regreet/bin. Gitignored build blob (fetch from .66:/tmp/regreet).
-    if [ -f "$ROOT/assets/regreet/regreet" ]; then
-      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/regreet"
-      sudo cp -a "$ROOT/assets/regreet/regreet" "$MG/usr/local/lib/cix-installer/assets/regreet/" 2>/dev/null || true
-      log "  staged regreet greeter ($(du -h "$ROOT/assets/regreet/regreet" | cut -f1))"
+    # 26.7 NATIVE STACK: the greeter (singularity-greeter) ships INSIDE the
+    # /opt/singularity payload — no separate greeter binary to stage (regreet is
+    # gone). Stage the native singularity-boot-splash as a FALLBACK asset so
+    # 60-boot-splash can install it even if the payload predates the boot-splash
+    # build (build-singularity.sh also folds it into singularity-opt.tgz).
+    if [ -f "$ROOT/assets/singularity-boot-splash/singularity-boot-splash" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/singularity-boot-splash"
+      sudo cp -a "$ROOT/assets/singularity-boot-splash/singularity-boot-splash" "$MG/usr/local/lib/cix-installer/assets/singularity-boot-splash/" 2>/dev/null || true
+      log "  staged singularity-boot-splash ($(du -h "$ROOT/assets/singularity-boot-splash/singularity-boot-splash" | cut -f1))"
     else
-      log "  WARN: assets/regreet/regreet ABSENT — greetd greeter will have NO UI (fetch .66:/tmp/regreet)"
+      log "  note: assets/singularity-boot-splash absent — relying on the /opt/singularity payload for it"
     fi
     # 26.7: stage the native sinty-nm daemon (+ unit + D-Bus policy) so
     # 20-desktop installs /usr/bin/sinty-nmd and swaps out NetworkManager.
@@ -225,7 +228,7 @@ build_layer(){ local role="$1" manifest="$2"
     # longer dropped. 30-agents before 46-ncz-cli (dep order). 59-desktop-curate
     # LAST of the app hooks (after 20/30-agents/52-vivaldi/46-ncz-cli) so it sees
     # every app-creating hook's output when it curates the launcher.
-    for bh in 20-desktop 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 57-qotd 30-agents 46-ncz-cli 57-screensaver 59-desktop-curate 60-plymouth; do
+    for bh in 20-desktop 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 57-qotd 30-agents 46-ncz-cli 57-screensaver 59-desktop-curate 60-boot-splash; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3 || log "  WARN $bh rc=$?"

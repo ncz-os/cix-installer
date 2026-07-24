@@ -146,7 +146,7 @@ collected by run-all.sh as each hook ran.
 | 35-ssh.log | openssh-server + authorized_keys |
 | 40-claude-code.log | Claude Code install |
 | 50-brand.log | branding assets |
-| 60-plymouth.log | Plymouth splash |
+| 60-boot-splash.log | Native KMS boot splash |
 | 70-bootloader.log | systemd-boot install + loader entries |
 | 99-diagnostics.log | this hook (its own output) |
 

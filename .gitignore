@@ -116,8 +116,10 @@ build/*.iso.*-part*
 # Singularity Desktop payload — build-time blob (staged via NFS/ARGONAS, like base.squashfs)
 assets/singularity/*.tgz
 
-# regreet greeter binary — build-time blob (fetch from .66:/tmp/regreet)
-assets/regreet/regreet
 # sinty-nm daemon — build-time blob (build singularityos-lab/sinty-nm; fetch from
 # .66:/home/jasonperlow/sinty-build/nm-build/out/sinty-nmd)
 assets/sinty-nm/sinty-nmd
+# singularity-boot-splash — native KMS boot splash, build-time blob
+# (build/build-singularity.sh also folds it into the /opt/singularity payload;
+# this staged copy is a fallback for 60-boot-splash). arm64 ELF from .66.
+assets/singularity-boot-splash/singularity-boot-splash

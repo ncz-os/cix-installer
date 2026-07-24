@@ -78,6 +78,7 @@ apt-get install -y --no-install-recommends \
     libpulse-dev libpolkit-gobject-1-dev libpolkit-agent-1-dev \
     libjson-glib-dev libpeas-2-dev libpipewire-0.3-dev \
     libgee-0.8-dev libgtk-4-unix-print-dev libsoup-3.0-dev \
+    libdrm-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
     build-essential
 
 mkdir -p /work && cd /work
@@ -116,6 +117,22 @@ DESTDIR=/work/stage meson install -C build
 # Sanity: the shell + session launcher must exist.
 test -x "/work/stage'"$PREFIX"'/bin/singularity-desktop"
 test -x "/work/stage'"$PREFIX"'/bin/singularity-labwc-session"
+
+# --- singularity-boot-splash (NATIVE KMS boot splash — Plymouth replacement) --
+# Separate upstream repo (github.com/singularityos-lab/singularity-boot-splash),
+# NOT part of singularity-desktop. Toolkit-less libdrm + shared singularity-
+# loginui Cairo renderer: owns the DRM device directly, animates the branded
+# logo/loading-bar, hands off to the labwc greeter. Built here so it ships INSIDE
+# the /opt/singularity payload alongside the greeter/lock/splash, all on the same
+# loginui pixels. Replaces plymouth (which never covered Sky1s late KMS).
+cd /work
+git clone --depth 1 --recurse-submodules \
+    https://github.com/singularityos-lab/singularity-boot-splash.git
+cd singularity-boot-splash
+meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
+ninja -C build
+DESTDIR=/work/stage meson install -C build
+test -x "/work/stage'"$PREFIX"'/bin/singularity-boot-splash"
 
 # Package. Paths are opt/singularity/... so `tar -C /` lands at /opt/singularity.
 cd /work/stage

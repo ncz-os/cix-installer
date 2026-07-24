@@ -175,8 +175,8 @@ PKGS=(
   lightdm lightdm-gtk-greeter
   foot xsettingsd seatd swaybg xwayland
 
-  # Login / plymouth
-  gdm3 plymouth plymouth-themes
+  # Login (NO plymouth — native KMS singularity-boot-splash replaces it)
+  gdm3
   xrdp
 
   # Graphics / Mesa / Vulkan / firmware

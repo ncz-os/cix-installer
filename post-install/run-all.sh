@@ -8,7 +8,7 @@
 #
 # Phase 1: required hooks (kernel install). MUST succeed or the
 #          system is unbootable. set -e applies here.
-# Phase 2: optional hooks (desktop, agents, plymouth, branding,
+# Phase 2: optional hooks (desktop, agents, boot-splash, branding,
 #          ssh, claude-code, cix proprietary, quadlet shim). Each
 #          hook runs in isolation; failures get logged + recorded
 #          but DON'T abort.

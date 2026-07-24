@@ -11,9 +11,10 @@
 # bring-up box (Radxa Orion O6N, CIX Sky1). GPU userspace is swappable via
 # ncz-gpu-env (Mali libmali GLES today; Panthor/Mesa experimental).
 #
-# GREETER (SHIP): greetd + regreet (GTK4, Mali-accelerated Wayland) on labwc —
+# GREETER (SHIP): greetd + NATIVE singularity-greeter (wlr-layer-shell + loginui,
 # proven Mali-rendered (libmali/libEGL_cix, no llvmpipe), NCZ-branded, zero
-# compromise. regreet binary installed here; 55-greeter writes the config.
+# compromise. Greeter ships in the /opt/singularity payload; this hook installs
+# the launch wrapper; 55-greeter writes the greetd config + branding.
 #
 # RUNS INSIDE CHROOT at desktop-layer bake time (build-squashfs-layers.sh
 # desktop loop), NOT via install-time MACHINE_HOOKS.
@@ -70,8 +71,9 @@ fi
 # Core Singularity runtime + Wayland stack + greeter. These are the SYSTEM libs
 # the /opt/singularity binaries link against, plus the session infra (labwc runs
 # from the tarball; foot terminal; seatd; swaybg; xsettingsd; polkit; Xwayland
-# for X-app compat). GREETER = greetd + regreet (GTK4, Mali). NO lightdm, NO
-# Xorg server, NO XFCE. glycin-loaders = regreet background image loaders.
+# for X-app compat). GREETER = greetd + NATIVE singularity-greeter (ships in the
+# /opt/singularity payload; renders via Cairo/loginui, no GTK). NO lightdm, NO
+# Xorg server, NO XFCE, NO regreet. grim = greeter/lock screenshot util.
 CORE_DESKTOP="greetd glycin-loaders \
     libgtk-4-1 libadwaita-1-0 libgtk4-layer-shell0 \
     libgee-0.8-2 libpeas-2-0 libjson-glib-1.0-0 libsoup-3.0-0 \
@@ -315,55 +317,35 @@ WSESS
 echo "[20] ncz-gpu-env + ncz-singularity + singularity.desktop installed"
 
 # ---------------------------------------------------------------------------
-# regreet greeter binary (GTK4/Rust, Mali-accelerated) -> /opt/regreet/bin.
-# Staged asset (assets/regreet/regreet, arm64); 55-greeter writes the config.
-# The wrapper is THE fix: regreet black-screens without GTK_USE_PORTAL=0 +
-# DBUS_SESSION_BUS_ADDRESS=/dev/null (GTK4 else blocks 120s on
-# xdg-desktop-portal on the _greetd bus). Sources ncz-gpu-env for libmali.
+# NATIVE greeter wrapper — singularity-greeter (wlr-layer-shell + loginui) on the
+# /opt/singularity labwc, CIX Mali GLES. The greeter binary itself ships in the
+# /opt/singularity payload (extracted above), so there is NO separate greeter
+# binary to stage — just the launch wrapper. 55-greeter writes the greetd +
+# greeter-labwc config + NCZ branding. No regreet, no GTK, no portal/dead-bus hack
+# (the native greeter draws with Cairo/loginui — it never touches GTK or a portal).
 # ---------------------------------------------------------------------------
-REGREET_BIN=""
-for c in /usr/local/lib/cix-installer/assets/regreet/regreet \
-         /cdrom/assets/regreet/regreet \
-         /run/cixmini/assets/regreet/regreet; do
-    [ -f "$c" ] && { REGREET_BIN="$c"; break; }
-done
-if [ -n "$REGREET_BIN" ]; then
-    install -d -m0755 /opt/regreet/bin
-    install -m0755 "$REGREET_BIN" /opt/regreet/bin/regreet
-    echo "[20] regreet installed -> /opt/regreet/bin/regreet"
-else
-    echo "[20] WARN: assets/regreet/regreet not staged — greetd greeter will have no UI!" >&2
-fi
-
-# Greeter wrapper (labwc + regreet, Mali). Critical env fixes baked in.
-cat > /usr/local/bin/ncz-regreet-greeter <<'REGW'
+cat > /usr/local/bin/ncz-singularity-greeter <<'GRW'
 #!/bin/sh
-# ncz-regreet-greeter — NCZ-OS greetd greeter. regreet (GTK4/libadwaita) on
-# labwc, rendered on CIX Mali GLES (libmali) exactly like the Singularity shell.
-# GTK3 gtkgreet blackscreened on libmali; GTK4 accelerates. THE fix: without
-# GTK_USE_PORTAL=0 + a dead session bus, GTK4 blocks ~120s on
-# xdg-desktop-portal on the _greetd bus and the greeter shows black.
-if [ -r /usr/local/bin/ncz-gpu-env ]; then
-    . /usr/local/bin/ncz-gpu-env
-fi
+# ncz-singularity-greeter — NCZ-OS greetd greeter: NATIVE singularity-greeter
+# (raw Wayland wlr-layer-shell + Cairo/loginui) on the SAME /opt/singularity
+# labwc as the session, on CIX Mali GLES (libmali). No GTK, no regreet.
+if [ -r /usr/local/bin/ncz-gpu-env ]; then . /usr/local/bin/ncz-gpu-env; fi
 unset LIBGL_ALWAYS_SOFTWARE
-export GTK_USE_PORTAL=0
-export DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null
-export XDG_SESSION_TYPE=wayland
-export XDG_CURRENT_DESKTOP=labwc
-export GDK_BACKEND=wayland
-# GSK_RENDERER=gl forces GTK4's GL renderer so it never probes Vulkan (there is
-# no Vulkan on the Mali blob) — that probe printed red VK_ERROR_INITIALIZATION_
-# FAILED lines to the VT console during the login/logout handoff.
-export GSK_RENDERER=gl
-export PATH="/opt/regreet/bin:$PATH"
-# Redirect ALL greeter/compositor output to a log so no benign EGL/DBus/GTK
-# warning ever paints on the transition VT (the "red messages on login" the
-# operator saw). Keeps the greetd<->session handoff visually clean.
-mkdir -p /var/log/regreet 2>/dev/null
-exec labwc -C /etc/greetd/regreet-labwc >>/var/log/regreet/greeter.log 2>&1
-REGW
-chmod 0755 /usr/local/bin/ncz-regreet-greeter
+export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=labwc
+export PATH="/opt/singularity/bin:$PATH"
+export GSETTINGS_SCHEMA_DIR=/opt/singularity/share/glib-2.0/schemas
+export XDG_DATA_DIRS="/opt/singularity/share:/usr/local/share:/usr/share"
+export LD_LIBRARY_PATH="/opt/singularity/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# _greetd cannot mkdir under /var/log at runtime; 55-greeter pre-creates the dir
+# (tmpfiles), but fall back to XDG_RUNTIME_DIR so the exec redirect never fails
+# (a failed redirect makes the wrapper exit before exec -> "greeter exited without
+# creating a session" -> greetd crash-loop).
+LOGDIR=/var/log/singularity-greeter
+{ mkdir -p "$LOGDIR" && : >>"$LOGDIR/greeter.log"; } 2>/dev/null || LOGDIR="${XDG_RUNTIME_DIR:-/tmp}"
+exec /opt/singularity/bin/labwc -C /etc/greetd/singularity-labwc >>"$LOGDIR/greeter.log" 2>&1
+GRW
+chmod 0755 /usr/local/bin/ncz-singularity-greeter
+echo "[20] ncz-singularity-greeter wrapper installed (native greeter on /opt/singularity labwc)"
 
 # ---------------------------------------------------------------------------
 # Packaged gschema defaults — red accent + dark mode + NCZ Maximilian wallpaper.

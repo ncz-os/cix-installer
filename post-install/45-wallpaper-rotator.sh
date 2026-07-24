@@ -104,7 +104,7 @@ AUTO
 
 echo "[45] Singularity wallpaper rotator + autostart written (default = Maximilian)"
 
-# Greeter background = the static NCZ Maximilian wallpaper set in regreet.toml
-# (55-greeter). The old lightdm greeter-setup-script rotation is retired — the
-# greeter is now greetd/regreet (Wayland/Mali), which reads its background from
-# /etc/greetd/regreet.toml, not a lightdm conf.d snippet.
+# Greeter background = the static NCZ Maximilian wallpaper installed by 55-greeter
+# at the native greeter's fallback path /usr/share/backgrounds/singularity/
+# default.png. The greeter is greetd + native singularity-greeter (Wayland/Mali,
+# Cairo/loginui), which reads that fallback file — no lightdm conf.d, no regreet.

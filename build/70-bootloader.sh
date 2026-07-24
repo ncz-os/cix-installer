@@ -138,7 +138,8 @@ echo "  root PARTUUID=$ROOT_PARTUUID"
 # ----------------------------------------------------------------------
 MARTJOHNSON_CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453 video=DP-4:1920x1080@60e"
 
-# Optional Plymouth splash flags (if 60-plymouth.sh ran)
+# Optional splash cmdline flags (legacy; native singularity-boot-splash is a
+# systemd/KMS service, not cmdline-driven — this stays empty unless a file exists)
 SPLASH=""
 [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 

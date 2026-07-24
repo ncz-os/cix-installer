@@ -23,7 +23,7 @@ BAKE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 \
 20-desktop 22-display-fix 25-cix-proprietary 26-gpu-default-open 30-agents \
 31-remote-access 32-quadlet-shim 35-fstrim-fix 35-ssh 36-telemetry 40-claude-code \
 45-wallpaper-rotator 46-ncz-cli 46-python311 47-embedkit 47-llm-stack 50-brand \
-56-icon-theme 57-screensaver 60-plymouth 80-npu 92-buildkite-apt"
+56-icon-theme 57-screensaver 60-boot-splash 80-npu 92-buildkite-apt"
 
 log(){ echo "[bake $(date +%H:%M:%S)] $*"; }
 cleanup(){ for m in dev/pts dev proc sys run; do umount -lf "$CHROOT/$m" 2>/dev/null; done; }
@@ -41,7 +41,7 @@ sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf"
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer"
 sudo cp -a "$ROOT/post-install" "$CHROOT/usr/local/lib/cix-installer/"
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets"
-for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu plymouth wallpaper; do
+for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu wallpaper; do
   [ -d "$ROOT/assets/$_d" ] && sudo cp -a "$ROOT/assets/$_d" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
 done   # deliberately EXCLUDES assets/rootfs (base tarballs + baked output)
 # stage install-time-hook binaries that live OUTSIDE assets/ in the repo so the
@@ -119,7 +119,7 @@ sudo rm -f "$CHROOT/etc/resolv.conf"
 # PRESERVE machine-hook assets (70-bootloader needs assets/refind; 72-rescue needs rescue+kernel);
 # drop only the bulky cix-debs already dpkg-installed at bake.
 A="$CHROOT/usr/local/lib/cix-installer/assets"
-for _g in cix-debs models python311 gpu mgmt npu wallpaper branding plymouth; do sudo rm -rf "$A/$_g" 2>/dev/null; done
+for _g in cix-debs models python311 gpu mgmt npu wallpaper branding; do sudo rm -rf "$A/$_g" 2>/dev/null; done
 # strip stale kernel backups, keep the active Image/KVER/modules for 72-rescue
 sudo find "$A/kernel" -name "*.pre-*" -o -name "*.bak*" 2>/dev/null | sudo xargs -r rm -f 2>/dev/null || true
 sudo rm -rf "$CHROOT/var/lib/apt/lists/"* "$CHROOT/tmp/"* 2>/dev/null
