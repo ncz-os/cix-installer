@@ -191,17 +191,19 @@ export XDG_DATA_DIRS="/opt/singularity/share:${XDG_DATA_DIRS:-/usr/local/share:/
 export LD_LIBRARY_PATH="/opt/singularity/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export TERMINAL=foot
 # Native Wayland screensaver (idle->lock). Started once the compositor socket is
-# up; backgrounded, dies with the session. Wayland-native (swayidle -> the
-# Singularity lockscreen); no X11. Configured by 57-screensaver.sh and the
-# dev.sinty.lockscreen schema (Singularity Settings).
-if command -v swayidle >/dev/null 2>&1 && [ -x /usr/local/bin/ncz-screensaver ]; then
+# up; backgrounded, dies with the session. Wayland-native (swayidle -> the native
+# Singularity lockscreen); no X11. ncz-idle-manager reads the dev.ncz.screensaver
+# GSettings schema and restarts swayidle live when the operator changes a setting
+# in the "Screensaver & Lock" app — timeouts are configured, NOT hardcoded.
+# Installed by 57-screensaver.sh.
+if command -v swayidle >/dev/null 2>&1 && [ -x /usr/local/bin/ncz-idle-manager ]; then
     (
         _wd="${WAYLAND_DISPLAY:-wayland-0}"
         _rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
         _i=0
         while [ ! -S "$_rt/$_wd" ] && [ $_i -lt 100 ]; do sleep 0.2; _i=$((_i+1)); done
         export WAYLAND_DISPLAY="$_wd"
-        exec /usr/local/bin/ncz-screensaver
+        exec /usr/local/bin/ncz-idle-manager
     ) &
 fi
 exec /opt/singularity/bin/singularity-labwc-session

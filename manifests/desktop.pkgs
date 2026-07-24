@@ -50,6 +50,13 @@ xdg-desktop-portal
 swayidle
 swaylock
 wlopm
+# "Screensaver & Lock" config app (ncz-screensaver-settings) is Python GTK4 +
+# libadwaita — needs the GObject-introspection bindings + typelibs at runtime
+# (the Vala Singularity apps link the libs directly and don't pull these).
+python3-gi
+gir1.2-gtk-4.0
+gir1.2-adw-1
+gir1.2-glib-2.0
 
 # --- GPU / GL tooling (Mali GLES; Vulkan tools for diagnostics) -------------
 mesa-utils
