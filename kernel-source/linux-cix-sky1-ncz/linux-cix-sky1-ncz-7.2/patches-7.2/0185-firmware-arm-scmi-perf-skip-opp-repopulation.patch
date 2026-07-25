@@ -1,0 +1,78 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] firmware: arm_scmi: perf: make device_opps_add idempotent per device
+
+On Sky1 (O6N) the Mali GPU SCMI performance-domain genpd (ACPI HID
+CIXH5000) has its OPP table populated TWICE, producing 6
+"duplicate OPPs detected" warnings at boot (one per firmware DVFS
+level: 72/216/350/600/800/1000 MHz):
+
+  genpd genpd:0:CIXH5000:00: _opp_is_duplicate: duplicate OPPs
+    detected. Existing: freq: 72000000, volt: 0, enabled: 1. New:
+    freq: 72000000, volt: 0, enabled: 1
+  (and 5 more, one per level)
+
+Root cause: scmi_dvfs_device_opps_add() is reached via
+perf_ops->device_opps_add() from two independent call sites for the
+same device. drivers/pmdomain/arm/scmi_perf_domain.c's own genpd
+attach_dev callback (scmi_pd_attach_dev()) calls it unconditionally
+the first time the out-of-tree mali_kbase driver attaches to the
+"perf" power domain. The same out-of-tree driver's devfreq init path
+separately re-parses the OPP table during probe and calls
+device_opps_add() a second time, without first checking whether the
+table is already populated -- unlike every other in-tree caller of
+this callback (drivers/cpufreq/scmi-cpufreq.c and
+drivers/media/platform/cix/dev/mvx_dev.c both guard with
+dev_pm_opp_get_opp_count(dev) <= 0 before calling).
+
+The existing intra-table dedup added by
+0183-genpd-cix-dedupe-power-domain-opp-table.patch only rejects a
+duplicate frequency found *within a single call* (its idx/j loop
+state resets to zero on every new invocation), so it cannot catch a
+second, whole-table repopulation across two separate calls. That
+patch fixes a different bug (a firmware table advertising the same
+frequency at two distinct performance levels) and is left as-is.
+
+Fix by making scmi_dvfs_device_opps_add() idempotent per device: bail
+out immediately if the device already has OPPs registered. This
+matches the guard pattern every other in-tree caller already applies
+before calling device_opps_add(), so it protects against any future
+caller making the same mistake, not just the current out-of-tree
+mali_kbase code. dev_pm_opp_add_dynamic() is already used later in
+this same function, so linux/pm_opp.h (which declares
+dev_pm_opp_get_opp_count()) is already included -- no new include is
+needed. DVFS operation is unaffected either way: SCMI level_set/get
+use the protocol's own opps_by_lvl/opps_by_freq tables, not the OPP
+core table, so this was pure boot-log noise, not a functional bug.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+Upstream-Status: Pending
+---
+--- a/drivers/firmware/arm_scmi/perf.c
++++ b/drivers/firmware/arm_scmi/perf.c
+@@ -872,6 +872,26 @@
+ 	dom = scmi_perf_domain_lookup(ph, domain);
+ 	if (IS_ERR(dom))
+ 		return PTR_ERR(dom);
++
++	/*
++	 * scmi_dvfs_device_opps_add() can be invoked more than once for the
++	 * same device. On Sky1 (O6N) genpd's own scmi_pd_attach_dev()
++	 * (drivers/pmdomain/arm/scmi_perf_domain.c) already populates the OPP
++	 * table when the Mali GPU attaches to its SCMI perf genpd, and the
++	 * out-of-tree mali_kbase DKMS platform code separately re-parses the
++	 * same table during devfreq init, calling straight into this
++	 * function a second time without checking for an existing table
++	 * first. The intra-table dedup below only catches duplicate levels
++	 * *within* one call (idx resets to 0 each invocation), so it cannot
++	 * catch a whole second repopulation -- every level gets re-added and
++	 * the OPP core logs one "duplicate OPPs detected" warning per level.
++	 * Make the function idempotent per device instead of chasing every
++	 * caller; this matches the guard every other in-tree caller of
++	 * device_opps_add() (scmi-cpufreq.c, mvx_dev.c) already applies
++	 * before calling.
++	 */
++	if (dev_pm_opp_get_opp_count(dev) > 0)
++		return 0;
+ 
+ 	for (idx = 0; idx < dom->opp_count; idx++) {
+ 		if (!dom->level_indexing_mode)
