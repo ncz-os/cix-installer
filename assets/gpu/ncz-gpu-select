@@ -22,6 +22,9 @@ set -uo pipefail
 
 CONF=/etc/modprobe.d/ncz-gpu.conf
 WSI=/etc/vulkan/implicit_layer.d/VkLayer_window_system_integration.json
+ICD=/etc/vulkan/icd.d/mali.json
+LD_PRO=/etc/ld.so.conf.d/00-cixgpu-pro.conf
+LD_COMPAT=/etc/ld.so.conf.d/01-cixgpu-compat.conf
 KBASE_TRIO=(mali_kbase memory_group_manager protected_memory_allocator)
 
 DO_INITRAMFS=1
@@ -69,6 +72,14 @@ if [ "$MODE" = status ]; then
         echo "unknown / not yet bound"
     fi
     echo -n "panthor render  : "; ls /dev/dri/renderD* 2>/dev/null | tr '\n' ' '; echo
+    echo -n "CIX ld paths    : "
+    if [ -e "$LD_PRO" ] || [ -e "$LD_COMPAT" ]; then
+        echo "active (00-cixgpu-pro/01-cixgpu-compat enabled -> libmali/glvnd win ldconfig)"
+    elif [ -e "$LD_PRO.disabled" ] || [ -e "$LD_COMPAT.disabled" ]; then
+        echo "disabled (mesa/panthor wins ldconfig)"
+    else
+        echo "absent"
+    fi
     echo "--- loaded kernel GPU modules ---"
     lsmod 2>/dev/null | grep -E '^(panthor|mali_kbase|memory_group_manager|protected_memory_allocator) ' || echo "(none)"
     exit 0
@@ -110,15 +121,60 @@ EOF
 disable_wsi_layer() { [ -e "$WSI" ] && mv "$WSI" "$WSI.disabled" && echo "  disabled CIX WSI Vulkan layer (breaks PanVK)"; return 0; }
 restore_wsi_layer() { [ -e "$WSI.disabled" ] && mv "$WSI.disabled" "$WSI" && echo "  restored CIX WSI Vulkan layer"; return 0; }
 
+# The CIX proprietary Vulkan ICD is dead weight without mali_kbase/libmali
+# (libmali exposes no Vulkan at all -- panvk is the only Vulkan ICD panthor
+# mode has). Same disable/restore pairing as the WSI layer above.
+disable_mali_icd() { [ -e "$ICD" ] && mv "$ICD" "$ICD.disabled" && echo "  disabled CIX Vulkan ICD (no libmali Vulkan)"; return 0; }
+restore_mali_icd() { [ -e "$ICD.disabled" ] && mv "$ICD.disabled" "$ICD" && echo "  restored CIX Vulkan ICD"; return 0; }
+
+# The CIX GL/GBM/OpenCL ld.so.conf.d priority files (00-cixgpu-pro,
+# 01-cixgpu-compat) are what 26-gpu-default-mali.sh bakes in at build time to
+# make libmali the default loader resolution for libGLX/libEGL/libgbm/libOpenCL.
+# That resolution is SYSTEM-WIDE via the ldconfig cache, not per-process --
+# ncz-gpu-env's LD_LIBRARY_PATH stripping in panthor mode does NOT override it
+# for every consumer (confirmed on real O6N hardware: EGL/GBM init failed with
+# "DRI2: gbm device using incorrect/incompatible backend" /
+# "MESA-LOADER: failed to retrieve device information" with LD_LIBRARY_PATH
+# stripped but 00-cixgpu-pro.conf still active in the ldconfig cache; disabling
+# the conf file + re-running ldconfig fixed it cleanly). This is the same
+# disable_file/enable_file pairing the (now-retired) 26-gpu-default-open.sh
+# used to do the same demotion once, before 26.7 flipped the shipped default
+# to mali -- ncz-gpu-select must now do it at runtime, per switch, since a
+# panthor selection can happen well after that one-time build-time bake.
+disable_ld_paths() {
+    local changed=0
+    [ -e "$LD_PRO" ]     && { mv "$LD_PRO" "$LD_PRO.disabled"; changed=1; }
+    [ -e "$LD_COMPAT" ]  && { mv "$LD_COMPAT" "$LD_COMPAT.disabled"; changed=1; }
+    if [ "$changed" = 1 ]; then
+        ldconfig 2>/dev/null || true
+        echo "  disabled CIX GL/GBM/OpenCL ld paths (00-cixgpu-pro, 01-cixgpu-compat) + ldconfig"
+    fi
+    return 0
+}
+restore_ld_paths() {
+    local changed=0
+    [ -e "$LD_PRO.disabled" ]    && { mv "$LD_PRO.disabled" "$LD_PRO"; changed=1; }
+    [ -e "$LD_COMPAT.disabled" ] && { mv "$LD_COMPAT.disabled" "$LD_COMPAT"; changed=1; }
+    if [ "$changed" = 1 ]; then
+        ldconfig 2>/dev/null || true
+        echo "  restored CIX GL/GBM/OpenCL ld paths (00-cixgpu-pro, 01-cixgpu-compat) + ldconfig"
+    fi
+    return 0
+}
+
 case "$MODE" in
     mali)
         write_mali
         restore_wsi_layer
+        restore_mali_icd
+        restore_ld_paths
         echo "ncz-gpu-select: selected MALI (kbase). panthor held off."
         ;;
     panthor)
         write_panthor
         disable_wsi_layer
+        disable_mali_icd
+        disable_ld_paths
         echo "ncz-gpu-select: selected PANTHOR. Mali kbase trio held off."
         ;;
     *) usage ;;
