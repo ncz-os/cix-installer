@@ -11,14 +11,16 @@ debootstrap 安装 Debian 12 基础系统并在磁盘上全量升级到 Ubuntu�
 然后叠加适配硬件的内核 + 厂商用户态运行时 + 桌面环境 + Claude Code + （可选启用的）
 NCZ 智能体栈，并将系统品牌化为 NCZ（桌面版为 Reinhardt，服务器/常驻智能体设备为 Magnetar）。
 
-> **r195 新增：** 内核通道整体前移 —— **7.0.12 成为稳定（stable）通道**，
-> **7.2.0-rc1-ncz 成为新的前沿（edge）通道**（6.18 LTS 内核自本版起从 ISO 中退役）。
-> 7.2 内核带来本周期的实质修复：VPU 启动挂死修复（pm_runtime 的 IRQ/复位顺序竞争，
-> 与 CIX 官方 v1.0.1 驱动的修复一致）、修正后的 RTL8127 PCIe ASPM/ClockPM quirk、
-> 移除树内 panthor 驱动（以树外 Mali DDK 栈为准）、以及 linlondp 26q2 的 -Werror
-> 修复。内核现基于 **Yocto Project 6.0 "Wrynose"** 构建。基础镜像同时瘦身约 2 GB
-> （不再把安装器从不安装的测试包烤进镜像）。新内核对 apt 通道的 OTA 发布将另行进行。
-> 参见 [当前 ISO](#当前-iso--r195ncz-os-266-正式发布)。
+> **NCZ-OS 26.7 "Maximilian" 新增：** 桌面已改为 **Singularity**
+> （labwc/wlroots，原生 Mali GLES 加速）—— **X11/XFCE 已被完全移除**，
+> 不再是"已弃用但仍可选"的状态。内核通道：**7.2（edge，主）** 承载最新的
+> Sky1 使能（DP 链路训练修复、完整的 mali_kbase Mali-G720 驱动移植、启动
+> 告警清理）；**7.0.12（次级/应急）** 是我们自行打了补丁的树，虽然上游已
+> EOL，但仍作为可用的回退保留（这棵树本来就是我们自己 fork 并维护的，从
+> 未依赖上游的安全更新节奏）；**6.18 LTS（深度救援）** 保持最小化，专供
+> 一切都可能已经损坏时使用，位于独立的救援分区。详见本文档 English 版
+> 顶部的说明；本翻译尚未对 26.7 的全部新增内容逐段汉化，如需最新细节请
+> 参阅 [English README](README.md)。
 
 ### 已有 Canonical / Armbian / 厂商镜像，为什么还要 NCZ-OS？
 
@@ -46,9 +48,13 @@ NCZ 有意将操作系统与 AI 分离。安装 ISO 即可获得第一层；第�
 
 **1. 操作系统 + 驱动 —— 开箱即装、即可工作。**
 全新安装即是一套完整可用的 Linux 桌面，无需任何 AI：
-- 硬件使能：合适的内核、**GPU 驱动**（Mesa panvk + rusticl）、**NPU 驱动**
-  （`/dev/aipu`）、**音频**（HDMI + 模拟耳机/扬声器接口），以及 Wi-Fi/以太网固件 —— 驱动均可工作。
-- XFCE 桌面 + 浏览器、媒体播放器、字体、压缩工具 —— 完全可用于日常的非 AI 工作。
+- 硬件使能：合适的内核、**GPU 驱动**（树外的 CIX `mali_kbase` 闭源 DDK ——
+  在默认的 7.2 "Mali" 启动项上通过 `libmali` 提供硬件 GLES/EGL/OpenCL；
+  带 Vulkan 的 Panthor/Mesa PanVK 启动项作为后续 staged 更新存在，尚非
+  默认）、**NPU 驱动**（`/dev/aipu`）、**音频**（HDMI + 模拟耳机/扬声器
+  接口），以及 Wi-Fi/以太网固件 —— 驱动均可工作。
+- **Singularity 桌面**（原生 Wayland、Mali GPU 加速，无 X11）+ 浏览器、
+  媒体播放器、字体、压缩工具 —— 完全可用于日常的非 AI 工作。
 - Claude Code CLI 作为*工具*存在；它本身不会自行运行任何东西。
 
 **2. AI 智能体 + 记忆基座 —— 可选，通过 `ncz` 命令安装。**
@@ -94,9 +100,9 @@ NCZ **在设计与意图上都是厂商中立的。** 目标：在能获取样�
 
 | 板卡 | SoC | 状态 |
 |---|---|---|
-| **Minisforum MS-R1**（32 GB，以及 64 GB "超大杯"） | Cix Sky1 / CP8180 | ✅ **我们唯一测试过的硬件。** 全部验证 —— UEFI 启动、安装器、GPU（Mesa 26.1.3 panvk + rusticl）、NPU（Zhouyi 嵌入 + 视觉）、音频，以及 A/B 内核方案 —— 都是在这台机器上完成的。 |
-| **Radxa Orion O6** | Cix Sky1 | ✅ **已验证可用。** 与 MS-R1 *板卡不同*（有其自己的设备树、PMIC、BIOS 和外设），现已确认可安装并启动。Realtek 网卡（RTL8125/8126）开箱即用 —— `rtl_nic` 固件已在安装器和已安装系统中同时附带，解决了此前无网络的回归问题。 |
-| **Radxa Orion O6N** | Cix Sky1 | ⚠️ **未测试，但预计可用。** 相同的 Sky1 SoC，且与 O6 属同一板卡系列（细小变体）；我们只是尚未在硬件上确认。**如果你有 O6N：请安装、测试并提交 issue。** |
+| **Minisforum MS-R1**（32 GB，以及 64 GB "超大杯"） | Cix Sky1 / CP8180 | ✅ **已验证可用。** UEFI 启动、安装器、GPU（7.0.12/panthor 路径）、NPU（Zhouyi 嵌入 + 视觉）、音频，以及多内核通道方案均已在这台机器上验证。主通道（7.2/Mali）的验证现以 O6N 为主，见下文。 |
+| **Radxa Orion O6** | Cix Sky1 | ⚠️ **我们尚未直接测试 —— 用户报告可用。** 硬件上比 O6N 更接近 MS-R1；用户已在自己的 O6 上确认可安装并启动，包括 Realtek 网卡（RTL8125/8126）通过安装器与已安装系统中都附带的 `rtl_nic` 固件开箱即用。我们尚未亲自上手过 O6 硬件。 |
+| **Radxa Orion O6N**（48 GB） | Cix Sky1 | ✅ **已验证可用 —— 我们的主要开发/调试目标机。** 同为 Sky1 SoC、O6 板卡系列。Mali `mali_kbase` GPU 驱动移植、7.2/7.0.12/6.18 三层内核策略，以及完整的 Singularity 桌面栈（含 `ncz-performance-mode` 电源修复）都是在这台机器上反复构建与验证的，而非纸面声明。 |
 | **Framework Cix 扩展板 / 主板** | Cix Sky1 | ❌ **未测试。** 在我们的视野内；手头没有硬件。 |
 | **Orange Pi（Cix 变体）** | Cix Sky1 | ❌ **未测试。** 手头没有硬件。 |
 | 其他 Arm（RK3588/RK3576、MediaTek Genio、Snapdragon）与 x86（Intel、AMD） | — | 🗺️ 路线图 / 仅适配层 —— 尚未构建或测试。 |
@@ -157,10 +163,12 @@ ISO 还自带：
   `post-install/25-cix-proprietary.sh` 用 dpkg 安装。同一批软件包**也**被
   镜像进 Cloudflare R2 上的 `ncz-os/ncz` apt 仓库（31 个包，约 81MB），以便安装后
   无需重装即可重新拉取 —— 见 [OTA 更新通道](#通过-apt-升级内核与驱动--无需重装)。
-- 两个内核（默认 `6.18.26-cix-sky1-lts` + edge 版 `7.0.12-cix-sky1-next`）
-  及固件，设备可在两个内核间切换而无需重新下载任何东西。
+- 内核通道（`7.2` 主/默认 + `7.0.12-cix-sky1-next` 次级/回退，外加位于
+  专用救援分区的 `6.18.26-cix-sky1-lts`）及固件，设备可在通道间切换而
+  无需重新下载任何东西。
 - zeroclaw 的 quadlet 定义，外加可选的 OpenClaw、Hermes 和 NemoClaw 模板（仅预置，默认均不激活）
-- Plymouth 主题（定制 nclawzero 启动画面）
+- 原生 KMS 启动画面（`singularity-boot-splash`，定制 NCZ logo/进度条）——
+  Plymouth 已被完全移除。
 
 因此，对于 Cix 各层而言安装是可离线的：智能体 quadlet 与 OCI 镜像都只是**预置**而不会被激活；
 每个智能体（包括 zeroclaw）以及 MNEMOS 记忆系统，都由运维者在安装后通过 `ncz` 按需安装。
@@ -206,11 +214,13 @@ MNEMOS 在写入时通过 `embedkit.Engine.auto()` 为每条记忆生成嵌入�
 | 文本嵌入（编码器，≤256 tok） | **NPU**（`.cix`） | GPU 计算 |
 | 长文档嵌入 / LLM 解码 / 动态形状 | **CPU** | NPU、GPU 计算 |
 | 视觉 / CNN（mobilenet、resnet、yolo） | **NPU** | GPU 计算 |
-| 显示 / 桌面 GL/Vulkan | **GPU**（panthor） | — |
+| 显示 / 桌面 GL/Vulkan | **GPU**（主通道为 `mali_kbase`/libmali；7.0.12 回退通道为 panthor） | — |
 
 NPU = 固定形状的编码器，CPU = 一切动态的，GPU = 像素而非 ML。Mali-G720 没有
 协作矩阵，因此 GPU 上的 ML 计算比 CPU 慢 6–47 倍 —— 它只为显示而接线。完整的
 逐驱动矩阵及数字见：[`docs/INFERENCE_LIMITS.md`](docs/INFERENCE_LIMITS.md)。
+（该文档目前仍以 7.0.12/panthor 通道的实测数据为主，尚未针对 7.2/mali_kbase
+通道更新 —— 见下方"当前 ISO"一节。）
 
 ### 拉取更多模型
 
@@ -245,10 +255,10 @@ curl -fL "$BASE/models/.../bge-small-zh_256.cix" -o model.cix
 
 | 路径 | 来源 | 说明 |
 |---|---|---|
-| `assets/cix-debs/` | 离线预置的 CIX 专有 `.deb`（gitignore） | 同时也镜像进 Cloudflare R2 上的 `ncz-os/ncz`（31 个包，见 OTA 章节） |
-| `assets/kernel/{stable,edge}/` | Yocto 构建 `meta-cix:linux-cix-sky1-{lts,next}`（gitignore） | 每个内核对应的 `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER`；另有 `modules-overlay/$KVER/` 子目录存放经验证的修复用 `.ko`（见 `post-install/80-npu.sh`、`81-vpu.sh`） |
+| `assets/cix-debs/` | 离线预置的 CIX 专有 `.deb`（gitignore） | 同时也镜像进 **Buildkite Packages**（主）+ Cloudflare R2（备份）上的 `ncz-os/ncz`（见 OTA 章节） |
+| `assets/kernel/{stable,edge}/` | Yocto 构建：`stable/` 为次级/回退通道 `meta-cix:linux-cix-sky1-next`（7.0.12），`edge/` 为主通道 `linux-cix-sky1-ncz`（7.2）（gitignore） | 每个内核对应的 `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER`；另有 `modules-overlay/$KVER/` 子目录存放经验证的修复用 `.ko`（见 `post-install/80-npu.sh`、`81-vpu.sh`、`82-mali-gpu.sh`）——深度救援用的 `6.18.26-cix-sky1-lts` 内核单独为 NCZRESCUE 分区打包，见 `build/build-rescue-rootfs.sh` |
 | `assets/agent-stack/*` | 本仓库 | zeroclaw/openclaw/hermes/portainer/mnemos/nemoclaw 的 systemd quadlet |
-| `assets/branding/*` | 本仓库 | os-release、motd、Plymouth 主题、壁纸 |
+| `assets/branding/*` | 本仓库 | os-release、motd、壁纸、rEFInd 横幅/图标 |
 | `preseed/preseed.cfg`、`preseed/late.sh` | 本仓库 | d-i 无人值守 preseed + late_command（chroot 之前，仅安装时执行） |
 | `post-install/*.sh` | 本仓库 | 40 多个编号钩子；在 chroot 内运行 |
 
@@ -371,44 +381,57 @@ device-tree-compiler，以及两个专用助手 `ncz-rescue-fixlib` 和
   "仅限光盘"，尽管仓库里有些注释这样描述过一种"仅离线"的信条；那种信条
   针对的是特定的单一厂商源（见下文 Vivaldi），而不是 Ubuntu 官方源本身。
 - **内核** —— 编译好的 `linux-image-cixmini-{lts,edge}` + `cixmini-boot`
-  （`build/build-kernel-debs.sh`）→ 一个公开的 **Cloudflare R2** 存储桶上经
-  签名的 Debian 仓库 `ncz-os/ncz`，由 `post-install/24-apt-sources.sh` 接入：
-  `deb [signed-by=…] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main`。
-  仓库此前托管在 Buildkite Packages 上，但其私有注册表存在鉴权 bug、改为公开后
-  又撞上套餐层级的资源限额，曾在真机上导致 `apt-get update` 返回 `403
-  Forbidden` 的硬性安装失败 —— 已于 2026-07-05 整体迁移至 R2：无需客户端鉴权，
-  也没有套餐配额，且 R2 没有出口流量费用，经由 Cloudflare 边缘节点提供服务。
-- **CIX 用户态驱动/运行时** → **同一个** R2 上的 `ncz-os/ncz` 仓库（于
-  2026-07-05 从 `archive.cixtech.com` —— 上游 CIX 的中国大陆托管 Debian 仓库，
-  经常直接拒绝连接 —— 镜像而来）。共 31 个包，约 81MB；5 个从未实际安装的内部
-  测试/验证用包（`cix-unit-test`、`cix-npu-onnxruntime`、`cix-ltp`、
-  `cix-gpu-test`、`cix-vpu-test`，合计 1.6GB）已被排除。这里**不存在** Codeberg
-  apt 源 —— 本文档早期版本描述过一个（`post-install/91-codeberg-apt.sh`），但该
-  脚本在本仓库中从未真正实现过。
-- **内核源码 + Yocto 配方** → GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix)。
+  （`build/build-kernel-debs.sh`）→ **Buildkite Packages**（`ncz-os/ncz`，
+  CloudFront CDN 承载）为**主**、**Cloudflare R2** 为**独立的第二 apt 源**
+  （而非单纯的镜像 URL）——`post-install/24-apt-sources.sh` 同时接入两者；
+  只要 keyring 成功暂存，两个源各自写入独立的 `sources.list.d` 条目。此前
+  （2026-07-06）曾因 Buildkite 私有注册表鉴权 bug + 套餐资源限额，整体迁移到
+  R2 单一来源；2026-07-26 运营方决定权限已开通，**反向迁回 Buildkite 为主**，
+  同时保留 R2 作为独立备份，这样任一来源不可达时另一个仍可解析软件包 ——
+  不再是"单点故障换个位置"。
+- **CIX 用户态驱动/运行时 + Singularity 桌面** → **同一套** Buildkite 主 +
+  R2 备份的 `ncz-os/ncz` 双源（CIX 用户态部分最初于 2026-07-05 从
+  `archive.cixtech.com` —— 上游 CIX 的中国大陆托管 Debian 仓库，经常直接拒绝
+  连接 —— 镜像而来）。5 个从未实际安装的内部测试/验证用包
+  （`cix-unit-test`、`cix-npu-onnxruntime`、`cix-ltp`、`cix-gpu-test`、
+  `cix-vpu-test`）已被排除。这里**不存在** Codeberg apt 源 —— 本文档早期
+  版本描述过一个（`post-install/91-codeberg-apt.sh`），但该脚本在本仓库中
+  从未真正实现过。
+- **内核源码 + Yocto 配方** → GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix)；7.2 出货内核的完整源码索引另见 [`kernel-source/SOURCE.md`](kernel-source/SOURCE.md)。
 
-R2 上的这个源经 GPG 签名（`signed-by`，绝非 `trusted=yes`）；安装介质的
-`file:///cdrom` 源在安装后被移除，此前的 GHCR/squashfs OTA 机制
-（`90-ota-channel.sh`）已废弃。
+Buildkite 与 R2 上的源均经 GPG 签名（`signed-by`，绝非 `trusted=yes`，各自
+使用自己的签名 key）；安装介质的 `file:///cdrom` 源在安装后被移除，此前的
+GHCR/squashfs OTA 机制（`90-ota-channel.sh`）已废弃。
 
 **如何更新。** 在设备上，`apt update && apt upgrade`（或
 `ncz-update [--apply]`）会从签名仓库拉取新内核 + CIX 软件包并安装 ——
 切换到新内核不再需要重装系统。
 
-## 当前 ISO — r195（NCZ-OS 26.6 正式发布）
+## 当前 ISO — 26.7 "Maximilian"
 
-内核 + CIX 专有软件包现已从一个公开的 **Cloudflare R2** apt 仓库分发，
-不再经由 Buildkite Packages —— 修复了一个曾在真机上导致硬性安装失败
-（`403 Forbidden`）的真实缺陷。NoMachine 已被移除（xrdp 是唯一的图形化
-远程访问方式）；同时屏蔽了几个每次启动都失败、无用的服务以精简启动日志。
-本版本同时携带 r192/r193 的成果：**Reinhardt（桌面版）与 Magnetar（服务器版）
-都能从同一张光盘安装**，且 **APT 内核 + CIX 用户态升级**现已真正由 dpkg
-跟踪 —— 切换新内核或驱动构建无需重装。两个变体均已在 KVM 下完成端到端启动
-验证（rEFInd → 内核 → d-i → preseed 启动，在具备硬件加速的通用 aarch64
-虚拟主板上确认；完整的 NPU/GPU/VPU/音频驱动验证仍仅限于 MS-R1 真机，见上文
-**硬件支持与测试状态**）。
+三层内核通道 + 桌面/GPU 重做：**7.2**（`linux-cix-sky1-ncz`，
+`KERNELRELEASE 7.2.0-rc4-sky1-ncz`）是**主/默认启动项**，**7.0.12-cix-sky1-next**
+是**次级/应急回退**（也是 d-i 安装器环境自身启动所用的内核，rEFInd 菜单中
+标记为"stable"），**6.18.26-cix-sky1-lts** 是**深度救援内核**，最小化设计，
+位于独立的 NCZRESCUE 分区（视空间情况也可能同时暂存在主 ESP 上）。桌面为
+**Singularity**（labwc/wlroots，原生 Wayland）—— X11/XFCE 已完全移除。默认
+GPU 驱动是树外的 CIX **`mali_kbase`** 闭源 DDK（通过 `libmali` 提供硬件
+GLES/EGL/OpenCL）；树内 `panthor` + Mesa/PanVK Vulkan 路径作为非默认的
+后续启动项存在，等待 GPU 电源域修复后启用。apt 托管为 **Buildkite Packages
+主 + Cloudflare R2 备份**（并非仅 R2）。详见本文件顶部说明及
+[English README](README.md) 获取完整细节。
 
-**内核：** 6.18.26-cix-sky1-lts（默认，生产）+ 7.0.12-cix-sky1-next（edge）。（7.1.2 为实验性/不可用；7.2 迁移进行中。）
+**内核：** 7.2.0-rc4-sky1-ncz（主/默认）+ 7.0.12-cix-sky1-next（次级/回退，
+rEFInd 菜单中为 "stable"）+ 6.18.26-cix-sky1-lts（深度救援）。7.1.x 为
+实验性/不可用，从未出货。
+
+## 历史 ISO — r195（NCZ-OS 26.6，仅供存档）
+
+> 以下内容是 26.6 版本的历史快照，早于上面描述的 Singularity 桌面 /
+> `mali_kbase` / apt 双源 / 三层内核 等工作。仅为变更记录保留，不代表
+> 当前 ISO 状态。
+
+**内核（r195 时）：** 6.18.26-cix-sky1-lts（默认，生产）+ 7.0.12-cix-sky1-next（edge）。（7.1.2 为实验性/不可用。）
 
 两者的来源不同：**6.18.26 LTS** 是主线 Linux 加上
 [Sky1-Linux](https://github.com/Sky1-Linux/linux-sky1) 社区补丁 ——
@@ -417,22 +440,29 @@ R2 上的这个源经 GPG 签名（`signed-by`，绝非 `trusted=yes`）；安�
 自行完成了 MS-R1 专属的验证与修复（SCMI、GPU、VPU、NPU、显示，以及从
 LTS 代码树移植过来的音频栈）。
 
-**安装：** 无人值守 d-i（自动分区：ESP + NCZRESCUE 救援分区），rEFInd 引导。可交互选择磁盘与根文件系统 —— **btrfs**（默认）或 **ext4**；暂不支持 ZFS 根。安装器运行于经验证的 6.18 LTS 内核。
+**安装（r195 时）：** 无人值守 d-i（自动分区：ESP + NCZRESCUE 救援分区），rEFInd 引导。可交互选择磁盘与根文件系统 —— **btrfs**（默认）或 **ext4**；暂不支持 ZFS 根。安装器运行于 7.0.12 stable 内核。
 
-**恢复：** NCZRESCUE 分区含完整修复工具集 + 自动联网，独立于主根文件系统可达；USB 启动时安装器远程诊断（network-console + telnet/http）可用。
+**恢复（r195 时）：** NCZRESCUE 分区含完整修复工具集 + 自动联网，独立于主根文件系统可达；USB 启动时安装器远程诊断（network-console + telnet/http）可用。
 
-**MS-R1（cixmini）驱动支持 —— 6.18 / 7.0.12：** NVMe/PCIe、USB、以太网/Wi-Fi、音频、NPU（Zhouyi V3 `/dev/aipu`）、GPU（Mali-G720 panthor `renderD128`，Mesa 26.1.3 panvk+rusticl；合成关闭）、VPU 均正常。
+**MS-R1（cixmini）驱动支持（r195 时） —— 6.18 / 7.0.12：** NVMe/PCIe、USB、以太网/Wi-Fi、音频、NPU（Zhouyi V3 `/dev/aipu`）、GPU（Mali-G720 panthor `renderD128`，Mesa 26.1.3 panvk+rusticl；合成关闭）、VPU 均正常。
 
-**复现：** 内核源自 kernel.org stable git + meta-cix 补丁系列（Yocto，见 [docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)）；ISO 经 build/build-iso-di.sh 构建（见 [docs/NEXT_ISO.md](docs/NEXT_ISO.md)）。无需单独的内核源码仓库 —— meta-cix 已将每一个 Sky1 专属补丁作为受版本控制的文件保存。
+**复现（r195 时）：** 内核源自 kernel.org stable git + meta-cix 补丁系列（Yocto，见 [docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)）；ISO 经 build/build-iso-di.sh 构建（见 [docs/NEXT_ISO.md](docs/NEXT_ISO.md)）。
 
 ## 状态
 
-**26.6（r194）** —— 当前发布。开源 Mesa 26.1.3 栈是 **OpenGL/GLX、Vulkan
-和 OpenCL** 的完整默认 GPU 提供方；CIX 专有栈仍保留在磁盘上（`.disabled`），
-供将来的可选切换器使用。仅在 Minisforum MS-R1 上测试 —— 见上文**硬件支持与测试
-状态**。**Reinhardt**（桌面）与 **Magnetar**（服务器）现在都能从*同一张*
-ISO 启动并安装 —— rEFInd 选择变体，两个 squashfs 增量包都随每张光盘发布（见
+**26.7 "Maximilian"** —— 当前发布。**Singularity 桌面**（原生 Wayland，无
+X11/XFCE）是唯一桌面，默认 GPU 驱动是 CIX **`mali_kbase`** 闭源 DDK（主 7.2
+启动项上通过 `libmali` 提供硬件 GLES/EGL/OpenCL），而不是早期版本
+（r113–r194，见下文历史条目）所用的开源 Mesa panvk/rusticl 栈 —— Mesa
+panvk/rusticl 现仅用于 7.0.12 次级/回退内核。apt 托管为 **Buildkite Packages
+主 + Cloudflare R2 备份**（而非仅 R2，见下文 r194 条目）。测试与验证现以
+**Radxa Orion O6N** 为主，而非仅 MS-R1 —— 见上文**硬件支持与测试状态**。
+**Reinhardt**（桌面）与 **Magnetar**（服务器）仍从*同一张* ISO 启动并安装 ——
+rEFInd 选择变体，两个 squashfs 增量包都随每张光盘发布（见
 [架构](#架构)）。
+
+以下为**历史变更记录**：每条描述的是该版本当时的真实状态，越靠上的条目
+越新，关于"当前"GPU 驱动、apt 源、内核分层的说法以上方 26.7 描述为准。
 
 自 r147 基线以来的变更：
 
@@ -503,4 +533,4 @@ ISO 启动并安装 —— rEFInd 选择变体，两个 squashfs 增量包都随
 ## 姊妹项目
 
 - [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) —— 基于脚本的镜像构建器；从一个可用的 aarch64 系统运行，绕过 d-i 流程。用例不同（原地重建 vs 全新安装）。
-- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) —— 提供内核配方（LTS 版 `linux-cix-sky1_6.18.26.bb`、edge 版 `linux-cix-sky1-next_7.0.12.bb`）以及本安装器所消费的 Cix 用户态配方的 Yocto BSP 层。内核源码本身直接取自公开的 `kernel.org` 稳定版代码树的某个固定提交；每一个 Sky1 专属补丁都是本层中受版本控制的文件 —— 复现构建无需另外的内核源码仓库。见 [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md)。
+- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) —— 提供内核配方（主/edge 版 `linux-cix-sky1-ncz_7.2.bb`、次级/应急版 `linux-cix-sky1-next_7.0.12.bb`、深度救援版 `linux-cix-sky1_6.18.26.bb`）以及本安装器所消费的 Cix 用户态配方的 Yocto BSP 层。内核源码本身直接取自公开的 `kernel.org` 代码树在各通道对应的固定提交；每一个 Sky1 专属补丁都是本层中受版本控制的文件（7.2 出货内核的补丁系列同时镜像进本仓库的 [`kernel-source/`](kernel-source/SOURCE.md)，用于 GPL 源码索引）。见 [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md)。
