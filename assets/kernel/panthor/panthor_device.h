@@ -159,6 +159,17 @@ struct panthor_device {
 	/** @gpu_reset: GPU reset control (optional, Sky1). */
 	struct reset_control *gpu_reset;
 
+	/**
+	 * @sky1_power_supply_dev: ACPI "power-supply" device (GPUP / CIXH5001)
+	 * un-securing the GPU on Sky1, when attached. NULL unless
+	 * panthor_pm_domain_init() successfully attached it; used to unwind
+	 * on a later probe failure and on driver unbind.
+	 */
+	struct device *sky1_power_supply_dev;
+
+	/** @sky1_power_supply_link: device_link to @sky1_power_supply_dev, when attached. */
+	struct device_link *sky1_power_supply_link;
+
 	/** @clks: GPU clocks. */
 	struct {
 		/** @core: Core clock. */

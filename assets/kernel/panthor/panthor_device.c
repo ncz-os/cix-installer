@@ -6,6 +6,7 @@
 
 #include <linux/acpi.h>
 #include <linux/clk.h>
+#include <linux/delay.h>
 #include <linux/mm.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -132,8 +133,9 @@ bool panthor_is_sky1(struct panthor_device *ptdev)
  * device_link keeps the power device resumed for the GPU's runtime-PM life
  * (so an autosuspend of the GPU does not release the un-secure).
  */
-static int panthor_sky1_attach_power_supply(struct device *dev)
+static int panthor_sky1_attach_power_supply(struct panthor_device *ptdev)
 {
+	struct device *dev = ptdev->base.dev;
 	struct fwnode_handle *ps_fwnode;
 	struct device *power_dev;
 	struct device_link *link;
@@ -185,7 +187,165 @@ static int panthor_sky1_attach_power_supply(struct device *dev)
 		return -EINVAL;
 	}
 
+	/*
+	 * Record both so a later probe failure (e.g. panthor_sky1_resets_init()
+	 * below, or anything else in panthor_device_init()) can unwind this via
+	 * panthor_sky1_detach_power_supply() / panthor_pm_domain_fini() instead
+	 * of leaking the reference, the device_link and the runtime-PM enable.
+	 */
+	ptdev->sky1_power_supply_dev = power_dev;
+	ptdev->sky1_power_supply_link = link;
+
 	dev_info(dev, "Sky1: GPU un-secured via ACPI power-supply (_PR0)\n");
+	return 0;
+}
+
+/*
+ * Undo panthor_sky1_attach_power_supply(), if it ran. Safe to call
+ * unconditionally (including when the "power-supply" reference was never
+ * attached, e.g. no ACPI companion or an older firmware variant) since it
+ * no-ops when @ptdev->sky1_power_supply_dev is NULL.
+ */
+static void panthor_sky1_detach_power_supply(struct panthor_device *ptdev)
+{
+	struct device *power_dev = ptdev->sky1_power_supply_dev;
+
+	if (!power_dev)
+		return;
+
+	if (ptdev->sky1_power_supply_link)
+		device_link_del(ptdev->sky1_power_supply_link);
+
+	dev_pm_domain_detach(power_dev, true);
+	pm_runtime_disable(power_dev);
+	put_device(power_dev);
+
+	ptdev->sky1_power_supply_dev = NULL;
+	ptdev->sky1_power_supply_link = NULL;
+}
+
+/*
+ * Sky1 GPU IP reset ("gpu_reset").
+ *
+ * The ACPI power-supply un-secure (above) is necessary but not sufficient:
+ * on real Sky1 hardware the GPU register aperture (panthor's primary iomem,
+ * resource[1]) still bus-faults on the very first MMIO access even after
+ * "power-supply" is attached -- confirmed via serial trace as a distinct,
+ * non-zero "IDM: GPU non-secure access, error status=0xec000014" at the
+ * aperture base, i.e. a real bus error (not a security violation) on the
+ * first register read in panthor_hw_gpu_id_init().
+ *
+ * The CIX GPU Development Guide documents a 5-step Sky1 GPU power-on
+ * sequence: 1. power domain on, 2. clock enable, 3. IP reset assert,
+ * 4. IP reset de-assert, 5. RCSU PGCTRL qchannel-clock-gating enable.
+ * Panthor only ever implemented steps 1-2; steps 3-5 (the reset cycle
+ * gating access to the register aperture, plus the qchannel-gating
+ * follow-up write) were never wired up for the 7.2 ACPI path. This is
+ * exactly the same bug class fixed for the Sky1 VPU driver (NCZ patches
+ * 0136/0139-0141: an un-deasserted RCSU-side reset leaves the register
+ * aperture bus-faulting even though the block is otherwise powered and
+ * un-secured), and mirrors mali_kbase's sky1_gpu_attach_pd() +
+ * execute_gpu_reset(), which cycles a "gpu_reset" reset_control before
+ * its own first GPU register access. panthor_device.h has long carried
+ * an unused @gpu_reset field for exactly this; nothing ever acquired or
+ * cycled it under the ACPI (7.2) probe path.
+ *
+ * devm_reset_control_get_optional_exclusive() returns NULL (not an error)
+ * when the reset framework has no ACPI-side "gpu_reset" reference to
+ * resolve, so this is safe to call unconditionally on Sky1 -- if the
+ * firmware genuinely does not describe a "gpu_reset" line, the assert/
+ * deassert calls below become no-ops via panthor_sky1_hw_reset_cycle()'s
+ * NULL check, same as upstream reset_control_assert/deassert(NULL).
+ */
+static int panthor_sky1_resets_init(struct panthor_device *ptdev)
+{
+	struct device *dev = ptdev->base.dev;
+
+	/*
+	 * Under ACPI the reset framework has no DT phandle to resolve against,
+	 * so use the exclusive lookup (matches the earlier NCZ 7.1.1 panthor
+	 * ACPI enablement, which drew this ACPI/OF split from mali_kbase's own
+	 * reset-framework usage). Both _optional_ variants return NULL rather
+	 * than -ENOENT when firmware has no "gpu_reset" reference at all, so
+	 * panthor_sky1_hw_reset_cycle()'s NULL check keeps this a no-op instead
+	 * of failing probe on such firmware.
+	 */
+	if (!dev->of_node)
+		ptdev->gpu_reset = devm_reset_control_get_optional_exclusive(dev, "gpu_reset");
+	else
+		ptdev->gpu_reset = devm_reset_control_get_optional(dev, "gpu_reset");
+	if (IS_ERR(ptdev->gpu_reset))
+		return dev_err_probe(dev, PTR_ERR(ptdev->gpu_reset),
+				     "Sky1: failed to get gpu_reset\n");
+
+	return 0;
+}
+
+/*
+ * Cycle the Sky1 GPU IP reset and enable RCSU qchannel clock gating.
+ *
+ * This is steps 3-5 of the CIX GPU Development Guide's Sky1 power-on
+ * sequence (see panthor_sky1_resets_init() above) and MUST run after the
+ * power-supply un-secure + clocks are up but before any access to
+ * ptdev->iomem (the primary GPU register block) -- panthor_hw_init() is
+ * the first such access (GPU_ID at offset 0) and is exactly where the
+ * hang was observed.
+ *
+ * Matches mali_kbase's execute_gpu_reset() (assert, 10-20us, deassert)
+ * followed by gpu_qchannel_clock_gating_switch(true) against the same
+ * RCSU PGCTRL register (offset 0x218, bit 0 =
+ * GPU_RCSU_QCHANNEL_CLOCK_GATE_ENABLE in mali_kbase's platform config).
+ *
+ * Deliberately called ONCE, from probe, not from panthor_device_resume()
+ * (ordinary GPU runtime-PM autosuspend/resume). kbase does the same: its
+ * pm_callback_power_on() only calls execute_gpu_reset() the first time,
+ * gated by a static "need_reset_flag" latch that is never set again, and
+ * the GPU's power-supply device_link here is DL_FLAG_RPM_ACTIVE, which
+ * keeps that supplier device runtime-resumed for the driver's whole
+ * lifetime -- so the ACPI un-secure state it holds is not expected to be
+ * revisited by an ordinary autosuspend/resume cycle either. This is
+ * INFERRED from kbase's reference behavior, not independently confirmed
+ * against Sky1 silicon/firmware docs for panthor specifically, and is
+ * unverified by the hardware boot-hang testing this fix targets (that
+ * testing never gets past probe). If GPU runtime-PM autosuspend is later
+ * found to need this too, add the call to panthor_device_resume().
+ *
+ * Full SYSTEM suspend/resume (suspend-to-RAM) is a separate, known,
+ * explicitly out-of-scope gap: an earlier NCZ patch for the 7.1.1 branch
+ * (0037-gpu-panthor-fix-suspend-resume-for-sky1) added an equivalent
+ * reset-cycle replay to a dedicated resume_noirq hook for exactly that
+ * case. This fix does not port that noirq scaffolding -- it targets only
+ * the probe-time hard hang that has actual hardware evidence behind it.
+ */
+static int panthor_sky1_hw_reset_cycle(struct panthor_device *ptdev)
+{
+	struct device *dev = ptdev->base.dev;
+	int ret;
+
+	if (ptdev->gpu_reset) {
+		ret = reset_control_assert(ptdev->gpu_reset);
+		if (ret) {
+			dev_err(dev, "Sky1: GPU reset assert failed: %d\n", ret);
+			return ret;
+		}
+
+		usleep_range(10, 20);
+
+		ret = reset_control_deassert(ptdev->gpu_reset);
+		if (ret) {
+			dev_err(dev, "Sky1: GPU reset deassert failed: %d\n", ret);
+			return ret;
+		}
+	}
+
+	if (!IS_ERR_OR_NULL(ptdev->sky1_rcsu_reg)) {
+		u32 pgctrl = readl(ptdev->sky1_rcsu_reg + 0x218);
+
+		pgctrl |= BIT(0); /* GPU_RCSU_QCHANNEL_CLOCK_GATE_ENABLE */
+		writel(pgctrl, ptdev->sky1_rcsu_reg + 0x218);
+		dev_dbg(dev, "Sky1: GPU qchannel clock gating enabled\n");
+	}
+
 	return 0;
 }
 
@@ -210,10 +370,27 @@ int panthor_pm_domain_init(struct panthor_device *ptdev)
 	 * This is ACPI-native (_PR0._ON) and works with acpi_scmi_en=off, where
 	 * the GPU's SCMI "power-domains" genpd is absent. Mirror mali_kbase.
 	 */
-	if (panthor_is_sky1(ptdev) && has_acpi_companion(dev)) {
-		err = panthor_sky1_attach_power_supply(dev);
-		if (err)
+	if (panthor_is_sky1(ptdev)) {
+		if (has_acpi_companion(dev)) {
+			err = panthor_sky1_attach_power_supply(ptdev);
+			if (err)
+				return err;
+		}
+
+		err = panthor_sky1_resets_init(ptdev);
+		if (err) {
+			/*
+			 * panthor_sky1_attach_power_supply() may have already
+			 * succeeded above. The caller only invokes
+			 * panthor_pm_domain_fini() when THIS function returns
+			 * success and a later probe step fails, so an error
+			 * return here must unwind the power-supply attach
+			 * itself or it leaks (device ref, device_link,
+			 * runtime-PM enable).
+			 */
+			panthor_sky1_detach_power_supply(ptdev);
 			return err;
+		}
 	}
 
 	if (!IS_ENABLED(CONFIG_OF) || !dev->of_node)
@@ -256,6 +433,8 @@ int panthor_pm_domain_init(struct panthor_device *ptdev)
 void panthor_pm_domain_fini(struct panthor_device *ptdev)
 {
 	int i;
+
+	panthor_sky1_detach_power_supply(ptdev);
 
 	for (i = 0; i < ARRAY_SIZE(ptdev->pm_domain_devs); i++) {
 		if (!ptdev->pm_domain_devs[i])
@@ -516,6 +695,20 @@ int panthor_device_init(struct panthor_device *ptdev)
 			panthor_pm_domain_fini(ptdev);
 			return ret;
 		}
+	}
+
+	/*
+	 * Sky1: cycle the GPU IP reset + enable RCSU qchannel clock gating
+	 * (steps 3-5 of the documented power-on sequence) before the first
+	 * GPU register access below (panthor_hw_init() -> GPU_ID read).
+	 * See panthor_sky1_hw_reset_cycle()'s comment for why this is
+	 * required in addition to the ACPI power-supply un-secure done in
+	 * panthor_pm_domain_init().
+	 */
+	if (panthor_is_sky1(ptdev)) {
+		ret = panthor_sky1_hw_reset_cycle(ptdev);
+		if (ret)
+			goto err_rpm_put;
 	}
 
 	ret = panthor_hw_init(ptdev);
