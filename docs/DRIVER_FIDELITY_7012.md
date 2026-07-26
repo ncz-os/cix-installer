@@ -21,6 +21,19 @@ driver notes".
 - **Overlay (no-rebuild stopgap)**: `assets/kernel/modules-overlay/7.0.12-cix-sky1-next/armchina_npu.ko` (vermagic 7.0.12-cix-sky1-next, ARCH_V3 + iova=2). post-install drops to `/lib/modules/$KVER/updates/` + depmod.
 - **Memory**: NPU uses the IOMMU scatter path, NOT CMA. ~2GB IOVA is a HARD ceiling (32-bit address bus) regardless of RAM/CMA.
 
+## GPU driver A/B follow-up (mali_kbase port, EXPERIMENTAL, not shipping)
+An out-of-tree mali_kbase port for this kernel (same driver that ships as
+the validated default on the 7.2 channel) lives at
+`assets/kernel/mali-70012/` — DKMS-packaged, `AUTOINSTALL="no"`, **not**
+wired into any post-install hook. Builds clean and no longer crashes the
+board (two real NULL-pointer-deref panics were found via live insmod
+testing on cixmini and fixed — see that directory's README + provenance
+patch), but probe never completes on this kernel (`-EPROBE_DEFER` forever
+on the "perf" SCMI power-domain attach, confirmed non-transient via
+`/sys/kernel/debug/devices_deferred`) — no `/dev/mali0`, not GPU-functional.
+panthor (below) remains the sole validated GPU driver for this channel;
+the mali_kbase port is parked for future root-causing, not a replacement.
+
 ## GPU (Mali-G720 / panthor)
 - **Firmware**: REQUIRES `/lib/firmware/arm/mali/arch12.8/mali_csffw.bin` (panthor probes arch-versioned path). Staged at `assets/sky1-firmware/arm/mali/arch12.8/`. -> `renderD128` live.
 - **panvk Vulkan compute recipe**: mesa from ports.ubuntu (resolute); ICD `panfrost_icd.json`; DISABLE CIX WSI implicit layer (`VK_LOADER_LAYERS_DISABLE=VK_LAYER_window_system_integration`); user in `render` group; `XDG_RUNTIME_DIR` set. Validated: benchncnn ran ~30 models on Mali-G720.
