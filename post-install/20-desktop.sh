@@ -196,6 +196,31 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv)"
 
 # ---------------------------------------------------------------------------
+# Diagnostics: real crash traceability for the Singularity desktop session.
+# apport's coredump handler doesn't reliably capture desktop-session crashes
+# under a Wayland compositor; systemd-coredump does (verified live on O6N —
+# apt swaps apport-core-dump-handler for it, expected/safe, they're mutually
+# exclusive coredump handlers). G_MESSAGES_DEBUG=all surfaces GLib/GTK4
+# warning/debug output the Vala-based Singularity Desktop binaries would
+# otherwise swallow silently on error exit (observed: a real session crash
+# left literally zero output in its own log, exit code only).
+# ---------------------------------------------------------------------------
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    systemd-coredump 2>&1 | tail -3 || true
+ENVF=/etc/environment
+touch "$ENVF"
+set_env() {  # key value — idempotent replace-or-append
+    local k="$1" v="$2"
+    if grep -q "^${k}=" "$ENVF" 2>/dev/null; then
+        sed -i "s|^${k}=.*|${k}=${v}|" "$ENVF"
+    else
+        echo "${k}=${v}" >> "$ENVF"
+    fi
+}
+set_env G_MESSAGES_DEBUG all
+echo "[20] diagnostics: systemd-coredump installed, G_MESSAGES_DEBUG=all set"
+
+# ---------------------------------------------------------------------------
 # Install the Singularity payload from the NCZ-OS apt repository.
 # post-install/24-apt-sources.sh wires the signed Buildkite Packages (primary)
 # + Cloudflare R2 (backup) sources and refreshes the index before this hook
