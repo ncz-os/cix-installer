@@ -129,11 +129,17 @@ echo "  downloading closure debs from ports (incremental)..."
 # locally-built copy directly in reprepro-style pool layout. This is optional
 # to keep the mirror useful as a standalone Ubuntu closure builder.
 SINGDEB=""
-for candidate in "$REPO"/build/sinty-out/ncz-singularity-desktop_*_arm64.deb; do
-    [ -f "$candidate" ] || continue
-    SINGDEB="$candidate"
-    break
-done
+# Sort candidates so a stale/older .deb left in sinty-out from a previous
+# build can never shadow the newest one (version-sort, newest last, per
+# Codex review 2026-07-26 — the original first-match glob loop picked
+# whichever candidate the shell happened to list first, which is undefined
+# ordering, not necessarily the newest version).
+SING_CANDIDATES="$(ls -1 "$REPO"/build/sinty-out/ncz-singularity-desktop_*_arm64.deb 2>/dev/null | sort -V)"
+if [ -n "$SING_CANDIDATES" ]; then
+    SINGDEB="$(printf '%s\n' "$SING_CANDIDATES" | tail -1)"
+    N="$(printf '%s\n' "$SING_CANDIDATES" | wc -l)"
+    [ "$N" -gt 1 ] && echo "  NOTE: $N candidate ncz-singularity-desktop .debs found in sinty-out; using newest by version: $(basename "$SINGDEB")"
+fi
 if [ -n "$SINGDEB" ]; then
     SINGPOOL="$OUT/pool/main/n/ncz-singularity-desktop"
     mkdir -p "$SINGPOOL"

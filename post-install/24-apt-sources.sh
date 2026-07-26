@@ -45,37 +45,64 @@
 # gpgkey, staged here as buildkite-ncz-apt-keyring.asc) -- NOT the NCZ-OS
 # reprepro key (ncz-os-apt-keyring.asc) that signs the R2 copy. Both keyrings
 # must be present.
+#
+# Codex review 2026-07-26: a source whose keyring failed to stage must NOT be
+# written -- an earlier draft wrote the sources.list.d entry unconditionally,
+# which meant a missing/corrupt .asc file produced a source apt could never
+# actually update (silent failure deferred to whenever a later hook needed a
+# package). Now each source is written ONLY on a successful dearmor, and it's
+# fatal if BOTH end up unconfigured (no apt source at all is unrecoverable);
+# one-of-two missing is a warning, since that's still a functional, if
+# no-longer-redundant, apt setup.
 set -euo pipefail
 echo "[24] wiring NCZ apt sources (Buildkite Packages PRIMARY + Cloudflare R2 backup) + refreshing package index"
 
 HERE="$(dirname "$0")"
 install -d /etc/apt/keyrings /etc/apt/sources.list.d
+CONFIGURED=0
 
 # --- Buildkite Packages (PRIMARY) -------------------------------------------
 BK_KEYRING=/etc/apt/keyrings/buildkite-ncz-apt-keyring.gpg
 BK_SRC=/etc/apt/sources.list.d/ncz-os-apt-buildkite.list
-[ -f "$HERE/buildkite-ncz-apt-keyring.asc" ] && \
-    gpg --dearmor < "$HERE/buildkite-ncz-apt-keyring.asc" > "$BK_KEYRING" && chmod 0644 "$BK_KEYRING"
-cat > "$BK_SRC" <<SRCEOF
+if [ -f "$HERE/buildkite-ncz-apt-keyring.asc" ] && \
+   gpg --dearmor < "$HERE/buildkite-ncz-apt-keyring.asc" > "$BK_KEYRING" 2>/dev/null; then
+    chmod 0644 "$BK_KEYRING"
+    cat > "$BK_SRC" <<SRCEOF
 # NCZ kernel updates + CIX proprietary userspace + Singularity Desktop —
 # Buildkite Packages (public, no auth) — PRIMARY as of 2026-07-26.
 deb [signed-by=$BK_KEYRING] https://packages.buildkite.com/ncz-os/ncz/any/ any main
 SRCEOF
-echo "[24] Buildkite Packages source installed (primary): $BK_SRC"
+    echo "[24] Buildkite Packages source installed (primary): $BK_SRC"
+    CONFIGURED=$((CONFIGURED + 1))
+else
+    echo "[24] WARN: $HERE/buildkite-ncz-apt-keyring.asc missing or invalid — Buildkite Packages source NOT wired (no source written for a keyring we don't have)"
+fi
 
 # --- Cloudflare R2 (SECONDARY / backup) -------------------------------------
 R2_KEYRING=/etc/apt/keyrings/ncz-os-apt-keyring.gpg
 R2_SRC=/etc/apt/sources.list.d/ncz-os-apt-r2.list
-[ -f "$HERE/ncz-os-apt-keyring.asc" ] && \
-    gpg --dearmor < "$HERE/ncz-os-apt-keyring.asc" > "$R2_KEYRING" && chmod 0644 "$R2_KEYRING"
-cat > "$R2_SRC" <<SRCEOF
+if [ -f "$HERE/ncz-os-apt-keyring.asc" ] && \
+   gpg --dearmor < "$HERE/ncz-os-apt-keyring.asc" > "$R2_KEYRING" 2>/dev/null; then
+    chmod 0644 "$R2_KEYRING"
+    cat > "$R2_SRC" <<SRCEOF
 # NCZ kernel updates + CIX proprietary userspace + Singularity Desktop —
 # Cloudflare R2 (public, no auth) — SECONDARY/backup as of 2026-07-26. A real
 # second apt source, not just a mirror URL: if Buildkite is unreachable at
 # update time apt still resolves + installs from this index.
 deb [signed-by=$R2_KEYRING] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main
 SRCEOF
-echo "[24] Cloudflare R2 source installed (backup): $R2_SRC"
+    echo "[24] Cloudflare R2 source installed (backup): $R2_SRC"
+    CONFIGURED=$((CONFIGURED + 1))
+else
+    echo "[24] WARN: $HERE/ncz-os-apt-keyring.asc missing or invalid — Cloudflare R2 source NOT wired (no source written for a keyring we don't have)"
+fi
+
+if [ "$CONFIGURED" -eq 0 ]; then
+    echo "[24] FATAL: neither the Buildkite Packages nor the Cloudflare R2 apt source could be wired (both keyrings missing/invalid) — no NCZ-OS apt source is configured, later hooks that need it (20-desktop.sh, 25-cix-proprietary.sh) will fail" >&2
+    exit 1
+elif [ "$CONFIGURED" -eq 1 ]; then
+    echo "[24] WARN: only 1 of 2 NCZ-OS apt sources configured — redundancy is degraded but install can continue"
+fi
 
 echo "[24] refreshing package index"
 apt-get update 2>&1 | tail -10 || echo "[24] WARN: apt-get update had errors (network unavailable during chroot install, or one source down -- the other source's index may still be usable) -- later hooks may still be able to use cached/offline sources"

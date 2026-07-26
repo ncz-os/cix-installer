@@ -19,6 +19,17 @@ VERSION="${NCZ_SINGULARITY_VERSION:-$(date -u +%Y%m%d)+bk${BUILDKITE_BUILD_NUMBE
 OUT="${OUT:-$(cd "$(dirname "$TGZ")" && pwd)}"
 STAGE=""
 
+# Guard against a bad externally-supplied NCZ_SINGULARITY_VERSION (the
+# computed default is always well-formed; an override is not validated
+# otherwise — Codex review 2026-07-26). dpkg itself is the source of truth
+# for what a valid Debian version string is.
+if command -v dpkg >/dev/null 2>&1; then
+    dpkg --validate-version "$VERSION" || {
+        echo "ERROR: '$VERSION' is not a valid Debian version string (NCZ_SINGULARITY_VERSION override?)" >&2
+        exit 1
+    }
+fi
+
 [ -f "$TGZ" ] || { echo "ERROR: Singularity tarball not found: $TGZ" >&2; exit 1; }
 mkdir -p "$OUT"
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/ncz-singularity-deb.XXXXXX")"
