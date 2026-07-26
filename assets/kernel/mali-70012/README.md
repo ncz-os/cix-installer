@@ -1,7 +1,7 @@
 # mali_kbase for 7.0.12-cix-sky1-next — EXPERIMENTAL, NOT YET FUNCTIONAL
 
-Status as of 2026-07-26, tested on cixmini (.66, real CIX Sky1 hardware,
-board `Micro Computer (HK) Tech Limited MS-R1/P1WSB`).
+Status as of 2026-07-27, tested on cixmini (.66) + O6N (real CIX Sky1
+hardware, board `Micro Computer (HK) Tech Limited MS-R1/P1WSB`).
 
 This is a DKMS-packaged port of the same mali_kbase / memory_group_manager /
 protected_memory_allocator driver that ships as the validated default GPU
@@ -15,42 +15,97 @@ stack, live-validated. This package is an **opt-in A/B alternative for
 follow-up perf-comparison work, not a replacement.** It is intentionally
 **not** wired into `post-install/82-mali-gpu.sh` / `26-gpu-default-mali.sh`
 and `dkms.conf` sets `AUTOINSTALL="no"` — nothing in a normal 26.7 install
-touches this package. Caveat: `mali_kbase.ko` carries an ACPI modalias for
-`CIXH5000`, so if you manually `dkms install` it on a box (see below), it
-becomes modalias-autoload-eligible on later boots like any other installed
-module — "not auto-installed" only holds until someone runs the manual
-install steps below. That's fine functionally (the probe just defers, it
-does not crash), but don't be surprised if it loads itself after a reboot
-once installed.
+touches this package.
+
+## Investigation context
+
+This build exists to answer one question for the 26.7 GPU-driver-lag
+investigation: a keyboard-input-lag bug reproduces on 7.2+mali_kbase but
+NOT on 7.0.12+panthor (both user-confirmed on real hardware). Is the lag
+7.2-kernel-specific, or mali_kbase-driver-specific? Answering that requires
+a *working* mali_kbase on 7.0.12 as the missing A/B cell. As of this
+writing that cell is still blocked — see "What does not work yet" — so
+the lag A/B question remains **open**, not answered, on this kernel.
 
 ## What works
 
 - Builds clean against 7.0.12-cix-sky1-next kernel headers:
   `mali_kbase.ko` + `memory_group_manager.ko` + `protected_memory_allocator.ko`,
   vermagic `7.0.12-cix-sky1-next SMP preempt mod_unload aarch64`.
-- `insmod` no longer crashes the board. Two real, reproducible NULL/garbage
-  -pointer kernel panics were found via live insmod testing on cixmini and
-  root-caused from pstore/ramoops-captured crash dumps (see
-  `patches/0001-...patch` for the full writeup + panic traces). Both are
-  fixed.
+- `insmod` no longer crashes the board (two earlier NULL/garbage-pointer
+  panics were root-caused + fixed — see
+  `patches/0001-mali-kbase-port-and-fixes-for-7.0.12-cix-sky1-next.patch`).
+- **NEW 2026-07-27: the original probe blocker is fixed.** mali_kbase's
+  CIXH5000:00 "perf" SCMI power-domain attach used to permanently
+  `-EPROBE_DEFER` (confirmed via `/sys/kernel/debug/devices_deferred`,
+  non-transient). Root cause: `drivers/pmdomain/arm/scmi_perf_domain.c` is
+  byte-identical between the 7.0.12 and 7.2 kernel bases, but 7.0.12's own
+  patch series never picked up two probe-ordering hardening patches the
+  7.2 series carries for that file (proven on 7.2 real hardware). Forward
+  ported as **two** meta-cix `linux-cix-sky1-next` kernel patches (in
+  `nclawzero-yocto/meta-cix`, branch `wip/ultra/2026-07-10-linlondp-26q2`,
+  commits `c0a4697` + follow-up):
+  - `2027-pmdomain-scmi-perf-defer-fwnode-provider-for-mali.patch` — widens
+    the ACPI protocol-fwnode lookup + defers
+    `genpd_add_fwnode_provider_onecell()` to `late_initcall`.
+  - `2028-pmdomain-fix-attach-by-name-eexist-for-mali.patch` — **turned out
+    to be required too**, not just a "maybe" contingency: with 2027 alone,
+    dmesg showed the SCMI perf fwnode provider registering successfully
+    (`scmi_perf: late fwnode provider registered (12 domains)`) but
+    mali_kbase's own `dev_pm_domain_attach_by_name(kbdev->dev, "perf")`
+    still failed identically (`CIXH5000:00` still stuck in
+    `devices_deferred`). Root cause confirmed on real hardware: ACPI
+    platform devices get a generic PM domain attached via
+    `dev_pm_domain_attach()` before their own driver probes;
+    `drivers/base/power/common.c`'s `dev_pm_domain_attach_by_name()` then
+    unconditionally rejects any *additional* named attach with `-EEXIST`
+    whenever `dev->pm_domain` is already set — short-circuiting before it
+    ever reaches the genpd-by-name lookup 2027 fixed. 2028 narrows that
+    rejection to non-ACPI devices (ACPI legitimately needs a second,
+    additional domain alongside the generic one). **With both patches,
+    mali_kbase gets past the perf-domain attach entirely** — confirmed via
+    dmesg showing later-stage messages
+    (`armchina CIXH4000:00: ... probe done`, `Protected memory allocator
+    initialization ...`) that were never reached before.
 
-## What does not work yet
+## What does not work yet — NEW crash discovered 2026-07-27, blocks GPU use
 
-- **Probe never completes.** `sky1_gpu_attach_pd()`'s "perf" SCMI
-  power-domain attach permanently defers (`-EPROBE_DEFER`) — confirmed via
-  `/sys/kernel/debug/devices_deferred` showing `CIXH5000:00` stuck there,
-  not a transient boot-ordering race. **No `/dev/mali0` appears.** GPU
-  functionality (GLES/Vulkan/OpenCL, glmark2, etc.) was **not** validated
-  and cannot be until this is fixed.
-- Likely cause (unconfirmed): this kernel's
-  `drivers/pmdomain/arm/scmi_perf_domain.c` is an older revision than the
-  7.2 kernel's (see the patch writeup) and may simply never register a
-  power domain matching the name/lookup mali_kbase's `sky1_gpu_attach_pd()`
-  expects on this kernel/ACPI combination — needs further investigation
-  (comparing this kernel's SCMI perf-domain driver + ACPI SSDT against the
-  7.2 kernel's, where the identical mali_kbase platform code succeeds).
+With 2027+2028 applied, mali_kbase probes far enough to reach
+`kbase_platform_sky1_late_init()`, whose hrtimer immediately queues
+`sky1_power_model_work_handler()`. On real O6N hardware this crashed the
+board (kernel oops escalating to a full reset — the machine ended up
+requiring a physical power-cycle to recover; **do not treat this combo as
+safe to boot-test unsupervised**). Root-caused from the serial console
+crash trace + `addr2line` against a debug-symbol build of `mali_kbase.ko`:
 
-## To continue this work (manual, opt-in only — do not automate without fixing the probe-completion issue first)
+```
+[    6.945344]   FSC = 0x04: level 0 translation fault
+Workqueue: sky1_power_wq sky1_power_model_work_handler [mali_kbase]
+kbase_get_real_power_locked+0xb0/0x378 [mali_kbase] (P)
+Code: aa0003e1 d2847800 8b0002a0 94000c5e (f9400ac0)
+
+$ addr2line -e mali_kbase.ko.debug -f -C 0x8ae28
+kbase_get_real_power_locked
+drivers/gpu/arm/midgard/ipa/mali_kbase_ipa.c:679   # model->ops->get_dynamic_coeff(...), model == NULL
+```
+
+`kbase_ipa_init()` (which populates `kbdev->ipa.configured_model` /
+`fallback_model`) runs from `kbase_backend_devfreq_init()` during
+`kbase_device_init()`, with no ordering guarantee relative to
+`platform_late_init_func()`'s hrtimer. This race was **latent and
+unreachable before** — probe never got past the perf-domain attach far
+enough to run `late_init` at all. Fixing the probe blocker is what exposed
+it.
+
+**Proposed (NOT hardware-validated) fix**:
+`patches/candidate-untested/0001-platform-sky1-guard-against-NULL-IPA-model-PROPOSED-UNTESTED.patch`
+— guards `sky1_power_model_work_handler()` to skip the sample if neither
+IPA model pointer is populated yet (hrtimer re-arms and retries next
+tick). **Compiles clean** (vermagic confirmed), **has not been boot-tested**
+— O6N hardware testing is paused pending operator supervision after the
+crash above. Do not deploy without that.
+
+## To continue this work (manual, opt-in only)
 
 ```
 sudo cp -r assets/kernel/mali-70012/src /usr/src/cix-gpu-kmd-70012-1.0.0
@@ -58,19 +113,28 @@ sudo cp assets/kernel/mali-70012/dkms.conf /usr/src/cix-gpu-kmd-70012-1.0.0/
 sudo dkms add -m cix-gpu-kmd-70012 -v 1.0.0
 sudo dkms build -m cix-gpu-kmd-70012 -v 1.0.0 -k $(uname -r)   # must be 7.0.12-cix-sky1-next
 sudo dkms install -m cix-gpu-kmd-70012 -v 1.0.0 -k $(uname -r)
-# then, to test WITHOUT flipping the default driver:
-sudo rmmod panthor
-sudo modprobe mali_kbase
-dmesg | tail -30   # expect it to defer/fail cleanly, not hang
-sudo rmmod mali_kbase; sudo rmmod protected_memory_allocator; sudo rmmod memory_group_manager
-sudo modprobe panthor   # restore the shipping default
 ```
+
+This kernel-side prerequisite (2027+2028) must also be present — it's a
+kernel patch, not a DKMS driver change, so it lives in the meta-cix
+`linux-cix-sky1-next` recipe, not in this directory. Without it, mali_kbase
+reverts to permanent `-EPROBE_DEFER` and never reaches the code the
+untested patch above guards. **With just 2027+2028 and no crash guard,
+the board can crash/hang on boot** — apply the candidate-untested patch
+first if you're going to boot-test this again, and get O6N hardware time
+from the operator (do not power-cycle/reboot O6N without supervision;
+this combo already required a manual physical recovery once).
 
 ## Provenance
 
 `patches/0001-mali-kbase-port-and-fixes-for-7.0.12-cix-sky1-next.patch` is a
 consolidated diff (base: ARM's `cix_p1_mg_dev` tree, commit `a752e91` "Cix
-p1 mg 202603 patch release") documenting every change already baked into
-`src/`, in the order it was made, including the two panic root-causes and
-fixes. `../mali/mali-kbase-scmi-ratelimit.patch` (already shipping for 7.2)
-is the same fix ported unchanged into this tree's `mali_kbase_devfreq.c`.
+p1 mg 202603 patch release") documenting the driver-source changes needed
+to get this DKMS source to build + insmod cleanly. `../mali/mali-kbase-scmi-ratelimit.patch`
+(already shipping for 7.2) is the same fix ported unchanged into this
+tree's `mali_kbase_devfreq.c`.
+
+The 2027/2028 kernel-side probe fix and the 2026-07-27 crash investigation
+are documented in full (build logs, dmesg captures, addr2line output) in
+MNEMOS and in the meta-cix `linux-cix-sky1-next` commit history — this
+README summarizes the current state, not the full narrative.
