@@ -138,16 +138,24 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/vivaldi/." "$MG/usr/local/lib/cix-installer/assets/vivaldi/" 2>/dev/null || true
       log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
     fi
-    # 26.7: stage the Singularity Desktop payload so 20-desktop.sh extracts
-    # /opt/singularity into the overlay and bakes it into desktop.squashfs. The
-    # blob is gitignored (build/build-singularity.sh produces it; supplied via
-    # assets/singularity/ on the build host or NFS/ARGONAS).
-    if [ -f "$ROOT/assets/singularity/singularity-opt.tgz" ]; then
-      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/singularity"
-      sudo cp -a "$ROOT/assets/singularity/singularity-opt.tgz" "$MG/usr/local/lib/cix-installer/assets/singularity/" 2>/dev/null || true
-      log "  staged singularity payload ($(du -h "$ROOT/assets/singularity/singularity-opt.tgz" | cut -f1))"
+    # 26.7 (updated 2026-07-26): the Singularity Desktop payload is NO LONGER
+    # staged as a tarball here. post-install/20-desktop.sh installs it as a real
+    # apt package (`apt-get install ncz-singularity-desktop`) from the offline
+    # desktop-mirror pool (build/build-desktop-mirror.sh ->
+    # build/desktop-mirror/pool/main/n/ncz-singularity-desktop/*.deb), which
+    # apt_offline() above already bind-mounts into this chroot as a `file://`
+    # apt source (see the "server-mirror resolute-mirror desktop-mirror" loop).
+    # So nothing needs to be copied into the overlay for it -- just verify the
+    # .deb is actually present in the pool, so a missing payload fails loudly
+    # HERE with a clear remediation instead of deep inside 20-desktop.sh's
+    # apt-get install. (build/build-singularity.sh still produces the
+    # underlying singularity-opt.tgz, but that is now only an INPUT to
+    # build/build-singularity-deb.sh, not something staged into a squashfs
+    # layer -- see assets/singularity/README.md.)
+    if ls "$ROOT"/build/desktop-mirror/pool/main/n/ncz-singularity-desktop/*.deb >/dev/null 2>&1; then
+      log "  desktop-mirror has ncz-singularity-desktop: $(basename "$(ls -t "$ROOT"/build/desktop-mirror/pool/main/n/ncz-singularity-desktop/*.deb | head -1)")"
     else
-      log "  WARN: assets/singularity/singularity-opt.tgz ABSENT — 20-desktop will FAIL (run build/build-singularity.sh)"
+      log "  WARN: no ncz-singularity-desktop_*.deb in $ROOT/build/desktop-mirror/pool — 20-desktop's 'apt-get install ncz-singularity-desktop' will FAIL (run build/build-singularity.sh && build/build-singularity-deb.sh && build/build-desktop-mirror.sh)"
     fi
     # 26.7 NATIVE STACK: the greeter (singularity-greeter) ships INSIDE the
     # /opt/singularity payload — no separate greeter binary to stage (regreet is
@@ -309,16 +317,24 @@ build_base(){
   done
   # enable NetworkManager + bluetooth via presets (NOT the broken 33-network hook)
   sudo chroot "$WORK/base" systemctl enable NetworkManager bluetooth 2>/dev/null || true
-  # r164: the resolute base tarball is a FULL GNOME desktop image (gnome-shell +
-  # gdm3 + ubuntu-session + ubuntu-desktop, ~1.5-2GB). Operator decision: XFCE-only,
-  # GNOME too heavy AND it Wayland-black-screens on the Mali panthor GPU. Purge the
-  # GNOME desktop from the BASE (not just whiteout it in the desktop delta) so the
-  # ISO actually shrinks. XFCE + LightDM are installed fresh in the desktop layer.
-  # PROTECT the sky1 mesa + Xorg stack (pinned by 15/16-mesa hooks above) from
-  # autoremove by marking it manual first, so removing gnome orphans can't drag
-  # the GPU userland out with it.
-  sudo chroot "$WORK/base" sh -c 'apt-mark manual $(dpkg-query -W -f="\${Package}\n" 2>/dev/null | grep -E "^(mesa-|libgl1|libglx|libegl|libgbm1|libglapi|xserver-xorg|xinit)") 2>/dev/null' || true
-  log "BASE: purge GNOME desktop stack (XFCE-only, shrink ISO) — mesa/Xorg protected"
+  # r164 (updated 26.7): the resolute base tarball is a FULL GNOME desktop image
+  # (gnome-shell + gdm3 + ubuntu-session + ubuntu-desktop, ~1.5-2GB). GNOME is too
+  # heavy AND it Wayland-black-screens on the Mali panthor GPU, so it is purged
+  # from the BASE (not just whiteout in the desktop delta) so the ISO actually
+  # shrinks. NOTHING replaces it in base — the desktop delta installs
+  # Singularity Desktop (labwc/wlroots, GTK4, Wayland-only; see
+  # post-install/20-desktop.sh), NOT XFCE/LightDM (dropped in 26.7; historical
+  # comment corrected 2026-07-26).
+  # PROTECT the sky1 mesa GL/GLES/Vulkan userland (pinned by 15/16-mesa hooks
+  # above) from autoremove by marking it manual first, so removing gnome orphans
+  # can't drag the GPU userland out with it -- Singularity's Wayland compositor
+  # and the desktop layer's GLES/Vulkan diagnostic tools (mesa-utils,
+  # vulkan-tools, glmark2-*) still need it. Do NOT protect xserver-xorg/xinit:
+  # Singularity is Wayland-only and needs no X11 server (only Xwayland, pulled
+  # in separately by the desktop layer's `xwayland` package for X-app compat),
+  # so let a bare X11 server autoremove cleanly instead of shipping dead weight.
+  sudo chroot "$WORK/base" sh -c 'apt-mark manual $(dpkg-query -W -f="\${Package}\n" 2>/dev/null | grep -E "^(mesa-|libgl1|libglx|libegl|libgbm1|libglapi)") 2>/dev/null' || true
+  log "BASE: purge GNOME desktop stack (Singularity Desktop installs in the desktop delta, not base) — mesa protected, X11 server allowed to autoremove"
   sudo chroot "$WORK/base" env DEBIAN_FRONTEND=noninteractive apt-get purge -y \
       gdm3 gnome-shell ubuntu-session ubuntu-desktop ubuntu-desktop-minimal 2>&1 | tail -6 || log "  WARN gnome purge rc=$?"
   sudo chroot "$WORK/base" env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge 2>&1 | tail -4 || true

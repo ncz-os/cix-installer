@@ -518,10 +518,13 @@ echo "    dropping $DI_CODENAME pool/, dists/, doc/, firmware/"
 rm -rf "$STAGING/pool" "$STAGING/dists" "$STAGING/doc" "$STAGING/firmware" 2>/dev/null || true
 
 # Step 3: embed our offline mirror or bootstrap pool.
-# NCZ policy (2026-06): embed the SERVER-only mirror (build/server-mirror,
-# Ubuntu-Server closure + boot essentials, ~143MB / 365 debs, single 'main'
-# component) so server/Magnetar installs fully offline; desktop/Maximilian pulls
-# its long tail from ports.ubuntu.com online (see post-install/20-desktop.sh).
+# NCZ policy: embed the SERVER-only mirror (build/server-mirror, Ubuntu-Server
+# closure + boot essentials, ~143MB / 365 debs, single 'main' component) as the
+# pool base, so server/Magnetar installs fully offline. Updated (r130, 26.7):
+# desktop/Maximilian is ALSO fully offline now -- the desktop-mirror pool
+# (build-desktop-mirror.sh, Singularity Desktop closure) is merged in below,
+# not left to pull from ports.ubuntu.com at install time (see
+# post-install/20-desktop.sh's `apt-get install ncz-singularity-desktop`).
 # Falls back to the legacy full resolute-mirror only if server-mirror is absent.
 if [ -z "${MIRROR_DIR:-}" ]; then
     if [ -d "$ROOT/build/server-mirror/pool" ]; then
@@ -537,8 +540,9 @@ if [ "$EMBED_MIRROR" = "1" ]; then
         cp -a "$MIRROR_DIR/dists" "$STAGING/dists"
         echo "    offline mirror embedded: $(du -sh "$STAGING/pool" | cut -f1) pool / $(find "$STAGING/pool" -name '*.deb' | wc -l) debs"
         # r130 fat ISO: merge the desktop closure pool (build-desktop-mirror.sh)
-        # ALONGSIDE the server-mirror so the XFCE desktop + r130 buckets install
-        # fully OFFLINE from file:///cdrom (no ports.ubuntu.com 20-desktop stall).
+        # ALONGSIDE the server-mirror so the Singularity Desktop (26.7; replaced
+        # XFCE) + r130 buckets install fully OFFLINE from file:///cdrom (no
+        # ports.ubuntu.com 20-desktop stall).
         # Only the desktop POOL is merged; the combined regular deb index is
         # regenerated from pool contents below (Step 5), so desktop debs become
         # visible to apt — copying its dists/ would be overwritten anyway.
