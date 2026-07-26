@@ -54,6 +54,53 @@ exists for the case where you want ARM machines that behave like a coherent,
 agent-ready fleet rather than a shelf of one-off boards — injecting some
 standardization into a space that today has very little.
 
+### NCZ-OS is not a "stable" distro, by design
+
+We're upfront about this: NCZ-OS does not position itself the way Debian
+stable, RHEL, or a typical LTS Ubuntu image does. Those projects target
+mature, well-understood hardware where the job is holding still. We're
+targeting SoC categories — CIX Sky1 and the wave of ARM+integrated-GPU silicon
+behind it — that are themselves not fully "baked" yet. Vendor drivers land
+late or broken, kernel support is a moving target, and firmware still has
+real, undiscovered bugs. Pretending otherwise and shipping a thin
+XFCE-on-top-of-whatever-boots image would be dishonest about what this
+hardware actually is right now.
+
+So we take more risk than a conventional distro would. **That is not the same
+as taking shortcuts.** Every unorthodox choice in this project is a real
+engineering decision, backed by root-caused evidence, not a workaround
+papering over something we didn't understand:
+
+- **Kernel tiering, not a single "the kernel."** NCZ-OS ships multiple kernel
+  channels by design — a bleeding-edge primary tracking upstream Sky1
+  enablement as it lands, a secondary fallback built from an EOL-upstream
+  base that we maintain as our own patched tree (EOL status doesn't carry the
+  same risk for a heavily vendor-customized kernel we're already forking and
+  patching ourselves — we were never depending on upstream security cadence
+  for it), and a minimal LTS rescue tier with no GPU/NPU/VPU by design, for
+  when everything else has to be assumed broken. This is a direct answer to
+  the fact that no single upstream kernel version cleanly supports this
+  hardware end-to-end today.
+- **We fix the actual bug, not the symptom.** When something breaks, we read
+  the driver/kernel source, root-cause it against hardware evidence (dmesg,
+  live tracing, firmware behavior), and land a real fix — including patches
+  we intend to upstream — rather than blacklisting a module or silencing a
+  warning. See [`docs/HOW-DID-WE-GET-HERE.md`](docs/HOW-DID-WE-GET-HERE.md)
+  for the engineering trail.
+- **Hardware-support completeness is a requirement, not a stretch goal.**
+  GPU, NPU, VPU, audio, and networking are expected to actually work on
+  release hardware, validated live — not "should work per the datasheet."
+  Getting there on silicon this new sometimes means building drivers,
+  packages, or boot infrastructure that doesn't exist yet anywhere else,
+  because nobody else has needed it yet.
+
+The tradeoff is explicit: NCZ-OS moves faster and takes on more engineering
+risk than a conventional stable distro would tolerate, in exchange for real
+usability and complete hardware support on hardware that a "stable" posture
+would simply leave half-working. If you want a distro that changes as little
+as possible, this isn't it. If you want an ARM+GPU box that actually works,
+that's the entire point.
+
 ### Two distinct layers: a working OS, and an *optional* AI layer
 
 NCZ deliberately separates the operating system from the AI. Installing the
