@@ -1472,11 +1472,20 @@ int panthor_fw_init(struct panthor_device *ptdev)
 	INIT_LIST_HEAD(&fw->sections);
 	INIT_DELAYED_WORK(&fw->watchdog.ping_work, panthor_fw_ping_work);
 
-	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "job");
+	/*
+	 * Under ACPI, go straight to the positional lookup (index 0 = JOB,
+	 * matching mali_kbase's get_irqs() ACPI path -- see the comment in
+	 * panthor_gpu_init()/panthor_gpu.c for the full rationale). Avoids a
+	 * guaranteed-to-fail byname() attempt (plain ACPI _CRS has no
+	 * resource names) whose only effect is a spurious "IRQ job not
+	 * found" dev_err.
+	 */
 	if (IS_ENABLED(CONFIG_ACPI) && has_acpi_companion(ptdev->base.dev)) {
 		irq = platform_get_irq(to_platform_device(ptdev->base.dev), 0);
-	} else if (irq <= 0) {
-		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "JOB");
+	} else {
+		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "job");
+		if (irq <= 0)
+			irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "JOB");
 	}
 	if (irq <= 0)
 		return -ENODEV;

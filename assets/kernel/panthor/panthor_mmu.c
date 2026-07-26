@@ -3258,11 +3258,20 @@ int panthor_mmu_init(struct panthor_device *ptdev)
 	mmu->iomem = ptdev->iomem + MMU_AS_BASE;
 	ptdev->mmu = mmu;
 
-	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "mmu");
+	/*
+	 * Under ACPI, go straight to the positional lookup (index 1 = MMU,
+	 * matching mali_kbase's get_irqs() ACPI path -- see the comment in
+	 * panthor_gpu_init()/panthor_gpu.c for the full rationale). Avoids a
+	 * guaranteed-to-fail byname() attempt (plain ACPI _CRS has no
+	 * resource names) whose only effect is a spurious "IRQ mmu not
+	 * found" dev_err.
+	 */
 	if (IS_ENABLED(CONFIG_ACPI) && has_acpi_companion(ptdev->base.dev)) {
 		irq = platform_get_irq(to_platform_device(ptdev->base.dev), 1);
-	} else if (irq <= 0) {
-		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "MMU");
+	} else {
+		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "mmu");
+		if (irq <= 0)
+			irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "MMU");
 	}
 	if (irq <= 0)
 		return -ENODEV;
