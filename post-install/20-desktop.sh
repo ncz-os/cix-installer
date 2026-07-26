@@ -5,7 +5,8 @@
 # desktop. XFCE/X11 is GONE — no Xorg display server, no XFCE session. Wayland
 # native, Mali-accelerated. Xwayland is kept (labwc -Dxwayland=enabled) for
 # X-app compatibility UNDER Wayland — that is rootless X-compat, not an X11
-# desktop.
+# desktop. The /opt/singularity runtime is installed from the NCZ-OS apt repo;
+# the package postinst configures its shared-library path.
 #
 # Runtime configs here are the proven-working versions captured from the O6N
 # bring-up box (Radxa Orion O6N, CIX Sky1). GPU userspace is swappable via
@@ -195,30 +196,18 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv)"
 
 # ---------------------------------------------------------------------------
-# Extract the Singularity payload -> /opt/singularity.
-# The tarball extracts to opt/singularity/... (touches only /opt/singularity —
-# safe on a live rootfs, never clobbers /lib). Staged by build-squashfs-layers
-# (baked) into /usr/local/lib/cix-installer/assets/singularity/, or at install
-# time under /cdrom/assets/singularity/ (build-iso-di stages both).
+# Install the Singularity payload from the NCZ-OS apt repository.
+# post-install/24-apt-sources.sh wires the signed R2-backed source and refreshes
+# its index before this hook runs. The package postinst owns ldconfig setup.
 # ---------------------------------------------------------------------------
-SINGTGZ=""
-for c in /usr/local/lib/cix-installer/assets/singularity/singularity-opt.tgz \
-         /cdrom/assets/singularity/singularity-opt.tgz \
-         /run/cixmini/assets/singularity/singularity-opt.tgz; do
-    [ -f "$c" ] && { SINGTGZ="$c"; break; }
-done
-if [ -z "$SINGTGZ" ]; then
-    echo "[20] FATAL: singularity-opt.tgz not staged — desktop cannot install" >&2
-    echo "[20]        expected assets/singularity/singularity-opt.tgz (build/build-singularity.sh)" >&2
+echo "[20] installing Singularity Desktop payload: apt-get install ncz-singularity-desktop"
+if ! DEBIAN_FRONTEND=noninteractive apt-get install -y ncz-singularity-desktop; then
+    echo "[20] FATAL: ncz-singularity-desktop not installable from the NCZ-OS apt repo — desktop cannot install" >&2
+    echo "[20]        check post-install/24-apt-sources.sh wired the repo, and that the package was published (build/build-singularity-deb.sh)" >&2
     exit 1
 fi
-echo "[20] extracting Singularity payload: $SINGTGZ -> /opt/singularity"
-tar -C / -xzf "$SINGTGZ"
 test -x /opt/singularity/bin/singularity-desktop
 test -x /opt/singularity/bin/singularity-labwc-session
-# ldconfig for /opt/singularity/lib so the shell resolves libsingularity.
-echo "/opt/singularity/lib" > /etc/ld.so.conf.d/singularity.conf
-ldconfig 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # GPU userspace selector — ncz-gpu-env (Mali branch has NO

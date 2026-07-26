@@ -125,6 +125,24 @@ echo "  downloading closure debs from ports (incremental)..."
 ( cd "$OUT/pool/main" && apt-get "${APTOPTS[@]}" download $(tr '\n' ' ' < "$CLOSURE") >/dev/null 2>&1 ) \
     || echo "  WARN: some downloads failed (see gaps report)"
 
+# NCZ-OS proprietary package: it is not published on Ubuntu ports, so add a
+# locally-built copy directly in reprepro-style pool layout. This is optional
+# to keep the mirror useful as a standalone Ubuntu closure builder.
+SINGDEB=""
+for candidate in "$REPO"/build/sinty-out/ncz-singularity-desktop_*_arm64.deb; do
+    [ -f "$candidate" ] || continue
+    SINGDEB="$candidate"
+    break
+done
+if [ -n "$SINGDEB" ]; then
+    SINGPOOL="$OUT/pool/main/n/ncz-singularity-desktop"
+    mkdir -p "$SINGPOOL"
+    cp -f "$SINGDEB" "$SINGPOOL/"
+    echo "  added local NCZ package: $SINGDEB -> $SINGPOOL/"
+else
+    echo "  WARN: no local ncz-singularity-desktop_*_arm64.deb at $REPO/build/sinty-out — continuing without it"
+fi
+
 # prune debs for packages no longer in the resolved closure (e.g. dropped
 # from the seed, or no longer pulled in as a dependency) so the pool doesn't
 # grow unbounded now that it's no longer wiped on every run.
