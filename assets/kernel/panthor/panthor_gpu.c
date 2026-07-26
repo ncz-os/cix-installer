@@ -167,11 +167,23 @@ int panthor_gpu_init(struct panthor_device *ptdev)
 	if (ret)
 		return ret;
 
-	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "gpu");
+	/*
+	 * Under ACPI, go straight to the positional lookup (index 2 = GPU,
+	 * matching mali_kbase's own get_irqs(): "JOB","MMU","GPU" at indices
+	 * 0,1,2 via platform_get_irq(pdev, i) when has_acpi_companion()) --
+	 * plain ACPI _CRS has no resource names, so a byname() attempt here
+	 * is guaranteed to fail and only produces a spurious "IRQ gpu not
+	 * found" dev_err from inside platform_get_irq_byname() itself. This
+	 * does not change which IRQ is used under ACPI, only removes the
+	 * noise (the prior code called byname() unconditionally, then always
+	 * overwrote the result on ACPI anyway).
+	 */
 	if (IS_ENABLED(CONFIG_ACPI) && has_acpi_companion(ptdev->base.dev)) {
 		irq = platform_get_irq(to_platform_device(ptdev->base.dev), 2);
-	} else if (irq < 0) {
-		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "GPU");
+	} else {
+		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "gpu");
+		if (irq < 0)
+			irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "GPU");
 	}
 	if (irq < 0)
 		return irq;
