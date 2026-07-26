@@ -217,9 +217,9 @@ implementation; the architecture is the reusable scaffold.
 
 | Board | SoC | Status |
 |---|---|---|
-| **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **The only hardware we have tested on.** Every bit of validation — UEFI boot, the installer, GPU (Mesa 26.1.3 panvk + rusticl), NPU (Zhouyi embeddings + vision), audio, and the A/B kernel program — was done on this box. |
-| **Radxa Orion O6** | Cix Sky1 | ✅ **Verified working.** A *different board* from the MS-R1 (its own device tree, PMIC, BIOS, and peripherals), now confirmed to install and boot. The Realtek NIC (RTL8125/8126) works out of the box — the `rtl_nic` firmware ships in both the installer and the installed system, resolving the earlier no-network regression. |
-| **Radxa Orion O6N** | Cix Sky1 | ⚠️ **Untested, but expected to work.** Same Sky1 SoC and the same O6 board family (a minor variant); the shipping 7.0.12-cix-sky1-next kernel ships the same driver set as O6 (see [Driver support matrix — O6 / O6N](#driver-support-matrix--o6--o6n)), so we just have not confirmed it on hardware yet. **If you have an O6N: please install, test, and file issues.** |
+| **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **Verified working.** UEFI boot, the installer, GPU, NPU (Zhouyi embeddings + vision), audio, and the A/B kernel program have all been validated on this box. |
+| **Radxa Orion O6** | Cix Sky1 | ⚠️ **Not directly tested by us — user-reported working.** Hardware-closer to the MS-R1 than the O6N is; users have confirmed install and boot on their own O6 boards, including the Realtek NIC (RTL8125/8126) working out of the box via the `rtl_nic` firmware shipped in both the installer and the installed system. We have not put our own hands on an O6. |
+| **Radxa Orion O6N** (48 GB) | Cix Sky1 | ✅ **Verified working — our primary dev/debug target.** Same Sky1 SoC, O6 board family. This is the box the Mali `mali_kbase` GPU driver port, the 7.2/7.0.12/6.18 kernel-tiering strategy, and the full Singularity Desktop stack (including the `ncz-performance-mode` power-management fix) were built and validated on, session after session. Heavily exercised, not a paper claim. |
 | **Framework Cix add-in board / mainboard** | Cix Sky1 | ❌ **Untested.** On our radar; no hardware in hand. |
 | **Orange Pi (Cix variants)** | Cix Sky1 | ❌ **Untested.** No hardware in hand. |
 | Other Arm (RK3588/RK3576, MediaTek Genio, Snapdragon) and x86 (Intel, AMD) | — | 🗺️ Roadmap / adapter-level only — not built or tested yet. |
