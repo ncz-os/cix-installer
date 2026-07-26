@@ -294,6 +294,7 @@ SRC_URI = " \
     file://patches-7.2/0182-asoc-cix-hdmi-audio-drop-duplicate-dapm-registration.patch \
     file://patches-7.2/0183-genpd-cix-dedupe-power-domain-opp-table.patch \
     file://patches-7.2/0184-thermal-cix-cpufreq-cooling-acpi-no-of-node.patch \
+    file://patches-7.2/0185-firmware-arm-scmi-perf-skip-opp-repopulation.patch \
 "
 
 COMPATIBLE_MACHINE = "(cixmini)"
