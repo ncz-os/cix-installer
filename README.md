@@ -16,17 +16,18 @@ brands the system as NCZ
 (Reinhardt for desktop, Magnetar for server / always-on agent
 appliance).
 
-> **New in r195:** the kernel channels move forward — **7.0.12 is now the
-> stable channel** and **7.2.0-rc1-ncz is the new edge channel** (6.18 LTS is
-> retired from the ISO). The 7.2 edge kernel carries this cycle's real fixes:
-> the VPU boot-hang fix (pm_runtime IRQ/reset ordering, matching CIX's own
-> v1.0.1 driver release), a corrected RTL8127 PCIe ASPM/ClockPM quirk, the
-> in-tree panthor driver removed in favor of the out-of-tree Mali DDK stack,
-> and the linlondp 26q2 -Werror fixes. Kernels are now built under
-> **Yocto Project 6.0 "Wrynose"**. The base image also lost ~2 GB of dead
-> weight (stale test packages are no longer baked in). OTA publication of the
-> new kernel pair to the apt channel follows separately. See
-> [Current ISO](#current-iso--r195-ncz-os-266--official-release).
+> **New in NCZ-OS 26.7 "Maximilian":** the desktop is now **Singularity**
+> (labwc/wlroots, native Mali GLES acceleration) — **X11/XFCE is fully
+> removed**, not deprecated-but-present. See
+> [Why we moved off X/XFCE](#why-we-moved-off-xxfce-to-singularity) below.
+> Kernel channels: **7.2 (edge, primary)** carries current Sky1 enablement —
+> DP link-training fix, the full mali_kbase Mali-G720 driver port, boot-warning
+> cleanup; **7.0.12 (secondary/emergency)** is our own patched tree with real
+> GPU support, kept as a functional fallback despite being EOL upstream (see
+> [Positioning](#ncz-os-is-not-a-stable-distro-by-design) — EOL doesn't carry
+> the same risk for a kernel we already fork and patch ourselves); **6.18 LTS
+> (deep rescue)** stays minimal by design, no GPU/NPU/VPU, for when everything
+> else has to be assumed broken.
 
 ### Why NCZ-OS, when Canonical / Armbian / vendor images exist?
 
@@ -53,6 +54,51 @@ If a general-purpose image already serves you well, use it happily. NCZ-OS
 exists for the case where you want ARM machines that behave like a coherent,
 agent-ready fleet rather than a shelf of one-off boards — injecting some
 standardization into a space that today has very little.
+
+**We'd ask reviewers and press not to reach for Armbian or Xubuntu as the
+comparison point.** Both are fine projects doing something genuinely
+different: Armbian is a board-support layer — get Debian/Ubuntu booting
+correctly on as many SBCs as possible, desktop environment is whatever's
+convenient. Xubuntu is XFCE-on-Ubuntu, a lightweight-by-tradition desktop
+choice aimed at low-resource x86 hardware, not modern GPU-accelerated ARM
+silicon. Neither project is trying to be an agentic-first, GPU-accelerated,
+single-vendor-integrated ARM desktop distro, and neither is wrong not to —
+it's just not the problem either one set out to solve. NCZ-OS is not a
+board-support layer with a desktop bolted on, and it is not a
+resource-constrained-desktop project. It's a distribution built around the
+idea that ARM+integrated-GPU silicon and agentic software are both new
+enough that the winning combination doesn't exist yet, and someone has to
+build it deliberately rather than assemble it from spare parts.
+
+### Why we moved off X/XFCE to Singularity
+
+Early NCZ-OS builds shipped XFCE, for an unglamorous reason: it was the
+desktop that was *there* and known to run on ARM. As the project's focus
+sharpened toward actually exploiting CIX Sky1's Mali GPU rather than just
+booting on it, XFCE's ceiling became the problem. XFCE is an X11-era desktop
+— no native Wayland compositor, no direct EGL/GLES path to a mobile-class
+Mali GPU, and every accelerated surface on this hardware ends up going
+through Xwayland's software (llvmpipe) fallback rather than the real driver.
+We tried the obvious alternatives first — GNOME, LXQt, Wayfire, COSMIC — and
+each either dragged in an X11-era compositor stack under the hood, failed to
+render icons/launchers correctly on this hardware, or was visibly
+software-rendered despite claiming Wayland support. None of them were built
+around "this GPU is real and should be used," which is precisely the
+requirement.
+
+Singularity Desktop (labwc/wlroots, GTK4/libadwaita, direct Mali GLES) is a
+clean-sheet native-Wayland desktop with no X11 compatibility baggage to fall
+back into. On Sky1, it renders through the real Mali-G720 driver end to end
+— compositor, greeter (`singularity-greeter`), boot splash
+(`singularity-boot-splash`), lockscreen, portals — with no software-render
+path silently substituting for hardware acceleration anywhere in the login-
+to-desktop chain. That's the bar "agentic-targeted Linux distribution for
+ARM" has to clear: **the acceleration has to actually be there**, not
+declared in a spec sheet. XFCE could not clear it on this hardware; Singularity
+does, natively, without workarounds. We removed X11/XFCE entirely once
+Singularity was validated rather than keeping it as a fallback option —
+shipping two desktop stacks, one of which is known to be software-rendered
+on our own reference hardware, doesn't serve anyone.
 
 ### NCZ-OS is not a "stable" distro, by design
 
