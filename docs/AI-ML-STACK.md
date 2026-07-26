@@ -1,12 +1,27 @@
 # NCZ Agentic Linux — AI/ML Stack Reference (Cix Sky1)
 
+> **Scope note (26.7):** the GPU sections of this document (§3, and the GPU
+> rows of §0/§6) describe the **7.0.12 secondary/fallback kernel channel**,
+> where the in-tree `panthor` driver + Mesa panvk (Vulkan)/rusticl (OpenCL)
+> is the GPU compute stack, and the numbers below were measured on that
+> channel. As of 26.7, the **primary/default channel is 7.2**, which uses
+> the out-of-tree CIX `mali_kbase` blob DDK instead of `panthor` — OpenCL is
+> available there via CIX `libmali` (not rusticl), and **Vulkan is not
+> available by default** on the 7.2 channel (a Panthor/Mesa boot entry with
+> Vulkan is staged as a non-default follow-up). This document has not yet
+> been re-measured on the 7.2/`mali_kbase` channel — see the top-level
+> `README.md` ("7.2 (Mali) GPU driver notes") for the current default-channel
+> GPU driver story. The CPU/NPU/VPU material below is channel-independent
+> and current.
+>
 > What ships on the system, what each binary/library is for, how to run
 > inference on the four compute engines (CPU / NPU / GPU / VPU), how they
 > perform, how to choose the right engine for a workload, and how to pull
 > new models.
 >
 > Target hardware: **Cix Sky1 (CP8180)** — 12-core Armv9 CPU, **Mali-G720
-> MC10** GPU (panthor), **ArmChina Zhouyi V3** NPU, **Linlon/amvx** VPU.
+> MC10** GPU (`panthor` on the 7.0.12 channel described here; `mali_kbase`
+> on the 7.2 primary channel), **ArmChina Zhouyi V3** NPU, **Linlon/amvx** VPU.
 > **Unified memory (UMA, shared by all engines): 64 GB on this "jumbo"
 > MS-R1, 32 GB on the standard MS-R1.** (The GPU driver exposes ~46.85 GiB
 > of that as its allocatable pool after kernel/firmware reservations.)
@@ -101,7 +116,7 @@ Installed by `47-llm-stack.sh` + `16-mesa-gpu-2613.sh`.
 
 ---
 
-## 3. GPU compute drivers (Mesa 26.1.3 — NCZ build)
+## 3. GPU compute drivers (Mesa 26.1.3 — NCZ build, 7.0.12 channel)
 
 We ship a **from-source Mesa 26.1.3** under `/opt/mesa-26.1.3`, redirected
 to be the system Vulkan + OpenCL provider (desktop GL stays on stock Mesa).

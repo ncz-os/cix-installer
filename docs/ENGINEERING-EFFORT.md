@@ -1,5 +1,13 @@
 # Bringing up NCZ / Reinhardt 26.6 on CIX Sky1 — Engineering Effort & Driver-Fidelity Log
 
+> **This is a historical log, frozen at the 26.6 (r112-era) bring-up.** It
+> predates the Singularity Desktop migration, the `mali_kbase` GPU driver
+> port, and the three-tier (7.2/7.0.12/6.18) kernel-channel model that ship
+> in 26.7 "Maximilian" — e.g. §6's "XFCE on LightDM" and Plymouth theme, and
+> the two-kernel A/B framing throughout, describe what was true at the time
+> and are **not** current. For current state, see the top-level `README.md`
+> and [`docs/HOW-DID-WE-GET-HERE.md`](HOW-DID-WE-GET-HERE.md).
+>
 > Scope: what it actually took to turn a bare CIX Sky1 (CP8180 / Minisforum
 > MS‑R1, "cixmini") board into a shippable, full‑fidelity Linux distribution —
 > **Magnetar** (server) and **Reinhardt** (desktop) — with working NPU, GPU,

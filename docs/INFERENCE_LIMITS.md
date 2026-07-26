@@ -1,8 +1,22 @@
 # Inference Limits & Capability Matrix — cixmini (CIX Sky1)
 
+> **Scope note (26.7):** all GPU figures and driver-stack descriptions below
+> (panthor/panvk/rusticl) were measured on the **7.0.12 secondary/fallback
+> kernel channel**. As of NCZ-OS 26.7 the **primary/default channel is 7.2**,
+> which uses the out-of-tree CIX `mali_kbase` blob DDK instead of `panthor`
+> — OpenCL is available there via CIX `libmali` (unlike the "not shipped"
+> status given to vendor `libmali` OpenCL below, which was true for the
+> 7.0.12 channel's driver skip), and **Vulkan is not available by default**
+> on 7.2 (no `panvk`; a non-default Panthor/Mesa boot entry exists as a
+> post-ship follow-up). This document has not been re-measured on the
+> 7.2/`mali_kbase` channel. NPU and CPU figures are channel-independent and
+> current. See the top-level `README.md` ("7.2 (Mali) GPU driver notes") for
+> the primary-channel GPU driver story.
+
 **Box:** Minisforum MS-R1 — CIX Sky1 (CP8180): 12-core big.LITTLE (Cortex-A720 + Cortex-A520), Mali-G720
 (Immortalis) GPU, Zhouyi V3 NPU (~30 TOPS INT8), 64 GB unified LPDDR.
-**Kernel:** `7.0.12-cix-sky1-next`. **Measured:** 2026-05 → 2026-06 on `.66`.
+**Kernel:** `7.0.12-cix-sky1-next` (secondary/fallback channel as of 26.7).
+**Measured:** 2026-05 → 2026-06 on `.66`.
 Raw logs: `/mnt/argonas_backups/cixmini-bench/<ts>/` (ncnn cpu/gpu, embeddings).
 
 ---

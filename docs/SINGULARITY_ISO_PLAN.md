@@ -1,6 +1,20 @@
 # Plan — Singularity replaces X/XFCE as the NCZ-OS 26.7 desktop
 
-**Release pitch (operator, 2026-07-24):** *Maximilian is a native-Mali, acceleration-first, modernized Linux distribution with the latest technologies that fully exploit the CIX Sky1 processor on the latest Linux kernel.* **Zero compromises. Zero kludges.**
+> **STATUS: largely executed, kept as historical planning record.** Since
+> this plan was written, the desktop has shipped and moved further than the
+> plan below: Singularity installs as a real `.deb`
+> (`ncz-singularity-desktop`) via `apt-get install`, **not** the
+> `singularity-opt.tgz` tarball extraction described in "Work items" below;
+> the greeter is the **native `singularity-greeter`** (wlr-layer-shell,
+> Mali-rendered, no llvmpipe), not `lightdm`/`regreet` as described here;
+> Plymouth has been **removed entirely**, replaced by the native
+> `singularity-boot-splash` (the plan below still lists `60-plymouth` as a
+> kept hook); native networking (`sinty-nm`) and a native keyring have also
+> landed, beyond this plan's scope. Treat this document as "why/how we got
+> from XFCE to Singularity," not as a description of what ships today — see
+> the top-level `README.md` for current state.
+>
+> **Release pitch (operator, 2026-07-24):** *Maximilian is a native-Mali, acceleration-first, modernized Linux distribution with the latest technologies that fully exploit the CIX Sky1 processor on the latest Linux kernel.* **Zero compromises. Zero kludges.**
 
 **Directive:** Singularity Desktop becomes *the* desktop in the ISO; XFCE/X11 desktop is removed. NCZ-OS ships a single, Wayland-native, Mali-accelerated DE. Every layer — desktop, **greeter**, video, compute — is native Wayland + hardware-accelerated on Sky1. No X11, no software-render fallbacks presented as final, no hacks-that-hide-bugs.
 

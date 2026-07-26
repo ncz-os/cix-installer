@@ -1,10 +1,19 @@
 # CIX 7.0.12 Driver Fidelity — Validated Fixes (cixmini)
 
-Live-validated on the `.66` reference board. The fixes below were first proven
-on our `7.0.12-cix-sky1-next` build (the A/B **edge** build); the **6.18 LTS**
-kernel is the shipped default. There is no `7.0.12-cix-sky1-main` recipe --
-that name doesn't exist in meta-cix; don't look for it. These are the changes
-required for full driver bring-up.
+Live-validated on the `.66` reference board. The fixes below apply to our
+`7.0.12-cix-sky1-next` build. As of NCZ-OS 26.7, this is the **secondary /
+emergency fallback** kernel channel ("stable" in the rEFInd menu) — **7.2**
+(`linux-cix-sky1-ncz`) is the primary/default channel, and **6.18 LTS** is
+the deep-rescue kernel on its own dedicated rescue partition. (Earlier in
+the project 6.18 LTS was the shipped default and 7.0.12 was the "edge"/beta
+build in a two-kernel A/B scheme — that framing is superseded by the
+current three-tier channel model; see the top of the top-level `README.md`.)
+There is no `7.0.12-cix-sky1-main` recipe -- that name doesn't exist in
+meta-cix; don't look for it. These are the changes required for full driver
+bring-up **on the 7.0.12 channel specifically** — the 7.2 primary channel
+uses a different GPU driver (`mali_kbase`, not `panthor`) and its own patch
+series; see `kernel-source/SOURCE.md` and the README's "7.2 (Mali) GPU
+driver notes".
 
 ## NPU (ArmChina Zhouyi V3)
 - **Kernel config**: `CONFIG_ARMCHINA_NPU_ARCH_V3=y` REQUIRED. Shipped config had only `ARCH_V3_1=y` -> `unidentified hardware version number: 5`, probe fail. With V3=y -> `AIPU detected: zhouyi-v3`, `/dev/aipu` live. Fixed in meta-cix (`config.sky1-next`, commit `053b5ce`) as of 2026-07-04, but the kernel binary/config staged in cix-installer (`assets/kernel/edge/config-7.0.12-cix-sky1-next`, dated 2026-06-17) predates that fix -- the edge kernel needs a rebuild from current meta-cix HEAD before this fix is actually reflected in a shipped ISO. NPU has tested working regardless in the interim (V3_1 alone appears sufficient in practice on the hardware tested so far), but don't assume the staged config matches meta-cix until that rebuild happens.

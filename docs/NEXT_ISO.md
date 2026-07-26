@@ -6,7 +6,27 @@
 3. **Remove previous-release noise** — no accumulated per-release history in the README changelog beyond the last 4-5 entries; delete the superseded GitLab release page and superseded ISO package-registry artifacts (`glab api -X DELETE projects/ncz-os%2Fcix-installer/packages/<id>`).
 4. Commit + push (argonas → gitlab). GitHub (`github.com/ncz-os/cix-installer`) is a **frozen, docs-only, archived mirror** — it never gets a release, never gets ISO binaries, never gets source pushes. Only rebuild its docs-only orphan commit if the docs themselves changed; do not create GitHub releases or tags (any that exist there are leftover from before this repo became a mirror and should be deleted, not added to).
 
-**Current ISO:** `r195`. See README → *Current ISO*. Kernels 7.0.12-cix-sky1-next (default/stable) + 7.2.0-rc1-ncz (edge), built under Yocto 6.0 Wrynose; 6.18 LTS retired. Kernel + CIX-userspace updates via the public Cloudflare R2 apt repository (r195 kernel debs pending publication at time of writing); kernel source/recipes on GitLab `ncz-os/meta-cix` (patches tracked as files, kernel itself from public kernel.org). Both **Reinhardt** (desktop) and **Magnetar** (server) variants ship on the same ISO (layered squashfs — `base.squashfs` + `desktop.squashfs`/`server.squashfs`, rEFInd picks at boot). A dedicated NCZRESCUE recovery partition (full toolset + self-configuring network, verified as a release gate, see README → *Rescue partition*) ships on every install regardless of variant.
+**Current ISO:** NCZ-OS **26.7 "Maximilian"**. See README → *Current ISO*.
+(This doc's `r<N>` convention above predates 26.7's rename away from
+per-`r<N>` version stamps in the README headline — when the next ISO is
+minted under this rule, re-establish whatever version stamp is current and
+update this line; don't trust `r195` below as current, it is the last
+`r<N>`-stamped release this doc tracked.) Three kernel channels:
+**7.2** (primary/default, `linux-cix-sky1-ncz`), **7.0.12-cix-sky1-next**
+(secondary/fallback), **6.18.26-cix-sky1-lts** (deep rescue, dedicated
+partition). Desktop is **Singularity** (Wayland-native; X11/XFCE removed);
+default GPU driver is the CIX `mali_kbase` blob DDK on the 7.2 channel.
+Kernel + CIX-userspace + Singularity Desktop updates via **Buildkite
+Packages** (`ncz-os/ncz`, primary) with **Cloudflare R2 as an independent
+second apt source** (not just a mirror); kernel source/recipes on GitLab
+`ncz-os/meta-cix` (patches tracked as files; the 7.2 shipping kernel's
+patch series + pristine-base + full source are additionally self-mirrored
+in-repo/on GitLab Generic Packages, see `kernel-source/SOURCE.md`). Both
+**Reinhardt** (desktop) and **Magnetar** (server) variants ship on the same
+ISO (layered squashfs — `base.squashfs` + `desktop.squashfs`/`server.squashfs`,
+rEFInd picks at boot). A dedicated NCZRESCUE recovery partition (full
+toolset + self-configuring network, verified as a release gate, see
+README → *Rescue partition*) ships on every install regardless of variant.
 
 Mint:
 ```bash

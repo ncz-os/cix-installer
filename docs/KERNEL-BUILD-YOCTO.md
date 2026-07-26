@@ -5,12 +5,28 @@
 > This is what we ship and what we tell downstream consumers (Radxa O6, GitHub #32):
 > *"Use Yocto — Yocto is our build system,"* and we can prove it builds from clean.
 
+> **Status update (26.7):** the `7.1.2-ncz2` recipe this document was written
+> against turned out **experimental/non-working and never shipped** (it still
+> carries `.bak-pre-branchfix`/`.bak-pre-compilefix` recovery files in the
+> recipe). The primary/shipping kernel as of NCZ-OS 26.7 is
+> **`linux-cix-sky1-ncz_7.2.bb`** (`KERNELRELEASE 7.2.0-rc4-sky1-ncz`, 175
+> patches, mainline v7.2-rc4 base) — see
+> [`kernel-source/SOURCE.md`](../kernel-source/SOURCE.md) for the authoritative
+> recipe/patch/config pointers for that kernel. `7.0.12-cix-sky1-next` remains
+> the secondary/fallback channel. The build-mechanics sections below (BitBake
+> invocations, deploy-artifact layout, `9008`–`9011` ACPI patch series, the
+> `tar -C /` warning) are still procedurally accurate for whichever recipe you
+> point them at, but the specific recipe name/build-dir/`SRCREV` given as
+> "Current" immediately below is **historical (7.1.2, retired)**, not what
+> ships today.
+
 ## Authoritative source
 
 - **Tree:** `~/yocto-docker` on **ARGOS** (the designated Yocto host; heavy compiles never run on STUDIO).
   - Layers: `meta-cix`, `meta-nclawzero`, `meta-openembedded`, `poky`.
-- **Kernel recipes** (current + legacy):
-  - **Current (O6 / O6N):** `meta-cix/recipes-kernel/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.1.2.bb`
+- **Kernel recipes** (historical 7.1.2 build documented below; see the status
+  update above for the current 7.2/7.0.12 channels):
+  - **Historical, retired, never shipped:** `meta-cix/recipes-kernel/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.1.2.bb`
     - `LINUX_VERSION = 7.1.2`, `PV = 7.1.2+ncz`, `KBRANCH = linux-7.1.y`,
       `SRCREV_kernel = 03e2778d1f11de9260543f969e9e888a1c2bf830` (linux-stable v7.1.2).
     - Build dir: `build-cix-ncz71`.
@@ -76,7 +92,10 @@ separate build dir (`build-cix-msr1`) using the `cixmsr1` machine.
 Stage the deploy artifacts into `cix-installer/assets/kernel/` as
 `Image-cixmini.bin` + `modules-cixmini.tgz` (+ `KVER` marker), then bake the ISO.
 
-For the 7.1.2-ncz2 kernel, the typical handoff is:
+The example below uses the historical 7.1.2-ncz2 recipe to illustrate the
+handoff mechanics — substitute the current 7.2 (or 7.0.12) deploy artifacts
+and `assets/kernel/{edge,stable}/` destination in practice (see the status
+update above):
 ```bash
 cp ~/yocto-docker/build-cix-ncz71/tmp/deploy/images/cixmini/Image--*.bin \
    ~/cix-installer-build/cix-installer/assets/kernel/Image-cixmini.bin

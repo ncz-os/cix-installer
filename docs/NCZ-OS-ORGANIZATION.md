@@ -70,7 +70,7 @@ GitLab ncz-os/*  (CANONICAL)  ──mirror──▶  GitHub + Codeberg + ARGONAS
 | --- | --- | --- |
 | Agent stack (zeroclaw quadlet, ncz CLI, agent-env) | ✅ | — |
 | NPU/AI runtime (embedkit, python3.11, models) | ✅ | — |
-| Desktop (XFCE/LightDM, branding, wallpapers, plymouth) | ✅ | — |
+| Desktop (Singularity/labwc/greetd, branding, wallpapers, boot splash) | ✅ | — |
 | System config (network, ntp/hostname, ssh posture, diag acct) | ✅ | — |
 | Build mechanism (ISO/image build scripts, preseed/pi-gen stages) | — | ✅ |
 | Kernel + modules staging, `kernel-manifest`, bootloader entries | — | ✅ |

@@ -1,11 +1,22 @@
 # NCZ 智能体 Linux —— AI/ML 软件栈参考（Cix Sky1）
 
+> **范围说明（26.7）：** 本文档的 GPU 相关章节（§3，以及 §0/§6 的 GPU 行）
+> 描述的是 **7.0.12 次级/回退内核通道**——该通道使用树内 `panthor` 驱动 +
+> Mesa panvk（Vulkan）/rusticl（OpenCL）作为 GPU 计算栈，下方数字也是在该
+> 通道上实测的。自 26.7 起，**主/默认通道是 7.2**，使用树外的 CIX
+> `mali_kbase` 闭源 DDK 而非 `panthor`——该通道上 OpenCL 通过 CIX `libmali`
+> 提供（而非 rusticl），且**默认不提供 Vulkan**（带 Vulkan 的 Panthor/Mesa
+> 启动项作为非默认的后续更新存在）。本文档尚未针对 7.2/`mali_kbase` 通道
+> 重新测量 —— 当前默认通道的 GPU 驱动情况见顶层 `README.md`（"7.2 (Mali)
+> GPU driver notes"）。下方 CPU/NPU/VPU 相关内容与通道无关，仍然准确。
+>
 > 系统中随附了什么、每个二进制/库的用途、如何在四个计算引擎
 > （CPU / NPU / GPU / VPU）上运行推理、它们的性能表现、如何为某项工作负载
 > 选择正确的引擎，以及如何拉取新模型。
 >
 > 目标硬件：**Cix Sky1 (CP8180)** —— 12 核 Armv9 CPU、**Mali-G720 MC10**
-> GPU（panthor）、**ArmChina Zhouyi V3** NPU、**Linlon/amvx** VPU。
+> GPU（本文所述 7.0.12 通道上为 `panthor`；7.2 主通道上为 `mali_kbase`）、
+> **ArmChina Zhouyi V3** NPU、**Linlon/amvx** VPU。
 > **统一内存（UMA，由所有引擎共享）：本"超大杯"MS-R1 为 64 GB，标准 MS-R1
 > 为 32 GB。**（GPU 驱动在扣除内核/固件预留后，将其中约 46.85 GiB 暴露为
 > 可分配池。）
@@ -95,7 +106,7 @@ GGUF LLM + 多模态运行时。CPU 与 Vulkan（Mali）后端。
 
 ---
 
-## 3. GPU 计算驱动（Mesa 26.1.3 —— NCZ 构建）
+## 3. GPU 计算驱动（Mesa 26.1.3 —— NCZ 构建，7.0.12 通道）
 
 我们在 `/opt/mesa-26.1.3` 下随附一份**从源码构建的 Mesa 26.1.3**，将其重定向
 为系统的 Vulkan + OpenCL 提供者（桌面 GL 仍保留在自带 Mesa 上）。完整理由见
