@@ -410,7 +410,7 @@ GHCR/squashfs OTA 机制（`90-ota-channel.sh`）已废弃。
 ## 当前 ISO — 26.7 "Maximilian"
 
 三层内核通道 + 桌面/GPU 重做：**7.2**（`linux-cix-sky1-ncz`，
-`KERNELRELEASE 7.2.0-rc4-sky1-ncz`）是**主/默认启动项**，**7.0.12-cix-sky1-next**
+`KERNELRELEASE 7.2.0-rc5-sky1-ncz`）是**主/默认启动项**，**7.0.12-cix-sky1-next**
 是**次级/应急回退**（也是 d-i 安装器环境自身启动所用的内核，rEFInd 菜单中
 标记为"stable"），**6.18.26-cix-sky1-lts** 是**深度救援内核**，最小化设计，
 位于独立的 NCZRESCUE 分区（视空间情况也可能同时暂存在主 ESP 上）。桌面为
@@ -421,7 +421,7 @@ GLES/EGL/OpenCL）；树内 `panthor` + Mesa/PanVK Vulkan 路径作为非默认�
 主 + Cloudflare R2 备份**（并非仅 R2）。详见本文件顶部说明及
 [English README](README.md) 获取完整细节。
 
-**内核：** 7.2.0-rc4-sky1-ncz（主/默认）+ 7.0.12-cix-sky1-next（次级/回退，
+**内核：** 7.2.0-rc5-sky1-ncz（主/默认）+ 7.0.12-cix-sky1-next（次级/回退，
 rEFInd 菜单中为 "stable"）+ 6.18.26-cix-sky1-lts（深度救援）。7.1.x 为
 实验性/不可用，从未出货。
 

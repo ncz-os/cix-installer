@@ -13,6 +13,32 @@ up forever.
 
 ## 7.2 track — `linux-cix-sky1-ncz_7.2.bb`
 
+### Current: v7.2-rc5 (SRCREV bumped 2026-07-26)
+
+- Our patches: `linux-cix-sky1-ncz-7.2/patches-7.2/*.patch` (this repo, full
+  git history, all 3 remotes: ARGONAS canonical, GitLab, GitHub-source-stub-N/A).
+- Pristine base recipe fetches: `git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git`
+  pinned via `SRCREV_kernel = "f5098b6bae761e346ebcd9da7f95622c04733cff"` (v7.2-rc5;
+  the tag object itself is `a8e429896436e8c2d288181f875f92af8204bc58` -- SRCREV
+  uses the dereferenced commit, matching the rc4 convention below).
+- **Self-mirrored pristine base** (single-commit archive of that exact SRCREV,
+  independent of kernel.org staying reachable):
+  <https://gitlab.com/api/v4/projects/81838641/packages/generic/linux-pristine-base-cix-sky1-ncz/7.2-f5098b6b/linux-cix-sky1-ncz-7.2-pristine-base-f5098b6b.tar.gz>
+  sha256 `dfb6d3fd1a71a525a753b0d308dd25dbab61ddd61cdfb48a994f5af3faec9d7c`
+  (uploaded 2026-07-26, GitLab generic package registry, `ncz-os/cix-installer`,
+  confirmed publicly downloadable without auth, HTTP 200).
+- Forward-port notes: rc4->rc5 changed 595 files upstream; zero overlap with
+  the 572 unique files this patch series touches, so 169/170 SRC_URI patches
+  applied byte-identical via `git am -3`. The one exception, `patches-7.2/
+  0184-thermal-cix-cpufreq-cooling-acpi-no-of-node.patch`, had a pre-existing
+  malformed second hunk (a blank context line stored as a truly empty line
+  instead of a single space, plus a missing trailing context line, making the
+  hunk short of its own declared `-678,8` old-line count) -- a defect in the
+  patch file itself, unrelated to the rc5 rebase; corrected in place against
+  the verified real upstream source of `drivers/thermal/cpufreq_cooling.c`.
+
+### Previous: v7.2-rc4 (superseded 2026-07-26; record retained per the GPL note below)
+
 - Our patches: `linux-cix-sky1-ncz-7.2/patches-7.2/*.patch` (this repo, full
   git history, all 3 remotes: ARGONAS canonical, GitLab, GitHub-source-stub-N/A).
 - Pristine base recipe fetches: `git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git`

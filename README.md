@@ -241,7 +241,7 @@ NPU/GPU/VPU may not initialize, or the installer may need board-specific work.
 > **Which kernel is this table about?** NCZ-OS 26.7 ships **three** kernel
 > channels (see the callout at the top of this README): **7.2** is the
 > primary/default boot entry (`linux-cix-sky1-ncz`, `KERNELRELEASE
-> 7.2.0-rc4-sky1-ncz` — see [`kernel-source/SOURCE.md`](kernel-source/SOURCE.md)),
+> 7.2.0-rc5-sky1-ncz` — see [`kernel-source/SOURCE.md`](kernel-source/SOURCE.md)),
 > **7.0.12-cix-sky1-next** is the secondary/emergency fallback, and **6.18
 > LTS** is the deep-rescue kernel on its own dedicated rescue partition. The
 > table below documents **7.0.12-cix-sky1-next**
@@ -845,7 +845,7 @@ What changed since the r147 baseline:
 ## Current ISO — 26.7 "Maximilian"
 
 Three-tier kernel channel + desktop/GPU rebrand: **7.2 (`linux-cix-sky1-ncz`,
-`KERNELRELEASE 7.2.0-rc4-sky1-ncz`) is the primary/default boot entry**,
+`KERNELRELEASE 7.2.0-rc5-sky1-ncz`) is the primary/default boot entry**,
 **7.0.12-cix-sky1-next is the secondary/emergency fallback** (also what the
 d-i installer environment itself boots — `INSTALLER_KERNEL_FLAVOR=lts` maps
 to this "stable" slot), and **6.18.26-cix-sky1-lts is the deep-rescue
@@ -880,14 +880,16 @@ follow-up boot entry pending a GPU power-domain fix. See
   see [`kernel-source/SOURCE.md`](kernel-source/SOURCE.md) and
   [`kernel-source/linux-cix-sky1-ncz/CORRESPONDING-SOURCE.md`](kernel-source/linux-cix-sky1-ncz/CORRESPONDING-SOURCE.md).
 
-**Kernels:** 7.2.0-rc4-sky1-ncz (primary/default) + 7.0.12-cix-sky1-next
+**Kernels:** 7.2.0-rc5-sky1-ncz (primary/default) + 7.0.12-cix-sky1-next
 (secondary/fallback, "stable" in the rEFInd menu) + 6.18.26-cix-sky1-lts
 (deep rescue). 7.1.x was experimental/non-working and never shipped.
 
 Provenance: **7.0.12** is *our* port — the raw v7.0.12 stable tag plus our
 MS-R1-specific validation and fixes (SCMI, GPU, VPU, NPU, display, audio).
-**7.2** goes further: mainline v7.2-rc4 plus our full ~130-patch (175 in the
-in-repo patch series) forward-port of the CIX Sky1 BSP, including fixes
+**7.2** goes further: mainline v7.2-rc5 (forward-ported from rc4, 2026-07-26)
+plus our full ~130-patch (170 wired into the recipe; the in-repo
+`patches-7.2/` directory also carries some superseded/experimental patches
+not built) forward-port of the CIX Sky1 BSP, including fixes
 that don't exist in any vendor drop yet, plus the `mali_kbase` DKMS/overlay
 GPU driver port.
 

@@ -3,13 +3,20 @@
 #
 # Linux kernel for Cix Sky1 / CP8180 -- NCZ 7.2 track.
 #
-# Base: torvalds mainline v7.2-rc4 (no linux-7.2.y stable branch yet, so
-#       KBRANCH=master + SRCREV pinned to the v7.2-rc4 tag commit).
+# Base: torvalds mainline v7.2-rc5 (no linux-7.2.y stable branch yet, so
+#       KBRANCH=master + SRCREV pinned to the v7.2-rc5 tag commit).
+#       (Forward-ported 2026-07-26 from v7.2-rc4 -> v7.2-rc5: the rc4->rc5
+#       diff touched 595 files and none of them overlap this patch series'
+#       footprint, so 169 of 170 patches applied byte-identical; the one
+#       exception, 0184, had a pre-existing malformed hunk in
+#       drivers/thermal/cpufreq_cooling.c -- unrelated to the rc5 rebase,
+#       fixed in place. See CORRESPONDING-SOURCE.md for the rc5 pristine
+#       base self-mirror.)
 # Patches: patches-7.2 = cixtech 2026q2 vendor driver set
 #   (github.com/cixtech/cix_opensource__linux @ cix_k6.6.89_2026q2)
 #   forward-ported from k6.6.89 onto v7.2-rc4, PLUS the NCZ core ACPI
 #   glue patches (from patches-7.1) that still apply.
-#   Upstream v7.2-rc4 already carries: sky1-orion-o6 DTS, cix-mailbox,
+#   Upstream v7.2-rc4 (and rc5, unchanged in this area) already carries: sky1-orion-o6 DTS, cix-mailbox,
 #   pci-sky1 (Cadence HPA, OF), pinctrl-sky1, reset-sky1, HDA cix-ipbloq
 #   -- those are used as-is with NCZ ACPI deltas on top.
 #   USB host role initialization is completed by patch 0112, which connects
@@ -103,8 +110,8 @@
 #   firmware. Do not enable CONFIG_DRM_CIX_COMPONENT_BIND_BYPASSED —
 #   it forces the multi-card path and defeats the 26q2 single-master code.
 
-SUMMARY = "NCZ Linux kernel for Cix Sky1 / CP8180 (v7.2-rc4 + CIX 2026q2 patch set)"
-DESCRIPTION = "NCZ kernel: mainline Linux v7.2-rc4 plus the cixtech 2026q2 Sky1 driver set forward-ported by NCZ. Not a CIX/vendor release."
+SUMMARY = "NCZ Linux kernel for Cix Sky1 / CP8180 (v7.2-rc5 + CIX 2026q2 patch set)"
+DESCRIPTION = "NCZ kernel: mainline Linux v7.2-rc5 plus the cixtech 2026q2 Sky1 driver set forward-ported by NCZ. Not a CIX/vendor release."
 SECTION = "kernel"
 LICENSE = "GPL-2.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=6bc538ed5bd9a7fc9398086aedcd7e46"
@@ -112,15 +119,17 @@ LIC_FILES_CHKSUM = "file://COPYING;md5=6bc538ed5bd9a7fc9398086aedcd7e46"
 inherit kernel
 FILESEXTRAPATHS:prepend := "${THISDIR}/linux-cix-sky1-ncz-7.2:"
 
-LINUX_VERSION = "7.2-rc4"
+LINUX_VERSION = "7.2-rc5"
 KERNEL_LOCALVERSION = "-sky1-ncz"
 PATCHTOOL = "git"
 PV = "7.2+ncz"
 KBRANCH = "master"
 KERNEL_PACKAGE_NAME = "kernel-${PN}"
 
-# v7.2-rc4 tag commit (torvalds mainline, on master)
-SRCREV_kernel = "1590cf0329716306e948a8fc29f1d3ee87d3989f"
+# v7.2-rc5 tag commit (torvalds mainline, on master; dereferenced from the
+# annotated tag object a8e429896436e8c2d288181f875f92af8204bc58 -- SRCREV
+# must be the commit, not the tag object, matching the rc4 convention below)
+SRCREV_kernel = "f5098b6bae761e346ebcd9da7f95622c04733cff"
 
 SRC_URI = " \
     git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git;protocol=https;branch=${KBRANCH};name=kernel \

@@ -36,7 +36,7 @@ Upstream-Status: Pending
  #include <linux/cpu_cooling.h>
 @@ -678,8 +679,18 @@
  	struct thermal_cooling_device *cdev = NULL;
-
+ 
  	if (!np) {
 -		pr_err("cpufreq_cooling: OF node not available for cpu%d\n",
 -		       policy->cpu);
@@ -54,3 +54,4 @@ Upstream-Status: Pending
 +			       policy->cpu);
  		return NULL;
  	}
+ 

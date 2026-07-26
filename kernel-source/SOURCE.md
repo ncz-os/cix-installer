@@ -7,14 +7,23 @@ publicly available at the pinned upstream revisions below.
 
 ## Shipping kernel
 
-- **KERNELRELEASE:** `7.2.0-rc4-sky1-ncz`
-- **Base:** mainline Linux **v7.2-rc4**, from
+- **KERNELRELEASE:** `7.2.0-rc5-sky1-ncz`
+- **Base:** mainline Linux **v7.2-rc5**, from
   `git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git`
-  at **SRCREV `1590cf0329716306e948a8fc29f1d3ee87d3989f`** (the v7.2-rc4 tag).
-- **Delta:** the CIX Sky1 (CD8180) enablement — 175 patches under
+  at **SRCREV `f5098b6bae761e346ebcd9da7f95622c04733cff`** (the v7.2-rc5 tag
+  commit; forward-ported 2026-07-26 from the previously-shipped v7.2-rc4 base,
+  SRCREV `1590cf0329716306e948a8fc29f1d3ee87d3989f`, still recorded below/in
+  CORRESPONDING-SOURCE.md for GPL corresponding-source continuity).
+- **Delta:** the CIX Sky1 (CD8180) enablement — 170 patches actually wired
+  into the recipe's `SRC_URI` (the `patches-7.2/` directory also holds some
+  superseded/experimental patches not referenced by the recipe) under
   `linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.2/patches-7.2/` + the config
   `config-7.2-lean-msr1-o6n.defconfig`. Applied on top of the mainline base in
-  numeric order.
+  the exact order listed in the recipe's `SRC_URI` (not plain numeric/alpha
+  filename order -- a handful of later fixups are interleaved earlier in the
+  series). 169 of the 170 applied byte-identical onto the rc5 base (the rc4->rc5
+  diff touches zero files this series modifies); one patch (0184) had a
+  pre-existing malformed hunk unrelated to the rebase and was corrected.
 
 ## Contents
 
@@ -25,7 +34,7 @@ linux-cix-sky1-ncz/
   linux-cix-sky1-ncz_7.1.1.bb / _7.1.2.bb
   linux-cix-sky1-ncz-7.2/
     config-7.2-lean-msr1-o6n.defconfig # kernel config for the 7.2 ship
-    patches-7.2/00xx-*.patch           # 175 CIX Sky1 enablement patches
+    patches-7.2/00xx-*.patch           # CIX Sky1 enablement patches (170 wired into SRC_URI; see recipe)
 ```
 
 ## Reproduce (without Yocto)
@@ -33,9 +42,13 @@ linux-cix-sky1-ncz/
 ```sh
 git clone git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
 cd linux
-git checkout 1590cf0329716306e948a8fc29f1d3ee87d3989f
-for p in /path/to/kernel-source/linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.2/patches-7.2/*.patch; do
-    git apply "$p" || patch -p1 < "$p"
+git checkout f5098b6bae761e346ebcd9da7f95622c04733cff
+# Apply in the exact order listed in linux-cix-sky1-ncz_7.2.bb's SRC_URI --
+# NOT plain `for p in patches-7.2/*.patch`, the directory holds a few
+# superseded/experimental patches the recipe does not use, and the shipping
+# order is not pure filename order.
+for p in $(grep -oE 'patches-7\.2/[0-9]+-[^ \\]+\.patch' /path/to/kernel-source/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.2.bb); do
+    git am -3 --keep-non-patch "/path/to/kernel-source/linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.2/${p}"
 done
 cp /path/to/kernel-source/.../config-7.2-lean-msr1-o6n.defconfig .config
 make ARCH=arm64 olddefconfig

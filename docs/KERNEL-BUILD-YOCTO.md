@@ -9,8 +9,8 @@
 > against turned out **experimental/non-working and never shipped** (it still
 > carries `.bak-pre-branchfix`/`.bak-pre-compilefix` recovery files in the
 > recipe). The primary/shipping kernel as of NCZ-OS 26.7 is
-> **`linux-cix-sky1-ncz_7.2.bb`** (`KERNELRELEASE 7.2.0-rc4-sky1-ncz`, 175
-> patches, mainline v7.2-rc4 base) — see
+> **`linux-cix-sky1-ncz_7.2.bb`** (`KERNELRELEASE 7.2.0-rc5-sky1-ncz`, 170
+> patches, mainline v7.2-rc5 base, forward-ported from rc4 2026-07-26) — see
 > [`kernel-source/SOURCE.md`](../kernel-source/SOURCE.md) for the authoritative
 > recipe/patch/config pointers for that kernel. `7.0.12-cix-sky1-next` remains
 > the secondary/fallback channel. The build-mechanics sections below (BitBake
