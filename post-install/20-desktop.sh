@@ -197,8 +197,9 @@ echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland +
 
 # ---------------------------------------------------------------------------
 # Install the Singularity payload from the NCZ-OS apt repository.
-# post-install/24-apt-sources.sh wires the signed R2-backed source and refreshes
-# its index before this hook runs. The package postinst owns ldconfig setup.
+# post-install/24-apt-sources.sh wires the signed Buildkite Packages (primary)
+# + Cloudflare R2 (backup) sources and refreshes the index before this hook
+# runs. The package postinst owns ldconfig setup.
 # ---------------------------------------------------------------------------
 echo "[20] installing Singularity Desktop payload: apt-get install ncz-singularity-desktop"
 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y ncz-singularity-desktop; then
