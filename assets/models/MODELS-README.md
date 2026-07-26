@@ -53,7 +53,14 @@ No manual embedding step, no per-model wiring. See
 
 ## Adding models
 
-    ncz model add <huggingface-id-or-path>
+There is no working `ncz model add`/`ncz models pull` command yet —
+`ncz models pull` is a **stub** (prints `STUB (r75)` and exits 2, see
+`post-install/46-ncz-cli.sh` and task #99). To add a `.cix` model today,
+pull it manually from the Cix model hub and stage it in this directory —
+see [`docs/MODELSCOPE-MODELS.md`](../../docs/MODELSCOPE-MODELS.md) for the
+full manual procedure. `ncz models list` (no `pull`) does work today, and
+shows installed `.cix` files.
 
-`Engine.auto()` picks among installed models + adapters by capability tier
-(NPU > GPU > CPU) and measured throughput within tier. No vendor preference.
+Once a model is staged, `Engine.auto()` picks among installed models +
+adapters by capability tier (NPU > GPU > CPU) and measured throughput
+within tier. No vendor preference.

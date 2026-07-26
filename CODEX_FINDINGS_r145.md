@@ -1,3 +1,13 @@
+> [HISTORICAL — a Codex code-audit punch list frozen at release r145. Many
+> items reference files/hooks (e.g. `post-install/25-cix-ppa.sh`,
+> `90-ota-channel.sh.disabled`, `91-codeberg-apt.sh`) or behaviors that have
+> since been renamed, replaced, or fixed as the repo moved through the
+> Buildkite/R2 apt migration, the Singularity Desktop migration, and the
+> three-tier kernel-channel model — this list has not been re-verified
+> against current code and should not be read as a live bug list. Treat each
+> line as "true as of r145," not "true today"; re-audit before acting on any
+> of it.]
+
 build/build-iso-di.sh:1512 — MED — cp "$ROOT/build/apt-repo/"* fails if repo dir is empty — guard with a non-empty glob/find check.
 build/build-iso-di.sh:1515 — MED — full mode copies active preseed unmodified, leaving stale partman/late_command — strip or fix it consistently in all modes.
 build/build-iso-di.sh:1557 — HIGH — DIAG_ENABLE=1 assumes assets/diag/busybox-arm64 exists; missing file aborts build late — validate early or auto-disable diagnostics.

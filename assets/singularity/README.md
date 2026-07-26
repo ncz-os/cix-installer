@@ -1,13 +1,25 @@
 # assets/singularity — Singularity Desktop payload
 
-`singularity-opt.tgz` is the built `/opt/singularity` tree (labwc/wlroots +
-GTK4/Vala Singularity shell), the NCZ-OS 26.7 "Maximilian" desktop. It replaces
-the old XFCE/X11 desktop.
+`/opt/singularity` (labwc/wlroots + GTK4/Vala Singularity shell) is the
+NCZ-OS 26.7 "Maximilian" desktop. It replaces the old XFCE/X11 desktop.
 
-**The tarball is a build-time blob and is gitignored** (like `assets/vivaldi/*.deb`
-and the kernel/squashfs artifacts). It is NOT committed.
+> **Install mechanism changed:** as of the Buildkite-primary/R2-backup apt
+> hosting work, `post-install/20-desktop.sh` installs Singularity as a real
+> **`.deb` package** (`apt-get install ncz-singularity-desktop` from the
+> NCZ-OS apt repo) — **not** by extracting `singularity-opt.tgz` from this
+> directory. The tarball-extraction recipe below (`build-singularity.sh` →
+> `singularity-opt.tgz` → `tar -xzf`) describes an earlier packaging
+> approach and is superseded; see `post-install/20-desktop.sh` for the
+> current apt-based install path. `build/build-singularity.sh` may still be
+> useful as the underlying build recipe that produces the payload which
+> then gets packaged into the `.deb` — check that script before assuming
+> the tarball flow below is still how the ISO gets built.
 
-## Producing / refreshing it
+**Any tarball staged here is a build-time blob and is gitignored** (like
+`assets/vivaldi/*.deb` and the kernel/squashfs artifacts). It is NOT
+committed.
+
+## Producing / refreshing the payload (historical tarball flow)
 
 Reproducible recipe (arm64 host with docker/podman):
 
@@ -22,16 +34,19 @@ Or stage on ARGONAS and fetch at ISO-build time:
 ./build/build-singularity.sh --push-argonas  # -> ARGONAS:/mnt/datapool/archives/ncz/singularity/
 ```
 
-## How it's consumed
+## How it's consumed (current)
 
-- `build/build-squashfs-layers.sh` (desktop layer) stages this into the overlay
-  chroot; `post-install/20-desktop.sh` extracts it to `/opt/singularity` and
-  bakes it into `desktop.squashfs`.
-- `build/build-iso-di.sh` also stages it to `/cixmini/assets/singularity/` for
-  install-time (union-synced, baked-wins), mirroring the mali_kbase overlay.
+- `post-install/20-desktop.sh` installs the `ncz-singularity-desktop` `.deb`
+  via `apt-get install` from the NCZ-OS apt repo (Buildkite Packages
+  primary, Cloudflare R2 backup — see the top-level README's OTA channel
+  section), which lands the payload at `/opt/singularity`.
+- The `.deb`'s postinst configures the shared-library path (see
+  `post-install/20-desktop.sh` header comment).
 
-The tarball extracts to `opt/singularity/...`, so `tar -C / -xzf` lands it at
-`/opt/singularity` and touches nothing else (safe on a live rootfs).
+If `/opt/singularity` extracts to `opt/singularity/...`, `tar -C / -xzf`
+would land it at `/opt/singularity` and touch nothing else (safe on a live
+rootfs) — but this is no longer how it's installed; noted here only in case
+the tarball path is ever needed again for a build-host-local test.
 
 ## Structure
 

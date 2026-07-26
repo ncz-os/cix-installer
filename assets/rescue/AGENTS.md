@@ -30,17 +30,22 @@ what you did.
 
 ## 2. Kernels
 
-| Channel | Version string | Notes |
-|---|---|---|
-| stable / LTS (default) | `6.18.26-cix-sky1-lts` | all drivers working; production default |
-| edge / next (BETA) | `7.0.12-cix-sky1-next` | newer; main-system BETA channel only |
-| rescue pin | `<lts>-rescue` | independent pinned copy of LTS for the rEFInd "rescue" menuentry |
+NCZ-OS 26.7 ships **three** kernel channels on the main system (this is a
+change from the earlier two-kernel LTS/edge scheme — see below for what
+*this rescue rootfs itself* boots, which is different again):
 
-- r130.5: this rescue partition boots the **LTS `6.18.26-cix-sky1-lts`** kernel
-  with the NPU/GPU/VPU/KMS `module_blacklist` (the same safe set as the rEFInd
-  "rescue" pin) so device startup is quiet and reliable — a recovery env should
-  be boring, not exercise edge silicon. It still ships `btrfs` + the Sky1
-  storage/NIC drivers in-tree so it can mount modern roots.
+| Channel | Version string | Role on the main system |
+|---|---|---|
+| primary / default | `7.2.0-rc4-sky1-ncz` (labeled "Mali" in the rEFInd menu) | default boot entry; CIX `mali_kbase` GPU driver |
+| secondary / fallback | `7.0.12-cix-sky1-next` (labeled "stable" in the rEFInd menu) | fallback; in-tree `panthor` GPU driver. This is also the kernel the **RESCUE PARTITION** rEFInd entry boots with (see §4) — do not assume "RESCUE PARTITION" implies the deep-rescue 6.18 kernel; it boots this "stable" kernel against the rescue rootfs. |
+| rescue pin (main ESP) | `<stable>-rescue` | independent pinned copy of the "stable" (7.0.12) kernel for the rEFInd "rescue" menuentry, with NPU/GPU/VPU/KMS blacklisted |
+| deep rescue | `6.18.26-cix-sky1-lts` | minimal by design; **this is the kernel this rescue rootfs (NCZRESCUE partition) itself boots**, per `build-rescue-rootfs.sh` — independent of whatever the main ESP is currently staging |
+
+- This rescue partition's own rootfs boots the **deep-rescue
+  `6.18.26-cix-sky1-lts`** kernel with the NPU/GPU/VPU/KMS `module_blacklist`
+  so device startup is quiet and reliable — a recovery env should be boring,
+  not exercise edge silicon. It still ships `btrfs` + the Sky1 storage/NIC
+  drivers in-tree so it can mount modern roots.
 - Boot is **ACPI-driven** (`acpi=force`). There is **no DTB** in the boot path.
 - Kernel modules live at `/usr/lib/modules/<kver>/` (usrmerge). `/lib` is a
   **symlink** to `usr/lib` — see section 6.
@@ -60,7 +65,12 @@ loglevel=4 console=tty0 console=ttyAMA2,115200 acpi=force arm-smmu-v3.disable_by
 
 - **NPU:** `armchina_npu` (CIX Zhouyi). Creates `/dev/aipu`. ACPI IDs
   `CIXH4000:00` (device) + `CIXH4010:0[012]` (3 cores). Userspace: `cix-noe-umd`.
-- **GPU:** `panthor` (Mali-G720, Sky1 ACPI patch). Mesa/Vulkan stack on the main system.
+- **GPU:** on the main system's primary (7.2) channel, the out-of-tree CIX
+  `mali_kbase` blob DDK (`/dev/mali0`, `libmali` OpenCL, no Vulkan yet) is the
+  default; on the secondary (7.0.12) channel and on this rescue rootfs, the
+  in-tree `panthor` driver (Mesa panvk Vulkan/rusticl OpenCL) is used.
+  Irrelevant to recovery work — GPU/NPU/VPU/KMS are blacklisted on both
+  rescue paths (main-ESP "rescue" pin and this partition's own boot).
 - **Display/DRM:** `linlon-dp`, `trilin-dpsub`, `cix_virtual`.
 - **VPU:** Sky1 video codec driver (Linlon).
 - **NIC:** mainline `r8169` (RTL8125/8126); `rtl_nic` firmware required for the O6.
@@ -84,14 +94,20 @@ partition) blacklists all of: `armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_
   `scan_all_linux_kernels false`). Kernels/initrds are staged on the ESP root as
   `/boot/efi/vmlinuz-*` + `/boot/efi/initrd.img-*`; each `menuentry` references
   them as `loader /vmlinuz-...` + `initrd /initrd.img-...`.
-- Default via `default_selection "<token>"` (substring of the entry title; edge
-  when staged, else stable). `timeout 10`. `resolution max` forces a graphical
-  GOP mode so the NCZ-OS 26.6 banner + icons paint (else rEFInd goes text-only).
-- Entries (when all present):
-  - `…· stable` — LTS 6.18
-  - `…· edge`   — NEXT 7.0.x (default/BETA)
-  - `…· rescue` — rescue.target on a pinned LTS copy, **shared** production root
-  - `…· RESCUE PARTITION` — **this** environment: edge kernel, own `root=PARTUUID`
+- Default via `default_selection "<token>"` (substring of the entry title —
+  `"Mali"` when the primary 7.2 kernel is staged, else `"stable"`). `timeout
+  10`. `resolution max` forces a graphical GOP mode so the NCZ-OS 26.7 banner
+  + icons paint (else rEFInd goes text-only).
+- Entries (when all present; see `assets/refind/ncz-refind-refresh.sh` for
+  the generator, which is the source of truth if this drifts again):
+  - `…· stable` — the 7.0.12 secondary/fallback kernel
+  - `…· 7.2 (Mali) [DEFAULT]` — the primary kernel (CIX `mali_kbase` GPU driver)
+  - `…· rescue` — `rescue.target` on a pinned copy of the "stable" (7.0.12)
+    kernel, NPU/GPU/VPU/KMS blacklisted, **shared** production root
+  - `…· RESCUE PARTITION` — **this** environment: boots with the "stable"
+    (7.0.12) kernel from the main ESP against this partition's own
+    `root=PARTUUID` (**not** the deep-rescue 6.18 kernel this rootfs itself
+    was built around — see §2 for that distinction)
 - Root is referenced by `root=PARTUUID=...` (not subvol, not /dev path).
 - **WARNING:** the installer's `70-bootloader.sh` **wipes and rewrites**
   `refind.conf` + the staged ESP `vmlinuz-*` on every install. Hand-edits to

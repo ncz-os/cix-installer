@@ -1,85 +1,77 @@
-# NCZ 26.6 (Reinhardt / Magnetar)
+# NCZ-OS 26.7 "Maximilian"
 ## CIX Sky1 (CP8180) Edge AI Appliance
-> **IMPORTANT NOTE:** This operating system and hardware support matrix has only been tested on the **Minisforum MS-R1** using the **latest beta BIOS**. The beta BIOS update is highly recommended as it resolves several critical hardware initialization issues present in the factory-shipped Minisforum firmware. You can find the ARM SystemReady Beta BIOS and EFI flashing instructions in the [Minisforum MS-R1-Docs GitHub Repository](https://github.com/minisforum-docs/MS-R1-Docs/blob/main/PlayBook/MS-R1-ARMSystemReady.md).
 
+> **Note:** this file is a short orientation summary of the `assets/` staging
+> tree; it is not currently copied onto the ISO or the installed system by
+> any build/post-install script (checked — no `assets/README.md` reference
+> in `build/` or `post-install/`). For the authoritative, actively-maintained
+> description of NCZ-OS — hardware support matrix, driver stack, kernel
+> channels, desktop, AI/ML stack, and release status — see the top-level
+> [`README.md`](../README.md). This file previously contained content that
+> had drifted badly out of sync with reality (a fictional "MNEMOS v6.0 /
+> PostgreSQL+pgvector" description, wrong CPU core pinning, and an XFCE/
+> single-kernel framing); it has been corrected below to match the current
+> architecture, but treat the top-level README as the source of truth.
 
-Welcome to **NCZ 26.6**, a specialized operating system built specifically to unlock the true potential of the CIX Sky1 / CP8180 architecture (used in the Minisforum MS-R1). 
+Welcome to **NCZ-OS 26.7**, a specialized Linux distribution built to unlock
+the CIX Sky1 / CP8180 architecture (used in the Minisforum MS-R1 and the
+Radxa Orion O6 / O6N) as a turnkey AI + orchestration edge platform.
 
-While other distributions provide basic boot capabilities, NCZ 26.6 turns this hardware into a highly optimized, turnkey AI and Orchestration Edge Server.
+### What is included?
 
-### What is Included?
-This ISO is a Universal Boot Medium. When you boot, you can choose:
-* **Reinhardt (Desktop):** A lightweight XFCE desktop environment for visual workflows.
-* **Magnetar (Server):** A headless, container-optimized edge server.
+This ISO is a universal boot medium. At boot you choose:
+* **Reinhardt (Desktop):** **Singularity Desktop** — a native-Wayland,
+  Mali-GPU-accelerated desktop (labwc/wlroots). X11/XFCE has been fully
+  removed, not kept as a fallback.
+* **Magnetar (Server):** a headless, container-optimized edge server.
 
----
+### Kernel channels
 
-### Hardware Support Matrix (Kernel 7.0.12-cix-sky1-next)
+Three channels ship: **7.2** (primary/default — `mali_kbase` GPU driver),
+**7.0.12-cix-sky1-next** (secondary/emergency fallback — in-tree `panthor`
+GPU driver), and **6.18.26-cix-sky1-lts** (deep-rescue, on its own dedicated
+rescue partition). See the top-level README's kernel-tiering callout.
 
-We have fully validated the drivers and runtime environments on this release:
+### Hardware support
 
-#### 1. NPU (Neural Processing Unit) — **FULLY SUPPORTED**
-* **Driver:** armchina_npu (In-Tree)
-* **Userspace:** cix-noe-umd 3.1.2
-* **Capabilities:** The NPU is restricted by the silicon to a 1GB contiguous memory window. We have successfully compiled and deployed the all-MiniLM-L6-v2 embedding model directly to the NPU.
-* **Performance:** ~68 vector embeddings per second natively on silicon.
+* **NPU (ArmChina Zhouyi V3):** in-tree `armchina_npu` driver + `cix-noe-umd
+  2.0.2` userspace. Runs prebuilt `.cix` graphs (vision, embeddings) — see
+  [`docs/MNEMOS-NPU-EMBEDDINGS.md`](../docs/MNEMOS-NPU-EMBEDDINGS.md).
+* **GPU (Mali-G720 MC10):** on the primary 7.2 channel, the CIX `mali_kbase`
+  blob DDK provides hardware GLES/EGL/OpenCL via `libmali` (no Vulkan yet).
+  On the 7.0.12 fallback channel, the in-tree `panthor` driver + Mesa
+  panvk (Vulkan)/rusticl (OpenCL) is used instead.
+* **CPU (12-core Armv9, big.LITTLE):** 8× Cortex-A720 "big" cores + 4×
+  Cortex-A520 "little" cores (logical CPUs 2-5 on the reference board — see
+  [`docs/AI-ML-STACK.md`](../docs/AI-ML-STACK.md) §6.4 for the exact mapping
+  and the always-on-agent core-affinity policy).
+* **Wireless & audio:** MediaTek MT7921/MT7922 Wi-Fi firmware, ALSA/HDA
+  audio (analog + HDMI/DP) — work out of the box.
 
-#### 2. GPU (Arm Mali-G720 MC10) — **PARTIALLY SUPPORTED**
-* **Driver:** panthor (In-Tree)
-* **Rendering / Video:** Fully supported. Desktop UI and amvx hardware video decoding work perfectly.
-* **Vulkan Compute (LLMs):** Currently **UNSUPPORTED** for large models. The upstream Mesa panvk driver for the 5th-gen CSF architecture is still in testing. It requires massive contiguous memory allocations that clash with the kernel CMA (Contiguous Memory Allocator) pool. If you attempt to load a large LLM into Vulkan VRAM, it will instantly crash with ErrorOutOfDeviceMemory. 
-* **Workaround:** Run LLMs natively on the CPU (see below).
+### AI stack
 
-#### 3. CPU (12-Core ARMv9) — **FULLY SUPPORTED**
-* **Capabilities:** The CIX Sky1 features 8 Big cores (2.6GHz) and 4 Small cores (1.8GHz). 
-* **Performance:** Using llama-cpp-python, the CPU can process Qwen2.5-Coder-7B (Q4) at roughly **7 tokens per second**. We strongly recommend binding heavy AI workloads (like LLM inference) explicitly to the 8 Big Cores using `taskset -c 0-3,8-11`.
+MNEMOS is the agentic memory substrate; on-device embeddings run
+automatically on the NPU via `embedkit.Engine.auto()` — see
+[`docs/MNEMOS-NPU-EMBEDDINGS.md`](../docs/MNEMOS-NPU-EMBEDDINGS.md) for the
+real architecture (there is no local PostgreSQL/pgvector deployment on the
+appliance itself). zeroclaw and other agents are opt-in, installed via the
+`ncz` CLI — nothing agentic is active by default.
 
-#### 4. Wireless & Audio — **FULLY SUPPORTED**
-* We have packaged the missing MediaTek MT7922 firmware blobs and corrected the ACPI ALSA bridges. WiFi, Bluetooth, HDMI Audio, and Analog Audio work out-of-the-box.
+### Post-install: deploying agents and MNEMOS
 
----
+To keep the base OS footprint light, agent frameworks are not auto-installed
+from the ISO. Once booted and online:
 
-### Embedded AI Tools
+**Desktop:** use the `ncz agent install <name>` flow (see the top-level
+README's "Two distinct layers" section) or the desktop launcher, where
+present.
 
-NCZ 26.6 ships with two massive integrations built directly into the OS:
-
-#### 1. MNEMOS (Hardware Vector Database)
-NCZ 26.6 ships with **MNEMOS v6.0**, powered by PostgreSQL + pgvector. 
-To utilize the NPU, we have built a custom FastAPI wrapper (cix-npu-embedder.service) that exposes the silicon as a local, OpenAI-compatible REST endpoint on port 8000. MNEMOS talks directly to this endpoint to vectorize memories instantly.
-
-#### 2. ZeroClaw Orchestration (Hardware Isolated)
-The zeroclaw orchestration agent is deployed as a Podman Quadlet (zeroclaw-agent.service). 
-To ensure zero performance loss for your LLM or Database workloads, we have explicitly jailed ZeroClaw inside a cgroup bound **only to the 4 small CPU cores (CPUs 4-7)** and hard-capped it at 512MB of RAM. This cap is more than enough headroom: the agent requires less than 50MB to initialize (often idling under 10MB), and asynchronous task fan-out does not cause significant memory expansion.
+**Command line (either variant):**
+```bash
+ncz agent install zeroclaw   # or: openclaw, hermes, portainer
+ncz install mnemos           # MNEMOS memory substrate
+ncz install nemoclaw         # NVIDIA NemoClaw
+```
 
 ---
 *Built for the NCZ Fleet (2026).*
-
-### Post-Install: Deploying Agents and MNEMOS
-To keep the base operating system footprint light and completely air-gapped, we do not auto-install the heavier Python/Rust agent frameworks from the ISO.
-
-Once your system is booted and connected to the internet, you can easily install the **MNEMOS NPU Embedder** and the **ZeroClaw** orchestration agent:
-
-**Option 1: Using the Desktop Shortcut (Reinhardt only)**
-Double-click the  script located on your Desktop.
-
-**Option 2: Via Command Line (Magnetar / Server)**
-Run the following script provided in the system tools path:
-
-
-This script will automatically configure the official NCZ GitLab APT repository, download the pre-compiled  models, and launch the systemd/podman services isolated to their correct CPU cores.
-
-### Post-Install: Deploying Agents and MNEMOS
-To keep the base operating system footprint light and completely air-gapped, we do not auto-install the heavier Python/Rust agent frameworks from the ISO.
-
-Once your system is booted and connected to the internet, you can easily install the **MNEMOS NPU Embedder** and the **ZeroClaw** orchestration agent:
-
-**Option 1: Using the Desktop Shortcut (Reinhardt only)**
-Double-click the `install_ncz_agents.sh` script located on your Desktop.
-
-**Option 2: Via Command Line (Magnetar / Server)**
-Run the following script provided in the system tools path:
-```bash
-sudo /usr/local/lib/cix-installer/assets/install_ncz_agents.sh
-```
-
-This script will automatically configure the official NCZ GitLab APT repository, download the pre-compiled `.cix` models, and launch the systemd/podman services isolated to their correct CPU cores.

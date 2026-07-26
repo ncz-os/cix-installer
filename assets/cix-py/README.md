@@ -20,7 +20,11 @@ Intel CPU       27.17         532,559          67.31 emb/sec
 
 Cold per-inference: ~25 ms on Cix NPU, ~24 ms on Intel iGPU — within 4%. Realistic agentic workload (50% repeat) within 5%.
 
-The dedicated NPU lane keeps the GPU/CPU free for parallel work. See `cix-installer/docs/CIX-VS-JETSON-PERF-REPORT.md` for the methodology + Jetson context.
+The dedicated NPU lane keeps the GPU/CPU free for parallel work. (A
+`CIX-VS-JETSON-PERF-REPORT.md` methodology/Jetson-context doc was referenced
+here previously but does not exist in this repo — not tracked here; treat
+this section's numbers as the primary source until/unless that report is
+added.)
 
 ---
 
