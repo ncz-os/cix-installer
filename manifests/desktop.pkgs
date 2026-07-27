@@ -8,6 +8,15 @@
 #
 # The Singularity shell binaries ship in /opt/singularity (singularity-opt.tgz);
 # the packages here are the SYSTEM libs they link against + the session infra.
+#
+# ncz-singularity-desktop (real Debian package, build/build-singularity-deb.sh
+# wraps singularity-opt.tgz) MUST be in this seed — post-install/20-desktop.sh
+# does `apt-get install ncz-singularity-desktop`, not a raw tarball extract
+# (that was an earlier design; the code moved to a real package, this seed
+# entry was never added to match — found + fixed 2026-07-27 running the
+# offline-mirror build for real for what looks like the first time: without
+# it, 20-desktop.sh hard-fails with "ncz-singularity-desktop not installable"
+# on any build that doesn't happen to have live network access to Buildkite).
 
 # --- greeter (SHIP: greetd + NATIVE singularity-greeter) --------------------
 # greetd is the display manager; the greeter is the native singularity-greeter
@@ -16,6 +25,7 @@
 # uses. NO lightdm (X11), NO regreet — Singularity is Wayland/Mali native.
 greetd
 glycin-loaders
+ncz-singularity-desktop
 
 # --- Singularity runtime libraries (what /opt/singularity binaries link) ----
 libgtk-4-1

@@ -67,6 +67,18 @@ GOOGLE_CHROME_VERSION="150.0.7871.186-1"
 GOOGLE_CHROME_PKGS="google-chrome-stable"
 GOOGLE_CHROME_SHA256="02596a2d07db16eec42422b95dea374ee22d18c9ceaae9e9301298e0e2678fb3"
 
+# ncz-singularity-desktop (build/build-singularity-deb.sh) is CIX/NCZ-specific
+# -- it doesn't exist on Ubuntu ports at all, only on the Buildkite Packages
+# registry (the same one post-install/24-apt-sources.sh wires as the shipped
+# image's own runtime source). Without this, ncz-singularity-desktop can be
+# in the seed file all day and this script will never find it -- found
+# 2026-07-27 running this end-to-end for the first time: 20-desktop.sh
+# hard-failed with "ncz-singularity-desktop not installable" on any build
+# that doesn't happen to have live network access to Buildkite, because the
+# offline mirror pool never had a source that could see this package at all.
+BUILDKITE_NCZ_URL="${BUILDKITE_NCZ_URL:-https://packages.buildkite.com/ncz-os/ncz/any}"
+BUILDKITE_NCZ_KEY="$REPO/post-install/buildkite-ncz-apt-keyring.asc"
+
 [ -f "$SEEDFILE" ] || { echo "ERROR: $SEEDFILE missing"; exit 1; }
 
 echo "== build-desktop-mirror =="
@@ -103,6 +115,14 @@ Pin-Priority: -1
 EOF
     echo "  source: Google Chrome (${GOOGLE_CHROME_URL}) — pinned to $GOOGLE_CHROME_VERSION, checksum-verified below"
 fi
+
+[ -f "$BUILDKITE_NCZ_KEY" ] || { echo "ERROR: $BUILDKITE_NCZ_KEY missing"; exit 1; }
+cp "$BUILDKITE_NCZ_KEY" "$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc"
+chmod 0644 "$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc"
+cat >> "$T/etc/apt/sources.list" <<EOF
+deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc] $BUILDKITE_NCZ_URL any main
+EOF
+echo "  source: Buildkite Packages (${BUILDKITE_NCZ_URL}) — ncz-singularity-desktop + other CIX/NCZ-only packages"
 
 APTOPTS=(
   -o Dir="$T"
