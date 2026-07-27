@@ -117,7 +117,16 @@ if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
     fi
     # SHA256-verify the actual .deb, not just the version string — Google's
     # own Packages index publishes it, so pin against that exact value.
-    _deb_rel="$(apt-get "${APTOPTS[@]}" --print-uris -qq install --reinstall google-chrome-stable 2>/dev/null | awk -F"'" '{print $2}' | head -1)"
+    # NB: --print-uris lists the whole dependency closure, not just this one
+    # package -- `head -1` on the piped output triggers a SIGPIPE in the
+    # upstream apt-get/awk once head closes the pipe, and pipefail turns
+    # that into a non-zero exit that kills this script under set -e even
+    # though $_deb_rel captures the right value. Grep for the exact package
+    # name instead of blindly taking the first line, and disable pipefail
+    # for just this one pipeline as a second layer of protection.
+    set +o pipefail
+    _deb_rel="$(apt-get "${APTOPTS[@]}" --print-uris -qq install --reinstall google-chrome-stable 2>/dev/null | awk -F"'" '{print $2}' | grep -m1 'google-chrome-stable_')"
+    set -o pipefail
     if [ -n "$_deb_rel" ]; then
         _deb_sha="$(curl -fsSL -m 60 "$_deb_rel" -o "$T/google-chrome-stable.deb" && sha256sum "$T/google-chrome-stable.deb" | awk '{print $1}')"
         if [ "$_deb_sha" != "$GOOGLE_CHROME_SHA256" ]; then
