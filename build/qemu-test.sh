@@ -66,6 +66,6 @@ exec qemu-system-aarch64 \
     -device scsi-cd,drive=cd \
     -boot d \
     -netdev user,id=net0 \
-    -device virtio-net-pci,netdev=net0 \
+    -device virtio-net-pci,netdev=net0,romfile= \
     -display none \
     -serial stdio
