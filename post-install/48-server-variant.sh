@@ -121,7 +121,7 @@ cat > /etc/issue.d/10-ncz-server.issue <<'EOF'
 *--------------------------------------------------------------*
 *                                                              *
 *   Remote access ......... ssh   port 22                      *
-*   Re-enable graphical ... sudo ncz desktop on (xrdp)         *
+*   Re-enable graphical ... sudo ncz desktop on                *
 *                                                              *
 ****************************************************************
 
