@@ -95,7 +95,13 @@ fonts-noto-cjk
 fonts-noto-color-emoji
 fonts-liberation
 
-# --- browser + media (Vivaldi via 52-vivaldi; mpv HW video) ---------------
+# --- browser + media -------------------------------------------------------
+# Vivaldi installs from the staged upstream .deb in 52-vivaldi.sh and remains
+# the default browser. Ubuntu Resolute has no Chromium deb, so
+# build-desktop-mirror folds XtraDeb's signed/pinned arm64 ungoogled-chromium
+# .debs into the offline desktop pool; no snapd.
+ungoogled-chromium
+ungoogled-chromium-sandbox
 mpv
 
 # --- archives + PDF + image (GTK, DE-agnostic) -----------------------------

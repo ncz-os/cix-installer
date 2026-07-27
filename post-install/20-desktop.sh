@@ -188,12 +188,33 @@ echo "[20] keyring: native singularity-keyring (org.freedesktop.secrets, D-Bus-a
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation 2>&1 | tail -3 || true
 
-# Video: mpv HW player (84-vpu-mpv wires hwdec=v4l2m2m-copy). Browser = Vivaldi
-# (52-vivaldi, real arm64 .deb) — resolute has no chromium deb (snap-only).
+# Video: mpv HW player (84-vpu-mpv wires hwdec=v4l2m2m-copy). Browsers =
+# Vivaldi (52-vivaldi, real arm64 .deb, default) plus XtraDeb's signed/pinned
+# arm64 ungoogled-chromium .debs folded into the offline desktop mirror. Ubuntu
+# Resolute's chromium-browser package remains snap-only; NCZ-OS does not ship
+# snapd.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     mpv 2>&1 | tail -3 || echo "[20] mpv: deferred"
 
-echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv)"
+if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ungoogled-chromium ungoogled-chromium-sandbox; then
+    ncz_ports_fallback
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ungoogled-chromium ungoogled-chromium-sandbox; then
+        echo "[20] FATAL: ungoogled-chromium is not installable; rebuild desktop-mirror with the pinned XtraDeb Resolute arm64 packages" >&2
+        exit 1
+    fi
+fi
+install -d /etc/ungoogled-chromium.d
+cat > /etc/ungoogled-chromium.d/ncz-wayland <<'CHROMEFLAGS'
+# NCZ-OS runs labwc/wlroots; prefer native Ozone/Wayland. With "auto",
+# Chromium can still fall back to XWayland if Wayland is unavailable.
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform-hint=auto"
+CHROMEFLAGS
+[ -x /usr/bin/ungoogled-chromium ] || { echo "[20] FATAL: /usr/bin/ungoogled-chromium missing after install" >&2; exit 1; }
+echo "[20] Chromium secondary browser installed: $(/usr/bin/ungoogled-chromium --version 2>/dev/null || echo ungoogled-chromium)"
+
+echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv + Chromium)"
 
 # ---------------------------------------------------------------------------
 # Diagnostics: real crash traceability for the Singularity desktop session.
@@ -588,11 +609,11 @@ else
 fi
 
 # Default browser routing — Vivaldi (52-vivaldi, real arm64 .deb) primary.
-# mimeapps + a runtime-resolving x-www-browser shim (chromium only if an
-# operator later sideloads it).
+# Chromium is installed as /usr/bin/ungoogled-chromium from the pinned
+# XtraDeb/desktop-mirror .debs and is a secondary real browser choice.
 cat > /usr/local/bin/x-www-browser <<'BRWRAP'
 #!/bin/sh
-for b in /usr/bin/vivaldi-stable /usr/bin/chromium /usr/bin/chromium-browser; do
+for b in /usr/bin/vivaldi-stable /usr/bin/ungoogled-chromium /usr/bin/chromium /usr/bin/chromium-browser; do
     [ -x "$b" ] && exec "$b" "$@"
 done
 exec xdg-open "$@"
@@ -607,7 +628,7 @@ x-scheme-handler/http=$_bd
 x-scheme-handler/https=$_bd
 application/xhtml+xml=$_bd
 MIME
-echo "[20] default browser: $_bd (Vivaldi via 52-vivaldi; resolute has no chromium deb)"
+echo "[20] default browser: $_bd (Vivaldi primary; ungoogled-chromium installed as secondary, snap-free)"
 
 # Appliance noise reduction — mask services that fail for no benefit here.
 for u in iscsid.service apport.service; do

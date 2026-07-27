@@ -20,7 +20,10 @@
 # Method (identical to build-server-mirror.sh): a self-contained apt root over
 # Ubuntu ports, arm64, simulate-install the desktop seed to compute the closure,
 # apt-get download the exact closure versions into the new pool, regenerate
-# indexes.
+# indexes. Chromium is the one exception: Ubuntu 26.04 ships Chromium as snap
+# only, so the browser seed uses XtraDeb's signed Resolute arm64
+# ungoogled-chromium .debs, pinned to one exact version and folded into this
+# offline mirror. No XtraDeb apt source is installed on the appliance.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,6 +38,11 @@ IDX="$SRC/dists/$SUITE/main/binary-$ARCH/Packages"
 # Source: Ubuntu ports (current, complete, authoritative). The desktop long
 # tail (gimp, catfish, synaptic, xfce goodies, ...) lives largely in universe.
 PORTS_URL="${PORTS_URL:-http://ports.ubuntu.com/ubuntu-ports}"
+XTRADEB_URL="${XTRADEB_URL:-https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu}"
+XTRADEB_KEY="$REPO/build/xtradeb-apt-keyring.asc"
+XTRADEB_KEY_FPR="5301FA4FD93244FBC6F6149982BB6851C64F6880"
+XTRADEB_CHROMIUM_VERSION="150.0.7871.181-1.1xtradeb1.2604.1"
+XTRADEB_CHROMIUM_PKGS="ungoogled-chromium ungoogled-chromium-common ungoogled-chromium-sandbox"
 
 [ -f "$SEEDFILE" ] || { echo "ERROR: $SEEDFILE missing"; exit 1; }
 
@@ -43,7 +51,7 @@ echo "   seed=$SEEDFILE"
 echo "   out=$OUT"
 
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/etc/apt/preferences.d" "$T/etc/apt/apt.conf.d" \
+mkdir -p "$T/etc/apt/preferences.d" "$T/etc/apt/apt.conf.d" "$T/etc/apt/keyrings" \
          "$T/var/lib/apt/lists/partial" "$T/var/lib/dpkg" \
          "$T/var/cache/apt/archives/partial"
 : > "$T/var/lib/dpkg/status"
@@ -53,6 +61,25 @@ cat > "$T/etc/apt/sources.list" <<EOF
 deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE main universe restricted multiverse
 deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE-updates main universe restricted multiverse
 EOF
+
+if grep -Eq '^[[:space:]]*ungoogled-chromium([[:space:]]|$)' "$SEEDFILE"; then
+    [ -f "$XTRADEB_KEY" ] || { echo "ERROR: $XTRADEB_KEY missing"; exit 1; }
+    cp "$XTRADEB_KEY" "$T/etc/apt/keyrings/xtradeb-apt-keyring.asc"
+    chmod 0644 "$T/etc/apt/keyrings/xtradeb-apt-keyring.asc"
+    cat >> "$T/etc/apt/sources.list" <<EOF
+deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/xtradeb-apt-keyring.asc] $XTRADEB_URL $SUITE main
+EOF
+    cat > "$T/etc/apt/preferences.d/xtradeb-chromium.pref" <<EOF
+Package: ungoogled-chromium ungoogled-chromium-common ungoogled-chromium-sandbox
+Pin: version $XTRADEB_CHROMIUM_VERSION
+Pin-Priority: 700
+
+Package: *
+Pin: release o=LP-PPA-xtradeb-apps
+Pin-Priority: 100
+EOF
+    echo "  source: XtraDeb apps ($XTRADEB_URL) — signed by $XTRADEB_KEY_FPR, Chromium pinned to $XTRADEB_CHROMIUM_VERSION"
+fi
 
 APTOPTS=(
   -o Dir="$T"
@@ -66,8 +93,19 @@ APTOPTS=(
   -o APT::Install-Recommends=0
 )
 
-echo "  apt-get update (ports)..."
+echo "  apt-get update (desktop package sources)..."
 apt-get "${APTOPTS[@]}" update >/dev/null 2>&1
+
+if grep -Eq '^[[:space:]]*ungoogled-chromium([[:space:]]|$)' "$SEEDFILE"; then
+    for p in $XTRADEB_CHROMIUM_PKGS; do
+        if ! apt-cache "${APTOPTS[@]}" policy "$p" | grep -q " $XTRADEB_CHROMIUM_VERSION"; then
+            echo "ERROR: $p version $XTRADEB_CHROMIUM_VERSION not visible from signed XtraDeb Resolute arm64 repo" >&2
+            echo "       update XTRADEB_CHROMIUM_VERSION only after verifying the new Packages SHA256 + Launchpad build" >&2
+            exit 1
+        fi
+    done
+    echo "  verified pinned XtraDeb Chromium package set: $XTRADEB_CHROMIUM_PKGS"
+fi
 
 # all package names apt can see
 ALL_NAMES="$T/all-names"
