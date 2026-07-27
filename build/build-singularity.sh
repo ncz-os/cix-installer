@@ -33,7 +33,7 @@ set -euo pipefail
 # ---- config ----------------------------------------------------------------
 IMAGE="${SINGULARITY_IMAGE:-ubuntu:26.04}"
 SRC_REPO="${SINGULARITY_REPO:-https://github.com/singularityos-lab/singularity-desktop}"
-SRC_REF="${SINGULARITY_REF:-main}"
+SRC_REF="${SINGULARITY_REF:-master}"
 VETRO_REPO="${VETRO_REPO:-https://github.com/singularityos-lab/vetro}"
 PREFIX="/opt/singularity"
 OUT="${OUT:-$(cd "$(dirname "$0")/.." && pwd)/build/sinty-out}"
@@ -67,9 +67,18 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 # Build deps (Debian 13 / Ubuntu 26.04 names — see docs/upstream/singularity/
 # 20-pr-arm64-build.md). No arch guards needed; the tree builds clean on aarch64.
+# amd64/PEGASUS port 2026-07-27: the original list here was never actually
+# exercised end to end (SRC_REF default was a nonexistent branch — see git
+# history) so it was incomplete. Full set below was derived by grepping every
+# dependency() pkgconfig name out of every meson.build in the singularity-
+# desktop tree (top project + all subprojects) and mapping each to its Ubuntu 26.04
+# -dev package, verified present in the resolute archive on amd64. This list
+# is arch-portable by construction (source package names, not blobs) and is
+# expected to also be correct for the arm64 build (superset of the old list).
 apt-get install -y --no-install-recommends \
     ca-certificates git golang-go \
     valac meson ninja-build pkg-config gettext \
+    build-essential \
     libgtk-4-dev libadwaita-1-dev libgtk4-layer-shell-dev \
     libwayland-dev wayland-protocols \
     libvte-2.91-gtk4-dev libgtksourceview-5-dev \
@@ -77,9 +86,16 @@ apt-get install -y --no-install-recommends \
     gstreamer1.0-plugins-good gstreamer1.0-pipewire \
     libpulse-dev libpolkit-gobject-1-dev libpolkit-agent-1-dev \
     libjson-glib-dev libpeas-2-dev libpipewire-0.3-dev \
-    libgee-0.8-dev libgtk-4-unix-print-dev libsoup-3.0-dev \
+    libgee-0.8-dev libsoup-3.0-dev \
     libdrm-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
-    build-essential
+    libgirepository-1.0-dev gobject-introspection \
+    libatspi2.0-dev libcmocka-dev libdbusmenu-glib-dev libfontconfig-dev \
+    libglib2.0-dev libgoa-1.0-dev libgudev-1.0-dev libinput-dev libnm-dev \
+    libpng-dev librsvg2-dev libsecret-1-dev libxml2-dev libpixman-1-dev \
+    libpoppler-glib-dev libsystemd-dev libtracker-sparql-3.0-dev \
+    libupower-glib-dev libwebkitgtk-6.0-dev libxcb1-dev libxcb-ewmh-dev \
+    libxcb-icccm4-dev libxkbcommon-dev \
+    sassc scdoc
 
 mkdir -p /work && cd /work
 
