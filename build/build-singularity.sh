@@ -95,7 +95,7 @@ apt-get install -y --no-install-recommends \
     libpoppler-glib-dev libsystemd-dev libtracker-sparql-3.0-dev \
     libupower-glib-dev libwebkitgtk-6.0-dev libxcb1-dev libxcb-ewmh-dev \
     libxcb-icccm4-dev libxkbcommon-dev \
-    libpam0g-dev libgcrypt20-dev libcrypt-dev \
+    libpam0g-dev libgcrypt20-dev libcrypt-dev libsodium-dev \
     sassc scdoc
 
 mkdir -p /work && cd /work
