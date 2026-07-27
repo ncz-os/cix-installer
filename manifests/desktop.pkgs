@@ -173,3 +173,80 @@ libjpeg-turbo8
 libva-glx2
 libwayland-bin
 libnice10
+libdrm-radeon1
+libdrm-nouveau2
+libdrm-freedreno1
+libdrm-tegra0
+libdrm-etnaviv1
+
+# --- r130.4 bucket: desktop apps 20-desktop installs that were missing from
+#     the offline pool (App Center, Flatpak/portal stack, browsers, tweaks) ---
+flatpak
+gnome-session-canberra
+xdg-desktop-portal-gtk
+epiphany-browser
+# r181: falkon dropped — it half-configures (iF) on Sky1/qemu (its postinst was
+# the desktop apt rc=100), and its stale .desktop launcher errored like the
+# mnemos one. Vivaldi (staged .deb, 52-vivaldi.sh) is the default browser now;
+# epiphany stays as a lightweight secondary.
+feh
+
+# --- r130.4 bucket: GPU/Vulkan validation + benchmark tools 47-llm-stack +
+#     16-mesa request (glmark2 is split on Ubuntu: -x11 / -es2-x11 variants;
+#     the bare glmark2 / glmark2-es2 names do not exist) ---
+vulkan-validationlayers
+clinfo
+glmark2-x11
+glmark2-es2-x11
+glmark2-es2-wayland
+glmark2-wayland
+glslc
+
+# --- r130.4 bucket: agents + system utilities (nodejs/npm for ncz agents,
+#     podman DNS, syslog, dialog UI, SVG rasteriser) ---
+nodejs
+npm
+whiptail
+rsyslog
+librsvg2-bin
+aardvark-dns
+
+# --- r181: full podman runtime so `ncz agent install` + `ncz install mnemos`
+#     (the MNEMOS desktop icon) work OFFLINE. All present in server/resolute
+#     mirrors (bound at build time), so this is a safe explicit pin — 30-agents.sh
+#     also apt-installs these, this just guarantees they land in the delta. ---
+podman
+crun
+conmon
+netavark
+catatonit
+
+# --- r164: IceWM — ultra-light alternate WM (selectable at LightDM greeter)
+icewm
+icewm-common
+
+# --- r178: telnetd fleet lockout-prevention (doctrine #9). Baked here so
+# future desktop.squashfs includes it; until then late.sh installs it offline.
+inetutils-telnetd
+openbsd-inetd
+
+# --- r189.4: 47-llm-stack.sh Vulkan/SPIR-V substrate (was never wired into
+#     MACHINE_HOOKS_RE, so this hook never ran and these packages were never
+#     in the offline-mirror closure either -- fixing both together). ---
+libvulkan-dev
+glslang-tools
+glslang-dev
+spirv-tools
+spirv-headers
+vulkan-tools
+vulkan-validationlayers
+clinfo
+glmark2-x11
+glmark2-es2-x11
+glmark2-wayland
+shotcut
+kdenlive
+handbrake
+ffmpeg
+audacity
+vlc

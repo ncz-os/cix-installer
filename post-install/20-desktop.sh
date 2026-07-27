@@ -624,3 +624,9 @@ for u in iscsid.service apport.service; do
 done
 
 echo "[20] Singularity Desktop installed: /opt/singularity + greetd/native singularity-greeter (Mali) + Wayland-only session"
+
+# --- 26.7 Maximilian: VPU/VAAPI media production apps (video edit + transcode + audio) ---
+echo "[20] installing media production apps (Shotcut/Kdenlive/HandBrake/Audacity + players)"
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    shotcut kdenlive handbrake ffmpeg audacity mpv vlc 2>&1 | tail -3 || \
+  echo "[20] WARN: media apps not all in offline mirror (needs mirror population)"

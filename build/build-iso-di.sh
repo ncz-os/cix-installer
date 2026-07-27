@@ -1418,9 +1418,9 @@ brand_udeb_templates() {
     # Case-sensitive phrase replacements (Description text only). Order matters:
     # longer phrases first so they aren't partially eaten by shorter ones.
     sed -i \
-        -e 's/Debian installer main menu/NCZ-OS «Maximilian» installer main menu/g' \
-        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS «Maximilian» installer menu/g' \
-        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS «Maximilian» installer main menu/g' \
+        -e 's/Debian installer main menu/NCZ-OS installer main menu/g' \
+        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS installer menu/g' \
+        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS installer main menu/g' \
         -e 's/Debian GNU\/Linux/NCZ-OS/g' \
         -e 's/the Debian installer/the NCZ-OS installer/g' \
         -e 's/Debian installer/NCZ-OS installer/g' \
@@ -1551,16 +1551,16 @@ fi
 printf 'dvd\n' > "$STAGING/.disk/cd_type"
 case "$MODE" in
     netinstall)
-        printf 'nclawzero cixmini resolute - Netinstall arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'NCZ-OS cixmini resolute - Netinstall arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
     netinstall-bootstrap)
-        printf 'nclawzero cixmini resolute - Netinstall Bootstrap arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'NCZ-OS cixmini resolute - Netinstall Bootstrap arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
     thin)
-        printf 'nclawzero cixmini resolute - Thin arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'NCZ-OS cixmini resolute - Thin arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
     *)
-        printf 'nclawzero cixmini resolute - Offline arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf 'NCZ-OS cixmini resolute - Offline arm64 Binary 1\n' > "$STAGING/.disk/info"
         ;;
 esac
 # .disk/udeb_include: tells d-i to use our network-console udeb etc.
@@ -1777,9 +1777,9 @@ for _tpl in main-menu di-utils cdrom-detect cdrom-checker anna; do
     mkdir -p "$INITRD_PATCH_TMP/overlay/var/lib/dpkg/info"
     _dst="$INITRD_PATCH_TMP/overlay/var/lib/dpkg/info/$_tpl.templates"
     sed \
-        -e 's/Debian installer main menu/NCZ-OS «Maximilian» installer main menu/g' \
-        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS «Maximilian» installer menu/g' \
-        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS «Maximilian» installer main menu/g' \
+        -e 's/Debian installer main menu/NCZ-OS installer main menu/g' \
+        -e 's/Debian GNU\/Linux Installer menu/NCZ-OS installer menu/g' \
+        -e 's/Debian GNU\/Linux installer main menu/NCZ-OS installer main menu/g' \
         -e 's/the Debian installer/the NCZ-OS installer/g' \
         -e 's/Debian installer/NCZ-OS installer/g' \
         -e 's/Debian GNU\/Linux/NCZ-OS/g' \

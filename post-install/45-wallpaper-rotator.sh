@@ -1,10 +1,10 @@
 #!/bin/bash
-# 45-wallpaper-rotator.sh - install 6 NCZ wallpapers + auto-rotate
+# 45-wallpaper-rotator.sh - install 7 NCZ wallpapers + auto-rotate
 # every 10 minutes. r55: instant apply on login (was 30s) + xrandr-driven monitor
 # discovery so wallpaper sticks across xfconf monitor-name shifts.
 set -euo pipefail
 
-echo "[45] installing 6 NCZ wallpapers + 10-minute autoswitcher"
+echo "[45] installing 7 NCZ wallpapers + 10-minute autoswitcher"
 
 VARIANT=desktop
 if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
