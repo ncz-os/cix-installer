@@ -11,8 +11,8 @@ if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
     VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
 fi
 case "$VARIANT" in
-    server|magnetar|headless)
-        echo "[45] BUILD_VARIANT=server - Magnetar headless SKU; skipping wallpaper rotator"
+    server|headless)
+        echo "[45] BUILD_VARIANT=server - Server headless SKU; skipping wallpaper rotator"
         exit 0
         ;;
 esac

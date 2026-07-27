@@ -1,9 +1,9 @@
 #!/bin/bash
-# build-mgmt-rootfs.sh - build the Magnetar nspawn recovery/management rootfs.
+# build-mgmt-rootfs.sh - build the Server nspawn recovery/management rootfs.
 #
 # Produces assets/mgmt/ncz-mgmt-rootfs.tar.zst: a minimal Ubuntu (resolute)
 # arm64 rootfs that boots under systemd-nspawn (Boot=yes) with its OWN complete
-# userland (glibc/NSS/PAM/openssh). This is the MIDDLE recovery tier on Magnetar
+# userland (glibc/NSS/PAM/openssh). This is the MIDDLE recovery tier on Server
 # edge boxes, between the day-to-day host sshd:22 and the crash-proof static
 # busybox telnet :2323 (post-install/37-failsafe-access.sh):
 #
@@ -131,7 +131,7 @@ ln -sf /run/systemd/resolve/stub-resolv.conf "$CHROOT/etc/resolv.conf" 2>/dev/nu
 # --- sshd: ssh + SFTP, key-first with password break-glass (LAN-only) ---
 mkdir -p "$CHROOT/etc/ssh/sshd_config.d"
 cat > "$CHROOT/etc/ssh/sshd_config.d/99-recovery.conf" <<'EOF'
-# NCZ Magnetar recovery container - LAN-only break-glass. Primary access is
+# NCZ Server recovery container - LAN-only break-glass. Primary access is
 # fleet key-based (authorized_keys injected by post-install/38); password is a
 # fallback. The SFTP subsystem is what this tier adds over the :2323 telnet
 # failsafe.
@@ -186,7 +186,7 @@ chmod 0755 "$CHROOT/usr/local/sbin/ncz-host-chroot"
 # MOTD
 cat > "$CHROOT/etc/motd" <<EOF
 
-  NCZ-OS MAGNETAR RECOVERY CONTAINER (systemd-nspawn)
+  NCZ-OS MAXIMILIAN SERVER RECOVERY CONTAINER (systemd-nspawn)
   ---------------------------------------------------
   This is the middle recovery tier. It has its OWN userland, so it stays
   reachable even if the host /usr/lib is wedged. The host root is bound

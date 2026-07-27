@@ -189,7 +189,7 @@ build_layer(){ local role="$1" manifest="$2"
     fi
     # r189.6: stage assets/mgmt/ncz-mgmt-rootfs.tar.zst so 38-recovery-container.sh
     # can extract the ncz-recovery nspawn container. Per its own r138 comment
-    # this hook runs on ALL variants (not just Magnetar/server) since the
+    # this hook runs on ALL variants (not just Server) since the
     # 2026-06-25 desktop-host lockout showed the failure mode is variant-
     # agnostic; the asset was never staged so the hook always hard-failed.
     if [ -f "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" ]; then

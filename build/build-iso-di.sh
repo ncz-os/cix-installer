@@ -20,7 +20,7 @@ BOOKWORM_ISO=""
 ROOT=""
 VERSION=""
 OUTPUT=""
-VARIANT="desktop"   # r75 M1: 'desktop' (Maximilian SKU) | 'server' (Magnetar SKU)
+VARIANT="desktop"   # r75 M1: 'desktop' | 'server' — both ship as "Maximilian", this just qualifies which
 MODE="full"         # r78: full | thin | netinstall | netinstall-bootstrap
 
 usage() {
@@ -520,7 +520,7 @@ rm -rf "$STAGING/pool" "$STAGING/dists" "$STAGING/doc" "$STAGING/firmware" 2>/de
 # Step 3: embed our offline mirror or bootstrap pool.
 # NCZ policy: embed the SERVER-only mirror (build/server-mirror, Ubuntu-Server
 # closure + boot essentials, ~143MB / 365 debs, single 'main' component) as the
-# pool base, so server/Magnetar installs fully offline. Updated (r130, 26.7):
+# pool base, so a Server install goes fully offline. Updated (r130, 26.7):
 # desktop/Maximilian is ALSO fully offline now -- the desktop-mirror pool
 # (build-desktop-mirror.sh, Singularity Desktop closure) is merged in below,
 # not left to pull from ports.ubuntu.com at install time (see
@@ -1943,9 +1943,9 @@ if [ -d "$ROOT/assets" ]; then
                 fi
                 ;;
             mgmt)
-                # Magnetar nspawn recovery/management container rootfs.
+                # Server variant nspawn recovery/management container rootfs.
                 # Lands at /usr/local/lib/cix-installer/assets/mgmt/ on the
-                # target; consumed (server/magnetar only) by
+                # target; consumed (server variant only) by
                 # post-install/38-recovery-container.sh.
                 cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true
                 if [ -f "$EXTRA/assets/mgmt/ncz-mgmt-rootfs.tar.zst" ]; then
@@ -2110,7 +2110,7 @@ echo "$VERSION"     > "$EXTRA/BUILD_VERSION"
 echo "$BUILD_DATE"  > "$EXTRA/BUILD_DATE"
 echo "$BUILD_HOST"  > "$EXTRA/BUILD_HOST"
 echo "$MODE"        > "$EXTRA/BUILD_MODE"
-echo "$VARIANT"     > "$EXTRA/BUILD_VARIANT"   # r75 M1: read by 48-magnetar-variant.sh
+echo "$VARIANT"     > "$EXTRA/BUILD_VARIANT"   # r75 M1: read by 48-server-variant.sh
 # r40 full mode: stage the pre-built rootfs tarball so the debootstrap stub
 # can populate /target without a real bootstrap.
 if [ "$STAGE_ROOTFS" = "1" ]; then
@@ -2201,7 +2201,7 @@ if [ "$MODE" = "netinstall" ]; then
     GRUB_SERVER_TITLE="Install NCZ-OS $VERSION — Server (Headless, wired link required)"
 fi
 
-# r189.7: only offer the Magnetar/server GRUB entry if server.squashfs was
+# r189.7: only offer the Server GRUB entry if server.squashfs was
 # actually built -- it never has been yet (manifests/server.pkgs didn't
 # exist until 2026-07-05), so this menu entry was previously always shown
 # and would silently degrade to a base-only install
@@ -2218,14 +2218,14 @@ if [ -f "$ROOT/assets/squashfs/server.squashfs" ]; then
 menuentry \"$GRUB_SERVER_TITLE\" {
     set background_color=black
     set color_normal=light-green/black
-    echo \">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Magnetar / server)...\"
+    echo \">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (server)...\"
     linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=server ncz_rev=$VERSION $MARTJOHNSON_R6
     echo \">> Loading initrd (modules + preseed + zstd)...\"
     initrd /install.a64/initrd.gz
 }
 "
 else
-  echo "WARN: assets/squashfs/server.squashfs not built -- omitting Magnetar/server GRUB entry (run build-squashfs-layers.sh server first)" >&2
+  echo "WARN: assets/squashfs/server.squashfs not built -- omitting Server GRUB entry (run build-squashfs-layers.sh server first)" >&2
 fi
 cat > "$GRUB_CFG" <<GRUB
 # ncz-installer (cixmini "$CODENAME" / $VERSION)

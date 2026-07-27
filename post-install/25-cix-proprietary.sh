@@ -33,13 +33,13 @@ fi
 # every Cix userland deb installs against the server-only mirror EXCEPT
 # cix-gstreamer, which needs desktop multimedia/graphics libs (libasound2,
 # libcairo2, libdrm-amdgpu1/etnaviv1) that only exist in Ubuntu's desktop set.
-# On Magnetar (headless/server) those libs aren't present and aren't carried
-# offline, so skip cix-gstreamer there; it ships on Reinhardt (desktop) where
+# On Server (headless) those libs aren't present and aren't carried
+# offline, so skip cix-gstreamer there; it ships on Desktop where
 # 20-desktop pulls its libs online from ports.
 IS_SERVER=0
 if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
     case "$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)" in
-        server|magnetar|headless) IS_SERVER=1 ;;
+        server|headless) IS_SERVER=1 ;;
     esac
 fi
 
@@ -104,7 +104,7 @@ for deb in ./*.deb; do
         # cix-vpu-test). Pure dead weight on the installed system. (2026-06-25)
         cix-unit-test_*.deb|cix-ltp_*.deb|cix-gpu-test_*.deb|cix-vpu-test_*.deb) continue ;;
     esac
-    # Magnetar/server: skip desktop-class Cix userland (needs desktop libs).
+    # Server: skip desktop-class Cix userland (needs desktop libs).
     if [ "$IS_SERVER" = 1 ]; then
         case "$deb" in
             cix-gstreamer_*.deb)

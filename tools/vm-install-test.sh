@@ -1,5 +1,5 @@
 #!/bin/bash
-# Unattended r104 install into a KVM VM (server/Magnetar variant).
+# Unattended r104 install into a KVM VM (server variant).
 # NVMe-emulated disk so guest sees /dev/nvme0n1 (matches preseed hardcode).
 # SCSI cdrom -> /dev/sr0 for d-i cdrom-detect.
 VARIANT="${1:-server}"

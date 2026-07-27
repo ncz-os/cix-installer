@@ -5,8 +5,8 @@
 # loghost to .22, I want all possible telemetry for debug."
 #
 # This hook makes a freshly-installed cixmini observable + recoverable
-# from day zero, on BOTH the Reinhardt (desktop) and Magnetar (server)
-# SKUs — telemetry is variant-agnostic, so there is no variant gate.
+# from day zero, on BOTH the Desktop and Server SKUs — telemetry is
+# variant-agnostic, so there is no variant gate.
 #
 # It sets up four things:
 #   1. telnetd on TCP 23 (CLAUDE.md directive 9 — LAN-only lockout

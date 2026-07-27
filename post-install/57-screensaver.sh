@@ -43,7 +43,7 @@ if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
     VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
 fi
 case "$VARIANT" in
-    server|magnetar|headless)
+    server|headless)
         echo "[57] BUILD_VARIANT=$VARIANT — headless SKU; skipping screensaver"
         exit 0
         ;;

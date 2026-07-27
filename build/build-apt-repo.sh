@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# This script builds the offline APT repository for NCZ Magnetar 26.6
+# This script builds the offline APT repository for NCZ Server 26.6
 # It bundles the CIX NPU runtime, MNEMOS integration, and MediaTek firmware
 
 # Resolve to absolute paths so the script is correct whether invoked from the

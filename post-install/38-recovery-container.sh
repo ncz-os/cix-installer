@@ -1,8 +1,8 @@
 #!/bin/bash
-# 38-recovery-container.sh - Magnetar nspawn recovery/management container.
+# 38-recovery-container.sh - Server nspawn recovery/management container.
 #
 # Installs a systemd-nspawn container ("ncz-recovery") that is the MIDDLE
-# recovery tier on the Magnetar edge SKU, between the day-to-day host sshd:22
+# recovery tier on the Server edge SKU, between the day-to-day host sshd:22
 # (35-ssh.sh) and the crash-proof static busybox telnet :2323
 # (37-failsafe-access.sh):
 #
@@ -15,8 +15,8 @@
 #     READ-WRITE bind of the host root at /host so an operator can repair the
 #     host in place (helpers: ncz-fixlib, ncz-host-chroot inside the container).
 #
-# INSTALLED ON ALL VARIANTS (r138): desktop (Reinhardt) AND server/magnetar/
-# headless. It was originally magnetar-only, but on 2026-06-25 a clobbered
+# INSTALLED ON ALL VARIANTS (r138): desktop AND server/headless.
+# It was originally server-only, but on 2026-06-25 a clobbered
 # usr-merge /lib (a stray `tar -C /` of a modules tarball) wedged a DESKTOP host's
 # sshd, and this container -- with its own userland and RW /host -- was the only
 # way back in (`ncz-fixlib /host` restored the /lib symlink). That failure mode
@@ -54,7 +54,7 @@ zstd -dc "$ROOTFS_TARBALL" | tar --numeric-owner -xpf - -C "$MACHINE_ROOT"
 # host's real uplink NIC at boot (the name varies per box, e.g. enp1s0).
 install -d -m 0755 /etc/systemd/nspawn
 cat > /etc/systemd/nspawn/$MACHINE.nspawn <<'EOF'
-# NCZ Magnetar recovery/management container.
+# NCZ Server recovery/management container.
 # MACVLAN= is rewritten at boot by ncz-recovery-netparent.service to the host's
 # real uplink NIC. Bind=/:/host gives the container READ-WRITE access to the
 # host root for in-place repair (LAN-only doctrine; key-gated + password).

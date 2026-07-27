@@ -2,7 +2,7 @@
 # 47-embedkit.sh — install mnemos-embedkit + stage NPU runtime + ship
 # the canonical bench artifacts so MNEMOS embedding works out of the box.
 #
-# This is the kit's appliance install path. The NCZ Magnetar / Reinhardt
+# This is the kit's appliance install path. The NCZ Maximilian
 # ISO is the EXEMPLAR way to run MNEMOS (per operator doctrine 2026-05-07);
 # baking embedkit into the ISO means an `ncz install mnemos` post-flash
 # delivers a working MNEMOS appliance with the NPU adapter live by the

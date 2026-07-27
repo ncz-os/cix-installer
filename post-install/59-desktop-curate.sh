@@ -32,7 +32,7 @@ if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
     VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
 fi
 case "$VARIANT" in
-    server|magnetar|headless)
+    server|headless)
         echo "[59] BUILD_VARIANT=$VARIANT — headless SKU; skipping launcher curation"
         exit 0
         ;;

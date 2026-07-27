@@ -91,8 +91,8 @@ Subcommands:
   version               Print version.
   help                  Show this help.
 
-For server-class deploys (Magnetar SKU), 'ncz desktop off' is the
-canonical post-install step. Reinhardt SKU ships graphical-by-default.
+For server-class deploys (Server SKU), 'ncz desktop off' is the
+canonical post-install step. Desktop SKU ships graphical-by-default.
 HELP
 }
 
@@ -135,7 +135,7 @@ ncz_desktop_on() {
     echo "[ncz] desktop ON"
     systemctl set-default graphical.target
     if dm=$(ncz_dm_unit); then
-        # r75 Codex MED fix: 48-magnetar-variant.sh masks DM units in the
+        # r75 Codex MED fix: 48-server-variant.sh masks DM units in the
         # server variant. systemctl enable fails under set -e on a masked
         # unit, so always unmask first. Unmask is a no-op on unmasked
         # units, so this is safe in the desktop-already-active case too.

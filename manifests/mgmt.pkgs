@@ -1,4 +1,4 @@
-# mgmt.pkgs — package set for the Magnetar nspawn recovery/management container
+# mgmt.pkgs — package set for the Server nspawn recovery/management container
 # (assets/mgmt/ncz-mgmt-rootfs.tar.zst, built by build/build-mgmt-rootfs.sh).
 #
 # Goal: a minimal, self-contained userland that boots under systemd-nspawn with

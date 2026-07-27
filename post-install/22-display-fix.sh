@@ -13,8 +13,8 @@ if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
     VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
 fi
 case "$VARIANT" in
-    server|magnetar|headless)
-        echo "[22] BUILD_VARIANT=server - Magnetar headless SKU; skipping Xorg display detector"
+    server|headless)
+        echo "[22] BUILD_VARIANT=server - Server headless SKU; skipping Xorg display detector"
         exit 0
         ;;
 esac

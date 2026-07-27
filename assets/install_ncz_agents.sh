@@ -1,5 +1,5 @@
 #!/bin/bash
-# NCZ agents — install / manage launcher (Reinhardt desktop)
+# NCZ agents — install / manage launcher (Desktop variant)
 #
 # This is the "Install AI Agents" desktop icon. The NCZ distro ships
 # AGENT-ENABLED but with the agents OPT-IN: nothing AI is turned on until
@@ -8,7 +8,7 @@
 #
 #   1. ZeroClaw   — autonomous coding agent gateway (official upstream
 #                   quadlet ghcr.io/zeroclaw-labs/zeroclaw). Ships active by
-#                   default on Reinhardt; this tool toggles install<->remove.
+#                   default on Desktop; this tool toggles install<->remove.
 #   2. MNEMOS     — persistent memory substrate (REST + MCP + OpenAI-compatible
 #                   gateway on :5002, sqlite-backed). Pulled on demand via
 #                   `ncz install mnemos`.
@@ -97,7 +97,7 @@ zc_menu(){
   zc_status
   if zc_is_installed || zc_is_active; then
     say
-    say "ZeroClaw is already present (it ships active by default on Reinhardt)."
+    say "ZeroClaw is already present (it ships active by default on Desktop)."
     read -r -p "Action — [r]emove, [u]pdate (re-pull+restart), [b]ack: " a
     case "${a:-b}" in
       r|R) zc_remove ;;

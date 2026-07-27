@@ -746,8 +746,6 @@ chmod 0644 /etc/skel/.config/autostart/ncz-first-login.desktop
 cat > /etc/skel/Desktop/NCZ-Help.md << 'HELP'
 # NCZ 26.7 "Maximilian" — Quick Reference
 
-> Dr. Reinhardt has gone into the Black Hole.
-
 ## First-time setup (5 minutes)
 
 The base image ships with **Claude Code**. Every agent — including
@@ -973,8 +971,8 @@ TLS handshake succeeds.
 
 NCZ 26.7 "Maximilian"  ·  Cix Sky1 / CP8180  ·  *Workloads. Not wallpapers.*
 
-Codenames track destructive cosmic phenomena: Reinhardt (black hole),
-future revs Magnetar, Supernova, Vacuum-Decay.
+"Maximilian" is the release name. Variants are Desktop and Server —
+no per-revision codenames.
 HELP
 chmod 0644 /etc/skel/Desktop/NCZ-Help.md
 

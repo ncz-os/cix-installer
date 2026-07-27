@@ -271,7 +271,7 @@ EOF
 # --- Step 5: drop NPU-STATUS.md ---
 mkdir -p /usr/share/doc/ncz
 cat > /usr/share/doc/ncz/NPU-STATUS.md << 'EOF'
-# NCZ 26.6 "Reinhardt" — Cix Sky1 / Zhouyi v3 NPU
+# NCZ 26.7 "Maximilian" — Cix Sky1 / Zhouyi v3 NPU
 
 ## What works
 

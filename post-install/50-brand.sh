@@ -1,5 +1,13 @@
 #!/bin/bash
-# 50-brand.sh — NCZ 26.7 "Maximilian" / "Magnetar" identity
+# 50-brand.sh — NCZ 26.7 "Maximilian" identity.
+#
+# "Maximilian" is the RELEASE codename (26.7) — it applies to BOTH variants,
+# not just desktop. The variant qualifier is just "Desktop" or "Server"
+# (operator directive 2026-07-27: retired the old "Reinhardt"=desktop /
+# "Magnetar"=server per-variant codename scheme — those competed with the
+# release name instead of qualifying it, and confused which name was "the"
+# product name).
+#
 # Note: NO `set -e` because pipefail + `find /missing/path | head -1` causes early exit.
 # Each step is best-effort; any failure logs and continues.
 set +e
@@ -21,20 +29,25 @@ if [ -f "$VARIANT_FILE" ]; then
     VARIANT=$(tr -d ' \t\r\n' < "$VARIANT_FILE")
 fi
 
+# Release codename is ALWAYS "Maximilian" — the variant is a qualifier, not
+# a competing name. VERSION_CODENAME stays "maximilian" for both so anything
+# that keys off it (update channels, the motd banner below) doesn't need to
+# know about variants at all.
 SKU_NAME="Maximilian"
 SKU_LOWER="maximilian"
+VARIANT_LABEL="Desktop"
 if [ "$VARIANT" = "server" ]; then
-    SKU_NAME="Magnetar"
-    SKU_LOWER="magnetar"
+    VARIANT_LABEL="Server"
 fi
 
 cat > /etc/os-release <<EOF_OS
-PRETTY_NAME="${SKU_NAME} 26.7 (based on Ubuntu 26.04 Resolute Raccoon)"
+PRETTY_NAME="${SKU_NAME} 26.7 ${VARIANT_LABEL} (based on Ubuntu 26.04 Resolute Raccoon)"
 NAME="NCZ"
 VERSION_ID="26.04"
 BUILD_ID="${BUILD_ID_VALUE}"
-VERSION="26.7 (${SKU_NAME}; based on Ubuntu 26.04 Resolute Raccoon)"
+VERSION="26.7 (${SKU_NAME} ${VARIANT_LABEL}; based on Ubuntu 26.04 Resolute Raccoon)"
 VERSION_CODENAME=${SKU_LOWER}
+NCZ_VARIANT=${VARIANT}
 ID=ncz
 ID_LIKE=ubuntu
 HOME_URL="https://gitlab.com/nclawzero"
@@ -50,26 +63,27 @@ cat > /etc/lsb-release <<EOF_LSB
 DISTRIB_ID=NCZ
 DISTRIB_RELEASE=26.7
 DISTRIB_CODENAME=${SKU_LOWER}
-DISTRIB_DESCRIPTION="${SKU_NAME} 26.7 (based on Ubuntu 26.04 Resolute Raccoon)"
+DISTRIB_DESCRIPTION="${SKU_NAME} 26.7 ${VARIANT_LABEL} (based on Ubuntu 26.04 Resolute Raccoon)"
 EOF_LSB
 
 cat > /etc/issue <<EOF_ISSUE
-NCZ-OS 26.7 ${SKU_NAME}  ·  Cix Sky1 / CP8180  (Kernel: \r)
+NCZ-OS 26.7 ${SKU_NAME} ${VARIANT_LABEL}  ·  Cix Sky1 / CP8180  (Kernel: \r)
 
 EOF_ISSUE
 
 cat > /etc/issue.net <<EOF_ISSUENET
-NCZ-OS 26.7 ${SKU_NAME}  (Cix Sky1 / CP8180)
+NCZ-OS 26.7 ${SKU_NAME} ${VARIANT_LABEL}  (Cix Sky1 / CP8180)
 
 EOF_ISSUENET
 
 # Login banner is generated DYNAMICALLY at login (not baked into /etc/motd) so
 # the Kernel line always shows the RUNNING kernel (uname -r), never a stale
-# hard-coded version. SKU is read live from os-release too. The box uses a
-# width-aware row() (wc -m counts display chars, not bytes) so every right-edge
-# │ aligns regardless of SKU length (Maximilian=10 / Magnetar=8) or the
-# multi-byte ┌─│┐ / · / — / ✦ glyphs — the old static heredoc hard-coded
-# trailing spaces sized for "Reinhardt" (9) and skewed the title row.
+# hard-coded version. Release name + variant are read live from os-release
+# too. The box uses a width-aware row() (wc -m counts display chars, not
+# bytes) so every right-edge │ aligns regardless of "Maximilian Desktop" vs
+# "Maximilian Server" being different lengths, or the multi-byte ┌─│┐ / · /
+# — / ✦ glyphs — an old static heredoc with hard-coded trailing spaces
+# skewed the title row whenever the label length changed.
 : > /etc/motd
 rm -f /etc/update-motd.d/00-header
 cat > /etc/update-motd.d/00-ncz-banner <<'BANNER'
@@ -77,8 +91,8 @@ cat > /etc/update-motd.d/00-ncz-banner <<'BANNER'
 # Force UTF-8 so `wc -m` counts display characters (not bytes) regardless of the
 # login shell's locale — otherwise the box right-edge skews under a C/POSIX locale.
 export LC_ALL=C.UTF-8
-SKU=$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME^}")
-[ -z "$SKU" ] && SKU="Maximilian"
+SKU=$(. /etc/os-release 2>/dev/null; v="${VERSION_CODENAME^}"; [ "${NCZ_VARIANT:-}" = server ] && v="$v Server" || v="$v Desktop"; echo "$v")
+[ -z "$SKU" ] && SKU="Maximilian Desktop"
 W=58
 bar(){ printf '   %s' "$1"; printf '─%.0s' $(seq 1 $W); printf '%s\n' "$2"; }
 row(){ local c="$1" w; w=$(printf '%s' "$c" | wc -m); printf '   │%s%*s│\n' "$c" $((W - w)) ""; }

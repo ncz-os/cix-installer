@@ -28,8 +28,8 @@ if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
     VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
 fi
 case "$VARIANT" in
-    server|magnetar|headless)
-        echo "[20] BUILD_VARIANT=$VARIANT — Magnetar headless SKU; skipping desktop install"
+    server|headless)
+        echo "[20] BUILD_VARIANT=$VARIANT — Server headless SKU; skipping desktop install"
         exit 0
         ;;
 esac

@@ -166,9 +166,9 @@ for f in BUILD_VERSION BUILD_DATE BUILD_HOST KVER_LTS KVER_NEXT; do
 done
 
 # r77: capture install-time variant choice from kernel cmdline.
-# When the unified ISO offers a GRUB chooser between Desktop (Reinhardt)
-# and Server (Magnetar), the operator's pick lands as ncz_variant=
-# desktop|server on the kernel cmdline. 48-magnetar-variant.sh reads
+# When the unified ISO offers a GRUB chooser between Desktop
+# and Server, the operator's pick lands as ncz_variant=
+# desktop|server on the kernel cmdline. 48-server-variant.sh reads
 # the BUILD_VARIANT sidecar at first boot and applies the headless
 # toggle when value is "server".
 #

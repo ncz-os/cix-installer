@@ -1,4 +1,4 @@
-# server.pkgs — Magnetar (server/headless) squashfs delta seed (arm64).
+# server.pkgs — Server (headless) squashfs delta seed (arm64).
 #
 # Seed for build/build-squashfs-layers.sh's `server` stage: the explicit set
 # of packages layered on top of base.squashfs to produce server.squashfs,
@@ -11,7 +11,7 @@
 # package set). This file didn't exist before, so build_layer server never
 # had a manifest to build against.
 #
-# This list MUST be a superset of everything post-install/48-magnetar-variant.sh,
+# This list MUST be a superset of everything post-install/48-server-variant.sh,
 # 38-recovery-container.sh, and the base agent-stack expect on a headless box.
 
 # --- remote access / admin ---
@@ -62,7 +62,7 @@ squashfs-tools
 pciutils
 usbutils
 
-# --- agent appliance (Magnetar) runtime ---
+# --- agent appliance (Server) runtime ---
 podman
 catatonit
 crun

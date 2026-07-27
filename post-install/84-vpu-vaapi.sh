@@ -58,7 +58,7 @@ VARIANT=desktop
 [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ] && \
     VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
 case "$VARIANT" in
-    server|magnetar|headless)
+    server|headless)
         echo "[84] BUILD_VARIANT=$VARIANT — headless SKU; skipping VA-API fix (no browser/display)"
         exit 0
         ;;

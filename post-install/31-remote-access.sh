@@ -17,7 +17,7 @@ if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
 fi
 
 case "$VARIANT" in
-    server|magnetar|headless)
+    server|headless)
         echo "[31] BUILD_VARIANT=$VARIANT — headless SKU; skipping graphical remote access"
         exit 0
         ;;

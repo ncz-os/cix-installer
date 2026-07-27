@@ -88,7 +88,7 @@ NCZ_BAKED=0
 #                        restoring native Panfrost OpenGL 3.1 (verified .66 metal
 #                        2026-07-04). WITHOUT this, baked installs shipped zink-2.1
 #                        and GL screensavers/apps mis-rendered. Runs right after 25.
-MACHINE_HOOKS_RE="^(24-apt-sources|25-cix-proprietary|26-gpu-default-mali|30-agents|31-remote-access|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|40-claude-code|41-usb2-rescan|46-python311|47-embedkit|47-llm-stack|48-magnetar-variant|52-vivaldi|53-chrome|58-boot-hygiene|72-rescue-partition|80-npu|81-vpu|82-mali-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode)\.sh$"
+MACHINE_HOOKS_RE="^(24-apt-sources|25-cix-proprietary|26-gpu-default-mali|30-agents|31-remote-access|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|40-claude-code|41-usb2-rescan|46-python311|47-embedkit|47-llm-stack|48-server-variant|52-vivaldi|53-chrome|58-boot-hygiene|72-rescue-partition|80-npu|81-vpu|82-mali-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)

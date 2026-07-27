@@ -17,7 +17,7 @@ LOGDIR="$WORK/logs"
 
 # Hooks to BAKE at build time (generic: drivers, desktop, agents, branding,
 # apt-config). Machine-specific hooks stay at install: 09-diag-account (user),
-# 33-network, 34-fstab (disk UUIDs), 37-failsafe, 38-recovery, 48-magnetar,
+# 33-network, 34-fstab (disk UUIDs), 37-failsafe, 38-recovery, 48-server-variant,
 # 70-bootloader (ESP), 72-rescue-partition, 99-diagnostics, hostname/user-setup.
 BAKE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 \
 20-desktop 22-display-fix 25-cix-proprietary 26-gpu-default-open 30-agents \
