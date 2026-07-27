@@ -28,6 +28,17 @@
 # before real Chrome existed for arm64 — dropped 2026-07-27, superseded.)
 set -euo pipefail
 
+# LC_ALL=C: several steps below sort package-name lists with `sort -u` in
+# separate invocations and then diff them with `comm`, which requires BOTH
+# inputs sorted under the SAME collation order -- under the build host's
+# default locale, two independent `sort -u` calls can disagree on ordering
+# (case/locale-sensitive collation) even though each individually looks
+# "sorted", and `comm` then fails with "not in sorted order" (found live
+# 2026-07-27 running this end-to-end on cixmini for the first time). Force
+# the plain byte-order C locale everywhere in this script so every sort/comm
+# pair is guaranteed consistent.
+export LC_ALL=C
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$REPO/build/resolute-mirror"
 OUT="$REPO/build/desktop-mirror"
