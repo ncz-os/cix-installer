@@ -112,29 +112,39 @@ else
 fi
 SCRIPT
 
-# Wire into greetd's PAM session stack (fires on real login/logout, independent
-# of systemd graphical-session.target wiring). Idempotent — skip if already present.
+# PAM session hook REMOVED 2026-07-27 (was added, then found actively
+# harmful). Original idea: wire into greetd's PAM session stack so real
+# login/logout toggles performance mode independent of systemd. Problem
+# found live on O6N: greetd.service's OWN systemd ExecStartPre/ExecStopPost
+# pair (below) is meant to hold performance mode "on" for the whole
+# greetd runtime — greeter screen included, from service start to service
+# stop. But PAM's close_session fires "off" on every user LOGOUT, even
+# though greetd itself keeps running (same instance, back at the greeter)
+# — so logging out silently undid the systemd-level pin and left the
+# greeter laggy again on every return to it, which is the exact bug this
+# whole script exists to fix. Confirmed via live sysfs read right after a
+# real logout: cpuidle disable=0, governor=schedutil, genpd=auto — all
+# back to "off" while greetd was still up. The two hooks have different
+# lifecycles (per-user-session vs whole-service) and can't safely coexist
+# with a shared on/off toggle. The systemd drop-in alone is correct and
+# sufficient — it already covers the greeter (this was the reason it was
+# added in the first place, see git history) and the real session for
+# greetd's entire runtime, with no premature "off". Also clean up the PAM
+# lines from any prior install (self-healing, idempotent).
 PAM_GREETD=/etc/pam.d/greetd
-if [ -f "$PAM_GREETD" ] && ! grep -q ncz-performance-mode "$PAM_GREETD"; then
-  cat >> "$PAM_GREETD" <<'PAM'
-session      optional        pam_exec.so type=open_session  /usr/local/bin/ncz-performance-mode on
-session      optional        pam_exec.so type=close_session /usr/local/bin/ncz-performance-mode off
-PAM
+if [ -f "$PAM_GREETD" ] && grep -q ncz-performance-mode "$PAM_GREETD"; then
+  sed -i '/ncz-performance-mode/d' "$PAM_GREETD"
 fi
 
-# ALSO wire into greetd.service directly (systemd drop-in), not just PAM.
-# Real gap found 2026-07-27, confirmed live on O6N via sysfs (cpuidle
-# disable=0, genpd=auto) + user report: the PAM hook above only fires for
-# the REAL user's login session — it does NOT cover greetd's own greeter
-# session (the pre-authentication password-entry screen), which runs under
-# a separate system account (_greetd) and apparently doesn't traverse this
-# PAM stack the same way. Result: the lag this whole fix targets was still
-# reproducing at the greeter/password-entry screen specifically, gone once
-# the real desktop session (and the PAM hook) kicked in. The systemd
-# ExecStartPre/ExecStopPost pair below covers greetd's entire runtime —
-# greeter included — regardless of PAM session semantics. Idempotent
-# (ncz-performance-mode on/off is safe to call repeatedly); harmless
-# overlap with the PAM hook once a real session also opens.
+# Wire into greetd.service directly via a systemd drop-in. Real gap found
+# 2026-07-27, confirmed live on O6N via sysfs (cpuidle disable=0,
+# genpd=auto) + user report: the pre-authentication greeter/password-entry
+# screen runs under a separate system account (_greetd) that a PAM session
+# hook on the REAL user's login doesn't cover — the lag this whole fix
+# targets was still reproducing at the greeter specifically, gone only
+# once a real desktop session started. ExecStartPre/ExecStopPost below
+# covers greetd's entire runtime — greeter included — for as long as the
+# service itself is up, regardless of how many users log in/out of it.
 install -d -m0755 /etc/systemd/system/greetd.service.d
 cat > /etc/systemd/system/greetd.service.d/ncz-performance-mode.conf <<'DROPIN'
 [Service]
