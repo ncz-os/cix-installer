@@ -1,18 +1,18 @@
 {
-  "generated_utc": "2026-07-27T18:35:25Z",
+  "generated_utc": "2026-07-27T19:39:47Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.0+r201_arm64.deb",
-      "sha256": "84cd3479748ca79940aea4810623010d6a43ed37d3fdaa135be91fa7bedd2236"
+      "file": "build/kernel-debs/cixmini-boot_1.0+r202_arm64.deb",
+      "sha256": "f42b317f404c33cd1f4d073afd97ee61863bd84642765d5f60641905d2cd69c7"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini-edge_7.2.0-rc5-sky1-ncz+r201_arm64.deb",
-      "sha256": "f3610d68b1a6e0613bae3b615b947ff7a0deefc39014fb022317ebf72e486658"
+      "file": "build/kernel-debs/linux-image-cixmini-edge_7.2.0-rc5-sky1-ncz+r202_arm64.deb",
+      "sha256": "67cc72fc64165ebd02ab09258eead0d3c4b2d7c6f26c0d3c66f22b54c51d071b"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini-lts_7.0.12-cix-sky1-next+r201_arm64.deb",
-      "sha256": "bfe739b8bb08bc123b568cd9b521b0d77b3cde7d207c3a5350d122d8031f3567"
+      "file": "build/kernel-debs/linux-image-cixmini-lts_7.0.12-cix-sky1-next+r202_arm64.deb",
+      "sha256": "57380ed198df864de112a537bdc7bfd7ab8eb9b5d847aa743506144830744fa6"
     }
   ],
   "schema": 1,
