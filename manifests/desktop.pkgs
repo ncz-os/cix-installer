@@ -250,3 +250,24 @@ handbrake
 ffmpeg
 audacity
 vlc
+
+# --- GTK4/libadwaita native-Wayland apps, hardware-accelerated via GSK's
+#     GL renderer (GSK_RENDERER=gl, already set in singularity-desktop-session).
+#     kooha fixes the earlier screen-recording bug -- goes through
+#     xdg-desktop-portal's ScreenCast interface, which singularity.portal
+#     does implement. celluloid is a native GTK4 GUI complement to the CLI
+#     mpv already above (same VAAPI hardware decode path). loupe is GNOME's
+#     GPU-accelerated image viewer. The rest are small, real desktop-
+#     completeness gaps (calc/text-editor/font-viewer/characters/calendar/
+#     weather/sound-recorder/drawing), no GNOME-shell dependency drag. ---
+kooha
+celluloid
+loupe
+gnome-calculator
+gnome-text-editor
+gnome-font-viewer
+gnome-characters
+gnome-calendar
+gnome-weather
+gnome-sound-recorder
+drawing
