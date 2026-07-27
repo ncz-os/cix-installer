@@ -13,8 +13,14 @@
 # = Mali-G720, no greeter wedge). Without this, GL falls back to llvmpipe
 # (software) — the very thing 26.7 must not ship.
 #
-# So: re-ENABLE the CIX GL ld-paths that -open disabled. Vulkan stays OFF
-# (libmali exposes no Vulkan; that's the panthor/PanVK path, a post-ship update).
+# So: re-ENABLE the CIX GL ld-paths that -open disabled, AND the CIX Vulkan
+# ICD. (CORRECTED 2026-07-27: an earlier version of this hook kept Vulkan
+# disabled on the assumption "libmali exposes no Vulkan" — that was WRONG,
+# disproven on real O6N hardware: `VK_DRIVER_FILES=/etc/vulkan/icd.d/mali.json
+# vulkaninfo` enumerates a real device, apiVersion 1.3.296, driverID
+# DRIVER_ID_ARM_PROPRIETARY, deviceName "Mali-G720-Immortalis". The WSI
+# implicit layer's status is NOT re-verified by that test and stays disabled
+# pending its own check.)
 #
 # The enable is a config change only — it does NOT need /dev/mali0 at install
 # time (we are in a chroot). The CIX driver-check runs at RUNTIME (first boot /
@@ -39,16 +45,15 @@ enable_file /etc/ld.so.conf.d/00-cixgpu-pro.conf    "OpenCL/libmali (ld path)"
 enable_file /etc/ld.so.conf.d/01-cixgpu-compat.conf "GL/GLX/GLES glvnd compat (ld path)"
 ldconfig 2>/dev/null || true
 
-# --- Vulkan: keep DISABLED. libmali has no Vulkan entrypoint; the CIX mali.json
-#     ICD + WSI implicit layer only break Vulkan apps. Panthor+PanVK Vulkan is a
-#     post-ship update. Disable them if 25-cix-* left them enabled.
-for f in /etc/vulkan/icd.d/mali.json \
-         /etc/vulkan/implicit_layer.d/VkLayer_window_system_integration.json; do
-    if [ -e "$f" ]; then
-        mv "$f" "$f.disabled"
-        echo "[26] kept CIX Vulkan piece DISABLED (no libmali Vulkan): $(basename "$f")"
-    fi
-done
+# --- Vulkan: ENABLE the ICD (real device, hardware-validated 2026-07-27).
+#     WSI implicit layer stays disabled — unverified, and it's not needed for
+#     ICD discovery (VK_DRIVER_FILES in ncz-gpu-env handles that explicitly).
+enable_file /etc/vulkan/icd.d/mali.json "Vulkan ICD"
+if [ -e /etc/vulkan/implicit_layer.d/VkLayer_window_system_integration.json ]; then
+    mv /etc/vulkan/implicit_layer.d/VkLayer_window_system_integration.json \
+       /etc/vulkan/implicit_layer.d/VkLayer_window_system_integration.json.disabled
+    echo "[26] kept CIX Vulkan WSI implicit layer DISABLED (unverified)"
+fi
 
 # --- Report the winners the loaders will resolve at runtime ----------------
 echo "[26] libGLX.so.0    -> $(ldconfig -p 2>/dev/null | awk '/libGLX.so.0 /{print $NF; exit}')"

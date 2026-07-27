@@ -255,7 +255,14 @@ if [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
     NCZ_GPU_BACKEND=mali
     LD_LIBRARY_PATH="/opt/cixgpu-pro/lib/aarch64-linux-gnu:/opt/cixgpu-compat/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     WLR_DRM_NO_MODIFIERS=1
-    export NCZ_GPU_BACKEND LD_LIBRARY_PATH WLR_DRM_NO_MODIFIERS
+    # Explicit ICD pin (not just relying on /etc/vulkan/icd.d/mali.json being
+    # enabled): the Vulkan loader's default ICD search does not reliably pick
+    # this up on its own (confirmed on O6N — with the ICD file enabled but no
+    # VK_DRIVER_FILES set, vulkaninfo still only found Mesa's panvk ICD and
+    # failed; VK_DRIVER_FILES fixed it). Legacy VK_ICD_FILENAMES did NOT work
+    # on this loader version — use VK_DRIVER_FILES.
+    VK_DRIVER_FILES=/etc/vulkan/icd.d/mali.json
+    export NCZ_GPU_BACKEND LD_LIBRARY_PATH WLR_DRM_NO_MODIFIERS VK_DRIVER_FILES
 elif grep -q '^panthor ' /proc/modules 2>/dev/null; then
     # Panthor = open Mesa stack. Point glvnd/EGL at the mesa vendor ICD and strip
     # inherited CIX libmali paths so EGL/GBM resolve to mesa (panfrost/panvk).
