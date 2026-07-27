@@ -31,7 +31,7 @@ PRESEED       := $(ROOT)/preseed
 POST          := $(ROOT)/post-install
 
 MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))
-OUTPUT_ISO    := $(BUILD)/nclawzero-installer-cixmini-$(VERSION)$(MODE_SUFFIX).iso
+OUTPUT_ISO    := $(BUILD)/nclawzero-installer-cixmini-$(VARIANT)-$(VERSION)$(MODE_SUFFIX).iso
 
 .PHONY: all download iso verify clean distclean qemu help
 
