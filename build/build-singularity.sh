@@ -96,6 +96,7 @@ apt-get install -y --no-install-recommends \
     libupower-glib-dev libwebkitgtk-6.0-dev libxcb1-dev libxcb-ewmh-dev \
     libxcb-icccm4-dev libxkbcommon-dev \
     libpam0g-dev libgcrypt20-dev libcrypt-dev libsodium-dev \
+    hwdata xwayland libxcb-dri3-dev \
     sassc scdoc
 
 mkdir -p /work && cd /work
