@@ -97,6 +97,8 @@ apt-get install -y --no-install-recommends \
     libxcb-icccm4-dev libxkbcommon-dev \
     libpam0g-dev libgcrypt20-dev libcrypt-dev libsodium-dev \
     hwdata xwayland libxcb-dri3-dev \
+    libxcb-composite0-dev libxcb-render0-dev libxcb-res0-dev \
+    libxcb-xfixes0-dev libxcb-errors-dev libxcb-present-dev \
     sassc scdoc
 
 mkdir -p /work && cd /work
