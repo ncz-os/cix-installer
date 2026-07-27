@@ -189,34 +189,17 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation 2>&1 | tail -3 || true
 
 # Video: mpv HW player (84-vpu-mpv wires hwdec=v4l2m2m-copy). Browsers =
-# Vivaldi (52-vivaldi, real arm64 .deb, default), XtraDeb's signed/pinned
-# arm64 ungoogled-chromium .debs, and (26.7+) real official Google Chrome
-# (google-chrome-stable) — all folded into the offline desktop mirror by
-# build-desktop-mirror.sh, none as a live runtime apt source. Ubuntu
-# Resolute's own chromium-browser package remains snap-only; NCZ-OS does not
-# ship snapd.
+# Vivaldi (52-vivaldi, real arm64 .deb, default) and (26.7+) real official
+# Google Chrome (google-chrome-stable, post-install/53-chrome.sh) — both
+# folded into the offline desktop mirror by build-desktop-mirror.sh, neither
+# as a live runtime apt source. Ubuntu Resolute's own chromium-browser
+# package remains snap-only; NCZ-OS does not ship snapd. (An earlier
+# ungoogled-chromium/XtraDeb stop-gap was dropped 2026-07-27 once real Chrome
+# became available for arm64 — superseded outright.)
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     mpv 2>&1 | tail -3 || echo "[20] mpv: deferred"
 
-if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ungoogled-chromium ungoogled-chromium-sandbox; then
-    ncz_ports_fallback
-    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ungoogled-chromium ungoogled-chromium-sandbox; then
-        echo "[20] FATAL: ungoogled-chromium is not installable; rebuild desktop-mirror with the pinned XtraDeb Resolute arm64 packages" >&2
-        exit 1
-    fi
-fi
-install -d /etc/ungoogled-chromium.d
-cat > /etc/ungoogled-chromium.d/ncz-wayland <<'CHROMEFLAGS'
-# NCZ-OS runs labwc/wlroots; prefer native Ozone/Wayland. With "auto",
-# Chromium can still fall back to XWayland if Wayland is unavailable.
-export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform-hint=auto"
-CHROMEFLAGS
-[ -x /usr/bin/ungoogled-chromium ] || { echo "[20] FATAL: /usr/bin/ungoogled-chromium missing after install" >&2; exit 1; }
-echo "[20] Chromium secondary browser installed: $(/usr/bin/ungoogled-chromium --version 2>/dev/null || echo ungoogled-chromium)"
-
-echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv + Chromium)"
+echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv)"
 
 # ---------------------------------------------------------------------------
 # Diagnostics: real crash traceability for the Singularity desktop session.
@@ -611,11 +594,11 @@ else
 fi
 
 # Default browser routing — Vivaldi (52-vivaldi, real arm64 .deb) primary.
-# Chromium is installed as /usr/bin/ungoogled-chromium from the pinned
-# XtraDeb/desktop-mirror .debs and is a secondary real browser choice.
+# Google Chrome (google-chrome-stable, real official build, 53-chrome.sh) is
+# the secondary real browser choice.
 cat > /usr/local/bin/x-www-browser <<'BRWRAP'
 #!/bin/sh
-for b in /usr/bin/vivaldi-stable /usr/bin/ungoogled-chromium /usr/bin/chromium /usr/bin/chromium-browser; do
+for b in /usr/bin/vivaldi-stable /usr/bin/google-chrome-stable /usr/bin/chromium /usr/bin/chromium-browser; do
     [ -x "$b" ] && exec "$b" "$@"
 done
 exec xdg-open "$@"
@@ -630,7 +613,7 @@ x-scheme-handler/http=$_bd
 x-scheme-handler/https=$_bd
 application/xhtml+xml=$_bd
 MIME
-echo "[20] default browser: $_bd (Vivaldi primary; ungoogled-chromium installed as secondary, snap-free)"
+echo "[20] default browser: $_bd (Vivaldi primary; Google Chrome installed as secondary, snap-free)"
 
 # Appliance noise reduction — mask services that fail for no benefit here.
 for u in iscsid.service apport.service; do

@@ -97,15 +97,13 @@ fonts-liberation
 
 # --- browser + media -------------------------------------------------------
 # Vivaldi installs from the staged upstream .deb in 52-vivaldi.sh and remains
-# the default browser. Ubuntu Resolute has no Chromium deb, so
-# build-desktop-mirror folds XtraDeb's signed/pinned arm64 ungoogled-chromium
-# .debs into the offline desktop pool; no snapd.
-ungoogled-chromium
-ungoogled-chromium-sandbox
-# Real, official Google Chrome for arm64 Linux (public since Q2 2026, via
-# Google's own signed apt repo) — build-desktop-mirror folds this in the same
-# way, pinned + SHA256-verified against Google's published Packages index.
-# Third browser choice alongside Vivaldi (default) and ungoogled-chromium.
+# the default browser. Real, official Google Chrome for arm64 Linux (public
+# since Q2 2026, via Google's own signed apt repo) is the second browser —
+# build-desktop-mirror folds it into the offline desktop pool, pinned +
+# SHA256-verified against Google's published Packages index; no live apt
+# source on the shipped image, no snapd. ungoogled-chromium/XtraDeb (an
+# earlier stop-gap from before real Chrome existed for arm64) is dropped —
+# real Chrome supersedes it outright.
 google-chrome-stable
 mpv
 

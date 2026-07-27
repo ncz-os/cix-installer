@@ -21,9 +21,11 @@
 # Ubuntu ports, arm64, simulate-install the desktop seed to compute the closure,
 # apt-get download the exact closure versions into the new pool, regenerate
 # indexes. Chromium is the one exception: Ubuntu 26.04 ships Chromium as snap
-# only, so the browser seed uses XtraDeb's signed Resolute arm64
-# ungoogled-chromium .debs, pinned to one exact version and folded into this
-# offline mirror. No XtraDeb apt source is installed on the appliance.
+# only, so the browser seed uses Google's own signed real Chrome build
+# (google-chrome-stable), pinned to one exact version + SHA256-verified, and
+# folded into this offline mirror. No live Google apt source is installed on
+# the appliance. (An earlier stop-gap used XtraDeb's ungoogled-chromium
+# before real Chrome existed for arm64 — dropped 2026-07-27, superseded.)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,21 +40,15 @@ IDX="$SRC/dists/$SUITE/main/binary-$ARCH/Packages"
 # Source: Ubuntu ports (current, complete, authoritative). The desktop long
 # tail (gimp, catfish, synaptic, xfce goodies, ...) lives largely in universe.
 PORTS_URL="${PORTS_URL:-http://ports.ubuntu.com/ubuntu-ports}"
-XTRADEB_URL="${XTRADEB_URL:-https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu}"
-XTRADEB_KEY="$REPO/build/xtradeb-apt-keyring.asc"
-XTRADEB_KEY_FPR="5301FA4FD93244FBC6F6149982BB6851C64F6880"
-XTRADEB_CHROMIUM_VERSION="150.0.7871.181-1.1xtradeb1.2604.1"
-XTRADEB_CHROMIUM_PKGS="ungoogled-chromium ungoogled-chromium-common ungoogled-chromium-sandbox"
 
 # Real, official Google Chrome for arm64 Linux (launched publicly Q2 2026,
-# available since via Google's own signed apt repo). Folded into the SAME
-# offline mirror pool as XtraDeb above, same reasoning: no live apt source on
+# available since via Google's own signed apt repo). Folded into the offline
+# mirror pool, same reasoning as everything else here: no live apt source on
 # the shipped appliance (r180 doctrine), pin to one exact checksummed
-# version. This is a SECOND browser alongside whatever ungoogled-chromium
-# already provides — real Chrome adds Google account sync/Widevine DRM/
-# Google Pay and (per post-install/84-vpu-vaapi.sh) confirmed working VA-API
-# hardware video decode once that hook's fixes are applied; verified
-# 2026-07-27 against Google's own published Packages index.
+# version. Adds Google account sync/Widevine DRM/Google Pay and (per
+# post-install/84-vpu-vaapi.sh) confirmed working VA-API hardware video
+# decode once that hook's fixes are applied; verified 2026-07-27 against
+# Google's own published Packages index.
 GOOGLE_CHROME_URL="${GOOGLE_CHROME_URL:-https://dl.google.com/linux/chrome/deb}"
 GOOGLE_CHROME_KEY_URL="${GOOGLE_CHROME_KEY_URL:-https://dl.google.com/linux/linux_signing_key.pub}"
 GOOGLE_CHROME_KEY="$REPO/build/google-chrome-apt-keyring.asc"
@@ -77,25 +73,6 @@ cat > "$T/etc/apt/sources.list" <<EOF
 deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE main universe restricted multiverse
 deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE-updates main universe restricted multiverse
 EOF
-
-if grep -Eq '^[[:space:]]*ungoogled-chromium([[:space:]]|$)' "$SEEDFILE"; then
-    [ -f "$XTRADEB_KEY" ] || { echo "ERROR: $XTRADEB_KEY missing"; exit 1; }
-    cp "$XTRADEB_KEY" "$T/etc/apt/keyrings/xtradeb-apt-keyring.asc"
-    chmod 0644 "$T/etc/apt/keyrings/xtradeb-apt-keyring.asc"
-    cat >> "$T/etc/apt/sources.list" <<EOF
-deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/xtradeb-apt-keyring.asc] $XTRADEB_URL $SUITE main
-EOF
-    cat > "$T/etc/apt/preferences.d/xtradeb-chromium.pref" <<EOF
-Package: ungoogled-chromium ungoogled-chromium-common ungoogled-chromium-sandbox
-Pin: version $XTRADEB_CHROMIUM_VERSION
-Pin-Priority: 700
-
-Package: *
-Pin: release o=LP-PPA-xtradeb-apps
-Pin-Priority: 100
-EOF
-    echo "  source: XtraDeb apps ($XTRADEB_URL) — signed by $XTRADEB_KEY_FPR, Chromium pinned to $XTRADEB_CHROMIUM_VERSION"
-fi
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
     [ -f "$GOOGLE_CHROME_KEY" ] || { echo "ERROR: $GOOGLE_CHROME_KEY missing"; exit 1; }
@@ -130,18 +107,6 @@ APTOPTS=(
 
 echo "  apt-get update (desktop package sources)..."
 apt-get "${APTOPTS[@]}" update >/dev/null 2>&1
-
-if grep -Eq '^[[:space:]]*ungoogled-chromium([[:space:]]|$)' "$SEEDFILE"; then
-    for p in $XTRADEB_CHROMIUM_PKGS; do
-        _policy="$(apt-cache "${APTOPTS[@]}" policy "$p")"
-        if ! printf '%s\n' "$_policy" | grep -q " $XTRADEB_CHROMIUM_VERSION"; then
-            echo "ERROR: $p version $XTRADEB_CHROMIUM_VERSION not visible from signed XtraDeb Resolute arm64 repo" >&2
-            echo "       update XTRADEB_CHROMIUM_VERSION only after verifying the new Packages SHA256 + Launchpad build" >&2
-            exit 1
-        fi
-    done
-    echo "  verified pinned XtraDeb Chromium package set: $XTRADEB_CHROMIUM_PKGS"
-fi
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
     _policy="$(apt-cache "${APTOPTS[@]}" policy google-chrome-stable)"
