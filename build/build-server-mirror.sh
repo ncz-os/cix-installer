@@ -14,6 +14,11 @@
 # exact closure versions into the new pool and regenerate indexes.
 set -euo pipefail
 
+# LC_ALL=C: see build-desktop-mirror.sh for the full rationale — independent
+# `sort -u` calls can disagree on collation order under the build host's
+# default locale, breaking the `comm` diffs below ("not in sorted order").
+export LC_ALL=C
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$REPO/build/resolute-mirror"
 OUT="$REPO/build/server-mirror"

@@ -1,13 +1,13 @@
 #!/bin/bash
 # 53-chrome.sh — post-install wiring for real, official Google Chrome
-# (arm64), a THIRD browser choice alongside Vivaldi (default, 52-vivaldi.sh)
-# and ungoogled-chromium. The package itself installs earlier, as part of
+# (arm64), the SECOND browser choice alongside Vivaldi (default,
+# 52-vivaldi.sh). The package itself installs earlier, as part of
 # 20-desktop.sh's normal apt-get install of the full desktop seed — Chrome
-# is folded into the offline desktop-mirror pool by build-desktop-mirror.sh
-# (pinned to an exact version + SHA256-verified against Google's own
-# Packages index), the same way ungoogled-chromium already is via XtraDeb.
-# This hook only does what apt's own postinst + the mirror step don't:
-# keep the image CDROM-only, and register the alternative.
+# is folded into the offline desktop-mirror pool by build-desktop-mirror.sh,
+# pinned to an exact version + SHA256-verified against Google's own
+# published Packages index. This hook only does what apt's own postinst +
+# the mirror step don't: keep the image CDROM-only, and register the
+# alternative.
 #
 # Real Google Chrome for arm64 Linux launched publicly Q2 2026 and became
 # available via Google's own signed apt repo (dl.google.com/linux/chrome/deb)
@@ -19,7 +19,7 @@
 # RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop / run-all.sh).
 set +e
 
-echo "[53] Google Chrome post-install wiring (third browser, alongside Vivaldi + ungoogled-chromium)"
+echo "[53] Google Chrome post-install wiring (second browser, alongside Vivaldi)"
 
 VARIANT=desktop
 [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ] && \
@@ -55,4 +55,4 @@ if [ -f /usr/share/applications/google-chrome.desktop ]; then
 fi
 
 update-desktop-database 2>&1 | tail -1
-echo "[53] Google Chrome $( /usr/bin/google-chrome-stable --version 2>/dev/null ) wired (third browser; Vivaldi stays default)"
+echo "[53] Google Chrome $( /usr/bin/google-chrome-stable --version 2>/dev/null ) wired (second browser; Vivaldi stays default)"

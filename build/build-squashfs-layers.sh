@@ -131,7 +131,7 @@ build_layer(){ local role="$1" manifest="$2"
       log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
     fi
     # Google Chrome installs via the offline desktop-mirror pool (same as
-    # ungoogled-chromium/XtraDeb) -- see build/build-desktop-mirror.sh and
+    # dropped ungoogled-chromium/XtraDeb stop-gap) -- see build/build-desktop-mirror.sh and
     # post-install/53-chrome.sh. No separate asset staging needed here.
     # 26.7 (updated 2026-07-26): the Singularity Desktop payload is NO LONGER
     # staged as a tarball here. post-install/20-desktop.sh installs it as a real
