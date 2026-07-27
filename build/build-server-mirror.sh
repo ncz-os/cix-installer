@@ -25,13 +25,18 @@ OUT="$REPO/build/server-mirror"
 SEEDFILE="$REPO/build/server-seed.txt"
 GAPS="$REPO/build/server-mirror.gaps"
 SUITE=resolute
-ARCH=arm64
+# amd64/PEGASUS port: ARCH was hardcoded arm64 (not overridable at all). Must
+# match whatever ARCH build-mirror.sh populated $SRC with.
+ARCH="${ARCH:-arm64}"
 IDX="$SRC/dists/$SUITE/main/binary-$ARCH/Packages"
 
 # Online fill: pull anything the local desktop mirror is missing (e.g. server
-# essentials like efibootmgr/initramfs-tools/systemd-boot) from Ubuntu ports.
-# Set NO_NETWORK=1 for a pure offline trim of only what the local mirror has.
-PORTS_URL="${PORTS_URL:-http://ports.ubuntu.com/ubuntu-ports}"
+# essentials like efibootmgr/initramfs-tools/systemd-boot) from Ubuntu ports
+# (arm64) or the main archive (amd64) -- different host AND path, see
+# build-desktop-mirror.sh for the verified detail. Set NO_NETWORK=1 for a pure
+# offline trim of only what the local mirror has.
+if [ "$ARCH" = "amd64" ]; then _DEFAULT_PORTS_URL="http://archive.ubuntu.com/ubuntu"; else _DEFAULT_PORTS_URL="http://ports.ubuntu.com/ubuntu-ports"; fi
+PORTS_URL="${PORTS_URL:-$_DEFAULT_PORTS_URL}"
 NO_NETWORK="${NO_NETWORK:-0}"
 
 [ -d "$SRC" ]      || { echo "ERROR: $SRC missing"; exit 1; }

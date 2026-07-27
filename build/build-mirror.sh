@@ -15,7 +15,11 @@ CHROOT="${1:-/home/jasonperlow/cix-installer-build/cix-installer/build/resolute-
 MIRROR_DIR="${2:-/home/jasonperlow/cix-installer-build/cix-installer/build/resolute-mirror}"
 SUITE="${3:-resolute}"
 ARCH="${4:-arm64}"
-UBUNTU_URL="${5:-http://ports.ubuntu.com/ubuntu-ports}"
+# amd64/PEGASUS port: amd64 is a main-archive arch (archive.ubuntu.com),
+# arm64 is ports-only (ports.ubuntu.com/ubuntu-ports). Default tracks ARCH;
+# positional $5 still overrides either way.
+if [ "$ARCH" = "amd64" ]; then _DEFAULT_UBUNTU_URL="http://archive.ubuntu.com/ubuntu"; else _DEFAULT_UBUNTU_URL="http://ports.ubuntu.com/ubuntu-ports"; fi
+UBUNTU_URL="${5:-$_DEFAULT_UBUNTU_URL}"
 
 [ -d "$CHROOT" ] || { echo "ERROR: chroot $CHROOT does not exist"; exit 1; }
 [ -d "$CHROOT/var/cache/apt" ] || { echo "ERROR: chroot doesn't look bootstrapped"; exit 1; }

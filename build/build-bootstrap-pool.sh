@@ -13,7 +13,12 @@ CHROOT="${1:-/home/jasonperlow/cix-installer-build/cix-installer/build/resolute-
 MIRROR_DIR="${2:-/home/jasonperlow/cix-installer-build/cix-installer/build/resolute-bootstrap-pool}"
 SUITE="${3:-resolute}"
 ARCH="${4:-arm64}"
-UBUNTU_URL="${5:-http://ports.ubuntu.com/ubuntu-ports}"
+# amd64/PEGASUS port: amd64 is a main-archive arch (archive.ubuntu.com),
+# arm64 is ports-only (ports.ubuntu.com/ubuntu-ports) -- different host AND
+# path, not just a string swap. Default tracks ARCH; positional $5 still
+# overrides either way.
+if [ "$ARCH" = "amd64" ]; then _DEFAULT_UBUNTU_URL="http://archive.ubuntu.com/ubuntu"; else _DEFAULT_UBUNTU_URL="http://ports.ubuntu.com/ubuntu-ports"; fi
+UBUNTU_URL="${5:-$_DEFAULT_UBUNTU_URL}"
 
 PKGS=(
   openssh-server

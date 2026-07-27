@@ -45,12 +45,19 @@ OUT="$REPO/build/desktop-mirror"
 SEEDFILE="$REPO/manifests/desktop.pkgs"
 GAPS="$REPO/build/desktop-mirror.gaps"
 SUITE=resolute
-ARCH=arm64
+# amd64/PEGASUS port: ARCH was hardcoded arm64 (not overridable at all).
+# amd64 is a main-archive arch (archive.ubuntu.com), arm64 is ports-only
+# (ports.ubuntu.com/ubuntu-ports) -- different host AND path, not just a
+# string swap; both were verified live 2026-07-27 to serve the same suite
+# names (resolute/resolute-updates/resolute-security/resolute-backports).
+ARCH="${ARCH:-arm64}"
 IDX="$SRC/dists/$SUITE/main/binary-$ARCH/Packages"
 
-# Source: Ubuntu ports (current, complete, authoritative). The desktop long
-# tail (gimp, catfish, synaptic, xfce goodies, ...) lives largely in universe.
-PORTS_URL="${PORTS_URL:-http://ports.ubuntu.com/ubuntu-ports}"
+# Source: Ubuntu ports for arm64, the main archive for amd64 (current,
+# complete, authoritative either way). The desktop long tail (gimp, catfish,
+# synaptic, xfce goodies, ...) lives largely in universe.
+if [ "$ARCH" = "amd64" ]; then _DEFAULT_PORTS_URL="http://archive.ubuntu.com/ubuntu"; else _DEFAULT_PORTS_URL="http://ports.ubuntu.com/ubuntu-ports"; fi
+PORTS_URL="${PORTS_URL:-$_DEFAULT_PORTS_URL}"
 
 # Real, official Google Chrome for arm64 Linux (launched publicly Q2 2026,
 # available since via Google's own signed apt repo). Folded into the offline
@@ -234,7 +241,7 @@ SINGDEB=""
 # Codex review 2026-07-26 — the original first-match glob loop picked
 # whichever candidate the shell happened to list first, which is undefined
 # ordering, not necessarily the newest version).
-SING_CANDIDATES="$(ls -1 "$REPO"/build/sinty-out/ncz-singularity-desktop_*_arm64.deb 2>/dev/null | sort -V || true)"
+SING_CANDIDATES="$(ls -1 "$REPO"/build/sinty-out/ncz-singularity-desktop_*_"$ARCH".deb 2>/dev/null | sort -V || true)"
 if [ -n "$SING_CANDIDATES" ]; then
     SINGDEB="$(printf '%s\n' "$SING_CANDIDATES" | tail -1)"
     N="$(printf '%s\n' "$SING_CANDIDATES" | wc -l)"
@@ -246,7 +253,7 @@ if [ -n "$SINGDEB" ]; then
     cp -f "$SINGDEB" "$SINGPOOL/"
     echo "  added local NCZ package: $SINGDEB -> $SINGPOOL/"
 else
-    echo "  WARN: no local ncz-singularity-desktop_*_arm64.deb at $REPO/build/sinty-out — continuing without it"
+    echo "  WARN: no local ncz-singularity-desktop_*_${ARCH}.deb at $REPO/build/sinty-out — continuing without it"
 fi
 
 # prune debs for packages no longer in the resolved closure (e.g. dropped

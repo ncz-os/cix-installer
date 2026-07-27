@@ -21,7 +21,11 @@ CHROOT="${1:-$ROOT/build/rescue-rootfs}"
 OUT="${2:-$ROOT/assets/rescue/rescue-rootfs.tar.zst}"
 SUITE="${3:-resolute}"
 ARCH="${4:-arm64}"
-MIRROR="${5:-http://ports.ubuntu.com/ubuntu-ports}"
+# amd64/PEGASUS port: amd64 is a main-archive arch (archive.ubuntu.com),
+# arm64 is ports-only (ports.ubuntu.com/ubuntu-ports). Default tracks ARCH;
+# positional $5 still overrides either way.
+if [ "$ARCH" = "amd64" ]; then _DEFAULT_MIRROR="http://archive.ubuntu.com/ubuntu"; else _DEFAULT_MIRROR="http://ports.ubuntu.com/ubuntu-ports"; fi
+MIRROR="${5:-$_DEFAULT_MIRROR}"
 
 PKG_MANIFEST="$ROOT/manifests/rescue.pkgs"
 AGENTS_SRC="$ROOT/assets/rescue/AGENTS.md"
