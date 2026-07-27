@@ -3,7 +3,8 @@
 # reds/oranges), zero avoidable log spam. Idempotent; Phase-2 optional; runs in
 # the chroot at build/install time and is safe to re-run on a live system.
 #
-# WHAT THIS FIXES (all verified on O6N, NCZ-OS 26.7 / kernel 7.2.0-rc4-sky1-ncz):
+# WHAT THIS FIXES (all verified on O6N, NCZ-OS 26.7 / kernel 7.2.0-rc5-sky1-ncz;
+# these are userspace/systemd fixes, not kernel-version-specific):
 #
 #   Failed units that painted RED on the plymouth splash (is-system-running
 #   went 'degraded'):

@@ -36,7 +36,7 @@ change from the earlier two-kernel LTS/edge scheme — see below for what
 
 | Channel | Version string | Role on the main system |
 |---|---|---|
-| primary / default | `7.2.0-rc4-sky1-ncz` (labeled "Mali" in the rEFInd menu) | default boot entry; CIX `mali_kbase` GPU driver |
+| primary / default | `7.2.0-rc5-sky1-ncz` (labeled "Mali" in the rEFInd menu) | default boot entry; CIX `mali_kbase` GPU driver |
 | secondary / fallback | `7.0.12-cix-sky1-next` (labeled "stable" in the rEFInd menu) | fallback; in-tree `panthor` GPU driver. This is also the kernel the **RESCUE PARTITION** rEFInd entry boots with (see §4) — do not assume "RESCUE PARTITION" implies the deep-rescue 6.18 kernel; it boots this "stable" kernel against the rescue rootfs. |
 | rescue pin (main ESP) | `<stable>-rescue` | independent pinned copy of the "stable" (7.0.12) kernel for the rEFInd "rescue" menuentry, with NPU/GPU/VPU/KMS blacklisted |
 | deep rescue | `6.18.26-cix-sky1-lts` | minimal by design; **this is the kernel this rescue rootfs (NCZRESCUE partition) itself boots**, per `build-rescue-rootfs.sh` — independent of whatever the main ESP is currently staging |

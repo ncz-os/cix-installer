@@ -72,7 +72,7 @@ for f in /boot/vmlinuz-*; do
                 continue
             fi
             # Classify by name suffix. Order matters: an -rcN release
-            # candidate (e.g. 7.2.0-rc4-sky1-ncz) must be caught as edge
+            # candidate (e.g. 7.2.0-rc5-sky1-ncz) must be caught as edge
             # BEFORE the *-sky1-ncz stable rule, so -rc always wins the
             # edge slot. A released -sky1-ncz (no rc) is the stable target.
             case "$kver" in
