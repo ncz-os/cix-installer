@@ -98,7 +98,8 @@ apt-get "${APTOPTS[@]}" update >/dev/null 2>&1
 
 if grep -Eq '^[[:space:]]*ungoogled-chromium([[:space:]]|$)' "$SEEDFILE"; then
     for p in $XTRADEB_CHROMIUM_PKGS; do
-        if ! apt-cache "${APTOPTS[@]}" policy "$p" | grep -q " $XTRADEB_CHROMIUM_VERSION"; then
+        _policy="$(apt-cache "${APTOPTS[@]}" policy "$p")"
+        if ! printf '%s\n' "$_policy" | grep -q " $XTRADEB_CHROMIUM_VERSION"; then
             echo "ERROR: $p version $XTRADEB_CHROMIUM_VERSION not visible from signed XtraDeb Resolute arm64 repo" >&2
             echo "       update XTRADEB_CHROMIUM_VERSION only after verifying the new Packages SHA256 + Launchpad build" >&2
             exit 1
@@ -160,8 +161,9 @@ fi
 # of re-downloading the entire ~1500-package closure every time.
 mkdir -p "$OUT/pool/main"
 echo "  downloading closure debs from ports (incremental)..."
-( cd "$OUT/pool/main" && apt-get "${APTOPTS[@]}" download $(tr '\n' ' ' < "$CLOSURE") >/dev/null 2>&1 ) \
-    || echo "  WARN: some downloads failed (see gaps report)"
+if ! ( cd "$OUT/pool/main" && xargs -r apt-get "${APTOPTS[@]}" download < "$CLOSURE" >/dev/null 2>&1 ); then
+    echo "  WARN: some downloads failed (see gaps report)"
+fi
 
 # NCZ-OS proprietary package: it is not published on Ubuntu ports, so add a
 # locally-built copy directly in reprepro-style pool layout. This is optional
@@ -172,7 +174,7 @@ SINGDEB=""
 # Codex review 2026-07-26 — the original first-match glob loop picked
 # whichever candidate the shell happened to list first, which is undefined
 # ordering, not necessarily the newest version).
-SING_CANDIDATES="$(ls -1 "$REPO"/build/sinty-out/ncz-singularity-desktop_*_arm64.deb 2>/dev/null | sort -V)"
+SING_CANDIDATES="$(ls -1 "$REPO"/build/sinty-out/ncz-singularity-desktop_*_arm64.deb 2>/dev/null | sort -V || true)"
 if [ -n "$SING_CANDIDATES" ]; then
     SINGDEB="$(printf '%s\n' "$SING_CANDIDATES" | tail -1)"
     N="$(printf '%s\n' "$SING_CANDIDATES" | wc -l)"

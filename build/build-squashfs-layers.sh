@@ -92,14 +92,6 @@ build_layer(){ local role="$1" manifest="$2"
   local pkgs; pkgs=$(sed 's/#.*//' "$ROOT/$manifest" | sed -E 's/[[:space:]]+$//' | grep -vE '^[[:space:]]*$' | tr '\n' ' ')
   log "$role: apt-install $(echo $pkgs|wc -w) top-level packages (complete set + closure)"
   sudo chroot "$MG" apt-get install -y --no-install-recommends $pkgs 2>&1 | tail -6 || log "  WARN apt rc=$?"
-  # r164: the resolute BASE ships the full GNOME desktop (gnome-shell + gdm3 +
-  # ubuntu-session) and defaults /etc/X11/default-display-manager to gdm3, so
-  # even after the XFCE manifest installs lightdm+xubuntu-core, gdm3 stays the
-  # default DM and GNOME (heavy, and Wayland black-screens on Mali panthor per
-  # 20-desktop.sh) is what boots. In the DESKTOP delta only, do what the excluded
-  # 20-desktop.sh did: purge the GNOME stack + pin LightDM + default session XFCE.
-  # This bakes an XFCE-default, GNOME-free desktop into desktop.squashfs (the
-  # overlay whiteouts the base's gnome files, so the merged /target has no GNOME).
   if [ "$role" = "desktop" ]; then
     log "desktop: SINGULARITY desktop delta (Wayland-only; XFCE/X11 removed) + brand"
     # 26.7 "Maximilian": Singularity Desktop (labwc/wlroots, GTK4) REPLACES XFCE.
@@ -208,26 +200,6 @@ build_layer(){ local role="$1" manifest="$2"
     # d73d581/8d75ea5), so assets/zoder/ was dead weight this hook silently
     # skipped every build anyway (the directory hasn't existed since
     # 2026-07-05).
-    # r172: apply the desktop-config + branding hooks now that the desktop is
-    # XFCE. 22-display-fix is CRITICAL on Sky1 metal: the SoC exposes ~6 DRM
-    # cards (card0=panthor render + card1-5=linlondp display pipes), and Xorg
-    # with no card pin dies "Cannot run in framebuffer mode, specify busIDs" →
-    # NO DESKTOP (observed r171 on .66 metal — qemu has 1 card so it never
-    # surfaced). The hook installs the cix-detect-display boot service +
-    # /etc/X11/xorg.conf.d/10-cixmini-primary-display.conf that pins the
-    # connected linlondp display card each boot (handles card-renumber races).
-    # 50-brand/56-icon/45-wallpaper/55-greeter follow (cosmetic, best-effort).
-    # r181: 30-agents + 46-ncz-cli were EXCLUDED here (same bug class as the
-    # r172 22-display-fix exclusion) — so /etc/skel/Desktop shipped EMPTY on .66
-    # metal: no "ncz" CLI, no "NCZ CLI" launcher, no "⭐ Install AI Agents &
-    # MNEMOS" launcher (operator report). They write the desktop launchers + the
-    # ncz operator CLI, so BAKE them here. 30-agents (set +e, no apt purge) MUST
-    # precede 46-ncz-cli (which overwrites /usr/local/bin/ncz with the unified CLI
-    # that execs the agent helper 30-agents stages at /usr/local/lib/ncz-agent-cli).
-    # 55-greeter = new dark+magenta LightDM greeter (the safe cosmetic subset of
-    # 20-desktop.sh's greeter config; 20-desktop is deliberately NOT baked here —
-    # its `apt purge --auto-remove` corrupted the user DB in the overlay, the
-    # r166-r170 saga). 60-plymouth LAST (rebuilds the initramfs, heaviest step).
     # 26.7 Singularity brand-hook order. 20-desktop = the Singularity installer
     # (extracts /opt/singularity, curates sessions, purges XFCE/Xorg) — runs
     # FIRST so the Wayland desktop exists before the cosmetic hooks. 84-vpu-mpv

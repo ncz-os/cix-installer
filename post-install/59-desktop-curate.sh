@@ -7,11 +7,11 @@
 # .desktop files via GLib GDesktopAppInfo and calls g_app_info_should_show()
 # with XDG_CURRENT_DESKTOP=Singularity (exported by singularity-desktop /
 # singularity-desktop-session). So entries carrying OnlyShowIn=<other DE>
-# (XFCE/LXQt/Enlightenment/GNOME/KDE/MATE/Unity) or NotShowIn=Singularity or
+# (Enlightenment/GNOME/KDE/MATE/Unity) or NotShowIn=Singularity or
 # NoDisplay=true ARE ALREADY auto-hidden — that mechanism works and needs no
 # per-app edit. What leaks into the menu is the set of entries that carry NO
-# OnlyShowIn at all (bake-off apps: thunar/xfce4-*/lxqt-*/qterminal/pcmanfm-qt/
-# enlightenment_*, X11 apps: xterm/xscreensaver, and base GNOME/system tools).
+# OnlyShowIn at all (bake-off apps: enlightenment_*, X11 apps:
+# xterm/xscreensaver, and base GNOME/system tools).
 # This hook removes those two ways:
 #   1. PURGE X11-native + leftover bake-off desktop PACKAGES entirely (their
 #      .desktop files go with them). Xwayland is KEPT (rootless X-app compat).
@@ -52,7 +52,7 @@ APPDIR=/usr/share/applications
 #    PROTECTED (never listed here): xserver-common, x11-xkb-utils, x11-common,
 #    xkb-data, xauth, libx11/libxcb (verified on O6N: purging the stack below
 #    does NOT touch xwayland or these deps).
-#    NEVER --auto-remove; keep libxfce4ui-2-0/xfconf (mousepad depends on them).
+#    NEVER --auto-remove.
 # ---------------------------------------------------------------------------
 PURGE_CANDIDATES="
   xterm x11-apps x11-utils xbitmaps xscreensaver feh
@@ -63,19 +63,7 @@ PURGE_CANDIDATES="
   epiphany-browser
   enlightenment terminology emixer
   wayfire wcm
-  gigolo mugshot pasystray catfish ristretto
-  thunar thunar-data thunar-volman thunar-archive-plugin exo-utils
-  xfce4-appfinder xfce4-clipman xfce4-clipman-plugin xfce4-cpugraph-plugin
-  xfce4-dict xfce4-helpers xfce4-netload-plugin xfce4-notifyd xfce4-panel
-  xfce4-panel-profiles xfce4-places-plugin xfce4-power-manager
-  xfce4-power-manager-data xfce4-pulseaudio-plugin xfce4-screenshooter
-  xfce4-session xfce4-settings xfce4-systemload-plugin xfce4-verve-plugin
-  xfce4-weather-plugin xfce4-whiskermenu-plugin xfce4-xkb-plugin xfce4-taskmanager
-  xfdesktop4 xfdesktop4-data xfwm4
-  lxqt-config lxqt-core lxqt-globalkeys lxqt-notificationd lxqt-panel
-  lxqt-policykit lxqt-qtplugin lxqt-runner lxqt-session lxqt-sudo
-  lxqt-system-theme lxqt-themes lxqt-wayland-session
-  pcmanfm-qt qterminal pavucontrol-qt
+  pasystray
 "
 _present=""
 for p in $PURGE_CANDIDATES; do
