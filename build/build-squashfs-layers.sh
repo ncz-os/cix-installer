@@ -130,6 +130,9 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/vivaldi/." "$MG/usr/local/lib/cix-installer/assets/vivaldi/" 2>/dev/null || true
       log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
     fi
+    # Google Chrome installs via the offline desktop-mirror pool (same as
+    # ungoogled-chromium/XtraDeb) -- see build/build-desktop-mirror.sh and
+    # post-install/53-chrome.sh. No separate asset staging needed here.
     # 26.7 (updated 2026-07-26): the Singularity Desktop payload is NO LONGER
     # staged as a tarball here. post-install/20-desktop.sh installs it as a real
     # apt package (`apt-get install ncz-singularity-desktop`) from the offline
@@ -208,7 +211,7 @@ build_layer(){ local role="$1" manifest="$2"
     # longer dropped. 30-agents before 46-ncz-cli (dep order). 59-desktop-curate
     # LAST of the app hooks (after 20/30-agents/52-vivaldi/46-ncz-cli) so it sees
     # every app-creating hook's output when it curates the launcher.
-    for bh in 20-desktop 22-display-fix 50-brand 52-vivaldi 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 57-qotd 30-agents 46-ncz-cli 57-screensaver 59-desktop-curate 60-boot-splash; do
+    for bh in 20-desktop 22-display-fix 50-brand 52-vivaldi 53-chrome 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 84-vpu-vaapi 57-qotd 30-agents 46-ncz-cli 57-screensaver 59-desktop-curate 60-boot-splash; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3 || log "  WARN $bh rc=$?"

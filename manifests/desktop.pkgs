@@ -102,6 +102,11 @@ fonts-liberation
 # .debs into the offline desktop pool; no snapd.
 ungoogled-chromium
 ungoogled-chromium-sandbox
+# Real, official Google Chrome for arm64 Linux (public since Q2 2026, via
+# Google's own signed apt repo) — build-desktop-mirror folds this in the same
+# way, pinned + SHA256-verified against Google's published Packages index.
+# Third browser choice alongside Vivaldi (default) and ungoogled-chromium.
+google-chrome-stable
 mpv
 
 # --- archives + PDF + image (GTK, DE-agnostic) -----------------------------

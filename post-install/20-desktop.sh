@@ -189,10 +189,12 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation 2>&1 | tail -3 || true
 
 # Video: mpv HW player (84-vpu-mpv wires hwdec=v4l2m2m-copy). Browsers =
-# Vivaldi (52-vivaldi, real arm64 .deb, default) plus XtraDeb's signed/pinned
-# arm64 ungoogled-chromium .debs folded into the offline desktop mirror. Ubuntu
-# Resolute's chromium-browser package remains snap-only; NCZ-OS does not ship
-# snapd.
+# Vivaldi (52-vivaldi, real arm64 .deb, default), XtraDeb's signed/pinned
+# arm64 ungoogled-chromium .debs, and (26.7+) real official Google Chrome
+# (google-chrome-stable) — all folded into the offline desktop mirror by
+# build-desktop-mirror.sh, none as a live runtime apt source. Ubuntu
+# Resolute's own chromium-browser package remains snap-only; NCZ-OS does not
+# ship snapd.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     mpv 2>&1 | tail -3 || echo "[20] mpv: deferred"
 

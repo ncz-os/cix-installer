@@ -296,7 +296,20 @@ if [ -n "${NOE_UMD_DEB:-}" ] && [ -e "$NOE_UMD_DEB" ]; then
     echo "--- staging NPU userspace from $NOE_UMD_DEB (dpkg-deb -x, no postinst) ---"
     dpkg-deb -x "$NOE_UMD_DEB" / 2>&1 | tail -3 || true
     if [ -d /usr/share/cix/lib ]; then
-        echo "/usr/share/cix/lib" > /etc/ld.so.conf.d/cix-noe.conf
+        # r26.7: was "cix-noe.conf" (no numeric prefix) -> sorted AFTER
+        # aarch64-linux-gnu.conf alphabetically, so Ubuntu's own same-named
+        # libraries silently won ld.so's resolution over CIX's copies here.
+        # Confirmed real-world impact 2026-07-27: /usr/share/cix/lib ships a
+        # version-matched libva 2.22.1 (CIX's VA-API runtime, paired with
+        # libcix_va_drv_video.so, __vaDriverInit_1_22), but Ubuntu 26.04's
+        # system libva is 2.23.0 (__vaDriverInit_1_23) -- with the old
+        # unprefixed conf file, every VA-API consumer (Chrome included)
+        # resolved the mismatched system libva.so and got a hard
+        # __vaDriverInit_1_23-not-found failure, breaking VPU hardware video
+        # decode/encode entirely. "00-" prefix matches the same fix already
+        # applied to 00-cixgpu-pro.conf for the GL/EGL/Vulkan library set.
+        echo "/usr/share/cix/lib" > /etc/ld.so.conf.d/00-cix-noe.conf
+        rm -f /etc/ld.so.conf.d/cix-noe.conf
         ldconfig 2>/dev/null || true
     fi
     ls -l /usr/share/cix/lib/libnoe.so* 2>/dev/null | sed 's/^/    /'

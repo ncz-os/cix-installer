@@ -44,6 +44,22 @@ XTRADEB_KEY_FPR="5301FA4FD93244FBC6F6149982BB6851C64F6880"
 XTRADEB_CHROMIUM_VERSION="150.0.7871.181-1.1xtradeb1.2604.1"
 XTRADEB_CHROMIUM_PKGS="ungoogled-chromium ungoogled-chromium-common ungoogled-chromium-sandbox"
 
+# Real, official Google Chrome for arm64 Linux (launched publicly Q2 2026,
+# available since via Google's own signed apt repo). Folded into the SAME
+# offline mirror pool as XtraDeb above, same reasoning: no live apt source on
+# the shipped appliance (r180 doctrine), pin to one exact checksummed
+# version. This is a SECOND browser alongside whatever ungoogled-chromium
+# already provides — real Chrome adds Google account sync/Widevine DRM/
+# Google Pay and (per post-install/84-vpu-vaapi.sh) confirmed working VA-API
+# hardware video decode once that hook's fixes are applied; verified
+# 2026-07-27 against Google's own published Packages index.
+GOOGLE_CHROME_URL="${GOOGLE_CHROME_URL:-https://dl.google.com/linux/chrome/deb}"
+GOOGLE_CHROME_KEY_URL="${GOOGLE_CHROME_KEY_URL:-https://dl.google.com/linux/linux_signing_key.pub}"
+GOOGLE_CHROME_KEY="$REPO/build/google-chrome-apt-keyring.asc"
+GOOGLE_CHROME_VERSION="150.0.7871.186-1"
+GOOGLE_CHROME_PKGS="google-chrome-stable"
+GOOGLE_CHROME_SHA256="02596a2d07db16eec42422b95dea374ee22d18c9ceaae9e9301298e0e2678fb3"
+
 [ -f "$SEEDFILE" ] || { echo "ERROR: $SEEDFILE missing"; exit 1; }
 
 echo "== build-desktop-mirror =="
@@ -81,6 +97,25 @@ EOF
     echo "  source: XtraDeb apps ($XTRADEB_URL) — signed by $XTRADEB_KEY_FPR, Chromium pinned to $XTRADEB_CHROMIUM_VERSION"
 fi
 
+if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
+    [ -f "$GOOGLE_CHROME_KEY" ] || { echo "ERROR: $GOOGLE_CHROME_KEY missing"; exit 1; }
+    cp "$GOOGLE_CHROME_KEY" "$T/etc/apt/keyrings/google-chrome-apt-keyring.asc"
+    chmod 0644 "$T/etc/apt/keyrings/google-chrome-apt-keyring.asc"
+    cat >> "$T/etc/apt/sources.list" <<EOF
+deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/google-chrome-apt-keyring.asc] $GOOGLE_CHROME_URL stable main
+EOF
+    cat > "$T/etc/apt/preferences.d/google-chrome.pref" <<EOF
+Package: $GOOGLE_CHROME_PKGS
+Pin: version $GOOGLE_CHROME_VERSION
+Pin-Priority: 700
+
+Package: google-chrome-beta google-chrome-unstable google-chrome-canary
+Pin: origin dl.google.com
+Pin-Priority: -1
+EOF
+    echo "  source: Google Chrome (${GOOGLE_CHROME_URL}) — pinned to $GOOGLE_CHROME_VERSION, checksum-verified below"
+fi
+
 APTOPTS=(
   -o Dir="$T"
   -o Dir::State="$T/var/lib/apt"
@@ -106,6 +141,26 @@ if grep -Eq '^[[:space:]]*ungoogled-chromium([[:space:]]|$)' "$SEEDFILE"; then
         fi
     done
     echo "  verified pinned XtraDeb Chromium package set: $XTRADEB_CHROMIUM_PKGS"
+fi
+
+if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
+    _policy="$(apt-cache "${APTOPTS[@]}" policy google-chrome-stable)"
+    if ! printf '%s\n' "$_policy" | grep -q " $GOOGLE_CHROME_VERSION"; then
+        echo "ERROR: google-chrome-stable version $GOOGLE_CHROME_VERSION not visible from signed Google apt repo" >&2
+        echo "       update GOOGLE_CHROME_VERSION + GOOGLE_CHROME_SHA256 only after verifying the new Packages entry" >&2
+        exit 1
+    fi
+    # SHA256-verify the actual .deb, not just the version string — Google's
+    # own Packages index publishes it, so pin against that exact value.
+    _deb_rel="$(apt-get "${APTOPTS[@]}" --print-uris -qq install --reinstall google-chrome-stable 2>/dev/null | awk -F"'" '{print $2}' | head -1)"
+    if [ -n "$_deb_rel" ]; then
+        _deb_sha="$(curl -fsSL -m 60 "$_deb_rel" -o "$T/google-chrome-stable.deb" && sha256sum "$T/google-chrome-stable.deb" | awk '{print $1}')"
+        if [ "$_deb_sha" != "$GOOGLE_CHROME_SHA256" ]; then
+            echo "ERROR: google-chrome-stable .deb SHA256 mismatch — expected $GOOGLE_CHROME_SHA256, got $_deb_sha" >&2
+            exit 1
+        fi
+        echo "  verified google-chrome-stable $GOOGLE_CHROME_VERSION SHA256 matches pinned value"
+    fi
 fi
 
 # all package names apt can see

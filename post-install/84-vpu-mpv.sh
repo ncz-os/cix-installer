@@ -4,10 +4,11 @@
 # NCZ-OS 26.7 "Maximilian": mpv is the shipped default video player. The Sky1
 # amvx VPU exposes stateful V4L2 M2M decoders; mpv's `hwdec=v4l2m2m-copy` decodes
 # on the VPU and copies frames to the (Mali GLES) presentation path. This is the
-# HW-video FLOOR for the appliance. (Browser HW decode via the cix-vaapi driver
-# fix is a SEPARATE release-track effort — see docs/upstream + the plan doc;
-# 84-vpu-vaapi stays staged, gated on that driver fix. SW browser video is the
-# beta stop-gap.)
+# HW-video FLOOR for the appliance. Browser HW decode via the cix-vaapi driver
+# is now ALSO fixed — see 84-vpu-vaapi.sh (root-caused + hardware-validated
+# 2026-07-27: a VA-API driver-name auto-detection mismatch plus an
+# ld.so.conf.d priority bug were silently breaking it; both fixed, real
+# Chrome hardware AV1/H264/HEVC/VP9 decode confirmed working end-to-end).
 #
 # RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop / run-all.sh).
 set +e
@@ -61,4 +62,4 @@ video/quicktime=mpv.desktop
 MIMEV
 done
 
-echo "[84] /etc/mpv/mpv.conf written (hwdec=v4l2m2m-copy). Browser HW decode = release-track (84-vpu-vaapi, gated on cix-vaapi fix)."
+echo "[84] /etc/mpv/mpv.conf written (hwdec=v4l2m2m-copy). Browser HW decode via VA-API — see 84-vpu-vaapi.sh."

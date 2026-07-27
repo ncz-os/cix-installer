@@ -169,8 +169,12 @@ if [ "$NPU_PY_OK" = "1" ] && [ -n "$LIBNOE_WHL" ]; then
         pip_install --quiet "$NOE_ENGINE_WHL" 2>&1 | tail -2
     fi
     # Make the C lib (libnoe.so.0.6.0) discoverable for the cp311 extension.
+    # "00-" prefix (not "cix-noe.conf") so this wins over aarch64-linux-gnu.conf
+    # -- see the matching fix + full rationale in 25-cix-proprietary.sh, which
+    # normally creates this file first; this is just the fallback if that
+    # guard didn't fire for some reason.
     if [ -d /usr/share/cix/lib ] && ! grep -rqs '/usr/share/cix/lib' /etc/ld.so.conf.d/ 2>/dev/null; then
-        echo "/usr/share/cix/lib" > /etc/ld.so.conf.d/cix-noe.conf
+        echo "/usr/share/cix/lib" > /etc/ld.so.conf.d/00-cix-noe.conf
         ldconfig 2>/dev/null || true
     fi
 elif [ "$NPU_PY_OK" != "1" ]; then
