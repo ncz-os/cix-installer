@@ -9,6 +9,12 @@
 # both pinned "on" during interactive use eliminates the stalls. Confirmed live
 # on O6N. Not a kludge: this trades idle power draw for correctness during
 # active use, reverting to normal power management on logout.
+#
+# Activated TWO ways (both needed, see the systemd drop-in below for why):
+# the greetd PAM session hook (real user login/logout) and a greetd.service
+# systemd drop-in (covers the greeter's own pre-auth session too — the PAM
+# hook alone left the greeter/password-entry screen unprotected, confirmed
+# via live sysfs + a real user report 2026-07-27).
 set -euo pipefail
 
 install -Dm755 /dev/stdin /usr/local/bin/ncz-performance-mode <<'SCRIPT'
@@ -58,3 +64,23 @@ session      optional        pam_exec.so type=open_session  /usr/local/bin/ncz-p
 session      optional        pam_exec.so type=close_session /usr/local/bin/ncz-performance-mode off
 PAM
 fi
+
+# ALSO wire into greetd.service directly (systemd drop-in), not just PAM.
+# Real gap found 2026-07-27, confirmed live on O6N via sysfs (cpuidle
+# disable=0, genpd=auto) + user report: the PAM hook above only fires for
+# the REAL user's login session — it does NOT cover greetd's own greeter
+# session (the pre-authentication password-entry screen), which runs under
+# a separate system account (_greetd) and apparently doesn't traverse this
+# PAM stack the same way. Result: the lag this whole fix targets was still
+# reproducing at the greeter/password-entry screen specifically, gone once
+# the real desktop session (and the PAM hook) kicked in. The systemd
+# ExecStartPre/ExecStopPost pair below covers greetd's entire runtime —
+# greeter included — regardless of PAM session semantics. Idempotent
+# (ncz-performance-mode on/off is safe to call repeatedly); harmless
+# overlap with the PAM hook once a real session also opens.
+install -d -m0755 /etc/systemd/system/greetd.service.d
+cat > /etc/systemd/system/greetd.service.d/ncz-performance-mode.conf <<'DROPIN'
+[Service]
+ExecStartPre=/usr/local/bin/ncz-performance-mode on
+ExecStopPost=/usr/local/bin/ncz-performance-mode off
+DROPIN
