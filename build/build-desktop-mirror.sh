@@ -43,6 +43,12 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$REPO/build/resolute-mirror"
 OUT="$REPO/build/desktop-mirror"
 SEEDFILE="$REPO/manifests/desktop.pkgs"
+# amd64/PEGASUS port: optional arch-specific overlay, unioned into the seed
+# below when present (e.g. manifests/desktop-amd64.pkgs carries the NVIDIA
+# driver stack -- packages that plain do not exist for arm64 in the Ubuntu
+# archive, so they cannot live in the shared desktop.pkgs without breaking
+# the arm64 closure resolve).
+SEEDFILE_ARCH_OVERLAY="$REPO/manifests/desktop-$ARCH.pkgs"
 GAPS="$REPO/build/desktop-mirror.gaps"
 SUITE=resolute
 # amd64/PEGASUS port: ARCH was hardcoded arm64 (not overridable at all).
@@ -182,7 +188,15 @@ apt-cache "${APTOPTS[@]}" pkgnames 2>/dev/null | sort -u > "$ALL_NAMES"
 # seed = the EXPLICIT desktop seed only (no req/imp/std injection — those base
 # priorities are server-mirror's job; the desktop closure pulls its own deps).
 SEED="$T/seed"
-grep -vE '^\s*(#|$)' "$SEEDFILE" | awk '{print $1}' | sort -u > "$SEED"
+{
+    grep -vE '^\s*(#|$)' "$SEEDFILE"
+    if [ -f "$SEEDFILE_ARCH_OVERLAY" ]; then
+        grep -vE '^\s*(#|$)' "$SEEDFILE_ARCH_OVERLAY"
+    fi
+} | awk '{print $1}' | sort -u > "$SEED"
+if [ -f "$SEEDFILE_ARCH_OVERLAY" ]; then
+    echo "  arch overlay: $SEEDFILE_ARCH_OVERLAY"
+fi
 echo "  seed packages (explicit desktop): $(wc -l < "$SEED")"
 
 # split seed into present vs missing-from-ports

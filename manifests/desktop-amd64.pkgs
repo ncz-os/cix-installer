@@ -1,0 +1,18 @@
+# desktop-amd64.pkgs — amd64-only overlay to manifests/desktop.pkgs.
+#
+# Unioned into the offline desktop closure by build-desktop-mirror.sh ONLY
+# when ARCH=amd64 (see SEEDFILE_ARCH_OVERLAY there). These packages do not
+# exist for arm64 in the Ubuntu archive (or are meaningless on CIX Sky1
+# hardware), so they cannot live in the shared manifests/desktop.pkgs
+# without breaking the arm64 closure resolve.
+#
+# NVIDIA proprietary GPU driver stack — installed at runtime by
+# post-install/86-gpu-nvidia.sh. Version pin (595) matches that hook's
+# fallback; both should be bumped together if the archive's recommended
+# version moves on. See 86-gpu-nvidia.sh for the ubuntu-drivers-devices
+# verification this was based on (PEGASUS RTX 2060 Mobile, 2026-07-27).
+nvidia-driver-595-open
+libnvidia-gl-595
+nvidia-prime
+nvidia-settings
+mesa-vulkan-drivers
