@@ -49,6 +49,10 @@ done   # deliberately EXCLUDES assets/rootfs (base tarballs + baked output)
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets/refind"
 [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ] && sudo cp "$ROOT/build/refind-bin/refind_aa64.efi" "$CHROOT/usr/local/lib/cix-installer/assets/refind/" || true
 printf '%s' "$VARIANT" | sudo tee "$CHROOT/usr/local/lib/cix-installer/BUILD_VARIANT" >/dev/null
+# amd64/PEGASUS port: BUILD_ARCH sidecar (see run-all.sh). This script itself
+# remains arm64-only (qemu-aarch64-static chroot + ports.ubuntu.com) -- not
+# ported yet.
+printf 'arm64' | sudo tee "$CHROOT/usr/local/lib/cix-installer/BUILD_ARCH" >/dev/null
 # stage kernel-version sidecars so 10-our-kernel finds them (build-iso.sh stages
 # these at ISO time; the bake must too).
 KM="$CHROOT/usr/local/lib/cix-installer"

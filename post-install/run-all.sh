@@ -34,6 +34,19 @@ REQUIRED_PHASE_OK=0
 NCZ_BAKED=0
 [ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
 [ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
+
+# amd64/PEGASUS port: BUILD_ARCH gate, same pattern as BUILD_VARIANT (r75 M1).
+# build-iso-di.sh / build-baked-rootfs.sh write /usr/local/lib/cix-installer/
+# BUILD_ARCH ("arm64"|"amd64") at build time (mirroring how they write
+# BUILD_VARIANT). Falls back to dpkg --print-architecture if the sidecar is
+# missing (older ISOs built before this existed, or a manual chroot run) so
+# behavior on existing arm64 media is unchanged. CIX Sky1 hardware (VPU/NPU/
+# Mali/sky1-firmware/boot-hygiene/boot-splash/power-perf-mode) has no amd64
+# equivalent -- those hooks are EXCLUDED outright below, not adapted.
+BUILD_ARCH_FILE=/usr/local/lib/cix-installer/BUILD_ARCH
+BUILD_ARCH="$(dpkg --print-architecture 2>/dev/null || uname -m)"
+[ -f "$BUILD_ARCH_FILE" ] && BUILD_ARCH=$(tr -d ' \t\r\n' < "$BUILD_ARCH_FILE")
+CIX_ONLY_HOOKS_RE="^(12-sky1-firmware|16-mesa-gpu-2613|22-display-fix|25-cix-proprietary|26-gpu-default-mali|58-boot-hygiene|60-boot-splash|80-npu|81-vpu|82-mali-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode)\.sh$"
 # r184: the CIX proprietary userland + NPU-userspace hooks were NEVER running on
 # a fresh baked install — they're not in build-squashfs-layers.sh BASE_HOOKS (so
 # not baked into base.squashfs) and the baked-mode filter below only whitelisted
@@ -231,7 +244,17 @@ else
 fi
 for hook in $(ls [0-9][0-9]-*.sh | sort); do
     case "$hook" in
-        12-sky1-firmware.sh|33-network.sh)
+        12-sky1-firmware.sh)
+            if [ "$BUILD_ARCH" != "arm64" ]; then
+                tty_msg "  → $hook SKIPPED (BUILD_ARCH=$BUILD_ARCH — CIX Sky1-only, no amd64 equivalent)"
+                continue
+            fi
+            if [ "$NCZ_BAKED" = 1 ]; then
+                tty_msg "  → $hook SKIPPED (baked image)"
+                continue
+            fi
+            ;;
+        33-network.sh)
             if [ "$NCZ_BAKED" = 1 ]; then
                 tty_msg "  → $hook SKIPPED (baked image)"
                 continue
@@ -270,6 +293,10 @@ REQUIRED_PHASE_OK=1
 set +e
 tty_msg "Phase 2: optional hooks (desktop + agents + brand + ssh + ...)"
 OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | grep -vE '^(0[0-9]|10-our-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network|70-bootloader|99-diagnostics)\.sh$')
+if [ "$BUILD_ARCH" != "arm64" ]; then
+    OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -vE "$CIX_ONLY_HOOKS_RE" || true)
+    tty_msg "BUILD_ARCH=$BUILD_ARCH — CIX Sky1-only hooks excluded (VPU/NPU/Mali/sky1-firmware/boot-splash/power-perf-mode)"
+fi
 if [ "$NCZ_BAKED" = 1 ]; then
     OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -E "$MACHINE_HOOKS_RE" || true)
     tty_msg "Phase 2: baked image — running only machine-specific hooks: $OPT_HOOKS"

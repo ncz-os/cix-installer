@@ -2111,6 +2111,13 @@ echo "$BUILD_DATE"  > "$EXTRA/BUILD_DATE"
 echo "$BUILD_HOST"  > "$EXTRA/BUILD_HOST"
 echo "$MODE"        > "$EXTRA/BUILD_MODE"
 echo "$VARIANT"     > "$EXTRA/BUILD_VARIANT"   # r75 M1: read by 48-server-variant.sh
+# amd64/PEGASUS port: read by post-install/run-all.sh to gate out CIX Sky1-only
+# hooks (VPU/NPU/Mali/sky1-firmware/boot-splash/power-perf-mode) on non-arm64
+# media. This script (build-iso-di.sh) is itself still arm64-only end to end
+# (cross-compiled aarch64 zstd, Debian arm64 netinst + binary-arm64 udebs) --
+# this line is a forward-compatible sidecar write, not a claim that an amd64
+# ISO can be produced by this script yet.
+echo "arm64"        > "$EXTRA/BUILD_ARCH"
 # r40 full mode: stage the pre-built rootfs tarball so the debootstrap stub
 # can populate /target without a real bootstrap.
 if [ "$STAGE_ROOTFS" = "1" ]; then
