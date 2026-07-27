@@ -303,13 +303,38 @@ static void sky1_power_model_work_handler(struct work_struct *work)
 {
 	struct kbase_device *kbdev = container_of(work, struct kbase_device, sky1_power_work);
 	u32 power;
-	u32 static_power = get_sky1_static_power(kbdev);
+	u32 static_power;
 
 	mutex_lock(&kbdev->ipa.lock);
+	/*
+	 * PROPOSED FIX (2026-07-26, NCZ 7.0.12-cix-sky1-next mali_kbase port,
+	 * UNTESTED ON HARDWARE): kbase_ipa_init() -- which populates
+	 * kbdev->ipa.{configured,fallback}_model -- runs from
+	 * kbase_backend_devfreq_init()/kbase_devfreq_init(), called during
+	 * kbase_device_init(). platform_late_init_func() (which starts the
+	 * hrtimer that queues this handler) is a separate, earlier-firing
+	 * hook with no ordering guarantee relative to devfreq/IPA init
+	 * completing first. On 7.0.12-cix-sky1-next this window was
+	 * previously unreachable (sky1_gpu_attach_pd()'s "perf" power-domain
+	 * attach permanently EPROBE_DEFERed before probe ever got this far);
+	 * once that's fixed (see the 2027/2028 kernel patches), this
+	 * handler's very first invocation can race ahead of kbase_ipa_init()
+	 * and call kbase_get_real_power_locked() -> get_current_model() with
+	 * both model pointers still NULL, which NULL-derefs on
+	 * model->ops->get_dynamic_coeff (confirmed via addr2line against a
+	 * real crash: mali_kbase_ipa.c:679, kbase_get_real_power_locked+0xb0).
+	 * Skip this sample if IPA isn't registered yet; the hrtimer re-arms
+	 * unconditionally and will retry on the next tick once it is.
+	 */
+	if (!kbdev->ipa.configured_model && !kbdev->ipa.fallback_model) {
+		mutex_unlock(&kbdev->ipa.lock);
+		return;
+	}
 	kbase_get_real_power_locked(kbdev, &power, kbdev->current_nominal_freq,
 						(kbdev->current_voltages[0] / 1000));
 	mutex_unlock(&kbdev->ipa.lock);
 
+	static_power = get_sky1_static_power(kbdev);
 	if(power > static_power)
 			power -= static_power;
 

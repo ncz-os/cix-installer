@@ -2,11 +2,16 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 26 Jul 2026 23:37:00 -0400
 Subject: [PATCH] platform/sky1: guard sky1_power_model_work_handler against
- NULL IPA model (PROPOSED, NOT HARDWARE-VALIDATED)
+ NULL IPA model
 
-STATUS: compiles clean (vermagic 7.0.12-cix-sky1-next SMP preempt
-mod_unload aarch64 confirmed), NOT YET BOOT-TESTED on real hardware.
-Do not treat as verified until it has been.
+STATUS (2026-07-27): HARDWARE-VALIDATED on real O6N. Booted with this
+patch applied (2027+2028 SCMI probe-order fixes also present) and the
+sky1_power_model_work_handler/kbase_get_real_power_locked NULL-deref
+crash this patch targets did NOT recur — confirmed via full serial
+console capture through the boot. mali_kbase now gets past this specific
+race cleanly. (A DIFFERENT, unrelated NULL-deref was hit later in the
+same boot, in devfreq's clk_round_rate path — see README.md, that is a
+separate latent bug this patch does not address.)
 
 Real crash observed on cixmini/O6N with the 2027+2028 SCMI-perf-domain
 probe-order fixes applied (those fix the original mali_kbase EPROBE_DEFER

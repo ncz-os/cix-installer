@@ -68,15 +68,15 @@ the lag A/B question remains **open**, not answered, on this kernel.
     (`armchina CIXH4000:00: ... probe done`, `Protected memory allocator
     initialization ...`) that were never reached before.
 
-## What does not work yet — NEW crash discovered 2026-07-27, blocks GPU use
+## Crash #1 (2026-07-27) — FIXED, hardware-validated
 
 With 2027+2028 applied, mali_kbase probes far enough to reach
 `kbase_platform_sky1_late_init()`, whose hrtimer immediately queues
 `sky1_power_model_work_handler()`. On real O6N hardware this crashed the
 board (kernel oops escalating to a full reset — the machine ended up
-requiring a physical power-cycle to recover; **do not treat this combo as
-safe to boot-test unsupervised**). Root-caused from the serial console
-crash trace + `addr2line` against a debug-symbol build of `mali_kbase.ko`:
+requiring a physical power-cycle to recover). Root-caused from the serial
+console crash trace + `addr2line` against a debug-symbol build of
+`mali_kbase.ko`:
 
 ```
 [    6.945344]   FSC = 0x04: level 0 translation fault
@@ -97,13 +97,45 @@ unreachable before** — probe never got past the perf-domain attach far
 enough to run `late_init` at all. Fixing the probe blocker is what exposed
 it.
 
-**Proposed (NOT hardware-validated) fix**:
-`patches/candidate-untested/0001-platform-sky1-guard-against-NULL-IPA-model-PROPOSED-UNTESTED.patch`
-— guards `sky1_power_model_work_handler()` to skip the sample if neither
-IPA model pointer is populated yet (hrtimer re-arms and retries next
-tick). **Compiles clean** (vermagic confirmed), **has not been boot-tested**
-— O6N hardware testing is paused pending operator supervision after the
-crash above. Do not deploy without that.
+**Fix**: `patches/0002-platform-sky1-guard-against-NULL-IPA-model.patch` —
+guards `sky1_power_model_work_handler()` to skip the sample if neither IPA
+model pointer is populated yet (hrtimer re-arms and retries next tick).
+**Hardware-validated 2026-07-27**: booted with this patch + 2027/2028 on
+real O6N, full serial capture through the boot — this specific crash did
+not recur. Applied to `src/` in this package.
+
+## Crash #2 (2026-07-27) — NEW, found immediately after fixing #1, NOT fixed
+
+With crash #1 fixed, the very next boot attempt (same session, same
+hardware) hit a **different** NULL-pointer-deref, in the generic devfreq
+subsystem, unrelated to mali_kbase's own IPA code:
+
+```
+[    4.381991] mali CIXH5000:00: Protected memory allocator initialization failed error = -517
+[    6.837403] Unable to handle kernel NULL pointer dereference at virtual address 000000000000002e
+[    6.841052] Internal error: Oops: 0000000096000004 [#1]  SMP
+[    7.031755] Workqueue: devfreq_wq devfreq_monitor
+[    7.043410] pc : clk_round_rate+0x50/0x3d0
+[    7.161112]  devfreq_update_target+0xc8/0xe8
+[    7.165372]  devfreq_monitor+0x3c/0x1d0
+[    7.169197]  process_one_work+0x168/0x508
+[    7.198797] Kernel panic - not syncing: Oops: Fatal exception
+```
+
+Same class of bug as crash #1 (a periodic/deferred callback — here
+devfreq's monitor workqueue — firing before something it depends on is
+fully initialized, here apparently a `clk` pointer passed into
+`clk_round_rate()` that's still NULL). Not yet root-caused or fixed. The
+board auto-recovered via `panic=30` (no physical power-cycle needed this
+time), so this crash is less severe operationally than #1, but it still
+means **mali_kbase does not yet reach a stable, usable state on 7.0.12** —
+the lag A/B investigation this package exists for is still blocked. Not
+yet investigated: whether this is in mali_kbase's own devfreq
+registration path or a generic kernel/clk-framework race exposed the same
+way crash #1 was — needs the same kind of cross-reference against how
+mali_kbase's devfreq init orders itself relative to clk availability.
+**Do not boot-test this combo unsupervised** — while this particular
+occurrence auto-recovered, that isn't guaranteed.
 
 ## To continue this work (manual, opt-in only)
 
@@ -118,12 +150,14 @@ sudo dkms install -m cix-gpu-kmd-70012 -v 1.0.0 -k $(uname -r)
 This kernel-side prerequisite (2027+2028) must also be present — it's a
 kernel patch, not a DKMS driver change, so it lives in the meta-cix
 `linux-cix-sky1-next` recipe, not in this directory. Without it, mali_kbase
-reverts to permanent `-EPROBE_DEFER` and never reaches the code the
-untested patch above guards. **With just 2027+2028 and no crash guard,
-the board can crash/hang on boot** — apply the candidate-untested patch
-first if you're going to boot-test this again, and get O6N hardware time
-from the operator (do not power-cycle/reboot O6N without supervision;
-this combo already required a manual physical recovery once).
+reverts to permanent `-EPROBE_DEFER` and never reaches the code patch 0002
+guards. Patch 0002 is now applied to `src/` in this package (hardware-
+validated, see "Crash #1" above) and fixes that specific race — but
+**Crash #2 (devfreq/clk_round_rate, not yet fixed) means this combo can
+still panic the board.** Do not power-cycle/reboot O6N with this combo
+without operator supervision — both crashes found so far have required
+either a physical recovery or relied on `panic=30` auto-reboot, which is
+not guaranteed to work for every possible fault.
 
 ## Provenance
 
