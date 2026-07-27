@@ -38,10 +38,25 @@ if [ ! -f "$VARSTORE" ]; then
     truncate -s 64m "$VARSTORE"
 fi
 
+# Accelerate with KVM when running on real aarch64 hardware with /dev/kvm
+# access (e.g. cixmini, O6N) -- TCG software-emulates the CPU otherwise,
+# which is dramatically slower for a full d-i/partman/debootstrap/apt run.
+# -cpu host is only valid under KVM (1:1 passthrough); -cpu max is the
+# TCG equivalent (emulate the best available virtual CPU) and is what's
+# needed for cross-arch hosts (e.g. an x86_64/macOS dev box) where KVM
+# can't apply at all.
+ACCEL_ARGS=(-cpu max)
+if [ "$(uname -m)" = "aarch64" ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+    echo "[qemu] KVM available on $(uname -m) host -- accelerating"
+    ACCEL_ARGS=(-enable-kvm -cpu host)
+else
+    echo "[qemu] no usable KVM (host=$(uname -m)) -- falling back to TCG (slower)"
+fi
+
 echo "[qemu] booting $ISO with $EDK2_CODE"
 exec qemu-system-aarch64 \
     -M virt \
-    -cpu max \
+    "${ACCEL_ARGS[@]}" \
     -smp 4 -m 4096 \
     -drive if=pflash,format=raw,readonly=on,file="$EDK2_CODE" \
     -drive if=pflash,format=raw,file="$VARSTORE" \
@@ -52,5 +67,5 @@ exec qemu-system-aarch64 \
     -boot d \
     -netdev user,id=net0 \
     -device virtio-net-pci,netdev=net0 \
-    -display gtk,gl=off \
+    -display none \
     -serial stdio
