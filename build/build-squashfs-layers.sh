@@ -239,7 +239,7 @@ build_layer(){ local role="$1" manifest="$2"
 build_base(){
   log "BASE: extract resolute base"
   sudo rm -rf "$WORK/base"; mkdir -p "$WORK/base"
-  tar -I 'zstd -d' -xf "$BASE_TARBALL" -C "$WORK/base"
+  sudo tar -I 'zstd -d' -xf "$BASE_TARBALL" -C "$WORK/base"
   mount_chroot "$WORK/base"
   # r190.2: same needrestart-hang fix as build_layer() below -- base hooks
   # (10-our-kernel etc) also apt-install packages and can hit the same
