@@ -77,9 +77,16 @@ if [ "$TOTAL_BITS" -le 0 ]; then
     exit 0
 fi
 
-# Housekeeping (A520) gets roughly a quarter of the ways, rounded up to
-# min_cbm_bits and never less than min_cbm_bits, never the whole mask
-# (that would leave A720 with nothing).
+# Housekeeping (A520) gets 1/4 of the ways == Stuart's explicit numbers
+# (A520 4MB of a 16MB total L3, A720 keeps the other 12MB -- 4:16 = 1/4).
+# Expressed as a ratio, not a hardcoded MB figure, because resctrl's
+# native unit is cache ways, not bytes, and hardcoding "4MB" would
+# require trusting the same ACPI cache-size reporting that's already
+# broken on this platform (the PPTT gap, cixtech/cix_opensource__linux#1)
+# -- the ratio lands on his numbers exactly regardless of what the real
+# total L3 size turns out to be, without needing to trust that path.
+# Rounded up to min_cbm_bits, never less than min_cbm_bits, never the
+# whole mask (that would leave A720 with nothing).
 HK_BITS=$(( TOTAL_BITS / 4 ))
 [ "$HK_BITS" -lt "$MIN_BITS" ] && HK_BITS=$MIN_BITS
 if [ "$HK_BITS" -ge "$TOTAL_BITS" ]; then
