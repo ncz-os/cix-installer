@@ -9,6 +9,30 @@
 #
 # This is enough to validate the preseed + post-install pipeline; the
 # kernel-side hardware bits stay testable on real MS-R1 only.
+#
+# 2026-07-28: restored real visibility into the d-i menu/console. The
+# 2026-07-27 headless-display fix (20731d1) swapped `-display gtk,gl=off`
+# for `-display none` to stop crashing over SSH (no DISPLAY/X11) -- correct
+# for that bug, but it silently removed the ONLY channel that ever showed
+# d-i boot progress (every prior "dozens of working installers" run relied
+# on that GTK window). No serial-console compensation was added at the same
+# time, so headless runs since then have shown nothing after the GRUB
+# banner -- easy to mistake for a hang. This add-back is TWO independent,
+# additive fixes, neither touches the ISO or its shipped kernel cmdline:
+#   1. -vnc + a real virtio-gpu-pci framebuffer + periodic QMP screendumps
+#      to $SCREENSHOT_DIR, so d-i's actual on-screen menu is inspectable
+#      headless (open the .ppm files, or point a VNC client at the printed
+#      port) without requiring X11 forwarding.
+#   2. -serial stdio was ALREADY present in every version; it only became
+#      useful once earlycon/console=ttyAMA0 is also present on the booted
+#      kernel cmdline. That change is intentionally NOT made here or to the
+#      shipped ISO -- earlycon=pl011,<addr> does a raw early MMIO probe
+#      before any device-tree/ACPI validation, and unconditionally baking a
+#      QEMU-only physical address into the real product cmdline risks
+#      touching something unrelated on real Sky1 hardware. Use
+#      qemu-test-console-patch.sh to produce a QEMU-only *copy* of the ISO
+#      with earlycon added, and pass THAT copy to this script, when kernel-
+#      level (not just d-i-menu-level) serial visibility is needed.
 
 set -euo pipefail
 
@@ -53,8 +77,22 @@ else
     echo "[qemu] no usable KVM (host=$(uname -m)) -- falling back to TCG (slower)"
 fi
 
+# VNC display number: bind to the first free port from 5999 up, headless-safe
+# (no DISPLAY/X11 needed -- a VNC client is optional, screendumps work either
+# way). QMP socket drives periodic `screendump` captures of the same
+# framebuffer so a fully unattended run still leaves visual evidence.
+VNC_DISPLAY="${QEMU_TEST_VNC_DISPLAY:-1}"
+QMP_SOCK="${ISO%.iso}-qmp.sock"
+rm -f "$QMP_SOCK"
+
+SCREENSHOT_DIR="${ISO%.iso}-screenshots"
+mkdir -p "$SCREENSHOT_DIR"
+rm -f "$SCREENSHOT_DIR"/*.ppm
+
 echo "[qemu] booting $ISO with $EDK2_CODE"
-exec qemu-system-aarch64 \
+echo "[qemu] VNC: 127.0.0.1:$((5900 + VNC_DISPLAY)) (display :$VNC_DISPLAY) -- screendumps -> $SCREENSHOT_DIR"
+
+qemu-system-aarch64 \
     -M virt \
     "${ACCEL_ARGS[@]}" \
     -smp 4 -m 4096 \
@@ -67,5 +105,35 @@ exec qemu-system-aarch64 \
     -boot d \
     -netdev user,id=net0 \
     -device virtio-net-pci,netdev=net0,romfile= \
+    -device virtio-gpu-pci \
     -display none \
-    -serial stdio
+    -vnc "127.0.0.1:${VNC_DISPLAY}" \
+    -qmp "unix:${QMP_SOCK},server,nowait" \
+    -serial stdio &
+QEMU_PID=$!
+
+# Periodic QMP screendump in the background -- best-effort: if the QMP
+# socket never appears (older qemu, permissions) this just quietly does
+# nothing, it never fails the boot test itself.
+(
+    n=0
+    for _ in $(seq 1 60); do
+        [ -S "$QMP_SOCK" ] && break
+        sleep 1
+    done
+    [ -S "$QMP_SOCK" ] || exit 0
+    while kill -0 "$QEMU_PID" 2>/dev/null; do
+        n=$((n + 1))
+        printf '{"execute":"qmp_capabilities"}\n{"execute":"screendump","arguments":{"filename":"%s/frame-%03d.ppm"}}\n' \
+            "$SCREENSHOT_DIR" "$n" | timeout 5 socat - "UNIX-CONNECT:${QMP_SOCK}" >/dev/null 2>&1 || true
+        sleep 5
+    done
+) &
+SNAPSHOT_PID=$!
+
+wait "$QEMU_PID" || true
+kill "$SNAPSHOT_PID" 2>/dev/null || true
+rm -f "$QMP_SOCK"
+
+SHOT_COUNT=$(find "$SCREENSHOT_DIR" -name '*.ppm' 2>/dev/null | wc -l | tr -d ' ')
+echo "[qemu] captured $SHOT_COUNT screendump(s) in $SCREENSHOT_DIR"
