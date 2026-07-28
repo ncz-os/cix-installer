@@ -1586,6 +1586,36 @@ tar xzf "$INSTALLER_TGZ" -C "$WORK"
 [ -d "$WORK/lib/modules/$KVER_INSTALLER" ] || \
     { echo "ERROR: tarball didn't extract to lib/modules/$KVER_INSTALLER"; exit 1; }
 
+# r211: prune target-only driver categories before they hit the d-i initrd.
+# $INSTALLER_TGZ is the FULL target-system module tree (same artifact the
+# installed OS uses), dumped into this overlay unfiltered. It grew from a
+# reasonable size to 124M+ (compressed) as the LTS kernel gained features
+# over time (e.g. the 2026-06-17 Sky1 audio stack port) — none of which a
+# text-mode d-i bootstrap environment (no GPU, no audio, no camera, wired
+# ethernet only per the rtl_nic note above) has any use for. On real O6N
+# hardware this eventually exceeded a firmware-level load-size limit: GRUB
+# hard-resets the board mid initrd-load instead of handing off to the
+# kernel (confirmed 2026-07-28, serial-captured — SE_FW/BL2/BL31 restart
+# immediately after "Loading initrd...", no kernel messages ever appear).
+# Cut only unambiguously target-only categories D-I's partman/netcfg never
+# touch; keep storage/fs/net/usb/platform drivers d-i genuinely needs.
+PRUNE_MOD_DIRS="drivers/gpu drivers/media sound drivers/bluetooth"
+PRUNE_NET_DIRS="bluetooth mac80211 wireless"
+_pruned_bytes=0
+for d in $PRUNE_MOD_DIRS; do
+    p="$WORK/lib/modules/$KVER_INSTALLER/kernel/$d"
+    [ -d "$p" ] || continue
+    _pruned_bytes=$((_pruned_bytes + $(du -sk "$p" | cut -f1)))
+    rm -rf "$p"
+done
+for d in $PRUNE_NET_DIRS; do
+    p="$WORK/lib/modules/$KVER_INSTALLER/kernel/net/$d"
+    [ -d "$p" ] || continue
+    _pruned_bytes=$((_pruned_bytes + $(du -sk "$p" | cut -f1)))
+    rm -rf "$p"
+done
+echo "    pruned target-only modules (gpu/media/sound/bluetooth/wireless): $((_pruned_bytes / 1024))M"
+
 depmod -a -b "$WORK" "$KVER_INSTALLER"
 [ -f "$WORK/lib/modules/$KVER_INSTALLER/modules.dep" ] || \
     { echo "ERROR: depmod failed"; exit 1; }
