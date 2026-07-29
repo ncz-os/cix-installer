@@ -209,6 +209,39 @@ md5sum /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 ||
 wc -c /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 || true
 echo
 
+# r196 CRITICAL: generate /etc/machine-id NOW, at install time, in the target.
+# The baked Ubuntu-cloud rootfs ships an EMPTY /etc/machine-id (regenerated
+# per-instance by cloud-init/systemd first boot). We de-cloud, and dbus.service
+# starts EARLY at boot (sysinit/basic target) — well before ncz-firstboot's
+# multi-user machine-id fixup runs. With an empty machine-id, dbus.service
+# FAILS on the very first boot, and EVERYTHING that needs the system bus
+# cascades: NetworkManager (=> no network), polkit, systemd-logind (=> greetd
+# never starts => no GUI/Singularity), upower, bluetooth, wpa_supplicant. This
+# was the "total regression since r194 — no network, no GUI" the operator hit
+# on O6N metal (mali+dbus failures visible on the console). Writing a real,
+# per-install-unique machine-id here (each d-i run generates its own) makes the
+# system bus come up cleanly on boot #1. Also point /var/lib/dbus/machine-id at
+# it (dbus reads that path on some layouts). Deterministic; runs every install.
+echo "--- r196: seeding /etc/machine-id in target (dbus/NetworkManager/greetd depend on it) ---"
+if [ ! -s /target/etc/machine-id ]; then
+    if chroot /target systemd-machine-id-setup 2>/dev/null && [ -s /target/etc/machine-id ]; then
+        echo "    machine-id generated via systemd-machine-id-setup: $(cat /target/etc/machine-id)"
+    elif chroot /target dbus-uuidgen > /target/etc/machine-id 2>/dev/null && [ -s /target/etc/machine-id ]; then
+        echo "    machine-id generated via dbus-uuidgen: $(cat /target/etc/machine-id)"
+    else
+        # last resort: 32 hex chars from the kernel RNG
+        tr -cd '0-9a-f' < /dev/urandom 2>/dev/null | head -c 32 > /target/etc/machine-id
+        echo "    machine-id generated via urandom fallback: $(cat /target/etc/machine-id)"
+    fi
+else
+    echo "    /etc/machine-id already populated: $(cat /target/etc/machine-id)"
+fi
+# dbus system bus reads /var/lib/dbus/machine-id; keep it in sync with /etc/machine-id
+mkdir -p /target/var/lib/dbus
+ln -sf /etc/machine-id /target/var/lib/dbus/machine-id 2>/dev/null || \
+    cp -f /target/etc/machine-id /target/var/lib/dbus/machine-id 2>/dev/null || true
+echo
+
 # Codex A2 CRITICAL #2 fix: Mount /cdrom inside /target so post-install
 # hooks can `apt-get install` from our offline mirror via file:///cdrom.
 # Without this, FULL/THIN mode 10-our-kernel.sh + 70-bootloader.sh +
