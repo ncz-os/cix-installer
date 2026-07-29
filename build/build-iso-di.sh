@@ -1586,6 +1586,32 @@ tar xzf "$INSTALLER_TGZ" -C "$WORK"
 [ -d "$WORK/lib/modules/$KVER_INSTALLER" ] || \
     { echo "ERROR: tarball didn't extract to lib/modules/$KVER_INSTALLER"; exit 1; }
 
+# 2026-07-29: DECOMPRESS any .ko.xz modules for the d-i initrd. The kernel
+# builds now ship xz-compressed modules (CONFIG_MODULE_COMPRESS_XZ) — fine
+# for the installed system, FATAL for the installer: bookworm's kmod UDEB
+# (the d-i initrd's module loader) cannot decompress xz. Empirically proven
+# on cixmini via the initrd's own binary in a chroot:
+#     insmod linlon-dp.ko.xz -> "Invalid module format"   (raw xz bytes
+#                                handed to the kernel, rejected)
+#     insmod linlon-dp.ko    -> "File exists"             (decoded fine,
+#                                module already loaded on the host)
+# Its "+XZ" feature banner is not backed by any lzma code in the minimized
+# udeb build (zero lzma strings in the binary; zstd is dlopen'd, xz simply
+# absent). With every overlay module unloadable, d-i can't load linlondp ->
+# no video console on O6N -> black-screen installer even after the
+# drivers/gpu prune fix. Decompressing here keeps the target-system .ko.xz
+# benefits while giving d-i plain .ko it can actually load; the depmod
+# below then records the .ko names. Size cost is acceptable: the initrd's
+# own gzip still compresses the ELF payload, and a 130MB initrd is proven
+# to reach kernel handoff on real O6N hardware.
+_kxz_count=$(find "$WORK/lib/modules/$KVER_INSTALLER" -name '*.ko.xz' | wc -l)
+if [ "$_kxz_count" -gt 0 ]; then
+    find "$WORK/lib/modules/$KVER_INSTALLER" -name '*.ko.xz' -exec xz -d {} +
+    _kxz_left=$(find "$WORK/lib/modules/$KVER_INSTALLER" -name '*.ko.xz' | wc -l)
+    [ "$_kxz_left" -eq 0 ] || { echo "ERROR: $_kxz_left .ko.xz modules failed to decompress"; exit 1; }
+    echo "    decompressed $_kxz_count .ko.xz modules -> plain .ko (d-i kmod udeb cannot read xz)"
+fi
+
 # r211: prune target-only driver categories before they hit the d-i initrd.
 # $INSTALLER_TGZ is the FULL target-system module tree (same artifact the
 # installed OS uses), dumped into this overlay unfiltered. It grew from a
