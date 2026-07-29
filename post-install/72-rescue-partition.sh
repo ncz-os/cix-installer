@@ -108,6 +108,50 @@ if ! zstd -dc "$TARBALL" | tar -xpf - -C "$MNT" --numeric-owner; then
     exit 0
 fi
 
+# --- auto-network + remote recovery access (operator directive 2026-07-29) ---
+# A rescue partition that can't be reached over the network is useless when
+# the failure being recovered from is a bricked main-kernel boot -- physical
+# console access may not be available. DHCP on any wired interface via
+# systemd-networkd, plus ssh (already shipped/enabled in the base rescue
+# rootfs image) so recovery is reachable purely over the LAN. Idempotent:
+# safe to re-run (plain overwrite, no appends).
+echo "[72] configuring rescue rootfs auto-network + remote access"
+mkdir -p "$MNT/etc/systemd/network"
+cat > "$MNT/etc/systemd/network/20-wired-dhcp.network" <<'NETCFG'
+[Match]
+Type=ether
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+
+[DHCP]
+RouteMetric=100
+UseDNS=yes
+NETCFG
+mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
+ln -sf /usr/lib/systemd/system/systemd-networkd.service \
+    "$MNT/etc/systemd/system/multi-user.target.wants/systemd-networkd.service"
+mkdir -p "$MNT/etc/systemd/system/network-online.target.wants"
+ln -sf /usr/lib/systemd/system/systemd-networkd-wait-online.service \
+    "$MNT/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service"
+ln -sf /run/systemd/resolve/stub-resolv.conf "$MNT/etc/resolv.conf" 2>/dev/null || true
+if [ -f "$MNT/usr/lib/systemd/system/ssh.service" ]; then
+    mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
+    ln -sf /usr/lib/systemd/system/ssh.service "$MNT/etc/systemd/system/multi-user.target.wants/ssh.service"
+    echo "[72]   ssh.service enabled"
+else
+    echo "[72]   WARN: ssh.service not present in rescue rootfs image (openssh-server not baked into build/build-rescue-rootfs.sh?)"
+fi
+if [ -f "$MNT/usr/lib/systemd/system/inetd.service" ] || [ -x "$MNT/usr/sbin/telnetd" ] || [ -x "$MNT/usr/sbin/in.telnetd" ]; then
+    mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
+    for svc in inetd.service telnet.socket; do
+        [ -f "$MNT/usr/lib/systemd/system/$svc" ] && ln -sf "/usr/lib/systemd/system/$svc" "$MNT/etc/systemd/system/multi-user.target.wants/$svc"
+    done
+    echo "[72]   telnet available and enabled (console fallback, LAN-only per fleet doctrine)"
+fi
+echo "[72] auto-network + remote access configured"
+
 # --- install EDGE kernel + modules into the rescue rootfs ---
 # Modules MUST go in via --keep-directory-symlink (never plain -C /): the
 # tarball carries a top-level lib/ entry, and on a usrmerge rootfs /lib is a
