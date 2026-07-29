@@ -280,8 +280,23 @@ elif grep -q '^panthor ' /proc/modules 2>/dev/null; then
     export NCZ_GPU_BACKEND __EGL_VENDOR_LIBRARY_FILENAMES VK_LOADER_LAYERS_DISABLE WLR_DRM_NO_MODIFIERS
     if [ -n "$LD_LIBRARY_PATH" ]; then export LD_LIBRARY_PATH; else unset LD_LIBRARY_PATH; fi
 else
+    # r206: NO usable GPU stack — Mali (/dev/mali0 + mali_kbase) absent AND
+    # panthor not loaded. Happens when the accelerator drivers don't come up on
+    # this kernel (e.g. Mali kbase not ready on 7.2-rc5, panthor blacklisted on
+    # the Mali boot entry). Without forcing software rendering here, labwc/the
+    # singularity-greeter find NO renderer, exit non-zero, and greetd RESTARTS
+    # them in a tight loop -> the boot-flooding "start request repeated" storm +
+    # plymouth never hands off (the operator's 2026-07-29 "ton of plymouth/dmesg
+    # errors, no GUI"). Force wlroots(pixman) + Mesa(llvmpipe) CPU rendering so
+    # the greeter/session STILL COME UP (degraded, software-rendered) on the
+    # linlondp display. A visible software desktop beats a looping black screen;
+    # once the GPU stack is healthy the Mali/panthor branch above takes over.
     NCZ_GPU_BACKEND=software
-    export NCZ_GPU_BACKEND
+    WLR_RENDERER=pixman
+    WLR_RENDERER_ALLOW_SOFTWARE=1
+    LIBGL_ALWAYS_SOFTWARE=1
+    GALLIUM_DRIVER=llvmpipe
+    export NCZ_GPU_BACKEND WLR_RENDERER WLR_RENDERER_ALLOW_SOFTWARE LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER
 fi
 GPUENV
 chmod 0755 /usr/local/bin/ncz-gpu-env
