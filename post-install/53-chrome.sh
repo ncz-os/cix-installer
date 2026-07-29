@@ -36,11 +36,24 @@ if [ ! -x /usr/bin/google-chrome-stable ]; then
     exit 0
 fi
 
-# --- keep the image CDROM-only: neutralise the repo google apt source the
-#     .deb postinst wrote (r180 apt-setup doctrine). Keyrings stay (harmless). ---
-for s in /etc/apt/sources.list.d/google-chrome.list; do
-    [ -f "$s" ] && mv -f "$s" "$s.disabled" && echo "[53] disabled network apt source $(basename "$s") (image stays CDROM-only)"
-done
+# --- KEEP Google's apt repo ENABLED on the installed system (operator
+#     directive 2026-07-29) so Chrome auto-updates from dl.google.com. The
+#     r180 CDROM-only doctrine applies to the INSTALLER image, not the
+#     installed desktop. The chrome .deb postinst already wrote
+#     /etc/apt/sources.list.d/google-chrome.list (signed-by the
+#     /usr/share/keyrings/google-chrome.gpg keyring it also installs). Re-enable
+#     it if a prior build disabled it, and verify the keyring it references is
+#     present so `apt update` doesn't NO_PUBKEY-fail on it. ---
+CHROME_SRC=/etc/apt/sources.list.d/google-chrome.list
+[ -f "$CHROME_SRC.disabled" ] && mv -f "$CHROME_SRC.disabled" "$CHROME_SRC"
+if [ -f "$CHROME_SRC" ]; then
+    echo "[53] Chrome apt repo ENABLED: $(grep -v '^#' "$CHROME_SRC" 2>/dev/null | grep -m1 dl.google.com)"
+    if [ ! -f /usr/share/keyrings/google-chrome.gpg ] && ! ls /etc/apt/keyrings/google-chrome*.asc >/dev/null 2>&1; then
+        echo "[53] WARN: google-chrome.list present but its signing keyring is missing — apt update will fail on it"
+    fi
+else
+    echo "[53] NOTE: chrome deb postinst wrote no google-chrome.list — Chrome installed but has no auto-update repo"
+fi
 
 # --- NOT the default browser: Vivaldi keeps that role. Register Chrome as a
 #     lower-priority x-www-browser alternative so it's a real, selectable
