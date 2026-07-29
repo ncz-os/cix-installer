@@ -28,6 +28,7 @@
 #include "panthor_gpu.h"
 #include "panthor_hw.h"
 #include "panthor_mmu.h"
+#include "panthor_sky1.h"
 #include "panthor_pwr.h"
 #include "panthor_sched.h"
 
@@ -314,8 +315,9 @@ static int panthor_sky1_resets_init(struct panthor_device *ptdev)
  * explicitly out-of-scope gap: an earlier NCZ patch for the 7.1.1 branch
  * (0037-gpu-panthor-fix-suspend-resume-for-sky1) added an equivalent
  * reset-cycle replay to a dedicated resume_noirq hook for exactly that
- * case. This fix does not port that noirq scaffolding -- it targets only
- * the probe-time hard hang that has actual hardware evidence behind it.
+ * case. That replay is now ported (NCZ 0188 equivalent):
+ * panthor_device_resume_noirq() below re-runs this cycle after STR,
+ * before the forced runtime resume re-enables clocks.
  */
 static int panthor_sky1_hw_reset_cycle(struct panthor_device *ptdev)
 {
@@ -371,6 +373,20 @@ int panthor_pm_domain_init(struct panthor_device *ptdev)
 	 * the GPU's SCMI "power-domains" genpd is absent. Mirror mali_kbase.
 	 */
 	if (panthor_is_sky1(ptdev)) {
+		/*
+		 * Best-effort raw SMC SCMI power-on first (CIX 7.1 reference
+		 * path, NCZ 0186): asks TFA to power GPU domain 21 and open
+		 * IDM non-secure access to the GPU register block. On O6N
+		 * firmware the ACPI power-supply (_PR0) attach below is the
+		 * proven un-secure mechanism, so a failure here is logged,
+		 * not fatal.
+		 */
+		err = sky1_gpu_power_on(ptdev);
+		if (err)
+			dev_warn(dev,
+				 "Sky1: SMC SCMI GPU power-on failed (%d); relying on ACPI power-supply path\n",
+				 err);
+
 		if (has_acpi_companion(dev)) {
 			err = panthor_sky1_attach_power_supply(ptdev);
 			if (err)
@@ -1069,4 +1085,29 @@ int panthor_device_suspend(struct device *dev)
 	clk_disable_unprepare(ptdev->clks.core);
 	atomic_set(&ptdev->pm.state, PANTHOR_DEVICE_PM_STATE_SUSPENDED);
 	return 0;
+}
+
+int panthor_device_suspend_noirq(struct device *dev)
+{
+	return pm_runtime_force_suspend(dev);
+}
+
+int panthor_device_resume_noirq(struct device *dev)
+{
+	struct panthor_device *ptdev = dev_get_drvdata(dev);
+	int ret;
+
+	/*
+	 * Sky1: suspend-to-RAM cuts the GPU power domain, losing the IP-reset
+	 * state and the RCSU Q-channel clock-gate enable bit. Re-run power-on
+	 * steps 3-5 before the forced runtime resume re-enables clocks and
+	 * panthor_device_resume() touches GPU MMIO. (NCZ 0188 equivalent.)
+	 */
+	if (panthor_is_sky1(ptdev) && panthor_device_is_initialized(ptdev)) {
+		ret = panthor_sky1_hw_reset_cycle(ptdev);
+		if (ret)
+			return ret;
+	}
+
+	return pm_runtime_force_resume(dev);
 }

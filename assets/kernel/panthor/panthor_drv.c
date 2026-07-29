@@ -1893,10 +1893,19 @@ static const struct acpi_device_id panthor_acpi_match[] = {
 };
 #endif
 
-static DEFINE_RUNTIME_DEV_PM_OPS(panthor_pm_ops,
-				 panthor_device_suspend,
-				 panthor_device_resume,
-				 NULL);
+/*
+ * System sleep: the noirq phase runs pm_runtime_force_{suspend,resume}
+ * (see panthor_device_{suspend,resume}_noirq). On Sky1 the resume_noirq
+ * hook re-runs the IP-reset + RCSU Q-channel cycle before clocks are
+ * re-enabled via the forced runtime resume. Combined with
+ * DPM_FLAG_NO_DIRECT_COMPLETE this guarantees a full hardware re-init
+ * on every suspend-to-RAM cycle. (NCZ 0188 equivalent.)
+ */
+static const struct dev_pm_ops panthor_pm_ops = {
+	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(panthor_device_suspend_noirq,
+				      panthor_device_resume_noirq)
+	RUNTIME_PM_OPS(panthor_device_suspend, panthor_device_resume, NULL)
+};
 
 static struct platform_driver panthor_driver = {
 	.probe = panthor_probe,

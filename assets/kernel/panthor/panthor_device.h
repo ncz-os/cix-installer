@@ -432,6 +432,8 @@ int panthor_device_mmap_io(struct panthor_device *ptdev,
 
 int panthor_device_resume(struct device *dev);
 int panthor_device_suspend(struct device *dev);
+int panthor_device_resume_noirq(struct device *dev);
+int panthor_device_suspend_noirq(struct device *dev);
 
 static inline int panthor_device_resume_and_get(struct panthor_device *ptdev)
 {
