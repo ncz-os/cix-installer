@@ -132,6 +132,33 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
+# ----------------------------------------------------------------------
+# 26.7 preflight guard — full desktop ISOs MUST carry the bake-time assets
+# whose silent absence shipped two dead regressions (2026-07-29):
+#   1. assets/cix-debs/*.deb  → 25-cix-proprietary.sh "skipping" → no
+#      libmali/EGL/GLES userspace → Wayland greeter has no GL → dead GUI.
+#   2. assets/rescue/rescue-rootfs.tar.zst → 72-rescue-partition.sh
+#      "skipping" → 4GB NCZRESCUE partition ships EMPTY, no RESCUE_READY,
+#      no rEFInd "RESCUE PARTITION" entry.
+# Both used to be WARN+skip in the staging loop below; for the shipping
+# configuration (--mode full --variant desktop) they are now hard failures.
+# netinstall/thin stay permissive (assets install online / by design).
+# ----------------------------------------------------------------------
+if [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ]; then
+    if ! ls "$ROOT/assets/cix-debs"/*.deb >/dev/null 2>&1; then
+        echo "ERROR: assets/cix-debs/ has no *.deb — full desktop ISO would install with NO CIX GPU userspace (libmali/EGL/GLES) and boot to a dead greeter." >&2
+        echo "  Remediation: stage the validated CIX proprietary userland set (cix-gpu-umd, cix-libglvnd, cix-mesa, cix-noe-umd_2.0.2, cix-gstreamer, firmware, ...)" >&2
+        echo "  from the canonical asset store (ARGOS ~/cix-installer-build/cix-installer/assets/cix-debs/) into assets/cix-debs/." >&2
+        echo "  See post-install/25-cix-proprietary.sh for the expected install/skip set." >&2
+        exit 1
+    fi
+    if [ ! -s "$ROOT/assets/rescue/rescue-rootfs.tar.zst" ]; then
+        echo "ERROR: assets/rescue/rescue-rootfs.tar.zst missing/empty — full desktop ISO would leave the 4GB NCZRESCUE partition EMPTY (no RESCUE_READY, no rEFInd rescue entry)." >&2
+        echo "  Remediation: run 'sudo bash build/build-rescue-rootfs.sh' on an arm64 build host (needs network + debootstrap), then rebuild." >&2
+        exit 1
+    fi
+fi
+
 # Drift guard: surface kernel/NPU manifest drift (e.g. NPU vermagic != KVER)
 # before building the ISO. Non-fatal by default; STRICT_MANIFEST=1 makes it abort.
 if [ -f "$ROOT/build/kernel-manifest.py" ]; then
@@ -2025,6 +2052,10 @@ if [ -d "$ROOT/assets" ]; then
                 cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true
                 if [ -f "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" ]; then
                     echo "    rescue-rootfs.tar.zst staged: $(du -h "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" | cut -f1)"
+                elif [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ]; then
+                    echo "ERROR: assets/rescue present but rescue-rootfs.tar.zst missing — full desktop ISO must ship a populated rescue partition." >&2
+                    echo "  Remediation: sudo bash build/build-rescue-rootfs.sh, then rebuild." >&2
+                    exit 1
                 else
                     echo "    assets/rescue present but rescue-rootfs.tar.zst missing — run build/build-rescue-rootfs.sh (rescue partition will be left empty)"
                 fi
@@ -2059,6 +2090,12 @@ if [ -d "$ROOT/assets" ]; then
                     *) cp -aL "$f" "$EXTRA/assets/cix-debs/" 2>/dev/null || true ;;
                 esac
             done
+            STAGED_CIX_DEBS=$(find "$EXTRA/assets/cix-debs" -maxdepth 1 -name '*.deb' | wc -l | tr -d ' ')
+            if [ "$STAGED_CIX_DEBS" = "0" ] && [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ]; then
+                echo "ERROR: 0 CIX proprietary .debs staged — full desktop ISO would have no GPU userspace (dead greeter). Populate assets/cix-debs/ (see 25-cix-proprietary.sh)." >&2
+                exit 1
+            fi
+            echo "    cix-debs staged: $STAGED_CIX_DEBS packages"
             ;;
         *) cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true ;;
         esac
