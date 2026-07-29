@@ -1640,9 +1640,25 @@ fi
 # cut (nouveau 23M, msm 11M, etc.) is gone at kernel-config level now
 # (2026-07-28 thinning), so keeping drivers/gpu costs only the small
 # CIX display stack + DRM helpers.
-PRUNE_MOD_DIRS="drivers/media sound drivers/bluetooth"
+# 2026-07-29 (third and final piece of the black-screen chain): drivers/media
+# must be pruned SELECTIVELY, not wholesale — drivers/media/cec/core/cec.ko is
+# a hard dependency of drm_display_helper (metal serial trace: 14 unresolved
+# cec_* symbols, "drm_display_helper: Unknown symbol cec_delete_adapter
+# (err -2)"), and without drm_display_helper the linlondp/trilin display stack
+# cannot load, so keeping drivers/gpu alone (705f0f2) still left the installer
+# with no video. Keep drivers/media/cec; prune the rest of media below.
+PRUNE_MOD_DIRS="sound drivers/bluetooth"
+MEDIA_DIR="$WORK/lib/modules/$KVER_INSTALLER/kernel/drivers/media"
+if [ -d "$MEDIA_DIR" ]; then
+    for p in "$MEDIA_DIR"/*; do
+        [ "$(basename "$p")" = "cec" ] && continue
+        _pruned_bytes=$((${_pruned_bytes:-0} + $(du -sk "$p" | cut -f1)))
+        rm -rf "$p"
+    done
+    echo "    media pruned selectively (kept drivers/media/cec — drm_display_helper dependency)"
+fi
 PRUNE_NET_DIRS="bluetooth mac80211 wireless"
-_pruned_bytes=0
+_pruned_bytes=${_pruned_bytes:-0}
 for d in $PRUNE_MOD_DIRS; do
     p="$WORK/lib/modules/$KVER_INSTALLER/kernel/$d"
     [ -d "$p" ] || continue
@@ -1655,7 +1671,7 @@ for d in $PRUNE_NET_DIRS; do
     _pruned_bytes=$((_pruned_bytes + $(du -sk "$p" | cut -f1)))
     rm -rf "$p"
 done
-echo "    pruned target-only modules (media/sound/bluetooth/wireless — gpu KEPT for O6N video console): $((_pruned_bytes / 1024))M"
+echo "    pruned target-only modules (media-except-cec/sound/bluetooth/wireless — gpu+cec KEPT for O6N video): $((_pruned_bytes / 1024))M"
 
 depmod -a -b "$WORK" "$KVER_INSTALLER"
 [ -f "$WORK/lib/modules/$KVER_INSTALLER/modules.dep" ] || \
