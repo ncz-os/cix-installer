@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-07-29T01:46:11Z",
+  "generated_utc": "2026-07-29T03:36:28Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
@@ -25,14 +25,14 @@
       "dir": "assets/kernel/edge",
       "image": {
         "file": "assets/kernel/edge/Image-cixmini.bin",
-        "sha256": "686d557feadb991c29fe8f5e4b873150864fe5c08055d533d0ae72012ca74346",
+        "sha256": "445b07430b033b70d8d20d84cda0a9c5dea15c61775875bbb6ff21a12d1040ae",
         "size": 42818048
       },
       "kver": "7.2.0-rc5-sky1-ncz",
       "modules": {
         "file": "assets/kernel/edge/modules-cixmini.tgz",
-        "sha256": "40518ea2029fc59623933fb88bb6a53140393f646987fa17630ff51ac1c04445",
-        "size": 3666162
+        "sha256": "6239cc340026600cf0ffe0a07e6090ec3c10802979b3f91321f594603506997e",
+        "size": 5556041
       },
       "npu": {
         "file": "assets/kernel/edge/modules-cixmini.tgz:lib/modules/7.2.0-rc5-sky1-ncz/kernel/drivers/misc/armchina-npu/armchina_npu.ko.xz",
@@ -45,19 +45,19 @@
     "lts": {
       "config": {
         "file": "assets/kernel/stable/config-7.0.12-cix-sky1-next",
-        "sha256": "170ce87de7b121f2341503d4f9963f7913dda3d0ceb389b5fdf28e5ac36f6de3"
+        "sha256": "05f04b0d53fcf34c79ae1863e9b63f17bd87dca1135b7a88082dd80038f08e8d"
       },
       "dir": "assets/kernel/stable",
       "image": {
         "file": "assets/kernel/stable/Image-cixmini.bin",
-        "sha256": "ab61bb6cf3d14a7084a444c569a6913867aaa276a4a490efbdda0545fbf4926b",
+        "sha256": "c0a85c2e72a5aef2a799c2254e09504486d36d5cf7ed7a44255b62956c9f32eb",
         "size": 36768256
       },
       "kver": "7.0.12-cix-sky1-next",
       "modules": {
         "file": "assets/kernel/stable/modules-cixmini.tgz",
-        "sha256": "767f952c2364138ecb8ae098cb13674e6cf40cfb9c6d54ecc8b3fa732af513a4",
-        "size": 32354907
+        "sha256": "4af2ece4aa73c35eccbbb88d97182154cc28571734e9ed03121fa4e51542932c",
+        "size": 40171558
       },
       "npu": {
         "file": "assets/kernel/stable/modules-cixmini.tgz:lib/modules/7.0.12-cix-sky1-next/kernel/drivers/misc/armchina-npu/armchina_npu.ko.xz",
