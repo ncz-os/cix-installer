@@ -33,6 +33,20 @@
 #      qemu-test-console-patch.sh to produce a QEMU-only *copy* of the ISO
 #      with earlycon added, and pass THAT copy to this script, when kernel-
 #      level (not just d-i-menu-level) serial visibility is needed.
+#
+# 2026-07-28 (second fix, same day): the ISO used to be attached as a SCSI
+# CD-ROM (-device scsi-cd). Once (1)+(2) above restored real visibility,
+# d-i's cdrom-detect stage failed outright: "Your installation media
+# couldn't be mounted" -> Retry dialog -> silently parks forever (looked
+# identical to a hang again). Root cause: CONFIG_BLK_DEV_SR (the sr_mod
+# SCSI-CDROM driver) is NOT built into the Sky1 kernel -- confirmed absent
+# from the config from before ANY of this session's thinning work, so this
+# was never a regression. It's absent because real deployment has never
+# used a CD-ROM: the ISO is dd'd/Ventoy'd to a USB flash drive and boots
+# through usb-storage + the generic block layer, never through sr_mod at
+# all. Attaching the ISO as usb-storage here instead of scsi-cd matches
+# that real deployment path exactly (both are read-only whole-disk block
+# devices carrying the same ISO9660 filesystem) and needs no kernel change.
 
 set -euo pipefail
 
@@ -99,9 +113,9 @@ qemu-system-aarch64 \
     -drive if=pflash,format=raw,readonly=on,file="$EDK2_CODE" \
     -drive if=pflash,format=raw,file="$VARSTORE" \
     -drive if=virtio,file="$DISK",format=qcow2 \
-    -drive if=none,id=cd,format=raw,file="$ISO",readonly=on \
-    -device virtio-scsi-pci,id=scsi0 \
-    -device scsi-cd,drive=cd \
+    -drive if=none,id=isousb,format=raw,file="$ISO",readonly=on \
+    -device usb-ehci,id=usb0 \
+    -device usb-storage,bus=usb0.0,drive=isousb,removable=on \
     -boot d \
     -netdev user,id=net0 \
     -device virtio-net-pci,netdev=net0,romfile= \
