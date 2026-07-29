@@ -157,6 +157,17 @@ if [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ]; then
         echo "  Remediation: run 'sudo bash build/build-rescue-rootfs.sh' on an arm64 build host (needs network + debootstrap), then rebuild." >&2
         exit 1
     fi
+    #   3. assets/sinty-nm/sinty-nmd -> 20-desktop.sh "falling back to
+    #      NetworkManager" -> desktop ships the WRONG network manager. The
+    #      Singularity desktop MUST use sinty-nm (owns org.freedesktop.NetworkManager,
+    #      wired DHCP via rtnetlink + built-in DHCP client, WiFi via iwd); NM is the
+    #      SERVER-variant manager only. The binary is a gitignored bake-time blob.
+    if [ ! -s "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
+        echo "ERROR: assets/sinty-nm/sinty-nmd missing/empty -- full desktop ISO would SILENTLY fall back to NetworkManager (post-install/20-desktop.sh), shipping the wrong network manager for the Singularity desktop." >&2
+        echo "  Remediation: build with build-sinty-nm.sh (docker Go 1.25, clones singularityos-lab/sinty-nm, builds cmd/sinty-nmd), then cp out/sinty-nmd -> assets/sinty-nm/sinty-nmd (chmod 0755). On cixmini: cp ~/sinty-build/nm-build/out/sinty-nmd assets/sinty-nm/sinty-nmd." >&2
+        echo "  Verify: file assets/sinty-nm/sinty-nmd  # ELF 64-bit ... ARM aarch64 ... statically linked" >&2
+        exit 1
+    fi
 fi
 
 # Drift guard: surface kernel/NPU manifest drift (e.g. NPU vermagic != KVER)
