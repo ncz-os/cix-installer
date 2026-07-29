@@ -1599,7 +1599,22 @@ tar xzf "$INSTALLER_TGZ" -C "$WORK"
 # immediately after "Loading initrd...", no kernel messages ever appear).
 # Cut only unambiguously target-only categories D-I's partman/netcfg never
 # touch; keep storage/fs/net/usb/platform drivers d-i genuinely needs.
-PRUNE_MOD_DIRS="drivers/gpu drivers/media sound drivers/bluetooth"
+#
+# 2026-07-29: drivers/gpu REMOVED from the prune list — that cut was the
+# real cause of the "installer black screen" chased for two days. On O6N
+# the firmware GOP/efifb handoff does not work (metal-confirmed: a target
+# boot sits on "Console: colour dummy device" until the linlondp DRM
+# MODULE probes at ~2.9s and only then switches to a framebuffer console).
+# So the linlondp/trilin modules in this initrd are the ONLY possible
+# video console for d-i on that board — pruning drivers/gpu made every
+# installer boot a permanent black screen that was indistinguishable from
+# the pre-kernel hang this prune was meant to fix (and the d-i cmdline's
+# console=ttyAMA2 is MS-R1-only, so serial was silent on O6N too — no
+# diagnostic channel survived). The foreign-GPU bloat that motivated the
+# cut (nouveau 23M, msm 11M, etc.) is gone at kernel-config level now
+# (2026-07-28 thinning), so keeping drivers/gpu costs only the small
+# CIX display stack + DRM helpers.
+PRUNE_MOD_DIRS="drivers/media sound drivers/bluetooth"
 PRUNE_NET_DIRS="bluetooth mac80211 wireless"
 _pruned_bytes=0
 for d in $PRUNE_MOD_DIRS; do
@@ -1614,7 +1629,7 @@ for d in $PRUNE_NET_DIRS; do
     _pruned_bytes=$((_pruned_bytes + $(du -sk "$p" | cut -f1)))
     rm -rf "$p"
 done
-echo "    pruned target-only modules (gpu/media/sound/bluetooth/wireless): $((_pruned_bytes / 1024))M"
+echo "    pruned target-only modules (media/sound/bluetooth/wireless — gpu KEPT for O6N video console): $((_pruned_bytes / 1024))M"
 
 depmod -a -b "$WORK" "$KVER_INSTALLER"
 [ -f "$WORK/lib/modules/$KVER_INSTALLER/modules.dep" ] || \
