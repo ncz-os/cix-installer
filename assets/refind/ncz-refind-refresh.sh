@@ -288,7 +288,15 @@ if [ -n "$RESCUE_KVER" ]; then
         RESCUE_HAS_INITRD=1
     fi
 
-    RESCUE_EXTRA_BLACKLIST="armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_vpu,trilin_drm,trilin_dpsub,linlondp,linlondp_drv,cix_display"
+    # r205: blacklist the COMPUTE ACCELERATORS ONLY (NPU / GPU / VPU-codec) —
+    # NEVER the DISPLAY pipeline. O6N has NO firmware efifb/GOP, so linlondp
+    # (+ linlondp_drv, cix_display, and the trilin DP display bridge) is the
+    # ONLY thing that lights the panel. Blacklisting it (the old list did) gave
+    # a guaranteed BLACK rescue on O6N — the exact failure the operator hit
+    # 2026-07-29, and exactly what mem feedback_di_initrd_module_prune_rules
+    # warns against. Keep display KMS; drop only the crash-prone accelerators
+    # a rescue exists to avoid (mali/panthor GPU, armchina NPU, cix/linlon VPU).
+    RESCUE_EXTRA_BLACKLIST="armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_vpu"
     RESCUE_EXISTING_BL=$(printf '%s\n' "$RESCUE_CMDLINE_BASE" \
         | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
     RESCUE_CMDLINE_NOBL=$(printf '%s\n' "$RESCUE_CMDLINE_BASE" \
@@ -299,7 +307,13 @@ if [ -n "$RESCUE_KVER" ]; then
         RESCUE_MERGED_BL="$RESCUE_EXTRA_BLACKLIST"
     fi
     RESCUE_CMDLINE_SAFE="$RESCUE_CMDLINE_NOBL module_blacklist=$RESCUE_MERGED_BL"
-    RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_SAFE systemd.unit=rescue.target"
+    # r205: boot a NETWORKED multi-user rescue, not systemd.unit=rescue.target.
+    # rescue.target is single-user (root-password prompt, NO network) -> the
+    # box is unreachable over ssh, the other half of the operator's 2026-07-29
+    # report ("no network"). With the GPU/NPU/VPU blacklisted the desktop stack
+    # can't crash-loop, so a normal multi-user boot gives a reachable shell:
+    # serial getty on ttyAMA0 + tty console on linlondp + networkd/NM + sshd.
+    RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_SAFE"
 fi
 
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
