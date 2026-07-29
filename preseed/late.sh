@@ -843,5 +843,14 @@ fi
 # even when run-all.sh returned 0, so finish-install surfaces the failure and
 # does NOT reboot into an unbootable install.
 echo "[late r174] no rEFInd at /target/boot/efi/EFI/BOOT/BOOTAA64.EFI -> install is NOT bootable; refusing clean reboot"
-if [ "$RET" = "0" ]; then exit 1; fi
-exit $RET
+# r203: exit non-zero robustly. This must surface a failure to finish-install,
+# but `exit $RET` assumed RET is numeric — if RET is non-numeric (observed once
+# as the string "OK") the sh builtin dies with "exit: Illegal number: OK",
+# which STILL exits non-zero but spams a confusing error over the real cause.
+# Force a clean numeric exit: any non-"0"/non-numeric RET (including empty)
+# reports as 1; a genuine numeric non-zero RET is passed through unchanged.
+case "$RET" in
+    0)          exit 1 ;;                       # bootloader missing despite rc=0
+    ''|*[!0-9]*) exit 1 ;;                      # non-numeric/empty RET
+    *)          exit "$RET" ;;                  # genuine numeric failure code
+esac

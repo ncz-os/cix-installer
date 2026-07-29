@@ -69,7 +69,18 @@ INSTALLED_KERNELS=0
 
 if [ -n "$KVER_LTS" ]; then
     echo "  [lts] apt-get install linux-image-cixmini-lts"
-    apt-get install -y --no-install-recommends linux-image-cixmini-lts
+    # r203: --force-overwrite. The lts + edge channel packages can transiently
+    # ship the SAME versioned /boot files (e.g. a baked edge at
+    # 7.0.12-cix-sky1-next+r98 and an incoming lts at 7.0.12-cix-sky1-next+r202
+    # both own /boot/config-7.0.12-cix-sky1-next), so dpkg aborts the unpack
+    # with a cross-package overwrite error — which, under `set -e`, killed the
+    # whole hook -> REQUIRED_PHASE_OK=0 -> 70-bootloader skipped -> empty ESP ->
+    # r174 "not bootable" -> "late.sh failed". Both packages are first-party and
+    # the colliding file is a benign kernel config/vmlinuz whose final owner is
+    # correct once both channels settle on distinct unames (lts=7.0.12-next,
+    # edge=7.2.0-rc5), so force-overwrite is safe here.
+    apt-get install -y --no-install-recommends \
+        -o Dpkg::Options::=--force-overwrite linux-image-cixmini-lts
     lts_ok=1
     if [ ! -s "/boot/vmlinuz-$KVER_LTS" ]; then
         echo "WARN: linux-image-cixmini-lts installed, but /boot/vmlinuz-$KVER_LTS is missing"
@@ -98,7 +109,10 @@ fi
 
 if [ -n "$KVER_NEXT" ]; then
     echo "  [next] apt-get install linux-image-cixmini-edge"
-    apt-get install -y --no-install-recommends linux-image-cixmini-edge
+    # r203: same --force-overwrite rationale as the lts block above (transient
+    # cross-channel /boot filename overlap must not abort the required phase).
+    apt-get install -y --no-install-recommends \
+        -o Dpkg::Options::=--force-overwrite linux-image-cixmini-edge
     edge_ok=1
     if [ ! -s "/boot/vmlinuz-$KVER_NEXT" ]; then
         echo "WARN: linux-image-cixmini-edge installed, but /boot/vmlinuz-$KVER_NEXT is missing"
