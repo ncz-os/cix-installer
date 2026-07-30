@@ -24,10 +24,10 @@
 #
 # Ordering is late ON PURPOSE. An early-sysinit ESP-writing guard once bricked
 # the O6N via a systemd dependency cycle (2026-07-xx). This unit uses
-# DefaultDependencies=yes and runs After=systemd-udev-settle / Before=
-# the display manager. The rescan is deliberately allowed to run in parallel
-# with the greeter: a slow controller rebind must not hold back the splash or
-# desktop, while the re-enumerated keyboard remains available once complete.
+# DefaultDependencies=yes and runs After=systemd-udev-settle. It first gives
+# the physical keyboard a short chance to finish its normal late enumeration;
+# it only resets controllers when that recovery is actually needed. This avoids
+# stealing a healthy keyboard from the greeter and avoids a needless boot stall.
 # Verified cycle-free with `systemd-analyze verify`.
 set -uo pipefail
 
@@ -42,11 +42,28 @@ cat > /usr/local/sbin/ncz-usb2-rescan <<'EOF'
 # boots the SuperSpeed root is up while the USB2 companion is empty; on others
 # NOTHING enumerates on the affected controller at all. So an "SuperSpeed-up +
 # USB2-empty" signature is too narrow (misses the everything-empty case, observed
-# 2026-07-22 on O6N r198). Instead rebind every xhci controller that has NO USB
-# mass-storage device downstream — that reliably re-triggers hub/HID enumeration
-# while never disturbing a USB boot/data drive mid-I/O. A rebind of a healthy
-# controller only causes a brief re-enumeration blip, invisible pre-login.
+# 2026-07-22 on O6N r198). First wait briefly for the normal VIA hub/HID path to
+# finish enumerating. Only if no keyboard appears do we rebind controllers with
+# no USB mass-storage device downstream; that re-triggers hub/HID enumeration
+# while never disturbing a USB boot/data drive mid-I/O.
 set -u
+
+# On a healthy O6 boot, the USB hub and keyboard arrive late. Resetting an xHCI
+# controller while that is already happening creates a visible input delay and
+# holds the graphical target. Treat a discovered keyboard as success; this unit
+# is a recovery mechanism, not a normal-boot optimization.
+for try in 1 2 3 4 5 6; do
+  for name in /sys/class/input/input*/name; do
+    [ -r "$name" ] || continue
+    if grep -qi 'keyboard' "$name"; then
+      logger -t ncz-usb2-rescan "keyboard present; recovery not needed"
+      exit 0
+    fi
+  done
+  sleep 1
+done
+logger -t ncz-usb2-rescan "no keyboard after 6s; starting controller recovery"
+
 DRV=/sys/bus/platform/drivers/xhci-hcd
 declare -A has_storage
 for u in /sys/bus/usb/devices/usb*; do
