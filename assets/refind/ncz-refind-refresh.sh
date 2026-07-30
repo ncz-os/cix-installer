@@ -270,6 +270,18 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     PANTHOR_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,mali_kbase,memory_group_manager,protected_memory_allocator/')
 fi
 
+# Stable recovery boot: keep display KMS available, but remove the compute
+# accelerators that can wedge a damaged installation.  multi-user.target is
+# intentional: it starts networkd/NetworkManager and SSH for remote repair.
+LTS_SAFE_OPTIONS=""
+if [ "$LTS_AVAILABLE" = "1" ]; then
+    LTS_SAFE_EXTRA_BLACKLIST="armchina_npu,panthor,mali,bifrost,amvx,cix_vpu,linlon_vpu"
+    LTS_SAFE_EXISTING_BL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
+    LTS_SAFE_CMDLINE_NOBL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
+    [ -n "$LTS_SAFE_EXISTING_BL" ] && LTS_SAFE_MERGED_BL="$LTS_SAFE_EXISTING_BL,$LTS_SAFE_EXTRA_BLACKLIST" || LTS_SAFE_MERGED_BL="$LTS_SAFE_EXTRA_BLACKLIST"
+    LTS_SAFE_OPTIONS="$ROOT_OPTS $LTS_SAFE_CMDLINE_NOBL module_blacklist=$LTS_SAFE_MERGED_BL systemd.unit=multi-user.target"
+fi
+
 if [ "$LTS_AVAILABLE" = "1" ]; then
     RESCUE_KVER="$KVER_LTS"
     RESCUE_CMDLINE_BASE="$LTS_CMDLINE_BASE"
@@ -307,7 +319,7 @@ if [ -n "$RESCUE_KVER" ]; then
     # 2026-07-29, and exactly what mem feedback_di_initrd_module_prune_rules
     # warns against. Keep display KMS; drop only the crash-prone accelerators
     # a rescue exists to avoid (mali/panthor GPU, armchina NPU, cix/linlon VPU).
-    RESCUE_EXTRA_BLACKLIST="armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_vpu"
+    RESCUE_EXTRA_BLACKLIST="armchina_npu,panthor,mali,bifrost,amvx,cix_vpu,linlon_vpu"
     RESCUE_EXISTING_BL=$(printf '%s\n' "$RESCUE_CMDLINE_BASE" \
         | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
     RESCUE_CMDLINE_NOBL=$(printf '%s\n' "$RESCUE_CMDLINE_BASE" \
@@ -332,7 +344,7 @@ RESCUEPART_OPTIONS=""
 if [ -f "$RESCUE_READY" ] && [ "$LTS_AVAILABLE" = "1" ]; then
     RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
     if [ -n "$RESCUEPART_PARTUUID" ]; then
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootdelay=90 rootfstype=ext4 rw $LTS_CMDLINE_BASE module_blacklist=armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_vpu systemd.unit=multi-user.target"
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootdelay=90 rootfstype=ext4 rw $LTS_CMDLINE_BASE module_blacklist=armchina_npu,panthor,mali,bifrost,amvx,cix_vpu,linlon_vpu systemd.unit=multi-user.target"
         echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding rEFInd rescuepart entry (LTS + normal display cmdline)"
     else
         echo "  rescue-partition marker present but no PARTUUID — skipping rescuepart entry"
@@ -380,7 +392,7 @@ fi
 # is present.  7.2 remains available as an explicit menu choice, while the
 # dedicated rescue entry is accelerator-blacklisted and network-enabled.
 if [ "$LTS_AVAILABLE" = "1" ]; then
-    DEFAULT_TOKEN="stable"
+    DEFAULT_TOKEN="safe"
 elif [ "$NEXT_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="Mali"
 else
@@ -404,34 +416,32 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$LTS_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  stable — kernel $KVER_LTS\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 SAFE — networked, accelerators disabled\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
-        echo "    options \"$LTS_OPTIONS\""
+        echo "    options \"$LTS_SAFE_OPTIONS\""
         echo "}"
         echo
     fi
     if [ "$NEXT_AVAILABLE" = "1" ]; then
-        # 26.7 ships Mali-only. The 7.2 (Panthor) entry is DELIBERATELY not
-        # emitted: panthor on 7.2 hangs at boot flooding "IDM: GPU secure
-        # access" — with acpi_scmi_en=off (required for PCIe/nvme) the SCMI
-        # power-domain that un-secures the GPU is unavailable, so panthor
-        # touches a secured GPU (metal-confirmed 2026-07-22). The clock
-        # con_id fix (patch 0086) is in-tree and correct, but the GPU
-        # power-domain work is a follow-up UPDATE, which re-adds this entry.
-        # PANTHOR_OPTIONS is still computed above so the update only needs to
-        # restore the menuentry once the power-domain fix lands.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 (Mali) — kernel $KVER_NEXT [DEFAULT]\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 MALI — kernel $KVER_NEXT\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$MALI_OPTIONS\""
         echo "}"
         echo
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 PANTHOR — patched ACPI power-on\" {"
+        echo "    loader  /vmlinuz-$KVER_NEXT"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
+        echo "    options \"$PANTHOR_OPTIONS\""
+        echo "}"
+        echo
     fi
     if [ -n "$RESCUE_PIN" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  rescue — $RESCUE_PIN (safe: no NPU/GPU/VPU/KMS)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  rescue fallback — $RESCUE_PIN\" {"
         echo "    loader  /vmlinuz-$RESCUE_PIN"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$RESCUE_HAS_INITRD" = "1" ] && echo "    initrd  /initrd.img-$RESCUE_PIN"
