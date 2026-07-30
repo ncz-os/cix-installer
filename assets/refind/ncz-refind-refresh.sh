@@ -276,6 +276,12 @@ fi
 # Stable recovery boot: keep display KMS available, but remove the compute
 # accelerators that can wedge a damaged installation.  multi-user.target is
 # intentional: it starts networkd/NetworkManager and SSH for remote repair.
+LTS_PANTHOR_OPTIONS=""
+if [ "$LTS_AVAILABLE" = "1" ]; then
+    LTS_PANTHOR_OPTIONS="$ROOT_OPTS $LTS_CMDLINE_BASE"
+    [ -n "$SPLASH" ] && LTS_PANTHOR_OPTIONS="$LTS_PANTHOR_OPTIONS $SPLASH"
+fi
+
 LTS_SAFE_OPTIONS=""
 if [ "$LTS_AVAILABLE" = "1" ]; then
     LTS_SAFE_EXTRA_BLACKLIST="armchina_npu,panthor,mali,bifrost,amvx,cix_vpu,linlon_vpu"
@@ -427,6 +433,16 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo "}"
         echo
     fi
+    if [ "$LTS_AVAILABLE" = "1" ]; then
+        echo "menuentry "$NCZ_RELEASE_SHORT  ·  7.0.12 PANTHOR — in-tree ACPI driver" {"
+        echo "    loader  /vmlinuz-$KVER_LTS"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
+        echo "    options "$LTS_PANTHOR_OPTIONS""
+        echo "}"
+        echo
+    fi
+
     if [ "$NEXT_AVAILABLE" = "1" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 MALI — kernel $KVER_NEXT\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
