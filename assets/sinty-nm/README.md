@@ -39,6 +39,10 @@ Stage the resulting `sinty-nmd` here (or fetch from
 `.66:/home/jasonperlow/sinty-build/nm-build/out/sinty-nmd`).
 `build/build-squashfs-layers.sh` copies it into the ISO at desktop-layer bake time.
 
+For NCZ-OS 26.7, build from Sinty commit `7a5d49e` or later. That revision marks
+its optional iwd D-Bus calls `FlagNoAutoStart`, preventing a 25-second boot delay
+on wired-only O6 systems where iwd is correctly skipped for lack of Wi-Fi hardware.
+
 ## Notes
 
 - sinty-nm writes `/etc/resolv.conf` **directly**, so it must be a writable
