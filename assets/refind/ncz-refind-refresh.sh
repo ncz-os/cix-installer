@@ -434,11 +434,11 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ "$LTS_AVAILABLE" = "1" ]; then
-        echo "menuentry "$NCZ_RELEASE_SHORT  ·  7.0.12 PANTHOR — in-tree ACPI driver" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 PANTHOR — in-tree ACPI driver\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
-        echo "    options "$LTS_PANTHOR_OPTIONS""
+        echo "    options \"$LTS_PANTHOR_OPTIONS\""
         echo "}"
         echo
     fi
