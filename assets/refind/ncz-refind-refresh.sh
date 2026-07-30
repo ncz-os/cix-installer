@@ -268,6 +268,9 @@ PANTHOR_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     MALI_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,panthor/')
     PANTHOR_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,mali_kbase,memory_group_manager,protected_memory_allocator/')
+    # Panthor ACPI power-on needs the SCMI clock/power provider so TFA grants
+    # GPU IDM non-secure access. Mali and SAFE retain acpi_scmi_en=off.
+    PANTHOR_OPTIONS=${PANTHOR_OPTIONS/acpi_scmi_en=off/acpi_scmi_en=on}
 fi
 
 # Stable recovery boot: keep display KMS available, but remove the compute
