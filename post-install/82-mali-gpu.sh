@@ -84,11 +84,37 @@ else
     echo "[82] cix-gpu-dkms deb or dkms absent — relying on pre-built overlay"
 fi
 
-# --- 3. auto-load mali_kbase at boot (out-of-tree, no ACPI auto-load) -------
+# --- 3. auto-load mali_kbase only on a kernel that actually provides it -----
+# A global modules-load.d entry is evaluated by BOTH installed kernels. It
+# therefore makes the stable 7.0 fallback log a false module-load error even
+# though mali_kbase intentionally exists only for edge 7.2. Use a conditional
+# oneshot: modinfo is evaluated against the running kernel and exit 1 from an
+# ExecCondition is a clean skip, while a real modprobe failure on edge remains
+# visible as a failed unit.
 if [ "$installed" -gt 0 ] || [ -e "$KDIR/updates/mali_kbase.ko" ] || [ -e "$KDIR/updates/mali_kbase.ko.xz" ]; then
-    printf 'mali_kbase\n' > /etc/modules-load.d/cix-mali.conf
-    echo "[82] mali_kbase set to auto-load at boot (/etc/modules-load.d/cix-mali.conf)"
+    rm -f /etc/modules-load.d/cix-mali.conf
+    cat > /etc/systemd/system/ncz-mali-kbase-load.service <<'EOF'
+[Unit]
+Description=Load NCZ mali_kbase when the running kernel provides it
+After=systemd-modules-load.service
+Before=greetd.service display-manager.service graphical.target
+
+[Service]
+Type=oneshot
+ExecCondition=/usr/sbin/modinfo mali_kbase
+ExecStart=/usr/sbin/modprobe mali_kbase
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl enable ncz-mali-kbase-load.service >/dev/null 2>&1 || \
+        echo "[82] WARN: could not enable ncz-mali-kbase-load.service" >&2
+    echo "[82] mali_kbase conditional loader enabled (edge loads; stable skips cleanly)"
 else
+    rm -f /etc/modules-load.d/cix-mali.conf \
+          /etc/systemd/system/ncz-mali-kbase-load.service \
+          /etc/systemd/system/multi-user.target.wants/ncz-mali-kbase-load.service
     echo "[82] mali_kbase not installed — NOT adding modules-load (avoids a load failure loop)"
 fi
 

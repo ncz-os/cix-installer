@@ -358,7 +358,7 @@ cat > "$CHROOT/etc/motd" <<EOF
   -----------------------------------------------------
   Read /AGENTS.md for system facts, drivers, boot model, and recovery steps.
   Helpers:  ncz-rescue-fixlib <root>   ncz-rescue-chroot <dev>
-  Access:   telnet :23   ssh root@host   dropbear :2222   serial ttyAMA2@115200
+  Access:   telnet :23   ssh root@host   dropbear :2222   serial ttyAMA0/ttyAMA2@115200
   Net fallback: $RESCUE_STATIC_IP (gw $RESCUE_STATIC_GW) if DHCP fails.
 
 EOF
@@ -374,6 +374,12 @@ fi
 
 # Drop apt lists to shrink the tarball.
 rm -rf "$CHROOT/var/lib/apt/lists/"* "$CHROOT/var/cache/apt/archives/"*.deb 2>/dev/null || true
+
+# Golden rescue image identity: never bake one machine-id or one set of SSH
+# private host keys into every installed rescue partition. The installer hook
+# creates fresh values after extracting this archive onto the target device.
+rm -f "$CHROOT"/etc/ssh/ssh_host_* "$CHROOT/var/lib/dbus/machine-id"
+: > "$CHROOT/etc/machine-id"
 
 # Ship gate: this is a bootable partition image, not merely a useful chroot.
 # Resolute minbase can install systemd without systemd-sysv, leaving no
@@ -392,6 +398,11 @@ for required in \
         exit 1
     fi
 done
+if [ -s "$CHROOT/etc/machine-id" ] || \
+   find "$CHROOT/etc/ssh" -maxdepth 1 -type f -name 'ssh_host_*_key' | grep -q .; then
+    echo "[rescue-rootfs] ERROR: golden rescue image contains persistent identity or SSH private keys" >&2
+    exit 1
+fi
 for enabled in \
     /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service \
     /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA2.service \
@@ -402,7 +413,7 @@ for enabled in \
         exit 1
     fi
 done
-echo "[rescue-rootfs] verified: PID 1, serial consoles, DHCP/fallback, and ssh runtime present"
+echo "[rescue-rootfs] verified: PID 1, serial consoles, DHCP/fallback, ssh runtime, and identity reset"
 
 # ----------------------------------------------------------------------
 # Stage 4 — pack the tarball (unmount binds first).

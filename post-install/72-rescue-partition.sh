@@ -108,6 +108,28 @@ if ! zstd -dc "$TARBALL" | tar -xpf - -C "$MNT" --numeric-owner; then
     exit 1
 fi
 
+# Every installed rescue partition needs its own D-Bus identity and SSH host
+# keys. The golden archive deliberately carries neither, so keys from one NCZ
+# device cannot impersonate another rescue environment.
+echo "[72] generating per-device rescue machine-id + SSH host keys"
+rm -f "$MNT/etc/machine-id" "$MNT/var/lib/dbus/machine-id" \
+      "$MNT"/etc/ssh/ssh_host_*
+if ! chroot "$MNT" systemd-machine-id-setup >/dev/null 2>&1 || \
+   [ ! -s "$MNT/etc/machine-id" ]; then
+    echo "[72] ERROR: could not generate rescue machine-id" >&2
+    umount "$MNT" 2>/dev/null || true
+    exit 1
+fi
+mkdir -p "$MNT/var/lib/dbus"
+ln -sf /etc/machine-id "$MNT/var/lib/dbus/machine-id"
+if ! chroot "$MNT" ssh-keygen -A >/dev/null 2>&1 || \
+   [ ! -s "$MNT/etc/ssh/ssh_host_ed25519_key" ]; then
+    echo "[72] ERROR: could not generate rescue SSH host keys" >&2
+    umount "$MNT" 2>/dev/null || true
+    exit 1
+fi
+echo "[72]   rescue identity and SSH host keys generated"
+
 # --- auto-network + remote recovery access (operator directive 2026-07-29) ---
 # A rescue partition that can't be reached over the network is useless when
 # the failure being recovered from is a bricked main-kernel boot -- physical

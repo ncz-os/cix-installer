@@ -177,9 +177,13 @@ if [ -n "$SINTY_NMD" ]; then
     # from the cloud-image base with no .network files; it both races sinty and
     # leaves network-online users waiting on a manager that owns no links.
     systemctl disable systemd-networkd.service systemd-networkd.socket \
-        systemd-networkd-wait-online.service 2>/dev/null || true
+        systemd-networkd-wait-online.service \
+        systemd-networkd-resolve-hook.socket \
+        systemd-networkd-varlink.socket 2>/dev/null || true
     systemctl mask systemd-networkd.service systemd-networkd.socket \
-        systemd-networkd-wait-online.service 2>/dev/null || true
+        systemd-networkd-wait-online.service \
+        systemd-networkd-resolve-hook.socket \
+        systemd-networkd-varlink.socket 2>/dev/null || true
     # sinty-nm writes /etc/resolv.conf directly — it must be a writable regular
     # file, not a read-only/systemd-resolved symlink.
     if [ -L /etc/resolv.conf ] || [ ! -e /etc/resolv.conf ]; then

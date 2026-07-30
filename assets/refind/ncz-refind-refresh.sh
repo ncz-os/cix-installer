@@ -161,8 +161,8 @@ echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol
 # (doctrine: serial console must work). NEXT drops the base panic=30 because
 # NEXT_CMDLINE_EXTRA sets panic=6 (edge wants fast panic) — carrying both was a
 # confusing duplicate on one cmdline.
-LTS_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
-NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused module_blacklist=typec_rts5453,rts5453"
+LTS_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force systemd.condition_first_boot=false arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
+NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force systemd.condition_first_boot=false arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused module_blacklist=typec_rts5453,rts5453"
 
 # The edge (NEXT) kernel needs board-specific PCIe/SCMI knobs that the stable
 # kernel does not: the 7.2 forward-port was only ever metal-validated with

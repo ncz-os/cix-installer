@@ -332,8 +332,26 @@ echo "    running kernel: $RUNNING_KVER (no OoT bridge — Sky1-Linux in-tree)"
 # harmless but noisy in the journal on every boot. Mask it rather
 # than hand-editing the vendor unit file.
 if systemctl list-unit-files cix-audio-switch.service 2>/dev/null | grep -q cix-audio-switch; then
-    systemctl mask cix-audio-switch.service 2>&1 | sed 's/^/    /' || true
-    echo "[25] cix-audio-switch.service masked (vendor stub, empty ExecStart=)"
+    # `systemctl mask` refuses to replace the package's existing enablement
+    # symlink. Disable first, then verify the mask instead of allowing a
+    # pipeline through sed to hide systemctl's non-zero status.
+    systemctl disable cix-audio-switch.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/multi-user.target.wants/cix-audio-switch.service
+    if systemctl mask cix-audio-switch.service >/dev/null 2>&1 && \
+       [ "$(systemctl is-enabled cix-audio-switch.service 2>/dev/null)" = masked ]; then
+        echo "[25] cix-audio-switch.service masked (vendor stub, empty ExecStart=)"
+    else
+        echo "[25] WARN: cix-audio-switch.service could not be masked" >&2
+    fi
+fi
+
+# cix-debian-misc also ships an unconditional request for
+# pkcs8_key_parser. Neither NCZ kernel provides that loadable module (a
+# built-in parser would not need modprobe), so systemd-modules-load emits a
+# false boot error. Remove the stale vendor request.
+if [ -f /usr/lib/modules-load.d/pkcs8.conf ]; then
+    rm -f /usr/lib/modules-load.d/pkcs8.conf
+    echo "[25] removed stale pkcs8_key_parser modules-load request"
 fi
 
 # Always exit 0 — Cix postinst quirks should not halt the installer.
