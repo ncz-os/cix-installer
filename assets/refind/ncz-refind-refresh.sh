@@ -178,7 +178,7 @@ NEXT_CMDLINE_BASE="$NEXT_CMDLINE_BASE $NEXT_CMDLINE_EXTRA"
 # loglevel=3 keeps known early Sky1 driver warnings/errors off the graphical VT
 # while they remain fully available in dmesg, journal, pstore, and serial logs.
 # Rescue intentionally remains verbose and keeps a normal cursor.
-SPLASH="quiet loglevel=3 vt.global_cursor_default=0"
+SPLASH="quiet loglevel=3 vt.global_cursor_default=0 systemd.show_status=false rd.systemd.show_status=false"
 [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 
 ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootdelay=90 rootfstype=$ROOT_FSTYPE rw"

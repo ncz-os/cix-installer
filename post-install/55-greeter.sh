@@ -86,14 +86,24 @@ GREETD
 
 # The production Sky1 kernel deliberately omits generic virtio/bochs DRM.
 # In such a headless/KVM boot there is no DRM node for a Wayland compositor,
-# so starting greetd can only crash-loop. Skip it cleanly when the native splash
-# did not obtain a card; on metal the splash is ordered Before=greetd and waits
-# for the late Sky1 KMS device before this condition is evaluated.
+# so starting greetd can only crash-loop. Card numbering is not stable (the
+# live O6 display has been card1), therefore test connectors rather than
+# assuming /dev/dri/card0.
+cat > /usr/local/bin/ncz-has-drm-output <<'DRMTEST'
+#!/bin/sh
+for status in /sys/class/drm/card*-*/status; do
+    [ -f "$status" ] || continue
+    [ "$(cat "$status" 2>/dev/null || true)" = connected ] && exit 0
+done
+exit 1
+DRMTEST
+chmod 0755 /usr/local/bin/ncz-has-drm-output
+
 install -d -m0755 /etc/systemd/system/greetd.service.d
 cat > /etc/systemd/system/greetd.service.d/10-ncz-drm.conf <<'GREETDDRM'
 [Unit]
 After=singularity-boot-splash.service
-ConditionPathExists=/dev/dri/card0
+ExecCondition=/usr/local/bin/ncz-has-drm-output
 GREETDDRM
 
 # --- greeter labwc config: autostart the native greeter ----------------------

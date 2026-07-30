@@ -90,7 +90,7 @@ if [ -z "$card" ]; then
 fi
 echo "boot-splash: using connected DRM device $card"
 set +e
-"$BSP" --device "$card" --wait-seconds 12 --max-life 30
+"$BSP" --device "$card" --wait-seconds 12 --max-life 12
 rc=$?
 set -e
 if [ "$rc" -eq 1 ]; then
@@ -181,7 +181,7 @@ rm -f /etc/plymouth/plymouthd.conf 2>/dev/null
 # filename for both the initial install and later kernel upgrades.
 install -d -m0755 /etc/kernel/cmdline.d
 cat > /etc/kernel/cmdline.d/10-splash.conf <<'CMDLINE'
-quiet loglevel=3 vt.global_cursor_default=0
+quiet loglevel=3 vt.global_cursor_default=0 systemd.show_status=false rd.systemd.show_status=false
 CMDLINE
 # Drop the plymouth DRM modules the old hook forced into the initramfs (the native
 # splash opens KMS from userspace after root mounts, so no early-KMS initramfs
