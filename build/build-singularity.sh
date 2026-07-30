@@ -99,7 +99,7 @@ git apply --check <<'PATCH_NCZ_SHELL'
 diff --git a/subprojects/singularity-shell/src/core/main.vala b/subprojects/singularity-shell/src/core/main.vala
 --- a/subprojects/singularity-shell/src/core/main.vala
 +++ b/subprojects/singularity-shell/src/core/main.vala
-@@ -798,6 +798,13 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
+@@ -798,4 +798,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
          if (overview != null && overview.showing) {
              overview.toggle();
          }
@@ -116,7 +116,7 @@ git apply <<'PATCH_NCZ_SHELL'
 diff --git a/subprojects/singularity-shell/src/core/main.vala b/subprojects/singularity-shell/src/core/main.vala
 --- a/subprojects/singularity-shell/src/core/main.vala
 +++ b/subprojects/singularity-shell/src/core/main.vala
-@@ -798,6 +798,13 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
+@@ -798,4 +798,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
          if (overview != null && overview.showing) {
              overview.toggle();
          }
