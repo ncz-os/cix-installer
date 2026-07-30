@@ -90,10 +90,12 @@ if [ -z "$card" ]; then
 fi
 echo "boot-splash: using connected DRM device $card"
 set +e
-"$BSP" --device "$card" --wait-seconds 12 --max-life 12
+# The vendor binary has no reliable exit deadline on every Sky1 DRM state.
+# Bound it so a display race cannot block graphical.target indefinitely.
+timeout --kill-after=2s 15s "$BSP" --device "$card" --wait-seconds 12 --max-life 12
 rc=$?
 set -e
-if [ "$rc" -eq 1 ]; then
+if [ "$rc" -eq 1 ] || [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
     echo "boot-splash: DRM already owned; skipping"
     exit 0
 fi
