@@ -81,6 +81,7 @@ apt-get install -y --no-install-recommends \
     libgirepository-1.0-dev gobject-introspection \
     libupower-glib-dev \
     libnm-dev \
+    sassc \
     libdrm-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
     build-essential
 
