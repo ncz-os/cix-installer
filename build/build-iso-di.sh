@@ -2203,6 +2203,16 @@ cp -a "$ROOT/post-install" "$EXTRA/post-install"
 mkdir -p "$EXTRA/assets/kernel"
 [ -d "$ROOT/assets/kernel/mali" ] && cp -a "$ROOT/assets/kernel/mali" "$EXTRA/assets/kernel/" && echo "    staged mali_kbase overlay -> /cixmini/assets/kernel/mali"
 
+# Stage the patched Panthor DKMS source and vermagic-matched prebuilt module.
+# This is separate from the Mali overlay because Panthor is opt-in, but it
+# must still be present in the installed image: otherwise ncz-gpu-select
+# silently falls back to the unpatched in-tree module and bypasses the Sky1
+# ACPI power-supply (_PR0) un-secure path.
+if [ -d "$ROOT/assets/kernel/panthor" ]; then
+    cp -a "$ROOT/assets/kernel/panthor" "$EXTRA/assets/kernel/"
+    echo "    staged Panthor DKMS source + prebuilt module -> /cixmini/assets/kernel/panthor"
+fi
+
 
 if [ -d "$ROOT/assets" ]; then
     mkdir -p "$EXTRA/assets"
