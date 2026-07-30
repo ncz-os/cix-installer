@@ -22,6 +22,7 @@ VERSION=""
 OUTPUT=""
 VARIANT="desktop"   # r75 M1: 'desktop' | 'server' — both ship as "Maximilian", this just qualifies which
 MODE="full"         # r78: full | thin | netinstall | netinstall-bootstrap
+NCZ_TARGET_ARCH="${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}"
 
 usage() {
     cat <<'EOF'
@@ -81,6 +82,11 @@ esac
 case "$VARIANT" in
     desktop|server) ;;
     *) echo "ERROR: --variant must be 'desktop' or 'server' (got '$VARIANT')" >&2; exit 1 ;;
+esac
+
+case "$NCZ_TARGET_ARCH" in
+    arm64|amd64) ;;
+    *) echo "ERROR: unsupported NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH (expected arm64 or amd64)" >&2; exit 1 ;;
 esac
 
 EMBED_MIRROR=1
@@ -2449,6 +2455,7 @@ echo "$BUILD_DATE"  > "$EXTRA/BUILD_DATE"
 echo "$BUILD_HOST"  > "$EXTRA/BUILD_HOST"
 echo "$MODE"        > "$EXTRA/BUILD_MODE"
 echo "$VARIANT"     > "$EXTRA/BUILD_VARIANT"   # r75 M1: read by 48-server-variant.sh
+echo "$NCZ_TARGET_ARCH" > "$EXTRA/BUILD_ARCH"    # canonical installed-system architecture
 install -m 0644 "$RELEASE_CONFIG" "$EXTRA/RELEASE"
 # r40 full mode: stage the pre-built rootfs tarball so the debootstrap stub
 # can populate /target without a real bootstrap.

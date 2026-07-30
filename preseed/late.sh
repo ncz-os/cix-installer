@@ -240,7 +240,7 @@ echo
 # both /etc/cix-installer/ (easy `cat` from running system) and
 # /usr/local/lib/cix-installer/ (where post-install scripts read).
 mkdir -p /target/etc/cix-installer
-for f in BUILD_VERSION BUILD_DATE BUILD_HOST KVER_LTS KVER_NEXT RELEASE; do
+for f in BUILD_VERSION BUILD_DATE BUILD_HOST BUILD_ARCH KVER_LTS KVER_NEXT RELEASE; do
     if [ -f "$SRC/$f" ]; then
         cp "$SRC/$f" /target/etc/cix-installer/"$f"
         cp "$SRC/$f" /target/usr/local/lib/cix-installer/"$f"

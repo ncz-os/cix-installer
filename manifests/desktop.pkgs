@@ -144,9 +144,6 @@ baobab
 # --- image editing ----------------------------------------------------------
 gimp
 
-# --- flatpak (optional app sideloading) ------------------------------------
-flatpak
-
 # --- runtime deps other hooks rely on (branding/avatars, agents) -----------
 # NO plymouth — the boot splash is the native KMS singularity-boot-splash
 # (/opt/singularity payload), 60-boot-splash purges plymouth outright.
@@ -183,8 +180,9 @@ libdrm-freedreno1
 libdrm-tegra0
 libdrm-etnaviv1
 
-# --- r130.4 bucket: desktop apps 20-desktop installs that were missing from
-#     the offline pool (App Center, Flatpak/portal stack, browsers, tweaks) ---
+# --- desktop app infrastructure --------------------------------------------
+# 21-flatpak-arch-filter.sh configures Flathub with a deny-by-default target-architecture
+# filter, so neither the app store nor the CLI catalogue can expose foreign refs.
 flatpak
 gnome-session-canberra
 xdg-desktop-portal-gtk

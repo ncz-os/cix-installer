@@ -46,7 +46,7 @@ APPDIR=/usr/share/applications
 #    Also removes the Xorg SERVER stack itself (xserver-xorg*, xinit,
 #    x11-xserver-utils, xscreensaver-data*) — NCZ-OS 26.7 is Wayland-only; the
 #    Xorg display server is never used. Wayland-capable GTK/Qt/Electron apps
-#    (gimp/vivaldi/mpv/vlc/mousepad/nautilus) are KEPT.
+#    (gimp/vivaldi/mpv/vlc/mousepad/nautilus/epiphany) are KEPT.
 #    Xwayland (the rootless X-compat layer) is KEPT — it is NOT an X11 desktop
 #    and is required for any app that still needs X. Its transitive deps are
 #    PROTECTED (never listed here): xserver-common, x11-xkb-utils, x11-common,
@@ -60,7 +60,6 @@ PURGE_CANDIDATES="
   xserver-xorg-input-all xserver-xorg-input-libinput xserver-xorg-video-fbdev
   xinit x11-xserver-utils x11-session-utils xorg-docs-core
   xscreensaver-data xscreensaver-data-extra xscreensaver-gl xscreensaver-gl-extra
-  epiphany-browser
   enlightenment terminology emixer
   wayfire wcm
   pasystray

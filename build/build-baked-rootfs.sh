@@ -10,6 +10,7 @@ set -uo pipefail
 ROOT="${ROOT:-$HOME/cix-installer-build/cix-installer}"
 BASE="${BASE:-$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst}"
 VARIANT="${VARIANT:-desktop}"
+NCZ_TARGET_ARCH="${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}"
 WORK="${WORK:-/tmp/ncz-bake}"
 OUT="${OUT:-$ROOT/assets/rootfs/rootfs-resolute-arm64-baked.tar.zst}"
 CHROOT="$WORK/chroot"
@@ -29,7 +30,12 @@ log(){ echo "[bake $(date +%H:%M:%S)] $*"; }
 cleanup(){ for m in dev/pts dev proc sys run; do umount -lf "$CHROOT/$m" 2>/dev/null; done; }
 trap cleanup EXIT
 
-log "FULL BAKE start — variant=$VARIANT base=$BASE"
+case "$NCZ_TARGET_ARCH" in
+    arm64|amd64) ;;
+    *) echo "FATAL: unsupported NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH" >&2; exit 1 ;;
+esac
+
+log "FULL BAKE start — variant=$VARIANT target_arch=$NCZ_TARGET_ARCH base=$BASE"
 sudo rm -rf "$WORK"; mkdir -p "$CHROOT" "$LOGDIR"
 
 log "extract base rootfs ($(du -h "$BASE"|cut -f1))..."
@@ -49,6 +55,7 @@ done   # deliberately EXCLUDES assets/rootfs (base tarballs + baked output)
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets/refind"
 [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ] && sudo cp "$ROOT/build/refind-bin/refind_aa64.efi" "$CHROOT/usr/local/lib/cix-installer/assets/refind/" || true
 printf '%s' "$VARIANT" | sudo tee "$CHROOT/usr/local/lib/cix-installer/BUILD_VARIANT" >/dev/null
+printf '%s' "$NCZ_TARGET_ARCH" | sudo tee "$CHROOT/usr/local/lib/cix-installer/BUILD_ARCH" >/dev/null
 # stage kernel-version sidecars so 10-our-kernel finds them (build-iso.sh stages
 # these at ISO time; the bake must too).
 KM="$CHROOT/usr/local/lib/cix-installer"
