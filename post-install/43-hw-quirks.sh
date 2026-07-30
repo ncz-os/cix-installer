@@ -92,7 +92,7 @@ if [ ! -s /etc/machine-id ]; then
     dbus-uuidgen > /var/lib/dbus/machine-id 2>/dev/null || true
     ln -sf /var/lib/dbus/machine-id /etc/machine-id 2>/dev/null || true
 fi
-video_devices="1001 27 978 979 991 1001ls /dev/video* 2>/dev/null | sort -V)"
+video_devices="$(ls /dev/video* 2>/dev/null | sort -V)"
 set -- $video_devices
 if [ $# -eq 1 ]; then
     ln -sf "$1" /dev/video-cixdec0
