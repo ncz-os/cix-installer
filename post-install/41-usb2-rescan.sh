@@ -35,6 +35,17 @@ echo "[41] USB2-companion rescan workaround (Sky1 7.2 xhci)"
 
 install -d -m 0755 /usr/local/sbin
 
+# Never runtime-suspend the interactive USB chain. On O6N the VIA hub is the
+# keyboard/mouse path; a wake from runtime suspend can add hundreds of ms to
+# HID delivery even when CPU idle is pinned off.
+install -d /etc/udev/rules.d
+cat > /etc/udev/rules.d/70-ncz-usb-interactive.rules <<'UDEV'
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="24f0", ATTR{idProduct}=="0140", TEST=="power/control", ATTR{power/control}="on", ATTR{power/autosuspend_delay_ms}="-1"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="413c", ATTR{idProduct}=="3012", TEST=="power/control", ATTR{power/control}="on", ATTR{power/autosuspend_delay_ms}="-1"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2109", ATTR{idProduct}=="2812", TEST=="power/control", ATTR{power/control}="on", ATTR{power/autosuspend_delay_ms}="-1"
+UDEV
+udevadm control --reload 2>/dev/null || true
+
 cat > /usr/local/sbin/ncz-usb2-rescan <<'EOF'
 #!/bin/bash
 # Recover the CIX Sky1 7.2 USB2-companion enumeration failure by rebinding the
@@ -52,7 +63,7 @@ set -u
 # controller while that is already happening creates a visible input delay and
 # holds the graphical target. Treat a discovered keyboard as success; this unit
 # is a recovery mechanism, not a normal-boot optimization.
-for try in 1 2; do
+for try in 1 2 3 4 5 6 7 8; do
   for name in /sys/class/input/input*/name; do
     [ -r "$name" ] || continue
     if grep -qi "keyboard" "$name"; then

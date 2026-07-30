@@ -102,7 +102,8 @@ chmod 0755 /usr/local/bin/ncz-has-drm-output
 install -d -m0755 /etc/systemd/system/greetd.service.d
 cat > /etc/systemd/system/greetd.service.d/10-ncz-drm.conf <<'GREETDDRM'
 [Unit]
-After=singularity-boot-splash.service
+After=singularity-boot-splash.service ncz-usb2-rescan.service
+Wants=ncz-usb2-rescan.service
 
 [Service]
 ExecCondition=/usr/local/bin/ncz-has-drm-output
