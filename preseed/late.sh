@@ -204,6 +204,28 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
                   echo "[late r160] WARN union-sync failed on $f"
           done )
         echo "[late r160] asset union-sync done (refind: $(ls "$DSTA/refind/" 2>/dev/null | tr '\n' ' '))"
+
+        # The union above deliberately preserves large baked payloads, but
+        # boot-control code must never be "baked wins": fixes to the rEFInd
+        # generator otherwise remain stale across every ISO that reuses the
+        # base squashfs. Refresh this small executable from the current media
+        # unconditionally and verify the copy before 70-bootloader runs it.
+        REFIND_REFRESH=refind/ncz-refind-refresh.sh
+        if [ -s "$SRC/assets/$REFIND_REFRESH" ]; then
+            cp -a "$SRC/assets/$REFIND_REFRESH" "$DSTA/$REFIND_REFRESH" || {
+                echo "[late] FATAL: could not refresh $REFIND_REFRESH from install media" >&2
+                exit 1
+            }
+            chmod 0755 "$DSTA/$REFIND_REFRESH"
+            cmp -s "$SRC/assets/$REFIND_REFRESH" "$DSTA/$REFIND_REFRESH" || {
+                echo "[late] FATAL: refreshed $REFIND_REFRESH does not match install media" >&2
+                exit 1
+            }
+            echo "[late] refreshed boot-control asset: $REFIND_REFRESH"
+        else
+            echo "[late] FATAL: install media lacks $REFIND_REFRESH" >&2
+            exit 1
+        fi
     fi
 else
     rm -rf /target/usr/local/lib/cix-installer
