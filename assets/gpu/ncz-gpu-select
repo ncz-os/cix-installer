@@ -94,9 +94,8 @@ write_mali() {
 # Managed by /usr/local/bin/ncz-gpu-select — do not hand-edit; run the tool.
 # MODE: mali  (default — shipping GPU stack: libmali OpenCL + HW GLES)
 #
-# Hold panthor off so the Mali kbase DKMS trio binds the GPU (/dev/mali0).
-blacklist panthor
-install panthor /bin/true
+# Driver selection is per-boot via the rEFInd kernel cmdline.
+# The Mali entry blacklists panthor; the Panthor entry blacklists the kbase trio.
 EOF
 }
 
@@ -106,13 +105,8 @@ write_panthor() {
 # Managed by /usr/local/bin/ncz-gpu-select — do not hand-edit; run the tool.
 # MODE: panthor  (experimental — Mesa GL + PanVK Vulkan on the panthor DRM node)
 #
-# Hold the Mali kbase trio off so the panthor DKMS driver binds the GPU.
-blacklist mali_kbase
-blacklist memory_group_manager
-blacklist protected_memory_allocator
-install mali_kbase /bin/true
-install memory_group_manager /bin/true
-install protected_memory_allocator /bin/true
+# Driver selection is per-boot via the rEFInd kernel cmdline.
+# The Panthor entry blacklists the kbase trio; the Mali entry blacklists panthor.
 EOF
 }
 

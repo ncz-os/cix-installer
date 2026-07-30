@@ -32,7 +32,7 @@ DEV="/dev/$1"
 command -v sgdisk >/dev/null 2>&1 || exit 0
 
 OUT="$(sgdisk -v "$DEV" 2>&1)"
-if printf '%s' "$OUT" | grep -q "secondary header's self-pointer indicates"; then
+if printf '%s' "$OUT" | grep -Eqi "secondary header.*(self-pointer|end of the disk)|backup.*(mismatch|relocat)|not.*at.*end"; then
     logger -t ncz-usb-gpt-autofix "relocating backup GPT on $DEV (hybrid-ISO artifact)"
     sgdisk -e "$DEV" >/dev/null 2>&1
     partprobe "$DEV" >/dev/null 2>&1
