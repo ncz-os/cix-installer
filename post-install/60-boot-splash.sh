@@ -3,7 +3,8 @@
 #
 # ZERO-COMPROMISE NATIVE STACK (supersedes 60-plymouth). singularity-boot-splash
 # (github.com/singularityos-lab/singularity-boot-splash) is a toolkit-less KMS
-# splash: it opens /dev/dri/card0 directly, waits for a connected output+mode
+# splash: it opens the DRM card with a connected output and waits for a mode.
+# DRM card numbering is not stable (on O6N the monitor is commonly card1).
 # (--wait-seconds — the exact reason plymouth failed on Sky1: KMS comes up LATE,
 # after the DP link trains, so plymouth in the initramfs had no framebuffer and
 # the screen stayed dark), double-buffers an animated NCZ logo + loading bar with
@@ -70,6 +71,36 @@ echo "[60] verified: singularity-boot-splash dynamic-link closure complete"
 # NOTE(metal): the exact boot-splash -> greeter handoff timing is gated on the
 # Sky1 DP-link-training/early-framebuffer work (fix/trilin-dp-link-training) — the
 # splash cannot paint before KMS is live; validate on-metal once DP trains early.
+cat > /usr/local/bin/ncz-boot-splash <<'WRAPPER'
+#!/bin/sh
+set -eu
+BSP=/opt/singularity/bin/singularity-boot-splash
+card=""
+for status in /sys/class/drm/card*-*/status; do
+    [ -f "$status" ] || continue
+    [ "$(cat "$status" 2>/dev/null || true)" = connected ] || continue
+    name=$(basename "$(dirname "$status")")
+    card="/dev/dri/${name%%-*}"
+    [ -e "$card" ] && break
+    card=""
+done
+if [ -z "$card" ]; then
+    echo "boot-splash: no connected DRM output; skipping"
+    exit 0
+fi
+echo "boot-splash: using connected DRM device $card"
+set +e
+"$BSP" --device "$card" --wait-seconds 12 --max-life 30
+rc=$?
+set -e
+if [ "$rc" -eq 1 ]; then
+    echo "boot-splash: DRM already owned; skipping"
+    exit 0
+fi
+exit "$rc"
+WRAPPER
+chmod 0755 /usr/local/bin/ncz-boot-splash
+
 cat > /etc/systemd/system/singularity-boot-splash.service <<'UNIT'
 [Unit]
 Description=NCZ-OS native KMS boot splash (singularity-boot-splash)
@@ -83,8 +114,7 @@ Conflicts=getty@tty1.service plymouth-start.service plymouth-quit.service
 Type=simple
 # Wait for late Sky1 KMS without turning a legitimately headless/KVM boot into
 # a failed service. ExecCondition exit 1 is a clean skip, not a unit failure.
-ExecCondition=/bin/sh -c 'i=0; while [ "$i" -lt 20 ]; do [ -e /dev/dri/card0 ] && exit 0; i=$((i+1)); sleep 1; done; exit 1'
-ExecStart=/opt/singularity/bin/singularity-boot-splash --device /dev/dri/card0 --wait-seconds 12 --max-life 30
+ExecStart=/usr/local/bin/ncz-boot-splash
 TTYPath=/dev/tty1
 StandardInput=tty
 StandardOutput=journal
