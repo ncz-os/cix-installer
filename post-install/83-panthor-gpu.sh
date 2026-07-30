@@ -84,18 +84,18 @@ if command -v dkms >/dev/null 2>&1; then
           || echo "[83] dkms build/install deferred (will autoinstall on kernel upgrade)"
     else
         echo "[83] no NEXT kernel headers — panthor-cix DKMS will autoinstall on kernel upgrade"
-        # Full desktop images intentionally omit kernel headers.  Install the
-        # vermagic-matched module shipped beside the DKMS source so the
-        # Panthor rEFInd entry uses the patched Sky1 ACPI _PR0 implementation
-        # immediately instead of falling back to the unpatched in-tree module.
-        PREBUILT="${SRC}/${KVER_NEXT}/panthor.ko"
-        if [ -n "$KVER_NEXT" ] && [ -s "$PREBUILT" ]; then
-            install -D -m 0644 "$PREBUILT" "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko"
-            depmod -a "$KVER_NEXT" 2>/dev/null || true
-            echo "[83] installed vermagic-matched prebuilt Panthor for $KVER_NEXT"
-        else
-            echo "[83] WARN: no prebuilt Panthor module for $KVER_NEXT"
-        fi
+    fi
+
+    # Always fall back to the vermagic-matched patched module when DKMS did
+    # not leave one in updates/dkms. A failed DKMS build must not silently
+    # select the unpatched in-tree module, which wedges Sky1 ACPI at probe.
+    PREBUILT="${SRC}/${KVER_NEXT}/panthor.ko"
+    if [ -n "$KVER_NEXT" ] && [ ! -s "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko" ] && [ -s "$PREBUILT" ]; then
+        install -D -m 0644 "$PREBUILT" "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko"
+        depmod -a "$KVER_NEXT" 2>/dev/null || true
+        echo "[83] installed vermagic-matched prebuilt Panthor for $KVER_NEXT"
+    elif [ -n "$KVER_NEXT" ] && [ ! -s "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko" ]; then
+        echo "[83] WARN: DKMS did not install and no prebuilt Panthor exists for $KVER_NEXT"
     fi
 fi
 
