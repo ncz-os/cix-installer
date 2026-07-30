@@ -81,8 +81,19 @@ if [ -z "$keyboard_ctrl" ]; then
   exit 0
 fi
 
-# Never reset a controller that owns removable storage.
-if find -L "$DRV/$keyboard_ctrl" -type d -name block -print -quit 2>/dev/null | grep -q .; then
+# Never reset a controller that owns removable storage. Match its USB roots
+# directly; following the controller symlink can recurse through all of sysfs.
+has_storage=0
+for usb_root in /sys/bus/usb/devices/usb*; do
+  [ -e "$usb_root/speed" ] || continue
+  ctrl=$(basename "$(readlink -f "$usb_root/..")")
+  [ "$ctrl" = "$keyboard_ctrl" ] || continue
+  if find "$usb_root" -maxdepth 8 -type d -name block -print -quit 2>/dev/null | grep -q .; then
+    has_storage=1
+    break
+  fi
+done
+if [ "$has_storage" -eq 1 ]; then
   logger -t ncz-usb2-rescan "skip $keyboard_ctrl (has USB storage downstream)"
   exit 0
 fi
