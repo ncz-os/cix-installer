@@ -52,41 +52,46 @@ set -u
 # controller while that is already happening creates a visible input delay and
 # holds the graphical target. Treat a discovered keyboard as success; this unit
 # is a recovery mechanism, not a normal-boot optimization.
-for try in 1 2 3 4 5 6; do
+for try in 1 2; do
   for name in /sys/class/input/input*/name; do
     [ -r "$name" ] || continue
-    if grep -qi 'keyboard' "$name"; then
+    if grep -qi "keyboard" "$name"; then
       logger -t ncz-usb2-rescan "keyboard present; recovery not needed"
       exit 0
     fi
   done
   sleep 1
 done
-logger -t ncz-usb2-rescan "no keyboard after 6s; starting controller recovery"
 
+# O6N USB-A hub/HID chain: ACPI controller CIXH2030:06/CIXH2031:06.
+# Rebinding every Sky1 xHCI controller was counterproductive: it delayed input
+# by ~16 seconds and needlessly disturbed unrelated USB roots. Resolve the
+# controller dynamically because its xhci-hcd.* index is not stable.
 DRV=/sys/bus/platform/drivers/xhci-hcd
-declare -A has_storage
-for u in /sys/bus/usb/devices/usb*; do
-  [ -e "$u/speed" ] || continue
-  ctrl=$(basename "$(readlink -f "$u/..")")   # e.g. xhci-hcd.13.auto
-  # any SCSI/block (USB mass storage) device anywhere under this controller?
-  if find "$u" -maxdepth 8 -type d -name 'block' 2>/dev/null | grep -q .; then
-    has_storage[$ctrl]=1
-  fi
+keyboard_ctrl=
+for node in "$DRV"/xhci-hcd.*.auto; do
+  [ -e "$node" ] || continue
+  case "$(readlink -f "$node")" in
+    */CIXH2030:06/CIXH2031:06/*) keyboard_ctrl=$(basename "$node"); break ;;
+  esac
 done
-rebound=0
-for ctrl in $(ls "$DRV" 2>/dev/null | grep '^xhci-hcd'); do
-  if [ -n "${has_storage[$ctrl]:-}" ]; then
-    logger -t ncz-usb2-rescan "skip $ctrl (has USB storage downstream)"
-    continue
-  fi
-  logger -t ncz-usb2-rescan "rebinding $ctrl (USB2 enum recovery)"
-  echo "$ctrl" > "$DRV/unbind" 2>/dev/null
-  sleep 1
-  echo "$ctrl" > "$DRV/bind" 2>/dev/null
-  rebound=$((rebound+1))
-done
-logger -t ncz-usb2-rescan "done, rebound=$rebound"
+
+if [ -z "$keyboard_ctrl" ]; then
+  logger -t ncz-usb2-rescan "keyboard absent; O6 USB-A controller not found, no recovery attempted"
+  exit 0
+fi
+
+# Never reset a controller that owns removable storage.
+if find -L "$DRV/$keyboard_ctrl" -type d -name block -print -quit 2>/dev/null | grep -q .; then
+  logger -t ncz-usb2-rescan "skip $keyboard_ctrl (has USB storage downstream)"
+  exit 0
+fi
+
+logger -t ncz-usb2-rescan "keyboard absent after 2s; rebinding $keyboard_ctrl only"
+echo "$keyboard_ctrl" > "$DRV/unbind" 2>/dev/null
+sleep 1
+echo "$keyboard_ctrl" > "$DRV/bind" 2>/dev/null
+logger -t ncz-usb2-rescan "done, rebound=1"
 exit 0
 EOF
 chmod 0755 /usr/local/sbin/ncz-usb2-rescan
