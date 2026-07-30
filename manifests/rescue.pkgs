@@ -57,6 +57,8 @@ xz-utils
 zstd
 
 # ===== network / remote access =====
+systemd-sysv        # CRITICAL: provides /sbin/init for the standalone partition
+systemd-timesyncd   # no battery RTC in some rescue paths; TLS needs valid time
 iproute2
 net-tools
 iputils-ping

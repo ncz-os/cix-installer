@@ -22,6 +22,19 @@
 # Same upstream image digests as the Pi fleet (bigpi/clawpi).
 
 set +e
+RELEASE_FILE=/usr/local/lib/cix-installer/RELEASE
+[ -s "$RELEASE_FILE" ] || RELEASE_FILE=/etc/cix-installer/RELEASE
+if [ -s "$RELEASE_FILE" ]; then
+    # shellcheck disable=SC1090
+    . "$RELEASE_FILE"
+else
+    NCZ_PRODUCT_NAME="NCZ-OS"
+    NCZ_RELEASE_VERSION="unknown"
+    NCZ_RELEASE_CODENAME=""
+fi
+NCZ_RELEASE_DISPLAY="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
+[ -n "$NCZ_RELEASE_CODENAME" ] && \
+    NCZ_RELEASE_DISPLAY="$NCZ_RELEASE_DISPLAY \"$NCZ_RELEASE_CODENAME\""
 echo '[30] agent stack (podman + zeroclaw default quadlet + ncz CLI)'
 
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -290,12 +303,19 @@ systemctl daemon-reload 2>/dev/null || true
 mkdir -p /usr/local/bin
 cat > /usr/local/bin/ncz << 'NCZSCRIPT'
 #!/bin/bash
-# ncz — NCZ 26.7 "Maximilian" CLI
+# ncz — release-aware NCZ agent CLI
 # Manages the optional agent stack (zeroclaw, openclaw, hermes, portainer).
 # Quadlet templates live at /usr/share/ncz/quadlets/.
 # Active quadlets get copied to /etc/containers/systemd/ on install.
 
 set +e
+NCZ_PRODUCT_NAME="NCZ-OS"
+NCZ_RELEASE_VERSION="unknown"
+NCZ_RELEASE_CODENAME=""
+[ -s /etc/cix-installer/RELEASE ] && . /etc/cix-installer/RELEASE
+NCZ_RELEASE_DISPLAY="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
+[ -n "$NCZ_RELEASE_CODENAME" ] && \
+    NCZ_RELEASE_DISPLAY="$NCZ_RELEASE_DISPLAY \"$NCZ_RELEASE_CODENAME\""
 
 QUADLET_TEMPLATES=/usr/share/ncz/quadlets
 QUADLET_ACTIVE=/etc/containers/systemd
@@ -589,7 +609,7 @@ cmd_agent_web() {
 
 cmd_help() {
     cat <<HELP
-ncz — NCZ 26.7 "Maximilian" CLI
+ncz — $NCZ_RELEASE_DISPLAY CLI
 
 Agent management:
   ncz agent install [name...]      install agents (interactive if no args)
@@ -625,7 +645,7 @@ case "$1 $2" in
     "agent enable")     require_root agent enable "$3"; systemctl enable --now "$3.service" ;;
     "agent disable")    require_root agent disable "$3"; systemctl disable --now "$3.service" ;;
     "agent shell")      podman exec -it "$3" sh ;;
-    "version "*|"--version "*) echo 'ncz 26.7 r74 (Maximilian)' ;;
+    "version "*|"--version "*) echo "$NCZ_RELEASE_DISPLAY" ;;
     "help "*|"--help "*|"-h "*|" "|"") cmd_help ;;
     *) cmd_help; exit 2 ;;
 esac
@@ -702,7 +722,12 @@ MARK="${HOME}/.config/ncz/.first-login-done"
 [ -e "$MARK" ] && exit 0
 mkdir -p "${HOME}/.config/ncz" 2>/dev/null
 
-TITLE="Welcome to NCZ 26.7 \"Maximilian\""
+NCZ_PRODUCT_NAME="NCZ-OS"
+NCZ_RELEASE_VERSION="unknown"
+NCZ_RELEASE_CODENAME=""
+[ -s /etc/cix-installer/RELEASE ] && . /etc/cix-installer/RELEASE
+TITLE="Welcome to $NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
+[ -n "$NCZ_RELEASE_CODENAME" ] && TITLE="$TITLE \"$NCZ_RELEASE_CODENAME\""
 BODY="AI agents are opt-in on this system — nothing runs until you install it.
 
 To get started, open the \"⭐ Install AI Agents\" icon on your Desktop (or run: sudo ncz agent install). It installs the ZeroClaw gateway and any optional agents (OpenClaw, Hermes, Portainer)."
@@ -744,7 +769,7 @@ chmod 0644 /etc/skel/.config/autostart/ncz-first-login.desktop
 
 # NCZ-Help.md — quick reference doc (updated for r74 ncz CLI)
 cat > /etc/skel/Desktop/NCZ-Help.md << 'HELP'
-# NCZ 26.7 "Maximilian" — Quick Reference
+# @NCZ_RELEASE_DISPLAY@ — Quick Reference
 
 ## First-time setup (5 minutes)
 
@@ -969,11 +994,12 @@ TLS handshake succeeds.
 
 ## Brand
 
-NCZ 26.7 "Maximilian"  ·  Cix Sky1 / CP8180  ·  *Workloads. Not wallpapers.*
+@NCZ_RELEASE_DISPLAY@  ·  Cix Sky1 / CP8180  ·  *Workloads. Not wallpapers.*
 
-"Maximilian" is the release name. Variants are Desktop and Server —
+The configured NCZ release codename is the release name. Variants are Desktop and Server —
 no per-revision codenames.
 HELP
+sed -i "s|@NCZ_RELEASE_DISPLAY@|$NCZ_RELEASE_DISPLAY|g" /etc/skel/Desktop/NCZ-Help.md
 chmod 0644 /etc/skel/Desktop/NCZ-Help.md
 
 # NCZ CLI desktop launcher

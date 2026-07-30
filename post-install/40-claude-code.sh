@@ -12,13 +12,13 @@ set -euo pipefail
 
 echo "[40] Claude Code CLI substrate"
 
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    nodejs npm
+timeout 300 env DEBIAN_FRONTEND=noninteractive \
+    apt-get install -y --no-install-recommends nodejs npm
 
 # claude-code
 # Network-dependent — if no network in chroot, log and continue. The CLI
 # can be apt'd or npm'd post-boot if this fails.
-if npm install -g @anthropic-ai/claude-code; then
+if timeout 180 npm install -g @anthropic-ai/claude-code; then
     echo "claude-code installed: $(claude --version 2>/dev/null || echo unknown)"
 else
     echo "WARN: claude-code npm install deferred to first boot (network during"

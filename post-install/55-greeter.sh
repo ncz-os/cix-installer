@@ -84,6 +84,17 @@ command = "/usr/local/bin/ncz-singularity-greeter"
 user = "_greetd"
 GREETD
 
+# The production Sky1 kernel deliberately omits generic virtio/bochs DRM.
+# In such a headless/KVM boot there is no DRM node for a Wayland compositor,
+# so starting greetd can only crash-loop. Skip it cleanly when the native splash
+# did not obtain a card; on metal the splash is ordered Before=greetd and waits
+# for the late Sky1 KMS device before this condition is evaluated.
+install -d -m0755 /etc/systemd/system/greetd.service.d
+cat > /etc/systemd/system/greetd.service.d/10-ncz-drm.conf <<'GREETDDRM'
+[Unit]
+ConditionPathExists=/dev/dri/card0
+GREETDDRM
+
 # --- greeter labwc config: autostart the native greeter ----------------------
 install -d -m0755 /etc/greetd/singularity-labwc
 # greetd sets GREETD_SOCK in the wrapper env -> inherited by labwc -> this

@@ -113,7 +113,7 @@ stamp() { echo "=== $1 (collected at $(date -u +%FT%TZ)) ==="; }
     stamp "/etc/cix-installer/ contents"
     ls -la /etc/cix-installer/ 2>&1
     echo ""
-    for f in BUILD_VERSION BUILD_DATE BUILD_HOST KVER_LTS KVER_NEXT; do
+    for f in RELEASE BUILD_VERSION BUILD_DATE BUILD_HOST KVER_LTS KVER_NEXT; do
         echo "--- /etc/cix-installer/$f ---"
         cat "/etc/cix-installer/$f" 2>&1 || echo "(missing)"
         echo ""

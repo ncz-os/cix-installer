@@ -25,6 +25,15 @@ REFIND_SRC="$INSTALLER_META/assets/refind/refind_aa64.efi"
 : "${KVER_LTS:=}"
 : "${KVER_NEXT:=}"
 : "${BUILD_VERSION:=(unknown)}"
+RELEASE_FILE=/etc/cix-installer/RELEASE
+[ -s "$RELEASE_FILE" ] || RELEASE_FILE="$INSTALLER_META/RELEASE"
+if [ ! -s "$RELEASE_FILE" ]; then
+    echo "ERROR: NCZ release identity missing; refusing to write an ambiguously-versioned boot menu"
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$RELEASE_FILE"
+NCZ_RELEASE_SHORT="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
 
 if [ -z "$KVER_LTS" ] && [ -z "$KVER_NEXT" ]; then
     echo "ERROR: no KVER_LTS or KVER_NEXT provided"
@@ -163,11 +172,13 @@ NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force 
 NEXT_CMDLINE_EXTRA="pcie_aspm=off sky1_pcie_native=off pcie_pnp_en acpi_scmi_en=off loglevel=3 oops=panic panic=6 ramoops.mem_address=0x83d00000 ramoops.mem_size=0x100000 ramoops.record_size=0x40000 ramoops.console_size=0x80000 ramoops.ecc=0"
 NEXT_CMDLINE_BASE="$NEXT_CMDLINE_BASE $NEXT_CMDLINE_EXTRA"
 
-# Graphical-only cmdline (appended to the desktop entries, NOT rescue): quiet +
-# splash for a clean branded boot, and vt.global_cursor_default=0 to kill the
-# blinking text-console cursor that otherwise flashes on the greetd<->session
-# handoff VT. Rescue keeps a normal cursor (it does not get $SPLASH).
-SPLASH="quiet splash vt.global_cursor_default=0"
+# Graphical-only cmdline (appended to the desktop entries, NOT rescue). Plymouth
+# is not installed: the native KMS service paints after root is mounted, so the
+# legacy `splash` flag only risks activating stale initramfs Plymouth wiring.
+# loglevel=3 keeps known early Sky1 driver warnings/errors off the graphical VT
+# while they remain fully available in dmesg, journal, pstore, and serial logs.
+# Rescue intentionally remains verbose and keeps a normal cursor.
+SPLASH="quiet loglevel=3 vt.global_cursor_default=0"
 [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 
 ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootdelay=90 rootfstype=$ROOT_FSTYPE rw"
@@ -396,7 +407,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$LTS_AVAILABLE" = "1" ]; then
-        echo "menuentry \"NCZ-OS 26.7  ·  stable — kernel $KVER_LTS\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  stable — kernel $KVER_LTS\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
@@ -414,7 +425,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         # power-domain work is a follow-up UPDATE, which re-adds this entry.
         # PANTHOR_OPTIONS is still computed above so the update only needs to
         # restore the menuentry once the power-domain fix lands.
-        echo "menuentry \"NCZ-OS 26.7  ·  7.2 (Mali) — kernel $KVER_NEXT [DEFAULT]\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 (Mali) — kernel $KVER_NEXT [DEFAULT]\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -423,7 +434,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ -n "$RESCUE_PIN" ]; then
-        echo "menuentry \"NCZ-OS 26.7  ·  rescue — $RESCUE_PIN (safe: no NPU/GPU/VPU/KMS)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  rescue — $RESCUE_PIN (safe: no NPU/GPU/VPU/KMS)\" {"
         echo "    loader  /vmlinuz-$RESCUE_PIN"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$RESCUE_HAS_INITRD" = "1" ] && echo "    initrd  /initrd.img-$RESCUE_PIN"
@@ -432,7 +443,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ -n "$RESCUEPART_OPTIONS" ]; then
-        echo "menuentry \"NCZ-OS 26.7  ·  RESCUE PARTITION — stable $KVER_LTS, full toolset (telnet/dropbear/ssh)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  RESCUE PARTITION — stable $KVER_LTS, full toolset (telnet/dropbear/ssh)\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"

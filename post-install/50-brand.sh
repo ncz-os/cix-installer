@@ -12,7 +12,18 @@
 # Each step is best-effort; any failure logs and continues.
 set +e
 
-echo "[50] NCZ 26.7 brand identity"
+RELEASE_FILE=/usr/local/lib/cix-installer/RELEASE
+[ -s "$RELEASE_FILE" ] || RELEASE_FILE=/etc/cix-installer/RELEASE
+if [ ! -s "$RELEASE_FILE" ]; then
+    echo "[50] ERROR: release identity missing; refusing to generate inconsistent branding" >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$RELEASE_FILE"
+NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
+[ "$RELEASE_FILE" = /etc/cix-installer/RELEASE ] || \
+    install -D -m 0644 "$RELEASE_FILE" /etc/cix-installer/RELEASE
+echo "[50] $NCZ_RELEASE_LABEL brand identity"
 
 BUILD_ID_VALUE=""
 if [ -f /usr/local/lib/cix-installer/BUILD_VERSION ]; then
@@ -33,27 +44,30 @@ fi
 # a competing name. VERSION_CODENAME stays "maximilian" for both so anything
 # that keys off it (update channels, the motd banner below) doesn't need to
 # know about variants at all.
-SKU_NAME="Maximilian"
-SKU_LOWER="maximilian"
+SKU_NAME="$NCZ_RELEASE_CODENAME"
+SKU_LOWER=$(printf '%s' "$NCZ_RELEASE_CODENAME" | tr '[:upper:]' '[:lower:]')
 VARIANT_LABEL="Desktop"
 if [ "$VARIANT" = "server" ]; then
     VARIANT_LABEL="Server"
 fi
 
 cat > /etc/os-release <<EOF_OS
-PRETTY_NAME="${SKU_NAME} 26.7 ${VARIANT_LABEL} (based on Ubuntu 26.04 Resolute Raccoon)"
-NAME="NCZ"
-VERSION_ID="26.04"
+PRETTY_NAME="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL} (based on ${NCZ_BASE_NAME} ${NCZ_BASE_VERSION} ${NCZ_BASE_LABEL})"
+NAME="${NCZ_PRODUCT_NAME}"
+VERSION_ID="${NCZ_RELEASE_VERSION}"
 BUILD_ID="${BUILD_ID_VALUE}"
-VERSION="26.7 (${SKU_NAME} ${VARIANT_LABEL}; based on Ubuntu 26.04 Resolute Raccoon)"
+VERSION="${NCZ_RELEASE_VERSION} (${SKU_NAME} ${VARIANT_LABEL}; based on ${NCZ_BASE_NAME} ${NCZ_BASE_VERSION} ${NCZ_BASE_LABEL})"
 VERSION_CODENAME=${SKU_LOWER}
 NCZ_VARIANT=${VARIANT}
+NCZ_RELEASE_VERSION="${NCZ_RELEASE_VERSION}"
+NCZ_RELEASE_CODENAME="${NCZ_RELEASE_CODENAME}"
+NCZ_BASE_VERSION="${NCZ_BASE_VERSION}"
 ID=ncz
 ID_LIKE=ubuntu
 HOME_URL="https://gitlab.com/nclawzero"
 SUPPORT_URL="https://gitlab.com/nclawzero/cix-installer/-/issues"
 BUG_REPORT_URL="https://gitlab.com/nclawzero/cix-installer/-/issues"
-UBUNTU_CODENAME=resolute
+UBUNTU_CODENAME=${NCZ_BASE_CODENAME}
 LOGO=ncz
 EOF_OS
 
@@ -61,18 +75,18 @@ ln -sf /etc/os-release /usr/lib/os-release 2>/dev/null || true
 
 cat > /etc/lsb-release <<EOF_LSB
 DISTRIB_ID=NCZ
-DISTRIB_RELEASE=26.7
+DISTRIB_RELEASE=${NCZ_RELEASE_VERSION}
 DISTRIB_CODENAME=${SKU_LOWER}
-DISTRIB_DESCRIPTION="${SKU_NAME} 26.7 ${VARIANT_LABEL} (based on Ubuntu 26.04 Resolute Raccoon)"
+DISTRIB_DESCRIPTION="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL} (based on ${NCZ_BASE_NAME} ${NCZ_BASE_VERSION} ${NCZ_BASE_LABEL})"
 EOF_LSB
 
 cat > /etc/issue <<EOF_ISSUE
-NCZ-OS 26.7 ${SKU_NAME} ${VARIANT_LABEL}  ·  Cix Sky1 / CP8180  (Kernel: \r)
+${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}  ·  Cix Sky1 / CP8180  (Kernel: \r)
 
 EOF_ISSUE
 
 cat > /etc/issue.net <<EOF_ISSUENET
-NCZ-OS 26.7 ${SKU_NAME} ${VARIANT_LABEL}  (Cix Sky1 / CP8180)
+${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}  (Cix Sky1 / CP8180)
 
 EOF_ISSUENET
 
@@ -91,14 +105,17 @@ cat > /etc/update-motd.d/00-ncz-banner <<'BANNER'
 # Force UTF-8 so `wc -m` counts display characters (not bytes) regardless of the
 # login shell's locale — otherwise the box right-edge skews under a C/POSIX locale.
 export LC_ALL=C.UTF-8
+. /etc/cix-installer/RELEASE 2>/dev/null || true
 SKU=$(. /etc/os-release 2>/dev/null; v="${VERSION_CODENAME^}"; [ "${NCZ_VARIANT:-}" = server ] && v="$v Server" || v="$v Desktop"; echo "$v")
-[ -z "$SKU" ] && SKU="Maximilian Desktop"
+[ -z "$SKU" ] && SKU="${NCZ_RELEASE_CODENAME:-Unknown} Desktop"
+[ -n "${NCZ_PRODUCT_NAME:-}" ] || NCZ_PRODUCT_NAME="NCZ-OS"
+[ -n "${NCZ_RELEASE_VERSION:-}" ] || NCZ_RELEASE_VERSION="unknown"
 W=58
 bar(){ printf '   %s' "$1"; printf '─%.0s' $(seq 1 $W); printf '%s\n' "$2"; }
 row(){ local c="$1" w; w=$(printf '%s' "$c" | wc -m); printf '   │%s%*s│\n' "$c" $((W - w)) ""; }
 echo
 bar '┌' '┐'
-row "  NCZ-OS 26.7 $SKU  ·  Cix Sky1 / CP8180 edge agent"
+row "  $NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $SKU  ·  Cix Sky1 / CP8180 edge agent"
 row ""
 row "  Agents:  zeroclaw · openclaw · hermes · claude-code"
 row "  Kernel:  $(uname -r)"

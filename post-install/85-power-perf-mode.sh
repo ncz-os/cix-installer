@@ -78,33 +78,37 @@ install -Dm755 /dev/stdin /usr/local/bin/ncz-performance-mode <<'SCRIPT'
 # governor, and pins the GPU power domain always-on, while the Singularity
 # desktop session is active. Reversible.
 ACTION="$1"
+write_if_writable() {
+  [ -w "$1" ] || return 0
+  printf '%s\n' "$2" > "$1"
+}
 if [ "$ACTION" = "on" ]; then
   for c in /sys/devices/system/cpu/cpu*/cpuidle/state2/disable; do
-    echo 1 > "$c" 2>/dev/null || true
+    write_if_writable "$c" 1
   done
   for c in /sys/devices/system/cpu/cpu*/cpuidle/state1/disable; do
-    echo 1 > "$c" 2>/dev/null || true
+    write_if_writable "$c" 1
   done
   for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-    echo performance > "$g" 2>/dev/null || true
+    write_if_writable "$g" performance
   done
-  echo on > /sys/devices/genpd:0:CIXH5000:00/power/control 2>/dev/null || true
-  echo on > /sys/devices/platform/CIXH5000:00/power/control 2>/dev/null || true
-  echo performance > /sys/class/devfreq/CIXH5000:00/governor 2>/dev/null || true
+  write_if_writable /sys/devices/genpd:0:CIXH5000:00/power/control on
+  write_if_writable /sys/devices/platform/CIXH5000:00/power/control on
+  write_if_writable /sys/class/devfreq/CIXH5000:00/governor performance
   logger -t ncz-performance-mode "enabled: LPI-1/LPI-2 disabled, governor=performance, GPU power domain pinned on, GPU devfreq pinned to performance"
 elif [ "$ACTION" = "off" ]; then
   for c in /sys/devices/system/cpu/cpu*/cpuidle/state2/disable; do
-    echo 0 > "$c" 2>/dev/null || true
+    write_if_writable "$c" 0
   done
   for c in /sys/devices/system/cpu/cpu*/cpuidle/state1/disable; do
-    echo 0 > "$c" 2>/dev/null || true
+    write_if_writable "$c" 0
   done
   for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-    echo schedutil > "$g" 2>/dev/null || true
+    write_if_writable "$g" schedutil
   done
-  echo auto > /sys/devices/genpd:0:CIXH5000:00/power/control 2>/dev/null || true
-  echo auto > /sys/devices/platform/CIXH5000:00/power/control 2>/dev/null || true
-  echo simple_ondemand > /sys/class/devfreq/CIXH5000:00/governor 2>/dev/null || true
+  write_if_writable /sys/devices/genpd:0:CIXH5000:00/power/control auto
+  write_if_writable /sys/devices/platform/CIXH5000:00/power/control auto
+  write_if_writable /sys/class/devfreq/CIXH5000:00/governor simple_ondemand
   logger -t ncz-performance-mode "disabled: idle states + schedutil + GPU auto power-gating + GPU auto devfreq restored"
 else
   echo "usage: ncz-performance-mode {on|off}" >&2

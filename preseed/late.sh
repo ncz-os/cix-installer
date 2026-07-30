@@ -27,9 +27,9 @@ exec >"$LOG" 2>&1
 # r130.3 progress UX: preseed/late_command is a single opaque step to d-i, so
 # the main "Finishing the installation" bar parks (testers reported a "stuck at
 # 14%" hang) for the entire multi-minute OFFLINE base + desktop + driver install
-# while this script runs silently into its log. r130.7 (below, near run-all)
-# drives the REAL main-screen bar with a "be patient / not frozen" title that
-# advances per hook; this tty3 mirror remains as the live per-step detail view
+# while this script runs silently into its log. The main screen now shows the
+# authoritative run-all state as changing status text without modifying
+# finish-install's parent progress accounting; this tty3 mirror remains the detail view
 # (Alt+F3) and as the fallback if the debconf channel is unavailable. Best-
 # effort; never fatal.
 TTY=/dev/tty3
@@ -40,7 +40,7 @@ ttymsg() {
 }
 ttymsg "NCZ-OS installer: applying base OS + desktop + drivers (offline)."
 ttymsg "This phase takes several minutes. The main screen shows a 'please be"
-ttymsg "patient' bar that advances per step; watch THIS console (Alt+F3) for detail."
+ttymsg "patient' status that updates per step; watch THIS console (Alt+F3) for detail."
 
 echo "=== late.sh ($(date -u)) ==="
 echo
@@ -63,6 +63,66 @@ if command -v flock >/dev/null 2>&1; then
     echo "--- acquiring late.sh lock (serialize concurrent late_command retries) ---"
     flock 9 || echo "WARN: flock failed; proceeding without serialization"
 fi
+
+# Release identity is independent from BUILD_VERSION (the per-ISO build serial).
+# build-iso-di.sh stages release.conf as /cixmini/RELEASE; source it before any
+# installer-visible text and copy it into the installed system below.
+NCZ_PRODUCT_NAME="NCZ-OS"
+NCZ_RELEASE_VERSION="unknown"
+NCZ_RELEASE_CODENAME=""
+for _release in /cdrom/cixmini/RELEASE /hd-media/cixmini/RELEASE \
+                /media/cdrom/cixmini/RELEASE /run/live/medium/cixmini/RELEASE; do
+    if [ -s "$_release" ]; then
+        . "$_release"
+        NCZ_RELEASE_SOURCE="$_release"
+        break
+    fi
+done
+NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
+[ -n "$NCZ_RELEASE_CODENAME" ] && \
+    NCZ_RELEASE_LABEL="$NCZ_RELEASE_LABEL $NCZ_RELEASE_CODENAME"
+export NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME NCZ_RELEASE_LABEL
+
+# Initialize debconf before source discovery and asset staging so even the
+# pre-hook portion of late_command has visible main-screen status. We inherit
+# finish-install's frontend fds, but it owns the progress bar: use INFO only,
+# never START/STOP/SET/STEP.
+DEBCONF_OK=0
+db_try() { [ "$DEBCONF_OK" = 1 ] || return 0; "$@" 2>/dev/null || true; }
+if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -n "$DEBCONF_REDIR" ] \
+   && [ -f /usr/share/debconf/confmodule ] && [ -x /usr/bin/debconf-loadtemplate ]; then
+    cat > /tmp/ncz-progress.templates <<NCZTPL
+Template: nclawzero/install-progress
+Type: text
+Description: Installing ${NCZ_RELEASE_LABEL} — please be patient (several minutes)
+ The full desktop, GPU/NPU drivers, kernels and agents are being installed.
+ The parent bar may remain in one position while the status below it changes.
+ Press Alt+F3 at any time for live, per-step detail.
+
+Template: nclawzero/install-step
+Type: text
+Description: \${STEP}
+
+Template: nclawzero/remove-media
+Type: note
+Description: ${NCZ_RELEASE_LABEL} install complete - REMOVE THE USB STICK NOW
+ The installation finished successfully.
+ .
+ IMPORTANT: physically remove the USB installation stick NOW, before you
+ continue.
+ .
+ When you select Continue the system reboots into your new ${NCZ_RELEASE_LABEL}
+ desktop. If the USB stick is left inserted, the machine may boot back
+ into the installer instead of your new system.
+NCZTPL
+    if . /usr/share/debconf/confmodule 2>/dev/null; then
+        if debconf-loadtemplate nclawzero /tmp/ncz-progress.templates 2>/dev/null; then
+            DEBCONF_OK=1
+        fi
+    fi
+fi
+db_try db_subst nclawzero/install-step STEP "Preparing ${NCZ_RELEASE_LABEL} install media and target filesystem..."
+db_try db_progress INFO nclawzero/install-step
 
 echo "--- runtime context ---"
 echo "PWD: $(pwd)"
@@ -158,7 +218,7 @@ echo
 # both /etc/cix-installer/ (easy `cat` from running system) and
 # /usr/local/lib/cix-installer/ (where post-install scripts read).
 mkdir -p /target/etc/cix-installer
-for f in BUILD_VERSION BUILD_DATE BUILD_HOST KVER_LTS KVER_NEXT; do
+for f in BUILD_VERSION BUILD_DATE BUILD_HOST KVER_LTS KVER_NEXT RELEASE; do
     if [ -f "$SRC/$f" ]; then
         cp "$SRC/$f" /target/etc/cix-installer/"$f"
         cp "$SRC/$f" /target/usr/local/lib/cix-installer/"$f"
@@ -264,7 +324,21 @@ if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
             { echo "WARN: bind-mount /cdrom into /target failed; post-install apt-get may fail"; }
     fi
 
-    echo "deb [trusted=yes] file:///cdrom/cixmini/apt-repo /" > /target/etc/apt/sources.list.d/cixmini-offline.list
+    # The NCZ flat repository is optional at build time. Do not register a
+    # nonexistent source: v14 did so unconditionally, making every apt update
+    # probe a series of missing Packages files before falling through to the
+    # network repositories.
+    if [ -s /cdrom/cixmini/apt-repo/Packages ] || \
+       [ -s /cdrom/cixmini/apt-repo/Packages.gz ] || \
+       [ -s /cdrom/cixmini/apt-repo/Packages.xz ] || \
+       [ -s /cdrom/cixmini/apt-repo/Packages.zst ]; then
+        echo "deb [trusted=yes] file:///cdrom/cixmini/apt-repo /" \
+            > /target/etc/apt/sources.list.d/cixmini-offline.list
+        echo "    NCZ flat offline repository enabled"
+    else
+        rm -f /target/etc/apt/sources.list.d/cixmini-offline.list
+        echo "WARN: /cdrom/cixmini/apt-repo has no Packages index; NCZ packages require configured network repositories"
+    fi
 
     # Add file:///cdrom apt source to /target's sources.list so apt-get
     # install in chroot can find packages locally. [trusted=yes] bypasses
@@ -272,6 +346,12 @@ if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'CDROM_LIST'
 deb [trusted=yes] file:///cdrom resolute main
 CDROM_LIST
+    # d-i may leave a `deb cdrom:` entry that apt-get update cannot use without
+    # apt-cdrom registration. The equivalent file:///cdrom source above is the
+    # usable install-time source, so remove only the broken cdrom transport line.
+    if [ -f /target/etc/apt/sources.list ]; then
+        sed -i '/^[[:space:]]*deb[[:space:]].*cdrom:/d' /target/etc/apt/sources.list
+    fi
     mkdir -p /target/etc/apt/preferences.d
     cat > /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref <<'CDROM_PREF'
 Package: *
@@ -380,118 +460,107 @@ RESOLVCONF
 echo "    /target/etc/resolv.conf:"
 cat /target/etc/resolv.conf | sed 's/^/      /'
 
-# ----------------------------------------------------------------------
-# r130.7 (operator: "the 14% bar looks frozen — tell the user to be patient").
-# Drive the REAL d-i main-screen progress bar during the long offline
-# post-install. finish-install.d/07preseed runs our late_command via
-# preseed_command's bare `eval` (NO log-output wrapper), so we inherit
-# finish-install's live debconf protocol fds (fd3=command, fd0=reply) — the
-# `exec >LOG` near the top only moved fd1/fd2, leaving the protocol intact.
-# We therefore source confmodule and push a NESTED progress bar whose title is
-# an explicit "be patient / not frozen" message, then advance it as each hook
-# completes (reusing the tty3 heartbeat's current-hook detection below).
-# 100% best-effort: any failure leaves DEBCONF_OK=0 and we fall back to the
-# tty3-only heartbeat (prior behavior). Guarded so it can NEVER abort the
-# install under `set -e`. We require DEBIAN_HAS_FRONTEND + DEBCONF_REDIR to be
-# already set (true inside finish-install) so sourcing confmodule cannot
-# re-exec late.sh from scratch.
-# ----------------------------------------------------------------------
-DEBCONF_OK=0
-db_try() { [ "$DEBCONF_OK" = 1 ] || return 0; "$@" 2>/dev/null || true; }
-if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -n "$DEBCONF_REDIR" ] \
-   && [ -f /usr/share/debconf/confmodule ] && [ -x /usr/bin/debconf-loadtemplate ]; then
-    cat > /tmp/ncz-progress.templates <<'NCZTPL'
-Template: nclawzero/install-progress
-Type: text
-Description: Installing NCZ-OS — please be patient (several minutes)
- The full desktop, GPU/NPU drivers, kernels and agents are being installed from
- the local media. This bar may sit near 14% for a while — that is NORMAL and the
- system is NOT frozen. Press Alt+F3 at any time for live, per-step detail.
-
-Template: nclawzero/install-step
-Type: text
-Description: ${STEP}
-
-Template: nclawzero/remove-media
-Type: note
-Description: NCZ 26.6 install complete - REMOVE THE USB STICK NOW
- The installation finished successfully.
- .
- IMPORTANT: physically remove the USB installation stick NOW, before you
- continue.
- .
- When you select Continue the system reboots into your new NCZ 26.6
- desktop. If the USB stick is left inserted, the machine may boot back
- into the installer instead of your new system.
-NCZTPL
-    if . /usr/share/debconf/confmodule 2>/dev/null; then
-        if debconf-loadtemplate nclawzero /tmp/ncz-progress.templates 2>/dev/null; then
-            DEBCONF_OK=1
-        fi
-    fi
-fi
-
-# Ordered hook list (sorted ≈ run order) so the bar position maps to the hook
-# currently executing. Names are basenames sans .sh (matches the per-hook log
-# names run-all.sh writes as $LOGDIR/${hook%.sh}.log).
-HOOK_DIR=/target/usr/local/lib/cix-installer/post-install
-HOOK_NAMES=$(ls "$HOOK_DIR"/[0-9][0-9]*.sh 2>/dev/null | sed 's#.*/##; s#\.sh$##' | sort)
-NH=$(printf '%s\n' $HOOK_NAMES | grep -c .)
-[ "$NH" -gt 0 ] 2>/dev/null || NH=1
-
 echo "--- running post-install in chroot ---"
 ttymsg "running post-install hooks (kernel, desktop, GPU/NPU, bootloader, rescue)…"
 db_try db_capb
-# r130.8 (defect A): do NOT start a NESTED progress bar. finish-install owns the
-# visible "Finishing the installation" bar and parks it at step ~1/N (~14%) for
-# this whole late_command; a nested bar only crawls inside that one step's width
-# and its title is not shown, so it still looks frozen. The d-i-correct primitive
-# here is db_progress INFO, which updates the STATUS-TEXT line under
-# finish-install's bar (visible, proves liveness, shows staged status).
-db_try db_subst nclawzero/install-step STEP "Preparing nclawzero install - please wait (this is normal, not frozen)..."
+db_try db_subst nclawzero/install-step STEP "Starting NCZ-OS post-install plan..."
 db_try db_progress INFO nclawzero/install-step
 
-# Heartbeat: name the hook currently running by watching which per-hook log in
-# /target/var/log/cix-install/ was touched most recently. Purely observational —
-# it never touches the install and is killed the moment run-all.sh returns. It
-# ALSO advances the main-screen debconf bar (best-effort) to that hook's index.
-HOOK_LOGDIR=/target/var/log/cix-install
-# r173 progress fix: the OLD constants (STEP_EVERY=6, STEP_CAP=6) advanced the
-# bar only ~NH/6 times over the WHOLE install, so with ~18 hooks the bar took a
-# single step every 6 hooks and still looked parked. finish-install's shared bar
-# has a small total (≈ number of finish-install.d scripts) and we start at its
-# ~1/7 slot; consuming ~STEP_CAP of its remaining budget SMOOTHLY across all NH
-# hooks turns the "stuck at 14%" park into a bar that climbs steadily to ~85%
-# while our hooks run (finish-install fills the last ~15% after we return).
-# Distribute STEP_CAP evenly: STEP_EVERY = ceil(NH / STEP_CAP).
-STEP_CAP=7     # steps of finish-install's remaining budget we consume across the run
-STEP_EVERY=$(( (NH + STEP_CAP - 1) / STEP_CAP ))
-[ "$STEP_EVERY" -ge 1 ] 2>/dev/null || STEP_EVERY=1
-( hb_last=""
-  hb_seen=0
-  hb_stepped=0
+# Render the authoritative state written atomically by run-all.sh and the apt
+# shim. This intentionally uses db_progress INFO only: finish-install owns the
+# parent bar and will advance it after 07preseed/late_command returns.
+PROGRESS_STATE=/target/var/log/cix-install/progress.state
+case "${NCZ_PROGRESS_UNITS:-0}" in
+    ''|*[!0-9]*) NCZ_PROGRESS_UNITS=0 ;;
+esac
+late_progress_state() {
+    _event="$1"; _phase="$2"; _hook="$3"; _detail="$4"
+    _now=$(date +%s 2>/dev/null || echo 0)
+    _idx=0; _total=0
+    if [ -r "$PROGRESS_STATE" ]; then
+        IFS='|' read -r _old_started _old_updated _old_event _old_phase _idx _total \
+            _old_hook _old_pct _old_rc _old_detail < "$PROGRESS_STATE" || true
+    fi
+    _detail=$(printf '%s' "$_detail" | tr '|\t\r\n' '     ' | cut -c1-180)
+    _tmp="${PROGRESS_STATE}.late.$$"
+    printf '%s|%s|%s|%s|%s|%s|%s|||%s\n' \
+        "$_now" "$_now" "$_event" "$_phase" "$_idx" "$_total" "$_hook" "$_detail" \
+        > "$_tmp" && mv -f "$_tmp" "$PROGRESS_STATE"
+}
+( hb_last_key=""
+  hb_last_units=0
   while :; do
-      sleep 8
-      hb_cur=$(ls -t "$HOOK_LOGDIR"/*.log 2>/dev/null | head -1)
-      hb_cur=${hb_cur##*/}; hb_cur=${hb_cur%.log}
-      [ -z "$hb_cur" ] && hb_cur="(starting)"
-      if [ "$hb_cur" != "$hb_last" ]; then
-          ttymsg "  → now running: $hb_cur"
-          hb_last="$hb_cur"
-          if [ "$DEBCONF_OK" = 1 ] && [ "$hb_cur" != "(starting)" ]; then
-              idx=$(printf '%s\n' $HOOK_NAMES | grep -nxF "$hb_cur" | head -1 | cut -d: -f1)
-              [ -n "$idx" ] || idx=0
-              db_try db_subst nclawzero/install-step STEP "Installing NCZ-OS: $hb_cur  ($idx of $NH) - please wait (not frozen)"
-              db_try db_progress INFO nclawzero/install-step
-              # r152: advance finish-install's shared bar (STEP only, no START/STOP -> bounce-safe)
-              hb_seen=$((hb_seen + 1))
-              if [ "$DEBCONF_OK" = 1 ] && [ "$hb_stepped" -lt "$STEP_CAP" ] && [ $((hb_seen % STEP_EVERY)) -eq 0 ]; then
-                  db_try db_progress STEP 1
-                  hb_stepped=$((hb_stepped + 1))
+      sleep 4
+      [ -r "$PROGRESS_STATE" ] || continue
+      IFS='|' read -r hb_started hb_updated hb_event hb_phase hb_idx hb_total \
+          hb_hook hb_pct hb_rc hb_detail < "$PROGRESS_STATE" || continue
+      [ -n "$hb_hook" ] || continue
+      case "$hb_idx" in ''|*[!0-9]*) hb_idx=0 ;; esac
+      case "$hb_total" in ''|*[!0-9]*) hb_total=0 ;; esac
+      hb_now=$(date +%s 2>/dev/null || echo "$hb_updated")
+      hb_elapsed=$((hb_now - hb_started))
+      [ "$hb_elapsed" -ge 0 ] 2>/dev/null || hb_elapsed=0
+      hb_label=${hb_hook%.sh}
+      hb_label=$(printf '%s' "$hb_label" | sed 's/^[0-9][0-9]-//; s/-/ /g')
+      case "$hb_event" in
+          APT)
+              hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total, ${hb_elapsed}s) - packages ${hb_pct:-0}%: $hb_detail"
+              ;;
+          WARN)
+              hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total) - warning: $hb_detail"
+              ;;
+          FAIL)
+              hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total) - FAILED: $hb_detail"
+              ;;
+          COMPLETE)
+              hb_status="$hb_detail"
+              ;;
+          FINALIZE)
+              hb_status="Finalizing NCZ-OS: $hb_label (${hb_elapsed}s) - $hb_detail"
+              ;;
+          *)
+              hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total, ${hb_elapsed}s) - $hb_detail"
+              ;;
+      esac
+      hb_status=$(printf '%s' "$hb_status" | cut -c1-150)
+      hb_key="$hb_event|$hb_phase|$hb_idx|$hb_hook|$hb_pct|$hb_detail"
+      if [ "$hb_key" != "$hb_last_key" ]; then
+          ttymsg "  → $hb_status"
+          hb_last_key="$hb_key"
+      fi
+      db_try db_subst nclawzero/install-step STEP "$hb_status"
+      db_try db_progress INFO nclawzero/install-step
+
+      # New ISOs patch finish-install itself to allocate exactly
+      # NCZ_PROGRESS_UNITS units to 07preseed. Advance only inside that owned
+      # range. On older/unpatched installers the variable is absent and this
+      # safely degrades to changing INFO text without touching the parent bar.
+      if [ "$DEBCONF_OK" = 1 ] && [ "$NCZ_PROGRESS_UNITS" -gt 0 ] \
+         && [ "${hb_total:-0}" -gt 0 ] 2>/dev/null; then
+          case "$hb_pct" in ''|*[!0-9]*) hb_pkg_pct=0 ;; *) hb_pkg_pct="$hb_pct" ;; esac
+          [ "$hb_pkg_pct" -gt 100 ] 2>/dev/null && hb_pkg_pct=100
+          case "$hb_event" in
+              DONE|WARN|FAIL|SKIP|COMPLETE|FINALIZE)
+                  hb_work=$((hb_idx * 100))
+                  ;;
+              APT)
+                  hb_work=$(((hb_idx - 1) * 100 + hb_pkg_pct))
+                  ;;
+              *)
+                  hb_work=$(((hb_idx - 1) * 100))
+                  ;;
+          esac
+          hb_target_units=$((hb_work * NCZ_PROGRESS_UNITS / (hb_total * 100)))
+          [ "$hb_target_units" -gt "$NCZ_PROGRESS_UNITS" ] && \
+              hb_target_units="$NCZ_PROGRESS_UNITS"
+          if [ "$hb_target_units" -gt "$hb_last_units" ]; then
+              hb_delta=$((hb_target_units - hb_last_units))
+              db_try db_progress STEP "$hb_delta"
+              hb_last_units="$hb_target_units"
+              if [ -n "${NCZ_PROGRESS_CONSUMED_FILE:-}" ]; then
+                  printf '%s\n' "$hb_last_units" > "$NCZ_PROGRESS_CONSUMED_FILE" 2>/dev/null || true
               fi
           fi
-      else
-          ttymsg "  … still working: $hb_cur"
       fi
   done
 ) &
@@ -499,6 +568,7 @@ LATE_HB_PID=$!
 set +e
 in-target /usr/local/lib/cix-installer/post-install/run-all.sh
 RET=$?
+late_progress_state FINALIZE hardware npu-install-time "Applying install-time NPU and firmware finalization"
 
 # ----------------------------------------------------------------------
 # NPU (Cix Sky1 / Zhouyi v3) — INSTALL-TIME fixes on the REAL MS-R1.
@@ -639,6 +709,7 @@ ncz_npu_install_time || echo "[npu] install-time NPU fixes returned nonzero (non
 # real run-all.sh rc stays in RET and is still propagated by `exit $RET` below
 # (preserves the intended bootloader-failure -> install-failed behavior).
 kill "$LATE_HB_PID" 2>/dev/null || true
+wait "$LATE_HB_PID" 2>/dev/null || true
 # r163: finalization (eject / skel / remove-media dialog / reboot stop) must
 # gate on BOOTABILITY, not RET=0. On Sky1 METAL, efivars is unavailable so
 # 70-bootloader's efibootmgr NVRAM write returns non-zero → RET!=0 even though
@@ -669,7 +740,7 @@ ncz_bootable() {
 # dialog). rEFInd is already synced to the FAT ESP and the root fs is journaled.
 ncz_force_reboot() {
     echo "[late r181] forcing clean reboot ($1) — rEFInd on ESP; not relying on finish-install menu"
-    ttymsg "install complete — rebooting into NCZ 26.6" 2>/dev/null || true
+    ttymsg "install complete — rebooting into ${NCZ_RELEASE_LABEL}" 2>/dev/null || true
     db_try db_set  debian-installer/exit/reboot true
     db_try db_fset debian-installer/exit/reboot seen true
     db_try db_set  debian-installer/exit/poweroff false
@@ -787,7 +858,7 @@ fi
 # d-i preseed (reboot_in_progress no longer set to note) will then prompt the
 # user to dismiss before the actual reboot fires.
 if [ "$FINALIZE_OK" = "1" ]; then
-    BANNER='\n\n  ============================================================\n  \n    NCZ 26.6 INSTALL COMPLETE\n    \n    >>> REMOVE THE USB STICK NOW <<<\n    \n    Then press Enter on the next dialog to reboot.\n    \n    If you forget, the system will boot back into the\n    installer (USB has higher boot priority than NVMe).\n  \n  ============================================================\n'
+    BANNER="\n\n  ============================================================\n  \n    ${NCZ_RELEASE_LABEL} INSTALL COMPLETE\n    \n    >>> REMOVE THE USB STICK NOW <<<\n    \n    Then press Enter on the next dialog to reboot.\n    \n    If you forget, the system will boot back into the\n    installer (USB has higher boot priority than NVMe).\n  \n  ============================================================\n"
     for tty in /dev/tty1 /dev/tty2 /dev/tty3 /dev/tty4 /dev/tty5 /dev/console; do
         if [ -w "$tty" ]; then
             printf '%b' "$BANNER" >> "$tty" 2>/dev/null || true

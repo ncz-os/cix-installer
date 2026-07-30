@@ -22,11 +22,18 @@
 # target so a successful boot can show "what was done" — useful
 # for demo + debugging.
 
-LOGDIR=/var/log/cix-install
+LOGDIR=${NCZ_LOGDIR:-/var/log/cix-install}
+HOOK_DIR=${NCZ_HOOK_DIR:-/usr/local/lib/cix-installer/post-install}
 mkdir -p "$LOGDIR"
-cd /usr/local/lib/cix-installer/post-install || exit 1
+cd "$HOOK_DIR" || exit 1
 # Track failures across phases for end-of-run summary.
 FAILED_HOOKS=""
+CRITICAL_HOOK_FAILURES=""
+# These hooks own the minimum release contract: boot-to-login, native
+# networking, and a populated rescue partition. They still run in the
+# fail-tolerant phase so the bootloader/diagnostics always execute, but a
+# failure is propagated to d-i after those recovery affordances are written.
+CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|55-greeter|60-boot-splash|72-rescue-partition)\.sh$'
 # Phase 1 must complete before the EXIT trap is allowed to touch the ESP.
 REQUIRED_PHASE_OK=0
 # r156: baked-image mode — generic hooks already ran at build time; run
@@ -104,13 +111,88 @@ MACHINE_HOOKS_RE="^(20-desktop|22-display-fix|23-locale-env|24-apt-sources|25-ci
 # so users can watch hooks tick by instead of staring at d-i's stuck dialog.
 # Best-effort: if tty3 isn't writable (post-reboot, or unusual context),
 # falls back silently.
-TTY=/dev/tty3
+TTY=${NCZ_TTY:-/dev/tty3}
 tty_msg() {
     printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" >"$TTY" 2>/dev/null || true
 }
 # r141: install the per-package apt-get progress shim ahead of PATH.
-NCZ_SHIM=/tmp/ncz-apt-shim; mkdir -p "$NCZ_SHIM" /var/log/cix-install 2>/dev/null || true
-SHIMSRC="$(dirname "$0")/apt-progress-shim"; [ -f "$SHIMSRC" ] && { cp "$SHIMSRC" "$NCZ_SHIM/apt-get" && chmod 0755 "$NCZ_SHIM/apt-get" && export PATH="$NCZ_SHIM:$PATH" && tty_msg "per-package apt progress shim active (Alt+F3)"; }
+NCZ_SHIM=/tmp/ncz-apt-shim; mkdir -p "$NCZ_SHIM" "$LOGDIR" 2>/dev/null || true
+SHIMSRC="$(dirname "$0")/apt-progress-shim"
+if [ "${NCZ_DISABLE_APT_SHIM:-0}" != 1 ] && [ -f "$SHIMSRC" ]; then
+    cp "$SHIMSRC" "$NCZ_SHIM/apt-get"
+    chmod 0755 "$NCZ_SHIM/apt-get"
+    export PATH="$NCZ_SHIM:$PATH"
+    tty_msg "per-package apt progress shim active (Alt+F3)"
+fi
+
+# Build the execution plan once. This is the authoritative list used both for
+# execution and progress reporting; late.sh must not try to reconstruct it from
+# every numbered script in the directory.
+PHASE0_HOOKS=$(ls 0[0-9]-*.sh 2>/dev/null | sort || true)
+REQUIRED_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
+    grep -E '^(10-our-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network)\.sh$' || true)
+if [ "$NCZ_BAKED" = 1 ]; then
+    REQUIRED_HOOKS=$(printf '%s\n' $REQUIRED_HOOKS | \
+        grep -E '^(10-our-kernel|11-fix-cixmini-boot)\.sh$' || true)
+fi
+OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
+    grep -vE '^(0[0-9]|10-our-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network|70-bootloader|99-diagnostics)\.sh$' || true)
+if [ "$NCZ_BAKED" = 1 ]; then
+    OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -E "$MACHINE_HOOKS_RE" || true)
+fi
+PHASE0_TOTAL=$(printf '%s\n' $PHASE0_HOOKS | awk 'NF { n++ } END { print n+0 }')
+REQUIRED_TOTAL=$(printf '%s\n' $REQUIRED_HOOKS | awk 'NF { n++ } END { print n+0 }')
+TOTAL_OPT=$(printf '%s\n' $OPT_HOOKS | awk 'NF { n++ } END { print n+0 }')
+TOTAL_HOOKS=$((PHASE0_TOTAL + REQUIRED_TOTAL + TOTAL_OPT))
+[ -f 70-bootloader.sh ] && TOTAL_HOOKS=$((TOTAL_HOOKS + 1))
+[ -f 99-diagnostics.sh ] && TOTAL_HOOKS=$((TOTAL_HOOKS + 1))
+
+# Structured progress protocol consumed by preseed/late.sh and also retained as
+# a post-boot audit trail. The state file is replaced atomically so the renderer
+# never observes a partially-written record.
+#
+# started|updated|event|phase|index|total|hook|percent|rc|detail
+PROGRESS_STATE="$LOGDIR/progress.state"
+PROGRESS_LOG="$LOGDIR/progress.tsv"
+PROGRESS_INDEX=0
+PROGRESS_PHASE=plan
+PROGRESS_HOOK=run-all
+PROGRESS_STARTED=$(date +%s)
+: > "$PROGRESS_LOG"
+progress_clean() {
+    printf '%s' "$*" | tr '|\t\r\n' '     ' | cut -c1-180
+}
+progress_emit() {
+    local event="${1:-INFO}" detail="${2:-}" percent="${3:-}" rc="${4:-}"
+    local now tmp record
+    now=$(date +%s)
+    detail=$(progress_clean "$detail")
+    record="${PROGRESS_STARTED}|${now}|${event}|${PROGRESS_PHASE}|${PROGRESS_INDEX}|${TOTAL_HOOKS}|${PROGRESS_HOOK}|${percent}|${rc}|${detail}"
+    tmp="${PROGRESS_STATE}.tmp.$$"
+    if printf '%s\n' "$record" > "$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$PROGRESS_STATE" 2>/dev/null || true
+    fi
+    printf '%s\n' "$record" >> "$PROGRESS_LOG" 2>/dev/null || true
+}
+progress_start() {
+    local phase="$1" hook="$2" detail="${3:-Running $2}"
+    PROGRESS_INDEX=$((PROGRESS_INDEX + 1))
+    PROGRESS_PHASE="$phase"
+    PROGRESS_HOOK="$hook"
+    PROGRESS_STARTED=$(date +%s)
+    export NCZ_PROGRESS_FILE="$PROGRESS_STATE"
+    export NCZ_PROGRESS_LOG="$PROGRESS_LOG"
+    export NCZ_PROGRESS_PHASE="$PROGRESS_PHASE"
+    export NCZ_PROGRESS_INDEX="$PROGRESS_INDEX"
+    export NCZ_PROGRESS_TOTAL="$TOTAL_HOOKS"
+    export NCZ_PROGRESS_HOOK="$PROGRESS_HOOK"
+    export NCZ_PROGRESS_STARTED="$PROGRESS_STARTED"
+    progress_emit START "$detail"
+}
+progress_finish() {
+    progress_emit "${1:-DONE}" "${2:-}" "" "${3:-0}"
+}
+progress_emit PLAN "Post-install plan: $TOTAL_HOOKS scheduled steps"
 
 tty_msg "==== run-all.sh: post-install hooks starting ===="
 
@@ -125,38 +207,53 @@ finalize_bootloader() {
     # the diagnostics hook.
     set +e
     BOOTLOADER_RC=0
-    { echo "TRAP ORIGINAL_RC=$ORIGINAL_RC REQUIRED_PHASE_OK=${REQUIRED_PHASE_OK:-unset}"; echo "TRAP 70bl=$([ -f /usr/local/lib/cix-installer/post-install/70-bootloader.sh ] && echo YES || echo NO)"; } >> /boot/efi/ncz-debug.txt 2>/dev/null || true
+    if [ -w /boot/efi ]; then
+        { echo "TRAP ORIGINAL_RC=$ORIGINAL_RC REQUIRED_PHASE_OK=${REQUIRED_PHASE_OK:-unset}"; echo "TRAP 70bl=$([ -f "$HOOK_DIR/70-bootloader.sh" ] && echo YES || echo NO)"; } \
+            >> /boot/efi/ncz-debug.txt 2>/dev/null || true
+    fi
     if [ "$ORIGINAL_RC" -ne 0 ] && [ "${REQUIRED_PHASE_OK:-0}" != "1" ]; then
+        if [ -f "$HOOK_DIR/70-bootloader.sh" ]; then
+            progress_start bootloader 70-bootloader.sh "Skipping bootloader after required-step failure"
+            progress_finish SKIP "Required install step failed; bootloader was not modified" "$ORIGINAL_RC"
+        fi
         echo ""
         echo "============================================================"
         echo "[cix-installer] EXIT trap -> required phase failed; skipping bootloader"
         echo "============================================================"
         echo "[cix-installer] 70-bootloader.sh skipped so a failed required hook cannot wipe the ESP"
-    elif [ -f /usr/local/lib/cix-installer/post-install/70-bootloader.sh ]; then
+    elif [ -f "$HOOK_DIR/70-bootloader.sh" ]; then
+        progress_start bootloader 70-bootloader.sh "Installing the bootloader"
         echo ""
         echo "============================================================"
         echo "[cix-installer] EXIT trap → finalizing bootloader"
         echo "============================================================"
-        bash /usr/local/lib/cix-installer/post-install/70-bootloader.sh \
+        bash "$HOOK_DIR/70-bootloader.sh" \
             2>&1 | tee "$LOGDIR/70-bootloader.log"
         BOOTLOADER_RC=${PIPESTATUS[0]}
         if [ "$BOOTLOADER_RC" -ne 0 ]; then
+            progress_finish FAIL "Bootloader installation failed" "$BOOTLOADER_RC"
             echo "[cix-installer] CRITICAL: 70-bootloader.sh failed rc=$BOOTLOADER_RC"
             echo "[cix-installer] System will likely fail to boot — see $LOGDIR/70-bootloader.log"
+        else
+            progress_finish DONE "Bootloader installed" 0
         fi
     fi
     # Run 99-diagnostics AFTER bootloader, so it captures the final
     # /boot/efi/loader/ state (loader.conf, entries, vmlinuz-* layout).
-    if [ -f /usr/local/lib/cix-installer/post-install/99-diagnostics.sh ]; then
+    if [ -f "$HOOK_DIR/99-diagnostics.sh" ]; then
+        progress_start diagnostics 99-diagnostics.sh "Collecting final diagnostics"
         echo ""
         echo "============================================================"
         echo "[cix-installer] EXIT trap → final diagnostics dump"
         echo "============================================================"
-        bash /usr/local/lib/cix-installer/post-install/99-diagnostics.sh \
+        bash "$HOOK_DIR/99-diagnostics.sh" \
             2>&1 | tee "$LOGDIR/99-diagnostics.log"
         DIAGNOSTICS_RC=${PIPESTATUS[0]}
         if [ "$DIAGNOSTICS_RC" -ne 0 ]; then
+            progress_finish WARN "Final diagnostics reported errors" "$DIAGNOSTICS_RC"
             echo "[cix-installer] WARN: 99-diagnostics.sh hit errors rc=$DIAGNOSTICS_RC"
+        else
+            progress_finish DONE "Final diagnostics collected" 0
         fi
     fi
     if [ -n "$FAILED_HOOKS" ]; then
@@ -170,7 +267,13 @@ finalize_bootloader() {
     # this, late_command "succeeds" with no working bootloader and user
     # boots to nothing.
     if [ "$BOOTLOADER_RC" -ne 0 ]; then
+        progress_emit FAIL "Post-install failed: bootloader rc=$BOOTLOADER_RC" "" "$BOOTLOADER_RC"
         exit "$BOOTLOADER_RC"
+    fi
+    if [ -n "$CRITICAL_HOOK_FAILURES" ]; then
+        progress_emit FAIL "Ship-critical post-install hooks failed:$CRITICAL_HOOK_FAILURES" "" 1
+        echo "[cix-installer] FATAL: ship-critical hooks failed:$CRITICAL_HOOK_FAILURES"
+        exit 1
     fi
     # r149: optional (Phase 2) hook failures must NOT abort the install — the
     # system is fully installed + bootable; only a failed REQUIRED phase or a
@@ -178,7 +281,13 @@ finalize_bootloader() {
     # leftover non-zero from a network-dependent optional hook -> d-i
     # preseed/command_failed.)
     if [ "$ORIGINAL_RC" -ne 0 ] && [ "${REQUIRED_PHASE_OK:-0}" != "1" ]; then
+        progress_emit FAIL "Post-install failed in a required step" "" "$ORIGINAL_RC"
         exit "$ORIGINAL_RC"
+    fi
+    if [ -n "$FAILED_HOOKS" ]; then
+        progress_emit COMPLETE "Completed with optional-step warnings:$FAILED_HOOKS" "" 0
+    else
+        progress_emit COMPLETE "Post-install completed successfully" "" 0
     fi
     exit 0
 }
@@ -198,9 +307,10 @@ trap finalize_bootloader EXIT
 # already aborted run-all.sh. Phase 0 fixes that.
 set +e
 tty_msg "Phase 0: diag affordance hooks (run BEFORE required kernel install)"
-for hook in $(ls 0[0-9]-*.sh 2>/dev/null | sort); do
+for hook in $PHASE0_HOOKS; do
     LOG="$LOGDIR/${hook%.sh}.log"
     HOOK_START=$(date +%s)
+    progress_start diagnostic "$hook" "Preparing diagnostic access: ${hook%.sh}"
     tty_msg "  → $hook (diag, non-blocking)"
     echo ""
     echo "============================================================"
@@ -214,8 +324,10 @@ for hook in $(ls 0[0-9]-*.sh 2>/dev/null | sort); do
     rc=${PIPESTATUS[0]}
     HOOK_DUR=$(( $(date +%s) - HOOK_START ))
     if [ "$rc" -eq 0 ]; then
+        progress_finish DONE "Diagnostic preparation complete (${HOOK_DUR}s)" 0
         tty_msg "  ✓ $hook done (${HOOK_DUR}s)"
     else
+        progress_finish WARN "Diagnostic preparation warning (${HOOK_DUR}s)" "$rc"
         tty_msg "  ⚠ $hook rc=$rc (${HOOK_DUR}s, continuing — Phase 0 is non-blocking)"
         echo "[cix-installer] [PHASE0] WARN: $hook exited rc=$rc — install continues"
     fi
@@ -238,22 +350,10 @@ if [ "$NCZ_BAKED" = 1 ]; then
 else
     tty_msg "Phase 1: required hooks (kernel + sky1-firmware + network)"
 fi
-for hook in $(ls [0-9][0-9]-*.sh | sort); do
-    case "$hook" in
-        12-sky1-firmware.sh|33-network.sh)
-            if [ "$NCZ_BAKED" = 1 ]; then
-                tty_msg "  → $hook SKIPPED (baked image)"
-                continue
-            fi
-            ;;
-        10-our-kernel.sh|11-fix-cixmini-boot.sh)
-            ;;
-        *)
-            continue
-            ;;
-    esac
+for hook in $REQUIRED_HOOKS; do
     LOG="$LOGDIR/${hook%.sh}.log"
     HOOK_START=$(date +%s)
+    progress_start required "$hook" "Installing required component: ${hook%.sh}"
     tty_msg "  → $hook (required)"
     echo ""
     echo "============================================================"
@@ -264,6 +364,8 @@ for hook in $(ls [0-9][0-9]-*.sh | sort); do
     rc=${PIPESTATUS[0]}
     set -e
     if [ "$rc" -ne 0 ]; then
+        HOOK_DUR=$(( $(date +%s) - HOOK_START ))
+        progress_finish FAIL "Required component failed (${HOOK_DUR}s)" "$rc"
         tty_msg "  ✗ $hook FAILED rc=$rc — install aborts"
         echo "[cix-installer] FATAL on $hook rc=$rc — install cannot continue"
         # The EXIT trap will skip the bootloader because Phase 1 did
@@ -271,6 +373,7 @@ for hook in $(ls [0-9][0-9]-*.sh | sort); do
         exit "$rc"
     fi
     HOOK_DUR=$(( $(date +%s) - HOOK_START ))
+    progress_finish DONE "Required component complete (${HOOK_DUR}s)" 0
     tty_msg "  ✓ $hook done (${HOOK_DUR}s)"
 done
 REQUIRED_PHASE_OK=1
@@ -278,17 +381,15 @@ REQUIRED_PHASE_OK=1
 # Phase 2: optional hooks. Failures logged but don't abort.
 set +e
 tty_msg "Phase 2: optional hooks (desktop + agents + brand + ssh + ...)"
-OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | grep -vE '^(0[0-9]|10-our-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network|70-bootloader|99-diagnostics)\.sh$')
 if [ "$NCZ_BAKED" = 1 ]; then
-    OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -E "$MACHINE_HOOKS_RE" || true)
     tty_msg "Phase 2: baked image — running only machine-specific hooks: $OPT_HOOKS"
 fi
-TOTAL_OPT=$(echo "$OPT_HOOKS" | wc -l)
 IDX=0
 for hook in $OPT_HOOKS; do
     IDX=$((IDX + 1))
     LOG="$LOGDIR/${hook%.sh}.log"
     HOOK_START=$(date +%s)
+    progress_start optional "$hook" "Installing optional component: ${hook%.sh}"
     tty_msg "  → [$IDX/$TOTAL_OPT] $hook"
     echo ""
     echo "============================================================"
@@ -298,10 +399,16 @@ for hook in $OPT_HOOKS; do
     rc=${PIPESTATUS[0]}
     HOOK_DUR=$(( $(date +%s) - HOOK_START ))
     if [ "$rc" -ne 0 ]; then
+        progress_finish WARN "Optional component warning (${HOOK_DUR}s)" "$rc"
         tty_msg "  ✗ [$IDX/$TOTAL_OPT] $hook FAILED rc=$rc (${HOOK_DUR}s) — continuing"
         echo "[cix-installer] $hook FAILED rc=$rc — continuing (bootloader still writes)"
         FAILED_HOOKS="$FAILED_HOOKS $hook"
+        if printf '%s\n' "$hook" | grep -Eq "$CRITICAL_OPTIONAL_HOOKS_RE"; then
+            CRITICAL_HOOK_FAILURES="$CRITICAL_HOOK_FAILURES $hook"
+            echo "[cix-installer] $hook is ship-critical; d-i will fail after bootloader + diagnostics"
+        fi
     else
+        progress_finish DONE "Optional component complete (${HOOK_DUR}s)" 0
         tty_msg "  ✓ [$IDX/$TOTAL_OPT] $hook done (${HOOK_DUR}s)"
     fi
 done

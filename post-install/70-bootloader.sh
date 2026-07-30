@@ -46,6 +46,12 @@ KVER_NEXT=""
 [ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
 BUILD_VERSION="(unknown)"
 [ -f "$INSTALLER_META/BUILD_VERSION" ] && BUILD_VERSION=$(cat "$INSTALLER_META/BUILD_VERSION" 2>/dev/null || true)
+if [ ! -s "$INSTALLER_META/RELEASE" ]; then
+    echo "ERROR: release identity missing at $INSTALLER_META/RELEASE"
+    exit 1
+fi
+# shellcheck disable=SC1091
+. "$INSTALLER_META/RELEASE"
 
 if [ -z "$KVER_LTS" ] && [ -z "$KVER_NEXT" ]; then
     echo "ERROR: no KVER_LTS or KVER_NEXT sidecar present"
@@ -70,5 +76,5 @@ echo "  installed shared refresh script -> $SHARED_DST"
 # 10-our-kernel.sh -- both this script and that one install/depend on
 # ncz-refind-refresh, but neither needs the other to have run first since
 # each installs its own copy of what it needs.)
-export KVER_LTS KVER_NEXT BUILD_VERSION
+export KVER_LTS KVER_NEXT BUILD_VERSION NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME
 "$SHARED_DST"

@@ -20,7 +20,7 @@
 # this partition with the NORMAL LTS cmdline (display drivers KEPT) so the local
 # console is usable; we do NOT apply the rescue.target KMS/display blacklist here
 # (that earlier left the rescue screen blank).
-set -uo pipefail   # NOT -e: optional Phase-2 hook, must fail soft
+set -uo pipefail
 
 INSTALLER_META=/usr/local/lib/cix-installer
 ASSETS_KERNEL="$INSTALLER_META/assets/kernel"
@@ -35,19 +35,19 @@ echo "[72] rescue partition population"
 KVER_LTS=""
 [ -f "$INSTALLER_META/KVER_LTS" ] && KVER_LTS=$(cat "$INSTALLER_META/KVER_LTS" 2>/dev/null || true)
 if [ -z "$KVER_LTS" ]; then
-    echo "[72] no LTS kernel staged — cannot build a clean rescue partition; skipping"
-    exit 0
+    echo "[72] ERROR: no LTS kernel staged — cannot build a rescue partition" >&2
+    exit 1
 fi
 if [ ! -f "$TARBALL" ]; then
-    echo "[72] $TARBALL not present (run build/build-rescue-rootfs.sh at bake time) — skipping"
-    exit 0
+    echo "[72] ERROR: $TARBALL not present (run build/build-rescue-rootfs.sh at bake time)" >&2
+    exit 1
 fi
 if [ ! -f "$ASSETS_KERNEL/stable/Image-cixmini.bin" ] || [ ! -f "$ASSETS_KERNEL/stable/modules-cixmini.tgz" ]; then
-    echo "[72] LTS kernel assets missing under $ASSETS_KERNEL/stable — skipping"
-    exit 0
+    echo "[72] ERROR: LTS kernel assets missing under $ASSETS_KERNEL/stable" >&2
+    exit 1
 fi
 for t in blkid lsblk findmnt zstd tar depmod mkfs.ext4 e2label; do
-    command -v "$t" >/dev/null 2>&1 || { echo "[72] missing tool $t — skipping rescue partition"; exit 0; }
+    command -v "$t" >/dev/null 2>&1 || { echo "[72] ERROR: missing required tool $t" >&2; exit 1; }
 done
 
 # --- locate the rescue partition ---
@@ -73,23 +73,23 @@ if [ -z "$RESCUE_SRC" ] && [ -n "$ROOT_SRC" ]; then
     fi
 fi
 if [ -z "$RESCUE_SRC" ] || [ ! -b "$RESCUE_SRC" ]; then
-    echo "[72] no rescue partition found (no NCZRESCUE, no spare partition) — skipping"
+    echo "[72] ERROR: no rescue partition found (no NCZRESCUE, no spare partition)" >&2
     echo "      block devices:"; lsblk 2>&1 | sed 's/^/        /' | head -20
-    exit 0
+    exit 1
 fi
 echo "[72] rescue partition = $RESCUE_SRC"
 
 # Guard: never clobber the live root or ESP.
 if [ "$RESCUE_SRC" = "$ROOT_SRC" ] || [ "$RESCUE_SRC" = "$ESP_SRC" ]; then
-    echo "[72] refusing to use $RESCUE_SRC (it is the live root or ESP) — skipping"
-    exit 0
+    echo "[72] ERROR: refusing to use $RESCUE_SRC (it is the live root or ESP)" >&2
+    exit 1
 fi
 
 # --- ensure ext4 + label ---
 FST=$(blkid -s TYPE -o value "$RESCUE_SRC" 2>/dev/null || true)
 if [ "$FST" != "ext4" ]; then
     echo "[72] $RESCUE_SRC is '$FST' — formatting ext4 (NCZRESCUE)"
-    mkfs.ext4 -F -L NCZRESCUE "$RESCUE_SRC" || { echo "[72] mkfs failed — skipping"; exit 0; }
+    mkfs.ext4 -F -L NCZRESCUE "$RESCUE_SRC" || { echo "[72] ERROR: mkfs failed" >&2; exit 1; }
 else
     e2label "$RESCUE_SRC" NCZRESCUE 2>/dev/null || true
 fi
@@ -98,50 +98,47 @@ fi
 mkdir -p "$MNT"
 umount "$MNT" 2>/dev/null || true
 if ! mount "$RESCUE_SRC" "$MNT"; then
-    echo "[72] mount $RESCUE_SRC failed — skipping"; exit 0
+    echo "[72] ERROR: mount $RESCUE_SRC failed" >&2; exit 1
 fi
 
 echo "[72] extracting rescue rootfs -> $MNT"
 if ! zstd -dc "$TARBALL" | tar -xpf - -C "$MNT" --numeric-owner; then
     echo "[72] rootfs extract failed — unmounting + skipping"
     umount "$MNT" 2>/dev/null || true
-    exit 0
+    exit 1
 fi
 
 # --- auto-network + remote recovery access (operator directive 2026-07-29) ---
 # A rescue partition that can't be reached over the network is useless when
 # the failure being recovered from is a bricked main-kernel boot -- physical
-# console access may not be available. DHCP on any wired interface via
-# systemd-networkd, plus ssh (already shipped/enabled in the base rescue
-# rootfs image) so recovery is reachable purely over the LAN. Idempotent:
-# safe to re-run (plain overwrite, no appends).
-echo "[72] configuring rescue rootfs auto-network + remote access"
-mkdir -p "$MNT/etc/systemd/network"
-cat > "$MNT/etc/systemd/network/20-wired-dhcp.network" <<'NETCFG'
-[Match]
-Type=ether
-
-[Network]
-DHCP=yes
-IPv6AcceptRA=yes
-
-[DHCP]
-RouteMetric=100
-UseDNS=yes
-NETCFG
+# console access may not be available. The baked ncz-rescue-net units provide
+# bounded DHCP plus a static fallback; ssh is also baked and enabled. This hook
+# validates that release contract and removes stale competing networkd wiring.
+echo "[72] verifying rescue rootfs auto-network + remote access"
+# The rescue image already ships one authoritative, time-bounded network owner:
+# ncz-rescue-net (dhclient/udhcpc) plus ncz-rescue-net-fallback. Do not also
+# enable systemd-networkd for the same NIC; v17 shipped both and produced a DHCP
+# ownership race. Remove any stale networkd wiring/config from an older image.
+rm -f "$MNT/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" \
+      "$MNT/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service"
+rm -f "$MNT/etc/systemd/network/20-wired-dhcp.network"
+if [ ! -x "$MNT/usr/local/sbin/ncz-rescue-net" ] || \
+   [ ! -x "$MNT/usr/local/sbin/ncz-rescue-net-fallback" ] || \
+   [ ! -L "$MNT/etc/systemd/system/multi-user.target.wants/ncz-rescue-net.service" ] || \
+   [ ! -L "$MNT/etc/systemd/system/multi-user.target.wants/ncz-rescue-net-fallback.service" ]; then
+    echo "[72] ERROR: rescue rootfs lacks enabled ncz-rescue-net DHCP/fallback units" >&2
+    umount "$MNT" 2>/dev/null || true
+    exit 1
+fi
 mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
-ln -sf /usr/lib/systemd/system/systemd-networkd.service \
-    "$MNT/etc/systemd/system/multi-user.target.wants/systemd-networkd.service"
-mkdir -p "$MNT/etc/systemd/system/network-online.target.wants"
-ln -sf /usr/lib/systemd/system/systemd-networkd-wait-online.service \
-    "$MNT/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service"
-ln -sf /run/systemd/resolve/stub-resolv.conf "$MNT/etc/resolv.conf" 2>/dev/null || true
 if [ -f "$MNT/usr/lib/systemd/system/ssh.service" ]; then
     mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
     ln -sf /usr/lib/systemd/system/ssh.service "$MNT/etc/systemd/system/multi-user.target.wants/ssh.service"
     echo "[72]   ssh.service enabled"
 else
-    echo "[72]   WARN: ssh.service not present in rescue rootfs image (openssh-server not baked into build/build-rescue-rootfs.sh?)"
+    echo "[72] ERROR: ssh.service not present in rescue rootfs image" >&2
+    umount "$MNT" 2>/dev/null || true
+    exit 1
 fi
 if [ -f "$MNT/usr/lib/systemd/system/inetd.service" ] || [ -x "$MNT/usr/sbin/telnetd" ] || [ -x "$MNT/usr/sbin/in.telnetd" ]; then
     mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
@@ -150,9 +147,9 @@ if [ -f "$MNT/usr/lib/systemd/system/inetd.service" ] || [ -x "$MNT/usr/sbin/tel
     done
     echo "[72]   telnet available and enabled (console fallback, LAN-only per fleet doctrine)"
 fi
-echo "[72] auto-network + remote access configured"
+echo "[72] auto-network + remote access verified (single owner: ncz-rescue-net)"
 
-# --- install EDGE kernel + modules into the rescue rootfs ---
+# --- install stable kernel + modules into the rescue rootfs ---
 # Modules MUST go in via --keep-directory-symlink (never plain -C /): the
 # tarball carries a top-level lib/ entry, and on a usrmerge rootfs /lib is a
 # symlink to usr/lib. A naive extract would clobber that symlink and orphan

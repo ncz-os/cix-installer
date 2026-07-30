@@ -1,6 +1,13 @@
 #!/bin/bash
-# ncz — NCZ 26.7 agent management CLI
+# ncz — release-aware NCZ agent management CLI
 AGENTS="zeroclaw openclaw hermes"
+NCZ_PRODUCT_NAME="NCZ-OS"
+NCZ_RELEASE_VERSION="unknown"
+NCZ_RELEASE_CODENAME=""
+[ -s /etc/cix-installer/RELEASE ] && . /etc/cix-installer/RELEASE
+NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
+[ -n "$NCZ_RELEASE_CODENAME" ] && \
+    NCZ_RELEASE_LABEL="$NCZ_RELEASE_LABEL \"$NCZ_RELEASE_CODENAME\""
 
 agent_token() {
     local name="$1"
@@ -79,11 +86,11 @@ case "$1" in
             *) echo "Try: ncz agent {list|status|start|stop|restart|logs|enable|disable|web|shell|token|show}"; exit 1 ;;
         esac ;;
     version|"--version"|"-V")
-        echo "NCZ 26.7 \"Maximilian\""
+        echo "$NCZ_RELEASE_LABEL"
         [ -f /etc/lsb-release ] && grep DISTRIB_DESCRIPTION /etc/lsb-release | cut -d= -f2- | tr -d '"' ;;
     ""|help|--help|-h)
         cat <<USAGE
-ncz — NCZ 26.7 agent CLI
+ncz — $NCZ_RELEASE_LABEL agent CLI
   ncz agent list                show all agents + status
   ncz agent status <name>       detailed status
   ncz agent start|stop|restart <name>

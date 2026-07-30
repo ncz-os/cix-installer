@@ -46,6 +46,10 @@ libglib2.0-bin
 foot
 xsettingsd
 seatd
+libseat1
+libliftoff0
+libxcb-composite0
+libxcb-ewmh2
 swaybg
 grim
 slurp

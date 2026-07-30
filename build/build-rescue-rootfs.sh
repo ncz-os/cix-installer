@@ -117,8 +117,11 @@ printf '127.0.0.1\tlocalhost\n127.0.1.1\t%s\n' "$RESCUE_HOSTNAME" > "$CHROOT/etc
 # root password (LAN-only rescue console)
 chroot "$CHROOT" /bin/sh -c "echo 'root:$RESCUE_ROOT_PW' | chpasswd"
 
-# Serial console on ttyAMA2 @115200 (matches console=ttyAMA2,115200 cmdline).
+# Serial consoles: ttyAMA2 is Sky1 metal; ttyAMA0 is QEMU virt and is also
+# present in the generated rEFInd cmdline. Enable both so the rescue environment
+# remains observable during the mandatory KVM gate as well as on O6 hardware.
 chroot "$CHROOT" systemctl enable serial-getty@ttyAMA2.service 2>/dev/null || true
+chroot "$CHROOT" systemctl enable serial-getty@ttyAMA0.service 2>/dev/null || true
 chroot "$CHROOT" systemctl enable getty@tty1.service 2>/dev/null || true
 
 # Allow root login on serial + pts (telnet/console) — mirrors 36-telemetry.sh.
@@ -209,7 +212,10 @@ sleep 2   # let carrier/auto-neg settle before reading link state
 for i in \$NICS; do
     [ "\$(cat /sys/class/net/\$i/carrier 2>/dev/null)" = "1" ] || continue
     if command -v dhclient >/dev/null 2>&1; then
-        ( dhclient -1 -timeout 8 "\$i" 2>/dev/null ) &
+        # Ubuntu's ISC dhclient has no -timeout option. Bound the whole
+        # one-shot client externally; the old invalid flag made every DHCP
+        # attempt fail immediately and forced the static fallback.
+        ( timeout 12 dhclient -1 "\$i" 2>/dev/null ) &
     else
         ( busybox udhcpc -i "\$i" -q -n -t 3 -T 2 2>/dev/null ) &
     fi
@@ -238,6 +244,11 @@ ip -4 -o addr show dev "\$iface" 2>/dev/null | grep -q "$RESCUE_STATIC_IP" || \\
     ip addr add $RESCUE_STATIC_IP dev "\$iface" 2>/dev/null
 ip route show default 2>/dev/null | grep -q default || \\
     ip route add default via $RESCUE_STATIC_GW 2>/dev/null
+# dhclient normally writes resolver state. A static fallback must do so itself
+# or "networking works" only for literal IP addresses.
+if ! grep -q '^[[:space:]]*nameserver[[:space:]]' /etc/resolv.conf 2>/dev/null; then
+    printf 'nameserver %s\\nnameserver 1.1.1.1\\n' '$RESCUE_STATIC_GW' > /etc/resolv.conf
+fi
 exit 0
 EOF
 chmod 0755 "$CHROOT/usr/local/sbin/ncz-rescue-net-fallback"
@@ -277,6 +288,20 @@ EOF
 
 chroot "$CHROOT" systemctl enable ncz-rescue-net.service 2>/dev/null || true
 chroot "$CHROOT" systemctl enable ncz-rescue-net-fallback.service 2>/dev/null || true
+# dhclient owns resolver updates in the rescue image. Keep this a regular,
+# writable file; a debootstrap systemd-resolved stub symlink is dead because
+# resolved is intentionally not part of the minimal rescue closure.
+rm -f "$CHROOT/etc/resolv.conf"
+: > "$CHROOT/etc/resolv.conf"
+chmod 0644 "$CHROOT/etc/resolv.conf"
+
+# Rescue is intentionally console/headless. A graphical default adds no
+# recovery capability, while multipathd fails noisily on kernels without
+# dm_multipath even though the userspace tools remain useful on demand.
+chroot "$CHROOT" systemctl set-default multi-user.target 2>/dev/null || true
+chroot "$CHROOT" systemctl enable systemd-timesyncd.service 2>/dev/null || true
+chroot "$CHROOT" systemctl disable multipathd.service multipathd.socket 2>/dev/null || true
+chroot "$CHROOT" systemctl mask multipathd.service multipathd.socket 2>/dev/null || true
 
 # --- /lib usrmerge repair + boot-default fix helper (from R80 rescue) ---
 cat > "$CHROOT/usr/local/sbin/ncz-rescue-fixlib" <<'EOF'
@@ -349,6 +374,35 @@ fi
 
 # Drop apt lists to shrink the tarball.
 rm -rf "$CHROOT/var/lib/apt/lists/"* "$CHROOT/var/cache/apt/archives/"*.deb 2>/dev/null || true
+
+# Ship gate: this is a bootable partition image, not merely a useful chroot.
+# Resolute minbase can install systemd without systemd-sysv, leaving no
+# /sbin/init; that produced a kernel-mounted rescue root with no PID 1, console,
+# or networking. Validate the exact boot and remote-recovery contract before
+# packing so an unusable rescue image cannot enter an ISO.
+for required in \
+    /sbin/init \
+    /bin/sh \
+    /usr/local/sbin/ncz-rescue-net \
+    /usr/local/sbin/ncz-rescue-net-fallback \
+    /usr/lib/systemd/system/systemd-timesyncd.service \
+    /usr/lib/systemd/system/ssh.service; do
+    if [ ! -x "$CHROOT$required" ] && [ ! -f "$CHROOT$required" ]; then
+        echo "[rescue-rootfs] ERROR: required rescue boot/runtime file missing: $required" >&2
+        exit 1
+    fi
+done
+for enabled in \
+    /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service \
+    /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA2.service \
+    /etc/systemd/system/multi-user.target.wants/ncz-rescue-net.service \
+    /etc/systemd/system/multi-user.target.wants/ncz-rescue-net-fallback.service; do
+    if [ ! -L "$CHROOT$enabled" ]; then
+        echo "[rescue-rootfs] ERROR: required rescue unit is not enabled: $enabled" >&2
+        exit 1
+    fi
+done
+echo "[rescue-rootfs] verified: PID 1, serial consoles, DHCP/fallback, and ssh runtime present"
 
 # ----------------------------------------------------------------------
 # Stage 4 — pack the tarball (unmount binds first).

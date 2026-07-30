@@ -132,6 +132,17 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
+# Release identity is version-controlled separately from the per-build VERSION.
+RELEASE_CONFIG="$ROOT/release.conf"
+[ -s "$RELEASE_CONFIG" ] || { echo "ERROR: missing release identity: $RELEASE_CONFIG" >&2; exit 1; }
+# shellcheck source=../release.conf
+. "$RELEASE_CONFIG"
+for release_var in NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME \
+                   NCZ_BASE_NAME NCZ_BASE_VERSION NCZ_BASE_CODENAME NCZ_BASE_LABEL; do
+    [ -n "${!release_var:-}" ] || { echo "ERROR: $release_var missing in $RELEASE_CONFIG" >&2; exit 1; }
+done
+NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
+
 # ----------------------------------------------------------------------
 # 26.7 preflight guard — full desktop ISOs MUST carry the bake-time assets
 # whose silent absence shipped two dead regressions (2026-07-29):
@@ -168,14 +179,33 @@ if [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ]; then
         echo "  Verify: file assets/sinty-nm/sinty-nmd  # ELF 64-bit ... ARM aarch64 ... statically linked" >&2
         exit 1
     fi
+    if [ ! -x "$ROOT/assets/singularity-boot-splash/singularity-boot-splash" ]; then
+        echo "ERROR: native boot-splash binary missing/non-executable — full desktop ISO would either enable a broken unit or remove Plymouth without a replacement." >&2
+        echo "  Remediation: build singularity-boot-splash and stage it at assets/singularity-boot-splash/singularity-boot-splash (mode 0755)." >&2
+        exit 1
+    fi
 fi
 
 # Drift guard: surface kernel/NPU manifest drift (e.g. NPU vermagic != KVER)
-# before building the ISO. Non-fatal by default; STRICT_MANIFEST=1 makes it abort.
+# before building the ISO. Shipping full desktop images fail closed by default:
+# silently accepting swapped kernel bytes defeats the manifest's release
+# contract. Development/netinstall builds remain permissive unless callers set
+# STRICT_MANIFEST=1; STRICT_MANIFEST=0 explicitly opts any build out.
+MANIFEST_STRICT="${STRICT_MANIFEST:-}"
+if [ -z "$MANIFEST_STRICT" ]; then
+    MANIFEST_STRICT=0
+    if [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ]; then
+        MANIFEST_STRICT=1
+    fi
+fi
+case "$MANIFEST_STRICT" in
+    0|1) ;;
+    *) echo "ERROR: STRICT_MANIFEST must be 0 or 1 (got '$MANIFEST_STRICT')" >&2; exit 1 ;;
+esac
 if [ -f "$ROOT/build/kernel-manifest.py" ]; then
     if ! python3 "$ROOT/build/kernel-manifest.py" check; then
-        if [ "${STRICT_MANIFEST:-0}" = 1 ]; then
-            echo "ERROR: kernel manifest drift (STRICT_MANIFEST=1) — aborting" >&2
+        if [ "$MANIFEST_STRICT" = 1 ]; then
+            echo "ERROR: kernel manifest drift (strict release gate) — aborting" >&2
             exit 1
         fi
         echo "WARN: kernel manifest drift detected (continuing; set STRICT_MANIFEST=1 to enforce)" >&2
@@ -818,12 +848,56 @@ if [ -n "$SQDIR" ]; then
     "$LDR" --library-path "$SQDIR/sqtools" "$UNSQ" -f -d "$TARGET" "$SQDIR/base.squashfs" >/dev/null 2>&1 || {
         echo "FATAL: r159 stub: unsquashfs base failed" >&2; exit 1; }
     if [ -f "$SQDIR/$ROLE.squashfs" ]; then
+        # The role image is an overlayfs upperdir. Its companion manifest
+        # records both 0:0 whiteouts and trusted.overlay.opaque directories.
+        # Both semantics must be applied to the extracted base before ordinary
+        # unsquashfs extraction; otherwise the result is a partial, incoherent
+        # filesystem (the v15 DBus/network/greeter failure).
+        OVERLAY_MANIFEST="$SQDIR/$ROLE.overlay-manifest"
+        [ -s "$OVERLAY_MANIFEST" ] || {
+            echo "FATAL: r159 stub: missing $ROLE overlay manifest" >&2
+            exit 1
+        }
+        OVERLAY_COUNT=0
+        OVERLAY_TAB=$(printf '\t')
+        while IFS="$OVERLAY_TAB" read -r kind rel; do
+            case "$kind" in
+                '#'*|'') continue ;;
+                whiteout|opaque) ;;
+                *)
+                    echo "FATAL: r159 stub: invalid $ROLE overlay operation '$kind'" >&2
+                    exit 1
+                    ;;
+            esac
+            case "$rel" in
+                ''|.|/*|../*|*/../*|*/..)
+                    echo "FATAL: r159 stub: unsafe $ROLE overlay path '$rel'" >&2
+                    exit 1
+                    ;;
+            esac
+            rm -rf "$TARGET/$rel" || {
+                echo "FATAL: r159 stub: cannot apply $kind '$rel'" >&2
+                exit 1
+            }
+            OVERLAY_COUNT=$((OVERLAY_COUNT + 1))
+        done < "$OVERLAY_MANIFEST"
+        echo "I: r159 stub: applied $OVERLAY_COUNT $ROLE overlay operation(s)" >&2
+
         echo "I: r159 stub: unsquashfs $ROLE delta -> $TARGET" >&2
-        "$LDR" --library-path "$SQDIR/sqtools" "$UNSQ" -f -d "$TARGET" "$SQDIR/$ROLE.squashfs" >/dev/null 2>&1 || \
-            echo "W: r159 stub: $ROLE delta rc=$?" >&2
-        find "$TARGET" -xdev -type c 2>/dev/null | while IFS= read -r w; do
-            [ "$(stat -c '%t %T' "$w" 2>/dev/null)" = "0 0" ] && rm -rf "$w"
-        done
+        "$LDR" --library-path "$SQDIR/sqtools" "$UNSQ" -f -d "$TARGET" "$SQDIR/$ROLE.squashfs" >/dev/null 2>&1 || {
+            echo "FATAL: r159 stub: $ROLE delta extraction failed" >&2
+            exit 1
+        }
+        # Remove the extracted 0:0 markers by their already-validated manifest
+        # paths. This avoids a slow whole-root find/stat pass over thousands of
+        # nodes while preserving every legitimate /dev node.
+        while IFS="$OVERLAY_TAB" read -r kind rel; do
+            [ "$kind" = whiteout ] || continue
+            rm -rf "$TARGET/$rel" || {
+                echo "FATAL: r159 stub: cannot remove whiteout marker '$rel'" >&2
+                exit 1
+            }
+        done < "$OVERLAY_MANIFEST"
     fi
     if [ ! -f "$TARGET/etc/os-release" ]; then
         echo "FATAL: r159 stub: squashfs extract produced no os-release" >&2; exit 1
@@ -1475,6 +1549,109 @@ brand_udeb_templates "$STAGING/pool/main/m/main-menu/main-menu_*.udeb"        "m
 brand_udeb_templates "$STAGING/pool/main/f/finish-install/finish-install_*.udeb" "finish-install"
 brand_udeb_templates "$STAGING/pool/main/c/choose-mirror/choose-mirror_*.udeb"   "choose-mirror"
 
+# Give NCZ late_command an explicit 100-unit allocation in finish-install's
+# OWN progress bar. Bookworm does not preload finish-install into the initrd:
+# anna retrieves its udeb from the media pool, then dpkg installs this postinst.
+# Patch that real owner before the Packages index is regenerated below.
+patch_finish_install_progress_owner() {
+    local _glob="$1"
+    local _matches; _matches=( $_glob )
+    local _udeb="${_matches[0]}"
+    [ -e "$_udeb" ] || {
+        echo "ERROR: finish-install udeb absent; cannot allocate late-install progress" >&2
+        exit 1
+    }
+
+    local _tmp="$STAGING/.tmp-finish-progress-udeb"
+    local _ar="$_tmp/ar" _ctl="$_tmp/ctl"
+    rm -rf "$_tmp"; mkdir -p "$_ar" "$_ctl"
+    local _udeb_abs; _udeb_abs="$(readlink -f "$_udeb")"
+    ( cd "$_ar" && ar x "$_udeb_abs" )
+    [ -f "$_ar/debian-binary" ] || {
+        echo "ERROR: finish-install udeb missing debian-binary" >&2
+        exit 1
+    }
+    local _ctl_members=( "$_ar"/control.tar* )
+    local _data_members=( "$_ar"/data.tar* )
+    local _ctl_member; _ctl_member="$(basename "${_ctl_members[0]}")"
+    local _data_member; _data_member="$(basename "${_data_members[0]}")"
+    tar -xf "$_ar/$_ctl_member" -C "$_ctl"
+    [ -f "$_ctl/postinst" ] || {
+        echo "ERROR: finish-install udeb missing control/postinst" >&2
+        exit 1
+    }
+
+    python3 - "$_ctl/postinst" <<'PYFINISH'
+import sys
+
+path = sys.argv[1]
+src = open(path).read()
+
+old_count = 'scriptcount=$(ls "$partsdir"/* | wc -l)'
+new_count = '''scriptcount=$(ls "$partsdir"/* | wc -l)
+ncz_preseed_script="$partsdir/07preseed"
+ncz_progress_units=100
+if [ -x "$ncz_preseed_script" ]; then
+\tscriptcount=$((scriptcount + ncz_progress_units - 1))
+fi'''
+
+old_loop = '''for script in "$partsdir"/*; do
+\tbase=$(basename $script | sed 's/[0-9]*//')'''
+new_loop = '''for script in "$partsdir"/*; do
+\tncz_progress_child=0
+\tif [ "$script" = "$ncz_preseed_script" ]; then
+\t\tncz_progress_child=1
+\t\tNCZ_PROGRESS_UNITS=$ncz_progress_units
+\t\tNCZ_PROGRESS_CONSUMED_FILE="/tmp/ncz-finish-progress.$$"
+\t\tprintf '0\\n' > "$NCZ_PROGRESS_CONSUMED_FILE"
+\t\texport NCZ_PROGRESS_UNITS NCZ_PROGRESS_CONSUMED_FILE
+\tfi
+\tbase=$(basename $script | sed 's/[0-9]*//')'''
+
+old_step = '''\tdb_progress STEP 1
+done'''
+new_step = '''\tif [ "$ncz_progress_child" = 1 ]; then
+\t\tncz_consumed=$(cat "$NCZ_PROGRESS_CONSUMED_FILE" 2>/dev/null || echo 0)
+\t\tcase "$ncz_consumed" in *[!0-9]*|'') ncz_consumed=0 ;; esac
+\t\t[ "$ncz_consumed" -gt "$ncz_progress_units" ] && ncz_consumed=$ncz_progress_units
+\t\tncz_remaining=$((ncz_progress_units - ncz_consumed))
+\t\t[ "$ncz_remaining" -gt 0 ] && db_progress STEP "$ncz_remaining"
+\t\trm -f "$NCZ_PROGRESS_CONSUMED_FILE"
+\t\tunset NCZ_PROGRESS_UNITS NCZ_PROGRESS_CONSUMED_FILE
+\telse
+\t\tdb_progress STEP 1
+\tfi
+done'''
+
+for name, old, new in (
+    ("script count", old_count, new_count),
+    ("07preseed allocation", old_loop, new_loop),
+    ("owned step completion", old_step, new_step),
+):
+    if src.count(old) != 1:
+        raise SystemExit(
+            f"finish-install patch drift: expected one {name} anchor, "
+            f"found {src.count(old)}"
+        )
+    src = src.replace(old, new)
+
+open(path, "w").write(src)
+PYFINISH
+    chmod 0755 "$_ctl/postinst"
+    sh -n "$_ctl/postinst"
+
+    rm -f "$_ar/$_ctl_member"
+    ( cd "$_ctl" && tar --numeric-owner --owner=0 --group=0 -cf - . ) \
+        | gzip -9n > "$_ar/control.tar.gz"
+    local _new_udeb="$_tmp/$(basename "$_udeb")"
+    ( cd "$_ar" && ar rc "$_new_udeb" debian-binary control.tar.gz "$_data_member" )
+    mv "$_new_udeb" "$_udeb"
+    rm -rf "$_tmp"
+    echo "    finish-install udeb: allocated 100 owned progress units to 07preseed/late_command"
+}
+patch_finish_install_progress_owner \
+    "$STAGING/pool/main/f/finish-install/finish-install_*.udeb"
+
 # Step 5: regenerate dists/resolute/main/debian-installer/binary-arm64/Packages
 # from the actual pool contents (not just copy bookworm's stale Packages).
 # After the trixie graft, the d-i Packages index MUST reflect the new udeb set
@@ -1589,16 +1766,16 @@ fi
 printf 'dvd\n' > "$STAGING/.disk/cd_type"
 case "$MODE" in
     netinstall)
-        printf 'NCZ-OS cixmini resolute - Netinstall arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf '%s - Netinstall arm64 Binary 1\n' "$NCZ_RELEASE_LABEL" > "$STAGING/.disk/info"
         ;;
     netinstall-bootstrap)
-        printf 'NCZ-OS cixmini resolute - Netinstall Bootstrap arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf '%s - Netinstall Bootstrap arm64 Binary 1\n' "$NCZ_RELEASE_LABEL" > "$STAGING/.disk/info"
         ;;
     thin)
-        printf 'NCZ-OS cixmini resolute - Thin arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf '%s - Thin arm64 Binary 1\n' "$NCZ_RELEASE_LABEL" > "$STAGING/.disk/info"
         ;;
     *)
-        printf 'NCZ-OS cixmini resolute - Offline arm64 Binary 1\n' > "$STAGING/.disk/info"
+        printf '%s - Offline arm64 Binary 1\n' "$NCZ_RELEASE_LABEL" > "$STAGING/.disk/info"
         ;;
 esac
 # .disk/udeb_include: tells d-i to use our network-console udeb etc.
@@ -1917,9 +2094,10 @@ for _tpl in main-menu di-utils cdrom-detect cdrom-checker anna; do
     fi
 done
 
-# Build cpio overlay containing init + newt.so + branded templates. Append to initrd.
+# Build cpio overlay containing init + newt.so + branded templates. The
+# progress-aware finish-install owner is carried by its anna-loaded udeb.
 ( cd "$INITRD_PATCH_TMP/overlay" && find . | cpio -o -H newc --quiet | gzip -9 -n ) >> "$INITRD"
-echo "    initrd patched: amber phosphor palette + NCZ branding via cpio overlay"
+echo "    initrd patched: amber palette + NCZ branding"
 rm -rf "$INITRD_PATCH_TMP"
 rm -rf "$WORK"
 
@@ -2246,6 +2424,7 @@ echo "$BUILD_DATE"  > "$EXTRA/BUILD_DATE"
 echo "$BUILD_HOST"  > "$EXTRA/BUILD_HOST"
 echo "$MODE"        > "$EXTRA/BUILD_MODE"
 echo "$VARIANT"     > "$EXTRA/BUILD_VARIANT"   # r75 M1: read by 48-server-variant.sh
+install -m 0644 "$RELEASE_CONFIG" "$EXTRA/RELEASE"
 # r40 full mode: stage the pre-built rootfs tarball so the debootstrap stub
 # can populate /target without a real bootstrap.
 if [ "$STAGE_ROOTFS" = "1" ]; then
@@ -2271,8 +2450,16 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
             _RLNAME="$(basename "$_RL")"
             [ "$_RLNAME" = "base.squashfs" ] && continue
             [ -f "$_RL" ] || continue
+            _RLROLE="${_RLNAME%.squashfs}"
+            _RLMANIFEST="$ROOT/assets/squashfs/$_RLROLE.overlay-manifest"
+            [ -s "$_RLMANIFEST" ] || {
+                echo "ERROR: $_RLNAME has no overlay manifest: $_RLMANIFEST" >&2
+                echo "  Rebuild the layer with build/build-squashfs-layers.sh." >&2
+                exit 1
+            }
             cp -L "$_RL" "$EXTRA/$_RLNAME"
-            STAGED_VARIANTS="$STAGED_VARIANTS ${_RLNAME%.squashfs}:$(du -h "$EXTRA/$_RLNAME"|cut -f1)"
+            cp -L "$_RLMANIFEST" "$EXTRA/$_RLROLE.overlay-manifest"
+            STAGED_VARIANTS="$STAGED_VARIANTS $_RLROLE:$(du -h "$EXTRA/$_RLNAME"|cut -f1)"
         done
         echo "    LAYERED SQUASHFS staged: base $(du -h "$EXTRA/base.squashfs"|cut -f1) +${STAGED_VARIANTS:- NONE}"
         ROOTFS_TARBALL=""
@@ -2293,10 +2480,10 @@ fi
 if [ -n "${KVER_NEXT:-}" ]; then
     echo "$KVER_NEXT" > "$EXTRA/KVER_NEXT"
 fi
-echo "${BUILD_CODENAME:-Maximilian}" > "$EXTRA/BUILD_CODENAME"
+echo "$NCZ_RELEASE_CODENAME" > "$EXTRA/BUILD_CODENAME"
 
 echo "    build id: $VERSION  ($BUILD_DATE on $BUILD_HOST)"
-echo "    codename: ${BUILD_CODENAME:-Maximilian}"
+echo "    release: $NCZ_RELEASE_LABEL"
 
 # ----------------------------------------------------------------------
 # Step 5 — write /boot/grub/grub.cfg with r6-style menu
@@ -2327,13 +2514,13 @@ if [ "${DIAG_ENABLE:-1}" = 1 ]; then
     DI_OPTS="$DI_OPTS ncz_diag=1 DEBCONF_DEBUG=5"
 fi
 
-CODENAME="${BUILD_CODENAME:-Maximilian}"
+CODENAME="$NCZ_RELEASE_CODENAME"
 GRUB_KERNEL_SUMMARY="$INSTALLER_KERNEL_LABEL=$KVER_INSTALLER"
-GRUB_DESKTOP_TITLE="Install NCZ-OS $VERSION — Desktop"
-GRUB_SERVER_TITLE="Install NCZ-OS $VERSION — Server (Headless)"
+GRUB_DESKTOP_TITLE="Install $NCZ_RELEASE_LABEL — Desktop (build $VERSION)"
+GRUB_SERVER_TITLE="Install $NCZ_RELEASE_LABEL — Server (Headless, build $VERSION)"
 if [ "$MODE" = "netinstall" ]; then
-    GRUB_DESKTOP_TITLE="Install NCZ-OS $VERSION — Desktop (wired link required)"
-    GRUB_SERVER_TITLE="Install NCZ-OS $VERSION — Server (Headless, wired link required)"
+    GRUB_DESKTOP_TITLE="Install $NCZ_RELEASE_LABEL — Desktop (wired link required; build $VERSION)"
+    GRUB_SERVER_TITLE="Install $NCZ_RELEASE_LABEL — Server (Headless, wired link required; build $VERSION)"
 fi
 
 # r189.7: only offer the Server GRUB entry if server.squashfs was
@@ -2387,12 +2574,12 @@ echo "      ██║╚██╗██║ ██║        ███╔╝"
 echo "      ██║ ╚████║ ╚██████╗  ███████╗"
 echo "      ╚═╝  ╚═══╝  ╚═════╝  ╚══════╝"
 echo ""
-echo "      \"Now, Maximilian, calm down. Don't pick on small people.\""
+echo "      \"Now, $NCZ_RELEASE_CODENAME, calm down. Don't pick on small people.\""
 echo ""
 echo "               N C Z   I N S T A L L E R"
 echo ""
 echo "                cixmini  ·  Sky1 / CP8180"
-echo "                  ARM64  ·  resolute 26.04"
+echo "                  ARM64  ·  $NCZ_BASE_CODENAME $NCZ_BASE_VERSION"
 echo ""
 echo "                     $VERSION"
 echo "                     \"$CODENAME\""
@@ -2403,7 +2590,7 @@ echo ""
 menuentry "$GRUB_DESKTOP_TITLE" {
     set background_color=black
     set color_normal=light-green/black
-    echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (Maximilian / desktop)..."
+    echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i ($NCZ_RELEASE_CODENAME / desktop)..."
     linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION $MARTJOHNSON_R6
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz

@@ -44,6 +44,17 @@ done
 [ -n "$VERSION" ]  || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]   || { echo "ERROR: --output required"; exit 1; }
 
+ROOT="$(cd "$ROOT" && pwd)"
+RELEASE_CONFIG="$ROOT/release.conf"
+[ -s "$RELEASE_CONFIG" ] || { echo "ERROR: missing release identity: $RELEASE_CONFIG" >&2; exit 1; }
+# shellcheck source=../release.conf
+. "$RELEASE_CONFIG"
+for release_var in NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME \
+                   NCZ_BASE_NAME NCZ_BASE_VERSION NCZ_BASE_CODENAME NCZ_BASE_LABEL; do
+    [ -n "${!release_var:-}" ] || { echo "ERROR: $release_var missing in $RELEASE_CONFIG" >&2; exit 1; }
+done
+NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
+
 STAGING="$ROOT/build/iso-staging"
 EXTRA="$STAGING/cixmini"
 CLOUDINIT="$STAGING/cloud-init"
@@ -328,6 +339,7 @@ echo "$BUILD_DATE"  > "$EXTRA/BUILD_DATE"
 echo "$BUILD_HOST"  > "$EXTRA/BUILD_HOST"
 echo "$KVER_LTS"    > "$EXTRA/KVER_LTS"
 echo "$KVER_NEXT"   > "$EXTRA/KVER_NEXT"
+install -m 0644 "$RELEASE_CONFIG" "$EXTRA/RELEASE"
 echo "    build id: $VERSION  ($BUILD_DATE on $BUILD_HOST)"
 
 # Stage agent stack + branding + cix-debs (existing)
@@ -419,7 +431,7 @@ SUBIQUITY_OPTS='autoinstall ds=nocloud;s=/cdrom/cloud-init/'
 # ---- write refind.conf — kernels are on ESP, paths are root-relative ----
 REFIND_CONF=/tmp/refind-r23.conf
 cat > "$REFIND_CONF" <<REFINDCONF
-# rEFInd configuration for NCZ-OS 26.7 "Maximilian" installer (cixmini)
+# rEFInd configuration for $NCZ_RELEASE_LABEL installer (cixmini)
 # Build: $VERSION  ($BUILD_DATE)  Host: $BUILD_HOST
 # Kernels: LTS=$KVER_LTS  NEXT=$KVER_NEXT
 # CRITICAL: every install + SAFE entry includes 'boot=casper' so Ubuntu's
@@ -432,13 +444,13 @@ scan_all_linux_kernels false
 
 default_selection 1
 
-menuentry "Install NCZ-OS 26.7 Maximilian  (DEFAULT)" {
+menuentry "Install $NCZ_RELEASE_LABEL  (DEFAULT)" {
     loader  /vmlinuz
     initrd  /initrd
     options "$CASPER_BOOT $SUBIQUITY_OPTS $MARTJOHNSON_R6"
 }
 
-menuentry "Install NCZ-OS 26.7 Maximilian  (NEXT kernel)" {
+menuentry "Install $NCZ_RELEASE_LABEL  (NEXT kernel)" {
     loader  /vmlinuz-next
     initrd  /initrd-next
     options "$CASPER_BOOT $SUBIQUITY_OPTS $MARTJOHNSON_R6"

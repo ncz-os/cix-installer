@@ -45,8 +45,16 @@ if [ ! -f /etc/apt/sources.list.d/cixmini-cdrom.list ]; then
     echo "deb [trusted=yes] file:///cdrom resolute main" \
         > /etc/apt/sources.list.d/cixmini-cdrom.list
 fi
-apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 \
-    -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q || true
+APT_REFRESH_STAMP=/var/lib/apt/lists/.ncz-installer-refreshed
+if [ -f "$APT_REFRESH_STAMP" ] && \
+   find "$APT_REFRESH_STAMP" -mmin -10 -print -quit 2>/dev/null | grep -q .; then
+    echo "[20] package index is current — skipping duplicate apt-get update"
+else
+    if apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 \
+        -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q; then
+        touch "$APT_REFRESH_STAMP"
+    fi
+fi
 
 ncz_ports_fallback() {
     if [ -f /etc/apt/sources.list.d/ncz-ports-fallback.list ]; then return 0; fi
@@ -57,8 +65,10 @@ deb http://ports.ubuntu.com/ubuntu-ports resolute-updates main universe restrict
 deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restricted multiverse
 deb http://ports.ubuntu.com/ubuntu-ports resolute-backports main universe restricted multiverse
 PORTS
-    apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 \
-        -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q || true
+    if apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 \
+        -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q; then
+        touch "$APT_REFRESH_STAMP"
+    fi
 }
 
 # Pre-purge resolute's default GNOME display manager — gdm3 + lightdm both claim
@@ -80,7 +90,8 @@ CORE_DESKTOP="greetd glycin-loaders \
     libgee-0.8-2 libpeas-2-0 libjson-glib-1.0-0 libsoup-3.0-0 \
     libvte-2.91-gtk4-0 libgtksourceview-5-0 libwebkitgtk-6.0-4 \
     libgraphene-1.0-0 \
-    foot xsettingsd seatd swaybg grim slurp fuzzel \
+    foot xsettingsd seatd libseat1 libliftoff0 libxcb-composite0 libxcb-ewmh2 \
+    swaybg grim slurp fuzzel \
     xwayland \
     polkitd \
     mesa-utils vulkan-tools libglu1-mesa \
@@ -129,10 +140,6 @@ if [ -n "$SINTY_NMD" ]; then
     _AD="$(dirname "$SINTY_NMD")"
     install -m0755 "$SINTY_NMD" /usr/bin/sinty-nmd
     install -D -m0644 "$_AD/sinty-nm.service" /usr/lib/systemd/system/sinty-nm.service
-    # D-Bus system policy — grants sinty-nmd ownership of the NM name (replaces
-    # the policy NetworkManager used to ship; without it the bus refuses the name).
-    install -D -m0644 "$_AD/org.freedesktop.NetworkManager.conf" \
-        /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf
     # Purge NetworkManager + its GTK applet/editor (present-only, NEVER
     # --auto-remove — the r166-r170 truncated-/etc/passwd saga). Two daemons
     # cannot own org.freedesktop.NetworkManager.
@@ -142,13 +149,37 @@ if [ -n "$SINTY_NMD" ]; then
     done
     if [ -n "$_nm_present" ]; then
         echo "[20] purging NetworkManager (sinty-nm owns the name now):$_nm_present"
-        DEBIAN_FRONTEND=noninteractive apt-get purge -y $_nm_present 2>&1 | tail -3 || true
+        _nm_purge_log="$(mktemp /tmp/ncz-nm-purge.XXXXXX)"
+        if ! DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 \
+                purge -y $_nm_present \
+                >"$_nm_purge_log" 2>&1; then
+            tail -20 "$_nm_purge_log"
+            rm -f "$_nm_purge_log"
+            echo "[20] FATAL: NetworkManager purge failed"
+            exit 1
+        fi
+        tail -3 "$_nm_purge_log"
+        rm -f "$_nm_purge_log"
     fi
+    # Install our replacement policy only AFTER purging NetworkManager. The NM
+    # package owns this exact path; installing it before `apt-get purge` lets
+    # dpkg remove the replacement policy too. The resulting first boot has a
+    # present sinty-nmd binary but D-Bus denies ownership of the NM bus name,
+    # leaving every interface down.
+    install -D -m0644 "$_AD/org.freedesktop.NetworkManager.conf" \
+        /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf
     # Belt-and-braces: mask any NM units that survive (e.g. NM pulled back as a
     # dep) so they never contend for the bus name at boot.
     systemctl disable NetworkManager.service NetworkManager-wait-online.service \
         NetworkManager-dispatcher.service 2>/dev/null || true
     systemctl mask NetworkManager.service NetworkManager-wait-online.service 2>/dev/null || true
+    # sinty-nm owns wired L2/L3 and DHCP itself. Do not leave networkd enabled
+    # from the cloud-image base with no .network files; it both races sinty and
+    # leaves network-online users waiting on a manager that owns no links.
+    systemctl disable systemd-networkd.service systemd-networkd.socket \
+        systemd-networkd-wait-online.service 2>/dev/null || true
+    systemctl mask systemd-networkd.service systemd-networkd.socket \
+        systemd-networkd-wait-online.service 2>/dev/null || true
     # sinty-nm writes /etc/resolv.conf directly — it must be a writable regular
     # file, not a read-only/systemd-resolved symlink.
     if [ -L /etc/resolv.conf ] || [ ! -e /etc/resolv.conf ]; then
@@ -156,6 +187,14 @@ if [ -n "$SINTY_NMD" ]; then
         : > /etc/resolv.conf
         chmod 0644 /etc/resolv.conf
     fi
+    # iwd is meaningful only when a wireless PHY exists. On wired-only systems
+    # and generic KVM it otherwise restart-loops on "Failed to obtain nl80211"
+    # and leaves a misleading failed unit even though wired networking is fine.
+    install -d -m0755 /etc/systemd/system/iwd.service.d
+    cat > /etc/systemd/system/iwd.service.d/10-ncz-wireless-hardware.conf <<'IWDUNIT'
+[Unit]
+ConditionDirectoryNotEmpty=/sys/class/ieee80211
+IWDUNIT
     systemctl enable iwd.service 2>/dev/null || true
     systemctl enable sinty-nm.service 2>/dev/null || true
     echo "[20] sinty-nm installed + enabled (iwd WiFi backend, WireGuard VPN); NetworkManager purged/masked"
@@ -639,6 +678,33 @@ for u in iscsid.service apport.service; do
 done
 
 echo "[20] Singularity Desktop installed: /opt/singularity + greetd/native singularity-greeter (Mali) + Wayland-only session"
+
+# Ship-critical dynamic-link closure. `seatd` only Recommends libseat1 on
+# resolute, and --no-install-recommends therefore produced a fully installed
+# desktop whose greeter immediately died on missing libseat.so.1. Validate the
+# actual binaries that own the boot-to-login path so this class of defect fails
+# the installer instead of becoming a metal-only surprise.
+_missing_runtime=0
+for _bin in /opt/singularity/bin/labwc \
+            /opt/singularity/bin/singularity-greeter \
+            /opt/singularity/bin/singularity-desktop; do
+    [ -x "$_bin" ] || {
+        echo "[20] ERROR: ship-critical desktop binary missing: $_bin" >&2
+        _missing_runtime=1
+        continue
+    }
+    _missing=$(ldd "$_bin" 2>&1 | awk '/not found/ { print }')
+    if [ -n "$_missing" ]; then
+        echo "[20] ERROR: unresolved runtime libraries for $_bin:" >&2
+        printf '%s\n' "$_missing" | sed 's/^/[20]   /' >&2
+        _missing_runtime=1
+    fi
+done
+if [ "$_missing_runtime" -ne 0 ]; then
+    echo "[20] FATAL: Singularity boot/login runtime closure is incomplete" >&2
+    exit 1
+fi
+echo "[20] verified: Singularity boot/login dynamic-link closure complete"
 
 # --- 26.7 Maximilian: VPU/VAAPI media production apps (video edit + transcode + audio) ---
 echo "[20] installing media production apps (Shotcut/Kdenlive/HandBrake/Audacity + players)"

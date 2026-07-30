@@ -63,9 +63,9 @@ PORTS_URL="${PORTS_URL:-http://ports.ubuntu.com/ubuntu-ports}"
 GOOGLE_CHROME_URL="${GOOGLE_CHROME_URL:-https://dl.google.com/linux/chrome/deb}"
 GOOGLE_CHROME_KEY_URL="${GOOGLE_CHROME_KEY_URL:-https://dl.google.com/linux/linux_signing_key.pub}"
 GOOGLE_CHROME_KEY="$REPO/build/google-chrome-apt-keyring.asc"
-GOOGLE_CHROME_VERSION="150.0.7871.186-1"
+GOOGLE_CHROME_VERSION="151.0.7922.71-1"
 GOOGLE_CHROME_PKGS="google-chrome-stable"
-GOOGLE_CHROME_SHA256="02596a2d07db16eec42422b95dea374ee22d18c9ceaae9e9301298e0e2678fb3"
+GOOGLE_CHROME_SHA256="d8d3e1bfc92d38751154d3d30dfcb4e8c8a25e630d8a53d60b06b034b55e9aa4"
 
 # ncz-singularity-desktop (build/build-singularity-deb.sh) is CIX/NCZ-specific
 # -- it doesn't exist on Ubuntu ports at all, only on the Buildkite Packages
@@ -223,6 +223,17 @@ mkdir -p "$OUT/pool/main"
 echo "  downloading closure debs from ports (incremental)..."
 if ! ( cd "$OUT/pool/main" && xargs -r apt-get "${APTOPTS[@]}" download < "$CLOSURE" >/dev/null 2>&1 ); then
     echo "  WARN: some downloads failed (see gaps report)"
+fi
+
+# The incremental pool keeps older versions of packages that remain in the
+# closure. Chrome is explicitly pinned and large (~125 MiB), so retaining the
+# previous pinned build silently bloats every ISO. Keep only the verified pin.
+if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
+    chrome_keep="google-chrome-stable_${GOOGLE_CHROME_VERSION}_arm64.deb"
+    for chrome_deb in "$OUT"/pool/main/google-chrome-stable_*_arm64.deb; do
+        [ -e "$chrome_deb" ] || continue
+        [ "$(basename "$chrome_deb")" = "$chrome_keep" ] || rm -f "$chrome_deb"
+    done
 fi
 
 # NCZ-OS proprietary package: it is not published on Ubuntu ports, so add a

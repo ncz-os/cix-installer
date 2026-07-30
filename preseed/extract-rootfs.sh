@@ -69,13 +69,49 @@ if [ -n "$SQFS_DIR" ]; then
     echo "[sqfs] base rc=$RC -> $(find /target -xdev -type f 2>/dev/null | wc -l) files" > $SER 2>&1
     if [ "$RC" -ne 0 ]; then msg "FATAL: unsquashfs base rc=$RC"; exit 1; fi
     if [ -f "$SQFS_DIR/$ROLE.squashfs" ]; then
+        # Apply the complete overlay contract (0:0 whiteouts plus opaque
+        # directories) before extracting the upperdir squashfs.
+        OVERLAY_MANIFEST="$SQFS_DIR/$ROLE.overlay-manifest"
+        if [ ! -s "$OVERLAY_MANIFEST" ]; then
+            msg "FATAL: missing $ROLE overlay manifest"
+            exit 1
+        fi
+        OVERLAY_COUNT=0
+        OVERLAY_TAB=$(printf '\t')
+        while IFS="$OVERLAY_TAB" read -r kind rel; do
+            case "$kind" in
+                '#'*|'') continue ;;
+                whiteout|opaque) ;;
+                *) msg "FATAL: invalid $ROLE overlay operation '$kind'"; exit 1 ;;
+            esac
+            case "$rel" in
+                ''|.|/*|../*|*/../*|*/..)
+                    msg "FATAL: unsafe $ROLE overlay path '$rel'"
+                    exit 1
+                    ;;
+            esac
+            if ! rm -rf "/target/$rel"; then
+                msg "FATAL: cannot apply $kind '$rel'"
+                exit 1
+            fi
+            OVERLAY_COUNT=$((OVERLAY_COUNT + 1))
+        done < "$OVERLAY_MANIFEST"
+        msg "applied $OVERLAY_COUNT $ROLE overlay operation(s)"
+
         msg "applying $ROLE.squashfs delta -> /target"
         run_unsq -f -d /target "$SQFS_DIR/$ROLE.squashfs" >/dev/null 2>>$SER
-        echo "[sqfs] $ROLE rc=$? -> $(find /target -xdev -type f 2>/dev/null | wc -l) files" > $SER 2>&1
-        # apply overlay whiteouts: a char device 0:0 in the delta marks a deletion
-        find /target -xdev -type c 2>/dev/null | while IFS= read -r w; do
-            [ "$(stat -c '%t %T' "$w" 2>/dev/null)" = "0 0" ] && rm -rf "$w"
-        done
+        RC=$?
+        echo "[sqfs] $ROLE rc=$RC -> $(find /target -xdev -type f 2>/dev/null | wc -l) files" > $SER 2>&1
+        if [ "$RC" -ne 0 ]; then msg "FATAL: unsquashfs $ROLE rc=$RC"; exit 1; fi
+        # Remove whiteout marker nodes by their already-validated manifest
+        # paths instead of scanning/stat-ing the complete target filesystem.
+        while IFS="$OVERLAY_TAB" read -r kind rel; do
+            [ "$kind" = whiteout ] || continue
+            if ! rm -rf "/target/$rel"; then
+                msg "FATAL: cannot remove whiteout marker '$rel'"
+                exit 1
+            fi
+        done < "$OVERLAY_MANIFEST"
     else
         msg "WARNING: $ROLE.squashfs not on media -- installing BASE ONLY. This is NOT a working $ROLE system (no desktop, no server packages, missing ssh on server). Rebuild the ISO with $ROLE.squashfs staged."
         echo "[sqfs] WARNING: $ROLE.squashfs missing -- base-only degraded install" > $SER 2>&1

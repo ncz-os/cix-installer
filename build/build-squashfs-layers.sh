@@ -68,7 +68,12 @@ build_layer(){ local role="$1" manifest="$2"
   [ -f "$OUT/base.squashfs" ] || { echo "base.squashfs missing — build base first"; exit 1; }
   [ -f "$ROOT/$manifest" ] || { echo "manifest $manifest missing"; exit 1; }
   local L="$WORK/$role-lower" U="$WORK/$role-up" WK="$WORK/$role-wk" MG="$WORK/$role-mg"
-  sudo umount -lf "$MG" 2>/dev/null || true; sudo rm -rf "$L" "$U" "$WK" "$MG"
+  # A killed prior build may leave bind mounts below MG. Unmount children first;
+  # removing the tree while a mirror or /dev is still mounted risks deleting or
+  # modifying the host-side source through that live mount.
+  apt_unmount "$MG"; umount_chroot "$MG"
+  sudo umount -lf "$MG" 2>/dev/null || true
+  sudo rm -rf "$L" "$U" "$WK" "$MG"
   log "$role: unsquash base as lowerdir"
   sudo unsquashfs -f -d "$L" "$OUT/base.squashfs" >/dev/null 2>&1
   mkdir -p "$U" "$WK" "$MG"
@@ -91,7 +96,11 @@ build_layer(){ local role="$1" manifest="$2"
   # incident this fixes -- see project_cix_buildkite_mirror_2026_07_05).
   local pkgs; pkgs=$(sed 's/#.*//' "$ROOT/$manifest" | sed -E 's/[[:space:]]+$//' | grep -vE '^[[:space:]]*$' | tr '\n' ' ')
   log "$role: apt-install $(echo $pkgs|wc -w) top-level packages (complete set + closure)"
-  sudo chroot "$MG" apt-get install -y --no-install-recommends $pkgs 2>&1 | tail -6 || log "  WARN apt rc=$?"
+  if ! sudo chroot "$MG" apt-get install -y --no-install-recommends $pkgs 2>&1 | tail -6; then
+    log "ERROR: $role package installation failed; refusing to publish an incomplete layer"
+    apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
+    return 1
+  fi
   if [ "$role" = "desktop" ]; then
     log "desktop: SINGULARITY desktop delta (Wayland-only; XFCE/X11 removed) + brand"
     # 26.7 "Maximilian": Singularity Desktop (labwc/wlroots, GTK4) REPLACES XFCE.
@@ -110,6 +119,8 @@ build_layer(){ local role="$1" manifest="$2"
     # base-build time), so an edited hook (e.g. 60-boot-splash's plymouth purge)
     # would NOT take effect on a desktop-only rebuild without this.
     sudo cp -a "$ROOT/post-install/." "$MG/usr/local/lib/cix-installer/post-install/" 2>/dev/null || true
+    [ -s "$ROOT/release.conf" ] && \
+      sudo install -m 0644 "$ROOT/release.conf" "$MG/usr/local/lib/cix-installer/RELEASE"
     # r166: stage the NCZ branding assets the brand hooks read. The base build
     # only staged cix-debs/kernel/mesa/gpu/firmware/refind/rescue — NOT branding —
     # so 45-wallpaper (needs assets/branding/wallpaper), 56-icon-theme (needs
@@ -147,8 +158,10 @@ build_layer(){ local role="$1" manifest="$2"
     # underlying singularity-opt.tgz, but that is now only an INPUT to
     # build/build-singularity-deb.sh, not something staged into a squashfs
     # layer -- see assets/singularity/README.md.)
-    if ls "$ROOT"/build/desktop-mirror/pool/main/n/ncz-singularity-desktop/*.deb >/dev/null 2>&1; then
-      log "  desktop-mirror has ncz-singularity-desktop: $(basename "$(ls -t "$ROOT"/build/desktop-mirror/pool/main/n/ncz-singularity-desktop/*.deb | head -1)")"
+    SINGULARITY_DEB=$(find "$ROOT/build/desktop-mirror/pool" -type f \
+      -name 'ncz-singularity-desktop_*_arm64.deb' -print -quit 2>/dev/null || true)
+    if [ -n "$SINGULARITY_DEB" ]; then
+      log "  desktop-mirror has ncz-singularity-desktop: $(basename "$SINGULARITY_DEB")"
     else
       log "  WARN: no ncz-singularity-desktop_*.deb in $ROOT/build/desktop-mirror/pool — 20-desktop's 'apt-get install ncz-singularity-desktop' will FAIL (run build/build-singularity.sh && build/build-singularity-deb.sh && build/build-desktop-mirror.sh)"
     fi
@@ -214,7 +227,20 @@ build_layer(){ local role="$1" manifest="$2"
     for bh in 20-desktop 22-display-fix 23-locale-env 50-brand 52-vivaldi 53-chrome 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 84-vpu-vaapi 57-qotd 30-agents 46-ncz-cli 57-screensaver 59-desktop-curate 60-boot-splash; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
-      sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3 || log "  WARN $bh rc=$?"
+      set +e
+      sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3
+      hook_rc=${PIPESTATUS[0]}
+      set -e
+      if [ "$hook_rc" -ne 0 ]; then
+        case "$bh" in
+          20-desktop|55-greeter|60-boot-splash)
+            log "ERROR: ship-critical desktop hook $bh failed rc=$hook_rc; refusing to publish the layer"
+            apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
+            return 1
+            ;;
+          *) log "  WARN $bh rc=$hook_rc" ;;
+        esac
+      fi
     done
     # Belt-and-braces: whiteout any X11-session .desktop remnants so the MERGED
     # /target has NO X11 desktop session. FILE-only removal (no apt purge in the
@@ -230,8 +256,49 @@ build_layer(){ local role="$1" manifest="$2"
   apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
   # clean transient from the UPPER delta only (keep dpkg status/alternatives copy-ups)
   sudo rm -rf "$U/var/lib/apt/lists/"* "$U/var/cache/apt/"* "$U/tmp/"* "$U/usr/bin/qemu-aarch64-static" 2>/dev/null || true
+  # Preserve the overlay semantics in a sidecar consumed by the installer.
+  # A raw upperdir contains both char-device 0:0 whiteouts and opaque directory
+  # xattrs; ordinary unsquashfs understands neither when merging into a base.
+  # Strip overlay-internal xattrs from the payload after recording them so they
+  # do not contaminate the installed filesystem.
+  log "$role: generate overlay operation manifest"
+  sudo python3 - "$U" "$OUT/$role.overlay-manifest" <<'PYOVERLAY'
+import os
+import stat
+import sys
+
+root, output = sys.argv[1:]
+operations = []
+for directory, names, files in os.walk(root):
+    names.sort()
+    files.sort()
+    relative_directory = os.path.relpath(directory, root)
+    try:
+        if os.getxattr(directory, "trusted.overlay.opaque") in (b"y", b"x"):
+            operations.append(("opaque", relative_directory))
+    except OSError:
+        pass
+    for name in names + files:
+        path = os.path.join(directory, name)
+        try:
+            metadata = os.lstat(path)
+        except FileNotFoundError:
+            continue
+        if stat.S_ISCHR(metadata.st_mode) and os.major(metadata.st_rdev) == 0 and os.minor(metadata.st_rdev) == 0:
+            operations.append(("whiteout", os.path.relpath(path, root)))
+
+for operation, path in operations:
+    if path in ("", ".") or path.startswith("/") or "\t" in path or "\n" in path:
+        raise SystemExit(f"unsafe overlay manifest path: {path!r}")
+
+with open(output, "w", encoding="utf-8") as stream:
+    stream.write("# NCZ overlay manifest v1\n")
+    for operation, path in sorted(set(operations)):
+        stream.write(f"{operation}\t{path}\n")
+PYOVERLAY
   log "$role: mksquashfs upperdir delta -> $OUT/$role.squashfs"
-  sudo mksquashfs "$U" "$OUT/$role.squashfs" -comp zstd -Xcompression-level 15 -noappend -no-progress 2>&1 | tail -2
+  sudo mksquashfs "$U" "$OUT/$role.squashfs" -comp zstd -Xcompression-level 15 \
+    -xattrs-exclude '^trusted\.overlay\.' -noappend -no-progress 2>&1 | tail -2
   log "$role DONE: delta $(du -h "$OUT/$role.squashfs"|cut -f1)"
   sudo rm -rf "$L" "$MG" "$WK"
 }
@@ -252,6 +319,7 @@ build_base(){
   # stage the installer hook tree + assets the base hooks read
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer"
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
+  sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
   for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   # prune dev-only junk from the staged asset tree (backup kernels, retired

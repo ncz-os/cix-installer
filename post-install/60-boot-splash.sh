@@ -47,8 +47,20 @@ if [ ! -x "$BSP" ]; then
     done
 fi
 if [ ! -x "$BSP" ]; then
-    echo "[60] WARN: singularity-boot-splash absent (payload + staged asset both missing) — no native splash" >&2
+    echo "[60] ERROR: singularity-boot-splash absent (payload + staged asset both missing)" >&2
+    echo "[60] keeping Plymouth and refusing to enable a service with a missing ExecStart" >&2
+    systemctl disable singularity-boot-splash.service 2>/dev/null || true
+    rm -f /etc/systemd/system/graphical.target.wants/singularity-boot-splash.service
+    rm -f /etc/systemd/system/singularity-boot-splash.service
+    exit 1
 fi
+_splash_missing=$(ldd "$BSP" 2>&1 | awk '/not found/ { print }')
+if [ -n "$_splash_missing" ]; then
+    echo "[60] ERROR: unresolved singularity-boot-splash runtime libraries:" >&2
+    printf '%s\n' "$_splash_missing" | sed 's/^/[60]   /' >&2
+    exit 1
+fi
+echo "[60] verified: singularity-boot-splash dynamic-link closure complete"
 
 # --- (2) systemd unit: paint from early boot to the greeter ------------------
 # Runs as root, owns /dev/tty1 in process mode. --wait-seconds tolerates Sky1's
@@ -69,6 +81,9 @@ Conflicts=getty@tty1.service plymouth-start.service plymouth-quit.service
 
 [Service]
 Type=simple
+# Wait for late Sky1 KMS without turning a legitimately headless/KVM boot into
+# a failed service. ExecCondition exit 1 is a clean skip, not a unit failure.
+ExecCondition=/bin/sh -c 'i=0; while [ "$i" -lt 20 ]; do [ -e /dev/dri/card0 ] && exit 0; i=$((i+1)); sleep 1; done; exit 1'
 ExecStart=/opt/singularity/bin/singularity-boot-splash --device /dev/dri/card0 --wait-seconds 12 --max-life 30
 TTYPath=/dev/tty1
 StandardInput=tty
@@ -85,15 +100,56 @@ echo "[60] singularity-boot-splash.service installed + enabled (Before=greetd, t
 
 # --- (3) PURGE plymouth entirely (operator: native KMS splash only) ----------
 export PATH="/usr/sbin:/sbin:/usr/bin:/bin:${PATH:-}"
+# Record which initrds the package trigger rebuilds. The explicit pass below
+# updates only kernels that the purge did not already regenerate.
+INITRAMFS_STAMPS="/tmp/ncz-initramfs-before.$$"
+mkdir -p "$INITRAMFS_STAMPS"
+for initrd in /boot/initrd.img-*; do
+    [ -f "$initrd" ] || continue
+    stat -c %Y "$initrd" > "$INITRAMFS_STAMPS/${initrd##*/}" 2>/dev/null || true
+done
 echo "[60] purging plymouth (superseded by native KMS boot splash)"
+PLYMOUTH_PURGE_RC=0
 DEBIAN_FRONTEND=noninteractive apt-get purge -y 'plymouth*' 2>/dev/null || \
-    echo "[60] apt purge plymouth returned nonzero (may be absent already) — continuing"
-DEBIAN_FRONTEND=noninteractive apt-get autoremove -y 2>/dev/null || true
+    PLYMOUTH_PURGE_RC=$?
+# Do not run a global autoremove here. On v14 it removed 77 packages, including
+# pipewire-alsa and other packages installed explicitly by 20-desktop.sh.
+# A nonzero apt result can be harmless when no Plymouth package was installed.
+# The installed-package query below is authoritative. If anything remains,
+# neutralize only those residual units so plymouth-quit-wait cannot hold the
+# graphical boot forever (the exact failure captured on the O6 serial console).
+PLYMOUTH_REMAINS=$(dpkg-query -W -f='${binary:Package} ${db:Status-Abbrev}\n' \
+    'plymouth*' 2>/dev/null | awk '$2 ~ /^ii/ { print $1 }')
+if [ -n "$PLYMOUTH_REMAINS" ]; then
+    echo "[60] ERROR: Plymouth packages remain after purge (apt rc=$PLYMOUTH_PURGE_RC):" >&2
+    printf '%s\n' "$PLYMOUTH_REMAINS" | sed 's/^/[60]   /' >&2
+    for unit in plymouth-start.service plymouth-read-write.service \
+                plymouth-quit.service plymouth-quit-wait.service \
+                plymouth-switch-root.service \
+                plymouth-switch-root-initramfs.service \
+                plymouth-halt.service plymouth-kexec.service \
+                plymouth-poweroff.service plymouth-reboot.service \
+                systemd-ask-password-plymouth.path \
+                systemd-ask-password-plymouth.service; do
+        systemctl disable "$unit" >/dev/null 2>&1 || true
+        systemctl mask "$unit" >/dev/null 2>&1 || true
+    done
+else
+    echo "[60] verified: no installed Plymouth packages remain"
+fi
 # Scrub any residual plymouth wiring the old 60-plymouth hook left behind.
 rm -f /etc/systemd/system/plymouth-quit.service.d/10-retain-splash.conf 2>/dev/null
 rmdir /etc/systemd/system/plymouth-quit.service.d 2>/dev/null || true
 rm -f /etc/initramfs-tools/conf.d/10-ncz-splash.conf 2>/dev/null
 rm -f /etc/plymouth/plymouthd.conf 2>/dev/null
+# The native splash is systemd/KMS-driven and does not consume a kernel `splash`
+# flag. Pin the graphical cmdline to quiet early console messages without hiding
+# them from dmesg/journal/serial. ncz-refind-refresh reads this compatibility
+# filename for both the initial install and later kernel upgrades.
+install -d -m0755 /etc/kernel/cmdline.d
+cat > /etc/kernel/cmdline.d/10-splash.conf <<'CMDLINE'
+quiet loglevel=3 vt.global_cursor_default=0
+CMDLINE
 # Drop the plymouth DRM modules the old hook forced into the initramfs (the native
 # splash opens KMS from userspace after root mounts, so no early-KMS initramfs
 # modules are needed for the splash). Leave the file present but emptied of them.
@@ -118,10 +174,22 @@ if [ -z "$KERNELS" ]; then
 fi
 KERNELS=$(printf '%s\n' $KERNELS | awk 'NF && !seen[$0]++')
 for kver in $KERNELS; do
+    initrd="/boot/initrd.img-$kver"
+    before=$(cat "$INITRAMFS_STAMPS/${initrd##*/}" 2>/dev/null || echo 0)
+    after=$(stat -c %Y "$initrd" 2>/dev/null || echo 0)
+    if [ "$before" -gt 0 ] && [ "$after" -gt "$before" ]; then
+        echo "[60] initramfs already rebuilt by package trigger: $kver"
+        continue
+    fi
     if [ -f "/boot/initrd.img-$kver" ]; then
         update-initramfs -u -k "$kver" 2>&1 | tail -2
     else
         update-initramfs -c -k "$kver" 2>&1 | tail -2
     fi
 done
+rm -rf "$INITRAMFS_STAMPS"
 echo "[60] plymouth purged; native singularity-boot-splash enabled; initramfs rebuilt for:$KERNELS"
+if [ -n "$PLYMOUTH_REMAINS" ]; then
+    echo "[60] ERROR: residual Plymouth packages were neutralized but must be investigated" >&2
+    exit 1
+fi
