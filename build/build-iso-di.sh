@@ -1905,6 +1905,21 @@ else
     echo "    WARN: assets/firmware/rtl_nic absent — O6 NIC will not link in installer"
 fi
 
+# Panthor is present in the installer kernel module set so the display stack
+# can probe on O6/O6N.  The Mali CSF firmware is otherwise only copied into
+# the installed target by post-install/12-sky1-firmware.sh, which leaves the
+# d-i initrd with a real (but avoidable) `mali_csffw.bin` -ENOENT error during
+# DIAG and hardware detection.  Stage the same firmware in the initrd using
+# the exact request path emitted by the 7.0.12 Panthor driver.
+PANTHOR_FW="$ROOT/assets/sky1-firmware/arm/mali/arch12.8/mali_csffw.bin"
+if [ -s "$PANTHOR_FW" ]; then
+    mkdir -p "$WORK/lib/firmware/arm/mali/arch12.8"
+    cp -L "$PANTHOR_FW" "$WORK/lib/firmware/arm/mali/arch12.8/mali_csffw.bin"
+    echo "    Panthor Mali CSF firmware → installer initrd: $(du -h "$PANTHOR_FW" | cut -f1)"
+else
+    echo "    WARN: Panthor Mali CSF firmware absent — DIAG may report mali_csffw.bin -ENOENT"
+fi
+
 OVERLAY_GZ="$STAGING/.installer-kernel-overlay.cpio.gz"
 ( cd "$WORK" && find lib -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$OVERLAY_GZ"
 gzip -t "$OVERLAY_GZ"
