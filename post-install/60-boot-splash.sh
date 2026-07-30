@@ -106,7 +106,10 @@ cat > /etc/systemd/system/singularity-boot-splash.service <<'UNIT'
 Description=NCZ-OS native KMS boot splash (singularity-boot-splash)
 Documentation=https://github.com/singularityos-lab/singularity-boot-splash
 DefaultDependencies=no
-After=systemd-udevd.service local-fs.target
+# DRM connectors are populated asynchronously after the kernel registers the
+# Sky1 display pipeline. Wait for the detector so the splash does not race the
+# connector and incorrectly conclude that the machine is headless.
+After=systemd-udevd.service systemd-udev-settle.service local-fs.target cix-detect-display.service
 Before=greetd.service
 Conflicts=getty@tty1.service plymouth-start.service plymouth-quit.service
 

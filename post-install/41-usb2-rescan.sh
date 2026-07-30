@@ -25,8 +25,10 @@
 # Ordering is late ON PURPOSE. An early-sysinit ESP-writing guard once bricked
 # the O6N via a systemd dependency cycle (2026-07-xx). This unit uses
 # DefaultDependencies=yes and runs After=systemd-udev-settle / Before=
-# display-manager, so input is present at the greeter without touching the
-# fragile early bring-up. Verified cycle-free with `systemd-analyze verify`.
+# the display manager. The rescan is deliberately allowed to run in parallel
+# with the greeter: a slow controller rebind must not hold back the splash or
+# desktop, while the re-enumerated keyboard remains available once complete.
+# Verified cycle-free with `systemd-analyze verify`.
 set -uo pipefail
 
 echo "[41] USB2-companion rescan workaround (Sky1 7.2 xhci)"
@@ -79,7 +81,6 @@ Documentation=https://github.com/Sky1-Linux
 # Late ordering ON PURPOSE — never place USB/ESP-touching guards in
 # sysinit.target (an early-sysinit ESP guard bricked the O6N once).
 After=systemd-udev-settle.service
-Before=display-manager.service
 DefaultDependencies=yes
 
 [Service]
