@@ -26,7 +26,7 @@ flatpak_cmd() {
 INSTALLER_META=/usr/local/lib/cix-installer
 NCZ_SYSTEM_ARCH="${NCZ_TARGET_ARCH:-}"
 if [ -z "$NCZ_SYSTEM_ARCH" ] && [ -r "$INSTALLER_META/BUILD_ARCH" ]; then
-    NCZ_SYSTEM_ARCH=$(tr -d ' \\t\\r\\n' < "$INSTALLER_META/BUILD_ARCH")
+    NCZ_SYSTEM_ARCH=$(tr -d '[:space:]' < "$INSTALLER_META/BUILD_ARCH")
 fi
 NCZ_SYSTEM_ARCH="${NCZ_SYSTEM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
 
