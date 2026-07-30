@@ -79,6 +79,7 @@ apt-get install -y --no-install-recommends \
     libjson-glib-dev libpeas-2-dev libpipewire-0.3-dev \
     libgee-0.8-dev libsoup-3.0-dev \
     libgirepository-1.0-dev gobject-introspection \
+    libupower-glib-dev \
     libdrm-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
     build-essential
 
