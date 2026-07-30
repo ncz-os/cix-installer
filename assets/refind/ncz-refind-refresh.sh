@@ -376,16 +376,13 @@ else
     echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
 fi
 
-# 26.7 policy: default to the 7.2 (Mali) entry — 26.7 IS the 7.2 release, so
-# 7.2 boots by default; 7.0.12 stays as "stable" fallback + rescue partition.
-# If 7.2 is somehow absent, fall back to stable. Both remain one arrow-key away
-# (10s timeout). The token "Mali" uniquely matches the 7.2 (Mali) menuentry
-# title (absent from stable/panthor/rescue titles), so default_selection is
-# unambiguous — the rEFInd-ambiguity boot failure mode does not apply here.
-if [ "$NEXT_AVAILABLE" = "1" ]; then
-    DEFAULT_TOKEN="Mali"
-elif [ "$LTS_AVAILABLE" = "1" ]; then
+# Release safety policy: default to the known-stable 7.0.12 kernel whenever it
+# is present.  7.2 remains available as an explicit menu choice, while the
+# dedicated rescue entry is accelerator-blacklisted and network-enabled.
+if [ "$LTS_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="stable"
+elif [ "$NEXT_AVAILABLE" = "1" ]; then
+    DEFAULT_TOKEN="Mali"
 else
     DEFAULT_TOKEN="edge"
 fi

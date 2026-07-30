@@ -110,6 +110,18 @@ CHROOT_APT
 # ----------------------------------------------------------------------
 echo "[rescue-rootfs] applying rescue configuration"
 
+# Carry the Realtek NIC firmware into the standalone rescue partition.  The
+# rescue kernel is intentionally independent of the main rootfs; without
+# this copy r8169 can enumerate but cannot bring the onboard NIC up.
+RTL_FIRMWARE_SRC="$ROOT/assets/firmware/rtl_nic"
+if [ -d "$RTL_FIRMWARE_SRC" ]; then
+    install -d -m 0755 "$CHROOT/lib/firmware/rtl_nic"
+    cp -a "$RTL_FIRMWARE_SRC"/. "$CHROOT/lib/firmware/rtl_nic/"
+    echo "[rescue-rootfs] installed Realtek NIC firmware ($(find "$CHROOT/lib/firmware/rtl_nic" -type f | wc -l | tr -d ' ') files)"
+else
+    echo "[rescue-rootfs] WARN: Realtek NIC firmware absent at $RTL_FIRMWARE_SRC" >&2
+fi
+
 # hostname
 echo "$RESCUE_HOSTNAME" > "$CHROOT/etc/hostname"
 printf '127.0.0.1\tlocalhost\n127.0.1.1\t%s\n' "$RESCUE_HOSTNAME" > "$CHROOT/etc/hosts"
