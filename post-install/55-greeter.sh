@@ -103,6 +103,8 @@ install -d -m0755 /etc/systemd/system/greetd.service.d
 cat > /etc/systemd/system/greetd.service.d/10-ncz-drm.conf <<'GREETDDRM'
 [Unit]
 After=singularity-boot-splash.service
+
+[Service]
 ExecCondition=/usr/local/bin/ncz-has-drm-output
 GREETDDRM
 

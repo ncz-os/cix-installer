@@ -114,7 +114,12 @@ Before=greetd.service
 Conflicts=getty@tty1.service plymouth-start.service plymouth-quit.service
 
 [Service]
-Type=simple
+# Type=oneshot makes the DRM handoff a real ordering barrier: greetd's
+# After=singularity-boot-splash.service waits until this process exits and
+# drops DRM master, rather than merely waiting for it to be spawned.
+Type=oneshot
+RemainAfterExit=no
+TimeoutStartSec=20s
 # Wait for late Sky1 KMS without turning a legitimately headless/KVM boot into
 # a failed service. ExecCondition exit 1 is a clean skip, not a unit failure.
 ExecStart=/usr/local/bin/ncz-boot-splash

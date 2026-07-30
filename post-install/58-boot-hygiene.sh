@@ -72,6 +72,16 @@ for u in iscsid.service iscsid.socket \
 done
 systemctl reset-failed >/dev/null 2>&1 || true
 
+# Sky1 kernels do not enable CONFIG_AUTOFS_FS, so systemd's generated
+# binfmt_misc automount cannot be created and paints an avoidable
+# "automount unsupported" boot warning. Mount binfmt_misc directly instead;
+# this preserves systemd-binfmt/container support without requiring autofs.
+systemctl mask proc-sys-fs-binfmt_misc.automount >/dev/null 2>&1 || true
+install -d -m0755 /etc/systemd/system/sysinit.target.wants
+ln -sf /usr/lib/systemd/system/proc-sys-fs-binfmt_misc.mount \
+    /etc/systemd/system/sysinit.target.wants/proc-sys-fs-binfmt_misc.mount
+echo "  masked unsupported binfmt_misc automount; enabled direct mount"
+
 # --- 2. cix_resume_prepare: drop ext4-only nodelalloc (btrfs rejects it) ----
 # Root-cause fix for BOTH the failed service AND the btrfs 'nodelalloc' dmesg
 # warning. The rootfs is already mounted rw (cmdline `rw`), so `remount,rw` is a
