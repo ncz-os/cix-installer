@@ -91,6 +91,10 @@ rm -f "$APPDIR"/Rheinhardt-Through-and-Beyond.desktop \
 # Dedupe Vivaldi: keep vivaldi-stable.desktop (canonical, matches mimeapps +
 # x-www-browser); drop the duplicate menu entry.
 rm -f "$APPDIR"/Vivaldi.desktop 2>/dev/null || true
+# Chrome packages have shipped multiple equivalent desktop IDs over time;
+# retain only the canonical launcher used by the post-install hook.
+rm -f "$APPDIR"/Google-Chrome.desktop "$APPDIR"/com.google.Chrome.desktop \
+      /etc/skel/Desktop/com.google.Chrome.desktop 2>/dev/null || true
 # Redundant /usr/share copies of the NCZ launchers — the canonical foot-based
 # versions live in /opt/singularity/share/applications (earlier on the session
 # XDG_DATA_DIRS, so they mask these). Drop the /usr/share copy whenever the /opt

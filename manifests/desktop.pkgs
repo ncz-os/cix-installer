@@ -275,3 +275,9 @@ gnome-calendar
 gnome-weather
 gnome-sound-recorder
 drawing
+# Additional Wayland-first utilities: native image viewers and GNOME Console.
+# These are small, composited clients and do not pull in a second desktop
+# session or an Xorg server; Xwayland remains only for legacy applications.
+imv
+swayimg
+gnome-console

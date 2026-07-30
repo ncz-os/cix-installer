@@ -18,6 +18,7 @@
 #
 # RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop / run-all.sh).
 set +e
+APPDIR=/usr/share/applications
 
 echo "[53] Google Chrome post-install wiring (second browser, alongside Vivaldi)"
 
@@ -35,6 +36,13 @@ if [ ! -x /usr/bin/google-chrome-stable ]; then
     echo "[53] google-chrome-stable not installed (not in this VARIANT's desktop seed, or apt install failed earlier) — skipping"
     exit 0
 fi
+
+# The Chrome .deb has used three desktop-file names across arm64 releases.
+# Keep one canonical launcher so the Singularity app grid does not show three
+# visually identical Chrome icons.
+for duplicate in Google-Chrome.desktop com.google.Chrome.desktop; do
+    rm -f "$APPDIR/$duplicate" "/etc/skel/Desktop/$duplicate" 2>/dev/null || true
+done
 
 # --- KEEP Google's apt repo ENABLED on the installed system (operator
 #     directive 2026-07-29) so Chrome auto-updates from dl.google.com. The
