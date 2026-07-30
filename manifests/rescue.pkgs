@@ -59,6 +59,7 @@ zstd
 # ===== network / remote access =====
 systemd-sysv        # CRITICAL: provides /sbin/init for the standalone partition
 systemd-timesyncd   # no battery RTC in some rescue paths; TLS needs valid time
+dbus                # system bus for timedatectl and standard recovery tooling
 iproute2
 net-tools
 iputils-ping

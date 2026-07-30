@@ -127,7 +127,10 @@ sed -i 's/^default_selection .*/default_selection "stable"/' \
 - **telnet:** TCP **23** (lockout-prevention backup console). Root login allowed.
 - **dropbear SSH:** TCP **2222**.
 - **OpenSSH:** TCP **22**, `PermitRootLogin yes`, `PasswordAuthentication yes`.
-- **Serial console:** `ttyAMA2` @ **115200** (matches `console=ttyAMA2,115200`).
+- **Serial console:** `ttyAMA0` @ **115200** from the installed rEFInd entry.
+  A device-driven udev rule also starts `serial-getty@ttyAMA2` when that UART
+  exists on Sky1 metal; neither template instance is statically enabled, because
+  doing so can leave boot waiting forever for an absent UART.
 - **Rescue root password:** `rescue` (this rescue rootfs only; change/disable
   before any public distribution).
 - **Network:** DHCP on all wired NICs at boot; **static fallback

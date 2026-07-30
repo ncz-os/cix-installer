@@ -113,15 +113,19 @@ echo "[rescue-rootfs] applying rescue configuration"
 # hostname
 echo "$RESCUE_HOSTNAME" > "$CHROOT/etc/hostname"
 printf '127.0.0.1\tlocalhost\n127.0.1.1\t%s\n' "$RESCUE_HOSTNAME" > "$CHROOT/etc/hosts"
+printf 'LANG=C.UTF-8\n' > "$CHROOT/etc/default/locale"
 
 # root password (LAN-only rescue console)
 chroot "$CHROOT" /bin/sh -c "echo 'root:$RESCUE_ROOT_PW' | chpasswd"
 
-# Serial consoles: ttyAMA2 is Sky1 metal; ttyAMA0 is QEMU virt and is also
-# present in the generated rEFInd cmdline. Enable both so the rescue environment
-# remains observable during the mandatory KVM gate as well as on O6 hardware.
-chroot "$CHROOT" systemctl enable serial-getty@ttyAMA2.service 2>/dev/null || true
-chroot "$CHROOT" systemctl enable serial-getty@ttyAMA0.service 2>/dev/null || true
+# Serial consoles are device-driven. Enabling both template instances directly
+# makes boot wait forever for whichever UART is absent (ttyAMA0 on some metal,
+# ttyAMA2 under QEMU). The kernel-console generator covers the configured
+# console, while this udev rule starts a getty for either UART when it exists.
+install -d -m 0755 "$CHROOT/etc/udev/rules.d"
+cat > "$CHROOT/etc/udev/rules.d/70-ncz-serial-getty.rules" <<'EOF'
+SUBSYSTEM=="tty", KERNEL=="ttyAMA[02]", TAG+="systemd", ENV{SYSTEMD_WANTS}+="serial-getty@%k.service"
+EOF
 chroot "$CHROOT" systemctl enable getty@tty1.service 2>/dev/null || true
 
 # Allow root login on serial + pts (telnet/console) — mirrors 36-telemetry.sh.
@@ -404,8 +408,6 @@ if [ -s "$CHROOT/etc/machine-id" ] || \
     exit 1
 fi
 for enabled in \
-    /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service \
-    /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA2.service \
     /etc/systemd/system/multi-user.target.wants/ncz-rescue-net.service \
     /etc/systemd/system/multi-user.target.wants/ncz-rescue-net-fallback.service; do
     if [ ! -L "$CHROOT$enabled" ]; then
@@ -413,7 +415,17 @@ for enabled in \
         exit 1
     fi
 done
-echo "[rescue-rootfs] verified: PID 1, serial consoles, DHCP/fallback, ssh runtime, and identity reset"
+for uart in ttyAMA0 ttyAMA2; do
+    if [ -L "$CHROOT/etc/systemd/system/getty.target.wants/serial-getty@$uart.service" ]; then
+        echo "[rescue-rootfs] ERROR: static $uart getty enablement can block boot when the UART is absent" >&2
+        exit 1
+    fi
+done
+if ! grep -Fq 'KERNEL=="ttyAMA[02]"' "$CHROOT/etc/udev/rules.d/70-ncz-serial-getty.rules"; then
+    echo "[rescue-rootfs] ERROR: device-driven serial getty rule is missing" >&2
+    exit 1
+fi
+echo "[rescue-rootfs] verified: PID 1, device-driven serial consoles, DHCP/fallback, ssh runtime, and identity reset"
 
 # ----------------------------------------------------------------------
 # Stage 4 — pack the tarball (unmount binds first).
