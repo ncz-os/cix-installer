@@ -140,6 +140,28 @@ if [ -f "$PAM_GREETD" ] && grep -q ncz-performance-mode "$PAM_GREETD"; then
   sed -i '/ncz-performance-mode/d' "$PAM_GREETD"
 fi
 
+# Keep the mode enabled for the entire graphical boot, not only while greetd
+# happens to be running.  The previous greetd-only lifetime left a short race
+# during greeter/session transitions where Sky1 could re-enter deep idle and
+# USB keyboard input would stall again.
+install -Dm644 /dev/stdin /etc/systemd/system/ncz-performance-mode.service <<'UNIT'
+[Unit]
+Description=NCZ: hold Sky1 interactive performance mode
+After=systemd-udev-settle.service
+Before=greetd.service
+Wants=greetd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ncz-performance-mode on
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical.target
+UNIT
+systemctl enable ncz-performance-mode.service >/dev/null 2>&1 || true
+systemctl daemon-reload >/dev/null 2>&1 || true
+
 # Wire into greetd.service directly via a systemd drop-in. Real gap found
 # 2026-07-27, confirmed live on O6N via sysfs (cpuidle disable=0,
 # genpd=auto) + user report: the pre-authentication greeter/password-entry
@@ -153,5 +175,4 @@ install -d -m0755 /etc/systemd/system/greetd.service.d
 cat > /etc/systemd/system/greetd.service.d/ncz-performance-mode.conf <<'DROPIN'
 [Service]
 ExecStartPre=/usr/local/bin/ncz-performance-mode on
-ExecStopPost=/usr/local/bin/ncz-performance-mode off
 DROPIN
