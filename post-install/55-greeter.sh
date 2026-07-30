@@ -92,6 +92,7 @@ GREETD
 install -d -m0755 /etc/systemd/system/greetd.service.d
 cat > /etc/systemd/system/greetd.service.d/10-ncz-drm.conf <<'GREETDDRM'
 [Unit]
+After=singularity-boot-splash.service
 ConditionPathExists=/dev/dri/card0
 GREETDDRM
 

@@ -75,5 +75,34 @@ systemctl disable multipathd.service 2>/dev/null || true
 systemctl mask    multipathd.service 2>/dev/null || true
 echo "  [43] multipathd masked (single-disk appliance, no DM-multipath)"
 
+# Replace the vendor loader, which hard-coded a retired 6.6 kernel tree and
+# manually insmod-ed GPU/VPU modules before the current kernel was ready.
+# Those stale insmods produced boot warning screens and raced seatd/DRM.
+cat > /usr/bin/load-modules.sh <<'LOADER'
+#!/bin/sh
+set +e
+# Only generic helpers belong here; GPU/NPU/VPU drivers are selected and
+# loaded by their kernel cmdline/systemd paths for the running kernel.
+for module in cfg80211 uhid btusb x_tables ip_tables iptable_nat nf_defrag_ipv4 nf_defrag_ipv6 libcrc32c nf_conntrack nf_nat xt_MASQUERADE; do
+    modprobe "$module" 2>/dev/null || true
+done
+modprobe ice 2>/dev/null || true
+ln -sf /dev/dma_heap/reserved /dev/dma_heap/linux,cma 2>/dev/null || true
+if [ ! -s /etc/machine-id ]; then
+    dbus-uuidgen > /var/lib/dbus/machine-id 2>/dev/null || true
+    ln -sf /var/lib/dbus/machine-id /etc/machine-id 2>/dev/null || true
+fi
+video_devices="1001 27 978 979 991 1001ls /dev/video* 2>/dev/null | sort -V)"
+set -- $video_devices
+if [ $# -eq 1 ]; then
+    ln -sf "$1" /dev/video-cixdec0
+elif [ $# -gt 1 ]; then
+    eval "last=\${$#}"
+    ln -sf "$last" /dev/video-cixdec0
+fi
+exit 0
+LOADER
+chmod 0755 /usr/bin/load-modules.sh
+
 echo "[43] hw quirks done"
 exit 0
