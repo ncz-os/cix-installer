@@ -318,6 +318,15 @@ elif grep -q '^panthor ' /proc/modules 2>/dev/null; then
     NCZ_GPU_BACKEND=panthor
     __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
     LD_LIBRARY_PATH=$(printf '%s' "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -v '/opt/cixgpu-' | paste -sd: -)
+    # Stripping cixgpu from LD_LIBRARY_PATH is not enough: the ldconfig CACHE
+    # still resolves libEGL_mesa.so.0 to /opt/cixgpu-compat's Mesa 24 first
+    # (00-/01-cixgpu ld.so.conf.d are laid down for the Mali stack, and a
+    # per-boot rEFInd Panthor selection never re-runs ncz-gpu-select/ldconfig).
+    # glvnd then loads the 24.0.4 libEGL_mesa against the system Mesa 26
+    # gallium and the compositor dies in a heap-corruption segfault before the
+    # greeter ever appears (metal-confirmed on O6N, 2026-07-31). Pin the system
+    # libdir ahead of the cache so panthor mode resolves ONE Mesa.
+    LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     VK_LOADER_LAYERS_DISABLE=VK_LAYER_CIX_window_system_integration
     WLR_DRM_NO_MODIFIERS=1
     export NCZ_GPU_BACKEND __EGL_VENDOR_LIBRARY_FILENAMES VK_LOADER_LAYERS_DISABLE WLR_DRM_NO_MODIFIERS

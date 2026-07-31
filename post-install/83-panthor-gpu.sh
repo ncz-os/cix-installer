@@ -66,6 +66,9 @@ rm -f "$SRC"/*.o "$SRC"/*.ko "$SRC"/*.mod* "$SRC"/Module.symvers "$SRC"/modules.
 rm -rf "$SRC"/patches 2>/dev/null
 echo "[83] staged panthor-cix source -> $SRC"
 
+KVER_NEXT=""
+[ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(tr -d ' \t\r\n' < "$INSTALLER_META/KVER_NEXT")
+
 if command -v dkms >/dev/null 2>&1; then
     dkms add -m "$PKG_NAME" -v "$PKG_VER" >/dev/null 2>&1 \
         && echo "[83] dkms add ${PKG_NAME}/${PKG_VER}" \
@@ -75,8 +78,6 @@ if command -v dkms >/dev/null 2>&1; then
     # DKMS autoinstall rebuilds it on the next kernel upgrade. The module is
     # NOT loaded now — mali is the default and panthor is opt-in via
     # ncz-gpu-select, which rebuilds the initramfs at switch time.
-    KVER_NEXT=""
-    [ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(tr -d ' \t\r\n' < "$INSTALLER_META/KVER_NEXT")
     if [ -n "$KVER_NEXT" ] && [ -f "/usr/lib/modules/$KVER_NEXT/build/Makefile" ]; then
         dkms build   -m "$PKG_NAME" -v "$PKG_VER" -k "$KVER_NEXT" >/dev/null 2>&1 \
           && dkms install -m "$PKG_NAME" -v "$PKG_VER" -k "$KVER_NEXT" --force >/dev/null 2>&1 \
@@ -85,18 +86,23 @@ if command -v dkms >/dev/null 2>&1; then
     else
         echo "[83] no NEXT kernel headers — panthor-cix DKMS will autoinstall on kernel upgrade"
     fi
+fi
 
-    # Always fall back to the vermagic-matched patched module when DKMS did
-    # not leave one in updates/dkms. A failed DKMS build must not silently
-    # select the unpatched in-tree module, which wedges Sky1 ACPI at probe.
-    PREBUILT="${SRC}/${KVER_NEXT}/panthor.ko"
-    if [ -n "$KVER_NEXT" ] && [ ! -s "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko" ] && [ -s "$PREBUILT" ]; then
-        install -D -m 0644 "$PREBUILT" "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko"
-        depmod -a "$KVER_NEXT" 2>/dev/null || true
-        echo "[83] installed vermagic-matched prebuilt Panthor for $KVER_NEXT"
-    elif [ -n "$KVER_NEXT" ] && [ ! -s "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko" ]; then
-        echo "[83] WARN: DKMS did not install and no prebuilt Panthor exists for $KVER_NEXT"
-    fi
+# Always fall back to the vermagic-matched patched module when DKMS did not
+# leave one in updates/dkms — INCLUDING when the dkms binary itself is absent
+# from the target (mirrors 82-mali-gpu.sh, whose prebuilt overlay is likewise
+# unconditional). This gate being inside the dkms-only path is exactly what
+# shipped O6N installs with NO panthor module in updates/dkms: the unpatched
+# in-tree panthor.ko then wins depmod, probes the still-secured GPU, and
+# wedges the board in the TF-A "IDM: GPU secure access" flood
+# (metal-confirmed on O6N, 2026-07-31).
+PREBUILT="${SRC}/${KVER_NEXT}/panthor.ko"
+if [ -n "$KVER_NEXT" ] && [ ! -s "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko" ] && [ -s "$PREBUILT" ]; then
+    install -D -m 0644 "$PREBUILT" "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko"
+    depmod -a "$KVER_NEXT" 2>/dev/null || true
+    echo "[83] installed vermagic-matched prebuilt Panthor for $KVER_NEXT"
+elif [ -n "$KVER_NEXT" ] && [ ! -s "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko" ]; then
+    echo "[83] WARN: no DKMS-built and no prebuilt Panthor for $KVER_NEXT — in-tree module would flood-wedge Sky1; do NOT expose the Panthor boot entry"
 fi
 
 echo "[83] panthor GPU stage done — panthor available via 'ncz-gpu-select panthor' (experimental)"

@@ -258,9 +258,14 @@ PANTHOR_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     MALI_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,panthor/')
     PANTHOR_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,mali_kbase,memory_group_manager,protected_memory_allocator/')
-    # Panthor ACPI power-on needs the SCMI clock/power provider so TFA grants
-    # GPU IDM non-secure access. Mali and SAFE retain acpi_scmi_en=off.
-    PANTHOR_OPTIONS=${PANTHOR_OPTIONS/acpi_scmi_en=off/acpi_scmi_en=on}
+    # Panthor keeps acpi_scmi_en=off, same as Mali and SAFE. Metal-verified
+    # on O6N 2026-07-31: the patched panthor-cix DKMS module powers on and
+    # un-secures the GPU itself with SCMI off ("GPU power domain 21 powered
+    # on via SMC SCMI" + "Sky1: GPU un-secured via ACPI power-supply (_PR0)",
+    # then a clean Mali-G720 probe). Flipping acpi_scmi_en=on here was never
+    # metal-proven, re-opens the known 7.2 Sky1 PCIe/NVMe boot-hang (the r195
+    # regression this cmdline exists to prevent), and would run the kernel
+    # SCMI stack alongside the module's raw-SMC power-on path.
 fi
 
 # 7.0.12 is deliberately a console-only recovery kernel.  Do not expose a
