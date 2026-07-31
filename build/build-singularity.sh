@@ -34,6 +34,9 @@ set -euo pipefail
 IMAGE="${SINGULARITY_IMAGE:-ubuntu:26.04}"
 SRC_REPO="${SINGULARITY_REPO:-https://github.com/singularityos-lab/singularity-desktop}"
 SRC_REF="${SINGULARITY_REF:-main}"
+# Optional checked-out superproject.  This is intentionally explicit: local
+# NCZ fixes must never be mistaken for an upstream main build.
+SRC_DIR="${SINGULARITY_SOURCE_DIR:-}"
 VETRO_REPO="${VETRO_REPO:-https://github.com/singularityos-lab/vetro}"
 PREFIX="/opt/singularity"
 OUT="${OUT:-$(cd "$(dirname "$0")/.." && pwd)/build/sinty-out}"
@@ -44,6 +47,10 @@ PUSH_ARGONAS=0
 # Container engine: prefer docker, fall back to podman.
 CE="$(command -v docker || command -v podman || true)"
 [ -n "$CE" ] || { echo "ERROR: need docker or podman on the build host" >&2; exit 1; }
+[ -z "$SRC_DIR" ] || [ -d "$SRC_DIR" ] || {
+    echo "ERROR: SINGULARITY_SOURCE_DIR is not a directory: $SRC_DIR" >&2
+    exit 1
+}
 
 ARCH="$(uname -m)"
 case "$ARCH" in
@@ -55,6 +62,7 @@ mkdir -p "$OUT"
 echo "== build-singularity =="
 echo "   image  = $IMAGE"
 echo "   source = $SRC_REPO @ $SRC_REF"
+[ -z "$SRC_DIR" ] || echo "   local  = $SRC_DIR (explicit NCZ source override)"
 echo "   prefix = $PREFIX"
 echo "   out    = $OUT/singularity-opt.tgz"
 
@@ -94,8 +102,15 @@ git clone --depth 1 "'"$VETRO_REPO"'" vetro
 ( cd vetro && go build -o /usr/local/bin/vetro . )
 vetro --version 2>/dev/null || true
 
-# Singularity Desktop (recursive: bundled labwc/wlroots + subprojects).
-git clone --recursive --branch "'"$SRC_REF"'" "'"$SRC_REPO"'" singularity-desktop
+# Singularity Desktop (recursive: bundled labwc/wlroots + subprojects).  The
+# local override is for reviewed NCZ commits that have not yet been published
+# upstream; it is mounted read-only and copied into the disposable container
+# workspace before any build writes occur.
+if [ -n "${SINGULARITY_SOURCE_DIR:-}" ]; then
+    cp -a "$SINGULARITY_SOURCE_DIR" singularity-desktop
+else
+    git clone --recursive --branch "'"$SRC_REF"'" "'"$SRC_REPO"'" singularity-desktop
+fi
 cd singularity-desktop
 
 # NCZ shell integration: close the launcher popup before opening the full-screen
@@ -185,11 +200,11 @@ echo "STAGED $(du -h /out/singularity-opt.tgz | cut -f1)"
 '
 
 echo "== running build in $IMAGE ($CE) =="
-"$CE" run --rm \
-    -v "$OUT":/out \
-    -e SRC_REF="$SRC_REF" \
-    "$IMAGE" \
-    bash -euo pipefail -c "$BUILD_SCRIPT"
+CE_ARGS=(--rm -v "$OUT":/out -e SRC_REF="$SRC_REF")
+if [ -n "$SRC_DIR" ]; then
+    CE_ARGS+=(-v "$SRC_DIR":/src:ro -e SINGULARITY_SOURCE_DIR=/src)
+fi
+"$CE" run "${CE_ARGS[@]}" "$IMAGE" bash -euo pipefail -c "$BUILD_SCRIPT"
 
 echo ""
 echo "== done =="
