@@ -157,12 +157,28 @@ fi
 # Install into the DESTDIR stage.
 rm -rf /work/stage
 DESTDIR=/work/stage meson install -C build
-[ -d build-labwc ] && DESTDIR=/work/stage meson install -C build-labwc || true
-[ -f Makefile ] && grep -q "install:" Makefile && DESTDIR=/work/stage make install 2>/dev/null || true
 
-# Sanity: the shell + session launcher must exist.
+# labwc is a separate Meson project.  `make install` in the desktop tree is a
+# host-deployment helper and does not reliably honour DESTDIR, so it can leave
+# the payload with the previous labwc even when `make compile` built a newer
+# compositor.  Install the exact build directory explicitly and fail the
+# artifact build if it cannot be staged.
+LABWC_BUILD_DIR=""
+if [ -d subprojects/labwc/build ]; then
+    LABWC_BUILD_DIR="subprojects/labwc/build"
+elif [ -d build-labwc ]; then
+    LABWC_BUILD_DIR="build-labwc"
+fi
+[ -n "$LABWC_BUILD_DIR" ] || {
+    echo "ERROR: labwc build directory is missing after compilation" >&2
+    exit 1
+}
+DESTDIR=/work/stage meson install -C "$LABWC_BUILD_DIR"
+
+# Sanity: the shell, session launcher, and compositor must all exist.
 test -x "/work/stage'"$PREFIX"'/bin/singularity-desktop"
 test -x "/work/stage'"$PREFIX"'/bin/singularity-labwc-session"
+test -x "/work/stage'"$PREFIX"'/bin/labwc"
 
 # --- singularity-boot-splash (NATIVE KMS boot splash — Plymouth replacement) --
 # Separate upstream repo (github.com/singularityos-lab/singularity-boot-splash),
