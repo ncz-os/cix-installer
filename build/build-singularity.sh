@@ -77,6 +77,7 @@ apt-get update -q
 # 20-pr-arm64-build.md). No arch guards needed; the tree builds clean on aarch64.
 apt-get install -y --no-install-recommends \
     ca-certificates git golang-go \
+    libglib2.0-bin \
     valac meson ninja-build pkg-config gettext \
     libgtk-4-dev libadwaita-1-dev libgtk4-layer-shell-dev \
     libwayland-dev wayland-protocols \
@@ -175,10 +176,22 @@ fi
 }
 DESTDIR=/work/stage meson install -C "$LABWC_BUILD_DIR"
 
+# The upstream Meson install deliberately installs schema XML, but it does not
+# install a compiled GSettings database.  Raw XML is not usable by GSettings at
+# runtime: launching singularity-desktop then aborts with "Settings schema
+# 'dev.sinty.desktop' is not installed".  Compile *inside the staged prefix*
+# so the payload is self-contained and GSETTINGS_SCHEMA_DIR can point solely at
+# /opt/singularity/share/glib-2.0/schemas.
+SCHEMA_DIR="/work/stage'"$PREFIX"'/share/glib-2.0/schemas"
+test -f "$SCHEMA_DIR/dev.sinty.desktop.gschema.xml"
+glib-compile-schemas --strict "$SCHEMA_DIR"
+test -s "$SCHEMA_DIR/gschemas.compiled"
+
 # Sanity: the shell, session launcher, and compositor must all exist.
 test -x "/work/stage'"$PREFIX"'/bin/singularity-desktop"
 test -x "/work/stage'"$PREFIX"'/bin/singularity-labwc-session"
 test -x "/work/stage'"$PREFIX"'/bin/labwc"
+test -s "/work/stage'"$PREFIX"'/share/glib-2.0/schemas/gschemas.compiled"
 
 # --- singularity-boot-splash (NATIVE KMS boot splash — Plymouth replacement) --
 # Separate upstream repo (github.com/singularityos-lab/singularity-boot-splash),
