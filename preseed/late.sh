@@ -349,7 +349,9 @@ IDENTITY
 chmod 0755 /target/usr/local/sbin/ncz-identity-fix
 cat > /target/etc/systemd/system/dbus.service.d/00-ncz-identity.conf <<'DBUSDROPIN'
 [Service]
-ExecStartPre=/usr/local/sbin/ncz-identity-fix
+# dbus.service runs as messagebus.  The helper repairs system-owned identity
+# and utmp paths, so it must not inherit that unprivileged User= setting.
+ExecStartPre=+/usr/local/sbin/ncz-identity-fix
 DBUSDROPIN
 echo "    dbus ExecStartPre identity/utmp guard installed"
 echo
