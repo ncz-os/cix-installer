@@ -93,6 +93,8 @@ apt-get install -y --no-install-recommends \
     sassc \
     libdrm-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
     libpoppler-glib-dev \
+    hwdata \
+    scdoc \
     build-essential
 
 mkdir -p /work && cd /work
@@ -116,23 +118,7 @@ cd singularity-desktop
 # NCZ shell integration: close the launcher popup before opening the full-screen
 # workspace chooser. Keep this small downstream patch in the installer tree so
 # reproducible payload builds do not depend on an unpublished GitHub commit.
-git apply --check <<'PATCH_NCZ_SHELL'
-diff --git a/subprojects/singularity-shell/src/core/main.vala b/subprojects/singularity-shell/src/core/main.vala
---- a/subprojects/singularity-shell/src/core/main.vala
-+++ b/subprojects/singularity-shell/src/core/main.vala
-@@ -798,4 +798,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
-         if (overview != null && overview.showing) {
-             overview.toggle();
-         }
-+        // The workspace chooser is a full-screen TOP layer.  Close the
-+        // launcher popup first; leaving AppMenu visible lets the chooser
-+        // hover over (and visually occlude) the main menu when Workspaces is
-+        // invoked from the panel/dock.
-+        if (app_menu != null && app_menu.visible) {
-+            app_menu.toggle();
-+        }
-         if (workspace_overview == null) {
-PATCH_NCZ_SHELL
+if [ -z "${SINGULARITY_SOURCE_DIR:-}" ] && ! grep -q "Close the launcher popup first" subprojects/singularity-shell/src/core/main.vala; then
 git apply <<'PATCH_NCZ_SHELL'
 diff --git a/subprojects/singularity-shell/src/core/main.vala b/subprojects/singularity-shell/src/core/main.vala
 --- a/subprojects/singularity-shell/src/core/main.vala
@@ -150,6 +136,7 @@ diff --git a/subprojects/singularity-shell/src/core/main.vala b/subprojects/sing
 +        }
          if (workspace_overview == null) {
 PATCH_NCZ_SHELL
+fi
 
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.
