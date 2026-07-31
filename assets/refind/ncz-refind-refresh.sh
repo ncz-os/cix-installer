@@ -240,29 +240,19 @@ if [ "$LTS_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
     exit 1
 fi
 
-LTS_OPTIONS=""
-if [ "$LTS_AVAILABLE" = "1" ]; then
-    LTS_OPTIONS="$ROOT_OPTS $LTS_CMDLINE_BASE"
-    [ -n "$SPLASH" ] && LTS_OPTIONS="$LTS_OPTIONS $SPLASH"
-fi
-
 NEXT_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_OPTIONS="$ROOT_OPTS $NEXT_CMDLINE_BASE"
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 fi
 
-# 26.7 dual GPU stack — ONE 7.2 kernel image (both GPU drivers built in), two
-# boot entries differing only by which GPU kernel driver is blacklisted:
-#   Mali    = blacklist panthor    -> mali_kbase (DKMS) binds  -> libmali OpenCL
-#   Panthor = blacklist mali_kbase -> panthor (in-tree) binds   -> Mesa/PanVK Vulkan
-# Userspace stays Mesa in BOTH modes — no per-boot EGL/glvnd/ICD swap, so we
-# never repeat the libEGL_cix greeter wedge (2026-07-22). Panthor mode gets
-# hardware GL + Vulkan 1.4 via Mesa/PanVK on the panthor DRM node; Mali mode
-# renders the desktop on llvmpipe (software) and exposes libmali OpenCL for GPU
-# compute. Both are functional; Mali is default per 26.7 policy (mali primary,
-# panthor fallback). The kbase trio (mali_kbase + memory_group_manager +
-# protected_memory_allocator) is blacklisted together for a clean Panthor bind.
+# NCZ-OS 26.7 GPU policy: 7.2 is the *only* graphical kernel.  It has two
+# mutually exclusive DKMS driver choices.  The blacklist is part of each
+# boot contract, not a user-selectable modprobe accident:
+#   Mali DKMS       = blacklist Panthor
+#   Panthor DKMS    = blacklist the complete Mali kbase stack
+# Keep userspace Mesa in both modes so changing kernel driver never changes
+# EGL/glvnd/ICD ownership during the greeter handoff.
 MALI_OPTIONS=""
 PANTHOR_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
@@ -273,79 +263,19 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     PANTHOR_OPTIONS=${PANTHOR_OPTIONS/acpi_scmi_en=off/acpi_scmi_en=on}
 fi
 
-# Stable recovery boot: keep display KMS available, but remove the compute
-# accelerators that can wedge a damaged installation.  multi-user.target is
-# intentional: it starts networkd/NetworkManager and SSH for remote repair.
-LTS_PANTHOR_OPTIONS=""
+# 7.0.12 is deliberately a console-only recovery kernel.  Do not expose a
+# graphical or GPU variant of it: the LTS contract is a networked
+# multi-user shell with every available CIX GPU driver blacklisted.  Keep the
+# display pipeline out of this blacklist so tty0 remains usable on O6.
+LTS_CONSOLE_OPTIONS=""
+LTS_CONSOLE_CMDLINE=""
 if [ "$LTS_AVAILABLE" = "1" ]; then
-    LTS_PANTHOR_OPTIONS="$ROOT_OPTS $LTS_CMDLINE_BASE"
-    [ -n "$SPLASH" ] && LTS_PANTHOR_OPTIONS="$LTS_PANTHOR_OPTIONS $SPLASH"
-fi
-
-LTS_SAFE_OPTIONS=""
-if [ "$LTS_AVAILABLE" = "1" ]; then
-    LTS_SAFE_EXTRA_BLACKLIST="armchina_npu,panthor,mali,bifrost,amvx,cix_vpu,linlon_vpu"
-    LTS_SAFE_EXISTING_BL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
-    LTS_SAFE_CMDLINE_NOBL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
-    [ -n "$LTS_SAFE_EXISTING_BL" ] && LTS_SAFE_MERGED_BL="$LTS_SAFE_EXISTING_BL,$LTS_SAFE_EXTRA_BLACKLIST" || LTS_SAFE_MERGED_BL="$LTS_SAFE_EXTRA_BLACKLIST"
-    LTS_SAFE_OPTIONS="$ROOT_OPTS $LTS_SAFE_CMDLINE_NOBL module_blacklist=$LTS_SAFE_MERGED_BL systemd.unit=multi-user.target"
-fi
-
-if [ "$LTS_AVAILABLE" = "1" ]; then
-    RESCUE_KVER="$KVER_LTS"
-    RESCUE_CMDLINE_BASE="$LTS_CMDLINE_BASE"
-elif [ "$NEXT_AVAILABLE" = "1" ]; then
-    RESCUE_KVER="$KVER_NEXT"
-    RESCUE_CMDLINE_BASE="$NEXT_CMDLINE_BASE"
-else
-    RESCUE_KVER=""
-    RESCUE_CMDLINE_BASE=""
-fi
-
-RESCUE_PIN=""
-RESCUE_OPTIONS=""
-RESCUE_HAS_INITRD=0
-if [ -n "$RESCUE_KVER" ]; then
-    RESCUE_PIN="${RESCUE_KVER}-rescue"
-    if [ ! -s "/boot/efi/vmlinuz-$RESCUE_KVER" ]; then
-        echo "ERROR: /boot/efi/vmlinuz-$RESCUE_KVER is missing or empty — cannot pin a clean rescue kernel."
-        exit 1
-    fi
-    install -m 0644 "/boot/efi/vmlinuz-$RESCUE_KVER" "/boot/efi/vmlinuz-$RESCUE_PIN"
-    echo "  staged pinned clean/rescue kernel /boot/efi/vmlinuz-$RESCUE_PIN"
-    if { [ "$RESCUE_KVER" = "$KVER_LTS" ] && [ "$LTS_INITRD_AVAILABLE" = "1" ]; } || \
-       { [ "$RESCUE_KVER" = "$KVER_NEXT" ] && [ "$NEXT_INITRD_AVAILABLE" = "1" ]; }; then
-        install -m 0644 "/boot/efi/initrd.img-$RESCUE_KVER" "/boot/efi/initrd.img-$RESCUE_PIN"
-        echo "  staged pinned clean/rescue initrd /boot/efi/initrd.img-$RESCUE_PIN"
-        RESCUE_HAS_INITRD=1
-    fi
-
-    # r205: blacklist the COMPUTE ACCELERATORS ONLY (NPU / GPU / VPU-codec) —
-    # NEVER the DISPLAY pipeline. O6N has NO firmware efifb/GOP, so linlondp
-    # (+ linlondp_drv, cix_display, and the trilin DP display bridge) is the
-    # ONLY thing that lights the panel. Blacklisting it (the old list did) gave
-    # a guaranteed BLACK rescue on O6N — the exact failure the operator hit
-    # 2026-07-29, and exactly what mem feedback_di_initrd_module_prune_rules
-    # warns against. Keep display KMS; drop only the crash-prone accelerators
-    # a rescue exists to avoid (mali/panthor GPU, armchina NPU, cix/linlon VPU).
-    RESCUE_EXTRA_BLACKLIST="armchina_npu,panthor,mali,bifrost,amvx,cix_vpu,linlon_vpu"
-    RESCUE_EXISTING_BL=$(printf '%s\n' "$RESCUE_CMDLINE_BASE" \
-        | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
-    RESCUE_CMDLINE_NOBL=$(printf '%s\n' "$RESCUE_CMDLINE_BASE" \
-        | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
-    if [ -n "$RESCUE_EXISTING_BL" ]; then
-        RESCUE_MERGED_BL="$RESCUE_EXISTING_BL,$RESCUE_EXTRA_BLACKLIST"
-    else
-        RESCUE_MERGED_BL="$RESCUE_EXTRA_BLACKLIST"
-    fi
-    RESCUE_CMDLINE_SAFE="$RESCUE_CMDLINE_NOBL module_blacklist=$RESCUE_MERGED_BL"
-    # r205: boot a NETWORKED multi-user rescue, not systemd.unit=rescue.target.
-    # rescue.target is single-user (root-password prompt, NO network) -> the
-    # box is unreachable over ssh, the other half of the operator's 2026-07-29
-    # report ("no network"). With the GPU/NPU/VPU blacklisted the desktop stack
-    # can't crash-loop, so a normal multi-user boot gives a reachable shell:
-    # serial getty on ttyAMA0 + tty console on linlondp + networkd/NM + sshd.
-    RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_SAFE"
+    LTS_CONSOLE_EXTRA_BLACKLIST="panthor,panfrost,mali,mali_kbase,memory_group_manager,protected_memory_allocator,bifrost,armchina_npu,amvx,cix_vpu,linlon_vpu"
+    LTS_CONSOLE_EXISTING_BL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
+    LTS_CONSOLE_CMDLINE_NOBL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
+    [ -n "$LTS_CONSOLE_EXISTING_BL" ] && LTS_CONSOLE_MERGED_BL="$LTS_CONSOLE_EXISTING_BL,$LTS_CONSOLE_EXTRA_BLACKLIST" || LTS_CONSOLE_MERGED_BL="$LTS_CONSOLE_EXTRA_BLACKLIST"
+    LTS_CONSOLE_CMDLINE="$LTS_CONSOLE_CMDLINE_NOBL module_blacklist=$LTS_CONSOLE_MERGED_BL"
+    LTS_CONSOLE_OPTIONS="$ROOT_OPTS $LTS_CONSOLE_CMDLINE systemd.unit=multi-user.target"
 fi
 
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
@@ -353,13 +283,15 @@ RESCUEPART_OPTIONS=""
 if [ -f "$RESCUE_READY" ] && [ "$LTS_AVAILABLE" = "1" ]; then
     RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
     if [ -n "$RESCUEPART_PARTUUID" ]; then
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootdelay=90 rootfstype=ext4 rw $LTS_CMDLINE_BASE module_blacklist=armchina_npu,panthor,mali,bifrost,amvx,cix_vpu,linlon_vpu systemd.unit=multi-user.target"
-        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding rEFInd rescuepart entry (LTS + normal display cmdline)"
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootdelay=90 rootfstype=ext4 rw $LTS_CONSOLE_CMDLINE systemd.unit=multi-user.target"
+        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
     else
-        echo "  rescue-partition marker present but no PARTUUID — skipping rescuepart entry"
+        echo "ERROR: rescue-partition marker has no PARTUUID — refusing to ship without recovery"
+        exit 1
     fi
 else
-    echo "  no rescue-partition marker ($RESCUE_READY) or no LTS kernel — skipping rescuepart entry"
+    echo "ERROR: 7.0.12 rescue partition is required but marker $RESCUE_READY or LTS kernel is absent"
+    exit 1
 fi
 
 install -d -m 0755 /boot/efi/EFI/BOOT
@@ -397,13 +329,12 @@ else
     echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
 fi
 
-# Release safety policy: default to the known-stable 7.0.12 kernel whenever it
-# is present.  7.2 remains available as an explicit menu choice, while the
-# dedicated rescue entry is accelerator-blacklisted and network-enabled.
-if [ "$LTS_AVAILABLE" = "1" ]; then
-    DEFAULT_TOKEN="safe"
-elif [ "$NEXT_AVAILABLE" = "1" ]; then
+# Release policy: 7.2 Mali is the default graphical entry.  7.0.12 is always
+# an explicit console-only recovery choice; Panthor is an explicit experiment.
+if [ "$NEXT_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="Mali"
+elif [ "$LTS_AVAILABLE" = "1" ]; then
+    DEFAULT_TOKEN="console"
 else
     DEFAULT_TOKEN="edge"
 fi
@@ -425,33 +356,24 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$LTS_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 SAFE — networked, accelerators disabled\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 CONSOLE — networked, no GPU, no GUI\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
-        echo "    options \"$LTS_SAFE_OPTIONS\""
-        echo "}"
-        echo
-    fi
-    if [ "$LTS_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 PANTHOR — in-tree ACPI driver\" {"
-        echo "    loader  /vmlinuz-$KVER_LTS"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
-        echo "    options \"$LTS_PANTHOR_OPTIONS\""
+        echo "    options \"$LTS_CONSOLE_OPTIONS\""
         echo "}"
         echo
     fi
 
     if [ "$NEXT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 MALI — kernel $KVER_NEXT\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 MALI DKMS — graphical [DEFAULT]\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$MALI_OPTIONS\""
         echo "}"
         echo
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 PANTHOR — patched ACPI power-on\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 PANTHOR DKMS — graphical [EXPERIMENTAL]\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -459,17 +381,8 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo "}"
         echo
     fi
-    if [ -n "$RESCUE_PIN" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  rescue fallback — $RESCUE_PIN\" {"
-        echo "    loader  /vmlinuz-$RESCUE_PIN"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$RESCUE_HAS_INITRD" = "1" ] && echo "    initrd  /initrd.img-$RESCUE_PIN"
-        echo "    options \"$RESCUE_OPTIONS\""
-        echo "}"
-        echo
-    fi
     if [ -n "$RESCUEPART_OPTIONS" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  RESCUE PARTITION — stable $KVER_LTS, full toolset (telnet/dropbear/ssh)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 RESCUE PARTITION — console, automatic networking\" {"
         echo "    loader  /vmlinuz-$KVER_LTS"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
