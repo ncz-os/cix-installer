@@ -72,12 +72,16 @@ else
     echo "[55] WARN: Maximilian wallpaper absent — greeter uses singularity default backdrop" >&2
 fi
 
-# --- greetd: run the native greeter wrapper on VT7 as _greetd -----------------
+# --- greetd: run the native greeter wrapper on the active graphical VT --------
 cat > /etc/greetd/config.toml <<'GREETD'
 # NCZ-OS greetd — NATIVE singularity-greeter (wlr-layer-shell + loginui) on the
 # /opt/singularity labwc, CIX Mali GLES. No regreet, no GTK greeter.
 [terminal]
-vt = 7
+# Sky1's active framebuffer console is VT1.  Requesting VT7 leaves greetd's
+# session worker blocked in VT_WAITACTIVE forever: no labwc or greeter process
+# is ever exec'd, although Mali and DP have already initialized.  Keep greetd
+# on VT1 and let it replace the autovt getty for the graphical login surface.
+vt = 1
 
 [default_session]
 command = "/usr/local/bin/ncz-singularity-greeter"
