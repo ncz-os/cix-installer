@@ -103,24 +103,56 @@ exit 1
 DRMTEST
 chmod 0755 /usr/local/bin/ncz-has-drm-output
 
+# The Sky1 USB recovery service returns once the kernel publishes a keyboard
+# input node, but the usbhid function can finish binding a fraction later.  A
+# wlroots/libinput backend started in that gap can miss its initial seat setup
+# or feel laggy until the next device event.  Gate greetd on a *settled* event
+# keyboard.  The bound is deliberately short and accepts non-USB keyboards for
+# KVM/recovery use; USB keyboard boots require the usbhid property.
+cat > /usr/local/bin/ncz-wait-input-ready <<'INPUTREADY'
+#!/bin/sh
+for try in 1 2 3 4 5 6 7 8 9 10; do
+    for dev in /dev/input/by-id/*-event-kbd /dev/input/event*; do
+        [ -c "$dev" ] || continue
+        props=$(udevadm info --query=property --name="$dev" 2>/dev/null || true)
+        printf '%s\n' "$props" | grep -qx 'ID_INPUT_KEYBOARD=1' || continue
+        if printf '%s\n' "$props" | grep -qx 'ID_BUS=usb'; then
+            printf '%s\n' "$props" | grep -qx 'ID_USB_DRIVER=usbhid' || continue
+        fi
+        udevadm settle --timeout=1 2>/dev/null || true
+        logger -t ncz-greetd-input "settled keyboard ready: $dev"
+        exit 0
+    done
+    sleep 0.1
+done
+logger -t ncz-greetd-input "no settled keyboard after 1s; starting greeter for recovery/KVM"
+exit 0
+INPUTREADY
+chmod 0755 /usr/local/bin/ncz-wait-input-ready
+
 install -d -m0755 /etc/systemd/system/greetd.service.d
 cat > /etc/systemd/system/greetd.service.d/10-ncz-drm.conf <<'GREETDDRM'
 [Unit]
-After=singularity-boot-splash.service ncz-usb2-rescan.service
-Wants=ncz-usb2-rescan.service
+# labwc needs at least one libinput device at creation; let USB recovery finish
+# its bounded keyboard probe before starting the greeter. The splash runs in
+# parallel and releases DRM when this wrapper creates its ready marker.
+After=cix-detect-display.service ncz-usb2-rescan.service
+Wants=cix-detect-display.service ncz-usb2-rescan.service
 
 [Service]
 ExecCondition=/usr/local/bin/ncz-has-drm-output
+ExecStartPre=/usr/local/bin/ncz-wait-input-ready
 GREETDDRM
 
-# --- greeter labwc config: autostart the native greeter ----------------------
+# --- greeter labwc config: greeter is Labwc's session client -----------------
 install -d -m0755 /etc/greetd/singularity-labwc
-# greetd sets GREETD_SOCK in the wrapper env -> inherited by labwc -> this
-# autostart -> singularity-greeter, which speaks the greetd IPC. greetd tears the
-# greeter down when a session is chosen.
+# ncz-singularity-greeter invokes Labwc with `-S singularity-greeter`, making
+# the compositor exit promptly after successful authentication. Do not launch a
+# second greeter from autostart: it would hold Labwc open until greetd's
+# five-second watchdog force-kills it and reveals a blank text VT.
 cat > /etc/greetd/singularity-labwc/autostart <<'LABAUTO'
 #!/bin/sh
-exec /opt/singularity/bin/singularity-greeter
+exit 0
 LABAUTO
 chmod 0755 /etc/greetd/singularity-labwc/autostart
 

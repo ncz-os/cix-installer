@@ -59,19 +59,26 @@ cat > /usr/local/sbin/ncz-usb2-rescan <<'EOF'
 # while never disturbing a USB boot/data drive mid-I/O.
 set -u
 
-# On a healthy O6 boot, the USB hub and keyboard arrive late. Resetting an xHCI
-# controller while that is already happening creates a visible input delay and
-# holds the graphical target. Treat a discovered keyboard as success; this unit
-# is a recovery mechanism, not a normal-boot optimization.
-for try in 1 2 3 4 5 6 7 8; do
+# On a healthy O6 boot, the USB hub and keyboard can arrive late. Give it a
+# short opportunity to do so, then recover rather than holding the entire
+# graphical path for eight seconds. The post-rebind probe below is important:
+# greetd must not start until libinput can see the keyboard.
+keyboard_present() {
   for name in /sys/class/input/input*/name; do
     [ -r "$name" ] || continue
     if grep -qi "keyboard" "$name"; then
-      logger -t ncz-usb2-rescan "keyboard present; recovery not needed"
-      exit 0
+      return 0
     fi
   done
-  sleep 1
+  return 1
+}
+
+for try in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  if keyboard_present; then
+    logger -t ncz-usb2-rescan "keyboard present; recovery not needed"
+    exit 0
+  fi
+  sleep 0.25
 done
 
 # O6N USB-A hub/HID chain: ACPI controller CIXH2030:06/CIXH2031:06.
@@ -109,11 +116,18 @@ if [ "$has_storage" -eq 1 ]; then
   exit 0
 fi
 
-logger -t ncz-usb2-rescan "keyboard absent after 2s; rebinding $keyboard_ctrl only"
+logger -t ncz-usb2-rescan "keyboard absent after 3s; rebinding $keyboard_ctrl only"
 echo "$keyboard_ctrl" > "$DRV/unbind" 2>/dev/null
 sleep 1
 echo "$keyboard_ctrl" > "$DRV/bind" 2>/dev/null
-logger -t ncz-usb2-rescan "done, rebound=1"
+for try in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  if keyboard_present; then
+    logger -t ncz-usb2-rescan "keyboard present after rebind; recovery complete"
+    exit 0
+  fi
+  sleep 0.25
+done
+logger -t ncz-usb2-rescan "keyboard still absent 3s after rebind; continuing without input"
 exit 0
 EOF
 chmod 0755 /usr/local/sbin/ncz-usb2-rescan

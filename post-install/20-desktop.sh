@@ -284,6 +284,28 @@ fi
 test -x /opt/singularity/bin/singularity-desktop
 test -x /opt/singularity/bin/singularity-labwc-session
 
+# The packaged Singularity portal unit lives below the isolated /opt prefix,
+# which systemd --user does not search.  Its generated launcher also omits the
+# payload's actual libexecdir.  Without these two bridges xdg-desktop-portal
+# selects singularity.portal but cannot activate
+# org.freedesktop.impl.portal.desktop.singularity; the shell logs backend errors
+# during every login.  Keep the payload immutable and expose a tiny stable
+# launcher plus an /etc user-unit symlink (both survive package upgrades).
+if [ -x /opt/singularity/libexec/xdg-desktop-portal-singularity ] && \
+   [ -f /opt/singularity/lib/systemd/user/xdg-desktop-portal-singularity.service ]; then
+    cat > /usr/local/bin/xdg-desktop-portal-singularity <<'PORTAL'
+#!/bin/sh
+exec /opt/singularity/libexec/xdg-desktop-portal-singularity "$@"
+PORTAL
+    chmod 0755 /usr/local/bin/xdg-desktop-portal-singularity
+    install -d -m0755 /etc/systemd/user
+    ln -sfn /opt/singularity/lib/systemd/user/xdg-desktop-portal-singularity.service \
+        /etc/systemd/user/xdg-desktop-portal-singularity.service
+    echo "[20] wired Singularity portal into systemd user-unit path"
+else
+    echo "[20] WARN: Singularity portal payload missing; desktop portal backend unavailable" >&2
+fi
+
 # ---------------------------------------------------------------------------
 # GPU userspace selector — ncz-gpu-env (Mali branch has NO
 # __EGL_VENDOR_LIBRARY_FILENAMES pin: that pin blackscreens libmali, confirmed
@@ -369,6 +391,14 @@ fi
 export PATH="/opt/singularity/bin:$PATH"
 export XDG_DATA_DIRS="/opt/singularity/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 export LD_LIBRARY_PATH="/opt/singularity/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# greetd starts the selected command from a TTY PAM context.  Set the complete
+# graphical-session identity before labwc starts so D-Bus-activated user
+# services (notably Tracker/LocalSearch) do not fail their
+# ConditionEnvironment=XDG_SESSION_CLASS=user check and leave a 120s timeout.
+export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_CLASS=user
+export XDG_SESSION_DESKTOP=Singularity
+export XDG_CURRENT_DESKTOP=Singularity
 # Default terminal = the native Singularity terminal (singularity-leafs, VTE).
 # foot is kept installed as a fallback for the scripted NCZ installer launchers
 # (they need foot's --hold/-T flags, which leafs does not expose) and greeter
@@ -437,7 +467,19 @@ export LD_LIBRARY_PATH="/opt/singularity/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH
 # creating a session" -> greetd crash-loop).
 LOGDIR=/var/log/singularity-greeter
 { mkdir -p "$LOGDIR" && : >>"$LOGDIR/greeter.log"; } 2>/dev/null || LOGDIR="${XDG_RUNTIME_DIR:-/tmp}"
-exec /opt/singularity/bin/labwc -C /etc/greetd/singularity-labwc >>"$LOGDIR/greeter.log" 2>&1
+# The native boot splash watches this marker and drops DRM master before labwc
+# starts. Its parent is created world-writable by ncz-boot-splash, so this is
+# safe for the unprivileged _greetd account and avoids a black handoff.
+if [ -d /run/singularity ] && [ -w /run/singularity ]; then
+    : > /run/singularity/greeter-ready
+    sleep 0.2
+fi
+# `-S` is essential: greetd starts the selected user's session as soon as this
+# greeter compositor exits. A regular Labwc autostart leaves the compositor
+# alive after authentication, causing greetd to wait its five-second watchdog
+# and then SIGTERM it. The forced teardown exposes a blank text VT/cursor.
+exec /opt/singularity/bin/labwc -C /etc/greetd/singularity-labwc \
+    -S /opt/singularity/bin/singularity-greeter >>"$LOGDIR/greeter.log" 2>&1
 GRW
 chmod 0755 /usr/local/bin/ncz-singularity-greeter
 echo "[20] ncz-singularity-greeter wrapper installed (native greeter on /opt/singularity labwc)"

@@ -64,10 +64,10 @@ fi
 echo "[60] verified: singularity-boot-splash dynamic-link closure complete"
 
 # --- (2) systemd unit: paint from early boot to the greeter ------------------
-# Runs as root, owns /dev/tty1 in process mode. --wait-seconds tolerates Sky1's
-# late KMS (DP link-train). When greetd (vt=7) brings up the labwc greeter, the
-# VT switch away from tty1 makes boot-splash drop DRM master so the greeter paints
-# over it; --max-life is the safety cap so it never wedges the framebuffer.
+# Runs as root, owns /dev/tty1 in process mode. It remains visible while Sky1
+# USB recovery obtains a keyboard, then the greeter creates a readiness marker
+# that makes the splash drop DRM master before labwc starts. This avoids both a
+# fixed-duration boot delay and a black splash->greeter gap.
 # NOTE(metal): the exact boot-splash -> greeter handoff timing is gated on the
 # Sky1 DP-link-training/early-framebuffer work (fix/trilin-dp-link-training) — the
 # splash cannot paint before KMS is live; validate on-metal once DP trains early.
@@ -75,6 +75,8 @@ cat > /usr/local/bin/ncz-boot-splash <<'WRAPPER'
 #!/bin/sh
 set -eu
 BSP=/opt/singularity/bin/singularity-boot-splash
+install -d -m 1777 /run/singularity
+rm -f /run/singularity/greeter-ready
 card=""
 for status in /sys/class/drm/card*-*/status; do
     [ -f "$status" ] || continue
@@ -90,9 +92,9 @@ if [ -z "$card" ]; then
 fi
 echo "boot-splash: using connected DRM device $card"
 set +e
-# The vendor binary has no reliable exit deadline on every Sky1 DRM state.
-# Bound it so a display race cannot block graphical.target indefinitely.
-timeout --kill-after=2s 15s "$BSP" --device "$card" --wait-seconds 12 --max-life 12
+# The splash exits immediately when the greeter marker appears. Keep a safety
+# cap for headless/failed-greeter boots, but never use the cap as normal timing.
+timeout --kill-after=2s 22s "$BSP" --device "$card" --wait-seconds 2 --handoff 0.4 --max-life 20
 rc=$?
 set -e
 if [ "$rc" -eq 1 ] || [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
@@ -110,18 +112,18 @@ Documentation=https://github.com/singularityos-lab/singularity-boot-splash
 DefaultDependencies=no
 # DRM connectors are populated asynchronously after the kernel registers the
 # Sky1 display pipeline. Wait for the detector so the splash does not race the
-# connector and incorrectly conclude that the machine is headless.
+# connector and incorrectly conclude that the machine is headless. Do not order
+# greetd after this unit: it supplies the greeter-ready handoff marker.
 After=systemd-udevd.service systemd-udev-settle.service local-fs.target cix-detect-display.service
-Before=greetd.service
+Before=graphical.target
 Conflicts=getty@tty1.service plymouth-start.service plymouth-quit.service
 
 [Service]
-# Type=oneshot makes the DRM handoff a real ordering barrier: greetd's
-# After=singularity-boot-splash.service waits until this process exits and
-# drops DRM master, rather than merely waiting for it to be spawned.
+# Type=oneshot owns DRM until the greeter-ready marker requests a handoff.
+# greetd starts after USB readiness in parallel with this unit.
 Type=oneshot
 RemainAfterExit=no
-TimeoutStartSec=20s
+TimeoutStartSec=22s
 # Wait for late Sky1 KMS without turning a legitimately headless/KVM boot into
 # a failed service. ExecCondition exit 1 is a clean skip, not a unit failure.
 ExecStart=/usr/local/bin/ncz-boot-splash
@@ -136,7 +138,7 @@ UNIT
 systemctl enable singularity-boot-splash.service 2>/dev/null || \
     ln -sf /etc/systemd/system/singularity-boot-splash.service \
         /etc/systemd/system/graphical.target.wants/singularity-boot-splash.service
-echo "[60] singularity-boot-splash.service installed + enabled (Before=greetd, tty1)"
+echo "[60] singularity-boot-splash.service installed + enabled (adaptive greeter handoff, tty1)"
 
 # --- (3) PURGE plymouth entirely (operator: native KMS splash only) ----------
 export PATH="/usr/sbin:/sbin:/usr/bin:/bin:${PATH:-}"
