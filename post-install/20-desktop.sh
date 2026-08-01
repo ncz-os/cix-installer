@@ -93,7 +93,7 @@ CORE_DESKTOP="greetd glycin-loaders \
     foot xsettingsd seatd libseat1 libliftoff0 libxcb-composite0 libxcb-ewmh2 \
     swaybg grim slurp fuzzel \
     xwayland \
-    polkitd \
+    polkitd rtkit \
     mesa-utils vulkan-tools libglu1-mesa \
     libglib2.0-bin"
 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP; then
