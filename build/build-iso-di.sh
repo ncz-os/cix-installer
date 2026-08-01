@@ -20,7 +20,11 @@ BOOKWORM_ISO=""
 ROOT=""
 VERSION=""
 OUTPUT=""
-VARIANT="desktop"   # r75 M1: 'desktop' | 'server' — both ship as "Maximilian", this just qualifies which
+# The shipped ISO has one unified installation target.  Internally it uses the
+# desktop layer because that layer contains the complete Singularity system;
+# installed rEFInd entries, not installer variants, select console/Mali/
+# Panthor/recovery operation.
+VARIANT="desktop"
 MODE="full"         # r78: full | thin | netinstall | netinstall-bootstrap
 NCZ_TARGET_ARCH="${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}"
 
@@ -35,8 +39,9 @@ Options:
       netinstall canonical ports.ubuntu.com debootstrap, NEXT kernel only, <500 MB
       netinstall-bootstrap
                  netinstall + local pkgsel bootstrap pool, still <1 GB
-  --variant {desktop|server}
-      Bake-time default variant; GRUB chooser can override via ncz_variant=
+  --variant desktop
+      Compatibility argument; the unified NCZ-OS target always installs the
+      complete Singularity desktop stack.
   --bookworm-iso PATH
   --root PATH
   --version VERSION
@@ -78,11 +83,13 @@ case "$MODE" in
     *) echo "ERROR: --mode must be 'full', 'thin', 'netinstall', or 'netinstall-bootstrap' (got '$MODE')" >&2; exit 1 ;;
 esac
 
-# Validate VARIANT before staging
-case "$VARIANT" in
-    desktop|server) ;;
-    *) echo "ERROR: --variant must be 'desktop' or 'server' (got '$VARIANT')" >&2; exit 1 ;;
-esac
+# Do not create an ISO that advertises a headless/server install while shipping
+# a distinct complete desktop payload.  Console and recovery are installed
+# boot choices, not mutually exclusive installer variants.
+[ "$VARIANT" = "desktop" ] || {
+    echo "ERROR: NCZ-OS unified ISO requires --variant desktop (got '$VARIANT')" >&2
+    exit 1
+}
 
 case "$NCZ_TARGET_ARCH" in
     arm64|amd64) ;;
@@ -158,10 +165,10 @@ NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
 #      "skipping" → 4GB NCZRESCUE partition ships EMPTY, no RESCUE_READY,
 #      no rEFInd "RESCUE PARTITION" entry.
 # Both used to be WARN+skip in the staging loop below; for the shipping
-# configuration (--mode full --variant desktop) they are now hard failures.
+# configuration (--mode full) they are now hard failures.
 # netinstall/thin stay permissive (assets install online / by design).
 # ----------------------------------------------------------------------
-if [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ]; then
+if [ "$MODE" = "full" ]; then
     if ! ls "$ROOT/assets/cix-debs"/*.deb >/dev/null 2>&1; then
         echo "ERROR: assets/cix-debs/ has no *.deb — full desktop ISO would install with NO CIX GPU userspace (libmali/EGL/GLES) and boot to a dead greeter." >&2
         echo "  Remediation: stage the validated CIX proprietary userland set (cix-gpu-umd, cix-libglvnd, cix-mesa, cix-noe-umd_2.0.2, cix-gstreamer, firmware, ...)" >&2
@@ -848,8 +855,10 @@ if [ -n "$SQDIR" ]; then
         echo "FATAL: r159 stub: sqtools bundle missing (bin=$UNSQ ldr=$LDR)" >&2; exit 1
     fi
     rm -rf "$TARGET"/* "$TARGET"/.[!.]* 2>/dev/null || true
+    # The installation media has one complete target.  Keep the desktop-layer
+    # name internally until the legacy layer filenames are retired, but never
+    # select a separate server overlay from a boot-time argument.
     ROLE=desktop
-    grep -qw "ncz_variant=server" /proc/cmdline 2>/dev/null && ROLE=server
     echo "I: r159 stub: unsquashfs base -> $TARGET" >&2
     "$LDR" --library-path "$SQDIR/sqtools" "$UNSQ" -f -d "$TARGET" "$SQDIR/base.squashfs" >/dev/null 2>&1 || {
         echo "FATAL: r159 stub: unsquashfs base failed" >&2; exit 1; }
@@ -2548,38 +2557,9 @@ fi
 
 CODENAME="$NCZ_RELEASE_CODENAME"
 GRUB_KERNEL_SUMMARY="$INSTALLER_KERNEL_LABEL=$KVER_INSTALLER"
-GRUB_DESKTOP_TITLE="Install $NCZ_RELEASE_LABEL — Desktop (build $VERSION)"
-GRUB_SERVER_TITLE="Install $NCZ_RELEASE_LABEL — Server (Headless, build $VERSION)"
+GRUB_INSTALL_TITLE="Install $NCZ_RELEASE_LABEL (build $VERSION)"
 if [ "$MODE" = "netinstall" ]; then
-    GRUB_DESKTOP_TITLE="Install $NCZ_RELEASE_LABEL — Desktop (wired link required; build $VERSION)"
-    GRUB_SERVER_TITLE="Install $NCZ_RELEASE_LABEL — Server (Headless, wired link required; build $VERSION)"
-fi
-
-# r189.7: only offer the Server GRUB entry if server.squashfs was
-# actually built -- it never has been yet (manifests/server.pkgs didn't
-# exist until 2026-07-05), so this menu entry was previously always shown
-# and would silently degrade to a base-only install
-# (preseed/extract-rootfs.sh's "no $ROLE.squashfs on media" fallback).
-SERVER_MENUENTRY=""
-if [ -f "$ROOT/assets/squashfs/server.squashfs" ]; then
-  # r189.7 fix (zoder review caught this): the $ vars below must expand
-  # HERE (this is a plain double-quoted assignment, not a heredoc), same as
-  # they did in the original inline menuentry -- escaping them with \$
-  # would store a LITERAL "$DI_OPTS" etc. in the variable, which the outer
-  # heredoc below does NOT re-expand (bash does not double-expand variable
-  # contents), silently dropping the real boot cmdline args from grub.cfg.
-  SERVER_MENUENTRY="
-menuentry \"$GRUB_SERVER_TITLE\" {
-    set background_color=black
-    set color_normal=light-green/black
-    echo \">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i (server)...\"
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=server ncz_rev=$VERSION $MARTJOHNSON_R6
-    echo \">> Loading initrd (modules + preseed + zstd)...\"
-    initrd /install.a64/initrd.gz
-}
-"
-else
-  echo "WARN: assets/squashfs/server.squashfs not built -- omitting Server GRUB entry (run build-squashfs-layers.sh server first)" >&2
+    GRUB_INSTALL_TITLE="Install $NCZ_RELEASE_LABEL (wired link required; build $VERSION)"
 fi
 cat > "$GRUB_CFG" <<GRUB
 # ncz-installer (cixmini "$CODENAME" / $VERSION)
@@ -2619,16 +2599,15 @@ echo "               kernel: $KVER_INSTALLER ($INSTALLER_KERNEL_LABEL)"
 echo "               build:  $BUILD_DATE"
 echo ""
 
-menuentry "$GRUB_DESKTOP_TITLE" {
+menuentry "$GRUB_INSTALL_TITLE" {
     set background_color=black
     set color_normal=light-green/black
-    echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i ($NCZ_RELEASE_CODENAME / desktop)..."
+    echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i ($NCZ_RELEASE_CODENAME)..."
     linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION $MARTJOHNSON_R6
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
 }
 
-$SERVER_MENUENTRY
 menuentry "SAFE — rescue shell ($INSTALLER_KERNEL_LABEL, no install)" {
     set background_color=black
     set color_normal=light-green/black
@@ -2637,7 +2616,7 @@ menuentry "SAFE — rescue shell ($INSTALLER_KERNEL_LABEL, no install)" {
     initrd /install.a64/initrd.gz
 }
 
-menuentry "DIAG — Desktop install, full serial trace (O6/O6N ttyAMA0, 115200)" {
+menuentry "DIAG — unified install, full serial trace (O6/O6N ttyAMA0, 115200)" {
     set background_color=black
     set color_normal=light-green/black
     echo ">> DIAG boot: full kernel + d-i trace on ttyAMA0 @115200..."
