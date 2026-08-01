@@ -88,13 +88,32 @@ apt-get install -y --no-install-recommends \
     libgee-0.8-dev libsoup-3.0-dev \
     libgirepository-1.0-dev gobject-introspection \
     libupower-glib-dev \
+    libatspi2.0-dev libcmocka-dev libdbusmenu-glib-dev libfontconfig-dev \
+    libglib2.0-dev libgudev-1.0-dev libinput-dev libnm-dev \
+    libpng-dev librsvg2-dev libsecret-1-dev libxml2-dev libpixman-1-dev \
+    libpoppler-glib-dev libsystemd-dev libtracker-sparql-3.0-dev \
+    libupower-glib-dev \
+    libwebkitgtk-6.0-dev libxcb1-dev libxcb-ewmh-dev \
+    libxcb-icccm4-dev libxkbcommon-dev \
+    libpam0g-dev libgcrypt20-dev libcrypt-dev libsodium-dev \
+    hwdata xwayland libxcb-dri3-dev \
+    libxcb-composite0-dev libxcb-render0-dev libxcb-res0-dev \
+    libxcb-xfixes0-dev libxcb-errors-dev libxcb-present-dev \
+    sassc scdoc \
+    libdisplay-info-dev \
+    libseat-dev \
+    libliftoff-dev \
     libnm-dev \
     libgoa-1.0-dev \
     sassc \
     libdrm-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
+    libinput-dev \
     libpoppler-glib-dev \
     hwdata \
     scdoc \
+    libdisplay-info-dev \
+    libseat-dev \
+    libliftoff-dev \
     build-essential
 
 mkdir -p /work && cd /work
@@ -157,12 +176,28 @@ fi
 # Install into the DESTDIR stage.
 rm -rf /work/stage
 DESTDIR=/work/stage meson install -C build
-[ -d build-labwc ] && DESTDIR=/work/stage meson install -C build-labwc || true
-[ -f Makefile ] && grep -q "install:" Makefile && DESTDIR=/work/stage make install 2>/dev/null || true
 
-# Sanity: the shell + session launcher must exist.
+# labwc is a separate Meson project.  `make install` in the desktop tree is a
+# host-deployment helper and does not reliably honour DESTDIR, so it can leave
+# the payload with the previous labwc even when `make compile` built a newer
+# compositor.  Install the exact build directory explicitly and fail the
+# artifact build if it cannot be staged.
+LABWC_BUILD_DIR=""
+if [ -d subprojects/labwc/build ]; then
+    LABWC_BUILD_DIR="subprojects/labwc/build"
+elif [ -d build-labwc ]; then
+    LABWC_BUILD_DIR="build-labwc"
+fi
+[ -n "$LABWC_BUILD_DIR" ] || {
+    echo "ERROR: labwc build directory is missing after compilation" >&2
+    exit 1
+}
+DESTDIR=/work/stage meson install -C "$LABWC_BUILD_DIR"
+
+# Sanity: the shell, session launcher, and compositor must all exist.
 test -x "/work/stage'"$PREFIX"'/bin/singularity-desktop"
 test -x "/work/stage'"$PREFIX"'/bin/singularity-labwc-session"
+test -x "/work/stage'"$PREFIX"'/bin/labwc"
 
 # --- singularity-boot-splash (NATIVE KMS boot splash — Plymouth replacement) --
 # Separate upstream repo (github.com/singularityos-lab/singularity-boot-splash),
