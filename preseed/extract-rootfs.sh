@@ -59,8 +59,10 @@ if [ -n "$SQFS_DIR" ]; then
         exit 1
     fi
     run_unsq() { "$LDR" --library-path "$SQFS_DIR/sqtools" "$UNSQ_BIN" "$@"; }
+    # The ISO installs one complete target.  The desktop layer is the internal
+    # name for that complete payload; rEFInd provides console/recovery choices
+    # after installation instead of selecting an install-time server overlay.
     ROLE=desktop
-    grep -qw "ncz_variant=server" /proc/cmdline 2>/dev/null && ROLE=server
     START=$(date +%s)
     msg "extracting base.squashfs -> /target"
     echo "[sqfs] unsquashfs base ..." > $SER 2>&1
