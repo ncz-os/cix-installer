@@ -375,6 +375,45 @@ fi
 GPUENV
 chmod 0755 /usr/local/bin/ncz-gpu-env
 
+# ---------------------------------------------------------------------------
+# Connected KMS selector — constrain wlroots to physical outputs that are
+# currently connected.  Sky1 exposes a DRM card for each Linlon DP engine;
+# opening disconnected engines in addition to the active connector causes
+# material input/paint latency with the Mali stack.  The card number is not
+# stable (O6's active output is card1), so inspect connector state instead of
+# hard-coding a card.  This is intentionally sourced by *both* compositor
+# launchers: greetd's _greetd compositor and the post-login user compositor
+# are separate processes and neither can safely reuse the other's DRM lease.
+# Do not override an explicit operator WLR_DRM_DEVICES choice.  Leave the
+# variable unset when no physical output is connected so headless/KVM paths
+# retain wlroots' ordinary backend discovery.
+# ---------------------------------------------------------------------------
+cat > /usr/local/bin/ncz-wlr-connected-drm <<'DRMENV'
+#!/bin/sh
+# Source this from a wlroots compositor launcher.
+if [ -z "${WLR_DRM_DEVICES:-}" ]; then
+    _ncz_drm_devices=
+    for _ncz_status in /sys/class/drm/card*-*/status; do
+        [ -r "$_ncz_status" ] || continue
+        [ "$(cat "$_ncz_status" 2>/dev/null)" = connected ] || continue
+        _ncz_card=${_ncz_status#*/drm/}
+        _ncz_card=${_ncz_card%%-*}
+        _ncz_device=/dev/dri/$_ncz_card
+        [ -c "$_ncz_device" ] || continue
+        case ":$_ncz_drm_devices:" in
+            *:"$_ncz_device":*) ;;
+            *) _ncz_drm_devices="${_ncz_drm_devices:+$_ncz_drm_devices:}$_ncz_device" ;;
+        esac
+    done
+    if [ -n "$_ncz_drm_devices" ]; then
+        WLR_DRM_DEVICES=$_ncz_drm_devices
+        export WLR_DRM_DEVICES
+    fi
+    unset _ncz_drm_devices _ncz_status _ncz_card _ncz_device
+fi
+DRMENV
+chmod 0755 /usr/local/bin/ncz-wlr-connected-drm
+
 # Singularity session launcher (sources ncz-gpu-env; /opt/singularity on
 # PATH/XDG_DATA_DIRS/LD_LIBRARY_PATH; TERMINAL=foot).
 cat > /usr/local/bin/ncz-singularity <<'SINGLAUNCH'
@@ -386,6 +425,12 @@ if [ -r /usr/local/bin/ncz-gpu-env ]; then
 else
     export LD_LIBRARY_PATH="/opt/cixgpu-pro/lib/aarch64-linux-gnu:/opt/cixgpu-compat/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     export WLR_DRM_NO_MODIFIERS=1
+fi
+# The desktop starts a new, user-owned Labwc after greetd exits.  Apply the
+# same dynamic connected-output policy used by the greeter before that Labwc
+# is exec'd; otherwise it reopens every (including disconnected) Sky1 DP card.
+if [ -r /usr/local/bin/ncz-wlr-connected-drm ]; then
+    . /usr/local/bin/ncz-wlr-connected-drm
 fi
 # Singularity isolated env (singularity libs must precede GPU libs).
 export PATH="/opt/singularity/bin:$PATH"
@@ -456,6 +501,11 @@ cat > /usr/local/bin/ncz-singularity-greeter <<'GRW'
 # labwc as the session, on CIX Mali GLES (libmali). No GTK, no regreet.
 if [ -r /usr/local/bin/ncz-gpu-env ]; then . /usr/local/bin/ncz-gpu-env; fi
 unset LIBGL_ALWAYS_SOFTWARE
+# The greeter and the logged-in desktop each own a separate Labwc process.
+# Select all *connected* outputs dynamically rather than assuming card0/card1.
+if [ -r /usr/local/bin/ncz-wlr-connected-drm ]; then
+    . /usr/local/bin/ncz-wlr-connected-drm
+fi
 export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=labwc
 export PATH="/opt/singularity/bin:$PATH"
 export GSETTINGS_SCHEMA_DIR=/opt/singularity/share/glib-2.0/schemas
