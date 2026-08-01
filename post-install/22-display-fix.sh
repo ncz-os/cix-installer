@@ -27,9 +27,11 @@ exec >>"$LOG" 2>&1
 echo "=== $(date -u) ==="
 
 CONN_CARD=""; CONN_OUTPUT=""
-# 30s retry loop: Sky1 DRM probe is async, cards may not all be enumerated
-# at the moment this runs from systemd-udev-settle.service.
-for try in 1 2 3 4 5 6; do
+# Sky1 DRM probe is asynchronous. Keep the 30-second safety bound, but poll
+# frequently: the former five-second interval was on greetd's critical path
+# and added up to 4.99 seconds after the connector had already appeared.
+try=0
+while [ "$try" -lt 120 ]; do
     for c in /sys/class/drm/card*-DP-* /sys/class/drm/card*-HDMI-*; do
         [ -e "$c/status" ] || continue
         if [ "$(cat $c/status 2>/dev/null)" = "connected" ]; then
@@ -38,7 +40,8 @@ for try in 1 2 3 4 5 6; do
             break 2
         fi
     done
-    sleep 5
+    try=$((try + 1))
+    sleep 0.25
 done
 
 if [ -z "$CONN_CARD" ]; then
@@ -101,7 +104,11 @@ cat > /etc/systemd/system/cix-detect-display.service <<UNIT
 Description=NCZ Sky1 connected-display autodetect
 DefaultDependencies=no
 After=systemd-udev-settle.service
-Before=display-manager.service lightdm.service basic.target
+# Do not hold basic.target: USB recovery is on greetd's critical path and can
+# run while the asynchronous DRM connector probe is resolving.  greetd itself
+# has an explicit After= dependency on this service (installed by 55-greeter),
+# so the compositor can never start before the connected DRM card is known.
+Before=display-manager.service lightdm.service
 RequiresMountsFor=/var/log
 
 [Service]

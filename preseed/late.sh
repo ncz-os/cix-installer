@@ -323,37 +323,10 @@ mkdir -p /target/var/lib/dbus
 ln -sf /etc/machine-id /target/var/lib/dbus/machine-id 2>/dev/null || \
     cp -f /target/etc/machine-id /target/var/lib/dbus/machine-id 2>/dev/null || true
 
-# Defensive first-boot guard: some target rootfs variants can lose the seeded
-# identity during package/configuration finalization.  dbus must repair the
-# identity before it opens the system bus; create utmp as well so agetty/login
-# does not emit a broken banner on the serial console.
-mkdir -p /target/usr/local/sbin /target/etc/systemd/system/dbus.service.d
-cat > /target/usr/local/sbin/ncz-identity-fix <<'IDENTITY'
-#!/bin/sh
-set -eu
-if [ ! -s /etc/machine-id ]; then
-    systemd-machine-id-setup 2>/dev/null || dbus-uuidgen > /etc/machine-id 2>/dev/null || true
-fi
-if [ -s /etc/machine-id ]; then
-    mkdir -p /var/lib/dbus
-    ln -sfn /etc/machine-id /var/lib/dbus/machine-id 2>/dev/null || \
-        cp -f /etc/machine-id /var/lib/dbus/machine-id 2>/dev/null || true
-fi
-mkdir -p /run
-if [ ! -e /run/utmp ]; then
-    : > /run/utmp
-    chmod 0664 /run/utmp
-fi
-exit 0
-IDENTITY
-chmod 0755 /target/usr/local/sbin/ncz-identity-fix
-cat > /target/etc/systemd/system/dbus.service.d/00-ncz-identity.conf <<'DBUSDROPIN'
-[Service]
-# dbus.service runs as messagebus.  The helper repairs system-owned identity
-# and utmp paths, so it must not inherit that unprivileged User= setting.
-ExecStartPre=+/usr/local/sbin/ncz-identity-fix
-DBUSDROPIN
-echo "    dbus ExecStartPre identity/utmp guard installed"
+# Do not add an ExecStartPre to dbus.service.  It runs with the unit's
+# unprivileged service credentials on this image, so attempts to repair /run
+# fail and take down D-Bus, logind, networking, and greetd together.  The
+# target machine-id is generated and linked above before the first boot.
 echo
 
 # Codex A2 CRITICAL #2 fix: Mount /cdrom inside /target so post-install

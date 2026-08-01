@@ -137,7 +137,68 @@ if [ -w /proc/sys/kernel/printk ] 2>/dev/null; then
 fi
 echo "  console loglevel pinned to 3 (/etc/sysctl.d/99-ncz-quiet-console.conf)"
 
-# --- 7. update-motd.d: remove overlayfs-whiteout char-device artifacts ------
+# --- 7. Do not mount efivarfs when EFI runtime was deliberately disabled ----
+# The Sky1 platform requires efi=noruntime for stable boot.  Ubuntu's mdadm
+# initramfs script otherwise emits a visible, inevitable efivarfs mount error
+# before systemd/loglevel policy is active. Preserve normal EFI-runtime boots
+# by delegating to the package script unless that explicit cmdline is present.
+EFI_HOOK=/usr/share/initramfs-tools/scripts/init-top/00_mount_efivarfs
+if [ -f "$EFI_HOOK" ]; then
+    if ! dpkg-divert --list "$EFI_HOOK" 2>/dev/null | grep -Fqx "local diversion of $EFI_HOOK to ${EFI_HOOK}.distrib"; then
+        dpkg-divert --local --rename --add "$EFI_HOOK" >/dev/null 2>&1 || true
+    fi
+    if [ -f "${EFI_HOOK}.distrib" ]; then
+        cat > "$EFI_HOOK" <<'EFIHOOK'
+#!/bin/sh
+case "${1:-}" in
+    prereqs) exec /bin/sh "${0}.distrib" prereqs ;;
+esac
+if grep -qw 'efi=noruntime' /proc/cmdline 2>/dev/null; then
+    exit 0
+fi
+exec /bin/sh "${0}.distrib" "$@"
+EFIHOOK
+        chmod 0755 "$EFI_HOOK"
+        # initramfs-tools executes every executable script it finds in
+        # init-top.  A dpkg-divert alone leaves *.distrib executable, so both
+        # this guard AND the original mount script were run.  Keep the original
+        # readable for normal EFI-runtime delegation, but non-executable so it
+        # cannot be independently added to ORDER.
+        chmod 0644 "${EFI_HOOK}.distrib"
+
+        # rEFInd loads kernel/initrd payloads from the ESP root, not /boot.
+        # update-initramfs updates only /boot, which previously let a repaired
+        # root initrd coexist with an older, still-broken ESP copy.  Sync only
+        # versions currently referenced by rEFInd, after every successful
+        # update-initramfs run.  If a board needs an NPU ACPI prepend, its
+        # canonical /boot initrd already contains that prepend before this hook
+        # copies it, so the boot contract stays identical on both filesystems.
+        install -d -m0755 /etc/initramfs/post-update.d
+        cat > /etc/initramfs/post-update.d/90-ncz-refind-esp-sync <<'ESPSYNC'
+#!/bin/sh
+set -eu
+version=${1:-}
+initrd=${2:-}
+[ -n "$version" ] && [ -r "$initrd" ] || exit 0
+[ -r /boot/efi/EFI/BOOT/refind.conf ] || exit 0
+grep -Fq "/initrd.img-$version" /boot/efi/EFI/BOOT/refind.conf || exit 0
+findmnt -no FSTYPE /boot/efi 2>/dev/null | grep -qx vfat || exit 0
+dest="/boot/efi/initrd.img-$version"
+if [ -r "$dest" ] && cmp -s "$initrd" "$dest"; then exit 0; fi
+install -m0644 "$initrd" "$dest"
+sync
+cmp -s "$initrd" "$dest" || {
+    echo "ncz-refind-esp-sync: verification failed for $dest" >&2
+    exit 1
+}
+ESPSYNC
+        chmod 0755 /etc/initramfs/post-update.d/90-ncz-refind-esp-sync
+        update-initramfs -u -k all >/dev/null 2>&1 || true
+        echo "  guarded efivarfs initramfs mount for efi=noruntime"
+    fi
+fi
+
+# --- 8. update-motd.d: remove overlayfs-whiteout char-device artifacts ------
 # 50-brand.sh does `rm -f /etc/update-motd.d/00-header` at build time; in the
 # layered-squashfs build that deletion flattens to an overlayfs WHITEOUT — a
 # char device (0,0) — which ships in the image and makes run-parts error
