@@ -110,12 +110,14 @@ if [ -f /etc/rsyslog.d/90-loghost.conf ] && grep -qE '^\*\.\*[[:space:]]+@[0-9]'
 fi
 
 # --- 5. rtkit for PipeWire/WirePlumber RT scheduling -----------------------
-if ! dpkg -s rtkit >/dev/null 2>&1; then
-    timeout 300 env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        --no-install-recommends rtkit >/dev/null 2>&1 \
-        && echo "  installed rtkit" || echo "  WARN: rtkit install failed (offline?)"
+# rtkit is part of the mandatory desktop closure (20-desktop.sh).  Do not
+# initiate a new network-backed apt transaction from this late, clean-up hook:
+# that made otherwise successful offline installs report rc=100 here and left
+# the audio RT policy dependent on transient mirror state.
+if dpkg -s rtkit >/dev/null 2>&1; then
+    echo "  rtkit present"
 else
-    echo "  rtkit already installed"
+    echo "  WARN: rtkit missing from desktop closure"
 fi
 
 # --- 6. Keep runtime kernel messages off the graphical transition VT -------
