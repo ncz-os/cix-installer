@@ -31,7 +31,22 @@
 set -euo pipefail
 
 # ---- config ----------------------------------------------------------------
-IMAGE="${SINGULARITY_IMAGE:-ubuntu:26.04}"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# The payload must link against the same distribution ABI as the installed
+# system.  In particular Forky exposes libsodium.so.26, while an Ubuntu-built
+# payload requires libsodium.so.23.
+if [ -r "$REPO_ROOT/release.conf" ]; then
+    # shellcheck source=../release.conf
+    . "$REPO_ROOT/release.conf"
+fi
+DEFAULT_IMAGE="ubuntu:26.04"
+METADATA_SEARCH_DEV="libtracker-sparql-3.0-dev"
+if [ "${NCZ_BASE_NAME:-}" = "Debian" ]; then
+    DEFAULT_IMAGE="debian:testing"
+    METADATA_SEARCH_DEV="libtinysparql-dev"
+fi
+IMAGE="${SINGULARITY_IMAGE:-$DEFAULT_IMAGE}"
+CONTAINER_NETWORK="${SINGULARITY_CONTAINER_NETWORK:-host}"
 SRC_REPO="${SINGULARITY_REPO:-https://github.com/singularityos-lab/singularity-desktop}"
 SRC_REF="${SINGULARITY_REF:-main}"
 # Optional checked-out superproject.  This is intentionally explicit: local
@@ -92,7 +107,7 @@ apt-get install -y --no-install-recommends \
     libatspi2.0-dev libcmocka-dev libdbusmenu-glib-dev libfontconfig-dev \
     libglib2.0-dev libgudev-1.0-dev libinput-dev libnm-dev \
     libpng-dev librsvg2-dev libsecret-1-dev libxml2-dev libpixman-1-dev \
-    libpoppler-glib-dev libsystemd-dev libtracker-sparql-3.0-dev \
+    libpoppler-glib-dev libsystemd-dev $SINGULARITY_METADATA_SEARCH_DEV \
     libupower-glib-dev \
     libwebkitgtk-6.0-dev libxcb1-dev libxcb-ewmh-dev \
     libxcb-icccm4-dev libxkbcommon-dev \
@@ -235,7 +250,8 @@ echo "STAGED $(du -h /out/singularity-opt.tgz | cut -f1)"
 '
 
 echo "== running build in $IMAGE ($CE) =="
-CE_ARGS=(--rm -v "$OUT":/out -e SRC_REF="$SRC_REF")
+CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
+         -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV")
 if [ -n "$SRC_DIR" ]; then
     CE_ARGS+=(-v "$SRC_DIR":/src:ro -e SINGULARITY_SOURCE_DIR=/src)
 fi
