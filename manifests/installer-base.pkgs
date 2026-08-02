@@ -62,3 +62,10 @@ openbsd-inetd
 # extracted (not installed) into /opt/ncz-failsafe so a /usr/lib clobber that wedges
 # every dynamic daemon still leaves a static root recovery shell on telnet :2323.
 busybox-static
+
+# zstd: post-install/72-rescue-partition.sh unpacks rescue-rootfs.tar.zst on the
+# INSTALLED system and hard-requires the binary. Ubuntu's base shipped it, Debian
+# forky's does not, so without it 72 aborts, no RESCUE_READY marker is written,
+# ncz-refind-refresh then refuses to write /EFI/BOOT/BOOTAA64.EFI, and late.sh
+# correctly declares the install unbootable -- after the base system is on disk.
+zstd
