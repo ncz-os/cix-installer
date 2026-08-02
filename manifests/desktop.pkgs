@@ -290,3 +290,11 @@ drawing
 imv
 swayimg
 gnome-console
+
+# zstd: post-install/72-rescue-partition.sh unpacks rescue-rootfs.tar.zst on the
+# installed system and hard-requires it. The base layer is the Debian forky
+# rootfs tarball, which (unlike Ubuntu) does not ship zstd, and the base layer
+# installs no manifest -- so this delta is what puts it on the target. Without
+# it 72 aborts, RESCUE_READY is never written, and ncz-refind-refresh refuses
+# to install BOOTAA64.EFI, failing the install as unbootable.
+zstd
