@@ -25,10 +25,18 @@ set -euo pipefail
 ROOT="${ROOT:-$HOME/cix-installer-build/cix-installer}"
 WORK="${WORK:-/tmp/ncz-sqfs}"
 OUT="${OUT:-$ROOT/assets/squashfs}"
-BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst}"
-APT_SUITE="${APT_SUITE:-resolute}"
+# Keep every base-dependent default tied to release.conf.  Callers can still
+# override these for an explicitly isolated experiment, but a normal build can
+# no longer silently combine a Forky rootfs with a Resolute mirror.
+if [ -r "$ROOT/release.conf" ]; then
+  # shellcheck source=../release.conf
+  . "$ROOT/release.conf"
+fi
+NCZ_BASE_CODENAME="${NCZ_BASE_CODENAME:-resolute}"
+BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64.tar.zst}"
+APT_SUITE="${APT_SUITE:-$NCZ_BASE_CODENAME}"
 APT_COMPONENTS="${APT_COMPONENTS:-main}"
-MIRROR_DIRS="${MIRROR_DIRS:-server-mirror resolute-mirror desktop-mirror}"
+MIRROR_DIRS="${MIRROR_DIRS:-$NCZ_BASE_CODENAME-mirror}"
 QEMU="/usr/bin/qemu-aarch64-static"
 STAGE="${1:-base}"                            # base | desktop | server | all
 
@@ -150,16 +158,14 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/vivaldi/." "$MG/usr/local/lib/cix-installer/assets/vivaldi/" 2>/dev/null || true
       log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
     fi
-    # Google Chrome installs via the offline desktop-mirror pool (same as
-    # dropped ungoogled-chromium/XtraDeb stop-gap) -- see build/build-desktop-mirror.sh and
-    # post-install/53-chrome.sh. No separate asset staging needed here.
+    # Google Chrome installs from the profile-matched offline mirror. No
+    # separate asset staging is needed here.
     # 26.7 (updated 2026-07-26): the Singularity Desktop payload is NO LONGER
     # staged as a tarball here. post-install/20-desktop.sh installs it as a real
     # apt package (`apt-get install ncz-singularity-desktop`) from the offline
-    # desktop-mirror pool (build/build-desktop-mirror.sh ->
-    # build/desktop-mirror/pool/main/n/ncz-singularity-desktop/*.deb), which
+    # profile-matched mirror pool, which
     # apt_offline() above already bind-mounts into this chroot as a `file://`
-    # apt source (see the "server-mirror resolute-mirror desktop-mirror" loop).
+    # apt source (see apt_offline above).
     # So nothing needs to be copied into the overlay for it -- just verify the
     # .deb is actually present in the pool, so a missing payload fails loudly
     # HERE with a clear remediation instead of deep inside 20-desktop.sh's
@@ -167,12 +173,16 @@ build_layer(){ local role="$1" manifest="$2"
     # underlying singularity-opt.tgz, but that is now only an INPUT to
     # build/build-singularity-deb.sh, not something staged into a squashfs
     # layer -- see assets/singularity/README.md.)
-    SINGULARITY_DEB=$(find "$ROOT/build/desktop-mirror/pool" -type f \
-      -name 'ncz-singularity-desktop_*_arm64.deb' -print -quit 2>/dev/null || true)
+    SINGULARITY_DEB=""
+    for _mirror in $MIRROR_DIRS; do
+      SINGULARITY_DEB=$(find "$ROOT/build/$_mirror/pool" -type f \
+        -name 'ncz-singularity-desktop_*_arm64.deb' -print -quit 2>/dev/null || true)
+      [ -n "$SINGULARITY_DEB" ] && break
+    done
     if [ -n "$SINGULARITY_DEB" ]; then
-      log "  desktop-mirror has ncz-singularity-desktop: $(basename "$SINGULARITY_DEB")"
+      log "  offline mirror has ncz-singularity-desktop: $(basename "$SINGULARITY_DEB")"
     else
-      log "  WARN: no ncz-singularity-desktop_*.deb in $ROOT/build/desktop-mirror/pool — 20-desktop's 'apt-get install ncz-singularity-desktop' will FAIL (run build/build-singularity.sh && build/build-singularity-deb.sh && build/build-desktop-mirror.sh)"
+      log "  WARN: no ncz-singularity-desktop_*.deb in the active offline mirrors — 20-desktop's apt install will fail"
     fi
     # 26.7 NATIVE STACK: the greeter (singularity-greeter) ships INSIDE the
     # /opt/singularity payload — no separate greeter binary to stage (regreet is
