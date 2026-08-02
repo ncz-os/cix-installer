@@ -155,6 +155,12 @@ for release_var in NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME \
     [ -n "${!release_var:-}" ] || { echo "ERROR: $release_var missing in $RELEASE_CONFIG" >&2; exit 1; }
 done
 NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
+# The installer d-i substrate remains independently selected below, but the
+# target APT suite and staged operating-system payload must always follow the
+# release profile.  This prevents a Forky ISO from silently embedding a stale
+# Resolute package pool or SquashFS layer.
+ISO_APT_SUITE="${ISO_APT_SUITE:-$NCZ_BASE_CODENAME}"
+SQUASHFS_DIR="${SQUASHFS_DIR:-$ROOT/assets/squashfs}"
 
 # ----------------------------------------------------------------------
 # 26.7 preflight guard — full desktop ISOs MUST carry the bake-time assets
@@ -405,7 +411,7 @@ write_component_release_files() {
         cat > "$dir/Release" <<EOF
 Archive: stable
 Origin: nclawzero
-Label: nclawzero-cixmini-resolute
+Label: nclawzero-cixmini-$suite
 Version: 1.0
 Acquire-By-Hash: yes
 Component: $component
@@ -571,14 +577,14 @@ else
     echo "    d-i substrate codename: $DI_CODENAME"
 fi
 
-# Match Debian DVD structure EXACTLY: ONE suite (resolute) with TWO
+# Match Debian DVD structure EXACTLY: ONE target suite with TWO
 # indexes (regular debs + debian-installer udebs) under main/. No
 # leftover dists/<substrate>/ to confuse anna. Substrate's udebs are
-# merged INTO the resolute pool, and substrate's debian-installer
-# Packages.gz is moved INTO dists/resolute/main/debian-installer/.
+# merged INTO the target pool, and substrate's debian-installer
+# Packages.gz is moved INTO dists/$ISO_APT_SUITE/main/debian-installer/.
 #
 # Step 1: capture substrate's udebs and udeb index BEFORE we nuke them
-echo "    capturing $DI_CODENAME udebs + udeb index (will merge into resolute)"
+echo "    capturing $DI_CODENAME udebs + udeb index (will merge into $ISO_APT_SUITE)"
 TMP_UDEBS="$STAGING/.tmp-substrate-udebs"
 rm -rf "$TMP_UDEBS"
 mkdir -p "$TMP_UDEBS/pool" "$TMP_UDEBS/dists-installer"
@@ -599,20 +605,10 @@ echo "    dropping $DI_CODENAME pool/, dists/, doc/, firmware/"
 rm -rf "$STAGING/pool" "$STAGING/dists" "$STAGING/doc" "$STAGING/firmware" 2>/dev/null || true
 
 # Step 3: embed our offline mirror or bootstrap pool.
-# NCZ policy: embed the SERVER-only mirror (build/server-mirror, Ubuntu-Server
-# closure + boot essentials, ~143MB / 365 debs, single 'main' component) as the
-# pool base, so a Server install goes fully offline. Updated (r130, 26.7):
-# desktop/Maximilian is ALSO fully offline now -- the desktop-mirror pool
-# (build-desktop-mirror.sh, Singularity Desktop closure) is merged in below,
-# not left to pull from ports.ubuntu.com at install time (see
-# post-install/20-desktop.sh's `apt-get install ncz-singularity-desktop`).
-# Falls back to the legacy full resolute-mirror only if server-mirror is absent.
+# NCZ policy: full images embed one profile-matched, complete package closure.
+# A release must never fall back to a different distribution's package pool.
 if [ -z "${MIRROR_DIR:-}" ]; then
-    if [ -d "$ROOT/build/server-mirror/pool" ]; then
-        MIRROR_DIR="$ROOT/build/server-mirror"
-    else
-        MIRROR_DIR="$ROOT/build/resolute-mirror"
-    fi
+    MIRROR_DIR="$ROOT/build/${ISO_APT_SUITE}-mirror"
 fi
 if [ "$EMBED_MIRROR" = "1" ]; then
     if [ -d "$MIRROR_DIR/pool" ] && [ -d "$MIRROR_DIR/dists" ]; then
@@ -620,20 +616,6 @@ if [ "$EMBED_MIRROR" = "1" ]; then
         cp -a "$MIRROR_DIR/pool"  "$STAGING/pool"
         cp -a "$MIRROR_DIR/dists" "$STAGING/dists"
         echo "    offline mirror embedded: $(du -sh "$STAGING/pool" | cut -f1) pool / $(find "$STAGING/pool" -name '*.deb' | wc -l) debs"
-        # r130 fat ISO: merge the desktop closure pool (build-desktop-mirror.sh)
-        # ALONGSIDE the server-mirror so the Singularity Desktop (26.7; replaced
-        # XFCE) + r130 buckets install fully OFFLINE from file:///cdrom (no
-        # ports.ubuntu.com 20-desktop stall).
-        # Only the desktop POOL is merged; the combined regular deb index is
-        # regenerated from pool contents below (Step 5), so desktop debs become
-        # visible to apt — copying its dists/ would be overwritten anyway.
-        DESKTOP_MIRROR="${DESKTOP_MIRROR:-$ROOT/build/desktop-mirror}"
-        if [ -d "$DESKTOP_MIRROR/pool" ]; then
-            cp -a "$DESKTOP_MIRROR/pool/." "$STAGING/pool/"
-            echo "    desktop closure merged from $DESKTOP_MIRROR: $(du -sh "$STAGING/pool" | cut -f1) pool / $(find "$STAGING/pool" -name '*.deb' | wc -l) debs total"
-        else
-            echo "    WARN: $DESKTOP_MIRROR/pool absent — desktop will NOT be offline; run build/build-desktop-mirror.sh"
-        fi
     else
         echo "    ERROR: $MIRROR_DIR missing — abort"
         exit 1
@@ -1667,39 +1649,38 @@ PYFINISH
 patch_finish_install_progress_owner \
     "$STAGING/pool/main/f/finish-install/finish-install_*.udeb"
 
-# Step 5: regenerate dists/resolute/main/debian-installer/binary-arm64/Packages
+# Step 5: regenerate the target-suite debian-installer Packages index
 # from the actual pool contents (not just copy bookworm's stale Packages).
 # After the trixie graft, the d-i Packages index MUST reflect the new udeb set
 # or anna can't find the new udebs.
 echo "    regenerating udeb Packages index from actual pool contents"
-mkdir -p "$STAGING/dists/resolute/main/debian-installer/binary-arm64"
+mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64"
 (
     cd "$STAGING"
     dpkg-scanpackages --type udeb --multiversion pool/main /dev/null 2>/dev/null \
-        > dists/resolute/main/debian-installer/binary-arm64/Packages
-    gzip -9cn dists/resolute/main/debian-installer/binary-arm64/Packages \
-        > dists/resolute/main/debian-installer/binary-arm64/Packages.gz
-    UDEBCT=$(grep -c '^Package: ' dists/resolute/main/debian-installer/binary-arm64/Packages || echo 0)
+        > dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages
+    gzip -9cn dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages \
+        > dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages.gz
+    UDEBCT=$(grep -c '^Package: ' dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages || echo 0)
     echo "    udeb Packages: $UDEBCT entries indexed"
 )
 
-# r130 fat ISO: in EMBED_MIRROR mode the regular deb Packages index was copied
-# verbatim from server-mirror and therefore does NOT list the merged desktop
-# debs. Regenerate it from the COMBINED pool (server + desktop) so file:///cdrom
-# apt sees the full offline desktop closure. (--type deb skips the .udeb files,
+# In EMBED_MIRROR mode regenerate the regular deb Packages index from the
+# complete profile-matched pool so file:///cdrom sees the full offline desktop
+# closure. (--type deb skips the .udeb files,
 # which are indexed separately above.) Runs before the Step 6 Release regen so
 # the Release hashes the rebuilt index.
 if [ "$EMBED_MIRROR" = "1" ]; then
-    echo "    regenerating regular deb Packages index from combined server+desktop pool"
-    mkdir -p "$STAGING/dists/resolute/main/binary-arm64"
+    echo "    regenerating regular deb Packages index from the complete offline pool"
+    mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64"
     (
         cd "$STAGING"
         dpkg-scanpackages --type deb --multiversion pool/main /dev/null 2>/dev/null \
-            > dists/resolute/main/binary-arm64/Packages
-        gzip -9cn dists/resolute/main/binary-arm64/Packages \
-            > dists/resolute/main/binary-arm64/Packages.gz
-        DEBCT=$(grep -c '^Package: ' dists/resolute/main/binary-arm64/Packages || echo 0)
-        echo "    regular deb Packages: $DEBCT entries indexed (server + desktop)"
+            > dists/$ISO_APT_SUITE/main/binary-arm64/Packages
+        gzip -9cn dists/$ISO_APT_SUITE/main/binary-arm64/Packages \
+            > dists/$ISO_APT_SUITE/main/binary-arm64/Packages.gz
+        DEBCT=$(grep -c '^Package: ' dists/$ISO_APT_SUITE/main/binary-arm64/Packages || echo 0)
+        echo "    regular deb Packages: $DEBCT entries indexed"
     )
 fi
 
@@ -1708,7 +1689,7 @@ if [ "$EMBED_MIRROR" = "0" ] && [ "$BOOTSTRAP_POOL" = "0" ]; then
     # Codex R78-INVALID-RELEASE-AUDIT):
     #
     # take7 attempted to force base-installer onto the http mirror by
-    # removing /cdrom/dists/resolute/main/binary-arm64 entirely. That
+    # removing the target-suite regular binary-arm64 index entirely. That
     # broke debootstrap's Release validation — it sees Components: main
     # declared but no main/binary-arm64/Packages hashes → "Invalid
     # Release file" red dialog.
@@ -1719,37 +1700,37 @@ if [ "$EMBED_MIRROR" = "0" ] && [ "$BOOTSTRAP_POOL" = "0" ]; then
     # is consistent with `Components: main` and anna can still find
     # main/debian-installer/binary-arm64/Packages for udeb loading.
     echo "    netinstall mode: writing empty regular Packages index for Release-file consistency"
-    mkdir -p "$STAGING/dists/resolute/main/binary-arm64"
-    : > "$STAGING/dists/resolute/main/binary-arm64/Packages"
-    gzip -9cn "$STAGING/dists/resolute/main/binary-arm64/Packages" \
-        > "$STAGING/dists/resolute/main/binary-arm64/Packages.gz"
+    mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64"
+    : > "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages"
+    gzip -9cn "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages" \
+        > "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages.gz"
 elif [ "$BOOTSTRAP_POOL" = "1" ]; then
-    if [ ! -s "$STAGING/dists/resolute/main/binary-arm64/Packages" ]; then
+    if [ ! -s "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages" ]; then
         echo "ERROR: bootstrap pool did not provide a non-empty regular Packages index" >&2
         exit 1
     fi
-    BOOTSTRAP_DEBCT=$(grep -c '^Package: ' "$STAGING/dists/resolute/main/binary-arm64/Packages" || echo 0)
+    BOOTSTRAP_DEBCT=$(grep -c '^Package: ' "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages" || echo 0)
     echo "    bootstrap pool regular Packages: $BOOTSTRAP_DEBCT entries indexed"
 fi
 
-# Step 6: regenerate dists/resolute/Release to include BOTH the regular
+# Step 6: regenerate the target-suite Release to include BOTH the regular
 # Packages indexes AND the debian-installer Packages indexes. apt-ftparchive
-# reads the entire dists/resolute/ tree and computes hashes for everything.
-echo "    regenerating dists/resolute/Release with both regular + udeb indexes"
+# reads the entire target suite tree and computes hashes for everything.
+echo "    regenerating dists/$ISO_APT_SUITE/Release with both regular + udeb indexes"
 (
     cd "$STAGING"
-    write_translation_indexes resolute main
-    write_component_release_files resolute arm64
+    write_translation_indexes "$ISO_APT_SUITE" main
+    write_component_release_files "$ISO_APT_SUITE" arm64
     if [ "$EMBED_MIRROR" = "1" ]; then
-        write_suite_release resolute arm64 main "nclawzero cixmini offline mirror — resolute arm64 (regular + udebs)"
+        write_suite_release "$ISO_APT_SUITE" arm64 main "nclawzero cixmini offline mirror — $ISO_APT_SUITE arm64 (regular + udebs)"
     elif [ "$BOOTSTRAP_POOL" = "1" ]; then
-        write_suite_release resolute arm64 main "nclawzero cixmini netinstall bootstrap pool - resolute arm64"
+        write_suite_release "$ISO_APT_SUITE" arm64 main "nclawzero cixmini netinstall bootstrap pool - $ISO_APT_SUITE arm64"
     else
-        write_suite_release resolute arm64 main "nclawzero cixmini netinstall udeb substrate — resolute arm64"
+        write_suite_release "$ISO_APT_SUITE" arm64 main "nclawzero cixmini netinstall udeb substrate — $ISO_APT_SUITE arm64"
     fi
 )
 echo "    Release file regenerated:"
-head -16 "$STAGING/dists/resolute/Release" | sed 's/^/      /'
+head -16 "$STAGING/dists/$ISO_APT_SUITE/Release" | sed 's/^/      /'
 
 # r27-compat-fix:
 # Verify the actual embedded mirror payload formats before we build an ISO.
@@ -2474,8 +2455,8 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
     # (commit e86dc84) is reverted. Fat ISO = clean base + embedded mirror desktop.
     # r158: prefer LAYERED SQUASHFS (base + <variant> delta) if built; the
     # extract-rootfs stub mounts+overlays+cp them. Fall back to the tarball.
-    if [ -f "$ROOT/assets/squashfs/base.squashfs" ]; then
-        cp -L "$ROOT/assets/squashfs/base.squashfs" "$EXTRA/base.squashfs"
+    if [ -f "$SQUASHFS_DIR/base.squashfs" ]; then
+        cp -L "$SQUASHFS_DIR/base.squashfs" "$EXTRA/base.squashfs"
         [ -d "$ROOT/build/sqtools" ] && cp -a "$ROOT/build/sqtools" "$EXTRA/sqtools"
         # r190.3: stage EVERY built variant delta, not just $VARIANT -- the GRUB
         # menu offers both desktop and server as separate boot entries (see the
@@ -2487,12 +2468,12 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
         # host and even landed elsewhere on the ISO via a generic asset copy,
         # but never at the path extract-rootfs.sh actually reads).
         STAGED_VARIANTS=""
-        for _RL in "$ROOT"/assets/squashfs/*.squashfs; do
+        for _RL in "$SQUASHFS_DIR"/*.squashfs; do
             _RLNAME="$(basename "$_RL")"
             [ "$_RLNAME" = "base.squashfs" ] && continue
             [ -f "$_RL" ] || continue
             _RLROLE="${_RLNAME%.squashfs}"
-            _RLMANIFEST="$ROOT/assets/squashfs/$_RLROLE.overlay-manifest"
+            _RLMANIFEST="$SQUASHFS_DIR/$_RLROLE.overlay-manifest"
             [ -s "$_RLMANIFEST" ] || {
                 echo "ERROR: $_RLNAME has no overlay manifest: $_RLMANIFEST" >&2
                 echo "  Rebuild the layer with build/build-squashfs-layers.sh." >&2
@@ -2504,9 +2485,9 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
         done
         echo "    LAYERED SQUASHFS staged: base $(du -h "$EXTRA/base.squashfs"|cut -f1) +${STAGED_VARIANTS:- NONE}"
         ROOTFS_TARBALL=""
-    elif ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst"; [ -f "$ROOTFS_TARBALL" ]; then
+    elif ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-$ISO_APT_SUITE-arm64.tar.zst"; [ -f "$ROOTFS_TARBALL" ]; then
         cp -L "$ROOTFS_TARBALL" "$EXTRA/rootfs.tar.zst"
-        echo "    rootfs.tar.zst staged: $(du -h "$EXTRA/rootfs.tar.zst" | cut -f1) (resolute arm64 pre-built target)"
+        echo "    rootfs.tar.zst staged: $(du -h "$EXTRA/rootfs.tar.zst" | cut -f1) ($ISO_APT_SUITE arm64 pre-built target)"
     else
         echo "ERROR: $ROOTFS_TARBALL missing — run build-rootfs.sh first" >&2
         exit 1
