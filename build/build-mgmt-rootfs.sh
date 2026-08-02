@@ -24,11 +24,29 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Follow the active release profile so the recovery container matches the image
+# it ships inside. Defaulting to Ubuntu resolute put an Ubuntu userland (and
+# ports.ubuntu.com sources) inside a Debian forky ISO.
+if [ -r "$ROOT/release.conf" ]; then
+    # shellcheck source=../release.conf
+    . "$ROOT/release.conf"
+fi
+
 CHROOT="${1:-$ROOT/build/mgmt-rootfs}"
 OUT="${2:-$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst}"
-SUITE="${3:-resolute}"
+SUITE="${3:-${NCZ_BASE_CODENAME:-resolute}}"
 ARCH="${4:-arm64}"
-MIRROR="${5:-http://ports.ubuntu.com/ubuntu-ports}"
+MIRROR="${5:-${NCZ_BASE_MIRROR:-http://ports.ubuntu.com/ubuntu-ports}}"
+
+if [ "${NCZ_BASE_NAME:-Ubuntu}" = "Debian" ]; then
+    COMPONENTS="${NCZ_BASE_COMPONENTS:-main contrib non-free non-free-firmware}"
+    SECURITY_URI="https://security.debian.org/debian-security"
+    DEBOOTSTRAP_KEYRING="/usr/share/keyrings/debian-archive-keyring.gpg"
+else
+    COMPONENTS="main universe restricted multiverse"
+    SECURITY_URI="$MIRROR"
+    DEBOOTSTRAP_KEYRING=""
+fi
 
 PKG_MANIFEST="$ROOT/manifests/mgmt.pkgs"
 
@@ -64,13 +82,15 @@ mkdir -p "$CHROOT" "$(dirname "$OUT")"
 # Stage 1 - debootstrap minimal base (native arm64, no foreign/qemu).
 # ----------------------------------------------------------------------
 echo "[mgmt-rootfs] debootstrap $SUITE..."
-debootstrap --arch="$ARCH" --variant=minbase \
-    --include=ca-certificates,apt-utils "$SUITE" "$CHROOT" "$MIRROR"
+DEBOOTSTRAP_ARGS=(--arch="$ARCH" --variant=minbase --include=ca-certificates,apt-utils)
+# A Debian suite will not verify against the host's default (Ubuntu) keyring.
+[ -n "$DEBOOTSTRAP_KEYRING" ] && DEBOOTSTRAP_ARGS+=(--keyring "$DEBOOTSTRAP_KEYRING")
+debootstrap "${DEBOOTSTRAP_ARGS[@]}" "$SUITE" "$CHROOT" "$MIRROR"
 
 cat > "$CHROOT/etc/apt/sources.list" <<EOF
-deb $MIRROR $SUITE main universe restricted multiverse
-deb $MIRROR $SUITE-updates main universe restricted multiverse
-deb $MIRROR $SUITE-security main universe restricted multiverse
+deb $MIRROR $SUITE $COMPONENTS
+deb $MIRROR $SUITE-updates $COMPONENTS
+deb $SECURITY_URI $SUITE-security $COMPONENTS
 EOF
 
 # ----------------------------------------------------------------------
