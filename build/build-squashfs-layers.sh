@@ -78,6 +78,9 @@ build_layer(){ local role="$1" manifest="$2"
   sudo rm -rf "$L" "$U" "$WK" "$MG"
   log "$role: unsquash base as lowerdir"
   sudo unsquashfs -f -d "$L" "$OUT/base.squashfs" >/dev/null 2>&1
+  # The destination directory itself is not part of the squashfs payload.
+  # Force ownership so maintainer scripts see a normal root-owned filesystem.
+  sudo chown root:root "$L"
   mkdir -p "$U" "$WK" "$MG"
   sudo mount -t overlay overlay -o "lowerdir=$L,upperdir=$U,workdir=$WK" "$MG"
   mount_chroot "$MG"; apt_offline "$MG"
@@ -312,7 +315,11 @@ build_base(){
   apt_unmount "$WORK/base"
   umount_chroot "$WORK/base"
   sudo umount -lf "$WORK/base" 2>/dev/null || true
-  sudo rm -rf "$WORK/base"; mkdir -p "$WORK/base"
+  sudo rm -rf "$WORK/base"
+  # tar extracts the payload below this directory but does not replace its
+  # ownership. A user-owned root makes systemd maintainer scripts reject the
+  # chroot as unsafe (exit 73) and yields a silently broken layer.
+  sudo install -d -o root -g root -m 0755 "$WORK/base"
   sudo tar -I 'zstd -d' -xf "$BASE_TARBALL" -C "$WORK/base"
   mount_chroot "$WORK/base"
   # r190.2: same needrestart-hang fix as build_layer() below -- base hooks
