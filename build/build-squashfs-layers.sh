@@ -24,7 +24,7 @@ set -euo pipefail
 
 ROOT="${ROOT:-$HOME/cix-installer-build/cix-installer}"
 WORK="${WORK:-/tmp/ncz-sqfs}"
-OUT="$ROOT/assets/squashfs"
+OUT="${OUT:-$ROOT/assets/squashfs}"
 BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst}"
 APT_SUITE="${APT_SUITE:-resolute}"
 APT_COMPONENTS="${APT_COMPONENTS:-main}"
@@ -306,7 +306,7 @@ PYOVERLAY
 }
 
 build_base(){
-  log "BASE: extract resolute base"
+  log "BASE: extract $APT_SUITE base"
   sudo rm -rf "$WORK/base"; mkdir -p "$WORK/base"
   sudo tar -I 'zstd -d' -xf "$BASE_TARBALL" -C "$WORK/base"
   mount_chroot "$WORK/base"
