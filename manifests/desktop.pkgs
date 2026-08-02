@@ -39,6 +39,11 @@ libvte-2.91-gtk4-0
 libgtksourceview-5-0
 libwebkitgtk-6.0-4
 libgraphene-1.0-0
+# The payload links these directly; keep them explicit because the current
+# package artifact predates correct shlib dependency generation.
+libtinysparql-3.0-0
+libupower-glib3
+upower
 gsettings-desktop-schemas
 libglib2.0-bin
 
