@@ -88,8 +88,12 @@ if ! (cd "$OUT/pool/main" && xargs -r apt-get "${APTOPTS[@]}" download < "$CLOSU
 fi
 
 ACTUAL="$TMP/actual"
+# dpkg-deb -f takes the ARCHIVE first and the field name after it, so the
+# package list has to be built one archive at a time; passing a batch of
+# filenames after "-f Package" makes dpkg-deb try to open an archive called
+# "Package" and fail the whole verification step.
 find "$OUT/pool/main" -type f -name '*.deb' -print0 | \
-    xargs -0 -r dpkg-deb -f Package | sort -u > "$ACTUAL"
+    xargs -0 -r -n1 -I{} dpkg-deb -f {} Package | sort -u > "$ACTUAL"
 MISSING="$TMP/missing"
 comm -23 "$CLOSURE" "$ACTUAL" > "$MISSING"
 if [ -s "$MISSING" ]; then
