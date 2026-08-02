@@ -64,7 +64,7 @@ apt-get "${APTOPTS[@]}" update >/dev/null
 
 SEED="$TMP/seed"
 {
-    grep -vE '^[[:space:]]*(#|$)' "$BASE_SEED" "$DESKTOP_SEED" | awk '{print $1}'
+    grep -hvE '^[[:space:]]*(#|$)' "$BASE_SEED" "$DESKTOP_SEED" | awk '{print $1}'
 } | sort -u > "$SEED"
 echo "  explicit seed: $(wc -l < "$SEED") packages"
 
