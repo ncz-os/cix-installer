@@ -44,7 +44,7 @@ libgraphene-1.0-0
 libtinysparql-3.0-0
 libupower-glib3
 libdbusmenu-glib4
-libsodium23
+libsodium26
 upower
 gsettings-desktop-schemas
 libglib2.0-bin
