@@ -48,7 +48,7 @@ fi
 IMAGE="${SINGULARITY_IMAGE:-$DEFAULT_IMAGE}"
 CONTAINER_NETWORK="${SINGULARITY_CONTAINER_NETWORK:-host}"
 SRC_REPO="${SINGULARITY_REPO:-https://github.com/singularityos-lab/singularity-desktop}"
-SRC_REF="${SINGULARITY_REF:-main}"
+SRC_REF="${SINGULARITY_REF:-master}"
 # Optional checked-out superproject.  This is intentionally explicit: local
 # NCZ fixes must never be mistaken for an upstream main build.
 SRC_DIR="${SINGULARITY_SOURCE_DIR:-}"
