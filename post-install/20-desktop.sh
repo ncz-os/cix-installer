@@ -37,12 +37,18 @@ esac
 # ---------------------------------------------------------------------------
 # Offline package install from the bundled /cdrom pool (r130 fat-ISO doctrine).
 # The full Singularity runtime closure lives in manifests/desktop.pkgs, mirrored
-# by build-desktop-mirror.sh into the ISO pool. ports.ubuntu.com is a fallback
-# only when a package is genuinely absent from the offline closure.
+# by build-desktop-mirror.sh into the ISO pool.  The profile's signed base
+# source remains the only online fallback; never add a foreign Ubuntu source.
 # ---------------------------------------------------------------------------
 echo "[20] desktop packages install OFFLINE from bundled /cdrom pool"
-if [ ! -f /etc/apt/sources.list.d/cixmini-cdrom.list ]; then
-    echo "deb [trusted=yes] file:///cdrom resolute main" \
+RELEASE=/usr/local/lib/cix-installer/RELEASE
+if [ -r "$RELEASE" ]; then
+    # shellcheck disable=SC1090
+    . "$RELEASE"
+fi
+NCZ_APT_SUITE="${NCZ_BASE_CODENAME:-resolute}"
+if [ -d "/cdrom/dists/$NCZ_APT_SUITE" ] && [ ! -f /etc/apt/sources.list.d/cixmini-cdrom.list ]; then
+    echo "deb [trusted=yes] file:///cdrom $NCZ_APT_SUITE main" \
         > /etc/apt/sources.list.d/cixmini-cdrom.list
 fi
 APT_REFRESH_STAMP=/var/lib/apt/lists/.ncz-installer-refreshed
@@ -57,21 +63,16 @@ else
 fi
 
 ncz_ports_fallback() {
-    if [ -f /etc/apt/sources.list.d/ncz-ports-fallback.list ]; then return 0; fi
-    echo "[20] WARN: package(s) missing from bundled pool — enabling ports.ubuntu.com fallback"
-    cat > /etc/apt/sources.list.d/ncz-ports-fallback.list <<'PORTS'
-deb http://ports.ubuntu.com/ubuntu-ports resolute main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports resolute-updates main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports resolute-backports main universe restricted multiverse
-PORTS
+    # The profile base source is written by 23-base-apt-sources.sh and is
+    # already authenticated.  Reuse it instead of crossing distributions.
+    echo "[20] WARN: package missing from bundled pool — using the configured NCZ base source"
     if apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 \
         -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q; then
         touch "$APT_REFRESH_STAMP"
     fi
 }
 
-# Pre-purge resolute's default GNOME display manager — gdm3 + lightdm both claim
+# Pre-purge any inherited GNOME display manager — it would claim
 # display-manager.service and the loser black-screens.
 if dpkg -l gdm3 2>/dev/null | grep -q '^ii'; then
     echo "[20] purging gdm3 (resolute default DM, conflicts with lightdm)"

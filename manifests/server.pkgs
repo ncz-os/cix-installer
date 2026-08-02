@@ -33,7 +33,8 @@ chrony
 cron
 logrotate
 unattended-upgrades
-software-properties-common
+# software-properties-common is Ubuntu PPA tooling and is intentionally absent
+# from the Debian profile.
 
 # --- networking ---
 netplan.io
@@ -78,8 +79,5 @@ python3-pip
 inetutils-telnetd
 openbsd-inetd
 
-# --- boot splash branding (r196: Magnetar shipped stock Xubuntu plymouth
-# theme because these packages were never installed, so 60-plymouth.sh's
-# rebrand hook bailed at its 'spinner theme not installed' guard) ---
-plymouth-theme-spinner
+# Native singularity-boot-splash replaces Plymouth on all profiles.
 imagemagick

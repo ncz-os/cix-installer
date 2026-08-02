@@ -131,7 +131,8 @@ evince
 synaptic
 gdebi
 gdebi-core
-software-properties-gtk
+# software-properties-gtk is Ubuntu's PPA GUI.  NCZ uses its signed NCZ
+# repository plus Debian sources, so it has no role on the Debian base.
 
 # --- keyring / disk-usage ---------------------------------------------------
 # KEYRING: the NATIVE `singularity-keyring` (in /opt/singularity, D-Bus-activated
@@ -170,7 +171,8 @@ npm
 
 # --- libs pulled to satisfy CIX/mesa closure (kept from prior closure) ------
 libxml2-16
-libjpeg-turbo8
+# Debian's ABI package name; replaces Ubuntu's libjpeg-turbo8.
+libjpeg62-turbo
 libva-glx2
 libwayland-bin
 libnice10

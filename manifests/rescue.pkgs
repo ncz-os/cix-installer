@@ -77,7 +77,7 @@ picocom             # lightweight serial-console client (talk to other fleet box
 inetutils-telnetd
 openbsd-inetd
 busybox-static
-isc-dhcp-client     # real DHCP client (dhclient): primary auto-IP path; busybox udhcpc is only a fallback
+dhcpcd-base         # Debian DHCP client; busybox udhcpc is the final fallback
 curl
 wget
 rsync
@@ -85,7 +85,8 @@ sshfs
 nfs-common
 cifs-utils
 lftp
-rclone
+# rclone is not currently in Debian Testing arm64; ship it only as a verified
+# NCZ vendor asset when the rescue workflow actually needs remote-object sync.
 
 # ===== hardware / diag / boot-repair =====
 pciutils
@@ -96,7 +97,8 @@ hwinfo
 inxi
 efibootmgr
 efivar
-refind              # installed system boots rEFInd — repair its refind.conf from here
+# rEFInd is shipped as NCZ's pinned EFI binary + refresh helper, not a Debian
+# package; rescue repairs the ESP directly with those staged assets.
 kexec-tools         # chainload a known-good kernel without full reboot
 stress-ng
 memtester

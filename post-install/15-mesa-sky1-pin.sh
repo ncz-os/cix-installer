@@ -17,6 +17,21 @@
 # RUNS INSIDE CHROOT (via run-all.sh).
 set -euo pipefail
 
+RELEASE=/usr/local/lib/cix-installer/RELEASE
+if [ -r "$RELEASE" ]; then
+    # shellcheck disable=SC1090
+    . "$RELEASE"
+fi
+
+# Sky1's prebuilt Mesa .debs were built for the prior Ubuntu userland.  A
+# version pin must never make Debian Testing select foreign binary packages:
+# that would turn a deliberate NCZ Vulkan overlay into an ABI-mixed base.
+if [ "${NCZ_BASE_NAME:-}" = "Debian" ]; then
+    rm -f /etc/apt/preferences.d/99-sky1-mesa26.pref
+    echo "[15] Debian base: retaining distribution Mesa; Sky1 Ubuntu Mesa pins disabled"
+    exit 0
+fi
+
 echo "[15] pinning Sky1-Linux Mesa 26 stack"
 
 # 1001 = strictly higher than apt default (990) for any candidate, so it

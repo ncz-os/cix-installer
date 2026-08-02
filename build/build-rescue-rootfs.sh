@@ -204,7 +204,7 @@ chroot "$CHROOT" systemctl enable ssh.service 2>/dev/null || \
 
 # --- network bring-up: DHCP (carriers-only) + DECOUPLED static fallback ---
 # Two independent units, by hard-won design:
-#   1. ncz-rescue-net          -> try DHCP (real dhclient first, busybox udhcpc
+#   1. ncz-rescue-net          -> try DHCP (dhcpcd first, busybox udhcpc
 #                                 fallback) on carrier NICs only, in parallel,
 #                                 time-capped so a dead port can't hang boot.
 #   2. ncz-rescue-net-fallback -> if NOTHING got a v4 lease, assign the documented
@@ -219,7 +219,7 @@ chroot "$CHROOT" systemctl enable ssh.service 2>/dev/null || \
 cat > "$CHROOT/usr/local/sbin/ncz-rescue-net" <<EOF
 #!/bin/sh
 # DHCP bring-up only. Link-up all NICs, settle, then DHCP carriers in parallel
-# with short hard timeouts. Real dhclient preferred; busybox udhcpc as fallback.
+# with short hard timeouts. dhcpcd is preferred; busybox udhcpc is fallback.
 # Static IP is intentionally handled by ncz-rescue-net-fallback (separate unit).
 set +e
 NICS=\$(ls /sys/class/net 2>/dev/null | grep -v '^lo\$')
@@ -227,11 +227,10 @@ for i in \$NICS; do ip link set "\$i" up 2>/dev/null; done
 sleep 2   # let carrier/auto-neg settle before reading link state
 for i in \$NICS; do
     [ "\$(cat /sys/class/net/\$i/carrier 2>/dev/null)" = "1" ] || continue
-    if command -v dhclient >/dev/null 2>&1; then
-        # Ubuntu's ISC dhclient has no -timeout option. Bound the whole
-        # one-shot client externally; the old invalid flag made every DHCP
-        # attempt fail immediately and forced the static fallback.
-        ( timeout 12 dhclient -1 "\$i" 2>/dev/null ) &
+    if command -v dhcpcd >/dev/null 2>&1; then
+        # dhcpcd is Debian Testing's supported DHCP client.  Its foreground
+        # one-shot mode stays bounded so a dead carrier cannot delay rescue.
+        ( timeout 12 dhcpcd -4 -w -t 10 "\$i" 2>/dev/null ) &
     else
         ( busybox udhcpc -i "\$i" -q -n -t 3 -T 2 2>/dev/null ) &
     fi
