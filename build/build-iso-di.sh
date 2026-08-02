@@ -551,7 +551,7 @@ echo "    substrate extracted: $(du -sh "$STAGING" | cut -f1)"
 # DI_CODENAME_OVERRIDE=trixie (or bookworm) env var.
 DI_CODENAME=""
 DI_CODENAMES_FOUND=()
-for cn in trixie bookworm; do
+for cn in forky trixie bookworm; do
     if [ -d "$STAGING/dists/$cn" ]; then
         DI_CODENAMES_FOUND+=("$cn")
     fi
@@ -680,8 +680,8 @@ fi
 # 2026-05-08 take13: when the substrate IS trixie, this graft is a no-op —
 # trixie's own debootstrap-udeb / libzstd1-udeb / liblzma5-udeb are already
 # in the substrate's pool, captured into TMP_UDEBS and re-merged in step 4.
-if [ "$DI_CODENAME" = "trixie" ]; then
-    echo "    substrate is trixie — skipping bookworm-on-trixie udeb graft"
+if [ "$DI_CODENAME" != "bookworm" ]; then
+    echo "    substrate is $DI_CODENAME — skipping the bookworm-only udeb graft"
 else
 TRIXIE_ISO_PATH="${TRIXIE_ISO:-$ROOT/downloads/debian-13.4.0-arm64-netinst.iso}"
 [ -f "$TRIXIE_ISO_PATH" ] || { echo "ERROR: missing required TRIXIE_ISO=$TRIXIE_ISO_PATH" >&2; exit 1; }
@@ -726,7 +726,7 @@ if true; then
     echo "    grafted $GRAFTED trixie udebs into pool/"
     rm -rf "$TRIXIE_TMP"
 fi
-fi  # end of "if [ DI_CODENAME != trixie ]" — graft-on-bookworm conditional
+fi  # end of "if [ DI_CODENAME != bookworm ]" — graft-on-bookworm conditional
 
 # 2026-05-08 (Codex r78 take13 audit MEDIUM #3): assert critical
 # debootstrap-shell + zstd runtime udebs present in the merged pool
@@ -1937,8 +1937,8 @@ echo "    overlay cpio: $(du -h "$OVERLAY_GZ" | cut -f1)"
 # (which is the load-bearing path; binary patch was a fallback for older
 # libnewt versions). User-visible effect: install dialogs use libnewt's
 # default red/blue/grey on trixie d-i instead of amber phosphor. Cosmetic.
-if [ "$DI_CODENAME" = "trixie" ]; then
-    echo "[3.5] SKIP amber-phosphor binary patch on trixie (NEWT_COLORS env-var still applied below)"
+if [ "$DI_CODENAME" != "bookworm" ]; then
+    echo "[3.5] SKIP amber-phosphor binary patch on $DI_CODENAME (NEWT_COLORS env-var still applied below)"
     SKIP_NEWT_BINARY_PATCH=1
 else
     SKIP_NEWT_BINARY_PATCH=0
