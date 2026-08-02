@@ -43,7 +43,6 @@ DEFAULT_IMAGE="ubuntu:26.04"
 METADATA_SEARCH_DEV="libtracker-sparql-3.0-dev"
 if [ "${NCZ_BASE_NAME:-}" = "Debian" ]; then
     DEFAULT_IMAGE="debian:testing"
-    METADATA_SEARCH_DEV="libtinysparql-dev"
 fi
 IMAGE="${SINGULARITY_IMAGE:-$DEFAULT_IMAGE}"
 CONTAINER_NETWORK="${SINGULARITY_CONTAINER_NETWORK:-host}"
