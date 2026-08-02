@@ -207,6 +207,11 @@ fi
     echo "ERROR: labwc build directory is missing after compilation" >&2
     exit 1
 }
+# Upstream Makefile hardcodes --prefix=/usr for the labwc build directory, so a
+# `make compile` tree stages the compositor outside the payload. Retarget the
+# build directory before installing: the payload must be self-contained under
+# PREFIX (the session launcher resolves labwc from there).
+meson configure "$LABWC_BUILD_DIR" --prefix='"$PREFIX"' >/dev/null
 DESTDIR=/work/stage meson install -C "$LABWC_BUILD_DIR"
 
 # The upstream Meson install deliberately installs schema XML, but it does not
@@ -216,15 +221,21 @@ DESTDIR=/work/stage meson install -C "$LABWC_BUILD_DIR"
 # so the payload is self-contained and GSETTINGS_SCHEMA_DIR can point solely at
 # /opt/singularity/share/glib-2.0/schemas.
 SCHEMA_DIR="/work/stage'"$PREFIX"'/share/glib-2.0/schemas"
-test -f "$SCHEMA_DIR/dev.sinty.desktop.gschema.xml"
+[ -f "$SCHEMA_DIR/dev.sinty.desktop.gschema.xml" ] || {
+    echo "ERROR: staged tree is missing dev.sinty.desktop.gschema.xml" >&2; exit 1; }
 glib-compile-schemas --strict "$SCHEMA_DIR"
-test -s "$SCHEMA_DIR/gschemas.compiled"
 
-# Sanity: the shell, session launcher, and compositor must all exist.
-test -x "/work/stage'"$PREFIX"'/bin/singularity-desktop"
-test -x "/work/stage'"$PREFIX"'/bin/singularity-labwc-session"
-test -x "/work/stage'"$PREFIX"'/bin/labwc"
-test -s "/work/stage'"$PREFIX"'/share/glib-2.0/schemas/gschemas.compiled"
+# Sanity: the shell, session launcher, and compositor must all exist.  Report
+# what is missing: a bare `test` exits 1 with no output, which reads as a silent
+# build hang in the log.
+for staged in "/work/stage'"$PREFIX"'/bin/singularity-desktop" \
+              "/work/stage'"$PREFIX"'/bin/singularity-labwc-session" \
+              "/work/stage'"$PREFIX"'/bin/labwc"; do
+    [ -x "$staged" ] || {
+        echo "ERROR: staged executable is missing: $staged" >&2; exit 1; }
+done
+[ -s "$SCHEMA_DIR/gschemas.compiled" ] || {
+    echo "ERROR: compiled GSettings schema cache is missing or empty" >&2; exit 1; }
 
 # --- singularity-boot-splash (NATIVE KMS boot splash — Plymouth replacement) --
 # Separate upstream repo (github.com/singularityos-lab/singularity-boot-splash),
