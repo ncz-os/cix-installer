@@ -363,7 +363,14 @@ build_base(){
   for h in $BASE_HOOKS; do
     [ -f "$WORK/base/usr/local/lib/cix-installer/post-install/$h.sh" ] || { log "  skip $h (absent)"; continue; }
     log "  -> $h"
-    sudo chroot "$WORK/base" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$h.sh" 2>&1 | tail -3 || log "  WARN $h rc=$?"
+    if ! sudo chroot "$WORK/base" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$h.sh" 2>&1 | tail -3; then
+      if [ "$h" = "10-our-kernel" ]; then
+        log "ERROR: required kernel hook failed; refusing to publish a kernelless base layer"
+        apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
+        return 1
+      fi
+      log "  WARN $h failed"
+    fi
   done
   # enable NetworkManager + bluetooth via presets (NOT the broken 33-network hook)
   sudo chroot "$WORK/base" systemctl enable NetworkManager bluetooth 2>/dev/null || true

@@ -61,6 +61,17 @@ HERE="$(dirname "$0")"
 if [ -x "$HERE/23-base-apt-sources.sh" ]; then
     "$HERE/23-base-apt-sources.sh"
 fi
+
+# debootstrap's minimal root intentionally omits GnuPG, but this hook is
+# called by the kernel phase before any package manifest is installed. Fetch
+# the verifier from the already-authenticated base archive before dearmoring
+# either NCZ repository key.
+if ! command -v gpg >/dev/null 2>&1; then
+    echo "[24] installing gnupg needed to verify NCZ repository keyrings"
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gnupg
+fi
+
 install -d /etc/apt/keyrings /etc/apt/sources.list.d
 CONFIGURED=0
 
