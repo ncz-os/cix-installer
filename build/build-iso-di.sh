@@ -1917,7 +1917,16 @@ else
 fi
 
 OVERLAY_GZ="$STAGING/.installer-kernel-overlay.cpio.gz"
-( cd "$WORK" && find lib -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$OVERLAY_GZ"
+# -mindepth 1: never emit a bare top-level "lib" DIRECTORY entry. A usr-merged
+# d-i initrd (Debian forky and newer) ships lib/bin/sbin as SYMLINKS into usr/,
+# and the kernel's initramfs unpacker (clean_path() in init/initramfs.c) DELETES
+# an existing path whose type differs from the entry being extracted -- so a
+# "lib" dir entry here silently unlinks "lib -> usr/lib" and takes the C library
+# and dynamic loader with it. /init then fails its #!/bin/sh interpreter lookup
+# with ENOENT and the kernel panics with "No working init found". Emitting only
+# lib/modules/... resolves through the symlink on a merged base and lands in
+# /lib/modules on an unmerged one.
+( cd "$WORK" && find lib -mindepth 1 -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$OVERLAY_GZ"
 gzip -t "$OVERLAY_GZ"
 echo "    overlay cpio: $(du -h "$OVERLAY_GZ" | cut -f1)"
 
@@ -2130,11 +2139,16 @@ echo "[3.1] appending zstdcat for resolute .deb extraction"
 ZSTD_STATIC_BIN=$(prepare_static_zstd_aarch64)
 TOOLS_WORK="$STAGING/.r27-tools-overlay"
 rm -rf "$TOOLS_WORK"
-mkdir -p "$TOOLS_WORK/bin" "$TOOLS_WORK/usr/bin"
-install -m 0755 "$ZSTD_STATIC_BIN" "$TOOLS_WORK/bin/zstd"
-ln -s zstd "$TOOLS_WORK/bin/zstdcat"
-ln -s ../../bin/zstd "$TOOLS_WORK/usr/bin/zstd"
-ln -s ../../bin/zstd "$TOOLS_WORK/usr/bin/zstdcat"
+# Stage under usr/bin ONLY, for the same usr-merge reason as the kernel-module
+# overlay above: a top-level "bin" dir entry unlinks "bin -> usr/bin" on a
+# usr-merged d-i initrd, which removes /bin/sh and panics the kernel. Worse, the
+# old split layout wrote a REAL bin/zstd and a usr/bin/zstd -> ../../bin/zstd
+# symlink; once bin/ and usr/bin/ are the same directory those two entries are
+# the same path, and the symlink (extracted last) turns zstd into a loop.
+# /usr/bin is on d-i's PATH on merged and unmerged bases alike.
+mkdir -p "$TOOLS_WORK/usr/bin"
+install -m 0755 "$ZSTD_STATIC_BIN" "$TOOLS_WORK/usr/bin/zstd"
+ln -s zstd "$TOOLS_WORK/usr/bin/zstdcat"
 
 TOOLS_GZ="$STAGING/.r27-tools-overlay.cpio.gz"
 ( cd "$TOOLS_WORK" && find . -mindepth 1 -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$TOOLS_GZ"
