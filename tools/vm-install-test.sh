@@ -3,6 +3,11 @@
 # NVMe-emulated disk so guest sees /dev/nvme0n1 (matches preseed hardcode).
 # SCSI cdrom -> /dev/sr0 for d-i cdrom-detect.
 VARIANT="${1:-server}"
+# Host-side forward ports. Overridable because a build host may already have
+# something on the default telnet forward -- busybox telnetd sits on 2323 on
+# cixmini -- and qemu then refuses to start at all rather than skipping it.
+SSH_FWD="${SSH_FWD:-2223}"
+TELNET_FWD="${TELNET_FWD:-2323}"
 DISK=/var/tmp/r104-test.qcow2
 ISO=/var/tmp/r104.iso
 LOG=/var/tmp/install-${VARIANT}.serial.log
@@ -26,6 +31,6 @@ timeout 3600 qemu-system-aarch64 \
     -device qemu-xhci,id=xhci \
     -drive file="$ISO",if=none,id=usbstick,format=raw,readonly=on \
     -device usb-storage,bus=xhci.0,drive=usbstick,bootindex=1 \
-    -netdev user,id=net0,hostfwd=tcp::2223-:22,hostfwd=tcp::2323-:23 -device e1000,netdev=net0,romfile= \
+    -netdev user,id=net0,hostfwd=tcp::${SSH_FWD}-:22,hostfwd=tcp::${TELNET_FWD}-:23 -device e1000,netdev=net0,romfile= \
     -nographic -no-reboot > "$LOG" 2>&1
 echo "[vm-install] qemu exited rc=$? $(date)"
