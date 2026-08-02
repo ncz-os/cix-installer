@@ -834,13 +834,32 @@ grep -rhsE '^[[:space:]]*deb' \
 # would have nothing post-boot. Write ports here for ALL variants (server +
 # desktop), as the final apt action, so updates work post-boot (MrSBC/COS
 # requirement). arm64 => ports.ubuntu.com.
-echo "--- writing canonical ports.ubuntu.com network sources for the installed system ---"
-cat > /target/etc/apt/sources.list <<'PORTS'
-deb http://ports.ubuntu.com/ubuntu-ports resolute main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports resolute-updates main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports resolute-backports main universe restricted multiverse
+# Profile-aware: the suite above is Ubuntu-only. On a Debian base the
+# profile-correct base repo is already written as a signed deb822 file
+# (/etc/apt/sources.list.d/ncz-base.sources) by post-install/24-apt-sources.sh,
+# so writing an Ubuntu sources.list here would leave a Debian system pointing
+# at ports.ubuntu.com and break apt-get update outright. Only write the ports
+# list for an actual Ubuntu base, and take the codename from release.conf
+# rather than hard-coding it.
+if [ "${NCZ_BASE_NAME:-}" = "Ubuntu" ]; then
+    _ubu_suite="${NCZ_BASE_CODENAME:-resolute}"
+    echo "--- writing canonical ports.ubuntu.com network sources ($_ubu_suite) ---"
+    cat > /target/etc/apt/sources.list <<PORTS
+deb http://ports.ubuntu.com/ubuntu-ports $_ubu_suite main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports $_ubu_suite-updates main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports $_ubu_suite-security main universe restricted multiverse
+deb http://ports.ubuntu.com/ubuntu-ports $_ubu_suite-backports main universe restricted multiverse
 PORTS
+else
+    echo "--- ${NCZ_BASE_NAME:-non-Ubuntu} base: leaving sources.list to the profile deb822 source ---"
+    : > /target/etc/apt/sources.list
+    if [ -s /target/etc/apt/sources.list.d/ncz-base.sources ]; then
+        echo "    base repo carried by /etc/apt/sources.list.d/ncz-base.sources:"
+        sed 's/^/      /' /target/etc/apt/sources.list.d/ncz-base.sources
+    else
+        echo "    WARN: no ncz-base.sources — the installed system has NO base apt repo" >&2
+    fi
+fi
 # Drop the transient ports fallback list 20-desktop may have added; the
 # canonical sources.list above now carries ports, so it is redundant.
 rm -f /target/etc/apt/sources.list.d/ncz-ports-fallback.list
