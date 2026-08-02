@@ -2203,6 +2203,25 @@ else
         { print }
     ' "$ROOT/preseed/preseed-ubuntu.cfg" > "$EXTRA/preseed.cfg"
 fi
+# The preseed is written against the Ubuntu-era profile and hard-codes the
+# suite/codename ("resolute") plus the ports.ubuntu.com fallback mirror.
+# Retarget both to the active release profile from release.conf. This matters
+# on the media, not just over the network: cdrom-retriever reads
+# /cdrom/dists/<cdrom/suite>/Release, so a stale suite makes anna fail with
+# "No components listed in /cdrom/dists/resolute/Release" and the installer
+# stops at "Load installer components" before writing anything to disk.
+_MIRROR_REST="${NCZ_BASE_MIRROR#*://}"
+_MIRROR_HOST="${_MIRROR_REST%%/*}"
+case "$_MIRROR_REST" in
+    */*) _MIRROR_PATH="/${_MIRROR_REST#*/}" ;;
+    *)   _MIRROR_PATH="" ;;
+esac
+sed -i -E \
+    -e "/^d-i (mirror\/(http\/)?suite|mirror\/codename|mirror\/udeb\/suite|cdrom\/suite|cdrom\/codename) string /s| string .*| string $ISO_APT_SUITE|" \
+    -e "/^d-i mirror\/http\/hostname string /s| string .*| string $_MIRROR_HOST|" \
+    -e "/^d-i mirror\/http\/directory string /s| string .*| string $_MIRROR_PATH|" \
+    "$EXTRA/preseed.cfg"
+echo "    preseed retargeted: suite=$ISO_APT_SUITE mirror=$_MIRROR_HOST$_MIRROR_PATH"
 cp "$ROOT/preseed/late.sh"            "$EXTRA/late.sh"
 cp "$ROOT/preseed/extract-rootfs.sh"  "$EXTRA/extract-rootfs.sh"
 cp "$ROOT/preseed/sshd-watcher.sh"    "$EXTRA/sshd-watcher.sh"
