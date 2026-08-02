@@ -57,6 +57,8 @@ libseat1
 libliftoff0
 libxcb-composite0
 libxcb-ewmh2
+# labwc links libxcb-errors for readable X11 protocol errors under Xwayland.
+libxcb-errors0
 swaybg
 grim
 slurp
