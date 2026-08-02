@@ -43,6 +43,8 @@ libgraphene-1.0-0
 # package artifact predates correct shlib dependency generation.
 libtinysparql-3.0-0
 libupower-glib3
+libdbusmenu-glib4
+libsodium23
 upower
 gsettings-desktop-schemas
 libglib2.0-bin
