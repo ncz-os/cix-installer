@@ -110,19 +110,32 @@ SKU=$(. /etc/os-release 2>/dev/null; v="${VERSION_CODENAME^}"; [ "${NCZ_VARIANT:
 [ -z "$SKU" ] && SKU="${NCZ_RELEASE_CODENAME:-Unknown} Desktop"
 [ -n "${NCZ_PRODUCT_NAME:-}" ] || NCZ_PRODUCT_NAME="NCZ-OS"
 [ -n "${NCZ_RELEASE_VERSION:-}" ] || NCZ_RELEASE_VERSION="unknown"
-W=58
+ROWS=(
+  "  $NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $SKU  ·  Cix Sky1 / CP8180 edge agent"
+  ""
+  "  Agents:  zeroclaw · openclaw · hermes · claude-code"
+  "  Kernel:  $(uname -r)"
+  "  GPU:     Mali-G720  (libmali GLES + OpenCL)"
+  "  NPU:     Zhouyi v3  (/dev/aipu)"
+  ""
+  "  ✦  Workloads. Not wallpapers."
+)
+# Size the box to its OWN widest row instead of a hard-coded 58. The title row
+# is already wider than that, and a longer kernel version can overflow too --
+# row() then computes a NEGATIVE printf width, and printf left-justifies
+# instead of padding, so the closing │ lands wherever the text ends and the
+# frame breaks.
+W=0
+for _r in "${ROWS[@]}"; do
+  _w=$(printf '%s' "$_r" | wc -m)
+  [ "$_w" -gt "$W" ] && W="$_w"
+done
+W=$((W + 2))
 bar(){ printf '   %s' "$1"; printf '─%.0s' $(seq 1 $W); printf '%s\n' "$2"; }
 row(){ local c="$1" w; w=$(printf '%s' "$c" | wc -m); printf '   │%s%*s│\n' "$c" $((W - w)) ""; }
 echo
 bar '┌' '┐'
-row "  $NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $SKU  ·  Cix Sky1 / CP8180 edge agent"
-row ""
-row "  Agents:  zeroclaw · openclaw · hermes · claude-code"
-row "  Kernel:  $(uname -r)"
-row "  GPU:     Mali-G720  (libmali GLES + OpenCL)"
-row "  NPU:     Zhouyi v3  (/dev/aipu)"
-row ""
-row "  ✦  Workloads. Not wallpapers."
+for _r in "${ROWS[@]}"; do row "$_r"; done
 bar '└' '┘'
 echo
 BANNER
