@@ -82,6 +82,9 @@ build_layer(){ local role="$1" manifest="$2"
   # Force ownership so maintainer scripts see a normal root-owned filesystem.
   sudo chown root:root "$L"
   mkdir -p "$U" "$WK" "$MG"
+  # Overlay presents the mountpoint as the chroot root. It must not retain the
+  # invoking user's ownership or systemd's maintainer scripts reject `/`.
+  sudo chown root:root "$MG"
   sudo mount -t overlay overlay -o "lowerdir=$L,upperdir=$U,workdir=$WK" "$MG"
   mount_chroot "$MG"; apt_offline "$MG"
   echo -e '#!/bin/sh\nexit 101' | sudo tee "$MG/usr/sbin/policy-rc.d" >/dev/null; sudo chmod +x "$MG/usr/sbin/policy-rc.d"
