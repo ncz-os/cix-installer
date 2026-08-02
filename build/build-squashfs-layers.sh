@@ -309,9 +309,9 @@ build_base(){
   log "BASE: extract $APT_SUITE base"
   # A failed base hook exits under `set -e` before normal cleanup. Detach any
   # stale mounts before retrying so rm never traverses host /proc or /sys.
-  apt_unmount "/base"
-  umount_chroot "/base"
-  sudo umount -lf "/base" 2>/dev/null || true
+  apt_unmount "$WORK/base"
+  umount_chroot "$WORK/base"
+  sudo umount -lf "$WORK/base" 2>/dev/null || true
   sudo rm -rf "$WORK/base"; mkdir -p "$WORK/base"
   sudo tar -I 'zstd -d' -xf "$BASE_TARBALL" -C "$WORK/base"
   mount_chroot "$WORK/base"
