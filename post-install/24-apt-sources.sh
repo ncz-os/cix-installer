@@ -58,6 +58,9 @@ set -euo pipefail
 echo "[24] wiring NCZ apt sources (Buildkite Packages PRIMARY + Cloudflare R2 backup) + refreshing package index"
 
 HERE="$(dirname "$0")"
+if [ -x "$HERE/23-base-apt-sources.sh" ]; then
+    "$HERE/23-base-apt-sources.sh"
+fi
 install -d /etc/apt/keyrings /etc/apt/sources.list.d
 CONFIGURED=0
 
