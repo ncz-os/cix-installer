@@ -182,4 +182,27 @@ id _greetd >/dev/null 2>&1 && chown _greetd:_greetd /var/log/singularity-greeter
 # 20-desktop curated /usr/share/wayland-sessions to singularity.desktop and
 # removed /usr/share/xsessions; nothing else to do here.
 
+# --- _greetd must not be an EXPIRED account ---------------------------------
+# The greetd package's account creation lands an expiry field of 1 in
+# /etc/shadow (_greetd:!*:NNNNN:::::1:), i.e. expired on 1970-01-02 and expired
+# forever regardless of the clock. PAM's account stage then refuses the greeter
+# session and the machine boots to a BLACK SCREEN with the display stack fully
+# up and DP connected:
+#
+#   pam_unix(greetd-greeter:account): account _greetd has expired
+#   error: authentication error: pam_acct_mgmt: AUTH_ERR
+#   greetd.service: Failed with result 'start-limit-hit'
+#
+# Confirmed shipping in the built desktop layer, so every install inherits it.
+# Clear the expiry (-E -1) and make it idempotent.
+if getent passwd _greetd >/dev/null 2>&1; then
+    if command -v chage >/dev/null 2>&1; then
+        chage -E -1 _greetd || echo "[55] WARN: could not clear _greetd account expiry"
+    else
+        # busybox/minimal image fallback: blank the 8th shadow field in place.
+        sed -i -E 's/^(_greetd:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:)[^:]*:/\1:/' /etc/shadow
+    fi
+    echo "[55] _greetd account expiry cleared: $(getent shadow _greetd 2>/dev/null || grep '^_greetd' /etc/shadow)"
+fi
+
 echo "[55] greetd + native singularity-greeter wired: /etc/greetd/{config.toml,singularity-labwc/}, NCZ logo + Maximilian backdrop, _greetd log dir"
