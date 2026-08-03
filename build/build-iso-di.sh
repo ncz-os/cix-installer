@@ -101,7 +101,7 @@ STAGE_ROOTFS=1
 PATCH_DEBOOTSTRAP_STUB=1
 STAGE_LEGACY_KERNEL=1
 STAGE_NEXT_KERNEL=1
-INSTALLER_KERNEL_FLAVOR=lts
+INSTALLER_KERNEL_FLAVOR=legacy
 BOOTSTRAP_POOL=0
 # 2026-05-08: ceiling set to 1GB so the netinstall ISO stays in the
 # easy-GitHub-release-distribution band (GitHub allows up to 2GB per
@@ -124,14 +124,14 @@ case "$MODE" in
         STAGE_ROOTFS=0
         PATCH_DEBOOTSTRAP_STUB=0
         STAGE_LEGACY_KERNEL=0
-        INSTALLER_KERNEL_FLAVOR=next
+        INSTALLER_KERNEL_FLAVOR=edge
         ;;
     netinstall-bootstrap)
         EMBED_MIRROR=0
         STAGE_ROOTFS=0
         PATCH_DEBOOTSTRAP_STUB=0
         STAGE_LEGACY_KERNEL=0
-        INSTALLER_KERNEL_FLAVOR=next
+        INSTALLER_KERNEL_FLAVOR=edge
         BOOTSTRAP_POOL=1
         ;;
 esac
@@ -493,7 +493,7 @@ NEXT_KVER_FILE="$ROOT/assets/kernel/edge/KVER"
 KVER_LEGACY=""
 KVER_NEXT=""
 
-if [ "$STAGE_LEGACY_KERNEL" = "1" ] || [ "$INSTALLER_KERNEL_FLAVOR" = "lts" ]; then
+if [ "$STAGE_LEGACY_KERNEL" = "1" ] || [ "$INSTALLER_KERNEL_FLAVOR" = "legacy" ]; then
     for f in "$LEGACY_KERN" "$LEGACY_TGZ" "$LEGACY_KVER_FILE"; do
         [ -f "$f" ] || { echo "ERROR: missing $f"; exit 1; }
     done
@@ -506,19 +506,19 @@ if [ -f "$NEXT_KVER_FILE" ] && [ -f "$NEXT_KERN" ] && [ -f "$NEXT_TGZ" ]; then
     KVER_NEXT=$(cat "$NEXT_KVER_FILE")
     [ -n "$KVER_NEXT" ] || { echo "ERROR: empty KVER file: $NEXT_KVER_FILE"; exit 1; }
     echo "[info] NEXT kernel KVER: $KVER_NEXT"
-elif [ "$INSTALLER_KERNEL_FLAVOR" = "next" ] || [ "$MODE" = "netinstall" ]; then
+elif [ "$INSTALLER_KERNEL_FLAVOR" = "edge" ] || [ "$MODE" = "netinstall" ]; then
     echo "ERROR: --mode netinstall requires assets/kernel/edge/{KVER,Image-cixmini.bin,modules-cixmini.tgz}" >&2
     exit 1
 fi
 
 case "$INSTALLER_KERNEL_FLAVOR" in
-    lts)
+    legacy)
         INSTALLER_KERN="$LEGACY_KERN"
         INSTALLER_TGZ="$LEGACY_TGZ"
         KVER_INSTALLER="$KVER_LEGACY"
         INSTALLER_KERNEL_LABEL="legacy"
         ;;
-    next)
+    edge)
         INSTALLER_KERN="$NEXT_KERN"
         INSTALLER_TGZ="$NEXT_TGZ"
         KVER_INSTALLER="$KVER_NEXT"

@@ -17,7 +17,7 @@ NCZ 智能体栈，并将系统品牌化为 NCZ（桌面版为 Reinhardt，服�
 > Sky1 使能（DP 链路训练修复、完整的 mali_kbase Mali-G720 驱动移植、启动
 > 告警清理）；**7.0.12（次级/应急）** 是我们自行打了补丁的树，虽然上游已
 > EOL，但仍作为可用的回退保留（这棵树本来就是我们自己 fork 并维护的，从
-> 未依赖上游的安全更新节奏）；**6.18 LTS（深度救援）** 保持最小化，专供
+> 未依赖上游的安全更新节奏）。救援分区启动同一枚 legacy 内核（GPU/NPU/VPU 已屏蔽），专供
 > 一切都可能已经损坏时使用，位于独立的救援分区。详见本文档 English 版
 > 顶部的说明；本翻译尚未对 26.7 的全部新增内容逐段汉化，如需最新细节请
 > 参阅 [English README](README.md)。
@@ -102,7 +102,7 @@ NCZ **在设计与意图上都是厂商中立的。** 目标：在能获取样�
 |---|---|---|
 | **Minisforum MS-R1**（32 GB，以及 64 GB "超大杯"） | Cix Sky1 / CP8180 | ✅ **已验证可用。** UEFI 启动、安装器、GPU（7.0.12/panthor 路径）、NPU（Zhouyi 嵌入 + 视觉）、音频，以及多内核通道方案均已在这台机器上验证。主通道（7.2/Mali）的验证现以 O6N 为主，见下文。 |
 | **Radxa Orion O6** | Cix Sky1 | ⚠️ **我们尚未直接测试 —— 用户报告可用。** 硬件上比 O6N 更接近 MS-R1；用户已在自己的 O6 上确认可安装并启动，包括 Realtek 网卡（RTL8125/8126）通过安装器与已安装系统中都附带的 `rtl_nic` 固件开箱即用。我们尚未亲自上手过 O6 硬件。 |
-| **Radxa Orion O6N**（48 GB） | Cix Sky1 | ✅ **已验证可用 —— 我们的主要开发/调试目标机。** 同为 Sky1 SoC、O6 板卡系列。Mali `mali_kbase` GPU 驱动移植、7.2/7.0.12/6.18 三层内核策略，以及完整的 Singularity 桌面栈（含 `ncz-performance-mode` 电源修复）都是在这台机器上反复构建与验证的，而非纸面声明。 |
+| **Radxa Orion O6N**（48 GB） | Cix Sky1 | ✅ **已验证可用 —— 我们的主要开发/调试目标机。** 同为 Sky1 SoC、O6 板卡系列。Mali `mali_kbase` GPU 驱动移植、7.2/7.0.12 双通道内核策略，以及完整的 Singularity 桌面栈（含 `ncz-performance-mode` 电源修复）都是在这台机器上反复构建与验证的，而非纸面声明。 |
 | **Framework Cix 扩展板 / 主板** | Cix Sky1 | ❌ **未测试。** 在我们的视野内；手头没有硬件。 |
 | **Orange Pi（Cix 变体）** | Cix Sky1 | ❌ **未测试。** 手头没有硬件。 |
 | 其他 Arm（RK3588/RK3576、MediaTek Genio、Snapdragon）与 x86（Intel、AMD） | — | 🗺️ 路线图 / 仅适配层 —— 尚未构建或测试。 |
@@ -164,7 +164,7 @@ ISO 还自带：
   镜像进 Cloudflare R2 上的 `ncz-os/ncz` apt 仓库（31 个包，约 81MB），以便安装后
   无需重装即可重新拉取 —— 见 [OTA 更新通道](#通过-apt-升级内核与驱动--无需重装)。
 - 内核通道（`7.2` 主/默认 + `7.0.12-cix-sky1-next` 次级/回退，外加位于
-  专用救援分区的 `6.18.26-cix-sky1-lts`）及固件，设备可在通道间切换而
+  救援分区复用同一枚 legacy 内核）及固件，设备可在通道间切换而
   无需重新下载任何东西。
 - zeroclaw 的 quadlet 定义，外加可选的 OpenClaw、Hermes 和 NemoClaw 模板（仅预置，默认均不激活）
 - 原生 KMS 启动画面（`singularity-boot-splash`，定制 NCZ logo/进度条）——
@@ -256,7 +256,7 @@ curl -fL "$BASE/models/.../bge-small-zh_256.cix" -o model.cix
 | 路径 | 来源 | 说明 |
 |---|---|---|
 | `assets/cix-debs/` | 离线预置的 CIX 专有 `.deb`（gitignore） | 同时也镜像进 **Buildkite Packages**（主）+ Cloudflare R2（备份）上的 `ncz-os/ncz`（见 OTA 章节） |
-| `assets/kernel/{stable,edge}/` | Yocto 构建：`stable/` 为次级/回退通道 `meta-cix:linux-cix-sky1-next`（7.0.12），`edge/` 为主通道 `linux-cix-sky1-ncz`（7.2）（gitignore） | 每个内核对应的 `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER`；另有 `modules-overlay/$KVER/` 子目录存放经验证的修复用 `.ko`（见 `post-install/80-npu.sh`、`81-vpu.sh`、`82-mali-gpu.sh`）——深度救援用的 `6.18.26-cix-sky1-lts` 内核单独为 NCZRESCUE 分区打包，见 `build/build-rescue-rootfs.sh` |
+| `assets/kernel/{legacy,edge}/` | Yocto 构建：`legacy/` 为 legacy/回退通道 `meta-cix:linux-cix-sky1-next`（7.0.12，已 EOL），`edge/` 为主通道 `linux-cix-sky1-ncz`（7.2）（gitignore） | 每个内核对应的 `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER`；另有 `modules-overlay/$KVER/` 子目录存放经验证的修复用 `.ko`（见 `post-install/80-npu.sh`、`81-vpu.sh`、`82-mali-gpu.sh`）——NCZRESCUE 分区启动同一枚 legacy 内核，见 `build/build-rescue-rootfs.sh` |
 | `assets/agent-stack/*` | 本仓库 | zeroclaw/openclaw/hermes/portainer/mnemos/nemoclaw 的 systemd quadlet |
 | `assets/branding/*` | 本仓库 | os-release、motd、壁纸、rEFInd 横幅/图标 |
 | `preseed/preseed.cfg`、`preseed/late.sh` | 本仓库 | d-i 无人值守 preseed + late_command（chroot 之前，仅安装时执行） |

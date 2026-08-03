@@ -25,8 +25,8 @@ appliance).
 > cleanup; **7.0.12 (secondary/emergency)** is our own patched tree with real
 > GPU support, kept as a functional fallback despite being EOL upstream (see
 > [Positioning](#ncz-os-is-not-a-stable-distro-by-design) — EOL doesn't carry
-> the same risk for a kernel we already fork and patch ourselves); **6.18 LTS
-> (deep rescue)** stays minimal by design, no GPU/NPU/VPU, for when everything
+> the same risk for a kernel we already fork and patch ourselves). The rescue
+> partition boots that same legacy kernel with GPU/NPU/VPU blacklisted, for when everything
 > else has to be assumed broken.
 
 ### Why NCZ-OS, when Canonical / Armbian / vendor images exist?
@@ -123,7 +123,7 @@ papering over something we didn't understand:
   base that we maintain as our own patched tree (EOL status doesn't carry the
   same risk for a heavily vendor-customized kernel we're already forking and
   patching ourselves — we were never depending on upstream security cadence
-  for it), and a minimal LTS rescue tier with no GPU/NPU/VPU by design, for
+  for it), and a rescue tier running that same kernel with no GPU/NPU/VPU, for
   when everything else has to be assumed broken. This is a direct answer to
   the fact that no single upstream kernel version cleanly supports this
   hardware end-to-end today.
@@ -224,7 +224,7 @@ implementation; the architecture is the reusable scaffold.
 |---|---|---|
 | **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **Verified working.** UEFI boot, the installer, GPU (7.0.12/panthor path), NPU (Zhouyi embeddings + vision), audio, and the multi-kernel-channel program have all been validated on this box. Primary-channel (7.2/Mali) validation is O6N-led — see below. |
 | **Radxa Orion O6** | Cix Sky1 | ⚠️ **Not directly tested by us — user-reported working.** Hardware-closer to the MS-R1 than the O6N is; users have confirmed install and boot on their own O6 boards, including the Realtek NIC (RTL8125/8126) working out of the box via the `rtl_nic` firmware shipped in both the installer and the installed system. We have not put our own hands on an O6. |
-| **Radxa Orion O6N** (48 GB) | Cix Sky1 | ✅ **Verified working — our primary dev/debug target.** Same Sky1 SoC, O6 board family. This is the box the Mali `mali_kbase` GPU driver port, the 7.2/7.0.12/6.18 kernel-tiering strategy, and the full Singularity Desktop stack (including the `ncz-performance-mode` power-management fix) were built and validated on, session after session. Heavily exercised, not a paper claim. |
+| **Radxa Orion O6N** (48 GB) | Cix Sky1 | ✅ **Verified working — our primary dev/debug target.** Same Sky1 SoC, O6 board family. This is the box the Mali `mali_kbase` GPU driver port, the 7.2/7.0.12 kernel-tiering strategy, and the full Singularity Desktop stack (including the `ncz-performance-mode` power-management fix) were built and validated on, session after session. Heavily exercised, not a paper claim. |
 | **Framework Cix add-in board / mainboard** | Cix Sky1 | ❌ **Untested.** On our radar; no hardware in hand. |
 | **Orange Pi (Cix variants)** | Cix Sky1 | ❌ **Untested.** No hardware in hand. |
 | Other Arm (RK3588/RK3576, MediaTek Genio, Snapdragon) and x86 (Intel, AMD) | — | 🗺️ Roadmap / adapter-level only — not built or tested yet. |
@@ -243,8 +243,7 @@ NPU/GPU/VPU may not initialize, or the installer may need board-specific work.
 > primary/default boot entry (`linux-cix-sky1-ncz`, `KERNELRELEASE
 > 7.2.0-rc5-sky1-ncz` — see [`kernel-source/SOURCE.md`](kernel-source/SOURCE.md)),
 > **7.0.12-cix-sky1-next** is the legacy/emergency fallback (an EOL kernel
-> carried only until 7.2 completes its release process), and **6.18
-> LTS** is the deep-rescue kernel on its own dedicated rescue partition. The
+> carried only until 7.2 completes its release process). The
 > table below documents **7.0.12-cix-sky1-next**
 > (`assets/kernel/edge/KVER`, patch series `next-patches/0001`–`0043` +
 > `2001`–`2017` in `meta-cix:linux-cix-sky1-next`) specifically — it predates
@@ -313,10 +312,10 @@ newer forward-port of the CIX Sky1 BSP (~130 patches, see
 
 **What's required for O6 / O6N to boot cleanly (7.0.12 fallback channel):**
 
-1. **Kernel 7.0.12-cix-sky1-next** (`assets/kernel/edge/`) — the secondary
-   fallback channel. The primary channel is **7.2** (see the callout at the
-   top of this README); **6.18 LTS** is the deep-rescue kernel on its own
-   dedicated rescue partition.
+1. **Kernel 7.0.12-cix-sky1-next** (`assets/kernel/legacy/`) — the legacy
+   fallback channel, an EOL kernel carried only until 7.2 completes its
+   release process. The primary channel is **7.2** (`assets/kernel/edge/`,
+   see the callout at the top of this README). There are only these two.
 2. **No separate DTB** — boot is ACPI-based; the same kernel/firmware image
    is used across MS-R1 and Orion O6/O6N.
 3. **Firmware**: `rtl_nic` (RTL8125/8126), `mali_csffw.bin` (Mali-G720
@@ -513,7 +512,7 @@ library is for, how to route a workload across the four compute engines
 | Path | Source | Notes |
 |---|---|---|
 | `assets/cix-debs/` | Staged CIX proprietary `.deb`s (gitignored) | Also mirrored into Buildkite `ncz-os/ncz` (31 packages, see OTA channel section) |
-| `assets/kernel/{stable,edge}/` | Yocto build of the secondary/fallback `meta-cix:linux-cix-sky1-next` (7.0.12, `stable/`) + primary `linux-cix-sky1-ncz` (7.2, `edge/`) channels (gitignored) | `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER` per kernel; also has a `modules-overlay/$KVER/` subdir for validated fixup `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`, `82-mali-gpu.sh`) — the deep-rescue `6.18.26-cix-sky1-lts` kernel is staged separately for the NCZRESCUE partition, see `build/build-rescue-rootfs.sh` |
+| `assets/kernel/{legacy,edge}/` | Yocto build of the legacy/fallback `meta-cix:linux-cix-sky1-next` (7.0.12, `legacy/`, EOL) + primary `linux-cix-sky1-ncz` (7.2, `edge/`) channels (gitignored) | `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER` per kernel; also has a `modules-overlay/$KVER/` subdir for validated fixup `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`, `82-mali-gpu.sh`) — the NCZRESCUE partition boots this same legacy kernel, see `build/build-rescue-rootfs.sh` |
 | `assets/agent-stack/*` | This repo | systemd quadlets for zeroclaw/openclaw/hermes/portainer/mnemos/nemoclaw |
 | `assets/branding/*` | This repo | os-release, motd, wallpapers, rEFInd banner/icons |
 | `preseed/preseed.cfg`, `preseed/late.sh` | This repo | d-i unattended preseed + late_command (pre-chroot, install-time-only) |
@@ -840,18 +839,18 @@ What changed since the r147 baseline:
 ## Sister projects
 
 - [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
-- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipes (`linux-cix-sky1-ncz_7.2.bb` primary/edge, `linux-cix-sky1-next_7.0.12.bb` secondary/emergency fallback, `linux-cix-sky1_6.18.26.bb` deep-rescue) and Cix userspace recipes this installer consumes. Kernel source itself is fetched straight from the public `kernel.org` tree at a pinned commit per channel; every Sky1-specific patch is a file tracked in this layer (also mirrored in-repo under [`kernel-source/`](kernel-source/SOURCE.md) for the 7.2 shipping kernel) — no separate kernel-source repo is strictly needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
+- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipes (`linux-cix-sky1-ncz_7.2.bb` primary/edge, `linux-cix-sky1-next_7.0.12.bb` legacy/emergency fallback) and Cix userspace recipes this installer consumes. Kernel source itself is fetched straight from the public `kernel.org` tree at a pinned commit per channel; every Sky1-specific patch is a file tracked in this layer (also mirrored in-repo under [`kernel-source/`](kernel-source/SOURCE.md) for the 7.2 shipping kernel) — no separate kernel-source repo is strictly needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
 
 
 ## Current ISO — 26.7 "Maximilian"
 
 Three-tier kernel channel + desktop/GPU rebrand: **7.2 (`linux-cix-sky1-ncz`,
 `KERNELRELEASE 7.2.0-rc5-sky1-ncz`) is the primary/default boot entry**,
-**7.0.12-cix-sky1-next is the secondary/emergency fallback** (also what the
-d-i installer environment itself boots — `INSTALLER_KERNEL_FLAVOR=lts` maps
-to this "stable" slot), and **6.18.26-cix-sky1-lts is the deep-rescue
-kernel**, minimal by design, living on its own dedicated NCZRESCUE partition
-(and optionally also staged on the main ESP, space permitting). See the
+**7.0.12-cix-sky1-next is the legacy/emergency fallback** (also what the
+d-i installer environment itself boots — `INSTALLER_KERNEL_FLAVOR=legacy`
+maps to this slot). It is an EOL kernel carried only until 7.2 completes its
+release process. The NCZRESCUE partition boots that same legacy kernel with
+the GPU/NPU/VPU stack blacklisted. See the
 kernel-tiering callout at the top of this README and
 [Positioning](#ncz-os-is-not-a-stable-distro-by-design) for why this is a
 deliberate three-way split rather than a single "the kernel."
@@ -881,9 +880,10 @@ follow-up boot entry pending a GPU power-domain fix. See
   see [`kernel-source/SOURCE.md`](kernel-source/SOURCE.md) and
   [`kernel-source/linux-cix-sky1-ncz/CORRESPONDING-SOURCE.md`](kernel-source/linux-cix-sky1-ncz/CORRESPONDING-SOURCE.md).
 
-**Kernels:** 7.2.0-rc5-sky1-ncz (primary/default) + 7.0.12-cix-sky1-next
-(secondary/fallback, "stable" in the rEFInd menu) + 6.18.26-cix-sky1-lts
-(deep rescue). 7.1.x was experimental/non-working and never shipped.
+**Kernels:** 7.2.0-rc6-sky1-ncz (primary/default, `edge`) + 7.0.12-cix-sky1-next
+(legacy fallback, "legacy" in the rEFInd menu — EOL, carried only until 7.2
+releases). Two channels only. 7.1.x was experimental/non-working and never
+shipped, and 6.18.26 was retired at r195 and never reinstated.
 
 Provenance: **7.0.12** is *our* port — the raw v7.0.12 stable tag plus our
 MS-R1-specific validation and fixes (SCMI, GPU, VPU, NPU, display, audio).
@@ -897,7 +897,7 @@ GPU driver port.
 **Install:** unattended d-i (auto-partition, ESP + NCZRESCUE rescue
 partition), boots rEFInd. Interactive disk + root-filesystem choice —
 **btrfs** (default) or **ext4**; no ZFS root support yet. The d-i installer
-environment itself runs on the 7.0.12 ("stable"/LTS-slot) kernel.
+environment itself runs on the 7.0.12 ("legacy" slot) kernel.
 
 **Recovery:** NCZRESCUE partition with full repair toolset + automatic networking, reachable independent of the main rootfs; installer remote-diagnostics (network-console + telnet/http) on USB boot.
 
