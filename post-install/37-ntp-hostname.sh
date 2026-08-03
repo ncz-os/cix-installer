@@ -138,9 +138,21 @@ EOF
 # boot (which breaks TLS certificate validation and every log timestamp).
 # systemd-timesyncd is now seeded in manifests/{desktop,server}.pkgs; install it
 # here if the unit is still missing, and fall back to chrony before giving up.
+#
+# Order matters: check for an ALREADY-PRESENT daemon before installing anything.
+# The server profile seeds chrony, and chrony and systemd-timesyncd both
+# Provide/Conflict `time-daemon` — blindly apt-installing timesyncd there is
+# unresolvable, which is exactly how the first rc6 server layer build failed
+# ("systemd-timesyncd Conflicts time-daemon [selected chrony]").
 NCZ_TIME_UNIT=""
-if systemctl cat systemd-timesyncd.service >/dev/null 2>&1; then
-    NCZ_TIME_UNIT=systemd-timesyncd
+for u in systemd-timesyncd chrony chronyd ntpsec; do
+    if systemctl cat "$u.service" >/dev/null 2>&1; then
+        NCZ_TIME_UNIT="$u"
+        break
+    fi
+done
+if [ -n "$NCZ_TIME_UNIT" ]; then
+    echo "[33] time daemon already present: $NCZ_TIME_UNIT"
 else
     echo "[33] systemd-timesyncd.service absent (Debian splits it out of systemd) — installing"
     if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd-timesyncd >/dev/null 2>&1 \

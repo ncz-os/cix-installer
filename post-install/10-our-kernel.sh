@@ -169,6 +169,40 @@ for moddir in /usr/lib/modules/*/; do
     echo "    removing orphaned module tree: $kver"
     rm -rf "$moddir"
 done
+# 2026-08-02: prune orphaned /boot payloads the same way. The module-tree prune
+# above has existed since r196c, but nothing ever removed the matching
+# /boot/vmlinuz-<ver> + initrd.img-<ver>, so a superseded kernel left a vmlinuz
+# behind with NO module tree. Found on the rc5 -> rc6 bump: the baked base
+# rootfs still carried vmlinuz-7.2.0-rc5-sky1-ncz, and every subsequent
+# update-initramfs run in the layer build emitted
+#   cat: .../lib/modules/7.2.0-rc5-sky1-ncz/modules.builtin: No such file
+#   depmod: WARNING: could not open modules.order at .../7.2.0-rc5-sky1-ncz
+# A vmlinuz with no modules is unbootable if anything ever selects it, and the
+# noise buries real initramfs errors. Only KVER_LTS/KVER_NEXT are ever
+# legitimate on this image.
+#
+# Fail-safe: this prune's correctness depends on at least one expected KVER
+# being non-empty. That is already guaranteed by the INSTALLED_KERNELS==0 guard
+# further up (which exits 1), but a deletion loop must not rely on a check 35
+# lines away — if both were ever empty, NOTHING would match and this would
+# remove every kernel payload under /boot, including the one about to boot.
+# Make the invariant local and explicit.
+if [ -z "$KVER_LTS" ] && [ -z "$KVER_NEXT" ]; then
+    echo "[10] WARN: both KVER_LTS and KVER_NEXT are empty — SKIPPING the /boot prune" >&2
+    echo "[10]       (refusing to delete kernel payloads with nothing to compare against)" >&2
+else
+    echo "[10] pruning orphaned /boot kernel payloads (not KVER_LTS/KVER_NEXT)"
+    for vmlinuz in /boot/vmlinuz-*; do
+        [ -e "$vmlinuz" ] || continue
+        kver="${vmlinuz#/boot/vmlinuz-}"
+        [ -n "$KVER_LTS" ]  && [ "$kver" = "$KVER_LTS" ]  && continue
+        [ -n "$KVER_NEXT" ] && [ "$kver" = "$KVER_NEXT" ] && continue
+        echo "    removing orphaned boot payload: $kver"
+        rm -f "/boot/vmlinuz-$kver" "/boot/initrd.img-$kver" \
+              "/boot/System.map-$kver" "/boot/config-$kver"
+    done
+fi
+
 [ -n "$KVER_LTS" ] && depmod -a "$KVER_LTS" 2>/dev/null || true
 [ -n "$KVER_NEXT" ] && depmod -a "$KVER_NEXT" 2>/dev/null || true
 

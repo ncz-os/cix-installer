@@ -3,8 +3,10 @@
 #
 # Linux kernel for Cix Sky1 / CP8180 -- NCZ 7.2 track.
 #
-# Base: torvalds mainline v7.2-rc5 (no linux-7.2.y stable branch yet, so
-#       KBRANCH=master + SRCREV pinned to the v7.2-rc5 tag commit).
+# Base: torvalds mainline v7.2-rc6 (no linux-7.2.y stable branch yet, so
+#       KBRANCH=master + SRCREV pinned to the v7.2-rc6 tag commit).
+#       (Rebased 2026-08-02 from v7.2-rc5 -> v7.2-rc6: all 170 CIX commits
+#       replayed with ZERO conflicts and range-diff 170/170 "=".)
 #       (Forward-ported 2026-07-26 from v7.2-rc4 -> v7.2-rc5: the rc4->rc5
 #       diff touched 595 files and none of them overlap this patch series'
 #       footprint, so 169 of 170 patches applied byte-identical; the one
@@ -110,8 +112,8 @@
 #   firmware. Do not enable CONFIG_DRM_CIX_COMPONENT_BIND_BYPASSED —
 #   it forces the multi-card path and defeats the 26q2 single-master code.
 
-SUMMARY = "NCZ Linux kernel for Cix Sky1 / CP8180 (v7.2-rc5 + CIX 2026q2 patch set)"
-DESCRIPTION = "NCZ kernel: mainline Linux v7.2-rc5 plus the cixtech 2026q2 Sky1 driver set forward-ported by NCZ. Not a CIX/vendor release."
+SUMMARY = "NCZ Linux kernel for Cix Sky1 / CP8180 (v7.2-rc6 + CIX 2026q2 patch set)"
+DESCRIPTION = "NCZ kernel: mainline Linux v7.2-rc6 plus the cixtech 2026q2 Sky1 driver set forward-ported by NCZ. Not a CIX/vendor release."
 SECTION = "kernel"
 LICENSE = "GPL-2.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=6bc538ed5bd9a7fc9398086aedcd7e46"
@@ -119,17 +121,41 @@ LIC_FILES_CHKSUM = "file://COPYING;md5=6bc538ed5bd9a7fc9398086aedcd7e46"
 inherit kernel
 FILESEXTRAPATHS:prepend := "${THISDIR}/linux-cix-sky1-ncz-7.2:"
 
-LINUX_VERSION = "7.2-rc5"
+LINUX_VERSION = "7.2-rc6"
 KERNEL_LOCALVERSION = "-sky1-ncz"
 PATCHTOOL = "git"
 PV = "7.2+ncz"
 KBRANCH = "master"
 KERNEL_PACKAGE_NAME = "kernel-${PN}"
 
-# v7.2-rc5 tag commit (torvalds mainline, on master; dereferenced from the
-# annotated tag object a8e429896436e8c2d288181f875f92af8204bc58 -- SRCREV
-# must be the commit, not the tag object, matching the rc4 convention below)
-SRCREV_kernel = "f5098b6bae761e346ebcd9da7f95622c04733cff"
+# OE-Core 2026 keeps the kernel source and module-build artifacts in this
+# recipe work directory. module.bbclass publishes those locations to
+# external-module recipes through work-shared/${MACHINE}.
+do_shared_workdir:append() {
+    shared_kernel_dir="${TMPDIR}/work-shared/${MACHINE}"
+    install -d "$shared_kernel_dir"
+    ln -sfn "${S}" "$shared_kernel_dir/kernel-source"
+    ln -sfn "${WORKDIR}/kernel-build-artifacts" "$shared_kernel_dir/kernel-build-artifacts"
+    ln -sfn "${KERNEL_PACKAGE_NAME}-abiversion" "${WORKDIR}/kernel-build-artifacts/kernel-abiversion"
+    ln -sfn "${KERNEL_PACKAGE_NAME}-localversion" "${WORKDIR}/kernel-build-artifacts/kernel-localversion"
+}
+
+# v7.2-rc6 tag commit (torvalds mainline, on master; SRCREV must be the
+# COMMIT, not the annotated tag object -- same convention as rc4/rc5).
+# The annotated tag object is d7dd96eb916519208210bb4a0408fcf4f7fdce5d;
+# `git rev-parse v7.2-rc6^{commit}` dereferences it to 075b74841bd0
+# ("Linux 7.2-rc6"). The rc6 handoff note circulated the TAG sha; using it
+# here would contradict this recipe's own stated convention and break the
+# tag-vs-commit record in CORRESPONDING-SOURCE.md.
+# Bumped 2026-08-02 from v7.2-rc5 (f5098b6bae761e346ebcd9da7f95622c04733cff).
+# The rc5 -> rc6 rebase of all 170 CIX commits was done first, out of tree,
+# and range-diff reported 170/170 "=" -- no patch altered, dropped or added.
+# rc6 is an ordinary -rc bugfix cycle for our purposes (615 commits, 530
+# files): drm/panthor gets 2 firmware-validation hardening commits
+# (b921b8613790, a3caaa068092), drivers/gpu/drm/arm (komeda/linlondp) is
+# untouched, realtek changes are rtase-only (not r8169), and the arm64 work
+# is KVM/vgic. Nothing here fixes a Sky1 failure mode -- this is hygiene.
+SRCREV_kernel = "075b74841bd0065a3bda3440873c747938e69b68"
 
 SRC_URI = " \
     git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git;protocol=https;branch=${KBRANCH};name=kernel \
@@ -304,6 +330,7 @@ SRC_URI = " \
     file://patches-7.2/0183-genpd-cix-dedupe-power-domain-opp-table.patch \
     file://patches-7.2/0184-thermal-cix-cpufreq-cooling-acpi-no-of-node.patch \
     file://patches-7.2/0185-firmware-arm-scmi-perf-skip-opp-repopulation.patch \
+    file://patches-7.2/0187-drm-panthor-route-scmi-dvfs-through-perf-opp.patch \
 "
 
 COMPATIBLE_MACHINE = "(cixmini)"

@@ -19,8 +19,44 @@ OUT="$REPO/build/kernel-debs"
 BUILD_REV="${BUILD_REV:-r98}"
 MAINT="NCZ <nczero@nclawzero.dev>"
 
-KVER_LTS="${KVER_LTS:-$(cat "$REPO/build/iso-staging-di/cixmini/KVER_LTS" 2>/dev/null || echo 7.0.12-cix-sky1-next)}"
-KVER_NEXT="${KVER_NEXT:-$(cat "$REPO/build/iso-staging-di/cixmini/KVER_NEXT" 2>/dev/null || echo 7.0.12-cix-sky1-next)}"
+# KVER comes from the ASSET WE ARE ABOUT TO PACKAGE, not from a previous
+# ISO staging run. build/iso-staging-di/ is a build OUTPUT dir: after a
+# kernel bump it still holds the PREVIOUS KVER until an ISO is rebuilt, so
+# preferring it made this script package the new Image under the old
+# version string. Confirmed 2026-08-02 on the rc5 -> rc6 bump: it announced
+# "[edge] 7.2.0-rc5-sky1-ncz" against an rc6 Image and then died with a bare
+# "install: No such file or directory" when the rc5 config was gone.
+# assets/kernel/<ch>/KVER is written by the kernel build itself and is the
+# only source of truth here; the staging sidecar stays as a fallback.
+# Falling back to the staging sidecar is still allowed (a caller may package
+# from a tree with no built kernel assets), but it must never be SILENT --
+# a silent fallback re-creates exactly the stale-KVER mismatch this block
+# exists to prevent. Say which source won.
+resolve_kver() {   # <channel-dir> <sidecar-name> <default>
+    local asset="$REPO/assets/kernel/$1/KVER"
+    local sidecar="$REPO/build/iso-staging-di/cixmini/$2"
+    local v
+    if [ -s "$asset" ]; then
+        v=$(tr -d " \t\r\n" < "$asset")
+        [ -n "$v" ] && { printf %s "$v"; return 0; }
+    fi
+    if [ -s "$sidecar" ]; then
+        v=$(tr -d " \t\r\n" < "$sidecar")
+        if [ -n "$v" ]; then
+            echo "WARN: $asset absent/empty -- falling back to the ISO-staging sidecar" >&2
+            echo "      $sidecar = $v" >&2
+            echo "      That directory is a build OUTPUT and can hold a PREVIOUS KVER." >&2
+            echo "      Build the kernel assets, or pass KVER_$3 explicitly, to be sure." >&2
+            printf %s "$v"; return 0
+        fi
+    fi
+    echo "WARN: no KVER for channel '$1' (neither $asset nor $sidecar) -- using default" >&2
+    printf %s "$4"
+}
+KVER_LTS="${KVER_LTS:-$(resolve_kver stable KVER_LTS LTS 7.0.12-cix-sky1-next)}"
+KVER_NEXT="${KVER_NEXT:-$(resolve_kver edge KVER_NEXT NEXT 7.0.12-cix-sky1-next)}"
+KVER_LTS=$(printf %s "$KVER_LTS" | tr -d " \t\r\n")
+KVER_NEXT=$(printf %s "$KVER_NEXT" | tr -d " \t\r\n")
 
 echo "== build-kernel-debs =="
 echo "   LTS=$KVER_LTS  NEXT=$KVER_NEXT  rev=$BUILD_REV"

@@ -13,7 +13,38 @@ up forever.
 
 ## 7.2 track — `linux-cix-sky1-ncz_7.2.bb`
 
-### Current: v7.2-rc5 (SRCREV bumped 2026-07-26)
+### Current: v7.2-rc6 (SRCREV bumped 2026-08-02)
+
+- Our patches: `linux-cix-sky1-ncz-7.2/patches-7.2/*.patch` (this repo, full
+  git history, all 3 remotes: ARGONAS canonical, GitLab, GitHub-source-stub-N/A).
+- Pristine base recipe fetches: `git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git`
+  pinned via `SRCREV_kernel = "075b74841bd0065a3bda3440873c747938e69b68"` (v7.2-rc6;
+  the annotated tag object is `d7dd96eb916519208210bb4a0408fcf4f7fdce5d` -- SRCREV
+  uses the dereferenced commit, matching the rc4/rc5 convention). **The rc6
+  handoff note circulated the TAG sha**; it was caught and dereferenced before
+  the build, because a tag-object SRCREV would contradict the recipe's own
+  stated convention and this record.
+- **Self-mirrored pristine base** (single-commit archive of that exact SRCREV,
+  independent of kernel.org staying reachable):
+  <https://gitlab.com/api/v4/projects/81838641/packages/generic/linux-pristine-base-cix-sky1-ncz/7.2-075b7484/linux-cix-sky1-ncz-7.2-pristine-base-075b7484.tar.gz>
+  sha256 `cab80c45fc54e092f1c4e6954372bfc1d20a739fbbdce01a5ae9a031014572f3`
+  (uploaded 2026-08-02, GitLab generic package registry, `ncz-os/cix-installer`,
+  confirmed publicly downloadable without auth, HTTP 206 on an anonymous range
+  request, first 1 MiB verified byte-identical to the local archive).
+- Rebase notes: all 170 CIX commits were replayed rc5 -> rc6 out of tree with
+  ZERO conflicts, and `git range-diff` reported 170/170 `=` (nothing altered,
+  dropped or added). BitBake then applied the SRC_URI series to the rc6 base
+  with `do_patch: Succeeded` on the first attempt -- no fuzz, no in-place fixups,
+  unlike the rc4 -> rc5 move which needed the 0184 repair recorded below.
+- Upstream delta rc5 -> rc6: 615 commits / 530 files / +6990 -2961. Nothing in
+  it touches a Sky1 failure mode. `drm/panthor` gets exactly two firmware
+  hardening commits (`b921b8613790` validate firmware interface structure sizes,
+  `a3caaa068092` reject firmware sections with oversized data);
+  `drivers/gpu/drm/arm` (komeda/linlondp) is untouched; the realtek changes are
+  `rtase` only, not `r8169`; PCI is i.MX6 only; arm64 is KVM/vgic. This bump is
+  hygiene, not a fix.
+
+### Previous: v7.2-rc5 (superseded 2026-08-02; record retained per the GPL note below)
 
 - Our patches: `linux-cix-sky1-ncz-7.2/patches-7.2/*.patch` (this repo, full
   git history, all 3 remotes: ARGONAS canonical, GitLab, GitHub-source-stub-N/A).

@@ -22,7 +22,16 @@
 # in /etc are fine as long as the delta didn't copy-up the same file).
 set -euo pipefail
 
-ROOT="${ROOT:-$HOME/cix-installer-build/cix-installer}"
+# Derive the repo from THIS SCRIPT's location, not $HOME. This script has to
+# run under sudo (mount/chroot/mksquashfs), and sudo resets HOME to /root, so
+# the old default silently resolved to /root/cix-installer-build/cix-installer.
+# That path does not exist, which meant release.conf below was never sourced
+# and NCZ_BASE_CODENAME fell back to "resolute" -- producing exactly the
+# "Forky rootfs + Resolute mirror" combination the comment below promises can
+# no longer happen. Caught 2026-08-02: the first rc6 layer build announced
+# "BASE: extract resolute base" on a Forky tree and died on a missing
+# rootfs-resolute-arm64.tar.zst.
+ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 WORK="${WORK:-/tmp/ncz-sqfs}"
 OUT="${OUT:-$ROOT/assets/squashfs}"
 # Keep every base-dependent default tied to release.conf.  Callers can still
@@ -31,8 +40,14 @@ OUT="${OUT:-$ROOT/assets/squashfs}"
 if [ -r "$ROOT/release.conf" ]; then
   # shellcheck source=../release.conf
   . "$ROOT/release.conf"
+else
+  # Never guess the base distro. Silently defaulting is how a Forky tree
+  # ended up asking for a Resolute rootfs.
+  echo "ERROR: $ROOT/release.conf not readable -- refusing to guess the base" >&2
+  echo "       distro. Set ROOT=<repo> if you are running from elsewhere." >&2
+  exit 1
 fi
-NCZ_BASE_CODENAME="${NCZ_BASE_CODENAME:-resolute}"
+NCZ_BASE_CODENAME="${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
 BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64.tar.zst}"
 APT_SUITE="${APT_SUITE:-$NCZ_BASE_CODENAME}"
 APT_COMPONENTS="${APT_COMPONENTS:-main}"

@@ -1,44 +1,44 @@
 {
-  "generated_utc": "2026-08-02T19:09:36Z",
+  "generated_utc": "2026-08-03T04:08:14Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.0+r203_arm64.deb",
-      "sha256": "a92a287bac553573d88fcc5a59afea6c6c0b278814efb17cf2ee54903abd3eea"
+      "file": "build/kernel-debs/cixmini-boot_1.0+r204_arm64.deb",
+      "sha256": "dd61aa2dff5f3943a8a7a922bbdf235ca9fc2e8108e51e213f435b8cd7e4da1b"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini-edge_7.2.0-rc5-sky1-ncz+r203_arm64.deb",
-      "sha256": "4660b2d093214861cbfab1e1d314fbb30a8cb88ff58aa5fdf88e68de35a456d0"
+      "file": "build/kernel-debs/linux-image-cixmini-edge_7.2.0-rc6-sky1-ncz+r204_arm64.deb",
+      "sha256": "61008fecdb499c17d344b090d272b0371c9cd0b1cd5bab27c46306617f38f10f"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini-lts_7.0.12-cix-sky1-next+r203_arm64.deb",
-      "sha256": "ca7753ecd9600ac4d96c9bb248d6ac4862539771091ed4d1bae3b20c5d2763ac"
+      "file": "build/kernel-debs/linux-image-cixmini-lts_7.0.12-cix-sky1-next+r204_arm64.deb",
+      "sha256": "4dc335fc167492bc25f2b4cca1bd08425236daebf69f1eecacf4532009839d74"
     }
   ],
   "schema": 1,
   "variants": {
     "edge": {
       "config": {
-        "file": "assets/kernel/edge/config-7.2.0-rc5-sky1-ncz",
-        "sha256": "b39db3da47489e10b559189a8774dd514150707e8c24fb6e2d0ccabcc3a60766"
+        "file": "assets/kernel/edge/config-7.2.0-rc6-sky1-ncz",
+        "sha256": "7aa137c8fd0b6b257ec66700920a44b58b6013cf95298607f65c4f32e2f30498"
       },
       "dir": "assets/kernel/edge",
       "image": {
         "file": "assets/kernel/edge/Image-cixmini.bin",
-        "sha256": "1030c9ecc14cbfdc0a4281bfde57eaf52719a78ed883b77f6f94e59b8ac91547",
-        "size": 46111232
+        "sha256": "2fdb4ba60247d55c4038f9a121a3ce0e93ddfe4bcc4ee358e2339c68e2fe0b9a",
+        "size": 46045696
       },
-      "kver": "7.2.0-rc5-sky1-ncz",
+      "kver": "7.2.0-rc6-sky1-ncz",
       "modules": {
         "file": "assets/kernel/edge/modules-cixmini.tgz",
-        "sha256": "c09f0704c3424004332d11e5f72db74ae2369e6b2236ce559dd0f9667adb5f18",
-        "size": 5579112
+        "sha256": "e9192a2659bc144b5044e97d641ff5cc39979378b1c0546f87269afeee0976fb",
+        "size": 5586494
       },
       "npu": {
-        "file": "assets/kernel/edge/modules-cixmini.tgz:lib/modules/7.2.0-rc5-sky1-ncz/kernel/drivers/misc/armchina-npu/armchina_npu.ko.xz",
-        "sha256": "ec3c300aa36f48950eaf5859988580f91eae086a365a8cb82c8a966c26ea2f1e",
+        "file": "assets/kernel/edge/modules-cixmini.tgz:lib/modules/7.2.0-rc6-sky1-ncz/kernel/drivers/misc/armchina-npu/armchina_npu.ko.xz",
+        "sha256": "9a63e601dd96dc20f4e082b2ac2aae1da9bc7cfb4c9a8bc82574fa0a2a65fa8e",
         "source": "in-tree",
-        "vermagic": "7.2.0-rc5-sky1-ncz",
+        "vermagic": "7.2.0-rc6-sky1-ncz",
         "vermagic_matches_kver": true
       }
     },

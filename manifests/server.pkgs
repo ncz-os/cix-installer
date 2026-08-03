@@ -83,11 +83,13 @@ openbsd-inetd
 imagemagick
 
 # --- time ---
-# systemd-timesyncd: Ubuntu bundles it inside systemd, Debian splits it out.
-# Sky1 boards have no working RTC (O6N has no /dev/rtc at all), so without a
-# time daemon the clock re-seeds from the image build epoch every boot and TLS
-# validation fails. post-install/37-ntp-hostname.sh enables it.
-systemd-timesyncd
+# NOT systemd-timesyncd here: this manifest already seeds chrony (above), and
+# both Provide/Conflict `time-daemon`, so listing them together makes the layer
+# unresolvable ("systemd-timesyncd Conflicts time-daemon [selected chrony]") and
+# build-squashfs-layers.sh correctly refuses to publish an incomplete layer.
+# chrony already covers the no-RTC problem for the server profile;
+# post-install/37-ntp-hostname.sh detects whichever daemon is present.
+# The desktop profile has no chrony, so it seeds systemd-timesyncd instead.
 tzdata
 
 # --- generic Linux firmware ---
