@@ -76,7 +76,14 @@ if [ "${#KERNEL_VERS[@]}" -eq 0 ]; then
     echo "[80] WARN: no KVER_LTS or KVER_NEXT sidecar found; skipping kernel-specific NPU setup"
 fi
 if [ ! -d "$ASSETS" ]; then
-    echo "[80] WARN: NPU asset directory missing at $ASSETS"
+    # assets/npu/ is a gitignored blob dir carrying two OPTIONAL payloads: the
+    # out-of-tree armchina_npu-<KVER>.ko (only needed when the kernel does not
+    # build the driver in-tree) and the MS-R1 ACPI SSDT override. Both are
+    # board/kernel-specific, so an absent directory is not automatically a
+    # problem — say what is actually being skipped instead of a bare WARN.
+    echo "[80] NPU asset directory not staged at $ASSETS"
+    echo "[80]   -> no out-of-tree armchina_npu-<KVER>.ko (fine if the kernel ships it in-tree)"
+    echo "[80]   -> no MS-R1 ACPI SSDT override (fine on boards with a native CIXH4010 _HID)"
 fi
 
 echo "[80] installing NCZ NPU stack (FyrbyAdditive MS-R1 fixes)..."
@@ -254,7 +261,20 @@ if [ -f "$SSDT_CPIO" ] && should_apply_npu_ssdt; then
         fi
     done
 elif [ ! -f "$SSDT_CPIO" ]; then
-    echo "[80] WARN: SSDT CPIO missing at $SSDT_CPIO; NPU cores may not enumerate on MS-R1"
+    # 2026-08-02: this used to warn unconditionally, which produced a scary
+    # "NPU cores may not enumerate" line on every O6/O6N install even though
+    # should_apply_npu_ssdt() would have SKIPPED the override on those boards
+    # anyway (their firmware exposes the CIXH4010 _HID natively — the SSDT is a
+    # workaround for the Minisforum MS-R1 BIOS gap only). Ask the detector
+    # first, so the warning only fires on a board that actually needed the
+    # asset, and is silent-but-explicit everywhere else.
+    if should_apply_npu_ssdt; then
+        echo "[80] WARN: SSDT CPIO missing at $SSDT_CPIO — this board NEEDS the ACPI _HID"
+        echo "[80]       override, so the NPU cores will NOT enumerate. Stage the override at"
+        echo "[80]       assets/npu/npu-acpi-override.cpio and rebuild the ISO."
+    else
+        echo "[80] SSDT CPIO not staged at $SSDT_CPIO — not needed on this board (native _HID)"
+    fi
 else
     echo "[80] NPU SSDT override staged but NOT applied for this board (see detection above)"
 fi

@@ -81,3 +81,19 @@ openbsd-inetd
 
 # Native singularity-boot-splash replaces Plymouth on all profiles.
 imagemagick
+
+# --- time ---
+# systemd-timesyncd: Ubuntu bundles it inside systemd, Debian splits it out.
+# Sky1 boards have no working RTC (O6N has no /dev/rtc at all), so without a
+# time daemon the clock re-seeds from the image build epoch every boot and TLS
+# validation fails. post-install/37-ntp-hostname.sh enables it.
+systemd-timesyncd
+tzdata
+
+# --- generic Linux firmware ---
+# Debian splits what Ubuntu ships as a single linux-firmware package. Without
+# these the target has only CIX vendor firmware and r8169 logs missing
+# /lib/firmware/rtl_nic/* blobs at initramfs build time.
+firmware-linux-free
+firmware-realtek
+firmware-misc-nonfree

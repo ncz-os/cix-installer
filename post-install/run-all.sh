@@ -26,6 +26,16 @@ LOGDIR=${NCZ_LOGDIR:-/var/log/cix-install}
 HOOK_DIR=${NCZ_HOOK_DIR:-/usr/local/lib/cix-installer/post-install}
 mkdir -p "$LOGDIR"
 cd "$HOOK_DIR" || exit 1
+
+# Every hook that shells out to apt inherits this. Without it debconf tries
+# Dialog, then Readline, then Teletype, fails all three inside the d-i chroot,
+# and emits three "debconf: unable to initialize frontend" lines per package —
+# hundreds of lines of noise across the desktop layer that bury the warnings
+# that actually matter (this is how the missing-curl and missing-timesyncd
+# failures went unnoticed until the 2026-08-02 log audit). Individual hooks
+# that already set it explicitly are unaffected.
+export DEBIAN_FRONTEND=noninteractive
+export DEBIAN_PRIORITY=critical
 # Track failures across phases for end-of-run summary.
 FAILED_HOOKS=""
 CRITICAL_HOOK_FAILURES=""

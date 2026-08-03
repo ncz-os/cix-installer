@@ -2356,7 +2356,14 @@ if [ "$STAGE_LTS_KERNEL" = "1" ]; then
         cp -L "$ROOT/assets/kernel/stable/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/stable/"
         echo "    LTS headers staged: $(du -h "$EXTRA/assets/kernel/stable/headers-cixmini.tar.zst" | cut -f1)"
     else
-        echo "    LTS headers: not present (skip — DKMS rebuild will fail on target)"
+        echo "    LTS headers: NOT PRESENT — /lib/modules/$KVER_LTS/build will be absent on"
+        echo "                 the target, so DKMS cannot rebuild any CIX driver (every CIX"
+        echo "                 driver is DKMS by directive). Produce it from the built kernel"
+        echo "                 tree with:"
+        echo "                   build/extract-kernel-headers.sh \\"
+        echo "                     --kernel-src <linux-src-tree> \\"
+        echo "                     --kver $KVER_LTS \\"
+        echo "                     --output assets/kernel/stable/headers-cixmini.tar.zst"
     fi
     # r98: archive the LTS kernel .config (provenance / future OOT rebuilds).
     if [ -n "$KVER_LTS" ] && [ -f "$ROOT/assets/kernel/stable/config-$KVER_LTS" ]; then
@@ -2376,7 +2383,14 @@ if [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
         cp -L "$ROOT/assets/kernel/edge/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/edge/"
         echo "    NEXT headers staged: $(du -h "$EXTRA/assets/kernel/edge/headers-cixmini.tar.zst" | cut -f1)"
     else
-        echo "    NEXT headers: not present (skip — DKMS rebuild will fail on target)"
+        echo "    NEXT headers: NOT PRESENT — /lib/modules/$KVER_NEXT/build will be absent on"
+        echo "                 the target, so DKMS cannot rebuild any CIX driver (every CIX"
+        echo "                 driver is DKMS by directive). Produce it from the built kernel"
+        echo "                 tree with:"
+        echo "                   build/extract-kernel-headers.sh \\"
+        echo "                     --kernel-src <linux-src-tree> \\"
+        echo "                     --kver $KVER_NEXT \\"
+        echo "                     --output assets/kernel/edge/headers-cixmini.tar.zst"
     fi
     # r98: archive the NEXT kernel .config (provenance / future OOT rebuilds).
     if [ -n "$KVER_NEXT" ] && [ -f "$ROOT/assets/kernel/edge/config-$KVER_NEXT" ]; then

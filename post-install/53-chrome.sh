@@ -47,20 +47,76 @@ done
 # --- KEEP Google's apt repo ENABLED on the installed system (operator
 #     directive 2026-07-29) so Chrome auto-updates from dl.google.com. The
 #     r180 CDROM-only doctrine applies to the INSTALLER image, not the
-#     installed desktop. The chrome .deb postinst already wrote
-#     /etc/apt/sources.list.d/google-chrome.list (signed-by the
-#     /usr/share/keyrings/google-chrome.gpg keyring it also installs). Re-enable
-#     it if a prior build disabled it, and verify the keyring it references is
-#     present so `apt update` doesn't NO_PUBKEY-fail on it. ---
+#     installed desktop.
+#
+#     2026-08-02: this block used to look ONLY at the legacy one-line
+#     /etc/apt/sources.list.d/google-chrome.list. Current Chrome debs
+#     (151.0.7922.71) write deb822 google-chrome.sources instead, and their
+#     postinst MAIN runs install_key -> install_deb822_sources ->
+#     remove_legacy_list, i.e. it actively DELETES the .list file. So the hook
+#     reported "chrome deb postinst wrote no google-chrome.list — no
+#     auto-update repo" on every install while the repo was in fact configured
+#     correctly the whole time. Check the deb822 path first, keep the legacy
+#     path as a fallback, and only synthesise a source if BOTH are absent. ---
+CHROME_SOURCES=/etc/apt/sources.list.d/google-chrome.sources
 CHROME_SRC=/etc/apt/sources.list.d/google-chrome.list
-[ -f "$CHROME_SRC.disabled" ] && mv -f "$CHROME_SRC.disabled" "$CHROME_SRC"
-if [ -f "$CHROME_SRC" ]; then
-    echo "[53] Chrome apt repo ENABLED: $(grep -v '^#' "$CHROME_SRC" 2>/dev/null | grep -m1 dl.google.com)"
-    if [ ! -f /usr/share/keyrings/google-chrome.gpg ] && ! ls /etc/apt/keyrings/google-chrome*.asc >/dev/null 2>&1; then
-        echo "[53] WARN: google-chrome.list present but its signing keyring is missing — apt update will fail on it"
-    fi
+# Restore a repo an earlier build disabled — but NEVER over a live one. The
+# old code did an unconditional `mv -f`, so if both an active source and a
+# stale .disabled backup existed, the stale copy silently overwrote the working
+# one. Only promote the backup when there is nothing active to lose.
+if [ -f "$CHROME_SOURCES.disabled" ] && [ ! -f "$CHROME_SOURCES" ]; then
+    mv -f "$CHROME_SOURCES.disabled" "$CHROME_SOURCES"
+fi
+if [ -f "$CHROME_SRC.disabled" ] && [ ! -f "$CHROME_SRC" ] && [ ! -f "$CHROME_SOURCES" ]; then
+    mv -f "$CHROME_SRC.disabled" "$CHROME_SRC"
+fi
+
+chrome_keyring_ok() {
+    [ -f /usr/share/keyrings/google-chrome.gpg ] && return 0
+    ls /etc/apt/keyrings/google-chrome.* >/dev/null 2>&1
+}
+
+if [ -f "$CHROME_SOURCES" ]; then
+    echo "[53] Chrome apt repo ENABLED (deb822): $(grep -m1 '^URIs:' "$CHROME_SOURCES" 2>/dev/null)"
+    chrome_keyring_ok || echo "[53] WARN: google-chrome.sources present but its signing keyring is missing — apt update will fail on it"
+elif [ -f "$CHROME_SRC" ]; then
+    echo "[53] Chrome apt repo ENABLED (legacy .list): $(grep -v '^#' "$CHROME_SRC" 2>/dev/null | grep -m1 dl.google.com)"
+    chrome_keyring_ok || echo "[53] WARN: google-chrome.list present but its signing keyring is missing — apt update will fail on it"
 else
-    echo "[53] NOTE: chrome deb postinst wrote no google-chrome.list — Chrome installed but has no auto-update repo"
+    # Neither file exists: the postinst's repo step really did not run (it is
+    # gated on repo_add_once in /etc/default/google-chrome). Chrome would then
+    # sit pinned forever at whatever version the offline mirror carried — a
+    # browser that never receives security updates. Write the deb822 source
+    # ourselves, matching what the postinst would have produced.
+    if chrome_keyring_ok; then
+        CHROME_KEYRING=/usr/share/keyrings/google-chrome.gpg
+        [ -f "$CHROME_KEYRING" ] || CHROME_KEYRING=$(ls /etc/apt/keyrings/google-chrome.* 2>/dev/null | head -1)
+        cat > "$CHROME_SOURCES" <<EOF
+# Written by post-install/53-chrome.sh: the google-chrome-stable postinst did
+# not configure its own repo on this build (repo_add_once gate), so Chrome
+# would never auto-update. Mirrors the postinst's own deb822 output.
+X-Repolib-Name: Google Chrome
+Types: deb
+# NOT a typo and NOT the legacy https://dl.google.com/linux/chrome/deb/ path.
+# Chrome 151's postinst gen_sources_content() writes chrome-stable/deb/ in its
+# deb822 source (the chrome/deb/ form only survives in its REPOCONFIG legacy
+# one-line variable). Verified 2026-08-02: this is verbatim what the postinst
+# wrote to google-chrome.sources on the installed O6N, and both endpoints
+# return HTTP 200 for dists/stable/Release. Match the vendor so a later
+# postinst run is idempotent instead of rewriting our file.
+URIs: https://dl.google.com/linux/chrome-stable/deb/
+Suites: stable
+Components: main
+Architectures: arm64
+Signed-By: $CHROME_KEYRING
+EOF
+        chmod 0644 "$CHROME_SOURCES"
+        echo "[53] wrote $CHROME_SOURCES (Signed-By=$CHROME_KEYRING) — Chrome will auto-update"
+    else
+        echo "[53] WARN: no google-chrome.sources/.list AND no google-chrome keyring on the target."
+        echo "[53]       Chrome is installed but will NEVER receive updates. The keyring is written"
+        echo "[53]       by the deb's own postinst (install_key) — check whether that postinst ran."
+    fi
 fi
 
 # --- NOT the default browser: Vivaldi keeps that role. Register Chrome as a

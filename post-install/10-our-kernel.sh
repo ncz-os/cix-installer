@@ -177,16 +177,62 @@ if [ "$INSTALLED_KERNELS" -eq 0 ]; then
     exit 1
 fi
 
-# Headers for DKMS (NPU/GPU drivers). Not currently packaged separately on
-# Buildkite (no linux-headers-cixmini-* package as of r193) -- warn loudly,
-# same as the previous raw-copy behaviour did when the headers tarball was
-# absent, so any DKMS rebuild attempt on target fails with a clear reason
-# rather than a confusing missing-Makefile error.
+# Headers for DKMS (NPU/GPU/panthor drivers). There is still no
+# linux-headers-cixmini-* package on Buildkite, so the headers ship as a
+# tarball produced by build/extract-kernel-headers.sh:
+#   assets/kernel/stable/headers-cixmini.tar.zst  -> KVER_LTS
+#   assets/kernel/edge/headers-cixmini.tar.zst    -> KVER_NEXT
+# Each unpacks to lib/modules/$KVER/build/ (Makefile, scripts/, include/,
+# arch/arm64/include/, .config, Module.symvers), which is exactly what DKMS
+# needs. This is the same tar-into-/usr pattern the module tarball already
+# uses.
+#
+# 2026-08-02: this consumption step did not exist. extract-kernel-headers.sh
+# was written for r75 task #66 and then never wired to a caller, so every
+# install shipped with /lib/modules/$KVER/build absent and the hook only
+# warned. That is a real contradiction of the all-DKMS driver rule -- CIX
+# drivers are DKMS by directive, and DKMS cannot rebuild any of them against a
+# kernel whose build tree is missing. Confirmed on O6N: WARN for BOTH
+# 7.0.12-cix-sky1-next and 7.2.0-rc5-sky1-ncz.
+install_kernel_headers() {
+    local kver="$1" channel="$2" tarball="" d
+    [ -z "$kver" ] && return 0
+    [ -f "/lib/modules/$kver/build/Makefile" ] && return 0
+    for d in "$INSTALLER_META/assets/kernel/$channel" "/cdrom/cixmini/assets/kernel/$channel"; do
+        [ -f "$d/headers-cixmini.tar.zst" ] || continue
+        tarball="$d/headers-cixmini.tar.zst"
+        break
+    done
+    [ -n "$tarball" ] || return 1
+    if ! command -v zstd >/dev/null 2>&1; then
+        echo "    WARN: $tarball present but zstd is missing — cannot unpack kernel headers" >&2
+        return 1
+    fi
+    # The tarball carries lib/modules/$KVER/build/... . Extract under /usr with
+    # --keep-directory-symlink: on a usr-merged root /lib IS a symlink to
+    # usr/lib, and a plain `tar -C /` of a member named lib/ replaces that
+    # symlink with a real directory -- the exact class of breakage that took a
+    # board out in the initrd-overlay incident. Never relax this.
+    if zstd -dc "$tarball" 2>/dev/null | tar -C /usr --keep-directory-symlink -xf - 2>/dev/null; then
+        echo "    installed kernel headers for $kver from $(basename "$(dirname "$tarball")")/$(basename "$tarball")"
+        return 0
+    fi
+    echo "    WARN: failed to unpack $tarball" >&2
+    return 1
+}
+
+install_kernel_headers "$KVER_LTS"  stable || true
+install_kernel_headers "$KVER_NEXT" edge   || true
+
 for kver in "$KVER_LTS" "$KVER_NEXT"; do
     [ -z "$kver" ] && continue
-    if [ ! -f "/lib/modules/$kver/build/Makefile" ]; then
+    if [ -f "/lib/modules/$kver/build/Makefile" ]; then
+        echo "    headers OK for $kver (/lib/modules/$kver/build present — DKMS can rebuild)"
+    else
         echo "    WARN: no kernel headers for $kver (/lib/modules/$kver/build/Makefile absent)" \
-             "— DKMS rebuild blocked on target" >&2
+             "— DKMS rebuild blocked on target." >&2
+        echo "          Remediation: build/extract-kernel-headers.sh --kernel-src <tree> --kver $kver" \
+             "--output assets/kernel/<stable|edge>/headers-cixmini.tar.zst, then rebuild the ISO." >&2
     fi
 done
 

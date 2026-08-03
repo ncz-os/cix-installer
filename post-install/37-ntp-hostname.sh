@@ -125,12 +125,65 @@ fi
 install -d -m 0755 /etc/systemd/timesyncd.conf.d
 cat > /etc/systemd/timesyncd.conf.d/10-nclawzero.conf <<'EOF'
 [Time]
-NTP=ntp.ubuntu.com time.cloudflare.com time.google.com
+NTP=time.cloudflare.com time.google.com
 FallbackNTP=0.pool.ntp.org 1.pool.ntp.org 2.pool.ntp.org 3.pool.ntp.org
 EOF
 
-systemctl enable systemd-timesyncd
-# r63: NEVER use --now in chroot context (codex finding); first boot starts it
+# 2026-08-02 (Debian forky): systemd-timesyncd is NOT part of systemd on Debian
+# — it is split into its own package (Ubuntu bundles it, which is why this hook
+# worked for two years and then silently stopped). Confirmed on O6N: this line
+# failed with "Failed to enable unit: systemd-timesyncd.service does not exist",
+# so the board had NO time source at all: no /dev/rtc, timesyncd/chronyd/ntpsec
+# all inactive, and the clock re-seeding from the image build epoch on every
+# boot (which breaks TLS certificate validation and every log timestamp).
+# systemd-timesyncd is now seeded in manifests/{desktop,server}.pkgs; install it
+# here if the unit is still missing, and fall back to chrony before giving up.
+NCZ_TIME_UNIT=""
+if systemctl cat systemd-timesyncd.service >/dev/null 2>&1; then
+    NCZ_TIME_UNIT=systemd-timesyncd
+else
+    echo "[33] systemd-timesyncd.service absent (Debian splits it out of systemd) — installing"
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd-timesyncd >/dev/null 2>&1 \
+       && systemctl cat systemd-timesyncd.service >/dev/null 2>&1; then
+        NCZ_TIME_UNIT=systemd-timesyncd
+    elif DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends chrony >/dev/null 2>&1 \
+       && systemctl cat chrony.service >/dev/null 2>&1; then
+        NCZ_TIME_UNIT=chrony
+        echo "[33] systemd-timesyncd unavailable — using chrony instead"
+    fi
+fi
+
+if [ -n "$NCZ_TIME_UNIT" ]; then
+    systemctl enable "$NCZ_TIME_UNIT"
+    # r63: NEVER use --now in chroot context (codex finding); first boot starts it
+else
+    echo "[33] ERROR: no NTP implementation available (systemd-timesyncd and chrony both" \
+         "uninstallable). Sky1 boards have no usable RTC, so this system will boot with a" \
+         "stale clock and TLS validation will fail. Seed systemd-timesyncd in the layer manifest." >&2
+fi
+
+# ----- timezone --------------------------------------------------------
+# The CIX vendor rootfs ships TZ=Asia/Shanghai. Nothing in our pipeline ever
+# reset it, so every installed board silently ran on Shanghai local time
+# (confirmed on O6N 2026-08-02). Honour an operator/preseed choice if one was
+# made; otherwise correct the vendor default to UTC, which is the only sane
+# default for a fleet that spans timezones and logs to a shared bus.
+NCZ_TZ_DEFAULT="${NCZ_TIMEZONE:-UTC}"
+CURRENT_TZ=$(readlink -f /etc/localtime 2>/dev/null | sed 's|^.*/zoneinfo/||')
+case "$CURRENT_TZ" in
+    ""|Asia/Shanghai|Etc/UTC|UTC)
+        if [ -f "/usr/share/zoneinfo/$NCZ_TZ_DEFAULT" ]; then
+            ln -sf "/usr/share/zoneinfo/$NCZ_TZ_DEFAULT" /etc/localtime
+            echo "$NCZ_TZ_DEFAULT" > /etc/timezone
+            echo "[33] timezone: '${CURRENT_TZ:-unset}' (CIX vendor default) -> $NCZ_TZ_DEFAULT"
+        else
+            echo "[33] WARN: /usr/share/zoneinfo/$NCZ_TZ_DEFAULT missing (tzdata not installed?) — timezone left as '${CURRENT_TZ:-unset}'"
+        fi
+        ;;
+    *)
+        echo "[33] preserving operator timezone: $CURRENT_TZ"
+        ;;
+esac
 
 # ----- summary ---------------------------------------------------------
 echo ""
@@ -138,4 +191,9 @@ echo "Final state:"
 echo "  hostname:  $(cat /etc/hostname)"
 echo "  /etc/hosts:"
 grep -E "^127\." /etc/hosts | sed 's/^/    /' || true
-echo "  systemd-timesyncd: $(systemctl is-enabled systemd-timesyncd 2>&1 || true) / $(systemctl is-active systemd-timesyncd 2>&1 || true)"
+echo "  timezone:  $(readlink -f /etc/localtime 2>/dev/null | sed 's|^.*/zoneinfo/||')"
+if [ -n "$NCZ_TIME_UNIT" ]; then
+    echo "  time sync: $NCZ_TIME_UNIT — $(systemctl is-enabled "$NCZ_TIME_UNIT" 2>&1 || true) / $(systemctl is-active "$NCZ_TIME_UNIT" 2>&1 || true)"
+else
+    echo "  time sync: NONE (see error above)"
+fi

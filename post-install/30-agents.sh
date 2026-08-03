@@ -1056,11 +1056,34 @@ chmod 0755 /etc/skel/Desktop/ClaudeCode.desktop
 # script runs under `set +e`, so pipefail changes failure visibility, not
 # whether the script continues -- restore the prior setting after).
 ZODER_INSTALL_URL=https://gitlab.com/ncz-os/zoder/-/raw/master/install.sh
-set -o pipefail
-curl -fsSL --max-time 60 "$ZODER_INSTALL_URL" | ZODER_BIN_DIR=/usr/local/bin sh
-ZODER_PIPE_RC=$?
-set +o pipefail
-[ "$ZODER_PIPE_RC" -eq 0 ] || echo "[30] zoder install pipeline exited $ZODER_PIPE_RC (curl or install.sh failed)"
+# 2026-08-02: on the Debian forky base curl was simply ABSENT from the target
+# (Ubuntu's base shipped it, Debian's does not, and installer-base.pkgs only
+# seeds the offline mirror). `curl -fsSL ... | sh` then failed with
+# "curl: command not found" -> exit 127, and zoder never installed. curl is now
+# seeded in manifests/desktop.pkgs + server.pkgs, but keep a wget fallback so a
+# missing fetcher can never silently cost us the agent again, and say which
+# fetcher ran so the log names the real failure.
+# Array, not a string: an unquoted "$ZODER_FETCH" would word-split, which is
+# harmless for today's fixed flags but becomes a live bug the moment an option
+# carries whitespace.
+ZODER_FETCH=()
+if command -v curl >/dev/null 2>&1; then
+    ZODER_FETCH=(curl -fsSL --max-time 60)
+elif command -v wget >/dev/null 2>&1; then
+    ZODER_FETCH=(wget -qO- --timeout=60)
+    echo "[30] curl absent — falling back to wget for the zoder installer"
+fi
+if [ "${#ZODER_FETCH[@]}" -eq 0 ]; then
+    echo "[30] ERROR: neither curl nor wget on the target — cannot fetch the zoder installer."
+    echo "[30]        Seed 'curl' in the layer manifest (manifests/desktop.pkgs) and rebuild."
+    ZODER_PIPE_RC=127
+else
+    set -o pipefail
+    "${ZODER_FETCH[@]}" "$ZODER_INSTALL_URL" | ZODER_BIN_DIR=/usr/local/bin sh
+    ZODER_PIPE_RC=$?
+    set +o pipefail
+fi
+[ "$ZODER_PIPE_RC" -eq 0 ] || echo "[30] zoder install pipeline exited $ZODER_PIPE_RC (fetch or install.sh failed)"
 if [ -x /usr/local/bin/zoder ]; then
     echo "[30] zoder installed: $(/usr/local/bin/zoder --version 2>&1)"
 else

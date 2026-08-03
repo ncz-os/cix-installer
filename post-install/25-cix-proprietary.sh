@@ -183,6 +183,15 @@ if [ -f "$CDM_ORIG" ]; then
         sed -i -E '\#/etc/gdm3/daemon\.conf#s|^[[:space:]]*|# [25-patched] |' /tmp/cdm-patch/DEBIAN/postinst
         sed -i -E '\#/usr/share/pulseaudio/alsa-mixer/paths/(cix-)?analog-output-headphones\.conf#s|^[[:space:]]*|# [25-patched] |' /tmp/cdm-patch/DEBIAN/postinst
         sed -i -E '\#timedatectl[[:space:]]+set-local-rtc#s|^[[:space:]]*|# [25-patched] |' /tmp/cdm-patch/DEBIAN/postinst
+        # 2026-08-02: post-install/22-display-fix.sh masks cix-check-display.service
+        # (it is the GNOME-only vendor display watchdog, hardcoded to
+        # /usr/bin/restart-display, and we do not run that stack). 22 runs before
+        # 25, so this postinst's `systemctl enable cix-check-display` always hit a
+        # masked unit and logged "Failed to enable unit: Unit
+        # /etc/systemd/system/cix-check-display.service is masked" on every
+        # install. The mask is the decision; drop the enable so the two steps stop
+        # contradicting each other. (Keep the bluetooth-autoconnect enable.)
+        sed -i -E '\#^[[:space:]]*systemctl[[:space:]]+enable[[:space:]]+cix-check-display#s|^[[:space:]]*|# [25-patched] |' /tmp/cdm-patch/DEBIAN/postinst
         grep -qE '^[[:space:]]*exit[[:space:]]+0[[:space:]]*$' /tmp/cdm-patch/DEBIAN/postinst \
             || printf '\n# [25-patched] never half-configure on a best-effort tweak failure\nexit 0\n' >> /tmp/cdm-patch/DEBIAN/postinst
         echo "    patched postinst — commented mv lines:"
@@ -198,6 +207,71 @@ if [ -f "$CDM_ORIG" ]; then
     cp "$CDM_PATCHED" "$ASSETS/cix-debian-misc_1.0.0_arm64.patched.deb"
     DEBS+=("cix-debian-misc_1.0.0_arm64.patched.deb")
 fi
+
+# ----------------------------------------------------------------------
+# Bashism sweep over vendor maintainer scripts (2026-08-02).
+#
+# Several Cix debs declare `#!/bin/sh` but use bash-only syntax. Confirmed on
+# O6N: cix-env's postinst is
+#     #!/bin/sh
+#     set -e
+#     if [[ -e "/etc/default/cpufrequtils" ]]; then
+# and /bin/sh is dash on Debian, so line 4 fails with `[[: not found`. Under
+# `set -e` that aborts the script, so the cpufreq governor tweak never applied
+# and dpkg saw a failing postinst.
+#
+# This was survivable on Ubuntu only by luck; it is not a Debian-specific
+# regression so much as a latent vendor bug that the forky move exposed.
+#
+# Rather than rewrite vendor logic (risky — `[[ a && b ]]` has no safe
+# mechanical translation to `[`), retarget the interpreter: bash is present on
+# every profile, and bash running a script written for bash is exactly the
+# author's intent. Peek at the control archive first (`dpkg-deb -e` unpacks
+# only DEBIAN/, cheap) and do the expensive full unpack/repack ONLY for debs
+# that actually need it.
+# ----------------------------------------------------------------------
+echo "--- scanning vendor maintainer scripts for bashisms under #!/bin/sh ---"
+for i in "${!DEBS[@]}"; do
+    deb="${DEBS[$i]}"
+    [ -f "$deb" ] || continue
+    ctrl=/tmp/cix-ctrl-peek
+    rm -rf "$ctrl"; mkdir -p "$ctrl"
+    dpkg-deb -e "$deb" "$ctrl" 2>/dev/null || continue
+    needs_bash=""
+    for ms in preinst postinst prerm postrm; do
+        [ -f "$ctrl/$ms" ] || continue
+        # only /bin/sh (with or without trailing flags); leave real bash alone
+        head -1 "$ctrl/$ms" | grep -qE '^#!.*/sh([[:space:]]|$)' || continue
+        # Bash-only constructs that dash does not implement. Over-matching is
+        # harmless (bash runs a POSIX script correctly), under-matching leaves a
+        # script broken, so the list is deliberately generous: `source` instead
+        # of `.`, process substitution, arrays, shopt/select, BASH_* variables.
+        grep -qE '\[\[|\]\]|<<<|<\(|>\(|\+=\(|\bBASH_[A-Z]|\$\{![A-Za-z_]|^[[:space:]]*function[[:space:]]+[A-Za-z_]|(^|[[:space:];&|])source[[:space:]]|(^|[[:space:];&|])(shopt|pushd|popd|mapfile|readarray|typeset)\b|(^|[[:space:];&|])(declare|local)[[:space:]]+-[aAin]|(^|[[:space:];&|])select[[:space:]]+[A-Za-z_]+[[:space:]]+in\b|(^|[[:space:];&|])read[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*-a\b' \
+            "$ctrl/$ms" && needs_bash="$needs_bash $ms"
+    done
+    rm -rf "$ctrl"
+    [ -n "$needs_bash" ] || continue
+
+    base=$(basename "$deb" .deb)
+    echo "    $deb: bashism in$needs_bash — retargeting shebang to /bin/bash"
+    work=/tmp/cix-shebang-$base
+    rm -rf "$work"
+    if ! dpkg-deb -R "$deb" "$work" 2>/dev/null; then
+        echo "    WARN: could not unpack $deb — leaving it unpatched"
+        rm -rf "$work"; continue
+    fi
+    for ms in $needs_bash; do
+        sed -i -E '1s|^#!.*/sh([[:space:]].*)?$|#!/bin/bash\1|' "$work/DEBIAN/$ms"
+        echo "      $ms -> $(head -1 "$work/DEBIAN/$ms")"
+    done
+    patched="$ASSETS/${base}.shpatched.deb"
+    if dpkg-deb -b "$work" "$patched" >/dev/null 2>&1; then
+        DEBS[$i]="$(basename "$patched")"
+    else
+        echo "    WARN: repack of $deb failed — leaving it unpatched"
+    fi
+    rm -rf "$work"
+done
 
 if [ "${#DEBS[@]}" -eq 0 ]; then
     echo "[25] no installable Cix proprietary .debs remain after kernel/driver/NPU filters; skipping"

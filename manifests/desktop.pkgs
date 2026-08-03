@@ -307,3 +307,37 @@ zstd
 firmware-linux-free
 firmware-realtek
 firmware-misc-nonfree
+
+# curl + its trust store. Same Debian-vs-Ubuntu gap class as zstd above:
+# installer-base.pkgs lists curl, but that manifest only seeds the offline
+# MIRROR -- the base layer is the Debian forky rootfs tarball plus hooks and
+# installs no manifest, so nothing was actually putting curl on the target.
+# Confirmed on O6N 2026-08-02: post-install/30-agents.sh died with
+# "curl: command not found" (exit 127) and zoder was never installed; the
+# 46-python311.sh network fallbacks are gated on `command -v curl` and were
+# silently skipped for the same reason. ca-certificates is required for any
+# of those https fetches to validate.
+curl
+ca-certificates
+
+# systemd-timesyncd. Ubuntu bundles it inside systemd; Debian splits it into
+# its own package, so post-install/37-ntp-hostname.sh failed with
+# "Failed to enable unit: systemd-timesyncd.service does not exist"
+# (confirmed on O6N 2026-08-02). Sky1 boards have no working RTC -- O6N has no
+# /dev/rtc at all -- so without a time daemon the clock re-seeds from the image
+# build epoch on every boot and TLS certificate validation fails.
+systemd-timesyncd
+tzdata
+
+# python3-venv / python3-pip. Debian splits venv + ensurepip out of the base
+# python3 package (Ubuntu's python3 pulled them in), so post-install/47-embedkit.sh's
+# stdlib fallback died with:
+#   "You may need to use sudo with that command. After installing the
+#    python3-venv package, recreate your virtual environment.
+#    Failing command: /opt/ncz/embed-venv/bin/python3"
+# and /opt/ncz/embed-venv was never created (reproduced on O6N 2026-08-02:
+# `python3 -m venv` fails, python3-venv and python3-pip both absent). The
+# preferred path is uv (vendored by build/build-python311-assets.sh), but the
+# fallback has to actually work when uv is unavailable.
+python3-venv
+python3-pip
