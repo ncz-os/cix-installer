@@ -123,7 +123,15 @@ install_ncz_bootstrap_pool_hook() {
 # 20ncz-bootstrap-pool - prefer the ISO pkgsel bootstrap pool when present.
 set +e
 LOG=/var/log/early_command.log
-INDEX=/cdrom/dists/resolute/main/binary-arm64/Packages
+# Follow the release profile for the on-media suite; the ISO ships
+# dists/<NCZ_BASE_CODENAME>, so a hard-coded suite makes every apt-get update
+# against file:///cdrom fail with "File not found - /cdrom/dists/<suite>/...".
+NCZ_BASE_CODENAME=""
+for _rel in /cdrom/cixmini/RELEASE /hd-media/cixmini/RELEASE \
+            /media/cdrom/cixmini/RELEASE /run/live/medium/cixmini/RELEASE; do
+    [ -r "$_rel" ] && . "$_rel" && break
+done
+INDEX=/cdrom/dists/${NCZ_BASE_CODENAME:-resolute}/main/binary-arm64/Packages
 
 if [ -e /cdrom/.disk/base_installable ]; then
     echo "[ncz-bootstrap-pool] base-installable media already uses cdrom; skipping" >> "$LOG"
@@ -148,8 +156,8 @@ if ! grep -qs ' /target/cdrom ' /proc/mounts; then
     fi
 fi
 
-cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'EOF'
-deb [trusted=yes] file:///cdrom resolute main
+cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<EOF
+deb [trusted=yes] file:///cdrom ${NCZ_BASE_CODENAME:-resolute} main
 EOF
 cat > /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref <<'EOF'
 Package: *

@@ -332,7 +332,7 @@ echo
 # 2026-05-08 netinstall-bootstrap keeps base_installable absent but adds a
 # small non-empty regular Packages index for pkgsel/include. In that mode,
 # file:///cdrom is valid for pkgsel/post-install package fallback.
-CDROM_REGULAR_INDEX=/cdrom/dists/resolute/main/binary-arm64/Packages
+CDROM_REGULAR_INDEX=/cdrom/dists/${NCZ_BASE_CODENAME:-resolute}/main/binary-arm64/Packages
 if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     echo "--- mounting cdrom into /target for offline apt-get during post-install ---"
     mkdir -p /target/cdrom
@@ -362,8 +362,8 @@ if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     # Add file:///cdrom apt source to /target's sources.list so apt-get
     # install in chroot can find packages locally. [trusted=yes] bypasses
     # GPG (we don't sign our offline mirror Release file yet).
-    cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<'CDROM_LIST'
-deb [trusted=yes] file:///cdrom resolute main
+    cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<CDROM_LIST
+deb [trusted=yes] file:///cdrom ${NCZ_BASE_CODENAME:-resolute} main
 CDROM_LIST
     # d-i may leave a `deb cdrom:` entry that apt-get update cannot use without
     # apt-cdrom registration. The equivalent file:///cdrom source above is the
@@ -401,7 +401,17 @@ CDROM_PREF
         # NPU userspace correctly (dpkg-deb -x files only, no postinst) and
         # purges any half-configured cix-* packages, so installing them here is
         # both redundant and actively harmful.
-        chroot /target /usr/bin/apt-get install -y --allow-unauthenticated linux-firmware || { echo "WARN: linux-firmware install failed"; true; }
+        # "linux-firmware" is the Ubuntu name and does not exist in Debian, where
+        # the same content is split across firmware-linux-free (main) and the
+        # non-free-firmware bundles. Asking for the wrong one aborted with
+        # "E: Unable to locate package linux-firmware" and left the system with
+        # NO generic firmware -- e.g. rtl_nic/rtl8125k-1.fw for the r8169 NIC.
+        if [ "${NCZ_BASE_NAME:-Ubuntu}" = "Debian" ]; then
+            FW_PKGS="firmware-linux-free firmware-realtek firmware-misc-nonfree"
+        else
+            FW_PKGS="linux-firmware"
+        fi
+        chroot /target /usr/bin/apt-get install -y --allow-unauthenticated $FW_PKGS || { echo "WARN: firmware install failed ($FW_PKGS)"; true; }
         # r178: telnetd (doctrine #9 fleet lockout-prevention) from the OFFLINE
         # /cdrom pool. pkgsel/include is now EMPTY (the baked squashfs is the
         # complete system), but inetutils-telnetd + openbsd-inetd are the only

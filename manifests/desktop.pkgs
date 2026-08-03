@@ -298,3 +298,12 @@ gnome-console
 # it 72 aborts, RESCUE_READY is never written, and ncz-refind-refresh refuses
 # to install BOOTAA64.EFI, failing the install as unbootable.
 zstd
+
+# Generic Linux firmware. Debian splits what Ubuntu ships as one linux-firmware
+# package; without these the installed system has only CIX vendor firmware and
+# the kernel logs e.g. "Possible missing firmware /lib/firmware/rtl_nic/
+# rtl8125k-1.fw for built-in driver r8169". Seeded here so they are in the
+# offline mirror closure AND installed into the shipped layer.
+firmware-linux-free
+firmware-realtek
+firmware-misc-nonfree
