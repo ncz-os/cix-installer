@@ -70,7 +70,13 @@ else
     exit 1
 fi
 
-apt-get install -y --no-install-recommends kmod initramfs-tools
+# zstd is this hook's OWN dependency: the kernel-headers tarball is
+# zstd-compressed and install_kernel_headers() below refuses to unpack
+# without it. The base squashfs layer is a plain Debian rootfs that does
+# not ship zstd, so the headers were being silently skipped there --
+# staged on disk, never installed, DKMS still broken. desktop.pkgs seeds
+# zstd for the desktop layer, but this hook runs in the BASE layer too.
+apt-get install -y --no-install-recommends kmod initramfs-tools zstd
 
 INSTALLED_KERNELS=0
 

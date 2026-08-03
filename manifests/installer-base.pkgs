@@ -69,3 +69,19 @@ busybox-static
 # ncz-refind-refresh then refuses to write /EFI/BOOT/BOOTAA64.EFI, and late.sh
 # correctly declares the install unbootable -- after the base system is on disk.
 zstd
+
+# --- NCZ kernel channels ---
+# post-install/10-our-kernel.sh installs the kernel with apt. Until now the
+# only source for these was the Buildkite repo over the NETWORK, which meant
+# (a) a fresh install silently got whatever version Buildkite happened to be
+# serving rather than the kernel staged on the ISO, and (b) the squashfs base
+# layer could not build at all without network -- the LTS->legacy rename made
+# that visible immediately as "E: Unable to locate package
+# linux-image-cixmini-legacy", because the renamed package did not exist
+# upstream yet.
+# Seeding them here pulls the locally built .debs (published into the vendor
+# mirror from build/kernel-debs by build/build-vendor-mirror.sh) into the
+# offline closure, so the ISO ships the kernel it was built with.
+linux-image-cixmini-legacy
+linux-image-cixmini-edge
+cixmini-boot

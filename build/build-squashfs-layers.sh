@@ -77,15 +77,27 @@ umount_chroot(){ local c="$1"
 # Offline apt sources are profile-driven so a parallel Debian Testing build
 # cannot accidentally consume a Resolute mirror.
 mirror_available(){ local m; for m in $MIRROR_DIRS; do [ -d "$ROOT/build/$m/dists/$APT_SUITE" ] && return 0; done; return 1; }
+# The offline mirror goes in sources.list.d/, NOT sources.list: hooks run
+# inside these chroots (10-our-kernel.sh -> 24-apt-sources.sh) truncate
+# /etc/apt/sources.list on Debian, which silently removed the offline source
+# before the kernel install that depends on it.
+NCZ_OFFLINE_SRC=/etc/apt/sources.list.d/ncz-offline-mirror.list
 apt_offline(){ local c="$1"
   sudo rm -f "$c/etc/apt/sources.list"
+  sudo mkdir -p "$c/etc/apt/sources.list.d"
+  sudo rm -f "$c$NCZ_OFFLINE_SRC"
   for m in $MIRROR_DIRS; do
     [ -d "$ROOT/build/$m/dists/$APT_SUITE" ] || continue
     sudo mkdir -p "$c/mnt/$m"; sudo mount -o bind "$ROOT/build/$m" "$c/mnt/$m"
-    echo "deb [trusted=yes] file:///mnt/$m $APT_SUITE $APT_COMPONENTS" | sudo tee -a "$c/etc/apt/sources.list" >/dev/null
+    echo "deb [trusted=yes] file:///mnt/$m $APT_SUITE $APT_COMPONENTS" | sudo tee -a "$c$NCZ_OFFLINE_SRC" >/dev/null
   done
   sudo chroot "$c" apt-get update -y 2>&1 | tail -4 || true; }
-apt_unmount(){ local c="$1"; for m in $MIRROR_DIRS; do sudo umount -lf "$c/mnt/$m" 2>/dev/null || true; done; }
+apt_unmount(){ local c="$1"
+  for m in $MIRROR_DIRS; do sudo umount -lf "$c/mnt/$m" 2>/dev/null || true; done
+  # Build-time only: never ship a file:// source pointing at a bind mount
+  # that does not exist on the installed system.
+  sudo rm -f "$c$NCZ_OFFLINE_SRC" 2>/dev/null || true
+  sudo rmdir "$c/mnt/$m" 2>/dev/null || true; }
 
 # build a ROLE delta layer: overlay(base=lower) + apt-install the package set into
 # the upperdir, then squash ONLY the upperdir (the delta). NO NCZ desktop hooks.
