@@ -50,7 +50,7 @@ set -uo pipefail
 REFRESH=/usr/local/sbin/ncz-refind-refresh
 [ -x "$REFRESH" ] || { echo "cixmini-update-bootloader: ncz-refind-refresh not present, skipping"; exit 0; }
 
-KVER_LTS=""
+KVER_LEGACY=""
 KVER_NEXT=""
 for f in /boot/vmlinuz-*; do
     [ -e "$f" ] || continue
@@ -77,15 +77,15 @@ for f in /boot/vmlinuz-*; do
             # edge slot. A released -sky1-ncz (no rc) is the stable target.
             case "$kver" in
                 *rc[0-9]*)             KVER_NEXT="$kver" ;;  # any -rcN kernel = edge
-                *-cix-sky1-next|*-lts) KVER_LTS="$kver" ;;   # legacy stable name
-                *-sky1-ncz)            KVER_LTS="$kver" ;;   # released stable target
+                *-cix-sky1-next|*-lts) KVER_LEGACY="$kver" ;;   # legacy stable name
+                *-sky1-ncz)            KVER_LEGACY="$kver" ;;   # released stable target
                 *-ncz)                 KVER_NEXT="$kver" ;;  # bare -ncz fallback = edge
                 *-next)                KVER_NEXT="$kver" ;;  # legacy edge name
             esac
             ;;
     esac
 done
-if [ -z "$KVER_LTS" ] && [ -z "$KVER_NEXT" ]; then
+if [ -z "$KVER_LEGACY" ] && [ -z "$KVER_NEXT" ]; then
     echo "cixmini-update-bootloader: no LTS/NEXT kernel with a ready initrd found, skipping"
     exit 0
 fi
@@ -94,7 +94,7 @@ BUILD_VERSION="(unknown)"
 [ -f /usr/local/lib/cix-installer/BUILD_VERSION ] && \
     BUILD_VERSION=$(cat /usr/local/lib/cix-installer/BUILD_VERSION 2>/dev/null || true)
 
-KVER_LTS="$KVER_LTS" KVER_NEXT="$KVER_NEXT" BUILD_VERSION="$BUILD_VERSION" "$REFRESH"
+KVER_LEGACY="$KVER_LEGACY" KVER_NEXT="$KVER_NEXT" BUILD_VERSION="$BUILD_VERSION" "$REFRESH"
 WRAPEOF
 chmod 0755 "$WRAPPER_STABLE"
 echo "[11] wrote stable wrapper source -> $WRAPPER_STABLE"

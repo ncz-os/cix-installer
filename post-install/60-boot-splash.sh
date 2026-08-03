@@ -201,7 +201,7 @@ fi
 
 # --- initramfs rebuild (plymouth removal changes the initramfs) --------------
 KERNELS=""
-for sidecar in /usr/local/lib/cix-installer/KVER_LTS /usr/local/lib/cix-installer/KVER_NEXT; do
+for sidecar in /usr/local/lib/cix-installer/KVER_LEGACY /usr/local/lib/cix-installer/KVER_NEXT; do
     if [ -s "$sidecar" ]; then
         kver=$(tr -d ' \t\r\n' < "$sidecar")
         [ -n "$kver" ] && [ -d "/lib/modules/$kver" ] && KERNELS="$KERNELS $kver"

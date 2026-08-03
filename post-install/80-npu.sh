@@ -36,11 +36,11 @@ SSDT_CPIO="$ASSETS/npu-acpi-override.cpio"
 
 KERNEL_LABELS=()
 KERNEL_VERS=()
-if [ -f "$INSTALLER_META/KVER_LTS" ]; then
-    KVER_LTS=$(cat "$INSTALLER_META/KVER_LTS" 2>/dev/null | tr -d ' \t\r\n')
-    if [ -n "$KVER_LTS" ]; then
+if [ -f "$INSTALLER_META/KVER_LEGACY" ]; then
+    KVER_LEGACY=$(cat "$INSTALLER_META/KVER_LEGACY" 2>/dev/null | tr -d ' \t\r\n')
+    if [ -n "$KVER_LEGACY" ]; then
         KERNEL_LABELS+=("lts")
-        KERNEL_VERS+=("$KVER_LTS")
+        KERNEL_VERS+=("$KVER_LEGACY")
     fi
 fi
 if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
@@ -52,7 +52,7 @@ if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
 fi
 
 # --- Fallback: fold in an out-of-band NCZ edge (7.2) kernel (r195) ---
-# The KVER_LTS/KVER_NEXT sidecars are authoritative and, on an r195 install,
+# The KVER_LEGACY/KVER_NEXT sidecars are authoritative and, on an r195 install,
 # already carry the edge kernel as KVER_NEXT (assets/kernel/edge -> KVER_NEXT),
 # so 7.2 gets the SSDT overlay through the normal LTS/NEXT path below. This
 # fallback only covers the case where a 7.2-class NCZ kernel is present on disk
@@ -73,7 +73,7 @@ for _mk in /lib/modules/*7.2*-ncz /usr/lib/modules/*7.2*-ncz; do
 done
 
 if [ "${#KERNEL_VERS[@]}" -eq 0 ]; then
-    echo "[80] WARN: no KVER_LTS or KVER_NEXT sidecar found; skipping kernel-specific NPU setup"
+    echo "[80] WARN: no KVER_LEGACY or KVER_NEXT sidecar found; skipping kernel-specific NPU setup"
 fi
 if [ ! -d "$ASSETS" ]; then
     # assets/npu/ is a gitignored blob dir carrying two OPTIONAL payloads: the
@@ -297,7 +297,7 @@ cat > /usr/share/doc/ncz/NPU-STATUS.md << 'EOF'
 
 - **Kernel module** `armchina_npu.ko` probes clean on MS-R1 for both NCZ kernels:
   - 7.0.12-cix-sky1-next (default; in-tree CONFIG_ARMCHINA_NPU=m)
-  - 6.18.26-ncz-lts (stable fallback; out-of-tree module)
+  - 7.0.12-cix-sky1-next (legacy fallback; in-tree module)
 - **ACPI SSDT override** corrects the missing `_HID="CIXH4010"` on NPU cores
   (CRE0/CRE1/CRE2) — a bug in Minisforum's shipped BIOS omitted by the OEM.
   Injected via initramfs CPIO prepend; fully reversible. **Board-gated (r123):**

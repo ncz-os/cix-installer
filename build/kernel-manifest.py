@@ -28,7 +28,7 @@ import sys, os, json, hashlib, subprocess, glob, datetime, tarfile, tempfile
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 MANIFEST = os.path.join(ROOT, "assets", "kernel-manifest.json")
-VARIANTS = {"lts": "assets/kernel/stable", "edge": "assets/kernel/edge"}
+VARIANTS = {"legacy": "assets/kernel/legacy", "edge": "assets/kernel/edge"}
 SCHEMA = 1
 
 

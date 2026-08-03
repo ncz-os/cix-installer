@@ -1,16 +1,16 @@
 #!/bin/bash
 # ncz-refind-refresh — (re)generate the rEFInd ESP menu for whatever
-# LTS/NEXT kernels are currently on disk.
+# legacy/NEXT kernels are currently on disk.
 #
 # Shared by two callers, which differ only in HOW they determine which
 # kernel versions to stage:
 #   - post-install/70-bootloader.sh (install time): reads the static
-#     KVER_LTS/KVER_NEXT sidecar files baked into the ISO.
+#     KVER_LEGACY/KVER_NEXT sidecar files baked into the ISO.
 #   - /etc/kernel/postinst.d/zz1-ncz-refind-refresh (post-install, any
 #     future `apt install`/`apt upgrade` of linux-image-cixmini-*):
-#     discovers KVER_LTS/KVER_NEXT dynamically from /boot/vmlinuz-*.
+#     discovers KVER_LEGACY/KVER_NEXT dynamically from /boot/vmlinuz-*.
 #
-# Both callers export KVER_LTS, KVER_NEXT, BUILD_VERSION before invoking
+# Both callers export KVER_LEGACY, KVER_NEXT, BUILD_VERSION before invoking
 # this script -- it does no sidecar-file reading of its own, so it works
 # identically at install time and on a live, already-installed system.
 #
@@ -22,7 +22,7 @@ echo "[ncz-refind-refresh] rEFInd bootloader (staged kernel menu)"
 
 INSTALLER_META=/usr/local/lib/cix-installer
 REFIND_SRC="$INSTALLER_META/assets/refind/refind_aa64.efi"
-: "${KVER_LTS:=}"
+: "${KVER_LEGACY:=}"
 : "${KVER_NEXT:=}"
 : "${BUILD_VERSION:=(unknown)}"
 RELEASE_FILE=/etc/cix-installer/RELEASE
@@ -35,12 +35,12 @@ fi
 . "$RELEASE_FILE"
 NCZ_RELEASE_SHORT="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
 
-if [ -z "$KVER_LTS" ] && [ -z "$KVER_NEXT" ]; then
-    echo "ERROR: no KVER_LTS or KVER_NEXT provided"
+if [ -z "$KVER_LEGACY" ] && [ -z "$KVER_NEXT" ]; then
+    echo "ERROR: no KVER_LEGACY or KVER_NEXT provided"
     exit 1
 fi
 
-echo "  KVER_LTS=$KVER_LTS"
+echo "  KVER_LEGACY=$KVER_LEGACY"
 echo "  KVER_NEXT=${KVER_NEXT:-(not present)}"
 echo "  BUILD_VERSION=$BUILD_VERSION"
 
@@ -89,24 +89,24 @@ verify_payload_readable() {
     fi
 }
 
-LTS_PREFLIGHT_READY=0
+LEGACY_PREFLIGHT_READY=0
 NEXT_PREFLIGHT_READY=0
-if [ -n "$KVER_LTS" ]; then
-    if [ -s "/boot/vmlinuz-$KVER_LTS" ] && [ -s "/boot/initrd.img-$KVER_LTS" ]; then
-        verify_payload_readable "LTS kernel" "/boot/vmlinuz-$KVER_LTS"
-        verify_payload_readable "LTS initrd" "/boot/initrd.img-$KVER_LTS"
-        LTS_PREFLIGHT_READY=1
-        echo "  preflight OK: LTS kernel/initrd present and readable for $KVER_LTS"
-    elif [ -s "/boot/vmlinuz-$KVER_LTS" ] && [ ! -s "/boot/initrd.img-$KVER_LTS" ]; then
-        echo "ERROR: /boot/vmlinuz-$KVER_LTS exists but /boot/initrd.img-$KVER_LTS is missing or empty."
-        echo "       Refusing to wipe the ESP without a complete LTS kernel payload."
+if [ -n "$KVER_LEGACY" ]; then
+    if [ -s "/boot/vmlinuz-$KVER_LEGACY" ] && [ -s "/boot/initrd.img-$KVER_LEGACY" ]; then
+        verify_payload_readable "legacy kernel" "/boot/vmlinuz-$KVER_LEGACY"
+        verify_payload_readable "legacy initrd" "/boot/initrd.img-$KVER_LEGACY"
+        LEGACY_PREFLIGHT_READY=1
+        echo "  preflight OK: legacy kernel/initrd present and readable for $KVER_LEGACY"
+    elif [ -s "/boot/vmlinuz-$KVER_LEGACY" ] && [ ! -s "/boot/initrd.img-$KVER_LEGACY" ]; then
+        echo "ERROR: /boot/vmlinuz-$KVER_LEGACY exists but /boot/initrd.img-$KVER_LEGACY is missing or empty."
+        echo "       Refusing to wipe the ESP without a complete legacy kernel payload."
         exit 1
-    elif [ -e "/boot/vmlinuz-$KVER_LTS" ]; then
-        echo "ERROR: incomplete LTS kernel payload for $KVER_LTS."
-        echo "       Need non-empty /boot/vmlinuz-$KVER_LTS and /boot/initrd.img-$KVER_LTS before ESP wipe."
+    elif [ -e "/boot/vmlinuz-$KVER_LEGACY" ]; then
+        echo "ERROR: incomplete legacy kernel payload for $KVER_LEGACY."
+        echo "       Need non-empty /boot/vmlinuz-$KVER_LEGACY and /boot/initrd.img-$KVER_LEGACY before ESP wipe."
         exit 1
     else
-        echo "  WARN: LTS kernel payload for $KVER_LTS missing — LTS entry will be skipped"
+        echo "  WARN: legacy kernel payload for $KVER_LEGACY missing — legacy entry will be skipped"
     fi
 fi
 if [ -n "$KVER_NEXT" ]; then
@@ -127,7 +127,7 @@ if [ -n "$KVER_NEXT" ]; then
         echo "  WARN: NEXT kernel payload for $KVER_NEXT missing — NEXT entry will be skipped"
     fi
 fi
-if [ "$LTS_PREFLIGHT_READY" = "0" ] && [ "$NEXT_PREFLIGHT_READY" = "0" ]; then
+if [ "$LEGACY_PREFLIGHT_READY" = "0" ] && [ "$NEXT_PREFLIGHT_READY" = "0" ]; then
     echo "ERROR: no declared kernel has both a non-empty vmlinuz and initrd in /boot."
     echo "       Refusing to wipe the ESP because there is nothing bootable to restage."
     exit 1
@@ -161,7 +161,7 @@ echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol
 # (doctrine: serial console must work). NEXT drops the base panic=30 because
 # NEXT_CMDLINE_EXTRA sets panic=6 (edge wants fast panic) — carrying both was a
 # confusing duplicate on one cmdline.
-LTS_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force systemd.condition_first_boot=false arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
+LEGACY_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force systemd.condition_first_boot=false arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
 NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force systemd.condition_first_boot=false arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused module_blacklist=typec_rts5453,rts5453"
 
 # The edge (NEXT) kernel needs board-specific PCIe/SCMI knobs that the stable
@@ -196,27 +196,27 @@ rm -rf /boot/efi/EFI/systemd 2>/dev/null || true
 rm -f /boot/efi/EFI/BOOT/refind.conf 2>/dev/null || true
 echo "  ESP wiped — proceeding with kernel/initrd staging"
 
-LTS_AVAILABLE=0
+LEGACY_AVAILABLE=0
 NEXT_AVAILABLE=0
-LTS_INITRD_AVAILABLE=0
+LEGACY_INITRD_AVAILABLE=0
 NEXT_INITRD_AVAILABLE=0
 
-if [ -n "$KVER_LTS" ] && [ -s "/boot/vmlinuz-$KVER_LTS" ]; then
-    if [ ! -s "/boot/initrd.img-$KVER_LTS" ]; then
-        echo "ERROR: /boot/vmlinuz-$KVER_LTS exists but /boot/initrd.img-$KVER_LTS is missing or empty."
-        echo "       Refusing to write an LTS loader entry without an initrd."
+if [ -n "$KVER_LEGACY" ] && [ -s "/boot/vmlinuz-$KVER_LEGACY" ]; then
+    if [ ! -s "/boot/initrd.img-$KVER_LEGACY" ]; then
+        echo "ERROR: /boot/vmlinuz-$KVER_LEGACY exists but /boot/initrd.img-$KVER_LEGACY is missing or empty."
+        echo "       Refusing to write a legacy loader entry without an initrd."
         exit 1
     fi
-    install -m 0644 "/boot/vmlinuz-$KVER_LTS" "/boot/efi/vmlinuz-$KVER_LTS"
-    echo "  staged /boot/efi/vmlinuz-$KVER_LTS"
-    LTS_AVAILABLE=1
-    install -m 0644 "/boot/initrd.img-$KVER_LTS" "/boot/efi/initrd.img-$KVER_LTS"
-    echo "  staged /boot/efi/initrd.img-$KVER_LTS"
-    LTS_INITRD_AVAILABLE=1
-elif [ -n "$KVER_LTS" ]; then
-    echo "  WARN: /boot/vmlinuz-$KVER_LTS missing — LTS entry will be SKIPPED"
+    install -m 0644 "/boot/vmlinuz-$KVER_LEGACY" "/boot/efi/vmlinuz-$KVER_LEGACY"
+    echo "  staged /boot/efi/vmlinuz-$KVER_LEGACY"
+    LEGACY_AVAILABLE=1
+    install -m 0644 "/boot/initrd.img-$KVER_LEGACY" "/boot/efi/initrd.img-$KVER_LEGACY"
+    echo "  staged /boot/efi/initrd.img-$KVER_LEGACY"
+    LEGACY_INITRD_AVAILABLE=1
+elif [ -n "$KVER_LEGACY" ]; then
+    echo "  WARN: /boot/vmlinuz-$KVER_LEGACY missing — legacy entry will be SKIPPED"
 else
-    echo "  LTS kernel not staged — skipping LTS fallback entry"
+    echo "  legacy kernel not staged — skipping legacy fallback entry"
 fi
 
 if [ -n "$KVER_NEXT" ] && [ -s "/boot/vmlinuz-$KVER_NEXT" ]; then
@@ -235,7 +235,7 @@ elif [ -n "$KVER_NEXT" ]; then
     echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — BETA entry will be SKIPPED"
 fi
 
-if [ "$LTS_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
+if [ "$LEGACY_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
     echo "ERROR: NEITHER kernel installed — system is unbootable."
     exit 1
 fi
@@ -273,19 +273,21 @@ fi
 # NOT in this list so tty0 stays usable on O6/O6N.
 CONSOLE_EXTRA_BLACKLIST="panthor,panfrost,mali,mali_kbase,memory_group_manager,protected_memory_allocator,bifrost,armchina_npu,amvx,cix_vpu,linlon_vpu"
 
-# 7.0.12 is deliberately a console-only recovery kernel.  Do not expose a
-# graphical or GPU variant of it: the LTS contract is a networked
+# 7.0.12 is deliberately a console-only recovery kernel. It is an EOL
+# kernel we carry only until the 7.2 channel finishes its release
+# process -- hence "legacy", not "LTS".  Do not expose a
+# graphical or GPU variant of it: the legacy contract is a networked
 # multi-user shell with every available CIX GPU driver blacklisted.  Keep the
 # display pipeline out of this blacklist so tty0 remains usable on O6.
-LTS_CONSOLE_OPTIONS=""
-LTS_CONSOLE_CMDLINE=""
-if [ "$LTS_AVAILABLE" = "1" ]; then
-    LTS_CONSOLE_EXTRA_BLACKLIST="$CONSOLE_EXTRA_BLACKLIST"
-    LTS_CONSOLE_EXISTING_BL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
-    LTS_CONSOLE_CMDLINE_NOBL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
-    [ -n "$LTS_CONSOLE_EXISTING_BL" ] && LTS_CONSOLE_MERGED_BL="$LTS_CONSOLE_EXISTING_BL,$LTS_CONSOLE_EXTRA_BLACKLIST" || LTS_CONSOLE_MERGED_BL="$LTS_CONSOLE_EXTRA_BLACKLIST"
-    LTS_CONSOLE_CMDLINE="$LTS_CONSOLE_CMDLINE_NOBL module_blacklist=$LTS_CONSOLE_MERGED_BL"
-    LTS_CONSOLE_OPTIONS="$ROOT_OPTS $LTS_CONSOLE_CMDLINE systemd.unit=multi-user.target"
+LEGACY_CONSOLE_OPTIONS=""
+LEGACY_CONSOLE_CMDLINE=""
+if [ "$LEGACY_AVAILABLE" = "1" ]; then
+    LEGACY_CONSOLE_EXTRA_BLACKLIST="$CONSOLE_EXTRA_BLACKLIST"
+    LEGACY_CONSOLE_EXISTING_BL=$(printf '%s\n' "$LEGACY_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
+    LEGACY_CONSOLE_CMDLINE_NOBL=$(printf '%s\n' "$LEGACY_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
+    [ -n "$LEGACY_CONSOLE_EXISTING_BL" ] && LEGACY_CONSOLE_MERGED_BL="$LEGACY_CONSOLE_EXISTING_BL,$LEGACY_CONSOLE_EXTRA_BLACKLIST" || LEGACY_CONSOLE_MERGED_BL="$LEGACY_CONSOLE_EXTRA_BLACKLIST"
+    LEGACY_CONSOLE_CMDLINE="$LEGACY_CONSOLE_CMDLINE_NOBL module_blacklist=$LEGACY_CONSOLE_MERGED_BL"
+    LEGACY_CONSOLE_OPTIONS="$ROOT_OPTS $LEGACY_CONSOLE_CMDLINE systemd.unit=multi-user.target"
 fi
 
 # 7.2 CONSOLE — same console-only contract as the 7.0.12 entry, but on the
@@ -304,17 +306,17 @@ fi
 
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
 RESCUEPART_OPTIONS=""
-if [ -f "$RESCUE_READY" ] && [ "$LTS_AVAILABLE" = "1" ]; then
+if [ -f "$RESCUE_READY" ] && [ "$LEGACY_AVAILABLE" = "1" ]; then
     RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
     if [ -n "$RESCUEPART_PARTUUID" ]; then
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootdelay=90 rootfstype=ext4 rw $LTS_CONSOLE_CMDLINE systemd.unit=multi-user.target"
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootdelay=90 rootfstype=ext4 rw $LEGACY_CONSOLE_CMDLINE systemd.unit=multi-user.target"
         echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
     else
         echo "ERROR: rescue-partition marker has no PARTUUID — refusing to ship without recovery"
         exit 1
     fi
 else
-    echo "ERROR: 7.0.12 rescue partition is required but marker $RESCUE_READY or LTS kernel is absent"
+    echo "ERROR: 7.0.12 rescue partition is required but marker $RESCUE_READY or legacy kernel is absent"
     exit 1
 fi
 
@@ -357,7 +359,7 @@ fi
 # an explicit console-only recovery choice; Panthor is an explicit experiment.
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="Mali"
-elif [ "$LTS_AVAILABLE" = "1" ]; then
+elif [ "$LEGACY_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="console"
 else
     DEFAULT_TOKEN="edge"
@@ -379,12 +381,12 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     echo "scan_all_linux_kernels false"
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
-    if [ "$LTS_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 CONSOLE — networked, no GPU, no GUI\" {"
-        echo "    loader  /vmlinuz-$KVER_LTS"
+    if [ "$LEGACY_AVAILABLE" = "1" ]; then
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 CONSOLE — legacy fallback, no GPU, no GUI\" {"
+        echo "    loader  /vmlinuz-$KVER_LEGACY"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
-        echo "    options \"$LTS_CONSOLE_OPTIONS\""
+        [ "$LEGACY_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LEGACY"
+        echo "    options \"$LEGACY_CONSOLE_OPTIONS\""
         echo "}"
         echo
     fi
@@ -413,10 +415,10 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ -n "$RESCUEPART_OPTIONS" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 RESCUE PARTITION — console, automatic networking\" {"
-        echo "    loader  /vmlinuz-$KVER_LTS"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 RESCUE PARTITION — legacy, console, automatic networking\" {"
+        echo "    loader  /vmlinuz-$KVER_LEGACY"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
+        [ "$LEGACY_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LEGACY"
         echo "    options \"$RESCUEPART_OPTIONS\""
         echo "}"
         echo

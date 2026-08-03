@@ -13,8 +13,8 @@ minted under this rule, re-establish whatever version stamp is current and
 update this line; don't trust `r195` below as current, it is the last
 `r<N>`-stamped release this doc tracked.) Three kernel channels:
 **7.2** (primary/default, `linux-cix-sky1-ncz`), **7.0.12-cix-sky1-next**
-(secondary/fallback), **6.18.26-cix-sky1-lts** (deep rescue, dedicated
-partition). Desktop is **Singularity** (Wayland-native; X11/XFCE removed);
+(the EOL legacy fallback, carried only until 7.2 completes its release
+process). Desktop is **Singularity** (Wayland-native; X11/XFCE removed);
 default GPU driver is the CIX `mali_kbase` blob DDK on the 7.2 channel.
 Kernel + CIX-userspace + Singularity Desktop updates via **Buildkite
 Packages** (`ncz-os/ncz`, primary) with **Cloudflare R2 as an independent

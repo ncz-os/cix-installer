@@ -1,12 +1,12 @@
 #!/bin/bash
 # 70-bootloader.sh — systemd-boot install + DUAL-kernel loader entries.
 #
-# Loader entries (only TWO kernel binaries on the ESP — LTS + NEXT; the
-# safe/rescue entries reuse the LTS binary):
+# Loader entries (only TWO kernel binaries on the ESP — legacy + edge; the
+# safe/rescue entries reuse the legacy binary):
 #   1. cixmini-next.conf      (DEFAULT — homegrown Sky1 7.0.12, headline kernel)
-#   2. cixmini-lts.conf       (fallback — CIX BSP Sky1 6.18.26-cix-sky1-lts, stable)
-#   3. cixmini-lts-safe.conf  (safe graphics — LTS w/ Sky1 accelerators blacklisted)
-#   4. cixmini-rescue.conf    (rescue.target on LTS kernel)
+#   2. cixmini-legacy.conf    (fallback — legacy 7.0.12-cix-sky1-next, EOL)
+#   3. cixmini-legacy-safe.conf (safe graphics — legacy w/ Sky1 accelerators blacklisted)
+#   4. cixmini-rescue.conf    (rescue.target on the legacy kernel)
 #
 # CRITICAL: systemd-boot's loader entry parser does NOT support
 # backslash line-continuation — every line MUST be standalone. Earlier
@@ -14,18 +14,18 @@
 # half the cmdline.
 set -euo pipefail
 
-echo "[70] systemd-boot bootloader (DUAL kernel — 7.0.12 default + 6.18 LTS fallback)"
+echo "[70] systemd-boot bootloader (DUAL kernel — 7.2 edge + legacy 7.0.12 fallback)"
 
 INSTALLER_META=/usr/local/lib/cix-installer
-[ -f "$INSTALLER_META/KVER_LTS" ] || { echo "ERROR: KVER_LTS sidecar missing"; exit 1; }
-KVER_LTS=$(cat "$INSTALLER_META/KVER_LTS")
+[ -f "$INSTALLER_META/KVER_LEGACY" ] || { echo "ERROR: KVER_LEGACY sidecar missing"; exit 1; }
+KVER_LEGACY=$(cat "$INSTALLER_META/KVER_LEGACY")
 KVER_NEXT=""
 [ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
 
 BUILD_VERSION="(unknown)"
 [ -f "$INSTALLER_META/BUILD_VERSION" ] && BUILD_VERSION=$(cat "$INSTALLER_META/BUILD_VERSION" 2>/dev/null || true)
 
-echo "  KVER_LTS=$KVER_LTS"
+echo "  KVER_LEGACY=$KVER_LEGACY"
 echo "  KVER_NEXT=${KVER_NEXT:-(not present)}"
 echo "  BUILD_VERSION=$BUILD_VERSION"
 
@@ -119,7 +119,7 @@ ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$(findmnt -no SOURCE /)")
 echo "  root PARTUUID=$ROOT_PARTUUID"
 
 # ----------------------------------------------------------------------
-# Cmdline (MartJohnson 2026-04-30 working set for MS-R1, both LTS+NEXT)
+# Cmdline (MartJohnson 2026-04-30 working set for MS-R1, both legacy+edge)
 #
 #   loglevel=4                          — visible kernel msgs through boot
 #   console=tty0 console=ttyAMA2,115200 — HDMI primary + serial mirror
@@ -152,15 +152,15 @@ ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 rw"
 # couldn't install it), log a clear warning and skip writing that
 # loader entry. Don't hard-fail the whole bootloader hook.
 # ----------------------------------------------------------------------
-LTS_AVAILABLE=0
+LEGACY_AVAILABLE=0
 NEXT_AVAILABLE=0
 
-if [ -f "/boot/vmlinuz-$KVER_LTS" ]; then
-    install -m 0644 "/boot/vmlinuz-$KVER_LTS" "/boot/efi/vmlinuz-$KVER_LTS"
-    echo "  staged /boot/efi/vmlinuz-$KVER_LTS"
-    LTS_AVAILABLE=1
+if [ -f "/boot/vmlinuz-$KVER_LEGACY" ]; then
+    install -m 0644 "/boot/vmlinuz-$KVER_LEGACY" "/boot/efi/vmlinuz-$KVER_LEGACY"
+    echo "  staged /boot/efi/vmlinuz-$KVER_LEGACY"
+    LEGACY_AVAILABLE=1
 else
-    echo "  WARN: /boot/vmlinuz-$KVER_LTS missing — LTS entry will be SKIPPED"
+    echo "  WARN: /boot/vmlinuz-$KVER_LEGACY missing — LTS entry will be SKIPPED"
 fi
 
 if [ -n "$KVER_NEXT" ] && [ -f "/boot/vmlinuz-$KVER_NEXT" ]; then
@@ -171,45 +171,45 @@ elif [ -n "$KVER_NEXT" ]; then
     echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — BETA entry will be SKIPPED"
 fi
 
-if [ "$LTS_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
+if [ "$LEGACY_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
     echo "ERROR: NEITHER kernel installed — system is unbootable."
     echo "       Check 10-our-kernel.sh log for failures."
     exit 1
 fi
 
 # ----------------------------------------------------------------------
-# Entry — cixmini-lts.conf (FALLBACK — CIX BSP 6.18.26-cix-sky1-lts, stable)
+# Entry — cixmini-legacy.conf (FALLBACK — legacy 7.0.12-cix-sky1-next, EOL)
 # ----------------------------------------------------------------------
-if [ "$LTS_AVAILABLE" = "1" ]; then
-    LTS_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
-    [ -n "$SPLASH" ] && LTS_OPTIONS="$LTS_OPTIONS $SPLASH"
+if [ "$LEGACY_AVAILABLE" = "1" ]; then
+    LEGACY_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
+    [ -n "$SPLASH" ] && LEGACY_OPTIONS="$LEGACY_OPTIONS $SPLASH"
 
-    # sort-key forces menu-order (systemd-boot 252+). LTS is the stable
+    # sort-key forces menu-order (systemd-boot 252+). The legacy kernel is the
     # fallback so it sorts below the default 7.0.12 headline entry.
-    cat > /boot/efi/loader/entries/cixmini-lts.conf <<EOF
-title   NCZ-OS (cixmini) — kernel $KVER_LTS [LTS — CIX BSP, stable fallback] — $BUILD_VERSION
+    cat > /boot/efi/loader/entries/cixmini-legacy.conf <<EOF
+title   NCZ-OS (cixmini) — kernel $KVER_LEGACY [LTS — CIX BSP, stable fallback] — $BUILD_VERSION
 sort-key 2-lts
-version $KVER_LTS
-linux   /vmlinuz-$KVER_LTS
-options $LTS_OPTIONS
+version $KVER_LEGACY
+linux   /vmlinuz-$KVER_LEGACY
+options $LEGACY_OPTIONS
 EOF
-    echo "  wrote cixmini-lts.conf (fallback, sort-key 2-lts)"
+    echo "  wrote cixmini-legacy.conf (fallback, sort-key 2-lts)"
 else
-    echo "  skipping cixmini-lts.conf (LTS kernel not installed)"
+    echo "  skipping cixmini-legacy.conf (legacy kernel not installed)"
 fi
 
 # ----------------------------------------------------------------------
-# Entry — cixmini-lts-safe.conf (SAFE GRAPHICS — 6.18 LTS, accelerators off)
+# Entry — cixmini-legacy-safe.conf (SAFE GRAPHICS — legacy 7.0.12, accelerators off)
 #
-# Boots the 6.18 LTS (CIX BSP) kernel but module_blacklists the heavy Sky1
+# Boots the legacy 7.0.12 kernel but module_blacklists the heavy Sky1
 # accelerator / display / audio / codec drivers that are the usual culprits
 # for boot hangs (NPU, GPU, the Sky1 DPU/DP, VPUs, DSP, HDA/SOF audio).
 # With no KMS driver bound, video falls back to the UEFI framebuffer
 # (efifb/simplefb via SYSFB); networking, storage and filesystem drivers
-# load normally. Reuses the LTS kernel binary — no extra ESP space. Use this
+# load normally. Reuses the legacy kernel binary — no extra ESP space. Use this
 # when a full boot wedges during GPU/display/NPU/DSP bring-up.
 # ----------------------------------------------------------------------
-if [ "$LTS_AVAILABLE" = "1" ]; then
+if [ "$LEGACY_AVAILABLE" = "1" ]; then
     # Module names normalize '-' to '_'. Keep networking/fb/fs OUT of this list.
     SAFE_BLACKLIST="armchina_npu,amphion_vpu,hantro_vpu,wave5,panthor,panfrost,mali_dp,sky1_drm,trilin_dpsub,cix_dsp,cix_dsp_rproc,snd_hda_cix_ipbloq,snd_sof_cix_common,snd_sof_cix_sky1"
     # The base cmdline already carries a module_blacklist= (typec). The kernel
@@ -222,16 +222,16 @@ if [ "$LTS_AVAILABLE" = "1" ]; then
     fi
     SAFE_OPTIONS="$ROOT_OPTS $SAFE_CMDLINE nomodeset"
 
-    cat > /boot/efi/loader/entries/cixmini-lts-safe.conf <<EOF
-title   SAFE graphics (cixmini) — kernel $KVER_LTS [6.18 LTS, accelerators disabled] — $BUILD_VERSION
+    cat > /boot/efi/loader/entries/cixmini-legacy-safe.conf <<EOF
+title   SAFE graphics (cixmini) — kernel $KVER_LEGACY [legacy, accelerators disabled] — $BUILD_VERSION
 sort-key 3-lts-safe
-version $KVER_LTS
-linux   /vmlinuz-$KVER_LTS
+version $KVER_LEGACY
+linux   /vmlinuz-$KVER_LEGACY
 options $SAFE_OPTIONS
 EOF
-    echo "  wrote cixmini-lts-safe.conf (sort-key 3-lts-safe, blacklist=$SAFE_BLACKLIST)"
+    echo "  wrote cixmini-legacy-safe.conf (sort-key 3-lts-safe, blacklist=$SAFE_BLACKLIST)"
 else
-    echo "  skipping cixmini-lts-safe.conf (LTS kernel not installed)"
+    echo "  skipping cixmini-legacy-safe.conf (legacy kernel not installed)"
 fi
 
 # ----------------------------------------------------------------------
@@ -241,7 +241,7 @@ fi
 # (display/audio/NPU/etc.) and is the default boot target. The earlier
 # [BETA] warning applied to 7.0.1 (Sky1-Linux #12: SCMI transition errors /
 # boot freezes before the BIOS SCMI updates); 7.0.12 is the validated
-# default. The CIX BSP 6.18 LTS remains as the conservative fallback entry.
+# default. The legacy 7.0.12 kernel remains as the conservative fallback entry.
 # ----------------------------------------------------------------------
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
@@ -261,16 +261,16 @@ else
 fi
 
 # ----------------------------------------------------------------------
-# Entry 3 — cixmini-rescue.conf (rescue shell on LTS kernel)
+# Entry 3 — cixmini-rescue.conf (rescue shell on the legacy kernel)
 #
 # rescue.target boots multi-user services down (no graphical, no
 # auto-mount of network FS) but leaves the system bootable + login-able
-# for recovery. Useful when default cixmini-lts.conf wedges from a bad
+# for recovery. Useful when default cixmini-legacy.conf wedges from a bad
 # config + we need to roll something back.
 # ----------------------------------------------------------------------
-# Rescue uses LTS by preference, falls back to NEXT if LTS missing.
-if [ "$LTS_AVAILABLE" = "1" ]; then
-    RESCUE_KVER="$KVER_LTS"
+# Rescue uses the legacy kernel by preference, falls back to edge if it is missing.
+if [ "$LEGACY_AVAILABLE" = "1" ]; then
+    RESCUE_KVER="$KVER_LEGACY"
 elif [ "$NEXT_AVAILABLE" = "1" ]; then
     RESCUE_KVER="$KVER_NEXT"
 else
@@ -290,8 +290,8 @@ EOF
     echo "  wrote cixmini-rescue.conf (sort-key 4-rescue)"
 fi
 
-# Default to the headline 7.0.12 (cixmini-next); fall back to the CIX BSP 6.18
-# LTS only if the headline kernel isn't present. Re-write loader.conf to match
+# Default to the headline edge kernel (cixmini-next); fall back to the legacy
+# kernel only if the headline kernel isn't present. Re-write loader.conf to match
 # what's actually installed.
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     DEFAULT_ENTRY="cixmini-next"

@@ -3,7 +3,7 @@
 You are an agent (or operator) running inside the **NCZ-OS dedicated rescue
 partition**. This is a self-contained Ubuntu (resolute / 26.04) arm64 rootfs on
 its own partition (`NCZRESCUE`), booted via the **LTS kernel**
-(`6.18.26-cix-sky1-lts`) with the NPU/GPU/VPU/KMS module blacklist, completely
+(the legacy `7.0.12-cix-sky1-next`) with the NPU/GPU/VPU/KMS module blacklist, completely
 independent of the main system root. Your job here is to **inspect, repair, and
 restore** a broken install. This file is the source of truth for system facts.
 
@@ -37,12 +37,12 @@ change from the earlier two-kernel LTS/edge scheme — see below for what
 | Channel | Version string | Role on the main system |
 |---|---|---|
 | primary / default | `7.2.0-rc5-sky1-ncz` (labeled "Mali" in the rEFInd menu) | default boot entry; CIX `mali_kbase` GPU driver |
-| secondary / fallback | `7.0.12-cix-sky1-next` (labeled "stable" in the rEFInd menu) | fallback; in-tree `panthor` GPU driver. This is also the kernel the **RESCUE PARTITION** rEFInd entry boots with (see §4) — do not assume "RESCUE PARTITION" implies the deep-rescue 6.18 kernel; it boots this "stable" kernel against the rescue rootfs. |
+| legacy / fallback | `7.0.12-cix-sky1-next` (labeled "legacy" in the rEFInd menu) | EOL kernel carried only until 7.2 completes its release process; in-tree `panthor` GPU driver. This is also the kernel the **RESCUE PARTITION** rEFInd entry boots, against the rescue rootfs. |
 | rescue pin (main ESP) | `<stable>-rescue` | independent pinned copy of the "stable" (7.0.12) kernel for the rEFInd "rescue" menuentry, with NPU/GPU/VPU/KMS blacklisted |
-| deep rescue | `6.18.26-cix-sky1-lts` | minimal by design; **this is the kernel this rescue rootfs (NCZRESCUE partition) itself boots**, per `build-rescue-rootfs.sh` — independent of whatever the main ESP is currently staging |
+| ~~deep rescue~~ | *removed* | There is no third kernel channel. 6.18.26 was never shipped in 26.7; the NCZRESCUE partition boots the legacy 7.0.12 kernel staged on the main ESP. |
 
 - This rescue partition's own rootfs boots the **deep-rescue
-  `6.18.26-cix-sky1-lts`** kernel with the NPU/GPU/VPU/KMS `module_blacklist`
+  legacy `7.0.12-cix-sky1-next`** kernel with the NPU/GPU/VPU/KMS `module_blacklist`
   so device startup is quiet and reliable — a recovery env should be boring,
   not exercise edge silicon. It still ships `btrfs` + the Sky1 storage/NIC
   drivers in-tree so it can mount modern roots.
@@ -106,7 +106,7 @@ partition) blacklists all of: `armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_
     kernel, NPU/GPU/VPU/KMS blacklisted, **shared** production root
   - `…· RESCUE PARTITION` — **this** environment: boots with the "stable"
     (7.0.12) kernel from the main ESP against this partition's own
-    `root=PARTUUID` (**not** the deep-rescue 6.18 kernel this rootfs itself
+    `root=PARTUUID` (the legacy 7.0.12 kernel — there is no separate deep-rescue kernel
     was built around — see §2 for that distinction)
 - Root is referenced by `root=PARTUUID=...` (not subvol, not /dev path).
 - **WARNING:** the installer's `70-bootloader.sh` **wipes and rewrites**

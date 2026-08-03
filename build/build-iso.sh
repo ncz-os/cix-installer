@@ -9,7 +9,6 @@
 #   - subiquity is text-mode + autoinstall via YAML user-data
 #
 # DUAL-KERNEL still ships:
-#   - 6.18.26 LTS (linux-cix-sky1)
 #   - 7.0.1-next (linux-cix-sky1-next, explicit test entry)
 #
 # Process:
@@ -236,9 +235,9 @@ append_live_overlay_to_initrd() {
 
 # Detect KVERs from assemble-kernel-assets.sh sidecars.
 # RULE: dual kernel required, no LTS-only fallback.
-KVER_LTS=""
+KVER_LEGACY=""
 KVER_NEXT=""
-for label in stable edge; do
+for label in legacy edge; do
     KVER_FILE="$ROOT/assets/kernel/$label/KVER"
     IMG_FILE="$ROOT/assets/kernel/$label/Image-cixmini.bin"
     MOD_FILE="$ROOT/assets/kernel/$label/modules-cixmini.tgz"
@@ -251,9 +250,9 @@ for label in stable edge; do
         exit 1
     fi
 done
-KVER_LTS=$(cat "$ROOT/assets/kernel/stable/KVER")
+KVER_LEGACY=$(cat "$ROOT/assets/kernel/legacy/KVER")
 KVER_NEXT=$(cat "$ROOT/assets/kernel/edge/KVER")
-echo "[info] LTS kernel KVER:  $KVER_LTS"
+echo "[info] LTS kernel KVER:  $KVER_LEGACY"
 echo "[info] NEXT kernel KVER: $KVER_NEXT (explicit test entry)"
 
 # ----------------------------------------------------------------------
@@ -292,22 +291,22 @@ echo "    user-data + meta-data → /cloud-init/"
 # so the LIVE session (where subiquity runs) is on our kernel from
 # the start.
 # ----------------------------------------------------------------------
-echo "[3.5] swapping /casper kernel to linux-cix-sky1 LTS ($KVER_LTS)"
+echo "[3.5] swapping /casper kernel to linux-cix-sky1 LTS ($KVER_LEGACY)"
 
 # Save the upstream initrd as base for the BETA initrd path
 cp "$STAGING/casper/initrd" "$STAGING/casper/initrd-base"
 
 # Replace vmlinuz with our LTS Image
-install -m 0644 "$ROOT/assets/kernel/stable/Image-cixmini.bin" "$STAGING/casper/vmlinuz"
+install -m 0644 "$ROOT/assets/kernel/legacy/Image-cixmini.bin" "$STAGING/casper/vmlinuz"
 echo "    replaced /casper/vmlinuz ($(du -h "$STAGING/casper/vmlinuz" | cut -f1))"
 
 # Inject a Sky1 live overlay cpio onto initrd.  The overlay contains:
-#   - lib/modules/$KVER_LTS with fresh depmod indexes
+#   - lib/modules/$KVER_LEGACY with fresh depmod indexes
 #   - initramfs-tools init-top/init-premount hooks that load casper's
 #     loop/squashfs/overlay dependencies plus the Sky1 display stack before
 #     casper/subiquity can redirect or hide the visible VT.
 MOD_GZ="$STAGING/.lts-live-overlay.cpio.gz"
-build_live_overlay_cpio "LTS" "$KVER_LTS" "$ROOT/assets/kernel/stable/modules-cixmini.tgz" "$MOD_GZ"
+build_live_overlay_cpio "LTS" "$KVER_LEGACY" "$ROOT/assets/kernel/legacy/modules-cixmini.tgz" "$MOD_GZ"
 append_live_overlay_to_initrd "$STAGING/casper/initrd" "$MOD_GZ"
 rm -f "$MOD_GZ"
 
@@ -337,7 +336,7 @@ chmod 755 "$EXTRA/post-install/"*.sh
 echo "$VERSION"     > "$EXTRA/BUILD_VERSION"
 echo "$BUILD_DATE"  > "$EXTRA/BUILD_DATE"
 echo "$BUILD_HOST"  > "$EXTRA/BUILD_HOST"
-echo "$KVER_LTS"    > "$EXTRA/KVER_LTS"
+echo "$KVER_LEGACY"    > "$EXTRA/KVER_LEGACY"
 echo "$KVER_NEXT"   > "$EXTRA/KVER_NEXT"
 install -m 0644 "$RELEASE_CONFIG" "$EXTRA/RELEASE"
 echo "    build id: $VERSION  ($BUILD_DATE on $BUILD_HOST)"
@@ -433,7 +432,7 @@ REFIND_CONF=/tmp/refind-r23.conf
 cat > "$REFIND_CONF" <<REFINDCONF
 # rEFInd configuration for $NCZ_RELEASE_LABEL installer (cixmini)
 # Build: $VERSION  ($BUILD_DATE)  Host: $BUILD_HOST
-# Kernels: LTS=$KVER_LTS  NEXT=$KVER_NEXT
+# Kernels: LTS=$KVER_LEGACY  NEXT=$KVER_NEXT
 # CRITICAL: every install + SAFE entry includes 'boot=casper' so Ubuntu's
 # casper initrd actually runs (without it, init panics -> busybox).
 timeout 10

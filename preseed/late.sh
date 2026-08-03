@@ -240,7 +240,7 @@ echo
 # both /etc/cix-installer/ (easy `cat` from running system) and
 # /usr/local/lib/cix-installer/ (where post-install scripts read).
 mkdir -p /target/etc/cix-installer
-for f in BUILD_VERSION BUILD_DATE BUILD_HOST BUILD_ARCH KVER_LTS KVER_NEXT RELEASE; do
+for f in BUILD_VERSION BUILD_DATE BUILD_HOST BUILD_ARCH KVER_LEGACY KVER_NEXT RELEASE; do
     if [ -f "$SRC/$f" ]; then
         cp "$SRC/$f" /target/etc/cix-installer/"$f"
         cp "$SRC/$f" /target/usr/local/lib/cix-installer/"$f"
@@ -270,8 +270,8 @@ esac
 if [ -f /target/etc/cix-installer/BUILD_VERSION ]; then
     echo "    build stamp: $(cat /target/etc/cix-installer/BUILD_VERSION) ($(cat /target/etc/cix-installer/BUILD_DATE 2>/dev/null))"
 fi
-if [ -f /target/etc/cix-installer/KVER_LTS ]; then
-    echo "    KVER_LTS:  $(cat /target/etc/cix-installer/KVER_LTS)"
+if [ -f /target/etc/cix-installer/KVER_LEGACY ]; then
+    echo "    KVER_LEGACY:  $(cat /target/etc/cix-installer/KVER_LEGACY)"
 fi
 if [ -f /target/etc/cix-installer/KVER_NEXT ] && [ -s /target/etc/cix-installer/KVER_NEXT ]; then
     echo "    KVER_NEXT: $(cat /target/etc/cix-installer/KVER_NEXT) [BETA]"
@@ -626,12 +626,12 @@ late_progress_state FINALIZE hardware npu-install-time "Applying install-time NP
 # ----------------------------------------------------------------------
 ncz_npu_install_time() {
     NPU_KVERS=""
-    for _kf in KVER_NEXT KVER_LTS; do
+    for _kf in KVER_NEXT KVER_LEGACY; do
         _v=$(cat /target/etc/cix-installer/"$_kf" 2>/dev/null | tr -d ' \t\r\n')
         [ -n "$_v" ] && NPU_KVERS="$NPU_KVERS $_v"
     done
     if [ -z "$NPU_KVERS" ]; then
-        echo "[npu] no KVER_NEXT/KVER_LTS sidecar — skipping NPU install-time fixes"
+        echo "[npu] no KVER_NEXT/KVER_LEGACY sidecar — skipping NPU install-time fixes"
         return 0
     fi
     echo "[npu] install-time NPU fixes for KVERs:$NPU_KVERS (SRC=$SRC)"

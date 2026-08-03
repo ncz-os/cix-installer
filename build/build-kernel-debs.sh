@@ -3,8 +3,9 @@
 #
 # Produces three .debs under build/kernel-debs/:
 #   cixmini-boot_<ver>_arm64.deb           — OTA-safe systemd-boot entry hook
-#   linux-image-cixmini-lts_<KVER>_arm64.deb
+#   linux-image-cixmini-legacy_<KVER>_arm64.deb
 #   linux-image-cixmini-edge_<KVER>_arm64.deb
+#   linux-image-cixmini-lts_<KVER>_arm64.deb   (empty transitional package)
 #
 # These are the OTA-upgradable form of post-install/10-our-kernel.sh +
 # build/70-bootloader.sh. The bootloader hook is initrd-less and never wipes
@@ -53,13 +54,13 @@ resolve_kver() {   # <channel-dir> <sidecar-name> <default>
     echo "WARN: no KVER for channel '$1' (neither $asset nor $sidecar) -- using default" >&2
     printf %s "$4"
 }
-KVER_LTS="${KVER_LTS:-$(resolve_kver stable KVER_LTS LTS 7.0.12-cix-sky1-next)}"
+KVER_LEGACY="${KVER_LEGACY:-$(resolve_kver legacy KVER_LEGACY LEGACY 7.0.12-cix-sky1-next)}"
 KVER_NEXT="${KVER_NEXT:-$(resolve_kver edge KVER_NEXT NEXT 7.0.12-cix-sky1-next)}"
-KVER_LTS=$(printf %s "$KVER_LTS" | tr -d " \t\r\n")
+KVER_LEGACY=$(printf %s "$KVER_LEGACY" | tr -d " \t\r\n")
 KVER_NEXT=$(printf %s "$KVER_NEXT" | tr -d " \t\r\n")
 
 echo "== build-kernel-debs =="
-echo "   LTS=$KVER_LTS  NEXT=$KVER_NEXT  rev=$BUILD_REV"
+echo "   LTS=$KVER_LEGACY  NEXT=$KVER_NEXT  rev=$BUILD_REV"
 echo "   out=$OUT"
 
 # Drift guard: verify the kernel/NPU manifest invariants before packaging the
@@ -149,10 +150,10 @@ EOF
 if [ -n "$LTS" ]; then
     rm -f "$ESP"/vmlinuz-*-ncz-lts 2>/dev/null || true
     install -m 0644 "/boot/vmlinuz-$LTS" "$ESP/vmlinuz-$LTS"
-    write_entry cixmini-lts 1-lts "nclawzero (cixmini) — kernel $LTS [LTS, default] — $VER" "$LTS" ""
+    write_entry cixmini-legacy 1-legacy "nclawzero (cixmini) — kernel $LTS [legacy, default] — $VER" "$LTS" ""
     echo "cixmini-boot: staged LTS $LTS"
 else
-    rm -f "$ESP/loader/entries/cixmini-lts.conf" "$ESP"/vmlinuz-*-ncz-lts 2>/dev/null || true
+    rm -f "$ESP/loader/entries/cixmini-legacy.conf" "$ESP/loader/entries/cixmini-lts.conf" "$ESP"/vmlinuz-*-ncz-lts 2>/dev/null || true
 fi
 
 # NEXT/edge channel
@@ -178,7 +179,7 @@ if [ -z "$LTS$NEXT" ]; then
     echo "cixmini-boot: no cixmini kernels installed; leaving loader.conf untouched"
     exit 0
 fi
-DEFAULT_ENTRY="cixmini-lts"; [ -z "$LTS" ] && DEFAULT_ENTRY="cixmini-next"
+DEFAULT_ENTRY="cixmini-legacy"; [ -z "$LTS" ] && DEFAULT_ENTRY="cixmini-next"
 cat > "$ESP/loader/loader.conf" <<EOF
 default $DEFAULT_ENTRY
 timeout 5
@@ -250,9 +251,9 @@ EOF
 # linux-image-cixmini-<channel>
 # ----------------------------------------------------------------------
 build_kernel_deb() {
-    local channel="$1"   # lts | edge
+    local channel="$1"   # legacy | edge
     local kver="$2"
-    local label="$3"     # stable | edge (asset subdir)
+    local label="$3"     # legacy | edge (asset subdir)
     local with_npu="$4"  # path to OOT npu .ko, or ""
 
     local pkg="linux-image-cixmini-$channel"
@@ -337,12 +338,66 @@ Description: NCZ cixmini Linux kernel ($channel channel, $kver)
  Installs vmlinuz, the module tree$( [ -n "$with_npu" ] && echo " (incl. armchina_npu)") and config,
  then refreshes the systemd-boot entry via cixmini-boot.
 EOF
+    # Renamed-package handoff. linux-image-cixmini-legacy ships the same
+    # /boot and /usr/lib/modules paths the old linux-image-cixmini-lts did,
+    # so without Replaces dpkg refuses to unpack it over a pre-rename board
+    # ("trying to overwrite ... which is also in package ..."). VERSIONED,
+    # and Breaks rather than Conflicts, because the old NAME survives as the
+    # empty transitional package built below -- an unversioned Conflicts
+    # would make that transitional package impossible to install alongside
+    # the very package it depends on.
+    if [ "$channel" = legacy ]; then
+        printf 'Replaces: linux-image-cixmini-lts (<< %s)\n' "$ver" >> "$root/DEBIAN/control"
+        printf 'Breaks: linux-image-cixmini-lts (<< %s)\n' "$ver" >> "$root/DEBIAN/control"
+    fi
     dpkg-deb --root-owner-group --build "$root" "$OUT/${pkg}_${ver}_arm64.deb"
 }
 
 build_cixmini_boot
-build_kernel_deb lts  "$KVER_LTS"  stable ""  # NPU in-tree since 7.0.12
+build_kernel_deb legacy "$KVER_LEGACY" legacy ""  # NPU in-tree since 7.0.12
 build_kernel_deb edge "$KVER_NEXT" edge   ""
+
+# ----------------------------------------------------------------------
+# Transitional package: linux-image-cixmini-lts
+#
+# 7.0.12-cix-sky1-next was published for months as "linux-image-cixmini-lts".
+# It is not an LTS -- it is an EOL kernel we support temporarily while 7.2
+# goes through its release process -- so the real package is now
+# linux-image-cixmini-legacy. Dropping the old name outright would leave every
+# already-installed board holding a package that no longer exists in the repo,
+# silently receiving no further kernel updates. This empty package depends on
+# the new one so `apt upgrade` migrates them automatically.
+#
+# Delete this once no supported board still has the old name installed.
+# ----------------------------------------------------------------------
+build_transitional_lts() {
+    local pkg=linux-image-cixmini-lts
+    local ver="$KVER_LEGACY+$BUILD_REV"
+    local root="$WORK/$pkg"
+    rm -rf "$root"
+    install -d "$root/DEBIAN"
+    cat > "$root/DEBIAN/control" <<EOF
+Package: $pkg
+Version: $ver
+Architecture: all
+Maintainer: $MAINT
+Section: oldlibs
+Priority: optional
+Installed-Size: 0
+Depends: linux-image-cixmini-legacy
+Description: transitional package -- renamed to linux-image-cixmini-legacy
+ The 7.0.12 kernel channel was renamed from "lts" to "legacy": 7.0.12 is an
+ EOL kernel supported only until the 7.2 channel finishes its release process,
+ so calling it LTS was wrong. This empty package exists purely so existing
+ installs migrate to linux-image-cixmini-legacy on upgrade. It can be removed
+ once nothing references the old name.
+EOF
+    chmod 0755 "$root/DEBIAN"
+    dpkg-deb --root-owner-group --build "$root" "$OUT/${pkg}_${ver}_all.deb"
+    echo "  [transitional] $pkg -> Depends: linux-image-cixmini-legacy"
+}
+
+build_transitional_lts
 
 echo ""
 echo "== built debs =="

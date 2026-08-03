@@ -37,11 +37,11 @@ INSTALLER_META=/usr/local/lib/cix-installer
 
 KERNEL_LABELS=()
 KERNEL_VERS=()
-if [ -f "$INSTALLER_META/KVER_LTS" ]; then
-    KVER_LTS=$(cat "$INSTALLER_META/KVER_LTS" 2>/dev/null | tr -d ' \t\r\n')
-    if [ -n "$KVER_LTS" ]; then
+if [ -f "$INSTALLER_META/KVER_LEGACY" ]; then
+    KVER_LEGACY=$(cat "$INSTALLER_META/KVER_LEGACY" 2>/dev/null | tr -d ' \t\r\n')
+    if [ -n "$KVER_LEGACY" ]; then
         KERNEL_LABELS+=("lts")
-        KERNEL_VERS+=("$KVER_LTS")
+        KERNEL_VERS+=("$KVER_LEGACY")
     fi
 fi
 if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
@@ -72,7 +72,7 @@ for _mk in /lib/modules/*7.2*-ncz /usr/lib/modules/*7.2*-ncz; do
 done
 
 if [ "${#KERNEL_VERS[@]}" -eq 0 ]; then
-    echo "[81] WARN: no KVER_LTS or KVER_NEXT sidecar found; skipping VPU overlay"
+    echo "[81] WARN: no KVER_LEGACY or KVER_NEXT sidecar found; skipping VPU overlay"
     exit 0
 fi
 

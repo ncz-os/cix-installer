@@ -7,7 +7,7 @@
 # + static-IP fallback) with the /lib-usrmerge repair helper baked in.
 #
 # This rootfs is KERNEL-FREE on purpose: post-install/72-rescue-partition.sh
-# drops the LTS 6.18 kernel Image + modules into it at install time (a clean,
+# drops the legacy 7.0.12 kernel Image + modules into it at install time (a clean,
 # quiet recovery kernel — NOT the edge payload — and the rescue
 # rEFInd "RESCUE PARTITION" menuentry written by 70-bootloader.sh boots it via root=PARTUUID.
 #

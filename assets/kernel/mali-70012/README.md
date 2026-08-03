@@ -6,7 +6,7 @@ hardware, board `Micro Computer (HK) Tech Limited MS-R1/P1WSB`).
 This is a DKMS-packaged port of the same mali_kbase / memory_group_manager /
 protected_memory_allocator driver that ships as the validated default GPU
 driver on the 7.2 (`KVER_NEXT`) kernel channel (`assets/kernel/mali/`), built
-instead against the **7.0.12-cix-sky1-next** (`KVER_LTS`, our
+instead against the **7.0.12-cix-sky1-next** (`KVER_LEGACY`, our
 secondary/emergency-fallback) kernel.
 
 **7.0.12's shipping, validated default GPU driver remains in-tree panthor**

@@ -6,7 +6,7 @@
 #   1. Latest post-install hooks (incl. mali_csffw.bin symlink fix)
 #   2. late_command swaps /etc/apt/sources.list from Debian to Ubuntu
 #      after Debian 12 base lands, then apt full-upgrade to Ubuntu resolute.
-#      End-state is an Ubuntu system on disk with our Sky1 LTS kernel.
+#      End-state is a Debian system on disk with our Sky1 kernels.
 #
 # Why d-i not casper: r17-r24 proved Ubuntu casper kernel-panics on Sky1
 # USB boot regardless of bootloader (rEFInd, GRUB, systemd-boot). r6
@@ -99,7 +99,7 @@ esac
 EMBED_MIRROR=1
 STAGE_ROOTFS=1
 PATCH_DEBOOTSTRAP_STUB=1
-STAGE_LTS_KERNEL=1
+STAGE_LEGACY_KERNEL=1
 STAGE_NEXT_KERNEL=1
 INSTALLER_KERNEL_FLAVOR=lts
 BOOTSTRAP_POOL=0
@@ -123,14 +123,14 @@ case "$MODE" in
         EMBED_MIRROR=0
         STAGE_ROOTFS=0
         PATCH_DEBOOTSTRAP_STUB=0
-        STAGE_LTS_KERNEL=0
+        STAGE_LEGACY_KERNEL=0
         INSTALLER_KERNEL_FLAVOR=next
         ;;
     netinstall-bootstrap)
         EMBED_MIRROR=0
         STAGE_ROOTFS=0
         PATCH_DEBOOTSTRAP_STUB=0
-        STAGE_LTS_KERNEL=0
+        STAGE_LEGACY_KERNEL=0
         INSTALLER_KERNEL_FLAVOR=next
         BOOTSTRAP_POOL=1
         ;;
@@ -479,27 +479,27 @@ EOF
 
 # ----------------------------------------------------------------------
 # Kernel discovery — match build-iso.sh asset paths:
-#   $ROOT/assets/kernel/stable/Image-cixmini.bin
-#   $ROOT/assets/kernel/stable/modules-cixmini.tgz
-#   $ROOT/assets/kernel/stable/KVER
+#   $ROOT/assets/kernel/legacy/Image-cixmini.bin
+#   $ROOT/assets/kernel/legacy/modules-cixmini.tgz
+#   $ROOT/assets/kernel/legacy/KVER
 # ----------------------------------------------------------------------
-LTS_KERN="$ROOT/assets/kernel/stable/Image-cixmini.bin"
-LTS_TGZ="$ROOT/assets/kernel/stable/modules-cixmini.tgz"
-LTS_KVER_FILE="$ROOT/assets/kernel/stable/KVER"
+LEGACY_KERN="$ROOT/assets/kernel/legacy/Image-cixmini.bin"
+LEGACY_TGZ="$ROOT/assets/kernel/legacy/modules-cixmini.tgz"
+LEGACY_KVER_FILE="$ROOT/assets/kernel/legacy/KVER"
 NEXT_KERN="$ROOT/assets/kernel/edge/Image-cixmini.bin"
 NEXT_TGZ="$ROOT/assets/kernel/edge/modules-cixmini.tgz"
 NEXT_KVER_FILE="$ROOT/assets/kernel/edge/KVER"
 
-KVER_LTS=""
+KVER_LEGACY=""
 KVER_NEXT=""
 
-if [ "$STAGE_LTS_KERNEL" = "1" ] || [ "$INSTALLER_KERNEL_FLAVOR" = "lts" ]; then
-    for f in "$LTS_KERN" "$LTS_TGZ" "$LTS_KVER_FILE"; do
+if [ "$STAGE_LEGACY_KERNEL" = "1" ] || [ "$INSTALLER_KERNEL_FLAVOR" = "lts" ]; then
+    for f in "$LEGACY_KERN" "$LEGACY_TGZ" "$LEGACY_KVER_FILE"; do
         [ -f "$f" ] || { echo "ERROR: missing $f"; exit 1; }
     done
-    KVER_LTS=$(cat "$LTS_KVER_FILE")
-    [ -n "$KVER_LTS" ] || { echo "ERROR: empty KVER file: $LTS_KVER_FILE"; exit 1; }
-    echo "[info] LTS kernel KVER: $KVER_LTS"
+    KVER_LEGACY=$(cat "$LEGACY_KVER_FILE")
+    [ -n "$KVER_LEGACY" ] || { echo "ERROR: empty KVER file: $LEGACY_KVER_FILE"; exit 1; }
+    echo "[info] legacy kernel KVER: $KVER_LEGACY"
 fi
 
 if [ -f "$NEXT_KVER_FILE" ] && [ -f "$NEXT_KERN" ] && [ -f "$NEXT_TGZ" ]; then
@@ -513,10 +513,10 @@ fi
 
 case "$INSTALLER_KERNEL_FLAVOR" in
     lts)
-        INSTALLER_KERN="$LTS_KERN"
-        INSTALLER_TGZ="$LTS_TGZ"
-        KVER_INSTALLER="$KVER_LTS"
-        INSTALLER_KERNEL_LABEL="LTS"
+        INSTALLER_KERN="$LEGACY_KERN"
+        INSTALLER_TGZ="$LEGACY_TGZ"
+        KVER_INSTALLER="$KVER_LEGACY"
+        INSTALLER_KERNEL_LABEL="legacy"
         ;;
     next)
         INSTALLER_KERN="$NEXT_KERN"
@@ -1826,7 +1826,7 @@ fi
 # r211: prune target-only driver categories before they hit the d-i initrd.
 # $INSTALLER_TGZ is the FULL target-system module tree (same artifact the
 # installed OS uses), dumped into this overlay unfiltered. It grew from a
-# reasonable size to 124M+ (compressed) as the LTS kernel gained features
+# reasonable size to 124M+ (compressed) as the legacy kernel gained features
 # over time (e.g. the 2026-06-17 Sky1 audio stack port) — none of which a
 # text-mode d-i bootstrap environment (no GPU, no audio, no camera, wired
 # ethernet only per the rtl_nic note above) has any use for. On real O6N
@@ -2345,34 +2345,34 @@ if [ -d "$ROOT/assets" ]; then
     done
 fi
 
-# Stage target kernels. full/thin ship the historical LTS+NEXT payload;
+# Stage target kernels. full/thin ship the legacy+edge payload;
 # netinstall ships NEXT only per R76-NETINSTALL-DESIGN.md.
 mkdir -p "$EXTRA/assets/kernel"
-if [ "$STAGE_LTS_KERNEL" = "1" ]; then
-    mkdir -p "$EXTRA/assets/kernel/stable"
-    cp -L "$LTS_KERN" "$EXTRA/assets/kernel/stable/"
-    cp -L "$LTS_TGZ"  "$EXTRA/assets/kernel/stable/"
-    if [ -f "$ROOT/assets/kernel/stable/headers-cixmini.tar.zst" ]; then
-        cp -L "$ROOT/assets/kernel/stable/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/stable/"
-        echo "    LTS headers staged: $(du -h "$EXTRA/assets/kernel/stable/headers-cixmini.tar.zst" | cut -f1)"
+if [ "$STAGE_LEGACY_KERNEL" = "1" ]; then
+    mkdir -p "$EXTRA/assets/kernel/legacy"
+    cp -L "$LEGACY_KERN" "$EXTRA/assets/kernel/legacy/"
+    cp -L "$LEGACY_TGZ"  "$EXTRA/assets/kernel/legacy/"
+    if [ -f "$ROOT/assets/kernel/legacy/headers-cixmini.tar.zst" ]; then
+        cp -L "$ROOT/assets/kernel/legacy/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/legacy/"
+        echo "    legacy headers staged: $(du -h "$EXTRA/assets/kernel/legacy/headers-cixmini.tar.zst" | cut -f1)"
     else
-        echo "    LTS headers: NOT PRESENT — /lib/modules/$KVER_LTS/build will be absent on"
+        echo "    legacy headers: NOT PRESENT — /lib/modules/$KVER_LEGACY/build will be absent on"
         echo "                 the target, so DKMS cannot rebuild any CIX driver (every CIX"
         echo "                 driver is DKMS by directive). Produce it from the built kernel"
         echo "                 tree with:"
         echo "                   build/extract-kernel-headers.sh \\"
         echo "                     --kernel-src <linux-src-tree> \\"
-        echo "                     --kver $KVER_LTS \\"
-        echo "                     --output assets/kernel/stable/headers-cixmini.tar.zst"
+        echo "                     --kver $KVER_LEGACY \\"
+        echo "                     --output assets/kernel/legacy/headers-cixmini.tar.zst"
     fi
     # r98: archive the LTS kernel .config (provenance / future OOT rebuilds).
-    if [ -n "$KVER_LTS" ] && [ -f "$ROOT/assets/kernel/stable/config-$KVER_LTS" ]; then
-        cp -L "$ROOT/assets/kernel/stable/config-$KVER_LTS" "$EXTRA/assets/kernel/stable/"
-        echo "    LTS config archived: config-$KVER_LTS"
+    if [ -n "$KVER_LEGACY" ] && [ -f "$ROOT/assets/kernel/legacy/config-$KVER_LEGACY" ]; then
+        cp -L "$ROOT/assets/kernel/legacy/config-$KVER_LEGACY" "$EXTRA/assets/kernel/legacy/"
+        echo "    legacy config archived: config-$KVER_LEGACY"
     fi
-    echo "    LTS kernel staged: $(du -h "$EXTRA/assets/kernel/stable/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/stable/modules-cixmini.tgz" | cut -f1) modules"
+    echo "    legacy kernel staged: $(du -h "$EXTRA/assets/kernel/legacy/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/legacy/modules-cixmini.tgz" | cut -f1) modules"
 else
-    echo "    netinstall mode: LTS kernel assets intentionally not staged"
+    echo "    netinstall mode: legacy kernel assets intentionally not staged"
 fi
 
 if [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
@@ -2543,8 +2543,8 @@ else
     echo "    rootfs.tar.zst not staged in --mode $MODE"
 fi
 
-if [ -n "$KVER_LTS" ]; then
-    echo "$KVER_LTS" > "$EXTRA/KVER_LTS"
+if [ -n "$KVER_LEGACY" ]; then
+    echo "$KVER_LEGACY" > "$EXTRA/KVER_LEGACY"
 fi
 if [ -n "${KVER_NEXT:-}" ]; then
     echo "$KVER_NEXT" > "$EXTRA/KVER_NEXT"

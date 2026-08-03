@@ -59,7 +59,7 @@ printf '%s' "$NCZ_TARGET_ARCH" | sudo tee "$CHROOT/usr/local/lib/cix-installer/B
 # stage kernel-version sidecars so 10-our-kernel finds them (build-iso.sh stages
 # these at ISO time; the bake must too).
 KM="$CHROOT/usr/local/lib/cix-installer"
-[ -f "$KM/assets/kernel/stable/KVER" ] && sudo cp "$KM/assets/kernel/stable/KVER" "$KM/KVER_LTS"
+[ -f "$KM/assets/kernel/legacy/KVER" ] && sudo cp "$KM/assets/kernel/legacy/KVER" "$KM/KVER_LEGACY"
 [ -f "$KM/assets/kernel/edge/KVER" ]   && sudo cp "$KM/assets/kernel/edge/KVER"   "$KM/KVER_NEXT"
 
 for m in proc sys dev dev/pts run; do sudo mkdir -p "$CHROOT/$m"; done

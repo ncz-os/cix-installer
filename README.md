@@ -242,7 +242,8 @@ NPU/GPU/VPU may not initialize, or the installer may need board-specific work.
 > channels (see the callout at the top of this README): **7.2** is the
 > primary/default boot entry (`linux-cix-sky1-ncz`, `KERNELRELEASE
 > 7.2.0-rc5-sky1-ncz` — see [`kernel-source/SOURCE.md`](kernel-source/SOURCE.md)),
-> **7.0.12-cix-sky1-next** is the secondary/emergency fallback, and **6.18
+> **7.0.12-cix-sky1-next** is the legacy/emergency fallback (an EOL kernel
+> carried only until 7.2 completes its release process), and **6.18
 > LTS** is the deep-rescue kernel on its own dedicated rescue partition. The
 > table below documents **7.0.12-cix-sky1-next**
 > (`assets/kernel/edge/KVER`, patch series `next-patches/0001`–`0043` +
@@ -411,7 +412,7 @@ The ISO also ships:
   apt repo (31 packages, ~81 MB) so it can be re-pulled post-install without
   a reinstall — see [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources).
 - The kernel channels (`7.2` primary/default + `7.0.12-cix-sky1-next`
-  secondary/fallback, plus `6.18.26-cix-sky1-lts` on the dedicated rescue
+  legacy fallback (EOL, carried only until 7.2 releases), on the dedicated rescue
   partition) with firmware, so a device can flip channels without
   redownloading anything.
 - Quadlet definitions for zeroclaw plus optional OpenClaw, Hermes, and
@@ -931,7 +932,7 @@ removal, quieter boot journal).
 - Kernels + CIX userspace (compiled/mirrored): **Buildkite Packages** `ncz-os/ncz`, served over a CloudFront-backed CDN — `apt upgrade` / `ncz-update` pulls new `linux-image-cixmini-{lts,edge}` and the 31 mirrored CIX proprietary packages. No Codeberg apt source exists for this (see OTA channel section above; note apt hosting has since changed again, see "Current ISO" above).
 - Kernel source + Yocto recipes: GitLab [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix).
 
-**Kernels (r195):** 7.0.12-cix-sky1-next (default, stable) + 7.2.0-rc1-ncz (edge). (6.18 LTS retired from the ISO as of r195 — later reinstated as a dedicated deep-rescue-partition kernel in 26.7, see above; 7.1.2 was experimental/non-working and never shipped.)
+**Kernels (r195):** 7.0.12-cix-sky1-next (default, stable) + 7.2.0-rc1-ncz (edge). (6.18 LTS retired from the ISO as of r195 and never reinstated — 26.7 ships two kernel channels only, legacy 7.0.12 and edge 7.2; 7.1.2 was experimental/non-working and never shipped.)
 
 Provenance: **7.0.12 stable** is *our* port — the raw v7.0.12 stable tag
 plus our MS-R1-specific validation and fixes (SCMI, GPU, VPU, NPU, display,
