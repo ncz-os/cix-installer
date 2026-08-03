@@ -268,6 +268,11 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     # SCMI stack alongside the module's raw-SMC power-on path.
 fi
 
+# Shared by both console entries (7.0.12 and 7.2): every CIX GPU/NPU/VPU
+# driver is blacklisted.  The display pipeline (linlondp) is deliberately
+# NOT in this list so tty0 stays usable on O6/O6N.
+CONSOLE_EXTRA_BLACKLIST="panthor,panfrost,mali,mali_kbase,memory_group_manager,protected_memory_allocator,bifrost,armchina_npu,amvx,cix_vpu,linlon_vpu"
+
 # 7.0.12 is deliberately a console-only recovery kernel.  Do not expose a
 # graphical or GPU variant of it: the LTS contract is a networked
 # multi-user shell with every available CIX GPU driver blacklisted.  Keep the
@@ -275,12 +280,26 @@ fi
 LTS_CONSOLE_OPTIONS=""
 LTS_CONSOLE_CMDLINE=""
 if [ "$LTS_AVAILABLE" = "1" ]; then
-    LTS_CONSOLE_EXTRA_BLACKLIST="panthor,panfrost,mali,mali_kbase,memory_group_manager,protected_memory_allocator,bifrost,armchina_npu,amvx,cix_vpu,linlon_vpu"
+    LTS_CONSOLE_EXTRA_BLACKLIST="$CONSOLE_EXTRA_BLACKLIST"
     LTS_CONSOLE_EXISTING_BL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
     LTS_CONSOLE_CMDLINE_NOBL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
     [ -n "$LTS_CONSOLE_EXISTING_BL" ] && LTS_CONSOLE_MERGED_BL="$LTS_CONSOLE_EXISTING_BL,$LTS_CONSOLE_EXTRA_BLACKLIST" || LTS_CONSOLE_MERGED_BL="$LTS_CONSOLE_EXTRA_BLACKLIST"
     LTS_CONSOLE_CMDLINE="$LTS_CONSOLE_CMDLINE_NOBL module_blacklist=$LTS_CONSOLE_MERGED_BL"
     LTS_CONSOLE_OPTIONS="$ROOT_OPTS $LTS_CONSOLE_CMDLINE systemd.unit=multi-user.target"
+fi
+
+# 7.2 CONSOLE — same console-only contract as the 7.0.12 entry, but on the
+# 7.2 kernel.  Purpose: reach a networked multi-user shell on the SHIPPING
+# kernel when the graphical handoff fails (greeter/DKMS/Mesa), without
+# falling back to the 7.0.12 recovery kernel.  No splash: this entry must
+# stay verbose so a boot failure is diagnosable on ttyAMA0/tty0.
+NEXT_CONSOLE_OPTIONS=""
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    NEXT_CONSOLE_EXISTING_BL=$(printf '%s\n' "$NEXT_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
+    NEXT_CONSOLE_CMDLINE_NOBL=$(printf '%s\n' "$NEXT_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
+    [ -n "$NEXT_CONSOLE_EXISTING_BL" ] && NEXT_CONSOLE_MERGED_BL="$NEXT_CONSOLE_EXISTING_BL,$CONSOLE_EXTRA_BLACKLIST" || NEXT_CONSOLE_MERGED_BL="$CONSOLE_EXTRA_BLACKLIST"
+    NEXT_CONSOLE_CMDLINE="$NEXT_CONSOLE_CMDLINE_NOBL module_blacklist=$NEXT_CONSOLE_MERGED_BL"
+    NEXT_CONSOLE_OPTIONS="$ROOT_OPTS $NEXT_CONSOLE_CMDLINE systemd.unit=multi-user.target"
 fi
 
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
@@ -383,6 +402,13 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$PANTHOR_OPTIONS\""
+        echo "}"
+        echo
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 CONSOLE — networked, no GPU, no GUI\" {"
+        echo "    loader  /vmlinuz-$KVER_NEXT"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
+        echo "    options \"$NEXT_CONSOLE_OPTIONS\""
         echo "}"
         echo
     fi
