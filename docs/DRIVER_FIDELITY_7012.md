@@ -1,5 +1,7 @@
 # CIX 7.0.12 Driver Fidelity — Validated Fixes (cixmini)
 
+> For the **7.2 primary channel**, see [`DRIVER_FIDELITY_72.md`](DRIVER_FIDELITY_72.md).
+
 Live-validated on the `.66` reference board. The fixes below apply to our
 `7.0.12-cix-sky1-next` build. As of NCZ-OS 26.7, this is the **secondary /
 emergency fallback** kernel channel ("stable" in the rEFInd menu) — **7.2**
