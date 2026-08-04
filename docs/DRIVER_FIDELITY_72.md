@@ -393,3 +393,104 @@ for m in /lib/modules/$(uname -r)/updates/dkms/*.ko*; do
     printf '%-34s %s\n' "$(basename $m)" "$(modinfo -F vermagic $m)"
 done
 ```
+
+---
+
+# Addendum 2026-08-04 — GPU driver decision, acceleration matrix, deploy gotchas
+
+Everything below was measured on the O6N (`7.2.0-rc6-sky1-ncz`, Mali boot)
+during the 2026-08-04 validation session.
+
+## GPU driver decision: Mali only. There is no panthor boot entry.
+
+Panthor was fully root-caused and is **not shippable** on current Sky1
+firmware: the CSF firmware dies on the **first user `DRM_IOCTL_PANTHOR_VM_BIND`**
+(`err=110 ETIMEDOUT`). The Sky1 IDM (interconnect defense) revokes the GPU's
+non-secure bus-master grant on the first user-address-space transaction and
+isolates the GPU wholesale; the MCU stays `ENABLED` but memory-blind, reset
+cannot recover (`AS_ACTIVE` stuck, L2 transition timeouts), and every trapped
+access makes TF-A print `IDM: GPU secure access` synchronously on the UART —
+enough of them stall every core (system pingable, unusable; power cycle only).
+An idle panthor (kernel VM only) survives indefinitely; `vulkaninfo` device
+enumeration survives; the first real GPU job kills it. Filed with a staged
+~130-line reproducer: **cixtech/cix-linux-main#59**.
+
+mali_kbase survives the same firmware because every per-job power-up re-runs
+the full power-on/un-secure sequence. Kernel-side re-grant recovery was
+attempted twice (SCMI power re-set + reset cycle; ACPI power-supply
+`_PR0` cycle) — **both trigger the EL3 print-storm hang. Do not retry.**
+The fix must come from CIX's secure firmware.
+
+The rEFInd generator no longer emits a panthor entry and
+`/etc/modprobe.d/ncz-panthor-deferred.conf` blacklists autoload. Do not
+re-add either until cixtech#59 is fixed and re-validated.
+
+## Acceleration matrix (all verified on metal)
+
+| Consumer | Path | Result |
+|---|---|---|
+| mpv / ffmpeg / gst **decode** | CIX VAAPI (VPU) → dmabuf → Wayland → linlondp overlay, zero-copy | 1080p30 H.264 at **~7% CPU** (software: ~82%) |
+| ffmpeg **encode** (`h264_vaapi`) | CIX VAAPI (VPU) | **13.2× realtime** at 1080p30, valid High profile |
+| Chrome 151 rendering | ANGLE on libmali blob (GLES 3.2) | Canvas/Compositing/Raster/WebGL/**WebGPU** all hardware |
+| Chrome 151 video decode | Chrome's V4L2 path straight to mvx (not VAAPI) | Hardware |
+| Chrome 151 video encode | blocked: CIX VA driver fails Chrome's `FillProfileInfo` attribute probe | Software (report to cixtech pending) |
+| Native GLES Wayland apps | blob wayland winsys via `ncz-gpu-env` | glmark2-es2-wayland score **7110** |
+| Compositor | software (pixman) — mali blob has no DRM node, no `zwp_linux_dmabuf` | by design; per-app accel above is unaffected |
+
+VAAPI needs `LIBVA_DRIVER_NAME=libcix_va` in the session environment.
+**greetd's PAM stack does not apply `/etc/environment`** — the variable is
+exported by `ncz-gpu-env` (mali branch) and by
+`/etc/environment.d/60-ncz-vaapi.conf` (systemd user services). mpv defaults
+live in `/etc/mpv/mpv.conf` (see `post-install/28-vaapi-media.sh`).
+
+Required vendor userspace (2026Q2 `cix-mm` bundle): `cix-vaapi`,
+`cix-libva*`, `cix-libcme` (hard dlopen dependency of the VA driver),
+`cix-vpu-firmware`. **Never install `cix-gstreamer`**: it puts GStreamer 1.22
+core libraries into `/usr/share/cix/lib` — an ldconfig'd directory — and
+silently shadows the distro GStreamer for every process. On trixie this broke
+libgtk-4 (`undefined symbol: gst_video_info_dma_drm_to_video_info`) and
+crash-looped the desktop shell at login. General rule: vendor debs must never
+place libraries in an ldconfig'd directory shared with the distro.
+
+## Boot time — rootdelay removed properly
+
+The 7.x graphical/console entries no longer carry `rootdelay=90`; the
+`ncz-rootdelay` initramfs hook provides a 90s **poll-timeout fallback**
+(scripts/local) without the unconditional `init:235` sleep. Measured:
+kernel-to-GPU-probe went from ~94s to **3.6s**. The rescue entry keeps an
+explicit `rootdelay=90` because it must boot with pre-hook initramfs images.
+
+## Deploy gotchas (each of these cost a debugging cycle — read before touching modules or initrds)
+
+1. **`/lib/modules/<ver>/updates/` does not reach the initrd.** The
+   initramfs hook set packs the `kernel/`-path module files; a module
+   override staged in `updates/` wins at runtime depmod but the initrd keeps
+   stock. To override a module that loads from the initrd, replace the
+   `.ko.xz` at its canonical `kernel/...` path (keep a backup).
+2. **rEFInd boots the initrd from the ESP** (`initrd=\initrd.img-<ver>`).
+   `update-initramfs` writes `/boot/initrd.img-<ver>` only. Every initrd
+   change MUST be followed by
+   `cp /boot/initrd.img-<ver> /boot/efi/ && sync` or it silently does not
+   take effect.
+3. **In-kernel module decompression requires `xz --check=crc32`.** A module
+   compressed with default CRC64 fails at load with
+   `decompression failed with status 6` — and if it's the display driver,
+   the greeter's exec-condition never passes (black screen, no obvious error).
+4. **`systemctl restart greetd` does not clean the user session.** Orphaned
+   labwc/greeter processes keep the Wayland socket while the new greetd
+   spins → black screen with everything "active". Full sweep:
+   `systemctl stop greetd; pkill -u _greetd; rm -f /run/user/989/wayland-0*;
+   systemctl start greetd`.
+5. Do not run fullscreen GL tests (glmark2 etc.) against the live greeter
+   session — wedges the compositor. Use the user session windowed, or nested.
+
+## Display / flicker triage notes
+
+DP link on the SA350 (1080p60): trains RBR ×4 (`rate:162000 lanes:4`,
+sink max is HBR2), standard CEA `148500` pixel clock, XR24. A 4-hour
+instrumented soak (DPCD symbol-error counters every 2s, lane status, retrain
+count, thermals, DPU clock; idle/mpv-overlay/Chrome-YouTube cycles) is the
+tool of record for flicker reports — see MNEMOS `cix-sky1` notes for the lab
+script. Sink-side symbol counters at zero while flicker is visible ⇒ the
+pixels leaving the SoC are clean and the panel's own processing (dynamic
+contrast) is the residual suspect.

@@ -242,7 +242,12 @@ NEXT_CMDLINE_BASE="$NEXT_CMDLINE_BASE $NEXT_CMDLINE_EXTRA"
 SPLASH="quiet loglevel=3 vt.global_cursor_default=0 systemd.show_status=false rd.systemd.show_status=false"
 [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 
-ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootdelay=90 rootfstype=$ROOT_FSTYPE rw"
+# No rootdelay= here: the ncz-rootdelay initramfs hook gives scripts/local a
+# 90s poll-timeout FALLBACK without the unconditional init:235 sleep that
+# rootdelay= on the cmdline costs every boot (measured: 94s -> 3.6s to GPU
+# probe on O6N). The rescue entry below keeps an explicit rootdelay=90: it
+# must boot even from an initramfs that predates the hook.
+ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=$ROOT_FSTYPE rw"
 if [ -n "$ROOT_SUBVOL" ]; then
     ROOT_OPTS="$ROOT_OPTS rootflags=subvol=$ROOT_SUBVOL"
 fi
@@ -460,13 +465,12 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo "    options \"$MALI_OPTIONS\""
         echo "}"
         echo
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 PANTHOR DKMS — graphical [EXPERIMENTAL]\" {"
-        echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
-        echo "    options \"$PANTHOR_OPTIONS\""
-        echo "}"
-        echo
+        # NO panthor menuentry (operator decision 2026-08-04: "we ship mali,
+        # period"). Panthor's CSF firmware dies on the first user VM_BIND —
+        # the Sky1 IDM revokes the GPU's bus-master grant and isolates it
+        # (reported: cixtech/cix-linux-main#59, staged reproducer attached).
+        # /etc/modprobe.d also blacklists panthor. Do NOT re-add the entry
+        # until CIX fixes the secure-firmware side.
         echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 CONSOLE — networked, no GPU, no GUI\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"

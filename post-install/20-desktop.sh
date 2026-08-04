@@ -335,7 +335,11 @@ if [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
     # failed; VK_DRIVER_FILES fixed it). Legacy VK_ICD_FILENAMES did NOT work
     # on this loader version — use VK_DRIVER_FILES.
     VK_DRIVER_FILES=/etc/vulkan/icd.d/mali.json
-    export NCZ_GPU_BACKEND LD_LIBRARY_PATH WLR_DRM_NO_MODIFIERS VK_DRIVER_FILES
+    # VPU video acceleration: the CIX VAAPI driver (cix-vaapi). greetd's PAM
+    # stack does not apply /etc/environment, so sessions must inherit this
+    # here (confirmed on O6N: mpv --hwdec=vaapi fails without it in-session).
+    LIBVA_DRIVER_NAME=libcix_va
+    export NCZ_GPU_BACKEND LD_LIBRARY_PATH WLR_DRM_NO_MODIFIERS VK_DRIVER_FILES LIBVA_DRIVER_NAME
 elif grep -q '^panthor ' /proc/modules 2>/dev/null; then
     # Panthor = open Mesa stack. Point glvnd/EGL at the mesa vendor ICD and strip
     # inherited CIX libmali paths so EGL/GBM resolve to mesa (panfrost/panvk).

@@ -21,7 +21,7 @@ LOGDIR="$WORK/logs"
 # 33-network, 34-fstab (disk UUIDs), 37-failsafe, 38-recovery, 48-server-variant,
 # 70-bootloader (ESP), 72-rescue-partition, 99-diagnostics, hostname/user-setup.
 BAKE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 \
-20-desktop 22-display-fix 25-cix-proprietary 26-gpu-default-open 30-agents \
+20-desktop 22-display-fix 25-cix-proprietary 26-gpu-default-open 28-vaapi-media 30-agents \
 31-remote-access 32-quadlet-shim 35-fstrim-fix 35-ssh 36-telemetry 40-claude-code \
 45-wallpaper-rotator 46-ncz-cli 46-python311 47-embedkit 47-llm-stack 50-brand \
 56-icon-theme 57-screensaver 60-boot-splash 80-npu 92-buildkite-apt"
