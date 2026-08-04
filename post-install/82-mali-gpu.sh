@@ -20,9 +20,10 @@
 set +e
 
 INSTALLER_META=/usr/local/lib/cix-installer
-ASSET_DIR="$INSTALLER_META/assets/kernel/mali"     # mali .ko overlay + patch + deb
+ASSET_DIR="$INSTALLER_META/assets/kernel/mali"     # overlay + DKMS source + patch
 RL_PATCH="$ASSET_DIR/mali-kbase-scmi-ratelimit.patch"
-DKMS_DEB=$(ls "$ASSET_DIR"/cix-gpu-dkms_*_arm64.deb 2>/dev/null | head -1)
+DKMS_SRC="$ASSET_DIR/src"                          # DKMS source tree + dkms.conf
+DKMS_VER="1.0"
 MODS=(mali_kbase memory_group_manager protected_memory_allocator)
 
 # --- only the 7.2/edge (NEXT) kernel gets mali; LTS keeps in-tree panthor ---
@@ -58,30 +59,51 @@ else
     echo "[82] no pre-built overlay at $OVL"
 fi
 
-# --- 2. register cix-gpu-dkms (+ rate-limit patch) for future rebuilds ------
-if [ -n "$DKMS_DEB" ] && command -v dkms >/dev/null 2>&1; then
-    dpkg -i "$DKMS_DEB" >/dev/null 2>&1
-    SRC=$(ls -d /usr/src/cix-gpu-kmd-* 2>/dev/null | head -1)
-    if [ -n "$SRC" ] && [ -f "$RL_PATCH" ]; then
+# --- 2. register cix-gpu-kmd with DKMS for future kernel rebuilds ----------
+# Ship the SOURCE tree, mirroring 83-panthor-gpu.sh, rather than a
+# cix-gpu-dkms_*.deb. Nothing in this repo ever built that deb, so this branch
+# silently took its else-path on every install since it was written and the
+# DKMS half of the GPU story never existed -- the prebuilt overlay was carrying
+# it alone, which is why an rc5-stamped overlay against an rc6 kernel produced a
+# no-GPU boot with nothing to fall back on.
+#
+# post-install/79-dkms-prep.sh must have run first: the shipped kernel headers
+# are a Yocto build-host artifact and cannot build anything until it repairs
+# them (foreign fixdep/modpost, missing localversion). See that script.
+if [ -d "$DKMS_SRC" ] && [ -f "$ASSET_DIR/dkms.conf" ]; then
+    SRC=/usr/src/cix-gpu-kmd-$DKMS_VER
+    rm -rf "$SRC"; mkdir -p "$SRC"
+    cp -a "$DKMS_SRC/." "$SRC/"
+    cp -a "$ASSET_DIR/dkms.conf" "$SRC/dkms.conf"
+
+    if [ -f "$RL_PATCH" ]; then
         MALI_C="$SRC/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_devfreq.c"
         if [ -f "$MALI_C" ] && ! grep -q KBASE_SCMI_RATE_LIMIT_US "$MALI_C" 2>/dev/null; then
             ( cd "$SRC" && patch -p1 < "$RL_PATCH" >/dev/null 2>&1 ) \
-                && echo "[82] applied SCMI rate-limit patch to cix-gpu-dkms source" \
+                && echo "[82] applied SCMI rate-limit patch to the DKMS source" \
                 || echo "[82] WARN: rate-limit patch did not apply cleanly (overlay still covers boot)"
         fi
     fi
-    # build now only if headers are present; otherwise DKMS rebuilds on next
-    # apt kernel upgrade. The pre-built overlay already covers the shipped kernel.
-    if [ -f "$KDIR/build/Makefile" ]; then
-        VER=$(echo "$SRC" | sed 's#.*/cix-gpu-kmd-##')
-        dkms install -m cix-gpu-kmd -v "$VER" -k "$KVER_NEXT" --force >/dev/null 2>&1 \
-            && echo "[82] dkms built cix-gpu-kmd for $KVER_NEXT" \
-            || echo "[82] dkms build skipped/failed (overlay covers boot)"
+
+    if command -v dkms >/dev/null 2>&1; then
+        dkms add -m cix-gpu-kmd -v "$DKMS_VER" >/dev/null 2>&1 \
+            && echo "[82] dkms add cix-gpu-kmd/$DKMS_VER" \
+            || echo "[82] dkms add skipped (already registered?)"
+        # Build now only if the headers are usable; otherwise DKMS autoinstalls
+        # on the next kernel upgrade and the prebuilt overlay covers this boot.
+        if [ -f "$KDIR/build/Makefile" ]; then
+            dkms build   -m cix-gpu-kmd -v "$DKMS_VER" -k "$KVER_NEXT" >/dev/null 2>&1 \
+              && dkms install -m cix-gpu-kmd -v "$DKMS_VER" -k "$KVER_NEXT" --force >/dev/null 2>&1 \
+              && echo "[82] dkms built+installed cix-gpu-kmd for $KVER_NEXT (-> updates/dkms/)" \
+              || echo "[82] dkms build deferred (overlay covers boot; will autoinstall on kernel upgrade)"
+        else
+            echo "[82] no kernel headers ($KDIR/build) — DKMS will build on next kernel upgrade; overlay covers now"
+        fi
     else
-        echo "[82] no kernel headers ($KDIR/build) — DKMS will build on next kernel upgrade; overlay covers now"
+        echo "[82] dkms absent — source staged to $SRC, overlay covers boot"
     fi
 else
-    echo "[82] cix-gpu-dkms deb or dkms absent — relying on pre-built overlay"
+    echo "[82] no DKMS source at $DKMS_SRC — relying on pre-built overlay"
 fi
 
 # --- 3. auto-load mali_kbase only on a kernel that actually provides it -----

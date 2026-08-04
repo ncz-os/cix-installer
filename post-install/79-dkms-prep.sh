@@ -105,34 +105,63 @@ else
 fi
 
 # --- 1 + 3. native host tools, with selinux/mdp neutralised ------------------
+# Detect an unusable host tool by TRYING TO RUN IT, not by inspecting it with
+# file(1). An earlier version gated this on `command -v file`, which meant that
+# on a minimal system without file(1) the check silently concluded the tools
+# were fine and skipped the rebuild -- leaving every later DKMS build to fail
+# with the same baffling "not found" on a binary that exists. Exec is also the
+# ground truth here: what matters is whether the loader can start it.
+# 126 = found but not executable, 127 = interpreter/file not found.
+tool_usable() {
+    [ -x "$1" ] || return 1
+    "$1" --version >/dev/null 2>&1
+    case $? in
+        126|127) return 1 ;;   # cannot exec: wrong ABI or missing loader
+        *)       return 0 ;;   # ran (a usage error is still a successful exec)
+    esac
+}
+
 need_rebuild=0
 for tool in scripts/basic/fixdep scripts/mod/modpost; do
-    if [ ! -x "$B/$tool" ]; then
-        need_rebuild=1
-    elif command -v file >/dev/null 2>&1 && \
-         file "$B/$tool" 2>/dev/null | grep -q 'sysroots-uninative'; then
-        need_rebuild=1
-    fi
+    tool_usable "$B/$tool" || need_rebuild=1
 done
 
 if [ "$need_rebuild" = "1" ]; then
     echo "[79] rebuilding kernel host tools natively (shipped ones are Yocto build-host binaries)"
     SEL="$B/scripts/selinux/Makefile"
     SELBAK=""
+    # Restore the neutralised Makefile even if we are interrupted: leaving it
+    # truncated would quietly break future kernel builds in a way that looks
+    # nothing like its cause.
+    restore_selinux() {
+        [ -n "${SELBAK:-}" ] && [ -f "$SELBAK" ] && cp -a "$SELBAK" "$SEL"
+        [ -n "${SELBAK:-}" ] && rm -f "$SELBAK"
+        SELBAK=""
+    }
+    trap 'restore_selinux' EXIT INT TERM
     if [ -f "$SEL" ]; then
         SELBAK="$(mktemp)"; cp -a "$SEL" "$SELBAK"; : > "$SEL"
     fi
     # modules_prepare builds scripts/mod/modpost; it later fails on other
     # generated sources the headers package omits (kernel/time/timeconst.bc),
     # which does not matter -- modpost and fixdep are built by then.
-    make -C "$B" modules_prepare >/dev/null 2>&1 || true
-    [ -n "$SELBAK" ] && { cp -a "$SELBAK" "$SEL"; rm -f "$SELBAK"; }
+    # Keep the log: this step failing is the difference between DKMS working and
+    # not, and "somewhere in a discarded make run" is not a debuggable report.
+    LOG=/var/log/ncz-dkms-prep.log
+    if ! make -C "$B" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare \
+            >>"$LOG" 2>&1; then
+        echo "[79] modules_prepare returned non-zero (expected: the headers omit" \
+             "some generated sources); see $LOG"
+    fi
+    restore_selinux
+    trap - EXIT INT TERM
 
     for tool in scripts/basic/fixdep scripts/mod/modpost; do
-        if [ -x "$B/$tool" ] && ! file "$B/$tool" 2>/dev/null | grep -q 'sysroots-uninative'; then
+        if tool_usable "$B/$tool"; then
             echo "[79]   $tool -> native"
         else
-            echo "[79]   WARNING: $tool still unusable; DKMS builds will fail"
+            echo "[79]   WARNING: $tool still unusable; DKMS builds will fail" \
+                 "(see $LOG)"
         fi
     done
 else
