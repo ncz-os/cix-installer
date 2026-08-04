@@ -18,6 +18,15 @@ ASSETS="$REPO/assets/kernel"
 NPU="$REPO/assets/npu"
 OUT="$REPO/build/kernel-debs"
 BUILD_REV="${BUILD_REV:-r98}"
+
+# cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
+# shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only
+# unpacks cixmini-boot if its version is newer, and the kernel packages can upgrade
+# independently. Without a bump an installed board keeps running the STALE
+# /usr/local/sbin/ncz-refind-refresh, which rewrites refind.conf with the old
+# hard-coded efi=noruntime and re-breaks the O6/O6N RTC on every kernel refresh.
+# 1.1: board-gated efi=noruntime + generator shipped through the OTA path.
+CIXMINI_BOOT_VER="1.1+$BUILD_REV"
 MAINT="NCZ <nczero@nclawzero.dev>"
 
 # KVER comes from the ASSET WE ARE ABOUT TO PACKAGE, not from a previous
@@ -117,7 +126,54 @@ ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC" 2>/dev/null)
 
 # MartJohnson 2026-04-30 working set for MS-R1 (identical LTS+NEXT), kept in
 # lockstep with build/70-bootloader.sh.
-CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453 video=DP-4:1920x1080@60e"
+# ----------------------------------------------------------------------
+# efi=noruntime is an MS-R1 firmware workaround, NOT a Sky1-wide one.
+#
+# Gate it on the actual board. MS-R1's EFI runtime services are buggy, but
+# every other Sky1 target (Radxa Orion O6/O6N, Orange Pi 6 / 6 Plus) needs
+# EFI runtime ENABLED or it boots with no RTC at all: those boards' RTCs are
+# firmware-owned and reachable only through UEFI GetTime/SetTime. On O6N the
+# clock sits behind ACPI Device (ERTC), _HID "ERTC0000", _STA = Zero (so Linux
+# never enumerates it), bit-banging a Cadence I2C at 0x04040000 that is not
+# among the buses exposed to Linux. CONFIG_RTC_DRV_EFI=y is built in, but
+# drivers/firmware/efi/efi.c registers the "rtc-efi" platform device only when
+# efi_rt_services_supported(EFI_RT_SUPPORTED_TIME_SERVICES) is true -- which
+# efi=noruntime makes false. Metal-verified on O6N under BOTH 7.2.0-rc6 and
+# 7.0.12: /dev/rtc0 appears, driver rtc-efi, hctosys=1, clean boot.
+#
+# Gate on the board, not the kernel channel: every Sky1 board runs both 7.2
+# and 7.0.12, so a per-channel split is wrong in both directions.
+#
+# Fail-safe: if DMI is unreadable we cannot prove we are NOT on an MS-R1, so
+# emit the workaround and favour a bootable system over a working clock.
+# ----------------------------------------------------------------------
+ncz_efi_rt_workaround() {
+    local pn vendor
+    pn=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
+    vendor=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)
+    if [ -z "$pn" ] && [ -z "$vendor" ]; then
+        echo "efi=noruntime"; return
+    fi
+    # Known-good boards first: these need EFI runtime for their RTC, and the
+    # allow-list must win over the vendor fallback below so an odd/shared
+    # vendor string can never take the RTC away from them.
+    case "$pn" in
+        *"Orion O6"*|*"Orange Pi 6"*|*"OrangePi 6"*) echo ""; return ;;
+    esac
+    case "$vendor" in
+        *Radxa*|*Xunlong*|*"Shenzhen Xunlong"*) echo ""; return ;;
+    esac
+    case "$pn" in
+        MS-R1*) echo "efi=noruntime"; return ;;
+    esac
+    case "$vendor" in
+        *"Micro Computer (HK)"*) echo "efi=noruntime"; return ;;
+    esac
+    echo ""
+}
+EFI_RT_WORKAROUND="$(ncz_efi_rt_workaround)"
+
+CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 $EFI_RT_WORKAROUND acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453 video=DP-4:1920x1080@60e"
 ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 rw"
 SPLASH=""; [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 VER="ncz-ota"; [ -f /usr/local/lib/cix-installer/BUILD_VERSION ] && VER=$(cat /usr/local/lib/cix-installer/BUILD_VERSION)
@@ -196,12 +252,30 @@ HELPER
 # ----------------------------------------------------------------------
 build_cixmini_boot() {
     local root="$WORK/cixmini-boot"
-    local ver="1.0+$BUILD_REV"
+    local ver="$CIXMINI_BOOT_VER"
     rm -rf "$root"
     install -d "$root/DEBIAN" "$root/usr/lib/cixmini" \
         "$root/etc/kernel/postinst.d" "$root/etc/kernel/postrm.d"
 
     write_bootloader_helper "$root/usr/lib/cixmini/cixmini-update-bootloader"
+
+    # Ship the rEFInd generator through the OTA path too.
+    # post-install/70-bootloader.sh installs assets/refind/ncz-refind-refresh.sh
+    # to /usr/local/sbin/ncz-refind-refresh, but post-install only runs at
+    # INSTALL time. On an already-installed system the wrapper that apt invokes
+    # calls that persistent path, so without shipping it here an apt kernel
+    # upgrade would rerun the STALE generator and rewrite refind.conf with the
+    # old hard-coded efi=noruntime -- silently re-breaking the O6/O6N RTC that
+    # this package's own cmdline gating just fixed.
+    # Staged under /usr/lib (dpkg must not own /usr/local); postinst syncs it
+    # into place.
+    if [ -f "$REPO/assets/refind/ncz-refind-refresh.sh" ]; then
+        install -m 0755 "$REPO/assets/refind/ncz-refind-refresh.sh" \
+            "$root/usr/lib/cixmini/ncz-refind-refresh"
+    else
+        echo "build-kernel-debs: WARNING: assets/refind/ncz-refind-refresh.sh missing;" \
+             "cixmini-boot will not refresh the installed rEFInd generator" >&2
+    fi
 
     # Standard kernel hooks so any future linux-image-* install triggers us too.
     cat > "$root/etc/kernel/postinst.d/zz-cixmini-bootloader" <<'EOF'
@@ -221,6 +295,35 @@ EOF
 #!/bin/sh
 set -e
 if [ "$1" = configure ]; then
+    # Refresh the installed rEFInd generator before regenerating entries, so an
+    # OTA upgrade picks up cmdline changes (e.g. the board-gated efi=noruntime)
+    # instead of rerunning a stale copy from the original install.
+    if [ -f /usr/lib/cixmini/ncz-refind-refresh ]; then
+        mkdir -p /usr/local/sbin
+        install -m 0755 /usr/lib/cixmini/ncz-refind-refresh \
+            /usr/local/sbin/ncz-refind-refresh || true
+    fi
+    # This distro boots rEFInd, not systemd-boot. post-install/11-fix-cixmini-boot.sh
+    # keeps a stable copy of the rEFInd wrapper at
+    # /usr/local/sbin/.ncz-cixmini-update-bootloader and redirects
+    # /usr/lib/cixmini/cixmini-update-bootloader at it -- but dpkg has just
+    # overwritten that path with OUR packaged systemd-boot helper. An apt
+    # Post-Invoke hook does restore and rerun the wrapper at end of transaction,
+    # so refind.conf is eventually correct; prefer the wrapper directly here
+    # anyway rather than depend on hook ordering, and so refind.conf is refreshed
+    # even if that hook is ever absent.
+    # Restore the redirect over /usr/lib BEFORE invoking it. dpkg has just
+    # overwritten that path with our packaged systemd-boot helper, and when
+    # cixmini-boot and a linux-image-cixmini-* upgrade in the same transaction
+    # cixmini-boot is configured FIRST (the kernel depends on it) -- so every
+    # later kernel postinst would call the /usr/lib path and refresh only inert
+    # systemd-boot entries, leaving the real refind.conf stale. Putting the
+    # wrapper back here fixes it for the whole rest of the transaction and does
+    # not rely on the installer's DPkg::Post-Invoke hook being present.
+    if [ -s /usr/local/sbin/.ncz-cixmini-update-bootloader ]; then
+        install -m 0755 /usr/local/sbin/.ncz-cixmini-update-bootloader \
+            /usr/lib/cixmini/cixmini-update-bootloader || true
+    fi
     [ -x /usr/lib/cixmini/cixmini-update-bootloader ] && /usr/lib/cixmini/cixmini-update-bootloader || true
 fi
 exit 0
@@ -331,7 +434,7 @@ Maintainer: $MAINT
 Section: kernel
 Priority: optional
 Installed-Size: $isize
-Depends: cixmini-boot, kmod, initramfs-tools, systemd
+Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, initramfs-tools, systemd
 Provides: linux-image-cixmini
 Description: NCZ cixmini Linux kernel ($channel channel, $kver)
  Prebuilt linux-cix-sky1 kernel image + modules for the NCZ cixmini (MS-R1).

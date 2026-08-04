@@ -1,7 +1,11 @@
 # mali_kbase for 7.0.12-cix-sky1-next — EXPERIMENTAL, NOT YET FUNCTIONAL
 
-Status as of 2026-07-27, tested on cixmini (.66) + O6N (real CIX Sky1
-hardware, board `Micro Computer (HK) Tech Limited MS-R1/P1WSB`).
+Status as of 2026-07-27, tested on real CIX Sky1 hardware: cixmini (.66),
+which reports DMI `Micro Computer (HK) Tech Limited MS-R1/P1WSB`, and O6N,
+which reports `Radxa Computer (Shenzhen) Co., Ltd. / Radxa Orion O6N`.
+(The single board string previously quoted here described cixmini only; it
+read as if it covered both, which matters because boot cmdline gating keys
+on exactly this DMI -- see ncz_efi_rt_workaround in assets/refind/.)
 
 This is a DKMS-packaged port of the same mali_kbase / memory_group_manager /
 protected_memory_allocator driver that ships as the validated default GPU

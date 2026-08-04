@@ -1,4 +1,51 @@
 #!/bin/bash
+
+# ----------------------------------------------------------------------
+# efi=noruntime is an MS-R1 firmware workaround, NOT a Sky1-wide one.
+#
+# Gate it on the actual board. MS-R1's EFI runtime services are buggy, but
+# every other Sky1 target (Radxa Orion O6/O6N, Orange Pi 6 / 6 Plus) needs
+# EFI runtime ENABLED or it boots with no RTC at all: those boards' RTCs are
+# firmware-owned and reachable only through UEFI GetTime/SetTime. On O6N the
+# clock sits behind ACPI Device (ERTC), _HID "ERTC0000", _STA = Zero (so Linux
+# never enumerates it), bit-banging a Cadence I2C at 0x04040000 that is not
+# among the buses exposed to Linux. CONFIG_RTC_DRV_EFI=y is built in, but
+# drivers/firmware/efi/efi.c registers the "rtc-efi" platform device only when
+# efi_rt_services_supported(EFI_RT_SUPPORTED_TIME_SERVICES) is true -- which
+# efi=noruntime makes false. Metal-verified on O6N under BOTH 7.2.0-rc6 and
+# 7.0.12: /dev/rtc0 appears, driver rtc-efi, hctosys=1, clean boot.
+#
+# Gate on the board, not the kernel channel: every Sky1 board runs both 7.2
+# and 7.0.12, so a per-channel split is wrong in both directions.
+#
+# Fail-safe: if DMI is unreadable we cannot prove we are NOT on an MS-R1, so
+# emit the workaround and favour a bootable system over a working clock.
+# ----------------------------------------------------------------------
+ncz_efi_rt_workaround() {
+    local pn vendor
+    pn=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
+    vendor=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)
+    if [ -z "$pn" ] && [ -z "$vendor" ]; then
+        echo "efi=noruntime"; return
+    fi
+    # Known-good boards first: these need EFI runtime for their RTC, and the
+    # allow-list must win over the vendor fallback below so an odd/shared
+    # vendor string can never take the RTC away from them.
+    case "$pn" in
+        *"Orion O6"*|*"Orange Pi 6"*|*"OrangePi 6"*) echo ""; return ;;
+    esac
+    case "$vendor" in
+        *Radxa*|*Xunlong*|*"Shenzhen Xunlong"*) echo ""; return ;;
+    esac
+    case "$pn" in
+        MS-R1*) echo "efi=noruntime"; return ;;
+    esac
+    case "$vendor" in
+        *"Micro Computer (HK)"*) echo "efi=noruntime"; return ;;
+    esac
+    echo ""
+}
+EFI_RT_WORKAROUND="$(ncz_efi_rt_workaround)"
 # 70-bootloader.sh — systemd-boot install + DUAL-kernel loader entries.
 #
 # Loader entries (only TWO kernel binaries on the ESP — legacy + edge; the
@@ -123,7 +170,7 @@ echo "  root PARTUUID=$ROOT_PARTUUID"
 #
 #   loglevel=4                          — visible kernel msgs through boot
 #   console=tty0 console=ttyAMA2,115200 — HDMI primary + serial mirror
-#   efi=noruntime                       — disable buggy MS-R1 EFI runtime services
+#   $EFI_RT_WORKAROUND                  — efi=noruntime on MS-R1 only (see helper at top)
 #   acpi=force                          — bypass DSDT preference checks
 #   arm-smmu-v3.disable_bypass=0        — SMMUv3 IORT compatibility
 #   audit_backlog_limit=8192            — early-boot audit subsystem doesn't drop msgs
@@ -136,7 +183,7 @@ echo "  root PARTUUID=$ROOT_PARTUUID"
 # add module blacklists here — the configs already disable everything
 # that would cause boot trouble on MS-R1.
 # ----------------------------------------------------------------------
-MARTJOHNSON_CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453 video=DP-4:1920x1080@60e"
+MARTJOHNSON_CMDLINE="loglevel=4 console=tty0 console=ttyAMA2,115200 $EFI_RT_WORKAROUND acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453 video=DP-4:1920x1080@60e"
 
 # Optional splash cmdline flags (legacy; native singularity-boot-splash is a
 # systemd/KMS service, not cmdline-driven — this stays empty unless a file exists)

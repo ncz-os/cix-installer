@@ -1,4 +1,51 @@
 #!/bin/bash
+
+# ----------------------------------------------------------------------
+# efi=noruntime is an MS-R1 firmware workaround, NOT a Sky1-wide one.
+#
+# Gate it on the actual board. MS-R1's EFI runtime services are buggy, but
+# every other Sky1 target (Radxa Orion O6/O6N, Orange Pi 6 / 6 Plus) needs
+# EFI runtime ENABLED or it boots with no RTC at all: those boards' RTCs are
+# firmware-owned and reachable only through UEFI GetTime/SetTime. On O6N the
+# clock sits behind ACPI Device (ERTC), _HID "ERTC0000", _STA = Zero (so Linux
+# never enumerates it), bit-banging a Cadence I2C at 0x04040000 that is not
+# among the buses exposed to Linux. CONFIG_RTC_DRV_EFI=y is built in, but
+# drivers/firmware/efi/efi.c registers the "rtc-efi" platform device only when
+# efi_rt_services_supported(EFI_RT_SUPPORTED_TIME_SERVICES) is true -- which
+# efi=noruntime makes false. Metal-verified on O6N under BOTH 7.2.0-rc6 and
+# 7.0.12: /dev/rtc0 appears, driver rtc-efi, hctosys=1, clean boot.
+#
+# Gate on the board, not the kernel channel: every Sky1 board runs both 7.2
+# and 7.0.12, so a per-channel split is wrong in both directions.
+#
+# Fail-safe: if DMI is unreadable we cannot prove we are NOT on an MS-R1, so
+# emit the workaround and favour a bootable system over a working clock.
+# ----------------------------------------------------------------------
+ncz_efi_rt_workaround() {
+    local pn vendor
+    pn=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
+    vendor=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)
+    if [ -z "$pn" ] && [ -z "$vendor" ]; then
+        echo "efi=noruntime"; return
+    fi
+    # Known-good boards first: these need EFI runtime for their RTC, and the
+    # allow-list must win over the vendor fallback below so an odd/shared
+    # vendor string can never take the RTC away from them.
+    case "$pn" in
+        *"Orion O6"*|*"Orange Pi 6"*|*"OrangePi 6"*) echo ""; return ;;
+    esac
+    case "$vendor" in
+        *Radxa*|*Xunlong*|*"Shenzhen Xunlong"*) echo ""; return ;;
+    esac
+    case "$pn" in
+        MS-R1*) echo "efi=noruntime"; return ;;
+    esac
+    case "$vendor" in
+        *"Micro Computer (HK)"*) echo "efi=noruntime"; return ;;
+    esac
+    echo ""
+}
+EFI_RT_WORKAROUND="$(ncz_efi_rt_workaround)"
 # ncz-refind-refresh — (re)generate the rEFInd ESP menu for whatever
 # legacy/NEXT kernels are currently on disk.
 #
@@ -161,8 +208,8 @@ echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol
 # (doctrine: serial console must work). NEXT drops the base panic=30 because
 # NEXT_CMDLINE_EXTRA sets panic=6 (edge wants fast panic) — carrying both was a
 # confusing duplicate on one cmdline.
-LEGACY_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force systemd.condition_first_boot=false arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
-NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force systemd.condition_first_boot=false arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused module_blacklist=typec_rts5453,rts5453"
+LEGACY_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 $EFI_RT_WORKAROUND acpi=force systemd.condition_first_boot=false arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453"
+NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 $EFI_RT_WORKAROUND acpi=force systemd.condition_first_boot=false arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused module_blacklist=typec_rts5453,rts5453"
 
 # The edge (NEXT) kernel needs board-specific PCIe/SCMI knobs that the stable
 # kernel does not: the 7.2 forward-port was only ever metal-validated with
