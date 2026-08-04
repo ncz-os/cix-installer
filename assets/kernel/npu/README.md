@@ -16,35 +16,55 @@ Those are **not defaults**. Getting them wrong produces a module that builds
 happily but targets the wrong NPU generation, so keep this file in sync with the
 recipe whenever the recipe changes.
 
-## Status: builds and installs, but cannot load yet
+## Status: builds, loads and probes — pending the config flip
 
-Verified on O6N (.3) against `7.2.0-rc6-sky1-ncz`: `dkms add/build/install`
-succeeds and produces `aipu.ko.xz` with the correct vermagic. Loading it fails:
+Verified on O6N (.3) against `7.2.0-rc6-sky1-ncz`, booted with
+`module_blacklist=...,armchina_npu` so the in-tree driver never touched the
+hardware:
+
+    /dev/aipu created
+    armchina CIXH4000:00: AIPU detected: zhouyi-v3
+    armchina CIXH4000:00: ############# ZHOUYI V3 AIPU #############
+    armchina CIXH4000:00: sky1_npu_probe: armchina_aipu_probe done
+
+Getting there required syncing `sky1.c` with the in-tree copy. The vendored
+snapshot probed only as far as:
+
+    sky1_npu_probe: NPU core num is 3
+    probe with driver armchina failed with error -13
+
+never reaching `armchina_aipu_probe`'s "AIPU KMD probe start". The two trees
+acquire the per-core devices differently — this one used
+`&(to_acpi_device_node(child)->dev)` where in-tree uses
+`bus_find_device_by_fwnode()` — so the `pd_core[]` entries were different objects
+and runtime-PM resume on them returned `-EACCES`. The in-tree file also carries
+the Sky1 NULL pd-core guards and BIOS-v1.0 ACPI D0 forcing this snapshot
+predates. `src/driver/armchina-npu/sky1/sky1.c` here is now the in-tree copy, and
+meta-cix carries the same change as
+`cix-npu-kmd-1.0/0009-armchina-npu-sync-sky1-with-intree.patch`.
+
+**Keep both in sync** with `linux-cix-sky1-ncz-7.2/patches-7.2/0121-*.patch` and
+`0123-*.patch`. If the in-tree `sky1.c` moves and these do not follow, the
+out-of-tree driver silently regresses to a non-probing state.
+
+## Remaining: turn the in-tree driver off
+
+While `CONFIG_ARMCHINA_NPU=m` the two drivers cannot coexist —
 
     aipu: exports duplicate symbol armchina_aipu_alloc_dma_buf (owned by armchina_npu)
 
-The **in-tree** `armchina_npu` driver (`CONFIG_ARMCHINA_NPU=m`) already owns that
-exported symbol, so the two cannot coexist. The in-tree driver currently provides
-`/dev/aipu` and is what the board actually uses.
+— so the in-tree module wins and the DKMS one cannot load. What is left:
 
-## What blocks turning the in-tree driver off
-
-`CONFIG_ARMCHINA_NPU` cannot simply be set to `n`, because the in-tree driver
-carries two fixes with **no equivalent** in the out-of-tree patch set:
-
-  * `0121-misc-armchina-npu-sky1-null-pd-core-guard.patch`
-  * `0123-misc-armchina-npu-force-D0-before-probe.patch`
-
-(The other in-tree NPU patches do have out-of-tree counterparts, and the two ACPI
-`_STA` quirks — `0122` and `0124` — live in kernel core, not the driver, so they
-survive the flip either way.)
-
-Order of work to finish the migration:
-
-  1. Port 0121 and 0123 into `meta-cix/.../cix-npu-kmd-1.0/` as patches 0009+.
-  2. Rebuild, install via DKMS, set `CONFIG_ARMCHINA_NPU` to `n`, and boot-test
-     on O6N (.3) — never on .66, which is the production MS-R1.
-  3. Confirm `/dev/aipu` still appears and real `libnoe` inference still runs.
-     Presence of the device node is not proof the NPU works.
+  1. Set `CONFIG_ARMCHINA_NPU` to `n` in the 7.2 defconfigs. Deliberately not
+     done yet: it needs a kernel rebuild and boot test, and at the time of
+     writing those defconfigs carried unrelated uncommitted work.
+  2. Rebuild the kernel, boot-test on O6N (.3) — never on .66, the production
+     MS-R1.
+  3. Confirm real `libnoe` inference, not just the device node. A probing driver
+     and a working NPU are not the same claim; the userspace UMD is not
+     installed here, so only probe has been demonstrated.
   4. Flip `CONFIG_ARMCHINA_NPU` from `warn` to `error` in `INTREE_ACCEL_POLICY`
-     in `build/kernel-manifest.py`, so it can never regress back in-tree.
+     in `build/kernel-manifest.py`, so it cannot regress back in-tree.
+
+The two ACPI `_STA` quirks (`0122`, `0124`) live in kernel core, not the driver,
+and survive the flip either way.
