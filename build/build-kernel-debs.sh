@@ -147,11 +147,16 @@ ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC" 2>/dev/null)
 # Fail-safe: if DMI is unreadable we cannot prove we are NOT on an MS-R1, so
 # emit the workaround and favour a bootable system over a working clock.
 # ----------------------------------------------------------------------
-# NOTE: this function is duplicated verbatim in assets/refind/ncz-refind-refresh.sh,
-# build/70-bootloader.sh and build/build-kernel-debs.sh. It cannot be factored into
-# a sourced library: the build-kernel-debs.sh copy is emitted inside a quoted heredoc
-# into the standalone /usr/lib/cixmini/cixmini-update-bootloader, which has no shared
-# library to source at run time. KEEP ALL THREE COPIES IN SYNC.
+# NOTE: duplicated verbatim in assets/refind/ncz-refind-refresh.sh,
+# build/70-bootloader.sh and build/build-kernel-debs.sh. KEEP ALL THREE IN SYNC.
+#
+# Why not a sourced library: all three copies execute ON THE TARGET, detached from
+# this repo -- ncz-refind-refresh is installed standalone to /usr/local/sbin, and the
+# build-kernel-debs.sh copy is emitted inside a quoted heredoc into the standalone
+# /usr/lib/cixmini/cixmini-update-bootloader. A shared library would therefore need
+# its own packaging and delivery path, and a stale-or-missing copy of THAT is exactly
+# the failure mode that already bit us once with the rEFInd generator. Self-contained
+# duplication trades DRY for a delivery path that cannot silently go stale.
 ncz_efi_rt_workaround() {
     local pn vendor
     pn=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
@@ -312,7 +317,11 @@ if [ "$1" = configure ]; then
         if install -m 0755 /usr/lib/cixmini/ncz-refind-refresh \
                 /usr/local/sbin/.ncz-refind-refresh.new; then
             mv -f /usr/local/sbin/.ncz-refind-refresh.new \
-                /usr/local/sbin/ncz-refind-refresh || true
+                /usr/local/sbin/ncz-refind-refresh \
+                || echo "cixmini-boot: WARNING: could not install ncz-refind-refresh" >&2
+        else
+            rm -f /usr/local/sbin/.ncz-refind-refresh.new
+            echo "cixmini-boot: WARNING: staging ncz-refind-refresh failed" >&2
         fi
     fi
     # This distro boots rEFInd, not systemd-boot. post-install/11-fix-cixmini-boot.sh
@@ -338,7 +347,11 @@ if [ "$1" = configure ]; then
         if install -m 0755 /usr/local/sbin/.ncz-cixmini-update-bootloader \
                 /usr/lib/cixmini/.cixmini-update-bootloader.new; then
             mv -f /usr/lib/cixmini/.cixmini-update-bootloader.new \
-                /usr/lib/cixmini/cixmini-update-bootloader || true
+                /usr/lib/cixmini/cixmini-update-bootloader \
+                || echo "cixmini-boot: WARNING: could not restore the rEFInd wrapper" >&2
+        else
+            rm -f /usr/lib/cixmini/.cixmini-update-bootloader.new
+            echo "cixmini-boot: WARNING: staging the rEFInd wrapper failed" >&2
         fi
     fi
     [ -x /usr/lib/cixmini/cixmini-update-bootloader ] && /usr/lib/cixmini/cixmini-update-bootloader || true

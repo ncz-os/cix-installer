@@ -21,11 +21,16 @@
 # Fail-safe: if DMI is unreadable we cannot prove we are NOT on an MS-R1, so
 # emit the workaround and favour a bootable system over a working clock.
 # ----------------------------------------------------------------------
-# NOTE: this function is duplicated verbatim in assets/refind/ncz-refind-refresh.sh,
-# build/70-bootloader.sh and build/build-kernel-debs.sh. It cannot be factored into
-# a sourced library: the build-kernel-debs.sh copy is emitted inside a quoted heredoc
-# into the standalone /usr/lib/cixmini/cixmini-update-bootloader, which has no shared
-# library to source at run time. KEEP ALL THREE COPIES IN SYNC.
+# NOTE: duplicated verbatim in assets/refind/ncz-refind-refresh.sh,
+# build/70-bootloader.sh and build/build-kernel-debs.sh. KEEP ALL THREE IN SYNC.
+#
+# Why not a sourced library: all three copies execute ON THE TARGET, detached from
+# this repo -- ncz-refind-refresh is installed standalone to /usr/local/sbin, and the
+# build-kernel-debs.sh copy is emitted inside a quoted heredoc into the standalone
+# /usr/lib/cixmini/cixmini-update-bootloader. A shared library would therefore need
+# its own packaging and delivery path, and a stale-or-missing copy of THAT is exactly
+# the failure mode that already bit us once with the rEFInd generator. Self-contained
+# duplication trades DRY for a delivery path that cannot silently go stale.
 ncz_efi_rt_workaround() {
     local pn vendor
     pn=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)

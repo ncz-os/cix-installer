@@ -31,6 +31,25 @@ MANIFEST = os.path.join(ROOT, "assets", "kernel-manifest.json")
 VARIANTS = {"legacy": "assets/kernel/legacy", "edge": "assets/kernel/edge"}
 SCHEMA = 1
 
+# Prebuilt, vermagic-locked accelerator module overlays. Each is a directory of
+# <KVER>/ subdirectories holding .ko files built against exactly that release.
+# post-install/8x-*.sh installs the subdirectory matching the kernel it stages.
+ACCEL_OVERLAYS = {
+    "mali":    "assets/kernel/mali",
+    "panthor": "assets/kernel/panthor",
+}
+
+# Accelerator drivers must be out-of-tree (DKMS / prebuilt overlay), never built
+# into the shipped kernel: an in-tree copy wins over the overlay at modprobe time
+# and silently masks the driver we actually validated. Value is the severity to
+# report while a driver is still mid-migration -- flip an entry to "error" once
+# that driver is fully out-of-tree so it can never regress back in.
+INTREE_ACCEL_POLICY = {
+    "CONFIG_DRM_PANTHOR":  "error",  # already out-of-tree
+    "CONFIG_ARMCHINA_NPU": "warn",   # still in-tree; needs 0121/0123 ported to the OOT tree first
+    "CONFIG_VIDEO_LINLON": "warn",   # amvx still carried by the in-tree 0126+ patch series
+}
+
 
 def sha256(path):
     h = hashlib.sha256()
@@ -40,15 +59,57 @@ def sha256(path):
     return h.hexdigest()
 
 
+def _vermagic_from_bytes(ko):
+    """Read vermagic straight out of the module's .modinfo section.
+
+    kmod stores .modinfo as NUL-separated key=value strings, so scanning for
+    b"vermagic=" is sufficient and needs no ELF parsing. This exists because the
+    gate must also run where modinfo does not: macOS dev boxes and minimal CI
+    images. Without it the check reported "cannot read vermagic" as a hard error
+    on every non-Linux host -- which is exactly the kind of false failure that
+    gets a gate switched off, and this gate is the one standing between us and
+    another silent no-GPU boot.
+
+    Handles xz/gz/zstd-compressed modules where the stdlib can decompress them.
+    """
+    try:
+        with open(ko, "rb") as f:
+            blob = f.read()
+    except OSError:
+        return None
+    if ko.endswith(".xz"):
+        try:
+            import lzma; blob = lzma.decompress(blob)
+        except Exception:
+            return None
+    elif ko.endswith(".gz"):
+        try:
+            import gzip; blob = gzip.decompress(blob)
+        except Exception:
+            return None
+    elif ko.endswith(".zst"):
+        return None  # no stdlib zstd; fall back to modinfo
+    key = b"vermagic="
+    i = blob.find(key)
+    if i < 0:
+        return None
+    end = blob.find(b"\x00", i)
+    if end < 0:
+        return None
+    val = blob[i + len(key):end].decode("utf-8", "replace").strip()
+    return val.split()[0] if val else None
+
+
 def modinfo_vermagic(ko):
     for exe in ("modinfo", "/sbin/modinfo", "/usr/sbin/modinfo"):
         try:
             out = subprocess.run([exe, "-F", "vermagic", ko],
                                  capture_output=True, text=True, check=True)
-            return out.stdout.strip().split()[0] if out.stdout.strip() else None
+            if out.stdout.strip():
+                return out.stdout.strip().split()[0]
         except (FileNotFoundError, subprocess.CalledProcessError):
             continue
-    return None
+    return _vermagic_from_bytes(ko)
 
 
 def intree_npu(kver, modules_tgz):
@@ -173,6 +234,82 @@ def cmd_gen():
     return 0
 
 
+
+def overlay_vermagic_errors():
+    """Every .ko under assets/kernel/<overlay>/<KVER>/ must carry vermagic ==
+    <KVER>. This is the check that would have caught the rc5-on-rc6 regression:
+    the directory said rc6 while every module inside was still stamped rc5, so
+    modprobe refused them all and the board booted on software rendering with no
+    /dev/mali0 and no error anyone was looking at."""
+    errors = []
+    for name, reldir in ACCEL_OVERLAYS.items():
+        base = os.path.join(ROOT, reldir)
+        if not os.path.isdir(base):
+            continue
+        for kver in sorted(os.listdir(base)):
+            d = os.path.join(base, kver)
+            # only <KVER>/ dirs hold modules; skip patches/, README.md, *.patch
+            if not os.path.isdir(d) or kver in ("patches", "src"):
+                continue
+            kos = sorted(glob.glob(os.path.join(d, "*.ko")))
+            if not kos:
+                continue
+            for ko in kos:
+                vm = modinfo_vermagic(ko)
+                if vm is None:
+                    errors.append(f"[{name}] cannot read vermagic from "
+                                  f"{os.path.relpath(ko, ROOT)} (modinfo missing?)")
+                elif vm != kver:
+                    errors.append(f"[{name}] {os.path.relpath(ko, ROOT)} vermagic "
+                                  f"{vm} != directory {kver} — module will NOT load")
+    return errors
+
+
+def overlay_present_errors(live):
+    """Each shipped variant needs an accelerator overlay matching its KVER.
+    A missing overlay is a silent no-GPU boot, so make it a build-time failure."""
+    errors = []
+    for label, v in live.get("variants", {}).items():
+        kver = v.get("kver")
+        if not kver:
+            continue
+        base = os.path.join(ROOT, ACCEL_OVERLAYS["mali"])
+        if not os.path.isdir(base):
+            continue
+        if not os.path.isdir(os.path.join(base, kver)):
+            have = [k for k in sorted(os.listdir(base))
+                    if os.path.isdir(os.path.join(base, k)) and k not in ("patches", "src")]
+            errors.append(f"[{label}] no mali overlay for kver={kver} "
+                          f"(assets/kernel/mali/{kver}/ missing; have: {', '.join(have) or 'none'})"
+                          " — this board would boot with no /dev/mali0")
+    return errors
+
+
+def intree_accel_findings(live):
+    """Accelerators must not be compiled into the shipped kernel config."""
+    errors, warnings = [], []
+    for label, v in live.get("variants", {}).items():
+        cfg = (v.get("config") or {}).get("file")
+        if not cfg:
+            continue
+        path = os.path.join(ROOT, cfg)
+        if not os.path.isfile(path):
+            continue
+        try:
+            text = open(path, errors="replace").read()
+        except OSError:
+            continue
+        for sym, severity in INTREE_ACCEL_POLICY.items():
+            for val in ("y", "m"):
+                if f"\n{sym}={val}\n" in "\n" + text:
+                    msg = (f"[{label}] {sym}={val} is IN-TREE in {cfg} — accelerators "
+                           "must ship out-of-tree (an in-tree copy masks the validated "
+                           "overlay/DKMS module at modprobe time)")
+                    (errors if severity == "error" else warnings).append(msg)
+                    break
+    return errors, warnings
+
+
 def cmd_check():
     errors, warnings = [], []
     live = build_live()
@@ -186,7 +323,17 @@ def cmd_check():
             errors.append(f"[{label}] NPU vermagic {npu.get('vermagic')} != kver "
                           f"{v['kver']} ({npu.get('file')}) — module will not load")
 
-    # Invariant 2: live assets must match the committed manifest (no silent swap).
+    # Invariant 2: every prebuilt overlay module's vermagic must equal its dir KVER.
+    errors.extend(overlay_vermagic_errors())
+
+    # Invariant 3: each shipped variant needs a mali overlay for its KVER.
+    errors.extend(overlay_present_errors(live))
+
+    # Invariant 4: no accelerator may be built into the shipped kernel config.
+    _e, _w = intree_accel_findings(live)
+    errors.extend(_e); warnings.extend(_w)
+
+    # Invariant 5: live assets must match the committed manifest (no silent swap).
     if not os.path.isfile(MANIFEST):
         warnings.append("no committed manifest; run 'kernel-manifest.py gen'")
     else:
