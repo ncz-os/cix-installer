@@ -147,11 +147,20 @@ ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC" 2>/dev/null)
 # Fail-safe: if DMI is unreadable we cannot prove we are NOT on an MS-R1, so
 # emit the workaround and favour a bootable system over a working clock.
 # ----------------------------------------------------------------------
+# NOTE: this function is duplicated verbatim in assets/refind/ncz-refind-refresh.sh,
+# build/70-bootloader.sh and build/build-kernel-debs.sh. It cannot be factored into
+# a sourced library: the build-kernel-debs.sh copy is emitted inside a quoted heredoc
+# into the standalone /usr/lib/cixmini/cixmini-update-bootloader, which has no shared
+# library to source at run time. KEEP ALL THREE COPIES IN SYNC.
 ncz_efi_rt_workaround() {
     local pn vendor
     pn=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
     vendor=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)
     if [ -z "$pn" ] && [ -z "$vendor" ]; then
+        # No DMI: a chroot or build context with /sys unmounted. We cannot prove
+        # we are not on an MS-R1, so fail safe -- but say so, because on an O6/O6N
+        # this costs the RTC until the on-target run corrects it.
+        echo "ncz_efi_rt_workaround: DMI unreadable (/sys not mounted?); assuming MS-R1" >&2
         echo "efi=noruntime"; return
     fi
     # Known-good boards first: these need EFI runtime for their RTC, and the
@@ -300,8 +309,11 @@ if [ "$1" = configure ]; then
     # instead of rerunning a stale copy from the original install.
     if [ -f /usr/lib/cixmini/ncz-refind-refresh ]; then
         mkdir -p /usr/local/sbin
-        install -m 0755 /usr/lib/cixmini/ncz-refind-refresh \
-            /usr/local/sbin/ncz-refind-refresh || true
+        if install -m 0755 /usr/lib/cixmini/ncz-refind-refresh \
+                /usr/local/sbin/.ncz-refind-refresh.new; then
+            mv -f /usr/local/sbin/.ncz-refind-refresh.new \
+                /usr/local/sbin/ncz-refind-refresh || true
+        fi
     fi
     # This distro boots rEFInd, not systemd-boot. post-install/11-fix-cixmini-boot.sh
     # keeps a stable copy of the rEFInd wrapper at
@@ -321,8 +333,13 @@ if [ "$1" = configure ]; then
     # wrapper back here fixes it for the whole rest of the transaction and does
     # not rely on the installer's DPkg::Post-Invoke hook being present.
     if [ -s /usr/local/sbin/.ncz-cixmini-update-bootloader ]; then
-        install -m 0755 /usr/local/sbin/.ncz-cixmini-update-bootloader \
-            /usr/lib/cixmini/cixmini-update-bootloader || true
+        # temp + atomic rename: never leave a half-written wrapper visible to a
+        # concurrently-configuring kernel postinst
+        if install -m 0755 /usr/local/sbin/.ncz-cixmini-update-bootloader \
+                /usr/lib/cixmini/.cixmini-update-bootloader.new; then
+            mv -f /usr/lib/cixmini/.cixmini-update-bootloader.new \
+                /usr/lib/cixmini/cixmini-update-bootloader || true
+        fi
     fi
     [ -x /usr/lib/cixmini/cixmini-update-bootloader ] && /usr/lib/cixmini/cixmini-update-bootloader || true
 fi

@@ -21,11 +21,20 @@
 # Fail-safe: if DMI is unreadable we cannot prove we are NOT on an MS-R1, so
 # emit the workaround and favour a bootable system over a working clock.
 # ----------------------------------------------------------------------
+# NOTE: this function is duplicated verbatim in assets/refind/ncz-refind-refresh.sh,
+# build/70-bootloader.sh and build/build-kernel-debs.sh. It cannot be factored into
+# a sourced library: the build-kernel-debs.sh copy is emitted inside a quoted heredoc
+# into the standalone /usr/lib/cixmini/cixmini-update-bootloader, which has no shared
+# library to source at run time. KEEP ALL THREE COPIES IN SYNC.
 ncz_efi_rt_workaround() {
     local pn vendor
     pn=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
     vendor=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)
     if [ -z "$pn" ] && [ -z "$vendor" ]; then
+        # No DMI: a chroot or build context with /sys unmounted. We cannot prove
+        # we are not on an MS-R1, so fail safe -- but say so, because on an O6/O6N
+        # this costs the RTC until the on-target run corrects it.
+        echo "ncz_efi_rt_workaround: DMI unreadable (/sys not mounted?); assuming MS-R1" >&2
         echo "efi=noruntime"; return
     fi
     # Known-good boards first: these need EFI runtime for their RTC, and the
