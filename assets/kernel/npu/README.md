@@ -47,24 +47,48 @@ meta-cix carries the same change as
 `0123-*.patch`. If the in-tree `sky1.c` moves and these do not follow, the
 out-of-tree driver silently regresses to a non-probing state.
 
-## Remaining: turn the in-tree driver off
+## Do NOT turn the in-tree driver off — it is the only one that works
 
-While `CONFIG_ARMCHINA_NPU=m` the two drivers cannot coexist —
+Probing is not the bar. Measured on O6N (.3), 7.2.0-rc6-sky1-ncz, same model
+(`/opt/ncz/models/bge-small-zh-v1.5_256.cix`) and same userspace:
 
-    aipu: exports duplicate symbol armchina_aipu_alloc_dma_buf (owned by armchina_npu)
+| driver | probe | memory regions | ASIDs | real inference |
+|---|---|---|---|---|
+| in-tree `armchina_npu` | yes | 6 | 0-5 set | **62.8 inf/s, 15.9 ms avg** |
+| out-of-tree `aipu` (DKMS) | yes | none | none | **fails** |
 
-— so the in-tree module wins and the DKMS one cannot load. What is left:
+The out-of-tree failure is not subtle:
 
-  1. Set `CONFIG_ARMCHINA_NPU` to `n` in the 7.2 defconfigs. Deliberately not
-     done yet: it needs a kernel rebuild and boot test, and at the time of
-     writing those defconfigs carried unrelated uncommitted work.
-  2. Rebuild the kernel, boot-test on O6N (.3) — never on .66, the production
-     MS-R1.
-  3. Confirm real `libnoe` inference, not just the device node. A probing driver
-     and a working NPU are not the same claim; the userspace UMD is not
-     installed here, so only probe has been demonstrated.
-  4. Flip `CONFIG_ARMCHINA_NPU` from `warn` to `error` in `INTREE_ACCEL_POLICY`
-     in `build/kernel-manifest.py`, so it cannot regress back in-tree.
+    armchina CIXH4000:00: driver mem management is disabled
+    [UMD ERR] aipu.cpp:208: schedule job [fail]
+    [PY UMD ERROR] noe_job_infer_sync: Job dispatch fail
+
+The graph loads and the job is created; dispatch fails because the driver never
+set up the memory regions or ASIDs. Syncing `sky1.c` got the out-of-tree driver
+as far as probing, but the things that make the NPU *compute* live in the CORE
+driver, not in `sky1.c` — per `post-install/80-npu.sh` these are the SMMU 32-bit
+constraint (`bus_dma_limit=0xc0000000`, `dma_mask=32`, without which the IOMMU
+hands out 35-bit IOVAs the NPU's 32-bit bus truncates), the
+`asid_base[4]`→`asid_base[32]` widening for the QUERY_CAP UMD ABI, and the
+v0-compat ioctl handlers bridging cix-noe-umd 2.0.x's k6.6 struct layouts.
+
+**Setting `CONFIG_ARMCHINA_NPU=n` today converts a working NPU into a
+non-functional one.** It was set to `n` during this work and reverted once the
+inference comparison above was measured.
+
+Before that flip can happen, the out-of-tree tree needs the core patches too,
+not just `sky1.c`, and the gate is an inference benchmark — not the presence of
+`/dev/aipu`. `INTREE_ACCEL_POLICY` in `build/kernel-manifest.py` therefore keeps
+`CONFIG_ARMCHINA_NPU` at `warn`, and it should stay there until a
+DKMS-driver-only boot reproduces the throughput above.
 
 The two ACPI `_STA` quirks (`0122`, `0124`) live in kernel core, not the driver,
-and survive the flip either way.
+and are unaffected either way.
+
+## Userspace
+
+`post-install/88-noe-umd-venv.sh` builds the Python side. The wheels pin
+`>=3.11,<3.13` while Debian forky ships 3.14, so the stock `cix-noe-umd` postinst
+cannot succeed; that script creates a uv-managed CPython 3.12 venv at
+`/opt/ncz/noe-venv`, installs the wheels plus numpy (which `NOE_Engine` imports
+but does not declare), and exposes `ncz-npu-python`.
