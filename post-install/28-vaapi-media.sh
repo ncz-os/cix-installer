@@ -21,6 +21,13 @@ set -euo pipefail
 
 ROOT="${1:-/}"
 
+# Soft dependency check: the configs below are inert without the CIX VAAPI
+# userspace (cix-vaapi + cix-libcme, staged by 25-cix-proprietary). Warn
+# rather than fail -- media acceleration is not install-critical.
+if [ ! -e "$ROOT/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so" ]; then
+    echo "[28] WARN: libcix_va_drv_video.so not present -- VAAPI defaults installed but inactive until cix-vaapi/cix-libcme are installed"
+fi
+
 # systemd user services (session launchers additionally export this via
 # ncz-gpu-env — greetd's PAM does not read /etc/environment).
 install -d "$ROOT/etc/environment.d"
@@ -28,15 +35,20 @@ cat > "$ROOT/etc/environment.d/60-ncz-vaapi.conf" <<'EOF'
 LIBVA_DRIVER_NAME=libcix_va
 EOF
 
-# mpv: hardware decode + zero-copy presentation by default.
+# mpv: hardware decode + zero-copy presentation by default. Only written if
+# absent so an operator-customized mpv.conf is never clobbered on re-runs.
+# No vaapi-device pin: mpv's default is the first render node, which on a
+# Mali boot is always the first linlondp instance -- the CIX VA driver works
+# against any of them.
 install -d "$ROOT/etc/mpv"
-cat > "$ROOT/etc/mpv/mpv.conf" <<'EOF'
+if [ ! -e "$ROOT/etc/mpv/mpv.conf" ]; then
+    cat > "$ROOT/etc/mpv/mpv.conf" <<'EOF'
 # NCZ-OS defaults: VPU-accelerated playback via the CIX VAAPI driver.
 # Zero-copy: VAAPI (VPU) decode -> dmabuf -> Wayland -> linlondp overlay.
 # Measured on O6: 1080p30 H.264 at ~7% CPU vs ~82% software decode.
 hwdec=vaapi
-vaapi-device=/dev/dri/renderD128
 vo=dmabuf-wayland,gpu,x11
 EOF
+fi
 
 echo "[28] VAAPI media defaults installed (LIBVA_DRIVER_NAME + mpv.conf)"
