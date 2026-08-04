@@ -13,6 +13,20 @@ All results below were taken on **Radxa Orion O6N**, kernel
 > ZHOUYI V3 banner printed, and the hardware could not run a single inference.
 > Every claim here is backed by a workload.
 
+## Contents
+
+- [Summary](#summary)
+- [GPU — Mali-G720-Immortalis (DKMS, working)](#gpu--mali-g720-immortalis-dkms-working)
+- [VPU — Linlon / amvx (DKMS, working)](#vpu--linlon--amvx-dkms-working)
+  - [Encoding requires an explicit `-pix_fmt`](#-encoding-requires-an-explicit--pix_fmt)
+- [NPU — ArmChina Zhouyi V3](#npu--armchina-zhouyi-v3)
+  - [Out-of-tree (DKMS) — DO NOT ENABLE](#out-of-tree-dkms--do-not-enable)
+  - [NPU userspace](#npu-userspace)
+- [RTC — `rtc-efi`](#rtc--rtc-efi-working)
+- [Boot time — `rootdelay=90`](#boot-time--rootdelay90)
+- [DKMS prerequisites](#dkms-prerequisites)
+- [Reproducing these results](#reproducing-these-results)
+
 ---
 
 ## Summary
@@ -192,7 +206,7 @@ depmod -a
 
 **Gate for ever flipping `CONFIG_ARMCHINA_NPU` to `n`:** an out-of-tree-only
 boot that reproduces ~62 inf/s. Not a device node. `INTREE_ACCEL_POLICY` in
-`build/kernel-manifest.py` keeps this symbol at `warn` for exactly this reason.
+[`build/kernel-manifest.py`](../build/kernel-manifest.py) keeps this symbol at `warn` for exactly this reason.
 
 ### Build fixes for the official DKMS source (kept for future work)
 
@@ -234,7 +248,7 @@ ERROR: Package 'libnoe' requires a different Python: 3.14.6 not in '<3.13,>=3.11
 dpkg then leaves the package half-configured (`iF`), which blocks later apt
 transactions. forky has no python3.11/3.12 packages.
 
-`post-install/88-noe-umd-venv.sh` handles this: uv installs a standalone
+[`post-install/88-noe-umd-venv.sh`](../post-install/88-noe-umd-venv.sh) handles this: uv installs a standalone
 CPython 3.12, builds `/opt/ncz/noe-venv`, installs the wheels **plus numpy**
 (`NOE_Engine` imports numpy at module scope but does not declare it), and
 completes dpkg's own postinst with `pip3` temporarily shimmed to that venv —
@@ -286,7 +300,7 @@ The initramfs consumes `ROOTDELAY` **twice**, and the two uses differ:
 * `scripts/local:83` — the **timeout cap** on the root-device poll loop, which
   *is* load-bearing.
 
-`rootdelay=90` was added by `7efb79a` to fix a real, root-caused panic loop:
+`rootdelay=90` was added by `7efb79a` ("fix(boot): add rootdelay=90 to all root= cmdlines (initramfs timeout)") to fix a real, root-caused panic loop:
 `rootwait` is a kernel-level no-op when booting via initramfs-tools, whose
 `scripts/local` has an independent timeout that reads only `ROOTDELAY`. With the
 30s default, NVMe enumeration occasionally overran it and the board landed in
@@ -302,7 +316,7 @@ the 90s tolerance at ~10s boot cost. Not yet implemented.
 ## DKMS prerequisites
 
 The shipped kernel headers cannot build anything until
-`post-install/79-dkms-prep.sh` repairs four defects. See that script's header
+[`post-install/79-dkms-prep.sh`](../post-install/79-dkms-prep.sh) repairs four defects. See that script's header
 comment; the two most surprising:
 
 * `scripts/basic/fixdep` and `scripts/mod/modpost` are Yocto **build-host**
@@ -316,3 +330,66 @@ comment; the two most surprising:
   the release string on target produces `7.2.0-rc6` instead of
   `7.2.0-rc6-sky1-ncz`, and **every** module built there is stamped with a
   vermagic that will not load.
+
+---
+
+## Reproducing these results
+
+Every figure above comes from these commands, run on the target. They are listed
+so the claims can be re-checked after a kernel bump rather than taken on trust.
+
+```sh
+# GPU — identity read back from hardware, not a driver string
+cat /sys/class/misc/mali0/device/gpuinfo
+cat /sys/class/devfreq/CIXH5000:00/cur_freq
+EGL_PLATFORM=surfaceless eglinfo | grep -i "profile renderer"
+vulkaninfo --summary | grep -m1 deviceName
+
+# VPU decode
+ffmpeg -f lavfi -i testsrc=size=640x480:rate=30:duration=3 \
+       -c:v libx264 -pix_fmt yuv420p -y /tmp/t.h264
+ffmpeg -c:v h264_v4l2m2m -i /tmp/t.h264 -f null -
+
+# VPU encode — note the mandatory -pix_fmt
+ffmpeg -f lavfi -i testsrc=size=640x480:rate=30:duration=1 \
+       -pix_fmt nv12 -c:v h264_v4l2m2m -b:v 2M -y /tmp/e.h264
+ffprobe -show_entries stream=codec_name,width,height,nb_read_frames \
+        -count_frames /tmp/e.h264          # must decode back clean
+
+# VPU format enumeration (the table above)
+v4l2-ctl -d /dev/video1 --list-formats-out
+
+# NPU — inference, NOT just /dev/aipu
+ncz-npu-python -c '
+import time, numpy as np
+from NOE_Engine import EngineInfer
+e = EngineInfer("/opt/ncz/models/bge-small-zh-v1.5_256.cix")
+ins = [np.zeros(getattr(d,"size",1024)//np.dtype(e.input_type[i]).itemsize,
+                dtype=e.input_type[i]) for i,d in enumerate(e.in_tensor_desc)]
+e.forward(ins); t0=time.time()
+for _ in range(30): e.forward(ins)
+el=time.time()-t0
+print(f"{el*1000/30:.2f} ms avg, {30/el:.1f} inf/s"); e.clean()'
+
+# RTC
+ls -la /dev/rtc0; cat /sys/class/rtc/rtc0/name /sys/class/rtc/rtc0/hctosys
+timedatectl | grep -E "RTC time|local TZ"
+
+# where every module actually came from
+for m in mali_kbase memory_group_manager protected_memory_allocator amvx; do
+    printf '%-28s %s\n' "$m" "$(modinfo -n $m)"
+done
+
+# boot-time breakdown
+systemd-analyze; systemd-analyze blame | head
+dmesg | grep -E "nvme0n1: p1|Freeing unused kernel|systemd\[1\]: Detected"
+```
+
+Vermagic of every staged module must equal `uname -r` exactly — a mismatch means
+the module silently will not load:
+
+```sh
+for m in /lib/modules/$(uname -r)/updates/dkms/*.ko*; do
+    printf '%-34s %s\n' "$(basename $m)" "$(modinfo -F vermagic $m)"
+done
+```
