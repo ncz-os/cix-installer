@@ -114,7 +114,7 @@ NCZ_BAKED=0
 # build-iso-di.sh:527), so these are genuinely per-install machine hooks and
 # MUST run even under the baked flag. All are variant-aware (self-skip on the
 # server SKU), so adding them is a no-op for server installs.
-MACHINE_HOOKS_RE="^(20-desktop|21-flatpak-arch-filter|22-display-fix|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|30-agents|31-remote-access|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|40-claude-code|41-usb2-rescan|43-hw-quirks|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|57-screensaver|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|87-mpam-cache-partition)\.sh$"
+MACHINE_HOOKS_RE="^(20-desktop|21-flatpak-arch-filter|22-display-fix|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|30-agents|31-remote-access|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|40-claude-code|41-usb2-rescan|43-hw-quirks|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|57-screensaver|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
