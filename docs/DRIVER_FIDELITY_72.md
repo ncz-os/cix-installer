@@ -432,8 +432,8 @@ re-add either until cixtech#59 is fixed and re-validated.
 | mpv / ffmpeg / gst **decode** | CIX VAAPI (VPU) → dmabuf → Wayland → linlondp overlay, zero-copy | 1080p30 H.264 at **~7% CPU** (software: ~82%) |
 | ffmpeg **encode** (`h264_vaapi`) | CIX VAAPI (VPU) | **13.2× realtime** at 1080p30, valid High profile |
 | Chrome 151 rendering | ANGLE on libmali blob (GLES 3.2) | Canvas/Compositing/Raster/WebGL/**WebGPU** all hardware |
-| Chrome 151 video decode | Chrome's V4L2 path straight to mvx (not VAAPI) | Hardware |
-| Chrome 151 video encode | blocked: CIX VA driver fails Chrome's `FillProfileInfo` attribute probe | Software (report to cixtech pending) |
+| Chrome 151 video decode | blocked: same `FillProfileInfo` probe failure — the chrome://gpu "Hardware accelerated" line is only the feature toggle; the Video Acceleration capability table is empty and no Chrome process opens an mvx node during playback (verified: ~2 cores of software VP9) | Software (cixtech#60) |
+| Chrome 151 video encode | blocked: CIX VA driver fails Chrome's `FillProfileInfo` attribute probe | Software (cixtech#60) |
 | Native GLES Wayland apps | blob wayland winsys via `ncz-gpu-env` | glmark2-es2-wayland score **7110** |
 | Compositor | software (pixman) — mali blob has no DRM node, no `zwp_linux_dmabuf` | by design; per-app accel above is unaffected |
 
