@@ -1692,7 +1692,12 @@ if [ "$EMBED_MIRROR" = "1" ]; then
     if [ "${NCZ_KEEP_FULL_POOL:-0}" = "1" ]; then
         echo "    pool prune DISABLED (NCZ_KEEP_FULL_POOL=1) — shipping the full mirror"
     else
-        NCZ_PRUNE_KEEP=$(mktemp)
+        # Scratch lives under $STAGING (house style, cf. .installer-kernel-overlay)
+        # so it is cleaned with the build tree instead of leaking into /tmp if
+        # the build dies mid-prune.
+        NCZ_PRUNE_DIR="$STAGING/.prune-scratch"
+        rm -rf "$NCZ_PRUNE_DIR"; mkdir -p "$NCZ_PRUNE_DIR"
+        NCZ_PRUNE_KEEP="$NCZ_PRUNE_DIR/keep"; : > "$NCZ_PRUNE_KEEP"
         # Packages any hook names on an apt-get install line. Cheap
         # insurance against a non-variant-gated hook wanting something the
         # other variant's layer does not carry.
@@ -1707,12 +1712,12 @@ if [ "$EMBED_MIRROR" = "1" ]; then
         # Observed install-time installs that no layer provides.
         printf '%s\n' locales libc-l10n systemd-container >> "$NCZ_PRUNE_KEEP"
 
-        NCZ_PRUNE_HAVE=$(mktemp)
+        NCZ_PRUNE_HAVE="$NCZ_PRUNE_DIR/have"; : > "$NCZ_PRUNE_HAVE"
         for _l in base desktop server; do
             # Read the SOURCE layers: $EXTRA/*.squashfs is not staged until later.
             _sq="$ROOT/assets/squashfs/$_l.squashfs"
             [ -f "$_sq" ] || continue
-            _tmp=$(mktemp -d)
+            _tmp="$NCZ_PRUNE_DIR/$_l"; rm -rf "$_tmp"; mkdir -p "$_tmp"
             if unsquashfs -f -d "$_tmp" -q "$_sq" var/lib/dpkg/status >/dev/null 2>&1 \
                && [ -f "$_tmp/var/lib/dpkg/status" ]; then
                 sed -n 's/^Package: //p' "$_tmp/var/lib/dpkg/status" >> "$NCZ_PRUNE_HAVE"
@@ -1735,7 +1740,7 @@ if [ "$EMBED_MIRROR" = "1" ]; then
             _after=$(du -sm "$STAGING/pool" 2>/dev/null | cut -f1)
             echo "    pool pruned: dropped $_dropped deb(s) already inside a squashfs layer (${_before}M -> ${_after}M)"
         fi
-        rm -f "$NCZ_PRUNE_KEEP" "$NCZ_PRUNE_HAVE"
+        rm -rf "$NCZ_PRUNE_DIR"
     fi
     echo "    regenerating regular deb Packages index from the staged offline pool"
     mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64"
