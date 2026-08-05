@@ -245,8 +245,7 @@ SPLASH="quiet loglevel=3 vt.global_cursor_default=0 systemd.show_status=false rd
 # No rootdelay= here: the ncz-rootdelay initramfs hook gives scripts/local a
 # 90s poll-timeout FALLBACK without the unconditional init:235 sleep that
 # rootdelay= on the cmdline costs every boot (measured: 94s -> 3.6s to GPU
-# probe on O6N). The rescue entry below keeps an explicit rootdelay=90: it
-# must boot even from an initramfs that predates the hook.
+# probe on O6N). The rescue entry uses rootwait alone for the same reason.
 ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=$ROOT_FSTYPE rw"
 if [ -n "$ROOT_SUBVOL" ]; then
     ROOT_OPTS="$ROOT_OPTS rootflags=subvol=$ROOT_SUBVOL"
@@ -335,7 +334,17 @@ fi
 # Shared by both console entries (7.0.12 and 7.2): every CIX GPU/NPU/VPU
 # driver is blacklisted.  The display pipeline (linlondp) is deliberately
 # NOT in this list so tty0 stays usable on O6/O6N.
-CONSOLE_EXTRA_BLACKLIST="panthor,panfrost,mali,mali_kbase,memory_group_manager,protected_memory_allocator,bifrost,armchina_npu,amvx,cix_vpu,linlon_vpu"
+# GPU/display stack only. A console boot has no compositor, so the GPU
+# drivers buy nothing and panthor is actively harmful (cixtech#59) -- but the
+# NPU and VPU are headless compute: 7.2 CONSOLE is the boot you want for NPU
+# inference (62.8 inf/s measured) or VPU transcode (h264_vaapi at 13.2x
+# realtime) with no desktop in the way. Blacklisting them made the entry
+# useless for exactly the workload it is best at.
+CONSOLE_GPU_BLACKLIST="panthor,panfrost,mali,mali_kbase,memory_group_manager,protected_memory_allocator,bifrost"
+# The deeper fallbacks (legacy 7.0.12 and the rescue partition) stay
+# all-accelerators-off: those exist to get a shell on a machine whose drivers
+# are suspect, so they deliberately load nothing optional.
+CONSOLE_EXTRA_BLACKLIST="$CONSOLE_GPU_BLACKLIST,armchina_npu,amvx,cix_vpu,linlon_vpu"
 
 # 7.0.12 is deliberately a console-only recovery kernel. It is an EOL
 # kernel we carry only until the 7.2 channel finishes its release
@@ -363,7 +372,7 @@ NEXT_CONSOLE_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_CONSOLE_EXISTING_BL=$(printf '%s\n' "$NEXT_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
     NEXT_CONSOLE_CMDLINE_NOBL=$(printf '%s\n' "$NEXT_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
-    [ -n "$NEXT_CONSOLE_EXISTING_BL" ] && NEXT_CONSOLE_MERGED_BL="$NEXT_CONSOLE_EXISTING_BL,$CONSOLE_EXTRA_BLACKLIST" || NEXT_CONSOLE_MERGED_BL="$CONSOLE_EXTRA_BLACKLIST"
+    [ -n "$NEXT_CONSOLE_EXISTING_BL" ] && NEXT_CONSOLE_MERGED_BL="$NEXT_CONSOLE_EXISTING_BL,$CONSOLE_GPU_BLACKLIST" || NEXT_CONSOLE_MERGED_BL="$CONSOLE_GPU_BLACKLIST"
     NEXT_CONSOLE_CMDLINE="$NEXT_CONSOLE_CMDLINE_NOBL module_blacklist=$NEXT_CONSOLE_MERGED_BL"
     NEXT_CONSOLE_OPTIONS="$ROOT_OPTS $NEXT_CONSOLE_CMDLINE systemd.unit=multi-user.target"
 fi
@@ -373,7 +382,11 @@ RESCUEPART_OPTIONS=""
 if [ -f "$RESCUE_READY" ] && [ "$LEGACY_AVAILABLE" = "1" ]; then
     RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
     if [ -n "$RESCUEPART_PARTUUID" ]; then
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootdelay=90 rootfstype=ext4 rw $LEGACY_CONSOLE_CMDLINE systemd.unit=multi-user.target"
+        # rootwait (not rootdelay): rootwait blocks until the root device
+        # actually appears, which is the correct mechanism and costs nothing
+        # once it has; rootdelay=90 was an unconditional 90s sleep paid on
+        # every rescue boot even when the disk was ready immediately.
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $LEGACY_CONSOLE_CMDLINE systemd.unit=multi-user.target"
         echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
     else
         echo "ERROR: rescue-partition marker has no PARTUUID — refusing to ship without recovery"
