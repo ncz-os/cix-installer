@@ -1,51 +1,73 @@
 # Upstream patches pending submission
 
-## cix-vaapi-queryconfigattributes-rtformat.patch
+## cix-vaapi/ — hardware video decode in browsers on Sky1
 
-Fixes browser hardware video decode on Sky1. `MediaDevice::CreateConfig()` in
-cix_vaapi stores only the attributes the caller passed to `vaCreateConfig()`,
-and `MediaDevice::QueryConfigAttributes()` echoes that array back, so a config
-created with `(attrib_list = NULL, num_attribs = 0)` reports zero attributes.
-Chromium's `VASupportedProfiles::FillProfileInfo_Locked()` creates exactly such
-an attribute-less config specifically so the driver will enumerate its RT
-formats, finds no `VAConfigAttribRTFormat`, and rejects every profile. The
-rejection goes through `DLOG_IF()`, compiled out of release builds, so it fails
-*silently* — about:gpu shows an empty decode table while ffmpeg and mpv work
-fine on the same driver, because they never call `vaQueryConfigAttributes()`.
+Three patches against https://github.com/cixtech/cix_vaapi (`main`, 6e03daa
+"Multimedia SDK 2026Q2"). Apply with `git am`. Together they take Chromium
+from "no hardware decode at all" to decoding H.264 1080p on the VPU. Each
+fixes a distinct defect and each was measured on O6N (.3) with Chrome 151.
 
-The patch records the driver's own RTFormat in `CreateConfig()` when the caller
-supplies none, sourcing it from the existing `GetConfigAttributes()` dispatcher
-so v4l2/cme keep control of what they advertise.
+**0001 — vaQueryConfigAttributes reports no attributes.**
+`CreateConfig()` stored only caller-supplied attributes and
+`QueryConfigAttributes()` echoed them back, so a config created with
+`(NULL, 0)` reported zero attributes. Chromium creates exactly such a config
+so the driver will enumerate its RT formats, finds no `VAConfigAttribRTFormat`
+and rejects every profile — silently, since the diagnostic is `DLOG_IF()` and
+is compiled out of release builds. ffmpeg/mpv were unaffected: they never call
+`vaQueryConfigAttributes()`.
+*Before:* about:gpu decode table empty, 15 `FillProfileInfo_Locked failed`.
+*After:* 9 profiles listed (h264 baseline/main/high, vp9 profile0/2, hevc
+main/main10/still-picture, av1 main), 0 failures.
 
-Verified on O6N (.3) with Chrome 151, driver built from cix_vaapi `main`
-(6e03daa, "Multimedia SDK 2026Q2"):
+**0002 — no surface pool when a context has no render targets.**
+`vaCreateContext()` with `num_render_targets == 0` is legal; Chromium
+allocates surfaces afterwards. `CreateContext()` used the lookup-only
+`GetSurfacePool(w, h)`, which returns null before any pool exists, and
+`SetSurfacePool()` is guarded by `if (pool)` — so the codec had no pool, the
+CAPTURE port's DMABUF buffers bound no surfaces, and every plane kept an
+uninitialised fd:
+`Failed to queue type 9 buffer 0: errno = 22 (Invalid argument), plane 0: fd = 1073741824`.
+Note the format passed to the creating overload must be the *raw* one; the
+config carries the compressed format and yields a zero-plane pool.
 
-| | `vaQueryConfigAttributes` | Chrome `FillProfileInfo` failures | about:gpu decode table |
-|---|---|---|---|
-| stock  | 0 attribs, all 7 pairs | 15 | empty |
-| patched| 1 attrib (`RTFormat`)  | 0  | 9 profiles, 144x144–8192x8192 |
+**0003 — vaExportSurfaceHandle ignores VA_EXPORT_SURFACE_SEPARATE_LAYERS.**
+The export always produced one layer carrying every plane. Chromium exports
+with `READ_ONLY | SEPARATE_LAYERS` and rejects any layer holding more than one
+plane. It returned `VA_STATUS_SUCCESS`, so this failed silently: Chromium
+selected `VaapiVideoDecoder`, logged `Initialize() successful`, then discarded
+the surface while building its frame pool and fell back with only "video
+decoder fallback after initial decode error". `BeginPicture()` was never
+reached — no frame was ever submitted.
 
-AV1Profile0 correctly reports `YUV420|YUV420_10` via the existing
-`IS_10BIT_PROFILE()` path. No regression: `ffmpeg -hwaccel vaapi` decodes
-unchanged and `vaQuerySurfaceAttributes()` still returns its full set.
+### Measured result (O6N .3, Chrome 151, H.264 1080p)
+
+| | stock | patched |
+|---|---|---|
+| about:gpu decode profiles | none | 9 |
+| `FillProfileInfo_Locked failed` | 15 | 0 |
+| GPU process opens `/dev/video0` | no | **yes** |
+| renderer CPU during playback | ~27–46% | **~3.4%** |
+
+No regressions: `ffmpeg -hwaccel vaapi -hwaccel_output_format vaapi` still
+decodes, `vaQuerySurfaceAttributes()` still returns its full set, `vainfo`
+still lists 14 profiles, desktop/greetd/NPU service unaffected.
 
 Submission target: https://github.com/cixtech/cix_vaapi. Author identity:
-Jason Perlow <jperlow@gmail.com>. Related: cixtech/cix_libva#7 (the issue is
-filed against cix_libva, but the defect is in cix_vaapi).
+Jason Perlow <jperlow@gmail.com>. Related: cixtech/cix_libva#7 (filed against
+cix_libva, but all three defects are in cix_vaapi).
 
 ### Reproducers — `cix-vaapi-repro/`
 
-`vaprobe.c` replays Chrome's earlier `FillProfileInfo_Locked` steps (RTFormat
-check, `vaCreateConfig` with required attribs, two-pass
-`vaQuerySurfaceAttributes`); all of these already pass on the stock driver.
-`vaprobe2.c` replays the final block — attribute-less `vaCreateConfig` then
-`vaQueryConfigAttributes` — and is the one that shows `num_config_attributes = 0`.
+`vaprobe.c` replays Chromium's early `FillProfileInfo_Locked` steps (these
+already pass on the stock driver). `vaprobe2.c` replays the final block —
+attribute-less `vaCreateConfig()` then `vaQueryConfigAttributes()` — and is
+the one that shows `num_config_attributes = 0` before 0001.
 
-Build the driver from source on the board (no cmake, no CIX SDK tarball needed):
+Build the driver from source on the board (no cmake, no CIX SDK tarball):
 
 ```sh
-# headers: cixtech/cix_media_engine libcme/include, plus the VPU UAPI header
-# already present on NCZ-OS at /usr/src/cix-vpu-driver-*/driver/linux
+# CME headers: github.com/cixtech/cix_media_engine libcme/include
+# VPU UAPI header already on NCZ-OS at /usr/src/cix-vpu-driver-*/driver/linux
 g++ -std=c++11 -fPIC -shared -o cixtest_drv_video.so \
   $(find cix_vaapi/ddi cix_vaapi/devices cix_vaapi/utils -name '*.cpp') \
   $(find cix_vaapi/utils -name '*.c') \
@@ -60,12 +82,11 @@ g++ -std=c++11 -fPIC -shared -o cixtest_drv_video.so \
 Gotchas: there is no `libcme.so` / `libva.so` dev symlink on the board, so
 `-lcme` and `-lva` both fail — link the versioned `.so.1` / `.so.2` directly.
 libva headers come from cixtech/cix_libva `va/`, with `va_version.h` generated
-from `va_version.h.in` (VA-API 1.22.1 → major 1, minor 22, micro 1).
+from `va_version.h.in` (VA-API 1.22.1 -> major 1, minor 22, micro 1).
 
-Test a build without touching the packaged driver:
+Test without touching the packaged driver:
 
 ```sh
-cp cixtest_drv_video.so /tmp/dri/
 LIBVA_DRIVERS_PATH=/tmp/dri LIBVA_DRIVER_NAME=cixtest ./vaprobe2 /dev/dri/renderD129
 ```
 
@@ -77,6 +98,28 @@ dpkg-divert --add --rename --divert $D.distrib $D   # vendor copy -> .distrib
 install -m 0755 cixtest_drv_video.so $D
 # revert: rm $D && dpkg-divert --remove --rename $D
 ```
+
+### Verifying hardware decode (measurement traps)
+
+Enumeration is not decode. The reliable signature is the process holding
+`/dev/video0` open alongside `renderD*`/`mali0`, cross-checked against
+renderer CPU. Traps that produced wrong answers here:
+
+- `ffmpeg -hwaccel vaapi` **silently falls back to software** and still exits
+  0. Pass `-hwaccel_output_format vaapi` to make it fail hard; it then reports
+  `Video: wrapped_avframe, vaapi(progressive)`.
+- `timeout 40 ffmpeg ... & P=$!` captures *timeout*'s pid, not ffmpeg's, so
+  `/proc/$P/fd` looks empty. Resolve the real child first.
+- `about:gpu`'s "Video Decode: Hardware accelerated" line is a generic
+  capability flag — it already read that way while the decode table was empty.
+  Use the profile table, not that line.
+- Chrome `--headless=new` fails on this board (`GLDisplayEGL::Initialize
+  failed`), so `--dump-dom chrome://gpu` yields nothing useful.
+- A second Chrome instance silently folds into the running one
+  (`ProcessSingleton.NotifyResult = 1`) unless `--user-data-dir` is writable
+  by the launching user.
+- about:gpu exports reflect only the *currently running* GPU process; without
+  restarting Chrome you re-serialise stale enumeration.
 
 ## libdrm-xf86drm-acpi-platform-identity.patch
 

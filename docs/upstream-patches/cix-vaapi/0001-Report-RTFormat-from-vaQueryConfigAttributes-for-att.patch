@@ -1,7 +1,7 @@
 From f66268702337264f5221c50d292139e71733ddbb Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Wed, 5 Aug 2026 18:25:42 -0400
-Subject: [PATCH] Report RTFormat from vaQueryConfigAttributes for
+Subject: [PATCH 1/3] Report RTFormat from vaQueryConfigAttributes for
  attribute-less configs
 
 vaQueryConfigAttributes() is specified to return the attributes of a
