@@ -62,10 +62,24 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # Removing them is not only size: with 11 ICDs enumerated the Vulkan loader can
 # select the wrong one, which is why ncz-gpu-env has to pin VK_DRIVER_FILES.
 # Fewer ICDs, less ambiguity.
-if dpkg -l mesa-vulkan-drivers 2>/dev/null | grep -q "^ii"; then
-    echo "[47] removing mesa-vulkan-drivers (147MB of ICDs for other vendors' GPUs)"
-    DEBIAN_FRONTEND=noninteractive apt-get remove -y mesa-vulkan-drivers 2>&1 | tail -3 || \
-        echo "[47] WARN: could not remove mesa-vulkan-drivers"
+# The dev packages are BAKED INTO desktop.squashfs by an older layer build, so
+# dropping them from the install list above is not enough — they arrive with
+# the layer and have to be purged here. (mesa-vulkan-drivers is not in the
+# layer; it only ever came in as a dependency.) Verified on O6N: removing all
+# of these leaves the desktop, GLES and the blob Vulkan ICD working.
+NCZ_GPU_PURGE=""
+for p in mesa-vulkan-drivers libvulkan-dev vulkan-validationlayers \
+         spirv-tools spirv-headers glslang-tools glslang-dev; do
+    dpkg -l "$p" 2>/dev/null | grep -q "^ii" && NCZ_GPU_PURGE="$NCZ_GPU_PURGE $p"
+done
+if [ -n "$NCZ_GPU_PURGE" ]; then
+    echo "[47] purging GPU build stack (~242MB, unusable on this SoC):$NCZ_GPU_PURGE"
+    # shellcheck disable=SC2086
+    DEBIAN_FRONTEND=noninteractive apt-get remove -y $NCZ_GPU_PURGE 2>&1 | tail -3 || \
+        echo "[47] WARN: purge incomplete — continuing (non-fatal)"
+    DEBIAN_FRONTEND=noninteractive apt-get autoremove -y 2>&1 | tail -2 || true
+else
+    echo "[47] GPU build stack already absent"
 fi
 
 # No glslc / shader compiler: see the note above. Build GPU code on a build
