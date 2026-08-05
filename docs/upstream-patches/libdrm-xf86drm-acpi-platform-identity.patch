@@ -1,0 +1,104 @@
+xf86drm: give ACPI-enumerated platform devices a unique bus identity
+
+drmParseOFBusInfo() falls back to MODALIAS when a platform device has no
+OF_FULLNAME, then takes the substring after the last ':'.
+
+That fallback breaks for ACPI-enumerated platform devices. An ACPI modalias
+is terminated with ':' -- for example:
+
+    /sys/dev/char/226:0/device/uevent:MODALIAS=acpi:CIXH5010:
+
+so strrchr(name, ':') finds the *trailing* colon and the resulting bus name
+is the empty string. Every ACPI platform DRM device therefore ends up with
+an identical (empty) drmPlatformBusInfo.
+
+drmDevicesEqual() compares platform devices with memcmp() over that struct,
+so all such devices compare equal, and the de-duplication pass in
+drmGetDevices2() folds them into a single drmDevice. Only the first device
+survives enumeration; the rest become invisible to userspace.
+
+Even ignoring the trailing colon, MODALIAS is the wrong key here: it encodes
+the ACPI hardware ID, which is shared by every instance of the same device
+type, so sibling instances would still collide.
+
+On a CIX Sky1 board (ARM64, ACPI boot) this is easy to observe. The board has
+three linlondp display devices and a panthor GPU:
+
+    $ ls /dev/dri/
+    card0  card1  card2  card3  renderD128  renderD129  renderD130  renderD131
+
+but drmGetDevices2() reports one:
+
+    drmGetDevices2 -> 1 device(s)
+      dev[0] bustype=2 nodes=0x5 fullname="" /dev/dri/card0 /dev/dri/renderD128
+
+Because the GPU is not enumerated, Mesa reports "MESA-LOADER: failed to
+retrieve device information" and falls back to software rendering, panvk
+reports "Failed to detect any valid GPUs in the current config", and wlroots
+fails with "Failed to get DRM device: No such device" -- so a compositor
+never advertises zwp_linux_dmabuf_v1 and every client is software-only, on a
+board with a perfectly functional GPU.
+
+Use the sysfs device name instead when OF data is absent. The kernel already
+makes it unique per device instance (e.g. "CIXH5010:00", "CIXH5010:01"), and
+the primary and render nodes of one device share it -- exactly the identity
+semantics drmDevicesEqual() needs. With this change:
+
+    drmGetDevices2 -> 3 device(s)
+      dev[0] bustype=2 nodes=0x5 fullname="CIXH5010:04" /dev/dri/card2 /dev/dri/renderD130
+      dev[1] bustype=2 nodes=0x5 fullname="CIXH5010:01" /dev/dri/card1 /dev/dri/renderD129
+      dev[2] bustype=2 nodes=0x5 fullname="CIXH5010:00" /dev/dri/card0 /dev/dri/renderD128
+
+Devices that do expose OF_FULLNAME are unaffected; only the no-OF fallback
+path changes.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+
+---
+ xf86drm.c | verified against libdrm 2.4.134 on CIX Sky1 (Orion O6N)
+
+--- a/xf86drm.c	2026-08-04 14:40:22.065985410 -0400
++++ b/xf86drm.c	2026-08-04 14:40:22.106903688 -0400
+@@ -4293,24 +4293,32 @@
+ static int drmParseOFBusInfo(int maj, int min, char *fullname)
+ {
+ #ifdef __linux__
+-    char path[PATH_MAX + 1], *name, *tmp_name;
++    char path[PATH_MAX + 1], real[PATH_MAX + 1], *name, *tmp_name;
+ 
+     snprintf(path, sizeof(path), "/sys/dev/char/%d:%d/device", maj, min);
+ 
+     name = sysfs_uevent_get(path, "OF_FULLNAME");
+     tmp_name = name;
+     if (!name) {
+-        /* If the device lacks OF data, pick the MODALIAS info */
+-        name = sysfs_uevent_get(path, "MODALIAS");
+-        if (!name)
+-            return -ENOENT;
++        /*
++         * The device lacks OF data -- typically an ACPI-enumerated platform
++         * device. Do not fall back to MODALIAS here: an ACPI modalias has a
++         * trailing ':' (e.g. "acpi:CIXH5010:"), so stripping to the last ':'
++         * yields an empty name, and it is shared by every instance of the
++         * same HID regardless. Either way drmDevicesEqual() would compare
++         * distinct devices as equal and drmGetDevices2() would fold them
++         * into one.
++         *
++         * Use the sysfs device name instead (e.g. "CIXH5010:00"). It is
++         * unique per device instance, and the primary and render nodes of
++         * one device share it -- exactly the identity semantics required.
++         */
++        if (!realpath(path, real))
++            return -errno;
+ 
+-        /* .. and strip the MODALIAS=[platform,usb...]: part. */
+-        tmp_name = strrchr(name, ':');
+-        if (!tmp_name) {
+-            free(name);
++        tmp_name = strrchr(real, '/');
++        if (!tmp_name)
+             return -ENOENT;
+-        }
+         tmp_name++;
+     }
+ 
