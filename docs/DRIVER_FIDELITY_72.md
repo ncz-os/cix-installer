@@ -435,7 +435,21 @@ re-add either until cixtech#59 is fixed and re-validated.
 | Chrome 151 video decode | blocked: same `FillProfileInfo` probe failure — the chrome://gpu "Hardware accelerated" line is only the feature toggle; the Video Acceleration capability table is empty and no Chrome process opens an mvx node during playback (verified: ~2 cores of software VP9) | Software (cixtech#60) |
 | Chrome 151 video encode | blocked: CIX VA driver fails Chrome's `FillProfileInfo` attribute probe | Software (cixtech#60) |
 | Native GLES Wayland apps | blob wayland winsys via `ncz-gpu-env` | glmark2-es2-wayland score **7110** |
-| Compositor | software (pixman) — mali blob has no DRM node, no `zwp_linux_dmabuf` | by design; per-app accel above is unaffected |
+| Compositor (labwc/wlroots) | **GPU-accelerated**: wlroots GLES2 renderer on the libmali blob EGL, KMS/scanout on linlondp (`WLR_DRM_DEVICES=/dev/dri/card1`). labwc holds `/dev/mali0` open+mmapped, no pixman fallback in its log, and it advertises `zwp_linux_dmabuf_v1` + `wl_drm` so clients pass GPU buffers zero-copy | Hardware — measured 0% CPU over 10s of desktop animation |
+
+The split-device architecture is worth stating plainly, because it is easy to
+assume the opposite: `mali_kbase` exposes a misc char device (`/dev/mali0`,
+major 10) rather than a DRM render node, so the *rendering* device and the
+*scanout* device are different subsystems. wlroots is told to modeset on
+linlondp (`/dev/dri/card1`) while its GLES2 renderer runs through the blob's
+EGL/GBM shim on `/dev/mali0`. That combination works: the compositor, the
+Singularity shell, Xwayland and Chrome all hold `/dev/mali0` concurrently.
+
+The consequence that *is* real: **panvk/Mesa cannot drive this stack** — the
+open Vulkan and GL drivers need a DRM render node, which kbase does not
+provide. Vulkan on the Mali boot comes from the blob ICD
+(`/etc/vulkan/icd.d/mali.json`, pinned via `VK_DRIVER_FILES` in
+`ncz-gpu-env`), not from Mesa.
 
 VAAPI needs `LIBVA_DRIVER_NAME=libcix_va` in the session environment.
 **greetd's PAM stack does not apply `/etc/environment`** — the variable is
