@@ -9,6 +9,12 @@
 # also removes mesa-vulkan-drivers, whose ICDs are all for other vendors' GPUs.
 # Together ~242MB. See docs/DRIVER_FIDELITY_72.md. Idempotent.
 #
+# Removal verified on O6N live hardware: desktop session untouched (greetd,
+# labwc, shell all still up), GLES still Mali-G720 at glmark2 7532, and the
+# blob Vulkan ICD still resolves to the G720 — mesa-vulkan-drivers owns only
+# ICD JSONs and Vulkan layers, never GL/GLES/EGL/GBM (those are libgles2,
+# libegl1, libgbm1).
+#
 # Out of scope for this hook (deferred to P4 scope-2 = `ncz install mnemos`):
 #   - llama.cpp Vulkan binaries (large, model-loadout-specific)
 #   - npu_embed_v2.py wrapper + bge-small-zh.cix (.cix is LFS ~150MB,
