@@ -1,12 +1,13 @@
 #!/bin/bash
-# 47-llm-stack.sh — bake the Vulkan + SPIR-V toolchain that the LLM and NPU
-# tiers depend on, so r75 ships "plug-in-and-it-works" instead of needing
-# manual apt installs for every workload.
+# 47-llm-stack.sh — GPU/compute RUNTIME + diagnostics for the LLM and NPU
+# tiers, so the appliance ships "plug-in-and-it-works" without manual apt.
 #
-# r75 P4 (scope-1, deterministic): Vulkan dev headers + glslang/glslc +
-# spirv-tools + clinfo + vulkan-tools (vulkaninfo). These are the
-# universal substrates everything else (llama.cpp Vulkan, NPU embedder
-# server, future Mali compute tools) builds against. Idempotent.
+# Scope narrowed 2026-08-05 to runtime only: vulkan-tools (vulkaninfo), clinfo,
+# glmark2. The Vulkan dev headers, glslang/glslc and spirv-tools that used to
+# be here were build substrate for workloads that no longer exist on-device —
+# llama.cpp ships CPU-only and the NPU embedder runs on NOE/libnoe. This hook
+# also removes mesa-vulkan-drivers, whose ICDs are all for other vendors' GPUs.
+# Together ~242MB. See docs/DRIVER_FIDELITY_72.md. Idempotent.
 #
 # Out of scope for this hook (deferred to P4 scope-2 = `ncz install mnemos`):
 #   - llama.cpp Vulkan binaries (large, model-loadout-specific)
@@ -25,34 +26,48 @@ echo "[47] baking GPU/NPU/LLM substrate (Vulkan + SPIR-V + tools)"
 # Best-effort apt update — offline mirror is present, network may not be.
 apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 -o Acquire::Retries=0 -o Acquire::ForceIPv4=true 2>&1 | tail -3 || true
 
-# Vulkan dev headers + tooling. Aligns with what visorcraft uses for
-# panvk Mali Vulkan testing on Cix CD8180. spirv-headers is the schema
-# pkg, spirv-tools is the validator/disassembler.
+# RUNTIME ONLY. The shader compilers and Vulkan dev headers are deliberately
+# NOT installed (2026-08-05): nothing in the shipped image compiles GPU code at
+# runtime. They were here as build substrate for "llama.cpp Vulkan, the NPU
+# embedder, and future Mali compute tools" — but llama.cpp now ships CPU-only
+# (a Vulkan-linked build costs 13.6x CPU throughput even with the GPU unused,
+# and loses to the CPU when the GPU does engage — see DRIVER_FIDELITY_72.md),
+# and the NPU embedder runs on NOE/libnoe, not Vulkan. Dropping
+# libvulkan-dev + glslang + spirv-tools + validationlayers saves ~95MB.
+#
+# vulkan-tools stays: vulkaninfo is how you diagnose the blob ICD.
+# clinfo stays: OpenCL 3.0 is live on the blob and the CIX media engine
+# (libcme) ships .cl kernels. glmark2 stays: the GLES smoke test.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    libvulkan-dev \
-    glslang-tools \
-    glslang-dev \
-    spirv-tools \
-    spirv-headers \
     vulkan-tools \
-    vulkan-validationlayers \
     clinfo \
     glmark2-x11 \
     glmark2-es2-x11 \
     glmark2-wayland 2>&1 | tail -5 || \
-    echo "[47] some Vulkan/SPIR-V packages unavailable — continuing (offline mirror may not have them all)"
+    echo "[47] some Vulkan/OpenCL runtime packages unavailable — continuing (offline mirror may not have them all)"
 
-# glslc is sometimes packaged separately (shaderc) and sometimes inside
-# glslang-tools. Try the canonical name first, fall back to the alt.
-if ! command -v glslc >/dev/null 2>&1; then
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        glslc 2>&1 | tail -3 || \
-        echo "[47] glslc not separately packaged — relying on glslang-tools"
+# mesa-vulkan-drivers is 147MB of Vulkan ICDs for hardware this SoC is not:
+# asahi (Apple), broadcom, freedreno (Adreno), gfxstream, intel, nouveau,
+# powervr, radeon, virtio, plus lavapipe (software) and panfrost. panfrost is
+# the Mesa Mali driver and cannot work here — mali_kbase exposes no DRM render
+# node, which is exactly why panthor was abandoned. Our real ICD is the blob's
+# /etc/vulkan/icd.d/mali.json.
+#
+# Removing them is not only size: with 11 ICDs enumerated the Vulkan loader can
+# select the wrong one, which is why ncz-gpu-env has to pin VK_DRIVER_FILES.
+# Fewer ICDs, less ambiguity.
+if dpkg -l mesa-vulkan-drivers 2>/dev/null | grep -q "^ii"; then
+    echo "[47] removing mesa-vulkan-drivers (147MB of ICDs for other vendors' GPUs)"
+    DEBIAN_FRONTEND=noninteractive apt-get remove -y mesa-vulkan-drivers 2>&1 | tail -3 || \
+        echo "[47] WARN: could not remove mesa-vulkan-drivers"
 fi
+
+# No glslc / shader compiler: see the note above. Build GPU code on a build
+# host, not on the appliance.
 
 echo
 echo "[47] verification:"
-for tool in vulkaninfo glslangValidator spirv-val spirv-dis clinfo glmark2; do
+for tool in vulkaninfo clinfo glmark2; do
     if command -v "$tool" >/dev/null 2>&1; then
         echo "    OK  $tool ($($tool --version 2>&1 | head -1 | sed 's/^/    /'))"
     else
