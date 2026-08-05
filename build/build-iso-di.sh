@@ -1671,7 +1671,73 @@ mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64"
 # which are indexed separately above.) Runs before the Step 6 Release regen so
 # the Release hashes the rebuilt index.
 if [ "$EMBED_MIRROR" = "1" ]; then
-    echo "    regenerating regular deb Packages index from the complete offline pool"
+    # ---------------------------------------------------------------
+    # Prune the staged pool: drop every .deb whose package is already
+    # installed inside a shipped squashfs layer.
+    #
+    # The ISO was carrying the desktop/server package sets twice -- once
+    # installed in the layers, once as .debs for the offline mirror.
+    # Measured on forky10: 1005 MB of a 1013 MB pool was already in a
+    # layer, while a real install apt-installed only three packages that
+    # were not (locales, libc-l10n, systemd-container). A package already
+    # present on the variant that would ask for it can never be fetched
+    # from the pool, and the desktop hooks are variant-gated, so
+    # desktop-only packages are requested by neither variant.
+    #
+    # The mirror is still built in full -- build-squashfs-layers.sh needs
+    # it to construct the layers. This prunes only the ISO copy.
+    #
+    # Set NCZ_KEEP_FULL_POOL=1 to ship the unpruned pool.
+    # ---------------------------------------------------------------
+    if [ "${NCZ_KEEP_FULL_POOL:-0}" = "1" ]; then
+        echo "    pool prune DISABLED (NCZ_KEEP_FULL_POOL=1) — shipping the full mirror"
+    else
+        NCZ_PRUNE_KEEP=$(mktemp)
+        # Packages any hook names on an apt-get install line. Cheap
+        # insurance against a non-variant-gated hook wanting something the
+        # other variant's layer does not carry.
+        grep -hoE "apt-get install[^|;&]*" "$ROOT"/post-install/*.sh "$ROOT"/preseed/*.sh 2>/dev/null \
+            | tr " " "\n" \
+            | grep -E "^[a-z0-9][a-z0-9.+-]+$" \
+            | grep -vE "^(apt-get|install|y|q|f|the|from|via|which|full|fail|seed|our|offline|mirror|unmet|desktop|network)$" \
+            >> "$NCZ_PRUNE_KEEP" || true
+        # Kernel channels: always reinstallable from the ISO.
+        printf '%s\n' linux-image-cixmini-legacy linux-image-cixmini-edge \
+            linux-image-cixmini-lts cixmini-boot >> "$NCZ_PRUNE_KEEP"
+        # Observed install-time installs that no layer provides.
+        printf '%s\n' locales libc-l10n systemd-container >> "$NCZ_PRUNE_KEEP"
+
+        NCZ_PRUNE_HAVE=$(mktemp)
+        for _l in base desktop server; do
+            # Read the SOURCE layers: $EXTRA/*.squashfs is not staged until later.
+            _sq="$ROOT/assets/squashfs/$_l.squashfs"
+            [ -f "$_sq" ] || continue
+            _tmp=$(mktemp -d)
+            if unsquashfs -f -d "$_tmp" -q "$_sq" var/lib/dpkg/status >/dev/null 2>&1 \
+               && [ -f "$_tmp/var/lib/dpkg/status" ]; then
+                sed -n 's/^Package: //p' "$_tmp/var/lib/dpkg/status" >> "$NCZ_PRUNE_HAVE"
+            fi
+            rm -rf "$_tmp"
+        done
+        if [ ! -s "$NCZ_PRUNE_HAVE" ]; then
+            echo "    pool prune SKIPPED — could not read any layer's dpkg status" >&2
+        else
+            _before=$(du -sm "$STAGING/pool" 2>/dev/null | cut -f1)
+            sort -u "$NCZ_PRUNE_HAVE" -o "$NCZ_PRUNE_HAVE"
+            sort -u "$NCZ_PRUNE_KEEP" -o "$NCZ_PRUNE_KEEP"
+            _dropped=0
+            while IFS= read -r _deb; do
+                _name=$(basename "$_deb"); _name=${_name%%_*}
+                grep -qxF "$_name" "$NCZ_PRUNE_KEEP" && continue
+                grep -qxF "$_name" "$NCZ_PRUNE_HAVE" || continue
+                rm -f "$_deb" && _dropped=$((_dropped + 1))
+            done < <(find "$STAGING/pool" -name '*.deb')
+            _after=$(du -sm "$STAGING/pool" 2>/dev/null | cut -f1)
+            echo "    pool pruned: dropped $_dropped deb(s) already inside a squashfs layer (${_before}M -> ${_after}M)"
+        fi
+        rm -f "$NCZ_PRUNE_KEEP" "$NCZ_PRUNE_HAVE"
+    fi
+    echo "    regenerating regular deb Packages index from the staged offline pool"
     mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64"
     (
         cd "$STAGING"
