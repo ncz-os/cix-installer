@@ -334,13 +334,18 @@ fi
 # Shared by both console entries (7.0.12 and 7.2): every CIX GPU/NPU/VPU
 # driver is blacklisted.  The display pipeline (linlondp) is deliberately
 # NOT in this list so tty0 stays usable on O6/O6N.
-# GPU/display stack only. A console boot has no compositor, so the GPU
-# drivers buy nothing and panthor is actively harmful (cixtech#59) -- but the
-# NPU and VPU are headless compute: 7.2 CONSOLE is the boot you want for NPU
-# inference (62.8 inf/s measured) or VPU transcode (h264_vaapi at 13.2x
-# realtime) with no desktop in the way. Blacklisting them made the entry
-# useless for exactly the workload it is best at.
-CONSOLE_GPU_BLACKLIST="panthor,panfrost,mali,mali_kbase,memory_group_manager,protected_memory_allocator,bifrost"
+# Only the drivers that are actually harmful. "No GUI" is a statement about
+# the compositor, not about compute: a headless 7.2 boot is the box you want
+# for NPU inference (62.8 inf/s measured), VPU transcode (h264_vaapi at 13.2x
+# realtime) AND GPU compute -- the libmali blob exposes Vulkan 1.3 and
+# OpenCL 3.0 (10 CUs) on /dev/mali0 with no display server involved.
+# Blacklisting the accelerators made this entry useless for exactly the
+# workloads it is best at.
+#
+# panthor stays out because it kills the GPU on the first user VM_BIND
+# (cixtech#59); panfrost is the pre-CSF Mesa driver and would fight the blob
+# for the same hardware. Neither is ever wanted on this SoC.
+CONSOLE_GPU_BLACKLIST="panthor,panfrost"
 # The deeper fallbacks (legacy 7.0.12 and the rescue partition) stay
 # all-accelerators-off: those exist to get a shell on a machine whose drivers
 # are suspect, so they deliberately load nothing optional.
