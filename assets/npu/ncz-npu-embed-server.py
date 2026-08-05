@@ -102,6 +102,13 @@ class NpuEmbedder:
                 out[i] = v / n if n > 0 else v
         return out
 
+    def stats(self):
+        """Consistent snapshot: the counters are mutated under _lock, so read
+        them under it too -- otherwise /health can show a count from after an
+        inference with the duration from before it."""
+        with self._lock:
+            return self.infer_count, self.infer_seconds
+
     def close(self):
         try:
             self.engine.clean()
@@ -127,7 +134,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
         if self.path.rstrip("/") == "/health":
             e = self.embedder
-            avg = (e.infer_seconds / e.infer_count * 1000) if e.infer_count else 0.0
+            count, seconds = e.stats()
+            avg = (seconds / count * 1000) if count else 0.0
             self._send(200, {
                 "status": "ok",
                 "backend": "cix-sky1-npu",
@@ -135,7 +143,7 @@ class Handler(BaseHTTPRequestHandler):
                 "graph": os.path.basename(e.model_path),
                 "dimensions": EMBED_DIM,
                 "max_tokens": e.seq_len,
-                "inferences": e.infer_count,
+                "inferences": count,
                 "avg_ms": round(avg, 1),
             })
         elif self.path.rstrip("/") == "/v1/models":
