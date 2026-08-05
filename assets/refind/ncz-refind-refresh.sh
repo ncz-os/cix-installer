@@ -320,10 +320,8 @@ fi
 # Keep userspace Mesa in both modes so changing kernel driver never changes
 # EGL/glvnd/ICD ownership during the greeter handoff.
 MALI_OPTIONS=""
-PANTHOR_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     MALI_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,panthor/')
-    PANTHOR_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,mali_kbase,memory_group_manager,protected_memory_allocator/')
     # Panthor keeps acpi_scmi_en=off, same as Mali and SAFE. Metal-verified
     # on O6N 2026-07-31: the patched panthor-cix DKMS module powers on and
     # un-secures the GPU itself with SCMI off ("GPU power domain 21 powered

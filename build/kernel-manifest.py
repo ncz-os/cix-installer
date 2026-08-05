@@ -45,7 +45,14 @@ ACCEL_OVERLAYS = {
 # report while a driver is still mid-migration -- flip an entry to "error" once
 # that driver is fully out-of-tree so it can never regress back in.
 INTREE_ACCEL_POLICY = {
-    "CONFIG_DRM_PANTHOR":  "error",  # already out-of-tree
+    # panthor is NOT SHIPPED (2026-08-04): its CSF firmware dies on the first
+    # user VM_BIND because the Sky1 IDM revokes the GPU's bus-master grant
+    # (cixtech/cix-linux-main#59). There is no panthor menuentry and every
+    # entry blacklists the module, so an in-tree copy masks nothing -- there is
+    # no out-of-tree panthor to mask. Kept as "warn" rather than dropped so the
+    # config stays visible; if panthor is ever shipped again this must go back
+    # to "error" and the module must be built out-of-tree.
+    "CONFIG_DRM_PANTHOR":  "warn",
     "CONFIG_ARMCHINA_NPU": "warn",   # still in-tree; needs 0121/0123 ported to the OOT tree first
     "CONFIG_VIDEO_LINLON": "warn",   # amvx still carried by the in-tree 0126+ patch series
 }
@@ -269,9 +276,18 @@ def overlay_present_errors(live):
     """Each shipped variant needs an accelerator overlay matching its KVER.
     A missing overlay is a silent no-GPU boot, so make it a build-time failure."""
     errors = []
+    # The legacy channel ships one boot entry ("7.0.12 CONSOLE -- legacy
+    # fallback, no GPU, no GUI") whose cmdline blacklists mali_kbase along with
+    # every other accelerator. Requiring a mali overlay for a channel that
+    # deliberately refuses to load mali is a false positive, and one that would
+    # otherwise block every release: no 7.0.12 overlay is built precisely
+    # because no 7.0.12 entry uses the GPU.
+    GPULESS_CHANNELS = {"legacy"}
     for label, v in live.get("variants", {}).items():
         kver = v.get("kver")
         if not kver:
+            continue
+        if label in GPULESS_CHANNELS:
             continue
         base = os.path.join(ROOT, ACCEL_OVERLAYS["mali"])
         if not os.path.isdir(base):
