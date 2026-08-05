@@ -451,11 +451,16 @@ provide. Vulkan on the Mali boot comes from the blob ICD
 (`/etc/vulkan/icd.d/mali.json`, pinned via `VK_DRIVER_FILES` in
 `ncz-gpu-env`), not from Mesa.
 
-VAAPI needs `LIBVA_DRIVER_NAME=libcix_va` in the session environment.
-**greetd's PAM stack does not apply `/etc/environment`** — the variable is
-exported by `ncz-gpu-env` (mali branch) and by
-`/etc/environment.d/60-ncz-vaapi.conf` (systemd user services). mpv defaults
-live in `/etc/mpv/mpv.conf` (see `post-install/28-vaapi-media.sh`).
+VA-API driver selection has a subtlety worth knowing: because `mali_kbase`
+exposes no DRM render node, **every** render node on this SoC reports
+`DRIVER=linlondp`, so libva's auto-detection computes `linlondp_drv_video.so`
+— a display driver name, not a codec driver. `post-install/84-vpu-vaapi.sh`
+installs a compat symlink to `libcix_va_drv_video.so`, which is the durable
+fix: it works for sandboxed consumers that never inherit environment
+variables. `LIBVA_DRIVER_NAME=libcix_va` is additionally exported by
+`ncz-gpu-env` and `/etc/environment.d/60-ncz-vaapi.conf` (greetd's PAM stack
+does not apply `/etc/environment`). mpv defaults live in `/etc/mpv/mpv.conf`
+(`post-install/84-vpu-mpv.sh`).
 
 Required vendor userspace (2026Q2 `cix-mm` bundle): `cix-vaapi`,
 `cix-libva*`, `cix-libcme` (hard dlopen dependency of the VA driver),
