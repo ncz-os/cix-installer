@@ -64,3 +64,49 @@ shows installed `.cix` files.
 Once a model is staged, `Engine.auto()` picks among installed models +
 adapters by capability tier (NPU > GPU > CPU) and measured throughput
 within tier. No vendor preference.
+
+## nomic-embed-text-v1.5 for the NPU (768-dim, MNEMOS-compatible)
+
+`nomic-embed-text-v1.5_256.cix` is **not committed** — it is ~500MB, past
+GitLab's 100MB per-file limit. Stage it onto the build host at
+`assets/models/` (same pattern as `assets/cix-debs/`) and the ISO bakes it in;
+`post-install/89-npu-embed-server.sh` installs it and enables the service only
+when the file is present.
+
+Why this model: MNEMOS embeds with `nomic-embed-text` on x86. Compiling the
+*same* model for the NPU keeps Sky1 vectors interchangeable with x86 ones —
+measured **cosine 0.995330** against the onnxruntime CPU reference — so
+federation needs no vector translation layer. A different 768-dim model would
+be dimensionally compatible but semantically unrelated, and would force
+re-embedding the whole corpus on every peer.
+
+### Rebuilding it
+
+The compiler (`cixbuilder`) is **x86_64 + CPython 3.10 only**, so this runs on
+an x86 host (HYDRA), not on Sky1:
+
+```sh
+# wheel lives in the 2026Q2 NOE SDK on ARGONAS:
+#   /mnt/datapool/archives/cix-vendor-sdk/2026q2/cix_noe_sdk_26_q2_release.tar.gz
+uv venv --python 3.10 .venv
+uv pip install --python .venv/bin/python ./cixbuilder-6.1.3753.3-cp310-none-linux_x86_64.whl     onnx onnxruntime numpy transformers tensorflow-cpu   # TF is imported even for ONNX input
+
+# GBuilder's linker needs ncurses5; without it the build dies with a MISLEADING
+# "Build Subgraph error! please double check the kernel function is correct."
+sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+
+.venv/bin/cixbuild nomic_build.cfg   # config modelled on cixtech/ai_model_hub bge_small_zh_build.cfg
+```
+
+Config essentials: `input = input_ids, attention_mask, token_type_ids` at
+`[1,256]` each, `output = last_hidden_state`, `target = X2_1204MP3`, and
+**W16A16** (`weight_bits`/`activation_bits` = 16, bias 48). Do **not** drop to
+int8: measured, W8A8 collapses fidelity to **cosine 0.42** — unusable — while
+buying only 29% speed.
+
+Calibration data is an `.npz` of ~8 representative texts tokenized with the
+model's own tokenizer at `max_length=256`, arrays cast to int32.
+
+The graph emits `last_hidden_state` flattened (`256*768`); the sentence vector
+is the attention-masked mean, L2-normalised. Getting that pooling wrong yields
+plausible-looking vectors that quietly retrieve the wrong memories.

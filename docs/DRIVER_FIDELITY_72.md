@@ -435,6 +435,8 @@ re-add either until cixtech#59 is fixed and re-validated.
 | Chrome 151 video decode | blocked: same `FillProfileInfo` probe failure — the chrome://gpu "Hardware accelerated" line is only the feature toggle; the Video Acceleration capability table is empty and no Chrome process opens an mvx node during playback (verified: ~2 cores of software VP9) | Software (cixtech#60) |
 | Chrome 151 video encode | blocked: CIX VA driver fails Chrome's `FillProfileInfo` attribute probe | Software (cixtech#60) |
 | Native GLES Wayland apps | blob wayland winsys via `ncz-gpu-env` | glmark2-es2-wayland score **7110** |
+| LLM inference (llama.cpp) | **CPU only — never ship a GPU backend**, see below | gemma-4 E4B: 36.2 t/s prompt, 7.68 t/s generation |
+| Embeddings | **NPU** (Zhouyi, via NOE) | nomic-embed-text-v1.5 768-dim, 8.9 inf/s, cosine 0.9953 vs x86 |
 | Compositor (labwc/wlroots) | **GPU-accelerated**: wlroots GLES2 renderer on the libmali blob EGL, KMS/scanout on linlondp (`WLR_DRM_DEVICES=/dev/dri/card1`). labwc holds `/dev/mali0` open+mmapped, no pixman fallback in its log, and it advertises `zwp_linux_dmabuf_v1` + `wl_drm` so clients pass GPU buffers zero-copy | Hardware — measured 0% CPU over 10s of desktop animation |
 
 The split-device architecture is worth stating plainly, because it is easy to
@@ -513,3 +515,60 @@ tool of record for flicker reports — see MNEMOS `cix-sky1` notes for the lab
 script. Sink-side symbol counters at zero while flicker is visible ⇒ the
 pixels leaving the SoC are clean and the panel's own processing (dynamic
 contrast) is the residual suspect.
+
+## Inference engines: what to ship and what never to ship
+
+Measured on O6N 2026-08-05. Every row below is a real benchmark on this
+hardware, not a vendor claim.
+
+| Engine / backend | bge-small (23.7M) tg | gemma-4 E4B (7.46B) pp / tg | Verdict |
+|---|---|---|---|
+| **llama.cpp CPU-only** | **2783 t/s** | **36.2 / 7.68 t/s** | **SHIP THIS** |
+| llama.cpp + Vulkan (`ngl 99`) | 330 t/s | 2.41 / 3.43 t/s | never ship |
+| llama.cpp + Vulkan (`ngl 0`, CPU) | 201 t/s | 2.30 / — | never ship |
+| llama.cpp + OpenCL | n/a | n/a | backend rejects the device |
+| ik_llama.cpp (CPU) | — | 13.1 / 3.49 t/s | slower here |
+
+Three findings worth stating plainly, because each one is counter-intuitive:
+
+**1. Compiling the Vulkan backend in costs 13.6x CPU performance even when
+the GPU is unused.** The `ngl 0` row above is pure CPU work — 201 t/s against
+2783 t/s from a GPU-free build of the same commit. Arm's own OpenCL guide
+explains the mechanism: "OpenCL assumes that the memories are separate and
+buffer allocation involves memory copies... The driver uses the application
+processor to perform these copy operations, that are computationally
+expensive" (Arm Immortalis/Mali GPU OpenCL Developer Guide, 101574 issue 28,
+sections 8.2 and 8.2.2). The API is desktop-derived and assumes discrete VRAM;
+this SoC has none, so the copies are pure waste, charged to the CPU.
+
+**2. The Mali GPU loses to the CPU even when it is genuinely running.** Stock
+llama.cpp has no Mali tuning at all, and its Vulkan backend enumerates the
+G720 without ever opening `/dev/mali0`. With the unmerged G720 tuning from
+llama.cpp PR #18493 (warptile configs for vendor 0x13b5, forced FP32,
+capped suballocation) the device *is* opened — confirmed by an fd on
+`/dev/mali0` — and it still loses: 492 t/s prompt against the CPU's 596, with
+68% run-to-run variance on generation. The Radxa community reached the same
+conclusion independently: onboard Vulkan is "significantly slower than CPU...
+making it impractical", while an *external* AMD GPU on the same board hits
+1698 t/s. Vulkan is fine; integrated Mali for inference is not.
+
+Why: batch-1 decode is a matrix-vector product, ~2 FLOPs per weight, so it is
+bandwidth-bound — and Mali shares the same LPDDR as the CPU (Arm guide 7.1.3:
+global and local address spaces "are mapped to the same physical memory"), so
+there is no bandwidth to win. Meanwhile the CPU has `i8mm`/`dotprod`, which is
+exactly the hardware for Q4/Q8 dequantise-and-multiply. Our build enables
+them (`-mcpu=...+dotprod+i8mm+bf16+sve2-*`); without those flags the community
+measured a further 37% loss.
+
+**3. ik_llama.cpp is not a general win.** It is 2.7x faster on Qwen3-30B-A3B
+per the Radxa thread, but that fork targets MoE routing; on gemma-4 E4B it is
+2.8x *slower* and misparses the MatFormer (8.13B/5.30GiB vs the correct
+7.46B/4.79GiB), i.e. it appears to run every parameter. Worth revisiting only
+for MoE models.
+
+**Embeddings are the exception, and they belong on the NPU** — not because the
+NPU is fast in absolute terms (8.9 inf/s for 768-dim nomic) but because it is
+*dedicated*: on a 40-100W box it does the work while all 12 CPU cores stay
+free. Every query is imperceptible at 112ms, and a full re-index of a
+13k-memory corpus takes ~25 minutes. See `post-install/89-npu-embed-server.sh`.
+

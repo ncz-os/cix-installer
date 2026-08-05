@@ -37,6 +37,7 @@ assets/sky1-firmware/
 # below (npu_embed_v2.py was ignored and untracked despite the ! rule).
 assets/npu/*
 !assets/npu/npu_embed_v2.py
+!assets/npu/ncz-npu-embed-server.py
 # The NPU ACPI SSDT override is REPRODUCIBLE FROM SOURCE: keep the ASL in
 # git and let build/build-npu-ssdt.sh regenerate npu-acpi-override.cpio.
 # Recovered 2026-08-02 from an installed board -- until then the only copy
@@ -131,3 +132,8 @@ assets/sinty-nm/sinty-nmd
 # (build/build-singularity.sh also folds it into the /opt/singularity payload;
 # this staged copy is a fallback for 60-boot-splash). arm64 ELF from .66.
 assets/singularity-boot-splash/singularity-boot-splash
+
+# Large NOE graphs: the nomic-embed-text-v1.5 .cix is ~500MB, past GitLab's
+# 100MB per-file limit. Staged onto the build host like assets/cix-debs and
+# baked into the ISO from there; rebuild instructions in assets/models/MODELS-README.md.
+assets/models/nomic-embed-text-*.cix
