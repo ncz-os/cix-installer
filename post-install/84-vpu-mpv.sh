@@ -13,7 +13,7 @@
 # RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop / run-all.sh).
 set +e
 
-echo "[84] mpv HW video (hwdec=v4l2m2m-copy — Sky1 amvx VPU)"
+echo "[84] mpv HW video (hwdec=vaapi, zero-copy dmabuf — Sky1 amvx VPU)"
 
 VARIANT=desktop
 [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ] && \
@@ -25,15 +25,25 @@ case "$VARIANT" in
         ;;
 esac
 
-# System-wide mpv config. hwdec=v4l2m2m-copy uses the stateful V4L2 M2M decoder
-# and copies decoded frames out (robust with the GLES/gpu-next path). gpu-next +
-# gpu-context=wayland keeps presentation on the Wayland/Mali GLES pipeline.
+# System-wide mpv config.
+#
+# 2026-08-04, measured on O6N: hwdec=vaapi with vo=dmabuf-wayland is a
+# ZERO-COPY path (VPU decode -> dmabuf -> Wayland -> linlondp overlay plane)
+# and runs 1080p30 H.264 at ~7% CPU. The previous default, hwdec=v4l2m2m-copy
+# with vo=gpu-next, decoded on the same VPU but copied every frame out to the
+# GLES presentation path; software decode for comparison is ~82% CPU. Same
+# decoder silicon, but the copy is pure overhead now that the VA-API driver
+# loads reliably (84-vpu-vaapi.sh's auto-detection symlink).
+#
+# vo falls back gpu-next -> x11 if dmabuf-wayland is unavailable (e.g. a
+# non-Wayland session), and hwdec falls back to software per codec.
 install -d -m0755 /etc/mpv
 cat > /etc/mpv/mpv.conf <<'MPVCONF'
-# NCZ-OS 26.7 — HW video on CIX Sky1 (amvx VPU via V4L2 M2M).
-# hwdec: decode on the VPU, copy frames to the GL/Wayland presentation path.
-hwdec=v4l2m2m-copy
-vo=gpu-next
+# NCZ-OS 26.7 — HW video on CIX Sky1 (amvx VPU via the CIX VA-API driver).
+# Zero-copy: VPU decode -> dmabuf -> Wayland -> linlondp overlay plane.
+# Measured: 1080p30 H.264 at ~7% CPU (software decode: ~82%).
+hwdec=vaapi
+vo=dmabuf-wayland,gpu-next,x11
 gpu-api=opengl
 gpu-context=wayland
 # Fall back gracefully if the VPU decoder is unavailable for a given codec.
@@ -62,4 +72,4 @@ video/quicktime=mpv.desktop
 MIMEV
 done
 
-echo "[84] /etc/mpv/mpv.conf written (hwdec=v4l2m2m-copy). Browser HW decode via VA-API — see 84-vpu-vaapi.sh."
+echo "[84] /etc/mpv/mpv.conf written (hwdec=vaapi, zero-copy). Browser HW decode via VA-API — see 84-vpu-vaapi.sh."

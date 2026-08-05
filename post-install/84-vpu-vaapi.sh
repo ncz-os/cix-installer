@@ -88,6 +88,17 @@ done
 [ "$FOUND_NON_LINLONDP" = 0 ] && echo "[84] confirmed: all DRM render nodes report DRIVER=linlondp (expected on this mali_kbase/no-DRM-render-node combo)"
 
 ln -sf "$(basename "$REAL_DRIVER")" "$VA_DIR/linlondp_drv_video.so"
+
+# Belt and braces for consumers that never reach libva's auto-detection (a
+# sandboxed child with a scrubbed environment still inherits the symlink, but
+# an explicit driver name costs nothing and helps anything that bypasses the
+# DRM-name guess entirely). greetd's PAM stack does not apply /etc/environment,
+# so systemd user services need environment.d and session launchers get the
+# same export from ncz-gpu-env.
+install -d -m0755 /etc/environment.d
+cat > /etc/environment.d/60-ncz-vaapi.conf <<'VAENV'
+LIBVA_DRIVER_NAME=libcix_va
+VAENV
 echo "[84] $VA_DIR/linlondp_drv_video.so -> $(basename "$REAL_DRIVER")"
 
 ldconfig 2>/dev/null || true
