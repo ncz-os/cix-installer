@@ -103,15 +103,23 @@ for deb in ./*.deb; do
         # desktop (cix-unit-test 755M, cix-ltp 269M, cix-gpu-test 55M,
         # cix-vpu-test). Pure dead weight on the installed system. (2026-06-25)
         cix-unit-test_*.deb|cix-ltp_*.deb|cix-gpu-test_*.deb|cix-vpu-test_*.deb) continue ;;
+        # NEVER install, any variant (2026-08-04, validated on O6N/trixie):
+        # cix-gstreamer drops GStreamer 1.22 core libraries into
+        # /usr/share/cix/lib — an ldconfig'd directory — silently shadowing
+        # the distro GStreamer (1.28) for EVERY process. That broke libgtk-4
+        # (undefined symbol gst_video_info_dma_drm_to_video_info) and
+        # crash-looped the desktop shell at login. cix-ffmpeg/cix-libav* are
+        # the same hazard class (ffmpeg 5.1-era libs vs the distro's) and the
+        # distro ffmpeg already does VPU VAAPI decode+encode with cix-vaapi
+        # (validated: 1080p30 decode ~7% CPU, encode 13.2x realtime).
+        # The media set that SHOULD ship instead: cix-vaapi, cix-libva*,
+        # cix-libcme (hard dlopen dep of the VA driver), cix-vpu-firmware —
+        # none of them match a skip rule, so staging them in assets/cix-debs
+        # installs them via the normal path below.
+        cix-gstreamer_*.deb|cix-ffmpeg_*.deb|cix-libav*_*.deb)
+            echo "    skipping $deb (shadows distro media libraries via ldconfig'd /usr/share/cix/lib — see DRIVER_FIDELITY_72.md addendum)"
+            continue ;;
     esac
-    # Server: skip desktop-class Cix userland (needs desktop libs).
-    if [ "$IS_SERVER" = 1 ]; then
-        case "$deb" in
-            cix-gstreamer_*.deb)
-                echo "    [server] skipping desktop-class $deb (needs desktop multimedia libs)"
-                continue ;;
-        esac
-    fi
     DEBS+=("$deb")
 done
 
