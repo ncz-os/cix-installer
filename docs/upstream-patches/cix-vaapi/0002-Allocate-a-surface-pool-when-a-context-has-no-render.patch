@@ -1,7 +1,7 @@
 From d16980b2f627ce3e14c2c895989032ff234e9030 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Wed, 5 Aug 2026 19:27:52 -0400
-Subject: [PATCH 2/3] Allocate a surface pool when a context has no render
+Subject: [PATCH 2/6] Allocate a surface pool when a context has no render
  targets
 
 vaCreateContext() may legally be called with num_render_targets == 0: the

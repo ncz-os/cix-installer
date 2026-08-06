@@ -1,7 +1,7 @@
 From bce1a386cdd8fd3ab0f356893918f4f9acf4b744 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Wed, 5 Aug 2026 19:27:52 -0400
-Subject: [PATCH 3/3] Honour VA_EXPORT_SURFACE_SEPARATE_LAYERS in
+Subject: [PATCH 3/6] Honour VA_EXPORT_SURFACE_SEPARATE_LAYERS in
  vaExportSurfaceHandle
 
 MediaDevice::ExportSurfaceHandle() ignored the flags argument and always
