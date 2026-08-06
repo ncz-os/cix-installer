@@ -197,15 +197,40 @@ frame, and playback freezes at 0.0 s. Reproduced in both Chrome and mpv. This is
 worse than being unsupported — the user gets a frozen player instead of a
 software fallback.
 
-Only **two lines** depend on the CIX-private extension, both in
-`packer_av1.cpp:196-198`, both reading `ext->u.buffer.tile_size_bytes` from
-`va_get_dec_picture_parameter_buffer_av1_ext_buffer()`. That value is
-`tile_size_bytes_minus_1 + 1` from the AV1 uncompressed frame header's
-`tile_info`. **If it can be parsed from the bitstream, the private extension
-becomes unnecessary and AV1 works in every VA-API client with no browser
-changes.** `utils/parser/parser_av1.cpp` already parses AV1 headers and is the
-place to add it. Note `parser_av1.cpp:67` reads the same Ext buffer — check
-whether it has the same need.
+**CORRECTION (this supersedes an earlier, wrong assessment in this same brief's
+first revision, which claimed "only two lines depend on the private
+extension").** The dependency is architectural, not two lines. The extension
+carries three things standard VA-API does not provide:
+
+```c
+struct { void *buffer_address; uint32_t buffer_size;
+         uint8_t refresh_frame_flags; uint8_t tile_size_bytes; } buffer;
+```
+
+- `buffer_address`/`buffer_size` — **the raw AV1 frame-header OBU**, returned by
+  `parser_av1.cpp:75`. `packer_av1.h`'s own class comment states the design:
+  "frame-header OBU **from the VA picture extension** (CopyPPS)".
+- `refresh_frame_flags` — `packer_av1.cpp:157`; not a standard VA-API AV1 field.
+- `tile_size_bytes` — `packer_av1.cpp:196`.
+
+The root problem: **the CIX VPU is a stateful decoder that wants real AV1
+bitstream, while VA-API AV1 is a parsed/stateless API.** For H.264, HEVC and VP9
+the driver re-synthesises the bitstream from the parsed parameters — `PackSPS()`,
+`PackPPS()` and friends, built on the `cix_bsw_*` bitstream writer. For AV1 it
+does not: `packer_av1.cpp` calls `cix_bsw_write` **zero** times (`packer_hevc.cpp`
+calls it 17 times). It copies client-supplied OBUs instead, which is exactly why
+a private extension was needed.
+
+So no unmodified VA-API client — Chrome, Vivaldi, Firefox, mpv, VLC — will ever
+supply `buffer_address`, and AV1 cannot work through VA-API without writing an
+**AV1 uncompressed-header bitstream writer** that synthesises the frame header
+from `VADecPictureParameterBufferAV1`. That is a substantial piece of work
+(frame size, ref frames, loop filter, quantisation, segmentation, CDEF, loop
+restoration, tx mode, film grain), though bounded, and the `cix_bsw_*`
+infrastructure plus the HEVC/VP9 packers are the working precedent.
+
+Estimate this honestly before committing to it, and compare against the V4L2
+route below, which already works bit-exactly today.
 
 **Ship-safety fix, independent of the above:** stop advertising
 `VAProfileAV1Profile0` so clients fall back to dav1d cleanly instead of hanging.
@@ -224,6 +249,26 @@ This is the single highest-value change right now and should probably land first
   wants `libvpx.so.11` while the board has 12.
 
 ---
+
+## Which browsers can be patched at all — decides everything for AV1
+
+| Browser | Ships as | Can we patch the browser? | Only route to AV1 |
+|---|---|---|---|
+| Google Chrome 151 | Google prebuilt binary | **No** | VA-API driver fix (AV1 header writer) |
+| Vivaldi 8.1 | Vivaldi prebuilt binary | **No** | VA-API driver fix (AV1 header writer) |
+| Chromium | we can build it | Yes | V4L2 (`use_v4l2_codec`) — cheap, or driver fix |
+| Firefox | we can build it | Yes | V4L2 (`MOZ_ENABLE_V4L2` + Entrpi patches) — cheap, or driver fix |
+
+This is the crux. **Chrome and Vivaldi are closed prebuilt binaries — the only
+lever we have on them is the driver.** So the AV1 header writer is the *only*
+thing that gives AV1 to the two browsers most users will actually run, while the
+V4L2 path (already proven bit-exact) is much cheaper but only reaches browsers we
+compile ourselves.
+
+Note the same asymmetry does **not** apply to H.264, VP9 and HEVC: those go
+through the driver's existing bitstream re-synthesis, so a driver fix reaches all
+four browsers. H.264 and VP9 already work in Chrome and Vivaldi for exactly this
+reason.
 
 ## What "path of least resistance" should weigh
 
