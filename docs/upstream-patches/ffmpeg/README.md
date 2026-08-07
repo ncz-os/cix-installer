@@ -2,9 +2,15 @@
 
 `0001-avcodec-v4l2_m2m-add-AV1-decoder.patch`
 
-Adds `av1_v4l2m2m`. **Authored by entrpi** (`entrpi@proton.me`) for Sky1-Linux;
-NCZ forwards it upstream since that project is no longer developed and NCZ-OS
-depends on the decoder shipping. The `From:` header preserves their authorship.
+Adds `av1_v4l2m2m`. **Originally written by entrpi** (`entrpi@proton.me`) for
+Sky1-Linux, which is no longer developed.
+
+NCZ bundles and maintains this code and submits it as maintainer: the email
+`From:` is ours, because we carry the fork, ship it, and will field review. The
+credit to entrpi lives where it is durable — **in the source itself**, in
+`v4l2_m2m_dec.c` and `v4l2_fmt.c` — plus a `Co-authored-by:` trailer and an
+explicit paragraph in the commit message. Source comments survive rebases,
+re-sends and archive links in a way an email header does not.
 
 ## Why it is not upstream already
 
