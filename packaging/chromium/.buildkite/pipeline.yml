@@ -1,0 +1,52 @@
+# Chromium NCZ Sky1 Edition — weekly snapshot.
+#
+# Buildkite provides the compute free for open source, so the cost model is
+# wall-clock and agent availability, not money. A full sync+build is hours;
+# weekly is the right cadence for a browser on a ~4-week release train.
+#
+# Two channels, different jobs:
+#   stable — what we ship
+#   beta   — canary only, never published. Its job is to fail early when an
+#            upstream change makes one of our patches stop doing anything.
+#            That failure mode is not hypothetical: the Firefox V4L2 patches
+#            applied cleanly across a version bump and silently did nothing.
+
+steps:
+  - label: ":chromium: build stable"
+    key: build-stable
+    command: packaging/chromium/build-snapshot.sh --channel stable
+    agents:
+      queue: arm64-crossbuild
+    timeout_in_minutes: 480
+    artifact_paths:
+      - "chromium-ncz-sky1_*_arm64.deb"
+      - "/tmp/ncz-build.log"
+
+  - label: ":test_tube: verify on Sky1 hardware"
+    key: verify-stable
+    depends_on: build-stable
+    command: packaging/chromium/verify-decode.sh
+    agents:
+      queue: sky1-board
+    timeout_in_minutes: 60
+
+  # Publishing is gated on the hardware check, not on the build succeeding.
+  # A build that compiles proves nothing about whether a codec decodes.
+  - label: ":package: publish to apt"
+    depends_on: verify-stable
+    command: packaging/chromium/publish-apt.sh
+    agents:
+      queue: apt-repo
+    branches: "main"
+
+  - label: ":warning: beta canary (not published)"
+    command: packaging/chromium/build-snapshot.sh --channel beta
+    agents:
+      queue: arm64-crossbuild
+    timeout_in_minutes: 480
+    soft_fail:
+      # A beta build failing is information, not an outage - it must not block
+      # the stable pipeline. But exit 3 means a patch applied with fuzz or
+      # stopped applying, which is precisely the early warning we want loud.
+      - exit_status: 5
+      - exit_status: 6
