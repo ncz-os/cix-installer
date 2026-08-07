@@ -204,11 +204,8 @@ Default: ext4
 Description: NCZ-OS install — root (/) filesystem
  Choose the filesystem for the root (/) partition.
  .
- ext4  — simple, maximally robust (NCZ default until kernel 7.2-rc7).
- btrfs — snapshots + transparent compression. NOT recommended on the 7.2-rc6
- kernel we currently ship: the COW fixup worker is missing, which risks
- silent data loss on out-of-band dirtied folios and leaves fixup work
- outstanding at unmount. Fixed in 7.2-rc7.
+ ext4  — simple, maximally robust (NCZ default).
+ btrfs — snapshots + transparent compression.
 TPL
     debconf-loadtemplate ncz /tmp/ncz-fs.templates 2>/dev/null \
         || abort "could not load root-fs template"

@@ -1,14 +1,19 @@
 # Decision: ext4 root by default until kernel 7.2-rc7
 
 **Date:** 2026-08-06
-**Status:** active — revert when the shipped kernel is 7.2-rc7 or later
+**Status:** active — revisit when the shipped kernel is 7.2-rc7 or later
 **Scope:** NCZ-OS installer ISO (Radxa Orion O6 / CIX Sky1)
 
 ## Decision
 
-The NCZ-OS installer defaults the root filesystem to **ext4**, not btrfs. O6
-boards get re-flashed to ext4 on the next ISO build. btrfs remains selectable,
-both interactively and via `ncz_fs=btrfs`.
+The NCZ-OS installer defaults the root filesystem to **ext4**, not btrfs. btrfs
+remains selectable, both interactively and via `ncz_fs=btrfs`.
+
+**No ISO ships before 7.2-rc7** (operator, 2026-08-06). So no released image
+will ever carry the rc6 exposure described below, and the installer prompt
+carries no kernel-specific warning text — it would be false for every image we
+actually ship. The ext4 default stands on its own merits; flipping back to
+btrfs is a live option once rc7 is the shipped kernel.
 
 ## Why
 
@@ -50,8 +55,8 @@ either way without checking.
 ## What changed
 
 - `preseed/disk-fs-chooser.sh` — the `ncz/root-fs` template now offers
-  `ext4, btrfs` with `Default: ext4`, and the description states why btrfs is
-  not recommended on the kernel we ship.
+  `ext4, btrfs` with `Default: ext4`. The description is neutral: no
+  kernel-version warning, since no shipped ISO will carry the affected kernel.
 - `preseed/preseed-ubuntu.cfg` — the static `partman-auto/expert_recipe`
   fallback root partition is now ext4, so the fallback agrees with the chooser.
   This recipe applies only when the chooser's `db_set` does not win.
@@ -61,10 +66,11 @@ Unchanged: the ESP stays fat32, the rescue partition stays ext4 (it always was),
 
 ## Reverting
 
-When the shipped kernel reaches 7.2-rc7 or later:
+Optional once the shipped kernel is 7.2-rc7 or later — at that point the rc6
+hazard is gone and this is purely a default-filesystem preference:
 
 1. `preseed/disk-fs-chooser.sh` — restore `Choices: btrfs, ext4` /
-   `Default: btrfs` and drop the warning text.
+   `Default: btrfs`.
 2. `preseed/preseed-ubuntu.cfg` — restore the root stanza to `btrfs`.
 3. Confirm the running kernel actually carries commit `ae2567b11c3df43861d05f856bdb3434b3961aa1`
    ("btrfs: flush the fixup workers during close_ctree") before flipping back —
