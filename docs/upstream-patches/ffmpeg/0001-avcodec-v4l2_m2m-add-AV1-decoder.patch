@@ -1,0 +1,80 @@
+From: entrpi <entrpi@proton.me>
+Subject: [PATCH] avcodec/v4l2_m2m: add AV1 decoder
+
+Add av1_v4l2m2m alongside the existing V4L2 stateful M2M decoders. Stateful
+AV1 hardware exists but has no FFmpeg support: v4l2_m2m_dec.c covers H.263
+through VP9, and AV1 is simply absent.
+
+The Linux UAPI defines two AV1 fourccs - V4L2_PIX_FMT_AV1_FRAME ('AV1F') for
+the stateless request API and V4L2_PIX_FMT_AV1 ('AV01') for stateful decoders.
+Both are mapped here. V4L2_PIX_FMT_AV01 is defined locally when building
+against kernel headers that predate it.
+
+ff_v4l2_format_v4l2_matches_codec() lets v4l2_context.c confirm that a format
+enumerated by the device corresponds to the codec being decoded, rather than
+relying on a single fourcc per codec - necessary now that AV1 has two.
+
+Tested on an Arm Linlon MVE (mvxdec) in a CIX Sky1 SoC: 20 frames of 1280x720
+AV1 decode bit-exact against libdav1d, 27648000 bytes, md5
+4e20cccbf7f5d6246b0a478338759645.
+
+--- a/libavcodec/allcodecs.c	2026-06-16 22:17:51.000000000 -0400
++++ b/libavcodec/allcodecs.c	2026-08-07 15:20:44.840755823 -0400
+@@ -862,6 +862,7 @@
+ /* hwaccel hooks only, so prefer external decoders */
+ extern const FFCodec ff_av1_decoder;
+ extern const FFCodec ff_av1_cuvid_decoder;
++extern const FFCodec ff_av1_v4l2m2m_decoder;
+ extern const FFCodec ff_av1_d3d12va_encoder;
+ extern const FFCodec ff_av1_mediacodec_decoder;
+ extern const FFCodec ff_av1_mediacodec_encoder;
+--- a/libavcodec/v4l2_fmt.c	2023-11-09 18:38:51.000000000 -0500
++++ b/libavcodec/v4l2_fmt.c	2026-08-07 15:20:44.841217648 -0400
+@@ -107,6 +107,15 @@
+ #ifdef V4L2_PIX_FMT_VC1_ANNEX_G
+     { AV_FMT(NONE),        AV_CODEC(VC1),         V4L2_FMT(VC1_ANNEX_G) },
+ #endif
++#ifdef V4L2_PIX_FMT_AV1_FRAME
++    { AV_FMT(NONE),        AV_CODEC(AV1),         V4L2_FMT(AV1_FRAME) },
++#endif
++    /* Stateful AV1 decoders use V4L2_PIX_FMT_AV1 ('AV01'); define it here for
++     * builds against kernel headers that predate it. */
++#ifndef V4L2_PIX_FMT_AV01
++#define V4L2_PIX_FMT_AV01 v4l2_fourcc('A', 'V', '0', '1')
++#endif
++    { AV_FMT(NONE),        AV_CODEC(AV1),         V4L2_PIX_FMT_AV01 },
+ };
+ 
+ uint32_t ff_v4l2_format_avcodec_to_v4l2(enum AVCodecID avcodec)
+@@ -139,3 +148,14 @@
+     }
+     return AV_PIX_FMT_NONE;
+ }
++
++int ff_v4l2_format_v4l2_matches_codec(uint32_t v4l2_fmt, enum AVCodecID avcodec)
++{
++    int i;
++    for (i = 0; i < FF_ARRAY_ELEMS(fmt_map); i++) {
++        if (fmt_map[i].avcodec  == avcodec &&
++            fmt_map[i].v4l2_fmt == v4l2_fmt)
++            return 1;
++    }
++    return 0;
++}
+--- a/libavcodec/v4l2_fmt.h	2026-06-16 22:17:51.000000000 -0400
++++ b/libavcodec/v4l2_fmt.h	2026-08-07 15:21:18.711073789 -0400
+@@ -30,6 +30,7 @@
+ 
+ enum AVPixelFormat ff_v4l2_format_v4l2_to_avfmt(uint32_t v4l2_fmt, enum AVCodecID avcodec);
+ uint32_t ff_v4l2_format_avcodec_to_v4l2(enum AVCodecID avcodec);
++int ff_v4l2_format_v4l2_matches_codec(uint32_t v4l2_fmt, enum AVCodecID avcodec);
+ uint32_t ff_v4l2_format_avfmt_to_v4l2(enum AVPixelFormat avfmt);
+ 
+ #endif /* AVCODEC_V4L2_FMT_H*/
+--- a/libavcodec/v4l2_m2m_dec.c	2026-06-16 22:17:51.000000000 -0400
++++ b/libavcodec/v4l2_m2m_dec.c	2026-08-07 15:20:44.840128859 -0400
+@@ -266,3 +266,4 @@
+ M2MDEC(vc1 ,  "VC1",   AV_CODEC_ID_VC1,        NULL);
+ M2MDEC(vp8,   "VP8",   AV_CODEC_ID_VP8,        NULL);
+ M2MDEC(vp9,   "VP9",   AV_CODEC_ID_VP9,        NULL);
++M2MDEC(av1,   "AV1",   AV_CODEC_ID_AV1,        NULL);
