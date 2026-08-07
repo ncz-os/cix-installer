@@ -1,0 +1,28 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: Add V4L2-M2M VP9 and AV1 decoder support (ESR 140)
+
+Rebase of entrpi's Add-V4L2-M2M-AV1-decoder-support onto firefox-esr 140.
+
+The original extends a FindVideoHardwareAVCodec() switch that carries
+vp9_v4l2m2m and hevc_v4l2m2m cases. That function does not exist in ESR 140:
+its V4L2 codec selection is a single hardcoded H.264 test, so V4L2-M2M is
+H.264-only. This adds the same decoders through 140's structure.
+
+Only the decoders the CIX Sky1 VPU actually exposes via the patched ffmpeg are
+added - av1_v4l2m2m and vp9_v4l2m2m alongside the existing h264_v4l2m2m.
+avcodec_find_decoder_by_name() returns null for anything absent, which the
+existing "No appropriate v4l2 codec found" path already handles.
+
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
+@@ -402,6 +402,10 @@
+   AVCodec* codec = nullptr;
+   if (mCodecID == AV_CODEC_ID_H264) {
+     codec = mLib->avcodec_find_decoder_by_name("h264_v4l2m2m");
++  } else if (mCodecID == AV_CODEC_ID_VP9) {
++    codec = mLib->avcodec_find_decoder_by_name("vp9_v4l2m2m");
++  } else if (mCodecID == AV_CODEC_ID_AV1) {
++    codec = mLib->avcodec_find_decoder_by_name("av1_v4l2m2m");
+   }
+   if (!codec) {
+     FFMPEG_LOG("No appropriate v4l2 codec found");

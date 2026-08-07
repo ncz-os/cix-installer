@@ -1,0 +1,31 @@
+From: entrpi <entrpi@proton.me>
+Subject: Fix V4L2-M2M timestamp handling for stateful decoders
+
+V4L2 stateful decoders (like the CIX Sky1 VPU) may not properly set
+duration on output frames. Fall back to input sample duration when
+frame duration is invalid.
+
+Without this fix, Firefox may have playback issues with V4L2-M2M
+decoded frames due to invalid duration.
+
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
+@@ -1319,10 +1319,17 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::DoDecode(
+             RESULT_DETAIL("HW decoding is slow, switching back to SW decode"));
+       }
+       if (mUsingV4L2) {
+-        rv = CreateImageV4L2(fpos, GetFramePts(mFrame), Duration(mFrame),
+-                             aResults);
++        // V4L2 stateful decoders may not set proper duration.
++        // Fall back to input sample duration if invalid.
++        int64_t duration = Duration(mFrame);
++        if (duration <= 0) {
++          duration = aSample->mDuration.ToMicroseconds();
++        }
++        mDecodeStats.UpdateDecodeTimes(duration);
++        rv = CreateImageV4L2(fpos, GetFramePts(mFrame), duration, aResults);
+       } else {
++        mDecodeStats.UpdateDecodeTimes(Duration(mFrame));
+         rv = CreateImageVAAPI(fpos, GetFramePts(mFrame), Duration(mFrame),
+                               aResults);
+       }
