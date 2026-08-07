@@ -115,3 +115,24 @@ should be raised there too.
 Pixel-exact correctness. Motion and a sane picture are confirmed; a byte-count-
 checked bit-exact comparison against software decode has **not** been run for
 the browser path. VP9 through this build is untested.
+
+## 4. `v4l2_utils.cc` — stateful HEVC absent from the profile-control map
+
+`kV4L2CodecPixFmtToProfileCID` lists both the stateful and stateless pixel
+formats for H.264, VP8, VP9 and AV1, but only `V4L2_PIX_FMT_HEVC_SLICE` for
+HEVC. A stateful decoder advertising `V4L2_PIX_FMT_HEVC` — as mvxdec does, and
+it exposes `hevc_profile 0x00990b67` (`V4L2_CID_MPEG_VIDEO_HEVC_PROFILE`) —
+never matches, so no HEVC profiles are enumerated and Chromium rejects the codec
+outright: `canPlayType` returns empty and the video element reports `0x0`.
+
+Adding `{V4L2_PIX_FMT_HEVC, V4L2_CID_MPEG_VIDEO_HEVC_PROFILE}` alongside the
+slice entry matches what every other codec in the table already does.
+
+MEASURED effect: `canPlayType("video/mp4; codecs=hvc1.1.6.L93.B0")` goes from
+unsupported to `probably`, and the pipeline now attempts decode.
+
+**HEVC still does not decode in this build** — it fails with
+`PIPELINE_ERROR_DECODE` and *zero* `media/gpu/v4l2` errors, i.e. it gives up
+before reaching the V4L2 decoder. This entry fixes codec enumeration only; the
+remaining failure is unresolved. Note HEVC *does* decode bit-exactly through the
+VA-API path (see `../cix-vaapi/`), so this affects only the V4L2 build.
