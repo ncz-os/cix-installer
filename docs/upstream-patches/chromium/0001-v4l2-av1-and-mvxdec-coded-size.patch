@@ -1,0 +1,94 @@
+diff --git a/media/gpu/args.gni b/media/gpu/args.gni
+index c373e8c1e0..dc9a5a8146 100644
+--- a/media/gpu/args.gni
++++ b/media/gpu/args.gni
+@@ -58,5 +58,6 @@ use_linux_video_acceleration = use_vaapi || use_v4l2_codec
+ declare_args() {
+   # A platform that is capable of hardware av1 decoding.
+   use_av1_hw_decoder =
+-      is_chromeos || (is_linux && use_vaapi) || is_win || is_apple
++      is_chromeos || (is_linux && (use_vaapi || use_v4l2_codec)) ||
++      is_win || is_apple
+ }
+diff --git a/media/gpu/sandbox/hardware_video_decoding_sandbox_hook_linux.cc b/media/gpu/sandbox/hardware_video_decoding_sandbox_hook_linux.cc
+index 58a9b95e81..6b26e3e4a9 100644
+--- a/media/gpu/sandbox/hardware_video_decoding_sandbox_hook_linux.cc
++++ b/media/gpu/sandbox/hardware_video_decoding_sandbox_hook_linux.cc
+@@ -7,6 +7,7 @@
+ #include <dlfcn.h>
+ #include <sys/stat.h>
+ 
++#include "base/logging.h"
+ #include "base/process/process_metrics.h"
+ #include "base/strings/stringprintf.h"
+ #include "build/build_config.h"
+diff --git a/media/gpu/v4l2/v4l2_stateful_video_decoder.cc b/media/gpu/v4l2/v4l2_stateful_video_decoder.cc
+index e262ad22d9..3db1811db8 100644
+--- a/media/gpu/v4l2/v4l2_stateful_video_decoder.cc
++++ b/media/gpu/v4l2/v4l2_stateful_video_decoder.cc
+@@ -784,10 +784,61 @@ bool V4L2StatefulVideoDecoder::InitializeCAPTUREQueue() {
+   }
+   gfx::Size adjusted_size(format->fmt.pix_mp.width, format->fmt.pix_mp.height);
+   if (!gfx::Rect(adjusted_size).Contains(gfx::Rect(chosen_size))) {
+-    LOGF(ERROR) << "The adjusted coded size (" << adjusted_size.ToString()
+-                << ") should contain the original coded size("
+-                << chosen_size.ToString() << ").";
+-    return false;
++    // Some stateful decoders (e.g. Arm Linlon MVE / mvxdec) advertise a padded
++    // coded size through G_FMT and then hand back the unpadded size from
++    // S_FMT. The padding is the driver's own bookkeeping; what has to hold is
++    // that the buffers cover the visible rectangle. Accept the driver's size in
++    // that case rather than failing to decode entirely.
++    if (!gfx::Rect(adjusted_size).Contains(visible_rect_)) {
++      // The clamp cut into the visible rectangle, which for this driver can
++      // start at a non-zero origin (mvxdec reports (0,4 1920x1080) inside a
++      // 1920x1084 coded size). Ask again with a macroblock-aligned size that
++      // covers the visible rect; the driver accepts larger sizes when asked
++      // for them explicitly.
++      constexpr int kMacroblockAlign = 16;
++      const auto align_up = [](int v) {
++        return (v + kMacroblockAlign - 1) / kMacroblockAlign * kMacroblockAlign;
++      };
++      const gfx::Size aligned_size(align_up(visible_rect_.right()),
++                                   align_up(visible_rect_.bottom()));
++      LOGF(WARNING) << "Adjusted coded size " << adjusted_size.ToString()
++                    << " does not contain visible rect "
++                    << visible_rect_.ToString() << "; retrying with "
++                    << aligned_size.ToString() << ".";
++      format = CAPTURE_queue_->SetFormat(chosen_fourcc.ToV4L2PixFmt(),
++                                         aligned_size, 0);
++      if (!format) {
++        LOGF(ERROR) << "Failed to set output format at aligned size "
++                    << aligned_size.ToString() << ".";
++        return false;
++      }
++      adjusted_size =
++          gfx::Size(format->fmt.pix_mp.width, format->fmt.pix_mp.height);
++      if (!gfx::Rect(adjusted_size).Contains(visible_rect_)) {
++        // The driver will not allocate rows to back the origin it reported.
++        // If the visible *size* fits, the offset is the only problem and is
++        // almost certainly bogus - a 1080p stream is normally coded 1088 with
++        // the crop at (0,0), and ffmpeg's v4l2m2m decoder drives this device to
++        // output that matches dav1d bit for bit. Move the rect to the origin.
++        const gfx::Rect origin_rect(visible_rect_.size());
++        if (!gfx::Rect(adjusted_size).Contains(origin_rect)) {
++          LOGF(ERROR) << "The adjusted coded size (" << adjusted_size.ToString()
++                      << ") does not contain the visible rect ("
++                      << visible_rect_.ToString() << ").";
++          return false;
++        }
++        LOGF(WARNING) << "Driver cannot back visible rect "
++                      << visible_rect_.ToString() << " within "
++                      << adjusted_size.ToString()
++                      << "; dropping its origin and using "
++                      << origin_rect.ToString() << ".";
++        visible_rect_ = origin_rect;
++      }
++    }
++    LOGF(WARNING) << "Driver returned coded size " << adjusted_size.ToString()
++                  << " for requested " << chosen_size.ToString()
++                  << "; continuing, it still covers the visible rect "
++                  << visible_rect_.ToString() << ".";
+   }
+ 
+   const auto allocated_buffers = CAPTURE_queue_->AllocateBuffers(
