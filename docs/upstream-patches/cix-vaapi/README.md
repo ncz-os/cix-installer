@@ -90,3 +90,60 @@ Upstream `cix_vaapi` does not build against stock libva. It needs:
 - `mvx-v4l2-controls.h` from the VPU DKMS source
   (`/usr/src/cix-vpu-driver-*/driver/linux`)
 - a `libcme.so` symlink; only `libcme.so.1` ships
+
+## `0003-av1-render-order.diff` — AV1 buffer ordering
+
+Chromium submits AV1 buffers with the slice **data** ahead of the slice
+**parameters**, inside a single `vaRenderPicture()` call:
+
+```
+SaveSliceData:     size=11544 slice_params=0
+SetSliceParameter: size=40 n=1 rem=0        (88us later)
+```
+
+`PackerAV1::SaveSliceData()` needs `slice_params.back()` for the payload's
+offset and size. Finding none it returned 0 and **dropped the entire
+bitstream**; the VPU was queued a 2-byte temporal delimiter and polled forever,
+which presented as AV1 hanging at 0.0s. `vaRenderPicture()` imposes no ordering
+within a call, so `RenderPicture` now applies the buffer list in two passes —
+everything that is not slice data first, slice data second.
+
+MEASURED: `Copy slice data buffer 2: size = 0 → 11508`, `bytesused 2 → 11510`.
+
+**AV1 still does not decode after this.** The stall cause is now established
+byte-for-byte: the driver queues `TD(2B) + 11,508B raw tile data`, whose tile
+bytes are *identical* to the reference, while a decodable temporal unit needs
+`TD + SEQUENCE_HEADER OBU (13B) + FRAME OBU (2B hdr + 20B frame header)` first.
+The VPU is a stateful full-bitstream parser and cannot parse headerless tiles.
+So this patch removes a real defect sitting in front of the missing-headers
+problem; it does not solve it.
+
+Regression check on this driver (`ea4a089d2843afc6`), VA-API vs software, 20
+frames, `-hwaccel_output_format vaapi` + `hwdownload`, byte counts checked:
+
+| Codec | Software | Hardware | md5 |
+|---|---|---|---|
+| H.264 1080p | 62,208,000 B | 62,208,000 B | `4091e415…` identical |
+| VP9 720p | 27,648,000 B | 27,648,000 B | `79575f2f…` identical |
+
+### Known remaining defects in this area (not fixed here)
+
+- **P010 is selected for 8-bit AV1.** `IS_10BIT_PROFILE` (`device_common.h:62`)
+  includes `VAProfileAV1Profile0`, so every AV1 stream takes the P010 branch of
+  the no-render-target fallback in `CreateContext()`. MEASURED: plane 0 length
+  1,843,200 = 1280×720×2. A fix must be bit-depth-aware — a blanket NV12 would
+  break genuine 10-bit fallbacks (HEVC Main10, VP9 Profile2). For reference
+  `av1_v4l2m2m` negotiates **YU12**, not NV12.
+- **Silent `return 0` guards.** `SetPicParamBuffer` drops the frame-header OBU
+  with no log output at any level when no CIX Ext is present; `SaveSliceData`
+  has two silent returns. `CheckIntegrity()` does not catch the empty-payload
+  case, because the zero-size block still increments `tiles_copied` — which is
+  precisely how the 2-byte temporal unit passed integrity and got queued.
+
+### Operational notes
+
+VA-API through ffmpeg on this board needs `LIBVA_DRIVER_NAME=libcix_va` and
+`-init_hw_device vaapi=va:/dev/dri/renderD128`; the default probe fails with
+`Device creation failed: -12`. Use `/usr/bin/ffmpeg` — the local
+`/root/ffbuild/ffmpeg-8.1.2/ffmpeg` build has no hwaccels (v4l2m2m only).
+The driver already ships a bitstream dump facility: `CIX_VAAPI_DUMP_BITS=1`.
