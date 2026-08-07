@@ -123,3 +123,4 @@ assets/sinty-nm/sinty-nmd
 # (build/build-singularity.sh also folds it into the /opt/singularity payload;
 # this staged copy is a fallback for 60-boot-splash). arm64 ELF from .66.
 assets/singularity-boot-splash/singularity-boot-splash
+packaging/debs/

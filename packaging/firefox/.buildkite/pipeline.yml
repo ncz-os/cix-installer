@@ -1,0 +1,49 @@
+# Firefox — weekly snapshot with the NCZ V4L2 gate patch.
+#
+# Firefox has a ~4-week release train like Chromium, so weekly is the right
+# cadence. Unlike Chromium this must build NATIVELY on arm64: Mozilla's build
+# system does not cross-compile cleanly for this target, and the board itself
+# is the only arm64 hardware that can verify the result.
+#
+# This pipeline is intended to be temporary. It exists for one patch, which is
+# an upstream bug affecting every V4L2-only platform. If Mozilla takes it,
+# delete this directory and ship Mozilla's own arm64 packages, which already
+# carry all five v4l2m2m decoders.
+
+steps:
+  - label: ":firefox: build with V4L2 gate patch"
+    key: build-firefox
+    command: packaging/firefox/build-snapshot.sh
+    agents:
+      # Native arm64 only. cixmini has the cores and RAM; the board does not.
+      queue: arm64-native
+    timeout_in_minutes: 300
+    artifact_paths:
+      - "/tmp/ncz-firefox-build.log"
+
+  - label: ":test_tube: verify decode on Sky1"
+    key: verify-firefox
+    depends_on: build-firefox
+    command: packaging/firefox/verify-decode.sh
+    agents:
+      queue: sky1-board
+    timeout_in_minutes: 60
+
+  # Publishing is gated on the hardware check. A Firefox that builds proves
+  # nothing: stock Mozilla 153 builds perfectly and still decodes in software,
+  # which is the entire reason this pipeline exists.
+  - label: ":package: publish to apt"
+    depends_on: verify-firefox
+    command: packaging/publish-apt.sh
+    agents:
+      queue: apt-repo
+    branches: "main"
+
+  # A reminder, not a build step: check whether the patch has landed upstream,
+  # because the moment it does this whole pipeline should be deleted rather
+  # than maintained.
+  - label: ":upstream: has the gate fix landed?"
+    command: packaging/firefox/check-upstream.sh
+    agents:
+      queue: arm64-native
+    soft_fail: true
