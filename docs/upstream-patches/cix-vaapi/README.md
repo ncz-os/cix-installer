@@ -147,3 +147,48 @@ VA-API through ffmpeg on this board needs `LIBVA_DRIVER_NAME=libcix_va` and
 `Device creation failed: -12`. Use `/usr/bin/ffmpeg` — the local
 `/root/ffbuild/ffmpeg-8.1.2/ffmpeg` build has no hwaccels (v4l2m2m only).
 The driver already ships a bitstream dump facility: `CIX_VAAPI_DUMP_BITS=1`.
+
+## `0004-vp8-groundwork-and-buffer-types.diff` + `packer_vp8.{cpp,h}`
+
+**Incomplete — VP8 does not decode yet.** Landed because the pieces are correct
+and the remaining failure is better debugged from here than from scratch.
+
+What was found: VP8 was never a missing-hardware problem. mvxdec exposes
+`vp8_profile 0x00990aff`, the driver already mapped
+`V4L2_CID_MPEG_VIDEO_VP8_PROFILE` to `VAProfileVP8Version0_3`, and
+`IS_VP8_PROFILE` already returned `V4L2_PIX_FMT_VP8`. The enumeration call was
+simply commented out:
+
+```c
+// EnumProfiles(V4L2_CID_MPEG_VIDEO_VP8_PROFILE, false);
+```
+
+presumably because no packer existed.
+
+This adds:
+
+- **`PackerVP8`** — modelled on `PackerVP9`, which is effectively a passthrough
+  since the stateful VPU parses whole frames itself. VP8 needs no
+  show_existing_frame/superframe handling (it has no hidden frames), but it does
+  honour `slice_data_offset`, which the VP9 path ignores.
+- **`VAProbabilityBufferType` / `VAHuffmanTableBufferType` accepted.** VP8
+  clients send the entropy-probability buffer (type 13); `ApplyBufferData()` had
+  no case for it and returned `VA_STATUS_ERROR_INVALID_PARAMETER`, so the stream
+  was rejected outright:
+  ```
+  Failed to create parameter buffer (type 13): 18 (invalid parameter)
+  ```
+  A stateful decoder re-parses the frame header, so these carry nothing the
+  hardware needs. `VAHuffmanTableBufferType` is included for the same reason and
+  will be needed by any future JPEG work.
+- **Unhandled buffer types are now logged** rather than failing silently — the
+  original returned an error with no indication which type was refused.
+
+**Status: VP8 enumerates and the stream is accepted, but decode produces zero
+bytes.** The profile is therefore left **withheld** (`EnumProfiles` still
+commented out) so clients fall back to software cleanly instead of selecting a
+path that yields nothing — the same reasoning as the AV1 gate. Re-enable the one
+line when decode works.
+
+No regressions: H.264, VP9 and HEVC remain bit-exact against software decode
+with byte counts checked.

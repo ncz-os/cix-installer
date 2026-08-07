@@ -1,0 +1,185 @@
+--- a/devices/v4l2/v4l2_stateful_device.cpp	2026-08-06 21:44:48
++++ b/devices/v4l2/v4l2_stateful_device.cpp	2026-08-07 15:51:26
+@@ -14,6 +14,7 @@
+  * limitations under the License.
+  */
+ 
++#include <cstdlib>
+ #include <unistd.h>
+ #include <fcntl.h>
+ #include <string>
+@@ -86,6 +87,14 @@
+     return media_device_.GetSurfacePool(width, height);
+ }
+ 
++SurfacePool *MediaDeviceV4l2Stateful::GetSurfacePool(
++    uint32_t width,
++    uint32_t height,
++    uint32_t format)
++{
++    return media_device_.GetSurfacePool(width, height, format);
++}
++
+ BufferPool *MediaDeviceV4l2Stateful::GetBufferPool()
+ {
+     return media_device_.GetBufferPool();
+@@ -306,6 +315,21 @@
+         raw_format = GetV4l2PixFmtFromSurface(render_targets[0]);
+     } else {
+         pool = GetSurfacePool(picture_width, picture_height);
++        // A client may legally create a context with no render targets and
++        // allocate surfaces later; Chromium's VaapiVideoDecoder does exactly
++        // that. The lookup-only overload returns null when no pool has been
++        // created yet, which used to leave the codec with no surface pool at
++        // all -- its DMABUF capture buffers were then queued with unbound
++        // planes and VIDIOC_QBUF failed with EINVAL. Fall back to the
++        // creating overload so the codec always has a pool to allocate from.
++        if (pool == nullptr) {
++            // Decoded frames are NV12, or P010 for 10-bit profiles. Note this
++            // is the *raw* format: the config's own format is the compressed
++            // one and would yield a zero-plane pool.
++            raw_format = IS_10BIT_PROFILE(config->profile) ?
++                V4L2_PIX_FMT_P010 : V4L2_PIX_FMT_NV12;
++            pool = GetSurfacePool(picture_width, picture_height, raw_format);
++        }
+         raw_format = pool ? pool->GetFormat() : V4L2_PIX_FMT_NV12;
+     }
+ 
+@@ -385,10 +409,7 @@
+     void *data,
+     VABufferID *buf_id
+ ) {
+-    CIX_VAAPI_INFO("CreateBuffer: context %d, type %d, size %d, num_elements %d\n",
+-        context, type, size, num_elements);
+-    if ((type != VASliceParameterBufferType && num_elements > 1) ||
+-        (type != VAEncCodedBufferType && data == nullptr))
++    if (type != VASliceParameterBufferType && num_elements > 1)
+         return VA_STATUS_ERROR_INVALID_PARAMETER;
+ 
+     auto bpool = GetBufferPool();
+@@ -399,25 +420,47 @@
+         buf->id, type, context);
+     *buf_id = buf->id;
+ 
++    // vaCreateBuffer() permits data == NULL: the buffer is created but left
++    // uninitialised and the client fills it through vaMapBuffer(). Keep the
++    // storage here and hand it to the codec from vaUnmapBuffer() instead.
++    if (data == nullptr) {
++        if (type == VAEncCodedBufferType)
++            return VA_STATUS_SUCCESS;
++        buf->host_data.assign((size_t)size * (num_elements ? num_elements : 1), 0);
++        buf->num_elements = num_elements;
++        return VA_STATUS_SUCCESS;
++    }
++
++    return ApplyBufferData(context, type, data, size, num_elements, *buf_id);
++}
++
++VAStatus MediaDeviceV4l2Stateful::ApplyBufferData(
++    VAContextID context,
++    VABufferType type,
++    void *data,
++    unsigned int size,
++    unsigned int num_elements,
++    VABufferID buf_id
++) {
+     auto codec = codecs[context];
+     if (type == VAPictureParameterBufferType) {
+-        codec->SetPicParamBuffer(data, size, *buf_id);
++        codec->SetPicParamBuffer(data, size, buf_id);
+     } else if (type == VAIQMatrixBufferType) {
+         if (codec->SetIQMatrix(data, size) != 0)
+             return VA_STATUS_ERROR_OPERATION_FAILED;
+     } else if (type == VASliceParameterBufferType) {
+         codec->SetSliceParamBuffer(data, size, num_elements);
+     } else if (type == VASliceDataBufferType) {
+-        codec->SetSliceDataBuffer(data, size, *buf_id);
++        codec->SetSliceDataBuffer(data, size, buf_id);
+ #if (VA_MAJOR_VERSION == 1 && VA_MINOR_VERSION == 22 && VA_MICRO_VERSION == 1)
+     } else if (type == VASequenceParameterBufferType) {
+-        codec->SetSpsBuffer(data, size, *buf_id);
++        codec->SetSpsBuffer(data, size, buf_id);
+ #endif
+     } else if (type == VAEncCodedBufferType) {
+     } else if (type == VAEncSequenceParameterBufferType) {
+         codec->SetSeqParamBuffer(data, size);
+     } else if (type == VAEncPictureParameterBufferType) {
+-        codec->SetPicParamBuffer(data, size, *buf_id);
++        codec->SetPicParamBuffer(data, size, buf_id);
+     } else if (type == VAEncSliceParameterBufferType) {
+         codec->SetSliceParamBuffer(data, size, num_elements);
+     } else if (type == VAEncPackedHeaderParameterBufferType) {
+@@ -434,7 +477,13 @@
+         // } else if (header->type == VAEncMiscParameterTypeMaxFrameSize) {
+         // } else if (header->type == VAEncMiscParameterTypeROI) {
+         }
++    } else if (type == VAProbabilityBufferType ||
++               type == VAHuffmanTableBufferType) {
++        /* Entropy tables the client parsed out of the bitstream. A stateful
++         * decoder re-parses the frame header itself, so there is nothing to
++         * forward; accept them so the stream is not rejected outright. */
+     } else {
++        CIX_VAAPI_WARNING("Unhandled buffer type %d\n", type);
+         return VA_STATUS_ERROR_INVALID_PARAMETER;
+     }
+     return VA_STATUS_SUCCESS;
+@@ -461,6 +510,32 @@
+     VABufferID *buffers,
+     int num_buffers
+ ) {
++    // Buffers created with data == NULL carry their contents in host storage;
++    // hand them to the codec now, in the order the client submits them, before
++    // the codec consumes the buffer list.
++    // Two passes: parameters first, slice data second. vaRenderPicture() does
++    // not order the buffers within a call, and Chromium submits AV1 slice data
++    // ahead of the slice parameters that describe its offset and size - which
++    // left the payload dropped and the VPU polling on a 2-byte bitstream.
++    auto bpool = GetBufferPool();
++    for (int pass = 0; pass < 2; pass++) {
++        const bool want_slice_data = (pass == 1);
++        for (int i = 0; i < num_buffers; i++) {
++            auto info = bpool->GetBufferInfo(buffers[i]);
++            if (info == nullptr || info->host_data.empty())
++                continue;
++            if ((info->type == VASliceDataBufferType) != want_slice_data)
++                continue;
++            unsigned int elements = info->num_elements ? info->num_elements : 1;
++            unsigned int size = (unsigned int)(info->host_data.size() / elements);
++            VAStatus st = ApplyBufferData(context, info->type,
++                                          info->host_data.data(), size,
++                                          info->num_elements, buffers[i]);
++            if (st != VA_STATUS_SUCCESS)
++                return st;
++        }
++    }
++
+     auto codec = codecs[context];
+     if (codec->ProcessBuffers(buffers, num_buffers) != 0)
+         return VA_STATUS_ERROR_OPERATION_FAILED;
+@@ -573,7 +648,14 @@
+                     return VAProfileNone;
+             }
+         case V4L2_CID_MVE_VIDEO_AV1_PROFILE:
+-            /* MVX menu: Main only (index 0); ignore other indices if ever added. */
++            /* MVX menu: Main only (index 0); ignore other indices if ever added.
++             * Withheld by default: the AV1 decode path needs the raw frame-header
++             * OBU from a CIX-private libva extension that no stock VA-API client
++             * sends, so advertising it makes clients hang at the first frame
++             * instead of falling back to software. Opt in with
++             * CIX_VAAPI_ENABLE_AV1=1 when working on the driver. */
++            if (getenv("CIX_VAAPI_ENABLE_AV1") == nullptr)
++                return VAProfileNone;
+             return profile == 0 ? VAProfileAV1Profile0 : VAProfileNone;
+         case V4L2_CID_MPEG_VIDEO_VP8_PROFILE:
+             switch (profile) {
+@@ -679,6 +761,10 @@
+         EnumProfiles(V4L2_CID_MPEG_VIDEO_HEVC_PROFILE, false);
+         EnumProfiles(V4L2_CID_MPEG_VIDEO_VP9_PROFILE, false);
+         EnumProfiles(V4L2_CID_MVE_VIDEO_AV1_PROFILE, false);
++        /* VP8: packer and probability-buffer handling are in place and the
++         * profile enumerates, but decode still yields no frames. Left
++         * unadvertised so clients fall back to software cleanly rather than
++         * selecting a path that produces nothing. Re-enable when it decodes. */
+         // EnumProfiles(V4L2_CID_MPEG_VIDEO_VP8_PROFILE, false);
+         Close();
+     }
