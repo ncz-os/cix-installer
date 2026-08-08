@@ -87,6 +87,13 @@ install -D -m644 "$ICONS/${PKG}.svg" \
     "$STAGE/usr/share/icons/hicolor/scalable/apps/${PKG}.svg"
 install -D -m644 "$ICONS/$PKG/256.png" "$STAGE/usr/share/pixmaps/${PKG}.png"
 
+# --- default bookmarks ------------------------------------------------------
+# NoDefaultBookmarks suppresses Mozilla's built-in set; the NCZ projects go on
+# the toolbar. Enterprise policy rather than a seeded places.sqlite, for the
+# same reason as the Chromium package.
+install -D -m644 "$(dirname "$0")/distribution/policies.json" \
+    "$STAGE$INSTALL/distribution/policies.json"
+
 # --- metadata ---------------------------------------------------------------
 INSTALLED_KB=$(du -sk "$STAGE" | cut -f1)
 

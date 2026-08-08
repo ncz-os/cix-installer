@@ -502,6 +502,12 @@ theme-mode='dark'
 icon-theme='Singularity'
 background-picture-uri='file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg'
 recent-wallpapers=['file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg']
+
+# Pin the browsers to the dock, grouped together. The stock dev.sinty.desktop
+# default pins only the Sinty first-party apps, so a fresh install had no
+# browser on the dock at all - including the two builds that are this
+# platform's differentiator.
+pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'firefox-ncz-sky1.desktop', 'google-chrome.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
 GSCHEMA
     glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
         echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
@@ -766,3 +772,33 @@ echo "[20] installing media production apps (Shotcut/Kdenlive/HandBrake/Audacity
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     shotcut kdenlive handbrake ffmpeg audacity mpv vlc 2>&1 | tail -3 || \
   echo "[20] WARN: media apps not all in offline mirror (needs mirror population)"
+
+# ---------------------------------------------------------------------------
+# xdg-desktop-portal backend for the Singularity desktop.
+#
+# xdg-desktop-portal derives a backend bus name from XDG_CURRENT_DESKTOP. The
+# session sets XDG_CURRENT_DESKTOP=Singularity, so the portal looked for
+# org.freedesktop.impl.portal.desktop.singularity, which nothing provides -
+# singularity-desktop declares that name internally but never registers a
+# D-Bus service for it. The only installed backend, gtk.portal, declares
+# UseIn=gnome and so was not eligible either.
+#
+# With no backend claiming the session every FileChooser request failed:
+#
+#   Backend call failed: The name org.freedesktop.impl.portal.desktop.singularity
+#   was not provided by any .service files
+#
+# GTK_USE_PORTAL=1 is set session-wide, so this broke Open and Save dialogs in
+# EVERY GTK application - text editors, image viewers, the lot.
+#
+# Filename and location both matter, measured on 26.7 (xdg-desktop-portal
+# 1.22.1): the desktop name is lowercased, and only /etc/xdg-desktop-portal is
+# consulted. "Singularity-portals.conf" in the same directory does NOT match,
+# and neither spelling works from /usr/share/xdg-desktop-portal.
+echo "[20] configuring xdg-desktop-portal backend for Singularity"
+install -d -m755 /etc/xdg-desktop-portal
+cat > /etc/xdg-desktop-portal/singularity-portals.conf <<'PORTAL'
+[preferred]
+default=gtk
+PORTAL
+echo "[20] portal backend: gtk (fixes Open/Save dialogs in all GTK apps)"

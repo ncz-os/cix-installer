@@ -91,6 +91,8 @@ ac_add_options --enable-optimize
 ac_add_options --disable-debug
 ac_add_options --disable-tests
 ac_add_options --without-wasm-sandboxed-libraries
+# Unstripped, libxul.so is 2.5GB and not a deployable artifact.
+ac_add_options --enable-strip
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/objdir
 mk_add_options MOZ_MAKE_FLAGS="-j8"
 EOF
@@ -101,6 +103,21 @@ export PATH="$HOME/.cargo/bin:$PATH"
 export MOZ_NOSPAM=1
 
 # --- build ------------------------------------------------------------------
+# The binary must link against the TARGET's glibc, not the build host's.
+# Building natively on cixmini (Ubuntu 26.04, glibc 2.43) produced a libxul.so
+# the board refuses to load:
+#   libxul.so: libm.so.6: version `GLIBC_2.43' not found
+# So this must run inside a container matching the board's distribution. The
+# container is arm64 on an arm64 host, so there is no emulation cost.
+if [ "${NCZ_ALLOW_HOST_GLIBC:-0}" != 1 ]; then
+    host_glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$')
+    target_glibc="${NCZ_TARGET_GLIBC:-2.42}"
+    if [ -n "$host_glibc" ] && [ "$(printf '%s\n' "$host_glibc" "$target_glibc" | sort -V | tail -1)" = "$host_glibc" ] \
+       && [ "$host_glibc" != "$target_glibc" ]; then
+        die "host glibc $host_glibc is newer than target $target_glibc - build in a container matching the board, or set NCZ_ALLOW_HOST_GLIBC=1" 4
+    fi
+fi
+
 log "building (hours)"
 ./mach build > /tmp/ncz-firefox-build.log 2>&1 || {
     grep -E "^ *[0-9:.]+ E |error:" /tmp/ncz-firefox-build.log | tail -20

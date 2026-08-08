@@ -1,0 +1,19 @@
+{
+  "_comment": [
+    "NCZ project bookmarks for Chromium NCZ Sky1 Edition.",
+    "ManagedBookmarks rather than a seeded Bookmarks file: a seeded profile is",
+    "written once at first run and then diverges, while this stays correct",
+    "across profile resets and is not silently lost when a user clears data.",
+    "Debian's chromium shipped its own bookmark set via",
+    "/usr/share/chromium/initial_bookmarks.html; that package is no longer",
+    "installed and its defaults are not ours to ship."
+  ],
+  "ManagedBookmarks": [
+    { "toplevel_name": "NCZ" },
+    { "name": "MNEMOS", "url": "https://gitlab.com/ncz-os/mnemos" },
+    { "name": "zoder", "url": "https://gitlab.com/ncz-os/zoder" },
+    { "name": "cix-installer", "url": "https://gitlab.com/ncz-os/cix-installer" }
+  ],
+  "BookmarkBarEnabled": true,
+  "ShowHomeButton": true
+}

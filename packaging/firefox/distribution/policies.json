@@ -1,0 +1,23 @@
+{
+  "policies": {
+    "Bookmarks": [
+      {
+        "Title": "cix-installer",
+        "URL": "https://gitlab.com/ncz-os/cix-installer",
+        "Placement": "toolbar"
+      },
+      {
+        "Title": "MNEMOS",
+        "URL": "https://gitlab.com/ncz-os/mnemos",
+        "Placement": "toolbar"
+      },
+      {
+        "Title": "zoder",
+        "URL": "https://gitlab.com/ncz-os/zoder",
+        "Placement": "toolbar"
+      }
+    ],
+    "NoDefaultBookmarks": true,
+    "DisplayBookmarksToolbar": "always"
+  }
+}

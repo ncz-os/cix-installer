@@ -85,6 +85,16 @@ install -D -m644 "$ICONS/${PKG}.svg" \
     "$STAGE/usr/share/icons/hicolor/scalable/apps/${PKG}.svg"
 install -D -m644 "$ICONS/$PKG/256.png" "$STAGE/usr/share/pixmaps/${PKG}.png"
 
+# --- default bookmarks ------------------------------------------------------
+# Debian's chromium shipped its own bookmark set via
+# /usr/share/chromium/initial_bookmarks.html. That package is not installed
+# here and its defaults are not ours to ship, so the NCZ projects go in as a
+# managed policy instead of a seeded profile: a seeded Bookmarks file is
+# written once at first run and then diverges, while a policy stays correct
+# across profile resets.
+install -D -m644 "$(dirname "$0")/policies/ncz-bookmarks.json" \
+    "$STAGE/etc/chromium/policies/managed/ncz-bookmarks.json"
+
 # --- metadata ---------------------------------------------------------------
 INSTALLED_KB=$(du -sk "$STAGE" | cut -f1)
 
