@@ -70,4 +70,33 @@ ordinary buffers and has no such dependency. Under `MOZ_ENABLE_V4L2` the gate
 falls through to the V4L2 probe, which is the only check that can actually
 answer whether the hardware will take the stream.
 
-Status: built; hardware verification pending.
+## Result of the gate relaxation: still software
+
+Built and tested on O6N. V4L2 initialises, and playback still falls back:
+
+```
+NCZDBG ctor ... hwdisabled=0
+NCZDBG reached V4L2 init
+NCZDBG InitV4L2Decoder rv=0x0 ok=1
+NCZDBG ctor ... hwdisabled=1        <- second decoder, no gate of ours fired
+NCZDBG InitHWDecoderIfAllowed entry disabled=1
+```
+
+The second decoder reports `hwdisabled=1` with **no gate message**, so
+`ShouldDisableHWDecoding` fell through to `return aDisableHardwareDecoding` -
+the caller passed true. That is Firefox's own fallback path after a hardware
+decoder fails. Dropped frames also went from 0 to 9, consistent with a failed
+hardware attempt before the switch.
+
+So the V4L2 decoder initialises successfully and then fails at decode time.
+`/dev/video0` is never held for a sustained period.
+
+## Where this stands
+
+Three of the four suspected blockers are eliminated with evidence: the codec
+gate, the RDD-process requirement, and the WebRender gate. What remains is a
+decode-time failure inside the initialised V4L2 decoder, which needs the decode
+path instrumented rather than the init path.
+
+Chromium remains the browser with working hardware decode on this platform -
+all five codecs, 1080p and 4K.

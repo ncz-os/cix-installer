@@ -22,10 +22,10 @@ decoded frames due to invalid duration.
 +        if (duration <= 0) {
 +          duration = aSample->mDuration.ToMicroseconds();
 +        }
-+        mDecodeStats.UpdateDecodeTimes(duration);
++        mDecodeStats.UpdateDecodeTimes(mFrame, duration);
 +        rv = CreateImageV4L2(fpos, GetFramePts(mFrame), duration, aResults);
        } else {
-+        mDecodeStats.UpdateDecodeTimes(Duration(mFrame));
++        mDecodeStats.UpdateDecodeTimes(mFrame);
          rv = CreateImageVAAPI(fpos, GetFramePts(mFrame), Duration(mFrame),
                                aResults);
        }

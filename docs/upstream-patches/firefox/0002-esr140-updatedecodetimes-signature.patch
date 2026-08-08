@@ -1,0 +1,29 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: Allow ESR 140 decode statistics to use corrected duration
+
+ESR 140's DecodeStats::UpdateDecodeTimes() accepts an AVFrame and derives
+the duration from that frame. Firefox 146 accepts an int64 duration instead,
+which is why entrpi's timestamp patch does not compile on ESR 140.
+
+Keep the ESR 140 frame-based API as the default, but add an optional duration
+argument so the V4L2 stateful-decoder fallback can use the corrected input
+sample duration for both image timing and the slow-hardware heuristic.
+
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.h
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.h
+@@ -1,3 +1,3 @@
+-    void UpdateDecodeTimes(const AVFrame* aFrame);
++    void UpdateDecodeTimes(const AVFrame* aFrame, int64_t aDuration = -1);
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
+@@ -1,8 +1,8 @@
+-void FFmpegVideoDecoder<LIBAV_VER>::DecodeStats::UpdateDecodeTimes(
+-    const AVFrame* aFrame) {
++void FFmpegVideoDecoder<LIBAV_VER>::DecodeStats::UpdateDecodeTimes(
++    const AVFrame* aFrame, int64_t aDuration) {
+   TimeStamp now = TimeStamp::Now();
+   double decodeTime = (now - mDecodeStart).ToMilliseconds();
+   mDecodeStart = now;
+@@ -9 +9 @@
+-  int64_t duration = Duration(aFrame);
++  int64_t duration = aDuration >= 0 ? aDuration : Duration(aFrame);

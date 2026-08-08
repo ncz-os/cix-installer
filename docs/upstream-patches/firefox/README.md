@@ -63,6 +63,15 @@ This also means Chrome and Vivaldi cannot benefit: they are closed prebuilt
 binaries using VA-API. Only browsers we compile — Firefox and Chromium — can take
 the V4L2 route.
 
+## ESR 140 duration compatibility
+
+ESR 140's `DecodeStats::UpdateDecodeTimes` takes an `AVFrame*` and derives
+duration from the frame; Firefox 146 takes an integer duration. The timestamp
+patch therefore needs `0002-esr140-updatedecodetimes-signature.patch`, and its
+V4L2 call must pass the corrected fallback duration. Reverting those calls to
+the frame-only form fixes compilation but lets invalid V4L2 durations poison
+the slow-hardware fallback statistics.
+
 ## Applying
 
 Against an extracted `firefox-esr-140.13.0esr` source tree, in `debian/patches/`:
@@ -73,7 +82,8 @@ cp *.patch debian/patches/sky1/
 for p in Prefer-V4L2-M2M-over-VAAPI-for-hw-decode \
          Fix-V4L2-M2M-timestamp-handling \
          0001-v4l2m2m-vp9-av1-esr140 \
-         Enable-V4L2-M2M-AV1-hardware-decode-check; do
+         Enable-V4L2-M2M-AV1-hardware-decode-check \
+         0002-esr140-updatedecodetimes-signature; do
   echo "sky1/$p.patch" >> debian/patches/series
 done
 QUILT_PATCHES=debian/patches quilt push -a
@@ -84,7 +94,7 @@ or emulate — an emulated Firefox build is many times the ~3.5 h native cost.
 
 ## Status
 
-Patches apply cleanly; the build is the next verification step. **Nothing here is
-confirmed to decode AV1 yet** — that requires the built package on the board,
-checked with the bit-exact method in the cix-vaapi handoff, not with an open
-`/dev/video0` fd or a log line.
+The patch set has not been behaviorally verified by a completed ESR 140 build
+in this checkout. **Nothing here is confirmed to decode AV1 yet** — that
+requires the built package on the board, checked with the bit-exact method in
+the cix-vaapi handoff, not with an open `/dev/video0` fd or a log line.
