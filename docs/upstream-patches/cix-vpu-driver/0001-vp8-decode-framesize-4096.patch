@@ -1,0 +1,62 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Fri, 8 Aug 2026 16:40:00 -0400
+Subject: [PATCH] media: cix: amvx: report the real VP8 decode frame-size limit
+
+mvx_session_enum_framesizes() grouped MVX_FORMAT_VP8 with H.263 and
+MPEG-4 and so reported a maximum of 2048x2048 for VP8. That is not what
+the hardware does.
+
+Measured on Sky1 (Linlon MVE v8), VP8 decode is bit-exact against libvpx
+at 2048x1152, 3840x2160, 4096x2304 and 4096x4096, and fails at 5120x2880
+with "capture buffer initialization (Input/output error)". The real
+decode limit is 4096x4096.
+
+The under-report is not cosmetic. V4L2 clients that honour
+VIDIOC_ENUM_FRAMESIZES refuse to use the hardware above the advertised
+size, so Chromium fell back to software for 4K VP8 while ffmpeg - which
+does not consult the enumeration - decoded the same stream on the VPU
+bit-exact. With this change Chromium decodes 3840x2160 VP8 on the VPU.
+
+Encode keeps the conservative 2048x2048; it was not measured.
+
+Upstream-Status: Pending (to be sent to CIX)
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/driver/if/mvx_session.c
++++ b/driver/if/mvx_session.c
+@@ -6827,10 +6827,34 @@
+         break;
+     case MVX_FORMAT_H263:
+     case MVX_FORMAT_MPEG4:
+-    case MVX_FORMAT_VP8:
+         *max_width = 2048;
+         *max_height = 2048;
+         break;
++    case MVX_FORMAT_VP8:
++        /*
++         * VP8 decode was reported as 2048x2048 only because it shared a case
++         * with H.263 and MPEG-4. Measured on Sky1 (Linlon MVE v8), VP8 decode
++         * is bit-exact against libvpx at 2048x1152, 3840x2160, 4096x2304 and
++         * 4096x4096, and fails at 5120x2880 with
++         * "capture buffer initialization (Input/output error)". The real
++         * decode limit is 4096x4096.
++         *
++         * This matters because V4L2 clients that honour
++         * VIDIOC_ENUM_FRAMESIZES refuse the hardware above the reported size:
++         * Chromium fell back to software for 4K VP8, while ffmpeg - which
++         * does not consult the enumeration - decoded the same stream on the
++         * VPU bit-exact.
++         *
++         * Encode keeps the conservative 2048x2048; it was not measured.
++         */
++        if (is_encoder) {
++            *max_width = 2048;
++            *max_height = 2048;
++        } else {
++            *max_width = 4096;
++            *max_height = 4096;
++        }
++        break;
+     case MVX_FORMAT_JPEG:
+         if (is_encoder) {
+             *max_width = 16384;

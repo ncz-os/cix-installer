@@ -5,19 +5,69 @@ Driver `cix_vaapi` build `9aa21698`.
 
 ## Summary
 
-| Codec | Chrome | Vivaldi | **Chromium NCZ Sky1** | Chromium (Debian) | Firefox ESR |
+Measured 2026-08-08 at both 1080p and 4K (3840x2160), five codecs, two
+resolutions, per browser.
+
+| Codec | Chromium NCZ Sky1 1080p | Chromium NCZ Sky1 4K | Firefox NCZ Sky1 | Chrome | Vivaldi |
 |---|---|---|---|---|---|
-| **H.264** | ✅ hardware | ✅ hardware | ✅ hardware | ✗ | software |
-| **VP9** | ✅ hardware | ✅ hardware | ✅ hardware | ✗ | software |
-| **HEVC** | ✅ hardware | ✅ hardware | ✅ hardware | ✗ | software |
-| **AV1** | software | software | ✅ **hardware** | ✗ | software |
-| VP8 | software | software | software | ✗ | software |
+| **H.264** | ✅ hardware | ✅ hardware | software | ✅ hardware | ✅ hardware |
+| **HEVC** | ✅ hardware | ✅ hardware | software | ✅ hardware | ✅ hardware |
+| **VP8** | ✅ hardware | ✅ hardware¹ | software | software | software |
+| **VP9** | ✅ hardware | ✅ hardware | software | ✅ hardware | ✅ hardware |
+| **AV1** | ✅ **hardware** | ✅ **hardware** | software | software | software |
+
+¹ Needed a driver fix. See "VP8 at 4K" below.
+
+Debian's own Chromium and Firefox are no longer shipped — they are replaced by
+`chromium-ncz-sky1` and `firefox-ncz-sky1`.
 
 **"software" means it plays correctly, just on the CPU.** Nothing in this table
 fails to render — the difference is power draw and headroom at high resolution.
 
 **Chromium NCZ Sky1 Edition is the only browser on this platform with hardware
-AV1.** That is the reason it exists.
+decode for all five codecs, at 1080p and 4K.** That is the reason it exists.
+It needs `--enable-features=AcceleratedVideoDecoder`, which its launcher
+passes; without that flag every codec silently decodes in software.
+
+### Hardware baseline
+
+Before any browser is judged, the driver itself was measured. All five codecs
+decode **bit-exact against software** at both 1080p and 4K:
+
+| Codec | 1080p | 4K |
+|---|---|---|
+| H.264 | bit-exact | bit-exact |
+| HEVC | bit-exact | bit-exact |
+| VP8 | bit-exact | bit-exact |
+| VP9 | bit-exact | bit-exact |
+| AV1 | bit-exact* | bit-exact* |
+
+\* AV1 requires the patched ffmpeg carrying `av1_v4l2m2m`; stock Debian ffmpeg
+8.1.2 has no AV1 V4L2 decoder. That patch is submitted upstream and it holds at
+4K.
+
+So every browser cell that reads "software" is a browser-side gap, not a
+hardware one.
+
+### VP8 at 4K
+
+Chromium fell back to software for 4K VP8 while ffmpeg decoded the same clip on
+the VPU bit-exact. The cause was the driver: `VIDIOC_ENUM_FRAMESIZES` reported
+VP8 as 2048x2048 because the vendor code grouped it with H.263 and MPEG-4.
+Chromium honours the enumeration; ffmpeg does not consult it.
+
+Measured ceiling is 4096x4096 (5120x2880 fails). Fixed in
+`docs/upstream-patches/cix-vpu-driver/0001-vp8-decode-framesize-4096.patch`;
+Chromium then decodes 4K VP8 on the VPU.
+
+### Firefox
+
+Firefox NCZ Sky1 Edition decodes all five codecs correctly, all in software.
+`MOZ_ENABLE_V4L2` is set in the build and libxul carries the V4L2 decoder
+symbols, but at runtime decoding lands in the RDD or Utility process and
+`InitV4L2Decoder()` is never entered. Forcing the GPU process,
+`media.prefer-non-ffvpx`, `media.ffvpx-hw.enabled` and disabling the media
+sandboxes each failed to move it. Unresolved.
 
 ## Decode path
 
