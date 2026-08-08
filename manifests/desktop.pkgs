@@ -279,3 +279,7 @@ drawing
 imv
 swayimg
 gnome-console
+xdg-desktop-portal-wlr
+gnome-keyring
+libpam-gnome-keyring
+at-spi2-core

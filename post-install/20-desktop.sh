@@ -796,9 +796,47 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # consulted. "Singularity-portals.conf" in the same directory does NOT match,
 # and neither spelling works from /usr/share/xdg-desktop-portal.
 echo "[20] configuring xdg-desktop-portal backend for Singularity"
+
+# The wlroots backend, the secret service and the accessibility bus were all
+# absent. Each has a visible consequence, not a theoretical one:
+#   xdg-desktop-portal-wlr  ScreenCast has no implementation without it, so
+#                           screen sharing in any browser fails. gtk.portal
+#                           does not implement ScreenCast at all.
+#   gnome-keyring           nothing owned org.freedesktop.secrets while
+#                           libsecret was installed, so browser password
+#                           storage had no backend to fall back from.
+#   at-spi2-core            nothing owned org.a11y.Bus; accessibility is dead
+#                           and GTK apps log a startup failure reaching it.
+#   libpam-gnome-keyring    without it the keyring is an in-memory "session"
+#                           collection only - secrets do not survive logout.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    xdg-desktop-portal-wlr gnome-keyring libpam-gnome-keyring at-spi2-core \
+    2>&1 | tail -3 || echo "[20] WARN: portal/keyring/a11y packages incomplete"
+
 install -d -m755 /etc/xdg-desktop-portal
 cat > /etc/xdg-desktop-portal/singularity-portals.conf <<'PORTAL'
 [preferred]
 default=gtk
+
+# ScreenCast must go to wlr: gtk.portal does not implement it, so on the
+# default mapping screen sharing failed with no usable error. labwc is
+# wlroots-based, which is what xdg-desktop-portal-wlr targets.
+#
+# RemoteDesktop is deliberately NOT mapped. xdg-desktop-portal-wlr 0.8.4
+# implements ScreenCast only; mapping RemoteDesktop to it produced a portal
+# that advertised nothing - the interface did not appear on the bus at all.
+org.freedesktop.impl.portal.ScreenCast=wlr
 PORTAL
-echo "[20] portal backend: gtk (fixes Open/Save dialogs in all GTK apps)"
+echo "[20] portal backend: gtk + wlr ScreenCast (fixes Open/Save in all GTK apps)"
+
+# Unlock the login keyring at login. Both lines are `optional`, which in PAM
+# cannot cause authentication to fail: a missing or broken module degrades to
+# "no keyring", never to "no login".
+if [ -f /etc/pam.d/greetd ] && ! grep -q pam_gnome_keyring /etc/pam.d/greetd; then
+    cp -a /etc/pam.d/greetd /etc/pam.d/greetd.pre-keyring.bak
+    sed -i \
+        -e 's|^@include common-auth$|@include common-auth\nauth       optional   pam_gnome_keyring.so|' \
+        -e 's|^@include common-session$|@include common-session\nsession    optional   pam_gnome_keyring.so auto_start|' \
+        /etc/pam.d/greetd
+    echo "[20] greetd PAM: login keyring auto-unlock enabled"
+fi
