@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Chromium NCZ Sky1 Edition.
+
+       Chromium's three-segment disc, recoloured to the NCZ "Maximilian"
+       black hole: an amber-to-coral accretion disc, a hot photon ring, and a
+       pure-black event horizon where Chromium puts its blue core. Distinct
+       from both Chromium's blue mark and Chrome's four-colour one, so it does
+       not read as either upstream at a glance. -->
+  <defs>
+    <linearGradient id="gA" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0%" stop-color="#F2A860"/><stop offset="100%" stop-color="#E8402A"/>
+    </linearGradient>
+    <linearGradient id="gB" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E8934F"/><stop offset="100%" stop-color="#C22A1E"/>
+    </linearGradient>
+    <linearGradient id="gC" x1="0.2" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FF7A4D"/><stop offset="100%" stop-color="#E8A05A"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="72%" stop-color="#FF5A3C" stop-opacity="0"/>
+      <stop offset="92%" stop-color="#FF5A3C" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#FF5A3C" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <circle cx="256" cy="256" r="244" fill="#0B0D12"/>
+  <path d="M272.2,24.6 A232.0,232.0 0 0 1 464.5,357.7 L365.7,309.5 A122.0,122.0 0 0 0 264.5,134.3 Z" fill="url(#gA)"/>
+  <path d="M448.3,385.7 A232.0,232.0 0 0 1 63.7,385.7 L154.9,324.2 A122.0,122.0 0 0 0 357.1,324.2 Z" fill="url(#gB)"/>
+  <path d="M47.5,357.7 A232.0,232.0 0 0 1 239.8,24.6 L247.5,134.3 A122.0,122.0 0 0 0 146.3,309.5 Z" fill="url(#gC)"/>
+  <circle cx="256" cy="256" r="150" fill="url(#halo)"/>
+  <circle cx="256" cy="256" r="112" fill="none" stroke="#FF5A3C" stroke-width="9"/>
+  <circle cx="256" cy="256" r="104" fill="#000000"/>
+</svg>

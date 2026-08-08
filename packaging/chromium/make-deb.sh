@@ -18,6 +18,7 @@ DEBVER="${VERSION}-ncz${STAMP}"
 INSTALL="/opt/${PKG}"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
+ICONS="$(cd "$(dirname "$0")/../../assets/branding/browsers" && pwd)"
 
 mkdir -p "$STAGE/DEBIAN" "$STAGE$INSTALL" "$STAGE/usr/bin" \
          "$STAGE/usr/share/applications" "$STAGE/usr/share/doc/$PKG"
@@ -69,6 +70,21 @@ MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme
 StartupWMClass=chromium-ncz-sky1
 EOF
 
+# --- icons ------------------------------------------------------------------
+# The Chromium tree ships no icon of its own (only the Google-branded Chrome
+# build carries one), which is why an unbranded build shows a blank launcher.
+# The NCZ mark is pre-rendered in the repo rather than converted here, so the
+# package builds on a host without a working SVG rasteriser.
+for sz in 16 22 24 32 48 64 128 256 512; do
+    src="$ICONS/$PKG/$sz.png"
+    [ -f "$src" ] || { echo "  missing icon $src" >&2; exit 1; }
+    install -D -m644 "$src" \
+        "$STAGE/usr/share/icons/hicolor/${sz}x${sz}/apps/${PKG}.png"
+done
+install -D -m644 "$ICONS/${PKG}.svg" \
+    "$STAGE/usr/share/icons/hicolor/scalable/apps/${PKG}.svg"
+install -D -m644 "$ICONS/$PKG/256.png" "$STAGE/usr/share/pixmaps/${PKG}.png"
+
 # --- metadata ---------------------------------------------------------------
 INSTALLED_KB=$(du -sk "$STAGE" | cut -f1)
 
@@ -80,8 +96,7 @@ Maintainer: Jason Perlow <jperlow@gmail.com>
 Installed-Size: $INSTALLED_KB
 Depends: libnss3, libatk1.0-0, libatk-bridge2.0-0, libcups2, libdrm2,
  libxkbcommon0, libxcomposite1, libxdamage1, libxfixes3, libxrandr2,
- libgbm1, libasound2t64 | libasound2, libwayland-client0, libwayland-egl1,
- libva2, cix-vaapi-driver
+ libgbm1, libasound2t64 | libasound2, libwayland-client0, libwayland-egl1
 Recommends: ncz-ffmpeg
 Provides: www-browser
 Section: web
@@ -98,8 +113,11 @@ Description: Chromium with CIX Sky1 hardware video decode
  available nowhere else on this hardware: it works only through V4L2-M2M, so
  prebuilt VA-API browsers such as Chrome and Vivaldi fall back to software.
  .
- Requires the NCZ cix_vaapi driver. Without it the browser still runs, but
- decodes in software.
+ Hardware decode needs the amvx VPU driver providing /dev/video0. That is a
+ kernel module, not a package this can depend on, so a system without it still
+ installs and runs - it just decodes in software. This package deliberately
+ does NOT depend on libva or the cix_vaapi driver: the decode path is V4L2-M2M
+ and the binary does not link libva at all.
 EOF
 
 cat > "$STAGE/DEBIAN/postinst" <<'EOF'
@@ -107,6 +125,7 @@ cat > "$STAGE/DEBIAN/postinst" <<'EOF'
 set -e
 if [ "$1" = configure ]; then
     update-desktop-database -q /usr/share/applications 2>/dev/null || true
+    gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor 2>/dev/null || true
 fi
 EOF
 chmod 755 "$STAGE/DEBIAN/postinst"
