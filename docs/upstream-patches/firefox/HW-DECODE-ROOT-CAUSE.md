@@ -91,12 +91,50 @@ hardware attempt before the switch.
 So the V4L2 decoder initialises successfully and then fails at decode time.
 `/dev/video0` is never held for a sustained period.
 
-## Where this stands
+## The actual blocker: ffmpeg, not Firefox
 
-Three of the four suspected blockers are eliminated with evidence: the codec
-gate, the RDD-process requirement, and the WebRender gate. What remains is a
-decode-time failure inside the initialised V4L2 decoder, which needs the decode
-path instrumented rather than the init path.
+Instrumenting the decode path found it on the first frame.
 
-Chromium remains the browser with working hardware decode on this platform -
-all five codecs, 1080p and 4K.
+```
+NCZDBG frame-path hwaccel=1 usingV4L2=1
+NCZDBG v4l2-desc nb_objects=1246381896 nb_layers=1364283729
+       layer0_fourcc=0x51515151 nb_planes=1364283729 w=1920 h=1080 avformat=23
+NCZDBG v4l2-no-surface w=1920 h=1080
+NCZDBG CreateImageV4L2 frame=0 rv=0x806e0004 ok=0
+```
+
+`layer0_fourcc=0x51515151` is `'QQQQ'` - uninitialised memory, not a fourcc.
+`avformat=23` is **`AV_PIX_FMT_NV12`, not `AV_PIX_FMT_DRM_PRIME`**.
+
+`CreateImageV4L2` casts `mFrame->data[0]` to an `AVDRMFrameDescriptor`. The
+frame is a plain NV12 CPU frame, so the cast reads pixel data as a struct,
+every field is garbage, dmabuf surface allocation fails, and the resulting
+`NS_ERROR_DOM_MEDIA_DECODE_ERR` is what MediaFormatReader turns into
+`mHardwareDecodingDisabled = true`.
+
+Firefox is not at fault. `ChooseV4L2PixelFormat` correctly asks for DRM_PRIME
+and returns `AV_PIX_FMT_NONE` otherwise; it never gets offered DRM_PRIME:
+
+- Debian's `libavcodec.so.62`: **zero** occurrences of DRM_PRIME.
+- `ffmpeg -h decoder=h264_v4l2m2m` advertises only `num_output_buffers` and
+  `num_capture_buffers`.
+- In the FFmpeg 8.1.2 source tree, `v4l2_m2m_dec.c`, `v4l2_buffers.c` and
+  `v4l2_context.c` contain no `DRM_PRIME`, no `AVDRMFrameDescriptor` and no
+  DRM export path. The only decoders in the whole of `libavcodec` that produce
+  `AV_PIX_FMT_DRM_PRIME` are `rkmppdec` / `rkmppenc` (Rockchip).
+
+So **FFmpeg 8.x's V4L2-M2M wrapper cannot produce DRM_PRIME frames at all**,
+and Firefox's V4L2 path is written against one that can. No combination of
+prefs or Firefox patches can bridge that: the frames simply are not dmabufs.
+
+## What would actually fix it
+
+Restore DRM_PRIME export to `v4l2_m2m` in the ffmpeg fork we already maintain
+for `av1_v4l2m2m`. The decoder must export its capture buffers as dmabuf and
+hand back an `AVDRMFrameDescriptor`, which is what `CreateImageV4L2` expects.
+
+That is real C work in libavcodec, not a Firefox patch, and it is the only
+route to hardware decode in Firefox on this platform.
+
+Chromium is unaffected - it drives V4L2 directly rather than through ffmpeg,
+and does all five codecs at 1080p and 4K.
