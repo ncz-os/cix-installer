@@ -92,13 +92,32 @@ apt-get install -y --no-install-recommends \
     libgee-0.8-dev libsoup-3.0-dev \
     libgirepository-1.0-dev gobject-introspection \
     libupower-glib-dev \
+    libatspi2.0-dev libcmocka-dev libdbusmenu-glib-dev libfontconfig-dev \
+    libglib2.0-dev libgudev-1.0-dev libinput-dev libnm-dev \
+    libpng-dev librsvg2-dev libsecret-1-dev libxml2-dev libpixman-1-dev \
+    libpoppler-glib-dev libsystemd-dev libtracker-sparql-3.0-dev \
+    libupower-glib-dev \
+    libwebkitgtk-6.0-dev libxcb1-dev libxcb-ewmh-dev \
+    libxcb-icccm4-dev libxkbcommon-dev \
+    libpam0g-dev libgcrypt20-dev libcrypt-dev libsodium-dev \
+    hwdata xwayland libxcb-dri3-dev \
+    libxcb-composite0-dev libxcb-render0-dev libxcb-res0-dev \
+    libxcb-xfixes0-dev libxcb-errors-dev libxcb-present-dev \
+    sassc scdoc \
+    libdisplay-info-dev \
+    libseat-dev \
+    libliftoff-dev \
     libnm-dev \
     libgoa-1.0-dev \
     sassc \
     libdrm-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
+    libinput-dev \
     libpoppler-glib-dev \
     hwdata \
     scdoc \
+    libdisplay-info-dev \
+    libseat-dev \
+    libliftoff-dev \
     build-essential
 
 mkdir -p /work && cd /work
