@@ -63,6 +63,20 @@ used in both cases; without the patch the only working path is the software
 vp9dec/vp8dec fallback, which makes the failure easy to miss because playbin
 silently degrades to software rather than erroring.
 
+The most important consequence is that autoplug degrades SILENTLY. v4l2vp9dec is
+ranked primary+1 (257), above the software vp9dec (256), so decodebin tries the
+hardware decoder first - and when the caps do not intersect it simply falls back
+to software and reports success. Measured with `gst-launch-1.0 -v ... !
+matroskademux ! decodebin ! fakesink` on the remuxed Big Buck Bunny above:
+
+  stock  + colorimetry present  -> GstVP9Dec:vp9dec0   (software)  Got EOS
+  patched+ colorimetry present  -> v4l2vp9dec          (hardware)  Got EOS
+  stock  + colorimetry absent   -> v4l2vp9dec          (hardware)  Got EOS
+
+Every one of those returns EOS, so nothing in the logs indicates a problem. On a
+board where hardware decode is the entire point, users lose it without any error
+at all - which is how this went unnoticed here.
+
 Scope note: in a browser (WebKit/Epiphany) this failure surfaces as
 MEDIA_ERR_SRC_NOT_SUPPORTED, and the patch clears that. It does not fix every
 VP9 playback problem on this platform - a separate stall at currentTime ~0.15
