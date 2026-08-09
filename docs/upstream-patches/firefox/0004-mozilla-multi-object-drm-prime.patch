@@ -1,0 +1,107 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] Bug XXXXXXX - Handle multi-object DRM PRIME descriptors in FFmpegDescToVA
+
+FFmpegDescToVA() assumes every NV12 and YUV420 DRM PRIME descriptor is a
+single contiguous dmabuf holding all planes, and reads only objects[0]:
+
+    MOZ_ASSERT(aDesc.nb_objects == 1);
+    vaDesc.objects[0].fd = aDesc.objects[0].fd;
+    vaDesc.layers[1].offset[0] = offset + uncrop_width * uncrop_height;
+
+That holds for VA-API and Vulkan. It does not hold for V4L2 multiplanar
+drivers, which allocate one buffer per plane and export one dmabuf per plane.
+
+MOZ_ASSERT compiles out in release builds, so this does not fail loudly. It
+builds a descriptor naming only the luma FD, with chroma offsets computed as
+if chroma lived in that same buffer. EGL rejects the import,
+GetVideoFrameSurface() returns null, the caller reports a decode error, and
+MediaFormatReader turns any decode error from a hardware decoder into
+mHardwareDecodingDisabled = true. The user-visible result is silent, permanent
+software decode with no logged cause.
+
+Add multi-object branches for both formats. The single-object paths are
+unchanged.
+
+Measured on CIX Sky1 (Arm Linlon MVE v8) with a DRM_PRIME-capable libavcodec.
+Before, on a 3-object YUV420 descriptor, plane 1 failed to import at offset
+2073600 - exactly stride*height, past the end of a luma-only buffer. After,
+all three planes import and CreateImageV4L2 succeeds for every frame.
+
+This is necessary but not sufficient for working playback on that hardware:
+import succeeds and no fallback decoder is created, but playback still ends in
+NS_ERROR_DOM_MEDIA_FATAL_ERR from a point not yet isolated. The descriptor
+handling is wrong independently of that and is what this patch fixes.
+
+---
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoFramePool.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoFramePool.cpp
+@@ -480,7 +480,32 @@
+ 
+   unsigned int offset = aDesc.layers[0].planes[0].offset;
+ 
+-  if (aDesc.layers[0].format == DRM_FORMAT_YUV420) {
++  if (aDesc.layers[0].format == DRM_FORMAT_YUV420 && aDesc.nb_objects == 3) {
++    // Multi-object YUV420: one dmabuf per plane. The contiguous branch below
++    // reads only objects[0] and derives the chroma offsets from the luma
++    // size, which lands past the end of a luma-only buffer.
++    vaDesc.fourcc = VA_FOURCC_I420;
++
++    vaDesc.num_objects = 3;
++    for (int i = 0; i < 3; i++) {
++      vaDesc.objects[i].drm_format_modifier = aDesc.objects[i].format_modifier;
++      vaDesc.objects[i].size = aDesc.objects[i].size;
++      vaDesc.objects[i].fd = aDesc.objects[i].fd;
++    }
++
++    vaDesc.num_layers = 3;
++    for (int i = 0; i < 3; i++) {
++      vaDesc.layers[i].drm_format = DRM_FORMAT_R8;
++      vaDesc.layers[i].num_planes = 1;
++      vaDesc.layers[i].object_index[0] = i;
++      vaDesc.layers[i].offset[0] =
++          aDesc.layers[0].nb_planes > i ? aDesc.layers[0].planes[i].offset : 0;
++      vaDesc.layers[i].pitch[0] =
++          aDesc.layers[0].nb_planes > i && aDesc.layers[0].planes[i].pitch > 0
++              ? (unsigned int)aDesc.layers[0].planes[i].pitch
++              : (i == 0 ? uncrop_width : uncrop_width / 2);
++    }
++  } else if (aDesc.layers[0].format == DRM_FORMAT_YUV420) {
+     vaDesc.fourcc = VA_FOURCC_I420;
+ 
+     // V4L2 expresses YUV420 as a single contiguous buffer containing
+@@ -507,6 +532,35 @@
+     vaDesc.layers[2].offset[0] = offset + uncrop_width * uncrop_height * 5 / 4;
+     vaDesc.layers[2].pitch[0] = uncrop_width / 2;
+   } else if (aDesc.layers[0].format == DRM_FORMAT_NV12 &&
++             aDesc.nb_layers == 1 && aDesc.nb_objects == 2) {
++    // Multi-object NV12: one dmabuf per plane, which is what V4L2 multiplanar
++    // drivers export. The single-object branch below reads only objects[0] and
++    // derives the chroma offset from the luma stride; here chroma lives in its
++    // own buffer at its own offset, and objects[1] would be dropped entirely.
++    vaDesc.fourcc = VA_FOURCC_NV12;
++
++    vaDesc.num_objects = 2;
++    for (int i = 0; i < 2; i++) {
++      vaDesc.objects[i].drm_format_modifier = aDesc.objects[i].format_modifier;
++      vaDesc.objects[i].size = aDesc.objects[i].size;
++      vaDesc.objects[i].fd = aDesc.objects[i].fd;
++    }
++
++    vaDesc.num_layers = 2;
++    for (int i = 0; i < 2; i++) {
++      vaDesc.layers[i].num_planes = 1;
++      vaDesc.layers[i].object_index[0] = i;
++      vaDesc.layers[i].offset[0] =
++          aDesc.layers[0].nb_planes > i ? aDesc.layers[0].planes[i].offset : 0;
++    }
++    vaDesc.layers[0].drm_format = DRM_FORMAT_R8;    // Y plane
++    vaDesc.layers[0].pitch[0] = yPitch;
++    vaDesc.layers[1].drm_format = DRM_FORMAT_GR88;  // UV plane
++    vaDesc.layers[1].pitch[0] =
++        aDesc.layers[0].nb_planes >= 2 && aDesc.layers[0].planes[1].pitch > 0
++            ? (unsigned int)aDesc.layers[0].planes[1].pitch
++            : uvPitch;
++  } else if (aDesc.layers[0].format == DRM_FORMAT_NV12 &&
+              aDesc.nb_layers == 1) {
+     vaDesc.fourcc = VA_FOURCC_NV12;
+ 
