@@ -52,3 +52,36 @@ raising a limit that has not been tested is how you ship a plausible
 regression.
 
 **Upstream-Status:** Pending. To be sent to CIX against the vendor driver.
+
+## Upstream status (filed 2026-08-09)
+
+Both patches sent to CIX as issues on
+[`cixtech/cix_opensource__vpu_driver`](https://github.com/cixtech/cix_opensource__vpu_driver):
+
+| Patch | Issue |
+|---|---|
+| `0001-vp8-decode-framesize-4096` | [#5](https://github.com/cixtech/cix_opensource__vpu_driver/issues/5) |
+| `0002-decoder-capture-default-nv12` | [#6](https://github.com/cixtech/cix_opensource__vpu_driver/issues/6) |
+
+Both bugs were re-verified as **still present upstream** on branch
+`cix_mainline_upstream_dev` @ `5b9b07b` ("CIX P1 KERNEL 7.0 VERSION 1.0.2
+RELEASE") before filing — VP8 still shares the 2048 case with H.263/MPEG-4 at
+`driver/if/mvx_session.c:6828`, and `mvx_raw_fmts[]` still lists
+`MVX_FORMAT_YUV420_AFBC_8` first.
+
+**Filed as issues, not PRs, deliberately.** The repo has never received a pull
+request, has no CONTRIBUTING, and its description ("Create ... via api")
+suggests a push-mirror from an internal tree, which a PR could not merge into.
+Issues are the only channel the repo demonstrably uses.
+
+**Set expectations:** every existing issue there has **zero** comments,
+including a licence-clarification request open since 2026-05-11. Assume no
+response and keep carrying these downstream until proven otherwise.
+
+**Licence note:** the repo has no LICENSE file and the sources carry no SPDX
+identifier (only `(C) COPYRIGHT 2021-2021 Arm Technology (China) Co., Ltd.`),
+but `driver/mvx_driver.c:40` declares `MODULE_LICENSE("GPL")`. That ambiguity is
+issue #1 upstream and is unresolved.
+
+**Note:** our installed DKMS source is already 1.0.2 with both fixes applied, so
+these patches are carried forward, not pending application locally.
