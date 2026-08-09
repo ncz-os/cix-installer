@@ -26,8 +26,22 @@ The intersection is empty and the pads never link, so the pipeline fails with
 av1parse normalise colorimetry before it reaches the decoder; VP8 and VP9 have
 no parser element to do so.
 
-Reproduced on an Arm CIX Sky1 (CD8180) stateful V4L2 decoder, GStreamer 1.28.5,
-which advertises VP80 and VP90 on its OUTPUT queue:
+Reproduced on real content, on an Arm CIX Sky1 (CD8180) stateful V4L2 decoder
+running GStreamer 1.28.5, which advertises VP80 and VP90 on its OUTPUT queue.
+
+The cleanest demonstration is a stream copy, so the video bitstream is byte
+identical and only the muxer differs. Big Buck Bunny as published by
+test-videos.co.uk was muxed by Lavf58.14.100 and carries no colorimetry at all;
+remuxing it with ffmpeg 8.1.2 (Lavf62) adds a partially specified Colour
+element and the same bitstream stops negotiating:
+
+  ffmpeg -i Big_Buck_Bunny_1080_10s_5MB.webm -c copy bbb-remux.webm
+
+  original  -> (no colorimetry field)      v4l2vp9dec: Got EOS
+  remuxed   -> colorimetry=(string)2:0:0:0 v4l2vp9dec: not-linked
+
+This is not a synthetic-file problem: current ffmpeg writes that partial Colour
+element, so ordinary WebM produced today triggers it while older files do not.
 
   # before - fails
   gst-launch-1.0 filesrc location=vp9-720p.webm ! matroskademux ! \
@@ -48,6 +62,13 @@ VP8 behaves identically (not-linked before, EOS after). Hardware decoding is
 used in both cases; without the patch the only working path is the software
 vp9dec/vp8dec fallback, which makes the failure easy to miss because playbin
 silently degrades to software rather than erroring.
+
+Scope note: in a browser (WebKit/Epiphany) this failure surfaces as
+MEDIA_ERR_SRC_NOT_SUPPORTED, and the patch clears that. It does not fix every
+VP9 playback problem on this platform - a separate stall at currentTime ~0.15
+with readyState 2 persists afterwards, and that one reproduces with the
+software decoder and with files carrying no colorimetry, so it is not caused by
+this bug.
 
 ---
 diff --git a/subprojects/gst-plugins-good/sys/v4l2/gstv4l2object.c b/subprojects/gst-plugins-good/sys/v4l2/gstv4l2object.c
