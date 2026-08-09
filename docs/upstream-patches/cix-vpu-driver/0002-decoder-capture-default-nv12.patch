@@ -1,0 +1,56 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] media: cix: amvx: default the decoder capture port to NV12
+
+mvx_v4l2_fops.c sets BOTH ports to V4L2_PIX_FMT_YUV420_AFBC_8 on open. For a
+decoder the capture port is the raw output side, so any client that probes the
+device before configuring it is handed Arm's proprietary AFBC format - and
+clients that cannot name AFBC give up there rather than enumerating further.
+
+GStreamer's V4L2 decoders were dead on this hardware for exactly that reason:
+
+    gst-launch-1.0 ... ! v4l2h264dec ! fakesink
+    ERROR: Video device uses an unsupported pixel format.
+
+despite v4l2h264dec advertising video/x-raw(memory:DMABuf) with drm-format
+NV12/YU12/P010 - it is willing to take dmabufs from this decoder, it just never
+reaches negotiation. The same default is what breaks stock Chromium's V4L2 path.
+
+With the decoder capture default changed to NV12, measured on Sky1:
+
+  - gst-launch v4l2h264dec / v4l2h265dec / v4l2av1dec all decode clean, where
+    all three previously failed at probe.
+  - Epiphany (WebKitGTK 2.52.5, which routes media through GStreamer) hardware
+    decodes H.264 1080p, HEVC 1080p and 4K, and AV1 1080p and 4K, with
+    WebKitWebProcess holding /dev/video0 during playback.
+  - Chromium NCZ Sky1 is unaffected: re-ran the full matrix, still 10/10
+    hardware across five codecs at 1080p and 4K.
+
+Scope is deliberately narrow. Only the decoder's capture default moves; the
+coded-side default is untouched because decoder clients always set it
+explicitly, and the encoder is left alone since its raw side is the OUTPUT port
+- a different case that was not tested here. AFBC remains fully available as an
+explicit choice; it is simply no longer what an unconfigured device advertises.
+
+Upstream-Status: Pending (to be sent to CIX)
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/driver/if/v4l2/mvx_v4l2_fops.c
++++ b/driver/if/v4l2/mvx_v4l2_fops.c
+@@ -85,6 +85,17 @@
+     (void)mvx_v4l2_vidioc_s_fmt_vid_out(file, NULL, &fmt);
+ 
+     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++    if (!ctx->is_encoder) {
++        /*
++         * A decoder's capture port is the raw output side. Default it to NV12,
++         * not AFBC, so that clients which probe the device before configuring
++         * it see a format they can name. GStreamer's v4l2 decoders abort with
++         * "Video device uses an unsupported pixel format" when handed AFBC at
++         * probe time, and the same default breaks stock Chromium's V4L2 path.
++         * AFBC is unaffected as an explicit choice.
++         */
++        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_NV12;
++    }
+     (void)mvx_v4l2_vidioc_s_fmt_vid_cap(file, NULL, &fmt);
+ 
+     if (!ctx->is_jpeg) {

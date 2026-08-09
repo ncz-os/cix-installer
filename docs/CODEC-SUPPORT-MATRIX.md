@@ -60,6 +60,35 @@ Measured ceiling is 4096x4096 (5120x2880 fails). Fixed in
 `docs/upstream-patches/cix-vpu-driver/0001-vp8-decode-framesize-4096.patch`;
 Chromium then decodes 4K VP8 on the VPU.
 
+### Epiphany / WebKitGTK
+
+Added 2026-08-08. WebKitGTK routes media through GStreamer, whose V4L2 support
+is mature where ffmpeg's was absent entirely - GStreamer already ships
+`v4l2h264dec`, `v4l2h265dec`, `v4l2vp8dec`, `v4l2vp9dec` and `v4l2av1dec` on
+this board.
+
+All of them were dead until the driver's decoder capture default was changed
+from AFBC to NV12 (`docs/upstream-patches/cix-vpu-driver/0002-*`). No browser
+patching was required.
+
+| Codec | 1080p | 4K |
+|---|---|---|
+| H.264 | ✅ hardware | ✗ media error 4 |
+| HEVC | ✅ hardware | ✅ hardware |
+| VP8 | software | software |
+| VP9 | ✗ stalls | ✗ stalls |
+| AV1 | ✅ **hardware** | ✅ **hardware** |
+
+Verified by `/dev/video0` held by WebKitWebProcess during playback, with the
+clip running to completion (`currentTime` reaching 5s, `readyState` 4,
+`error` null). Note WebKit does not implement
+`getVideoPlaybackQuality()`, so decoded-frame counts always read 0 and cannot
+be used as the signal here.
+
+VP8 and VP9 fail identically at the GStreamer command line, so those are
+GStreamer/driver issues rather than WebKit ones. H.264 at 4K fails while HEVC
+at 4K succeeds, which is not yet explained.
+
 ### Firefox
 
 Firefox NCZ Sky1 Edition decodes all five codecs correctly, all in software.
