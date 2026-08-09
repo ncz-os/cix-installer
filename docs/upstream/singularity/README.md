@@ -1,12 +1,46 @@
-# Upstream contributions to Singularity Desktop — staged drafts
+# Upstream contributions to Singularity Desktop — FILED 2026-08-09
 
-Draft contributions from **NCZ-OS 26.7 "Maximilian"** back to
+Contributions from **NCZ-OS 26.7 "Maximilian"** back to
 [`singularityos-lab/singularity-desktop`](https://github.com/singularityos-lab/singularity-desktop)
 (project site: sinty.dev).
 
-**Status: STAGED / DRAFT ONLY. Nothing here has been filed.** Hold until the NCZ-OS ISO
-bakes and the changes are re-verified on the release image, then file per the checklist
-below.
+**Status: ALL THREE PRs FILED 2026-08-09** (operator directive, superseding the earlier
+"hold until the ISO bakes" gate). Each was re-verified against upstream `d73dea5` at filing
+time, not taken on faith from the drafts below.
+
+| PR | Target | State |
+|----|--------|-------|
+| [singularity-session#5](https://github.com/singularityos-lab/singularity-session/pull/5) | `singularity-session`, base `main` | libexec fix — bug re-confirmed live before filing |
+| [singularity-desktop#233](https://github.com/singularityos-lab/singularity-desktop/pull/233) | `singularity-desktop`, base `master` | Debian/arm64/vetro docs |
+| [singularity-desktop#234](https://github.com/singularityos-lab/singularity-desktop/pull/234) | `singularity-desktop`, base `master` | GLES/no-Vulkan docs |
+
+Also un-drafted [`sinty-nm#1`](https://github.com/singularityos-lab/sinty-nm/pull/1) (iwd
+`FlagNoAutoStart`), which had sat as a **draft** since 2026-07-30 with zero reviewer
+activity — draft PRs never enter a maintainer's review queue, which is almost certainly why
+it got no response rather than any objection to the change.
+
+### Corrections made at filing time
+
+- **`30-pr-gles-no-vulkan` lost its code hook.** Upstream has since added a software-render
+  retry in `singularity-labwc-session` (#78) that sets `WLR_RENDERER=pixman` itself, so the
+  drafted passthrough became redundant. Filed as docs-only, and the page now documents that
+  retry instead. Also moved to a standalone `docs/gpu-support.md` so it does not collide
+  with #233's `CONTRIBUTING.md` edit.
+- **`20-pr-arm64-build` shipped the proven apt list**, taken from `build/build-singularity.sh`
+  (which actually completes an aarch64 container build), not the shorter drafted list. The
+  draft was missing `libsoup-3.0-dev`, `gobject-introspection`, `libupower-glib-dev`,
+  `libnm-dev`, `libgoa-1.0-dev`, `sassc`, `scdoc` and `hwdata`.
+- **`00-intro-issue` NOT posted.** It is a Discussion/announcement, not a patch — held for
+  an explicit operator call on the public NCZ-OS announcement.
+
+### Still held downstream
+
+The `PATCH_NCZ_SHELL` main.vala change in `build/build-singularity.sh` (close the launcher
+popup before the full-screen workspace chooser) still applies cleanly to `d73dea5` at
+offset +46 and upstream has **not** adopted it. It is NOT filed: upstream landed a large
+launcher/dock batch on 2026-08-09 (#229–#232, incl. "Always available app launcher" #218
+and the 3-sectioned dock #147), and the patch has not been re-verified on hardware against
+that new code. Re-test on an O6N before filing.
 
 ## Context
 
