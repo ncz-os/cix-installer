@@ -1,15 +1,3 @@
-diff --git a/media/gpu/args.gni b/media/gpu/args.gni
-index c373e8c1e0..dc9a5a8146 100644
---- a/media/gpu/args.gni
-+++ b/media/gpu/args.gni
-@@ -58,5 +58,6 @@ use_linux_video_acceleration = use_vaapi || use_v4l2_codec
- declare_args() {
-   # A platform that is capable of hardware av1 decoding.
-   use_av1_hw_decoder =
--      is_chromeos || (is_linux && use_vaapi) || is_win || is_apple
-+      is_chromeos || (is_linux && (use_vaapi || use_v4l2_codec)) ||
-+      is_win || is_apple
- }
 diff --git a/media/gpu/sandbox/hardware_video_decoding_sandbox_hook_linux.cc b/media/gpu/sandbox/hardware_video_decoding_sandbox_hook_linux.cc
 index 58a9b95e81..6b26e3e4a9 100644
 --- a/media/gpu/sandbox/hardware_video_decoding_sandbox_hook_linux.cc

@@ -125,6 +125,16 @@ use_v4l2_codec = true
 use_vaapi = false
 use_linux_v4l2_only = true
 
+# AV1 over V4L2. Set explicitly rather than by patching the upstream default in
+# media/gpu/args.gni: upstream cannot turn this on for Linux V4L2 generally,
+# because Chromium's own pinned sysroot has NO V4L2 AV1 UAPI at all (no
+# V4L2_PIX_FMT_AV1, no V4L2_CID_MPEG_VIDEO_AV1_PROFILE, no
+# v4l2_ctrl_av1_sequence), so the AV1 code would not compile. Our build only
+# gets away with it because the sysroot step above injects modern kernel
+# headers from $UAPI_DIR. It is a declare_args, so setting it here is all we
+# ever needed.
+use_av1_hw_decoder = true
+
 use_ozone = true
 ozone_platform = "wayland"
 ozone_platform_wayland = true
