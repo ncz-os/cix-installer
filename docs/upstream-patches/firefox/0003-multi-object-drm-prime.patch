@@ -1,0 +1,178 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] Support multi-object NV12/YUV420 DRM PRIME descriptors
+
+FFmpegDescToVA assumes every NV12 and YUV420 DRM PRIME descriptor is a single
+contiguous dmabuf holding all planes, and reads only objects[0]:
+
+    MOZ_ASSERT(aDesc.nb_objects == 1);
+    vaDesc.objects[0].fd = aDesc.objects[0].fd;
+    vaDesc.layers[1].offset[0] = offset + uncrop_width * uncrop_height;
+
+True of VA-API and Vulkan; false of V4L2 multiplanar drivers, which allocate
+one buffer per plane and export one dmabuf per plane. MOZ_ASSERT compiles out
+in release, so instead of failing loudly the code builds a descriptor naming
+only the luma FD with chroma offsets pointing past the end of it. EGL rejects
+the import and the surface comes back null, which the caller reports as a
+decode error - and MediaFormatReader turns any decode error from a hardware
+decoder into "disable hardware decoding".
+
+Adds multi-object branches for both formats. The single-object paths are
+untouched.
+
+Measured on CIX Sky1 (Mali-G720 / libmali): with these branches all three
+YUV420 planes import successfully where NV12 previously failed at plane 1.
+libmali accepts single-plane R8 dmabufs and rejects GR88, which is why the
+YUV420 three-R8 layout works where the NV12 R8+GR88 layout does not.
+
+Status: import succeeds; playback still ends in
+NS_ERROR_DOM_MEDIA_FATAL_ERR. Not submitted upstream until that is resolved.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoFramePool.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoFramePool.cpp
+@@ -356,6 +356,8 @@
+     mTextureCreationWorks = Some(surface->VerifyTextureCreation());
+     if (!*mTextureCreationWorks) {
+       DMABUF_LOG("  failed to create texture over DMABuf memory!");
++      fprintf(stderr, "NCZDBG pool-texture-creation-failed\n");
++      fflush(stderr);
+       return nullptr;
+     }
+   }
+@@ -413,6 +415,8 @@
+     mTextureCreationWorks = Some(surface->VerifyTextureCreation());
+     if (!*mTextureCreationWorks) {
+       DMABUF_LOG("  failed to create texture over DMABuf memory!");
++      fprintf(stderr, "NCZDBG pool-texture-creation-failed\n");
++      fflush(stderr);
+       return nullptr;
+     }
+   }
+@@ -480,7 +484,33 @@
+ 
+   unsigned int offset = aDesc.layers[0].planes[0].offset;
+ 
+-  if (aDesc.layers[0].format == DRM_FORMAT_YUV420) {
++  if (aDesc.layers[0].format == DRM_FORMAT_YUV420 && aDesc.nb_objects == 3) {
++    // Multi-object YUV420: one dmabuf per plane, which is what V4L2
++    // multiplanar drivers export. The contiguous branch below reads only
++    // objects[0] and derives chroma offsets from the luma size, which lands
++    // past the end of a luma-only buffer.
++    vaDesc.fourcc = VA_FOURCC_I420;
++
++    vaDesc.num_objects = 3;
++    for (int i = 0; i < 3; i++) {
++      vaDesc.objects[i].drm_format_modifier = aDesc.objects[i].format_modifier;
++      vaDesc.objects[i].size = aDesc.objects[i].size;
++      vaDesc.objects[i].fd = aDesc.objects[i].fd;
++    }
++
++    vaDesc.num_layers = 3;
++    for (int i = 0; i < 3; i++) {
++      vaDesc.layers[i].drm_format = DRM_FORMAT_R8;
++      vaDesc.layers[i].num_planes = 1;
++      vaDesc.layers[i].object_index[0] = i;
++      vaDesc.layers[i].offset[0] =
++          aDesc.layers[0].nb_planes > i ? aDesc.layers[0].planes[i].offset : 0;
++      vaDesc.layers[i].pitch[0] =
++          aDesc.layers[0].nb_planes > i && aDesc.layers[0].planes[i].pitch > 0
++              ? (unsigned int)aDesc.layers[0].planes[i].pitch
++              : (i == 0 ? uncrop_width : uncrop_width / 2);
++    }
++  } else if (aDesc.layers[0].format == DRM_FORMAT_YUV420) {
+     vaDesc.fourcc = VA_FOURCC_I420;
+ 
+     // V4L2 expresses YUV420 as a single contiguous buffer containing
+@@ -507,6 +537,36 @@
+     vaDesc.layers[2].offset[0] = offset + uncrop_width * uncrop_height * 5 / 4;
+     vaDesc.layers[2].pitch[0] = uncrop_width / 2;
+   } else if (aDesc.layers[0].format == DRM_FORMAT_NV12 &&
++             aDesc.nb_layers == 1 && aDesc.nb_objects == 2) {
++    // Multi-object NV12: one dmabuf per plane, which is what V4L2 multiplanar
++    // drivers export (the CIX Sky1 VPU among them). The single-object branch
++    // below reads only objects[0] and derives the chroma offset from the luma
++    // stride, both of which are wrong here - chroma lives in its own buffer at
++    // its own offset, and its FD would be dropped entirely.
++    vaDesc.fourcc = VA_FOURCC_NV12;
++
++    vaDesc.num_objects = 2;
++    for (int i = 0; i < 2; i++) {
++      vaDesc.objects[i].drm_format_modifier = aDesc.objects[i].format_modifier;
++      vaDesc.objects[i].size = aDesc.objects[i].size;
++      vaDesc.objects[i].fd = aDesc.objects[i].fd;
++    }
++
++    vaDesc.num_layers = 2;
++    for (int i = 0; i < 2; i++) {
++      vaDesc.layers[i].num_planes = 1;
++      vaDesc.layers[i].object_index[0] = i;
++      vaDesc.layers[i].offset[0] =
++          aDesc.layers[0].nb_planes > i ? aDesc.layers[0].planes[i].offset : 0;
++    }
++    vaDesc.layers[0].drm_format = DRM_FORMAT_R8;    // Y plane
++    vaDesc.layers[0].pitch[0] = yPitch;
++    vaDesc.layers[1].drm_format = DRM_FORMAT_GR88;  // UV plane
++    vaDesc.layers[1].pitch[0] =
++        aDesc.layers[0].nb_planes >= 2 && aDesc.layers[0].planes[1].pitch > 0
++            ? (unsigned int)aDesc.layers[0].planes[1].pitch
++            : uvPitch;
++  } else if (aDesc.layers[0].format == DRM_FORMAT_NV12 &&
+              aDesc.nb_layers == 1) {
+     vaDesc.fourcc = VA_FOURCC_NV12;
+ 
+@@ -611,8 +671,27 @@
+ 
+   auto layerDesc = FFmpegDescToVA(aDesc, aAVFrame);
+   if (layerDesc.isNothing()) {
++    fprintf(stderr, "NCZDBG FFmpegDescToVA rejected nb_objects=%d nb_layers=%d "
++                    "fourcc=0x%x\n",
++            aDesc.nb_objects, aDesc.nb_layers,
++            aDesc.nb_layers > 0 ? aDesc.layers[0].format : 0);
++    fflush(stderr);
+     return nullptr;
+   }
++  {
++    static int nczVaDesc = 0;
++    if (nczVaDesc < 2) {
++      fprintf(stderr,
++              "NCZDBG vaDesc fourcc=0x%x objects=%d layers=%d "
++              "l0_pitch=%d l1_pitch=%d l1_off=%d\n",
++              layerDesc->fourcc, layerDesc->num_objects, layerDesc->num_layers,
++              layerDesc->layers[0].pitch[0],
++              layerDesc->num_layers > 1 ? layerDesc->layers[1].pitch[0] : 0,
++              layerDesc->num_layers > 1 ? layerDesc->layers[1].offset[0] : 0);
++      fflush(stderr);
++      nczVaDesc++;
++    }
++  }
+ 
+   // Width and height, after cropping
+   int crop_width = (int)layerDesc->width;
+@@ -640,6 +719,8 @@
+                               copySurface)) {
+     if (!copySurface) {
+       // Failed without texture copy. We can't do more here.
++      fprintf(stderr, "NCZDBG pool-updateyuv-failed copy=0\n");
++      fflush(stderr);
+       return nullptr;
+     }
+     // Try again without texture copy
+@@ -647,6 +728,8 @@
+     copySurface = mTextureCopyWorks = false;
+     if (!surface->UpdateYUVData(layerDesc.value(), crop_width, crop_height,
+                                 copySurface)) {
++      fprintf(stderr, "NCZDBG pool-updateyuv-failed-both\n");
++      fflush(stderr);
+       return nullptr;
+     }
+   }
+@@ -655,6 +738,8 @@
+     mTextureCreationWorks = Some(surface->VerifyTextureCreation());
+     if (!*mTextureCreationWorks) {
+       DMABUF_LOG("  failed to create texture over DMABuf memory!");
++      fprintf(stderr, "NCZDBG pool-texture-creation-failed\n");
++      fflush(stderr);
+       return nullptr;
+     }
+   }

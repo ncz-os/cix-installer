@@ -127,14 +127,58 @@ So **FFmpeg 8.x's V4L2-M2M wrapper cannot produce DRM_PRIME frames at all**,
 and Firefox's V4L2 path is written against one that can. No combination of
 prefs or Firefox patches can bridge that: the frames simply are not dmabufs.
 
-## What would actually fix it
+## The fix, and how far it got
 
-Restore DRM_PRIME export to `v4l2_m2m` in the ffmpeg fork we already maintain
-for `av1_v4l2m2m`. The decoder must export its capture buffers as dmabuf and
-hand back an `AVDRMFrameDescriptor`, which is what `CreateImageV4L2` expects.
+Two patches were written and are in this repo:
 
-That is real C work in libavcodec, not a Firefox patch, and it is the only
-route to hardware decode in Firefox on this platform.
+- `docs/upstream-patches/ffmpeg/0002-v4l2-m2m-drm-prime-output.patch` -
+  DRM_PRIME output for v4l2_m2m (VIDIOC_EXPBUF, AVDRMFrameDescriptor,
+  negotiated through ff_get_format).
+- `docs/upstream-patches/firefox/0003-multi-object-drm-prime.patch` -
+  multi-object NV12/YUV420 descriptors, which V4L2 multiplanar drivers produce
+  and which FFmpegDescToVA previously mishandled.
 
-Chromium is unaffected - it drives V4L2 directly rather than through ffmpeg,
-and does all five codecs at 1080p and 4K.
+Each blocker below was found by instrumenting with `fprintf(stderr)`, because
+neither FFMPEG_LOG nor LOGDMABUF output reaches MOZ_LOG_FILE on this build.
+
+| Blocker | Evidence | Resolution |
+|---|---|---|
+| No DRM_PRIME in ffmpeg | `avformat=23` (NV12), descriptor read as garbage `0x51515151` | ffmpeg patch |
+| Software WebRender disables HW decode | `gate=no-hw-webrender swwr=1` | `gfx.webrender.software=false` |
+| RDD sandbox blocks GL entirely | `usedmabufgl-no-context` | `MOZ_DISABLE_RDD_SANDBOX=1` |
+| Single-object-only descriptor handling | `egl-import-FAILED plane=1`, chroma offset past end of luma buffer | Firefox patch |
+| libmali rejects GR88 dmabuf import | `egl-import-ok` R8, `egl-import-FAILED` GR88 | prefer YU12 (three R8 planes) |
+| Chroma pitch wrong on multi-object | pitches `1920/1920/960` on a 1920-wide I420 frame | derive from luma stride |
+
+After all six, the import chain succeeds end to end:
+
+```
+InitV4L2Decoder rv=0x0 ok=1
+frame-path hwaccel=1 usingV4L2=1
+v4l2-desc nb_objects=3 nb_layers=1 layer0_fourcc=YU12 avformat=178
+egl-import-ok plane=0 / plane=1 / plane=2
+CreateImageV4L2 frame=0 rv=0x0 ok=1
+```
+
+and critically, **no fallback decoder is created** - `hwdisabled=1` count is 0,
+where every previous run had two or three.
+
+## Not finished
+
+Playback still does not complete. `NS_ERROR_DOM_MEDIA_FATAL_ERR (0x806e0005)`
+appears after the first frames, at both 1080p and 4K, and the test page stops
+reporting. Frames are being produced on the VPU and imported into GL, but
+something downstream of that rejects the stream.
+
+Two measurement notes, because both misled earlier passes:
+
+- **`/dev/video*` holder detection does not work for the ffmpeg path.** A
+  known-good `ffmpeg -c:v h264_v4l2m2m` decode shows no holder in
+  `/proc/*/fd` either. Chromium showed one only because it opens the node
+  directly. Absence of a holder is not evidence of software decode.
+- CPU-time A/B is valid and did discriminate: stock libavcodec burned 1619
+  ticks decoding 4K H.264 in software with a fallback decoder created, against
+  the patched library producing V4L2 frames with none.
+
+Chromium is unaffected throughout - it drives V4L2 directly rather than through
+ffmpeg, and does all five codecs at 1080p and 4K.

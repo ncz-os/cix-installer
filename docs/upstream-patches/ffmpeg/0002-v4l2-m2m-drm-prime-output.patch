@@ -1,0 +1,479 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] avcodec/v4l2_m2m: add AV_PIX_FMT_DRM_PRIME output
+
+FFmpeg 8.x's V4L2-M2M decoder cannot produce dmabuf frames. v4l2_m2m_dec.c,
+v4l2_buffers.c and v4l2_context.c contain no DRM_PRIME, no
+AVDRMFrameDescriptor and no DRM export path; the only libavcodec decoders that
+produce AV_PIX_FMT_DRM_PRIME are the Rockchip rkmpp ones.
+
+That blocks every zero-copy consumer of V4L2 hardware decode. Firefox's V4L2
+path, for one, casts frame->data[0] to an AVDRMFrameDescriptor - against this
+decoder it receives an NV12 CPU frame, reads pixel data as a struct, and fails
+on the first frame.
+
+This adds the export:
+
+  - VIDIOC_EXPBUF per plane, once per buffer, lazily on first use. The FDs live
+    for the life of the V4L2Buffer because the driver recycles the same mmap'd
+    buffers; exporting per dequeue would churn descriptors.
+
+  - An AVDRMFrameDescriptor built from the capture format. Single-planar
+    drivers give one object whose layers are described by offsets; multiplanar
+    drivers give one object per plane. Both shapes are emitted correctly.
+
+  - capture->av_pix_fmt continues to hold the real software format, so buffer
+    sizing, plane math and the software frame path are untouched. DRM output is
+    a flag on the m2m context applied only where the AVFrame is produced.
+
+  - The format is offered through ff_get_format alongside the software one, so
+    a caller that wants dmabufs selects DRM_PRIME while avcodec_default_get_format
+    keeps choosing the software format. The ffmpeg CLI and existing consumers
+    are unaffected - verified bit-exact against the pre-patch software output.
+
+  - Chroma pitch for multi-object planar formats is derived from the luma
+    stride rather than plane_info[i].bytesperline, because at least one driver
+    (CIX Sky1 VPU) reports the luma bytesperline for every plane, giving
+    1920/1920/960 on a 1920-wide I420 frame. A wrong chroma pitch is not
+    rejected at import; it silently shears the plane.
+
+  - Exported FDs are closed in v4l2_release_buffers, or each stream reinit
+    leaks one per plane per buffer.
+
+Status: the descriptor is correct and consumers import all planes
+successfully. End-to-end playback in Firefox is NOT yet working - see
+docs/upstream-patches/firefox/HW-DECODE-ROOT-CAUSE.md. Not submitted upstream
+until that is resolved.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/libavcodec/v4l2_buffers.c
++++ b/libavcodec/v4l2_buffers.c
+@@ -30,10 +30,12 @@
+ #include "libavcodec/avcodec.h"
+ #include "libavutil/pixdesc.h"
+ #include "libavutil/refstruct.h"
++#include <drm_fourcc.h>
+ #include "v4l2_context.h"
+ #include "v4l2_buffers.h"
+ #include "v4l2_m2m.h"
+ 
++
+ #ifndef USEC_PER_SEC
+ #define USEC_PER_SEC 1000000
+ #endif
+@@ -52,6 +54,195 @@
+     return buf_to_m2mctx(buf)->avctx;
+ }
+ 
++/* Map a V4L2 capture fourcc to its DRM equivalent.
++ *
++ * Only formats this decoder can actually emit are listed. An unmapped format
++ * must fail rather than guess: handing a consumer a descriptor with the wrong
++ * fourcc produces silently corrupted output, which is far worse than falling
++ * back to the software path. */
++static uint32_t v4l2_drm_fourcc(uint32_t v4l2_fmt)
++{
++    switch (v4l2_fmt) {
++    case V4L2_PIX_FMT_NV12:
++    case V4L2_PIX_FMT_NV12M:
++        return DRM_FORMAT_NV12;
++    case V4L2_PIX_FMT_NV21:
++    case V4L2_PIX_FMT_NV21M:
++        return DRM_FORMAT_NV21;
++    case V4L2_PIX_FMT_YUV420:
++    case V4L2_PIX_FMT_YUV420M:
++        return DRM_FORMAT_YUV420;
++    case V4L2_PIX_FMT_YVU420:
++        return DRM_FORMAT_YVU420;
++    case V4L2_PIX_FMT_NV16:
++    case V4L2_PIX_FMT_NV16M:
++        return DRM_FORMAT_NV16;
++    case V4L2_PIX_FMT_YUYV:
++        return DRM_FORMAT_YUYV;
++    case V4L2_PIX_FMT_UYVY:
++        return DRM_FORMAT_UYVY;
++    default:
++        return 0;
++    }
++}
++
++/* Export the buffer's planes as dmabuf FDs and build an AVDRMFrameDescriptor.
++ *
++ * Single-planar drivers hand back one buffer holding every plane, so the
++ * descriptor gets one object and one layer whose planes are described by
++ * offsets into it. Multi-planar drivers get one object per plane. Both shapes
++ * are legal DRM PRIME and consumers handle both. */
++static int v4l2_buffer_export_drm(V4L2Buffer *avbuf)
++{
++    V4L2Context *ctx = avbuf->context;
++    AVDRMFrameDescriptor *desc = &avbuf->drm_frame;
++    AVDRMLayerDescriptor *layer;
++    struct v4l2_exportbuffer expbuf;
++    uint32_t fourcc;
++    int i, ret;
++    int height = V4L2_TYPE_IS_MULTIPLANAR(ctx->format.type) ?
++                 ctx->format.fmt.pix_mp.height : ctx->format.fmt.pix.height;
++    uint32_t pixfmt = V4L2_TYPE_IS_MULTIPLANAR(ctx->format.type) ?
++                      ctx->format.fmt.pix_mp.pixelformat :
++                      ctx->format.fmt.pix.pixelformat;
++
++    if (avbuf->drm_exported)
++        return 0;
++
++    fourcc = v4l2_drm_fourcc(pixfmt);
++    if (!fourcc) {
++        av_log(logger(avbuf), AV_LOG_ERROR,
++               "%s: no DRM fourcc for V4L2 format %c%c%c%c\n", ctx->name,
++               pixfmt & 0xff, (pixfmt >> 8) & 0xff,
++               (pixfmt >> 16) & 0xff, (pixfmt >> 24) & 0xff);
++        return AVERROR(EINVAL);
++    }
++
++    memset(desc, 0, sizeof(*desc));
++    for (i = 0; i < VIDEO_MAX_PLANES; i++)
++        avbuf->drm_fds[i] = -1;
++
++    for (i = 0; i < avbuf->num_planes; i++) {
++        memset(&expbuf, 0, sizeof(expbuf));
++        expbuf.type  = avbuf->buf.type;
++        expbuf.index = avbuf->buf.index;
++        expbuf.plane = i;
++        expbuf.flags = O_RDONLY;
++
++        ret = ioctl(buf_to_m2mctx(avbuf)->fd, VIDIOC_EXPBUF, &expbuf);
++        if (ret < 0) {
++            ret = AVERROR(errno);
++            av_log(logger(avbuf), AV_LOG_ERROR,
++                   "%s: VIDIOC_EXPBUF plane %d: %s\n", ctx->name, i,
++                   av_err2str(ret));
++            goto fail;
++        }
++        avbuf->drm_fds[i] = expbuf.fd;
++
++        desc->objects[i].fd   = expbuf.fd;
++        desc->objects[i].size = avbuf->plane_info[i].length;
++        /* MOD_INVALID means "unspecified", which is what a V4L2 MMAP
++         * buffer actually is: the driver never told us a modifier. Declaring
++         * LINEAR asserts a layout we have not been told, and an EGL importer
++         * that validates modifiers will reject the import outright. */
++        desc->objects[i].format_modifier = DRM_FORMAT_MOD_INVALID;
++    }
++    desc->nb_objects = avbuf->num_planes;
++
++    desc->nb_layers = 1;
++    layer = &desc->layers[0];
++    layer->format = fourcc;
++
++    if (avbuf->num_planes == 1) {
++        /* One object holding all planes: describe them as offsets into it.
++         * The chroma offset is derived from the luma stride and the FORMAT
++         * height, not the visible height - the driver pads to the former and
++         * using the latter walks into the middle of the luma plane. */
++        int stride = avbuf->plane_info[0].bytesperline;
++
++        switch (fourcc) {
++        case DRM_FORMAT_NV12:
++        case DRM_FORMAT_NV21:
++            layer->nb_planes = 2;
++            layer->planes[0].object_index = 0;
++            layer->planes[0].offset = 0;
++            layer->planes[0].pitch  = stride;
++            layer->planes[1].object_index = 0;
++            layer->planes[1].offset = (ptrdiff_t)stride * height;
++            layer->planes[1].pitch  = stride;
++            break;
++        case DRM_FORMAT_YUV420:
++        case DRM_FORMAT_YVU420:
++            layer->nb_planes = 3;
++            layer->planes[0].object_index = 0;
++            layer->planes[0].offset = 0;
++            layer->planes[0].pitch  = stride;
++            layer->planes[1].object_index = 0;
++            layer->planes[1].offset = (ptrdiff_t)stride * height;
++            layer->planes[1].pitch  = stride / 2;
++            layer->planes[2].object_index = 0;
++            layer->planes[2].offset = (ptrdiff_t)stride * height +
++                                      (ptrdiff_t)(stride / 2) * (height / 2);
++            layer->planes[2].pitch  = stride / 2;
++            break;
++        default:
++            /* Packed formats: a single plane covering the whole buffer. */
++            layer->nb_planes = 1;
++            layer->planes[0].object_index = 0;
++            layer->planes[0].offset = 0;
++            layer->planes[0].pitch  = stride;
++            break;
++        }
++    } else {
++        /* One object per plane. The chroma pitch is derived from the luma
++         * stride rather than taken from plane_info[i].bytesperline: this
++         * driver reports the LUMA bytesperline for every plane, which for
++         * YU12 yielded 1920/1920/960 on a 1920-wide frame where planes 1 and 2
++         * are 960 wide. A wrong chroma pitch is not rejected at import - it
++         * silently shears the chroma planes. */
++        int luma_stride = avbuf->plane_info[0].bytesperline;
++
++        for (i = 0; i < avbuf->num_planes; i++) {
++            int pitch = avbuf->plane_info[i].bytesperline;
++
++            if (i > 0) {
++                switch (fourcc) {
++                case DRM_FORMAT_YUV420:
++                case DRM_FORMAT_YVU420:
++                    pitch = luma_stride / 2;
++                    break;
++                case DRM_FORMAT_NV12:
++                case DRM_FORMAT_NV21:
++                    /* Interleaved chroma: half the samples, two bytes each,
++                     * so the row is the same width as luma. */
++                    pitch = luma_stride;
++                    break;
++                default:
++                    break;
++                }
++            }
++
++            layer->planes[i].object_index = i;
++            layer->planes[i].offset = 0;
++            layer->planes[i].pitch  = pitch;
++        }
++        layer->nb_planes = avbuf->num_planes;
++    }
++
++    avbuf->drm_exported = 1;
++    return 0;
++
++fail:
++    for (i = 0; i < VIDEO_MAX_PLANES; i++) {
++        if (avbuf->drm_fds[i] >= 0) {
++            close(avbuf->drm_fds[i]);
++            avbuf->drm_fds[i] = -1;
++        }
++    }
++    memset(desc, 0, sizeof(*desc));
++    return ret;
++}
++
+ static inline AVRational v4l2_get_timebase(V4L2Buffer *avbuf)
+ {
+     V4L2m2mContext *s = buf_to_m2mctx(avbuf);
+@@ -359,6 +550,31 @@
+     return 0;
+ }
+ 
++/* Produce an AVFrame carrying the DRM descriptor rather than pixel pointers.
++ *
++ * The reference on plane 0 is taken exactly as the software path does, so the
++ * buffer is not returned to the driver while the consumer still holds the
++ * dmabuf FDs. data[0] points at the descriptor stored in the V4L2Buffer, whose
++ * lifetime that reference now covers. */
++static int v4l2_buffer_buf_to_drmframe(AVFrame *frame, V4L2Buffer *avbuf)
++{
++    int ret;
++
++    ret = v4l2_buffer_export_drm(avbuf);
++    if (ret)
++        return ret;
++
++    ret = v4l2_buf_to_bufref(avbuf, 0, &frame->buf[0]);
++    if (ret)
++        return ret;
++
++    frame->format = AV_PIX_FMT_DRM_PRIME;
++    frame->data[0] = (uint8_t *)&avbuf->drm_frame;
++    frame->linesize[0] = 0;
++
++    return 0;
++}
++
+ static int v4l2_buffer_swframe_to_buf(const AVFrame *frame, V4L2Buffer *out)
+ {
+     int i, ret;
+@@ -430,7 +646,9 @@
+     av_frame_unref(frame);
+ 
+     /* 1. get references to the actual data */
+-    ret = v4l2_buffer_buf_to_swframe(frame, avbuf);
++    ret = buf_to_m2mctx(avbuf)->output_drm ?
++              v4l2_buffer_buf_to_drmframe(frame, avbuf) :
++              v4l2_buffer_buf_to_swframe(frame, avbuf);
+     if (ret)
+         return ret;
+ 
+@@ -500,8 +718,30 @@
+     return 0;
+ }
+ 
++void ff_v4l2_buffer_close_drm(V4L2Buffer *avbuf)
++{
++    int i;
++
++    for (i = 0; i < VIDEO_MAX_PLANES; i++) {
++        if (avbuf->drm_fds[i] >= 0) {
++            close(avbuf->drm_fds[i]);
++            avbuf->drm_fds[i] = -1;
++        }
++    }
++    avbuf->drm_exported = 0;
++}
++
+ int ff_v4l2_buffer_initialize(V4L2Buffer* avbuf, int index)
+ {
++    /* Before anything can fail: an uninitialised drm_fds would make the
++     * export error path close arbitrary descriptors. */
++    {
++        int i;
++        avbuf->drm_exported = 0;
++        for (i = 0; i < VIDEO_MAX_PLANES; i++)
++            avbuf->drm_fds[i] = -1;
++    }
++
+     V4L2Context *ctx = avbuf->context;
+     int ret, i;
+ 
+--- a/libavcodec/v4l2_buffers.h
++++ b/libavcodec/v4l2_buffers.h
+@@ -29,6 +29,7 @@
+ #include <linux/videodev2.h>
+ 
+ #include "libavutil/frame.h"
++#include "libavutil/hwcontext_drm.h"
+ #include "packet.h"
+ 
+ enum V4L2Buffer_status {
+@@ -66,6 +67,14 @@
+     int flags;
+     enum V4L2Buffer_status status;
+ 
++    /* DRM PRIME export. Populated lazily on first use and then stable for the
++     * life of the buffer, because the driver recycles the same mmap'd buffers.
++     * drm_exported distinguishes "not yet exported" from "exported with zero
++     * planes", which would otherwise look identical. */
++    AVDRMFrameDescriptor drm_frame;
++    int drm_fds[VIDEO_MAX_PLANES];
++    int drm_exported;
++
+ } V4L2Buffer;
+ 
+ /**
+@@ -122,6 +131,15 @@
+ int ff_v4l2_buffer_initialize(V4L2Buffer* avbuf, int index);
+ 
+ /**
++ * Closes any dmabuf FDs exported for this buffer.
++ *
++ * Safe to call on a buffer that was never exported.
++ *
++ * @param[in] avbuf V4L2Buffer to release DRM FDs for
++ */
++void ff_v4l2_buffer_close_drm(V4L2Buffer *avbuf);
++
++/**
+  * Enqueues a V4L2Buffer
+  *
+  * @param[in] avbuf V4L2Bfuffer to push to the driver
+--- a/libavcodec/v4l2_m2m.h
++++ b/libavcodec/v4l2_m2m.h
+@@ -54,6 +54,11 @@
+     atomic_uint refcount;
+     int reinit;
+ 
++    /* Non-zero when the caller selected AV_PIX_FMT_DRM_PRIME via get_format.
++     * capture.av_pix_fmt continues to hold the real software format so that
++     * buffer sizing and the sw frame path are unaffected. */
++    int output_drm;
++
+     /* null frame/packet received */
+     int draining;
+     AVPacket buf_pkt;
+--- a/libavcodec/v4l2_m2m_dec.c
++++ b/libavcodec/v4l2_m2m_dec.c
+@@ -62,9 +62,72 @@
+         return ret;
+     }
+ 
+-    /* 2.1 update the AVCodecContext */
+-    avctx->pix_fmt = ff_v4l2_format_v4l2_to_avfmt(capture->format.fmt.pix_mp.pixelformat, AV_CODEC_ID_RAWVIDEO);
+-    capture->av_pix_fmt = avctx->pix_fmt;
++    /* 2.1 update the AVCodecContext.
++     *
++     * capture->av_pix_fmt always holds the REAL software format: buffer
++     * sizing, plane math and the software frame path all depend on it. Only
++     * avctx->pix_fmt becomes DRM_PRIME when the caller asks for dmabufs. */
++    {
++        enum AVPixelFormat sw_fmt =
++            ff_v4l2_format_v4l2_to_avfmt(capture->format.fmt.pix_mp.pixelformat,
++                                         AV_CODEC_ID_RAWVIDEO);
++        enum AVPixelFormat pix_fmts[3] = {
++            AV_PIX_FMT_DRM_PRIME, sw_fmt, AV_PIX_FMT_NONE
++        };
++        int gf;
++
++        capture->av_pix_fmt = sw_fmt;
++
++        gf = ff_get_format(avctx, pix_fmts);
++        if (gf == AV_PIX_FMT_DRM_PRIME) {
++            /* For DRM output, prefer single-planar YUV420 over the driver
++             * default. Consumers split a contiguous YUV420 buffer into three
++             * single-plane R8 images, whereas NV12 needs an R8 plus a GR88
++             * plane - and GR88 dmabuf import is not universally supported
++             * (Mali/libmali rejects it while accepting R8). Purely a
++             * preference: if the driver will not take YUV420 we keep its
++             * default and carry on. */
++            struct v4l2_format tryfmt = capture->format;
++            uint32_t want = V4L2_PIX_FMT_YUV420;
++            uint32_t have = V4L2_TYPE_IS_MULTIPLANAR(tryfmt.type) ?
++                            tryfmt.fmt.pix_mp.pixelformat :
++                            tryfmt.fmt.pix.pixelformat;
++
++            if (have != want) {
++                if (V4L2_TYPE_IS_MULTIPLANAR(tryfmt.type))
++                    tryfmt.fmt.pix_mp.pixelformat = want;
++                else
++                    tryfmt.fmt.pix.pixelformat = want;
++
++                if (ioctl(s->fd, VIDIOC_S_FMT, &tryfmt) == 0) {
++                    uint32_t got = V4L2_TYPE_IS_MULTIPLANAR(tryfmt.type) ?
++                                   tryfmt.fmt.pix_mp.pixelformat :
++                                   tryfmt.fmt.pix.pixelformat;
++                    if (got == want) {
++                        capture->format = tryfmt;
++                        sw_fmt = ff_v4l2_format_v4l2_to_avfmt(want,
++                                                              AV_CODEC_ID_RAWVIDEO);
++                        capture->av_pix_fmt = sw_fmt;
++                        av_log(avctx, AV_LOG_DEBUG,
++                               "DRM output: switched capture to YUV420\n");
++                    } else {
++                        /* Driver accepted the ioctl but chose another format;
++                         * re-read so our bookkeeping matches reality. */
++                        ioctl(s->fd, VIDIOC_G_FMT, &capture->format);
++                    }
++                }
++            }
++
++            s->output_drm     = 1;
++            avctx->pix_fmt    = AV_PIX_FMT_DRM_PRIME;
++            avctx->sw_pix_fmt = sw_fmt;
++            av_log(avctx, AV_LOG_DEBUG, "using DRM PRIME output (sw fmt %s)\n",
++                   av_get_pix_fmt_name(sw_fmt));
++        } else {
++            s->output_drm  = 0;
++            avctx->pix_fmt = sw_fmt;
++        }
++    }
+ 
+     /* 3. set the crop parameters */
+     selection.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+--- a/libavcodec/v4l2_context.c
++++ b/libavcodec/v4l2_context.c
+@@ -453,6 +453,10 @@
+     for (i = 0; i < ctx->num_buffers; i++) {
+         V4L2Buffer *buffer = &ctx->buffers[i];
+ 
++        /* Exported dmabuf FDs outlive the mmap and must be closed here, or
++         * each stream reinit leaks one per plane per buffer. */
++        ff_v4l2_buffer_close_drm(buffer);
++
+         for (j = 0; j < buffer->num_planes; j++) {
+             struct V4L2Plane_info *p = &buffer->plane_info[j];
+             if (p->mm_addr && p->length)
