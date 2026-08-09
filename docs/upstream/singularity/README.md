@@ -30,17 +30,6 @@ it got no response rather than any objection to the change.
   (which actually completes an aarch64 container build), not the shorter drafted list. The
   draft was missing `libsoup-3.0-dev`, `gobject-introspection`, `libupower-glib-dev`,
   `libnm-dev`, `libgoa-1.0-dev`, `sassc`, `scdoc` and `hwdata`.
-- **`00-intro-issue` NOT posted.** It is a Discussion/announcement, not a patch — held for
-  an explicit operator call on the public NCZ-OS announcement.
-
-### Still held downstream
-
-The `PATCH_NCZ_SHELL` main.vala change in `build/build-singularity.sh` (close the launcher
-popup before the full-screen workspace chooser) still applies cleanly to `d73dea5` at
-offset +46 and upstream has **not** adopted it. It is NOT filed: upstream landed a large
-launcher/dock batch on 2026-08-09 (#229–#232, incl. "Always available app launcher" #218
-and the 3-sectioned dock #147), and the patch has not been re-verified on hardware against
-that new code. Re-test on an O6N before filing.
 
 ## Context
 
@@ -52,12 +41,11 @@ worth sending upstream.
 
 ## Files
 
-| File | What | Filing target |
-|------|------|---------------|
-| `00-intro-issue.md` | Friendly intro/announcement | **GitHub Discussion** (post FIRST) |
-| `10-pr-libexec-path.md` | Fix: session launcher execs polkit agent from `bin/` but meson installs it to `libexecdir` → silent exit-127 for any `libexecdir != bindir` prefix | **PR** (highest value; file first among PRs) |
-| `20-pr-arm64-build.md` | Docs: Debian/Ubuntu deps + aarch64 support statement + `vetro` host-tool build | **PR** (docs-only) |
-| `30-pr-gles-no-vulkan.md` | Docs (+ optional guard): GLES-only / no-Vulkan GPU compatibility | **PR** (lightest; file last) |
+| File | What | Filed as |
+|------|------|----------|
+| `10-pr-libexec-path.md` | Fix: session launcher execs polkit agent from `bin/` but meson installs it to `libexecdir` → silent exit-127 for any `libexecdir != bindir` prefix | [singularity-session#5](https://github.com/singularityos-lab/singularity-session/pull/5) |
+| `20-pr-arm64-build.md` | Docs: Debian/Ubuntu deps + aarch64 support statement + `vetro` host-tool build | [singularity-desktop#233](https://github.com/singularityos-lab/singularity-desktop/pull/233) |
+| `30-pr-gles-no-vulkan.md` | Docs: GLES-only / no-Vulkan GPU compatibility | [singularity-desktop#234](https://github.com/singularityos-lab/singularity-desktop/pull/234) |
 
 ## Upstreamable vs. downstream-only
 
@@ -111,23 +99,22 @@ worth sending upstream.
   version, repro steps, and `journalctl --user -u singularity-desktop -n 100`.
 - Review tag: `@singularityos-lab/core`.
 
-## Filing checklist (AFTER the ISO bakes — do not file before)
+## Filing conventions (applied to #5 / #233 / #234)
 
-1. **Re-verify every claim on the release image**, not the build container. Re-run the
-   libexec repro, the aarch64 build, and the GLES session on the baked ISO.
-2. **Post `00-intro-issue.md` as a GitHub Discussion first.** Let it breathe.
-3. **File PRs on a calm cadence — max 3-4/day to this upstream, spaced ~1h apart.** Order:
-   `10` (libexec fix) → `20` (arm64 docs) → `30` (GLES note). Do the work up front; release
-   it slowly. Bursty pushes read as automation and risk GitHub T&S.
-4. **Identity on every commit:** `Jason Perlow <jperlow@gmail.com>`. Never `@nvidia.com`.
+1. **Re-verify every claim against current upstream before filing** — not against the
+   drafts. Done at `d73dea5`; this is what caught the now-redundant `WLR_RENDERER` hook and
+   the incomplete apt list.
+2. **Max 3-4 PRs/day to one upstream.** Bursty pushes read as automation and risk GitHub
+   T&S. Filed 1 to `singularity-session`, 2 to `singularity-desktop`.
+3. **Identity on every commit:** `Jason Perlow <jperlow@gmail.com>`. Never `@nvidia.com`.
    **No `Co-Authored-By` / "Generated with" / any AI footer.** No `Signed-off-by` (repo
    doesn't use DCO).
-5. **Human-style branch names** (`fix/session-libexec-path`, not a generated UUID). Present
-   every PR as deliberate, careful human work: fill the PR body, paste real validation
-   command output, engage reviewer comments specifically.
-6. **Pin exact dependency/tool versions** in the arm64 docs PR before filing (Debian 13 /
-   Ubuntu 26.04 package names actually verified).
-7. **Squash to one focused commit per PR** with a conventional-commit subject.
+4. **Human-style branch names** (`fix/session-libexec-path`, not a generated UUID). Fill the
+   PR body, paste real validation output, engage reviewer comments specifically.
+5. **One focused commit per PR** with a conventional-commit subject.
+6. **Base branch differs per repo** — `singularity-desktop` defaults to `master`,
+   `singularity-session` and `singularity-shell` to `main`. Their `CONTRIBUTING.md` says to
+   PR against `main` regardless; check the actual default before opening.
 
 ## Verification provenance
 
