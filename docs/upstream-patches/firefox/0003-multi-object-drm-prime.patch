@@ -1,5 +1,5 @@
 From: Jason Perlow <jperlow@gmail.com>
-Subject: [PATCH] Support multi-object NV12/YUV420 DRM PRIME descriptors
+Subject: [PATCH] Support multi-object DRM PRIME descriptors from V4L2 drivers
 
 FFmpegDescToVA assumes every NV12 and YUV420 DRM PRIME descriptor is a single
 contiguous dmabuf holding all planes, and reads only objects[0]:
@@ -8,57 +8,57 @@ contiguous dmabuf holding all planes, and reads only objects[0]:
     vaDesc.objects[0].fd = aDesc.objects[0].fd;
     vaDesc.layers[1].offset[0] = offset + uncrop_width * uncrop_height;
 
-True of VA-API and Vulkan; false of V4L2 multiplanar drivers, which allocate
-one buffer per plane and export one dmabuf per plane. MOZ_ASSERT compiles out
-in release, so instead of failing loudly the code builds a descriptor naming
-only the luma FD with chroma offsets pointing past the end of it. EGL rejects
-the import and the surface comes back null, which the caller reports as a
-decode error - and MediaFormatReader turns any decode error from a hardware
-decoder into "disable hardware decoding".
+That holds for VA-API and Vulkan. It does not hold for V4L2 multiplanar
+drivers, which allocate one buffer per plane and export one dmabuf per plane.
+Because MOZ_ASSERT compiles out in release builds, the existing code does not
+fail loudly: it constructs a descriptor naming only the luma FD, with chroma
+offsets pointing past the end of that buffer. EGL then rejects the import, the
+surface comes back null, the caller reports a decode error, and
+MediaFormatReader converts any decode error from a hardware decoder into
+"disable hardware decoding" - so the failure surfaces as silent software
+decode rather than as a diagnosable error.
 
 Adds multi-object branches for both formats. The single-object paths are
 untouched.
 
-Measured on CIX Sky1 (Mali-G720 / libmali): with these branches all three
-YUV420 planes import successfully where NV12 previously failed at plane 1.
-libmali accepts single-plane R8 dmabufs and rejects GR88, which is why the
-YUV420 three-R8 layout works where the NV12 R8+GR88 layout does not.
+Also relaxes two gates under MOZ_ENABLE_V4L2:
 
-Status: import succeeds; playback still ends in
-NS_ERROR_DOM_MEDIA_FATAL_ERR. Not submitted upstream until that is resolved.
+  - The per-codec checks consult gfxVars::Use*HwDecode(), which reflects
+    VA-API capability. V4L2 support is probed when the decoder is created, so
+    the probe should decide rather than a VA-API-derived variable.
+
+  - The hardware-WebRender requirement exists because VA-API returns DMABuf
+    surfaces that only a hardware compositor can import. V4L2-M2M returns
+    ordinary buffers and has no such dependency. It also cannot be satisfied:
+    the decoder that performs playback is constructed with a null image
+    allocator, so the first clause of isHardwareWebRenderUsed is false for it
+    regardless of the compositor.
+
+Measured on CIX Sky1 (Mali-G720 / libmali): with these applied and a
+DRM_PRIME-capable libavcodec, all three YUV420 planes import successfully and
+CreateImageV4L2 returns success for every frame, with no fallback decoder
+created. libmali imports single-plane R8 dmabufs and rejects GR88, which is
+why the YUV420 three-R8 layout works where the NV12 R8+GR88 layout does not.
+
+STATUS: NOT SUBMITTED UPSTREAM. Playback still terminates with
+NS_ERROR_DOM_MEDIA_FATAL_ERR after the first frames, from a point past
+everything instrumented so far. The import chain is correct; something
+downstream is not. Submitting a media patch that does not produce working
+playback would waste review time, so this is held until that is resolved.
 
 Signed-off-by: Jason Perlow <jperlow@gmail.com>
 ---
 --- a/dom/media/platforms/ffmpeg/FFmpegVideoFramePool.cpp
 +++ b/dom/media/platforms/ffmpeg/FFmpegVideoFramePool.cpp
-@@ -356,6 +356,8 @@
-     mTextureCreationWorks = Some(surface->VerifyTextureCreation());
-     if (!*mTextureCreationWorks) {
-       DMABUF_LOG("  failed to create texture over DMABuf memory!");
-+      fprintf(stderr, "NCZDBG pool-texture-creation-failed\n");
-+      fflush(stderr);
-       return nullptr;
-     }
-   }
-@@ -413,6 +415,8 @@
-     mTextureCreationWorks = Some(surface->VerifyTextureCreation());
-     if (!*mTextureCreationWorks) {
-       DMABUF_LOG("  failed to create texture over DMABuf memory!");
-+      fprintf(stderr, "NCZDBG pool-texture-creation-failed\n");
-+      fflush(stderr);
-       return nullptr;
-     }
-   }
-@@ -480,7 +484,33 @@
+@@ -480,7 +480,32 @@
  
    unsigned int offset = aDesc.layers[0].planes[0].offset;
  
 -  if (aDesc.layers[0].format == DRM_FORMAT_YUV420) {
 +  if (aDesc.layers[0].format == DRM_FORMAT_YUV420 && aDesc.nb_objects == 3) {
-+    // Multi-object YUV420: one dmabuf per plane, which is what V4L2
-+    // multiplanar drivers export. The contiguous branch below reads only
-+    // objects[0] and derives chroma offsets from the luma size, which lands
-+    // past the end of a luma-only buffer.
++    // Multi-object YUV420: one dmabuf per plane. The contiguous branch below
++    // reads only objects[0] and derives the chroma offsets from the luma
++    // size, which lands past the end of a luma-only buffer.
 +    vaDesc.fourcc = VA_FOURCC_I420;
 +
 +    vaDesc.num_objects = 3;
@@ -84,16 +84,15 @@ Signed-off-by: Jason Perlow <jperlow@gmail.com>
      vaDesc.fourcc = VA_FOURCC_I420;
  
      // V4L2 expresses YUV420 as a single contiguous buffer containing
-@@ -507,6 +537,36 @@
+@@ -507,6 +532,35 @@
      vaDesc.layers[2].offset[0] = offset + uncrop_width * uncrop_height * 5 / 4;
      vaDesc.layers[2].pitch[0] = uncrop_width / 2;
    } else if (aDesc.layers[0].format == DRM_FORMAT_NV12 &&
 +             aDesc.nb_layers == 1 && aDesc.nb_objects == 2) {
 +    // Multi-object NV12: one dmabuf per plane, which is what V4L2 multiplanar
-+    // drivers export (the CIX Sky1 VPU among them). The single-object branch
-+    // below reads only objects[0] and derives the chroma offset from the luma
-+    // stride, both of which are wrong here - chroma lives in its own buffer at
-+    // its own offset, and its FD would be dropped entirely.
++    // drivers export. The single-object branch below reads only objects[0] and
++    // derives the chroma offset from the luma stride; here chroma lives in its
++    // own buffer at its own offset, and objects[1] would be dropped entirely.
 +    vaDesc.fourcc = VA_FOURCC_NV12;
 +
 +    vaDesc.num_objects = 2;
@@ -121,58 +120,24 @@ Signed-off-by: Jason Perlow <jperlow@gmail.com>
               aDesc.nb_layers == 1) {
      vaDesc.fourcc = VA_FOURCC_NV12;
  
-@@ -611,8 +671,27 @@
- 
-   auto layerDesc = FFmpegDescToVA(aDesc, aAVFrame);
-   if (layerDesc.isNothing()) {
-+    fprintf(stderr, "NCZDBG FFmpegDescToVA rejected nb_objects=%d nb_layers=%d "
-+                    "fourcc=0x%x\n",
-+            aDesc.nb_objects, aDesc.nb_layers,
-+            aDesc.nb_layers > 0 ? aDesc.layers[0].format : 0);
-+    fflush(stderr);
-     return nullptr;
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
+@@ -899,8 +899,18 @@
+                                   layers::LayersBackend::LAYERS_WR) &&
+                                  !mImageAllocator->UsingSoftwareWebRender();
+   if (!isHardwareWebRenderUsed) {
++#  ifdef MOZ_ENABLE_V4L2
++    // The hardware-WebRender requirement is a VA-API constraint: that path
++    // returns DMABuf surfaces only a hardware compositor can import. V4L2-M2M
++    // returns ordinary buffers and has no such dependency, and the decoder
++    // that performs playback is constructed without an image allocator, so
++    // this test cannot pass for it regardless of the compositor. Fall through
++    // and let the V4L2 probe decide.
++    FFMPEG_LOG("Hardware WebRender is off; continuing for V4L2");
++#  else
+     FFMPEG_LOG("Hardware WebRender is off, VAAPI is disabled");
+     return true;
++#  endif
    }
-+  {
-+    static int nczVaDesc = 0;
-+    if (nczVaDesc < 2) {
-+      fprintf(stderr,
-+              "NCZDBG vaDesc fourcc=0x%x objects=%d layers=%d "
-+              "l0_pitch=%d l1_pitch=%d l1_off=%d\n",
-+              layerDesc->fourcc, layerDesc->num_objects, layerDesc->num_layers,
-+              layerDesc->layers[0].pitch[0],
-+              layerDesc->num_layers > 1 ? layerDesc->layers[1].pitch[0] : 0,
-+              layerDesc->num_layers > 1 ? layerDesc->layers[1].offset[0] : 0);
-+      fflush(stderr);
-+      nczVaDesc++;
-+    }
-+  }
- 
-   // Width and height, after cropping
-   int crop_width = (int)layerDesc->width;
-@@ -640,6 +719,8 @@
-                               copySurface)) {
-     if (!copySurface) {
-       // Failed without texture copy. We can't do more here.
-+      fprintf(stderr, "NCZDBG pool-updateyuv-failed copy=0\n");
-+      fflush(stderr);
-       return nullptr;
-     }
-     // Try again without texture copy
-@@ -647,6 +728,8 @@
-     copySurface = mTextureCopyWorks = false;
-     if (!surface->UpdateYUVData(layerDesc.value(), crop_width, crop_height,
-                                 copySurface)) {
-+      fprintf(stderr, "NCZDBG pool-updateyuv-failed-both\n");
-+      fflush(stderr);
-       return nullptr;
-     }
-   }
-@@ -655,6 +738,8 @@
-     mTextureCreationWorks = Some(surface->VerifyTextureCreation());
-     if (!*mTextureCreationWorks) {
-       DMABUF_LOG("  failed to create texture over DMABuf memory!");
-+      fprintf(stderr, "NCZDBG pool-texture-creation-failed\n");
-+      fflush(stderr);
-       return nullptr;
-     }
-   }
+ #  endif
+   return aDisableHardwareDecoding;
