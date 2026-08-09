@@ -166,6 +166,16 @@ fi
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
 # Bundled labwc/wlroots (labwc uses the wlroots-0.20 fallback wrap upstream ships).
 if [ -f Makefile ] && grep -q LABWC_BUILD Makefile; then
+    # Upstream'"'"'s Makefile hard-codes `meson setup $(LABWC_BUILD) --prefix=/usr`,
+    # which would stage labwc into /work/stage/usr instead of the payload prefix
+    # and trip the `test -x $PREFIX/bin/labwc` sanity check below. That rule only
+    # fires when build.ninja is absent, so configure labwc ourselves FIRST with
+    # the right prefix and `make` will reuse it and only run `meson compile`.
+    if [ -d subprojects/labwc ] && [ ! -f subprojects/labwc/build/build.ninja ]; then
+        meson setup subprojects/labwc/build subprojects/labwc \
+            --prefix='"$PREFIX"' --buildtype=release -Dxwayland=enabled \
+            --force-fallback-for=wlroots-0.20
+    fi
     make compile
 else
     ninja -C build
@@ -247,7 +257,10 @@ fi
 echo ""
 echo "== done =="
 ls -lh "$OUT/singularity-opt.tgz"
-echo "  top entries:"; tar tzf "$OUT/singularity-opt.tgz" | head -3
+# `| head -3` would SIGPIPE tar and, under `set -o pipefail`, abort this script
+# with 141 AFTER a fully successful build — skipping the ARGONAS push below.
+# sed drains the stream, so tar's real exit status still propagates.
+echo "  top entries:"; tar tzf "$OUT/singularity-opt.tgz" | sed -n '1,3p'
 
 if [ "$PUSH_ARGONAS" = 1 ]; then
     echo "== staging on ARGONAS ($ARGONAS_DST) =="
