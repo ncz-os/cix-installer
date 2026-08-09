@@ -1,0 +1,73 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] v4l2object: offer the colorimetry-free caps variant for encoded formats too
+
+add_non_colorimetry_caps() exists so that negotiation still succeeds when the
+colorimetry detected upstream is not one the device advertises. It only applies
+that fallback to video/x-raw structures, but a decoder's OUTPUT (encoded) queue
+also answers TRY_FMT with a colorspace, so the probed colorimetry list is placed
+on the encoded sink caps as well. An upstream element that knows only part of
+the colorimetry can then never intersect with them.
+
+matroskademux hits this: for VP8/VP9 it emits
+
+  video/x-vp9, width=1280, height=720, framerate=30/1,
+               interlace-mode=progressive, colorimetry=(string)2:0:0:0
+
+while the probed sink caps of v4l2vp9dec are an enumerated list of fully
+specified values:
+
+  video/x-vp9, width=[144,8192,2], height=[144,8192,2],
+    colorimetry=(string){ bt601, 1:4:16:3, smpte240m, bt709, 1:3:5:1,
+                          2:4:5:2, 2:4:5:3, 1:4:5:3, 2:4:7:1, bt2020,
+                          bt2100-pq }
+
+The intersection is empty and the pads never link, so the pipeline fails with
+"not-linked". H.264/H.265/AV1 are unaffected only because h264parse/h265parse/
+av1parse normalise colorimetry before it reaches the decoder; VP8 and VP9 have
+no parser element to do so.
+
+Reproduced on an Arm CIX Sky1 (CD8180) stateful V4L2 decoder, GStreamer 1.28.5,
+which advertises VP80 and VP90 on its OUTPUT queue:
+
+  # before - fails
+  gst-launch-1.0 filesrc location=vp9-720p.webm ! matroskademux ! \
+      v4l2vp9dec ! fakesink
+  ERROR: streaming stopped, reason not-linked (-1)
+
+  # confirms colorimetry is the only obstacle
+  gst-launch-1.0 filesrc location=vp9-720p.webm ! matroskademux ! \
+      capssetter caps="video/x-vp9,colorimetry=bt709" ! v4l2vp9dec ! fakesink
+  Got EOS
+
+  # after this patch, unmodified pipeline
+  gst-launch-1.0 filesrc location=vp9-720p.webm ! matroskademux ! \
+      v4l2vp9dec ! fakesink
+  Got EOS
+
+VP8 behaves identically (not-linked before, EOS after). Hardware decoding is
+used in both cases; without the patch the only working path is the software
+vp9dec/vp8dec fallback, which makes the failure easy to miss because playbin
+silently degrades to software rather than erroring.
+
+---
+diff --git a/subprojects/gst-plugins-good/sys/v4l2/gstv4l2object.c b/subprojects/gst-plugins-good/sys/v4l2/gstv4l2object.c
+index 7c84365..b6702f0 100644
+--- a/subprojects/gst-plugins-good/sys/v4l2/gstv4l2object.c
++++ b/subprojects/gst-plugins-good/sys/v4l2/gstv4l2object.c
+@@ -1823,8 +1823,14 @@ add_non_colorimetry_caps (GstV4l2Object * v4l2object, GstCaps * caps)
+     GstStructure *structure = gst_caps_get_structure (caps, i);
+     GstCapsFeatures *features = gst_caps_get_features (caps, i);
+ 
+-    if (gst_structure_has_name (structure, "video/x-raw")
+-        && gst_structure_has_field (structure, "colorimetry")) {
++    /* Encoded formats carry a probed colorimetry list too: a decoder's OUTPUT
++       queue still answers TRY_FMT with a colorspace, so the list lands on the
++       encoded sink caps. An upstream element that only knows part of the
++       colorimetry then cannot negotiate at all - matroskademux emits
++       colorimetry=2:0:0:0 for VP8/VP9, which unlike H.264/H.265/AV1 have no
++       parser element to normalise it, and the intersection is empty. Offer the
++       colorimetry-free variant for encoded caps as well, not just video/x-raw. */
++    if (gst_structure_has_field (structure, "colorimetry")) {
+       GstStructure *alt_s = gst_structure_copy (structure);
+       gst_structure_remove_field (alt_s, "colorimetry");
+       if (gst_caps_features_contains (features,
