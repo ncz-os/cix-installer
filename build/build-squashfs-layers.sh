@@ -25,8 +25,10 @@ set -euo pipefail
 ROOT="${ROOT:-$HOME/cix-installer-build/cix-installer}"
 WORK="${WORK:-/tmp/ncz-sqfs}"
 OUT="$ROOT/assets/squashfs"
-BASE_TARBALL="$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst"
-MIRROR="$ROOT/build/resolute-mirror"          # offline apt source (deb + udeb)
+BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst}"
+APT_SUITE="${APT_SUITE:-resolute}"
+APT_COMPONENTS="${APT_COMPONENTS:-main}"
+MIRROR_DIRS="${MIRROR_DIRS:-server-mirror resolute-mirror desktop-mirror}"
 QEMU="/usr/bin/qemu-aarch64-static"
 STAGE="${1:-base}"                            # base | desktop | server | all
 
@@ -49,18 +51,18 @@ mount_chroot(){ local c="$1"
 umount_chroot(){ local c="$1"
   for m in dev/pts dev sys proc; do sudo umount -lf "$c/$m" 2>/dev/null || true; done; }
 
-# offline apt sources -> bind BOTH mirrors (server-mirror has the base deps
-# initramfs-tools/kmod that resolute-mirror lacks; build-iso prefers server-mirror
-# for the base install). `resolute main` only (no universe component in the mirrors).
+# Offline apt sources are profile-driven so a parallel Debian Testing build
+# cannot accidentally consume a Resolute mirror.
+mirror_available(){ local m; for m in $MIRROR_DIRS; do [ -d "$ROOT/build/$m/dists/$APT_SUITE" ] && return 0; done; return 1; }
 apt_offline(){ local c="$1"
   sudo rm -f "$c/etc/apt/sources.list"
-  for m in server-mirror resolute-mirror desktop-mirror; do
-    [ -d "$ROOT/build/$m/dists/resolute" ] || continue
+  for m in $MIRROR_DIRS; do
+    [ -d "$ROOT/build/$m/dists/$APT_SUITE" ] || continue
     sudo mkdir -p "$c/mnt/$m"; sudo mount -o bind "$ROOT/build/$m" "$c/mnt/$m"
-    echo "deb [trusted=yes] file:///mnt/$m resolute main" | sudo tee -a "$c/etc/apt/sources.list" >/dev/null
+    echo "deb [trusted=yes] file:///mnt/$m $APT_SUITE $APT_COMPONENTS" | sudo tee -a "$c/etc/apt/sources.list" >/dev/null
   done
   sudo chroot "$c" apt-get update -y 2>&1 | tail -4 || true; }
-apt_unmount(){ local c="$1"; for m in server-mirror resolute-mirror desktop-mirror; do sudo umount -lf "$c/mnt/$m" 2>/dev/null || true; done; }
+apt_unmount(){ local c="$1"; for m in $MIRROR_DIRS; do sudo umount -lf "$c/mnt/$m" 2>/dev/null || true; done; }
 
 # build a ROLE delta layer: overlay(base=lower) + apt-install the package set into
 # the upperdir, then squash ONLY the upperdir (the delta). NO NCZ desktop hooks.
@@ -315,7 +317,7 @@ build_base(){
   printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$WORK/base/etc/needrestart/conf.d/99-squashfs-layer.conf" >/dev/null
   # base hooks are local-asset (dpkg/copy) — the apt mirror is only needed for the
   # desktop/server layers, so skip apt_offline here if the mirror isn't present.
-  if [ -d "$ROOT/build/server-mirror/dists/resolute" ] || [ -d "$ROOT/build/resolute-mirror/dists/resolute" ]; then apt_offline "$WORK/base"; else log "no mirror -> skipping apt_offline"; fi
+  if mirror_available; then apt_offline "$WORK/base"; else log "no mirror for $APT_SUITE -> using base sources"; fi
   # stage the installer hook tree + assets the base hooks read
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer"
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"

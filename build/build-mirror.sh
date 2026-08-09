@@ -209,9 +209,12 @@ PKGS=(
   # Branding / image manipulation
   imagemagick
 
-  # Browsers — Ubuntu uses 'firefox' (deb pulls snap on default Ubuntu;
-  # we accept that for now since snap support is included)
-  firefox
+  # Browsers: none mirrored here. The three supported browsers come from
+  # elsewhere - Chromium NCZ Sky1 from our own .deb, Google Chrome from its
+  # official repo (53-chrome.sh), Epiphany from manifests/desktop.pkgs.
+  # Firefox was dropped: it decodes everything in software on this hardware,
+  # and shipping a fourth browser that adds no capability is not worth the
+  # image size or the update surface.
 
   # Bluetooth + audio
   bluez bluetooth bluez-tools pulseaudio-module-bluetooth

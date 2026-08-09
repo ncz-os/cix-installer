@@ -507,7 +507,7 @@ recent-wallpapers=['file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilia
 # default pins only the Sinty first-party apps, so a fresh install had no
 # browser on the dock at all - including the two builds that are this
 # platform's differentiator.
-pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'firefox-ncz-sky1.desktop', 'google-chrome.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
+pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'org.gnome.Epiphany.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
 GSCHEMA
     glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
         echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
@@ -708,18 +708,26 @@ else
     echo "[20] no XFCE/X11-desktop packages present — nothing to purge (Singularity-only)"
 fi
 
-# Default browser routing — Vivaldi (52-vivaldi, real arm64 .deb) primary.
-# Google Chrome (google-chrome-stable, real official build, 53-chrome.sh) is
-# the secondary real browser choice.
+# Default browser routing — Chromium NCZ Sky1 primary.
+#
+# It is the only browser on this platform that decodes all five codecs on the
+# VPU. Measured on real YouTube traffic: YouTube serves AV1 here, and Chromium
+# NCZ decodes it with V4L2VideoDecoder and kIsPlatformVideoDecoder=true, where
+# Chrome and Vivaldi fall back to software dav1d because AV1 does not work over
+# VA-API on this hardware.
+#
+# Google Chrome is the secondary and is kept for one specific reason: it is the
+# only browser here shipping a Widevine CDM, so DRM streaming (Netflix and the
+# like) needs it. Epiphany is the third, as the non-Chromium engine.
 cat > /usr/local/bin/x-www-browser <<'BRWRAP'
 #!/bin/sh
-for b in /usr/bin/vivaldi-stable /usr/bin/google-chrome-stable /usr/bin/chromium /usr/bin/chromium-browser; do
+for b in /usr/bin/chromium-ncz-sky1 /usr/bin/google-chrome-stable /usr/bin/epiphany; do
     [ -x "$b" ] && exec "$b" "$@"
 done
 exec xdg-open "$@"
 BRWRAP
 chmod 0755 /usr/local/bin/x-www-browser
-_bd=vivaldi-stable.desktop
+_bd=chromium-ncz-sky1.desktop
 mkdir -p /etc/xdg
 cat > /etc/xdg/mimeapps.list <<MIME
 [Default Applications]
@@ -728,7 +736,7 @@ x-scheme-handler/http=$_bd
 x-scheme-handler/https=$_bd
 application/xhtml+xml=$_bd
 MIME
-echo "[20] default browser: $_bd (Vivaldi primary; Google Chrome installed as secondary, snap-free)"
+echo "[20] default browser: $_bd (Chromium NCZ primary; Chrome secondary for Widevine; Epiphany third)"
 
 # Appliance noise reduction — mask services that fail for no benefit here.
 for u in iscsid.service apport.service; do
