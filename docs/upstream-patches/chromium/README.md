@@ -9,7 +9,7 @@ use_linux_v4l2_only = true
 chrome_pgo_phase = 0        # profiles not checked out in .gclient
 ```
 
-`0001-v4l2-av1-and-mvxdec-coded-size.patch` covers `media/gpu/`. Two build-env
+`0001-v4l2-sandbox-include-and-stateful-hevc-profile.patch` covers `media/gpu/`. Two build-env
 fixes live outside it and are described below.
 
 ## Result
@@ -64,7 +64,35 @@ and that include sits behind `#if BUILDFLAG(USE_VAAPI)`. With `use_vaapi=false`:
 error: use of undeclared identifier 'ERROR'
 ```
 
-### 3. `v4l2_stateful_video_decoder.cc` — mvxdec coded-size negotiation
+### 3. ~~`v4l2_stateful_video_decoder.cc` — mvxdec coded-size negotiation~~ — REMOVED 2026-08-09, not load-bearing
+
+**This hunk has been dropped from the patch.** A standalone V4L2 M2M probe replicating
+`InitializeCAPTUREQueue()` exactly — S_FMT OUTPUT, wait for `V4L2_EVENT_SOURCE_CHANGE`
+(received in every run, so the driver had parsed the real SPS), G_FMT CAPTURE,
+G_SELECTION COMPOSE — was run across 11 cases on **both** shipping kernels
+(O6N `7.2.0-rc6-sky1-ncz` and cixmini `7.0.12-cix-sky1-next`):
+
+| case | chosen | COMPOSE | adjusted | upstream predicate |
+|---|---|---|---|---|
+| H264 1920x1080 | 1920x1080 | (0,0) 1920x1080 | 1920x1080 | TRUE |
+| H264 3840x2160 | 3840x2160 | (0,0) | 3840x2160 | TRUE |
+| H264 **1918x1078** (non-16-aligned) | 1918x1078, bpl=1918 | (0,0) | 1918x1078 | TRUE |
+| HEVC 720p/1080p, AV1 1080p | exact | (0,0) | exact | TRUE |
+
+The claim below — "mvxdec reports (0,4 1920x1080) inside a 1920x1084 coded size" — **did not
+reproduce anywhere**: COMPOSE origin is (0,0) in all 11 runs and the coded size is never
+padded. The non-16-aligned case the patch specifically defends against is clean on both
+driver generations. Upstream's `Contains()` predicate is therefore always TRUE and its
+`return false` is never reached.
+
+The retry logic was also measured to be a no-op: `S_FMT` at 1920x1084, 1920x1088 and
+1936x1096 after a 1080p stream all come back **clamped to 1920x1080** on both kernels, so
+even if the padded case occurred, the mb-aligned retry could not help.
+
+It may have been real on an earlier mvx revision. On both kernels this fleet actually
+ships, it is a clean negative. The original analysis is kept below for the record.
+
+### 3 (historical). `v4l2_stateful_video_decoder.cc` — mvxdec coded-size negotiation
 
 The real interop bug. `InitializeCAPTUREQueue()` aborted for every codec:
 
