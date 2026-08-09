@@ -33,7 +33,10 @@ set -euo pipefail
 # ---- config ----------------------------------------------------------------
 IMAGE="${SINGULARITY_IMAGE:-ubuntu:26.04}"
 SRC_REPO="${SINGULARITY_REPO:-https://github.com/singularityos-lab/singularity-desktop}"
-SRC_REF="${SINGULARITY_REF:-main}"
+# Upstream's default branch is `master`, not `main` — `main` does not exist on
+# singularityos-lab/singularity-desktop, so a bare run used to die in
+# `git clone --branch`.
+SRC_REF="${SINGULARITY_REF:-master}"
 # Optional checked-out superproject.  This is intentionally explicit: local
 # NCZ fixes must never be mistaken for an upstream main build.
 SRC_DIR="${SINGULARITY_SOURCE_DIR:-}"
