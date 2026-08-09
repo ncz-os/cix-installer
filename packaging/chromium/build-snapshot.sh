@@ -71,15 +71,44 @@ BUILT_VERSION=$(sed -n 's/^MAJOR=//p;' chrome/VERSION | head -1)
 log "tree reports MAJOR=$BUILT_VERSION"
 
 # --- sysroot kernel headers -------------------------------------------------
-# Chromium's bundled Debian Bullseye sysroots predate the V4L2 AV1 controls, so
-# use_av1_hw_decoder does not compile. All three architectures need this: the
-# clang_x64_v8_arm64 host toolchain builds against the amd64 sysroot, so
-# patching only arm64 fails late in the build.
+# Chromium's pinned Debian sysroot ships kernel UAPI 6.1 (LINUX_VERSION_CODE
+# 393566); the V4L2 stateless AV1 uAPI landed in 6.5. So use_av1_hw_decoder
+# cannot compile against the stock sysroot, and upstream disables it for V4L2
+# on purpose - see crrev.com/c/6632634 ("media/gpu/v4l2: Allow enabling AV1
+# support on Linux", merged 2025-06-12, Bug 372630272), which added the
+# use_av1_hw_decoder flag precisely so builders who DO have suitable headers
+# can opt in. We set that flag in args.gn below; this block supplies the
+# headers it needs. Do not "fix" this by patching media/gpu/args.gni - that
+# reverts a considered upstream decision (we tried; crrev.com/c/8230288 was
+# abandoned for exactly this reason).
+#
+# All three architectures need it: the clang_x64_v8_arm64 host toolchain builds
+# against the amd64 sysroot, so patching only arm64 fails late in the build.
+#
+# If upstream ever refreshes the sysroot (crrev.com/c/7548596 is the open CL),
+# the v4l2_ctrl_av1_sequence probe below simply stops firing and this whole
+# block becomes a no-op. Nothing else needs changing.
+AV1_UAPI_SYMS="v4l2_ctrl_av1_sequence V4L2_CID_MPEG_VIDEO_AV1_PROFILE V4L2_AV1_SEQUENCE_FLAG_SUBSAMPLING_X"
+uapi_validated=0
 for arch in amd64 arm64 i386; do
     d="build/linux/debian_bullseye_${arch}-sysroot/usr/include/linux"
     [ -d "$d" ] || continue
     if ! grep -q v4l2_ctrl_av1_sequence "$d/v4l2-controls.h" 2>/dev/null; then
         [ -f "$UAPI_DIR/v4l2-controls.h" ] || die "need modern UAPI headers in $UAPI_DIR" 3
+        [ -f "$UAPI_DIR/videodev2.h" ]     || die "need modern UAPI headers in $UAPI_DIR" 3
+        # Validate the replacement headers ONCE, before copying anything. A
+        # too-old $UAPI_DIR used to copy cleanly and then fail ~45 minutes into
+        # the compile with "incomplete result type 'struct v4l2_ctrl_av1_sequence'".
+        if [ "$uapi_validated" -eq 0 ]; then
+            for sym in $AV1_UAPI_SYMS; do
+                grep -qr "$sym" "$UAPI_DIR/v4l2-controls.h" "$UAPI_DIR/videodev2.h" 2>/dev/null \
+                    || die "$UAPI_DIR headers lack $sym - they predate the V4L2 AV1 uAPI (needs kernel >= 6.5)" 3
+            done
+            grep -q "V4L2_PIX_FMT_AV1" "$UAPI_DIR/videodev2.h" 2>/dev/null \
+                || die "$UAPI_DIR/videodev2.h lacks V4L2_PIX_FMT_AV1 (needs kernel >= 6.5)" 3
+            uapi_validated=1
+            log "UAPI headers in $UAPI_DIR validated for AV1 V4L2"
+        fi
         cp -n "$d/v4l2-controls.h" "$d/v4l2-controls.h.orig" 2>/dev/null
         cp -n "$d/videodev2.h"     "$d/videodev2.h.orig" 2>/dev/null
         cp "$UAPI_DIR/v4l2-controls.h" "$UAPI_DIR/videodev2.h" "$d/"

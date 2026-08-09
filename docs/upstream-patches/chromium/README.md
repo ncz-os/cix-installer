@@ -26,15 +26,33 @@ so a V4L2-only build silently uses software without it.
 
 ## What the patch fixes
 
-### 1. `media/gpu/args.gni` — AV1 hw decode excluded V4L2
+### 1. ~~`media/gpu/args.gni` — AV1 hw decode excluded V4L2~~ — REMOVED, was never ours to change
 
-```
--      is_chromeos || (is_linux && use_vaapi) || is_win || is_apple
-+      is_chromeos || (is_linux && (use_vaapi || use_v4l2_codec)) ||
-+      is_win || is_apple
-```
+This used to patch the `use_av1_hw_decoder` default. **It has been dropped.** We
+now set `use_av1_hw_decoder = true` in `args.gn` instead, which is the mechanism
+upstream added for exactly this purpose.
 
-Without this a V4L2 build gets no AV1 decoder at all.
+Upstream excludes V4L2 from that default **deliberately** — see
+[crrev.com/c/6632634](https://chromium-review.googlesource.com/c/chromium/src/+/6632634)
+("media/gpu/v4l2: Allow enabling AV1 support on Linux", merged 2025-06-12,
+Bug 372630272):
+
+> The required values in v4l2-controls.h have been upstreamed for a while,
+> however the baseline Debian dependency has not been updated to a version
+> including that yet. Add a simple way to already enable AV1 support by reusing
+> the `use_av1_hw_decoder` flag, keeping it enabled by default for VA-API but
+> disabling it for V4L2.
+
+The measurable gap: Chromium's pinned sysroot ships kernel UAPI **6.1**
+(`LINUX_VERSION_CODE 393566`); the V4L2 stateless AV1 uAPI landed in **6.5**.
+
+We sent the args.gni change upstream as
+[crrev.com/c/8230288](https://chromium-review.googlesource.com/c/chromium/src/+/8230288)
+and **abandoned it** — it was effectively a revert of 6632634, and it would break
+any Linux V4L2 builder on the stock sysroot. Do not re-file it. If AV1-by-default
+is ever wanted for V4L2, the dependency is the sysroot refresh
+([crrev.com/c/7548596](https://chromium-review.googlesource.com/c/chromium/src/+/7548596),
+open and stale since 2026-02-10), not a change to args.gni.
 
 ### 2. `hardware_video_decoding_sandbox_hook_linux.cc` — missing include
 
@@ -102,13 +120,22 @@ so patching only arm64 fails later in the build.
 **PGO.** `is_official_build=true` wants profiles that `.gclient` does not fetch;
 set `chrome_pgo_phase = 0`.
 
-## Upstream relevance
+## Upstream status
 
-Five separate defects in the V4L2-only desktop Linux configuration — AV1 gating,
-sysroot headers, the missing include, and the coded-size negotiation. That
-configuration is evidently not exercised by upstream CI. Items 1 and 2 are
-clean upstream candidates; item 3 is arguably a driver bug in `mvxdec` and
-should be raised there too.
+| Item | Upstream | State |
+|---|---|---|
+| 1. AV1 gating in `args.gni` | [crrev.com/c/8230288](https://chromium-review.googlesource.com/c/chromium/src/+/8230288) | **ABANDONED** — not a defect; upstream's choice is deliberate ([6632634](https://chromium-review.googlesource.com/c/chromium/src/+/6632634)). We carry no patch; `args.gn` sets the flag. |
+| 2. sandbox missing include | [crrev.com/c/8227693](https://chromium-review.googlesource.com/c/chromium/src/+/8227693) | in review (nhebert) |
+| 3. mvxdec coded-size negotiation | not yet filed | applicable to current `origin/main`; affects every Arm Linlon MVE SoC, not just CIX |
+| 4. stateful HEVC profile map | [crrev.com/c/8230308](https://chromium-review.googlesource.com/c/chromium/src/+/8230308) | in review (frkoenig, nhebert) |
+| sysroot headers | [crrev.com/c/7548596](https://chromium-review.googlesource.com/c/chromium/src/+/7548596) (not ours) | open, stale since 2026-02-10 |
+
+The V4L2-only desktop Linux configuration is evidently not exercised by upstream
+CI. Item 3 is arguably also a driver bug in `mvxdec` and worth raising there.
+
+**Lesson recorded:** item 1 was filed without searching for prior art, and the
+prior art both existed and said the opposite. Search Gerrit
+(`q=message:<flag-name>`, `q=file:<path>`) before filing against this area.
 
 ## Not verified
 
