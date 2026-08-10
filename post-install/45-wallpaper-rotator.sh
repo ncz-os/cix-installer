@@ -41,8 +41,17 @@ case "${XDG_CURRENT_DESKTOP:-}${DESKTOP_SESSION:-}" in
     *GNOME*|*gnome*)      DE=gnome ;;
 esac
 if [ -z "$DE" ]; then
-    if   pgrep -u "$USER" -x singularity-desktop >/dev/null 2>&1; then DE=singularity
-    elif pgrep -u "$USER" -x gnome-shell >/dev/null 2>&1; then DE=gnome
+    # NOTE: `pgrep -x singularity-desktop` NEVER matches. Linux comm names are
+    # capped at 15 characters, so the running process is "singularity-des" and
+    # an exact-name match silently fails. That is exactly what happened: DE
+    # stayed empty, the case below fell through without setting anything, and
+    # the desktop booted with background-picture-uri = '' -- no wallpaper at
+    # all, which read as "all branding customizations are lost". Match on the
+    # full command line instead.
+    if   pgrep -u "$USER" -f singularity-desktop >/dev/null 2>&1; then DE=singularity
+    elif pgrep -u "$USER" -f gnome-shell >/dev/null 2>&1; then DE=gnome
+    # Last resort: if the Singularity schema is installed, assume Singularity.
+    elif [ -d /opt/singularity/share/glib-2.0/schemas ]; then DE=singularity
     fi
 fi
 
@@ -89,7 +98,26 @@ done
 DAEMON
 chmod 0755 /usr/local/bin/ncz-wallpaper-daemon
 
-# Autostart via XDG (Singularity/labwc honours /etc/xdg/autostart).
+# Autostart. NOTE: the Singularity session does NOT process /etc/xdg/autostart.
+# Measured on O6N after a clean boot -- EVERY entry in /etc/xdg/autostart was
+# dead: blueman, geoclue-demo-agent, ncz-qotd, ncz-trust-desktop-icons,
+# ncz-wallpaper-rotator and gsd-disk-utility-notify all showed no process. The
+# only autostart-directory entries with a live process were at-spi and
+# gnome-keyring, and those are D-Bus activated rather than launched from here.
+# So the XDG entry alone silently started nothing, and three NCZ desktop
+# features (wallpaper rotation, QOTD, desktop-icon trust) never ran.
+#
+# labwc DOES have its own autostart, sourced as a shell script, so drive the
+# daemon from there. The XDG entry is kept as well: harmless where it is
+# ignored, and correct on any session that does honour it.
+mkdir -p /etc/xdg/labwc
+LABWC_AUTOSTART=/etc/xdg/labwc/autostart
+touch "$LABWC_AUTOSTART"
+if ! grep -q 'ncz-wallpaper-daemon' "$LABWC_AUTOSTART" 2>/dev/null; then
+    printf '%s\n' '/usr/local/bin/ncz-wallpaper-daemon &' >> "$LABWC_AUTOSTART"
+fi
+chmod 0644 "$LABWC_AUTOSTART"
+
 mkdir -p /etc/xdg/autostart
 cat > /etc/xdg/autostart/ncz-wallpaper-rotator.desktop <<'AUTO'
 [Desktop Entry]
@@ -102,7 +130,7 @@ StartupNotify=false
 Terminal=false
 AUTO
 
-echo "[45] Singularity wallpaper rotator + autostart written (default = Maximilian)"
+echo "[45] Singularity wallpaper rotator written (labwc autostart + XDG entry; default = Maximilian)"
 
 # Greeter background = the static NCZ Maximilian wallpaper installed by 55-greeter
 # at the native greeter's fallback path /usr/share/backgrounds/singularity/
