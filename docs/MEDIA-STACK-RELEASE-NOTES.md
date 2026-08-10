@@ -190,6 +190,30 @@ H.264/VP8/VP9/HEVC is built but unverified at time of writing.
   So the shipped desktop video player is hardware-accelerated with no change
   required; the third-party FFmpeg players are the ones that are not.
 
+  **`clapper` and `showtime` both hardware-decode H.264 AND AV1 out of the
+  box**, verified by fd check, with no configuration. Either is a drop-in
+  well-known player for users who want something other than
+  `singularity-videos`; both are in Debian forky arm64.
+
+  Note this needs **no CIX vendor plugin** — `/usr/share/cix/lib/gstreamer-1.0/`
+  is empty and `v4l2h264dec` comes from stock `libgstvideo4linux2.so` 1.28.5.
+  GStreamer 1.28 copes with the AFBC-only VPU by negotiating dmabuf with DRM
+  format modifiers (`video/x-raw(memory:DMABuf)`, `format: DMA_DRM`,
+  `drm-format: { P010, YUYV, UYVY, BG24, R8, NV21, YU12, NV12 }`) and letting
+  the sink resolve them. FFmpeg's `v4l2_m2m` has no equivalent path.
+
+  **Effort to fix VLC: high, poor return — recommend not doing it.** VLC 3.0.23
+  decodes only through `libavcodec_plugin.so` (Debian builds no GStreamer decode
+  module for it), so it inherits the FFmpeg wall with no alternate route. Fixing
+  it needs the FFmpeg AFBC/modifier work AND a VLC video output that understands
+  AFBC dmabuf modifiers — VLC 4 territory, and VLC 4 is not in Debian. If the
+  FFmpeg work is ever done, target **mpv** instead: it already has
+  `--vo=dmabuf-wayland` and so can consume `AV_PIX_FMT_DRM_PRIME` once FFmpeg
+  emits it. Starting point is entrpi's `0002-v4l2-m2m-drm-prime-output.patch`;
+  `drm_prime` symbols are already in our build, but the probe still rejects at
+  format enumeration, so the AFBC fourccs and modifier plumbing are what's
+  missing.
+
 ## Why Epiphany was removed
 
 Epiphany was slow and crashed on YouTube. Both symptoms had one cause, and it is
