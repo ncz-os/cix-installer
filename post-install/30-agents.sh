@@ -841,9 +841,10 @@ curl -fsS http://127.0.0.1:5002/health
 Endpoint: `http://<host>:5002` — REST `/v1/*`, MCP, and an
 OpenAI-compatible gateway. Memories persist in the `mnemos-data` podman
 volume (sqlite at `/data/mnemos.db`). The stock image embeds in-process
-on CPU (nomic-embed-text-v1.5, 768-dim); to offload embeddings to the Cix
-NPU instead, `sudo apt install mnemos-cix-integration` and point MNEMOS at
-the on-device embedder (see the notes `ncz install mnemos` prints).
+on CPU (nomic-embed-text-v1.5, 768-dim). NPU offload is **not** wired up
+yet: `mnemos-cix-integration` serves all-MiniLM-L6-v2 at 384 dimensions,
+so pointing MNEMOS at it changes both the model and the vector width and
+strands every memory already written. Leave the CPU embedder in place.
 
 ### 2. Set API keys
 

@@ -379,13 +379,12 @@ ncz_install_mnemos() {
     echo "[ncz]   data:     volume mnemos-data (sqlite at /data/mnemos.db, persistent)"
     echo "[ncz]   embedder: in-process CPU (nomic-embed-text-v1.5, 768-dim)"
     echo "[ncz]   service:  systemctl status mnemos.service"
-    echo "[ncz] NOTE: this runs MNEMOS with its in-process CPU embedder (768-dim)."
-    echo "[ncz]       To offload embeddings to the Cix NPU instead, install the"
-    echo "[ncz]       host-side embedder (OpenAI-compatible /v1/embeddings on :8000,"
-    echo "[ncz]       MiniLM-L6-v2 384-dim on /dev/aipu):"
-    echo "[ncz]         sudo apt install mnemos-cix-integration"
-    echo "[ncz]       then point MNEMOS at OPENAI_BASE_URL=http://localhost:8000/v1"
-    echo "[ncz]       (requires /dev/aipu passthrough + host networking on the quadlet)."
+    echo "[ncz] NOTE: this runs MNEMOS with its in-process CPU embedder"
+    echo "[ncz]       (nomic-embed-text-v1.5, 768-dim). NPU offload is NOT wired up yet."
+    echo "[ncz]       Do NOT point MNEMOS at mnemos-cix-integration: it serves"
+    echo "[ncz]       all-MiniLM-L6-v2 at 384 dimensions, a different model AND a"
+    echo "[ncz]       different width, so switching to it silently strands every"
+    echo "[ncz]       memory already written and breaks federation with x86 peers."
 }
 
 ncz_install() {
