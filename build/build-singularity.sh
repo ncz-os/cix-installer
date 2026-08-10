@@ -218,12 +218,20 @@ needle = "                opacity = 0;\n                set_layer(this, GtkLayer
 repl = (
     "                opacity = 0;\n"
     "                // NOTE: do NOT call set_layer() here. The layer is set once at\n"
-    "                // construction and never changes. Re-issuing it on a window that\n"
-    "                // hide() has already unmapped sends zwlr_layer_surface_v1.set_layer\n"
-    "                // to a destroyed surface; the compositor answers with a protocol\n"
-    "                // error and kills the shell. Repro: open the launcher, close it,\n"
-    "                // open it again.\n"
-    "                present();"
+    "                // construction and never changes.\n"
+    "                //\n"
+    "                // And do NOT use present(). GTK present() requests an\n"
+    "                // xdg_activation token, which fires immediately after the layer\n"
+    "                // surface is created and committed -- before the compositor has\n"
+    "                // sent its first configure. The protocol forbids acting on a\n"
+    "                // layer_surface that has never been configured, so the compositor\n"
+    "                // kills the client:\n"
+    "                //   wl_display#1.error(zwlr_layer_surface_v1#71, 2,\n"
+    "                //                      \\"layer_surface has never been configured\\")\n"
+    "                // It is a race on the configure round-trip, so it presents as the\n"
+    "                // launcher killing the shell after a variable number of opens.\n"
+    "                // set_visible() maps the window without the activation path.\n"
+    "                set_visible(true);"
 )
 if needle not in src:
     raise SystemExit("NCZ overview set_layer patch: anchor not found - upstream moved, re-check")
