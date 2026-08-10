@@ -376,42 +376,52 @@ GPUENV
 chmod 0755 /usr/local/bin/ncz-gpu-env
 
 # ---------------------------------------------------------------------------
-# WebKit (Epiphany) GL shim — the Mali stack is unusable from a web process.
+# Browser policy: Chromium (Sky1) + Chrome.  Epiphany/WebKit is REMOVED.
 #
-# WebKit's web process has no Wayland connection, so it renders through the
-# DMABUF/GBM path, and that path requires a DRM *render node*.  On the Mali
-# backend the GPU is reached through /dev/mali0 (mali_kbase), which is NOT a DRM
-# device at all; the only render nodes on Sky1 (renderD128-130) belong to
-# linlondp, the DISPLAY controller, which cannot render.  WebKit picks one of
-# them anyway, hands it to the CIX libgbm stub in /opt/cixgpu-compat, and dies:
+# WebKit cannot be made to perform on this platform, for a structural reason.
+# Its web process has no Wayland connection, so it renders through the
+# DMABUF/GBM path, which requires a DRM *render node*.  On the Mali backend the
+# GPU is reached through /dev/mali0 (mali_kbase) and is not a DRM device at all;
+# the only render nodes on Sky1 (renderD128-130) belong to linlondp, the DISPLAY
+# controller, which cannot render.  WebKit picks one anyway, hands it to the CIX
+# libgbm stub, and aborts:
 #
 #   Failed to create GBM device for DRM node: /dev/dri/renderD130
-#   ERROR: swrast enable is not set!
 #   Could not create default EGL display: EGL_BAD_PARAMETER. Aborting...
 #
-# Every page load then SIGABRTs the web process.  Because nothing ever paints,
-# this presents to the user as "the browser has no network" even though the
-# network is fine (measured on O6N rc7: gw ping OK, DNS OK, curl -> HTTP 200).
+# Stripping /opt/cixgpu-compat stopped the crash (6 per page load -> 0) but only
+# by falling back to software GL, and WebKit still never engaged the VPU:
+# measured on O6N rc7 playing a local H.264 <video>, MVX kernel sessions went
+# 3 -> 3 (zero new) and no web process ever held /dev/video*.  So Epiphany was
+# software GL *and* software decode -- slow, and crashing on YouTube.
 #
-# Dropping ONLY /opt/cixgpu-compat lets EGL/GBM resolve to system Mesa, which
-# handles the surfaceless/GBM path correctly.  Measured on O6N rc7, real page
-# load: 6 web-process crashes -> 0, with 15 web processes alive.  libmali in
-# /opt/cixgpu-pro is deliberately left on the path for anything that dlopens it.
+# chromium-ncz-sky1 (our build: use_v4l2_codec + use_av1_hw_decoder) DOES engage
+# the VPU. Measured on the same box, new MVX kernel sessions per run:
 #
-# Browser GL compositing is therefore software.  HARDWARE VIDEO DECODE IS NOT
-# AFFECTED: decode goes through GStreamer V4L2 (verified on the same box,
-# v4l2h264dec + Got EOS), not through this EGL path.
+#   chromium-ncz-sky1  H.264 local = 1, VP9 local = 1, YouTube = 2, 0 crashes
+#   Google Chrome 151  (stock)     = 0        <- runs, but software decode
+#   Epiphany / WebKit              = 0        <- software decode, crashes
 #
-# The structural fix is panthor, which exposes the GPU as a real DRM render
-# node; panthor.ko is already built on rc7 but is not the booted backend.
-cat > /usr/local/bin/epiphany <<'EPIWRAP'
-#!/bin/sh
-# NCZ-OS: strip the CIX glvnd compat layer for WebKit. See 20-desktop.sh.
-LD_LIBRARY_PATH=$(printf '%s' "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -v '/opt/cixgpu-compat' | paste -sd: -)
-export LD_LIBRARY_PATH
-exec /usr/bin/epiphany "$@"
-EPIWRAP
-chmod 0755 /usr/local/bin/epiphany
+# So: Chromium (Sky1) is the default browser, Chrome stays available as a
+# second engine, and Epiphany is purged rather than shipped in a state that
+# makes the platform look slow.  GStreamer itself is accelerated independently
+# of all this (v4l2h264dec/h265/av1/vp8/vp9 all verified), so GStreamer-based
+# players are unaffected by removing Epiphany.
+rm -f /usr/local/bin/epiphany            # drop the old LD_LIBRARY_PATH shim
+if dpkg -s epiphany-browser >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y epiphany-browser || true
+fi
+# Default to the accelerated engine.
+if [ -x /usr/bin/chromium-ncz-sky1 ]; then
+    update-alternatives --install /usr/bin/x-www-browser x-www-browser \
+        /usr/bin/chromium-ncz-sky1 200 || true
+    update-alternatives --set x-www-browser /usr/bin/chromium-ncz-sky1 || true
+    for u in /home/*/; do
+        [ -d "$u" ] || continue
+        su - "$(basename "$u")" -c \
+            'xdg-settings set default-web-browser chromium-ncz-sky1.desktop' 2>/dev/null || true
+    done
+fi
 
 # ---------------------------------------------------------------------------
 # Connected KMS selector — constrain wlroots to physical outputs that are
