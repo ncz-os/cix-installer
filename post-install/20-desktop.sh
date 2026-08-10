@@ -279,7 +279,7 @@ rm -f /etc/mpv/mpv.conf 2>/dev/null || true
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ncz-ffmpeg 2>&1 | tail -3 || echo "[20] ncz-ffmpeg: deferred (not in mirror)"
 
-echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv)"
+echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + GStreamer players)"
 
 # ---------------------------------------------------------------------------
 # Diagnostics: real crash traceability for the Singularity desktop session.
@@ -447,6 +447,10 @@ chmod 0755 /usr/local/bin/ncz-gpu-env
 rm -f /usr/local/bin/epiphany            # drop the old LD_LIBRARY_PATH shim
 if dpkg -s epiphany-browser >/dev/null 2>&1; then
     DEBIAN_FRONTEND=noninteractive apt-get purge -y epiphany-browser || true
+    # epiphany-browser-data is Architecture:all and does NOT come out with the
+    # browser -- measured on O6N, it survived the purge and sat in the image as
+    # a dead ~30MB orphan. Take it explicitly.
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y epiphany-browser-data || true
 fi
 # Default to the accelerated engine.
 if [ -x /usr/bin/chromium-ncz-sky1 ]; then

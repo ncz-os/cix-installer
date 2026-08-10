@@ -186,7 +186,15 @@ PKGS=(
   linux-firmware
 
   # Multimedia
-  ffmpeg mpv vlc
+  # Players are GStreamer-ONLY. clapper/showtime reach the Sky1 VPU; mpv and
+  # vlc cannot and are no longer shipped (the VPU emits only AFBC capture
+  # formats, which FFmpeg's v4l2_m2m rejects -- see post-install/84-vpu-mpv.sh).
+  # These MUST be in the mirror or the offline install cannot satisfy the
+  # apt-get install in 20-desktop.sh.
+  clapper showtime
+  # ffmpeg stays: it is a TOOL, not a player, and kdenlive/imagemagick/libsox
+  # depend on it. mpv and vlc are deliberately absent.
+  ffmpeg
   gstreamer1.0-libav
   gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
   gstreamer1.0-plugins-ugly gstreamer1.0-vaapi
