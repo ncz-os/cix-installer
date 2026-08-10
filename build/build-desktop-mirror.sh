@@ -63,9 +63,14 @@ PORTS_URL="${PORTS_URL:-http://ports.ubuntu.com/ubuntu-ports}"
 GOOGLE_CHROME_URL="${GOOGLE_CHROME_URL:-https://dl.google.com/linux/chrome/deb}"
 GOOGLE_CHROME_KEY_URL="${GOOGLE_CHROME_KEY_URL:-https://dl.google.com/linux/linux_signing_key.pub}"
 GOOGLE_CHROME_KEY="$REPO/build/google-chrome-apt-keyring.asc"
-GOOGLE_CHROME_VERSION="151.0.7922.71-1"
+# Re-pinned 2026-08-10: Google drops superseded builds from the stable index, so
+# 151.0.7922.71-1 stopped resolving and the mirror build aborted at the version
+# gate below. Version and checksum read straight from Google's own signed
+# binary-arm64/Packages, as that gate's message instructs -- not from a release
+# announcement or a download page.
+GOOGLE_CHROME_VERSION="151.0.7922.108-1"
 GOOGLE_CHROME_PKGS="google-chrome-stable"
-GOOGLE_CHROME_SHA256="d8d3e1bfc92d38751154d3d30dfcb4e8c8a25e630d8a53d60b06b034b55e9aa4"
+GOOGLE_CHROME_SHA256="23f5d27be6ad6f5d69c1c11b602d4ed25a8499cfdfa11c3ca479ad0b58285499"
 
 # ncz-singularity-desktop (build/build-singularity-deb.sh) is CIX/NCZ-specific
 # -- it doesn't exist on Ubuntu ports at all, only on the Buildkite Packages
