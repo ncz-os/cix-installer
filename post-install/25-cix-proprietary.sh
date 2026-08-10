@@ -354,6 +354,56 @@ if [ -f /usr/lib/modules-load.d/pkcs8.conf ]; then
     echo "[25] removed stale pkcs8_key_parser modules-load request"
 fi
 
+# ---------------------------------------------------------------------------
+# NCZ patches against the vendor cix-vpu-driver DKMS source.
+#
+# The VPU driver that actually RUNS on NCZ is this DKMS package, not the
+# in-tree drivers/media/platform/cix copy — the in-tree amvx.ko is deliberately
+# not built (see the kernel tree's Kbuild change), so DKMS ships the module.
+# Patching the kernel tree therefore has no effect at runtime; it has to happen
+# here, against /usr/src, before DKMS builds.
+#
+# 0001-mvx-log-levels: device discovery and client frame-rate negotiation were
+# logged at WARNING. "Linlon vX identified" is a once-per-boot fact, and
+# "Invalid frame period from client" fires on every Chromium playback even
+# though the negotiation succeeds. Measured on O6N: boot warnings 40 -> 36.
+VPU_SRC=$(ls -d /usr/src/cix-vpu-driver-* 2>/dev/null | head -1)
+PATCH_DIR=/usr/local/lib/cix-installer/patches/cix-vpu
+[ -d "$PATCH_DIR" ] || PATCH_DIR=/cdrom/cixmini/patches/cix-vpu
+if [ -n "$VPU_SRC" ] && [ -d "$PATCH_DIR" ]; then
+    VPU_VER=$(basename "$VPU_SRC" | sed 's/^cix-vpu-driver-//')
+    applied=0
+    for p in "$PATCH_DIR"/*.patch; do
+        [ -f "$p" ] || continue
+        if patch -d "$VPU_SRC" -p1 -N --dry-run < "$p" >/dev/null 2>&1; then
+            patch -d "$VPU_SRC" -p1 -N < "$p" >/dev/null 2>&1 && {
+                echo "[25] applied $(basename "$p") to cix-vpu-driver-$VPU_VER"
+                applied=$((applied+1))
+            }
+        else
+            # Already applied is fine and expected on reinstall; a genuine
+            # mismatch means the vendor moved the code and the patch needs
+            # rebasing, so say which one rather than failing silently.
+            patch -d "$VPU_SRC" -p1 -R --dry-run < "$p" >/dev/null 2>&1 \
+                && echo "[25] $(basename "$p") already applied" \
+                || echo "[25] WARN: $(basename "$p") does NOT apply to cix-vpu-driver-$VPU_VER — needs rebase" >&2
+        fi
+    done
+    if [ "$applied" -gt 0 ]; then
+        # Rebuild so the running module carries the patches. Best-effort: a
+        # missing kernel-headers build target must not halt the installer.
+        for kver in $(ls /lib/modules 2>/dev/null); do
+            [ -d "/lib/modules/$kver/build" ] || continue
+            dkms remove "cix-vpu-driver/$VPU_VER" -k "$kver" >/dev/null 2>&1 || true
+            dkms install "cix-vpu-driver/$VPU_VER" -k "$kver" >/dev/null 2>&1 \
+                && echo "[25] rebuilt cix-vpu-driver/$VPU_VER for $kver" \
+                || echo "[25] WARN: dkms rebuild failed for $kver" >&2
+        done
+    fi
+else
+    [ -n "$VPU_SRC" ] || echo "[25] cix-vpu-driver DKMS source absent — VPU patches skipped"
+fi
+
 # Always exit 0 — Cix postinst quirks should not halt the installer.
 # If something is genuinely broken, surfaces during agent runtime
 # rather than killing the install before branding/bootloader land.

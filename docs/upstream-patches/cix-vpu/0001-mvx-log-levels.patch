@@ -1,0 +1,55 @@
+mvx: log device discovery and client frame-rate negotiation at INFO, not WARNING
+
+Two normal events in the Linlon VPU driver are logged at WARNING, so a healthy
+boot and ordinary video playback both report warnings that are not problems.
+
+1. mvx_dev.c — "Linlon vX identified. cores=..." is device discovery. It is
+   printed once per probe on every successful boot. That is an INFO-level fact,
+   not a warning.
+
+2. mvx_v4l2_vidioc.c — "v4l2: Invalid frame period from client" fires whenever a
+   client requests a frame rate the VPU will not convert. The word "Invalid" is
+   misleading: the request is well-formed and the driver's own comment says
+   "Just do sanity check but not update fps as VPU doesn't support frame rate
+   conversion". The code immediately returns the supported rate and continues,
+   which is successful negotiation. Chromium requests 1/30 and triggers this on
+   every single playback, so a user watching video accumulates kernel warnings
+   at the rate they open videos.
+
+Measured on a Radxa Orion O6 (CIX Sky1, cix-vpu-driver 1.0.2, kernel
+7.2.0-rc7): with these two lines alone changed, boot-time kernel warnings fell
+from 40 to 36 and the "identified" line moved off the warning level entirely
+(warn=0, info=0 at default console loglevel). No behaviour changes — only the
+severity of two log statements.
+
+UPSTREAM STATUS: to be sent to CIX. This is a vendor DKMS package
+(cix-vpu-driver), not an in-tree driver, so it cannot go via lore. Note the
+in-tree copy under drivers/media/platform/cix/ carries the same two lines and
+was fixed separately in the NCZ kernel tree; on NCZ the in-tree amvx.ko is
+deliberately not built, so the DKMS copy is the one that runs and this patch is
+the one that matters.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/driver/dev/mvx_dev.c	2026-08-03 21:00:52.000000000 -0400
++++ b/driver/dev/mvx_dev.c	2026-08-10 09:50:19.483401950 -0400
+@@ -1051,7 +1051,7 @@
+         goto devfreq_remove;
+     }
+ 
+-    MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_WARNING,
++    MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_INFO,
+               "Linlon v%x identified. cores=%u, core_mask=0x%x, nlsid=%u, id=%u.",
+               mvx_hwreg_get_hw_id(&ctx->hwreg),
+               mvx_hwreg_get_ncores(&ctx->hwreg),
+--- a/driver/if/v4l2/mvx_v4l2_vidioc.c	2026-08-03 21:00:52.000000000 -0400
++++ b/driver/if/v4l2/mvx_v4l2_vidioc.c	2026-08-10 09:50:19.517613591 -0400
+@@ -1484,7 +1484,7 @@
+         frameperiod = &a->parm.capture.timeperframe;
+         if (frameperiod->numerator * session->fps_n != frameperiod->denominator * session->fps_d ||
+             frameperiod->numerator == 0 || frameperiod->denominator == 0) {
+-            MVX_SESSION_WARN(&session,
++            MVX_SESSION_INFO(&session,
+                 "v4l2: Invalid frame period from client (%d/%d). Return %d/%d",
+                 frameperiod->numerator, frameperiod->denominator, session->fps_n, session->fps_d);
+             frameperiod->numerator = session->fps_d;

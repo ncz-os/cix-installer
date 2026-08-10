@@ -50,6 +50,17 @@ sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets"
 for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu wallpaper; do
   [ -d "$ROOT/assets/$_d" ] && sudo cp -a "$ROOT/assets/$_d" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
 done   # deliberately EXCLUDES assets/rootfs (base tarballs + baked output)
+# NCZ patches applied to VENDOR DKMS sources at install time. These live under
+# docs/upstream-patches/ (they are also what we send upstream), but
+# 25-cix-proprietary.sh applies them inside the target, so stage a copy.
+# Without this the cix-vpu-driver log-level fixes silently do not ship: the
+# in-tree amvx.ko is deliberately not built, so the DKMS source is the only copy
+# that actually runs.
+sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/patches"
+for _p in cix-vpu; do
+  [ -d "$ROOT/docs/upstream-patches/$_p" ] && \
+    sudo cp -a "$ROOT/docs/upstream-patches/$_p" "$CHROOT/usr/local/lib/cix-installer/patches/" 2>/dev/null || true
+done
 # stage install-time-hook binaries that live OUTSIDE assets/ in the repo so the
 # baked image is self-contained (70-bootloader needs refind_aa64.efi in /target).
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets/refind"
