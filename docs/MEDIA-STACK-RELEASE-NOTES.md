@@ -23,22 +23,45 @@ rebases introduced, is in `upstream-patches/PROVENANCE.md`.
 
 ## What works
 
-| Codec | Chrome | Vivaldi | Our Chromium | Notes |
-|---|---|---|---|---|
-| H.264 | ✅ | ✅ | ✅ | bit-exact vs software |
-| VP9 | ✅ | ✅ | ✅ | bit-exact vs software |
-| HEVC | ✅ | ✅ | ✗ | bit-exact vs software (VA-API) |
-| AV1 | software | software | ✅ | hardware only via V4L2 |
+### Browsers we ship
 
-Chrome and Vivaldi reach the VPU through **VA-API** (`cix_vaapi`); our own
-Chromium build uses **V4L2-M2M** directly. AV1 is the one codec that works
-only on the V4L2 path, so only the browser we compile ourselves accelerates it.
-Chrome and Vivaldi fall back to dav1d software decode for AV1, which plays
-correctly.
+**Chromium NCZ Sky1 Edition** (`chromium-ncz-sky1`) is the default browser and
+the only one that reaches the Sky1 VPU. It is built with `use_v4l2_codec=true`
+and decodes **every codec the VPU supports — H.264, HEVC, VP8, VP9 and AV1 — in
+hardware**.
 
-"Bit-exact" means byte-count-checked identical output against software decode,
-not an open device node and not a log line — both of which produced false
-positives during this work.
+**Google Chrome** is shipped alongside it for **DRM material only** (Widevine:
+`/opt/google/chrome/WidevineCdm/_platform_specific/linux_arm64/libwidevinecdm.so`,
+which our Chromium cannot have — the CDM is a proprietary Google binary and
+cannot be built from source). **Chrome decodes in software on this platform.**
+
+**Epiphany/WebKit is not shipped.** It could not use the VPU at all and could
+not be made to perform; see "Why Epiphany was removed" below.
+
+| Codec | Chromium NCZ Sky1 | Chrome | Notes |
+|---|---|---|---|
+| H.264 | ✅ hardware | software | |
+| HEVC | ✅ hardware | software | see note on site availability |
+| VP9 | ✅ hardware | software | |
+| VP8 | ✅ hardware | software | |
+| AV1 | ✅ hardware | software | hardware only via V4L2 |
+| DRM (Widevine) | ✗ | ✅ | Chrome only; Linux is Widevine **L3** |
+
+Measured 2026-08-09 on rc7 by counting new `MVX session` kernel entries per
+playback run — the VPU driver logs one per decode session, so a non-zero count
+is the kernel itself confirming the hardware was engaged. Chromium NCZ scored 1
+per codec across H.264/HEVC/VP9/VP8/AV1 and 2 on YouTube with zero crashes;
+Google Chrome and Epiphany both scored **0**.
+
+Note on HEVC: it now decodes in hardware, but almost no site uses it. Facebook
+and X are H.264 (Facebook adding AV1 on Reels), YouTube is VP9/AV1, and the
+services that do use HEVC are DRM-gated — and Widevine on Linux is L3, which
+caps streams to ~1080p H.264/VP9 and never delivers HEVC. HEVC's practical
+value here is **local media playback**, not the web.
+
+"Bit-exact" below means byte-count-checked identical output against software
+decode, not an open device node and not a log line — both of which produced
+false positives during this work.
 
 ## Why we maintain our own forks
 
@@ -101,13 +124,52 @@ H.264/VP8/VP9/HEVC is built but unverified at time of writing.
   1,000+ lines whose only consumers are closed browser binaries. Deliberately
   deferred. AV1 is withheld from the driver's advertised profiles so clients
   fall back cleanly rather than freezing.
-- **HEVC does not work in our Chromium build.** Codec enumeration is fixed but
-  decode fails with `PIPELINE_ERROR_DECODE` before reaching the V4L2 decoder.
-  HEVC works in Chrome and Vivaldi via VA-API.
-- **VLC, mpv and GStreamer are unverified.** They use the same VA-API driver
-  that is bit-exact for three codecs, so they should work — but "should" is not
-  measured, and unmeasured assumptions produced several wrong conclusions during
-  this work.
+- ~~**HEVC does not work in our Chromium build.**~~ **FIXED — re-measured
+  2026-08-09 on rc7.** HEVC now engages the VPU in `chromium-ncz-sky1` (one new
+  `MVX session` per playback run, same as every other codec). The old
+  `PIPELINE_ERROR_DECODE` before reaching the V4L2 decoder no longer reproduces.
+  Kept here rather than deleted because this file asserted the opposite for
+  several releases.
+- **GStreamer is verified accelerated; WebKit does not use it.** GStreamer
+  itself selects a `v4l2*dec` element for all seven cases tested on rc7 (H.264
+  1080p and 4K, HEVC, AV1, VP9 plain and colorimetry-tagged, VP8), each
+  reaching `Got EOS`. But WebKit/Epiphany, which is a GStreamer client, never
+  engaged the VPU: MVX sessions stayed at 3 across a full local `<video>`
+  playback and no web process ever held `/dev/video*`. Accelerated GStreamer
+  does not imply an accelerated GStreamer *application*.
+- **VLC and mpv remain unverified.** "Should work" is not measured, and
+  unmeasured assumptions produced several wrong conclusions during this work.
+
+## Why Epiphany was removed
+
+Epiphany was slow and crashed on YouTube. Both symptoms had one cause, and it is
+structural rather than a tuning problem.
+
+WebKit's web process has no Wayland connection, so it renders through the
+DMABUF/GBM path, and that path requires a DRM **render node**. On the Mali
+backend the GPU is reached through `/dev/mali0` (`mali_kbase`) and is not a DRM
+device at all. The only render nodes on Sky1 — `renderD128-130` — belong to
+`linlondp`, the display controller, which cannot render. WebKit picked one
+anyway, handed it to the CIX `libgbm` stub, and aborted:
+
+```
+Failed to create GBM device for DRM node: /dev/dri/renderD130
+Could not create default EGL display: EGL_BAD_PARAMETER. Aborting...
+```
+
+That crashed `WebKitWebProcess` on every page load (five coredumps in ten
+seconds). Because nothing ever painted, it presented as "the browser has no
+network" — the network was fine throughout: gateway ping OK, DNS OK,
+`curl https://www.gnome.org` returned HTTP 200.
+
+Stripping `/opt/cixgpu-compat` stopped the crash (6 per page load to 0) but only
+by falling back to software GL, and WebKit still never engaged the VPU. Software
+GL plus software decode is not a browser worth shipping on this hardware, so
+Epiphany is purged and `chromium-ncz-sky1` is the default.
+
+The structural fix, if WebKit is ever wanted here, is **panthor**, which exposes
+the GPU as a real DRM render node. `panthor.ko` is already built on rc7 as DKMS
+but is not the booted backend.
 
 ## Upstreaming
 

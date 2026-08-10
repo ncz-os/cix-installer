@@ -3,9 +3,14 @@
 #
 # Usage: make-deb.sh <out_dir> <chromium_version> <datestamp> <channel>
 #
-# The package is self-contained apart from the CIX media stack: it Depends on
-# the NCZ VA-API driver, because without it the browser silently falls back to
-# software decode, which is the whole reason this build exists.
+# The package is self-contained apart from ordinary system libraries. It must
+# NOT depend on a CIX VA-API/driver package: the decode path here is V4L2-M2M
+# against /dev/video0 (amvx), which is a kernel module, not something a .deb can
+# depend on. An earlier revision declared "Depends: cix-vaapi-driver" and the
+# result was an artifact apt flatly refused to install --
+# "chromium-ncz-sky1 : Depends: cix-vaapi-driver but it is not installable"
+# -- on the very hardware it was built for. Keep the Depends list to real,
+# installable library packages; see the Description below for the rationale.
 set -eu
 
 OUTDIR="${1:?out dir}"
