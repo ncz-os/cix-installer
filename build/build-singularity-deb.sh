@@ -6,6 +6,19 @@
 # tarball's opt/singularity tree is retained byte-for-byte under /opt in the
 # package; the package maintainer scripts only manage the ldconfig integration.
 #
+# NOTE ON Depends (2026-08-10): it is hand-written, because the payload is a
+# tarball inside the package and dpkg-shlibdeps therefore never sees those ELF
+# files. That makes the list silently driftable, and it did drift: labwc NEEDs
+# libxcb-errors.so.0, no Depends entry covered it, nothing else in the desktop
+# closure pulled it, and the layer build aborted with
+# "unresolved runtime libraries for /opt/singularity/bin/labwc".
+#
+# The list below was reconciled against the payload's ACTUAL closure -- every
+# NEEDED soname of every ELF in the tree, resolved on a running Singularity
+# host and mapped to owning packages. After any payload rebuild, re-derive it
+# rather than trusting this list; a compositor gaining one library is enough to
+# break a fresh install while every existing install keeps working.
+#
 # Usage:
 #   ./build/build-singularity-deb.sh [path-to-singularity-opt.tgz]
 set -euo pipefail
@@ -57,7 +70,7 @@ Architecture: $ARCH
 Maintainer: Jason Perlow <jperlow@gmail.com>
 Section: x11
 Priority: optional
-Depends: libc6, libgtk-4-1, libadwaita-1-0, libgtk4-layer-shell0, libgee-0.8-2, libpeas-2-0, libjson-glib-1.0-0, libsoup-3.0-0, libvte-2.91-gtk4-0, libgtksourceview-5-0, libwebkitgtk-6.0-4, libgraphene-1.0-0
+Depends: libc6, libgtk-4-1, libadwaita-1-0, libgtk4-layer-shell0, libgee-0.8-2, libpeas-2-0, libjson-glib-1.0-0, libsoup-3.0-0, libvte-2.91-gtk4-0, libgtksourceview-5-0, libwebkitgtk-6.0-4, libgraphene-1.0-0, libxcb-errors0, libxcb-icccm4, libxcb-res0, libxcb-ewmh2, libxcb-composite0, libxcb-xfixes0, libinput10, libseat1, libliftoff0, libdisplay-info3, libdbusmenu-glib4, libtinysparql-3.0-0, libupower-glib3, libpolkit-agent-1-0, libpolkit-gobject-1-0, libsecret-1-0, libpipewire-0.3-0t64
 Description: NCZ-OS Singularity Desktop runtime payload
  Bundled /opt/singularity tree: singularity-shell, libsingularity,
  singularity-greeter, singularity-boot-splash, singularity-loginui,

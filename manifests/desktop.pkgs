@@ -283,3 +283,22 @@ xdg-desktop-portal-wlr
 gnome-keyring
 libpam-gnome-keyring
 at-spi2-core
+
+# Runtime libraries the /opt/singularity payload NEEDs but that nothing else in
+# the desktop closure pulls in. The payload is a tarball inside
+# ncz-singularity-desktop, so apt cannot see its ELF dependencies -- the deb's
+# Depends is hand-written and was missing these, which is why 20-desktop.sh
+# aborted the layer build with:
+#   [20] ERROR: unresolved runtime libraries for /opt/singularity/bin/labwc:
+#   [20]       libxcb-errors.so.0 => not found
+#
+# Derived 2026-08-10 by resolving every NEEDED soname of every ELF in the
+# payload on a host where Singularity actually runs (O6N), mapping each to its
+# owning package, and diffing that closure against this mirror. Of the 58
+# packages in that closure these four were the only ones absent -- the rest
+# arrive transitively via the seeds above. Re-derive after a payload rebuild
+# rather than assuming this list is still complete.
+libxcb-errors0
+libdbusmenu-glib4
+libtinysparql-3.0-0
+libupower-glib3
