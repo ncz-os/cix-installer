@@ -376,6 +376,44 @@ GPUENV
 chmod 0755 /usr/local/bin/ncz-gpu-env
 
 # ---------------------------------------------------------------------------
+# WebKit (Epiphany) GL shim — the Mali stack is unusable from a web process.
+#
+# WebKit's web process has no Wayland connection, so it renders through the
+# DMABUF/GBM path, and that path requires a DRM *render node*.  On the Mali
+# backend the GPU is reached through /dev/mali0 (mali_kbase), which is NOT a DRM
+# device at all; the only render nodes on Sky1 (renderD128-130) belong to
+# linlondp, the DISPLAY controller, which cannot render.  WebKit picks one of
+# them anyway, hands it to the CIX libgbm stub in /opt/cixgpu-compat, and dies:
+#
+#   Failed to create GBM device for DRM node: /dev/dri/renderD130
+#   ERROR: swrast enable is not set!
+#   Could not create default EGL display: EGL_BAD_PARAMETER. Aborting...
+#
+# Every page load then SIGABRTs the web process.  Because nothing ever paints,
+# this presents to the user as "the browser has no network" even though the
+# network is fine (measured on O6N rc7: gw ping OK, DNS OK, curl -> HTTP 200).
+#
+# Dropping ONLY /opt/cixgpu-compat lets EGL/GBM resolve to system Mesa, which
+# handles the surfaceless/GBM path correctly.  Measured on O6N rc7, real page
+# load: 6 web-process crashes -> 0, with 15 web processes alive.  libmali in
+# /opt/cixgpu-pro is deliberately left on the path for anything that dlopens it.
+#
+# Browser GL compositing is therefore software.  HARDWARE VIDEO DECODE IS NOT
+# AFFECTED: decode goes through GStreamer V4L2 (verified on the same box,
+# v4l2h264dec + Got EOS), not through this EGL path.
+#
+# The structural fix is panthor, which exposes the GPU as a real DRM render
+# node; panthor.ko is already built on rc7 but is not the booted backend.
+cat > /usr/local/bin/epiphany <<'EPIWRAP'
+#!/bin/sh
+# NCZ-OS: strip the CIX glvnd compat layer for WebKit. See 20-desktop.sh.
+LD_LIBRARY_PATH=$(printf '%s' "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -v '/opt/cixgpu-compat' | paste -sd: -)
+export LD_LIBRARY_PATH
+exec /usr/bin/epiphany "$@"
+EPIWRAP
+chmod 0755 /usr/local/bin/epiphany
+
+# ---------------------------------------------------------------------------
 # Connected KMS selector — constrain wlroots to physical outputs that are
 # currently connected.  Sky1 exposes a DRM card for each Linlon DP engine;
 # opening disconnected engines in addition to the active connector causes
