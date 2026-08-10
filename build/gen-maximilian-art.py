@@ -122,9 +122,12 @@ def robot_splash(W=1920, H=1080):
     base = scanlines(base, gap=3, dark=0.74)
     base = add_noise(base, 5)
     base = vignette(base, 0.5)
-    # wordmark
-    base = glow_text(base, (W/2, H*0.86), "N C Z - O S", font(84), (255, 60, 55), blur=10)
-    base = glow_text(base, (W/2, H*0.925), "26.7  ·  MAXIMILIAN", font(38), (200, 40, 40), blur=6)
+    # Wordmark. Kept clear of the Singularity dock, which occupies the bottom
+    # edge of the screen: the subtitle used to sit at H*0.925, i.e. inside the
+    # bottom 7.5%, and visibly collided with the launcher on 1080p. Raised so
+    # the whole lockup ends above the dock strip.
+    base = glow_text(base, (W/2, H*0.74), "N C Z - O S", font(84), (255, 60, 55), blur=10)
+    base = glow_text(base, (W/2, H*0.805), "26.7  ·  MAXIMILIAN", font(38), (200, 40, 40), blur=6)
     return base
 
 # ---------------------------------------------------------------- BLACK HOLE WP
@@ -168,7 +171,9 @@ def blackhole(W=2560, H=1440):
     base = scanlines(base, gap=4, dark=0.82)
     base = add_noise(base, 4)
     base = vignette(base, 0.6)
-    base = glow_text(base, (W*0.5, H*0.9), "MAXIMILIAN", font(60), (210, 40, 38), blur=9)
+    # Raised off the bottom edge for the same reason as the wordmark above:
+    # H*0.9 put this inside the dock strip.
+    base = glow_text(base, (W*0.5, H*0.78), "MAXIMILIAN", font(60), (210, 40, 38), blur=9)
     return base
 
 if __name__ == "__main__":
