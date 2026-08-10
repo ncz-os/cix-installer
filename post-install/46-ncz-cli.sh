@@ -312,11 +312,20 @@ ncz_install_nemoclaw() {
 ncz_npu_embedder_ready() {
     local url="http://127.0.0.1:8081/v1"
     [ -e /dev/aipu ] || { echo "[ncz] no /dev/aipu — NPU embedder not applicable"; return 1; }
-    [ -x /opt/ncz/noe-venv/bin/python ] || { echo "[ncz] NPU embedder venv missing (/opt/ncz/noe-venv)"; return 1; }
+    # There is ONE NPU-capable interpreter on the image: the Python 3.11 venv
+    # 47-embedkit.sh builds at /opt/ncz/embed-venv and installs libnoe +
+    # NOE_Engine into. The unit's ExecStart points at the same path.
+    [ -x /opt/ncz/embed-venv/bin/python ] || { echo "[ncz] NPU embedder venv missing (/opt/ncz/embed-venv)"; return 1; }
     [ -f /opt/ncz/models/nomic-embed-text-v1.5_256.cix ] || {
-        echo "[ncz] NPU graph missing: /opt/ncz/models/nomic-embed-text-v1.5_256.cix"; return 1; }
-    [ -f /etc/systemd/system/ncz-npu-embed.service ] || {
-        echo "[ncz] ncz-npu-embed.service not installed"; return 1; }
+        echo "[ncz] NPU graph missing: /opt/ncz/models/nomic-embed-text-v1.5_256.cix (apt install ncz-model-nomic-embed)"; return 1; }
+    # The ncz-npu-embed .deb ships the unit in /lib/systemd/system; only a
+    # hand-install drops it in /etc. Accept either -- checking /etc alone made a
+    # correctly-installed package look absent. (Path test, not `systemctl cat`,
+    # so this stays honest wherever the daemon is not addressable.)
+    [ -f /etc/systemd/system/ncz-npu-embed.service ] || \
+    [ -f /lib/systemd/system/ncz-npu-embed.service ] || \
+    [ -f /usr/lib/systemd/system/ncz-npu-embed.service ] || {
+        echo "[ncz] ncz-npu-embed.service not installed (apt install ncz-npu-embed)"; return 1; }
 
     systemctl enable --now ncz-npu-embed.service >/dev/null 2>&1 || true
     # Graph load is ~15s; the unit allows 120s, so poll rather than guess.

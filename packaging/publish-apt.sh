@@ -30,7 +30,14 @@ for deb in "$@"; do
     # empty .deb has shipped from a build that exited 0 before now.
     dpkg-deb --info "$deb" >/dev/null 2>&1 || { echo "not a valid .deb: $deb" >&2; exit 1; }
     sz=$(stat -c %s "$deb")
-    [ "$sz" -gt 100000 ] || { echo "suspiciously small ($sz B), refusing: $deb" >&2; exit 1; }
+    # Guard on CONTENT, not on a byte floor. The old 100 KB minimum was a proxy
+    # for "not truncated", but it also refuses packages that are legitimately
+    # tiny -- ncz-npu-embed is a server script, a unit and a shim at ~5 KB. A
+    # truncated archive fails `dpkg-deb --contents`, and an empty payload lists
+    # no regular files, so test for those directly.
+    nfiles=$(dpkg-deb --contents "$deb" 2>/dev/null | grep -c '^-') || nfiles=0
+    [ "${nfiles:-0}" -gt 0 ] || {
+        echo "payload has no regular files ($sz B), refusing: $deb" >&2; exit 1; }
     cp -f "$deb" "$POOL/"
     echo "  staged $(basename "$deb") ($((sz / 1024)) KiB)"
 done

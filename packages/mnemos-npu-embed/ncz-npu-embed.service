@@ -5,10 +5,14 @@ After=network.target
 # The NPU char device must exist; without it the graph load fails and the
 # service would restart-loop.
 ConditionPathExists=/dev/aipu
+# The interpreter is the Python 3.11 venv that 47-embedkit.sh provisions and
+# installs libnoe + NOE_Engine into. Without it the ExecStart binary does not
+# exist and the unit fails at start, so gate on it rather than restart-loop.
+ConditionPathExists=/opt/ncz/embed-venv/bin/python
 
 [Service]
 Type=simple
-ExecStart=/opt/ncz/noe-venv/bin/python /usr/local/bin/ncz-npu-embed-server.py --host 127.0.0.1 --port 8081
+ExecStart=/opt/ncz/embed-venv/bin/python /usr/local/bin/ncz-npu-embed-server.py --host 127.0.0.1 --port 8081
 Restart=on-failure
 RestartSec=10
 # Model load is ~15s; do not let systemd think that is a hang.

@@ -272,6 +272,64 @@ To override:
 EOF
 
 # ----------------------------------------------------------------------
+# 4a. NPU embedding server + its graph, from the NCZ apt repo.
+#
+#     MNEMOS embeds in-process with nomic-embed-text-v1.5 at 768 dimensions.
+#     ncz-npu-embed serves the SAME model at the SAME width off the NPU, which
+#     is the only reason it can be swapped in without re-embedding anything
+#     (measured cosine 0.9953 vs the onnxruntime CPU reference). The graph is
+#     large and versions independently of the server, so it is a separate
+#     package: ncz-model-nomic-embed drops
+#     /opt/ncz/models/nomic-embed-text-v1.5_256.cix.
+#
+#     Both resolve from whichever NCZ source is configured -- the ISO's
+#     file:///cdrom/cixmini/apt-repo (wired by late.sh) on an offline install,
+#     or packages.buildkite.com/ncz-os/ncz (wired by 24-apt-sources.sh) online.
+#
+#     BEST-EFFORT, exactly like embedkit above: the server is an app-layer
+#     convenience over the NPU runtime installed in step 3, and `ncz install
+#     mnemos` re-checks and can layer it post-flash. It is also NOT enabled
+#     here -- ncz_npu_embedder_ready() in 46-ncz-cli.sh enables it only after a
+#     live request proves the served vector is 768 wide, because an embedder of
+#     the wrong width strands memories silently instead of failing.
+# ----------------------------------------------------------------------
+NPU_EMBED_PKGS="ncz-npu-embed ncz-model-nomic-embed"
+if [ "$NPU_PY_OK" = "1" ]; then
+    echo "[47]   installing NPU embedding server: $NPU_EMBED_PKGS"
+    # Simulate first. An unsatisfiable dependency here must not be allowed to
+    # resolve by REMOVING packages -- on this image that has meant apt
+    # proposing to take the desktop or the kernel with it.
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -s -y $NPU_EMBED_PKGS \
+            > /tmp/47-npu-embed-sim.log 2>&1; then
+        echo "[47]   WARN: $NPU_EMBED_PKGS not available from any configured apt source"
+        echo "[47]         (published to the NCZ repo? offline ISO repo indexed?) — skipping;"
+        echo "[47]         MNEMOS stays on its in-process CPU embedder, same 768-dim space"
+    elif [ "$(grep -c '^Remv' /tmp/47-npu-embed-sim.log)" != "0" ]; then
+        echo "[47]   WARN: installing $NPU_EMBED_PKGS would REMOVE packages — refusing:"
+        grep '^Remv' /tmp/47-npu-embed-sim.log | sed 's/^/[47]         /'
+    elif DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            $NPU_EMBED_PKGS > /tmp/47-npu-embed-install.log 2>&1; then
+        # Log to a file, not through `| tail`: a pipeline's status is tail's,
+        # so piping here would report success for every failed install.
+        tail -3 /tmp/47-npu-embed-install.log
+        echo "[47]   NPU embedder installed (not enabled; 'ncz install mnemos' verifies width first)"
+        # The server tokenizes with transformers. embedkit usually drags it in,
+        # but embedkit is best-effort above, so do not let a skipped app layer
+        # leave the service unable to import its own dependency.
+        if ! "$VENV/bin/python" -c "import transformers" 2>/dev/null; then
+            echo "[47]   installing transformers (ncz-npu-embed tokenizer dependency)"
+            pip_install --quiet transformers 2>&1 | tail -2 || \
+                echo "[47]   WARN: transformers not installed — ncz-npu-embed cannot start until it is"
+        fi
+    else
+        echo "[47]   WARN: apt install of $NPU_EMBED_PKGS failed — continuing"
+        tail -5 /tmp/47-npu-embed-install.log 2>/dev/null | sed 's/^/[47]         /'
+    fi
+else
+    echo "[47]   skipping NPU embedding server — venv python is not 3.11/3.12"
+fi
+
+# ----------------------------------------------------------------------
 # 4b. Ship the model-library docs so the operator can FIND them on-target.
 #     MODELS-README.md is written above into /opt/ncz/models/. The broader
 #     "how to add ModelScope / HuggingFace models" guide ships as

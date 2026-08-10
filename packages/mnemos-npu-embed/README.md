@@ -25,10 +25,18 @@ and falls back to the CPU embedder with a printed reason otherwise.
 ## Cost
 
 * ~1 GB RSS resident once the graph is loaded
-* 522 MB for the graph, plus a ~237 MB Python 3.11 venv (`/opt/ncz/noe-venv`)
+* 522 MB for the graph (378 MB compressed in `ncz-model-nomic-embed`)
 
-The unit is `ConditionPathExists=/dev/aipu` so it cannot restart-loop on a board
-without an NPU.
+The interpreter costs nothing extra: this runs on `/opt/ncz/embed-venv`, the
+Python 3.11 venv `47-embedkit.sh` already builds for the NPU (libnoe and
+NOE_Engine ship cp311/cp312 extensions only, so 3.11 is mandatory, not a
+preference). It is deliberately NOT a second private venv -- an earlier revision
+pointed at `/opt/ncz/noe-venv`, a path nothing on the image ever creates, so the
+unit could not start on a fresh install.
+
+The unit is `ConditionPathExists=/dev/aipu` **and**
+`ConditionPathExists=/opt/ncz/embed-venv/bin/python`, so it cannot restart-loop
+on a board without an NPU, nor on an image where the embedkit hook never ran.
 
 ## Wiring
 

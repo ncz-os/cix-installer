@@ -43,7 +43,19 @@ import numpy as np
 LOG = logging.getLogger("npu-embed")
 
 DEFAULT_MODEL = "/opt/ncz/models/nomic-embed-text-v1.5_256.cix"
-DEFAULT_TOKENIZER = "nomic-ai/nomic-embed-text-v1.5"
+# Tokenizer: prefer the copy shipped alongside the graph, fall back to the Hub
+# id. A bare Hub id makes startup depend on huggingface.co reachability, which
+# an offline ISO install does not have -- measured on .66, where the very first
+# start pulled config/tokenizer/vocab over the network before loading the
+# graph. ncz-model-nomic-embed ships the tokenizer at this path so the service
+# starts with no network at all.
+LOCAL_TOKENIZER = "/opt/ncz/models/nomic-embed-text-v1.5"
+HUB_TOKENIZER = "nomic-ai/nomic-embed-text-v1.5"
+DEFAULT_TOKENIZER = (
+    LOCAL_TOKENIZER
+    if os.path.isfile(os.path.join(LOCAL_TOKENIZER, "tokenizer.json"))
+    else HUB_TOKENIZER
+)
 # Advertised name. MNEMOS/Ollama clients ask for "nomic-embed-text"; accept any
 # alias rather than 400-ing on a name mismatch, since the served weights are
 # what they are regardless of what the caller calls them.
