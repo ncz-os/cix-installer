@@ -135,14 +135,14 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/branding/." "$MG/usr/local/lib/cix-installer/assets/branding/" 2>/dev/null || true
       log "  staged branding assets ($(find "$ROOT/assets/branding" -type f | wc -l | tr -d ' ') files)"
     fi
-    # r181: stage the Vivaldi .deb so 52-vivaldi.sh installs the browser OFFLINE
-    # (the MNEMOS + agent launchers Exec vivaldi-stable; epiphany can't play
-    # YouTube on arm64). Self-contained .deb, no mirror/closure changes needed.
-    if [ -d "$ROOT/assets/vivaldi" ]; then
-      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/vivaldi"
-      sudo cp -a "$ROOT/assets/vivaldi/." "$MG/usr/local/lib/cix-installer/assets/vivaldi/" 2>/dev/null || true
-      log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
-    fi
+    # Vivaldi is NOT shipped (operator, 2026-08-10). Its staging block lived on
+    # after post-install/52-vivaldi.sh had already been deleted, so the ISO
+    # still carried 125 MB+ of browser .deb that nothing installed -- and on the
+    # build host a superseded 8.0 copy sat beside the 8.1 one, doubling it.
+    # The launchers do not need it: 30-agents.sh and the MNEMOS entries already
+    # Exec /usr/bin/chromium-ncz-sky1, and 20-desktop.sh already registers that
+    # as x-www-browser at priority 200, so chromium-ncz-sky1 is the default
+    # browser in practice regardless of the older "Vivaldi is default" comments.
     # Google Chrome installs via the offline desktop-mirror pool (same as
     # dropped ungoogled-chromium/XtraDeb stop-gap) -- see build/build-desktop-mirror.sh and
     # post-install/53-chrome.sh. No separate asset staging needed here.
@@ -224,9 +224,9 @@ build_layer(){ local role="$1" manifest="$2"
     # writes /etc/mpv HW-decode. 57-screensaver = NATIVE Wayland idle-lock
     # (swayidle + Singularity lockscreen; the X11 xscreensaver is purged) — no
     # longer dropped. 30-agents before 46-ncz-cli (dep order). 59-desktop-curate
-    # LAST of the app hooks (after 20/30-agents/52-vivaldi/46-ncz-cli) so it sees
+    # LAST of the app hooks (after 20/30-agents/46-ncz-cli) so it sees
     # every app-creating hook's output when it curates the launcher.
-    for bh in 20-desktop 22-display-fix 23-locale-env 50-brand 52-vivaldi 53-chrome 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 84-vpu-vaapi 57-qotd 30-agents 46-ncz-cli 57-screensaver 59-desktop-curate 60-boot-splash; do
+    for bh in 20-desktop 22-display-fix 23-locale-env 50-brand 53-chrome 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 84-vpu-vaapi 57-qotd 30-agents 46-ncz-cli 57-screensaver 59-desktop-curate 60-boot-splash; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       set +e

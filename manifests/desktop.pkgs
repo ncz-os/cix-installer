@@ -110,8 +110,15 @@ fonts-noto-color-emoji
 fonts-liberation
 
 # --- browser + media -------------------------------------------------------
-# Vivaldi installs from the staged upstream .deb in 52-vivaldi.sh and remains
-# the default browser. Real, official Google Chrome for arm64 Linux (public
+# Vivaldi is NOT shipped (operator, 2026-08-10): post-install/52-vivaldi.sh had
+# already been deleted, so the staged 125 MB .deb rode along installing nothing.
+#
+# NOTE, unresolved: 20-desktop.sh wants chromium-ncz-sky1 as x-www-browser and
+# 30-agents.sh writes launchers with Exec=/usr/bin/chromium-ncz-sky1, but NO
+# manifest seeds and NO hook installs that package -- the `if [ -x ... ]` guard
+# is simply never true. So today the installed browsers are google-chrome-stable
+# and epiphany, and those agent launchers point at a binary that is not there.
+# Real, official Google Chrome for arm64 Linux (public
 # since Q2 2026, via Google's own signed apt repo) is the second browser —
 # build-desktop-mirror folds it into the offline desktop pool, pinned +
 # SHA256-verified against Google's published Packages index; no live apt
@@ -189,8 +196,8 @@ xdg-desktop-portal-gtk
 epiphany-browser
 # r181: falkon dropped — it half-configures (iF) on Sky1/qemu (its postinst was
 # the desktop apt rc=100), and its stale .desktop launcher errored like the
-# mnemos one. Vivaldi (staged .deb, 52-vivaldi.sh) is the default browser now;
-# epiphany stays as a lightweight secondary.
+# mnemos one. See the browser note above: chromium-ncz-sky1 is referenced but
+# never installed; epiphany stays as a lightweight secondary.
 feh
 
 # --- r130.4 bucket: GPU/Vulkan validation + benchmark tools 47-llm-stack +
