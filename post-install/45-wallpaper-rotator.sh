@@ -31,7 +31,16 @@ ln -sfn ncz-wallpaper-07-maximilian-blackhole-2k.jpg "$DEST/default.jpg"
 cat > /usr/local/bin/ncz-wallpaper-rotate <<'ROT'
 #!/bin/sh
 WP_DIR=/usr/share/backgrounds/ncz
-PIC=$(ls $WP_DIR/ncz-wallpaper-0*.jpg 2>/dev/null | shuf -n1)
+STATE="${XDG_RUNTIME_DIR:-/tmp}/ncz-wallpaper-state"
+# Pick at random but EXCLUDE the image currently displayed. A plain `shuf -n1`
+# over 7 wallpapers re-picks the current one about one time in seven, so roughly
+# every 70 minutes a "rotation" changed nothing and looked like the rotator had
+# stalled. Excluding the current pick makes every rotation a visible change.
+CURRENT=$(cat "$STATE" 2>/dev/null)
+PIC=$(ls $WP_DIR/ncz-wallpaper-0*.jpg 2>/dev/null | grep -vxF "${CURRENT:-/nonexistent}" | shuf -n1)
+# Fall back to the unfiltered set if the exclusion emptied it (single wallpaper
+# installed, or an unreadable state file).
+[ -n "$PIC" ] || PIC=$(ls $WP_DIR/ncz-wallpaper-0*.jpg 2>/dev/null | shuf -n1)
 [ -z "$PIC" ] && exit 0
 ln -sfn "$(basename "$PIC")" "$WP_DIR/default.jpg" 2>/dev/null || true
 
@@ -89,10 +98,19 @@ LOCK="${XDG_RUNTIME_DIR:-/tmp}/ncz-wallpaper-daemon.lock"
 if [ -e "$LOCK" ] && kill -0 "$(cat "$LOCK" 2>/dev/null)" 2>/dev/null; then exit 0; fi
 echo $$ > "$LOCK"
 trap 'rm -f "$LOCK"' EXIT
+# Rotation interval in seconds. Override without editing this file:
+#   echo 'NCZ_WALLPAPER_INTERVAL=1800' > /etc/default/ncz-wallpaper
+# Anything non-numeric or below 10s falls back to the default.
+INTERVAL=600
+[ -r /etc/default/ncz-wallpaper ] && . /etc/default/ncz-wallpaper
+case "${NCZ_WALLPAPER_INTERVAL:-}" in
+    ''|*[!0-9]*) : ;;
+    *) [ "$NCZ_WALLPAPER_INTERVAL" -ge 10 ] && INTERVAL="$NCZ_WALLPAPER_INTERVAL" ;;
+esac
 sleep 2
 /usr/local/bin/ncz-wallpaper-rotate
 while true; do
-    sleep 600
+    sleep "$INTERVAL"
     /usr/local/bin/ncz-wallpaper-rotate
 done
 DAEMON
