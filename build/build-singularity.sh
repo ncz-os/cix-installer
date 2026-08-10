@@ -398,13 +398,15 @@ src = io.open(p).read()
 if "NCZ: activities tooltip disabled" in src:
     print("NCZ: activities tooltip already suppressed")
 else:
-    pat = re.compile(r"^([ \t]*)(activities_btn\.tooltip_text\s*=.*)$", re.M)
+    # Assign null rather than commenting the statement out. One of these sites is
+    # the sole body of an `if (action == ...)` inside the shortcut_changed
+    # handler, so commenting it leaves a dangling if and Vala fails with
+    # "syntax error, following expression/statement delimiter ; missing".
+    pat = re.compile(r"^([ \t]*)activities_btn\.tooltip_text\s*=.*?;[ \t]*$", re.M | re.S)
     n = len(pat.findall(src))
     if n == 0:
         raise SystemExit("NCZ activities-tooltip patch: no assignment found - upstream moved")
-    out = pat.sub(lambda m: m.group(1) + "// NCZ: activities tooltip disabled - hint bubble sat over the\n"
-                                + m.group(1) + "// application-menu icon in the top-left corner.\n"
-                                + m.group(1) + "// " + m.group(2), src)
+    out = pat.sub(lambda m: m.group(1) + "activities_btn.tooltip_text = null; // NCZ: hint bubble sat over the app-menu icon", src)
     io.open(p, "w").write(out)
     print("NCZ: activities button tooltip removed (%d assignment site(s))" % n)
 PY_NCZ_TIP
