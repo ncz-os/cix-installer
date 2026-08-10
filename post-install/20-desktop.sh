@@ -646,7 +646,7 @@ recent-wallpapers=['file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilia
 # default pins only the Sinty first-party apps, so a fresh install had no
 # browser on the dock at all - including the two builds that are this
 # platform's differentiator.
-pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'org.gnome.Epiphany.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
+pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'com.github.rafostar.Clapper.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
 GSCHEMA
     glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
         echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
@@ -856,11 +856,16 @@ fi
 # VA-API on this hardware.
 #
 # Google Chrome is the secondary and is kept for one specific reason: it is the
-# only browser here shipping a Widevine CDM, so DRM streaming (Netflix and the
-# like) needs it. Epiphany is the third, as the non-Chromium engine.
+# only browser here shipping a Widevine CDM
+# (/opt/google/chrome/WidevineCdm/_platform_specific/linux_arm64/libwidevinecdm.so),
+# so DRM streaming needs it. It decodes in SOFTWARE on this platform -- measured,
+# it never opens /dev/video* -- so it is the DRM browser, not the fast one.
+# Epiphany is NOT a fallback here: it is purged earlier in this script because it
+# cannot use the VPU and crashes on the Mali GL stack. Listing it would exec a
+# binary that does not exist.
 cat > /usr/local/bin/x-www-browser <<'BRWRAP'
 #!/bin/sh
-for b in /usr/bin/chromium-ncz-sky1 /usr/bin/google-chrome-stable /usr/bin/epiphany; do
+for b in /usr/bin/chromium-ncz-sky1 /usr/bin/google-chrome-stable; do
     [ -x "$b" ] && exec "$b" "$@"
 done
 exec xdg-open "$@"
