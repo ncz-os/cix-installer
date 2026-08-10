@@ -5,60 +5,49 @@ Zhouyi V3 NPU, so MNEMOS can offload embedding to the NPU **without changing
 which vector space its memories live in**.
 
 Captured from the O6N (192.168.207.3) on 2026-08-10, where it had been
-hand-installed on 2026-08-05 and existed nowhere else. It is checked in here so
-it stops being stranded on one board; it is **not** yet wired into any install
-path (see "Open decision" below).
+hand-installed on 2026-08-05 and existed nowhere else.
 
-## Why this exists alongside `mnemos-cix-integration`
+## The invariant
 
-The two are not interchangeable, and picking the wrong one silently corrupts
-retrieval:
+nomic-embed-text-v1.5 at **768 dimensions** — exactly what the stock MNEMOS
+image embeds with in-process. Same model, same width, so switching to it is a
+drop-in: no migration, no re-embedding, and the host still federates with x86
+peers. Measured cosine **0.9953** against the onnxruntime CPU reference, so a
+memory embedded here lands in the same space as one embedded on an x86 peer.
 
-| | `mnemos-cix-integration` | this |
-|---|---|---|
-| model | all-MiniLM-L6-v2 | nomic-embed-text-v1.5 |
-| dimensions | **384** | **768** |
-| port | 8000 | 8081 |
-| unit | `cix-npu-embedder.service` | `ncz-npu-embed.service` |
-| graph | `minilm_128.cix` | `nomic-embed-text-v1.5_256.cix` (522 MB) |
+That invariant is load-bearing and must be checked, never assumed. MNEMOS
+stores vectors in a fixed-width column; an embedder of a different width does
+not fail loudly, it just stops retrieving everything written before the switch.
+`ncz_npu_embedder_ready()` in `post-install/46-ncz-cli.sh` therefore refuses to
+wire MNEMOS to this service unless a live request returns exactly 768 floats,
+and falls back to the CPU embedder with a printed reason otherwise.
 
-MNEMOS's own in-process embedder is nomic-embed-text-v1.5 at 768 dimensions.
-`ncz install mnemos` currently prints a note telling the operator to
-`apt install mnemos-cix-integration` and repoint MNEMOS at it — which swaps
-both the model AND the dimensionality underneath an existing database. Memories
-written before the switch are not merely less accurate, they are in a different
-space and a different width, so they stop being retrievable, and the host no
-longer federates with x86 peers.
-
-This server exists to make the NPU offload safe: measured cosine **0.9953**
-against the onnxruntime CPU reference, i.e. a memory embedded here lands in the
-same space as one embedded on an x86 peer, so federation needs no translation
-layer.
-
-## Cost, which is why it must stay optional
+## Cost
 
 * ~1 GB RSS resident once the graph is loaded
 * 522 MB for the graph, plus a ~237 MB Python 3.11 venv (`/opt/ncz/noe-venv`)
 
-Nothing in the shipped ISO enables it. `47-embedkit.sh` and `47-llm-stack.sh`
-stage artifacts only and register no unit; the image carries the 101 MB
-bge-small models, not the nomic graph. The unit here is
-`ConditionPathExists=/dev/aipu` so it cannot restart-loop on a board without an
-NPU, but it is `WantedBy=multi-user.target` and must only be enabled by an
-explicit MNEMOS install step, never by a desktop hook.
+The unit is `ConditionPathExists=/dev/aipu` so it cannot restart-loop on a board
+without an NPU.
 
-## Open decision before this can be wired into `ncz install mnemos`
+## Wiring
 
-The 522 MB graph does not fit the ISO's current budget (the whole models
-payload today is 101 MB). Either:
+`ncz install mnemos` calls `ncz_npu_embedder_ready()`, and on success writes
+into the MNEMOS quadlet **before first start**, so MNEMOS never embeds a memory
+on CPU and then switches mid-database:
 
-1. ship the graph in the ISO and accept ~+520 MB, or
-2. fetch it at `ncz install mnemos` time from the dist mirror, which makes the
-   NPU path network-dependent while MNEMOS itself installs offline from a
-   bundled container image.
+```
+MNEMOS_EMBED_BACKEND=http
+MNEMOS_EMBED_HTTP_URL=http://127.0.0.1:8081/v1/embeddings
+MNEMOS_EMBED_HTTP_MODEL=nomic-embed-text
+MNEMOS_EMBEDDING_DIM=768
+```
 
-That is a sizing/product call, not an implementation detail, so it is left
-open rather than guessed at.
+Taken from MNEMOS's own `mnemos/core/config.py`. Two traps live there:
+`MNEMOS_EMBED_HTTP_URL` wants the full `/v1/embeddings` path rather than a base
+URL, and the width key is `MNEMOS_EMBEDDING_DIM` — `MNEMOS_DATABASE_EMBEDDING_DIM`
+is not read by MNEMOS and surfaces later as a vector cast error. The quadlet is
+`Network=host`, so `127.0.0.1` reaches the host service.
 
 ## Files
 

@@ -304,11 +304,11 @@ ncz_install_nemoclaw() {
 # model). So switching to it does not restate the vector space and needs no
 # migration -- measured cosine 0.9953 against the onnxruntime CPU reference.
 #
-# That property is also the thing that must never be assumed. A 384-dim
-# embedder silently strands every memory already written (which is exactly the
-# trap in mnemos-cix-integration), so this function REFUSES to wire anything up
-# unless the running service actually returns a 768-wide vector. Returns 0 only
-# when the embedder is up and verified.
+# That property is also the thing that must never be assumed. An embedder of a
+# different width silently strands every memory already written -- nothing
+# fails loudly, retrieval just stops returning anything -- so this function
+# REFUSES to wire anything up unless the running service actually returns a
+# 768-wide vector. Returns 0 only when the embedder is up and verified.
 ncz_npu_embedder_ready() {
     local url="http://127.0.0.1:8081/v1"
     [ -e /dev/aipu ] || { echo "[ncz] no /dev/aipu — NPU embedder not applicable"; return 1; }
@@ -459,9 +459,9 @@ Environment=MNEMOS_EMBEDDING_DIM=768" "$active"
     echo "[ncz]   service:  systemctl status mnemos.service"
     echo "[ncz] NOTE: the NPU embedder is the SAME model and width as the CPU one"
     echo "[ncz]       (nomic-embed-text-v1.5, 768-dim), so it is a drop-in and needs"
-    echo "[ncz]       no re-embedding. Do NOT substitute mnemos-cix-integration: it"
-    echo "[ncz]       serves all-MiniLM-L6-v2 at 384 dimensions, a different model AND"
-    echo "[ncz]       width, which silently strands every memory already written."
+    echo "[ncz]       no re-embedding. Never repoint MNEMOS at an embedder of a"
+    echo "[ncz]       different width: nothing fails loudly, retrieval simply stops"
+    echo "[ncz]       returning the memories already written."
 }
 
 ncz_install() {
