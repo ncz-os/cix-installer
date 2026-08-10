@@ -43,6 +43,30 @@ WRAP
     chmod 0755 "/usr/local/bin/cix-$t"
 done
 
+# --- RUNNABILITY GATE --------------------------------------------------------
+# Do not ship wrappers for a binary that cannot start. Measured on O6N rc7
+# 2026-08-09: the installed bundle was DEAD on arrival --
+#   /opt/cix-ffmpeg/bin/ffmpeg: error while loading shared libraries:
+#   libvidstab.so.1.1: cannot open shared object file
+# and ldd showed eight unresolved sonames (libavcodec.so.61, libavutil.so.59,
+# libpostproc.so.58, ...) because the bundle targets the ffmpeg-7.1 soname set
+# while the image ships ffmpeg 8.x. Three cix-* wrappers sat on PATH looking
+# like working tools and failed for anyone who ran them.
+#
+# Note this bundle cannot rescue mpv/VLC either, even when it does run: its
+# libavcodec.so.61 cannot be loaded by players linked against the system
+# libavcodec.so.62. Its only role is as a standalone transcode tool.
+if ! "$DEST/bin/ffmpeg" -hide_banner -version >/dev/null 2>&1; then
+    echo "[83] cix-ffmpeg bundle FAILS TO RUN on this image — refusing to ship broken wrappers"
+    "$DEST/bin/ffmpeg" -hide_banner -version 2>&1 | head -2 | sed 's/^/[83]   /'
+    MISSING=$(ldd "$DEST/bin/ffmpeg" 2>/dev/null | awk '/not found/ {print $1}' | tr '\n' ' ')
+    [ -n "$MISSING" ] && echo "[83]   unresolved: $MISSING"
+    rm -f /usr/local/bin/cix-ffmpeg /usr/local/bin/cix-ffprobe /usr/local/bin/cix-ffplay
+    rm -rf "$DEST"
+    echo "[83] removed. HW video on this platform is GStreamer (see 84-vpu-mpv.sh)."
+    exit 0
+fi
+
 echo "[83] cix-ffmpeg installed. Usage: cix-ffmpeg -c:v h264_v4l2m2m -i in.mp4 -c:v hevc_v4l2m2m out.mp4"
 echo "[83] (needs amvx VPU driver + /dev/video-cixdec0 — in-tree on the 7.2 kernel w/ vb2 fix)"
 exit 0
