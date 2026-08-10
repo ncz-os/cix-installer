@@ -308,6 +308,100 @@ print("NCZ: overview drops its GdkSurface on hide (fresh wl_surface per open)")
 PY_NCZ_UNREALIZE
 fi
 
+# NCZ shell fix #3: the SAME stale-buffer crash in EVERY layer-shell window.
+#
+# The launcher was only the first instance. An audit of the shell found 19
+# windows calling gtk4-layer-shell init_for_window(), of which SIX hide and then
+# re-show -- the cycle that triggers the fault:
+#
+#   dock.vala                 hide=2  show=10
+#   sidebar.vala              hide=5  show=5
+#   app_menu.vala             hide=4  show=1
+#   hot_corner_manager.vala   hide=2  show=1
+#   workspace_overview.vala   hide=4  show=2   <- operator hit this one next
+#   overview.vala             hide=2  show=1   <- patched separately above
+#
+# Each is a distinct chance for the same crash: a frame queued by a closing
+# animation re-attaches a live buffer to the now-roleless wl_surface, and the
+# next open commits it before any configure --
+#   wl_display error 2, layer_surface has never been configured.
+#
+# Patched generically rather than per-file: in a class that calls
+# init_for_window(), a bare `hide();` statement IS this.hide() on the layer
+# window, so every one of them needs the GdkSurface dropped. Qualified calls
+# (popover.hide(), child.hide()) are deliberately NOT matched.
+#
+# unrealize() on a never-realized widget is a documented no-op, so the
+# constructor-time hide() in workspace_overview is harmless.
+#
+# The proper upstream shape is a shared close helper; this is the downstream
+# equivalent applied uniformly.
+if [ -z "${SINGULARITY_SOURCE_DIR:-}" ]; then
+python3 - <<'"'"'PY_NCZ_ALLWIN'"'"'
+import io, re, sys
+files = [
+    "subprojects/singularity-shell/src/components/dock/dock.vala",
+    "subprojects/singularity-shell/src/components/sidebar/sidebar.vala",
+    "subprojects/singularity-shell/src/components/overview/app_menu.vala",
+    "subprojects/singularity-shell/src/core/hot_corner_manager.vala",
+    "subprojects/singularity-shell/src/components/overview/workspace_overview.vala",
+]
+NOTE = "NCZ: drop the GdkSurface so the next open gets a fresh wl_surface"
+pat = re.compile(r"^([ \t]+)hide\(\);[ \t]*$", re.M)
+total = 0
+for f in files:
+    try:
+        src = io.open(f).read()
+    except IOError:
+        raise SystemExit("NCZ all-window patch: missing %s - tree layout changed" % f)
+    if "init_for_window" not in src:
+        raise SystemExit("NCZ all-window patch: %s is not a layer-shell window - re-check" % f)
+    if NOTE in src:
+        print("NCZ: %s already patched" % f.split("/")[-1]); continue
+    n = len(pat.findall(src))
+    if n == 0:
+        raise SystemExit("NCZ all-window patch: no bare hide() in %s - upstream moved" % f)
+    def sub(m):
+        ind = m.group(1)
+        return (ind + "hide();\n"
+                + ind + "// " + NOTE + ".\n"
+                + ind + "// Cast required: GtkWindow implements GtkNative, so a bare\n"
+                + ind + "// unrealize() binds to gtk_native_unrealize, not the widget one.\n"
+                + ind + "((Gtk.Widget) this).unrealize();")
+    io.open(f, "w").write(pat.sub(sub, src))
+    total += n
+    print("NCZ: %-26s %d close path(s) patched" % (f.split("/")[-1], n))
+print("NCZ: layer-window unrealize applied to %d close paths" % total)
+PY_NCZ_ALLWIN
+fi
+
+# NCZ: remove the top-left hot-corner hint overlay.
+#
+# The panel adds a "corner-hint-tl" widget as an overlay directly on top of the
+# application-menu icon. It is a hover affordance upstream wants; downstream we
+# do not, and CSS suppression proved unreliable because it only applies while
+# the Singularity GTK theme is the active one. Dropping the add_overlay() call
+# removes it deterministically. The widget and its field are left intact so the
+# rest of the class is untouched; only the top-LEFT one goes.
+if [ -z "${SINGULARITY_SOURCE_DIR:-}" ]; then
+python3 - <<'"'"'PY_NCZ_CORNER'"'"'
+import io
+p = "subprojects/singularity-shell/src/components/panel/panel.vala"
+src = io.open(p).read()
+needle = "            overlay.add_overlay(_corner_tl);\n"
+if "NCZ: top-left hot-corner hint intentionally not shown" in src:
+    print("NCZ: corner-hint-tl already suppressed")
+elif needle in src:
+    repl = ("            // NCZ: top-left hot-corner hint intentionally not shown -- it\n"
+            "            // renders directly over the application-menu icon.\n"
+            "            // overlay.add_overlay(_corner_tl);\n")
+    io.open(p, "w").write(src.replace(needle, repl, 1))
+    print("NCZ: top-left corner hint no longer added to the panel overlay")
+else:
+    raise SystemExit("NCZ corner-hint patch: anchor not found - upstream moved, re-check")
+PY_NCZ_CORNER
+fi
+
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
