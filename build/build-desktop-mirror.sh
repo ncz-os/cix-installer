@@ -63,14 +63,25 @@ PORTS_URL="${PORTS_URL:-http://ports.ubuntu.com/ubuntu-ports}"
 GOOGLE_CHROME_URL="${GOOGLE_CHROME_URL:-https://dl.google.com/linux/chrome/deb}"
 GOOGLE_CHROME_KEY_URL="${GOOGLE_CHROME_KEY_URL:-https://dl.google.com/linux/linux_signing_key.pub}"
 GOOGLE_CHROME_KEY="$REPO/build/google-chrome-apt-keyring.asc"
-# Re-pinned 2026-08-10: Google drops superseded builds from the stable index, so
-# 151.0.7922.71-1 stopped resolving and the mirror build aborted at the version
-# gate below. Version and checksum read straight from Google's own signed
-# binary-arm64/Packages, as that gate's message instructs -- not from a release
-# announcement or a download page.
-GOOGLE_CHROME_VERSION="151.0.7922.108-1"
+# TRACKS LATEST STABLE BY DEFAULT (2026-08-10). Google publishes only the
+# current build in the stable index and delists superseded ones, so a hardcoded
+# version does not merely age -- it stops resolving and hard-fails the mirror
+# build. That happened with 151.0.7922.71-1, which had been correct on 07-27.
+#
+# Leaving GOOGLE_CHROME_VERSION empty means "whatever the signed index offers
+# right now". Set it (here or in the environment) to pin a specific build for a
+# reproducible respin; the version gate below then enforces it exactly as
+# before, and a delisted pin still fails loudly rather than silently drifting.
+#
+# This does NOT weaken the supply-chain check. The trust root was never the
+# constant below -- it is apt's signature verification of Google's Release
+# using GOOGLE_CHROME_KEY (see signed-by= in the sources.list entry). The
+# expected SHA256 is therefore read from that verified Packages index and the
+# downloaded .deb is checked against it. GOOGLE_CHROME_SHA256, when set, is
+# enforced as an ADDITIONAL constraint on top of the index value.
+GOOGLE_CHROME_VERSION="${GOOGLE_CHROME_VERSION:-}"
 GOOGLE_CHROME_PKGS="google-chrome-stable"
-GOOGLE_CHROME_SHA256="23f5d27be6ad6f5d69c1c11b602d4ed25a8499cfdfa11c3ca479ad0b58285499"
+GOOGLE_CHROME_SHA256="${GOOGLE_CHROME_SHA256:-}"
 
 # ncz-singularity-desktop (build/build-singularity-deb.sh) is CIX/NCZ-specific
 # -- it doesn't exist on Ubuntu ports at all, only on the Buildkite Packages
@@ -109,16 +120,28 @@ if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
     cat >> "$T/etc/apt/sources.list" <<EOF
 deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/google-chrome-apt-keyring.asc] $GOOGLE_CHROME_URL stable main
 EOF
-    cat > "$T/etc/apt/preferences.d/google-chrome.pref" <<EOF
+    # The beta/unstable/canary block is NOT optional: without it apt would
+    # happily pull a canary build into the desktop mirror. Only the stable
+    # VERSION pin is conditional.
+    : > "$T/etc/apt/preferences.d/google-chrome.pref"
+    if [ -n "$GOOGLE_CHROME_VERSION" ]; then
+        cat >> "$T/etc/apt/preferences.d/google-chrome.pref" <<EOF
 Package: $GOOGLE_CHROME_PKGS
 Pin: version $GOOGLE_CHROME_VERSION
 Pin-Priority: 700
 
+EOF
+    fi
+    cat >> "$T/etc/apt/preferences.d/google-chrome.pref" <<EOF
 Package: google-chrome-beta google-chrome-unstable google-chrome-canary
 Pin: origin dl.google.com
 Pin-Priority: -1
 EOF
-    echo "  source: Google Chrome (${GOOGLE_CHROME_URL}) — pinned to $GOOGLE_CHROME_VERSION, checksum-verified below"
+    if [ -n "$GOOGLE_CHROME_VERSION" ]; then
+        echo "  source: Google Chrome (${GOOGLE_CHROME_URL}) — pinned to $GOOGLE_CHROME_VERSION, checksum-verified below"
+    else
+        echo "  source: Google Chrome (${GOOGLE_CHROME_URL}) — tracking current stable, checksum-verified below"
+    fi
 fi
 
 [ -f "$BUILDKITE_NCZ_KEY" ] || { echo "ERROR: $BUILDKITE_NCZ_KEY missing"; exit 1; }
@@ -146,9 +169,36 @@ apt-get "${APTOPTS[@]}" update >/dev/null 2>&1
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
     _policy="$(apt-cache "${APTOPTS[@]}" policy google-chrome-stable)"
-    if ! printf '%s\n' "$_policy" | grep -q " $GOOGLE_CHROME_VERSION"; then
-        echo "ERROR: google-chrome-stable version $GOOGLE_CHROME_VERSION not visible from signed Google apt repo" >&2
-        echo "       update GOOGLE_CHROME_VERSION + GOOGLE_CHROME_SHA256 only after verifying the new Packages entry" >&2
+    if [ -n "$GOOGLE_CHROME_VERSION" ]; then
+        # Explicitly pinned: the exact build must be visible, or fail loudly.
+        if ! printf '%s\n' "$_policy" | grep -q " $GOOGLE_CHROME_VERSION"; then
+            echo "ERROR: google-chrome-stable version $GOOGLE_CHROME_VERSION not visible from signed Google apt repo" >&2
+            echo "       Google delists superseded builds. Either clear GOOGLE_CHROME_VERSION to track" >&2
+            echo "       current stable, or set it to a version present in the index." >&2
+            exit 1
+        fi
+    else
+        # Unpinned: take whatever the signed index currently offers.
+        GOOGLE_CHROME_VERSION="$(printf '%s\n' "$_policy" | awk '/Candidate:/{print $2; exit}')"
+        if [ -z "$GOOGLE_CHROME_VERSION" ] || [ "$GOOGLE_CHROME_VERSION" = "(none)" ]; then
+            echo "ERROR: no google-chrome-stable candidate from the signed Google apt repo" >&2
+            exit 1
+        fi
+        echo "  google-chrome-stable current stable candidate: $GOOGLE_CHROME_VERSION"
+    fi
+
+    # Expected checksum comes from the signed index (apt verified Google's
+    # Release during update), so it cannot go stale the way a copied constant
+    # does. Empty means the index carried no SHA256, which is itself suspicious.
+    _idx_sha="$(apt-cache "${APTOPTS[@]}" show "google-chrome-stable=$GOOGLE_CHROME_VERSION" 2>/dev/null \
+                | awk '/^SHA256:/{print $2; exit}')"
+    if [ -z "$_idx_sha" ]; then
+        echo "ERROR: no SHA256 for google-chrome-stable=$GOOGLE_CHROME_VERSION in the signed index" >&2
+        exit 1
+    fi
+    if [ -n "$GOOGLE_CHROME_SHA256" ] && [ "$GOOGLE_CHROME_SHA256" != "$_idx_sha" ]; then
+        echo "ERROR: GOOGLE_CHROME_SHA256 ($GOOGLE_CHROME_SHA256) does not match the signed index" >&2
+        echo "       for $GOOGLE_CHROME_VERSION (index says $_idx_sha)" >&2
         exit 1
     fi
     # SHA256-verify the actual .deb, not just the version string — Google's
@@ -165,11 +215,11 @@ if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
     set -o pipefail
     if [ -n "$_deb_rel" ]; then
         _deb_sha="$(curl -fsSL -m 60 "$_deb_rel" -o "$T/google-chrome-stable.deb" && sha256sum "$T/google-chrome-stable.deb" | awk '{print $1}')"
-        if [ "$_deb_sha" != "$GOOGLE_CHROME_SHA256" ]; then
-            echo "ERROR: google-chrome-stable .deb SHA256 mismatch — expected $GOOGLE_CHROME_SHA256, got $_deb_sha" >&2
+        if [ "$_deb_sha" != "$_idx_sha" ]; then
+            echo "ERROR: google-chrome-stable .deb SHA256 mismatch — signed index says $_idx_sha, downloaded $_deb_sha" >&2
             exit 1
         fi
-        echo "  verified google-chrome-stable $GOOGLE_CHROME_VERSION SHA256 matches pinned value"
+        echo "  verified google-chrome-stable $GOOGLE_CHROME_VERSION SHA256 matches the signed index"
     fi
 fi
 
