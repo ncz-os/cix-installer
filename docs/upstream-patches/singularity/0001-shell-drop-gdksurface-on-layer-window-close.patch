@@ -7,10 +7,10 @@ variable number of open/close cycles:
     Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display.
     wl_display error 2: zwlr_layer_surface_v1 has never been configured
 
-Root cause, from WAYLAND_DEBUG=1 traces on the board. GTK keeps ONE wl_surface
-alive across hide/show. gtk4-layer-shell destroys the zwlr_layer_surface_v1 at
-unmap and creates a NEW one over that same wl_surface on the next open.
-Comparing a working cycle with a crashing one in a single session:
+Root cause, from WAYLAND_DEBUG=1 traces. GTK keeps ONE wl_surface alive across
+hide/show. gtk4-layer-shell destroys the zwlr_layer_surface_v1 at unmap and
+creates a NEW one over that same wl_surface on the next open. Comparing a
+working cycle with a crashing one in a single session:
 
     working  (#77 -> #64)          crashing (#64 -> #82)
     destroy()                      destroy()
@@ -40,14 +40,19 @@ Verified by inspecting the C that valac emits for each spelling.
 
 This is not launcher-specific. An audit found 19 windows calling
 init_for_window(), of which six hide and then re-show -- each one a distinct
-instance of the same fault. Applied to all 18 close paths in those six files:
+instance of the same fault. Applied to all 24 close paths in those six files:
 
-    dock.vala                 2
+    dock.vala                 7
     sidebar.vala              5
     app_menu.vala             4
-    hot_corner_manager.vala   2
     workspace_overview.vala   4
-    overview.vala             1
+    hot_corner_manager.vala   2
+    overview.vala             2
+
+Note that a close path is spelled either `hide();` or
+`((Gtk.Widget) this).hide();`, and both need the same treatment -- dock.vala
+uses the cast form for five of its seven, including the production autohide
+reveal, which does that then present(): a full remap.
 
 Verified on CIX Sky1 (Radxa Orion O6N, labwc/wlroots, GTK4, GLES on libmali)
 with a Wayland trace analyzer that flags a layer surface being re-created over
@@ -58,38 +63,95 @@ cycles and across a clean reboot, with zero shell restarts.
 Upstream gtk4-layer-shell has no fix. Issue #94 is this exact bug (same error,
 same "random after N opens", reproduces only on the gl/vulkan renderers) and
 was closed because Hyprland changed; PR #119 reordered teardown and was
-rejected as a smithay bug. Library main as of 2026-07-25 still has no
-client-side fix, so upgrading the library does not help.
+rejected as a smithay bug. A library-side fix is proposed separately in
+wmww/gtk4-layer-shell#130, which would cover every close path in every client
+without each one having to remember; this change is the client-side fix for
+shells running against the library as it stands.
 
-A shared close helper would be the cleaner shape than 18 call sites; happy to
-respin that way if preferred.
+A shared close helper would be cleaner than 24 call sites; happy to respin that
+way if preferred.
 
 ---
 diff --git a/src/components/dock/dock.vala b/src/components/dock/dock.vala
 --- a/src/components/dock/dock.vala
 +++ b/src/components/dock/dock.vala
-@@ -928,6 +928,10 @@
+@@ -242,6 +242,10 @@
+                 if (key == "panel-fusion") {
+                     update_fusion();
+                     ((Gtk.Widget) this).hide();
++                    // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // Cast required: GtkWindow implements GtkNative, so a bare
++                    // unrealize() binds to gtk_native_unrealize, not the widget one.
++                    ((Gtk.Widget) this).unrealize();
+                     update_visibility_mode();
+                     pulse_frame_clock();
+                 }
+@@ -258,6 +262,10 @@
+                     _enabled = _settings.get_boolean("dock-enabled");
+                     if (!_enabled) {
+                         ((Gtk.Widget) this).hide();
++                        // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
++                        // Cast required: GtkWindow implements GtkNative, so a bare
++                        // unrealize() binds to gtk_native_unrealize, not the widget one.
++                        ((Gtk.Widget) this).unrealize();
+                         set_exclusive_zone(this, 0);
+                         app_system.shell_dock_height = 0;
+                         _set_reveal_barrier_active(false);
+@@ -928,6 +936,10 @@
                      break;
                  case "remap":
                      hide();
-+                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                    // Cast required: GtkWindow implements GtkNative, so a bare
 +                    // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                    ((Gtk.Widget) this).unrealize();
                      present();
                      queue_draw();
                      break;
-@@ -1158,6 +1162,10 @@
+@@ -1037,6 +1049,10 @@
+                 // transform is presented reliably without moving the surface.
+                 set_body_class("dock-reveal-offset", true);
+                 ((Gtk.Widget) this).hide();
++                // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
++                // Cast required: GtkWindow implements GtkNative, so a bare
++                // unrealize() binds to gtk_native_unrealize, not the widget one.
++                ((Gtk.Widget) this).unrealize();
+                 present();
+                 start_content_slide();
+             }
+@@ -1141,6 +1157,10 @@
+             }
+             if (!_enabled) {
+                 ((Gtk.Widget) this).hide();
++                // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
++                // Cast required: GtkWindow implements GtkNative, so a bare
++                // unrealize() binds to gtk_native_unrealize, not the widget one.
++                ((Gtk.Widget) this).unrealize();
+                 set_exclusive_zone(this, 0);
+                 app_system.shell_dock_height = 0;
+                 _set_reveal_barrier_active(false);
+@@ -1158,6 +1178,10 @@
                  queue_resize();
              } else if (visibility_mode == "overview-only") {
                  hide();
-+                // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                // Cast required: GtkWindow implements GtkNative, so a bare
 +                // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                ((Gtk.Widget) this).unrealize();
                  set_exclusive_zone(this, 0);
              }
              update_autohide_state();
+@@ -1208,6 +1232,10 @@
+                 // committed, so closing a focused fullscreen window left the
+                 // dock buried. Remap to force a fresh buffer and present.
+                 ((Gtk.Widget) this).hide();
++                // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
++                // Cast required: GtkWindow implements GtkNative, so a bare
++                // unrealize() binds to gtk_native_unrealize, not the widget one.
++                ((Gtk.Widget) this).unrealize();
+                 present();
+                 update_visibility_mode();
+                 pulse_frame_clock();
 diff --git a/src/components/overview/app_menu.vala b/src/components/overview/app_menu.vala
 --- a/src/components/overview/app_menu.vala
 +++ b/src/components/overview/app_menu.vala
@@ -97,7 +159,7 @@ diff --git a/src/components/overview/app_menu.vala b/src/components/overview/app
              ((Gtk.Widget)this).add_controller(key_controller);
  
              hide();
-+            // Drop the GdkSurface so the next open gets a fresh wl_surface.
++            // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +            // Cast required: GtkWindow implements GtkNative, so a bare
 +            // unrealize() binds to gtk_native_unrealize, not the widget one.
 +            ((Gtk.Widget) this).unrealize();
@@ -108,7 +170,7 @@ diff --git a/src/components/overview/app_menu.vala b/src/components/overview/app
                  menu_animation.done.connect(() => {
                      if (_is_open) return;
                      hide();
-+                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                    // Cast required: GtkWindow implements GtkNative, so a bare
 +                    // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                    ((Gtk.Widget) this).unrealize();
@@ -119,7 +181,7 @@ diff --git a/src/components/overview/app_menu.vala b/src/components/overview/app
                  if (stay_open) search_entry.grab_focus();
                  else {
                      hide();
-+                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                    // Cast required: GtkWindow implements GtkNative, so a bare
 +                    // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                    ((Gtk.Widget) this).unrealize();
@@ -130,7 +192,7 @@ diff --git a/src/components/overview/app_menu.vala b/src/components/overview/app
                  if (stay_open) search_entry.grab_focus();
                  else {
                      hide();
-+                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                    // Cast required: GtkWindow implements GtkNative, so a bare
 +                    // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                    ((Gtk.Widget) this).unrealize();
@@ -140,25 +202,40 @@ diff --git a/src/components/overview/app_menu.vala b/src/components/overview/app
 diff --git a/src/components/overview/overview.vala b/src/components/overview/overview.vala
 --- a/src/components/overview/overview.vala
 +++ b/src/components/overview/overview.vala
-@@ -334,6 +334,18 @@
+@@ -334,6 +334,22 @@
                      _anim_out_timer = 0;
                      main_box.remove_css_class("animating-out");
                      hide();
-+                    // Drop the GdkSurface, do not merely unmap it. GTK reuses one
-+                    // wl_surface across hide/show and gtk4-layer-shell builds a fresh
-+                    // layer surface over it on the next open. A frame queued by the
-+                    // closing animation can land after the unmap and re-attach a live
-+                    // buffer; the next open then commits that stale buffer before any
-+                    // configure and the compositor kills the client with
-+                    // wl_display error 2, "layer_surface has never been configured".
-+                    // unrealize() forces a fresh wl_surface. This is the same call
-+                    // gtk4-layer-shell makes in gtk_layer_surface_remap().
-+                    // The cast is required: GtkWindow implements GtkNative, so a bare
-+                    // unrealize() binds to gtk_native_unrealize, not gtk_widget_unrealize.
++                    // NCZ: drop the GdkSurface, do not merely unmap it.
++                    // GTK reuses one wl_surface across hide/show, and
++                    // gtk4-layer-shell builds a fresh layer surface over
++                    // it on the next open. A frame queued by the closing
++                    // animation can land after the unmap and re-attach a
++                    // live buffer; the next open then commits that stale
++                    // buffer before any configure, and the compositor
++                    // kills the client -- wl_display error 2,
++                    // layer_surface has never been configured.
++                    // unrealize() forces a fresh wl_surface next time.
++                    // Same call gtk4-layer-shell uses in its own remap.
++                    // The cast is REQUIRED: GtkWindow implements GtkNative,
++                    // so a bare unrealize() binds to gtk_native_unrealize,
++                    // an internal vfunc, not gtk_widget_unrealize. Verified
++                    // by inspecting the C valac emits for each spelling.
 +                    ((Gtk.Widget) this).unrealize();
                      PreviewCache.get_default().clear();
                      hidden();
                      // The overview just freed its grid widgets, icon textures
+@@ -434,6 +450,10 @@
+ 
+         private void finish_gesture_hide() {
+             hide();
++            // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
++            // Cast required: GtkWindow implements GtkNative, so a bare
++            // unrealize() binds to gtk_native_unrealize, not the widget one.
++            ((Gtk.Widget) this).unrealize();
+             PreviewCache.get_default().clear();
+             hidden();
+             Singularity.trim_heap();
 diff --git a/src/components/overview/workspace_overview.vala b/src/components/overview/workspace_overview.vala
 --- a/src/components/overview/workspace_overview.vala
 +++ b/src/components/overview/workspace_overview.vala
@@ -166,7 +243,7 @@ diff --git a/src/components/overview/workspace_overview.vala b/src/components/ov
              update_wallpaper();
  
              hide();
-+            // Drop the GdkSurface so the next open gets a fresh wl_surface.
++            // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +            // Cast required: GtkWindow implements GtkNative, so a bare
 +            // unrealize() binds to gtk_native_unrealize, not the widget one.
 +            ((Gtk.Widget) this).unrealize();
@@ -177,7 +254,7 @@ diff --git a/src/components/overview/workspace_overview.vala b/src/components/ov
                      opacity = 0;
                      anim_box.remove_css_class("animating-out");
                      hide();
-+                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                    // Cast required: GtkWindow implements GtkNative, so a bare
 +                    // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                    ((Gtk.Widget) this).unrealize();
@@ -188,7 +265,7 @@ diff --git a/src/components/overview/workspace_overview.vala b/src/components/ov
                  opacity = target;
                  if (!stay_open) {
                      hide();
-+                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                    // Cast required: GtkWindow implements GtkNative, so a bare
 +                    // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                    ((Gtk.Widget) this).unrealize();
@@ -199,7 +276,7 @@ diff --git a/src/components/overview/workspace_overview.vala b/src/components/ov
                  if (_gesture_animation == animation) _gesture_animation = null;
                  if (!stay_open) {
                      hide();
-+                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                    // Cast required: GtkWindow implements GtkNative, so a bare
 +                    // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                    ((Gtk.Widget) this).unrealize();
@@ -213,7 +290,7 @@ diff --git a/src/components/sidebar/sidebar.vala b/src/components/sidebar/sideba
              });
              system_view.hide_sidebar.connect(() => {
                  hide();
-+                // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                // Cast required: GtkWindow implements GtkNative, so a bare
 +                // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                ((Gtk.Widget) this).unrealize();
@@ -224,7 +301,7 @@ diff --git a/src/components/sidebar/sidebar.vala b/src/components/sidebar/sideba
              update_vertical_anchor();
  
              hide();
-+            // Drop the GdkSurface so the next open gets a fresh wl_surface.
++            // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +            // Cast required: GtkWindow implements GtkNative, so a bare
 +            // unrealize() binds to gtk_native_unrealize, not the widget one.
 +            ((Gtk.Widget) this).unrealize();
@@ -235,7 +312,7 @@ diff --git a/src/components/sidebar/sidebar.vala b/src/components/sidebar/sideba
                      if (!Singularity.DebugManager.get_default().sidebar_pinned) {
                          desktop_settings.set_boolean("bar-layout-edit-mode", false);
                          hide();
-+                        // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                        // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                        // Cast required: GtkWindow implements GtkNative, so a bare
 +                        // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                        ((Gtk.Widget) this).unrealize();
@@ -246,7 +323,7 @@ diff --git a/src/components/sidebar/sidebar.vala b/src/components/sidebar/sideba
                  opacity = 1;
                  GtkLayerShell.set_margin(this, GtkLayerShell.Edge.RIGHT, 40);
                  hide();
-+                // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                // Cast required: GtkWindow implements GtkNative, so a bare
 +                // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                ((Gtk.Widget) this).unrealize();
@@ -257,7 +334,7 @@ diff --git a/src/components/sidebar/sidebar.vala b/src/components/sidebar/sideba
                      _is_closing = false;
                      _can_close_on_focus_loss = false;
                      hide();
-+                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +                    // Cast required: GtkWindow implements GtkNative, so a bare
 +                    // unrealize() binds to gtk_native_unrealize, not the widget one.
 +                    ((Gtk.Widget) this).unrealize();
@@ -271,7 +348,7 @@ diff --git a/src/core/hot_corner_manager.vala b/src/core/hot_corner_manager.vala
  
              set_child(hint);
              hide();
-+            // Drop the GdkSurface so the next open gets a fresh wl_surface.
++            // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +            // Cast required: GtkWindow implements GtkNative, so a bare
 +            // unrealize() binds to gtk_native_unrealize, not the widget one.
 +            ((Gtk.Widget) this).unrealize();
@@ -282,7 +359,7 @@ diff --git a/src/core/hot_corner_manager.vala b/src/core/hot_corner_manager.vala
          public void hide_hint() {
              hint.remove_css_class("visible");
              hide();
-+            // Drop the GdkSurface so the next open gets a fresh wl_surface.
++            // NCZ: drop the GdkSurface so the next open gets a fresh wl_surface.
 +            // Cast required: GtkWindow implements GtkNative, so a bare
 +            // unrealize() binds to gtk_native_unrealize, not the widget one.
 +            ((Gtk.Widget) this).unrealize();
