@@ -1,3 +1,15 @@
+UPSTREAM STATUS: NOT FILED - operator decision 2026-08-09, freedesktop.org
+friction too high. Submitting to GStreamer requires a gitlab.freedesktop.org
+account plus a separate "User verification" issue to obtain fork rights before a
+merge request can even be opened, and their contribution docs explicitly reject
+patches sent to gstreamer-devel. That gate was judged not worth the return for
+this fix. The patch is carried downstream instead.
+
+If that is ever revisited, everything needed is here: the diff below is against
+1.28.5 and applies cleanly, and the reproduction is a stream copy so it needs no
+special hardware to demonstrate the caps failure - only a V4L2 decoder to show
+the hardware consequence.
+
 From: Jason Perlow <jperlow@gmail.com>
 Subject: [PATCH] v4l2object: offer the colorimetry-free caps variant for encoded formats too
 
