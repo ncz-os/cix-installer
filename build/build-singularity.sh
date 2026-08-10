@@ -240,6 +240,76 @@ print("NCZ: removed redundant set_layer() from overview re-show path")
 PY_NCZ_OVERVIEW
 fi
 
+# NCZ shell fix #2 (the real one): the launcher crash is a REUSED wl_surface.
+#
+# Root cause, from WAYLAND_DEBUG=1 on the board. GTK keeps one wl_surface alive
+# across hide/show; gtk4-layer-shell destroys the zwlr_layer_surface_v1 at unmap
+# and creates a NEW one over that SAME wl_surface on the next open. Comparing a
+# working cycle against the crashing one inside a single session:
+#
+#   working  (#77 -> #64)          crashing (#64 -> #82)
+#   destroy()                      destroy()
+#   attach(nil); commit()          attach(nil); commit()
+#   <nothing>                      attach(wl_buffer#79); commit()   <-- stray
+#   get_layer_surface(#64)         get_layer_surface(#82)
+#   commit() -> configure OK       commit() -> ERROR 2
+#
+# The only difference is a frame queued by the 180ms closing animation that
+# lands ~0.7ms AFTER the unmap, re-attaching a live buffer to the now-roleless
+# surface. wl_surface state is persistent, so that buffer is still current when
+# the next layer surface is created; its first commit therefore carries a buffer
+# before any configure, which wlroots rejects with zwlr_layer_surface_v1 error 2
+# "layer_surface has never been configured". Whether that frame lands is a race
+# on wl_buffer.release, which is why the shell died after a VARIABLE number of
+# opens instead of deterministically.
+#
+# Upstream has NO fix. gtk4-layer-shell issue #94 is this exact bug (same error,
+# same "random after N opens", reproduces only on the gl/vulkan renderers) and
+# was closed merely because Hyprland changed. PR #119 fixed the teardown
+# ordering and was rejected as a smithay bug. Library main @2026-07-25 still has
+# no client-side fix, so upgrading the Debian package does not help.
+#
+# Fix: unrealize() after hide() drops the GdkSurface, so the next open allocates
+# a brand-new wl_surface that cannot carry a stale buffer. This is exactly what
+# gtk4-layer-shell itself does in gtk_layer_surface_remap(), which calls
+# gtk_widget_unrealize() then gtk_widget_map() -- a supported, exercised path.
+if [ -z "${SINGULARITY_SOURCE_DIR:-}" ] && ! grep -q "NCZ: drop the GdkSurface" subprojects/singularity-shell/src/components/overview/overview.vala; then
+python3 - <<'"'"'PY_NCZ_UNREALIZE'"'"'
+p = "subprojects/singularity-shell/src/components/overview/overview.vala"
+src = open(p).read()
+needle = (
+    "                    main_box.remove_css_class(\"animating-out\");\n"
+    "                    hide();\n"
+    "                    PreviewCache.get_default().clear();\n"
+)
+repl = (
+    "                    main_box.remove_css_class(\"animating-out\");\n"
+    "                    hide();\n"
+    "                    // NCZ: drop the GdkSurface, do not merely unmap it.\n"
+    "                    // GTK reuses one wl_surface across hide/show, and\n"
+    "                    // gtk4-layer-shell builds a fresh layer surface over\n"
+    "                    // it on the next open. A frame queued by the closing\n"
+    "                    // animation can land after the unmap and re-attach a\n"
+    "                    // live buffer; the next open then commits that stale\n"
+    "                    // buffer before any configure, and the compositor\n"
+    "                    // kills the client -- wl_display error 2,\n"
+    "                    // layer_surface has never been configured.\n"
+    "                    // unrealize() forces a fresh wl_surface next time.\n"
+    "                    // Same call gtk4-layer-shell uses in its own remap.\n"
+    "                    // The cast is REQUIRED: GtkWindow implements GtkNative,\n"
+    "                    // so a bare unrealize() binds to gtk_native_unrealize,\n"
+    "                    // an internal vfunc, not gtk_widget_unrealize. Verified\n"
+    "                    // by inspecting the C valac emits for each spelling.\n"
+    "                    ((Gtk.Widget) this).unrealize();\n"
+    "                    PreviewCache.get_default().clear();\n"
+)
+if needle not in src:
+    raise SystemExit("NCZ overview unrealize patch: anchor not found - re-check")
+open(p, "w").write(src.replace(needle, repl, 1))
+print("NCZ: overview drops its GdkSurface on hide (fresh wl_surface per open)")
+PY_NCZ_UNREALIZE
+fi
+
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
