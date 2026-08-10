@@ -184,6 +184,43 @@ diff --git a/subprojects/singularity-shell/src/core/main.vala b/subprojects/sing
 PATCH_NCZ_SHELL
 fi
 
+# NCZ shell fix: opening the launcher, closing it, then opening it again killed
+# the whole shell with
+#     Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display.
+# and singularity-desktop exited 1. The session script respawns it, so it
+# presents as "the desktop reset" rather than a crash. Fully deterministic: the
+# SECOND open does it, at any speed -- adding delay between toggles does not
+# help, which is what ruled out a timing race.
+#
+# The overview sets its layer twice: once at construction (overview.vala:59) and
+# again in the show path (overview.vala:404). The layer is only ever TOP -- those
+# are the only two set_layer() calls in the file -- so the second is redundant.
+# But it runs after hide() has unmapped the window, so gtk4-layer-shell issues
+# zwlr_layer_surface_v1.set_layer against the layer surface destroyed at unmap,
+# and the compositor terminates the client. The first open works because the
+# window has never been mapped and the construction-time surface is still live.
+if [ -z "${SINGULARITY_SOURCE_DIR:-}" ] && ! grep -q "do NOT call set_layer" subprojects/singularity-shell/src/components/overview/overview.vala; then
+python3 - <<'"'"'PY_NCZ_OVERVIEW'"'"'
+p = "subprojects/singularity-shell/src/components/overview/overview.vala"
+src = open(p).read()
+needle = "                opacity = 0;\n                set_layer(this, GtkLayerShell.Layer.TOP);\n                present();"
+repl = (
+    "                opacity = 0;\n"
+    "                // NOTE: do NOT call set_layer() here. The layer is set once at\n"
+    "                // construction and never changes. Re-issuing it on a window that\n"
+    "                // hide() has already unmapped sends zwlr_layer_surface_v1.set_layer\n"
+    "                // to a destroyed surface; the compositor answers with a protocol\n"
+    "                // error and kills the shell. Repro: open the launcher, close it,\n"
+    "                // open it again.\n"
+    "                present();"
+)
+if needle not in src:
+    raise SystemExit("NCZ overview set_layer patch: anchor not found - upstream moved, re-check")
+open(p, "w").write(src.replace(needle, repl, 1))
+print("NCZ: removed redundant set_layer() from overview re-show path")
+PY_NCZ_OVERVIEW
+fi
+
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release

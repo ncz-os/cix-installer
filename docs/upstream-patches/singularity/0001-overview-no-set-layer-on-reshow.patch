@@ -1,0 +1,53 @@
+overview: do not re-issue set_layer() on re-show — it crashes the shell
+
+Opening the launcher, closing it, and opening it again kills the whole shell.
+The compositor answers with
+
+    Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display.
+
+and singularity-desktop exits 1. The session script respawns it, so the symptom
+users report is "the desktop resets" rather than a crash. It is fully
+deterministic: the SECOND open does it, at any speed. It is not a race, and
+adding delay between toggles does not avoid it.
+
+Cause: the overview sets its layer twice.
+
+  overview.vala:59   set_layer(this, GtkLayerShell.Layer.TOP);   // construction
+  overview.vala:404  set_layer(this, GtkLayerShell.Layer.TOP);   // every re-show
+
+The layer is only ever TOP -- those are the only two set_layer() calls in the
+file -- so the second one changes nothing. But it runs in the show path, which
+is reached after hide() has already unmapped the window. gtk4-layer-shell then
+issues zwlr_layer_surface_v1.set_layer against the layer surface that was
+destroyed at unmap, and the compositor terminates the client for a protocol
+violation.
+
+First open works because the window has never been mapped, so the layer surface
+from construction is still live. Close unmaps and destroys it. Second open hits
+the dead object.
+
+Fix: delete the redundant call. The layer is established once at construction
+and never changes, so nothing needs to re-assert it.
+
+Measured on a Radxa Orion O6 (CIX Sky1, kernel 7.2.0-rc7-sky1-ncz), reproducer =
+12 toggle_launcher calls over D-Bus at 0.4s intervals: 2 shell restarts before,
+and the fix must hold that at 0.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/src/components/overview/overview.vala
++++ b/src/components/overview/overview.vala
+@@ -401,7 +401,12 @@
+ 
+                 // Start invisible, present (map surface), then animate in.
+                 opacity = 0;
+-                set_layer(this, GtkLayerShell.Layer.TOP);
++                // NOTE: do NOT call set_layer() here. The layer is set once at
++                // construction and never changes. Re-issuing it on a window that
++                // hide() has already unmapped sends zwlr_layer_surface_v1.set_layer
++                // to a destroyed surface, which the compositor answers with a
++                // protocol error and kills the shell -- reproducible as: open the
++                // launcher, close it, open it again.
+                 present();
+                 // Populate AFTER present so the empty overview (background +
+                 // search bar) paints immediately; the grid then streams in
