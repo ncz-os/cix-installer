@@ -63,7 +63,32 @@ else
     exit 1
 fi
 
-apt-get install -y --no-install-recommends kmod initramfs-tools
+# dosfstools supplies fsck.vfat. Without it the ESP can never be checked:
+# /etc/fstab gives /boot/efi passno 2, but systemd-fsck silently does nothing
+# when no fsck helper for the type exists, so the dirty bit is never cleared.
+# rEFInd runs with use_nvram false and writes EFI/BOOT/vars/PreviousBoot on
+# EVERY boot, which sets that bit, so the image logged
+#   FAT-fs (nvme0n1p1): Volume was not properly unmounted...
+# on every single boot even though systemd unmounted /boot/efi cleanly. Measured
+# on O6N: installing dosfstools and clearing the flag once removed it for good.
+apt-get install -y --no-install-recommends kmod initramfs-tools dosfstools
+
+# linlon_dp (the Sky1 display controller) depends on drm_dma_helper. The
+# generated initramfs contained linlon-dp.ko and drm_kms_helper.ko but NOT
+# drm_dma_helper, so the early load could not resolve its symbols and the boot
+# logged 11 lines of
+#   linlon_dp: Unknown symbol drm_gem_dma_get_sg_table (err -2)
+# before the post-rootfs load succeeded. That single missing module was 31% of
+# all boot warnings. Force it in.
+if [ -d /etc/initramfs-tools ]; then
+    if ! grep -qx 'drm_dma_helper' /etc/initramfs-tools/modules 2>/dev/null; then
+        printf '%s\n' \
+          '# linlon_dp depends on drm_dma_helper; absent from the generated' \
+          '# initramfs, which cost 11 unresolved-symbol warnings per boot.' \
+          'drm_dma_helper' >> /etc/initramfs-tools/modules
+        echo "  [initramfs] added drm_dma_helper (linlon_dp dependency)"
+    fi
+fi
 
 INSTALLED_KERNELS=0
 

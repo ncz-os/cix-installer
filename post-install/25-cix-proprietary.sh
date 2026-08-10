@@ -367,26 +367,37 @@ fi
 # logged at WARNING. "Linlon vX identified" is a once-per-boot fact, and
 # "Invalid frame period from client" fires on every Chromium playback even
 # though the negotiation succeeds. Measured on O6N: boot warnings 40 -> 36.
-VPU_SRC=$(ls -d /usr/src/cix-vpu-driver-* 2>/dev/null | head -1)
-PATCH_DIR=/usr/local/lib/cix-installer/patches/cix-vpu
-[ -d "$PATCH_DIR" ] || PATCH_DIR=/cdrom/cixmini/patches/cix-vpu
-if [ -n "$VPU_SRC" ] && [ -d "$PATCH_DIR" ]; then
-    VPU_VER=$(basename "$VPU_SRC" | sed 's/^cix-vpu-driver-//')
+PATCH_ROOT=/usr/local/lib/cix-installer/patches
+[ -d "$PATCH_ROOT" ] || PATCH_ROOT=/cdrom/cixmini/patches
+
+# subdir:source-glob:dkms-package-name
+for _spec in "cix-vpu:/usr/src/cix-vpu-driver-*:cix-vpu-driver" \
+             "cix-gpu:/usr/src/cix-gpu-kmd-*:cix-gpu-kmd"; do
+    _sub=${_spec%%:*}; _rest=${_spec#*:}
+    _glob=${_rest%%:*}; _pkg=${_rest#*:}
+    _dir=$(ls -d $_glob 2>/dev/null | head -1)
+    _patches="$PATCH_ROOT/$_sub"
+    if [ -z "$_dir" ]; then
+        echo "[25] $_pkg DKMS source absent — $_sub patches skipped"
+        continue
+    fi
+    [ -d "$_patches" ] || { echo "[25] no patch dir $_patches — skipped"; continue; }
+    _ver=$(basename "$_dir" | sed "s/^${_pkg}-//")
     applied=0
-    for p in "$PATCH_DIR"/*.patch; do
+    for p in "$_patches"/*.patch; do
         [ -f "$p" ] || continue
-        if patch -d "$VPU_SRC" -p1 -N --dry-run < "$p" >/dev/null 2>&1; then
-            patch -d "$VPU_SRC" -p1 -N < "$p" >/dev/null 2>&1 && {
-                echo "[25] applied $(basename "$p") to cix-vpu-driver-$VPU_VER"
+        if patch -d "$_dir" -p1 -N --dry-run < "$p" >/dev/null 2>&1; then
+            patch -d "$_dir" -p1 -N < "$p" >/dev/null 2>&1 && {
+                echo "[25] applied $(basename "$p") to $_pkg-$_ver"
                 applied=$((applied+1))
             }
         else
             # Already applied is fine and expected on reinstall; a genuine
             # mismatch means the vendor moved the code and the patch needs
-            # rebasing, so say which one rather than failing silently.
-            patch -d "$VPU_SRC" -p1 -R --dry-run < "$p" >/dev/null 2>&1 \
+            # rebasing, so name it rather than failing silently.
+            patch -d "$_dir" -p1 -R --dry-run < "$p" >/dev/null 2>&1 \
                 && echo "[25] $(basename "$p") already applied" \
-                || echo "[25] WARN: $(basename "$p") does NOT apply to cix-vpu-driver-$VPU_VER — needs rebase" >&2
+                || echo "[25] WARN: $(basename "$p") does NOT apply to $_pkg-$_ver — needs rebase" >&2
         fi
     done
     if [ "$applied" -gt 0 ]; then
@@ -394,15 +405,13 @@ if [ -n "$VPU_SRC" ] && [ -d "$PATCH_DIR" ]; then
         # missing kernel-headers build target must not halt the installer.
         for kver in $(ls /lib/modules 2>/dev/null); do
             [ -d "/lib/modules/$kver/build" ] || continue
-            dkms remove "cix-vpu-driver/$VPU_VER" -k "$kver" >/dev/null 2>&1 || true
-            dkms install "cix-vpu-driver/$VPU_VER" -k "$kver" >/dev/null 2>&1 \
-                && echo "[25] rebuilt cix-vpu-driver/$VPU_VER for $kver" \
-                || echo "[25] WARN: dkms rebuild failed for $kver" >&2
+            dkms remove "$_pkg/$_ver" -k "$kver" >/dev/null 2>&1 || true
+            dkms install "$_pkg/$_ver" -k "$kver" >/dev/null 2>&1 \
+                && echo "[25] rebuilt $_pkg/$_ver for $kver" \
+                || echo "[25] WARN: dkms rebuild failed for $_pkg/$_ver on $kver" >&2
         done
     fi
-else
-    [ -n "$VPU_SRC" ] || echo "[25] cix-vpu-driver DKMS source absent — VPU patches skipped"
-fi
+done
 
 # Always exit 0 — Cix postinst quirks should not halt the installer.
 # If something is genuinely broken, surfaces during agent runtime

@@ -57,7 +57,7 @@ done   # deliberately EXCLUDES assets/rootfs (base tarballs + baked output)
 # in-tree amvx.ko is deliberately not built, so the DKMS source is the only copy
 # that actually runs.
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/patches"
-for _p in cix-vpu; do
+for _p in cix-vpu cix-gpu; do
   [ -d "$ROOT/docs/upstream-patches/$_p" ] && \
     sudo cp -a "$ROOT/docs/upstream-patches/$_p" "$CHROOT/usr/local/lib/cix-installer/patches/" 2>/dev/null || true
 done

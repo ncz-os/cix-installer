@@ -1,0 +1,40 @@
+mali_kbase: log the timeout clamp at debug, not warning
+
+kbase clamps every configured timeout that exceeds MAX_TIMEOUT_MS on silicon,
+and prints a warning for each one. On CIX Sky1 that is eleven timeouts, so every
+single boot produces eleven kernel warnings describing a clamp the driver has
+already applied and handled:
+
+  mali CIXH5000:00: CSF_FIRMWARE_TIMEOUT is capped from 6000ms to 4500ms
+  mali CIXH5000:00: CSF_PM_TIMEOUT is capped from 5000ms to 4500ms
+  mali CIXH5000:00: CSF_GPU_RESET_TIMEOUT is capped from 62000ms to 4500ms
+  ... 8 more
+
+The clamp is deliberate and the code continues normally with the clamped value.
+It is a configuration fact, not a fault, and it is identical on every boot of
+every unit of this SoC -- so as a warning it is pure noise that buries real ones.
+Eleven of the twenty-four remaining boot warnings on a healthy Sky1 came from
+this single line.
+
+Downgraded to dev_dbg. The information is still available with dynamic debug
+enabled for the module, which is where per-boot invariant detail belongs.
+
+Measured on a Radxa Orion O6 (CIX Sky1, cix-gpu-kmd 1.0, kernel 7.2.0-rc7).
+
+UPSTREAM STATUS: to be sent to CIX. Vendor DKMS package (cix-gpu-kmd), so it
+cannot go via lore. The same line exists in Arm's Midgard/CSF kbase release that
+CIX derives from, and is worth raising with Arm as well.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_time.c	2026-08-03 20:05:21.000000000 -0400
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_time.c	2026-08-10 11:21:12.284520634 -0400
+@@ -195,7 +195,7 @@
+ 
+ 	if ((kbdev->gpu_props.impl_tech <= THREAD_FEATURES_IMPLEMENTATION_TECHNOLOGY_SILICON) &&
+ 	    unlikely(timeout_ms >= MAX_TIMEOUT_MS)) {
+-		dev_warn(kbdev->dev, "%s is capped from %dms to %dms\n",
++		dev_dbg(kbdev->dev, "%s is capped from %dms to %dms\n",
+ 			 timeout_info[selector].selector_str, timeout_ms, MAX_TIMEOUT_MS);
+ 		timeout_ms = MAX_TIMEOUT_MS;
+ 	}
