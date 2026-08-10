@@ -375,31 +375,39 @@ print("NCZ: layer-window unrealize applied to %d close paths" % total)
 PY_NCZ_ALLWIN
 fi
 
-# NCZ: remove the top-left hot-corner hint overlay.
+# NCZ: remove the Overview / Super+Space hover label on the activities button.
 #
-# The panel adds a "corner-hint-tl" widget as an overlay directly on top of the
-# application-menu icon. It is a hover affordance upstream wants; downstream we
-# do not, and CSS suppression proved unreliable because it only applies while
-# the Singularity GTK theme is the active one. Dropping the add_overlay() call
-# removes it deterministically. The widget and its field are left intact so the
-# rest of the class is untouched; only the top-LEFT one goes.
+# The panel sets a GTK tooltip on the activities button in the top-left corner.
+# It renders as a hint bubble directly over the application-menu icon and
+# lingers on this stack; the operator asked for it gone.
+#
+# Two earlier attempts targeted the WRONG widget, recorded so nobody repeats
+# them: a CSS suppression of .corner-hint (which only applies while the
+# Singularity GTK theme is active, and the desktop may be on Adwaita), then
+# removal of the top-left corner-hint overlay. Neither touched this tooltip.
+# Confirmed by observing the corner-hint removal live in the running payload
+# while the label was still on screen.
+#
+# Comments out every assignment to activities_btn.tooltip_text: the initial one
+# and the shortcut_changed handler that re-applies it.
 if [ -z "${SINGULARITY_SOURCE_DIR:-}" ]; then
-python3 - <<'"'"'PY_NCZ_CORNER'"'"'
-import io
+python3 - <<'"'"'PY_NCZ_TIP'"'"'
+import io, re
 p = "subprojects/singularity-shell/src/components/panel/panel.vala"
 src = io.open(p).read()
-needle = "            overlay.add_overlay(_corner_tl);\n"
-if "NCZ: top-left hot-corner hint intentionally not shown" in src:
-    print("NCZ: corner-hint-tl already suppressed")
-elif needle in src:
-    repl = ("            // NCZ: top-left hot-corner hint intentionally not shown -- it\n"
-            "            // renders directly over the application-menu icon.\n"
-            "            // overlay.add_overlay(_corner_tl);\n")
-    io.open(p, "w").write(src.replace(needle, repl, 1))
-    print("NCZ: top-left corner hint no longer added to the panel overlay")
+if "NCZ: activities tooltip disabled" in src:
+    print("NCZ: activities tooltip already suppressed")
 else:
-    raise SystemExit("NCZ corner-hint patch: anchor not found - upstream moved, re-check")
-PY_NCZ_CORNER
+    pat = re.compile(r"^([ \t]*)(activities_btn\.tooltip_text\s*=.*)$", re.M)
+    n = len(pat.findall(src))
+    if n == 0:
+        raise SystemExit("NCZ activities-tooltip patch: no assignment found - upstream moved")
+    out = pat.sub(lambda m: m.group(1) + "// NCZ: activities tooltip disabled - hint bubble sat over the\n"
+                                + m.group(1) + "// application-menu icon in the top-left corner.\n"
+                                + m.group(1) + "// " + m.group(2), src)
+    io.open(p, "w").write(out)
+    print("NCZ: activities button tooltip removed (%d assignment site(s))" % n)
+PY_NCZ_TIP
 fi
 
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
