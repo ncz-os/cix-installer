@@ -1,0 +1,19 @@
+[Unit]
+Description=NCZ NPU embedding server (OpenAI /v1/embeddings on Zhouyi NPU)
+Documentation=file:///usr/share/doc/ncz/DRIVER_FIDELITY_72.md
+After=network.target
+# The NPU char device must exist; without it the graph load fails and the
+# service would restart-loop.
+ConditionPathExists=/dev/aipu
+
+[Service]
+Type=simple
+ExecStart=/opt/ncz/noe-venv/bin/python /usr/local/bin/ncz-npu-embed-server.py --host 127.0.0.1 --port 8081
+Restart=on-failure
+RestartSec=10
+# Model load is ~15s; do not let systemd think that is a hang.
+TimeoutStartSec=120
+Nice=0
+
+[Install]
+WantedBy=multi-user.target

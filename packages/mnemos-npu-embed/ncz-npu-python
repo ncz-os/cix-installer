@@ -1,0 +1,4 @@
+#!/bin/sh
+# The interpreter that can drive the NPU. The system python is too new for the
+# cix-noe-umd wheels (they pin >=3.11,<3.13).
+exec /opt/ncz/noe-venv/bin/python "$@"
