@@ -240,62 +240,83 @@ if [ "$LTS_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
     exit 1
 fi
 
-NEXT_OPTIONS=""
-if [ "$NEXT_AVAILABLE" = "1" ]; then
-    NEXT_OPTIONS="$ROOT_OPTS $NEXT_CMDLINE_BASE"
-    [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
-fi
-
-# NCZ-OS 26.7 GPU policy: 7.2 is the *only* graphical kernel.  It has two
-# mutually exclusive DKMS driver choices.  The blacklist is part of each
-# boot contract, not a user-selectable modprobe accident:
-#   Mali DKMS       = blacklist Panthor
-#   Panthor DKMS    = blacklist the complete Mali kbase stack
-# Keep userspace Mesa in both modes so changing kernel driver never changes
-# EGL/glvnd/ICD ownership during the greeter handoff.
-MALI_OPTIONS=""
-PANTHOR_OPTIONS=""
-if [ "$NEXT_AVAILABLE" = "1" ]; then
-    MALI_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,panthor/')
-    PANTHOR_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,mali_kbase,memory_group_manager,protected_memory_allocator/')
-    # Panthor keeps acpi_scmi_en=off, same as Mali and SAFE. Metal-verified
-    # on O6N 2026-07-31: the patched panthor-cix DKMS module powers on and
-    # un-secures the GPU itself with SCMI off ("GPU power domain 21 powered
-    # on via SMC SCMI" + "Sky1: GPU un-secured via ACPI power-supply (_PR0)",
-    # then a clean Mali-G720 probe). Flipping acpi_scmi_en=on here was never
-    # metal-proven, re-opens the known 7.2 Sky1 PCIe/NVMe boot-hang (the r195
-    # regression this cmdline exists to prevent), and would run the kernel
-    # SCMI stack alongside the module's raw-SMC power-on path.
-fi
-
-# 7.0.12 is deliberately a console-only recovery kernel.  Do not expose a
-# graphical or GPU variant of it: the LTS contract is a networked
-# multi-user shell with every available CIX GPU driver blacklisted.  Keep the
-# display pipeline out of this blacklist so tty0 remains usable on O6.
-LTS_CONSOLE_OPTIONS=""
-LTS_CONSOLE_CMDLINE=""
+# NCZ-OS 26.7: 7.2 ACROSS THE BOARD.  The image ships ONE kernel and every menu
+# entry boots it; there is no second kernel series to fall back to.  7.0.12 was
+# retired as the fallback because it is EOL and no longer even listed on
+# kernel.org, and 7.1.x was rejected as a replacement because it is `stable`,
+# not `longterm` -- it goes EOL shortly after 7.2 releases, which would buy
+# weeks of maintenance for a full port.  The rescue path is the SAME kernel with
+# the accelerators blacklisted, not a different kernel.
+#
+# Prefer the stable slot; fall back to edge only if stable is absent.
 if [ "$LTS_AVAILABLE" = "1" ]; then
-    LTS_CONSOLE_EXTRA_BLACKLIST="panthor,panfrost,mali,mali_kbase,memory_group_manager,protected_memory_allocator,bifrost,armchina_npu,amvx,cix_vpu,linlon_vpu"
-    LTS_CONSOLE_EXISTING_BL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
-    LTS_CONSOLE_CMDLINE_NOBL=$(printf '%s\n' "$LTS_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
-    [ -n "$LTS_CONSOLE_EXISTING_BL" ] && LTS_CONSOLE_MERGED_BL="$LTS_CONSOLE_EXISTING_BL,$LTS_CONSOLE_EXTRA_BLACKLIST" || LTS_CONSOLE_MERGED_BL="$LTS_CONSOLE_EXTRA_BLACKLIST"
-    LTS_CONSOLE_CMDLINE="$LTS_CONSOLE_CMDLINE_NOBL module_blacklist=$LTS_CONSOLE_MERGED_BL"
-    LTS_CONSOLE_OPTIONS="$ROOT_OPTS $LTS_CONSOLE_CMDLINE systemd.unit=multi-user.target"
+    MAIN_KVER="$KVER_LTS"; MAIN_INITRD="$LTS_INITRD_AVAILABLE"
+else
+    MAIN_KVER="$KVER_NEXT"; MAIN_INITRD="$NEXT_INITRD_AVAILABLE"
 fi
+# Display label derived from the kernel, never hardcoded: the previous menu said
+# "7.0.12" and "7.2" in literal strings, which silently went stale the moment the
+# slots were repointed.
+MAIN_VER=$(printf '%s' "$MAIN_KVER" | sed -E 's/^([0-9]+\.[0-9]+).*/\1/')
+[ -n "$MAIN_VER" ] || MAIN_VER="$MAIN_KVER"
+echo "  single-kernel menu: $MAIN_KVER (label \"$MAIN_VER\")"
+
+# NCZ-OS 26.7 boot contract — three entries, ONE kernel:
+#
+#   Singularity        graphical, Mali DKMS (panthor blacklisted)
+#   Console            SAME accelerators, no GUI (multi-user.target)
+#   Rescue Partition   accelerators OFF, separate recovery rootfs
+#
+# Console deliberately keeps the accelerators ENABLED: it is a no-GUI shell for
+# working on a machine whose desktop is broken, and the VPU/NPU/GPU are exactly
+# what an operator needs to test there.  Only the rescue partition strips them,
+# because that is the path that has to come up when a driver is what is wrong.
+#
+# Mali and Panthor are mutually exclusive DKMS stacks; the blacklist is part of
+# the boot contract, not a modprobe accident. Userspace Mesa stays in both modes
+# so the kernel driver choice never changes EGL/glvnd/ICD ownership across the
+# greeter handoff.
+MAIN_BASE="$NEXT_CMDLINE_BASE"
+[ "$LTS_AVAILABLE" = "1" ] && [ "$NEXT_AVAILABLE" = "0" ] && MAIN_BASE="$LTS_CMDLINE_BASE"
+
+# Accelerators ON (blacklist only the competing GPU stack).
+ACCEL_ON_BL="panthor"
+# Accelerators OFF (rescue): every CIX accelerator driver. The DISPLAY pipeline
+# is deliberately NOT blacklisted so tty0 stays usable on O6.
+ACCEL_OFF_BL="panthor,panfrost,mali,mali_kbase,memory_group_manager,protected_memory_allocator,bifrost,armchina_npu,amvx,cix_vpu,linlon_vpu"
+
+# merge_bl <cmdline> <extra>  -> cmdline with extra appended to module_blacklist=
+merge_bl() {
+    _cl="$1"; _extra="$2"
+    _existing=$(printf '%s\n' "$_cl" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
+    _nobl=$(printf '%s\n' "$_cl" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
+    if [ -n "$_existing" ]; then printf '%s module_blacklist=%s' "$_nobl" "$_existing,$_extra"
+    else printf '%s module_blacklist=%s' "$_nobl" "$_extra"; fi
+}
+
+ACCEL_ON_CMDLINE=$(merge_bl "$MAIN_BASE" "$ACCEL_ON_BL")
+ACCEL_OFF_CMDLINE=$(merge_bl "$MAIN_BASE" "$ACCEL_OFF_BL")
+
+SINGULARITY_OPTIONS="$ROOT_OPTS $ACCEL_ON_CMDLINE"
+[ -n "$SPLASH" ] && SINGULARITY_OPTIONS="$SINGULARITY_OPTIONS $SPLASH"
+CONSOLE_OPTIONS="$ROOT_OPTS $ACCEL_ON_CMDLINE systemd.unit=multi-user.target"
 
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
 RESCUEPART_OPTIONS=""
-if [ -f "$RESCUE_READY" ] && [ "$LTS_AVAILABLE" = "1" ]; then
+if [ -f "$RESCUE_READY" ]; then
     RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
     if [ -n "$RESCUEPART_PARTUUID" ]; then
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootdelay=90 rootfstype=ext4 rw $LTS_CONSOLE_CMDLINE systemd.unit=multi-user.target"
-        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
+        # Same kernel as every other entry, accelerators OFF. This is the only
+        # entry that strips them, so a broken GPU/VPU/NPU driver still lands a
+        # networked shell.
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootdelay=90 rootfstype=ext4 rw $ACCEL_OFF_CMDLINE systemd.unit=multi-user.target"
+        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — accelerators blacklisted"
     else
         echo "ERROR: rescue-partition marker has no PARTUUID — refusing to ship without recovery"
         exit 1
     fi
 else
-    echo "ERROR: 7.0.12 rescue partition is required but marker $RESCUE_READY or LTS kernel is absent"
+    echo "ERROR: rescue partition is required but marker $RESCUE_READY is absent"
     exit 1
 fi
 
@@ -334,15 +355,12 @@ else
     echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
 fi
 
-# Release policy: 7.2 Mali is the default graphical entry.  7.0.12 is always
-# an explicit console-only recovery choice; Panthor is an explicit experiment.
-if [ "$NEXT_AVAILABLE" = "1" ]; then
-    DEFAULT_TOKEN="Mali"
-elif [ "$LTS_AVAILABLE" = "1" ]; then
-    DEFAULT_TOKEN="console"
-else
-    DEFAULT_TOKEN="edge"
-fi
+# Release policy: the graphical Singularity entry is the default.  rEFInd matches
+# default_selection as a SUBSTRING of the menu title, so this token must appear
+# in one -- the previous value was "Mali", which after the 7.2-across-the-board
+# retitle matched NO entry at all and would have silently fallen through to
+# whatever rEFInd listed first.
+DEFAULT_TOKEN="Singularity"
 
 REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
 {
@@ -360,37 +378,25 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     echo "scan_all_linux_kernels false"
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
-    if [ "$LTS_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 CONSOLE — networked, no GPU, no GUI\" {"
-        echo "    loader  /vmlinuz-$KVER_LTS"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
-        echo "    options \"$LTS_CONSOLE_OPTIONS\""
-        echo "}"
-        echo
-    fi
-
-    if [ "$NEXT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 MALI DKMS — graphical [DEFAULT]\" {"
-        echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
-        echo "    options \"$MALI_OPTIONS\""
-        echo "}"
-        echo
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 PANTHOR DKMS — graphical [EXPERIMENTAL]\" {"
-        echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
-        echo "    options \"$PANTHOR_OPTIONS\""
-        echo "}"
-        echo
-    fi
+    echo "menuentry \"$NCZ_RELEASE_SHORT  ·  $MAIN_VER Singularity\" {"
+    echo "    loader  /vmlinuz-$MAIN_KVER"
+    [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+    [ "$MAIN_INITRD" = "1" ] && echo "    initrd  /initrd.img-$MAIN_KVER"
+    echo "    options \"$SINGULARITY_OPTIONS\""
+    echo "}"
+    echo
+    echo "menuentry \"$NCZ_RELEASE_SHORT  ·  $MAIN_VER Console\" {"
+    echo "    loader  /vmlinuz-$MAIN_KVER"
+    [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+    [ "$MAIN_INITRD" = "1" ] && echo "    initrd  /initrd.img-$MAIN_KVER"
+    echo "    options \"$CONSOLE_OPTIONS\""
+    echo "}"
+    echo
     if [ -n "$RESCUEPART_OPTIONS" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 RESCUE PARTITION — console, automatic networking\" {"
-        echo "    loader  /vmlinuz-$KVER_LTS"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  $MAIN_VER Rescue Partition\" {"
+        echo "    loader  /vmlinuz-$MAIN_KVER"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$LTS_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LTS"
+        [ "$MAIN_INITRD" = "1" ] && echo "    initrd  /initrd.img-$MAIN_KVER"
         echo "    options \"$RESCUEPART_OPTIONS\""
         echo "}"
         echo
