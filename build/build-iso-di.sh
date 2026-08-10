@@ -2542,7 +2542,22 @@ mkdir -p "$STAGING/boot/grub"
 # reboot, aborting the install). The short-lived installer does not need lockup
 # detection; the INSTALLED system's cmdline (70-bootloader) is separate and keeps
 # it. Harmless on native metal; essential for reliable native-arm64 KVM testing.
-MARTJOHNSON_R6="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+#
+# ACCELERATORS ARE BLACKLISTED FOR THE INSTALLER (2026-08-10, operator):
+#   panthor        26.7 "Maximilian" is a MALI release -- the GPU is mali_kbase
+#                  via DKMS (26-gpu-default-mali.sh, 82-mali-gpu.sh) and the
+#                  INSTALLED system already blacklists panthor on its own
+#                  cmdline. Panthor on 7.2 is explicitly UNTESTED (testing is
+#                  TBD), and letting the in-tree driver bind the GPU during the
+#                  install is how the 7.2 IDM flood happened -- the in-tree
+#                  module won the race against kbase. The installer needs no 3D.
+#   armchina_npu   the NPU is a pure accelerator with no role in an install,
+#                  and it has its own SMMU/IOVA constraints on this SoC.
+# This does NOT prune modules or mask a broken kernel (see the never-ship-a-
+# partial-kernel rule) -- both modules ship and both load on the installed
+# system per its own policy. It only keeps them out of the INSTALLER, whose
+# display comes from linlon-dp, not from either of these.
+MARTJOHNSON_R6="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453,panthor,armchina_npu"
 DI_PRIORITY=critical  # r134: was high; high drops d-i to interactive menu after finish-install (no auto-reboot). critical auto-progresses to the terminal reboot; the remove-media prompt is itself critical so it still shows.
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
@@ -2620,7 +2635,7 @@ menuentry "DIAG — unified install, full serial trace (O6/O6N ttyAMA0, 115200)"
     set background_color=black
     set color_normal=light-green/black
     echo ">> DIAG boot: full kernel + d-i trace on ttyAMA0 @115200..."
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION earlycon ignore_loglevel console=tty0 console=ttyAMA0,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453
+    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION earlycon ignore_loglevel console=tty0 console=ttyAMA0,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453,panthor,armchina_npu
     echo ">> Loading initrd (trace mode)..."
     initrd /install.a64/initrd.gz
 }
