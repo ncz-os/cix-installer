@@ -31,7 +31,16 @@
 set -euo pipefail
 
 # ---- config ----------------------------------------------------------------
-IMAGE="${SINGULARITY_IMAGE:-ubuntu:26.04}"
+# Build container MUST match the TARGET distro, not merely be "some arm64 distro".
+# NCZ-OS 26.7 is Debian Forky based (ID=ncz, "based on Debian testing (Forky)").
+# This was ubuntu:26.04 and produced a REAL, shipping-grade regression: Ubuntu
+# 26.04 carries libsodium.so.23 while Forky carries libsodium.so.26, so
+# singularity-keyring linked .23 and died on the board with
+#   error while loading shared libraries: libsodium.so.23
+# That binary is the org.freedesktop.secrets provider, so the whole desktop
+# secrets service was dead while every other binary looked fine. Caught only by
+# a link-closure check on real hardware. Keep this matched to the target.
+IMAGE="${SINGULARITY_IMAGE:-debian:forky}"
 SRC_REPO="${SINGULARITY_REPO:-https://github.com/singularityos-lab/singularity-desktop}"
 # Upstream's default branch is `master`, not `main` — `main` does not exist on
 # singularityos-lab/singularity-desktop, so a bare run used to die in
@@ -240,6 +249,36 @@ meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
 ninja -C build
 DESTDIR=/work/stage meson install -C build
 test -x "/work/stage'"$PREFIX"'/bin/singularity-boot-splash"
+
+# --- LINK CLOSURE GATE -------------------------------------------------------
+# Every staged binary must resolve every shared library against the payload
+# itself plus this container. Because the container image now matches the TARGET
+# distro, an unresolved soname here means the payload would be broken on the
+# board too.
+#
+# This gate exists because it was missing: a build made in ubuntu:26.04 linked
+# singularity-keyring against libsodium.so.23, Forky ships libsodium.so.26, and
+# the payload shipped looking perfectly healthy. 27 of 28 binaries were fine;
+# the one that was not is the org.freedesktop.secrets provider, so desktop
+# secrets silently died. Only a link check on real hardware caught it.
+STAGE_PREFIX="/work/stage'"$PREFIX"'"
+BROKEN=0
+for f in "$STAGE_PREFIX"/bin/*; do
+    [ -f "$f" ] && [ -x "$f" ] || continue
+    file -b "$f" | grep -q ELF || continue
+    missing=$(LD_LIBRARY_PATH="$STAGE_PREFIX/lib" ldd "$f" 2>/dev/null \
+                | awk "/not found/ {print \$1}" | tr "\n" " ")
+    if [ -n "$missing" ]; then
+        echo "LINK CLOSURE FAIL: $(basename "$f") -> $missing" >&2
+        BROKEN=$((BROKEN+1))
+    fi
+done
+if [ "$BROKEN" -ne 0 ]; then
+    echo "ERROR: $BROKEN staged binary/binaries have unresolved libraries." >&2
+    echo "       The build image must match the target distro (see IMAGE)." >&2
+    exit 1
+fi
+echo "link closure: all staged binaries resolve"
 
 # Package. Paths are opt/singularity/... so `tar -C /` lands at /opt/singularity.
 cd /work/stage

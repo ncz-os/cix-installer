@@ -231,16 +231,53 @@ echo "[20] keyring: native singularity-keyring (org.freedesktop.secrets, D-Bus-a
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation 2>&1 | tail -3 || true
 
-# Video: mpv HW player (84-vpu-mpv wires hwdec=v4l2m2m-copy). Browsers =
-# Vivaldi (52-vivaldi, real arm64 .deb, default) and (26.7+) real official
-# Google Chrome (google-chrome-stable, post-install/53-chrome.sh) — both
-# folded into the offline desktop mirror by build-desktop-mirror.sh, neither
-# as a live runtime apt source. Ubuntu Resolute's own chromium-browser
-# package remains snap-only; NCZ-OS does not ship snapd. (An earlier
-# ungoogled-chromium/XtraDeb stop-gap was dropped 2026-07-27 once real Chrome
-# became available for arm64 — superseded outright.)
+# Video players: GStreamer ONLY. This is not a preference — it is the only
+# stack that reaches the VPU on this hardware.
+#
+# The Linlon VPU accepts every codec on its output side (H263 H264 HEVC MPG2
+# MPG4 VP80 VP90 AV01) but emits ONLY AFBC-compressed formats on capture
+# (Y0A8, Y0AA, Y2A8, Y2AA). GStreamer 1.28 handles that by negotiating dmabuf
+# with DRM format modifiers and letting the sink resolve them. FFmpeg's
+# v4l2_m2m has no such path: it wants plain NV12/YUV420, probes every node and
+# answers "v4l2 output format not supported". So every FFmpeg-backed player
+# decodes in SOFTWARE here, and no configuration changes that.
+#
+# Verified on O6N rc7 by fd check (which process holds an open fd on
+# /dev/video*, the only metric that does not lie here):
+#
+#   HARDWARE  clapper, showtime, singularity-videos, gst playbin
+#   SOFTWARE  mpv, VLC, ffplay, Celluloid
+#
+# mpv is the instructive one: it LISTS h264_v4l2m2m, then logs "Using software
+# decoding" and picks software anyway, even when the decoder is named
+# explicitly with --vd. It was previously shipped here as "the HW player" with
+# /etc/mpv/mpv.conf hwdec=v4l2m2m-copy, which never did anything. Dropped.
+#
+# Browsers = chromium-ncz-sky1 (hardware, all codecs) + Google Chrome (DRM
+# only, software decode). See the browser policy block below.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    mpv 2>&1 | tail -3 || echo "[20] mpv: deferred"
+    clapper showtime 2>&1 | tail -3 || echo "[20] clapper/showtime: deferred"
+
+# Remove FFmpeg-backed players. They cannot reach the VPU (see above), and
+# shipping them makes the platform look slow. Purge rather than leave
+# installed-but-useless. NOTE: the ffmpeg CLI package is deliberately KEPT --
+# it is a tool, not a shipped player, and kdenlive/imagemagick/libsox depend
+# on it. Only the player front-ends go.
+for _p in vlc vlc-bin mpv celluloid; do
+    if dpkg -s "$_p" >/dev/null 2>&1; then
+        DEBIAN_FRONTEND=noninteractive apt-get purge -y "$_p" 2>&1 | tail -1 || true
+    fi
+done
+rm -f /etc/mpv/mpv.conf 2>/dev/null || true
+
+# ncz-ffmpeg: our libavcodec carrying entrpi's av1_v4l2m2m (and vp9_v4l2m2m),
+# neither of which exists in Debian's libavcodec. Installs to
+# /usr/lib/ncz-ffmpeg and does NOT replace the system libraries -- callers opt
+# in with LD_LIBRARY_PATH. Shipped because it is the only AV1 V4L2 decoder on
+# this platform for explicit callers; it does NOT make mpv/VLC work, because
+# the AFBC rejection above happens before codec choice matters.
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    ncz-ffmpeg 2>&1 | tail -3 || echo "[20] ncz-ffmpeg: deferred (not in mirror)"
 
 echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv)"
 
@@ -874,9 +911,13 @@ fi
 echo "[20] verified: Singularity boot/login dynamic-link closure complete"
 
 # --- 26.7 Maximilian: VPU/VAAPI media production apps (video edit + transcode + audio) ---
-echo "[20] installing media production apps (Shotcut/Kdenlive/HandBrake/Audacity + players)"
+echo "[20] installing media production apps (Shotcut/Kdenlive/HandBrake/Audacity)"
+# NO mpv/vlc here — they are FFmpeg-backed and cannot reach the VPU on Sky1
+# (AFBC-only capture formats; see the video-player block earlier in this file).
+# The players are clapper/showtime/singularity-videos. The ffmpeg CLI stays:
+# kdenlive, imagemagick and libsox depend on it, and it is a tool, not a player.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    shotcut kdenlive handbrake ffmpeg audacity mpv vlc 2>&1 | tail -3 || \
+    shotcut kdenlive handbrake ffmpeg audacity 2>&1 | tail -3 || \
   echo "[20] WARN: media apps not all in offline mirror (needs mirror population)"
 
 # ---------------------------------------------------------------------------
