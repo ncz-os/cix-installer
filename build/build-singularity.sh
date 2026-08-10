@@ -31,16 +31,30 @@
 set -euo pipefail
 
 # ---- config ----------------------------------------------------------------
-# Build container MUST match the TARGET distro, not merely be "some arm64 distro".
-# NCZ-OS 26.7 is Debian Forky based (ID=ncz, "based on Debian testing (Forky)").
-# This was ubuntu:26.04 and produced a REAL, shipping-grade regression: Ubuntu
-# 26.04 carries libsodium.so.23 while Forky carries libsodium.so.26, so
-# singularity-keyring linked .23 and died on the board with
+# Build image. STAYS ubuntu:26.04 even though the TARGET is Debian Forky, and
+# the reason is specific: Forky only ships valac 0.56.19, and that compiler
+# SIGBUSes ("Bus error", exit 135) building
+# subprojects/singularity-plugins/emoji-search/emoji-search.vala. A debian:forky
+# build was attempted and dies at [275/619]. Ubuntu 26.04 carries a newer valac
+# that compiles the tree. So the distro mismatch is deliberate and forced.
+#
+# The mismatch has a real cost that MUST be handled rather than ignored: Ubuntu
+# 26.04 has libsodium.so.23, Forky has libsodium.so.26. A payload built here
+# linked singularity-keyring against .23 and died on the board with
 #   error while loading shared libraries: libsodium.so.23
-# That binary is the org.freedesktop.secrets provider, so the whole desktop
-# secrets service was dead while every other binary looked fine. Caught only by
-# a link-closure check on real hardware. Keep this matched to the target.
-IMAGE="${SINGULARITY_IMAGE:-debian:forky}"
+# That binary is the org.freedesktop.secrets provider, so desktop secrets were
+# silently dead while 27 of the 28 binaries looked perfectly fine.
+#
+# Handled by VENDORING the divergent libraries into the payload's own lib dir
+# (see the vendor step after meson install). That fits the payload's design --
+# it is self-contained under /opt/singularity and the session already puts
+# /opt/singularity/lib first on LD_LIBRARY_PATH.
+#
+# The build-container link check below CANNOT catch this class of bug, because
+# in this container the soname resolves fine. The authoritative gate is the
+# on-target check: after installing a payload, verify every binary in
+# /opt/singularity/bin resolves. Do not skip it.
+IMAGE="${SINGULARITY_IMAGE:-ubuntu:26.04}"
 SRC_REPO="${SINGULARITY_REPO:-https://github.com/singularityos-lab/singularity-desktop}"
 # Upstream's default branch is `master`, not `main` — `main` does not exist on
 # singularityos-lab/singularity-desktop, so a bare run used to die in
@@ -249,6 +263,29 @@ meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
 ninja -C build
 DESTDIR=/work/stage meson install -C build
 test -x "/work/stage'"$PREFIX"'/bin/singularity-boot-splash"
+
+# --- VENDOR DIVERGENT LIBRARIES ----------------------------------------------
+# The build container is Ubuntu 26.04 but the target is Debian Forky (see IMAGE
+# for why that mismatch is forced). Any library whose SONAME differs between the
+# two must travel inside the payload, or the binary linking it dies on the board.
+#
+# libsodium is the measured case: Ubuntu 26.04 = libsodium.so.23, Forky =
+# libsodium.so.26. singularity-keyring links it, and shipped broken.
+#
+# Copy the real object plus its SONAME symlink into the payload lib dir. The
+# session already puts /opt/singularity/lib ahead of the system path, so the
+# vendored copy wins on the target without touching system libraries.
+VENDOR_SONAMES="libsodium.so"
+for base in $VENDOR_SONAMES; do
+    for real in /usr/lib/*-linux-gnu/"$base".*.*.*; do
+        [ -f "$real" ] || continue
+        soname=$(objdump -p "$real" 2>/dev/null | awk "/SONAME/ {print \$2}")
+        [ -n "$soname" ] || continue
+        cp -a "$real" "/work/stage'"$PREFIX"'/lib/"
+        ln -sf "$(basename "$real")" "/work/stage'"$PREFIX"'/lib/$soname"
+        echo "vendored: $soname -> $(basename "$real")"
+    done
+done
 
 # --- LINK CLOSURE GATE -------------------------------------------------------
 # Every staged binary must resolve every shared library against the payload
