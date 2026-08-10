@@ -412,6 +412,68 @@ else:
 PY_NCZ_TIP
 fi
 
+# NCZ: remove the top-left corner hint badge (the app-grid glyph that sits over
+# the application-menu icon).
+#
+# This is a SEPARATE widget from the tooltip patched above, and getting that
+# wrong cost three round trips. There are two independent producers of a
+# top-left hint and removing either one alone leaves the other on screen:
+#
+#   1. panel.vala      - _corner_tl, an Overlay carrying a .corner-hint-badge
+#                        Image ("view-app-grid-symbolic"), added to the panel
+#                        overlay unconditionally at construction.
+#   2. hot_corner_manager.vala - HotCornerHintWindow, its own wlr-layer-shell
+#                        window anchored TOP|LEFT for corner 0, shown on hover.
+#
+# Earlier passes removed (1) while the tooltip was still live, then removed the
+# tooltip while (1) was restored by a botched patch-block rewrite. Each time the
+# operator correctly reported the overlay still present. Remove all three.
+#
+# A CSS rule on .corner-hint is NOT a fix: it only applies while the Singularity
+# GTK theme is loaded, and the desktop can be on Adwaita.
+if [ -z "${SINGULARITY_SOURCE_DIR:-}" ]; then
+python3 - <<'"'"'PY_NCZ_CORNER'"'"'
+import io, re
+
+# (1) panel: never parent the top-left hint into the overlay. The widget itself
+# is kept so the corner==0 lookup near panel.vala:977 stays valid; it simply
+# never has a parent, so it never draws.
+p = "subprojects/singularity-shell/src/components/panel/panel.vala"
+src = io.open(p).read()
+if "NCZ: top-left corner hint" in src:
+    print("NCZ: panel top-left corner hint already removed")
+else:
+    pat = re.compile(r"^([ \t]*)overlay\.add_overlay\(_corner_tl\);[ \t]*$", re.M)
+    if len(pat.findall(src)) != 1:
+        raise SystemExit("NCZ corner-hint patch: expected exactly 1 add_overlay(_corner_tl) - upstream moved")
+    src = pat.sub(lambda m: m.group(1) + "// NCZ: top-left corner hint not parented - it drew over the app-menu icon", src)
+    io.open(p, "w").write(src)
+    print("NCZ: panel top-left corner hint removed")
+
+# (2) hot corner manager: refuse to show a hint window for corner 0 (TOP|LEFT).
+# Guard inside show_hint() rather than at the construction site so every caller
+# is covered, including the hover path that lazily builds the window.
+p = "subprojects/singularity-shell/src/core/hot_corner_manager.vala"
+src = io.open(p).read()
+if "NCZ: no top-left hint" in src:
+    print("NCZ: hot-corner top-left hint already suppressed")
+else:
+    pat = re.compile(
+        r"(private void show_hint\(int corner, string\? action\) \{\n)",
+    )
+    if len(pat.findall(src)) != 1:
+        raise SystemExit("NCZ hot-corner patch: show_hint signature not found - upstream moved")
+    src = pat.sub(
+        lambda m: m.group(1)
+        + "            // NCZ: no top-left hint - it overlaid the application-menu icon.\n"
+          "            if (corner == 0) { hide_hints(); return; }\n",
+        src,
+    )
+    io.open(p, "w").write(src)
+    print("NCZ: hot-corner top-left hint window suppressed")
+PY_NCZ_CORNER
+fi
+
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
