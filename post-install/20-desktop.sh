@@ -372,6 +372,30 @@ PORTAL
     install -d -m0755 /etc/systemd/user
     ln -sfn /opt/singularity/lib/systemd/user/xdg-desktop-portal-singularity.service \
         /etc/systemd/user/xdg-desktop-portal-singularity.service
+
+    # THIRD bridge, and without it the other two do nothing: xdg-desktop-portal
+    # only knows a backend exists if it finds a .portal registration in
+    # /usr/share/xdg-desktop-portal/portals/. The payload ships
+    # singularity.portal below /opt, which that directory never searches, so the
+    # backend was invisible: /usr/share/xdg-desktop-portal/portals/ held only
+    # gnome-keyring, gtk, kwallet and wlr.
+    #
+    # Consequence measured on O6N: no backend implemented
+    # org.freedesktop.impl.portal.Settings for XDG_CURRENT_DESKTOP=Singularity
+    # (gtk.portal is UseIn=gnome, wlr.portal is UseIn=wlroots;sway;...), so the
+    # portal logged "Failed to Read() from Settings implementation:
+    # GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown" and answered
+    # org.freedesktop.appearance color-scheme = 0 ("no preference"). Every GTK
+    # app therefore rendered LIGHT no matter what dark-mode was set to.
+    # Installing this file made the backend activate and Settings answer.
+    if [ -f /opt/singularity/share/xdg-desktop-portal/portals/singularity.portal ]; then
+        install -D -m0644 \
+            /opt/singularity/share/xdg-desktop-portal/portals/singularity.portal \
+            /usr/share/xdg-desktop-portal/portals/singularity.portal
+        echo "[20] registered singularity.portal (Settings/appearance backend)"
+    else
+        echo "[20] WARN: payload has no singularity.portal — dark mode will not reach GTK apps" >&2
+    fi
     echo "[20] wired Singularity portal into systemd user-unit path"
 else
     echo "[20] WARN: Singularity portal payload missing; desktop portal backend unavailable" >&2
@@ -681,6 +705,21 @@ recent-wallpapers=['file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilia
 # browser on the dock at all - including the two builds that are this
 # platform's differentiator.
 pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'org.gnome.Console.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
+
+# Shell extensions. The payload ships 20 libpeas plugins and only 8 were on by
+# default, so most of what was built never ran. Verified enabled on O6N with the
+# shell staying up (same pid, no restarts across a 75s watch).
+#
+# Deliberately EXCLUDED, and they must stay excluded:
+#   example-dock       its own description says it REPLACES the built-in dock
+#                      with a minimal demo surface -- enabling it removes the
+#                      real dock.
+#   notification-test  a test harness, not a desktop feature.
+enabled-plugins=['mpris-dock','downloads-dock','telegram-dock','launcher-entry-dock','tray-icons','emoji-search','tailscale','exe-icon','caffeine','clipboard-history','color-picker','disk-usage','media-controls','quick-notes','status-monitor','weather','workspaces-indicator','pomodoro']
+
+# macOS-style hover magnification. The schema's own description is "Magnify dock
+# icons on hover, macOS-style"; it ships off.
+dock-magnification=true
 GSCHEMA
     glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
         echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
