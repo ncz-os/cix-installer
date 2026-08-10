@@ -295,6 +295,56 @@ ncz_install_nemoclaw() {
     echo "[ncz] Service: systemctl status nemoclaw.service"
 }
 
+# Bring up the on-device NPU embedder and PROVE it is interchangeable with the
+# embedder MNEMOS would otherwise use in-process.
+#
+# The whole point is that this is a drop-in: the server runs
+# nomic-embed-text-v1.5 at 768 dimensions, which is exactly MNEMOS's default
+# (MNEMOS_EMBEDDING_DIM defaults to 768 and the stock image embeds with the same
+# model). So switching to it does not restate the vector space and needs no
+# migration -- measured cosine 0.9953 against the onnxruntime CPU reference.
+#
+# That property is also the thing that must never be assumed. A 384-dim
+# embedder silently strands every memory already written (which is exactly the
+# trap in mnemos-cix-integration), so this function REFUSES to wire anything up
+# unless the running service actually returns a 768-wide vector. Returns 0 only
+# when the embedder is up and verified.
+ncz_npu_embedder_ready() {
+    local url="http://127.0.0.1:8081/v1"
+    [ -e /dev/aipu ] || { echo "[ncz] no /dev/aipu — NPU embedder not applicable"; return 1; }
+    [ -x /opt/ncz/noe-venv/bin/python ] || { echo "[ncz] NPU embedder venv missing (/opt/ncz/noe-venv)"; return 1; }
+    [ -f /opt/ncz/models/nomic-embed-text-v1.5_256.cix ] || {
+        echo "[ncz] NPU graph missing: /opt/ncz/models/nomic-embed-text-v1.5_256.cix"; return 1; }
+    [ -f /etc/systemd/system/ncz-npu-embed.service ] || {
+        echo "[ncz] ncz-npu-embed.service not installed"; return 1; }
+
+    systemctl enable --now ncz-npu-embed.service >/dev/null 2>&1 || true
+    # Graph load is ~15s; the unit allows 120s, so poll rather than guess.
+    local i
+    for i in $(seq 1 40); do
+        curl -fsS -m 3 "$url/models" >/dev/null 2>&1 && break
+        sleep 3
+    done
+    if ! curl -fsS -m 3 "$url/models" >/dev/null 2>&1; then
+        echo "[ncz] NPU embedder did not come up on :8081 — leaving MNEMOS on its CPU embedder"
+        return 1
+    fi
+
+    # HARD GATE: a live request must return exactly 768 floats. Anything else
+    # means a different model is loaded and wiring MNEMOS to it would corrupt
+    # retrieval rather than fail loudly.
+    local dim
+    dim=$(curl -fsS -m 20 "$url/embeddings" -H 'Content-Type: application/json' \
+            -d '{"model":"nomic-embed-text","input":"dimension probe"}' 2>/dev/null \
+          | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["data"][0]["embedding"]))' 2>/dev/null)
+    if [ "$dim" != "768" ]; then
+        echo "[ncz] NPU embedder returned dim='${dim:-none}', expected 768 — NOT wiring MNEMOS to it"
+        return 1
+    fi
+    echo "[ncz] NPU embedder verified on :8081 (nomic-embed-text, 768-dim)"
+    return 0
+}
+
 ncz_install_mnemos() {
     if ! [ "$(id -u)" = "0" ]; then
         echo "ncz install mnemos: requires root (use sudo)" >&2
@@ -370,6 +420,30 @@ ncz_install_mnemos() {
         echo "[ncz] staged $active (Image=$MNEMOS_IMAGE)"
     fi
 
+    # Offload embeddings to the NPU when this board can actually do it. The env
+    # contract is MNEMOS's own (mnemos/core/config.py): MNEMOS_EMBED_BACKEND=http
+    # selects the HTTP embedder, MNEMOS_EMBED_HTTP_URL is the full
+    # /v1/embeddings path (not a base URL), and MNEMOS_EMBEDDING_DIM MUST equal
+    # the embedder's width -- note it is NOT MNEMOS_DATABASE_EMBEDDING_DIM,
+    # which MNEMOS does not read and which fails later as a vector cast error.
+    # The quadlet is Network=host, so 127.0.0.1 reaches the host service.
+    # Written before first start so MNEMOS never embeds a single memory on CPU
+    # and then switches.
+    local npu_embed=0
+    if ncz_npu_embedder_ready; then
+        npu_embed=1
+        if ! grep -q "MNEMOS_EMBED_BACKEND=http" "$active"; then
+            sed -i "/^Environment=MNEMOS_SQLITE_PATH=/a\\
+Environment=MNEMOS_EMBED_BACKEND=http\\
+Environment=MNEMOS_EMBED_HTTP_URL=http://127.0.0.1:8081/v1/embeddings\\
+Environment=MNEMOS_EMBED_HTTP_MODEL=nomic-embed-text\\
+Environment=MNEMOS_EMBEDDING_DIM=768" "$active"
+            echo "[ncz] wired MNEMOS to the NPU embedder (nomic-embed-text, 768-dim)"
+        else
+            echo "[ncz] MNEMOS already wired to the NPU embedder"
+        fi
+    fi
+
     systemctl daemon-reload
     systemctl start mnemos.service
 
@@ -377,14 +451,17 @@ ncz_install_mnemos() {
     echo "[ncz]   endpoint: http://<host>:5002  (REST /v1/*, MCP, OpenAI-compatible gateway)"
     echo "[ncz]   health:   curl -fsS http://127.0.0.1:5002/health"
     echo "[ncz]   data:     volume mnemos-data (sqlite at /data/mnemos.db, persistent)"
-    echo "[ncz]   embedder: in-process CPU (nomic-embed-text-v1.5, 768-dim)"
+    if [ "$npu_embed" = 1 ]; then
+        echo "[ncz]   embedder: Zhouyi NPU via :8081 (nomic-embed-text-v1.5, 768-dim)"
+    else
+        echo "[ncz]   embedder: in-process CPU (nomic-embed-text-v1.5, 768-dim)"
+    fi
     echo "[ncz]   service:  systemctl status mnemos.service"
-    echo "[ncz] NOTE: this runs MNEMOS with its in-process CPU embedder"
-    echo "[ncz]       (nomic-embed-text-v1.5, 768-dim). NPU offload is NOT wired up yet."
-    echo "[ncz]       Do NOT point MNEMOS at mnemos-cix-integration: it serves"
-    echo "[ncz]       all-MiniLM-L6-v2 at 384 dimensions, a different model AND a"
-    echo "[ncz]       different width, so switching to it silently strands every"
-    echo "[ncz]       memory already written and breaks federation with x86 peers."
+    echo "[ncz] NOTE: the NPU embedder is the SAME model and width as the CPU one"
+    echo "[ncz]       (nomic-embed-text-v1.5, 768-dim), so it is a drop-in and needs"
+    echo "[ncz]       no re-embedding. Do NOT substitute mnemos-cix-integration: it"
+    echo "[ncz]       serves all-MiniLM-L6-v2 at 384 dimensions, a different model AND"
+    echo "[ncz]       width, which silently strands every memory already written."
 }
 
 ncz_install() {
