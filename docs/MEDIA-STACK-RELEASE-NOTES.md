@@ -47,11 +47,19 @@ not be made to perform; see "Why Epiphany was removed" below.
 | AV1 | ✅ hardware | software | hardware only via V4L2 |
 | DRM (Widevine) | ✗ | ✅ | Chrome only; Linux is Widevine **L3** |
 
-Measured 2026-08-09 on rc7 by counting new `MVX session` kernel entries per
-playback run — the VPU driver logs one per decode session, so a non-zero count
-is the kernel itself confirming the hardware was engaged. Chromium NCZ scored 1
-per codec across H.264/HEVC/VP9/VP8/AV1 and 2 on YouTube with zero crashes;
-Google Chrome and Epiphany both scored **0**.
+Measured 2026-08-09 on rc7 by **checking which process holds an open fd on
+`/dev/video*`** during playback (`fuser` on the five `mvx` nodes). Chromium NCZ
+holds the VPU across H.264/HEVC/VP9/VP8/AV1 and on YouTube with zero crashes;
+Google Chrome and Epiphany hold it **never**.
+
+> **Do not measure this by counting `MVX session` lines in `dmesg`.** An earlier
+> revision of this file did, claiming the driver logs one per decode session. It
+> does not. Every such line is the warning `v4l2: Invalid frame period from
+> client (1/30). Return 60/1`, which fires only when a client sets that specific
+> frame period — so it counts a client quirk, not decode sessions. It reports
+> zero for genuinely hardware-accelerated playback: a forced
+> `v4l2h264dec ! waylandsink` pipeline ran to `Got EOS` with the VPU fd open and
+> logged nothing. Use the fd check, or `chrome://media-internals` in a browser.
 
 Corroborated independently by Chromium's own `chrome://media-internals` during a
 real **Facebook** session, which is the browser reporting on itself rather than
@@ -153,8 +161,34 @@ H.264/VP8/VP9/HEVC is built but unverified at time of writing.
   engaged the VPU: MVX sessions stayed at 3 across a full local `<video>`
   playback and no web process ever held `/dev/video*`. Accelerated GStreamer
   does not imply an accelerated GStreamer *application*.
-- **VLC and mpv remain unverified.** "Should work" is not measured, and
-  unmeasured assumptions produced several wrong conclusions during this work.
+- **VLC, mpv, ffplay and Celluloid decode in SOFTWARE, and are not cheaply
+  fixable.** Verified 2026-08-09 by fd check: none ever opens `/dev/video*`.
+  The cause is not a missing decoder — it is the VPU's capture format. The
+  Linlon VPU accepts every codec on its output side (`H263 H264 HEVC MPG2 MPG4
+  VP80 VP90 AV01`) but emits **only AFBC-compressed formats** on the capture
+  side (`Y0A8`, `Y0AA`, `Y2A8`, `Y2AA`). FFmpeg's `v4l2_m2m` expects plain
+  NV12/YUV420, so it probes every node and rejects each one:
+
+  ```
+  [h264_v4l2m2m] probing device /dev/video-cixdec0
+  [h264_v4l2m2m] driver 'mvx' on card 'Linlon Video device' in mplane mode
+  [h264_v4l2m2m] v4l2 output format not supported
+  ```
+
+  This is the same Y0A8 problem that defeats Debian's Chromium. Installing
+  `ncz-ffmpeg` does NOT fix these players: its libraries load correctly and
+  `av1_v4l2m2m` is present, but the AFBC rejection happens before any codec
+  choice matters. Fixing them means teaching FFmpeg's `v4l2_m2m` to consume
+  AFBC — a real patch, not a wrapper or an env var. `mpv` illustrates the trap:
+  it *lists* `h264_v4l2m2m`, then logs `Using software decoding` and picks the
+  software decoder anyway, even when named explicitly via `--vd`.
+
+- **GStreamer players ARE accelerated, including our own.** Verified by fd
+  check: `gst-launch playbin`, an explicit `v4l2h264dec ! waylandsink`
+  pipeline, and **`singularity-videos`** each hold the VPU during playback.
+  `singularity-videos` links GStreamer and no FFmpeg, which is why it works.
+  So the shipped desktop video player is hardware-accelerated with no change
+  required; the third-party FFmpeg players are the ones that are not.
 
 ## Why Epiphany was removed
 
