@@ -345,9 +345,19 @@ files = [
     "subprojects/singularity-shell/src/components/overview/app_menu.vala",
     "subprojects/singularity-shell/src/core/hot_corner_manager.vala",
     "subprojects/singularity-shell/src/components/overview/workspace_overview.vala",
+    # overview.vala is here too: the animation-end path is patched separately
+    # above, but finish_gesture_hide() (four-finger dismissal, reached from
+    # end_gesture()) is a SECOND bare hide() that the anchored patch never saw.
+    "subprojects/singularity-shell/src/components/overview/overview.vala",
 ]
 NOTE = "NCZ: drop the GdkSurface so the next open gets a fresh wl_surface"
-pat = re.compile(r"^([ \t]+)hide\(\);[ \t]*$", re.M)
+# BOTH spellings close a layer window. Matching only the bare form left 5
+# sites in dock.vala unpatched -- including the production autohide reveal,
+# which does ((Gtk.Widget) this).hide() then present(): a full remap, and
+# exactly the hazard this fix exists for. Caught by review, not by testing,
+# because autohide was not exercised. The cast spelling is the same one this
+# patch itself emits for unrealize(), so the blind spot was self-inflicted.
+pat = re.compile(r"^([ \t]+)(?:\(\(Gtk\.Widget\) this\)\.)?hide\(\);[ \t]*$", re.M)
 total = 0
 for f in files:
     try:
@@ -363,7 +373,20 @@ for f in files:
         raise SystemExit("NCZ all-window patch: no bare hide() in %s - upstream moved" % f)
     def sub(m):
         ind = m.group(1)
-        return (ind + "hide();\n"
+        # Skip if this close path already drops the surface. Scan forward to the
+        # first real STATEMENT, skipping blanks and comments, rather than
+        # searching a fixed character window: the anchored overview patch above
+        # puts ~600 characters of explanatory comment between its hide() and its
+        # unrealize(), so a window-based check silently failed to see it and
+        # emitted a second unrealize().
+        for _line in src[m.end():].split(chr(10))[1:]:
+            _t = _line.strip()
+            if not _t or _t.startswith("//"):
+                continue
+            if "unrealize()" in _t:
+                return m.group(0)
+            break
+        return (ind + m.group(0).strip() + "\n"
                 + ind + "// " + NOTE + ".\n"
                 + ind + "// Cast required: GtkWindow implements GtkNative, so a bare\n"
                 + ind + "// unrealize() binds to gtk_native_unrealize, not the widget one.\n"
