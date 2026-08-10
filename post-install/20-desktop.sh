@@ -321,6 +321,40 @@ fi
 test -x /opt/singularity/bin/singularity-desktop
 test -x /opt/singularity/bin/singularity-labwc-session
 
+# ---------------------------------------------------------------------------
+# labwc config path bridge — WITHOUT THIS THE DESKTOP HAS NO KEYBINDINGS AT ALL.
+#
+# singularity-labwc-session launches the compositor as:
+#     labwc -C /usr/share/singularity/labwc -s singularity-desktop-session
+# i.e. an ABSOLUTE /usr path, hardcoded. But the payload installs its labwc
+# config to the isolated prefix:
+#     /opt/singularity/share/singularity/labwc/{rc.xml,themerc}
+# On NCZ that /usr path therefore does not exist, labwc finds no rc.xml, falls
+# back to its compiled-in defaults, and EVERY keybind vanishes -- including
+# toggle_launcher on Super+Space. Measured on O6N: the config dir was absent and
+# the shell's own launcher could not be opened from the keyboard at all, while a
+# direct gdbus call to dev.sinty.desktop ExecuteAction toggle_launcher returned
+# success, proving the launcher itself was fine and only the binding was gone.
+# It also makes labwc render its generic default root menu, which appears as a
+# stray overlay at the top-left over the Singularity shell.
+#
+# Bridge it with a symlink rather than copying, so payload upgrades stay
+# authoritative. Verified safe on a live session: creating this link alone
+# caused no shell restart over a 90s watch.
+#
+# Do NOT edit the linked rc.xml from a running session and do NOT signal the
+# compositor to reload it. singularity-desktop's ShortcutManager watches that
+# file, and doing either during this session produced
+# "Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display" and a
+# shell restart loop (exit 1, no coredump). Change it, then log out and back in.
+install -d -m0755 /usr/share/singularity
+ln -sfn /opt/singularity/share/singularity/labwc /usr/share/singularity/labwc
+if [ -f /usr/share/singularity/labwc/rc.xml ]; then
+    echo "[20] labwc config bridged: /usr/share/singularity/labwc -> payload ($(grep -c '<keybind' /usr/share/singularity/labwc/rc.xml) keybinds)"
+else
+    echo "[20] WARNING: labwc rc.xml not found via the bridge — desktop will have NO keybindings" >&2
+fi
+
 # The packaged Singularity portal unit lives below the isolated /opt prefix,
 # which systemd --user does not search.  Its generated launcher also omits the
 # payload's actual libexecdir.  Without these two bridges xdg-desktop-portal
