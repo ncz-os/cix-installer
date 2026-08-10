@@ -53,6 +53,22 @@ is the kernel itself confirming the hardware was engaged. Chromium NCZ scored 1
 per codec across H.264/HEVC/VP9/VP8/AV1 and 2 on YouTube with zero crashes;
 Google Chrome and Epiphany both scored **0**.
 
+Corroborated independently by Chromium's own `chrome://media-internals` during a
+real **Facebook** session, which is the browser reporting on itself rather than
+us inferring from the kernel:
+
+```
+"kVideoDecoderName": "V4L2VideoDecoder"     (21 occurrences)
+"kIsPlatformVideoDecoder": true
+codecs: av1, vp9        errors: none
+```
+
+No software decoder appears anywhere in that log — no `FFmpegVideoDecoder`, no
+`Dav1dVideoDecoder`, no `LibvpxVideoDecoder` — and no `PIPELINE_ERROR`. Note
+Facebook served **AV1 and VP9** in that session, not H.264, so AV1 hardware
+decode is not a synthetic-benchmark win: it is what a mainstream site actually
+delivers, and it is the codec no other browser on this hardware accelerates.
+
 Note on HEVC: it now decodes in hardware, but almost no site uses it. Facebook
 and X are H.264 (Facebook adding AV1 on Reels), YouTube is VP9/AV1, and the
 services that do use HEVC are DRM-gated — and Widevine on Linux is L3, which
