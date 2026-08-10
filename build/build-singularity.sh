@@ -162,26 +162,37 @@ fi
 cd singularity-desktop
 
 # NCZ shell integration: close the launcher popup before opening the full-screen
-# workspace chooser. Keep this small downstream patch in the installer tree so
-# reproducible payload builds do not depend on an unpublished GitHub commit.
-if [ -z "${SINGULARITY_SOURCE_DIR:-}" ] && ! grep -q "Close the launcher popup first" subprojects/singularity-shell/src/core/main.vala; then
-git apply <<'PATCH_NCZ_SHELL'
-diff --git a/subprojects/singularity-shell/src/core/main.vala b/subprojects/singularity-shell/src/core/main.vala
---- a/subprojects/singularity-shell/src/core/main.vala
-+++ b/subprojects/singularity-shell/src/core/main.vala
-@@ -798,4 +798,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
-         if (overview != null && overview.showing) {
-             overview.toggle();
-         }
-+        // The workspace chooser is a full-screen TOP layer.  Close the
-+        // launcher popup first; leaving AppMenu visible lets the chooser
-+        // hover over (and visually occlude) the main menu when Workspaces is
-+        // invoked from the panel/dock.
-+        if (app_menu != null && app_menu.visible) {
-+            app_menu.toggle();
-+        }
-         if (workspace_overview == null) {
-PATCH_NCZ_SHELL
+# workspace chooser.
+#
+# Upstream added a hide_overview() helper that closes app_menu, overview and the
+# secondary overviews together -- but toggle_workspace_overview() does not call
+# it; it only closes `overview`. The AppMenu therefore stays mapped underneath
+# and the full-screen workspace chooser visually hovers over the app picker.
+# Route the workspace toggle through upstream own helper.
+#
+# The previous form of this patch inserted lines by hand with `git apply` against
+# main.vala:798. Upstream refactored that function, the hunk stopped applying and
+# it FAILED THE WHOLE BUILD. Anchor on code shape and assert instead, so a future
+# refactor gives a clear error rather than a silent miss.
+if [ -z "${SINGULARITY_SOURCE_DIR:-}" ]; then
+python3 - <<'"'"'PY_NCZ_WS'"'"'
+import io
+p = "subprojects/singularity-shell/src/core/main.vala"
+src = io.open(p).read()
+old = "        if (overview != null && overview.showing) {\n            overview.toggle();\n        }\n        if (!ensure_workspace_overview()) return;"
+new = ("        // NCZ: close the launcher popup AND the app menu, not just the overview.\n"
+       "        // The workspace chooser is a full-screen TOP layer; leaving AppMenu\n"
+       "        // mapped lets the chooser hover over and occlude the app picker.\n"
+       "        hide_overview();\n"
+       "        if (!ensure_workspace_overview()) return;")
+if "hide_overview();\n        if (!ensure_workspace_overview())" in src:
+    print("NCZ: workspace-chooser patch already applied")
+elif old in src:
+    io.open(p, "w").write(src.replace(old, new, 1))
+    print("NCZ: workspace chooser now closes the app menu via hide_overview()")
+else:
+    raise SystemExit("NCZ workspace-chooser patch: anchor not found - upstream moved, re-check")
+PY_NCZ_WS
 fi
 
 # NCZ shell fix: opening the launcher, closing it, then opening it again killed
