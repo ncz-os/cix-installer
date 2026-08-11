@@ -114,6 +114,20 @@ NETINSTALL_MAX_BYTES=$((1024 * 1024 * 1024))
 
 case "$MODE" in
     full)
+        # ONE KERNEL TREE (operator, 2026-08-10): 26.7 ships 7.2.0-rc7-sky1-ncz
+        # and ONLY that; 7.0.12-cix-sky1-next ("legacy") is superseded.
+        #
+        # full mode previously staged BOTH kernels AND booted the installer on
+        # legacy (INSTALLER_KERNEL_FLAVOR=legacy). That would have shipped a
+        # 7.0.12 installer that then installs an rc7 system -- two kernels in
+        # one image, which is exactly what the single-tree directive removes.
+        #
+        # NOTE this changes which kernel the INSTALLER runs on. It is the same
+        # kernel the installed system gets, so it is the honest thing to test,
+        # but a regression that only shows up in the installer environment now
+        # blocks installation rather than just first boot.
+        STAGE_LEGACY_KERNEL=0
+        INSTALLER_KERNEL_FLAVOR=edge
         ;;
     thin)
         STAGE_ROOTFS=0

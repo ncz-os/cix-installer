@@ -487,7 +487,20 @@ EOF
 }
 
 build_cixmini_boot
-build_kernel_deb legacy "$KVER_LEGACY" legacy ""  # NPU in-tree since 7.0.12
+
+# ONE KERNEL TREE (operator, 2026-08-10): 26.7 ships 7.2.0-rc7-sky1-ncz and only
+# that; 7.0.12-cix-sky1-next ("legacy") is superseded and its assets are gone.
+#
+# Guard on the ASSETS, not on KVER: resolve_kver falls back to the ISO-staging
+# sidecar when assets/kernel/legacy/KVER is missing, so KVER_LEGACY still
+# resolved to a stale 7.0.12 and the build died trying to package a kernel that
+# is no longer on disk. A retired channel must be skipped, not resurrected from
+# a leftover sidecar.
+if [ -s "$ASSETS/legacy/Image-cixmini.bin" ]; then
+    build_kernel_deb legacy "$KVER_LEGACY" legacy ""  # NPU in-tree since 7.0.12
+else
+    echo "  [legacy] no kernel staged in $ASSETS/legacy — skipping (single-tree release)"
+fi
 build_kernel_deb edge "$KVER_NEXT" edge   ""
 
 # ----------------------------------------------------------------------
@@ -505,7 +518,21 @@ build_kernel_deb edge "$KVER_NEXT" edge   ""
 # ----------------------------------------------------------------------
 build_transitional_lts() {
     local pkg=linux-image-cixmini-lts
-    local ver="$KVER_LEGACY+$BUILD_REV"
+    # SINGLE-TREE (2026-08-10): this package's whole job is to keep boards that
+    # still carry the OLD "linux-image-cixmini-lts" name receiving kernel
+    # updates. It depended unconditionally on linux-image-cixmini-legacy -- but
+    # legacy is retired, so that produced an UNINSTALLABLE package depending on
+    # something no longer in the repo, stranding precisely the boards it exists
+    # to rescue. Migrate them to whichever channel is actually shipped.
+    local migrate_to ver
+    if [ -s "$ASSETS/legacy/Image-cixmini.bin" ]; then
+        migrate_to=linux-image-cixmini-legacy
+        ver="$KVER_LEGACY+$BUILD_REV"
+    else
+        migrate_to=linux-image-cixmini-edge
+        ver="$KVER_NEXT+$BUILD_REV"
+    fi
+    echo "  [transitional] $pkg -> Depends: $migrate_to ($ver)"
     local root="$WORK/$pkg"
     rm -rf "$root"
     install -d "$root/DEBIAN"
@@ -517,8 +544,8 @@ Maintainer: $MAINT
 Section: oldlibs
 Priority: optional
 Installed-Size: 0
-Depends: linux-image-cixmini-legacy
-Description: transitional package -- renamed to linux-image-cixmini-legacy
+Depends: $migrate_to
+Description: transitional package -- renamed to $migrate_to
  The 7.0.12 kernel channel was renamed from "lts" to "legacy": 7.0.12 is an
  EOL kernel supported only until the 7.2 channel finishes its release process,
  so calling it LTS was wrong. This empty package exists purely so existing
@@ -527,7 +554,7 @@ Description: transitional package -- renamed to linux-image-cixmini-legacy
 EOF
     chmod 0755 "$root/DEBIAN"
     dpkg-deb --root-owner-group --build "$root" "$OUT/${pkg}_${ver}_all.deb"
-    echo "  [transitional] $pkg -> Depends: linux-image-cixmini-legacy"
+    # (the accurate line is printed above, before the control file is written)
 }
 
 build_transitional_lts
