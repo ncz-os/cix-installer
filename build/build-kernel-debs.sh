@@ -31,7 +31,11 @@ MAINT="NCZ <nczero@nclawzero.dev>"
 # rebuild. No version string is hardcoded in this script, so nothing else has
 # to be edited to move the release forward.
 _kver_from_assets() {   # $1 = asset label (stable|edge)
-    cat "$ASSETS/$1/KVER" 2>/dev/null
+    # `|| true`: under `set -e` a failing command substitution aborts the
+    # ASSIGNMENT and kills the script with no output at all. A missing edge
+    # KVER is normal in a single-tree release, so it must not be fatal here --
+    # the explicit KVER_LTS check below is what enforces the real requirement.
+    cat "$ASSETS/$1/KVER" 2>/dev/null || true
 }
 KVER_LTS="${KVER_LTS:-$(_kver_from_assets stable)}"
 KVER_NEXT="${KVER_NEXT:-$(_kver_from_assets edge)}"
