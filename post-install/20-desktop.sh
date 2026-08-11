@@ -511,14 +511,14 @@ if dpkg -s epiphany-browser >/dev/null 2>&1; then
     DEBIAN_FRONTEND=noninteractive apt-get purge -y epiphany-browser-data || true
 fi
 # Default to the accelerated engine.
-if [ -x /usr/bin/chromium-ncz-sky1 ]; then
+if [ -x /usr/bin/chromium ]; then
     update-alternatives --install /usr/bin/x-www-browser x-www-browser \
-        /usr/bin/chromium-ncz-sky1 200 || true
-    update-alternatives --set x-www-browser /usr/bin/chromium-ncz-sky1 || true
+        /usr/bin/chromium 200 || true
+    update-alternatives --set x-www-browser /usr/bin/chromium || true
     for u in /home/*/; do
         [ -d "$u" ] || continue
         su - "$(basename "$u")" -c \
-            'xdg-settings set default-web-browser chromium-ncz-sky1.desktop' 2>/dev/null || true
+            'xdg-settings set default-web-browser chromium.desktop' 2>/dev/null || true
     done
 fi
 
@@ -704,7 +704,7 @@ recent-wallpapers=['file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilia
 # default pins only the Sinty first-party apps, so a fresh install had no
 # browser on the dock at all - including the two builds that are this
 # platform's differentiator.
-pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'org.gnome.Console.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
+pinned-apps=['dev.sinty.files.desktop', 'chromium.desktop', 'google-chrome.desktop', 'org.gnome.Console.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
 
 # Shell extensions. The payload ships 20 libpeas plugins and only 8 were on by
 # default, so most of what was built never ran. Verified enabled on O6N with the
@@ -938,13 +938,13 @@ fi
 # binary that does not exist.
 cat > /usr/local/bin/x-www-browser <<'BRWRAP'
 #!/bin/sh
-for b in /usr/bin/chromium-ncz-sky1 /usr/bin/google-chrome-stable; do
+for b in /usr/bin/chromium /usr/bin/google-chrome-stable; do
     [ -x "$b" ] && exec "$b" "$@"
 done
 exec xdg-open "$@"
 BRWRAP
 chmod 0755 /usr/local/bin/x-www-browser
-_bd=chromium-ncz-sky1.desktop
+_bd=chromium.desktop
 mkdir -p /etc/xdg
 cat > /etc/xdg/mimeapps.list <<MIME
 [Default Applications]

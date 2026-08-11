@@ -19,8 +19,23 @@ OUT="$REPO/build/kernel-debs"
 BUILD_REV="${BUILD_REV:-r98}"
 MAINT="NCZ <nczero@nclawzero.dev>"
 
-KVER_LTS="${KVER_LTS:-$(cat "$REPO/build/iso-staging-di/cixmini/KVER_LTS" 2>/dev/null || echo 7.0.12-cix-sky1-next)}"
-KVER_NEXT="${KVER_NEXT:-$(cat "$REPO/build/iso-staging-di/cixmini/KVER_NEXT" 2>/dev/null || echo 7.0.12-cix-sky1-next)}"
+# KVER comes from the STAGED KERNEL TREE first. It used to fall back to a
+# leftover ISO staging dir and then to a hardcoded 7.0.12-cix-sky1-next, so a
+# stale staging dir (or none) silently packaged the wrong version number onto
+# the current kernel binaries. assets/kernel/<label>/KVER is written beside the
+# Image/modules/config it describes, so it cannot drift from them.
+#
+# This is what makes an rc -> final fast-forward cheap (rc7 -> 7.2 is expected
+# within days): drop the new Image-cixmini.bin, modules-cixmini.tgz, config-*
+# and KVER into assets/kernel/stable, run `build/kernel-manifest.py gen`, and
+# rebuild. No version string is hardcoded in this script, so nothing else has
+# to be edited to move the release forward.
+_kver_from_assets() {   # $1 = asset label (stable|edge)
+    cat "$ASSETS/$1/KVER" 2>/dev/null
+}
+KVER_LTS="${KVER_LTS:-$(_kver_from_assets stable)}"
+KVER_NEXT="${KVER_NEXT:-$(_kver_from_assets edge)}"
+[ -n "$KVER_LTS" ] || { echo "ERROR: no KVER in $ASSETS/stable — stage a kernel tree first" >&2; exit 1; }
 
 echo "== build-kernel-debs =="
 echo "   LTS=$KVER_LTS  NEXT=$KVER_NEXT  rev=$BUILD_REV"
@@ -306,7 +321,19 @@ EOF
 
 build_cixmini_boot
 build_kernel_deb lts  "$KVER_LTS"  stable ""  # NPU in-tree since 7.0.12
-build_kernel_deb edge "$KVER_NEXT" edge   ""
+
+# ONE KERNEL TREE (operator, 2026-08-10): 26.7 ships 7.2.0-rc7-sky1-ncz and
+# ONLY that. 6.18.26-cix-sky1-lts and 7.2.0-rc4-sky1-ncz are superseded. The
+# edge channel therefore has no staged assets (assets/kernel/edge holds only an
+# old backup dir), and building it unconditionally aborted here on the missing
+# Image. Skip it when there is nothing staged, so a single-tree release is the
+# normal path rather than a build failure -- and so re-adding an edge tree
+# later just works.
+if [ -f "$ASSETS/edge/Image-cixmini.bin" ]; then
+    build_kernel_deb edge "$KVER_NEXT" edge ""
+else
+    echo "  [edge] no kernel staged in $ASSETS/edge — skipping (single-tree release)"
+fi
 
 echo ""
 echo "== built debs =="

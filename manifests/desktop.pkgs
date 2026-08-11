@@ -113,11 +113,19 @@ fonts-liberation
 # Vivaldi is NOT shipped (operator, 2026-08-10): post-install/52-vivaldi.sh had
 # already been deleted, so the staged 125 MB .deb rode along installing nothing.
 #
-# NOTE, unresolved: 20-desktop.sh wants chromium-ncz-sky1 as x-www-browser and
-# 30-agents.sh writes launchers with Exec=/usr/bin/chromium-ncz-sky1, but NO
-# manifest seeds and NO hook installs that package -- the `if [ -x ... ]` guard
-# is simply never true. So today the installed browsers are google-chrome-stable
-# and epiphany, and those agent launchers point at a binary that is not there.
+# ncz-chromium IS THE DEFAULT BROWSER (operator, 2026-08-10) and is seeded here
+# so it actually installs. It was NOT before: nothing seeded it and no hook
+# installed it, while 20-desktop.sh and 30-agents.sh referenced a DIFFERENT,
+# non-existent package -- chromium-ncz-sky1, whose .deb has never been built or
+# published (absent from ARGOS and from the Buildkite registry). So the
+# `if [ -x /usr/bin/chromium-ncz-sky1 ]` guard was never true, the browser
+# alternative was never registered, and the agent/MNEMOS launchers pointed at a
+# binary that did not exist -- while a 145 MB ncz-chromium .deb sat unused in
+# the ISO pool, making it look installed.
+#
+# ncz-chromium ships /usr/bin/chromium (a wrapper onto /opt/ncz-chromium with
+# --ozone-platform-hint=wayland) plus chromium.desktop, so those hooks now
+# reference THAT path rather than the phantom one.
 # Real, official Google Chrome for arm64 Linux (public
 # since Q2 2026, via Google's own signed apt repo) is the second browser —
 # build-desktop-mirror folds it into the offline desktop pool, pinned +
@@ -125,6 +133,7 @@ fonts-liberation
 # source on the shipped image, no snapd. ungoogled-chromium/XtraDeb (an
 # earlier stop-gap from before real Chrome existed for arm64) is dropped —
 # real Chrome supersedes it outright.
+ncz-chromium
 google-chrome-stable
 mpv
 
@@ -196,8 +205,8 @@ xdg-desktop-portal-gtk
 epiphany-browser
 # r181: falkon dropped — it half-configures (iF) on Sky1/qemu (its postinst was
 # the desktop apt rc=100), and its stale .desktop launcher errored like the
-# mnemos one. See the browser note above: chromium-ncz-sky1 is referenced but
-# never installed; epiphany stays as a lightweight secondary.
+# mnemos one. Default browser is ncz-chromium (see the browser note above);
+# epiphany stays as a lightweight secondary.
 feh
 
 # --- r130.4 bucket: GPU/Vulkan validation + benchmark tools 47-llm-stack +
@@ -254,7 +263,11 @@ glmark2-x11
 glmark2-es2-x11
 glmark2-wayland
 shotcut
-kdenlive
+# kdenlive REMOVED (operator, 2026-08-10, ISO slimming): it is a KDE
+# application and its dependency closure pulled the whole Qt6 + KF6 + breeze
+# stack onto a labwc/GTK4 Wayland desktop -- 128 debs / 77.8 MB in the ISO pool
+# alone (breeze-wallpaper by itself was 38.3 MB), plus a much larger installed
+# footprint in desktop.squashfs. No other seed needs Qt6.
 handbrake
 ffmpeg
 audacity
