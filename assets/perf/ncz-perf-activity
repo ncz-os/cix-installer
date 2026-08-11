@@ -63,6 +63,19 @@ KEEP_STATE1_OFF = os.environ.get("NCZ_PERF_KEEP_STATE1", "0") == "1"
 # Counting any wakeup as activity meant the machine could never idle at all.
 REL_THRESHOLD = int(os.environ.get("NCZ_PERF_REL_THRESHOLD", "24"))
 
+# INPUT ALONE IS THE WRONG TRIGGER ON THIS FLEET, and the O6N board is the
+# proof: it is the kernel boot-validation box, driven almost entirely over SSH.
+# A 40-minute kernel build there produces exactly ZERO /dev/input events, so an
+# input-only rule would drop it to schedutil and re-arm an idle state in the
+# middle of the compile -- throttling the one workload that most needs the CPU.
+#
+# So "busy" is the OR of a human at the keyboard and the machine doing work.
+# 1-minute loadavg is the cheap, universal second signal (one 4-byte read of
+# /proc/loadavg per cycle). logind was considered and REJECTED: on this very
+# board logind reported IdleHint=yes "6h ago" for a session whose mouse was
+# actively moving, because the compositor never updates the hint.
+LOAD_ACTIVE = float(os.environ.get("NCZ_PERF_LOAD_ACTIVE", "1.0"))
+
 # linux/input.h event types
 EV_SYN, EV_KEY, EV_REL, EV_ABS = 0, 1, 2, 3
 # struct input_event on 64-bit: timeval(8+8) + type(2) + code(2) + value(4)
@@ -178,6 +191,15 @@ def open_input_devices():
     return fds
 
 
+def loadavg_1min():
+    """1-minute load average, or 0.0 if unreadable."""
+    try:
+        with open("/proc/loadavg") as fh:
+            return float(fh.read().split()[0])
+    except Exception:
+        return 0.0
+
+
 def main():
     if os.geteuid() != 0:
         log("must run as root")
@@ -193,8 +215,9 @@ def main():
     if not fds:
         log("no /dev/input/event* devices; refusing to run blind")
         return 1
-    log("watching %d input devices, idle threshold %.0fs, LPI-1 released at idle=%s, LPI-2 never released"
-        % (len(fds), IDLE_SEC, not KEEP_STATE1_OFF))
+    log("watching %d input devices, idle threshold %.0fs, load threshold %.2f, "
+        "LPI-1 released at idle=%s, LPI-2 never released"
+        % (len(fds), IDLE_SEC, LOAD_ACTIVE, not KEEP_STATE1_OFF))
 
     active = True
     go_active()
@@ -260,6 +283,15 @@ def main():
                     go_active()
                     active = True
                     log("active")
+        # Machine busy counts as active even with nobody touching it.
+        load = loadavg_1min()
+        if load >= LOAD_ACTIVE:
+            last_input = now
+            if not active:
+                go_active()
+                active = True
+                log("active (load %.2f >= %.2f)" % (load, LOAD_ACTIVE))
+
         elif active and (now - last_input) >= IDLE_SEC:
             go_idle()
             active = False
