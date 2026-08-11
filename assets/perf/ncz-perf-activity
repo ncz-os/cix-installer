@@ -50,18 +50,38 @@ ondemand/conservative to fall back to.
 import os
 import glob
 import select
+import struct
 import signal
 import sys
 import time
 
 IDLE_SEC = float(os.environ.get("NCZ_PERF_IDLE_SEC", "60"))
 KEEP_STATE1_OFF = os.environ.get("NCZ_PERF_KEEP_STATE1", "0") == "1"
+# Pointer movement below this many accumulated units is treated as jitter, not
+# use. MEASURED on O6N: the attached Dell USB optical mouse emits a continuous
+# stream with nobody touching it -- 131 EV_REL plus 13 EV_KEY in five seconds.
+# Counting any wakeup as activity meant the machine could never idle at all.
+REL_THRESHOLD = int(os.environ.get("NCZ_PERF_REL_THRESHOLD", "24"))
+
+# linux/input.h event types
+EV_SYN, EV_KEY, EV_REL, EV_ABS = 0, 1, 2, 3
+# struct input_event on 64-bit: timeval(8+8) + type(2) + code(2) + value(4)
+EV_FMT = "qqHHi"
+EV_SIZE = struct.calcsize(EV_FMT)
 CPUS = "/sys/devices/system/cpu"
 
 
 def log(msg):
     sys.stderr.write("ncz-perf-activity: %s\n" % msg)
     sys.stderr.flush()
+
+
+def read_first_line(path):
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except Exception:
+        return None
 
 
 def write_if_writable(path, value):
@@ -108,11 +128,49 @@ def go_idle():
     set_idle_state(1, KEEP_STATE1_OFF)
 
 
+def real_input_event_nodes():
+    """event* nodes that are ACTUAL user input, from /proc/bus/input/devices.
+
+    Opening every /dev/input/event* is wrong on this hardware: event0/1/2 are
+    the HDMI/DP ALSA jack devices ("cix,sky1 HDMI/DP,pcm=0" etc). They fire on
+    display power/hotplug transitions, so pinning the GPU power domain -- which
+    ncz-performance-mode does on every greetd start -- registered as "user
+    activity" and pulled the box straight back to performance. Observed
+    directly: the daemon logged "idle" then "active" with nobody at the
+    keyboard.
+
+    Selection is by HANDLER, which is how the kernel itself classifies these:
+    kbd/mouse/js/leds mean a real input device; a jack has none of them.
+    """
+    wanted = set()
+    try:
+        with open("/proc/bus/input/devices") as fh:
+            block = []
+            for line in fh.read().splitlines() + [""]:
+                if line.strip():
+                    block.append(line)
+                    continue
+                handlers = ""
+                events = []
+                for b in block:
+                    if b.startswith("H: Handlers="):
+                        handlers = b.split("=", 1)[1]
+                        events += [t for t in handlers.split() if t.startswith("event")]
+                if events and any(h in handlers for h in ("kbd", "mouse", "js")):
+                    for ev in events:
+                        wanted.add("/dev/input/" + ev)
+                block = []
+    except Exception:
+        # Fall back to everything rather than watching nothing at all.
+        return sorted(glob.glob("/dev/input/event*"))
+    return sorted(wanted)
+
+
 def open_input_devices():
-    """Open every /dev/input/event*. Devices come and go (USB), so this is
+    """Open the real input devices. Devices come and go (USB), so this is
     re-run when the set changes rather than assumed stable at boot."""
     fds = {}
-    for path in sorted(glob.glob("/dev/input/event*")):
+    for path in real_input_event_nodes():
         try:
             fds[os.open(path, os.O_RDONLY | os.O_NONBLOCK)] = path
         except Exception:
@@ -140,6 +198,7 @@ def main():
 
     active = True
     go_active()
+    rel_accum = [0]
     last_input = time.monotonic()
     last_scan = time.monotonic()
 
@@ -157,20 +216,50 @@ def main():
             continue
 
         now = time.monotonic()
+
+        # RECONCILE FROM SYSFS, do not trust our own flag. ncz-performance-mode
+        # is ALSO invoked by greetd's ExecStartPre and by
+        # ncz-performance-mode.service at graphical.target, so any greetd
+        # restart silently re-pins performance and re-disables both idle
+        # states behind our back. Because we only wrote on an edge, our
+        # `active` flag would then disagree with the hardware forever and idle
+        # would never be re-applied. Cheap: one file read per cycle.
+        if not active:
+            gov = read_first_line(CPUS + "/cpufreq/policy0/scaling_governor")
+            if gov is not None and gov != "schedutil":
+                go_idle()
+
         if r:
+            real_activity = False
             for fd in r:
                 try:
-                    while os.read(fd, 4096):
-                        pass
+                    while True:
+                        buf = os.read(fd, EV_SIZE)
+                        if not buf or len(buf) < EV_SIZE:
+                            break
+                        _, _, etype, _, value = struct.unpack(EV_FMT, buf)
+                        if etype == EV_KEY:
+                            # A key or button press is unambiguous use.
+                            real_activity = True
+                        elif etype in (EV_REL, EV_ABS):
+                            # Accumulate movement; jitter never reaches the
+                            # threshold, a deliberate move crosses it at once.
+                            rel_accum[0] += abs(value)
+                            if rel_accum[0] >= REL_THRESHOLD:
+                                real_activity = True
+                        # EV_SYN / EV_MSC are framing, never activity.
                 except BlockingIOError:
                     pass
                 except Exception:
                     pass
-            last_input = now
-            if not active:
-                go_active()
-                active = True
-                log("active")
+
+            if real_activity:
+                rel_accum[0] = 0
+                last_input = now
+                if not active:
+                    go_active()
+                    active = True
+                    log("active")
         elif active and (now - last_input) >= IDLE_SEC:
             go_idle()
             active = False

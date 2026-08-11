@@ -173,10 +173,25 @@ elif [ "$ACTION" = "off" ]; then
   for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
     write_if_writable "$g" schedutil
   done
-  write_if_writable /sys/devices/genpd:0:CIXH5000:00/power/control auto
-  write_if_writable /sys/devices/platform/CIXH5000:00/power/control auto
-  write_if_writable /sys/class/devfreq/CIXH5000:00/governor simple_ondemand
-  logger -t ncz-performance-mode "disabled: idle states + schedutil + GPU auto power-gating + GPU auto devfreq restored"
+  # THE GPU IS DELIBERATELY NOT RESTORED HERE (2026-08-11). This block used to
+  # write `simple_ondemand` to CIXH5000's devfreq and set both genpd
+  # power/control back to `auto`. All three are hazards:
+  #
+  #   1. devfreq governor write -- the same clk_round_rate NULL-deref class
+  #      documented above for CIXH4000 is also tracked in mali_kbase's OWN
+  #      devfreq path (assets/kernel/mali-70012/README.md, "Crash #2"). This
+  #      ran on every logout, so a latent panic path shipped in the `off`
+  #      action of the very script written to avoid that panic elsewhere.
+  #   2. even when it does not crash, simple_ondemand is measurably broken on
+  #      this GPU: it stays pinned at 72 MHz of 1000 MHz (13.9x) even under a
+  #      sustained Vulkan workload. That is a severe performance regression
+  #      sold as a power saving.
+  #   3. re-enabling genpd gating re-arms part of the ORIGINAL input-stall root
+  #      cause -- see the 500-1200ms note at the top of this file. The pin is a
+  #      latency fix, not merely an idle-power choice.
+  #
+  # CPU policy is dynamic now (ncz-perf-activity); the GPU stays pinned.
+  logger -t ncz-performance-mode "disabled: CPU idle states + schedutil restored; GPU left pinned on purpose (devfreq/genpd hazards)"
 else
   echo "usage: ncz-performance-mode {on|off}" >&2
   exit 1
