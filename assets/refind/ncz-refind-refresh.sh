@@ -503,10 +503,15 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo
     fi
     if [ -n "$RESCUEPART_OPTIONS" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 RESCUE PARTITION — legacy, console, automatic networking\" {"
-        echo "    loader  /vmlinuz-$KVER_LEGACY"
+        # Boots the SHIPPING kernel, not the retired legacy one. With legacy gone
+        # KVER_LEGACY is empty, which emitted a literal "loader /vmlinuz-" with
+        # no version -- an entry that silently cannot boot. The title said
+        # "7.0.12 ... legacy" while the options already pointed at the rescue
+        # partition, so the menu was actively misleading about what it would do.
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  RESCUE PARTITION — kernel $KVER_NEXT, console, automatic networking\" {"
+        echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        [ "$LEGACY_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LEGACY"
+        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$RESCUEPART_OPTIONS\""
         echo "}"
         echo
