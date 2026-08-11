@@ -82,6 +82,5 @@ zstd
 # Seeding them here pulls the locally built .debs (published into the vendor
 # mirror from build/kernel-debs by build/build-vendor-mirror.sh) into the
 # offline closure, so the ISO ships the kernel it was built with.
-linux-image-cixmini-legacy
-linux-image-cixmini-edge
+linux-image-cixmini
 cixmini-boot

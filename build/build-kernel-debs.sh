@@ -17,7 +17,10 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"   # cix-installer/
 ASSETS="$REPO/assets/kernel"
 NPU="$REPO/assets/npu"
 OUT="$REPO/build/kernel-debs"
-BUILD_REV="${BUILD_REV:-r98}"
+# Default revision must never be older than what is already published, or the
+# "new" kernel is a DOWNGRADE and apt silently keeps the installed one. r211 is
+# the published rc7 build (2026-08-11); bump this when the kernel is rebuilt.
+BUILD_REV="${BUILD_REV:-r212}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only
@@ -389,7 +392,11 @@ build_kernel_deb() {
     local label="$3"     # legacy | edge (asset subdir)
     local with_npu="$4"  # path to OOT npu .ko, or ""
 
-    local pkg="linux-image-cixmini-$channel"
+    # ONE KERNEL, ONE NAME (operator 2026-08-11: "we do not use LTS or edge,
+    # we are 7.2 only now"). The channel suffix is gone: the package is simply
+    # linux-image-cixmini. The channel argument survives only to pick the asset
+    # subdirectory and label the build log.
+    local pkg="linux-image-cixmini"
     local ver="$kver+$BUILD_REV"
     local root="$WORK/$pkg"
     rm -rf "$root"
@@ -465,8 +472,7 @@ Section: kernel
 Priority: optional
 Installed-Size: $isize
 Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, initramfs-tools, systemd
-Provides: linux-image-cixmini
-Description: NCZ cixmini Linux kernel ($channel channel, $kver)
+Description: NCZ cixmini Linux kernel ($kver)
  Prebuilt linux-cix-sky1 kernel image + modules for the NCZ cixmini (MS-R1).
  Installs vmlinuz, the module tree$( [ -n "$with_npu" ] && echo " (incl. armchina_npu)") and config,
  then refreshes the systemd-boot entry via cixmini-boot.
@@ -479,10 +485,33 @@ EOF
     # empty transitional package built below -- an unversioned Conflicts
     # would make that transitional package impossible to install alongside
     # the very package it depends on.
-    if [ "$channel" = legacy ]; then
-        printf 'Replaces: linux-image-cixmini-lts (<< %s)\n' "$ver" >> "$root/DEBIAN/control"
-        printf 'Breaks: linux-image-cixmini-lts (<< %s)\n' "$ver" >> "$root/DEBIAN/control"
-    fi
+    # Take over from EVERY name this kernel was ever published under. Without
+    # this dpkg refuses to unpack over an existing board ("trying to overwrite
+    # ... which is also in package ...") because the file paths are identical,
+    # and an upgrade would strand the old package installed alongside.
+    # CONFLICTS, not Breaks. Breaks means "deconfigure the other package",
+    # which dpkg refuses on its own -- MEASURED on O6N: "installing
+    # linux-image-cixmini would break linux-image-cixmini-edge, and
+    # deconfiguration is not permitted (--auto-deconfigure might help)".
+    # Provides+Replaces+Conflicts is the canonical take-over triple: apt REMOVES
+    # the retired name and installs this in its place. The old lts->legacy
+    # handoff used Breaks correctly because that name survived as a transitional
+    # package; these names are retired outright, so nothing is left to
+    # deconfigure.
+    # ONE field each, comma-separated. dpkg-deb rejects a control file with the
+    # same field repeated ("duplicate value for 'Replaces' field"), so these
+    # cannot be emitted one relation per line.
+    # Also take over the RAW kernel package name, linux-image-<kver>. The Yocto
+    # build publishes one and it ships the identical /boot/vmlinuz-<kver> and
+    # config-<kver> paths, so a board that ever installed it directly (every
+    # kernel test board does) would otherwise hit "trying to overwrite ...
+    # which is also in package linux-image-<kver>". Declaring it beats the
+    # --force-overwrite that post-install/10-our-kernel.sh has been using to
+    # push past exactly this collision.
+    _OLD_NAMES="linux-image-cixmini-edge, linux-image-cixmini-lts, linux-image-cixmini-legacy, linux-image-$kver"
+    printf 'Replaces: %s\n' "$_OLD_NAMES" >> "$root/DEBIAN/control"
+    printf 'Conflicts: %s\n' "$_OLD_NAMES" >> "$root/DEBIAN/control"
+    printf 'Provides: %s\n' "$_OLD_NAMES" >> "$root/DEBIAN/control"
     dpkg-deb --root-owner-group --build "$root" "$OUT/${pkg}_${ver}_arm64.deb"
 }
 
@@ -557,7 +586,9 @@ EOF
     # (the accurate line is printed above, before the control file is written)
 }
 
-build_transitional_lts
+# build_transitional_lts is NOT called any more: linux-image-cixmini now
+# Provides/Replaces that name directly, so a board still carrying it upgrades
+# without an intermediate empty package.
 
 echo ""
 echo "== built debs =="

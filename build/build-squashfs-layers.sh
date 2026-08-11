@@ -4,7 +4,13 @@
 # Produces (under assets/squashfs/):
 #   base.squashfs      debootstrap resolute + CIX kernel/firmware/mesa + NM/bluez enabled
 #   desktop.squashfs   DELTA: complete desktop package set (overlay upperdir only)
-#   server.squashfs    DELTA: complete server package set (overlay upperdir only)
+#
+# THERE IS NO SERVER LAYER (2026-08-11, operator). NCZ-OS ships ONE build. What
+# used to be the "server"/Magnetar variant is now a CONSOLE BOOT ENTRY on the
+# same image (systemd.unit=multi-user.target, see build/70-bootloader.sh) --
+# same packages, GUI simply not started. build-iso-di.sh already enforced
+# `--variant desktop`, so the server layer was dead weight that still cost a
+# full apt closure and a squashfs on every `all` build.
 #
 # Deliberately runs ONLY machine-AGNOSTIC hooks (kernel/firmware/mesa). The NCZ
 # desktop-config hooks (20-desktop/33-network/brand/plymouth) are NOT run here —
@@ -51,7 +57,10 @@ NCZ_BASE_CODENAME="${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_COD
 BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64.tar.zst}"
 APT_SUITE="${APT_SUITE:-$NCZ_BASE_CODENAME}"
 APT_COMPONENTS="${APT_COMPONENTS:-main}"
-MIRROR_DIRS="${MIRROR_DIRS:-$NCZ_BASE_CODENAME-mirror}"
+# Both the Debian closure and our own packages (kernel, Chromium, Singularity)
+# must be reachable offline, or disabling the remote sources above would make
+# the NCZ packages unresolvable.
+MIRROR_DIRS="${MIRROR_DIRS:-$NCZ_BASE_CODENAME-mirror $NCZ_BASE_CODENAME-vendor-mirror}"
 QEMU="/usr/bin/qemu-aarch64-static"
 STAGE="${1:-base}"                            # base | desktop | server | all
 
@@ -82,21 +91,65 @@ mirror_available(){ local m; for m in $MIRROR_DIRS; do [ -d "$ROOT/build/$m/dist
 # /etc/apt/sources.list on Debian, which silently removed the offline source
 # before the kernel install that depends on it.
 NCZ_OFFLINE_SRC=/etc/apt/sources.list.d/ncz-offline-mirror.list
+# THE BUILD MUST SEE EXACTLY ONE APT SOURCE: our pinned offline mirror.
+#
+# WHY (2026-08-11): this used to remove /etc/apt/sources.list and our own list
+# file, but NOT the deb822 sources the base layer ships
+# (/etc/apt/sources.list.d/ncz-base.sources points at deb.debian.org, plus the
+# Buildkite and R2 lists). So every layer build resolved against the pinned
+# mirror AND the live testing archive at the same time. Each source is
+# internally consistent; the UNION is not. When GNOME 51-alpha landed in
+# testing while the mirror still pinned libgnome-desktop-4-2t64 44.5-1, the
+# desktop set became unsatisfiable and stayed that way -- swapping the package
+# that tripped it (evince) simply moved the failure to the next one
+# (gnome-characters), because the conflict was never about that package.
+#
+# It also meant builds were not reproducible: the same command on two days
+# produced different closures.
+#
+# Every other source is therefore moved aside for the duration and restored in
+# apt_unmount, and the update below FAILS if any remote source is still live.
 apt_offline(){ local c="$1"
   sudo rm -f "$c/etc/apt/sources.list"
   sudo mkdir -p "$c/etc/apt/sources.list.d"
   sudo rm -f "$c$NCZ_OFFLINE_SRC"
+  # Disable every pre-existing source (deb822 .sources and classic .list).
+  local f
+  for f in "$c"/etc/apt/sources.list.d/*.sources "$c"/etc/apt/sources.list.d/*.list; do
+    [ -e "$f" ] || continue
+    case "$f" in *"$(basename "$NCZ_OFFLINE_SRC")") continue ;; esac
+    sudo mv "$f" "$f.disabled-for-build"
+    log "  apt: disabled $(basename "$f") for the build"
+  done
   for m in $MIRROR_DIRS; do
     [ -d "$ROOT/build/$m/dists/$APT_SUITE" ] || continue
     sudo mkdir -p "$c/mnt/$m"; sudo mount -o bind "$ROOT/build/$m" "$c/mnt/$m"
     echo "deb [trusted=yes] file:///mnt/$m $APT_SUITE $APT_COMPONENTS" | sudo tee -a "$c$NCZ_OFFLINE_SRC" >/dev/null
   done
+  # A remote source here means the closure is no longer pinned. Fail rather
+  # than silently building against a moving archive.
+  # Scope the check to files apt ACTUALLY reads (*.list, *.sources). Scanning
+  # the whole directory matched our own *.disabled-for-build copies, which are
+  # inert but still on disk -- a false positive that aborted a correct build.
+  if sudo chroot "$c" sh -c 'cat /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null | grep -oE "https?://[^ ]+"' | grep -q .; then
+    echo "FATAL: a remote apt source is still enabled in the chroot; the build would not be pinned" >&2
+    sudo chroot "$c" sh -c 'grep -rn "^deb\|^URIs" /etc/apt/sources.list.d/ 2>/dev/null' >&2
+    exit 1
+  fi
   sudo chroot "$c" apt-get update -y 2>&1 | tail -4 || true; }
 apt_unmount(){ local c="$1"
   for m in $MIRROR_DIRS; do sudo umount -lf "$c/mnt/$m" 2>/dev/null || true; done
   # Build-time only: never ship a file:// source pointing at a bind mount
   # that does not exist on the installed system.
   sudo rm -f "$c$NCZ_OFFLINE_SRC" 2>/dev/null || true
+  # Restore the sources we moved aside, so the installed system keeps its own
+  # apt configuration. Leaving them disabled would ship an image that cannot
+  # update itself.
+  local d
+  for d in "$c"/etc/apt/sources.list.d/*.disabled-for-build; do
+    [ -e "$d" ] || continue
+    sudo mv "$d" "${d%.disabled-for-build}"
+  done
   sudo rmdir "$c/mnt/$m" 2>/dev/null || true; }
 
 # build a ROLE delta layer: overlay(base=lower) + apt-install the package set into
@@ -486,7 +539,9 @@ NMETH
 case "$STAGE" in
   base)    build_base ;;
   desktop) build_layer desktop manifests/desktop.pkgs ;;
-  server)  build_layer server  manifests/server.pkgs ;;
-  all)     build_base; build_layer desktop manifests/desktop.pkgs; build_layer server manifests/server.pkgs ;;
+  server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
+           echo "       Boot the console entry (multi-user.target) instead." >&2
+           exit 1 ;;
+  all)     build_base; build_layer desktop manifests/desktop.pkgs ;;
   *) echo "usage: $0 base|desktop|server|all"; exit 2 ;;
 esac

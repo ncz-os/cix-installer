@@ -159,7 +159,14 @@ echo "  generating Packages/Release..."
 mkdir -p "$OUT/dists/$SUITE/main/binary-$ARCH"
 ( cd "$OUT" && apt-ftparchive packages pool/main > "dists/$SUITE/main/binary-$ARCH/Packages" )
 gzip -9c "$OUT/dists/$SUITE/main/binary-$ARCH/Packages" > "$OUT/dists/$SUITE/main/binary-$ARCH/Packages.gz"
-( cd "$OUT" && apt-ftparchive \
+# Remove any previous Release BEFORE regenerating it. The shell truncates the
+# redirect target before apt-ftparchive scans the tree, and with a stale file
+# present the emitted checksums could describe a Packages that no longer
+# exists -- apt then rejects the mirror with "Hash Sum mismatch". Measured
+# 2026-08-11 on build/forky-mirror: Release claimed sha256 b79c1dd8 for a
+# Packages whose real hash was 733df18b, and deleting the old Release first
+# fixed it. Same fix build-vendor-mirror.sh already carries.
+( cd "$OUT" && rm -f "dists/$SUITE/Release" && apt-ftparchive \
     -o "APT::FTPArchive::Release::Origin=NCZ" \
     -o "APT::FTPArchive::Release::Label=NCZ-Server" \
     -o "APT::FTPArchive::Release::Suite=$SUITE" \

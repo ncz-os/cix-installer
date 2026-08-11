@@ -140,7 +140,7 @@ mpv
 xarchiver
 7zip
 unrar-free
-evince
+papers
 
 # --- offline-apt tools (usable from the desktop with no network) -----------
 synaptic

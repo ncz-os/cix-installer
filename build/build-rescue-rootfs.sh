@@ -1,14 +1,20 @@
 #!/bin/bash
 # build-rescue-rootfs.sh — build the r130 dedicated RESCUE PARTITION rootfs.
 #
-# Produces assets/rescue/rescue-rootfs.tar.zst: a minimal Ubuntu (resolute)
-# arm64 rootfs carrying the full rescue toolset from manifests/rescue.pkgs,
+# Produces assets/rescue/rescue-rootfs.tar.zst: a minimal Debian (forky) arm64
+# rootfs carrying the full rescue toolset from manifests/rescue.pkgs,
 # pre-configured for headless LAN recovery (serial + telnet + dropbear + sshd
 # + static-IP fallback) with the /lib-usrmerge repair helper baked in.
 #
+# WAS UBUNTU (resolute) UNTIL 2026-08-11. That was wrong twice over: the
+# operator retired Ubuntu entirely, and a recovery environment built from a
+# different distribution than the system it recovers cannot share the shipping
+# kernel's modules. Measured on O6N: the installed rescue partition was
+# "Ubuntu 26.04 LTS" carrying only 7.0.12 modules, so retiring the 7.0.12
+# kernel would have left it unbootable.
+#
 # This rootfs is KERNEL-FREE on purpose: post-install/72-rescue-partition.sh
-# drops the legacy 7.0.12 kernel Image + modules into it at install time (a clean,
-# quiet recovery kernel — NOT the edge payload — and the rescue
+# drops the shipping kernel Image + modules into it at install time (and the rescue
 # rEFInd "RESCUE PARTITION" menuentry written by 70-bootloader.sh boots it via root=PARTUUID.
 #
 # Runs on the Linux arm64 build host (ARGOS), native debootstrap — no qemu.
@@ -19,10 +25,24 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 CHROOT="${1:-$ROOT/build/rescue-rootfs}"
 OUT="${2:-$ROOT/assets/rescue/rescue-rootfs.tar.zst}"
-SUITE="${3:-resolute}"
+# Defaults come from release.conf so the rescue environment can never drift to a
+# different distribution than the release it is recovering.
+if [ -r "$ROOT/release.conf" ]; then
+    # shellcheck source=../release.conf
+    . "$ROOT/release.conf"
+fi
+SUITE="${3:-${NCZ_BASE_CODENAME:-forky}}"
 ARCH="${4:-arm64}"
-MIRROR="${5:-http://ports.ubuntu.com/ubuntu-ports}"
+MIRROR="${5:-${NCZ_BASE_MIRROR:-https://deb.debian.org/debian}}"
 
+# Components come from the release profile. The list used to be Ubuntu's
+# (main universe restricted multiverse) with -updates and -security suites
+# appended, which on Debian produces "Skipping acquire of configured file
+# 'restricted/...'" for every component and then a hard failure:
+#   E: The repository '.../forky-security Release' does not have a Release file.
+# Debian testing has no -security pocket of that name and no universe/multiverse
+# at all, so a single suite line with the profile's own components is correct.
+COMPONENTS="${COMPONENTS:-${NCZ_BASE_COMPONENTS:-main contrib non-free non-free-firmware}}"
 PKG_MANIFEST="$ROOT/manifests/rescue.pkgs"
 AGENTS_SRC="$ROOT/assets/rescue/AGENTS.md"
 
@@ -82,9 +102,7 @@ debootstrap --arch="$ARCH" --variant=minbase \
     --include=ca-certificates,apt-utils "$SUITE" "$CHROOT" "$MIRROR"
 
 cat > "$CHROOT/etc/apt/sources.list" <<EOF
-deb $MIRROR $SUITE main universe restricted multiverse
-deb $MIRROR $SUITE-updates main universe restricted multiverse
-deb $MIRROR $SUITE-security main universe restricted multiverse
+deb $MIRROR $SUITE $COMPONENTS
 EOF
 
 # ----------------------------------------------------------------------

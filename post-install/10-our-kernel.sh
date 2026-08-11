@@ -81,7 +81,7 @@ apt-get install -y --no-install-recommends kmod initramfs-tools zstd
 INSTALLED_KERNELS=0
 
 if [ -n "$KVER_LEGACY" ]; then
-    echo "  [legacy] apt-get install linux-image-cixmini-legacy"
+    echo "  [legacy] apt-get install linux-image-cixmini"
     # r203: --force-overwrite. The lts + edge channel packages can transiently
     # ship the SAME versioned /boot files (e.g. a baked edge at
     # 7.0.12-cix-sky1-next+r98 and an incoming lts at 7.0.12-cix-sky1-next+r202
@@ -93,10 +93,10 @@ if [ -n "$KVER_LEGACY" ]; then
     # correct once both channels settle on distinct unames (lts=7.0.12-next,
     # edge=7.2.0-rc5), so force-overwrite is safe here.
     apt-get install -y --no-install-recommends \
-        -o Dpkg::Options::=--force-overwrite linux-image-cixmini-legacy
+        -o Dpkg::Options::=--force-overwrite linux-image-cixmini
     lts_ok=1
     if [ ! -s "/boot/vmlinuz-$KVER_LEGACY" ]; then
-        echo "WARN: linux-image-cixmini-legacy installed, but /boot/vmlinuz-$KVER_LEGACY is missing"
+        echo "WARN: linux-image-cixmini installed, but /boot/vmlinuz-$KVER_LEGACY is missing"
         echo "      (KVER_LEGACY sidecar / Buildkite package drift). /boot contents:"; ls -la /boot 2>&1
         lts_ok=0
     else
@@ -121,14 +121,14 @@ else
 fi
 
 if [ -n "$KVER_NEXT" ]; then
-    echo "  [next] apt-get install linux-image-cixmini-edge"
+    echo "  [next] apt-get install linux-image-cixmini"
     # r203: same --force-overwrite rationale as the lts block above (transient
     # cross-channel /boot filename overlap must not abort the required phase).
     apt-get install -y --no-install-recommends \
-        -o Dpkg::Options::=--force-overwrite linux-image-cixmini-edge
+        -o Dpkg::Options::=--force-overwrite linux-image-cixmini
     edge_ok=1
     if [ ! -s "/boot/vmlinuz-$KVER_NEXT" ]; then
-        echo "WARN: linux-image-cixmini-edge installed, but /boot/vmlinuz-$KVER_NEXT is missing"
+        echo "WARN: linux-image-cixmini installed, but /boot/vmlinuz-$KVER_NEXT is missing"
         echo "      (KVER_NEXT sidecar / Buildkite package drift). /boot contents:"; ls -la /boot 2>&1
         edge_ok=0
     else

@@ -384,21 +384,28 @@ fi
 
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
 RESCUEPART_OPTIONS=""
-if [ -f "$RESCUE_READY" ] && [ "$LEGACY_AVAILABLE" = "1" ]; then
+# One kernel is enough. This used to also require LEGACY_AVAILABLE, because the
+# rescue-partition entry booted the rescue rootfs with the legacy kernel. With a
+# single shipping kernel (operator 2026-08-11) that condition can never be met,
+# and it FAILED CLOSED mid-refresh: on O6N the refresh wiped the ESP entries,
+# then exited here before writing refind.conf, leaving the board with no boot
+# configuration at all. The rescue partition now carries the shipping kernel's
+# modules, so it boots with the same kernel as the system it recovers.
+if [ -f "$RESCUE_READY" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
     RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
     if [ -n "$RESCUEPART_PARTUUID" ]; then
         # rootwait (not rootdelay): rootwait blocks until the root device
         # actually appears, which is the correct mechanism and costs nothing
         # once it has; rootdelay=90 was an unconditional 90s sleep paid on
         # every rescue boot even when the disk was ready immediately.
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $LEGACY_CONSOLE_CMDLINE systemd.unit=multi-user.target"
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $NEXT_CONSOLE_CMDLINE systemd.unit=multi-user.target"
         echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
     else
         echo "ERROR: rescue-partition marker has no PARTUUID — refusing to ship without recovery"
         exit 1
     fi
 else
-    echo "ERROR: 7.0.12 rescue partition is required but marker $RESCUE_READY or legacy kernel is absent"
+    echo "ERROR: rescue partition is required but marker $RESCUE_READY or the shipping kernel is absent"
     exit 1
 fi
 

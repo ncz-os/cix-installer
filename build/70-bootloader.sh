@@ -322,6 +322,32 @@ else
 fi
 
 # ----------------------------------------------------------------------
+# Entry — cixmini-console.conf (same image, no GUI)
+#
+# This REPLACES the old server/Magnetar variant. NCZ-OS ships one build; a
+# "server" install is just this image with the graphical target not started,
+# so it needs a boot entry rather than a second squashfs, a second apt closure
+# and a second install path. Same kernel, same packages, greetd simply never
+# runs.
+#
+# multi-user.target (not rescue.target): full multi-user boot with networking
+# and all services, just no display manager. rescue.target below is a different
+# thing -- single-user recovery with services down.
+# ----------------------------------------------------------------------
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    CONSOLE_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE systemd.unit=multi-user.target"
+
+    cat > /boot/efi/loader/entries/cixmini-console.conf <<EOF
+title   NCZ-OS console (cixmini) — kernel $KVER_NEXT, no desktop — $BUILD_VERSION
+sort-key 2-console
+version $KVER_NEXT
+linux   /vmlinuz-$KVER_NEXT
+options $CONSOLE_OPTIONS
+EOF
+    echo "  wrote cixmini-console.conf (sort-key 2-console, multi-user.target)"
+fi
+
+# ----------------------------------------------------------------------
 # Entry 3 — cixmini-rescue.conf (rescue shell on the legacy kernel)
 #
 # rescue.target boots multi-user services down (no graphical, no
