@@ -337,8 +337,12 @@ build_base(){
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-vpu-test_*.deb \
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-npu-onnxruntime_*.deb 2>/dev/null || true
   # KVER sidecars 10-our-kernel needs (build-iso normally derives these from assets/kernel/*/KVER)
-  [ -f "$ROOT/assets/kernel/stable/KVER" ] && sudo cp "$ROOT/assets/kernel/stable/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_LTS"
-  [ -f "$ROOT/assets/kernel/edge/KVER" ]   && sudo cp "$ROOT/assets/kernel/edge/KVER"   "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
+  # `|| true`: a bare `[ -f x ] && cp` AND-list returns 1 when the test fails,
+  # and under `set -e` that aborts the whole base build. With the single-tree
+  # rc7 release there IS no assets/kernel/edge/KVER, so the second line would
+  # kill an hour-long build over a file that is deliberately absent.
+  [ -f "$ROOT/assets/kernel/stable/KVER" ] && sudo cp "$ROOT/assets/kernel/stable/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_LTS" || true
+  [ -f "$ROOT/assets/kernel/edge/KVER" ]   && sudo cp "$ROOT/assets/kernel/edge/KVER"   "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT" || true
   # r160: stage the COMPLETE rEFInd asset set, falling back to build/refind-bin
   # for anything assets/refind didn't provide (on bigpi the NFS sync had only
   # build/refind-bin — assets/refind was absent, so r159's base shipped just the
