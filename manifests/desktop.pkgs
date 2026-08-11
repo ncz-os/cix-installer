@@ -127,6 +127,12 @@ fonts-liberation
 # source on the shipped image, no snapd. ungoogled-chromium/XtraDeb (an
 # earlier stop-gap from before real Chrome existed for arm64) is dropped —
 # real Chrome supersedes it outright.
+# chromium-ncz-sky1 is OUR Chromium build (V4L2-M2M hardware decode, which no
+# upstream or distro arm64 build provides on Sky1). It is the default browser
+# and is pinned on the launcher alongside Chrome and the terminal, but it was
+# neither seeded here nor present in the forky mirror -- so the launcher would
+# have pinned a browser the image never installed.
+chromium-ncz-sky1
 google-chrome-stable
 mpv
 
