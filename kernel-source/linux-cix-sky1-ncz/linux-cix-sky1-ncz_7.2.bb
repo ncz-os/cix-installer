@@ -4,7 +4,7 @@
 # Linux kernel for Cix Sky1 / CP8180 -- NCZ 7.2 track.
 #
 # Base: torvalds mainline v7.2-rc6 (no linux-7.2.y stable branch yet, so
-#       KBRANCH=master + SRCREV pinned to the v7.2-rc6 tag commit).
+#       KBRANCH=master + SRCREV pinned to the v7.2-rc7 tag commit).
 #       (Rebased 2026-08-02 from v7.2-rc5 -> v7.2-rc6: all 170 CIX commits
 #       replayed with ZERO conflicts and range-diff 170/170 "=".)
 #       (Forward-ported 2026-07-26 from v7.2-rc4 -> v7.2-rc5: the rc4->rc5
@@ -140,7 +140,7 @@ do_shared_workdir:append() {
     ln -sfn "${KERNEL_PACKAGE_NAME}-localversion" "${WORKDIR}/kernel-build-artifacts/kernel-localversion"
 }
 
-# v7.2-rc6 tag commit (torvalds mainline, on master; SRCREV must be the
+# v7.2-rc7 tag commit (torvalds mainline, on master; SRCREV must be the
 # COMMIT, not the annotated tag object -- same convention as rc4/rc5).
 # The annotated tag object is d7dd96eb916519208210bb4a0408fcf4f7fdce5d;
 # `git rev-parse v7.2-rc6^{commit}` dereferences it to 075b74841bd0
@@ -155,7 +155,7 @@ do_shared_workdir:append() {
 # (b921b8613790, a3caaa068092), drivers/gpu/drm/arm (komeda/linlondp) is
 # untouched, realtek changes are rtase-only (not r8169), and the arm64 work
 # is KVM/vgic. Nothing here fixes a Sky1 failure mode -- this is hygiene.
-SRCREV_kernel = "075b74841bd0065a3bda3440873c747938e69b68"
+SRCREV_kernel = "db2ddb87143519e20a95aa36c60b36107b736a58"
 
 SRC_URI = " \
     git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git;protocol=https;branch=${KBRANCH};name=kernel \
