@@ -72,6 +72,73 @@
 # via live sysfs + a real user report 2026-07-27).
 set -euo pipefail
 
+# ----------------------------------------------------------------------
+# ncz-perf-activity — make the performance policy ACTIVITY-DRIVEN.
+#
+# ncz-performance-mode (below) pins every core at max with deep idle disabled
+# and leaves it there from greeter start onward. Measured on O6N with the box
+# doing nothing: all 12 cores at ceiling (2600/2500/2300/2200/1800 MHz),
+# governor=performance, LPI-1 and LPI-2 both disabled, 44-50 C. Correct while
+# somebody is using the machine; pure waste while nobody is, and a login screen
+# sits unused most of its life.
+#
+# This daemon watches /dev/input and flips the CPU policy on activity. INPUT,
+# not session state, because the greeter runs as _greetd and a session-scoped
+# idle tool would not cover the logged-out case at all.
+#
+# METAL-VERIFIED on O6N 2026-08-10:
+#   active           all policies at ceiling, LPI-1+LPI-2 disabled
+#   after idle       ALL five policies drop to 800 MHz, governor schedutil,
+#                    LPI-2 released, LPI-1 still disabled
+#   thermals         TZB0 47->46, TZB1 46->44, TZM0 47/50->45, TZM1 46->44,
+#                    TZGT 44->43 C
+#   restore          back to performance @ 2600 MHz, both states disabled
+# There is NO power sensor on this board (no power_supply, no hwmon power*_input,
+# no energy*_uj), so temperature and clocks are the only available evidence --
+# do not claim a wattage figure.
+#
+# THE LATENCY FLOOR IS DELIBERATE. This board had a notorious USB-keyboard lag
+# at the greeter, fixed by disabling deep idle. Exit latencies measured here:
+# LPI-1 = 360 us, LPI-2 = 500 us. Idle releases only LPI-2; LPI-1 stays
+# disabled so the first keystroke after idle never pays the larger wake.
+# NCZ_PERF_ALLOW_STATE1=1 releases it too, once that is metal-tested.
+#
+# DEVFREQ IS NEVER TOUCHED by this daemon -- see the panic notes above.
+# Absolute staged-asset path, matching 12-sky1-firmware.sh and the other hooks.
+# A $(dirname $0)-relative path resolves differently depending on where the hook
+# is invoked from, and build-iso-di.sh stages this tree to a FIXED location:
+# assets/perf -> /cixmini/assets/perf -> /usr/local/lib/cix-installer/assets/perf
+# on the target (the generic `*) cp -aL` branch of its asset loop).
+PERF_SRC=/usr/local/lib/cix-installer/assets/perf/ncz-perf-activity
+if [ -s "$PERF_SRC" ]; then
+    install -Dm755 "$PERF_SRC" /usr/local/bin/ncz-perf-activity
+else
+    echo "[85] WARN: $PERF_SRC not staged; activity-driven scaling DISABLED (cores stay pinned at max)"
+fi
+
+if [ -x /usr/local/bin/ncz-perf-activity ]; then
+    install -Dm644 /dev/stdin /etc/systemd/system/ncz-perf-activity.service <<'UNIT'
+[Unit]
+Description=NCZ activity-driven CPU performance policy
+After=multi-user.target
+
+[Service]
+Type=simple
+# Idle threshold: long enough that a pause in typing does not throttle mid-use,
+# short enough that an unattended login screen stops burning power.
+Environment=NCZ_PERF_IDLE_SEC=120
+ExecStart=/usr/local/bin/ncz-perf-activity
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl enable ncz-perf-activity.service 2>/dev/null || true
+    echo "[85] ncz-perf-activity enabled (idle 120s -> schedutil + LPI-2; input -> performance)"
+fi
+
 install -Dm755 /dev/stdin /usr/local/bin/ncz-performance-mode <<'SCRIPT'
 #!/bin/bash
 # ncz-performance-mode {on|off} — forces CPU out of deep idle states + performance

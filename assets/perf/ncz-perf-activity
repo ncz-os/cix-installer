@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""ncz-perf-activity — drive CPU performance policy from INPUT ACTIVITY.
+
+WHY: ncz-performance-mode pins every core at max with deep idle disabled and
+leaves it there from greeter start onward. Measured on O6N while the box sat
+doing nothing: all 12 cores at ceiling (2600/2500/2300/2200/1800 MHz),
+governor=performance, cpuidle LPI-1 and LPI-2 both disabled, package 44-50 C.
+That is the right behaviour while somebody is USING the machine and pure waste
+while nobody is.
+
+WHY INPUT AND NOT SESSION STATE: the greeter runs as user _greetd, so a
+session-scoped idle tool (swayidle et al) does not cover the logged-out case --
+which is most of the time on a box sitting at a login screen. Reading
+/dev/input covers greeter and session identically with no compositor
+integration.
+
+THE LATENCY FLOOR IS DELIBERATE. This board had a notorious USB-keyboard lag at
+the greeter, fixed by disabling deep idle. Measured exit latencies here:
+    LPI-0    0 us   (never touched)
+    LPI-1  360 us   <- kept DISABLED always, as the floor
+    LPI-2  500 us   <- the one we re-enable when idle
+So idle gets the deep state back, and the shallow state stays off so the first
+keystroke after idle never pays the larger wake. Set NCZ_PERF_ALLOW_STATE1=1
+to also release LPI-1 when idle (more saving, more risk) once metal-tested.
+
+DEVFREQ IS NEVER TOUCHED. Writing a non-default devfreq governor to CIXH4000:00
+panics this SoC inside sky1_npu_devfreq_target(), and simple_ondemand being a
+polling governor turns that into a panic-reboot loop. GPU/NPU power state is
+therefore left exactly as ncz-performance-mode set it. See
+post-install/85-power-perf-mode.sh for the full incident notes.
+
+Only `performance` and `schedutil` exist on this platform -- there is no
+ondemand/conservative to fall back to.
+"""
+import os
+import glob
+import select
+import signal
+import sys
+import time
+
+IDLE_SEC = float(os.environ.get("NCZ_PERF_IDLE_SEC", "60"))
+ALLOW_STATE1 = os.environ.get("NCZ_PERF_ALLOW_STATE1", "0") == "1"
+CPUS = "/sys/devices/system/cpu"
+
+
+def log(msg):
+    sys.stderr.write("ncz-perf-activity: %s\n" % msg)
+    sys.stderr.flush()
+
+
+def write_if_writable(path, value):
+    """Never fail the daemon over one unwritable knob; kernels differ."""
+    try:
+        with open(path, "w") as fh:
+            fh.write(value)
+        return True
+    except Exception:
+        return False
+
+
+def set_governor(gov):
+    n = 0
+    for g in glob.glob(CPUS + "/cpu*/cpufreq/scaling_governor"):
+        if write_if_writable(g, gov):
+            n += 1
+    return n
+
+
+def set_idle_state(state, disable):
+    """disable=True -> deep idle OFF (low latency). False -> allowed."""
+    n = 0
+    for c in glob.glob(CPUS + "/cpu*/cpuidle/state%d/disable" % state):
+        if write_if_writable(c, "1" if disable else "0"):
+            n += 1
+    return n
+
+
+def go_active():
+    set_idle_state(1, True)
+    set_idle_state(2, True)
+    set_governor("performance")
+
+
+def go_idle():
+    set_governor("schedutil")
+    set_idle_state(2, False)
+    # state1 stays disabled unless explicitly released - see module docstring.
+    set_idle_state(1, not ALLOW_STATE1 and True or False)
+
+
+def open_input_devices():
+    """Open every /dev/input/event*. Devices come and go (USB), so this is
+    re-run when the set changes rather than assumed stable at boot."""
+    fds = {}
+    for path in sorted(glob.glob("/dev/input/event*")):
+        try:
+            fds[os.open(path, os.O_RDONLY | os.O_NONBLOCK)] = path
+        except Exception:
+            pass
+    return fds
+
+
+def main():
+    if os.geteuid() != 0:
+        log("must run as root")
+        return 1
+
+    running = {"go": True}
+    def stop(_s, _f):
+        running["go"] = False
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    fds = open_input_devices()
+    if not fds:
+        log("no /dev/input/event* devices; refusing to run blind")
+        return 1
+    log("watching %d input devices, idle threshold %.0fs, state1_released=%s"
+        % (len(fds), IDLE_SEC, ALLOW_STATE1))
+
+    active = True
+    go_active()
+    last_input = time.monotonic()
+    last_scan = time.monotonic()
+
+    while running["go"]:
+        timeout = max(0.5, IDLE_SEC - (time.monotonic() - last_input))
+        try:
+            r, _, _ = select.select(list(fds), [], [], timeout)
+        except (OSError, select.error):
+            for fd in list(fds):
+                try:
+                    os.close(fd)
+                except Exception:
+                    pass
+            fds = open_input_devices()
+            continue
+
+        now = time.monotonic()
+        if r:
+            for fd in r:
+                try:
+                    while os.read(fd, 4096):
+                        pass
+                except BlockingIOError:
+                    pass
+                except Exception:
+                    pass
+            last_input = now
+            if not active:
+                go_active()
+                active = True
+                log("active")
+        elif active and (now - last_input) >= IDLE_SEC:
+            go_idle()
+            active = False
+            log("idle after %.0fs" % IDLE_SEC)
+
+        # Re-scan periodically so a keyboard plugged in later is still watched;
+        # otherwise a USB re-enumeration would leave us deaf and stuck idle.
+        if now - last_scan > 30:
+            last_scan = now
+            new = open_input_devices()
+            if set(new.values()) != set(fds.values()):
+                for fd in list(fds):
+                    try:
+                        os.close(fd)
+                    except Exception:
+                        pass
+                fds = new
+                log("input device set changed; now watching %d" % len(fds))
+
+    # Leave the machine responsive, not asleep, on exit.
+    go_active()
+    log("stopped; restored performance")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
