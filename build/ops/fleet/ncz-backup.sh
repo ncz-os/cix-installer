@@ -33,6 +33,13 @@ SOURCES=("/home" "/etc")
 # Excludes: only genuinely regenerable churn. Deliberately NOT excluding build
 # outputs, ISOs or mirrors -- "it can be rebuilt" is exactly the assumption that
 # cost us the chromium .deb, which then had to be dpkg-repack'd off a live box.
+# --timeout=1800: a stalled NFS transfer must FAIL, not hang forever.
+# MEASURED 2026-08-11: cixmini and TYDEUS each sat 16+ hours with the rsync
+# receiver in state D on argonas2, no log output, no completion -- and because
+# the run never exits, the daily timer never produces a clean backup either.
+# The mount is `hard`, so rsync blocks indefinitely by design; an explicit I/O
+# timeout is what converts that into a reportable failure. Silent forever is
+# worse than a loud failure, which is the whole premise of this script.
 EXCLUDES=(
     --exclude='*/.cache/**'
     --exclude='*/.ccache/**'
@@ -82,7 +89,7 @@ for src in "${SOURCES[@]}"; do
     # and a non-zero exit on an otherwise fine transfer. Preserve times, perms,
     # symlinks and hardlinks; let the server own the files, which is what a
     # squashing export is going to do regardless.
-    rsync -rlptDH --delete --no-o --no-g --stats \
+    rsync --timeout=1800 -rlptDH --delete --no-o --no-g --stats \
         "${EXCLUDES[@]}" "$src" "$DEST/" >>"$LOG" 2>&1
     r=$?
     # 24 = "source vanished during transfer", normal on a live system.
