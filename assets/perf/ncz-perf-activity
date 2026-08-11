@@ -14,14 +14,29 @@ which is most of the time on a box sitting at a login screen. Reading
 /dev/input covers greeter and session identically with no compositor
 integration.
 
-THE LATENCY FLOOR IS DELIBERATE. This board had a notorious USB-keyboard lag at
-the greeter, fixed by disabling deep idle. Measured exit latencies here:
-    LPI-0    0 us   (never touched)
-    LPI-1  360 us   <- kept DISABLED always, as the floor
-    LPI-2  500 us   <- the one we re-enable when idle
-So idle gets the deep state back, and the shallow state stays off so the first
-keystroke after idle never pays the larger wake. Set NCZ_PERF_ALLOW_STATE1=1
-to also release LPI-1 when idle (more saving, more risk) once metal-tested.
+WHICH IDLE STATE WE RELEASE, AND WHY IT IS *NOT* THE DEEP ONE.
+
+An earlier version of this file had this exactly backwards, so the reasoning is
+spelled out. sysfs reports:
+    LPI-0    latency 0 us     (never touched)
+    LPI-1    latency 360 us   <- the SHALLOW state; this is what idle releases
+    LPI-2    latency 500 us   <- ClusterPD; stays DISABLED in BOTH modes
+
+Those sysfs numbers are microseconds and they UNDERSTATE LPI-2 by ~1000x. The
+incident note at the top of post-install/85-power-perf-mode.sh records the
+real, measured behaviour on this SoC:
+
+    "500-1200ms input-event delivery stalls tied to the CPU's deep ClusterPD
+     idle state (LPI-2) and the GPU's genpd power-domain gating"
+
+LPI-2 exit goes through a firmware/SCMI round trip that the declared 500 us
+does not model. That is the state that caused the greeter keyboard lag, so it
+is never re-armed here -- not at idle, not ever. LPI-1 was never independently
+implicated and is the shallower state, so it is the entire CPU idle-power
+opportunity available to us.
+
+NCZ_PERF_KEEP_STATE1=1 keeps even LPI-1 disabled, for a box where any wake
+latency is unacceptable.
 
 DEVFREQ IS NEVER TOUCHED. Writing a non-default devfreq governor to CIXH4000:00
 panics this SoC inside sky1_npu_devfreq_target(), and simple_ondemand being a
@@ -40,7 +55,7 @@ import sys
 import time
 
 IDLE_SEC = float(os.environ.get("NCZ_PERF_IDLE_SEC", "60"))
-ALLOW_STATE1 = os.environ.get("NCZ_PERF_ALLOW_STATE1", "0") == "1"
+KEEP_STATE1_OFF = os.environ.get("NCZ_PERF_KEEP_STATE1", "0") == "1"
 CPUS = "/sys/devices/system/cpu"
 
 
@@ -77,6 +92,7 @@ def set_idle_state(state, disable):
 
 
 def go_active():
+    # Both states off: lowest possible wake latency while somebody is using it.
     set_idle_state(1, True)
     set_idle_state(2, True)
     set_governor("performance")
@@ -84,9 +100,12 @@ def go_active():
 
 def go_idle():
     set_governor("schedutil")
-    set_idle_state(2, False)
-    # state1 stays disabled unless explicitly released - see module docstring.
-    set_idle_state(1, not ALLOW_STATE1 and True or False)
+    # LPI-2 (ClusterPD) stays DISABLED even when idle: it is the state measured
+    # at 500-1200ms input-delivery stalls. Releasing it is what the previous
+    # version of this file got wrong.
+    set_idle_state(2, True)
+    # LPI-1 is the shallow state and the actual idle-power opportunity.
+    set_idle_state(1, KEEP_STATE1_OFF)
 
 
 def open_input_devices():
@@ -116,8 +135,8 @@ def main():
     if not fds:
         log("no /dev/input/event* devices; refusing to run blind")
         return 1
-    log("watching %d input devices, idle threshold %.0fs, state1_released=%s"
-        % (len(fds), IDLE_SEC, ALLOW_STATE1))
+    log("watching %d input devices, idle threshold %.0fs, LPI-1 released at idle=%s, LPI-2 never released"
+        % (len(fds), IDLE_SEC, not KEEP_STATE1_OFF))
 
     active = True
     go_active()
