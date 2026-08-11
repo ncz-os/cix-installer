@@ -1,0 +1,322 @@
+diff --git a/src/components/dock/dock.vala b/src/components/dock/dock.vala
+index 39f2fec..85ed934 100644
+--- a/src/components/dock/dock.vala
++++ b/src/components/dock/dock.vala
+@@ -242,6 +242,10 @@ namespace Singularity {
+                 if (key == "panel-fusion") {
+                     update_fusion();
+                     ((Gtk.Widget) this).hide();
++                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // Cast required: GtkWindow implements GtkNative, so a bare
++                    // unrealize() binds to gtk_native_unrealize, not the widget one.
++                    ((Gtk.Widget) this).unrealize();
+                     update_visibility_mode();
+                     pulse_frame_clock();
+                 }
+@@ -258,6 +262,10 @@ namespace Singularity {
+                     _enabled = _settings.get_boolean("dock-enabled");
+                     if (!_enabled) {
+                         ((Gtk.Widget) this).hide();
++                        // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                        // Cast required: GtkWindow implements GtkNative, so a bare
++                        // unrealize() binds to gtk_native_unrealize, not the widget one.
++                        ((Gtk.Widget) this).unrealize();
+                         set_exclusive_zone(this, 0);
+                         app_system.shell_dock_height = 0;
+                         _set_reveal_barrier_active(false);
+@@ -928,6 +936,10 @@ namespace Singularity {
+                     break;
+                 case "remap":
+                     hide();
++                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // Cast required: GtkWindow implements GtkNative, so a bare
++                    // unrealize() binds to gtk_native_unrealize, not the widget one.
++                    ((Gtk.Widget) this).unrealize();
+                     present();
+                     queue_draw();
+                     break;
+@@ -1037,6 +1049,10 @@ namespace Singularity {
+                 // transform is presented reliably without moving the surface.
+                 set_body_class("dock-reveal-offset", true);
+                 ((Gtk.Widget) this).hide();
++                // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                // Cast required: GtkWindow implements GtkNative, so a bare
++                // unrealize() binds to gtk_native_unrealize, not the widget one.
++                ((Gtk.Widget) this).unrealize();
+                 present();
+                 start_content_slide();
+             }
+@@ -1141,6 +1157,10 @@ namespace Singularity {
+             }
+             if (!_enabled) {
+                 ((Gtk.Widget) this).hide();
++                // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                // Cast required: GtkWindow implements GtkNative, so a bare
++                // unrealize() binds to gtk_native_unrealize, not the widget one.
++                ((Gtk.Widget) this).unrealize();
+                 set_exclusive_zone(this, 0);
+                 app_system.shell_dock_height = 0;
+                 _set_reveal_barrier_active(false);
+@@ -1158,6 +1178,10 @@ namespace Singularity {
+                 queue_resize();
+             } else if (visibility_mode == "overview-only") {
+                 hide();
++                // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                // Cast required: GtkWindow implements GtkNative, so a bare
++                // unrealize() binds to gtk_native_unrealize, not the widget one.
++                ((Gtk.Widget) this).unrealize();
+                 set_exclusive_zone(this, 0);
+             }
+             update_autohide_state();
+@@ -1208,6 +1232,10 @@ namespace Singularity {
+                 // committed, so closing a focused fullscreen window left the
+                 // dock buried. Remap to force a fresh buffer and present.
+                 ((Gtk.Widget) this).hide();
++                // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                // Cast required: GtkWindow implements GtkNative, so a bare
++                // unrealize() binds to gtk_native_unrealize, not the widget one.
++                ((Gtk.Widget) this).unrealize();
+                 present();
+                 update_visibility_mode();
+                 pulse_frame_clock();
+diff --git a/src/components/overview/app_menu.vala b/src/components/overview/app_menu.vala
+index 73a1d47..c140c4a 100644
+--- a/src/components/overview/app_menu.vala
++++ b/src/components/overview/app_menu.vala
+@@ -159,6 +159,10 @@ namespace Singularity {
+             ((Gtk.Widget)this).add_controller(key_controller);
+ 
+             hide();
++            // Drop the GdkSurface so the next open gets a fresh wl_surface.
++            // Cast required: GtkWindow implements GtkNative, so a bare
++            // unrealize() binds to gtk_native_unrealize, not the widget one.
++            ((Gtk.Widget) this).unrealize();
+         }
+ 
+         private void apply_monitor_sizing() {
+@@ -270,6 +274,10 @@ namespace Singularity {
+                 menu_animation.done.connect(() => {
+                     if (_is_open) return;
+                     hide();
++                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // Cast required: GtkWindow implements GtkNative, so a bare
++                    // unrealize() binds to gtk_native_unrealize, not the widget one.
++                    ((Gtk.Widget) this).unrealize();
+                     if (widgets_grid != null) widgets_grid.depopulate();
+                     hidden();
+                 });
+@@ -334,6 +342,10 @@ namespace Singularity {
+                 if (stay_open) search_entry.grab_focus();
+                 else {
+                     hide();
++                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // Cast required: GtkWindow implements GtkNative, so a bare
++                    // unrealize() binds to gtk_native_unrealize, not the widget one.
++                    ((Gtk.Widget) this).unrealize();
+                     if (widgets_grid != null) widgets_grid.depopulate();
+                     hidden();
+                 }
+@@ -354,6 +366,10 @@ namespace Singularity {
+                 if (stay_open) search_entry.grab_focus();
+                 else {
+                     hide();
++                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // Cast required: GtkWindow implements GtkNative, so a bare
++                    // unrealize() binds to gtk_native_unrealize, not the widget one.
++                    ((Gtk.Widget) this).unrealize();
+                     if (widgets_grid != null) widgets_grid.depopulate();
+                     hidden();
+                 }
+diff --git a/src/components/overview/overview.vala b/src/components/overview/overview.vala
+index ef3c3be..2c53872 100644
+--- a/src/components/overview/overview.vala
++++ b/src/components/overview/overview.vala
+@@ -334,6 +334,22 @@ namespace Singularity {
+                     _anim_out_timer = 0;
+                     main_box.remove_css_class("animating-out");
+                     hide();
++                    // Drop the GdkSurface, do not merely unmap it.
++                    // GTK reuses one wl_surface across hide/show, and
++                    // gtk4-layer-shell builds a fresh layer surface over
++                    // it on the next open. A frame queued by the closing
++                    // animation can land after the unmap and re-attach a
++                    // live buffer; the next open then commits that stale
++                    // buffer before any configure, and the compositor
++                    // kills the client -- wl_display error 2,
++                    // layer_surface has never been configured.
++                    // unrealize() forces a fresh wl_surface next time.
++                    // Same call gtk4-layer-shell uses in its own remap.
++                    // The cast is REQUIRED: GtkWindow implements GtkNative,
++                    // so a bare unrealize() binds to gtk_native_unrealize,
++                    // an internal vfunc, not gtk_widget_unrealize. Verified
++                    // by inspecting the C valac emits for each spelling.
++                    ((Gtk.Widget) this).unrealize();
+                     PreviewCache.get_default().clear();
+                     hidden();
+                     // The overview just freed its grid widgets, icon textures
+@@ -434,6 +450,10 @@ namespace Singularity {
+ 
+         private void finish_gesture_hide() {
+             hide();
++            // Drop the GdkSurface so the next open gets a fresh wl_surface.
++            // Cast required: GtkWindow implements GtkNative, so a bare
++            // unrealize() binds to gtk_native_unrealize, not the widget one.
++            ((Gtk.Widget) this).unrealize();
+             PreviewCache.get_default().clear();
+             hidden();
+             Singularity.trim_heap();
+diff --git a/src/components/overview/workspace_overview.vala b/src/components/overview/workspace_overview.vala
+index aea62a9..fe6e478 100644
+--- a/src/components/overview/workspace_overview.vala
++++ b/src/components/overview/workspace_overview.vala
+@@ -136,6 +136,10 @@ namespace Singularity {
+             update_wallpaper();
+ 
+             hide();
++            // Drop the GdkSurface so the next open gets a fresh wl_surface.
++            // Cast required: GtkWindow implements GtkNative, so a bare
++            // unrealize() binds to gtk_native_unrealize, not the widget one.
++            ((Gtk.Widget) this).unrealize();
+         }
+ 
+         private void update_wallpaper() {
+@@ -421,6 +425,10 @@ namespace Singularity {
+                     opacity = 0;
+                     anim_box.remove_css_class("animating-out");
+                     hide();
++                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // Cast required: GtkWindow implements GtkNative, so a bare
++                    // unrealize() binds to gtk_native_unrealize, not the widget one.
++                    ((Gtk.Widget) this).unrealize();
+                     // Free all window preview textures - they'll be re-captured on next open
+                     clear_overview_content();
+                     hidden();
+@@ -499,6 +507,10 @@ namespace Singularity {
+                 opacity = target;
+                 if (!stay_open) {
+                     hide();
++                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // Cast required: GtkWindow implements GtkNative, so a bare
++                    // unrealize() binds to gtk_native_unrealize, not the widget one.
++                    ((Gtk.Widget) this).unrealize();
+                     clear_overview_content();
+                     hidden();
+                 }
+@@ -518,6 +530,10 @@ namespace Singularity {
+                 if (_gesture_animation == animation) _gesture_animation = null;
+                 if (!stay_open) {
+                     hide();
++                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // Cast required: GtkWindow implements GtkNative, so a bare
++                    // unrealize() binds to gtk_native_unrealize, not the widget one.
++                    ((Gtk.Widget) this).unrealize();
+                     clear_overview_content();
+                     hidden();
+                 }
+diff --git a/src/components/sidebar/sidebar.vala b/src/components/sidebar/sidebar.vala
+index ed0bddd..5e7a343 100644
+--- a/src/components/sidebar/sidebar.vala
++++ b/src/components/sidebar/sidebar.vala
+@@ -76,6 +76,10 @@ namespace Singularity {
+             });
+             system_view.hide_sidebar.connect(() => {
+                 hide();
++                // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                // Cast required: GtkWindow implements GtkNative, so a bare
++                // unrealize() binds to gtk_native_unrealize, not the widget one.
++                ((Gtk.Widget) this).unrealize();
+             });
+             system_view.open_settings_page.connect((page) => {
+                 open_page(page);
+@@ -91,6 +95,10 @@ namespace Singularity {
+             update_vertical_anchor();
+ 
+             hide();
++            // Drop the GdkSurface so the next open gets a fresh wl_surface.
++            // Cast required: GtkWindow implements GtkNative, so a bare
++            // unrealize() binds to gtk_native_unrealize, not the widget one.
++            ((Gtk.Widget) this).unrealize();
+ 
+             // Close on Escape key
+             var key_controller = new Gtk.EventControllerKey();
+@@ -99,6 +107,10 @@ namespace Singularity {
+                     if (!Singularity.DebugManager.get_default().sidebar_pinned) {
+                         desktop_settings.set_boolean("bar-layout-edit-mode", false);
+                         hide();
++                        // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                        // Cast required: GtkWindow implements GtkNative, so a bare
++                        // unrealize() binds to gtk_native_unrealize, not the widget one.
++                        ((Gtk.Widget) this).unrealize();
+                     }
+                     return true;
+                 }
+@@ -134,6 +146,10 @@ namespace Singularity {
+                 opacity = 1;
+                 GtkLayerShell.set_margin(this, GtkLayerShell.Edge.RIGHT, 40);
+                 hide();
++                // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                // Cast required: GtkWindow implements GtkNative, so a bare
++                // unrealize() binds to gtk_native_unrealize, not the widget one.
++                ((Gtk.Widget) this).unrealize();
+                 return;
+             }
+             // Null before skip so old done handler sees slide_animation != old_anim
+@@ -156,6 +172,10 @@ namespace Singularity {
+                     _is_closing = false;
+                     _can_close_on_focus_loss = false;
+                     hide();
++                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
++                    // Cast required: GtkWindow implements GtkNative, so a bare
++                    // unrealize() binds to gtk_native_unrealize, not the widget one.
++                    ((Gtk.Widget) this).unrealize();
+                 }
+             });
+             anim.play();
+diff --git a/src/core/hot_corner_manager.vala b/src/core/hot_corner_manager.vala
+index e00b3be..b23a04c 100644
+--- a/src/core/hot_corner_manager.vala
++++ b/src/core/hot_corner_manager.vala
+@@ -225,6 +225,10 @@ namespace Singularity {
+ 
+             set_child(hint);
+             hide();
++            // Drop the GdkSurface so the next open gets a fresh wl_surface.
++            // Cast required: GtkWindow implements GtkNative, so a bare
++            // unrealize() binds to gtk_native_unrealize, not the widget one.
++            ((Gtk.Widget) this).unrealize();
+         }
+ 
+         public void show_hint(string action) {
+@@ -236,6 +240,10 @@ namespace Singularity {
+         public void hide_hint() {
+             hint.remove_css_class("visible");
+             hide();
++            // Drop the GdkSurface so the next open gets a fresh wl_surface.
++            // Cast required: GtkWindow implements GtkNative, so a bare
++            // unrealize() binds to gtk_native_unrealize, not the widget one.
++            ((Gtk.Widget) this).unrealize();
+         }
+ 
+         private static string icon_for_action(string? action) {
+diff --git a/src/core/main.vala b/src/core/main.vala
+index d8f4f4a..dd78544 100644
+--- a/src/core/main.vala
++++ b/src/core/main.vala
+@@ -760,7 +760,16 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
+ 
+     private void sync_bar_layout_edit_mode() {
+         if (settings.get_boolean("bar-layout-edit-mode")) {
+-            sidebar?.hide();
++            if (sidebar != null) {
++                sidebar.hide();
++                // Drop the GdkSurface here too. This is the one close path that
++                // lives OUTSIDE Sidebar, so the in-class resets do not cover it,
++                // and re-opening via a panel or dock toggle calls present() on
++                // the old surface -- the same stale-buffer fault.
++                // Cast required: GtkWindow implements GtkNative, so a bare
++                // unrealize() binds to gtk_native_unrealize, not the widget one.
++                ((Gtk.Widget) sidebar).unrealize();
++            }
+             settings_window?.hide();
+             if (bar_layout_edit_overlay == null) {
+                 bar_layout_edit_overlay = new Singularity.BarLayoutEditOverlay(this);
