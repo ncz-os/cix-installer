@@ -2655,7 +2655,24 @@ mkdir -p "$STAGING/boot/grub"
 # reboot, aborting the install). The short-lived installer does not need lockup
 # detection; the INSTALLED system's cmdline (70-bootloader) is separate and keeps
 # it. Harmless on native metal; essential for reliable native-arm64 KVM testing.
-MARTJOHNSON_R6="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+#
+# CONSOLE ORDER (r215): the LAST console= on the cmdline becomes /dev/console.
+# This line used to read "console=tty0 console=ttyAMA2,115200", which made a
+# UART the primary console -- the opposite of the comment in 70-bootloader.sh
+# that described it as "HDMI primary + serial mirror".
+#
+# On an Orion O6N that UART is not ttyAMA2 and does not come up (the boot stops
+# just after "sbsa-uart ARMH0011:02: pctldev with ACPI name '\_SB.MUX0' not
+# found"), so d-i inherited a /dev/console it could not write to and the install
+# never started. Under QEMU the same thing happened for a simpler reason: the
+# virt board instantiates exactly one pl011 and there is no ttyAMA2 at all.
+#
+# assets/refind/ncz-refind-refresh.sh already states the correct rule for the
+# INSTALLED system and has been working on this hardware: put the serial ports
+# FIRST so tty0 stays primary. The installer now does the same, and lists BOTH
+# UARTs so one ISO covers O6N (ttyAMA0) and MS-R1 (ttyAMA2) -- a console= naming
+# a port that does not exist is ignored, so listing both is safe.
+MARTJOHNSON_R6="loglevel=4 console=ttyAMA0,115200 console=ttyAMA2,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
 DI_PRIORITY=critical  # r134: was high; high drops d-i to interactive menu after finish-install (no auto-reboot). critical auto-progresses to the terminal reboot; the remove-media prompt is itself critical so it still shows.
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
@@ -2733,7 +2750,7 @@ menuentry "DIAG — unified install, full serial trace (O6/O6N ttyAMA0, 115200)"
     set background_color=black
     set color_normal=light-green/black
     echo ">> DIAG boot: full kernel + d-i trace on ttyAMA0 @115200..."
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION earlycon ignore_loglevel console=tty0 console=ttyAMA0,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453
+    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION earlycon ignore_loglevel console=ttyAMA0,115200 console=ttyAMA2,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453
     echo ">> Loading initrd (trace mode)..."
     initrd /install.a64/initrd.gz
 }
