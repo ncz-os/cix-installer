@@ -411,6 +411,38 @@ build_kernel_deb() {
     tar xzf "$ASSETS/$label/modules-cixmini.tgz" -C "$root/usr" --keep-directory-symlink
     [ -d "$root/usr/lib/modules/$kver" ] || { echo "ERROR: modules tgz did not yield $kver"; exit 1; }
     local mc
+    # SHIP THE OUT-OF-TREE GPU MODULES WITH THE KERNEL THAT MATCHES THEM.
+    #
+    # WHY (2026-08-11, cost a working desktop): this package OWNS
+    # /usr/lib/modules/$kver, so installing it over an existing board with the
+    # SAME kernel version string replaces that tree wholesale -- deleting
+    # everything DKMS had put in updates/. On O6N that silently removed
+    # mali_kbase, memory_group_manager and protected_memory_allocator. Result:
+    # /dev/mali0 gone, ncz-gpu-env fell back to llvmpipe/pixman, the whole
+    # desktop went software-rendered, and Chromium consequently dropped
+    # hardware video decode (V4L2VideoDecoder -> VpxVideoDecoder) so 4K video
+    # crawled. Nothing reported an error; the box just got slow.
+    #
+    # DKMS is NOT installed on these images, so nothing rebuilds them. The
+    # kernel and its GPU modules are one unit and must ship together, keyed on
+    # the exact $kver they were built against. Same reasoning as the NPU module
+    # installed just below, which already worked this way.
+    #
+    # /updates matches assets/kernel/mali/dkms.conf DEST_MODULE_LOCATION, so a
+    # DKMS-built module lands in the same place and overrides cleanly.
+    if [ -d "$ASSETS/mali/$kver" ]; then
+        gm=0
+        for _ko in "$ASSETS/mali/$kver"/*.ko; do
+            [ -e "$_ko" ] || continue
+            install -D -m 0644 "$_ko" "$root/usr/lib/modules/$kver/updates/$(basename "$_ko")"
+            gm=$((gm + 1))
+        done
+        echo "  [$channel] staged $gm out-of-tree GPU module(s) into updates/"
+        [ "$gm" -ge 3 ] || echo "  WARN: [$channel] expected 3 GPU modules (mali_kbase, memory_group_manager, protected_memory_allocator), staged $gm -- the GPU will not initialise without all three (kbase defers with -517 'Memory group manager is not ready')"
+    else
+        echo "  WARN: [$channel] no prebuilt GPU modules at $ASSETS/mali/$kver -- the installed system will have NO GPU and fall back to software rendering"
+    fi
+
     mc=$(find "$root/usr/lib/modules/$kver" \( -name '*.ko' -o -name '*.ko.xz' \) | wc -l)
     [ "$mc" -ge 50 ] || { echo "ERROR: suspiciously few modules ($mc) for $kver"; exit 1; }
 
