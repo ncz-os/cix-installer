@@ -50,6 +50,19 @@
 
 set -euo pipefail
 
+# 2026-08-12: the ISO used to hang off -device usb-ehci. The Sky1 kernel is
+# XHCI-ONLY -- CONFIG_USB_EHCI_HCD, OHCI and UHCI are all unset, only
+# USB_XHCI_HCD=y and USB_XHCI_PCI=y, because the real hardware is XHCI. Behind
+# an EHCI controller the USB bus never enumerated, the ISO's block device never
+# appeared, and d-i reported "No device for installation media was detected" --
+# which was d-i telling the truth about a machine this kernel cannot drive.
+# A harness bug, not an image bug. qemu-xhci matches the real boot path.
+#
+# NOTE: do NOT put comments inside the qemu invocation below. It is a single
+# command continued with trailing backslashes, so a '#' line there is not a
+# comment -- the words become qemu arguments, and the run dies with a
+# misleading error about a missing romfile.
+
 ISO="${1:-}"
 [ -z "$ISO" ] && { echo "usage: $0 <path/to/installer.iso>"; exit 1; }
 [ ! -f "$ISO" ] && { echo "ERROR: $ISO not found"; exit 1; }
@@ -76,6 +89,17 @@ if [ ! -f "$VARSTORE" ]; then
     truncate -s 64m "$VARSTORE"
 fi
 
+# QEMU_TEST_ACCEL=tcg|kvm forces the accelerator; unset means auto-detect.
+#
+# WHY THIS EXISTS (2026-08-11): every historically SUCCESSFUL install run here
+# used TCG -- not by choice, but because /dev/kvm on this host came up owned by
+# group _chrony instead of kvm, so the auto-detect below always failed. Fixing
+# that permission silently switched all future runs to `-enable-kvm -cpu host`,
+# which hands the guest a real Sky1 core instead of an emulated generic one.
+# That is a materially different test, and it must be selectable rather than a
+# side effect of a device node's group.
+QEMU_TEST_ACCEL="${QEMU_TEST_ACCEL:-auto}"
+
 # Accelerate with KVM when running on real aarch64 hardware with /dev/kvm
 # access (e.g. cixmini, O6N) -- TCG software-emulates the CPU otherwise,
 # which is dramatically slower for a full d-i/partman/debootstrap/apt run.
@@ -84,7 +108,7 @@ fi
 # needed for cross-arch hosts (e.g. an x86_64/macOS dev box) where KVM
 # can't apply at all.
 ACCEL_ARGS=(-cpu max)
-if [ "$(uname -m)" = "aarch64" ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+if [ "$QEMU_TEST_ACCEL" = "kvm" ] || { [ "$QEMU_TEST_ACCEL" = "auto" ] && [ "$(uname -m)" = "aarch64" ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]; }; then
     echo "[qemu] KVM available on $(uname -m) host -- accelerating"
     ACCEL_ARGS=(-enable-kvm -cpu host)
 else
@@ -114,7 +138,7 @@ qemu-system-aarch64 \
     -drive if=pflash,format=raw,file="$VARSTORE" \
     -drive if=virtio,file="$DISK",format=qcow2 \
     -drive if=none,id=isousb,format=raw,file="$ISO",readonly=on \
-    -device usb-ehci,id=usb0 \
+    -device qemu-xhci,id=usb0 \
     -device usb-storage,bus=usb0.0,drive=isousb,removable=on \
     -boot d \
     -netdev user,id=net0 \
