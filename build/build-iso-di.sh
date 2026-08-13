@@ -2776,7 +2776,7 @@ MARTJOHNSON_R6="loglevel=4 console=ttyAMA0,115200 console=ttyAMA2,115200 console
 #
 # The DIAG entry keeps keep_bootcon AND the explicit UARTs, because a serial
 # trace is its whole purpose.
-MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 acpi=nospcr efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
 DI_PRIORITY=critical  # r134: was high; high drops d-i to interactive menu after finish-install (no auto-reboot). critical auto-progresses to the terminal reboot; the remove-media prompt is itself critical so it still shows.
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical

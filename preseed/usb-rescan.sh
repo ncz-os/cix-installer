@@ -31,6 +31,32 @@ have_disk() {
     grep -q ' sd[a-z]$' /proc/partitions 2>/dev/null
 }
 
+# --- console diagnostic, written STRAIGHT AT THE UART -----------------------
+# The Install entry deliberately has no console on the serial line, which also
+# means no way to see what went wrong there. Writing to /dev/ttyAMA0 as a
+# DEVICE still reaches the wire even when nothing is configured as a console on
+# it, so this reports regardless of console setup. Five ISOs were shipped
+# guessing at this; instrument it instead.
+for _u in /dev/ttyAMA0 /dev/ttyAMA2; do
+    [ -c "$_u" ] || continue
+    {
+        echo ""
+        echo "=== NCZ CONSOLE DIAG ==="
+        echo "-- /proc/consoles:"
+        cat /proc/consoles 2>/dev/null
+        echo "-- /sys/class/tty/console/active: $(cat /sys/class/tty/console/active 2>/dev/null)"
+        echo "-- /dev/tty1 exists: $([ -c /dev/tty1 ] && echo yes || echo NO)"
+        echo "-- /proc/fb: $(cat /proc/fb 2>/dev/null | tr '\n' ';')"
+        echo "-- cmdline consoles: $(tr ' ' '\n' < /proc/cmdline | grep -c console=)"
+        echo "-- reopen-console decisions:"
+        grep -a reopen-console /var/log/syslog 2>/dev/null | tail -12
+        echo "-- inittab d-i entries:"
+        grep -a "debian-installer" /etc/inittab 2>/dev/null
+        echo "=== END CONSOLE DIAG ==="
+        echo ""
+    } > "$_u" 2>/dev/null
+done
+
 # --- video diagnostic first: cheap, and unaffected by the USB path ----------
 echo "--- video"
 echo "  /proc/fb:      $(cat /proc/fb 2>/dev/null | tr '\n' ';')"
