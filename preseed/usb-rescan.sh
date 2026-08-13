@@ -47,6 +47,18 @@ done
 
 # --- usb ------------------------------------------------------------------
 echo "--- usb"
+# Running from /lib/debian-installer-startup.d this fires very early, before
+# the kernel's own root-hub scan has necessarily finished. Give it a fair
+# chance first -- if patch 0193's power-on-good floor is enough, the disk turns
+# up here and we do nothing at all. Only force a rebind once it plainly has not.
+w=0
+while [ "$w" -lt 10 ]; do
+    have_disk && break
+    sleep 1
+    w=$((w + 1))
+done
+echo "  waited ${w}s for the kernel's own scan"
+
 if have_disk; then
     echo "  medium already present, no rescan needed:"
     grep ' sd' /proc/partitions | sed 's/^/    /'

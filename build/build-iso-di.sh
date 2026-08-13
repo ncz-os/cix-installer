@@ -2243,6 +2243,43 @@ rm -rf "$TOOLS_WORK" "$TOOLS_GZ"
 echo "    zstd: $ZSTD_STATIC_BIN"
 echo "    initrd.gz now: $(du -h "$STAGING/install.a64/initrd.gz" | cut -f1)"
 
+# ---------------------------------------------------------------------------
+# Root-hub rescan, as a d-i STARTUP script inside the initrd.
+#
+# This lived in preseed/early_command first, which cannot work: the preseed is
+# loaded with preseed/file=/cdrom/cixmini/preseed.cfg, i.e. it lives ON the
+# installation medium.  When the medium does not enumerate, /cdrom never
+# mounts, the preseed never loads, early_command never runs -- and the rescan
+# meant to make the medium readable is itself unreachable.  Measured on O6N
+# with r226: mount | grep -c cdrom = 0, /var/log held only syslog, and neither
+# /tmp/usb-rescan.sh nor /tmp/diag-console.sh existed.
+#
+# The initrd is the only place that is guaranteed present before media
+# detection, so run it from /lib/debian-installer-startup.d, which d-i executes
+# in numeric order at init.  S35 puts it ahead of hardware/media detection.
+#
+# The preseed copy is kept as well: it is harmless when the medium already
+# mounted (it exits immediately once sd* exists) and it still captures the
+# video diagnostic later in the install.
+RESCAN_WORK="$STAGING/.rescan-overlay"
+rm -rf "$RESCAN_WORK"
+# Stage under usr/lib, NOT lib. The d-i initrd is usr-merged -- lib is a
+# SYMLINK to usr/lib -- and d-i keeps its startup scripts in
+# usr/lib/debian-installer-startup.d (S01mount, S02module-params, S10syslog...).
+# A cpio member carrying a top-level lib/ DIRECTORY would replace that symlink,
+# the same class of breakage the kernel-module and tools overlays above warn
+# about for bin/.
+mkdir -p "$RESCAN_WORK/usr/lib/debian-installer-startup.d"
+install -m 0755 "$ROOT/preseed/usb-rescan.sh" \
+    "$RESCAN_WORK/usr/lib/debian-installer-startup.d/S35usb-rescan"
+RESCAN_GZ="$STAGING/.rescan-overlay.cpio.gz"
+( cd "$RESCAN_WORK" && find usr -mindepth 1 -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$RESCAN_GZ"
+gzip -t "$RESCAN_GZ"
+cat "$RESCAN_GZ" >> "$STAGING/install.a64/initrd.gz"
+rm -rf "$RESCAN_WORK" "$RESCAN_GZ"
+echo "    usb-rescan staged as /usr/lib/debian-installer-startup.d/S35usb-rescan"
+echo "    initrd.gz now: $(du -h "$STAGING/install.a64/initrd.gz" | cut -f1)"
+
 # ----------------------------------------------------------------------
 # Step 4 — stage /cixmini/ with preseed.cfg + late.sh + post-install + assets
 # ----------------------------------------------------------------------
