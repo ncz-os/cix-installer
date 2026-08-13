@@ -2782,6 +2782,34 @@ if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
 fi
 DI_OPTS="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
+
+# Same options WITHOUT auto=true, for the entries a human boots at the machine.
+#
+# auto=true trips reopen-console's preseeding path, and that path runs the
+# installer on EXACTLY ONE console:
+#
+#   reopen-console: Found "auto" in the command line; falling back to simple
+#                   mode for preseeding
+#   reopen-console: Found no preferred console. Picking ttyAMA0
+#   reopen-console: Running with preseeding. Picking preferred ttyAMA0 ONLY
+#
+# One inittab entry, one installer. If the console it picks is not the screen,
+# the screen gets nothing, because there is no second instance. And the pick is
+# just the first entry in /proc/consoles whenever nothing carries the C flag --
+# so any UART the firmware registers wins over the monitor.
+#
+# Dropping keep_bootcon from the cmdline did NOT remove that UART (r232, still
+# no installer on screen), so rather than keep guessing at where it comes from,
+# stop restricting d-i to a single console. Without auto=true it adds an
+# inittab entry per console and the monitor gets an installer whatever else is
+# present.
+#
+# priority=critical is retained, which is what actually suppresses the
+# low-priority questions; auto=true mainly reorders when locale/keyboard are
+# asked relative to preseed load. preseed/file= is unaffected.
+#
+# DIAG keeps auto=true, since it wants the single serial instance.
+DI_OPTS_GFX="priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
 # Diagnostics build switch: when on, enable the in-installer diag module
 # (ncz_diag=1) and verbose debconf logging (DEBCONF_DEBUG=5). Both are
 # omitted for DIAG_ENABLE=0 ship builds. Boot-time override: ncz_diag=0.
@@ -2837,7 +2865,7 @@ menuentry "$GRUB_INSTALL_TITLE" {
     set background_color=black
     set color_normal=light-green/black
     echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i ($NCZ_RELEASE_CODENAME)..."
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION $MARTJOHNSON_R6_GFX
+    linux  /install.a64/vmlinuz $DI_OPTS_GFX ncz_variant=desktop ncz_rev=$VERSION $MARTJOHNSON_R6_GFX
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
 }
