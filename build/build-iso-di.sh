@@ -2831,7 +2831,7 @@ menuentry "DIAG — unified install, full serial trace (O6/O6N ttyAMA0, 115200)"
     set background_color=black
     set color_normal=light-green/black
     echo ">> DIAG boot: full kernel + d-i trace on ttyAMA0 @115200..."
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION earlycon ignore_loglevel console=ttyAMA0,115200 console=ttyAMA2,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453
+    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION anna/choose_modules=network-console earlycon ignore_loglevel console=ttyAMA0,115200 console=ttyAMA2,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453
     echo ">> Loading initrd (trace mode)..."
     initrd /install.a64/initrd.gz
 }
