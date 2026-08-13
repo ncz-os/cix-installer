@@ -2735,6 +2735,25 @@ mkdir -p "$STAGING/boot/grub"
 # UARTs so one ISO covers O6N (ttyAMA0) and MS-R1 (ttyAMA2) -- a console= naming
 # a port that does not exist is ignored, so listing both is safe.
 MARTJOHNSON_R6="loglevel=4 console=ttyAMA0,115200 console=ttyAMA2,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+# SCREEN-ONLY cmdline for the entries a human boots at the machine.
+#
+# debian-installer picks its UI console from /sys/class/tty/console/active, and
+# with the serial UARTs listed that file reads:
+#
+#     ttyAMA0 tty0
+#
+# d-i takes the serial and renders its whole UI there, so the monitor shows the
+# early kernel messages and then nothing -- which looks exactly like a broken
+# display driver and is not one. Measured on O6N 2026-08-13: linlondp loads,
+# /dev/dri/card0..2 exist, fb0 (linlondpdrmfb) is on card1 which is the card
+# carrying the CONNECTED DP-2 at 3840x2160, fbcon is bound to vtcon1, fb0 is
+# unblanked, tty0 holds the C (preferred console) flag in /proc/consoles -- and
+# writing to /dev/tty1 and /dev/console BOTH appear on the monitor. The display
+# path was never the problem; d-i simply was not using it.
+#
+# Keep the serial variant for the DIAG entry, whose entire purpose is a serial
+# trace on a headless board.
+MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
 DI_PRIORITY=critical  # r134: was high; high drops d-i to interactive menu after finish-install (no auto-reboot). critical auto-progresses to the terminal reboot; the remove-media prompt is itself critical so it still shows.
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
@@ -2795,7 +2814,7 @@ menuentry "$GRUB_INSTALL_TITLE" {
     set background_color=black
     set color_normal=light-green/black
     echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i ($NCZ_RELEASE_CODENAME)..."
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION $MARTJOHNSON_R6
+    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION $MARTJOHNSON_R6_GFX
     echo ">> Loading initrd (modules + preseed + zstd)..."
     initrd /install.a64/initrd.gz
 }
@@ -2804,7 +2823,7 @@ menuentry "SAFE — rescue shell ($INSTALLER_KERNEL_LABEL, no install)" {
     set background_color=black
     set color_normal=light-green/black
     echo ">> Loading rescue mode ($INSTALLER_KERNEL_LABEL $KVER_INSTALLER)..."
-    linux  /install.a64/vmlinuz rescue/enable=true $MARTJOHNSON_R6
+    linux  /install.a64/vmlinuz rescue/enable=true $MARTJOHNSON_R6_GFX
     initrd /install.a64/initrd.gz
 }
 
