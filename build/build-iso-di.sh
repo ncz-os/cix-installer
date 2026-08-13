@@ -2776,7 +2776,7 @@ MARTJOHNSON_R6="loglevel=4 console=ttyAMA0,115200 console=ttyAMA2,115200 console
 #
 # The DIAG entry keeps keep_bootcon AND the explicit UARTs, because a serial
 # trace is its whole purpose.
-MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 acpi=nospcr efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
 DI_PRIORITY=critical  # r134: was high; high drops d-i to interactive menu after finish-install (no auto-reboot). critical auto-progresses to the terminal reboot; the remove-media prompt is itself critical so it still shows.
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
@@ -2809,7 +2809,7 @@ DI_OPTS="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg
 # asked relative to preseed load. preseed/file= is unaffected.
 #
 # DIAG keeps auto=true, since it wants the single serial instance.
-DI_OPTS_GFX="priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
+DI_OPTS_GFX="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
 # Diagnostics build switch: when on, enable the in-installer diag module
 # (ncz_diag=1) and verbose debconf logging (DEBCONF_DEBUG=5). Both are
 # omitted for DIAG_ENABLE=0 ship builds. Boot-time override: ncz_diag=0.
