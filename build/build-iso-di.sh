@@ -2312,7 +2312,10 @@ cp "$ROOT/preseed/extract-rootfs.sh"  "$EXTRA/extract-rootfs.sh"
 cp "$ROOT/preseed/sshd-watcher.sh"    "$EXTRA/sshd-watcher.sh"
 # r173: interactive disk + root-filesystem chooser (partman/early_command).
 cp "$ROOT/preseed/disk-fs-chooser.sh" "$EXTRA/disk-fs-chooser.sh"
-chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh" "$EXTRA/disk-fs-chooser.sh"
+# Root-hub rescan + video diagnostic, invoked from preseed early_command.
+cp "$ROOT/preseed/usb-rescan.sh"      "$EXTRA/usb-rescan.sh"
+chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh" "$EXTRA/disk-fs-chooser.sh" "$EXTRA/usb-rescan.sh"
+
 # Remote-diagnostics module (single, removable). DIAG_ENABLE=0 ships clean:
 # the module is not staged and ncz_diag/DEBCONF_DEBUG are not added below.
 if [ "${DIAG_ENABLE:-1}" = 1 ]; then
@@ -2323,6 +2326,28 @@ if [ "${DIAG_ENABLE:-1}" = 1 ]; then
 else
     echo "    diag module DISABLED (DIAG_ENABLE=0) — ship-clean image"
 fi
+
+# Every helper the preseed copies out of $NCZSRC must actually BE in $EXTRA by
+# now. early_command sends its cp failures to a log nobody reads, so a helper
+# that is referenced but never staged just does not run and says nothing.
+# That happened on 2026-08-13: usb-rescan.sh was wired into early_command and
+# added to preseed/, but not to the explicit cp list above, so the finished ISO
+# carried neither the root-hub rescan nor the video diagnostic -- and the build
+# reported success. Fail loudly instead.
+#
+# diag-console.sh is exempt when DIAG_ENABLE=0, because a ship-clean image
+# deliberately omits it and the preseed reference is expected to no-op.
+for _h in $(grep -oE '\$NCZSRC/[a-z0-9._-]+\.sh' "$ROOT/preseed/preseed-ubuntu.cfg" \
+            | sed 's|.*/||' | sort -u); do
+    if [ "$_h" = "diag-console.sh" ] && [ "${DIAG_ENABLE:-1}" != 1 ]; then
+        continue
+    fi
+    if [ ! -f "$EXTRA/$_h" ]; then
+        echo "ERROR: preseed references \$NCZSRC/$_h but it was never staged into the ISO" >&2
+        echo "       add it to the cp list in build-iso-di.sh alongside sshd-watcher.sh" >&2
+        exit 1
+    fi
+done
 
 cp -a "$ROOT/post-install" "$EXTRA/post-install"
 
