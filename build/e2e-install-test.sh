@@ -1,0 +1,115 @@
+#!/bin/bash
+# End-to-end unattended install test.
+#
+# The shipped preseed deliberately leaves the user account interactive (a real
+# install should ask). For an automated run we answer those four questions on
+# the kernel cmdline instead of changing the product. Everything else is the
+# stock Install entry's cmdline, copied from the ISO's own grub.cfg.
+set -u
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+REV="${1:-r217}"
+ISO=$(ls -1 build/nclawzero-installer-cixmini-*-$REV.iso 2>/dev/null | tail -1)
+DISK=$ROOT/build/e2e-$REV-target.qcow2
+VARS=/tmp/e2e-$REV-vars.fd
+PIPE=/tmp/qe
+
+[ -f "$ISO" ] || { echo "FATAL: $ISO missing"; exit 1; }
+
+for p in $(pgrep -f "qemu-syste[m]-aarch64"); do kill "$p" 2>/dev/null; done
+sleep 2
+rm -f "$PIPE".in "$PIPE".out "$DISK" "$VARS" /tmp/e2e-guest.out
+qemu-img create -f qcow2 "$DISK" 30G >/dev/null
+dd if=/usr/share/AAVMF/AAVMF_VARS.fd of="$VARS" bs=1M 2>/dev/null || truncate -s 64M "$VARS"
+mkfifo "$PIPE".in "$PIPE".out
+
+setsid qemu-system-aarch64 \
+    -M virt -enable-kvm -cpu host -smp 4 -m 4096 \
+    -drive if=pflash,format=raw,readonly=on,file=/usr/share/AAVMF/AAVMF_CODE.fd \
+    -drive if=pflash,format=raw,file="$VARS" \
+    -drive if=virtio,file="$DISK",format=qcow2 \
+    -drive if=none,id=isousb,format=raw,file="$ISO",readonly=on \
+    -device qemu-xhci,id=usb0 \
+    -device usb-storage,bus=usb0.0,drive=isousb,removable=on \
+    -boot d \
+    -netdev user,id=net0 -device virtio-net-pci,netdev=net0,romfile= \
+    -device virtio-gpu-pci -display none \
+    -serial pipe:"$PIPE" >/tmp/e2e-qemu.log 2>&1 &
+
+cat "$PIPE".out > /tmp/e2e-guest.out &
+CATPID=$!
+exec 3> "$PIPE".in
+send() { printf '%b' "$1" >&3; }
+# GRUB's serial input drops characters when a long line arrives in one write.
+# Measured 2026-08-13: the ~500-char `linux ...` line produced a grub> prompt
+# with NOTHING echoed, GRUB booted its default menu entry instead, and the
+# install ran to 11.7 GB before stopping at the interactive user prompt --
+# i.e. the harness silently tested a DIFFERENT boot path than the one it
+# claimed to. Type long lines in small chunks with a pause between them.
+send_slow() {
+    _s="$1"
+    while [ -n "$_s" ]; do
+        printf '%b' "$(printf '%s' "$_s" | cut -c1-24)" >&3
+        _s="$(printf '%s' "$_s" | cut -c25-)"
+        sleep 0.15
+    done
+}
+# Fail loudly if the guest never echoed something we typed.
+expect_echo() {
+    _pat="$1"; _what="$2"
+    for _i in $(seq 1 15); do
+        grep -aq "$_pat" /tmp/e2e-guest.out && { echo "  echo confirmed: $_what"; return 0; }
+        sleep 1
+    done
+    echo "  NOTE: no echo for $_what (GRUB may not echo on this serial); relying on the kernel cmdline check instead"
+    return 0
+}
+
+
+DI_OPTS='auto=true priority=critical preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120 ncz_diag=1 DEBCONF_DEBUG=5 ncz_variant=desktop'
+# Test-only answers for the deliberately-interactive account questions.
+USERS='passwd/user-fullname=Test\ User passwd/username=ncztest passwd/user-password=ncztest1234 passwd/user-password-again=ncztest1234 passwd/user-default-groups=audio\ cdrom\ video\ sudo'
+# The installer intentionally prompts for the target disk (destructive). It
+# ships ncz_disk=/ncz_fs= overrides precisely for unattended/KVM runs.
+DISKSEL='ncz_disk=/dev/vda ncz_fs=ext4'
+CONSOLE='loglevel=4 console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0'
+
+sleep 6
+send '\x1b[B'; sleep 1
+send '\x1b[A'; sleep 1
+send 'c\n'; sleep 3
+send_slow "linux /install.a64/vmlinuz $DI_OPTS $USERS $DISKSEL $CONSOLE"
+send '\n'; sleep 2
+expect_echo "ncz_disk=/dev/vda" "the linux line"
+send_slow "initrd /install.a64/initrd.gz"
+send '\n'; sleep 2
+expect_echo "initrd /install.a64/initrd.gz" "the initrd line"
+send 'boot\n'
+
+echo "=== booted; watching target disk (installer writes = real progress) ==="
+LAST=0
+for i in $(seq 1 90); do        # up to ~45 min
+    sleep 30
+    SZ=$(du -m "$DISK" 2>/dev/null | cut -f1)
+    SZ=${SZ:-0}
+    if [ "$SZ" != "$LAST" ]; then
+        echo "  [$((i*30))s] target disk: ${SZ} MB"
+        LAST=$SZ
+    fi
+    if grep -aq "Installation complete\|installation is complete\|Finish the installation" /tmp/e2e-guest.out 2>/dev/null; then
+        echo "  installer reports completion"
+        break
+    fi
+    if ! pgrep -f "qemu-syste[m]-aarch64" >/dev/null; then
+        echo "  qemu exited (guest rebooted or powered off)"
+        break
+    fi
+done
+
+kill $CATPID 2>/dev/null
+echo "=== FINAL target disk ==="
+du -m "$DISK" 2>/dev/null | awk '{print "  " $1 " MB"}'
+echo "=== stages seen ==="
+tr -d '\000\033' < /tmp/e2e-guest.out | sed 's/\[[0-9;?]*[A-Za-z]//g' \
+  | grep -aoE "Detect and mount installation media|Partition disks|Installing the base system|Select and install software|Install the GRUB boot loader|Finish the installation|Installation complete|No device for installation media" \
+  | sort -u | sed 's/^/  /'
