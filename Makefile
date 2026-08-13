@@ -42,6 +42,22 @@ UPSTREAM_ISO  ?= debian-testing-arm64-netinst.iso
 UPSTREAM_URL  := https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/$(UPSTREAM_ISO)
 UPSTREAM_SHA  := https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/SHA256SUMS
 
+# The weekly-builds FILENAME is stable but its CONTENT rotates: upstream
+# republishes debian-testing-arm64-netinst.iso every week and drops the old
+# one. Verifying only against upstream's own SHA256SUMS therefore proves the
+# download was not corrupted while proving nothing about WHICH installer you
+# got -- `make download` on a fresh checkout would silently pull a substrate
+# nobody has tested, and the substrate decides which d-i runs the install.
+#
+# So pin the one that was actually validated end to end. Measured 2026-08-13:
+# upstream had already moved to 69c4f9fce002... while the validated local copy
+# was 07aa61fb3843..., i.e. the drift is not hypothetical.
+#
+# To adopt a newer substrate, do it deliberately: download it, run
+# build/e2e-install-test.sh against an ISO built on it, and only then update
+# this hash in the same commit as the evidence.
+SUBSTRATE_SHA := 07aa61fb38432c87fc51c537951d1f6cdc52b404cfa5704958971fcb1056ae18
+
 DOWNLOADS     := $(ROOT)/downloads
 BUILD         := $(ROOT)/build
 ASSETS        := $(ROOT)/assets
@@ -72,6 +88,17 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 	    actual=$$(sha256sum $@.tmp | awk '{print $$1}'); \
 	    if [ "$$expected" != "$$actual" ]; then \
 	        echo "[download] SHA256 MISMATCH: expected=$$expected actual=$$actual"; \
+	        exit 1; \
+	    fi
+	@actual=$$(sha256sum $@.tmp | awk '{print $$1}'); \
+	    if [ "$$actual" != "$(SUBSTRATE_SHA)" ]; then \
+	        echo "[download] SUBSTRATE ROTATED"; \
+	        echo "           expected (validated): $(SUBSTRATE_SHA)"; \
+	        echo "           upstream now serves : $$actual"; \
+	        echo "           Upstream republishes this filename weekly. Adopting the new"; \
+	        echo "           installer is a deliberate act: build an ISO on it, run"; \
+	        echo "           build/e2e-install-test.sh, then update SUBSTRATE_SHA."; \
+	        rm -f $@.tmp; \
 	        exit 1; \
 	    fi
 	@mv $@.tmp $@
