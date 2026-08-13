@@ -13,16 +13,34 @@ ROOT          := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 VERSION       := $(shell date -u +%Y.%m.%d)
 MODE          ?= full
 VARIANT       ?= desktop
-DEBIAN_REL    := 12
-DEBIAN_POINT  := 12.13.0
-UPSTREAM_ISO  := debian-$(DEBIAN_POINT)-arm64-netinst.iso
-# Bookworm has been moved to the archive after Trixie became current.
-# Pin to 12.13.0 (the last Bookworm point release at time of this commit)
-# because Cix's proprietary .debs were built against Bookworm; mixing
-# their bookworm-glibc-2.36 binaries with Trixie's glibc-2.41 risks
-# subtle ABI breakage we don't want to debug.
-UPSTREAM_URL  := https://cdimage.debian.org/cdimage/archive/$(DEBIAN_POINT)/arm64/iso-cd/$(UPSTREAM_ISO)
-UPSTREAM_SHA  := https://cdimage.debian.org/cdimage/archive/$(DEBIAN_POINT)/arm64/iso-cd/SHA256SUMS
+# SUBSTRATE ISO -- the debian-installer environment we build on top of. This
+# is NOT cosmetic: build-iso-di.sh harvests the substrate's udebs (kernel
+# module packages, fonts, GTK) and merges them into the image's own pool, so
+# the substrate decides which d-i runs the install.
+#
+# It MUST match NCZ_BASE_CODENAME in release.conf, which is forky. Measured
+# 2026-08-13, building the same tree both ways:
+#
+#   debian-testing (forky)  -> 249 udebs, 38x *-7.1.4+deb14-arm64-di
+#                              unattended install reaches "Finish the installation"
+#   debian-12.13.0 (bookworm) -> 279 udebs, 0x 7.1.4, 38x *-6.1.0-42-arm64-di
+#                              plus ~30 stray bookworm font/GTK udebs, and the
+#                              install stops at the interactive user prompt --
+#                              the cmdline preseed is no longer honoured
+#
+# The bookworm build does not fail loudly. It writes 11.7 GB to the target and
+# looks like a healthy run right up until it asks a question it should never
+# have asked. Three ISOs were built that way before a control run against a
+# known-good image showed the substrate was the variable.
+#
+# The old pin below existed because Cix's proprietary .debs were built against
+# Bookworm glibc 2.36. That predates the FORKY migration; the shipped images
+# have been forky-based since, and the vendor .debs come from the CIX debian13
+# SDK. To build on a point release anyway, override on the command line:
+#   make iso UPSTREAM_ISO=debian-12.13.0-arm64-netinst.iso
+UPSTREAM_ISO  ?= debian-testing-arm64-netinst.iso
+UPSTREAM_URL  := https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/$(UPSTREAM_ISO)
+UPSTREAM_SHA  := https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/SHA256SUMS
 
 DOWNLOADS     := $(ROOT)/downloads
 BUILD         := $(ROOT)/build
