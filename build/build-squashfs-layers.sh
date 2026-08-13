@@ -253,12 +253,27 @@ build_layer(){ local role="$1" manifest="$2"
     # underlying singularity-opt.tgz, but that is now only an INPUT to
     # build/build-singularity-deb.sh, not something staged into a squashfs
     # layer -- see assets/singularity/README.md.)
+    # -print -quit returns whichever candidate find happens to reach first,
+    # which is undefined ordering, not the newest version. That silently
+    # matters the moment a pool holds two builds: on 2026-08-12 a rebuilt
+    # payload went into build/desktop-mirror while the layer resolved from
+    # forky-mirror, and the ISO shipped a two-day-old shell whose fixes were
+    # simply absent -- the build log said "offline mirror has
+    # ncz-singularity-desktop" and looked entirely healthy. Collect every
+    # candidate across the active mirrors and take the highest version, the
+    # same way build-desktop-mirror.sh already does for sinty-out.
     SINGULARITY_DEB=""
+    _sing_candidates=""
     for _mirror in $MIRROR_DIRS; do
-      SINGULARITY_DEB=$(find "$ROOT/build/$_mirror/pool" -type f \
-        -name 'ncz-singularity-desktop_*_arm64.deb' -print -quit 2>/dev/null || true)
-      [ -n "$SINGULARITY_DEB" ] && break
+      _found=$(find "$ROOT/build/$_mirror/pool" -type f \
+        -name 'ncz-singularity-desktop_*_arm64.deb' 2>/dev/null || true)
+      [ -n "$_found" ] && _sing_candidates="$_sing_candidates
+$_found"
     done
+    if [ -n "$(printf '%s' "$_sing_candidates" | tr -d '[:space:]')" ]; then
+      SINGULARITY_DEB=$(printf '%s\n' "$_sing_candidates" | grep -v '^$' \
+        | sort -V | tail -1)
+    fi
     if [ -n "$SINGULARITY_DEB" ]; then
       log "  offline mirror has ncz-singularity-desktop: $(basename "$SINGULARITY_DEB")"
     else
