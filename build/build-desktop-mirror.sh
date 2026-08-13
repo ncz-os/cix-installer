@@ -55,17 +55,22 @@ PORTS_URL="${PORTS_URL:-http://ports.ubuntu.com/ubuntu-ports}"
 # Real, official Google Chrome for arm64 Linux (launched publicly Q2 2026,
 # available since via Google's own signed apt repo). Folded into the offline
 # mirror pool, same reasoning as everything else here: no live apt source on
-# the shipped appliance (r180 doctrine), pin to one exact checksummed
-# version. Adds Google account sync/Widevine DRM/Google Pay and (per
-# post-install/84-vpu-vaapi.sh) confirmed working VA-API hardware video
-# decode once that hook's fixes are applied; verified 2026-07-27 against
-# Google's own published Packages index.
+# the shipped appliance (r180 doctrine). Adds Google account sync/Widevine
+# DRM/Google Pay and (per post-install/84-vpu-vaapi.sh) confirmed working
+# VA-API hardware video decode once that hook's fixes are applied.
+#
+# NOT VERSION-PINNED (operator, 2026-08-12): always mirror whatever Google
+# currently ships as stable. A hardcoded version is a build-time time bomb --
+# Google rotates the stable point release every couple of weeks and drops the
+# previous one from the index, so the pin fails the build rather than
+# protecting it (151.0.7922.71-1 vanished exactly this way). Integrity still
+# holds: the repo is added with signed-by=, so apt verifies Google's Release
+# signature, and the expected SHA256 is read from that signed Packages index
+# and checked against the downloaded .deb below.
 GOOGLE_CHROME_URL="${GOOGLE_CHROME_URL:-https://dl.google.com/linux/chrome/deb}"
 GOOGLE_CHROME_KEY_URL="${GOOGLE_CHROME_KEY_URL:-https://dl.google.com/linux/linux_signing_key.pub}"
 GOOGLE_CHROME_KEY="$REPO/build/google-chrome-apt-keyring.asc"
-GOOGLE_CHROME_VERSION="151.0.7922.71-1"
 GOOGLE_CHROME_PKGS="google-chrome-stable"
-GOOGLE_CHROME_SHA256="d8d3e1bfc92d38751154d3d30dfcb4e8c8a25e630d8a53d60b06b034b55e9aa4"
 
 # ncz-singularity-desktop (build/build-singularity-deb.sh) is CIX/NCZ-specific
 # -- it doesn't exist on Ubuntu ports at all, only on the Buildkite Packages
@@ -105,15 +110,11 @@ if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
 deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/google-chrome-apt-keyring.asc] $GOOGLE_CHROME_URL stable main
 EOF
     cat > "$T/etc/apt/preferences.d/google-chrome.pref" <<EOF
-Package: $GOOGLE_CHROME_PKGS
-Pin: version $GOOGLE_CHROME_VERSION
-Pin-Priority: 700
-
 Package: google-chrome-beta google-chrome-unstable google-chrome-canary
 Pin: origin dl.google.com
 Pin-Priority: -1
 EOF
-    echo "  source: Google Chrome (${GOOGLE_CHROME_URL}) — pinned to $GOOGLE_CHROME_VERSION, checksum-verified below"
+    echo "  source: Google Chrome (${GOOGLE_CHROME_URL}) — tracking current stable, checksum-verified below"
 fi
 
 [ -f "$BUILDKITE_NCZ_KEY" ] || { echo "ERROR: $BUILDKITE_NCZ_KEY missing"; exit 1; }
@@ -140,14 +141,28 @@ echo "  apt-get update (desktop package sources)..."
 apt-get "${APTOPTS[@]}" update >/dev/null 2>&1
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
-    _policy="$(apt-cache "${APTOPTS[@]}" policy google-chrome-stable)"
-    if ! printf '%s\n' "$_policy" | grep -q " $GOOGLE_CHROME_VERSION"; then
-        echo "ERROR: google-chrome-stable version $GOOGLE_CHROME_VERSION not visible from signed Google apt repo" >&2
-        echo "       update GOOGLE_CHROME_VERSION + GOOGLE_CHROME_SHA256 only after verifying the new Packages entry" >&2
+    # Whatever Google currently ships as stable — no pin (operator 2026-08-12).
+    _chrome_ver="$(apt-cache "${APTOPTS[@]}" policy google-chrome-stable \
+                   | awk '/Candidate:/ {print $2}')"
+    if [ -z "$_chrome_ver" ] || [ "$_chrome_ver" = "(none)" ]; then
+        echo "ERROR: google-chrome-stable has no candidate from the signed Google apt repo" >&2
+        echo "       (repo reachable? key valid? arch $ARCH published?)" >&2
         exit 1
     fi
-    # SHA256-verify the actual .deb, not just the version string — Google's
-    # own Packages index publishes it, so pin against that exact value.
+    echo "  google-chrome-stable candidate: $_chrome_ver"
+
+    # Integrity anchor: the SHA256 published in Google's OWN Packages index.
+    # That index arrived under a signature apt already verified (signed-by= on
+    # the source line), so it is a trustworthy expectation for the .deb we are
+    # about to fold into an offline mirror — and unlike a hardcoded constant it
+    # tracks whatever version we just resolved.
+    _want_sha="$(apt-cache "${APTOPTS[@]}" show "google-chrome-stable=$_chrome_ver" 2>/dev/null \
+                 | awk '/^SHA256: / {print $2; exit}')"
+    if [ -z "$_want_sha" ]; then
+        echo "ERROR: no SHA256 in the signed Packages entry for google-chrome-stable=$_chrome_ver" >&2
+        exit 1
+    fi
+
     # NB: --print-uris lists the whole dependency closure, not just this one
     # package -- `head -1` on the piped output triggers a SIGPIPE in the
     # upstream apt-get/awk once head closes the pipe, and pipefail turns
@@ -159,12 +174,12 @@ if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
     _deb_rel="$(apt-get "${APTOPTS[@]}" --print-uris -qq install --reinstall google-chrome-stable 2>/dev/null | awk -F"'" '{print $2}' | grep -m1 'google-chrome-stable_')"
     set -o pipefail
     if [ -n "$_deb_rel" ]; then
-        _deb_sha="$(curl -fsSL -m 60 "$_deb_rel" -o "$T/google-chrome-stable.deb" && sha256sum "$T/google-chrome-stable.deb" | awk '{print $1}')"
-        if [ "$_deb_sha" != "$GOOGLE_CHROME_SHA256" ]; then
-            echo "ERROR: google-chrome-stable .deb SHA256 mismatch — expected $GOOGLE_CHROME_SHA256, got $_deb_sha" >&2
+        _deb_sha="$(curl -fsSL -m 120 "$_deb_rel" -o "$T/google-chrome-stable.deb" && sha256sum "$T/google-chrome-stable.deb" | awk '{print $1}')"
+        if [ "$_deb_sha" != "$_want_sha" ]; then
+            echo "ERROR: google-chrome-stable .deb SHA256 mismatch — signed index says $_want_sha, download is $_deb_sha" >&2
             exit 1
         fi
-        echo "  verified google-chrome-stable $GOOGLE_CHROME_VERSION SHA256 matches pinned value"
+        echo "  verified google-chrome-stable $_chrome_ver against the signed index SHA256"
     fi
 fi
 
@@ -226,10 +241,11 @@ if ! ( cd "$OUT/pool/main" && xargs -r apt-get "${APTOPTS[@]}" download < "$CLOS
 fi
 
 # The incremental pool keeps older versions of packages that remain in the
-# closure. Chrome is explicitly pinned and large (~125 MiB), so retaining the
-# previous pinned build silently bloats every ISO. Keep only the verified pin.
+# closure. Chrome is large (~125 MiB) and Google rotates stable every couple of
+# weeks, so without this every rebuild leaves the previous point release behind
+# and silently bloats the ISO. Keep only the version resolved and verified above.
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
-    chrome_keep="google-chrome-stable_${GOOGLE_CHROME_VERSION}_arm64.deb"
+    chrome_keep="google-chrome-stable_${_chrome_ver}_arm64.deb"
     for chrome_deb in "$OUT"/pool/main/google-chrome-stable_*_arm64.deb; do
         [ -e "$chrome_deb" ] || continue
         [ "$(basename "$chrome_deb")" = "$chrome_keep" ] || rm -f "$chrome_deb"
