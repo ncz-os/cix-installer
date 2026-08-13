@@ -2753,7 +2753,30 @@ MARTJOHNSON_R6="loglevel=4 console=ttyAMA0,115200 console=ttyAMA2,115200 console
 #
 # Keep the serial variant for the DIAG entry, whose entire purpose is a serial
 # trace on a headless board.
-MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+# NOTE: no keep_bootcon here, deliberately.
+#
+# keep_bootcon stops the kernel disabling the early boot console. If firmware
+# or GRUB brought up a UART boot console, it stays registered in /proc/consoles
+# even though this cmdline only asks for console=tty0 -- and d-i then sees a
+# serial console we never requested.
+#
+# That matters because our DI_OPTS carry auto=true, which puts d-i into
+# preseeding mode, and in that mode reopen-console runs the installer on
+# EXACTLY ONE console:
+#
+#   reopen-console: Found "auto" in the command line; falling back to simple
+#                   mode for preseeding
+#   reopen-console: Found no preferred console. Picking ttyAMA0
+#   reopen-console: Running with preseeding. Picking preferred ttyAMA0 ONLY
+#
+# One console, chosen as the first entry when nothing carries the C flag. Pick
+# the UART and the monitor gets nothing at all -- there is no second instance
+# to fall back to. Dropping keep_bootcon leaves tty0 as the only console d-i
+# can find, which maps to tty1 and puts the installer on screen.
+#
+# The DIAG entry keeps keep_bootcon AND the explicit UARTs, because a serial
+# trace is its whole purpose.
+MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
 DI_PRIORITY=critical  # r134: was high; high drops d-i to interactive menu after finish-install (no auto-reboot). critical auto-progresses to the terminal reboot; the remove-media prompt is itself critical so it still shows.
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
