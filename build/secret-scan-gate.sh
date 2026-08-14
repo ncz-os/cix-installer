@@ -40,7 +40,27 @@ cd "$REPO"
 # id is delimited; that vendor blob has alphanumerics on both sides, so
 # requiring non-alphanumeric boundaries keeps the detection and drops the
 # noise. Re-verified after the change: AKIAIOSFODNN7EXAMPLE still trips it.
-PATTERNS='glpat-[A-Za-z0-9_.-]{20}|glrt-[A-Za-z0-9_-]{20}|gldt-[A-Za-z0-9_-]{20}|ghp_[A-Za-z0-9]{30}|github_pat_[A-Za-z0-9_]{30}|(^|[^A-Za-z0-9])AKIA[0-9A-Z]{16}([^A-Za-z0-9]|$)|https://[^/@[:space:]]+:[^/@[:space:]]+@|BEGIN OPENSSH PRIVATE KEY|BEGIN RSA PRIVATE KEY|PRIVATE-TOKEN:[[:space:]]*[A-Za-z0-9_-]{20}'
+PATTERNS='glpat-[A-Za-z0-9_.-]{20}|glrt-[A-Za-z0-9_-]{20}|gldt-[A-Za-z0-9_-]{20}|ghp_[A-Za-z0-9]{30}|github_pat_[A-Za-z0-9_]{30}|(^|[^A-Za-z0-9])AKIA[0-9A-Z]{16}([^A-Za-z0-9]|$)|https://[^/@[:space:]$]+:[^/@[:space:]$]+@|(PASS|PASSWD|PASSWORD|SECRET)[A-Z_]*[[:space:]]*=[[:space:]]*"[^"$[:space:]]{6,}"|BEGIN OPENSSH PRIVATE KEY|BEGIN RSA PRIVATE KEY|PRIVATE-TOKEN:[[:space:]]*[A-Za-z0-9_-]{20}'
+# Two lessons from this gate's first real use, both encoded above:
+#
+#   1. The basic-auth URI pattern excludes $ so that
+#      https://oauth2:${GITLAB_TOKEN}@gitlab.com -- a variable reference, not a
+#      secret -- no longer trips it. A gate that cries wolf gets ignored.
+#
+#   2. A hardcoded password assignment IS matched now. The gate's first run
+#      against tools/nightly flagged the harmless ${GITLAB_TOKEN} URI and said
+#      nothing about ARGONAS_PASS="<the fleet password>" three lines above it.
+#      Catching the shape of "quoted literal assigned to a *PASS*/SECRET
+#      variable" costs nothing and covers the case that actually mattered.
+#      The literal itself is deliberately NOT written here; use
+#      SECRET_SCAN_EXTRA for site-specific values.
+#      NOTE: this alternative matches DOUBLE-quoted values only. PATTERNS is a
+#      single-quoted shell string, so a literal ' inside it terminates the
+#      assignment -- which is exactly what happened on the first attempt and
+#      silently disabled the ENTIRE gate (PATTERNS: unbound variable, every
+#      control returning 0). Caught only by re-running the positive controls
+#      after the edit. If single-quoted secrets need covering later, build
+#      PATTERNS by concatenation rather than embedding a quote here.
 [ -n "${SECRET_SCAN_EXTRA:-}" ] && PATTERNS="$PATTERNS|$SECRET_SCAN_EXTRA"
 
 rc=0
