@@ -73,6 +73,25 @@ set -e
 if [ "$1" = configure ]; then
     echo "/opt/singularity/lib" > /etc/ld.so.conf.d/singularity.conf
     ldconfig
+
+    # Compile the bundled GSettings schemas. Without this the desktop
+    # SIGABRTs on startup, in a ~3s respawn loop, until greetd gives up:
+    #
+    #   g_settings_get_int -> g_settings_get_value -> g_log (fatal) -> abort
+    #
+    # GLib only ever reads gschemas.compiled; it never parses the raw XML.
+    # We ship dev.sinty.*.gschema.xml plus 99-ncz-defaults.gschema.override
+    # into /opt/singularity/share/glib-2.0/schemas and the session wrapper
+    # correctly points GSETTINGS_SCHEMA_DIR at that directory -- but nothing
+    # ever compiled it, so GLib saw zero schemas there and every
+    # g_settings_* call on dev.sinty.desktop aborted the process.
+    # Confirmed on O6N 2026-08-14 with r237:
+    #   gsettings list-schemas | grep -c sinty   -> 0    (before)
+    #   ... after glib-compile-schemas           -> 11   (desktop starts)
+    if [ -x /usr/bin/glib-compile-schemas ] \
+       && [ -d /opt/singularity/share/glib-2.0/schemas ]; then
+        glib-compile-schemas /opt/singularity/share/glib-2.0/schemas || true
+    fi
 fi
 
 exit 0
@@ -86,6 +105,7 @@ set -e
 case "$1" in
     remove|purge)
         rm -f /etc/ld.so.conf.d/singularity.conf
+        rm -f /opt/singularity/share/glib-2.0/schemas/gschemas.compiled
         ldconfig
         ;;
 esac
