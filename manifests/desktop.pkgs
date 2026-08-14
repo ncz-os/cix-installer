@@ -414,3 +414,15 @@ htop
 # mkfs.vfat simply did not exist. It is already in mgmt.pkgs and rescue.pkgs;
 # the installed desktop needs it too.
 dosfstools
+
+# --- FFmpeg 9 for the Linlon VPU ------------------------------------------
+# Debian's ffmpeg 8.1.2 cannot encode correctly through this hardware: upstream
+# decides plane layout from the V4L2 fourcc, so on a multi-planar driver it packs
+# every plane into plane 0 -- yuv420p SIGSEGVs and nv12 silently loses all chroma
+# (measured U=2 V=2 against U=127 V=126 in software). ncz-ffmpeg carries the fix.
+#
+# It installs under /opt/ncz-ffmpeg with an RPATH and symlinks ffmpeg/ffprobe/
+# ffplay into /usr/local/bin, so it wins on PATH without touching the system
+# libav* that the rest of the desktop links against (our soname is .63, forky
+# ships .62). The system ffmpeg stays installed for those library consumers.
+ncz-ffmpeg
