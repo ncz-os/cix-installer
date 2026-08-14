@@ -38,6 +38,10 @@
 #include <linux/device.h>
 #include <linux/of_address.h>
 #include <linux/module.h>
+#ifdef CONFIG_ARM64
+#include <asm/barrier.h>
+#include <asm/sysreg.h>
+#endif
 #include "mvx_log_group.h"
 #include "mvx_hwreg.h"
 #include "mvx_hwreg_v500.h"
@@ -508,12 +512,158 @@ void mvx_hwreg_destruct(struct mvx_hwreg *hwreg)
     release_mem_region(hwreg->res->start, resource_size(hwreg->res));
 }
 
+/*
+ * SError-masked MMIO accessors, forward-ported from the in-tree amvx driver
+ * (meta-cix patches-7.2/0152-media-cix-amvx-serror-drain-masked-reads.patch).
+ *
+ * The vendor DKMS drop never received this hardening, and DKMS wins at
+ * modprobe time, so shipping DKMS-only silently dropped it. A pending or
+ * per-access asynchronous SError can be delivered at any VPU or RCSU MMIO
+ * transaction; mask delivery around each access, synchronize, consume any
+ * error with ESB into DISR_EL1, and clear it before restoring delivery.
+ *
+ * The companion bring-up patch 0151 is deliberately NOT ported: it aborts
+ * probe with -EIO after a single diagnostic read.
+ */
+#ifdef CONFIG_ARM64
+#define MVX_DISR_A	BIT_ULL(31)
+
+static inline uint32_t mvx_readl_safe(struct mvx_hwreg *hwreg,
+				      unsigned int offset)
+{
+	u64 disr;
+	u32 value;
+
+	asm volatile("msr daifset, #4" : : : "memory");
+	value = readl(hwreg->registers + offset);
+	dsb(sy);
+	/* ESB is encoded as a HINT so older assemblers accept it. */
+	asm volatile("hint #16" : : : "memory");
+	disr = read_sysreg_s(SYS_DISR_EL1);
+	write_sysreg_s(0, SYS_DISR_EL1);
+	asm volatile("msr daifclr, #4" : : : "memory");
+
+	if (unlikely(disr & MVX_DISR_A))
+		dev_err_ratelimited(hwreg->dev,
+			"VPU read at 0x%x consumed SError (DISR_EL1=0x%016llx)\n",
+			offset, disr);
+
+	return value;
+}
+
+static inline void mvx_writel_safe(struct mvx_hwreg *hwreg,
+				   unsigned int offset, uint32_t value)
+{
+	u64 disr;
+
+	asm volatile("msr daifset, #4" : : : "memory");
+	writel(value, hwreg->registers + offset);
+	dsb(sy);
+	asm volatile("hint #16" : : : "memory");
+	disr = read_sysreg_s(SYS_DISR_EL1);
+	write_sysreg_s(0, SYS_DISR_EL1);
+	asm volatile("msr daifclr, #4" : : : "memory");
+
+	if (unlikely(disr & MVX_DISR_A))
+		dev_err_ratelimited(hwreg->dev,
+			"VPU write at 0x%x consumed SError (DISR_EL1=0x%016llx)\n",
+			offset, disr);
+}
+
+static inline uint32_t mvx_rcsu_readl_safe(struct mvx_hwreg *hwreg,
+					   unsigned int offset)
+{
+	u64 disr;
+	u32 value;
+
+	asm volatile("msr daifset, #4" : : : "memory");
+	value = readl(hwreg->rcsu_registers + offset);
+	dsb(sy);
+	asm volatile("hint #16" : : : "memory");
+	disr = read_sysreg_s(SYS_DISR_EL1);
+	write_sysreg_s(0, SYS_DISR_EL1);
+	asm volatile("msr daifclr, #4" : : : "memory");
+
+	if (unlikely(disr & MVX_DISR_A))
+		dev_err_ratelimited(hwreg->dev,
+			"RCSU read at 0x%x consumed SError (DISR_EL1=0x%016llx)\n",
+			offset, disr);
+
+	return value;
+}
+
+static inline void mvx_rcsu_writel_safe(struct mvx_hwreg *hwreg,
+					unsigned int offset, uint32_t value)
+{
+	u64 disr;
+
+	asm volatile("msr daifset, #4" : : : "memory");
+	writel(value, hwreg->rcsu_registers + offset);
+	dsb(sy);
+	asm volatile("hint #16" : : : "memory");
+	disr = read_sysreg_s(SYS_DISR_EL1);
+	write_sysreg_s(0, SYS_DISR_EL1);
+	asm volatile("msr daifclr, #4" : : : "memory");
+
+	if (unlikely(disr & MVX_DISR_A))
+		dev_err_ratelimited(hwreg->dev,
+			"RCSU write at 0x%x consumed SError (DISR_EL1=0x%016llx)\n",
+			offset, disr);
+}
+
+static void mvx_hwreg_drain_serror(struct mvx_hwreg *hwreg)
+{
+	u64 disr;
+
+	asm volatile("msr daifset, #4" : : : "memory");
+	readl(hwreg->registers);
+	dsb(sy);
+	asm volatile("hint #16" : : : "memory");
+	disr = read_sysreg_s(SYS_DISR_EL1);
+	write_sysreg_s(0, SYS_DISR_EL1);
+	asm volatile("msr daifclr, #4" : : : "memory");
+
+	if (disr & MVX_DISR_A)
+		dev_err_ratelimited(hwreg->dev,
+			"drained pending SError before VPU probe (DISR_EL1=0x%016llx)\n",
+			disr);
+}
+#else
+static inline uint32_t mvx_readl_safe(struct mvx_hwreg *hwreg,
+				      unsigned int offset)
+{
+	return readl(hwreg->registers + offset);
+}
+
+static inline void mvx_writel_safe(struct mvx_hwreg *hwreg,
+				   unsigned int offset, uint32_t value)
+{
+	writel(value, hwreg->registers + offset);
+}
+
+static inline uint32_t mvx_rcsu_readl_safe(struct mvx_hwreg *hwreg,
+					   unsigned int offset)
+{
+	return readl(hwreg->rcsu_registers + offset);
+}
+
+static inline void mvx_rcsu_writel_safe(struct mvx_hwreg *hwreg,
+					unsigned int offset, uint32_t value)
+{
+	writel(value, hwreg->rcsu_registers + offset);
+}
+
+static inline void mvx_hwreg_drain_serror(struct mvx_hwreg *hwreg)
+{
+}
+#endif
+
 uint32_t mvx_hwreg_read(struct mvx_hwreg *hwreg,
             enum mvx_hwreg_what what)
 {
     unsigned int offset = get_offset(what);
 
-    return readl(hwreg->registers + offset);
+    return mvx_readl_safe(hwreg, offset);
 }
 
 void mvx_hwreg_write(struct mvx_hwreg *hwreg,
@@ -522,7 +672,7 @@ void mvx_hwreg_write(struct mvx_hwreg *hwreg,
 {
     unsigned int offset = get_offset(what);
 
-    writel(value, hwreg->registers + offset);
+    mvx_writel_safe(hwreg, offset, value);
 }
 
 uint32_t mvx_hwreg_read_lsid(struct mvx_hwreg *hwreg,
@@ -531,7 +681,7 @@ uint32_t mvx_hwreg_read_lsid(struct mvx_hwreg *hwreg,
 {
     unsigned int offset = get_lsid_offset(lsid, what);
 
-    return readl(hwreg->registers + offset);
+    return mvx_readl_safe(hwreg, offset);
 }
 
 void mvx_hwreg_write_lsid(struct mvx_hwreg *hwreg,
@@ -541,7 +691,7 @@ void mvx_hwreg_write_lsid(struct mvx_hwreg *hwreg,
 {
     unsigned int offset = get_lsid_offset(lsid, what);
 
-    writel(value, hwreg->registers + offset);
+    mvx_writel_safe(hwreg, offset, value);
 }
 
 uint32_t mvx_hwreg_read_rcsu(struct mvx_hwreg *hwreg,
@@ -549,7 +699,7 @@ uint32_t mvx_hwreg_read_rcsu(struct mvx_hwreg *hwreg,
 {
     unsigned int offset = get_rcsu_offset(what);
 
-    return readl(hwreg->rcsu_registers + offset);
+    return mvx_rcsu_readl_safe(hwreg, offset);
 }
 
 void mvx_hwreg_write_rcsu(struct mvx_hwreg *hwreg,
@@ -558,7 +708,7 @@ void mvx_hwreg_write_rcsu(struct mvx_hwreg *hwreg,
 {
     unsigned int offset = get_rcsu_offset(what);
 
-    writel(value, hwreg->rcsu_registers + offset);
+    mvx_rcsu_writel_safe(hwreg, offset, value);
 }
 
 enum mvx_hw_id mvx_hwreg_get_hw_id(struct mvx_hwreg *hwreg)
@@ -568,6 +718,7 @@ enum mvx_hw_id mvx_hwreg_get_hw_id(struct mvx_hwreg *hwreg)
 
 int mvx_hwreg_init(struct mvx_hwreg *hwreg)
 {
+    mvx_hwreg_drain_serror(hwreg);
     int ret;
 
     ret = mvx_hwreg_hw_ver_construct(hwreg);
