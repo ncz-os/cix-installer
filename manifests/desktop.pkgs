@@ -406,3 +406,11 @@ powertop
 sysstat
 btop
 htop
+
+# --- filesystem tooling for the EFI System Partition ---------------------
+# dosfstools was missing from the installed system: mkfs.vfat/fsck.fat are not
+# present once d-i finishes, so a shipped machine could not create or repair its
+# own ESP -- found on O6N when preparing a UEFI BIOS-update stick, where
+# mkfs.vfat simply did not exist. It is already in mgmt.pkgs and rescue.pkgs;
+# the installed desktop needs it too.
+dosfstools
