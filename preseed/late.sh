@@ -524,7 +524,10 @@ esac
     else
         echo "[late/progress] bar will NOT advance -- text-only degraded mode"
     fi
-} 2>&1 | tee -a /var/log/cix-installer-late.log >&2 || true
+} 2>&1 | tee -a "$LOG" >&2 || true   # $LOG is /target/var/log/... (line 23);
+                                     # the bare /var/log path is the d-i ramdisk
+                                     # and is DISCARDED at reboot -- that is why the
+                                     # first KVM run produced no diagnostics at all.
 late_progress_state() {
     _event="$1"; _phase="$2"; _hook="$3"; _detail="$4"
     _now=$(date +%s 2>/dev/null || echo 0)
@@ -811,7 +814,8 @@ ncz_preserve_di_logs() {
     # dmesg gives the kernel-side timeline of the INSTALLER boot, which is a
     # different boot from the installed system's and is otherwise unrecoverable.
     dmesg > "$_dst/dmesg-installer.log" 2>/dev/null || true
-    cp -a /var/log/cix-installer-late.log "$_dst/" 2>/dev/null || true
+    # NOT /var/log/cix-installer-late.log: that is the d-i ramdisk copy which may
+    # not exist. The real log is $LOG, already on the target, so nothing to copy.
     sync 2>/dev/null || true
     echo "[late] preserved d-i logs to /var/log/installer on the target"
 }
