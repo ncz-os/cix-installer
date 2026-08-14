@@ -326,6 +326,28 @@ def intree_accel_findings(live):
     return errors, warnings
 
 
+def npu_intree_enabled(v):
+    """True if this variant's shipped config builds the NPU driver in-tree.
+
+    Invariant 4 forbids accelerators in the kernel config; the NPU therefore
+    ships as DKMS and is ABSENT from the modules tarball by design (meta-cix
+    6f8b01e set "# CONFIG_ARMCHINA_NPU is not set"). Invariant 1 predates that
+    and unconditionally demanded an NPU module, so the two contradicted each
+    other and every DKMS-correct kernel failed the check.
+    """
+    cfg = (v.get("config") or {}).get("file")
+    if not cfg:
+        return False
+    path = os.path.join(ROOT, cfg)
+    if not os.path.isfile(path):
+        return False
+    try:
+        text = "\n" + open(path, errors="replace").read()
+    except OSError:
+        return False
+    return "\nCONFIG_ARMCHINA_NPU=y\n" in text or "\nCONFIG_ARMCHINA_NPU=m\n" in text
+
+
 def cmd_check():
     errors, warnings = [], []
     live = build_live()
@@ -334,7 +356,12 @@ def cmd_check():
     for label, v in live["variants"].items():
         npu = v.get("npu")
         if not npu:
-            errors.append(f"[{label}] no NPU module found for kver={v['kver']}")
+            # Absent is CORRECT when the config does not build it: the NPU
+            # ships as DKMS under invariant 4. Only a config that claims to
+            # build the driver while shipping no module is a real defect.
+            if npu_intree_enabled(v):
+                errors.append(f"[{label}] config builds CONFIG_ARMCHINA_NPU but "
+                              f"no NPU module found for kver={v['kver']}")
         elif not npu.get("vermagic_matches_kver"):
             errors.append(f"[{label}] NPU vermagic {npu.get('vermagic')} != kver "
                           f"{v['kver']} ({npu.get('file')}) — module will not load")
