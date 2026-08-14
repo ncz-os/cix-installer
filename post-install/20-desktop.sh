@@ -558,6 +558,24 @@ theme-mode='dark'
 icon-theme='Singularity'
 background-picture-uri='file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg'
 recent-wallpapers=['file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg']
+# Pin the browsers and a terminal to the dock, grouped. The stock
+# dev.sinty.desktop pinned-apps default lists only the Sinty first-party apps,
+# so a fresh install from this branch had NO browser and NO terminal on the
+# dock -- including the two browser builds that are this platform's
+# differentiator. Confirmed on O6N with r237.
+#
+# This is a port of 0967db2 from feat/26.7-panthor-dkms, which never landed on
+# rtc-efi-rt, with two deliberate changes:
+#   - firefox-ncz-sky1.desktop is DROPPED. That branch ships Firefox; this one
+#     does not (no firefox .desktop on a r237 install), and pinning an absent
+#     app leaves a dead tile on the dock.
+#   - org.gnome.Console.desktop is ADDED. The original pinned no terminal at
+#     all. Console is the user-facing terminal here; foot is kept only as the
+#     fallback for the scripted NCZ installer launchers (see above), so it is
+#     the wrong thing to put on the dock.
+# Every id below was verified present in /usr/share/applications or
+# /opt/singularity/share/applications on a real r237 install.
+pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'org.gnome.Console.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
 GSCHEMA
     glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
         echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
