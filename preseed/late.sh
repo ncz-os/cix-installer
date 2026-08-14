@@ -502,6 +502,29 @@ PROGRESS_STATE=/target/var/log/cix-install/progress.state
 case "${NCZ_PROGRESS_UNITS:-0}" in
     ''|*[!0-9]*) NCZ_PROGRESS_UNITS=0 ;;
 esac
+
+# --- NCZ PROGRESS DIAGNOSTICS -------------------------------------------
+# The parent bar advances only when ALL THREE of these hold:
+#   DEBCONF_OK = 1, NCZ_PROGRESS_UNITS > 0, hb_total > 0
+# When the bar sat frozen through an entire install (reported 2026-08-14),
+# none of the three could be recovered afterwards, because nothing logged
+# them -- progress.state proved hb_total was 53, and that was the only one of
+# the three that left any trace. The finish-install patch that exports
+# NCZ_PROGRESS_UNITS was verified present in the shipped pool udeb (3 hits)
+# and absent from the initrd (which carries no finish-install at all), so the
+# patched copy is the one that runs and the variable SHOULD arrive here.
+# Log all of it, once, so the next frozen bar names its own cause.
+{
+    echo "[late/progress] DEBCONF_OK=${DEBCONF_OK:-unset}"
+    echo "[late/progress] NCZ_PROGRESS_UNITS=${NCZ_PROGRESS_UNITS:-unset}"
+    echo "[late/progress] NCZ_PROGRESS_CONSUMED_FILE=${NCZ_PROGRESS_CONSUMED_FILE:-unset}"
+    echo "[late/progress] partsdir 07preseed: $(ls -l /usr/lib/finish-install.d/07preseed 2>&1 | head -1)"
+    if [ "${NCZ_PROGRESS_UNITS:-0}" -gt 0 ] 2>/dev/null && [ "${DEBCONF_OK:-0}" = 1 ]; then
+        echo "[late/progress] bar WILL advance"
+    else
+        echo "[late/progress] bar will NOT advance -- text-only degraded mode"
+    fi
+} 2>&1 | tee -a /var/log/cix-installer-late.log >&2 || true
 late_progress_state() {
     _event="$1"; _phase="$2"; _hook="$3"; _detail="$4"
     _now=$(date +%s 2>/dev/null || echo 0)
@@ -767,7 +790,34 @@ ncz_bootable() {
 # here is clean + deterministic on the unattended path; r181 uses the SAME path
 # for the interactive install (after the operator dismisses the remove-media
 # dialog). rEFInd is already synced to the FAT ESP and the root fs is journaled.
+# Preserve the installer's OWN logs before we reboot.
+#
+# d-i normally copies /var/log/syslog into /target/var/log/installer/ during
+# finish-install's own tail end. We deliberately reboot ourselves instead of
+# returning to that menu (see ncz_force_reboot below), so that copy never
+# happens and every install throws away the only timestamped record of the d-i
+# session. That cost a diagnosis on 2026-08-14: an operator reported ~15s of
+# black screen during d-i startup and there was nothing on the installed
+# system to measure it with -- /var/log/installer did not exist.
+#
+# The installer console is tty0 + ttyAMA2 while the serial capture rig watches
+# ttyAMA0, so serial is not a substitute here.
+ncz_preserve_di_logs() {
+    _dst=/target/var/log/installer
+    mkdir -p "$_dst" 2>/dev/null || return 0
+    for _f in /var/log/syslog /var/log/partman /var/log/hardware-summary; do
+        [ -r "$_f" ] && cp -a "$_f" "$_dst/" 2>/dev/null || true
+    done
+    # dmesg gives the kernel-side timeline of the INSTALLER boot, which is a
+    # different boot from the installed system's and is otherwise unrecoverable.
+    dmesg > "$_dst/dmesg-installer.log" 2>/dev/null || true
+    cp -a /var/log/cix-installer-late.log "$_dst/" 2>/dev/null || true
+    sync 2>/dev/null || true
+    echo "[late] preserved d-i logs to /var/log/installer on the target"
+}
+
 ncz_force_reboot() {
+    ncz_preserve_di_logs
     echo "[late r181] forcing clean reboot ($1) — rEFInd on ESP; not relying on finish-install menu"
     ttymsg "install complete — rebooting into ${NCZ_RELEASE_LABEL}" 2>/dev/null || true
     db_try db_set  debian-installer/exit/reboot true

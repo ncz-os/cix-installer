@@ -140,9 +140,16 @@ CI_WORK="$(mktemp -d /tmp/ncz-sync-ci.XXXXXX)"
 CI_BRANCH="upstream-mirror-ci"
 if git clone --quiet --no-checkout "$WORKDIR" "$CI_WORK/repo" 2>/dev/null \
    && git -C "$CI_WORK/repo" checkout --quiet -B "$CI_BRANCH" "$UPSTREAM_SHA" 2>/dev/null; then
-    # Take .buildkite/ from OUR fork's master, never from upstream.
+    # Take the downstream BUILD TOOLING from OUR fork's master, never from
+    # upstream: .buildkite/ (the pipeline), scripts/ (apply-downstream-patches.sh)
+    # and patches/ (the vendored series it applies). Overlaying only .buildkite
+    # was not enough -- build #62 died with
+    #   bash: scripts/apply-downstream-patches.sh: No such file or directory
+    # because the pipeline drives that script. Note the patch series failing to
+    # apply against newer upstream is a REAL signal, not a flaw in this overlay:
+    # it is precisely what a daily upstream build is supposed to detect.
     if git -C "$CI_WORK/repo" fetch --quiet "$GITLAB_URL" "refs/heads/master:refs/remotes/ncz/master" 2>/dev/null \
-       && git -C "$CI_WORK/repo" checkout --quiet "refs/remotes/ncz/master" -- .buildkite 2>/dev/null; then
+       && git -C "$CI_WORK/repo" checkout --quiet "refs/remotes/ncz/master" -- .buildkite scripts patches 2>/dev/null; then
         git -C "$CI_WORK/repo" -c user.name="ncz-singularity-sync" \
             -c user.email="nczero@nclawzero.dev" \
             commit --quiet -m "ci: overlay downstream .buildkite on upstream $UPSTREAM_SHA" 2>/dev/null || true
@@ -201,17 +208,35 @@ STAGE_NAME="singularity-opt-${DATE_TAG}-${UPSTREAM_SHA:0:12}.tgz"
 TMP_ART="/tmp/${STAGE_NAME}"
 
 log "downloading artifact singularity-opt.tgz from build #$BUILD_NUM"
-JOB_ID="$(curl -sS -H "Authorization: Bearer ${BUILDKITE_TOKEN}" \
+# Find the job that actually HAS the artifact, instead of assuming jobs[0].
+# jobs[0] is the ":pipeline: upload dynamic pipeline" step and carries no
+# artifacts at all; the payload is uploaded by the meson build job, jobs[1].
+# Hardcoding [0] made every run die with "singularity-opt.tgz artifact not
+# found" the moment a build finally passed -- which is why artifact staging had
+# never once executed. Verified against build #64:
+#   jobs[0] :pipeline: upload dynamic pipeline   artifacts=[]
+#   jobs[1] :gear: ... meson build (arm64)       artifacts=['singularity-opt.tgz']
+JOB_ID=""
+ARTIFACT_ID=""
+for _jid in $(curl -sS -H "Authorization: Bearer ${BUILDKITE_TOKEN}" \
     "https://api.buildkite.com/v2/organizations/${BUILDKITE_ORG}/pipelines/${BUILDKITE_PIPELINE}/builds/${BUILD_NUM}" \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["jobs"][0]["id"])' 2>/dev/null)"
-[ -n "$JOB_ID" ] || fail "could not resolve job id for artifact download"
-
-ARTIFACT_ID="$(curl -sS -H "Authorization: Bearer ${BUILDKITE_TOKEN}" \
-    "https://api.buildkite.com/v2/organizations/${BUILDKITE_ORG}/pipelines/${BUILDKITE_PIPELINE}/builds/${BUILD_NUM}/jobs/${JOB_ID}/artifacts" \
     | python3 -c 'import json,sys
-for a in json.load(sys.stdin):
-    if a.get("filename")=="singularity-opt.tgz":
-        print(a["id"]); break' 2>/dev/null)"
+d=json.load(sys.stdin)
+for j in d.get("jobs", []):
+    if j.get("id"): print(j["id"])' 2>/dev/null); do
+    _aid="$(curl -sS -H "Authorization: Bearer ${BUILDKITE_TOKEN}" \
+        "https://api.buildkite.com/v2/organizations/${BUILDKITE_ORG}/pipelines/${BUILDKITE_PIPELINE}/builds/${BUILD_NUM}/jobs/${_jid}/artifacts" \
+        | python3 -c 'import json,sys
+try:
+    for a in json.load(sys.stdin):
+        if a.get("filename") == "singularity-opt.tgz":
+            print(a["id"]); break
+except Exception:
+    pass' 2>/dev/null)"
+    if [ -n "$_aid" ]; then JOB_ID="$_jid"; ARTIFACT_ID="$_aid"; break; fi
+done
+[ -n "$JOB_ID" ] || fail "no job on build #$BUILD_NUM carries singularity-opt.tgz"
+
 [ -n "$ARTIFACT_ID" ] || fail "singularity-opt.tgz artifact not found on build #$BUILD_NUM"
 
 curl -sS -L -H "Authorization: Bearer ${BUILDKITE_TOKEN}" \
