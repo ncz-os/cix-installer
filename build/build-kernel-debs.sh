@@ -547,6 +547,26 @@ EOF
     dpkg-deb --root-owner-group --build "$root" "$OUT/${pkg}_${ver}_arm64.deb"
 }
 
+# ---------------------------------------------------------------------------
+# MANDATORY KERNEL BOOT GATE (operator directive, 2026-08-14).
+#
+# No kernel gets packaged without being booted first. r236 shipped a kernel
+# that panicked at 1.2s into every boot of the installed system
+# (cdns3_pci_probe NULL deref, PID 1, reboot loop) -- the installer booted
+# fine, so nothing downstream of this script could have caught it.
+#
+# The gate boots the staged Image under qemu/KVM and additionally refuses any
+# builtin driver whose PCI match table collides with an ID Sky1 itself
+# presents. See build/kvm-kernel-gate.sh for why both halves are needed.
+# ---------------------------------------------------------------------------
+if [ -s "$ASSETS/edge/Image-cixmini.bin" ]; then
+    echo ""
+    echo "== kernel boot gate =="
+    "$REPO/build/kvm-kernel-gate.sh" "$ASSETS/edge/Image-cixmini.bin" \
+        || { echo "ERROR: kernel boot gate failed -- refusing to package this kernel." >&2; exit 1; }
+    echo ""
+fi
+
 build_cixmini_boot
 
 # ONE KERNEL TREE (operator, 2026-08-10): 26.7 ships 7.2.0-rc7-sky1-ncz and only
