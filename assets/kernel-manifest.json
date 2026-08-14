@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-08-14T15:46:03Z",
+  "generated_utc": "2026-08-14T22:10:41Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
@@ -16,27 +16,21 @@
     "edge": {
       "config": {
         "file": "assets/kernel/edge/config-7.2.0-rc7-sky1-ncz",
-        "sha256": "17717f7f9823a6d90a20ec084ffdc9affe91c8301557d36951a86cdc3e88ea26"
+        "sha256": "5cdff128c9d06b0656fa8e88d5eed14aa2ee7e44fc2dfb037e7f4538a3029e87"
       },
       "dir": "assets/kernel/edge",
       "image": {
         "file": "assets/kernel/edge/Image-cixmini.bin",
-        "sha256": "2032063a0fe073ad340af40c9d32a09f27399bccd958c7f2db3a12231c448449",
-        "size": 46680576
+        "sha256": "43eb67a26a5dfbcd5392ec5164459cd2e0b8732e4b8eb65590f36c44a3302d88",
+        "size": 46811648
       },
       "kver": "7.2.0-rc7-sky1-ncz",
       "modules": {
         "file": "assets/kernel/edge/modules-cixmini.tgz",
-        "sha256": "d4812286f707b7aa58946aa76d96f6c64f3f5f61eefa695b7a59b762fe9c0b53",
-        "size": 5692576
+        "sha256": "baf4ee90df4a55b973510183cdbf3ef2346f003a3549d1b6334eb37cb133bc55",
+        "size": 5646622
       },
-      "npu": {
-        "file": "assets/kernel/edge/modules-cixmini.tgz:lib/modules/7.2.0-rc7-sky1-ncz/kernel/drivers/misc/armchina-npu/armchina_npu.ko.xz",
-        "sha256": "66b2b9529ee1f978ae589fdb25752b94f16e4e2f38825eeb28dbd0ab6323a9ee",
-        "source": "in-tree",
-        "vermagic": "7.2.0-rc7-sky1-ncz",
-        "vermagic_matches_kver": true
-      }
+      "npu": null
     }
   }
 }
