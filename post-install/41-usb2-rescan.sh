@@ -73,7 +73,31 @@ keyboard_present() {
   return 1
 }
 
-for try in 1 2 3 4 5 6 7 8 9 10 11 12; do
+# Pre-rebind grace: 1s, NOT 3s. This unit is ordered After=systemd-udev-settle,
+# so if the keyboard were going to enumerate on its own it would already be
+# present -- a longer wait cannot make an affected controller work, it only
+# delays the rebind that does. Measured on O6N with r239:
+#
+#   ncz-usb2-rescan: keyboard absent after 3s; rebinding xhci-hcd.3.auto only
+#   ncz-usb2-rescan: keyboard present after rebind; recovery complete
+#
+# i.e. the full grace elapsed with nothing, then the device appeared ~1.7s
+# after the rebind. The 3s was pure dead time on every boot of affected
+# hardware, and it is NOT free: greetd.service is ordered After= this unit, so
+# it sits directly in the path to the login screen. systemd-analyze
+# critical-chain on that boot:
+#
+#   graphical.target @8.843s
+#   └─greetd.service @7.738s +184ms
+#     └─ncz-usb2-rescan.service @2.031s +5.704s
+#
+# The boot splash is downstream of the same delay -- it ran 6.864s wall for
+# only 1.571s CPU because it waits to hand off to greetd, and finished within
+# a second of greetd coming up. So this one wait inflates both.
+#
+# The early-exit path is unchanged: hardware that enumerates normally still
+# exits immediately without a rebind.
+for try in 1 2 3 4; do
   if keyboard_present; then
     logger -t ncz-usb2-rescan "keyboard present; recovery not needed"
     exit 0
@@ -116,7 +140,7 @@ if [ "$has_storage" -eq 1 ]; then
   exit 0
 fi
 
-logger -t ncz-usb2-rescan "keyboard absent after 3s; rebinding $keyboard_ctrl only"
+logger -t ncz-usb2-rescan "keyboard absent after 1s grace; rebinding $keyboard_ctrl only"
 echo "$keyboard_ctrl" > "$DRV/unbind" 2>/dev/null
 sleep 1
 echo "$keyboard_ctrl" > "$DRV/bind" 2>/dev/null
