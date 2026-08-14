@@ -347,3 +347,62 @@ tzdata
 # fallback has to actually work when uv is unavailable.
 python3-venv
 python3-pip
+
+# ---------------------------------------------------------------------------
+# HARDWARE EXPLOITATION AND WAYLAND/CLI TOOLING (audited on a live r239 install,
+# 2026-08-14). Everything below was MISSING from the shipped image while the
+# hardware or the desktop stack was already capable of using it.
+#
+# Wayland session capability
+#   xdg-desktop-portal-wlr  Screencast/screenshot portal for wlroots. Without it
+#                           SCREEN SHARING CANNOT WORK on this desktop -- labwc is
+#                           wlroots-based and only xdg-desktop-portal + -gtk were
+#                           installed. PipeWire 1.6.8 is already present, so this
+#                           is the one missing link in the chain.
+#   wl-clipboard            wl-copy/wl-paste. Baseline Wayland CLI clipboard; the
+#                           image shipped with no command-line clipboard at all.
+#   wlr-randr               Output/mode configuration from the CLI (4K, multi-head).
+#   wf-recorder             Screen recording; can drive the Linlon H.264 encoder.
+#   wev                     Input/event debugging -- directly useful on this board,
+#                           where USB keyboards need an xhci rebind to enumerate.
+#
+# Media / VPU
+#   gstreamer1.0-tools      gst-launch-1.0 / gst-inspect-1.0. The v4l2 codec plugins
+#                           (libgstv4l2codecs.so, libgstvideo4linux2.so) are ALREADY
+#                           installed but unusable from the shell without these, and
+#                           GStreamer's v4l2h264enc is the alternative to ffmpeg's
+#                           v4l2m2m encoder, which SIGSEGVs on teardown (upstream bug).
+#
+# Hardware diagnostics the box has hardware for
+#   nvme-cli                NVMe is the root device; SMART/temperature/namespace.
+#   smartmontools           Disk health.
+#   ethtool                 10GbE link, ring and offload inspection/tuning.
+#   iperf3                  Actually validate that 10GbE.
+#   lm-sensors              CLI counterpart to the desktop sensors panel.
+#   powertop                Power/idle analysis, relevant to the perf-mode work.
+#   sysstat                 iostat/mpstat/sar for performance investigation.
+#   btop, htop              Process and resource monitors.
+#
+# nvme-cli, smartmontools, ethtool and htop were already IN the offline pool as
+# transitive dependencies but were never seeded, so they never got installed.
+# Seeding them here costs no extra download.
+#
+# NOTE: the GPU also exposes OpenCL (clinfo reports ARM Platform /
+# Mali-G720-Immortalis r0p0). With the NPU unusable (no userspace driver on the
+# image at all), OpenCL on the GPU is currently the only working compute path.
+# ---------------------------------------------------------------------------
+xdg-desktop-portal-wlr
+wl-clipboard
+wlr-randr
+wf-recorder
+wev
+gstreamer1.0-tools
+nvme-cli
+smartmontools
+ethtool
+iperf3
+lm-sensors
+powertop
+sysstat
+btop
+htop
