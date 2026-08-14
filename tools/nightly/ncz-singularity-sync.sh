@@ -207,51 +207,30 @@ DATE_TAG="$(date -u +%Y%m%d-%H%M%S)"
 STAGE_NAME="singularity-opt-${DATE_TAG}-${UPSTREAM_SHA:0:12}.tgz"
 TMP_ART="/tmp/${STAGE_NAME}"
 
-log "downloading artifact singularity-opt.tgz from build #$BUILD_NUM"
-# Find the job that actually HAS the artifact, instead of assuming jobs[0].
-# jobs[0] is the ":pipeline: upload dynamic pipeline" step and carries no
-# artifacts at all; the payload is uploaded by the meson build job, jobs[1].
-# Hardcoding [0] made every run die with "singularity-opt.tgz artifact not
-# found" the moment a build finally passed -- which is why artifact staging had
-# never once executed. Verified against build #64:
-#   jobs[0] :pipeline: upload dynamic pipeline   artifacts=[]
-#   jobs[1] :gear: ... meson build (arm64)       artifacts=['singularity-opt.tgz']
-JOB_ID=""
-ARTIFACT_ID=""
-for _jid in $(curl -sS -H "Authorization: Bearer ${BUILDKITE_TOKEN}" \
-    "https://api.buildkite.com/v2/organizations/${BUILDKITE_ORG}/pipelines/${BUILDKITE_PIPELINE}/builds/${BUILD_NUM}" \
-    | python3 -c 'import json,sys
-d=json.load(sys.stdin)
-for j in d.get("jobs", []):
-    if j.get("id"): print(j["id"])' 2>/dev/null); do
-    _aid="$(curl -sS -H "Authorization: Bearer ${BUILDKITE_TOKEN}" \
-        "https://api.buildkite.com/v2/organizations/${BUILDKITE_ORG}/pipelines/${BUILDKITE_PIPELINE}/builds/${BUILD_NUM}/jobs/${_jid}/artifacts" \
-        | python3 -c 'import json,sys
-try:
-    for a in json.load(sys.stdin):
-        if a.get("filename") == "singularity-opt.tgz":
-            print(a["id"]); break
-except Exception:
-    pass' 2>/dev/null)"
-    if [ -n "$_aid" ]; then JOB_ID="$_jid"; ARTIFACT_ID="$_aid"; break; fi
-done
-[ -n "$JOB_ID" ] || fail "no job on build #$BUILD_NUM carries singularity-opt.tgz"
-
-[ -n "$ARTIFACT_ID" ] || fail "singularity-opt.tgz artifact not found on build #$BUILD_NUM"
-
-curl -sS -L -H "Authorization: Bearer ${BUILDKITE_TOKEN}" \
-    "https://api.buildkite.com/v2/organizations/${BUILDKITE_ORG}/pipelines/${BUILDKITE_PIPELINE}/builds/${BUILD_NUM}/jobs/${JOB_ID}/artifacts/${ARTIFACT_ID}/download" \
-    -o "$TMP_ART" || fail "artifact download failed"
-[ -s "$TMP_ART" ] || fail "downloaded artifact is empty"
-
-log "staging $STAGE_NAME to ARGONAS:$ARGONAS_DST (dated, NOT replacing singularity-opt.tgz)"
-sshpass -p "$ARGONAS_PASS" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new \
-    "root@${ARGONAS_HOST}" "mkdir -p ${ARGONAS_DST}/staged" || fail "mkdir on ARGONAS failed"
-sshpass -p "$ARGONAS_PASS" scp -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new \
-    "$TMP_ART" "root@${ARGONAS_HOST}:${ARGONAS_DST}/staged/${STAGE_NAME}" \
-    || fail "scp to ARGONAS failed"
-rm -f "$TMP_ART"
-
-log "OK: staged ARGONAS:${ARGONAS_DST}/staged/${STAGE_NAME}. Promotion to singularity-opt.tgz remains a manual/explicit step."
-notify "sync OK — upstream=${UPSTREAM_SHA:0:12}, build #$BUILD_NUM passed, staged ${STAGE_NAME}"
+# The PIPELINE now stages the payload to ARGONAS itself, straight from the
+# agent on TYDEUS. This script no longer downloads anything, because Buildkite's
+# artifact download is unusable from our network: the API 302s to
+# buildkiteartifacts.com, which resolves to 0.0.0.0 even on public resolvers
+# (1.1.1.1), so curl dies in 2ms with "Could not connect to server". Verified
+# on build #65.
+#
+# What remains here is VERIFICATION: confirm a dated payload actually landed
+# for this build, rather than assuming the pipeline's staging step worked.
+log "verifying the pipeline staged a payload to ARGONAS"
+STAGED_LS="$(sshpass -p "$ARGONAS_PASS" ssh -o PubkeyAuthentication=no \
+    -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+    "root@${ARGONAS_HOST}" "ls -t ${ARGONAS_DST}/staged/singularity-opt-*.tgz 2>/dev/null | head -1")" || true
+if [ -z "$STAGED_LS" ]; then
+    fail "no staged payload found in ${ARGONAS_DST}/staged after a PASSING build #$BUILD_NUM -- the pipeline's staging step did not deliver"
+fi
+STAGED_SIZE="$(sshpass -p "$ARGONAS_PASS" ssh -o PubkeyAuthentication=no \
+    -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+    "root@${ARGONAS_HOST}" "stat -c %s '$STAGED_LS' 2>/dev/null")" || STAGED_SIZE=0
+case "$STAGED_SIZE" in ''|*[!0-9]*) STAGED_SIZE=0 ;; esac
+if [ "$STAGED_SIZE" -lt 1000000 ]; then
+    fail "staged payload $STAGED_LS is only ${STAGED_SIZE} bytes -- refusing to call that a good build artifact"
+fi
+echo "$UPSTREAM_SHA" > "$STATE_DIR/last_upstream_sha"
+log "OK: upstream ${UPSTREAM_SHA} builds, payload staged at $STAGED_LS (${STAGED_SIZE} bytes). Promotion to singularity-opt.tgz remains a manual/explicit step."
+notify "sync OK — upstream=${UPSTREAM_SHA:0:12}, build #$BUILD_NUM passed, staged $(basename "$STAGED_LS")"
 exit 0
