@@ -161,6 +161,54 @@ done
 # is preserved. Real fix is upstream at Cix — they need to either ship
 # the cix_init etc. files or drop the rename block.
 # ----------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Second cix-debian-misc initramfs defect: its hooks/cix_ko does
+#
+#   cp -r /lib/modules/${version}/kernel/drivers/gpu/drm/cix ${DESTDIR}/...
+#
+# A raw cp performs NO dependency resolution. linlon-dp.ko therefore lands in
+# the initramfs WITHOUT drm_dma_helper.ko, even though modules.dep declares
+# the dependency. Measured on O6N with r237:
+#
+#   [2.517165] linlon_dp: Unknown symbol drm_gem_dma_get_sg_table (err -2)
+#   ... 11 unresolved drm_gem_dma_* / drm_fb_dma_* symbols, load FAILS
+#   [4.534194] linlondp_platform_probe enter        <- only after root mounts
+#   [4.536218] Console: switching to colour dummy device 80x25
+#
+# i.e. the display cannot come up during initramfs at all; it appears ~2s
+# later on the retry against the real root. Listing the r237 initrd showed 11
+# drm modules and zero matches for dma_helper.
+#
+# We add our OWN hook rather than editing cix_ko, because that file belongs to
+# cix-debian-misc and any fix written into it is reverted on package upgrade.
+# manual_add_modules resolves deps out of modules.dep, which is the whole
+# point. Verified on O6N: after this hook, drm_dma_helper is in the initrd and
+# the drm module count goes 11 -> 12.
+#
+# Note this is NOT fixable in the kernel config: CONFIG_DRM_GEM_DMA_HELPER is a
+# promptless tristate whose value is forced by its selectors, so setting it =y
+# in the defconfig is silently ignored (proven: the built .config is identical
+# with and without that line).
+# ----------------------------------------------------------------------
+echo "--- installing ncz-drm-deps initramfs hook (cix_ko copies linlon-dp without its deps) ---"
+install -d /etc/initramfs-tools/hooks
+cat > /etc/initramfs-tools/hooks/ncz-drm-deps <<'NCZDRMHOOK'
+#!/bin/sh
+# Pull the cix DRM drivers in WITH their dependencies. cix-debian-misc's
+# hooks/cix_ko cp -r's them in without any, which leaves linlon-dp.ko in the
+# initramfs missing drm_dma_helper.ko and costs ~2s of black screen at boot.
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in
+    prereqs) prereqs; exit 0;;
+esac
+. /usr/share/initramfs-tools/hook-functions
+manual_add_modules linlon_dp
+manual_add_modules trilin_dpsub
+NCZDRMHOOK
+chmod 0755 /etc/initramfs-tools/hooks/ncz-drm-deps
+echo "[25] ncz-drm-deps hook installed (initramfs regenerated later by 58-boot-hygiene)"
+
 CDM_ORIG="$ASSETS/cix-debian-misc_1.0.0_arm64.deb"
 CDM_PATCHED=/tmp/cix-debian-misc-noinitrd-patch.deb
 if [ -f "$CDM_ORIG" ]; then
