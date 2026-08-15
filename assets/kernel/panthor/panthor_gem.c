@@ -107,7 +107,7 @@ should_map_wc(struct panthor_gem_object *bo)
 	 * CPU cache maintenance regardless of whether the device is coherent
 	 * or not.
 	 */
-	if (ptdev->coherent)
+	if (ptdev->coherency_mode == PANTHOR_COHERENCY_ACE)
 		return false;
 
 	/* Cached mappings are explicitly requested, so no write-combine. */
