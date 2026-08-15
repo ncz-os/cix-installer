@@ -75,17 +75,53 @@ echo "[88] venv: $VENV ($("$VENV/bin/python" --version 2>&1))"
     || echo "[88] WARNING: wheel install into $VENV failed"
 
 # --- let the deb finish configuring, using the venv's pip --------------------
-if [ "$(dpkg -s cix-noe-umd 2>/dev/null | awk '/^Status:/{print $4}')" != "installed" ]; then
-    echo "[88] completing cix-noe-umd configuration via the venv interpreter"
-    cat > /usr/local/bin/pip3 <<EOF
+# --- let the deb finish configuring ------------------------------------------
+# The obvious approach -- drop a pip3 shim in /usr/local/bin and let the vendor
+# postinst pick it up -- DOES NOT WORK, and silently. dpkg runs maintainer
+# scripts with a fixed PATH that does not include /usr/local/bin:
+#
+#     POSTINST PATH=[/usr/sbin:/usr/bin:/sbin:/bin]      (measured on forky)
+#
+# so the shim is invisible and /usr/bin/pip3 (system python 3.14) runs anyway,
+# fails the Requires-Python bound, and leaves the package half-configured "iF".
+# That state blocks EVERY later apt transaction on the image, which is how a
+# shipped board ended up unable to install anything at all.
+#
+# So rewrite the postinst to target the venv directly. The original is kept as
+# .ncz-orig for reference. This is idempotent: re-running rewrites the same
+# content, and the replacement always exits 0 so a vendor userspace blob can
+# never wedge apt again.
+PI=/var/lib/dpkg/info/cix-noe-umd.postinst
+if [ -f "$PI" ]; then
+    [ -f "${PI}.ncz-orig" ] || cp "$PI" "${PI}.ncz-orig"
+    cat > "$PI" <<EOF
 #!/bin/sh
-exec $VENV/bin/python -m pip "\$@"
+# Rewritten by cix-installer hook 88-noe-umd-venv.sh.
+# The cix-noe-umd wheels are tagged py3-none but ship CPython ABI objects for
+# 3.11/3.12 only, and libnoe/__init__.py hard-raises on anything else. Debian
+# forky ships python3.14, so the vendor's system-wide pip3 install can never
+# succeed. Install into the NCZ venv instead, and never exit non-zero.
+set -u
+VENV=$VENV
+UV=\$(command -v uv || echo /usr/local/bin/uv)
+if [ -x "\$UV" ] && [ -x "\$VENV/bin/python" ]; then
+    "\$UV" pip install --python "\$VENV/bin/python" \\
+        /usr/share/cix/pypi/libnoe-*.whl \\
+        /usr/share/cix/pypi/NOE_Engine-*.whl numpy >/dev/null 2>&1 \\
+        || echo "cix-noe-umd: wheel install into \$VENV failed" >&2
+else
+    echo "cix-noe-umd: no venv/uv; NPU userspace not installed" >&2
+fi
+exit 0
 EOF
-    chmod 0755 /usr/local/bin/pip3
+    chmod 0755 "$PI"
+fi
+
+if [ "$(dpkg -s cix-noe-umd 2>/dev/null | awk '/^Status:/{print $4}')" != "installed" ]; then
+    echo "[88] completing cix-noe-umd configuration"
     dpkg --configure cix-noe-umd >/dev/null 2>&1 \
         && echo "[88] cix-noe-umd configured" \
         || echo "[88] WARNING: cix-noe-umd still not configured"
-    rm -f /usr/local/bin/pip3
 fi
 
 # --- verify, and say plainly whether inference is actually possible ----------
