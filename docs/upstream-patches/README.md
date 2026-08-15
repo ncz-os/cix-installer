@@ -13,6 +13,9 @@ first analysed here, because nobody looked (CLAUDE.md directive 17).
 | 3 | GTK4 xdg_surface stale buffer | gitlab.gnome.org/GNOME/gtk | needs GNOME account | logs published |
 | 4 | CIX 00114 drops a UAPI field | github.com/cixtech/cix-linux-main | none — comment/issue | code read |
 | 5 | gtk4-layer-shell#130 → close | github.com/wmww/gtk4-layer-shell | maintainer decision | already argued |
+| 6 | panthor: Sky1 ACPI shader-stack clock | dri-devel / panthor | none — ready to send | proven on O6N |
+| 7 | panthor: block power-on readiness poll | dri-devel / panthor | none — ready to send | code read |
+| 8 | amvx: coded size excludes visible rect | CIX / cixtech | needs investigation | Chromium logs |
 
 Accounts needed: **gitlab.freedesktop.org** (1) and **gitlab.gnome.org** (3).
 Both are operator actions; 2, 4 and 5 can go today.
@@ -114,3 +117,105 @@ Our own PR. The evidence now says the defect is in GTK (see 3), and it
 reproduces with the library removed. Merging a workaround into gtk4-layer-shell
 would have that project carrying someone else's bug. We have already put this to
 the maintainer; the decision is hers.
+
+
+## 6. panthor — enable the shader-stack clock under ACPI (Sky1)
+
+**The most valuable thing in this list.** Under ACPI there is no "stacks" clkdev
+entry, so `devm_clk_get_optional(dev, "stacks")` returns NULL, the later
+`clk_prepare_enable()` is a silent no-op, and the shader-stack clock is never
+enabled. Any `SHADER_PWRON` — host- or firmware-initiated — then wedges forever
+in `SHADER_PWRTRANS`.
+
+Measured on O6N before the fix:
+
+    SHADER_READY=0x0  SHADER_PWRTRANS=0x550555   (all ten cores stuck >5s)
+    MCU_STATUS=1, GPU_FAULT_STATUS=0, TILER_READY=0x1, L2_READY=0x1
+    clk_summary: gpu_core (con_id gpu_clk_stacks) enable_count=0
+
+L2 and TILER live on `gpu_top`, which is why probe, firmware boot, MMU traffic
+and `vulkaninfo` all succeed while the first real shader job kills the GPU. A
+host-side `SHADER_PWRON` issued before MCU boot also sticks, which rules out
+firmware, CSG, GEM and scheduler explanations.
+
+`mali_kbase` gets this right by con_id: `clk_names[] = { "gpu_clk_core",
+"gpu_clk_stacks" }` (mali_kbase_core_linux.c).
+
+**Upstream status — VERIFIED AGAINST next-20260814, 15,435 commits since
+v7.2-rc7:** there is NO competing fix and no CIX ACPI support at all.
+`git grep -i acpi drivers/gpu/drm/panthor/` returns **0 hits**; `git log
+-S"SHADER_PWRON"` and `-S"PWRTRANS"` are both empty; `panthor_drv.c` matches only
+`mediatek,mt8196-mali`, `rockchip,rk3588-mali`, `arm,mali-valhall-csf` — no
+`acpi_device_id`. No `CIXH*` HID exists anywhere in the upstream tree.
+
+So this cannot be dropped on rebase and has no upstream owner. Submitting it is
+the single highest-leverage upstream action available to us. Note the likely
+review question: upstream will want the clock named in a binding rather than
+gated on an ACPI HID, so expect to argue the ACPI-vs-DT enumeration gap.
+
+Local commit: `38e5efd panthor(sky1): enable the shader-stack clock under ACPI`
+(also populates `clks.backup[]` with `gpu_clk_200M`/`gpu_clk_400M`, which the
+struct declared but never assigned).
+
+## 7. panthor — block power-on readiness poll is wrong (and truncates)
+
+    u32 val;
+    ... (mask & val) == val
+
+is satisfied when `val == 0`, i.e. it reports power-on SUCCESS while the block is
+still transitioning. Readiness means all requested bits ARE set: `(mask & val)
+== mask`. Both sites also feed `gpu_read64_relaxed_poll_timeout()`, so `val`
+must be `u64` — as written, any ready bit above bit 31 is invisible.
+
+Not the primary Sky1 killer (the firmware path does not use this helper), but a
+genuine defect that masked the stacks-clock failure from the host power-on path
+and makes L2 power-on a race generally. Correct-by-construction; no behavioural
+change has been demonstrated on its own.
+
+Local commit: `669edf5 panthor: fix block power-on readiness poll (u64 + wrong condition)`
+
+## 8. amvx — driver reports a coded size that excludes the visible rect
+
+From Chromium's V4L2 stateful decoder on real playback:
+
+    InitializeCAPTUREQueue(): Adjusted coded size 854x480 does not contain
+      visible rect 0,8 854x480; retrying with 864x496.
+    Driver cannot back visible rect 0,8 854x480 within 854x480; dropping its
+      origin and using 0,0 854x480.
+
+The mvx driver returns a coded size that does not cover the visible rectangle at
+y-offset 8. Chromium works around it and playback is correct (4K60 AV1 verified
+smooth), so this is a conformance/robustness issue rather than a functional one.
+Needs a minimal v4l2-ctl reproduction before filing.
+
+---
+
+# Pre-rebase checklist — DKMS panthor (NOT upstream work)
+
+Verified against `next-20260814`. **Do not pre-apply these against v7.2-rc7 —
+none of them compile there.** Apply at the moment of rebase.
+
+| what | where | why |
+|---|---|---|
+| add `.num_rqs = 1` | `panthor_mmu.c` `panthor_vm_create()`, `panthor_sched.c` `group_create_queue()` | drm/sched run-queue rework was REVERTED tree-wide on 2026-08-11; `num_rqs` is back. Ours is a designated initializer, so a missing field **compiles clean and defaults to 0** → `ZERO_SIZE_PTR` → init "succeeds" → dies on first entity. Silent GPU death. |
+| `is_cow_mapping(vma->vm_flags)` → `vma_is_cow_mapping(vma)` | `panthor_gem.c` | `1050f28d3e6a mm: provide vma_[flags_]is_cow_mapping() and remove is_cow_mapping()` — hard compile break |
+| drop `DRIVER_GEM_GPUVA` | `panthor_drv.c` | `21fcb222f0d1 drm: Remove DRIVER_GEM_GPUVA feature flag` — hard compile break |
+| `of_drm_get_panel_orientation()` → `drm_of_get_panel_orientation()` | kernel patches `0008`, `0058` | `b5a8b1f2a973` — `0058` anchors a hunk on the old `EXPORT_SYMBOL`, so it fails to APPLY, not just to build |
+
+**Trap:** the `num_rqs` API was removed *and* reverted inside the same range, so a
+commit-title scan shows both directions and reads as a no-op. Only the net header
+diff settles it.
+
+# Downstream patches to DROP on rebase
+
+- **`0138-clk-cix-sky1-bind-acpi-bus` + `0147-clk-cix-sky1-restore-platform-supplier`** —
+  an add/remove pair that nets to zero, and `0138` is built on `struct
+  acpi_driver`, which `541b293ab186 ACPI: bus: Eliminate struct acpi_driver`
+  deletes. (`acpi_driver_data()` still exists, so patch `0043` is unaffected.)
+- **Consider cherry-picking `3314c90a2eda pmdomain: arm: Fix -EINVAL from
+  scmi_pd_set_perf_state() on state 0`** (`Cc: stable`) — pairs with our
+  `0187-drm-panthor-route-scmi-dvfs-through-perf-opp` and may retire part of it.
+- **Check whether our six in-tree panthor patches are dead code.** The lean O6N
+  defconfig has `# CONFIG_DRM_PANTHOR is not set` — panthor ships DKMS-only, so
+  `0084`, `0086`, `0092`, `0094`, `0187`, `0033` may be patching source the
+  shipped kernel never compiles.
