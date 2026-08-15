@@ -136,7 +136,8 @@ chmod 0755 /usr/local/sbin/ncz-mali-kbase-allowed
 # oneshot: modinfo is evaluated against the running kernel and exit 1 from an
 # ExecCondition is a clean skip, while a real modprobe failure on edge remains
 # visible as a failed unit.
-if [ "$installed" -gt 0 ] || [ -e "$KDIR/updates/mali_kbase.ko" ] || [ -e "$KDIR/updates/mali_kbase.ko.xz" ]; then
+if [ "$installed" -gt 0 ] || [ -e "$KDIR/updates/mali_kbase.ko" ] || [ -e "$KDIR/updates/mali_kbase.ko.xz" ] \
+   || ls "$KDIR/updates/dkms/mali_kbase.ko"* >/dev/null 2>&1; then
     rm -f /etc/modules-load.d/cix-mali.conf
     cat > /etc/systemd/system/ncz-mali-kbase-load.service <<'EOF'
 [Unit]
@@ -166,8 +167,6 @@ else
     echo "[82] mali_kbase not installed — NOT adding modules-load (avoids a load failure loop)"
 fi
 
-echo "[82] mali GPU driver stage done for $KVER_NEXT"
-exit 0
 
 # --- DKMS WINS: retire the overlay once DKMS has produced modules -----------
 # The overlay installs into updates/ and DKMS into updates/dkms/; depmod prefers
@@ -191,3 +190,6 @@ if [ -n "${KVER_NEXT:-}" ] && [ -d "/usr/lib/modules/$KVER_NEXT/updates/dkms" ];
         echo "[82] WARN: no DKMS modules found — prebuilt overlay still carrying the GPU"
     fi
 fi
+
+echo "[82] mali GPU driver stage done for $KVER_NEXT"
+exit 0
