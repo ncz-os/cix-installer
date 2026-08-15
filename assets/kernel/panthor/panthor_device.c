@@ -49,6 +49,55 @@ static int panthor_clk_init(struct panthor_device *ptdev)
 				     PTR_ERR(ptdev->clks.stacks),
 				     "get 'stacks' clock failed");
 
+	/* Sky1/ACPI: there is no "stacks" clkdev entry under ACPI, so the
+	 * optional lookup above returns NULL and the shader-stack clock is
+	 * never enabled. With that clock off, ANY SHADER_PWRON -- host- or
+	 * firmware-initiated -- wedges forever in SHADER_PWRTRANS, which
+	 * surfaces much later as "CSG update request timedout", a failed CSG
+	 * suspend, a soft-reset timeout and a dead address space. L2 and TILER
+	 * live on gpu_top and are unaffected, which is exactly why probe,
+	 * firmware boot, MMU traffic and vulkaninfo all succeed while the first
+	 * real shader job kills the GPU.
+	 *
+	 * mali_kbase gets this right by asking for the clock by its clkdev
+	 * con_id: mali_kbase_core_linux.c clk_names[] = { "gpu_clk_core",
+	 * "gpu_clk_stacks" }. Mirror that name here.
+	 *
+	 * Measured on O6N: SHADER_READY=0x0 SHADER_PWRTRANS=0x550555 (all ten
+	 * cores stuck) with gpu_core enable_count=0; with this fix the clock
+	 * reports 1 GHz and shader work completes.
+	 */
+	if (!ptdev->clks.stacks && has_acpi_companion(ptdev->base.dev) &&
+	    acpi_dev_hid_match(ACPI_COMPANION(ptdev->base.dev), "CIXH5000"))
+		ptdev->clks.stacks = devm_clk_get_optional(ptdev->base.dev,
+							   "gpu_clk_stacks");
+
+	/* Sky1 backup clocks. The struct field existed but was never populated.
+	 * mali_kbase acquires and enables both at probe:
+	 *   backup_clk_names[] = { "gpu_clk_200M", "gpu_clk_400M" }
+	 *   devm_clk_get() then clk_prepare_enable(), tolerating absence.
+	 * Optional by design: a missing backup clock must not fail the probe.
+	 */
+	{
+		static const char * const backup_names[] = {
+			"gpu_clk_200M", "gpu_clk_400M",
+		};
+		unsigned int i;
+
+		for (i = 0; i < ARRAY_SIZE(ptdev->clks.backup); i++) {
+			ptdev->clks.backup[i] =
+				devm_clk_get_optional(ptdev->base.dev,
+						      backup_names[i]);
+			if (IS_ERR(ptdev->clks.backup[i])) {
+				drm_warn(&ptdev->base,
+					 "optional backup clock %s unavailable (%ld)\n",
+					 backup_names[i],
+					 PTR_ERR(ptdev->clks.backup[i]));
+				ptdev->clks.backup[i] = NULL;
+			}
+		}
+	}
+
 	ptdev->clks.coregroup = devm_clk_get_optional(ptdev->base.dev, "coregroup");
 	if (IS_ERR(ptdev->clks.coregroup))
 		return dev_err_probe(ptdev->base.dev,
@@ -645,6 +694,25 @@ int panthor_device_init(struct panthor_device *ptdev)
 		ret = clk_prepare_enable(ptdev->clks.core);
 		if (ret)
 			return ret;
+	}
+
+	/* The shader-stack clock must be running before any SHADER_PWRON or the
+	 * power transition never completes (see panthor_clk_init()). Mirror the
+	 * core-clock early enable above. clk_prepare_enable() is refcounted, so
+	 * this does not conflict with the resume path enabling it again.
+	 */
+	if (!IS_ERR_OR_NULL(ptdev->clks.stacks)) {
+		ret = clk_prepare_enable(ptdev->clks.stacks);
+		if (ret)
+			return ret;
+	}
+
+	for (unsigned int i = 0; i < ARRAY_SIZE(ptdev->clks.backup); i++) {
+		if (!IS_ERR_OR_NULL(ptdev->clks.backup[i])) {
+			ret = clk_prepare_enable(ptdev->clks.backup[i]);
+			if (ret)
+				return ret;
+		}
 	}
 
 	ret = panthor_pm_domain_init(ptdev);
