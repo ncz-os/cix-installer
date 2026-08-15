@@ -15,22 +15,27 @@
 #   2. defensively drops any /etc/systemd/system/dbus.service.d/ drop-in
 #      that pins the bus to dbus-daemon — apt's first install on a
 #      baked image can leave such drop-ins behind.
-#   3. enables dbus-broker.service FIRST and verifies the enablement
-#      via `systemctl is-enabled` BEFORE touching the legacy enablement.
-#      The broker's unit file ships:
+#   3. enables dbus-broker.service and verifies via `systemctl is-enabled`
+#      AND by inspecting the alias symlink. The broker's unit file ships:
 #
 #          [Install]
 #          Alias=dbus.service
 #
-#      so `systemctl enable dbus-broker.service` creates the
+#      so `systemctl enable dbus-broker.service` creates/rewrites the
 #      multi-user.target.wants/dbus.service symlink that the dbus
 #      package's own postinst created — that symlink now points at
 #      the broker, not the legacy daemon, and dbus.socket activates
-#      the broker on first connection.
-#   4. only when the broker is confirmed enabled, drops the legacy
-#      dbus.service enablement. If the broker could not be enabled,
-#      the legacy dbus.service enablement is left in place as a
-#      fallback so the box always has a system bus.
+#      the broker on first connection. The alias IS the replacement
+#      of the legacy enablement.
+#   4. does NOT disable dbus.service. The legacy "disable legacy after
+#      broker enable" pattern is actively harmful: `systemctl disable
+#      dbus.service` operates on the alias symlink the broker enablement
+#      just created and removes it, leaving the board with no system bus
+#      on the next boot. The alias replaces the legacy enablement; there
+#      is nothing left to disable, and disabling is destructive.
+#   5. If the broker could not be enabled, the legacy dbus.service
+#      enablement is left in place as a fallback so the box always has a
+#      system bus. The hook exits 0 honestly with the fallback logged.
 #
 # NOTE on masking: a `systemctl mask dbus.service` would be a no-op
 # here. The mask creates /etc/systemd/system/dbus.service →
@@ -38,10 +43,8 @@
 # dbus-broker.service means `systemctl enable dbus-broker.service`
 # re-creates the same symlink path on the next line, overwriting the
 # mask. (Verified against the shipped unit: dbus-broker 37-5 on arm64.)
-# The disable + enable pair below is the real mechanism; the
-# dbus-broker service itself prevents the race because dbus-broker
-# is the only unit that pulls in dbus.socket from dbus-system-bus-common
-# once the legacy enablement is gone.
+# We do not mask — and we do not disable — for the same reason: the
+# broker unit's [Install] section rewrites dbus.service.
 #
 # Idempotent: re-runnable; each step is guarded by dpkg / systemctl so
 # a partially-applied prior run completes cleanly.
@@ -83,28 +86,53 @@ if [ -d /etc/systemd/system/dbus.service.d ]; then
     echo "[91] removed /etc/systemd/system/dbus.service.d (would block dbus-broker activation)"
 fi
 
-# 3. enable dbus-broker.service FIRST, and prove it took effect before we
-#    touch the legacy dbus.service enablement. The broker's [Install] ships:
+# 3. enable dbus-broker.service and verify the enablement took effect.
+#    The broker's unit file ships:
 #
+#        [Install]
 #        Alias=dbus.service
 #
-#    so `systemctl enable dbus-broker.service` creates the
+#    so `systemctl enable dbus-broker.service` creates/rewrites the
 #    multi-user.target.wants/dbus.service symlink that the dbus package's
-#    postinst created — that symlink now points at the broker, not the
-#    legacy daemon, and dbus.socket activates the broker on first
-#    connection.
+#    postinst originally created — that symlink now points at the broker,
+#    not the legacy daemon. From systemd's point of view, dbus.service IS
+#    enabled after the alias takes effect; the symlink in
+#    multi-user.target.wants/ is what gets read on boot, and it points
+#    at the broker.
+#
+#    We MUST NOT disable dbus.service after enabling the broker. The
+#    legacy thinking was "broker replaces daemon, so disable the daemon
+#    to clean up", but the disable undoes the alias:
+#
+#      * `systemctl enable dbus-broker.service` writes
+#        /etc/systemd/system/multi-user.target.wants/dbus.service
+#        -> /lib/systemd/system/dbus-broker.service  (via Alias=dbus.service)
+#      * `systemctl disable dbus.service` then sees dbus.service enabled
+#        via that symlink, recognises it as coming from dbus-broker.service's
+#        [Install] section, and REMOVES the symlink it just created.
+#      * Result: the alias symlink is gone, dbus.service is no longer in
+#        multi-user.target.wants/, and on next boot nothing brings up the
+#        system bus. The broker is installed but not enabled.
+#
+#    The Alias=dbus.service mechanism IS the replacement of the legacy
+#    enablement. There is nothing left to disable — disabling is not just
+#    unnecessary, it is actively harmful.
 #
 #    We MUST NOT log success unconditionally. `cmd 2>&1 | tail -1` returns
 #    tail's exit status, not cmd's; the broker would silently stay disabled
 #    while the next line claims it is enabled, and on the next boot the box
 #    has no system bus. Verify the broker enablement via systemctl is-enabled
-#    before claiming it worked, and only then disable the legacy path.
-#    If the broker unit is not shipped (older releases), leave dbus.service
-#    alone — broker will activate via it as ExecStart, and we want it
-#    enabled. If the broker IS shipped but cannot be enabled, the legacy
-#    dbus.service enablement is left in place as a fallback, and the hook
-#    exits 0 honestly with the fallback logged.
-BROKER_OK=0   # 1 iff the broker enablement is verified
+#    before claiming it worked. If the broker unit is not shipped (older
+#    releases), leave dbus.service alone — broker will activate via it as
+#    ExecStart, and we want it enabled. If the broker IS shipped but cannot
+#    be enabled, leave the legacy dbus.service enablement in place as a
+#    fallback, and the hook exits 0 honestly with the fallback logged.
+#
+#    The re-verification MUST be the LAST check before printing DONE — we
+#    must never print DONE from a stale BROKER_OK. Any step that runs
+#    between the enable and the DONE line (e.g. daemon-reload) is a chance
+#    for state to drift, so we read is-enabled again right before logging.
+BROKER_OK=0   # 1 iff the broker enablement is verified live, end-of-hook
 if systemctl list-unit-files dbus-broker.service >/dev/null 2>&1; then
     # `systemctl enable` may print to stdout (the symlink path) and exit
     # 0 on success or non-zero on failure. Capture BOTH streams and the
@@ -120,51 +148,96 @@ if systemctl list-unit-files dbus-broker.service >/dev/null 2>&1; then
     # be already-enabled and print nothing useful, but exit 0.
     if [ "$ENABLE_RC" -eq 0 ] \
             && systemctl is-enabled dbus-broker.service >/dev/null 2>&1; then
-        BROKER_OK=1
         # Surface the systemctl enable output (last line is the symlink).
         printf '%s\n' "$ENABLE_OUT" | tail -n1
         echo "[91] dbus-broker.service enabled (alias dbus.service -> broker; owns system bus)"
+        # Mark the broker as provisionally enabled. This is the input
+        # to the RE-VERIFY block below; the re-verify may still reset
+        # BROKER_OK to 0 if the alias symlink drifted or daemon-reload
+        # changed is-enabled's answer. We never print DONE from this
+        # value alone — only from the post-reload, post-symlink-check
+        # BROKER_OK.
+        BROKER_OK=1
     else
-        # DO NOT touch the legacy dbus.service enablement in this
-        # branch — the broker would own the bus name while being
-        # disabled, leaving the board with no system bus. Log the
-        # failure honestly and fall through to the legacy keep-alive
-        # path below.
+        # DO NOT set BROKER_OK here. The broker would own the bus name
+        # while being disabled, leaving the board with no system bus.
+        # Log the failure honestly and fall through to the legacy
+        # keep-alive path below.
         echo "[91] WARN: dbus-broker.service enable failed (rc=$ENABLE_RC); legacy dbus.service left enabled as fallback" >&2
         printf '%s\n' "$ENABLE_OUT" | sed 's/^/[91]   /' >&2 || true
     fi
 else
     # older releases ship dbus-broker activation only via dbus.service
-    # (broker is the ExecStart there). In that case dbus.service is the
-    # broker service; do not disable it. The dbus-daemon symlink is the
-    # same one the dbus package's postinst created, and it now points
-    # at the broker.
+    # (broker is the ExecStart there). In that case dbus.service IS the
+    # broker service; do not touch it. The symlink in
+    # multi-user.target.wants/ points at the broker transparently.
     echo "[91] dbus-broker.service not shipped; broker activates via dbus.service" >&2
-fi
-
-# 4. drop the legacy dbus.service enablement ONLY when the broker is
-#    confirmed enabled. The dbus package's postinst creates
-#    multi-user.target.wants/dbus.service -> ../dbus.service; that symlink
-#    is now rewritten by the broker enablement above (Alias=dbus.service)
-#    so this disable only acts on the legacy daemon's own logic. If the
-#    broker could not be enabled, we leave the legacy enablement alone —
-#    the box still boots with a system bus.
-#
-#    We do NOT mask dbus.service — dbus-broker.service's Alias would
-#    overwrite the mask symlink on the next line, making the mask a
-#    no-op (verified against dbus-broker 37-5 unit file).
-if [ "$BROKER_OK" -eq 1 ] && systemctl list-unit-files dbus.service >/dev/null 2>&1; then
-    if systemctl disable dbus.service 2>/dev/null; then
-        echo "[91] disabled dbus.service (legacy daemon enablement dropped; broker now owns bus name)"
-    else
-        echo "[91] WARN: could not disable dbus.service; broker is enabled, but the legacy daemon's enablement still exists (the broker's Alias=dbus.service has already taken the bus name, so this is cosmetic)" >&2
-    fi
 fi
 
 systemctl daemon-reload 2>/dev/null || true
 
+# 4. RE-VERIFY the broker enablement right before printing DONE. Never
+#    print DONE from a stale BROKER_OK — anything between the enable
+#    and here (including daemon-reload) is a chance for state to drift.
+#    We also cross-check the alias symlink: after `enable dbus-broker`,
+#    /etc/systemd/system/multi-user.target.wants/dbus.service must point
+#    at dbus-broker.service. That is the actual byte-level proof that
+#    the Alias rewrote the symlink and the broker owns the bus name on
+#    the next boot.
+#
+#    If the broker unit is shipped but the alias symlink is missing or
+#    points at the legacy daemon, reset BROKER_OK to 0 — the box would
+#    boot with no system bus or with the legacy daemon, and DONE must
+#    say so. We do NOT attempt to repair; we just log honestly and exit 0.
+#    If the broker unit itself disappeared (e.g. apt purged it between
+#    enable and now — unlikely but possible), also reset BROKER_OK to 0.
 if [ "$BROKER_OK" -eq 1 ]; then
-    echo "[91] DONE — system bus: dbus-broker (legacy dbus-daemon enablement replaced via Alias=dbus.service)"
+    if ! systemctl list-unit-files dbus-broker.service >/dev/null 2>&1; then
+        # Broker unit disappeared post-enable. We won't enable something
+        # we just verified; we just downgrade the DONE message.
+        echo "[91] WARN: dbus-broker.service unit file no longer present post-enable; treating as not-enabled" >&2
+        BROKER_OK=0
+    elif ! systemctl is-enabled dbus-broker.service >/dev/null 2>&1; then
+        # Live is-enabled check, AFTER daemon-reload.
+        echo "[91] WARN: dbus-broker.service enabled but is-enabled refused post-reload; treating as not-enabled" >&2
+        BROKER_OK=0
+    else
+        # Alias-symlink evidence: multi-user.target.wants/dbus.service
+        # must resolve to dbus-broker.service. This is the proof the
+        # Alias=dbus.service rewrote the symlink AND that systemd will
+        # pull the broker in on boot under the dbus.service name.
+        ALIAS_LINK="/etc/systemd/system/multi-user.target.wants/dbus.service"
+        if [ -L "$ALIAS_LINK" ]; then
+            ALIAS_TARGET=$(readlink "$ALIAS_LINK" 2>/dev/null || true)
+            case "$ALIAS_TARGET" in
+                */dbus-broker.service)
+                    # Expected: symlink rewritten by Alias=dbus.service.
+                    ;;
+                *)
+                    echo "[91] WARN: alias symlink $ALIAS_LINK -> '$ALIAS_TARGET' (expected */dbus-broker.service); legacy daemon likely still owns the bus name" >&2
+                    BROKER_OK=0
+                    ;;
+            esac
+        else
+            # No symlink at all — nothing in multi-user.target.wants will
+            # start the system bus on boot. This is the regression we are
+            # guarding against.
+            echo "[91] WARN: $ALIAS_LINK missing; broker is enabled but the system bus will not be activated on boot" >&2
+            BROKER_OK=0
+        fi
+    fi
+fi
+
+# 5. DONE line is gated on the FRESH verification above — never on the
+#    stale BROKER_OK from the enable step. If the broker is verified
+#    enabled, the alias symlink has already replaced the legacy
+#    enablement; we do not disable anything. If the broker is not
+#    verified, the legacy dbus.service enablement is left in place as
+#    the fallback (it was never touched by this hook), and the log says
+#    so plainly. exit 0 in both cases — a partially-applied install
+#    should still boot, not abort the whole install.
+if [ "$BROKER_OK" -eq 1 ]; then
+    echo "[91] DONE — system bus: dbus-broker (alias dbus.service -> broker; legacy daemon enablement is replaced by the alias, not disabled)"
 else
     echo "[91] DONE — dbus-broker could not be enabled in this environment; legacy dbus-daemon remains the system bus (fallback)"
 fi
