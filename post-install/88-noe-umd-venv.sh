@@ -56,18 +56,22 @@ echo "[88] setting up the NPU userspace (cix-noe-umd) venv"
 # v0-compat ioctl layer; an `apt upgrade` would reinstall the vendor
 # postinst and restore the apt-wedging bug the rewrite below exists to
 # prevent. The hold is what keeps the rewrite in place.
-if dpkg -s cix-noe-umd >/dev/null 2>&1; then
-    HOLD_STATE=$(dpkg --get-selections cix-noe-umd 2>/dev/null | awk '{print $2}')
-    if [ "$HOLD_STATE" = "hold" ]; then
-        echo "[88] cix-noe-umd already on hold (rewrite protected)"
-    else
-        if apt-mark hold cix-noe-umd >/dev/null 2>&1; then
-            echo "[88] cix-noe-umd put on hold (only 2.0.2 is validated; protects postinst rewrite)"
-        else
-            echo "[88] WARN: could not hold cix-noe-umd; rewrite below is still applied but is at risk from `apt upgrade`" >&2
-        fi
-    fi
-fi
+#
+# We do NOT try to hold at the top of this hook. On a fresh install the
+# package is not yet installed when this hook starts (it is installed
+# by the block immediately below, or by a later hook, or by the OEM
+# image); a `if dpkg -s ... ; then hold ; fi` at the top of the hook
+# silently no-ops on exactly the path that matters. The hold is applied
+# at the bottom of this hook, after install + configure + rewrite,
+# guarded by `dpkg -s` against the package's now-known-installed
+# state. Verified both orderings:
+#   - already-present: bottom-of-hook sees dpkg -s succeed; hold runs.
+#   - freshly-installed: bottom-of-hook sees dpkg -s succeed; hold runs.
+# A manual `apt-mark unhold cix-noe-umd && apt upgrade` (operator
+# chasing a security update) is still self-healing: the rewrite block
+# below detects the restored vendor postinst and re-applies our
+# replacement on the next hook run; the hold will also be re-applied
+# at the bottom.
 
 # --- the runtime package (ships libnoe.so + the wheels) ----------------------
 if ! dpkg -s cix-noe-umd >/dev/null 2>&1; then
@@ -125,8 +129,8 @@ echo "[88] venv: $VENV ($("$VENV/bin/python" --version 2>&1))"
 # kept as .ncz-orig for reference. dpkg-divert is NOT an option: maintainer
 # scripts come from a package's CONTROL archive and are written by dpkg
 # directly into /var/lib/dpkg/info/ — a diversion would register cleanly but
-# be ignored. The `apt-mark hold` set above is what keeps this rewrite
-# in place across `apt upgrade`.
+# be ignored. The `apt-mark hold` set below (after install + configure)
+# is what keeps this rewrite in place across `apt upgrade`.
 PI=/var/lib/dpkg/info/cix-noe-umd.postinst
 if [ -f "$PI" ]; then
     # Idempotent rewrite: if the current postinst is already the one we
@@ -181,6 +185,26 @@ if "$VENV/bin/python" -c "import libnoe, NOE_Engine, numpy" >/dev/null 2>&1; the
     echo "[88] verified: libnoe + NOE_Engine + numpy import cleanly"
 else
     echo "[88] WARNING: the UMD stack does not import; NPU inference will not work"
+fi
+
+# --- pin the package at the validated version -------------------------------
+# Applied here, AFTER install + rewrite + configure, so it runs on BOTH
+# the already-present case (package in the OEM image / a previous hook
+# pass) and the freshly-installed case (the install block above pulled
+# the deb from the offline pool / network this run). The earlier "if
+# dpkg -s" hold at the top of the hook was a no-op on fresh installs —
+# this one covers both orderings.
+if dpkg -s cix-noe-umd >/dev/null 2>&1; then
+    HOLD_STATE=$(dpkg --get-selections cix-noe-umd 2>/dev/null | awk '{print $2}')
+    if [ "$HOLD_STATE" = "hold" ]; then
+        echo "[88] cix-noe-umd already on hold (rewrite protected)"
+    else
+        if apt-mark hold cix-noe-umd >/dev/null 2>&1; then
+            echo "[88] cix-noe-umd put on hold (only 2.0.2 is validated; protects postinst rewrite)"
+        else
+            echo "[88] WARN: could not hold cix-noe-umd; rewrite above is still applied but is at risk from \`apt upgrade\`" >&2
+        fi
+    fi
 fi
 
 cat > /usr/local/bin/ncz-npu-python <<EOF
