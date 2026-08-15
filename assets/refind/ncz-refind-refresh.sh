@@ -319,8 +319,13 @@ fi
 # Keep userspace Mesa in both modes so changing kernel driver never changes
 # EGL/glvnd/ICD ownership during the greeter handoff.
 MALI_OPTIONS=""
+PANTHOR_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     MALI_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,panthor/')
+    # Panthor blacklists the COMPLETE Mali kbase stack, not just mali_kbase:
+    # memory_group_manager and protected_memory_allocator are part of that stack
+    # and are referenced by the GPU's ACPI _DSD.
+    PANTHOR_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,mali_kbase,memory_group_manager,protected_memory_allocator/')
     # Panthor keeps acpi_scmi_en=off, same as Mali and SAFE. Metal-verified
     # on O6N 2026-07-31: the patched panthor-cix DKMS module powers on and
     # un-secures the GPU itself with SCMI off ("GPU power domain 21 powered
@@ -488,12 +493,35 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo "    options \"$MALI_OPTIONS\""
         echo "}"
         echo
-        # NO panthor menuentry (operator decision 2026-08-04: "we ship mali,
-        # period"). Panthor's CSF firmware dies on the first user VM_BIND —
-        # the Sky1 IDM revokes the GPU's bus-master grant and isolates it
-        # (reported: cixtech/cix-linux-main#59, staged reproducer attached).
-        # /etc/modprobe.d also blacklists panthor. Do NOT re-add the entry
-        # until CIX fixes the secure-firmware side.
+        # Panthor entry, NOT default. History: this entry was deliberately
+        # omitted on 2026-08-04 ("we ship mali, period") because panthor died on
+        # the first user VM_BIND. That diagnosis was WRONG -- it was not the CSF
+        # firmware and not an IDM bus-master revocation.
+        #
+        # ROOT CAUSE, found 2026-08-15: under ACPI there is no "stacks" clkdev
+        # entry, so panthor never enabled the shader-stack clock and every
+        # SHADER_PWRON wedged in SHADER_PWRTRANS (all ten cores stuck,
+        # SHADER_READY=0x0 SHADER_PWRTRANS=0x550555). The VM_BIND timeout,
+        # AS_ACTIVE stuck, soft-reset timeout and "Failed to boot MCU" were all
+        # downstream. Fixed in the panthor DKMS source; see the commit
+        # "panthor(sky1): enable the shader-stack clock under ACPI".
+        #
+        # With that fix, VERIFIED on O6N: panvk compute runs, glmark2 3162 FPS
+        # at 1080p through the live compositor, Chromium fully hardware
+        # accelerated (WebGL/WebGPU), and 4K60 AV1 playback smooth.
+        #
+        # It is offered but NOT default because mali/kbase remains the validated
+        # shipping driver and panthor has not been soak-tested or benchmarked
+        # against it. Making it default is a separate, deliberate change to
+        # DEFAULT_TOKEN -- do not flip it as a side effect of this entry
+        # existing.
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 PANTHOR DKMS — graphical (EXPERIMENTAL)\" {"
+        echo "    loader  /vmlinuz-$KVER_NEXT"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
+        echo "    options \"$PANTHOR_OPTIONS\""
+        echo "}"
+        echo
         echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 CONSOLE — networked, no GPU, no GUI\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
