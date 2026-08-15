@@ -23,6 +23,12 @@ STATE=/etc/ncz-gpu-profile
 LD_PRO=/etc/ld.so.conf.d/00-cixgpu-pro.conf
 LD_COMPAT=/etc/ld.so.conf.d/01-cixgpu-compat.conf
 ICD_MALI=/etc/vulkan/icd.d/mali.json
+# CIX Vulkan WSI implicit layer. Implicit layers load regardless of which
+# ICD is enabled, and this one runs a CIX driver check that aborts
+# vkCreateInstance with ERROR_INCOMPATIBLE_DRIVER ("CIX driver check
+# failed") once the blob is off the path. Measured on O6N 2026-08-15:
+# disabling mali.json alone was NOT enough to let panvk start.
+WSI_LAYER=/etc/vulkan/implicit_layer.d/VkLayer_window_system_integration.json
 
 usage() { echo "usage: ncz-gpu-profile {mali|panthor|status}"; exit 2; }
 
@@ -49,12 +55,16 @@ show_status() {
     echo "libEGL.so.1  -> $(resolve libEGL.so.1)"
     echo "libGLESv2.so.2 -> $(resolve libGLESv2.so.2)"
     echo "libOpenCL.so.1 -> $(resolve libOpenCL.so.1)"
+    echo "cix wsi layer: $([ -e "$WSI_LAYER" ] && echo ENABLED || echo disabled)"
     echo "vulkan ICDs  : $(ls /etc/vulkan/icd.d/*.json /usr/share/vulkan/icd.d/*.json 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
 }
 
 set_mali() {
     echo "[gpu-profile] selecting MALI (kbase + CIX proprietary userspace)"
     enable_file "$LD_PRO"; enable_file "$LD_COMPAT"; enable_file "$ICD_MALI"
+    # WSI implicit layer intentionally left disabled: unverified, and
+    # VK_DRIVER_FILES handles ICD discovery explicitly (see 26-gpu-default-mali).
+    disable_file "$WSI_LAYER"
     cat > "$MODPROBE_CONF" <<'MP'
 # Written by ncz-gpu-profile. kbase and panthor both claim ACPI CIXH5000;
 # exactly one may be loaded, and the userspace stack is selected to match.
@@ -70,6 +80,7 @@ set_panthor() {
     # Mesa in ld.so.conf order, so leaving it enabled means libEGL.so.1 still
     # resolves to /opt/cixgpu-* and aborts looking for /dev/mali0.
     disable_file "$LD_PRO"; disable_file "$LD_COMPAT"; disable_file "$ICD_MALI"
+    disable_file "$WSI_LAYER"
     cat > "$MODPROBE_CONF" <<'MP'
 # Written by ncz-gpu-profile. kbase and panthor both claim ACPI CIXH5000;
 # exactly one may be loaded, and the userspace stack is selected to match.
