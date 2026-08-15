@@ -104,6 +104,19 @@ apparmor
 apparmor-profiles
 apparmor-utils
 
+# systemd-zram-generator is the userspace half of W3.6 (zram swap).
+# The kernel half (CONFIG_ZRAM=y, CONFIG_CRYPTO_ZSTD=y) must be set
+# in the CIX Sky1 kernel build — see post-install/93-zram-swap.sh
+# for the runtime check that proves the kernel supports zram.
+# Without CONFIG_ZRAM in the kernel, the generator creates no
+# devices and this package is a no-op until the kernel gains the
+# option. Verified at audit time that the shipped CIX Sky1 kernel
+# config (assets/kernel/edge/config-7.2.0-rc7-sky1-ncz) has
+# `# CONFIG_ZRAM is not set` and no CONFIG_CRYPTO_ZSTD — i.e. the
+# kernel half is MISSING. We ship the userspace anyway so a future
+# kernel rebuild with the option enabled gives us zram for free.
+systemd-zram-generator
+
 # --- native Wayland screensaver / idle-lock (57-screensaver) ----------------
 # swayidle = wlroots ext-idle-notify idle timer; swaylock = fallback blank lock
 # (the native Singularity lockscreen is primary); wlopm = wlr-output-power DPMS.
