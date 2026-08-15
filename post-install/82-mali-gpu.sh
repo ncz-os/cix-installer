@@ -168,3 +168,26 @@ fi
 
 echo "[82] mali GPU driver stage done for $KVER_NEXT"
 exit 0
+
+# --- DKMS WINS: retire the overlay once DKMS has produced modules -----------
+# The overlay installs into updates/ and DKMS into updates/dkms/; depmod prefers
+# updates/, so the prebuilt silently beat the DKMS build on every boot and the
+# DKMS half was dead weight. A vermagic-locked prebuilt is the worst option we
+# have -- it is exactly what dropped the board to software rendering between rc5
+# and rc6 -- so it is now a FALLBACK only: if DKMS produced a module for this
+# kernel, remove the overlay copies and let DKMS own the driver.
+if [ -n "${KVER_NEXT:-}" ] && [ -d "/usr/lib/modules/$KVER_NEXT/updates/dkms" ]; then
+    _retired=0
+    for _m in "${MODS[@]}"; do
+        if ls "/usr/lib/modules/$KVER_NEXT/updates/dkms/$_m.ko"* >/dev/null 2>&1; then
+            rm -f "/usr/lib/modules/$KVER_NEXT/updates/$_m.ko" \
+                  "/usr/lib/modules/$KVER_NEXT/updates/$_m.ko.xz" 2>/dev/null && _retired=$((_retired+1))
+        fi
+    done
+    if [ "$_retired" -gt 0 ]; then
+        depmod -a "$KVER_NEXT" 2>/dev/null
+        echo "[82] DKMS owns mali: retired $_retired prebuilt overlay module(s) from updates/"
+    else
+        echo "[82] WARN: no DKMS modules found — prebuilt overlay still carrying the GPU"
+    fi
+fi

@@ -60,5 +60,23 @@ echo "[26] libGLX.so.0    -> $(ldconfig -p 2>/dev/null | awk '/libGLX.so.0 /{pri
 echo "[26] libEGL.so.1    -> $(ldconfig -p 2>/dev/null | awk '/libEGL.so.1 /{print $NF; exit}')"
 echo "[26] libGLESv2.so.2 -> $(ldconfig -p 2>/dev/null | awk '/libGLESv2.so.2 /{print $NF; exit}')"
 echo "[26] libOpenCL.so.1 -> $(ldconfig -p 2>/dev/null | awk '/libOpenCL.so.1 /{print $NF; exit}')"
+# --- install the runtime GPU profile switch --------------------------------
+# The same logic that ran above, exposed as a tool, so the kernel driver and the
+# userspace stack can only ever move together. Switching one without the other
+# yields a machine that boots and cannot render (measured on O6N 2026-08-15).
+for _src in "$INSTALLER_META/assets/gpu/ncz-gpu-profile" /cdrom/cixmini/assets/gpu/ncz-gpu-profile; do
+    if [ -f "$_src" ]; then
+        install -D -m 0755 "$_src" /usr/local/sbin/ncz-gpu-profile
+        echo "[26] installed /usr/local/sbin/ncz-gpu-profile"
+        # Record state + write the modprobe.d blacklist. Driver selection lives
+        # in modprobe.d, NOT the kernel cmdline: ncz-refind-refresh regenerates
+        # refind.conf on apt operations and drops cmdline edits.
+        /usr/local/sbin/ncz-gpu-profile mali >/dev/null 2>&1 \
+            && echo "[26] gpu profile set to mali (modprobe.d + ld paths + ICD)" \
+            || echo "[26] WARN: ncz-gpu-profile mali failed"
+        break
+    fi
+done
+
 echo "[26] CIX mali GL default set (HW GLES/EGL/OpenCL; Vulkan off). Needs /dev/mali0 at boot (82-mali-gpu.sh)."
 exit 0

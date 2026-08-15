@@ -1,0 +1,93 @@
+#!/bin/bash
+# ncz-gpu-profile — switch the GPU stack as ONE unit: kernel driver + userspace.
+#
+# WHY THIS EXISTS
+#   The kernel driver and the GL/Vulkan userspace are not independent choices.
+#   kbase pairs with the CIX proprietary stack (/opt/cixgpu-*, mali ICD) and
+#   needs /dev/mali0 — the CIX libGLX driver-check abort()s without it. panthor
+#   pairs with Mesa panfrost/panvk and has no /dev/mali0 at all.
+#
+#   Switching only the kernel driver produces a machine that boots and cannot
+#   render: measured on O6N 2026-08-15, where blacklisting mali_kbase left the
+#   blob libEGL hunting for /sys/module/mali_kbase/parameters/large_page_conf
+#   and eglInitialize failed. So the two halves move together, here, or not at
+#   all.
+#
+#   Driver selection lives in modprobe.d rather than the kernel cmdline because
+#   ncz-refind-refresh regenerates refind.conf on apt operations and silently
+#   drops cmdline edits (observed the same day).
+set -uo pipefail
+
+MODPROBE_CONF=/etc/modprobe.d/ncz-gpu-profile.conf
+STATE=/etc/ncz-gpu-profile
+LD_PRO=/etc/ld.so.conf.d/00-cixgpu-pro.conf
+LD_COMPAT=/etc/ld.so.conf.d/01-cixgpu-compat.conf
+ICD_MALI=/etc/vulkan/icd.d/mali.json
+
+usage() { echo "usage: ncz-gpu-profile {mali|panthor|status}"; exit 2; }
+
+enable_file() {   # base.disabled -> base
+    [ -e "$1.disabled" ] && mv "$1.disabled" "$1" && echo "  enabled  $(basename "$1")"
+    return 0
+}
+disable_file() {  # base -> base.disabled
+    [ -e "$1" ] && mv "$1" "$1.disabled" && echo "  disabled $(basename "$1")"
+    return 0
+}
+
+resolve() { ldconfig -p 2>/dev/null | awk -v l="$1 " '$0 ~ l {print $NF; exit}'; }
+
+show_status() {
+    echo "profile      : $(cat $STATE 2>/dev/null || echo unset)"
+    echo "driver bound : $(basename "$(readlink -f /sys/bus/platform/devices/CIXH5000:00/driver 2>/dev/null)" 2>/dev/null || echo none)"
+    echo "/dev/mali0   : $([ -e /dev/mali0 ] && echo present || echo absent)"
+    echo "render nodes :"
+    for n in /dev/dri/renderD*; do
+        [ -e "$n" ] || continue
+        echo "    $n -> $(basename "$(readlink -f /sys/class/drm/$(basename "$n")/device/driver 2>/dev/null)" 2>/dev/null)"
+    done
+    echo "libEGL.so.1  -> $(resolve libEGL.so.1)"
+    echo "libGLESv2.so.2 -> $(resolve libGLESv2.so.2)"
+    echo "libOpenCL.so.1 -> $(resolve libOpenCL.so.1)"
+    echo "vulkan ICDs  : $(ls /etc/vulkan/icd.d/*.json /usr/share/vulkan/icd.d/*.json 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
+}
+
+set_mali() {
+    echo "[gpu-profile] selecting MALI (kbase + CIX proprietary userspace)"
+    enable_file "$LD_PRO"; enable_file "$LD_COMPAT"; enable_file "$ICD_MALI"
+    cat > "$MODPROBE_CONF" <<'MP'
+# Written by ncz-gpu-profile. kbase and panthor both claim ACPI CIXH5000;
+# exactly one may be loaded, and the userspace stack is selected to match.
+blacklist panthor
+MP
+    ldconfig 2>/dev/null || true
+    echo mali > "$STATE"
+}
+
+set_panthor() {
+    echo "[gpu-profile] selecting PANTHOR (mainline driver + Mesa panfrost/panvk)"
+    # The CIX blob must leave the global library path entirely: it is ahead of
+    # Mesa in ld.so.conf order, so leaving it enabled means libEGL.so.1 still
+    # resolves to /opt/cixgpu-* and aborts looking for /dev/mali0.
+    disable_file "$LD_PRO"; disable_file "$LD_COMPAT"; disable_file "$ICD_MALI"
+    cat > "$MODPROBE_CONF" <<'MP'
+# Written by ncz-gpu-profile. kbase and panthor both claim ACPI CIXH5000;
+# exactly one may be loaded, and the userspace stack is selected to match.
+blacklist mali_kbase
+blacklist memory_group_manager
+blacklist protected_memory_allocator
+MP
+    ldconfig 2>/dev/null || true
+    echo panthor > "$STATE"
+}
+
+case "${1:-}" in
+    mali)    set_mali    ;;
+    panthor) set_panthor ;;
+    status)  show_status; exit 0 ;;
+    *)       usage ;;
+esac
+
+echo "[gpu-profile] done. Reboot for the kernel-driver half to take effect."
+echo "[gpu-profile] initramfs may embed the old blacklist; run update-initramfs -u if the driver does not change."
+show_status
