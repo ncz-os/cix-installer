@@ -115,6 +115,20 @@ systemctl reset-failed cix_resume_prepare.service >/dev/null 2>&1 || true
 # If /etc/ncz-loghost is present the operator has explicitly opted in to
 # remote forwarding; 36-telemetry re-installs rsyslog on the next run.
 # Skip the purge in that case so we do not fight the opt-in path.
+#
+# Verified nothing on the INSTALLED system reads the legacy syslog
+# files. A repository-wide grep for
+#   /var/log/{syslog,messages,kern.log,auth.log,debug,user.log}
+# across assets/, manifests/, post-install/, preseed/, tools/ returns
+# only install-time references (preseed/diag-console.sh,
+# preseed/late.sh, preseed/usb-rescan.sh, tools/di-diag.sh, the
+# installer-time file-pull server) and a single comment in
+# 36-telemetry.sh that explicitly states the file does not exist.
+# No systemd .service, .timer, .socket, or NCZ-owned binary on the
+# installed system reads these files, so it is safe to remove the
+# stale rsyslog-owned files once rsyslog itself is gone. (rsyslog
+# owns them via /var/log/ owned by root:adm 0640; without rsyslog
+# running they just sit there until disk pressure.)
 if [ -r /etc/ncz-loghost ] && [ -n "$(tr -d ' \t\r\n' < /etc/ncz-loghost 2>/dev/null)" ]; then
     echo "  /etc/ncz-loghost is set — leaving rsyslog in place (opt-in remote forward)"
     if [ -f /etc/rsyslog.d/90-loghost.conf ] && grep -qE '^\*\.\*[[:space:]]+@[0-9]' /etc/rsyslog.d/90-loghost.conf 2>/dev/null; then
@@ -133,11 +147,31 @@ elif dpkg -s rsyslog >/dev/null 2>&1; then
     if timeout 300 env DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 \
             purge -y rsyslog rsyslog-mod-relp >/dev/null 2>&1; then
         echo "  purged rsyslog (journald-only syslog sink)"
+        # Drop the legacy log files rsyslog would have written. They
+        # are not rotated by anyone now that rsyslog is gone, and
+        # nothing we ship reads them (see audit paragraph above).
+        # Keep /var/log/journal — that is the new sink — and remove
+        # only the legacy syslog files plus their rotated siblings.
+        rm -f /var/log/syslog /var/log/messages /var/log/kern.log \
+              /var/log/auth.log /var/log/debug /var/log/user.log \
+              /var/log/syslog.[0-9]* /var/log/messages.[0-9]* \
+              /var/log/kern.log.[0-9]* /var/log/auth.log.[0-9]* \
+              /var/log/debug.[0-9]* /var/log/user.log.[0-9]* 2>/dev/null || true
+        echo "  removed stale rsyslog-owned /var/log/{syslog,messages,kern.log,auth.log,debug,user.log} files"
     else
         echo "  WARN: rsyslog purge failed; journald is still primary, legacy files will linger"
     fi
 else
     echo "  rsyslog already absent — journald-only"
+    # Belt-and-braces: also clean up the legacy log files if a prior
+    # install left them behind (e.g. image was forked before this
+    # purge logic landed). Nothing on the installed system reads
+    # them, per the audit paragraph above.
+    rm -f /var/log/syslog /var/log/messages /var/log/kern.log \
+          /var/log/auth.log /var/log/debug /var/log/user.log \
+          /var/log/syslog.[0-9]* /var/log/messages.[0-9]* \
+          /var/log/kern.log.[0-9]* /var/log/auth.log.[0-9]* \
+          /var/log/debug.[0-9]* /var/log/user.log.[0-9]* 2>/dev/null || true
 fi
 
 # --- 5. rtkit for PipeWire/WirePlumber RT scheduling -----------------------
