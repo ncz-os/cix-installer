@@ -503,7 +503,7 @@ Maintainer: $MAINT
 Section: kernel
 Priority: optional
 Installed-Size: $isize
-Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, initramfs-tools, systemd
+Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, initramfs-tools | dracut | linux-initramfs-tool, systemd
 Description: NCZ cixmini Linux kernel ($kver)
  Prebuilt linux-cix-sky1 kernel image + modules for the NCZ cixmini (MS-R1).
  Installs vmlinuz, the module tree$( [ -n "$with_npu" ] && echo " (incl. armchina_npu)") and config,
