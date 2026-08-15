@@ -15,6 +15,25 @@
 #   - swap-priority: 100 (higher than disk swap; kernel prefers zram)
 #   - fs-type:     swap (this is a swap device, not a fs)
 #
+# How the generator wires itself up (verified against
+# systemd-zram-generator 1.2.1 on arm64):
+#
+#   /usr/lib/systemd/system-generators/zram-generator       <- generator binary
+#   /usr/lib/systemd/system/systemd-zram-setup@.service     <- template unit
+#       ExecStart=/usr/lib/systemd/system-generators/zram-generator \
+#                 --setup-device '%i'
+#   /usr/lib/modules-load.d/20-zram-generator.conf           <- loads zram module
+#       zram
+#
+# There is NO top-level systemd-zram-generator.service. The generator
+# runs as a path-based systemd generator at boot, parses
+# /etc/systemd/zram-generator.conf, and instantiates
+# systemd-zram-setup@zram0.service for each [zramN] section. That
+# template unit is what runs zramctl / mkswap / swapon. Enabling a
+# non-existent systemd-zram-generator.service (the mistake in the
+# previous revision of this hook) is a no-op — the contract is the
+# conf file in /etc/systemd, full stop.
+#
 # Kernel half:
 #   Verified against assets/kernel/edge/config-7.2.0-rc7-sky1-ncz:
 #     # CONFIG_ZRAM is not set
@@ -29,9 +48,11 @@
 # the userspace side.
 #
 # When the kernel gains CONFIG_ZRAM=y + CONFIG_CRYPTO_ZSTD=y, this
-# hook becomes a pure enablement: the generator picks up
-# /etc/systemd/zram-generator.conf and creates zram0 automatically
-# on first boot.
+# hook becomes a pure configuration: the generator picks up
+# /etc/systemd/zram-generator.conf and the modules-load.d entry
+# pulls zram.ko in early boot, which exposes /sys/block/zram0 and
+# causes systemd-zram-setup@zram0.service to be instantiated and
+# run.
 #
 # Idempotent: re-runnable; the config write is unconditional (the
 # generator is content-addressed on the file content), and the
@@ -55,8 +76,8 @@ if ! dpkg -s systemd-zram-generator >/dev/null 2>&1; then
 fi
 
 # 2. write the sizing policy. The generator reads /etc/systemd/zram-generator.conf
-#    and creates /run/systemd/zram-generator.conf at boot (it is content-
-#    addressed; re-running this hook produces a stable file).
+#    and creates systemd-zram-setup@zram0.service instances at boot (it is
+#    content-addressed; re-running this hook produces a stable file).
 install -d -m 0755 /etc/systemd
 cat > /etc/systemd/zram-generator.conf <<'ZRAMCONF'
 # NCZ-OS 26.7 zram sizing policy (audit W3.6).
@@ -80,13 +101,15 @@ echo "[93] /etc/systemd/zram-generator.conf: zram0, zstd, ram*0.5 capped [1GiB, 
 
 # 3. KERNEL SUPPORT CHECK — this is the load-bearing step.
 #
-# systemd-zram-generator.service runs `zramctl` and `mkswap` at boot,
-# and BOTH require the kernel to actually expose zram. On the CIX Sky1
-# kernel build, CONFIG_ZRAM is NOT set (# CONFIG_ZRAM is not set), so
-# /sys/block/zram0 does not exist and the generator unit will silently
-# produce no device. We do not claim success on the install log: we
-# surface the gap as a WARN so a future kernel rebuild is visible in
-# the install record.
+# /usr/lib/modules-load.d/20-zram-generator.conf (shipped by the
+# systemd-zram-generator package) requests that zram.ko be loaded
+# at boot; if the kernel was built without CONFIG_ZRAM the module
+# load fails silently and /sys/block/zram0 never appears. The
+# path-based generator then has no device to enumerate and does
+# not instantiate systemd-zram-setup@zram0.service, so nothing
+# runs. We surface the gap as a WARN so a future kernel rebuild is
+# visible in the install record — we do NOT claim success on the
+# install log when the kernel can't actually do the work.
 if [ -r /sys/block/zram0 ]; then
     echo "[93] kernel exposes /sys/block/zram0 — zram enabled"
 else
@@ -98,26 +121,14 @@ else
 [93] Required: enable CONFIG_ZRAM=y (or =m with zram module loaded early)
 [93] and CONFIG_CRYPTO_ZSTD=y in the next kernel build. Until then,
 [93] /etc/systemd/zram-generator.conf above is the ready-to-go sizing
-[93] policy and the systemd-zram-generator.service is enabled; a kernel
-[93] rebuild with the option enabled will produce zram0 automatically
-[93] on next boot. NO fallback to disk swapfile — btrfs swapfile needs
-[93] nodatacow handling that is intentionally avoided (per audit).
+[93] policy and /usr/lib/modules-load.d/20-zram-generator.conf (from
+[93] the package) requests zram.ko at boot; a kernel rebuild with
+[93] CONFIG_ZRAM enabled will produce /sys/block/zram0 automatically
+[93] on next boot, the path-based generator will instantiate
+[93] systemd-zram-setup@zram0.service, and the swap will come up.
+[93] NO fallback to disk swapfile — btrfs swapfile needs nodatacow
+[93] handling that is intentionally avoided (per audit).
 WARN
-fi
-
-# 4. enable the generator service so zram0 is created on boot when the
-#    kernel does support it. The service is socket-activated by
-#    systemd-zram-setup@.service (one instance per zram device). It
-#    is part of the systemd-zram-generator package and lives in
-#    /usr/lib/systemd/system/; we just enable.
-if systemctl list-unit-files systemd-zram-generator.service >/dev/null 2>&1; then
-    systemctl enable systemd-zram-generator.service 2>&1 | tail -1 || true
-    echo "[93] systemd-zram-generator.service enabled"
-else
-    # Older debian releases ship systemd-zram-setup@.service without the
-    # top-level generator; the generator path is in zram-generator.conf
-    # only. Leave it alone.
-    echo "[93] systemd-zram-generator.service not shipped; the .conf above is the contract" >&2
 fi
 
 echo "[93] DONE — zram-generator configured (active iff kernel has CONFIG_ZRAM=y)"
