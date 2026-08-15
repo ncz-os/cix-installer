@@ -503,6 +503,14 @@ Maintainer: $MAINT
 Section: kernel
 Priority: optional
 Installed-Size: $isize
+# NOTE (initramfs alternation): the order here is DELIBERATELY the inverse of
+# Debian bug #1114857, whose planned form is
+#     dracut | initramfs-tools | linux-initramfs-tool
+# We keep initramfs-tools FIRST so fresh installs do not silently switch
+# builder before the dracut migration is validated on this hardware. The
+# alternation also means `apt remove initramfs-tools` could be satisfied by
+# installing dracut -- that path is blocked by the apt pin shipped in
+# assets/dracut/99-ncz-initramfs-tool (installed by post-install hook 94).
 Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, initramfs-tools | dracut | linux-initramfs-tool, systemd
 Description: NCZ cixmini Linux kernel ($kver)
  Prebuilt linux-cix-sky1 kernel image + modules for the NCZ cixmini (MS-R1).

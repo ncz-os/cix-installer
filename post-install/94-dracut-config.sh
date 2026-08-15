@@ -32,6 +32,29 @@ set -euo pipefail
 CONF_NAME=10-ncz-sky1.conf
 DST_DIR=/etc/dracut.conf.d
 DST="$DST_DIR/$CONF_NAME"
+PIN_NAME=99-ncz-initramfs-tool
+PIN_DST="/etc/apt/preferences.d/$PIN_NAME"
+
+# Install the apt pin FIRST and unconditionally -- it must be present even when
+# dracut is not, because its whole job is to stop dracut being pulled in
+# automatically. linux-image-cixmini depends on
+# "initramfs-tools | dracut | linux-initramfs-tool", and without this pin
+# `apt remove initramfs-tools` would be satisfied by installing dracut,
+# silently switching the initramfs builder. initramfs-tools is a FALLBACK and
+# must not be purged as a side effect.
+for _p in "${INSTALLER_META:-/usr/local/lib/cix-installer}/assets/dracut/$PIN_NAME" \
+          "/cdrom/cixmini/assets/dracut/$PIN_NAME"; do
+    if [ -r "$_p" ]; then
+        mkdir -p /etc/apt/preferences.d
+        if cmp -s "$_p" "$PIN_DST"; then
+            echo "[94] apt pin already current: $PIN_DST"
+        else
+            install -m 0644 "$_p" "$PIN_DST"
+            echo "[94] installed apt pin $PIN_DST (dracut not auto-installable)"
+        fi
+        break
+    fi
+done
 
 if ! dpkg-query -W -f='${Status}' dracut 2>/dev/null | grep -q "install ok installed"; then
     echo "[94] dracut not installed — staging nothing (initramfs-tools remains the builder)"

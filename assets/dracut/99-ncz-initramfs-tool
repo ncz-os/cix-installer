@@ -1,0 +1,22 @@
+# /etc/apt/preferences.d/99-ncz-initramfs-tool
+#
+# WHY THIS EXISTS.
+# linux-image-cixmini depends on:
+#     initramfs-tools | dracut | linux-initramfs-tool
+# so that dracut CAN be installed for evaluation without apt removing our own
+# kernel. But an alternation cuts both ways: `apt remove initramfs-tools` would
+# be satisfied by pulling in dracut, silently switching the initramfs builder
+# with no operator decision anywhere.
+#
+# That is exactly what the standing rule forbids -- initramfs-tools is a
+# FALLBACK, not redundancy, and it must not be purged as a side effect.
+#
+# A negative pin makes dracut ineligible for AUTOMATIC selection, so apt can
+# never substitute it to satisfy that alternation. Removing initramfs-tools now
+# fails with an unsatisfiable dependency, which is the correct and loud outcome.
+#
+# TO EVALUATE DRACUT DELIBERATELY: remove or raise this pin first. That is the
+# gate. The switch is not meant to be one apt command away.
+Package: dracut dracut-core dracut-network
+Pin: release *
+Pin-Priority: -1
