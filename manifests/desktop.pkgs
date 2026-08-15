@@ -67,6 +67,20 @@ xwayland
 polkitd
 xdg-desktop-portal
 
+# --- system bus (dbus-broker replaces dbus-daemon as the actual bus) --------
+# dbus-broker is the modern D-Bus system-bus implementation
+# (https://github.com/bus1/dbus-broker) and the recommended default on
+# Debian forky. The legacy 'dbus' package (provides /usr/bin/dbus-daemon)
+# is kept as a compatibility package because a small number of binaries
+# exec() it directly — but no systemd unit points at it; the broker
+# daemon owns the system bus (dbus-broker.service replaces
+# dbus.service as the bus activator). libdbus-based clients
+# (sinty-nm, polkit, seatd, PipeWire/WirePlumber, xdg-desktop-portal,
+# greetd, our singularity portal) all work transparently with either
+# implementation, so this is a pure drop-in.
+dbus
+dbus-broker
+
 # --- native Wayland screensaver / idle-lock (57-screensaver) ----------------
 # swayidle = wlroots ext-idle-notify idle timer; swaylock = fallback blank lock
 # (the native Singularity lockscreen is primary); wlopm = wlr-output-power DPMS.
