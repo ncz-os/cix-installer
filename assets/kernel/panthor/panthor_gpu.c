@@ -240,7 +240,7 @@ int panthor_gpu_block_power_off(struct panthor_device *ptdev,
 				u64 mask, u32 timeout_us)
 {
 	struct panthor_gpu *gpu = ptdev->gpu;
-	u32 val;
+	u64 val;
 	int ret;
 
 	ret = gpu_read64_relaxed_poll_timeout(gpu->iomem, pwrtrans_reg, val,
@@ -284,7 +284,7 @@ int panthor_gpu_block_power_on(struct panthor_device *ptdev,
 			       u32 rdy_reg, u64 mask, u32 timeout_us)
 {
 	struct panthor_gpu *gpu = ptdev->gpu;
-	u32 val;
+	u64 val;
 	int ret;
 
 	ret = gpu_read64_relaxed_poll_timeout(gpu->iomem, pwrtrans_reg, val,
@@ -299,7 +299,7 @@ int panthor_gpu_block_power_on(struct panthor_device *ptdev,
 	gpu_write64(gpu->iomem, pwron_reg, mask);
 
 	ret = gpu_read64_relaxed_poll_timeout(gpu->iomem, rdy_reg, val,
-					      (mask & val) == val,
+					      (mask & val) == mask,
 					      100, timeout_us);
 	if (ret) {
 		drm_err(&ptdev->base, "timeout waiting on %s:%llx readiness",
