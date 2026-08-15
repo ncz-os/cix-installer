@@ -18,11 +18,28 @@
 # for aarch64, which is already the fleet-sanctioned way to get a Python that is
 # not the system one.
 #
-# Approach: build the venv, install the wheels into it, then run dpkg's own
-# postinst with pip3 temporarily pointed at that venv so the package reaches a
-# properly configured state instead of being force-marked. The shim is removed
-# immediately afterwards -- a permanent /usr/local/bin/pip3 redirect would
-# silently capture every other pip3 user on the box.
+# Approach: build the venv, install the wheels into it, then rewrite the deb's
+# postinst so it targets the venv directly. The package reaches a properly
+# configured state instead of being force-marked. The original postinst is kept
+# as .ncz-orig for reference.
+#
+# --- Why this hook REWRITES the postinst (and not just the wheels) ---
+# The postinst is a maintainer script. Maintainer scripts are part of a
+# package's CONTROL archive and are written by dpkg directly into
+# /var/lib/dpkg/info/<pkg>.postinst. dpkg-divert governs only DATA-archive
+# files, not maintainer scripts, so a diversion would register cleanly but
+# never be honoured. (Verified: dpkg-divert succeeds on the command line
+# but the vendor postinst is still what gets executed on upgrade.) The
+# only way to keep the rewrite intact across an `apt upgrade` of the
+# package is to also `apt-mark hold` it.
+#
+# The hold is the protection. The rewrite itself is kept idempotent so
+# that if an operator manually `apt-mark unhold cix-noe-umd && apt upgrade`
+# (e.g. to chase a security update) the next run of this hook will
+# re-apply the rewrite against the new vendor postinst and self-heal.
+# Per docs/post-install/80-npu.sh only cix-noe-umd 2.0.2 is confirmed
+# working with our v0-compat ioctl layer, so the hold is also the
+# documented policy.
 #
 # Never fatal: the NPU kernel driver and /dev/aipu do not depend on any of this.
 # Without it you lose Python inference, not the device.
@@ -33,6 +50,24 @@ PYVER=3.12          # wheels accept 3.11 or 3.12; 3.12 is the newer supported on
 WHEELDIR=/usr/share/cix/pypi
 
 echo "[88] setting up the NPU userspace (cix-noe-umd) venv"
+
+# --- pin the package at the validated version -------------------------------
+# Per 80-npu.sh only cix-noe-umd 2.0.2 is confirmed working with our
+# v0-compat ioctl layer; an `apt upgrade` would reinstall the vendor
+# postinst and restore the apt-wedging bug the rewrite below exists to
+# prevent. The hold is what keeps the rewrite in place.
+if dpkg -s cix-noe-umd >/dev/null 2>&1; then
+    HOLD_STATE=$(dpkg --get-selections cix-noe-umd 2>/dev/null | awk '{print $2}')
+    if [ "$HOLD_STATE" = "hold" ]; then
+        echo "[88] cix-noe-umd already on hold (rewrite protected)"
+    else
+        if apt-mark hold cix-noe-umd >/dev/null 2>&1; then
+            echo "[88] cix-noe-umd put on hold (only 2.0.2 is validated; protects postinst rewrite)"
+        else
+            echo "[88] WARN: could not hold cix-noe-umd; rewrite below is still applied but is at risk from `apt upgrade`" >&2
+        fi
+    fi
+fi
 
 # --- the runtime package (ships libnoe.so + the wheels) ----------------------
 if ! dpkg -s cix-noe-umd >/dev/null 2>&1; then
@@ -74,7 +109,6 @@ echo "[88] venv: $VENV ($("$VENV/bin/python" --version 2>&1))"
     >/dev/null 2>&1 \
     || echo "[88] WARNING: wheel install into $VENV failed"
 
-# --- let the deb finish configuring, using the venv's pip --------------------
 # --- let the deb finish configuring ------------------------------------------
 # The obvious approach -- drop a pip3 shim in /usr/local/bin and let the vendor
 # postinst pick it up -- DOES NOT WORK, and silently. dpkg runs maintainer
@@ -87,14 +121,30 @@ echo "[88] venv: $VENV ($("$VENV/bin/python" --version 2>&1))"
 # That state blocks EVERY later apt transaction on the image, which is how a
 # shipped board ended up unable to install anything at all.
 #
-# So rewrite the postinst to target the venv directly. The original is kept as
-# .ncz-orig for reference. This is idempotent: re-running rewrites the same
-# content, and the replacement always exits 0 so a vendor userspace blob can
-# never wedge apt again.
+# So rewrite the postinst to target the venv directly. The vendor original is
+# kept as .ncz-orig for reference. dpkg-divert is NOT an option: maintainer
+# scripts come from a package's CONTROL archive and are written by dpkg
+# directly into /var/lib/dpkg/info/ — a diversion would register cleanly but
+# be ignored. The `apt-mark hold` set above is what keeps this rewrite
+# in place across `apt upgrade`.
 PI=/var/lib/dpkg/info/cix-noe-umd.postinst
 if [ -f "$PI" ]; then
-    [ -f "${PI}.ncz-orig" ] || cp "$PI" "${PI}.ncz-orig"
-    cat > "$PI" <<EOF
+    # Idempotent rewrite: if the current postinst is already the one we
+    # wrote, do nothing; if it's the vendor original, back it up first;
+    # if it's a freshly-restored vendor postinst (operator did
+    # `unhold + apt upgrade` of cix-noe-umd), back that up too so we keep
+    # a reference and then re-apply our replacement. This is what makes
+    # a manual unhold self-heal.
+    if grep -q 'Rewritten by cix-installer hook 88-noe-umd-venv.sh' "$PI" 2>/dev/null; then
+        echo "[88] postinst already rewritten — leaving in place"
+    else
+        # Rotate the backup so an unhold+upgrade captures the new
+        # vendor postinst as the reference, not the original install.
+        if [ -f "${PI}.ncz-orig" ]; then
+            mv "${PI}.ncz-orig" "${PI}.ncz-orig.prev"
+        fi
+        cp "$PI" "${PI}.ncz-orig"
+        cat > "$PI" <<EOF
 #!/bin/sh
 # Rewritten by cix-installer hook 88-noe-umd-venv.sh.
 # The cix-noe-umd wheels are tagged py3-none but ship CPython ABI objects for
@@ -114,7 +164,9 @@ else
 fi
 exit 0
 EOF
-    chmod 0755 "$PI"
+        chmod 0755 "$PI"
+        echo "[88] postinst rewritten (vendor copy preserved as ${PI}.ncz-orig)"
+    fi
 fi
 
 if [ "$(dpkg -s cix-noe-umd 2>/dev/null | awk '/^Status:/{print $4}')" != "installed" ]; then
