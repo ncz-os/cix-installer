@@ -306,35 +306,4 @@ fi
 #     -newer /usr/lib/systemd/system/cron.service 2>/dev/null)" || \
 #     echo "  WARN: NCZ-owned cron file detected — convert to .timer"
 
-# --- 10. ifupdown purge (NCZ-OS 26.7 audit W3.7) -----------------------------
-# The installed system's active network stack is sinty-nm
-# (assets/sinty-nm/sinty-nm.service), which owns the system bus name
-# org.freedesktop.NetworkManager and uses iwd + its own DHCP client +
-# WireGuard. /etc/network/interfaces is stock Debian (loopback-only
-# after 20-desktop) and is never consulted by sinty-nm. The rescue
-# partition ships dhcpcd-base (manifests/rescue.pkgs) and not
-# ifupdown. A repository-wide grep for ifupdown / ifup / ifdown /
-# ifquery inside manifests/, post-install/, preseed/, assets/, tools/
-# found ZERO matches authored by us. Nothing we ship invokes
-# /sbin/ifup or /sbin/ifdown.
-#
-# Audit W3.7 explicitly says: "ifupdown is VESTIGIAL, not load-bearing."
-# ifupdown is not in any of our manifests (verified: grep -n ifupdown
-# manifests/*.pkgs returns empty), so the "drop from manifests" half
-# of the audit directive is satisfied without a manifest edit. The
-# Debian default still pulls ifupdown in via tasksel on the desktop
-# SKU, so we apt-purge it here. Belt-and-braces: dpkg -s guard so a
-# partially-applied prior run does not re-purge and so the rescue
-# SKU / non-desktop variants are not affected.
-if dpkg -s ifupdown >/dev/null 2>&1; then
-    if timeout 300 env DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 \
-            purge -y ifupdown >/dev/null 2>&1; then
-        echo "  purged ifupdown (sinty-nm owns the network stack)"
-    else
-        echo "  WARN: ifupdown purge failed; legacy /etc/network/interfaces will remain"
-    fi
-else
-    echo "  ifupdown already absent — sinty-nm-only"
-fi
-
 echo "[58] boot hygiene done"
