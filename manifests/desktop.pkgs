@@ -81,6 +81,29 @@ xdg-desktop-portal
 dbus
 dbus-broker
 
+# --- AppArmor (NCZ-OS 26.7 audit W3.5) --------------------------------------
+# Mandatory access control via AppArmor. The kernel config
+# (assets/kernel/edge/config-7.2.0-rc7-sky1-ncz, verified at audit time):
+#   CONFIG_SECURITY_APPARMOR=y
+#   CONFIG_DEFAULT_SECURITY_APPARMOR=y
+#   CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf,ipe"
+# i.e. AppArmor is built AND is the default LSM (no lsm= cmdline override
+# needed; the broker boots in enforce mode for shipped profiles).
+#
+# apparmor-profiles pulls the upstream Debian profile bundle
+# (usr.sbin.*, abstractions/, tunables/). apparmor-utils ships the
+# `aa-complain` / `aa-enforce` / `aa-disable` admin CLI; not strictly
+# required for boot, but the post-install hook uses them to load and
+# enforce the bundled profiles, and operators will want them for
+# per-service overrides.
+#
+# The systemd unit (apparmor.service) loads shipped profiles at boot.
+# post-install/92-apparmor-enable.sh enables that unit and verifies
+# `aa-status` reports the loaded profile set on first boot.
+apparmor
+apparmor-profiles
+apparmor-utils
+
 # --- native Wayland screensaver / idle-lock (57-screensaver) ----------------
 # swayidle = wlroots ext-idle-notify idle timer; swaylock = fallback blank lock
 # (the native Singularity lockscreen is primary); wlopm = wlr-output-power DPMS.
