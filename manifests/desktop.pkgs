@@ -166,7 +166,10 @@ gimp
 librsvg2-bin
 imagemagick
 whiptail
-rsyslog
+# rsyslog removed: the installed system is journald-only. 36-telemetry
+# drops ForwardToSyslog=no + caps SystemMaxUse so journald is the single
+# syslog sink. 58-boot-hygiene apt-purges the Debian default rsyslog
+# pull-in so /var/log/{syslog,messages} never appears.
 
 # --- agent stack (podman + helpers; 30-agents) -----------------------------
 podman
@@ -226,7 +229,8 @@ glslc
 nodejs
 npm
 whiptail
-rsyslog
+# rsyslog removed (duplicate of the entry above; journald is the only
+# syslog sink — see 36-telemetry + 58-boot-hygiene).
 librsvg2-bin
 aardvark-dns
 

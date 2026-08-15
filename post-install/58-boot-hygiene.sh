@@ -23,7 +23,9 @@
 #   Log spam:
 #     - rsyslog "omfwd: Network is unreachable" (~26x/boot): defensively drop
 #       any stale /etc/rsyslog.d/90-loghost.conf (the always-on fleet-IP forward
-#       is now opt-in — see 36-telemetry.sh).
+#       is now opt-in — see 36-telemetry.sh). On a journald-only install
+#       (the new default), rsyslog is purged outright so the omfwd spam and
+#       the /var/log/{syslog,messages} files never appear at all.
 #     - wireplumber/pipewire "RTKit error org.freedesktop.DBus.Error.Service-
 #       Unknown": the rtkit daemon was absent, so PipeWire/WirePlumber could not
 #       get RT scheduling. Install rtkit (fixes the spam AND audio RT latency).
@@ -102,11 +104,40 @@ done
 systemctl daemon-reload >/dev/null 2>&1 || true
 systemctl reset-failed cix_resume_prepare.service >/dev/null 2>&1 || true
 
-# --- 4. Defensive: drop any stale always-on rsyslog loghost forward --------
-if [ -f /etc/rsyslog.d/90-loghost.conf ] && grep -qE '^\*\.\*[[:space:]]+@[0-9]' /etc/rsyslog.d/90-loghost.conf 2>/dev/null; then
-    rm -f /etc/rsyslog.d/90-loghost.conf
-    systemctl try-restart rsyslog >/dev/null 2>&1 || true
-    echo "  removed stale always-on 90-loghost.conf (forward is opt-in now)"
+# --- 4. Journald-only syslog: purge rsyslog + drop stale loghost config ----
+# The installed system is journald-only on stock-shipped images
+# (36-telemetry.sh uses /var/log/journal, ForwardToSyslog=no by default).
+# Debian forky pulls rsyslog in via tasksel's desktop selection, so we have
+# to actively purge it here — otherwise the legacy syslog files grow
+# unbounded, the omfwd action spam returns on any operator who writes an
+# /etc/rsyslog.d/ file, and we have two parallel syslog daemons on the box.
+#
+# If /etc/ncz-loghost is present the operator has explicitly opted in to
+# remote forwarding; 36-telemetry re-installs rsyslog on the next run.
+# Skip the purge in that case so we do not fight the opt-in path.
+if [ -r /etc/ncz-loghost ] && [ -n "$(tr -d ' \t\r\n' < /etc/ncz-loghost 2>/dev/null)" ]; then
+    echo "  /etc/ncz-loghost is set — leaving rsyslog in place (opt-in remote forward)"
+    if [ -f /etc/rsyslog.d/90-loghost.conf ] && grep -qE '^\*\.\*[[:space:]]+@[0-9]' /etc/rsyslog.d/90-loghost.conf 2>/dev/null; then
+        rm -f /etc/rsyslog.d/90-loghost.conf
+        systemctl try-restart rsyslog >/dev/null 2>&1 || true
+        echo "  removed stale always-on 90-loghost.conf (forward is opt-in now)"
+    fi
+elif dpkg -s rsyslog >/dev/null 2>&1; then
+    # Defensive cleanup of the always-on config before we purge the daemon;
+    # otherwise dpkg can leave /etc/rsyslog.d/90-loghost.conf behind and a
+    # future rsyslog reinstall would re-arm the omfwd action.
+    if [ -f /etc/rsyslog.d/90-loghost.conf ] && grep -qE '^\*\.\*[[:space:]]+@[0-9]' /etc/rsyslog.d/90-loghost.conf 2>/dev/null; then
+        rm -f /etc/rsyslog.d/90-loghost.conf
+        echo "  removed stale always-on 90-loghost.conf before purge"
+    fi
+    if timeout 300 env DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 \
+            purge -y rsyslog rsyslog-mod-relp >/dev/null 2>&1; then
+        echo "  purged rsyslog (journald-only syslog sink)"
+    else
+        echo "  WARN: rsyslog purge failed; journald is still primary, legacy files will linger"
+    fi
+else
+    echo "  rsyslog already absent — journald-only"
 fi
 
 # --- 5. rtkit for PipeWire/WirePlumber RT scheduling -----------------------
