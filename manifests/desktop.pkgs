@@ -88,18 +88,26 @@ dbus-broker
 #   CONFIG_DEFAULT_SECURITY_APPARMOR=y
 #   CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf,ipe"
 # i.e. AppArmor is built AND is the default LSM (no lsm= cmdline override
-# needed; the broker boots in enforce mode for shipped profiles).
+# needed). Bundled profiles load at boot in COMPLAIN mode by default;
+# post-install/92-apparmor-enable.sh enables apparmor.service but does
+# NOT flip any profile to enforce. Per Debian's apparmor-profiles
+# package description, the bundled profiles are not mature enough to
+# be shipped in enforce mode by default — that is a deliberate
+# policy, not an oversight. Do NOT write release notes claiming
+# shipped profiles are in enforce mode; they are not.
 #
 # apparmor-profiles pulls the upstream Debian profile bundle
 # (usr.sbin.*, abstractions/, tunables/). apparmor-utils ships the
 # `aa-complain` / `aa-enforce` / `aa-disable` admin CLI; not strictly
-# required for boot, but the post-install hook uses them to load and
-# enforce the bundled profiles, and operators will want them for
-# per-service overrides.
+# required for boot, but operators will want them to promote
+# individual tested profiles to enforce mode on a per-service basis
+# (aa-enforce <profile>) rather than blanket-enforcing the whole
+# bundle.
 #
 # The systemd unit (apparmor.service) loads shipped profiles at boot.
-# post-install/92-apparmor-enable.sh enables that unit and verifies
-# `aa-status` reports the loaded profile set on first boot.
+# post-install/92-apparmor-enable.sh enables that unit and logs
+# `aa-status` so a future audit can see exactly which profiles are
+# loaded and in what mode.
 apparmor
 apparmor-profiles
 apparmor-utils
