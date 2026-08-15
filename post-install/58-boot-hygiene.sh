@@ -243,4 +243,33 @@ if [ -d /etc/update-motd.d ]; then
         | sed 's/^/  removed motd char-device: /'
 fi
 
+# --- 9. Cron audit (NCZ-OS 26.7 audit W1.3) ---------------------------------
+# The installed system may carry the Debian-default `cron` (vixie-cron) +
+# `anacron` packages via tasksel. We do NOT install cron ourselves; it is
+# NOT pinned in any manifest/*.pkgs file. A repository-wide grep at audit
+# time (2026-08-15) for crontab, /etc/cron.{d,daily,hourly,weekly,monthly}
+# references inside manifests/, post-install/, preseed/, assets/, tools/
+# found ZERO matches authored by us — every cron file on the installed
+# system is owned by a Debian package (logrotate, man-db, dpkg, ...).
+#
+# Decision: LEAVE the Debian-default cron install in place. We do not
+# schedule anything via cron; everything we own that needs periodic
+# execution is a systemd .timer + .service pair (style example:
+# assets/sinty-nm/ is a service; tools/nightly/ncz-singularity-sync.{timer,
+# service} is the canonical timer+service pair). Purging cron would
+# remove the dpkg / logrotate / man-db / apt-compat periodic jobs that
+# those packages ship; that is a real loss with no offsetting gain, and
+# the audit explicitly says "Only remove the cron package if nothing we
+# ship needs it; otherwise leave it and say so in the commit message."
+# Nothing we ship needs it, but a Debian-installed cron is also doing
+# work for packages we DO ship (logrotate, dpkg, man-db) — that is the
+# "say so in the commit message" branch.
+#
+# Belt-and-braces: if a future hook here wants to assert "no NCZ-owned
+# cron files exist", uncomment the guard below.
+# test -z "$(find /etc/cron.d /etc/cron.daily /etc/cron.hourly \
+#     /etc/cron.weekly /etc/cron.monthly /var/spool/cron -type f \
+#     -newer /usr/lib/systemd/system/cron.service 2>/dev/null)" || \
+#     echo "  WARN: NCZ-owned cron file detected — convert to .timer"
+
 echo "[58] boot hygiene done"
