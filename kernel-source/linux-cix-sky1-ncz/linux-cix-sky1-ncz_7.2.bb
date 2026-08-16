@@ -3,8 +3,13 @@
 #
 # Linux kernel for Cix Sky1 / CP8180 -- NCZ 7.2 track.
 #
-# Base: torvalds mainline v7.2-rc6 (no linux-7.2.y stable branch yet, so
-#       KBRANCH=master + SRCREV pinned to the v7.2-rc7 tag commit).
+# Base: torvalds mainline v7.2-rc7 (no linux-7.2.y stable branch yet, so
+#       KBRANCH=master + SRCREV pinned to the v7.2-rc7 tag COMMIT).
+#       (Bumped 2026-08-16 from v7.2-rc6 -> v7.2-rc7. The shipped kernel
+#       reports KERNELRELEASE 7.2.0-rc7-sky1-ncz, confirmed on O6 metal.
+#       LINUX_VERSION/SUMMARY/DESCRIPTION had been left at rc6 while
+#       SRCREV already pointed at rc7 -- corrected here so the recipe
+#       metadata and the artifact agree.)
 #       (Rebased 2026-08-02 from v7.2-rc5 -> v7.2-rc6: all 170 CIX commits
 #       replayed with ZERO conflicts and range-diff 170/170 "=".)
 #       (Forward-ported 2026-07-26 from v7.2-rc4 -> v7.2-rc5: the rc4->rc5
@@ -112,8 +117,8 @@
 #   firmware. Do not enable CONFIG_DRM_CIX_COMPONENT_BIND_BYPASSED —
 #   it forces the multi-card path and defeats the 26q2 single-master code.
 
-SUMMARY = "NCZ Linux kernel for Cix Sky1 / CP8180 (v7.2-rc6 + CIX 2026q2 patch set)"
-DESCRIPTION = "NCZ kernel: mainline Linux v7.2-rc6 plus the cixtech 2026q2 Sky1 driver set forward-ported by NCZ. Not a CIX/vendor release."
+SUMMARY = "NCZ Linux kernel for Cix Sky1 / CP8180 (v7.2-rc7 + CIX 2026q2 patch set)"
+DESCRIPTION = "NCZ kernel: mainline Linux v7.2-rc7 plus the cixtech 2026q2 Sky1 driver set forward-ported by NCZ. Not a CIX/vendor release."
 SECTION = "kernel"
 LICENSE = "GPL-2.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=6bc538ed5bd9a7fc9398086aedcd7e46"
@@ -121,7 +126,7 @@ LIC_FILES_CHKSUM = "file://COPYING;md5=6bc538ed5bd9a7fc9398086aedcd7e46"
 inherit kernel
 FILESEXTRAPATHS:prepend := "${THISDIR}/linux-cix-sky1-ncz-7.2:"
 
-LINUX_VERSION = "7.2-rc6"
+LINUX_VERSION = "7.2-rc7"
 KERNEL_LOCALVERSION = "-sky1-ncz"
 PATCHTOOL = "git"
 PV = "7.2+ncz"
@@ -140,21 +145,23 @@ do_shared_workdir:append() {
     ln -sfn "${KERNEL_PACKAGE_NAME}-localversion" "${WORKDIR}/kernel-build-artifacts/kernel-localversion"
 }
 
-# v7.2-rc7 tag commit (torvalds mainline, on master; SRCREV must be the
-# COMMIT, not the annotated tag object -- same convention as rc4/rc5).
-# The annotated tag object is d7dd96eb916519208210bb4a0408fcf4f7fdce5d;
-# `git rev-parse v7.2-rc6^{commit}` dereferences it to 075b74841bd0
-# ("Linux 7.2-rc6"). The rc6 handoff note circulated the TAG sha; using it
-# here would contradict this recipe's own stated convention and break the
-# tag-vs-commit record in CORRESPONDING-SOURCE.md.
-# Bumped 2026-08-02 from v7.2-rc5 (f5098b6bae761e346ebcd9da7f95622c04733cff).
-# The rc5 -> rc6 rebase of all 170 CIX commits was done first, out of tree,
-# and range-diff reported 170/170 "=" -- no patch altered, dropped or added.
-# rc6 is an ordinary -rc bugfix cycle for our purposes (615 commits, 530
-# files): drm/panthor gets 2 firmware-validation hardening commits
-# (b921b8613790, a3caaa068092), drivers/gpu/drm/arm (komeda/linlondp) is
-# untouched, realtek changes are rtase-only (not r8169), and the arm64 work
-# is KVM/vgic. Nothing here fixes a Sky1 failure mode -- this is hygiene.
+# v7.2-rc7 tag COMMIT (torvalds mainline, on master). SRCREV must be the
+# commit, not the annotated tag object -- same convention as rc4/rc5/rc6.
+# Verified against git.kernel.org on 2026-08-16:
+#   v7.2-rc5 = f5098b6bae761e346ebcd9da7f95622c04733cff
+#   v7.2-rc6 = 075b74841bd0065a3bda3440873c747938e69b68
+#   v7.2-rc7 = db2ddb87143519e20a95aa36c60b36107b736a58   <- pinned below
+# Bumped 2026-08-16 from v7.2-rc6. The rc6 handoff note circulated a TAG sha;
+# using a tag object here would contradict this recipe's stated convention and
+# break the tag-vs-commit record in CORRESPONDING-SOURCE.md.
+# Cycle history, kept because it records what each rebase actually touched:
+#   rc5 -> rc6 (2026-08-02): all 170 CIX commits replayed, range-diff 170/170
+#     "=" -- none altered, dropped or added. rc6 is an ordinary bugfix cycle
+#     for our purposes (615 commits, 530 files): drm/panthor gained 2 firmware
+#     validation hardening commits (b921b8613790, a3caaa068092),
+#     drivers/gpu/drm/arm (komeda/linlondp) untouched, realtek changes are
+#     rtase-only (not r8169), arm64 work is KVM/vgic. No Sky1 failure mode
+#     fixed -- hygiene only.
 SRCREV_kernel = "db2ddb87143519e20a95aa36c60b36107b736a58"
 
 SRC_URI = " \

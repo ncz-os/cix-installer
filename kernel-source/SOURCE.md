@@ -7,13 +7,18 @@ publicly available at the pinned upstream revisions below.
 
 ## Shipping kernel
 
-- **KERNELRELEASE:** `7.2.0-rc5-sky1-ncz`
-- **Base:** mainline Linux **v7.2-rc5**, from
+- **KERNELRELEASE:** `7.2.0-rc7-sky1-ncz`
+- **Base:** mainline Linux **v7.2-rc7**, from
   `git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git`
-  at **SRCREV `f5098b6bae761e346ebcd9da7f95622c04733cff`** (the v7.2-rc5 tag
-  commit; forward-ported 2026-07-26 from the previously-shipped v7.2-rc4 base,
-  SRCREV `1590cf0329716306e948a8fc29f1d3ee87d3989f`, still recorded below/in
-  CORRESPONDING-SOURCE.md for GPL corresponding-source continuity).
+  at **SRCREV `db2ddb87143519e20a95aa36c60b36107b736a58`** (the v7.2-rc7 tag
+  commit -- the commit, not the annotated tag object).
+
+  Base history, retained for GPL corresponding-source continuity:
+  v7.2-rc4 `1590cf0329716306e948a8fc29f1d3ee87d3989f` ->
+  v7.2-rc5 `f5098b6bae761e346ebcd9da7f95622c04733cff` (2026-07-26) ->
+  v7.2-rc6 `075b74841bd0065a3bda3440873c747938e69b68` (2026-08-02) ->
+  v7.2-rc7 `db2ddb87143519e20a95aa36c60b36107b736a58` (2026-08-16).
+  All four shas verified against git.kernel.org on 2026-08-16.
 - **Delta:** the CIX Sky1 (CD8180) enablement — 170 patches actually wired
   into the recipe's `SRC_URI` (the `patches-7.2/` directory also holds some
   superseded/experimental patches not referenced by the recipe) under
@@ -42,7 +47,7 @@ linux-cix-sky1-ncz/
 ```sh
 git clone git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
 cd linux
-git checkout f5098b6bae761e346ebcd9da7f95622c04733cff
+git checkout db2ddb87143519e20a95aa36c60b36107b736a58
 # Apply in the exact order listed in linux-cix-sky1-ncz_7.2.bb's SRC_URI --
 # NOT plain `for p in patches-7.2/*.patch`, the directory holds a few
 # superseded/experimental patches the recipe does not use, and the shipping
