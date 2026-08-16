@@ -202,7 +202,12 @@ build_layer(){ local role="$1" manifest="$2"
   # The destination directory itself is not part of the squashfs payload.
   # Force ownership so maintainer scripts see a normal root-owned filesystem.
   sudo chown root:root "$L"
-  mkdir -p "$U" "$WK" "$MG"
+  # sudo: $WORK is root-owned as soon as any earlier stage has run under sudo,
+  # so an unprivileged mkdir here fails with "mkdir: Permission denied" and
+  # set -e aborts the build four seconds in, having logged nothing but the
+  # three mkdir errors. These three directories are chown'd to root on the very
+  # next line regardless, so creating them as root changes nothing else.
+  sudo mkdir -p "$U" "$WK" "$MG"
   # Overlay presents the upper/mount root as the chroot root. None of the
   # backing directories may retain invoking-user ownership or systemd's
   # maintainer scripts reject `/` as an unsafe path.
