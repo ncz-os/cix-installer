@@ -119,7 +119,18 @@ echo "== building Debian package =="
 echo "   input  = $TGZ"
 echo "   output = $OUTDEB"
 echo "   version= $VERSION"
-if dpkg-deb --help 2>&1 | grep -q -- '--root-owner-group'; then
+# Capture the help text first rather than piping it into `grep -q`. Under
+# `set -o pipefail` that pipeline is a race: grep -q exits the moment it
+# matches, dpkg-deb takes SIGPIPE, and the pipeline reports failure even though
+# the option IS supported -- so the script falls through to the fakeroot branch
+# and dies with "dpkg-deb lacks --root-owner-group and fakeroot is unavailable"
+# on a host whose dpkg-deb (1.23.7) supports it perfectly well. Observed
+# intermittently on 2026-08-16: the same invocation failed, succeeded, then
+# failed again, and always succeeded under `bash -x` (which slows dpkg-deb
+# enough to lose the race). An intermittent packaging failure is worse than a
+# consistent one -- it gets retried until it passes and never investigated.
+_dpkg_deb_help="$(dpkg-deb --help 2>&1 || true)"
+if printf '%s' "$_dpkg_deb_help" | grep -q -- '--root-owner-group'; then
     dpkg-deb --build --root-owner-group "$STAGE" "$OUTDEB"
 else
     command -v fakeroot >/dev/null 2>&1 || {
