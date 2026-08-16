@@ -73,6 +73,9 @@ LEGACY="/etc/modprobe.d/ncz-gpu-profile.conf /etc/modprobe.d/ncz-gpu.conf"
 LDCONFIG=$(command -v ldconfig 2>/dev/null || echo /sbin/ldconfig)
 
 log() { echo "ncz-gpu-switcher: $*"; }
+# Errors go to stderr so the unit's StandardError=journal+console surfaces them
+# on a degraded boot, where the journal is the harder place to look.
+err() { echo "ncz-gpu-switcher: $*" >&2; }
 
 # --mode <m> overrides everything, for the runtime switch performed by the
 # ncz-gpu-select shim. It does NOT persist: the next boot re-reads the cmdline.
@@ -253,9 +256,9 @@ elif [ "$mode" = mali ] && driver_live panthor; then
 fi
 
 if driver_available "$mode"; then
-    log "ERROR: selected '$mode' but its driver is NOT bound after loading."
-    log "ERROR: the desktop would fall back to llvmpipe. Check: ncz-gpu-status,"
-    log "ERROR: dmesg | grep -iE 'panthor|mali', and whether /dev/mali0 was held."
+    err "ERROR: selected '$mode' but its driver is NOT bound after loading."
+    err "ERROR: the desktop would fall back to llvmpipe. Check: ncz-gpu-status,"
+    err "ERROR: dmesg | grep -iE 'panthor|mali', and whether /dev/mali0 was held."
     exit 1
 fi
 
