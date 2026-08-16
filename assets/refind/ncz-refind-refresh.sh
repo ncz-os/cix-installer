@@ -362,7 +362,12 @@ fi
 # panthor stays out because it kills the GPU on the first user VM_BIND
 # (cixtech#59); panfrost is the pre-CSF Mesa driver and would fight the blob
 # for the same hardware. Neither is ever wanted on this SoC.
+# Accelerator module names, as they actually appear in lsmod on Sky1 (verified
+# on O6N 2026-08-16): GPU = panthor | mali_kbase + its two helpers, VPU = amvx,
+# NPU = aipu. linlondp is the DISPLAY controller and is NEVER blacklisted -- it
+# is the only video console on O6N, and disabling it is a permanent black screen.
 CONSOLE_GPU_BLACKLIST="panthor,panfrost"
+ALL_ACCEL_BLACKLIST="panthor,panfrost,mali_kbase,memory_group_manager,protected_memory_allocator,amvx,aipu"
 # The deeper fallbacks (legacy 7.0.12 and the rescue partition) stay
 # all-accelerators-off: those exist to get a shell on a machine whose drivers
 # are suspect, so they deliberately load nothing optional.
@@ -394,8 +399,13 @@ NEXT_CONSOLE_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_CONSOLE_EXISTING_BL=$(printf '%s\n' "$NEXT_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
     NEXT_CONSOLE_CMDLINE_NOBL=$(printf '%s\n' "$NEXT_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
-    [ -n "$NEXT_CONSOLE_EXISTING_BL" ] && NEXT_CONSOLE_MERGED_BL="$NEXT_CONSOLE_EXISTING_BL,$CONSOLE_GPU_BLACKLIST" || NEXT_CONSOLE_MERGED_BL="$CONSOLE_GPU_BLACKLIST"
-    NEXT_CONSOLE_CMDLINE="$NEXT_CONSOLE_CMDLINE_NOBL module_blacklist=$NEXT_CONSOLE_MERGED_BL"
+    # Operator 2026-08-16: the 7.2 console entry keeps ALL ACCELERATORS. It is a
+    # no-GUI entry, not a no-hardware entry -- you reach a shell with the GPU,
+    # VPU and NPU usable for headless work and for diagnosing the accelerators
+    # themselves. Only the graphical target is dropped. Accelerator-free
+    # recovery is the RESCUE entry's job.
+    NEXT_CONSOLE_MERGED_BL="$NEXT_CONSOLE_EXISTING_BL"
+    NEXT_CONSOLE_CMDLINE="$NEXT_CONSOLE_CMDLINE_NOBL module_blacklist=$NEXT_CONSOLE_MERGED_BL sky1.gpu=vendor"
     NEXT_CONSOLE_OPTIONS="$ROOT_OPTS $NEXT_CONSOLE_CMDLINE systemd.unit=multi-user.target"
 fi
 
@@ -415,7 +425,20 @@ if [ -f "$RESCUE_READY" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
         # actually appears, which is the correct mechanism and costs nothing
         # once it has; rootdelay=90 was an unconditional 90s sleep paid on
         # every rescue boot even when the disk was ready immediately.
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $NEXT_CONSOLE_CMDLINE systemd.unit=multi-user.target"
+        # Operator 2026-08-16: RESCUE runs with EVERY accelerator disabled --
+        # GPU, VPU and NPU -- because it exists to recover a board those very
+        # drivers may have wedged. It can no longer share the console cmdline,
+        # which now deliberately keeps the accelerators.
+        #
+        # linlondp is NOT in the list: it is the display controller and the only
+        # video console on O6N. Blacklisting it is a permanent black screen.
+        #
+        # sky1.gpu=none stops ncz-gpu-switcher trying to load a driver the
+        # cmdline forbids, which would fail the unit on the one entry that must
+        # never look broken.
+        RESCUE_CMDLINE_NOBL=$(printf '%s\n' "$NEXT_CONSOLE_CMDLINE_NOBL" | tr ' ' '\n' | grep -vE '^(sky1\.gpu=|$)' | paste -sd' ' -)
+        [ -n "$NEXT_CONSOLE_EXISTING_BL" ] && RESCUE_BL="$NEXT_CONSOLE_EXISTING_BL,$ALL_ACCEL_BLACKLIST" || RESCUE_BL="$ALL_ACCEL_BLACKLIST"
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $RESCUE_CMDLINE_NOBL module_blacklist=$RESCUE_BL sky1.gpu=none systemd.unit=multi-user.target"
         echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
     else
         echo "ERROR: rescue-partition marker has no PARTUUID — refusing to ship without recovery"
@@ -498,7 +521,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
     fi
 
     if [ "$NEXT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 MALI DKMS — graphical [DEFAULT]\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 GUI (Mali, Default)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -527,14 +550,14 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         # against it. Making it default is a separate, deliberate change to
         # DEFAULT_TOKEN -- do not flip it as a side effect of this entry
         # existing.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 PANTHOR DKMS — graphical (EXPERIMENTAL)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 GUI (Panthor, Experimental)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$PANTHOR_OPTIONS\""
         echo "}"
         echo
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 CONSOLE — networked, no GPU, no GUI\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 Console (All Accelerators)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -548,7 +571,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         # no version -- an entry that silently cannot boot. The title said
         # "7.0.12 ... legacy" while the options already pointed at the rescue
         # partition, so the menu was actively misleading about what it would do.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  RESCUE PARTITION — kernel $KVER_NEXT, console, automatic networking\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 Rescue Partition (All Accelerators Disabled)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"

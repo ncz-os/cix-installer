@@ -97,6 +97,11 @@ get_mode() {
     case "$mode" in
         vendor|mali)  echo mali ;;
         mesa|panthor) echo panthor ;;
+        # The RESCUE entry disables every accelerator, so there is deliberately
+        # nothing to load. Without this the switcher would try the shipped
+        # default, fail against the cmdline module_blacklist, and exit non-zero
+        # -- a failed unit on the one boot entry that must never look broken.
+        none|off)     echo none ;;
         *)            echo mali ;;   # shipped default
     esac
 }
@@ -226,6 +231,12 @@ drop_legacy
 ensure_blacklist
 
 mode=$(get_mode)
+if [ "$mode" = none ]; then
+    log "sky1.gpu=none -- accelerators disabled by the boot entry, loading nothing"
+    echo none > "$STATE" 2>/dev/null || true
+    exit 0
+fi
+
 case "$mode" in
     mali)    activate_mali    ;;
     panthor) activate_panthor ;;
