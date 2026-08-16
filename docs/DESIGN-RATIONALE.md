@@ -332,6 +332,81 @@ largest unrealised inference capability on the board.
 
 ---
 
+## 2c. Two codec/boot positions we took deliberately
+
+### libopenh264: we inherit Debian's position, and cannot cheaply do otherwise
+
+**DECIDED (operator, 2026-08-16).** `libopenh264-8` ships in the image. It is
+**not** something we chose: it arrives as a hard `Depends` of
+`gstreamer1.0-plugins-bad`, which is the package our accelerated media path
+needs (h264parse, h265parse, tsdemux, waylandsink and several hundred more).
+
+**MEASURED.** Removing it is not a local change:
+
+```
+# apt-get remove -s libopenh264-8
+Remv kooha
+Remv kdenlive
+Remv gstreamer1.0-plugins-bad     <-- the accelerated media path
+Remv libopenh264-8
+```
+
+So the choice is not "keep or remove". It is:
+
+1. accept it — our exposure is then **identical to Debian's**;
+2. drop `plugins-bad` — unacceptable, it breaks VPU playback, which is the
+   entire reason we ship GStreamer players rather than the FFmpeg-backed ones;
+3. fork and rebuild `plugins-bad` without openh264 support — the only route that
+   genuinely removes the dependency, at the cost of maintaining a fork.
+
+We take (1).
+
+Worth knowing what other distributions do, because the split is real: **Debian
+and Ubuntu compile OpenH264 themselves** and ship it in the archive, which is
+what we inherit. **Fedora and openSUSE deliberately do not** — they route users
+to a separate repo that installs **Cisco's prebuilt binary**, because Cisco's
+patent grant covers Cisco's own binaries rather than third-party builds.
+
+Rejected on purpose: diverting the GStreamer plugin (`libgstopenh264.so`) to
+hide the two elements. That would be **cosmetic** — `libopenh264-8` itself
+remains installed either way, so it changes what is reachable, not what we
+ship, while creating the impression the question had been addressed.
+
+### Secure Boot and UKIs: deferred, and it is a deferral not an oversight
+
+**DECIDED (operator, 2026-08-16): ship 26.7 without them.**
+
+**MEASURED on O6N**, so the cost is known rather than assumed:
+
+```
+firmware : SecureBoot = 0    SetupMode = 1     (no PK enrolled)
+loader   : rEFInd BOOTAA64.EFI, no shim
+kernel   : CONFIG_MODULE_SIG            not set
+           CONFIG_MODULE_SIG_FORCE      not set
+           CONFIG_SECURITY_LOCKDOWN_LSM not set
+           signed modules: 0    taint 4100 (out-of-tree + unsigned)
+```
+
+The usual objection — "Secure Boot breaks DKMS" — **does not apply to us**. The
+kernel has no signing enforcement compiled in at all, so even under Secure Boot
+it would load unsigned `mali_kbase`, `amvx`, `aipu` and `panthor` exactly as it
+does now.
+
+What would actually break is the **boot chain**: rEFInd and the kernel are
+unsigned and there is no shim, so the firmware would refuse to load them. That
+is a board that will not boot until Secure Boot is turned off again — recoverable,
+not fatal, and `SetupMode=1` means nothing is locked and our own keys could be
+enrolled.
+
+Doing it properly is a project, not a flag: build UKIs (dracut makes this
+possible, which is why it was gated on the dracut migration), sign the UKI and
+loader with our own keys, enroll PK/KEK/db, and enable `CONFIG_MODULE_SIG` with
+signed DKMS modules — otherwise the result is boot-chain integrity sitting on
+top of a wide-open module path, which is a half-measure worth less than it
+looks.
+
+---
+
 ## 3. Desktop: Wayland and Singularity, not X and XFCE
 
 **DECIDED**, and the GPU section above is the reason. This hardware's working
