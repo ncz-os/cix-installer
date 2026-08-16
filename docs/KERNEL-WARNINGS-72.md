@@ -158,6 +158,48 @@ tainted = 4100        aipu: loading out-of-tree module taints kernel.
 drivers are all DKMS, never in-tree. Recorded so the taint flag is not mistaken
 for a defect later.
 
+## 10. `CONFIG_VIDEO_LINLON=m` puts a second, unvalidated VPU module in the image
+
+`kernel-manifest.py check` warns:
+
+```
+WARN: [edge] CONFIG_VIDEO_LINLON=m is IN-TREE in config-7.2.0-rc7-sky1-ncz —
+      accelerators must ship out-of-tree (an in-tree copy masks the validated
+      overlay/DKMS module at modprobe time)
+```
+
+This is real: **two copies of amvx ship in the image.**
+
+```
+kernel/drivers/media/platform/cix/amvx.ko.xz   <- in-tree, from CONFIG_VIDEO_LINLON=m
+updates/dkms/amvx.ko.xz                        <- the validated DKMS build
+```
+
+**It is currently LATENT, not active.** Verified on O6N: `modprobe
+--show-depends amvx` resolves to `updates/dkms/amvx.ko.xz`, `modules.dep` lists
+the updates path, and the VPU nodes are present (`/dev/video0-3`,
+`/dev/video-cixdec0`). `updates/` outranks `kernel/` in depmod's search order,
+so the right module wins today.
+
+It becomes an active defect the moment the DKMS build fails or is skipped for a
+kernel: depmod then finds only the in-tree copy and loads an **unvalidated**
+VPU driver silently, with no error anywhere. That is the failure mode the
+"CIX drivers are all DKMS, never in-tree" doctrine exists to prevent, and it is
+the same class as the panthor/mali case where `CONFIG_*=y` cannot be overridden
+at runtime.
+
+**Fix:** unset `CONFIG_VIDEO_LINLON` in the kernel recipe so only the DKMS
+module exists.
+**Impact:** none today; silent use of an unvalidated VPU driver if DKMS ever
+fails.
+**Confidence:** high — both copies confirmed on disk, resolution confirmed by
+modprobe.
+
+Related, from the same manifest run: the NPU entry reports `npu=None (?)
+[MISMATCH]`. Catching NPU vermagic drift is the manifest's stated purpose, and
+it currently cannot see the module at all. Worth fixing so the check is real.
+The NPU itself is clean — `aipu.ko.xz` exists only under `updates/dkms/`.
+
 ---
 
 ## Summary
@@ -173,5 +215,7 @@ for a defect later.
 | 7 | kbase PM refcount, blocks panthor probe after unload | vendor / upstream report | medium |
 | 8 | bpf-restrict-fs inert | investigation | low |
 | 9 | taint 4100 | none — expected | none |
+| 10 | CONFIG_VIDEO_LINLON=m ships a 2nd, unvalidated amvx | kernel recipe config | medium (latent) |
+| 11 | manifest cannot see the NPU module (npu=None) | build/kernel-manifest.py | medium |
 
 Items 1 and 2 are one-line config changes and should land in the 7.2 port.
