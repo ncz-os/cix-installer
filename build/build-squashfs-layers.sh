@@ -96,6 +96,33 @@ verify_squashfs(){
   sudo unsquashfs -f -d "$vd" "$img" >"$vlog" 2>&1 || rc=$?
   sudo rm -rf "$vd"
   if [ "$rc" -ne 0 ]; then
+    # Re-check COLD before condemning the image. Measured 2026-08-16 on this
+    # host: a layer whose bytes were provably correct (source, staging copy and
+    # the copy inside the ISO all md5'd identical) still failed extraction with
+    # "zstd uncompress failed with error code 20" -- and then verified clean
+    # after `sync; drop_caches`. The data was right; the READ was wrong. btrfs
+    # cannot flag that: it verifies checksums on read, so corruption occurring
+    # after verification (or before checksumming on write) is invisible to it,
+    # and indeed no csum error was logged for either event.
+    #
+    # Condemning a good layer costs a full rebuild, so spend a few seconds
+    # ruling out a bad read first. A genuinely corrupt archive fails both times.
+    log "$name: verification FAILED (rc=$rc) -- re-checking cold before condemning it"
+    sync
+    echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null 2>&1 || true
+    vd="$(sudo mktemp -d "$WORK/.verify-$name.XXXXXX")"
+    rc=0
+    sudo unsquashfs -f -d "$vd" "$img" >"$vlog" 2>&1 || rc=$?
+    sudo rm -rf "$vd"
+    if [ "$rc" -eq 0 ]; then
+      log "$name: verified OK on the cold re-read -- the first failure was a bad READ, not a bad archive"
+      log "  NOTE: a transient bad read on this host is itself a fault worth investigating (suspect memory)"
+      rm -f "$vlog"
+      return 0
+    fi
+    log "$name: still fails cold -- the archive really is corrupt"
+  fi
+  if [ "$rc" -ne 0 ]; then
     log "ERROR: $name archive FAILED verification (unsquashfs rc=$rc) -- refusing to publish"
     grep -iE "fatal|error" "$vlog" | tail -5 >&2 || true
     # Move it aside rather than delete: the ISO build must not silently pick up
