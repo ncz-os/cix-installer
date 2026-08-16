@@ -310,6 +310,17 @@ CONFIG_BLK_DEV_NVME=y
 CONFIG_VIRTIO_BLK=y
 CONFIG_NVME_MULTIPATH=y
 CONFIG_NVME_HWMON=y
+# SCMI hwmon sensors. MEASURED 2026-08-16: absent from this lean defconfig, so
+# olddefconfig took the default n and the driver was never built. The result on
+# O6N was that SCMI came up fine -- perf (12 domains), clocks, genpd all
+# registered, and the log even says "ACPI: activating SCMI protocol 0x12", the
+# SENSOR protocol -- but no device was ever created for 0x12 and no hwmon chip
+# appeared. The board reported 5 bare ACPI thermal zones instead of the 22
+# labelled readings (CPU_B0, GPU_AVE, NPU, VPU, DDR_top, PCB_AMB, ...) that
+# 7.0.12 shows, where this symbol is =y. Nothing to do with acpi_scmi_en.
+# Same failure shape as the CONFIG_DEVTMPFS_MOUNT loss: a lean defconfig that
+# omits a symbol does not keep it, it drops it.
+CONFIG_SENSORS_ARM_SCMI=y
 CONFIG_NVME_HOST_AUTH=y
 CONFIG_SRAM=y
 CONFIG_ARMCHINA_NPU=m
