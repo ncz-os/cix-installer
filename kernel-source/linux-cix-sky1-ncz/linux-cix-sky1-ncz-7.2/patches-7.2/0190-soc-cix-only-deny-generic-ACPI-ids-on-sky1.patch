@@ -1,0 +1,81 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] soc: cix: only deny generic ACPI ids on real Sky1 firmware
+
+device_deny_id_init() registered its deny handlers unconditionally, and
+DENY_PCIE denies PNP0A03 -- the standard ACPI PCI root bridge. On Sky1 that is
+deliberate, because CIXH2020 must own the controller instead. On any other ACPI
+machine it means the PCI bus is never enumerated at all.
+
+Measured under QEMU virt (MCFG OEM "BOCHS") with this kernel: the boot reached
+"ACPI: MCFG table detected, 1 entries" and then produced no PCI root bridge,
+/sys/bus/pci/devices was empty, and /proc/partitions listed nothing -- no xhci,
+no virtio_blk, no installer medium. debian-installer correctly reported "No
+device for installation media was detected", which read like an image bug and
+was not one. Booting the same kernel with the existing pcie_pnp_en early_param
+(which repoints DENY_PCIE at the CIX ids) brought up PCI Root Bridge [PCI0],
+xhci_hcd, virtio_blk and the USB medium as /dev/sda.
+
+Gate the whole deny-handler registration on the same MCFG OEM check that
+pci-sky1-acpi.c already uses for its PNP0A08 block, so Sky1 behaviour is
+unchanged and every other platform keeps working generic enumeration. This is
+what makes the shipped kernel testable in KVM at all.
+
+Upstream-Status: Inappropriate [oe-specific]
+Downstream fix to a downstream patch (0066); the deny list does not exist
+upstream.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+--- a/drivers/soc/cix/acpi/cix-acpi-plat.c
++++ b/drivers/soc/cix/acpi/cix-acpi-plat.c
+@@ -110,10 +110,51 @@
+ 	}
+ };
+ 
++/*
++ * True only on real Sky1 firmware.
++ *
++ * The deny handlers below exist to stop the GENERIC ACPI enumerators from
++ * claiming devices that the CIX vendor drivers must own.  That is correct on
++ * Sky1 and actively harmful anywhere else: DENY_PCIE blocks PNP0A03, the
++ * standard PCI root bridge, so on any non-Sky1 ACPI machine the PCI bus is
++ * never enumerated at all -- no host controllers, no storage, no network.
++ *
++ * Measured under QEMU virt (MCFG OEM "BOCHS"): with the deny active the kernel
++ * reported "ACPI: MCFG table detected" and then nothing, /sys/bus/pci/devices
++ * was empty and /proc/partitions listed no devices whatsoever.  With the deny
++ * skipped the same kernel brings up "ACPI: PCI Root Bridge [PCI0]", xhci_hcd,
++ * virtio_blk and the USB medium.
++ *
++ * Detection matches pci-sky1-acpi.c, which already guards its own PNP0A08
++ * block the same way.
++ */
++static bool sky1_firmware_detected(void)
++{
++	struct acpi_table_header *header;
++	bool detected;
++
++	if (acpi_disabled)
++		return false;
++
++	if (ACPI_FAILURE(acpi_get_table(ACPI_SIG_MCFG, 0, &header)))
++		return false;
++
++	detected = !memcmp(header->oem_id, "CIXTEK", 6) &&
++		   !memcmp(header->oem_table_id, "SKY1EDK2", 8);
++	acpi_put_table(header);
++
++	return detected;
++}
++
+ static void device_deny_id_init(void)
+ {
+ 	int i;
+ 
++	if (!sky1_firmware_detected()) {
++		pr_info("cix-acpi-plat: not Sky1 firmware, leaving generic ACPI enumeration alone\n");
++		return;
++	}
++
+ 	if (pcie_pnp_en)
+ 		acpi_deny_handler[DENY_PCIE].ids = pcie_cdns_deny_ids;
+ 

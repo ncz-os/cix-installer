@@ -311,28 +311,58 @@ CONFIG_VIRTIO_BLK=y
 CONFIG_NVME_MULTIPATH=y
 CONFIG_NVME_HWMON=y
 # SCMI hwmon sensors. MEASURED 2026-08-16: absent from this lean defconfig, so
-# olddefconfig took the default n and the driver was never built. The result on
-# O6N was that SCMI came up fine -- perf (12 domains), clocks, genpd all
-# registered, and the log even says "ACPI: activating SCMI protocol 0x12", the
-# SENSOR protocol -- but no device was ever created for 0x12 and no hwmon chip
-# appeared. The board reported 5 bare ACPI thermal zones instead of the 22
-# labelled readings (CPU_B0, GPU_AVE, NPU, VPU, DDR_top, PCB_AMB, ...) that
-# 7.0.12 shows, where this symbol is =y. Nothing to do with acpi_scmi_en.
-# Same failure shape as the CONFIG_DEVTMPFS_MOUNT loss: a lean defconfig that
-# omits a symbol does not keep it, it drops it.
+# olddefconfig took the default n and the driver was never built. On O6N the
+# SCMI stack itself came up fine -- perf (12 domains), clocks and genpd all
+# registered, and the log even reads "ACPI: activating SCMI protocol 0x12",
+# the SENSOR protocol -- but no device was created for 0x12 and no hwmon chip
+# appeared. The board showed 5 bare ACPI thermal zones (TZB0 TZB1 TZM0 TZM1
+# TZGT, unlabelled) instead of the 22 labelled readings (CPU_B0, GPU_AVE, NPU,
+# VPU, DDR_top, PCB_AMB, ...) that 7.0.12 shows, where this symbol is =y.
+# Nothing to do with acpi_scmi_en, which only chooses a clock provider.
 CONFIG_SENSORS_ARM_SCMI=y
 CONFIG_NVME_HOST_AUTH=y
 CONFIG_SRAM=y
-CONFIG_ARMCHINA_NPU=m
-CONFIG_ARMCHINA_NPU_ARCH_V3=y
-CONFIG_ARMCHINA_NPU_ARCH_V3_1=y
-CONFIG_ARMCHINA_NPU_SOC_SKY1=y
+# ARMCHINA_NPU MUST NOT BE BUILT IN-TREE. The accelerator ships as a vendor
+# DKMS module (cix-npu-kmd -> updates/dkms/aipu.ko), and an in-tree copy wins
+# modprobe, so the DKMS module is rejected outright. Measured on O6N with r239:
+#
+#   armchina CIXH4000:00: sky1_npu_probe: NPU core num is 3
+#   armchina CIXH4000:00: sky1_npu_probe: armchina_aipu_probe done
+#   aipu: exports duplicate symbol armchina_aipu_alloc_dma_buf (owned by armchina_npu)
+#   aipu: exports duplicate symbol armchina_aipu_alloc_dma_buf (owned by armchina_npu)
+#
+# i.e. the in-tree armchina_npu.ko (kernel/drivers/misc/armchina-npu/) claims
+# the symbols first and the vendor module cannot load at all. This is exactly
+# what build-kernel-debs.sh has been warning about on every single build:
+#
+#   WARN: [edge] CONFIG_ARMCHINA_NPU=m is IN-TREE ... an in-tree copy masks the
+#   validated overlay/DKMS module at modprobe time
+#
+# and it matches the standing rule that CIX accelerator drivers ship DKMS,
+# never in-tree.
+#
+# NOTE: turning this off does not by itself make the NPU usable. There is no
+# userspace driver on the image at all (nothing under /usr/lib matching noe/npu),
+# so the device has no consumer either way. What this fixes is the kernel side
+# sabotaging its own vendor module.
+#
+# CONFIG_VIDEO_LINLON is deliberately LEFT AS IS despite the same warning: on a
+# real r239 install no in-tree mvx module is produced at all, the only module on
+# disk is updates/dkms/amvx.ko, and the VPU works in both directions (H.264
+# decode 90 frames @45x, encode 60 frames verified). Nothing is shadowed there,
+# so changing it would be a blind edit to a working path.
+# CONFIG_ARMCHINA_NPU is not set
 CONFIG_MD=y
 CONFIG_BLK_DEV_MD=m
 CONFIG_MD_RAID0=m
 CONFIG_MD_RAID1=m
 CONFIG_MD_RAID10=m
 CONFIG_MD_RAID456=m
+CONFIG_BLK_DEV_DM=m
+CONFIG_DM_MIRROR=m
+CONFIG_DM_SNAPSHOT=m
+CONFIG_DM_ZERO=m
+CONFIG_DM_INTEGRITY=m
 CONFIG_FUSION=y
 CONFIG_NETDEVICES=y
 CONFIG_VIRTIO_NET=y
@@ -489,7 +519,32 @@ CONFIG_MEDIA_PCI_SUPPORT=y
 CONFIG_V4L_PLATFORM_DRIVERS=y
 CONFIG_V4L_MEM2MEM_DRIVERS=y
 CONFIG_V4L_TEST_DRIVERS=y
-CONFIG_DRM=m
+
+# ---------------------------------------------------------------------------
+# DRM CORE MUST BE BUILTIN on Sky1 -- =m costs ~10s of black screen at boot.
+#
+# 7.0.12 and 6.18, which put the installer on the monitor promptly for hundreds
+# of installs, both ship CONFIG_DRM=y with CONFIG_DRM_LINLONDP=m. The lean 7.2
+# pass dropped the core to =m with no recorded reason (every neighbouring entry
+# in this file carries a justification; this one did not), which means the WHOLE
+# stack -- drm core, kms_helper, display_helper, then linlondp -- has to be
+# pulled in by udev from the initrd before anything can paint. Measured on O6N
+# with r236/r237: roughly ten seconds of black screen with a blinking cursor
+# before the linlondp framebuffer takes over.
+#
+# Matching 7.0.12 exactly (core builtin, linlondp still a module) rather than
+# making linlondp builtin too: 7.0.12 proves =m for the driver is fine, so the
+# core tristate is the only variable worth changing.
+#
+# NOTE: a second candidate for the same ~10s remains open --
+# driver_deferred_probe_timeout defaults to 10 when CONFIG_MODULES=y, so a
+# late-loaded linlondp whose probe defers is released exactly on that deadline.
+# The two are distinguishable in one boot without a rebuild by appending
+# deferred_probe_timeout=1 to the cmdline: if the display comes up ~9s earlier
+# it is the deferred-probe deadline, not module-load latency. Check
+# "dmesg -t | grep -iE 'linlondp|deferred probe|Console: switching'" on the
+# installed system before assuming this change alone closed the gap.
+CONFIG_DRM=y
 CONFIG_DRM_PANIC=y
 CONFIG_DRM_PANIC_SCREEN="qr_code"
 CONFIG_DRM_LOAD_EDID_FIRMWARE=y
@@ -502,7 +557,7 @@ CONFIG_DRM_TRILIN_DPSUB=m
 CONFIG_DRM_ETNAVIV=m
 CONFIG_DRM_HYPERV=m
 CONFIG_DRM_MSM=m
-CONFIG_DRM_PANTHOR=m
+# CONFIG_DRM_PANTHOR is not set
 CONFIG_FB=y
 CONFIG_FB_EFI=y
 CONFIG_FB_SIMPLE=y
@@ -553,9 +608,31 @@ CONFIG_USB_DYNAMIC_MINORS=y
 CONFIG_USB_XHCI_HCD=y
 # CONFIG_USB_XHCI_RCAR is not set
 CONFIG_USB_CDNS_SUPPORT=y
-CONFIG_USB_CDNS3=m
+CONFIG_USB_CDNS3=y
 CONFIG_USB_CDNS3_GADGET=y
 CONFIG_USB_CDNS3_HOST=y
+
+# CONFIG_USB_CDNS3_PCI_WRAP: MUST stay off on Sky1. It has no explicit line in
+# this defconfig, so olddefconfig took its Kconfig default (default USB_CDNS3)
+# and made it BUILTIN when USB_CDNS3 went to =y above. Its PCI match table is
+# PCI_VDEVICE(CDNS, 0x0100) -- and Sky1's own PCIe ROOT PORTS enumerate as
+# 17cd:0100 ("Cadence Design Systems, Inc. CIX PCIe Root Port", four of them,
+# confirmed with lspci -nn on cixmini). So the Cadence USB3 PCI wrapper binds to
+# the SoC's PCIe bridges and dereferences NULL in cdns3_pci_probe:
+#
+#   Unable to handle kernel NULL pointer dereference at virtual address 0x108
+#   Call trace: cdns3_pci_probe+0x12c/0x360 / local_pci_probe / pci_device_probe
+#   CPU 7 PID 1 Comm swapper/0 -- Kernel panic - not syncing: Oops: Fatal
+#
+# Measured on O6N with r236 at 1.2s into boot, six reboot loops on the serial
+# console. The faulting instruction f9008680 is str x0,[x20,#0x108] with x20=0,
+# which is exactly the reported fault address.
+#
+# Sky1's real USB is CDNSP over ACPI (cdns-usbssp CIXH2031:* / CIXH2030:*), not
+# the PCI wrapper, so nothing is lost by turning it off. The comment further up
+# already records that making USB_CDNS3 builtin did not change the USB symptom
+# it was meant to fix, so the wrapper it dragged in was pure cost.
+# CONFIG_USB_CDNS3_PCI_WRAP is not set
 # CONFIG_USB_CDNS3_TI is not set
 # CONFIG_USB_CDNS3_IMX is not set
 CONFIG_USB_CDNSP=y
@@ -753,7 +830,7 @@ CONFIG_PROC_KCORE=y
 CONFIG_TMPFS_POSIX_ACL=y
 CONFIG_TMPFS_INODE64=y
 CONFIG_HUGETLBFS=y
-# CONFIG_EFIVAR_FS is not set
+CONFIG_EFIVAR_FS=y
 CONFIG_PSTORE_CONSOLE=y
 CONFIG_PSTORE_RAM=y
 CONFIG_NLS_DEFAULT="utf8"
@@ -842,8 +919,6 @@ CONFIG_PID_IN_CONTEXTIDR=y
 
 # --- M.2 E-key WiFi/BT coverage (ncz: keep broad; card is pluggable, any vendor) ---
 CONFIG_WLAN=y
-CONFIG_CFG80211=m
-CONFIG_MAC80211=m
 CONFIG_RTW89=m
 CONFIG_RTW89_CORE=m
 CONFIG_RTW89_PCI=m
@@ -853,7 +928,6 @@ CONFIG_RTW89_8922AE=m
 CONFIG_IWLWIFI=m
 CONFIG_IWLMVM=m
 CONFIG_IWLMLD=m
-CONFIG_MT7921E=m
 CONFIG_MT7925E=m
 CONFIG_ATH11K=m
 CONFIG_ATH11K_PCI=m
@@ -877,7 +951,34 @@ CONFIG_VIDEO_LINLON=m
 CONFIG_SCSI=y
 CONFIG_BLK_DEV_SD=y
 CONFIG_SQUASHFS=m
+# The INSTALLER boots from an ISO9660 image. Without this the kernel brings up
+# the USB stick as a block device and then cannot mount it, and debian-installer
+# reports "No device for installation media was detected" -- which looks like a
+# missing storage driver but is not: USB_STORAGE, UAS, SCSI, BLK_DEV_SD and
+# XHCI are all already built in. The lean pass dropped ISO9660 as unnecessary,
+# which is true for the installed system and fatal for the installer.
+# JOLIET + NLS_UTF8 are needed for the long filenames the image actually uses.
+# The INSTALLER mounts its root filesystem out of base.squashfs and
+# desktop.squashfs, and a squashfs can only be mounted through a loop device.
+# Without this the install cannot complete no matter what else is fixed: d-i
+# gets past media detection and then has nothing to unpack from. The lean pass
+# dropped it because an installed system never loop-mounts anything.
+CONFIG_BLK_DEV_LOOP=y
+CONFIG_BLK_DEV_LOOP_MIN_COUNT=8
+CONFIG_ISO9660_FS=y
+CONFIG_JOLIET=y
+CONFIG_ZISOFS=y
+CONFIG_NLS_UTF8=y
 CONFIG_SQUASHFS_XZ=y
+# uinput lets a userspace process create a virtual keyboard/mouse. The lean
+# pass dropped it, which is defensible for an appliance and costly for us: with
+# no /dev/uinput there is no way to drive the desktop from a script, so every
+# UI-level check on O6 (hot-corner behaviour, launcher open/close, overlay
+# dismissal) has to be done by hand at the machine. Measured 2026-08-12 --
+# `modprobe uinput` found nothing to load because it is not built at all, and
+# three Singularity fixes had to ship validated only at the Wayland-protocol
+# layer. Module, not builtin: nothing needs it at boot.
+CONFIG_INPUT_UINPUT=m
 CONFIG_PM_DEVFREQ=y
 CONFIG_DEVFREQ_GOV_PERFORMANCE=y
 CONFIG_DEVFREQ_GOV_POWERSAVE=y
@@ -904,3 +1005,122 @@ CONFIG_SND_SOC_SOF_CIX_TOPLEVEL=y
 CONFIG_SND_SOC_SOF_CIX_COMMON=m
 CONFIG_CFG80211_REQUIRE_SIGNED_REGDB=y
 CONFIG_CFG80211_USE_KERNEL_REGDB_KEYS=y
+
+# ---------------------------------------------------------------------------
+# Restored from the 7.0.12 config after a config diff, 2026-08-13.
+#
+# 7.0.12 installs from a USB stick on this hardware; 7.2 r218 does not -- d-i
+# fails at "Detect and mount installation media" with 14 xhci root hubs up,
+# cdnsp-sky1 bound to all nine CIXH2030 instances, and ZERO devices enumerated
+# on any port (serial-captured from the d-i shell on O6N). Diffing the two
+# BUILT configs is what surfaced these; the initrd module prune was not the
+# cause (drivers/usb and drivers/gpu are both present in the installer).
+#
+# PHYLINK: 7.0.12 had it builtin, 7.2 dropped it entirely. It is the generic
+# MAC<->PHY layer a lot of ethernet drivers bind through, so losing it can take
+# wired networking with it -- and d-i on O6N had no network at all (no ping, no
+# ssh) while the installed 7.2 system does.
+CONFIG_PHYLINK=y
+
+# USB ethernet: the whole class went away. These are the dongles people
+# actually install through when the on-board NIC is unusable, and d-i is
+# wired-only here because the wireless drivers are pruned from the initrd for
+# size. Cheap to carry as modules.
+CONFIG_USB_NET_DRIVERS=y
+CONFIG_USB_USBNET=m
+CONFIG_USB_NET_AX8817X=m
+CONFIG_USB_NET_AX88179_178A=m
+CONFIG_USB_NET_CDCETHER=m
+CONFIG_USB_NET_CDC_NCM=m
+CONFIG_USB_NET_SMSC95XX=m
+CONFIG_USB_LAN78XX=m
+CONFIG_USB_RTL8152=m
+
+# Type-C: RTS5453 (the controller these boards actually use) was kept while
+# the generic Type-C plumbing around it was dropped. Sky1's USB-C is a combo
+# USB/DP PHY, so alt-mode and mux support are part of getting a port into USB
+# role rather than DP.
+CONFIG_TYPEC_DP_ALTMODE=m
+CONFIG_TYPEC_UCSI=m
+CONFIG_EXTCON_USB_GPIO=y
+
+# ---------------------------------------------------------------------------
+# USB dual-role connect detection, restored from 7.0.12 (2026-08-13).
+#
+# cdnsp/cdns3 on Sky1 is a DUAL-ROLE controller. The lean pass dropped the
+# plumbing that decides a port has something plugged into it and settles the
+# port into host role. Everything below is present in 7.0.12, which installs
+# from a USB stick on this board; all of it is absent in the lean 7.2, which
+# does not.
+#
+# Measured on O6N from the d-i shell with the stick in a USB-A port:
+#   /proc/partitions      -> nvme0n1 only, zero sd*
+#   /sys/bus/usb/devices  -> usb1..usb14 root hubs, ZERO downstream devices
+#   dmesg                 -> xhci-hcd.N.auto registered, cdnsp-sky1 bound to
+#                            all nine CIXH2030 instances, and not one
+#                            "new ... USB device" line
+#
+# i.e. the controllers come up and no port ever reports a connect. Restoring
+# USB_CDNS3 to builtin did NOT change this (verified on metal), which is what
+# points at role/connect detection rather than the controller driver.
+CONFIG_USB_OTG=y
+CONFIG_USB_CONN_GPIO=y
+CONFIG_USB_ULPI_BUS=y
+
+# Type-C port management. TYPEC_RTS5453 (the controller these boards use) was
+# kept while the generic TCPM/UCSI layer underneath it was dropped, leaving it
+# with nothing to register against.
+CONFIG_TYPEC_TCPM=m
+CONFIG_TYPEC_TCPCI=m
+
+# ---------------------------------------------------------------------------
+# DEVTMPFS_MOUNT: the reason d-i drew on the serial line instead of the screen.
+#
+# This makes the KERNEL mount devtmpfs on /dev before init runs. The lean pass
+# dropped it; 7.0.12, which put the installer on the monitor for hundreds of
+# installs, has it.
+#
+# Without it /dev is only whatever the initrd shipped, and the d-i initrd ships
+# exactly one node:
+#
+#     crw-r--r-- 1 root root 5, 1 /dev/console      <- and nothing else
+#
+# d-i's reopen-console runs from /init BEFORE S01mount mounts /dev, and both
+# paths by which tty1 could become a console candidate are device-node tests:
+#
+#     [ -e "/dev/$cons" ] && ...        # cons=tty1 after the tty0 rename
+#     [ -c /dev/tty1 ] && ...           # the later fallback
+#
+# With an empty /dev both fail, the console list ends up empty, and it falls to
+# "Nothing found? Default to /dev/console". detect-console then classifies
+# /dev/console as TERM_TYPE=serial, so the installer renders on the UART and the
+# monitor gets nothing -- on every board, whatever console= says.
+#
+# That is why no cmdline change fixed this: console selection was never the
+# problem, the missing device node was. It also explains why writing to
+# /dev/tty1 from a shell DID appear on screen -- by then S01mount had mounted
+# devtmpfs and the node existed, long after reopen-console had decided.
+CONFIG_DEVTMPFS_MOUNT=y
+
+# --- HiFi5 DSP transport ---------------------------------------------------
+# CONFIG_CIX_DSP_RPROC boots the DSP fine on its own: dsp_fw.bin loads and the
+# driver logs "DSP ready", registers virtio0 (type 7 = VIRTIO_ID_RPMSG) and gets
+# mbox_send_message == 0. But RPMSG was never named in this defconfig, so
+# olddefconfig resolved it to n, virtio0 had no driver, no rpmsg channel was
+# created, and userspace had no /dev/rpmsgN to open -- which is what
+# libdsp_wrap.so (XAF, statically linked) needs to reach the DSP.
+#
+# cix_dsp_rproc.c implements the rpmsg-lite link-up handshake explicitly
+# (deferred vq0 kick, link_state, rpmsg_lite_tx_callback), so this transport is
+# required, not optional.
+CONFIG_RPMSG=y
+CONFIG_RPMSG_VIRTIO=y
+CONFIG_RPMSG_CHAR=y
+CONFIG_RPMSG_CTRL=y
+CONFIG_RPMSG_NS=y
+
+# zram: compressed RAM swap (systemd-zram-generator drives it from userspace).
+# ZRAM selects ZSMALLOC; ZRAM_BACKEND_ZSTD selects ZSTD_COMPRESS/DECOMPRESS.
+CONFIG_ZRAM=y
+CONFIG_ZRAM_BACKEND_ZSTD=y
+CONFIG_ZRAM_DEF_COMP_ZSTD=y

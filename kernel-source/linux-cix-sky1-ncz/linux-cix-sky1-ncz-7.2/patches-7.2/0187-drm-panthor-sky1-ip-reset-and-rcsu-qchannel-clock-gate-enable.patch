@@ -1,0 +1,193 @@
+From 4daa1dfdb40a8f13e2a4930608921833f50a8564 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 29 Jul 2026 21:06:54 +0000
+Subject: [PATCH] drm/panthor: sky1: IP reset + RCSU Q-channel clock-gate
+ enable (NCZ 0187)
+
+Port of the hardware power-on-sequence half of CIX's 7.1-line patch
+00112-drm-panthor-Sky1-CIXH5000-ACPI-bring-up.patch (Jianfeng Liu) onto
+our v7.2-rc2 series, completing steps 3-5 of the Sky1 GPU bring-up
+sequence from the CIX GPU Development Guide:
+
+  1. Power domain on   (NCZ 0186 -- raw SMC SCMI to TFA)
+  2. Clock enable      (NCZ 0086/0092 -- named gpu_core clock, explicit
+                        clk_prepare_enable before hw_init)
+  3. IP Reset assert
+  4. IP Reset de-assert (after usleep_range(10, 20))
+  5. Q-channel clock gating enable: RCSU[0x218] |= BIT(0)
+
+sky1_resets_init() picks up the optional "gpu_reset" reset control into
+the ptdev->gpu_reset field that NCZ 0084 already added (but never used);
+under ACPI with no reset provider this resolves to NULL and the
+assert/deassert calls become no-ops. sky1_hw_power_on() performs steps
+3-5 using the existing ptdev->sky1_rcsu_reg RCSU mapping from NCZ 0084
+(resource 0; same block the 0084 shader-harvest read at RCSU[0x304]
+uses) and never remaps MMIO, so it is safe to call again at resume.
+
+Both helpers self-gate on panthor_is_sky1() and are exposed as no-op
+stubs when !CONFIG_ACPI.
+
+Call points in panthor_device_init():
+- sky1_resets_init() right after the iomem/RCSU mappings are set up;
+- sky1_hw_power_on() immediately before panthor_hw_init(), i.e. before
+  the first GPU register access.
+
+7.1 -> 7.2 adaptations: the 7.1 patch inserted its reset init before
+the ioremap block and hooked sky1_hw_power_on() after the
+!IS_ENABLED(CONFIG_PM) manual-resume fallback; our series (0084/0092)
+restructured that region, so the calls anchor on the 7.2 sequence
+instead (post-ioremap, pre-hw_init) with the same ordering guarantees.
+The RCSU offset is named (SKY1_RCSU_GPU_QCHANNEL_CTRL) instead of the
+bare 0x218 literal.
+
+Upstream-Status: Inappropriate [oe-specific]
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/gpu/drm/panthor/panthor_device.c | 15 +++++
+ drivers/gpu/drm/panthor/panthor_sky1.c   | 70 ++++++++++++++++++++++++
+ drivers/gpu/drm/panthor/panthor_sky1.h   | 12 ++++
+ 3 files changed, 97 insertions(+)
+
+diff --git a/drivers/gpu/drm/panthor/panthor_device.c b/drivers/gpu/drm/panthor/panthor_device.c
+index a19a5b2366f8..71720bbc0fa7 100644
+--- a/drivers/gpu/drm/panthor/panthor_device.c
++++ b/drivers/gpu/drm/panthor/panthor_device.c
+@@ -411,6 +411,12 @@ int panthor_device_init(struct panthor_device *ptdev)
+ 
+ 	ptdev->phys_addr = res->start;
+ 
++	ret = sky1_resets_init(ptdev);
++	if (ret) {
++		panthor_pm_domain_fini(ptdev);
++		return ret;
++	}
++
+ 	ret = devm_pm_runtime_enable(ptdev->base.dev);
+ 	if (ret) {
+ 		panthor_pm_domain_fini(ptdev);
+@@ -432,6 +438,15 @@ int panthor_device_init(struct panthor_device *ptdev)
+ 		}
+ 	}
+ 
++	/*
++	 * Sky1 power-on steps 3-5 (IP reset assert/deassert + Q-channel
++	 * clock gate enable) must complete before panthor_hw_init() touches
++	 * the GPU register file.
++	 */
++	ret = sky1_hw_power_on(ptdev);
++	if (ret)
++		goto err_rpm_put;
++
+ 	ret = panthor_hw_init(ptdev);
+ 	if (ret)
+ 		goto err_rpm_put;
+diff --git a/drivers/gpu/drm/panthor/panthor_sky1.c b/drivers/gpu/drm/panthor/panthor_sky1.c
+index b04f99d79f99..507fa4d7ea4a 100644
+--- a/drivers/gpu/drm/panthor/panthor_sky1.c
++++ b/drivers/gpu/drm/panthor/panthor_sky1.c
+@@ -124,4 +124,74 @@ int sky1_gpu_power_on(struct panthor_device *ptdev)
+ 	return sky1_smc_scmi_power_set(ptdev->base.dev, SKY1_PD_GPU, 0);
+ }
+ 
++/* RCSU offset 0x218: GPU Q-channel clock gating control */
++#define SKY1_RCSU_GPU_QCHANNEL_CTRL	0x218
++
++/*
++ * Under ACPI the reset framework has no DT bindings to look up, so use the
++ * optional exclusive variant: NULL is returned instead of -ENOENT, and
++ * reset_control_assert/deassert(NULL) are no-ops.
++ */
++int sky1_resets_init(struct panthor_device *ptdev)
++{
++	if (!panthor_is_sky1(ptdev))
++		return 0;
++
++	ptdev->gpu_reset = devm_reset_control_get_optional_exclusive(
++				ptdev->base.dev, "gpu_reset");
++	if (IS_ERR(ptdev->gpu_reset))
++		return dev_err_probe(ptdev->base.dev, PTR_ERR(ptdev->gpu_reset),
++				     "failed to get gpu_reset\n");
++
++	return 0;
++}
++
++/*
++ * Sky1 GPU power-on sequence (from the CIX GPU Development Guide):
++ *   1. Power domain on      (sky1_gpu_power_on -- SMC SCMI to TFA)
++ *   2. Clock enable         (panthor_clk_init + explicit enable, NCZ 0092)
++ *   3. IP Reset assert
++ *   4. IP Reset de-assert
++ *   5. Q-channel clock gating enable (RCSU[0x218] |= BIT(0))
++ *
++ * This helper performs steps 3-5. Runs at probe (before panthor_hw_init)
++ * and again at system-resume noirq once the power domain is back. Must not
++ * re-request MMIO; the RCSU mapping is established once at probe (NCZ 0084).
++ */
++int sky1_hw_power_on(struct panthor_device *ptdev)
++{
++	int ret;
++
++	if (!panthor_is_sky1(ptdev))
++		return 0;
++
++	if (ptdev->gpu_reset) {
++		ret = reset_control_assert(ptdev->gpu_reset);
++		if (ret) {
++			dev_err(ptdev->base.dev, "GPU reset assert failed: %d\n", ret);
++			return ret;
++		}
++
++		usleep_range(10, 20);
++
++		ret = reset_control_deassert(ptdev->gpu_reset);
++		if (ret) {
++			dev_err(ptdev->base.dev, "GPU reset deassert failed: %d\n", ret);
++			return ret;
++		}
++	}
++
++	if (!IS_ERR_OR_NULL(ptdev->sky1_rcsu_reg)) {
++		u32 pgctrl;
++
++		pgctrl = readl(ptdev->sky1_rcsu_reg + SKY1_RCSU_GPU_QCHANNEL_CTRL);
++		pgctrl |= BIT(0); /* QCHANNEL_CLOCK_GATE_ENABLE */
++		writel(pgctrl, ptdev->sky1_rcsu_reg + SKY1_RCSU_GPU_QCHANNEL_CTRL);
++
++		dev_dbg(ptdev->base.dev, "qchannel clock gating enabled\n");
++	}
++
++	return 0;
++}
++
+ #endif /* IS_ENABLED(CONFIG_ACPI) */
+diff --git a/drivers/gpu/drm/panthor/panthor_sky1.h b/drivers/gpu/drm/panthor/panthor_sky1.h
+index 26ee10755b7b..6232d1da3efe 100644
+--- a/drivers/gpu/drm/panthor/panthor_sky1.h
++++ b/drivers/gpu/drm/panthor/panthor_sky1.h
+@@ -9,6 +9,8 @@ struct panthor_device;
+ #if IS_ENABLED(CONFIG_ACPI)
+ 
+ int sky1_gpu_power_on(struct panthor_device *ptdev);
++int sky1_resets_init(struct panthor_device *ptdev);
++int sky1_hw_power_on(struct panthor_device *ptdev);
+ 
+ #else
+ 
+@@ -17,6 +19,16 @@ static inline int sky1_gpu_power_on(struct panthor_device *ptdev)
+ 	return 0;
+ }
+ 
++static inline int sky1_resets_init(struct panthor_device *ptdev)
++{
++	return 0;
++}
++
++static inline int sky1_hw_power_on(struct panthor_device *ptdev)
++{
++	return 0;
++}
++
+ #endif
+ 
+ #endif /* __PANTHOR_SKY1_H__ */

@@ -19984,7 +19984,7 @@ index 000000000000..5aab846f5993
 +    size_t count;
 +    bool is_external;
 +    struct list_head dmabuf;
-+    phys_addr_t pages[];
++    phys_addr_t pages[0];
 +};
 +
 +/**
@@ -39908,3 +39908,4 @@ index 000000000000..3713621b6527
 +#endif /* _MVX_SEQ_H_ */
 -- 
 2.51.0
+

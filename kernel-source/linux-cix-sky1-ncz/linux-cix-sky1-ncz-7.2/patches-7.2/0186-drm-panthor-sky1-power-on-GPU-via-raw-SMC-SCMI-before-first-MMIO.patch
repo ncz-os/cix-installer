@@ -1,0 +1,266 @@
+From 07da10fd1bec417973f071f112c2e6d6265b5324 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 29 Jul 2026 21:06:54 +0000
+Subject: [PATCH] drm/panthor: sky1: power on GPU via raw SMC SCMI before first
+ MMIO (NCZ 0186)
+
+Port of the power-on half of CIX's 7.1-line patch
+00112-drm-panthor-Sky1-CIXH5000-ACPI-bring-up.patch (amazingfate/cixtech,
+Jianfeng Liu) onto our v7.2-rc2 series.
+
+On Sky1 ACPI boot there is no smc_devpd (arm,scmi-smc) power-domain
+provider, so nothing ever sends SCMI POWER_STATE_SET for the GPU domain
+to TFA. TFA's handler does two things: it powers the GPU power domain
+AND it programs the IDM (Interconnect Domain Manager) to permit
+non-secure access to the GPU register window. Skipping it means the
+very first GPU MMIO read in panthor_hw_init() raises an unrecoverable
+SError -- exactly the dead-GPU probe failure seen on the Radxa Orion
+O6N.
+
+Add panthor_sky1.c with sky1_smc_scmi_power_set(): builds an SCMI
+POWER protocol (0x11) POWER_STATE_SET (0x04) message in the shared
+memory page at 0x84380000 and issues SMC function 0xc2000001 (polling
+mode), then checks both the SMC return and the SCMI response status.
+sky1_gpu_power_on() wraps it for power domain 21 (GPU) and is a no-op
+on non-Sky1 hardware (gated on panthor_is_sky1() from NCZ 0084).
+
+Call it in panthor_device_init() right after panthor_init_power():
+this runs before the iomem mappings are used and long before
+panthor_hw_init()'s first register access. The SCMI set is idempotent,
+so overlapping with a successful genpd attach is harmless.
+
+7.1 -> 7.2 adaptations:
+- panthor_is_sky1() is not redefined here; NCZ 0084 already provides
+  it in panthor_device.c (covering both the arm,mali-valhall DT
+  compatible and the CIXH5000 ACPI HID).
+- sky1_gpu_power_on() self-gates on panthor_is_sky1() instead of
+  being gated at the call site, so the call site stays a one-liner
+  in the (heavily patched) panthor_device_init().
+- dropped the 7.1 include of <linux/ioremap.h>; <linux/io.h> is
+  sufficient here.
+- panthor_init_power() is kept (not replaced as in 7.1): our series
+  relies on it and on panthor_pm_domain_init() for the SCMI perf
+  genpd used by devfreq (NCZ 0084), so the SMC call is additive.
+
+Upstream-Status: Inappropriate [oe-specific]
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/gpu/drm/panthor/Makefile         |   3 +-
+ drivers/gpu/drm/panthor/panthor_device.c |  17 +++
+ drivers/gpu/drm/panthor/panthor_sky1.c   | 127 +++++++++++++++++++++++
+ drivers/gpu/drm/panthor/panthor_sky1.h   |  22 ++++
+ 4 files changed, 168 insertions(+), 1 deletion(-)
+ create mode 100644 drivers/gpu/drm/panthor/panthor_sky1.c
+ create mode 100644 drivers/gpu/drm/panthor/panthor_sky1.h
+
+diff --git a/drivers/gpu/drm/panthor/Makefile b/drivers/gpu/drm/panthor/Makefile
+index dd15d52a88ba..ae8da8953306 100644
+--- a/drivers/gpu/drm/panthor/Makefile
++++ b/drivers/gpu/drm/panthor/Makefile
+@@ -11,7 +11,8 @@ panthor-y := \
+ 	panthor_hw.o \
+ 	panthor_mmu.o \
+ 	panthor_pwr.o \
+-	panthor_sched.o
++	panthor_sched.o \
++	panthor_sky1.o
+ 
+ obj-$(CONFIG_DRM_PANTHOR) += panthor.o
+ 
+diff --git a/drivers/gpu/drm/panthor/panthor_device.c b/drivers/gpu/drm/panthor/panthor_device.c
+index 7cc432fdc70b..a19a5b2366f8 100644
+--- a/drivers/gpu/drm/panthor/panthor_device.c
++++ b/drivers/gpu/drm/panthor/panthor_device.c
+@@ -28,6 +28,7 @@
+ #include "panthor_mmu.h"
+ #include "panthor_pwr.h"
+ #include "panthor_sched.h"
++#include "panthor_sky1.h"
+ 
+ static int panthor_clk_init(struct panthor_device *ptdev)
+ {
+@@ -362,6 +363,22 @@ int panthor_device_init(struct panthor_device *ptdev)
+ 		return ret;
+ 	}
+ 
++	/*
++	 * Sky1: on top of the genpd/ACPI power-domain attach above, issue the
++	 * raw SMC SCMI POWER_STATE_SET(domain 21 = GPU, on) call to TFA.
++	 * TFA not only powers the GPU rail, it also opens IDM (Interconnect
++	 * Domain Manager) non-secure access to the GPU register space.
++	 * Without this, the very first GPU MMIO read in panthor_hw_init()
++	 * raises an unrecoverable SError and probe dies. The call is
++	 * idempotent, so double power-on via genpd + SMC is harmless.
++	 */
++	ret = sky1_gpu_power_on(ptdev);
++	if (ret) {
++		drm_err(&ptdev->base, "Sky1 GPU SMC power-on failed, ret=%d", ret);
++		panthor_pm_domain_fini(ptdev);
++		return ret;
++	}
++
+ 	ret = panthor_devfreq_init(ptdev);
+ 	if (ret) {
+ 		panthor_pm_domain_fini(ptdev);
+diff --git a/drivers/gpu/drm/panthor/panthor_sky1.c b/drivers/gpu/drm/panthor/panthor_sky1.c
+new file mode 100644
+index 000000000000..b04f99d79f99
+--- /dev/null
++++ b/drivers/gpu/drm/panthor/panthor_sky1.c
+@@ -0,0 +1,127 @@
++// SPDX-License-Identifier: GPL-2.0 or MIT
++/* Copyright 2024 Cix Technology Group Co., Ltd. */
++
++#include <linux/acpi.h>
++#include <linux/arm-smccc.h>
++#include <linux/delay.h>
++#include <linux/device.h>
++#include <linux/io.h>
++#include <linux/reset.h>
++
++#include "panthor_device.h"
++#include "panthor_sky1.h"
++
++/*
++ * Sky1 platform glue. Kept in a separate file so the ACPI/SoC-specific code
++ * (SMC power-on, register magic values) does not interleave with the upstream
++ * panthor_device.c logic, easing rebases onto newer kernels.
++ *
++ * panthor_is_sky1() itself lives in panthor_device.c (NCZ 0084).
++ */
++
++#if IS_ENABLED(CONFIG_ACPI)
++
++/*
++ * Sky1 GPU power-on via raw SMC SCMI call to TFA (Trusted Firmware-A).
++ *
++ * Under DT, smc_devpd (arm,scmi-smc) sends SCMI POWER_STATE_SET to TFA
++ * via SMC function 0xc2000001 with shared memory at 0x84380000.
++ * Under ACPI, there's no smc_devpd, so we make the raw SMC call directly.
++ *
++ * TFA not only powers the GPU domain but also configures the IDM
++ * (Interconnect Domain Manager) to allow non-secure (Linux) access
++ * to GPU registers.  Without this, any GPU register read causes an
++ * unrecoverable SError.
++ */
++#define SKY1_SMC_SCMI_FUNC_ID		0xc2000001
++#define SKY1_SMC_SCMI_SHMEM_PHYS	0x84380000UL
++#define SKY1_SMC_SCMI_SHMEM_SIZE	0x80
++#define SKY1_PD_GPU			21
++
++/* SCMI shared memory offsets */
++#define SCMI_SHMEM_CHAN_STATUS		0x04
++#define SCMI_SHMEM_FLAGS		0x10
++#define SCMI_SHMEM_LENGTH		0x14
++#define SCMI_SHMEM_MSG_HEADER		0x18
++#define SCMI_SHMEM_MSG_PAYLOAD		0x1c
++
++static int sky1_smc_scmi_power_set(struct device *dev, u32 domain, u32 state)
++{
++	void __iomem *shmem;
++	struct arm_smccc_res res;
++	u32 msg_header, resp_status;
++	int timeout = 1000;
++
++	shmem = ioremap(SKY1_SMC_SCMI_SHMEM_PHYS, SKY1_SMC_SCMI_SHMEM_SIZE);
++	if (!shmem)
++		return -ENOMEM;
++
++	/* Wait for channel free */
++	while (!(ioread32(shmem + SCMI_SHMEM_CHAN_STATUS) & BIT(0))) {
++		if (--timeout <= 0) {
++			dev_err(dev, "SCMI SMC channel busy timeout\n");
++			iounmap(shmem);
++			return -ETIMEDOUT;
++		}
++		udelay(10);
++	}
++
++	/* Clear channel status */
++	iowrite32(0, shmem + SCMI_SHMEM_CHAN_STATUS);
++
++	/* Polling mode (no interrupt) */
++	iowrite32(0, shmem + SCMI_SHMEM_FLAGS);
++
++	/*
++	 * Message header:
++	 *   Bits  0-7:  MSG_ID = 0x04 (POWER_STATE_SET)
++	 *   Bits  8-9:  MSG_TYPE = 0 (command)
++	 *   Bits 10-17: PROTOCOL_ID = 0x11 (POWER)
++	 *   Bits 18-27: TOKEN = 0
++	 */
++	msg_header = 0x04 | (0x11 << 10);
++	iowrite32(msg_header, shmem + SCMI_SHMEM_MSG_HEADER);
++
++	/* Payload: flags(4) + domain(4) + state(4) = 12 bytes */
++	iowrite32(0, shmem + SCMI_SHMEM_MSG_PAYLOAD);		/* flags: sync */
++	iowrite32(domain, shmem + SCMI_SHMEM_MSG_PAYLOAD + 4);	/* domain_id */
++	iowrite32(state, shmem + SCMI_SHMEM_MSG_PAYLOAD + 8);	/* power_state */
++
++	/* Length = msg_header(4) + payload(12) = 16 */
++	iowrite32(16, shmem + SCMI_SHMEM_LENGTH);
++
++	/* SMC call: param_page = phys >> 12, param_offset = phys & 0xFFF */
++	arm_smccc_smc(SKY1_SMC_SCMI_FUNC_ID,
++		      SKY1_SMC_SCMI_SHMEM_PHYS >> 12,
++		      SKY1_SMC_SCMI_SHMEM_PHYS & 0xFFF,
++		      0, 0, 0, 0, 0, &res);
++
++	if (res.a0) {
++		dev_err(dev, "SCMI SMC returned error: 0x%lx\n", res.a0);
++		iounmap(shmem);
++		return -EIO;
++	}
++
++	/* Response: first word of payload is SCMI status */
++	resp_status = ioread32(shmem + SCMI_SHMEM_MSG_PAYLOAD);
++	iounmap(shmem);
++
++	if (resp_status != 0) {
++		dev_err(dev, "SCMI POWER_STATE_SET domain %u failed: %d\n",
++			domain, resp_status);
++		return -EIO;
++	}
++
++	dev_info(dev, "GPU power domain %u powered on via SMC SCMI\n", domain);
++	return 0;
++}
++
++int sky1_gpu_power_on(struct panthor_device *ptdev)
++{
++	if (!panthor_is_sky1(ptdev))
++		return 0;
++
++	return sky1_smc_scmi_power_set(ptdev->base.dev, SKY1_PD_GPU, 0);
++}
++
++#endif /* IS_ENABLED(CONFIG_ACPI) */
+diff --git a/drivers/gpu/drm/panthor/panthor_sky1.h b/drivers/gpu/drm/panthor/panthor_sky1.h
+new file mode 100644
+index 000000000000..26ee10755b7b
+--- /dev/null
++++ b/drivers/gpu/drm/panthor/panthor_sky1.h
+@@ -0,0 +1,22 @@
++/* SPDX-License-Identifier: GPL-2.0 or MIT */
++/* Copyright 2024 Cix Technology Group Co., Ltd. */
++
++#ifndef __PANTHOR_SKY1_H__
++#define __PANTHOR_SKY1_H__
++
++struct panthor_device;
++
++#if IS_ENABLED(CONFIG_ACPI)
++
++int sky1_gpu_power_on(struct panthor_device *ptdev);
++
++#else
++
++static inline int sky1_gpu_power_on(struct panthor_device *ptdev)
++{
++	return 0;
++}
++
++#endif
++
++#endif /* __PANTHOR_SKY1_H__ */

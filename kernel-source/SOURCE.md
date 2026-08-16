@@ -19,9 +19,10 @@ publicly available at the pinned upstream revisions below.
   v7.2-rc6 `075b74841bd0065a3bda3440873c747938e69b68` (2026-08-02) ->
   v7.2-rc7 `db2ddb87143519e20a95aa36c60b36107b736a58` (2026-08-16).
   All four shas verified against git.kernel.org on 2026-08-16.
-- **Delta:** the CIX Sky1 (CD8180) enablement — 170 patches actually wired
-  into the recipe's `SRC_URI` (the `patches-7.2/` directory also holds some
-  superseded/experimental patches not referenced by the recipe) under
+- **Delta:** the CIX Sky1 (CD8180) enablement — **176 patches** actually wired
+  into the recipe's `SRC_URI`, out of 197 files present (the `patches-7.2/`
+  directory also holds 21 superseded/experimental patches the recipe does not
+  reference) under
   `linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.2/patches-7.2/` + the config
   `config-7.2-lean-msr1-o6n.defconfig`. Applied on top of the mainline base in
   the exact order listed in the recipe's `SRC_URI` (not plain numeric/alpha
@@ -29,6 +30,19 @@ publicly available at the pinned upstream revisions below.
   series). 169 of the 170 applied byte-identical onto the rc5 base (the rc4->rc5
   diff touches zero files this series modifies); one patch (0184) had a
   pre-existing malformed hunk unrelated to the rebase and was corrected.
+
+> **Provenance.** This directory is a copy of the tree that actually builds the
+> shipping kernel: `meta-cix/recipes-kernel/linux-cix-sky1-ncz/` in the
+> `ncz-os/meta-cix` layer, as checked out on the build host. It was re-synced on
+> 2026-08-16 after an audit found it had drifted: the published recipe wired 171
+> patches while the build recipe wired 176, five patch FILES were absent
+> entirely (0190, 0191, 0192, 0193, 0200), and the published defconfig still had
+> `CONFIG_ARMCHINA_NPU=m` — which the build tree deliberately removed, because
+> an in-tree copy claims the driver symbols first and stops the vendor DKMS
+> module (`cix-npu-kmd`) from loading at all. Following the stale copy would
+> therefore have produced a kernel with a non-functional NPU, which is precisely
+> what a corresponding-source tree must not do. Re-verify this directory against
+> the build tree whenever the kernel is rebased.
 
 ## Contents
 
@@ -39,7 +53,7 @@ linux-cix-sky1-ncz/
   linux-cix-sky1-ncz_7.1.1.bb / _7.1.2.bb
   linux-cix-sky1-ncz-7.2/
     config-7.2-lean-msr1-o6n.defconfig # kernel config for the 7.2 ship
-    patches-7.2/00xx-*.patch           # CIX Sky1 enablement patches (170 wired into SRC_URI; see recipe)
+    patches-7.2/00xx-*.patch           # CIX Sky1 enablement patches (176 of 197 wired into SRC_URI; see recipe)
 ```
 
 ## Reproduce (without Yocto)

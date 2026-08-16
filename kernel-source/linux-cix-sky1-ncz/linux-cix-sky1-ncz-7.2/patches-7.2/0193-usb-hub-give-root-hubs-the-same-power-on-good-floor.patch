@@ -1,0 +1,60 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Thu, 13 Aug 2026 18:11:35 +0000
+Subject: [PATCH] usb: hub: give root hubs the same power-on-good floor
+
+hub_power_on_good_delay() applies a 100ms minimum to every hub EXCEPT root
+hubs, which get bPwrOn2PwrGood*2 unfloored.  On Sky1 that value is ~0, so
+hub_activate()'s INIT2/INIT3 sampling runs roughly 20/40ms after port power.
+
+A downstream hub behind that root port cannot re-attach that fast.  If it has
+not attached by the time INIT3 samples, the connect is never observed: the
+port is left at PLS=Polling with CCS=1 -- the device IS electrically present
+and the port IS powered -- but PED=0 and the hub driver is never told to reset
+it, so dmesg shows no port errors at all.
+
+Measured on O6N, installer, stick in a USB-A port behind a VIA Labs VL812:
+
+  portsc = 0x0c0006e1  Speed=1 Link=Polling CCS PP WDE WOE
+  /proc/partitions: no sd* at all
+  /sys/bus/usb/devices: root hubs only, zero downstream devices
+
+Unbinding and rebinding the hub driver -- which re-runs hub_activate() at a
+calmer moment -- enumerates the entire tree immediately: the VL812, a mouse, a
+keyboard, and the medium as sda with three partitions.
+
+The same kernel enumerates fine on the INSTALLED system, where boot is slower
+and userspace re-triggers, which is consistent with this being a timing race
+rather than a missing driver or a PM problem.
+
+Give root hubs the same floor as everyone else.  Worst case this costs ~100ms
+of boot on a port that was ready anyway.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/usb/core/hub.h
++++ b/drivers/usb/core/hub.h
+@@ -166,10 +166,20 @@
+ {
+ 	unsigned delay = hub->descriptor->bPwrOn2PwrGood * 2;
+ 
+-	if (!hub->hdev->parent)	/* root hub */
+-		return delay;
+-	else /* Wait at least 100 msec for power to become stable */
+-		return max(delay, 100U);
++	/*
++	 * Root hubs used to get bPwrOn2PwrGood*2 with no floor, which on Sky1
++	 * is ~0, so INIT2/INIT3 run ~20/40ms after port power.  A downstream
++	 * hub behind that root port needs longer than that to re-attach, and
++	 * if it has not by the time INIT3 samples the port the connect is
++	 * simply never seen: the port stays PLS=Polling with CCS=1 and the hub
++	 * driver is never told to reset it.  Measured on O6N, where a VL812
++	 * carries the installation medium and nothing enumerated until the hub
++	 * driver was unbound and rebound by hand.
++	 *
++	 * Give root hubs the same 100ms floor as every other hub.  Cost is at
++	 * most ~100ms of boot on a port that would have been ready anyway.
++	 */
++	return max(delay, 100U);
+ }
+ 
+ static inline int hub_port_debounce_be_connected(struct usb_hub *hub,

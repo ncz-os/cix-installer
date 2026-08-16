@@ -1,0 +1,68 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Thu, 13 Aug 2026 18:02:42 +0000
+Subject: [PATCH] usb: cdns3: sky1: keep the wrapper pinned by its children
+
+Patch 0180 added pm_suspend_ignore_children(dev, true) to silence two cosmetic
+runtime-PM warnings.  It also decouples the CIXH2030 wrapper from its
+children's PM accounting, so the wrapper can runtime-suspend while its xHCI
+child is active -- and a suspended wrapper does not service port-change
+events.
+
+Measured on the O6N installer, stick in a USB-A port:
+
+  portsc = 0x0c0006e1  Speed=1 Link=Polling CCS PP WDE WOE
+
+CCS=1 (a device IS connected) and PP=1 (port powered), but PED=0 and
+PLS=Polling -- the port was never reset or enabled, and dmesg carries zero hub
+port errors because the hub driver was never told to look.  Unbinding and
+rebinding the hub driver on the root-hub interfaces enumerates the whole tree
+immediately and /proc/partitions gains sda + its partitions.
+
+Runtime-PM state, 7.2 vs the working 7.0.12:
+
+  7.0.12 MS-R1  (works)   CIXH2030 wrappers active,    children active
+  7.2    O6N    (broken)  CIXH2030 wrappers SUSPENDED, children active
+
+That is the only behavioural divergence in the whole USB glue: cdnsp-plat.c is
+byte-identical between the two trees and cdnsp-sky1.c differs otherwise only
+in two static additions and an -ENOENT -> -EPROBE_DEFER clock change.
+
+Drop the call and let the always-active children pin the parent, as 7.0.12
+does.  The cost is the return of the cosmetic warning 0180 silenced.
+
+The rest of 0180 -- ordering the wrapper's activation before child population
+-- is correct and is kept.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/usb/cdns3/cdnsp-sky1.c
++++ b/drivers/usb/cdns3/cdnsp-sky1.c
+@@ -768,14 +768,23 @@
+ 	 * the children are enumerated asynchronously, so activating the parent
+ 	 * first makes the child activation legal in both cases.
+ 	 *
+-	 * pm_suspend_ignore_children() additionally decouples this always-on
+-	 * register/clock glue -- whose runtime suspend/resume are no-ops --
+-	 * from the children's runtime-PM accounting, which also closes the
+-	 * asynchronous ACPI probe-order window.
++	 * Do NOT call pm_suspend_ignore_children() here.  Decoupling the
++	 * wrapper from its children's runtime-PM accounting lets the wrapper
++	 * runtime-suspend while its xHCI child is active, and a suspended
++	 * wrapper does not service port-change events: the port sits at
++	 * PLS=Polling with CCS=1 (device present, never reset), the hub driver
++	 * is never told, and nothing enumerates.  Measured on O6N 7.2 vs the
++	 * working 7.0.12 on MS-R1:
++	 *
++	 *   7.0.12 MS-R1 (works)  CIXH2030 wrappers active,    children active
++	 *   7.2    O6N   (broken) CIXH2030 wrappers SUSPENDED, children active
++	 *
++	 * Letting the always-active children pin the parent -- which is what
++	 * 7.0.12 does -- costs only the cosmetic "Enabling runtime PM for
++	 * inactive device with active children" warning this had silenced.
+ 	 */
+ 	device_set_wakeup_capable(dev, true);
+ 	pm_runtime_set_active(dev);
+-	pm_suspend_ignore_children(dev, true);
+ 	pm_runtime_enable(dev);
+ 
+ 	if (!ACPI_COMPANION(dev)) {
