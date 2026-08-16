@@ -24,6 +24,55 @@ future reader can re-litigate them on evidence rather than taste.
 
 ---
 
+## 0. The modernization doctrine
+
+This is cutting-edge SoC hardware, and it deserves a distribution willing to
+shed legacy baggage — because **NCZ-OS has no legacy userbase to protect.**
+Nobody is running a decade-old workflow on a CIX Sky1 board. There is no
+installed base whose habits constrain the design, which means the usual reason
+distributions carry old subsystems forward — someone somewhere still depends on
+it — simply does not apply.
+
+That freedom is the single biggest advantage this project has, and it is why so
+much of the stack is newer than convention would suggest: Wayland rather than
+X11, `sinty-nm` rather than NetworkManager, dbus-broker rather than dbus-daemon,
+journald alone rather than journald plus rsyslog, GStreamer rather than the
+FFmpeg-backed players, dracut rather than initramfs-tools.
+
+**But the rule has a second half, and it is the important one:**
+
+> **Remove legacy that is REDUNDANT. Keep legacy that is a FALLBACK.**
+
+Dropping everything old is the failure mode on the other side — throwing out
+the fallbacks along with the cruft, and ending up with a system that is modern
+and unrecoverable. The distinction is whether the old thing is a second copy of
+something we already have, or the thing that saves the board when the new thing
+breaks.
+
+Worked examples of each:
+
+| Dropped — redundant | Kept — fallback |
+|---|---|
+| rsyslog (journald already stores it) | `initramfs-tools` (dracut's fallback; pinned so apt cannot silently substitute it) |
+| dbus-daemon (dbus-broker supersedes it) | telnet on the LAN (lockout recovery beats a theoretical plaintext concern) |
+| mpv/VLC/Celluloid (cannot reach the VPU at all) | the `ffmpeg` CLI (a tool other packages depend on, not a shipped player) |
+| Epiphany/WebKit (structurally cannot accelerate here) | software codecs (the path when the VPU cannot take a stream) |
+| XFCE/X11 desktop session | Google Chrome (second engine, and the Widevine/DRM path) |
+
+`ifupdown` is the case that proves the rule. It was purged as a Debian tasksel
+leftover, and the purge was **technically safe** — nothing in the tree invokes
+`ifup`/`ifdown`, and `/etc/network/interfaces` is loopback-only. It was reverted
+anyway, on doctrine: when `sinty-nm` is broken by a bad config, a vendor
+userspace regression or a bus-permission problem, the recovery path is exactly
+
+    ifup <iface>
+
+Removing it deletes the fallback for the very subsystem that replaced it. Safe
+to remove and correct to keep are different questions, and only the second one
+matters here.
+
+---
+
 ## 1. GPU: Mali is the default, Panthor is the open alternative
 
 NCZ-OS ships **both** GPU stacks and lets the boot entry choose:
