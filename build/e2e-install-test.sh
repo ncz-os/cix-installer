@@ -19,8 +19,6 @@ PIPE=/tmp/qe
 for p in $(pgrep -f "qemu-syste[m]-aarch64"); do kill "$p" 2>/dev/null; done
 sleep 2
 rm -f "$PIPE".in "$PIPE".out "$DISK" "$VARS" /tmp/e2e-guest.out
-qemu-img create -f qcow2 "$DISK" 30G >/dev/null
-dd if=/usr/share/AAVMF/AAVMF_VARS.fd of="$VARS" bs=1M 2>/dev/null || truncate -s 64M "$VARS"
 # Everything this harness writes lands in a sticky /tmp, so anything left there
 # by a run whose qemu went up under sudo is root-owned and CANNOT be removed or
 # truncated by this user. Each such leftover breaks the run in its own quiet way:
@@ -37,7 +35,7 @@ dd if=/usr/share/AAVMF/AAVMF_VARS.fd of="$VARS" bs=1M 2>/dev/null || truncate -s
 # a different boot path, or one that hangs with no diagnosis, are both worse
 # than stopping here with the command that fixes it.
 _stale=""
-for _f in "$PIPE".in "$PIPE".out /tmp/e2e-guest.out /tmp/e2e-qemu.log "$VARS"; do
+for _f in "$PIPE".in "$PIPE".out /tmp/e2e-guest.out /tmp/e2e-qemu.log "$VARS" "$DISK"; do
     [ -e "$_f" ] || continue
     if ! rm -f "$_f" 2>/dev/null || [ -e "$_f" ]; then
         _stale="$_stale $_f"
@@ -48,6 +46,8 @@ if [ -n "$_stale" ]; then
     echo "       sudo rm -f$_stale" >&2
     exit 1
 fi
+qemu-img create -f qcow2 "$DISK" 30G >/dev/null
+dd if=/usr/share/AAVMF/AAVMF_VARS.fd of="$VARS" bs=1M 2>/dev/null || truncate -s 64M "$VARS"
 mkfifo "$PIPE".in "$PIPE".out
 
 setsid qemu-system-aarch64 \
