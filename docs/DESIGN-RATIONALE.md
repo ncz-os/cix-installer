@@ -282,6 +282,56 @@ and both the browser and our VPU userspace have moved since.
 
 ---
 
+## 2b. Inference: the CPU beats the GPU, and that is not a bug in our setup
+
+NCZ-OS ships llama.cpp with the **Vulkan** backend, which works on both GPU
+stacks — the vendor Mali Vulkan (1.3) and PanVK (1.4). It is worth knowing that
+on this hardware **the GPU path is the slower one.**
+
+**MEASURED** (O6N, `gemma-4-E4B_q4_0-it.gguf`, 7.46 B params, 4.79 GiB Q4_0,
+llama-bench):
+
+| backend | prompt processing | token generation |
+|---|---|---|
+| Vulkan, all layers on GPU (`-ngl 99`) | 7.0 t/s | 9.4 t/s |
+| **CPU, 8 big cores** | **44.8-47.1 t/s** | **12.0-12.1 t/s** |
+
+The CPU is **~6.4x faster at prompt processing** and ~1.3x faster at
+generation. Sky1's Cortex-A720 cores carry `i8mm`, `sve2`, `svei8mm` and `bf16`
+— exactly the instructions a Q4_0 GEMM wants — and llama.cpp's CPU backend uses
+them well. The Vulkan compute path does not reach parity.
+
+The giveaway is that on the GPU, **prompt processing is slower than generation**
+(7.0 vs 9.4). Prefill is batched and compute-bound and should be many times
+faster than generation, not slower. That inversion points at the Vulkan matmul
+path, not at the hardware.
+
+Token generation is close between the two because it is **memory-bandwidth
+bound**, not compute bound: generation re-reads the whole model per token, and
+4.79 GiB x 9.4 tok/s is roughly 45 GB/s — near what LPDDR5 on this class of SoC
+delivers. No backend change moves that number much; only a smaller model or a
+smaller quantisation does.
+
+**Practical guidance:** for text generation on Sky1, run on the CPU. The GPU
+Vulkan path is worth keeping (it works, it frees the CPU for other work, and it
+is the path that improves as PanVK and Mesa mature) but it is not the fast one
+today.
+
+**MEASUREMENT TRAP, recorded because it produced a badly wrong number first.**
+On a Vulkan-enabled llama.cpp build, `-ngl 0` does **not** select the CPU
+backend. It keeps the Vulkan backend and offloads no layers, which measured
+**0.24 t/s** generation — 50x worse than either real backend, and pure artefact.
+The Vulkan device has to be hidden (`GGML_VK_VISIBLE_DEVICES=""`, or `-dev
+none`) to measure the CPU backend. Both methods agree with each other, which is
+what makes the result trustworthy; the backend column still prints "Vulkan"
+either way, so it cannot be used to tell which path ran.
+
+**OPEN.** The NPU (ArmChina Zhouyi V3, in-tree `armchina_npu`, 62.6-62.8 inf/s
+on its own workloads) is not wired into llama.cpp at all. That remains the
+largest unrealised inference capability on the board.
+
+---
+
 ## 3. Desktop: Wayland and Singularity, not X and XFCE
 
 **DECIDED**, and the GPU section above is the reason. This hardware's working
