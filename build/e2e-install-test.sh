@@ -21,21 +21,33 @@ sleep 2
 rm -f "$PIPE".in "$PIPE".out "$DISK" "$VARS" /tmp/e2e-guest.out
 qemu-img create -f qcow2 "$DISK" 30G >/dev/null
 dd if=/usr/share/AAVMF/AAVMF_VARS.fd of="$VARS" bs=1M 2>/dev/null || truncate -s 64M "$VARS"
-# The serial FIFOs live in a sticky /tmp, so if a previous run left them owned
-# by root (a qemu started under sudo does exactly that) the `rm -f` above fails
-# SILENTLY, mkfifo then fails because the path exists, and `exec 3>` cannot open
-# them. Measured 2026-08-16: every send() reported "3: Bad file descriptor",
-# nothing was typed at the grub> prompt, GRUB booted its DEFAULT entry, and the
-# harness carried on and reported an install -- testing a different boot path
-# than the one it claims to, which is the exact hazard the send_slow() comment
-# below already warns about. Fail here instead.
-for _f in "$PIPE".in "$PIPE".out; do
-    if [ -e "$_f" ]; then
-        echo "FATAL: $_f survived cleanup -- almost certainly root-owned in a sticky /tmp." >&2
-        echo "       remove it as root and re-run:  sudo rm -f $PIPE.in $PIPE.out" >&2
-        exit 1
+# Everything this harness writes lands in a sticky /tmp, so anything left there
+# by a run whose qemu went up under sudo is root-owned and CANNOT be removed or
+# truncated by this user. Each such leftover breaks the run in its own quiet way:
+#
+#   /tmp/qe.in, /tmp/qe.out  -- mkfifo fails, exec 3> cannot open, every send()
+#                               says "3: Bad file descriptor", nothing is typed
+#                               at grub>, GRUB boots its DEFAULT entry, and the
+#                               harness reports on an install it never set up.
+#   /tmp/e2e-qemu.log        -- the `>` redirect on the qemu launch fails, so
+#                               qemu never starts at all and the harness then
+#                               blocks forever in exec 3> waiting for a reader.
+#
+# Both were measured on 2026-08-16. A run that looks like a pass while testing
+# a different boot path, or one that hangs with no diagnosis, are both worse
+# than stopping here with the command that fixes it.
+_stale=""
+for _f in "$PIPE".in "$PIPE".out /tmp/e2e-guest.out /tmp/e2e-qemu.log "$VARS"; do
+    [ -e "$_f" ] || continue
+    if ! rm -f "$_f" 2>/dev/null || [ -e "$_f" ]; then
+        _stale="$_stale $_f"
     fi
 done
+if [ -n "$_stale" ]; then
+    echo "FATAL: cannot clear stale files (root-owned in a sticky /tmp):$_stale" >&2
+    echo "       sudo rm -f$_stale" >&2
+    exit 1
+fi
 mkfifo "$PIPE".in "$PIPE".out
 
 setsid qemu-system-aarch64 \
@@ -50,7 +62,16 @@ setsid qemu-system-aarch64 \
     -netdev user,id=net0 -device virtio-net-pci,netdev=net0,romfile= \
     -device virtio-gpu-pci -display none \
     -serial pipe:"$PIPE" >/tmp/e2e-qemu.log 2>&1 &
+QEMU_PID=$!
 
+# If qemu died on startup there is no reader for the FIFO and the exec 3> below
+# would block forever; surface it as an error instead of a hang.
+sleep 1
+if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+    echo "FATAL: qemu exited immediately -- see /tmp/e2e-qemu.log" >&2
+    tail -5 /tmp/e2e-qemu.log >&2 2>/dev/null || true
+    exit 1
+fi
 cat "$PIPE".out > /tmp/e2e-guest.out &
 CATPID=$!
 # A failed open here must abort: without fd 3 nothing is ever typed to the
