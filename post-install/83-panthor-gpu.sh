@@ -97,6 +97,9 @@ rm -f /etc/modprobe.d/ncz-gpu.conf /etc/modprobe.d/ncz-gpu-profile.conf
 # protected_memory_allocator, which is what makes kbase probe return -517.
 rm -f /etc/systemd/system/ncz-mali-kbase-load.service \
       /etc/systemd/system/multi-user.target.wants/ncz-mali-kbase-load.service
+# ncz-mali-kbase-allowed was that unit's ExecCondition. Nothing references it
+# now, so it would sit on disk looking like live policy.
+rm -f /usr/local/sbin/ncz-mali-kbase-allowed
 echo "[83] removed ncz-mali-kbase-load.service (ncz-gpu-switcher owns driver loading)"
 
 # --- 2. register the panthor-cix DKMS source (opt-in; built on demand) -------

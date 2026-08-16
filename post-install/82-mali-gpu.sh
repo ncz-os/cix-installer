@@ -106,29 +106,11 @@ else
     echo "[82] no DKMS source at $DKMS_SRC — relying on pre-built overlay"
 fi
 
-# --- 3. auto-load mali_kbase only on a kernel that actually provides it -----
-# ExecCondition helper: the Panthor and SAFE entries deliberately blacklist
-# the kbase trio. Keep that selection a clean skip rather than a failed unit.
-cat > /usr/local/sbin/ncz-mali-kbase-allowed <<'EOF'
-#!/bin/sh
-for arg in $(cat /proc/cmdline); do
-    case "$arg" in
-        module_blacklist=*)
-            list=${arg#module_blacklist=}
-            old_ifs=$IFS
-            IFS=,
-            for module in $list; do
-                case "$module" in
-                    mali_kbase|memory_group_manager|protected_memory_allocator) IFS=$old_ifs; exit 1 ;;
-                esac
-            done
-            IFS=$old_ifs
-            ;;
-    esac
-done
-exit 0
-EOF
-chmod 0755 /usr/local/sbin/ncz-mali-kbase-allowed
+# The ncz-mali-kbase-allowed ExecCondition helper that used to be written here
+# is gone with the unit it guarded: it decided whether to load kbase by reading
+# module_blacklist= off the cmdline, a rule the sky1.gpu= entries no longer use.
+# ncz-gpu-switcher makes that decision now.
+
 
 # A global modules-load.d entry is evaluated by BOTH installed kernels. It
 # therefore makes the stable 7.0 fallback log a false module-load error even

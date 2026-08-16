@@ -127,8 +127,45 @@ drop_legacy() {
 enable_file()  { [ -e "$1.disabled" ] && mv "$1.disabled" "$1"; return 0; }
 disable_file() { [ -e "$1" ] && mv "$1" "$1.disabled"; return 0; }
 
-activate_mali() {
-    log "activating vendor Mali stack (mali_kbase + CIX proprietary userspace)"
+# Unload the kbase trio, youngest first. Reports the busy case loudly instead of
+# swallowing it: if something still holds /dev/mali0 (a compositor from the
+# previous mode, typically) the unload fails, the incoming driver cannot claim
+# CIXH5000, and the only symptom would otherwise be a silently wrong driver.
+unload_kbase() {
+    if [ -e /dev/mali0 ] && command -v fuser >/dev/null 2>&1; then
+        holders=$(fuser /dev/mali0 2>/dev/null)
+        [ -n "$holders" ] && log "WARN: /dev/mali0 is held by pid(s):$holders -- unload will likely fail"
+    fi
+    for m in mali_kbase protected_memory_allocator memory_group_manager; do
+        lsmod 2>/dev/null | grep -q "^$m " || continue
+        modprobe -r "$m" 2>/dev/null || log "WARN: could not unload $m (in use?)"
+    done
+}
+
+# Is the selected stack ACTUALLY live? The whole point of this rewrite is that a
+# boot must never silently continue on llvmpipe, so the answer is checked rather
+# than assumed from a modprobe that returned 0.
+driver_live() {
+    case "$1" in
+        mali)    lsmod 2>/dev/null | grep -q "^mali_kbase " && [ -e /dev/mali0 ] ;;
+        panthor) lsmod 2>/dev/null | grep -q "^panthor " ;;
+        *)       return 1 ;;
+    esac
+}
+
+# Does this kernel even ship the driver? Distinguishes "we failed" from "there
+# is nothing to load" -- the CONSOLE and RESCUE entries, and any LTS kernel
+# without the kbase DKMS build, legitimately reach the second case and must not
+# fail the unit for it.
+driver_available() {
+    case "$1" in
+        mali)    modinfo mali_kbase >/dev/null 2>&1 ;;
+        panthor) modinfo panthor    >/dev/null 2>&1 ;;
+        *)       return 1 ;;
+    esac
+}
+
+userspace_mali() {
     enable_file "$LD_PRO"
     enable_file "$LD_COMPAT"
     enable_file "$ICD_MALI"
@@ -139,8 +176,20 @@ activate_mali() {
     # unused, and picks a device the blob does not own.
     disable_file "$MESA_DEVSEL"
     "$LDCONFIG" 2>/dev/null || true
+}
+
+activate_mali() {
+    log "activating vendor Mali stack (mali_kbase + CIX proprietary userspace)"
+    userspace_mali
 
     modprobe -r panthor 2>/dev/null || true
+
+    # Unload any existing kbase trio before loading it. modprobe is a no-op for
+    # an already-loaded module, so without this a kbase left wedged in
+    # -EPROBE_DEFER by an earlier run is never re-probed: the loop below would
+    # succeed silently and leave nothing bound.
+    unload_kbase
+
     # Order matters: kbase probe returns -517 (-EPROBE_DEFER) and never retries
     # to completion if its two helpers are not already present. Measured on O6N.
     for m in memory_group_manager protected_memory_allocator mali_kbase; do
@@ -148,8 +197,7 @@ activate_mali() {
     done
 }
 
-activate_panthor() {
-    log "activating open-source Panthor/Mesa stack"
+userspace_panthor() {
     # The blob must leave the global library path entirely -- it sorts ahead of
     # Mesa in ld.so.conf order, so leaving it enabled means libEGL.so.1 still
     # resolves into /opt/cixgpu-* and abort()s hunting for /dev/mali0.
@@ -159,10 +207,13 @@ activate_panthor() {
     disable_file "$WSI_LAYER"
     enable_file "$MESA_DEVSEL"
     "$LDCONFIG" 2>/dev/null || true
+}
 
-    for m in mali_kbase protected_memory_allocator memory_group_manager; do
-        modprobe -r "$m" 2>/dev/null || true
-    done
+activate_panthor() {
+    log "activating open-source Panthor/Mesa stack"
+    userspace_panthor
+
+    unload_kbase
     modprobe panthor 2>/dev/null || log "WARN: modprobe panthor failed"
 }
 
@@ -177,5 +228,36 @@ case "$mode" in
     panthor) activate_panthor ;;
 esac
 
-echo "$mode" > "$STATE" 2>/dev/null || true
-log "GPU stack set to $mode"
+# Fail loudly rather than reporting a success the desktop will contradict. An
+# activate_* that only logged warnings used to exit 0, so systemd marked the
+# unit active, the journal said "GPU stack set to mali", and the user got
+# llvmpipe -- the exact silent-fallback class this rewrite exists to remove.
+if driver_live "$mode"; then
+    echo "$mode" > "$STATE" 2>/dev/null || true
+    log "GPU stack set to $mode"
+    exit 0
+fi
+
+# The requested driver is not bound. Leaving the userspace half where it was
+# just pointed would strand the machine half-switched -- blob userspace over a
+# panthor node, or Mesa over kbase -- which is the failure this whole design
+# exists to prevent. So realign userspace to whatever IS actually bound.
+if [ "$mode" = panthor ] && driver_live mali; then
+    userspace_mali
+    echo mali > "$STATE" 2>/dev/null || true
+    log "WARN: panthor did not bind; mali is still live, so userspace was put back on the blob"
+elif [ "$mode" = mali ] && driver_live panthor; then
+    userspace_panthor
+    echo panthor > "$STATE" 2>/dev/null || true
+    log "WARN: mali did not bind; panthor is still live, so userspace was put back on Mesa"
+fi
+
+if driver_available "$mode"; then
+    log "ERROR: selected '$mode' but its driver is NOT bound after loading."
+    log "ERROR: the desktop would fall back to llvmpipe. Check: ncz-gpu-status,"
+    log "ERROR: dmesg | grep -iE 'panthor|mali', and whether /dev/mali0 was held."
+    exit 1
+fi
+
+log "no $mode driver on this kernel (module not present) -- nothing loaded"
+exit 0
