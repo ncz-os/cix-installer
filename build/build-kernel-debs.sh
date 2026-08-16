@@ -511,7 +511,7 @@ Installed-Size: $isize
 # alternation also means `apt remove initramfs-tools` could be satisfied by
 # installing dracut -- that path is blocked by the apt pin shipped in
 # assets/dracut/99-ncz-initramfs-tool (installed by post-install hook 94).
-Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, initramfs-tools | dracut | linux-initramfs-tool, systemd
+Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, dracut | initramfs-tools | linux-initramfs-tool, systemd
 Description: NCZ cixmini Linux kernel ($kver)
  Prebuilt linux-cix-sky1 kernel image + modules for the NCZ cixmini (MS-R1).
  Installs vmlinuz, the module tree$( [ -n "$with_npu" ] && echo " (incl. armchina_npu)") and config,

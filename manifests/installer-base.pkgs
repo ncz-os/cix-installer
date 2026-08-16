@@ -1,6 +1,6 @@
 # installer-base.pkgs — always-on core toolset for the INSTALLED system + installer env
 #
-# Target: Ubuntu 26.04 (resolute) arm64 / cixmini MS-R1 + Orion O6.
+# Target: Debian Testing (Forky) arm64 / cixmini MS-R1 + Orion O6/O6N.
 # Scope:  packages that must be present on every installed NCZ-OS box AND in the
 #         installer runtime (esp. the new r130 choose-disk flow needs reliable
 #         lsblk/blkid/parted/nvme-cli to enumerate and label targets).
@@ -12,6 +12,23 @@
 # NOTE: remote-access (openssh-server, inetutils-telnetd/openbsd-inetd, busybox)
 #       is already provisioned by post-install/36-telemetry.sh + 35-ssh.sh per
 #       CLAUDE.md directive 9; listed here only to document the contract.
+
+# --- initramfs builder ---------------------------------------------------
+# dracut is the PRIMARY initramfs builder as of 26.7 (metal-validated on O6N,
+# 7.2.0-rc7-sky1-ncz, 2026-08-16). It is seeded HERE, explicitly, because the
+# kernel package only expresses a PREFERENCE:
+#     Depends: dracut | initramfs-tools | linux-initramfs-tool
+# An alternation is satisfied by whichever alternative the offline mirror
+# actually contains. Before this line the mirror carried initramfs-tools and
+# only dracut-install (a helper, not the builder), so an install would have
+# silently fallen back to initramfs-tools and nobody would have seen a warning.
+# Seeding it makes the mirror match the intent.
+#
+# initramfs-tools is deliberately NOT listed: it is no longer the builder, and
+# it survives where it is still useful — the RESCUE partition toolkit
+# (manifests/rescue.pkgs) for repairing a target system's initrd.
+dracut
+dracut-core
 
 # --- disk / partition identify (required by choose-disk UI) ---
 util-linux          # lsblk, blkid, wipefs, fdisk, sfdisk, cfdisk, lscpu

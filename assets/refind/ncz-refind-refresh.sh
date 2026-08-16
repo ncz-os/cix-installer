@@ -265,7 +265,6 @@ LEGACY_AVAILABLE=0
 NEXT_AVAILABLE=0
 LEGACY_INITRD_AVAILABLE=0
 NEXT_INITRD_AVAILABLE=0
-NEXT_DRACUT_AVAILABLE=0
 
 if [ -n "$KVER_LEGACY" ] && [ -s "/boot/vmlinuz-$KVER_LEGACY" ]; then
     if [ ! -s "/boot/initrd.img-$KVER_LEGACY" ]; then
@@ -298,17 +297,6 @@ if [ -n "$KVER_NEXT" ] && [ -s "/boot/vmlinuz-$KVER_NEXT" ]; then
     echo "  staged /boot/efi/initrd.img-$KVER_NEXT"
     NEXT_INITRD_AVAILABLE=1
 
-    # Optional dracut initrd, built ALONGSIDE the initramfs-tools one under a
-    # distinct name. Debian is moving the default initramfs builder to dracut
-    # during the FORKY cycle (bug #1114857), so we want a measured boot path on
-    # it before we inherit it. Staged and offered as an entry ONLY when the file
-    # exists -- nothing here builds it, and the initramfs-tools initrd remains
-    # the default and the fallback.
-    if [ -s "/boot/initrd.img-$KVER_NEXT.dracut" ]; then
-        install -m 0644 "/boot/initrd.img-$KVER_NEXT.dracut" "/boot/efi/initrd.img-$KVER_NEXT.dracut"
-        echo "  staged /boot/efi/initrd.img-$KVER_NEXT.dracut (experimental initrd)"
-        NEXT_DRACUT_AVAILABLE=1
-    fi
 elif [ -n "$KVER_NEXT" ]; then
     echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — BETA entry will be SKIPPED"
 fi
@@ -575,19 +563,33 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo "    options \"$PANTHOR_OPTIONS\""
         echo "}"
         echo
-        # Same stack as the default Mali entry, differing ONLY in which initrd
-        # is loaded. That is the point: it isolates the initramfs builder as the
-        # single variable, so a boot failure here indicts dracut and nothing
-        # else. Not default, and never made default by this script.
-        if [ "$NEXT_DRACUT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 GUI (Mali, dracut initrd — EXPERIMENTAL)\" {"
+        # NO-INITRD RECOVERY ENTRY.
+        #
+        # dracut is the primary (and only) initramfs builder as of 26.7, so the
+        # old "dracut EXPERIMENTAL" entry is redundant — the default entry IS a
+        # dracut initrd now. What replaced it is the gap that created:
+        # initramfs-tools no longer ships, and the RESCUE entry loads the SAME
+        # initrd as the default, so a single bad initrd would take out the
+        # normal boot and the rescue boot together.
+        #
+        # This entry cannot be broken by a bad initrd because it loads none.
+        # That is possible here only because the pieces needed to REACH root are
+        # built into the kernel, verified on O6N 7.2.0-rc7-sky1-ncz:
+        #     CONFIG_BLK_DEV_NVME=y  CONFIG_NVME_CORE=y  CONFIG_BTRFS_FS=y
+        #     CONFIG_EXT4_FS=y       nvme + btrfs present in modules.builtin
+        # so root=PARTUUID=... rootflags=subvol=@rootfs mounts with no early
+        # userspace at all.
+        #
+        # Expect the screen to stay blank a little longer than usual: the display
+        # controller is CONFIG_DRM_LINLONDP=m, so linlon-dp only loads once udev
+        # runs off the mounted rootfs. Text appears after root mount, not before.
+        # Never default.
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 Recovery (direct boot, no initrd)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        echo "    initrd  /initrd.img-$KVER_NEXT.dracut"
         echo "    options \"$MALI_OPTIONS\""
         echo "}"
         echo
-        fi
 
         echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 Console (All Accelerators)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
