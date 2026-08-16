@@ -56,13 +56,41 @@ for _p in "${INSTALLER_META:-/usr/local/lib/cix-installer}/assets/dracut/$PIN_NA
     fi
 done
 
+# PERFORM the migration; do not assume it already happened.
+#
+# The base squashfs layer is unpacked from a prebuilt rootfs tarball that still
+# contains initramfs-tools, and manifests/installer-base.pkgs only seeds the
+# MIRROR -- it is never installed into a layer. So apt satisfies the kernel's
+#   Depends: dracut | initramfs-tools | linux-initramfs-tool
+# with the initramfs-tools already present, and dracut never arrives on its own.
+# Measured while building the first dracut-primary ISO: base.squashfs contained
+# update-initramfs and zero dracut binaries.
+#
+# Order matters. dracut is installed FIRST so the kernel's dependency is
+# satisfied at every point; only then is initramfs-tools removed. Doing it the
+# other way round would momentarily leave linux-image-cixmini unsatisfiable.
 if ! dpkg-query -W -f='${Status}' dracut 2>/dev/null | grep -q "install ok installed"; then
-    echo "[94] FATAL: dracut is not installed, but it is the PRIMARY initramfs builder" >&2
-    echo "[94]        for 26.7 and initramfs-tools is no longer shipped in the main" >&2
-    echo "[94]        image. An install that reaches here without dracut would produce" >&2
-    echo "[94]        no initrd at all. Check that the offline mirror carries dracut +" >&2
-    echo "[94]        dracut-core (seeded in manifests/installer-base.pkgs)." >&2
-    exit 1
+    echo "[94] installing dracut (primary initramfs builder for 26.7)"
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends dracut 2>&1 | tail -4; then
+        echo "[94] FATAL: could not install dracut, and it is the PRIMARY initramfs" >&2
+        echo "[94]        builder. Check the offline mirror carries dracut + dracut-core" >&2
+        echo "[94]        (seeded in manifests/installer-base.pkgs)." >&2
+        exit 1
+    fi
+fi
+
+if dpkg-query -W -f='${Status}' initramfs-tools 2>/dev/null | grep -q "install ok installed"; then
+    # Safe now that dracut Provides linux-initramfs-tool. Simulated first: if the
+    # removal would take anything except initramfs-tools and its own helpers with
+    # it, leave it alone and say so rather than gutting the image.
+    _rm=$(apt-get remove -s -y initramfs-tools 2>/dev/null | grep -c '^Remv')
+    if [ "${_rm:-99}" -le 3 ]; then
+        DEBIAN_FRONTEND=noninteractive apt-get remove -y initramfs-tools 2>&1 | tail -3
+        echo "[94] initramfs-tools removed (dracut is the builder; it survives in the rescue toolkit)"
+    else
+        echo "[94] WARN: removing initramfs-tools would take $_rm packages — left installed;"
+        echo "[94]       dracut still owns the initrd (update_initramfs disabled below)"
+    fi
 fi
 
 SRC=""
