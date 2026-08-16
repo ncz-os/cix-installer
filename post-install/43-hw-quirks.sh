@@ -92,13 +92,27 @@ if [ ! -s /etc/machine-id ]; then
     dbus-uuidgen > /var/lib/dbus/machine-id 2>/dev/null || true
     ln -sf /var/lib/dbus/machine-id /etc/machine-id 2>/dev/null || true
 fi
-video_devices="$(ls /dev/video* 2>/dev/null | sort -V)"
-set -- $video_devices
-if [ $# -eq 1 ]; then
-    ln -sf "$1" /dev/video-cixdec0
-elif [ $# -gt 1 ]; then
-    eval "last=\${$#}"
-    ln -sf "$last" /dev/video-cixdec0
+# Select the VPU nodes by DRIVER NAME, never by enumeration order.
+# The old code took the LAST /dev/video* after a version sort. On Sky1 the
+# nodes are video0=mvxdec (decoder) and video1=mvxenc (encoder), so "last"
+# pointed /dev/video-cixdec0 at the ENCODER. Measured on cixmini 2026-08-16:
+# h264_v4l2m2m encode failed with "VIDIOC_STREAMON failed on capture context"
+# / ENODEV, and mpeg4_v4l2m2m decode returned frame=0. Numbering is not
+# guaranteed, so match on /sys/class/video4linux/*/name instead.
+for _v in /sys/class/video4linux/video*; do
+    [ -r "$_v/name" ] || continue
+    _n=$(cat "$_v/name" 2>/dev/null)
+    _d=/dev/$(basename "$_v")
+    [ -e "$_d" ] || continue
+    case "$_n" in
+        mvxdec*) ln -sf "$_d" /dev/video-cixdec0 ;;
+        mvxenc*) ln -sf "$_d" /dev/video-cixenc0 ;;
+    esac
+done
+# Fall back to the single-node case only when nothing was named.
+if [ ! -e /dev/video-cixdec0 ]; then
+    set -- $(ls /dev/video* 2>/dev/null | sort -V)
+    [ $# -eq 1 ] && ln -sf "$1" /dev/video-cixdec0
 fi
 exit 0
 LOADER

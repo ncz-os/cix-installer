@@ -87,6 +87,42 @@ fi
 # 2. write the sizing policy. The generator reads /etc/systemd/zram-generator.conf
 #    and creates systemd-zram-setup@zram0.service instances at boot (it is
 #    content-addressed; re-running this hook produces a stable file).
+# GATE THE CONFIG WRITE ON THE TARGET KERNEL ACTUALLY HAVING ZRAM.
+#
+# Writing this file unconditionally BRICKS THE BOOT on a kernel without zram.
+# The comment further down used to claim that without kernel support "the
+# generator has no device to enumerate and does not instantiate
+# systemd-zram-setup@zram0.service, so nothing runs". That is false. Measured
+# on cixmini 2026-08-16 with a kernel carrying "# CONFIG_ZRAM is not set":
+#
+#   systemd-modules-load: Failed to find module 'zram'
+#   zram_generator::generator: modprobe "zram" failed, ignoring
+#   systemd[1]: Expecting device dev-zram0.device - /dev/zram0...
+#
+# systemd then waits forever for a device the kernel can never create; the
+# machine never reaches multi-user and has no network or console. Recovery
+# needed the rescue partition. Swap is a nicety; booting is not.
+_kver_t=$(ls /lib/modules 2>/dev/null | sort -V | tail -1)
+_zram_ok=0
+if [ -n "$_kver_t" ]; then
+    if grep -qE '^CONFIG_ZRAM=(y|m)' "/boot/config-$_kver_t" 2>/dev/null; then
+        if grep -qE '^CONFIG_ZRAM=y' "/boot/config-$_kver_t" 2>/dev/null; then
+            _zram_ok=1
+        elif find "/lib/modules/$_kver_t" -name 'zram.ko*' 2>/dev/null | grep -q .; then
+            _zram_ok=1
+        fi
+    fi
+fi
+if [ "$_zram_ok" != 1 ]; then
+    echo "[93] target kernel ${_kver_t:-unknown} has no zram support -- NOT writing"
+    echo "[93] /etc/systemd/zram-generator.conf (writing it would hang the boot)"
+    rm -f /etc/systemd/zram-generator.conf
+    # modules-load would also spam "Failed to find module 'zram'" every boot.
+    rm -f /etc/modules-load.d/zram.conf
+    echo "[93] no swap will be configured; rebuild the kernel with CONFIG_ZRAM=y to enable it"
+    exit 0
+fi
+
 install -d -m 0755 /etc/systemd
 cat > /etc/systemd/zram-generator.conf <<'ZRAMCONF'
 # NCZ-OS 26.7 zram sizing policy (audit W3.6).
@@ -100,7 +136,6 @@ cat > /etc/systemd/zram-generator.conf <<'ZRAMCONF'
 [zram0]
 zram-size = ram * 0.5
 max-zram-size = 8192
-min-zram-size = 1024
 compression-algorithm = zstd
 swap-priority = 100
 fs-type = swap

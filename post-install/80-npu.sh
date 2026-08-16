@@ -285,7 +285,13 @@ cat > /etc/modules-load.d/ncz-npu.conf << 'EOF'
 # NCZ 26.6: Cix Sky1 / Zhouyi v3 NPU driver
 # Probes CIXH4000:00 (\_SB_.NPU0) + CIXH4010:0[012] (3 cores via SSDT override)
 # Creates /dev/aipu chardev; inference via cix-noe-umd 2.0.2
-armchina_npu
+#
+# The module is aipu.ko, NOT armchina_npu. "armchina_npu" is the IN-TREE
+# driver's name, and the defconfig deliberately leaves CONFIG_ARMCHINA_NPU
+# unset so the in-tree copy cannot mask the vendor DKMS build. Naming it here
+# produced "systemd-modules-load: Failed to find module 'armchina_npu'" on
+# every boot (measured on cixmini 2026-08-16) while doing nothing useful.
+aipu
 EOF
 
 # --- Step 5: drop NPU-STATUS.md ---
