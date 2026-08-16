@@ -111,8 +111,16 @@ if pgrep -f "/opt/singularity/bin/singularity-lockscreen" >/dev/null 2>&1 \
    || pgrep -x swaylock >/dev/null 2>&1; then
     exit 0
 fi
+# Keep the lock client's stderr. Without this it goes nowhere: swayidle execs
+# ncz-lock which execs the locker, and nothing captures its output -- so when
+# the lock screen stopped accepting keystrokes three times in one day there was
+# no evidence at all to work from, only guesses. The locker reports whether its
+# keymap loaded ("keymap accepted, keyboard ready") and names the reason when it
+# does not; that single line is the difference between diagnosing this and
+# theorising about it. Truncated per lock so the file cannot grow without bound.
+NCZ_LOCK_LOG=${XDG_RUNTIME_DIR:-/tmp}/ncz-lock.log
 if [ -x /opt/singularity/bin/singularity-lockscreen ]; then
-    exec /opt/singularity/bin/singularity-lockscreen "$@"
+    exec /opt/singularity/bin/singularity-lockscreen "$@" 2>"$NCZ_LOCK_LOG"
 elif command -v swaylock >/dev/null 2>&1; then
     exec swaylock -f -c 000000
 fi
