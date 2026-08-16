@@ -223,7 +223,24 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
               mkdir -p "$DSTA/$d"
           done
           find . ! -type d | while read -r f; do
-              [ -e "$DSTA/$f" ] || cp -a "$f" "$DSTA/$f" || \
+              # `-e` is FALSE for a dangling symlink while the link itself is
+              # very much there, so the plain `[ -e ] || cp` here reported
+              # every one of them as a failure:
+              #   cp: can not create ".../0001-mali-...patch": File exists
+              #   [late r160] WARN union-sync failed on ...
+              # MEASURED on the r243 KVM install: 24 such warnings per install.
+              # The baked layer shipped absolute symlinks into the Yocto build
+              # container (/workdir/meta-cix/...), a path that exists on no
+              # installed system, so those 24 kernel patches were absent from
+              # every machine ever shipped. The source tree now carries the
+              # real files; this replaces a broken link left by an older baked
+              # layer rather than warning about it. A present REAL file is
+              # still left alone -- baked still wins where baked has something.
+              if [ -e "$DSTA/$f" ]; then
+                  continue
+              fi
+              [ -L "$DSTA/$f" ] && rm -f "$DSTA/$f"
+              cp -a "$f" "$DSTA/$f" || \
                   echo "[late r160] WARN union-sync failed on $f"
           done )
         echo "[late r160] asset union-sync done (refind: $(ls "$DSTA/refind/" 2>/dev/null | tr '\n' ' '))"
@@ -537,6 +554,21 @@ esac
 # and absent from the initrd (which carries no finish-install at all), so the
 # patched copy is the one that runs and the variable SHOULD arrive here.
 # Log all of it, once, so the next frozen bar names its own cause.
+#
+# NOT `tee`. MEASURED on the r243 KVM install: this block was piped through
+# `tee -a`, and d-i's busybox does not provide a tee applet --
+#     /cdrom/cixmini/late.sh: line 550: tee: not found
+# -- so the ONE diagnostic written to answer "why is the bar frozen" silently
+# produced nothing, and the trailing `|| true` hid the failure. The bar was
+# still frozen and we still could not say why. Pure shell has no such
+# dependency.
+log_and_echo() {
+    while IFS= read -r _log_line; do
+        printf '%s\n' "$_log_line" >> "$LOG" 2>/dev/null || true
+        printf '%s\n' "$_log_line" >&2
+    done
+}
+
 {
     echo "[late/progress] DEBCONF_OK=${DEBCONF_OK:-unset}"
     echo "[late/progress] NCZ_PROGRESS_UNITS=${NCZ_PROGRESS_UNITS:-unset}"
@@ -547,7 +579,7 @@ esac
     else
         echo "[late/progress] bar will NOT advance -- text-only degraded mode"
     fi
-} 2>&1 | tee -a "$LOG" >&2 || true   # $LOG is /target/var/log/... (line 23);
+} 2>&1 | log_and_echo || true        # $LOG is /target/var/log/... (line 23);
                                      # the bare /var/log path is the d-i ramdisk
                                      # and is DISCARDED at reboot -- that is why the
                                      # first KVM run produced no diagnostics at all.

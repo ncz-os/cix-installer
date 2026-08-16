@@ -124,7 +124,16 @@ fi
 if [ -d /etc/initramfs-tools ]; then
     install -d -m 0755 /etc/initramfs-tools
     if ! grep -qs '^update_initramfs=no' /etc/initramfs-tools/update-initramfs.conf 2>/dev/null; then
-        printf 'update_initramfs=no\n' >> /etc/initramfs-tools/update-initramfs.conf
+        # Rewrite the existing assignment rather than appending a second one.
+        # Appending left the shipped `update_initramfs=yes` in place with
+        # `update_initramfs=no` below it -- last-wins makes that behave, but a
+        # config file that states both answers is one edit away from stating
+        # the wrong one, and it reads as an accident to whoever opens it next.
+        # OBSERVED on the r243 KVM install: both lines present in the target.
+        sed -i 's/^[[:space:]]*update_initramfs=.*/update_initramfs=no/' \
+            /etc/initramfs-tools/update-initramfs.conf 2>/dev/null || true
+        grep -qs '^update_initramfs=no' /etc/initramfs-tools/update-initramfs.conf 2>/dev/null || \
+            printf 'update_initramfs=no\n' >> /etc/initramfs-tools/update-initramfs.conf
         echo "[94] initramfs-tools present — regeneration disabled (dracut owns the initrd)"
     fi
 fi
