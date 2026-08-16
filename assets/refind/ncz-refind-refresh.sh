@@ -265,6 +265,7 @@ LEGACY_AVAILABLE=0
 NEXT_AVAILABLE=0
 LEGACY_INITRD_AVAILABLE=0
 NEXT_INITRD_AVAILABLE=0
+NEXT_DRACUT_AVAILABLE=0
 
 if [ -n "$KVER_LEGACY" ] && [ -s "/boot/vmlinuz-$KVER_LEGACY" ]; then
     if [ ! -s "/boot/initrd.img-$KVER_LEGACY" ]; then
@@ -296,6 +297,18 @@ if [ -n "$KVER_NEXT" ] && [ -s "/boot/vmlinuz-$KVER_NEXT" ]; then
     install -m 0644 "/boot/initrd.img-$KVER_NEXT" "/boot/efi/initrd.img-$KVER_NEXT"
     echo "  staged /boot/efi/initrd.img-$KVER_NEXT"
     NEXT_INITRD_AVAILABLE=1
+
+    # Optional dracut initrd, built ALONGSIDE the initramfs-tools one under a
+    # distinct name. Debian is moving the default initramfs builder to dracut
+    # during the FORKY cycle (bug #1114857), so we want a measured boot path on
+    # it before we inherit it. Staged and offered as an entry ONLY when the file
+    # exists -- nothing here builds it, and the initramfs-tools initrd remains
+    # the default and the fallback.
+    if [ -s "/boot/initrd.img-$KVER_NEXT.dracut" ]; then
+        install -m 0644 "/boot/initrd.img-$KVER_NEXT.dracut" "/boot/efi/initrd.img-$KVER_NEXT.dracut"
+        echo "  staged /boot/efi/initrd.img-$KVER_NEXT.dracut (experimental initrd)"
+        NEXT_DRACUT_AVAILABLE=1
+    fi
 elif [ -n "$KVER_NEXT" ]; then
     echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — BETA entry will be SKIPPED"
 fi
@@ -487,7 +500,12 @@ fi
 # Release policy: 7.2 Mali is the default graphical entry.  7.0.12 is always
 # an explicit console-only recovery choice; Panthor is an explicit experiment.
 if [ "$NEXT_AVAILABLE" = "1" ]; then
-    DEFAULT_TOKEN="Mali"
+    # Must be UNIQUE across menu titles. rEFInd matches default_selection as a
+    # substring, and the experimental dracut entry is also titled "... (Mali,
+    # dracut initrd ...)" -- a bare "Mali" matches BOTH, leaving the default
+    # decided by menu order rather than by intent. "Mali, Default" appears in
+    # exactly one title. Keep it that way when adding entries.
+    DEFAULT_TOKEN="Mali, Default"
 elif [ "$LEGACY_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="console"
 else
@@ -557,6 +575,20 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
         echo "    options \"$PANTHOR_OPTIONS\""
         echo "}"
         echo
+        # Same stack as the default Mali entry, differing ONLY in which initrd
+        # is loaded. That is the point: it isolates the initramfs builder as the
+        # single variable, so a boot failure here indicts dracut and nothing
+        # else. Not default, and never made default by this script.
+        if [ "$NEXT_DRACUT_AVAILABLE" = "1" ]; then
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 GUI (Mali, dracut initrd — EXPERIMENTAL)\" {"
+        echo "    loader  /vmlinuz-$KVER_NEXT"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        echo "    initrd  /initrd.img-$KVER_NEXT.dracut"
+        echo "    options \"$MALI_OPTIONS\""
+        echo "}"
+        echo
+        fi
+
         echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 Console (All Accelerators)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
