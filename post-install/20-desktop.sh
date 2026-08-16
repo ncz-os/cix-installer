@@ -115,6 +115,29 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
     gvfs gvfs-backends udisks2 bluez blueman 2>&1 | tail -3 || true
 systemctl enable bluetooth 2>&1 | tail -1 || true
 
+# Make bluetooth-autoconnect conditional on there actually being a radio.
+#
+# The vendor cix-debian-misc postinst enables bluetooth-autoconnect and we keep
+# that enable (25-cix-proprietary.sh) because boards WITH Bluetooth want it. But
+# the unit ships no condition of its own: on hardware without an adapter it runs
+# regardless, its Python entry point raises, and every boot ends with a
+# permanently failed unit.
+#
+# Measured on O6N, which has no Bluetooth at all: /sys/class/bluetooth exists but
+# is EMPTY (0 entries, 0 hci*, 0 rfkill lines), and bluetooth-autoconnect was the
+# ONLY failed unit in the shipped image. With this drop-in systemd reports
+# "skipped, unmet condition check" and the board reaches zero failed units.
+#
+# A failed Condition SKIPS a unit rather than failing it, so this stays correct
+# on boards that do have a radio: there the glob matches and the service starts
+# exactly as before. Verified in both states on O6N 2026-08-16.
+install -d -m 0755 /etc/systemd/system/bluetooth-autoconnect.service.d
+cat > /etc/systemd/system/bluetooth-autoconnect.service.d/10-ncz-require-adapter.conf <<'BTCOND'
+[Unit]
+ConditionPathExistsGlob=/sys/class/bluetooth/*
+BTCOND
+echo "[20] bluetooth-autoconnect gated on an actual Bluetooth adapter"
+
 # ---------------------------------------------------------------------------
 # Native network — sinty-nm (singularityos-lab/sinty-nm).
 # sinty-nm is a static Go daemon that OWNS org.freedesktop.NetworkManager on the
