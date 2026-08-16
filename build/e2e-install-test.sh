@@ -74,16 +74,72 @@ USERS='passwd/user-fullname=Test\ User passwd/username=ncztest passwd/user-passw
 DISKSEL='ncz_disk=/dev/vda ncz_fs=ext4'
 CONSOLE='loglevel=4 console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0'
 
-sleep 6
+# Wait for a string to appear in the guest output. Unlike expect_echo() this
+# RETURNS FAILURE, because the two things below are not cosmetic: typing into
+# a GRUB that is not at the prompt we think it is at silently tests a
+# different boot path.
+wait_for() {
+    _pat="$1"; _what="$2"; _secs="${3:-60}"
+    _i=0
+    while [ "$_i" -lt "$_secs" ]; do
+        if grep -aq "$_pat" /tmp/e2e-guest.out 2>/dev/null; then
+            echo "  saw: $_what"
+            return 0
+        fi
+        sleep 1
+        _i=$((_i + 1))
+    done
+    echo "  TIMEOUT waiting for $_what" >&2
+    return 1
+}
+
+# Do NOT interact on a fixed sleep. MEASURED on r244: a `sleep 6` then blind
+# cursor keys raced GRUB drawing its menu, the `c` never took, and every
+# character of the linux line was typed into the SAFE rescue entry instead.
+# GRUB then booted RESCUE MODE -- the guest log shows
+#   linux /install.a64/vmlinuz rescue/enable=true ...
+# -- so nothing was ever installed, the target disk stayed at 1 MB, and the
+# harness sat watching a disk that no installer was writing to. The run looked
+# like a product failure and was a harness failure. Wait for the menu to exist
+# before touching it.
+wait_for "Install NCZ-OS" "the boot menu" 90 || {
+    echo "FATAL: GRUB menu never appeared; not typing blindly" >&2
+    exit 1
+}
+sleep 1
+# Stop the countdown, then enter the GRUB COMMAND LINE and prove we got there.
+# Retry, because a dropped keystroke here is the whole failure mode.
 send '\x1b[B'; sleep 1
 send '\x1b[A'; sleep 1
-send 'c\n'; sleep 3
+_at_prompt=0
+for _try in 1 2 3; do
+    send 'c\n'; sleep 3
+    if grep -aq "grub>" /tmp/e2e-guest.out 2>/dev/null; then
+        echo "  at the grub> command line (attempt $_try)"
+        _at_prompt=1
+        break
+    fi
+    echo "  no grub> yet (attempt $_try), retrying"
+done
+[ "$_at_prompt" = 1 ] || {
+    echo "FATAL: never reached the grub> prompt. Refusing to type the kernel" >&2
+    echo "       line into whatever entry happens to be focused -- that is how" >&2
+    echo "       r244 silently booted the rescue shell instead of installing." >&2
+    exit 1
+}
 send_slow "linux /install.a64/vmlinuz $DI_OPTS $USERS $DISKSEL $CONSOLE"
 send '\n'; sleep 2
 expect_echo "ncz_disk=/dev/vda" "the linux line"
 send_slow "initrd /install.a64/initrd.gz"
 send '\n'; sleep 2
 expect_echo "initrd /install.a64/initrd.gz" "the initrd line"
+# Last line of defence: if we somehow ended up in the rescue entry anyway,
+# say so now rather than after 45 minutes of watching an idle disk.
+if grep -aq "rescue/enable=true" /tmp/e2e-guest.out 2>/dev/null; then
+    echo "FATAL: the rescue entry is in the guest console -- this run would" >&2
+    echo "       have tested rescue mode, not an install." >&2
+    exit 1
+fi
 send 'boot\n'
 
 echo "=== booted; watching target disk (installer writes = real progress) ==="
