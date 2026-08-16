@@ -2404,6 +2404,28 @@ if [ -d "$ROOT/assets/kernel/panthor" ]; then
     echo "    staged Panthor DKMS source + prebuilt module -> /cixmini/assets/kernel/panthor"
 fi
 
+# Stage the NPU and VPU patch series -- the patches ONLY, not the whole trees.
+#
+# MEASURED on the r244 install: the baked layer carries assets/kernel/{npu,vpu}
+# with their patch files as ABSOLUTE symlinks into /workdir/meta-cix/..., the
+# Yocto build container mount point, which exists on no installed system. The
+# repository now holds the real files, and late.sh union-sync replaces a
+# dangling link with the real one -- but only where the ISO carries a source to
+# copy FROM. mali is staged just above and its 15 patches were repaired; npu and
+# vpu were staged nowhere, so their 9 links stayed broken on the target.
+#
+# Only src/patches is staged (48K) rather than the full trees (516K + 4.8M):
+# the baked layer already ships the driver sources, and the patches are the
+# provenance record of what was applied to them.
+for _cixdrv in npu vpu; do
+    if [ -d "$ROOT/assets/kernel/$_cixdrv/src/patches" ]; then
+        mkdir -p "$EXTRA/assets/kernel/$_cixdrv/src/patches"
+        cp -aL "$ROOT/assets/kernel/$_cixdrv/src/patches/." \
+               "$EXTRA/assets/kernel/$_cixdrv/src/patches/" 2>/dev/null || true
+        echo "    staged $_cixdrv patch series ($(find "$EXTRA/assets/kernel/$_cixdrv/src/patches" -name '"'"'*.patch'"'"' | wc -l) patches) -> /cixmini/assets/kernel/$_cixdrv"
+    fi
+done
+
 
 if [ -d "$ROOT/assets" ]; then
     mkdir -p "$EXTRA/assets"
