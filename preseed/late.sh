@@ -89,6 +89,23 @@ export NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME NCZ_RELEASE_LAB
 # never START/STOP/SET/STEP.
 DEBCONF_OK=0
 db_try() { [ "$DEBCONF_OK" = 1 ] || return 0; "$@" 2>/dev/null || true; }
+# Report EACH precondition separately. This gate has four independent
+# requirements and the old diagnostics only printed the DEBCONF_OK result, so a
+# frozen progress bar told you the gate failed but never which half of it. Every
+# investigation then needed a fresh install run to get back to this point.
+# Printing all four costs nothing and makes the next install conclusive.
+ncz_dbg_gate() {
+    echo "[late/progress] gate: DEBIAN_HAS_FRONTEND=${DEBIAN_HAS_FRONTEND:-<unset>}"
+    echo "[late/progress] gate: DEBCONF_REDIR=${DEBCONF_REDIR:-<unset>}"
+    echo "[late/progress] gate: confmodule=$([ -f /usr/share/debconf/confmodule ] && echo present || echo MISSING)"
+    echo "[late/progress] gate: debconf-loadtemplate=$([ -x /usr/bin/debconf-loadtemplate ] && echo present || echo MISSING)"
+    # d-i is cdebconf, not Perl debconf: the loader may live elsewhere or under
+    # another name. Show what IS available so a MISSING above is actionable.
+    echo "[late/progress] gate: which debconf-loadtemplate=$(command -v debconf-loadtemplate 2>/dev/null || echo none)"
+    echo "[late/progress] gate: cdebconf tools=$(ls /usr/bin/debconf-* 2>/dev/null | tr '\n' ' ')"
+}
+ncz_dbg_gate
+
 if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -n "$DEBCONF_REDIR" ] \
    && [ -f /usr/share/debconf/confmodule ] && [ -x /usr/bin/debconf-loadtemplate ]; then
     cat > /tmp/ncz-progress.templates <<NCZTPL
@@ -118,8 +135,14 @@ NCZTPL
     if . /usr/share/debconf/confmodule 2>/dev/null; then
         if debconf-loadtemplate nclawzero /tmp/ncz-progress.templates 2>/dev/null; then
             DEBCONF_OK=1
+        else
+            echo "[late/progress] gate: confmodule sourced OK but debconf-loadtemplate FAILED"
         fi
+    else
+        echo "[late/progress] gate: sourcing /usr/share/debconf/confmodule FAILED"
     fi
+else
+    echo "[late/progress] gate: preconditions not met — progress bar will not update (see gate: lines above)"
 fi
 db_try db_subst nclawzero/install-step STEP "Preparing ${NCZ_RELEASE_LABEL} install media and target filesystem..."
 db_try db_progress INFO nclawzero/install-step
