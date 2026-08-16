@@ -490,6 +490,7 @@ rebuild. Full guide (single-file + LFS clone + custom ONNX→`.cix`):
 
 ### Deep-dive docs (also shipped to `/usr/share/doc/ncz/` on the appliance)
 
+- [`docs/DESIGN-RATIONALE.md`](docs/DESIGN-RATIONALE.md) — **why the stack is built this way**: Mali vs Panthor and how we benchmarked them, the VPU/codec path (FFmpeg, GStreamer, Chromium), Wayland+Singularity, sinty-nm, Debian Forky, dracut
 - [`docs/MNEMOS-NPU-EMBEDDINGS.md`](docs/MNEMOS-NPU-EMBEDDINGS.md) — the automatic embedding chain, I/O contract, verification commands
 - [`docs/INFERENCE_LIMITS.md`](docs/INFERENCE_LIMITS.md) — full per-HW/driver capability + limits matrix
 - [`docs/MODELSCOPE-MODELS.md`](docs/MODELSCOPE-MODELS.md) — pulling/compiling `.cix` models
