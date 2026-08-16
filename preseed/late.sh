@@ -636,8 +636,25 @@ late_progress_state() {
           ttymsg "  → $hb_status"
           hb_last_key="$hb_key"
       fi
-      db_try db_subst nclawzero/install-step STEP "$hb_status"
-      db_try db_progress INFO nclawzero/install-step
+      # db_try swallows every error (`"$@" 2>/dev/null || true`), which is what
+      # makes a dead heartbeat invisible. Measured on the r249 install: the two
+      # FOREGROUND messages ("Preparing NCZ-OS ...", "Starting NCZ-OS
+      # post-install plan...") both reached the console exactly once, while the
+      # heartbeat produced ZERO updates -- even though progress.state was being
+      # written correctly and reached 57/57. So the state feed works and the
+      # display path from THIS subshell does not.
+      #
+      # Log the actual return codes for the first few iterations. Bounded, so a
+      # long install cannot spam the log, and enough to distinguish "debconf
+      # rejects writes from a background subshell" from "the calls succeed but
+      # nothing renders" -- which need completely different fixes.
+      hb_subst_rc=0; hb_info_rc=0
+      db_subst nclawzero/install-step STEP "$hb_status" 2>/dev/null || hb_subst_rc=$?
+      db_progress INFO nclawzero/install-step 2>/dev/null || hb_info_rc=$?
+      if [ "${hb_diag_n:-0}" -lt 3 ]; then
+          hb_diag_n=$(( ${hb_diag_n:-0} + 1 ))
+          echo "[late/progress] hb#$hb_diag_n subst_rc=$hb_subst_rc info_rc=$hb_info_rc event=$hb_event idx=$hb_idx/$hb_total hook=$hb_hook"
+      fi
 
       # New ISOs patch finish-install itself to allocate exactly
       # NCZ_PROGRESS_UNITS units to 07preseed. Advance only inside that owned
@@ -663,7 +680,12 @@ late_progress_state() {
               hb_target_units="$NCZ_PROGRESS_UNITS"
           if [ "$hb_target_units" -gt "$hb_last_units" ]; then
               hb_delta=$((hb_target_units - hb_last_units))
-              db_try db_progress STEP "$hb_delta"
+              hb_step_rc=0
+              db_progress STEP "$hb_delta" 2>/dev/null || hb_step_rc=$?
+              if [ "${hb_step_diag_n:-0}" -lt 3 ]; then
+                  hb_step_diag_n=$(( ${hb_step_diag_n:-0} + 1 ))
+                  echo "[late/progress] hb STEP#$hb_step_diag_n delta=$hb_delta rc=$hb_step_rc units=$hb_target_units/$NCZ_PROGRESS_UNITS"
+              fi
               hb_last_units="$hb_target_units"
               if [ -n "${NCZ_PROGRESS_CONSUMED_FILE:-}" ]; then
                   printf '%s\n' "$hb_last_units" > "$NCZ_PROGRESS_CONSUMED_FILE" 2>/dev/null || true
