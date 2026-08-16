@@ -89,7 +89,26 @@ cat > /usr/local/bin/ncz-lock <<'LOCK'
 # ncz-lock — lock the screen with the native Singularity lockscreen (Wayland,
 # Mali-accelerated), idempotent (never double-locks). Falls back to swaylock ONLY
 # if the native lock binary is unavailable. Wayland-native; no X11.
-if pgrep -x singularity-lockscreen >/dev/null 2>&1 || pgrep -x swaylock >/dev/null 2>&1; then
+# The already-locked guard MUST use pgrep -f, not -x.
+#
+# pgrep -x matches the kernel comm, which is truncated to 15 characters.
+# "singularity-lockscreen" is 22, so -x could NEVER match it -- pgrep even says
+# so on stderr: "pattern that searches for process name longer than 15
+# characters will result in zero matches". The guard has therefore never fired,
+# and ncz-lock would happily start a SECOND lock client on top of a live one.
+#
+# That is not cosmetic. ext-session-lock allows exactly one lock client, and if
+# a lock client goes away without unlock_and_destroy the compositor is required
+# to keep the session locked with no client left to draw a prompt -- labwc does
+# exactly this (src/session-lock.c: "manager->locked remains true and
+# lock_outputs still hides the screens"). The result is a permanently black
+# screen that only a reboot clears. A guard that cannot fire is one race away
+# from that.
+#
+# -f matches the full command line, where the path is intact. swaylock is 8
+# characters so -x is still correct for it.
+if pgrep -f "/opt/singularity/bin/singularity-lockscreen" >/dev/null 2>&1 \
+   || pgrep -x swaylock >/dev/null 2>&1; then
     exit 0
 fi
 if [ -x /opt/singularity/bin/singularity-lockscreen ]; then
