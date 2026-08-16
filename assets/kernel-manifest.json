@@ -1,14 +1,14 @@
 {
-  "generated_utc": "2026-08-16T05:20:40Z",
+  "generated_utc": "2026-08-16T14:27:12Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.1+r242_arm64.deb",
-      "sha256": "3aaa911e751842fbe4cf29f07f261c04786e78ba60370b7ac6bbe77f5efb5ccc"
+      "file": "build/kernel-debs/cixmini-boot_1.1+r243_arm64.deb",
+      "sha256": "39050e1d7791d9242db21d063e7975b1c7ecc4c83aaa231d0fee5839bca93cfc"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini_7.2.0-rc7-sky1-ncz+r242_arm64.deb",
-      "sha256": "f46723a3cef96b6d664be0930bf8c9980c9d641fc0a628d413ea851c32a268a1"
+      "file": "build/kernel-debs/linux-image-cixmini_7.2.0-rc7-sky1-ncz+r243_arm64.deb",
+      "sha256": "188e0160b9ef7100552a8dbfd6fb2fda81c7bd68b145ac0ee433ed07fbc18f2a"
     }
   ],
   "schema": 1,
@@ -21,7 +21,7 @@
       "dir": "assets/kernel/edge",
       "image": {
         "file": "assets/kernel/edge/Image-cixmini.bin",
-        "sha256": "90e0c8f3e365724cecd6c29e7af41bd830bf5dfabb5de359631c5abd01ca01f7",
+        "sha256": "4ec5b1eab4c9e2778c0e7d063951a4dc98d4d8a5269ec344729d2aac0508eb3e",
         "size": 46815744
       },
       "kver": "7.2.0-rc7-sky1-ncz",

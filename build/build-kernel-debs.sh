@@ -365,6 +365,17 @@ EOF
 
     local isize
     isize=$(du -sk "$root" | cut -f1)
+    # NOTE (initramfs alternation): dracut is listed FIRST, matching the form
+    # Debian adopts in bug #1114857. dracut is the primary builder as of 26.7
+    # (metal-validated on O6N 2026-08-16) and initramfs-tools is no longer
+    # shipped in the main image, surviving only in the rescue toolkit.
+    #
+    # This comment lives OUT here on purpose. It previously sat INSIDE the
+    # heredoc below, which writes DEBIAN/control verbatim -- so every '#' line
+    # was emitted as a control field and dpkg-deb refused the package with
+    # "field name '#' must be followed by colon". That bug was latent: the
+    # comment block was added with the alternation change and nothing rebuilt
+    # the kernel deb until the dracut migration forced it.
     cat > "$root/DEBIAN/control" <<EOF
 Package: cixmini-boot
 Version: $ver
@@ -503,14 +514,6 @@ Maintainer: $MAINT
 Section: kernel
 Priority: optional
 Installed-Size: $isize
-# NOTE (initramfs alternation): the order here is DELIBERATELY the inverse of
-# Debian bug #1114857, whose planned form is
-#     dracut | initramfs-tools | linux-initramfs-tool
-# We keep initramfs-tools FIRST so fresh installs do not silently switch
-# builder before the dracut migration is validated on this hardware. The
-# alternation also means `apt remove initramfs-tools` could be satisfied by
-# installing dracut -- that path is blocked by the apt pin shipped in
-# assets/dracut/99-ncz-initramfs-tool (installed by post-install hook 94).
 Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, dracut | initramfs-tools | linux-initramfs-tool, systemd
 Description: NCZ cixmini Linux kernel ($kver)
  Prebuilt linux-cix-sky1 kernel image + modules for the NCZ cixmini (MS-R1).
