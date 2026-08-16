@@ -555,20 +555,18 @@ esac
 # patched copy is the one that runs and the variable SHOULD arrive here.
 # Log all of it, once, so the next frozen bar names its own cause.
 #
-# NOT `tee`. MEASURED on the r243 KVM install: this block was piped through
-# `tee -a`, and d-i's busybox does not provide a tee applet --
+# NO PIPE, and specifically NOT `tee`. MEASURED on the r243 KVM install: this
+# block was piped through `tee -a "$LOG" >&2`, and d-i busybox has no tee
+# applet --
 #     /cdrom/cixmini/late.sh: line 550: tee: not found
 # -- so the ONE diagnostic written to answer "why is the bar frozen" silently
-# produced nothing, and the trailing `|| true` hid the failure. The bar was
-# still frozen and we still could not say why. Pure shell has no such
-# dependency.
-log_and_echo() {
-    while IFS= read -r _log_line; do
-        printf '%s\n' "$_log_line" >> "$LOG" 2>/dev/null || true
-        printf '%s\n' "$_log_line" >&2
-    done
-}
-
+# produced nothing, and the trailing `|| true` hid the failure. The bar stayed
+# frozen and the log still could not say why.
+#
+# It also did not need a pipe in the first place. Line 25 already does
+# `exec >"$LOG" 2>&1`, so this block writing to plain stdout lands in exactly
+# the same file; `tee -a "$LOG" >&2` would have written every line TWICE, once
+# through the append and once through a stderr that is the same file.
 {
     echo "[late/progress] DEBCONF_OK=${DEBCONF_OK:-unset}"
     echo "[late/progress] NCZ_PROGRESS_UNITS=${NCZ_PROGRESS_UNITS:-unset}"
@@ -579,7 +577,7 @@ log_and_echo() {
     else
         echo "[late/progress] bar will NOT advance -- text-only degraded mode"
     fi
-} 2>&1 | log_and_echo || true        # $LOG is /target/var/log/... (line 23);
+} 2>&1                               # $LOG is /target/var/log/... (line 23);
                                      # the bare /var/log path is the d-i ramdisk
                                      # and is DISCARDED at reboot -- that is why the
                                      # first KVM run produced no diagnostics at all.
