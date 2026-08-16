@@ -83,22 +83,31 @@ need unsquashfs
 verify_squashfs(){
   local img="$1" name="$2"
   local vd vlog rc
+  # The log MUST live somewhere this (unprivileged) shell can write: the
+  # redirection below is performed by the shell, not by sudo, so pointing it
+  # at $WORK -- which is root-owned as soon as any stage has run as root --
+  # fails with "Permission denied" and yields rc=1 without unsquashfs having
+  # run at all. The first version of this gate did exactly that and destroyed
+  # a freshly built, untested layer on a false corruption verdict.
+  vlog="$(mktemp "/tmp/ncz-verify-$name.XXXXXX.log")" || return 0
   vd="$(sudo mktemp -d "$WORK/.verify-$name.XXXXXX")"
-  vlog="$WORK/.verify-$name.log"
   log "$name: verifying archive (full decompress -- catches silent mksquashfs corruption)"
   rc=0
   sudo unsquashfs -f -d "$vd" "$img" >"$vlog" 2>&1 || rc=$?
   sudo rm -rf "$vd"
   if [ "$rc" -ne 0 ]; then
-    log "ERROR: $name archive is CORRUPT (unsquashfs rc=$rc) -- refusing to publish"
+    log "ERROR: $name archive FAILED verification (unsquashfs rc=$rc) -- refusing to publish"
     grep -iE "fatal|error" "$vlog" | tail -5 >&2 || true
-    # A corrupt layer left on disk is worse than no layer: the ISO build would
-    # silently pick it up on the next run.
-    sudo rm -f "$img"
+    # Move it aside rather than delete: the ISO build must not silently pick up
+    # a bad layer, but a suspect archive is evidence and a verdict can itself
+    # be wrong -- deleting leaves nothing to re-examine.
+    sudo mv -f "$img" "$img.failed-verification" 2>/dev/null || true
+    log "  kept for inspection: $img.failed-verification"
+    log "  unsquashfs log: $vlog"
     exit 1
   fi
   log "$name: archive verified OK"
-  sudo rm -f "$vlog"
+  rm -f "$vlog"
 }
 # NATIVE arm64 (e.g. bigpi) needs no qemu-user; x86 (ARGOS) does.
 NATIVE=0; [ "$(uname -m)" = "aarch64" ] && NATIVE=1
