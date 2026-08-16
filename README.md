@@ -8,8 +8,8 @@
 distribution.**
 
 Produces a fully-unattended UEFI-bootable installer ISO that
-partitions the target disk, debootstraps a Debian 12 base and
-full-upgrades it to Ubuntu (resolute) on disk, then
+partitions the target disk and debootstraps a **Debian Testing
+(Forky)** base on disk, then
 layers a hardware-appropriate kernel + vendor userspace runtimes +
 desktop environment + Claude Code + the (opt-in) NCZ agent stack, and
 brands the system as NCZ
@@ -632,7 +632,7 @@ always reachable on the fleet LAN even with no DHCP server present.
 
 **What's on it.** A genuinely comprehensive recovery toolset (not just a
 minimal shell) — cherry-picked from the SystemRescue package list and mapped
-to Ubuntu 26.04 arm64:
+to Debian Forky arm64:
 - **Filesystems** — btrfs-progs (the actual root fs), e2fsprogs, xfsprogs,
   f2fs-tools, ntfs-3g, exfatprogs, dosfstools, squashfs-tools.
 - **Disk/partition** — full `util-linux` (fdisk/lsblk/blkid/wipefs), parted,
@@ -673,12 +673,16 @@ update` before that dependency-resolution step needed it, compounded by
 that step using `--no-download` (fixed separately in `52-vivaldi.sh`).
 
 **Where packages live.**
-- **Ubuntu archive** (main + universe + restricted + multiverse, plus
-  `-updates`/`-security`/`-backports`) → `ports.ubuntu.com/ubuntu-ports`
-  (arm64). Enabled by default in `/etc/apt/sources.list` on every image —
-  this was never CDROM-only, despite some in-repo comments describing an
-  "offline-only" doctrine; that doctrine applied to specific single-vendor
-  sources (see Vivaldi below), not the base Ubuntu archive.
+- **Debian archive** — `https://deb.debian.org/debian`, suite **forky**
+  (Debian Testing), components `main contrib non-free non-free-firmware`,
+  arm64. Written by `post-install/23-base-apt-sources.sh` to
+  `/etc/apt/sources.list.d/ncz-base.sources` (deb822 format, signed by
+  `debian-archive-keyring.gpg`) from the values in `release.conf`. That hook
+  also **removes `/etc/apt/sources.list` and deletes any Ubuntu/resolute
+  source files**, so Ubuntu Ports is never left as a live fallback on a
+  Debian-profiled image. Enabled by default on every image — this was never
+  CDROM-only; the "offline-only" doctrine applied to specific single-vendor
+  sources (see Vivaldi below), not the base archive.
 - **Kernels** — compiled `linux-image-cixmini-{lts,edge}` + `cixmini-boot`
   (`build/build-kernel-debs.sh`) → **Buildkite Packages** signed Debian registry
   `ncz-os/ncz`, wired by `post-install/24-apt-sources.sh`:

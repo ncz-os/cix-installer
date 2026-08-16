@@ -11,9 +11,19 @@
 
 set -euo pipefail
 
+# Never hardcode the base suite. release.conf is the single source of truth --
+# a hardcoded "resolute" here is how a Forky tree ends up building a Ubuntu
+# mirror and silently combining the two.
+_RC="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/release.conf"
+if [ -r "$_RC" ]; then . "$_RC"; else
+  echo "ERROR: $_RC not readable -- refusing to guess the base distro" >&2; exit 1
+fi
+: "${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
+
+
 CHROOT="${1:-/home/jasonperlow/cix-installer-build/cix-installer/build/resolute-bootstrap}"
 MIRROR_DIR="${2:-/home/jasonperlow/cix-installer-build/cix-installer/build/resolute-mirror}"
-SUITE="${3:-resolute}"
+SUITE="${3:-$NCZ_BASE_CODENAME}"
 ARCH="${4:-arm64}"
 UBUNTU_URL="${5:-http://ports.ubuntu.com/ubuntu-ports}"
 
@@ -52,7 +62,7 @@ write_component_release_files() {
         cat > "$dir/Release" <<EOF
 Archive: stable
 Origin: nclawzero
-Label: nclawzero-cixmini-resolute
+Label: nclawzero-cixmini-$NCZ_BASE_CODENAME
 Version: 1.0
 Acquire-By-Hash: yes
 Component: $component

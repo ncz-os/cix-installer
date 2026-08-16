@@ -8,11 +8,21 @@
 # Run on ARGOS (x86 + qemu-aarch64-static + binfmt). Output: a baked rootfs.tar.zst.
 set -uo pipefail
 ROOT="${ROOT:-$HOME/cix-installer-build/cix-installer}"
-BASE="${BASE:-$ROOT/assets/rootfs/rootfs-resolute-arm64.tar.zst}"
+
+# Never hardcode the base suite. release.conf is the single source of truth --
+# a hardcoded "resolute" here is how a Forky tree ends up building a Ubuntu
+# mirror and silently combining the two.
+_RC="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/release.conf"
+if [ -r "$_RC" ]; then . "$_RC"; else
+  echo "ERROR: $_RC not readable -- refusing to guess the base distro" >&2; exit 1
+fi
+: "${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
+
+BASE="${BASE:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64.tar.zst}"
 VARIANT="${VARIANT:-desktop}"
 NCZ_TARGET_ARCH="${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}"
 WORK="${WORK:-/tmp/ncz-bake}"
-OUT="${OUT:-$ROOT/assets/rootfs/rootfs-resolute-arm64-baked.tar.zst}"
+OUT="${OUT:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64-baked.tar.zst}"
 CHROOT="$WORK/chroot"
 LOGDIR="$WORK/logs"
 
@@ -75,9 +85,7 @@ sudo mount -t tmpfs tmpfs "$CHROOT/run"
 # ships no usable sources; 20-desktop set them up itself but runs after kernel.
 log "configure apt sources in chroot (ports.ubuntu.com) + update"
 sudo chroot "$CHROOT" /bin/bash -c 'cat > /etc/apt/sources.list <<APT
-deb http://ports.ubuntu.com/ubuntu-ports resolute main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports resolute-updates main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports resolute-security main universe restricted multiverse
+deb ${NCZ_BASE_MIRROR} ${NCZ_BASE_CODENAME} ${NCZ_BASE_COMPONENTS}
 APT
 DEBIAN_FRONTEND=noninteractive apt-get update' > "$LOGDIR/00-apt-setup.log" 2>&1 || log "  WARN apt-get update issues (see 00-apt-setup.log)"
 

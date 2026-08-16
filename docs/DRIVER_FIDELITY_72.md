@@ -401,29 +401,74 @@ done
 Everything below was measured on the O6N (`7.2.0-rc6-sky1-ncz`, Mali boot)
 during the 2026-08-04 validation session.
 
-## GPU driver decision: Mali only. There is no panthor boot entry.
+## GPU driver decision: Mali is the default; Panthor ships as a supported option
 
-Panthor was fully root-caused and is **not shippable** on current Sky1
-firmware: the CSF firmware dies on the **first user `DRM_IOCTL_PANTHOR_VM_BIND`**
-(`err=110 ETIMEDOUT`). The Sky1 IDM (interconnect defense) revokes the GPU's
-non-secure bus-master grant on the first user-address-space transaction and
-isolates the GPU wholesale; the MCU stays `ENABLED` but memory-blind, reset
-cannot recover (`AS_ACTIVE` stuck, L2 transition timeouts), and every trapped
-access makes TF-A print `IDM: GPU secure access` synchronously on the UART —
-enough of them stall every core (system pingable, unusable; power cycle only).
-An idle panthor (kernel VM only) survives indefinitely; `vulkaninfo` device
-enumeration survives; the first real GPU job kills it. Filed with a staged
-~130-line reproducer: **cixtech/cix-linux-main#59**.
+**SUPERSEDED 2026-08-16.** This section previously read *"Mali only. There is no
+panthor boot entry"* and stated Panthor was not shippable. That is no longer
+true, and the correction matters: NCZ-OS 26.7 ships a Panthor boot entry.
 
-mali_kbase survives the same firmware because every per-job power-up re-runs
-the full power-on/un-secure sequence. Kernel-side re-grant recovery was
-attempted twice (SCMI power re-set + reset cycle; ACPI power-supply
-`_PR0` cycle) — **both trigger the EL3 print-storm hang. Do not retry.**
-The fix must come from CIX's secure firmware.
+### What the blocker was
 
-The rEFInd generator no longer emits a panthor entry and
-`/etc/modprobe.d/ncz-panthor-deferred.conf` blacklists autoload. Do not
-re-add either until cixtech#59 is fixed and re-validated.
+Panthor died on the **first user `DRM_IOCTL_PANTHOR_VM_BIND`** (`err=110
+ETIMEDOUT`). The Sky1 IDM (interconnect defense) revoked the GPU's non-secure
+bus-master grant on the first user-address-space transaction and isolated the
+GPU: the MCU stayed `ENABLED` but memory-blind, reset could not recover
+(`AS_ACTIVE` stuck, L2 transition timeouts), and every trapped access made TF-A
+print `IDM: GPU secure access` synchronously on the UART — enough of them
+stalled every core. Filed as **cixtech/cix-linux-main#59**.
+
+### Why it no longer happens
+
+The GPU is now un-secured at probe through the ACPI power-supply `_PR0` method
+(patch `0175-drm-panthor-sky1-acpi-power-supply-unsecure`), with an SMC
+power-on fallback (patch `0176`). The probe log shows both steps:
+
+```
+panthor CIXH5000:00: GPU power domain 21 powered on via SMC SCMI
+panthor CIXH5000:00: Sky1: GPU un-secured via ACPI power-supply (_PR0)
+```
+
+Because the grant is established before any user transaction, the IDM never
+revokes it, so the failure the old text describes cannot arise. Note this is a
+*driver-side* fix in our tree — it does not depend on new CIX secure firmware,
+and the earlier warning against kernel-side **re-grant recovery after the fact**
+still stands: recovering from a revocation is what triggered the EL3 print
+storm. Preventing the revocation is a different thing and works.
+
+### Evidence (O6N, 7.2.0-rc7-sky1-ncz, 2026-08-16)
+
+Sustained real GPU work, not enumeration:
+
+- full `glmark2-es2-drm` suites at native **4096x2160**, plus terrain, refract,
+  shadow, buffer, texture and desktop scenes, and repeated windowed runs
+- `panthor ERR: 0` in every bench, `0` panthor errors in the boot journal
+- **`IDM: GPU secure access` — 0 occurrences across every boot on the box**
+- `0` occurrences of `VM_BIND`, `ETIMEDOUT`, `AS_ACTIVE` failures
+- the board stayed responsive throughout; no print storm, no power cycle needed
+
+### What ships
+
+| Boot entry | Driver | Status |
+|---|---|---|
+| `7.2 GUI (Mali, Default)` | `mali_kbase` + CIX proprietary userspace | default |
+| `7.2 GUI (Panthor, Experimental)` | `panthor` + Mesa panfrost/PanVK | supported option |
+
+Selection is the `sky1.gpu=vendor|mesa` kernel cmdline token, applied by
+`ncz-gpu-switcher`, which also swaps the matching userspace half so the two can
+never end up mismatched. `/etc/modprobe.d/ncz-panthor-deferred.conf` is retired;
+both drivers are held in `ncz-gpu-drivers.conf` and the winner is loaded
+explicitly.
+
+Mali remains the default because it is faster on shader- and geometry-bound
+work (terrain 4.0x, refract 4.3x, measured offscreen and compositor-free) and
+exposes GLES 3.2 against Panthor's 3.1. The two are equal on bandwidth-bound
+work. See `docs/DESIGN-RATIONALE.md` section 1 for the full comparison and the
+four measurement confounds that had to be eliminated to get honest numbers.
+
+Panthor also carries a Sky1 DVFS fix (patch `0177`): under ACPI it had been
+voting the performance state on the wrong power domain, leaving the GPU at a
+fixed clock. Fixed, it ramps to 1000 MHz under load — glmark2 1080p
+**2030 -> 3641 (+79%)**.
 
 ## Acceleration matrix (all verified on metal)
 

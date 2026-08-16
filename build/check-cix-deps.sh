@@ -7,10 +7,20 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Never hardcode the base suite. release.conf is the single source of truth --
+# a hardcoded "resolute" here is how a Forky tree ends up building a Ubuntu
+# mirror and silently combining the two.
+_RC="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/release.conf"
+if [ -r "$_RC" ]; then . "$_RC"; else
+  echo "ERROR: $_RC not readable -- refusing to guess the base distro" >&2; exit 1
+fi
+: "${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
+
 SERVER="$REPO/build/server-mirror"
 CIX="$REPO/assets/cix-debs"
 KDEBS="$REPO/build/kernel-debs"
-SUITE=resolute
+SUITE="$NCZ_BASE_CODENAME"
 ARCH=arm64
 OUTRPT="$REPO/build/cix-deps.report"
 

@@ -28,6 +28,16 @@
 # before real Chrome existed for arm64 — dropped 2026-07-27, superseded.)
 set -euo pipefail
 
+# Never hardcode the base suite. release.conf is the single source of truth --
+# a hardcoded "resolute" here is how a Forky tree ends up building a Ubuntu
+# mirror and silently combining the two.
+_RC="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/release.conf"
+if [ -r "$_RC" ]; then . "$_RC"; else
+  echo "ERROR: $_RC not readable -- refusing to guess the base distro" >&2; exit 1
+fi
+: "${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
+
+
 # LC_ALL=C: several steps below sort package-name lists with `sort -u` in
 # separate invocations and then diff them with `comm`, which requires BOTH
 # inputs sorted under the SAME collation order -- under the build host's
@@ -40,11 +50,11 @@ set -euo pipefail
 export LC_ALL=C
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="$REPO/build/resolute-mirror"
+SRC="$REPO/build/$NCZ_BASE_CODENAME-mirror"
 OUT="$REPO/build/desktop-mirror"
 SEEDFILE="$REPO/manifests/desktop.pkgs"
 GAPS="$REPO/build/desktop-mirror.gaps"
-SUITE=resolute
+SUITE="$NCZ_BASE_CODENAME"
 ARCH=arm64
 IDX="$SRC/dists/$SUITE/main/binary-$ARCH/Packages"
 

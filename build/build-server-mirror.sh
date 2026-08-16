@@ -20,11 +20,21 @@ set -euo pipefail
 export LC_ALL=C
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="$REPO/build/resolute-mirror"
+
+# Never hardcode the base suite. release.conf is the single source of truth --
+# a hardcoded "resolute" here is how a Forky tree ends up building a Ubuntu
+# mirror and silently combining the two.
+_RC="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/release.conf"
+if [ -r "$_RC" ]; then . "$_RC"; else
+  echo "ERROR: $_RC not readable -- refusing to guess the base distro" >&2; exit 1
+fi
+: "${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
+
+SRC="$REPO/build/$NCZ_BASE_CODENAME-mirror"
 OUT="$REPO/build/server-mirror"
 SEEDFILE="$REPO/build/server-seed.txt"
 GAPS="$REPO/build/server-mirror.gaps"
-SUITE=resolute
+SUITE="$NCZ_BASE_CODENAME"
 ARCH=arm64
 IDX="$SRC/dists/$SUITE/main/binary-$ARCH/Packages"
 
