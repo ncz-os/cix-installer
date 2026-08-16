@@ -21,6 +21,21 @@ sleep 2
 rm -f "$PIPE".in "$PIPE".out "$DISK" "$VARS" /tmp/e2e-guest.out
 qemu-img create -f qcow2 "$DISK" 30G >/dev/null
 dd if=/usr/share/AAVMF/AAVMF_VARS.fd of="$VARS" bs=1M 2>/dev/null || truncate -s 64M "$VARS"
+# The serial FIFOs live in a sticky /tmp, so if a previous run left them owned
+# by root (a qemu started under sudo does exactly that) the `rm -f` above fails
+# SILENTLY, mkfifo then fails because the path exists, and `exec 3>` cannot open
+# them. Measured 2026-08-16: every send() reported "3: Bad file descriptor",
+# nothing was typed at the grub> prompt, GRUB booted its DEFAULT entry, and the
+# harness carried on and reported an install -- testing a different boot path
+# than the one it claims to, which is the exact hazard the send_slow() comment
+# below already warns about. Fail here instead.
+for _f in "$PIPE".in "$PIPE".out; do
+    if [ -e "$_f" ]; then
+        echo "FATAL: $_f survived cleanup -- almost certainly root-owned in a sticky /tmp." >&2
+        echo "       remove it as root and re-run:  sudo rm -f $PIPE.in $PIPE.out" >&2
+        exit 1
+    fi
+done
 mkfifo "$PIPE".in "$PIPE".out
 
 setsid qemu-system-aarch64 \
@@ -38,7 +53,9 @@ setsid qemu-system-aarch64 \
 
 cat "$PIPE".out > /tmp/e2e-guest.out &
 CATPID=$!
-exec 3> "$PIPE".in
+# A failed open here must abort: without fd 3 nothing is ever typed to the
+# guest and the run silently degrades into "whatever GRUB does by default".
+exec 3> "$PIPE".in || { echo "FATAL: cannot open $PIPE.in for writing" >&2; exit 1; }
 send() { printf '%b' "$1" >&3; }
 # GRUB's serial input drops characters when a long line arrives in one write.
 # Measured 2026-08-13: the ~500-char `linux ...` line produced a grub> prompt
