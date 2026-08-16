@@ -95,13 +95,43 @@ platform CIXH5040:00: deferred probe pending: platform: supplier CIXH5041:00 not
 /sys/kernel/debug/devices_deferred:  CIXH5040:00  platform: supplier CIXH5041:00 not ready
 ```
 
-Present at the end of boot, so this is permanent, not transient. Neither ACPI id
-appears anywhere in our patches, drivers or docs — the devices are undriven.
+Present at the end of boot, so this is permanent, not transient.
 
-**Fix:** identify what CIXH5040/CIXH5041 are (CIX DSDT / vendor docs) and decide
-whether a driver is missing or the nodes should not be exposed.
-**Impact:** one device permanently uninitialised. Unknown which.
-**Confidence:** high that it is stuck; unknown what it is.
+**IDENTIFIED 2026-08-16.** Both are display devices, from their ACPI paths in
+`/sys/bus/platform/devices/*/firmware_node/path`:
+
+| ACPI id | path | what it is | driver bound |
+|---|---|---|---|
+| `CIXH5040:00` | `\_SB_.EDP0` | eDP0 — embedded DisplayPort, the internal panel | none |
+| `CIXH5041:00` | `\_SB_.DPBL` | DP backlight | none |
+
+Both report `status: 15` (present, enabled, functioning), so firmware declares
+them real. The eDP panel is device-linked to the backlight as its supplier, the
+backlight has no driver, so the panel defers forever.
+
+The consumer side is already present: patch 0008 (`drm-add-cix-linlon-dp-driver`)
+matches `{ .id = "CIXH5040" }` and implements `acpi_find_backlight()` /
+`fwnode_find_reference(dev->fwnode, "backlight", 0)`, and patch 0161 adds the
+CIXH5040 `_DSD` panel properties. What is missing is `CIXH5041`. It DOES exist
+in the vendor layer — `meta-cix/.../linux-cix-sky1/files/sky1-patches/0065-treewide-Add-ACPI-device-IDs-for-CIX-Sky1-SoC-periph.patch:332`
+and `linux-cix-sky1-next/.../0018-arm64-cix-Add-Sky1-miscellaneous-peripheral-drivers.patch:3735`
+both carry `{ "CIXH5041", 0 }` — but neither patch was carried into the 7.2 tree.
+
+**DECISION: document, do not fix.** These boards have NO internal panel
+installed (operator, 2026-08-16). Carrying the vendor driver would register a
+backlight for a display that does not physically exist. Measured on O6N with
+the deferral in place: `card0-DP-2` connected and enabled, `/dev/fb0` present,
+`linlondp`, `trilin-dptx-cix` and `cix-edp-panel` all bound — the external
+DisplayPort path is entirely unaffected. `/sys/class/backlight/` is empty,
+which costs nothing when there is no panel to dim.
+
+**Revisit IF** a Sky1 design with an eDP panel is ever targeted; then carry
+`CIXH5041` from the vendor patches above and the existing 0008 consumer code
+should complete the link.
+**Impact:** none on hardware without an internal panel. One permanent line in
+`devices_deferred`.
+**Confidence:** high — ACPI paths read from firmware_node, vendor patches
+located, display verified working alongside the deferral.
 
 ## 6. `sbsa-uart` references an ACPI pinctrl node that does not exist
 
