@@ -597,8 +597,26 @@ late_progress_state() {
 }
 ( hb_last_key=""
   hb_last_units=0
+  hb_iter=0
+  # r250 measured the writer and the reader separately and they disagree: the
+  # writer emitted 573 progress records with valid hooks and totals (1/57 ..
+  # 57/57 over 332s, see /var/log/cix-install/progress.tsv on the target),
+  # while this loop logged NOTHING -- not one iteration reached the body. So
+  # the bar does not stall because of the debconf gate (DEBCONF_OK=1,
+  # NCZ_PROGRESS_UNITS=100, "bar WILL advance" are all present); it stalls
+  # because this consumer never runs.
+  #
+  # Report, once, what the loop actually sees BEFORE any guard can skip it:
+  # the path, whether it is readable, and whether the hook field parses. One of
+  # those three is the answer, and without this every attempt costs a full
+  # ISO + KVM cycle to get back to this point.
+  echo "[late/progress] hb loop start: PROGRESS_STATE=${PROGRESS_STATE:-<unset>}"
   while :; do
       sleep 4
+      hb_iter=$((hb_iter + 1))
+      if [ "$hb_iter" -le 3 ] || [ "$hb_iter" = 10 ] || [ "$hb_iter" = 30 ]; then
+          echo "[late/progress] hb iter=$hb_iter readable=$([ -r "$PROGRESS_STATE" ] && echo yes || echo no) exists=$([ -e "$PROGRESS_STATE" ] && echo yes || echo no)"
+      fi
       [ -r "$PROGRESS_STATE" ] || continue
       IFS='|' read -r hb_started hb_updated hb_event hb_phase hb_idx hb_total \
           hb_hook hb_pct hb_rc hb_detail < "$PROGRESS_STATE" || continue
