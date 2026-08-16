@@ -1,0 +1,19 @@
+[Unit]
+Description=NCZ-OS CIX Sky1 GPU stack switcher
+Documentation=man:ncz-gpu-status(1)
+DefaultDependencies=no
+# After udev so the GPU device exists; after local-fs so /etc and /opt are
+# readable. Before the greeter so the driver and the matching userspace are in
+# place before anything tries to create a GL/Vulkan context -- a session that
+# starts first falls back to llvmpipe and never recovers without a restart.
+After=systemd-udevd.service local-fs.target
+Before=display-manager.service greetd.service graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ncz/gpu-switcher.sh
+RemainAfterExit=yes
+StandardOutput=journal
+
+[Install]
+WantedBy=sysinit.target

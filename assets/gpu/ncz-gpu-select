@@ -1,191 +1,56 @@
-#!/bin/bash
-# ncz-gpu-select — choose the CIX Sky1 (Mali-G720) kernel GPU driver on NCZ-OS.
+#!/bin/sh
+# ncz-gpu-select — compatibility shim for the retired GPU selectors.
 #
-# NCZ-OS ships BOTH GPU kernel drivers as DKMS packages (symmetric):
-#   mali-kbase (cix-gpu-kmd)  -> /dev/mali0, libmali OpenCL + HW GLES (default)
-#   panthor    (panthor-cix)  -> /dev/dri/renderD*, Mesa GL + PanVK Vulkan (experimental)
+# ncz-gpu-select and ncz-gpu-profile are superseded by ncz-gpu-switcher, which
+# takes the kernel cmdline (sky1.gpu=) as the single source of truth. The two
+# old tools wrote two DIFFERENT modprobe.d files and neither knew about the
+# cmdline, so a machine could end up with the cmdline blacklisting panthor while
+# modprobe.d blacklisted the kbase trio -- no driver at all, desktop on llvmpipe
+# (measured on O6N 2026-08-15).
 #
-# Only ONE may bind the GPU at a time. Selection is by /etc/modprobe.d/ncz-gpu.conf
-# (this file is the single source of truth — there is NO dual rEFInd GPU boot menu):
-#   mode mali    : blacklist panthor                          -> kbase trio binds
-#   mode panthor : blacklist mali_kbase + its two helpers      -> panthor binds
-#
-# `blacklist` stops udev/modules-load autoload; the paired `install ... /bin/true`
-# also neutralises an explicit modprobe (e.g. /etc/modules-load.d/cix-mali.conf),
-# so the losing driver cannot be pulled in as a dependency either.
-#
-# After a switch the initramfs is rebuilt (the GPU can bind early) and a reboot
-# is required. The userspace GL/Vulkan stack auto-adapts at session start via
-# ncz-gpu-env (it probes /dev/mali0 vs the panthor render node) — this tool only
-# selects the KERNEL driver.
-set -uo pipefail
+# This shim keeps the old command names working. It records the preference in
+# /etc/default/ncz-gpu and applies it now, but the cmdline still wins at the
+# next boot -- so it says so when the two disagree rather than reporting a
+# success the reboot would undo.
+set -u
 
-CONF=/etc/modprobe.d/ncz-gpu.conf
-WSI=/etc/vulkan/implicit_layer.d/VkLayer_window_system_integration.json
-ICD=/etc/vulkan/icd.d/mali.json
-LD_PRO=/etc/ld.so.conf.d/00-cixgpu-pro.conf
-LD_COMPAT=/etc/ld.so.conf.d/01-cixgpu-compat.conf
-KBASE_TRIO=(mali_kbase memory_group_manager protected_memory_allocator)
+DEFAULTS=/etc/default/ncz-gpu
+SWITCHER=/usr/lib/ncz/gpu-switcher.sh
 
-DO_INITRAMFS=1
-DO_REBOOT_PROMPT=1
-
-usage() {
-    cat >&2 <<EOF
-usage: ncz-gpu-select {mali|panthor|status} [--no-initramfs] [--no-reboot-prompt]
-
-  mali     select the Mali kbase DKMS driver (default, shipping GPU stack)
-  panthor  select the Panthor DKMS driver (experimental: Mesa GL + PanVK Vulkan)
-  status   show the currently selected mode and the bound driver
-
-  --no-initramfs      do not run update-initramfs (chroot/install use)
-  --no-reboot-prompt  do not prompt/notice about the required reboot
-EOF
-    exit 2
-}
+usage() { echo "usage: $(basename "$0") {mali|vendor|panthor|mesa|status}" >&2; exit 2; }
 
 [ $# -ge 1 ] || usage
-MODE="$1"; shift
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --no-initramfs)     DO_INITRAMFS=0 ;;
-        --no-reboot-prompt) DO_REBOOT_PROMPT=0 ;;
-        *) usage ;;
-    esac
-    shift
-done
-
-current_mode() {
-    if [ -r "$CONF" ]; then
-        sed -n 's/^# MODE:[[:space:]]*\([a-z]*\).*/\1/p' "$CONF" | head -1
-    fi
-}
-
-if [ "$MODE" = status ]; then
-    echo "configured mode : $(current_mode 2>/dev/null || echo '(unset — mali default)')"
-    echo -n "bound driver    : "
-    if [ -e /dev/mali0 ]; then
-        echo "mali_kbase (/dev/mali0 present)"
-    elif ls /sys/bus/platform/drivers/panthor/*/drm 2>/dev/null | grep -q .; then
-        echo "panthor (panthor DRM node present)"
-    else
-        echo "unknown / not yet bound"
-    fi
-    echo -n "panthor render  : "; ls /dev/dri/renderD* 2>/dev/null | tr '\n' ' '; echo
-    echo -n "CIX ld paths    : "
-    if [ -e "$LD_PRO" ] || [ -e "$LD_COMPAT" ]; then
-        echo "active (00-cixgpu-pro/01-cixgpu-compat enabled -> libmali/glvnd win ldconfig)"
-    elif [ -e "$LD_PRO.disabled" ] || [ -e "$LD_COMPAT.disabled" ]; then
-        echo "disabled (mesa/panthor wins ldconfig)"
-    else
-        echo "absent"
-    fi
-    echo "--- loaded kernel GPU modules ---"
-    lsmod 2>/dev/null | grep -E '^(panthor|mali_kbase|memory_group_manager|protected_memory_allocator) ' || echo "(none)"
-    exit 0
-fi
-
-[ "$(id -u)" = 0 ] || { echo "ncz-gpu-select: must run as root" >&2; exit 1; }
-mkdir -p "$(dirname "$CONF")"
-
-write_mali() {
-    cat > "$CONF" <<'EOF'
-# ncz-gpu.conf — NCZ-OS CIX Sky1 GPU kernel-driver selector.
-# Managed by /usr/local/bin/ncz-gpu-select — do not hand-edit; run the tool.
-# MODE: mali  (default — shipping GPU stack: libmali OpenCL + HW GLES)
-#
-# Driver selection is per-boot via the rEFInd kernel cmdline.
-# The Mali entry blacklists panthor; the Panthor entry blacklists the kbase trio.
-EOF
-}
-
-write_panthor() {
-    cat > "$CONF" <<'EOF'
-# ncz-gpu.conf — NCZ-OS CIX Sky1 GPU kernel-driver selector.
-# Managed by /usr/local/bin/ncz-gpu-select — do not hand-edit; run the tool.
-# MODE: panthor  (experimental — Mesa GL + PanVK Vulkan on the panthor DRM node)
-#
-# Driver selection is per-boot via the rEFInd kernel cmdline.
-# The Panthor entry blacklists the kbase trio; the Mali entry blacklists panthor.
-EOF
-}
-
-# The CIX WSI Vulkan implicit layer wraps libmali's (absent) Vulkan and breaks
-# PanVK. Disable it in panthor mode; restore it in mali mode.
-disable_wsi_layer() { [ -e "$WSI" ] && mv "$WSI" "$WSI.disabled" && echo "  disabled CIX WSI Vulkan layer (breaks PanVK)"; return 0; }
-restore_wsi_layer() { [ -e "$WSI.disabled" ] && mv "$WSI.disabled" "$WSI" && echo "  restored CIX WSI Vulkan layer"; return 0; }
-
-# The CIX proprietary Vulkan ICD is dead weight without mali_kbase/libmali
-# (libmali exposes no Vulkan at all -- panvk is the only Vulkan ICD panthor
-# mode has). Same disable/restore pairing as the WSI layer above.
-disable_mali_icd() { [ -e "$ICD" ] && mv "$ICD" "$ICD.disabled" && echo "  disabled CIX Vulkan ICD (no libmali Vulkan)"; return 0; }
-restore_mali_icd() { [ -e "$ICD.disabled" ] && mv "$ICD.disabled" "$ICD" && echo "  restored CIX Vulkan ICD"; return 0; }
-
-# The CIX GL/GBM/OpenCL ld.so.conf.d priority files (00-cixgpu-pro,
-# 01-cixgpu-compat) are what 26-gpu-default-mali.sh bakes in at build time to
-# make libmali the default loader resolution for libGLX/libEGL/libgbm/libOpenCL.
-# That resolution is SYSTEM-WIDE via the ldconfig cache, not per-process --
-# ncz-gpu-env's LD_LIBRARY_PATH stripping in panthor mode does NOT override it
-# for every consumer (confirmed on real O6N hardware: EGL/GBM init failed with
-# "DRI2: gbm device using incorrect/incompatible backend" /
-# "MESA-LOADER: failed to retrieve device information" with LD_LIBRARY_PATH
-# stripped but 00-cixgpu-pro.conf still active in the ldconfig cache; disabling
-# the conf file + re-running ldconfig fixed it cleanly). This is the same
-# disable_file/enable_file pairing the (now-retired) 26-gpu-default-open.sh
-# used to do the same demotion once, before 26.7 flipped the shipped default
-# to mali -- ncz-gpu-select must now do it at runtime, per switch, since a
-# panthor selection can happen well after that one-time build-time bake.
-disable_ld_paths() {
-    local changed=0
-    [ -e "$LD_PRO" ]     && { mv "$LD_PRO" "$LD_PRO.disabled"; changed=1; }
-    [ -e "$LD_COMPAT" ]  && { mv "$LD_COMPAT" "$LD_COMPAT.disabled"; changed=1; }
-    if [ "$changed" = 1 ]; then
-        ldconfig 2>/dev/null || true
-        echo "  disabled CIX GL/GBM/OpenCL ld paths (00-cixgpu-pro, 01-cixgpu-compat) + ldconfig"
-    fi
-    return 0
-}
-restore_ld_paths() {
-    local changed=0
-    [ -e "$LD_PRO.disabled" ]    && { mv "$LD_PRO.disabled" "$LD_PRO"; changed=1; }
-    [ -e "$LD_COMPAT.disabled" ] && { mv "$LD_COMPAT.disabled" "$LD_COMPAT"; changed=1; }
-    if [ "$changed" = 1 ]; then
-        ldconfig 2>/dev/null || true
-        echo "  restored CIX GL/GBM/OpenCL ld paths (00-cixgpu-pro, 01-cixgpu-compat) + ldconfig"
-    fi
-    return 0
-}
-
-case "$MODE" in
-    mali)
-        write_mali
-        restore_wsi_layer
-        restore_mali_icd
-        restore_ld_paths
-        echo "ncz-gpu-select: selected MALI (kbase). panthor held off."
-        ;;
-    panthor)
-        write_panthor
-        disable_wsi_layer
-        disable_mali_icd
-        disable_ld_paths
-        echo "ncz-gpu-select: selected PANTHOR. Mali kbase trio held off."
-        ;;
+case "$1" in
+    status) exec /usr/bin/ncz-gpu-status ;;
+    mali|vendor)  mode=mali ;;
+    panthor|mesa) mode=panthor ;;
     *) usage ;;
 esac
 
-echo "  wrote $CONF (mode=$MODE)"
+[ "$(id -u)" = 0 ] || { echo "$(basename "$0"): must run as root" >&2; exit 1; }
 
-if [ "$DO_INITRAMFS" = 1 ] && command -v update-initramfs >/dev/null 2>&1; then
-    echo "  rebuilding initramfs (update-initramfs -u -k all) ..."
-    update-initramfs -u -k all >/dev/null 2>&1 \
-        && echo "  initramfs rebuilt" \
-        || echo "  WARN: update-initramfs failed — verify boot config before rebooting"
-fi
+install -d -m 0755 "$(dirname "$DEFAULTS")"
+cat > "$DEFAULTS" <<DEF
+# NCZ-OS GPU stack preference. Consulted by ncz-gpu-switcher ONLY when the
+# kernel cmdline carries no sky1.gpu= / ncz.gpu= token -- the cmdline wins.
+GPU_MODE=$mode
+DEF
+echo "recorded GPU_MODE=$mode in $DEFAULTS"
 
-if [ "$DO_REBOOT_PROMPT" = 1 ]; then
+cmdline_mode=$(sed -n 's/.*\bsky1\.gpu=\([a-z]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+[ -n "$cmdline_mode" ] || cmdline_mode=$(sed -n 's/.*\bncz\.gpu=\([a-z]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+case "$cmdline_mode" in
+    vendor) cmdline_mode=mali ;;
+    mesa)   cmdline_mode=panthor ;;
+esac
+
+if [ -n "$cmdline_mode" ] && [ "$cmdline_mode" != "$mode" ]; then
     echo
-    echo "GPU driver mode set to '$MODE'. A REBOOT is required for it to take effect."
-    echo "Reboot now?  (run: sudo reboot)"
+    echo "NOTE: the kernel cmdline selects '$cmdline_mode' and OVERRIDES this file."
+    echo "      This switch applies to the running system now, but the next boot"
+    echo "      will return to '$cmdline_mode' unless you pick the other rEFInd"
+    echo "      entry (the GPU entries differ only by their sky1.gpu= token)."
 fi
-exit 0
+
+[ -x "$SWITCHER" ] || { echo "$(basename "$0"): $SWITCHER missing" >&2; exit 1; }
+exec "$SWITCHER" --mode "$mode"

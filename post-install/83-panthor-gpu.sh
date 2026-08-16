@@ -13,8 +13,11 @@
 # CIX Sky1 patches (ACPI bind, gpu_clk_core con_id, and the ACPI power-supply
 # _PR0 un-secure fix — patches/0175) baked into the source.
 #
-# Selection is via /etc/modprobe.d/ncz-gpu.conf (default: mali) toggled by
-# /usr/local/bin/ncz-gpu-select — there is NO dual rEFInd GPU boot menu.
+# Selection is via the sky1.gpu= kernel cmdline token, applied at boot by
+# ncz-gpu-switcher.service. rEFInd emits one entry per stack, differing only by
+# that token. The switcher blacklists BOTH drivers in modprobe.d and loads the
+# selected one explicitly, so the kernel driver and its matching GL/Vulkan
+# userspace can never end up half-switched.
 #
 # RUNS INSIDE CHROOT via run-all.sh, after 82-mali-gpu.sh.
 set +e
@@ -25,25 +28,76 @@ GPU_ASSET_DIR="$INSTALLER_META/assets/gpu"             # ncz-gpu-select + conf
 PKG_NAME=panthor-cix
 PKG_VER=7.2.0
 
-# --- 1. install the kernel-driver selector + default (mali) modprobe conf ----
-install -d -m 0755 /usr/local/bin
-if [ -f "$GPU_ASSET_DIR/ncz-gpu-select" ]; then
-    install -m 0755 "$GPU_ASSET_DIR/ncz-gpu-select" /usr/local/bin/ncz-gpu-select
-    echo "[83] installed /usr/local/bin/ncz-gpu-select"
+# --- 1. install the GPU stack switcher (kernel driver + userspace, one unit) --
+#
+# Design taken from amazingfate's Sky1-Linux sky1-gpu-switcher. It replaces the
+# ncz-gpu-select / ncz-gpu-profile pair, which wrote two DIFFERENT modprobe.d
+# files and knew nothing about the kernel cmdline. On O6N 2026-08-15 that
+# produced a machine whose cmdline blacklisted panthor while modprobe.d
+# blacklisted the kbase trio: no GPU driver loaded at all and the desktop ran on
+# llvmpipe. One source of truth (sky1.gpu=) removes that failure mode.
+install -d -m 0755 /usr/lib/ncz /usr/local/bin /etc/modprobe.d /etc/default
+
+if [ -f "$GPU_ASSET_DIR/ncz-gpu-switcher.sh" ]; then
+    install -m 0755 "$GPU_ASSET_DIR/ncz-gpu-switcher.sh" /usr/lib/ncz/gpu-switcher.sh
+    install -m 0644 "$GPU_ASSET_DIR/ncz-gpu-switcher.service" /etc/systemd/system/ncz-gpu-switcher.service
+    install -m 0755 "$GPU_ASSET_DIR/ncz-gpu-status"      /usr/bin/ncz-gpu-status
+    install -m 0755 "$GPU_ASSET_DIR/ncz-gpu-compat-run"  /usr/bin/ncz-gpu-compat-run
+    install -m 0755 "$GPU_ASSET_DIR/ncz-gpu-select"      /usr/local/bin/ncz-gpu-select
+    ln -sf ncz-gpu-select /usr/local/bin/ncz-gpu-profile
+    echo "[83] installed ncz-gpu-switcher (+ status, compat-run, select shim)"
+
+    # Enable by hand rather than via systemctl: this runs in a chroot with no
+    # running systemd, where `systemctl enable` can fail on the D-Bus probe.
+    install -d -m 0755 /etc/systemd/system/sysinit.target.wants
+    ln -sf ../ncz-gpu-switcher.service \
+        /etc/systemd/system/sysinit.target.wants/ncz-gpu-switcher.service
+    echo "[83] enabled ncz-gpu-switcher.service (sysinit.target.wants)"
 else
-    echo "[83] WARN: ncz-gpu-select asset missing ($GPU_ASSET_DIR) — selector not installed"
+    echo "[83] WARN: switcher assets missing ($GPU_ASSET_DIR) — GPU selection NOT installed"
 fi
 
-install -d -m 0755 /etc/modprobe.d
-# Lay down the DEFAULT (mali) selection. --no-initramfs/--no-reboot-prompt: we
-# are in a chroot; the initramfs is (re)built later in the pipeline.
-if [ -x /usr/local/bin/ncz-gpu-select ]; then
-    /usr/local/bin/ncz-gpu-select mali --no-initramfs --no-reboot-prompt \
-        && echo "[83] default GPU kernel-driver selection = mali (/etc/modprobe.d/ncz-gpu.conf)"
-elif [ -f "$GPU_ASSET_DIR/ncz-gpu.conf" ]; then
-    install -m 0644 "$GPU_ASSET_DIR/ncz-gpu.conf" /etc/modprobe.d/ncz-gpu.conf
-    echo "[83] installed default /etc/modprobe.d/ncz-gpu.conf (mali) [static]"
-fi
+# Lay the blacklist down at build time as well as at boot. The initramfs is
+# built later in the pipeline and copies modprobe.d into itself; without this
+# the first boot could autoload a driver before the switcher ever runs.
+cat > /etc/modprobe.d/ncz-gpu-drivers.conf <<'MPCONF'
+# Written by 83-panthor-gpu.sh; maintained at boot by ncz-gpu-switcher.
+# Both GPU drivers are blacklisted on purpose -- mali_kbase and panthor both
+# claim ACPI CIXH5000, so udev autoload would decide the GPU stack by race.
+# ncz-gpu-switcher.service loads the selected one explicitly (blacklist stops
+# modalias autoload but not an explicit modprobe).
+blacklist panthor
+blacklist mali_kbase
+blacklist memory_group_manager
+blacklist protected_memory_allocator
+MPCONF
+echo "[83] wrote /etc/modprobe.d/ncz-gpu-drivers.conf (both drivers held for the switcher)"
+
+# Fallback selection for a cmdline with no sky1.gpu= token. 26.7 ships mali.
+cat > /etc/default/ncz-gpu <<'DEFCONF'
+# NCZ-OS GPU stack preference. Consulted by ncz-gpu-switcher ONLY when the
+# kernel cmdline carries no sky1.gpu= / ncz.gpu= token -- the cmdline wins.
+GPU_MODE=mali
+DEFCONF
+
+# Retire the superseded selectors. modprobe.d is additive with no un-blacklist,
+# so a stale file left behind here silently overrides the switcher.
+rm -f /etc/modprobe.d/ncz-gpu.conf /etc/modprobe.d/ncz-gpu-profile.conf
+
+# NOTE: /usr/local/bin/ncz-gpu-env is deliberately NOT removed. 20-desktop.sh
+# creates it and every session launcher sources it; without it the launchers
+# fall into an else branch that pins LD_LIBRARY_PATH at /opt/cixgpu-* for ALL
+# modes, forcing the blob even on a panthor boot.
+
+# The mali_kbase autoloader from 82-mali-gpu.sh is superseded by the switcher
+# and actively harmful now. Its ExecCondition only skips when the cmdline has
+# module_blacklist=<kbase trio>, which the sky1.gpu= entries no longer carry --
+# so on a panthor boot it would modprobe mali_kbase over the top of panthor.
+# It also loads mali_kbase ALONE, without memory_group_manager and
+# protected_memory_allocator, which is what makes kbase probe return -517.
+rm -f /etc/systemd/system/ncz-mali-kbase-load.service \
+      /etc/systemd/system/multi-user.target.wants/ncz-mali-kbase-load.service
+echo "[83] removed ncz-mali-kbase-load.service (ncz-gpu-switcher owns driver loading)"
 
 # --- 2. register the panthor-cix DKMS source (opt-in; built on demand) -------
 if [ ! -d "$ASSET_DIR" ] || [ ! -f "$ASSET_DIR/dkms.conf" ]; then

@@ -321,11 +321,23 @@ fi
 MALI_OPTIONS=""
 PANTHOR_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
-    MALI_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,panthor/')
-    # Panthor blacklists the COMPLETE Mali kbase stack, not just mali_kbase:
-    # memory_group_manager and protected_memory_allocator are part of that stack
-    # and are referenced by the GPU's ACPI _DSD.
-    PANTHOR_OPTIONS=$(printf '%s' "$NEXT_OPTIONS" | sed 's/module_blacklist=typec_rts5453,rts5453/module_blacklist=typec_rts5453,rts5453,mali_kbase,memory_group_manager,protected_memory_allocator/')
+    # The GPU choice is a sky1.gpu= token, NOT a module_blacklist. Both drivers
+    # are blacklisted permanently in /etc/modprobe.d/ncz-gpu-drivers.conf and
+    # ncz-gpu-switcher.service loads the selected one explicitly at boot, so the
+    # kernel driver and the matching GL/Vulkan userspace always move together.
+    #
+    # Blacklisting a GPU driver here would reintroduce a SECOND source of truth
+    # that modprobe.d can contradict -- exactly the bug this replaced. Measured
+    # on O6N 2026-08-15: the cmdline blacklisted panthor while modprobe.d
+    # blacklisted the kbase trio, so NEITHER driver loaded, /dev/mali0 was
+    # absent, kbase probe returned -517 and the desktop ran on llvmpipe
+    # (glmark2 35 against 2038 on a working stack).
+    #
+    # The typec_rts5453 blacklist is unrelated to the GPU and stays as it is.
+    # sky1.gpu= is spelled to match amazingfate's Sky1-Linux switcher so a
+    # cmdline copied between the two distros keeps its meaning.
+    MALI_OPTIONS="$NEXT_OPTIONS sky1.gpu=vendor"
+    PANTHOR_OPTIONS="$NEXT_OPTIONS sky1.gpu=mesa"
     # Panthor keeps acpi_scmi_en=off, same as Mali and SAFE. Metal-verified
     # on O6N 2026-07-31: the patched panthor-cix DKMS module powers on and
     # un-secures the GPU itself with SCMI off ("GPU power domain 21 powered

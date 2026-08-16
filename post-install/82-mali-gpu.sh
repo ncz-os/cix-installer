@@ -136,36 +136,19 @@ chmod 0755 /usr/local/sbin/ncz-mali-kbase-allowed
 # oneshot: modinfo is evaluated against the running kernel and exit 1 from an
 # ExecCondition is a clean skip, while a real modprobe failure on edge remains
 # visible as a failed unit.
-if [ "$installed" -gt 0 ] || [ -e "$KDIR/updates/mali_kbase.ko" ] || [ -e "$KDIR/updates/mali_kbase.ko.xz" ] \
-   || ls "$KDIR/updates/dkms/mali_kbase.ko"* >/dev/null 2>&1; then
-    rm -f /etc/modules-load.d/cix-mali.conf
-    cat > /etc/systemd/system/ncz-mali-kbase-load.service <<'EOF'
-[Unit]
-Description=Load NCZ mali_kbase when the running kernel provides it
-After=systemd-modules-load.service
-Before=greetd.service display-manager.service graphical.target
-
-[Service]
-Type=oneshot
-ExecCondition=/usr/sbin/modinfo mali_kbase
-# Panthor and SAFE entries blacklist the kbase trio on the kernel cmdline.
-# Treat that deliberate selection as a clean skip, not a failed boot unit.
-ExecCondition=/usr/local/sbin/ncz-mali-kbase-allowed
-ExecStart=/usr/sbin/modprobe mali_kbase
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    systemctl enable ncz-mali-kbase-load.service >/dev/null 2>&1 || \
-        echo "[82] WARN: could not enable ncz-mali-kbase-load.service" >&2
-    echo "[82] mali_kbase conditional loader enabled (edge loads; stable skips cleanly)"
-else
-    rm -f /etc/modules-load.d/cix-mali.conf \
-          /etc/systemd/system/ncz-mali-kbase-load.service \
-          /etc/systemd/system/multi-user.target.wants/ncz-mali-kbase-load.service
-    echo "[82] mali_kbase not installed — NOT adding modules-load (avoids a load failure loop)"
-fi
+# The mali_kbase autoloader that used to live here is retired: ncz-gpu-switcher
+# (83-panthor-gpu.sh) now loads the GPU driver, because loading it is not a
+# standalone decision -- it has to happen together with the matching userspace
+# and only when sky1.gpu= selects mali.
+#
+# The old unit was also wrong on its own terms: it ran `modprobe mali_kbase`
+# alone, without memory_group_manager and protected_memory_allocator, and kbase
+# probe returns -517 (-EPROBE_DEFER) when those two are not already present.
+# Measured on O6N 2026-08-15.
+rm -f /etc/modules-load.d/cix-mali.conf \
+      /etc/systemd/system/ncz-mali-kbase-load.service \
+      /etc/systemd/system/multi-user.target.wants/ncz-mali-kbase-load.service
+echo "[82] mali_kbase loading delegated to ncz-gpu-switcher (see 83-panthor-gpu.sh)"
 
 
 # --- DKMS WINS: retire the overlay once DKMS has produced modules -----------
