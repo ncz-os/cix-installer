@@ -67,6 +67,39 @@ STAGE="${1:-base}"                            # base | desktop | server | all
 log(){ echo "[sqfs $(date -u +%H:%M:%S)] $*"; }
 need(){ command -v "$1" >/dev/null || { echo "MISSING: $1"; exit 1; }; }
 need mksquashfs
+need unsquashfs
+
+# A zero exit from mksquashfs is NOT evidence that the archive it wrote can be
+# read back. On 2026-08-16 it reported success and produced a desktop layer
+# that failed midway through extraction with
+#   zstd uncompress failed with error code 20
+#   FATAL ERROR: writer: failed to read/uncompress file .../gimp/3.0/brushes/...
+# Nothing in the build noticed. The ISO assembled, and the corruption only
+# surfaced on the install target: the stub extracted base, wiped the base dpkg
+# metadata per the overlay manifest, died partway through the delta, and d-i
+# reported the generic "debootstrap program exited with an error (return value
+# 1)". That cost two ISO builds and two KVM cycles to trace back. So decompress
+# the whole archive here, where the failure is one line long.
+verify_squashfs(){
+  local img="$1" name="$2"
+  local vd vlog rc
+  vd="$(sudo mktemp -d "$WORK/.verify-$name.XXXXXX")"
+  vlog="$WORK/.verify-$name.log"
+  log "$name: verifying archive (full decompress -- catches silent mksquashfs corruption)"
+  rc=0
+  sudo unsquashfs -f -d "$vd" "$img" >"$vlog" 2>&1 || rc=$?
+  sudo rm -rf "$vd"
+  if [ "$rc" -ne 0 ]; then
+    log "ERROR: $name archive is CORRUPT (unsquashfs rc=$rc) -- refusing to publish"
+    grep -iE "fatal|error" "$vlog" | tail -5 >&2 || true
+    # A corrupt layer left on disk is worse than no layer: the ISO build would
+    # silently pick it up on the next run.
+    sudo rm -f "$img"
+    exit 1
+  fi
+  log "$name: archive verified OK"
+  sudo rm -f "$vlog"
+}
 # NATIVE arm64 (e.g. bigpi) needs no qemu-user; x86 (ARGOS) does.
 NATIVE=0; [ "$(uname -m)" = "aarch64" ] && NATIVE=1
 [ "$NATIVE" = 1 ] || { [ -x "$QEMU" ] || { echo "no qemu-aarch64-static (x86 host needs it)"; exit 1; }; }
@@ -413,6 +446,7 @@ PYOVERLAY
   log "$role: mksquashfs upperdir delta -> $OUT/$role.squashfs"
   sudo mksquashfs "$U" "$OUT/$role.squashfs" -comp zstd -Xcompression-level 15 \
     -xattrs-exclude '^trusted\.overlay\.' -noappend -no-progress 2>&1 | tail -2
+  verify_squashfs "$OUT/$role.squashfs" "$role"
   log "$role DONE: delta $(du -h "$OUT/$role.squashfs"|cut -f1)"
   sudo rm -rf "$L" "$MG" "$WK"
 }
@@ -548,6 +582,7 @@ NMETH
   apt_unmount "$WORK/base"; umount_chroot "$WORK/base"
   log "BASE: mksquashfs -> $OUT/base.squashfs"
   sudo mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -noappend -no-progress 2>&1 | tail -3
+  verify_squashfs "$OUT/base.squashfs" "base"
   log "BASE DONE: $(du -h "$OUT/base.squashfs"|cut -f1)"
 }
 
