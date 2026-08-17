@@ -185,10 +185,30 @@ fi
 
 # llama-cpp-python — CPU baseline + Vulkan fallback. Use the prebuilt
 # CPU wheel index so we don't compile from source on the install host.
+#
+# NON-FATAL ON PURPOSE. This script runs under set -euo pipefail, and this
+# is the FIRST step here that reaches the public internet -- everything
+# before it installs from wheels baked into the image. Section 4 below,
+# which stages the NPU/CPU models, is a purely local file copy that cannot
+# fail for network reasons. Letting a transient index/DNS/proxy failure here
+# abort the hook therefore trades a fallback runtime for the models
+# themselves.
+#
+# MEASURED on O6N (v5 install, 2026-08-17): exactly that happened.
+# embedkit was installed (earlier in this script) but /opt/ncz/models did
+# not exist at all, so embedkit's npu-cix adapter had no model to load --
+# noe_load_graph failed on a path that was simply never populated. The NPU
+# driver and NOE_Engine were fine; the models had just never been staged.
+#
+# llama-cpp-python is the CPU/GGUF fallback path, so losing it degrades
+# gracefully; losing the models does not.
 echo "[47]   installing llama-cpp-python (CPU baseline)"
-pip_install --quiet \
+if ! pip_install --quiet \
     --extra-index-url=https://abetlen.github.io/llama-cpp-python/whl/cpu \
     llama-cpp-python 2>&1 | tail -2
+then
+    echo "[47]   WARN: llama-cpp-python install failed (network?) — continuing; CPU/GGUF fallback unavailable, NPU path unaffected"
+fi
 
 # ----------------------------------------------------------------------
 # 4. Stage models at /opt/ncz/models/.
