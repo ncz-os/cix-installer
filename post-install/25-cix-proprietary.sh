@@ -391,6 +391,14 @@ echo ""
 echo "--- apt-get install -fy (resolve unmet apt deps) ---"
 apt-get install -fy 2>&1 | tee /var/log/cix-install/25-apt-fix.log || true
 
+# The desktop.squashfs base image carries an old dpkg "hold" selection on
+# cix-noe-umd from an earlier build cycle (when 2.0.2 was the only confirmed-
+# working version). dpkg preserves selection state across the upgrade to the
+# matched 3.1.4 above, so a fresh install still showed "Status: hold ok
+# installed" even though the correct version installed fine. Clear it so apt
+# state matches reality (installed, not held).
+apt-mark unhold cix-noe-umd 2>/dev/null || true
+
 echo ""
 echo "--- dpkg --configure -a (retry half-configured packages with deps now resolved) ---"
 dpkg --configure -a 2>&1 | tee /var/log/cix-install/25-dpkg-configure.log || true
