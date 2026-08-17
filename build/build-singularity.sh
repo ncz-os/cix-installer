@@ -10,7 +10,7 @@
 # reproducible from upstream sources.
 #
 # METHOD (matches the .66 bring-up build, docs/upstream/singularity/):
-#   1. ubuntu:26.04 arm64 container (native aarch64 — build on cixmini/.66,
+#   1. debian:<codename> arm64 container, matching release.conf (native
 #      ULTRA, or any arm64 host with docker/podman).
 #   2. clone singularityos-lab/singularity-desktop --recursive.
 #   3. build the `vetro` Go host tool (UI transpiler) and put it on PATH.
@@ -39,12 +39,26 @@ if [ -r "$REPO_ROOT/release.conf" ]; then
     # shellcheck source=../release.conf
     . "$REPO_ROOT/release.conf"
 fi
-DEFAULT_IMAGE="ubuntu:26.04"
+# RULE (operator, 2026-08-17): NCZ-OS packages are NEVER built on Ubuntu.
+# The payload is linked against the base it will RUN on. Forky exposes
+# libsodium.so.26; an Ubuntu-built payload wants libsodium.so.23, so an
+# Ubuntu build produces a package that cannot load on the shipped system.
+# The base is taken from release.conf and pinned to the CODENAME, not the
+# moving "testing" alias -- when forky is released, "testing" silently
+# becomes the next suite and the payload would be built against the wrong
+# libraries with no error.
 METADATA_SEARCH_DEV="libtracker-sparql-3.0-dev"
-if [ "${NCZ_BASE_NAME:-}" = "Debian" ]; then
-    DEFAULT_IMAGE="debian:testing"
-fi
+DEFAULT_IMAGE="debian:${NCZ_BASE_CODENAME:-forky}"
 IMAGE="${SINGULARITY_IMAGE:-$DEFAULT_IMAGE}"
+
+case "$IMAGE" in
+    ubuntu*|*/ubuntu*)
+        echo "ERROR: refusing to build an NCZ-OS package on Ubuntu ($IMAGE)." >&2
+        echo "       The payload must be linked against the base it runs on;" >&2
+        echo "       Forky has libsodium.so.26, Ubuntu has libsodium.so.23." >&2
+        exit 1
+        ;;
+esac
 CONTAINER_NETWORK="${SINGULARITY_CONTAINER_NETWORK:-host}"
 SRC_REPO="${SINGULARITY_REPO:-https://github.com/singularityos-lab/singularity-desktop}"
 SRC_REF="${SINGULARITY_REF:-master}"
@@ -81,7 +95,7 @@ echo "   prefix = $PREFIX"
 echo "   out    = $OUT/singularity-opt.tgz"
 
 # ---- in-container build script ---------------------------------------------
-# Everything below runs inside the arm64 ubuntu:26.04 container. The DESTDIR
+# Everything below runs inside the arm64 debian:<codename> container. The DESTDIR
 # stage is tarred and copied out via the bind-mounted /out.
 BUILD_SCRIPT='
 set -euo pipefail
