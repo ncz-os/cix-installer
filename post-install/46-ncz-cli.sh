@@ -379,13 +379,47 @@ ncz_install_mnemos() {
     echo "[ncz]   data:     volume mnemos-data (sqlite at /data/mnemos.db, persistent)"
     echo "[ncz]   embedder: in-process CPU (nomic-embed-text-v1.5, 768-dim)"
     echo "[ncz]   service:  systemctl status mnemos.service"
-    echo "[ncz] NOTE: this runs MNEMOS with its in-process CPU embedder (768-dim)."
-    echo "[ncz]       To offload embeddings to the Cix NPU instead, install the"
-    echo "[ncz]       host-side embedder (OpenAI-compatible /v1/embeddings on :8000,"
-    echo "[ncz]       MiniLM-L6-v2 384-dim on /dev/aipu):"
-    echo "[ncz]         sudo apt install mnemos-cix-integration"
-    echo "[ncz]       then point MNEMOS at OPENAI_BASE_URL=http://localhost:8000/v1"
-    echo "[ncz]       (requires /dev/aipu passthrough + host networking on the quadlet)."
+    # NPU EMBEDDING OFFLOAD — installed HERE and only here.
+    #
+    # Operator direction 2026-08-17: the embedding model is an
+    # application-layer artifact that ships from the NCZ apt repo and is
+    # deployed ONLY with MNEMOS, its sole consumer. It is deliberately no
+    # longer baked into the ISO (see the models) exclusion in
+    # build/build-iso-di.sh), which keeps ~100-600MB off every desktop
+    # install that will never run MNEMOS and lets the model version roll
+    # forward on apt's cadence rather than the ISO's.
+    #
+    # DIMENSION IS THE WHOLE POINT. MNEMOS's in-process embedder is
+    # nomic-embed-text-v1.5 at 768 dimensions, so the NPU graph must be the
+    # 768-dim build of the SAME model or the vectors are not comparable and
+    # the store is silently poisoned. ncz-model-nomic-embed exists for
+    # exactly this ("768 dimensions to match MNEMOS's in-process embedder
+    # exactly", per its own package description).
+    #
+    # The previous text here told the operator to
+    # `apt install mnemos-cix-integration` for a MiniLM-L6-v2 384-dim
+    # embedder. That package does not exist in the repo at all (verified
+    # 2026-08-17 against both the buildkite and R2 indices), and 384 != 768
+    # would have been a dimension mismatch even if it had.
+    if [ -e /dev/aipu ]; then
+        echo "[ncz] NPU detected (/dev/aipu) — installing the 768-dim NPU embedder"
+        _npu_remv=$(apt-get install -y -s ncz-npu-embed ncz-model-nomic-embed 2>/dev/null | grep -c '^Remv' || echo 0)
+        if [ "${_npu_remv:-1}" = "0" ]; then
+            if apt-get install -y ncz-npu-embed ncz-model-nomic-embed; then
+                echo "[ncz]   installed ncz-npu-embed + ncz-model-nomic-embed (768-dim)"
+                echo "[ncz]   point MNEMOS at it:  OPENAI_BASE_URL=http://localhost:8000/v1"
+                echo "[ncz]   (needs /dev/aipu passthrough + host networking on the quadlet)"
+            else
+                echo "[ncz]   WARN: NPU embedder install failed — MNEMOS keeps its in-process CPU embedder"
+            fi
+        else
+            echo "[ncz]   WARN: skipping NPU embedder — apt wanted to REMOVE $_npu_remv package(s)"
+        fi
+    else
+        echo "[ncz] no /dev/aipu — staying on the in-process CPU embedder (768-dim)."
+        echo "[ncz]   On Sky1 hardware, NPU offload is:"
+        echo "[ncz]     sudo apt install ncz-npu-embed ncz-model-nomic-embed"
+    fi
 }
 
 ncz_install() {
