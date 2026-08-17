@@ -565,7 +565,8 @@ build_base(){
   done
   # enable NetworkManager + bluetooth via presets (NOT the broken 33-network hook)
   sudo chroot "$WORK/base" systemctl enable NetworkManager bluetooth 2>/dev/null || true
-  # r164 (updated 26.7): the resolute base tarball is a FULL GNOME desktop image
+  # r164 (updated 2026-08-17): historically the base was an Ubuntu resolute cloud
+  # image carrying a FULL GNOME desktop
   # (gnome-shell + gdm3 + ubuntu-session + ubuntu-desktop, ~1.5-2GB). GNOME is too
   # heavy AND it Wayland-black-screens on the Mali panthor GPU, so it is purged
   # from the BASE (not just whiteout in the desktop delta) so the ISO actually
@@ -583,8 +584,27 @@ build_base(){
   # so let a bare X11 server autoremove cleanly instead of shipping dead weight.
   sudo chroot "$WORK/base" sh -c 'apt-mark manual $(dpkg-query -W -f="\${Package}\n" 2>/dev/null | grep -E "^(mesa-|libgl1|libglx|libegl|libgbm1|libglapi)") 2>/dev/null' || true
   log "BASE: purge GNOME desktop stack (Singularity Desktop installs in the desktop delta, not base) — mesa protected, X11 server allowed to autoremove"
-  sudo chroot "$WORK/base" env DEBIAN_FRONTEND=noninteractive apt-get purge -y \
-      gdm3 gnome-shell ubuntu-session ubuntu-desktop ubuntu-desktop-minimal 2>&1 | tail -6 || log "  WARN gnome purge rc=$?"
+  # Purge only packages actually installed. The list still carries Ubuntu names
+  # (ubuntu-session, ubuntu-desktop, ubuntu-desktop-minimal) from when the base
+  # was an Ubuntu resolute cloud image; on Debian forky those do not exist and
+  # apt-get purge fails the whole command with
+  #     E: Unable to locate package ubuntu-desktop
+  #     WARN gnome purge rc=100
+  # which masked whether the packages that DO exist were purged. Filtering by
+  # what dpkg reports as installed makes this a no-op on a minbase debootstrap
+  # (our current base has no GNOME at all) and still correct if the base ever
+  # goes back to a full desktop image.
+  _purge=""
+  for _p in gdm3 gnome-shell gnome-session ubuntu-session ubuntu-desktop ubuntu-desktop-minimal; do
+      sudo chroot "$WORK/base" dpkg-query -W -f='${Status}' "$_p" 2>/dev/null | grep -q "^install ok installed" \
+          && _purge="$_purge $_p"
+  done
+  if [ -n "$_purge" ]; then
+      sudo chroot "$WORK/base" env DEBIAN_FRONTEND=noninteractive apt-get purge -y $_purge 2>&1 | tail -6 \
+          || log "  WARN gnome purge rc=$?"
+  else
+      log "  BASE: no GNOME/Ubuntu desktop packages installed — nothing to purge"
+  fi
   sudo chroot "$WORK/base" env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge 2>&1 | tail -4 || true
   # r160: DE-CLOUD the Ubuntu cloud rootfs (belt; the r160 install-time STUB
   # fixups are the braces — both are idempotent):
