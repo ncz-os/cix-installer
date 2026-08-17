@@ -24,6 +24,28 @@ Network=host
 # Stock image embeds in-process on CPU (nomic-embed-text-v1.5 Q8, 768-dim) —
 # no GPU/NPU packages needed. Persistence is sqlite on the mnemos-data volume
 # so memories survive container + host restarts.
+# NPU EMBEDDING (Sky1). MNEMOS's embedder auto-detects in this priority:
+#   1. cix-npu  -- /dev/aipu + libnoe + a .cix model present
+#   2. openvino
+#   3. llamacpp -- GGUF on CPU
+# _cix_npu_available() requires BOTH the device node AND a real file at
+# MNEMOS_EMBED_CIX_MODEL_PATH. In a container neither is visible by default,
+# so without the AddDevice + Volume below the auto-detect silently falls all
+# the way to CPU llamacpp -- which is what shipped until now, leaving
+# ncz-npu-embed.service holding the NPU while nothing ever called it.
+#
+# The model is NOT on the ISO (498 MB); it comes from apt as
+# ncz-model-nomic-embed, installed to /opt/ncz/models. If that package is
+# absent the path check fails and MNEMOS falls back to CPU cleanly.
+AddDevice=/dev/aipu
+Volume=/opt/ncz/models:/opt/ncz/models:ro
+Environment=MNEMOS_EMBED_CIX_MODEL_PATH=/opt/ncz/models/nomic-embed-text-v1.5_256.cix
+# HYBRID IS NOT OPTIONAL HERE. The .cix graph has a FIXED max sequence length
+# of 256 tokens. With the NPU alone, any input longer than roughly
+# MNEMOS_EMBED_NPU_THRESHOLD_CHARS (default 1000) is SILENTLY TRUNCATED before
+# embedding -- degraded vectors, no error, no log. Hybrid routes short inputs
+# to the NPU and long ones to the llamacpp fallback.
+Environment=MNEMOS_EMBED_HYBRID=true
 Environment=MNEMOS_PERSISTENCE_BACKEND=sqlite
 Environment=MNEMOS_DATABASE_DSN=sqlite:////data/mnemos.db
 Environment=MNEMOS_SQLITE_PATH=/data/mnemos.db
