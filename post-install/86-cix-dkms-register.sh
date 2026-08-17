@@ -69,7 +69,57 @@ register() {
     fi
 }
 
-register "NPU" npu cix-npu-kmd    1.0
+# NPU: the REAL 26Q2-SDK driver (aipu/6.2.0) ships self-contained via the
+# cix-npu-driver-dkms .deb, which stages /usr/src/aipu-6.2.0 (its own proper
+# dkms.conf, no hand-transcription needed) and carries a standard postinst
+# that calls /usr/lib/dkms/common.postinst. That SHOULD self-register, but
+# measured 2026-08-17 (O6N, real hardware): the .deb reports fully configured
+# (dpkg ii) yet `dkms status` never shows aipu/6.2.0 registered at all --
+# most likely dkms add/build silently no-ops for the target KVER when it
+# runs inside the chroot during image assembly, before a matching
+# /lib/modules/ tree exists to build against. Register+build+install it
+# explicitly here as a second, idempotent guarantee -- the whole point of
+# this script per the header above ("worth doing even when the build cannot
+# run right now").
+#
+# The OLD cix-npu-kmd/1.0 registration (hand-transcribed dkms.conf, HARD-CODES
+# COMPASS_DRV_BTENVAR_KMD_VERSION=5.11.0 on the make command line regardless
+# of actual source content) is REMOVED here, not just superseded: measured
+# 2026-08-17 on O6N, its aipu.ko was the one that actually got built+loaded
+# (self-identifying as "AIPU KMD (v5.11.0)" in dmesg) while aipu/6.2.0 sat
+# unregistered -- and 5.11.0 is the same driver generation
+# docs/DRIVER_FIDELITY_72.md documents as failing (either cleanly, as
+# measured on O6N -- noe_init_context: Failed to initialize adapter,
+# query capability [fail] -- or with a kernel panic, as measured 2026-08-04
+# against a different 5.11.0 source tree). Leaving cix-npu-kmd/1.0 registered
+# alongside aipu/6.2.0 risks exactly this outcome again on a future kernel
+# bump if build/install ordering ever favors the stale package. There is no
+# known-good reason to keep it: aipu-6.2.0 is a complete replacement, not an
+# addition.
+if [ -d /usr/src/aipu-6.2.0 ] && [ -f /usr/src/aipu-6.2.0/dkms.conf ]; then
+    echo "[86] NPU: registering aipu/6.2.0 explicitly (postinst self-registration cannot be relied on inside the build chroot)"
+    dkms add -m aipu -v 6.2.0 >/dev/null 2>&1         && echo "[86] NPU: dkms add aipu/6.2.0"         || echo "[86] NPU: dkms add aipu/6.2.0 skipped (already registered?)"
+    if [ -f "/lib/modules/$KVER_NEXT/build/Makefile" ]; then
+        if dkms build -m aipu -v 6.2.0 -k "$KVER_NEXT" >/dev/null 2>&1            && dkms install -m aipu -v 6.2.0 -k "$KVER_NEXT" --force >/dev/null 2>&1; then
+            echo "[86] NPU: dkms built+installed aipu/6.2.0 for $KVER_NEXT (-> updates/dkms/)"
+        else
+            echo "[86] NPU: aipu/6.2.0 dkms build deferred — will autoinstall on kernel upgrade"
+        fi
+    else
+        echo "[86] NPU: no kernel headers for $KVER_NEXT — aipu/6.2.0 will autoinstall on kernel upgrade"
+    fi
+else
+    echo "[86] NPU: /usr/src/aipu-6.2.0 not staged (cix-npu-driver-dkms not installed?) — skipping"
+fi
+
+# Remove the stale cix-npu-kmd/1.0 registration if a prior install (or this
+# same one, via an older 86-cix-dkms-register.sh) left it behind.
+if command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep -q '^cix-npu-kmd/1.0'; then
+    echo "[86] NPU: removing stale cix-npu-kmd/1.0 (superseded by aipu/6.2.0)"
+    dkms remove -m cix-npu-kmd -v 1.0 --all >/dev/null 2>&1         && echo "[86] NPU: cix-npu-kmd/1.0 removed"         || echo "[86] NPU: cix-npu-kmd/1.0 removal skipped (not fully registered?)"
+fi
+rm -rf /usr/src/cix-npu-kmd-1.0
+
 register "VPU" vpu cix-vpu-driver 1.0.2
 
 if command -v dkms >/dev/null 2>&1; then
