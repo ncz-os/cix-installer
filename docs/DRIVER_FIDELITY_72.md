@@ -13,6 +13,30 @@ All results below were taken on **Radxa Orion O6N**, kernel
 > ZHOUYI V3 banner printed, and the hardware could not run a single inference.
 > Every claim here is backed by a workload.
 
+> **CORRECTION (2026-08-17, operator):** the "DO NOT ENABLE" verdict on the
+> out-of-tree NPU driver below is **STALE**. It was measured against the
+> vendor's `cix-npu-driver_2.0.1` on 2026-08-04. The board now ships the
+> **26Q2-SDK DKMS driver** (`cix-npu-driver-dkms 6.2.0-cixdeb13-260714`,
+> source `npu-kmd-mainline`) — a *different, newer* driver, not the one that
+> panicked. It is the intended path (matches GPU/VPU, which already migrated
+> off in-tree); the in-tree `armchina_npu` driver this doc calls "working" is
+> the OLDER of the two and is what's being migrated AWAY from, not the
+> fallback to revert to. `CONFIG_ARMCHINA_NPU=n` on the 2026-08-17 v5 build is
+> correct, current direction, not a regression.
+>
+> The 6.2.0 DKMS driver has its own, DIFFERENT bug (context-init fails at the
+> capability-query step, before any job runs — `noe_init_context: Failed to
+> initialize adapter` / `[UMD ERR] aipu.cpp:60: query capability [fail]`,
+> `/proc/interrupts` line 56 "aipu" stays at 0). It does NOT panic the kernel
+> (confirmed — ran the failing path repeatedly on real hardware, clean exit
+> 255 every time, no oops). Under investigation as of 2026-08-17; do not
+> conflate this bug with the 2.0.1 panic below, and do not use the panic
+> evidence as a reason to avoid fixing THIS driver forward.
+>
+> The panic details, build fixes, and boot-loop trap below remain accurate
+> *history* for the 2.0.1 driver and are worth keeping — just don't read them
+> as current guidance for the 6.2.0 driver.
+
 ## Contents
 
 - [Summary](#summary)
@@ -35,8 +59,8 @@ All results below were taken on **Radxa Orion O6N**, kernel
 |---|---|---|---|
 | GPU (Mali-G720-Immortalis) | **DKMS** | working | GLES 3.2 + Vulkan 1.3 bound to real HW, 1.0 GHz |
 | VPU (Linlon / amvx) | **DKMS** | working | HW decode + HW encode, round-tripped |
-| NPU (ArmChina Zhouyi V3) | **in-tree** | working | 62.6–62.8 inf/s sustained |
-| NPU out-of-tree (DKMS) | — | **DO NOT ENABLE** | panics the kernel at probe |
+| NPU (ArmChina Zhouyi V3), in-tree, `armchina_npu` | **in-tree** | working, but the OLD driver being migrated off | 62.6–62.8 inf/s sustained (2026-08-04) |
+| NPU (ArmChina Zhouyi V3), 26Q2 SDK DKMS, `aipu.ko` | **DKMS** | intended path; context-init bug under investigation (2026-08-17) | see correction note above — NOT the 2.0.1 driver that panicked |
 | panthor | DKMS | builds/installs | blacklisted on the Mali entry; not runtime-tested |
 | RTC | in-tree (`rtc-efi`) | working | `/dev/rtc0`, `hctosys=1`, survives reboot |
 
@@ -158,9 +182,19 @@ model /opt/ncz/models/bge-small-zh-v1.5_256.cix, 3 inputs / 2 outputs
 
 `CONFIG_ARMCHINA_NPU=m` must stay. See below.
 
-### Out-of-tree (DKMS) — **DO NOT ENABLE**
+### Out-of-tree (DKMS) — 2026-08-04 sources, superseded
 
-Two separate out-of-tree sources were tried; both fail, differently:
+**Neither driver measured below is the one currently shipped.** As of
+2026-08-17 the board ships the 26Q2-SDK `cix-npu-driver-dkms 6.2.0` (source
+`npu-kmd-mainline`), a third, different out-of-tree driver not covered by
+this section — see the correction note at the top of this document. This
+section stays as historical evidence that out-of-tree NPU drivers CAN fail
+badly (including a real kernel panic) and the boot-loop trap that follows
+from one doing so is real and must be understood before staging ANY
+out-of-tree NPU driver — but do not read "DO NOT ENABLE" as current guidance
+for the driver actually shipping today.
+
+Two separate out-of-tree sources were tried in 2026-08-04's pass; both fail, differently:
 
 * **minisforum `cix_opensource__npu_driver`** — probes, then
   `driver mem management is disabled`: no memory regions, no ASIDs, and job
