@@ -10,7 +10,7 @@
 #   2. probes ALL plausible locations for the bundled /cixmini dir
 #   3. copies it into /target/usr/local/lib/cix-installer
 #   4. invokes /usr/local/lib/cix-installer/post-install/run-all.sh
-#      via in-target chroot
+#      in a debconf-disconnected target chroot
 #   5. emits a clear, debuggable error if any step fails — including
 #      mountpoint state, dir contents, and exit codes
 #
@@ -595,7 +595,71 @@ late_progress_state() {
         "$_now" "$_now" "$_event" "$_phase" "$_idx" "$_total" "$_hook" "$_detail" \
         > "$_tmp" && mv -f "$_tmp" "$PROGRESS_STATE"
 }
-( hb_last_key=""
+set +e
+# Do not background `in-target` here. in-target intentionally configures the
+# target command to use d-i debconf passthrough on fd 0/fd 3; if it runs while
+# this parent heartbeat also calls db_*, both process trees share one
+# synchronous cdebconf protocol stream and the first heartbeat db_subst can
+# block forever. Use chroot-setup's mount/policy setup, but run the target
+# command with debconf fds/env disconnected so this foreground parent is the
+# only debconf client.
+RUNALL_RC_FILE=/tmp/ncz-runall.rc
+rm -f "$RUNALL_RC_FILE"
+(
+    _runall_rc=1
+    unset DEBIAN_HAS_FRONTEND DEBCONF_REDIR DEBCONF_FRONTEND
+    unset DEBCONF_READFD DEBCONF_WRITEFD DEBCONF_PIPE
+    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_PRIORITY=${DEBIAN_PRIORITY:-critical}
+    IT_LANG_OVERRIDE=${IT_LANG_OVERRIDE:-C.UTF-8}
+    export DEBIAN_FRONTEND DEBIAN_PRIORITY IT_LANG_OVERRIDE
+    exec </dev/null
+    exec 3>&-
+
+    if [ -r /lib/chroot-setup.sh ]; then
+        . /lib/chroot-setup.sh
+        # chroot_setup normally calls debconf-get for locale/priority/proxy.
+        # In this background process, any debconf access is forbidden because
+        # the parent owns the cdebconf protocol channel for progress updates.
+        _ncz_path=/tmp/ncz-runall-path.$$
+        mkdir -p "$_ncz_path"
+        cat > "$_ncz_path/debconf-get" <<'NCZ_DEBCONF_GET'
+#!/bin/sh
+case "$1" in
+    debconf/priority) printf '%s\n' "${DEBIAN_PRIORITY:-critical}" ;;
+    debian-installer/locale) printf '%s\n' "${IT_LANG_OVERRIDE:-C.UTF-8}" ;;
+    *) exit 1 ;;
+esac
+NCZ_DEBCONF_GET
+        chmod +x "$_ncz_path/debconf-get"
+        PATH="$_ncz_path:$PATH"
+        export PATH
+        if chroot_setup; then
+            chroot /target /usr/local/lib/cix-installer/post-install/run-all.sh
+            _runall_rc=$?
+            chroot_cleanup || true
+            rm -rf "$_ncz_path"
+        else
+            echo "[late/progress] ERROR: chroot_setup failed; run-all.sh not executed"
+            _runall_rc=1
+            rm -rf "$_ncz_path"
+        fi
+    else
+        echo "[late/progress] WARN: /lib/chroot-setup.sh missing; using plain chroot"
+        chroot /target /usr/local/lib/cix-installer/post-install/run-all.sh
+        _runall_rc=$?
+    fi
+
+    _tmp="${RUNALL_RC_FILE}.tmp.$$"
+    printf '%s\n' "$_runall_rc" > "$_tmp" && mv -f "$_tmp" "$RUNALL_RC_FILE"
+    exit "$_runall_rc"
+) &
+RUNALL_PID=$!
+# r252: the heartbeat runs in the FOREGROUND, and the background chroot is
+# disconnected from debconf. debconf confmodule is a synchronous
+# request/response protocol over shared fds; no child may share those fds while
+# this loop calls db_subst/db_progress.
+hb_last_key=""
   hb_last_units=0
   hb_iter=0
   # r250 measured the writer and the reader separately and they disagree: the
@@ -611,7 +675,7 @@ late_progress_state() {
   # those three is the answer, and without this every attempt costs a full
   # ISO + KVM cycle to get back to this point.
   echo "[late/progress] hb loop start: PROGRESS_STATE=${PROGRESS_STATE:-<unset>}"
-  while :; do
+  while [ ! -s "$RUNALL_RC_FILE" ] && kill -0 "$RUNALL_PID" 2>/dev/null; do
       sleep 4
       hb_iter=$((hb_iter + 1))
       if [ "$hb_iter" -le 3 ] || [ "$hb_iter" = 10 ] || [ "$hb_iter" = 30 ]; then
@@ -660,7 +724,7 @@ late_progress_state() {
       # post-install plan...") both reached the console exactly once, while the
       # heartbeat produced ZERO updates -- even though progress.state was being
       # written correctly and reached 57/57. So the state feed works and the
-      # display path from THIS subshell does not.
+      # display path needs direct return-code diagnostics.
       #
       # Log the actual return codes for the first few iterations. Bounded, so a
       # long install cannot spam the log, and enough to distinguish "debconf
@@ -711,11 +775,19 @@ late_progress_state() {
           fi
       fi
   done
-) &
-LATE_HB_PID=$!
-set +e
-in-target /usr/local/lib/cix-installer/post-install/run-all.sh
-RET=$?
+  # r252 final drain: run-all has exited; push the bar to 100% of its owned
+  # range before the finalize text replaces it, then reap run-all's real rc.
+  if [ "$DEBCONF_OK" = 1 ] && [ "${NCZ_PROGRESS_UNITS:-0}" -gt "$hb_last_units" ]; then
+      db_progress STEP "$((NCZ_PROGRESS_UNITS - hb_last_units))" 2>/dev/null || true
+      hb_last_units="$NCZ_PROGRESS_UNITS"
+  fi
+wait "$RUNALL_PID"
+WAIT_RET=$?
+if [ -r "$RUNALL_RC_FILE" ]; then
+    read -r RET < "$RUNALL_RC_FILE" || RET="$WAIT_RET"
+else
+    RET="$WAIT_RET"
+fi
 late_progress_state FINALIZE hardware npu-install-time "Applying install-time NPU and firmware finalization"
 
 # ----------------------------------------------------------------------
@@ -856,8 +928,9 @@ ncz_npu_install_time || echo "[npu] install-time NPU fixes returned nonzero (non
 # (RET=0) into a non-zero late_command that bounces d-i back to the menu. The
 # real run-all.sh rc stays in RET and is still propagated by `exit $RET` below
 # (preserves the intended bootloader-failure -> install-failed behavior).
-kill "$LATE_HB_PID" 2>/dev/null || true
-wait "$LATE_HB_PID" 2>/dev/null || true
+# r252: heartbeat is foreground now and run-all was already waited on above --
+# no background PID to kill/reap here.
+:
 # r163: finalization (eject / skel / remove-media dialog / reboot stop) must
 # gate on BOOTABILITY, not RET=0. On Sky1 METAL, efivars is unavailable so
 # 70-bootloader's efibootmgr NVRAM write returns non-zero → RET!=0 even though
@@ -942,7 +1015,7 @@ if [ "${CDROM_BIND_MOUNTED:-0}" = "1" ]; then
     umount /target/cdrom 2>&1 || true
     rmdir /target/cdrom 2>&1 || true
 fi
-echo "in-target run-all.sh exited: $RET"
+echo "target run-all.sh exited: $RET"
 
 # r130 fix (MrSBC/COS feedback 2026-06-23): strip ALL CD-ROM apt sources from
 # /target before reboot. The offline mirror sources are required DURING
