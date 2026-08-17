@@ -186,26 +186,35 @@ fi
 cd singularity-desktop
 
 # NCZ shell integration: close the launcher popup before opening the full-screen
-# workspace chooser. Keep this small downstream patch in the installer tree so
-# reproducible payload builds do not depend on an unpublished GitHub commit.
-if [ -z "${SINGULARITY_SOURCE_DIR:-}" ] && ! grep -q "Close the launcher popup first" subprojects/singularity-shell/src/core/main.vala; then
-git apply <<'PATCH_NCZ_SHELL'
-diff --git a/subprojects/singularity-shell/src/core/main.vala b/subprojects/singularity-shell/src/core/main.vala
---- a/subprojects/singularity-shell/src/core/main.vala
-+++ b/subprojects/singularity-shell/src/core/main.vala
-@@ -798,4 +798,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
-         if (overview != null && overview.showing) {
-             overview.toggle();
-         }
-+        // The workspace chooser is a full-screen TOP layer.  Close the
-+        // launcher popup first; leaving AppMenu visible lets the chooser
-+        // hover over (and visually occlude) the main menu when Workspaces is
-+        // invoked from the panel/dock.
-+        if (app_menu != null && app_menu.visible) {
-+            app_menu.toggle();
-+        }
-         if (workspace_overview == null) {
-PATCH_NCZ_SHELL
+# workspace chooser. Applied by ANCHOR, not by line number. Upstream refactors
+# this file often -- PR #15 moved every close path into layer_window.vala and
+# shifted main.vala past 1900 lines -- and a line-addressed `git apply` fails
+# the whole build when that happens (it did, on 2026-08-17).
+#
+# STILL REQUIRED as of upstream main f0792ab (2026-08-15). Upstream now has
+# hide_overview(), which DOES close app_menu -- but toggle_workspace_overview(),
+# the path the panel/dock actually uses, never calls it. Verified by reading
+# both call sites, not by grepping for the symbol.
+if [ -z "${SINGULARITY_SOURCE_DIR:-}" ]; then
+python3 - <<'PY_NCZ_SHELL'
+import sys
+f = "subprojects/singularity-shell/src/core/main.vala"
+s = open(f, encoding="utf-8").read()
+if "Close the launcher popup first" in s:
+    print("    shell: launcher-popup fix already present"); raise SystemExit(0)
+anchor = "        if (!ensure_workspace_overview()) return;\n        workspace_overview.toggle();"
+if anchor not in s:
+    raise SystemExit("ERROR: main.vala anchor gone -- upstream moved; rebase the NCZ launcher-popup fix")
+add = ("        // Close the launcher popup first: the workspace chooser is a\n"
+       "        // full-screen TOP layer, and leaving AppMenu visible lets the\n"
+       "        // chooser hover over (and visually occlude) the main menu when\n"
+       "        // Workspaces is invoked from the panel/dock.\n"
+       "        if (app_menu != null && app_menu.visible) {\n"
+       "            app_menu.toggle();\n"
+       "        }\n")
+open(f, "w", encoding="utf-8").write(s.replace(anchor, add + anchor, 1))
+print("    shell: launcher-popup fix applied")
+PY_NCZ_SHELL
 fi
 
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
