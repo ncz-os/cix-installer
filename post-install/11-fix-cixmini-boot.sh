@@ -52,6 +52,7 @@ REFRESH=/usr/local/sbin/ncz-refind-refresh
 
 KVER_LEGACY=""
 KVER_NEXT=""
+NCZ_KVERS=""   # collected candidates; must exist for set -u
 for f in /boot/vmlinuz-*; do
     [ -e "$f" ] || continue
     kver="${f#/boot/vmlinuz-}"
@@ -71,20 +72,54 @@ for f in /boot/vmlinuz-*; do
                 echo "cixmini-update-bootloader: $kver has no initrd yet (mid-transaction?) -- skipping this kernel for now"
                 continue
             fi
-            # Classify by name suffix. Order matters: an -rcN release
-            # candidate (e.g. 7.2.0-rc5-sky1-ncz) must be caught as edge
-            # BEFORE the *-sky1-ncz stable rule, so -rc always wins the
-            # edge slot. A released -sky1-ncz (no rc) is the stable target.
+            # Only the 7.0.x LTS line is pinned by name. Everything else is
+            # collected and ranked BY VERSION after the loop.
+            #
+            # The old rule classified by suffix -- "-rcN = edge, released
+            # -sky1-ncz = stable/legacy". That inverted itself the day 7.2
+            # shipped: 7.2.0-sky1-ncz (the RELEASE) matched the *-sky1-ncz
+            # legacy rule while the older 7.2.0-rc7-sky1-ncz still held the
+            # edge slot. Measured on O6N 2026-08-17, the menu came out as
+            #   "7.0.12 CONSOLE - legacy fallback, no GPU, no GUI" -> vmlinuz-7.2.0-sky1-ncz
+            #   "7.2 GUI (Mali, Default)"                          -> vmlinuz-7.2.0-rc7-sky1-ncz
+            # i.e. the newest kernel hidden behind a label promising the
+            # oldest, with console-only no-GPU options attached, and the
+            # default still booting the release candidate. A suffix cannot
+            # express "newer"; a version comparison can.
             case "$kver" in
-                *rc[0-9]*)             KVER_NEXT="$kver" ;;  # any -rcN kernel = edge
-                *-cix-sky1-next|*-lts) KVER_LEGACY="$kver" ;;   # legacy stable name
-                *-sky1-ncz)            KVER_LEGACY="$kver" ;;   # released stable target
-                *-ncz)                 KVER_NEXT="$kver" ;;  # bare -ncz fallback = edge
-                *-next)                KVER_NEXT="$kver" ;;  # legacy edge name
+                *-cix-sky1-next|*-lts) KVER_LEGACY="$kver" ;;   # the 7.0.x LTS line
+                *)                     NCZ_KVERS="$NCZ_KVERS $kver" ;;
             esac
             ;;
     esac
 done
+# 7.2 ONLY. One kernel line across the board -- no legacy slot, no edge slot.
+#
+# The old model had two slots (LEGACY = the 7.0.x LTS line, NEXT/edge = the
+# 7.2 pre-release) and classified by NAME SUFFIX. That inverted itself the day
+# 7.2 shipped: 7.2.0-sky1-ncz (the RELEASE) matched the *-sky1-ncz "legacy"
+# rule while the older 7.2.0-rc7-sky1-ncz kept the edge slot. Measured on O6N
+# 2026-08-17 the menu came out as
+#   "7.0.12 CONSOLE - legacy fallback, no GPU, no GUI" -> vmlinuz-7.2.0-sky1-ncz
+#   "7.2 GUI (Mali, Default)"                          -> vmlinuz-7.2.0-rc7-sky1-ncz
+# i.e. the newest kernel hidden behind a label promising the oldest, carrying
+# console-only no-GPU options, while the default still booted the release
+# candidate.
+#
+# So: take the highest-versioned kernel present and ship only that. Leaving
+# KVER_LEGACY empty is deliberate -- ncz-refind-refresh guards the legacy entry
+# on LEGACY_AVAILABLE, so no legacy menu entry is generated at all.
+#
+# sort -V ranks these correctly (verified before this was written):
+#   7.2.0-rc1 < 7.2.0-rc7 < 7.2.0 < 7.2.1        (release beats its own rc)
+#   7.2.0 < 7.2.1 < 7.3.0-rc1 < 7.10.0           (numeric, not lexical)
+ALL_KVERS="$NCZ_KVERS $KVER_LEGACY"
+KVER_LEGACY=""
+if [ -n "$(printf '%s' "$ALL_KVERS" | tr -d ' ')" ]; then
+    KVER_NEXT=$(printf '%s\n' $ALL_KVERS | sort -V | tail -1)
+    echo "cixmini-update-bootloader: shipping kernel = $KVER_NEXT (7.2-only, no legacy/edge split)"
+fi
+
 if [ -z "$KVER_LEGACY" ] && [ -z "$KVER_NEXT" ]; then
     echo "cixmini-update-bootloader: no LTS/NEXT kernel with a ready initrd found, skipping"
     exit 0
