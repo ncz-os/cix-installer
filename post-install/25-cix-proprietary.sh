@@ -98,7 +98,9 @@ for deb in ./*.deb; do
         # (no maintainer scripts) AFTER the purge sweep — see the
         # "NPU userspace files" block further down.
         cix-noe-umd_2.0.2_*.deb) NOE_UMD_DEB="$deb"; continue ;;
-        cix-npu-umd_*.deb|cix-noe-umd_*.deb|cix-npu-onnxruntime_*.deb) continue ;;
+        # matched NPU stack (cix-noe-umd 3.1.4 / cix-npu-umd 3.2.0, 26q2 SDK) installs
+        # via the normal path below; only the legacy onnxruntime deb is skipped.
+        cix-npu-onnxruntime_*.deb) continue ;;
         # Internal test/validation suites: never install on an end-user
         # desktop (cix-unit-test 755M, cix-ltp 269M, cix-gpu-test 55M,
         # cix-vpu-test). Pure dead weight on the installed system. (2026-06-25)
@@ -422,10 +424,13 @@ done
 # the wheels into the py3.11 NPU venv. Done AFTER the iU/iF purge sweep so
 # nothing removes the files we just laid down.
 # ----------------------------------------------------------------------
-if [ -n "${NOE_UMD_DEB:-}" ] && [ -e "$NOE_UMD_DEB" ]; then
-    echo "--- staging NPU userspace from $NOE_UMD_DEB (dpkg-deb -x, no postinst) ---"
-    dpkg-deb -x "$NOE_UMD_DEB" / 2>&1 | tail -3 || true
-    if [ -d /usr/share/cix/lib ]; then
+# NPU userspace now ships via the matched cix-noe-umd 3.1.4 deb (installed via
+# the normal dpkg path above), so no dpkg-deb -x extract is needed. But the
+# ld.so ordering below is still REQUIRED: /usr/share/cix/lib must win over the
+# distro's same-named libs — libnoe (NPU runtime) AND the version-matched libva
+# 2.22.1 (CIX VA-API / VPU decode). Run it whenever the dir exists.
+if [ -d /usr/share/cix/lib ]; then
+    if true; then
         # r26.7: was "cix-noe.conf" (no numeric prefix) -> sorted AFTER
         # aarch64-linux-gnu.conf alphabetically, so Ubuntu's own same-named
         # libraries silently won ld.so's resolution over CIX's copies here.
@@ -445,7 +450,7 @@ if [ -n "${NOE_UMD_DEB:-}" ] && [ -e "$NOE_UMD_DEB" ]; then
     ls -l /usr/share/cix/lib/libnoe.so* 2>/dev/null | sed 's/^/    /'
     ls -l /usr/share/cix/pypi/*.whl     2>/dev/null | sed 's/^/    /'
 else
-    echo "--- NPU userspace: no cix-noe-umd 2.0.2 deb found to stage ---"
+    echo "--- NPU userspace: /usr/share/cix/lib not present (matched cix-noe-umd not installed?) ---"
 fi
 
 # Bridge between vendor 6.6 .ko vermagic and our built kernel's KVER:

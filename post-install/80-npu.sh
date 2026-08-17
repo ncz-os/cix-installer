@@ -151,6 +151,28 @@ for i in "${!KERNEL_VERS[@]}"; do
     fi
 done
 
+# --- Step 1b: ensure the matched aipu DKMS module (cix-npu-driver-dkms, installed
+# by 25-cix-proprietary.sh) is built for each TARGET kernel. dpkg's dkms postinst
+# runs `dkms autoinstall` over /lib/modules/*/build dirs; be explicit per target
+# KVER so an in-target install (chroot uname != target KVER) still yields
+# /usr/lib/modules/$KVER/updates/dkms/aipu.ko. Idempotent; leaves the SSDT +
+# power/control=auto lifecycle to the driver (never force power on). ---
+if command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep -qE '^aipu[,/]'; then
+    AIPU_VER=$(dkms status 2>/dev/null | sed -n 's#^aipu[,/] *\([0-9][0-9.]*\).*#\1#p' | head -1)
+    for KVER in "${KERNEL_VERS[@]}"; do
+        [ -d "/usr/lib/modules/$KVER" ] || continue
+        if ls /usr/lib/modules/$KVER/updates/dkms/aipu.ko* >/dev/null 2>&1; then
+            echo "[80] aipu dkms already built for $KVER"
+        elif [ -d "/usr/lib/modules/$KVER/build" ]; then
+            echo "[80] building aipu dkms ${AIPU_VER:-6.2.0} for $KVER..."
+            dkms install -m aipu -v "${AIPU_VER:-6.2.0}" -k "$KVER" --force 2>&1 | tail -4 || echo "[80] WARN: aipu dkms build failed for $KVER"
+            depmod -a "$KVER" 2>/dev/null
+        else
+            echo "[80] WARN: no headers at /usr/lib/modules/$KVER/build - cannot build aipu dkms for $KVER"
+        fi
+    done
+fi
+
 # --- Step 2: ensure initrd exists for each NCZ kernel ---
 # 10-our-kernel.sh now generates initrds in the required phase. Keep this
 # fallback for older/rerun targets, but the boot-critical path no longer
