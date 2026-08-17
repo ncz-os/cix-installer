@@ -227,7 +227,11 @@ for m in bge-small-zh-v1.5_256.cix bge-small-zh-v1.5-q8_0.gguf; do
     elif [ -f "$dst" ]; then
         echo "[47]   already present: $dst"
     else
-        echo "[47]   ERROR: $src not in image - missing $m"
+        # Not an error since 2026-08-17: models are no longer baked into the
+        # ISO. They ship from the NCZ apt repo and are installed only with
+        # MNEMOS, which is their only consumer. embedkit itself is still
+        # installed here so the adapter is ready the moment a model lands.
+        echo "[47]   $m not in image - expected; apt-delivered on MNEMOS install"
         missing_models+=("$m")
     fi
 done

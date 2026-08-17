@@ -2448,6 +2448,24 @@ if [ -d "$ROOT/assets" ]; then
                 # the rootfs exclusion above.
                 echo "    assets/squashfs NOT bulk-copied (already staged at top level by the layered-squashfs block)"
                 ;;
+            models)
+                # NEVER bulk-copy assets/models/ into the ISO (operator,
+                # 2026-08-17). Embedding models are an APPLICATION-LAYER
+                # artifact, not driver fidelity: they are delivered from the
+                # NCZ apt repository and installed ONLY when MNEMOS is
+                # installed (`ncz install mnemos`), because MNEMOS is the only
+                # consumer and the model must match the dimension MNEMOS's
+                # vector store was built for. Baking them here put ~100MB (and
+                # up to ~600MB once nomic-embed-text is staged) onto every
+                # desktop install that will never run MNEMOS, and pinned the
+                # model version to the ISO instead of letting apt roll it
+                # forward independently.
+                #
+                # Same bloat/wrong-layer class as the rootfs and squashfs
+                # exclusions below. 47-embedkit.sh tolerates their absence:
+                # it stages whatever is present and skips cleanly otherwise.
+                echo "    assets/models NOT bulk-copied (apt-delivered on MNEMOS install)"
+                ;;
             rootfs)
                 # NEVER bulk-copy assets/rootfs/ into the ISO. The install
                 # rootfs is staged separately as /cixmini/rootfs.tar.zst (see
