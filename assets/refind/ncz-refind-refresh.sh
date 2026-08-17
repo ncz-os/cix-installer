@@ -592,7 +592,7 @@ fi
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$LEGACY_AVAILABLE" = "1" ] && [ "$KVER_LEGACY" != "$KVER_NEXT" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  $KVER_LEGACY CONSOLE — legacy fallback, no GPU, no GUI\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  $KVER_LEGACY CONSOLE - legacy fallback, no GPU, no GUI\" {"
         echo "    loader  /vmlinuz-$KVER_LEGACY"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LEGACY_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LEGACY"
@@ -602,7 +602,7 @@ fi
     fi
 
     if [ "$NEXT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 GUI (Mali, Default)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 GUI (Mali, Default)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -631,7 +631,7 @@ fi
         # against it. Making it default is a separate, deliberate change to
         # DEFAULT_TOKEN -- do not flip it as a side effect of this entry
         # existing.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 GUI (Panthor, Experimental)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 GUI (Panthor, Experimental)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -659,14 +659,14 @@ fi
         # controller is CONFIG_DRM_LINLONDP=m, so linlon-dp only loads once udev
         # runs off the mounted rootfs. Text appears after root mount, not before.
         # Never default.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 Recovery (direct boot, no initrd)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Recovery (direct boot, no initrd)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         echo "    options \"$MALI_OPTIONS\""
         echo "}"
         echo
 
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 Console (All Accelerators)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Console (All Accelerators)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -680,7 +680,7 @@ fi
         # no version -- an entry that silently cannot boot. The title said
         # "7.0.12 ... legacy" while the options already pointed at the rescue
         # partition, so the menu was actively misleading about what it would do.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.2 Rescue Partition (All Accelerators Disabled)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Rescue Partition (All Accelerators Disabled)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
