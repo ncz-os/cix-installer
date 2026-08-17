@@ -96,6 +96,20 @@ register() {
 # bump if build/install ordering ever favors the stale package. There is no
 # known-good reason to keep it: aipu-6.2.0 is a complete replacement, not an
 # addition.
+# ORDER MATTERS: remove cix-npu-kmd/1.0 FIRST, before registering
+# aipu/6.2.0. Both packages install to the same destination filename
+# (updates/dkms/aipu.ko.xz) -- measured 2026-08-17 doing it the other way
+# round on O6N: installing aipu/6.2.0 then removing cix-npu-kmd/1.0 deleted
+# the just-installed aipu/6.2.0 file, because dkms remove deletes whatever
+# currently occupies that path under the belief it is cix-npu-kmd/1.0s own
+# output. Whichever package is (re)installed LAST wins the file; it must be
+# aipu/6.2.0.
+if command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep -q '^cix-npu-kmd/1.0'; then
+    echo "[86] NPU: removing stale cix-npu-kmd/1.0 (superseded by aipu/6.2.0) BEFORE registering the replacement"
+    dkms remove -m cix-npu-kmd -v 1.0 --all >/dev/null 2>&1         && echo "[86] NPU: cix-npu-kmd/1.0 removed"         || echo "[86] NPU: cix-npu-kmd/1.0 removal skipped (not fully registered?)"
+fi
+rm -rf /usr/src/cix-npu-kmd-1.0
+
 if [ -d /usr/src/aipu-6.2.0 ] && [ -f /usr/src/aipu-6.2.0/dkms.conf ]; then
     echo "[86] NPU: registering aipu/6.2.0 explicitly (postinst self-registration cannot be relied on inside the build chroot)"
     dkms add -m aipu -v 6.2.0 >/dev/null 2>&1         && echo "[86] NPU: dkms add aipu/6.2.0"         || echo "[86] NPU: dkms add aipu/6.2.0 skipped (already registered?)"
@@ -111,14 +125,6 @@ if [ -d /usr/src/aipu-6.2.0 ] && [ -f /usr/src/aipu-6.2.0/dkms.conf ]; then
 else
     echo "[86] NPU: /usr/src/aipu-6.2.0 not staged (cix-npu-driver-dkms not installed?) — skipping"
 fi
-
-# Remove the stale cix-npu-kmd/1.0 registration if a prior install (or this
-# same one, via an older 86-cix-dkms-register.sh) left it behind.
-if command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep -q '^cix-npu-kmd/1.0'; then
-    echo "[86] NPU: removing stale cix-npu-kmd/1.0 (superseded by aipu/6.2.0)"
-    dkms remove -m cix-npu-kmd -v 1.0 --all >/dev/null 2>&1         && echo "[86] NPU: cix-npu-kmd/1.0 removed"         || echo "[86] NPU: cix-npu-kmd/1.0 removal skipped (not fully registered?)"
-fi
-rm -rf /usr/src/cix-npu-kmd-1.0
 
 register "VPU" vpu cix-vpu-driver 1.0.2
 
