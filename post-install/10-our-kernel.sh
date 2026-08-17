@@ -262,10 +262,44 @@ install_kernel_headers() {
     # board out in the initrd-overlay incident. Never relax this.
     if zstd -dc "$tarball" 2>/dev/null | tar -C /usr --keep-directory-symlink -xf - 2>/dev/null; then
         echo "    installed kernel headers for $kver from $(basename "$(dirname "$tarball")")/$(basename "$tarball")"
+        rebuild_host_tools "$kver"
         return 0
     fi
     echo "    WARN: failed to unpack $tarball" >&2
     return 1
+}
+
+# The kernel build tree ships SOURCES for its host tools, not binaries, because
+# a Yocto build links them against its uninative sysroot:
+#   interpreter: /ybuild/tmp/sysroots-uninative/aarch64-linux/lib/ld-linux-aarch64.so.1
+# That path exists only inside the build container. On a target the binary is
+# present, executable and the right architecture, yet every exec fails with
+#   /bin/sh: 1: .../scripts/basic/fixdep: not found
+# because the LOADER is missing -- and DKMS reports it as "Error 127" on the
+# first object file, which looks exactly like a source incompatibility and is
+# not one. Measured on O6N 2026-08-17 against 7.2 final: all six accelerator
+# modules failed this way, and all six built after the tools were rebuilt here.
+#
+# modules_prepare is the canonical target that produces scripts/basic/fixdep
+# and scripts/mod/modpost. It may still exit non-zero afterwards on a generated
+# file this trimmed tree does not carry; that is tolerated, because the two
+# tools DKMS needs are produced before that point. What matters is whether they
+# exist and run, which is what we check.
+rebuild_host_tools() {
+    local kver="$1" b="/lib/modules/$1/build"
+    [ -f "$b/Makefile" ] || return 0
+    command -v make >/dev/null 2>&1 || {
+        echo "    WARN: make absent — cannot rebuild kernel host tools; DKMS will fail" >&2; return 1; }
+    make -C "$b" modules_prepare >/dev/null 2>&1 || true
+    local ok=1
+    for t in scripts/basic/fixdep scripts/mod/modpost; do
+        if [ -x "$b/$t" ] && ! "$b/$t" 2>&1 | grep -q "not found"; then :; else ok=0; fi
+    done
+    if [ "$ok" = 1 ]; then
+        echo "    host tools rebuilt for $kver (fixdep + modpost run natively — DKMS can build)"
+    else
+        echo "    WARN: kernel host tools for $kver are not runnable; DKMS builds will fail with Error 127" >&2
+    fi
 }
 
 install_kernel_headers "$KVER_LEGACY"  legacy || true
