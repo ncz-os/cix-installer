@@ -591,8 +591,8 @@ fi
     echo "scan_all_linux_kernels false"
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
-    if [ "$LEGACY_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  7.0.12 CONSOLE — legacy fallback, no GPU, no GUI\" {"
+    if [ "$LEGACY_AVAILABLE" = "1" ] && [ "$KVER_LEGACY" != "$KVER_NEXT" ]; then
+        echo "menuentry \"$NCZ_RELEASE_SHORT  ·  $KVER_LEGACY CONSOLE — legacy fallback, no GPU, no GUI\" {"
         echo "    loader  /vmlinuz-$KVER_LEGACY"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$LEGACY_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_LEGACY"
@@ -696,6 +696,13 @@ if command -v efibootmgr >/dev/null 2>&1; then
     EFI_DISK=$(lsblk -no PKNAME "$EFI_DEV" 2>/dev/null || true)
     EFI_PART="${EFI_DEV##*[!0-9]}"
     if [ -n "$EFI_DISK" ] && [ -n "$EFI_PART" ]; then
+        # Prune stale/duplicate NVRAM rows before creating a fresh one so repeated
+        # installs / kernel-refreshes on a board with writable EFI NVRAM (e.g. O6)
+        # do not accumulate identical "nclawzero (rEFInd)" Boot#### entries. No-op
+        # on boards without EFI runtime services (efibootmgr lists nothing).
+        for _bn in $(efibootmgr 2>/dev/null | grep -F "nclawzero (rEFInd)" | sed -n "s/^Boot\([0-9A-Fa-f]\{4\}\).*/\1/p"); do
+            efibootmgr -b "$_bn" -B >/dev/null 2>&1 || true
+        done
         efibootmgr -c -d "/dev/$EFI_DISK" -p "$EFI_PART" \
             -L "nclawzero (rEFInd)" -l '\EFI\BOOT\BOOTAA64.EFI' >/dev/null 2>&1 || true
     fi
