@@ -488,3 +488,18 @@ dosfstools
 # libav* that the rest of the desktop links against (our soname is .63, forky
 # ships .62). The system ffmpeg stays installed for those library consumers.
 ncz-ffmpeg
+
+# --- hwclock, so the RTC can actually be written ---------------------------
+# Debian moved hwclock OUT of util-linux and into util-linux-extra, which no
+# manifest carried -- so the installed desktop had no way to write the RTC at
+# all. MEASURED on O6N 2026-08-17: RTC stuck at the firmware default
+# 2024-08-30 while the system clock was correct, dmesg seeding the system
+# clock from that stale RTC on every boot, and 'hwclock: command not found'.
+# Every fresh flash therefore booted ~2 years in the past until NTP won the
+# race, breaking TLS-validating tools (apt, curl, git) in the meantime.
+#
+# post-install/44-rtc-sync.sh does apt-install this as a fallback, but that
+# needs working network at install time -- exactly the thing a two-year-old
+# clock breaks. Seeding it here keeps the fix OFFLINE-first like the rest of
+# this closure.
+util-linux-extra
