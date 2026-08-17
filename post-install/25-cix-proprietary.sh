@@ -457,6 +457,40 @@ if [ -d /usr/share/cix/lib ]; then
     fi
     ls -l /usr/share/cix/lib/libnoe.so* 2>/dev/null | sed 's/^/    /'
     ls -l /usr/share/cix/pypi/*.whl     2>/dev/null | sed 's/^/    /'
+
+    # numpy for the SYSTEM interpreter, because that is where cix-noe-umd's
+    # own postinst puts the python bindings: it runs
+    # "pip3 install <wheel> --break-system-packages" against system python.
+    # NOE_Engine then imports numpy at MODULE SCOPE without declaring it as a
+    # dependency, so without this the import dies with
+    # "ModuleNotFoundError: No module named 'numpy'" even though libnoe
+    # itself imports fine.
+    #
+    # MEASURED on the O6N v5 install 2026-08-17: libnoe imported cleanly from
+    # /usr/local/lib/python3.14/dist-packages, NOE_Engine did not, solely for
+    # this reason -- installing python3-numpy was sufficient to make it import
+    # and then load and run a real model on the NPU.
+    #
+    # 88-noe-umd-venv.sh installs numpy into /opt/ncz/noe-venv, but that
+    # covers only the venv; when the venv is unavailable or its wheel install
+    # fails, the system interpreter is the working path and must not be left
+    # one missing dependency short of functional.
+    #
+    # Simulated first per standing rule: an install that would REMOVE packages
+    # is refused rather than silently amputating the system.
+    if ! python3 -c 'import numpy' >/dev/null 2>&1; then
+        _numpy_remv=$(apt-get install -y -s python3-numpy 2>/dev/null | grep -c '^Remv' || echo 0)
+        if [ "${_numpy_remv:-1}" = "0" ]; then
+            echo "    NPU userspace: installing python3-numpy (NOE_Engine imports it at module scope)"
+            if apt-get install -y python3-numpy >/dev/null 2>&1; then
+                echo "    NPU userspace: python3-numpy installed"
+            else
+                echo "    NPU userspace: WARN python3-numpy install failed -- NOE_Engine will not import"
+            fi
+        else
+            echo "    NPU userspace: WARN skipping python3-numpy -- apt wanted to REMOVE $_numpy_remv package(s)"
+        fi
+    fi
 else
     echo "--- NPU userspace: /usr/share/cix/lib not present (matched cix-noe-umd not installed?) ---"
 fi
