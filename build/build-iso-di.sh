@@ -2646,11 +2646,25 @@ if [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ]; then
     # drops to TEXT-ONLY mode (no banner, no graphical menu) when there is no
     # icons/ subdir next to refind.conf (documented rEFInd behaviour). Shipping
     # it is what lets the NCZ-OS 26.6 graphical boot menu render on Sky1.
+    # build/refind-bin/ is a BUILD ARTIFACT directory -- it is populated by
+    # whatever last fetched/unpacked rEFInd, so it is routinely present
+    # without icons/ (measured 2026-08-17: it held refind_aa64.efi plus both
+    # PNGs but no icons/, and the v6 build warned accordingly). The 76-file
+    # icons/ set under assets/refind/ is the GIT-TRACKED source of truth for
+    # exactly this data, so fall back to it rather than shipping a text-only
+    # boot menu. Only warn once neither source has it.
+    _REFIND_ICONS=""
     if [ -d "$ROOT/build/refind-bin/icons" ]; then
-        cp -a "$ROOT/build/refind-bin/icons" "$EXTRA/assets/refind/"
+        _REFIND_ICONS="$ROOT/build/refind-bin/icons"
+    elif [ -d "$ROOT/assets/refind/icons" ]; then
+        _REFIND_ICONS="$ROOT/assets/refind/icons"
+        echo "    refind: build/refind-bin/icons absent — using tracked assets/refind/icons"
+    fi
+    if [ -n "$_REFIND_ICONS" ]; then
+        cp -a "$_REFIND_ICONS" "$EXTRA/assets/refind/"
         echo "    refind: icons/ staged ($(ls "$EXTRA/assets/refind/icons" | wc -l | tr -d ' ') files)"
     else
-        echo "    refind: WARN build/refind-bin/icons MISSING — rEFInd boots TEXT-ONLY (no banner)" >&2
+        echo "    refind: WARN no icons/ in build/refind-bin OR assets/refind — rEFInd boots TEXT-ONLY (no banner)" >&2
     fi
 else
     echo "    refind: build/refind-bin/refind_aa64.efi MISSING — 70-bootloader will FAIL (no installed bootloader)" >&2
