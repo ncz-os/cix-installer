@@ -1124,3 +1124,24 @@ CONFIG_RPMSG_NS=y
 CONFIG_ZRAM=y
 CONFIG_ZRAM_BACKEND_ZSTD=y
 CONFIG_ZRAM_DEF_COMP_ZSTD=y
+
+#
+# Android binder — required for Waydroid (containerised Android).
+#
+# The defconfig carried no Android symbols at all, so olddefconfig left
+# CONFIG_ANDROID_BINDER_IPC at its default of n and the shipped kernel had no
+# /dev/binder. Waydroid cannot start without it. Everything else Waydroid needs
+# was ALREADY enabled in this config and was verified before adding these:
+# MEMFD_CREATE=y, PSI=y, FUSE_FS=y, OVERLAY_FS=y, VETH=y, BRIDGE=y. Binder was
+# the only gap, which is why this is three lines rather than a port.
+#
+# Built in rather than modular: it is upstream kernel code, not a CIX
+# accelerator driver, so the "all CIX drivers are DKMS" rule does not apply. A
+# built-in binder is also always present at boot, which avoids Waydroid failing
+# on a module that was not loaded yet.
+#
+# ANDROID_BINDERFS gives /dev/binderfs, which is what current Waydroid expects;
+# it depends on ANDROID_BINDER_IPC and would be silently dropped without it.
+CONFIG_ANDROID_BINDER_IPC=y
+CONFIG_ANDROID_BINDERFS=y
+CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder"
