@@ -720,6 +720,21 @@ just the fix:
   — standalone C reproducers, so a driver author can confirm each defect
   without building a browser.
 
+### The Yocto Project and the Linux Foundation
+
+The Sky1 kernel is built with **[the Yocto Project](https://www.yoctoproject.org/)**
+— BitBake, OpenEmbedded and `poky`, with the CIX enablement carried as a
+`meta-cix` layer. The 176-patch series, its `SRC_URI` ordering, the defconfig
+and the reproducible deploy artifacts all live in that model. It is what makes
+a 176-patch vendor series rebasable across four upstream bases by one person
+rather than a team, and what makes the corresponding source we publish actually
+correspond.
+
+**[The Linux Foundation](https://www.linuxfoundation.org/)** hosts and sustains
+Yocto, along with much of the surrounding ecosystem this distribution depends
+on. That infrastructure is easy to take for granted precisely because it works;
+a project this size could not carry it alone.
+
 ### Also
 
 - **Radxa** — the Orion O6 and O6N, our primary development and validation

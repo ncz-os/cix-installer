@@ -192,6 +192,16 @@ labwc/wlroots，能原生抵达 Mali GLES，而不必绕道 Xwayland。**我们�
 维护者，其跨 ARM 平台、以及具体针对 Sky1 的补丁与打包工作，为本项目省下了大量重复摸索。
 如果你近几年在 ARM SBC 上跑过 Armbian，你就用过他的成果。
 
+**Yocto 项目与 Linux 基金会。** Sky1 内核使用
+**[Yocto 项目](https://www.yoctoproject.org/)** 构建——BitBake、OpenEmbedded 与
+`poky`，CIX 使能则以 `meta-cix` 层的形式承载。那 176 个补丁的系列、它们的 `SRC_URI`
+顺序、defconfig 以及可复现的部署产物，全都存在于这套模型之中。正是它让"一组 176 个
+补丁的厂商系列跨四个上游基线反复变基"成为一个人而非一个团队能做的事，也正是它让我们
+发布的对应源码**真的对应得上**。
+**[Linux 基金会](https://www.linuxfoundation.org/)** 托管并维系着 Yocto，以及本发行版
+所依赖的大部分周边生态。这类基础设施之所以容易被视为理所当然，恰恰是因为它一直在正常
+运转；这种规模的项目不可能独自扛起它。
+
 **此外**：**Radxa**（Orion O6 与 O6N，我们的主力开发与验证平台）、**Minisforum**
 （MS-R1，本项目起步的那块板）、**Debian**（把 ARM 当作一等架构，这正是 26.7 建立在
 Forky 上的原因），以及 **Mesa、wlroots 与 labwc**（Panthor 路径所依赖的开源图形与
