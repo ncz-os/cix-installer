@@ -56,18 +56,41 @@ VERSION="${NCZ_WALLPAPER_PACK_VERSION:-1.0}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# ART PAKS ARE COLLECTIONS.
+#
+# Images go in their OWN directory, /usr/share/backgrounds/ncz/<pack>/, and the
+# pak ships a .collection file describing them. Dumping every contributor's work
+# flat into /usr/share/backgrounds/ncz/ (what this script used to do) mixes it
+# with the shipped NCZ art and makes "show me just this artist" impossible --
+# the rotator cannot tell the images apart because nothing records who made what.
+#
+# A collection file is all the rotator needs; see post-install/45-wallpaper-rotator.sh.
+ART_DIR="$WORK/usr/share/backgrounds/ncz/$PACK"
 install -d "$WORK/DEBIAN" \
-           "$WORK/usr/share/backgrounds/ncz" \
+           "$ART_DIR" \
+           "$WORK/usr/share/ncz-wallpapers/collections" \
            "$WORK/usr/share/doc/$PKG"
 
 count=0
 for f in "$SRC"/*.jpg; do
     [ -f "$f" ] || continue
-    install -m 0644 "$f" "$WORK/usr/share/backgrounds/ncz/"
+    install -m 0644 "$f" "$ART_DIR/"
     count=$((count + 1))
 done
 [ "$count" -gt 0 ] || { echo "ERROR: no .jpg files in $SRC" >&2; exit 1; }
-echo "  packaging $count image(s) from $PACK"
+echo "  packaging $count image(s) from $PACK into /usr/share/backgrounds/ncz/$PACK"
+
+cat > "$WORK/usr/share/ncz-wallpapers/collections/$PACK.collection" <<COLLECTION
+[Collection]
+Id=$PACK
+Name=$AUTHOR
+Comment=$BLURB
+Artist=$AUTHOR
+Homepage=$HOMEPAGE
+Type=static
+Dir=/usr/share/backgrounds/ncz/$PACK
+COLLECTION
+echo "  collection: $PACK ($AUTHOR)"
 
 # Installed-Size is in KiB and dpkg expects it to be roughly honest.
 SIZE_KB=$(du -sk "$WORK/usr" | cut -f1)
@@ -92,7 +115,7 @@ cat > "$WORK/usr/share/doc/$PKG/copyright" <<COPYRIGHT
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: $PKG
 
-Files: usr/share/backgrounds/ncz/*
+Files: usr/share/backgrounds/ncz/$PACK/*
 Copyright: $YEAR $AUTHOR
 License: see below
 
