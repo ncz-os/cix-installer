@@ -39,6 +39,39 @@ set -euo pipefail
 # rootfs-resolute-arm64.tar.zst.
 ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 WORK="${WORK:-/tmp/ncz-sqfs}"
+
+# NEVER BUILD OR VERIFY A MULTI-GIGABYTE LAYER ON A tmpfs.
+#
+# /tmp on the build host is a 32G tmpfs, i.e. RAM. The desktop layer is ~1.7G
+# compressed and expands to well over 20G, and verification decompresses the
+# WHOLE archive into $WORK. MEASURED 2026-08-18: the run died at 21% with
+#
+#     Write on output file failed because No space left on device
+#     FATAL ERROR: writer: failed to write file .../ncz-wallpaper-05-...jpg
+#
+# and the verifier reported "still fails cold -- the archive really is
+# corrupt". IT WAS NOT CORRUPT. The archive was fine; the verifier ran out of
+# RAM-backed scratch. That misdiagnosis is expensive because a "corrupt
+# squashfs" reading sends you looking at mksquashfs and zstd (see the real
+# 2026-08-16 corruption incident) instead of at df.
+#
+# Relocate off tmpfs automatically, and only when the caller has not chosen a
+# WORK explicitly.
+if [ -z "${WORK_EXPLICIT:-}" ] && [ "$(stat -f -c %T "$(dirname "$WORK")" 2>/dev/null)" = "tmpfs" ]; then
+    _alt="$ROOT/build/.sqfs-work"
+    echo "[sqfs] WORK ($WORK) is on tmpfs — relocating to $_alt (a layer will not fit in RAM)"
+    WORK="$_alt"
+fi
+mkdir -p "$WORK" 2>/dev/null || sudo mkdir -p "$WORK" 2>/dev/null || true
+
+# Fail EARLY and in plain language if the scratch filesystem is too small,
+# rather than 20 minutes later disguised as archive corruption.
+_avail_gb=$(( $(df -P --block-size=1G "$WORK" 2>/dev/null | awk 'NR==2{print $4}') + 0 ))
+if [ "$_avail_gb" -lt 40 ]; then
+    echo "[sqfs] WARNING: only ${_avail_gb}G free on $WORK — a desktop layer needs ~40G to build AND verify."
+    echo "[sqfs]          Set WORK=/path/on/a/big/disk (and WORK_EXPLICIT=1) or free space; otherwise"
+    echo "[sqfs]          verification will fail with ENOSPC and look exactly like archive corruption."
+fi
 OUT="${OUT:-$ROOT/assets/squashfs}"
 # Keep every base-dependent default tied to release.conf.  Callers can still
 # override these for an explicitly isolated experiment, but a normal build can
@@ -120,7 +153,7 @@ verify_squashfs(){
       rm -f "$vlog"
       return 0
     fi
-    log "$name: still fails cold -- the archive really is corrupt"
+    log "$name: still fails cold"
   fi
   if [ "$rc" -ne 0 ]; then
     log "ERROR: $name archive FAILED verification (unsquashfs rc=$rc) -- refusing to publish"
