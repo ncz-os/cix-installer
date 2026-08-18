@@ -629,6 +629,68 @@ The latest is **[2026.08.18-v12](docs/releases/2026.08.18-v12.md)**.
 Per-ISO history for earlier builds is archived in
 [`docs/RELEASE-HISTORY.md`](docs/RELEASE-HISTORY.md).
 
+## Acknowledgements
+
+NCZ-OS stands on work done by other people, and in two cases we now contribute
+back to it.
+
+### Singularity — Mirko Brombin and the singularityos-lab project
+
+The desktop is **[Singularity](https://github.com/singularityos-lab)**, created
+by **Mirko Brombin**. Replacing XFCE/X11 with it is the single change that made
+an accelerated desktop possible on this silicon, because Singularity is
+labwc/wlroots and reaches Mali GLES natively rather than through Xwayland.
+
+**We are now a contributor to the project**, not just a consumer of it. Work
+that originated here and went upstream or is staged for it:
+
+- **Sensors panel plugin** — hardware sensor discovery and classification for
+  Sky1, which presents five bare ACPI thermal zones (`TZB0`, `TZB1`, `TZM0`,
+  `TZM1`, `TZGT`) with no labels rather than the labelled SCMI chip other
+  platforms expose. Includes temperature-proximity matching and limit
+  provenance so a reading is attributed to the right device.
+- **Network interface widget** — enumerate **every** Ethernet port, connected
+  or not, with detected chipset and link capability (2.5 GbE and so on) rather
+  than only active connections.
+- **Layer-shell and session fixes** — surface re-creation behaviour validated
+  on real Sky1 hardware, plus a GSettings schema fix for a missing key that
+  aborted the process on startup (a missing key is a `SIGABRT`, not an
+  exception).
+- **Platform detection** — identifying CIX Sky1 by its ACPI hardware IDs
+  (`CIXH*`) rather than by DMI vendor strings, which report the board vendor
+  and not the SoC.
+
+### CIX Technology
+
+The **CIX** SDK, the Sky1 kernel patch series, and the vendor userspace
+(`libmali`, the NPU/VPU stacks) are what make this hardware programmable at
+all. Their work upstreaming Sky1 support into mainline Linux — the CIX P1
+(SKY1) SoC series — matters beyond this project: it is the difference between
+a board that needs a vendor tree forever and one that eventually just boots a
+distribution kernel.
+
+Worth saying plainly: a Chinese silicon vendor pushing its enablement upstream,
+publishing an SDK, and engaging with the community is not the default in this
+industry, and their commitment to open source has visibly improved over the
+period we have been building on it.
+
+### Jianfeng Liu (`amazingfate`)
+
+**[Jianfeng Liu](https://github.com/amazingfate)**, Armbian maintainer, whose
+patches and packaging work across ARM platforms — and on Sky1 specifically —
+saved this project a great deal of independent rediscovery. If you have run
+Armbian on an ARM SBC in the last few years, you have used his work.
+
+### Also
+
+- **Radxa** — the Orion O6 and O6N, our primary development and validation
+  boards.
+- **Minisforum** — the MS-R1, the board this project started on.
+- **Debian** — for treating ARM as a first-class architecture, which is why
+  26.7 is built on Forky.
+- **Mesa, wlroots and labwc** — the open graphics and compositor stack the
+  Panthor path depends on.
+
 ## Build infrastructure & partners
 
 Continuous integration and package distribution for this project are generously
