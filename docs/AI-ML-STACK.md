@@ -338,7 +338,7 @@ To inspect or override on a running box:
 ```bash
 # see where it runs / its weight
 systemctl show zeroclaw -p AllowedCPUs -p CPUWeight -p Nice
-# hard-pin instead (Magnetar appliance, deterministic):
+# hard-pin instead (appliance use, deterministic):
 #   add to the [Service] section of /etc/containers/systemd/zeroclaw.container:
 #   AllowedCPUs=2-5
 # then: systemctl daemon-reload && systemctl restart zeroclaw

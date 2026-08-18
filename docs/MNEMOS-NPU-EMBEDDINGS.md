@@ -18,7 +18,7 @@ emb = embedkit.Engine.auto()          # picks npu-cix on Sky1, cpu/gpu elsewhere
 vec = emb.embed("some memory text")   # 512-dim float vector, from the NPU
 ```
 
-Verified on `.66` (7.0.12-cix-sky1-next): correct semantic retrieval, ~51 emb/s.
+Verified on `.66`: correct semantic retrieval, ~51 emb/s. Measured on the earlier `7.0.12-cix-sky1-next` kernel, which has since been removed from the image; not re-measured on `7.2.0-sky1-ncz`.
 
 ---
 
