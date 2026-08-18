@@ -805,7 +805,7 @@ posture and how to harden it.
 ## Releases
 
 Current and past release notes live in **[`docs/releases/`](docs/releases/)**.
-The latest is **[2026.08.18-v12](docs/releases/2026.08.18-v12.md)**.
+The latest is **[2026.08.18-v13](docs/releases/2026.08.18-v13.md)**.
 
 Per-ISO history for earlier builds is archived in
 [`docs/RELEASE-HISTORY.md`](docs/RELEASE-HISTORY.md).

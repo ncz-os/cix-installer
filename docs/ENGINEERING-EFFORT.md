@@ -91,8 +91,12 @@ clk_ignore_unused keep_bootcon panic=30 module_blacklist=typec_rts5453,rts5453
 - `acpi=force` — the SoC is ACPI‑described; without it, drivers don't bind.
 - `arm-smmu-v3.disable_bypass=0` — required or DMA‑capable peripherals fault.
 - `clk_ignore_unused` — the SCMI/clock tree gates clocks the BSP still needs.
-- `module_blacklist=typec_rts5453,rts5453` — the stock Type‑C PD driver wedges
-  boot on this board.
+- `module_blacklist=typec_rts5453,rts5453` — **inert, and retained only as
+  history.** It dates from an earlier kernel where the Type-C PD driver
+  reportedly wedged boot on an IRQ-151 conflict. That does not reproduce on
+  7.2, where the driver is built in (`CONFIG_TYPEC_RTS5453=y`) and
+  `module_blacklist` therefore has no effect on it. PD works: see the driver
+  matrix in the README.
 - We learned the hard way that **`efi=noruntime` breaks `bootctl set-oneshot`**
   (EFI vars go read‑only), which silently disabled our rollback logic — so it
   had to be removed from the edge entry.
