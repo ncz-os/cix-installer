@@ -5,10 +5,6 @@
 <h1 align="center">NCZ-OS</h1>
 <p align="center"><em>Arm64 Linux for CIX Sky1 — GPU, VPU and NPU that actually work</em></p>
 
-<p align="center">
-  <img src="assets/branding/wallpaper/ncz-wallpaper-07-maximilian-blackhole-2k.jpg" alt="NCZ-OS 26.7 Maximilian" width="900">
-</p>
-
 # cix-installer
 
 > **🌐 Language:** English · [简体中文](README.zh-CN.md)
@@ -136,15 +132,15 @@ kernel line.
 | **Reset** | `reset-sky1` | `=y` | ✅ | ✅ | ✅ | Reset controllers + ACPI lookup table (patch `0004`). |
 | **Pinctrl** | `pinctrl-sky1` | `=y` | ✅ | ✅ | ✅ | Patch `0007`. |
 | **Mailbox** | `cix-mbox` | `=y` | ✅ | ✅ | ✅ | ACPI support + channel lookup (patch `0005`). |
-| **SCMI** | `arm-scmi` (clock + perf + power + sensor domains) | `=y` | ✅ | ✅ | ✅ | ACPI boot support (patch `0006`); confirmed in `config.sky1-next` (`CONFIG_ARM_SCMI_PERF_DOMAIN=y`, `CONFIG_ARM_SCMI_POWER_DOMAIN=y`). |
+| **SCMI** | `arm-scmi` (clock + perf + power + sensor domains) | `=y` | ✅ | ✅ | ✅ | ACPI boot support (patch `0006`); `CONFIG_ARM_SCMI_PERF_DOMAIN=y`, `CONFIG_ARM_SCMI_POWER_DOMAIN=y`. |
 | **Thermal** | `cix-thermal` + IPA + cpufreq | `=y` | ✅ | ✅ | ✅ | Patch `0017`. |
 | **DSP** | `cix-dsp` + `cix-dsp-rproc` | `=m` | ✅ | ✅ | ✅ | Remoteproc + rpmsg (patch `0019`); confirmed loaded (`cix_dsp_rproc`) on real Sky1 hardware (MS-R1). |
 | **Audio (HDA)** | `snd-hda-cix-ipbloq` + Realtek ALC codecs | `=m` | ✅ | ✅ | ✅ | Patches `2015`–`2017`. Verified ALC269VC analog + digital + HDMI/DP on real hardware (MS-R1). |
 | **Audio (SoC)** | `snd-soc-sky1-sound-card` + Cadence I2S + `snd-soc-sof-cix` | `=m` | ✅ | ✅ | ✅ | Patch `2014`. SOF (`CONFIG_SND_SOC_SOF_CIX_TOPLEVEL=y`, `CONFIG_SND_SOC_SOF_CIX_SKY1=m`) is built but not observed loaded on real hardware — the machine driver (`snd-soc-sky1-sound-card`) handles audio directly; SOF appears to be a dormant/fallback path, not confirmed active. |
-| **GPU (Mali-G720)** | `panthor` + `drm-cix` + `drm-trilin-dp-cix` (DisplayPort) | `=m` | ✅ | ✅ | ✅ | Patches `0011`/`0012`. `panthor` confirmed loaded + rendering (Mali-G720-Immortalis, CSF FW) on MS-R1; `drm-trilin-dp-cix`/`drm-trilin-dpsub` confirmed loaded (`trilin_dpsub`, `linlon_dp`) on real hardware. |
-| **VPU (Linlon MVX)** | `amvx` | `=m` | ✅ | ✅ | ✅ | Video codec driver (patch `0015`). The in-tree driver has a vb2 `q->lock` bug on this kernel — fixed via a validated overlay (see `post-install/81-vpu.sh`); needs `amvx` neutralized in the vendor blacklist to auto-load (fixed `cd822ed`). |
-| **NPU (Zhouyi V3)** | `armchina-npu` | `=m` | ✅ | ✅ | ✅ | Patch `0016`. Needs `CONFIG_ARMCHINA_NPU_ARCH_V3=y` — the Sky1 NPU reports ISA version 5 (Zhouyi V3), not 6 (V3_1); both are now enabled (fixed `053b5ce`). ⚠️ The 32-bit SMMU/IOVA DMA constraint (`2009-armchina-npu-msr1-smmu-32bit-dma-constraint.patch`) is titled and written specifically for **MS-R1** (confirmed working there) — it has not been confirmed necessary or correct for O6/O6N's SMMU topology. Treat NPU on O6/O6N as *should work*, not independently verified. |
-| **Ethernet** | `r8169` (RTL8125/8126/8169) | `=y` | ✅ | ✅ | ✅ | `rtl_nic` firmware shipped in installer + installed system. Confirmed `CONFIG_R8169=y` (built-in, not a module) in `config.sky1-next`. |
+| **GPU (Mali-G720)** | `mali_kbase` (default) **and** `panthor`, both DKMS; `drm-cix` + `drm-trilin-dp-cix` (DisplayPort) | DKMS | ✅ | ✅ | ✅ | **Both drivers ship**, both blacklisted, one selected via `ncz-gpu-select`. Default `mali_kbase` measured on O6N: Mali-G720-Immortalis, 10 cores, **OpenGL ES 3.2 / EGL 1.5**, desktop accelerated. `panthor` is the mainline/Vulkan path. Display: `trilin_dpsub` + `linlon_dp` confirmed, DP up to 4K60. |
+| **VPU (Linlon MVX)** | `amvx` via `cix-vpu-driver` (DKMS) | DKMS | ✅ | ✅ | ✅ | Measured on O6N: **Linlon v5276, 4 cores**. Decode H.263/H.264/HEVC/MPEG-2/MPEG-4/VP8/VP9/AV1; hardware encode H.264/HEVC/VP8/VP9 confirmed via `ffmpeg` V4L2 mem2mem. Requires the 16 `*.fwb` codec blobs staged by `post-install/12-sky1-firmware.sh`. |
+| **NPU (Zhouyi V3)** | `aipu` via `cix-npu-driver-dkms` 6.2.0 | DKMS (`CONFIG_ARMCHINA_NPU=n`) | ✅ | ✅ | ✅ | Measured on **both** O6N and MS-R1: `nomic-embed-text-v1.5_256.cix` at **95.5 ms** per 256-token embed, deterministic across runs, `aipu` IRQ count advancing. The in-tree `armchina-npu` driver is superseded by the 26Q2-SDK DKMS driver. Requires a model package (`ncz-model-nomic-embed`); models are not on the ISO. |
+| **Ethernet** | `r8169` (RTL8125/8126/8169) | `=y` | ✅ | ✅ | ✅ | `rtl_nic` firmware shipped in installer + installed system. `CONFIG_R8169=y` (built-in, not a module). |
 | **Wi-Fi** | `mt7921e` (MediaTek MT7921/MT7922) | `=m` | ✅ | ✅ | ✅ | M.2 Key-E slot; confirmed loaded on real hardware (MS-R1). |
 | **Wi-Fi (alt)** | `rtw88`/`rtw89` firmware | `=m` | ✅ | ✅ | ✅ | If equipped (`rtw8852b`, `rtw8822`, etc. firmware shipped). |
 | **PCIe / USB / PHY** | `pcie-cadence`, `usb-cdnsp`, `phy-cix-usbdp`, `phy-cix-pcie` | `=y` | ✅ | ✅ | ✅ | Patches `0008`/`0009`/`0010`. |
