@@ -30,12 +30,42 @@ register() {
     local src_dir="$INSTALLER_META/assets/kernel/$asset"
     local conf="$src_dir/dkms.conf"
     local tree="$src_dir/src"
-    local dst="/usr/src/${pkg}-${ver}"
 
     if [ ! -d "$tree" ] || [ ! -f "$conf" ]; then
         echo "[86] $label: no DKMS source at $tree — skipping"
         return 0
     fi
+
+    # THE dkms.conf IS THE SINGLE SOURCE OF TRUTH FOR THE VERSION.
+    #
+    # A caller-supplied version that disagrees with PACKAGE_VERSION does not
+    # fail loudly -- it fails in a way that looks like a missing kernel header.
+    # MEASURED on O6N 2026-08-18: this function was called as
+    #
+    #     register "VPU" vpu cix-vpu-driver 1.0.2
+    #
+    # while assets/kernel/vpu/dkms.conf declared PACKAGE_VERSION="1.0.2-ncz1".
+    # `dkms add -v 1.0.2` therefore staged the source at
+    # /var/lib/dkms/cix-vpu-driver/1.0.2/build, but MAKE[0] interpolates
+    # ${PACKAGE_VERSION} into its own -M path, so the compile ran against
+    # /var/lib/dkms/cix-vpu-driver/1.0.2-ncz1/build and died with:
+    #
+    #     Makefile:199: *** specified external module directory
+    #     "/var/lib/dkms/cix-vpu-driver/1.0.2-ncz1/build" does not exist.  Stop.
+    #
+    # The result was `cix-vpu-driver/1.0.2: added` and nothing else, so the
+    # board silently fell back to the OLDER IN-TREE amvx while cixmini -- whose
+    # dkms.conf still said plain "1.0.2" -- correctly ran the DKMS module from
+    # updates/dkms/amvx.ko.xz. Two boards, two different VPU drivers, no error
+    # anywhere. Take the version from the conf so the two can never diverge.
+    local conf_ver
+    conf_ver=$(sed -n 's/^[[:space:]]*PACKAGE_VERSION="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$conf" | head -1)
+    if [ -n "$conf_ver" ] && [ "$conf_ver" != "$ver" ]; then
+        echo "[86] $label: dkms.conf declares PACKAGE_VERSION=$conf_ver (hook said $ver) — using $conf_ver"
+        ver="$conf_ver"
+    fi
+
+    local dst="/usr/src/${pkg}-${ver}"
 
     rm -rf "$dst"
     mkdir -p "$dst"
@@ -62,7 +92,20 @@ register() {
            && dkms install -m "$pkg" -v "$ver" -k "$KVER_NEXT" --force >/dev/null 2>&1; then
             echo "[86] $label: dkms built+installed for $KVER_NEXT (-> updates/dkms/)"
         else
-            echo "[86] $label: dkms build deferred — will autoinstall on kernel upgrade"
+            # SHOW THE ACTUAL ERROR. "deferred" is indistinguishable from
+            # "failed", and the autoinstall it promises only ever runs on a
+            # LATER kernel upgrade -- which for a freshly flashed board never
+            # comes. The VPU version-mismatch bug above survived precisely
+            # because this branch printed a reassuring message and discarded
+            # the one line that identified the fault.
+            echo "[86] $label: WARNING: dkms build FAILED for ${pkg}/${ver} on $KVER_NEXT"
+            local _log="/var/lib/dkms/$pkg/$ver/build/make.log"
+            [ -f "$_log" ] || _log=$(ls -1t /var/lib/dkms/"$pkg"/*/build/make.log 2>/dev/null | head -1)
+            if [ -n "${_log:-}" ] && [ -f "$_log" ]; then
+                grep -iE '\*\*\*|error|no such file|does not exist' "$_log" \
+                    | head -5 | sed "s/^/[86]     /"
+            fi
+            echo "[86]     (in-tree module, if any, carries the boot instead — this is a REAL defect, not a deferral)"
         fi
     else
         echo "[86] $label: no kernel headers for $KVER_NEXT — will autoinstall on kernel upgrade"
