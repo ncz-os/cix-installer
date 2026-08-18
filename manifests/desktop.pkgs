@@ -523,3 +523,35 @@ util-linux-extra
 # first and not here.
 alsa-utils
 v4l-utils
+
+# --- radio firmware: WiFi/Bluetooth for whatever is in the M.2 slot ---------
+# MEASURED 2026-08-18, and this was a real shipping defect: cixmini carries a
+# MediaTek MT7922 (mt7921e) and its three firmware blobs were present in
+# /lib/firmware/mediatek/ -- but `dpkg -S` matched NO PACKAGE for any of them.
+# They had been hand-dropped on that box at some point. No manifest carried
+# firmware-mediatek, so a CLEAN INSTALL of this image ships zero MediaTek
+# firmware and the WiFi is simply dead, on the very board we build on.
+#
+# It looked fine only because the build host had been hand-patched, which is
+# the most dangerous possible way for a gap like this to hide.
+#
+# The Sky1 boards differ in what sits in the M.2 slot, and Orange Pi 6 is a
+# target too, so cover the four families that realistically appear on an ARM
+# SBC rather than only the one chip we happen to own:
+#   mediatek    MT7902/7921/7922/7925/7961 -- cixmini's MT7922
+#   brcm80211   Broadcom/AMPAK AP6xxx -- the usual ARM SBC on-board module
+#   atheros     QCA6174/QCA9377 M.2 cards
+#   iwlwifi     Intel AX200/AX210 M.2 cards
+#   ath9k-htc   USB adapters (43 KB, free firmware)
+#
+# Each package carries BOTH the WiFi and the Bluetooth blobs for its family
+# (e.g. BT_RAM_CODE_MT7922_1_1_hdr.bin lives in firmware-mediatek), so this
+# also fixes Bluetooth on any board whose BT radio is actually wired up.
+#
+# Cost: ~99 MB of .deb, ~385 MB installed. A desktop image whose WiFi does not
+# come up is broken, so this is not optional weight.
+firmware-mediatek
+firmware-brcm80211
+firmware-atheros
+firmware-iwlwifi
+firmware-ath9k-htc
