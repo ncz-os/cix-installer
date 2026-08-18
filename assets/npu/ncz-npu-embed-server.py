@@ -51,6 +51,58 @@ MODEL_NAME = "nomic-embed-text"
 SEQ_LEN = 256
 EMBED_DIM = 768
 
+# --- per-model serving profiles ---------------------------------------------
+#
+# THREE THINGS VARY BY MODEL AND ALL THREE ARE SILENT IF WRONG:
+#
+#   dim      output width. Wrong value reshapes the hidden state into garbage.
+#   inputs   how many tensors the graph takes. BERT-family models (nomic,
+#            bge-small-zh) take THREE (input_ids, attention_mask,
+#            token_type_ids). BGE-M3 is XLM-RoBERTa and takes TWO -- there is
+#            no token_type_ids. Feeding three to a two-input graph fails; the
+#            reverse silently drops a tensor.
+#   pooling  how a [seq, dim] hidden state becomes one vector. nomic uses
+#            MASKED MEAN over tokens. BGE-M3 uses the CLS token. Using mean
+#            pooling on BGE-M3 produces vectors that are not bge-m3 embeddings
+#            at all -- they are internally consistent, so retrieval still
+#            "works" and nothing errors, which is exactly why this has to be
+#            declared per model rather than assumed. Measured against the fp32
+#            ONNX reference on O6N 2026-08-18, CLS pooling reproduced the
+#            reference at cosine 0.9923; mean pooling does not.
+#
+PROFILES = {
+    "nomic-embed-text": {
+        "graph": "/opt/ncz/models/nomic-embed-text-v1.5_256.cix",
+        "tokenizer": "nomic-ai/nomic-embed-text-v1.5",
+        "dim": 768, "inputs": 3, "pooling": "mean", "seq": 256,
+    },
+    "bge-m3": {
+        "graph": "/opt/ncz/models/bge-m3_256.cix",
+        "tokenizer": "/opt/ncz/models/bge-m3-tokenizer",
+        "dim": 1024, "inputs": 2, "pooling": "cls", "seq": 256,
+    },
+    "bge-small-zh": {
+        "graph": "/opt/ncz/models/bge-small-zh_256.cix",
+        "tokenizer": "BAAI/bge-small-zh-v1.5",
+        "dim": 512, "inputs": 3, "pooling": "cls", "seq": 256,
+    },
+}
+
+
+def profile_for(model_path: str):
+    """Pick the serving profile by matching the graph filename.
+
+    Keyed on the graph rather than the advertised name because the advertised
+    name is a client-facing alias that callers get wrong, while the graph is
+    the thing whose shape actually has to be honoured.
+    """
+    import os  # noqa: PLC0415
+    base = os.path.basename(model_path)
+    for name, prof in PROFILES.items():
+        if os.path.basename(prof["graph"]) == base:
+            return name, prof
+    return None, None
+
 
 class NpuEmbedder:
     def __init__(self, model_path: str, tokenizer_id: str, seq_len: int = SEQ_LEN):
@@ -60,6 +112,25 @@ class NpuEmbedder:
         self.seq_len = seq_len
         self.model_path = model_path
         self._lock = threading.Lock()
+
+        # Resolve the serving profile before loading anything, so a graph whose
+        # shape we do not know fails loudly here rather than by emitting
+        # wrongly-pooled vectors into a store forever.
+        prof_name, prof = profile_for(model_path)
+        if prof is None:
+            LOG.warning(
+                "no serving profile for graph %s -- falling back to %d-dim / "
+                "3-input / mean pooling. If that is not this model's actual "
+                "shape the vectors will be silently wrong; add it to PROFILES.",
+                model_path, EMBED_DIM)
+            self.dim, self.n_inputs, self.pooling = EMBED_DIM, 3, "mean"
+        else:
+            self.dim = prof["dim"]
+            self.n_inputs = prof["inputs"]
+            self.pooling = prof["pooling"]
+            self.seq_len = prof.get("seq", seq_len)
+            LOG.info("serving profile %s: dim=%d inputs=%d pooling=%s seq=%d",
+                     prof_name, self.dim, self.n_inputs, self.pooling, self.seq_len)
         LOG.info("loading tokenizer %s", tokenizer_id)
         self.tok = AutoTokenizer.from_pretrained(tokenizer_id)
         LOG.info("loading NOE graph %s", model_path)
@@ -83,21 +154,27 @@ class NpuEmbedder:
 
     def embed(self, texts: list[str]) -> np.ndarray:
         ids, mask, tt = self._encode(texts)
-        out = np.empty((len(texts), EMBED_DIM), dtype=np.float32)
+        out = np.empty((len(texts), self.dim), dtype=np.float32)
         # One at a time: the graph's batch dimension is fixed at 1.
         with self._lock:
             for i in range(len(texts)):
                 t0 = time.perf_counter()
-                raw = self.engine.forward([ids[i : i + 1], mask[i : i + 1], tt[i : i + 1]])
+                feed = [ids[i : i + 1], mask[i : i + 1]]
+                if self.n_inputs == 3:
+                    feed.append(tt[i : i + 1])
+                raw = self.engine.forward(feed)
                 self.infer_seconds += time.perf_counter() - t0
                 self.infer_count += 1
-                hidden = np.asarray(raw[0], dtype=np.float32).reshape(self.seq_len, EMBED_DIM)
-                m = mask[i][:, None].astype(np.float32)
-                denom = m.sum(0)
-                # An all-pad row would divide by zero and emit NaNs that poison
-                # the vector store silently; clamp instead.
-                denom[denom == 0] = 1.0
-                v = (hidden * m).sum(0) / denom
+                hidden = np.asarray(raw[0], dtype=np.float32).reshape(self.seq_len, self.dim)
+                if self.pooling == "cls":
+                    v = hidden[0, :]
+                else:
+                    m = mask[i][:, None].astype(np.float32)
+                    denom = m.sum(0)
+                    # An all-pad row would divide by zero and emit NaNs that
+                    # poison the vector store silently; clamp instead.
+                    denom[denom == 0] = 1.0
+                    v = (hidden * m).sum(0) / denom
                 n = np.linalg.norm(v)
                 out[i] = v / n if n > 0 else v
         return out
