@@ -12,22 +12,23 @@ partitions the target disk and debootstraps a **Debian Testing
 (Forky)** base on disk, then
 layers a hardware-appropriate kernel + vendor userspace runtimes +
 desktop environment + Claude Code + the (opt-in) NCZ agent stack, and
-brands the system as NCZ
-(Reinhardt for desktop, Magnetar for server / always-on agent
-appliance).
+brands the system as NCZ.
 
 > **New in NCZ-OS 26.7 "Maximilian":** the desktop is now **Singularity**
 > (labwc/wlroots, native Mali GLES acceleration) — **X11/XFCE is fully
 > removed**, not deprecated-but-present. See
 > [Why we moved off X/XFCE](#why-we-moved-off-xxfce-to-singularity) below.
-> Kernel channels: **7.2 (edge, primary)** carries current Sky1 enablement —
+> **One kernel: `7.2.0-sky1-ncz`.** It carries the current Sky1 enablement —
 > DP link-training fix, the full mali_kbase Mali-G720 driver port, boot-warning
-> cleanup; **7.0.12 (secondary/emergency)** is our own patched tree with real
-> GPU support, kept as a functional fallback despite being EOL upstream (see
-> [Positioning](#ncz-os-is-not-a-stable-distro-by-design) — EOL doesn't carry
-> the same risk for a kernel we already fork and patch ourselves). The rescue
-> partition boots that same legacy kernel with GPU/NPU/VPU blacklisted, for when everything
-> else has to be assumed broken.
+> cleanup.
+>
+> The older **7.0.12-cix-sky1-next channel has been REMOVED from the ISO.** It
+> is not a fallback, not a rescue kernel, and not selectable from the boot
+> menu. Verified on the shipping image: `assets/kernel/` contains only `edge`,
+> there is no `KVER_LEGACY`, and no file on the ISO references 7.0.12. Older
+> sections of this README that describe a two-channel or three-channel kernel
+> program are **historical** — see
+> [Source releases](docs/SOURCE-RELEASES.md) for the current position.
 
 ### Why NCZ-OS, when Canonical / Armbian / vendor images exist?
 
@@ -226,7 +227,7 @@ implementation; the architecture is the reusable scaffold.
 | **Radxa Orion O6** | Cix Sky1 | ⚠️ **Not directly tested by us — user-reported working.** Hardware-closer to the MS-R1 than the O6N is; users have confirmed install and boot on their own O6 boards, including the Realtek NIC (RTL8125/8126) working out of the box via the `rtl_nic` firmware shipped in both the installer and the installed system. We have not put our own hands on an O6. |
 | **Radxa Orion O6N** (48 GB) | Cix Sky1 | ✅ **Verified working — our primary dev/debug target.** Same Sky1 SoC, O6 board family. This is the box the Mali `mali_kbase` GPU driver port, the 7.2/7.0.12 kernel-tiering strategy, and the full Singularity Desktop stack (including the `ncz-performance-mode` power-management fix) were built and validated on, session after session. Heavily exercised, not a paper claim. |
 | **Framework Cix add-in board / mainboard** | Cix Sky1 | ❌ **Untested.** On our radar; no hardware in hand. |
-| **Orange Pi (Cix variants)** | Cix Sky1 | ❌ **Untested.** No hardware in hand. |
+| **Orange Pi 6** (Cix variant) | Cix Sky1 | ⏳ **Validation in progress — hardware arriving.** Expected within two weeks of 2026-08-18. The radio firmware added in installer v12 (`firmware-brcm80211`, `firmware-mediatek`, `firmware-atheros`, `firmware-iwlwifi`) exists partly to cover whatever WiFi/BT module this board ships. |
 | Other Arm (RK3588/RK3576, MediaTek Genio, Snapdragon) and x86 (Intel, AMD) | — | 🗺️ Roadmap / adapter-level only — not built or tested yet. |
 
 **What "untested" means for you:** parts of the build path are MS-R1-specific
@@ -399,9 +400,16 @@ apt-at-install-time model).
 
 ![Architecture diagram](docs/architecture.svg)
 
-**Both variant deltas ship on every ISO.** The rEFInd menu picks Reinhardt
-(desktop) or Magnetar (server) at boot, and `preseed/extract-rootfs.sh`
-overlays the matching delta onto the base. One disc, both variants.
+**NCZ-OS ships ONE build.** There is no separate desktop and server image,
+and no variant picker. What used to be the "Magnetar" server variant is now
+simply a **console boot entry** on the same image
+(`systemd.unit=multi-user.target`) — same packages, the GUI is just not
+started. `ncz desktop off` does the same thing on a running system, and
+`ncz desktop on` reverses it.
+
+This replaced a two-variant model (Reinhardt/desktop, Magnetar/server) that
+cost a full apt closure and a second squashfs on every build for a difference
+that amounts to one systemd target.
 
 The ISO also ships:
 - CIX proprietary userspace `.deb`s, staged offline in `assets/cix-debs/`
@@ -410,10 +418,9 @@ The ISO also ships:
   The same package set is **also** mirrored into the Buildkite `ncz-os/ncz`
   apt repo (31 packages, ~81 MB) so it can be re-pulled post-install without
   a reinstall — see [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources).
-- The kernel channels (`7.2` primary/default + `7.0.12-cix-sky1-next`
-  legacy fallback (EOL, carried only until 7.2 releases), on the dedicated rescue
-  partition) with firmware, so a device can flip channels without
-  redownloading anything.
+- The kernel (`7.2.0-sky1-ncz`) with its firmware. Earlier releases also
+  carried a `7.0.12-cix-sky1-next` legacy channel on a dedicated rescue
+  partition; that channel has since been **removed from the image**.
 - Quadlet definitions for zeroclaw plus optional OpenClaw, Hermes, and
   NemoClaw templates (staged only — none active by default)
 - Native KMS boot splash (`singularity-boot-splash`, custom NCZ logo/loading
@@ -725,11 +732,10 @@ primary 7.2 boot entry) rather than the open Mesa panvk/rusticl stack that
 earlier releases (r113–r194, summarized below) shipped — Mesa panvk/rusticl
 remains the GPU compute stack on the 7.0.12 secondary/fallback kernel only.
 Apt hosting is **Buildkite Packages primary, Cloudflare R2 backup** (not R2
-alone, as r194 below shipped). Tested and validated primarily on **Radxa
-Orion O6N** now, not MS-R1 alone — see **Hardware support & testing status**
-above. **Reinhardt** (desktop) and **Magnetar** (server) both boot and install
-from the *same* ISO — rEFInd picks the variant, both squashfs deltas ship on
-every disc (see [Architecture](#architecture)).
+alone, as r194 below shipped). Tested and validated on **Radxa Orion O6N** and **Minisforum MS-R1** — see
+**Hardware support & testing status** above. NCZ-OS ships **one build**; the
+former Reinhardt/Magnetar variant split is gone, and console-only operation is
+a boot entry (`systemd.unit=multi-user.target`) on the same image.
 
 The remainder of this section is a **historical changelog** — each entry
 below describes what was true of that specific release at the time; read
