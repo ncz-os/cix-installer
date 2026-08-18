@@ -123,7 +123,7 @@ Installed by `47-llm-stack.sh` + `16-mesa-gpu-2613.sh`.
 
 ---
 
-## 3. GPU compute drivers (Mesa 26.1.3 — NCZ build, 7.0.12 channel)
+## 3. GPU compute drivers (Mesa 26.1.3 — NCZ build)
 
 We ship a **from-source Mesa 26.1.3** under `/opt/mesa-26.1.3`, redirected
 to be the system Vulkan + OpenCL provider (desktop GL stays on stock Mesa).
@@ -247,7 +247,9 @@ huggingface-cli download <repo> <file.gguf> --local-dir /opt/ncz/models
 
 ## 6. Performance & how to choose an engine
 
-All numbers measured on the `.66` board, kernel `7.0.12-cix-sky1-next`,
+All numbers measured on the `.66` board on the kernel line that preceded 7.2
+(`7.0.12-cix-sky1-next`), which has since been removed from the image. They
+have not been re-measured on `7.2.0-sky1-ncz`;
 Mesa 26.1.3.
 
 ### 6.1 Measured performance

@@ -166,52 +166,23 @@ kernel line.
 | **GPIO / I2C / DMA / PWM / Syscon / Regulator / Timer / IRQ** | Sky1 misc peripherals | mixed | ✅ | ✅ | ✅ | Patch `0018` (misc peripherals) + `0021` (firmware/pinctrl ACPI gaps). |
 | **SoC ACPI resource lookup** | `cix-acpi-resource-lookup` | `=y` | ✅ | ✅ | ✅ | `CONFIG_CIX_ACPI_RESOURCE_LOOKUP=y` confirmed; folded into patches `0002`/`0008`, not a standalone `9007`-style patch. |
 
-The MS-R1 columns above reflect real-hardware confirmation on the 7.0.12
-channel. **O6N is now separately, heavily validated** — see **Hardware
-support & testing status** above — but that validation was done primarily
-on the **7.2 (Mali)** primary channel, not this 7.0.12 table; treat the O6N
-✅s in this specific 7.0.12 table as "same SoC family, expected to work",
-not independently re-confirmed driver-by-driver on 7.0.12.
+The MS-R1 column reflects real-hardware confirmation carried forward from the
+kernel line this project was originally built on. **O6N is now separately and
+heavily validated on the shipping 7.2 kernel** — see **Hardware support &
+testing status** above. Treat the O6N marks in this table as "same SoC family,
+confirmed at the system level" rather than independently re-verified
+driver-by-driver.
 
-**Known gap — O6-specific deferred-probe ACPI hardening not yet ported.**
-The retired 7.1.2-ncz2 line had four O6-targeted fixes (deferring the SCMI
-perf-domain fwnode provider and the `pm_runtime` resume gate to
-`late_initcall`, plus an ACPI power-management transition for
-`clk-sky1-acpi`) intended to smooth out ACPI probe-ordering issues specific
-to O6's firmware. These do **not** exist in the 7.0.12-next patch series —
-checked directly (`0039-pmdomain-scmi_pm_domain-add-fwnode-provider-for-ACPI.patch`
-does not defer to `late_initcall`). If O6/O6N testing on the 7.0.12 fallback
-channel turns up deferred-probe or SCMI-domain-ordering failures, this is
-the first place to look; the fix needs to be ported forward from the 7.1.x
-work, not copied verbatim (that line doesn't build cleanly as of 2026-06-27).
-This gap does not apply to the 7.2 primary channel, which carries its own,
-newer forward-port of the CIX Sky1 BSP (~130 patches, see
-[`kernel-source/SOURCE.md`](kernel-source/SOURCE.md)).
+**Boot requirements.** Boot is ACPI-based; there is no DTB, and the same
+kernel and firmware set serves MS-R1 and Orion O6/O6N alike. The firmware that
+must be present is `rtl_nic` (RTL8125/8126), `mali_csffw.bin` (Mali-G720), the
+NPU firmware consumed by the `aipu` DKMS module, and the VPU firmware consumed
+by `amvx`. The installer writes the ACPI kernel command line into the rEFInd
+entry automatically:
 
-**What's required for O6 / O6N to boot cleanly (7.0.12 fallback channel):**
-
-1. **Kernel 7.0.12-cix-sky1-next** (`assets/kernel/legacy/`) — the legacy
-   fallback channel, an EOL kernel carried only until 7.2 completes its
-   release process. The primary channel is **7.2** (`assets/kernel/edge/`,
-   see the callout at the top of this README). There are only these two.
-2. **No separate DTB** — boot is ACPI-based; the same kernel/firmware image
-   is used across MS-R1 and Orion O6/O6N.
-3. **Firmware**: `rtl_nic` (RTL8125/8126), `mali_csffw.bin` (Mali-G720
-   panthor — this channel's GPU driver), `armchina-npu` in-tree + validated
-   overlay (NPU), `amvx` validated overlay (VPU).
-4. **ACPI cmdline**: `acpi=force efi=noruntime arm-smmu-v3.disable_bypass=0
-   clk_ignore_unused panic=30 module_blacklist=typec_rts5453,rts5453` (the
-   installer adds these to the rEFInd boot entry automatically). Confirmed
-   present and unchanged on a real installed system.
-
-**O6N-specific notes:** the O6N is a minor variant of the O6 with the same
-Sky1 SoC and same ACPI DSDT shape. On the **7.2 primary channel**, O6N is
-our most heavily exercised board — see **Hardware support & testing status**
-above. On this **7.0.12 fallback channel** specifically, the kernel +
-firmware set above is expected to work without modification but has not
-been separately driver-by-driver re-validated the way 7.2/Mali has; if you
-hit an issue on 7.0.12/O6N specifically, watch for the deferred-probe gap
-noted above and the untested NPU IOVA constraint.
+```
+acpi=force efi=noruntime arm-smmu-v3.disable_bypass=0 clk_ignore_unused panic=30
+```
 
 ### GPU drivers and boot options
 
@@ -272,21 +243,45 @@ make
 
 ## Quick start (install on hardware)
 
-> **A wired Ethernet connection is required.** The installer debootstraps the
-> base system and upgrades it over the network, and Wi-Fi isn't available in
-> d-i. Plug in a wired cable **before** powering on. If no link is detected the
-> installer now stops with a clear "Network autoconfiguration failed" message
-> (plug in a cable and Retry) instead of looping silently. Realtek NICs —
-> including the Orion O6's RTL8125/8126 — work out of the box; the `rtl_nic`
-> firmware ships in both the installer and the installed system.
+> **Connect wired Ethernet before powering on.** Wi-Fi is not available in the
+> installer, and with no link detected the installer stops with "Network
+> autoconfiguration failed" (plug in a cable and Retry) rather than looping
+> silently.
+>
+> The base system itself comes off the image, so there is no network-dependent
+> package resolution mid-install to fail on a flaky link or an unreachable
+> mirror. That is not the same as fully offline: some post-install steps do use
+> apt, and a few optional components fetch from the network. Those are the parts
+> a bad link degrades — not the install itself.
 
-1. Flash the ISO to a USB stick (≥8 GB):
+1. **Verify the download**, then flash to a USB stick (≥8 GB). Each release
+   ships an `.md5` beside the ISO:
+
    ```bash
-   sudo bmaptool copy --bmap nclawzero-installer-cixmini.iso.bmap \
-       nclawzero-installer-cixmini.iso /dev/sdX
+   md5sum -c nclawzero-installer-cixmini-<version>.iso.md5
    ```
-2. Plug in a **wired Ethernet cable**, then plug the USB into the target
-   (cixmini / Orion O6), power on, hit the F-key for the UEFI boot menu, pick USB
+
+   Then write it. The ISO is a hybrid image — copy it to the **whole device**
+   (`/dev/sdX`), not a partition (`/dev/sdX1`):
+
+   ```bash
+   sudo dd if=nclawzero-installer-cixmini-<version>.iso of=/dev/sdX \
+        bs=4M status=progress oflag=direct conv=fsync
+   sync
+   ```
+
+   On macOS the device is `/dev/rdiskN` (note the `r`), and you must
+   `diskutil unmountDisk /dev/diskN` first.
+
+   > **`dd` writes to whatever you point it at, without asking.** Confirm the
+   > target with `lsblk` immediately before running it. Naming the wrong device
+   > destroys that disk.
+
+2. Plug the USB into the target (cixmini / Orion O6/O6N), power on, and hit the
+   F-key for the UEFI boot menu to pick the USB device.
+
+   Realtek NICs, including the Orion O6's RTL8125/8126, work out of the box;
+   the `rtl_nic` firmware ships in both the installer and the installed system.
 3. **Choose your disk and root filesystem.** The installer shows a real
    disk-selection screen (for multi-disk systems) followed by a filesystem
    choice — **btrfs** (default: snapshots + transparent compression) or
@@ -329,7 +324,7 @@ The ISO also ships:
   apt repo (31 packages, ~81 MB) so it can be re-pulled post-install without
   a reinstall — see [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources).
 - The kernel (`7.2.0-sky1-ncz`) with its firmware. Earlier releases also
-  carried a `7.0.12-cix-sky1-next` legacy channel on a dedicated rescue
+  carried an older `7.0.12-cix-sky1-next` channel on a dedicated rescue
   partition; that channel has since been **removed from the image**.
 - Quadlet definitions for zeroclaw plus optional OpenClaw, Hermes, and
   NemoClaw templates (staged only — none active by default)
@@ -380,7 +375,7 @@ MNEMOS embeds every memory on ingest via `embedkit.Engine.auto()`, which:
 
 No manual embedding step, no per-model wiring. The same `Engine.auto()` call
 falls back to CPU/GPU on non-NPU silicon — the kit is vendor-agnostic. Verified
-on Sky1 (`7.0.12-cix-sky1-next`): correct semantic retrieval, ~51 emb/s.
+on Sky1: correct semantic retrieval, ~51 emb/s. (Measured on the kernel line that preceded 7.2; not re-measured since.)
 
 ### Inference hierarchy (what runs where)
 
@@ -435,7 +430,7 @@ library is for, how to route a workload across the four compute engines
 | Path | Source | Notes |
 |---|---|---|
 | `assets/cix-debs/` | Staged CIX proprietary `.deb`s (gitignored) | Also mirrored into Buildkite `ncz-os/ncz` (31 packages, see OTA channel section) |
-| `assets/kernel/{legacy,edge}/` | Yocto build of the legacy/fallback `meta-cix:linux-cix-sky1-next` (7.0.12, `legacy/`, EOL) + primary `linux-cix-sky1-ncz` (7.2, `edge/`) channels (gitignored) | `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER` per kernel; also has a `modules-overlay/$KVER/` subdir for validated fixup `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`, `82-mali-gpu.sh`) — the NCZRESCUE partition boots this same legacy kernel, see `build/build-rescue-rootfs.sh` |
+| `assets/kernel/{legacy,edge}/` | Yocto build of `meta-cix:linux-cix-sky1-ncz` (7.2, `edge/`) channels (gitignored) | `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER` per kernel; also has a `modules-overlay/$KVER/` subdir for validated fixup `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`, `82-mali-gpu.sh`) — the NCZRESCUE partition boots this same legacy kernel, see `build/build-rescue-rootfs.sh` |
 | `assets/agent-stack/*` | This repo | systemd quadlets for zeroclaw/openclaw/hermes/portainer/mnemos/nemoclaw |
 | `assets/branding/*` | This repo | os-release, motd, wallpapers, rEFInd banner/icons |
 | `preseed/preseed.cfg`, `preseed/late.sh` | This repo | d-i unattended preseed + late_command (pre-chroot, install-time-only) |
