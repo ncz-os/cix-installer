@@ -29,7 +29,10 @@ BUILD_REV="${BUILD_REV:-r212}"
 # /usr/local/sbin/ncz-refind-refresh, which rewrites refind.conf with the old
 # hard-coded efi=noruntime and re-breaks the O6/O6N RTC on every kernel refresh.
 # 1.1: board-gated efi=noruntime + generator shipped through the OTA path.
-CIXMINI_BOOT_VER="1.1+$BUILD_REV"
+# 1.2: generator preserves /boot/efi/vmlinuz-*-rescue through the ESP wipe and
+#      emits a menuentry for it. Without this bump an installed board keeps the
+#      1.1 generator, which deletes the rescue kernel on the next apt run.
+CIXMINI_BOOT_VER="1.2+$BUILD_REV"
 MAINT="NCZ <nczero@nclawzero.dev>"
 
 # KVER comes from the ASSET WE ARE ABOUT TO PACKAGE, not from a previous
