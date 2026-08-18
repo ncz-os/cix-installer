@@ -114,7 +114,33 @@ NCZ_BAKED=0
 # build-iso-di.sh:527), so these are genuinely per-install machine hooks and
 # MUST run even under the baked flag. All are variant-aware (self-skip on the
 # server SKU), so adding them is a no-op for server installs.
-MACHINE_HOOKS_RE="^(20-desktop|21-flatpak-arch-filter|22-display-fix|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|30-agents|31-remote-access|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|40-claude-code|41-usb2-rescan|43-hw-quirks|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|57-screensaver|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config)\.sh$"
+# r262 (2026-08-18): NINE MORE HOOKS WERE MISSING FROM THIS LIST, and the
+# consequences were shipping. Same failure as the r204 note above, which is the
+# point: this is an ALLOWLIST, so every hook added to post-install/ is silently
+# dropped from baked installs until somebody remembers to edit this regex.
+# Nobody remembers.
+#
+# Measured on O6N running a v8 baked install (/etc/ncz-baked present, so
+# NCZ_BAKED=1), by diffing the hooks on disk against the two lists:
+#
+#   12-sky1-firmware   dropped from REQUIRED by the baked filter below
+#   15-mesa-sky1-pin   16-mesa-gpu-2613    23-base-apt-sources
+#   27-net-caps        32-quadlet-shim     33-network
+#   39-usb-gpt-autofix 44-rtc-sync
+#
+# Two were confirmed broken ON THE BOARD, not merely absent from a list:
+#   - 12-sky1-firmware never ran, so /lib/firmware held ZERO *.fwb while the
+#     16 blobs sat staged and unused in the installer asset tree. The VPU
+#     could not decode or encode anything. Copying the firmware by hand and
+#     reloading amvx made H.264 decode, H.264 encode and HEVC encode all work
+#     immediately -- the hardware and driver were always fine.
+#   - 44-rtc-sync never ran, so hwclock was absent and the RTC stayed at the
+#     2024 firmware default. Every fresh flash booted ~2 years in the past.
+#
+# Neither produced a single line in /var/log/cix-install/ -- there is no log
+# for a hook that was never invoked, which is exactly why this went unnoticed
+# across multiple ISO revisions.
+MACHINE_HOOKS_RE="^(12-sky1-firmware|15-mesa-sky1-pin|16-mesa-gpu-2613|20-desktop|21-flatpak-arch-filter|22-display-fix|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|30-agents|31-remote-access|32-quadlet-shim|33-network|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|57-screensaver|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
@@ -150,6 +176,25 @@ OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
 if [ "$NCZ_BAKED" = 1 ]; then
     OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -E "$MACHINE_HOOKS_RE" || true)
 fi
+# AUDIT: name every hook that exists on disk but is in NO list.
+#
+# The lists above are allowlists, so a dropped hook is invisible: it produces
+# no log, no warning and no progress tick, and the install reports success.
+# That is how 12-sky1-firmware and 44-rtc-sync shipped dead through several
+# ISO revisions. Enumerate the gap explicitly at plan time so the next one is
+# caught by reading the install log rather than by auditing a board weeks
+# later.
+_planned=$(printf '%s\n%s\n%s\n' "$PHASE0_HOOKS" "$REQUIRED_HOOKS" "$OPT_HOOKS" | sort -u)
+_ondisk=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort -u)
+_orphans=$(comm -13 <(printf '%s\n' $_planned | sort -u) \
+                    <(printf '%s\n' $_ondisk | sort -u) \
+           | grep -vE '^(70-bootloader|99-diagnostics)\.sh$' || true)
+if [ -n "$_orphans" ]; then
+    echo "[cix-installer] WARNING: hooks present on disk but in NO execution list (NCZ_BAKED=${NCZ_BAKED:-0}):"
+    printf '%s\n' $_orphans | sed 's/^/[cix-installer]   ORPHAN: /'
+    echo "[cix-installer]   These will NOT run. Add them to MACHINE_HOOKS_RE or the REQUIRED list."
+fi
+
 PHASE0_TOTAL=$(printf '%s\n' $PHASE0_HOOKS | awk 'NF { n++ } END { print n+0 }')
 REQUIRED_TOTAL=$(printf '%s\n' $REQUIRED_HOOKS | awk 'NF { n++ } END { print n+0 }')
 TOTAL_OPT=$(printf '%s\n' $OPT_HOOKS | awk 'NF { n++ } END { print n+0 }')
