@@ -27,7 +27,7 @@ here.
 
 | Component | Shipped version | License | Source |
 |---|---|---|---|
-| **Linux kernel** | `7.2.0-sky1-ncz` | GPL-2.0 | Yocto recipe `meta-cix/recipes-kernel/linux-cix-sky1-ncz`; 176 patches over a pinned upstream base. **See "Kernel source" below.** |
+| **Linux kernel** | `7.2.0-sky1-ncz` | GPL-2.0 | **[`kernel-source/`](../kernel-source/SOURCE.md) in this repository** — a complete corresponding-source drop: 286 patch files (176 wired into `SRC_URI`), the defconfig, and the pinned upstream SRCREVs. **See "Kernel source" below.** |
 | **cix-installer** (the d-i installer, preseed, post-install hooks, build scripts) | `2026.08.18-v12` | see repo | **This repository.** Tag `v2026.08.18-v12`. The installer *is* its own source release. |
 | **ncz-ffmpeg** | `6.6+20260608-2` | LGPL-2.1+/GPL-2+ | Modified FFmpeg with Sky1 V4L2 multiplane support. Patch shipped in-tree at `docs/upstream-patches/ffmpeg-v4l2-multiplane.patch`. |
 | **chromium-ncz-sky1** | `151.0.7922.75-ncz20260808` | BSD-3-Clause + others | Chromium with Sky1 build/runtime fixes. |
@@ -50,12 +50,26 @@ we ship a modified binary kernel on every ISO.
   patches were wired and 5 files were absent. That is fixed; the validator
   exists specifically so it cannot regress silently.
 
-> **Open item for 2026.08.18-v12:** the published source packages are
-> `linux-source-cix-sky1-ncz` at `7.0.12` and `7.2-rc5`. **Neither matches the
-> shipped `7.2.0-sky1-ncz`.** A matching source tarball must be generated from
-> the Yocto recipe and published before the older source packages are removed.
-> Source for a shipped binary must never be deleted before its replacement is
-> up.
+### Where the kernel source actually is
+
+**In this repository, under [`kernel-source/`](../kernel-source/SOURCE.md).**
+That directory is the corresponding source for the shipping kernel: 300 files
+(9.3 MB), 286 patch files of which **176 are wired into the recipe's
+`SRC_URI`**, the `config-7.2-lean-msr1-o6n.defconfig`, and the pinned upstream
+base revisions with their kernel.org shas. It does not depend on the GitLab
+package registry.
+
+The generic packages `linux-source-cix-sky1-ncz` (`7.0.12`, `7.2-rc5`) and the
+`linux-pristine-base-*` tarballs in the package registry are **supplementary**
+— they let you fetch a pristine upstream tree without cloning kernel.org, and
+they cover binaries distributed by earlier releases.
+
+> **Open item for 2026.08.18-v12 — version-string mismatch.**
+> `kernel-source/SOURCE.md` documents `KERNELRELEASE = 7.2.0-rc7-sky1-ncz`,
+> but the shipped ISO reports `7.2.0-sky1-ncz` (`KVER_NEXT`). The source tree
+> is the right one; the recorded release string is stale. Reconcile the two so
+> a recipient can match the binary they have to the source they downloaded
+> without having to infer it.
 
 ---
 
