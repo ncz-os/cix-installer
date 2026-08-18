@@ -58,14 +58,18 @@ PKG_MANIFEST="$ROOT/manifests/mgmt.pkgs"
 # is a published root password for the recovery container on every image.
 # Random per build unless the operator supplies one. See the same reasoning in
 # post-install/37-failsafe-access.sh.
-if [ -n "${NCZ_MGMT_PASS:-}" ]; then
+if [ -n "${NCZ_MGMT_PASS:-}" ] && [ "${NCZ_MGMT_PASS}" != "random" ]; then
     MGMT_ROOT_PW="$NCZ_MGMT_PASS"
-else
+elif [ "${NCZ_MGMT_PASS:-}" = "random" ]; then
     _raw=$(tr -dc 'a-z0-9' < /dev/urandom | head -c 20)
     [ "${#_raw}" -eq 20 ] || { echo "FATAL: no entropy for container root password" >&2; exit 1; }
     MGMT_ROOT_PW="${_raw:0:5}-${_raw:5:5}-${_raw:10:5}-${_raw:15:5}"
     echo "== ncz-recovery root password (generated): $MGMT_ROOT_PW"
     echo "   record it now; it is not recoverable from the image."
+else
+    # Distributed default -- documented, product-specific, and deliberately NOT
+    # any operator fleet secret. Same posture as "diags" / "rescue" / "failsafe".
+    MGMT_ROOT_PW="recovery"
 fi
 MGMT_HOSTNAME="ncz-recovery"
 

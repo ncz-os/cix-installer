@@ -62,18 +62,30 @@ _ncz_genpass() {
     printf '%s-%s-%s-%s\n' "${raw:0:5}" "${raw:5:5}" "${raw:10:5}" "${raw:15:5}"
 }
 
-if [ -n "${NCZ_FAILSAFE_PASS:-}" ]; then
+if [ -n "${NCZ_FAILSAFE_PASS:-}" ] && [ "${NCZ_FAILSAFE_PASS}" != "random" ]; then
     FS_PASS="$NCZ_FAILSAFE_PASS"
     FS_PASS_SRC="NCZ_FAILSAFE_PASS (bake-time override)"
-elif FS_PASS=$(_ncz_genpass); then
-    FS_PASS_SRC="generated per-install"
+elif [ "${NCZ_FAILSAFE_PASS:-}" = "random" ]; then
+    if FS_PASS=$(_ncz_genpass); then
+        FS_PASS_SRC="generated per-install"
+    else
+        echo "[37] FATAL: NCZ_FAILSAFE_PASS=random but no entropy available;"
+        echo "[37]        NOT enabling the recovery console."
+        exit 0
+    fi
 else
-    # FAIL CLOSED. If we cannot read /dev/urandom we do not know how to make a
-    # secret, and shipping a guessable one is worse than shipping no failsafe
-    # console at all -- the rescue PARTITION still exists as recovery.
-    echo "[37] FATAL: no entropy for a failsafe passphrase; NOT enabling the"
-    echo "[37]        recovery console. Set NCZ_FAILSAFE_PASS to override."
-    exit 0
+    # DISTRIBUTED DEFAULT.
+    #
+    # A published default is a deliberate posture choice for a home-hobbyist
+    # distribution, and it is the same one already made for the installer
+    # diagnostics account ("diags") and the rescue partition ("rescue"): a
+    # documented, product-specific credential the owner is told to change.
+    #
+    # What it must NEVER be is an operator's real fleet secret, which is what
+    # shipped until 2026-08-18 -- that leaked a credential for machines that
+    # have nothing to do with this image.
+    FS_PASS="failsafe"
+    FS_PASS_SRC="distributed default (CHANGE THIS)"
 fi
 
 install -d -m 0755 /etc/ncz
@@ -81,9 +93,15 @@ printf '%s\n' "$FS_PASS" > /etc/ncz/failsafe-password
 chmod 0600 /etc/ncz/failsafe-password
 echo "[37] break-glass passphrase: $FS_PASS_SRC"
 echo "[37]   stored at /etc/ncz/failsafe-password (root-only, 0600)"
-if [ "$FS_PASS_SRC" = "generated per-install" ]; then
-    echo "[37]   value: $FS_PASS"
-fi
+case "$FS_PASS_SRC" in
+  "generated per-install")
+        echo "[37]   value: $FS_PASS" ;;
+  "distributed default"*)
+        echo "[37]   DEFAULT PASSPHRASE IS \"failsafe\" -- change it on any"
+        echo "[37]   network you do not control. See docs/REMOTE-ACCESS.md."
+        echo "[37]   Bake a different one with NCZ_FAILSAFE_PASS=<pass>, or"
+        echo "[37]   NCZ_FAILSAFE_PASS=random for a unique per-install secret." ;;
+esac
 echo "[37] failsafe recovery console — static busybox on :$FS_PORT ($FS_ROOT)"
 install -d -m 0755 "$FS_ROOT" "$FS_BIN" "$FS_SBIN"
 install -d -m 0700 "$FS_ETC"
@@ -142,19 +160,55 @@ done
 # 2. Password gate. Prefer a sha512 hash verified by busybox cryptpw; fall
 #    back to a 0600 plaintext secret only if this busybox lacks cryptpw.
 # ----------------------------------------------------------------------
+# MEASURED on a v12 install (O6N, 2026-08-18): the bundled static busybox has
+# NO cryptpw applet, so this ALWAYS fell through to the plaintext branch. The
+# hash path was dead code on every install ever made -- the install log says
+# "auth gate: plaintext secret 0600" on a healthy box, which reads like a rare
+# fallback and was in fact the only path.
+#
+# So try real hashing tools before giving up. busybox first (it is the one that
+# survives /usr/lib damage), then openssl, then python3. Any of them produces a
+# $6$ sha512-crypt string that the login shell can verify.
 HASH=""
-if HASH=$("$BB" cryptpw -m sha512 "$FS_PASS" 2>/dev/null) && [ -n "$HASH" ] && [ "${HASH#\$6\$}" != "$HASH" ]; then
-    printf '%s\n' "$HASH" > "$FS_ETC/recovery.hash"
-    chmod 0600 "$FS_ETC/recovery.hash"
-    rm -f "$FS_ETC/recovery.secret"
-    GATE=hash
-    echo "[37] auth gate: sha512 hash (busybox cryptpw verified)"
-else
+GATE=""
+_try_hash() {
+    local out
+    out=$("$@" 2>/dev/null) || return 1
+    out=$(printf '%s' "$out" | tr -d '\r\n')
+    [ -n "$out" ] && [ "${out#\$6\$}" != "$out" ] || return 1
+    printf '%s' "$out"
+}
+for _m in busybox openssl python3; do
+    case "$_m" in
+        busybox) HASH=$(_try_hash "$BB" cryptpw -m sha512 "$FS_PASS") ;;
+        openssl) command -v openssl >/dev/null 2>&1 && \
+                 HASH=$(_try_hash openssl passwd -6 "$FS_PASS") ;;
+        python3) command -v python3 >/dev/null 2>&1 && \
+                 HASH=$(_try_hash python3 -c 'import crypt,sys; print(crypt.crypt(sys.argv[1], crypt.mksalt(crypt.METHOD_SHA512)))' "$FS_PASS") ;;
+    esac
+    if [ -n "$HASH" ]; then
+        printf '%s\n' "$HASH" > "$FS_ETC/recovery.hash"
+        chmod 0600 "$FS_ETC/recovery.hash"
+        rm -f "$FS_ETC/recovery.secret"
+        GATE=hash
+        echo "[37] auth gate: sha512 hash (via $_m)"
+        break
+    fi
+done
+
+if [ -z "$HASH" ]; then
+    # No hashing tool at all. Storing the passphrase in clear is only tolerable
+    # because it is now RANDOM PER INSTALL and root-only: an attacker who can
+    # read a 0600 root file has already won. It would NOT be tolerable for a
+    # shared or published secret, which is exactly what this used to be.
     printf '%s' "$FS_PASS" > "$FS_ETC/recovery.secret"
     chmod 0600 "$FS_ETC/recovery.secret"
     rm -f "$FS_ETC/recovery.hash"
     GATE=plain
-    echo "[37] auth gate: plaintext secret 0600 (busybox cryptpw unavailable in this build)"
+    echo "[37] auth gate: plaintext secret 0600 (no cryptpw/openssl/python3 available)"
+    if [ "$FS_PASS_SRC" != "generated per-install" ]; then
+        echo "[37]   WARNING: an operator-supplied passphrase is stored in CLEAR."
+    fi
 fi
 
 # ----------------------------------------------------------------------

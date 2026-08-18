@@ -18,8 +18,31 @@ exactly what is enabled, why, and how to disable each part.
 |---|---|---|---|
 | **OpenSSH** | 22 | password **and** key | `PermitRootLogin yes`, `PasswordAuthentication yes` |
 | **telnetd** | 23 | password | via `openbsd-inetd`, runs as root, **plaintext** |
-| **ncz-failsafe** | 2323 | none by default | static busybox telnetd → root recovery shell |
-| **ncz-recovery** container | 22 *(its own IP)* | password | `systemd-nspawn`, MACVLAN — appears as a **separate host** on your LAN |
+| **ncz-failsafe** | 2323 | password — default `failsafe`, **change it** | static busybox telnetd → root recovery shell |
+| **ncz-recovery** container | 22 *(its own IP)* | password — default `recovery`, **change it** | `systemd-nspawn`, MACVLAN — appears as a **separate host** on your LAN |
+
+### About the default passwords
+
+`failsafe` and `recovery` are **published defaults**, documented here on
+purpose. That is the same choice already made for the installer diagnostics
+account (`diags`) and the rescue partition (`rescue`): a home-hobbyist image
+that cannot be recovered is worse than one with a known break-glass credential
+on a LAN with no public route.
+
+Change them on any network you do not control. To bake a different one:
+
+```bash
+NCZ_FAILSAFE_PASS='<your passphrase>' make iso     # fixed passphrase
+NCZ_FAILSAFE_PASS=random             make iso     # unique per install
+NCZ_MGMT_PASS='<your passphrase>'    make iso     # recovery container
+```
+
+With `NCZ_FAILSAFE_PASS=random` the generated value is written to
+`/etc/ncz/failsafe-password` (0600) and printed in the install log.
+
+Until 2026-08-18 the shipped default was an operator's real fleet password,
+committed to a public repository. If you installed a build from before that
+date, treat `/opt/ncz-failsafe/etc/recovery.secret` as compromised and reset it.
 
 ### What each one actually is
 
@@ -62,10 +85,19 @@ posture, and we do not pretend otherwise.
 ### Everything at once
 
 ```bash
-sudo systemctl disable --now openbsd-inetd ncz-failsafe.service \
+sudo systemctl disable --now openbsd-inetd telnetd.socket ncz-failsafe.service \
                               systemd-nspawn@ncz-recovery.service
-sudo systemctl mask ncz-failsafe.service systemd-nspawn@ncz-recovery.service
+sudo systemctl mask telnetd.socket ncz-failsafe.service \
+                    systemd-nspawn@ncz-recovery.service
 ```
+
+`telnetd.socket` is in that list because telnet on :23 ships two ways. If
+`inetutils-telnetd` / `openbsd-inetd` were unavailable at install time, the
+installer falls back to a busybox `telnetd.socket` unit instead
+(`post-install/36-telemetry.sh`). Disabling only `openbsd-inetd` on such an
+image leaves a plaintext root telnet running. Do not trust either command to
+have worked -- confirm with the `ss` check at the end of this page, which is
+the authoritative test.
 
 Then harden SSH (see below). Verify with the checks at the end of this page.
 
