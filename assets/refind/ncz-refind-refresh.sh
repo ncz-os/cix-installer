@@ -252,8 +252,26 @@ if [ -n "$ROOT_SUBVOL" ]; then
 fi
 
 echo "  wiping stale ESP entries + kernel images..."
-rm -f /boot/efi/vmlinuz-*
-rm -f /boot/efi/initrd.img-*
+# PRESERVE OPERATOR-STAGED RESCUE KERNELS (/boot/efi/vmlinuz-<tag>-rescue).
+#
+# WHY (2026-08-18, measured on O6N): every menuentry this script emits points at
+# the SAME /vmlinuz-$KVER_NEXT, so a same-kver kernel upgrade repoints the whole
+# menu -- including the entries named "Recovery" and "Rescue Partition" -- at the
+# new kernel. There is then no known-good kernel to fall back to, and the shipped
+# cmdline carries `oops=panic panic=6`, so a bad kernel crash-loops.
+#
+# A rescue copy staged on the ESP by hand did not survive: this wipe deleted it,
+# and not only on a kernel upgrade -- ANY apt transaction that triggers the
+# initramfs hook runs this script. Installing waydroid was enough to remove it
+# a second time. So the wipe must spare *-rescue, which the staging code below
+# never writes and therefore cannot be stale.
+for _esp_f in /boot/efi/vmlinuz-* /boot/efi/initrd.img-*; do
+    [ -e "$_esp_f" ] || continue
+    case "$_esp_f" in
+        *-rescue) echo "  preserving operator rescue image ${_esp_f##*/}"; continue ;;
+    esac
+    rm -f "$_esp_f"
+done
 rm -rf /boot/efi/[0-9a-f]*  # Wipe 32-hex kernel-install machine-id dirs
 rm -f /boot/efi/EFI/Linux/* 2>/dev/null
 rm -rf /boot/efi/loader 2>/dev/null || true
@@ -688,6 +706,33 @@ fi
         echo "}"
         echo
     fi
+    # OPERATOR-STAGED RESCUE KERNELS. Preserved by the wipe above; without an
+    # entry they would sit on the ESP unreachable from the menu, which is the
+    # same as not having them.
+    #
+    # Boots initrd-less unless a matching initrd.img-<tag>-rescue was staged
+    # too: btrfs, ext4 and nvme are all builtin, and the shipped "direct boot,
+    # no initrd" entry already proves the pattern on this hardware.
+    #
+    # `oops=panic panic=6` is STRIPPED here. On the normal entries an automatic
+    # reboot is wanted; on a rescue entry it turns the one bootable fallback
+    # into another 6-second reboot loop, so a panic must halt and stay on screen.
+    for _rescue_img in /boot/efi/vmlinuz-*-rescue; do
+        [ -e "$_rescue_img" ] || continue
+        _rescue_file=${_rescue_img##*/}
+        _rescue_tag=${_rescue_file#vmlinuz-}
+        _rescue_tag=${_rescue_tag%-rescue}
+        _rescue_options=$(printf '%s\n' "$MALI_OPTIONS" | tr ' ' '\n' \
+            | grep -vE '^(oops=panic|panic=[0-9]+|quiet|)$' | paste -sd' ' -)
+        echo "menuentry \"RESCUE  -  $_rescue_tag known-good kernel\" {"
+        echo "    loader  /$_rescue_file"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -e "/boot/efi/initrd.img-$_rescue_tag-rescue" ] && \
+            echo "    initrd  /initrd.img-$_rescue_tag-rescue"
+        echo "    options \"$_rescue_options\""
+        echo "}"
+        echo
+    done
 } > "$REFIND_CONF"
 echo "  wrote $REFIND_CONF (default_selection=$DEFAULT_TOKEN)"
 
