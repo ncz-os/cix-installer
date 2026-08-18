@@ -11,6 +11,44 @@ have to reconstruct the reasoning from commit archaeology.
 
 ---
 
+## Why do any of this
+
+The short answer: **a Sky1 board has a GPU, a VPU and an NPU, and none of them
+were usable.**
+
+Not missing — *unusable*. That distinction is the whole reason this release
+exists. A vendor BSP will happily give you a `/dev/aipu`, a clean probe, and a
+banner in `dmesg` announcing a Zhouyi V3 NPU. It will give you a DRM device for
+the Mali. It will enumerate `/dev/video0`. Every box on the spec sheet ticks.
+Then you try to run an inference and the context fails to initialise, or you
+try to decode a frame and there is no firmware, or you check what your
+"accelerated" desktop is actually running on and find software rendering
+behind a compositor that never got a GLES context.
+
+The three changes each removed one of those walls, and none of them worked
+alone:
+
+- **The kernel had to move to 7.2**, because that is where the `mali_kbase`
+  Mali-G720 driver port and the DisplayPort link-training fix live. On 7.0.12
+  the GPU story was in-tree panthor and Mesa panvk — which reports OpenGL 2.1
+  through zink. You cannot ship a GPU-first distribution on a stack that tops
+  out at GL 2.1 on hardware capable of GLES 3.2.
+- **The base had to move to Debian**, because ARM is a first-class
+  architecture there and a second-class one in Ubuntu. Thin ARM mirror
+  coverage is not a cosmetic problem when every package you need is arm64 and
+  half your build is fighting the archive.
+- **The desktop had to move to Wayland**, because the accelerated path on this
+  silicon *is* GLES on a Wayland compositor. X11 clients reach it through
+  Xwayland, slower, when they reach it at all. Keeping XFCE would have meant
+  shipping hardware whose entire selling point is its GPU, on a display stack
+  that structurally cannot get to it.
+
+Fix the kernel but keep X11 and the GPU is still out of reach. Fix the desktop
+but stay on 7.0.12 and there is no `mali_kbase` to reach. Fix both but stay on
+Ubuntu and you spend the time you saved fighting for arm64 packages. The three
+were load-bearing together, which is exactly why they had to land together —
+and exactly why it felt insane while it was happening.
+
 ## 1. The kernel: 7.0.12 to 7.2
 
 This was the hardest of the three by a wide margin, and it is the reason the
@@ -144,7 +182,31 @@ moving for a month. That gate now exists
 when the foundations must all move at once, the acceptance test has to be the
 last thing standing still, not the first thing deferred.
 
-## What this bought
+## Was it worth it
+
+Yes, and the evidence is that all three accelerators now do work, measured on
+hardware rather than inferred from a probe:
+
+| | Before | After (measured on O6N) |
+|---|---|---|
+| **GPU** | GL 2.1 via zink-over-panvk | **Mali-G720-Immortalis, GLES 3.2**, 10 cores, desktop genuinely accelerated |
+| **NPU** | enumerated, no working inference | **95.5 ms** per 256-token embed, deterministic across runs, IRQ count moves |
+| **VPU** | no codec firmware present | **8 decode formats**; H.264 and HEVC hardware encode confirmed at 720p and 1080p |
+
+That is the return. Not "the drivers load" — three accelerators you can
+actually call, from one offline installer image, on a board that ships with
+none of it working.
+
+The bar this project holds itself to is stated in the driver-fidelity doc and
+is worth repeating here, because it is what made the difference between the
+before column and the after column:
+
+> A device node, a clean probe and a printed banner are not evidence that an
+> accelerator works.
+
+Every entry in the "after" column above is backed by a workload, not a banner.
+
+### Before and after
 
 | | Before | Now |
 |---|---|---|
