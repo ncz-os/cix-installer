@@ -30,9 +30,10 @@ alone:
 
 - **The kernel had to move to 7.2**, because that is where the `mali_kbase`
   Mali-G720 driver port and the DisplayPort link-training fix live. On 7.0.12
-  the GPU story was in-tree panthor and Mesa panvk — which reports OpenGL 2.1
-  through zink. You cannot ship a GPU-first distribution on a stack that tops
-  out at GL 2.1 on hardware capable of GLES 3.2.
+  the only GPU path was in-tree panthor with Mesa panvk, which on this
+  hardware landed on OpenGL 2.1 through zink. You cannot ship a GPU-first
+  distribution on a stack that tops out at GL 2.1 on silicon capable of
+  GLES 3.2.
 - **The base had to move to Debian**, because ARM is a first-class
   architecture there and a second-class one in Ubuntu. Thin ARM mirror
   coverage is not a cosmetic problem when every package you need is arm64 and
@@ -182,6 +183,35 @@ moving for a month. That gate now exists
 when the foundations must all move at once, the acceptance test has to be the
 last thing standing still, not the first thing deferred.
 
+## Both GPU drivers ship
+
+NCZ-OS does not pick a winner between the vendor driver and the open one. It
+ships **both**, and lets the operator choose:
+
+| Driver | Package | Role |
+|---|---|---|
+| `mali_kbase` | `cix-gpu-kmd` (DKMS) | **Default.** CIX vendor DDK. GLES 3.2 and OpenCL via `libmali`. This is what the desktop runs on. |
+| `panthor` | `panthor-cix` (DKMS) | **Selectable.** Mainline open-source driver, the Vulkan path via Mesa PanVK. |
+
+Both are installed and **both are blacklisted** in
+`/etc/modprobe.d/ncz-gpu-drivers.conf`, so neither loads by accident — they
+would otherwise both claim the same device. One is bound explicitly, and
+`ncz-gpu-select` switches between them.
+
+The reason for carrying both is that they are good at different things.
+`mali_kbase` is the proven path today: it delivers the GLES 3.2 the desktop
+needs and the OpenCL the compute stack uses. `panthor` is where the ecosystem
+is going — it is in mainline, it is open, and it is the route to Vulkan — but
+on Sky1 it is still working through enumeration issues, because the board
+boots via ACPI rather than device tree and mainline panthor has no
+`.acpi_match_table`.
+
+Shipping only the vendor driver would tie the distribution to a blob with no
+open successor. Shipping only panthor would mean shipping a desktop that does
+not accelerate today. Carrying both costs one DKMS build and a blacklist file,
+and it means the open path can be tested on real hardware by anyone, on the
+shipping image, without a rebuild.
+
 ## Was it worth it
 
 Yes, and the evidence is that all three accelerators now do work, measured on
@@ -189,7 +219,7 @@ hardware rather than inferred from a probe:
 
 | | Before | After (measured on O6N) |
 |---|---|---|
-| **GPU** | GL 2.1 via zink-over-panvk | **Mali-G720-Immortalis, GLES 3.2**, 10 cores, desktop genuinely accelerated |
+| **GPU** | GL 2.1 via zink-over-panvk | **Mali-G720-Immortalis, GLES 3.2**, 10 cores, desktop genuinely accelerated — with panthor still shipped alongside, see below |
 | **NPU** | enumerated, no working inference | **95.5 ms** per 256-token embed, deterministic across runs, IRQ count moves |
 | **VPU** | no codec firmware present | **8 decode formats**; H.264 and HEVC hardware encode confirmed at 720p and 1080p |
 

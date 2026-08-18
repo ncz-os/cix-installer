@@ -113,9 +113,13 @@ NPU/GPU/VPU may not initialize, or the installer may need board-specific work.
 > `7.0.12-cix-sky1-next` channel has been **removed from the image** — it is
 > not a fallback and not a rescue kernel.
 >
-> On this kernel the GPU driver is the out-of-tree CIX `mali_kbase` DDK
-> (Mali-G720-Immortalis, `libmali` OpenCL). Panthor ships as a non-default
-> boot entry — see [7.2 (Mali) GPU driver notes](#72-mali-gpu-driver-notes).
+> **Both GPU drivers ship.** `mali_kbase` (CIX vendor DDK, `cix-gpu-kmd`) is
+> the default and provides GLES 3.2 and OpenCL via `libmali`. `panthor`
+> (mainline open driver, `panthor-cix`, the Vulkan/PanVK path) is installed
+> alongside it and selectable. Both are blacklisted in
+> `/etc/modprobe.d/ncz-gpu-drivers.conf` so neither binds by accident; switch
+> with `ncz-gpu-select`. See
+> [7.2 (Mali) GPU driver notes](#72-mali-gpu-driver-notes).
 
 Sky1 boots via **ACPI, not a device tree** — `/sys/firmware/devicetree/base`
 is empty on both the MS-R1 and (per operator reports) Orion O6. There is no

@@ -1,18 +1,21 @@
 # NCZ Agentic Linux — AI/ML Stack Reference (Cix Sky1)
 
-> **Scope note (26.7):** the GPU sections of this document (§3, and the GPU
-> rows of §0/§6) describe the **7.0.12 secondary/fallback kernel channel**,
-> where the in-tree `panthor` driver + Mesa panvk (Vulkan)/rusticl (OpenCL)
-> is the GPU compute stack, and the numbers below were measured on that
-> channel. As of 26.7, the **primary/default channel is 7.2**, which uses
-> the out-of-tree CIX `mali_kbase` blob DDK instead of `panthor` — OpenCL is
-> available there via CIX `libmali` (not rusticl), and **Vulkan is not
-> available by default** on the 7.2 channel (a Panthor/Mesa boot entry with
-> Vulkan is staged as a non-default follow-up). This document has not yet
-> been re-measured on the 7.2/`mali_kbase` channel — see the top-level
-> `README.md` ("7.2 (Mali) GPU driver notes") for the current default-channel
-> GPU driver story. The CPU/NPU/VPU material below is channel-independent
-> and current.
+> **Scope note (26.7).** NCZ-OS ships one kernel, `7.2.0-sky1-ncz`, and
+> **both GPU drivers**:
+>
+> | Driver | Package | Role | Compute API |
+> |---|---|---|---|
+> | `mali_kbase` | `cix-gpu-kmd` | **Default** | OpenCL via CIX `libmali` |
+> | `panthor` | `panthor-cix` | Selectable | Vulkan/OpenCL via Mesa PanVK/rusticl |
+>
+> Both are installed and both are blacklisted in
+> `/etc/modprobe.d/ncz-gpu-drivers.conf`, so neither binds by accident; one is
+> selected explicitly and `ncz-gpu-select` switches between them.
+>
+> **The GPU numbers in §3 and the GPU rows of §0/§6 were measured on the
+> panthor + Mesa rusticl path and have not been re-measured on
+> `mali_kbase`.** Read them as panthor-path figures. The CPU, NPU and VPU
+> material is driver-independent and current.
 >
 > What ships on the system, what each binary/library is for, how to run
 > inference on the four compute engines (CPU / NPU / GPU / VPU), how they
@@ -20,8 +23,8 @@
 > new models.
 >
 > Target hardware: **Cix Sky1 (CP8180)** — 12-core Armv9 CPU, **Mali-G720
-> MC10** GPU (`panthor` on the 7.0.12 channel described here; `mali_kbase`
-> on the 7.2 primary channel), **ArmChina Zhouyi V3** NPU, **Linlon/amvx** VPU.
+> MC10** GPU (`mali_kbase` by default, `panthor` selectable), **ArmChina
+> Zhouyi V3** NPU, **Linlon/amvx** VPU.
 > **Unified memory (UMA, shared by all engines): 64 GB on this "jumbo"
 > MS-R1, 32 GB on the standard MS-R1.** (The GPU driver exposes ~46.85 GiB
 > of that as its allocatable pool after kernel/firmware reservations.)
@@ -63,7 +66,7 @@ Lives under `/usr/share/cix/`.
 | `libMNNOpenCV.so` | `/usr/share/cix/lib/` | MNN's built-in OpenCV-compatible image ops |
 | `libllm.so` | `/usr/share/cix/lib/` | MNN-LLM runtime (on-device LLM via MNN) |
 | `libdiffusion.so` | `/usr/share/cix/lib/` | MNN Stable-Diffusion pipeline |
-| `cix-gpu-umd` → `libmali.so`, `libOpenCL.so` | `/opt/cixgpu-pro/` | ⚠️ **proprietary Mali driver** — **disabled** on this image (incompatible with the panthor kernel). Replaced by Mesa rusticl/panvk. See §3. |
+| `cix-gpu-umd` → `libmali.so`, `libOpenCL.so` | `/opt/cixgpu-pro/` | ✅ **CIX vendor Mali driver** — active by default, providing GLES 3.2 and OpenCL. Mesa rusticl/panvk is the alternative, used when `panthor` is selected. See §3. |
 | `cix-libdrm`, `cix-libglvnd` | system | DRM + GL vendor-neutral dispatch shims |
 
 **Python NPU bindings** (cp311/cp312 only) ship as wheels at
