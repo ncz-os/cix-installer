@@ -726,6 +726,30 @@ My wife, who has put up with this hobby — the boards on the kitchen table, the
 fan noise, the "just one more build" at two in the morning — since the day it
 started. None of the above happens without that patience.
 
+### Linus Torvalds and the kernel community
+
+The obvious debt first: without the kernel, none of this exists. The Sky1
+enablement here is 176 patches sitting on top of work by thousands of people
+over three decades, and the fact that a vendor series *can* be carried,
+rebased and published this way is a property of how that project is run.
+
+A less obvious one, and worth stating plainly because this distribution is
+built by one person with AI pair-tooling: Torvalds' position on AI-assisted
+development has been pragmatic where a lot of the industry has been
+performative. His summary — *"AI is just a tool, like any other tool we use.
+And AI is clearly a useful tool"* — and his rejection of the framing that
+Linux is an "anti-AI project"
+([lore.kernel.org](https://lore.kernel.org/linux-media/CAHk-=wi4zC+Ze8e+p3tMv8TtG_80KzsZ1syL9anBtmEh5Z40vg@mail.gmail.com/))
+set a norm that matters: **judge the patch, not the tool that produced it.**
+
+He also made the sharper point that documentation requirements do not solve
+the actual problem — *"the AI slop people aren't going to document their
+patches as such"* — which is correct, and which is why the discipline in this
+repository is measurement rather than disclosure. Every capability claim here
+is backed by a workload on real hardware, and where something was not measured
+the document says so. That is the standard the work should be held to,
+regardless of what produced it.
+
 ### The Yocto Project and the Linux Foundation
 
 The Sky1 kernel is built with **[the Yocto Project](https://www.yoctoproject.org/)**

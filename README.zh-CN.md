@@ -195,6 +195,24 @@ labwc/wlroots，能原生抵达 Mali GLES，而不必绕道 Xwayland。**我们�
 **还有 Rachel。** 我的妻子。从这个爱好开始的第一天起，她就一直容忍着它——摊在餐桌上的
 板卡、风扇的噪音、凌晨两点那句"再构建一次就好"。没有那份耐心，上面这一切都不会发生。
 
+**Linus Torvalds 与内核社区。** 先说最显而易见的一笔：没有内核，这一切都不存在。这里的
+Sky1 使能不过是 176 个补丁，叠在三十年间数千人的工作之上；而一组厂商补丁系列**能够**
+被这样承载、变基与公开发布，本身就是那个项目治理方式的产物。
+
+还有一笔不那么显而易见、但值得直说的：本发行版是由一个人借助 AI 结对工具构建的。在业界
+不少表态流于姿态的时候，Torvalds 对 AI 辅助开发的立场一直是务实的。他的总结——
+*"AI is just a tool, like any other tool we use. And AI is clearly a useful tool"*
+（AI 只是一件工具，和我们用的其他工具一样；而它显然是件有用的工具）——以及他对"Linux 是
+一个反 AI 项目"这种框定的否定
+（[lore.kernel.org](https://lore.kernel.org/linux-media/CAHk-=wi4zC+Ze8e+p3tMv8TtG_80KzsZ1syL9anBtmEh5Z40vg@mail.gmail.com/)），
+确立了一条重要的准则：**评判补丁本身，而不是评判产出它的工具。**
+
+他还提出了更锋利的一点：靠文档要求解决不了真正的问题——*"the AI slop people aren't going
+to document their patches as such"*（真正在灌水的人，根本不会把补丁标注成那样）。这是对的，
+也正因如此，本仓库的纪律落在**实测**而非**声明**上：这里每一条能力论断，背后都有真实硬件上的
+一个负载；凡是没有实测过的，文档就明说没有。无论是什么产出了这些工作，它都应当按这个标准被
+检验。
+
 **Yocto 项目与 Linux 基金会。** Sky1 内核使用
 **[Yocto 项目](https://www.yoctoproject.org/)** 构建——BitBake、OpenEmbedded 与
 `poky`，CIX 使能则以 `meta-cix` 层的形式承载。那 176 个补丁的系列、它们的 `SRC_URI`
