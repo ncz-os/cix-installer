@@ -1,0 +1,93 @@
+From d16980b2f627ce3e14c2c895989032ff234e9030 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 5 Aug 2026 19:27:52 -0400
+Subject: [PATCH 2/6] Allocate a surface pool when a context has no render
+ targets
+
+vaCreateContext() may legally be called with num_render_targets == 0: the
+client allocates its surfaces afterwards. Chromium's VaapiVideoDecoder does
+exactly that.
+
+MediaDeviceV4l2Stateful::CreateContext() already has a branch for that case,
+but it calls the lookup-only GetSurfacePool(width, height) overload, which
+returns null when no pool has been created yet -- and at context creation
+time none has. SetSurfacePool() is guarded by "if (pool)", so the codec was
+left with no surface pool at all. V4l2StatefulDecoder::AddSurfaces() then
+created the CAPTURE port's DMABUF buffers with no surfaces to bind, so every
+plane kept an uninitialised file descriptor and the first VIDIOC_QBUF failed
+with EINVAL:
+
+  Failed to queue type 9 buffer 0: ret = -1, errno = 22 (Invalid argument),
+  memory = 4, length = 2, index = 0
+  plane 0: fd = 1073741824   <- not an fd
+
+Fall back to the creating GetSurfacePool(width, height, format) overload.
+The format passed must be the *raw* one -- the config carries the compressed
+format, which yields a zero-plane pool -- so use NV12, or P010 for a 10-bit
+profile.
+
+ffmpeg was unaffected because it supplies render targets up front and so
+never took this path.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ devices/v4l2/v4l2_stateful_device.cpp | 23 +++++++++++++++++++++++
+ devices/v4l2/v4l2_stateful_device.h   |  1 +
+ 2 files changed, 24 insertions(+)
+
+diff --git a/devices/v4l2/v4l2_stateful_device.cpp b/devices/v4l2/v4l2_stateful_device.cpp
+index 5344bb2..4bd39ed 100644
+--- a/devices/v4l2/v4l2_stateful_device.cpp
++++ b/devices/v4l2/v4l2_stateful_device.cpp
+@@ -86,6 +86,14 @@ SurfacePool *MediaDeviceV4l2Stateful::GetSurfacePool(
+     return media_device_.GetSurfacePool(width, height);
+ }
+ 
++SurfacePool *MediaDeviceV4l2Stateful::GetSurfacePool(
++    uint32_t width,
++    uint32_t height,
++    uint32_t format)
++{
++    return media_device_.GetSurfacePool(width, height, format);
++}
++
+ BufferPool *MediaDeviceV4l2Stateful::GetBufferPool()
+ {
+     return media_device_.GetBufferPool();
+@@ -306,6 +314,21 @@ VAStatus MediaDeviceV4l2Stateful::CreateContext(
+         raw_format = GetV4l2PixFmtFromSurface(render_targets[0]);
+     } else {
+         pool = GetSurfacePool(picture_width, picture_height);
++        // A client may legally create a context with no render targets and
++        // allocate surfaces later; Chromium's VaapiVideoDecoder does exactly
++        // that. The lookup-only overload returns null when no pool has been
++        // created yet, which used to leave the codec with no surface pool at
++        // all -- its DMABUF capture buffers were then queued with unbound
++        // planes and VIDIOC_QBUF failed with EINVAL. Fall back to the
++        // creating overload so the codec always has a pool to allocate from.
++        if (pool == nullptr) {
++            // Decoded frames are NV12, or P010 for 10-bit profiles. Note this
++            // is the *raw* format: the config's own format is the compressed
++            // one and would yield a zero-plane pool.
++            raw_format = IS_10BIT_PROFILE(config->profile) ?
++                V4L2_PIX_FMT_P010 : V4L2_PIX_FMT_NV12;
++            pool = GetSurfacePool(picture_width, picture_height, raw_format);
++        }
+         raw_format = pool ? pool->GetFormat() : V4L2_PIX_FMT_NV12;
+     }
+ 
+diff --git a/devices/v4l2/v4l2_stateful_device.h b/devices/v4l2/v4l2_stateful_device.h
+index bc2ba17..d78715a 100644
+--- a/devices/v4l2/v4l2_stateful_device.h
++++ b/devices/v4l2/v4l2_stateful_device.h
+@@ -124,6 +124,7 @@ private:
+     uint32_t GetV4l2PixFmtFromVaFourcc(uint32_t fourcc);
+     SurfacePool *GetSurfacePoolBySurfaceID(VASurfaceID id);
+     SurfacePool *GetSurfacePool(uint32_t width, uint32_t height);
++    SurfacePool *GetSurfacePool(uint32_t width, uint32_t height, uint32_t format);
+     BufferPool *GetBufferPool();
+     void RemoveContextFromSurfaces(VAContextID context);
+     uint32_t GetNumPlanes(uint32_t format);
+-- 
+2.50.1 (Apple Git-155)
+

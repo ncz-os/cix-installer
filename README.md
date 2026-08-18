@@ -681,6 +681,29 @@ patches and packaging work across ARM platforms — and on Sky1 specifically —
 saved this project a great deal of independent rediscovery. If you have run
 Armbian on an ARM SBC in the last few years, you have used his work.
 
+### Browser and codec work
+
+Getting hardware video decode working in a browser on this silicon took six
+patches to the CIX VA-API driver, plus patches to FFmpeg, Firefox and Chromium.
+Every one of the four underlying defects failed **silently** — nothing logged
+an error — which is why the work is written up with the evidence rather than
+just the fix:
+
+- **[docs/HW-VIDEO-DECODE-STATUS.md](docs/HW-VIDEO-DECODE-STATUS.md)** — what
+  works, measured by looking at the rendered picture rather than at a proxy
+  signal. H.264 1080p and VP9 720p decode in hardware in Chromium (renderer
+  CPU ~27% → ~3.5% on H.264); AV1 is blocked upstream.
+- **[docs/upstream-patches/cix-vaapi/](docs/upstream-patches/cix-vaapi/)** —
+  the six VA-API patches. Without them browser hardware decode does not work
+  on this platform at all.
+- **[docs/upstream-patches/ffmpeg/](docs/upstream-patches/ffmpeg/)**,
+  **[firefox/](docs/upstream-patches/firefox/)**,
+  **[chromium/](docs/upstream-patches/chromium/)** — V4L2 M2M decoder support,
+  AV1 plumbing and timestamp handling.
+- **[docs/upstream-patches/cix-vaapi-repro/](docs/upstream-patches/cix-vaapi-repro/)**
+  — standalone C reproducers, so a driver author can confirm each defect
+  without building a browser.
+
 ### Also
 
 - **Radxa** — the Orion O6 and O6N, our primary development and validation

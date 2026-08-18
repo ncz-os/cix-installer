@@ -1,0 +1,93 @@
+From f66268702337264f5221c50d292139e71733ddbb Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 5 Aug 2026 18:25:42 -0400
+Subject: [PATCH 1/6] Report RTFormat from vaQueryConfigAttributes for
+ attribute-less configs
+
+vaQueryConfigAttributes() is specified to return the attributes of a
+configuration, but MediaDevice::QueryConfigAttributes() only echoes back
+the attribute array that the caller happened to pass to vaCreateConfig().
+MediaDevice::CreateConfig() stores that array verbatim and never records
+the driver's own defaults, so a configuration created with
+(attrib_list = NULL, num_attribs = 0) reports zero attributes and a client
+has no way to discover which RT formats the configuration supports.
+
+Chromium depends on exactly that sequence. VASupportedProfiles::
+FillProfileInfo_Locked() deliberately creates a second, attribute-less
+configuration -- "we don't pass required attributes here because we want
+the driver to tell us all the supported RT formats" -- then scans the
+result for VAConfigAttribRTFormat. With no attributes returned, none of
+yuv420/yuv420_10/yuv422/yuv444 is ever set, is_any_profile_supported stays
+false and the profile is rejected. The rejection is reported through
+DLOG_IF(), which is compiled out of release builds, so every profile and
+entrypoint fails silently: about:gpu lists no decoders at all while
+ffmpeg and mpv work normally on the same driver, because they never call
+vaQueryConfigAttributes().
+
+Record the driver's own VAConfigAttribRTFormat in CreateConfig() when the
+caller did not supply one. The value is obtained from the existing
+GetConfigAttributes() dispatcher, so v4l2 and cme keep full control of
+what they advertise and no per-codec knowledge is duplicated here.
+
+Verified on a CIX Sky1 board (O6N, cix-vaapi 1.1.0 sources, Chrome 151):
+
+  before: vaQueryConfigAttributes() returns num_attribs = 0 for all seven
+          probed profile/entrypoint pairs; Chrome logs 15
+          "FillProfileInfo_Locked failed" and about:gpu shows an empty
+          "Video Acceleration Information" table.
+
+  after:  num_attribs = 1 with RTFormat = VA_RT_FORMAT_YUV420, and
+          VAProfileAV1Profile0 correctly reports
+          VA_RT_FORMAT_YUV420|VA_RT_FORMAT_YUV420_10 via the existing
+          IS_10BIT_PROFILE() path; Chrome logs no failures and about:gpu
+          enumerates h264 baseline/main/high, vp9 profile0/profile2,
+          hevc main/main10/still-picture and av1 main, each 144x144 to
+          8192x8192.
+
+No regression: ffmpeg -hwaccel vaapi decodes unchanged and
+vaQuerySurfaceAttributes() still returns its full attribute set.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ devices/device_common.cpp | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/devices/device_common.cpp b/devices/device_common.cpp
+index 34f837b..44f1928 100644
+--- a/devices/device_common.cpp
++++ b/devices/device_common.cpp
+@@ -175,6 +175,31 @@ VAStatus MediaDevice::CreateConfig(
+             id, i, attrib_list[i].type, attrib_list[i].value);
+     }
+ 
++    // vaQueryConfigAttributes() must report the config's *effective* attributes,
++    // not only those the caller happened to pass to vaCreateConfig(). Record the
++    // driver's own VAConfigAttribRTFormat when the caller did not specify one,
++    // otherwise a config created with (attrib_list = NULL, num_attribs = 0)
++    // reports zero attributes and clients cannot discover the supported RT
++    // formats. Chromium relies on exactly that: it creates an attribute-less
++    // config specifically so the driver will enumerate its RT formats, and
++    // rejects every profile when none come back.
++    bool has_rt_format = false;
++    for (const auto &attrib : config.attribs) {
++        if (attrib.type == VAConfigAttribRTFormat) {
++            has_rt_format = true;
++            break;
++        }
++    }
++    if (!has_rt_format) {
++        VAConfigAttrib rt_format;
++        rt_format.type = VAConfigAttribRTFormat;
++        rt_format.value = VA_ATTRIB_NOT_SUPPORTED;
++        if (GetConfigAttributes(profile, entrypoint, &rt_format, 1) == VA_STATUS_SUCCESS &&
++            rt_format.value != VA_ATTRIB_NOT_SUPPORTED) {
++            config.attribs.push_back(rt_format);
++        }
++    }
++
+     CIX_VAAPI_INFO("Created config %d: profile %d, entrypoint %d\n", id, profile, entrypoint);
+     *config_id = id;
+     return VA_STATUS_SUCCESS;
+-- 
+2.50.1 (Apple Git-155)
+

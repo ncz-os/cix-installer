@@ -1,0 +1,18 @@
+From: entrpi <entrpi@proton.me>
+Subject: Add V4L2-M2M AV1 decoder support
+
+Add av1_v4l2m2m to the list of V4L2-M2M hardware decoders.
+This enables AV1 hardware decoding on platforms with V4L2-M2M
+AV1 support, such as the CIX Sky1/Orion O6.
+
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
+@@ -2592,6 +2592,8 @@ static const AVCodec* FFmpegVideoDecoder<LIBAV_VER>::FindVideoHardwareAVCodec(
+         return aLib->avcodec_find_decoder_by_name("vp9_v4l2m2m");
+       case AV_CODEC_ID_HEVC:
+         return aLib->avcodec_find_decoder_by_name("hevc_v4l2m2m");
++      case AV_CODEC_ID_AV1:
++        return aLib->avcodec_find_decoder_by_name("av1_v4l2m2m");
+       default:
+         return nullptr;
+     }
