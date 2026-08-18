@@ -197,22 +197,55 @@ been separately driver-by-driver re-validated the way 7.2/Mali has; if you
 hit an issue on 7.0.12/O6N specifically, watch for the deferred-probe gap
 noted above and the untested NPU IOVA constraint.
 
-### 7.2 (Mali) GPU driver notes
+### GPU drivers and boot options
 
-The primary 7.2 channel's default GPU driver is the out-of-tree CIX
-`mali_kbase` blob DDK (DKMS/overlay module — see
-[`kernel-source/SOURCE.md`](kernel-source/SOURCE.md#out-of-tree-gpu-driver-mali_kbase)),
-**not** the in-tree `panthor` driver the 7.0.12 table above describes. The
-rEFInd 7.2 boot entry blacklists `panthor`; `mali_kbase` binds and exposes
-`/dev/mali0`, giving hardware GLES/EGL and OpenCL through `libmali`
-(`post-install/26-gpu-default-mali.sh`, `82-mali-gpu.sh`). Metal-validated on
-O6N + cixmini (2026-07-23): DDK r54p1, `/dev/mali0`, devfreq + SCMI
-rate-limit fix, hardware glamor on Mali-G720, no wedge. **Vulkan is not
-available on this default entry** — `libmali` exposes no Vulkan entrypoint;
-Vulkan (PanVK via Mesa, on the in-tree `panthor` driver instead) is staged
-as an alternate, non-default 7.2 boot entry pending a GPU power-domain fix
-(panthor currently hangs at boot with `acpi_scmi_en=off`, which the 7.2
-PCIe/NVMe bring-up requires) — see `assets/refind/ncz-refind-refresh.sh`.
+NCZ-OS ships **two GPU drivers** and lets you pick one at boot. Both are
+installed; neither loads automatically.
+
+| Boot entry | Driver | Provides | Status |
+|---|---|---|---|
+| **NCZ-OS** (default) | `mali_kbase` — CIX vendor DDK | OpenGL ES 3.2, EGL 1.5, OpenCL via `libmali` | Metal-validated on O6N and MS-R1. This is what the desktop runs on. |
+| **NCZ-OS (Panthor)** | `panthor` — mainline open driver | Vulkan and OpenCL via Mesa PanVK / rusticl | Experimental on Sky1. |
+
+Both drivers claim the same device, so `/etc/modprobe.d/ncz-gpu-drivers.conf`
+blacklists **both**. The boot entry decides which one is bound, and
+`ncz-gpu-select` switches an installed system without a reinstall.
+
+**What each costs you.** `mali_kbase` gives the accelerated desktop but
+exposes **no Vulkan entrypoint** — `libmali` has none. `panthor` is the route
+to Vulkan and is where the ecosystem is heading, but on Sky1 it is still
+working through enumeration: the board boots via ACPI rather than device tree,
+and mainline panthor has no `.acpi_match_table`.
+
+Neither is going away. Shipping only the vendor blob would leave the
+distribution with no open successor; shipping only panthor would mean a
+desktop that does not accelerate today.
+
+### Every accelerator driver is a DKMS module
+
+This is a deliberate rule, not an accident of packaging:
+
+| Accelerator | DKMS package | Module |
+|---|---|---|
+| GPU (default) | `cix-gpu-kmd` | `mali_kbase` |
+| GPU (alternate) | `panthor-cix` | `panthor` |
+| VPU | `cix-vpu-driver` | `amvx` |
+| NPU | `cix-npu-driver-dkms` | `aipu` |
+
+**Why DKMS rather than in-tree.** A kernel upgrade rebuilds a DKMS module
+against the new kernel. An in-tree module that ships as a prebuilt binary is
+locked to one `vermagic` and silently stops loading the moment the kernel
+moves — you get a booting system with a dead accelerator and no obvious cause.
+
+It also decides conflicts predictably. Where an in-tree driver and an
+out-of-tree one both match the same hardware, DKMS installs to
+`updates/dkms/`, which `depmod` prefers, so the intended driver wins rather
+than whichever the kernel happened to build. The in-tree `armchina_npu` is
+disabled outright (`CONFIG_ARMCHINA_NPU=n`) for the same reason: the vendor's
+26Q2 SDK driver is newer than the in-tree one and must not be shadowed by it.
+
+The corresponding source for every one of these is published — see
+[docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md).
 
 ## Quick start (build the ISO)
 
