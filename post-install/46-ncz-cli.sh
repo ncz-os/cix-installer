@@ -422,6 +422,131 @@ ncz_install_mnemos() {
     fi
 }
 
+# --- android (waydroid) --------------------------------------------------
+#
+# Waydroid runs Android in an LXC container against the host GPU and
+# compositor: Mali through the vendor driver, and labwc. Both are already here.
+#
+# Installed through Waydroid's OWN repository rather than Debian's package, as
+# the project documents at https://docs.waydro.id/usage/install-on-desktops.
+# Their repo tracks the images on the official OTA server, so the tooling and
+# the system image stay in step; the Debian package lags and can end up asking
+# an older waydroid to run a newer image.
+#
+# THE ONE HARD REQUIREMENT IS BINDER. Waydroid cannot start without
+# /dev/binderfs or /dev/binder, and a kernel without CONFIG_ANDROID_BINDER_IPC
+# has neither. This is checked FIRST, before anything is downloaded, because
+# otherwise the failure surfaces as an opaque LXC error several minutes into a
+# ~1 GB download.
+ncz_install_android() {
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "ncz install android: run as root (sudo ncz install android)" >&2
+        exit 1
+    fi
+
+    if [ ! -e /dev/binderfs ] && [ ! -e /dev/binder ] && \
+       ! grep -qw binder /proc/filesystems 2>/dev/null; then
+        echo "ncz install android: this kernel has no binder support." >&2
+        echo >&2
+        echo "  Waydroid needs CONFIG_ANDROID_BINDER_IPC and" >&2
+        echo "  CONFIG_ANDROID_BINDERFS. Checked and not found:" >&2
+        echo "    /dev/binderfs, /dev/binder, and 'binder' in /proc/filesystems" >&2
+        echo >&2
+        echo "  Running kernel: $(uname -r)" >&2
+        echo "  Binder is enabled from the 7.2 kernel built after 2026-08-18." >&2
+        echo "  Update the kernel first:  sudo apt update && sudo apt install --only-upgrade linux-image-cixmini" >&2
+        exit 1
+    fi
+    echo "[ncz] binder present"
+
+    # Prerequisites for adding their repo.
+    local remv
+    remv=$(apt-get install -y -s curl ca-certificates 2>/dev/null | grep -c '^Remv' || true)
+    remv=$(printf '%s' "$remv" | head -1)
+    if [ "${remv:-1}" != "0" ]; then
+        echo "ncz install android: refusing — apt wants to REMOVE ${remv} package(s)" >&2
+        exit 1
+    fi
+    apt-get install -y curl ca-certificates >/dev/null || {
+        echo "ncz install android: could not install curl/ca-certificates" >&2; exit 1; }
+
+    # Waydroid's official repo installer. This pipes a remote script into a
+    # root shell, which is the mechanism the project publishes; it is called
+    # out here rather than performed quietly, because a reader deserves to
+    # know that is what "the official install" means.
+    echo "[ncz] adding the Waydroid repository (runs https://repo.waydro.id as root)"
+    if ! curl -s https://repo.waydro.id | bash; then
+        echo "ncz install android: adding the Waydroid repository failed" >&2
+        exit 1
+    fi
+
+    apt-get update -qq || true
+    remv=$(apt-get install -y -s waydroid 2>/dev/null | grep -c '^Remv' || true)
+    remv=$(printf '%s' "$remv" | head -1)
+    if [ "${remv:-1}" != "0" ]; then
+        echo "ncz install android: refusing — apt wants to REMOVE ${remv} package(s)" >&2
+        exit 1
+    fi
+    if ! apt-get install -y waydroid; then
+        echo "ncz install android: installing waydroid failed" >&2
+        exit 1
+    fi
+
+    # GAPPS rather than VANILLA, so the Play Store is present. The system_type
+    # options are VANILLA, FOSS and GAPPS; VANILLA is the default and has no
+    # Google apps at all.
+    #
+    # Downloads the LineageOS system and vendor images from the official OTA
+    # server, roughly 1 GB. This is one of the few parts of NCZ-OS that
+    # genuinely needs the network, and it is said plainly rather than
+    # discovered halfway through.
+    if [ -f /var/lib/waydroid/waydroid.cfg ]; then
+        echo "[ncz] waydroid already initialised — leaving the existing images alone"
+        echo "      (re-initialise with: sudo waydroid init -s GAPPS -f)"
+    else
+        echo "[ncz] downloading the Android images with Google Apps (~1 GB)"
+        if ! waydroid init -s GAPPS; then
+            echo "ncz install android: waydroid init failed" >&2
+            echo "  Retry with: sudo waydroid init -s GAPPS -f" >&2
+            exit 1
+        fi
+    fi
+
+    systemctl enable --now waydroid-container.service 2>/dev/null || \
+        echo "[ncz] note: could not enable waydroid-container.service"
+
+    cat <<'DONE'
+
+Waydroid installed, with Google Apps.
+
+  waydroid show-full-ui     the full Android UI in a window
+  waydroid app list         list installed Android apps
+  waydroid session stop     stop the session
+
+REGISTER THE DEVICE BEFORE THE PLAY STORE WILL WORK.
+
+A GAPPS image is not a certified Google device, so Play Services refuses to
+sign in until the device ID is registered against your Google account. This is
+a manual step and there is no way around it:
+
+  1. Start Android once so the ID exists:
+         waydroid show-full-ui
+
+  2. Read the device ID:
+         sudo waydroid shell -- sh -c \
+           "sqlite3 /data/data/*/*/gservices.db \
+            'select value from main where name = \"android_id\";'"
+
+  3. Register that number at:
+         https://www.google.com/android/uncertified
+
+  4. Give Google a few minutes to apply it, then restart the session:
+         waydroid session stop
+
+Until that is done the Play Store will report the device as uncertified.
+DONE
+}
+
 ncz_install() {
     local component="${1:-help}"
     case "$component" in
@@ -433,6 +558,8 @@ Components:
   mnemos     Pull + start the MNEMOS memory server (REST + MCP + OpenAI-compatible
              gateway on :5002, sqlite-backed, in-process CPU embedder)
   nemoclaw   Pull + start NVIDIA NemoClaw OpenShell sandbox runtime
+  android    Install Waydroid, a containerised Android environment, and
+             initialise it (needs a kernel with binder; see below)
 MSG
             ;;
         mnemos)
@@ -441,8 +568,11 @@ MSG
         nemoclaw)
             ncz_install_nemoclaw
             ;;
+        android|waydroid)
+            ncz_install_android
+            ;;
         *)
-            echo "ncz install: unknown component '$component' (expected: mnemos | nemoclaw)" >&2
+            echo "ncz install: unknown component '$component' (expected: mnemos | nemoclaw | android)" >&2
             exit 1
             ;;
     esac
