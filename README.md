@@ -678,9 +678,127 @@ just the fix:
   (`CIXH*`) rather than by DMI vendor strings, which report the board vendor
   and not the SoC.
 
+## The `ncz` utility
+
+`ncz` is the operator CLI installed at `/usr/local/bin/ncz`. It is the intended
+front door for the things this image does that a stock Debian does not.
+
+| Command | What it does |
+|---|---|
+| `ncz status` | System summary: `ncz` version, build variant, kernel, default systemd target, NPU and GPU presence. Start here. |
+| `ncz desktop on` \| `off` \| `status` | Switch between graphical and headless. `off` sets `multi-user.target` and stops the display manager; SSH and networking stay up. Reversible. This is the canonical post-install step for a server deployment. |
+| `ncz models` | List embedding models present in `/opt/ncz/models` — `.cix` graphs for the NPU, `.gguf` for CPU/GPU. |
+| `ncz models pull` | Fetch the CIX model hub into `/opt/ncz/models`. |
+| `ncz install mnemos` | Install and start the MNEMOS memory server. See below. |
+| `ncz install nemoclaw` | Start the NVIDIA NemoClaw sandbox runtime. |
+| `ncz agent ...` | Manage the optional agent runtimes (zeroclaw, openclaw, hermes, portainer). |
+| `ncz version`, `ncz help` | Version and usage. |
+
+Nothing under `ncz install` or `ncz agent` is installed or running by default.
+They are opt-in, and nothing agentic starts at boot or pulls from the network
+on its own.
+
+### `ncz install mnemos`
+
+Deploys [MNEMOS](https://gitlab.com/ncz-os/mnemos) as a rootless podman
+**quadlet** with a persistent SQLite volume, listening on `:5002` and speaking
+REST, MCP and an OpenAI-compatible API.
+
+It installs **offline**. The image is bundled on the media and side-loaded with
+`podman load`; the quadlet is generated with `Pull=never` so a running system
+never silently reaches for a registry. A network pull of
+`ghcr.io/ncz-os/mnemos:latest` happens only if no bundled image is found, and
+is announced when it does.
+
+```bash
+ncz install mnemos
+curl -s localhost:5002/health
+```
+
+### Embeddings on the NPU
+
+MNEMOS stores vectors, and on this hardware it does not compute them on the CPU.
+`ncz-npu-embed.service` runs a small embedding server on `:8081` that speaks the
+OpenAI `POST /v1/embeddings` shape, backed by the Zhouyi V3 NPU through
+`libnoe`:
+
+| | |
+|---|---|
+| Model | `nomic-embed-text-v1.5_256.cix` (INT16, 256-token window) |
+| Dimensions | **768** |
+| Pooling | mean, declared per model rather than assumed |
+| Endpoint | `http://127.0.0.1:8081/v1/embeddings`, plus `/health` and `/v1/models` |
+
+```bash
+curl -s localhost:8081/health
+curl -s localhost:8081/v1/embeddings \
+     -H 'content-type: application/json' \
+     -d '{"input":"hello"}' | head -c 120
+```
+
+**Models are not on the ISO.** They are installed from apt
+(`ncz-model-nomic-embed`) or fetched with `ncz models pull`, which keeps the
+image small and the model licensing separable. If no `.cix` graph is present the
+service stays disabled and says so rather than failing at query time.
+
+One warning worth repeating: **the dimension must match the store.** Pointing a
+768-dim server at a database populated at 512 dims does not error, it silently
+poisons retrieval. Change the model, rebuild the vectors.
+
+## Live recovery: the `ncz-recovery` container
+
+NCZ-OS ships two recovery paths, and they solve different failures.
+
+The **rescue partition** is *cold*. Using it means rebooting into it, which
+means a working bootloader and usually someone at the console. It cannot help
+you while the machine is up.
+
+The **`ncz-recovery` container** is *live*. It is a `systemd-nspawn` container
+that starts at boot alongside the OS, and it is what you actually reach for when
+a running system breaks:
+
+- It gets **its own IP address on your LAN** via MACVLAN on the host uplink, so
+  it appears as a separate host and is reachable even when the host's own
+  networking or `sshd` is broken.
+- It mounts the **host root read-write at `/host`**, so it can repair the real
+  filesystem in place.
+- It runs with `PrivateUsers=no`, so container root *is* host root. Without
+  that, host files appear as `nobody` and `/host` is effectively read-only —
+  which is the difference between a recovery tool and a demo.
+- It carries its own userspace, so it survives the failure that motivated all
+  of this: a host whose `/usr/lib` has been destroyed and where every dynamically
+  linked binary, `sshd` included, refuses to run.
+
+It supplants the cold partition for most real failures. The partition stays for
+what the container cannot survive — a kernel that will not boot, a destroyed
+ESP, a failing disk.
+
+### Using it
+
+```bash
+machinectl list          # ADDRESSES column shows the container IP
+ssh root@<container-ip>  # default password: recovery
+chroot /host             # a full shell on the host system
+```
+
+The default password is **`recovery`**, documented on purpose, and you should
+change it on any network you do not control. Note what this container is: a
+root shell with read-write access to the host root, on its own LAN address. It
+is the most privileged surface in the image, deliberately so.
+
+```bash
+# turn it off entirely
+sudo systemctl disable --now systemd-nspawn@ncz-recovery.service
+```
+
+See [`docs/REMOTE-ACCESS.md`](docs/REMOTE-ACCESS.md) for the full default-access
+posture and how to harden it.
+
 ## Sister projects
 
 - [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
+- [`gitlab.com/ncz-os/zoder`](https://gitlab.com/ncz-os/zoder) — the coding and adversarial-review agent used to build this distribution. Routes work across local and hosted models; every non-trivial change here goes through its review loop before it lands.
+- [`gitlab.com/ncz-os/mnemos`](https://gitlab.com/ncz-os/mnemos) — the memory server that `ncz install mnemos` deploys. REST + MCP + an OpenAI-compatible gateway on `:5002`, SQLite-backed, with NPU-accelerated embeddings on this hardware.
 - [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipe (`linux-cix-sky1-ncz_7.2.bb`) and the Cix userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer and mirrored in-repo under [`kernel-source/`](kernel-source/SOURCE.md), so no separate kernel-source repo is needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
 
 
