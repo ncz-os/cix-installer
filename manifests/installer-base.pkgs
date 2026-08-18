@@ -101,3 +101,18 @@ zstd
 # offline closure, so the ISO ships the kernel it was built with.
 linux-image-cixmini
 cixmini-boot
+
+# --- locales ---------------------------------------------------------------
+# WITHOUT THIS PACKAGE THE SHIPPED SYSTEM HAS NO USABLE LOCALE.
+#
+# Measured on the built layers 2026-08-18: the only compiled locale present was
+# /usr/lib/locale/C.utf8; there was no /usr/share/i18n, no locale-gen, no
+# locale-archive, and /etc/default/locale was zero bytes. Meanwhile
+# post-install/23-locale-env.sh sets LANG=LC_ALL=en_US.UTF-8 -- a locale that
+# did not exist, so setlocale() failed and everything fell back to C. The hook
+# whose entire purpose is to stop the "not a UTF-8 locale" fallback was
+# pointing at a locale nobody had generated.
+#
+# In the base manifest rather than desktop.pkgs because the server variant
+# needs a working locale just as much as the desktop does.
+locales

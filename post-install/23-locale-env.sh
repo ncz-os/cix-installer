@@ -30,11 +30,30 @@ case "$VARIANT" in
         ;;
 esac
 
+# Use the locale 22-locale-gen actually GENERATED, not a hardcoded guess.
+#
+# This file used to pin LANG=LC_ALL=en_US.UTF-8 unconditionally. That locale did
+# not exist on the image -- `locales` was installed in neither squashfs layer --
+# so this hook, whose entire purpose is to stop the "'C' is not a UTF-8 locale"
+# fallback, was pointing every session at a locale glibc could not resolve.
+#
+# /etc/default/locale is written by 22-locale-gen after locale-gen has run AND
+# after it has verified the locale is visible in `locale -a`, so reading it here
+# means we can only ever propagate a locale that resolves.
+NCZ_LANG=C.UTF-8
+if [ -r /etc/default/locale ]; then
+    _l=$(sed -n 's/^LANG=//p' /etc/default/locale | tr -d '"' | tr -d ' \t\r\n')
+    [ -n "$_l" ] && NCZ_LANG="$_l"
+fi
+
 install -d /etc/environment.d
-cat > /etc/environment.d/50-locale.conf <<'EOF'
-LANG=en_US.UTF-8
-LC_ALL=en_US.UTF-8
+# LC_ALL is deliberately NOT set. It overrides every LC_* category and is a
+# sledgehammer: a user who sets LC_TIME or LANGUAGE for themselves would find it
+# silently ignored. LANG is the right system-wide default.
+cat > /etc/environment.d/50-locale.conf <<EOF
+LANG=$NCZ_LANG
 EOF
 chmod 0644 /etc/environment.d/50-locale.conf
+echo "[23] LANG=$NCZ_LANG (from /etc/default/locale)"
 
 echo "[23] /etc/environment.d/50-locale.conf installed (fixes UTF-8 locale warning in systemd --user scope-launched apps, e.g. foot)"
