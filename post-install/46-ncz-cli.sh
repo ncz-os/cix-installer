@@ -438,6 +438,80 @@ ncz_install_mnemos() {
 # has neither. This is checked FIRST, before anything is downloaded, because
 # otherwise the failure surfaces as an opaque LXC error several minutes into a
 # ~1 GB download.
+# Sky1 has NO render-capable DRM node, and Waydroid picks one anyway.
+#
+# ROOT CAUSE (measured on O6N 2026-08-18). /dev/dri/renderD128 belongs to
+# linlondp -- the Arm Mali-DP DISPLAY CONTROLLER on CIXH5010. It exposes a
+# renderD* node but has no render engine: its only children are card0-DP-1..3
+# and card0-Writeback-1..6. The actual GPU is Mali-G720-Immortalis behind the
+# vendor blob at /dev/mali0, which is not a DRM device at all.
+#
+# Waydroid's tools/helpers/gpu.py:getDriNode() accepts any renderD* whose kernel
+# driver is not in a denylist that contains exactly one entry, "nvidia". So it
+# selects linlondp, sets ro.hardware.gralloc=gbm and
+# gralloc.gbm.device=/dev/dri/renderD128, and every allocation then fails:
+#
+#     E GBM-MESA-WRAPPER: Unable to create BO, size=128x128, fmt=875708993
+#     E android.hardware.graphics.allocator@4.0-service.minigbm_gbm_mesa: Failed to create bo.
+#
+# hwcomposer.waydroid.so dereferences the null buffer in get_buffer_metadata_cros(),
+# android.hardware.graphics.composer@2.1-service dies, and system_server restarts
+# forever. Android never reaches sys.boot_completed.
+#
+# Two edits, both idempotent, both re-applied on every run because they patch
+# files owned by the waydroid package and an apt upgrade will revert them:
+#
+#   1. Add linlondp to the denylist, so getDriNode() returns nothing and Waydroid
+#      falls back to gralloc=default (ashmem/CPU buffers, no render node needed).
+#   2. Waydroid pairs that fallback with egl=swiftshader, but this image ships NO
+#      swiftshader -- /system/lib64/egl is empty and only libEGL_mesa.so and
+#      libEGL_angle.so exist under /vendor/lib64/egl. Naming a driver that is not
+#      there yields no EGL at all. libgallium_dri.so IS present, so use mesa,
+#      which lands on llvmpipe.
+#
+# Then regenerate waydroid_base.prop. It is written ONCE at init and never
+# refreshed, so without this the stale gbm values survive every restart and the
+# patch looks like it did nothing. `waydroid upgrade -o` is the supported
+# config-only regeneration and does not re-download the images.
+#
+# This is SOFTWARE rendering. It is the only thing that works on this board
+# today; hardware rendering needs either panthor (blocked on ACPI-vs-DT
+# enumeration) or the Android Mali userspace blob injected into the Waydroid
+# vendor image, with /dev/mali0 -- already passed into the container -- as the
+# kernel path.
+ncz_android_gpu_quirk() {
+    local gpu_py=/usr/lib/waydroid/tools/helpers/gpu.py
+    local lxc_py=/usr/lib/waydroid/tools/helpers/lxc.py
+    local changed=0
+
+    if [ -f "$gpu_py" ] && ! grep -q 'linlondp' "$gpu_py"; then
+        sed -i 's/^unsupported = \["nvidia"\]$/unsupported = ["nvidia", "linlondp"]  # linlondp is display-only: no render engine/' "$gpu_py"
+        grep -q 'linlondp' "$gpu_py" && { changed=1; echo "[ncz] waydroid: denylisted linlondp (display-only DRM node)"; }
+    fi
+
+    if [ -f "$lxc_py" ] && grep -q 'egl = "swiftshader"' "$lxc_py"; then
+        # This image has no swiftshader; mesa (libgallium_dri.so -> llvmpipe) is
+        # the software renderer that actually loads.
+        sed -i 's/            egl = "swiftshader"/            egl = "mesa"  # no swiftshader in this image; mesa gives llvmpipe/' "$lxc_py"
+        changed=1
+        echo "[ncz] waydroid: software EGL set to mesa (image ships no swiftshader)"
+    fi
+
+    if [ "$changed" = 1 ] && [ -f /var/lib/waydroid/waydroid_base.prop ]; then
+        # waydroid_base.prop is generated once at init and never refreshed.
+        waydroid session stop >/dev/null 2>&1 || true
+        if waydroid upgrade -o >/dev/null 2>&1; then
+            echo "[ncz] waydroid: regenerated waydroid_base.prop"
+        else
+            echo "[ncz] WARN: 'waydroid upgrade -o' failed; base props may still name the unusable gbm device" >&2
+        fi
+    fi
+
+    if [ -f /var/lib/waydroid/waydroid_base.prop ]; then
+        echo "[ncz] waydroid graphics: $(grep -E '^ro.hardware.(gralloc|egl)=' /var/lib/waydroid/waydroid_base.prop | tr '\n' ' ')"
+    fi
+}
+
 # The launcher the Waydroid package ships is NOT usable. Its Waydroid.desktop
 # carries `Exec=waydroid`, and bare `waydroid` takes no action: measured on O6N
 # it printed nothing and had not exited after two minutes. Clicking the shipped
@@ -612,6 +686,8 @@ ncz_install_android() {
             exit 1
         fi
     fi
+
+    ncz_android_gpu_quirk
 
     systemctl enable --now waydroid-container.service 2>/dev/null || \
         echo "[ncz] note: could not enable waydroid-container.service"
