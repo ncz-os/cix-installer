@@ -67,9 +67,12 @@ release took as long as it did.
 
 ### The problem
 
-CIX Sky1 support does not exist in mainline Linux. It exists as a patch series
-maintained against a specific upstream base. Rebasing that series is not a
-routine operation:
+Mainline Linux does not yet boot a usable Sky1 desktop. That is not the same as
+saying Sky1 is absent from mainline: CIX is actively upstreaming the platform,
+and core SoC enablement has been posted and is landing. What is still missing
+upstream is the rest of what a desktop needs -- display, GPU, NPU, VPU and much
+of the SoC glue -- and that lives in a vendor patch series maintained against a
+specific upstream base. Rebasing that series is not a routine operation:
 
 - **176 patches** are wired into the build recipe's `SRC_URI`, out of **197**
   patch files present in the tree. The extra 21 are superseded or experimental

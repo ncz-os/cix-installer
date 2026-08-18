@@ -61,6 +61,19 @@ PATTERNS='glpat-[A-Za-z0-9_.-]{20}|glrt-[A-Za-z0-9_-]{20}|gldt-[A-Za-z0-9_-]{20}
 #      control returning 0). Caught only by re-running the positive controls
 #      after the edit. If single-quoted secrets need covering later, build
 #      PATTERNS by concatenation rather than embedding a quote here.
+# A literal DEFAULT inside a parameter expansion is a credential too:
+#     FS_PASS="${SOME_VAR:-hunter2}"
+# The quoted-literal alternative above cannot see it, because that alternative
+# excludes $ in order to let ${VAR} references through. The two shapes need
+# separate patterns: one for "no $ anywhere", one for "$ only as the expansion
+# wrapper, with a literal in the :- default".
+PATTERNS="$PATTERNS"'|(PASS|PASSWD|PASSWORD|PW|SECRET|TOKEN)[A-Z_]*[[:space:]]*=[[:space:]]*"?\$\{[A-Za-z_][A-Za-z0-9_]*:-[^}"[:space:]]{6,}\}'
+
+# Documented product defaults are not leaks. These ship on purpose and are
+# published in docs/REMOTE-ACCESS.md; flagging them would train us to ignore
+# this gate. Site values still go in SECRET_SCAN_EXTRA.
+ALLOW="${SECRET_SCAN_ALLOW:-failsafe|recovery|rescue|diags}"
+
 [ -n "${SECRET_SCAN_EXTRA:-}" ] && PATTERNS="$PATTERNS|$SECRET_SCAN_EXTRA"
 
 rc=0
@@ -70,10 +83,12 @@ scan_bytes() {   # <file> <label>
     local f="$1" label="$2"
     [ -f "$f" ] || return 0
     local n
-    n=$(LC_ALL=C grep -aoE "$PATTERNS" "$f" 2>/dev/null | sort -u | head -5 | wc -l)
+    n=$(LC_ALL=C grep -aoE "$PATTERNS" "$f" 2>/dev/null | grep -avE "$ALLOW" \
+        | sort -u | head -5 | wc -l)
     if [ "$n" -gt 0 ]; then
         hit "$label ($f)"
-        LC_ALL=C grep -aoE "$PATTERNS" "$f" 2>/dev/null | sort -u | head -5 \
+        LC_ALL=C grep -aoE "$PATTERNS" "$f" 2>/dev/null | grep -avE "$ALLOW" \
+            | sort -u | head -5 \
             | sed -E 's/(.{12}).*/\1…<redacted>/' | sed 's/^/        /' >&2
     else
         echo "  ok: $label"
@@ -84,7 +99,9 @@ scan_tree() {    # <dir> <label>
     local d="$1" label="$2"
     [ -d "$d" ] || return 0
     local found
-    found=$(sudo -n grep -rlE "$PATTERNS" "$d" 2>/dev/null | head -5)
+    found=$(sudo -n grep -rlE "$PATTERNS" "$d" 2>/dev/null | while read -r _f; do
+        LC_ALL=C grep -aoE "$PATTERNS" "$_f" 2>/dev/null | grep -qavE "$ALLOW" && echo "$_f"
+    done | head -5)
     if [ -n "$found" ]; then
         hit "$label — files: $(echo "$found" | tr '\n' ' ')"
     else

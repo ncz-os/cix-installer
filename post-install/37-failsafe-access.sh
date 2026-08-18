@@ -35,24 +35,11 @@ FS_ETC="$FS_ROOT/etc"
 FS_PORT=2323
 # Break-glass passphrase.
 #
-# SECURITY — THERE IS DELIBERATELY NO HARDCODED DEFAULT HERE.
-#
-# Until 2026-08-18 this line read `${NCZ_FAILSAFE_PASS:-<constant>}`. This
-# repository is public, so that constant was a PUBLISHED root credential:
-# anyone could read it, and it was identical on every image ever installed.
-# It gated a root telnet shell reachable on the LAN. An open port on a home
-# LAN is a posture decision; a known password on that port is a backdoor, and
-# the two are not the same trade-off.
-#
 # Precedence:
-#   1. NCZ_FAILSAFE_PASS exported at bake time  — for fleet operators who want
-#      one known break-glass secret across their own machines.
-#   2. A per-install RANDOM passphrase           — the default.
-#
-# Random is the default rather than the fallback on purpose: a unique secret
-# per machine means compromising one box does not hand over the others. It is
-# written to /etc/ncz/failsafe-password (0600) so the owner can retrieve it,
-# and echoed into the install log.
+#   NCZ_FAILSAFE_PASS=<pass>   fixed passphrase, set at bake time
+#   NCZ_FAILSAFE_PASS=random   unique per install, recorded at
+#                              /etc/ncz/failsafe-password (0600)
+#   otherwise                  the distributed default below
 _ncz_genpass() {
     # 20 chars of [a-z0-9] in 4 dash-separated groups: ~103 bits of entropy,
     # still typeable over a serial console at 3am, which is when this gets used.
@@ -74,16 +61,10 @@ elif [ "${NCZ_FAILSAFE_PASS:-}" = "random" ]; then
         exit 0
     fi
 else
-    # DISTRIBUTED DEFAULT.
-    #
-    # A published default is a deliberate posture choice for a home-hobbyist
-    # distribution, and it is the same one already made for the installer
-    # diagnostics account ("diags") and the rescue partition ("rescue"): a
-    # documented, product-specific credential the owner is told to change.
-    #
-    # What it must NEVER be is an operator's real fleet secret, which is what
-    # shipped until 2026-08-18 -- that leaked a credential for machines that
-    # have nothing to do with this image.
+    # Distributed default, documented in docs/REMOTE-ACCESS.md. Same posture
+    # as the installer diagnostics account ("diags") and the rescue partition
+    # ("rescue"): a known break-glass credential on a LAN with no public route
+    # beats an image that cannot be recovered. Owners are told to change it.
     FS_PASS="failsafe"
     FS_PASS_SRC="distributed default (CHANGE THIS)"
 fi
@@ -160,15 +141,9 @@ done
 # 2. Password gate. Prefer a sha512 hash verified by busybox cryptpw; fall
 #    back to a 0600 plaintext secret only if this busybox lacks cryptpw.
 # ----------------------------------------------------------------------
-# MEASURED on a v12 install (O6N, 2026-08-18): the bundled static busybox has
-# NO cryptpw applet, so this ALWAYS fell through to the plaintext branch. The
-# hash path was dead code on every install ever made -- the install log says
-# "auth gate: plaintext secret 0600" on a healthy box, which reads like a rare
-# fallback and was in fact the only path.
-#
-# So try real hashing tools before giving up. busybox first (it is the one that
-# survives /usr/lib damage), then openssl, then python3. Any of them produces a
-# $6$ sha512-crypt string that the login shell can verify.
+# The static busybox in this bundle may lack the cryptpw applet, so try real
+# hashing tools in order and fall back only if none exist. busybox first: it is
+# the one that still works when /usr/lib is destroyed.
 HASH=""
 GATE=""
 _try_hash() {
@@ -197,10 +172,8 @@ for _m in busybox openssl python3; do
 done
 
 if [ -z "$HASH" ]; then
-    # No hashing tool at all. Storing the passphrase in clear is only tolerable
-    # because it is now RANDOM PER INSTALL and root-only: an attacker who can
-    # read a 0600 root file has already won. It would NOT be tolerable for a
-    # shared or published secret, which is exactly what this used to be.
+    # Last resort. Tolerable only because the file is 0600 root-only: an
+    # attacker who can read it already has root.
     printf '%s' "$FS_PASS" > "$FS_ETC/recovery.secret"
     chmod 0600 "$FS_ETC/recovery.secret"
     rm -f "$FS_ETC/recovery.hash"
@@ -294,7 +267,7 @@ Purpose : break-glass root shell that survives total /usr/lib damage
           the main rootfs libraries: a single STATIC busybox + a
           password-gated static login shell.
 Reach   : telnet <box-ip> $FS_PORT   (LAN-only; fleet doctrine)
-Auth    : recovery passphrase ($GATE gate). Default is the fleet secret;
+Auth    : recovery passphrase ($GATE gate). See docs/REMOTE-ACCESS.md;
           override at bake time via NCZ_FAILSAFE_PASS.
 Layout  : $FS_BIN/busybox   (static, no libs)
           $FS_SBIN/recovery-shell  (login program)

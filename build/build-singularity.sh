@@ -319,8 +319,7 @@ echo "  top entries:"; tar tzf "$OUT/singularity-opt.tgz" | head -3
 
 if [ "$PUSH_ARGONAS" = 1 ]; then
     echo "== staging on ARGONAS ($ARGONAS_DST) =="
-    # SECURITY: never embed the credential. This is a maintainer-only push
-    # path; take the password from the environment or use normal SSH keys.
+    # Maintainer push path: ARGONAS_PASS from the environment, else SSH keys.
     if [ -n "${ARGONAS_PASS:-}" ]; then
         GIT_SSH="${GIT_SSH:-sshpass -p $ARGONAS_PASS ssh -o PubkeyAuthentication=no}"
     else

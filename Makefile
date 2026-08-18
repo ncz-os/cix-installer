@@ -67,7 +67,7 @@ POST          := $(ROOT)/post-install
 MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))
 OUTPUT_ISO    := $(BUILD)/nclawzero-installer-cixmini-$(VERSION)$(MODE_SUFFIX).iso
 
-.PHONY: all download iso verify clean distclean qemu help
+.PHONY: all download iso verify clean distclean qemu help secretscan
 
 all: iso
 
@@ -129,7 +129,12 @@ $(OUTPUT_ISO): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	    --output $@ \
 	    --mode $(MODE) \
 	    --variant $(VARIANT)
+	@echo "[iso] scanning the built artifact for credentials"
+	@bash $(ROOT)/build/secret-scan-gate.sh $@
 	@echo "[iso] DONE — $@ ($$(du -h $@ 2>/dev/null | cut -f1))"
+
+secretscan:
+	@bash $(ROOT)/build/secret-scan-gate.sh
 
 verify: $(OUTPUT_ISO)
 	@sha256sum $(OUTPUT_ISO) | tee $(OUTPUT_ISO).sha256

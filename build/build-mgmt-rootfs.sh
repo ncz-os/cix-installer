@@ -54,10 +54,7 @@ PKG_MANIFEST="$ROOT/manifests/mgmt.pkgs"
 # per fleet doctrine. Password is random per build; override by exporting
 # NCZ_MGMT_PASS. Day-to-day access is key-based (the post-install
 # hook injects fleet authorized_keys into the container's /root/.ssh).
-# SECURITY: no hardcoded default -- this repo is public, so any constant here
-# is a published root password for the recovery container on every image.
-# Random per build unless the operator supplies one. See the same reasoning in
-# post-install/37-failsafe-access.sh.
+# NCZ_MGMT_PASS=<pass> to pin one, =random for a unique per-build password.
 if [ -n "${NCZ_MGMT_PASS:-}" ] && [ "${NCZ_MGMT_PASS}" != "random" ]; then
     MGMT_ROOT_PW="$NCZ_MGMT_PASS"
 elif [ "${NCZ_MGMT_PASS:-}" = "random" ]; then
@@ -67,8 +64,7 @@ elif [ "${NCZ_MGMT_PASS:-}" = "random" ]; then
     echo "== ncz-recovery root password (generated): $MGMT_ROOT_PW"
     echo "   record it now; it is not recoverable from the image."
 else
-    # Distributed default -- documented, product-specific, and deliberately NOT
-    # any operator fleet secret. Same posture as "diags" / "rescue" / "failsafe".
+    # Distributed default, documented in docs/REMOTE-ACCESS.md.
     MGMT_ROOT_PW="recovery"
 fi
 MGMT_HOSTNAME="ncz-recovery"

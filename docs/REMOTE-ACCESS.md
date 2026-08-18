@@ -40,10 +40,6 @@ NCZ_MGMT_PASS='<your passphrase>'    make iso     # recovery container
 With `NCZ_FAILSAFE_PASS=random` the generated value is written to
 `/etc/ncz/failsafe-password` (0600) and printed in the install log.
 
-Until 2026-08-18 the shipped default was an operator's real fleet password,
-committed to a public repository. If you installed a build from before that
-date, treat `/opt/ncz-failsafe/etc/recovery.secret` as compromised and reset it.
-
 ### What each one actually is
 
 - **Telnet is unencrypted.** Credentials and session content cross the wire in
