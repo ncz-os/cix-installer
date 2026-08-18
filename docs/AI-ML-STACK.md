@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/branding/wallpaper/ncz-wallpaper-05-magnetar-jets-2k.jpg" alt="" width="880">
+</p>
+
 # NCZ Agentic Linux — AI/ML Stack Reference (Cix Sky1)
 
 > **Scope note (26.7).** NCZ-OS ships one kernel, `7.2.0-sky1-ncz`, and

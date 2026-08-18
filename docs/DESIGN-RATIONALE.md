@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/branding/wallpaper/ncz-wallpaper-04-retro-sci-fi-poster-2k.jpg" alt="" width="880">
+</p>
+
 # NCZ-OS 26.7 — Design Rationale
 
 Why this distribution is built the way it is: the GPU stack, the media and

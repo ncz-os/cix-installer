@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/branding/wallpaper/ncz-wallpaper-06-cygnus-vacuum-decay-2k.jpg" alt="" width="880">
+</p>
+
 # How did we get here
 
 NCZ-OS 26.7 "Maximilian" looks little like the release before it. Three
@@ -51,6 +55,10 @@ were load-bearing together, which is exactly why they had to land together —
 and exactly why it felt insane while it was happening.
 
 ## 1. The kernel: 7.0.12 to 7.2
+
+<p align="center">
+  <img src="../assets/branding/wallpaper/ncz-wallpaper-02-interstellar-gargantua-2k.jpg" alt="" width="780">
+</p>
 
 This was the hardest of the three by a wide margin, and it is the reason the
 release took as long as it did.
@@ -213,6 +221,10 @@ and it means the open path can be tested on real hardware by anyone, on the
 shipping image, without a rebuild.
 
 ## Was it worth it
+
+<p align="center">
+  <img src="../assets/branding/wallpaper/ncz-wallpaper-07-maximilian-blackhole-2k.jpg" alt="" width="780">
+</p>
 
 Yes, and the evidence is that all three accelerators now do work, measured on
 hardware rather than inferred from a probe:

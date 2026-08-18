@@ -1,6 +1,9 @@
 <p align="center">
-  <img src="assets/refind/ncz-banner.png" alt="NCZ-OS" width="640">
+  <img src="assets/branding/logo/ncz.png" alt="NCZ-OS" width="120">
 </p>
+
+<h1 align="center">NCZ-OS</h1>
+<p align="center"><em>Arm64 Linux for CIX Sky1 — GPU, VPU and NPU that actually work</em></p>
 
 <p align="center">
   <img src="assets/branding/wallpaper/ncz-wallpaper-07-maximilian-blackhole-2k.jpg" alt="NCZ-OS 26.7 Maximilian" width="900">

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/branding/logo/ncz.png" alt="NCZ-OS" width="96">
+</p>
+
 # Source releases — what we build, and where its source is
 
 NCZ-OS redistributes GPL/LGPL software and builds several components from
