@@ -44,14 +44,13 @@ NCZ is **vendor-neutral by design and intent.** Goal: support every
 Arm silicon system shipping in the marketplace and every mainstream
 x86 platform, when sample hardware is obtainable for validation.
 
-- **Current proof-of-concept target**: Cix Sky1 / CP8180 (Minisforum
-  MS-R1 and successors). This is where the build path is most
-  exercised and where the offline-capable proprietary-userspace layer
-  is wired in. The repo name reflects history; the project scope does
-  not.
-- **Arm roadmap**: Radxa Orion O6 / O6N (Sky1, different board),
-  Radxa Qualcomm-platform boards (Snapdragon + Hexagon NPU), Rockchip
-  RK3588 / RK3576 family, MediaTek Genio, Apple Silicon (kit-only,
+- **Shipping target**: Cix Sky1 / CP8180 — **Radxa Orion O6N** and
+  **Minisforum MS-R1**, both metal-validated. This is where the build path is
+  most exercised and where the offline-capable proprietary-userspace layer is
+  wired in. **Orange Pi 6** validation is in progress. The repo name reflects
+  history; the project scope does not.
+- **Arm roadmap**: Radxa Qualcomm-platform boards (Snapdragon + Hexagon NPU),
+  Rockchip RK3588 / RK3576 family, MediaTek Genio, Apple Silicon (kit-only,
   not OS), and any Arm SoC shipping in volume that we can sample.
 - **x86 roadmap**: parallel build path, both **Intel** (CPU + iGPU +
   NPU via OpenVINO 2026.x) and **AMD** (Ryzen / XDNA NPU / ROCm) as
@@ -79,9 +78,9 @@ implementation; the architecture is the reusable scaffold.
 
 | Board | SoC | Status |
 |---|---|---|
-| **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **Verified working.** UEFI boot, the installer, GPU (7.0.12/panthor path), NPU (Zhouyi embeddings + vision), audio, and the multi-kernel-channel program have all been validated on this box. Primary-channel (7.2/Mali) validation is O6N-led — see below. |
+| **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **Verified working** on `7.2.0-sky1-ncz`. UEFI boot, the installer, GPU (Mali `mali_kbase`), NPU (Zhouyi embeddings), VPU, audio and networking validated on this box. |
 | **Radxa Orion O6** | Cix Sky1 | ⚠️ **Not directly tested by us — user-reported working.** Hardware-closer to the MS-R1 than the O6N is; users have confirmed install and boot on their own O6 boards, including the Realtek NIC (RTL8125/8126) working out of the box via the `rtl_nic` firmware shipped in both the installer and the installed system. We have not put our own hands on an O6. |
-| **Radxa Orion O6N** (48 GB) | Cix Sky1 | ✅ **Verified working — our primary dev/debug target.** Same Sky1 SoC, O6 board family. This is the box the Mali `mali_kbase` GPU driver port, the 7.2/7.0.12 kernel-tiering strategy, and the full Singularity Desktop stack (including the `ncz-performance-mode` power-management fix) were built and validated on, session after session. Heavily exercised, not a paper claim. |
+| **Radxa Orion O6N** (48 GB) | Cix Sky1 | ✅ **Verified working — our primary dev/debug target**, on `7.2.0-sky1-ncz`. Same Sky1 SoC, O6 board family. The Mali `mali_kbase` GPU driver port and the full Singularity desktop stack were built and validated here. Install, boot, GPU (GLES 3.2), NPU (~95 ms/256-token embed), VPU (H.264/HEVC encode + 8 decode formats), audio and 2.5 GbE all confirmed on the shipping image. |
 | **Framework Cix add-in board / mainboard** | Cix Sky1 | ❌ **Untested.** On our radar; no hardware in hand. |
 | **Orange Pi 6** (Cix variant) | Cix Sky1 | ⏳ **Validation in progress — hardware arriving.** Expected within two weeks of 2026-08-18. The radio firmware added in installer v12 (`firmware-brcm80211`, `firmware-mediatek`, `firmware-atheros`, `firmware-iwlwifi`) exists partly to cover whatever WiFi/BT module this board ships. |
 | Other Arm (RK3588/RK3576, MediaTek Genio, Snapdragon) and x86 (Intel, AMD) | — | 🗺️ Roadmap / adapter-level only — not built or tested yet. |
@@ -95,26 +94,15 @@ NPU/GPU/VPU may not initialize, or the installer may need board-specific work.
 
 ### Driver support matrix — MS-R1 / O6 / O6N
 
-> **Which kernel is this table about?** NCZ-OS 26.7 ships **three** kernel
-> channels (see the callout at the top of this README): **7.2** is the
-> primary/default boot entry (`linux-cix-sky1-ncz`, `KERNELRELEASE
-> 7.2.0-rc5-sky1-ncz` — see [`kernel-source/SOURCE.md`](kernel-source/SOURCE.md)),
-> **7.0.12-cix-sky1-next** is the legacy/emergency fallback (an EOL kernel
-> carried only until 7.2 completes its release process). The
-> table below documents **7.0.12-cix-sky1-next**
-> (`assets/kernel/edge/KVER`, patch series `next-patches/0001`–`0043` +
-> `2001`–`2017` in `meta-cix:linux-cix-sky1-next`) specifically — it predates
-> the 7.2/Mali work and its GPU row (in-tree `panthor`, Mesa panvk/rusticl)
-> describes that kernel's driver, **not** the primary 7.2 channel. On 7.2,
-> the default GPU driver is the out-of-tree CIX `mali_kbase` blob DDK
-> (`libmali` OpenCL; Vulkan via a non-default Panthor/Mesa boot entry, a
-> post-ship follow-up) — see
-> [7.2 (Mali) GPU driver notes](#72-mali-gpu-driver-notes) below for that
-> channel. This 7.0.12 table was originally written against a
-> since-abandoned `7.1.2-ncz2` / `linux-cix-sky1-ncz` line (a separate,
-> unstable fork with `.bak-pre-branchfix`/`.bak-pre-compilefix` recovery
-> files still in its recipe as of 2026-06-27) — not what boots on real
-> hardware on any channel today.
+> **Which kernel is this table about?** NCZ-OS 26.7 ships **one** kernel:
+> `7.2.0-sky1-ncz` (`linux-cix-sky1-ncz`, corresponding source in
+> [`kernel-source/`](kernel-source/SOURCE.md)). The earlier
+> `7.0.12-cix-sky1-next` channel has been **removed from the image** — it is
+> not a fallback and not a rescue kernel.
+>
+> On this kernel the GPU driver is the out-of-tree CIX `mali_kbase` DDK
+> (Mali-G720-Immortalis, `libmali` OpenCL). Panthor ships as a non-default
+> boot entry — see [7.2 (Mali) GPU driver notes](#72-mali-gpu-driver-notes).
 
 Sky1 boots via **ACPI, not a device tree** — `/sys/firmware/devicetree/base`
 is empty on both the MS-R1 and (per operator reports) Orion O6. There is no
@@ -576,7 +564,7 @@ pulling anything.
 ## Sister projects
 
 - [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
-- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipes (`linux-cix-sky1-ncz_7.2.bb` primary/edge, `linux-cix-sky1-next_7.0.12.bb` legacy/emergency fallback) and Cix userspace recipes this installer consumes. Kernel source itself is fetched straight from the public `kernel.org` tree at a pinned commit per channel; every Sky1-specific patch is a file tracked in this layer (also mirrored in-repo under [`kernel-source/`](kernel-source/SOURCE.md) for the 7.2 shipping kernel) — no separate kernel-source repo is strictly needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
+- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipe (`linux-cix-sky1-ncz_7.2.bb`) and the Cix userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer and mirrored in-repo under [`kernel-source/`](kernel-source/SOURCE.md), so no separate kernel-source repo is needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
 
 
 ## Releases
