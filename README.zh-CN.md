@@ -25,6 +25,19 @@ debootstrap 一个 **Debian Testing（Forky）** 基础系统，随后叠加适�
 > **最新版本：** [2026.08.18-v12](docs/releases/2026.08.18-v12.md) ·
 > [下载](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
 
+> ### ⚠️ 远程访问默认项 —— 在把机器接入网络之前请先读
+>
+> NCZ-OS 默认启用了多条远程访问通路，**包括 telnet（23 端口，明文，root）**、
+> 2323 端口上的应急 root 控制台、允许口令认证与 root 登录的 SSH，以及一个会在你的
+> 局域网上**占用独立 IP** 的恢复容器。
+>
+> 它们的存在是为了给"经常更换内核与 GPU 驱动、且往往没有可用串口控制台的无头板卡"
+> 提供锁死后的救援通路。**这是开发硬件上的取舍，不是安全姿态。** 在共享的、不可信的
+> 或直连互联网的网络上，你应该关掉它们。
+>
+> **→ [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)** —— 究竟启用了什么、为什么，
+> 以及如何逐项关闭。
+
 ### 这个项目为什么存在，又为什么这样构建
 
 简短版本：NCZ-OS 面向的是那些 **GPU、VPU、NPU 才是重点**的 ARM 系统——它不是"板级
