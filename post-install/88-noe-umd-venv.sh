@@ -108,10 +108,52 @@ echo "[88] venv: $VENV ($("$VENV/bin/python" --version 2>&1))"
 # NOE_Engine imports numpy at module scope but does not declare it, so a venv
 # built only from the shipped wheels raises ModuleNotFoundError on first import.
 # pip is seeded because the deb's postinst calls pip3 (see the shim below).
-"$UV" pip install --python "$VENV/bin/python" \
-    "$WHEELDIR"/libnoe-*.whl "$WHEELDIR"/NOE_Engine-*.whl numpy pip \
-    >/dev/null 2>&1 \
-    || echo "[88] WARNING: wheel install into $VENV failed"
+#
+# RESOLVE THE WHEELS EXPLICITLY. The previous version passed
+# "$WHEELDIR"/NOE_Engine-*.whl straight to uv, and the vendor actually ships
+# the PEP-427-normalised name -- lowercase, underscore:
+#
+#     /usr/share/cix/pypi/noe_engine-3.0.0-py3-none-manylinux2014_aarch64.whl
+#
+# so that glob NEVER MATCHED. An unmatched glob is passed through literally,
+# and uv rejects the whole invocation on the one bad argument:
+#
+#     error: The wheel filename "NOE_Engine-*.whl" is invalid: Must have a Python tag
+#
+# which means libnoe, numpy AND pip were all silently skipped too -- one bad
+# glob emptied the entire venv. Measured on O6N 2026-08-18: /opt/ncz/noe-venv
+# existed, was on the right interpreter (3.12.14), and contained nothing but
+# _virtualenv.py, so the NPU embed server (89-npu-embed-server.sh runs
+# $VENV/bin/python) could never start. The `|| echo WARNING` hid it: a warning
+# in a 40-hook install log reads as noise, and nothing downstream checked.
+#
+# Accept both spellings, and require each wheel to actually resolve.
+shopt -s nullglob
+_wheels=()
+for _pat in 'libnoe-*.whl' 'noe_engine-*.whl' 'NOE_Engine-*.whl'; do
+    for _w in "$WHEELDIR"/$_pat; do _wheels+=("$_w"); done
+done
+shopt -u nullglob
+
+if [ ${#_wheels[@]} -eq 0 ]; then
+    echo "[88] WARNING: no libnoe/noe_engine wheels matched in $WHEELDIR — NPU inference will not work"
+    echo "[88]          contents: $(ls -1 "$WHEELDIR" 2>/dev/null | tr '\n' ' ')"
+else
+    echo "[88] installing ${#_wheels[@]} wheel(s) + numpy into $VENV"
+    "$UV" pip install --python "$VENV/bin/python" "${_wheels[@]}" numpy pip \
+        >/dev/null 2>&1 \
+        || echo "[88] WARNING: wheel install into $VENV failed"
+fi
+
+# VERIFY, do not assume. The bug above survived because the only evidence of
+# failure was an echo nobody read. Import what the embed server imports, and
+# say plainly whether the venv is usable.
+if "$VENV/bin/python" -c 'import numpy, NOE_Engine' >/dev/null 2>&1; then
+    echo "[88]   venv OK: NOE_Engine + numpy import cleanly"
+else
+    echo "[88]   WARNING: $VENV cannot import NOE_Engine/numpy — NPU embed server will not start"
+    "$VENV/bin/python" -c 'import numpy, NOE_Engine' 2>&1 | tail -2 | sed 's/^/[88]     /'
+fi
 
 # --- let the deb finish configuring ------------------------------------------
 # The obvious approach -- drop a pip3 shim in /usr/local/bin and let the vendor
