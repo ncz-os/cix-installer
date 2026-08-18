@@ -631,73 +631,13 @@ full reinstall.
 `ncz-update --status` reports the configured image and installed versions without
 pulling anything.
 
-## Sister projects
+## Upstream contributions
 
-- [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
-- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipe (`linux-cix-sky1-ncz_7.2.bb`) and the Cix userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer and mirrored in-repo under [`kernel-source/`](kernel-source/SOURCE.md), so no separate kernel-source repo is needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
+Work that started here and went upstream, or is staged to. None of it is
+NCZ-specific: the defects are in shared code, so the fixes belong with
+their projects rather than in a distribution patch pile.
 
-
-## Releases
-
-Current and past release notes live in **[`docs/releases/`](docs/releases/)**.
-The latest is **[2026.08.18-v12](docs/releases/2026.08.18-v12.md)**.
-
-Per-ISO history for earlier builds is archived in
-[`docs/RELEASE-HISTORY.md`](docs/RELEASE-HISTORY.md).
-
-## Acknowledgements
-
-NCZ-OS stands on work done by other people, and in two cases we now contribute
-back to it.
-
-### Singularity — Mirko Brombin and the singularityos-lab project
-
-The desktop is **[Singularity](https://github.com/singularityos-lab)**, created
-by **Mirko Brombin**. Replacing XFCE/X11 with it is the single change that made
-an accelerated desktop possible on this silicon, because Singularity is
-labwc/wlroots and reaches Mali GLES natively rather than through Xwayland.
-
-**We are now a contributor to the project**, not just a consumer of it. Work
-that originated here and went upstream or is staged for it:
-
-- **Sensors panel plugin** — hardware sensor discovery and classification for
-  Sky1, which presents five bare ACPI thermal zones (`TZB0`, `TZB1`, `TZM0`,
-  `TZM1`, `TZGT`) with no labels rather than the labelled SCMI chip other
-  platforms expose. Includes temperature-proximity matching and limit
-  provenance so a reading is attributed to the right device.
-- **Network interface widget** — enumerate **every** Ethernet port, connected
-  or not, with detected chipset and link capability (2.5 GbE and so on) rather
-  than only active connections.
-- **Layer-shell and session fixes** — surface re-creation behaviour validated
-  on real Sky1 hardware, plus a GSettings schema fix for a missing key that
-  aborted the process on startup (a missing key is a `SIGABRT`, not an
-  exception).
-- **Platform detection** — identifying CIX Sky1 by its ACPI hardware IDs
-  (`CIXH*`) rather than by DMI vendor strings, which report the board vendor
-  and not the SoC.
-
-### CIX Technology
-
-The **CIX** SDK, the Sky1 kernel patch series, and the vendor userspace
-(`libmali`, the NPU/VPU stacks) are what make this hardware programmable at
-all. Their work upstreaming Sky1 support into mainline Linux — the CIX P1
-(SKY1) SoC series — matters beyond this project: it is the difference between
-a board that needs a vendor tree forever and one that eventually just boots a
-distribution kernel.
-
-Worth saying plainly: a Chinese silicon vendor pushing its enablement upstream,
-publishing an SDK, and engaging with the community is not the default in this
-industry, and their commitment to open source has visibly improved over the
-period we have been building on it.
-
-### Jianfeng Liu (`amazingfate`)
-
-**[Jianfeng Liu](https://github.com/amazingfate)**, Armbian maintainer, whose
-patches and packaging work across ARM platforms — and on Sky1 specifically —
-saved this project a great deal of independent rediscovery. If you have run
-Armbian on an ARM SBC in the last few years, you have used his work.
-
-### Browser and codec work
+### Browser and codec: hardware video decode
 
 Getting hardware video decode working in a browser on this silicon took six
 patches to the CIX VA-API driver, plus patches to FFmpeg, Firefox and Chromium.
@@ -720,11 +660,43 @@ just the fix:
   — standalone C reproducers, so a driver author can confirm each defect
   without building a browser.
 
-### And Rachel
+### Singularity desktop
 
-My wife, who has put up with this hobby — the boards on the kitchen table, the
-fan noise, the "just one more build" at two in the morning — since the day it
-started. None of the above happens without that patience.
+- **Sensors panel plugin** — hardware sensor discovery and classification for
+  Sky1, which presents five bare ACPI thermal zones (`TZB0`, `TZB1`, `TZM0`,
+  `TZM1`, `TZGT`) with no labels rather than the labelled SCMI chip other
+  platforms expose. Includes temperature-proximity matching and limit
+  provenance so a reading is attributed to the right device.
+- **Network interface widget** — enumerate **every** Ethernet port, connected
+  or not, with detected chipset and link capability (2.5 GbE and so on) rather
+  than only active connections.
+- **Layer-shell and session fixes** — surface re-creation behaviour validated
+  on real Sky1 hardware, plus a GSettings schema fix for a missing key that
+  aborted the process on startup (a missing key is a `SIGABRT`, not an
+  exception).
+- **Platform detection** — identifying CIX Sky1 by its ACPI hardware IDs
+  (`CIXH*`) rather than by DMI vendor strings, which report the board vendor
+  and not the SoC.
+
+## Sister projects
+
+- [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
+- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipe (`linux-cix-sky1-ncz_7.2.bb`) and the Cix userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer and mirrored in-repo under [`kernel-source/`](kernel-source/SOURCE.md), so no separate kernel-source repo is needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
+
+
+## Releases
+
+Current and past release notes live in **[`docs/releases/`](docs/releases/)**.
+The latest is **[2026.08.18-v12](docs/releases/2026.08.18-v12.md)**.
+
+Per-ISO history for earlier builds is archived in
+[`docs/RELEASE-HISTORY.md`](docs/RELEASE-HISTORY.md).
+
+## Acknowledgements
+
+NCZ-OS is assembled almost entirely out of other people's work. What
+follows is roughly the order that work is stacked in, from the kernel
+upward.
 
 ### Linus Torvalds and the kernel community
 
@@ -765,6 +737,38 @@ Yocto, along with much of the surrounding ecosystem this distribution depends
 on. That infrastructure is easy to take for granted precisely because it works;
 a project this size could not carry it alone.
 
+### CIX Technology
+
+The **CIX** SDK, the Sky1 kernel patch series, and the vendor userspace
+(`libmali`, the NPU/VPU stacks) are what make this hardware programmable at
+all. Their work upstreaming Sky1 support into mainline Linux — the CIX P1
+(SKY1) SoC series — matters beyond this project: it is the difference between
+a board that needs a vendor tree forever and one that eventually just boots a
+distribution kernel.
+
+Worth saying plainly: a Chinese silicon vendor pushing its enablement upstream,
+publishing an SDK, and engaging with the community is not the default in this
+industry, and their commitment to open source has visibly improved over the
+period we have been building on it.
+
+### Jianfeng Liu (`amazingfate`)
+
+**[Jianfeng Liu](https://github.com/amazingfate)**, Armbian maintainer, whose
+patches and packaging work across ARM platforms — and on Sky1 specifically —
+saved this project a great deal of independent rediscovery. If you have run
+Armbian on an ARM SBC in the last few years, you have used his work.
+
+### Singularity — Mirko Brombin and the singularityos-lab project
+
+The desktop is **[Singularity](https://github.com/singularityos-lab)**, created
+by **Mirko Brombin**. Replacing XFCE/X11 with it is the single change that made
+an accelerated desktop possible on this silicon, because Singularity is
+labwc/wlroots and reaches Mali GLES natively rather than through Xwayland.
+
+Mirko has also taken changes back the other way. Those are listed under
+[Upstream contributions](#upstream-contributions) rather than here, since they
+are our work rather than a debt we owe.
+
 ### Also
 
 - **Radxa** — the Orion O6 and O6N, our primary development and validation
@@ -774,6 +778,12 @@ a project this size could not carry it alone.
   26.7 is built on Forky.
 - **Mesa, wlroots and labwc** — the open graphics and compositor stack the
   Panthor path depends on.
+
+### And Rachel
+
+My wife, who has put up with this hobby — the boards on the kitchen table, the
+fan noise, the "just one more build" at two in the morning — since the day it
+started. None of the above happens without that patience.
 
 ## Build infrastructure & partners
 

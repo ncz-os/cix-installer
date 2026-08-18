@@ -152,7 +152,12 @@ sudo apt install ncz-model-nomic-embed   # 768 维，默认
 对应源码见 [`kernel-source/`](kernel-source/SOURCE.md)，其中包含实际用于构建所发布
 二进制的展开 `.config`。
 
-## 浏览器与编解码工作
+## 上游贡献
+
+以下工作起源于本项目，已进入上游或正准备进入上游。它们都不是 NCZ 专有的：
+缺陷位于共享代码之中，因此修复应当回到各自的项目，而不是堆在发行版的补丁堆里。
+
+### 浏览器与编解码：硬件视频解码
 
 要让浏览器在这块硅片上真正用上硬件视频解码，需要给 CIX VA-API 驱动打六个补丁，另外还要
 给 FFmpeg、Firefox 和 Chromium 打补丁。四个底层缺陷**全部是静默失败**——没有任何组件
@@ -170,30 +175,23 @@ sudo apt install ncz-model-nomic-embed   # 768 维，默认
 - **[cix-vaapi-repro/](docs/upstream-patches/cix-vaapi-repro/)** —— 独立的 C 复现程序，
   让驱动作者不必构建浏览器就能确认每一个缺陷。
 
+
+### Singularity 桌面
+
+- **传感器面板插件** —— 面向 Sky1 的硬件传感器发现与分类。该平台呈现的是五个
+  无标签的 ACPI 热区（`TZB0`、`TZB1`、`TZM0`、`TZM1`、`TZGT`），而不是其他平台
+  上那块带标签的 SCMI 芯片。包含温度邻近匹配与限值来源标注，使每个读数都能被
+  归到正确的设备。
+- **网络接口组件** —— 枚举**每一个**以太网口（无论是否已连接），并给出检测到的
+  芯片组与链路能力（如 2.5 GbE），而不是只列出活动连接。
+- **Layer-shell 与会话修复** —— 在真实 Sky1 硬件上验证过的表面重建行为，以及
+  一处 GSettings schema 修复：缺失的键会让进程 `SIGABRT`，而不是抛出异常。
+- **平台识别** —— 通过 ACPI 硬件 ID（`CIXH*`）识别 CIX Sky1，而不是依赖 DMI
+  厂商字符串——后者报告的是板卡厂商，而非 SoC。
+
 ## 致谢
 
-NCZ-OS 建立在他人的工作之上，其中两处我们现在也在回馈。
-
-**Singularity —— Mirko Brombin 与 singularityos-lab 项目。** 桌面是
-[Singularity](https://github.com/singularityos-lab)，由 **Mirko Brombin** 创建。
-用它替换 XFCE/X11 是让这块硅片上出现真正加速桌面的关键一步，因为 Singularity 基于
-labwc/wlroots，能原生抵达 Mali GLES，而不必绕道 Xwayland。**我们现在是该项目的贡献者**，
-而不只是使用者：传感器面板插件（含 Sky1 那五个无标签 ACPI 热区的分类）、枚举**每一个**
-以太网口并给出芯片组与链路能力的网络组件、在真实硬件上验证的 layer-shell 与会话修复，
-以及一处 GSettings schema 修复（缺失的键会让进程 `SIGABRT`，而不是抛异常）。
-
-**CIX Technology。** CIX 的 SDK、Sky1 内核补丁系列与厂商用户态（`libmali`、NPU/VPU 栈）
-是这块硬件能被编程的前提。他们把 Sky1 支持推向 Linux 主线的工作，意义超出本项目：这是
-"一块永远需要厂商树的板子"与"一块最终能直接启动发行版内核的板子"之间的区别。有一点值得
-直说：一家中国芯片厂商把使能工作推向上游、公开 SDK 并与社区互动，在这个行业里并非默认
-选项，而在我们基于它构建的这段时间里，他们对开源的投入是肉眼可见地在改善。
-
-**刘剑锋（[Jianfeng Liu](https://github.com/amazingfate)，`amazingfate`）。** Armbian
-维护者，其跨 ARM 平台、以及具体针对 Sky1 的补丁与打包工作，为本项目省下了大量重复摸索。
-如果你近几年在 ARM SBC 上跑过 Armbian，你就用过他的成果。
-
-**还有 Rachel。** 我的妻子。从这个爱好开始的第一天起，她就一直容忍着它——摊在餐桌上的
-板卡、风扇的噪音、凌晨两点那句"再构建一次就好"。没有那份耐心，上面这一切都不会发生。
+NCZ-OS 几乎完全建立在他人的工作之上。下面大致按这些工作自内核向上堆叠的顺序排列。
 
 **Linus Torvalds 与内核社区。** 先说最显而易见的一笔：没有内核，这一切都不存在。这里的
 Sky1 使能不过是 176 个补丁，叠在三十年间数千人的工作之上；而一组厂商补丁系列**能够**
@@ -223,10 +221,31 @@ to document their patches as such"*（真正在灌水的人，根本不会把补
 所依赖的大部分周边生态。这类基础设施之所以容易被视为理所当然，恰恰是因为它一直在正常
 运转；这种规模的项目不可能独自扛起它。
 
+**CIX Technology。** CIX 的 SDK、Sky1 内核补丁系列与厂商用户态（`libmali`、NPU/VPU 栈）
+是这块硬件能被编程的前提。他们把 Sky1 支持推向 Linux 主线的工作，意义超出本项目：这是
+"一块永远需要厂商树的板子"与"一块最终能直接启动发行版内核的板子"之间的区别。有一点值得
+直说：一家中国芯片厂商把使能工作推向上游、公开 SDK 并与社区互动，在这个行业里并非默认
+选项，而在我们基于它构建的这段时间里，他们对开源的投入是肉眼可见地在改善。
+
+**刘剑锋（[Jianfeng Liu](https://github.com/amazingfate)，`amazingfate`）。** Armbian
+维护者，其跨 ARM 平台、以及具体针对 Sky1 的补丁与打包工作，为本项目省下了大量重复摸索。
+如果你近几年在 ARM SBC 上跑过 Armbian，你就用过他的成果。
+
+**Singularity —— Mirko Brombin 与 singularityos-lab 项目。** 桌面是
+[Singularity](https://github.com/singularityos-lab)，由 **Mirko Brombin** 创建。
+用它替换 XFCE/X11 是让这块硅片上出现真正加速桌面的关键一步，因为 Singularity 基于
+labwc/wlroots，能原生抵达 Mali GLES，而不必绕道 Xwayland。
+
+Mirko 也接纳了反向流动的改动。那些属于我们的工作，因此列在
+[上游贡献](#上游贡献)一节，而不是放在这里。
+
 **此外**：**Radxa**（Orion O6 与 O6N，我们的主力开发与验证平台）、**Minisforum**
 （MS-R1，本项目起步的那块板）、**Debian**（把 ARM 当作一等架构，这正是 26.7 建立在
 Forky 上的原因），以及 **Mesa、wlroots 与 labwc**（Panthor 路径所依赖的开源图形与
 合成器栈）。
+
+**还有 Rachel。** 我的妻子。从这个爱好开始的第一天起，她就一直容忍着它——摊在餐桌上的
+板卡、风扇的噪音、凌晨两点那句"再构建一次就好"。没有那份耐心，上面这一切都不会发生。
 
 ---
 
