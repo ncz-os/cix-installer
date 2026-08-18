@@ -134,7 +134,7 @@ NPU/GPU/VPU may not initialize, or the installer may need board-specific work.
 > alongside it and selectable. Both are blacklisted in
 > `/etc/modprobe.d/ncz-gpu-drivers.conf` so neither binds by accident; switch
 > with `ncz-gpu-select`. See
-> [7.2 (Mali) GPU driver notes](#72-mali-gpu-driver-notes).
+> [7.2 (Mali) GPU driver notes](#gpu-drivers-and-boot-options).
 
 Sky1 boots via **ACPI, not a device tree** — `/sys/firmware/devicetree/base`
 is empty on both the MS-R1 and (per operator reports) Orion O6. There is no
@@ -330,7 +330,7 @@ The ISO also ships:
   NemoClaw templates (staged only — none active by default)
 - Native KMS boot splash (`singularity-boot-splash`, custom NCZ logo/loading
   bar) — Plymouth is purged entirely; see
-  [Why we moved off X/XFCE](#why-we-moved-off-xxfce-to-singularity)
+  [Why we moved off X/XFCE](docs/HOW-DID-WE-GET-HERE.md#3-the-desktop-xfce-on-x11-to-singularity-on-wayland)
 
 So the install is offline-capable for the Cix layers and **stages** the agent
 quadlets + OCI images without activating any of them; every agent (including

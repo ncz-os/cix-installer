@@ -147,7 +147,7 @@ maps to this slot). It is an EOL kernel carried only until 7.2 completes its
 release process. The NCZRESCUE partition boots that same legacy kernel with
 the GPU/NPU/VPU stack blacklisted. See the
 kernel-tiering callout at the top of this README and
-[Positioning](#ncz-os-is-not-a-stable-distro-by-design) for why this is a
+[Positioning](../README.md) for why this is a
 deliberate three-way split rather than a single "the kernel."
 
 The desktop is **Singularity** (labwc/wlroots, native Wayland) — X11/XFCE is
@@ -155,8 +155,8 @@ fully removed, not an option. The default GPU driver is the out-of-tree CIX
 **`mali_kbase`** blob DDK (hardware GLES/EGL/OpenCL via `libmali`); the
 in-tree `panthor` + Mesa/PanVK Vulkan path is staged as a non-default
 follow-up boot entry pending a GPU power-domain fix. See
-[Driver support matrix](#driver-support-matrix--ms-r1--o6--o6n) and
-[7.2 (Mali) GPU driver notes](#72-mali-gpu-driver-notes) above.
+[Driver support matrix](../README.md#driver-support-matrix--ms-r1--o6--o6n) and
+[7.2 (Mali) GPU driver notes](../README.md#gpu-drivers-and-boot-options) above.
 
 **Upgrade kernels & drivers with apt — no reinstall**
 - Kernels + CIX userspace + Singularity Desktop (compiled/mirrored):
@@ -165,7 +165,7 @@ follow-up boot entry pending a GPU power-domain fix. See
   mirror URL) — `apt upgrade` / `ncz-update` pulls new
   `linux-image-cixmini-{lts,edge}` and the mirrored CIX proprietary
   packages from whichever source resolves. See
-  [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources)
+  [OTA channel](../README.md#ota-channel-kernel--driver-updates--persistent-apt-sources)
   above for the dual-source rationale. No Codeberg apt source exists for
   this.
 - Kernel source + Yocto recipes: GitLab

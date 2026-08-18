@@ -48,7 +48,7 @@ driver behaviour changes between vendor SDK revisions.
 - [VPU — Linlon / amvx (DKMS, working)](#vpu--linlon--amvx-dkms-working)
   - [Encoding requires an explicit `-pix_fmt`](#-encoding-requires-an-explicit--pix_fmt)
 - [NPU — ArmChina Zhouyi V3](#npu--armchina-zhouyi-v3)
-  - [Out-of-tree (DKMS) — DO NOT ENABLE](#out-of-tree-dkms--do-not-enable)
+  - [Out-of-tree (DKMS) — 2026-08-04 sources, superseded](#out-of-tree-dkms--2026-08-04-sources-superseded)
   - [NPU userspace](#npu-userspace)
 - [RTC — `rtc-efi`](#rtc--rtc-efi-working)
 - [Boot time — `rootdelay=90`](#boot-time--rootdelay90)
