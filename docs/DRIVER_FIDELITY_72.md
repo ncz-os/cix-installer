@@ -1,11 +1,12 @@
-# CIX 7.2 Driver Fidelity — Validated State (Orion O6N)
+# Driver fidelity — CIX Sky1 (Radxa Orion O6N)
 
-Companion to `DRIVER_FIDELITY_7012.md`, which covers the 7.0.12 legacy channel.
-This one covers the **7.2 primary channel** and records what has actually been
-*measured* on hardware, not what merely enumerates.
+This document records the measured state of each accelerator on the shipping
+kernel, `7.2.0-sky1-ncz`. NCZ-OS 26.7 ships one kernel; the earlier 7.0.12
+channel has been removed from the image. `DRIVER_FIDELITY_7012.md` is retained
+as history for boards that received it.
 
-All results below were taken on **Radxa Orion O6N**, kernel
-**7.2.0-rc6-sky1-ncz**, 2026-08-04.
+Measurements were taken on **Radxa Orion O6N**. Each result is dated, because
+driver behaviour changes between vendor SDK revisions.
 
 > **The bar is function, not presence.** A device node, a clean probe and a
 > printed banner are not evidence that an accelerator works. The NPU section
@@ -13,29 +14,32 @@ All results below were taken on **Radxa Orion O6N**, kernel
 > ZHOUYI V3 banner printed, and the hardware could not run a single inference.
 > Every claim here is backed by a workload.
 
-> **CORRECTION (2026-08-17, operator):** the "DO NOT ENABLE" verdict on the
-> out-of-tree NPU driver below is **STALE**. It was measured against the
-> vendor's `cix-npu-driver_2.0.1` on 2026-08-04. The board now ships the
-> **26Q2-SDK DKMS driver** (`cix-npu-driver-dkms 6.2.0-cixdeb13-260714`,
-> source `npu-kmd-mainline`) — a *different, newer* driver, not the one that
-> panicked. It is the intended path (matches GPU/VPU, which already migrated
-> off in-tree); the in-tree `armchina_npu` driver this doc calls "working" is
-> the OLDER of the two and is what's being migrated AWAY from, not the
-> fallback to revert to. `CONFIG_ARMCHINA_NPU=n` on the 2026-08-17 v5 build is
-> correct, current direction, not a regression.
+> **Status (2026-08-18): the NPU works.** The board ships the 26Q2-SDK DKMS
+> driver `aipu/6.2.0` (`cix-npu-driver-dkms`, source `npu-kmd-mainline`).
+> Inference is confirmed on both an O6N and a Minisforum MS-R1:
 >
-> The 6.2.0 DKMS driver has its own, DIFFERENT bug (context-init fails at the
-> capability-query step, before any job runs — `noe_init_context: Failed to
-> initialize adapter` / `[UMD ERR] aipu.cpp:60: query capability [fail]`,
-> `/proc/interrupts` line 56 "aipu" stays at 0). It does NOT panic the kernel
-> (confirmed — ran the failing path repeatedly on real hardware, clean exit
-> 255 every time, no oops). Under investigation as of 2026-08-17; do not
-> conflate this bug with the 2.0.1 panic below, and do not use the panic
-> evidence as a reason to avoid fixing THIS driver forward.
+> | | |
+> |---|---|
+> | model | `nomic-embed-text-v1.5_256.cix` (768-dim) |
+> | latency | 95.5 ms per 256-token chunk |
+> | interrupts | `aipu` IRQ 0 → 11,410 across the run |
+> | determinism | bit-identical across repeated runs |
 >
-> The panic details, build fixes, and boot-loop trap below remain accurate
-> *history* for the 2.0.1 driver and are worth keeping — just don't read them
-> as current guidance for the 6.2.0 driver.
+> **The earlier "query capability [fail]" fault was a userspace version
+> mismatch, not a driver defect.** `/opt/ncz/noe-venv` held libnoe 2.0.0 and
+> NOE-Engine 2.0.0 against a 6.2.0 kernel driver. An older user-mode driver
+> cannot query a newer kernel driver's capabilities, so context init failed
+> before any job was dispatched — which reads as a dead NPU. Re-syncing the
+> venv to libnoe 3.1.3 / noe_engine 3.0.0 resolved it immediately.
+>
+> Two consequences for readers of the sections below:
+>
+> * **Do not treat `CONFIG_ARMCHINA_NPU=n` as a regression.** The DKMS driver
+>   is the intended path and matches how the GPU and VPU are already shipped.
+> * **Do not use the 2.0.1 panic evidence as a reason to avoid the current
+>   driver.** It documents a different, older driver. It remains useful as
+>   evidence that an out-of-tree NPU driver *can* fail badly, and the
+>   boot-loop trap it describes is real.
 
 ## Contents
 
@@ -172,7 +176,7 @@ performance lives — but nothing in the ffmpeg path can produce AFBC buffers.
 
 ## NPU — ArmChina Zhouyi V3
 
-### In-tree (`armchina_npu`) — the only one that works
+### In-tree (`armchina_npu`) — superseded by the DKMS driver
 
 ```
 62.6–62.8 inf/s, 15.9 ms avg
@@ -180,7 +184,9 @@ model /opt/ncz/models/bge-small-zh-v1.5_256.cix, 3 inputs / 2 outputs
 6 memory regions initialised, ASIDs 0–5 programmed
 ```
 
-`CONFIG_ARMCHINA_NPU=m` must stay. See below.
+These figures were taken in 2026-08-04 against the in-tree driver. The
+shipping configuration is now `CONFIG_ARMCHINA_NPU=n` with the DKMS driver
+providing `/dev/aipu`; see the status note at the top of this document.
 
 ### Out-of-tree (DKMS) — 2026-08-04 sources, superseded
 
@@ -308,10 +314,10 @@ at `0x04040000` that is not among the buses exposed to Linux. UEFI runtime
 `EFI_RT_SUPPORTED_TIME_SERVICES`, so `drivers/firmware/efi/efi.c` never
 registers the `rtc-efi` platform device and the board boots with no RTC at all.
 
-That flag is an **MS-R1** firmware workaround and is now gated on the board via
-`ncz_efi_rt_workaround()` (DMI `product_name`/`sys_vendor`), not on the kernel
-channel — every Sky1 board runs both 7.2 and 7.0.12, so a per-channel split
-would be wrong in both directions. Verified on O6N under **both** kernels.
+That flag is an **MS-R1** firmware workaround. It is gated on the board via
+`ncz_efi_rt_workaround()` (DMI `product_name`/`sys_vendor`) rather than on the
+kernel, which is the correct axis: the workaround tracks firmware behaviour,
+not kernel version. Verified on O6N.
 
 ---
 
