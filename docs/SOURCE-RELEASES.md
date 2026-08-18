@@ -4,6 +4,8 @@
 
 # Source releases — what we build, and where its source is
 
+> **🌐 Language:** English · [简体中文](SOURCE-RELEASES.zh-CN.md)
+
 NCZ-OS redistributes GPL/LGPL software and builds several components from
 modified source. This page is the authoritative index of **everything in the
 shipped image that we compiled ourselves**, with the source location for each.

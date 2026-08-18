@@ -4,6 +4,8 @@
 
 # How did we get here
 
+> **🌐 Language:** English · [简体中文](HOW-DID-WE-GET-HERE.zh-CN.md)
+
 NCZ-OS 26.7 "Maximilian" looks little like the release before it. Three
 changes account for nearly all of the difference: the kernel moved from 7.0.12
 to 7.2, the base distribution moved from Ubuntu to Debian Forky, and the
