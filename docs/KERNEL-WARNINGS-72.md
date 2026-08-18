@@ -1,4 +1,7 @@
-# Kernel warning audit — 7.2.0-rc7-sky1-ncz (O6N, 2026-08-16)
+# Kernel warning audit — 7.2 (O6N, 2026-08-16)
+
+> Gathered on a `7.2.0-rc7-sky1-ncz` build. The shipping kernel reports
+> `7.2.0-sky1-ncz` — same series, release localversion.
 
 Every warning, error and stuck probe the shipped kernel produces on a clean
 boot, with evidence and where the fix belongs. Gathered on O6N booted

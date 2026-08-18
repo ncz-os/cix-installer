@@ -1,7 +1,13 @@
-# ncz-os Repository Organization & Multi-Variant Migration Plan
+# ncz-os repository organisation
 
-> Status: **PLAN (approved 2026-06-18)** — execution is phased; this doc lands
-> first (doc-first), then the moves happen step by step.
+> **Status: historical plan (approved 2026-06-18), partially superseded.**
+>
+> The repository-organisation parts of this plan still describe how the
+> `ncz-os` group is laid out. **The multi-variant portion is obsolete.**
+> NCZ-OS ships one build; the Reinhardt desktop / Magnetar server variant
+> split was retired on 2026-08-11, and console-only operation is now a boot
+> entry (`systemd.unit=multi-user.target`) on the same image rather than a
+> separate squashfs or ISO.
 >
 > Goal: restructure the `ncz-os` org so the NCZ / nclawzero distribution can
 > support **multiple hardware variants** (Cix Sky1 today; Raspberry Pi; NVIDIA

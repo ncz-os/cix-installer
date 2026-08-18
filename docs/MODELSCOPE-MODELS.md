@@ -1,7 +1,18 @@
 # Pulling `.cix` NPU models from the Cix ai_model_hub (ModelScope)
 
-The Cix Zhouyi NPU runs **`.cix`** models — AOT-compiled INT8 graphs produced by
-the (closed) Compass NN compiler. The compiler is not public, so for most
+The Cix Zhouyi NPU runs **`.cix`** models — graphs compiled ahead of time by
+the Compass NN compiler.
+
+> **We can compile our own.** The compiler ships as `cixbuilder-*.whl` in the
+> CIX NOE SDK (`cix_noe_sdk_26_q2_release`). It is **x86-only and CPython
+> 3.10-only**, so it runs on a build host, not on Sky1. Quantisation is
+> configurable — the vendor `bge_small_zh` recipe uses 16-bit weights and
+> activations with LayerNorm and Softmax held at float16, not INT8.
+> Static-graph encoders (embedding models) compile cleanly; autoregressive
+> LLMs do not, because the compiler cannot express a KV-cache or
+> variable-length decode.
+
+For most
 models you **download the prebuilt `.cix`** from the Cix model hub rather than
 compile it. This doc covers where the hub lives, how to pull a single model or
 the whole repo, and how to add a pulled model to the NCZ distro.
