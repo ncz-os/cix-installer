@@ -438,6 +438,73 @@ ncz_install_mnemos() {
 # has neither. This is checked FIRST, before anything is downloaded, because
 # otherwise the failure surfaces as an opaque LXC error several minutes into a
 # ~1 GB download.
+# The launcher the Waydroid package ships is NOT usable. Its Waydroid.desktop
+# carries `Exec=waydroid`, and bare `waydroid` takes no action: measured on O6N
+# it printed nothing and had not exited after two minutes. Clicking the shipped
+# icon therefore hangs silently, which reads as "Android is broken".
+#
+# So ship our own entry that runs the command that actually starts Android, and
+# hide theirs rather than editing it -- the package owns that file and would
+# overwrite an edit on its next upgrade, whereas a NoDisplay flag on a file we
+# do not own is the same mechanism 59-desktop-curate.sh already uses for base
+# system cruft.
+ncz_android_launcher() {
+    local appdir=/usr/share/applications
+    local ours="$appdir/ncz-waydroid.desktop"
+    local theirs="$appdir/Waydroid.desktop"
+
+    install -d "$appdir"
+    cat > "$ours" <<'LAUNCH'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Android
+GenericName=Android apps (Waydroid)
+Comment=Run Android apps in a container, on the host GPU
+Exec=waydroid show-full-ui
+Icon=waydroid
+Terminal=false
+StartupNotify=true
+Categories=Utility;
+Keywords=android;waydroid;apps;play;
+Actions=stop;
+
+[Desktop Action stop]
+Name=Stop Android
+Exec=waydroid session stop
+Icon=waydroid
+LAUNCH
+    chmod 0644 "$ours"
+    echo "[ncz] launcher -> $ours (Exec=waydroid show-full-ui)"
+
+    # Hide the package's own entry, whose Exec hangs.
+    if [ -f "$theirs" ]; then
+        if grep -q '^NoDisplay=' "$theirs"; then
+            sed -i 's/^NoDisplay=.*/NoDisplay=true/' "$theirs"
+        else
+            sed -i '0,/^\[Desktop Entry\]/s//[Desktop Entry]\nNoDisplay=true/' "$theirs"
+        fi
+        echo "[ncz] hid $theirs (its Exec=waydroid does nothing and hangs)"
+    fi
+
+    # Desktop shortcut: /etc/skel for users created later, plus every existing
+    # human home, because this subcommand runs on a LIVE system where /etc/skel
+    # has already been copied and would otherwise reach nobody.
+    local d
+    for d in /etc/skel/Desktop /home/*/Desktop; do
+        [ -d "$d" ] || continue
+        cp "$ours" "$d/Android.desktop" 2>/dev/null || continue
+        chmod 0755 "$d/Android.desktop" 2>/dev/null || true
+        case "$d" in
+            /home/*) chown "$(stat -c %u:%g "${d%/Desktop}")" "$d/Android.desktop" 2>/dev/null || true ;;
+        esac
+        echo "[ncz] launcher -> $d/Android.desktop"
+    done
+
+    update-desktop-database "$appdir" 2>/dev/null || true
+    gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
+}
+
 ncz_install_android() {
     if [ "$(id -u)" -ne 0 ]; then
         echo "ncz install android: run as root (sudo ncz install android)" >&2
@@ -459,28 +526,62 @@ ncz_install_android() {
     fi
     echo "[ncz] binder present"
 
-    # Prerequisites for adding their repo.
     local remv
-    remv=$(apt-get install -y -s curl ca-certificates 2>/dev/null | grep -c '^Remv' || true)
-    remv=$(printf '%s' "$remv" | head -1)
-    if [ "${remv:-1}" != "0" ]; then
-        echo "ncz install android: refusing — apt wants to REMOVE ${remv} package(s)" >&2
-        exit 1
-    fi
-    apt-get install -y curl ca-certificates >/dev/null || {
-        echo "ncz install android: could not install curl/ca-certificates" >&2; exit 1; }
 
-    # Waydroid's official repo installer. This pipes a remote script into a
-    # root shell, which is the mechanism the project publishes; it is called
-    # out here rather than performed quietly, because a reader deserves to
-    # know that is what "the official install" means.
-    echo "[ncz] adding the Waydroid repository (runs https://repo.waydro.id as root)"
-    if ! curl -s https://repo.waydro.id | bash; then
-        echo "ncz install android: adding the Waydroid repository failed" >&2
-        exit 1
+    # WHERE WAYDROID COMES FROM: the DISTRIBUTION first, their repo only as a
+    # fallback.
+    #
+    # This used to go straight to repo.waydro.id. That broke outright on
+    # NCZ-OS (measured on O6N 2026-08-18):
+    #
+    #     [!] Distribution "forky" is not supported
+    #
+    # Their installer matches the codename against a fixed whitelist which ends
+    # at trixie/sid; forky, which is what 26.7 is built on, is not in it, so the
+    # script exits and takes `ncz install android` down with it. It will break
+    # again on the next Debian codename, so codename-matching cannot be the
+    # primary path.
+    #
+    # Debian forky already carries waydroid 1.6.3+ds-2 with lxc and
+    # python3-gbinder, and that is what actually ran Android 13 here. Prefer it:
+    # it needs no third-party key, no `curl | bash` as root, and it tracks the
+    # release we are on. The original concern -- that a distro package can lag
+    # the OTA images -- is real but is a version-skew risk, not the hard failure
+    # that hardcoding their whitelist guarantees.
+    local waydroid_candidate
+    waydroid_candidate=$(apt-cache policy waydroid 2>/dev/null \
+        | sed -n 's/^[[:space:]]*Candidate:[[:space:]]*//p' | head -1)
+
+    if [ -n "$waydroid_candidate" ] && [ "$waydroid_candidate" != "(none)" ]; then
+        echo "[ncz] installing waydroid $waydroid_candidate from the distribution"
+    else
+        echo "[ncz] no distro waydroid package — falling back to the Waydroid repository"
+
+        remv=$(apt-get install -y -s curl ca-certificates 2>/dev/null | grep -c '^Remv' || true)
+        remv=$(printf '%s' "$remv" | head -1)
+        if [ "${remv:-1}" != "0" ]; then
+            echo "ncz install android: refusing — apt wants to REMOVE ${remv} package(s)" >&2
+            exit 1
+        fi
+        apt-get install -y curl ca-certificates >/dev/null || {
+            echo "ncz install android: could not install curl/ca-certificates" >&2; exit 1; }
+
+        # Their official installer. This pipes a remote script into a root
+        # shell, which is the mechanism the project publishes; it is called out
+        # here rather than performed quietly, because a reader deserves to know
+        # that is what "the official install" means.
+        echo "[ncz] adding the Waydroid repository (runs https://repo.waydro.id as root)"
+        if ! curl -s https://repo.waydro.id | bash; then
+            echo "ncz install android: adding the Waydroid repository failed" >&2
+            echo >&2
+            echo "  Their installer only accepts a fixed list of codenames. If it said" >&2
+            echo "  'Distribution \"...\" is not supported', this release is newer than" >&2
+            echo "  that list and there is no distro package to fall back to." >&2
+            exit 1
+        fi
+        apt-get update -qq || true
     fi
 
-    apt-get update -qq || true
     remv=$(apt-get install -y -s waydroid 2>/dev/null | grep -c '^Remv' || true)
     remv=$(printf '%s' "$remv" | head -1)
     if [ "${remv:-1}" != "0" ]; then
@@ -514,6 +615,8 @@ ncz_install_android() {
 
     systemctl enable --now waydroid-container.service 2>/dev/null || \
         echo "[ncz] note: could not enable waydroid-container.service"
+
+    ncz_android_launcher
 
     cat <<'DONE'
 
