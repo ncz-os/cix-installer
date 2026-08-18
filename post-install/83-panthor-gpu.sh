@@ -154,12 +154,51 @@ fi
 # wedges the board in the TF-A "IDM: GPU secure access" flood
 # (metal-confirmed on O6N, 2026-07-31).
 PREBUILT="${SRC}/${KVER_NEXT}/panthor.ko"
-if [ -n "$KVER_NEXT" ] && [ ! -s "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko" ] && [ -s "$PREBUILT" ]; then
+
+# Does updates/dkms already hold a panthor module, UNDER ANY COMPRESSION?
+#
+# This gate used to test only the bare "panthor.ko" name. DKMS on forky
+# installs the module COMPRESSED -- updates/dkms/panthor.ko.xz -- so the test
+# saw "nothing there" even on a completely successful DKMS build, and the
+# prebuilt fallback below overwrote nothing but happily added a SECOND,
+# uncompressed copy beside it.
+#
+# MEASURED on O6N 2026-08-18, both files present in the same directory:
+#   -rw-r--r-- 385272  /lib/modules/7.2.0-sky1-ncz/updates/dkms/panthor.ko
+#   -rw-r--r--  82680  /lib/modules/7.2.0-sky1-ncz/updates/dkms/panthor.ko.xz
+# which is what made `dkms status` report panthor-cix/7.2.0 as
+# "Differences between built and installed modules" -- DKMS compares its own
+# .ko.xz against a directory that also contains a foreign .ko it never wrote.
+#
+# Harmless in the shipping configuration only because BOTH GPU drivers are
+# blacklisted in /etc/modprobe.d/ncz-gpu-drivers.conf and mali is the bound
+# driver. It would stop being harmless the moment someone selects panthor via
+# ncz-gpu-select, since which of the two depmod prefers is not something this
+# script should be leaving to chance.
+_have_panthor_mod() {
+    local d="/usr/lib/modules/$KVER_NEXT/updates/dkms"
+    [ -s "$d/panthor.ko" ] || [ -s "$d/panthor.ko.xz" ] \
+        || [ -s "$d/panthor.ko.zst" ] || [ -s "$d/panthor.ko.gz" ]
+}
+
+if [ -n "$KVER_NEXT" ] && ! _have_panthor_mod && [ -s "$PREBUILT" ]; then
     install -D -m 0644 "$PREBUILT" "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko"
     depmod -a "$KVER_NEXT" 2>/dev/null || true
     echo "[83] installed vermagic-matched prebuilt Panthor for $KVER_NEXT"
-elif [ -n "$KVER_NEXT" ] && [ ! -s "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko" ]; then
+elif [ -n "$KVER_NEXT" ] && ! _have_panthor_mod; then
     echo "[83] WARN: no DKMS-built and no prebuilt Panthor for $KVER_NEXT — in-tree module would flood-wedge Sky1; do NOT expose the Panthor boot entry"
+else
+    # Clear any uncompressed leftover from a previous install that ran the
+    # old gate, so DKMS and the module tree agree from here on.
+    _stale="/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko"
+    if [ -n "$KVER_NEXT" ] && [ -s "$_stale" ] \
+       && [ -s "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko.xz" ]; then
+        rm -f "$_stale"
+        depmod -a "$KVER_NEXT" 2>/dev/null || true
+        echo "[83] removed stale uncompressed panthor.ko (DKMS .ko.xz is authoritative)"
+    else
+        echo "[83] panthor module already present in updates/dkms for $KVER_NEXT"
+    fi
 fi
 
 echo "[83] panthor GPU stage done — panthor available via 'ncz-gpu-select panthor' (experimental)"
