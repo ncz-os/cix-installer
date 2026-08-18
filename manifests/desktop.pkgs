@@ -503,3 +503,23 @@ ncz-ffmpeg
 # clock breaks. Seeding it here keeps the fix OFFLINE-first like the rest of
 # this closure.
 util-linux-extra
+
+# --- accelerator + audio diagnostics ---------------------------------------
+# MEASURED on O6N 2026-08-18: a fully working desktop with no way to inspect
+# either subsystem from a shell. `aplay -l` and `v4l2-ctl --info` were the
+# first two commands reached for during hardware validation and BOTH were
+# missing, on an image whose whole point is CIX Sky1 accelerator support.
+#
+# alsa-utils is not needed for audio to FUNCTION -- PipeWire drives the
+# cix_sky1 card fine without it -- but aplay/amixer/alsamixer/speaker-test are
+# how anyone confirms that from the command line, and how a user recovers a
+# muted or misrouted card when the GUI mixer is not available.
+#
+# v4l-utils is the only way to interrogate the Linlon VPU nodes (/dev/video0
+# mvxdec, /dev/video1 mvxenc): v4l2-ctl reports the codec formats the firmware
+# actually registered, which is exactly the check that distinguishes "VPU
+# driver loaded" from "VPU driver loaded AND firmware present". cixmini
+# already had v4l2-ctl, which is why the missing .fwb set was caught there
+# first and not here.
+alsa-utils
+v4l-utils
