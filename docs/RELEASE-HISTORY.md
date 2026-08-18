@@ -30,7 +30,7 @@ below describes what was true of that specific release at the time; read
 newer entries (higher in the list) as superseding older claims about
 "current" GPU driver, apt host, or kernel-tiering state. For the current
 kernel/GPU/desktop story, see the callout at the top of this README and
-[`kernel-source/SOURCE.md`](kernel-source/SOURCE.md).
+[`kernel-source/SOURCE.md`](../kernel-source/SOURCE.md).
 
 What changed since the r147 baseline:
 
@@ -172,8 +172,8 @@ follow-up boot entry pending a GPU power-domain fix. See
   [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix), plus the 7.2
   shipping kernel's pristine base + patch series is additionally mirrored
   in-repo/on GitLab Generic Packages for GPL corresponding-source purposes —
-  see [`kernel-source/SOURCE.md`](kernel-source/SOURCE.md) and
-  [`kernel-source/linux-cix-sky1-ncz/CORRESPONDING-SOURCE.md`](kernel-source/linux-cix-sky1-ncz/CORRESPONDING-SOURCE.md).
+  see [`kernel-source/SOURCE.md`](../kernel-source/SOURCE.md) and
+  [`kernel-source/linux-cix-sky1-ncz/CORRESPONDING-SOURCE.md`](../kernel-source/linux-cix-sky1-ncz/CORRESPONDING-SOURCE.md).
 
 **Kernels:** 7.2.0-rc6-sky1-ncz (primary/default, `edge`) + 7.0.12-cix-sky1-next
 (legacy fallback, "legacy" in the rEFInd menu — EOL, carried only until 7.2
@@ -198,7 +198,7 @@ environment itself runs on the 7.0.12 ("legacy" slot) kernel.
 
 **O6N / MS-R1 driver support:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (`mali_kbase`/`libmali` on the primary 7.2 channel — GLES/EGL/OpenCL, no Vulkan yet; `panthor`/Mesa panvk+rusticl on the 7.0.12 fallback channel), VPU — all working. See the driver support matrix above for per-subsystem, per-board detail.
 
-**Reproduce:** kernels from kernel.org stable/mainline git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md), [kernel-source/SOURCE.md](kernel-source/SOURCE.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](docs/NEXT_ISO.md)).
+**Reproduce:** kernels from kernel.org stable/mainline git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](KERNEL-BUILD-YOCTO.md), [kernel-source/SOURCE.md](../kernel-source/SOURCE.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](NEXT_ISO.md)).
 
 ## Previous ISO — r195 (NCZ-OS 26.6, historical)
 
@@ -241,4 +241,4 @@ files in meta-cix), including fixes that don't exist in any vendor drop yet.
 
 **MS-R1 (cixmini) driver support (r195) — 7.0.12 / 7.2:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (Mali-G720 panthor renderD128, Mesa 26.1.3 panvk+rusticl; compositing off), VPU — all working.
 
-**Reproduce (r195):** kernels from kernel.org stable git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](docs/KERNEL-BUILD-YOCTO.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](docs/NEXT_ISO.md)). No separate kernel-source repo needed — meta-cix carries every Sky1-specific patch as a tracked file.
+**Reproduce (r195):** kernels from kernel.org stable git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](KERNEL-BUILD-YOCTO.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](NEXT_ISO.md)). No separate kernel-source repo needed — meta-cix carries every Sky1-specific patch as a tracked file.
