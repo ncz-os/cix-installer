@@ -1,10 +1,13 @@
 # Remote access and recovery — what is enabled, and how to turn it off
 
-> **Read this before putting an NCZ-OS machine on an untrusted network.**
+NCZ-OS is built for **home users, hobbyists and lab benches** — single-board
+machines on a home LAN behind a router. The defaults are set for that: several
+remote-access paths are enabled, including **telnet**, so that a board you have
+just broken is still reachable.
 
-NCZ-OS ships with several remote-access paths enabled by default, including
-**telnet**. This is a deliberate choice for the hardware this distribution
-targets, and it is the wrong default for some deployments. This page states
+On a home network behind NAT, telnet is a convenience rather than a meaningful
+exposure, and we treat it as such. **In an enterprise, on a shared network, on
+a VPS, or on anything with a routable address, turn it off.** This page says
 exactly what is enabled, why, and how to disable each part.
 
 ---
@@ -18,34 +21,39 @@ exactly what is enabled, why, and how to disable each part.
 | **ncz-failsafe** | 2323 | none by default | static busybox telnetd → root recovery shell |
 | **ncz-recovery** container | 22 *(its own IP)* | password | `systemd-nspawn`, MACVLAN — appears as a **separate host** on your LAN |
 
-### Be clear about what this means
+### What each one actually is
 
-- **Telnet is unencrypted.** Credentials and session content cross the network
-  in cleartext. Anyone who can see your traffic can read them.
+- **Telnet is unencrypted.** Credentials and session content cross the wire in
+  cleartext, so anyone who can observe your traffic can read them. On a home
+  LAN that means someone already inside your network; that is the risk you are
+  accepting, and for most home setups it is a small one.
 - **`ncz-failsafe` on :2323 is a root shell.** It exists to survive a system
-  broken badly enough that SSH cannot start, which means it deliberately does
-  not depend on the things that usually protect it.
+  broken badly enough that SSH will not start, so it deliberately depends on
+  almost nothing.
 - **The recovery container takes its own DHCP lease.** With `MACVLAN` it is a
-  second machine on your network with its own IP and its own SSH daemon. It
-  runs with `PrivateUsers=no`, so there is no user-namespace isolation between
-  it and the host.
+  second machine on your network, with its own IP and its own SSH daemon, and
+  it runs `PrivateUsers=no` so there is no user-namespace isolation from the
+  host. Worth knowing if you are counting devices on your LAN.
 
-**On a trusted, isolated lab network this is a reasonable engineering trade.
-On a shared office network, a VPS, or anything internet-facing, it is not.**
+**Rule of thumb:** home LAN behind a router — fine, leave it. Anything an
+employer, a customer, or the public internet can reach — disable it.
 
 ## Why it ships this way
 
 These boards are frequently headless, and several models have **no usable
-serial console** — on Sky1, `ttyAMA2` is the board's port, and it is not
-present on every model or reachable on every chassis. A kernel or driver
-change that breaks the display or the network stack can leave a machine with
-no way in at all, and this distribution changes kernels and GPU drivers
-often.
+serial console** — on Sky1, `ttyAMA2` is the board's port, and it is neither
+present on every model nor reachable on every chassis. A kernel or driver
+change that breaks the display or the network stack can otherwise leave a
+machine with no way in at all, and this distribution changes kernels and GPU
+drivers often.
 
-Telnet and the failsafe console exist as a lockout-recovery path of last
-resort: they depend on almost nothing, so they keep working when the parts
-that SSH depends on are broken. That is the entire justification. It is a
-development-hardware decision, not a security posture.
+Telnet and the failsafe console are the lockout path of last resort: they
+depend on almost nothing, so they keep working when the things SSH needs are
+broken. For a hobbyist with one board on a desk and no serial adapter, that is
+the difference between a five-minute fix and a reflash.
+
+It is an availability decision for home and lab hardware. It is not a security
+posture, and we do not pretend otherwise.
 
 ---
 

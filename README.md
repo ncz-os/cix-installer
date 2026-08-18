@@ -29,18 +29,18 @@ brands the system as NCZ.
 > **Latest release:** [2026.08.18-v12](docs/releases/2026.08.18-v12.md) ·
 > [Download](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
 
-> ### ⚠️ Remote access defaults — read before networking a machine
+> ### Remote access defaults
 >
-> NCZ-OS enables several remote-access paths by default, **including telnet
-> (port 23, plaintext, root)**, a failsafe root console on port 2323, SSH with
-> password auth and root login permitted, and a recovery container that takes
-> **its own IP on your LAN**.
+> NCZ-OS is built for **home users, hobbyists and lab benches**, and its
+> defaults reflect that: **telnet (port 23)**, a failsafe root console on
+> **2323**, SSH with password auth and root login, and a recovery container
+> that takes **its own IP on your LAN**. They exist so a board you have just
+> broken is still reachable — several of these machines are headless with no
+> usable serial console.
 >
-> These exist as lockout recovery for headless boards that often have no
-> usable serial console, on a distribution that changes kernels and GPU
-> drivers frequently. **They are a development-hardware trade-off, not a
-> security posture.** On a shared, untrusted, or internet-facing network you
-> should turn them off.
+> On a home LAN behind a router we do not consider this a meaningful exposure.
+> **In an enterprise, on a shared network, or on anything with a routable
+> address, turn it off** — one command, below.
 >
 > **→ [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)** — exactly what is
 > enabled, why, and how to disable each part.
