@@ -81,16 +81,43 @@ not verified before this handoff was written — do not assume either way.
 
 ## What ships today (the interim constraint)
 
-**Sky1 NPU embeddings are LOCAL-VECTOR-ONLY.** A Sky1 node embeds on its NPU,
-stores those vectors locally, and queries them with the same embedder. It must
-NOT publish those vectors to, or accept vectors from, a peer running a
-different backend. Federate content and let each node embed its own, or keep
-the Sky1 store standalone.
+**Sky1 <-> Sky1 vector federation is PERMITTED. Sky1 <-> non-Sky1 is NOT.**
 
-This is safe by construction, not by measurement — nothing compares an NPU
-vector to a q8_0 vector. It is also not a workaround being tolerated: it is
-the same invariant the fingerprint protocol will enforce automatically once it
-exists. The protocol removes the manual discipline, not the rule.
+The boundary is the backend, not the machine. Two Sky1 nodes running the same
+`.cix` graph on the same Zhouyi hardware occupy the same vector space by
+construction, so they may exchange vectors directly. A Sky1 node and any
+non-Sky1 node (llama.cpp q8_0, CUDA, CPU) do not, and must exchange CONTENT
+only, each embedding locally.
+
+This rests on the determinism measurement, not on assumption: the NPU returned
+BIT-IDENTICAL output across 5 repeats and across interleaved inputs, with zero
+delta and no state leakage. A fixed-point static graph has no accumulation
+order to vary.
+
+Conditions for the Sky1 <-> Sky1 path — all must hold, and they are exactly the
+fingerprint fields:
+
+* identical `.cix` artifact (compare sha256 — a RECOMPILE may not be
+  bit-identical even from the same ONNX, so pin the built file, not the recipe)
+* identical tokenizer, pooling, normalization, seq_len
+* identical chunker version and parameters
+
+### UNVERIFIED: cross-board determinism
+
+Determinism was proven WITHIN a single board (O6N). It was NOT possible to
+verify that a SECOND Sky1 board produces byte-identical vectors from the same
+graph, because cixmini (.66) cannot load the graph at all — "query capability
+[fail]", the stale v5.11.0 `cix-npu-kmd` still winning the aipu.ko file there.
+
+Fixed-point execution of a static graph should be board-independent, and the
+graph targets a fixed `X2_1204MP3`, so identical output is EXPECTED. But
+expected is not measured. **Before enabling Sky1 <-> Sky1 vector federation in
+production, run the same text through two different Sky1 boards and compare
+bit-for-bit.** The harness to do it is `/tmp/npu_determinism.py`; it needs only
+a second board with the correct aipu/6.2.0 driver (v10 installs it).
+
+If that check fails, fall back to content-only replication everywhere — which
+is safe by construction, since nothing then compares vectors across machines.
 
 ## A live bug this uncovered — pooling is per-model
 
