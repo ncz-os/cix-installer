@@ -119,8 +119,36 @@ XMODIFIERS=@im=fcitx
 ENVEOF
     chmod 0644 /etc/environment.d/60-input-method.conf
 
-    # Autostart for any XDG-compliant session, which is how the Singularity
-    # session starts user services.
+    # fcitx5 must be started by systemd --user, not XDG autostart.
+    #
+    # MEASURED on O6N 2026-08-18: nothing in this session processes
+    # /etc/xdg/autostart -- no dex, no xdg-autostart-generator, no session
+    # manager. An autostart .desktop here is inert. The wallpaper rotator was
+    # installed correctly and never ran once for exactly this reason.
+    install -d /usr/lib/systemd/user
+    cat > /usr/lib/systemd/user/ncz-fcitx5.service <<'IMEUNIT'
+[Unit]
+Description=Fcitx 5 input method (CJK)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/fcitx5
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+IMEUNIT
+    chmod 0644 /usr/lib/systemd/user/ncz-fcitx5.service
+    if systemctl --global enable ncz-fcitx5.service >/dev/null 2>&1; then
+        echo "[22]   enabled ncz-fcitx5.service for all users (systemd --global)"
+    else
+        echo "[22]   WARN: could not globally enable ncz-fcitx5.service"
+    fi
+
+    # Fallback for desktops that honour XDG autostart.
     install -d /etc/xdg/autostart
     cat > /etc/xdg/autostart/fcitx5-ncz.desktop <<'DESKEOF'
 [Desktop Entry]

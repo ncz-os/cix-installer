@@ -20,7 +20,7 @@ esac
 ASSETS=/usr/local/lib/cix-installer/assets/branding/wallpaper
 DEST=/usr/share/backgrounds/ncz
 mkdir -p "$DEST"
-for f in "$ASSETS"/ncz-wallpaper-0*-2k.jpg; do
+for f in "$ASSETS"/ncz-wallpaper-*-2k.jpg; do
     [ -f "$f" ] && install -m 0644 "$f" "$DEST/"
 done
 # Default = the Maximilian backdrop (26.7 release wallpaper).
@@ -31,9 +31,16 @@ ln -sfn ncz-wallpaper-07-maximilian-blackhole-2k.jpg "$DEST/default.jpg"
 cat > /usr/local/bin/ncz-wallpaper-rotate <<'ROT'
 #!/bin/sh
 WP_DIR=/usr/share/backgrounds/ncz
-PIC=$(ls $WP_DIR/ncz-wallpaper-0*.jpg 2>/dev/null | shuf -n1)
+PIC=$(ls $WP_DIR/ncz-wallpaper-*.jpg 2>/dev/null | shuf -n1)
 [ -z "$PIC" ] && exit 0
-ln -sfn "$(basename "$PIC")" "$WP_DIR/default.jpg" 2>/dev/null || true
+# default.jpg is a convenience pointer, not the mechanism -- the wallpaper is
+# applied through gsettings/swaybg below. The rotator runs as the logged-in
+# user and $WP_DIR is root-owned 0755, so this ln FAILS with EPERM every time.
+# It was already suppressed with "|| true", which turned a guaranteed failure
+# into silence. Only attempt it when the directory is actually writable.
+if [ -w "$WP_DIR" ]; then
+    ln -sfn "$(basename "$PIC")" "$WP_DIR/default.jpg" 2>/dev/null || true
+fi
 
 DE=""
 case "${XDG_CURRENT_DESKTOP:-}${DESKTOP_SESSION:-}" in
@@ -89,7 +96,50 @@ done
 DAEMON
 chmod 0755 /usr/local/bin/ncz-wallpaper-daemon
 
-# Autostart via XDG (Singularity/labwc honours /etc/xdg/autostart).
+# HOW THINGS ACTUALLY START IN THIS SESSION.
+#
+# MEASURED on an O6N running the shipped image, 2026-08-18: NOTHING processes
+# /etc/xdg/autostart here. There is no dex, no xdg-autostart-generator, no
+# gnome-session or lxsession, and no xdg-desktop-autostart.target among the
+# user units. An autostart .desktop is therefore inert -- which is why the
+# wallpaper rotator was installed, correct, and had never once run.
+#
+# The session is systemd --user driven. The active user targets are basic,
+# default, paths, sockets and timers. graphical-session.target is NOT active,
+# and singularity-session.target -- which the session script tries to start --
+# does not exist as a unit at all. So default.target is the only reliable
+# anchor, and `systemctl --global enable` is what applies a user unit to every
+# account without needing a per-user enable at first login.
+#
+# The .desktop file is still written: it costs nothing and is the correct
+# mechanism on desktops that DO honour it. It is a fallback here, not the
+# mechanism.
+
+install -d /usr/lib/systemd/user
+cat > /usr/lib/systemd/user/ncz-wallpaper-rotator.service <<'UNIT'
+[Unit]
+Description=NCZ wallpaper rotator
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ncz-wallpaper-daemon
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+UNIT
+chmod 0644 /usr/lib/systemd/user/ncz-wallpaper-rotator.service
+
+if systemctl --global enable ncz-wallpaper-rotator.service >/dev/null 2>&1; then
+    echo "[45]   enabled ncz-wallpaper-rotator.service for all users (systemd --global)"
+else
+    echo "[45]   WARN: could not globally enable ncz-wallpaper-rotator.service"
+fi
+
+# Fallback for desktops that honour XDG autostart. Inert on Singularity.
 mkdir -p /etc/xdg/autostart
 cat > /etc/xdg/autostart/ncz-wallpaper-rotator.desktop <<'AUTO'
 [Desktop Entry]
@@ -97,7 +147,6 @@ Type=Application
 Name=NCZ Wallpaper Rotator
 Exec=/usr/local/bin/ncz-wallpaper-daemon
 NoDisplay=true
-OnlyShowIn=Singularity;
 StartupNotify=false
 Terminal=false
 AUTO
