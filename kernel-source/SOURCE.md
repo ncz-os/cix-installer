@@ -5,9 +5,37 @@ the Linux kernel shipped in NCZ-OS 26.7, in fulfilment of the GNU General Public
 License (v2). Everything needed to reproduce the exact shipping kernel is here or
 publicly available at the pinned upstream revisions below.
 
+
+## Historical kernel trees in this directory
+
+Alongside the shipping 7.2 tree, this directory retains recipes and a patch
+tree for kernels that **earlier releases** shipped:
+
+| Path | Shipped in |
+|---|---|
+| `linux-cix-sky1-ncz-7.1.1/`, `linux-cix-sky1-ncz_7.1.1.bb` | superseded pre-26.7 line |
+| `linux-cix-sky1-ncz_7.1.2.bb` | superseded pre-26.7 line |
+| `linux-cix-sky1-ncz_6.18.26.bb` | superseded pre-26.7 line |
+
+**None of these is shipped in 26.7.** They are kept because GPLv2 §3(b)
+obliges us to keep corresponding source available to anyone who received a
+binary built from them. Do not treat their presence as evidence of a supported
+kernel channel — 26.7 ships exactly one kernel, `7.2.0-sky1-ncz`.
+
 ## Shipping kernel
 
-- **KERNELRELEASE:** `7.2.0-rc7-sky1-ncz`
+> **As-built configuration.** `linux-cix-sky1-ncz-7.2/config-7.2.0-sky1-ncz.as-built`
+> is the **expanded `.config` actually used to build the shipped binary**, not a
+> defconfig. It is included because a defconfig plus a kernel version does not
+> uniquely determine a `.config` — kconfig defaults change between revisions —
+> so shipping only the defconfig would leave a gap in the corresponding source.
+> `config-7.2-lean-msr1-o6n.defconfig` remains the human-maintained input.
+
+
+- **KERNELRELEASE (as shipped):** `7.2.0-sky1-ncz`
+  The upstream base is v7.2-rc7, but the shipped kernel carries the release
+  localversion, not an rc one. `uname -r` on an installed system reports
+  `7.2.0-sky1-ncz`; that is the string to match against this source drop.
 - **Base:** mainline Linux **v7.2-rc7**, from
   `git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git`
   at **SRCREV `db2ddb87143519e20a95aa36c60b36107b736a58`** (the v7.2-rc7 tag
