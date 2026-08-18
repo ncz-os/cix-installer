@@ -100,16 +100,37 @@ cat > /etc/systemd/system/ncz-rtc-sync.service <<'UNIT'
 [Unit]
 Description=Write the synchronised system clock back to the RTC
 Documentation=man:hwclock(8)
-After=time-sync.target systemd-timesyncd.service
-Wants=time-sync.target
+# WAIT FOR AN ACTUAL SYNC, NOT JUST FOR THE TARGET.
+#
+# time-sync.target is reached when the time subsystem is UP, which is NOT the
+# same as the clock having been corrected. MEASURED on a v12 install (O6N,
+# 2026-08-18): this unit ran at boot, found NTPSynchronized=no, skipped, and
+# exited 0 -- and because it is a oneshot it never ran again. NTP synced
+# seconds later, so the system clock was right while the RTC stayed at the
+# 2024 firmware default, which is the exact bug this hook exists to fix. The
+# journal shows it plainly: the unit's own log lines are stamped
+# "Jul 23 18:31:58" -- i.e. it ran while the clock was still wrong.
+#
+# systemd-time-wait-sync.service BLOCKS until the clock is actually
+# synchronised, so ordering after it means the check below can succeed.
+After=systemd-time-wait-sync.service time-sync.target systemd-timesyncd.service
+Wants=systemd-time-wait-sync.service time-sync.target
 ConditionPathExists=/dev/rtc0
 
 [Service]
 Type=oneshot
 RemainAfterExit=no
 # Only write when the clock is actually synchronised; otherwise this would
-# faithfully persist the wrong time.
-ExecStart=/bin/sh -c 'if [ "$(timedatectl show -p NTPSynchronized --value)" = "yes" ]; then exec hwclock --systohc --utc; fi'
+# faithfully persist the wrong time. Retry rather than give up: on a board
+# whose RTC is years out, the first boot is exactly when this matters, and a
+# single missed attempt leaves the stale RTC in place until someone notices.
+ExecStart=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12; do \
+    if [ "$(timedatectl show -p NTPSynchronized --value)" = "yes" ]; then \
+        hwclock --systohc --utc && echo "RTC written: $(hwclock -r 2>/dev/null)" && exit 0; \
+    fi; \
+    sleep 10; \
+done; \
+echo "NTP never synchronised within 120s — RTC left unchanged" >&2; exit 0'
 
 [Install]
 WantedBy=multi-user.target
