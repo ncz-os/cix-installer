@@ -720,6 +720,12 @@ just the fix:
   — standalone C reproducers, so a driver author can confirm each defect
   without building a browser.
 
+### And Rachel
+
+My wife, who has put up with this hobby — the boards on the kitchen table, the
+fan noise, the "just one more build" at two in the morning — since the day it
+started. None of the above happens without that patience.
+
 ### The Yocto Project and the Linux Foundation
 
 The Sky1 kernel is built with **[the Yocto Project](https://www.yoctoproject.org/)**

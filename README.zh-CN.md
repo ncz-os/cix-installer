@@ -192,6 +192,9 @@ labwc/wlroots，能原生抵达 Mali GLES，而不必绕道 Xwayland。**我们�
 维护者，其跨 ARM 平台、以及具体针对 Sky1 的补丁与打包工作，为本项目省下了大量重复摸索。
 如果你近几年在 ARM SBC 上跑过 Armbian，你就用过他的成果。
 
+**还有 Rachel。** 我的妻子。从这个爱好开始的第一天起，她就一直容忍着它——摊在餐桌上的
+板卡、风扇的噪音、凌晨两点那句"再构建一次就好"。没有那份耐心，上面这一切都不会发生。
+
 **Yocto 项目与 Linux 基金会。** Sky1 内核使用
 **[Yocto 项目](https://www.yoctoproject.org/)** 构建——BitBake、OpenEmbedded 与
 `poky`，CIX 使能则以 `meta-cix` 层的形式承载。那 176 个补丁的系列、它们的 `SRC_URI`
