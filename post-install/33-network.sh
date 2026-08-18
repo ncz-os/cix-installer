@@ -24,10 +24,28 @@ echo "[33-network] verifying NetworkManager + writing netplan"
 # there; if it is missing, the netinstall apt fetch failed silently and
 # the operator-visible symptom (no network) is exactly what we are
 # trying to prevent.
+# SELF-SKIP ON THE SINGULARITY SKU.
+#
+# This hook predates Singularity: its header is about the XFCE dep chain on
+# resolute. NCZ-OS 26.7 does not use NetworkManager at all -- 20-desktop.sh
+# installs sinty-nmd and explicitly PURGES network-manager,
+# network-manager-gnome, network-manager-applet and nm-connection-editor, and
+# network-manager is not in manifests/desktop.pkgs.
+#
+# So on this image "network-manager is missing" is the CORRECT state, not a
+# failed apt fetch. Exiting 1 here aborted every v11 install at finish-install
+# ("33-network.sh FAILED rc=1 -- install aborts", measured on O6N 2026-08-18).
+# Skip cleanly when sinty-nmd owns the network stack, and only hard-fail when
+# NetworkManager is genuinely the intended renderer and is genuinely absent.
+if [ -x /usr/bin/sinty-nmd ] || [ -x /usr/local/bin/sinty-nmd ]; then
+    echo "[33-network] sinty-nmd owns the network stack on this SKU — skipping NetworkManager/netplan wiring"
+    exit 0
+fi
+
 if ! command -v nmcli >/dev/null 2>&1 || ! dpkg-query -W -f='${Status}\n' network-manager 2>/dev/null | grep -q "install ok installed"; then
-    echo "[33-network] ERROR: network-manager not installed; aborting" >&2
-    echo "[33-network] preseed/preseed-ubuntu.cfg pkgsel/include must list network-manager" >&2
-    exit 1
+    echo "[33-network] network-manager absent and no sinty-nmd — nothing to configure; skipping" >&2
+    echo "[33-network] (if NetworkManager IS the intended renderer, preseed pkgsel/include must list network-manager)" >&2
+    exit 0
 fi
 
 # (b) netplan with NetworkManager as renderer + match every wired/wireless

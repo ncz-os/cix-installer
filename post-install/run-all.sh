@@ -187,10 +187,27 @@ if [ "$NCZ_BAKED" = 1 ]; then
     # network config. Both are genuinely per-install work and must run under
     # --mode full like any other machine hook.
     REQUIRED_HOOKS=$(printf '%s\n' $REQUIRED_HOOKS | \
-        grep -E '^(10-our-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network)\.sh$' || true)
+        grep -E '^(10-our-kernel|11-fix-cixmini-boot)\.sh$' || true)
 fi
+# 12-sky1-firmware and 33-network are NOT excluded here any more.
+#
+# They used to be excluded because they were REQUIRED. Under NCZ_BAKED the
+# required list is trimmed to the kernel hooks, so excluding them here left
+# them in NO list at all and they never ran -- /lib/firmware held zero *.fwb
+# and the VPU could not decode.
+#
+# The obvious repair, promoting them back into the baked REQUIRED list, was
+# WORSE and shipped in v11: the required phase is fatal, and 33-network exits 1
+# by design on this SKU (see its own header -- it requires NetworkManager,
+# which 20-desktop.sh PURGES in favour of sinty-nmd). Every v11 install died
+# with "33-network.sh FAILED rc=1 -- install aborts" at the finish-install
+# step. Measured on O6N 2026-08-18.
+#
+# Correct placement is the FAIL-TOLERANT phase: they are per-machine work that
+# must run, but neither should be able to abort an otherwise good install.
+# MACHINE_HOOKS_RE already lists both.
 OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
-    grep -vE '^(0[0-9]|10-our-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network|70-bootloader|99-diagnostics)\.sh$' || true)
+    grep -vE '^(0[0-9]|10-our-kernel|11-fix-cixmini-boot|70-bootloader|99-diagnostics)\.sh$' || true)
 if [ "$NCZ_BAKED" = 1 ]; then
     OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -E "$MACHINE_HOOKS_RE" || true)
 fi
