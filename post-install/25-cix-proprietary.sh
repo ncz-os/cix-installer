@@ -378,7 +378,7 @@ for bl in /etc/modprobe.d/blacklist.conf /usr/lib/modprobe.d/blacklist.conf; do
     for m in $UNBRICK_MODS; do
         sed -i "s/^[[:space:]]*blacklist[[:space:]][[:space:]]*${m}[[:space:]]*$/# [25-unbrick] blacklist ${m}/" "$bl"
     done
-    n=$(grep -c "^# \[25-unbrick\]" "$bl" 2>/dev/null || echo 0)
+    n=$(grep -c "^# \[25-unbrick\]" "$bl" 2>/dev/null || true)
     echo "[25] neutralized $n fs+crypto blacklist lines in $bl (btrfs root MUST be mountable)"
 done
 # Belt-and-suspenders: if btrfs is somehow still blacklisted anywhere, fail loud.
@@ -479,8 +479,9 @@ if [ -d /usr/share/cix/lib ]; then
     # Simulated first per standing rule: an install that would REMOVE packages
     # is refused rather than silently amputating the system.
     if ! python3 -c 'import numpy' >/dev/null 2>&1; then
-        _numpy_remv=$(apt-get install -y -s python3-numpy 2>/dev/null | grep -c '^Remv' || echo 0)
-        if [ "${_numpy_remv:-1}" = "0" ]; then
+        _numpy_remv=$(apt-get install -y -s python3-numpy 2>/dev/null | grep -c '^Remv' || true)
+        _numpy_remv=$(printf '%s' "${_numpy_remv:-0}" | tr -dc '0-9' | head -c 8)
+        if [ "${_numpy_remv:-0}" = "0" ]; then
             echo "    NPU userspace: installing python3-numpy (NOE_Engine imports it at module scope)"
             if apt-get install -y python3-numpy >/dev/null 2>&1; then
                 echo "    NPU userspace: python3-numpy installed"

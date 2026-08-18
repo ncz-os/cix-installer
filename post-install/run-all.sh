@@ -168,8 +168,26 @@ PHASE0_HOOKS=$(ls 0[0-9]-*.sh 2>/dev/null | sort || true)
 REQUIRED_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
     grep -E '^(10-our-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network)\.sh$' || true)
 if [ "$NCZ_BAKED" = 1 ]; then
+    # 12-sky1-firmware and 33-network MUST SURVIVE THE BAKED FILTER.
+    #
+    # They are excluded from OPT_HOOKS by the grep -vE below (they are REQUIRED,
+    # not optional), so if the baked filter also drops them from REQUIRED they
+    # land in NO list at all and never run. Adding them to MACHINE_HOOKS_RE
+    # does nothing, because that regex only filters OPT_HOOKS -- which already
+    # excluded them. That is exactly what happened: measured on O6N running
+    # v10, the orphan audit reported
+    #
+    #     ORPHAN: 12-sky1-firmware.sh
+    #     ORPHAN: 33-network.sh
+    #
+    # and /lib/firmware held zero *.fwb, so the VPU could not decode or encode.
+    #
+    # Neither is baked into the rootfs: 12 copies Sky1 firmware out of the
+    # installer asset tree into /lib/firmware, and 33 writes per-machine
+    # network config. Both are genuinely per-install work and must run under
+    # --mode full like any other machine hook.
     REQUIRED_HOOKS=$(printf '%s\n' $REQUIRED_HOOKS | \
-        grep -E '^(10-our-kernel|11-fix-cixmini-boot)\.sh$' || true)
+        grep -E '^(10-our-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network)\.sh$' || true)
 fi
 OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
     grep -vE '^(0[0-9]|10-our-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network|70-bootloader|99-diagnostics)\.sh$' || true)

@@ -43,7 +43,7 @@ echo "[44] RTC: make the hardware clock hold real time across reboots"
 if ! command -v hwclock >/dev/null 2>&1; then
     # Simulated first per standing rule: never let a convenience install
     # amputate packages.
-    _remv=$(apt-get install -y -s util-linux-extra 2>/dev/null | grep -c '^Remv' || echo 0)
+    _remv=$(apt-get install -y -s util-linux-extra 2>/dev/null | grep -c '^Remv' || true)
     if [ "${_remv:-1}" = "0" ]; then
         if apt-get install -y util-linux-extra >/dev/null 2>&1; then
             echo "[44]   installed util-linux-extra (provides hwclock)"

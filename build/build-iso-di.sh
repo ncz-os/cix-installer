@@ -1675,7 +1675,7 @@ mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64"
         > dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages
     gzip -9cn dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages \
         > dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages.gz
-    UDEBCT=$(grep -c '^Package: ' dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages || echo 0)
+    UDEBCT=$(grep -c '^Package: ' dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages || true)
     echo "    udeb Packages: $UDEBCT entries indexed"
 )
 
@@ -1764,7 +1764,7 @@ if [ "$EMBED_MIRROR" = "1" ]; then
             > dists/$ISO_APT_SUITE/main/binary-arm64/Packages
         gzip -9cn dists/$ISO_APT_SUITE/main/binary-arm64/Packages \
             > dists/$ISO_APT_SUITE/main/binary-arm64/Packages.gz
-        DEBCT=$(grep -c '^Package: ' dists/$ISO_APT_SUITE/main/binary-arm64/Packages || echo 0)
+        DEBCT=$(grep -c '^Package: ' dists/$ISO_APT_SUITE/main/binary-arm64/Packages || true)
         echo "    regular deb Packages: $DEBCT entries indexed"
     )
 fi
@@ -1794,7 +1794,7 @@ elif [ "$BOOTSTRAP_POOL" = "1" ]; then
         echo "ERROR: bootstrap pool did not provide a non-empty regular Packages index" >&2
         exit 1
     fi
-    BOOTSTRAP_DEBCT=$(grep -c '^Package: ' "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages" || echo 0)
+    BOOTSTRAP_DEBCT=$(grep -c '^Package: ' "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages" || true)
     echo "    bootstrap pool regular Packages: $BOOTSTRAP_DEBCT entries indexed"
 fi
 

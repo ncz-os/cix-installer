@@ -403,7 +403,7 @@ ncz_install_mnemos() {
     # would have been a dimension mismatch even if it had.
     if [ -e /dev/aipu ]; then
         echo "[ncz] NPU detected (/dev/aipu) — installing the 768-dim NPU embedder"
-        _npu_remv=$(apt-get install -y -s ncz-npu-embed ncz-model-nomic-embed 2>/dev/null | grep -c '^Remv' || echo 0)
+        _npu_remv=$(apt-get install -y -s ncz-npu-embed ncz-model-nomic-embed 2>/dev/null | grep -c '^Remv' || true)
         if [ "${_npu_remv:-1}" = "0" ]; then
             if apt-get install -y ncz-npu-embed ncz-model-nomic-embed; then
                 echo "[ncz]   installed ncz-npu-embed + ncz-model-nomic-embed (768-dim)"
