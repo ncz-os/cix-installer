@@ -9,23 +9,28 @@
 > against turned out **experimental/non-working and never shipped** (it still
 > carries `.bak-pre-branchfix`/`.bak-pre-compilefix` recovery files in the
 > recipe). The primary/shipping kernel as of NCZ-OS 26.7 is
-> **`linux-cix-sky1-ncz_7.2.bb`** (`KERNELRELEASE 7.2.0-rc5-sky1-ncz`, 170
-> patches, mainline v7.2-rc5 base, forward-ported from rc4 2026-07-26) — see
-> [`kernel-source/SOURCE.md`](../kernel-source/SOURCE.md) for the authoritative
-> recipe/patch/config pointers for that kernel. `7.0.12-cix-sky1-next` remains
-> the secondary/fallback channel. The build-mechanics sections below (BitBake
-> invocations, deploy-artifact layout, `9008`–`9011` ACPI patch series, the
-> `tar -C /` warning) are still procedurally accurate for whichever recipe you
-> point them at, but the specific recipe name/build-dir/`SRCREV` given as
-> "Current" immediately below is **historical (7.1.2, retired)**, not what
-> ships today.
+> **Current shipping kernel: `linux-cix-sky1-ncz_7.2.bb`.** Reports
+> `7.2.0-sky1-ncz`, built from a mainline **v7.2-rc7** base
+> (`SRCREV db2ddb87…`), with **176 patches** wired into `SRC_URI` out of 197
+> present in the tree. See [`kernel-source/SOURCE.md`](../kernel-source/SOURCE.md)
+> for the authoritative recipe, patch and config pointers, including the
+> as-built `.config`.
+>
+> **There is no 7.0.12 channel.** It has been removed from the image. Older
+> recipes below (7.1.2, 7.1.1, 6.18) are **historical and never shipped in
+> 26.7**; they are retained only because earlier releases distributed binaries
+> built from them.
+>
+> The build mechanics below — BitBake invocations, deploy-artifact layout, the
+> `9008`–`9011` ACPI patch series, the `tar -C /` warning — remain
+> procedurally accurate for whichever recipe you point them at.
 
 ## Authoritative source
 
 - **Tree:** `~/yocto-docker` on **ARGOS** (the designated Yocto host; heavy compiles never run on STUDIO).
   - Layers: `meta-cix`, `meta-nclawzero`, `meta-openembedded`, `poky`.
 - **Kernel recipes** (historical 7.1.2 build documented below; see the status
-  update above for the current 7.2/7.0.12 channels):
+  update above for the current 7.2 kernel):
   - **Historical, retired, never shipped:** `meta-cix/recipes-kernel/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.1.2.bb`
     - `LINUX_VERSION = 7.1.2`, `PV = 7.1.2+ncz`, `KBRANCH = linux-7.1.y`,
       `SRCREV_kernel = 03e2778d1f11de9260543f969e9e888a1c2bf830` (linux-stable v7.1.2).
@@ -93,7 +98,7 @@ Stage the deploy artifacts into `cix-installer/assets/kernel/` as
 `Image-cixmini.bin` + `modules-cixmini.tgz` (+ `KVER` marker), then bake the ISO.
 
 The example below uses the historical 7.1.2-ncz2 recipe to illustrate the
-handoff mechanics — substitute the current 7.2 (or 7.0.12) deploy artifacts
+handoff mechanics — substitute the current 7.2 deploy artifacts
 and `assets/kernel/{edge,stable}/` destination in practice (see the status
 update above):
 ```bash

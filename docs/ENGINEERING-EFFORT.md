@@ -1,4 +1,19 @@
-# Bringing up NCZ / Reinhardt 26.6 on CIX Sky1 — Engineering Effort & Driver-Fidelity Log
+# Engineering effort log — CIX Sky1 bring-up (26.6 era)
+
+> **This is a historical document.** It records the bring-up effort for
+> **NCZ-OS 26.6 "Reinhardt"** and describes that release's world: a
+> multi-channel kernel programme (7.2 / 7.0.12 / 6.18), separate Reinhardt
+> desktop and Magnetar server variants, and an Ubuntu base.
+>
+> **None of that describes 26.7.** The current release ships one kernel
+> (`7.2.0-sky1-ncz`, with 7.0.12 removed from the image), one build, and a
+> Debian Forky base. For the current position see
+> [HOW-DID-WE-GET-HERE.md](HOW-DID-WE-GET-HERE.md) and
+> [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
+>
+> It is kept because the measurements and the failure analysis in it are real
+> and still instructive — particularly the patch-integration arithmetic and the
+> A/B methodology against a known-good baseline.
 
 > **This is a historical log, frozen at the 26.6 (r112-era) bring-up.** It
 > predates the Singularity Desktop migration, the `mali_kbase` GPU driver
