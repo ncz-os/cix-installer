@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="assets/refind/ncz-banner.png" alt="NCZ-OS" width="640">
+</p>
+
+<p align="center">
+  <img src="assets/branding/wallpaper/ncz-wallpaper-07-maximilian-blackhole-2k.jpg" alt="NCZ-OS 26.7 Maximilian" width="900">
+</p>
+
 # cix-installer
 
 > **🌐 Language:** English · [简体中文](README.zh-CN.md)
@@ -71,6 +79,11 @@ The current build path inside `build/build-iso-di.sh` is the Cix Sky1
 implementation; the architecture is the reusable scaffold.
 
 ## Hardware support & testing status
+
+<p align="center">
+  <img src="assets/branding/wallpaper/ncz-wallpaper-03-astrophotograph-m87-2k.jpg" alt="" width="820">
+</p>
+
 
 > **Read this before you flash anything.** NCZ is vendor-neutral *by
 > design*, but "designed to support" is not the same as "tested on." Here
@@ -278,6 +291,11 @@ zeroclaw) and the MNEMOS memory system are installed on demand by the operator
 via `ncz` after install.
 
 ## On-device AI: NPU embeddings & inference
+
+<p align="center">
+  <img src="assets/branding/wallpaper/ncz-wallpaper-05-magnetar-jets-2k.jpg" alt="" width="820">
+</p>
+
 
 The ISO ships a working **NPU embedding stack** so a freshly-installed
 appliance does semantic memory at NPU latency, offline, with no setup. This is
