@@ -145,6 +145,89 @@ else
         || echo "[88] WARNING: wheel install into $VENV failed"
 fi
 
+# --- keep the venv in step with the deb, FOREVER, not just at install -------
+#
+# This hook is POST-INSTALL, so it runs once on a fresh image and never again.
+# That is not sufficient, and cixmini proved it: on 2026-08-18 that board had
+# kernel driver AIPU KMD v6.2.0 and cix-noe-umd 3.1.4 installed, while
+# /opt/ncz/noe-venv still held libnoe 2.0.0 / NOE-Engine 2.0.0 from an earlier
+# image. The old user-mode driver cannot query the newer kernel driver's
+# capabilities, so every NPU call died before loading a graph:
+#
+#     [UMD ERR] aipu.cpp:57: query capability [fail]
+#     RuntimeError: npu: noe_init_context fail
+#
+# It reads like a kernel or hardware fault and is neither -- and it had sat
+# broken on the build host for an unknown length of time, because nothing
+# re-syncs the venv when the deb is upgraded.
+#
+# Install a boot-time oneshot that compares the installed cix-noe-umd version
+# against a stamp and re-syncs the wheels when they differ. Cheap (a dpkg-query
+# and a string compare on the common path) and idempotent.
+install -d /usr/local/lib/cix-installer
+cat > /usr/local/lib/cix-installer/sync-noe-venv.sh <<'SYNC'
+#!/bin/bash
+# Re-sync /opt/ncz/noe-venv when cix-noe-umd changes version.
+# The user-mode driver in the venv must match the kernel driver, or every NPU
+# call fails at noe_init_context with "query capability [fail]".
+set -uo pipefail
+VENV=/opt/ncz/noe-venv
+WHEELDIR=/usr/share/cix/pypi
+STAMP=/var/lib/ncz/noe-venv.stamp
+[ -x "$VENV/bin/python" ] || exit 0
+[ -d "$WHEELDIR" ] || exit 0
+cur=$(dpkg-query -W -f='${Version}' cix-noe-umd 2>/dev/null || echo none)
+prev=$(cat "$STAMP" 2>/dev/null || echo none)
+# Re-sync when the deb moved OR the venv cannot import -- the second catches a
+# venv broken for any other reason without needing to know why.
+if [ "$cur" = "$prev" ] && "$VENV/bin/python" -c 'import numpy, NOE_Engine' >/dev/null 2>&1; then
+    exit 0
+fi
+echo "[noe-venv-sync] cix-noe-umd=$cur (was $prev) — re-syncing $VENV"
+UV=$(command -v uv || echo /usr/local/bin/uv)
+[ -x "$UV" ] || { echo "[noe-venv-sync] uv missing — cannot sync"; exit 0; }
+shopt -s nullglob
+w=()
+for pat in 'libnoe-*.whl' 'noe_engine-*.whl' 'NOE_Engine-*.whl'; do
+    for f in "$WHEELDIR"/$pat; do w+=("$f"); done
+done
+shopt -u nullglob
+[ ${#w[@]} -gt 0 ] || { echo "[noe-venv-sync] no wheels in $WHEELDIR"; exit 0; }
+"$UV" pip install --python "$VENV/bin/python" "${w[@]}" numpy pip >/dev/null 2>&1
+if "$VENV/bin/python" -c 'import numpy, NOE_Engine' >/dev/null 2>&1; then
+    install -d "$(dirname "$STAMP")"; printf '%s' "$cur" > "$STAMP"
+    echo "[noe-venv-sync] OK — venv imports cleanly"
+else
+    echo "[noe-venv-sync] WARNING: venv still cannot import NOE_Engine/numpy"
+fi
+SYNC
+chmod 0755 /usr/local/lib/cix-installer/sync-noe-venv.sh
+
+cat > /etc/systemd/system/ncz-noe-venv-sync.service <<'UNIT'
+[Unit]
+Description=Re-sync the NPU user-mode driver venv with the installed cix-noe-umd
+Documentation=https://github.com/nclawzero/cix-installer
+ConditionPathExists=/opt/ncz/noe-venv/bin/python
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+ExecStart=/usr/local/lib/cix-installer/sync-noe-venv.sh
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl enable ncz-noe-venv-sync.service >/dev/null 2>&1 \
+    && echo "[88]   enabled ncz-noe-venv-sync.service (venv follows the deb across upgrades)" \
+    || echo "[88]   WARN: could not enable ncz-noe-venv-sync.service"
+printf '%s' "$(dpkg-query -W -f='${Version}' cix-noe-umd 2>/dev/null || echo none)" \
+    > /var/lib/ncz/noe-venv.stamp 2>/dev/null || {
+        install -d /var/lib/ncz
+        printf '%s' "$(dpkg-query -W -f='${Version}' cix-noe-umd 2>/dev/null || echo none)" \
+            > /var/lib/ncz/noe-venv.stamp 2>/dev/null || true
+    }
+
 # VERIFY, do not assume. The bug above survived because the only evidence of
 # failure was an echo nobody read. Import what the embed server imports, and
 # say plainly whether the venv is usable.
