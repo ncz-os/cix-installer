@@ -319,9 +319,20 @@ echo "  top entries:"; tar tzf "$OUT/singularity-opt.tgz" | head -3
 
 if [ "$PUSH_ARGONAS" = 1 ]; then
     echo "== staging on ARGONAS ($ARGONAS_DST) =="
-    GIT_SSH="${GIT_SSH:-sshpass -p REDACTED ssh -o PubkeyAuthentication=no}"
+    # SECURITY: never embed the credential. This is a maintainer-only push
+    # path; take the password from the environment or use normal SSH keys.
+    if [ -n "${ARGONAS_PASS:-}" ]; then
+        GIT_SSH="${GIT_SSH:-sshpass -p $ARGONAS_PASS ssh -o PubkeyAuthentication=no}"
+    else
+        GIT_SSH="${GIT_SSH:-ssh}"
+    fi
     $GIT_SSH root@192.168.207.101 "mkdir -p $ARGONAS_DST" || true
-    sshpass -p 'REDACTED' scp -o PubkeyAuthentication=no \
+    if [ -n "${ARGONAS_PASS:-}" ]; then
+        SCP_CMD="sshpass -p $ARGONAS_PASS scp -o PubkeyAuthentication=no"
+    else
+        SCP_CMD="scp"
+    fi
+    $SCP_CMD \
         "$OUT/singularity-opt.tgz" "root@192.168.207.101:$ARGONAS_DST/" \
         && echo "  pushed to ARGONAS:$ARGONAS_DST/singularity-opt.tgz"
 fi

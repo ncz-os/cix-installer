@@ -51,10 +51,22 @@ fi
 PKG_MANIFEST="$ROOT/manifests/mgmt.pkgs"
 
 # Recovery container credentials. LAN-only (192.168.207.0/24, no public route)
-# per fleet doctrine. Fleet break-glass secret by default; override at bake time
-# by exporting NCZ_MGMT_PASS. Day-to-day access is key-based (the post-install
+# per fleet doctrine. Password is random per build; override by exporting
+# NCZ_MGMT_PASS. Day-to-day access is key-based (the post-install
 # hook injects fleet authorized_keys into the container's /root/.ssh).
-MGMT_ROOT_PW="${NCZ_MGMT_PASS:-REDACTED}"
+# SECURITY: no hardcoded default -- this repo is public, so any constant here
+# is a published root password for the recovery container on every image.
+# Random per build unless the operator supplies one. See the same reasoning in
+# post-install/37-failsafe-access.sh.
+if [ -n "${NCZ_MGMT_PASS:-}" ]; then
+    MGMT_ROOT_PW="$NCZ_MGMT_PASS"
+else
+    _raw=$(tr -dc 'a-z0-9' < /dev/urandom | head -c 20)
+    [ "${#_raw}" -eq 20 ] || { echo "FATAL: no entropy for container root password" >&2; exit 1; }
+    MGMT_ROOT_PW="${_raw:0:5}-${_raw:5:5}-${_raw:10:5}-${_raw:15:5}"
+    echo "== ncz-recovery root password (generated): $MGMT_ROOT_PW"
+    echo "   record it now; it is not recoverable from the image."
+fi
 MGMT_HOSTNAME="ncz-recovery"
 
 for t in debootstrap chroot zstd tar awk sed grep mountpoint; do

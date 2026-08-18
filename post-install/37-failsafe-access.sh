@@ -33,10 +33,57 @@ FS_BIN="$FS_ROOT/bin"
 FS_SBIN="$FS_ROOT/sbin"
 FS_ETC="$FS_ROOT/etc"
 FS_PORT=2323
-# Default break-glass passphrase (operator-known fleet secret). Override at
-# bake time by exporting NCZ_FAILSAFE_PASS before running the installer.
-FS_PASS="${NCZ_FAILSAFE_PASS:-REDACTED}"
+# Break-glass passphrase.
+#
+# SECURITY — THERE IS DELIBERATELY NO HARDCODED DEFAULT HERE.
+#
+# Until 2026-08-18 this line read `${NCZ_FAILSAFE_PASS:-<constant>}`. This
+# repository is public, so that constant was a PUBLISHED root credential:
+# anyone could read it, and it was identical on every image ever installed.
+# It gated a root telnet shell reachable on the LAN. An open port on a home
+# LAN is a posture decision; a known password on that port is a backdoor, and
+# the two are not the same trade-off.
+#
+# Precedence:
+#   1. NCZ_FAILSAFE_PASS exported at bake time  — for fleet operators who want
+#      one known break-glass secret across their own machines.
+#   2. A per-install RANDOM passphrase           — the default.
+#
+# Random is the default rather than the fallback on purpose: a unique secret
+# per machine means compromising one box does not hand over the others. It is
+# written to /etc/ncz/failsafe-password (0600) so the owner can retrieve it,
+# and echoed into the install log.
+_ncz_genpass() {
+    # 20 chars of [a-z0-9] in 4 dash-separated groups: ~103 bits of entropy,
+    # still typeable over a serial console at 3am, which is when this gets used.
+    local raw
+    raw=$(tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | head -c 20)
+    [ "${#raw}" -eq 20 ] || return 1
+    printf '%s-%s-%s-%s\n' "${raw:0:5}" "${raw:5:5}" "${raw:10:5}" "${raw:15:5}"
+}
 
+if [ -n "${NCZ_FAILSAFE_PASS:-}" ]; then
+    FS_PASS="$NCZ_FAILSAFE_PASS"
+    FS_PASS_SRC="NCZ_FAILSAFE_PASS (bake-time override)"
+elif FS_PASS=$(_ncz_genpass); then
+    FS_PASS_SRC="generated per-install"
+else
+    # FAIL CLOSED. If we cannot read /dev/urandom we do not know how to make a
+    # secret, and shipping a guessable one is worse than shipping no failsafe
+    # console at all -- the rescue PARTITION still exists as recovery.
+    echo "[37] FATAL: no entropy for a failsafe passphrase; NOT enabling the"
+    echo "[37]        recovery console. Set NCZ_FAILSAFE_PASS to override."
+    exit 0
+fi
+
+install -d -m 0755 /etc/ncz
+printf '%s\n' "$FS_PASS" > /etc/ncz/failsafe-password
+chmod 0600 /etc/ncz/failsafe-password
+echo "[37] break-glass passphrase: $FS_PASS_SRC"
+echo "[37]   stored at /etc/ncz/failsafe-password (root-only, 0600)"
+if [ "$FS_PASS_SRC" = "generated per-install" ]; then
+    echo "[37]   value: $FS_PASS"
+fi
 echo "[37] failsafe recovery console — static busybox on :$FS_PORT ($FS_ROOT)"
 install -d -m 0755 "$FS_ROOT" "$FS_BIN" "$FS_SBIN"
 install -d -m 0700 "$FS_ETC"
