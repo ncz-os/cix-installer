@@ -518,16 +518,20 @@ fi
 # an explicit console-only recovery choice; Panthor is an explicit experiment.
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     # Must be UNIQUE across menu titles. rEFInd matches default_selection as a
-    # substring, and the experimental dracut entry is also titled "... (Mali,
-    # dracut initrd ...)" -- a bare "Mali" matches BOTH, leaving the default
-    # decided by menu order rather than by intent. "Mali, Default" appears in
-    # exactly one title. Keep it that way when adding entries.
-    DEFAULT_TOKEN="Mali, Default"
+    # substring -- a bare "Mali" would also match the Console entry's title
+    # ("... Console (All Accelerators, Mali)"), leaving the default decided by
+    # menu order rather than by intent. "Mali (Default)" appears in exactly
+    # one title. Keep it that way when adding entries.
+    DEFAULT_TOKEN="Mali (Default)"
 elif [ "$LEGACY_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="console"
 else
     DEFAULT_TOKEN="edge"
 fi
+# The policy-computed default, kept aside so a stored/learned override that
+# turns out not to match any entry we actually write (see the validation
+# after the file is written, below) has a known-good value to fall back to.
+SAFE_DEFAULT_TOKEN="$DEFAULT_TOKEN"
 
 REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
 
@@ -542,7 +546,7 @@ REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
 # no message. That is the "apt keeps breaking my rEFInd" complaint.
 #
 # Preferences live in /etc/ncz/refind-prefs.conf (shell assignments):
-#     NCZ_REFIND_DEFAULT="7.2 GUI (Panthor, Experimental)"
+#     NCZ_REFIND_DEFAULT="7.2 Panthor (Experimental)"
 #     NCZ_REFIND_TIMEOUT=30
 #
 # They are also LEARNED: if the live refind.conf carries a default_selection
@@ -620,7 +624,7 @@ fi
     fi
 
     if [ "$NEXT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 GUI (Mali, Default)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Mali (Default)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -649,42 +653,23 @@ fi
         # against it. Making it default is a separate, deliberate change to
         # DEFAULT_TOKEN -- do not flip it as a side effect of this entry
         # existing.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 GUI (Panthor, Experimental)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Panthor (Experimental)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$PANTHOR_OPTIONS\""
         echo "}"
         echo
-        # NO-INITRD RECOVERY ENTRY.
-        #
-        # dracut is the primary (and only) initramfs builder as of 26.7, so the
-        # old "dracut EXPERIMENTAL" entry is redundant — the default entry IS a
-        # dracut initrd now. What replaced it is the gap that created:
-        # initramfs-tools no longer ships, and the RESCUE entry loads the SAME
-        # initrd as the default, so a single bad initrd would take out the
-        # normal boot and the rescue boot together.
-        #
-        # This entry cannot be broken by a bad initrd because it loads none.
-        # That is possible here only because the pieces needed to REACH root are
-        # built into the kernel, verified on O6N 7.2.0-rc7-sky1-ncz:
-        #     CONFIG_BLK_DEV_NVME=y  CONFIG_NVME_CORE=y  CONFIG_BTRFS_FS=y
-        #     CONFIG_EXT4_FS=y       nvme + btrfs present in modules.builtin
-        # so root=PARTUUID=... rootflags=subvol=@rootfs mounts with no early
-        # userspace at all.
-        #
-        # Expect the screen to stay blank a little longer than usual: the display
-        # controller is CONFIG_DRM_LINLONDP=m, so linlon-dp only loads once udev
-        # runs off the mounted rootfs. Text appears after root mount, not before.
-        # Never default.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Recovery (direct boot, no initrd)\" {"
-        echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
-        echo "    options \"$MALI_OPTIONS\""
-        echo "}"
-        echo
+        # The no-initrd recovery entry (loaded the default kernel with no
+        # initrd, proving nvme+btrfs are builtin) was DROPPED from the menu
+        # 2026-08-19 to cut the operator-facing list down to four entries:
+        # Mali, Panthor, Console, Rescue Partition. The underlying capability
+        # it demonstrated is unchanged -- CONFIG_BLK_DEV_NVME=y,
+        # CONFIG_NVME_CORE=y, CONFIG_BTRFS_FS=y, CONFIG_EXT4_FS=y are still
+        # builtin -- only the standalone menu entry is gone. The RESCUE
+        # entries below cover the same no-initrd boot path when needed.
 
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Console (All Accelerators)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Console (All Accelerators, Mali)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -698,7 +683,7 @@ fi
         # no version -- an entry that silently cannot boot. The title said
         # "7.0.12 ... legacy" while the options already pointed at the rescue
         # partition, so the menu was actively misleading about what it would do.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Rescue Partition (All Accelerators Disabled)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Rescue Partition (Console)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -711,8 +696,8 @@ fi
     # same as not having them.
     #
     # Boots initrd-less unless a matching initrd.img-<tag>-rescue was staged
-    # too: btrfs, ext4 and nvme are all builtin, and the shipped "direct boot,
-    # no initrd" entry already proves the pattern on this hardware.
+    # too: btrfs, ext4 and nvme are all builtin on this hardware, so the
+    # no-initrd path is proven independently of any other menu entry.
     #
     # `oops=panic panic=6` is STRIPPED here. On the normal entries an automatic
     # reboot is wanted; on a rescue entry it turns the one bootable fallback
@@ -735,6 +720,27 @@ fi
     done
 } > "$REFIND_CONF"
 echo "  wrote $REFIND_CONF (default_selection=$DEFAULT_TOKEN)"
+
+# VALIDATE the default actually landed on an entry, rather than trusting a
+# stored/learned NCZ_REFIND_DEFAULT the way the code did until 2026-08-19.
+# That trust was misplaced: a hand-edited default_selection using an old menu
+# title (e.g. "Panthor, Experimental" from before entries were renamed to
+# "Panthor (Experimental)") got LEARNED into the prefs file, then kept
+# re-confirming itself every regeneration because the stored pref and the
+# stale live file always agreed with each other -- silently pointing rEFInd
+# at a title that no longer existed on every subsequent boot. Caught during
+# the 2026-08-19 menu-title rename, but the same failure mode is reachable
+# any time an entry title changes while an old default is stored.
+if ! grep '^menuentry ' "$REFIND_CONF" | grep -qF -- "$DEFAULT_TOKEN"; then
+    echo "  WARN: default_selection '$DEFAULT_TOKEN' matches no menu entry -- falling back to '$SAFE_DEFAULT_TOKEN'"
+    DEFAULT_TOKEN="$SAFE_DEFAULT_TOKEN"
+    sed -i "s/^default_selection \".*\"\$/default_selection \\\"$DEFAULT_TOKEN\\\"/" "$REFIND_CONF"
+    {
+        printf 'NCZ_REFIND_DEFAULT="%s"\n' "$DEFAULT_TOKEN"
+        printf 'NCZ_REFIND_TIMEOUT=%s\n' "$REFIND_TIMEOUT"
+    } > "$NCZ_PREFS" 2>/dev/null || true
+    echo "  corrected $REFIND_CONF and $NCZ_PREFS to default_selection=$DEFAULT_TOKEN"
+fi
 
 if command -v efibootmgr >/dev/null 2>&1; then
     EFI_DEV=$(findmnt -no SOURCE /boot/efi)
