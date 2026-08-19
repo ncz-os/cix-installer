@@ -48,6 +48,20 @@ install -d /var/cache/ncz-wallpapers/bing
 # nothing.
 chmod 1777 /var/cache/ncz-wallpapers/bing
 
+OCS_ASSETS=/usr/local/lib/cix-installer/assets/wallpaper
+if [ -x "$OCS_ASSETS/ncz-wallpaper-ocs" ]; then
+    install -m 0755 "$OCS_ASSETS/ncz-wallpaper-ocs" /usr/local/bin/ncz-wallpaper-ocs
+    echo "[45]   installed OCS wallpaper backend"
+else
+    echo "[45]   WARN: OCS wallpaper backend asset missing" >&2
+fi
+if [ -f "$OCS_ASSETS/ocs-category-index.json" ]; then
+    install -m 0644 "$OCS_ASSETS/ocs-category-index.json" /usr/share/ncz-wallpapers/ocs-category-index.json
+    echo "[45]   installed OCS wallpaper category index"
+else
+    echo "[45]   WARN: OCS wallpaper category index asset missing" >&2
+fi
+
 install -m 0755 /dev/stdin /usr/local/bin/ncz-wallpaper-collections <<'COLLECTIONS_EOF'
 #!/bin/bash
 # ncz-wallpaper-collections — enumerate and resolve wallpaper collections.

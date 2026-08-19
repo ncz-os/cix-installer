@@ -343,6 +343,7 @@ echo "    build id: $VERSION  ($BUILD_DATE on $BUILD_HOST)"
 
 # Stage agent stack + branding + cix-debs (existing)
 [ -d "$ROOT/assets/agent-stack" ] && cp -rL "$ROOT/assets/agent-stack" "$EXTRA/assets/"
+[ -d "$ROOT/assets/wallpaper" ] && cp -rL "$ROOT/assets/wallpaper" "$EXTRA/assets/"
 if [ -d "$ROOT/assets/branding" ]; then
     mkdir -p "$EXTRA/assets/branding"
     for sub in logo plymouth gdm wallpaper; do

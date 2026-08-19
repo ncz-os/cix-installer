@@ -337,6 +337,11 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/branding/." "$MG/usr/local/lib/cix-installer/assets/branding/" 2>/dev/null || true
       log "  staged branding assets ($(find "$ROOT/assets/branding" -type f | wc -l | tr -d ' ') files)"
     fi
+    if [ -d "$ROOT/assets/wallpaper" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/wallpaper"
+      sudo cp -a "$ROOT/assets/wallpaper/." "$MG/usr/local/lib/cix-installer/assets/wallpaper/" 2>/dev/null || true
+      log "  staged wallpaper backend assets ($(find "$ROOT/assets/wallpaper" -type f | wc -l | tr -d ' ') files)"
+    fi
     # r181: stage the Vivaldi .deb so 52-vivaldi.sh installs the browser OFFLINE
     # (the MNEMOS + agent launchers Exec vivaldi-stable; epiphany can't play
     # YouTube on arm64). Self-contained .deb, no mirror/closure changes needed.
@@ -552,7 +557,7 @@ build_base(){
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
   sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding wallpaper; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   # prune dev-only junk from the staged asset tree (backup kernels, retired
   # channels) -- it otherwise ships inside base.squashfs as dead weight
   sudo rm -rf "$WORK/base/usr/local/lib/cix-installer/assets/kernel/"retired-* 2>/dev/null || true
