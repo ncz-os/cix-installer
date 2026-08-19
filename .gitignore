@@ -121,3 +121,5 @@ __pycache__/
 # The NPU ACPI SSDT override is REPRODUCIBLE FROM SOURCE: keep the ASL in
 # this staged copy is a fallback for 60-boot-splash). arm64 ELF from .66.
 # Upstream downloads
+build/forky-vendor-mirror/
+build/forky-mirror/

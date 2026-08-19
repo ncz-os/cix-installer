@@ -267,15 +267,14 @@ fi
 # usable as a standalone Ubuntu closure builder; required ones do not, because
 # their absence produces an ISO that fails partway through an install.
 #
-# ncz-usb-recovery is REQUIRED: cixmini-boot Depends on it, and cixmini-boot is
-# pulled in by the kernel package on every install. Missing from this pool, that
-# dependency is unsatisfiable offline and apt refuses to configure cixmini-boot,
-# so the bootloader plumbing never lands.
+# Both rows here are optional. cixmini-boot Depends on ncz-usb-recovery, but the
+# pool that has to satisfy it offline is build/forky-vendor-mirror, not this one
+# -- see the note above the gate at the bottom of this block.
 #
 # Each row: <package name>|<glob of candidate .debs>|<required?>
 NCZ_LOCAL_DEBS="
 ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_arm64.deb|optional
-ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_all.deb|required
+ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_all.deb|optional
 "
 
 printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
@@ -307,14 +306,12 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
     cp -f "$deb" "$pooldir/"
     echo "  added local NCZ package: $deb -> $pooldir/"
 done
-# `while` runs in a subshell behind the pipe, so its exit(1) cannot abort this
-# script directly. Re-check the required ones here, where the failure can.
-for required_pkg in ncz-usb-recovery; do
-    if ! find "$OUT/pool" -name "${required_pkg}_*.deb" | grep -q .; then
-        echo "  FATAL: $required_pkg is required in the mirror pool and is absent" >&2
-        exit 1
-    fi
-done
+# No required-package gate here on purpose. This pool is build/desktop-mirror,
+# which is NOT in build-squashfs-layers.sh's MIRROR_DIRS ("$NCZ_BASE_CODENAME-mirror
+# $NCZ_BASE_CODENAME-vendor-mirror") -- the layer chroot never resolves against
+# it. cixmini-boot and its ncz-usb-recovery dependency both live in
+# build/forky-vendor-mirror/pool/main/, so that is the pool an offline install
+# depends on and the only one worth failing a build over.
 
 # prune debs for packages no longer in the resolved closure (e.g. dropped
 # from the seed, or no longer pulled in as a dependency) so the pool doesn't
