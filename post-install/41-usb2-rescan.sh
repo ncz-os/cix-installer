@@ -105,11 +105,51 @@ for try in 1 2 3 4; do
   sleep 0.25
 done
 
-# O6N USB-A hub/HID chain: ACPI controller CIXH2030:06/CIXH2031:06.
-# Rebinding every Sky1 xHCI controller was counterproductive: it delayed input
-# by ~16 seconds and needlessly disturbed unrelated USB roots. Resolve the
-# controller dynamically because its xhci-hcd.* index is not stable.
+# WHICH CONTROLLER OWNS THE KEYBOARD.
+#
+# CIXH2030:06/CIXH2031:06 is the USB-A hub/HID chain ON AN O6N. It is NOT the
+# same instance on every Sky1 board: an Orion O6 fans its USB-A ports off a
+# different ACPI index, so this match found nothing there, the script logged
+# "no recovery attempted" and EXITED — leaving the user at a greeter with a
+# dead keyboard and mouse, which is precisely the failure this unit exists to
+# prevent (reported on O6, 2026-08-18).
+#
+# So the specific path is now a FAST PATH, not a preconditon. If it does not
+# match we widen the search rather than giving up: any Sky1 xHCI controller
+# with no mass storage downstream is a legitimate rebind candidate. Rebinding
+# every controller unconditionally was measured at ~16s of added input delay on
+# O6N, which is why the fast path stays first — but a slow recovery beats no
+# recovery.
 DRV=/sys/bus/platform/drivers/xhci-hcd
+
+# Does this controller own a USB mass-storage device? Never reset one that does.
+ctrl_has_storage() {
+  local want="$1" usb_root ctrl
+  for usb_root in /sys/bus/usb/devices/usb*; do
+    [ -e "$usb_root/speed" ] || continue
+    ctrl=$(basename "$(readlink -f "$usb_root/..")")
+    [ "$ctrl" = "$want" ] || continue
+    if find "$usb_root" -maxdepth 8 -type d -name block -print -quit 2>/dev/null | grep -q .; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+rebind_ctrl() {   # <controller> -> 0 if the keyboard showed up
+  local c="$1" try
+  logger -t ncz-usb2-rescan "rebinding $c"
+  echo "$c" > "$DRV/unbind" 2>/dev/null
+  sleep 1
+  echo "$c" > "$DRV/bind" 2>/dev/null
+  for try in $(seq 1 12); do
+    keyboard_present && { logger -t ncz-usb2-rescan "keyboard present after rebinding $c"; return 0; }
+    sleep 0.25
+  done
+  return 1
+}
+
+# Fast path: the known O6N USB-A chain.
 keyboard_ctrl=
 for node in "$DRV"/xhci-hcd.*.auto; do
   [ -e "$node" ] || continue
@@ -118,40 +158,50 @@ for node in "$DRV"/xhci-hcd.*.auto; do
   esac
 done
 
-if [ -z "$keyboard_ctrl" ]; then
-  logger -t ncz-usb2-rescan "keyboard absent; O6 USB-A controller not found, no recovery attempted"
-  exit 0
+if [ -n "$keyboard_ctrl" ]; then
+  if ctrl_has_storage "$keyboard_ctrl"; then
+    logger -t ncz-usb2-rescan "skip $keyboard_ctrl (has USB storage downstream)"
+  else
+    rebind_ctrl "$keyboard_ctrl" && exit 0
+  fi
+else
+  logger -t ncz-usb2-rescan "O6N USB-A chain not present (not an O6N?); widening search"
 fi
 
-# Never reset a controller that owns removable storage. Match its USB roots
-# directly; following the controller symlink can recurse through all of sysfs.
-has_storage=0
-for usb_root in /sys/bus/usb/devices/usb*; do
-  [ -e "$usb_root/speed" ] || continue
-  ctrl=$(basename "$(readlink -f "$usb_root/..")")
-  [ "$ctrl" = "$keyboard_ctrl" ] || continue
-  if find "$usb_root" -maxdepth 8 -type d -name block -print -quit 2>/dev/null | grep -q .; then
-    has_storage=1
-    break
-  fi
+# Widened path: every Sky1 xHCI controller without storage downstream.
+for node in "$DRV"/xhci-hcd.*.auto; do
+  [ -e "$node" ] || continue
+  c=$(basename "$node")
+  [ "$c" = "$keyboard_ctrl" ] && continue          # already tried above
+  ctrl_has_storage "$c" && { logger -t ncz-usb2-rescan "skip $c (storage)"; continue; }
+  rebind_ctrl "$c" && exit 0
 done
-if [ "$has_storage" -eq 1 ]; then
-  logger -t ncz-usb2-rescan "skip $keyboard_ctrl (has USB storage downstream)"
-  exit 0
+
+# Last resort: rebind the hub driver on the root-hub interfaces.
+#
+# This is the mechanism PROVEN on metal during the O6N installer investigation
+# (2026-08-13): the ports report CCS (device connected) and PP (powered) but
+# PED=0/PLS=Polling — the devices were there all along and the hub driver was
+# simply never told. A controller rebind does not always re-trigger that; an
+# explicit unbind/bind of the hub driver does, instantly.
+HUBDRV=/sys/bus/usb/drivers/hub
+if [ -d "$HUBDRV" ]; then
+  logger -t ncz-usb2-rescan "controller rebinds did not recover input; rebinding hub driver"
+  for i in "$HUBDRV"/*-0:1.0; do
+    [ -e "$i" ] || continue
+    echo "$(basename "$i")" > "$HUBDRV/unbind" 2>/dev/null
+  done
+  sleep 1
+  for i in $(seq 1 16); do
+    echo "$i-0:1.0" > "$HUBDRV/bind" 2>/dev/null
+  done
+  for try in $(seq 1 12); do
+    keyboard_present && { logger -t ncz-usb2-rescan "keyboard present after hub rebind; recovery complete"; exit 0; }
+    sleep 0.25
+  done
 fi
 
-logger -t ncz-usb2-rescan "keyboard absent after 1s grace; rebinding $keyboard_ctrl only"
-echo "$keyboard_ctrl" > "$DRV/unbind" 2>/dev/null
-sleep 1
-echo "$keyboard_ctrl" > "$DRV/bind" 2>/dev/null
-for try in 1 2 3 4 5 6 7 8 9 10 11 12; do
-  if keyboard_present; then
-    logger -t ncz-usb2-rescan "keyboard present after rebind; recovery complete"
-    exit 0
-  fi
-  sleep 0.25
-done
-logger -t ncz-usb2-rescan "keyboard still absent 3s after rebind; continuing without input"
+logger -t ncz-usb2-rescan "keyboard still absent after all recovery paths; continuing without input"
 exit 0
 EOF
 chmod 0755 /usr/local/sbin/ncz-usb2-rescan
