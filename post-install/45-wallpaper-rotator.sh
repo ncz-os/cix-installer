@@ -158,7 +158,12 @@ cmd_list() {
         type=$(_ini_get "$f" Collection Type); [ -z "$type" ] && type=static
         dir=$(_ini_get "$f" Collection Dir)
         case "$type" in
-            provider) cnt=$(_files_in "${dir:-/var/cache/ncz-wallpapers/$(_ini_get "$f" Collection Provider)}" | wc -l) ;;
+            provider)
+                case "$(_ini_get "$f" Collection Provider)" in
+                    bing) cnt=$(find "${dir:-/var/cache/ncz-wallpapers/bing}" -mindepth 2 -maxdepth 2 -type f -iname '*.jpg' 2>/dev/null | wc -l) ;;
+                    *) cnt=$(_files_in "${dir:-/var/cache/ncz-wallpapers/$(_ini_get "$f" Collection Provider)}" | wc -l) ;;
+                esac
+                ;;
             timeofday) cnt=$(find "${dir:-/dev/null}" -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) 2>/dev/null | wc -l) ;;
             *) cnt=$(_files_in "$dir" | wc -l) ;;
         esac
@@ -179,8 +184,11 @@ cmd_pick() {
                 bing)
                     # Refresh is best-effort: a failed or offline fetch must still
                     # yield yesterday's cached image rather than no wallpaper.
-                    [ -x /usr/local/bin/ncz-wallpaper-bing ] && \
+                    if [ -x /usr/local/bin/ncz-wallpaper-bing ]; then
                         /usr/local/bin/ncz-wallpaper-bing fetch >/dev/null 2>&1
+                        /usr/local/bin/ncz-wallpaper-bing pick
+                        return $?
+                    fi
                     dir="${dir:-/var/cache/ncz-wallpapers/bing}"
                     ;;
                 *) echo "unknown provider: $provider" >&2; return 1 ;;
@@ -207,130 +215,362 @@ COLLECTIONS_EOF
 
 install -m 0755 /dev/stdin /usr/local/bin/ncz-wallpaper-bing <<'BING_EOF'
 #!/bin/bash
-# ncz-wallpaper-bing — fetch Bing's image of the day into a local cache.
+# ncz-wallpaper-bing -- fetch Bing's image of the day into a local archive.
 #
 # Endpoint (verified 2026-08-18):
-#   https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=<market>
+#   https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=<market>
 # The JSON gives `urlbase` like "/th?id=OHR.Palmanova_EN-US0340289339". Appending
 # "_UHD.jpg" yields the highest resolution; the `url` field is only 1920x1080,
 # which is short of the 3840x2160 panel on an O6.
 #
-# Images are cached as <cache>/<startdate>.jpg so they sort chronologically and
-# the newest is simply the last one. Attribution is written alongside as .txt --
-# these are © their photographers and the copyright string must not be dropped.
+# Images are archived as <data-root>/<market>/<startdate>.jpg so markets are
+# independent feeds, not translations colliding in a shared directory.
+# Attribution is still written alongside as .txt for compatibility, and richer
+# provider metadata is written as .json for the history browser.
 #
-#   fetch    download today's image if not already cached, prune old ones
-#   latest   print the path of the newest cached image
-#   info     print attribution for the newest cached image
+#   fetch           backfill Bing's available window for every enabled market
+#   pick            print one archived image from the enabled markets
+#   latest          print the newest archived image from the enabled markets
+#   info            print attribution for the newest archived image
+#   list [--all]    print archive entries as JSON for the history browser
+#   pin <mkt> <yyyymmdd> | unpin <mkt> <yyyymmdd>
 set -u
 
-# The market is a real FEED SELECTOR, not a translation setting. Verified
+# Markets are real FEED SELECTORS, not translation settings. Verified
 # 2026-08-19: en-US served Palmanova, en-GB/de-DE/zh-CN served Whyte Cliff, and
 # ja-JP/en-AU served a Polish wildlife crossing -- different PHOTOGRAPHS, on the
-# same day. So the choice is worth exposing to the user.
+# same day. So the user can enable more than one feed at once.
 #
-# The market is read from config first so the desktop UI can change it without
-# editing this script; the env var still wins for testing.
-MARKET_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/ncz-wallpaper/bing-market"
-MARKET="${NCZ_BING_MARKET:-}"
-if [ -z "$MARKET" ] && [ -r "$MARKET_CONF" ]; then
-    MARKET=$(tr -d " \t\r\n" < "$MARKET_CONF" 2>/dev/null)
-fi
-[ -n "$MARKET" ] || MARKET=en-US
+# Config, in priority order:
+#   NCZ_BING_MARKETS="en-US ja-JP"       for testing
+#   ~/.config/ncz-wallpaper/bing-markets newline/comma/space separated markets
+#   ~/.config/ncz-wallpaper/bing-market  legacy single-market file
+#   en-US                                default
+exec python3 - "$@" <<'PY'
+import datetime
+import json
+import os
+import random
+import re
+import sys
+import tempfile
+import urllib.parse
+import urllib.request
+from pathlib import Path
 
-# Cache PER MARKET. A single shared directory would mix feeds: switching from
-# en-US to ja-JP would leave yesterday's American photo as the "newest" file
-# until the Japanese one happened to sort later, and the rotator picks by name.
-CACHE="${NCZ_BING_CACHE:-/var/cache/ncz-wallpapers/bing/$MARKET}"
-KEEP="${NCZ_BING_KEEP:-14}"
-API="https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=${MARKET}"
+CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+CONFIG_DIR = CONFIG_HOME / "ncz-wallpaper"
+DATA_ROOT = Path(os.environ.get("NCZ_BING_DATA_ROOT", os.environ.get("NCZ_BING_CACHE", "/var/cache/ncz-wallpapers/bing")))
+THUMB_ROOT = Path(os.environ.get("NCZ_BING_THUMB_ROOT", str(Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "ncz-wallpapers" / "thumbs" / "bing")))
+API = "https://www.bing.com/HPImageArchive.aspx"
+BACKFILL = ((0, 8), (7, 8))
+MARKET_RE = re.compile(r"^[A-Za-z]{2}-[A-Za-z]{2}$")
+DATE_RE = re.compile(r"^[0-9]{8}$")
 
-log() { [ -n "${NCZ_BING_QUIET:-}" ] || printf '[bing] %s\n' "$*"; }
+def quiet():
+    return bool(os.environ.get("NCZ_BING_QUIET"))
 
-cmd_fetch() {
-    mkdir -p "$CACHE" 2>/dev/null || { echo "cannot create $CACHE" >&2; return 1; }
-    [ -w "$CACHE" ] || { echo "cache not writable: $CACHE" >&2; return 1; }
+def log(msg):
+    if not quiet():
+        print(f"[bing] {msg}", file=sys.stderr)
 
-    local json
-    json=$(curl -sf --max-time 30 "$API" 2>/dev/null) || { log "fetch failed (offline?)"; return 1; }
+def split_tokens(text):
+    return [tok for tok in re.split(r"[\s,]+", text.strip()) if tok]
 
-    # Parse with python3 rather than grep/sed: the copyright field contains
-    # commas, parentheses and non-ASCII, and a regex over it silently truncates.
-    local parsed date urlbase copyright title
-    parsed=$(printf '%s' "$json" | python3 -c '
-import sys, json
-try:
-    im = json.load(sys.stdin)["images"][0]
-except Exception:
-    sys.exit(1)
-print(im.get("startdate",""))
-print(im.get("urlbase",""))
-print(im.get("copyright","").replace("\n"," "))
-print(im.get("title","").replace("\n"," "))
-' 2>/dev/null) || { log "unexpected API response"; return 1; }
+def configured_markets():
+    text = os.environ.get("NCZ_BING_MARKETS", "")
+    if not text:
+        multi = CONFIG_DIR / "bing-markets"
+        single = CONFIG_DIR / "bing-market"
+        if multi.is_file():
+            text = multi.read_text(errors="ignore")
+        elif single.is_file():
+            text = single.read_text(errors="ignore")
+    if not text:
+        text = os.environ.get("NCZ_BING_MARKET", "")
+    markets = []
+    seen = set()
+    for market in split_tokens(text or "en-US"):
+        if MARKET_RE.match(market) and market not in seen:
+            markets.append(market)
+            seen.add(market)
+    return markets or ["en-US"]
 
-    date=$(printf '%s\n' "$parsed" | sed -n 1p)
-    urlbase=$(printf '%s\n' "$parsed" | sed -n 2p)
-    copyright=$(printf '%s\n' "$parsed" | sed -n 3p)
-    title=$(printf '%s\n' "$parsed" | sed -n 4p)
-    [ -n "$date" ] && [ -n "$urlbase" ] || { log "incomplete API response"; return 1; }
+def all_archived_markets():
+    if not DATA_ROOT.is_dir():
+        return []
+    return sorted(p.name for p in DATA_ROOT.iterdir() if p.is_dir() and MARKET_RE.match(p.name))
 
-    local out="$CACHE/$date.jpg"
-    if [ -s "$out" ]; then log "already have $date"; else
-        local tmp="$out.part"
-        # UHD first; fall back to 1920x1080 if the UHD asset is absent.
-        if ! curl -sf --max-time 90 -o "$tmp" "https://www.bing.com${urlbase}_UHD.jpg" 2>/dev/null \
-           || [ ! -s "$tmp" ]; then
-            rm -f "$tmp"
-            curl -sf --max-time 90 -o "$tmp" "https://www.bing.com${urlbase}_1920x1080.jpg" 2>/dev/null \
-                || { rm -f "$tmp"; log "image download failed"; return 1; }
-        fi
-        # Only publish once fully written, so a half-downloaded file is never
-        # picked up as the wallpaper.
-        mv -f "$tmp" "$out"
-        printf '%s\n%s\n' "$title" "$copyright" > "$CACHE/$date.txt"
-        log "cached $date ($(du -h "$out" | cut -f1))"
-    fi
+def retention_days():
+    raw = os.environ.get("NCZ_BING_RETENTION_DAYS", "")
+    conf = CONFIG_DIR / "bing-retention-days"
+    if not raw and conf.is_file():
+        raw = conf.read_text(errors="ignore").strip()
+    if raw.lower() in ("", "default"):
+        return 365
+    if raw.lower() in ("0", "forever", "none", "never"):
+        return 0
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 365
 
-    # Prune, keeping the most recent $KEEP.
-    local n
-    n=$(ls -1 "$CACHE"/*.jpg 2>/dev/null | wc -l)
-    if [ "$n" -gt "$KEEP" ]; then
-        ls -1 "$CACHE"/*.jpg | head -n "$((n - KEEP))" | while read -r old; do
-            rm -f "$old" "${old%.jpg}.txt"
-        done
-        log "pruned $((n - KEEP)) old image(s)"
-    fi
+def fetch_json(market, idx, n):
+    params = urllib.parse.urlencode({"format": "js", "idx": idx, "n": n, "mkt": market})
+    url = f"{API}?{params}"
+    with urllib.request.urlopen(url, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+def image_url(urlbase, tier):
+    return "https://www.bing.com" + urlbase + tier + ".jpg"
+
+def download(url, dest, timeout=90):
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=dest.name + ".", suffix=".part", dir=str(dest.parent))
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response, tmp.open("wb") as out:
+            while True:
+                chunk = response.read(1024 * 128)
+                if not chunk:
+                    break
+                out.write(chunk)
+        if tmp.stat().st_size == 0:
+            raise RuntimeError("empty download")
+        tmp.replace(dest)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+def normalize_image(image, market):
+    date = str(image.get("startdate", "")).strip()
+    urlbase = str(image.get("urlbase", "")).strip()
+    if not DATE_RE.match(date) or not urlbase:
+        return None
+    return {
+        "schema": 1,
+        "provider": "bing",
+        "market": market,
+        "date": date,
+        "enddate": str(image.get("enddate", "")).strip(),
+        "urlbase": urlbase,
+        "caption": str(image.get("title", "")).replace("\n", " ").strip(),
+        "copyright": str(image.get("copyright", "")).replace("\n", " ").strip(),
+        "copyrightlink": str(image.get("copyrightlink", "")).strip(),
+        "quiz": str(image.get("quiz", "")).strip(),
+        "hsh": str(image.get("hsh", "")).strip(),
+    }
+
+def read_meta(path, market, date):
+    meta_path = path.with_suffix(".json")
+    txt_path = path.with_suffix(".txt")
+    meta = {}
+    if meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(errors="ignore"))
+        except json.JSONDecodeError:
+            meta = {}
+    meta.setdefault("provider", "bing")
+    meta.setdefault("market", market)
+    meta.setdefault("date", date)
+    meta.setdefault("caption", "")
+    meta.setdefault("copyright", "")
+    if txt_path.is_file() and (not meta["caption"] or not meta["copyright"]):
+        lines = txt_path.read_text(errors="ignore").splitlines()
+        if lines:
+            meta["caption"] = meta["caption"] or lines[0]
+        if len(lines) > 1:
+            meta["copyright"] = meta["copyright"] or lines[1]
+    return meta
+
+def write_sidecars(directory, meta):
+    date = meta["date"]
+    txt_path = directory / f"{date}.txt"
+    json_path = directory / f"{date}.json"
+    if not txt_path.exists():
+        txt_path.write_text(f"{meta.get('caption', '')}\n{meta.get('copyright', '')}\n")
+    if not json_path.exists():
+        json_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+def is_pinned(path):
+    return path.with_suffix(".pinned").exists()
+
+def fetch_market(market):
+    directory = DATA_ROOT / market
+    directory.mkdir(parents=True, exist_ok=True)
+    fetched = 0
+    seen_dates = set()
+    for idx, n in BACKFILL:
+        try:
+            payload = fetch_json(market, idx, n)
+        except Exception as exc:
+            log(f"{market}: fetch idx={idx} failed: {exc}")
+            continue
+        images = payload.get("images", [])
+        log(f"{market}: idx={idx}&n={n} returned {len(images)} image(s)")
+        for image in images:
+            meta = normalize_image(image, market)
+            if not meta or meta["date"] in seen_dates:
+                continue
+            seen_dates.add(meta["date"])
+            out = directory / f"{meta['date']}.jpg"
+            if not out.exists():
+                try:
+                    try:
+                        download(image_url(meta["urlbase"], "_UHD"), out)
+                    except Exception:
+                        download(image_url(meta["urlbase"], "_1920x1080"), out)
+                    fetched += 1
+                    log(f"{market}: cached {meta['date']} ({out.stat().st_size} bytes)")
+                except Exception as exc:
+                    log(f"{market}: image {meta['date']} failed: {exc}")
+                    continue
+            write_sidecars(directory, meta)
+    prune_market(market)
+    return fetched
+
+def prune_market(market):
+    keep_days = retention_days()
+    if keep_days <= 0:
+        return
+    cutoff = (datetime.datetime.now(datetime.UTC).date() - datetime.timedelta(days=keep_days)).strftime("%Y%m%d")
+    directory = DATA_ROOT / market
+    for image in sorted(directory.glob("*.jpg")):
+        date = image.stem
+        if DATE_RE.match(date) and date < cutoff and not is_pinned(image):
+            for suffix in (".jpg", ".txt", ".json"):
+                image.with_suffix(suffix).unlink(missing_ok=True)
+            log(f"{market}: pruned {date}")
+
+def archive_entries(markets):
+    entries = []
+    for market in markets:
+        directory = DATA_ROOT / market
+        if not directory.is_dir():
+            continue
+        for image in directory.glob("*.jpg"):
+            date = image.stem
+            if not DATE_RE.match(date):
+                continue
+            meta = read_meta(image, market, date)
+            entries.append((date, market, image, meta))
+    return sorted(entries, key=lambda item: (item[0], item[1], str(item[2])), reverse=True)
+
+def ensure_thumb(meta):
+    urlbase = meta.get("urlbase", "")
+    market = meta.get("market", "")
+    date = meta.get("date", "")
+    if not urlbase or not market or not date:
+        return ""
+    thumb = THUMB_ROOT / market / f"{date}_400x240.jpg"
+    if not thumb.exists():
+        try:
+            download(image_url(urlbase, "_400x240"), thumb, timeout=45)
+        except Exception as exc:
+            log(f"{market}: thumbnail {date} failed: {exc}")
+            return ""
+    return str(thumb)
+
+def cmd_fetch(_args):
+    total = 0
+    markets = configured_markets()
+    for market in markets:
+        total += fetch_market(market)
+    return 0 if total or archive_entries(markets) else 1
+
+def cmd_pick(_args):
+    entries = archive_entries(configured_markets())
+    if not entries:
+        return 1
+    print(random.choice(entries)[2])
+    return 0
+
+def cmd_latest(_args):
+    entries = archive_entries(configured_markets())
+    if not entries:
+        return 1
+    print(entries[0][2])
+    return 0
+
+def cmd_info(_args):
+    entries = archive_entries(configured_markets())
+    if not entries:
+        return 1
+    meta = entries[0][3]
+    print(meta.get("caption", ""))
+    print(meta.get("copyright", ""))
+    return 0
+
+def cmd_list(args):
+    if args and args[0] == "--all":
+        markets = all_archived_markets()
+    elif args:
+        markets = [m for m in args if MARKET_RE.match(m)]
+    else:
+        markets = configured_markets()
+    rows = []
+    for date, market, image, meta in archive_entries(markets):
+        thumb = ensure_thumb(meta)
+        rows.append({
+            "provider": "bing",
+            "date": date,
+            "market": market,
+            "path": str(image),
+            "caption": meta.get("caption", ""),
+            "copyright": meta.get("copyright", ""),
+            "thumbnail_path": thumb,
+            "pinned": is_pinned(image),
+        })
+    print(json.dumps(rows, ensure_ascii=False, indent=2))
+    return 0
+
+def cmd_pin(args, pinned):
+    usage = "usage: ncz-wallpaper-bing pin <market> <yyyymmdd>"
+    if len(args) != 2 or not MARKET_RE.match(args[0]) or not DATE_RE.match(args[1]):
+        print(usage, file=sys.stderr)
+        return 2
+    marker = DATA_ROOT / args[0] / f"{args[1]}.pinned"
+    image = marker.with_suffix(".jpg")
+    if not image.exists():
+        print(f"no archived image: {image}", file=sys.stderr)
+        return 1
+    if pinned:
+        marker.write_text("pinned\n")
+    else:
+        marker.unlink(missing_ok=True)
+    return 0
+
+def cmd_markets(_args):
+    print("en-US\tUnited States")
+    print("en-GB\tUnited Kingdom")
+    print("en-AU\tAustralia")
+    print("en-CA\tCanada")
+    print("de-DE\tGermany")
+    print("fr-FR\tFrance")
+    print("ja-JP\tJapan")
+    print("zh-CN\tChina")
+    return 0
+
+cmd = sys.argv[1] if len(sys.argv) > 1 else "fetch"
+args = sys.argv[2:]
+commands = {
+    "fetch": cmd_fetch,
+    "pick": cmd_pick,
+    "latest": cmd_latest,
+    "info": cmd_info,
+    "list": cmd_list,
+    "markets": cmd_markets,
 }
-
-cmd_latest() { ls -1 "$CACHE"/*.jpg 2>/dev/null | tail -n1; }
-
-cmd_info() {
-    local l; l=$(cmd_latest) || return 1
-    [ -n "$l" ] || return 1
-    cat "${l%.jpg}.txt" 2>/dev/null
-}
-
-case "${1:-fetch}" in
-    fetch)  cmd_fetch ;;
-    latest) cmd_latest ;;
-    info)   cmd_info ;;
-    markets)
-        # The feeds we have verified return distinct photographs. Bing accepts
-        # others; these are the ones offered in the desktop UI.
-        cat <<'MARKETS'
-en-US	United States
-en-GB	United Kingdom
-en-AU	Australia
-en-CA	Canada
-de-DE	Germany
-fr-FR	France
-ja-JP	Japan
-zh-CN	China
-MARKETS
-        ;;
-    *) echo "usage: ncz-wallpaper-bing {fetch|latest|info|markets}" >&2; exit 2 ;;
-esac
+if cmd == "pin":
+    raise SystemExit(cmd_pin(args, True))
+if cmd == "unpin":
+    raise SystemExit(cmd_pin(args, False))
+if cmd not in commands:
+    print("usage: ncz-wallpaper-bing {fetch|pick|latest|info|list [--all]|markets|pin <market> <yyyymmdd>|unpin <market> <yyyymmdd>}", file=sys.stderr)
+    raise SystemExit(2)
+raise SystemExit(commands[cmd](args))
+PY
 BING_EOF
 
 # The shipped NCZ art, expressed as a collection so the built-in set and any
