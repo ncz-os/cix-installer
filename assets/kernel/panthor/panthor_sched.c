@@ -3500,6 +3500,12 @@ group_create_queue(struct panthor_group *group,
 {
 	struct drm_sched_init_args sched_args = {
 		.ops = &panthor_queue_sched_ops,
+		/* One run-queue: a single entity at priority 0.
+		 * Omitting this leaves the field zero, which makes
+		 * drm_sched_entity_init() reject priority 0 with
+		 * "out-of-bounds priority:0 num_user_rqs:0".
+		 */
+		.num_rqs = 1,
 		.submit_wq = group->ptdev->scheduler->wq,
 		/*
 		 * The credit limit argument tells us the total number of
