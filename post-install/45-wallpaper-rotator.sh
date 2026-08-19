@@ -224,8 +224,24 @@ install -m 0755 /dev/stdin /usr/local/bin/ncz-wallpaper-bing <<'BING_EOF'
 #   info     print attribution for the newest cached image
 set -u
 
-CACHE="${NCZ_BING_CACHE:-/var/cache/ncz-wallpapers/bing}"
-MARKET="${NCZ_BING_MARKET:-en-US}"
+# The market is a real FEED SELECTOR, not a translation setting. Verified
+# 2026-08-19: en-US served Palmanova, en-GB/de-DE/zh-CN served Whyte Cliff, and
+# ja-JP/en-AU served a Polish wildlife crossing -- different PHOTOGRAPHS, on the
+# same day. So the choice is worth exposing to the user.
+#
+# The market is read from config first so the desktop UI can change it without
+# editing this script; the env var still wins for testing.
+MARKET_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/ncz-wallpaper/bing-market"
+MARKET="${NCZ_BING_MARKET:-}"
+if [ -z "$MARKET" ] && [ -r "$MARKET_CONF" ]; then
+    MARKET=$(tr -d " \t\r\n" < "$MARKET_CONF" 2>/dev/null)
+fi
+[ -n "$MARKET" ] || MARKET=en-US
+
+# Cache PER MARKET. A single shared directory would mix feeds: switching from
+# en-US to ja-JP would leave yesterday's American photo as the "newest" file
+# until the Japanese one happened to sort later, and the rotator picks by name.
+CACHE="${NCZ_BING_CACHE:-/var/cache/ncz-wallpapers/bing/$MARKET}"
 KEEP="${NCZ_BING_KEEP:-14}"
 API="https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=${MARKET}"
 
@@ -299,7 +315,21 @@ case "${1:-fetch}" in
     fetch)  cmd_fetch ;;
     latest) cmd_latest ;;
     info)   cmd_info ;;
-    *) echo "usage: ncz-wallpaper-bing {fetch|latest|info}" >&2; exit 2 ;;
+    markets)
+        # The feeds we have verified return distinct photographs. Bing accepts
+        # others; these are the ones offered in the desktop UI.
+        cat <<'MARKETS'
+en-US	United States
+en-GB	United Kingdom
+en-AU	Australia
+en-CA	Canada
+de-DE	Germany
+fr-FR	France
+ja-JP	Japan
+zh-CN	China
+MARKETS
+        ;;
+    *) echo "usage: ncz-wallpaper-bing {fetch|latest|info|markets}" >&2; exit 2 ;;
 esac
 BING_EOF
 
@@ -435,8 +465,31 @@ echo $$ > "$LOCK"
 trap 'rm -f "$LOCK"' EXIT
 sleep 2
 /usr/local/bin/ncz-wallpaper-rotate
+
+# ROTATION IS CONFIGURABLE, and can be switched off.
+#
+# Read every iteration, not once: the desktop UI writes these files, and a user
+# who changes the interval or turns rotation off should not have to log out for
+# it to take effect.
+#
+#   ~/.config/ncz-wallpaper/rotate-enabled   "0" disables rotation entirely
+#   ~/.config/ncz-wallpaper/rotate-interval  seconds between changes
+#
+# Defaults preserve the previous behaviour exactly: enabled, 600s.
+CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ncz-wallpaper"
 while true; do
-    sleep 600
+    interval=$(tr -d " \t\r\n" < "$CONF_DIR/rotate-interval" 2>/dev/null)
+    case "$interval" in
+        ''|*[!0-9]*) interval=600 ;;
+    esac
+    # Refuse a pathological interval rather than spinning: a 0 or 1 second
+    # rotation would hammer gsettings and, for the Bing collection, the network.
+    [ "$interval" -lt 30 ] && interval=30
+
+    sleep "$interval"
+
+    enabled=$(tr -d " \t\r\n" < "$CONF_DIR/rotate-enabled" 2>/dev/null)
+    [ "$enabled" = "0" ] && continue
     /usr/local/bin/ncz-wallpaper-rotate
 done
 DAEMON
