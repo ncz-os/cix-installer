@@ -153,24 +153,83 @@ unload_kbase() {
 # Is the selected stack ACTUALLY live? The whole point of this rewrite is that a
 # boot must never silently continue on llvmpipe, so the answer is checked rather
 # than assumed from a modprobe that returned 0.
+# Is a DRM card actually driven by <driver>? linlondp is ALWAYS present on Sky1
+# -- it is the display controller, and it owns card0/renderD128 whether or not a
+# GPU ever binds. So "a renderD* node exists" proves nothing here; the node has
+# to belong to the driver we asked for.
+drm_card_driven_by() {
+    for _dev in /sys/class/drm/card*/device/driver; do
+        [ -e "$_dev" ] || continue
+        case "$(basename "$(readlink -f "$_dev")")" in
+            "$1") return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# Is the selected stack ACTUALLY live? The whole point of this rewrite is that a
+# boot must never silently continue on llvmpipe, so the answer is checked rather
+# than assumed from a modprobe that returned 0.
+#
+# BOTH branches must test BINDING, not just loading. The panthor branch used to
+# check `lsmod` alone. Measured on O6N 2026-08-19: panthor loaded with refcnt 0
+# and never bound to CIXH5000:00, /sys/class/drm showed only linlondp, greetd hit
+# its restart limit and the screen stayed black -- while this function returned
+# true and the script logged "GPU stack set to panthor" and exited 0. A module
+# that is resident but bound to nothing drives no pixels.
 driver_live() {
     case "$1" in
-        mali)    lsmod 2>/dev/null | grep -q "^mali_kbase " && [ -e /dev/mali0 ] ;;
-        panthor) lsmod 2>/dev/null | grep -q "^panthor " ;;
-        *)       return 1 ;;
+        mali)
+            lsmod 2>/dev/null | grep -q "^mali_kbase " || return 1
+            [ -e /dev/mali0 ] || return 1
+            ;;
+        panthor)
+            lsmod 2>/dev/null | grep -q "^panthor " || return 1
+            # Bound to the GPU's ACPI-instantiated platform device...
+            [ -e /sys/bus/platform/drivers/panthor/CIXH5000:00 ] || return 1
+            # ...and actually presenting a DRM card. Both, because a bind link
+            # can exist while probe is still unwinding.
+            drm_card_driven_by panthor || return 1
+            ;;
+        *)  return 1 ;;
     esac
+    return 0
 }
 
 # Does this kernel even ship the driver? Distinguishes "we failed" from "there
 # is nothing to load" -- the CONSOLE and RESCUE entries, and any LTS kernel
 # without the kbase DKMS build, legitimately reach the second case and must not
 # fail the unit for it.
+#
+# DO NOT USE modinfo HERE. O6N has no kmod modinfo at all:
+#     $ modinfo panthor
+#     bash: modinfo: command not found
+# The previous implementation called it and therefore answered "not available"
+# for every driver on every kernel, which disarmed the loud-failure branch at
+# the bottom of this script: a genuinely unbound driver was reported as simply
+# absent, and the unit exited 0. Look for the module FILE instead, which needs
+# nothing but the shell.
 driver_available() {
     case "$1" in
-        mali)    modinfo mali_kbase >/dev/null 2>&1 ;;
-        panthor) modinfo panthor    >/dev/null 2>&1 ;;
+        mali)    _mod=mali_kbase ;;
+        panthor) _mod=panthor    ;;
         *)       return 1 ;;
     esac
+    # Fast path when kmod IS present (other fleet hosts have it).
+    if command -v modinfo >/dev/null 2>&1; then
+        modinfo "$_mod" >/dev/null 2>&1 && return 0
+    fi
+    # A module already resident is available by definition, whatever is on disk.
+    lsmod 2>/dev/null | grep -q "^$_mod " && return 0
+    # Otherwise: is the .ko on disk for the RUNNING kernel? Covers .ko, .ko.xz,
+    # .ko.zst, and both the in-tree path and updates/dkms/.
+    _kver=$(uname -r)
+    for _ext in "" .xz .zst .gz; do
+        for _hit in $(find "/lib/modules/$_kver" -name "$_mod.ko$_ext" -print -quit 2>/dev/null); do
+            [ -n "$_hit" ] && return 0
+        done
+    done
+    return 1
 }
 
 userspace_mali() {
