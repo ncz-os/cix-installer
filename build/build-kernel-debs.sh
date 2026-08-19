@@ -20,7 +20,14 @@ OUT="$REPO/build/kernel-debs"
 # Default revision must never be older than what is already published, or the
 # "new" kernel is a DOWNGRADE and apt silently keeps the installed one. r211 is
 # the published rc7 build (2026-08-11); bump this when the kernel is rebuilt.
-BUILD_REV="${BUILD_REV:-r212}"
+# r245 = the binder-enabled 7.2 build (CONFIG_ANDROID_BINDER_IPC/BINDERFS=y),
+# staged in assets/kernel/edge and KVM-boot-gated. r212 was the last
+# pre-binder revision. Bumping this is NOT cosmetic: the revision is the only
+# thing that distinguishes the two packages, because the kernel VERSION string
+# is 7.2.0-sky1-ncz in both. Leaving it at r212 would ship a binder kernel
+# labelled as the non-binder one -- apt would consider it already installed,
+# and anyone reading the version would be told something false.
+BUILD_REV="${BUILD_REV:-r245}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only

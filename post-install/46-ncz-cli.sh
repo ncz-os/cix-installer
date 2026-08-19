@@ -579,6 +579,23 @@ LAUNCH
     gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
 }
 
+# NOT EXPOSED YET -- deliberately unreachable from `ncz install`.
+#
+# Waydroid installs and Android 13 does boot on Sky1, but only on llvmpipe:
+# /dev/dri/renderD128 belongs to linlondp, a DISPLAY controller with no render
+# engine, so every gbm-family gralloc fails to allocate and the hardware path is
+# unavailable. The result is a software-rendered Android that is slow and, until
+# the gralloc fallback was forced, crash-looped outright.
+#
+# Offering `ncz install android` in that state would hand a user a ~1 GB
+# download, a Google account registration dance, and a poor experience -- and
+# they would reasonably read it as a shipped feature rather than an experiment.
+# The implementation is kept, verified as far as it goes, and stays here ready
+# to be re-wired the moment hardware rendering works: the blocker is an arm64
+# Android >= 14 base image for the CIX Mali blob, not this code.
+#
+# Re-enable by restoring the `android|waydroid)` case in ncz_install() and its
+# line in the help text.
 ncz_install_android() {
     if [ "$(id -u)" -ne 0 ]; then
         echo "ncz install android: run as root (sudo ncz install android)" >&2
@@ -737,8 +754,6 @@ Components:
   mnemos     Pull + start the MNEMOS memory server (REST + MCP + OpenAI-compatible
              gateway on :5002, sqlite-backed, in-process CPU embedder)
   nemoclaw   Pull + start NVIDIA NemoClaw OpenShell sandbox runtime
-  android    Install Waydroid, a containerised Android environment, and
-             initialise it (needs a kernel with binder; see below)
 MSG
             ;;
         mnemos)
@@ -747,11 +762,9 @@ MSG
         nemoclaw)
             ncz_install_nemoclaw
             ;;
-        android|waydroid)
-            ncz_install_android
-            ;;
+        # android|waydroid) INTENTIONALLY NOT WIRED UP -- see ncz_install_android.
         *)
-            echo "ncz install: unknown component '$component' (expected: mnemos | nemoclaw | android)" >&2
+            echo "ncz install: unknown component '$component' (expected: mnemos | nemoclaw)" >&2
             exit 1
             ;;
     esac
