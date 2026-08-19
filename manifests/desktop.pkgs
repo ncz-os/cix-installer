@@ -143,6 +143,15 @@ gir1.2-glib-2.0
 # --- GPU / GL tooling (Mali GLES; Vulkan tools for diagnostics) -------------
 mesa-utils
 vulkan-tools
+# The Mesa Vulkan ICDs, which is what gives PANTHOR a Vulkan driver (panvk).
+# Without this the image ships the Vulkan loader, the tools and the validation
+# layers but no Mesa ICD, so /usr/share/vulkan/icd.d/ is empty and Panthor has
+# GL only -- measured on O6N 2026-08-19, where `dpkg -l mesa-vulkan-drivers`
+# read `un <none>`. The CIX blob is unaffected either way: it registers its own
+# ICD at /etc/vulkan/icd.d/mali.json, a path the loader searches separately.
+# Both can be installed at once; vulkaninfo then enumerates each GPU that has a
+# bound kernel driver.
+mesa-vulkan-drivers
 libglu1-mesa
 clinfo
 glmark2-es2-wayland
