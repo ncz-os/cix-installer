@@ -262,29 +262,59 @@ if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
     done
 fi
 
-# NCZ-OS proprietary package: it is not published on Ubuntu ports, so add a
-# locally-built copy directly in reprepro-style pool layout. This is optional
-# to keep the mirror useful as a standalone Ubuntu closure builder.
-SINGDEB=""
-# Sort candidates so a stale/older .deb left in sinty-out from a previous
-# build can never shadow the newest one (version-sort, newest last, per
-# Codex review 2026-07-26 — the original first-match glob loop picked
-# whichever candidate the shell happened to list first, which is undefined
-# ordering, not necessarily the newest version).
-SING_CANDIDATES="$(ls -1 "$REPO"/build/sinty-out/ncz-singularity-desktop_*_arm64.deb 2>/dev/null | sort -V || true)"
-if [ -n "$SING_CANDIDATES" ]; then
-    SINGDEB="$(printf '%s\n' "$SING_CANDIDATES" | tail -1)"
-    N="$(printf '%s\n' "$SING_CANDIDATES" | wc -l)"
-    [ "$N" -gt 1 ] && echo "  NOTE: $N candidate ncz-singularity-desktop .debs found in sinty-out; using newest by version: $(basename "$SINGDEB")"
-fi
-if [ -n "$SINGDEB" ]; then
-    SINGPOOL="$OUT/pool/main/n/ncz-singularity-desktop"
-    mkdir -p "$SINGPOOL"
-    cp -f "$SINGDEB" "$SINGPOOL/"
-    echo "  added local NCZ package: $SINGDEB -> $SINGPOOL/"
-else
-    echo "  WARN: no local ncz-singularity-desktop_*_arm64.deb at $REPO/build/sinty-out — continuing without it"
-fi
+# NCZ-OS-local packages: not published on Ubuntu ports, so add locally-built
+# copies directly in reprepro-style pool layout. Optional ones keep the mirror
+# usable as a standalone Ubuntu closure builder; required ones do not, because
+# their absence produces an ISO that fails partway through an install.
+#
+# ncz-usb-recovery is REQUIRED: cixmini-boot Depends on it, and cixmini-boot is
+# pulled in by the kernel package on every install. Missing from this pool, that
+# dependency is unsatisfiable offline and apt refuses to configure cixmini-boot,
+# so the bootloader plumbing never lands.
+#
+# Each row: <package name>|<glob of candidate .debs>|<required?>
+NCZ_LOCAL_DEBS="
+ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_arm64.deb|optional
+ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_all.deb|required
+"
+
+printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
+    [ -n "$pkg" ] || continue
+
+    # Version-sort and take the last: a stale .deb left by an earlier build must
+    # never shadow the newest. A plain glob loop picks whichever the shell lists
+    # first, which is undefined ordering, not newest.
+    candidates="$(ls -1 $glob 2>/dev/null | sort -V || true)"
+    if [ -z "$candidates" ]; then
+        if [ "$req" = required ]; then
+            echo "  ERROR: no $pkg .deb at $glob" >&2
+            echo "  ERROR: it is a hard dependency of cixmini-boot; without it the" >&2
+            echo "  ERROR: install fails when apt cannot configure cixmini-boot." >&2
+            echo "  ERROR: build it first: build/build-usb-recovery-deb.sh" >&2
+            exit 1
+        fi
+        echo "  WARN: no $pkg .deb at $glob — continuing without it"
+        continue
+    fi
+
+    deb="$(printf '%s\n' "$candidates" | tail -1)"
+    n="$(printf '%s\n' "$candidates" | wc -l)"
+    [ "$n" -gt 1 ] && echo "  NOTE: $n candidate $pkg .debs found; using newest by version: $(basename "$deb")"
+
+    # reprepro pool layout: pool/main/<first letter>/<source name>/
+    pooldir="$OUT/pool/main/$(printf '%s' "$pkg" | cut -c1)/$pkg"
+    mkdir -p "$pooldir"
+    cp -f "$deb" "$pooldir/"
+    echo "  added local NCZ package: $deb -> $pooldir/"
+done
+# `while` runs in a subshell behind the pipe, so its exit(1) cannot abort this
+# script directly. Re-check the required ones here, where the failure can.
+for required_pkg in ncz-usb-recovery; do
+    if ! find "$OUT/pool" -name "${required_pkg}_*.deb" | grep -q .; then
+        echo "  FATAL: $required_pkg is required in the mirror pool and is absent" >&2
+        exit 1
+    fi
+done
 
 # prune debs for packages no longer in the resolved closure (e.g. dropped
 # from the seed, or no longer pulled in as a dependency) so the pool doesn't

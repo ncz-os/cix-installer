@@ -33,6 +33,38 @@ set -uo pipefail
 
 echo "[41] USB2-companion rescan workaround (Sky1 7.2 xhci)"
 
+# --- PREFER THE PACKAGE ---------------------------------------------------
+# ncz-usb-recovery ships exactly the three payloads written below; they are
+# EXTRACTED from this file by build/build-usb-recovery-deb.sh, so the package
+# and this hook cannot disagree. Installing it rather than writing the files
+# by hand is what makes the recovery UPGRADABLE: dpkg owns the paths, so a
+# later fix published to the NCZ-OS apt repo reaches an installed board with a
+# plain `apt-get update && apt-get upgrade`. Files written by this script are
+# owned by nobody and can never be updated that way.
+#
+# Not fatal if it is missing. A build that has not folded the .deb into the
+# mirror yet must still produce a bootable system with a working keyboard --
+# that is the whole point of the hook. But say so LOUDLY, because the silent
+# version of this is a board that looks fine and can never be fixed remotely.
+# Capture rather than pipe. `cmd | tail` returns TAIL's status unless pipefail
+# is set; it is set at the top of this file, but that is ~50 lines away, and an
+# edit that dropped it would silently invert this test -- apt-get would fail,
+# this branch would report success, and the fallback below would never run.
+if _apt_out="$(DEBIAN_FRONTEND=noninteractive apt-get install -y ncz-usb-recovery 2>&1)"; then
+    printf '%s\n' "$_apt_out" | tail -2
+    # No `systemctl enable` here: ncz-usb-recovery's postinst already runs it.
+    # Doing it again would make this script a second owner of that state. Report
+    # what the package actually achieved instead of re-asserting it -- if the
+    # line below says anything but "enabled", the package's postinst is broken
+    # and that is what needs fixing, not a second enable here.
+    echo "  ncz-usb2-rescan: installed from ncz-usb-recovery ($(dpkg-query -W -f='${Version}' ncz-usb-recovery 2>/dev/null || echo '?')), upgradable via apt"
+    echo "  ncz-usb2-rescan: $(systemctl is-enabled ncz-usb2-rescan.service 2>&1 || true)"
+    exit 0
+fi
+echo "[41] WARN: ncz-usb-recovery not installable from the NCZ-OS apt repo" >&2
+echo "[41] WARN: falling back to writing the payloads directly -- the recovery" >&2
+echo "[41] WARN: will WORK but will NOT be upgradable by apt on this system." >&2
+
 install -d -m 0755 /usr/local/sbin
 
 # Never runtime-suspend the interactive USB chain. On O6N the VIA hub is the

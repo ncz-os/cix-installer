@@ -394,7 +394,7 @@ Maintainer: $MAINT
 Section: admin
 Priority: optional
 Installed-Size: $isize
-Depends: systemd, efibootmgr, util-linux, kmod
+Depends: systemd, efibootmgr, util-linux, kmod, ncz-usb-recovery
 Description: NCZ cixmini systemd-boot entry generator (OTA-safe)
  Idempotent bootloader hook that stages installed cixmini kernels to the ESP
  and writes systemd-boot loader entries (lts/next/rescue) without ever wiping
