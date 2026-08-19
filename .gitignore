@@ -123,3 +123,4 @@ __pycache__/
 # Upstream downloads
 build/forky-vendor-mirror/
 build/forky-mirror/
+build/gst-cix-out/
