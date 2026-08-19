@@ -1,0 +1,82 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] drm/panthor: set .num_rqs in drm_sched_init_args
+
+Both drm_sched_init_args initialisers in this driver are designated
+initialisers that omit .num_rqs, leaving it zero. drm_sched_init() then sets
+num_user_rqs = 0, and the subsequent drm_sched_entity_init(..., priority 0, ...)
+fails its `priority >= sched_list[0]->num_user_rqs` check, because 0 >= 0.
+
+MEASURED on CIX Sky1 (Mali-G720-Immortalis), kernel 7.2.0-sky1-ncz, O6N
+2026-08-19. Reproducible on demand:
+
+    panthor CIXH5000:00: [drm] clock rate = 900000000
+    panthor CIXH5000:00: GPU power domain 21 powered on via SMC SCMI
+    panthor CIXH5000:00: Sky1: GPU un-secured via ACPI power-supply (_PR0)
+    panthor CIXH5000:00: [drm] sky1 harvesting: reg=0xf core_mask=0x550555
+    panthor CIXH5000:00: [drm] Mali-G720-Immortalis id 0xc870
+    panthor CIXH5000:00: [drm] Using ACE-Lite bus coherency (Sky1)
+    panthor CIXH5000:00: entity with out-of-bounds priority:0 num_user_rqs:0
+    Unable to handle kernel NULL pointer dereference at virtual address 0000000000000010
+    Internal error: Oops: 0000000096000004 [#1] SMP
+
+The driver probes correctly through clock, power domain, un-secure, harvesting,
+GPU ID and coherency, and dies only at the last step of probe. On a boot where
+panthor is selected this is a 4-second reboot loop.
+
+The kernel documents the field as required:
+
+    @num_user_rqs: Number of run-queues. This is at most DRM_SCHED_PRIORITY_COUNT
+    @sched_rq:     An allocated array of run-queues of size @num_rqs
+
+This source predates the struct-based drm_sched_init(); the older positional
+form defaulted the run-queue count, so the omission was harmless then. Upstream
+panthor sets .num_rqs = 1 at both sites. Each queue and each VM uses a single
+entity at priority 0, so one run-queue is correct.
+
+NOT a build-provenance problem. This reproduces with the kernel image and the
+staged headers from the SAME OE build and with CONFIG_MODVERSIONS=y, and the
+module loads with zero symbol-version complaints. A header/image mismatch was
+present and separately fixed; it was not the cause of this Oops.
+
+VERIFIED after the fix, same hardware, same procedure:
+
+    panthor CIXH5000:00: [drm] Firmware git sha: 221d2b3e5f4cf47df6227ccb24c82c4e4baa986e
+    panthor CIXH5000:00: [drm] CSF FW using interface v3.6.0, Features 0x10
+    panthor CIXH5000:00: [drm] Using Transparent Hugepage
+    [drm] Initialized panthor 1.8.0 for CIXH5000:00 on minor 1
+
+    /sys/bus/platform/drivers/panthor/CIXH5000:00   present
+    /sys/class/drm/card1/device/driver -> panthor
+    /dev/dri: card0 card1 renderD128 renderD129
+    dmesg Oops/NULL-deref count: 0
+
+--- a/panthor_sched.c
++++ b/panthor_sched.c
+@@ -3500,6 +3500,12 @@
+ {
+ 	struct drm_sched_init_args sched_args = {
+ 		.ops = &panthor_queue_sched_ops,
++		/* One run-queue: a single entity at priority 0.
++		 * Omitting this leaves the field zero, which makes
++		 * drm_sched_entity_init() reject priority 0 with
++		 * "out-of-bounds priority:0 num_user_rqs:0".
++		 */
++		.num_rqs = 1,
+ 		.submit_wq = group->ptdev->scheduler->wq,
+ 		/*
+ 		 * The credit limit argument tells us the total number of
+--- a/panthor_mmu.c
++++ b/panthor_mmu.c
+@@ -2741,6 +2741,12 @@
+ 	struct drm_gpu_scheduler *sched;
+ 	const struct drm_sched_init_args sched_args = {
+ 		.ops = &panthor_vm_bind_ops,
++		/* One run-queue: a single entity at priority 0.
++		 * Omitting this leaves the field zero, which makes
++		 * drm_sched_entity_init() reject priority 0 with
++		 * "out-of-bounds priority:0 num_user_rqs:0".
++		 */
++		.num_rqs = 1,
+ 		.submit_wq = ptdev->mmu->vm.wq,
+ 		.credit_limit = 1,
+ 		/* Bind operations are synchronous for now, no timeout needed. */
