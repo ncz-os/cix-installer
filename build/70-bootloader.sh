@@ -380,10 +380,32 @@ fi
 # Default to the headline edge kernel (cixmini-next); fall back to the legacy
 # kernel only if the headline kernel isn't present. Re-write loader.conf to match
 # what's actually installed.
+#
+# r303: install-time component toggle (see preseed/component-selector.sh). When
+# the operator opted OUT of the desktop, retarget the default rEFInd entry at
+# cixmini-console (systemd.unit=multi-user.target). The cixmini-next entry is
+# still written (operator can pick it manually from rEFInd for recovery), but
+# the freshly-installed box boots straight to console on first power-on.
+DEFAULT_ENTRY=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     DEFAULT_ENTRY="cixmini-next"
 else
     DEFAULT_ENTRY="cixmini-lts"
+fi
+COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS
+[ -r "$COMP_FILE" ] || COMP_FILE=/etc/cix-installer/COMPONENTS
+[ -r "$COMP_FILE" ] || COMP_FILE=/var/lib/cix-components/COMPONENTS
+if [ -r "$COMP_FILE" ]; then
+    _ck=$(tr -d ' \t\r\n' < "$COMP_FILE" 2>/dev/null || true)
+    case ",$_ck," in
+        *",desktop,"*) : ;;
+        *)
+            if [ "$NEXT_AVAILABLE" = "1" ]; then
+                DEFAULT_ENTRY="cixmini-console"
+                echo "  component-selector: desktop OFF — default rEFInd entry -> cixmini-console"
+            fi
+            ;;
+    esac
 fi
 cat > /boot/efi/loader/loader.conf <<EOF
 default $DEFAULT_ENTRY

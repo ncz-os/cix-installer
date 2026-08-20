@@ -62,7 +62,29 @@ if [ -n "$SQFS_DIR" ]; then
     # The ISO installs one complete target.  The desktop layer is the internal
     # name for that complete payload; rEFInd provides console/recovery choices
     # after installation instead of selecting an install-time server overlay.
+    #
+    # r303: install-time component toggle (see preseed/component-selector.sh).
+    # If the operator opted out of the desktop, do NOT extract desktop.squashfs
+    # at all — the system boots to console via cixmini-console.conf (set as
+    # default by 70-bootloader.sh when COMPONENTS_DESKTOP=0). BASE-only installs
+    # are still bit-identical to the previous /cdrom/cixmini/base.squashfs
+    # payload, which carries a usable userspace (network, ssh, etc.) — the
+    # desktop is purely an overlay.
     ROLE=desktop
+    _applied_role="$ROLE"
+    if [ -r /tmp/ncz-components ] && command -v tr >/dev/null 2>&1; then
+        _want_desktop=1
+        _ck=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null)
+        case ",$_ck," in
+            *",desktop,"*) _want_desktop=1 ;;
+            *)              _want_desktop=0 ;;
+        esac
+        if [ "$_want_desktop" = 0 ]; then
+            ROLE=base
+            _applied_role=base
+            msg "component-selector: desktop toggle OFF — installing BASE ONLY (no desktop.squashfs overlay)"
+        fi
+    fi
     START=$(date +%s)
     msg "extracting base.squashfs -> /target"
     echo "[sqfs] unsquashfs base ..." > $SER 2>&1
@@ -70,7 +92,7 @@ if [ -n "$SQFS_DIR" ]; then
     RC=$?
     echo "[sqfs] base rc=$RC -> $(find /target -xdev -type f 2>/dev/null | wc -l) files" > $SER 2>&1
     if [ "$RC" -ne 0 ]; then msg "FATAL: unsquashfs base rc=$RC"; exit 1; fi
-    if [ -f "$SQFS_DIR/$ROLE.squashfs" ]; then
+    if [ "$ROLE" = "desktop" ] && [ -f "$SQFS_DIR/$ROLE.squashfs" ]; then
         # Apply the complete overlay contract (0:0 whiteouts plus opaque
         # directories) before extracting the upperdir squashfs.
         OVERLAY_MANIFEST="$SQFS_DIR/$ROLE.overlay-manifest"
@@ -115,8 +137,13 @@ if [ -n "$SQFS_DIR" ]; then
             fi
         done < "$OVERLAY_MANIFEST"
     else
-        msg "WARNING: $ROLE.squashfs not on media -- installing BASE ONLY. This is NOT a working $ROLE system (no desktop, no server packages, missing ssh on server). Rebuild the ISO with $ROLE.squashfs staged."
-        echo "[sqfs] WARNING: $ROLE.squashfs missing -- base-only degraded install" > $SER 2>&1
+        if [ "$_applied_role" = "base" ]; then
+            msg "role=base (operator toggled desktop OFF at install) — skipping desktop overlay"
+            echo "[sqfs] role=base (component-selector: desktop OFF) — base-only install" > $SER 2>&1
+        else
+            msg "WARNING: $ROLE.squashfs not on media -- installing BASE ONLY. This is NOT a working $ROLE system (no desktop, no server packages, missing ssh on server). Rebuild the ISO with $ROLE.squashfs staged."
+            echo "[sqfs] WARNING: $ROLE.squashfs missing -- base-only degraded install" > $SER 2>&1
+        fi
     fi
     ELAPSED=$(( $(date +%s) - START ))
     # BAKED marker: run-all runs ONLY machine hooks (fstab/rescue/bootloader), not
@@ -150,8 +177,8 @@ WantedBy=multi-user.target
 FBU
     ln -sf ../ncz-firstboot.service /target/etc/systemd/system/multi-user.target.wants/ncz-firstboot.service
     FINAL_MB=$(du -sm /target 2>/dev/null | awk '{print $1}')
-    msg "--- layered squashfs install done: ${FINAL_MB} MB in ${ELAPSED}s (role=$ROLE) ---"
-    echo "[sqfs] DONE ${FINAL_MB}MB role=$ROLE files=$(find /target -xdev -type f|wc -l)" > $SER 2>&1
+    msg "--- layered squashfs install done: ${FINAL_MB} MB in ${ELAPSED}s (role=$_applied_role) ---"
+    echo "[sqfs] DONE ${FINAL_MB}MB role=$_applied_role files=$(find /target -xdev -type f|wc -l)" > $SER 2>&1
     [ -f /target/etc/os-release ] || echo "[sqfs] WARN no os-release" > $SER 2>&1
     touch /target/.cix-r40-rootfs-extracted /target/.cix-squashfs-install
     exit 0

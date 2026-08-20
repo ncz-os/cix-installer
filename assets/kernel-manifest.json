@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-08-19T01:15:26Z",
+  "generated_utc": "2026-08-19T04:54:22Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
@@ -16,19 +16,19 @@
     "edge": {
       "config": {
         "file": "assets/kernel/edge/config-7.2.0-sky1-ncz",
-        "sha256": "76f46c091912d9ada3c6056a1831c3ceb05476587ea6295aed46f6bb66e3bc1e"
+        "sha256": "142340c3244fb65638e100baef613c8d337cde89e0d522d4c959bd9c131bbe08"
       },
       "dir": "assets/kernel/edge",
       "image": {
         "file": "assets/kernel/edge/Image-cixmini.bin",
-        "sha256": "34216a227b650121a39a23c31a53970890b5b50fa410b297ad7ec9e442239714",
-        "size": 49760768
+        "sha256": "1dcea503d51a8db131e45162091f42276a96b5ce9c9b046588f3c235de7bbd32",
+        "size": 49826304
       },
       "kver": "7.2.0-sky1-ncz",
       "modules": {
         "file": "assets/kernel/edge/modules-cixmini.tgz",
-        "sha256": "01affaa7ad858b1c69fbc623de63161e9c2ec728ed7743b4747b74641c9b968b",
-        "size": 8080095
+        "sha256": "795f63e003d4357bd6a512433ef494fa7d7a4a3f06b08576add385184f3dc572",
+        "size": 8319197
       },
       "npu": null
     },

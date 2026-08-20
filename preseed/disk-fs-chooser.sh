@@ -222,10 +222,32 @@ log "TARGET DISK = $CHOSEN_DISK   ROOT FS = $CHOSEN_FS"
 # --- pin + VERIFY partman FIRST, then wipe (never wipe on an unproven pin) ---
 # Root partition uses CHOSEN_FS; ESP (fat32) + rescue (ext4) are fixed, matching
 # the static preseed recipe byte-for-byte.
-RECIPE="cixmini :: \
+#
+# r303: install-time component toggle (see preseed/component-selector.sh) —
+# the operator may have opted out of the NCZRESCUE partition. When that's the
+# case we build a 2-stanza recipe (ESP + root) instead of the 3-stanza one. The
+# fail-closed verification (root-stanza check, byte-identical round-trip) is
+# UNCHANGED for both paths — only the recipe string we build differs.
+WANT_RESCUE_PART=1
+if [ -r /tmp/ncz-components ]; then
+    _ck=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null || true)
+    case ",$_ck," in
+        *",rescue-partition,"*) WANT_RESCUE_PART=1 ;;
+        *)                       WANT_RESCUE_PART=0 ;;
+    esac
+fi
+if [ "$WANT_RESCUE_PART" = 1 ]; then
+    RECIPE="cixmini :: \
   2048 2048 2048 fat32 \$primary{ } \$bootable{ } method{ efi } format{ } . \
   4096 4096 4096 ext4 \$primary{ } method{ format } format{ } use_filesystem{ } filesystem{ ext4 } label{ NCZRESCUE } . \
   4096 8192 -1 $CHOSEN_FS \$primary{ } method{ format } format{ } use_filesystem{ } filesystem{ $CHOSEN_FS } mountpoint{ / } ."
+    log "recipe: 3-stanza (ESP + NCZRESCUE + root) — rescue-partition toggle ON"
+else
+    RECIPE="cixmini :: \
+  2048 2048 2048 fat32 \$primary{ } \$bootable{ } method{ efi } format{ } . \
+  4096 8192 -1 $CHOSEN_FS \$primary{ } method{ format } format{ } use_filesystem{ } filesystem{ $CHOSEN_FS } mountpoint{ / } ."
+    log "recipe: 2-stanza (ESP + root) — rescue-partition toggle OFF (component-selector)"
+fi
 
 # Every db_* here is checked; any failure ABORTS before the dd.
 db_set  partman-auto/disk "$CHOSEN_DISK"      || abort "db_set partman-auto/disk failed"
@@ -285,6 +307,7 @@ log "cleared stale GPT on $D (partman pins already verified)"
 # stash the choices for later hooks / diagnostics
 echo "$CHOSEN_DISK" > /tmp/ncz-target-disk 2>/dev/null || true
 echo "$CHOSEN_FS"   > /tmp/ncz-root-fs 2>/dev/null || true
+echo "$WANT_RESCUE_PART" > /tmp/ncz-want-rescue-partition 2>/dev/null || true
 mkdir -p /target 2>/dev/null || true
-log "chooser complete: disk=$CHOSEN_DISK root-fs=$CHOSEN_FS"
+log "chooser complete: disk=$CHOSEN_DISK root-fs=$CHOSEN_FS rescue-partition=$WANT_RESCUE_PART"
 exit 0

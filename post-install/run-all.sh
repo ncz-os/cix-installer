@@ -211,6 +211,83 @@ OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
 if [ "$NCZ_BAKED" = 1 ]; then
     OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -E "$MACHINE_HOOKS_RE" || true)
 fi
+# r303: install-time component toggle (see preseed/component-selector.sh). The
+# chooser writes one-bit-per-toggle files at /usr/local/lib/cix-installer/
+# COMPONENTS_<name> (0 or 1) AND a single comma-separated COMPONENTS file. This
+# block skips hooks whose component was toggled OFF. The mapping is explicit
+# (not regex-derived) so the relationship between a toggle and its hooks is
+# readable in one place. Lines that map a hook to a toggle that no chooser
+# currently writes are inert (no skipping).
+COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS
+[ -r "$COMP_FILE" ] || COMP_FILE=/etc/cix-installer/COMPONENTS
+[ -r "$COMP_FILE" ] || COMP_FILE=/var/lib/cix-components/COMPONENTS
+_CDESKTO=1; _CBRW=1; _CMGMT=1; _CRESC=1; _CWP=1; _CAGT=1
+if [ -r "$COMP_FILE" ]; then
+    _ck=$(tr -d ' \t\r\n' < "$COMP_FILE" 2>/dev/null || true)
+    case ",$_ck," in *",desktop,"*)            :;; *) _CDESKTO=0;; esac
+    case ",$_ck," in *",browsers,"*)           :;; *) _CBRW=0;; esac
+    case ",$_ck," in *",mgmt-container,"*)     :;; *) _CMGMT=0;; esac
+    case ",$_ck," in *",rescue-partition,"*)   :;; *) _CRESC=0;; esac
+    case ",$_ck," in *",wallpaper-rotator,"*)  :;; *) _CWP=0;; esac
+    case ",$_ck," in *",agents,"*)             :;; *) _CAGT=0;; esac
+fi
+# When desktop is OFF, skip the desktop-only hooks (anything that touches
+# /opt/singularity, greetd, labwc, or the wallpaper stack). The browsers
+# toggle only does anything when desktop is ON; OFF+desktop is the only
+# browser-skip path the user explicitly asked for.
+# DESKTOP_FILTER: drop desktop-only hooks when desktop is OFF.
+_SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|57-screensaver|59-desktop-curate|60-boot-splash|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|89-npu-embed-server|91-dbus-broker|95-console-font-autosize)\.sh$'
+# Per-toggle skips (work whether desktop is ON or OFF).
+_SKIP_BROWSERS_RE='^(52-vivaldi|53-chrome)\.sh$'
+_SKIP_MGMT_RE='^(38-recovery-container)\.sh$'
+_SKIP_RESCUE_RE='^(72-rescue-partition)\.sh$'
+_SKIP_WALLPAPER_RE='^(45-wallpaper-rotator)\.sh$'
+_SKIP_AGENTS_RE='^(30-agents|47-llm-stack|88-noe-umd-venv)\.sh$'
+# Audit every per-component skip so the install log records what was dropped
+# (and a board-week-later audit can find it). MAX_RETENTION=mirror.
+_tty_skip() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" >"$TTY" 2>/dev/null || true; }
+if [ "$_CDESKTO" = 0 ] && [ -n "$OPT_HOOKS" ]; then
+    _drop=$(printf '%s\n' $OPT_HOOKS | grep -E "$_SKIP_DESKTOP_RE" || true)
+    if [ -n "$_drop" ]; then
+        _tty_skip "component-selector: desktop OFF — skipping:$_drop"
+        OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -vE "$_SKIP_DESKTOP_RE" || true)
+    fi
+fi
+if [ "$_CBRW" = 0 ] && [ -n "$OPT_HOOKS" ]; then
+    _drop=$(printf '%s\n' $OPT_HOOKS | grep -E "$_SKIP_BROWSERS_RE" || true)
+    if [ -n "$_drop" ]; then
+        _tty_skip "component-selector: browsers OFF — skipping:$_drop"
+        OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -vE "$_SKIP_BROWSERS_RE" || true)
+    fi
+fi
+if [ "$_CMGMT" = 0 ] && [ -n "$OPT_HOOKS" ]; then
+    _drop=$(printf '%s\n' $OPT_HOOKS | grep -E "$_SKIP_MGMT_RE" || true)
+    if [ -n "$_drop" ]; then
+        _tty_skip "component-selector: mgmt-container OFF — skipping:$_drop"
+        OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -vE "$_SKIP_MGMT_RE" || true)
+    fi
+fi
+if [ "$_CRESC" = 0 ] && [ -n "$OPT_HOOKS" ]; then
+    _drop=$(printf '%s\n' $OPT_HOOKS | grep -E "$_SKIP_RESCUE_RE" || true)
+    if [ -n "$_drop" ]; then
+        _tty_skip "component-selector: rescue-partition OFF — skipping:$_drop"
+        OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -vE "$_SKIP_RESCUE_RE" || true)
+    fi
+fi
+if [ "$_CWP" = 0 ] && [ -n "$OPT_HOOKS" ]; then
+    _drop=$(printf '%s\n' $OPT_HOOKS | grep -E "$_SKIP_WALLPAPER_RE" || true)
+    if [ -n "$_drop" ]; then
+        _tty_skip "component-selector: wallpaper-rotator OFF — skipping:$_drop"
+        OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -vE "$_SKIP_WALLPAPER_RE" || true)
+    fi
+fi
+if [ "$_CAGT" = 0 ] && [ -n "$OPT_HOOKS" ]; then
+    _drop=$(printf '%s\n' $OPT_HOOKS | grep -E "$_SKIP_AGENTS_RE" || true)
+    if [ -n "$_drop" ]; then
+        _tty_skip "component-selector: agents OFF — skipping:$_drop"
+        OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -vE "$_SKIP_AGENTS_RE" || true)
+    fi
+fi
 # AUDIT: name every hook that exists on disk but is in NO list.
 #
 # The lists above are allowlists, so a dropped hook is invisible: it produces
@@ -221,9 +298,14 @@ fi
 # later.
 _planned=$(printf '%s\n%s\n%s\n' "$PHASE0_HOOKS" "$REQUIRED_HOOKS" "$OPT_HOOKS" | sort -u)
 _ondisk=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort -u)
+# Component-selector skips (r303) are NOT orphans — they're the operator
+# explicitly opting OUT of a toggle. The five skip regexes must be remembered
+# here exactly as written in the toggle block above.
+_SKIP_ALL_RE="${_SKIP_DESKTOP_RE}|${_SKIP_BROWSERS_RE}|${_SKIP_MGMT_RE}|${_SKIP_RESCUE_RE}|${_SKIP_WALLPAPER_RE}|${_SKIP_AGENTS_RE}"
 _orphans=$(comm -13 <(printf '%s\n' $_planned | sort -u) \
                     <(printf '%s\n' $_ondisk | sort -u) \
-           | grep -vE '^(70-bootloader|99-diagnostics)\.sh$' || true)
+           | grep -vE '^(70-bootloader|99-diagnostics)\.sh$' \
+           | grep -vE "$_SKIP_ALL_RE" || true)
 if [ -n "$_orphans" ]; then
     echo "[cix-installer] WARNING: hooks present on disk but in NO execution list (NCZ_BAKED=${NCZ_BAKED:-0}):"
     printf '%s\n' $_orphans | sed 's/^/[cix-installer]   ORPHAN: /'
