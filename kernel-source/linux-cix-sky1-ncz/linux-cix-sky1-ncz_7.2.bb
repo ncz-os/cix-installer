@@ -358,6 +358,8 @@ SRC_URI = " \
     file://patches-7.2/0214-acpi-demote-cix-sky1-ecam-duplicate-reservations.patch \
     file://patches-7.2/0215-pci-cix-enable-root-port-io-window-assignment.patch \
     file://patches-7.2/0216-resctrl-mpam-expose-proportional-bandwidth.patch \
+    file://patches-7.2/0217-rtw89-disable-hw-rfkill-polling-on-orion-o6.patch \
+    file://patches-7.2/0218-rtw89-check-acpi-dsm-before-evaluating.patch \
 "
 
 COMPATIBLE_MACHINE = "(cixmini)"
