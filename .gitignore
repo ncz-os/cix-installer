@@ -54,6 +54,7 @@ build/*.iso.*-part*
 build/iso-staging/
 build/iso-staging-di/
 build/kernel-debs/
+build/libdrm-debs/
 build/keys/
 build/*.log
 build/mgmt-rootfs/

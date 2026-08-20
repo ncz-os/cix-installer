@@ -152,6 +152,10 @@ vulkan-tools
 # Both can be installed at once; vulkaninfo then enumerates each GPU that has a
 # bound kernel driver.
 mesa-vulkan-drivers
+# Mesa's OpenCL ICD is the stock-Debian rusticl path for panthor. It requires
+# RUSTICL_ENABLE=panfrost (set by 16-mesa-gpu-2613.sh); without this package
+# clinfo reports zero platforms even after Vulkan works.
+mesa-opencl-icd
 libglu1-mesa
 clinfo
 glmark2-es2-wayland

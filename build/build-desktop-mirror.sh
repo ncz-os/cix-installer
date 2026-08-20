@@ -275,6 +275,15 @@ fi
 NCZ_LOCAL_DEBS="
 ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_arm64.deb|optional
 ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_all.deb|optional
+libdrm-common|$REPO/build/libdrm-debs/libdrm-common_2.4.134-3+ncz*_all.deb|required
+libdrm2|$REPO/build/libdrm-debs/libdrm2_2.4.134-3+ncz*_arm64.deb|required
+libdrm-amdgpu1|$REPO/build/libdrm-debs/libdrm-amdgpu1_2.4.134-3+ncz*_arm64.deb|required
+libdrm-etnaviv1|$REPO/build/libdrm-debs/libdrm-etnaviv1_2.4.134-3+ncz*_arm64.deb|required
+libdrm-freedreno1|$REPO/build/libdrm-debs/libdrm-freedreno1_2.4.134-3+ncz*_arm64.deb|required
+libdrm-nouveau2|$REPO/build/libdrm-debs/libdrm-nouveau2_2.4.134-3+ncz*_arm64.deb|required
+libdrm-radeon1|$REPO/build/libdrm-debs/libdrm-radeon1_2.4.134-3+ncz*_arm64.deb|required
+libdrm-tegra0|$REPO/build/libdrm-debs/libdrm-tegra0_2.4.134-3+ncz*_arm64.deb|required
+libdrm-dev|$REPO/build/libdrm-debs/libdrm-dev_2.4.134-3+ncz*_arm64.deb|required
 "
 
 printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
@@ -287,9 +296,8 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
     if [ -z "$candidates" ]; then
         if [ "$req" = required ]; then
             echo "  ERROR: no $pkg .deb at $glob" >&2
-            echo "  ERROR: it is a hard dependency of cixmini-boot; without it the" >&2
-            echo "  ERROR: install fails when apt cannot configure cixmini-boot." >&2
-            echo "  ERROR: build it first: build/build-usb-recovery-deb.sh" >&2
+            echo "  ERROR: required local package missing; build the artifact first." >&2
+            echo "  ERROR: for patched libdrm, run: build/build-libdrm-debs.sh" >&2
             exit 1
         fi
         echo "  WARN: no $pkg .deb at $glob — continuing without it"

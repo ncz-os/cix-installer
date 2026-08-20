@@ -22,8 +22,24 @@ LIBDIR="$PREFIX/lib/aarch64-linux-gnu"
 VK_ICD="$PREFIX/share/vulkan/icd.d/panfrost_icd.aarch64.json"
 RUSTICL_LIB="$LIBDIR/libRusticlOpenCL.so.1"
 
+ENVF=/etc/environment
+touch "$ENVF"
+set_env() {  # key value — idempotent replace-or-append
+    local k="$1" v="$2"
+    if grep -q "^${k}=" "$ENVF" 2>/dev/null; then
+        sed -i "s|^${k}=.*|${k}=${v}|" "$ENVF"
+    else
+        echo "${k}=${v}" >> "$ENVF"
+    fi
+}
+
 if [ ! -f "$SRC" ]; then
-    echo "[16] WARN: $SRC missing — skipping Mesa 26.1.3 GPU stack (GPU Vulkan compute + GPU OpenCL will be unavailable)"
+    echo "[16] $SRC missing — using distribution Mesa for PanVK/rusticl"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        mesa-vulkan-drivers mesa-opencl-icd 2>&1 | tail -6 || \
+        echo "[16] WARN: distribution Mesa Vulkan/OpenCL packages unavailable"
+    set_env RUSTICL_ENABLE panfrost
+    echo "    /etc/environment: RUSTICL_ENABLE=panfrost"
     exit 0
 fi
 
@@ -64,16 +80,6 @@ if [ -f "$PREFIX/lib/clc/spirv64-mesa3d-.spv" ]; then
 fi
 
 # --- System-wide activation via /etc/environment ---------------------------
-ENVF=/etc/environment
-touch "$ENVF"
-set_env() {  # key value — idempotent replace-or-append
-    local k="$1" v="$2"
-    if grep -q "^${k}=" "$ENVF" 2>/dev/null; then
-        sed -i "s|^${k}=.*|${k}=${v}|" "$ENVF"
-    else
-        echo "${k}=${v}" >> "$ENVF"
-    fi
-}
 set_env VK_DRIVER_FILES /usr/share/vulkan/icd.d/panfrost_2613_icd.aarch64.json
 set_env RUSTICL_ENABLE  panfrost
 echo "    /etc/environment: VK_DRIVER_FILES + RUSTICL_ENABLE=panfrost"
