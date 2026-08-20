@@ -216,7 +216,6 @@ SRC_URI = " \
     file://patches-7.2/0047-dptx-check-null-pointer-in-trilin_dp_panel_hw_cfg.patch \
     file://patches-7.2/0048-firmware-arm_scmi-mailbox-set-max_rx_timeout_ms-to-3.patch \
     file://patches-7.2/0049-optee-check-system_state-when-probing-at-shutdown.patch \
-    file://patches-7.2/0050-ACPI-thermal-bind-devfreq-cooling-devices-via-devfre.patch \
     file://patches-7.2/0051-thermal-ipa-enhance-ipa.patch \
     file://patches-7.2/0052-add-cix_dst-driver.patch \
     file://patches-7.2/0053-linlondp-fix-build-of-debugfs.patch \
@@ -343,6 +342,17 @@ SRC_URI = " \
     file://patches-7.2/0192-usb-cdns3-sky1-keep-the-wrapper-pinned-by-its-children.patch \
     file://patches-7.2/0193-usb-hub-give-root-hubs-the-same-power-on-good-floor.patch \
     file://patches-7.2/0200-rpmsg-virtio-ratelimit-no-used-buffer.patch \
+    file://patches-7.2/0201-acpi-table-upgrade-add-disable-and-exclude-options.patch \
+    file://patches-7.2/0202-platform-acpi-resolve-named-irq-resources.patch \
+    file://patches-7.2/0203-power-opp-accept-acpi-only-configurations.patch \
+    file://patches-7.2/0204-topology-has-missing-cpufreq-ref.patch \
+    file://patches-7.2/0205-acpi-processor-clarify-ignore-ppc-module-parameter.patch \
+    file://patches-7.2/0206-pstore-ramoops-parse-firmware-node-properties.patch \
+    file://patches-7.2/0207-drm-cix-demote-internal-tbu-noop-logs.patch \
+    file://patches-7.2/0208-bluetooth-btrtl-return-register-read-error.patch \
+    file://patches-7.2/0209-firmware-arm-scmi-use-rational-perf-frequency-conversion.patch \
+    file://patches-7.2/0210-acpi-thermal-bind-devfreq-cooling-devices-safely.patch \
+    file://patches-7.2/0211-drm-panthor-declare-scmi-perf-softdep.patch \
 "
 
 COMPATIBLE_MACHINE = "(cixmini)"
