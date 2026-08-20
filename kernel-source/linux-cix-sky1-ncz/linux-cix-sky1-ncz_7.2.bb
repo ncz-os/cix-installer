@@ -353,6 +353,10 @@ SRC_URI = " \
     file://patches-7.2/0209-firmware-arm-scmi-use-rational-perf-frequency-conversion.patch \
     file://patches-7.2/0210-acpi-thermal-bind-devfreq-cooling-devices-safely.patch \
     file://patches-7.2/0211-drm-panthor-declare-scmi-perf-softdep.patch \
+    file://patches-7.2/0212-cacheinfo-share-global-firmware-ids-across-levels.patch \
+    file://patches-7.2/0213-hwmon-cix-add-safe-acpi-fan-control.patch \
+    file://patches-7.2/0214-acpi-demote-cix-sky1-ecam-duplicate-reservations.patch \
+    file://patches-7.2/0215-pci-cix-enable-root-port-io-window-assignment.patch \
 "
 
 COMPATIBLE_MACHINE = "(cixmini)"
