@@ -31,7 +31,7 @@
 #      shipping a DOWNGRADED cix-noe-umd (2.0.2 vs 3.1.4-cixdeb13-260714):
 #        - cix-ai-engine_2.0.0-cixdeb13-260714_arm64.deb     (absent)
 #        - cix-ai-test_1.0.1-cixdeb13-260714_arm64.deb       (absent)
-#        - cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz1_arm64.deb  (absent)
+#        - cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz2_arm64.deb  (absent)
 #        - cix-npu-umd_3.2.0-cixdeb13-260714_arm64.deb       (absent)
 #        - libgtk4-layer-shell0_1.3.0-1+ncz20260817_arm64.deb (absent)
 #        - ncz-singularity-desktop_20260817+bk4~v7_arm64.deb  (absent;
@@ -80,10 +80,9 @@
 #     - Stage every cix-ai-*, cix-npu-* from the 2026Q2 SDK tarball
 #       (cix_noe_sdk_26_q2_release.tar.gz at /mnt/argonas-models/cix-vendor-sdk/2026q2/).
 #     - For cix-npu-driver-dkms, take the upstream 6.2.0-cixdeb13-260714 from
-#       the SDK, apply the +ncz1 patch series from packaging/cix-npu-driver-dkms-6.2.0/patches/,
-#       and write out as 6.2.0-cixdeb13-260714+ncz1 (matches the old ISO
-#       exactly; the +ncz1 patch fixes the runtime-PM-hygiene wedge on sky1
-#       ACPI core devices described in that README).
+#       the SDK, apply the NCZ patch series from packaging/cix-npu-driver-dkms-6.2.0/patches/,
+#       and write out as 6.2.0-cixdeb13-260714+ncz2. The DKMS module identity
+#       remains aipu/6.2.0; the Debian version tracks NCZ package content.
 #     - libgtk4-layer-shell0: build via packaging/gtk4-layer-shell/make-deb.sh
 #       (which applies the NCZ stale-buffer fix from PR #130). Output lands
 #       in assets/cix-debs/ as the +ncz<YYYYMMDD> version the OLD ISO shipped.
@@ -310,11 +309,11 @@ else
 
         # cix-npu-driver-dkms: take the SDK's 6.2.0-cixdeb13-260714, apply
         # packaging/cix-npu-driver-dkms-6.2.0/patches/* in order, bump Version
-        # to +ncz1. dpkg-deb --build needs the staged dir to be writable.
+        # to +ncz2. dpkg-deb --build needs the staged dir to be writable.
         npu_dkms_src="$SDK_DIR/cix-npu-driver-dkms_6.2.0-cixdeb13-260714_arm64.deb"
         if [ -f "$npu_dkms_src" ]; then
             if [ -d "$NPU_DKMS_PATCH_DIR" ]; then
-                log "  rebuilding cix-npu-driver-dkms 6.2.0-cixdeb13-260714+ncz1 from SDK + patches/"
+                log "  rebuilding cix-npu-driver-dkms 6.2.0-cixdeb13-260714+ncz2 from SDK + patches/"
                 stage=$(mktemp -d)
                 dpkg-deb -R "$npu_dkms_src" "$stage"
                 # Patch the extracted source tree (the patches were produced
@@ -327,17 +326,17 @@ else
                     if ! ( cd "$stage/usr/src/aipu-6.2.0" \
                            && patch -p2 --forward < "$p" ) >/dev/null; then
                         err "patch failed: $(basename "$p")"
-                        err "  (the +ncz1 source-of-truth patch must apply cleanly;"
+                        err "  (the NCZ source-of-truth patches must apply cleanly;"
                         err "   if upstream changed, refresh packaging/cix-npu-driver-dkms-6.2.0/patches/)"
                         rm -rf "$stage"
                         missing=$((missing+1))
                         break
                     fi
                 done
-                # Bump the deb version to +ncz1.
-                sed -i 's/^Version: .*/Version: 6.2.0-cixdeb13-260714+ncz1/' \
+                # Bump the deb version to +ncz2. The DKMS module stays aipu/6.2.0.
+                sed -i 's/^Version: .*/Version: 6.2.0-cixdeb13-260714+ncz2/' \
                     "$stage/DEBIAN/control"
-                out="$ASSETS/cix-debs/cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz1_arm64.deb"
+                out="$ASSETS/cix-debs/cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz2_arm64.deb"
                 dpkg-deb --root-owner-group -Zxz -b "$stage" "$out"
                 log "    staged $(basename "$out")"
                 rm -rf "$stage"
