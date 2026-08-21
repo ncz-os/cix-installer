@@ -1,14 +1,18 @@
 {
-  "generated_utc": "2026-08-19T04:54:22Z",
+  "generated_utc": "2026-08-21T13:50:11Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.1+r245_arm64.deb",
-      "sha256": "0c1c79fefa94e646d83ce06caf00db9afa9125292c4112135b5fb6257672ea3d"
+      "file": "build/kernel-debs/cixmini-boot_1.2+r248_arm64.deb",
+      "sha256": "465833457d9530671e93ca76c8f3c3960baa57d725c3efdac31cbf3c441568ae"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini_7.2.0-sky1-ncz+r245_arm64.deb",
-      "sha256": "e6a5f83ba33576b99790966a86fadd41641742d646827d42a2969716f1289462"
+      "file": "build/kernel-debs/linux-headers-cixmini_7.2.0-sky1-ncz+r248_arm64.deb",
+      "sha256": "c8f987e381da36c65b707c52e722774ffc7a8d5106f8ed3f8171a392fe22a49a"
+    },
+    {
+      "file": "build/kernel-debs/linux-image-cixmini_7.2.0-sky1-ncz+r248_arm64.deb",
+      "sha256": "16d0bd5707954e22356c34152c454fc92b7275106f0bfadf7136fbb1ee3abd60"
     }
   ],
   "schema": 1,
@@ -16,38 +20,19 @@
     "edge": {
       "config": {
         "file": "assets/kernel/edge/config-7.2.0-sky1-ncz",
-        "sha256": "142340c3244fb65638e100baef613c8d337cde89e0d522d4c959bd9c131bbe08"
+        "sha256": "a53c60c379c184b25f35f31bb7c3714cc829a7929b33ad7b6177e5b7e44b5d63"
       },
       "dir": "assets/kernel/edge",
       "image": {
         "file": "assets/kernel/edge/Image-cixmini.bin",
-        "sha256": "1dcea503d51a8db131e45162091f42276a96b5ce9c9b046588f3c235de7bbd32",
-        "size": 49826304
+        "sha256": "608562dc9b0fb78890276a1e58eda49777a1a390689fab2dd18271db939850af",
+        "size": 49957376
       },
       "kver": "7.2.0-sky1-ncz",
       "modules": {
         "file": "assets/kernel/edge/modules-cixmini.tgz",
-        "sha256": "795f63e003d4357bd6a512433ef494fa7d7a4a3f06b08576add385184f3dc572",
-        "size": 8319197
-      },
-      "npu": null
-    },
-    "legacy": {
-      "config": {
-        "file": "assets/kernel/legacy/config-7.2.0-sky1-ncz",
-        "sha256": "868273884ccd8f1ce64ffb26ce784ecd8e8e9ea43d3a824bd56f3ec91fecb131"
-      },
-      "dir": "assets/kernel/legacy",
-      "image": {
-        "file": "assets/kernel/legacy/Image-cixmini.bin",
-        "sha256": "85b6d4975ce38339abe14af0b767fa3d0c0be7e034595fe5acf3d1ff7de08ad9",
-        "size": 49674752
-      },
-      "kver": "7.2.0-sky1-ncz",
-      "modules": {
-        "file": "assets/kernel/legacy/modules-cixmini.tgz",
-        "sha256": "e2f9471706ec9536a1b72867a62610ec980b1f9c279d0fbbeeb0ca976f8993cb",
-        "size": 8080061
+        "sha256": "18859fadfc4cc5f13f2597c24a6c2951bfd5a8f5542040a3fe0cd337a77ddea4",
+        "size": 8319538
       },
       "npu": null
     }

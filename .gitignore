@@ -125,3 +125,8 @@ __pycache__/
 build/forky-vendor-mirror/
 build/forky-mirror/
 build/gst-cix-out/
+
+# User-space tool extraction cache (debootstrap, xorriso, 7z .debs extracted to
+# build/tools/extracted/ — gitignored so the build host doesn't accidentally
+# commit a copy of /usr/sbin/debootstrap into the repo)
+build/tools/
