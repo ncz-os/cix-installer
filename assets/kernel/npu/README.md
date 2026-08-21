@@ -1,7 +1,7 @@
 # cix-npu-kmd — out-of-tree NPU (Zhouyi v3) DKMS source
 
 Source: `cixtech/cix_opensource__npu_driver`, staged from the meta-cix recipe
-`cix-npu-kmd_1.0.bb` (which applies patches 0001-0008 before this tree is taken).
+`cix-npu-kmd_1.0.bb` (which applies patches 0001-0009 before this tree is taken).
 
 Unlike `cix_opensource__gpu_kernel` and `cix_opensource__vpu_driver`, the upstream
 NPU repo ships **no** `dkms.conf`, so ours is hand-written and transcribes the
