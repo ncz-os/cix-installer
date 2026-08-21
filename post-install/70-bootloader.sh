@@ -23,25 +23,24 @@
 # writing an inert systemd-boot entry) -- NOT by
 # /etc/kernel/postinst.d/run-parts, which an earlier version of this fix
 # assumed but which nothing on this system actually invokes (confirmed
-# live on .66). This script is now just: read the static KVER_LEGACY/KVER_NEXT
-# sidecars baked into the ISO, install the shared script to its permanent
-# location, then run it once for the initial install.
+# live on .66). This script is now just: read the static KVER_NEXT sidecar
+# baked into the ISO, install the shared script to its permanent location,
+# then run it once for the initial install.
 #
-# Menu (refind.conf manual entries), in order: stable (LTS) / edge (NEXT,
-# default) / rescue (pinned clean kernel, NPU/GPU/VPU/KMS blacklisted) /
-# RESCUE PARTITION (separate on-disk recovery rootfs, if present).
+# Menu (refind.conf manual entries), in order: Mali (default) / Panthor
+# (experimental) / Console (no GUI, Mali accelerators off) / Rescue
+# Partition (separate on-disk recovery rootfs, if present) / any
+# operator-staged RESCUE -tag rescue kernels.
 #
 # TRADEOFF vs systemd-boot (deliberate, r118): rEFInd has no boot-counting,
 # so there is NO automatic edge->stable rollback. The menu's `timeout`
-# always presents itself so the operator can pick stable/rescue if an edge
-# boot misbehaves.
+# always presents itself so the operator can pick rescue if a Mali or
+# Panthor boot misbehaves.
 set -euo pipefail
 
 echo "[70] rEFInd bootloader — install-time setup"
 
 INSTALLER_META=/usr/local/lib/cix-installer
-KVER_LEGACY=""
-[ -f "$INSTALLER_META/KVER_LEGACY" ] && KVER_LEGACY=$(cat "$INSTALLER_META/KVER_LEGACY" 2>/dev/null || true)
 KVER_NEXT=""
 [ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
 BUILD_VERSION="(unknown)"
@@ -53,8 +52,8 @@ fi
 # shellcheck disable=SC1091
 . "$INSTALLER_META/RELEASE"
 
-if [ -z "$KVER_LEGACY" ] && [ -z "$KVER_NEXT" ]; then
-    echo "ERROR: no KVER_LEGACY or KVER_NEXT sidecar present"
+if [ -z "$KVER_NEXT" ]; then
+    echo "ERROR: KVER_NEXT sidecar missing (edge kernel is the only supported channel)"
     exit 1
 fi
 
@@ -76,5 +75,5 @@ echo "  installed shared refresh script -> $SHARED_DST"
 # 10-our-kernel.sh -- both this script and that one install/depend on
 # ncz-refind-refresh, but neither needs the other to have run first since
 # each installs its own copy of what it needs.)
-export KVER_LEGACY KVER_NEXT BUILD_VERSION NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME
+export KVER_NEXT BUILD_VERSION NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME
 "$SHARED_DST"

@@ -28,7 +28,7 @@ import sys, os, json, hashlib, subprocess, glob, datetime, tarfile, tempfile
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 MANIFEST = os.path.join(ROOT, "assets", "kernel-manifest.json")
-VARIANTS = {"legacy": "assets/kernel/legacy", "edge": "assets/kernel/edge"}
+VARIANTS = {"edge": "assets/kernel/edge"}
 SCHEMA = 1
 
 # Prebuilt, vermagic-locked accelerator module overlays. Each is a directory of
@@ -276,18 +276,9 @@ def overlay_present_errors(live):
     """Each shipped variant needs an accelerator overlay matching its KVER.
     A missing overlay is a silent no-GPU boot, so make it a build-time failure."""
     errors = []
-    # The legacy channel ships one boot entry ("7.0.12 CONSOLE -- legacy
-    # fallback, no GPU, no GUI") whose cmdline blacklists mali_kbase along with
-    # every other accelerator. Requiring a mali overlay for a channel that
-    # deliberately refuses to load mali is a false positive, and one that would
-    # otherwise block every release: no 7.0.12 overlay is built precisely
-    # because no 7.0.12 entry uses the GPU.
-    GPULESS_CHANNELS = {"legacy"}
     for label, v in live.get("variants", {}).items():
         kver = v.get("kver")
         if not kver:
-            continue
-        if label in GPULESS_CHANNELS:
             continue
         base = os.path.join(ROOT, ACCEL_OVERLAYS["mali"])
         if not os.path.isdir(base):

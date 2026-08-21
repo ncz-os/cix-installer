@@ -36,44 +36,37 @@ SSDT_CPIO="$ASSETS/npu-acpi-override.cpio"
 
 KERNEL_LABELS=()
 KERNEL_VERS=()
-if [ -f "$INSTALLER_META/KVER_LEGACY" ]; then
-    KVER_LEGACY=$(cat "$INSTALLER_META/KVER_LEGACY" 2>/dev/null | tr -d ' \t\r\n')
-    if [ -n "$KVER_LEGACY" ]; then
-        KERNEL_LABELS+=("lts")
-        KERNEL_VERS+=("$KVER_LEGACY")
-    fi
-fi
 if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
     KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null | tr -d ' \t\r\n')
     if [ -n "$KVER_NEXT" ]; then
-        KERNEL_LABELS+=("next")
+        KERNEL_LABELS+=("edge")
         KERNEL_VERS+=("$KVER_NEXT")
     fi
 fi
 
-# --- Fallback: fold in an out-of-band NCZ edge (7.2) kernel (r195) ---
-# The KVER_LEGACY/KVER_NEXT sidecars are authoritative and, on an r195 install,
-# already carry the edge kernel as KVER_NEXT (assets/kernel/edge -> KVER_NEXT),
-# so 7.2 gets the SSDT overlay through the normal LTS/NEXT path below. This
-# fallback only covers the case where a 7.2-class NCZ kernel is present on disk
-# but NOT represented by either sidecar (e.g. a hand-deployed 7.2 .deb, or
-# sidecar drift): without it that kernel's initrd would miss the CIXH4010 _HID
-# overlay and the NPU cores would hard-hang on first register read. De-duped
-# against the sidecars (adds nothing on a normal install where 7.2==KVER_NEXT)
-# and idempotent downstream (the SSDT prepend checks newc-magic first).
+# --- Fallback: fold in an out-of-band NCZ edge (7.2) kernel ---
+# The KVER_NEXT sidecar is authoritative and, on a normal install, carries
+# the edge kernel (assets/kernel/edge -> KVER_NEXT), so 7.2 gets the SSDT
+# overlay through the normal edge path below. This fallback only covers the
+# case where a 7.2-class NCZ kernel is present on disk but NOT represented by
+# the sidecar (e.g. a hand-deployed 7.2 .deb, or sidecar drift): without it
+# that kernel's initrd would miss the CIXH4010 _HID overlay and the NPU cores
+# would hard-hang on first register read. De-duped against the sidecar (adds
+# nothing on a normal install where 7.2==KVER_NEXT) and idempotent downstream
+# (the SSDT prepend checks newc-magic first).
 for _mk in /lib/modules/*7.2*-ncz /usr/lib/modules/*7.2*-ncz; do
     [ -d "$_mk" ] || continue
     _kv="${_mk##*/}"
     _known=0
     for _k in "${KERNEL_VERS[@]}"; do [ "$_k" = "$_kv" ] && { _known=1; break; }; done
     [ "$_known" = "1" ] && continue
-    echo "[80] fallback: NCZ edge kernel $_kv present but not in KVER_* sidecars — folding in for NPU SSDT"
+    echo "[80] fallback: NCZ edge kernel $_kv present but not in KVER_NEXT sidecar — folding in for NPU SSDT"
     KERNEL_LABELS+=("edge")
     KERNEL_VERS+=("$_kv")
 done
 
 if [ "${#KERNEL_VERS[@]}" -eq 0 ]; then
-    echo "[80] WARN: no KVER_LEGACY or KVER_NEXT sidecar found; skipping kernel-specific NPU setup"
+    echo "[80] WARN: no KVER_NEXT sidecar found; skipping kernel-specific NPU setup"
 fi
 if [ ! -d "$ASSETS" ]; then
     # assets/npu/ is a gitignored blob dir carrying two OPTIONAL payloads: the
@@ -323,9 +316,9 @@ cat > /usr/share/doc/ncz/NPU-STATUS.md << 'EOF'
 
 ## What works
 
-- **Kernel module** `armchina_npu.ko` probes clean on MS-R1 for both NCZ kernels:
-  - 7.0.12-cix-sky1-next (default; in-tree CONFIG_ARMCHINA_NPU=m)
-  - 7.0.12-cix-sky1-next (legacy fallback; in-tree module)
+- **Kernel module** `armchina_npu.ko` probes clean on MS-R1 for the
+  shipped NCZ kernel:
+  - 7.2.0-sky1-ncz (edge; in-tree CONFIG_ARMCHINA_NPU=m)
 - **ACPI SSDT override** corrects the missing `_HID="CIXH4010"` on NPU cores
   (CRE0/CRE1/CRE2) — a bug in Minisforum's shipped BIOS omitted by the OEM.
   Injected via initramfs CPIO prepend; fully reversible. **Board-gated (r123):**

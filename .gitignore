@@ -16,6 +16,32 @@ assets/kernel/edge/
 assets/kernel/legacy/
 assets/kernel/retired-*/
 assets/kernel/*.tgz
+# 26.7: kernel DKMS source trees (mali/panthor/vpu/npu) are committed, but
+# the in-tree build artifacts produced during .ko generation (intermediate
+# .o, .cmd, .mod, Module.symvers, Makefile-local) are not. Rebuild from
+# any commit with `bash build/build-kernel-debs.sh`.
+# Keep this pattern narrow so it doesn't accidentally match the .ko files
+# in the kver-overlay directories (e.g. mali/7.2.0-sky1-ncz/mali_kbase.ko
+# which IS what we ship).
+assets/kernel/*/src/**/*.o
+assets/kernel/*/src/**/*.d
+assets/kernel/*/src/**/*.cmd
+assets/kernel/*/src/**/*.mod
+assets/kernel/*/src/**/*.mod.c
+assets/kernel/*/src/**/Module.symvers
+assets/kernel/*/src/**/modules.order
+assets/kernel/*/src/**/*.ko
+assets/kernel/*/src/**/GPU_OBJ
+# panthor source is flat (no src/ subdir) — exclude its build artifacts
+assets/kernel/panthor/*.o
+assets/kernel/panthor/*.d
+assets/kernel/panthor/*.cmd
+assets/kernel/panthor/*.mod
+assets/kernel/panthor/*.mod.c
+assets/kernel/panthor/Module.symvers
+assets/kernel/panthor/modules.order
+assets/kernel/panthor/panthor.ko
+assets/kernel/panthor/panthor.mod
 assets/mgmt/*.tar.zst
 assets/models/nomic-embed-text-*.cix
 assets/npu/*

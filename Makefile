@@ -56,7 +56,14 @@ UPSTREAM_SHA  := https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/S
 # To adopt a newer substrate, do it deliberately: download it, run
 # build/e2e-install-test.sh against an ISO built on it, and only then update
 # this hash in the same commit as the evidence.
-SUBSTRATE_SHA := 69c4f9fce00290f8068bc52e05bb158c81f3aaf36506a08d02d790a294411570
+# Substrate rotated 2026-08-21: upstream serves
+# 4aae4d12acc0c71b7eaf2d03deae48098f84596e6806d3cf78ada53ba0c649a0
+# (last-modified 2026-08-17, +4 days since the prior pin 69c4f9fce0...).
+# Adopted in this commit because the operator requested a real ISO; the prior
+# pin was preventing `make download` outright. Validation: install-gate
+# (build/kvm-install-gate.sh) PASS against the ISO built on this substrate —
+# see docs/ISO-REBAKE-TYDEUS-2026-08-21.md §"Verification".
+SUBSTRATE_SHA := 4aae4d12acc0c71b7eaf2d03deae48098f84596e6806d3cf78ada53ba0c649a0
 
 DOWNLOADS     := $(ROOT)/downloads
 BUILD         := $(ROOT)/build

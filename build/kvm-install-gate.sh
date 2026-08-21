@@ -126,6 +126,34 @@ sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4
 # the OVR_DISK auto-select path. Never shipped — qemutest ISO only.
 sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_disk=\/dev\/vda ncz_fs=btrfs loglevel=4/' "$CFG"
 
+# (3a) unattended locale + keymap selection: locale-keyboard-chooser.sh shows
+# an interactive dialog at CRITICAL priority (so it bypasses d-i's normal
+# priority-driven auto-answer). Without an override the gate stalls at the
+# same kind of human-only prompt as the components selector. The chooser
+# supports cmdline overrides `ncz_locale=<loc>` and `ncz_keymap=<layout>`
+# that bypass the prompt entirely (lines 35-41, 422-475). Pin the NCZ-OS
+# default (en_US.UTF-8 / us) — the same default the r107 ship used.
+sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_locale=en_US.UTF-8 ncz_keymap=us loglevel=4/' "$CFG"
+
+# (3b) unattended component selection: the ncz-installer front-end shows an
+# interactive multiselect dialog for OPTIONAL components (desktop / browsers /
+# mgmt-container / rescue-partition / wallpaper-rotator / agents) and waits
+# for a human to press Enter. With no operator under -display none, the gate
+# stalls there forever — same failure mode as the ttyAMA2 one but on a
+# different prompt. preseed/component-selector.sh explicitly supports a
+# cmdline override (`ncz_components=<comma-list>`) that bypasses the dialog
+# entirely (lines 88-95, 116-134). Pin the FULL set: a KVM gate run is
+# testing the shipped default — disabling any of these hides a real defect
+# from the gate and the shipped ISO would diverge from what got verified.
+sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_components=desktop,browsers,mgmt-container,rescue-partition,wallpaper-rotator,agents loglevel=4/' "$CFG"
+
+# (3c) unattended FINISH — late.sh's force-reboot path only fires when
+# ncz_unattended=1 is in /proc/cmdline (see late.sh r181). Without it the
+# installer parks at the "[!!] Finish the installation" dialog and the gate
+# never sees qemu exit. Inject this token alongside the other unattended
+# overrides. Never shipped — qemutest ISO only.
+sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_unattended=1 loglevel=4/' "$CFG"
+
 # (4) also drop the auto-attach-to-framebuffer cmdline (console=tty0) since
 # we're running -display none — there's no framebuffer to render into, and
 # keeping console=tty0 in the list would cause the kernel to register tty0
@@ -233,7 +261,7 @@ if grep -qE "Kernel panic - not syncing" "$ILOG"; then
   grep -nE -A10 "Kernel panic" "$ILOG" | head -30 >&2
   fail "kernel panic during install"
 fi
-grep -qE "post-install hooks finished|finalizing apt sources|forcing clean reboot" "$ILOG" \
+grep -qE "post-install hooks finished|finalizing apt sources|forcing clean reboot|nclawzero post-install complete|Post-install completed successfully|Completed with optional-step warnings" "$ILOG" \
   || fail "install did not reach the finish stage (timeout at ${INSTALL_TIMEOUT}s?) — see $ILOG"
 
 echo "  install completed without a failed hook"

@@ -99,9 +99,8 @@ esac
 EMBED_MIRROR=1
 STAGE_ROOTFS=1
 PATCH_DEBOOTSTRAP_STUB=1
-STAGE_LEGACY_KERNEL=1
 STAGE_NEXT_KERNEL=1
-INSTALLER_KERNEL_FLAVOR=legacy
+INSTALLER_KERNEL_FLAVOR=edge
 BOOTSTRAP_POOL=0
 # 2026-05-08: ceiling set to 1GB so the netinstall ISO stays in the
 # easy-GitHub-release-distribution band (GitHub allows up to 2GB per
@@ -114,20 +113,10 @@ NETINSTALL_MAX_BYTES=$((1024 * 1024 * 1024))
 
 case "$MODE" in
     full)
-        # ONE KERNEL TREE (operator, 2026-08-10): 26.7 ships 7.2.0-rc7-sky1-ncz
-        # and ONLY that; 7.0.12-cix-sky1-next ("legacy") is superseded.
-        #
-        # full mode previously staged BOTH kernels AND booted the installer on
-        # legacy (INSTALLER_KERNEL_FLAVOR=legacy). That would have shipped a
-        # 7.0.12 installer that then installs an rc7 system -- two kernels in
-        # one image, which is exactly what the single-tree directive removes.
-        #
-        # NOTE this changes which kernel the INSTALLER runs on. It is the same
-        # kernel the installed system gets, so it is the honest thing to test,
-        # but a regression that only shows up in the installer environment now
-        # blocks installation rather than just first boot.
-        STAGE_LEGACY_KERNEL=0
-        INSTALLER_KERNEL_FLAVOR=edge
+        # ONE KERNEL TREE (operator, 2026-08-21): 26.7 ships
+        # 7.2.0-sky1-ncz (edge) and ONLY that. The legacy 7.0.12 channel
+        # has been retired; the legacy-kernel-channel branching has been
+        # removed from the builder so this code path is edge-only.
         ;;
     thin)
         STAGE_ROOTFS=0
@@ -137,15 +126,11 @@ case "$MODE" in
         EMBED_MIRROR=0
         STAGE_ROOTFS=0
         PATCH_DEBOOTSTRAP_STUB=0
-        STAGE_LEGACY_KERNEL=0
-        INSTALLER_KERNEL_FLAVOR=edge
         ;;
     netinstall-bootstrap)
         EMBED_MIRROR=0
         STAGE_ROOTFS=0
         PATCH_DEBOOTSTRAP_STUB=0
-        STAGE_LEGACY_KERNEL=0
-        INSTALLER_KERNEL_FLAVOR=edge
         BOOTSTRAP_POOL=1
         ;;
 esac
@@ -516,57 +501,30 @@ EOF
 }
 
 # ----------------------------------------------------------------------
-# Kernel discovery — match build-iso.sh asset paths:
-#   $ROOT/assets/kernel/legacy/Image-cixmini.bin
-#   $ROOT/assets/kernel/legacy/modules-cixmini.tgz
-#   $ROOT/assets/kernel/legacy/KVER
+# Kernel discovery — edge (7.2.0-sky1-ncz) is the only supported channel.
+#   $ROOT/assets/kernel/edge/Image-cixmini.bin
+#   $ROOT/assets/kernel/edge/modules-cixmini.tgz
+#   $ROOT/assets/kernel/edge/KVER
 # ----------------------------------------------------------------------
-LEGACY_KERN="$ROOT/assets/kernel/legacy/Image-cixmini.bin"
-LEGACY_TGZ="$ROOT/assets/kernel/legacy/modules-cixmini.tgz"
-LEGACY_KVER_FILE="$ROOT/assets/kernel/legacy/KVER"
 NEXT_KERN="$ROOT/assets/kernel/edge/Image-cixmini.bin"
 NEXT_TGZ="$ROOT/assets/kernel/edge/modules-cixmini.tgz"
 NEXT_KVER_FILE="$ROOT/assets/kernel/edge/KVER"
 
-KVER_LEGACY=""
 KVER_NEXT=""
-
-if [ "$STAGE_LEGACY_KERNEL" = "1" ] || [ "$INSTALLER_KERNEL_FLAVOR" = "legacy" ]; then
-    for f in "$LEGACY_KERN" "$LEGACY_TGZ" "$LEGACY_KVER_FILE"; do
-        [ -f "$f" ] || { echo "ERROR: missing $f"; exit 1; }
-    done
-    KVER_LEGACY=$(cat "$LEGACY_KVER_FILE")
-    [ -n "$KVER_LEGACY" ] || { echo "ERROR: empty KVER file: $LEGACY_KVER_FILE"; exit 1; }
-    echo "[info] legacy kernel KVER: $KVER_LEGACY"
-fi
 
 if [ -f "$NEXT_KVER_FILE" ] && [ -f "$NEXT_KERN" ] && [ -f "$NEXT_TGZ" ]; then
     KVER_NEXT=$(cat "$NEXT_KVER_FILE")
     [ -n "$KVER_NEXT" ] || { echo "ERROR: empty KVER file: $NEXT_KVER_FILE"; exit 1; }
-    echo "[info] NEXT kernel KVER: $KVER_NEXT"
+    echo "[info] edge kernel KVER: $KVER_NEXT"
 elif [ "$INSTALLER_KERNEL_FLAVOR" = "edge" ] || [ "$MODE" = "netinstall" ]; then
     echo "ERROR: --mode netinstall requires assets/kernel/edge/{KVER,Image-cixmini.bin,modules-cixmini.tgz}" >&2
     exit 1
 fi
 
-case "$INSTALLER_KERNEL_FLAVOR" in
-    legacy)
-        INSTALLER_KERN="$LEGACY_KERN"
-        INSTALLER_TGZ="$LEGACY_TGZ"
-        KVER_INSTALLER="$KVER_LEGACY"
-        INSTALLER_KERNEL_LABEL="legacy"
-        ;;
-    edge)
-        INSTALLER_KERN="$NEXT_KERN"
-        INSTALLER_TGZ="$NEXT_TGZ"
-        KVER_INSTALLER="$KVER_NEXT"
-        INSTALLER_KERNEL_LABEL="NEXT"
-        ;;
-    *)
-        echo "ERROR: internal unknown installer kernel flavor: $INSTALLER_KERNEL_FLAVOR" >&2
-        exit 1
-        ;;
-esac
+INSTALLER_KERN="$NEXT_KERN"
+INSTALLER_TGZ="$NEXT_TGZ"
+KVER_INSTALLER="$KVER_NEXT"
+INSTALLER_KERNEL_LABEL="edge"
 
 # ----------------------------------------------------------------------
 # Step 1 — extract d-i substrate (bookworm or trixie netinst)
@@ -2558,36 +2516,9 @@ if [ -d "$ROOT/assets" ]; then
     done
 fi
 
-# Stage target kernels. full/thin ship the legacy+edge payload;
-# netinstall ships NEXT only per R76-NETINSTALL-DESIGN.md.
+# Stage target kernel. Edge (7.2.0-sky1-ncz) is the only shipping kernel.
+# full/thin stage the edge payload; netinstall uses the d-i substrate's kernel.
 mkdir -p "$EXTRA/assets/kernel"
-if [ "$STAGE_LEGACY_KERNEL" = "1" ]; then
-    mkdir -p "$EXTRA/assets/kernel/legacy"
-    cp -L "$LEGACY_KERN" "$EXTRA/assets/kernel/legacy/"
-    cp -L "$LEGACY_TGZ"  "$EXTRA/assets/kernel/legacy/"
-    if [ -f "$ROOT/assets/kernel/legacy/headers-cixmini.tar.zst" ]; then
-        cp -L "$ROOT/assets/kernel/legacy/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/legacy/"
-        echo "    legacy headers staged: $(du -h "$EXTRA/assets/kernel/legacy/headers-cixmini.tar.zst" | cut -f1)"
-    else
-        echo "    legacy headers: NOT PRESENT — /lib/modules/$KVER_LEGACY/build will be absent on"
-        echo "                 the target, so DKMS cannot rebuild any CIX driver (every CIX"
-        echo "                 driver is DKMS by directive). Produce it from the built kernel"
-        echo "                 tree with:"
-        echo "                   build/extract-kernel-headers.sh \\"
-        echo "                     --kernel-src <linux-src-tree> \\"
-        echo "                     --kver $KVER_LEGACY \\"
-        echo "                     --output assets/kernel/legacy/headers-cixmini.tar.zst"
-    fi
-    # r98: archive the LTS kernel .config (provenance / future OOT rebuilds).
-    if [ -n "$KVER_LEGACY" ] && [ -f "$ROOT/assets/kernel/legacy/config-$KVER_LEGACY" ]; then
-        cp -L "$ROOT/assets/kernel/legacy/config-$KVER_LEGACY" "$EXTRA/assets/kernel/legacy/"
-        echo "    legacy config archived: config-$KVER_LEGACY"
-    fi
-    echo "    legacy kernel staged: $(du -h "$EXTRA/assets/kernel/legacy/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/legacy/modules-cixmini.tgz" | cut -f1) modules"
-else
-    echo "    netinstall mode: legacy kernel assets intentionally not staged"
-fi
-
 if [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
     mkdir -p "$EXTRA/assets/kernel/edge"
     cp -L "$NEXT_KERN" "$EXTRA/assets/kernel/edge/"
@@ -2610,9 +2541,9 @@ if [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
         cp -L "$ROOT/assets/kernel/edge/config-$KVER_NEXT" "$EXTRA/assets/kernel/edge/"
         echo "    NEXT config archived: config-$KVER_NEXT"
     fi
-    echo "    NEXT kernel staged: $KVER_NEXT  ($(du -h "$EXTRA/assets/kernel/edge/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/edge/modules-cixmini.tgz" | cut -f1) modules)"
+    echo "    edge kernel staged: $KVER_NEXT  ($(du -h "$EXTRA/assets/kernel/edge/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/edge/modules-cixmini.tgz" | cut -f1) modules)"
 else
-    echo "    NEXT kernel: not present — installer will ship LTS only"
+    echo "    edge kernel: not present — installer will ship the d-i substrate kernel"
 fi
 
 # Sky1 firmware assets: drop into /cixmini/assets/sky1-firmware/ exactly
@@ -2770,9 +2701,6 @@ else
     echo "    rootfs.tar.zst not staged in --mode $MODE"
 fi
 
-if [ -n "$KVER_LEGACY" ]; then
-    echo "$KVER_LEGACY" > "$EXTRA/KVER_LEGACY"
-fi
 if [ -n "${KVER_NEXT:-}" ]; then
     echo "$KVER_NEXT" > "$EXTRA/KVER_NEXT"
 fi

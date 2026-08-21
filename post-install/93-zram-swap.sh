@@ -170,7 +170,7 @@ echo "[93] /etc/systemd/zram-generator.conf: zram0, zstd, ram*0.5 capped [1GiB, 
 # Instead we look at the TARGET kernel's own config and module
 # tree. /boot/config-<kver> is dropped by linux-image-cixmini at
 # install time, so it is present in the chroot. We pick the
-# kernel that will actually boot: KVER_LEGACY is the sidecar
+# kernel that will actually boot: KVER_NEXT is the sidecar
 # written by the installer (see 10-our-kernel.sh), falling back to
 # /boot/vmlinuz-*-ncz* if the sidecar is absent. The check is a
 # read of two CONFIG_* lines, plus a defensive check for a
@@ -178,8 +178,8 @@ echo "[93] /etc/systemd/zram-generator.conf: zram0, zstd, ram*0.5 capped [1GiB, 
 # the module is built =m.
 INSTALLER_META=/usr/local/lib/cix-installer
 TARGET_KVER=""
-if [ -f "$INSTALLER_META/KVER_LEGACY" ]; then
-    TARGET_KVER=$(cat "$INSTALLER_META/KVER_LEGACY" 2>/dev/null | tr -d ' \t\r\n')
+if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
+    TARGET_KVER=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null | tr -d ' \t\r\n')
 fi
 if [ -z "$TARGET_KVER" ]; then
     # Fallback: pick the first /boot/vmlinuz-* on a *-ncz* uname.

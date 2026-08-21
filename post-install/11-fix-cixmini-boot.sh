@@ -4,7 +4,7 @@
 #
 # 10-our-kernel.sh (the previous hook, this one runs right after) installs
 # the kernel via apt, which pulls in the `cixmini-boot` package as a
-# dependency. Both linux-image-cixmini-{lts,edge}'s own postinst scripts
+# dependency. The linux-image-cixmini package's own postinst scripts
 # directly call /usr/lib/cixmini/cixmini-update-bootloader on every install
 # or upgrade -- confirmed live on .66 (2026-07-06), this is the ONLY
 # mechanism that actually fires automatically; the conventional
@@ -50,7 +50,6 @@ set -uo pipefail
 REFRESH=/usr/local/sbin/ncz-refind-refresh
 [ -x "$REFRESH" ] || { echo "cixmini-update-bootloader: ncz-refind-refresh not present, skipping"; exit 0; }
 
-KVER_LEGACY=""
 KVER_NEXT=""
 NCZ_KVERS=""   # collected candidates; must exist for set -u
 for f in /boot/vmlinuz-*; do
@@ -58,70 +57,34 @@ for f in /boot/vmlinuz-*; do
     kver="${f#/boot/vmlinuz-}"
     case "$kver" in
         *-rescue) continue ;;
-        *-lts|*-next|*-ncz|*-sky1-ncz)
-            # Skip a kernel mid-unpack: if BOTH LTS and NEXT are being
-            # upgraded in the same apt transaction, this hook can fire
-            # (from the first kernel's own postinst) before the second
-            # kernel's postinst has generated its initrd yet. Passing an
-            # incomplete kernel through makes ncz-refind-refresh hard-fail
-            # on a missing initrd and would break a combined LTS+NEXT
-            # upgrade. Skipping it here just means that kernel's entry
-            # isn't refreshed THIS run -- its own postinst calls this same
-            # hook again once its initrd exists.
+        *-next|*-ncz|*-sky1-ncz)
+            # Skip a kernel mid-unpack: if a kernel is being upgraded in the
+            # same apt transaction, this hook can fire (from the first
+            # kernel's own postinst) before the second kernel's postinst
+            # has generated its initrd yet. Passing an incomplete kernel
+            # through makes ncz-refind-refresh hard-fail on a missing initrd.
             if [ ! -s "/boot/initrd.img-$kver" ]; then
                 echo "cixmini-update-bootloader: $kver has no initrd yet (mid-transaction?) -- skipping this kernel for now"
                 continue
             fi
-            # Only the 7.0.x LTS line is pinned by name. Everything else is
-            # collected and ranked BY VERSION after the loop.
-            #
-            # The old rule classified by suffix -- "-rcN = edge, released
-            # -sky1-ncz = stable/legacy". That inverted itself the day 7.2
-            # shipped: 7.2.0-sky1-ncz (the RELEASE) matched the *-sky1-ncz
-            # legacy rule while the older 7.2.0-rc7-sky1-ncz still held the
-            # edge slot. Measured on O6N 2026-08-17, the menu came out as
-            #   "7.0.12 CONSOLE - legacy fallback, no GPU, no GUI" -> vmlinuz-7.2.0-sky1-ncz
-            #   "7.2 GUI (Mali, Default)"                          -> vmlinuz-7.2.0-rc7-sky1-ncz
-            # i.e. the newest kernel hidden behind a label promising the
-            # oldest, with console-only no-GPU options attached, and the
-            # default still booting the release candidate. A suffix cannot
-            # express "newer"; a version comparison can.
-            case "$kver" in
-                *-cix-sky1-next|*-lts) KVER_LEGACY="$kver" ;;   # the 7.0.x LTS line
-                *)                     NCZ_KVERS="$NCZ_KVERS $kver" ;;
-            esac
+            NCZ_KVERS="$NCZ_KVERS $kver"
             ;;
     esac
 done
-# 7.2 ONLY. One kernel line across the board -- no legacy slot, no edge slot.
+# Single shipping kernel (operator 2026-08-21): the legacy 7.0.12 line is
+# retired. Take the highest-versioned NCZ kernel present and ship only
+# that.
 #
-# The old model had two slots (LEGACY = the 7.0.x LTS line, NEXT/edge = the
-# 7.2 pre-release) and classified by NAME SUFFIX. That inverted itself the day
-# 7.2 shipped: 7.2.0-sky1-ncz (the RELEASE) matched the *-sky1-ncz "legacy"
-# rule while the older 7.2.0-rc7-sky1-ncz kept the edge slot. Measured on O6N
-# 2026-08-17 the menu came out as
-#   "7.0.12 CONSOLE - legacy fallback, no GPU, no GUI" -> vmlinuz-7.2.0-sky1-ncz
-#   "7.2 GUI (Mali, Default)"                          -> vmlinuz-7.2.0-rc7-sky1-ncz
-# i.e. the newest kernel hidden behind a label promising the oldest, carrying
-# console-only no-GPU options, while the default still booted the release
-# candidate.
-#
-# So: take the highest-versioned kernel present and ship only that. Leaving
-# KVER_LEGACY empty is deliberate -- ncz-refind-refresh guards the legacy entry
-# on LEGACY_AVAILABLE, so no legacy menu entry is generated at all.
-#
-# sort -V ranks these correctly (verified before this was written):
+# sort -V ranks these correctly (verified):
 #   7.2.0-rc1 < 7.2.0-rc7 < 7.2.0 < 7.2.1        (release beats its own rc)
 #   7.2.0 < 7.2.1 < 7.3.0-rc1 < 7.10.0           (numeric, not lexical)
-ALL_KVERS="$NCZ_KVERS $KVER_LEGACY"
-KVER_LEGACY=""
-if [ -n "$(printf '%s' "$ALL_KVERS" | tr -d ' ')" ]; then
-    KVER_NEXT=$(printf '%s\n' $ALL_KVERS | sort -V | tail -1)
-    echo "cixmini-update-bootloader: shipping kernel = $KVER_NEXT (7.2-only, no legacy/edge split)"
+if [ -n "$(printf '%s' "$NCZ_KVERS" | tr -d ' ')" ]; then
+    KVER_NEXT=$(printf '%s\n' $NCZ_KVERS | sort -V | tail -1)
+    echo "cixmini-update-bootloader: shipping kernel = $KVER_NEXT (edge-only)"
 fi
 
-if [ -z "$KVER_LEGACY" ] && [ -z "$KVER_NEXT" ]; then
-    echo "cixmini-update-bootloader: no LTS/NEXT kernel with a ready initrd found, skipping"
+if [ -z "$KVER_NEXT" ]; then
+    echo "cixmini-update-bootloader: no edge kernel with a ready initrd found, skipping"
     exit 0
 fi
 
@@ -129,7 +92,7 @@ BUILD_VERSION="(unknown)"
 [ -f /usr/local/lib/cix-installer/BUILD_VERSION ] && \
     BUILD_VERSION=$(cat /usr/local/lib/cix-installer/BUILD_VERSION 2>/dev/null || true)
 
-KVER_LEGACY="$KVER_LEGACY" KVER_NEXT="$KVER_NEXT" BUILD_VERSION="$BUILD_VERSION" "$REFRESH"
+KVER_NEXT="$KVER_NEXT" BUILD_VERSION="$BUILD_VERSION" "$REFRESH"
 WRAPEOF
 chmod 0755 "$WRAPPER_STABLE"
 echo "[11] wrote stable wrapper source -> $WRAPPER_STABLE"
