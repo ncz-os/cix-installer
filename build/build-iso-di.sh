@@ -161,6 +161,42 @@ NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
 ISO_APT_SUITE="${ISO_APT_SUITE:-$NCZ_BASE_CODENAME}"
 SQUASHFS_DIR="${SQUASHFS_DIR:-$ROOT/assets/squashfs}"
 
+rescue_os_release_content() {
+    local tarball="$1"
+    local path
+
+    for path in ./usr/lib/os-release usr/lib/os-release ./etc/os-release etc/os-release; do
+        if tar -I zstd -xOf "$tarball" "$path" 2>/dev/null; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+validate_rescue_rootfs_release() {
+    local tarball="$1"
+    local os_release
+
+    if ! os_release="$(rescue_os_release_content "$tarball")"; then
+        echo "ERROR: $tarball does not contain /usr/lib/os-release or /etc/os-release — refusing to stage an unverifiable rescue rootfs." >&2
+        echo "  Remediation: run 'sudo bash build/build-rescue-rootfs.sh' on an arm64 build host, then rebuild." >&2
+        return 1
+    fi
+    if ! printf '%s\n' "$os_release" | grep -Eq '^ID="?debian"?$'; then
+        echo "ERROR: rescue rootfs is not Debian according to os-release — full desktop ISO would ship a mismatched rescue environment." >&2
+        printf '%s\n' "$os_release" >&2
+        echo "  Remediation: run 'sudo bash build/build-rescue-rootfs.sh' so the rescue rootfs follows release.conf ($NCZ_BASE_CODENAME)." >&2
+        return 1
+    fi
+    if ! printf '%s\n' "$os_release" | grep -Eq "^(VERSION_CODENAME|DEBIAN_CODENAME)=\"?$NCZ_BASE_CODENAME\"?$"; then
+        echo "ERROR: rescue rootfs codename does not match release.conf ($NCZ_BASE_CODENAME)." >&2
+        printf '%s\n' "$os_release" >&2
+        echo "  Remediation: run 'sudo bash build/build-rescue-rootfs.sh' with the current release.conf, then rebuild." >&2
+        return 1
+    fi
+    echo "[rescue-rootfs] verified release: Debian $NCZ_BASE_CODENAME"
+}
+
 # ----------------------------------------------------------------------
 # 26.7 preflight guard — full desktop ISOs MUST carry the bake-time assets
 # whose silent absence shipped two dead regressions (2026-07-29):
@@ -210,6 +246,7 @@ if [ "$MODE" = "full" ]; then
         echo "  Remediation: run 'sudo bash build/build-rescue-rootfs.sh' on an arm64 build host (needs network + debootstrap), then rebuild." >&2
         exit 1
     fi
+    validate_rescue_rootfs_release "$ROOT/assets/rescue/rescue-rootfs.tar.zst" || exit 1
     #   3. assets/sinty-nm/sinty-nmd -> 20-desktop.sh "falling back to
     #      NetworkManager" -> desktop ships the WRONG network manager. The
     #      Singularity desktop MUST use sinty-nm (owns org.freedesktop.NetworkManager,
