@@ -47,9 +47,8 @@
 # a graph. The pin below stays at whatever the staged vendor deb installs (no
 # explicit Version= pin) and the staging-side fix in build/stage-canonical-assets.sh
 # removes the pre-Q2 cix-noe-umd_2.0.2 from assets/cix-debs/ so the forky vendor
-# mirror's 3.1.4-cixdeb13-260714 wins. Verified on the 2026-08-21 r248 build
-# (Libnoe 3.1.1 + cix-noe-umd 3.1.4-cixdeb13-260714 + cix-npu-driver-dkms
-# 6.2.0-cixdeb13-260714+ncz1): ResNet50 1000-frame golden PASS on O6N.
+# mirror's 3.1.4-cixdeb13-260714 wins. The +ncz2 DKMS package preserves the
+# O6N-validated +ncz1 runtime-PM fix and adds the MS-R1 IRQ-probe fix.
 #
 # Per docs/post-install/80-npu.sh only cix-noe-umd 2.0.2 is confirmed
 # working with our v0-compat ioctl layer, so the hold is also the

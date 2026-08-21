@@ -361,6 +361,7 @@ SRC_URI = " \
     file://patches-7.2/0217-rtw89-disable-hw-rfkill-polling-on-orion-o6.patch \
     file://patches-7.2/0218-rtw89-check-acpi-dsm-before-evaluating.patch \
     file://patches-7.2/0219-DEBUG-ncz-resume-beacons-ramoops.patch \
+    file://patches-7.2/0220-misc-armchina-npu-use-irq-object-as-dev-id.patch \
     file://patches-7.2/0221-usb-cdns3-sky1-defer-child-until-wrapper-ready.patch \
 "
 
