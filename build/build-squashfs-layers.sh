@@ -570,9 +570,9 @@ build_base(){
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-gpu-test_*.deb \
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-vpu-test_*.deb \
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-npu-onnxruntime_*.deb 2>/dev/null || true
-  # KVER sidecars 10-our-kernel needs (build-iso normally derives these from assets/kernel/*/KVER)
-  [ -f "$ROOT/assets/kernel/legacy/KVER" ] && sudo cp "$ROOT/assets/kernel/legacy/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_LEGACY"
-  [ -f "$ROOT/assets/kernel/edge/KVER" ]   && sudo cp "$ROOT/assets/kernel/edge/KVER"   "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
+  # KVER sidecar that 10-our-kernel.sh + 70-bootloader.sh need to discover
+  # the shipped edge kernel's KVER at install time.
+  [ -f "$ROOT/assets/kernel/edge/KVER" ] && sudo cp "$ROOT/assets/kernel/edge/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
   # r160: stage the COMPLETE rEFInd asset set, falling back to build/refind-bin
   # for anything assets/refind didn't provide (on bigpi the NFS sync had only
   # build/refind-bin — assets/refind was absent, so r159's base shipped just the

@@ -60,14 +60,14 @@ ncz_efi_rt_workaround() {
     echo ""
 }
 EFI_RT_WORKAROUND="$(ncz_efi_rt_workaround)"
-# 70-bootloader.sh — systemd-boot install + DUAL-kernel loader entries.
+# 70-bootloader.sh — systemd-boot install + EDGE-only kernel loader entries.
 #
-# Loader entries (only TWO kernel binaries on the ESP — legacy + edge; the
-# safe/rescue entries reuse the legacy binary):
-#   1. cixmini-next.conf      (DEFAULT — homegrown Sky1 7.0.12, headline kernel)
-#   2. cixmini-legacy.conf    (fallback — legacy 7.0.12-cix-sky1-next, EOL)
-#   3. cixmini-legacy-safe.conf (safe graphics — legacy w/ Sky1 accelerators blacklisted)
-#   4. cixmini-rescue.conf    (rescue.target on the legacy kernel)
+# Loader entries (ONE kernel binary on the ESP — edge; the rescue entry
+# reuses the edge binary):
+#   1. cixmini-next.conf      (DEFAULT — 7.2.0-sky1-ncz edge)
+#   2. cixmini-console.conf   (no GUI, multi-user.target)
+#   3. cixmini-rescue.conf    (rescue.target, edge kernel)
+#   4. cixmini-safe.conf      (boot with GPU/NPU/etc blacklisted)
 #
 # CRITICAL: systemd-boot's loader entry parser does NOT support
 # backslash line-continuation — every line MUST be standalone. Earlier
@@ -75,19 +75,17 @@ EFI_RT_WORKAROUND="$(ncz_efi_rt_workaround)"
 # half the cmdline.
 set -euo pipefail
 
-echo "[70] systemd-boot bootloader (DUAL kernel — 7.2 edge + legacy 7.0.12 fallback)"
+echo "[70] systemd-boot bootloader (EDGE kernel — 7.2.0-sky1-ncz)"
 
 INSTALLER_META=/usr/local/lib/cix-installer
-[ -f "$INSTALLER_META/KVER_LEGACY" ] || { echo "ERROR: KVER_LEGACY sidecar missing"; exit 1; }
-KVER_LEGACY=$(cat "$INSTALLER_META/KVER_LEGACY")
 KVER_NEXT=""
 [ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
+[ -n "$KVER_NEXT" ] || { echo "ERROR: KVER_NEXT sidecar missing"; exit 1; }
 
 BUILD_VERSION="(unknown)"
 [ -f "$INSTALLER_META/BUILD_VERSION" ] && BUILD_VERSION=$(cat "$INSTALLER_META/BUILD_VERSION" 2>/dev/null || true)
 
-echo "  KVER_LEGACY=$KVER_LEGACY"
-echo "  KVER_NEXT=${KVER_NEXT:-(not present)}"
+echo "  KVER_NEXT=$KVER_NEXT"
 echo "  BUILD_VERSION=$BUILD_VERSION"
 
 # ----------------------------------------------------------------------
@@ -160,7 +158,7 @@ rm -f /boot/efi/vmlinuz-*
 # Some installs put kernels in /boot/efi/EFI/Linux/ via systemd-boot's
 # automatic discovery. Wipe those too.
 rm -f /boot/efi/EFI/Linux/*.efi 2>/dev/null
-echo "  ESP wiped — about to write fresh dual-kernel entries"
+echo "  ESP wiped — about to write fresh edge-only kernel entries"
 
 # ----------------------------------------------------------------------
 # loader.conf
@@ -180,7 +178,7 @@ ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$(findmnt -no SOURCE /)")
 echo "  root PARTUUID=$ROOT_PARTUUID"
 
 # ----------------------------------------------------------------------
-# Cmdline (MartJohnson 2026-04-30 working set for MS-R1, both legacy+edge)
+# Cmdline (MartJohnson 2026-04-30 working set for MS-R1, edge kernel)
 #
 #   loglevel=4                          — visible kernel msgs through boot
 #   console=tty0 console=ttyAMA2,115200 — HDMI primary + serial mirror
@@ -207,70 +205,61 @@ SPLASH=""
 ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 rw"
 
 # ----------------------------------------------------------------------
-# Stage kernels onto ESP — systemd-boot reads /boot/efi by default.
+# Stage kernel onto ESP — systemd-boot reads /boot/efi by default.
 #
-# Tolerant: if a kernel image is missing (because 10-our-kernel.sh
+# Tolerant: if the kernel image is missing (because 10-our-kernel.sh
 # couldn't install it), log a clear warning and skip writing that
 # loader entry. Don't hard-fail the whole bootloader hook.
 # ----------------------------------------------------------------------
-LEGACY_AVAILABLE=0
 NEXT_AVAILABLE=0
-
-if [ -f "/boot/vmlinuz-$KVER_LEGACY" ]; then
-    install -m 0644 "/boot/vmlinuz-$KVER_LEGACY" "/boot/efi/vmlinuz-$KVER_LEGACY"
-    echo "  staged /boot/efi/vmlinuz-$KVER_LEGACY"
-    LEGACY_AVAILABLE=1
-else
-    echo "  WARN: /boot/vmlinuz-$KVER_LEGACY missing — LTS entry will be SKIPPED"
-fi
 
 if [ -n "$KVER_NEXT" ] && [ -f "/boot/vmlinuz-$KVER_NEXT" ]; then
     install -m 0644 "/boot/vmlinuz-$KVER_NEXT" "/boot/efi/vmlinuz-$KVER_NEXT"
     echo "  staged /boot/efi/vmlinuz-$KVER_NEXT"
     NEXT_AVAILABLE=1
 elif [ -n "$KVER_NEXT" ]; then
-    echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — BETA entry will be SKIPPED"
+    echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — edge entry will be SKIPPED"
 fi
 
-if [ "$LEGACY_AVAILABLE" = "0" ] && [ "$NEXT_AVAILABLE" = "0" ]; then
-    echo "ERROR: NEITHER kernel installed — system is unbootable."
+if [ "$NEXT_AVAILABLE" = "0" ]; then
+    echo "ERROR: edge kernel not installed — system is unbootable."
     echo "       Check 10-our-kernel.sh log for failures."
     exit 1
 fi
 
 # ----------------------------------------------------------------------
-# Entry — cixmini-legacy.conf (FALLBACK — legacy 7.0.12-cix-sky1-next, EOL)
+# Entry — cixmini-next.conf (DEFAULT — edge kernel 7.2.0-sky1-ncz)
+#
+# 7.2.0-sky1-ncz is the shipped headline kernel with the full Sky1
+# stack in-tree (display/audio/NPU/etc.) and is the default boot target.
 # ----------------------------------------------------------------------
-if [ "$LEGACY_AVAILABLE" = "1" ]; then
-    LEGACY_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
-    [ -n "$SPLASH" ] && LEGACY_OPTIONS="$LEGACY_OPTIONS $SPLASH"
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    NEXT_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
+    [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 
-    # sort-key forces menu-order (systemd-boot 252+). The legacy kernel is the
-    # fallback so it sorts below the default 7.0.12 headline entry.
-    cat > /boot/efi/loader/entries/cixmini-legacy.conf <<EOF
-title   NCZ-OS (cixmini) — kernel $KVER_LEGACY [LTS — CIX BSP, stable fallback] — $BUILD_VERSION
-sort-key 2-lts
-version $KVER_LEGACY
-linux   /vmlinuz-$KVER_LEGACY
-options $LEGACY_OPTIONS
+    # sort-key 1-next keeps the default edge kernel at the top of the menu.
+    cat > /boot/efi/loader/entries/cixmini-next.conf <<EOF
+title   NCZ-OS (cixmini) — kernel $KVER_NEXT [edge, default] — $BUILD_VERSION
+sort-key 1-next
+version $KVER_NEXT
+linux   /vmlinuz-$KVER_NEXT
+options $NEXT_OPTIONS
 EOF
-    echo "  wrote cixmini-legacy.conf (fallback, sort-key 2-lts)"
-else
-    echo "  skipping cixmini-legacy.conf (legacy kernel not installed)"
+    echo "  wrote cixmini-next.conf (default, sort-key 1-next)"
 fi
 
 # ----------------------------------------------------------------------
-# Entry — cixmini-legacy-safe.conf (SAFE GRAPHICS — legacy 7.0.12, accelerators off)
+# Entry — cixmini-safe.conf (boot with accelerators blacklisted)
 #
-# Boots the legacy 7.0.12 kernel but module_blacklists the heavy Sky1
+# Boots the edge kernel but module_blacklists the heavy Sky1
 # accelerator / display / audio / codec drivers that are the usual culprits
 # for boot hangs (NPU, GPU, the Sky1 DPU/DP, VPUs, DSP, HDA/SOF audio).
 # With no KMS driver bound, video falls back to the UEFI framebuffer
 # (efifb/simplefb via SYSFB); networking, storage and filesystem drivers
-# load normally. Reuses the legacy kernel binary — no extra ESP space. Use this
+# load normally. Reuses the edge kernel binary — no extra ESP space. Use this
 # when a full boot wedges during GPU/display/NPU/DSP bring-up.
 # ----------------------------------------------------------------------
-if [ "$LEGACY_AVAILABLE" = "1" ]; then
+if [ "$NEXT_AVAILABLE" = "1" ]; then
     # Module names normalize '-' to '_'. Keep networking/fb/fs OUT of this list.
     SAFE_BLACKLIST="armchina_npu,amphion_vpu,hantro_vpu,wave5,panthor,panfrost,mali_dp,sky1_drm,trilin_dpsub,cix_dsp,cix_dsp_rproc,snd_hda_cix_ipbloq,snd_sof_cix_common,snd_sof_cix_sky1"
     # The base cmdline already carries a module_blacklist= (typec). The kernel
@@ -283,52 +272,18 @@ if [ "$LEGACY_AVAILABLE" = "1" ]; then
     fi
     SAFE_OPTIONS="$ROOT_OPTS $SAFE_CMDLINE nomodeset"
 
-    cat > /boot/efi/loader/entries/cixmini-legacy-safe.conf <<EOF
-title   SAFE graphics (cixmini) — kernel $KVER_LEGACY [legacy, accelerators disabled] — $BUILD_VERSION
-sort-key 3-lts-safe
-version $KVER_LEGACY
-linux   /vmlinuz-$KVER_LEGACY
-options $SAFE_OPTIONS
-EOF
-    echo "  wrote cixmini-legacy-safe.conf (sort-key 3-lts-safe, blacklist=$SAFE_BLACKLIST)"
-else
-    echo "  skipping cixmini-legacy-safe.conf (legacy kernel not installed)"
-fi
-
-# ----------------------------------------------------------------------
-# Entry — cixmini-next.conf (DEFAULT — homegrown headline kernel 7.0.12)
-#
-# 7.0.12 is the homegrown headline kernel with the full Sky1 stack in-tree
-# (display/audio/NPU/etc.) and is the default boot target. The earlier
-# [BETA] warning applied to 7.0.1 (Sky1-Linux #12: SCMI transition errors /
-# boot freezes before the BIOS SCMI updates); 7.0.12 is the validated
-# default. The legacy 7.0.12 kernel remains as the conservative fallback entry.
-# ----------------------------------------------------------------------
-if [ "$NEXT_AVAILABLE" = "1" ]; then
-    NEXT_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
-    [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
-
-    # sort-key 1-next keeps the default headline kernel at the top of the menu.
-    cat > /boot/efi/loader/entries/cixmini-next.conf <<EOF
-title   NCZ-OS (cixmini) — kernel $KVER_NEXT [headline, default] — $BUILD_VERSION
-sort-key 1-next
+    cat > /boot/efi/loader/entries/cixmini-safe.conf <<EOF
+title   SAFE graphics (cixmini) — kernel $KVER_NEXT [edge, accelerators disabled] — $BUILD_VERSION
+sort-key 2-safe
 version $KVER_NEXT
 linux   /vmlinuz-$KVER_NEXT
-options $NEXT_OPTIONS
+options $SAFE_OPTIONS
 EOF
-    echo "  wrote cixmini-next.conf (default, sort-key 1-next)"
-else
-    echo "  skipping cixmini-next.conf (headline kernel not installed)"
+    echo "  wrote cixmini-safe.conf (sort-key 2-safe, blacklist=$SAFE_BLACKLIST)"
 fi
 
 # ----------------------------------------------------------------------
 # Entry — cixmini-console.conf (same image, no GUI)
-#
-# This REPLACES the old server/Magnetar variant. NCZ-OS ships one build; a
-# "server" install is just this image with the graphical target not started,
-# so it needs a boot entry rather than a second squashfs, a second apt closure
-# and a second install path. Same kernel, same packages, greetd simply never
-# runs.
 #
 # multi-user.target (not rescue.target): full multi-user boot with networking
 # and all services, just no display manager. rescue.target below is a different
@@ -339,30 +294,23 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
 
     cat > /boot/efi/loader/entries/cixmini-console.conf <<EOF
 title   NCZ-OS console (cixmini) — kernel $KVER_NEXT, no desktop — $BUILD_VERSION
-sort-key 2-console
+sort-key 3-console
 version $KVER_NEXT
 linux   /vmlinuz-$KVER_NEXT
 options $CONSOLE_OPTIONS
 EOF
-    echo "  wrote cixmini-console.conf (sort-key 2-console, multi-user.target)"
+    echo "  wrote cixmini-console.conf (sort-key 3-console, multi-user.target)"
 fi
 
 # ----------------------------------------------------------------------
-# Entry 3 — cixmini-rescue.conf (rescue shell on the legacy kernel)
+# Entry — cixmini-rescue.conf (rescue shell on the edge kernel)
 #
 # rescue.target boots multi-user services down (no graphical, no
 # auto-mount of network FS) but leaves the system bootable + login-able
-# for recovery. Useful when default cixmini-legacy.conf wedges from a bad
+# for recovery. Useful when default cixmini-next.conf wedges from a bad
 # config + we need to roll something back.
 # ----------------------------------------------------------------------
-# Rescue uses the legacy kernel by preference, falls back to edge if it is missing.
-if [ "$LEGACY_AVAILABLE" = "1" ]; then
-    RESCUE_KVER="$KVER_LEGACY"
-elif [ "$NEXT_AVAILABLE" = "1" ]; then
-    RESCUE_KVER="$KVER_NEXT"
-else
-    RESCUE_KVER=""
-fi
+RESCUE_KVER="$KVER_NEXT"
 
 if [ -n "$RESCUE_KVER" ]; then
     RESCUE_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE systemd.unit=rescue.target"
@@ -386,12 +334,7 @@ fi
 # cixmini-console (systemd.unit=multi-user.target). The cixmini-next entry is
 # still written (operator can pick it manually from rEFInd for recovery), but
 # the freshly-installed box boots straight to console on first power-on.
-DEFAULT_ENTRY=""
-if [ "$NEXT_AVAILABLE" = "1" ]; then
-    DEFAULT_ENTRY="cixmini-next"
-else
-    DEFAULT_ENTRY="cixmini-lts"
-fi
+DEFAULT_ENTRY="cixmini-next"
 COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS
 [ -r "$COMP_FILE" ] || COMP_FILE=/etc/cix-installer/COMPONENTS
 [ -r "$COMP_FILE" ] || COMP_FILE=/var/lib/cix-components/COMPONENTS

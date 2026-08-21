@@ -37,42 +37,34 @@ INSTALLER_META=/usr/local/lib/cix-installer
 
 KERNEL_LABELS=()
 KERNEL_VERS=()
-if [ -f "$INSTALLER_META/KVER_LEGACY" ]; then
-    KVER_LEGACY=$(cat "$INSTALLER_META/KVER_LEGACY" 2>/dev/null | tr -d ' \t\r\n')
-    if [ -n "$KVER_LEGACY" ]; then
-        KERNEL_LABELS+=("lts")
-        KERNEL_VERS+=("$KVER_LEGACY")
-    fi
-fi
 if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
     KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null | tr -d ' \t\r\n')
     if [ -n "$KVER_NEXT" ]; then
-        KERNEL_LABELS+=("next")
+        KERNEL_LABELS+=("edge")
         KERNEL_VERS+=("$KVER_NEXT")
     fi
 fi
 
-# --- Fallback: fold in an out-of-band NCZ edge (7.2) kernel (r195) ---
-# Mirrors 80-npu.sh: on an r195 install 7.2 arrives as KVER_NEXT (edge ->
-# KVER_NEXT) and is already covered. This only picks up a 7.2-class NCZ kernel
-# present on disk but absent from both sidecars, so a future amvx overlay would
-# still reach it. De-duped and idempotent (vermagic-guarded install to updates/).
-# 7.2 ships no amvx overlay today (the vb2 q->lock fix is in-tree), so on a
-# normal system this loop finds a match only via the sidecar and is otherwise a
-# clean no-op ("using in-tree amvx.ko").
+# --- Fallback: fold in an out-of-band NCZ edge (7.2) kernel ---
+# This only picks up a 7.2-class NCZ kernel present on disk but absent from the
+# KVER_NEXT sidecar, so a future amvx overlay would still reach it. De-duped
+# and idempotent (vermagic-guarded install to updates/). 7.2 ships no amvx
+# overlay today (the vb2 q->lock fix is in-tree), so on a normal system this
+# loop finds a match only via the sidecar and is otherwise a clean no-op
+# ("using in-tree amvx.ko").
 for _mk in /lib/modules/*7.2*-ncz /usr/lib/modules/*7.2*-ncz; do
     [ -d "$_mk" ] || continue
     _kv="${_mk##*/}"
     _known=0
     for _k in "${KERNEL_VERS[@]}"; do [ "$_k" = "$_kv" ] && { _known=1; break; }; done
     [ "$_known" = "1" ] && continue
-    echo "[81] fallback: NCZ edge kernel $_kv present but not in KVER_* sidecars — folding in for VPU overlay"
+    echo "[81] fallback: NCZ edge kernel $_kv present but not in KVER_NEXT sidecar — folding in for VPU overlay"
     KERNEL_LABELS+=("edge")
     KERNEL_VERS+=("$_kv")
 done
 
 if [ "${#KERNEL_VERS[@]}" -eq 0 ]; then
-    echo "[81] WARN: no KVER_LEGACY or KVER_NEXT sidecar found; skipping VPU overlay"
+    echo "[81] WARN: no KVER_NEXT sidecar found; skipping VPU overlay"
     exit 0
 fi
 

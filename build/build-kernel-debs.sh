@@ -1,16 +1,20 @@
 #!/bin/bash
-# build-kernel-debs.sh — debianize the staged cixmini kernels for APT/OTA.
+# build-kernel-debs.sh — debianize the staged cixmini kernel for APT/OTA.
 #
-# Produces three .debs under build/kernel-debs/:
+# Produces two .debs under build/kernel-debs/:
 #   cixmini-boot_<ver>_arm64.deb           — OTA-safe systemd-boot entry hook
-#   linux-image-cixmini-legacy_<KVER>_arm64.deb
-#   linux-image-cixmini-edge_<KVER>_arm64.deb
-#   linux-image-cixmini-lts_<KVER>_arm64.deb   (empty transitional package)
+#   linux-image-cixmini_<KVER>_arm64.deb    — edge kernel, the only shipping channel
+#   linux-headers-cixmini_<KVER>_arm64.deb  — matching headers for DKMS rebuilds
 #
 # These are the OTA-upgradable form of post-install/10-our-kernel.sh +
 # build/70-bootloader.sh. The bootloader hook is initrd-less and never wipes
 # the ESP — it only adds/updates entries for currently-installed kernels,
 # matching the validated r97/r98 boot exactly.
+#
+# Operator 2026-08-21: legacy 7.0.12-cix-sky1-next channel retired; only edge
+# is packaged. linux-image-cixmini-legacy and linux-image-cixmini-lts are gone
+# from the build; the empty-transitional-package trick that used to depend on
+# the legacy channel is also gone.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"   # cix-installer/
@@ -65,7 +69,7 @@ MAINT="NCZ <nczero@nclawzero.dev>"
 # version string. Confirmed 2026-08-02 on the rc5 -> rc6 bump: it announced
 # "[edge] 7.2.0-rc5-sky1-ncz" against an rc6 Image and then died with a bare
 # "install: No such file or directory" when the rc5 config was gone.
-# assets/kernel/<ch>/KVER is written by the kernel build itself and is the
+# assets/kernel/edge/KVER is written by the kernel build itself and is the
 # only source of truth here; the staging sidecar stays as a fallback.
 # Falling back to the staging sidecar is still allowed (a caller may package
 # from a tree with no built kernel assets), but it must never be SILENT --
@@ -89,16 +93,14 @@ resolve_kver() {   # <channel-dir> <sidecar-name> <default>
             printf %s "$v"; return 0
         fi
     fi
-    echo "WARN: no KVER for channel '$1' (neither $asset nor $sidecar) -- using default" >&2
-    printf %s "$4"
+    echo "ERROR: no KVER for channel '$1' (neither $asset nor $sidecar)" >&2
+    return 1
 }
-KVER_LEGACY="${KVER_LEGACY:-$(resolve_kver legacy KVER_LEGACY LEGACY 7.0.12-cix-sky1-next)}"
-KVER_NEXT="${KVER_NEXT:-$(resolve_kver edge KVER_NEXT NEXT 7.0.12-cix-sky1-next)}"
-KVER_LEGACY=$(printf %s "$KVER_LEGACY" | tr -d " \t\r\n")
+KVER_NEXT="${KVER_NEXT:-$(resolve_kver edge KVER_NEXT NEXT 7.2.0-sky1-ncz)}"
 KVER_NEXT=$(printf %s "$KVER_NEXT" | tr -d " \t\r\n")
 
 echo "== build-kernel-debs =="
-echo "   LTS=$KVER_LEGACY  NEXT=$KVER_NEXT  rev=$BUILD_REV"
+echo "   edge=$KVER_NEXT  rev=$BUILD_REV"
 echo "   out=$OUT"
 
 # Drift guard: verify the kernel/NPU manifest invariants before packaging the
@@ -221,12 +223,11 @@ ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=ext4 rw"
 SPLASH=""; [ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
 VER="ncz-ota"; [ -f /usr/local/lib/cix-installer/BUILD_VERSION ] && VER=$(cat /usr/local/lib/cix-installer/BUILD_VERSION)
 
-# Discover installed cixmini kernels (must have BOTH a module tree and a vmlinuz).
-LTS=""; NEXT=""
+# Discover installed cixmini kernel (must have BOTH a module tree and a vmlinuz).
+NEXT=""
 for k in $(ls /usr/lib/modules 2>/dev/null); do
     [ -f "/boot/vmlinuz-$k" ] || continue
     case "$k" in
-        *-ncz-lts)       LTS="$k" ;;
         *-cix-sky1-next) NEXT="$k" ;;
     esac
 done
@@ -245,47 +246,37 @@ options $opts
 EOF
 }
 
-# LTS channel
-if [ -n "$LTS" ]; then
-    rm -f "$ESP"/vmlinuz-*-ncz-lts 2>/dev/null || true
-    install -m 0644 "/boot/vmlinuz-$LTS" "$ESP/vmlinuz-$LTS"
-    write_entry cixmini-legacy 1-legacy "nclawzero (cixmini) — kernel $LTS [legacy, default] — $VER" "$LTS" ""
-    echo "cixmini-boot: staged LTS $LTS"
-else
-    rm -f "$ESP/loader/entries/cixmini-legacy.conf" "$ESP/loader/entries/cixmini-lts.conf" "$ESP"/vmlinuz-*-ncz-lts 2>/dev/null || true
-fi
-
-# NEXT/edge channel
+# Edge channel (the only shipping kernel)
 if [ -n "$NEXT" ]; then
     rm -f "$ESP"/vmlinuz-*-cix-sky1-next 2>/dev/null || true
     install -m 0644 "/boot/vmlinuz-$NEXT" "$ESP/vmlinuz-$NEXT"
-    write_entry cixmini-next 2-next "*** [BETA — UNSTABLE] nclawzero kernel $NEXT — $VER ***" "$NEXT" ""
-    echo "cixmini-boot: staged NEXT $NEXT"
+    write_entry cixmini-next 1-next "nclawzero (cixmini) — kernel $NEXT [edge, default] — $VER" "$NEXT" ""
+    echo "cixmini-boot: staged edge $NEXT"
 else
     rm -f "$ESP/loader/entries/cixmini-next.conf" "$ESP"/vmlinuz-*-cix-sky1-next 2>/dev/null || true
 fi
 
-# Rescue prefers LTS, falls back to NEXT.
-RESCUE="${LTS:-$NEXT}"
+# Rescue entry reuses the edge kernel (single-kernel release).
+RESCUE="${NEXT}"
 if [ -n "$RESCUE" ]; then
-    write_entry cixmini-rescue 3-rescue "SAFE rescue (cixmini) — kernel $RESCUE rescue.target — $VER" "$RESCUE" "systemd.unit=rescue.target"
+    write_entry cixmini-rescue 2-rescue "SAFE rescue (cixmini) — kernel $RESCUE rescue.target — $VER" "$RESCUE" "systemd.unit=rescue.target"
 else
     rm -f "$ESP/loader/entries/cixmini-rescue.conf"
 fi
 
 # Safety: never leave the ESP with a default pointing at nothing.
-if [ -z "$LTS$NEXT" ]; then
+if [ -z "$NEXT" ]; then
     echo "cixmini-boot: no cixmini kernels installed; leaving loader.conf untouched"
     exit 0
 fi
-DEFAULT_ENTRY="cixmini-legacy"; [ -z "$LTS" ] && DEFAULT_ENTRY="cixmini-next"
+DEFAULT_ENTRY="cixmini-next"
 cat > "$ESP/loader/loader.conf" <<EOF
 default $DEFAULT_ENTRY
 timeout 5
 console-mode auto
 editor yes
 EOF
-echo "cixmini-update-bootloader: LTS=${LTS:-none} NEXT=${NEXT:-none} default=$DEFAULT_ENTRY"
+echo "cixmini-update-bootloader: NEXT=${NEXT:-none} default=$DEFAULT_ENTRY"
 HELPER
     chmod 0755 "$dst"
 }
@@ -424,9 +415,9 @@ EOF
 # linux-image-cixmini-<channel>
 # ----------------------------------------------------------------------
 build_kernel_deb() {
-    local channel="$1"   # legacy | edge
+    local channel="$1"   # edge (only supported channel)
     local kver="$2"
-    local label="$3"     # legacy | edge (asset subdir)
+    local label="$3"     # asset subdir (edge)
     local with_npu="$4"  # path to OOT npu .ko, or ""
 
     # ONE KERNEL, ONE NAME (operator 2026-08-11: "we do not use LTS or edge,
@@ -579,11 +570,8 @@ EOF
     # which dpkg refuses on its own -- MEASURED on O6N: "installing
     # linux-image-cixmini would break linux-image-cixmini-edge, and
     # deconfiguration is not permitted (--auto-deconfigure might help)".
-    # Provides+Replaces+Conflicts is the canonical take-over triple: apt REMOVES
-    # the retired name and installs this in its place. The old lts->legacy
-    # handoff used Breaks correctly because that name survived as a transitional
-    # package; these names are retired outright, so nothing is left to
-    # deconfigure.
+    # Provides+Replaces+Conflicts is the canonical take-over triple: apt
+    # REMOVES the retired name and installs this in its place.
     # ONE field each, comma-separated. dpkg-deb rejects a control file with the
     # same field repeated ("duplicate value for 'Replaces' field"), so these
     # cannot be emitted one relation per line.
@@ -658,9 +646,9 @@ EOF
 # Full root cause + reproduction: docs/OTA-DKMS-HEADER-FIX-2026-08-21.md.
 # ----------------------------------------------------------------------
 build_headers_deb() {
-    local channel="$1"   # legacy | edge
+    local channel="$1"   # edge (only supported channel)
     local kver="$2"
-    local label="$3"     # legacy | edge (asset subdir)
+    local label="$3"     # asset subdir (edge)
     local pkg=linux-headers-cixmini
     local ver="$kver+$BUILD_REV"
     local src_tar="$ASSETS/$label/headers-cixmini.tar.zst"
@@ -1003,72 +991,22 @@ build_cixmini_boot
 # matching build/ tree was the entire r246/r247 defect, and silently skipping
 # the headers .deb would reproduce it on the very next OTA. Set -e in this
 # script means a failed build_headers_deb aborts the build, which is correct.
-if [ -s "$ASSETS/legacy/Image-cixmini.bin" ]; then
-    build_kernel_deb legacy "$KVER_LEGACY" legacy ""  # NPU in-tree since 7.0.12
-    build_headers_deb legacy "$KVER_LEGACY" legacy
-else
-    echo "  [legacy] no kernel staged in $ASSETS/legacy — skipping (single-tree release)"
-fi
 build_kernel_deb edge "$KVER_NEXT" edge   ""
 build_headers_deb edge "$KVER_NEXT" edge
 
 # ----------------------------------------------------------------------
-# Transitional package: linux-image-cixmini-lts
+# Transitional packages: linux-image-cixmini-{edge,lts,legacy}
 #
-# 7.0.12-cix-sky1-next was published for months as "linux-image-cixmini-lts".
-# It is not an LTS -- it is an EOL kernel we support temporarily while 7.2
-# goes through its release process -- so the real package is now
-# linux-image-cixmini-legacy. Dropping the old name outright would leave every
-# already-installed board holding a package that no longer exists in the repo,
-# silently receiving no further kernel updates. This empty package depends on
-# the new one so `apt upgrade` migrates them automatically.
+# Operator 2026-08-21: legacy channel is gone, so a board holding one of
+# the old kernel package names (edge, lts, legacy) needs to upgrade to
+# the new unified name `linux-image-cixmini`. That replacement is handled
+# by the linux-image-cixmini control's Provides+Replaces+Conflicts list
+# (see build_kernel_deb), not by an empty transitional package -- the
+# kernel deb itself owns the rename.
 #
-# Delete this once no supported board still has the old name installed.
+# No separate linux-image-cixmini-{edge,lts,legacy} package is built
+# any more.
 # ----------------------------------------------------------------------
-build_transitional_lts() {
-    local pkg=linux-image-cixmini-lts
-    # SINGLE-TREE (2026-08-10): this package's whole job is to keep boards that
-    # still carry the OLD "linux-image-cixmini-lts" name receiving kernel
-    # updates. It depended unconditionally on linux-image-cixmini-legacy -- but
-    # legacy is retired, so that produced an UNINSTALLABLE package depending on
-    # something no longer in the repo, stranding precisely the boards it exists
-    # to rescue. Migrate them to whichever channel is actually shipped.
-    local migrate_to ver
-    if [ -s "$ASSETS/legacy/Image-cixmini.bin" ]; then
-        migrate_to=linux-image-cixmini-legacy
-        ver="$KVER_LEGACY+$BUILD_REV"
-    else
-        migrate_to=linux-image-cixmini-edge
-        ver="$KVER_NEXT+$BUILD_REV"
-    fi
-    echo "  [transitional] $pkg -> Depends: $migrate_to ($ver)"
-    local root="$WORK/$pkg"
-    rm -rf "$root"
-    install -d "$root/DEBIAN"
-    cat > "$root/DEBIAN/control" <<EOF
-Package: $pkg
-Version: $ver
-Architecture: all
-Maintainer: $MAINT
-Section: oldlibs
-Priority: optional
-Installed-Size: 0
-Depends: $migrate_to
-Description: transitional package -- renamed to $migrate_to
- The 7.0.12 kernel channel was renamed from "lts" to "legacy": 7.0.12 is an
- EOL kernel supported only until the 7.2 channel finishes its release process,
- so calling it LTS was wrong. This empty package exists purely so existing
- installs migrate to linux-image-cixmini-legacy on upgrade. It can be removed
- once nothing references the old name.
-EOF
-    chmod 0755 "$root/DEBIAN"
-    dpkg-deb --root-owner-group --build "$root" "$OUT/${pkg}_${ver}_all.deb"
-    # (the accurate line is printed above, before the control file is written)
-}
-
-# build_transitional_lts is NOT called any more: linux-image-cixmini now
-# Provides/Replaces that name directly, so a board still carrying it upgrades
-# without an intermediate empty package.
 
 echo ""
 echo "== built debs =="

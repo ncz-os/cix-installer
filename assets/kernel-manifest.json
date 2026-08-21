@@ -1,18 +1,18 @@
 {
-  "generated_utc": "2026-08-21T13:50:11Z",
+  "generated_utc": "2026-08-21T14:59:55Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
       "file": "build/kernel-debs/cixmini-boot_1.2+r248_arm64.deb",
-      "sha256": "465833457d9530671e93ca76c8f3c3960baa57d725c3efdac31cbf3c441568ae"
+      "sha256": "19f4a818f1953eb231ae8c1968d7b2b473ede008d19f2c8a9ef56411335cdc44"
     },
     {
       "file": "build/kernel-debs/linux-headers-cixmini_7.2.0-sky1-ncz+r248_arm64.deb",
-      "sha256": "c8f987e381da36c65b707c52e722774ffc7a8d5106f8ed3f8171a392fe22a49a"
+      "sha256": "7a2965ffbc5d25f89e04cecf18173d7c6f553b2cfb4de9b6a994107161029d9b"
     },
     {
       "file": "build/kernel-debs/linux-image-cixmini_7.2.0-sky1-ncz+r248_arm64.deb",
-      "sha256": "16d0bd5707954e22356c34152c454fc92b7275106f0bfadf7136fbb1ee3abd60"
+      "sha256": "b330d6cff032a044de423588be35e4f780bb187c05b9f936f1b68c75e4288e04"
     }
   ],
   "schema": 1,

@@ -113,7 +113,7 @@ stamp() { echo "=== $1 (collected at $(date -u +%FT%TZ)) ==="; }
     stamp "/etc/cix-installer/ contents"
     ls -la /etc/cix-installer/ 2>&1
     echo ""
-    for f in RELEASE BUILD_VERSION BUILD_DATE BUILD_HOST KVER_LEGACY KVER_NEXT; do
+    for f in RELEASE BUILD_VERSION BUILD_DATE BUILD_HOST KVER_NEXT; do
         echo "--- /etc/cix-installer/$f ---"
         cat "/etc/cix-installer/$f" 2>&1 || echo "(missing)"
         echo ""
@@ -169,8 +169,7 @@ collected by run-all.sh as each hook ran.
 | /etc/cix-installer/BUILD_VERSION | e.g. "2026.05.03-r8" |
 | /etc/cix-installer/BUILD_DATE | UTC build timestamp |
 | /etc/cix-installer/BUILD_HOST | host that built the ISO |
-| /etc/cix-installer/KVER_LEGACY | LTS kernel uname -r |
-| /etc/cix-installer/KVER_NEXT | NEXT (BETA) kernel uname -r |
+| /etc/cix-installer/KVER_NEXT | edge kernel uname -r (the only shipping kernel) |
 
 ## How to read these from rescue mode
 

@@ -4,7 +4,7 @@
 # The partman recipe in preseed.cfg creates a 4 GiB ext4 partition
 # (NCZRESCUE) with NO mountpoint on the main system. This hook fills it with
 # the pre-built rescue rootfs (assets/rescue/rescue-rootfs.tar.zst) and the
-# LTS kernel payload, then records a readiness marker.
+# shipping kernel payload, then records a readiness marker.
 #
 # IMPORTANT — division of labour with 70-bootloader.sh:
 #   This hook runs in Phase 2 (numbered hooks). 70-bootloader.sh runs LATER,
@@ -14,16 +14,18 @@
 #   this hook leaves behind. Here we only touch the rescue PARTITION (never the
 #   ESP), so nothing we do gets clobbered.
 #
-# 2026-08-11 (operator: "we are 7.2 only now"): the rescue partition now ships
-# the SHIPPING kernel from assets/kernel/edge. It used to ship legacy 7.0.12 on
-# the "a recovery env should be boring" principle, which was right while two
-# kernels existed. With one kernel that rule would leave the rescue partition
-# carrying modules for a kernel no longer built -- exactly the state found on
-# O6N, where the rescue partition held only 7.0.12 modules.
-# and reliable, and LTS has a solid early framebuffer. 70-bootloader.sh boots
-# this partition with the NORMAL LTS cmdline (display drivers KEPT) so the local
-# console is usable; we do NOT apply the rescue.target KMS/display blacklist here
-# (that earlier left the rescue screen blank).
+# 2026-08-11 (operator: "we are 7.2 only now"): the rescue partition ships
+# the SHIPPING (edge) kernel from assets/kernel/edge. It used to ship
+# legacy 7.0.12 on the "a recovery env should be boring" principle, which
+# was right while two kernels existed. With one kernel that rule would leave
+# the rescue partition carrying modules for a kernel no longer built --
+# exactly the state found on O6N, where the rescue partition held only 7.0.12
+# modules.
+#
+# 70-bootloader.sh boots this partition with the NORMAL cmdline (display
+# drivers KEPT) so the local console is usable; we do NOT apply the
+# rescue.target KMS/display blacklist here (that earlier left the rescue
+# screen blank).
 set -uo pipefail
 
 INSTALLER_META=/usr/local/lib/cix-installer
@@ -36,11 +38,10 @@ MARKER="$INSTALLER_META/RESCUE_READY"
 echo "[72] rescue partition population"
 
 # --- preconditions (skip soft) ---
-KVER_LEGACY=""
-[ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_LEGACY=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
-[ -z "$KVER_LEGACY" ] && [ -f "$INSTALLER_META/KVER_LEGACY" ] && KVER_LEGACY=$(cat "$INSTALLER_META/KVER_LEGACY" 2>/dev/null || true)
-if [ -z "$KVER_LEGACY" ]; then
-    echo "[72] ERROR: no LTS kernel staged — cannot build a rescue partition" >&2
+KVER_NEXT=""
+[ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
+if [ -z "$KVER_NEXT" ]; then
+    echo "[72] ERROR: no KVER_NEXT sidecar — cannot build a rescue partition" >&2
     exit 1
 fi
 if [ ! -f "$TARBALL" ]; then
@@ -176,27 +177,27 @@ if [ -f "$MNT/usr/lib/systemd/system/inetd.service" ] || [ -x "$MNT/usr/sbin/tel
 fi
 echo "[72] auto-network + remote access verified (single owner: ncz-rescue-net)"
 
-# --- install stable kernel + modules into the rescue rootfs ---
+# --- install shipping kernel + modules into the rescue rootfs ---
 # Modules MUST go in via --keep-directory-symlink (never plain -C /): the
 # tarball carries a top-level lib/ entry, and on a usrmerge rootfs /lib is a
 # symlink to usr/lib. A naive extract would clobber that symlink and orphan
 # ld-linux — the exact failure mode this rescue env exists to repair.
-echo "[72] installing shipping kernel $KVER_LEGACY into rescue rootfs"
-install -D -m 0644 "$ASSETS_KERNEL/edge/Image-cixmini.bin" "$MNT/boot/vmlinuz-$KVER_LEGACY"
+echo "[72] installing shipping kernel $KVER_NEXT into rescue rootfs"
+install -D -m 0644 "$ASSETS_KERNEL/edge/Image-cixmini.bin" "$MNT/boot/vmlinuz-$KVER_NEXT"
 tar xzf "$ASSETS_KERNEL/edge/modules-cixmini.tgz" -C "$MNT/usr" --strip-components=0 --keep-directory-symlink
-if [ ! -d "$MNT/usr/lib/modules/$KVER_LEGACY" ]; then
-    echo "[72] WARN: modules tarball did not produce $MNT/usr/lib/modules/$KVER_LEGACY"
+if [ ! -d "$MNT/usr/lib/modules/$KVER_NEXT" ]; then
+    echo "[72] WARN: modules tarball did not produce $MNT/usr/lib/modules/$KVER_NEXT"
     ls "$MNT/usr/lib/modules/" 2>&1 | sed 's/^/        /'
 else
-    MODC=$(find "$MNT/usr/lib/modules/$KVER_LEGACY" -name '*.ko*' 2>/dev/null | wc -l)
+    MODC=$(find "$MNT/usr/lib/modules/$KVER_NEXT" -name '*.ko*' 2>/dev/null | wc -l)
     echo "[72] $MODC modules staged; running depmod"
-    depmod -b "$MNT" "$KVER_LEGACY" 2>/dev/null || echo "[72] WARN: depmod returned non-zero"
+    depmod -b "$MNT" "$KVER_NEXT" 2>/dev/null || echo "[72] WARN: depmod returned non-zero"
 fi
 
-# initrd: reuse the main system's LTS initrd (generic; mounts root=PARTUUID).
+# initrd: reuse the main system's edge initrd (generic; mounts root=PARTUUID).
 # 70-bootloader.sh stages the ESP copy; this in-rootfs copy is for completeness.
-if [ -s "/boot/initrd.img-$KVER_LEGACY" ]; then
-    install -D -m 0644 "/boot/initrd.img-$KVER_LEGACY" "$MNT/boot/initrd.img-$KVER_LEGACY"
+if [ -s "/boot/initrd.img-$KVER_NEXT" ]; then
+    install -D -m 0644 "/boot/initrd.img-$KVER_NEXT" "$MNT/boot/initrd.img-$KVER_NEXT"
 fi
 
 # --- AGENTS.md (refresh from asset if present) ---
@@ -218,7 +219,7 @@ fi
 RP_PARTUUID=$(blkid -s PARTUUID -o value "$RESCUE_SRC" 2>/dev/null || true)
 {
     echo "PARTUUID=$RP_PARTUUID"
-    echo "KVER=$KVER_LEGACY"
+    echo "KVER=$KVER_NEXT"
     echo "DEV=$RESCUE_SRC"
 } > "$MARKER"
 echo "[72] wrote marker $MARKER (PARTUUID=$RP_PARTUUID)"
