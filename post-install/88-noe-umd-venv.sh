@@ -37,6 +37,20 @@
 # that if an operator manually `apt-mark unhold cix-noe-umd && apt upgrade`
 # (e.g. to chase a security update) the next run of this hook will
 # re-apply the rewrite against the new vendor postinst and self-heal.
+# 2026-08-21 update: the matched NPU stack is now KMD 6.2.0 + UMD 3.1.4 (asid_base[4]),
+# not the older 2.0.x (asid_base[32]) stack. UMD 2.0.2 wedges at noe_init_context on
+# the r247+ KMD because of the asid_base[4] -> asid_base[32] ABI widening; see
+# packaging/cix-npu-driver-dkms-6.2.0/README.md ("the matched NPU stack, hardened").
+# 80-npu.sh still claims 2.0.2 (its MobileNet 640-inf/s measurement was on MS-R1
+# with the v0-compat ioctl layer + the OLDER KMD); on the r247+ NCZ edge kernel
+# the 2.0.2 UMD cannot query capability and every NPU call dies before loading
+# a graph. The pin below stays at whatever the staged vendor deb installs (no
+# explicit Version= pin) and the staging-side fix in build/stage-canonical-assets.sh
+# removes the pre-Q2 cix-noe-umd_2.0.2 from assets/cix-debs/ so the forky vendor
+# mirror's 3.1.4-cixdeb13-260714 wins. Verified on the 2026-08-21 r248 build
+# (Libnoe 3.1.1 + cix-noe-umd 3.1.4-cixdeb13-260714 + cix-npu-driver-dkms
+# 6.2.0-cixdeb13-260714+ncz1): ResNet50 1000-frame golden PASS on O6N.
+#
 # Per docs/post-install/80-npu.sh only cix-noe-umd 2.0.2 is confirmed
 # working with our v0-compat ioctl layer, so the hold is also the
 # documented policy.
@@ -325,7 +339,7 @@ if dpkg -s cix-noe-umd >/dev/null 2>&1; then
         echo "[88] cix-noe-umd already on hold (rewrite protected)"
     else
         if apt-mark hold cix-noe-umd >/dev/null 2>&1; then
-            echo "[88] cix-noe-umd put on hold (only 2.0.2 is validated; protects postinst rewrite)"
+            echo "[88] cix-noe-umd put on hold (matched-stack 3.1.4-cixdeb13-260714 is validated; protects postinst rewrite)"
         else
             echo "[88] WARN: could not hold cix-noe-umd; rewrite above is still applied but is at risk from \`apt upgrade\`" >&2
         fi
