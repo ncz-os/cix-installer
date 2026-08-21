@@ -6,3 +6,4 @@
 0006-armchina-npu-module-metadata-v3_1.patch -p1
 0007-armchina-npu-drop-IRQF_ONESHOT.patch -p1
 0008-armchina-npu-pm-runtime-enable-redundant.patch -p1
+0009-armchina-npu-use-irq-object-as-dev-id.patch -p1
