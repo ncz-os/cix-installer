@@ -101,6 +101,7 @@ log(){ echo "[sqfs $(date -u +%H:%M:%S)] $*"; }
 need(){ command -v "$1" >/dev/null || { echo "MISSING: $1"; exit 1; }; }
 need mksquashfs
 need unsquashfs
+need python3
 
 # A zero exit from mksquashfs is NOT evidence that the archive it wrote can be
 # read back. On 2026-08-16 it reported success and produced a desktop layer
@@ -116,6 +117,7 @@ need unsquashfs
 verify_squashfs(){
   local img="$1" name="$2"
   local vd vlog rc
+  sudo mkdir -p "$WORK"
   # The log MUST live somewhere this (unprivileged) shell can write: the
   # redirection below is performed by the shell, not by sudo, so pointing it
   # at $WORK -- which is root-owned as soon as any stage has run as root --
@@ -168,6 +170,24 @@ verify_squashfs(){
   fi
   log "$name: archive verified OK"
   rm -f "$vlog"
+}
+
+assert_rootfs_critical_owners(){
+  local c="$1" label="$2" bad=0 p owner
+  for p in . etc usr var var/lib; do
+    [ -e "$c/$p" ] || continue
+    owner="$(stat -c '%u:%g' "$c/$p")"
+    if [ "$owner" != "0:0" ]; then
+      log "ERROR: $label has unsafe ownership on /$p: $owner (expected 0:0)"
+      bad=1
+    fi
+  done
+  if [ "$bad" -ne 0 ]; then
+    log "ERROR: refusing to chroot into a rootfs with user-owned system paths"
+    log "       Rebuild the base layer from assets/rootfs/rootfs-$APT_SUITE-arm64.tar.zst"
+    log "       before rebuilding role deltas."
+    return 1
+  fi
 }
 # NATIVE arm64 (e.g. bigpi) needs no qemu-user; x86 (ARGOS) does.
 NATIVE=0; [ "$(uname -m)" = "aarch64" ] && NATIVE=1
@@ -271,6 +291,7 @@ build_layer(){ local role="$1" manifest="$2"
   # The destination directory itself is not part of the squashfs payload.
   # Force ownership so maintainer scripts see a normal root-owned filesystem.
   sudo chown root:root "$L"
+  assert_rootfs_critical_owners "$L" "$role lowerdir"
   # sudo: $WORK is root-owned as soon as any earlier stage has run under sudo,
   # so an unprivileged mkdir here fails with "mkdir: Permission denied" and
   # set -e aborts the build four seconds in, having logged nothing but the
@@ -479,6 +500,37 @@ $_found"
   fi
   sudo rm -f "$MG/usr/sbin/policy-rc.d"
   sudo chroot "$MG" apt-get clean 2>/dev/null || true
+  # Overlayfs may represent a copied-up file as metadata-only
+  # trusted.overlay.metacopy=y in the upperdir, with the data still read from
+  # the lowerdir through the merged mount. We later strip trusted.overlay.*
+  # xattrs before mksquashfs because plain unsquashfs cannot replay them. If
+  # the data is not materialized first, files such as /var/lib/dpkg/status
+  # become zero-byte regular files in the published delta.
+  log "$role: materialize overlay metacopy files"
+  sudo python3 - "$U" "$MG" <<'PYMETACOPY'
+import os
+import shutil
+import sys
+
+upper, merged = sys.argv[1:]
+for directory, names, files in os.walk(upper):
+    names.sort()
+    files.sort()
+    for name in files:
+        upath = os.path.join(directory, name)
+        try:
+            if os.getxattr(upath, "trusted.overlay.metacopy") != b"y":
+                continue
+        except OSError:
+            continue
+        rel = os.path.relpath(upath, upper)
+        mpath = os.path.join(merged, rel)
+        tmp = upath + ".ncz-metacopy"
+        shutil.copy2(mpath, tmp, follow_symlinks=False)
+        st = os.lstat(mpath)
+        os.chown(tmp, st.st_uid, st.st_gid, follow_symlinks=False)
+        os.replace(tmp, upath)
+PYMETACOPY
   apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
   # clean transient from the UPPER delta only (keep dpkg status/alternatives copy-ups)
   sudo rm -rf "$U/var/lib/apt/lists/"* "$U/var/cache/apt/"* "$U/tmp/"* "$U/usr/bin/qemu-aarch64-static" 2>/dev/null || true
@@ -543,6 +595,7 @@ build_base(){
   # chroot as unsafe (exit 73) and yields a silently broken layer.
   sudo install -d -o root -g root -m 0755 "$WORK/base"
   sudo tar -I 'zstd -d' -xf "$BASE_TARBALL" -C "$WORK/base"
+  assert_rootfs_critical_owners "$WORK/base" "base rootfs"
   mount_chroot "$WORK/base"
   # r190.2: same needrestart-hang fix as build_layer() below -- base hooks
   # (10-our-kernel etc) also apt-install packages and can hit the same
