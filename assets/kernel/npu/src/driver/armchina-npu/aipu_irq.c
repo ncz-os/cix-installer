@@ -101,13 +101,13 @@ finish:
 void aipu_destroy_irq_object(struct aipu_irq_object *irq_obj)
 {
 	if (irq_obj) {
+		if (irq_obj->irqnum)
+			free_irq(irq_obj->irqnum, irq_obj);
 		if (irq_obj->aipu_wq) {
 			flush_workqueue(irq_obj->aipu_wq);
 			destroy_workqueue(irq_obj->aipu_wq);
 			irq_obj->aipu_wq = NULL;
 		}
-		if (irq_obj->irqnum)
-			free_irq(irq_obj->irqnum, irq_obj);
 		kfree(irq_obj);
 	}
 }
