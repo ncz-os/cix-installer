@@ -189,6 +189,30 @@ SQUASHFS_DIR="${SQUASHFS_DIR:-$ROOT/assets/squashfs}"
 # netinstall/thin stay permissive (assets install online / by design).
 # ----------------------------------------------------------------------
 if [ "$MODE" = "full" ]; then
+    # ----------------------------------------------------------------
+    # 2026-08-21: restage the three gap categories the build host's
+    # $ROOT/assets/ may be missing:
+    #   - assets/sky1-firmware/ (VPU codecs, mediatek/, rtw89/, dsp_fw.bin)
+    #   - assets/mgmt/ncz-mgmt-rootfs.tar.zst
+    #   - assets/cix-debs/ (NPU userspace + gtk4-layer-shell, plus the
+    #     pre-Q2 cix-noe-umd_2.0.2 -> matched-stack 3.1.4 pin)
+    # All three are gitignored and never auto-restored from a fresh
+    # `git clone`; the restager pulls from canonical ARGONAS NFS sources
+    # (and falls back to the operator-known-good ISO at $OLD_ISO_REF when
+    # NFS is unreachable). Idempotent; safe to call before the hard-fail
+    # guards below -- on the next bake the staging loop at the bottom of
+    # this script picks up the just-restaged assets without further
+    # operator action.
+    # ----------------------------------------------------------------
+    if [ -x "$ROOT/build/stage-canonical-assets.sh" ]; then
+        if ! bash "$ROOT/build/stage-canonical-assets.sh" \
+                --from "$ROOT/assets" 2>&1 \
+            | sed 's/^/[stage-canonical-assets] /'; then
+            echo "WARNING: stage-canonical-assets.sh exited non-zero -- continuing with whatever it could stage (see output above)" >&2
+        fi
+    else
+        echo "WARNING: $ROOT/build/stage-canonical-assets.sh not executable -- skipping auto-restage" >&2
+    fi
     if ! ls "$ROOT/assets/cix-debs"/*.deb >/dev/null 2>&1; then
         echo "ERROR: assets/cix-debs/ has no *.deb — full desktop ISO would install with NO CIX GPU userspace (libmali/EGL/GLES) and boot to a dead greeter." >&2
         echo "  Remediation: stage the validated CIX proprietary userland set (cix-gpu-umd, cix-libglvnd, cix-mesa, cix-noe-umd_2.0.2, cix-gstreamer, firmware, ...)" >&2
