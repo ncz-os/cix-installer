@@ -1,6 +1,6 @@
 #!/bin/sh
 # disk-fs-chooser.sh — NCZ installer interactive TARGET-DISK + ROOT-FILESYSTEM
-# selection. Invoked from partman/early_command (see preseed-ubuntu.cfg).
+# selection. Invoked from partman/early_command (see preseed.cfg).
 #
 # WHY a cdebconf menu (NOT whiptail): the ISO boots d-i at `priority=critical`
 # so finish-install auto-reboots cleanly (priority=high would drop back to the

@@ -1,7 +1,7 @@
 #!/bin/bash
 # 72-rescue-partition.sh — populate the r130 dedicated RESCUE PARTITION.
 #
-# The partman recipe in preseed-ubuntu.cfg creates a 4 GiB ext4 partition
+# The partman recipe in preseed.cfg creates a 4 GiB ext4 partition
 # (NCZRESCUE) with NO mountpoint on the main system. This hook fills it with
 # the pre-built rescue rootfs (assets/rescue/rescue-rootfs.tar.zst) and the
 # LTS kernel payload, then records a readiness marker.

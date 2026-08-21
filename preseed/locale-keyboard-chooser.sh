@@ -1,6 +1,6 @@
 #!/bin/sh
 # locale-keyboard-chooser.sh — NCZ installer interactive LOCALE + KEYBOARD
-# LAYOUT selection. Invoked from preseed/early_command (see preseed-ubuntu.cfg),
+# LAYOUT selection. Invoked from preseed/early_command (see preseed.cfg),
 # BEFORE d-i's own localization step consumes debian-installer/locale and
 # keyboard-configuration/xkb-keymap.
 #

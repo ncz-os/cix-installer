@@ -111,7 +111,7 @@ iso: $(OUTPUT_ISO)
 
 $(OUTPUT_ISO): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(ROOT)/build/build-iso-di.sh \
-	               $(PRESEED)/preseed-ubuntu.cfg \
+	               $(PRESEED)/preseed.cfg \
 	               $(PRESEED)/late.sh \
 	               $(PRESEED)/extract-rootfs.sh \
 	               $(PRESEED)/sshd-watcher.sh \

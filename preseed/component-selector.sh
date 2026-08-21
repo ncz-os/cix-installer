@@ -1,6 +1,6 @@
 #!/bin/sh
 # component-selector.sh — NCZ installer interactive COMPONENT SELECTOR.
-# Invoked from preseed/early_command (see preseed-ubuntu.cfg), BEFORE
+# Invoked from preseed/early_command (see preseed.cfg), BEFORE
 # locale-keyboard-chooser.sh and disk-fs-chooser.sh, so the rescue-partition
 # choice is available when disk-fs-chooser.sh builds its partman recipe.
 #

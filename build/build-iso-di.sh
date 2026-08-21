@@ -2292,7 +2292,7 @@ if [ -d "$ROOT/build/apt-repo" ]; then
 fi
 
 if [ "$MODE" = "full" ]; then
-    cp "$ROOT/preseed/preseed-ubuntu.cfg" "$EXTRA/preseed.cfg"
+    cp "$ROOT/preseed/preseed.cfg" "$EXTRA/preseed.cfg"
 else
     awk -v mode="$MODE" '
         function disabled(line) {
@@ -2323,7 +2323,7 @@ else
             next
         }
         { print }
-    ' "$ROOT/preseed/preseed-ubuntu.cfg" > "$EXTRA/preseed.cfg"
+    ' "$ROOT/preseed/preseed.cfg" > "$EXTRA/preseed.cfg"
 fi
 # The preseed is written against the Ubuntu-era profile and hard-codes the
 # suite/codename ("resolute") plus the ports.ubuntu.com fallback mirror.
@@ -2376,7 +2376,7 @@ fi
 #
 # diag-console.sh is exempt when DIAG_ENABLE=0, because a ship-clean image
 # deliberately omits it and the preseed reference is expected to no-op.
-for _h in $(grep -oE '\$NCZSRC/[a-z0-9._-]+\.sh' "$ROOT/preseed/preseed-ubuntu.cfg" \
+for _h in $(grep -oE '\$NCZSRC/[a-z0-9._-]+\.sh' "$ROOT/preseed/preseed.cfg" \
             | sed 's|.*/||' | sort -u); do
     if [ "$_h" = "diag-console.sh" ] && [ "${DIAG_ENABLE:-1}" != 1 ]; then
         continue
