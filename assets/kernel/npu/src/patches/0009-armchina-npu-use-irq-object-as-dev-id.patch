@@ -14,7 +14,9 @@ faulting in the embedded spinlock.
 Pass the IRQ object as dev_id instead. It owns the partition pointer and is
 valid before request_irq(), so early IRQF_PROBE_SHARED callbacks either see
 an uninitialized partition and return IRQ_NONE or later use the initialized
-partition directly. Use the same dev_id for free_irq().
+partition directly. Use the same dev_id for free_irq(), and unregister the
+IRQ before destroying the workqueue so no new bottom-half work can be queued
+during teardown.
 
 Signed-off-by: Jason Perlow <jperlow@gmail.com>
 ---
@@ -75,12 +77,18 @@ index 10e912b..c2bb706 100755
  
  	goto finish;
  
-@@ -101,7 +107,7 @@ void aipu_destroy_irq_object(struct aipu_irq_object *irq_obj)
+@@ -101,13 +107,13 @@ void aipu_destroy_irq_object(struct aipu_irq_object *irq_obj)
+ {
+ 	if (irq_obj) {
++		if (irq_obj->irqnum)
++			free_irq(irq_obj->irqnum, irq_obj);
+ 		if (irq_obj->aipu_wq) {
+ 			flush_workqueue(irq_obj->aipu_wq);
+ 			destroy_workqueue(irq_obj->aipu_wq);
  			irq_obj->aipu_wq = NULL;
  		}
- 		if (irq_obj->irqnum)
+-		if (irq_obj->irqnum)
 -			free_irq(irq_obj->irqnum, irq_obj->dev);
-+			free_irq(irq_obj->irqnum, irq_obj);
  		kfree(irq_obj);
  	}
  }
@@ -94,4 +102,3 @@ index 10e912b..c2bb706 100755
  }
 -- 
 2.51.0
-
