@@ -126,19 +126,17 @@ apparmor-utils
 systemd-zram-generator
 
 # --- native Wayland screensaver / idle-lock (57-screensaver) ----------------
-# swayidle = wlroots ext-idle-notify idle timer; swaylock = fallback blank lock
-# (the native Singularity lockscreen is primary); wlopm = wlr-output-power DPMS.
-# These REPLACE X11 xscreensaver (NOT in this closure — wrong stack for Mali/WL).
-swayidle
-swaylock
-wlopm
-# "Screensaver & Lock" config app (ncz-screensaver-settings) is Python GTK4 +
-# libadwaita — needs the GObject-introspection bindings + typelibs at runtime
-# (the Vala Singularity apps link the libs directly and don't pull these).
-python3-gi
-gir1.2-gtk-4.0
-gir1.2-adw-1
-gir1.2-glib-2.0
+# HOLD 2026-08-21 (operator): the screensaver subsystem doesn't ship until
+# its own GLES3 migration passes full verification (94 hacks exist across
+# gl4es + GLES3-native but no fresh end-to-end audit has been run against
+# the mixed set). 57-screensaver.sh is removed from build-squashfs-layers.sh
+# and build-baked-rootfs.sh's hook loops AND from run-all.sh's hook regexes.
+# swayidle, swaylock, wlopm, and the GObject-introspection packages below
+# are removed from this manifest for the same reason -- they have no other
+# consumer (verified by grep against post-install/ + preseed/ on 2026-08-21).
+# When the hold lifts: restore these four packages AND 57-screensaver.sh
+# in the two build scripts and the two run-all.sh regexes (MACHINE_HOOKS_RE,
+# _SKIP_DESKTOP_RE) in the SAME COMMIT as the e2e audit evidence.
 
 # --- GPU / GL tooling (Mali GLES; Vulkan tools for diagnostics) -------------
 mesa-utils
