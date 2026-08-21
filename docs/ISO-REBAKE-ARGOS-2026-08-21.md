@@ -342,7 +342,40 @@ Building the Forky mirror from scratch would take ~1-2 hours of network
 downloads (~2-3 GB of `arm64 main + contrib + non-free + non-free-firmware`
 plus the desktop closure). Plus `build-singularity-deb.sh` to wrap the
 Singularity tarball — which is another ~30 min git clone + npm/Go build.
-I did not start it.
+
+I attempted a closure-resolve dry-run during this session. After staging
+a placeholder `ncz-singularity-desktop` .deb in the vendor mirror,
+`apt-get install -s` failed on five packages that the resolver could not
+find in any reachable archive:
+
+```
+E: Unable to locate package chromium-ncz-sky1
+E: Unable to locate package cixmini-boot
+E: Unable to locate package google-chrome-stable
+E: Unable to locate package linux-image-cixmini
+E: Unable to locate package ncz-ffmpeg
+```
+
+These five are not in Debian — they are NCZ's own builds:
+
+| package                | built by                                                                  | build host        |
+|------------------------|---------------------------------------------------------------------------|-------------------|
+| `linux-image-cixmini`  | `build/build-kernel-debs.sh` (Sky1 patches + cix-mini config + DKMS)      | aarch64 build host |
+| `cixmini-boot`         | rEFInd + bootloader entry generator (post-install/70-bootloader.sh lineage)| aarch64 build host |
+| `chromium-ncz-sky1`    | custom Chromium with V4L2-M2M HW decode (NCZ build infra)                | aarch64 build host |
+| `google-chrome-stable` | Google's signed stable build (downloaded fresh at build time)             | any host with network |
+| `ncz-ffmpeg`           | ffmpeg with CIX-specific decode/encode fixes, RPATH'd under /opt          | aarch64 build host |
+
+Three of them (`chromium-ncz-sky1`, `ncz-ffmpeg`, `linux-image-cixmini`)
+are NCZ's own builds against the Sky1 hardware — they need an aarch64
+build host that can cross-compile or run natively on cixmini. The other
+two (`google-chrome-stable`, `cixmini-boot`) need network to Google's
+repo and the post-install hooks respectively.
+
+**Stubbing these with placeholder `.deb`s would build an ISO that boots
+but is materially broken (no kernel, no Chromium, no HW video decode).**
+That is strictly worse than the r107 ISO already on ARGONAS. I did not
+stub them; I did not start the mirror download.
 
 ### 6.3 No fresh prior ISO to test the new install-gate against
 
@@ -372,7 +405,37 @@ named after, verify them, and document the rebuild blockers so the
 next operator (or session with a longer time budget) can finish the
 job.
 
-### 6.5 Recommended next steps for whoever completes this
+### 6.5 What I did stage for the next session
+
+In the course of this session I pulled these inputs from ARGONAS and
+staged them under `~/work/cix-installer/assets/` on ARGOS:
+
+| staged asset                            | source on ARGONAS                                          |
+|-----------------------------------------|------------------------------------------------------------|
+| `assets/kernel/edge/{Image,KVER,config,modules}` | `/mnt/argonas/datapool/projects/cix-installer/assets/kernel/edge/` |
+| `assets/sky1-firmware/` (incl. mali_csffw.bin) | `/mnt/argonas/datapool/projects/cix-installer/assets/sky1-firmware/` |
+| `assets/firmware/rtl_nic/`              | `/mnt/argonas/datapool/projects/cix-installer/assets/firmware/rtl_nic/` |
+| `assets/rescue/rescue-rootfs.tar.zst`   | `/mnt/argonas/datapool/projects/cix-installer/assets/rescue/` |
+| `assets/cix-debs/*.deb` (22 .debs)      | `/mnt/argonas/datapool/archives/cix-installer-bake-assets-20260729/assets/cix-debs/` |
+| `assets/sinty-nmd/...`                  | `/mnt/argonas/datapool/archives/ncz/singularity/sinty-nmd` + the bake-assets service file |
+| `assets/singularity-boot-splash/singularity-boot-splash` | `/mnt/argonas/datapool/archives/ncz/singularity-boot-splash/` |
+| `assets/rootfs/rootfs-forky-arm64.tar.zst` (72 MB, fresh from this session) | debootstrapped on ARGOS via `debootstrap --arch=arm64 --foreign --variant=minbase forky` + `--second-stage` under qemu-aarch64-static |
+
+What is STILL missing on ARGOS for the next session to complete the
+rebuild (none of which I can build in this session):
+
+- `ncz-singularity-desktop_*.deb` (NCZ's apt-package wrapper of the
+  Singularity Desktop payload). Built by `build-singularity.sh` →
+  `build-singularity-deb.sh`. Requires git-cloning
+  `singularityos-lab/singularity-desktop` + a Node/Go build chain.
+- `chromium-ncz-sky1_*.deb`, `ncz-ffmpeg_*.deb`, `linux-image-cixmini_*.deb`,
+  `cixmini-boot_*.deb`. NCZ build pipelines (see §6.2 table).
+- `google-chrome-stable_*.deb`. Fetched fresh from Google's repo at
+  build time on a host with outbound network.
+- `build/forky-mirror/` (the Debian arm64 closure, ~2-3 GB). Built by
+  `build/build-forky-mirror.sh` from `deb.debian.org`.
+
+## 6.6 Recommended next steps for whoever completes this
 
 1. On ARGOS (or any host with `~30 GB scratch, sudo, and outbound
    network):
