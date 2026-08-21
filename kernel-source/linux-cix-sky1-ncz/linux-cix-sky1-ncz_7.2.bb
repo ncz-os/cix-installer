@@ -360,6 +360,7 @@ SRC_URI = " \
     file://patches-7.2/0216-resctrl-mpam-expose-proportional-bandwidth.patch \
     file://patches-7.2/0217-rtw89-disable-hw-rfkill-polling-on-orion-o6.patch \
     file://patches-7.2/0218-rtw89-check-acpi-dsm-before-evaluating.patch \
+    file://patches-7.2/0219-DEBUG-ncz-resume-beacons-ramoops.patch \
 "
 
 COMPATIBLE_MACHINE = "(cixmini)"
