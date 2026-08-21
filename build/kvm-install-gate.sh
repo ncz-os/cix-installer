@@ -38,6 +38,131 @@ SRCVARS=/usr/share/AAVMF/AAVMF_VARS.fd
 ACCEL="tcg"; CPU="cortex-a72"
 if [ -r /dev/kvm ] && [ "$(uname -m)" = "aarch64" ]; then ACCEL="kvm"; CPU="host"; fi
 
+# ---------------------------------------------------------------------------
+# QEMU-only console + preseed patch (mandatory under -display none)
+# ---------------------------------------------------------------------------
+# Why this exists (the bug it fixes, measured 2026-08-21 on ARGOS):
+#
+#   The shipped ISO's install menuentry appends
+#       console=tty0 console=ttyAMA2,115200
+#   ttyAMA2 is the O6/O6N hardware UART — it does NOT exist as a /dev node
+#   under QEMU's virt board (which only instantiates ttyAMA0). d-i runs with
+#   auto=true (from DI_OPTS), which trips reopen-console's "preseed" path:
+#   that path picks the kernel's "preferred" console = LAST console= on the
+#   cmdline, and runs d-i on EXACTLY ONE console.
+#
+#   reopen-console's preferred-console selection is NOT gated by the /dev
+#   node actually existing (only the separate "which consoles get d-i spawned
+#   on" list is). With console=ttyAMA2 last, reopen-console picks ttyAMA2,
+#   steal-ctty fails with ENOENT, and d-i's actual startup (inittab respawn
+#   via kill -HUP 1) either lands on some other console our serial capture
+#   isn't watching OR falls back to tty1.
+#
+#   This gate runs QEMU with -display none. If reopen-console lands on tty1,
+#   the kernel renders d-i into a framebuffer that has no listener and the
+#   installer never progresses — the install phase times out at
+#   INSTALL_TIMEOUT (5400s) and the gate fails with no useful diagnostic in
+#   $ILOG. That is exactly the failure mode that has been misdiagnosed as
+#   "kvm-install-gate.sh hangs" since the 2026-08-20 stale build.
+#
+# Fix: produce a QEMU-only patched copy of the ISO whose install cmdline has
+#   console=ttyAMA0 (the UART QEMU actually has) as the LAST console= entry,
+#   so reopen-console picks one that exists under QEMU. This is the same
+#   patch that build/qemu-test-console-patch.sh performs for interactive
+#   QEMU testing; inlined here so the gate is self-contained (no external
+#   step, no chance of forgetting it on a fresh host).
+#
+# ALSO: the gate must boot unattended. The preseed deliberately leaves the
+# user/passwd questions UNSEEN so a real install always stops and asks a
+# human — by design, not a gap (see preseed.cfg r177 comment). The escape
+# hatch d-i supports is /proc/cmdline-as-override-preseed: the values below
+# are appended to the kernel cmdline and d-i reads them as preseed answers.
+# That is what the interactive qemu-test-console-patch.sh does too.
+#
+# ALSO: the disk-fs-chooser ALWAYS shows an interactive destructive-disk
+# confirm (operator requirement 2026-07-04). Under an unattended KVM run
+# there is no operator, so the confirm stalls forever. ncz_disk=/dev/vda
+# (the virtio target) + ncz_fs=btrfs take the OVR_DISK auto-select path and
+# the run proceeds. NEVER shipped — the qemutest ISO is a throwaway.
+#
+# The shipped ISO's correctness on real hardware (ttyAMA2, no test overrides)
+# is preserved: this script PATCHES A COPY. The original $ISO is left
+# untouched.
+# ---------------------------------------------------------------------------
+QEMU_ISO="${ISO%.iso}-qemutest.iso"
+QEMU_STAGE="$WORK/iso-patch"
+rm -rf "$QEMU_STAGE" "$QEMU_ISO"
+mkdir -p "$QEMU_STAGE/staging"
+
+echo "[1/6] extracting $ISO -> $QEMU_STAGE/staging"
+xorriso -osirrox on -indev "$ISO" -extract / "$QEMU_STAGE/staging" >/dev/null 2>&1 \
+  || { echo "GATE FAIL: xorriso extract of $ISO failed"; exit 2; }
+chmod -R u+w "$QEMU_STAGE/staging"
+
+CFG="$QEMU_STAGE/staging/boot/grub/grub.cfg"
+[ -f "$CFG" ] || { echo "GATE FAIL: $ISO has no boot/grub/grub.cfg"; exit 2; }
+
+# Idempotent: if the qemutest copy already exists with the patches, re-extracting
+# from a fresh $ISO rebuilds it cleanly anyway because we patch below every time.
+echo "[2/6] patching kernel cmdlines: console=ttyAMA2 -> ttyAMA0, add unattended preseed overrides"
+# (1) make ttyAMA0 (real under QEMU) the kernel's preferred console so
+# reopen-console picks one with an existing /dev node. QEMU virt has only
+# ttyAMA0 — see the section comment for why this matters under auto=true.
+sed -i 's/console=ttyAMA2,115200/console=ttyAMA0,115200/g' "$CFG"
+SWAPPED=$(grep -c "console=ttyAMA0,115200" "$CFG" || true)
+echo "    swapped $SWAPPED console= entry/entries to ttyAMA0"
+[ "$SWAPPED" -ge 1 ] || { echo "GATE FAIL: console=ttyAMA2 swap matched zero lines — grub.cfg layout may have changed"; exit 2; }
+
+# (2) unattended preseed overrides: the preseed deliberately leaves the
+# user/passwd questions UNSEEN so a real install stops for a human (by
+# design, see preseed.cfg r177 comment). For unattended runs, d-i reads
+# /proc/cmdline as override-preseed values. No spaces inside any value:
+# the kernel cmdline tokenizer splits on whitespace, so a spaced fullname
+# would silently break into extra bogus params instead of one preseed value.
+sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1passwd\/username=nczuser passwd\/user-fullname=NCZTestUser passwd\/user-password=nczpassword123 passwd\/user-password-again=nczpassword123 loglevel=4/' "$CFG"
+
+# (3) unattended disk selection: disk-fs-chooser ALWAYS shows an interactive
+# destructive-disk confirm; under unattended KVM there is no operator. Take
+# the OVR_DISK auto-select path. Never shipped — qemutest ISO only.
+sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_disk=\/dev\/vda ncz_fs=btrfs loglevel=4/' "$CFG"
+
+# (4) also drop the auto-attach-to-framebuffer cmdline (console=tty0) since
+# we're running -display none — there's no framebuffer to render into, and
+# keeping console=tty0 in the list would cause the kernel to register tty0
+# as a console that d-i's "first in /proc/consoles" rule (see reopen-console
+# comments in build-iso-di.sh) might pick if our swap missed a line. Belt
+# and braces: only console=ttyAMA0 stays on the install cmdline.
+sed -i 's/\bconsole=tty0\b//g' "$CFG"
+# Clean up double-spaces left behind by the sed strips.
+sed -i 's/  \+/ /g' "$CFG"
+
+# grub-script-check, if available, catches syntax errors in the patched cfg.
+if command -v grub-script-check >/dev/null 2>&1; then
+  if grub-script-check "$CFG" 2>/dev/null; then
+    echo "    grub-script-check: syntax OK"
+  else
+    echo "    WARN grub-script-check failed on patched cfg — proceeding anyway"
+  fi
+fi
+
+echo "[3/6] repacking -> $QEMU_ISO"
+EFI_IMG_REL="boot/grub/efi.img"
+[ -f "$QEMU_STAGE/staging/$EFI_IMG_REL" ] || { echo "GATE FAIL: $EFI_IMG_REL missing from extracted ISO"; exit 2; }
+rm -f "$QEMU_ISO"
+xorriso -as mkisofs \
+    -r -V "NCZ_MAXIMILIAN" \
+    -J -joliet-long \
+    -cache-inodes \
+    -e "$EFI_IMG_REL" \
+    -no-emul-boot \
+    -append_partition 2 0xef "$QEMU_STAGE/staging/$EFI_IMG_REL" \
+    -appended_part_as_gpt \
+    -partition_cyl_align all \
+    -o "$QEMU_ISO" \
+    "$QEMU_STAGE/staging" >/dev/null
+echo "    qemutest ISO: $(ls -lh "$QEMU_ISO" | awk '{print $5}')"
+ISO="$QEMU_ISO"   # everything below gates against the patched copy
+
 echo "=== KVM INSTALL GATE ==="
 echo "  iso    : $ISO"
 echo "  accel  : $ACCEL cpu=$CPU mem=${MEM}M smp=$SMP"
@@ -50,18 +175,21 @@ cp "$SRCVARS" "$VARS" || { echo "GATE FAIL: no AAVMF vars"; exit 2; }
 
 # CAPTURE ALL THREE SERIAL PORTS.
 #
-# Two facts drive this, both measured on 2026-08-18:
+# Two facts drive this, both measured 2026-08-18:
 #   * qemu -kernel does NOT boot this ISO's vmlinuz (49 MB EFI-stub image) --
 #     150s produced zero output. So boot the REAL UEFI path, which is also the
 #     path that actually ships.
-#   * The ISO's install menuentry appends "console=tty0 console=ttyAMA2,115200".
-#     ttyAMA2 is the O6/O6N port. QEMU virt gives ttyAMA0 first, so with a
-#     single -serial the installer kernel talks to a port nobody is listening
-#     to, d-i falls back to tty1, and the gate watches a silent file while the
-#     install stalls invisibly. That is exactly how the first v12 run "hung"
-#     with target.qcow2 frozen at 196K.
-# Firmware and GRUB land on ttyAMA0; the installer kernel lands on ttyAMA2.
-# Capture each to its own file and analyse them together.
+#   * The shipped ISO's install menuentry appends "console=tty0 console=ttyAMA2,115200".
+#     ttyAMA2 is the O6/O6N port. QEMU virt gives ttyAMA0 first, so with a single
+#     -serial the installer kernel talks to a port nobody is listening to, d-i
+#     falls back to tty1, and the gate watches a silent file while the install
+#     stalls invisibly. That is exactly how the first v12 run "hung" with
+#     target.qcow2 frozen at 196K. The PRE-FLIGHT QEMU-ONLY ISO PATCH above
+#     swaps console=ttyAMA2 -> ttyAMA0 in boot/grub/grub.cfg so reopen-console
+#     lands on the UART that actually exists under QEMU.
+# Firmware and GRUB land on ttyAMA0; the installer kernel lands on ttyAMA0
+# (after the patch above) or ttyAMA2 (on real hardware, where ttyAMA0 may not
+# be the primary). Capture each to its own file and analyse them together.
 S0="$WORK/serial0-firmware.log"
 S1="$WORK/serial1.log"
 S2="$WORK/serial2-kernel.log"
