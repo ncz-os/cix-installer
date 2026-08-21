@@ -2331,11 +2331,10 @@ cp "$ROOT/preseed/extract-rootfs.sh"  "$EXTRA/extract-rootfs.sh"
 cp "$ROOT/preseed/sshd-watcher.sh"    "$EXTRA/sshd-watcher.sh"
 # r173: interactive disk + root-filesystem chooser (partman/early_command).
 cp "$ROOT/preseed/disk-fs-chooser.sh" "$EXTRA/disk-fs-chooser.sh"
-cp "$ROOT/preseed/locale-keyboard-chooser.sh" "$EXTRA/locale-keyboard-chooser.sh"
 cp "$ROOT/preseed/component-selector.sh" "$EXTRA/component-selector.sh"
 # Root-hub rescan + video diagnostic, invoked from preseed early_command.
 cp "$ROOT/preseed/usb-rescan.sh"      "$EXTRA/usb-rescan.sh"
-chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh" "$EXTRA/disk-fs-chooser.sh" "$EXTRA/locale-keyboard-chooser.sh" "$EXTRA/component-selector.sh" "$EXTRA/usb-rescan.sh"
+chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh" "$EXTRA/disk-fs-chooser.sh" "$EXTRA/component-selector.sh" "$EXTRA/usb-rescan.sh"
 
 # Remote-diagnostics module (single, removable). DIAG_ENABLE=0 ships clean:
 # the module is not staged and ncz_diag/DEBCONF_DEBUG are not added below.

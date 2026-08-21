@@ -1,8 +1,12 @@
 #!/bin/sh
-# locale-keyboard-chooser.sh — NCZ installer interactive LOCALE + KEYBOARD
-# LAYOUT selection. Invoked from preseed/early_command (see preseed.cfg),
-# BEFORE d-i's own localization step consumes debian-installer/locale and
-# keyboard-configuration/xkb-keymap.
+# locale-keyboard-chooser.sh — retired NCZ installer interactive LOCALE +
+# KEYBOARD LAYOUT selection.
+#
+# This script is intentionally no longer invoked by preseed.cfg or staged into
+# the ISO. Human installs now leave debian-installer/locale and
+# keyboard-configuration/* unanswered so Debian's native localechooser and
+# keyboard-configuration dialogs run. build/kvm-install-gate.sh applies
+# standard d-i locale/keymap answers only to its throwaway qemutest ISO.
 #
 # WHY a custom chooser (same reasoning as disk-fs-chooser.sh): the ISO boots
 # d-i at priority=critical so finish-install auto-reboots cleanly. At critical

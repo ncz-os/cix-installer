@@ -72,12 +72,11 @@ if [ -r /dev/kvm ] && [ "$(uname -m)" = "aarch64" ]; then ACCEL="kvm"; CPU="host
 #   QEMU testing; inlined here so the gate is self-contained (no external
 #   step, no chance of forgetting it on a fresh host).
 #
-# ALSO: the gate must boot unattended. The preseed deliberately leaves the
-# user/passwd questions UNSEEN so a real install always stops and asks a
-# human — by design, not a gap (see preseed.cfg r177 comment). The escape
-# hatch d-i supports is /proc/cmdline-as-override-preseed: the values below
-# are appended to the kernel cmdline and d-i reads them as preseed answers.
-# That is what the interactive qemu-test-console-patch.sh does too.
+# ALSO: the gate must boot unattended. The preseed deliberately leaves some
+# questions UNSEEN so a real install stops and asks a human -- by design, not
+# a gap (see preseed.cfg r177 and localization comments). The escape hatch
+# d-i supports is /proc/cmdline-as-override-preseed for simple values and a
+# qemutest-only preseed.cfg patch for questions that also need seen=true.
 #
 # ALSO: the disk-fs-chooser ALWAYS shows an interactive destructive-disk
 # confirm (operator requirement 2026-07-04). Under an unattended KVM run
@@ -126,14 +125,23 @@ sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4
 # the OVR_DISK auto-select path. Never shipped — qemutest ISO only.
 sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_disk=\/dev\/vda ncz_fs=btrfs loglevel=4/' "$CFG"
 
-# (3a) unattended locale + keymap selection: locale-keyboard-chooser.sh shows
-# an interactive dialog at CRITICAL priority (so it bypasses d-i's normal
-# priority-driven auto-answer). Without an override the gate stalls at the
-# same kind of human-only prompt as the components selector. The chooser
-# supports cmdline overrides `ncz_locale=<loc>` and `ncz_keymap=<layout>`
-# that bypass the prompt entirely (lines 35-41, 422-475). Pin the NCZ-OS
-# default (en_US.UTF-8 / us) — the same default the r107 ship used.
-sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_locale=en_US.UTF-8 ncz_keymap=us loglevel=4/' "$CFG"
+# (3a) unattended locale + keymap selection: the shipped preseed deliberately
+# leaves these unanswered so real installs use Debian's native localechooser
+# and keyboard-configuration dialogs. For the gate only, patch the extracted
+# qemutest ISO's preseed with standard d-i answers plus seen=true.
+PSEED="$QEMU_STAGE/staging/cixmini/preseed.cfg"
+[ -f "$PSEED" ] || { echo "GATE FAIL: qemutest ISO has no cixmini/preseed.cfg"; exit 2; }
+cat >> "$PSEED" <<'EOF'
+
+##############################################################################
+# KVM install gate only: keep the qemutest ISO unattended while the shipped
+# preseed leaves locale/keyboard unanswered for native d-i dialogs.
+##############################################################################
+d-i debian-installer/locale string en_US.UTF-8
+d-i debian-installer/locale seen true
+d-i keyboard-configuration/xkb-keymap select us
+d-i keyboard-configuration/xkb-keymap seen true
+EOF
 
 # (3b) unattended component selection: the ncz-installer front-end shows an
 # interactive multiselect dialog for OPTIONAL components (desktop / browsers /

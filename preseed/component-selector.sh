@@ -1,8 +1,8 @@
 #!/bin/sh
 # component-selector.sh — NCZ installer interactive COMPONENT SELECTOR.
-# Invoked from preseed/early_command (see preseed.cfg), BEFORE
-# locale-keyboard-chooser.sh and disk-fs-chooser.sh, so the rescue-partition
-# choice is available when disk-fs-chooser.sh builds its partman recipe.
+# Invoked from preseed/early_command (see preseed.cfg), before
+# disk-fs-chooser.sh, so the rescue-partition choice is available when
+# disk-fs-chooser.sh builds its partman recipe.
 #
 # WHY a custom chooser (same reasoning as the two existing choosers): the ISO
 # boots d-i at priority=critical so finish-install auto-reboots cleanly. At
