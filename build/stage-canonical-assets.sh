@@ -230,7 +230,31 @@ fi
 log "[3/3] cix-debs: dropping pre-Q2 cix-noe-umd_2.0.2, staging matched-stack Q2 set"
 mkdir -p "$ASSETS/cix-debs"
 
-# 3a. drop the older cix-noe-umd so the matched-stack 3.1.4 wins.
+# 3a. Stage the 22 base CIX proprietary .debs from the canonical ARGONAS
+# bake-assets archive (cix-installer-bake-assets-20260729, the 2026-07-29 .66
+# snapshot). The active ARGOS build's assets/cix-debs/ tree is filled from
+# exactly this archive; a fresh `git clone` ships nothing here (gitignored).
+# The matched-stack additions in 3b/3c/3d overwrite on top of the same name
+# where the validated set is newer.
+SRC_BAKE_ASSETS="${SRC_BAKE_ASSETS:-/mnt/argonas-models/cix-installer-bake-assets-20260729}"
+if [ -d "$SRC_BAKE_ASSETS/assets/cix-debs" ]; then
+    n_staged=0
+    for d in "$SRC_BAKE_ASSETS/assets/cix-debs"/*.deb; do
+        [ -e "$d" ] || continue
+        bn=$(basename "$d")
+        # Skip the matched-stack overrides we manage ourselves below (the
+        # bake-assets archive carries the pre-Q2 cix-noe-umd_2.0.2; we drop it
+        # in 3b below anyway, so just don't copy it here).
+        cp -an "$d" "$ASSETS/cix-debs/" && n_staged=$((n_staged+1))
+    done
+    log "  base cix-debs staged from bake-assets-20260729: $n_staged packages"
+else
+    warn "bake-assets archive not reachable: $SRC_BAKE_ASSETS"
+    warn "  manual remediation: copy the 22 base cix-debs/*.deb from any known-good ARGOS"
+    missing=$((missing+1))
+fi
+
+# 3b. drop the older cix-noe-umd so the matched-stack 3.1.4 wins.
 # pre-Q2 ABI (asid_base[32]) is incompatible with the cix-npu-driver-dkms 6.2.0
 # KMD, which speaks asid_base[4]. A board that installs cix-noe-umd_2.0.2 on top
 # of the Q2 KMD wedges at the first noe_init_context call -- see packaging/
