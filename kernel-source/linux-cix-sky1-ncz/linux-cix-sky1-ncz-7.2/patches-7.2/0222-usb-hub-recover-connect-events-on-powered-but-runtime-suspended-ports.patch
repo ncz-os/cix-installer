@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 22 Aug 2026 00:00:00 +0000
+Subject: [PATCH] usb: hub: recover connect events on powered but
+ runtime-suspended ports
+
+port_event() begins its action phase with
+
+        /* skip port actions that require the port to be powered on */
+        if (!pm_runtime_active(&port_dev->dev))
+                return;
+
+The premise of that check is that a runtime-suspended usb_port device
+means the port was powered off, so nothing can be connected and any
+event bits are noise.  That premise normally holds: with the default
+PM_QOS_FLAG_NO_POWER_OFF request in place usb_port_runtime_suspend()
+returns -EAGAIN, so a powered port can never reach RPM_SUSPENDED.
+
+On CIX Sky1 (cdnsp-sky1/cdnsp-plat ACPI bring-up) some ports come out
+of boot with that invariant already broken: the usb_port device is
+RPM_SUSPENDED although port power was never dropped.  Measured on both
+boards (O6N and MS-R1 r249), non-deterministically per port:
+
+    usb11-port1  runtime_status=suspended  runtime_active_time=0
+                 pm_qos_no_power_off=1     PORTSC.PP=1
+
+runtime_active_time=0 over a 26h uptime shows the port was never
+RPM_ACTIVE for even 1ms, while its sibling created by a later
+controller rebind stays permanently active.  The suspend callback
+kprobe never fires across full port lifecycles, so the state is not
+reached through usb_port_runtime_suspend() -- the boot-time bring-up
+leaves it that way (same window that prints the ten "runtime PM trying
+to activate child device CIXH2031:0N but parent is not active"
+warnings).
+
+Once a port is in that state every connect on it is discarded forever:
+
+  - hotplug of a VIA VL812 USB3 hub enumerates its SuperSpeed half on
+    the paired SS port (active) while the USB2 companion port latches
+    CCS but the CSC event is consumed with no action; the port parks at
+    PORTSC 0x0c0006e1 = CCS=1 PED=0 PLS=Polling.
+  - hub_activate() correctly reconciles the connection into
+    change_bits on every root-hub resume ("status 0101 change 0000",
+    then hub_event "chg 0002"), hub_event() runs port_event(), and the
+    event dies on the pm_runtime_active() check.  Verified live with
+    dynamic debug: the hub_port_connect_change() entry debug line is
+    never reached.
+  - the only recovery was a full controller unbind/rebind
+    (ncz-usb2-rescan workaround, 15.6s of dead keyboard at boot).
+
+Fix: only skip when port power is genuinely off.  hub->power_bits
+tracks logical port power (usb_hub_set_port_power()).  If the bit is
+set the port cannot be powered off, so the RPM_SUSPENDED status is
+stale; resume the port device and handle the event instead of
+dropping it.  For genuinely powered-off ports (power_bits clear)
+behaviour is unchanged.  usb_port_runtime_resume() on an
+already-powered childless port only re-issues
+SetPortFeature(PORT_POWER) and sleeps the power-good delay.
+
+Validated live on O6N: with the stuck VL812 attached, manually
+resuming usb11-port1 and re-running the hub_activate()/hub_event()
+cycle -- exactly what this patch automates -- enumerated the USB2 hub
+half, keyboard and mouse within 300ms, portsc 0x00000e03 (PED, U0).
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/usb/core/hub.c | 30 +++++++++++++++++++++++++++---
+ 1 file changed, 27 insertions(+), 3 deletions(-)
+
+--- a/drivers/usb/core/hub.c
++++ b/drivers/usb/core/hub.c
+@@ -5829,9 +5829,33 @@
+ 				USB_PORT_FEAT_C_PORT_CONFIG_ERROR);
+ 	}
+ 
+-	/* skip port actions that require the port to be powered on */
+-	if (!pm_runtime_active(&port_dev->dev))
+-		return;
++	/*
++	 * Skip port actions that require the port to be powered on, but only
++	 * when port power is genuinely off.  The runtime-PM state of the port
++	 * device is supposed to mirror logical port power: while the default
++	 * PM_QOS_FLAG_NO_POWER_OFF request is in place,
++	 * usb_port_runtime_suspend() refuses to run, so a powered port stays
++	 * RPM_ACTIVE.  If platform bring-up nevertheless leaves the port
++	 * device RPM_SUSPENDED while port power was never dropped (power_bits
++	 * still set), every connect-change on that port would be discarded
++	 * here forever: hub_activate() re-reports the connection into
++	 * change_bits on every resume, hub_event() runs, and the event dies
++	 * on this check with the port stuck at CCS=1/PED=0/PLS=Polling.
++	 *
++	 * A port whose power_bits entry is set cannot actually be powered
++	 * off, so treat suspended-but-powered as stale state and repair it
++	 * instead of dropping the event.  usb_port_runtime_resume() on an
++	 * already-powered childless port only re-issues
++	 * SetPortFeature(PORT_POWER) and waits out the power-good delay.
++	 */
++	if (!pm_runtime_active(&port_dev->dev)) {
++		if (!test_bit(port1, hub->power_bits))
++			return;
++		dev_info(&port_dev->dev,
++			 "port is powered but runtime-suspended; resuming it to handle the event\n");
++		if (pm_runtime_resume(&port_dev->dev) < 0)
++			return;
++	}
+ 
+ 	/* skip port actions if ignore_event and early_stop are true */
+ 	if (port_dev->ignore_event && port_dev->early_stop)
+-- 
+2.51.0
