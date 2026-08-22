@@ -1769,8 +1769,10 @@ if [ "$EMBED_MIRROR" = "1" ]; then
             | grep -E "^[a-z0-9][a-z0-9.+-]+$" \
             | grep -vE "^(apt-get|install|y|q|f|the|from|via|which|full|fail|seed|our|offline|mirror|unmet|desktop|network)$" \
             >> "$NCZ_PRUNE_KEEP" || true
-        # Kernel channels: always reinstallable from the ISO.
-        printf '%s\n' linux-image-cixmini-legacy linux-image-cixmini-edge \
+        # Kernel packages: always reinstallable from the ISO. Keep the current
+        # unified names as well as retired channel names for upgrade recovery.
+        printf '%s\n' linux-image-cixmini linux-headers-cixmini \
+            linux-image-cixmini-legacy linux-image-cixmini-edge \
             linux-image-cixmini-lts cixmini-boot >> "$NCZ_PRUNE_KEEP"
         # Observed install-time installs that no layer provides.
         printf '%s\n' locales libc-l10n systemd-container >> "$NCZ_PRUNE_KEEP"
