@@ -263,6 +263,29 @@ if [ "$MODE" = "full" ]; then
         echo "  Remediation: build singularity-boot-splash and stage it at assets/singularity-boot-splash/singularity-boot-splash (mode 0755)." >&2
         exit 1
     fi
+    #   5. assets/npu/npu-acpi-override.cpio (2026-08-22) — Minisforum MS-R1
+    # factory BIOS omits _HID="CIXH4010" on the Sky1 NPU CRE cores; without
+    # this early-CPIO override the NPU never enumerates (no CIXH4010:00..02
+    # platform devices, /dev/aipu absent). post-install/80-npu.sh prepends
+    # the override to /boot/initrd.img-$KVER at install time and persists a
+    # copy at /boot/npu-acpi-override.cpio + installs a post-update.d hook so
+    # later update-initramfs calls re-prepend it. The .asl source is committed
+    # at assets/npu/ssdt-npucre.asl and stage-canonical-assets.sh runs
+    # build/build-npu-ssdt.sh above to materialise the .cpio from it; the
+    # check below is the loud-fail gate that catches every regression class
+    # (host without acpica-tools, build-npu-ssdt.sh error, accidental delete).
+    # board-gated SKIP lives in post-install/80-npu.sh's should_apply_npu_ssdt()
+    # (Radxa Orion O6/O6N expose the _HID natively and would AML-collide).
+    if [ ! -s "$ROOT/assets/npu/npu-acpi-override.cpio" ]; then
+        echo "ERROR: assets/npu/npu-acpi-override.cpio missing/empty — full desktop ISO would install on MS-R1 with NO working NPU (no _HID override -> no CIXH4010:00..02 -> no /dev/aipu)." >&2
+        echo "  This is the silent-skip regression that shipped ISOs without the override for months; the build now fails loudly instead." >&2
+        echo "  Remediation:" >&2
+        echo "    1. install the build-host dep:  sudo apt install acpica-tools   (provides iasl)" >&2
+        echo "    2. regenerate from the committed .asl:  bash build/build-npu-ssdt.sh" >&2
+        echo "    3. confirm:  test -s assets/npu/npu-acpi-override.cpio && echo OK" >&2
+        echo "  See build/build-npu-ssdt.sh and packaging/cix-npu-driver-dkms-6.2.0/README.md." >&2
+        exit 1
+    fi
 fi
 
 # Drift guard: surface kernel/NPU manifest drift (e.g. NPU vermagic != KVER)
