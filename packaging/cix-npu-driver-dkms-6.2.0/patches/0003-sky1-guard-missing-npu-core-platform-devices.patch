@@ -1,0 +1,90 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Fri, 22 Aug 2026 04:00:00 +0000
+Subject: [PATCH 3/3] sky1: guard missing NPU core platform devices
+
+sky1_npu_probe() looks up each ACPI CRE core child with
+bus_find_device_by_fwnode(&platform_bus_type, child) and then calls
+pm_runtime_enable() / dev_pm_domain_attach() / dev_pm_set_driver_flags()
+/ ACPI_COMPANION()->... on the result UNCONDITIONALLY.
+
+On the Minisforum MS-R1 the factory BIOS's DSDT contains the
+\_SB.NPU0.CRE0-2 Device objects but omits their _HID ("CIXH4010"), so
+Linux creates acpi_device nodes (device:0c-0e) but never creates
+platform devices for them.  Unless the NCZ NPUCRE SSDT override
+(assets/npu/ssdt-npucre.asl, injected as an initrd early-CPIO) is
+loaded, the lookup returns NULL and pm_runtime_enable(NULL) faults on
+spin_lock_irqsave(&dev->power.lock) -- a NULL dereference at
+offsetof(struct device, power.lock) (0xcc/0xec depending on kernel
+layout), PC in _raw_spin_lock_irqsave, called straight from the probe
+path:
+
+  Unable to handle kernel NULL pointer dereference at virtual address 00000000000000cc
+  pc : _raw_spin_lock_irqsave+0x2c/0x50
+  ... sky1 probe -> platform_probe -> really_probe -> ... -> aipu_init
+
+With oops=panic this takes down every boot of an MS-R1 whose initrd
+lacks the SSDT override (any update-initramfs regeneration strips the
+prepended early-CPIO, and ISOs built without assets/npu staged never
+had it).  Verified live on MS-R1 (cixmini, BIOS 1.0 03/12/2026):
+CIXH4000:00 enumerates, zero CIXH4010 platform devices exist; the same
+kernel boots clean with aipu blacklisted.  On the Radxa Orion O6N the
+firmware provides _HID natively (CIXH4010:00-02 platform devices
+present) which is why this never reproduced there.
+
+Skip cores whose platform device is missing, and fail the probe with
+-ENODEV when fewer than CIX_NPU_PD_NUM cores are usable: with cores
+unpowered the TSM accepts jobs that never complete (pool BUSY, no IRQ),
+so probing "successfully" would only trade the panic for a wedge.  The
+KMD 1.0 tree (assets/kernel/npu/src) already carried an equivalent
+IS_ERR_OR_NULL guard; the switch to the vendor 6.2.0 stack regressed it.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/driver/armchina-npu/sky1/sky1.c	2026-08-22 03:39:32.898597090 +0000
++++ b/driver/armchina-npu/sky1/sky1.c	2026-08-22 03:39:50.768115250 +0000
+@@ -555,6 +555,24 @@
+ 					break;
+ 
+ 				cix_aipu_priv->pd_core[i] = bus_find_device_by_fwnode(&platform_bus_type, child);
++				if (IS_ERR_OR_NULL(cix_aipu_priv->pd_core[i])) {
++					/*
++					 * The CRE core exists in the ACPI
++					 * namespace but has no platform device:
++					 * firmware omits _HID "CIXH4010" (e.g.
++					 * Minisforum MS-R1 BIOS 1.0) and the
++					 * NPUCRE SSDT override is not loaded.
++					 * Without this check the unconditional
++					 * pm_runtime_enable(NULL) below oopses in
++					 * _raw_spin_lock_irqsave on
++					 * &NULL->power.lock and panics the boot.
++					 */
++					dev_err(&p_dev->dev,
++						"NPU core %s has no platform device (firmware omits _HID; NPUCRE SSDT override not loaded)\n",
++						acpi_device_bid(to_acpi_device_node(child)));
++					cix_aipu_priv->pd_core[i] = NULL;
++					continue;
++				}
+ 				if (cix_aipu_priv->pd_core[i]) {
+ 					struct device *core = cix_aipu_priv->pd_core[i];
+ 
+@@ -587,6 +605,20 @@
+                 i++;
+             }
+         }
++		if (i < CIX_NPU_PD_NUM) {
++			/*
++			 * Fewer usable cores than the hardware is supposed to
++			 * have: the NPU cannot be powered correctly, and
++			 * proceeding wedges every dispatched job (pool BUSY,
++			 * no completion IRQ). Fail the probe cleanly -- a
++			 * missing NPU beats an unbootable or wedged system.
++			 */
++			dev_err(&p_dev->dev,
++				"only %d of %d NPU cores usable - disabling NPU\n",
++				i, CIX_NPU_PD_NUM);
++			sky1_npu_teardown_cores(&p_dev->dev);
++			return -ENODEV;
++		}
+ #endif
+     } else {
+ 		ret = sky1_npu_attach_pd(&p_dev->dev, &sky1);

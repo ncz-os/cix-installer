@@ -275,6 +275,38 @@ if [ -f "$SSDT_CPIO" ] && should_apply_npu_ssdt; then
             echo "[80] WARN: $INITRD not found after update-initramfs; SSDT skipped for $KVER"
         fi
     done
+
+    # 2026-08-22: update-initramfs REGENERATES /boot/initrd.img-$KVER from
+    # scratch, silently DROPPING the prepended SSDT early-CPIO. That is exactly
+    # how the MS-R1 lost its NPU _HID override on the first on-device kernel/
+    # DKMS update: the regenerated initrd booted without the SSDT, the CRE
+    # cores had no platform devices, and (pre-+ncz3) sky1_npu_probe panicked
+    # in pm_runtime_enable(NULL). Install an initramfs post-update hook so
+    # every future regeneration re-prepends the override from the copy
+    # persisted at /boot/npu-acpi-override.cpio above.
+    mkdir -p /etc/initramfs/post-update.d
+    cat > /etc/initramfs/post-update.d/zz-npu-ssdt << 'NPUHOOK'
+#!/bin/sh
+# Re-prepend the NCZ NPU ACPI SSDT override after update-initramfs.
+# Args: $1 = kernel version, $2 = initramfs path.
+# Installed by cix-installer post-install/80-npu.sh (MS-R1-class boards only).
+CPIO=/boot/npu-acpi-override.cpio
+[ -f "$CPIO" ] || exit 0
+INITRD="$2"
+[ -n "$INITRD" ] && [ -f "$INITRD" ] || exit 0
+# Already prepended? (early-CPIO = uncompressed newc archive, magic 070701)
+head -c 6 "$INITRD" 2>/dev/null | grep -q '070701' && exit 0
+TMP="${INITRD}.npu-ssdt.$$"
+if cat "$CPIO" "$INITRD" > "$TMP" && mv "$TMP" "$INITRD"; then
+    echo "npu-ssdt: re-prepended ACPI override to $INITRD" >&2
+else
+    rm -f "$TMP"
+    echo "npu-ssdt: WARNING: failed to prepend override to $INITRD" >&2
+fi
+exit 0
+NPUHOOK
+    chmod 0755 /etc/initramfs/post-update.d/zz-npu-ssdt
+    echo "[80] installed /etc/initramfs/post-update.d/zz-npu-ssdt (SSDT survives initrd regeneration)"
 elif [ ! -f "$SSDT_CPIO" ]; then
     # 2026-08-02: this used to warn unconditionally, which produced a scary
     # "NPU cores may not enumerate" line on every O6/O6N install even though
