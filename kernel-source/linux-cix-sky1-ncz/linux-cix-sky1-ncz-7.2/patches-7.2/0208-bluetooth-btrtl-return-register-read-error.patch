@@ -1,4 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
 Subject: [PATCH] Bluetooth: btrtl: propagate register-read error instead of swallowing it
 
 drivers/bluetooth/btrtl.c: in the RTL firmware probe path, an

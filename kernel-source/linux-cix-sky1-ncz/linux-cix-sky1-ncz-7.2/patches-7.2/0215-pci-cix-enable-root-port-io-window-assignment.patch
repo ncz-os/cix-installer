@@ -1,4 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
 Subject: [PATCH] PCI: cix: allow Sky1 root ports to allocate I/O bridge windows
 
 Sky1 firmware provides translated host I/O apertures for the PCIe

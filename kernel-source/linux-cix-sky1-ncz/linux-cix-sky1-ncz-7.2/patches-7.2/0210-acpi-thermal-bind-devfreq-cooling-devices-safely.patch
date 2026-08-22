@@ -1,4 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
 Subject: [PATCH] ACPI: thermal: bind devfreq cooling devices via
  devfreq_cooling_get_device() helper
 

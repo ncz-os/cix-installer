@@ -1,4 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
 Subject: [PATCH] topology: register cpufreq notifier on ACPI for missing capacity_freq_ref
 
 topology_set_freq_scale() warns when called early in ACPI boot
