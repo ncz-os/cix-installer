@@ -41,7 +41,10 @@ OUT="$REPO/build/kernel-debs"
 # r248 = same fix, identical control; the bump exists to outrank any local
 # rebuild of r247 that did NOT include the fix, so an installed board picks
 # up the real fix on the next apt run.
-BUILD_REV="${BUILD_REV:-r248}"
+# r249 = real post-0220/0221 kernel rebuild; also teaches the OTA boot helper
+# to discover the current -sky1-ncz edge kernel suffix instead of only the
+# retired -cix-sky1-next suffix.
+BUILD_REV="${BUILD_REV:-r249}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only
@@ -228,7 +231,7 @@ NEXT=""
 for k in $(ls /usr/lib/modules 2>/dev/null); do
     [ -f "/boot/vmlinuz-$k" ] || continue
     case "$k" in
-        *-cix-sky1-next) NEXT="$k" ;;
+        *-sky1-ncz|*-cix-sky1-next) NEXT="$k" ;;
     esac
 done
 
