@@ -361,18 +361,23 @@ fi
 # before the +ncz3 aipu guard, a boot-time NULL-deref PANIC in sky1_npu_probe
 # (pm_runtime_enable(NULL) -> _raw_spin_lock_irqsave on 0xcc/0xec). See
 # build/build-npu-ssdt.sh and packaging/cix-npu-driver-dkms-6.2.0/README.md.
-if [ ! -f "$REPO/assets/npu/npu-acpi-override.cpio" ]; then
+if [ ! -s "$REPO/assets/npu/npu-acpi-override.cpio" ]; then
     if command -v iasl >/dev/null 2>&1; then
         log "generating assets/npu/npu-acpi-override.cpio (build-npu-ssdt.sh)"
         if ! "$REPO/build/build-npu-ssdt.sh"; then
             err "build-npu-ssdt.sh FAILED -- MS-R1 installs will have no NPU"
             missing=$((missing+1))
+        else
+            reached=$((reached+1))
         fi
     else
-        err "assets/npu/npu-acpi-override.cpio missing and iasl not installed (apt install acpica-tools)"
+        err "assets/npu/npu-acpi-override.cpio missing/empty and iasl not installed (apt install acpica-tools)"
         err "  MS-R1 installs will boot with the NPU disabled (cores have no _HID without the SSDT)"
         missing=$((missing+1))
     fi
+else
+    log "assets/npu/npu-acpi-override.cpio already present ($(stat -c%s "$REPO/assets/npu/npu-acpi-override.cpio") bytes)"
+    reached=$((reached+1))
 fi
 
 # libgtk4-layer-shell0 with the NCZ stale-buffer fix. The 20-desktop.sh hook
