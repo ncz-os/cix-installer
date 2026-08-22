@@ -51,7 +51,7 @@ diff --git a/driver/armchina-npu/aipu_irq.c b/driver/armchina-npu/aipu_irq.c
  
  	goto finish;
  
-@@ -100,13 +106,13 @@ void aipu_destroy_irq_object(struct aipu_irq_object *irq_obj)
+@@ -100,11 +106,11 @@ void aipu_destroy_irq_object(struct aipu_irq_object *irq_obj)
  void aipu_destroy_irq_object(struct aipu_irq_object *irq_obj)
  {
  	if (irq_obj) {
