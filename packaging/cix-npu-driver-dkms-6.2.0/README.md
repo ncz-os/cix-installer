@@ -1,10 +1,10 @@
-# cix-npu-driver-dkms 6.2.0 +ncz2 — the matched NPU stack, hardened
+# cix-npu-driver-dkms 6.2.0 +ncz3 — the matched NPU stack, hardened
 
 ## The stack that actually works (26q2 SDK, all measured on cixmini 2026-08-17)
 
 | deb | version | role |
 |---|---|---|
-| cix-npu-driver-dkms | 6.2.0-cixdeb13-260714**+ncz2** | KMD (this dir's patches applied) |
+| cix-npu-driver-dkms | 6.2.0-cixdeb13-260714**+ncz3** | KMD (this dir's patches applied) |
 | cix-noe-umd | 3.1.4-cixdeb13-260714 | NOE UMD (libnoe 3.1.1) |
 | cix-npu-umd | 3.2.0-cixdeb13-260714 | NPU UMD |
 | cix-ai-engine | 2.0.0-cixdeb13-260714 | engine |
@@ -52,6 +52,23 @@ boot panic where an early `IRQF_PROBE_SHARED` callback entered the AIPU IRQ
 upper half before `armchina_aipu_probe()` had replaced Sky1's temporary
 driver data with `struct aipu_priv`.
 
+`patches/0003-sky1-guard-missing-npu-core-platform-devices.patch` fixes the
+ACTUAL MS-R1 boot panic root cause (root-caused 2026-08-22 on the live board):
+the MS-R1 factory BIOS's DSDT has \_SB.NPU0.CRE0-2 but omits their
+_HID="CIXH4010", so Linux creates NO platform devices for the cores unless
+the NPUCRE SSDT override (assets/npu/, early-CPIO initrd prepend) is loaded.
+`sky1_npu_probe()` then calls `pm_runtime_enable(NULL)` on the failed
+`bus_find_device_by_fwnode()` lookup and oopses in `_raw_spin_lock_irqsave`
+at `offsetof(struct device, power.lock)` (the photographed 0xcc). With
+`oops=panic` every boot dies. O6N never reproduced this because its firmware
+provides the _HID natively (CIXH4010:00-02 exist). Any `update-initramfs`
+run strips the SSDT prepend (see post-install/80-npu.sh's post-update.d hook),
+so the driver MUST survive the no-SSDT case: skip cores with no platform
+device and fail probe with -ENODEV when the complement is short (NPU absent
+beats a panic, and beats a job-wedging half-probe). The KMD 1.0 tree carried
+an equivalent IS_ERR_OR_NULL guard; moving to the vendor 6.2.0 stack had
+regressed it.
+
 ## Verify (from clean boot; must pass with NO manual power poking)
 
     sudo systemctl stop ncz-npu-embed; sudo fuser -k /dev/aipu
@@ -73,9 +90,9 @@ Wedge regression test (must NOT hang with the NCZ-patched package):
     for p in patches/*.patch; do
       patch -p2 -d pkg/usr/src/aipu-6.2.0 --forward < "$p"
     done
-    sed -i 's/^Version: .*/Version: 6.2.0-cixdeb13-260714+ncz2/' pkg/DEBIAN/control
+    sed -i 's/^Version: .*/Version: 6.2.0-cixdeb13-260714+ncz3/' pkg/DEBIAN/control
     dpkg-deb --root-owner-group -Zxz -b pkg \
-      cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz2_arm64.deb
+      cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz3_arm64.deb
 
 NOTE: the diff was produced against the cixtech `cix_opensource__npu_driver`
 `cix_mainline_dev` tree (paths `driver/armchina-npu/...`); strip the leading
