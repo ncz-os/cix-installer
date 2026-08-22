@@ -43,17 +43,30 @@ FB=/sys/class/graphics/fb0/virtual_size
 IFS=, read -r WIDTH HEIGHT < "$FB"
 [ -n "${HEIGHT:-}" ] || exit 0
 
+# DEBIAN font names. The upstream/Arch "ter-132n" style names do NOT exist on
+# Debian: console-setup ships Terminus as Lat15-Terminus<H>x<W>. Using the
+# upstream names made setfont exit 66 (font not found) on EVERY install, and
+# the old "2>/dev/null || true" swallowed it, so a 3840x2160 panel was left on
+# the 8x16 "Fixed" default and the console was unreadable (measured on .66,
+# 2026-08-22). Verify the font exists and report failure instead of hiding it.
 if [ "$HEIGHT" -ge 2000 ]; then
-    FONT=ter-132n    # Terminus 32x16 — 4K/2160p-class and Retina-class panels
+    FONT=Lat15-TerminusBold32x16   # 4K/2160p-class panels
 elif [ "$HEIGHT" -ge 1200 ]; then
-    FONT=ter-120n    # Terminus 20x10 — 1440p-ish
+    FONT=Lat15-Terminus20x10       # 1440p-ish
 elif [ "$HEIGHT" -ge 900 ]; then
-    FONT=ter-116n    # Terminus 16x8 — 1080p
+    FONT=Lat15-Terminus16          # 1080p
 else
-    exit 0           # leave the kernel default alone below that
+    exit 0                         # leave the kernel default alone below that
 fi
 
-setfont "$FONT" 2>/dev/null || true
+if [ ! -f "/usr/share/consolefonts/$FONT.psf.gz" ]; then
+    echo "ncz-console-font-autosize: $FONT missing - is console-setup installed?" >&2
+    exit 1
+fi
+if ! setfont "$FONT"; then
+    echo "ncz-console-font-autosize: setfont $FONT failed" >&2
+    exit 1
+fi
 SCRIPT
 chmod 0755 /usr/local/bin/ncz-console-font-autosize
 
