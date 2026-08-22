@@ -149,6 +149,46 @@ if [ -n "$SQFS_DIR" ]; then
     # BAKED marker: run-all runs ONLY machine hooks (fstab/rescue/bootloader), not
     # the desktop/kernel/network hooks — this is what avoids the regression.
     mkdir -p /target/etc; : > /target/etc/ncz-baked
+
+    # r309: PERSIST THE COMPONENT SELECTION INTO /target.
+    #
+    # component-selector.sh runs in preseed/early_command, which fires BEFORE
+    # partman mounts the real root at /target. Its writes to
+    # /target/etc/cix-installer/COMPONENTS and /target/var/lib/cix-components/
+    # therefore landed in the installer RAMDISK and were destroyed the moment
+    # partman mounted the real filesystem over /target. Measured on .66
+    # (2026-08-22): none of the three consumer paths existed on the installed
+    # system, so post-install/run-all.sh and build/70-bootloader.sh both fell
+    # back to their "file missing => all components enabled" default and ran
+    # the full desktop hook set + wrote GUI rEFInd entries on an install where
+    # the operator had explicitly deselected desktop and browsers.
+    #
+    # This block runs in partman/late_command, where /target IS the mounted
+    # target filesystem, so it is the earliest point the selection can be
+    # stored durably. /tmp/ncz-components is the authoritative record (same
+    # d-i ramdisk that early_command wrote it to).
+    if [ -r /tmp/ncz-components ]; then
+        _comp=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null)
+        if [ -n "$_comp" ]; then
+            for _d in /target/usr/local/lib/cix-installer /target/etc/cix-installer \
+                      /target/var/lib/cix-components; do
+                mkdir -p "$_d" 2>/dev/null || continue
+                printf '%s\n' "$_comp" > "$_d/COMPONENTS" 2>/dev/null || true
+            done
+            for _bit in desktop browsers mgmt-container rescue-partition \
+                        wallpaper-rotator agents; do
+                _v=0
+                case ",$_comp," in *,"$_bit",*) _v=1 ;; esac
+                printf '%s\n' "$_v" \
+                    > "/target/etc/cix-installer/COMPONENTS_$_bit" 2>/dev/null || true
+            done
+            msg "persisted component selection to /target: $_comp"
+        else
+            msg "WARNING: /tmp/ncz-components is empty — consumers will default to ALL components"
+        fi
+    else
+        msg "WARNING: /tmp/ncz-components absent — component selection LOST; consumers will default to ALL components"
+    fi
     # first-boot oneshot: finish deferred dpkg config (chroot half-configured pkgs
     # e.g. falkon) + regen machine identity, before the display manager.
     mkdir -p /target/usr/local/sbin /target/etc/systemd/system/multi-user.target.wants

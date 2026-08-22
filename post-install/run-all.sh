@@ -230,6 +230,18 @@ if [ -r "$COMP_FILE" ]; then
     case ",$_ck," in *",rescue-partition,"*)   :;; *) _CRESC=0;; esac
     case ",$_ck," in *",wallpaper-rotator,"*)  :;; *) _CWP=0;; esac
     case ",$_ck," in *",agents,"*)             :;; *) _CAGT=0;; esac
+else
+    # NOT a benign default. Until r309 the component-selector wrote its record
+    # to /target during preseed/early_command, before partman had mounted the
+    # real root there, so the record was destroyed and this branch ran on every
+    # install -- silently re-enabling every component the operator had just
+    # deselected (measured on .66, 2026-08-22: full desktop installed after
+    # desktop+browsers were explicitly unticked). Be loud: a missing record is
+    # a defect in the install pipeline, not an operator choice.
+    echo "  WARNING: no COMPONENTS record found (checked /usr/local/lib/cix-installer," >&2
+    echo "           /etc/cix-installer, /var/lib/cix-components) -- assuming ALL" >&2
+    echo "           components enabled. If the operator deselected anything at" >&2
+    echo "           install time, that selection has been LOST." >&2
 fi
 # When desktop is OFF, skip the desktop-only hooks (anything that touches
 # /opt/singularity, greetd, labwc, or the wallpaper stack). The browsers

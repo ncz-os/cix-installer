@@ -349,6 +349,11 @@ if [ -r "$COMP_FILE" ]; then
             fi
             ;;
     esac
+else
+    # See run-all.sh: a missing COMPONENTS record means the selection was lost
+    # in the pipeline, not that the operator wanted everything. Say so.
+    echo "  WARNING: no COMPONENTS record found -- defaulting rEFInd to the DESKTOP entry."
+    echo "           A deselected desktop would be silently ignored here."
 fi
 cat > /boot/efi/loader/loader.conf <<EOF
 default $DEFAULT_ENTRY
