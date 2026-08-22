@@ -43,24 +43,41 @@
 # the blob is missing or invalid. Idempotent and safe to re-run; on a host
 # without iasl, --regen is a no-op (the gate's hard-fail below still fires).
 #
-# Usage: build/npu-ssdt-gate.sh [--regen]
+# --self-test: run a battery of positive + negative cases in an isolated
+# temp dir (the real assets/npu/ tree is NEVER touched) and report each
+# case PASS/FAIL. Exits 0 only if every case produces its expected outcome.
+# Use to validate the gate itself (CI, operator confidence) without poking
+# the production assets. Skipped silently if iasl is missing -- the
+# regen-and-validate path is the most demanding case and cannot run
+# without iasl. Cases:
+#   T1   positive  : regenerate from .asl, validate CPIO/AML/iasl       -> PASS
+#   T2   negative  : CPIO missing, --regen not passed                   -> FAIL
+#   T2b  positive  : CPIO missing, --regen passed (auto-heal)           -> PASS
+#   T3   negative  : CPIO overwritten with garbage (bad newc magic)    -> FAIL
+#   T4   negative  : CPIO valid but inner AML has unrecognised sig     -> FAIL
+#   T5   negative  : committed .asl missing (fresh clone is broken)    -> FAIL
+#
+# Usage: build/npu-ssdt-gate.sh [--regen] [--self-test]
 #
 # Exit codes:
-#   0  PASS — the assets/npu tree is consistent and complete.
+#   0  PASS — the assets/npu tree is consistent and complete (or self-test
+#             passed every case).
 #   1  FAIL — at least one check above did not pass; remediation printed.
 #   2  USAGE — bad command-line arguments.
 set -uo pipefail
 
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
-ASL="$REPO/assets/npu/ssdt-npucre.asl"
-CPIO="$REPO/assets/npu/npu-acpi-override.cpio"
-BUILDER="$REPO/build/build-npu-ssdt.sh"
+REPO="${REPO_OVERRIDE:-$(cd "$(dirname "$0")/.." && pwd)}"
+ASL="${ASL_OVERRIDE:-$REPO/assets/npu/ssdt-npucre.asl}"
+CPIO="${CPIO_OVERRIDE:-$REPO/assets/npu/npu-acpi-override.cpio}"
+BUILDER="${BUILDER_OVERRIDE:-$REPO/build/build-npu-ssdt.sh}"
 EXPECTED_ENTRY="kernel/firmware/acpi/ssdt-npucre.aml"
 
 REGEN=0
+SELF_TEST=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --regen) REGEN=1; shift ;;
+        --self-test) SELF_TEST=1; shift ;;
         -h|--help)
             sed -n '2,/^set -uo pipefail$/p' "$0" | sed 's/^# \{0,1\}//'
             exit 0 ;;
@@ -72,6 +89,148 @@ ok()    { echo "npu-ssdt-gate: ok: $*"; }
 warn()  { echo "npu-ssdt-gate: WARN: $*" >&2; }
 fail()  { echo "npu-ssdt-gate: FAIL: $*" >&2; FAILED=1; }
 die()   { fail "$@"; exit 1; }
+
+# --- --self-test: exercise the gate against an isolated fake assets/npu tree.
+# Skips the production check that follows and exits 0 only if every case
+# produced its expected outcome. The real assets/npu/ tree is untouched.
+if [ "$SELF_TEST" = "1" ]; then
+    if ! command -v iasl >/dev/null 2>&1; then
+        echo "npu-ssdt-gate: --self-test needs iasl (apt install acpica-tools); skipping" >&2
+        exit 0
+    fi
+    if [ ! -s "$ASL" ]; then
+        die "--self-test needs the committed .asl source ($ASL) to seed test cases"
+    fi
+
+    WORK="$(mktemp -d)"
+    trap 'rm -rf "$WORK"' EXIT
+    FAKE_REPO="$WORK/repo"
+    mkdir -p "$FAKE_REPO/assets/npu"
+    cp "$ASL"    "$FAKE_REPO/assets/npu/"
+    cp "$BUILDER" "$FAKE_REPO/build/build-npu-ssdt.sh" 2>/dev/null \
+        || { mkdir -p "$FAKE_REPO/build"; cp "$BUILDER" "$FAKE_REPO/build/"; }
+    chmod +x "$FAKE_REPO/build/build-npu-ssdt.sh"
+
+    # Re-exec ourselves with a sandboxed REPO pointed at the fake tree.
+    # All the existing checks below (ASL present, CPIO magic, CPIO entry,
+    # inner AML signature, iasl) run against the fake tree's CPIO path
+    # because ASL_OVERRIDE / CPIO_OVERRIDE / BUILDER_OVERRIDE redirect them.
+    SELF_TOTAL=0
+    SELF_FAIL=0
+    FAKE_CPIO="$FAKE_REPO/assets/npu/npu-acpi-override.cpio"
+
+    run_case() {
+        local name="$1" expect="$2" want_regen="$3" prep="$4"
+        SELF_TOTAL=$((SELF_TOTAL+1))
+        rm -f "$FAKE_CPIO"
+        eval "$prep"
+        local regen_flag=()
+        [ "$want_regen" = "1" ] && regen_flag=(--regen)
+        set +e
+        ASL_OVERRIDE="$FAKE_REPO/assets/npu/ssdt-npucre.asl" \
+        CPIO_OVERRIDE="$FAKE_CPIO" \
+        BUILDER_OVERRIDE="$FAKE_REPO/build/build-npu-ssdt.sh" \
+        "$0" "${regen_flag[@]}" >/tmp/gate.out 2>&1
+        local actual_rc=$?
+        set -e
+        case "$expect" in
+            pass) want_rc=0 ;;
+            fail) want_rc=1 ;;
+            *)    die "internal: bad expect '$expect' for case '$name'" ;;
+        esac
+        if [ "$actual_rc" = "$want_rc" ]; then
+            printf '  [PASS] %-12s expect=%s rc=%s\n' "$name" "$expect" "$actual_rc"
+        else
+            printf '  [FAIL] %-12s expect=%s actual_rc=%s\n' \
+                "$name" "$expect" "$actual_rc" >&2
+            sed 's/^/           /' /tmp/gate.out >&2
+            SELF_FAIL=$((SELF_FAIL+1))
+        fi
+        rm -f /tmp/gate.out
+    }
+
+    echo "npu-ssdt-gate: --self-test (isolated fake tree, real assets/npu/ untouched)"
+
+    # T1: regenerate from .asl, expect PASS.
+    run_case "T1-pos"   pass  1 \
+        '(cd "$FAKE_REPO" && bash build/build-npu-ssdt.sh >/dev/null)'
+
+    # T2: CPIO missing, --regen NOT passed (simulates a host with iasl but
+    # operator forgot to pass --regen; gate must FAIL so build fails loudly).
+    # We just blank the CPIO; the call below uses no --regen.
+    run_case "T2-missing" fail 0 \
+        'rm -f "$FAKE_CPIO"'
+
+    # T2b: CPIO missing, --regen passed -- gate must auto-regen and PASS.
+    # This is the build-host-with-iasl self-heal path.
+    run_case "T2b-regen-heal" pass 1 \
+        'rm -f "$FAKE_CPIO"'
+
+    # T3: regen, overwrite CPIO with garbage -> gate fails on magic check.
+    run_case "T3-badmagic" fail 1 \
+        '(cd "$FAKE_REPO" && bash build/build-npu-ssdt.sh >/dev/null) && \
+         printf "garbage not a cpio\n" > "$FAKE_CPIO"'
+
+    # T4: regen, replace inner AML with a bogus-AML CPIO. CPIO itself is
+    # valid newc with the expected entry, but the AML signature is 'XXXX'
+    # which the gate must reject.
+    if (cd "$FAKE_REPO" && bash build/build-npu-ssdt.sh >/dev/null); then
+        BAD="$(mktemp -d)"
+        mkdir -p "$BAD/root/kernel/firmware/acpi"
+        # 36-byte ACPI header: 4-byte signature + 4-byte length (LE u32) +
+        # 28 bytes of zero padding (revision + checksum + OEM IDs + oem rev +
+        # creator id + creator rev).
+        python3 -c '
+import struct
+hdr = b"XXXX" + struct.pack("<I", 36) + b"\x00" * 28
+open("'"$BAD"'/root/kernel/firmware/acpi/ssdt-npucre.aml","wb").write(hdr)
+' && \
+        (cd "$BAD/root" && find kernel -print0 | LC_ALL=C sort -z \
+            | cpio --null -o -H newc --owner=0:0 --quiet) \
+            > "$FAKE_CPIO"
+        rm -rf "$BAD"
+        SELF_TOTAL=$((SELF_TOTAL+1))
+        set +e
+        ASL_OVERRIDE="$FAKE_REPO/assets/npu/ssdt-npucre.asl" \
+        CPIO_OVERRIDE="$FAKE_CPIO" \
+        BUILDER_OVERRIDE="$FAKE_REPO/build/build-npu-ssdt.sh" \
+        "$0" >/tmp/gate.out 2>&1
+        actual_rc=$?
+        set -e
+        if [ "$actual_rc" = "1" ]; then
+            printf '  [PASS] %-12s expect=%s rc=%s\n' "T4-badAML" "fail" "$actual_rc"
+        else
+            printf '  [FAIL] %-12s expect=fail actual_rc=%s\n' "T4-badAML" "$actual_rc" >&2
+            sed 's/^/           /' /tmp/gate.out >&2
+            SELF_FAIL=$((SELF_FAIL+1))
+        fi
+        rm -f /tmp/gate.out
+    fi
+
+    # T5: missing ASL -- gate must FAIL on the ASL-source check first, before
+    # the CPIO checks ever run. This is the "fresh clone is broken" case.
+    SELF_TOTAL=$((SELF_TOTAL+1))
+    rm -f "$FAKE_REPO/assets/npu/ssdt-npucre.asl"
+    set +e
+    ASL_OVERRIDE="$FAKE_REPO/assets/npu/ssdt-npucre.asl" \
+    CPIO_OVERRIDE="$FAKE_CPIO" \
+    BUILDER_OVERRIDE="$FAKE_REPO/build/build-npu-ssdt.sh" \
+    "$0" >/tmp/gate.out 2>&1
+    actual_rc=$?
+    set -e
+    if [ "$actual_rc" = "1" ]; then
+        printf '  [PASS] %-12s expect=%s rc=%s\n' "T5-noASL" "fail" "$actual_rc"
+    else
+        printf '  [FAIL] %-12s expect=fail actual_rc=%s\n' "T5-noASL" "$actual_rc" >&2
+        sed 's/^/           /' /tmp/gate.out >&2
+        SELF_FAIL=$((SELF_FAIL+1))
+    fi
+    rm -f /tmp/gate.out
+
+    echo "npu-ssdt-gate: --self-test: $((SELF_TOTAL-SELF_FAIL))/$SELF_TOTAL passed"
+    [ "$SELF_FAIL" = "0" ]
+    exit 0
+fi
 
 FAILED=0
 

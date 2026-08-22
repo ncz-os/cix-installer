@@ -280,6 +280,16 @@ bash build/npu-ssdt-gate.sh --regen
 
 # Or, after a successful build, just verify without regenerating:
 bash build/npu-ssdt-gate.sh
+
+# Self-test the gate itself (runs 6 cases in an isolated temp tree, never
+# touches the production assets/npu/). Needs iasl. Use to validate the
+# gate before relying on it.
+bash build/npu-ssdt-gate.sh --self-test
+
+# Same checks, wired as Make targets so CI / build hosts can `make` them:
+make npu-ssdt-check           # production-tree validation
+make npu-ssdt-check regen=1   # allow the gate to auto-rebuild missing CPIO
+make npu-ssdt-selftest        # self-test the gate (6 isolated cases)
 ```
 
 The gate exits 0 on PASS and 1 on FAIL with an explicit remediation per
