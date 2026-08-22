@@ -2,12 +2,15 @@
 # for the nclawzero distro on Cix Sky1 / cixmini.
 #
 # Targets:
-#   make download   — fetch upstream Debian netinst-arm64 ISO
-#   make iso        — build the cix-installer ISO (default target)
-#   make verify     — sha256-check upstream ISO + final
-#   make clean      — wipe build/
-#   make distclean  — wipe build/ + downloads/
-#   make qemu       — boot the built ISO in qemu-aarch64 + UEFI for testing
+#   make download         — fetch upstream Debian netinst-arm64 ISO
+#   make iso              — build the cix-installer ISO (default target)
+#   make verify           — sha256-check upstream ISO + final
+#   make clean            — wipe build/
+#   make distclean        — wipe build/ + downloads/
+#   make qemu             — boot the built ISO in qemu-aarch64 + UEFI for testing
+#   make secretscan       — scan built artifact for credentials
+#   make npu-ssdt-check   — verify NPU SSDT CPIO is present + well-formed
+#   make npu-ssdt-selftest — self-test the npu-ssdt-gate.sh (5 isolated cases)
 
 ROOT          := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 VERSION       := $(shell date -u +%Y.%m.%d)
@@ -74,7 +77,7 @@ POST          := $(ROOT)/post-install
 MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))
 OUTPUT_ISO    := $(BUILD)/nclawzero-installer-cixmini-$(VERSION)$(MODE_SUFFIX).iso
 
-.PHONY: all download iso verify clean distclean qemu help secretscan
+.PHONY: all download iso verify clean distclean qemu help secretscan npu-ssdt-check
 
 all: iso
 
@@ -142,6 +145,24 @@ $(OUTPUT_ISO): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 
 secretscan:
 	@bash $(ROOT)/build/secret-scan-gate.sh
+
+# Fast NPU SSDT asset check — same gate `make iso` will run in full-mode
+# preflight. Useful as a build-host validation step before kicking off a
+# full ISO build (catches the silent-skip regression that shipped ISOs
+# without the MS-R1 NPU _HID override). Pass `regen=1` to allow the gate
+# to auto-rebuild the CPIO from the committed .asl if it is missing.
+npu-ssdt-check:
+	@if [ "$(regen)" = "1" ]; then \
+	    echo "[npu-ssdt-check] regen=1 -> gate may auto-rebuild missing CPIO"; \
+	    bash $(ROOT)/build/npu-ssdt-gate.sh --regen; \
+	else \
+	    bash $(ROOT)/build/npu-ssdt-gate.sh; \
+	fi
+
+# Self-test the NPU SSDT gate (runs positive + 4 negative cases in an
+# isolated temp tree, never touches assets/npu/). Requires iasl.
+npu-ssdt-selftest:
+	@bash $(ROOT)/build/npu-ssdt-gate.sh --self-test
 
 verify: $(OUTPUT_ISO)
 	@sha256sum $(OUTPUT_ISO) | tee $(OUTPUT_ISO).sha256
