@@ -248,7 +248,12 @@ fi
 # toggle only does anything when desktop is ON; OFF+desktop is the only
 # browser-skip path the user explicitly asked for.
 # DESKTOP_FILTER: drop desktop-only hooks when desktop is OFF.
-_SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|59-desktop-curate|60-boot-splash|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|89-npu-embed-server|91-dbus-broker|95-console-font-autosize)\.sh$'
+# NOTE: 95-console-font-autosize.sh is deliberately NOT in this list. It sizes
+# the TEXT CONSOLE font to the panel (ter-132n on 2160p), which matters MOST on
+# a console-only install -- skipping it there left 8x16 text on a 4K display.
+# It was in the skip list until 2026-08-22, harmless only because the component
+# selection was being lost and desktop was therefore never actually OFF.
+_SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|59-desktop-curate|60-boot-splash|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|89-npu-embed-server|91-dbus-broker)\.sh$'
 # Per-toggle skips (work whether desktop is ON or OFF).
 _SKIP_BROWSERS_RE='^(52-vivaldi|53-chrome)\.sh$'
 _SKIP_MGMT_RE='^(38-recovery-container)\.sh$'
