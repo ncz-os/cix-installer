@@ -150,8 +150,8 @@ do_shared_workdir:append() {
 #   v7.2-rc6 = 075b74841bd0065a3bda3440873c747938e69b68
 #   v7.2-rc7 = db2ddb87143519e20a95aa36c60b36107b736a58
 #   v7.2     = 8d3ae59288f1e7d58d76558a6ee96d533bc5019f   <- pinned below
-# Bumped 2026-08-22 from v7.2-rc7 after replaying all 196 wired patches onto
-# the release tag with build/port-series.sh v7.2: 196 applied, 0 failed.
+# Bumped 2026-08-22 from v7.2-rc7 after replaying all 197 wired patches onto
+# the release tag with build/port-series.sh v7.2: 197 applied, 0 failed.
 # Cycle history, kept because it records what each rebase actually touched:
 #   rc5 -> rc6 (2026-08-02): all 170 CIX commits replayed, range-diff 170/170
 #     "=" -- none altered, dropped or added. rc6 is an ordinary bugfix cycle

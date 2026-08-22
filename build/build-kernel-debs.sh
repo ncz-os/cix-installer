@@ -46,7 +46,9 @@ OUT="$REPO/build/kernel-debs"
 # retired -cix-sky1-next suffix.
 # r250 = v7.2 MAINLINE release rebuild after the rc7 regression; same
 # KERNELRELEASE, but the Image source identity is the v7.2 tag commit.
-BUILD_REV="${BUILD_REV:-r250}"
+# r251 = same v7.2 release base plus patch 0222 for lost USB2 connect events
+# on powered but runtime-suspended Sky1 hub ports.
+BUILD_REV="${BUILD_REV:-r251}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only
