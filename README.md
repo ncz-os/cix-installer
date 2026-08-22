@@ -250,8 +250,8 @@ The `make iso` (and `make download`) targets need a Linux host with at least:
 - `acpica-tools` — provides `iasl`, which compiles `assets/npu/ssdt-npucre.asl`
   into the early-initramfs SSDT CPIO that fixes the Minisforum MS-R1's missing
   `_HID="CIXH4010"` on the NPU compute cores. Without it, the build fails
-  loudly (see the preflight gate in `build/build-iso-di.sh`). On Debian /
-  Ubuntu:
+  loudly (see `build/npu-ssdt-gate.sh`, called from `build/build-iso-di.sh`'s
+  full-mode preflight). On Debian / Ubuntu:
 
   ```bash
   sudo apt install -y acpica-tools
@@ -266,6 +266,27 @@ probe start... → AIPU detected: zhouyi-v3` and all three cores enumerate.
 The .asl source is committed at `assets/npu/ssdt-npucre.asl`; the generated
 `.cpio` is regenerated from source by `build/build-npu-ssdt.sh` (called from
 `build/stage-canonical-assets.sh`, which runs automatically in `--mode full`).
+
+### Validating the NPU SSDT wiring
+
+A fast standalone check that the assets/npu/ tree is consistent (the .asl
+source compiles, the .cpio is present, the CPIO is in uncompressed newc
+format, the inner AML is a valid SSDT) — no full ISO build required:
+
+```bash
+# Regenerate the CPIO from the committed .asl if it is missing or stale,
+# then run every check:
+bash build/npu-ssdt-gate.sh --regen
+
+# Or, after a successful build, just verify without regenerating:
+bash build/npu-ssdt-gate.sh
+```
+
+The gate exits 0 on PASS and 1 on FAIL with an explicit remediation per
+failure mode (missing .asl, missing .cpio, bad magic, missing entry,
+unrecognised inner AML signature, or missing iasl). It is the same gate
+`build-iso-di.sh` invokes in its full-mode preflight, so a PASS here
+guarantees a clean `make iso` run.
 
 ## Quick start (install on hardware)
 

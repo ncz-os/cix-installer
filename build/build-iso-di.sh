@@ -270,13 +270,20 @@ if [ "$MODE" = "full" ]; then
     # the override to /boot/initrd.img-$KVER at install time and persists a
     # copy at /boot/npu-acpi-override.cpio + installs a post-update.d hook so
     # later update-initramfs calls re-prepend it. The .asl source is committed
-    # at assets/npu/ssdt-npucre.asl and stage-canonical-assets.sh runs
-    # build/build-npu-ssdt.sh above to materialise the .cpio from it; the
-    # check below is the loud-fail gate that catches every regression class
-    # (host without acpica-tools, build-npu-ssdt.sh error, accidental delete).
-    # board-gated SKIP lives in post-install/80-npu.sh's should_apply_npu_ssdt()
-    # (Radxa Orion O6/O6N expose the _HID natively and would AML-collide).
-    if [ ! -s "$ROOT/assets/npu/npu-acpi-override.cpio" ]; then
+    # at assets/npu/ssdt-npucre.asl; the gate validates that the .cpio is
+    # present, well-formed, and re-runnable. Board-gated SKIP lives in
+    # post-install/80-npu.sh's should_apply_npu_ssdt() (Radxa Orion O6/O6N
+    # expose the _HID natively and would AML-collide).
+    if [ -x "$ROOT/build/npu-ssdt-gate.sh" ]; then
+        bash "$ROOT/build/npu-ssdt-gate.sh" || {
+            rc=$?
+            echo "ERROR: npu-ssdt-gate.sh exited $rc — see remediation above." >&2
+            echo "  (assets/npu/npu-acpi-override.cpio is missing, malformed, or not" >&2
+            echo "   regenerable; a fresh clone of the repo will not produce it.)" >&2
+            echo "  Quick fix:  sudo apt install acpica-tools && bash build/build-npu-ssdt.sh" >&2
+            exit 1
+        }
+    elif [ ! -s "$ROOT/assets/npu/npu-acpi-override.cpio" ]; then
         echo "ERROR: assets/npu/npu-acpi-override.cpio missing/empty — full desktop ISO would install on MS-R1 with NO working NPU (no _HID override -> no CIXH4010:00..02 -> no /dev/aipu)." >&2
         echo "  This is the silent-skip regression that shipped ISOs without the override for months; the build now fails loudly instead." >&2
         echo "  Remediation:" >&2
