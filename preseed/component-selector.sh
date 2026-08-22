@@ -185,7 +185,12 @@ _normalise() {
         _tok=$(echo "$_tok" | tr -d ' \t')
         [ -z "$_tok" ] && continue
         component_is_offered "$_tok" || continue
-        case ",$_out," in *,"$_tok",*) : ;; *) [ -z "$_out" ] && _out="$_tok" || _out="$_out, $_tok" ;; esac
+        # Join with a BARE comma. The old ", " join silently broke every
+        # has_component() match after the first token (",$CHOSEN," contained
+        # ", browsers," which never matches the *,browsers,* pattern), so the
+        # per-component COMPONENTS_<name> bits were written 0 for everything
+        # except the first selected component.
+        case ",$(printf '%s' "$_out" | tr -d ' \t')," in *,"$_tok",*) : ;; *) [ -z "$_out" ] && _out="$_tok" || _out="$_out,$_tok" ;; esac
     done
     IFS=$_norm_old
     echo "$_out"
@@ -195,9 +200,13 @@ CHOSEN=$( _normalise "$CHOSEN" )
 
 # Boolean presence helpers consumed by the post-install peers.
 has_component() {
-    # replays the same comma-token match as _normalise
+    # replays the same comma-token match as _normalise. Whitespace-tolerant on
+    # purpose: CHOSEN may arrive from debconf (", " separated) or from a
+    # hand-edited file, and a space must never silently turn a selected
+    # component into an unselected one.
     _want="$1"
-    case ",$CHOSEN," in *,"$_want",*) return 0 ;; *) return 1 ;; esac
+    _hc=$(printf '%s' "$CHOSEN" | tr -d ' \t')
+    case ",$_hc," in *,"$_want",*) return 0 ;; *) return 1 ;; esac
 }
 WANT_DESKTOP=0;           has_component desktop           && WANT_DESKTOP=1
 WANT_BROWSERS=0;          has_component browsers          && WANT_BROWSERS=1
