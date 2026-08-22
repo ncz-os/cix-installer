@@ -241,6 +241,32 @@ make
 # → outputs: build/nclawzero-installer-cixmini-${VERSION}.iso
 ```
 
+### Build-host prerequisites
+
+The `make iso` (and `make download`) targets need a Linux host with at least:
+
+- Debian 13+ (or Ubuntu 24.04+) — `bash`, GNU coreutils, GNU `find` (with
+  `-print0`), GNU `cpio`, GNU `xorriso` (>= 1.5), `python3`, `dpkg-dev`
+- `acpica-tools` — provides `iasl`, which compiles `assets/npu/ssdt-npucre.asl`
+  into the early-initramfs SSDT CPIO that fixes the Minisforum MS-R1's missing
+  `_HID="CIXH4010"` on the NPU compute cores. Without it, the build fails
+  loudly (see the preflight gate in `build/build-iso-di.sh`). On Debian /
+  Ubuntu:
+
+  ```bash
+  sudo apt install -y acpica-tools
+  ```
+
+The MS-R1 NPU is invisible to the kernel without this override (no
+`CIXH4010:00..02` platform devices → no `/dev/aipu`). Measured on real
+hardware (r251 kernel, .66 MS-R1): with the override prepended to
+`/boot/initrd.img-$KVER`, the dmesg is
+`armchina CIXH4000:00: sky1_npu_probe: NPU core num is 3 → AIPU KMD (v6.2.0)
+probe start... → AIPU detected: zhouyi-v3` and all three cores enumerate.
+The .asl source is committed at `assets/npu/ssdt-npucre.asl`; the generated
+`.cpio` is regenerated from source by `build/build-npu-ssdt.sh` (called from
+`build/stage-canonical-assets.sh`, which runs automatically in `--mode full`).
+
 ## Quick start (install on hardware)
 
 > **Connect wired Ethernet before powering on.** Wi-Fi is not available in the
