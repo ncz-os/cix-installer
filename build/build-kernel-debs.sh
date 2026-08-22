@@ -44,7 +44,9 @@ OUT="$REPO/build/kernel-debs"
 # r249 = real post-0220/0221 kernel rebuild; also teaches the OTA boot helper
 # to discover the current -sky1-ncz edge kernel suffix instead of only the
 # retired -cix-sky1-next suffix.
-BUILD_REV="${BUILD_REV:-r249}"
+# r250 = v7.2 MAINLINE release rebuild after the rc7 regression; same
+# KERNELRELEASE, but the Image source identity is the v7.2 tag commit.
+BUILD_REV="${BUILD_REV:-r250}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only

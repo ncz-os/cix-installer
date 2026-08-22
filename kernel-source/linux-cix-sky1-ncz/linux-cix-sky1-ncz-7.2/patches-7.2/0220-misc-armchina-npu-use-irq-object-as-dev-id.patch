@@ -77,7 +77,7 @@ index 10e912b..c2bb706 100755
  
  	goto finish;
  
-@@ -101,11 +107,11 @@ void aipu_destroy_irq_object(struct aipu_irq_object *irq_obj)
+@@ -101,12 +107,12 @@ void aipu_destroy_irq_object(struct aipu_irq_object *irq_obj)
  {
  	if (irq_obj) {
 +		if (irq_obj->irqnum)

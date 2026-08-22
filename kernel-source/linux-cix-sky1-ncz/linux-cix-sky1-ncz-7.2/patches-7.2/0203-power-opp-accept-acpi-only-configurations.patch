@@ -1,4 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
 Subject: [PATCH] power: opp: accept ACPI-only configurations on !CONFIG_OF builds
 
 In _allocate_opp_table() treat -EOPNOTSUPP from

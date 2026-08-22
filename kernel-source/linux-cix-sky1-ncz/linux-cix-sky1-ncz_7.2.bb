@@ -3,13 +3,11 @@
 #
 # Linux kernel for Cix Sky1 / CP8180 -- NCZ 7.2 track.
 #
-# Base: torvalds mainline v7.2-rc7 (no linux-7.2.y stable branch yet, so
-#       KBRANCH=master + SRCREV pinned to the v7.2-rc7 tag COMMIT).
-#       (Bumped 2026-08-16 from v7.2-rc6 -> v7.2-rc7. The shipped kernel
-#       reports KERNELRELEASE 7.2.0-rc7-sky1-ncz, confirmed on O6 metal.
-#       LINUX_VERSION/SUMMARY/DESCRIPTION had been left at rc6 while
-#       SRCREV already pointed at rc7 -- corrected here so the recipe
-#       metadata and the artifact agree.)
+# Base: torvalds mainline v7.2 release tag
+#       (KBRANCH=master + SRCREV pinned to the v7.2 tag COMMIT).
+#       (Bumped 2026-08-22 from v7.2-rc7 -> v7.2 release. The rc7 pin
+#       shipped as KERNELRELEASE 7.2.0-rc7-sky1-ncz; this recipe must stay
+#       pinned to the intended release tag so metadata and artifact agree.)
 #       (Rebased 2026-08-02 from v7.2-rc5 -> v7.2-rc6: all 170 CIX commits
 #       replayed with ZERO conflicts and range-diff 170/170 "=".)
 #       (Forward-ported 2026-07-26 from v7.2-rc4 -> v7.2-rc5: the rc4->rc5
@@ -117,8 +115,8 @@
 #   firmware. Do not enable CONFIG_DRM_CIX_COMPONENT_BIND_BYPASSED —
 #   it forces the multi-card path and defeats the 26q2 single-master code.
 
-SUMMARY = "NCZ Linux kernel for Cix Sky1 / CP8180 (v7.2-rc7 + CIX 2026q2 patch set)"
-DESCRIPTION = "NCZ kernel: mainline Linux v7.2-rc7 plus the cixtech 2026q2 Sky1 driver set forward-ported by NCZ. Not a CIX/vendor release."
+SUMMARY = "NCZ Linux kernel for Cix Sky1 / CP8180 (v7.2 + CIX 2026q2 patch set)"
+DESCRIPTION = "NCZ kernel: mainline Linux v7.2 release plus the cixtech 2026q2 Sky1 driver set forward-ported by NCZ. Not a CIX/vendor release."
 SECTION = "kernel"
 LICENSE = "GPL-2.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=6bc538ed5bd9a7fc9398086aedcd7e46"
@@ -126,7 +124,7 @@ LIC_FILES_CHKSUM = "file://COPYING;md5=6bc538ed5bd9a7fc9398086aedcd7e46"
 inherit kernel
 FILESEXTRAPATHS:prepend := "${THISDIR}/linux-cix-sky1-ncz-7.2:"
 
-LINUX_VERSION = "7.2-rc7"
+LINUX_VERSION = "7.2"
 KERNEL_LOCALVERSION = "-sky1-ncz"
 PATCHTOOL = "git"
 PV = "7.2+ncz"
@@ -145,15 +143,15 @@ do_shared_workdir:append() {
     ln -sfn "${KERNEL_PACKAGE_NAME}-localversion" "${WORKDIR}/kernel-build-artifacts/kernel-localversion"
 }
 
-# v7.2-rc7 tag COMMIT (torvalds mainline, on master). SRCREV must be the
-# commit, not the annotated tag object -- same convention as rc4/rc5/rc6.
-# Verified against git.kernel.org on 2026-08-16:
+# v7.2 release tag COMMIT (torvalds mainline, on master). SRCREV must be the
+# commit, not the annotated tag object -- same convention as rc4/rc5/rc6/rc7.
+# Verified on 2026-08-22:
 #   v7.2-rc5 = f5098b6bae761e346ebcd9da7f95622c04733cff
 #   v7.2-rc6 = 075b74841bd0065a3bda3440873c747938e69b68
-#   v7.2-rc7 = db2ddb87143519e20a95aa36c60b36107b736a58   <- pinned below
-# Bumped 2026-08-16 from v7.2-rc6. The rc6 handoff note circulated a TAG sha;
-# using a tag object here would contradict this recipe's stated convention and
-# break the tag-vs-commit record in CORRESPONDING-SOURCE.md.
+#   v7.2-rc7 = db2ddb87143519e20a95aa36c60b36107b736a58
+#   v7.2     = 8d3ae59288f1e7d58d76558a6ee96d533bc5019f   <- pinned below
+# Bumped 2026-08-22 from v7.2-rc7 after replaying all 196 wired patches onto
+# the release tag with build/port-series.sh v7.2: 196 applied, 0 failed.
 # Cycle history, kept because it records what each rebase actually touched:
 #   rc5 -> rc6 (2026-08-02): all 170 CIX commits replayed, range-diff 170/170
 #     "=" -- none altered, dropped or added. rc6 is an ordinary bugfix cycle
@@ -162,7 +160,7 @@ do_shared_workdir:append() {
 #     drivers/gpu/drm/arm (komeda/linlondp) untouched, realtek changes are
 #     rtase-only (not r8169), arm64 work is KVM/vgic. No Sky1 failure mode
 #     fixed -- hygiene only.
-SRCREV_kernel = "db2ddb87143519e20a95aa36c60b36107b736a58"
+SRCREV_kernel = "8d3ae59288f1e7d58d76558a6ee96d533bc5019f"
 
 SRC_URI = " \
     git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git;protocol=https;branch=${KBRANCH};name=kernel \

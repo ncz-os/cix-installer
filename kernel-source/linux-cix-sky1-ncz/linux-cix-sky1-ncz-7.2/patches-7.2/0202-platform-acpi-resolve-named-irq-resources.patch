@@ -1,4 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
 Subject: [PATCH] platform: resolve ACPI-named IRQ resources whose GSI is not yet mapped
 
 platform_get_irq_byname() returns -ENOENT for an ACPI IRQ resource

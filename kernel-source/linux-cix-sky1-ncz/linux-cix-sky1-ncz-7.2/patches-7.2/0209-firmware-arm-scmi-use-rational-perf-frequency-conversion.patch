@@ -1,4 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
 Subject: [PATCH] firmware: arm_scmi: preserve rational perf-level frequency scale
 
 Some SCMI firmware uses performance levels that do not divide the
