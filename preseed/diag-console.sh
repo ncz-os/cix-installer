@@ -187,6 +187,12 @@ install_sshd_udebs() {
     install_udeb_from_media openssh-server-udeb || return 1
 }
 
+installer_component_loader_busy() {
+    ps 2>/dev/null \
+        | grep -E '([[:space:]]|/)(anna|anna-install|udpkg|main-menu)([[:space:]]|$)' \
+        | grep -v grep >/dev/null 2>&1
+}
+
 start_syslogd() {
     alive "$RUN/syslogd.pid" && return 0
     # Replace d-i's syslogd with ours so we keep /var/log/syslog AND forward to
@@ -210,6 +216,10 @@ start_httpd() {
 }
 start_sshd() {
     if [ ! -x /usr/sbin/sshd ]; then
+        if installer_component_loader_busy; then
+            say "installer component loader busy; deferring SSH udeb install"
+            return 1
+        fi
         install_sshd_udebs || {
             say "ERROR: could not install openssh-server-udeb; SSH unavailable for now"
             return 1
