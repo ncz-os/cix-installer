@@ -646,12 +646,27 @@ cat > /usr/local/bin/ncz-wallpaper-rotate <<'ROT'
 #!/bin/sh
 WP_DIR=/usr/share/backgrounds/ncz
 
+# A systemd --user service may have been started before the compositor session
+# imported WAYLAND_DISPLAY and the /opt/singularity environment. Refresh the
+# values at rotate time so an old daemon process can still repaint the live
+# desktop instead of only changing dconf/state.
+if command -v systemctl >/dev/null 2>&1; then
+    _ncz_env=$(systemctl --user show-environment 2>/dev/null || true)
+    for _ncz_name in DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP DESKTOP_SESSION \
+        DBUS_SESSION_BUS_ADDRESS GSETTINGS_SCHEMA_DIR XDG_DATA_DIRS GI_TYPELIB_PATH PATH LD_LIBRARY_PATH; do
+        _ncz_line=$(printf '%s\n' "$_ncz_env" | grep "^$_ncz_name=" | tail -n1)
+        [ -n "$_ncz_line" ] && export "$_ncz_line"
+    done
+    unset _ncz_env _ncz_name _ncz_line
+fi
+
 # WHICH COLLECTION. The user's choice lives in a plain file so it can be set
 # without a settings daemon and read identically from a timer, a shell or the
 # desktop. Unset = "ncz", the shipped art, which is the pre-collections
 # behaviour.
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/ncz-wallpaper/collection"
-COLLECTION=$(tr -d " \t\r\n" < "$CONF" 2>/dev/null)
+COLLECTION=""
+[ -r "$CONF" ] && COLLECTION=$(tr -d " \t\r\n" < "$CONF" 2>/dev/null)
 [ -z "$COLLECTION" ] && COLLECTION=ncz
 
 PIC=""
@@ -732,7 +747,8 @@ sleep 2
 # Defaults preserve the previous behaviour exactly: enabled, 600s.
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ncz-wallpaper"
 while true; do
-    interval=$(tr -d " \t\r\n" < "$CONF_DIR/rotate-interval" 2>/dev/null)
+    interval=""
+    [ -r "$CONF_DIR/rotate-interval" ] && interval=$(tr -d " \t\r\n" < "$CONF_DIR/rotate-interval" 2>/dev/null)
     case "$interval" in
         ''|*[!0-9]*) interval=600 ;;
     esac
@@ -742,7 +758,8 @@ while true; do
 
     sleep "$interval"
 
-    enabled=$(tr -d " \t\r\n" < "$CONF_DIR/rotate-enabled" 2>/dev/null)
+    enabled=""
+    [ -r "$CONF_DIR/rotate-enabled" ] && enabled=$(tr -d " \t\r\n" < "$CONF_DIR/rotate-enabled" 2>/dev/null)
     [ "$enabled" = "0" ] && continue
     /usr/local/bin/ncz-wallpaper-rotate
 done
