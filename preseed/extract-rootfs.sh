@@ -43,6 +43,14 @@ ncz_component_record() {
         _ncz_comp=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null || true)
         [ -n "$_ncz_comp" ] && { printf '%s\n' "$_ncz_comp"; return 0; }
     fi
+    if [ -r /var/lib/ncz-components/COMPONENTS ] && command -v tr >/dev/null 2>&1; then
+        _ncz_comp=$(tr -d ' \t\r\n' < /var/lib/ncz-components/COMPONENTS 2>/dev/null || true)
+        [ -n "$_ncz_comp" ] && {
+            printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+            printf '%s\n' "$_ncz_comp"
+            return 0
+        }
+    fi
     if command -v debconf-get >/dev/null 2>&1; then
         _ncz_comp=$(debconf-get ncz/components 2>/dev/null | tr -d ' \t\r\n' || true)
         [ -n "$_ncz_comp" ] && {
