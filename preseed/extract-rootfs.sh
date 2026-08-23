@@ -128,6 +128,7 @@ if [ -n "$SQFS_DIR" ]; then
     # desktop is purely an overlay.
     ROLE=desktop
     _applied_role="$ROLE"
+    msg "component-selector state before ROLE decision: /tmp=[$(ls -l /tmp/ncz-components 2>&1)] value=[$(cat /tmp/ncz-components 2>/dev/null || true)] durable=[$(ls -l /var/lib/ncz-components/COMPONENTS 2>&1)] durable_value=[$(cat /var/lib/ncz-components/COMPONENTS 2>/dev/null || true)]"
     _ck=$(ncz_component_record 2>/dev/null || true)
     if [ -n "$_ck" ]; then
         _want_desktop=1

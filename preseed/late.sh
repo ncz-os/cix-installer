@@ -287,26 +287,94 @@ for f in BUILD_VERSION BUILD_DATE BUILD_HOST BUILD_ARCH KVER_LEGACY KVER_NEXT RE
     fi
 done
 
+ncz_recover_components() {
+    _ncz_comp=""
+    if [ -r /tmp/ncz-components ]; then
+        _ncz_comp=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null || true)
+    fi
+    if [ -z "$_ncz_comp" ] && [ -r /var/lib/ncz-components/COMPONENTS ]; then
+        _ncz_comp=$(tr -d ' \t\r\n' < /var/lib/ncz-components/COMPONENTS 2>/dev/null || true)
+    fi
+    if [ -z "$_ncz_comp" ] && command -v debconf-get >/dev/null 2>&1; then
+        _ncz_comp=$(debconf-get ncz/components 2>/dev/null | tr -d ' \t\r\n' || true)
+    fi
+    if [ -z "$_ncz_comp" ] && [ -r /var/lib/cdebconf/questions.dat ]; then
+        _ncz_comp=$(awk '
+            $0 == "Name: ncz/components" { inq=1; next }
+            inq && /^Value: / { sub(/^Value: /, ""); print; exit }
+            inq && /^Name: / { exit }
+        ' /var/lib/cdebconf/questions.dat 2>/dev/null | tr -d ' \t\r\n' || true)
+    fi
+    if [ -z "$_ncz_comp" ]; then
+        for _ncz_log in /var/log/syslog /var/log/installer/syslog /target/var/log/installer/syslog; do
+            [ -r "$_ncz_log" ] || continue
+            _ncz_comp=$(awk '
+                /debconf: --> GET ncz\/components/ { want=1; next }
+                want && /debconf: <-- 0 / {
+                    sub(/^.*debconf: <-- 0 /, "")
+                    val=$0
+                    want=0
+                }
+                END { if (val != "") print val }
+            ' "$_ncz_log" 2>/dev/null | tr -d ' \t\r\n' || true)
+            [ -n "$_ncz_comp" ] && break
+        done
+    fi
+    [ -n "$_ncz_comp" ] || return 1
+
+    printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+    mkdir -p /var/lib/ncz-components 2>/dev/null || true
+    printf '%s\n' "$_ncz_comp" > /var/lib/ncz-components/COMPONENTS 2>/dev/null || true
+    for _d in /target/usr/local/lib/cix-installer /target/etc/cix-installer \
+              /target/var/lib/cix-components; do
+        mkdir -p "$_d" 2>/dev/null || continue
+        printf '%s\n' "$_ncz_comp" > "$_d/COMPONENTS" 2>/dev/null || true
+    done
+    for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator; do
+        _v=0
+        case ",$_ncz_comp," in *,"$_bit",*) _v=1 ;; esac
+        printf '%s\n' "$_v" > "/target/etc/cix-installer/COMPONENTS_$_bit" 2>/dev/null || true
+    done
+    printf '%s\n' "$_ncz_comp"
+    return 0
+}
+
+echo "[late] component-selector state before BUILD_VARIANT decision: /tmp=[$(ls -l /tmp/ncz-components 2>&1)] value=[$(cat /tmp/ncz-components 2>/dev/null || true)] durable=[$(ls -l /var/lib/ncz-components/COMPONENTS 2>&1)] durable_value=[$(cat /var/lib/ncz-components/COMPONENTS 2>/dev/null || true)]"
+_ncz_comp=$(ncz_recover_components 2>/dev/null || true)
+[ -n "$_ncz_comp" ] && echo "[late] recovered component selection before BUILD_VARIANT: $_ncz_comp"
+
 # The ISO has one unified installation target.  Keep the desktop layer marker
 # for compatibility with its existing hooks; console, recovery, Mali, and
 # experimental Panthor are installed-system rEFInd choices, not install-time
 # variants.
 ncz_variant=$(sed -n 's/.*\(^\| \)ncz_variant=\([a-z]*\).*/\2/p' /proc/cmdline 2>/dev/null || echo "")
-case "$ncz_variant" in
-    desktop|""|server)
-        echo "desktop" > /target/usr/local/lib/cix-installer/BUILD_VARIANT
-        [ "$ncz_variant" = server ] && echo "    ignoring obsolete ncz_variant=server; unified target selected"
-        [ "$ncz_variant" != server ] && echo "    unified desktop layer selected"
-        ;;
-    *)
-        if [ -f "$SRC/BUILD_VARIANT" ]; then
-            echo "    ncz_variant from bake-time BUILD_VARIANT: $(cat $SRC/BUILD_VARIANT)"
-        else
+_want_desktop=1
+if [ -n "$_ncz_comp" ]; then
+    case ",$_ncz_comp," in
+        *",desktop,"*) _want_desktop=1 ;;
+        *)             _want_desktop=0 ;;
+    esac
+fi
+if [ "$_want_desktop" = 0 ]; then
+    echo "server" > /target/usr/local/lib/cix-installer/BUILD_VARIANT
+    echo "    desktop component disabled; console/base target selected"
+else
+    case "$ncz_variant" in
+        desktop|""|server)
             echo "desktop" > /target/usr/local/lib/cix-installer/BUILD_VARIANT
-            echo "    ncz_variant defaulted to 'desktop' (no cmdline, no bake stamp)"
-        fi
-        ;;
-esac
+            [ "$ncz_variant" = server ] && echo "    ignoring obsolete ncz_variant=server; unified target selected"
+            [ "$ncz_variant" != server ] && echo "    unified desktop layer selected"
+            ;;
+        *)
+            if [ -f "$SRC/BUILD_VARIANT" ]; then
+                echo "    ncz_variant from bake-time BUILD_VARIANT: $(cat $SRC/BUILD_VARIANT)"
+            else
+                echo "desktop" > /target/usr/local/lib/cix-installer/BUILD_VARIANT
+                echo "    ncz_variant defaulted to 'desktop' (no cmdline, no bake stamp)"
+            fi
+            ;;
+    esac
+fi
 if [ -f /target/etc/cix-installer/BUILD_VERSION ]; then
     echo "    build stamp: $(cat /target/etc/cix-installer/BUILD_VERSION) ($(cat /target/etc/cix-installer/BUILD_DATE 2>/dev/null))"
 fi

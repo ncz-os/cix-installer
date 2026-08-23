@@ -52,7 +52,7 @@ if [ ! -f "$ASSETS_KERNEL/edge/Image-cixmini.bin" ] || [ ! -f "$ASSETS_KERNEL/ed
     echo "[72] ERROR: shipping kernel assets missing under $ASSETS_KERNEL/edge" >&2
     exit 1
 fi
-for t in blkid lsblk findmnt zstd tar depmod mkfs.ext4 e2label; do
+for t in blkid lsblk findmnt zstd tar depmod; do
     command -v "$t" >/dev/null 2>&1 || { echo "[72] ERROR: missing required tool $t" >&2; exit 1; }
 done
 
@@ -94,10 +94,14 @@ fi
 # --- ensure ext4 + label ---
 FST=$(blkid -s TYPE -o value "$RESCUE_SRC" 2>/dev/null || true)
 if [ "$FST" != "ext4" ]; then
+    command -v mkfs.ext4 >/dev/null 2>&1 || {
+        echo "[72] ERROR: $RESCUE_SRC is '$FST' and mkfs.ext4 is unavailable" >&2
+        exit 1
+    }
     echo "[72] $RESCUE_SRC is '$FST' — formatting ext4 (NCZRESCUE)"
     mkfs.ext4 -F -L NCZRESCUE "$RESCUE_SRC" || { echo "[72] ERROR: mkfs failed" >&2; exit 1; }
 else
-    e2label "$RESCUE_SRC" NCZRESCUE 2>/dev/null || true
+    command -v e2label >/dev/null 2>&1 && e2label "$RESCUE_SRC" NCZRESCUE 2>/dev/null || true
 fi
 
 # --- mount + extract rootfs ---

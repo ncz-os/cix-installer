@@ -900,14 +900,88 @@ if [ -n "$SQDIR" ]; then
         echo "FATAL: r159 stub: sqtools bundle missing (bin=$UNSQ ldr=$LDR)" >&2; exit 1
     fi
     rm -rf "$TARGET"/* "$TARGET"/.[!.]* 2>/dev/null || true
+    ncz_component_record() {
+        _ncz_comp=""
+        if [ -r /tmp/ncz-components ] && command -v tr >/dev/null 2>&1; then
+            _ncz_comp=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null || true)
+            [ -n "$_ncz_comp" ] && { printf '%s\n' "$_ncz_comp"; return 0; }
+        fi
+        if [ -r /var/lib/ncz-components/COMPONENTS ] && command -v tr >/dev/null 2>&1; then
+            _ncz_comp=$(tr -d ' \t\r\n' < /var/lib/ncz-components/COMPONENTS 2>/dev/null || true)
+            [ -n "$_ncz_comp" ] && {
+                printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+                printf '%s\n' "$_ncz_comp"
+                return 0
+            }
+        fi
+        if command -v debconf-get >/dev/null 2>&1; then
+            _ncz_comp=$(debconf-get ncz/components 2>/dev/null | tr -d ' \t\r\n' || true)
+            [ -n "$_ncz_comp" ] && {
+                printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+                printf '%s\n' "$_ncz_comp"
+                return 0
+            }
+        fi
+        if [ -r /var/lib/cdebconf/questions.dat ]; then
+            _ncz_comp=$(awk '
+                $0 == "Name: ncz/components" { inq=1; next }
+                inq && /^Value: / { sub(/^Value: /, ""); print; exit }
+                inq && /^Name: / { exit }
+            ' /var/lib/cdebconf/questions.dat 2>/dev/null | tr -d ' \t\r\n' || true)
+            [ -n "$_ncz_comp" ] && {
+                printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+                printf '%s\n' "$_ncz_comp"
+                return 0
+            }
+        fi
+        for _ncz_log in /var/log/syslog /var/log/installer/syslog; do
+            [ -r "$_ncz_log" ] || continue
+            _ncz_comp=$(awk '
+                /debconf: --> GET ncz\/components/ { want=1; next }
+                want && /debconf: <-- 0 / {
+                    sub(/^.*debconf: <-- 0 /, "")
+                    val=$0
+                    want=0
+                }
+                END { if (val != "") print val }
+            ' "$_ncz_log" 2>/dev/null | tr -d ' \t\r\n' || true)
+            [ -n "$_ncz_comp" ] && {
+                printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+                mkdir -p /var/lib/ncz-components 2>/dev/null || true
+                printf '%s\n' "$_ncz_comp" > /var/lib/ncz-components/COMPONENTS 2>/dev/null || true
+                printf '%s\n' "$_ncz_comp"
+                return 0
+            }
+        done
+        return 1
+    }
     # The installation media has one complete target.  Keep the desktop-layer
     # name internally until the legacy layer filenames are retired, but never
     # select a separate server overlay from a boot-time argument.
     ROLE=desktop
+    _applied_role="$ROLE"
+    echo "I: r159 stub: component-selector state before ROLE decision: /tmp=[$(ls -l /tmp/ncz-components 2>&1)] value=[$(cat /tmp/ncz-components 2>/dev/null || true)] durable=[$(ls -l /var/lib/ncz-components/COMPONENTS 2>&1)] durable_value=[$(cat /var/lib/ncz-components/COMPONENTS 2>/dev/null || true)]" >&2
+    _ck=$(ncz_component_record 2>/dev/null || true)
+    if [ -n "$_ck" ]; then
+        _want_desktop=1
+        case ",$_ck," in
+            *",desktop,"*) _want_desktop=1 ;;
+            *)              _want_desktop=0 ;;
+        esac
+        if [ "$_want_desktop" = 0 ]; then
+            ROLE=base
+            _applied_role=base
+            echo "I: r159 stub: component-selector desktop OFF ($_ck); installing BASE ONLY" >&2
+        else
+            echo "I: r159 stub: component-selector desktop ON ($_ck); applying desktop overlay" >&2
+        fi
+    else
+        echo "W: r159 stub: component selection unavailable; defaulting to desktop overlay" >&2
+    fi
     echo "I: r159 stub: unsquashfs base -> $TARGET" >&2
     "$LDR" --library-path "$SQDIR/sqtools" "$UNSQ" -f -d "$TARGET" "$SQDIR/base.squashfs" >/dev/null 2>&1 || {
         echo "FATAL: r159 stub: unsquashfs base failed" >&2; exit 1; }
-    if [ -f "$SQDIR/$ROLE.squashfs" ]; then
+    if [ "$ROLE" = "desktop" ] && [ -f "$SQDIR/$ROLE.squashfs" ]; then
         # The role image is an overlayfs upperdir. Its companion manifest
         # records both 0:0 whiteouts and trusted.overlay.opaque directories.
         # Both semantics must be applied to the extracted base before ordinary
@@ -958,6 +1032,8 @@ if [ -n "$SQDIR" ]; then
                 exit 1
             }
         done < "$OVERLAY_MANIFEST"
+    elif [ "$_applied_role" = "base" ]; then
+        echo "I: r159 stub: role=base (component-selector desktop OFF); skipping desktop overlay" >&2
     fi
     if [ ! -f "$TARGET/etc/os-release" ]; then
         echo "FATAL: r159 stub: squashfs extract produced no os-release" >&2; exit 1
