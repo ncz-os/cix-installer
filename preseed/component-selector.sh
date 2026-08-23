@@ -61,7 +61,12 @@ set +e
 
 . /usr/share/debconf/confmodule 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
 
-log() { echo "[ncz components] $*"; echo "[ncz components] $*" > /dev/tty3 2>/dev/null || true; }
+log() {
+    echo "[ncz components] $*"
+    for _v in /dev/console /dev/tty1 /dev/tty3; do
+        echo "[ncz components] $*" > "$_v" 2>/dev/null || true
+    done
+}
 
 # --- curated candidate list -------------------------------------------------
 # Order here is the order shown in the multiselect AND the unique stencil for
