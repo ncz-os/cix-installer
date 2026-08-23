@@ -211,6 +211,23 @@ NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 $EFI_RT_WORKAROUND acpi=f
 NEXT_CMDLINE_EXTRA="pcie_aspm=off sky1_pcie_native=off pcie_pnp_en acpi_scmi_en=off loglevel=3 oops=panic panic=6 ramoops.mem_address=0x83d00000 ramoops.mem_size=0x100000 ramoops.record_size=0x40000 ramoops.console_size=0x80000 ramoops.ecc=0"
 NEXT_CMDLINE_BASE="$NEXT_CMDLINE_BASE $NEXT_CMDLINE_EXTRA"
 
+merge_module_blacklist() {
+    _cmdline=$1
+    _extra=$2
+    case " $_cmdline " in
+        *" module_blacklist="*)
+            _prefix=${_cmdline%%module_blacklist=*}
+            _rest=${_cmdline#*module_blacklist=}
+            _blacklist=${_rest%% *}
+            _suffix=${_rest#"$_blacklist"}
+            printf '%smodule_blacklist=%s,%s%s\n' "$_prefix" "$_extra" "$_blacklist" "$_suffix"
+            ;;
+        *)
+            printf '%s module_blacklist=%s\n' "$_cmdline" "$_extra"
+            ;;
+    esac
+}
+
 # Graphical-only cmdline (appended to the desktop entries, NOT rescue). Plymouth
 # is not installed: the native KMS service paints after root is mounted, so the
 # legacy `splash` flag only risks activating stale initramfs Plymouth wiring.
@@ -309,23 +326,17 @@ fi
 MALI_OPTIONS=""
 PANTHOR_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
-    # The GPU choice is a sky1.gpu= token, NOT a module_blacklist. Both drivers
-    # are blacklisted permanently in /etc/modprobe.d/ncz-gpu-drivers.conf and
-    # ncz-gpu-switcher.service loads the selected one explicitly at boot, so the
-    # kernel driver and the matching GL/Vulkan userspace always move together.
-    #
-    # Blacklisting a GPU driver here would reintroduce a SECOND source of truth
-    # that modprobe.d can contradict -- exactly the bug this replaced. Measured
-    # on O6N 2026-08-15: the cmdline blacklisted panthor while modprobe.d
-    # blacklisted the kbase trio, so NEITHER driver loaded, /dev/mali0 was
-    # absent, kbase probe returned -517 and the desktop ran on llvmpipe
-    # (glmark2 35 against 2038 on a working stack).
-    #
-    # The typec_rts5453 blacklist is unrelated to the GPU and stays as it is.
+    # The GPU choice is a sky1.gpu= token, plus an entry-specific cmdline
+    # blacklist for the losing stack. The kernel honors only one
+    # module_blacklist= token, so merge the GPU list into the existing typec
+    # list rather than appending a second parameter that would be ignored or win
+    # by ordering accident.
     # sky1.gpu= is spelled to match amazingfate's Sky1-Linux switcher so a
     # cmdline copied between the two distros keeps its meaning.
-    MALI_OPTIONS="$NEXT_OPTIONS sky1.gpu=vendor"
-    PANTHOR_OPTIONS="$NEXT_OPTIONS sky1.gpu=mesa"
+    MALI_GPU_BLACKLIST="panthor"
+    PANTHOR_GPU_BLACKLIST="mali_kbase,memory_group_manager,protected_memory_allocator"
+    MALI_OPTIONS="$(merge_module_blacklist "$NEXT_OPTIONS" "$MALI_GPU_BLACKLIST") sky1.gpu=vendor"
+    PANTHOR_OPTIONS="$(merge_module_blacklist "$NEXT_OPTIONS" "$PANTHOR_GPU_BLACKLIST") sky1.gpu=mesa"
     # Panthor keeps acpi_scmi_en=off, same as Mali and SAFE. Metal-verified
     # on O6N 2026-07-31: the patched panthor-cix DKMS module powers on and
     # un-secures the GPU itself with SCMI off ("GPU power domain 21 powered
@@ -336,16 +347,9 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     # SCMI stack alongside the module's raw-SMC power-on path.
 fi
 
-# Shared by both console entries (7.0.12 and 7.2): every CIX GPU/NPU/VPU
-# driver is blacklisted.  The display pipeline (linlondp) is deliberately
-# NOT in this list so tty0 stays usable on O6/O6N.
-# Only the drivers that are actually harmful. "No GUI" is a statement about
-# the compositor, not about compute: a headless 7.2 boot is the box you want
-# for NPU inference (62.8 inf/s measured), VPU transcode (h264_vaapi at 13.2x
-# realtime) AND GPU compute -- the libmali blob exposes Vulkan 1.3 and
-# OpenCL 3.0 (10 CUs) on /dev/mali0 with no display server involved.
-# Blacklisting the accelerators made this entry useless for exactly the
-# workloads it is best at.
+# Console keeps the vendor Mali/NPU/VPU accelerators available for headless
+# diagnostics and compute. It blacklists only the open-source GPU drivers that
+# would contend with the Mali stack selected by sky1.gpu=vendor.
 #
 # panthor stays out because it kills the GPU on the first user VM_BIND
 # (cixtech#59); panfrost is the pre-CSF Mesa driver and would fight the blob
@@ -370,12 +374,10 @@ NEXT_CONSOLE_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_CONSOLE_EXISTING_BL=$(printf '%s\n' "$NEXT_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
     NEXT_CONSOLE_CMDLINE_NOBL=$(printf '%s\n' "$NEXT_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
-    # Operator 2026-08-16: the 7.2 console entry keeps ALL ACCELERATORS. It is a
-    # no-GUI entry, not a no-hardware entry -- you reach a shell with the GPU,
-    # VPU and NPU usable for headless work and for diagnosing the accelerators
-    # themselves. Only the graphical target is dropped. Accelerator-free
-    # recovery is the RESCUE entry's job.
-    NEXT_CONSOLE_MERGED_BL="$NEXT_CONSOLE_EXISTING_BL"
+    # Operator 2026-08-16: the 7.2 console entry is a no-GUI entry, not a
+    # no-hardware entry. It keeps the vendor Mali, VPU and NPU usable for
+    # headless work; accelerator-free recovery is the RESCUE entry's job.
+    [ -n "$NEXT_CONSOLE_EXISTING_BL" ] && NEXT_CONSOLE_MERGED_BL="$CONSOLE_GPU_BLACKLIST,$NEXT_CONSOLE_EXISTING_BL" || NEXT_CONSOLE_MERGED_BL="$CONSOLE_GPU_BLACKLIST"
     NEXT_CONSOLE_CMDLINE="$NEXT_CONSOLE_CMDLINE_NOBL module_blacklist=$NEXT_CONSOLE_MERGED_BL sky1.gpu=vendor"
     NEXT_CONSOLE_OPTIONS="$ROOT_OPTS $NEXT_CONSOLE_CMDLINE systemd.unit=multi-user.target"
 fi
