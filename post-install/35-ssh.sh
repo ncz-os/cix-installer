@@ -55,9 +55,15 @@ cat > /etc/systemd/system/NetworkManager.service.d/run-in-rescue.conf <<'EOF'
 [Install]
 WantedBy=rescue.target
 EOF
+mkdir -p /etc/systemd/system/systemd-networkd.service.d
+cat > /etc/systemd/system/systemd-networkd.service.d/run-in-rescue.conf <<'EOF'
+[Install]
+WantedBy=rescue.target
+EOF
 # Re-trigger preset so the drop-in WantedBy gets symlink-installed
 systemctl reenable ssh || true
 systemctl reenable NetworkManager 2>/dev/null || true
+systemctl reenable systemd-networkd 2>/dev/null || true
 
 # ---- authorized_keys -------------------------------------------------
 # Fleet-canonical keys baked here so the device is reachable immediately

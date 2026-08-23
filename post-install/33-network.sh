@@ -35,16 +35,52 @@ echo "[33-network] verifying NetworkManager + writing netplan"
 # So on this image "network-manager is missing" is the CORRECT state, not a
 # failed apt fetch. Exiting 1 here aborted every v11 install at finish-install
 # ("33-network.sh FAILED rc=1 -- install aborts", measured on O6N 2026-08-18).
-# Skip cleanly when sinty-nmd owns the network stack, and only hard-fail when
-# NetworkManager is genuinely the intended renderer and is genuinely absent.
+# Skip cleanly when sinty-nmd owns the network stack. If neither sinty-nmd nor
+# NetworkManager is present, install a minimal systemd-networkd DHCP config for
+# the base/console SKU rather than leaving the first boot with no active
+# renderer.
 if [ -x /usr/bin/sinty-nmd ] || [ -x /usr/local/bin/sinty-nmd ]; then
     echo "[33-network] sinty-nmd owns the network stack on this SKU — skipping NetworkManager/netplan wiring"
     exit 0
 fi
 
 if ! command -v nmcli >/dev/null 2>&1 || ! dpkg-query -W -f='${Status}\n' network-manager 2>/dev/null | grep -q "install ok installed"; then
-    echo "[33-network] network-manager absent and no sinty-nmd — nothing to configure; skipping" >&2
-    echo "[33-network] (if NetworkManager IS the intended renderer, preseed pkgsel/include must list network-manager)" >&2
+    echo "[33-network] network-manager absent and no sinty-nmd — configuring systemd-networkd DHCP fallback"
+    install -d -m 0755 /etc/systemd/network
+    cat > /etc/systemd/network/10-ncz-dhcp.network <<'NETWORKD'
+# Written by ncz-installer post-install/33-network.sh
+# Base/console installs do not run the Singularity desktop sinty-nm path.
+[Match]
+Name=en* eth*
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+
+[DHCPv4]
+RouteMetric=100
+
+[DHCPv6]
+RouteMetric=100
+NETWORKD
+    chmod 0644 /etc/systemd/network/10-ncz-dhcp.network
+
+    if [ -f /etc/network/interfaces ]; then
+        cat > /etc/network/interfaces <<'ENICONF'
+# Reset by ncz-installer post-install/33-network.sh.
+# Real NICs are owned by systemd-networkd on the base/console SKU.
+source /etc/network/interfaces.d/*
+
+auto lo
+iface lo inet loopback
+ENICONF
+    fi
+
+    systemctl unmask systemd-networkd.service systemd-networkd.socket \
+        systemd-networkd-wait-online.service 2>/dev/null || true
+    systemctl enable systemd-networkd.service systemd-networkd.socket 2>&1 | tail -3 || true
+    systemctl enable systemd-networkd-wait-online.service 2>&1 | tail -2 || true
+    echo "[33-network] systemd-networkd DHCP fallback enabled"
     exit 0
 fi
 
