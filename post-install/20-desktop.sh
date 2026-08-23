@@ -336,7 +336,9 @@ fi
 # __EGL_VENDOR_LIBRARY_FILENAMES pin: that pin blackscreens libmali, confirmed
 # on O6N). Panthor branch keeps the mesa vendor ICD. Sourced by every session
 # launcher AND the greeter wrapper so the SAME binaries render on whichever GPU
-# stack booted (chosen per rEFInd entry).
+# stack booted (chosen per rEFInd entry). Panthor must be bound to a real DRM
+# card, not merely resident in lsmod: Sky1's Linlon display controllers expose
+# renderD* nodes too, and Mesa cannot render through those.
 # ---------------------------------------------------------------------------
 install -d -m0755 /usr/local/bin
 cat > /usr/local/bin/ncz-gpu-env <<'GPUENV'
@@ -345,8 +347,23 @@ cat > /usr/local/bin/ncz-gpu-env <<'GPUENV'
 # SOURCE this ( ". /usr/local/bin/ncz-gpu-env" ) from every NCZ session launcher
 # AND the greeter wrapper, so the SAME binaries render on whichever GPU stack the
 # kernel booted. Mali (CIX libmali GLES blob, /dev/mali0, mali_kbase) and Panthor
-# (open Mesa/panvk, /dev/dri/renderD128, panthor) are mutually exclusive, chosen
-# per rEFInd boot entry. POSIX sh; safe to source.
+# (open Mesa/panvk, panthor-bound DRM card) are mutually exclusive, chosen per
+# rEFInd boot entry. POSIX sh; safe to source.
+_ncz_drm_card_driven_by() {
+    for _ncz_dev in /sys/class/drm/card*/device/driver; do
+        [ -e "$_ncz_dev" ] || continue
+        [ "$(basename "$(readlink -f "$_ncz_dev")")" = "$1" ] && return 0
+    done
+    return 1
+}
+
+_ncz_panthor_live() {
+    grep -q '^panthor ' /proc/modules 2>/dev/null || return 1
+    [ -e /sys/bus/platform/drivers/panthor/CIXH5000:00 ] || return 1
+    _ncz_drm_card_driven_by panthor || return 1
+    return 0
+}
+
 if [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
     NCZ_GPU_BACKEND=mali
     LD_LIBRARY_PATH="/opt/cixgpu-pro/lib/aarch64-linux-gnu:/opt/cixgpu-compat/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -363,7 +380,7 @@ if [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
     # here (confirmed on O6N: mpv --hwdec=vaapi fails without it in-session).
     LIBVA_DRIVER_NAME=libcix_va
     export NCZ_GPU_BACKEND LD_LIBRARY_PATH WLR_DRM_NO_MODIFIERS VK_DRIVER_FILES LIBVA_DRIVER_NAME
-elif grep -q '^panthor ' /proc/modules 2>/dev/null; then
+elif _ncz_panthor_live; then
     # Panthor = open Mesa stack. Point glvnd/EGL at the mesa vendor ICD and strip
     # inherited CIX libmali paths so EGL/GBM resolve to mesa (panfrost/panvk).
     NCZ_GPU_BACKEND=panthor
@@ -383,17 +400,14 @@ elif grep -q '^panthor ' /proc/modules 2>/dev/null; then
     export NCZ_GPU_BACKEND __EGL_VENDOR_LIBRARY_FILENAMES VK_LOADER_LAYERS_DISABLE WLR_DRM_NO_MODIFIERS
     if [ -n "$LD_LIBRARY_PATH" ]; then export LD_LIBRARY_PATH; else unset LD_LIBRARY_PATH; fi
 else
-    # r206: NO usable GPU stack — Mali (/dev/mali0 + mali_kbase) absent AND
-    # panthor not loaded. Happens when the accelerator drivers don't come up on
-    # this kernel (e.g. Mali kbase not ready on 7.2-rc5, panthor blacklisted on
-    # the Mali boot entry). Without forcing software rendering here, labwc/the
-    # singularity-greeter find NO renderer, exit non-zero, and greetd RESTARTS
-    # them in a tight loop -> the boot-flooding "start request repeated" storm +
-    # plymouth never hands off (the operator's 2026-07-29 "ton of plymouth/dmesg
-    # errors, no GUI"). Force wlroots(pixman) + Mesa(llvmpipe) CPU rendering so
-    # the greeter/session STILL COME UP (degraded, software-rendered) on the
-    # linlondp display. A visible software desktop beats a looping black screen;
-    # once the GPU stack is healthy the Mali/panthor branch above takes over.
+    # NO usable GPU stack — Mali (/dev/mali0 + mali_kbase) absent AND Panthor
+    # either absent or not bound to a DRM card. A loaded-but-unbound panthor
+    # module is not enough: the only renderD* nodes can belong to linlondp, the
+    # display controller, which makes Mesa/Zink fail EGL before Labwc can draw.
+    # Force wlroots(pixman) + Mesa(llvmpipe) CPU rendering so the greeter/session
+    # STILL COME UP (degraded, software-rendered) on the linlondp display. A
+    # visible software desktop beats a looping black screen; once the GPU stack
+    # is healthy the Mali/Panthor branch above takes over.
     NCZ_GPU_BACKEND=software
     WLR_RENDERER=pixman
     WLR_RENDERER_ALLOW_SOFTWARE=1
@@ -401,6 +415,8 @@ else
     GALLIUM_DRIVER=llvmpipe
     export NCZ_GPU_BACKEND WLR_RENDERER WLR_RENDERER_ALLOW_SOFTWARE LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER
 fi
+unset -f _ncz_drm_card_driven_by _ncz_panthor_live 2>/dev/null || true
+unset _ncz_dev
 GPUENV
 chmod 0755 /usr/local/bin/ncz-gpu-env
 
