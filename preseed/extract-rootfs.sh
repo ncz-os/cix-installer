@@ -37,6 +37,35 @@ msg "=== r40 rootfs extract starting ==="
 echo "--- mounts ---"
 mount | grep -E "cdrom|hd-media|media|target|run/live" || true
 
+ncz_component_record() {
+    _ncz_comp=""
+    if [ -r /tmp/ncz-components ] && command -v tr >/dev/null 2>&1; then
+        _ncz_comp=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null || true)
+        [ -n "$_ncz_comp" ] && { printf '%s\n' "$_ncz_comp"; return 0; }
+    fi
+    if command -v debconf-get >/dev/null 2>&1; then
+        _ncz_comp=$(debconf-get ncz/components 2>/dev/null | tr -d ' \t\r\n' || true)
+        [ -n "$_ncz_comp" ] && {
+            printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+            printf '%s\n' "$_ncz_comp"
+            return 0
+        }
+    fi
+    if [ -r /var/lib/cdebconf/questions.dat ]; then
+        _ncz_comp=$(awk '
+            $0 == "Name: ncz/components" { inq=1; next }
+            inq && /^Value: / { sub(/^Value: /, ""); print; exit }
+            inq && /^Name: / { exit }
+        ' /var/lib/cdebconf/questions.dat 2>/dev/null | tr -d ' \t\r\n' || true)
+        [ -n "$_ncz_comp" ] && {
+            printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+            printf '%s\n' "$_ncz_comp"
+            return 0
+        }
+    fi
+    return 1
+}
+
 # ============================================================================
 # r159: LAYERED SQUASHFS install via bundled unsquashfs (no kernel mount/overlay/loop
 # — those failed silently in the d-i env). The sqtools bundle (unsquashfs + libs +
@@ -72,9 +101,9 @@ if [ -n "$SQFS_DIR" ]; then
     # desktop is purely an overlay.
     ROLE=desktop
     _applied_role="$ROLE"
-    if [ -r /tmp/ncz-components ] && command -v tr >/dev/null 2>&1; then
+    _ck=$(ncz_component_record 2>/dev/null || true)
+    if [ -n "$_ck" ]; then
         _want_desktop=1
-        _ck=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null)
         case ",$_ck," in
             *",desktop,"*) _want_desktop=1 ;;
             *)              _want_desktop=0 ;;
@@ -165,29 +194,25 @@ if [ -n "$SQFS_DIR" ]; then
     #
     # This block runs in partman/late_command, where /target IS the mounted
     # target filesystem, so it is the earliest point the selection can be
-    # stored durably. /tmp/ncz-components is the authoritative record (same
-    # d-i ramdisk that early_command wrote it to).
-    if [ -r /tmp/ncz-components ]; then
-        _comp=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null)
-        if [ -n "$_comp" ]; then
-            for _d in /target/usr/local/lib/cix-installer /target/etc/cix-installer \
-                      /target/var/lib/cix-components; do
-                mkdir -p "$_d" 2>/dev/null || continue
-                printf '%s\n' "$_comp" > "$_d/COMPONENTS" 2>/dev/null || true
-            done
-            for _bit in desktop browsers mgmt-container rescue-partition \
-                        wallpaper-rotator; do
-                _v=0
-                case ",$_comp," in *,"$_bit",*) _v=1 ;; esac
-                printf '%s\n' "$_v" \
-                    > "/target/etc/cix-installer/COMPONENTS_$_bit" 2>/dev/null || true
-            done
-            msg "persisted component selection to /target: $_comp"
-        else
-            msg "WARNING: /tmp/ncz-components is empty — consumers will default to ALL components"
-        fi
+    # stored durably. Prefer /tmp/ncz-components; if d-i has removed it by
+    # this phase, recover the same debconf answer from cdebconf.
+    _comp=$(ncz_component_record 2>/dev/null || true)
+    if [ -n "$_comp" ]; then
+        for _d in /target/usr/local/lib/cix-installer /target/etc/cix-installer \
+                  /target/var/lib/cix-components; do
+            mkdir -p "$_d" 2>/dev/null || continue
+            printf '%s\n' "$_comp" > "$_d/COMPONENTS" 2>/dev/null || true
+        done
+        for _bit in desktop browsers mgmt-container rescue-partition \
+                    wallpaper-rotator; do
+            _v=0
+            case ",$_comp," in *,"$_bit",*) _v=1 ;; esac
+            printf '%s\n' "$_v" \
+                > "/target/etc/cix-installer/COMPONENTS_$_bit" 2>/dev/null || true
+        done
+        msg "persisted component selection to /target: $_comp"
     else
-        msg "WARNING: /tmp/ncz-components absent — component selection LOST; consumers will default to ALL components"
+        msg "WARNING: component selection unavailable in /tmp and cdebconf — consumers will default to ALL components"
     fi
     # first-boot oneshot: finish deferred dpkg config (chroot half-configured pkgs
     # e.g. falkon) + regen machine identity, before the display manager.
