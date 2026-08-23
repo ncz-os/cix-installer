@@ -52,6 +52,9 @@ testdisk            # testdisk + photorec
 efibootmgr
 
 # --- network / diag ---
+dbus                 # system bus for NetworkManager and recovery tooling
+network-manager      # base/console network owner; desktop replaces it with sinty-nm
+netplan.io           # 33-network.sh writes netplan NetworkManager renderer config
 iproute2
 net-tools
 iputils-ping
@@ -63,6 +66,13 @@ wget
 rsync
 firmware-realtek
 firmware-linux-free
+firmware-misc-nonfree
+
+# Generic NIC firmware for real Sky1 boards.  The ISO also stages rtl_nic blobs
+# as raw assets for 12-sky1-firmware.sh, but the base/console rootfs must be
+# self-contained when desktop.squashfs is deselected.
+firmware-linux-free
+firmware-realtek
 firmware-misc-nonfree
 
 # --- operator quality-of-life ---

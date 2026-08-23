@@ -197,6 +197,12 @@ mkdir -p "$OUT" "$WORK"
 
 # machine-AGNOSTIC hooks safe to bake into base (NOT desktop-config)
 BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613"
+BASE_MANIFEST="${BASE_MANIFEST:-manifests/installer-base.pkgs}"
+
+manifest_pkgs(){
+  local manifest="$1"
+  sed 's/#.*//' "$manifest" | sed -E 's/[[:space:]]+$//' | grep -vE '^[[:space:]]*$' | tr '\n' ' '
+}
 
 mount_chroot(){ local c="$1"
   sudo mount -t proc proc "$c/proc"; sudo mount -t sysfs sys "$c/sys";
@@ -319,7 +325,7 @@ build_layer(){ local role="$1" manifest="$2"
   # (comment text included), which corrupted the whole batch install and
   # silently dropped unrelated packages (librsvg2-bin, in the 2026-07-05
   # incident this fixes -- see project_cix_buildkite_mirror_2026_07_05).
-  local pkgs; pkgs=$(sed 's/#.*//' "$ROOT/$manifest" | sed -E 's/[[:space:]]+$//' | grep -vE '^[[:space:]]*$' | tr '\n' ' ')
+  local pkgs; pkgs=$(manifest_pkgs "$ROOT/$manifest")
   log "$role: apt-install $(echo $pkgs|wc -w) top-level packages (complete set + closure)"
   if ! sudo chroot "$MG" apt-get install -y --no-install-recommends $pkgs 2>&1 | tail -6; then
     log "ERROR: $role package installation failed; refusing to publish an incomplete layer"
@@ -603,9 +609,19 @@ build_base(){
   # interactive "Pending kernel upgrade" whiptail hang.
   sudo mkdir -p "$WORK/base/etc/needrestart/conf.d"
   printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$WORK/base/etc/needrestart/conf.d/99-squashfs-layer.conf" >/dev/null
-  # base hooks are local-asset (dpkg/copy) — the apt mirror is only needed for the
-  # desktop/server layers, so skip apt_offline here if the mirror isn't present.
+  # The base layer now consumes installer-base.pkgs explicitly.  If a pinned
+  # offline mirror is present, use it; otherwise fall back to the rootfs' own
+  # sources for local developer experiments.
   if mirror_available; then apt_offline "$WORK/base"; else log "no mirror for $APT_SUITE -> using base sources"; fi
+  [ -f "$ROOT/$BASE_MANIFEST" ] || { echo "manifest $BASE_MANIFEST missing"; exit 1; }
+  _base_pkgs=$(manifest_pkgs "$ROOT/$BASE_MANIFEST")
+  log "BASE: apt-install $(echo $_base_pkgs|wc -w) always-on packages from $BASE_MANIFEST"
+  if ! sudo chroot "$WORK/base" env DEBIAN_FRONTEND=noninteractive \
+      apt-get install -y --no-install-recommends $_base_pkgs 2>&1 | tail -8; then
+    log "ERROR: base package installation failed; refusing to publish a console image without its required runtime"
+    apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
+    return 1
+  fi
   # stage the installer hook tree + assets the base hooks read
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer"
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
@@ -656,7 +672,15 @@ build_base(){
       log "  WARN $h failed"
     fi
   done
-  # enable NetworkManager + bluetooth via presets (NOT the broken 33-network hook)
+  # Enable the base/console network owner.  Desktop installs and enables
+  # sinty-nm in its delta, then purges/masks NetworkManager there; the base
+  # layer itself must still boot with networking when desktop.squashfs is
+  # deselected.
+  if ! sudo chroot "$WORK/base" dpkg-query -W -f='${Status}' network-manager 2>/dev/null | grep -q "^install ok installed"; then
+    log "ERROR: network-manager is absent after base package install; console/base installs would have no network owner"
+    apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
+    return 1
+  fi
   sudo chroot "$WORK/base" systemctl enable NetworkManager bluetooth 2>/dev/null || true
   # r164 (updated 2026-08-17): historically the base was an Ubuntu resolute cloud
   # image carrying a FULL GNOME desktop
