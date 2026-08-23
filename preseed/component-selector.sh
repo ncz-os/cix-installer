@@ -12,16 +12,15 @@
 # db_input it at CRITICAL, which forces a real on-screen prompt even under
 # the critical threshold.
 #
-# WHAT IT TOGGLES (five opt-OUT toggles; default = all selected = today's
+# WHAT IT TOGGLES (three opt-OUT toggles; default = all selected = today's
 # behaviour, so an operator who accepts the prompt unchanged gets exactly
 # what the previous installer shipped):
 #
 #   desktop             — Singularity desktop overlay (desktop.squashfs) +
 #                         desktop-only post-install hooks (greeter, brand,
-#                         boot-splash, etc.). OFF = console-only system,
-#                         default rEFInd entry retargeted at cixmini-console.
-#   browsers            — Vivaldi + Chrome brand hooks. Only meaningful when
-#                         desktop is ON; silently ignored otherwise.
+#                         boot-splash, Vivaldi, Chrome, wallpaper rotator,
+#                         etc.). OFF = console-only system, default rEFInd
+#                         entry retargeted at cixmini-console.
 #   mgmt-container      — ncz-recovery systemd-nspawn container (38-recovery-
 #                         container.sh). OFF = no recovery tier installed.
 #   rescue-partition    — 4 GiB NCZRESCUE ext4 partition (72-rescue-partition.sh).
@@ -30,8 +29,12 @@
 #                         TOUCHES PARTITIONING — disk-fs-chooser.sh reads
 #                         /tmp/ncz-components and reuses its fail-closed
 #                         pattern (verify pin before wipe, exact recipe match).
-#   wallpaper-rotator   — Bing daily wallpaper + 10-min autoswitcher
-#                         (45-wallpaper-rotator.sh). Requires desktop.
+#
+# Internal compatibility tokens:
+#   browsers and wallpaper-rotator are not shown to the operator. They are
+#   automatically enabled when desktop is enabled, and disabled when desktop is
+#   disabled, so existing post-install hook gates can keep reading their
+#   COMPONENTS_<name> bits.
 #
 # Persistence: writes two locations:
 #   /tmp/ncz-components                 — consumed by disk-fs-chooser.sh
@@ -52,11 +55,12 @@
 # treated as "all components enabled" (the legacy default) so a chooser crash
 # CANNOT silently degrade the install.
 #
-# TEST/UNATTENDED override: kernel cmdline `ncz_components=desktop,browsers,...`
+# TEST/UNATTENDED override: kernel cmdline `ncz_components=desktop,mgmt-container,...`
 # (comma-separated, matching the multiselect answer format) skips the prompt
-# entirely. Any token NOT in the offered set is dropped silently. Empty +
-# absent override → prompt is shown. This is how the KVM install gate and
-# any other unattended pipeline runs without a human present.
+# entirely. Legacy explicit browsers/wallpaper-rotator tokens are accepted
+# harmlessly, but desktop remains the source of truth for both. Empty + absent
+# override → prompt is shown. This is how the KVM install gate and any other
+# unattended pipeline runs without a human present.
 set +e
 
 . /usr/share/debconf/confmodule 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
@@ -75,15 +79,15 @@ log() {
 # sh for desktop, run-all.sh for hooks) and the toggle is real.
 COMPONENTS="\
 desktop:Full Singularity desktop (GUI labwc + greetd + branding)\
-|browsers:Bundled browsers (Vivaldi + Chrome)\
 |mgmt-container:ncz-recovery management container (nspawn)\
-|rescue-partition:4 GiB NCZRESCUE partition (rescue rootfs + kernel)\
-|wallpaper-rotator:7-wallpaper + 10-min Bing autoswitcher"
+|rescue-partition:4 GiB NCZRESCUE partition (rescue rootfs + kernel)"
 
-# Validate a token against the offered set (posix sh + grep -qx).
-component_is_offered() {
+INTERNAL_COMPONENTS="desktop browsers mgmt-container rescue-partition wallpaper-rotator"
+
+# Validate a token against the full internal set (posix sh + grep -qx).
+component_is_valid() {
     _want="$1"
-    printf '%s\n' "$COMPONENTS" | tr '|' '\n' | cut -d: -f1 | grep -qx "$_want"
+    case " $INTERNAL_COMPONENTS " in *" $_want "*) return 0 ;; *) return 1 ;; esac
 }
 
 # --- read cmdline override --------------------------------------------------
@@ -113,17 +117,19 @@ IFS=$_oldifs
 
 # Validate the cmdline override tokens (drop unknown ones, with a warning).
 # Operator expectation: an unattended override list is a STRICT SUBSET of
-# the offered set; misspelled tokens are NOT silently dropped-but-applied.
+# the known internal set; misspelled tokens are NOT silently dropped-but-applied.
+# Legacy browsers/wallpaper-rotator override tokens still parse, but desktop
+# below decides whether they remain active.
 _OVR_FILTERED=""
 if [ -n "$OVR" ]; then
     _ov_old=$IFS; IFS=','
     for _tok in $OVR; do
         _tok=$(echo "$_tok" | tr -d ' \t')
         [ -z "$_tok" ] && continue
-        if component_is_offered "$_tok"; then
+        if component_is_valid "$_tok"; then
             [ -z "$_OVR_FILTERED" ] && _OVR_FILTERED="$_tok" || _OVR_FILTERED="$_OVR_FILTERED, $_tok"
         else
-            log "WARNING: ncz_components=$_tok is not an offered component — dropping"
+            log "WARNING: ncz_components=$_tok is not a known component — dropping"
         fi
     done
     IFS=$_ov_old
@@ -149,11 +155,10 @@ Description: NCZ-OS install — select which OPTIONAL COMPONENTS to install
  below installed, which is exactly what the previous installer shipped.
  .
   desktop          — toggle the Singularity desktop GUI on/off (this is the
-                     full desktop overlay + all desktop hooks; OFF = console)
-  browsers         — Vivaldi + Chrome only (no effect without desktop)
+                     full desktop overlay + desktop hooks, including browsers
+                     and wallpaper rotator; OFF = console)
   mgmt-container   — ncz-recovery nspawn container (rescue tier)
   rescue-partition — 4 GiB NCZRESCUE partition (rescue rootfs + boot entry)
-  wallpaper-rotator— 7-wallpaper + 10-min Bing autoswitch (requires desktop)
  .
 ${_LONG}
 TPL
@@ -184,7 +189,7 @@ _normalise() {
     for _tok in $_in; do
         _tok=$(echo "$_tok" | tr -d ' \t')
         [ -z "$_tok" ] && continue
-        component_is_offered "$_tok" || continue
+        component_is_valid "$_tok" || continue
         # Join with a BARE comma. The old ", " join silently broke every
         # has_component() match after the first token (",$CHOSEN," contained
         # ", browsers," which never matches the *,browsers,* pattern), so the
@@ -209,10 +214,15 @@ has_component() {
     case ",$_hc," in *,"$_want",*) return 0 ;; *) return 1 ;; esac
 }
 WANT_DESKTOP=0;           has_component desktop           && WANT_DESKTOP=1
-WANT_BROWSERS=0;          has_component browsers          && WANT_BROWSERS=1
 WANT_MGMT=0;              has_component mgmt-container    && WANT_MGMT=1
 WANT_RESCUE_PART=0;       has_component rescue-partition  && WANT_RESCUE_PART=1
-WANT_WALLPAPER=0;         has_component wallpaper-rotator && WANT_WALLPAPER=1
+WANT_BROWSERS=$WANT_DESKTOP
+WANT_WALLPAPER=$WANT_DESKTOP
+
+CHOSEN=""
+[ "$WANT_DESKTOP" = 1 ]     && CHOSEN="desktop,browsers,wallpaper-rotator"
+[ "$WANT_MGMT" = 1 ]        && { [ -z "$CHOSEN" ] && CHOSEN="mgmt-container" || CHOSEN="$CHOSEN,mgmt-container"; }
+[ "$WANT_RESCUE_PART" = 1 ] && { [ -z "$CHOSEN" ] && CHOSEN="rescue-partition" || CHOSEN="$CHOSEN,rescue-partition"; }
 
 log "SELECTED COMPONENTS: $CHOSEN"
 log "  desktop=$WANT_DESKTOP  browsers=$WANT_BROWSERS  mgmt-container=$WANT_MGMT  rescue-partition=$WANT_RESCUE_PART  wallpaper-rotator=$WANT_WALLPAPER"

@@ -96,6 +96,7 @@ manifests/desktop.pkgs:libgraphene-1.0-0
 manifests/desktop.pkgs:libgtk-4-1
 manifests/desktop.pkgs:libgtk4-layer-shell0
 manifests/desktop.pkgs:libgtksourceview-5-0
+manifests/desktop.pkgs:libinput10
 manifests/desktop.pkgs:libjpeg62-turbo
 manifests/desktop.pkgs:libjson-glib-1.0-0
 manifests/desktop.pkgs:libliftoff0
@@ -115,6 +116,8 @@ manifests/desktop.pkgs:libwebkitgtk-6.0-4
 manifests/desktop.pkgs:libxcb-composite0
 manifests/desktop.pkgs:libxcb-errors0
 manifests/desktop.pkgs:libxcb-ewmh2
+manifests/desktop.pkgs:libxcb-icccm4
+manifests/desktop.pkgs:libxcb-res0
 manifests/desktop.pkgs:libxml2-16
 manifests/desktop.pkgs:lm-sensors
 manifests/desktop.pkgs:loupe

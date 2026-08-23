@@ -33,8 +33,9 @@ case "$VARIANT" in
 esac
 
 if [ ! -x /usr/bin/google-chrome-stable ]; then
-    echo "[53] google-chrome-stable not installed (not in this VARIANT's desktop seed, or apt install failed earlier) — skipping"
-    exit 0
+    echo "[53] FATAL: google-chrome-stable is absent from a desktop/browser-enabled install" >&2
+    echo "[53]        expected it from the offline Forky mirror seed; check google-chrome-stable in manifests/desktop.pkgs and the ISO pool" >&2
+    exit 1
 fi
 
 # The Chrome .deb has used three desktop-file names across arm64 releases.

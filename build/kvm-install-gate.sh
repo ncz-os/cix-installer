@@ -123,7 +123,7 @@ sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4
 # (3) unattended disk selection: disk-fs-chooser ALWAYS shows an interactive
 # destructive-disk confirm; under unattended KVM there is no operator. Take
 # the OVR_DISK auto-select path. Never shipped — qemutest ISO only.
-sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_disk=\/dev\/vda ncz_fs=btrfs loglevel=4/' "$CFG"
+sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_disk=\/dev\/nvme0n1 ncz_fs=btrfs loglevel=4/' "$CFG"
 
 # (3a) unattended locale + keymap selection: the shipped preseed deliberately
 # leaves these unanswered so real installs use Debian's native localechooser
@@ -144,16 +144,15 @@ d-i keyboard-configuration/xkb-keymap seen true
 EOF
 
 # (3b) unattended component selection: the ncz-installer front-end shows an
-# interactive multiselect dialog for OPTIONAL components (desktop / browsers /
-# mgmt-container / rescue-partition / wallpaper-rotator) and waits
+# interactive multiselect dialog for OPTIONAL components (desktop /
+# mgmt-container / rescue-partition) and waits
 # for a human to press Enter. With no operator under -display none, the gate
 # stalls there forever — same failure mode as the ttyAMA2 one but on a
 # different prompt. preseed/component-selector.sh explicitly supports a
 # cmdline override (`ncz_components=<comma-list>`) that bypasses the dialog
-# entirely (lines 88-95, 116-134). Pin the FULL set: a KVM gate run is
-# testing the shipped default — disabling any of these hides a real defect
-# from the gate and the shipped ISO would diverge from what got verified.
-sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_components=desktop,browsers,mgmt-container,rescue-partition,wallpaper-rotator loglevel=4/' "$CFG"
+# entirely. Pin the offered FULL set: desktop still internally enables the
+# browser and wallpaper hooks, so the gate keeps testing the shipped default.
+sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_components=desktop,mgmt-container,rescue-partition loglevel=4/' "$CFG"
 
 # (3c) unattended FINISH — late.sh's force-reboot path only fires when
 # ncz_unattended=1 is in /proc/cmdline (see late.sh r181). Without it the

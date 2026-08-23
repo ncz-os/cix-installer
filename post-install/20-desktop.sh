@@ -92,7 +92,8 @@ CORE_DESKTOP="greetd glycin-loaders \
     libvte-2.91-gtk4-0 libgtksourceview-5-0 libwebkitgtk-6.0-4 \
     libgraphene-1.0-0 libtinysparql-3.0-0 libupower-glib3 \
     libdbusmenu-glib4 libsodium26 upower \
-    foot xsettingsd seatd libseat1 libliftoff0 libxcb-composite0 libxcb-ewmh2 \
+    foot xsettingsd seatd libseat1 libliftoff0 libinput10 \
+    libxcb-composite0 libxcb-ewmh2 libxcb-icccm4 libxcb-res0 libxcb-errors0 \
     swaybg grim slurp fuzzel \
     xwayland \
     polkitd rtkit \
