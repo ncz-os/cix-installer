@@ -655,23 +655,11 @@ echo "[20] corner-hint pill suppressed in Singularity theme (gtk-4.0/gtk-3.0)"
 
 # ---------------------------------------------------------------------------
 # NCZ .desktop launchers — foot-based (not xterm). Installed into the Singularity
-# app dir (on the session XDG_DATA_DIRS). The agent-installer + CLI launchers.
+# app dir (on the session XDG_DATA_DIRS). Agent installation is intentionally
+# CLI-only via `sudo ncz agent install`; do not add an installer launcher here.
 # ---------------------------------------------------------------------------
 APPDIR=/opt/singularity/share/applications
 install -d -m0755 "$APPDIR"
-cat > "$APPDIR/Install-NCZ-Agents.desktop" <<'DAPP'
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=⭐ Install AI Agents & MNEMOS
-GenericName=AI agent + MNEMOS installer
-Comment=Start here — pull + launch your AI agents and the MNEMOS memory server
-Exec=foot -T "Install AI Agents and MNEMOS" /usr/local/bin/ncz-install-stack
-Icon=ncz-rocket
-Terminal=false
-StartupNotify=true
-Categories=System;Settings;Network;
-DAPP
 cat > "$APPDIR/NCZ-CLI.desktop" <<'DAPP'
 [Desktop Entry]
 Version=1.0
@@ -679,7 +667,7 @@ Type=Application
 Name=NCZ CLI
 Comment=NCZ command-line — agents, NPU status (ncz help)
 Exec=foot --hold -T NCZ /usr/local/bin/ncz help
-Icon=ncz-rocket
+Icon=utilities-terminal
 Terminal=false
 Categories=System;Settings;
 DAPP
@@ -709,16 +697,6 @@ Categories=System;Development;Network;
 DAPP
 update-desktop-database "$APPDIR" 2>/dev/null || true
 echo "[20] NCZ .desktop launchers (foot) installed -> $APPDIR"
-
-# Stage the agent installer on the Desktop for new users (r110: use the real
-# staged path, guarded).
-install -d -m0755 /etc/skel/Desktop
-_agent_launcher=/usr/local/lib/cix-installer/assets/install_ncz_agents.sh
-if [ -f "$_agent_launcher" ]; then
-    install -m 0755 "$_agent_launcher" /etc/skel/Desktop/install_ncz_agents.sh
-elif [ -f /install_ncz_agents.sh ]; then
-    install -m 0755 /install_ncz_agents.sh /etc/skel/Desktop/install_ncz_agents.sh
-fi
 
 # ---------------------------------------------------------------------------
 # greetd = the display manager (SHIP greeter). The native singularity-greeter is

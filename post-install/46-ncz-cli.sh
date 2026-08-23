@@ -40,6 +40,18 @@ else
     echo "    WARN: $NPU_WRAPPER_SRC not in cdrom payload — /opt/cix/npu_embed_v2.py NOT staged" >&2
 fi
 
+# Install the agent helper that backs `ncz agent ...`. The helper is inert until
+# an operator explicitly runs `sudo ncz agent install`; all Podman/quadlet/env
+# setup happens there, not in the OS installer.
+AGENT_HELPER_SRC=/usr/local/lib/cix-installer/assets/ncz-cli.sh
+[ -f "$AGENT_HELPER_SRC" ] || AGENT_HELPER_SRC=/cdrom/cixmini/assets/ncz-cli.sh
+if [ -f "$AGENT_HELPER_SRC" ]; then
+    install -D -m 0755 "$AGENT_HELPER_SRC" /usr/local/lib/ncz-agent-cli
+    echo "    /usr/local/lib/ncz-agent-cli staged (agent install remains on-demand)"
+else
+    echo "    WARN: $AGENT_HELPER_SRC not in payload — ncz agent helper NOT staged" >&2
+fi
+
 install -D -m 0755 /dev/stdin /usr/local/bin/ncz <<'NCZ'
 #!/bin/bash
 # ncz — nclawzero operator CLI.
@@ -85,6 +97,7 @@ Subcommands:
                         Loads the bundled image OFFLINE (no network); falls
                         back to a ghcr pull only if no bundled image is found.
   install nemoclaw      Pull + start NVIDIA NemoClaw OpenShell sandbox runtime.
+  agent install [name]  On-demand setup/install for optional agents.
   agent ...             Manage zeroclaw/openclaw/hermes/portainer agents.
   status                Print system summary: ncz version, BUILD_VARIANT,
                         kernel, default-target, NPU + GPU presence.
@@ -103,7 +116,7 @@ ncz_agent() {
         exec "$NCZ_AGENT_HELPER" agent "$@"
     fi
     echo "ncz agent: helper missing: $NCZ_AGENT_HELPER" >&2
-    echo "This system did not preserve the agent installer from 30-agents.sh." >&2
+    echo "This system did not preserve assets/ncz-cli.sh during CLI installation." >&2
     exit 1
 }
 

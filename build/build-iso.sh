@@ -342,6 +342,7 @@ install -m 0644 "$RELEASE_CONFIG" "$EXTRA/RELEASE"
 echo "    build id: $VERSION  ($BUILD_DATE on $BUILD_HOST)"
 
 # Stage agent stack + branding + cix-debs (existing)
+[ -f "$ROOT/assets/ncz-cli.sh" ] && cp -aL "$ROOT/assets/ncz-cli.sh" "$EXTRA/assets/"
 [ -d "$ROOT/assets/agent-stack" ] && cp -rL "$ROOT/assets/agent-stack" "$EXTRA/assets/"
 [ -d "$ROOT/assets/wallpaper" ] && cp -rL "$ROOT/assets/wallpaper" "$EXTRA/assets/"
 if [ -d "$ROOT/assets/branding" ]; then

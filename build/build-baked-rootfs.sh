@@ -26,13 +26,13 @@ OUT="${OUT:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64-baked.tar.zst}"
 CHROOT="$WORK/chroot"
 LOGDIR="$WORK/logs"
 
-# Hooks to BAKE at build time (generic: drivers, desktop, agents, branding,
+# Hooks to BAKE at build time (generic: drivers, desktop, branding,
 # apt-config). Machine-specific hooks stay at install: 09-diag-account (user),
 # 33-network, 34-fstab (disk UUIDs), 37-failsafe, 38-recovery, 48-server-variant,
 # 70-bootloader (ESP), 72-rescue-partition, 99-diagnostics, hostname/user-setup.
 BAKE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 \
 20-desktop 22-display-fix 25-cix-proprietary 26-gpu-default-open 27-net-caps \
-30-agents 31-remote-access 32-quadlet-shim 35-fstrim-fix 35-ssh 36-telemetry \
+31-remote-access 32-quadlet-shim 35-fstrim-fix 35-ssh 36-telemetry \
 39-usb-gpt-autofix 40-claude-code 45-wallpaper-rotator 46-ncz-cli 46-python311 \
 47-embedkit 47-llm-stack 50-brand 56-icon-theme 60-boot-splash \
 80-npu 92-buildkite-apt"
@@ -61,6 +61,7 @@ sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets"
 for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu wallpaper; do
   [ -d "$ROOT/assets/$_d" ] && sudo cp -a "$ROOT/assets/$_d" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
 done   # deliberately EXCLUDES assets/rootfs (base tarballs + baked output)
+[ -f "$ROOT/assets/ncz-cli.sh" ] && sudo cp -a "$ROOT/assets/ncz-cli.sh" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
 # stage install-time-hook binaries that live OUTSIDE assets/ in the repo so the
 # baked image is self-contained (70-bootloader needs refind_aa64.efi in /target).
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets/refind"

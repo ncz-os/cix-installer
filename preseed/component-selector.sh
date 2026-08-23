@@ -12,7 +12,7 @@
 # db_input it at CRITICAL, which forces a real on-screen prompt even under
 # the critical threshold.
 #
-# WHAT IT TOGGLES (six opt-OUT toggles; default = all selected = today's
+# WHAT IT TOGGLES (five opt-OUT toggles; default = all selected = today's
 # behaviour, so an operator who accepts the prompt unchanged gets exactly
 # what the previous installer shipped):
 #
@@ -32,9 +32,6 @@
 #                         pattern (verify pin before wipe, exact recipe match).
 #   wallpaper-rotator   — Bing daily wallpaper + 10-min autoswitcher
 #                         (45-wallpaper-rotator.sh). Requires desktop.
-#   agents              — zeroclaw/portainer podman quadlet stack
-#                         (30-agents.sh). Already documented as opt-in to
-#                         start, so omitting the whole stack is low-stakes.
 #
 # Persistence: writes two locations:
 #   /tmp/ncz-components                 — consumed by disk-fs-chooser.sh
@@ -76,8 +73,7 @@ desktop:Full Singularity desktop (GUI labwc + greetd + branding)\
 |browsers:Bundled browsers (Vivaldi + Chrome)\
 |mgmt-container:ncz-recovery management container (nspawn)\
 |rescue-partition:4 GiB NCZRESCUE partition (rescue rootfs + kernel)\
-|wallpaper-rotator:7-wallpaper + 10-min Bing autoswitcher\
-|agents:Agent stack (zeroclaw/portainer podman quadlets)"
+|wallpaper-rotator:7-wallpaper + 10-min Bing autoswitcher"
 
 # Validate a token against the offered set (posix sh + grep -qx).
 component_is_offered() {
@@ -153,7 +149,6 @@ Description: NCZ-OS install — select which OPTIONAL COMPONENTS to install
   mgmt-container   — ncz-recovery nspawn container (rescue tier)
   rescue-partition — 4 GiB NCZRESCUE partition (rescue rootfs + boot entry)
   wallpaper-rotator— 7-wallpaper + 10-min Bing autoswitch (requires desktop)
-  agents           — zeroclaw/portainer podman quadlet stack
  .
 ${_LONG}
 TPL
@@ -213,10 +208,9 @@ WANT_BROWSERS=0;          has_component browsers          && WANT_BROWSERS=1
 WANT_MGMT=0;              has_component mgmt-container    && WANT_MGMT=1
 WANT_RESCUE_PART=0;       has_component rescue-partition  && WANT_RESCUE_PART=1
 WANT_WALLPAPER=0;         has_component wallpaper-rotator && WANT_WALLPAPER=1
-WANT_AGENTS=0;            has_component agents            && WANT_AGENTS=1
 
 log "SELECTED COMPONENTS: $CHOSEN"
-log "  desktop=$WANT_DESKTOP  browsers=$WANT_BROWSERS  mgmt-container=$WANT_MGMT  rescue-partition=$WANT_RESCUE_PART  wallpaper-rotator=$WANT_WALLPAPER  agents=$WANT_AGENTS"
+log "  desktop=$WANT_DESKTOP  browsers=$WANT_BROWSERS  mgmt-container=$WANT_MGMT  rescue-partition=$WANT_RESCUE_PART  wallpaper-rotator=$WANT_WALLPAPER"
 
 # --- persist for the two consumers -----------------------------------------
 # 1. d-i env (consumed by disk-fs-chooser.sh and extract-rootfs.sh, both
@@ -240,7 +234,7 @@ ALT_DST_DIR=/target/var/lib/cix-components
 if [ -d "$COMP_DST_DIR" ] || [ -d "$ALT_DST_DIR" ]; then
     if [ -d "$COMP_DST_DIR" ]; then
         echo "$CHOSEN" > "$COMP_DST_DIR/COMPONENTS" 2>/dev/null || true
-        for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator agents; do
+        for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator; do
             _v=0; has_component "$_bit" && _v=1
             echo "$_v" > "$COMP_DST_DIR/COMPONENTS_$_bit" 2>/dev/null || true
         done

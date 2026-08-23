@@ -8,7 +8,7 @@
 #
 # Phase 1: required hooks (kernel install). MUST succeed or the
 #          system is unbootable. set -e applies here.
-# Phase 2: optional hooks (desktop, agents, boot-splash, branding,
+# Phase 2: optional hooks (desktop, boot-splash, branding,
 #          ssh, claude-code, cix proprietary, quadlet shim). Each
 #          hook runs in isolation; failures get logged + recorded
 #          but DON'T abort.
@@ -140,7 +140,7 @@ NCZ_BAKED=0
 # Neither produced a single line in /var/log/cix-install/ -- there is no log
 # for a hook that was never invoked, which is exactly why this went unnoticed
 # across multiple ISO revisions.
-MACHINE_HOOKS_RE="^(12-sky1-firmware|15-mesa-sky1-pin|16-mesa-gpu-2613|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|30-agents|31-remote-access|32-quadlet-shim|33-network|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize)\.sh$"
+MACHINE_HOOKS_RE="^(12-sky1-firmware|15-mesa-sky1-pin|16-mesa-gpu-2613|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|33-network|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
@@ -221,7 +221,7 @@ fi
 COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS
 [ -r "$COMP_FILE" ] || COMP_FILE=/etc/cix-installer/COMPONENTS
 [ -r "$COMP_FILE" ] || COMP_FILE=/var/lib/cix-components/COMPONENTS
-_CDESKTO=1; _CBRW=1; _CMGMT=1; _CRESC=1; _CWP=1; _CAGT=1
+_CDESKTO=1; _CBRW=1; _CMGMT=1; _CRESC=1; _CWP=1
 if [ -r "$COMP_FILE" ]; then
     _ck=$(tr -d ' \t\r\n' < "$COMP_FILE" 2>/dev/null || true)
     case ",$_ck," in *",desktop,"*)            :;; *) _CDESKTO=0;; esac
@@ -229,7 +229,6 @@ if [ -r "$COMP_FILE" ]; then
     case ",$_ck," in *",mgmt-container,"*)     :;; *) _CMGMT=0;; esac
     case ",$_ck," in *",rescue-partition,"*)   :;; *) _CRESC=0;; esac
     case ",$_ck," in *",wallpaper-rotator,"*)  :;; *) _CWP=0;; esac
-    case ",$_ck," in *",agents,"*)             :;; *) _CAGT=0;; esac
 else
     # NOT a benign default. Until r309 the component-selector wrote its record
     # to /target during preseed/early_command, before partman had mounted the
@@ -259,7 +258,6 @@ _SKIP_BROWSERS_RE='^(52-vivaldi|53-chrome)\.sh$'
 _SKIP_MGMT_RE='^(38-recovery-container)\.sh$'
 _SKIP_RESCUE_RE='^(72-rescue-partition)\.sh$'
 _SKIP_WALLPAPER_RE='^(45-wallpaper-rotator)\.sh$'
-_SKIP_AGENTS_RE='^(30-agents|47-llm-stack|88-noe-umd-venv)\.sh$'
 # Audit every per-component skip so the install log records what was dropped
 # (and a board-week-later audit can find it). MAX_RETENTION=mirror.
 _tty_skip() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" >"$TTY" 2>/dev/null || true; }
@@ -298,13 +296,6 @@ if [ "$_CWP" = 0 ] && [ -n "$OPT_HOOKS" ]; then
         OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -vE "$_SKIP_WALLPAPER_RE" || true)
     fi
 fi
-if [ "$_CAGT" = 0 ] && [ -n "$OPT_HOOKS" ]; then
-    _drop=$(printf '%s\n' $OPT_HOOKS | grep -E "$_SKIP_AGENTS_RE" || true)
-    if [ -n "$_drop" ]; then
-        _tty_skip "component-selector: agents OFF — skipping:$_drop"
-        OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -vE "$_SKIP_AGENTS_RE" || true)
-    fi
-fi
 # AUDIT: name every hook that exists on disk but is in NO list.
 #
 # The lists above are allowlists, so a dropped hook is invisible: it produces
@@ -318,7 +309,7 @@ _ondisk=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort -u)
 # Component-selector skips (r303) are NOT orphans — they're the operator
 # explicitly opting OUT of a toggle. The five skip regexes must be remembered
 # here exactly as written in the toggle block above.
-_SKIP_ALL_RE="${_SKIP_DESKTOP_RE}|${_SKIP_BROWSERS_RE}|${_SKIP_MGMT_RE}|${_SKIP_RESCUE_RE}|${_SKIP_WALLPAPER_RE}|${_SKIP_AGENTS_RE}"
+_SKIP_ALL_RE="${_SKIP_DESKTOP_RE}|${_SKIP_BROWSERS_RE}|${_SKIP_MGMT_RE}|${_SKIP_RESCUE_RE}|${_SKIP_WALLPAPER_RE}"
 _orphans=$(comm -13 <(printf '%s\n' $_planned | sort -u) \
                     <(printf '%s\n' $_ondisk | sort -u) \
            | grep -vE '^(70-bootloader|99-diagnostics)\.sh$' \
@@ -569,7 +560,7 @@ REQUIRED_PHASE_OK=1
 
 # Phase 2: optional hooks. Failures logged but don't abort.
 set +e
-tty_msg "Phase 2: optional hooks (desktop + agents + brand + ssh + ...)"
+tty_msg "Phase 2: optional hooks (desktop + brand + ssh + ...)"
 if [ "$NCZ_BAKED" = 1 ]; then
     tty_msg "Phase 2: baked image — running only machine-specific hooks: $OPT_HOOKS"
 fi

@@ -145,7 +145,7 @@ EOF
 
 # (3b) unattended component selection: the ncz-installer front-end shows an
 # interactive multiselect dialog for OPTIONAL components (desktop / browsers /
-# mgmt-container / rescue-partition / wallpaper-rotator / agents) and waits
+# mgmt-container / rescue-partition / wallpaper-rotator) and waits
 # for a human to press Enter. With no operator under -display none, the gate
 # stalls there forever — same failure mode as the ttyAMA2 one but on a
 # different prompt. preseed/component-selector.sh explicitly supports a
@@ -153,7 +153,7 @@ EOF
 # entirely (lines 88-95, 116-134). Pin the FULL set: a KVM gate run is
 # testing the shipped default — disabling any of these hides a real defect
 # from the gate and the shipped ISO would diverge from what got verified.
-sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_components=desktop,browsers,mgmt-container,rescue-partition,wallpaper-rotator,agents loglevel=4/' "$CFG"
+sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4/\1ncz_components=desktop,browsers,mgmt-container,rescue-partition,wallpaper-rotator loglevel=4/' "$CFG"
 
 # (3c) unattended FINISH — late.sh's force-reboot path only fires when
 # ncz_unattended=1 is in /proc/cmdline (see late.sh r181). Without it the

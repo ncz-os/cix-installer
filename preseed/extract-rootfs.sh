@@ -176,7 +176,7 @@ if [ -n "$SQFS_DIR" ]; then
                 printf '%s\n' "$_comp" > "$_d/COMPONENTS" 2>/dev/null || true
             done
             for _bit in desktop browsers mgmt-container rescue-partition \
-                        wallpaper-rotator agents; do
+                        wallpaper-rotator; do
                 _v=0
                 case ",$_comp," in *,"$_bit",*) _v=1 ;; esac
                 printf '%s\n' "$_v" \

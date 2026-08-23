@@ -22,7 +22,7 @@
 # Idempotent. present-only purge, NEVER --auto-remove (the r166-r170 truncated-
 # /etc/passwd saga). Safe in chroot (bake) and on a live rootfs (O6N). Ordered
 # LAST in the desktop layer so it sees every app-creating hook's output
-# (20-desktop, 30-agents, 52-vivaldi, ...).
+# (20-desktop, 52-vivaldi, 46-ncz-cli, ...).
 set -uo pipefail
 
 echo "[59] Singularity launcher curation (Wayland-only, working app set)"
@@ -98,7 +98,7 @@ rm -f "$APPDIR"/Google-Chrome.desktop "$APPDIR"/com.google.Chrome.desktop \
 # versions live in /opt/singularity/share/applications (earlier on the session
 # XDG_DATA_DIRS, so they mask these). Drop the /usr/share copy whenever the /opt
 # canonical exists (covers both the old xterm copies and any foot re-copy).
-for n in ClaudeCode NCZ-CLI MNEMOS Install-NCZ-Agents; do
+for n in ClaudeCode NCZ-CLI MNEMOS; do
     f="$APPDIR/$n.desktop"
     if [ -f "$f" ] && [ -f "/opt/singularity/share/applications/$n.desktop" ]; then
         rm -f "$f"; echo "[59] dropped redundant /usr/share $n.desktop (/opt canonical kept)"
