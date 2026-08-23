@@ -71,6 +71,25 @@ ncz_component_record() {
             return 0
         }
     fi
+    for _ncz_log in /var/log/syslog /var/log/installer/syslog; do
+        [ -r "$_ncz_log" ] || continue
+        _ncz_comp=$(awk '
+            /debconf: --> GET ncz\/components/ { want=1; next }
+            want && /debconf: <-- 0 / {
+                sub(/^.*debconf: <-- 0 /, "")
+                val=$0
+                want=0
+            }
+            END { if (val != "") print val }
+        ' "$_ncz_log" 2>/dev/null | tr -d ' \t\r\n' || true)
+        [ -n "$_ncz_comp" ] && {
+            printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+            mkdir -p /var/lib/ncz-components 2>/dev/null || true
+            printf '%s\n' "$_ncz_comp" > /var/lib/ncz-components/COMPONENTS 2>/dev/null || true
+            printf '%s\n' "$_ncz_comp"
+            return 0
+        }
+    done
     return 1
 }
 
