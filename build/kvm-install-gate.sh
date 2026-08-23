@@ -281,12 +281,16 @@ fi
 # --- phase 2: boot what was installed ---------------------------------------
 echo
 echo "--- phase 2: boot installed system (timeout ${BOOT_TIMEOUT}s) ---"
+# Keep a headless framebuffer device attached: AAVMF only exposes GOP/UGA
+# protocols when a graphics device exists, and installed rEFInd configs use
+# "resolution max" during bootloader video setup.
 timeout "$BOOT_TIMEOUT" qemu-system-aarch64 \
   -M virt -accel "$ACCEL" -cpu "$CPU" -smp "$SMP" -m "$MEM" \
   -drive if=pflash,format=raw,unit=0,file="$CODE",readonly=on \
   -drive if=pflash,format=raw,unit=1,file="$VARS" \
   -drive file="$DISK",if=none,id=hd,format=qcow2 \
   -device nvme,drive=hd,serial=ncztest01 \
+  -device virtio-gpu-pci \
   -netdev user,id=n0 -device virtio-net-pci,netdev=n0,romfile= \
   -serial "file:$WORK/boot-serial0.log" -serial "file:$WORK/boot-serial1.log" \
   -serial "file:$WORK/boot-serial2.log" \
@@ -296,7 +300,7 @@ cat "$WORK"/boot-serial*.log >> "$BLOG" 2>/dev/null
 brc=$?
 echo "  qemu rc=$brc"
 
-grep -qE "Linux version|Booting Linux" "$BLOG" \
+grep -qE "Linux version|Booting Linux|Starting vmlinuz-" "$BLOG" \
   || fail "installed system produced no kernel banner — bootloader did not hand off (see $BLOG)"
 if grep -qE "Kernel panic - not syncing|Internal error: Oops" "$BLOG"; then
   grep -nE -A12 "Kernel panic|Internal error: Oops" "$BLOG" | head -30 >&2
