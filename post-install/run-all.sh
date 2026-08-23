@@ -43,7 +43,7 @@ CRITICAL_HOOK_FAILURES=""
 # networking, and a populated rescue partition. They still run in the
 # fail-tolerant phase so the bootloader/diagnostics always execute, but a
 # failure is propagated to d-i after those recovery affordances are written.
-CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|32-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition)\.sh$'
+CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition)\.sh$'
 # Phase 1 must complete before the EXIT trap is allowed to touch the ESP.
 REQUIRED_PHASE_OK=0
 # r156: baked-image mode — generic hooks already ran at build time; run
@@ -140,7 +140,7 @@ NCZ_BAKED=0
 # Neither produced a single line in /var/log/cix-install/ -- there is no log
 # for a hook that was never invoked, which is exactly why this went unnoticed
 # across multiple ISO revisions.
-MACHINE_HOOKS_RE="^(12-sky1-firmware|15-mesa-sky1-pin|16-mesa-gpu-2613|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|32-sinty-nm|33-network|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize)\.sh$"
+MACHINE_HOOKS_RE="^(12-sky1-firmware|15-mesa-sky1-pin|16-mesa-gpu-2613|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|19-sinty-nm|33-network|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
@@ -199,7 +199,7 @@ fi
 # The obvious repair, promoting them back into the baked REQUIRED list, was
 # WORSE and shipped in v11: the required phase is fatal, and 33-network exits 1
 # by design on this SKU (see its own header -- it requires NetworkManager,
-# which 32-sinty-nm.sh PURGES in favour of sinty-nmd). Every v11 install died
+# which 19-sinty-nm.sh PURGES in favour of sinty-nmd). Every v11 install died
 # with "33-network.sh FAILED rc=1 -- install aborts" at the finish-install
 # step. Measured on O6N 2026-08-18.
 #

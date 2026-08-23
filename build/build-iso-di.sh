@@ -256,13 +256,13 @@ if [ "$MODE" = "full" ]; then
         exit 1
     fi
     validate_rescue_rootfs_release "$ROOT/assets/rescue/rescue-rootfs.tar.zst" || exit 1
-    #   3. assets/sinty-nm/sinty-nmd -> 32-sinty-nm.sh falling back to
+    #   3. assets/sinty-nm/sinty-nmd -> 19-sinty-nm.sh falling back to
     #      NetworkManager -> base/console and desktop ship the WRONG network
     #      manager. NCZ MUST use sinty-nm (owns org.freedesktop.NetworkManager,
     #      wired DHCP via rtnetlink + built-in DHCP client, WiFi via iwd); NM is
     #      only the emergency fallback when the staged daemon is absent.
     if [ ! -s "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
-        echo "ERROR: assets/sinty-nm/sinty-nmd missing/empty -- ISO would SILENTLY fall back to NetworkManager (post-install/32-sinty-nm.sh), shipping the wrong network manager for base/console and Singularity desktop." >&2
+        echo "ERROR: assets/sinty-nm/sinty-nmd missing/empty -- ISO would SILENTLY fall back to NetworkManager (post-install/19-sinty-nm.sh), shipping the wrong network manager for base/console and Singularity desktop." >&2
         echo "  Remediation: build with build-sinty-nm.sh (docker Go 1.25, clones singularityos-lab/sinty-nm, builds cmd/sinty-nmd), then cp out/sinty-nmd -> assets/sinty-nm/sinty-nmd (chmod 0755). On cixmini: cp ~/sinty-build/nm-build/out/sinty-nmd assets/sinty-nm/sinty-nmd." >&2
         echo "  Verify: file assets/sinty-nm/sinty-nmd  # ELF 64-bit ... ARM aarch64 ... statically linked" >&2
         exit 1
