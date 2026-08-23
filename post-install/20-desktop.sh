@@ -109,8 +109,8 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
     pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol 2>&1 | tail -3 || true
 systemctl --global enable pipewire pipewire-pulse wireplumber 2>&1 | tail -2 || true
 
-# Removable media + bluetooth. (NO network-manager-gnome — the native sinty-nm
-# daemon replaces NetworkManager; see the "Native network" block below.)
+# Removable media + bluetooth. (NO network-manager-gnome — the base-layer
+# sinty-nm daemon replaces NetworkManager.)
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
     gvfs gvfs-backends udisks2 bluez blueman 2>&1 | tail -3 || true
 systemctl enable bluetooth 2>&1 | tail -1 || true
@@ -138,99 +138,14 @@ ConditionPathExistsGlob=/sys/class/bluetooth/*
 BTCOND
 echo "[20] bluetooth-autoconnect gated on an actual Bluetooth adapter"
 
-# ---------------------------------------------------------------------------
-# Native network — sinty-nm (singularityos-lab/sinty-nm).
-# sinty-nm is a static Go daemon that OWNS org.freedesktop.NetworkManager on the
-# system bus and serves the same object tree, so nmcli / libnm / portals / the
-# panel network indicator all keep working unchanged. It is a full NM REPLACEMENT
-# (not a frontend): WiFi via iwd, L2/L3 via rtnetlink, IPv4 via a built-in DHCP
-# client, VPN via WireGuard. Two daemons cannot own the name, so NetworkManager
-# is purged + masked. Binary is a staged build-time blob (assets/sinty-nm/).
-# ---------------------------------------------------------------------------
-echo "[20] native network: sinty-nm (replaces NetworkManager)"
-# Backends: iwd (WiFi) + wireguard-tools (VPN). Installed even on ethernet-only
-# boards (O6N) for completeness across the fleet.
-if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends iwd wireguard-tools; then
-    ncz_ports_fallback
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends iwd wireguard-tools || \
-        echo "[20] WARN: iwd/wireguard-tools install failed (WiFi/VPN backends)"
-fi
-SINTY_NMD=""
-for c in /usr/local/lib/cix-installer/assets/sinty-nm/sinty-nmd \
-         /cdrom/assets/sinty-nm/sinty-nmd \
-         /run/cixmini/assets/sinty-nm/sinty-nmd; do
-    [ -f "$c" ] && { SINTY_NMD="$c"; break; }
-done
-if [ -n "$SINTY_NMD" ]; then
-    _AD="$(dirname "$SINTY_NMD")"
-    install -m0755 "$SINTY_NMD" /usr/bin/sinty-nmd
-    install -D -m0644 "$_AD/sinty-nm.service" /usr/lib/systemd/system/sinty-nm.service
-    # Purge NetworkManager + its GTK applet/editor (present-only, NEVER
-    # --auto-remove — the r166-r170 truncated-/etc/passwd saga). Two daemons
-    # cannot own org.freedesktop.NetworkManager.
-    _nm_present=""
-    for p in network-manager network-manager-gnome network-manager-applet nm-connection-editor; do
-        dpkg -l "$p" 2>/dev/null | grep -q '^ii' && _nm_present="$_nm_present $p"
-    done
-    if [ -n "$_nm_present" ]; then
-        echo "[20] purging NetworkManager (sinty-nm owns the name now):$_nm_present"
-        _nm_purge_log="$(mktemp /tmp/ncz-nm-purge.XXXXXX)"
-        if ! DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 \
-                purge -y $_nm_present \
-                >"$_nm_purge_log" 2>&1; then
-            tail -20 "$_nm_purge_log"
-            rm -f "$_nm_purge_log"
-            echo "[20] FATAL: NetworkManager purge failed"
-            exit 1
-        fi
-        tail -3 "$_nm_purge_log"
-        rm -f "$_nm_purge_log"
-    fi
-    # Install our replacement policy only AFTER purging NetworkManager. The NM
-    # package owns this exact path; installing it before `apt-get purge` lets
-    # dpkg remove the replacement policy too. The resulting first boot has a
-    # present sinty-nmd binary but D-Bus denies ownership of the NM bus name,
-    # leaving every interface down.
-    install -D -m0644 "$_AD/org.freedesktop.NetworkManager.conf" \
-        /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf
-    # Belt-and-braces: mask any NM units that survive (e.g. NM pulled back as a
-    # dep) so they never contend for the bus name at boot.
-    systemctl disable NetworkManager.service NetworkManager-wait-online.service \
-        NetworkManager-dispatcher.service 2>/dev/null || true
-    systemctl mask NetworkManager.service NetworkManager-wait-online.service 2>/dev/null || true
-    # sinty-nm owns wired L2/L3 and DHCP itself. Do not leave networkd enabled
-    # from the cloud-image base with no .network files; it both races sinty and
-    # leaves network-online users waiting on a manager that owns no links.
-    systemctl disable systemd-networkd.service systemd-networkd.socket \
-        systemd-networkd-wait-online.service \
-        systemd-networkd-resolve-hook.socket \
-        systemd-networkd-varlink.socket 2>/dev/null || true
-    systemctl mask systemd-networkd.service systemd-networkd.socket \
-        systemd-networkd-wait-online.service \
-        systemd-networkd-resolve-hook.socket \
-        systemd-networkd-varlink.socket 2>/dev/null || true
-    # sinty-nm writes /etc/resolv.conf directly — it must be a writable regular
-    # file, not a read-only/systemd-resolved symlink.
-    if [ -L /etc/resolv.conf ] || [ ! -e /etc/resolv.conf ]; then
-        rm -f /etc/resolv.conf
-        : > /etc/resolv.conf
-        chmod 0644 /etc/resolv.conf
-    fi
-    # iwd is meaningful only when a wireless PHY exists. On wired-only systems
-    # and generic KVM it otherwise restart-loops on "Failed to obtain nl80211"
-    # and leaves a misleading failed unit even though wired networking is fine.
-    install -d -m0755 /etc/systemd/system/iwd.service.d
-    cat > /etc/systemd/system/iwd.service.d/10-ncz-wireless-hardware.conf <<'IWDUNIT'
-[Unit]
-ConditionDirectoryNotEmpty=/sys/class/ieee80211
-IWDUNIT
-    systemctl enable iwd.service 2>/dev/null || true
-    systemctl enable sinty-nm.service 2>/dev/null || true
-    echo "[20] sinty-nm installed + enabled (iwd WiFi backend, WireGuard VPN); NetworkManager purged/masked"
+# sinty-nm is installed by 32-sinty-nm.sh in the base layer before any desktop
+# hook runs. Desktop code may assume /usr/bin/sinty-nmd is present when the
+# staged asset exists; 33-network.sh preserves the NetworkManager/netplan
+# fallback when it does not.
+if [ -x /usr/bin/sinty-nmd ]; then
+    echo "[20] native network: sinty-nm already installed by base"
 else
-    echo "[20] WARN: assets/sinty-nm/sinty-nmd not staged — falling back to NetworkManager" >&2
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends network-manager 2>&1 | tail -2 || true
-    systemctl enable NetworkManager 2>/dev/null || true
+    echo "[20] native network: base fallback is NetworkManager (sinty-nm asset absent)"
 fi
 
 # ---------------------------------------------------------------------------

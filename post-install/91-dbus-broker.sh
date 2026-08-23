@@ -69,7 +69,7 @@ echo "[91] dbus-broker: switch the system bus off legacy dbus-daemon"
 
 # 1. install dbus-broker (prefer offline pool, network fallback). On a
 #    baked image the package is already in the offline mirror via
-#    manifests/desktop.pkgs, so this is normally a no-op.
+#    manifests/installer-base.pkgs, so this is normally a no-op.
 if ! dpkg -s dbus-broker >/dev/null 2>&1; then
     if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends dbus-broker 2>&1 | tail -3; then
         echo "[91] WARN: dbus-broker install failed; legacy dbus-daemon remains the system bus" >&2

@@ -2,7 +2,7 @@
 # build-squashfs-layers.sh — NCZ-OS layered squashfs installer images.
 #
 # Produces (under assets/squashfs/):
-#   base.squashfs      debootstrap resolute + CIX kernel/firmware/mesa + NM/bluez enabled
+#   base.squashfs      debootstrap resolute + CIX kernel/firmware/mesa + sinty-nm/NM fallback
 #   desktop.squashfs   DELTA: complete desktop package set (overlay upperdir only)
 #
 # THERE IS NO SERVER LAYER (2026-08-11, operator). NCZ-OS ships ONE build. What
@@ -12,8 +12,8 @@
 # `--variant desktop`, so the server layer was dead weight that still cost a
 # full apt closure and a squashfs on every `all` build.
 #
-# Deliberately runs ONLY machine-AGNOSTIC hooks (kernel/firmware/mesa). The NCZ
-# desktop-config hooks (20-desktop/33-network/brand/plymouth) are NOT run here —
+# Deliberately runs ONLY machine-AGNOSTIC hooks (kernel/firmware/mesa/sinty-nm).
+# The NCZ desktop-config hooks (20-desktop/33-network/brand/plymouth) are NOT run here —
 # they corrupted net/BT/desktop in the chroot bake. Desktop/server content comes
 # from a CLEAN apt-install (Ubuntu-live model). Machine-specific + branding run at
 # install / first-boot, not baked.
@@ -196,7 +196,7 @@ log "arch=$(uname -m) native=$NATIVE ROOT=$ROOT WORK=$WORK OUT=$OUT"
 mkdir -p "$OUT" "$WORK"
 
 # machine-AGNOSTIC hooks safe to bake into base (NOT desktop-config)
-BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613"
+BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 32-sinty-nm"
 BASE_MANIFEST="${BASE_MANIFEST:-manifests/installer-base.pkgs}"
 
 manifest_pkgs(){
@@ -430,20 +430,6 @@ $_found"
     else
       log "  note: assets/singularity-boot-splash absent — relying on the /opt/singularity payload for it"
     fi
-    # 26.7: stage the native sinty-nm daemon (+ unit + D-Bus policy) so
-    # 20-desktop installs /usr/bin/sinty-nmd and swaps out NetworkManager.
-    # sinty-nmd is a gitignored build blob (build via singularityos-lab/sinty-nm;
-    # fetch from .66:/home/jasonperlow/sinty-build/nm-build/out/sinty-nmd).
-    if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
-      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/sinty-nm"
-      sudo cp -a "$ROOT/assets/sinty-nm/sinty-nmd" \
-                 "$ROOT/assets/sinty-nm/sinty-nm.service" \
-                 "$ROOT/assets/sinty-nm/org.freedesktop.NetworkManager.conf" \
-                 "$MG/usr/local/lib/cix-installer/assets/sinty-nm/" 2>/dev/null || true
-      log "  staged sinty-nm daemon ($(du -h "$ROOT/assets/sinty-nm/sinty-nmd" | cut -f1))"
-    else
-      log "  WARN: assets/sinty-nm/sinty-nmd ABSENT — 20-desktop falls back to NetworkManager (build singularityos-lab/sinty-nm)"
-    fi
     # r189.5: stage assets/cix-py/ so 46-ncz-cli.sh's /opt/cix/npu_embed_v2.py
     # install actually lands -- it was only ever looking at /cdrom, which
     # doesn't exist in this chroot (install-media-only mount), so this was
@@ -627,7 +613,12 @@ build_base(){
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
   sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding wallpaper; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding wallpaper sinty-nm; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
+    log "  staged sinty-nm daemon into BASE ($(du -h "$ROOT/assets/sinty-nm/sinty-nmd" | cut -f1))"
+  else
+    log "  WARN: assets/sinty-nm/sinty-nmd ABSENT — base falls back to NetworkManager (build singularityos-lab/sinty-nm)"
+  fi
   [ -f "$ROOT/assets/ncz-cli.sh" ] && sudo cp -a "$ROOT/assets/ncz-cli.sh" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
   # prune dev-only junk from the staged asset tree (backup kernels, retired
   # channels) -- it otherwise ships inside base.squashfs as dead weight
@@ -664,24 +655,27 @@ build_base(){
     [ -f "$WORK/base/usr/local/lib/cix-installer/post-install/$h.sh" ] || { log "  skip $h (absent)"; continue; }
     log "  -> $h"
     if ! sudo chroot "$WORK/base" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$h.sh" 2>&1 | tail -3; then
-      if [ "$h" = "10-our-kernel" ]; then
-        log "ERROR: required kernel hook failed; refusing to publish a kernelless base layer"
+      if [ "$h" = "10-our-kernel" ] || [ "$h" = "32-sinty-nm" ]; then
+        log "ERROR: required base hook $h failed; refusing to publish an incomplete base layer"
         apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
         return 1
       fi
       log "  WARN $h failed"
     fi
   done
-  # Enable the base/console network owner.  Desktop installs and enables
-  # sinty-nm in its delta, then purges/masks NetworkManager there; the base
-  # layer itself must still boot with networking when desktop.squashfs is
-  # deselected.
-  if ! sudo chroot "$WORK/base" dpkg-query -W -f='${Status}' network-manager 2>/dev/null | grep -q "^install ok installed"; then
-    log "ERROR: network-manager is absent after base package install; console/base installs would have no network owner"
-    apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
-    return 1
+  # Enable the base/console network owner. sinty-nm is preferred; if the staged
+  # binary is absent, NetworkManager/netplan remains the fallback path.
+  if [ -x "$WORK/base/usr/bin/sinty-nmd" ]; then
+    sudo chroot "$WORK/base" systemctl enable sinty-nm.service 2>/dev/null || true
+    sudo chroot "$WORK/base" systemctl enable bluetooth 2>/dev/null || true
+  else
+    if ! sudo chroot "$WORK/base" dpkg-query -W -f='${Status}' network-manager 2>/dev/null | grep -q "^install ok installed"; then
+      log "ERROR: no sinty-nmd and network-manager is absent after base package install; console/base installs would have no network owner"
+      apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
+      return 1
+    fi
+    sudo chroot "$WORK/base" systemctl enable NetworkManager bluetooth 2>/dev/null || true
   fi
-  sudo chroot "$WORK/base" systemctl enable NetworkManager bluetooth 2>/dev/null || true
   # r164 (updated 2026-08-17): historically the base was an Ubuntu resolute cloud
   # image carrying a FULL GNOME desktop
   # (gnome-shell + gdm3 + ubuntu-session + ubuntu-desktop, ~1.5-2GB). GNOME is too
@@ -739,11 +733,13 @@ build_base(){
   # just disabled (de-cloud, above). Net result on real hardware: the wired NIC
   # is 'unmanaged' and never gets DHCP (wifi works, ethernet dead — observed .66).
   # Override so NM also manages ethernet; NM-only model, no networkd needed.
-  sudo mkdir -p "$WORK/base/etc/NetworkManager/conf.d"
-  sudo tee "$WORK/base/etc/NetworkManager/conf.d/10-ncz-manage-ethernet.conf" >/dev/null <<'NMETH'
+  if [ ! -x "$WORK/base/usr/bin/sinty-nmd" ]; then
+    sudo mkdir -p "$WORK/base/etc/NetworkManager/conf.d"
+    sudo tee "$WORK/base/etc/NetworkManager/conf.d/10-ncz-manage-ethernet.conf" >/dev/null <<'NMETH'
 [keyfile]
 unmanaged-devices=*,except:type:wifi,except:type:gsm,except:type:cdma,except:type:ethernet
 NMETH
+  fi
   sudo rm -f "$WORK/base/etc/ssh/sshd_config.d/60-cloudimg-settings.conf"
   sudo mkdir -p "$WORK/base/etc/ssh/sshd_config.d"
   printf 'PasswordAuthentication yes\n' | sudo tee "$WORK/base/etc/ssh/sshd_config.d/10-ncz-fleet.conf" >/dev/null

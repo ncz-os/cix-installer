@@ -67,19 +67,9 @@ xwayland
 polkitd
 xdg-desktop-portal
 
-# --- system bus (dbus-broker replaces dbus-daemon as the actual bus) --------
-# dbus-broker is the modern D-Bus system-bus implementation
-# (https://github.com/bus1/dbus-broker) and the recommended default on
-# Debian forky. The legacy 'dbus' package (provides /usr/bin/dbus-daemon)
-# is kept as a compatibility package because a small number of binaries
-# exec() it directly — but no systemd unit points at it; the broker
-# daemon owns the system bus (dbus-broker.service replaces
-# dbus.service as the bus activator). libdbus-based clients
-# (sinty-nm, polkit, seatd, PipeWire/WirePlumber, xdg-desktop-portal,
-# greetd, our singularity portal) all work transparently with either
-# implementation, so this is a pure drop-in.
-dbus
-dbus-broker
+# --- system bus --------------------------------------------------------------
+# dbus/dbus-broker are base-layer services. Desktop components depend on the
+# already-present system bus and do not seed the bus owner themselves.
 
 # --- AppArmor (NCZ-OS 26.7 audit W3.5) --------------------------------------
 # Mandatory access control via AppArmor. The kernel config
@@ -166,18 +156,14 @@ pipewire-alsa
 wireplumber
 pavucontrol
 
-# --- removable media + network + bluetooth ---------------------------------
-# NETWORK: NCZ-OS 26.7 ships the NATIVE Singularity network daemon `sinty-nm`
-# (Go, static, /usr/bin/sinty-nmd) which OWNS org.freedesktop.NetworkManager on
-# the system bus (a full NM replacement, wire-compatible with libnm/nmcli). So
-# NetworkManager + network-manager-gnome are NOT shipped (20-desktop purges/masks
-# NM). iwd = the WiFi backend sinty-nm drives; wireguard-tools = its VPN backend.
+# --- removable media + bluetooth --------------------------------------------
+# NETWORK: sinty-nm is installed from the base layer by 32-sinty-nm.sh. Do NOT
+# add network-manager or network-manager-gnome here; NetworkManager is only the
+# base fallback when the gitignored sinty-nm build blob is absent.
 gvfs
 gvfs-backends
 udisks2
 gnome-disk-utility
-iwd
-wireguard-tools
 bluez
 blueman
 

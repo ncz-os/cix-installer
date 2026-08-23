@@ -19,8 +19,6 @@ manifests/desktop.pkgs:clinfo
 manifests/desktop.pkgs:conmon
 manifests/desktop.pkgs:crun
 manifests/desktop.pkgs:curl
-manifests/desktop.pkgs:dbus
-manifests/desktop.pkgs:dbus-broker
 manifests/desktop.pkgs:dosfstools
 manifests/desktop.pkgs:drawing
 manifests/desktop.pkgs:epiphany-browser
@@ -82,7 +80,6 @@ manifests/desktop.pkgs:imagemagick
 manifests/desktop.pkgs:imv
 manifests/desktop.pkgs:inetutils-telnetd
 manifests/desktop.pkgs:iperf3
-manifests/desktop.pkgs:iwd
 manifests/desktop.pkgs:kdenlive
 manifests/desktop.pkgs:kooha
 manifests/desktop.pkgs:libadwaita-1-0
@@ -166,7 +163,6 @@ manifests/desktop.pkgs:vulkan-validationlayers
 manifests/desktop.pkgs:wev
 manifests/desktop.pkgs:wf-recorder
 manifests/desktop.pkgs:whiptail
-manifests/desktop.pkgs:wireguard-tools
 manifests/desktop.pkgs:wireplumber
 manifests/desktop.pkgs:wl-clipboard
 manifests/desktop.pkgs:wlr-randr
@@ -182,6 +178,8 @@ manifests/installer-base.pkgs:busybox-static
 manifests/installer-base.pkgs:cixmini-boot
 manifests/installer-base.pkgs:console-setup
 manifests/installer-base.pkgs:curl
+manifests/installer-base.pkgs:dbus
+manifests/installer-base.pkgs:dbus-broker
 manifests/installer-base.pkgs:dmidecode
 manifests/installer-base.pkgs:dracut
 manifests/installer-base.pkgs:dracut-core
@@ -196,6 +194,7 @@ manifests/installer-base.pkgs:htop
 manifests/installer-base.pkgs:inetutils-telnetd
 manifests/installer-base.pkgs:iproute2
 manifests/installer-base.pkgs:iputils-ping
+manifests/installer-base.pkgs:iwd
 manifests/installer-base.pkgs:jq
 manifests/installer-base.pkgs:kbd
 manifests/installer-base.pkgs:linux-image-cixmini
@@ -205,6 +204,8 @@ manifests/installer-base.pkgs:lsof
 manifests/installer-base.pkgs:mc
 manifests/installer-base.pkgs:mtr-tiny
 manifests/installer-base.pkgs:net-tools
+manifests/installer-base.pkgs:netplan.io
+manifests/installer-base.pkgs:network-manager
 manifests/installer-base.pkgs:nvme-cli
 manifests/installer-base.pkgs:openbsd-inetd
 manifests/installer-base.pkgs:openssh-server
@@ -220,6 +221,7 @@ manifests/installer-base.pkgs:usbutils
 manifests/installer-base.pkgs:util-linux
 manifests/installer-base.pkgs:vim
 manifests/installer-base.pkgs:wget
+manifests/installer-base.pkgs:wireguard-tools
 manifests/installer-base.pkgs:zstd
 manifests/mgmt.pkgs:btrfs-progs
 manifests/mgmt.pkgs:ca-certificates

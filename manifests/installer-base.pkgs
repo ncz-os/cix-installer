@@ -52,9 +52,12 @@ testdisk            # testdisk + photorec
 efibootmgr
 
 # --- network / diag ---
-dbus                 # system bus for NetworkManager and recovery tooling
-network-manager      # base/console network owner; desktop replaces it with sinty-nm
-netplan.io           # 33-network.sh writes netplan NetworkManager renderer config
+dbus                 # compatibility package; dbus-broker owns the system bus when enabled
+dbus-broker          # system bus owner for base/console and desktop; 91-dbus-broker enables it
+iwd                  # sinty-nm WiFi backend
+wireguard-tools      # sinty-nm VPN backend
+network-manager      # fallback network owner when assets/sinty-nm/sinty-nmd is absent
+netplan.io           # 33-network.sh writes netplan NetworkManager renderer config for fallback
 iproute2
 net-tools
 iputils-ping
