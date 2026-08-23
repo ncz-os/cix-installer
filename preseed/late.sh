@@ -535,6 +535,34 @@ db_try db_capb
 db_try db_subst nclawzero/install-step STEP "Starting NCZ-OS post-install plan..."
 db_try db_progress INFO nclawzero/install-step
 
+_ncz_comp=""
+for _ncz_log in /var/log/syslog /var/log/installer/syslog /target/var/log/installer/syslog; do
+    [ -r "$_ncz_log" ] || continue
+    _ncz_comp=$(awk '
+        /debconf: --> GET ncz\/components/ { want=1; next }
+        want && /debconf: <-- 0 / {
+            sub(/^.*debconf: <-- 0 /, "")
+            val=$0
+            want=0
+        }
+        END { if (val != "") print val }
+    ' "$_ncz_log" 2>/dev/null | tr -d ' \t\r\n' || true)
+    [ -n "$_ncz_comp" ] && break
+done
+if [ -n "$_ncz_comp" ]; then
+    for _d in /target/usr/local/lib/cix-installer /target/etc/cix-installer \
+              /target/var/lib/cix-components; do
+        mkdir -p "$_d" 2>/dev/null || continue
+        printf '%s\n' "$_ncz_comp" > "$_d/COMPONENTS" 2>/dev/null || true
+    done
+    for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator; do
+        _v=0
+        case ",$_ncz_comp," in *,"$_bit",*) _v=1 ;; esac
+        printf '%s\n' "$_v" > "/target/etc/cix-installer/COMPONENTS_$_bit" 2>/dev/null || true
+    done
+    echo "[late] recovered component selection for post-install: $_ncz_comp"
+fi
+
 # Render the authoritative state written atomically by run-all.sh and the apt
 # shim. This intentionally uses db_progress INFO only: finish-install owns the
 # parent bar and will advance it after 07preseed/late_command returns.
