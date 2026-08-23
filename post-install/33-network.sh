@@ -28,7 +28,7 @@ echo "[33-network] verifying NetworkManager + writing netplan"
 #
 # This hook predates Singularity: its header is about the XFCE dep chain on
 # resolute. NCZ-OS 26.7 does not use NetworkManager when sinty-nm is staged:
-# 32-sinty-nm.sh installs sinty-nmd and explicitly PURGES network-manager,
+# 19-sinty-nm.sh installs sinty-nmd and explicitly PURGES network-manager,
 # network-manager-gnome, network-manager-applet and nm-connection-editor, and
 # network-manager is not in manifests/desktop.pkgs.
 #

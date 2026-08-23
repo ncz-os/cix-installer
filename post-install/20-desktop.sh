@@ -138,7 +138,7 @@ ConditionPathExistsGlob=/sys/class/bluetooth/*
 BTCOND
 echo "[20] bluetooth-autoconnect gated on an actual Bluetooth adapter"
 
-# sinty-nm is installed by 32-sinty-nm.sh in the base layer before any desktop
+# sinty-nm is installed by 19-sinty-nm.sh in the base layer before any desktop
 # hook runs. Desktop code may assume /usr/bin/sinty-nmd is present when the
 # staged asset exists; 33-network.sh preserves the NetworkManager/netplan
 # fallback when it does not.

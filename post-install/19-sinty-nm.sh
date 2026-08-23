@@ -1,5 +1,5 @@
 #!/bin/bash
-# 32-sinty-nm.sh - install the native NCZ network owner for every variant.
+# 19-sinty-nm.sh - install the native NCZ network owner for every variant.
 #
 # sinty-nm is foundational NCZ networking, not a desktop feature. It owns the
 # org.freedesktop.NetworkManager D-Bus name directly and provides wired DHCP,
@@ -11,10 +11,10 @@
 
 set -euo pipefail
 
-echo "[32-sinty-nm] native network owner: sinty-nm"
+echo "[19-sinty-nm] native network owner: sinty-nm"
 
 ncz_ports_fallback() {
-    echo "[32-sinty-nm] WARN: package missing from current apt source - retrying after apt-get update"
+    echo "[19-sinty-nm] WARN: package missing from current apt source - retrying after apt-get update"
     apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 \
         -o Acquire::Retries=0 -o Acquire::ForceIPv4=true -q || true
 }
@@ -25,7 +25,7 @@ ncz_ports_fallback() {
 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends iwd wireguard-tools; then
     ncz_ports_fallback
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends iwd wireguard-tools || \
-        echo "[32-sinty-nm] WARN: iwd/wireguard-tools install failed (WiFi/VPN backends)"
+        echo "[19-sinty-nm] WARN: iwd/wireguard-tools install failed (WiFi/VPN backends)"
 fi
 
 SINTY_NMD=""
@@ -36,7 +36,7 @@ for c in /usr/local/lib/cix-installer/assets/sinty-nm/sinty-nmd \
 done
 
 if [ -z "$SINTY_NMD" ]; then
-    echo "[32-sinty-nm] WARN: assets/sinty-nm/sinty-nmd not staged - falling back to NetworkManager" >&2
+    echo "[19-sinty-nm] WARN: assets/sinty-nm/sinty-nmd not staged - falling back to NetworkManager" >&2
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends network-manager netplan.io 2>&1 | tail -2 || true
     systemctl enable NetworkManager 2>/dev/null || true
     exit 0
@@ -53,14 +53,14 @@ for p in network-manager network-manager-gnome network-manager-applet nm-connect
     dpkg -l "$p" 2>/dev/null | grep -q '^ii' && _nm_present="$_nm_present $p"
 done
 if [ -n "$_nm_present" ]; then
-    echo "[32-sinty-nm] purging NetworkManager (sinty-nm owns the name now):$_nm_present"
+    echo "[19-sinty-nm] purging NetworkManager (sinty-nm owns the name now):$_nm_present"
     _nm_purge_log="$(mktemp /tmp/ncz-nm-purge.XXXXXX)"
     if ! DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 \
             purge -y $_nm_present \
             >"$_nm_purge_log" 2>&1; then
         tail -20 "$_nm_purge_log"
         rm -f "$_nm_purge_log"
-        echo "[32-sinty-nm] FATAL: NetworkManager purge failed"
+        echo "[19-sinty-nm] FATAL: NetworkManager purge failed"
         exit 1
     fi
     tail -3 "$_nm_purge_log"
@@ -104,4 +104,4 @@ IWDUNIT
 
 systemctl enable iwd.service 2>/dev/null || true
 systemctl enable sinty-nm.service 2>/dev/null || true
-echo "[32-sinty-nm] sinty-nm installed + enabled (iwd WiFi backend, WireGuard VPN); NetworkManager purged/masked"
+echo "[19-sinty-nm] sinty-nm installed + enabled (iwd WiFi backend, WireGuard VPN); NetworkManager purged/masked"

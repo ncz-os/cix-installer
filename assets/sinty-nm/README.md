@@ -12,7 +12,7 @@ frontend):
 - IPv4 via a **built-in DHCP client**
 - VPN via **WireGuard** (`wireguard-tools`)
 
-NCZ-OS 26.7 ships this in place of NetworkManager. `post-install/32-sinty-nm.sh`
+NCZ-OS 26.7 ships this in place of NetworkManager. `post-install/19-sinty-nm.sh`
 installs the daemon in the base layer, purges + masks NetworkManager (two
 daemons cannot own the name), installs the backends (iwd, wireguard-tools), and
 enables `sinty-nm.service`.
@@ -48,5 +48,5 @@ on wired-only O6 systems where iwd is correctly skipped for lack of Wi-Fi hardwa
 ## Notes
 
 - sinty-nm writes `/etc/resolv.conf` **directly**, so it must be a writable
-  regular file (32-sinty-nm de-symlinks it).
+  regular file (19-sinty-nm de-symlinks it).
 - iwd is installed even on ethernet-only boards (O6N) for fleet completeness.

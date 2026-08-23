@@ -196,7 +196,7 @@ log "arch=$(uname -m) native=$NATIVE ROOT=$ROOT WORK=$WORK OUT=$OUT"
 mkdir -p "$OUT" "$WORK"
 
 # machine-AGNOSTIC hooks safe to bake into base (NOT desktop-config)
-BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 32-sinty-nm"
+BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 19-sinty-nm"
 BASE_MANIFEST="${BASE_MANIFEST:-manifests/installer-base.pkgs}"
 
 manifest_pkgs(){
@@ -655,7 +655,7 @@ build_base(){
     [ -f "$WORK/base/usr/local/lib/cix-installer/post-install/$h.sh" ] || { log "  skip $h (absent)"; continue; }
     log "  -> $h"
     if ! sudo chroot "$WORK/base" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$h.sh" 2>&1 | tail -3; then
-      if [ "$h" = "10-our-kernel" ] || [ "$h" = "32-sinty-nm" ]; then
+      if [ "$h" = "10-our-kernel" ] || [ "$h" = "19-sinty-nm" ]; then
         log "ERROR: required base hook $h failed; refusing to publish an incomplete base layer"
         apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
         return 1
