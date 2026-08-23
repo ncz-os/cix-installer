@@ -31,7 +31,12 @@ set +e
 
 . /usr/share/debconf/confmodule 2>/dev/null || true
 
-log() { echo "[ncz chooser] $*"; echo "[ncz chooser] $*" > /dev/tty3 2>/dev/null || true; }
+log() {
+    echo "[ncz chooser] $*"
+    for _v in /dev/console /dev/tty1 /dev/tty3; do
+        echo "[ncz chooser] $*" > "$_v" 2>/dev/null || true
+    done
+}
 abort() { log "ABORT: $* — wiping NOTHING, stopping install."; exit 1; }
 
 # ----------------------------------------------------------------------------
