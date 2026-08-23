@@ -412,8 +412,15 @@ while :; do
         echo "[watcher] post-patch sshd procs:"
         # shellcheck disable=SC2009  # busybox d-i has no pgrep
         ps | grep -E '[s]shd' | head -5
-        echo "[watcher] sshd patch DONE $(date -u +%FT%TZ) — continuing /target resolv.conf sync"
-        SSHD_PATCHED=1
+        if grep -q '^PermitRootLogin yes' /etc/ssh/sshd_config \
+           && grep -q '^PubkeyAuthentication yes' /etc/ssh/sshd_config \
+           && grep -q '^PasswordAuthentication yes' /etc/ssh/sshd_config \
+           && pidof sshd >/dev/null 2>&1; then
+            echo "[watcher] sshd patch VERIFIED $(date -u +%FT%TZ) — continuing /target resolv.conf sync"
+            SSHD_PATCHED=1
+        else
+            echo "[watcher] ERROR: sshd patch/reload verification failed; will retry"
+        fi
         # Do NOT exit — keep looping to maintain /target/etc/resolv.conf
         # against pkgsel/apt-setup chroot DNS clobber.
     fi

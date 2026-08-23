@@ -67,7 +67,7 @@ set +e
 
 log() {
     echo "[ncz components] $*"
-    for _v in /dev/console /dev/tty1 /dev/tty3; do
+    for _v in /dev/console /dev/tty1 /dev/tty3 /dev/ttyAMA0; do
         echo "[ncz components] $*" > "$_v" 2>/dev/null || true
     done
 }
@@ -93,11 +93,16 @@ component_is_valid() {
 # --- read cmdline override --------------------------------------------------
 CMD=$(cat /proc/cmdline 2>/dev/null)
 OVR=""
+PROMPT_TIMEOUT=""
 for tok in $CMD; do
     case "$tok" in
         ncz_components=*) OVR="${tok#ncz_components=}" ;;
+        ncz_components_timeout=*) PROMPT_TIMEOUT="${tok#ncz_components_timeout=}" ;;
     esac
 done
+case "$PROMPT_TIMEOUT" in
+    ''|*[!0-9]*) PROMPT_TIMEOUT=90 ;;
+esac
 
 # --- build the question -----------------------------------------------------
 # The full candidate set is the default answer (opt-OUT: today's behaviour).
@@ -162,20 +167,56 @@ Description: NCZ-OS install — select which OPTIONAL COMPONENTS to install
  .
 ${_LONG}
 TPL
-    if debconf-loadtemplate ncz /tmp/ncz-components.templates 2>/dev/null; then
-        db_set     ncz/components "$_DEFAULT" 2>/dev/null || true
-        db_fset    ncz/components seen false   || true
-        db_settitle ncz/components 2>/dev/null
-        if db_input critical ncz/components && db_go; then
-            db_get ncz/components && CHOSEN="$RET"
+    _answer=/tmp/ncz-components.answer.$$
+    _rc=/tmp/ncz-components.rc.$$
+    rm -f "$_answer" "$_rc"
+    log "showing component prompt (timeout ${PROMPT_TIMEOUT}s; default = all enabled)"
+    (
+        set +e
+        . /usr/share/debconf/confmodule 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
+        if debconf-loadtemplate ncz /tmp/ncz-components.templates 2>/dev/null; then
+            db_set     ncz/components "$_DEFAULT" 2>/dev/null || true
+            db_fset    ncz/components seen false   || true
+            db_settitle ncz/components 2>/dev/null
+            if db_input critical ncz/components && db_go; then
+                db_get ncz/components && printf '%s\n' "$RET" > "$_answer"
+                echo 0 > "$_rc"
+                exit 0
+            fi
+            echo 2 > "$_rc"
+            exit 2
+        fi
+        echo 3 > "$_rc"
+        exit 3
+    ) &
+    _prompt_pid=$!
+    _elapsed=0
+    while kill -0 "$_prompt_pid" 2>/dev/null && [ "$_elapsed" -lt "$PROMPT_TIMEOUT" ]; do
+        sleep 1
+        _elapsed=$(( _elapsed + 1 ))
+    done
+    if kill -0 "$_prompt_pid" 2>/dev/null; then
+        log "WARNING: component prompt did not complete after ${PROMPT_TIMEOUT}s; killing prompt and using default (all enabled)"
+        kill "$_prompt_pid" 2>/dev/null || true
+        sleep 2
+        kill -KILL "$_prompt_pid" 2>/dev/null || true
+        wait "$_prompt_pid" 2>/dev/null || true
+        CHOSEN="$_DEFAULT"
+    else
+        wait "$_prompt_pid" 2>/dev/null || true
+        _prompt_rc=$(cat "$_rc" 2>/dev/null || echo 99)
+        if [ "$_prompt_rc" = 0 ]; then
+            CHOSEN=$(cat "$_answer" 2>/dev/null || true)
+            log "component prompt completed in ${_elapsed}s"
+        elif [ "$_prompt_rc" = 3 ]; then
+            log "WARNING: could not load component template — using default (all enabled)"
+            CHOSEN="$_DEFAULT"
         else
-            log "WARNING: component prompt could not be shown/completed — using default (all enabled)"
+            log "WARNING: component prompt could not be shown/completed (rc=$_prompt_rc) — using default (all enabled)"
             CHOSEN="$_DEFAULT"
         fi
-    else
-        log "WARNING: could not load component template — using default (all enabled)"
-        CHOSEN="$_DEFAULT"
     fi
+    rm -f "$_answer" "$_rc"
 fi
 
 # Normalise: dedupe, drop blanks, drop unknowns (defence in depth — anyone
