@@ -221,6 +221,8 @@ log "  desktop=$WANT_DESKTOP  browsers=$WANT_BROWSERS  mgmt-container=$WANT_MGMT
 # 1. d-i env (consumed by disk-fs-chooser.sh and extract-rootfs.sh, both
 #    run in the installer environment, not the chroot).
 echo "$CHOSEN" > /tmp/ncz-components 2>/dev/null || true
+mkdir -p /var/lib/ncz-components 2>/dev/null || true
+echo "$CHOSEN" > /var/lib/ncz-components/COMPONENTS 2>/dev/null || true
 
 # 2. in-chroot (consumed by post-install/70-bootloader.sh and
 #    post-install/run-all.sh, both run inside the target). Both paths
