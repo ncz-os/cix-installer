@@ -99,9 +99,20 @@ cat > "$RUN/diagsh" <<SH
 #!/bin/sh
 export PATH=$BIN:/usr/bin:/bin:/usr/sbin:/sbin
 export TERM=\${TERM:-vt100} HOME=/root PS1='ncz-diag:\w# '
-exec $BIN/sh
+exec $BIN/sh -i
 SH
 chmod 0755 "$RUN/diagsh"
+
+# BusyBox telnetd allocates a PTY for the login shell.  Some d-i paths reach
+# early_command before devpts is mounted, which leaves telnet reachable but
+# causes sessions to close immediately instead of getting a shell.
+mkdir -p /dev/pts
+if ! mount | grep -q ' on /dev/pts '; then
+    mount -t devpts devpts /dev/pts 2>/dev/null \
+        && say "devpts mounted for telnet diagnostics" \
+        || say "WARNING: could not mount devpts; telnet shell may fail"
+fi
+[ -e /dev/ptmx ] || ln -s pts/ptmx /dev/ptmx 2>/dev/null || true
 
 # ---- root password so SSH password-auth + telnet login work -----------------
 # d-i root is otherwise locked, so set a known simple password here.
