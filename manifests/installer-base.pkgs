@@ -71,9 +71,6 @@ firmware-misc-nonfree
 # Generic NIC firmware for real Sky1 boards.  The ISO also stages rtl_nic blobs
 # as raw assets for 12-sky1-firmware.sh, but the base/console rootfs must be
 # self-contained when desktop.squashfs is deselected.
-firmware-linux-free
-firmware-realtek
-firmware-misc-nonfree
 
 # --- operator quality-of-life ---
 htop
