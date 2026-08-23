@@ -624,6 +624,69 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Wallpaper session handoff.
+#
+# The NCZ wallpaper engine is a systemd --user service installed by
+# 45-wallpaper-rotator.sh. On Singularity/labwc the user manager can start that
+# service before the compositor session has imported WAYLAND_DISPLAY and the
+# /opt/singularity runtime environment. Measured on O6N, 2026-08-23: the daemon
+# was active and rotating state, but its process environment lacked
+# WAYLAND_DISPLAY, XDG_CURRENT_DESKTOP, GSETTINGS_SCHEMA_DIR, PATH and
+# LD_LIBRARY_PATH from the live session; the visible swaybg stayed on
+# /opt/singularity/share/backgrounds/singularity/singularity-epic.png.
+#
+# Hook the packaged session launcher at the point where those variables are
+# known. The helper delays slightly so singularity-desktop can create its
+# initial wallpaper layer, then restarts the user service under the imported
+# environment so ncz-wallpaper-rotate owns the live swaybg.
+# ---------------------------------------------------------------------------
+cat > /usr/local/bin/ncz-wallpaper-session-ready <<'WPREADY'
+#!/bin/sh
+(
+    sleep "${NCZ_WALLPAPER_SESSION_DELAY:-5}"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user import-environment \
+            DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP DESKTOP_SESSION \
+            XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS GSETTINGS_SCHEMA_DIR XDG_DATA_DIRS \
+            GI_TYPELIB_PATH PATH LD_LIBRARY_PATH 2>/dev/null || true
+        if systemctl --user cat ncz-wallpaper-rotator.service >/dev/null 2>&1; then
+            systemctl --user restart ncz-wallpaper-rotator.service 2>/dev/null || \
+                systemctl --user start ncz-wallpaper-rotator.service 2>/dev/null || true
+            exit 0
+        fi
+    fi
+    if [ -x /usr/local/bin/ncz-wallpaper-daemon ]; then
+        nohup /usr/local/bin/ncz-wallpaper-daemon >/dev/null 2>&1 &
+    fi
+) >/dev/null 2>&1 &
+WPREADY
+chmod 0755 /usr/local/bin/ncz-wallpaper-session-ready
+
+_SINTY_SESSION=/opt/singularity/bin/singularity-desktop-session
+if [ -f "$_SINTY_SESSION" ]; then
+    if grep -q 'ncz-wallpaper-session-ready' "$_SINTY_SESSION"; then
+        echo "[20] Singularity session already has NCZ wallpaper handoff"
+    elif grep -q 'systemctl --user restart --no-block xdg-desktop-portal' "$_SINTY_SESSION"; then
+        cp -a "$_SINTY_SESSION" "$_SINTY_SESSION.ncz-pre-wallpaper"
+        awk '
+            { print }
+            /systemctl --user restart --no-block xdg-desktop-portal/ {
+                print "if [ -x /usr/local/bin/ncz-wallpaper-session-ready ]; then"
+                print "    /usr/local/bin/ncz-wallpaper-session-ready"
+                print "fi"
+            }
+        ' "$_SINTY_SESSION.ncz-pre-wallpaper" > "$_SINTY_SESSION"
+        chmod 0755 "$_SINTY_SESSION"
+        echo "[20] Singularity session patched to import env + restart NCZ wallpaper rotator"
+    else
+        echo "[20] WARN: could not find session hook point for NCZ wallpaper handoff" >&2
+    fi
+else
+    echo "[20] WARN: $_SINTY_SESSION absent — NCZ wallpaper handoff not patched" >&2
+fi
+unset _SINTY_SESSION
+
+# ---------------------------------------------------------------------------
 # Corner-hint fix — the hot-corner "Overview  Super+Space" hint window
 # (.corner-hint) fails to dismiss on pointer-leave over gtk4-layer-shell
 # surfaces, leaving a stuck pill over the global-menu row. Suppress the visual
