@@ -309,9 +309,12 @@ else
         # cix-npu-driver-dkms: take the SDK's 6.2.0-cixdeb13-260714, apply
         # packaging/cix-npu-driver-dkms-6.2.0/patches/* in order, bump Version
         # to +ncz3. dpkg-deb --build needs the staged dir to be writable.
+        out="$ASSETS/cix-debs/cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz3_arm64.deb"
         npu_dkms_src="$SDK_DIR/cix-npu-driver-dkms_6.2.0-cixdeb13-260714_arm64.deb"
         if [ -f "$npu_dkms_src" ]; then
-            if [ -d "$NPU_DKMS_PATCH_DIR" ]; then
+            if [ -s "$out" ]; then
+                log "  cix-npu-driver-dkms +ncz3 already present ($(du -h "$out" | cut -f1)) -- skipping rebuild"
+            elif [ -d "$NPU_DKMS_PATCH_DIR" ]; then
                 log "  rebuilding cix-npu-driver-dkms 6.2.0-cixdeb13-260714+ncz3 from SDK + patches/"
                 stage=$(mktemp -d)
                 dpkg-deb -R "$npu_dkms_src" "$stage"
@@ -335,7 +338,6 @@ else
                 # Bump the deb version to +ncz3. The DKMS module stays aipu/6.2.0.
                 sed -i 's/^Version: .*/Version: 6.2.0-cixdeb13-260714+ncz3/' \
                     "$stage/DEBIAN/control"
-                out="$ASSETS/cix-debs/cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz3_arm64.deb"
                 dpkg-deb --root-owner-group -Zxz -b "$stage" "$out"
                 log "    staged $(basename "$out")"
                 rm -rf "$stage"
