@@ -55,8 +55,11 @@ xsettingsd
 seatd
 libseat1
 libliftoff0
+libinput10
 libxcb-composite0
 libxcb-ewmh2
+libxcb-icccm4
+libxcb-res0
 # labwc links libxcb-errors for readable X11 protocol errors under Xwayland.
 libxcb-errors0
 swaybg
