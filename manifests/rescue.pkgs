@@ -78,6 +78,14 @@ inetutils-telnetd
 openbsd-inetd
 busybox-static
 dhcpcd-base         # Debian DHCP client; busybox udhcpc is the final fallback
+
+# Generic firmware for NICs/storage-adjacent recovery hardware.  The rescue
+# builder also copies assets/firmware/rtl_nic directly, but Debian firmware
+# packages make the standalone image less brittle and cover future Realtek
+# additions that the committed asset snapshot may not yet include.
+firmware-linux-free
+firmware-realtek
+firmware-misc-nonfree
 curl
 wget
 rsync
