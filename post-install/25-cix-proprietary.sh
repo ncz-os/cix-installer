@@ -414,7 +414,7 @@ echo "$STUCK" | sed 's/^/  /'
 
 # Force-purge any half-configured packages. Without this, every later
 # apt-get call retries the broken postinst and exits non-zero, which
-# kills downstream hooks (30-agents, 50-brand, ...) that have set -e.
+# kills downstream hooks (50-brand, 46-ncz-cli, ...) that have set -e.
 # We've already captured what landed cleanly via dpkg -l above; the
 # stuck packages weren't going to work anyway.
 for pkg in $STUCK; do

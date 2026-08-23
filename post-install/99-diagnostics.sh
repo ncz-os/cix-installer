@@ -141,7 +141,6 @@ collected by run-all.sh as each hook ran.
 | 12-sky1-firmware.log | firmware blob copy to /lib/firmware |
 | 20-desktop.log | XFCE / GNOME install |
 | 25-cix-proprietary.log | Cix vendor debs (filtered for vermagic) |
-| 30-agents.log | agent stack quadlets |
 | 32-quadlet-shim.log | systemd quadlet shim |
 | 35-ssh.log | openssh-server + authorized_keys |
 | 40-claude-code.log | Claude Code install |

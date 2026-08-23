@@ -2583,6 +2583,7 @@ if [ -d "$ROOT/assets" ]; then
         esac
     done
 fi
+[ -f "$ROOT/assets/ncz-cli.sh" ] && cp -aL "$ROOT/assets/ncz-cli.sh" "$EXTRA/assets/" 2>/dev/null || true
 
 # Stage target kernel. Edge (7.2.0-sky1-ncz) is the only shipping kernel.
 # full/thin stage the edge payload; netinstall uses the d-i substrate's kernel.

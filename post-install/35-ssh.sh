@@ -7,7 +7,7 @@
 # operators can ssh in directly + use sudo, while diagnostics from
 # this Mac (jperlow-mlt) and ARGOS work as root over the network.
 #
-# Runs after 30-agents (which already enabled podman.socket etc.) so
+# Runs in the optional post-install phase after base services are present, so
 # sshd's startup ordering doesn't fight quadlet generation.
 set -euo pipefail
 

@@ -457,21 +457,22 @@ $_found"
       sudo cp -a "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" "$MG/usr/local/lib/cix-installer/assets/mgmt/" 2>/dev/null || true
       log "  staged mgmt rootfs ($(du -h "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" | cut -f1))"
     fi
-    # r189.2: dropped the r181 zoder-binary staging block. 30-agents.sh no
-    # longer installs a staged binary at all -- it now always installs zoder
-    # via the official GitLab installer (post-install/30-agents.sh, commits
-    # d73d581/8d75ea5), so assets/zoder/ was dead weight this hook silently
-    # skipped every build anyway (the directory hasn't existed since
-    # 2026-07-05).
+    if [ -f "$ROOT/assets/ncz-cli.sh" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets"
+      sudo cp -a "$ROOT/assets/ncz-cli.sh" "$MG/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
+      log "  staged ncz agent helper"
+    fi
+    # r312: agent-stack setup is no longer a baked or install-time hook. It is
+    # exclusively operator-driven after boot via `ncz agent install`.
     # 26.7 Singularity brand-hook order. 20-desktop = the Singularity installer
     # (extracts /opt/singularity, curates sessions, purges XFCE/Xorg) — runs
     # FIRST so the Wayland desktop exists before the cosmetic hooks. 84-vpu-mpv
     # writes /etc/mpv HW-decode. 57-screensaver = NATIVE Wayland idle-lock
     # (swayidle + Singularity lockscreen; the X11 xscreensaver is purged) — no
-    # longer dropped. 30-agents before 46-ncz-cli (dep order). 59-desktop-curate
-    # LAST of the app hooks (after 20/30-agents/52-vivaldi/46-ncz-cli) so it sees
+    # longer dropped. 59-desktop-curate
+    # LAST of the app hooks (after 20/52-vivaldi/46-ncz-cli) so it sees
     # every app-creating hook's output when it curates the launcher.
-    for bh in 20-desktop 22-display-fix 23-locale-env 50-brand 52-vivaldi 53-chrome 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 84-vpu-vaapi 57-qotd 30-agents 46-ncz-cli 59-desktop-curate 60-boot-splash; do
+    for bh in 20-desktop 22-display-fix 23-locale-env 50-brand 52-vivaldi 53-chrome 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 84-vpu-vaapi 57-qotd 46-ncz-cli 59-desktop-curate 60-boot-splash; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       set +e
@@ -611,6 +612,7 @@ build_base(){
   sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
   for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding wallpaper; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  [ -f "$ROOT/assets/ncz-cli.sh" ] && sudo cp -a "$ROOT/assets/ncz-cli.sh" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
   # prune dev-only junk from the staged asset tree (backup kernels, retired
   # channels) -- it otherwise ships inside base.squashfs as dead weight
   sudo rm -rf "$WORK/base/usr/local/lib/cix-installer/assets/kernel/"retired-* 2>/dev/null || true
