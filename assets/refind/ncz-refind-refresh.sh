@@ -465,6 +465,26 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
 else
     DEFAULT_TOKEN="edge"
 fi
+DESKTOP_COMPONENT_DISABLED=0
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    COMPONENTS_FILE=""
+    for _cf in /usr/local/lib/cix-installer/COMPONENTS \
+               /etc/cix-installer/COMPONENTS \
+               /var/lib/cix-components/COMPONENTS; do
+        [ -r "$_cf" ] && { COMPONENTS_FILE="$_cf"; break; }
+    done
+    if [ -n "$COMPONENTS_FILE" ]; then
+        _components=$(tr -d ' \t\r\n' < "$COMPONENTS_FILE" 2>/dev/null || true)
+        case ",$_components," in
+            *",desktop,"*) : ;;
+            *)
+                DESKTOP_COMPONENT_DISABLED=1
+                DEFAULT_TOKEN="Console (All Accelerators, Mali)"
+                echo "  desktop component disabled; defaulting rEFInd to console entry"
+                ;;
+        esac
+    fi
+fi
 # The policy-computed default, kept aside so a stored/learned override that
 # turns out not to match any entry we actually write (see the validation
 # after the file is written, below) has a known-good value to fall back to.
@@ -503,10 +523,17 @@ NCZ_REFIND_DEFAULT=""
 NCZ_REFIND_TIMEOUT=""
 # shellcheck source=/dev/null
 [ -r "$NCZ_PREFS" ] && . "$NCZ_PREFS"
+if [ "$DESKTOP_COMPONENT_DISABLED" = "1" ]; then
+    # Component selection is install-time policy, not an operator preference.
+    # A baked or learned "Mali (Default)" preference must not override a real
+    # desktop deselection from this install.
+    NCZ_REFIND_DEFAULT=""
+fi
 
 # Learn from the live file when it disagrees with both the stored pref and the
 # value this script would generate -- that means a human changed it.
-if [ -n "$_live_default" ] && [ "$_live_default" != "$DEFAULT_TOKEN" ] \
+if [ "$DESKTOP_COMPONENT_DISABLED" != "1" ] \
+   && [ -n "$_live_default" ] && [ "$_live_default" != "$DEFAULT_TOKEN" ] \
    && [ "$_live_default" != "$NCZ_REFIND_DEFAULT" ]; then
     NCZ_REFIND_DEFAULT="$_live_default"
     echo "  learned operator default_selection: $NCZ_REFIND_DEFAULT"

@@ -195,6 +195,40 @@ NCZBOOTSTRAPPOOL
 }
 install_ncz_bootstrap_pool_hook
 
+# Debian pkgsel ships /usr/lib/pre-pkgsel.d/90popcon, which unconditionally
+# runs `apt-install --no-recommends popularity-contest` before pkgsel/include is
+# considered. In the baked-rootfs flow pkgsel is supposed to be a no-op, and on
+# forky DIAG runs popcon's postinst fails under d-i with fd 3 closed. Rewrite
+# that hook immediately before pkgsel reaches it.
+install_ncz_disable_popcon_hook() {
+    hook_dir=/usr/lib/pre-pkgsel.d
+    hook_tmp="$hook_dir/.00ncz-disable-popcon.$$"
+    hook_final="$hook_dir/00ncz-disable-popcon"
+
+    mkdir -p "$hook_dir"
+    rm -f "$hook_tmp"
+    cat > "$hook_tmp" <<'NCZNOPOPCON'
+#!/bin/sh
+set +e
+LOG=/var/log/early_command.log
+cat > /usr/lib/pre-pkgsel.d/90popcon <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod 0755 /usr/lib/pre-pkgsel.d/90popcon 2>/dev/null || true
+echo "[ncz-disable-popcon] disabled pkgsel 90popcon hook" >> "$LOG"
+exit 0
+NCZNOPOPCON
+
+    if grep -q '^exit 0$' "$hook_tmp" && chmod 0755 "$hook_tmp" && mv -f "$hook_tmp" "$hook_final"; then
+        echo "[watcher] installed ncz disable-popcon hook for pre-pkgsel.d"
+    else
+        rm -f "$hook_tmp"
+        echo "[watcher] failed to publish $hook_final"
+    fi
+}
+install_ncz_disable_popcon_hook
+
 # 2026-05-08 take15: install a custom /etc/udhcpc/default.script that
 # unconditionally writes /etc/resolv.conf with our 3-nameserver chain
 # (8.8.8.8 + 1.1.1.1 + DHCP-provided). udhcpc on bookworm d-i runs
