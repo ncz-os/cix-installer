@@ -93,9 +93,6 @@ sshfs
 nfs-common
 cifs-utils
 lftp
-firmware-realtek
-firmware-linux-free
-firmware-misc-nonfree
 # rclone is not currently in Debian Testing arm64; ship it only as a verified
 # NCZ vendor asset when the rescue workflow actually needs remote-object sync.
 
