@@ -158,11 +158,10 @@ else
         mkdir -p "$ASSETS/sky1-firmware/rtw89"
         cp -an "$SRC_FIRMWARE_DIR/rtw89/." "$ASSETS/sky1-firmware/rtw89/" 2>/dev/null || true
     fi
-    # The src arm/ tree is just arm/mali/arch12.8/mali_csffw.bin; the destination
-    # already has that path (or an equivalent; not clobbered). Skip the arm copy:
-    # there's no real source-of-truth gain, and overwriting the host's Mali
-    # overlay without a checksum check is the kind of "helpful" copy that
-    # silently regresses a board.
+    if [ -d "$SRC_FIRMWARE_DIR/arm" ]; then
+        mkdir -p "$ASSETS/sky1-firmware/arm"
+        cp -an "$SRC_FIRMWARE_DIR/arm/." "$ASSETS/sky1-firmware/arm/" 2>/dev/null || true
+    fi
     fw_count=$(find "$ASSETS/sky1-firmware" -maxdepth 1 -type f | wc -l)
     log "  sky1-firmware: $fw_count files (was 1, the lone mali_csffw.bin)"
     reached=$((reached+1))

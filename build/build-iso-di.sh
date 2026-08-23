@@ -144,6 +144,13 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
+if [ -x "$ROOT/build/preflight-sbom-check.sh" ]; then
+    bash "$ROOT/build/preflight-sbom-check.sh"
+else
+    echo "ERROR: missing executable SBOM preflight gate: $ROOT/build/preflight-sbom-check.sh" >&2
+    exit 1
+fi
+
 # Release identity is version-controlled separately from the per-build VERSION.
 RELEASE_CONFIG="$ROOT/release.conf"
 [ -s "$RELEASE_CONFIG" ] || { echo "ERROR: missing release identity: $RELEASE_CONFIG" >&2; exit 1; }
@@ -229,10 +236,12 @@ if [ "$MODE" = "full" ]; then
         if ! bash "$ROOT/build/stage-canonical-assets.sh" \
                 --from "$ROOT/assets" 2>&1 \
             | sed 's/^/[stage-canonical-assets] /'; then
-            echo "WARNING: stage-canonical-assets.sh exited non-zero -- continuing with whatever it could stage (see output above)" >&2
+            echo "ERROR: stage-canonical-assets.sh exited non-zero -- aborting (see output above)" >&2
+            exit 1
         fi
     else
-        echo "WARNING: $ROOT/build/stage-canonical-assets.sh not executable -- skipping auto-restage" >&2
+        echo "ERROR: $ROOT/build/stage-canonical-assets.sh not executable -- cannot auto-restage required assets" >&2
+        exit 1
     fi
     if ! ls "$ROOT/assets/cix-debs"/*.deb >/dev/null 2>&1; then
         echo "ERROR: assets/cix-debs/ has no *.deb — full desktop ISO would install with NO CIX GPU userspace (libmali/EGL/GLES) and boot to a dead greeter." >&2
