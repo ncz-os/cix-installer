@@ -102,6 +102,8 @@ export TERM=\${TERM:-vt100} HOME=/root PS1='ncz-diag:\w# '
 exec $BIN/sh -i
 SH
 chmod 0755 "$RUN/diagsh"
+export PATH=$BIN:/usr/bin:/bin:/usr/sbin:/sbin
+export TERM="${TERM:-vt100}" HOME=/root PS1='ncz-diag:\w# '
 
 # BusyBox telnetd allocates a PTY for the login shell.  Some d-i paths reach
 # early_command before devpts is mounted, which leaves telnet reachable but
@@ -206,7 +208,7 @@ start_syslogd() {
 }
 start_telnetd() {
     alive "$RUN/telnetd.pid" && return 0
-    "$BB" telnetd -F -l "$RUN/diagsh" -p "$TELNET_PORT" & echo $! > "$RUN/telnetd.pid"
+    "$BB" telnetd -F -l "$BIN/sh" -p "$TELNET_PORT" & echo $! > "$RUN/telnetd.pid"
     verify_listener "telnetd" "$RUN/telnetd.pid" "$TELNET_PORT" || true
 }
 start_httpd() {
