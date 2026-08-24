@@ -57,7 +57,10 @@
 #
 # TEST/UNATTENDED override: kernel cmdline `ncz_components=desktop,mgmt-container,...`
 # (comma-separated, matching the multiselect answer format) skips the prompt
-# entirely. Legacy explicit browsers/wallpaper-rotator tokens are accepted
+# entirely. There is NO prompt timeout any more: the prompt is synchronous
+# (see the prompt block for why the old 90s poll-and-kill design corrupted
+# the cdebconf protocol stream and wedged every metal install); headless
+# runs MUST pass ncz_components=. Legacy explicit browsers/wallpaper-rotator tokens are accepted
 # harmlessly, but desktop remains the source of truth for both. Empty + absent
 # override → prompt is shown. This is how the KVM install gate and any other
 # unattended pipeline runs without a human present.
@@ -93,16 +96,12 @@ component_is_valid() {
 # --- read cmdline override --------------------------------------------------
 CMD=$(cat /proc/cmdline 2>/dev/null)
 OVR=""
-PROMPT_TIMEOUT=""
 for tok in $CMD; do
     case "$tok" in
         ncz_components=*) OVR="${tok#ncz_components=}" ;;
-        ncz_components_timeout=*) PROMPT_TIMEOUT="${tok#ncz_components_timeout=}" ;;
+        ncz_components_timeout=*) : ;; # deprecated no-op (2026-08-24): the poll-and-kill timeout WAS the wedge bug; see prompt block below
     esac
 done
-case "$PROMPT_TIMEOUT" in
-    ''|*[!0-9]*) PROMPT_TIMEOUT=90 ;;
-esac
 
 # --- build the question -----------------------------------------------------
 # The full candidate set is the default answer (opt-OUT: today's behaviour).
@@ -167,56 +166,76 @@ Description: NCZ-OS install — select which OPTIONAL COMPONENTS to install
  .
 ${_LONG}
 TPL
-    _answer=/tmp/ncz-components.answer.$$
-    _rc=/tmp/ncz-components.rc.$$
-    rm -f "$_answer" "$_rc"
-    log "showing component prompt (timeout ${PROMPT_TIMEOUT}s; default = all enabled)"
-    (
-        set +e
-        . /usr/share/debconf/confmodule 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
-        if debconf-loadtemplate ncz /tmp/ncz-components.templates 2>/dev/null; then
-            db_set     ncz/components "$_DEFAULT" 2>/dev/null || true
-            db_fset    ncz/components seen false   || true
-            db_settitle ncz/components 2>/dev/null
-            if db_input critical ncz/components && db_go; then
-                db_get ncz/components && printf '%s\n' "$RET" > "$_answer"
-                echo 0 > "$_rc"
-                exit 0
+    # ------------------------------------------------------------------
+    # SYNCHRONOUS FOREGROUND prompt — 2026-08-24 root-cause fix for the
+    # metal 'Internal error! Cannot find "ok" in menu.' installer wedge.
+    #
+    # The previous implementation ran this prompt in a BACKGROUND subshell
+    # ('( ... ) &') polled for up to 90s and then killed. That can never
+    # work, and it broke EVERY metal install since it landed (2026-08-20):
+    #
+    #   * POSIX: in a non-interactive shell without job control, a
+    #     backgrounded command gets its stdin redirected from /dev/null.
+    #     In this postinst context stdin IS the cdebconf reply pipe, so
+    #     the subshell could not read a single protocol reply — while its
+    #     COMMANDS still reached cdebconf on the inherited fd3. Proven by
+    #     fd forensics in the QEMU repro: subshell fd0 -> /dev/null,
+    #     fd3 -> the live confmodule command pipe.
+    #   * cdebconf's channel is ONE strictly synchronous stream shared by
+    #     the whole d-i process tree. Each of the subshell's commands
+    #     (SET, FSET, SETTITLE, INPUT, ...) therefore queued one reply
+    #     that nobody read. Every later confmodule read — the rest of the
+    #     file-preseed postinst, then main-menu itself — got the reply
+    #     meant for an EARLIER command. main-menu's GET of
+    #     debian-installer/main-menu read a stale "0 ok", took the literal
+    #     string "ok" as the chosen menu entry, logged
+    #         Internal error! Cannot find "ok" in menu.
+    #     and exited: blank blue screen, install wedged forever.
+    #   * The old rc=99 "could not be shown" log line was busybox ash
+    #     dying on confmodule's 'return ""' after reading EOF — the rc
+    #     file was never written. The 90s kill path would have done the
+    #     same damage on any run that got that far.
+    #
+    # Measured live on metal (.66, 2026-08-24, /proc + questions.dat
+    # forensics) and reproduced + fd-traced under QEMU on the same
+    # unattended cmdline. The KVM install gate never caught it because
+    # the gate injects ncz_components= and so never walks this branch.
+    #
+    # The fix: prompt SYNCHRONOUSLY IN THE FOREGROUND, exactly like the
+    # carrier-detection db_set above (safe since 2026-07-17) and like
+    # disk-fs-chooser.sh — foreground children inherit the REAL reply
+    # pipe and consume every reply they cause. No timeout: any timeout
+    # that kills a confmodule client mid-transaction re-creates the bug.
+    # Unattended/headless runs must pass ncz_components=<list> on the
+    # kernel cmdline (the KVM install gate already does), which skips
+    # this prompt entirely.
+    # ------------------------------------------------------------------
+    log "showing component prompt (synchronous; unattended runs preseed ncz_components= on the cmdline)"
+    _prompt_rc=99
+    if debconf-loadtemplate ncz /tmp/ncz-components.templates 2>/dev/null; then
+        db_set      ncz/components "$_DEFAULT" 2>/dev/null || true
+        db_fset     ncz/components seen false 2>/dev/null || true
+        db_settitle ncz/components 2>/dev/null || true
+        if db_input critical ncz/components && db_go; then
+            if db_get ncz/components; then
+                CHOSEN="$RET"
+                _prompt_rc=0
             fi
-            echo 2 > "$_rc"
-            exit 2
+        else
+            _prompt_rc=2
         fi
-        echo 3 > "$_rc"
-        exit 3
-    ) &
-    _prompt_pid=$!
-    _elapsed=0
-    while kill -0 "$_prompt_pid" 2>/dev/null && [ "$_elapsed" -lt "$PROMPT_TIMEOUT" ]; do
-        sleep 1
-        _elapsed=$(( _elapsed + 1 ))
-    done
-    if kill -0 "$_prompt_pid" 2>/dev/null; then
-        log "WARNING: component prompt did not complete after ${PROMPT_TIMEOUT}s; killing prompt and using default (all enabled)"
-        kill "$_prompt_pid" 2>/dev/null || true
-        sleep 2
-        kill -KILL "$_prompt_pid" 2>/dev/null || true
-        wait "$_prompt_pid" 2>/dev/null || true
+    else
+        _prompt_rc=3
+    fi
+    if [ "$_prompt_rc" = 0 ]; then
+        log "component prompt answered: $CHOSEN"
+    elif [ "$_prompt_rc" = 3 ]; then
+        log "WARNING: could not load component template — using default (all enabled)"
         CHOSEN="$_DEFAULT"
     else
-        wait "$_prompt_pid" 2>/dev/null || true
-        _prompt_rc=$(cat "$_rc" 2>/dev/null || echo 99)
-        if [ "$_prompt_rc" = 0 ]; then
-            CHOSEN=$(cat "$_answer" 2>/dev/null || true)
-            log "component prompt completed in ${_elapsed}s"
-        elif [ "$_prompt_rc" = 3 ]; then
-            log "WARNING: could not load component template — using default (all enabled)"
-            CHOSEN="$_DEFAULT"
-        else
-            log "WARNING: component prompt could not be shown/completed (rc=$_prompt_rc) — using default (all enabled)"
-            CHOSEN="$_DEFAULT"
-        fi
+        log "WARNING: component prompt could not be shown/completed (rc=$_prompt_rc) — using default (all enabled)"
+        CHOSEN="$_DEFAULT"
     fi
-    rm -f "$_answer" "$_rc"
 fi
 
 # Normalise: dedupe, drop blanks, drop unknowns (defence in depth — anyone
