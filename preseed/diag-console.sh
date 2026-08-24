@@ -208,7 +208,7 @@ start_syslogd() {
 }
 start_telnetd() {
     alive "$RUN/telnetd.pid" && return 0
-    "$BB" telnetd -F -l "$BIN/sh" -p "$TELNET_PORT" & echo $! > "$RUN/telnetd.pid"
+    "$BB" telnetd -F -l "$BIN/login" -p "$TELNET_PORT" & echo $! > "$RUN/telnetd.pid"
     verify_listener "telnetd" "$RUN/telnetd.pid" "$TELNET_PORT" || true
 }
 start_httpd() {
