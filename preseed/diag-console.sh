@@ -87,7 +87,7 @@ fi
 mkdir -p "$BIN"; "$BB" --install -s "$BIN" 2>/dev/null
 say "applet farm: $(ls "$BIN" 2>/dev/null | wc -l) applets in $BIN"
 export PATH=$BIN:/usr/bin:/bin:/usr/sbin:/sbin
-for _applet in chpasswd httpd klogd nc netstat sh tail telnetd; do
+for _applet in chpasswd httpd ifconfig klogd login nc netstat route sh tail telnetd udhcpc; do
     if [ ! -x "$BIN/$_applet" ]; then
         say "FATAL: busybox applet $_applet missing from $BIN"
         exit 1
@@ -121,6 +121,67 @@ fi
 printf 'root:%s\n' "$PW" | "$BB" chpasswd 2>/dev/null \
     && say "root password set (ssh/telnet password auth enabled)" \
     || say "ERROR: failed to set root password; SSH password login will fail"
+
+# ---- bring the network up OURSELVES -----------------------------------------
+# ROOT CAUSE of the 2026-08-23 "telnet listens but never answers" arc: this
+# module used to WAIT for an IP that only d-i's netcfg would assign — but
+# netcfg runs long after early_command, and not at all when d-i wedges at an
+# early dialog. That is EXACTLY the scenario this module exists for. Measured
+# in QEMU DIAG boots (build/diag-net, 2026-08-24): d-i sitting at the language
+# dialog, "telnetd verified listening on :23", banner IP=<none>, and the
+# host-forwarded telnet connect closed with no data because the guest had no
+# address for slirp to deliver to. Every telnetd/login/pty tweak before this
+# was aimed at the wrong layer: the login path was never even reached.
+#
+# So: raise every NIC, then one-shot DHCP (udhcpc -n -q) each NIC with
+# carrier using the static busybox. One-shot means the client exits after
+# binding, so it can never fight netcfg's own DHCP client later in a normal
+# install. Retried from the respawn loop until an address exists (RTL8125B
+# autoneg can take ~9-13s, so first pass may legitimately find no carrier).
+current_ip() {
+    "$BB" ifconfig 2>/dev/null | grep -oE 'inet (addr:)?[0-9.]+' \
+        | grep -oE '[0-9]+\.[0-9.]+' | grep -v '^127\.' | head -1
+}
+cat > "$RUN/udhcpc.script" <<'US'
+#!/bin/sh
+BIN=/tmp/diagbin
+case "$1" in
+    bound|renew)
+        "$BIN/ifconfig" "$interface" "$ip" netmask "${subnet:-255.255.255.0}"
+        for r in $router; do
+            "$BIN/route" add default gw "$r" dev "$interface" 2>/dev/null
+            break
+        done
+        ;;
+    deconfig)
+        "$BIN/ifconfig" "$interface" 0.0.0.0 2>/dev/null
+        ;;
+esac
+exit 0
+US
+chmod 0755 "$RUN/udhcpc.script"
+diag_net_up() {
+    [ -n "$(current_ip)" ] && return 0
+    for _ifp in /sys/class/net/*; do
+        _ifn=$(basename "$_ifp")
+        [ "$_ifn" = "lo" ] && continue
+        "$BB" ifconfig "$_ifn" up 2>/dev/null || true
+    done
+    for _ifp in /sys/class/net/*; do
+        _ifn=$(basename "$_ifp")
+        [ "$_ifn" = "lo" ] && continue
+        [ "$(cat "$_ifp/carrier" 2>/dev/null)" = "1" ] || continue
+        "$BB" udhcpc -f -n -q -t 3 -T 3 -i "$_ifn" -s "$RUN/udhcpc.script" \
+            >/tmp/diag-udhcpc-"$_ifn".log 2>&1
+        _got=$(current_ip)
+        if [ -n "$_got" ]; then
+            say "network up: $_ifn $_got (diag-owned one-shot DHCP)"
+            return 0
+        fi
+    done
+    return 1
+}
+diag_net_up || say "no DHCP lease yet (no carrier or no server); will keep retrying"
 
 # ---- daemon helpers (idempotent via pidfiles) -------------------------------
 alive() { p=$(cat "$1" 2>/dev/null); [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
@@ -174,7 +235,13 @@ install_udeb_from_media() {
     }
 }
 install_sshd_udebs() {
-    if command -v anna-install >/dev/null 2>&1; then
+    # anna-install talks to the single cdebconf instance; doing that while
+    # main-menu has a live dialog up can corrupt/hang the installer UI. In the
+    # wedged-installer scenario (main-menu waiting on a question forever) go
+    # straight to direct udpkg, which does not touch the debconf frontend.
+    if ps 2>/dev/null | grep -E '([[:space:]]|/)main-menu([[:space:]]|$)' | grep -v grep >/dev/null 2>&1; then
+        say "main-menu active; using direct udpkg for openssh-server-udeb (skipping anna-install)"
+    elif command -v anna-install >/dev/null 2>&1; then
         say "sshd not present; installing openssh-server-udeb for diagnostics"
         anna-install openssh-server-udeb >/tmp/diag-anna-sshd.log 2>&1 && return 0
         say "ERROR: anna-install openssh-server-udeb failed; falling back to direct udpkg"
@@ -190,8 +257,14 @@ install_sshd_udebs() {
 }
 
 installer_component_loader_busy() {
+    # Only TRANSIENT package-loader processes defer us. main-menu must NOT be
+    # in this list: it runs for the whole life of d-i, so matching it deferred
+    # the SSH udeb install FOREVER — measured 2026-08-24 in a QEMU DIAG boot
+    # ("installer component loader busy" every 10s for the entire session,
+    # sshd never installed) in precisely the wedged-installer scenario this
+    # module exists for.
     ps 2>/dev/null \
-        | grep -E '([[:space:]]|/)(anna|anna-install|udpkg|main-menu)([[:space:]]|$)' \
+        | grep -E '([[:space:]]|/)(anna|anna-install|udpkg)([[:space:]]|$)' \
         | grep -v grep >/dev/null 2>&1
 }
 
@@ -274,8 +347,10 @@ start_httpd
 start_sshd
 
 # ---- banner (after best-effort network wait, for a real IP) -----------------
-current_ip() { ip -4 -o addr 2>/dev/null | grep -oE 'inet [0-9.]+' | grep -v 'inet 127' | head -1 | cut -d' ' -f2; }
-i=0; while [ -z "$(current_ip)" ] && [ "$i" -lt 120 ]; do sleep 1; i=$((i+1)); done
+# current_ip() defined above (busybox ifconfig — d-i's own `ip` is not
+# guaranteed). diag_net_up() actively DHCPs, so this loop normally exits on
+# its first few iterations rather than timing out at 120s with IP=<none>.
+i=0; while [ -z "$(current_ip)" ] && [ "$i" -lt 120 ]; do diag_net_up >/dev/null 2>&1; sleep 1; i=$((i+1)); done
 IP="$(current_ip)"
 say "==================================================================="
 say "NCZ installer diagnostics READY  (ncz_diag=$DIAG)  IP=${IP:-<none>}"
@@ -287,6 +362,7 @@ say "==================================================================="
 
 # ---- idempotent respawn for the life of the install -------------------------
 while :; do
+    diag_net_up >/dev/null 2>&1
     start_syslogd
     start_telnetd
     start_httpd
