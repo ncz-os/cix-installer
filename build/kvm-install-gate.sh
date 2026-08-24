@@ -141,6 +141,27 @@ d-i debian-installer/locale string en_US.UTF-8
 d-i debian-installer/locale seen true
 d-i keyboard-configuration/xkb-keymap select us
 d-i keyboard-configuration/xkb-keymap seen true
+d-i clock-setup/utc boolean true
+d-i clock-setup/utc seen true
+d-i time/zone string UTC
+d-i time/zone seen true
+d-i clock-setup/ntp boolean false
+d-i clock-setup/ntp seen true
+
+##############################################################################
+# KVM install gate only: the shipped preseed deliberately leaves the operator
+# account unanswered. Kernel cmdline values alone do not mark the passwd
+# templates seen on current forky d-i, so user-setup can fail under
+# priority=critical before the full install gate reaches post-install hooks.
+##############################################################################
+d-i passwd/user-fullname string NCZTestUser
+d-i passwd/user-fullname seen true
+d-i passwd/username string nczuser
+d-i passwd/username seen true
+d-i passwd/user-password password nczpassword123
+d-i passwd/user-password seen true
+d-i passwd/user-password-again password nczpassword123
+d-i passwd/user-password-again seen true
 EOF
 
 # (3b) unattended component selection: the ncz-installer front-end shows an
