@@ -576,6 +576,58 @@ EOF
     rm -f "$conf" "$release_tmp"
 }
 
+ensure_di_udeb_from_archive() {
+    local pkg="$1"
+    local suite="${2:-$DI_CODENAME}"
+    local arch="${3:-arm64}"
+    local mirror="${DI_UDEB_MIRROR:-https://deb.debian.org/debian}"
+    local index="$STAGING/.tmp-${suite}-${arch}-di-Packages"
+    local entry filename sha256 url dest actual
+
+    if find "$STAGING/pool" -name "${pkg}_*.udeb" 2>/dev/null | grep -q .; then
+        echo "    required udeb present: $pkg"
+        return 0
+    fi
+
+    for t in curl gzip sha256sum awk; do
+        command -v "$t" >/dev/null 2>&1 || {
+            echo "ERROR: missing $t; cannot fetch required d-i udeb $pkg" >&2
+            exit 1
+        }
+    done
+
+    if [ ! -s "$index" ]; then
+        echo "    fetching $suite debian-installer Packages index for required udebs"
+        curl -fsSL "$mirror/dists/$suite/main/debian-installer/binary-$arch/Packages.gz" \
+            | gzip -dc > "$index"
+    fi
+
+    entry="$(awk -v want="$pkg" 'BEGIN{RS=""; FS="\n"} $1 == "Package: " want {print; exit}' "$index")"
+    [ -n "$entry" ] || {
+        echo "ERROR: $pkg not found in $mirror dists/$suite/main/debian-installer/binary-$arch/Packages.gz" >&2
+        exit 1
+    }
+    filename="$(printf '%s\n' "$entry" | awk '/^Filename: /{print $2; exit}')"
+    sha256="$(printf '%s\n' "$entry" | awk '/^SHA256: /{print $2; exit}')"
+    [ -n "$filename" ] && [ -n "$sha256" ] || {
+        echo "ERROR: incomplete Packages entry for $pkg (missing Filename or SHA256)" >&2
+        exit 1
+    }
+
+    url="$mirror/$filename"
+    dest="$STAGING/$filename"
+    mkdir -p "$(dirname "$dest")"
+    echo "    grafting required udeb: $pkg from $suite ($(basename "$filename"))"
+    curl -fsSL "$url" -o "$dest.tmp"
+    actual="$(sha256sum "$dest.tmp" | awk '{print $1}')"
+    if [ "$actual" != "$sha256" ]; then
+        echo "ERROR: SHA256 mismatch for $pkg: got $actual expected $sha256" >&2
+        rm -f "$dest.tmp"
+        exit 1
+    fi
+    mv "$dest.tmp" "$dest"
+}
+
 # ----------------------------------------------------------------------
 # Kernel discovery — edge (7.2.0-sky1-ncz) is the only supported channel.
 #   $ROOT/assets/kernel/edge/Image-cixmini.bin
@@ -813,6 +865,25 @@ for need_pkg in debootstrap-udeb libzstd1-udeb liblzma5-udeb; do
     fi
 done
 echo "    udeb assertions: debootstrap-udeb + libzstd1-udeb + liblzma5-udeb present"
+
+# Debian netinst media can boot with cdebconf-newt installed in initrd while
+# omitting the installable core cdebconf udebs from /pool. This image rebuilds
+# the media pool and anna index after retargeting suites, so keep the core
+# engine/frontend udebs explicitly available for later d-i component loads and
+# template registration. Without cdebconf-newt-udeb's templates, main-menu can
+# wedge looking up standard button labels such as debconf/button-ok.
+REQUIRED_DI_UDEBS=(cdebconf-udeb cdebconf-newt-udeb)
+for need_pkg in "${REQUIRED_DI_UDEBS[@]}"; do
+    ensure_di_udeb_from_archive "$need_pkg" "$DI_CODENAME" arm64
+done
+for need_pkg in "${REQUIRED_DI_UDEBS[@]}"; do
+    HITS=$(find "$STAGING/pool" -name "${need_pkg}_*.udeb" 2>/dev/null | wc -l)
+    if [ "$HITS" -eq 0 ]; then
+        echo "ERROR: substrate=$DI_CODENAME merged pool missing required d-i udeb $need_pkg" >&2
+        exit 1
+    fi
+done
+echo "    udeb assertions: cdebconf-udeb + cdebconf-newt-udeb present"
 
 # r40 full mode: replace /usr/sbin/debootstrap in the staged debootstrap-udeb
 # with a stub. thin/netinstall deliberately skip this so bookworm
