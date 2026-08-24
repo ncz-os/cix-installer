@@ -1652,10 +1652,11 @@ rm -rf "$DEBOOTSTRAP_PATCH_TMP"
 # (a) are redundant with rEFInd and (b) FAIL on a btrfs root / no-EFI / generic
 # arm64 board, red-erroring the whole install at "Make the system bootable".
 #
-# TWO udebs register that menu item on arm64 (lower Installer-Menu-Item runs
-# first):
+# THREE udebs can register that menu item on arm64 (lower Installer-Menu-Item
+# runs first):
 #   flash-kernel-installer  Installer-Menu-Item: 7300  (PRIMARY on arm64)
 #   grub-installer          Installer-Menu-Item: 7400
+#   nobootloader            Installer-Menu-Item: 7600  (fallback no-op)
 #
 # d-i main-menu runs the udeb's *postinst* (control.tar) for the menu item —
 # NOT data.tar's /usr/bin/<tool> (the r118 mistake). So we stub each udeb's
@@ -1691,7 +1692,10 @@ neutralize_udeb_postinst() {
 # ncz r120 stub $_label postinst — d-i "Make the system bootable" no-op.
 # Installed bootloader is rEFInd (post-install/70-bootloader.sh from
 # late_command). Upstream installer is redundant and FAILS on btrfs/no-EFI/
-# generic-arm64; always succeed so the install completes.
+# generic-arm64; always succeed so the install completes. nobootloader is also
+# redundant for NCZ and was proven on 2026-08-24 real .66 hardware to die with
+# SIGBUS only when main-menu drives its stock debconf note path; standalone
+# mapdevfs, archdetect, user-params, and postinst all exited cleanly.
 . /usr/share/debconf/confmodule 2>/dev/null || true
 logger -t $_label "ncz stub: skipping bootable step — rEFInd installed by 70-bootloader.sh" 2>/dev/null || true
 exit 0
@@ -1710,6 +1714,7 @@ GIPOST
 }
 neutralize_udeb_postinst "$STAGING/pool/main/f/flash-kernel/flash-kernel-installer_*.udeb" "flash-kernel-installer"
 neutralize_udeb_postinst "$STAGING/pool/main/g/grub-installer/grub-installer_*.udeb" "grub-installer"
+neutralize_udeb_postinst "$STAGING/pool/main/n/nobootloader/nobootloader_*.udeb" "nobootloader"
 
 # r173: NCZ-brand the d-i INSTALLER UI. The installer screens ship Debian
 # branding in the udeb debconf TEMPLATES (control.tar's ./templates) — most
