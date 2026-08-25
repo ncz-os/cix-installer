@@ -268,9 +268,22 @@ else
     # on O6N 2026-08-25). Stage it under the correct name and location.
     if [ -f /opt/singularity/share/xdg-desktop-portal/labwc-portals.conf ]; then
         install -d -m0755 /etc/xdg-desktop-portal
-        install -m0644 /opt/singularity/share/xdg-desktop-portal/labwc-portals.conf \
-            /etc/xdg-desktop-portal/singularity-portals.conf
-        echo "[20] staged singularity-portals.conf (prefers wlr backend for Screenshot/ScreenCast)"
+        # Write our own singularity-portals.conf rather than copying the
+        # payload's file verbatim: the payload's [preferred] default=wlr;*
+        # wildcard falls back to ANY installed backend for interfaces wlr
+        # does not implement -- confirmed live on O6N 2026-08-25, this pulled
+        # in kwallet.portal (org.kde.ksecretd) for org.freedesktop.impl.portal.Secret
+        # purely because kwalletd happened to be present, spawning unwanted
+        # KDE Wallet prompts on a GTK/labwc desktop that never asked for KDE's
+        # secret storage. Keep the wlr preference (Screenshot/ScreenCast) but
+        # explicitly disable Secret so the wildcard can never pull it in.
+        cat > /etc/xdg-desktop-portal/singularity-portals.conf <<'PORTALCONF'
+[preferred]
+default=wlr;*
+org.freedesktop.impl.portal.Inhibit=none
+org.freedesktop.impl.portal.Secret=none
+PORTALCONF
+        echo "[20] staged singularity-portals.conf (prefers wlr backend for Screenshot/ScreenCast, excludes KDE Wallet)"
     else
         echo "[20] WARN: no labwc-portals.conf in payload either; screenshots/screen-share will stay broken" >&2
     fi
