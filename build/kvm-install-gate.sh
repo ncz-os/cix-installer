@@ -131,6 +131,16 @@ sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4
 # qemutest ISO's preseed with standard d-i answers plus seen=true.
 PSEED="$QEMU_STAGE/staging/cixmini/preseed.cfg"
 [ -f "$PSEED" ] || { echo "GATE FAIL: qemutest ISO has no cixmini/preseed.cfg"; exit 2; }
+
+# Normalize existing clock answers in place before appending the KVM-only
+# block. The shipped preseed sets clock-setup/ntp=true and marks it seen for
+# real installs; appending a later false value is not reliable once cdebconf
+# has already consumed the earlier seen=true answer.
+sed -i \
+  -e 's/^d-i[[:space:]]\+time\/zone[[:space:]]\+string[[:space:]].*/d-i time\/zone string UTC/' \
+  -e 's/^d-i[[:space:]]\+clock-setup\/ntp[[:space:]]\+boolean[[:space:]].*/d-i clock-setup\/ntp boolean false/' \
+  "$PSEED"
+
 cat >> "$PSEED" <<'EOF'
 
 ##############################################################################
@@ -147,6 +157,8 @@ d-i time/zone string UTC
 d-i time/zone seen true
 d-i clock-setup/ntp boolean false
 d-i clock-setup/ntp seen true
+d-i clock-setup/ntp-server string
+d-i clock-setup/ntp-server seen true
 
 ##############################################################################
 # KVM install gate only: the shipped preseed deliberately leaves the operator
