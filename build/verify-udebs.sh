@@ -11,14 +11,6 @@ FAILED=0
 while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|\#*) continue ;; esac
     package="${line%%[[:space:]]*}"
-    case "$package" in
-        *-udeb) ;;
-        *)
-            echo "MALFORMED UDEB NAME: $line" >&2
-            FAILED=1
-            continue
-            ;;
-    esac
     if ! grep -Eq "(^|[ (])$package([ )]|$)" "$REPO/build/build-iso-di.sh"; then
         echo "MISSING UDEB REQUIREMENT: build/build-iso-di.sh:$package" >&2
         FAILED=1

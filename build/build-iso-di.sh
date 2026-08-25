@@ -899,13 +899,14 @@ for need_pkg in debootstrap-udeb libzstd1-udeb liblzma5-udeb; do
 done
 echo "    udeb assertions: debootstrap-udeb + libzstd1-udeb + liblzma5-udeb present"
 
-# Debian netinst media can boot with cdebconf-newt installed in initrd while
-# omitting the installable core cdebconf udebs from /pool. This image rebuilds
-# the media pool and anna index after retargeting suites, so keep the core
-# engine/frontend udebs explicitly available for later d-i component loads and
-# template registration. Without cdebconf-newt-udeb's templates, main-menu can
-# wedge looking up standard button labels such as debconf/button-ok.
-REQUIRED_DI_UDEBS=(cdebconf-udeb cdebconf-newt-udeb)
+# Debian netinst media can boot with some udebs already unpacked in initrd
+# while omitting their installable copies from /pool. This image rebuilds the
+# media pool and anna index after retargeting suites, so keep core d-i runtime
+# udebs explicitly available for later component loads and template
+# registration. Without cdebconf-newt-udeb's templates, main-menu can wedge
+# looking up standard button labels such as debconf/button-ok. Without
+# hw-detect, disk-detect installs from media but fails at the Detect disks step.
+REQUIRED_DI_UDEBS=(cdebconf-udeb cdebconf-newt-udeb hw-detect)
 for need_pkg in "${REQUIRED_DI_UDEBS[@]}"; do
     ensure_di_udeb_from_archive "$need_pkg" "$DI_CODENAME" arm64
 done
@@ -916,7 +917,7 @@ for need_pkg in "${REQUIRED_DI_UDEBS[@]}"; do
         exit 1
     fi
 done
-echo "    udeb assertions: cdebconf-udeb + cdebconf-newt-udeb present"
+echo "    udeb assertions: cdebconf-udeb + cdebconf-newt-udeb + hw-detect present"
 
 # r40 full mode: replace /usr/sbin/debootstrap in the staged debootstrap-udeb
 # with a stub. thin/netinstall deliberately skip this so bookworm
