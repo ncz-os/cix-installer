@@ -65,6 +65,14 @@ libxcb-errors0
 swaybg
 grim
 slurp
+# zenity backs ncz-screenshot-timer's delay-entry/countdown dialog (see
+# post-install/20-desktop.sh) -- a portal-independent screenshot path.
+# xdg-desktop-portal's Screenshot request hangs (GTask never returns) even
+# after the singularity.portal/wlr-fallback staging fixes below, so both
+# gnome-screenshot and Singularity's own screenshot utility fail; grim+
+# slurp called directly, with no portal involved, is what actually works
+# -- confirmed live on O6N 2026-08-25.
+zenity
 fuzzel
 xwayland
 polkitd
