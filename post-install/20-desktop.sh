@@ -253,7 +253,27 @@ PORTAL
         /etc/systemd/user/xdg-desktop-portal-singularity.service
     echo "[20] wired Singularity portal into systemd user-unit path"
 else
-    echo "[20] WARN: Singularity portal payload missing; desktop portal backend unavailable" >&2
+    echo "[20] WARN: Singularity portal payload missing; falling back to stock wlr backend" >&2
+    # No dedicated Singularity portal binary on this build. The payload still
+    # ships a portals.conf that prefers the stock wlr backend (it implements
+    # Screenshot/ScreenCast and labwc is wlroots-based), but xdg-desktop-portal
+    # only reads <lowercased-XDG_CURRENT_DESKTOP>-portals.conf from its real
+    # search path ($XDG_CONFIG_HOME/xdg-desktop-portal/, then
+    # /etc/xdg-desktop-portal/) -- the shipped file sits at
+    # /opt/singularity/share/xdg-desktop-portal/labwc-portals.conf, named for
+    # the wrong desktop id (this session reports XDG_CURRENT_DESKTOP=Singularity,
+    # not labwc) and outside any path xdg-desktop-portal actually searches, so
+    # it was silently never applied -- xdg-desktop-portal-wlr never started and
+    # screenshots failed with "screenshot service unavailable" (confirmed live
+    # on O6N 2026-08-25). Stage it under the correct name and location.
+    if [ -f /opt/singularity/share/xdg-desktop-portal/labwc-portals.conf ]; then
+        install -d -m0755 /etc/xdg-desktop-portal
+        install -m0644 /opt/singularity/share/xdg-desktop-portal/labwc-portals.conf \
+            /etc/xdg-desktop-portal/singularity-portals.conf
+        echo "[20] staged singularity-portals.conf (prefers wlr backend for Screenshot/ScreenCast)"
+    else
+        echo "[20] WARN: no labwc-portals.conf in payload either; screenshots/screen-share will stay broken" >&2
+    fi
 fi
 
 # ---------------------------------------------------------------------------
