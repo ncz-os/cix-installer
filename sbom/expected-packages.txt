@@ -80,7 +80,6 @@ manifests/desktop.pkgs:imagemagick
 manifests/desktop.pkgs:imv
 manifests/desktop.pkgs:inetutils-telnetd
 manifests/desktop.pkgs:iperf3
-manifests/desktop.pkgs:kdenlive
 manifests/desktop.pkgs:kooha
 manifests/desktop.pkgs:libadwaita-1-0
 manifests/desktop.pkgs:libdbusmenu-glib4
@@ -160,7 +159,6 @@ manifests/desktop.pkgs:unrar-free
 manifests/desktop.pkgs:upower
 manifests/desktop.pkgs:util-linux-extra
 manifests/desktop.pkgs:v4l-utils
-manifests/desktop.pkgs:vlc
 manifests/desktop.pkgs:vulkan-tools
 manifests/desktop.pkgs:vulkan-validationlayers
 manifests/desktop.pkgs:wev
