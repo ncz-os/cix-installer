@@ -251,6 +251,27 @@ PORTAL
     install -d -m0755 /etc/systemd/user
     ln -sfn /opt/singularity/lib/systemd/user/xdg-desktop-portal-singularity.service \
         /etc/systemd/user/xdg-desktop-portal-singularity.service
+    # The comment above only diagnosed HALF the problem. Bridging the
+    # systemd user-unit is necessary but not sufficient: xdg-desktop-portal
+    # discovers available backends by scanning
+    # /usr/share/xdg-desktop-portal/portals/*.portal (plus a couple of other
+    # real XDG search paths) -- NOT /opt/singularity/share/.../portals/,
+    # where the payload actually ships singularity.portal. Without staging
+    # the declaration file itself, xdg-desktop-portal has no way to know a
+    # "singularity" backend exists at all, so it can never be selected for
+    # ANY interface (Screenshot included), regardless of the service-unit
+    # bridge above. Confirmed live on O6N 2026-08-25: Singularity's own
+    # screenshot utility reported it could not take screenshots; staging
+    # this file and restarting xdg-desktop-portal.service made the
+    # 'singularity' backend selectable immediately.
+    if [ -f /opt/singularity/share/xdg-desktop-portal/portals/singularity.portal ]; then
+        install -d -m0755 /usr/share/xdg-desktop-portal/portals
+        install -m0644 /opt/singularity/share/xdg-desktop-portal/portals/singularity.portal \
+            /usr/share/xdg-desktop-portal/portals/singularity.portal
+        echo "[20] staged singularity.portal declaration (Screenshot/ScreenCast/etc now discoverable)"
+    else
+        echo "[20] WARN: singularity.portal declaration missing from payload; backend will never be selected" >&2
+    fi
     echo "[20] wired Singularity portal into systemd user-unit path"
 else
     echo "[20] WARN: Singularity portal payload missing; falling back to stock wlr backend" >&2
