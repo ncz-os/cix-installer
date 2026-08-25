@@ -1770,6 +1770,198 @@ brand_udeb_templates "$STAGING/pool/main/m/main-menu/main-menu_*.udeb"        "m
 brand_udeb_templates "$STAGING/pool/main/f/finish-install/finish-install_*.udeb" "finish-install"
 brand_udeb_templates "$STAGING/pool/main/c/choose-mirror/choose-mirror_*.udeb"   "choose-mirror"
 
+# disk-detect's stock disk_found() loop is only 15 attempts with 2s sleeps
+# (~30s total). That is too short on Sky1 when the d-i storage device tree is
+# genuinely slow to settle, especially around NVMe. Patch the udeb that owns
+# the main-menu "Detect disks" step so the wait is still bounded, but long
+# enough to match the platform's observed behaviour.
+patch_disk_detect_wait() {
+    local _glob="$1"
+    local _matches; _matches=( $_glob )
+    local _udeb="${_matches[0]}"
+    [ -e "$_udeb" ] || {
+        echo "ERROR: disk-detect udeb absent; cannot extend d-i disk wait" >&2
+        exit 1
+    }
+
+    local _tmp="$STAGING/.tmp-disk-detect-udeb"
+    local _ar="$_tmp/ar" _data="$_tmp/data"
+    rm -rf "$_tmp"; mkdir -p "$_ar" "$_data"
+    local _udeb_abs; _udeb_abs="$(readlink -f "$_udeb")"
+    ( cd "$_ar" && ar x "$_udeb_abs" )
+    [ -f "$_ar/debian-binary" ] || {
+        echo "ERROR: disk-detect udeb missing debian-binary" >&2
+        exit 1
+    }
+    local _ctl_members=( "$_ar"/control.tar* )
+    local _data_members=( "$_ar"/data.tar* )
+    local _ctl_member; _ctl_member="$(basename "${_ctl_members[0]}")"
+    local _data_member; _data_member="$(basename "${_data_members[0]}")"
+    tar -xf "$_ar/$_data_member" -C "$_data"
+    [ -f "$_data/usr/bin/disk-detect" ] || {
+        echo "ERROR: disk-detect udeb missing usr/bin/disk-detect" >&2
+        exit 1
+    }
+
+    python3 - "$_data/usr/bin/disk-detect" <<'PYDISK'
+import sys
+
+path = sys.argv[1]
+src = open(path).read()
+
+old = '''disk_found() {
+\tfor try in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+\t\tif search-path parted_devices; then
+\t\t\t# Use partman's parted_devices if available.
+\t\t\tif [ -n "$(parted_devices)" ]; then
+\t\t\t\treturn 0
+\t\t\tfi
+\t\telse
+\t\t\t# Essentially the same approach used by partitioner and
+\t\t\t# autopartkit to find their disks.
+\t\t\tif [ -n "$(list-devices disk)" ]; then
+\t\t\t\treturn 0
+\t\t\tfi
+\t\tfi
+
+\t\t# Wait for disk to be activated.
+\t\tif [ "$try" != 15 ]; then
+\t\t\tsleep 2
+\t\tfi
+\tdone
+
+\treturn 1
+}'''
+
+new = '''disk_found() {
+\tmax_tries="${NCZ_DISK_DETECT_TRIES:-90}"
+\tcase "$max_tries" in *[!0-9]*|'') max_tries=90 ;; esac
+\t[ "$max_tries" -lt 15 ] && max_tries=15
+
+\ttry=1
+\twhile [ "$try" -le "$max_tries" ]; do
+\t\t# Give udev a chance to publish slow storage devices before asking
+\t\t# partman/list-devices. update-dev is the d-i wrapper used elsewhere
+\t\t# in hw-detect before probing for newly-created device nodes.
+\t\tudevadm settle --timeout=10 >/dev/null 2>&1 || true
+\t\tupdate-dev >/dev/null 2>&1 || true
+
+\t\tif search-path parted_devices; then
+\t\t\t# Use partman's parted_devices if available.
+\t\t\tif [ -n "$(parted_devices)" ]; then
+\t\t\t\treturn 0
+\t\t\tfi
+\t\telse
+\t\t\t# Essentially the same approach used by partitioner and
+\t\t\t# autopartkit to find their disks.
+\t\t\tif [ -n "$(list-devices disk)" ]; then
+\t\t\t\treturn 0
+\t\t\tfi
+\t\tfi
+
+\t\t# Wait for disk to be activated. Stock d-i only waited ~30s
+\t\t# (15 attempts * 2s); Sky1 NVMe enumeration can exceed that.
+\t\tif [ "$try" != "$max_tries" ]; then
+\t\t\tlogger -t disk-detect "no disk yet after attempt $try/$max_tries; waiting for storage enumeration"
+\t\t\tsleep 2
+\t\tfi
+\t\ttry=$((try + 1))
+\tdone
+
+\treturn 1
+}'''
+
+if src.count(old) != 1:
+    raise SystemExit(f"disk-detect patch drift: expected one disk_found anchor, found {src.count(old)}")
+src = src.replace(old, new)
+if src.count('list_modules_dir /lib/modules/*/kernel/drivers/nvme/host') != 0:
+    raise SystemExit("disk-detect patch drift: nvme module directory already present")
+src = src.replace(
+'''	list_modules_dir /lib/modules/*/kernel/drivers/block
+	list_modules_dir /lib/modules/*/kernel/drivers/message/fusion''',
+'''	list_modules_dir /lib/modules/*/kernel/drivers/block
+	list_modules_dir /lib/modules/*/kernel/drivers/nvme/host
+	list_modules_dir /lib/modules/*/kernel/drivers/message/fusion''',
+1,
+)
+if src.count('list_modules_dir /lib/modules/*/kernel/drivers/nvme/host') != 1:
+    raise SystemExit("disk-detect patch drift: failed to add nvme module directory")
+if src.count('prime_storage_detection') != 0:
+    raise SystemExit("disk-detect patch drift: storage priming already present")
+src = src.replace(
+'''multipath_probe() {
+	MP_VERBOSE=2
+	# Look for multipaths...
+	if [ ! -f /etc/multipath.conf ]; then
+		cat <<EOF >/etc/multipath.conf
+defaults {
+    user_friendly_names yes
+}
+EOF
+	fi
+	log-output -t disk-detect /usr/sbin/multipath -v$MP_VERBOSE
+
+	if multipath -l 2>/dev/null | grep -q '^mpath[a-z]\\+ '; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+if ! hw-detect disk-detect/detect_progress_title; then''',
+'''multipath_probe() {
+	MP_VERBOSE=2
+	# Look for multipaths...
+	if [ ! -f /etc/multipath.conf ]; then
+		cat <<EOF >/etc/multipath.conf
+defaults {
+    user_friendly_names yes
+}
+EOF
+	fi
+	log-output -t disk-detect /usr/sbin/multipath -v$MP_VERBOSE
+
+	if multipath -l 2>/dev/null | grep -q '^mpath[a-z]\\+ '; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+prime_storage_detection() {
+	for module in nvme nvme-core virtio_blk sd_mod ahci; do
+		if is_not_loaded "$module"; then
+			log "preloading storage module $module before hw-detect"
+			log-output -t disk-detect modprobe -v "$module" || true
+		fi
+	done
+	udevadm trigger --subsystem-match=block --action=add >/dev/null 2>&1 || true
+	udevadm settle --timeout=10 >/dev/null 2>&1 || true
+	update-dev >/dev/null 2>&1 || true
+}
+
+	prime_storage_detection
+	if ! hw-detect disk-detect/detect_progress_title; then''',
+1,
+)
+if src.count('prime_storage_detection') != 2:
+    raise SystemExit("disk-detect patch drift: failed to add storage priming")
+open(path, "w").write(src)
+PYDISK
+    chmod 0755 "$_data/usr/bin/disk-detect"
+    sh -n "$_data/usr/bin/disk-detect"
+
+    rm -f "$_ar/$_data_member"
+    ( cd "$_data" && tar --numeric-owner --owner=0 --group=0 -cf - . ) \
+        | gzip -9n > "$_ar/data.tar.gz"
+    local _new_udeb="$_tmp/$(basename "$_udeb")"
+    ( cd "$_ar" && ar rc "$_new_udeb" debian-binary "$_ctl_member" data.tar.gz )
+    mv "$_new_udeb" "$_udeb"
+    rm -rf "$_tmp"
+    echo "    disk-detect udeb: preloads storage modules and extends disk_found wait to 90 settled attempts (~180s)"
+}
+patch_disk_detect_wait "$STAGING/pool/main/h/hw-detect/disk-detect_*.udeb"
+
 # Give NCZ late_command an explicit 100-unit allocation in finish-install's
 # OWN progress bar. Bookworm does not preload finish-install into the initrd:
 # anna retrieves its udeb from the media pool, then dpkg installs this postinst.

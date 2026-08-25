@@ -327,7 +327,8 @@ build_layer(){ local role="$1" manifest="$2"
   # incident this fixes -- see project_cix_buildkite_mirror_2026_07_05).
   local pkgs; pkgs=$(manifest_pkgs "$ROOT/$manifest")
   log "$role: apt-install $(echo $pkgs|wc -w) top-level packages (complete set + closure)"
-  if ! sudo chroot "$MG" apt-get install -y --no-install-recommends $pkgs 2>&1 | tail -6; then
+  if ! sudo chroot "$MG" env DEBIAN_FRONTEND=noninteractive \
+      apt-get install -y --no-install-recommends $pkgs 2>&1 | tail -6; then
     log "ERROR: $role package installation failed; refusing to publish an incomplete layer"
     apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
     return 1

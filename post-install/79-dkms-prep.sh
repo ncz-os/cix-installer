@@ -33,7 +33,8 @@
 #      rather than vendor generated headers we would then have to keep in sync.
 #
 #   4. NO TOOLCHAIN.
-#      A stock install has no dkms, gcc, make, flex, bison, bc, or libelf.
+#      A stock install has no dkms, gcc, make, flex, bison, bc, libelf, or the
+#      aarch64-linux-gnu-gcc driver that the Mali DKMS makefile invokes.
 #
 # This script is idempotent and never fatal: a failure here costs DKMS rebuilds
 # on future kernel upgrades, but the prebuilt overlays in assets/kernel/ still
@@ -61,14 +62,15 @@ echo "[79] target kernel $KVER"
 
 # --- 4. toolchain ------------------------------------------------------------
 MISSING=""
-for t in dkms gcc make flex bison bc; do
+for t in dkms gcc aarch64-linux-gnu-gcc make flex bison bc; do
     command -v "$t" >/dev/null 2>&1 || MISSING="$MISSING $t"
 done
 [ -e /usr/include/libelf.h ] || MISSING="$MISSING libelf"
 if [ -n "$MISSING" ]; then
     echo "[79] installing build toolchain:$MISSING"
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        dkms build-essential flex bison bc libelf-dev libselinux1-dev \
+        dkms build-essential gcc gcc-aarch64-linux-gnu make flex bison bc \
+        libelf-dev libselinux-dev \
         >/dev/null 2>&1 \
         && echo "[79] toolchain installed" \
         || echo "[79] WARNING: toolchain install failed — DKMS rebuilds will not work"

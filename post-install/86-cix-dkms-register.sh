@@ -153,6 +153,16 @@ if command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep -q '^cix-np
 fi
 rm -rf /usr/src/cix-npu-kmd-1.0
 
+if [ ! -d /usr/src/aipu-6.2.0 ]; then
+    NPU_DKMS_DEB=$(ls "$INSTALLER_META"/assets/cix-debs/cix-npu-driver-dkms_*.deb 2>/dev/null | head -1)
+    if [ -n "$NPU_DKMS_DEB" ]; then
+        echo "[86] NPU: /usr/src/aipu-6.2.0 absent; extracting source from $(basename "$NPU_DKMS_DEB")"
+        dpkg-deb -x "$NPU_DKMS_DEB" / 2>/dev/null \
+            && echo "[86] NPU: staged aipu/6.2.0 source from bundled DKMS deb" \
+            || echo "[86] NPU: WARNING: could not extract source from bundled DKMS deb"
+    fi
+fi
+
 if [ -d /usr/src/aipu-6.2.0 ] && [ -f /usr/src/aipu-6.2.0/dkms.conf ]; then
     echo "[86] NPU: registering aipu/6.2.0 explicitly (postinst self-registration cannot be relied on inside the build chroot)"
     dkms add -m aipu -v 6.2.0 >/dev/null 2>&1         && echo "[86] NPU: dkms add aipu/6.2.0"         || echo "[86] NPU: dkms add aipu/6.2.0 skipped (already registered?)"
@@ -160,7 +170,13 @@ if [ -d /usr/src/aipu-6.2.0 ] && [ -f /usr/src/aipu-6.2.0/dkms.conf ]; then
         if dkms build -m aipu -v 6.2.0 -k "$KVER_NEXT" >/dev/null 2>&1            && dkms install -m aipu -v 6.2.0 -k "$KVER_NEXT" --force >/dev/null 2>&1; then
             echo "[86] NPU: dkms built+installed aipu/6.2.0 for $KVER_NEXT (-> updates/dkms/)"
         else
-            echo "[86] NPU: aipu/6.2.0 dkms build deferred — will autoinstall on kernel upgrade"
+            echo "[86] NPU: WARNING: aipu/6.2.0 dkms build FAILED for $KVER_NEXT"
+            _log="/var/lib/dkms/aipu/6.2.0/build/make.log"
+            if [ -f "$_log" ]; then
+                grep -iE '\*\*\*|error|no such file|does not exist' "$_log" \
+                    | head -5 | sed "s/^/[86]     /"
+            fi
+            echo "[86]     (this install must not ship without updates/dkms/aipu.ko*)"
         fi
     else
         echo "[86] NPU: no kernel headers for $KVER_NEXT — aipu/6.2.0 will autoinstall on kernel upgrade"

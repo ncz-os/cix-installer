@@ -125,6 +125,47 @@ module_path() {
     fi
 }
 
+assert_dkms_module_path() {
+    local mod="$1" path="$2" context="$3"
+    case "$path" in
+        */updates/dkms/*)
+            ok "$context $mod resolves to DKMS path $path"
+            ;;
+        */kernel/drivers/media/platform/cix/amvx.ko*)
+            fail "$context $mod RESOLVES TO UNVALIDATED IN-TREE FALLBACK: $path (expected updates/dkms/amvx.ko*)"
+            ;;
+        *)
+            fail "$context $mod NOT FROM DKMS for $KVER: $path"
+            ;;
+    esac
+}
+
+is_loaded() {
+    local mod="$1"
+    lsmod | awk '{print $1}' | grep -qxF "$mod"
+}
+
+cmdline_blacklists_module() {
+    local mod="$1" token value item old_ifs
+    for token in $(cat /proc/cmdline 2>/dev/null || true); do
+        case "$token" in
+            module_blacklist=*)
+                value="${token#module_blacklist=}"
+                old_ifs="$IFS"
+                IFS=,
+                for item in $value; do
+                    if [ "$item" = "$mod" ]; then
+                        IFS="$old_ifs"
+                        return 0
+                    fi
+                done
+                IFS="$old_ifs"
+                ;;
+        esac
+    done
+    return 1
+}
+
 dkms_status_for() {
     local pkg="$1" ver="$2"
     if [ "$ROOT" = "/" ]; then
@@ -151,6 +192,7 @@ runtime_check() {
     fi
 
     newly_loaded=""
+    temporarily_unloaded=""
     while IFS= read -r line || [ -n "$line" ]; do
         [ -n "$line" ] || continue
         pkgver="${line%%[[:space:]]*}"
@@ -170,10 +212,7 @@ runtime_check() {
                 fail "MODULE NOT FOUND for $KVER: $mod ($pkg/$ver)"
                 continue
             fi
-            case "$path" in
-                */updates/dkms/*) ok "$mod resolves to DKMS path $path" ;;
-                *) fail "MODULE NOT FROM DKMS for $KVER: $mod -> $path" ;;
-            esac
+            assert_dkms_module_path "$mod" "$path" "modinfo"
             vm="$(modinfo -F vermagic "$path" 2>/dev/null | awk '{print $1}')"
             if [ "$vm" != "$KVER" ]; then
                 fail "VERMAGIC MISMATCH: $mod ($path) has '${vm:-<empty>}' expected '$KVER'"
@@ -186,18 +225,36 @@ runtime_check() {
                 fail "MODPROBE DRY-RUN FAIL: $mod for $KVER"
             fi
             if [ "$LIVE_LOAD" = 1 ]; then
+                if cmdline_blacklists_module "$mod"; then
+                    fail "LIVE MODPROBE BLOCKED: $mod is present in kernel cmdline module_blacklist; boot an entry that permits $mod before --live-load"
+                fi
                 # DKMS source order is the static manifest contract. The live
                 # Mali probe order is different: kbase expects both helpers.
                 if [ "$pkg" = "cix-gpu-kmd" ] && [ "$mod" = "mali_kbase" ]; then
                     for helper in memory_group_manager protected_memory_allocator; do
-                        if lsmod | awk '{print $1}' | grep -qxF "$helper"; then
+                        if is_loaded "$helper"; then
                             :
                         elif modprobe "$helper" >/dev/null 2>&1; then
                             newly_loaded="$helper $newly_loaded"
                         fi
                     done
                 fi
-                if lsmod | awk '{print $1}' | grep -qxF "$mod"; then
+                if [ "$mod" = "panthor" ]; then
+                    # The default vendor-GPU boot may already have the mutually
+                    # exclusive Mali stack loaded. Remove zero-use Mali modules
+                    # before the panthor insertion test; if removal fails, the
+                    # panthor live-load must fail rather than being masked.
+                    for gpu_mod in mali_kbase protected_memory_allocator memory_group_manager; do
+                        if is_loaded "$gpu_mod"; then
+                            if modprobe -r "$gpu_mod" >/tmp/verify-dkms-modules.$mod.unload-$gpu_mod.log 2>&1; then
+                                temporarily_unloaded="$gpu_mod $temporarily_unloaded"
+                            else
+                                fail "LIVE MODPROBE BLOCKED: $mod cannot unload conflicting $gpu_mod (see /tmp/verify-dkms-modules.$mod.unload-$gpu_mod.log)"
+                            fi
+                        fi
+                    done
+                fi
+                if is_loaded "$mod"; then
                     ok "$mod already loaded"
                 elif modprobe --first-time "$mod" >/tmp/verify-dkms-modules.$mod.log 2>&1; then
                     ok "$mod live-load succeeded"
@@ -205,12 +262,21 @@ runtime_check() {
                 else
                     fail "LIVE MODPROBE FAIL: $mod (see /tmp/verify-dkms-modules.$mod.log)"
                 fi
+                live_path="$(modinfo -k "$KVER" -n "$mod" 2>/dev/null || true)"
+                if [ -z "$live_path" ]; then
+                    fail "LIVELOAD SOURCE UNKNOWN: $mod (modinfo -n returned empty)"
+                else
+                    assert_dkms_module_path "$mod" "$live_path" "LIVELOAD source"
+                fi
             fi
         done
     done < <(manifest_lines)
 
     for mod in $newly_loaded; do
         modprobe -r "$mod" >/dev/null 2>&1 || true
+    done
+    for mod in $temporarily_unloaded; do
+        modprobe "$mod" >/dev/null 2>&1 || true
     done
 }
 
