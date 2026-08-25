@@ -51,7 +51,25 @@ OUT="$REPO/build/kernel-debs"
 # r252 = patch 0223, DisplayPort-audio ELD fix; same KERNELRELEASE.
 # r253 = same r252 kernel content, but linux-headers-cixmini postinst now
 # finds /usr/sbin/dkms even when dpkg invokes it with a non-sbin PATH.
-BUILD_REV="${BUILD_REV:-r253}"
+# r254 = srcshelton audio follow-up: fold DPTX shutdown cleanup into 0223
+# and add the reconciled CIX ASoC/I2S/HDMI-codec hardening patch as 0224.
+# r255 = same r254 kernel content -- fixes linux-headers-cixmini postinst
+# to FORCE dkms rebuilds (dkms remove + autoinstall) instead of relying on
+# plain `dkms autoinstall`, which silently skips a package DKMS already
+# considers installed for KVER. Confirmed live on O6N: a stale mali_kbase
+# from a prior manual DKMS fix caused a symbol-CRC mismatch that hung the
+# default boot after upgrading straight from r252 to r254.
+# r256 = same r254 kernel content -- r255's fix was itself wrong: `dkms
+# remove -k $KVER` on a package's only remaining kernel version drops it
+# from `dkms status` entirely, not just its KVER build, so the follow-up
+# `dkms autoinstall` had nothing registered left to rebuild -- confirmed
+# live on O6N, dkms status came back completely empty after r255's
+# postinst ran. r256 instead force-builds+force-installs each already-
+# registered package directly (dkms build/install --force), matching the
+# manual recovery that actually worked, and only uses `dkms autoinstall`
+# afterward as a catch-all for genuinely new registrations.
+
+BUILD_REV="${BUILD_REV:-r256}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only
@@ -854,14 +872,60 @@ log "release string OK (${REL:-$KVER})"
 DKMS_BIN="$(command -v dkms 2>/dev/null || true)"
 [ -n "$DKMS_BIN" ] || [ ! -x /usr/sbin/dkms ] || DKMS_BIN=/usr/sbin/dkms
 if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
-    log "running dkms autoinstall -k $KVER"
+    # This project pins the SAME kernel uname release string ($KVER,
+    # "7.2.0-sky1-ncz") across every content change -- only the .deb's
+    # +rNNN revision differs (see kernel-build-checklist.md). `dkms
+    # autoinstall` treats a package already marked "installed" for KVER as
+    # up to date and silently skips rebuilding it -- confirmed live on O6N
+    # 2026-08-25: a prior manual DKMS fix (r252-era) left mali_kbase and its
+    # siblings registered as installed for 7.2.0-sky1-ncz. The r254 upgrade
+    # ran `dkms autoinstall` (produced a 0-byte log, nothing to do by its
+    # own bookkeeping) instead of actually rebuilding, so mali_kbase stayed
+    # stale and failed to load with a real symbol-CRC mismatch, which hung
+    # the default boot.
+    #
+    # FIRST FIX ATTEMPT (also caught live on O6N, do not repeat): running
+    # `dkms remove -m PKG -v VER -k $KVER` on every already-registered
+    # package before calling autoinstall does NOT make autoinstall rebuild
+    # them -- `dkms remove` with the package's only remaining kernel
+    # version drops it from `dkms status` entirely (not just the KVER-
+    # specific build), and `autoinstall` only rebuilds packages it already
+    # knows should exist for KVER. The result was dkms status coming back
+    # completely EMPTY after the "fixed" postinst ran -- WORSE than stale,
+    # zero accelerators registered at all.
+    #
+    # CORRECT FIX: force-build + force-install each already-registered
+    # package DIRECTLY, by name, exactly like the manual recovery that
+    # restored O6N live (`dkms build ... --force` then
+    # `dkms install ... --force`) -- do not depend on `dkms remove` or
+    # `dkms autoinstall`'s own staleness heuristics at all.
+    log "forcing DKMS rebuild for every already-registered package (KVER-invariant versioning defeats autoinstall's own staleness check)"
     DKMS_LOG=/var/log/ncz-dkms-autoinstall.log
-    if "$DKMS_BIN" autoinstall -k "$KVER" >>"$DKMS_LOG" 2>&1; then
-        log "dkms autoinstall OK"
+    : > "$DKMS_LOG"
+    dkms_force_failed=0
+    for pkgver in $("$DKMS_BIN" status 2>/dev/null | awk -F',' '{print $1}' | awk '{print $1}' | sort -u); do
+        pkg="${pkgver%%/*}"
+        ver="${pkgver#*/}"
+        [ -n "$pkg" ] && [ -n "$ver" ] || continue
+        log "  forcing $pkg/$ver for $KVER"
+        if "$DKMS_BIN" build -m "$pkg" -v "$ver" -k "$KVER" --force >>"$DKMS_LOG" 2>&1 \
+           && "$DKMS_BIN" install -m "$pkg" -v "$ver" -k "$KVER" --force >>"$DKMS_LOG" 2>&1; then
+            log "  $pkg/$ver OK"
+        else
+            echo "linux-headers-cixmini[$KVER]: FATAL: forced rebuild of $pkg/$ver failed" >&2
+            dkms_force_failed=1
+        fi
+    done
+    # Catch anything registered under /usr/src but never built for KVER at
+    # all (genuinely new, not a stale-KVER case) -- autoinstall is the
+    # right tool for that, it is only the "already installed" skip that is
+    # wrong for already-registered packages.
+    "$DKMS_BIN" autoinstall -k "$KVER" >>"$DKMS_LOG" 2>&1 || true
+    if [ "$dkms_force_failed" -eq 0 ]; then
+        log "dkms forced rebuild OK"
         "$DKMS_BIN" status 2>/dev/null | sed 's/^/           /'
     else
-        rc=$?
-        echo "linux-headers-cixmini[$KVER]: FATAL: dkms autoinstall failed (exit $rc)" >&2
+        echo "linux-headers-cixmini[$KVER]: FATAL: one or more forced DKMS rebuilds failed" >&2
         echo "                              see $DKMS_LOG" >&2
         if [ -s "$DKMS_LOG" ]; then
             tail -30 "$DKMS_LOG" | sed 's/^/                              /' >&2
@@ -870,7 +934,7 @@ if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
         # project's post-install registers. This is not exhaustive -- new
         # packages get the same treatment automatically -- but it gives the
         # operator the exact name+ver to grep /var/lib/dkms/.../build/make.log
-        # for. dkms status AFTER a failed autoinstall is the only ground
+        # for. dkms status AFTER a failed forced rebuild is the only ground
         # truth for "which package broke".
         echo "                              current dkms status:" >&2
         "$DKMS_BIN" status 2>/dev/null | sed 's/^/                              /' >&2
