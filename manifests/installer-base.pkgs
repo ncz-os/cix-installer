@@ -30,6 +30,16 @@
 dracut
 dracut-core
 
+# --- DKMS accelerator rebuilds ----------------------------------------------
+# CIX GPU/NPU accelerator drivers are registered and rebuilt by the base
+# post-install hook path (79-dkms-prep, 82-mali-gpu, 83-panthor-gpu,
+# 86-cix-dkms-register). Only cix-npu-driver-dkms is a real .deb with
+# Depends: dkms; Mali, Panthor, and VPU are source-staged directly by hooks, so
+# the offline seed must carry dkms itself. Keep this in base rather than
+# desktop so console/non-desktop installs and future kernel upgrades have the
+# same accelerator rebuild path.
+dkms
+
 # --- disk / partition identify (required by choose-disk UI) ---
 util-linux          # lsblk, blkid, wipefs, fdisk, sfdisk, cfdisk, lscpu
 parted
