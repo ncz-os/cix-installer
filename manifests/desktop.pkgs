@@ -355,11 +355,9 @@ glmark2-x11
 glmark2-es2-x11
 glmark2-wayland
 shotcut
-kdenlive
 handbrake
 ffmpeg
 audacity
-vlc
 
 # --- GTK4/libadwaita native-Wayland apps, hardware-accelerated via GSK's
 #     GL renderer (GSK_RENDERER=gl, already set in singularity-desktop-session).
