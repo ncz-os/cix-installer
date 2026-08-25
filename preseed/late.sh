@@ -473,6 +473,13 @@ if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<CDROM_LIST
 deb [trusted=yes] file:///cdrom ${NCZ_BASE_CODENAME:-resolute} main
 CDROM_LIST
+    # During d-i the target clock can still be at the firmware default. APT
+    # rejects the freshly generated ISO Release file as "not valid yet" in
+    # that state, which leaves the local pool invisible to post-install hooks.
+    # Keep this scoped to the install window and remove it before first boot.
+    cat > /target/etc/apt/apt.conf.d/00ncz-install-time-clock <<'APT_CLOCK'
+Acquire::Check-Date "false";
+APT_CLOCK
     # d-i may leave a `deb cdrom:` entry that apt-get update cannot use without
     # apt-cdrom registration. The equivalent file:///cdrom source above is the
     # usable install-time source, so remove only the broken cdrom transport line.
@@ -529,6 +536,21 @@ CDROM_PREF
         # a bootable install must never red-error over telnet. Once
         # manifests/desktop.pkgs bakes them into the squashfs this is redundant.
         chroot /target /usr/bin/apt-get install -y --allow-unauthenticated inetutils-telnetd openbsd-inetd || { echo "WARN: offline telnetd apt-get returned non-zero (finishing configure below)"; true; }
+        # r253.1: python3-dbus for bluetooth-autoconnect.service. It belongs in
+        # the desktop layer via manifests/desktop.pkgs, but stale prebuilt
+        # layers can reach this late-install path. Install it from the offline
+        # pool here as a no-op once the layer is fresh, and as a targeted fix
+        # for the live .66 ModuleNotFoundError: No module named 'dbus'.
+        if ! chroot /target /usr/bin/apt-get install -y --allow-unauthenticated python3-dbus; then
+            _pydbus_deb=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'python3-dbus_*.deb' 2>/dev/null | sort -V | tail -1)
+            if [ -n "$_pydbus_deb" ]; then
+                cp "$_pydbus_deb" /target/tmp/python3-dbus.deb
+                chroot /target /usr/bin/dpkg -i --force-depends /tmp/python3-dbus.deb || true
+                rm -f /target/tmp/python3-dbus.deb
+            else
+                echo "WARN: offline python3-dbus apt-get returned non-zero and no embedded python3-dbus deb was found"
+            fi
+        fi
         # r178: finish configure in DEPENDENCY ORDER. inetutils-telnetd depends on
         # inet-superserver (provided by openbsd-inetd); apt unpacks both but may
         # try to configure telnetd before inetd -> configure error leaving them
@@ -1132,6 +1154,7 @@ echo "--- stripping CD-ROM apt sources from /target before reboot ---"
 strip_cdrom_sources() {
     rm -f /target/etc/apt/sources.list.d/cixmini-cdrom.list
     rm -f /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref
+    rm -f /target/etc/apt/apt.conf.d/00ncz-install-time-clock
     if [ -f /target/etc/apt/sources.list ]; then
         sed -i \
             -e '/^[[:space:]]*deb[[:space:]].*\(cdrom:\|file:\/\/\/cdrom\)/d' \

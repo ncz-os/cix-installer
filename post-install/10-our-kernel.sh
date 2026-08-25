@@ -46,6 +46,11 @@ fi
 
 echo "[10] installing kernel via apt — edge=$KVER_NEXT"
 
+local_deb() {
+    pattern="$1"
+    find /cdrom/pool/main -maxdepth 1 -type f -name "$pattern" 2>/dev/null | sort -V | tail -1
+}
+
 # Wire the Buildkite apt source + refresh the index. Idempotent (safe to
 # call again later at its normal position). Needed now because the
 # linux-image-cixmini package lives only on Buildkite, not the Ubuntu
@@ -63,11 +68,27 @@ fi
 # not ship zstd, so the headers were being silently skipped there --
 # staged on disk, never installed, DKMS still broken. desktop.pkgs seeds
 # zstd for the desktop layer, but this hook runs in the BASE layer too.
-apt-get install -y --no-install-recommends kmod initramfs-tools zstd
+ZSTD_DEB=$(local_deb 'zstd_*.deb')
+ZLIB_DEB=$(local_deb 'zlib1g_*.deb')
+LIBGCC_DEB=$(local_deb 'libgcc-s1_*.deb')
+LIBLZ4_DEB=$(local_deb 'liblz4-1_*.deb')
+LIBLZMA_DEB=$(local_deb 'liblzma5_*.deb')
+LIBSTDCXX_DEB=$(local_deb 'libstdc++6_*.deb')
+if [ -n "$ZSTD_DEB" ] && [ -n "$ZLIB_DEB" ] && [ -n "$LIBGCC_DEB" ] && \
+   [ -n "$LIBLZ4_DEB" ] && [ -n "$LIBLZMA_DEB" ] && [ -n "$LIBSTDCXX_DEB" ]; then
+    echo "  [deps] using embedded zstd deb: $(basename "$ZSTD_DEB")"
+    dpkg -i "$LIBGCC_DEB" "$LIBLZ4_DEB" "$LIBLZMA_DEB" "$LIBSTDCXX_DEB" "$ZLIB_DEB" "$ZSTD_DEB"
+else
+    apt-get install -y --no-install-recommends kmod initramfs-tools zstd
+fi
 
 INSTALLED_KERNELS=0
 
 if [ -n "$KVER_NEXT" ]; then
+    CIXBOOT_DEB=$(local_deb 'cixmini-boot_*.deb')
+    USBRECOVERY_DEB=$(local_deb 'ncz-usb-recovery_*.deb')
+    HEADERS_DEB=$(local_deb 'linux-headers-cixmini_*.deb')
+    IMAGE_DEB=$(local_deb 'linux-image-cixmini_*.deb')
     echo "  [edge] apt-get install linux-image-cixmini"
     # r203: --force-overwrite. Edge kernel packages can transiently ship
     # the SAME versioned /boot files (e.g. a baked edge at 7.2.0-sky1-ncz+rN
@@ -78,8 +99,20 @@ if [ -n "$KVER_NEXT" ]; then
     # -> r174 "not bootable" -> "late.sh failed". The package is first-party
     # and the colliding file is a benign kernel config/vmlinuz whose final
     # owner is correct once both versions settle, so force-overwrite is safe.
-    apt-get install -y --no-install-recommends \
-        -o Dpkg::Options::=--force-overwrite linux-image-cixmini
+    if [ -n "$CIXBOOT_DEB" ] && [ -n "$USBRECOVERY_DEB" ] && \
+       [ -n "$HEADERS_DEB" ] && [ -n "$IMAGE_DEB" ]; then
+        echo "    installing embedded kernel debs with dpkg:"
+        echo "      $(basename "$CIXBOOT_DEB")"
+        echo "      $(basename "$USBRECOVERY_DEB")"
+        echo "      $(basename "$HEADERS_DEB")"
+        echo "      $(basename "$IMAGE_DEB")"
+        dpkg -i --force-overwrite --force-depends \
+            "$USBRECOVERY_DEB" "$CIXBOOT_DEB" "$HEADERS_DEB" "$IMAGE_DEB"
+    else
+        echo "    WARN: embedded kernel deb set incomplete — falling back to apt package name"
+        apt-get install -y --no-install-recommends \
+            -o Dpkg::Options::=--force-overwrite linux-image-cixmini
+    fi
     edge_ok=1
     if [ ! -s "/boot/vmlinuz-$KVER_NEXT" ]; then
         echo "WARN: linux-image-cixmini installed, but /boot/vmlinuz-$KVER_NEXT is missing"

@@ -169,6 +169,11 @@ udisks2
 gnome-disk-utility
 bluez
 blueman
+# vendor cix-debian-misc's bluetooth-autoconnect script does `import dbus`
+# with no declared dependency -- confirmed live on .66:
+# ModuleNotFoundError: No module named 'dbus', bluetooth-autoconnect.service
+# failed at every boot. python3-dbus is the missing runtime dependency.
+python3-dbus
 
 # --- fonts ------------------------------------------------------------------
 fonts-noto-core

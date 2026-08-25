@@ -216,8 +216,17 @@ echo "[20] diagnostics: systemd-coredump installed, G_MESSAGES_DEBUG=all set"
 # + Cloudflare R2 (backup) sources and refreshes the index before this hook
 # runs. The package postinst owns ldconfig setup.
 # ---------------------------------------------------------------------------
-echo "[20] installing Singularity Desktop payload: apt-get install ncz-singularity-desktop"
-if ! DEBIAN_FRONTEND=noninteractive apt-get install -y ncz-singularity-desktop; then
+echo "[20] installing Singularity Desktop payload"
+UPOWER_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'upower_*.deb' 2>/dev/null | sort -V | tail -1)
+if [ -n "$UPOWER_DEB" ] && ! dpkg-query -W -f='${Status}\n' upower 2>/dev/null | grep -q '^install ok installed$'; then
+    echo "[20] using embedded upower deb: $(basename "$UPOWER_DEB")"
+    dpkg -i --force-depends "$UPOWER_DEB" || true
+fi
+SINTY_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1)
+if [ -n "$SINTY_DEB" ]; then
+    echo "[20] using embedded payload deb: $(basename "$SINTY_DEB")"
+    dpkg -i "$SINTY_DEB"
+elif ! DEBIAN_FRONTEND=noninteractive apt-get install -y ncz-singularity-desktop; then
     echo "[20] FATAL: ncz-singularity-desktop not installable from the NCZ-OS apt repo — desktop cannot install" >&2
     echo "[20]        check post-install/24-apt-sources.sh wired the repo, and that the package was published (build/build-singularity-deb.sh)" >&2
     exit 1
