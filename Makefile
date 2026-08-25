@@ -77,7 +77,7 @@ POST          := $(ROOT)/post-install
 MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))
 OUTPUT_ISO    := $(BUILD)/nclawzero-installer-cixmini-$(VERSION)$(MODE_SUFFIX).iso
 
-.PHONY: all download iso verify clean distclean qemu help secretscan npu-ssdt-check
+.PHONY: all download iso verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs vendor-mirror offline-mirror
 
 all: iso
 
@@ -119,7 +119,41 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 # -----------------------------------------------------------------------
 iso: $(OUTPUT_ISO)
 
+kernel-debs:
+	@if ! ls $(BUILD)/kernel-debs/*.deb >/dev/null 2>&1; then \
+	    echo "[kernel-debs] no debs present; building local kernel packages"; \
+	    bash $(ROOT)/build/build-kernel-debs.sh; \
+	else \
+	    echo "[kernel-debs] using existing debs from $(BUILD)/kernel-debs"; \
+	    find $(BUILD)/kernel-debs -maxdepth 1 -name '*.deb' -printf '  %f\n' | sort; \
+	fi
+
+vendor-mirror: kernel-debs
+	@echo "[vendor-mirror] publishing local debs and regenerating vendor index"
+	@bash $(ROOT)/build/build-vendor-mirror.sh
+	@bash $(ROOT)/build/verify-local-package-versions.sh \
+	    --pool $(BUILD)/forky-vendor-mirror/pool \
+	    --label forky-vendor-mirror \
+	    $(if $(wildcard $(BUILD)/sinty-out/*.deb),--debs-dir $(BUILD)/sinty-out,)
+
+offline-mirror: vendor-mirror
+	@if [ ! -d $(BUILD)/forky-mirror/pool ] || \
+	    ! bash $(ROOT)/build/verify-local-package-versions.sh \
+	        --pool $(BUILD)/forky-mirror/pool \
+	        --label forky-mirror \
+	        $(if $(wildcard $(BUILD)/sinty-out/*.deb),--debs-dir $(BUILD)/sinty-out,) >/dev/null 2>&1 || \
+	    ! bash $(ROOT)/build/verify-offline-mirror-seeds.sh \
+	        --mirror $(BUILD)/forky-mirror \
+	        --label forky-mirror >/dev/null 2>&1; then \
+	    echo "[offline-mirror] missing or stale; rebuilding from refreshed vendor mirror"; \
+	    rm -rf $(BUILD)/forky-mirror; \
+	    bash $(ROOT)/build/build-forky-mirror.sh; \
+	else \
+	    echo "[offline-mirror] existing mirror matches local package pins and manifest seeds"; \
+	fi
+
 $(OUTPUT_ISO): $(DOWNLOADS)/$(UPSTREAM_ISO) \
+	               offline-mirror \
 	               $(ROOT)/build/build-iso-di.sh \
 	               $(PRESEED)/preseed.cfg \
 	               $(PRESEED)/late.sh \

@@ -119,14 +119,9 @@ elif [ "$CONFIGURED" -eq 1 ]; then
 fi
 
 APT_REFRESH_STAMP=/var/lib/apt/lists/.ncz-installer-refreshed
-if [ -f "$APT_REFRESH_STAMP" ] && \
-   find "$APT_REFRESH_STAMP" -mmin -10 -print -quit 2>/dev/null | grep -q .; then
-    echo "[24] package index refreshed within the last 10 minutes — reusing it"
+echo "[24] refreshing package index after apt source wiring"
+if apt-get update -o Acquire::Check-Date=false 2>&1 | tail -10; then
+    touch "$APT_REFRESH_STAMP"
 else
-    echo "[24] refreshing package index"
-    if apt-get update 2>&1 | tail -10; then
-        touch "$APT_REFRESH_STAMP"
-    else
-        echo "[24] WARN: apt-get update had errors (network unavailable during chroot install, or one source down -- the other source's index may still be usable) -- later hooks may still be able to use cached/offline sources"
-    fi
+    echo "[24] WARN: apt-get update had errors (network unavailable during chroot install, or one source down -- the other source's index may still be usable) -- later hooks may still be able to use cached/offline sources"
 fi

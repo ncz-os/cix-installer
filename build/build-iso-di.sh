@@ -144,6 +144,20 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
+if [ "$EMBED_MIRROR" = "1" ]; then
+    if ! compgen -G "$ROOT/build/kernel-debs/*.deb" >/dev/null; then
+        echo "[kernel-debs] no local kernel debs present; building them before mirror publication"
+        bash "$ROOT/build/build-kernel-debs.sh"
+    fi
+    echo "[vendor-mirror] publishing local kernel debs before SBOM preflight"
+    bash "$ROOT/build/build-vendor-mirror.sh"
+fi
+
+LOCAL_VERSION_ARGS=()
+if [ -d "$ROOT/build/sinty-out" ]; then
+    LOCAL_VERSION_ARGS+=(--debs-dir "$ROOT/build/sinty-out")
+fi
+
 if [ -x "$ROOT/build/preflight-sbom-check.sh" ]; then
     bash "$ROOT/build/preflight-sbom-check.sh"
 else
@@ -735,6 +749,25 @@ if [ -z "${MIRROR_DIR:-}" ]; then
     MIRROR_DIR="$ROOT/build/${ISO_APT_SUITE}-mirror"
 fi
 if [ "$EMBED_MIRROR" = "1" ]; then
+    if [ ! -d "$MIRROR_DIR/pool" ] || [ ! -d "$MIRROR_DIR/dists" ] || \
+       ! bash "$ROOT/build/verify-local-package-versions.sh" \
+            --pool "$MIRROR_DIR/pool" \
+            --label "$(basename "$MIRROR_DIR")" \
+            "${LOCAL_VERSION_ARGS[@]}" || \
+       ! bash "$ROOT/build/verify-offline-mirror-seeds.sh" \
+            --mirror "$MIRROR_DIR" \
+            --label "$(basename "$MIRROR_DIR")"; then
+        echo "    offline mirror missing or stale after vendor publish; rebuilding $MIRROR_DIR"
+        rm -rf "$MIRROR_DIR"
+        bash "$ROOT/build/build-forky-mirror.sh"
+        bash "$ROOT/build/verify-local-package-versions.sh" \
+            --pool "$MIRROR_DIR/pool" \
+            --label "$(basename "$MIRROR_DIR")" \
+            "${LOCAL_VERSION_ARGS[@]}"
+        bash "$ROOT/build/verify-offline-mirror-seeds.sh" \
+            --mirror "$MIRROR_DIR" \
+            --label "$(basename "$MIRROR_DIR")"
+    fi
     if [ -d "$MIRROR_DIR/pool" ] && [ -d "$MIRROR_DIR/dists" ]; then
         echo "    embedding offline mirror from $MIRROR_DIR"
         cp -a "$MIRROR_DIR/pool"  "$STAGING/pool"
@@ -1112,6 +1145,51 @@ if [ -n "$SQDIR" ]; then
                 exit 1
             }
         done < "$OVERLAY_MANIFEST"
+        HOTFIX_ROLE="$ROLE-hotfix"
+        HOTFIX_IMAGE="$SQDIR/$HOTFIX_ROLE.squashfs"
+        HOTFIX_MANIFEST="$SQDIR/$HOTFIX_ROLE.overlay-manifest"
+        if [ -f "$HOTFIX_IMAGE" ]; then
+            [ -s "$HOTFIX_MANIFEST" ] || {
+                echo "FATAL: r159 stub: missing $HOTFIX_ROLE overlay manifest" >&2
+                exit 1
+            }
+            HOTFIX_COUNT=0
+            while IFS="$OVERLAY_TAB" read -r kind rel; do
+                case "$kind" in
+                    '#'*|'') continue ;;
+                    whiteout|opaque) ;;
+                    *)
+                        echo "FATAL: r159 stub: invalid $HOTFIX_ROLE overlay operation '$kind'" >&2
+                        exit 1
+                        ;;
+                esac
+                case "$rel" in
+                    ''|.|/*|../*|*/../*|*/..)
+                        echo "FATAL: r159 stub: unsafe $HOTFIX_ROLE overlay path '$rel'" >&2
+                        exit 1
+                        ;;
+                esac
+                rm -rf "$TARGET/$rel" || {
+                    echo "FATAL: r159 stub: cannot apply $HOTFIX_ROLE $kind '$rel'" >&2
+                    exit 1
+                }
+                HOTFIX_COUNT=$((HOTFIX_COUNT + 1))
+            done < "$HOTFIX_MANIFEST"
+            echo "I: r159 stub: applied $HOTFIX_COUNT $HOTFIX_ROLE overlay operation(s)" >&2
+
+            echo "I: r159 stub: unsquashfs $HOTFIX_ROLE delta -> $TARGET" >&2
+            "$LDR" --library-path "$SQDIR/sqtools" "$UNSQ" -f -d "$TARGET" "$HOTFIX_IMAGE" >/dev/null 2>&1 || {
+                echo "FATAL: r159 stub: $HOTFIX_ROLE delta extraction failed" >&2
+                exit 1
+            }
+            while IFS="$OVERLAY_TAB" read -r kind rel; do
+                [ "$kind" = whiteout ] || continue
+                rm -rf "$TARGET/$rel" || {
+                    echo "FATAL: r159 stub: cannot remove $HOTFIX_ROLE whiteout marker '$rel'" >&2
+                    exit 1
+                }
+            done < "$HOTFIX_MANIFEST"
+        fi
     elif [ "$_applied_role" = "base" ]; then
         echo "I: r159 stub: role=base (component-selector desktop OFF); skipping desktop overlay" >&2
     fi
@@ -1295,7 +1373,9 @@ FBS
 Description=NCZ first-boot finalize (dpkg configure + machine identity)
 ConditionPathExists=!/var/lib/ncz-firstboot-done
 DefaultDependencies=no
-After=local-fs.target
+# dpkg --configure -a may run package ldconfig triggers; let systemd's stock
+# ldconfig.service finish first so both do not race over /etc/ld.so.cache~.
+After=local-fs.target ldconfig.service
 Before=display-manager.service gdm.service graphical.target
 [Service]
 Type=oneshot
@@ -2126,9 +2206,17 @@ if [ "$EMBED_MIRROR" = "1" ]; then
         # unified names as well as retired channel names for upgrade recovery.
         printf '%s\n' linux-image-cixmini linux-headers-cixmini \
             linux-image-cixmini-legacy linux-image-cixmini-edge \
-            linux-image-cixmini-lts cixmini-boot >> "$NCZ_PRUNE_KEEP"
+            linux-image-cixmini-lts cixmini-boot ncz-usb-recovery >> "$NCZ_PRUNE_KEEP"
+        # 10-our-kernel.sh may install zstd directly from the pruned ISO pool
+        # before network time/certs are sane. Keep its tiny dependency chain in
+        # the same local pool so dpkg can configure it without apt's resolver.
+        printf '%s\n' zstd zlib1g libgcc-s1 liblz4-1 liblzma5 libstdc++6 >> "$NCZ_PRUNE_KEEP"
         # Observed install-time installs that no layer provides.
         printf '%s\n' locales libc-l10n systemd-container >> "$NCZ_PRUNE_KEEP"
+        # 20-desktop.sh installs the local ncz-singularity-desktop payload
+        # directly from /cdrom/pool/main; keep upower so that package does not
+        # land with a broken dependency while network apt sources are cold.
+        printf '%s\n' upower >> "$NCZ_PRUNE_KEEP"
 
         NCZ_PRUNE_HAVE="$NCZ_PRUNE_DIR/have"; : > "$NCZ_PRUNE_HAVE"
         for _l in base desktop server; do
@@ -2160,6 +2248,10 @@ if [ "$EMBED_MIRROR" = "1" ]; then
         fi
         rm -rf "$NCZ_PRUNE_DIR"
     fi
+    bash "$ROOT/build/verify-local-package-versions.sh" \
+        --pool "$STAGING/pool" \
+        --label "staged ISO pool" \
+        "${LOCAL_VERSION_ARGS[@]}"
     echo "    regenerating regular deb Packages index from the staged offline pool"
     mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64"
     (
@@ -3023,9 +3115,16 @@ fi
 # is not in Ubuntu ports' default pool) and let the kernel's own initramfs
 # mount the btrfs root, so rEFInd needs no btrfs/ext4 EFI filesystem driver.
 # Lands at /usr/local/lib/cix-installer/assets/refind/ via late.sh.
+_REFIND_BIN=""
 if [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ]; then
+    _REFIND_BIN="$ROOT/build/refind-bin/refind_aa64.efi"
+elif [ -f "$ROOT/assets/refind/refind_aa64.efi" ]; then
+    _REFIND_BIN="$ROOT/assets/refind/refind_aa64.efi"
+    echo "    refind: build/refind-bin/refind_aa64.efi absent — using tracked assets/refind/refind_aa64.efi"
+fi
+if [ -n "$_REFIND_BIN" ]; then
     mkdir -p "$EXTRA/assets/refind"
-    cp -L "$ROOT/build/refind-bin/refind_aa64.efi" "$EXTRA/assets/refind/"
+    cp -L "$_REFIND_BIN" "$EXTRA/assets/refind/"
     echo "    refind: refind_aa64.efi staged ($(du -h "$EXTRA/assets/refind/refind_aa64.efi" | cut -f1))"
     # r127: rEFInd startup banner ("NCZ-OS 26.6"). Optional — 70-bootloader.sh
     # references it via `banner` only when present; rEFInd ignores a missing one.
@@ -3064,7 +3163,7 @@ if [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ]; then
         echo "    refind: WARN no icons/ in build/refind-bin OR assets/refind — rEFInd boots TEXT-ONLY (no banner)" >&2
     fi
 else
-    echo "    refind: build/refind-bin/refind_aa64.efi MISSING — 70-bootloader will FAIL (no installed bootloader)" >&2
+    echo "    refind: build/refind-bin/refind_aa64.efi and assets/refind/refind_aa64.efi MISSING — 70-bootloader will FAIL (no installed bootloader)" >&2
 fi
 
 echo "$VERSION"     > "$EXTRA/BUILD_VERSION"

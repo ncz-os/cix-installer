@@ -193,6 +193,48 @@ if [ -n "$SQFS_DIR" ]; then
                 exit 1
             fi
         done < "$OVERLAY_MANIFEST"
+        HOTFIX_ROLE="$ROLE-hotfix"
+        HOTFIX_IMAGE="$SQFS_DIR/$HOTFIX_ROLE.squashfs"
+        HOTFIX_MANIFEST="$SQFS_DIR/$HOTFIX_ROLE.overlay-manifest"
+        if [ -f "$HOTFIX_IMAGE" ]; then
+            if [ ! -s "$HOTFIX_MANIFEST" ]; then
+                msg "FATAL: missing $HOTFIX_ROLE overlay manifest"
+                exit 1
+            fi
+            HOTFIX_COUNT=0
+            while IFS="$OVERLAY_TAB" read -r kind rel; do
+                case "$kind" in
+                    '#'*|'') continue ;;
+                    whiteout|opaque) ;;
+                    *) msg "FATAL: invalid $HOTFIX_ROLE overlay operation '$kind'"; exit 1 ;;
+                esac
+                case "$rel" in
+                    ''|.|/*|../*|*/../*|*/..)
+                        msg "FATAL: unsafe $HOTFIX_ROLE overlay path '$rel'"
+                        exit 1
+                        ;;
+                esac
+                if ! rm -rf "/target/$rel"; then
+                    msg "FATAL: cannot apply $HOTFIX_ROLE $kind '$rel'"
+                    exit 1
+                fi
+                HOTFIX_COUNT=$((HOTFIX_COUNT + 1))
+            done < "$HOTFIX_MANIFEST"
+            msg "applied $HOTFIX_COUNT $HOTFIX_ROLE overlay operation(s)"
+
+            msg "applying $HOTFIX_ROLE.squashfs delta -> /target"
+            run_unsq -f -d /target "$HOTFIX_IMAGE" >/dev/null 2>>$SER
+            RC=$?
+            echo "[sqfs] $HOTFIX_ROLE rc=$RC -> $(find /target -xdev -type f 2>/dev/null | wc -l) files" > $SER 2>&1
+            if [ "$RC" -ne 0 ]; then msg "FATAL: unsquashfs $HOTFIX_ROLE rc=$RC"; exit 1; fi
+            while IFS="$OVERLAY_TAB" read -r kind rel; do
+                [ "$kind" = whiteout ] || continue
+                if ! rm -rf "/target/$rel"; then
+                    msg "FATAL: cannot remove $HOTFIX_ROLE whiteout marker '$rel'"
+                    exit 1
+                fi
+            done < "$HOTFIX_MANIFEST"
+        fi
     else
         if [ "$_applied_role" = "base" ]; then
             msg "role=base (operator toggled desktop OFF at install) — skipping desktop overlay"
@@ -259,7 +301,9 @@ FBS
 Description=NCZ first-boot finalize (dpkg configure + machine identity)
 ConditionPathExists=!/var/lib/ncz-firstboot-done
 DefaultDependencies=no
-After=local-fs.target
+# dpkg --configure -a may run package ldconfig triggers; let systemd's stock
+# ldconfig.service finish first so both do not race over /etc/ld.so.cache~.
+After=local-fs.target ldconfig.service
 Before=display-manager.service gdm.service graphical.target
 [Service]
 Type=oneshot

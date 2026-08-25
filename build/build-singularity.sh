@@ -157,33 +157,29 @@ vetro --version 2>/dev/null || true
 # upstream; it is mounted read-only and copied into the disposable container
 # workspace before any build writes occur.
 if [ -n "${SINGULARITY_SOURCE_DIR:-}" ]; then
-    # This copies the WORKTREE, not the vendored patch series. The downstream
-    # patches under patches/ are applied to that worktree by
-    # scripts/apply-downstream-patches.sh, so a CLEAN worktree here silently
-    # yields a payload built from plain upstream -- it compiles, it stages, and
-    # every fix is missing.
-    #
-    # That is not hypothetical: on 2026-08-13, right after the submodule pins
-    # were synced to merged upstream (which resets the worktree clean), a build
-    # reported success and produced a 14M payload whose singularity-desktop had
-    # ZERO close_layer_window symbols. Only an nm(1) check on the artifact
-    # caught it.
-    #
-    # So refuse the build when a patch series exists but is not applied.
-    if [ -d "$SINGULARITY_SOURCE_DIR/patches/singularity-shell" ] && \
-       ls "$SINGULARITY_SOURCE_DIR"/patches/singularity-shell/*.patch >/dev/null 2>&1 && \
-       ! grep -rqs "close_layer_window" \
-            "$SINGULARITY_SOURCE_DIR/subprojects/singularity-shell/src/core/"; then
-        echo "ERROR: $SINGULARITY_SOURCE_DIR has a downstream patch series that is NOT applied" >&2
-        echo "       to its worktree. Building now would silently produce an UNPATCHED payload." >&2
-        echo "       Run:  bash $SINGULARITY_SOURCE_DIR/scripts/apply-downstream-patches.sh" >&2
-        exit 1
-    fi
     cp -a "$SINGULARITY_SOURCE_DIR" singularity-desktop
 else
     git clone --recursive --branch "'"$SRC_REF"'" "'"$SRC_REPO"'" singularity-desktop
 fi
 cd singularity-desktop
+
+# Apply the downstream patch queue inside the disposable build workspace.
+# The helper is idempotent: already-applied patches are skipped, but a patch
+# that no longer applies fails the build. This closes the clean-worktree trap
+# where a package version could advertise the NCZ patch commit while the built
+# binary was plain upstream.
+if [ -x scripts/apply-downstream-patches.sh ]; then
+    git config --global --add safe.directory /work/singularity-desktop || true
+    git config --global --add safe.directory /work/singularity-desktop/subprojects/singularity-shell || true
+    if grep -q "private class SensorsIndicator" subprojects/singularity-shell/src/components/panel/panel.vala \
+       && grep -q "PanelSensorGroup" subprojects/singularity-shell/src/components/panel/panel.vala \
+       && grep -q "make_heat_bar" subprojects/singularity-shell/src/components/panel/panel.vala \
+       && grep -q "layout_items\\[\"sensors\"\\] = new SensorsIndicator" subprojects/singularity-shell/src/components/panel/panel.vala; then
+        echo "    downstream patches already present in copied source; skipping patch replay"
+    else
+        bash scripts/apply-downstream-patches.sh
+    fi
+fi
 
 # NCZ shell integration: close the launcher popup before opening the full-screen
 # workspace chooser. Applied by ANCHOR, not by line number. Upstream refactors
@@ -315,7 +311,7 @@ fi
 echo ""
 echo "== done =="
 ls -lh "$OUT/singularity-opt.tgz"
-echo "  top entries:"; tar tzf "$OUT/singularity-opt.tgz" | head -3
+echo "  top entries:"; tar tzf "$OUT/singularity-opt.tgz" | awk 'NR <= 3 { print }'
 
 if [ "$PUSH_ARGONAS" = 1 ]; then
     echo "== staging on ARGONAS ($ARGONAS_DST) =="

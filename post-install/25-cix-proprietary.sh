@@ -83,6 +83,13 @@ for deb in ./*.deb; do
     case "$deb" in
         linux-image-*-cix-build-generic_*.deb|linux-headers-*-cix-build-generic_*.deb) continue ;;
         cix-npu-driver_*.deb|cix-gpu-driver_*.deb|cix-vpu-driver_*.deb|cix-isp-driver_*.deb|cix-wlan_*.deb|cix-csi-driver_*.deb|cix-noe-kmd_*.deb) continue ;;
+        # Desktop payload ownership lives in 20-desktop.sh and the ISO
+        # /pool/main package. Some baked desktop roots still carry older
+        # ncz-singularity-desktop debs in assets/cix-debs; installing them
+        # here can downgrade the sensor-panel hotfix after it was applied.
+        ncz-singularity-desktop_*.deb)
+            echo "    skipping $deb (desktop payload is installed from /cdrom/pool/main by 20-desktop.sh)"
+            continue ;;
         # cix-noe-umd 2.0.2: the only UMD validated against our in-tree
         # armchina_npu (v0-compat) KMD. It ships libnoe.so.0.6.0 +
         # /usr/share/cix/pypi/{libnoe,NOE_Engine}-2.0.0 wheels (cp311/cp312),
