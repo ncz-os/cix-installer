@@ -48,7 +48,10 @@ OUT="$REPO/build/kernel-debs"
 # KERNELRELEASE, but the Image source identity is the v7.2 tag commit.
 # r251 = same v7.2 release base plus patch 0222 for lost USB2 connect events
 # on powered but runtime-suspended Sky1 hub ports.
-BUILD_REV="${BUILD_REV:-r251}"
+# r252 = patch 0223, DisplayPort-audio ELD fix; same KERNELRELEASE.
+# r253 = same r252 kernel content, but linux-headers-cixmini postinst now
+# finds /usr/sbin/dkms even when dpkg invokes it with a non-sbin PATH.
+BUILD_REV="${BUILD_REV:-r253}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only
@@ -711,6 +714,11 @@ build_headers_deb() {
     sed -e "s|__KVER__|$kver|g" > "$root/DEBIAN/postinst" <<'POSTINST_EOF'
 #!/bin/sh
 set -e
+# Debian maintainer scripts must not trust the caller's PATH. Tonight's r252
+# O6N incident proved why: dkms existed at /usr/sbin/dkms, but the postinst
+# inherited a PATH without sbin and skipped the whole autoinstall block.
+PATH="/usr/sbin:/sbin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin${PATH:+:$PATH}"
+export PATH
 KVER="__KVER__"
 [ -n "$KVER" ] || { echo "linux-headers-cixmini: empty KVER, aborting"; exit 1; }
 B="/usr/lib/modules/$KVER/build"
@@ -843,12 +851,14 @@ log "release string OK (${REL:-$KVER})"
 # every subsequent apt invocation reports until the operator runs
 # `dpkg --configure -a` or `apt install -f`. A silently-stale GPU driver
 # is the worse outcome (the r246/r247 bug), so we err toward visibility.
-if command -v dkms >/dev/null 2>&1; then
+DKMS_BIN="$(command -v dkms 2>/dev/null || true)"
+[ -n "$DKMS_BIN" ] || [ ! -x /usr/sbin/dkms ] || DKMS_BIN=/usr/sbin/dkms
+if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
     log "running dkms autoinstall -k $KVER"
     DKMS_LOG=/var/log/ncz-dkms-autoinstall.log
-    if dkms autoinstall -k "$KVER" >>"$DKMS_LOG" 2>&1; then
+    if "$DKMS_BIN" autoinstall -k "$KVER" >>"$DKMS_LOG" 2>&1; then
         log "dkms autoinstall OK"
-        dkms status 2>/dev/null | sed 's/^/           /'
+        "$DKMS_BIN" status 2>/dev/null | sed 's/^/           /'
     else
         rc=$?
         echo "linux-headers-cixmini[$KVER]: FATAL: dkms autoinstall failed (exit $rc)" >&2
@@ -863,7 +873,7 @@ if command -v dkms >/dev/null 2>&1; then
         # for. dkms status AFTER a failed autoinstall is the only ground
         # truth for "which package broke".
         echo "                              current dkms status:" >&2
-        dkms status 2>/dev/null | sed 's/^/                              /' >&2
+        "$DKMS_BIN" status 2>/dev/null | sed 's/^/                              /' >&2
         exit 1
     fi
 else
