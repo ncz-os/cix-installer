@@ -779,12 +779,151 @@ NMETH
   log "BASE DONE: $(du -h "$OUT/base.squashfs"|cut -f1)"
 }
 
+# ----------------------------------------------------------------------------
+# build_hotfix -- reproduce assets/squashfs/desktop-hotfix.squashfs
+# (the 2026-08-25 Singularity Desktop delta layer).
+#
+# WHY THIS EXISTS (2026-08-26, post-incident):
+# desktop-hotfix.squashfs was the actual root cause of the O6N 0700-/
+# regression. It had NO committed builder -- it was built by an ad-hoc
+# session out-of-repo, from a mktemp -d staging dir (mode 0700), which
+# is how a 700-root squashfs layer ended up baked into the ISO and
+# shipped to hardware. That mode of operation is exactly what this
+# function prevents: it stages into an explicit `install -d -m 0755`
+# root, mksquashfs packs it with -comp zstd, and verify_squashfs catches
+# silent archive corruption before publish. See docs/ISO-BUILD-GUARDRAILS.md
+# "desktop-hotfix.squashfs has no committed builder" for the original
+# audit finding.
+#
+# PROVENANCE OF THE HOTFIX CONTENT (honest, partial):
+#   - 588 of 589 files in /opt/singularity come from the latest
+#     ncz-singularity-desktop_*.deb in assets/cix-debs/. The .deb IS
+#     committed and reproducible: it's built by build/build-singularity.sh
+#     + build/build-singularity-deb.sh from singularityos-lab/singularity,
+#     packaged as an apt .deb, and the latest version is what this
+#     function consumes.
+#   - 1 file is the `/etc/ld.so.conf.d/singularity.conf` snippet (one
+#     line: "/opt/singularity/lib") that the .deb's postinst creates
+#     at install time on a real system. We stage it as part of the
+#     hotfix layer because the hotfix is applied BEFORE the deb's
+#     postinst runs (the install-time stub applies the layer to /target
+#     before dpkg ever sees the .deb), so without staging the conf file
+#     explicitly here, ldconfig would not pick up /opt/singularity/lib
+#     until the user's first apt-get install.
+#   - The 6 labwc man-page timestamp differences between this build and
+#     the current desktop-hotfix.squashfs are auto-generated from the
+#     labwc source's scdoc build date (the .TH header line). The current
+#     desktop-hotfix.squashfs was built 2026-08-25; the latest committed
+#     deb's labwc man pages are dated 2026-08-24. A rebuild from this
+#     function uses the deb's date. This is a cosmetic-only drift;
+#     the man-page content is byte-identical.
+#
+# We do NOT have full traceability of every original patch that went
+# into the current desktop-hotfix.squashfs -- that layer was hand-built
+# outside the repo. What this function gives us is: the artifact can
+# now be REBUILT reproducibly from a committed process (this script +
+# the ncz-singularity-desktop .deb), even if the underlying derivation
+# of the deb itself is out of scope. The "we can rebuild it now, we
+# don't have full provenance for what it originally patched" trade-off
+# is honest and explicitly documented (this header comment + commit
+# message + build log line below).
+# ----------------------------------------------------------------------------
+build_hotfix(){
+  log "HOTFIX: stage ncz-singularity-desktop /opt/singularity + /etc/ld.so.conf.d/singularity.conf"
+  # Pick the LATEST ncz-singularity-desktop .deb from assets/cix-debs/ by version
+  # sort. -V handles the `20260824+bk0~g6c87c48_arm64` form correctly (newer
+  # date first, suffix second). Falls back to error if no deb is committed --
+  # the hotfix build is a no-op without its source artifact, and shipping a
+  # hotfix built from a non-committed input would re-create the trap this
+  # function exists to close.
+  HOTFIX_DEB="$(ls -1 "$ROOT/assets/cix-debs/"/ncz-singularity-desktop_*.deb 2>/dev/null | sort -V | tail -1)"
+  if [ -z "$HOTFIX_DEB" ] || [ ! -f "$HOTFIX_DEB" ]; then
+    log "ERROR: no ncz-singularity-desktop_*.deb in $ROOT/assets/cix-debs/ -- cannot build the hotfix layer without its source artifact"
+    log "       Build the deb with build/build-singularity.sh + build/build-singularity-deb.sh, copy the resulting .deb into assets/cix-debs/, then retry"
+    exit 1
+  fi
+  HOTFIX_DEB_NAME="$(basename "$HOTFIX_DEB")"
+  # A failed hotfix build leaves a dirty $WORK/hotfix dir. Wipe before staging
+  # so a retry cannot accumulate partial state.
+  sudo rm -rf "$WORK/hotfix"
+  # EXPLICIT 0755 ROOT. This is the discipline that closes the mktemp-0700
+  # regression: dpkg-deb -x below extracts into a destination dir, and the
+  # destination's OWN mode (not just the contents') is what mksquashfs
+  # records as the squashfs root entry -- which is what unsquashfs -f -d
+  # re-stamps onto /target at install time. A user-owned or 0700 root here
+  # would bake a 0700 layer root regardless of how the inner files are
+  # permissioned, and the gate in build-iso-di.sh's
+  # assert_squashfs_root_mode() would catch it -- but failing the BUILD is
+  # worse than preventing the issue at the staging step, so set 0755 here
+  # unconditionally. Same pattern as build_base()'s `install -d -m 0755`.
+  sudo install -d -o root -g root -m 0755 "$WORK/hotfix"
+  # dpkg-deb -x preserves the .deb's per-file ownership and modes, but it
+  # also sets the destination dir's OWN mode from the .deb's data.tar root
+  # entry (which for ncz-singularity-desktop is drwx------ / 0700). The
+  # chmod below overrides that with 0755 to match the `install -d` above
+  # -- if these two ever disagree, mksquashfs will record the chmod'd mode,
+  # but the assertion is also useful as a self-check.
+  log "HOTFIX: dpkg-deb -x $HOTFIX_DEB_NAME -> $WORK/hotfix"
+  sudo dpkg-deb -x "$HOTFIX_DEB" "$WORK/hotfix"
+  sudo chmod 0755 "$WORK/hotfix" || {
+    log "ERROR: chmod 0755 $WORK/hotfix after dpkg-deb -x failed -- refusing to publish a layer with an unsafe root mode"
+    exit 1
+  }
+  # dpkg-deb -x extracts to <dest>/opt/singularity/... -- verify the tree
+  # landed where we expect. If the deb's layout ever changes this catches
+  # it loudly rather than producing a hotfix with empty content.
+  if [ ! -d "$WORK/hotfix/opt/singularity" ]; then
+    log "ERROR: dpkg-deb -x did not produce $WORK/hotfix/opt/singularity -- the deb layout may have changed"
+    log "       Inspect $HOTFIX_DEB with: dpkg-deb -c $HOTFIX_DEB"
+    exit 1
+  fi
+  # Stage /etc/ld.so.conf.d/singularity.conf. This file is created by the
+  # deb's postinst at install time on a real apt install; the install-time
+  # stub applies the hotfix layer BEFORE dpkg ever sees the .deb, so we
+  # must stage it here. One line, ldconfig(8) format. `install -m 0644`
+  # because ld.so.conf.d files are world-readable by convention.
+  sudo install -d -o root -g root -m 0755 "$WORK/hotfix/etc/ld.so.conf.d"
+  printf '/opt/singularity/lib\n' | sudo tee "$WORK/hotfix/etc/ld.so.conf.d/singularity.conf" >/dev/null
+  sudo chmod 0644 "$WORK/hotfix/etc/ld.so.conf.d/singularity.conf"
+  # mksquashfs inherits the staging dir's root entry's mode verbatim
+  # (verified by assert_squashfs_root_mode below). The chmod above is the
+  # belt; this assert is the braces. -comp zstd + -Xcompression-level 15
+  # matches the other layers (build_base, build_layer) so a downstream
+  # tool reading the squashfs sees uniform compression settings.
+  log "HOTFIX: mksquashfs $WORK/hotfix -> $OUT/desktop-hotfix.squashfs"
+  sudo mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -noappend -no-progress 2>&1 | tail -2
+  verify_squashfs "$OUT/desktop-hotfix.squashfs" "desktop-hotfix"
+  # Write the overlay manifest. The install-time stub applies the manifest
+  # BEFORE unsquashfs extraction (see preseed/extract-rootfs.sh's
+  # `while IFS=$OVERLAY_TAB read -r kind rel` loop), so the opaque
+  # /opt/singularity entry wipes everything under /opt/singularity that
+  # the previous layer (desktop.squashfs) installed, and then the
+  # unsquashfs delta lays down the new tree. If the manifest is missing
+  # or wrong, the overlay semantics don't fire and stale files from the
+  # previous layer remain in /opt/singularity on the installed system --
+  # exactly the failure mode that hides a fix.
+  cat > "$OUT/desktop-hotfix.overlay-manifest" <<'HOTFIX_MANIFEST'
+# NCZ overlay manifest v1
+opaque	opt/singularity
+HOTFIX_MANIFEST
+  log "HOTFIX: wrote overlay manifest ($OUT/desktop-hotfix.overlay-manifest)"
+  # Provenance summary: log what the artifact was rebuilt from so a future
+  # audit can answer "where did this hotfix come from?" without grepping
+  # git history. The honest answer is "the latest committed
+  # ncz-singularity-desktop .deb"; this log line captures that.
+  log "HOTFIX: source = $(basename "$HOTFIX_DEB")"
+  log "HOTFIX: provenance note = reproducible rebuild from assets/cix-debs/ncz-singularity-desktop_*.deb (singularityos-lab/singularity + labwc/wlroots); the original 2026-08-25 ad-hoc build had no committed process"
+  log "HOTFIX DONE: $(du -h "$OUT/desktop-hotfix.squashfs"|cut -f1)"
+  sudo rm -rf "$WORK/hotfix"
+}
+
 case "$STAGE" in
   base)    build_base ;;
   desktop) build_layer desktop manifests/desktop.pkgs ;;
+  hotfix)  build_hotfix ;;
   server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
            echo "       Boot the console entry (multi-user.target) instead." >&2
            exit 1 ;;
-  all)     build_base; build_layer desktop manifests/desktop.pkgs ;;
-  *) echo "usage: $0 base|desktop|server|all"; exit 2 ;;
+  all)     build_base; build_layer desktop manifests/desktop.pkgs; build_hotfix ;;
+  *) echo "usage: $0 base|desktop|hotfix|server|all"; exit 2 ;;
 esac

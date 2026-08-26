@@ -165,6 +165,24 @@ grep that one instrumented run would have answered.
   in. Any layer that ships on the ISO needs a committed builder script
   that stages into an explicitly `install -d -m 0755` root (as
   build-squashfs-layers.sh already does for base).
+  **Status (2026-08-26):** closed by `build_hotfix()` in
+  build/build-squashfs-layers.sh. Reproduces the layer from the latest
+  `assets/cix-debs/ncz-singularity-desktop_*.deb` (which is the actual
+  source of `/opt/singularity`); stages into `$WORK/hotfix` with explicit
+  `install -d -o root -g root -m 0755`; writes the
+  `desktop-hotfix.overlay-manifest` with the `opaque opt/singularity`
+  marker; mksquashfs at the same compression settings as base/desktop;
+  and runs `verify_squashfs()` for the same cold-read corruption guard
+  as the other layers. Invoked via `bash build/build-squashfs-layers.sh
+  hotfix` (or as part of `all`). Provenance of the hotfix content is
+  partially recoverable: 588/589 files come from the .deb (the .deb
+  itself is reproducible via build/build-singularity.sh +
+  build/build-singularity-deb.sh), 1 file (`/etc/ld.so.conf.d/singularity.conf`)
+  is staged explicitly, and 6 labwc man-page timestamps regenerate from
+  the deb's labwc build date. The original 2026-08-25 ad-hoc build's full
+  derivation is not preserved -- this is the honest "we can rebuild it
+  reproducibly now, we don't have full provenance for what it originally
+  patched" trade-off, not a claim of full traceability.
 - **`build/iso-staging-di/` contains committed COPIES of preseed/ +
   post-install/.** They are build artifacts refreshed on every build —
   grep hits there are decoys; do not read or edit them.
