@@ -137,15 +137,15 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
     pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol pulseaudio-utils 2>&1 | tail -3 || true
 systemctl --global enable pipewire pipewire-pulse wireplumber 2>&1 | tail -2 || true
 
-if [ -f /cdrom/assets/audio/ncz-sky1-audio-autoswitch.py ] && \
-   [ -f /cdrom/assets/audio/ncz-sky1-audio-autoswitch.service ]; then
-    install -m 0755 /cdrom/assets/audio/ncz-sky1-audio-autoswitch.py \
+if [ -f /cdrom/cixmini/assets/audio/ncz-sky1-audio-autoswitch.py ] && \
+   [ -f /cdrom/cixmini/assets/audio/ncz-sky1-audio-autoswitch.service ]; then
+    install -m 0755 /cdrom/cixmini/assets/audio/ncz-sky1-audio-autoswitch.py \
         /usr/local/bin/ncz-sky1-audio-autoswitch
     install -d -m 0755 /etc/systemd/user /usr/share/doc
-    install -m 0644 /cdrom/assets/audio/ncz-sky1-audio-autoswitch.service \
+    install -m 0644 /cdrom/cixmini/assets/audio/ncz-sky1-audio-autoswitch.service \
         /etc/systemd/user/ncz-sky1-audio-autoswitch.service
-    if [ -f /cdrom/docs/NCZ-SKY1-AUDIO-AUTOSWITCH.md ]; then
-        install -m 0644 /cdrom/docs/NCZ-SKY1-AUDIO-AUTOSWITCH.md \
+    if [ -f /cdrom/cixmini/docs/NCZ-SKY1-AUDIO-AUTOSWITCH.md ]; then
+        install -m 0644 /cdrom/cixmini/docs/NCZ-SKY1-AUDIO-AUTOSWITCH.md \
             /usr/share/doc/ncz-sky1-audio-autoswitch.md
     fi
     systemctl --global enable ncz-sky1-audio-autoswitch.service 2>&1 | tail -2 || true
