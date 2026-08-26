@@ -342,11 +342,13 @@ dpkg --configure -a 2>/dev/null || true
 # a bad / mode before greetd would hit EACCES traversing /. Always emits a
 # NCZ-ROOTMODE marker to kmsg+console so build/kvm-install-gate.sh phase 2
 # can assert the final mode from outside the VM.
-_rm=$(stat -c %a / 2>/dev/null || echo ???)
-if [ "$_rm" != "755" ]; then
-    echo "ncz-firstboot: WARNING / mode was $_rm (expected 755) — correcting" > /dev/kmsg 2>/dev/null || true
+_rm=$(ls -ld / 2>/dev/null | awk '"'"'{print $1}'"'"')
+[ -n "$_rm" ] || _rm="???"
+if [ "$_rm" != "drwxr-xr-x" ]; then
+    echo "ncz-firstboot: WARNING / mode was $_rm (expected drwxr-xr-x/0755) — correcting" > /dev/kmsg 2>/dev/null || true
     chmod 0755 / 2>/dev/null || true
-    _rm=$(stat -c %a / 2>/dev/null || echo ???)
+    _rm=$(ls -ld / 2>/dev/null | awk '"'"'{print $1}'"'"')
+    [ -n "$_rm" ] || _rm="???"
 fi
 echo "NCZ-ROOTMODE: $_rm" > /dev/kmsg 2>/dev/null || true
 echo "NCZ-ROOTMODE: $_rm" > /dev/console 2>/dev/null || true
@@ -386,13 +388,14 @@ FBU
     # INSTALL LOUDLY here, not surface hours later on real hardware. Must
     # run AFTER the corrective chmod (so it can't fail on the bug itself),
     # and must be impossible to silently skip — `exit 1` on mismatch.
-    _ncz_root_mode=$(stat -c '%a' /target 2>/dev/null || echo "???")
-    if [ "$_ncz_root_mode" != "755" ]; then
-        msg "FATAL: /target root mode is ${_ncz_root_mode}, expected 755 — refusing to ship a broken install"
-        echo "[sqfs] FATAL /target mode=${_ncz_root_mode} (expected 755)" > $SER 2>&1
+    _ncz_root_mode=$(ls -ld /target 2>/dev/null | awk '"'"'{print $1}'"'"')
+    [ -n "$_ncz_root_mode" ] || _ncz_root_mode="???"
+    if [ "$_ncz_root_mode" != "drwxr-xr-x" ]; then
+        msg "FATAL: /target root mode is ${_ncz_root_mode}, expected drwxr-xr-x/0755 — refusing to ship a broken install"
+        echo "[sqfs] FATAL /target mode=${_ncz_root_mode} (expected drwxr-xr-x)" > $SER 2>&1
         exit 1
     fi
-    msg "verified /target root mode = 755 (gate OK)"
+    msg "verified /target root mode = drwxr-xr-x (0755) (gate OK)"
     exit 0
 fi
 

@@ -929,10 +929,14 @@ fi
 # be corrected. Non-hard-fail: too much install work has happened by now
 # and a simple chmod is the right fix. The HARD-FAIL half is below,
 # immediately before the final reboot-decision block.
-_ncz_root_mode_post_runall=$(stat -c '%a' /target 2>/dev/null || echo "???")
-if [ "$_ncz_root_mode_post_runall" != "755" ]; then
+# BusyBox in the d-i environment has no `stat` applet (confirmed live on
+# O6N: "stat: not found") -- use `ls -ld` and compare the permission-string
+# field instead of an octal mode.
+_ncz_root_mode_post_runall=$(ls -ld /target 2>/dev/null | awk '"'"'{print $1}'"'"')
+[ -n "$_ncz_root_mode_post_runall" ] || _ncz_root_mode_post_runall="???"
+if [ "$_ncz_root_mode_post_runall" != "drwxr-xr-x" ]; then
     echo "[late round2/7de5ce6] WARNING: /target root mode was $_ncz_root_mode_post_runall after run-all.sh; correcting to 755"
-    ttymsg "WARNING: /target root mode was $_ncz_root_mode_post_runall (expected 755); correcting (hard gate below will verify)"
+    ttymsg "WARNING: /target root mode was $_ncz_root_mode_post_runall (expected drwxr-xr-x/0755); correcting (hard gate below will verify)"
     chmod 0755 /target 2>/dev/null || \
         echo "[late round2/7de5ce6] WARN: corrective chmod 0755 /target failed — relying on hard gate below"
 fi
@@ -1180,17 +1184,19 @@ FINALIZE_OK=0
 # non-root UID, so greetd/NIC/RTC all fail and the system never reaches a
 # login. We must NOT honour the r155 exit-0 heuristic for this failure
 # class, so we route around it via _ncz_root_mode_ok.
-_ncz_root_mode_final=$(stat -c '%a' /target 2>/dev/null || echo "???")
+_ncz_root_mode_final=$(ls -ld /target 2>/dev/null | awk '"'"'{print $1}'"'"')
+[ -n "$_ncz_root_mode_final" ] || _ncz_root_mode_final="???"
 _ncz_root_mode_ok=1
-if [ "$_ncz_root_mode_final" != "755" ]; then
-    echo "[late round2/7de5ce6] FATAL: /target root mode is $_ncz_root_mode_final, expected 755 — refusing to ship a broken install"
-    ttymsg "FATAL: /target root mode $_ncz_root_mode_final (expected 755) — install refused"
+if [ "$_ncz_root_mode_final" != "drwxr-xr-x" ]; then
+    echo "[late round2/7de5ce6] FATAL: /target root mode is $_ncz_root_mode_final, expected drwxr-xr-x/0755 — refusing to ship a broken install"
+    ttymsg "FATAL: /target root mode $_ncz_root_mode_final (expected drwxr-xr-x/0755) — install refused"
     # Final corrective attempt + verify. Idempotent and cheap even if the
     # earlier corrective gate already fixed it.
     chmod 0755 /target 2>/dev/null || \
         echo "[late round2/7de5ce6] FATAL: chmod 0755 /target failed — bailing"
-    _ncz_root_mode_recheck=$(stat -c '%a' /target 2>/dev/null || echo "???")
-    if [ "$_ncz_root_mode_recheck" != "755" ]; then
+    _ncz_root_mode_recheck=$(ls -ld /target 2>/dev/null | awk '"'"'{print $1}'"'"')
+    [ -n "$_ncz_root_mode_recheck" ] || _ncz_root_mode_recheck="???"
+    if [ "$_ncz_root_mode_recheck" != "drwxr-xr-x" ]; then
         # Same fail-loud pattern as the round-1 extract-rootfs.sh gate:
         # mark failure on the existing RET axis and force the r155
         # bootability heuristic off so finish-install surfaces the failure.
