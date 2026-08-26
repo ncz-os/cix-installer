@@ -171,6 +171,7 @@ cd singularity-desktop
 if [ -x scripts/apply-downstream-patches.sh ]; then
     git config --global --add safe.directory /work/singularity-desktop || true
     git config --global --add safe.directory /work/singularity-desktop/subprojects/singularity-shell || true
+    git config --global --add safe.directory /work/singularity-desktop/subprojects/libsingularity || true
     if grep -q "private class SensorsIndicator" subprojects/singularity-shell/src/components/panel/panel.vala \
        && grep -q "PanelSensorGroup" subprojects/singularity-shell/src/components/panel/panel.vala \
        && grep -q "make_heat_bar" subprojects/singularity-shell/src/components/panel/panel.vala \
