@@ -1,4 +1,6 @@
 #!/bin/sh
+# See docs/ISO-BUILD-GUARDRAILS.md before changing this file —
+# these are ISO build MECHANICS, stable across builds by design.
 # r40 partman/late_command — extract pre-built rootfs.tar.zst into /target
 # right after partman finishes (so /target is mounted) and before
 # bootstrap-base runs. The bookworm bootstrap-base.run-debootstrap will then
@@ -149,6 +151,19 @@ if [ -n "$SQFS_DIR" ]; then
     RC=$?
     echo "[sqfs] base rc=$RC -> $(find /target -xdev -type f 2>/dev/null | wc -l) files" > $SER 2>&1
     if [ "$RC" -ne 0 ]; then msg "FATAL: unsquashfs base rc=$RC"; exit 1; fi
+    # 2026-08-26: defensive chmod 0755 /target after the base extraction.
+    # Why: unsquashfs -f -d sets the destination's mode to match the squashfs
+    # root entry, including when /target is a mounted btrfs subvolume root
+    # (which the d-i partman recipe just created). A root at 0700 denies
+    # traversal to every non-root UID, which silently breaks greetd, NIC
+    # bring-up (systemd sandboxed), rtc-efi, and anything else that boots
+    # without raw-root privileges. O6N install confirmed live 2026-08-26 with
+    # mode 0700 + the symptom set; the exact upstream mechanism (build-side
+    # squashfs vs install-side btrfs interaction) was not pinpointed before
+    # this fix — the symptom is real, the chain is plausible, this is the
+    # minimal belt-and-suspenders that closes the class regardless of which
+    # side regresses. Unconditional, must fail loudly on chmod failure.
+    chmod 0755 /target || { msg "FATAL: chmod 0755 /target failed"; exit 1; }
     if [ "$ROLE" = "desktop" ] && [ -f "$SQFS_DIR/$ROLE.squashfs" ]; then
         # Apply the complete overlay contract (0:0 whiteouts plus opaque
         # directories) before extracting the upperdir squashfs.
@@ -318,6 +333,23 @@ FBU
     echo "[sqfs] DONE ${FINAL_MB}MB role=$_applied_role files=$(find /target -xdev -type f|wc -l)" > $SER 2>&1
     [ -f /target/etc/os-release ] || echo "[sqfs] WARN no os-release" > $SER 2>&1
     touch /target/.cix-r40-rootfs-extracted /target/.cix-squashfs-install
+    # 2026-08-26: MECHANICAL VERIFICATION GATE — root install must be mode 0755.
+    # Why: O6N install shipped with / mode 0700 and silently broke greetd +
+    # NIC + RTC. The corrective chmod above runs right after base extraction;
+    # this assert catches (a) a typo'd chmod in this file, (b) a later step
+    # re-breaking the root mode, (c) a different code path (ROLE=base,
+    # overlay sequence) re-introducing the bad mode. Stand-alone install
+    # safety net the operator requires: this class of bug must FAIL THE
+    # INSTALL LOUDLY here, not surface hours later on real hardware. Must
+    # run AFTER the corrective chmod (so it can't fail on the bug itself),
+    # and must be impossible to silently skip — `exit 1` on mismatch.
+    _ncz_root_mode=$(stat -c '%a' /target 2>/dev/null || echo "???")
+    if [ "$_ncz_root_mode" != "755" ]; then
+        msg "FATAL: /target root mode is ${_ncz_root_mode}, expected 755 — refusing to ship a broken install"
+        echo "[sqfs] FATAL /target mode=${_ncz_root_mode} (expected 755)" > $SER 2>&1
+        exit 1
+    fi
+    msg "verified /target root mode = 755 (gate OK)"
     exit 0
 fi
 

@@ -1,4 +1,6 @@
 #!/bin/bash
+# See docs/ISO-BUILD-GUARDRAILS.md before changing this file —
+# these are ISO build MECHANICS, stable across builds by design.
 # build-squashfs-layers.sh — NCZ-OS layered squashfs installer images.
 #
 # Produces (under assets/squashfs/):
@@ -755,6 +757,22 @@ NMETH
   sudo chroot "$WORK/base" apt-get clean 2>/dev/null || true
   sudo rm -rf "$WORK/base/var/lib/apt/lists/"* "$WORK/base/tmp/"* 2>/dev/null || true
   apt_unmount "$WORK/base"; umount_chroot "$WORK/base"
+  # 2026-08-26: defensive chmod 0755 on the base root before mksquashfs.
+  # Why: O6N install shipped with / mode 0700 (operator fact). mksquashfs
+  # records the source-dir inode mode verbatim into the squashfs root entry,
+  # and unsquashfs -f -d then propagates that mode onto whatever /target
+  # currently is — including a mounted btrfs subvolume root inode. A root
+  # at 0700 denies traversal to every non-root UID, which silently breaks
+  # greetd, NIC bring-up (systemd sandboxed), rtc-efi, etc. The exact
+  # upstream mechanism (build vs install vs btrfs-partman interaction) was
+  # not pinpointed before this fix — the symptom was confirmed live, the
+  # chain is plausible, and this is the minimal belt-and-suspenders that
+  # closes the class regardless of which side regresses. Set unconditionally;
+  # a silent chmod here is exactly how a 700 root shipped undetected.
+  chmod 0755 "$WORK/base" || {
+    log "ERROR: failed to chmod 0755 $WORK/base before mksquashfs — refusing to publish a possibly-unbootable layer"
+    exit 1
+  }
   log "BASE: mksquashfs -> $OUT/base.squashfs"
   sudo mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -noappend -no-progress 2>&1 | tail -3
   verify_squashfs "$OUT/base.squashfs" "base"
