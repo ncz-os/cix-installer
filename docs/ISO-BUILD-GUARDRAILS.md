@@ -186,3 +186,38 @@ grep that one instrumented run would have answered.
 - **`build/iso-staging-di/` contains committed COPIES of preseed/ +
   post-install/.** They are build artifacts refreshed on every build —
   grep hits there are decoys; do not read or edit them.
+
+## Testing d-i-environment shell code before shipping (2026-08-26)
+
+Rounds 4-5 of the incident above both shipped gate-code bugs that only
+manifested in the actual debian-installer BusyBox runtime -- a missing
+`stat` applet, then a corrupted `awk` invocation from a stray bash
+quote-escaping trick applied inside a Python-generated patch. Both were
+"verified" by hand-typing an equivalent command in a normal bash shell,
+which is a DIFFERENT environment from the one the code actually runs in.
+
+**`build/test-under-di-busybox.sh` closes this gap.** It extracts the REAL
+substrate initrd (`build/iso-staging-di/install.a64/initrd.gz`) and chroots
+into it to run the exact BusyBox build (currently v1.38.0 Debian
+1:1.38.0-3+b1) that d-i actually uses at install time -- confirmed to be a
+DIFFERENT applet set from other busybox binaries on a build host (e.g. the
+diag module's own static `assets/diag/busybox-arm64`, v1.37.0 Ubuntu, DOES
+have `stat`; testing against that instead would have given a false pass on
+exactly the round-4 bug).
+
+```
+sudo bash build/test-under-di-busybox.sh 'ls -ld /tmp | awk '"'"'{print $1}'"'"''
+sudo bash build/test-under-di-busybox.sh -f path/to/snippet.sh
+sudo bash build/test-under-di-busybox.sh --applet-list
+```
+
+Requires `make iso` (or at least the early staging steps of
+`build/build-iso-di.sh`) to have run at least once, so the initrd exists.
+Requires root (chroot). Caches the extraction (keyed on the initrd's mtime)
+so repeat invocations are fast.
+
+**Any change to code that runs inside the d-i environment** (the r159 stub
+in build/build-iso-di.sh, preseed/extract-rootfs.sh, preseed/late.sh,
+diag-console.sh) should be run through this tool against the LITERAL
+committed line before the commit lands -- not an equivalent typed into a
+normal shell. This is now the standard practice, not optional.
