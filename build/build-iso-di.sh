@@ -3235,8 +3235,14 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
         # `unsquashfs -ll | grep -m1` under `set -o pipefail` SIGPIPEs
         # unsquashfs when grep exits after its first match while unsquashfs
         # still has buffered output, aborting the whole build (Error 141).
+        # A `printf | grep -m1` pipe reintroduces the same class of race for
+        # large output, so grep the captured string via a here-string
+        # instead -- no concurrently-running producer process to SIGPIPE.
+        # `|| true` covers the legitimate "no match" case (malformed listing)
+        # so set -e doesn't abort here; the explicit mode check below reports
+        # it properly via the <unreadable> fallback.
         _out=$(unsquashfs -ll "$1" 2>/dev/null)
-        _line=$(printf '%s\n' "$_out" | grep -m1 " squashfs-root$")
+        _line=$(grep -m1 " squashfs-root$" <<< "$_out" || true)
         _mode=${_line%% *}
         if [ "$_mode" != "drwxr-xr-x" ]; then
             echo "FATAL: $2 ($1) squashfs ROOT entry is '${_mode:-<unreadable>}' (expected drwxr-xr-x / 0755)." >&2
