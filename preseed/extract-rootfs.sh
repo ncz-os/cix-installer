@@ -307,6 +307,24 @@ if [ -n "$SQFS_DIR" ]; then
 export DEBIAN_FRONTEND=noninteractive
 dpkg --configure -a 2>/dev/null || true
 [ -s /etc/machine-id ] || systemd-machine-id-setup 2>/dev/null || true
+# 2026-08-26 first-boot root-mode belt (0700-root incident; see
+# docs/ISO-BUILD-GUARDRAILS.md). NOTE: this script is currently DEAD CODE —
+# partman/late_command is not a real d-i hook; the LIVE extraction path and
+# the LIVE ncz-firstboot are the r159 stub in build-iso-di.sh, which carries
+# the same belt. Kept in sync here so the twins do not diverge further.
+# The belt runs AFTER dpkg --configure -a (package postinsts are the last
+# code before a login screen) and before display-manager.service, correcting
+# a bad / mode before greetd would hit EACCES traversing /. Always emits a
+# NCZ-ROOTMODE marker to kmsg+console so build/kvm-install-gate.sh phase 2
+# can assert the final mode from outside the VM.
+_rm=$(stat -c %a / 2>/dev/null || echo ???)
+if [ "$_rm" != "755" ]; then
+    echo "ncz-firstboot: WARNING / mode was $_rm (expected 755) — correcting" > /dev/kmsg 2>/dev/null || true
+    chmod 0755 / 2>/dev/null || true
+    _rm=$(stat -c %a / 2>/dev/null || echo ???)
+fi
+echo "NCZ-ROOTMODE: $_rm" > /dev/kmsg 2>/dev/null || true
+echo "NCZ-ROOTMODE: $_rm" > /dev/console 2>/dev/null || true
 systemctl disable ncz-firstboot.service 2>/dev/null || true
 touch /var/lib/ncz-firstboot-done
 FBS

@@ -204,6 +204,56 @@ sed -i 's/\bconsole=tty0\b//g' "$CFG"
 # Clean up double-spaces left behind by the sed strips.
 sed -i 's/  \+/ /g' "$CFG"
 
+# --- MODEWATCH=1 (opt-in diagnostic): instrument the staged installer with
+# a /target root-mode watcher. On ANY mode transition it dumps ps +
+# syslog tail to /var/log/ncz-modewatch.log inside the installer (copied to
+# /target/var/log/ when possible) and announces the transition on ttyAMA0 so
+# the host-side serial capture carries the timeline. This is how you catch a
+# mid-install chmod-of-/ red-handed instead of grepping source for it (the
+# 2026-08-26 0700-root incident took two ship-and-discover cycles on real
+# hardware; this watcher pins the culprit in one QEMU run). qemutest ISO
+# only — never shipped.
+if [ "${MODEWATCH:-0}" = "1" ]; then
+  # NOTE: inject into disk-fs-chooser.sh, NOT extract-rootfs.sh —
+  # extract-rootfs.sh is dead code (partman/late_command is not a real d-i
+  # hook); disk-fs-chooser.sh actually runs via partman/early_command, so the
+  # watcher is live from partman onward and observes the stub extraction.
+  ERS="$QEMU_STAGE/staging/cixmini/disk-fs-chooser.sh"
+  [ -f "$ERS" ] || { echo "GATE FAIL: MODEWATCH=1 but no cixmini/disk-fs-chooser.sh in staging"; exit 2; }
+  MWTMP="$WORK/modewatch-snippet.sh"
+  cat > "$MWTMP" <<'MODEWATCH_SNIP'
+# ==== MODEWATCH (QEMU diagnostic gate only — NEVER shipped) =================
+if [ ! -f /tmp/.ncz-modewatch-started ]; then
+  : > /tmp/.ncz-modewatch-started
+  (
+    last=INIT
+    while :; do
+      m=$(stat -c "%a" /target 2>/dev/null || echo NONE)
+      if [ "$m" != "$last" ]; then
+        ts="$(date "+%s") $(date "+%T")"
+        {
+          echo "MODEWATCH [$ts] /target mode: $last -> $m"
+          echo "MODEWATCH ps at transition:"
+          ps w 2>/dev/null || ps
+          echo "MODEWATCH syslog tail:"
+          tail -30 /var/log/syslog 2>/dev/null
+          echo "MODEWATCH ---"
+        } >> /var/log/ncz-modewatch.log 2>&1
+        echo "MODEWATCH [$ts] /target mode: $last -> $m" > /dev/ttyAMA0 2>/dev/null || true
+        [ -d /target/var/log ] && cp /var/log/ncz-modewatch.log /target/var/log/ncz-modewatch.log 2>/dev/null
+        last="$m"
+      fi
+      sleep 0.2 2>/dev/null || sleep 1
+    done
+  ) >/dev/null 2>&1 &
+  echo "MODEWATCH armed (pid $!)" > /dev/ttyAMA0 2>/dev/null || true
+fi
+# ==== END MODEWATCH =========================================================
+MODEWATCH_SNIP
+  { head -1 "$ERS"; cat "$MWTMP"; tail -n +2 "$ERS"; } > "$ERS.mw"     && mv "$ERS.mw" "$ERS" && chmod +x "$ERS"
+  echo "    MODEWATCH: instrumented disk-fs-chooser.sh ($(wc -l < "$ERS") lines)"
+fi
+
 # grub-script-check, if available, catches syntax errors in the patched cfg.
 if command -v grub-script-check >/dev/null 2>&1; then
   if grub-script-check "$CFG" 2>/dev/null; then
@@ -292,9 +342,9 @@ grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i" "$I
 
 # Hard failure markers, checked before any success marker so a real abort is
 # never masked by later output.
-if grep -qE "Failed to run preseeded command|failed with exit code|install aborts|FAILED rc=" "$ILOG"; then
+if grep -qE "Failed to run preseeded command|failed with exit code|install aborts|FAILED rc=|refusing to ship a broken install|refusing to boot" "$ILOG"; then
   echo "--- offending output ---" >&2
-  grep -nE -B3 -A6 "Failed to run preseeded command|failed with exit code|install aborts|FAILED rc=" "$ILOG" | head -50 >&2
+  grep -nE -B3 -A6 "Failed to run preseeded command|failed with exit code|install aborts|FAILED rc=|refusing to ship a broken install|refusing to boot" "$ILOG" | head -50 >&2
   fail "the preseed/late_command failed — this is the v11 defect class"
 fi
 if grep -qE "Kernel panic - not syncing" "$ILOG"; then
@@ -343,6 +393,23 @@ if grep -qE "Welcome to|systemd\[1\]|Reached target|login:|Started .*getty" "$BL
   echo "  installed system reached userspace"
 else
   fail "installed system booted a kernel but never reached userspace (see $BLOG)"
+fi
+
+# --- root-mode self-test (2026-08-26 0700-root regression class) -----------
+# ncz-firstboot (written by the r159 stub in build-iso-di.sh) prints
+# "NCZ-ROOTMODE: <mode>" to kmsg+console on first boot, AFTER running
+# dpkg --configure -a — i.e. after the last code that runs before a user
+# would reach a login screen. Assert it here so a 0700 root is a BUILD
+# failure, not a discovery on real hardware hours later. The marker can be
+# legitimately absent (boot timeout hit before firstboot finished under
+# TCG); warn in that case rather than fail, but a PRESENT marker with a
+# wrong mode is always fatal.
+RM=$(grep -ao "NCZ-ROOTMODE: [0-9?]*" "$BLOG" | tail -1 | awk '{print $2}')
+if [ -n "$RM" ]; then
+  [ "$RM" = "755" ] || fail "installed system reports root mode $RM (expected 755) — the 0700-root regression class is BACK (see docs/ISO-BUILD-GUARDRAILS.md)"
+  echo "  root-mode self-test: / is 755 (NCZ-ROOTMODE marker)"
+else
+  echo "  WARN: no NCZ-ROOTMODE marker in boot log — firstboot may not have completed before BOOT_TIMEOUT; root mode NOT verified" >&2
 fi
 
 echo
