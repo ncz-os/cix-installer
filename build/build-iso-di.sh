@@ -165,6 +165,28 @@ else
     exit 1
 fi
 
+# 2026-08-26: r190+ DEAD-CODE TWIN CONSISTENCY CHECK. See docs/ISO-BUILD-GUARDRAILS.md.
+# The r159 layered-squashfs branch baked into the /usr/sbin/debootstrap stub below
+# (the LIVE install-time extraction path) is also carried -- with the SAME logic
+# in spirit -- by preseed/extract-rootfs.sh, which is invoked by the dead
+# partman/late_command path (d-i does not actually run partman/late_command,
+# so this file never executes in production). The two copies have already
+# drifted three times (the round-1 fix to extract-rootfs.sh shipped nowhere;
+# the round-3 fix to the stub shipped). The consistency check is the cheap
+# mechanical gate that closes the trap without doing the larger unification
+# refactor: it FAILS THE BUILD if the two branches' logical content has
+# drifted, so a fix made in one file and forgotten in the other cannot reach
+# a shipped ISO. See docs/ISO-BUILD-GUARDRAILS.md's "dead-code twin" trap
+# entry for the full history.
+if [ -x "$ROOT/build/check-extract-rootfs-consistency.sh" ]; then
+    bash "$ROOT/build/check-extract-rootfs-consistency.sh" \
+        --build-iso-di "$ROOT/build/build-iso-di.sh" \
+        --extract-rootfs "$ROOT/preseed/extract-rootfs.sh"
+else
+    echo "ERROR: missing extract-rootfs consistency gate: $ROOT/build/check-extract-rootfs-consistency.sh" >&2
+    exit 1
+fi
+
 # Release identity is version-controlled separately from the per-build VERSION.
 RELEASE_CONFIG="$ROOT/release.conf"
 [ -s "$RELEASE_CONFIG" ] || { echo "ERROR: missing release identity: $RELEASE_CONFIG" >&2; exit 1; }
