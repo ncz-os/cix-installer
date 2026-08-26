@@ -292,9 +292,19 @@ start_httpd() {
 start_sshd() {
     if [ ! -x /usr/sbin/sshd ]; then
         if installer_component_loader_busy; then
-            say "installer component loader busy; deferring SSH udeb install"
+            # Logged once on the FIRST deferral, then silently re-checked every
+            # respawn-loop tick (10s) until the loader frees up -- was logging
+            # this identical line every single tick, which on a long apt/dpkg
+            # run (late.sh/run-all.sh) produced dozens of duplicate lines and
+            # buried genuinely useful diagnostic output. The retry ITSELF is
+            # correct and unchanged; only the noisy logging is fixed.
+            if [ "${_sshd_defer_logged:-0}" != "1" ]; then
+                say "installer component loader busy; deferring SSH udeb install (will keep retrying silently)"
+                _sshd_defer_logged=1
+            fi
             return 1
         fi
+        _sshd_defer_logged=0
         install_sshd_udebs || {
             say "ERROR: could not install openssh-server-udeb; SSH unavailable for now"
             return 1
