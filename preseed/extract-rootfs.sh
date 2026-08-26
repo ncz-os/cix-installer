@@ -1,6 +1,31 @@
 #!/bin/sh
-# See docs/ISO-BUILD-GUARDRAILS.md before changing this file —
+# See docs/ISO-BUILD-GUARDRAILS.md before changing this file --
 # these are ISO build MECHANICS, stable across builds by design.
+#
+# STATUS (2026-08-26): this file is the DEAD-CODE TWIN of the r159
+# layered-squashfs branch baked into the /usr/sbin/debootstrap stub by
+# build/build-iso-di.sh. partman/late_command is NOT a real d-i hook
+# (only partman/early_command exists), so this script never runs in
+# production. The live install-time extraction happens via the stub
+# heredoc in build-iso-di.sh.
+#
+# The trap this creates: a fix made here is forgotten in the stub (round 1
+# of the 2026-08-26 0700-root incident -- the gate landed here and shipped
+# nowhere) OR a fix made in the stub is forgotten here (round 3 -- the
+# real fix shipped and this file kept drifting). To close the trap
+# without doing the larger unification refactor, see
+# build/check-extract-rootfs-consistency.sh: it diffs the r159 branches
+# of this file and the stub and FAILS THE BUILD on any drift after
+# normalization. Any change to the extraction logic in either file must
+# be mirrored in the other (or the check will refuse to ship).
+#
+# THE LONG-PROMISED UNIFICATION (making this file the single source of
+# truth and embedding it into the stub heredoc at build time, so the two
+# copies become one) is deferred pending its own reviewed look -- see
+# docs/ISO-BUILD-GUARDRAILS.md's "dead-code twin" trap entry for the
+# history and the reason this file still carries the same logic shape
+# as the stub.
+#
 # r40 partman/late_command — extract pre-built rootfs.tar.zst into /target
 # right after partman finishes (so /target is mounted) and before
 # bootstrap-base runs. The bookworm bootstrap-base.run-debootstrap will then

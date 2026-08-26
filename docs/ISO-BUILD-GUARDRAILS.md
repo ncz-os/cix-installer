@@ -143,9 +143,23 @@ grep that one instrumented run would have answered.
   still sets it and the file still carries authoritative-looking gates.
   It is ALSO near-duplicated inside the build-iso-di.sh stub heredoc —
   two copies of the same extraction logic, one real, one decoy. Fixes
-  landed in the decoy pass review and ship nowhere. Either make
-  extract-rootfs.sh the single source the stub embeds at build time, or
-  delete it and the preseed line.
+  landed in the decoy pass review and ship nowhere.
+  **Status (2026-08-26):** closed structurally by
+  `build/check-extract-rootfs-consistency.sh` — a build-time preflight
+  that diffs the r159 branch baked into the stub against the equivalent
+  branch in `preseed/extract-rootfs.sh`, and FAILS THE BUILD on any
+  drift (after normalization for whitespace, comments, variable-name
+  variants, and logging prefixes). The longer-promised unification
+  (making `extract-rootfs.sh` the single source of truth and embedding
+  it into the stub heredoc at build time) is deferred pending its own
+  reviewed look — the stub's r159 branch is ~430 lines of extraction +
+  post-extraction setup (dpkg configure, ssh-keygen, networkd cleanup,
+  ncz-baked marker, ncz-firstboot generation, fstab scaffolding) and
+  collapsing that into `extract-rootfs.sh` is a larger refactor than
+  the original audit assumed. The consistency check is the cheap
+  mechanical gate that closes the "two copies silently diverged" trap
+  in the meantime: a fix made in one file and forgotten in the other
+  cannot reach a shipped ISO.
 - **`desktop-hotfix.squashfs` has no committed builder.** It was built by
   hand/agent outside the repo, which is how a mktemp-mode dir got baked
   in. Any layer that ships on the ISO needs a committed builder script
