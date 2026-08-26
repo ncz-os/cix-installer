@@ -172,14 +172,21 @@ if [ -x scripts/apply-downstream-patches.sh ]; then
     git config --global --add safe.directory /work/singularity-desktop || true
     git config --global --add safe.directory /work/singularity-desktop/subprojects/singularity-shell || true
     git config --global --add safe.directory /work/singularity-desktop/subprojects/libsingularity || true
-    if grep -q "private class SensorsIndicator" subprojects/singularity-shell/src/components/panel/panel.vala \
-       && grep -q "PanelSensorGroup" subprojects/singularity-shell/src/components/panel/panel.vala \
-       && grep -q "make_heat_bar" subprojects/singularity-shell/src/components/panel/panel.vala \
-       && grep -q "layout_items\\[\"sensors\"\\] = new SensorsIndicator" subprojects/singularity-shell/src/components/panel/panel.vala; then
-        echo "    downstream patches already present in copied source; skipping patch replay"
-    else
-        bash scripts/apply-downstream-patches.sh
-    fi
+    # ALWAYS run it -- the script above is already idempotent per patch (each
+    # patch is individually reverse-apply-checked and skipped if already
+    # present). A wholesale already-patched pre-check used to gate this on
+    # marker greps for ONE specific patch set (the sensors-panel series).
+    # That is exactly the silent-skip trap the comment above warns about: a
+    # SOURCE_DIR checkout that already has the sensors-panel commits (e.g.
+    # an active dev branch) but NOT a newer patch set (e.g. the ethernet
+    # wired-port series) matched the sensors-only markers and skipped replay
+    # entirely -- so the newer patch set silently never applied, with no
+    # error, while the deb version string and package metadata looked
+    # completely normal. Confirmed 2026-08-26: a build against such a tree
+    # shipped a libsingularity.so byte-identical (md5) to the pre-vendor
+    # build. Removed the pre-check; the per-patch idempotency in
+    # apply-downstream-patches.sh is the correct and only gate.
+    bash scripts/apply-downstream-patches.sh
 fi
 
 # NCZ shell integration: close the launcher popup before opening the full-screen
