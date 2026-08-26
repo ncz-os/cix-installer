@@ -165,6 +165,10 @@ pipewire
 pipewire-pulse
 pipewire-alsa
 wireplumber
+# pactl is in pulseaudio-utils, and PipeWire Pulse intentionally only
+# suggests it. The Sky1 HDMI/DP autoswitch user service needs pactl to load
+# isolated module-alsa-sink instances and set the session default sink.
+pulseaudio-utils
 pavucontrol
 
 # --- removable media + bluetooth --------------------------------------------
