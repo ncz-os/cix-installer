@@ -3230,8 +3230,13 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
             echo "FATAL: unsquashfs not available — cannot verify squashfs layer root modes (squashfs-tools required)" >&2
             exit 1
         }
-        local _line _mode
-        _line=$(unsquashfs -ll "$1" 2>/dev/null | grep -m1 " squashfs-root$")
+        local _out _line _mode
+        # Capture full output via command substitution before grepping it --
+        # `unsquashfs -ll | grep -m1` under `set -o pipefail` SIGPIPEs
+        # unsquashfs when grep exits after its first match while unsquashfs
+        # still has buffered output, aborting the whole build (Error 141).
+        _out=$(unsquashfs -ll "$1" 2>/dev/null)
+        _line=$(printf '%s\n' "$_out" | grep -m1 " squashfs-root$")
         _mode=${_line%% *}
         if [ "$_mode" != "drwxr-xr-x" ]; then
             echo "FATAL: $2 ($1) squashfs ROOT entry is '${_mode:-<unreadable>}' (expected drwxr-xr-x / 0755)." >&2
