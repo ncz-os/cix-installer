@@ -46,11 +46,10 @@
 #
 # --strict (default): fail on any non-whitespace, non-comment diff after
 #                     normalization (including logging text differences).
-# --loose          : fail only on control-flow / structural diffs (allow
-#                     logging-text / variable-name cosmetic drift). Useful
-#                     for one-off refactors that touch formatting but not
-#                     logic; default is strict so a fresh divergence is
-#                     always caught.
+# --loose          : allow only the known 2026-08-26 baseline drift fingerprint.
+#                     Any newly-introduced drift changes that fingerprint and
+#                     fails the build. This keeps the temporary loose wiring
+#                     from becoming a no-op while the two copies are synced.
 
 set -euo pipefail
 
@@ -260,7 +259,19 @@ if [ "$STRICT" = "1" ]; then
     echo
     exit 1
 else
-    echo "LOOSE MODE: drift was tolerated (the build continued)."
-    echo "Tighten this with --strict before shipping."
-    exit 0
+    # Temporary 2026-08-26 escape hatch: build-iso-di.sh is wired to --loose
+    # because --strict exposed pre-existing drift that needs a reviewed sync.
+    # Loose mode must still catch NEW drift, so it only permits the exact
+    # current normalized diff body. Exclude the first two unified-diff header
+    # lines because they contain mktemp paths and timestamps.
+    KNOWN_LOOSE_DIFF_SHA256="4e475024ab3411cccaf96e72480261676bf2669ba5c3f46379e77d1de5b96cec"
+    LOOSE_DIFF_SHA256=$(tail -n +3 /tmp/ncz-consistency-diff.txt | sha256sum | awk '{print $1}')
+    if [ "$LOOSE_DIFF_SHA256" = "$KNOWN_LOOSE_DIFF_SHA256" ]; then
+        echo "LOOSE MODE: tolerated the known baseline drift only (sha256=$LOOSE_DIFF_SHA256)."
+        echo "Tighten this with --strict once the two files are synced."
+        exit 0
+    fi
+    echo "LOOSE MODE: NEW drift detected (sha256=$LOOSE_DIFF_SHA256, expected $KNOWN_LOOSE_DIFF_SHA256)." >&2
+    echo "This is a build failure even under --loose; mirror the change in both twins or update the reviewed baseline." >&2
+    exit 1
 fi
