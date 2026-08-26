@@ -3,7 +3,12 @@
 #
 # Targets:
 #   make download         — fetch upstream Debian netinst-arm64 ISO
-#   make iso              — build the cix-installer ISO (default target)
+#   make iso              — build the cix-installer ISO (default target; fast for dev iteration)
+#   make iso-verified     — make iso, then run build/kvm-install-gate.sh against the result.
+#                           This is the "safe to ship to hardware" path: the gate installs the
+#                           ISO in KVM, boots what it installed, and asserts NCZ-ROOTMODE=755.
+#                           The plain `iso` target stays fast for iteration; anything intended
+#                           for real hardware should go through `iso-verified`.
 #   make verify           — sha256-check upstream ISO + final
 #   make clean            — wipe build/
 #   make distclean        — wipe build/ + downloads/
@@ -77,7 +82,7 @@ POST          := $(ROOT)/post-install
 MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))
 OUTPUT_ISO    := $(BUILD)/nclawzero-installer-cixmini-$(VERSION)$(MODE_SUFFIX).iso
 
-.PHONY: all download iso verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs vendor-mirror offline-mirror
+.PHONY: all download iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs vendor-mirror offline-mirror
 
 all: iso
 
@@ -200,6 +205,38 @@ npu-ssdt-selftest:
 
 verify: $(OUTPUT_ISO)
 	@sha256sum $(OUTPUT_ISO) | tee $(OUTPUT_ISO).sha256
+
+# iso-verified: build the ISO and then run kvm-install-gate.sh against it. The
+# gate installs the just-built ISO in KVM (auto-falls back to TCG under qemu on
+# non-aarch64 hosts like TYDEUS), boots what it installed, and asserts the
+# NCZ-ROOTMODE=755 marker from the boot serial. ANYTHING INTENDED FOR REAL
+# HARDWARE SHOULD GO THROUGH THIS TARGET, NOT THE PLAIN `iso` -- the 2026-08-26
+# 0700-root incident is exactly the class of regression this gate catches at
+# build time instead of on hardware. `iso` stays fast for dev iteration. The
+# gate's workdir defaults to /home/mini/.../kvm-install (its built-in default);
+# override with KVM_INSTALL_WORKDIR=/path on the make command line to relocate
+# (the gate creates it if missing). See build/kvm-install-gate.sh for full
+# timeout/accel/mem knobs.
+iso-verified: $(OUTPUT_ISO)
+	@echo "[iso-verified] running kvm-install-gate.sh against $(OUTPUT_ISO)"
+	@if [ ! -x "$(ROOT)/build/kvm-install-gate.sh" ]; then \
+	    echo "[iso-verified] FATAL: build/kvm-install-gate.sh missing or not executable" >&2; \
+	    exit 1; \
+	fi
+	@if [ ! -f "$(OUTPUT_ISO)" ]; then \
+	    echo "[iso-verified] FATAL: $(OUTPUT_ISO) not present after make iso" >&2; \
+	    exit 1; \
+	fi
+	@mkdir -p "$${KVM_INSTALL_WORKDIR:-$(ROOT)/build/kvm-install}"
+	@WORK="$${KVM_INSTALL_WORKDIR:-$(ROOT)/build/kvm-install}"; \
+	if ! bash "$(ROOT)/build/kvm-install-gate.sh" "$(OUTPUT_ISO)" "$$WORK"; then \
+	    rc=$$?; \
+	    echo "" >&2; \
+	    echo "[iso-verified] GATE FAILED (rc=$$rc): $(OUTPUT_ISO) is NOT safe to ship to hardware." >&2; \
+	    echo "[iso-verified] See $$WORK/install.log and $$WORK/boot.log for the failure evidence." >&2; \
+	    exit $$rc; \
+	fi
+	@echo "[iso-verified] PASS: $(OUTPUT_ISO) is safe to ship to hardware"
 
 # -----------------------------------------------------------------------
 # Step 3 — boot test in qemu-aarch64 with edk2 UEFI firmware (faster

@@ -118,6 +118,13 @@ Why TWO fix rounds missed it:
    `NCZ-ROOTMODE:` marker from the boot serial capture; phase 1 hard-fails
    on the gates' "refusing to ship a broken install" FATALs. A 0700 root
    is now a gate failure at build time, not a hardware discovery.
+7. **Release path:** `make iso-verified` wires the gate into the build flow
+   -- depends on `make iso`, then runs the gate against the built artifact,
+   and fails the build on any gate failure. Anything intended for real
+   hardware should be built with `make iso-verified`, not `make iso`. The
+   plain `iso` target stays fast for dev iteration; the gate adds a full
+   KVM install+boot cycle (90 min install + 10 min boot timeouts; auto-
+   falls back to TCG under qemu on non-aarch64 hosts like TYDEUS).
 
 ### Diagnostic tooling
 
