@@ -1194,6 +1194,27 @@ if [ -n "$SQDIR" ]; then
     elif [ "$_applied_role" = "base" ]; then
         echo "I: r159 stub: role=base (component-selector desktop OFF); skipping desktop overlay" >&2
     fi
+    # 2026-08-26 ROOT-MODE GATE — THE LIVE PATH (docs/ISO-BUILD-GUARDRAILS.md).
+    # Root cause of the 0700-root incident, found+proven 2026-08-26:
+    # `unsquashfs -f -d $TARGET` re-stamps $TARGET's OWN mode from EACH
+    # layer's root entry (verified with the bundled sqtools unsquashfs AND
+    # squashfs-tools 4.6.1: an existing 755 dir became 700 after extracting a
+    # layer whose root entry was drwx------). desktop-hotfix.squashfs was
+    # built 2026-08-25 out-of-repo from a mktemp -d staging dir (mode 0700),
+    # so the LAST layer stamped / to 0700 on every install — breaking greetd
+    # (EACCES traversing /), NIC bring-up and rtc-efi for every non-root UID.
+    # Round 1 (7de5ce6) gated preseed/extract-rootfs.sh — but partman/
+    # late_command is NOT a real d-i hook (see the r159 note above), so that
+    # script never runs: THIS stub is the real extraction path and had no
+    # gate. Pin 0755 after the FULL layer stack and hard-verify; exit 1 makes
+    # bootstrap-base fail loudly instead of shipping a broken root.
+    chmod 0755 "$TARGET" || { echo "FATAL: rootmode stub: chmod 0755 $TARGET failed" >&2; exit 1; }
+    _ncz_rm=$(stat -c %a "$TARGET" 2>/dev/null || echo "???")
+    if [ "$_ncz_rm" != "755" ]; then
+        echo "FATAL: rootmode stub: $TARGET root mode is $_ncz_rm after layer extraction (expected 755) — refusing to ship a broken install" >&2
+        exit 1
+    fi
+    echo "I: rootmode stub: verified $TARGET root mode = 755 after full layer stack" >&2
     if [ ! -f "$TARGET/etc/os-release" ]; then
         echo "FATAL: r159 stub: squashfs extract produced no os-release" >&2; exit 1
     fi
@@ -1357,6 +1378,22 @@ case "$_cur" in
         fi
         ;;
 esac
+
+# 2026-08-26 first-boot root-mode belt (0700-root incident; see
+# docs/ISO-BUILD-GUARDRAILS.md). Runs AFTER dpkg --configure -a above (package
+# postinsts are the last code to run before a login screen) and before
+# display-manager.service (unit ordering), so a bad / mode is corrected before
+# greetd would hit EACCES traversing /. Always emits a NCZ-ROOTMODE marker to
+# kmsg+console so build/kvm-install-gate.sh phase 2 can assert the final mode
+# from OUTSIDE the VM via the boot serial capture.
+_rm=$(stat -c %a / 2>/dev/null || echo ???)
+if [ "$_rm" != "755" ]; then
+    echo "ncz-firstboot: WARNING / mode was $_rm (expected 755) — correcting" > /dev/kmsg 2>/dev/null || true
+    chmod 0755 / 2>/dev/null || true
+    _rm=$(stat -c %a / 2>/dev/null || echo ???)
+fi
+echo "NCZ-ROOTMODE: $_rm" > /dev/kmsg 2>/dev/null || true
+echo "NCZ-ROOTMODE: $_rm" > /dev/console 2>/dev/null || true
 
 # Only finalize (disable + mark done) when the hostname is SETTLED. When we are
 # deliberately retrying the MAC-derive on a later boot (HOSTNAME_SETTLED=0), we
@@ -3182,7 +3219,31 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
     # (commit e86dc84) is reverted. Fat ISO = clean base + embedded mirror desktop.
     # r158: prefer LAYERED SQUASHFS (base + <variant> delta) if built; the
     # extract-rootfs stub mounts+overlays+cp them. Fall back to the tarball.
+    # 2026-08-26: every staged squashfs layer's ROOT ENTRY must be 0755.
+    # unsquashfs -f -d /target re-stamps /target's own mode from each layer's
+    # root entry at install time (LAST layer wins) — a hotfix layer built from
+    # a mktemp -d staging dir (0700) shipped / at 0700 and broke greetd/NIC/
+    # RTC on every install (see docs/ISO-BUILD-GUARDRAILS.md). Catch it at
+    # BUILD time, name the offending layer, and say how to fix it.
+    assert_squashfs_root_mode() { # <file> <label>
+        command -v unsquashfs >/dev/null 2>&1 || {
+            echo "FATAL: unsquashfs not available — cannot verify squashfs layer root modes (squashfs-tools required)" >&2
+            exit 1
+        }
+        local _line _mode
+        _line=$(unsquashfs -ll "$1" 2>/dev/null | grep -m1 " squashfs-root$")
+        _mode=${_line%% *}
+        if [ "$_mode" != "drwxr-xr-x" ]; then
+            echo "FATAL: $2 ($1) squashfs ROOT entry is '${_mode:-<unreadable>}' (expected drwxr-xr-x / 0755)." >&2
+            echo "  unsquashfs -f stamps this mode onto / at install time (the 2026-08-26" >&2
+            echo "  0700-root incident). Rebuild the layer from a 0755 staging dir:" >&2
+            echo "    unsquashfs -d /tmp/fix '$1' && chmod 0755 /tmp/fix && mksquashfs /tmp/fix '$1'.new -comp zstd -noappend && mv '$1'.new '$1'" >&2
+            exit 1
+        fi
+        echo "    layer root mode OK (0755): $2"
+    }
     if [ -f "$SQUASHFS_DIR/base.squashfs" ]; then
+        assert_squashfs_root_mode "$SQUASHFS_DIR/base.squashfs" "base"
         cp -L "$SQUASHFS_DIR/base.squashfs" "$EXTRA/base.squashfs"
         [ -d "$ROOT/build/sqtools" ] && cp -a "$ROOT/build/sqtools" "$EXTRA/sqtools"
         # r190.3: stage EVERY built variant delta, not just $VARIANT -- the GRUB
@@ -3206,6 +3267,7 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
                 echo "  Rebuild the layer with build/build-squashfs-layers.sh." >&2
                 exit 1
             }
+            assert_squashfs_root_mode "$_RL" "$_RLROLE"
             cp -L "$_RL" "$EXTRA/$_RLNAME"
             cp -L "$_RLMANIFEST" "$EXTRA/$_RLROLE.overlay-manifest"
             STAGED_VARIANTS="$STAGED_VARIANTS $_RLROLE:$(du -h "$EXTRA/$_RLNAME"|cut -f1)"
