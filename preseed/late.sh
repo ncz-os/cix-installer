@@ -1,4 +1,6 @@
 #!/bin/sh
+# See docs/ISO-BUILD-GUARDRAILS.md before changing this file —
+# these are ISO build MECHANICS, stable across builds by design.
 # late.sh — run from preseed late_command in the d-i runtime context.
 #
 # d-i's late_command runs after base install + apt config + bootloader
@@ -906,6 +908,35 @@ if [ -r "$RUNALL_RC_FILE" ]; then
 else
     RET="$WAIT_RET"
 fi
+
+# 2026-08-26 round-2 defensive chmod (follow-up to 7de5ce6). The round-1
+# extract-rootfs.sh gate verified live on O6N at the gate-pass window, but
+# the fully-installed system still booted with / at 0700 — confirmed via
+# rescue-partition stat:
+#
+#     Birth: 2026-08-26 14:22:13   (matches the extraction / gate-pass window)
+#     Modify: 2026-08-26 14:27:39  (5 minutes LATER, mode is 0700 again)
+#
+# So something running BETWEEN the round-1 gate (~14:22:38, per syslog
+# "squashfs rootfs ready") and 14:27:39 re-applies 0700 to / (== /target
+# during install). That window covers: base-installer/pkgsel package
+# installs, AND run-all.sh's chroot into /target where ~50 post-install
+# hooks run live. A thorough search for the cd-then-relative-chmod /
+# find ... -exec chmod-with-empty-var pattern across post-install/*.sh +
+# late.sh did not pin the exact culprit; the defensive belt-and-suspenders
+# below ships regardless. This is the CORRECTIVE half: chmod 0755 /target
+# right after run-all.sh returns, log a clear warning if the mode had to
+# be corrected. Non-hard-fail: too much install work has happened by now
+# and a simple chmod is the right fix. The HARD-FAIL half is below,
+# immediately before the final reboot-decision block.
+_ncz_root_mode_post_runall=$(stat -c '%a' /target 2>/dev/null || echo "???")
+if [ "$_ncz_root_mode_post_runall" != "755" ]; then
+    echo "[late round2/7de5ce6] WARNING: /target root mode was $_ncz_root_mode_post_runall after run-all.sh; correcting to 755"
+    ttymsg "WARNING: /target root mode was $_ncz_root_mode_post_runall (expected 755); correcting (hard gate below will verify)"
+    chmod 0755 /target 2>/dev/null || \
+        echo "[late round2/7de5ce6] WARN: corrective chmod 0755 /target failed — relying on hard gate below"
+fi
+
 late_progress_state FINALIZE hardware npu-install-time "Applying install-time NPU and firmware finalization"
 
 # ----------------------------------------------------------------------
@@ -1120,6 +1151,60 @@ ncz_force_reboot() {
 }
 FINALIZE_OK=0
 { [ "$RET" = "0" ] || ncz_bootable; } && FINALIZE_OK=1
+
+# 2026-08-26 round-2 HARD-FAIL MECHANICAL VERIFICATION GATE.
+#
+# Why here (and not anywhere later): every reboot path from this script
+# originates BELOW this point — the unattended branch's ncz_force_reboot
+# (~line ~1361), the interactive branch's ncz_force_reboot (~line ~1383),
+# and the final r155 fallback `if ncz_bootable; then ... exit 0; fi` near
+# the bottom of the file (~line ~1406). By placing the gate here, before
+# anything that can call reboot(8) or exit 0, every reboot path MUST pass
+# this check first.
+#
+# What it checks: stat -c '%a' /target must read 755. The corrective
+# chmod earlier in this script (right after run-all.sh returned) makes a
+# best-effort fix; this gate is the operator-required safety net that
+# refuses to ship a broken install even if a later step we haven't yet
+# identified re-broke the root mode. Same fail-loud pattern as the round-1
+# extract-rootfs.sh gate (FATAL message, set RET, force the existing
+# exit-code mapping at the very end of this file to do the non-zero exit).
+#
+# Why we also force FINALIZE_OK=0 and a separate _ncz_root_mode_ok flag on
+# failure: the existing r155 logic (`if ncz_bootable; then ... exit 0; fi`)
+# intentionally swallows non-zero RETs from optional hook failures when
+# rEFInd is present on the ESP, to avoid finish-install's red error on
+# boards where efibootmgr/efivars are unavailable (Sky1 METAL). That logic
+# assumes rEFInd-present == system boots. A root at 0700 VIOLATES that
+# assumption: rEFInd loads, but the kernel cannot traverse / for any
+# non-root UID, so greetd/NIC/RTC all fail and the system never reaches a
+# login. We must NOT honour the r155 exit-0 heuristic for this failure
+# class, so we route around it via _ncz_root_mode_ok.
+_ncz_root_mode_final=$(stat -c '%a' /target 2>/dev/null || echo "???")
+_ncz_root_mode_ok=1
+if [ "$_ncz_root_mode_final" != "755" ]; then
+    echo "[late round2/7de5ce6] FATAL: /target root mode is $_ncz_root_mode_final, expected 755 — refusing to ship a broken install"
+    ttymsg "FATAL: /target root mode $_ncz_root_mode_final (expected 755) — install refused"
+    # Final corrective attempt + verify. Idempotent and cheap even if the
+    # earlier corrective gate already fixed it.
+    chmod 0755 /target 2>/dev/null || \
+        echo "[late round2/7de5ce6] FATAL: chmod 0755 /target failed — bailing"
+    _ncz_root_mode_recheck=$(stat -c '%a' /target 2>/dev/null || echo "???")
+    if [ "$_ncz_root_mode_recheck" != "755" ]; then
+        # Same fail-loud pattern as the round-1 extract-rootfs.sh gate:
+        # mark failure on the existing RET axis and force the r155
+        # bootability heuristic off so finish-install surfaces the failure.
+        # Preserve an existing non-zero RET (a run-all failure we shouldn't
+        # overwrite); only stamp RET=1 if run-all had succeeded.
+        if [ "${RET:-0}" = "0" ]; then
+            RET=1
+        fi
+        FINALIZE_OK=0
+        _ncz_root_mode_ok=0
+        echo "[late round2/7de5ce6] FATAL: /target root mode still $_ncz_root_mode_recheck after corrective chmod — refusing to boot"
+    fi
+fi
+
 # r130.8 (defect B): do NOT call db_progress STOP/SET. We never START our own
 # bar now, so STOP would pop finish-install's OWN progress bar - on the success
 # path that corrupted finish-install's accounting and bounced d-i back to the
@@ -1309,7 +1394,16 @@ fi
 # reboot(8) has not yet taken effect. Reassert reboot + exit 0 so finish-install
 # does NOT red-error a bootable install. ncz_bootable is efibootmgr/efivars-
 # independent (keys on rEFInd-present, not NVRAM), so metal succeeds here too.
-if ncz_bootable; then
+#
+# 2026-08-26 round-2 (follow-up to 7de5ce6): also require _ncz_root_mode_ok=1.
+# rEFInd-present is NOT sufficient evidence of a bootable system when / is
+# 0700 — the kernel loads but cannot traverse / for non-root UIDs (greetd /
+# NIC / RTC all fail). When the hard-fail gate above fires, it sets
+# _ncz_root_mode_ok=0 AND RET=1; we drop through this r155 block and let the
+# existing case statement at the end of this file translate RET=1 into a
+# non-zero exit (NOT honouring the r155 exit-0 heuristic for this failure
+# class — it's a different failure than efivars-unavailable).
+if ncz_bootable && [ "${_ncz_root_mode_ok:-1}" = "1" ]; then
     # r174 (#1 finish): reassert the reboot intent ONLY on the bootable path, so
     # the clean finish does not hinge on the priority=critical boot arg AND we
     # never tell finish-install to reboot a NON-bootable install. rEFInd is
