@@ -3000,7 +3000,7 @@ for _cixdrv in npu vpu; do
         mkdir -p "$EXTRA/assets/kernel/$_cixdrv/src/patches"
         cp -aL "$ROOT/assets/kernel/$_cixdrv/src/patches/." \
                "$EXTRA/assets/kernel/$_cixdrv/src/patches/" 2>/dev/null || true
-        echo "    staged $_cixdrv patch series ($(find "$EXTRA/assets/kernel/$_cixdrv/src/patches" -name '"'"'*.patch'"'"' | wc -l) patches) -> /cixmini/assets/kernel/$_cixdrv"
+        echo "    staged $_cixdrv patch series ($(find "$EXTRA/assets/kernel/$_cixdrv/src/patches" -name '*.patch' | wc -l) patches) -> /cixmini/assets/kernel/$_cixdrv"
     fi
 done
 
