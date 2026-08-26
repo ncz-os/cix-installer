@@ -106,9 +106,29 @@ if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $
 fi
 
 # Audio: PipeWire stack so HDMI/analog reaches apps; pavucontrol for control.
+# pulseaudio-utils supplies pactl. PipeWire Pulse supports pactl load-module
+# for module-alsa-sink, which the Sky1 HDMI/DP autoswitch helper uses without
+# putting static objects in pipewire.conf.d.
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol 2>&1 | tail -3 || true
+    pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol pulseaudio-utils 2>&1 | tail -3 || true
 systemctl --global enable pipewire pipewire-pulse wireplumber 2>&1 | tail -2 || true
+
+if [ -f /cdrom/assets/audio/ncz-sky1-audio-autoswitch.py ] && \
+   [ -f /cdrom/assets/audio/ncz-sky1-audio-autoswitch.service ]; then
+    install -m 0755 /cdrom/assets/audio/ncz-sky1-audio-autoswitch.py \
+        /usr/local/bin/ncz-sky1-audio-autoswitch
+    install -d -m 0755 /etc/systemd/user /usr/share/doc
+    install -m 0644 /cdrom/assets/audio/ncz-sky1-audio-autoswitch.service \
+        /etc/systemd/user/ncz-sky1-audio-autoswitch.service
+    if [ -f /cdrom/docs/NCZ-SKY1-AUDIO-AUTOSWITCH.md ]; then
+        install -m 0644 /cdrom/docs/NCZ-SKY1-AUDIO-AUTOSWITCH.md \
+            /usr/share/doc/ncz-sky1-audio-autoswitch.md
+    fi
+    systemctl --global enable ncz-sky1-audio-autoswitch.service 2>&1 | tail -2 || true
+    echo "[20] Sky1 HDMI/DP audio autoswitch user service staged"
+else
+    echo "[20] Sky1 HDMI/DP audio autoswitch assets absent; skipping"
+fi
 
 # Removable media + bluetooth. (NO network-manager-gnome — the base-layer
 # sinty-nm daemon replaces NetworkManager.)

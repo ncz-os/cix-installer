@@ -1,0 +1,15 @@
+[Unit]
+Description=NCZ CIX Sky1 HDMI/DP audio autoswitch
+Documentation=file:/usr/share/doc/ncz-sky1-audio-autoswitch.md
+ConditionPathExists=/proc/asound/cards
+After=pipewire-pulse.service wireplumber.service
+Wants=pipewire-pulse.service wireplumber.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ncz-sky1-audio-autoswitch
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

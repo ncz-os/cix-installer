@@ -136,6 +136,7 @@ manifests/desktop.pkgs:pavucontrol
 manifests/desktop.pkgs:pipewire
 manifests/desktop.pkgs:pipewire-alsa
 manifests/desktop.pkgs:pipewire-pulse
+manifests/desktop.pkgs:pulseaudio-utils
 manifests/desktop.pkgs:podman
 manifests/desktop.pkgs:polkitd
 manifests/desktop.pkgs:powertop
