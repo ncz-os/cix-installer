@@ -404,10 +404,10 @@ fi
 # legitimately absent (boot timeout hit before firstboot finished under
 # TCG); warn in that case rather than fail, but a PRESENT marker with a
 # wrong mode is always fatal.
-RM=$(grep -ao "NCZ-ROOTMODE: [0-9?]*" "$BLOG" | tail -1 | awk '{print $2}')
+RM=$(grep -aoE "NCZ-ROOTMODE: [^[:space:]]+" "$BLOG" | tail -1 | awk '{print $2}')
 if [ -n "$RM" ]; then
-  [ "$RM" = "755" ] || fail "installed system reports root mode $RM (expected 755) — the 0700-root regression class is BACK (see docs/ISO-BUILD-GUARDRAILS.md)"
-  echo "  root-mode self-test: / is 755 (NCZ-ROOTMODE marker)"
+  [ "$RM" = "755" ] || [ "$RM" = "drwxr-xr-x" ] || fail "installed system reports root mode $RM (expected 755/drwxr-xr-x) — the 0700-root regression class is BACK (see docs/ISO-BUILD-GUARDRAILS.md)"
+  echo "  root-mode self-test: / is 755 (NCZ-ROOTMODE marker: $RM)"
 else
   echo "  WARN: no NCZ-ROOTMODE marker in boot log — firstboot may not have completed before BOOT_TIMEOUT; root mode NOT verified" >&2
 fi

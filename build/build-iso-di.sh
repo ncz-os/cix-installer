@@ -3284,7 +3284,7 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
         # `|| true` covers the legitimate "no match" case (malformed listing)
         # so set -e doesn't abort here; the explicit mode check below reports
         # it properly via the <unreadable> fallback.
-        _out=$(unsquashfs -ll "$1" 2>/dev/null)
+        _out=$(unsquashfs -ll "$1" 2>/dev/null || true)
         _line=$(grep -m1 " squashfs-root$" <<< "$_out" || true)
         _mode=${_line%% *}
         if [ "$_mode" != "drwxr-xr-x" ]; then
