@@ -932,7 +932,7 @@ fi
 # BusyBox in the d-i environment has no `stat` applet (confirmed live on
 # O6N: "stat: not found") -- use `ls -ld` and compare the permission-string
 # field instead of an octal mode.
-_ncz_root_mode_post_runall=$(ls -ld /target 2>/dev/null | awk '"'"'{print $1}'"'"')
+_ncz_root_mode_post_runall=$(ls -ld /target 2>/dev/null | awk '{print $1}')
 [ -n "$_ncz_root_mode_post_runall" ] || _ncz_root_mode_post_runall="???"
 if [ "$_ncz_root_mode_post_runall" != "drwxr-xr-x" ]; then
     echo "[late round2/7de5ce6] WARNING: /target root mode was $_ncz_root_mode_post_runall after run-all.sh; correcting to 755"
@@ -1184,7 +1184,7 @@ FINALIZE_OK=0
 # non-root UID, so greetd/NIC/RTC all fail and the system never reaches a
 # login. We must NOT honour the r155 exit-0 heuristic for this failure
 # class, so we route around it via _ncz_root_mode_ok.
-_ncz_root_mode_final=$(ls -ld /target 2>/dev/null | awk '"'"'{print $1}'"'"')
+_ncz_root_mode_final=$(ls -ld /target 2>/dev/null | awk '{print $1}')
 [ -n "$_ncz_root_mode_final" ] || _ncz_root_mode_final="???"
 _ncz_root_mode_ok=1
 if [ "$_ncz_root_mode_final" != "drwxr-xr-x" ]; then
@@ -1194,7 +1194,7 @@ if [ "$_ncz_root_mode_final" != "drwxr-xr-x" ]; then
     # earlier corrective gate already fixed it.
     chmod 0755 /target 2>/dev/null || \
         echo "[late round2/7de5ce6] FATAL: chmod 0755 /target failed — bailing"
-    _ncz_root_mode_recheck=$(ls -ld /target 2>/dev/null | awk '"'"'{print $1}'"'"')
+    _ncz_root_mode_recheck=$(ls -ld /target 2>/dev/null | awk '{print $1}')
     [ -n "$_ncz_root_mode_recheck" ] || _ncz_root_mode_recheck="???"
     if [ "$_ncz_root_mode_recheck" != "drwxr-xr-x" ]; then
         # Same fail-loud pattern as the round-1 extract-rootfs.sh gate:
