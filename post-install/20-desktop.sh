@@ -239,10 +239,14 @@ echo "[20] keyring: native singularity-keyring (org.freedesktop.secrets, D-Bus-a
 # xdg-desktop-portal-singularity` reports "inactive (dead)" with no journal
 # entries despite the portal router successfully dispatching to it.
 # ---------------------------------------------------------------------------
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    gnome-online-accounts 2>&1 | tail -3 || true
+if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    gnome-online-accounts 2>&1 | tail -5; then
+    echo "[20] GOA runtime installed"
+else
+    echo "[20] WARN: gnome-online-accounts install failed -- Online Accounts UI will have nothing to talk to (see closure)" >&2
+fi
 systemctl --global enable xdg-desktop-portal-singularity.service 2>&1 | tail -2 || true
-echo "[20] GOA runtime + singularity portal backend: installed/enabled"
+echo "[20] singularity portal backend: enabled"
 
 # Fonts: Noto base + CJK + colour emoji.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
