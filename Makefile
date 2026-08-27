@@ -147,20 +147,55 @@ kernel-debs:
 	    find $(BUILD)/kernel-debs -maxdepth 1 -name '*.deb' -printf '  %f\n' | sort; \
 	fi
 
-vendor-mirror: kernel-debs
+# SINTY_DEBS_ARG / sinty-out-sync -- 2026-08-27. verify-local-package-
+# versions.sh treats EVERY .deb in a --debs-dir as an expected member of
+# the mirror it is checking -- it has no per-package filtering. Pointing
+# --debs-dir straight at assets/cix-debs/ (tried first, reverted) makes the
+# check FAIL PERMANENTLY: that directory also holds ~30 dpkg-i-direct-only
+# packages (cix-vaapi, cix-mesa, cix-gpu-umd, ...) that are staged onto the
+# ISO's /cixmini/assets/cix-debs/ via 25-cix-proprietary.sh and were never
+# meant to exist in the apt-mirror pool at all, so they always show
+# "missing" regardless of anything real changing.
+#
+# build/sinty-out/ was always the RIGHT directory to point at -- narrowly
+# scoped, only ever meant to hold the current singularity-desktop .deb --
+# it was just never actually populated by anything (build-singularity-deb.sh
+# defaults its OUT there, but every session's real convention landed the
+# .deb in assets/cix-debs/ instead, same root cause 9a6c964 and 4251a57
+# fixed elsewhere). Sync it from the one real canonical source instead of
+# changing what it means.
+sinty-out-sync:
+	@mkdir -p $(BUILD)/sinty-out
+	@rm -f $(BUILD)/sinty-out/ncz-singularity-desktop_*.deb
+	@latest="$$(ls -1 $(ROOT)/assets/cix-debs/ncz-singularity-desktop_*.deb 2>/dev/null | sort -V | tail -1)"; \
+	    if [ -n "$$latest" ]; then \
+	        cp "$$latest" $(BUILD)/sinty-out/; \
+	        echo "[sinty-out-sync] $$(basename "$$latest")"; \
+	    fi
+
+# Unconditional, not wildcard-gated: $(wildcard ...) evaluates at Makefile
+# PARSE time, before sinty-out-sync's recipe has actually run, so on a
+# fresh/empty build/sinty-out/ the wildcard check would resolve empty and
+# silently skip the check all over again -- the exact bug being fixed here.
+# Safe unconditionally: verify-local-package-versions.sh already treats an
+# empty --debs-dir as "nothing expected from here" (compgen -G ... ||
+# continue), not an error.
+SINTY_DEBS_ARG := --debs-dir $(BUILD)/sinty-out
+
+vendor-mirror: kernel-debs sinty-out-sync
 	@echo "[vendor-mirror] publishing local debs and regenerating vendor index"
 	@bash $(ROOT)/build/build-vendor-mirror.sh
 	@bash $(ROOT)/build/verify-local-package-versions.sh \
 	    --pool $(BUILD)/forky-vendor-mirror/pool \
 	    --label forky-vendor-mirror \
-	    $(if $(wildcard $(BUILD)/sinty-out/*.deb),--debs-dir $(BUILD)/sinty-out,)
+	    $(SINTY_DEBS_ARG)
 
 offline-mirror: vendor-mirror
 	@if [ ! -d $(BUILD)/forky-mirror/pool ] || \
 	    ! bash $(ROOT)/build/verify-local-package-versions.sh \
 	        --pool $(BUILD)/forky-mirror/pool \
 	        --label forky-mirror \
-	        $(if $(wildcard $(BUILD)/sinty-out/*.deb),--debs-dir $(BUILD)/sinty-out,) >/dev/null 2>&1 || \
+	        $(SINTY_DEBS_ARG) >/dev/null 2>&1 || \
 	    ! bash $(ROOT)/build/verify-offline-mirror-seeds.sh \
 	        --mirror $(BUILD)/forky-mirror \
 	        --label forky-mirror >/dev/null 2>&1; then \
