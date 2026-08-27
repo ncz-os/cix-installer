@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 13 Jul 2026 00:30:00 -0400
+Subject: [PATCH] media: cix: vpu: diagnose ASNI restore before MMIO
+
+Instrument the runtime-resume sequence through top power, clock, resets and
+IRQ enable, then restore both VPU MMHUB ASNIs before any VPU register access.
+Stop immediately after the pre-MMIO checkpoint so a failed register aperture
+cannot hard-fault the diagnostic boot.
+
+Upstream-Status: Inappropriate [debug]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/media/platform/cix/dev/mvx_dev.c | 26 +++++++++++++++++++++++++-
+ 1 file changed, 25 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+index dd48946..e29b1ed 100755
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -34,6 +34,7 @@
+  ****************************************************************************/
+ 
+ #include <linux/acpi.h>
++#include <linux/arm-smccc.h>
+ #include <linux/bitops.h>
+ #include <linux/debugfs.h>
+ #include <linux/device.h>
+@@ -106,6 +107,10 @@
+ #define VPU_CORE_ACPI_MEMREPAIR_FUNC    "REPR"
+ #define to_acpi_device(d)  container_of(d, struct acpi_device, dev)
+ 
++#define CIX_SIP_RESTORE_MMHUB_ASNI      0xC2000017
++#define VPU0_ASNI_ID                    6
++#define VPU1_ASNI_ID                    7
++
+ static uint busctrl_ref = MVE_BUSTCTRL_REF_DEFAULT;
+ static uint busctrl_split = MVE_BUSTCTRL_SPLIT_512;
+ module_param(busctrl_ref, uint, 0660);
+@@ -1090,8 +1095,10 @@ static int mvx_acpi_top_power_on(struct device *dev)
+     for (i = 0; i < MVX_POWER_POLL_RETRIES; i++) {
+         status = acpi_evaluate_integer(ACPI_HANDLE(dev), "PPRS._STA",
+                                        NULL, &state);
+-        if (ACPI_SUCCESS(status) && state)
++        if (ACPI_SUCCESS(status) && state) {
++            dev_err(dev, "MVXDIAG2: PPRS._STA=0x%llx\n", state);
+             return 0;
++        }
+         usleep_range(MVX_POWER_POLL_MIN_US, MVX_POWER_POLL_MAX_US);
+     }
+ 
+@@ -1256,6 +1263,7 @@ static int mvx_pm_runtime_resume(struct device *dev)
+ {
+     int ret = 0;
+     struct mvx_dev_ctx *ctx = dev_get_drvdata(dev);
++    struct arm_smccc_res res;
+     uint64_t domains_on = 0;
+     bool top_powered = false;
+     bool clk_enabled = false;
+@@ -1277,6 +1285,8 @@ static int mvx_pm_runtime_resume(struct device *dev)
+         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Failed to enable clock, %d.", ret);
+         goto err_power;
+     }
++    dev_err(dev, "MVXDIAG2: clock enabled rate=%lu\n",
++            clk_get_rate(ctx->clk));
+     /*
+      * Order matters: deassert the reset BEFORE enabling the IRQ.  Otherwise
+      * the IRQ can fire mid-reset (when the device is not yet fully out of
+@@ -1291,15 +1301,29 @@ static int mvx_pm_runtime_resume(struct device *dev)
+         goto err_resume;
+     rcsu_deasserted = true;
+     usleep_range(MVX_POWER_POLL_MIN_US, MVX_POWER_POLL_MAX_US);
++    dev_err(dev, "MVXDIAG2: rcsu deasserted ok\n");
+ 
+     ret = reset_control_deassert(ctx->rstc);
+     if (ret)
+         goto err_resume;
+     core_deasserted = true;
+     usleep_range(MVX_POWER_POLL_MIN_US, MVX_POWER_POLL_MAX_US);
++    dev_err(dev, "MVXDIAG2: core deasserted ok\n");
+ 
+     enable_irq(ctx->irq);
+     irq_enabled = true;
++    dev_err(dev, "MVXDIAG2: irq enabled ok\n");
++
++    arm_smccc_smc(CIX_SIP_RESTORE_MMHUB_ASNI, VPU0_ASNI_ID,
++                  0, 0, 0, 0, 0, 0, &res);
++    dev_err(dev, "MVXDIAG2: ASNI VPU0 restore res=%ld\n", (long)res.a0);
++
++    arm_smccc_smc(CIX_SIP_RESTORE_MMHUB_ASNI, VPU1_ASNI_ID,
++                  0, 0, 0, 0, 0, 0, &res);
++    dev_err(dev, "MVXDIAG2: ASNI VPU1 restore res=%ld\n", (long)res.a0);
++
++    dev_err(dev, "MVXDIAG2: reached pre-MMIO, all steps ok\n");
++    return -ENODEV;
+ 
+     mvx_switch_qchannel_clock_gating(ctx, true);
+ 
+-- 
+2.47.3

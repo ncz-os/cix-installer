@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 20 Jul 2026 02:30:00 -0400
+Subject: [PATCH] clocksource: sky1: defer probe on missing timer clocks, preserve real error
+
+Confirmed live on Orion O6N 2026-07-19/20: sky1_timer_probe() hard-
+returns -EINVAL when either clock lookup fails, discarding the real
+error entirely -- even if devm_clk_get() already returned the
+retryable -EPROBE_DEFER, this code throws it away and substitutes a
+fixed -EINVAL, which the driver core never retries. Combined with
+the driver's own "initialized" static guard (probe only ever
+attempted meaningfully once), a clock not yet mapped by clk-sky1-acpi
+at first probe permanently disables this SoC's system timer for the
+rest of boot -- more consequential than the peripheral-driver
+instances of this same bug class (0162-0165/2021-2024) since this is
+the clocksource, not an optional peripheral.
+
+Same -ENOENT-to-EPROBE_DEFER translation as those fixes, plus
+propagating the real PTR_ERR via dev_err_probe() instead of a fixed
+-EINVAL.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/clocksource/timer-sky1-gpt.c b/drivers/clocksource/timer-sky1-gpt.c
+index 15fc234..04a0418 100644
+--- a/drivers/clocksource/timer-sky1-gpt.c
++++ b/drivers/clocksource/timer-sky1-gpt.c
+@@ -324,11 +324,17 @@ static int sky1_timer_probe(struct platform_device *pdev)
+ 
+ 	sky1tm->pclk = devm_clk_get(&pdev->dev, "fch_timer_apb_clk");
+ 	if (IS_ERR(sky1tm->pclk))
+-		return -EINVAL;
++		return dev_err_probe(&pdev->dev,
++				     PTR_ERR(sky1tm->pclk) == -ENOENT ?
++				     -EPROBE_DEFER : PTR_ERR(sky1tm->pclk),
++				     "failed to get fch_timer_apb_clk\n");
+ 
+ 	sky1tm->tclk = devm_clk_get(&pdev->dev, "fch_timer_func_clk");
+ 	if (IS_ERR(sky1tm->tclk))
+-		return -EINVAL;
++		return dev_err_probe(&pdev->dev,
++				     PTR_ERR(sky1tm->tclk) == -ENOENT ?
++				     -EPROBE_DEFER : PTR_ERR(sky1tm->tclk),
++				     "failed to get fch_timer_func_clk\n");
+ 
+ 	clk_prepare_enable(sky1tm->pclk);
+ 	clk_prepare_enable(sky1tm->tclk);
+--
+2.51.0

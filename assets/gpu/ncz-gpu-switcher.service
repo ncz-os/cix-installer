@@ -1,0 +1,28 @@
+[Unit]
+Description=NCZ-OS CIX Sky1 GPU stack switcher
+Documentation=man:ncz-gpu-status(1)
+DefaultDependencies=no
+# After udev so the GPU device exists; after local-fs so /etc and /opt are
+# readable. Before the greeter so the driver and the matching userspace are in
+# place before anything tries to create a GL/Vulkan context -- a session that
+# starts first falls back to llvmpipe and never recovers without a restart.
+# systemd-journald.socket matters as much as the other two: with
+# DefaultDependencies=no this unit runs early enough that journald may not be
+# accepting yet, and its output goes nowhere. Measured on O6N 2026-08-15 -- the
+# unit ran and applied panthor correctly, but `journalctl -u ncz-gpu-switcher -b`
+# printed "No entries". The whole point of the fail-loud check is diagnostics a
+# human can read afterwards, so losing them makes the guard half blind.
+After=systemd-udevd.service local-fs.target systemd-journald.socket
+Before=display-manager.service greetd.service graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ncz/gpu-switcher.sh
+RemainAfterExit=yes
+StandardOutput=journal
+# Errors also go to the console: if the GPU stack failed to come up, the desktop
+# is degraded and the journal may be the harder place to look.
+StandardError=journal+console
+
+[Install]
+WantedBy=sysinit.target

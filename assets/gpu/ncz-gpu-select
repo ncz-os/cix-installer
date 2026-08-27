@@ -1,0 +1,56 @@
+#!/bin/sh
+# ncz-gpu-select — compatibility shim for the retired GPU selectors.
+#
+# ncz-gpu-select and ncz-gpu-profile are superseded by ncz-gpu-switcher, which
+# takes the kernel cmdline (sky1.gpu=) as the single source of truth. The two
+# old tools wrote two DIFFERENT modprobe.d files and neither knew about the
+# cmdline, so a machine could end up with the cmdline blacklisting panthor while
+# modprobe.d blacklisted the kbase trio -- no driver at all, desktop on llvmpipe
+# (measured on O6N 2026-08-15).
+#
+# This shim keeps the old command names working. It records the preference in
+# /etc/default/ncz-gpu and applies it now, but the cmdline still wins at the
+# next boot -- so it says so when the two disagree rather than reporting a
+# success the reboot would undo.
+set -u
+
+DEFAULTS=/etc/default/ncz-gpu
+SWITCHER=/usr/lib/ncz/gpu-switcher.sh
+
+usage() { echo "usage: $(basename "$0") {mali|vendor|panthor|mesa|status}" >&2; exit 2; }
+
+[ $# -ge 1 ] || usage
+case "$1" in
+    status) exec /usr/bin/ncz-gpu-status ;;
+    mali|vendor)  mode=mali ;;
+    panthor|mesa) mode=panthor ;;
+    *) usage ;;
+esac
+
+[ "$(id -u)" = 0 ] || { echo "$(basename "$0"): must run as root" >&2; exit 1; }
+
+install -d -m 0755 "$(dirname "$DEFAULTS")"
+cat > "$DEFAULTS" <<DEF
+# NCZ-OS GPU stack preference. Consulted by ncz-gpu-switcher ONLY when the
+# kernel cmdline carries no sky1.gpu= / ncz.gpu= token -- the cmdline wins.
+GPU_MODE=$mode
+DEF
+echo "recorded GPU_MODE=$mode in $DEFAULTS"
+
+cmdline_mode=$(sed -n 's/.*\bsky1\.gpu=\([a-z]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+[ -n "$cmdline_mode" ] || cmdline_mode=$(sed -n 's/.*\bncz\.gpu=\([a-z]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+case "$cmdline_mode" in
+    vendor) cmdline_mode=mali ;;
+    mesa)   cmdline_mode=panthor ;;
+esac
+
+if [ -n "$cmdline_mode" ] && [ "$cmdline_mode" != "$mode" ]; then
+    echo
+    echo "NOTE: the kernel cmdline selects '$cmdline_mode' and OVERRIDES this file."
+    echo "      This switch applies to the running system now, but the next boot"
+    echo "      will return to '$cmdline_mode' unless you pick the other rEFInd"
+    echo "      entry (the GPU entries differ only by their sky1.gpu= token)."
+fi
+
+[ -x "$SWITCHER" ] || { echo "$(basename "$0"): $SWITCHER missing" >&2; exit 1; }
+exec "$SWITCHER" --mode "$mode"

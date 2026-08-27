@@ -1,0 +1,52 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] soc: cix: default acpi_scmi_en off so the clock bridge binds
+
+device_deny_id_init() denies CIXHA010 -- the ACPI clock bridge -- whenever
+acpi_scmi_en is true, and true is the default:
+
+    if (acpi_scmi_en)
+            acpi_deny_handler[DENY_SCMI_CLKS].ids = acpi_clks_deny_ids;  /* CIXHA010 */
+
+The deny handler has no .attach, so acpi_bus_attach never runs the default
+enumeration and no platform device is created for CIXHA010. Patch 0147
+converted the bridge from an acpi_driver back to a platform_driver, which needs
+exactly that device, and says so in its own commit message: "With SCMI enabled,
+CIXHA010 is suppressed by the CIX ACPI scan handler, so users of that
+configuration must retain the ACPI-driver variant or remove the deny policy
+instead."
+
+The result is that with the shipped default nothing provides clocks. MEASURED on
+an Orion O6N booting the installer, read from a shell inside debian-installer:
+
+    41 deferred probes matching "clock not found"
+      CIXH2023:02  cix-pcie-phy: phy apb clock not found
+      CIXH200B:00  cdns-i2c: input clock not found
+    xhci never probes
+    /proc/partitions empty, no /dev/sd*
+
+so the USB medium the installer booted from is unreadable, and d-i reports "No
+device for installation media was detected". The 7.0.12 kernel has no deny
+mechanism at all, which is why the same ISO layout installed fine there and
+regressed on 7.2.
+
+Every successful 7.2 boot on this hardware has passed acpi_scmi_en=off on the
+command line; the installed system's cmdline carries it. Making that the default
+fixes the installer and every other boot path that does not know to pass it,
+and acpi_scmi_en=on remains available for anyone who wants the SCMI-clocks
+configuration together with the acpi_driver variant of the bridge.
+
+Upstream-Status: Inappropriate [oe-specific]
+Downstream fix to a downstream patch (0066/0147); neither exists upstream.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+--- a/drivers/soc/cix/acpi/cix-acpi-plat.c
++++ b/drivers/soc/cix/acpi/cix-acpi-plat.c
+@@ -19,7 +19,7 @@
+ 
+ static bool pcie_pnp_en = false;
+ static bool usb_pnp_en = false;
+-static bool acpi_scmi_en = true;
++static bool acpi_scmi_en = false;
+ 
+ static int __init pcie_pnp_update(char *str)
+ {

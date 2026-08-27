@@ -1,0 +1,97 @@
+From bce1a386cdd8fd3ab0f356893918f4f9acf4b744 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 5 Aug 2026 19:27:52 -0400
+Subject: [PATCH 3/6] Honour VA_EXPORT_SURFACE_SEPARATE_LAYERS in
+ vaExportSurfaceHandle
+
+MediaDevice::ExportSurfaceHandle() ignored the flags argument and always
+produced a composed descriptor: one layer carrying every plane. Clients that
+ask for VA_EXPORT_SURFACE_SEPARATE_LAYERS expect one layer per plane, and
+Chromium -- which always exports with
+VA_EXPORT_SURFACE_READ_ONLY | VA_EXPORT_SURFACE_SEPARATE_LAYERS -- rejects
+any layer that carries more than a single plane.
+
+The export itself returned VA_STATUS_SUCCESS, so the failure was silent:
+Chromium selected VaapiVideoDecoder, reported "VideoDecoderPipeline
+|decoder_| Initialize() successful", then discarded the surface while
+building its frame pool and logged only "video decoder fallback after
+initial decode error" before falling back to FFmpegVideoDecoder. No frame
+was ever submitted -- BeginPicture() was never reached.
+
+Emit one layer per plane when the caller asks for separate layers, with the
+per-plane DRM format (R8/GR88 for NV12, R16/GR1616 for P010), and keep the
+previous composed layout otherwise.
+
+With this and the surface-pool fix, Chromium 151 decodes H.264 1080p on the
+VPU: the GPU process opens /dev/video0 and renderer CPU drops from ~27% to
+~3.4%.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ devices/device_common.cpp | 43 ++++++++++++++++++++++++++++++++-------
+ 1 file changed, 36 insertions(+), 7 deletions(-)
+
+diff --git a/devices/device_common.cpp b/devices/device_common.cpp
+index 44f1928..dba7939 100644
+--- a/devices/device_common.cpp
++++ b/devices/device_common.cpp
+@@ -618,6 +618,19 @@ VAStatus MediaDevice::ReleaseBufferHandle(
+     return VA_STATUS_SUCCESS;
+ }
+ 
++// Per-plane DRM format for a planar surface exported with one layer per plane.
++static uint32_t GetDrmFormatForPlane(uint32_t fourcc, uint32_t plane)
++{
++    switch (fourcc) {
++    case VA_FOURCC_NV12:
++        return plane == 0 ? DRM_FORMAT_R8 : DRM_FORMAT_GR88;
++    case VA_FOURCC_P010:
++        return plane == 0 ? DRM_FORMAT_R16 : DRM_FORMAT_GR1616;
++    default:
++        return fourcc;
++    }
++}
++
+ VAStatus MediaDevice::ExportSurfaceHandle(
+     VASurfaceID surface_id,
+     uint32_t mem_type,
+@@ -642,13 +655,29 @@ VAStatus MediaDevice::ExportSurfaceHandle(
+     desc->num_objects = 1;
+     desc->objects[0].size = pool->GetSize();
+     desc->objects[0].drm_format_modifier = DRM_FORMAT_MOD_LINEAR;
+-    desc->num_layers = 1;
+-    desc->layers[0].drm_format = pool->GetFormat();
+-    desc->layers[0].num_planes = pool->GetNumPlanes();
+-    for (int i = 0; i < desc->layers[0].num_planes; i++) {
+-        desc->layers[0].object_index[i] = 0;
+-        desc->layers[0].offset[i] = pool->GetOffset(i);
+-        desc->layers[0].pitch[i] = pool->GetPitch(i);
++    uint32_t num_planes = pool->GetNumPlanes();
++    if ((flags & VA_EXPORT_SURFACE_SEPARATE_LAYERS) && num_planes > 1) {
++        // The caller asked for one layer per plane. Chromium always exports
++        // this way and rejects any layer carrying more than a single plane,
++        // so a composed descriptor makes it discard the surface and fall back
++        // to software decoding.
++        desc->num_layers = num_planes;
++        for (uint32_t i = 0; i < num_planes; i++) {
++            desc->layers[i].drm_format = GetDrmFormatForPlane(pool->GetFormat(), i);
++            desc->layers[i].num_planes = 1;
++            desc->layers[i].object_index[0] = 0;
++            desc->layers[i].offset[0] = pool->GetOffset(i);
++            desc->layers[i].pitch[0] = pool->GetPitch(i);
++        }
++    } else {
++        desc->num_layers = 1;
++        desc->layers[0].drm_format = pool->GetFormat();
++        desc->layers[0].num_planes = num_planes;
++        for (uint32_t i = 0; i < num_planes; i++) {
++            desc->layers[0].object_index[i] = 0;
++            desc->layers[0].offset[i] = pool->GetOffset(i);
++            desc->layers[0].pitch[i] = pool->GetPitch(i);
++        }
+     }
+ 
+     // Export dmabuf fd
+-- 
+2.50.1 (Apple Git-155)
+

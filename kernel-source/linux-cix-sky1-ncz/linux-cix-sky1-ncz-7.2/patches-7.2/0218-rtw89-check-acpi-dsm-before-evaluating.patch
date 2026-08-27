@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stuart Shelton <srcshelton@gmail.com>
+Date: Thu, 20 Aug 2026 22:35:00 +0000
+Subject: [PATCH] wifi: rtw89: check ACPI DSM support before evaluation
+
+Avoid evaluating a device ACPI _DSM function unless firmware actually
+advertises it.  The availability check also prevents firmware warnings
+on Orion O6 systems whose wireless device does not implement the
+Realtek DSM interface.
+
+Three pre-flight guards added to rtw89_acpi_evaluate_dsm():
+  1. NULL-handle check -- if the ACPI_HANDLE is NULL, the device has
+     no ACPI companion and _DSM cannot be evaluated; return -ENOENT
+     instead of calling acpi_evaluate_dsm() on a NULL handle.
+  2. func >= 64 sanity check -- the DSM function index is a 6-bit
+     bitmap; values >= 64 are nonsense.  Return -ENOENT before
+     issuing a wild-index call to acpi_evaluate_dsm().
+  3. acpi_check_dsm() -- query the firmware-advertised DSM bitmap for
+     the rtw89 GUID.  If the requested function bit is not set,
+     return -ENOENT without ever invoking acpi_evaluate_dsm().
+
+Behavior change: previously rtw89_acpi_evaluate_dsm() unconditionally
+called acpi_evaluate_dsm(); on firmware that did not advertise the
+_DSM at all, this generated ACPI warnings ("_DSM evaluate failed")
+even though the driver would have handled the missing DSM anyway.
+The new path is functionally equivalent on the failure path and
+quiet on the ACPI subsystem in the common no-DSM case.
+
+Not Orion-specific and not CIX-specific -- a generic robustness
+improvement to the rtw89 driver's ACPI path.  Carries essentially
+no risk; aligns rtw89 with the upstream-recommended
+acpi_check_dsm() pattern used by most other kernel drivers.
+
+Ported from srcshelton/gentoo-ebuilds:
+  sys-kernel/cix-sources/files/7.2.x/80020-rtw89-check-acpi-dsm-before-evaluating.patch
+
+Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
+[ported: applied verbatim from srcshelton/gentoo-ebuilds 7.2.x/]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/net/wireless/realtek/rtw89/acpi.c b/drivers/net/wireless/realtek/rtw89/acpi.c
+index ebb6cf555..5e4b8b104 100644
+--- a/drivers/net/wireless/realtek/rtw89/acpi.c
++++ b/drivers/net/wireless/realtek/rtw89/acpi.c
+@@ -372,11 +372,18 @@ int rtw89_acpi_evaluate_dsm(struct rtw89_dev *rtwdev,
+ 			    enum rtw89_acpi_dsm_func func,
+ 			    struct rtw89_acpi_dsm_result *res)
+ {
++	acpi_handle handle = ACPI_HANDLE(rtwdev->dev);
+ 	union acpi_object *obj;
+ 	int ret;
+ 
+-	obj = acpi_evaluate_dsm(ACPI_HANDLE(rtwdev->dev), &rtw89_guid,
+-				0, func, NULL);
++	if (!handle || func >= 64 ||
++	    !acpi_check_dsm(handle, &rtw89_guid, 0, BIT_ULL(func))) {
++		rtw89_debug(rtwdev, RTW89_DBG_ACPI,
++			    "ACPI _DSM function %d unavailable\n", func);
++		return -ENOENT;
++	}
++
++	obj = acpi_evaluate_dsm(handle, &rtw89_guid, 0, func, NULL);
+ 	if (!obj) {
+ 		rtw89_debug(rtwdev, RTW89_DBG_ACPI,
+ 			    "acpi dsm fail to evaluate func: %d\n", func);

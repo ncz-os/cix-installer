@@ -1,0 +1,53 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] media/gpu: enable AV1 hardware decode for V4L2 on Linux
+
+use_av1_hw_decoder is gated on VA-API when building for Linux:
+
+    use_av1_hw_decoder =
+        is_chromeos || (is_linux && use_vaapi) || is_win || is_apple
+
+so a desktop Linux build configured with use_v4l2_codec=true and
+use_vaapi=false gets no AV1 hardware decoder at all, even on hardware
+whose V4L2 decoder advertises AV1. Nothing reports this: the AV1 support
+is simply absent from the build, the browser falls back to the software
+decoder, and about:gpu lists no AV1 entry, so it reads as "this hardware
+cannot do AV1" rather than "this build has it compiled out".
+
+The V4L2 side is otherwise ready. media/gpu/v4l2/v4l2_utils.cc already
+defines the stateful AV1 pixel format
+
+    #define V4L2_PIX_FMT_AV1 v4l2_fourcc('A', 'V', '0', '1')
+
+and v4l2_device.cc already accepts V4L2_PIX_FMT_AV1 and
+V4L2_PIX_FMT_AV1_FRAME when enumerating supported formats. Only the
+buildflag keeps the decoder out.
+
+Add use_v4l2_codec to the Linux condition, which matches what is_chromeos
+already implies for V4L2-based devices.
+
+Tested on a CIX Sky1 (Radxa Orion O6, Arm Linlon MVE v8 VPU) whose decoder
+reports:
+
+    v4l2-ctl -d /dev/video0 --list-formats-out
+    ...
+    [7]: 'AV01' (AV1 OBU Stream, compressed, dyn-resolution)
+
+That the VPU decodes AV1 correctly through V4L2 was verified independently
+of Chromium: an ffmpeg build with a V4L2 AV1 m2m decoder produced output
+bit-identical to the dav1d software decoder (matching MD5 over the first
+five frames of a 720p AV1 clip).
+
+Bug: none
+Change-Id: I0000000000000000000000000000000000000000
+
+diff --git a/media/gpu/args.gni b/media/gpu/args.gni
+--- a/media/gpu/args.gni
++++ b/media/gpu/args.gni
+@@ -57,7 +57,7 @@ use_linux_video_acceleration = use_vaapi || use_v4l2_codec
+ declare_args() {
+   # A platform that is capable of hardware av1 decoding.
+   use_av1_hw_decoder =
+-      is_chromeos || (is_linux && use_vaapi) || is_win || is_apple
++      is_chromeos || (is_linux && (use_vaapi || use_v4l2_codec)) ||
++      is_win || is_apple
+ }

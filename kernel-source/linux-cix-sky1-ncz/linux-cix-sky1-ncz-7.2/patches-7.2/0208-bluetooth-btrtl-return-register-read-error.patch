@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
+Subject: [PATCH] Bluetooth: btrtl: propagate register-read error instead of swallowing it
+
+drivers/bluetooth/btrtl.c: in the RTL firmware probe path, an
+unconditional return after a register read silently masked
+negative register-read errors.  Return the actual error so bluetooth
+core can surface the failure to userspace and the firmware load can
+be retried rather than wedging the controller on a half-loaded
+firmware.
+
+Ported from srcshelton/gentoo-ebuilds:
+  80015-bluetooth-btrtl-return-register-read-error.patch
+
+Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
+[ported: applied verbatim from srcshelton/gentoo-ebuilds
+  80015-bluetooth-btrtl-return-register-read-error.patch]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/bluetooth/btrtl.c b/drivers/bluetooth/btrtl.c
+index 7f54d2d2d..929874535 100644
+--- a/drivers/bluetooth/btrtl.c
++++ b/drivers/bluetooth/btrtl.c
+@@ -1074,7 +1074,6 @@ struct btrtl_device_info *btrtl_initialize(struct hci_dev *hdev,
+ 	u16 hci_rev, lmp_subver;
+ 	u8 hci_ver, lmp_ver, chip_type = 0;
+ 	int ret;
+-	int rc;
+ 	u8 key_id;
+ 	u8 reg_val[2];
+ 
+@@ -1186,8 +1185,8 @@ struct btrtl_device_info *btrtl_initialize(struct hci_dev *hdev,
+ 		goto err_free;
+ 	}
+ 
+-	rc = btrtl_vendor_read_reg16(hdev, RTL_SEC_PROJ, reg_val);
+-	if (rc < 0)
++	ret = btrtl_vendor_read_reg16(hdev, RTL_SEC_PROJ, reg_val);
++	if (ret < 0)
+ 		goto err_free;
+ 
+ 	key_id = reg_val[0];

@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
+Subject: [PATCH] drm/cix: demote internal TBU no-op path to DRM_DEBUG_DRIVER
+
+In drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c, demote the
+"Connect mmu without internal TBU!" / "Disconnect mmu without
+internal TBU!" messages from DRM_WARN to DRM_DEBUG_DRIVER.
+
+The code path is intentionally a no-op when the CIX Linlon-DP block
+is configured without an internal Translation Buffer Unit (which is
+the case on the Sky1 firmware variant we ship).  WARN-on-no-op is
+noisy without being actionable.
+
+Ported from srcshelton/gentoo-ebuilds:
+  70120-drm-cix-demote-internal-tbu-noop-logs.patch
+
+Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
+[ported: applied verbatim from srcshelton/gentoo-ebuilds
+  70120-drm-cix-demote-internal-tbu-noop-logs.patch]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c b/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c
+index 31301c960..14968d9c4 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c
++++ b/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c
+@@ -595,7 +595,7 @@ static int dp_connect_iommu(struct linlondp_dev *mdev)
+ 	int i, ret;
+ 
+ 	if (!dp->integrates_tbu) {
+-		DRM_WARN("Connect mmu without internal TBU!\n");
++		DRM_DEBUG_DRIVER("No internal TBU; skipping display MMU connect\n");
+ 		return 0;
+ 	}
+ 	linlondp_write32_mask(reg, BLK_CONTROL, 0x7, TBU_CONNECT_MODE);
+@@ -625,7 +625,7 @@ static int dp_disconnect_iommu(struct linlondp_dev *mdev)
+ 	int ret;
+ 
+ 	if (!dp->integrates_tbu) {
+-		DRM_WARN("Disconnect mmu without internal TBU!\n");
++		DRM_DEBUG_DRIVER("No internal TBU; skipping display MMU disconnect\n");
+ 		return 0;
+ 	}
+ 

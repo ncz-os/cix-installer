@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 13 Jul 2026 16:00:00 -0400
+Subject: [PATCH] clk: cix: keep the Sky1 VPU APB clock enabled
+
+The VPU register aperture at 0x14240000 is inaccessible when its APB
+clock is gated.  Firmware describes SCMI clock 67 (vpu_apbclk) to the
+VPU consumer as "vpu_clk", but keeping only the clkdev lookup does not
+keep the gate enabled before the consumer's first register access.
+
+Take an enable reference after all CLKT entries have been installed and
+hold it for the lifetime of the CIXHA010 provider.  This is intentionally
+limited to the VPU connection and is safe with the consumer's own
+reference-counted enable/disable calls.
+
+This is a conservative platform-layer workaround while the 7.2 clock
+shutdown/SCMI ordering difference from the working 7.0.12 image is being
+isolated on hardware.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/clk/cix/clk-sky1-acpi.c | 32 ++++++++++++++++++++++++++++++++
+ 1 file changed, 32 insertions(+)
+
+diff --git a/drivers/clk/cix/clk-sky1-acpi.c b/drivers/clk/cix/clk-sky1-acpi.c
+index 4c5ca954da00..46c6768b8c8f 100644
+--- a/drivers/clk/cix/clk-sky1-acpi.c
++++ b/drivers/clk/cix/clk-sky1-acpi.c
+@@ -33,6 +33,14 @@ static void sky1_clkdev_drop(void *data)
+ 	clkdev_drop(data);
+ }
+ 
++static void sky1_clk_disable_unprepare_put(void *data)
++{
++	struct clk *clk = data;
++
++	clk_disable_unprepare(clk);
++	clk_put(clk);
++}
++
+ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
+ 				 const char *consumer_name,
+ 				 union acpi_object *entry)
+@@ -153,6 +160,8 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
+ {
+ 	struct sky1_acpi_clk *priv;
+ 	acpi_status status;
++	struct clk *vpu_apbclk;
++	int ret;
+ 
+ 	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
+ 	if (!priv)
+@@ -172,6 +181,28 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
+ 		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
+ 				     "No SCMI clocks mapped yet\n");
+ 
++	/*
++	 * The VPU's sole CLKT entry maps SCMI clock 67 (vpu_apbclk) as
++	 * CIXH3010:00 / vpu_clk.  Keep its register-bus gate open so the
++	 * first access to the VPU aperture cannot race clock shutdown.
++	 */
++	vpu_apbclk = clk_get_sys("CIXH3010:00", "vpu_clk");
++	if (IS_ERR(vpu_apbclk))
++		return dev_err_probe(&pdev->dev, PTR_ERR(vpu_apbclk),
++				     "VPU APB clock is not mapped\n");
++
++	ret = clk_prepare_enable(vpu_apbclk);
++	if (ret) {
++		clk_put(vpu_apbclk);
++		return dev_err_probe(&pdev->dev, ret,
++				     "Failed to enable VPU APB clock\n");
++	}
++
++	ret = devm_add_action_or_reset(&pdev->dev,
++				       sky1_clk_disable_unprepare_put, vpu_apbclk);
++	if (ret)
++		return ret;
++
+ 	dev_info(&pdev->dev, "Mapped %d ACPI clock lookup entries\n",
+ 		 priv->mapped);
+ 	return 0;
+-- 
+2.51.0

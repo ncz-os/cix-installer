@@ -1,0 +1,93 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 21 Jul 2026 23:40:00 +0800
+Subject: [PATCH] ASoC: cix: pick the hdmi-codec child explicitly, not any child
+
+cix_acpi_dp_audio_get_codec_name() locates the DP platform device from its
+ACPI handle and then calls device_find_any_child() to find the HDMI audio
+codec beneath it. That returns an arbitrary child.
+
+On Radxa Orion O6N running 7.2, each DP device has several children:
+
+  CIXH502F:00 -> consumer:platform:CIXH5010:00   (fw_devlink)
+                 hdmi-audio-codec.15.auto        (the actual codec)
+                 i2c-4
+                 supplier:platform:CIXHA010:00   (fw_devlink)
+
+plus a wakeup source. device_find_any_child() picks one of the others, so
+the machine driver ends up asking snd_soc for codecs that do not exist:
+
+  sky1-asoc-card CIXH6070:00: num_links = 3
+  sky1-asoc-card CIXH6070:00: dp[0]:cpu[CIXH6011:02][i2s-mc-aif1] \
+      codec[wakeup100][i2s-hifi] platform[CIXH6011:02]
+  sky1-asoc-card CIXH6070:00: dp[1]:... codec[wakeup101][i2s-hifi] ...
+  sky1-asoc-card CIXH6070:00: dp[4]:... codec[wakeup102][i2s-hifi] ...
+
+No dai_link ever binds, so no card registers at all: /proc/asound/cards
+reports "no soundcards" and /dev/snd contains only seq and timer.
+
+7.0.12 was unaffected by luck rather than by design - the DP device had
+fewer children there (display was not probing and the fw_devlink
+consumer/supplier link devices were absent), so the arbitrary child
+happened to be the codec.
+
+Match the codec explicitly by its platform driver name instead.
+dev_name() remains correct once the right child is selected: the hdmi-codec
+ASoC component registers under the device name (hdmi-audio-codec.N.auto),
+which is what snd_soc compares dai_link codecs->name against.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/sound/soc/cix/card-utils.c b/sound/soc/cix/card-utils.c
+--- a/sound/soc/cix/card-utils.c	2026-07-21 23:24:50.331047488 +0800
++++ b/sound/soc/cix/card-utils.c	2026-07-21 23:24:50.331699741 +0800
+@@ -3,9 +3,11 @@
+ #include <linux/clk.h>
+ #include <linux/module.h>
+ #include <linux/mfd/syscon.h>
++#include <linux/platform_device.h>
+ #include <linux/regmap.h>
+ #include "card-utils.h"
+ #include <sound/jack.h>
++#include <sound/hdmi-codec.h>
+ 
+ #define SKY1_AUDSS_CRU_INFO_MCLK		0x70
+ #define SKY1_AUDSS_CRU_INFO_MCLK_DIV_OFF(x)	(10 + (3 * (x)))
+@@ -803,6 +805,19 @@
+ 	return dev_name(&adev->dev);
+ }
+ 
++/*
++ * A DP device has several children: the hdmi-codec platform device, an i2c
++ * adapter, and fw_devlink consumer:/supplier: link devices (plus a wakeup
++ * source). device_find_any_child() returns an arbitrary one, so match the
++ * hdmi-codec explicitly by its platform driver name.
++ */
++static int cix_dp_match_hdmi_codec(struct device *dev, const void *data)
++{
++	return dev->bus == &platform_bus_type &&
++	       to_platform_device(dev)->name &&
++	       !strcmp(to_platform_device(dev)->name, HDMI_CODEC_DRV_NAME);
++}
++
+ static const char *cix_acpi_dp_audio_get_codec_name(int idx)
+ {
+ 	struct acpi_device *adev;
+@@ -824,10 +839,15 @@
+ 	if (!dev)
+ 		return NULL;
+ 
+-	dpdev = device_find_any_child(dev);
++	dpdev = device_find_child(dev, NULL, cix_dp_match_hdmi_codec);
+ 	if (!dpdev)
+ 		return NULL;
+ 
++	/*
++	 * dev_name() is correct here: the hdmi-codec ASoC component is
++	 * registered under the device name (hdmi-audio-codec.N.auto), which is
++	 * what snd_soc matches dai_link codecs->name against.
++	 */
+ 	return dev_name(dpdev);
+ }
+ 

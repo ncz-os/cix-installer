@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 27 Jun 2026 22:55:00 -0400
+Subject: [PATCH] clk: sky1-acpi: add ACPI power management to avoid SError on resume
+
+Under ACPI boot, the clk-sky1-acpi probe walks the namespace and maps
+SCMI clocks but does not explicitly manage the device's power state.
+After probe succeeds, the PM core automatically calls pm_runtime_resume()
+to bring the device to D0. That runtime_resume can touch unready hardware
+(e.g., power-domain registers still settling via SCMI/clock tree), raising
+an asynchronous external abort (SError).
+
+Follow the clk-sky1-audss pattern: in probe, mark the device as
+runtime-active, keep an active reference count, and transition the
+ACPI companion to D0 so the post-probe pm_runtime_resume becomes a
+no-op. This ensures the power resources (_PS0/_PR0) are activated
+while the SCMI clock tree is stable.
+
+NOTE: do NOT call pm_runtime_enable() in probe — the platform core does
+it automatically. Calling it here causes Unbalanced pm_runtime_enable!
+warning (observed with initcall_debug at t=0.591s on .66).
+
+This patch requires pm_runtime.h to be included. Patch 9011 adds the
+#include <linux/pm_runtime.h> when it is applied.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/clk/cix/clk-sky1-acpi.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+diff --git a/drivers/clk/cix/clk-sky1-acpi.c b/drivers/clk/cix/clk-sky1-acpi.c
+index 4c5ca954da00..319ae4814142 100644
+--- a/drivers/clk/cix/clk-sky1-acpi.c
++++ b/drivers/clk/cix/clk-sky1-acpi.c
+@@ -159,6 +159,24 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
+ 	if (!priv)
+ 		return -ENOMEM;
+ 
++	/*
++	 * ACPI power management (NCZ patch 9010 — fixes Unbalanced pm_runtime_enable
++	 * warning seen with initcall_debug at t=0.591s on .66):
++	 *   - pm_runtime_set_active: mark device as RPM_ACTIVE so the post-probe
++	 *     pm_runtime_resume() in __rpm_callback is skipped (no unready MMIO touch).
++	 *   - pm_runtime_get_noresume: keep an active reference count.
++	 *   - acpi_device_set_power(D0): run _PS0 to activate ACPI power resources.
++	 *
++	 * NOTE: do NOT call pm_runtime_enable() here — the platform core calls it
++	 * automatically after probe returns. Calling it here causes
++	 * "Unbalanced pm_runtime_enable!" warning.
++	 */
++	if (has_acpi_companion(&pdev->dev)) {
++		pm_runtime_set_active(&pdev->dev);
++		pm_runtime_get_noresume(&pdev->dev);
++		acpi_device_set_power(ACPI_COMPANION(&pdev->dev), ACPI_STATE_D0);
++	}
++
+ 	priv->dev = &pdev->dev;
+ 
+ 	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
+--
+2.51.0

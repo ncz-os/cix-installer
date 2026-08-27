@@ -1,0 +1,65 @@
+From 9d5b84c0d570b290c2446e8d223b67fcb5d94a75 Mon Sep 17 00:00:00 2001
+From: Codex <codex@localhost>
+Date: Mon, 13 Jul 2026 15:00:00 -0400
+Subject: [RFC] clk: scmi: wait for clock state after non-atomic enable
+
+An SCMI CLOCK_CONFIG_SET success says that the transaction completed, but a
+provider bug can still expose the enabled state after that response.  A clock
+consumer can consequently access its register bus before the gate is open.
+
+The non-atomic clock operation is installed as .prepare and can sleep.  After
+the enable command, poll CLOCK_CONFIG_GET/CLOCK_ATTRIBUTES until firmware
+reports the clock enabled.  This also changes a silent, unsafe continuation
+into -ETIMEDOUT when the requested state never becomes visible.
+
+This is an RFC/diagnostic hardening patch.  It is intended to distinguish an
+early SCMI completion from a failure outside the SCMI clock path; the Linux
+7.0.12 and 7.2 CLOCK_CONFIG_SET implementations themselves are identical.
+
+Signed-off-by: Codex <codex@localhost>
+---
+ drivers/clk/clk-scmi.c | 26 +++++++++++++++++++++++++-
+ 1 file changed, 25 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/clk-scmi.c b/drivers/clk/clk-scmi.c
+index 7c562559a..f51548071 100644
+--- a/drivers/clk/clk-scmi.c
++++ b/drivers/clk/clk-scmi.c
+@@ -108,9 +109,34 @@ static u8 scmi_clk_get_parent(struct clk_hw *hw)
+ 
++#include <linux/delay.h>
++
+ static int scmi_clk_enable(struct clk_hw *hw)
+ {
++	bool enabled = false;
+ 	struct scmi_clk *clk = to_scmi_clk(hw);
++	unsigned int elapsed;
++	int ret;
+ 
+-	return scmi_proto_clk_ops->enable(clk->ph, clk->id, NOT_ATOMIC);
++	ret = scmi_proto_clk_ops->enable(clk->ph, clk->id, NOT_ATOMIC);
++	if (ret)
++		return ret;
++
++	/*
++	 * This is the sleeping .prepare path.  Do not let a consumer touch a
++	 * register bus until the SCMI provider exposes the requested state.
++	 */
++	for (elapsed = 0; elapsed < 10000; elapsed += 100) {
++		ret = scmi_proto_clk_ops->state_get(clk->ph, clk->id, &enabled,
++						NOT_ATOMIC);
++		if (ret)
++			return ret;
++		if (enabled)
++			return 0;
++		usleep_range(100, 200);
++	}
++
++	dev_err(clk->dev, "clock ID %d did not become enabled\n", clk->id);
++
++	return -ETIMEDOUT;
+ }
+ 
+ static void scmi_clk_disable(struct clk_hw *hw)
+-- 
+2.53.0

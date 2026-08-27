@@ -1,0 +1,78 @@
+[Unit]
+Description=MNEMOS — memory operating system for agentic AI
+Documentation=https://github.com/ncz-os/mnemos
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=ghcr.io/ncz-os/mnemos:latest
+# Loaded on demand by `ncz install mnemos` — OFFLINE from the ISO-bundled OCI
+# archive (assets/agent-images/mnemos.oci.tar via `podman load`), or a ghcr
+# pull only if no bundled image is present. Pull=never so systemd never reaches
+# for the network. (`ncz install mnemos` rewrites this line if MNEMOS_IMAGE is
+# overridden when the active quadlet is staged.)
+ContainerName=mnemos
+Pull=never
+Volume=mnemos-data:/data:Z
+# HOST networking (NOT PublishPort). The Cix Sky1 kernel does not build
+# veth/bridge support, so netavark's default bridge — and therefore podman
+# PublishPort=5002:5002 — fails on metal with
+# "netavark: create veth pair: Operation not supported (os error 95)"
+# (verified on MS-R1 .66, 2026-07). Host networking binds uvicorn directly on
+# the host's :5002 and is the correct model for a single-port appliance server.
+Network=host
+# Stock image embeds in-process on CPU (nomic-embed-text-v1.5 Q8, 768-dim) —
+# no GPU/NPU packages needed. Persistence is sqlite on the mnemos-data volume
+# so memories survive container + host restarts.
+# NPU EMBEDDING (Sky1). MNEMOS's embedder auto-detects in this priority:
+#   1. cix-npu  -- /dev/aipu + libnoe + a .cix model present
+#   2. openvino
+#   3. llamacpp -- GGUF on CPU
+# _cix_npu_available() requires BOTH the device node AND a real file at
+# MNEMOS_EMBED_CIX_MODEL_PATH. In a container neither is visible by default,
+# so without the AddDevice + Volume below the auto-detect silently falls all
+# the way to CPU llamacpp -- which is what shipped until now, leaving
+# ncz-npu-embed.service holding the NPU while nothing ever called it.
+#
+# The model is NOT on the ISO (498 MB); it comes from apt as
+# ncz-model-nomic-embed, installed to /opt/ncz/models. If that package is
+# absent the path check fails and MNEMOS falls back to CPU cleanly.
+# MEASURED BROKEN on 7.2 -- DO NOT ENABLE until NPU inference is proven.
+# 2026-08-17 on cixmini (7.2.0-sky1-ncz): the model LOADS and the server
+# reports 'serving nomic-embed-text (dim=768, max_tokens=256)', but every
+# inference fails:
+#     NOE_Engine.py:221 in forward -> RuntimeError: npu: noe_get_tensor failed
+# Kernel side is clean: 0 aipu errors in dmesg, aipu.ko vermagic matches the
+# running kernel, cix-noe-umd 2.0.2 installed, and the genpd/fwnode patches
+# (patches-7.2/0077, /0088) the MNEMOS embedder warns about ARE applied. The
+# fault is in the NOE userspace engine, matching the known UMD ABI gap.
+#
+# Why this must stay OFF rather than 'enabled and falling back': MNEMOS's
+# _cix_npu_available() checks only that /dev/aipu exists AND the .cix file is
+# present. It does NOT verify inference. Passing the device and model in makes
+# MNEMOS SELECT cix-npu and then fail on every embed -- strictly worse than
+# the CPU path it has today.
+#
+# To re-enable once noe_get_tensor works, uncomment these three and keep
+# MNEMOS_EMBED_HYBRID=true below (the .cix graph is fixed at 256 tokens; NPU
+# alone silently truncates longer inputs).
+#AddDevice=/dev/aipu
+#Volume=/opt/ncz/models:/opt/ncz/models:ro
+#Environment=MNEMOS_EMBED_CIX_MODEL_PATH=/opt/ncz/models/nomic-embed-text-v1.5_256.cix
+# HYBRID IS NOT OPTIONAL HERE. The .cix graph has a FIXED max sequence length
+# of 256 tokens. With the NPU alone, any input longer than roughly
+# MNEMOS_EMBED_NPU_THRESHOLD_CHARS (default 1000) is SILENTLY TRUNCATED before
+# embedding -- degraded vectors, no error, no log. Hybrid routes short inputs
+# to the NPU and long ones to the llamacpp fallback.
+#Environment=MNEMOS_EMBED_HYBRID=true
+Environment=MNEMOS_PERSISTENCE_BACKEND=sqlite
+Environment=MNEMOS_DATABASE_DSN=sqlite:////data/mnemos.db
+Environment=MNEMOS_SQLITE_PATH=/data/mnemos.db
+
+[Service]
+TimeoutStartSec=900
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target default.target

@@ -1,0 +1,47 @@
+[Unit]
+Description=zeroclaw agent gateway (official zeroclaw-labs image)
+Documentation=https://github.com/zeroclaw-labs/zeroclaw
+Requires=nclawzero-load-agent-images.service
+Wants=network-online.target
+After=network-online.target nclawzero-load-agent-images.service
+
+[Container]
+# Official upstream zeroclaw image (NOT the perlowja/nclawzero-demo build).
+# Standalone gateway: entrypoint `zeroclaw`, default cmd `daemon`, listens on
+# 42617, persists state under /zeroclaw-data (image WORKDIR/HOME).
+Image=ghcr.io/zeroclaw-labs/zeroclaw:latest
+ContainerName=zeroclaw
+# Pull policy stays "never": the image is fetched by an EXPLICIT, operator-
+# initiated `podman pull` (nclawzero-load-agent-images.service on boot, or the
+# desktop install/remove launcher). AutoUpdate=registry is intentionally
+# OMITTED so unreviewed container code never runs with the fleet API keys in
+# /etc/nclawzero/agent-env.
+Pull=never
+Exec=daemon --host 0.0.0.0 --port 42617
+EnvironmentFile=/etc/nclawzero/agent-env
+Volume=zeroclaw-data:/zeroclaw-data:Z
+# HOST networking (NOT PublishPort). The Cix Sky1 kernel is built WITHOUT
+# veth/bridge support (CONFIG_VETH off), so netavark's default bridge — and
+# therefore any podman PublishPort= — fails to start on metal with
+# "netavark: create veth pair: Operation not supported (os error 95)"
+# (service status=126, verified on MS-R1 .66, 2026-07). Host networking binds
+# the gateway directly on the host's :42617 and is the fleet-standard model for
+# a single-user LAN appliance. Exec keeps --host 0.0.0.0 so the gateway is
+# reachable on the LAN. The real fix is CONFIG_VETH in the kernel (future
+# kernel-config task); Network=host is the workaround until then.
+Network=host
+
+[Service]
+TimeoutStartSec=900
+Restart=always
+RestartSec=15
+# Bias the always-on agent toward the efficiency (Cortex-A520) cores. On Sky1
+# (8x A720 big + 4x A520 little) a low CPU weight + positive nice let EAS park
+# zeroclaw on the little cluster when idle and yield big-core time to LLM
+# prefill/decode + NPU orchestration, while still allowing it to burst under
+# load. Soft bias (not a hard AllowedCPUs pin) so nothing is starved.
+CPUWeight=20
+Nice=10
+
+[Install]
+WantedBy=multi-user.target default.target

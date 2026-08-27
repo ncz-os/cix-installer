@@ -1,0 +1,34 @@
+From 4915a5b63f49f5bf08b3e6930aa78fc9723341b4 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 23 May 2026 12:11:51 -0400
+Subject: [PATCH 5/6] armchina-npu: pm_runtime_put returns void
+
+---
+ driver/armchina-npu/sky1/sky1.c | 8 ++------
+ 1 file changed, 2 insertions(+), 6 deletions(-)
+
+diff --git a/driver/armchina-npu/sky1/sky1.c b/driver/armchina-npu/sky1/sky1.c
+index 82d4afc..99c9650 100644
+--- a/driver/armchina-npu/sky1/sky1.c
++++ b/driver/armchina-npu/sky1/sky1.c
+@@ -295,15 +295,11 @@ int sky1_npu_pm_runtime_put(struct device *dev)
+ 
+ 	if (has_acpi_companion(dev)) {
+ 		for (int i = 0; i < CIX_NPU_PD_NUM; i++) {
+-			ret = pm_runtime_put(cix_aipu_priv->pd_core[i]);
+-			if (ret < 0)
+-				dev_err(cix_aipu_priv->pd_core[i], "NPU core PM runtime put failed! ret=%d", ret);
++			pm_runtime_put(cix_aipu_priv->pd_core[i]);
+ 		}
+ 	}
+ 
+-	ret = pm_runtime_put(dev);
+-	if (ret < 0)
+-		dev_err(dev, "PM runtime put failed! ret=%d", ret);
++	pm_runtime_put(dev);
+ 
+ 	return ret;
+ #else /* !CONFIG_PM  */
+-- 
+2.51.0
+

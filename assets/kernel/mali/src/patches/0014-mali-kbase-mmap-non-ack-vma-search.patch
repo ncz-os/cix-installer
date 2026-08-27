@@ -1,0 +1,95 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 25 Jul 2026 00:00:00 +0000
+Subject: [PATCH] mali_kbase: force non-ACK VMA gap-search path in mali_kbase_mmap.c
+
+The build was failing at the final modpost/link stage with:
+  ERROR: modpost: "vm_unmapped_area" [midgard/mali_kbase.ko] undefined!
+
+Root cause is NOT a missing kernel export to add. gpu.mk (line 29:
+GPU_KERNEL_CFLAGS = KCFLAGS="${KCFLAGS} -D__ANDROID_COMMON_KERNEL__")
+unconditionally defines __ANDROID_COMMON_KERNEL__ for every CIX
+product build -- it is literally Cix's Android-product Makefile
+("Description: build GPU kernel module for cix Android product"),
+reused verbatim for this non-Android NCZ desktop-Linux target without
+stripping the Android-only flag.
+
+That macro makes kbase_unmapped_area_topdown() (this file, previously
+line 274) take the branch that calls the core kernel's
+vm_unmapped_area() directly. That call is only safe on the Android
+Common Kernel, where Google carries a vendor patch that
+EXPORT_SYMBOL_GPL()s it. Mainline Linux has never exported this
+symbol: confirmed by direct inspection of every stable tag from v6.6
+through the current v6.19 development tree in this kernel's own git
+history (mm/mmap.c has zero EXPORT_SYMBOL* for vm_unmapped_area in any
+of them, while sibling functions in the same file -- mm_get_unmapped_area,
+find_vma_intersection, find_vma, vm_munmap -- are all exported). This
+is not an oversight: a 2016 upstream RFC asking for exactly this
+export for exactly this reason ("mm: Export symbols unmapped_area() &
+unmapped_area_topdown()", GPU/SVM driver justification, Olujide
+Ogunbowale, reviewed by Christoph Hellwig) was never merged and the
+symbol remains unexported a decade later. Patching this kernel to add
+EXPORT_SYMBOL_GPL(vm_unmapped_area) would mean carrying, indefinitely,
+a kernel-internal-API export that upstream has specifically declined,
+for a driver that -- per the next paragraph -- does not actually need
+it.
+
+kbase_unmapped_area_topdown() already ships a complete, self-contained
+non-ACK implementation for kernel >= 6.1 (the
+"#else /* __ANDROID_COMMON_KERNEL__ */" branch, previously line 347)
+built entirely on MA_STATE/mas_empty_area_rev() -- direct maple-tree
+primitives already EXPORT_SYMBOL_GPL'd in this kernel's own
+lib/maple_tree.c (confirmed) -- with zero dependency on
+vm_unmapped_area(). This is kbase upstream's own intended code path
+for non-Android kernels; we are simply not currently reaching it
+because of the misapplied Android build flag.
+
+The align_and_check() helper that path calls is gated by the sibling
+guard "#if (KERNEL_VERSION(6, 1, 0) > LINUX_VERSION_CODE) ||
+!defined(__ANDROID_COMMON_KERNEL__)" a few lines above (previously
+line 105), so both guards must flip together for this kernel version
+(7.2.0, >= 6.1.0) to compile: this patch's single #undef, placed after
+the version_compat_defs.h include has already resolved its own
+ACK-conditional inline helpers against the real, unmodified build
+flag, flips both consistently for this translation unit only.
+
+Deliberately scoped to this file alone (not a recipe-wide
+GPU_KERNEL_CFLAGS override) so every other driver file keeps
+__ANDROID_COMMON_KERNEL__ defined and its behavior byte-for-byte
+unchanged -- notably mali_kbase_mem_migrate.c's
+kbase_page_migration_enabled default (0 vs -1), which was already
+carried through the page-migration API port in a prior patch set and
+should not be silently re-toggled by this fix. (The other
+__ANDROID_COMMON_KERNEL__ sites in include/linux/version_compat_defs.h
+are kernel-version-gated against thresholds all below 7.2.0 and are
+confirmed dead/identical either way at this kernel version, so this
+file-local #undef changes nothing there even though that header is
+shared.)
+
+No kernel source is touched by this fix.
+
+Codex (gpt-5.5) adversarial-reviewed this patch read-only against the
+live driver + kernel trees before it was applied: APPROVE, with the
+caveat that the maple-tree branch's fidelity to kbase's shader-code
+and 4GB-boundary constraints (not the ACK path's start_gap handling,
+which this driver never used anyway) should be confirmed by a
+functional GPU test after deploy, not compile success alone.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/thirdparty/mali_kbase_mmap.c
++++ b/drivers/gpu/arm/midgard/thirdparty/mali_kbase_mmap.c
+@@ -14,6 +14,13 @@
+ #include <mali_kbase.h>
+ #include <mali_kbase_reg_track.h>
+ 
++/* CIX NCZ (non-Android target): force the maple-tree-based (non-ACK)
++ * top-down VMA gap search in this file only -- see commit message for
++ * why __ANDROID_COMMON_KERNEL__ must stay defined everywhere else in
++ * the driver.
++ */
++#undef __ANDROID_COMMON_KERNEL__
++
+ /* mali_kbase_mmap.c
+  *
+  * This file contains Linux specific implementation of

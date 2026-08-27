@@ -1,0 +1,1027 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] mali_kbase: port to 7.0.12-cix-sky1-next + fix 2 probe-time
+ NULL-pointer-deref panics found on real hardware
+
+Consolidated provenance patch (squash of 5 working commits made against
+ARM's cix_p1_mg_dev tree, base commit a752e91 "Cix p1 mg 202603 patch
+release") documenting the full port of the CIX Sky1 Mali-G720
+out-of-tree GPU kernel module (mali_kbase / memory_group_manager /
+protected_memory_allocator) from the 7.2.0-rc4-sky1-ncz kernel (where
+it already ships as the validated default GPU driver) to the older
+7.0.12-cix-sky1-next kernel (our LTS/emergency-fallback channel, where
+in-tree panthor is the current validated default -- see
+docs/DRIVER_FIDELITY_7012.md). This is NOT a default-driver change;
+see dkms.conf for scope/status.
+
+What's in this squash, in the order it was actually done:
+
+1. Kernel-API port (reference patches 0002-0007, 0009, 0011-0013 from
+   the sibling 7.2 port, applied against this older-numbered kernel
+   where the same root causes are present): Kbuild srctree/src path
+   normalization, mm_get_unmapped_area() 5-arg signature,
+   hrtimer_setup(), dma_fence_ops.fence_value_str, shmem vma_flags_t,
+   timer_delete rename, dma_fence_signal() void return.
+
+2. Two 7.0.12-specific compat guards, gated on a new
+   MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT macro
+   (LINUX_VERSION_CODE == KERNEL_VERSION(7,0,12), deliberately narrow
+   so it cannot misfire on other 7.0.x/7.1.x kernels):
+     - version_compat_defs.h: this kernel independently backported the
+       mainline-7.2 page-movable-ops rework (Sky1-Linux community
+       patch "mm: add Mali GPU movable_ops page type support") but
+       LINUX_VERSION_CODE still reads 7.0.12, so the existing >= 7.2.0
+       guard on the __SetPageMovable()/__ClearPageMovable() no-op shim
+       never fired. Widened to also fire for this exact kernel.
+     - mali_kbase_config_sky1.c: this kernel's
+       drivers/pmdomain/arm/scmi_perf_domain.c predates
+       scmi_device_opp_table_parse() (added later, in the ncz72 BSP
+       branch's rewrite of that driver); fall back to
+       dev_pm_opp_get_opp_count() directly instead.
+
+3. Independent adversarial (Codex) review of (2) above requested two
+   follow-ups, both applied: centralize the version-tuple check in
+   mali_kbase_fence_ops.c through the one macro instead of re-deriving
+   it inline in 3 places; add unique grep-able dmesg markers
+   (SKY1_7_0_12_OPP_MISSING / OPP table already populated) around the
+   SCMI-OPP fallback so a silently-DVFS-disabled A/B test run can't be
+   mistaken for a real comparison.
+
+4. Ported mali-kbase-scmi-ratelimit.patch (../../mali/mali-kbase-scmi-ratelimit.patch,
+   already shipping in the 7.2 driver) unchanged into
+   mali_kbase_devfreq.c: kernel-version-independent devfreq logic
+   (100ms SCMI rate limit, dedup on last-set freq, error backoff +
+   safe-freq boost, always return 0 from the devfreq target callback).
+   Applied reactively, not proactively -- see item 5.
+
+5. Two real, reproducible NULL/garbage-pointer-deref kernel panics
+   found via LIVE HARDWARE TESTING on cixmini (.66, 2026-07-27), both
+   root-caused from a pstore/ramoops-captured crash dump after the
+   board auto-rebooted (panic=30):
+
+     Unable to handle kernel NULL pointer dereference at virtual
+     address 00000000000001af ... FSC = 0x21: alignment fault
+     pc : __pm_runtime_resume+0x34/0xa8
+     lr : device_link_add+0x2f0/0x710
+     kbase_platform_sky1_init+0x68/0x2f8 [mali_kbase]
+
+   sky1_gpu_attach_pd() in mali_kbase_config_sky1.c calls
+   device_link_add() twice -- once for the "perf" SCMI power domain,
+   once for the ACPI "power-supply" device -- and in BOTH cases passed
+   the attach result straight to device_link_add() with no NULL/ERR
+   check, even though dev_pm_domain_attach_by_name() /
+   fwnode_dev_pm_domain_attach_by_name() / bus_find_device_by_fwnode()
+   can all legitimately return NULL, and device_link_add() derefs its
+   supplier internally. Reproduced identically twice (crash #1 fixed
+   the power-supply call site only; crash #2, an IDENTICAL trace,
+   showed the *first* device_link_add() call -- the "perf" one -- was
+   the actual hit, not yet guarded). Fixed both call sites with an
+   IS_ERR_OR_NULL() check returning -EPROBE_DEFER, matching the
+   existing IS_ERR_OR_NULL(fwnode) error style a few lines above.
+
+   Status after fix: mali_kbase.ko now loads WITHOUT crashing the
+   board (verified: insmod succeeds, board stays up, confirmed via
+   dmesg "perf power-domain device not bound yet, deferring probe").
+   However probe does not complete -- the "perf" SCMI power-domain
+   device this driver expects apparently never binds on this kernel's
+   ACPI/pm_domain topology (checked /sys/kernel/debug/devices_deferred:
+   CIXH5000:00 sits there persistently, not a transient race), so
+   /dev/mali0 never appears. NOT YET FUNCTIONAL as a GPU driver --
+   safe to load, but no GPU device node. Root-causing why the "perf"
+   power domain never binds on 7.0.12 (vs. 7.2, where it does) is
+   follow-up work; see dkms.conf and docs/DRIVER_FIDELITY_7012.md.
+
+Build validated (cixmini, 7.0.12-cix-sky1-next headers):
+mali_kbase.ko + memory_group_manager.ko + protected_memory_allocator.ko
+all build clean, vermagic "7.0.12-cix-sky1-next SMP preempt mod_unload
+aarch64".
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/base/arm/Kbuild b/drivers/base/arm/Kbuild
+index 80f1a6b..468bd2e 100644
+--- a/drivers/base/arm/Kbuild
++++ b/drivers/base/arm/Kbuild
+@@ -25,8 +25,12 @@ endif
+ #
+ # ccflags
+ #
+-src:=$(if $(patsubst /%,,$(src)),$(srctree)/$(src),$(src))
+-ccflags-y += -I$(src)/../../../include
++# Use $(M) (KBUILD_EXTMOD), not $(srctree)-relative $(src): on kernels
++# where $(srctree) resolves to the kernel tree rather than this
++# out-of-tree module's own tree, the old $(srctree)-based
++# reconstruction points at the wrong directory. $(M) is always this
++# module's absolute invocation directory regardless of kernel version.
++ccflags-y += -I$(M)/../../../include
+ 
+ subdir-ccflags-y += $(ccflags-y)
+ 
+diff --git a/drivers/gpu/arm/midgard/Kbuild b/drivers/gpu/arm/midgard/Kbuild
+index bb5855f..c9ec324 100644
+--- a/drivers/gpu/arm/midgard/Kbuild
++++ b/drivers/gpu/arm/midgard/Kbuild
+@@ -18,9 +18,15 @@
+ #
+ #
+ 
+-# make $(src) as absolute path if it is not already, by prefixing $(srctree)
+-# This is to prevent any build issue due to wrong path.
+-src:=$(if $(patsubst /%,,$(src)),$(srctree)/$(src),$(src))
++# make $(src) as absolute path if it is not already, by prefixing $(M)
++# (KBUILD_EXTMOD, this out-of-tree module's own absolute invocation
++# directory). $(srctree) is the KERNEL source tree for an external
++# module build, not this module's tree, so prefixing with $(srctree)
++# resolves to the wrong location on kernels where $(src) starts as the
++# relative "." case. $(M) is always this module's own absolute path
++# regardless of kernel version. This is to prevent any build issue due
++# to wrong path.
++src:=$(if $(patsubst /%,,$(src)),$(M)/$(src),$(src))
+ 
+ #
+ # Prevent misuse when Kernel configurations are not present by default
+diff --git a/drivers/gpu/arm/midgard/arbiter/mali_kbase_arbiter_pm.c b/drivers/gpu/arm/midgard/arbiter/mali_kbase_arbiter_pm.c
+index 1378e64..474240f 100644
+--- a/drivers/gpu/arm/midgard/arbiter/mali_kbase_arbiter_pm.c
++++ b/drivers/gpu/arm/midgard/arbiter/mali_kbase_arbiter_pm.c
+@@ -295,8 +295,8 @@ int kbase_arbiter_pm_early_init(struct kbase_device *kbdev)
+ 	INIT_WORK(&arb_vm_state->vm_resume_work, kbase_arbiter_pm_resume_wq);
+ 	arb_vm_state->vm_arb_starting = false;
+ 	atomic_set(&kbdev->pm.gpu_users_waiting, 0);
+-	hrtimer_init(&arb_vm_state->vm_request_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	arb_vm_state->vm_request_timer.function = request_timer_callback;
++	hrtimer_setup(&arb_vm_state->vm_request_timer, request_timer_callback, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL);
+ 	kbdev->pm.arb_vm_state = arb_vm_state;
+ 
+ 	err = kbase_arbif_init(kbdev);
+diff --git a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_devfreq.c b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_devfreq.c
+index 7e85d8a..5479958 100644
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_devfreq.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_devfreq.c
+@@ -34,6 +34,8 @@
+ #include <linux/version.h>
+ #include <linux/pm_opp.h>
+ #include <linux/pm_domain.h>
++#include <linux/spinlock.h>
++#include <linux/ktime.h>
+ #if IS_ENABLED(CONFIG_CIX_SCMI_ENERGY_MODEL)
+ #include <linux/cix/cix_scmi_em.h>
+ #endif
+@@ -41,6 +43,105 @@
+ #include "mali_kbase_devfreq.h"
+ #include "mali_kbase_config_platform.h"
+ 
++#if IS_ENABLED(CONFIG_ARM_SCMI_PERF_DOMAIN)
++/*
++ * SCMI rate limiting for Sky1 GPU DVFS.
++ *
++ * The SCP firmware shares one SCMI mailbox across all performance domains.
++ * Keep GPU DVFS from retry-storming that mailbox when firmware starts
++ * returning errors or falling behind.
++ */
++#define KBASE_SCMI_RATE_LIMIT_US	100000
++#define KBASE_SCMI_MAX_ERRORS		3
++#define KBASE_SCMI_BACKOFF_BASE_US	500000
++#define KBASE_SCMI_BACKOFF_MAX_US	4000000
++
++static DEFINE_SPINLOCK(kbase_scmi_dvfs_lock);
++static ktime_t last_set_time;
++static unsigned long last_set_freq;
++static unsigned int scmi_err_count;
++static ktime_t backoff_until;
++static unsigned long safe_freq_mhz;
++
++static unsigned long kbase_devfreq_get_safe_freq_mhz(struct kbase_device *kbdev)
++{
++	struct dev_pm_opp *opp;
++	unsigned long min_freq = 0, max_freq = ULONG_MAX;
++	unsigned long mid_freq, safe_freq;
++	unsigned long irq_flags;
++	unsigned long cached_safe_freq_mhz;
++
++	spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++	if (safe_freq_mhz)
++		cached_safe_freq_mhz = safe_freq_mhz;
++	else
++		cached_safe_freq_mhz = 0;
++	spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
++
++	if (cached_safe_freq_mhz)
++		return cached_safe_freq_mhz;
++
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_lock();
++#endif
++	opp = dev_pm_opp_find_freq_ceil(kbdev->dev, &min_freq);
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_unlock();
++#endif
++	if (IS_ERR(opp))
++		return 0;
++#if KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE
++	dev_pm_opp_put(opp);
++#endif
++
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_lock();
++#endif
++	opp = dev_pm_opp_find_freq_floor(kbdev->dev, &max_freq);
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_unlock();
++#endif
++	if (IS_ERR(opp))
++		return 0;
++#if KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE
++	dev_pm_opp_put(opp);
++#endif
++
++	mid_freq = min_freq + (max_freq - min_freq) / 2;
++	safe_freq = mid_freq;
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_lock();
++#endif
++	opp = dev_pm_opp_find_freq_floor(kbdev->dev, &safe_freq);
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_unlock();
++#endif
++	if (IS_ERR(opp)) {
++		safe_freq = mid_freq;
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++		rcu_read_lock();
++#endif
++		opp = dev_pm_opp_find_freq_ceil(kbdev->dev, &safe_freq);
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++		rcu_read_unlock();
++#endif
++		if (IS_ERR(opp))
++			return 0;
++	}
++#if KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE
++	dev_pm_opp_put(opp);
++#endif
++
++	spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++	if (!safe_freq_mhz)
++		safe_freq_mhz = safe_freq / 1000000;
++	cached_safe_freq_mhz = safe_freq_mhz;
++	spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
++
++	return cached_safe_freq_mhz;
++}
++#endif
++
+ /**
+  * get_voltage() - Get the voltage value corresponding to the nominal frequency
+  *                 used by devfreq.
+@@ -133,6 +234,9 @@ static int kbase_devfreq_target(struct device *dev, unsigned long *target_freq,
+ 	unsigned long nominal_freq_mhz;
+ 	unsigned long current_gpu_level;
+ 	unsigned int j;
++	ktime_t now;
++	unsigned long irq_flags;
++	bool scmi_suppressed = false;
+ #endif
+ 
+ 	nominal_freq = *target_freq;
+@@ -232,11 +336,78 @@ static int kbase_devfreq_target(struct device *dev, unsigned long *target_freq,
+ 
+ 	/* PM firmware use MHz to set performace level */
+ 	nominal_freq_mhz = nominal_freq / 1000000;
++	if (kbdev->sky1_perf_dev) {
++		now = ktime_get();
++
++		spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++		if (ktime_before(now, backoff_until) ||
++		    nominal_freq == last_set_freq ||
++		    ktime_us_delta(now, last_set_time) < KBASE_SCMI_RATE_LIMIT_US)
++			scmi_suppressed = true;
++		spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
++
++		if (scmi_suppressed)
++			return 0;
++	}
++
+ 	pm_err = dev_pm_genpd_set_performance_state(kbdev->sky1_perf_dev, nominal_freq_mhz);
+ 	if (pm_err) {
+-		dev_err(dev, "Failed to set opp (%d) (target %lu)\n",
+-					pm_err, *target_freq);
+-		return pm_err;
++		if (kbdev->sky1_perf_dev) {
++			unsigned int errcnt;
++			unsigned long backoff_us;
++			unsigned long safe_mhz = 0;
++			bool boost_safe = false;
++
++			spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++			errcnt = ++scmi_err_count;
++			backoff_us = KBASE_SCMI_BACKOFF_BASE_US << min(errcnt - 1, 3u);
++			if (backoff_us > KBASE_SCMI_BACKOFF_MAX_US)
++				backoff_us = KBASE_SCMI_BACKOFF_MAX_US;
++			backoff_until = ktime_add_us(now, backoff_us);
++			boost_safe = (errcnt == KBASE_SCMI_MAX_ERRORS);
++			spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
++
++			dev_warn(dev,
++				 "GPU DVFS: SCMI set opp failed (%d) (target %lu), count=%u, backoff=%lu ms\n",
++				 pm_err, *target_freq, errcnt, backoff_us / 1000);
++
++			if (boost_safe) {
++				safe_mhz = kbase_devfreq_get_safe_freq_mhz(kbdev);
++				if (!safe_mhz || safe_mhz == nominal_freq_mhz)
++					return 0;
++
++				pm_err = dev_pm_genpd_set_performance_state(kbdev->sky1_perf_dev,
++									    safe_mhz);
++				if (!pm_err) {
++					spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++					last_set_freq = safe_mhz * 1000000;
++					last_set_time = ktime_get();
++					spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
++					dev_warn(dev,
++						 "GPU DVFS: boosted to safe SCMI opp %lu MHz after errors\n",
++						 safe_mhz);
++				} else {
++					dev_warn(dev,
++						 "GPU DVFS: safe SCMI opp boost failed (%d) (target %lu MHz)\n",
++						 pm_err, safe_mhz);
++				}
++			}
++
++			return 0;
++		}
++
++		dev_warn(dev, "GPU DVFS: failed to set opp (%d) (target %lu)\n",
++			 pm_err, *target_freq);
++		return 0;
++	}
++
++	if (kbdev->sky1_perf_dev) {
++		spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++		last_set_freq = nominal_freq;
++		last_set_time = now;
++		scmi_err_count = 0;
++		backoff_until = 0;
++		spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
+ 	}
+ 
+ 	for (j = 0; j < PM_CLK_MAX_RETRY_TIMES; j++) {
+@@ -769,7 +940,7 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
+ 	* ipa power model ops only after it is an EM device.
+ 	*/
+ #if IS_ENABLED(CONFIG_CIX_SCMI_ENERGY_MODEL)
+-	err = cix_scmi_register_em(kbdev->dev);
++	err = cix_scmi_register_em(kbdev->dev, kbdev->sky1_perf_dev);
+ 	if(err) {
+ 		dev_err(kbdev->dev, "Failed to register Energy Model (%d)", err);
+ 		goto cooling_reg_failed;
+diff --git a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_irq_linux.c b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_irq_linux.c
+index af129fe..8b9c8ed 100644
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_irq_linux.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_irq_linux.c
+@@ -400,9 +400,8 @@ static int validate_interrupt(struct kbase_device *const kbdev, u32 tag)
+ 			err = -EINVAL;
+ 		} else {
+ 			kbasep_irq_test_data.timeout = 0;
+-			hrtimer_init(&kbasep_irq_test_data.timer, CLOCK_MONOTONIC,
+-				     HRTIMER_MODE_REL);
+-			kbasep_irq_test_data.timer.function = kbasep_test_interrupt_timeout;
++			hrtimer_setup(&kbasep_irq_test_data.timer, kbasep_test_interrupt_timeout,
++				      CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 
+ 			/* trigger interrupt */
+ 			kbase_reg_write32(kbdev, mask_offset, 0x1);
+diff --git a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_jm_hw.c b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_jm_hw.c
+index aeb2bb1..94c21e5 100644
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_jm_hw.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_jm_hw.c
+@@ -1247,8 +1247,8 @@ int kbase_reset_gpu_init(struct kbase_device *kbdev)
+ 
+ 	INIT_WORK(&kbdev->hwaccess.backend.reset_work, kbasep_reset_timeout_worker);
+ 
+-	hrtimer_init(&kbdev->hwaccess.backend.reset_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	kbdev->hwaccess.backend.reset_timer.function = kbasep_reset_timer_callback;
++	hrtimer_setup(&kbdev->hwaccess.backend.reset_timer, kbasep_reset_timer_callback,
++		      CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 
+ 	return 0;
+ }
+diff --git a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_js_backend.c b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_js_backend.c
+index 2b7ffa4..0876175 100644
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_js_backend.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_js_backend.c
+@@ -322,8 +322,7 @@ int kbase_backend_timer_init(struct kbase_device *kbdev)
+ {
+ 	struct kbase_backend_data *backend = &kbdev->hwaccess.backend;
+ 
+-	hrtimer_init(&backend->scheduling_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	backend->scheduling_timer.function = timer_callback;
++	hrtimer_setup(&backend->scheduling_timer, timer_callback, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 	backend->timer_running = false;
+ 
+ 	return 0;
+diff --git a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_driver.c b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_driver.c
+index f2bd7ae..d83c2ac 100644
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_driver.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_driver.c
+@@ -3171,8 +3171,7 @@ int kbase_pm_state_machine_init(struct kbase_device *kbdev)
+ 
+ 	INIT_WORK(&stt->work, shader_poweroff_timer_stop_callback);
+ 
+-	hrtimer_init(&stt->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	stt->timer.function = shader_tick_timer_callback;
++	hrtimer_setup(&stt->timer, shader_tick_timer_callback, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 	stt->configured_interval = HR_TIMER_DELAY_NSEC(DEFAULT_PM_GPU_POWEROFF_TICK_NS);
+ 	stt->default_ticks = DEFAULT_PM_POWEROFF_TICK_SHADER;
+ 	stt->configured_ticks = stt->default_ticks;
+@@ -4286,8 +4285,8 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
+ 	rtdata.timed_out = false;
+ 
+ 	/* Create a timer to use as a timeout on the reset */
+-	hrtimer_init_on_stack(&rtdata.timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	rtdata.timer.function = kbasep_reset_timeout;
++	hrtimer_setup_on_stack(&rtdata.timer, kbasep_reset_timeout, CLOCK_MONOTONIC,
++				HRTIMER_MODE_REL);
+ 
+ 	hrtimer_start(&rtdata.timer, HR_TIMER_DELAY_MSEC(RESET_TIMEOUT), HRTIMER_MODE_REL);
+ 
+diff --git a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_metrics.c b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_metrics.c
+index 8a459a6..4430ded 100644
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_metrics.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_metrics.c
+@@ -137,8 +137,8 @@ int kbasep_pm_metrics_init(struct kbase_device *kbdev)
+ 	spin_lock_init(&kbdev->pm.backend.metrics.lock);
+ 
+ #ifdef CONFIG_MALI_MIDGARD_DVFS
+-	hrtimer_init(&kbdev->pm.backend.metrics.timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	kbdev->pm.backend.metrics.timer.function = dvfs_callback;
++	hrtimer_setup(&kbdev->pm.backend.metrics.timer, dvfs_callback, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL);
+ 	kbdev->pm.backend.metrics.initialized = true;
+ 	atomic_set(&kbdev->pm.backend.metrics.timer_state, TIMER_OFF);
+ 	kbase_pm_metrics_start(kbdev);
+diff --git a/drivers/gpu/arm/midgard/csf/mali_kbase_csf.c b/drivers/gpu/arm/midgard/csf/mali_kbase_csf.c
+index e2b2748..d8730fd 100644
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf.c
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf.c
+@@ -3769,7 +3769,7 @@ int kbase_csf_doorbell_mapping_init(struct kbase_device *kbdev)
+ 	struct file *filp;
+ 	int ret;
+ 
+-	filp = shmem_file_setup("mali csf db", MAX_LFS_FILESIZE, VM_NORESERVE);
++	filp = shmem_file_setup("mali csf db", MAX_LFS_FILESIZE, mk_vma_flags(VMA_NORESERVE_BIT));
+ 	if (IS_ERR(filp))
+ 		return PTR_ERR(filp);
+ 
+@@ -3835,7 +3835,7 @@ int kbase_csf_setup_dummy_user_reg_page(struct kbase_device *kbdev)
+ 
+ 	kbdev->csf.user_reg.filp = NULL;
+ 
+-	filp = shmem_file_setup("mali csf user_reg", MAX_LFS_FILESIZE, VM_NORESERVE);
++	filp = shmem_file_setup("mali csf user_reg", MAX_LFS_FILESIZE, mk_vma_flags(VMA_NORESERVE_BIT));
+ 	if (IS_ERR(filp)) {
+ 		dev_err(kbdev->dev, "failed to get an unlinked file for user_reg");
+ 		return PTR_ERR(filp);
+diff --git a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c
+index 1881f0c..9a6abcd 100644
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c
+@@ -1390,7 +1390,7 @@ static void kbase_csf_fence_wait_callback(struct dma_fence *fence, struct dma_fe
+ 
+ #ifdef CONFIG_MALI_FENCE_DEBUG
+ 	/* Fence gets signaled. Deactivate the timer for fence-wait timeout */
+-	del_timer(&kcpu_queue->fence_timeout);
++	timer_delete(&kcpu_queue->fence_timeout);
+ #endif
+ 
+ 	KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev, KCPU_FENCE_WAIT_END, kcpu_queue, fence->context,
+@@ -1418,7 +1418,7 @@ static void kbasep_kcpu_fence_wait_cancel(struct kbase_kcpu_command_queue *kcpu_
+ 		 * the timer would already have been deactivated inside
+ 		 * kbase_csf_fence_wait_callback().
+ 		 */
+-		del_timer_sync(&kcpu_queue->fence_timeout);
++		timer_delete_sync(&kcpu_queue->fence_timeout);
+ #endif
+ 		if (removed)
+ 			KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev, KCPU_FENCE_WAIT_END, kcpu_queue,
+@@ -1641,12 +1641,8 @@ static int kbase_kcpu_fence_force_signal_process(struct kbase_kcpu_command_queue
+ 	if (WARN_ON(!fence_info->fence))
+ 		return -EINVAL;
+ 
+-	ret = dma_fence_signal(fence_info->fence);
+-	if (unlikely(ret < 0)) {
+-		dev_warn(kctx->kbdev->dev, "dma_fence(%d) has been signalled already\n", ret);
+-		/* Treated as a success */
+-		ret = 0;
+-	}
++	dma_fence_signal(fence_info->fence);
++	ret = 0;
+ 
+ 	KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev, KCPU_FENCE_SIGNAL, kcpu_queue,
+ 				  fence_info->fence->context, fence_info->fence->seqno);
+@@ -1719,11 +1715,11 @@ static void kcpu_force_signal_fence(struct kbase_kcpu_command_queue *kcpu_queue)
+ 	 */
+ 	atomic_set(&kcpu_queue->fence_signal_pending_cnt, 0);
+ #ifdef CONFIG_MALI_FENCE_DEBUG
+-	del = del_timer_sync(&kcpu_queue->fence_signal_timeout);
++	del = timer_delete_sync(&kcpu_queue->fence_signal_timeout);
+ 	dev_info(kctx->kbdev->dev, "kbase KCPU [%pK] delete fence signal timeout timer ret: %d",
+ 		 kcpu_queue, del);
+ #else
+-	del_timer_sync(&kcpu_queue->fence_signal_timeout);
++	timer_delete_sync(&kcpu_queue->fence_signal_timeout);
+ #endif
+ }
+ 
+@@ -1777,13 +1773,9 @@ static int kbasep_kcpu_fence_signal_process(struct kbase_kcpu_command_queue *kcp
+ 	if (WARN_ON(!fence_info->fence))
+ 		return -EINVAL;
+ 
+-	ret = dma_fence_signal(fence_info->fence);
++	dma_fence_signal(fence_info->fence);
+ 
+-	if (unlikely(ret < 0)) {
+-		dev_warn(kctx->kbdev->dev, "dma_fence(%d) has been signalled already\n", ret);
+-		/* Treated as a success */
+-		ret = 0;
+-	}
++	ret = 0;
+ 
+ 	KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev, KCPU_FENCE_SIGNAL, kcpu_queue,
+ 				  fence_info->fence->context, fence_info->fence->seqno);
+@@ -1797,13 +1789,13 @@ static int kbasep_kcpu_fence_signal_process(struct kbase_kcpu_command_queue *kcp
+ #endif
+ 	} else {
+ #ifdef CONFIG_MALI_FENCE_DEBUG
+-		int del = del_timer_sync(&kcpu_queue->fence_signal_timeout);
++		int del = timer_delete_sync(&kcpu_queue->fence_signal_timeout);
+ 
+ 		dev_dbg(kctx->kbdev->dev, "kbase KCPU delete fence signal timeout timer ret: %d",
+ 			del);
+ 		CSTD_UNUSED(del);
+ #else
+-		del_timer_sync(&kcpu_queue->fence_signal_timeout);
++		timer_delete_sync(&kcpu_queue->fence_signal_timeout);
+ #endif
+ 	}
+ 
+@@ -2896,7 +2888,7 @@ int kbase_csf_kcpu_queue_halt_timers(struct kbase_device *kbdev)
+ 			mutex_lock(&kcpu_queue->lock);
+ 
+ 			if (atomic_read(&kcpu_queue->fence_signal_pending_cnt)) {
+-				int ret = del_timer_sync(&kcpu_queue->fence_signal_timeout);
++				int ret = timer_delete_sync(&kcpu_queue->fence_signal_timeout);
+ 
+ 				dev_dbg(kbdev->dev,
+ 					"Fence signal timeout on KCPU queue(%lu), kctx (%d_%d) was %s on suspend",
+@@ -2906,7 +2898,7 @@ int kbase_csf_kcpu_queue_halt_timers(struct kbase_device *kbdev)
+ 
+ #ifdef CONFIG_MALI_FENCE_DEBUG
+ 			if (kcpu_queue->fence_wait_processed) {
+-				int ret = del_timer_sync(&kcpu_queue->fence_timeout);
++				int ret = timer_delete_sync(&kcpu_queue->fence_timeout);
+ 
+ 				dev_dbg(kbdev->dev,
+ 					"Fence wait timeout on KCPU queue(%lu), kctx (%d_%d) was %s on suspend",
+diff --git a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_scheduler.c b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_scheduler.c
+index aced508..c980850 100644
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_scheduler.c
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_scheduler.c
+@@ -7050,8 +7050,8 @@ int kbase_csf_scheduler_init(struct kbase_device *kbdev)
+ #endif /* !CONFIG_MALI_NO_MALI */
+ 
+ 	spin_lock_init(&scheduler->gpu_metrics_lock);
+-	hrtimer_init(&scheduler->gpu_metrics_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL_SOFT);
+-	scheduler->gpu_metrics_timer.function = gpu_metrics_timer_callback;
++	hrtimer_setup(&scheduler->gpu_metrics_timer, gpu_metrics_timer_callback, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL_SOFT);
+ #endif /* CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD */
+ 
+ 	atomic_set(&scheduler->gpu_idle_timer_enabled, false);
+@@ -7082,8 +7082,7 @@ int kbase_csf_scheduler_early_init(struct kbase_device *kbdev)
+ 	KBASE_KTRACE_ADD(kbdev, SCHED_SUSPENDED, NULL, scheduler->state);
+ 	scheduler->csg_scheduling_period_ms = CSF_SCHEDULER_TIME_TICK_MS;
+ 	scheduler_doorbell_init(kbdev);
+-	hrtimer_init(&scheduler->tick_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	scheduler->tick_timer.function = tick_timer_callback;
++	hrtimer_setup(&scheduler->tick_timer, tick_timer_callback, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 
+ 	atomic_set(&scheduler->pending_sync_update_works, false);
+ 	spin_lock_init(&scheduler->sync_update_work_ctxs_lock);
+diff --git a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_tl_reader.c b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_tl_reader.c
+index ac22c57..6e2c95b 100644
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_tl_reader.c
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_tl_reader.c
+@@ -348,7 +348,7 @@ void kbase_csf_tl_reader_init(struct kbase_csf_tl_reader *self, struct kbase_tls
+ 
+ void kbase_csf_tl_reader_term(struct kbase_csf_tl_reader *self)
+ {
+-	del_timer_sync(&self->read_timer);
++	timer_delete_sync(&self->read_timer);
+ }
+ 
+ int kbase_csf_tl_reader_start(struct kbase_csf_tl_reader *self, struct kbase_device *kbdev)
+@@ -406,7 +406,7 @@ void kbase_csf_tl_reader_stop(struct kbase_csf_tl_reader *self)
+ 	/* Disable the tracebuffer on the CSFFW side. */
+ 	tl_reader_update_enable_bit(self, false);
+ 
+-	del_timer_sync(&self->read_timer);
++	timer_delete_sync(&self->read_timer);
+ 
+ 	spin_lock_irqsave(&self->read_lock, flags);
+ 
+diff --git a/drivers/gpu/arm/midgard/mali_kbase_fence_ops.c b/drivers/gpu/arm/midgard/mali_kbase_fence_ops.c
+index b10e69c..0f09017 100644
+--- a/drivers/gpu/arm/midgard/mali_kbase_fence_ops.c
++++ b/drivers/gpu/arm/midgard/mali_kbase_fence_ops.c
+@@ -54,6 +54,20 @@ static bool kbase_fence_enable_signaling(struct dma_fence *fence)
+ 	return true;
+ }
+ 
++/* See the MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT comment in
++ * version_compat_defs.h: the 7.0.12-cix-sky1-next kernel backported
++ * kernel 7.2's dma_fence_ops shape (no fence_value_str) despite its
++ * own LINUX_VERSION_CODE reporting 7.0.12, so this guard must also
++ * exclude that exact kernel, not just >= 7.2.0. Reuse the single
++ * central definition (rather than re-deriving the same condition here)
++ * so tightening it in one place can't drift out of sync between files.
++ */
++#if (KERNEL_VERSION(7, 2, 0) > LINUX_VERSION_CODE) && \
++	!MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT
++/* Kernel 7.2 dropped dma_fence_ops.fence_value_str (see the two
++ * kbase_fence_ops initializers below) -- this helper is only referenced,
++ * and therefore only compiled, on older kernels that still have it.
++ */
+ static void kbase_fence_fence_value_str(struct dma_fence *fence, char *str, int size)
+ {
+ 	char *format;
+@@ -66,6 +80,7 @@ static void kbase_fence_fence_value_str(struct dma_fence *fence, char *str, int
+ 	if (unlikely(!scnprintf(str, (size_t)size, format, fence->seqno)))
+ 		pr_err("Fail to encode fence seqno to string");
+ }
++#endif /* (KERNEL_VERSION(7, 2, 0) > LINUX_VERSION_CODE) */
+ 
+ #if MALI_USE_CSF
+ static void kbase_fence_release(struct dma_fence *fence)
+@@ -81,7 +96,18 @@ const struct dma_fence_ops kbase_fence_ops = { .wait = dma_fence_default_wait,
+ 					       .get_driver_name = kbase_fence_get_driver_name,
+ 					       .get_timeline_name = kbase_fence_get_timeline_name,
+ 					       .enable_signaling = kbase_fence_enable_signaling,
++/* See the MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT comment in
++ * version_compat_defs.h: the 7.0.12-cix-sky1-next kernel backported
++ * kernel 7.2's dma_fence_ops shape (no fence_value_str) despite its
++ * own LINUX_VERSION_CODE reporting 7.0.12, so this guard must also
++ * exclude that exact kernel, not just >= 7.2.0. Reuse the single
++ * central definition (rather than re-deriving the same condition here)
++ * so tightening it in one place can't drift out of sync between files.
++ */
++#if (KERNEL_VERSION(7, 2, 0) > LINUX_VERSION_CODE) && \
++	!MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT
+ 					       .fence_value_str = kbase_fence_fence_value_str,
++#endif
+ 					       .release = kbase_fence_release };
+ #else
+ extern const struct dma_fence_ops kbase_fence_ops; /* silence checker warning */
+@@ -89,7 +115,19 @@ const struct dma_fence_ops kbase_fence_ops = { .wait = dma_fence_default_wait,
+ 					       .get_driver_name = kbase_fence_get_driver_name,
+ 					       .get_timeline_name = kbase_fence_get_timeline_name,
+ 					       .enable_signaling = kbase_fence_enable_signaling,
+-					       .fence_value_str = kbase_fence_fence_value_str };
++/* See the MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT comment in
++ * version_compat_defs.h: the 7.0.12-cix-sky1-next kernel backported
++ * kernel 7.2's dma_fence_ops shape (no fence_value_str) despite its
++ * own LINUX_VERSION_CODE reporting 7.0.12, so this guard must also
++ * exclude that exact kernel, not just >= 7.2.0. Reuse the single
++ * central definition (rather than re-deriving the same condition here)
++ * so tightening it in one place can't drift out of sync between files.
++ */
++#if (KERNEL_VERSION(7, 2, 0) > LINUX_VERSION_CODE) && \
++	!MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT
++					       .fence_value_str = kbase_fence_fence_value_str,
++#endif
++					       };
+ #endif /* MALI_USE_CSF */
+ 
+ KBASE_EXPORT_TEST_API(kbase_fence_ops);
+diff --git a/drivers/gpu/arm/midgard/mali_kbase_jd.c b/drivers/gpu/arm/midgard/mali_kbase_jd.c
+index 700a77a..e8f20d5 100644
+--- a/drivers/gpu/arm/midgard/mali_kbase_jd.c
++++ b/drivers/gpu/arm/midgard/mali_kbase_jd.c
+@@ -1411,7 +1411,7 @@ void kbase_jd_zap_context(struct kbase_context *kctx)
+ 	 * queued outside the job scheduler.
+ 	 */
+ 
+-	del_timer_sync(&kctx->soft_job_timeout);
++	timer_delete_sync(&kctx->soft_job_timeout);
+ 	list_for_each_safe(entry, tmp, &kctx->waiting_soft_jobs) {
+ 		katom = list_entry(entry, struct kbase_jd_atom, queue);
+ 		kbase_cancel_soft_job(katom);
+diff --git a/drivers/gpu/arm/midgard/mali_kbase_js.c b/drivers/gpu/arm/midgard/mali_kbase_js.c
+index 1b8c6fe..31a2a00 100644
+--- a/drivers/gpu/arm/midgard/mali_kbase_js.c
++++ b/drivers/gpu/arm/midgard/mali_kbase_js.c
+@@ -655,8 +655,8 @@ int kbasep_js_devdata_init(struct kbase_device *const kbdev)
+ 	}
+ 
+ #if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+-	hrtimer_init(&jsdd->gpu_metrics_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	jsdd->gpu_metrics_timer.function = gpu_metrics_timer_callback;
++	hrtimer_setup(&jsdd->gpu_metrics_timer, gpu_metrics_timer_callback, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL);
+ 	jsdd->gpu_metrics_timer_needed = false;
+ 	jsdd->gpu_metrics_timer_running = false;
+ #endif
+diff --git a/drivers/gpu/arm/midgard/mali_kbase_kinstr_prfcnt.c b/drivers/gpu/arm/midgard/mali_kbase_kinstr_prfcnt.c
+index 02f486b..77ac946 100644
+--- a/drivers/gpu/arm/midgard/mali_kbase_kinstr_prfcnt.c
++++ b/drivers/gpu/arm/midgard/mali_kbase_kinstr_prfcnt.c
+@@ -1269,8 +1269,8 @@ int kbase_kinstr_prfcnt_init(struct kbase_hwcnt_virtualizer *hvirt,
+ 
+ 	mutex_init(&kinstr_ctx->lock);
+ 	INIT_LIST_HEAD(&kinstr_ctx->clients);
+-	hrtimer_init(&kinstr_ctx->dump_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	kinstr_ctx->dump_timer.function = kbasep_kinstr_prfcnt_dump_timer;
++	hrtimer_setup(&kinstr_ctx->dump_timer, kbasep_kinstr_prfcnt_dump_timer, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL);
+ 	INIT_WORK(&kinstr_ctx->dump_work, kbasep_kinstr_prfcnt_dump_worker);
+ 
+ 	*out_kinstr_ctx = kinstr_ctx;
+diff --git a/drivers/gpu/arm/midgard/mali_kbase_mem_migrate.c b/drivers/gpu/arm/midgard/mali_kbase_mem_migrate.c
+index 2a7dc3d..de8f825 100644
+--- a/drivers/gpu/arm/midgard/mali_kbase_mem_migrate.c
++++ b/drivers/gpu/arm/midgard/mali_kbase_mem_migrate.c
+@@ -682,6 +682,21 @@ void kbase_mem_migrate_init(struct kbase_device *kbdev)
+ {
+ 	struct kbase_mem_migrate *mem_migrate = &kbdev->mem_migrate;
+ 
++#if MALI_KBASE_NO_LEGACY_PAGE_MOVABLE_API
++	/* This kernel has no __SetPageMovable()/__ClearPageMovable() (see
++	 * version_compat_defs.h) and no way for an out-of-tree driver to
++	 * register with the replacement set_movable_ops() registry. Page
++	 * migration support is therefore unavailable on this kernel,
++	 * regardless of the insmod parameter or the large-pages default --
++	 * leave page_migration_static_key at its initial "off" count so
++	 * kbase_is_page_migration_enabled() always returns false and none
++	 * of the isolate/migrate/putback machinery in this file is ever
++	 * exercised.
++	 */
++	if (kbase_page_migration_enabled > 0)
++		dev_info(kbdev->dev,
++			 "Page migration was requested at insmod but is unsupported on this kernel (no page-movable-ops API for out-of-tree drivers); staying disabled.");
++#else
+ 	/* Page migration support compiled in, either explicitly or
+ 	 * by default, so the default behaviour is to follow the choice
+ 	 * of large pages if not selected at insmod. Check insmod parameter
+@@ -697,6 +712,7 @@ void kbase_mem_migrate_init(struct kbase_device *kbdev)
+ 		if (kbase_page_migration_enabled)
+ 			static_branch_inc(&page_migration_static_key);
+ 	}
++#endif /* MALI_KBASE_NO_LEGACY_PAGE_MOVABLE_API */
+ 
+ 	spin_lock_init(&mem_migrate->free_pages_lock);
+ 	INIT_LIST_HEAD(&mem_migrate->free_pages_list);
+diff --git a/drivers/gpu/arm/midgard/mali_kbase_softjobs.c b/drivers/gpu/arm/midgard/mali_kbase_softjobs.c
+index f2ee559..d965550 100644
+--- a/drivers/gpu/arm/midgard/mali_kbase_softjobs.c
++++ b/drivers/gpu/arm/midgard/mali_kbase_softjobs.c
+@@ -281,7 +281,7 @@ void kbasep_complete_triggered_soft_events(struct kbase_context *kctx, u64 evt)
+ 	}
+ 
+ 	if (cancel_timer)
+-		del_timer(&kctx->soft_job_timeout);
++		timer_delete(&kctx->soft_job_timeout);
+ 	spin_unlock_irqrestore(&kctx->waiting_soft_jobs_lock, lflags);
+ }
+ 
+diff --git a/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c b/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c
+index 75e3a92..ddda122 100644
+--- a/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c
++++ b/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c
+@@ -138,6 +138,25 @@ static int sky1_gpu_attach_pd(struct kbase_device *kbdev)
+ #else
+   	kbdev->sky1_perf_dev = dev_pm_domain_attach_by_name(kbdev->dev, "perf");
+ #endif
++	if (IS_ERR_OR_NULL(kbdev->sky1_perf_dev)) {
++		/*
++		 * As with the power-supply attach below, this can lose an
++		 * async-probe race against the "perf" power domain's own
++		 * driver on the 7.0.12-cix-sky1-next kernel. The original
++		 * code passed a possibly-NULL/ERR_PTR kbdev->sky1_perf_dev
++		 * straight into device_link_add() below, which internally
++		 * calls __pm_runtime_resume() on it and oopses on a bad
++		 * pointer (observed: NULL/garbage deref at
++		 * kbase_platform_sky1_init -> sky1_gpu_attach_pd ->
++		 * device_link_add on cixmini, 7.0.12-cix-sky1-next -- this
++		 * was the *first* device_link_add() call in this function,
++		 * hit before the power-supply one further down). Defer so
++		 * the driver core retries once the perf domain exists.
++		 */
++		dev_info(kbdev->dev,
++			 "perf power-domain device not bound yet, deferring probe\n");
++		return -EPROBE_DEFER;
++	}
+ 
+ 	link = device_link_add(kbdev->dev, kbdev->sky1_perf_dev,
+ 				DL_FLAG_STATELESS | DL_FLAG_PM_RUNTIME | DL_FLAG_RPM_ACTIVE);
+@@ -154,9 +173,28 @@ static int sky1_gpu_attach_pd(struct kbase_device *kbdev)
+ 			return -EINVAL;
+ 		}
+ 		power_dev = bus_find_device_by_fwnode(&platform_bus_type, fwnode);
++		fwnode_handle_put(fwnode);
++		if (!power_dev) {
++			/*
++			 * The ACPI "power-supply" fwnode resolves, but no
++			 * platform device is bound to it yet -- on the
++			 * 7.0.12-cix-sky1-next kernel this driver can win an
++			 * async-probe race against the power-supply device's
++			 * own platform driver (CIXH5001/GPUP). Passing a NULL
++			 * power_dev into pm_runtime_enable()/dev_pm_domain_attach()/
++			 * device_link_add() below is not safe -- device_link_add()
++			 * ends up calling __pm_runtime_resume() on it and oopses
++			 * (observed: NULL/garbage deref in kbase_platform_sky1_init
++			 * -> sky1_gpu_attach_pd -> device_link_add on cixmini,
++			 * 7.0.12-cix-sky1-next). Defer so the driver core retries
++			 * this probe once the power-supply device exists.
++			 */
++			dev_info(kbdev->dev,
++				 "power-supply device not bound yet, deferring probe\n");
++			return -EPROBE_DEFER;
++		}
+ 		pm_runtime_enable(power_dev);
+ 		dev_pm_domain_attach(power_dev, true);
+-		fwnode_handle_put(fwnode);
+ 	} else {
+ 		power_dev = dev_pm_domain_attach_by_name(kbdev->dev, "pd_gpu");
+ 	}
+@@ -286,8 +324,8 @@ static int kbase_platform_sky1_late_init(struct kbase_device *kbdev)
+ 
+ 	INIT_WORK(&kbdev->sky1_power_work, sky1_power_model_work_handler);
+ 
+-	hrtimer_init(&kbdev->sky1_power_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	kbdev->sky1_power_timer.function = sky1_power_timer_callback;
++	hrtimer_setup(&kbdev->sky1_power_timer, sky1_power_timer_callback, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL);
+ 
+ 	if(enable_sky1_power_model) {
+ 		hrtimer_start(&kbdev->sky1_power_timer,
+@@ -430,7 +468,54 @@ int sky1_gpu_init_perf_opp_table(struct kbase_device *kbdev, struct devfreq_dev_
+ 	unsigned long lowest_freq_khz = DEFAULT_REF_TIMEOUT_FREQ_KHZ;
+ 	unsigned long found_lowest_freq = 0;
+ 
++#if MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT
++	/*
++	 * This kernel's drivers/pmdomain/arm/scmi_perf_domain.c predates
++	 * scmi_device_opp_table_parse() -- that helper was added later, in
++	 * the ncz72 BSP branch's rewrite of the same driver (see
++	 * MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT in
++	 * version_compat_defs.h for the general explanation of why this
++	 * kernel needs its own guard rather than a LINUX_VERSION_CODE
++	 * check). This kernel's scmi_perf_domain.c only exports
++	 * scmi_perf_domain_est_power()/scmi_perf_domain_power_scale(); it
++	 * has no equivalent of scmi_device_opp_table_parse() reachable from
++	 * outside the driver, so we cannot add SCMI OPPs for this device
++	 * ourselves. Instead, rely on whatever already populated
++	 * dev_pm_opp_get_opp_count() for kbdev->sky1_perf_dev: on this
++	 * platform, the SCMI perf-domain genpd attach already registers
++	 * OPPs via ACPI (the same mechanism the in-tree panthor GPU driver
++	 * relies on for its own DVFS on this exact kernel/hardware), so
++	 * this should already be non-zero by the time we get here. If it
++	 * is not, fail exactly like the upstream call would have on a
++	 * genuinely-empty OPP table, rather than silently disabling DVFS.
++	 */
++	if (dev_pm_opp_get_opp_count(kbdev->sky1_perf_dev) > 0) {
++		err = 0;
++		dev_info(kbdev->dev,
++			 "SKY1_7_0_12_OPP: OPP table already populated (%d entries); GPU DVFS scaling available.\n",
++			 dev_pm_opp_get_opp_count(kbdev->sky1_perf_dev));
++	} else {
++		/* Codex review flagged (adversarial review, 2026-07-26): the
++		 * caller chain (kbase_devfreq_init() -> kbase_backend_devfreq_init())
++		 * does NOT treat a non-zero return here as probe-fatal -- it logs
++		 * "Continuing without devfreq" and the module still loads, GPU
++		 * still runs, just pinned at whatever default/OPP-less clock the
++		 * platform leaves it at. That is silent from the outside unless
++		 * dmesg is actually checked, and for a performance A/B test that
++		 * would quietly invalidate the comparison rather than fail loudly.
++		 * This unique, grep-able marker exists specifically so a deploying/
++		 * testing agent MUST check dmesg for it before trusting any A/B
++		 * result from this 7.0.12 build: if this line is present, GPU
++		 * DVFS is NOT active and the run is not comparable to the 7.2
++		 * kernel's (or any DVFS-enabled kernel's) numbers.
++		 */
++		err = -ENODEV;
++		dev_err(kbdev->dev,
++			 "SKY1_7_0_12_OPP_MISSING: no OPP table for GPU perf domain and this kernel has no scmi_device_opp_table_parse() to populate one (see MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT); GPU DVFS will NOT scale -- do not trust A/B perf numbers from this boot without investigating.\n");
++	}
++#else
+ 	err = scmi_device_opp_table_parse(kbdev->sky1_perf_dev);
++#endif
+ 	if (err) {
+ 		dev_err(kbdev->dev, "Failed to parse opp table from scmi, err = %d.\n", err);
+ 		return err;
+diff --git a/drivers/gpu/arm/midgard/tl/mali_kbase_timeline.c b/drivers/gpu/arm/midgard/tl/mali_kbase_timeline.c
+index bc3f999..9228183 100644
+--- a/drivers/gpu/arm/midgard/tl/mali_kbase_timeline.c
++++ b/drivers/gpu/arm/midgard/tl/mali_kbase_timeline.c
+@@ -291,7 +291,7 @@ void kbase_timeline_release(struct kbase_timeline *timeline)
+ 
+ 	/* Stop autoflush timer before releasing access to streams. */
+ 	atomic_set(&timeline->autoflush_timer_active, 0);
+-	del_timer_sync(&timeline->autoflush_timer);
++	timer_delete_sync(&timeline->autoflush_timer);
+ 
+ 	atomic_set(timeline->timeline_flags, 0);
+ }
+diff --git a/include/linux/version_compat_defs.h b/include/linux/version_compat_defs.h
+index d2bbc53..ef6b718 100644
+--- a/include/linux/version_compat_defs.h
++++ b/include/linux/version_compat_defs.h
+@@ -642,7 +642,13 @@ static inline unsigned long
+ kbase_mm_get_unmapped_area_helper(struct mm_struct *mm, struct file *filp, unsigned long addr,
+ 				  unsigned long len, unsigned long pgoff, unsigned long flags)
+ {
+-#if (KERNEL_VERSION(6, 10, 0) <= LINUX_VERSION_CODE)
++#if (KERNEL_VERSION(7, 0, 0) <= LINUX_VERSION_CODE)
++	/* mm_get_unmapped_area() dropped its explicit struct mm_struct *
++	 * parameter and now always operates on current->mm. Every caller
++	 * of this helper in this driver already passes current->mm, so
++	 * this is equivalent. */
++	return mm_get_unmapped_area(filp, addr, len, pgoff, flags);
++#elif (KERNEL_VERSION(6, 10, 0) <= LINUX_VERSION_CODE)
+ 	return mm_get_unmapped_area(mm, filp, addr, len, pgoff, flags);
+ #else
+ 	return mm->get_unmapped_area(filp, addr, len, pgoff, flags);
+@@ -754,6 +760,74 @@ static inline int of_changeset_add_prop_string_array(struct of_changeset *ocs,
+ }
+ #endif
+ 
++/*
++ * The 7.0.12-cix-sky1-next kernel (Sky1-Linux community patch "mm: add
++ * Mali GPU movable_ops page type support", carried in this kernel's own
++ * next-patches series) independently backported the same per-pagetype
++ * set_movable_ops()/PGTY_* registry that mainline only shipped at 7.2,
++ * and removed __SetPageMovable()/__ClearPageMovable() to match -- even
++ * though this kernel's LINUX_VERSION_CODE reports 7.0.12 (< 7.2.0), so
++ * the >= 7.2.0 check alone misses it.
++ *
++ * There is no portable preprocessor test for this: PGTY_mali_gpu is a
++ * plain enum constant added by that backport, not a macro, so
++ * defined(PGTY_mali_gpu) is *always* false regardless of whether the
++ * backport is present -- the preprocessor cannot see enumerators, only
++ * #define'd identifiers. Absent a real feature-probe (out of scope for
++ * this out-of-tree module's Kbuild), match this kernel's exact version
++ * tuple instead. This is deliberately narrow: it must NOT widen to
++ * other 7.0.x/7.1.x kernels that lack this specific community backport
++ * and still have the real __SetPageMovable()/__ClearPageMovable() --
++ * defining no-op shims with the same names there would conflict with
++ * the kernel's own declarations.
++ */
++#define MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT \
++	(LINUX_VERSION_CODE == KERNEL_VERSION(7, 0, 12))
++
++#if (KERNEL_VERSION(7, 2, 0) <= LINUX_VERSION_CODE) || \
++	MALI_KBASE_TARGETS_7_0_12_CIX_SKY1_NEXT_BACKPORT
++/*
++ * Kernel 7.2 removed the per-page/per-mapping page-migration API
++ * (__SetPageMovable() / __ClearPageMovable(), see the movable_ops /
++ * address_space_ops branches in mali_kbase_mem_migrate.c) in favour of a
++ * per-pagetype set_movable_ops(ops, pagetype) registry (mm/migrate.c).
++ * That registry only has slots wired up for two in-tree users --
++ * PGTY_offline (balloon) and PGTY_zsmalloc -- with an explicit -EINVAL
++ * default for anything else (see the switch in mm/migrate.c's
++ * set_movable_ops()); there is no supported mechanism for an out-of-tree
++ * third-party driver such as mali_kbase to register its own
++ * movable_operations. Extending mm/migrate.c's switch (and the
++ * page_movable_ops() dispatcher, and reserving a page_type bit) would be a
++ * core-MM change carried out-of-tree indefinitely -- high risk, outside
++ * this driver's scope, and not something to do without upstream review.
++ *
++ * Instead, page-migration support for kbase-owned pages is treated as
++ * unavailable on kernels this new: __SetPageMovable()/__ClearPageMovable()
++ * become no-ops. This is safe because every meaningful effect in
++ * mali_kbase_mem_migrate.c is already gated behind
++ * kbase_is_page_migration_enabled(), which kbase_mem_migrate_init() now
++ * forces permanently false whenever this shim is active -- so a page is
++ * never marked movable when the kernel has no way to isolate/migrate/
++ * putback it. This mirrors the driver's own already-supported "page
++ * migration explicitly disabled" runtime mode (insmod
++ * kbase_page_migration_enabled=0); it is not new/untested behaviour, just
++ * made unconditional on kernels lacking the underlying API.
++ */
++#define MALI_KBASE_NO_LEGACY_PAGE_MOVABLE_API 1
++#include <linux/migrate.h>
++static inline void __SetPageMovable(struct page *page, const struct movable_operations *mops)
++{
++	(void)page;
++	(void)mops;
++}
++static inline void __ClearPageMovable(struct page *page)
++{
++	(void)page;
++}
++#else
++#define MALI_KBASE_NO_LEGACY_PAGE_MOVABLE_API 0
++#endif /* (KERNEL_VERSION(7, 2, 0) <= LINUX_VERSION_CODE) */
++
+ #ifndef DEVFREQ_GOV_SIMPLE_ONDEMAND
+ #define DEVFREQ_GOV_SIMPLE_ONDEMAND "simple_ondemand"
+ #endif

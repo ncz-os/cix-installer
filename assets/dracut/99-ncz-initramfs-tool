@@ -1,0 +1,26 @@
+# /etc/apt/preferences.d/99-ncz-initramfs-tool
+#
+# HISTORY, AND WHY THIS FILE NOW SAYS THE OPPOSITE OF WHAT IT USED TO.
+#
+# This pin previously set dracut to Pin-Priority: -1 to stop apt EVER pulling it
+# in, because initramfs-tools was the builder and an `apt remove
+# initramfs-tools` would otherwise have been satisfied by silently installing
+# dracut and switching builders with no operator decision anywhere.
+#
+# That gate has now been passed deliberately. dracut is the PRIMARY initramfs
+# builder as of 26.7, metal-validated on O6N (Radxa Orion O6N,
+# 7.2.0-rc7-sky1-ncz, 2026-08-16): booted to desktop, dracut-112-1 confirmed in
+# the journal, zero initramfs-tools fingerprints, root mounted from btrfs
+# @rootfs, GPU/VPU/NPU/network/audio all up, zero failed units.
+#
+# So a negative pin on dracut would now break the shipped configuration. The
+# file is kept, empty of pins, as the record of that decision -- deleting it
+# outright would leave the next person wondering whether the old pin was lost
+# by accident.
+#
+# WHAT PROTECTS THE BUILDER NOW: linux-image-cixmini depends on
+#     dracut | initramfs-tools | linux-initramfs-tool
+# with dracut FIRST, so apt prefers it and cannot satisfy the dependency by
+# quietly removing it. initramfs-tools is no longer installed in the main image
+# at all; it survives where it is actually useful, in the RESCUE partition
+# toolkit (manifests/rescue.pkgs), for repairing a target system's initrd.

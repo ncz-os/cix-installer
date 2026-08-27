@@ -1,0 +1,114 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Fri, 25 Jul 2026 00:00:00 +0000
+Subject: [PATCH] usb: cdns3: sky1: activate wrapper before children to fix
+ runtime-PM order
+
+On O6N (CIX Sky1) each USB controller is described in ACPI as a
+cdnsp-sky1 wrapper (CIXH2030:0N) with a nested cdns,usbssp child
+(CIXH2031:0N). The child's own probe (cdns3-plat) calls
+pm_runtime_set_active() + pm_runtime_enable() on itself, which requires
+its parent to already be runtime-PM active.
+
+cdnsp_sky1_probe() only marked the wrapper runtime-active at the very end
+of probe, *after* populating the children:
+
+	if (!ACPI_COMPANION(dev)) of_platform_populate(...);   /* binds kids */
+	else /* set child platform_data; ACPI binds kids async */
+	device_set_wakeup_capable(dev, true);
+	pm_runtime_set_active(dev);
+	pm_runtime_enable(dev);
+
+So when a child activated while the wrapper was runtime-PM-enabled but not
+yet RPM_ACTIVE, the PM core emitted, per controller:
+
+  runtime PM trying to activate child device CIXH2031:0N but parent
+    (CIXH2030:0N) is not active
+  Enabling runtime PM for inactive device with active children
+
+~19 lines of benign but noisy output across the ten Sky1 USB instances.
+
+Root cause is init ordering: the child uses runtime PM before the parent
+wrapper is runtime-active. Fix it by marking the wrapper active first --
+move device_set_wakeup_capable()/pm_runtime_set_active()/
+pm_runtime_enable() ahead of child population so the parent is RPM_ACTIVE
+before any child binds (the DT populate that follows binds children
+synchronously; under ACPI they are enumerated asynchronously).
+
+The wrapper is a pure clock/reset/register glue whose runtime
+suspend/resume callbacks are no-ops, so it never needs to gate on child
+activity for its own runtime PM. Mark it pm_suspend_ignore_children() as
+well: this both silences the two warnings deterministically and closes the
+asynchronous ACPI probe-order window that reordering alone cannot cover.
+Error paths after the (now earlier) pm_runtime_enable() unwind runtime PM
+via a new err_pm label.
+
+No functional change to USB enumeration or system suspend/resume; only the
+spurious runtime-PM boot warnings are removed.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+Upstream-Status: Pending
+---
+ drivers/usb/cdns3/cdnsp-sky1.c | 36 ++++++++++++++++++++++++----------
+ 1 file changed, 26 insertions(+), 10 deletions(-)
+
+--- a/drivers/usb/cdns3/cdnsp-sky1.c
++++ b/drivers/usb/cdns3/cdnsp-sky1.c
+@@ -762,12 +762,37 @@
+ 			}
+ 		}
+ 	}
++
++	/*
++	 * Mark the wrapper (CIXH2030) runtime-active and enable runtime PM
++	 * *before* the child controllers (CIXH2031/cdns,usbssp) are populated
++	 * and bound.  Each child calls pm_runtime_set_active() in its own
++	 * probe; if the parent wrapper is already runtime-PM-enabled but not
++	 * yet RPM_ACTIVE at that moment, the PM core logs, per child,
++	 *   "runtime PM trying to activate child device CIXH2031:0N but parent
++	 *    (CIXH2030:0N) is not active"
++	 * and, on the wrapper itself,
++	 *   "Enabling runtime PM for inactive device with active children".
++	 * The DT populate below binds children synchronously, and under ACPI
++	 * the children are enumerated asynchronously, so activating the parent
++	 * first makes the child activation legal in both cases.
++	 *
++	 * pm_suspend_ignore_children() additionally decouples this always-on
++	 * register/clock glue -- whose runtime suspend/resume are no-ops --
++	 * from the children's runtime-PM accounting, which also closes the
++	 * asynchronous ACPI probe-order window.
++	 */
++	device_set_wakeup_capable(dev, true);
++	pm_runtime_set_active(dev);
++	pm_suspend_ignore_children(dev, true);
++	pm_runtime_enable(dev);
++
+ 	if (!ACPI_COMPANION(dev)) {
+ 		cdns_sky1_auxdata->platform_data = cdns_sky1_pdata;
+ 		ret = of_platform_populate(node, NULL, cdns_sky1_auxdata, dev);
+ 		if (ret) {
+ 			dev_err(dev, "failed to create children: %d\n", ret);
+-			goto err;
++			goto err_pm;
+ 		}
+ 	} else {
+ 		/*
+@@ -791,15 +816,14 @@
+ 			if (id && !cdev->platform_data)
+ 				cdev->platform_data = cdns_sky1_pdata;
+ 			else
+-				goto err;
++				goto err_pm;
+ 		}
+ 	}
+
+-	device_set_wakeup_capable(dev, true);
+-	pm_runtime_set_active(dev);
+-	pm_runtime_enable(dev);
+ 	return 0;
+-err:
++err_pm:
++	pm_runtime_disable(dev);
++	pm_runtime_set_suspended(dev);
+ 	kfree(cdns_sky1_pdata);
+ 	return ret;
+ }

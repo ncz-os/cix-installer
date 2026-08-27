@@ -1,0 +1,70 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] drivers/gpu/arm/midgard: route CONFIG_MALI_* -D defines through KCFLAGS, not the dead EXTRA_CFLAGS variable
+
+midgard/Makefile computes its own out-of-tree "Kconfig" (CONFIG_MALI_MIDGARD,
+CONFIG_MALI_DEVFREQ, CONFIG_MALI_CSF_SUPPORT, CONFIG_MALI_PLATFORM_NAME,
+etc. -- none of which are real kernel Kconfig symbols, since "Kconfig is
+not supported for out-of-tree builds" per this file's own comment) and
+tries to inject the resulting -DCONFIG_MALI_*=1 defines into the compiler
+by passing EXTRA_CFLAGS="$(EXTRA_CFLAGS)" on the recursive
+`$(MAKE) -C $(KDIR) M=$(M) ... modules` invocation.
+
+On Linux v7.2-rc4 this variable is silently dropped: EXTRA_CFLAGS is a
+legacy kbuild pass-through that has been fully removed from this kernel's
+build scripts -- confirmed by direct grep of scripts/Makefile.build,
+scripts/Makefile.lib and the top-level Makefile: zero matches anywhere.
+The kernel does still honor KCFLAGS (top-level Makefile:
+`KBUILD_CFLAGS += $(KCFLAGS)`), which is exactly how gpu.mk already
+injects its own -D__ANDROID_COMMON_KERNEL__ flag
+(GPU_KERNEL_CFLAGS = KCFLAGS="${KCFLAGS} -D__ANDROID_COMMON_KERNEL__").
+
+Because the CONFIG_MALI_* defines never reach the preprocessor, every
+`#ifdef CONFIG_MALI_DEVFREQ` gate in this driver evaluates false --
+most visibly in mali_kbase_defs.h, where the devfreq_queue,
+current_freqs, current_nominal_freq, devfreq_profile, devfreq and
+devfreq_cooling members of struct kbase_device never get compiled in,
+even though backend/gpu/mali_kbase_devfreq.c (correctly pulled into the
+build via the Make-level `obj-$(CONFIG_MALI_DEVFREQ)` in
+backend/gpu/Kbuild, which *is* propagated correctly via MAKE_ARGS)
+unconditionally references them. This produced ~40 errors the first
+time the build reached mali_kbase_devfreq.c: missing struct fields plus
+implicit-declaration errors for the IPA/OPP helpers those fields feed
+(kbase_ipa_init/kbase_ipa_term/kbase_ipa_power_model_ops,
+sky1_gpu_init_perf_opp_table, sky1_gpu_clk_rate_change_notifier) --
+all downstream of the same missing macros, not a separate defect.
+
+Fix: also pass the same computed defines via KCFLAGS on the recursive
+invocation, appending to (not clobbering) any inherited $(KCFLAGS) so
+gpu.mk's own -D__ANDROID_COMMON_KERNEL__ survives. EXTRA_CFLAGS is left
+in place (harmless no-op on this kernel, keeps back-compat with any
+older KDIR this same recipe might be pointed at). No driver logic is
+touched -- this only restores macro propagation the build system already
+intended, matching the class of fix already landed in this series for
+the $(srctree)-vs-$(M) Kbuild path issue (0004).
+
+Verified: `make -p -n` dump of this Makefile's computed EXTRA_CFLAGS
+confirms -DCONFIG_MALI_DEVFREQ=1 (and the other CONFIG_MALI_* defines
+this driver needs) were always being computed correctly -- the bug is
+purely in how that already-correct value gets discarded on the way to
+the compiler, not in the CONFIG defaulting logic.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/Makefile
++++ b/drivers/gpu/arm/midgard/Makefile
+@@ -293,7 +293,13 @@ endif
+ endif
+ 
+ all:
+-	$(MAKE) -C $(KDIR) M=$(M) $(MAKE_ARGS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" modules
++# EXTRA_CFLAGS is a legacy kbuild pass-through that this kernel version
++# (v7.2-rc4) no longer honors at all (removed from scripts/Makefile.build /
++# Makefile.lib -- confirmed by grep). Pass the same computed defines via
++# KCFLAGS as well, which this kernel's top-level Makefile does still fold
++# into KBUILD_CFLAGS, appending rather than clobbering any inherited value
++# (e.g. gpu.mk's -D__ANDROID_COMMON_KERNEL__).
++	$(MAKE) -C $(KDIR) M=$(M) $(MAKE_ARGS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KCFLAGS="$(KCFLAGS) $(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" modules
+ 
+ modules_install:
+ 	$(MAKE) -C $(KDIR) M=$(M) $(MAKE_ARGS) modules_install

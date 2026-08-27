@@ -1,0 +1,61 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 28 Jul 2026 00:00:00 +0000
+Subject: [PATCH] mali_kbase: guard against a NULL IPA model in kbase_get_real_power_locked
+
+Observed on O6N/cixmini across rc4, rc5 and 7.0.12-cix-sky1-next
+(serial console capture 2026-07-28): the CIXH5000 (mali) platform
+probe calls into kbase_csf_protected_memory_init(), which can return
+-EPROBE_DEFER (-517) if the protected_memory_allocator device hasn't
+finished its own probe yet. kbase_device_init() correctly unwinds and
+returns the error in that case, deferring the whole mali_kbase probe.
+
+But power_control_init() (which runs earlier in the same dev_init[]
+table and drives the devfreq/IPA cooling registration) can already
+have a kworker in flight by the time protected memory allocator fails
+and the probe unwinds. That kworker calls into
+kbase_get_real_power_locked() -> get_current_model(), which reads
+kbdev->ipa.fallback_model / kbdev->ipa.configured_model -- fields that
+are only populated by kbase_ipa_init(), a step later in the sequence
+than power_control_init() and one that never got a chance to run
+before the probe bailed out. The result is a NULL kbase_ipa_model
+pointer, and get_dynamic_coeff() -> model->ops->get_dynamic_coeff
+dereferences it, panicking with:
+
+  Unable to handle kernel NULL pointer dereference at virtual address 0000000000000010
+  kbase_get_real_power_locked+0xb0/0x378 [mali_kbase]
+  Kernel panic - not syncing: Oops: Fatal exception
+
+This is a probe-vs-async-work teardown race, not something callers
+can fully close from outside the IPA code (the devfreq governor's
+polling kworker isn't guaranteed to be quiesced before an early
+dev_init[] failure unwinds a later-registered subsystem). Guard the
+one dereference that actually crashes: if get_current_model() returns
+NULL (IPA never initialized, or already torn down), report zero power
+for that sample instead of dereferencing a null model. This matches
+the existing "GPU powered off" bail-out a few lines above and is a
+one-sample-of-zero cost, not a functional regression, on the hardware
+path where IPA is actually up.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/ipa/mali_kbase_ipa.c
++++ b/drivers/gpu/arm/midgard/ipa/mali_kbase_ipa.c
+@@ -771,6 +771,17 @@
+ 
+ 	model = get_current_model(kbdev);
+ 
++	if (!model) {
++		/* IPA not initialized yet (or already torn down) -- avoid
++		 * dereferencing model->ops below. See commit message for
++		 * the protected-memory-allocator EPROBE_DEFER race this
++		 * guards against.
++		 */
++		dev_warn_once(kbdev->dev, "kbase_get_real_power_locked: no IPA model, reporting 0 power\n");
++		*power = 0;
++		return 0;
++	}
++
+ 	err = model->ops->get_dynamic_coeff(model, power_coeffs);
+ 
+ 	if (err && model != kbdev->ipa.fallback_model) {

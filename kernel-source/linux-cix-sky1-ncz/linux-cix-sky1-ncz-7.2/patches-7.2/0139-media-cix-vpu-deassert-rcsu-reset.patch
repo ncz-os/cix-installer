@@ -1,0 +1,61 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 12 Jul 2026 10:10:00 -0400
+Subject: [PATCH] media: cix: vpu: deassert vpu_rcsu_reset before first VPU MMIO
+
+With the ACPI clkdev bridge fixed (patch 0138) the amvx VPU driver now
+resolves vpu_clk and proceeds past probe clock setup to its first register
+access. That access hard-faults (SError, no ramoops) because the RCSU
+(register-bridge) reset is left asserted: the driver defines
+MVE_RCSU_RST_NAME ("vpu_rcsu_reset") but only acquires/deasserts vpu_reset.
+
+Acquire the RCSU reset (optional, for FW compat), deassert it before
+vpu_reset in the runtime-resume path, and assert it after vpu_reset on
+suspend so the block is quiesced in the correct order.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+index bf4ee371f..69e3d3095 100755
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -129,6 +129,7 @@ struct mvx_dev_ctx {
+     unsigned int pmdomains_cnt;
+     struct clk *clk;
+     struct reset_control *rstc;
++    struct reset_control *rcsu_rstc;
+     struct mvx_if_ops *if_ops;
+     struct mvx_client_ops client_ops;
+     struct mvx_hwreg hwreg;
+@@ -828,6 +829,13 @@ static int mvx_dev_probe(struct device *dev,
+         ret = -EFAULT;
+         goto destruct_hwreg;
+     }
++    ctx->rcsu_rstc = devm_reset_control_get_optional_exclusive(dev, MVE_RCSU_RST_NAME);
++    if (IS_ERR(ctx->rcsu_rstc)) {
++        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Failed to get reset_control, %s.",
++                        MVE_RCSU_RST_NAME);
++        ret = -EFAULT;
++        goto destruct_hwreg;
++    }
+ 
+     /* Request IRQ handler. */
+     ctx->irq = irq;
+@@ -1150,6 +1158,8 @@ static int mvx_pm_runtime_suspend(struct device *dev)
+      * the block is left in a clean, quiescent state across the suspend.
+      */
+     reset_control_assert(ctx->rstc);
++    if (ctx->rcsu_rstc)
++        reset_control_assert(ctx->rcsu_rstc);
+     if (!IS_ERR_OR_NULL(ctx->clk))
+         clk_disable_unprepare(ctx->clk);
+ 
+@@ -1198,6 +1208,8 @@ static int mvx_pm_runtime_resume(struct device *dev)
+      * any printk.  This matches upstream cixtech/cix_opensource__vpu_driver
+      * v1.0.1 (commit 4080a85).
+      */
++    if (ctx->rcsu_rstc)
++        reset_control_deassert(ctx->rcsu_rstc);
+     reset_control_deassert(ctx->rstc);
+     enable_irq(ctx->irq);
+ 

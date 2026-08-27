@@ -1,0 +1,127 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 13 Jul 2026 12:00:00 -0400
+Subject: [PATCH 1/2] media: cix: amvx: enable the VPU APB clock before MMIO
+
+The VPU core clock can be running while vpu_apbclk, which clocks the
+register interface at 0x14240000, remains disabled.  The first readl() then
+raises an external abort even after the power resources are on and both
+resets are deasserted.
+
+Acquire vpu_apbclk explicitly and enable it before the existing vpu_clk and
+before either the RCSU or VPU register aperture is accessed.  Disable clocks
+in reverse order and unwind the APB clock if enabling vpu_clk fails.
+
+This includes the pending RCSU-reset sequencing change so the patch applies
+directly to the current tree HEAD.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/media/platform/cix/dev/mvx_dev.c | 37 +++++++++++++++++++++++++++++++-
+ 1 file changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+index bf4ee371f..0255ce8d1 100755
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -92,6 +92,7 @@
+ #define MVX_PCI_DEVICE 0x0001
+ 
+ #define MVE_CLK_NAME        "vpu_clk"
++#define MVE_APB_CLK_NAME    "vpu_apbclk"
+ #define MVE_RST_NAME        "vpu_reset"
+ #define MVE_RCSU_RST_NAME   "vpu_rcsu_reset"
+ 
+@@ -128,7 +129,9 @@ struct mvx_dev_ctx {
+     struct device *pmdomains[MVX_MAX_NUMBER_OF_PMDOMAINS];
+     unsigned int pmdomains_cnt;
+     struct clk *clk;
++    struct clk *apb_clk;
+     struct reset_control *rstc;
++    struct reset_control *rcsu_rstc;
+     struct mvx_if_ops *if_ops;
+     struct mvx_client_ops client_ops;
+     struct mvx_hwreg hwreg;
+@@ -821,6 +824,13 @@ static int mvx_dev_probe(struct device *dev,
+         ret = -EFAULT;
+         goto destruct_hwreg;
+     }
++    ctx->apb_clk = devm_clk_get(dev, MVE_APB_CLK_NAME);
++    if (IS_ERR(ctx->apb_clk)) {
++        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR,
++                        "Failed to get clock, %s.", MVE_APB_CLK_NAME);
++        ret = PTR_ERR(ctx->apb_clk);
++        goto destruct_hwreg;
++    }
+     ctx->rstc = devm_reset_control_get(dev, MVE_RST_NAME);
+     if (IS_ERR(ctx->rstc)) {
+         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Failed to get reset_control, %s.",
+@@ -828,6 +838,13 @@ static int mvx_dev_probe(struct device *dev,
+         ret = -EFAULT;
+         goto destruct_hwreg;
+     }
++    ctx->rcsu_rstc = devm_reset_control_get_optional_exclusive(dev, MVE_RCSU_RST_NAME);
++    if (IS_ERR(ctx->rcsu_rstc)) {
++        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Failed to get reset_control, %s.",
++                        MVE_RCSU_RST_NAME);
++        ret = -EFAULT;
++        goto destruct_hwreg;
++    }
+ 
+     /* Request IRQ handler. */
+     ctx->irq = irq;
+@@ -1150,8 +1167,11 @@ static int mvx_pm_runtime_suspend(struct device *dev)
+      * the block is left in a clean, quiescent state across the suspend.
+      */
+     reset_control_assert(ctx->rstc);
++    if (ctx->rcsu_rstc)
++        reset_control_assert(ctx->rcsu_rstc);
+     if (!IS_ERR_OR_NULL(ctx->clk))
+         clk_disable_unprepare(ctx->clk);
++    clk_disable_unprepare(ctx->apb_clk);
+ 
+     for (i = 1; i < ctx->pmdomains_cnt; i++) {
+         if (mvx_test_bit(i, &mask)) {
+@@ -1185,10 +1205,19 @@ static int mvx_pm_runtime_resume(struct device *dev)
+         pm_runtime_get_sync(ctx->pmdomains[0]);
+     }
+ 
++    /* The register aperture is inaccessible until its APB clock is live. */
++    ret = clk_prepare_enable(ctx->apb_clk);
++    if (ret) {
++        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR,
++                        "Failed to enable clock %s, %d.",
++                        MVE_APB_CLK_NAME, ret);
++        return ret;
++    }
++
+     ret = clk_prepare_enable(ctx->clk);
+     if (ret) {
+         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Failed to enable clock, %d.", ret);
+-        return ret;
++        goto disable_apb_clk;
+     }
+ 
+     /*
+@@ -1198,6 +1227,8 @@ static int mvx_pm_runtime_resume(struct device *dev)
+      * any printk.  This matches upstream cixtech/cix_opensource__vpu_driver
+      * v1.0.1 (commit 4080a85).
+      */
++    if (ctx->rcsu_rstc)
++        reset_control_deassert(ctx->rcsu_rstc);
+     reset_control_deassert(ctx->rstc);
+     enable_irq(ctx->irq);
+ 
+@@ -1248,6 +1279,10 @@ static int mvx_pm_runtime_resume(struct device *dev)
+     ret = mvx_sched_resume(&ctx->scheduler);
+ 
+     return ret;
++
++disable_apb_clk:
++    clk_disable_unprepare(ctx->apb_clk);
++    return ret;
+ }
+ 
+ static int mvx_pm_runtime_idle(struct device *dev)
+-- 
+2.51.0

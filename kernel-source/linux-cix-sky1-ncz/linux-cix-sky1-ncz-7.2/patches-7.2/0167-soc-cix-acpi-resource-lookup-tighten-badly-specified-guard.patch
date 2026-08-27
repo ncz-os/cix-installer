@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 20 Jul 2026 12:35:00 +0800
+Subject: [PATCH] soc: cix: acpi-resource-lookup: validate RSTL entries
+
+reset_controller_add_lookup() requires both dev_id and provider.  The CIX
+RSTL parser used a different condition: it admitted a NULL dev_id whenever
+con_id was present.  Reset core then rejected the unusable entry and emitted
+
+  reset lookup entry badly specified, skipping
+
+three times while parsing the Orion O6N firmware tables.
+
+Make the parser enforce reset core's actual contract before registration.
+This does not discard a usable con_id-only lookup: reset lookups first match
+dev_id against dev_name(dev), then use con_id to select a reset for that
+consumer, so dev_id is mandatory.
+
+The ACPI-name fallback in acpi_obj_to_devname() (already present in this
+v7.2/ncz tree, backported to v7.0.12/stable by the sibling patch 2026)
+handles platform devices that have not yet been instantiated.  Therefore
+a NULL name here means the O6N RSTL provider/consumer reference itself
+did not resolve to an ACPI device, not a normal probe-ordering case.
+Skip that invalid firmware entry at the parser boundary and retain a
+targeted dev_dbg diagnostic instead of passing it to the generic reset
+core warning.
+
+Same fix class as the night's -ENOENT-to-EPROBE_DEFER clock fixes --
+O6N-specific (the identically-built MS-R1 host on .66 shows zero of these
+warnings, confirmed by `cat /proc/device-tree/model` = "MS-R1"), not a
+generic kernel bug.  Likely O6N firmware/ACPI-table gaps relative to MS-R1's
+more mature board support.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/soc/cix/acpi/cix-acpi-resource-lookup-v1.c b/drivers/soc/cix/acpi/cix-acpi-resource-lookup-v1.c
+index a7525e3..91a58e2 100644
+--- a/drivers/soc/cix/acpi/cix-acpi-resource-lookup-v1.c
++++ b/drivers/soc/cix/acpi/cix-acpi-resource-lookup-v1.c
+@@ -126,8 +126,18 @@ static int reset_lookup_handle(acpi_handle handle,
+ 			devm_kstrdup(dev, el[3].string.pointer, GFP_KERNEL)
+ 			: NULL;
+ 
+-		if (!lookup->provider || (!lookup->dev_id && !lookup->con_id))
++		/*
++		 * reset_controller_add_lookup() requires both fields, and lookup
++		 * matching starts with dev_id before considering con_id.  The ACPI
++		 * name fallback above covers consumers not instantiated yet, so a
++		 * missing name here denotes an unresolved firmware reference.
++		 */
++		if (!lookup->provider || !lookup->dev_id) {
++			dev_dbg(&adev->dev,
++				"invalid RSTL[%d]: provider[%s] dev[%s] con[%s]\n",
++				i, lookup->provider, lookup->dev_id, lookup->con_id);
+ 			continue;
++		}
+ 
+ 		reset_controller_add_lookup(lookup, 1);
+ 
+-- 
+2.53.0
+

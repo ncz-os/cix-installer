@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
+Subject: [PATCH] drm/panthor: declare SCMI perf-domain softdep
+
+Add a one-line MODULE_SOFTDEP("pre: scmi_perf_domain") in
+drivers/gpu/drm/panthor/panthor_drv.c so that when panthor is built
+as a module and scmi_perf_domain is also a module, the kernel module
+loader pulls scmi_perf_domain in first.  On Orion O6 with the default
+config, reversing the load order means panthor probes before the
+SCMI perf domain is up and the GPU DVFS path fails to bind.
+
+Ported from srcshelton/gentoo-ebuilds:
+  70200-drm-panthor-declare-scmi-perf-softdep.patch
+
+Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
+[ported: applied verbatim from srcshelton/gentoo-ebuilds
+  70200-drm-panthor-declare-scmi-perf-softdep.patch]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/gpu/drm/panthor/panthor_drv.c b/drivers/gpu/drm/panthor/panthor_drv.c
+index 5bfd5564f..548b91f8b 100644
+--- a/drivers/gpu/drm/panthor/panthor_drv.c
++++ b/drivers/gpu/drm/panthor/panthor_drv.c
+@@ -1960,3 +1960,6 @@ MODULE_AUTHOR("Panthor Project Developers");
+ MODULE_DESCRIPTION("Panthor DRM Driver");
+ MODULE_LICENSE("Dual MIT/GPL");
+ MODULE_IMPORT_NS("DMA_BUF");
++#if IS_ENABLED(CONFIG_ARCH_CIX) && IS_MODULE(CONFIG_ARM_SCMI_PERF_DOMAIN)
++MODULE_SOFTDEP("pre: scmi_perf_domain");
++#endif

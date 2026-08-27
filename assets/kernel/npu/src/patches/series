@@ -1,0 +1,9 @@
+0001-armchina-npu-scmi-removal.patch -p1
+0002-armchina-npu-Makefile-ccflags-y.patch -p1
+0003-armchina-npu-MODULE_IMPORT_NS-quoted.patch -p1
+0004-armchina-npu-remove-void.patch -p1
+0005-armchina-npu-pm-runtime-put-void.patch -p1
+0006-armchina-npu-module-metadata-v3_1.patch -p1
+0007-armchina-npu-drop-IRQF_ONESHOT.patch -p1
+0008-armchina-npu-pm-runtime-enable-redundant.patch -p1
+0009-armchina-npu-use-irq-object-as-dev-id.patch -p1

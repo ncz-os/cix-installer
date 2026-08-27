@@ -1,0 +1,52 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 12 Jul 2026 02:30:00 -0400
+Subject: [PATCH] clk: cix: register Sky1 ACPI CLKT clkdev bridge at core_initcall
+
+On Sky1 with ACPI (acpi=force) there are no DT "clocks" phandles; the
+clk-sky1-acpi CLKT bridge (patch 0096) synthesizes clkdev aliases from the
+firmware CLKT packages, mapping each consumer name to its scmi-clk-<id>.
+Registered with module_platform_driver() the bridge runs at module_init,
+AFTER built-in VPU (amvx), display (linlondp), pwm-sky1, usb3-phy and audss
+consumers have already probed. Those consumers get -ENOENT (audss converts it
+to a NULL parent) and are never retried, so vpu_clk / engine clk / apb clocks
+resolve to nothing and the devices fail (VPU probe hard-faults / graceful clk
+failure; display/pwm/phy dead) even though SCMI has published the clocks.
+
+Register the platform driver at core_initcall so the aliases exist before the
+consumers probe. Safe to precede the ACPI device or SCMI: device/driver
+matching handles the former and the probe's existing -EPROBE_DEFER handles the
+latter.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/clk/cix/clk-sky1-acpi.c b/drivers/clk/cix/clk-sky1-acpi.c
+index 4c5ca954da00..3b75a2ea0f03 100644
+--- a/drivers/clk/cix/clk-sky1-acpi.c
++++ b/drivers/clk/cix/clk-sky1-acpi.c
+@@ -193,7 +193,22 @@ static struct platform_driver sky1_acpi_clk_driver = {
+ 	},
+ 	.probe = sky1_acpi_clk_probe,
+ };
+-module_platform_driver(sky1_acpi_clk_driver);
++
++static int __init sky1_acpi_clk_init(void)
++{
++	if (acpi_disabled)
++		return -ENODEV;
++
++	return platform_driver_register(&sky1_acpi_clk_driver);
++}
++core_initcall(sky1_acpi_clk_init);
++
++/* CIX_ACPI_CLK is bool; retain a teardown path for completeness/testing. */
++static void __exit sky1_acpi_clk_exit(void)
++{
++	platform_driver_unregister(&sky1_acpi_clk_driver);
++}
++module_exit(sky1_acpi_clk_exit);
+ 
+ MODULE_DESCRIPTION("CIX Sky1 ACPI clock lookup table driver");
+ MODULE_LICENSE("GPL");
+-- 
+2.51.0

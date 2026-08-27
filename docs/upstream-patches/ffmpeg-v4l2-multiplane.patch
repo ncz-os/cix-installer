@@ -1,0 +1,63 @@
+--- /tmp/v4l2_buffers.c.orig	2026-08-14 20:36:09.798864034 +0000
++++ libavcodec/v4l2_buffers.c	2026-08-14 20:58:23.301980949 +0000
+@@ -304,6 +304,23 @@
+         return AVERROR(EINVAL);
+ 
+     length = out->plane_info[plane].length;
++
++    /* v4l2_buffer_swframe_to_buf() can pack several component planes into a
++     * single V4L2 plane at a running offset. length and offset are unsigned,
++     * so once offset passes length, "length - offset" wraps to a huge value,
++     * the FFMIN() below then selects the full size, and the memcpy runs off
++     * the end of the mapping.
++     *
++     * Seen as a SIGSEGV on the third plane of a yuv420p frame enqueued to a
++     * multi-planar driver, via ff_v4l2_context_enqueue_frame -> v4l2_send_frame.
++     *
++     * offset == length is deliberately still allowed: that is a legitimate
++     * zero-length copy, and rejecting it breaks formats whose final plane ends
++     * exactly on the boundary.
++     */
++    if (offset > length)
++        return AVERROR(EINVAL);
++
+     bytesused = FFMIN(size+offset, length);
+ 
+     memcpy((uint8_t*)out->plane_info[plane].mm_addr+offset, data, FFMIN(size, length-offset));
+@@ -402,6 +419,36 @@
+         for (i = 0; i < desc->nb_components; i++)
+             planes_nb = FFMAX(planes_nb, desc->comp[i].plane + 1);
+ 
++        /* is_planar_format above is decided purely from the V4L2 fourcc, so it
++         * only ever recognises the explicitly multi-planar "M" variants. A
++         * multi-planar driver may hand back one mapping per component plane
++         * for an ordinary fourcc too: the ArmChina Linlon (mvx) encoder reports
++         * 3 planes for YU12 (921600/230400/230400) and 2 for NV12
++         * (921600/460800). Packing those into plane 0 at a running offset
++         * overruns the first mapping -- and for NV12 it silently dropped the
++         * chroma entirely (offset == length copied 0 bytes, giving U=V=2
++         * against ~126 for the same source encoded in software).
++         *
++         * So when the buffer really has several planes, write each component
++         * plane into its own. The sizes computed here match what the driver
++         * reports for both layouts. */
++        if (out->num_planes > 1) {
++            if (planes_nb > out->num_planes)
++                return AVERROR(EINVAL);
++
++            for (i = 0; i < planes_nb; i++) {
++                int h = height;
++                if (i == 1 || i == 2)
++                    h = AV_CEIL_RSHIFT(h, desc->log2_chroma_h);
++
++                ret = v4l2_bufref_to_buf(out, i, frame->data[i],
++                                         frame->linesize[i] * h, 0);
++                if (ret)
++                    return ret;
++            }
++            return 0;
++        }
++
+         for (i = 0; i < planes_nb; i++) {
+             int size, h = height;
+             if (i == 1 || i == 2) {
