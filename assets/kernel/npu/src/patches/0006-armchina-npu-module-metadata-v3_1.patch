@@ -1,0 +1,43 @@
+From 52ca2654c388ff75fcd81ff7ab71ba9897ee54db Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 23 May 2026 12:11:51 -0400
+Subject: [PATCH 6/6] armchina-npu: module metadata in aipu.c + v3_1 objs
+
+---
+ driver/Makefile            | 6 ++++--
+ driver/armchina-npu/aipu.c | 5 +++++
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/driver/Makefile b/driver/Makefile
+index 99895af..ad43522 100644
+--- a/driver/Makefile
++++ b/driver/Makefile
+@@ -28,8 +28,10 @@ else ifeq ($(BUILD_AIPU_VERSION_KMD), BUILD_ZHOUYI_V2)
+     ccflags-y += -DCONFIG_ARMCHINA_NPU_ARCH_V2
+ else ifeq ($(BUILD_AIPU_VERSION_KMD), BUILD_ZHOUYI_V3)
+     AIPU_OBJ := armchina-npu/zhouyi/v3.o \
+-                armchina-npu/zhouyi/v3_priv.o
+-    ccflags-y += -DCONFIG_ARMCHINA_NPU_ARCH_V3
++                armchina-npu/zhouyi/v3_priv.o \
++                armchina-npu/zhouyi/v3_1.o \
++                armchina-npu/zhouyi/v3_1_priv.o
++    ccflags-y += -DCONFIG_ARMCHINA_NPU_ARCH_V3 -DCONFIG_ARMCHINA_NPU_ARCH_V3_1
+ else
+     #build all
+     AIPU_OBJ := armchina-npu/zhouyi/v1.o \
+diff --git a/driver/armchina-npu/aipu.c b/driver/armchina-npu/aipu.c
+index e1d013b..4c30ae1 100644
+--- a/driver/armchina-npu/aipu.c
++++ b/driver/armchina-npu/aipu.c
+@@ -460,3 +460,8 @@ int armchina_aipu_free_dma_buf(int fd)
+ 	return aipu_free_dma_buf(&aipu->mm, fd);
+ }
+ EXPORT_SYMBOL(armchina_aipu_free_dma_buf);
++
++MODULE_LICENSE("GPL v2");
++MODULE_AUTHOR("Arm Technology (China) Co. Ltd.");
++MODULE_DESCRIPTION("ArmChina NPU (AIPU) kernel module");
++MODULE_IMPORT_NS("DMA_BUF");
+-- 
+2.51.0
+

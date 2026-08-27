@@ -1,0 +1,134 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 27 Jun 2026 16:05:18 -0400
+Subject: [PATCH 1/1] reset: sky1: restore ACPI support for the SRC controller
+
+The 7.1.x forward-port of the CIX reset driver (0006-reset-add-cix-reset-driver)
+became DT-only: it dropped the ACPI device match table, uses
+of_device_get_match_data() and device_node_to_regmap(dev->of_node), and registers
+at device_initcall via module_platform_driver(). On the ACPI-booted Sky1 MS-R1 /
+Orion O6 (UEFI O/S HW Description = ACPI, no DTB) the System Reset Controller
+therefore never probes, so no reset provider is registered.
+
+The sky1 audio-subsystem clock controller (CIXH6061, clk-sky1-audss) then fails
+devm_reset_control_get(dev, "noc"), and its pm_runtime/MMIO teardown path touches
+the AUDSS block while it is still held in reset, raising an asynchronous external
+abort (SError 0xbc000011) -> arm64_serror_panic -> reset. This is a hard,
+reproducible boot failure across 7.1.0/7.1.1/7.1.2.
+
+Restore the behaviour of the LTS/next reset driver under ACPI:
+  - add acpi.h/property.h/io.h includes;
+  - resolve the variant via device_get_match_data() (works for OF and ACPI);
+  - when has_acpi_companion(), map the SRC register block directly from the
+    device MMIO resource (devm_ioremap + devm_regmap_init_mmio) instead of the
+    parent-syscon device_node_to_regmap() path that needs an of_node;
+  - add the CIXHA020 (variant_sky1) / CIXHA021 (variant_sky1_fch) ACPI match
+    table;
+  - register at subsys_initcall so the controller is ready before consumers
+    (audss et al.) probe, avoiding the deferred-probe teardown crash.
+
+DT boot is unchanged (the else branch keeps device_node_to_regmap()).
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/reset/reset-sky1.c | 62 ++++++++++++++++++++++++++++++++++----
+ 1 file changed, 56 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/reset/reset-sky1.c b/drivers/reset/reset-sky1.c
+index 78e80a533c39..a81fe91f2790 100644
+--- a/drivers/reset/reset-sky1.c
++++ b/drivers/reset/reset-sky1.c
+@@ -6,8 +6,11 @@
+  * Author: Jerry Zhu <jerry.zhu@cixtech.com>
+  */
+ 
++#include <linux/acpi.h>
+ #include <linux/delay.h>
++#include <linux/io.h>
+ #include <linux/mfd/syscon.h>
++#include <linux/property.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+@@ -328,13 +331,41 @@ static int sky1_reset_probe(struct platform_device *pdev)
+ 	if (!sky1src)
+ 		return -ENOMEM;
+ 
+-	variant = of_device_get_match_data(dev);
+-
+-	sky1src->regmap = device_node_to_regmap(dev->of_node);
+-	if (IS_ERR(sky1src->regmap)) {
++	variant = device_get_match_data(dev);
++	if (!variant)
++		return -ENODEV;
++
++	if (has_acpi_companion(dev)) {
++		static const struct regmap_config config = {
++			.reg_bits = 32,
++			.val_bits = 32,
++			.reg_stride = 4,
++			.name = "src",
++		};
++		struct resource *res;
++		void __iomem *base;
++
++		/*
++		 * ACPI boot (Sky1 MS-R1 / Orion O6): there is no of_node, so the
++		 * parent-syscon regmap path is unavailable. Map the SRC register
++		 * block directly from the device MMIO resource, matching the
++		 * LTS/next reset driver behaviour.
++		 */
++		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++		if (!res)
++			return -ENOENT;
++
++		base = devm_ioremap(dev, res->start, resource_size(res));
++		if (!base)
++			return -ENOMEM;
++
++		sky1src->regmap = devm_regmap_init_mmio(dev, base, &config);
++	} else {
++		sky1src->regmap = device_node_to_regmap(dev->of_node);
++	}
++	if (IS_ERR(sky1src->regmap))
+ 		return dev_err_probe(dev, PTR_ERR(sky1src->regmap),
+ 				     "Unable to get sky1-src regmap");
+-	}
+ 
+ 	sky1src->signals = variant->signals;
+ 	sky1src->rcdev.owner     = THIS_MODULE;
+@@ -353,14 +384,33 @@ static const struct of_device_id sky1_sysreg_of_match[] = {
+ };
+ MODULE_DEVICE_TABLE(of, sky1_sysreg_of_match);
+ 
++static const struct acpi_device_id sky1_reset_acpi_match[] = {
++	{ "CIXHA020", .driver_data = (kernel_ulong_t)&variant_sky1 },
++	{ "CIXHA021", .driver_data = (kernel_ulong_t)&variant_sky1_fch },
++	{ }
++};
++MODULE_DEVICE_TABLE(acpi, sky1_reset_acpi_match);
++
+ static struct platform_driver sky1_reset_driver = {
+ 	.probe	= sky1_reset_probe,
+ 	.driver = {
+ 		.name		= "cix,sky1-rst",
+ 		.of_match_table = sky1_sysreg_of_match,
++		.acpi_match_table = ACPI_PTR(sky1_reset_acpi_match),
+ 	},
+ };
+-module_platform_driver(sky1_reset_driver)
++
++static int __init reset_sky1_init(void)
++{
++	return platform_driver_register(&sky1_reset_driver);
++}
++subsys_initcall(reset_sky1_init);
++
++static void __exit reset_sky1_exit(void)
++{
++	platform_driver_unregister(&sky1_reset_driver);
++}
++module_exit(reset_sky1_exit);
+ 
+ MODULE_AUTHOR("Jerry Zhu <jerry.zhu@cixtech.com>");
+ MODULE_DESCRIPTION("Cix Sky1 reset driver");

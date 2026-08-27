@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily NCZ fleet backup to argonas2
+
+[Timer]
+OnCalendar=*-*-* 03:35:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

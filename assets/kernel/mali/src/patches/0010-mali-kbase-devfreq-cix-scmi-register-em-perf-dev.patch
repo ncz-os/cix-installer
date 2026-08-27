@@ -1,0 +1,53 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 25 Jul 2026 00:00:00 +0000
+Subject: [PATCH] mali_kbase: pass the GPU's SCMI perf-domain device to cix_scmi_register_em()
+
+cix_scmi_register_em() (include/linux/cix/cix_scmi_em.h,
+drivers/thermal/cix/cix_scmi_em.c) gained a required second parameter,
+`struct device *perf_dev`, as part of this kernel's local SCMI
+performance-domain support (drivers/pmdomain/arm/scmi_perf_domain.c,
+"CIX 6.6 BSP compatibility exports" -- ncz72-port cix-2026q2). The
+caller must pass the device that is genpd-attached to the relevant
+SCMI perf domain, since cix_scmi_register_em() resolves the domain via
+perf_dev->pm_domain internally (see cix_scmi_em.c: power_scale =
+scmi_perf_domain_power_scale(ctx->perf_dev), which requires
+perf_dev->pm_domain to be a scmi_perf_domain genpd).
+
+mali_kbase_devfreq.c's caller was never updated for the new signature
+and still passed only kbdev->dev (the GPU's own platform device, which
+is a different device than the one attached to the perf domain).
+
+This platform driver already establishes the correct perf-domain
+device and stores it for exactly this purpose: platform/sky1/
+mali_kbase_config_sky1.c attaches it during platform init
+(kbdev->sky1_perf_dev = dev_pm_domain_attach_by_name(kbdev->dev,
+"perf")) and the driver already uses kbdev->sky1_perf_dev as the
+perf-domain device with the sibling SCMI helper
+scmi_device_opp_table_parse(kbdev->sky1_perf_dev) in
+sky1_gpu_init_perf_opp_table() -- called earlier in the same
+kbase_devfreq_init() path, so kbdev->sky1_perf_dev is already valid by
+the time this Energy Model registration runs. sky1_perf_dev is an
+unconditional struct kbase_device field (mali_kbase_defs.h), not
+gated behind CONFIG_MALI_DEVFREQ, so it is always available here.
+
+This is not new platform wiring -- it reuses the device handle this
+same driver already obtains and already uses for the equivalent SCMI
+perf-domain purpose a few hundred lines away in the same file family.
+
+Fixes the mali_kbase.ko build against kernel 7.2.0-rc4-sky1-ncz (next
+error after patches 0008/0009 unblocked the devfreq translation unit).
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_devfreq.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_devfreq.c
+@@ -769,7 +769,7 @@
+ 	* ipa power model ops only after it is an EM device.
+ 	*/
+ #if IS_ENABLED(CONFIG_CIX_SCMI_ENERGY_MODEL)
+-	err = cix_scmi_register_em(kbdev->dev);
++	err = cix_scmi_register_em(kbdev->dev, kbdev->sky1_perf_dev);
+ 	if(err) {
+ 		dev_err(kbdev->dev, "Failed to register Energy Model (%d)", err);
+ 		goto cooling_reg_failed;

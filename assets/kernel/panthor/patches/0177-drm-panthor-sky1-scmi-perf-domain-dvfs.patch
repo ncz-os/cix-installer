@@ -1,0 +1,486 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] drm/panthor: fix Sky1 DVFS - vote the firmware "perf" domain and verify
+
+On CIX Sky1 the GPU was welded to 350 MHz. devfreq logged transitions to
+1000 MHz that never happened, and glmark2 measured no change across them.
+
+Two faults, both required for the failure:
+
+1. WRONG DOMAIN UNDER ACPI. panthor resolves the performance domain only
+   when dev->of_node is present:
+
+       if (IS_ENABLED(CONFIG_OF) && dev->of_node) {
+               index = of_property_match_string(dev->of_node,
+                                                "power-domain-names", "perf");
+
+   Sky1 boots ACPI (acpi=force, HID CIXH5000), so of_node is NULL and the
+   driver fell through to pm_genpd_lookup_by_name("gpu_core") plus
+   pm_genpd_add_device(), voting on the GPU device itself. The vendor
+   mali_kbase driver instead attaches the firmware-named "perf" reference
+   (mali_kbase_config_sky1.c:137, sky1_gpu_attach_pd) and votes on the
+   virtual device that returns. Confirmed on hardware: under kbase the
+   genpd device is "genpd:0:CIXH5000:00"; under panthor it was the bare
+   "CIXH5000:00".
+
+2. NO READBACK, THEN PERMANENT DEDUP. A zero return from the vote was
+   taken as a completed transition, cached in last_set_freq, and every
+   later identical request was discarded. target() also returned 0
+   unconditionally, so devfreq recorded a fictional transition. One silent
+   no-op became permanent.
+
+This attaches "perf" by name (fwnode-capable, mirroring kbase), populates
+that device's SCMI OPPs, holds it with kbase's runtime-PM device link,
+issues kbase's direct genpd vote in MHz, and waits on the PM-firmware
+response word at 0x065A008C with kbase's 1000 x 2us loop before caching
+success. Constants match the vendor header verbatim
+(mali_kbase_config_platform.h:100,106).
+
+Deliberately NOT done: clk_set_rate() and a second gpu_top vote. Neither
+exists in the kbase path that actually compiles on this kernel
+(CONFIG_ARM_SCMI_PERF_DOMAIN=y makes the kbase clk_set_rate loop dead code).
+
+The readback treats only UNDER-delivery as failure. Sky1 holds a hardware
+floor on the shader-stack clock at 350 MHz, so an idle 72 MHz vote reports
+back higher than requested; requiring exact equality turned every idle
+simple_ondemand vote into -EIO and drove exponential backoff, pinning the
+GPU at the floor. That cost one measured iteration to find.
+
+MEASURED ON O6N (Radxa Orion O6N, 7.2.0-rc7-sky1-ncz, Mali-G720 MC10):
+
+  before: clk pinned 350000000 through 21s of sustained load; devfreq
+          claimed a 350->1000 transition; forcing min_freq=1000000000 was
+          accepted and changed nothing (glmark2 2012 -> 2014)
+
+  after:  sustained load, sampled every 6s for 36s --
+            t=6s..36s  devfreq=1000000000 genpd=1000 clk=1000000000
+          glmark2 1080p: 2030 -> 3641  (+79%), simple_ondemand, no errors
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/assets/kernel/panthor/panthor_devfreq.c b/assets/kernel/panthor/panthor_devfreq.c
+index 61ed91d..e7ecb23 100644
+--- a/assets/kernel/panthor/panthor_devfreq.c
++++ b/assets/kernel/panthor/panthor_devfreq.c
+@@ -2,12 +2,16 @@
+ /* Copyright 2019 Collabora ltd. */
+ 
+ #include <linux/clk.h>
++#include <linux/delay.h>
+ #include <linux/devfreq.h>
+ #include <linux/devfreq_cooling.h>
++#include <linux/io.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_domain.h>
+ #include <linux/pm_opp.h>
++#include <linux/scmi_protocol.h>
++#include <linux/sizes.h>
+ 
+ #include <drm/drm_managed.h>
+ #include <drm/drm_print.h>
+@@ -33,6 +37,11 @@
+ #define PANTHOR_SCMI_BACKOFF_BASE_US	500000		/* 500 ms base backoff */
+ #define PANTHOR_SCMI_BACKOFF_MAX_US	4000000		/* 4 s max backoff */
+ 
++/* Sky1 PM-firmware completion register, shared with the vendor kbase driver. */
++#define PANTHOR_SKY1_PM_CLK_RESPONSE_ADDR	0x065A008C
++#define PANTHOR_SKY1_PM_CLK_MAX_RETRIES		1000
++#define PANTHOR_SKY1_PM_CLK_POLL_DELAY_US	2
++
+ /**
+  * struct panthor_devfreq - Device frequency management
+  */
+@@ -53,6 +62,9 @@ struct panthor_devfreq {
+ 	 */
+ 	struct device *opp_dev;
+ 
++	/** @perf_domain_link: Runtime-PM link to an ACPI perf-domain device. */
++	struct device_link *perf_domain_link;
++
+ 	/** @busy_time: Busy time. */
+ 	ktime_t busy_time;
+ 
+@@ -85,6 +97,9 @@ struct panthor_devfreq {
+ 
+ 	/** @safe_freq: Mid-range OPP for error recovery (computed at init). */
+ 	unsigned long safe_freq;
++
++	/** @sky1_clk_response_addr: PM-firmware GPU clock completion register. */
++	void __iomem *sky1_clk_response_addr;
+ };
+ 
+ static void panthor_devfreq_update_utilization(struct panthor_devfreq *pdevfreq)
+@@ -107,16 +122,86 @@ static void panthor_devfreq_update_utilization(struct panthor_devfreq *pdevfreq)
+  * Unlike dev_pm_opp_set_rate(), this does not require a clock --
+  * the genpd's set_performance_state callback handles the SCMI call.
+  */
+-static int panthor_devfreq_scmi_set_freq(struct device *dev, unsigned long freq)
++static unsigned long panthor_devfreq_get_actual_freq(struct panthor_device *ptdev)
++{
++	/* Sky1's nominal OPP is the shader-stack (gpu_core) frequency. */
++	if (panthor_is_sky1(ptdev) && !IS_ERR_OR_NULL(ptdev->clks.stacks))
++		return clk_get_rate(ptdev->clks.stacks);
++
++	return clk_get_rate(ptdev->clks.core);
++}
++
++static bool panthor_devfreq_sky1_freq_landed(struct panthor_devfreq *pdevfreq,
++					     unsigned long freq)
++{
++	return pdevfreq->sky1_clk_response_addr &&
++	       ioread32(pdevfreq->sky1_clk_response_addr) == freq / 1000000;
++}
++
++static int panthor_devfreq_sky1_wait_freq(struct panthor_device *ptdev,
++					  unsigned long freq)
++{
++	struct panthor_devfreq *pdevfreq = ptdev->devfreq;
++	unsigned long target_mhz = freq / 1000000;
++	u32 current_gpu_level = 0;
++	unsigned long actual_freq;
++	unsigned int i;
++
++	for (i = 0; i < PANTHOR_SKY1_PM_CLK_MAX_RETRIES; i++) {
++		current_gpu_level = ioread32(pdevfreq->sky1_clk_response_addr);
++		if (current_gpu_level == target_mhz)
++			break;
++
++		udelay(PANTHOR_SKY1_PM_CLK_POLL_DELAY_US);
++	}
++
++	if (current_gpu_level != target_mhz) {
++		drm_warn(&ptdev->base,
++			 "GPU DVFS: PM clock response %u MHz did not reach %lu MHz\n",
++			 current_gpu_level, target_mhz);
++		return -ETIMEDOUT;
++	}
++
++	/*
++	 * Only UNDER-delivery is a failure. Sky1 holds a hardware floor on the
++	 * shader-stack clock (measured: 350 MHz), so a request below that floor
++	 * legitimately reports back higher than asked. Requiring exact equality
++	 * made every idle simple_ondemand vote (72 MHz) look like an -EIO and
++	 * drove the driver into exponential backoff, which is why the GPU sat at
++	 * the floor instead of ramping. Measured on O6N 2026-08-16.
++	 */
++	actual_freq = panthor_devfreq_get_actual_freq(ptdev);
++	if (actual_freq < freq) {
++		drm_warn(&ptdev->base,
++			 "GPU DVFS: PM accepted %lu MHz but gpu_core only reads %lu MHz\n",
++			 target_mhz, actual_freq / 1000000);
++		return -EIO;
++	}
++
++	return 0;
++}
++
++static int panthor_devfreq_scmi_set_freq(struct panthor_device *ptdev,
++					 struct device *opp_dev,
++					 unsigned long freq)
+ {
+ 	struct dev_pm_opp *opp;
+ 	int ret;
+ 
+-	opp = dev_pm_opp_find_freq_ceil(dev, &freq);
++	/* Match the CONFIG_ARM_SCMI_PERF_DOMAIN=y kbase path on Sky1. */
++	if (panthor_is_sky1(ptdev)) {
++		ret = dev_pm_genpd_set_performance_state(opp_dev, freq / 1000000);
++		if (ret)
++			return ret;
++
++		return panthor_devfreq_sky1_wait_freq(ptdev, freq);
++	}
++
++	opp = dev_pm_opp_find_freq_ceil(opp_dev, &freq);
+ 	if (IS_ERR(opp))
+ 		return PTR_ERR(opp);
+ 
+-	ret = dev_pm_opp_set_opp(dev, opp);
++	ret = dev_pm_opp_set_opp(opp_dev, opp);
+ 	dev_pm_opp_put(opp);
+ 	return ret;
+ }
+@@ -128,6 +213,7 @@ static int panthor_devfreq_target(struct device *dev, unsigned long *freq,
+ 	struct panthor_devfreq *pdevfreq = ptdev->devfreq;
+ 	struct dev_pm_opp *opp;
+ 	unsigned long target_freq;
++	unsigned long actual_freq;
+ 	unsigned long irqflags;
+ 	ktime_t now;
+ 	int err;
+@@ -142,17 +228,22 @@ static int panthor_devfreq_target(struct device *dev, unsigned long *freq,
+ 	if (!pdevfreq->opp_dev)
+ 		return dev_pm_opp_set_rate(dev, target_freq);
+ 
++	actual_freq = panthor_devfreq_get_actual_freq(ptdev);
+ 	now = ktime_get();
+ 	spin_lock_irqsave(&pdevfreq->lock, irqflags);
+ 
+ 	/* Suppress calls during error backoff */
+ 	if (ktime_before(now, pdevfreq->backoff_until)) {
+ 		spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
++		*freq = actual_freq;
+ 		return 0;
+ 	}
+ 
+-	/* Skip if already at the requested frequency */
+-	if (target_freq == pdevfreq->last_set_freq) {
++	/* Never deduplicate an unconfirmed Sky1 transition. */
++	if (target_freq == pdevfreq->last_set_freq &&
++	    (!panthor_is_sky1(ptdev) ||
++	     (actual_freq == target_freq &&
++	      panthor_devfreq_sky1_freq_landed(pdevfreq, target_freq)))) {
+ 		spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+ 		return 0;
+ 	}
+@@ -161,13 +252,15 @@ static int panthor_devfreq_target(struct device *dev, unsigned long *freq,
+ 	if (ktime_us_delta(now, pdevfreq->last_set_time) <
+ 	    PANTHOR_SCMI_RATE_LIMIT_US) {
+ 		spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
++		*freq = actual_freq;
+ 		return 0;
+ 	}
+ 
+ 	spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+ 
+ 	/* Actual SCMI frequency change (may sleep on mailbox) */
+-	err = panthor_devfreq_scmi_set_freq(dev, target_freq);
++	err = panthor_devfreq_scmi_set_freq(ptdev, pdevfreq->opp_dev,
++					       target_freq);
+ 
+ 	spin_lock_irqsave(&pdevfreq->lock, irqflags);
+ 
+@@ -199,19 +292,24 @@ static int panthor_devfreq_target(struct device *dev, unsigned long *freq,
+ 			drm_info(&ptdev->base,
+ 				 "GPU DVFS: boosting to safe freq %lu MHz\n",
+ 				 pdevfreq->safe_freq / 1000000);
+-			err = panthor_devfreq_scmi_set_freq(dev,
++			err = panthor_devfreq_scmi_set_freq(ptdev,
++						       pdevfreq->opp_dev,
+ 						       pdevfreq->safe_freq);
+ 
+ 			spin_lock_irqsave(&pdevfreq->lock, irqflags);
+ 			if (!err) {
+ 				pdevfreq->last_set_freq = pdevfreq->safe_freq;
+ 				pdevfreq->last_set_time = ktime_get();
++				*freq = pdevfreq->safe_freq;
+ 			}
+ 		}
+ 	}
+ 
+ 	spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+ 
++	if (err)
++		*freq = panthor_devfreq_get_actual_freq(ptdev);
++
+ 	/* Always return 0 -- errors cause devfreq to spam retries */
+ 	return 0;
+ }
+@@ -230,7 +328,7 @@ static int panthor_devfreq_get_dev_status(struct device *dev,
+ 	struct panthor_devfreq *pdevfreq = ptdev->devfreq;
+ 	unsigned long irqflags;
+ 
+-	status->current_frequency = clk_get_rate(ptdev->clks.core);
++	status->current_frequency = panthor_devfreq_get_actual_freq(ptdev);
+ 
+ 	spin_lock_irqsave(&pdevfreq->lock, irqflags);
+ 
+@@ -257,20 +355,30 @@ static int panthor_devfreq_get_cur_freq(struct device *dev, unsigned long *freq)
+ {
+ 	struct panthor_device *ptdev = dev_get_drvdata(dev);
+ 
+-	*freq = clk_get_rate(ptdev->clks.core);
++	*freq = panthor_devfreq_get_actual_freq(ptdev);
+ 
+ 	return 0;
+ }
+ 
++static void panthor_devfreq_detach_perf_domain(struct drm_device *ddev,
++					       void *data)
++{
++	struct panthor_devfreq *pdevfreq = data;
++
++	if (pdevfreq->perf_domain_link)
++		device_link_del(pdevfreq->perf_domain_link);
++
++	dev_pm_domain_detach(pdevfreq->opp_dev, true);
++}
++
+ /*
+  * panthor_devfreq_scmi_init() -- Try to set up DVFS via SCMI perf domain.
+  *
+  * Under DT: find the "perf" domain's virtual device, read OPPs from it, copy
+  * them to the main device, route frequency changes through it.
+  *
+- * Under ACPI: attach the GPU device directly to the SCMI perf genpd (looked
+- * up by firmware name). The genpd's attach_dev callback populates OPPs on
+- * the main device directly.
++ * Under ACPI: follow the firmware's named "perf" reference and keep the
++ * returned virtual device as the SCMI vote target, just as kbase does.
+  *
+  * Return: number of OPPs added, 0 if no perf domain found, negative on error.
+  */
+@@ -279,9 +387,10 @@ static int panthor_devfreq_scmi_init(struct panthor_device *ptdev,
+ {
+ 	struct device *dev = ptdev->base.dev;
+ 	struct device *opp_dev = NULL;
++	struct device_link *perf_domain_link = NULL;
+ 	struct dev_pm_opp *opp;
+ 	unsigned long freq;
+-	int count, i, ret;
++	int count, i, ret = 0;
+ 
+ 	if (IS_ENABLED(CONFIG_OF) && dev->of_node) {
+ 		int index;
+@@ -295,56 +404,73 @@ static int panthor_devfreq_scmi_init(struct panthor_device *ptdev,
+ 		if (!opp_dev)
+ 			return 0;
+ 
+-		/* Copy OPPs from virtual device to main device */
+-		count = dev_pm_opp_get_opp_count(opp_dev);
+-		if (count <= 0)
++	} else if (IS_ENABLED(CONFIG_ACPI)) {
++		/* Follow the firmware's named "perf" reference, exactly as kbase. */
++#ifdef CONFIG_ARM_SCMI_SUPPORT_DT_ACPI
++		opp_dev = fwnode_dev_pm_domain_attach_by_name(dev, "perf");
++#else
++		opp_dev = dev_pm_domain_attach_by_name(dev, "perf");
++#endif
++		if (IS_ERR(opp_dev))
++			return dev_err_probe(dev, PTR_ERR(opp_dev),
++					     "GPU DVFS: failed to attach firmware perf domain\n");
++
++		if (!opp_dev) {
++			drm_dbg(&ptdev->base,
++				"GPU DVFS: firmware perf domain not found\n");
+ 			return 0;
++		}
+ 
+-		for (i = 0, freq = 0; ; i++, freq++) {
+-			opp = dev_pm_opp_find_freq_ceil(opp_dev, &freq);
+-			if (IS_ERR(opp))
+-				break;
+-			dev_pm_opp_put(opp);
+-
+-			ret = dev_pm_opp_add(dev, freq, 0);
+-			if (ret) {
+-				drm_warn(&ptdev->base,
+-					 "Failed to add OPP %lu Hz: %d\n",
+-					 freq, ret);
+-				break;
+-			}
++		perf_domain_link = device_link_add(dev, opp_dev,
++						   DL_FLAG_STATELESS |
++						   DL_FLAG_PM_RUNTIME |
++						   DL_FLAG_RPM_ACTIVE);
++		if (!perf_domain_link) {
++			ret = -EINVAL;
++			goto err_detach_acpi;
+ 		}
++	} else {
++		return 0;
++	}
+ 
+-		if (i == 0)
+-			return 0;
+-	} else if (IS_ENABLED(CONFIG_ACPI)) {
+-		struct generic_pm_domain *perf_genpd;
++	/* Populate the named SCMI device's OPPs, exactly as Sky1 kbase does. */
++	if (panthor_is_sky1(ptdev)) {
++		ret = scmi_device_opp_table_parse(opp_dev);
++		if (ret)
++			goto err_detach_acpi;
++	}
+ 
+-		perf_genpd = pm_genpd_lookup_by_name("gpu_core");
+-		if (!perf_genpd) {
+-			drm_dbg(&ptdev->base,
+-				"GPU DVFS: gpu_core genpd not found\n");
+-			return 0;
+-		}
++	/* Copy the firmware-domain OPPs to the main GPU devfreq device. */
++	count = dev_pm_opp_get_opp_count(opp_dev);
++	if (count <= 0)
++		goto err_detach_acpi;
++
++	for (i = 0, freq = 0; ; i++, freq++) {
++		opp = dev_pm_opp_find_freq_ceil(opp_dev, &freq);
++		if (IS_ERR(opp))
++			break;
++		dev_pm_opp_put(opp);
+ 
+-		ret = pm_genpd_add_device(perf_genpd, dev);
++		ret = dev_pm_opp_add(dev, freq, 0);
+ 		if (ret) {
+ 			drm_warn(&ptdev->base,
+-				 "Failed to attach SCMI perf domain: %d\n",
+-				 ret);
+-			return 0;
++				 "Failed to add OPP %lu Hz: %d\n",
++				 freq, ret);
++			break;
+ 		}
++	}
+ 
+-		count = dev_pm_opp_get_opp_count(dev);
+-		if (count <= 0) {
+-			pm_genpd_remove_device(dev);
+-			return 0;
+-		}
++	if (i == 0)
++		goto err_detach_acpi;
+ 
+-		/* Main device IS the OPP device under ACPI */
+-		opp_dev = dev;
+-	} else {
+-		return 0;
++	if (IS_ENABLED(CONFIG_ACPI) && !dev->of_node) {
++		pdevfreq->opp_dev = opp_dev;
++		pdevfreq->perf_domain_link = perf_domain_link;
++		ret = drmm_add_action_or_reset(&ptdev->base,
++					       panthor_devfreq_detach_perf_domain,
++					       pdevfreq);
++		if (ret)
++			return ret;
+ 	}
+ 
+ 	pdevfreq->opp_dev = opp_dev;
+@@ -354,6 +480,15 @@ static int panthor_devfreq_scmi_init(struct panthor_device *ptdev,
+ 		dev_pm_opp_get_opp_count(dev));
+ 
+ 	return dev_pm_opp_get_opp_count(dev);
++
++err_detach_acpi:
++	if (IS_ENABLED(CONFIG_ACPI) && !dev->of_node) {
++		if (perf_domain_link)
++			device_link_del(perf_domain_link);
++		dev_pm_domain_detach(opp_dev, true);
++	}
++
++	return ret;
+ }
+ 
+ static struct devfreq_dev_profile panthor_devfreq_profile = {
+@@ -397,6 +532,13 @@ int panthor_devfreq_init(struct panthor_device *ptdev)
+ 	if (ret < 0)
+ 		return ret;
+ 
++	if (pdevfreq->opp_dev && panthor_is_sky1(ptdev)) {
++		pdevfreq->sky1_clk_response_addr =
++			devm_ioremap(dev, PANTHOR_SKY1_PM_CLK_RESPONSE_ADDR, SZ_4K);
++		if (!pdevfreq->sky1_clk_response_addr)
++			return -ENOMEM;
++	}
++
+ 	/*
+ 	 * The power domain associated with the GPU may have already added an
+ 	 * OPP table, complete with OPPs, as part of the platform bus
+@@ -425,7 +567,7 @@ int panthor_devfreq_init(struct panthor_device *ptdev)
+ 
+ 	panthor_devfreq_reset(pdevfreq);
+ 
+-	cur_freq = clk_get_rate(ptdev->clks.core);
++	cur_freq = panthor_devfreq_get_actual_freq(ptdev);
+ 
+ 	/* Regulator coupling only takes care of synchronizing/balancing voltage
+ 	 * updates, but the coupled regulator needs to be enabled manually.

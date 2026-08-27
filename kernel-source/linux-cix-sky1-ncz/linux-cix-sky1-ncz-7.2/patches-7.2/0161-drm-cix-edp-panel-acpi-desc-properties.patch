@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 18 Jul 2026 14:00:00 -0400
+Subject: [PATCH] drm/cix: edp-panel: read desc properties via
+ device_property, default bpc/bus_format on ACPI
+
+cix_edp_panel_of_get_desc_data() is only ever reached when the ACPI
+match table's driver_data is unset (platform_acpi_match[] has
+{ .id = "CIXH5040", .driver_data = 0 } -- no static panel_desc), so
+on this ACPI-boot platform (confirmed live, Orion O6N 2026-07-18)
+it is the only path that ever runs. But the whole function reads via
+of_-only APIs (dev->of_node is NULL on ACPI): of_child_node_is_present
+always fails, so num_modes/num_timings stay 0, and the bpc/bus-format/
+width-mm/height-mm reads never even execute (gated behind
+`if (desc->num_modes || desc->num_timings)`).
+
+Confirmed via ACPI DSDT disassembly that CIXH5040 _DSD DOES provide
+width-mm (0x81) and height-mm (0xAB) -- real panel dimensions -- but
+the driver silently never picks them up because of_property_read_u32()
+cannot read from a non-existent OF node. bpc and bus-format are
+genuinely absent from this platform _DSD (a firmware/BIOS gap, not
+fixable in-kernel), so default them to the standard 8bpc /
+MEDIA_BUS_FMT_RGB888_1X24 -- the near-universal default for 24-bit
+eDP when unspecified -- rather than leaving them at 0/invalid and
+warning on every boot.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/gpu/drm/cix/dptx/cix_edp_panel.c b/drivers/gpu/drm/cix/dptx/cix_edp_panel.c
+index 114127c..5dbe57f 100644
+--- a/drivers/gpu/drm/cix/dptx/cix_edp_panel.c
++++ b/drivers/gpu/drm/cix/dptx/cix_edp_panel.c
+@@ -41,6 +41,7 @@
+ #include <drm/drm_panel.h>
+ #include <linux/acpi.h>
+ #include <linux/backlight.h>
++#include <linux/media-bus-format.h>
+ #include "cix_edp_panel.h"
+ 
+ /**
+@@ -799,12 +800,20 @@ static int cix_edp_panel_of_get_desc_data(struct device *dev,
+ 		}
+ 	}
+ 
+-	if (desc->num_modes || desc->num_timings) {
+-		of_property_read_u32(np, "bpc", &desc->bpc);
+-		of_property_read_u32(np, "bus-format", &desc->bus_format);
+-		of_property_read_u32(np, "width-mm", &desc->size.width);
+-		of_property_read_u32(np, "height-mm", &desc->size.height);
+-	}
++	/*
++	 * device_property_* works on both OF and ACPI (_DSD); the platform's
++	 * ACPI CIXH5040 device provides width-mm/height-mm but no bpc or
++	 * bus-format, so fall back to the standard 8bpc/RGB888 default
++	 * rather than leaving these at 0 (invalid).
++	 */
++	device_property_read_u32(dev, "bpc", &desc->bpc);
++	device_property_read_u32(dev, "bus-format", &desc->bus_format);
++	device_property_read_u32(dev, "width-mm", &desc->size.width);
++	device_property_read_u32(dev, "height-mm", &desc->size.height);
++	if (desc->bus_format == 0)
++		desc->bus_format = MEDIA_BUS_FMT_RGB888_1X24;
++	if (desc->bpc != 6 && desc->bpc != 8)
++		desc->bpc = 8;
+ 
+ 	device_property_read_u32(dev, "prepare-delay-ms", &desc->delay.prepare);
+ 	device_property_read_u32(dev, "enable-delay-ms", &desc->delay.enable);

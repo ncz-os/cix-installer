@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 19 Jul 2026 03:00:00 -0400
+Subject: [PATCH] drm/cix: linlondp: defer probe on missing aclk instead of failing
+
+Confirmed live on Orion O6N, 2026-07-19: the clk-sky1-acpi bridge fix
+(0157) makes sky1_acpi_clk_probe() succeed as soon as ANY CLKT entry
+maps, on the theory that consumers whose specific clock is not yet
+mapped would get their own retryable -EPROBE_DEFER from devm_clk_get()
+and be retried independently (0157s own commit message says exactly
+this, and flags itself UNVERIFIED ON HARDWARE). That theory only holds
+if the consumer actually propagates -EPROBE_DEFER -- this one instead
+returned the raw devm_clk_get() error (-ENOENT, 
+o such clkdev\)
+straight out of probe. -ENOENT is not -EPROBE_DEFER, so the driver
+core never retries it: a clock that legitimately becomes available
+moments later (once the bridge or SCMI catches up) is permanently
+unavailable to this driver for the rest of the boot.
+
+Same fix already proven working for cix-usbdp-phy (0155) and pwm-sky1
+(0158) -- both show as harmless \deferred probe pending\ and
+self-resolve later in boot. This applies the identical
+-ENOENT-to-EPROBE_DEFER translation via dev_err_probe() to the
+remaining consumers that were still hard-failing instead of deferring.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.c b/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.c
+index feb1dde..fffdb6f 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.c
++++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.c
+@@ -656,8 +656,9 @@ struct linlondp_dev *linlondp_dev_create(struct device *dev)
+ #if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
+ 	mdev->aclk = devm_clk_get(dev, "aclk");
+ 	if (IS_ERR(mdev->aclk)) {
+-		DRM_ERROR("Get engine clk failed.\n");
+-		err = PTR_ERR(mdev->aclk);
++		err = PTR_ERR(mdev->aclk) == -ENOENT ?
++			-EPROBE_DEFER : PTR_ERR(mdev->aclk);
++		dev_err_probe(dev, err, "Get engine clk failed.\n");
+ 		mdev->aclk = NULL;
+ 		goto err_cleanup;
+ 	}
+--
+2.51.0

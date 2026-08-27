@@ -1,0 +1,93 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] ASoC: cix: prefix DP audio codecs to stop duplicate DAPM widget warnings
+
+On the Sky1 (O6N) platform every DP audio output binds its own
+hdmi-audio-codec component (one platform device per DP, registered by
+drivers/gpu/drm/cix/dptx/trilin_dptx.c via HDMI_CODEC_DRV_NAME). The
+ACPI machine driver (cix_card_parse_acpi) adds up to five of these DP
+codec links to a single sound card ("cix,sky1").
+
+hdmi-codec.c registers its DAPM widgets ("TX", "RX") and DAI stream
+widgets ("I2S Playback", "Capture") with no name_prefix. With more than
+one DP present, several components therefore contribute widgets with the
+same name to one card. When each codec's hdmi_dai_probe() calls
+snd_soc_dapm_add_routes() for the internal "TX" <- "I2S Playback" route,
+the DAPM route resolver (snd_soc_dapm_add_path -> for_each_card_widgets)
+finds multiple identically named widgets and logs, per extra DP:
+
+  ASoC: source widget I2S Playback overwritten
+  ASoC: sink widget TX overwritten
+
+Route resolution still favours the widget from the same DAPM context so
+audio works, but the boot log is spammed and the codecs also carry
+colliding "ELD"/IEC958 kcontrol names.
+
+Root cause: multiple identical, unprefixed hdmi-audio-codec components on
+a single card. Fixed by populating a per-codec snd_soc_codec_conf with a
+unique name_prefix ("DP0".."DP4") keyed on each DP codec's component
+name, so its widgets and controls become "DP0 TX", "DP0 I2S Playback",
+etc. This is the canonical ASoC mechanism for multiple identical codecs
+on one card; the fix is contained entirely in the CIX machine driver and
+touches no core code.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+Upstream-Status: Pending
+---
+--- a/sound/soc/cix/card-utils.c
++++ b/sound/soc/cix/card-utils.c
+@@ -837,7 +837,8 @@
+ 	struct snd_soc_dai_link *link;
+ 	struct dai_link_info *link_info;
+ 	struct device *dev = card->dev;
+-	int ret, i, j, num_links = 0;
++	struct snd_soc_codec_conf *codec_conf;
++	int ret, i, j, num_links = 0, num_confs = 0;
+
+ 	ret = cix_gpio_init(priv);
+ 	if (ret)
+@@ -871,9 +872,23 @@
+ 	link->trigger_start = SND_SOC_TRIGGER_ORDER_DEFAULT;
+ 	link->trigger_stop = SND_SOC_TRIGGER_ORDER_LDC;
+
++	/*
++	 * Each DP audio output binds an independent hdmi-audio-codec
++	 * component. That codec sets no name_prefix, so with more than one
++	 * DP present every instance contributes identically named DAPM
++	 * widgets ("TX", "RX", "I2S Playback") to the same card, which makes
++	 * the DAPM route resolver log "source/sink widget ... overwritten".
++	 * Give each DP codec a unique prefix so its widgets stay distinct.
++	 */
++	codec_conf = devm_kcalloc(dev, SKY1_AUDSS_DP_AUDIO_COUNT,
++				  sizeof(*codec_conf), GFP_KERNEL);
++	if (!codec_conf)
++		return -ENOMEM;
++
+ 	card->name = "cix,sky1";
+ 	card->num_links = num_links;
+ 	card->dai_link = link;
++	card->codec_conf = codec_conf;
+ 	card->suspend_post = cix_card_suspend_post;
+ 	card->resume_pre = cix_card_resume_pre;
+ 	priv->link_info = link_info;
+@@ -952,10 +967,21 @@
+ 			goto err;
+ 		}
+
++		codec_conf[num_confs].dlc.name = link->codecs->name;
++		codec_conf[num_confs].name_prefix =
++			devm_kasprintf(dev, GFP_KERNEL, "DP%d", i);
++		if (!codec_conf[num_confs].name_prefix) {
++			ret = -ENOMEM;
++			goto err;
++		}
++		num_confs++;
++
+ 		link++;
+ 		link_info++;
+ 	}
+
++	card->num_configs = num_confs;
++
+ err:
+ 	return ret;
+ }

@@ -1,0 +1,55 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] drivers/base/arm: fix external-module include path on kernels where $(srctree) is the kernel tree
+
+drivers/base/arm/Kbuild computes the include path for its own
+top-level headers (include/linux/version_compat_defs.h,
+include/linux/protected_memory_allocator.h) with:
+
+    src:=$(if $(patsubst /%,,$(src)),$(srctree)/$(src),$(src))
+    ccflags-y += -I$(src)/../../../include
+
+This is a legacy compatibility shim from ARM's upstream mali_kbase
+tree that assumes when $(src) is relative (".", the non-absolute
+case), prefixing it with $(srctree) reconstructs the absolute path to
+THIS module's own directory. That assumption does not hold against
+the kernel tree used here (Linux v7.2-rc4 mainline): $(srctree) is the
+KERNEL source tree root, not this out-of-tree module's directory, so
+the computed include path resolves to a location three directories
+above the *kernel* source tree instead of three directories above
+drivers/base/arm within the GPU driver's own source tree. The result:
+memory_group_manager.c and protected_memory_allocator.c fail to build
+with
+
+    fatal error: linux/version_compat_defs.h: No such file or directory
+    fatal error: linux/protected_memory_allocator.h: No such file or directory
+
+$(M) (aka KBUILD_EXTMOD) is set by Kbuild to the absolute path this
+external module was invoked with (`make -C $(KDIR) M=<this dir>
+modules`) regardless of kernel version or $(srctree) semantics, so use
+that instead of the fragile $(srctree)-based reconstruction. This
+matches the actual invocation in gpu.mk
+(`$(MAKE) -C $(MGM_SRC_PATH) ...`, where MGM_SRC_PATH =
+$(CIX_GPU_PATH)/drivers/base/arm becomes $(M) for the sub-make), so
+$(M)/../../../include always resolves to $(CIX_GPU_PATH)/include, the
+correct location, independent of kernel version.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/base/arm/Kbuild
++++ b/drivers/base/arm/Kbuild
+@@ -25,8 +25,12 @@
+ #
+ # ccflags
+ #
+-src:=$(if $(patsubst /%,,$(src)),$(srctree)/$(src),$(src))
+-ccflags-y += -I$(src)/../../../include
++# Use $(M) (KBUILD_EXTMOD), not $(srctree)-relative $(src): on kernels
++# where $(srctree) resolves to the kernel tree rather than this
++# out-of-tree module's own tree, the old $(srctree)-based
++# reconstruction points at the wrong directory. $(M) is always this
++# module's absolute invocation directory regardless of kernel version.
++ccflags-y += -I$(M)/../../../include
+
+ subdir-ccflags-y += $(ccflags-y)
+

@@ -1,0 +1,82 @@
+diff --git a/driver/armchina-npu/sky1/sky1.c b/driver/armchina-npu/sky1/sky1.c
+index d68506f..b9e7887 100644
+--- a/driver/armchina-npu/sky1/sky1.c
++++ b/driver/armchina-npu/sky1/sky1.c
+@@ -445,9 +445,10 @@ err_detach:
+  * Reverse the per-core attach performed by sky1_npu_probe() (ACPI) and
+  * sky1_npu_attach_pd() (DT). Safe to call after a partial attach: cores
+  * left as NULL are skipped. Per-core runtime PM references taken via
+- * pm_runtime_resume_and_get() are NOT dropped here -- on the normal
+- * removal path runtime_suspend has already balanced them, and on the
+- * probe error path the caller drops them before calling here.
++ * pm_runtime_resume_and_get()/pm_runtime_get_sync() are normally already
++ * balanced by runtime_suspend, but NOT when the device was
++ * runtime-PM-forbidden at removal -- so the ACPI branch below drains any
++ * remaining usage refs itself before resetting the runtime-PM status.
+  */
+ static void sky1_npu_teardown_cores(struct device *dev)
+ {
+@@ -458,12 +459,29 @@ static void sky1_npu_teardown_cores(struct device *dev)
+ 			continue;
+ 
+ 		if (has_acpi_companion(dev)) {
++			struct device *core = cix_aipu_priv->pd_core[i];
++
+ 			/* Detach the ACPI PM domain and power the core off. */
+-			dev_pm_domain_detach(cix_aipu_priv->pd_core[i], true);
++			dev_pm_domain_detach(core, true);
+ 			/* Balance probe's pm_runtime_enable(). */
+-			pm_runtime_disable(cix_aipu_priv->pd_core[i]);
++			pm_runtime_disable(core);
++			/*
++			 * If the NPU was runtime-PM-forbidden at removal
++			 * (power/control == \"on\"), the PM core unbound us while
++			 * runtime-active: sky1_npu_runtime_suspend() never ran, so
++			 * the pm_runtime_get_sync() ref this core received in
++			 * sky1_npu_runtime_resume() was never put. These platform
++			 * devices persist across module reloads -- leaving them
++			 * \"active\" with leaked refs while the ACPI power
++			 * resources are off wedges the next probe (cores stuck in
++			 * D3cold, jobs hang IRQ-less). Drain the refs and reset
++			 * the status to match the hardware.
++			 */
++			while (atomic_read(&core->power.usage_count) > 0)
++				pm_runtime_put_noidle(core);
++			pm_runtime_set_suspended(core);
+ 			/* Balance probe's bus_find_device_by_fwnode(). */
+-			put_device(cix_aipu_priv->pd_core[i]);
++			put_device(core);
+ 		} else {
+ 			dev_dbg(dev, "%s\n", cix_npu_pd_names[i]);
+ 			/* Drop the stateless link before the domain it refers to. */
+@@ -537,6 +555,30 @@ static int sky1_npu_probe(struct platform_device *p_dev)
+ 					break;
+ 
+ 				cix_aipu_priv->pd_core[i] = bus_find_device_by_fwnode(&platform_bus_type, child);
++				if (cix_aipu_priv->pd_core[i]) {
++					struct device *core = cix_aipu_priv->pd_core[i];
++
++					/*
++					 * Self-heal stale runtime-PM state left by a
++					 * previous module instance. The CIXH4010 core
++					 * platform devices persist across module
++					 * reloads; if the previous remove ran while the
++					 * NPU was runtime-PM-forbidden (power/control ==
++					 * \"on\"), the per-core pm_runtime_get_sync()
++					 * refs leaked and the status froze at \"active\"
++					 * while the ACPI power resources were switched
++					 * off. A later pm_runtime_get_sync() is then a
++					 * silent no-op, ACPI _ON never runs, the cores
++					 * stay in D3cold and every dispatched job hangs
++					 * with no completion IRQ. Normalize to
++					 * disabled/suspended/usage==0 first.
++					 */
++					if (pm_runtime_enabled(core))
++						pm_runtime_disable(core);
++					while (atomic_read(&core->power.usage_count) > 0)
++						pm_runtime_put_noidle(core);
++					pm_runtime_set_suspended(core);
++				}
+                 pm_runtime_enable(cix_aipu_priv->pd_core[i]);
+ 				dev_pm_domain_attach(cix_aipu_priv->pd_core[i], true);
+ 				dev_pm_set_driver_flags(cix_aipu_priv->pd_core[i], DPM_FLAG_NO_DIRECT_COMPLETE);

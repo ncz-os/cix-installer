@@ -1,0 +1,17 @@
+--- a/driver/armchina-npu/include/armchina_aipu.h
++++ b/driver/armchina-npu/include/armchina_aipu.h
+@@ -363,6 +363,14 @@
+ 	__u64 first_task_tcb_pa;
+ 	__u64 last_task_tcb_pa;
+ 	__u64 tail_tcb_pa;
++	/* NCZ 2026-08-17: present in the 2.0.1 vendor KMD header. The UMD
++	 * (cix-noe-umd 2.0.2 / libnoe 0.6.0) encodes AIPU_IOCTL_SCHEDULE_JOB
++	 * as _IOW('A', 6, struct aipu_job_desc) with sizeof == 136 (0x88).
++	 * Without this field the struct is 128 (0x80), the _IOC number does
++	 * not match, and the kernel answers every schedule with ENOTTY --
++	 * surfacing to callers as JOB_DISPATCH_FAIL. The driver does not need
++	 * to act on it; it only has to agree on the size. */
++	__u32 is_coredump_en;
+ };
+ 
+ /**

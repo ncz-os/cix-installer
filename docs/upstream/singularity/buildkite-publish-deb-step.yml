@@ -1,0 +1,50 @@
+# HOW TO USE: This is a pipeline-step snippet, not an auto-deployed pipeline.
+# A human must paste this step into ncz-os/singularity-desktop's
+# .buildkite/pipeline.yml immediately after the existing build_arm64 step.
+# It depends on build/build-singularity-deb.sh from cix-installer; the agent
+# runs natively on cixmini and may not have a cix-installer working tree, so it
+# clones a shallow copy at runtime. The pre-provisioned ARGOS SSH key is the
+# only credential required for publication.
+#
+# NOTE ON $$ ESCAPING: `buildkite-agent pipeline upload` interpolates $VAR /
+# ${VAR} in this YAML using the UPLOADING agent's environment BEFORE the
+# runtime shell ever sees the command block -- so every $ meant for the
+# runtime bash shell (not a real Buildkite pipeline-level variable) must be
+# written as $$ here, exactly like the existing build_arm64 step in this
+# pipeline does for $$PWD / $$? / $$(id -u). A single un-escaped $ silently
+# gets pre-substituted (usually to empty, since these aren't real upload-time
+# env vars) instead of reaching the shell -- caught in Codex review
+# 2026-07-26, this file originally used single $ throughout.
+
+  - label: ":package: package and publish Singularity Desktop (.deb)"
+    key: "publish_deb"
+    depends_on: "build_arm64"
+    agents:
+      queue: "arm64"
+    timeout_in_minutes: 20
+    command: |
+      set -euo pipefail
+      trap 'rc=$$?; echo "[publish_deb] ERROR: failed at line $${LINENO} (exit $$rc)" >&2; exit "$$rc"' ERR
+
+      echo ":package: downloading Singularity Desktop build artifact"
+      buildkite-agent artifact download "singularity-opt.tgz" .
+
+      echo ":package: obtaining cix-installer packaging script"
+      PKG_ROOT="$${TMPDIR:-/tmp}/cix-installer-pkg-$$$$"
+      trap 'rm -rf "$$PKG_ROOT"' EXIT
+      git clone --depth 1 https://gitlab.com/ncz-os/cix-installer.git "$$PKG_ROOT"
+
+      echo ":package: building ncz-singularity-desktop .deb"
+      NCZ_SINGULARITY_GIT_SHA="$${BUILDKITE_COMMIT:0:12}" \
+        bash "$$PKG_ROOT/build/build-singularity-deb.sh" singularity-opt.tgz
+
+      DEB="$$(find "$$PWD" -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' -print -quit)"
+      if [ -z "$$DEB" ]; then
+        echo "[publish_deb] ERROR: packaging step produced no ncz-singularity-desktop .deb" >&2
+        exit 1
+      fi
+
+      echo ":rocket: publishing $$DEB to the NCZ-OS apt repository"
+      ssh -i ~/.ssh/id_ed25519_argonas_apt \
+        jasonperlow@192.168.207.22 < "$$DEB"
+      echo ":rocket: Singularity Desktop .deb published"

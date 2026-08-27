@@ -1,0 +1,17 @@
+=== kvm-kernel-gate ===
+  Image : /home/jasonperlow/yocto-docker/ybuild-tydeus/tmp/work/cixmini-nclawzero-linux/linux-cix-sky1-ncz/7.2+ncz/build/arch/arm64/boot/Image (49891840 bytes)
+  Config: /home/jasonperlow/yocto-docker/ybuild-tydeus/tmp/work/cixmini-nclawzero-linux/linux-cix-sky1-ncz/7.2+ncz/build/.config
+--- PCI ID collision lint ---
+  ok: CONFIG_USB_CDNS3_PCI_WRAP not set
+  ok: CONFIG_USB_CDNSP_PCI not set
+  ok: CONFIG_USB_CDNS2_UDC not set
+--- required symbols ---
+  ok: CONFIG_DEVTMPFS=y
+  ok: CONFIG_DEVTMPFS_MOUNT=y
+  ok: CONFIG_BLK_DEV_LOOP=y
+  ok: CONFIG_ISO9660_FS=y
+--- boot under qemu ---
+  accel=kvm cpu=host timeout=120s
+  reached root-mount (expected panic, no rootfs supplied)
+GATE: PASS ✅  Image
+  boot log: /tmp/kvm-kernel-gate.d1o3aP.log

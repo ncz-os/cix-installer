@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Fri, 24 Jul 2026 12:00:00 +0800
+Subject: [PATCH] firmware: arm_scmi: quiet expected fast-channel fallback noise
+
+Two SCMI messages are emitted at dev_warn on every O6N (Radxa Orion) boot
+even though nothing is wrong. They are benign, expected fallbacks, but at
+warn level they dominate `dmesg -l err,warn` and read as errors.
+
+1) driver.c, scmi_common_fastchannel_init() err_out path:
+
+     arm-scmi ...: Failed to get FC for protocol X [MSG_ID:.. / RES_ID:..]
+                   - ret:.. Using regular messaging.
+
+   This fires once per (protocol, message, resource) that has no fast
+   channel. When the platform is booted with `acpi_scmi_en=off` the SCMI
+   fast-channel doorbell region is simply not described, so every
+   perf/clock/etc. FC probe misses and the code correctly falls back to
+   regular (mailbox) messaging -- the supported, functionally-equivalent
+   transport. ~17 such lines appear on O6N. The success counterpart a few
+   lines above already logs at dev_dbg ("Using valid FC for protocol..."),
+   so the failure/fallback path is demoted to dev_dbg to match: the
+   fallback itself is unchanged and still taken.
+
+2) perf.c, scmi_perf_domain_init_fc()/attributes parse:
+
+     arm-scmi ...: multiplier for domain N rounded
+
+   Emitted when sustained_freq_khz*1000 is not an exact multiple of
+   sustained_perf_level, so the integer mult_factor is rounded. This is an
+   informational precision note, not an error -- the rounded multiplier is
+   used deliberately. ~5 lines on O6N. Demoted to dev_dbg. The genuinely
+   bad case just below (mult_factor == 0, "Wrong sustained perf/frequency")
+   is left at dev_warn untouched.
+
+Behaviour is identical; only the log level of these two benign expected
+paths changes. arm_scmi is an upstream core driver -- the diff is kept to
+the two dev_warn->dev_dbg tokens so it rebases across -rc bumps cleanly.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+Upstream-Status: Pending
+---
+--- a/drivers/firmware/arm_scmi/driver.c
++++ b/drivers/firmware/arm_scmi/driver.c
+@@ -2044,7 +2044,7 @@
+ 	ph->xops->xfer_put(ph, t);
+ 
+ err_out:
+-	dev_warn(ph->dev,
++	dev_dbg(ph->dev,
+ 		 "Failed to get FC for protocol %X [MSG_ID:%u / RES_ID:%u] - ret:%d. Using regular messaging.\n",
+ 		 pi->proto->id, message_id, domain, ret);
+ }
+--- a/drivers/firmware/arm_scmi/perf.c
++++ b/drivers/firmware/arm_scmi/perf.c
+@@ -302,7 +302,7 @@
+ 					/ dom_info->sustained_perf_level;
+ 			if ((dom_info->sustained_freq_khz * 1000UL) %
+ 			    dom_info->sustained_perf_level)
+-				dev_warn(ph->dev,
++				dev_dbg(ph->dev,
+ 					 "multiplier for domain %d rounded\n",
+ 					 dom_info->id);
+ 		}

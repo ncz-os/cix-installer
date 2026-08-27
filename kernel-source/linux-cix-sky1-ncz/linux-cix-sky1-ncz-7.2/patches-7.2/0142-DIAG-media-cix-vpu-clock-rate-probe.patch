@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 12 Jul 2026 21:00:00 -0400
+Subject: [PATCH] media: cix: diagnose VPU clock before MMIO
+
+Log the resolved VPU clock's actual rate and enable state immediately after
+enabling it.  Fail probe with a benign error at that point because returning
+success would let mvx_dev_probe() reach mvx_hwreg_get_core_mask() and fault on
+the same inaccessible VPU registers.
+
+Upstream-Status: Inappropriate [debug]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/media/platform/cix/dev/mvx_dev.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+index 600bf3d13..058360dc5 100755
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -1222,6 +1222,11 @@ static int mvx_pm_runtime_resume(struct device *dev)
+         return ret;
+     }
+ 
++    dev_err(dev, "MVXDIAG: vpu_clk rate=%lu rcsu=%d rstc=%d\n",
++            clk_get_rate(ctx->clk),
++            ctx->rcsu_rstc ? 1 : 0, ctx->rstc ? 1 : 0);
++    return -ENODEV; /* MVXDIAG: fail probe before any VPU MMIO */
++
+     /*
+      * Order matters: deassert the reset BEFORE enabling the IRQ.  Otherwise
+      * the IRQ can fire mid-reset (when the device is not yet fully out of
+-- 
+2.47.3

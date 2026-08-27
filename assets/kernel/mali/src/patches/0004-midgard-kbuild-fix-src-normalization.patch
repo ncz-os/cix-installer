@@ -1,0 +1,58 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] drivers/gpu/arm/midgard: fix $(src) normalization on kernels where $(srctree) is the kernel tree
+
+Same root cause as the drivers/base/arm/Kbuild fix in this series:
+midgard/Kbuild normalizes $(src) to an absolute path with
+
+    src:=$(if $(patsubst /%,,$(src)),$(srctree)/$(src),$(src))
+
+assuming that when $(src) starts as the relative "." case, prefixing
+it with $(srctree) reconstructs this out-of-tree module's own
+absolute directory. On Linux v7.2-rc4, $(srctree) resolves to the
+KERNEL source tree, not this module's tree, so every downstream use of
+$(src) in this file (subdirectory Kbuild includes for arbiter/,
+context/, csf/, ipa/, etc., and the -I include paths for platform/ and
+base/) resolves to the wrong location. The build fails immediately on
+the first subdir include:
+
+    midgard/Kbuild:235: .../kernel-source/./midgard/arbiter/Kbuild: No such file or directory
+    make[6]: *** No rule to make target '.../kernel-source/./midgard/arbiter/Kbuild'.  Stop.
+
+$(M) (KBUILD_EXTMOD) is Kbuild's own record of this module's absolute
+invocation directory (`make -C $(KDIR) M=<this dir> modules`) and is
+correct regardless of $(srctree) semantics -- gpu.mk invokes
+`$(MAKE) -C $(GPU_SRC_PATH) ...` where GPU_SRC_PATH =
+$(CIX_GPU_PATH)/drivers/gpu/arm, which becomes $(M)/midgard for the
+files under midgard/. Fixing this single normalization line (rather
+than every individual $(src)/... use site further down the file)
+corrects all of them at once, since they all derive from this line.
+
+This is the same fix class already applied and build-verified in this
+series for drivers/base/arm/Kbuild (memory_group_manager and
+protected_memory_allocator now build cleanly with the equivalent
+$(M)-based fix).
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/Kbuild
++++ b/drivers/gpu/arm/midgard/Kbuild
+@@ -18,9 +18,15 @@
+ #
+ #
+ 
+-# make $(src) as absolute path if it is not already, by prefixing $(srctree)
+-# This is to prevent any build issue due to wrong path.
+-src:=$(if $(patsubst /%,,$(src)),$(srctree)/$(src),$(src))
++# make $(src) as absolute path if it is not already, by prefixing $(M)
++# (KBUILD_EXTMOD, this out-of-tree module's own absolute invocation
++# directory). $(srctree) is the KERNEL source tree for an external
++# module build, not this module's tree, so prefixing with $(srctree)
++# resolves to the wrong location on kernels where $(src) starts as the
++# relative "." case. $(M) is always this module's own absolute path
++# regardless of kernel version. This is to prevent any build issue due
++# to wrong path.
++src:=$(if $(patsubst /%,,$(src)),$(M)/$(src),$(src))
+ 
+ #
+ # Prevent misuse when Kernel configurations are not present by default

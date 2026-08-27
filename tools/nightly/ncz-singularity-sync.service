@@ -1,0 +1,11 @@
+# /etc/systemd/system/ncz-singularity-sync.service
+[Unit]
+Description=NCZ daily sync: singularityos-lab/singularity-desktop -> GitLab fork + Buildkite validation build
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ncz-singularity-sync.sh
+# Real build can run long (native arm64 meson build of ~25 subprojects).
+TimeoutStartSec=4500

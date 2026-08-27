@@ -1,0 +1,29 @@
+From a4217a88b8fd80721f9e0d7b8e993b165cd4bca1 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 28 Jun 2026 14:21:06 -0400
+Subject: [PATCH] clk: sky1-audss: dont defer on missing regmap (patch 9014b)
+
+---
+ drivers/clk/cix/clk-sky1-audss.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/clk/cix/clk-sky1-audss.c b/drivers/clk/cix/clk-sky1-audss.c
+index 5784016cd7b1..f7cf8874a200 100644
+--- a/drivers/clk/cix/clk-sky1-audss.c
++++ b/drivers/clk/cix/clk-sky1-audss.c
+@@ -722,8 +722,10 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
+ 			if (syscon_dev) {
+ 				priv->regmap = dev_get_regmap(syscon_dev, NULL);
+ 				put_device(syscon_dev);
+-				if (!priv->regmap)
+-					priv->regmap = ERR_PTR(-EPROBE_DEFER);
++				/* NCZ patch 9014b: don't defer if regmap not ready yet.
++				 * The regmap will be available later. Continue with NULL regmap.
++				 * The IS_ERR_OR_NULL checks in clks_enable will skip regmap access.
++				 */
+ 			}
+ 		}
+ 	}
+-- 
+2.51.0
+

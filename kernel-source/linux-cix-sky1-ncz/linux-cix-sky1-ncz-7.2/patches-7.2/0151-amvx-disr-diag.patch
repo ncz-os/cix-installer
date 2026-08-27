@@ -1,0 +1,138 @@
+From 93a40f6664d10c74cc9c3889c7096cc94c9ecfb2 Mon Sep 17 00:00:00 2001
+From: Codex <codex@localhost>
+Date: Mon, 13 Jul 2026 12:49:45 -0400
+Subject: [PATCH] media: cix: capture deferred SError on first VPU read
+
+Mask asynchronous SError delivery across the first VPU aperture read.
+Use ESB to consume a pending error into DISR_EL1. Log the virtual and
+physical mapping before the read, decode a captured syndrome, and stop
+initialization with -EIO after this single diagnostic access.
+
+Signed-off-by: Codex <codex@localhost>
+---
+ drivers/media/platform/cix/dev/mvx_hwreg.c | 95 ++++++++++++++++++++++-
+ 1 file changed, 94 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/cix/dev/mvx_hwreg.c b/drivers/media/platform/cix/dev/mvx_hwreg.c
+index 57d09ccdf..1b9a771b4 100755
+--- a/drivers/media/platform/cix/dev/mvx_hwreg.c
++++ b/drivers/media/platform/cix/dev/mvx_hwreg.c
+@@ -34,10 +34,15 @@
+  ****************************************************************************/
+ 
+ #include <linux/bitops.h>
++#include <linux/bitfield.h>
+ #include <linux/bits.h>
+ #include <linux/device.h>
+ #include <linux/of_address.h>
+ #include <linux/module.h>
++#ifdef CONFIG_ARM64
++#include <asm/barrier.h>
++#include <asm/sysreg.h>
++#endif
+ #include "mvx_log_group.h"
+ #include "mvx_hwreg.h"
+ #include "mvx_hwreg_v500.h"
+@@ -169,11 +174,99 @@ static unsigned int get_rcsu_offset(enum mvx_rcsu_hwreg_what what)
+     }
+ }
+ 
++#ifdef CONFIG_ARM64
++#define MVX_DISR_A		BIT_ULL(31)
++#define MVX_DISR_DFSC_MASK	GENMASK_ULL(5, 0)
++#define MVX_DISR_EA		BIT_ULL(9)
++#define MVX_DISR_AET_MASK	GENMASK_ULL(12, 10)
++
++static const char *mvx_disr_dfsc_name(unsigned int dfsc)
++{
++	if (dfsc == 0x10)
++		return "external abort";
++	if (dfsc >= 0x14 && dfsc <= 0x17)
++		return "external abort on translation-table walk";
++
++	return "see Arm ESR fault status code";
++}
++
++static const char *mvx_disr_aet_name(unsigned int aet)
++{
++	switch (aet) {
++	case 0:
++		return "uncategorized/uncontainable";
++	case 1:
++		return "uncorrected unrecoverable";
++	case 2:
++		return "uncorrected restartable, not yet consumed";
++	case 3:
++		return "uncorrected recoverable";
++	case 6:
++		return "corrected";
++	default:
++		return "reserved";
++	}
++}
++#endif
++
++static int mvx_hwreg_read_id_disr(struct mvx_hwreg *hwreg, uint32_t *value)
++{
++#ifdef CONFIG_ARM64
++	u64 disr;
++	u32 v;
++	unsigned int aet;
++	unsigned int dfsc;
++
++	dev_err(hwreg->dev,
++		"MVXDISR: registers VA=%px  (about to read offset 0x0)\n",
++		hwreg->registers);
++	dev_err(hwreg->dev,
++		"MVXDISR: registers phys=0x%llx size=0x%llx\n",
++		hwreg->res->start, resource_size(hwreg->res));
++
++	/* Mask asynchronous SError until ESB records it in DISR_EL1. */
++	asm volatile("msr daifset, #4" : : : "memory");
++	dsb(sy);
++	isb();
++	write_sysreg_s(0, SYS_DISR_EL1);
++	isb();
++
++	v = readl(hwreg->registers);
++	*value = v;
++
++	/* ESB is encoded as a HINT so older assemblers accept it. */
++	asm volatile("hint #16" : : : "memory");
++	disr = read_sysreg_s(SYS_DISR_EL1);
++	write_sysreg_s(0, SYS_DISR_EL1);
++	isb();
++	asm volatile("msr daifclr, #4" : : : "memory");
++
++	if (disr & MVX_DISR_A) {
++		dfsc = FIELD_GET(MVX_DISR_DFSC_MASK, disr);
++		aet = FIELD_GET(MVX_DISR_AET_MASK, disr);
++		dev_err(hwreg->dev,
++			"MVXDISR: DISR=0x%016llx DFSC=0x%02x (%s) EA=%u AET=0x%x (%s) readl=0x%08x\n",
++			disr, dfsc, mvx_disr_dfsc_name(dfsc),
++			!!(disr & MVX_DISR_EA), aet,
++			mvx_disr_aet_name(aet), v);
++	}
++
++	dev_err(hwreg->dev, "MVXDISR: readl=0x%08x\n", v);
++	return -EIO;
++#else
++	*value = readl(hwreg->registers);
++	return 0;
++#endif
++}
++
+ static int mvx_hwreg_hw_ver_construct(struct mvx_hwreg *hwreg)
+ {
+     uint32_t value;
++	int ret;
+ 
+-    value = readl(hwreg->registers);
++	ret = mvx_hwreg_read_id_disr(hwreg, &value);
++	if (ret)
++		return ret;
+ 
+     switch (value >> 16) {
+     case 0x5650:
+-- 
+2.43.0

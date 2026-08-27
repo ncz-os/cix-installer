@@ -1,0 +1,90 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 12 Jul 2026 06:40:00 -0400
+Subject: [PATCH] clk: cix: bind the Sky1 CLKT clkdev bridge to the ACPI bus
+
+The CIX platform support (patch 0066, cix-acpi-plat.c) installs an ACPI scan
+handler for CIXHA010 in the DENY_SCMI_CLKS list when acpi_scmi_en is enabled
+(the default). That handler has no .attach callback, so the ACPI core clears
+platform_id and deliberately does NOT create a platform device for CIXHA010.
+The platform-driver CLKT->clkdev bridge (patch 0096) therefore never probes,
+so vpu_clk / display engine clk / *_apb clocks resolve to -ENOENT and the VPU
+(amvx), display (linlondp), pwm-sky1, usb3-phy and audss consumers all fail.
+
+Bind the bridge directly to struct acpi_device instead. CIXHA010 exists on the
+ACPI bus independently of platform enumeration; the ACPI bus propagates
+-EPROBE_DEFER until the SCMI clkdev names appear. Independent of _CRS/_ADR and
+of the scan-handler deny policy; no acpi_scmi_en=off workaround needed.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/clk/cix/clk-sky1-acpi.c b/drivers/clk/cix/clk-sky1-acpi.c
+index 4c5ca954da00..c8035368f9f8 100644
+--- a/drivers/clk/cix/clk-sky1-acpi.c
++++ b/drivers/clk/cix/clk-sky1-acpi.c
+@@ -21,7 +21,6 @@
+ #include <linux/clk.h>
+ #include <linux/clkdev.h>
+ #include <linux/module.h>
+-#include <linux/platform_device.h>
+ 
+ struct sky1_acpi_clk {
+ 	struct device *dev;
+@@ -151,29 +150,29 @@ out:
+ 	return AE_OK;
+ }
+ 
+-static int sky1_acpi_clk_probe(struct platform_device *pdev)
++static int sky1_acpi_clk_add(struct acpi_device *adev)
+ {
+ 	struct sky1_acpi_clk *priv;
+ 	acpi_status status;
+ 
+-	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
++	priv = devm_kzalloc(&adev->dev, sizeof(*priv), GFP_KERNEL);
+ 	if (!priv)
+ 		return -ENOMEM;
+ 
+-	priv->dev = &pdev->dev;
++	priv->dev = &adev->dev;
+ 
+ 	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
+ 				     ACPI_UINT32_MAX, sky1_clkt_walk_cb,
+ 				     NULL, priv, NULL);
+ 	if (ACPI_FAILURE(status))
+-		return dev_err_probe(&pdev->dev, -ENODEV,
++		return dev_err_probe(&adev->dev, -ENODEV,
+ 				     "ACPI namespace walk failed\n");
+ 
+ 	if (priv->mapped == 0)
+-		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
++		return dev_err_probe(&adev->dev, -EPROBE_DEFER,
+ 				     "No SCMI clocks mapped yet\n");
+ 
+-	dev_info(&pdev->dev, "Mapped %d ACPI clock lookup entries\n",
++	dev_info(&adev->dev, "Mapped %d ACPI clock lookup entries\n",
+ 		 priv->mapped);
+ 	return 0;
+ }
+@@ -184,14 +183,12 @@ static const struct acpi_device_id sky1_acpi_clk_ids[] = {
+ };
+ MODULE_DEVICE_TABLE(acpi, sky1_acpi_clk_ids);
+ 
+-static struct platform_driver sky1_acpi_clk_driver = {
+-	.driver = {
+-		.name = "clk-sky1-acpi",
+-		.acpi_match_table = sky1_acpi_clk_ids,
+-	},
+-	.probe = sky1_acpi_clk_probe,
++static struct acpi_driver sky1_acpi_clk_driver = {
++	.name = "clk-sky1-acpi",
++	.ids = sky1_acpi_clk_ids,
++	.ops = { .add = sky1_acpi_clk_add },
+ };
+-module_platform_driver(sky1_acpi_clk_driver);
++module_acpi_driver(sky1_acpi_clk_driver);
+ 
+ MODULE_DESCRIPTION("CIX Sky1 ACPI clock lookup table driver");
+ MODULE_LICENSE("GPL");
+-- 
+2.51.0

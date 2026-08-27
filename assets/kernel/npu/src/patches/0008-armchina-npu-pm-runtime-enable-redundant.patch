@@ -1,0 +1,53 @@
+From 96c2d1357d89f7999e678cc7be5c646a3032f40d Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 23 May 2026 14:01:20 -0400
+Subject: [PATCH 8/8] armchina-npu: drop redundant pm_runtime_enable in ACPI
+ probe loop
+
+The ACPI bus enables runtime PM for child devices via acpi_bind_one().
+sky1_npu_probe ACPI branch then calls pm_runtime_enable() again per
+NPU core, which trips the kernel's 'Unbalanced pm_runtime_enable!'
+warning (once per core, 3 lines in dmesg) because disable_depth is
+already 0.
+
+The warning is non-fatal; probe continues and /dev/aipu binds cleanly.
+But it pollutes the dmesg first-boot record + diagnostics dumps. Drop
+the line + add a comment explaining why.
+
+Validated on cixmini .66 (kernel 7.0.9-cix-sky1-next): probe still
+binds to ACPI CIXH4000:00, all 3 cores attach via dev_pm_domain_attach,
+no Unbalanced pm_runtime_enable warnings.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ driver/armchina-npu/sky1/sky1.c | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/driver/armchina-npu/sky1/sky1.c b/driver/armchina-npu/sky1/sky1.c
+index 99c9650..f592445 100644
+--- a/driver/armchina-npu/sky1/sky1.c
++++ b/driver/armchina-npu/sky1/sky1.c
+@@ -392,9 +392,17 @@ static int sky1_npu_probe(struct platform_device *p_dev)
+ 		if (i == CIX_NPU_PD_NUM)
+ 			break;
+                 acpi_bind_one(&(to_acpi_device_node(child)->dev), to_acpi_device_node(child));
+-				cix_aipu_priv->pd_core[i] = &(to_acpi_device_node(child)->dev);
+-                pm_runtime_enable(cix_aipu_priv->pd_core[i]);
+-				dev_pm_domain_attach(&(to_acpi_device_node(child)->dev), true);
++                cix_aipu_priv->pd_core[i] = &(to_acpi_device_node(child)->dev);
++                /*
++                 * Do NOT call pm_runtime_enable() here — the ACPI bus
++                 * already enables runtime PM for child devices when they
++                 * are probed via acpi_bind_one(). Calling it again
++                 * decrements disable_depth below 0 and trips the kernel's
++                 * "Unbalanced pm_runtime_enable!" warning at probe time,
++                 * once per core, polluting dmesg even though the driver
++                 * otherwise functions.
++                 */
++                dev_pm_domain_attach(&(to_acpi_device_node(child)->dev), true);
+                 i++;
+             }
+         }
+-- 
+2.51.0
+

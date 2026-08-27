@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 14 Jul 2026 13:15:00 -0400
+Subject: [PATCH] clk: cix: sky1: don't defer the whole CLKT bridge on
+ partial SCMI readiness
+
+Patch 0148 made sky1_acpi_clk_probe() defer the entire probe if even one
+of the ~207 CLKT entries has not yet resolved to a live SCMI clock
+(priv->pending != 0), instead of the original behavior of succeeding as
+soon as any entry mapped (priv->mapped != 0, still the edge/7.0-7.1
+behavior in next-patches/0003).
+
+Returning a non-zero probe result -- including -EPROBE_DEFER -- causes
+the driver core to run devres_release_all() for the device, which tears
+down every clkdev entry this probe attempt created via
+devm_add_action_or_reset()/sky1_clkdev_drop(). Combined with the
+all-or-nothing gate, every retry of this probe walks the whole ACPI
+namespace again from zero: if SCMI does not publish all ~207
+scmi-clk-<id> clocks atomically in one instant, a retry that catches
+even a single clock not yet registered discards all otherwise-successful
+mappings and starts over. Nothing bounds how many times this can repeat,
+and each iteration re-triggers deferred-probe processing for every
+consumer that depends on a clkdev alias this bridge owns (cix-usbdp-phy
+x4, linlondp x5 observed), producing an unbounded synchronized retry
+storm rather than a bounded number of independent per-consumer defers.
+
+This exactly reproduces on cixmini/.66: rc3 with 0148 applied never
+converges past the display/USB-DP-phy probe loop, while the edge kernel
+(7.0.12-cix-sky1-next), whose clk-sky1-acpi has no equivalent gate, maps
+all 207 entries and succeeds in well under a second on the same
+firmware/DSDT. Confirmed the two trees' clk-sky1-acpi.c are otherwise
+identical (0096 is a direct port of the edge/next-patches/0003 driver);
+this all-or-nothing gate is the only functional difference.
+
+Restore "succeed once any entry mapped" as the terminal condition. Keep
+0148's real error propagation (priv->error, for genuinely invalid CLKT
+entries) since that part was not the regression. Keep counting
+priv->pending for visibility, but only log it, don't fail on it --
+consumers that still can't find their specific clock alias will get
+their own -ENOENT/-EPROBE_DEFER independently from their own
+devm_clk_get(), which is the existing, working, per-consumer retry path
+(see patches 0154/0155/0156).
+
+UNVERIFIED ON HARDWARE -- not yet boot-tested. Requires a supervised
+test cycle (physical console watch) before deployment; see
+project_o6n_dev_box_66_production_2026_07_13.md for why unattended
+reboot-testing on this board is unsafe.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/clk/cix/clk-sky1-acpi.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/clk/cix/clk-sky1-acpi.c b/drivers/clk/cix/clk-sky1-acpi.c
+index a8e584d77dd1..7c1b2e6f9a11 100644
+--- a/drivers/clk/cix/clk-sky1-acpi.c
++++ b/drivers/clk/cix/clk-sky1-acpi.c
+@@ -179,15 +179,15 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
+ 		return dev_err_probe(&pdev->dev, priv->error,
+ 				     "Invalid ACPI CLKT entry\n");
+ 
+-	if (priv->pending)
+-		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
+-				     "%d ACPI CLKT entries not mapped yet\n",
+-				     priv->pending);
+-
+ 	if (priv->mapped == 0)
+ 		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
+ 				     "No SCMI clocks mapped yet\n");
+ 
++	if (priv->pending)
++		dev_dbg(&pdev->dev,
++			"%d ACPI CLKT entries still pending, dependent consumers will retry independently\n",
++			priv->pending);
++
+ 	dev_info(&pdev->dev, "Mapped %d ACPI clock lookup entries\n",
+ 		 priv->mapped);
+ 	return 0;
+-- 
+2.51.0

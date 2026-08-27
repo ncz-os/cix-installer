@@ -1,0 +1,23 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] amvx: use strscpy() for the video_device name
+
+strncpy() is no longer available to kernel code; adding <linux/string.h>
+does not bring it back. strscpy() has existed since v4.3 and is the
+correct NUL-terminating replacement here -- the destination is a fixed
+char array and the return value is not consumed, so no version gate is
+needed and the 7.0.12 LTS tier still builds.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/driver/if/v4l2/mvx_ext_v4l2.c	2026-08-04 01:00:16.830463424 +0000
++++ b/driver/if/v4l2/mvx_ext_v4l2.c	2026-08-04 01:00:16.832975116 +0000
+@@ -122,7 +122,7 @@
+                 V4L2_CAP_VIDEO_M2M_MPLANE |
+                 V4L2_CAP_EXT_PIX_FORMAT |
+                 V4L2_CAP_STREAMING;
+-    strncpy(ext->vdev.name, name, sizeof(ext->vdev.name));
++    strscpy(ext->vdev.name, name, sizeof(ext->vdev.name));
+ 
+     video_set_drvdata(&ext->vdev, ext);
+ 

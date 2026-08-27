@@ -1,0 +1,11 @@
+# /etc/systemd/system/ncz-singularity-sync.timer
+[Unit]
+Description=Run NCZ singularity-desktop upstream sync + Buildkite validation daily
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

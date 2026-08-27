@@ -1,0 +1,18 @@
+panthor-y := \
+	panthor_devfreq.o \
+	panthor_device.o \
+	panthor_drv.o \
+	panthor_fw.o \
+	panthor_gem.o \
+	panthor_gpu.o \
+	panthor_heap.o \
+	panthor_hw.o \
+	panthor_mmu.o \
+	panthor_pwr.o \
+	panthor_sched.o \
+	panthor_sky1.o
+
+obj-m += panthor.o
+
+CFLAGS_panthor_gpu.o := -I$(src)
+ccflags-y += -DCONFIG_DRM_PANTHOR_MODULE

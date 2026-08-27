@@ -1,0 +1,20 @@
+#!/bin/sh
+# ncz-gpu-compat-run — run a DESKTOP OpenGL app on the vendor Mali stack.
+#
+# The CIX blob exposes GLES and Vulkan but no desktop OpenGL, so a GL app (the
+# GL screensavers, glmark2's desktop profile, older GTK/Qt tools) finds no
+# usable context in mali mode. Routing it through Mesa Zink puts desktop GL on
+# top of the blob's Vulkan.
+#
+# Only useful in mali mode. In panthor mode Mesa provides desktop GL natively
+# and this wrapper is unnecessary.
+#
+# NB: upstream's version carries a --dri3 flag to fix window decorations under
+# Xwayland. NCZ-OS is Wayland-native (Singularity), so that path is dropped.
+#
+# Usage: ncz-gpu-compat-run <command> [args...]
+set -u
+[ $# -ge 1 ] || { echo "usage: ncz-gpu-compat-run <command> [args...]" >&2; exit 1; }
+export MESA_LOADER_DRIVER_OVERRIDE=zink
+export ZINK_DEBUG=quiet
+exec "$@"

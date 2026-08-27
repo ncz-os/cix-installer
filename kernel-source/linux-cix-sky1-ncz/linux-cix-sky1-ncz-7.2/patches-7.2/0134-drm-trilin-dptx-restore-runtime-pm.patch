@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 11 Jul 2026 00:00:00 -0400
+Subject: [PATCH] drm/trilin-dptx: restore runtime-PM on the DP transmitter
+
+The DP transmitter core power init/deinit had its runtime-PM calls
+commented out, so the DPTX held no reference on its own SCMI POWER
+genpd domain. With genpd now live (patches-7.2/0132 + 0133), the DPTX
+domain is a gated domain; without a runtime-PM reference
+genpd_power_off_unused() can power it off, dropping HPD and blanking
+the display even when the DPU domain is held.
+
+Restore pm_runtime_enable() + pm_runtime_get_sync() in core_power_init
+and the matching pm_runtime_put_sync() + pm_runtime_disable() in
+core_power_deinit so the transmitter holds its own domain. The existing
+apb_clk enable/disable is preserved.
+
+Upstream-Status: Inappropriate [downstream ACPI/PM enablement for CIX Sky1]
+---
+ drivers/gpu/drm/cix/dptx/trilin_dptx.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/dptx/trilin_dptx.c b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+index ed2802e..2e5d41f 100644
+--- a/drivers/gpu/drm/cix/dptx/trilin_dptx.c
++++ b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+@@ -2015,8 +2015,8 @@ static int trilin_dp_core_power_init(struct trilin_dp *dp)
+ 	DP_DEBUG("enter");
+ 
+ 	//power on DP_CORE_PM
+-	//pm_runtime_enable(dp->dev);
+-	//pm_runtime_get_sync(dp->dev);
++	pm_runtime_enable(dp->dev);
++	pm_runtime_get_sync(dp->dev);
+ 
+ 	if (!IS_ERR(dp->dpsub->apb_clk))
+ 		clk_prepare_enable(dp->dpsub->apb_clk);
+@@ -2031,8 +2031,8 @@ static int trilin_dp_core_power_deinit(struct trilin_dp *dp)
+ 	if (!IS_ERR(dp->dpsub->apb_clk))
+ 		if (__clk_is_enabled(dp->dpsub->apb_clk))
+ 			clk_disable_unprepare(dp->dpsub->apb_clk);
+-	//pm_runtime_put_sync(dp->dev);
+-	//pm_runtime_disable(dp->dev);
++	pm_runtime_put_sync(dp->dev);
++	pm_runtime_disable(dp->dev);
+ 	return 0;
+ }
+ 
+-- 
+2.51.0

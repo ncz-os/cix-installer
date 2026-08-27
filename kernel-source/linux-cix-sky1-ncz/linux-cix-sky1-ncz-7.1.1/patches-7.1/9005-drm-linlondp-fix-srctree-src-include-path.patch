@@ -1,0 +1,25 @@
+drm/cix/linlon-dp: fix include path for absolute $(src) (v7.1 Kbuild)
+
+In current Kbuild, $(src) is an absolute path to the module source
+directory, so "-I $(srctree)/$(src)" produces a doubled, invalid path
+(srctree + absolute src) and the compiler cannot find headers such as
+linlondp_drm.h that live under linlon-dp/include. Use "-I $(src)"
+directly, matching the new Kbuild semantics.
+
+Signed-off-by: NCZ build <jperlow@gmail.com>
+---
+ drivers/gpu/drm/cix/linlon-dp/Makefile | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/drivers/gpu/drm/cix/linlon-dp/Makefile
++++ b/drivers/gpu/drm/cix/linlon-dp/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ 
+ ccflags-y := \
+-    -I $(srctree)/$(src)/include \
+-    -I $(srctree)/$(src)
++    -I $(src)/include \
++    -I $(src)
+ 
+ linlon-dp-y := \

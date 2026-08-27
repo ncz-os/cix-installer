@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
+Subject: [PATCH] platform: resolve ACPI-named IRQ resources whose GSI is not yet mapped
+
+platform_get_irq_byname() returns -ENOENT for an ACPI IRQ resource
+whose GSI has not yet been mapped (for example, when the consumer
+probes before the controller has finished acpi_register_gsi()).
+
+Fall back to the ACPI GSI lookup by walking the named resource and
+re-checking the GSI mapping once the controller is actually up, rather
+than failing outright.  Observed live on CIX Sky1 firmware where the
+PSIU mailbox probe raced with the ACPI IRQ registration and the
+PSIU sidecar failed to bind.
+
+Ported from srcshelton/gentoo-ebuilds:
+  40042-platform-acpi-resolve-named-irq-resources.patch
+
+Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
+[ported: applied verbatim from srcshelton/gentoo-ebuilds
+  40042-platform-acpi-resolve-named-irq-resources.patch]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/base/platform.c b/drivers/base/platform.c
+index fb9120b0b..c7f46cc6b 100644
+--- a/drivers/base/platform.c
++++ b/drivers/base/platform.c
+@@ -477,6 +477,24 @@ struct resource *platform_get_resource_byname(struct platform_device *dev,
+ }
+ EXPORT_SYMBOL_GPL(platform_get_resource_byname);
+ 
++static int platform_get_irq_resource_index(struct platform_device *dev,
++					   struct resource *target)
++{
++	unsigned int i, index = 0;
++
++	for (i = 0; i < dev->num_resources; i++) {
++		struct resource *res = &dev->resource[i];
++
++		if (resource_type(res) != IORESOURCE_IRQ)
++			continue;
++		if (res == target)
++			return index;
++		index++;
++	}
++
++	return -EINVAL;
++}
++
+ static int __platform_get_irq_byname(struct platform_device *dev,
+ 				     const char *name)
+ {
+@@ -489,6 +507,13 @@ static int __platform_get_irq_byname(struct platform_device *dev,
+ 
+ 	r = platform_get_resource_byname(dev, IORESOURCE_IRQ, name);
+ 	if (r) {
++		if (is_acpi_device_node(dev_fwnode(&dev->dev)) &&
++		    r->flags & IORESOURCE_DISABLED) {
++			ret = platform_get_irq_resource_index(dev, r);
++			if (ret < 0)
++				return ret;
++			return platform_get_irq_optional(dev, ret);
++		}
+ 		if (WARN(!r->start, "0 is an invalid IRQ number\n"))
+ 			return -EINVAL;
+ 		return r->start;

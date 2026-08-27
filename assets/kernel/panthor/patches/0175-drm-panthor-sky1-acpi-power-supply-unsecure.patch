@@ -1,0 +1,168 @@
+From edc847c3bf5df9a24685f27924c623dcf76d8252 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 25 Jul 2026 03:11:47 +0800
+Subject: [PATCH 175/175] drm/panthor: sky1 un-secure GPU via ACPI power-supply
+ (_PR0) under acpi_scmi_en=off
+
+On CIX Sky1 the Mali-G720 register block boots SECURED. The first
+non-secure (Linux) MMIO access to it faults the secure world and floods
+the console with "IDM: GPU secure access, error status=0x0", hanging the
+boot. The GPU is powered AND un-secured by a separate ACPI power device
+referenced from the GPU's _DSD "power-supply" property (HID CIXH5001,
+ASL name GPUP). Its ACPI _PR0 power resource (_ON) writes the GPU RCSU
+PGCTRL register (0x15000218) and drives a memory-repair/power-group
+handshake over plain MMIO at 0x15000000 -- pure ACPI AML, no SCMI -- so
+it works with acpi_scmi_en=off (required on NCZ-OS for PCIe/NVMe), where
+the SCMI perf/power genpd referenced by the GPU's own "power-domains"
+property is absent.
+
+The proprietary mali_kbase driver un-secures the GPU exactly this way
+(platform/sky1: follow "power-supply", pm_runtime_enable +
+dev_pm_domain_attach(power_on=true), RPM_ACTIVE device_link). Panthor
+never followed that reference, so under acpi_scmi_en=off nothing ran
+GPUP's _PR0._ON and the GPU stayed secured -> IDM flood. Mirror kbase:
+attach the power-supply device (evaluating _PR0._ON un-secures the GPU
+before any GPU MMIO) and hold it resumed with an RPM_ACTIVE link.
+
+Supersedes the earlier raw-SMC attempt (SCMI POWER_STATE_SET via SMC
+0xc2000001): the actual Sky1 power-on/un-secure is ACPI-native MMIO, not
+an SMC, and mali_kbase confirms the power-supply/_PR0 path is the one
+that works with SCMI disabled.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+Upstream-Status: Inappropriate [oe-specific]
+---
+ drivers/gpu/drm/panthor/panthor_device.c | 103 +++++++++++++++++++++++
+ 1 file changed, 103 insertions(+)
+
+diff --git a/drivers/gpu/drm/panthor/panthor_device.c b/drivers/gpu/drm/panthor/panthor_device.c
+index 7cc432f..36f8c8f 100644
+--- a/drivers/gpu/drm/panthor/panthor_device.c
++++ b/drivers/gpu/drm/panthor/panthor_device.c
+@@ -11,6 +11,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/pm_domain.h>
+ #include <linux/pm_runtime.h>
++#include <linux/property.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/reset.h>
+ 
+@@ -99,6 +100,95 @@ bool panthor_is_sky1(struct panthor_device *ptdev)
+ 	return false;
+ }
+ 
++/*
++ * CIX Sky1 GPU un-secure / power-on via the ACPI "power-supply" device.
++ *
++ * The Mali-G720 register block boots SECURED. The very first non-secure
++ * (Linux) MMIO access to it faults the secure world and floods the console
++ * with "IDM: GPU secure access, error status=0x0" -- an unrecoverable boot
++ * hang on Sky1. Something has to power on AND un-secure (grant non-secure
++ * access to) the GPU register block before panthor touches it.
++ *
++ * On Sky1 that is done by a SEPARATE ACPI power device referenced from the
++ * GPU's _DSD "power-supply" property (HID CIXH5001, ASL name GPUP). Its ACPI
++ * _PR0 power resource (_ON method) writes the GPU RCSU PGCTRL register
++ * (0x15000218) and drives a memory-repair / power-group-enable handshake
++ * over plain MMIO at 0x15000000. It is pure ACPI AML -- it does NOT use SCMI
++ * -- so it works even with acpi_scmi_en=off (required on NCZ-OS for
++ * PCIe/NVMe), where the SCMI perf/power genpd referenced by the GPU's own
++ * "power-domains" property is absent.
++ *
++ * The proprietary mali_kbase driver un-secures the GPU exactly this way
++ * (drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c:
++ * sky1_gpu_attach_pd(): follow the "power-supply" fwnode reference, find the
++ * platform device, pm_runtime_enable() + dev_pm_domain_attach(power_on=true),
++ * then add an RPM_ACTIVE device_link). Panthor never followed that reference,
++ * so under acpi_scmi_en=off nothing ran GPUP's _PR0._ON and the GPU stayed
++ * secured -> IDM flood. We mirror kbase here.
++ *
++ * dev_pm_domain_attach(power_dev, true) attaches the ACPI PM domain to the
++ * power device and powers it to D0 immediately (evaluates _PR0._ON), so the
++ * GPU is un-secured before panthor issues any GPU MMIO. The RPM_ACTIVE
++ * device_link keeps the power device resumed for the GPU's runtime-PM life
++ * (so an autosuspend of the GPU does not release the un-secure).
++ */
++static int panthor_sky1_attach_power_supply(struct device *dev)
++{
++	struct fwnode_handle *ps_fwnode;
++	struct device *power_dev;
++	struct device_link *link;
++	int err;
++
++	ps_fwnode = fwnode_find_reference(dev_fwnode(dev), "power-supply", 0);
++	if (IS_ERR(ps_fwnode)) {
++		/*
++		 * No "power-supply" reference: an older firmware or a variant
++		 * that un-secures the GPU some other way. Do not fail probe
++		 * here; let it proceed (and fault loudly at first MMIO if the
++		 * GPU really is still secured) rather than mis-diagnosing.
++		 */
++		dev_warn(dev,
++			 "Sky1: no ACPI 'power-supply' reference; GPU left secured\n");
++		return 0;
++	}
++
++	power_dev = bus_find_device_by_fwnode(&platform_bus_type, ps_fwnode);
++	fwnode_handle_put(ps_fwnode);
++	if (!power_dev) {
++		dev_err(dev,
++			"Sky1: ACPI 'power-supply' device not yet enumerated\n");
++		return -EPROBE_DEFER;
++	}
++
++	pm_runtime_enable(power_dev);
++
++	/*
++	 * power_on=true evaluates the power device's ACPI _PR0._ON now, which
++	 * un-secures the GPU register block. Match kbase and tolerate a
++	 * non-zero return (the ACPI PM domain may already be attached from
++	 * enumeration); the RPM_ACTIVE link below is what holds it powered.
++	 */
++	err = dev_pm_domain_attach(power_dev, true);
++	if (err && err != -EEXIST)
++		dev_warn(dev,
++			 "Sky1: power-supply PM-domain attach returned %d (continuing)\n",
++			 err);
++
++	link = device_link_add(dev, power_dev,
++			       DL_FLAG_STATELESS | DL_FLAG_PM_RUNTIME |
++			       DL_FLAG_RPM_ACTIVE);
++	if (!link) {
++		dev_err(dev, "Sky1: failed to link GPU to power-supply device\n");
++		dev_pm_domain_detach(power_dev, true);
++		pm_runtime_disable(power_dev);
++		put_device(power_dev);
++		return -EINVAL;
++	}
++
++	dev_info(dev, "Sky1: GPU un-secured via ACPI power-supply (_PR0)\n");
++	return 0;
++}
++
+ /*
+  * Attach every pm-domain explicitly.
+  *
+@@ -113,6 +203,19 @@ int panthor_pm_domain_init(struct panthor_device *ptdev)
+ 	struct device *dev = ptdev->base.dev;
+ 	int num_domains, i, err;
+ 
++	/*
++	 * CIX Sky1 under ACPI: the GPU register block boots secured and must be
++	 * un-secured via its ACPI "power-supply" device (GPUP / CIXH5001) before
++	 * any GPU MMIO, or the boot hangs flooding "IDM: GPU secure access".
++	 * This is ACPI-native (_PR0._ON) and works with acpi_scmi_en=off, where
++	 * the GPU's SCMI "power-domains" genpd is absent. Mirror mali_kbase.
++	 */
++	if (panthor_is_sky1(ptdev) && has_acpi_companion(dev)) {
++		err = panthor_sky1_attach_power_supply(dev);
++		if (err)
++			return err;
++	}
++
+ 	if (!IS_ENABLED(CONFIG_OF) || !dev->of_node)
+ 		return 0;
+ 
+-- 
+2.53.0
+

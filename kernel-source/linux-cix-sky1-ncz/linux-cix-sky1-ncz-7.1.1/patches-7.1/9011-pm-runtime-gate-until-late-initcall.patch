@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 27 Jun 2026 22:00:00 -0400
+Subject: [PATCH] pm_runtime: gate resume until late_initcall on CIX Sky1
+
+Under ACPI boot on CIX Sky1, deferred probe retries call
+pm_runtime_resume which triggers driver runtime_resume callbacks that
+touch unready syscon MMIO (reset not deasserted, power domain not on).
+This raises an asynchronous external abort (SError) identical to the
+first SError fixed by 9008.
+
+The crash signature (from IMG capture at t=0.515s, 7.1.2-ncz2 #1 PREEMPT):
+  el1h_64_error_handler
+  __regmap_has_tag_bits
+  regmap_read
+  __pm_runtime_resume
+  rpm_resume
+  __rpm_callback
+  driver_probe_device
+
+Follow the 9009 pattern (defer SCMI perf domain fwnode provider to
+late_initcall) but at a more fundamental level: gate ALL
+__pm_runtime_resume calls until the system is fully initialized. This
+is the most robust fix for a vendor kernel with many CIX drivers,
+preventing the crash for all drivers without requiring per-driver
+fixes. The actual hardware initialization happens later when each
+driver properly resumes its device.
+
+This patch also adds the missing #include <linux/pm_runtime.h> to
+clk-sky1-acpi.c (needed because the new pm_runtime_set_active() and
+pm_runtime_get_noresume() calls in the 9010 patch require that header
+to be visible).
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/base/power/runtime.c b/drivers/base/power/runtime.c
+index 335288e8b5b3..69d7cdf0a3d9 100644
+--- a/drivers/base/power/runtime.c
++++ b/drivers/base/power/runtime.c
+@@ -17,6 +17,26 @@
+ #include "../base.h"
+ #include "power.h"
+ 
++/*
++ * NCZ CIX Sky1 boot fix: gate __pm_runtime_resume until the system is
++ * fully initialized. During early boot, deferred probe retries call
++ * pm_runtime_resume which triggers driver runtime_resume callbacks that
++ * touch unready syscon MMIO (reset not deasserted, power domain not on),
++ * causing SError. We skip the actual resume; the device's hardware state
++ * will be set up later when its driver properly resumes it. Set in
++ * late_initcall after all CIX drivers have had a chance to probe.
++ */
++static bool cix_system_ready __read_mostly;
++bool cix_pm_system_ready(void) { return cix_system_ready; }
++EXPORT_SYMBOL_GPL(cix_pm_system_ready);
++static int __init cix_system_ready_init(void)
++{
++	cix_system_ready = true;
++	pr_info("cix_pm: system ready - pm_runtime callbacks enabled\n");
++	return 0;
++}
++late_initcall(cix_system_ready_init);
++
+ typedef int (*pm_callback_t)(struct device *);
+ 
+ static inline pm_callback_t get_callback_ptr(const void *start, size_t offset)
+@@ -1190,6 +1210,23 @@ int __pm_runtime_resume(struct device *dev, int rpmflags)
+ 	might_sleep_if(!(rpmflags & RPM_ASYNC) && !dev->power.irq_safe &&
+ 			dev->power.runtime_status != RPM_ACTIVE);
+ 
++	/*
++	 * NCZ CIX Sky1 boot fix: skip the actual runtime resume until the
++	 * system is ready. During early boot (before late_initcall sets
++	 * cix_system_ready), deferred probe retries trigger this function,
++	 * which would call the driver\'s runtime_resume callback. That
++	 * callback often touches syscon MMIO that is not yet powered/reset,
++	 * causing SError. We return 1 (RPM_ACTIVE short-circuit) so the
++	 * caller proceeds as if the device is already active. The device\'s
++	 * actual hardware initialization happens later when the driver
++	 * properly resumes it.
++	 */
++	if (!cix_system_ready) {
++		if (rpmflags & RPM_GET_PUT)
++			atomic_inc(&dev->power.usage_count);
++		return 1;
++	}
++
+ 	if (rpmflags & RPM_GET_PUT)
+ 		atomic_inc(&dev->power.usage_count);
+ 
+diff --git a/drivers/clk/cix/clk-sky1-acpi.c b/drivers/clk/cix/clk-sky1-acpi.c
+index 319ae4814142..a3fa31e666e0 100644
+--- a/drivers/clk/cix/clk-sky1-acpi.c
++++ b/drivers/clk/cix/clk-sky1-acpi.c
+@@ -22,6 +22,7 @@
+ #include <linux/clkdev.h>
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
++#include <linux/pm_runtime.h>
+ 
+ struct sky1_acpi_clk {
+ 	struct device *dev;
+--
+2.51.0
