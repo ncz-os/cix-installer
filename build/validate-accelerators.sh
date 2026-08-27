@@ -58,12 +58,25 @@ echo ""
 echo "--- GPU ---"
 
 GPU_BOUND=0
+# Sky1 ships TWO valid GPU boot entries: Panthor (a real DRM driver, binds
+# under /sys/class/drm/card*/device/driver) and the legacy mali_kbase
+# binary-adjacent driver, which does NOT bind through the DRM subsystem at
+# all -- it registers its own /dev/mali0 char device via a separate sysfs
+# path. Checking DRM binding alone false-NEGATIVES on a real, working Mali
+# boot: measured live on O6N 2026-08-27, mali_kbase was loaded (lsmod: 24
+# references), /dev/mali0 existed, and clinfo enumerated a full real ARM
+# OpenCL platform -- genuinely working GPU compute -- while this check's
+# earlier version reported FAIL because it only understood the DRM path.
 GPU_DRIVER_LINK=$(run "for c in /sys/class/drm/card*/device/driver; do readlink -f \"\$c\" 2>/dev/null; done | grep -i panthor" || true)
+GPU_MALI_NODE=$(run "[ -c /dev/mali0 ] && echo /dev/mali0" || true)
 if [ -n "$GPU_DRIVER_LINK" ]; then
-    note "panthor bound: $GPU_DRIVER_LINK"
+    note "GPU driver bound (Panthor/DRM): $GPU_DRIVER_LINK"
+    GPU_BOUND=1
+elif [ -n "$GPU_MALI_NODE" ]; then
+    note "GPU driver bound (Mali, non-DRM): $GPU_MALI_NODE present, mali_kbase resident"
     GPU_BOUND=1
 else
-    fail "GPU: no /sys/class/drm/card*/device/driver resolves to panthor -- device node existing is NOT sufficient (linlondp always owns card0/renderD128 on Sky1)"
+    fail "GPU: neither a panthor DRM binding nor /dev/mali0 present -- device node existing is NOT sufficient on its own (linlondp always owns card0/renderD128 on Sky1)"
 fi
 
 if [ "$GPU_BOUND" = "1" ]; then
@@ -119,8 +132,13 @@ fi
 
 VENV_PY="/opt/ncz/embed-venv/bin/python"
 if run "[ -x \"$VENV_PY\" ]"; then
-    LIBNOE_TEST=$(run "\"$VENV_PY\" -c 'import libnoe; print(\"libnoe import OK:\", getattr(libnoe, \"__version__\", \"unknown\"))' 2>&1" || true)
-    if echo "$LIBNOE_TEST" | grep -q "libnoe import OK"; then
+    # Checked by exit code, not by grepping the output for a marker string --
+    # a failed import's traceback ECHOES the failing source line, which
+    # contains this script's own print() call verbatim, so grepping for
+    # "libnoe import OK" as a substring is a false positive on failure.
+    # Measured live on O6N 2026-08-27: this exact bug printed PASS
+    # immediately above a ModuleNotFoundError traceback.
+    if LIBNOE_TEST=$(run "\"$VENV_PY\" -c 'import libnoe; print(\"OK:\", getattr(libnoe, \"__version__\", \"unknown\"))' 2>&1"); then
         pass "NPU: libnoe binding imports successfully in the embed-venv"
         note "$LIBNOE_TEST"
     else
