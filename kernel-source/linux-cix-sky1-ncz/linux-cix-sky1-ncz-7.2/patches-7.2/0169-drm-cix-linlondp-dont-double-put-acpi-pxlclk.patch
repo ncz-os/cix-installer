@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 21 Jul 2026 11:00:00 +0800
+Subject: [PATCH] drm: cix: linlondp: don't double-put the ACPI pixel clock
+
+linlondp_pipeline_destroy() unconditionally calls clk_put() on
+pipe->pxlclk, but the two parse paths acquire that clock differently:
+
+  linlondp_parse_pipe_dt()   - of_clk_get_by_name(), NOT devres-managed,
+                               so it does need an explicit clk_put().
+  linlondp_parse_pipe_acpi() - devm_clk_get(), devres-managed, released
+                               automatically when the owning device goes
+                               away.
+
+On an ACPI system (CIX Sky1) the explicit clk_put() therefore drops a
+reference devres still owns. The clock is put a second time when the
+devres group is released, and the second __clk_put() runs hlist_del() on
+a clks_node whose pprev is already LIST_POISON2:
+
+  Unable to handle kernel paging request at virtual address dead000000000122
+  ESR = 0x0000000096000044   (DABT, WnR=1 - the hlist_del store)
+    __clk_put+0x38/0x158
+    clk_put+0x18/0x30
+    devm_clk_release+0x34/0x48
+    release_nodes+0x6c/0xb0
+    devres_release_group+0x13c/0x180
+    try_to_bring_up_aggregate_device+0x2f8/0x330
+    __component_add+0xc0/0x1d0
+    trilin_dptx_cix_probe+0x48/0x70 [trilin_dpsub]
+
+component_add() opens a devres group on the aggregate master (linlondp)
+before binding and releases it if a component defers, which is what
+triggers the second put here. The oops kills the aggregate DRM device, so
+no /dev/dri node is ever created and the display is dead - on Orion O6N
+the console freezes at the last line painted before the fault.
+
+Only put the clock on the DT path, mirroring the existing
+has_acpi_companion() split immediately below for the node/fwnode puts.
+The same distinction is already handled correctly for mdev->aclk in
+linlondp_dev.c, which uses devm_clk_put() for its devm-acquired clock.
+
+The ACPI clock is acquired against
+to_acpi_data_node(pipe->fwnode)->parent->dev rather than mdev->dev directly.
+The crash stack shows that devres entry being released by the aggregate
+device's devres group, so in practice it resolves to the device owning that
+group. Rather than depend on which device it resolves to, simply let devres
+release the reference it already owns.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/gpu/drm/cix/linlon-dp/linlondp_pipeline.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_pipeline.c b/drivers/gpu/drm/cix/linlon-dp/linlondp_pipeline.c
+--- a/drivers/gpu/drm/cix/linlon-dp/linlondp_pipeline.c
++++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_pipeline.c
+@@ -55,7 +55,15 @@ void linlondp_pipeline_destroy(struct linlondp_dev *mdev,
+ 		linlondp_component_destroy(mdev, c);
+ 	}
+ #if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
+-	clk_put(pipe->pxlclk);
++	/*
++	 * The DT path takes pxlclk with of_clk_get_by_name() and must put it
++	 * here. The ACPI path uses devm_clk_get(), so devres already owns the
++	 * reference - putting it again double-frees and oopses in __clk_put()
++	 * on a LIST_POISON2 clks_node when the devres group is released.
++	 */
++	if (!has_acpi_companion(mdev->dev))
++		clk_put(pipe->pxlclk);
++	pipe->pxlclk = NULL;
+ #endif
+ 	if (!has_acpi_companion(mdev->dev)) {
+ 		of_node_put(pipe->of_output_links[0]);

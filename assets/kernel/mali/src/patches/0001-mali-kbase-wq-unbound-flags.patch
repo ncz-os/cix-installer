@@ -1,0 +1,54 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Fri, 24 Jul 2026 00:00:00 +0000
+Subject: [PATCH] mali_kbase: set WQ_UNBOUND on flag-less alloc_workqueue calls
+
+Kernel 7.2 (workqueue.c) removed the implicit per-CPU default for
+alloc_workqueue(). __alloc_workqueue() now WARN_ONCE()s at
+kernel/workqueue.c:5851 when a workqueue is created with neither
+WQ_PERCPU nor WQ_UNBOUND set ("is using neither WQ_PERCPU or
+WQ_UNBOUND. Setting WQ_PERCPU.").
+
+Two kbase call sites pass flags == 0:
+
+  * kbase_reset_gpu_init()  (csf/mali_kbase_csf_reset_gpu.c) -- runs in
+    the kbase device init/probe path, so this is the WARNING seen at
+    boot during mali_kbase probe.
+  * kbase_csf_kcpu_queue_context_init() (csf/mali_kbase_csf_kcpu.c) --
+    runs on first GPU context creation; latent, would become the
+    first-to-fire (WARN_ONCE) once the reset one is silenced.
+
+Both are single/serialised helper queues; make them explicitly
+WQ_UNBOUND (max_active preserved) so the flag combination is valid on
+6.x/7.x and unchanged on older kernels.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c      | 2 +-
+ drivers/gpu/arm/midgard/csf/mali_kbase_csf_reset_gpu.c | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c
+@@ -2734,7 +2734,7 @@ int kbase_csf_kcpu_queue_context_init(struct kbase_context *kctx)
+ int kbase_csf_kcpu_queue_context_init(struct kbase_context *kctx)
+ {
+ 	kctx->csf.kcpu_queues.kcpu_wq =
+-		alloc_workqueue("mali_kcpu_wq_%i_%i", 0, 0, kctx->tgid, kctx->id);
++		alloc_workqueue("mali_kcpu_wq_%i_%i", WQ_UNBOUND, 0, kctx->tgid, kctx->id);
+ 	if (kctx->csf.kcpu_queues.kcpu_wq == NULL) {
+ 		dev_err(kctx->kbdev->dev,
+ 			"Failed to initialize KCPU queue high-priority workqueue");
+diff --git a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_reset_gpu.c b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_reset_gpu.c
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_reset_gpu.c
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_reset_gpu.c
+@@ -644,7 +644,7 @@ int kbase_reset_gpu_init(struct kbase_device *kbdev)
+
+ int kbase_reset_gpu_init(struct kbase_device *kbdev)
+ {
+-	kbdev->csf.reset.workq = alloc_workqueue("Mali reset workqueue", 0, 1);
++	kbdev->csf.reset.workq = alloc_workqueue("Mali reset workqueue", WQ_UNBOUND, 1);
+ 	if (kbdev->csf.reset.workq == NULL)
+ 		return -ENOMEM;
+

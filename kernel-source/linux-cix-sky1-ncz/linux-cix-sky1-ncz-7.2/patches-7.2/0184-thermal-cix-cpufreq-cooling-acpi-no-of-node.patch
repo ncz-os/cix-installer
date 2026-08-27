@@ -1,0 +1,57 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] thermal: cpufreq_cooling: don't error on missing OF node under ACPI
+
+of_cpufreq_cooling_register() looks the CPU up with of_get_cpu_node() and,
+when that returns NULL, logs at pr_err:
+
+  cpufreq_cooling: OF node not available for cpu6
+
+On Sky1 (O6N) the system boots via ACPI, so CPUs have no device-tree node
+by design. The cpufreq core still calls this OF registration helper for
+every policy, producing one error line per CPU at boot. The registration
+correctly bails (returns NULL) — the message is a false alarm, not a real
+failure.
+
+Root cause: an OF-only cooling-register API invoked on an ACPI system,
+where a missing CPU OF node is expected rather than a misconfiguration.
+
+DEMOTED: the message is demoted to pr_debug when ACPI is active
+(!acpi_disabled). On a genuine device-tree boot a missing CPU node is
+still a real problem, so the original pr_err is preserved for the OF case
+(acpi_disabled, which is a compile-time 1 when CONFIG_ACPI is off). No
+functional change to cooling-device registration.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+Upstream-Status: Pending
+---
+--- a/drivers/thermal/cpufreq_cooling.c
++++ b/drivers/thermal/cpufreq_cooling.c
+@@ -10,6 +10,7 @@
+  *		Viresh Kumar <viresh.kumar@linaro.org>
+  *
+  */
++#include <linux/acpi.h>
+ #include <linux/cpu.h>
+ #include <linux/cpufreq.h>
+ #include <linux/cpu_cooling.h>
+@@ -678,8 +679,18 @@
+ 	struct thermal_cooling_device *cdev = NULL;
+ 
+ 	if (!np) {
+-		pr_err("cpufreq_cooling: OF node not available for cpu%d\n",
+-		       policy->cpu);
++		/*
++		 * On ACPI systems CPUs legitimately have no OF node, so this
++		 * is an expected condition rather than an error. Only warn
++		 * loudly when device-tree is in use and the node is genuinely
++		 * missing; on ACPI demote it to a debug message.
++		 */
++		if (!acpi_disabled)
++			pr_debug("cpufreq_cooling: no OF node for cpu%d (ACPI)\n",
++				 policy->cpu);
++		else
++			pr_err("cpufreq_cooling: OF node not available for cpu%d\n",
++			       policy->cpu);
+ 		return NULL;
+ 	}
+ 

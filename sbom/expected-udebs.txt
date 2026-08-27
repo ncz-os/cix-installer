@@ -1,0 +1,6 @@
+# Required installer-environment udebs that must be explicitly preserved or
+# grafted into the ISO media pool. These are not target-system .deb packages,
+# so manifests/*.pkgs and sbom/expected-packages.txt do not cover them.
+cdebconf-udeb
+cdebconf-newt-udeb
+hw-detect

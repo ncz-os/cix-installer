@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
+Subject: [PATCH] PCI: cix: allow Sky1 root ports to allocate I/O bridge windows
+
+Sky1 firmware provides translated host I/O apertures for the PCIe
+root buses but leaves the downstream root-port bridge I/O windows
+disabled; endpoints with small legacy I/O BARs therefore fail
+assignment even though the parent root bus has a valid I/O aperture.
+Stuart's own motivation, paraphrased from the upstream commit: the
+hardware still has standard bridge I/O base/limit registers, so
+allowing the PCI core to size and program a downstream I/O window
+fixes the assignment failures on real Sky1 endpoints.
+
+Scope the fix to CIX Sky1 root ports (vendor 0x17cd, device 0x0100,
+on the root bus) and only when the parent bus already exposes an
+I/O resource, then mark the standard bridge I/O window as assignable
+so normal PCI resource sizing/programming can handle the endpoint
+BARs.  Do not broaden this into a generic bridge quirk -- the
+exact-ID gate and the parent-I/O-aperture guard are what keep the
+fallback from mis-firing on non-CIX hardware or on CIX hardware
+whose firmware did publish a normal bridge window.
+
+Ported from srcshelton/gentoo-ebuilds:
+  40093-pci-cix-enable-root-port-io-window-assignment.patch
+
+Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
+[ported: applied verbatim from srcshelton/gentoo-ebuilds
+  40093-pci-cix-enable-root-port-io-window-assignment.patch]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/pci/probe.c b/drivers/pci/probe.c
+index dd0abbc63..2435cbed6 100644
+--- a/drivers/pci/probe.c
++++ b/drivers/pci/probe.c
+@@ -417,6 +417,24 @@ static void pci_read_bridge_io(struct pci_dev *dev, struct resource *res,
+ 	}
+ }
+ 
++static bool pci_bridge_has_parent_io_window(struct pci_dev *dev)
++{
++	struct resource *res;
++
++	pci_bus_for_each_resource(dev->bus, res) {
++		if (res && resource_type(res) == IORESOURCE_IO)
++			return true;
++	}
++
++	return false;
++}
++
++static bool pci_bridge_is_cix_sky1_root_port(struct pci_dev *dev)
++{
++	return pci_is_root_bus(dev->bus) &&
++	       dev->vendor == 0x17cd && dev->device == 0x0100;
++}
++
+ static void pci_read_bridge_mmio(struct pci_dev *dev, struct resource *res,
+ 				 bool log)
+ {
+@@ -525,6 +543,21 @@ static void pci_read_bridge_windows(struct pci_dev *bridge)
+ 	if (io) {
+ 		bridge->io_window = 1;
+ 		pci_read_bridge_io(bridge, &res, true);
++	} else if (pci_bridge_is_cix_sky1_root_port(bridge) &&
++		   pci_bridge_has_parent_io_window(bridge)) {
++		/*
++		 * Sky1 firmware exposes a translated host I/O aperture for
++		 * each PCIe root bus, but leaves the root-port bridge I/O
++		 * window disabled. The hardware still has standard bridge I/O
++		 * base/limit registers, so allow resource assignment to size
++		 * and program a downstream I/O window for endpoints with small
++		 * legacy I/O BARs.
++		 */
++		bridge->io_window = 1;
++		bridge->io_window_1k = 0;
++		pci_info(bridge,
++			 "CIX Sky1 root port: enabling allocatable I/O window from host aperture\n");
++		pci_read_bridge_io(bridge, &res, true);
+ 	}
+ 
+ 	pci_read_bridge_mmio(bridge, &res, true);

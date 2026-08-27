@@ -1,0 +1,141 @@
+# rescue.pkgs — full toolset for the r130 on-disk RESCUE PARTITION
+#
+# Target: dedicated rescue rootfs (own partition + rEFInd menuentry) booting
+#         the EDGE 7.0.12-cix-sky1-next kernel (has btrfs + Sky1 display/NPU
+#         stack), headless arm64. Reachable over serial + LAN (telnet, dropbear,
+#         sshd). The installed system boots rEFInd (switched from systemd-boot
+#         at r118 by operator preference); refind below is also useful in-rescue
+#         to repair the installed system's refind.conf.
+#
+# This is the SUPERSET: it includes everything in installer-base.pkgs plus the
+# deeper recovery / forensics / fs / net toolset cherry-picked from the
+# SystemRescue 13.01 package list, mapped to Ubuntu 26.04 (resolute) arm64.
+#
+# EXCLUDED on purpose (not applicable to a headless arm64 box):
+#   - all X11/Wayland/XFCE/GTK/Qt GUI apps (gparted, firefox, remmina, thunar,
+#     keepassxc-gui, featherpad, geany, ghex GUI ...)
+#   - x86-only firmware/boot (intel-ucode, amd-ucode, memtest86+, syslinux, ms-sys)
+#   - Windows-centric tooling (chntpw)
+#
+# Format: one binary package per line; blank lines and '# ...' comments ignored.
+# Self-contained: a rescue-rootfs builder can consume this alone.
+
+# ===== filesystems (the class of failure that motivated this) =====
+btrfs-progs         # CRITICAL: our root is btrfs; old 6.18 rescue USB lacked it
+e2fsprogs
+xfsprogs
+f2fs-tools
+ntfs-3g
+exfatprogs
+dosfstools
+mtools
+nilfs-tools
+squashfs-tools
+
+# ===== block / partition / disk =====
+util-linux          # fdisk, sfdisk, cfdisk, lsblk, blkid, wipefs, lscpu
+parted
+gdisk
+nvme-cli            # .66/.O6 boot from NVMe
+smartmontools
+hdparm
+sdparm
+sg3-utils
+lvm2
+mdadm
+cryptsetup
+multipath-tools
+
+# ===== imaging / clone / data recovery =====
+gddrescue           # GNU ddrescue (binary: ddrescue)
+testdisk            # testdisk + photorec
+fsarchiver
+partclone
+pv
+pigz
+xz-utils
+zstd
+
+# ===== network / remote access =====
+systemd-sysv        # CRITICAL: provides /sbin/init for the standalone partition
+systemd-timesyncd   # no battery RTC in some rescue paths; TLS needs valid time
+dbus                # system bus for timedatectl and standard recovery tooling
+iproute2
+net-tools
+iputils-ping
+ethtool
+tcpdump
+mtr-tiny
+traceroute
+socat
+netcat-openbsd
+iperf3
+bind9-dnsutils      # dig, nslookup
+openssh-server
+dropbear-bin
+picocom             # lightweight serial-console client (talk to other fleet boxes)
+inetutils-telnetd
+openbsd-inetd
+busybox-static
+dhcpcd-base         # Debian DHCP client; busybox udhcpc is the final fallback
+
+# Generic firmware for NICs/storage-adjacent recovery hardware.  The rescue
+# builder also copies assets/firmware/rtl_nic directly, but Debian firmware
+# packages make the standalone image less brittle and cover future Realtek
+# additions that the committed asset snapshot may not yet include.
+firmware-linux-free
+firmware-realtek
+firmware-misc-nonfree
+curl
+wget
+rsync
+sshfs
+nfs-common
+cifs-utils
+lftp
+# rclone is not currently in Debian Testing arm64; ship it only as a verified
+# NCZ vendor asset when the rescue workflow actually needs remote-object sync.
+
+# ===== hardware / diag / boot-repair =====
+pciutils
+usbutils
+dmidecode
+lshw
+hwinfo
+inxi
+efibootmgr
+efivar
+# rEFInd is shipped as NCZ's pinned EFI binary + refresh helper, not a Debian
+# package; rescue repairs the ESP directly with those staged assets.
+kexec-tools         # chainload a known-good kernel without full reboot
+stress-ng
+memtester
+lm-sensors
+
+# ===== kernel / module / initrd / boot repair =====
+# The class of failure this rescue env now exists for: a bad kernel/module
+# deploy that wedges every on-disk boot (orphaned ld-linux, broken initrd,
+# wrong DTB). These let us repair a chrooted target in place.
+kmod                # depmod/modprobe/lsmod/insmod — module tree repair + blacklist
+initramfs-tools     # update-initramfs/mkinitramfs — rebuild a target's initrd
+cpio                # pack/unpack initrd images + generic archive recovery
+lz4                 # kernel/initrd lz4 (de)compression
+device-tree-compiler # dtc — inspect/patch CIX Sky1 arm64 device trees (.dtb/.dts)
+kpartx              # map partitions inside image files for offline recovery
+binutils            # readelf/objdump/strings/nm — ELF + bootloader forensics
+                    #   (e.g. diagnosing the orphaned-ld-linux usrmerge break)
+
+# ===== shell / edit / scripting =====
+vim
+nano
+less
+mc
+tmux
+file
+tree
+jq
+htop
+lsof
+strace
+gnupg
+python3             # drives AGENTS.md repair helpers + /lib-symlink fixer

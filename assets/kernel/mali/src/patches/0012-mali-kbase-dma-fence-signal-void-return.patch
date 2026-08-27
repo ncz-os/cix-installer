@@ -1,0 +1,66 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 25 Jul 2026 00:00:00 +0000
+Subject: [PATCH] mali_kbase: adapt to dma_fence_signal() returning void
+
+Kernel 7.2's dma_fence_signal() (drivers/dma-buf/dma-fence.c) no
+longer returns int; it is now `void dma_fence_signal(struct dma_fence
+*fence)` and always succeeds internally (the "already signalled" case
+is now handled silently inside dma_fence_signal_timestamp_locked()
+rather than being surfaced to the caller as an error). Confirmed by
+reading both the header declaration and the .c implementation on this
+kernel: no error path is returned at all any more.
+
+Both call sites in mali_kbase_csf_kcpu.c
+(kbase_kcpu_fence_force_signal_process,
+kbasep_kcpu_fence_signal_process) captured the old int return value
+solely to detect "already signalled" and immediately treat it as
+success (`ret = 0`) either way -- i.e. `ret` was always 0 after this
+block regardless of branch taken. Since the new API can no longer
+report that condition to the caller, the dev_warn() "has been
+signalled already" diagnostic is no longer reachable and is removed
+along with the dead branch; the call becomes a plain (void) statement
+followed by the same unconditional `ret = 0` the old code always
+produced. This is a behavior-preserving simplification forced by the
+kernel API change, not a functional change: the reachable outcome for
+callers of these two functions is identical before and after.
+
+Fixes the mali_kbase.ko build against kernel 7.2.0-rc4-sky1-ncz (next
+error after patches 0008-0011 unblocked the devfreq/hrtimer_setup_on_stack/
+cix_scmi_register_em/timer_delete translation units).
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c
+@@ -1641,12 +1641,8 @@
+ 	if (WARN_ON(!fence_info->fence))
+ 		return -EINVAL;
+ 
+-	ret = dma_fence_signal(fence_info->fence);
+-	if (unlikely(ret < 0)) {
+-		dev_warn(kctx->kbdev->dev, "dma_fence(%d) has been signalled already\n", ret);
+-		/* Treated as a success */
+-		ret = 0;
+-	}
++	dma_fence_signal(fence_info->fence);
++	ret = 0;
+ 
+ 	KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev, KCPU_FENCE_SIGNAL, kcpu_queue,
+ 				  fence_info->fence->context, fence_info->fence->seqno);
+@@ -1777,13 +1773,9 @@
+ 	if (WARN_ON(!fence_info->fence))
+ 		return -EINVAL;
+ 
+-	ret = dma_fence_signal(fence_info->fence);
++	dma_fence_signal(fence_info->fence);
+ 
+-	if (unlikely(ret < 0)) {
+-		dev_warn(kctx->kbdev->dev, "dma_fence(%d) has been signalled already\n", ret);
+-		/* Treated as a success */
+-		ret = 0;
+-	}
++	ret = 0;
+ 
+ 	KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev, KCPU_FENCE_SIGNAL, kcpu_queue,
+ 				  fence_info->fence->context, fence_info->fence->seqno);

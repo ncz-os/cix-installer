@@ -1,0 +1,50 @@
+From 95efccba882dc0d5c34f85efb3f6ffc2d3b1b751 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 26 Aug 2026 00:37:50 +0000
+Subject: [PATCH] Report default RTFormat from vaQueryConfigAttributes
+
+MediaDevice::CreateConfig() stores only the attribute array that the caller passed to vaCreateConfig(). When a client creates a valid config with attrib_list = NULL and num_attribs = 0, the stored list is empty, so MediaDevice::QueryConfigAttributes() later reports num_attribs = 0.
+
+Populate the effective VAConfigAttribRTFormat from the selected backend when the caller did not provide one. This preserves explicit caller-provided RTFormat values while allowing attribute-less configs to report the driver's real default RT format mask.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ devices/device_common.cpp | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/devices/device_common.cpp b/devices/device_common.cpp
+index 34f837b..e5a4481 100644
+--- a/devices/device_common.cpp
++++ b/devices/device_common.cpp
+@@ -175,6 +175,28 @@ VAStatus MediaDevice::CreateConfig(
+             id, i, attrib_list[i].type, attrib_list[i].value);
+     }
+ 
++    // vaQueryConfigAttributes() must report the config's effective attributes,
++    // not only the attributes passed explicitly to vaCreateConfig(). Some
++    // clients create an attribute-less config to discover the driver's default
++    // RT formats, so persist the backend's RTFormat when the caller omitted it.
++    bool has_rt_format = false;
++    for (const auto &attrib : config.attribs) {
++        if (attrib.type == VAConfigAttribRTFormat) {
++            has_rt_format = true;
++            break;
++        }
++    }
++
++    if (!has_rt_format) {
++        VAConfigAttrib rt_format = {
++            VAConfigAttribRTFormat,
++            VA_ATTRIB_NOT_SUPPORTED,
++        };
++        VAStatus status = GetConfigAttributes(profile, entrypoint, &rt_format, 1);
++        if (status == VA_STATUS_SUCCESS && rt_format.value != VA_ATTRIB_NOT_SUPPORTED)
++            config.attribs.push_back(rt_format);
++    }
++
+     CIX_VAAPI_INFO("Created config %d: profile %d, entrypoint %d\n", id, profile, entrypoint);
+     *config_id = id;
+     return VA_STATUS_SUCCESS;
+-- 
+2.43.0
+

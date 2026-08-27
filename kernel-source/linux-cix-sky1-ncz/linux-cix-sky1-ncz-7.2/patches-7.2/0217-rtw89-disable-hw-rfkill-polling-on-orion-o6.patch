@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stuart Shelton <srcshelton@gmail.com>
+Date: Thu, 20 Aug 2026 22:35:00 +0000
+Subject: [PATCH] rtw89: disable hw-rfkill polling on Radxa Orion O6/O6N
+
+The RTL8852B WiFi chip on Radxa Orion O6 and O6N boards exhibits
+spurious hw-rfkill state transitions during boot.  Polling rfkill
+state on this chip on these specific boards is unreliable and adds
+noise without any user-visible benefit.
+
+Gate rtw89_chip_has_rfkill() to return false when the chip ID is
+RTL8852B AND the DMI matches Radxa Orion O6 or Radxa Orion O6N.
+Non-Orion systems, or Orion systems with a different WiFi chip, are
+completely unaffected: both gates must be satisfied simultaneously.
+
+Recommended for port by the Tier 3 examination -- small, in-tree,
+narrowly scoped, with a precise DMI+chip-ID double gate.
+
+Ported from srcshelton/gentoo-ebuilds:
+  sys-kernel/cix-sources/files/80010-rtw89-disable-hw-rfkill-polling-on-orion-o6.patch
+
+Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
+[ported: applied verbatim from srcshelton/gentoo-ebuilds;
+ file context offset shifts due to our prior series expansion
+ (7214 here vs 6427 in the upstream raw patch body)]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/net/wireless/realtek/rtw89/core.c b/drivers/net/wireless/realtek/rtw89/core.c
+index 68dad6090..88a5bf7b9 100644
+--- a/drivers/net/wireless/realtek/rtw89/core.c
++++ b/drivers/net/wireless/realtek/rtw89/core.c
+@@ -7214,6 +7214,26 @@ static int rtw89_chip_board_info_setup(struct rtw89_dev *rtwdev)
+ 
+ static bool rtw89_chip_has_rfkill(struct rtw89_dev *rtwdev)
+ {
++	static const struct dmi_system_id no_hw_rfkill_dmi[] = {
++		{
++			.matches = {
++				DMI_MATCH(DMI_SYS_VENDOR, "Radxa Computer (Shenzhen) Co., Ltd."),
++				DMI_MATCH(DMI_PRODUCT_NAME, "Radxa Orion O6"),
++			},
++		},
++		{
++			.matches = {
++				DMI_MATCH(DMI_SYS_VENDOR, "Radxa Computer (Shenzhen) Co., Ltd."),
++				DMI_MATCH(DMI_PRODUCT_NAME, "Radxa Orion O6N"),
++			},
++		},
++		{ }
++	};
++
++	if (rtwdev->chip->chip_id == RTL8852B &&
++	    dmi_check_system(no_hw_rfkill_dmi))
++		return false;
++
+ 	return !!rtwdev->chip->rfkill_init;
+ }
+ 

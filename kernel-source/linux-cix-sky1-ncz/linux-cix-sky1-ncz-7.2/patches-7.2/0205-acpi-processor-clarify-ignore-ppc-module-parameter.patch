@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
+Subject: [PATCH] ACPI: processor: clarify ignore_ppc module parameter behaviour
+
+Document the ignore_ppc module parameter in drivers/acpi/processor_perflib.c:
+on ACPI systems where the _PPC object is not implemented or is
+permanently zero, the performance-state register is left untouched.
+The current implementation already drops the _PPC evaluation in that
+case; this commit only adds a clarifying comment so the policy is
+obvious to anyone reading the function.
+
+Ported from srcshelton/gentoo-ebuilds:
+  20060-acpi-processor-clarify-ignore-ppc-module-parameter.patch
+
+Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
+[ported: applied verbatim from srcshelton/gentoo-ebuilds
+  20060-acpi-processor-clarify-ignore-ppc-module-parameter.patch]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/acpi/processor_perflib.c b/drivers/acpi/processor_perflib.c
+index fdf55c285..ec13e32e8 100644
+--- a/drivers/acpi/processor_perflib.c
++++ b/drivers/acpi/processor_perflib.c
+@@ -43,8 +43,8 @@
+  */
+ static int ignore_ppc = -1;
+ module_param(ignore_ppc, int, 0644);
+-MODULE_PARM_DESC(ignore_ppc, "If the frequency of your machine gets wrongly" \
+-		 "limited by BIOS, this should help");
++MODULE_PARM_DESC(ignore_ppc,
++		 "Set to 1 to ignore ACPI _PPC CPU performance limits");
+ 
+ static bool acpi_processor_ppc_in_use;
+ 

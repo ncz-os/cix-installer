@@ -1,0 +1,35 @@
+From: entrpi <entrpi@proton.me>
+Subject: Prefer V4L2-M2M over VA-API for hardware video decoding
+
+On platforms with V4L2-M2M hardware video decoders (like the CIX Sky1),
+prefer using V4L2-M2M directly via FFmpeg rather than going through
+VA-API.
+
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
+@@ -622,17 +622,17 @@ void FFmpegVideoDecoder<LIBAV_VER>::InitHWDecoderIfAllowed() {
+     return;
+   }
+
+-#  ifdef MOZ_ENABLE_VAAPI
+-  if (NS_SUCCEEDED(InitVAAPIDecoder())) {
++#  ifdef MOZ_ENABLE_V4L2
++  // Try V4L2-M2M first on ARM platforms
++  if (NS_SUCCEEDED(InitV4L2Decoder())) {
+     return;
+   }
+-#  endif  // MOZ_ENABLE_VAAPI
++#  endif  // MOZ_ENABLE_V4L2
+
+-#  ifdef MOZ_ENABLE_V4L2
+-  // VAAPI didn't work or is disabled, so try V4L2 with DRM
+-  if (NS_SUCCEEDED(InitV4L2Decoder())) {
++#  ifdef MOZ_ENABLE_VAAPI
++  if (NS_SUCCEEDED(InitVAAPIDecoder())) {
+     return;
+   }
+-#  endif  // MOZ_ENABLE_V4L2
++#  endif  // MOZ_ENABLE_VAAPI
+
+ #  ifdef MOZ_ENABLE_D3D11VA
+   if (XRE_IsGPUProcess() && NS_SUCCEEDED(InitD3D11VADecoder())) {

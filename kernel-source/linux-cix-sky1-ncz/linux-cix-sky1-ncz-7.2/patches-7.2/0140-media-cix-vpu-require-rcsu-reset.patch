@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 12 Jul 2026 12:00:00 -0400
+Subject: [PATCH] media: cix: require firmware-described VPU RCSU reset
+
+The Sky1 ACPI RSTL and DT both describe vpu_rcsu_reset.  It gates access to
+the RCSU/register side of the VPU and therefore cannot safely be optional.
+Treating a failed lookup as NULL lets runtime resume proceed to fatal MMIO.
+
+Require the reset and preserve the provider errno so a missing or deferred
+ACPI reset lookup fails probe safely and diagnostically.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/media/platform/cix/dev/mvx_dev.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+index 69e3d3095..80478f672 100755
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -829,11 +829,12 @@ static int mvx_dev_probe(struct device *dev,
+         ret = -EFAULT;
+         goto destruct_hwreg;
+     }
+-    ctx->rcsu_rstc = devm_reset_control_get_optional_exclusive(dev, MVE_RCSU_RST_NAME);
++    ctx->rcsu_rstc = devm_reset_control_get_exclusive(dev, MVE_RCSU_RST_NAME);
+     if (IS_ERR(ctx->rcsu_rstc)) {
+-        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Failed to get reset_control, %s.",
+-                        MVE_RCSU_RST_NAME);
+-        ret = -EFAULT;
++        ret = PTR_ERR(ctx->rcsu_rstc);
++        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR,
++                        "Failed to get reset_control, %s: %d.",
++                        MVE_RCSU_RST_NAME, ret);
+         goto destruct_hwreg;
+     }
+ 
+-- 
+2.47.3

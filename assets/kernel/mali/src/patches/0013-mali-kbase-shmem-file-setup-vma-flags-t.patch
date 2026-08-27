@@ -1,0 +1,55 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 25 Jul 2026 00:00:00 +0000
+Subject: [PATCH] mali_kbase: cast VM_NORESERVE to typed vma_flags_t for shmem_file_setup()
+
+Kernel 7.2 gave VMA flags a distinct type-safe `vma_flags_t` (struct
+wrapping a bitmap; see include/linux/mm_types.h) instead of a plain
+unsigned long, and shmem_file_setup()'s third parameter is now
+`vma_flags_t flags` (include/linux/shmem_fs.h). The legacy
+VM_NORESERVE macro still exists for back-compat call sites that want
+the old-style unsigned long bitmask (it expands through
+INIT_VM_FLAG()/BIT() to `long unsigned int`), but passing it directly
+where a `vma_flags_t` is expected is now a real type mismatch, not
+just a style issue -- confirmed by the compiler error citing
+"expected 'vma_flags_t' but argument is of type 'long unsigned int'".
+
+Fix: use mk_vma_flags(VMA_NORESERVE_BIT), the typed constructor for
+exactly this bit. This is not a new idiom invented for this driver --
+it's the same pattern this kernel's own mm/memfd.c already uses for
+an identical shmem_file_setup(..., mk_vma_flags(VMA_NORESERVE_BIT))
+call, confirmed by reading that call site directly. Both symbols
+(mk_vma_flags, VMA_NORESERVE_BIT) are declared in include/linux/mm.h,
+which was already transitively visible here (the file already
+compiled VM_NORESERVE from the same header before this change).
+
+Two call sites in mali_kbase_csf.c (kbase_csf_scheduler_group_get_db /
+the CSF doorbell mmap and the CSF user_reg mmap setup), both passing
+VM_NORESERVE to shmem_file_setup() the same way.
+
+Fixes the mali_kbase.ko build against kernel 7.2.0-rc4-sky1-ncz (found
+in the same build pass as patch 0012, both were the next errors after
+0008-0011 unblocked earlier translation units).
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf.c	2026-07-26 03:23:18.857683691 +0800
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf.c	2026-07-26 03:23:18.876750721 +0800
+@@ -3769,7 +3769,7 @@
+ 	struct file *filp;
+ 	int ret;
+ 
+-	filp = shmem_file_setup("mali csf db", MAX_LFS_FILESIZE, VM_NORESERVE);
++	filp = shmem_file_setup("mali csf db", MAX_LFS_FILESIZE, mk_vma_flags(VMA_NORESERVE_BIT));
+ 	if (IS_ERR(filp))
+ 		return PTR_ERR(filp);
+ 
+@@ -3835,7 +3835,7 @@
+ 
+ 	kbdev->csf.user_reg.filp = NULL;
+ 
+-	filp = shmem_file_setup("mali csf user_reg", MAX_LFS_FILESIZE, VM_NORESERVE);
++	filp = shmem_file_setup("mali csf user_reg", MAX_LFS_FILESIZE, mk_vma_flags(VMA_NORESERVE_BIT));
+ 	if (IS_ERR(filp)) {
+ 		dev_err(kbdev->dev, "failed to get an unlinked file for user_reg");
+ 		return PTR_ERR(filp);

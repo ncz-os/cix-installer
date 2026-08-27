@@ -1,0 +1,135 @@
+From ba8ce68fd93f83e5632e564516d6c90b435236a2 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 5 Aug 2026 22:54:08 -0400
+Subject: [PATCH 6/6] Bind exported surface IDs to surfaces the decoder writes
+ into
+
+MediaDevice::ExportSurfaceHandle() bound a client surface ID to memory obtained
+from SurfacePool::FetchSurface(). That function skips surfaces already marked
+in use and allocates a fresh one instead -- but every surface attached to a
+V4L2 capture buffer is marked in use, with its ID cleared to VA_INVALID_SURFACE
+precisely so an ID can be assigned to it later.
+
+The client therefore always received a freshly allocated orphan that no capture
+buffer ever writes into. It exported that buffer, imported it, composited it,
+and got all-zero NV12: Chromium played H.264 and VP9 at full speed, with frames
+counted and almost none dropped, showing a flat green rectangle.
+
+Add SurfacePool::FetchUnassignedSurface(), which returns a surface that is
+already wired to an output buffer and merely lacks an ID, and prefer it in
+ExportSurfaceHandle(), falling back to FetchSurface() only when none is free.
+
+Verified on a CIX Sky1 board (O6N) with Chromium 151: H.264 1080p and VP9 720p
+now render correctly from the VPU -- screenshot-verified moving picture, not
+just an open /dev/video0 -- with renderer CPU dropping from ~27% to ~3.5% and
+zero dropped frames.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ devices/device_common.cpp | 17 ++++++++++++++++-
+ devices/surface_pool.cpp  | 16 ++++++++++++++++
+ devices/surface_pool.h    | 11 ++++++++++-
+ 3 files changed, 42 insertions(+), 2 deletions(-)
+
+diff --git a/devices/device_common.cpp b/devices/device_common.cpp
+index dba7939..928bcb7 100644
+--- a/devices/device_common.cpp
++++ b/devices/device_common.cpp
+@@ -453,6 +453,12 @@ VAStatus MediaDevice::MapBuffer(
+         auto buf = buffer_pool.GetBufferInfo(buf_id);
+         if (buf && buf->type == VAEncCodedBufferType)
+             return MapCodedBuffer(buf_id, pbuf);
++        // Buffer created with data == NULL: expose its storage so the client
++        // can fill it in. The contents are handed to the codec on unmap.
++        if (buf && !buf->host_data.empty()) {
++            *pbuf = buf->host_data.data();
++            return VA_STATUS_SUCCESS;
++        }
+     }
+ 
+     CIX_VAAPI_CHECK_RETURN_CODE(CIX_VA_IS_IMAGE_ID(buf_id), VA_STATUS_ERROR_INVALID_PARAMETER,
+@@ -487,6 +493,11 @@ VAStatus MediaDevice::UnmapBuffer(
+         auto buf = buffer_pool.GetBufferInfo(buf_id);
+         if (buf && buf->type == VAEncCodedBufferType)
+             return VA_STATUS_SUCCESS;
++        // Buffer created without initial data: nothing to do on unmap. Its
++        // contents are handed to the codec from vaRenderPicture(), which is
++        // where the client defines the submission order.
++        if (buf && !buf->host_data.empty())
++            return VA_STATUS_SUCCESS;
+     }
+ 
+     CIX_VAAPI_CHECK_RETURN_CODE(CIX_VA_IS_IMAGE_ID(buf_id), VA_STATUS_ERROR_INVALID_PARAMETER,
+@@ -684,7 +695,11 @@ VAStatus MediaDevice::ExportSurfaceHandle(
+     auto ctx = pool->GetContextBySurfaceID(surface_id);
+     auto surf = pool->GetSurfaceByID(surface_id);
+     if (ctx == VA_INVALID_ID && surf == nullptr) {
+-        surf = pool->FetchSurface();
++        // Bind the client's surface ID to a surface that the decoder actually
++        // writes into, falling back to a fresh allocation only if none is free.
++        surf = pool->FetchUnassignedSurface();
++        if (surf == nullptr)
++            surf = pool->FetchSurface();
+         CIX_VAAPI_CHECK_RETURN_CODE(surf != nullptr, VA_STATUS_ERROR_OPERATION_FAILED,
+             "Failed to fetch surface for surface ID %d\n", surface_id);
+         pool->DestroyUnusedSurface(surface_id);
+diff --git a/devices/surface_pool.cpp b/devices/surface_pool.cpp
+index 9ddb355..b237368 100644
+--- a/devices/surface_pool.cpp
++++ b/devices/surface_pool.cpp
+@@ -451,6 +451,22 @@ Surface *SurfacePool::FetchSurface()
+     return surfaces.back();
+ }
+ 
++Surface *SurfacePool::FetchUnassignedSurface()
++{
++    // Surfaces bound to the decoder's capture buffers have their ID cleared to
++    // VA_INVALID_SURFACE and are marked in use, so FetchSurface() skips them and
++    // allocates a fresh one instead. Handing such a fresh surface to a client
++    // would export memory the decoder never writes to, which is why the client
++    // then displays blank (green) frames. Prefer a surface that is already
++    // wired to an output buffer and merely lacks an ID.
++    for (auto surface : surfaces) {
++        if (surface->GetId() == VA_INVALID_SURFACE)
++            return surface;
++    }
++
++    return nullptr;
++}
++
+ Surface *SurfacePool::GetSurfaceByID(VASurfaceID id)
+ {
+     for (auto surface : surfaces) {
+diff --git a/devices/surface_pool.h b/devices/surface_pool.h
+index 7c470a5..aa576bc 100644
+--- a/devices/surface_pool.h
++++ b/devices/surface_pool.h
+@@ -79,8 +79,14 @@ struct BufferInfo {
+     VABufferType type;
+     VAContextID ctx;
+     Buffer *buf;
++    // Storage for buffers created without initial data. vaCreateBuffer() may be
++    // called with data == NULL, in which case the client fills the buffer via
++    // vaMapBuffer()/vaUnmapBuffer() before submitting it. Chromium's AV1 decode
++    // path does this for its picture parameter buffer.
++    std::vector<uint8_t> host_data;
++    unsigned int num_elements;
+     BufferInfo(VABufferID id, VABufferType type, Buffer *buf = nullptr) :
+-        id(id), type(type), buf(buf) {}
++        id(id), type(type), buf(buf), num_elements(0) {}
+ };
+ 
+ class BufferPool {
+@@ -203,6 +209,9 @@ public:
+     void RemoveSurfaceID(VASurfaceID id);
+     bool HasSurfaceID(VASurfaceID id);
+     Surface *FetchSurface();
++    // A surface that is already attached to a decode output buffer but has no
++    // client surface ID assigned yet (id == VA_INVALID_SURFACE).
++    Surface *FetchUnassignedSurface();
+     // void ReturnSurface(Surface *surface) { surface->SetInUse(false); }
+     Surface *GetSurfaceByID(VASurfaceID id);
+     void SetSurfaceContext(VASurfaceID id, VAContextID ctx);
+-- 
+2.50.1 (Apple Git-155)
+

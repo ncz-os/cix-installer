@@ -1,0 +1,479 @@
+#!/usr/bin/env python3
+"""Browse and import Open Collaboration Services wallpapers."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import mimetypes
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from xml.etree import ElementTree as ET
+
+
+SCHEMA = 1
+USER_AGENT = "ncz-wallpaper-ocs/1"
+DEFAULT_WIDTH = 3840
+DEFAULT_HEIGHT = 2160
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+ARCHIVE_EXTENSIONS = {".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2"}
+IMPORTABLE_EXTENSIONS = IMAGE_EXTENSIONS | ARCHIVE_EXTENSIONS
+
+PROVIDERS: dict[str, dict[str, str]] = {
+    "pling": {"base": "https://api.pling.com/ocs/v1/", "web": "https://www.pling.com/p/{id}"},
+    "opendesktop": {"base": "https://api.opendesktop.org/ocs/v1/", "web": "https://www.opendesktop.org/p/{id}"},
+    "kde-look": {"base": "https://api.kde-look.org/ocs/v1/", "web": "https://www.kde-look.org/p/{id}"},
+    "gnome-look": {"base": "https://api.gnome-look.org/ocs/v1/", "web": "https://www.gnome-look.org/p/{id}"},
+}
+
+
+def die(message: str, code: int = 1) -> None:
+    print(f"ERROR: {message}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def node_text(elem: ET.Element | None, name: str, default: str = "") -> str:
+    child = elem.find(name) if elem is not None else None
+    return child.text.strip() if child is not None and child.text is not None else default
+
+
+def ext_of(name: str) -> str:
+    lowered = name.lower()
+    for ext in sorted(ARCHIVE_EXTENSIONS, key=len, reverse=True):
+        if lowered.endswith(ext):
+            return ext
+    return Path(lowered).suffix
+
+
+def slugify(value: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return value or "wallpaper"
+
+
+def provider_base(provider: str) -> str:
+    if provider not in PROVIDERS:
+        die(f"unknown provider '{provider}'. Try: {', '.join(sorted(PROVIDERS))}")
+    return PROVIDERS[provider]["base"]
+
+
+def fetch_bytes(url: str, timeout: int = 45) -> tuple[bytes, str]:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read(), resp.geturl()
+    except urllib.error.HTTPError as exc:
+        die(f"HTTP {exc.code} for {url}")
+    except urllib.error.URLError as exc:
+        die(f"fetch failed for {url}: {exc.reason}")
+
+
+def fetch_xml(url: str) -> ET.Element:
+    data, _ = fetch_bytes(url)
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError as exc:
+        die(f"invalid XML from {url}: {exc}")
+    statuscode = root.findtext("meta/statuscode")
+    status = root.findtext("meta/status")
+    if statuscode != "100":
+        die(f"OCS request failed for {url}: status={status!r} statuscode={statuscode!r}")
+    return root
+
+
+def endpoint(provider: str, path: str, params: dict[str, str] | None = None) -> str:
+    url = urllib.parse.urljoin(provider_base(provider), path)
+    return f"{url}?{urllib.parse.urlencode(params)}" if params else url
+
+
+def parse_category(elem: ET.Element) -> dict[str, Any]:
+    return {
+        "id": node_text(elem, "id"),
+        "name": node_text(elem, "name"),
+        "display_name": node_text(elem, "display_name"),
+        "parent_id": node_text(elem, "parent_id") or None,
+        "xdg_type": node_text(elem, "xdg_type") or None,
+    }
+
+
+def parse_content(elem: ET.Element, provider: str) -> dict[str, Any]:
+    item_id = node_text(elem, "id")
+    download_name = node_text(elem, "downloadname1")
+    tags = [t.strip() for t in node_text(elem, "tags").split(",") if t.strip()]
+    item: dict[str, Any] = {
+        "provider": provider,
+        "id": item_id,
+        "name": node_text(elem, "name"),
+        "author": node_text(elem, "personid") or None,
+        "typeid": node_text(elem, "typeid") or None,
+        "typename": node_text(elem, "typename") or None,
+        "detailpage": node_text(elem, "detailpage") or PROVIDERS[provider]["web"].format(id=item_id),
+        "preview": node_text(elem, "previewpic1") or node_text(elem, "smallpreviewpic1") or node_text(elem, "preview1") or None,
+        "tags": tags,
+        "download": {
+            "name": download_name,
+            "extension": ext_of(download_name),
+            "size_kib": int(node_text(elem, "downloadsize1") or "0"),
+            "url": node_text(elem, "downloadlink1"),
+            "mime_hint": node_text(elem, "downloadtags1") or None,
+            "md5": node_text(elem, "downloadmd5sum1") or None,
+        },
+    }
+    license_value = node_text(elem, "license")
+    if license_value:
+        item["license"] = license_value
+    return item
+
+
+def get_categories(provider: str) -> list[dict[str, Any]]:
+    root = fetch_xml(endpoint(provider, "content/categories"))
+    return [parse_category(c) for c in root.findall(".//category")]
+
+
+def get_items(provider: str, category: str, pages: int = 1) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for page in range(max(1, pages)):
+        params = {"categories": str(category)}
+        if page:
+            params["page"] = str(page)
+        root = fetch_xml(endpoint(provider, "content/data", params))
+        for elem in root.findall(".//content"):
+            item = parse_content(elem, provider)
+            if item["download"]["extension"] in IMPORTABLE_EXTENSIONS:
+                items.append(item)
+    return items
+
+
+def get_item(provider: str, item_id: str) -> dict[str, Any]:
+    root = fetch_xml(endpoint(provider, f"content/data/{item_id}"))
+    elem = root.find(".//content")
+    if elem is None:
+        die(f"{provider}:{item_id} did not return a content item")
+    return parse_content(elem, provider)
+
+
+def category_path(category: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> list[str]:
+    out = [category.get("name") or ""]
+    parent_id = category.get("parent_id")
+    seen = set()
+    while parent_id and parent_id not in seen:
+        seen.add(parent_id)
+        parent = by_id.get(parent_id)
+        if not parent:
+            break
+        out.append(parent.get("name") or "")
+        parent_id = parent.get("parent_id")
+    return list(reversed([p for p in out if p]))
+
+
+def classify_category(category: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    name = category.get("name") or ""
+    display = category.get("display_name") or ""
+    xdg_type = category.get("xdg_type") or ""
+    path = category_path(category, by_id)
+    haystack = " / ".join(path + [display, xdg_type]).lower()
+    kind = "static"
+    usable = True
+    reason = ""
+
+    if "wallpaper plugin" in haystack or "plasma wallpaper plugin" in haystack:
+        kind, usable, reason = "plugin", False, "QML/plugin package, not a static image"
+    elif "video-wallpaper" in haystack or "video wallpaper" in haystack or "animated" in haystack:
+        kind, usable, reason = "video", False, "animated/video wallpaper, not a static image"
+    elif any(s in haystack for s in ("phone os", "phone wallpapers", "pinephone", "phosh", "sailfish", "ubuntu touch")):
+        kind, usable, reason = "phone", False, "phone/mobile wallpaper category, not desktop panel art"
+    else:
+        match = re.search(r"(\d{3,4})x(\d{3,4})", haystack)
+        if match and (int(match.group(1)) < 1920 or int(match.group(2)) < 1080):
+            usable = False
+            reason = "below 1920x1080; below the desktop panel class"
+        elif "wallpaper" not in haystack and xdg_type not in {"wallpaper", "wallpapers"}:
+            usable = False
+            reason = "not a wallpaper category"
+
+    entry: dict[str, Any] = {
+        "id": category["id"],
+        "name": name,
+        "display_name": display,
+        "path": path,
+        "kind": kind,
+        "usable": usable,
+    }
+    if category.get("xdg_type"):
+        entry["xdg_type"] = category["xdg_type"]
+    if reason:
+        entry["reason"] = reason
+    return entry
+
+
+def build_index(providers: list[str]) -> dict[str, Any]:
+    index: dict[str, Any] = {
+        "schema": SCHEMA,
+        "generated_at": now_iso(),
+        "providers": {p: {"base": PROVIDERS[p]["base"]} for p in providers},
+        "entries": [],
+    }
+    for provider in providers:
+        cats = get_categories(provider)
+        by_id = {c["id"]: c for c in cats}
+        for cat in cats:
+            entry = classify_category(cat, by_id)
+            entry["ref"] = f"{provider}:{entry.pop('id')}"
+            index["entries"].append(entry)
+    return index
+
+
+def command_exists(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def run(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, text=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def sniff_mime(path: Path) -> str:
+    if command_exists("file"):
+        return run(["file", "--brief", "--mime-type", str(path)]).stdout.strip()
+    guessed, _ = mimetypes.guess_type(str(path))
+    return guessed or ""
+
+
+def safe_extract_tar(archive: Path, dest: Path) -> None:
+    with tarfile.open(archive) as tar:
+        base = dest.resolve()
+        for member in tar.getmembers():
+            target = (dest / member.name).resolve()
+            if not str(target).startswith(str(base) + os.sep) and target != base:
+                die(f"unsafe archive path: {member.name}")
+        tar.extractall(dest)
+
+
+def unpack_if_archive(path: Path, dest: Path) -> list[Path]:
+    ext = ext_of(path.name)
+    if ext not in ARCHIVE_EXTENSIONS:
+        return [path]
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as zf:
+            zf.extractall(dest)
+    elif tarfile.is_tarfile(path):
+        safe_extract_tar(path, dest)
+    else:
+        die(f"unsupported archive payload despite extension {ext}: {path.name}")
+    return [p for p in dest.rglob("*") if p.is_file()]
+
+
+def image_geometry(path: Path) -> tuple[int, int]:
+    if not command_exists("magick") and not command_exists("identify"):
+        die("ImageMagick identify/magick is required to inspect image geometry")
+    cmd = ["magick", "identify", "-format", "%w %h", str(path)] if command_exists("magick") else ["identify", "-format", "%w %h", str(path)]
+    out = run(cmd).stdout.strip().split()
+    return int(out[0]), int(out[1])
+
+
+def normalize_image(src: Path, dest: Path, width: int, height: int) -> None:
+    if not command_exists("magick") and not command_exists("convert"):
+        die("ImageMagick magick/convert is required to normalize wallpapers")
+    cmd = [
+        "magick" if command_exists("magick") else "convert",
+        str(src),
+        "-auto-orient",
+        "-filter",
+        "Lanczos",
+        "-resize",
+        f"{width}x{height}^",
+        "-gravity",
+        "center",
+        "-extent",
+        f"{width}x{height}",
+        "-quality",
+        "92",
+        str(dest),
+    ]
+    run(cmd)
+
+
+def find_real_images(paths: list[Path]) -> list[Path]:
+    images: list[Path] = []
+    for path in paths:
+        if path.is_file() and sniff_mime(path) in {"image/jpeg", "image/png", "image/webp"}:
+            images.append(path)
+    return sorted(images)
+
+
+def unique_dest(base: Path, pack_id: str) -> Path:
+    dest = base / pack_id
+    if not dest.exists():
+        return dest
+    n = 2
+    while True:
+        candidate = base / f"{pack_id}-{n}"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
+def write_legacy_collection(pack_id: str, name: str, dest: Path, author: str | None) -> Path:
+    collection_dir = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "ncz-wallpapers" / "collections"
+    collection_dir.mkdir(parents=True, exist_ok=True)
+    collection = collection_dir / f"{pack_id}.collection"
+    fields = ["[Collection]", f"Id={pack_id}", f"Name={name}", "Comment=User-fetched OCS wallpaper pack"]
+    if author:
+        fields.append(f"Artist={author}")
+    fields += ["Type=static", f"Dir={dest}", "Origin=ocs"]
+    collection.write_text("\n".join(fields) + "\n", encoding="utf-8")
+    return collection
+
+
+def import_item(provider: str, item_id: str, width: int, height: int, base_dir: Path, dry_run: bool = False) -> dict[str, Any]:
+    item = get_item(provider, item_id)
+    download = item["download"]
+    if download["extension"] not in IMPORTABLE_EXTENSIONS:
+        die(f"{provider}:{item_id} downloadname1={download['name']!r} is not an importable raster/archive type")
+    if not download["url"]:
+        die(f"{provider}:{item_id} has no downloadlink1")
+
+    pack_id = f"ocs-{provider}-{item_id}-{slugify(item['name'])}"[:96].rstrip("-")
+    dest = unique_dest(base_dir, pack_id)
+    if dry_run:
+        return {"pack_id": pack_id, "destination": str(dest), "item": item}
+
+    with tempfile.TemporaryDirectory(prefix="ncz-ocs-") as tmp_s:
+        tmp = Path(tmp_s)
+        raw = tmp / (download["name"] or f"{item_id}.download")
+        data, final_url = fetch_bytes(download["url"], timeout=180)
+        raw.write_bytes(data)
+
+        unpacked = tmp / "unpacked"
+        unpacked.mkdir()
+        images = find_real_images(unpack_if_archive(raw, unpacked))
+        if not images:
+            die(f"{provider}:{item_id} contained no JPEG/PNG/WebP payload after real MIME sniffing")
+
+        dest.mkdir(parents=True)
+        normalized: list[dict[str, Any]] = []
+        for idx, src in enumerate(images, start=1):
+            src_w, src_h = image_geometry(src)
+            out = dest / f"{idx:02d}-{slugify(src.stem)}.jpg"
+            normalize_image(src, out, width, height)
+            normalized.append({
+                "file": out.name,
+                "title": item["name"] if len(images) == 1 else src.stem,
+                "source_file": src.name,
+                "source_geometry": {"width": src_w, "height": src_h},
+                "normalized_geometry": {"width": width, "height": height},
+            })
+
+        author = item["author"] or "OCS uploader unknown"
+        pack: dict[str, Any] = {
+            "schema": SCHEMA,
+            "id": pack_id,
+            "name": item["name"],
+            "artist": {"name": author, "credit": f"{author} from {provider}"},
+            "origin": "ocs",
+            "provider": provider,
+            "source": {
+                "ocs_id": item_id,
+                "detailpage": item["detailpage"],
+                "download_url": download["url"],
+                "resolved_download_url": final_url,
+                "downloadname1": download["name"],
+                "downloadsize1_kib": download["size_kib"],
+                "tags": item["tags"],
+            },
+            "license": item.get("license") if item.get("license") else None,
+            "license_note": "not specified by the OCS item" if not item.get("license") else None,
+            "rotation": {"scope": "pack", "order": "shuffle", "interval": 600},
+            "images": normalized,
+        }
+        pack = {k: v for k, v in pack.items() if v is not None}
+        (dest / "pack.json").write_text(json.dumps(pack, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        collection = write_legacy_collection(pack_id, item["name"], dest, item["author"])
+
+    return {"pack_id": pack_id, "destination": str(dest), "collection": str(collection), "images": normalized, "pack_json": str(dest / "pack.json")}
+
+
+def cmd_providers(_: argparse.Namespace) -> None:
+    print(json.dumps({"schema": SCHEMA, "providers": PROVIDERS}, indent=2, sort_keys=True))
+
+
+def cmd_categories(args: argparse.Namespace) -> None:
+    print(json.dumps(get_categories(args.provider), indent=2, sort_keys=True))
+
+
+def cmd_index(args: argparse.Namespace) -> None:
+    providers = args.providers or list(PROVIDERS)
+    data = json.dumps(build_index(providers), indent=2, sort_keys=True) + "\n"
+    if args.output:
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output).write_text(data, encoding="utf-8")
+    print(data, end="")
+
+
+def cmd_browse(args: argparse.Namespace) -> None:
+    print(json.dumps({"schema": SCHEMA, "provider": args.provider, "category": args.category, "items": get_items(args.provider, args.category, args.pages)}, indent=2, sort_keys=True))
+
+
+def cmd_item(args: argparse.Namespace) -> None:
+    print(json.dumps(get_item(args.provider, args.item_id), indent=2, sort_keys=True))
+
+
+def cmd_import(args: argparse.Namespace) -> None:
+    base = Path(args.dest or (Path.home() / ".local/share/backgrounds"))
+    print(json.dumps(import_item(args.provider, args.item_id, args.width, args.height, base, args.dry_run), indent=2, sort_keys=True))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="OCS wallpaper browser/import backend")
+    sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser("providers", help="print shipped provider list")
+    p.set_defaults(func=cmd_providers)
+    p = sub.add_parser("categories", help="fetch raw categories for a provider")
+    p.add_argument("provider")
+    p.set_defaults(func=cmd_categories)
+    p = sub.add_parser("index", help="generate classified category meta index")
+    p.add_argument("--provider", dest="providers", action="append", choices=sorted(PROVIDERS), help="provider to include; repeatable")
+    p.add_argument("-o", "--output", help="write JSON index to this path as well as stdout")
+    p.set_defaults(func=cmd_index)
+    p = sub.add_parser("browse", help="list importable items in a category")
+    p.add_argument("provider")
+    p.add_argument("category")
+    p.add_argument("--pages", type=int, default=1)
+    p.set_defaults(func=cmd_browse)
+    p = sub.add_parser("item", help="fetch one OCS item")
+    p.add_argument("provider")
+    p.add_argument("item_id")
+    p.set_defaults(func=cmd_item)
+    p = sub.add_parser("import", help="download, sniff, normalize and install one OCS item as a user pack")
+    p.add_argument("provider")
+    p.add_argument("item_id")
+    p.add_argument("--width", type=int, default=DEFAULT_WIDTH)
+    p.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
+    p.add_argument("--dest", help="backgrounds base directory; defaults to ~/.local/share/backgrounds")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_import)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    args.func(args)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

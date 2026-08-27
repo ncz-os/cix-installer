@@ -1,0 +1,327 @@
+From 9ebbb0eda492702a26233d1220e2b3003fad6bc5 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 29 Jul 2026 21:11:13 +0000
+Subject: [PATCH] panthor-dkms: add SMC SCMI power-on fallback + noirq STR
+ resume replay
+
+Union of the kernel-series NCZ 0186/0188 work (meta-cix
+wip/ultra/2026-07-10-linlondp-26q2 fb7d72d) with this package's existing,
+newer ACPI power-supply (_PR0) un-secure + probe-time reset cycle (its
+0175). Nothing existing is removed:
+
+- New panthor_sky1.c/.h (Kbuild-wired): raw SMC SCMI POWER_STATE_SET
+  (domain 21, SMC 0xc2000001, shmem 0x84380000) asking TFA to power the
+  GPU domain and open IDM non-secure register access -- the CIX 7.1
+  reference path. Called in panthor_pm_domain_init() BEFORE the _PR0
+  power-supply attach, and deliberately NON-FATAL here: on O6N firmware
+  the _PR0 path is the hardware-validated un-secure mechanism (see the
+  0175 rationale), so an SMC error is logged for metal triage and probe
+  continues.
+
+- noirq system-sleep ops (previously an explicitly-acknowledged gap in
+  this package): suspend_noirq/resume_noirq run
+  pm_runtime_force_{suspend,resume}, and resume_noirq re-runs the
+  existing panthor_sky1_hw_reset_cycle() (IP reset cycle + RCSU[0x218]
+  Q-channel clock-gate enable) after STR, before clocks come back and
+  panthor_device_resume() touches GPU MMIO. The "does not port that
+  noirq scaffolding" comment is updated accordingly.
+
+The prebuilt 7.2.0-rc5-sky1-ncz/panthor.ko is regenerated from these
+sources against the shipping kernel build tree in a follow-up amend of
+this commit (vermagic must match 7.2.0-rc5-sky1-ncz exactly).
+---
+ assets/kernel/panthor/Kbuild           |   3 +-
+ assets/kernel/panthor/panthor_device.c |  45 ++++++++-
+ assets/kernel/panthor/panthor_device.h |   2 +
+ assets/kernel/panthor/panthor_drv.c    |  17 +++-
+ assets/kernel/panthor/panthor_sky1.c   | 122 +++++++++++++++++++++++++
+ assets/kernel/panthor/panthor_sky1.h   |  22 +++++
+ 6 files changed, 204 insertions(+), 7 deletions(-)
+ create mode 100644 assets/kernel/panthor/panthor_sky1.c
+ create mode 100644 assets/kernel/panthor/panthor_sky1.h
+
+diff --git a/assets/kernel/panthor/Kbuild b/assets/kernel/panthor/Kbuild
+index f245e3c..a2da9fb 100644
+--- a/assets/kernel/panthor/Kbuild
++++ b/assets/kernel/panthor/Kbuild
+@@ -9,7 +9,8 @@ panthor-y := \
+ 	panthor_hw.o \
+ 	panthor_mmu.o \
+ 	panthor_pwr.o \
+-	panthor_sched.o
++	panthor_sched.o \
++	panthor_sky1.o
+ 
+ obj-m += panthor.o
+ 
+diff --git a/assets/kernel/panthor/panthor_device.c b/assets/kernel/panthor/panthor_device.c
+index 4a79f2c..c5e6f94 100644
+--- a/assets/kernel/panthor/panthor_device.c
++++ b/assets/kernel/panthor/panthor_device.c
+@@ -28,6 +28,7 @@
+ #include "panthor_gpu.h"
+ #include "panthor_hw.h"
+ #include "panthor_mmu.h"
++#include "panthor_sky1.h"
+ #include "panthor_pwr.h"
+ #include "panthor_sched.h"
+ 
+@@ -314,8 +315,9 @@ static int panthor_sky1_resets_init(struct panthor_device *ptdev)
+  * explicitly out-of-scope gap: an earlier NCZ patch for the 7.1.1 branch
+  * (0037-gpu-panthor-fix-suspend-resume-for-sky1) added an equivalent
+  * reset-cycle replay to a dedicated resume_noirq hook for exactly that
+- * case. This fix does not port that noirq scaffolding -- it targets only
+- * the probe-time hard hang that has actual hardware evidence behind it.
++ * case. That replay is now ported (NCZ 0188 equivalent):
++ * panthor_device_resume_noirq() below re-runs this cycle after STR,
++ * before the forced runtime resume re-enables clocks.
+  */
+ static int panthor_sky1_hw_reset_cycle(struct panthor_device *ptdev)
+ {
+@@ -371,6 +373,20 @@ int panthor_pm_domain_init(struct panthor_device *ptdev)
+ 	 * the GPU's SCMI "power-domains" genpd is absent. Mirror mali_kbase.
+ 	 */
+ 	if (panthor_is_sky1(ptdev)) {
++		/*
++		 * Best-effort raw SMC SCMI power-on first (CIX 7.1 reference
++		 * path, NCZ 0186): asks TFA to power GPU domain 21 and open
++		 * IDM non-secure access to the GPU register block. On O6N
++		 * firmware the ACPI power-supply (_PR0) attach below is the
++		 * proven un-secure mechanism, so a failure here is logged,
++		 * not fatal.
++		 */
++		err = sky1_gpu_power_on(ptdev);
++		if (err)
++			dev_warn(dev,
++				 "Sky1: SMC SCMI GPU power-on failed (%d); relying on ACPI power-supply path\n",
++				 err);
++
+ 		if (has_acpi_companion(dev)) {
+ 			err = panthor_sky1_attach_power_supply(ptdev);
+ 			if (err)
+@@ -1070,3 +1086,28 @@ int panthor_device_suspend(struct device *dev)
+ 	atomic_set(&ptdev->pm.state, PANTHOR_DEVICE_PM_STATE_SUSPENDED);
+ 	return 0;
+ }
++
++int panthor_device_suspend_noirq(struct device *dev)
++{
++	return pm_runtime_force_suspend(dev);
++}
++
++int panthor_device_resume_noirq(struct device *dev)
++{
++	struct panthor_device *ptdev = dev_get_drvdata(dev);
++	int ret;
++
++	/*
++	 * Sky1: suspend-to-RAM cuts the GPU power domain, losing the IP-reset
++	 * state and the RCSU Q-channel clock-gate enable bit. Re-run power-on
++	 * steps 3-5 before the forced runtime resume re-enables clocks and
++	 * panthor_device_resume() touches GPU MMIO. (NCZ 0188 equivalent.)
++	 */
++	if (panthor_is_sky1(ptdev) && panthor_device_is_initialized(ptdev)) {
++		ret = panthor_sky1_hw_reset_cycle(ptdev);
++		if (ret)
++			return ret;
++	}
++
++	return pm_runtime_force_resume(dev);
++}
+diff --git a/assets/kernel/panthor/panthor_device.h b/assets/kernel/panthor/panthor_device.h
+index 4faafe4..a0d9994 100644
+--- a/assets/kernel/panthor/panthor_device.h
++++ b/assets/kernel/panthor/panthor_device.h
+@@ -432,6 +432,8 @@ int panthor_device_mmap_io(struct panthor_device *ptdev,
+ 
+ int panthor_device_resume(struct device *dev);
+ int panthor_device_suspend(struct device *dev);
++int panthor_device_resume_noirq(struct device *dev);
++int panthor_device_suspend_noirq(struct device *dev);
+ 
+ static inline int panthor_device_resume_and_get(struct panthor_device *ptdev)
+ {
+diff --git a/assets/kernel/panthor/panthor_drv.c b/assets/kernel/panthor/panthor_drv.c
+index 5bfd556..5b59c9f 100644
+--- a/assets/kernel/panthor/panthor_drv.c
++++ b/assets/kernel/panthor/panthor_drv.c
+@@ -1893,10 +1893,19 @@ static const struct acpi_device_id panthor_acpi_match[] = {
+ };
+ #endif
+ 
+-static DEFINE_RUNTIME_DEV_PM_OPS(panthor_pm_ops,
+-				 panthor_device_suspend,
+-				 panthor_device_resume,
+-				 NULL);
++/*
++ * System sleep: the noirq phase runs pm_runtime_force_{suspend,resume}
++ * (see panthor_device_{suspend,resume}_noirq). On Sky1 the resume_noirq
++ * hook re-runs the IP-reset + RCSU Q-channel cycle before clocks are
++ * re-enabled via the forced runtime resume. Combined with
++ * DPM_FLAG_NO_DIRECT_COMPLETE this guarantees a full hardware re-init
++ * on every suspend-to-RAM cycle. (NCZ 0188 equivalent.)
++ */
++static const struct dev_pm_ops panthor_pm_ops = {
++	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(panthor_device_suspend_noirq,
++				      panthor_device_resume_noirq)
++	RUNTIME_PM_OPS(panthor_device_suspend, panthor_device_resume, NULL)
++};
+ 
+ static struct platform_driver panthor_driver = {
+ 	.probe = panthor_probe,
+diff --git a/assets/kernel/panthor/panthor_sky1.c b/assets/kernel/panthor/panthor_sky1.c
+new file mode 100644
+index 0000000..7fec241
+--- /dev/null
++++ b/assets/kernel/panthor/panthor_sky1.c
+@@ -0,0 +1,122 @@
++// SPDX-License-Identifier: GPL-2.0 or MIT
++/* Copyright 2024 Cix Technology Group Co., Ltd. */
++
++#include <linux/acpi.h>
++#include <linux/arm-smccc.h>
++#include <linux/delay.h>
++#include <linux/device.h>
++#include <linux/io.h>
++
++#include "panthor_device.h"
++#include "panthor_sky1.h"
++
++/*
++ * Sky1 raw SMC SCMI GPU power-on (CIX 7.1 reference path, NCZ 0186).
++ *
++ * Under DT, smc_devpd (arm,scmi-smc) sends SCMI POWER_STATE_SET to TFA
++ * via SMC function 0xc2000001 with shared memory at 0x84380000. Under
++ * ACPI there is no smc_devpd, so we make the raw SMC call directly.
++ * Per the CIX 7.1 bring-up, TFA's handler powers the GPU domain AND
++ * configures the IDM (Interconnect Domain Manager) to allow non-secure
++ * (Linux) access to GPU registers.
++ *
++ * NOTE (O6N): the hardware-validated un-secure mechanism on O6N firmware
++ * is the ACPI "power-supply" (_PR0._ON) attach in panthor_device.c, which
++ * works with acpi_scmi_en=off. This SMC call is kept as a best-effort
++ * complementary step (its caller treats failure as non-fatal).
++ */
++
++#if IS_ENABLED(CONFIG_ACPI)
++
++#define SKY1_SMC_SCMI_FUNC_ID		0xc2000001
++#define SKY1_SMC_SCMI_SHMEM_PHYS	0x84380000UL
++#define SKY1_SMC_SCMI_SHMEM_SIZE	0x80
++#define SKY1_PD_GPU			21
++
++/* SCMI shared memory offsets */
++#define SCMI_SHMEM_CHAN_STATUS		0x04
++#define SCMI_SHMEM_FLAGS		0x10
++#define SCMI_SHMEM_LENGTH		0x14
++#define SCMI_SHMEM_MSG_HEADER		0x18
++#define SCMI_SHMEM_MSG_PAYLOAD		0x1c
++
++static int sky1_smc_scmi_power_set(struct device *dev, u32 domain, u32 state)
++{
++	void __iomem *shmem;
++	struct arm_smccc_res res;
++	u32 msg_header, resp_status;
++	int timeout = 1000;
++
++	shmem = ioremap(SKY1_SMC_SCMI_SHMEM_PHYS, SKY1_SMC_SCMI_SHMEM_SIZE);
++	if (!shmem)
++		return -ENOMEM;
++
++	/* Wait for channel free */
++	while (!(ioread32(shmem + SCMI_SHMEM_CHAN_STATUS) & BIT(0))) {
++		if (--timeout <= 0) {
++			dev_err(dev, "SCMI SMC channel busy timeout\n");
++			iounmap(shmem);
++			return -ETIMEDOUT;
++		}
++		udelay(10);
++	}
++
++	/* Clear channel status */
++	iowrite32(0, shmem + SCMI_SHMEM_CHAN_STATUS);
++
++	/* Polling mode (no interrupt) */
++	iowrite32(0, shmem + SCMI_SHMEM_FLAGS);
++
++	/*
++	 * Message header:
++	 *   Bits  0-7:  MSG_ID = 0x04 (POWER_STATE_SET)
++	 *   Bits  8-9:  MSG_TYPE = 0 (command)
++	 *   Bits 10-17: PROTOCOL_ID = 0x11 (POWER)
++	 *   Bits 18-27: TOKEN = 0
++	 */
++	msg_header = 0x04 | (0x11 << 10);
++	iowrite32(msg_header, shmem + SCMI_SHMEM_MSG_HEADER);
++
++	/* Payload: flags(4) + domain(4) + state(4) = 12 bytes */
++	iowrite32(0, shmem + SCMI_SHMEM_MSG_PAYLOAD);		/* flags: sync */
++	iowrite32(domain, shmem + SCMI_SHMEM_MSG_PAYLOAD + 4);	/* domain_id */
++	iowrite32(state, shmem + SCMI_SHMEM_MSG_PAYLOAD + 8);	/* power_state */
++
++	/* Length = msg_header(4) + payload(12) = 16 */
++	iowrite32(16, shmem + SCMI_SHMEM_LENGTH);
++
++	/* SMC call: param_page = phys >> 12, param_offset = phys & 0xFFF */
++	arm_smccc_smc(SKY1_SMC_SCMI_FUNC_ID,
++		      SKY1_SMC_SCMI_SHMEM_PHYS >> 12,
++		      SKY1_SMC_SCMI_SHMEM_PHYS & 0xFFF,
++		      0, 0, 0, 0, 0, &res);
++
++	if (res.a0) {
++		dev_err(dev, "SCMI SMC returned error: 0x%lx\n", res.a0);
++		iounmap(shmem);
++		return -EIO;
++	}
++
++	/* Response: first word of payload is SCMI status */
++	resp_status = ioread32(shmem + SCMI_SHMEM_MSG_PAYLOAD);
++	iounmap(shmem);
++
++	if (resp_status != 0) {
++		dev_err(dev, "SCMI POWER_STATE_SET domain %u failed: %d\n",
++			domain, resp_status);
++		return -EIO;
++	}
++
++	dev_info(dev, "GPU power domain %u powered on via SMC SCMI\n", domain);
++	return 0;
++}
++
++int sky1_gpu_power_on(struct panthor_device *ptdev)
++{
++	if (!panthor_is_sky1(ptdev))
++		return 0;
++
++	return sky1_smc_scmi_power_set(ptdev->base.dev, SKY1_PD_GPU, 0);
++}
++
++#endif /* IS_ENABLED(CONFIG_ACPI) */
+diff --git a/assets/kernel/panthor/panthor_sky1.h b/assets/kernel/panthor/panthor_sky1.h
+new file mode 100644
+index 0000000..26ee107
+--- /dev/null
++++ b/assets/kernel/panthor/panthor_sky1.h
+@@ -0,0 +1,22 @@
++/* SPDX-License-Identifier: GPL-2.0 or MIT */
++/* Copyright 2024 Cix Technology Group Co., Ltd. */
++
++#ifndef __PANTHOR_SKY1_H__
++#define __PANTHOR_SKY1_H__
++
++struct panthor_device;
++
++#if IS_ENABLED(CONFIG_ACPI)
++
++int sky1_gpu_power_on(struct panthor_device *ptdev);
++
++#else
++
++static inline int sky1_gpu_power_on(struct panthor_device *ptdev)
++{
++	return 0;
++}
++
++#endif
++
++#endif /* __PANTHOR_SKY1_H__ */

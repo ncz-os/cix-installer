@@ -1,0 +1,25 @@
+From: entrpi <entrpi@proton.me>
+Subject: Enable AV1 hardware decode check for V4L2-M2M
+
+The gfxVars::UseAV1HwDecode() check is based on VA-API detection and
+returns false on V4L2-M2M systems. This prevents Firefox from even
+attempting V4L2-M2M AV1 decode.
+
+Force AV1 supported=true when V4L2-M2M is available, allowing the
+V4L2 init path to be attempted.
+
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
+@@ -532,7 +532,12 @@ bool FFmpegVideoDecoder<LIBAV_VER>::ShouldDisableHWDecoding(
+       supported = gfx::gfxVars::UseVP9HwDecode();
+       break;
+     case AV_CODEC_ID_AV1:
++#ifdef MOZ_ENABLE_V4L2
++      // V4L2-M2M AV1 support is checked later; allow the attempt
++      supported = true;
++#else
+       supported = gfx::gfxVars::UseAV1HwDecode();
++#endif
+       break;
+     case AV_CODEC_ID_HEVC:
+       supported = gfx::gfxVars::UseHEVCHwDecode();

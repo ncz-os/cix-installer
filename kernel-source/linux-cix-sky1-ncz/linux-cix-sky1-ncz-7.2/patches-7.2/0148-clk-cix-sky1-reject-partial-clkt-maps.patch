@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 13 Jul 2026 12:30:00 -0400
+Subject: [PATCH] clk: cix: sky1: reject partial CLKT maps
+
+The CLKT bridge currently ignores failures from individual entries and
+considers the probe successful when any clock was mapped.  If the bridge
+races SCMI clkdev publication, it can therefore leave a consumer alias
+permanently absent while still printing a successful mapped count.
+
+Record lookup failures and defer the bridge until every otherwise-valid
+CLKT entry can be mapped.  Returning probe deferral also runs the existing
+devres cleanup actions, so the next attempt starts without duplicate
+lookups.
+
+This does not special-case the VPU.  Its firmware tuple remains the source
+of truth, mapping ID 0x43 and connection ID "vpu_clk" to CIXH3010:00.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/clk/cix/clk-sky1-acpi.c | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/cix/clk-sky1-acpi.c b/drivers/clk/cix/clk-sky1-acpi.c
+index 4c5ca954da00..a8e584d77dd1 100644
+--- a/drivers/clk/cix/clk-sky1-acpi.c
++++ b/drivers/clk/cix/clk-sky1-acpi.c
+@@ -26,3 +26,5 @@ struct sky1_acpi_clk {
+ 	struct device *dev;
+ 	int mapped;
++	int pending;
++	int error;
+ };
+@@ -102,4 +104,5 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
+ 	union acpi_object *obj;
+ 	const char *consumer_name;
+ 	acpi_status status;
++	int ret;
+ 	int i;
+@@ -142,5 +145,9 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
+ 		}
+ 		consumer_name = acpi_dev_name(adev);
+ parse:
+-		sky1_parse_clkt_entry(priv, consumer_name, e);
++		ret = sky1_parse_clkt_entry(priv, consumer_name, e);
++		if (ret == -ENOENT || ret == -EPROBE_DEFER)
++			priv->pending++;
++		else if (ret && !priv->error)
++			priv->error = ret;
+ 	}
+@@ -171,1 +179,10 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
++	if (priv->error)
++		return dev_err_probe(&pdev->dev, priv->error,
++				     "Invalid ACPI CLKT entry\n");
++
++	if (priv->pending)
++		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
++				     "%d ACPI CLKT entries not mapped yet\n",
++				     priv->pending);
++
+ 	if (priv->mapped == 0)
+-- 
+2.51.0

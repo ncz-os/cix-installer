@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 11 Jul 2026 00:00:00 -0400
+Subject: [PATCH] drm/linlondp: pin display power domain unconditionally
+
+With the SCMI POWER genpd now live (patches-7.2/0132), the display DPU
+power domain is a genuinely gated genpd domain rather than an
+always-on rail. The KMS master bind only pinned the domain active when
+the driver inherited the UEFI GOP framebuffer (mdevs[0]->enabled_by_gop).
+
+When Linux does NOT inherit a GOP framebuffer (headless bring-up, or a
+mode the firmware did not light), nothing holds a runtime-PM reference
+on the display domain, so genpd_power_off_unused() powers it off during
+late init. The DP transmitter then reads HPD as 0, the connector is
+reported disconnected, and the modeset fails with "Cannot find any crtc
+or sizes" -> permanent blank screen.
+
+Hold an unconditional runtime-PM reference on every DPU in the cluster
+so the display power domain stays powered through modeset and detect,
+and release it in unbind. This is the same net effect the GOP path had,
+applied to every DPU regardless of GOP inheritance.
+
+Upstream-Status: Inappropriate [downstream ACPI/PM enablement for CIX Sky1]
+---
+ drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c | 21 +++++++++++++++++----
+ 1 file changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c b/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c
+index 28381b9..dcc338c 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c
++++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c
+@@ -112,7 +112,6 @@ static bool linlondp_cluster_is_direct_mdev(struct device *dev,
+ static int linlondp_cluster_bind(struct device *dev)
+ {
+ 	struct linlondp_cluster *cl = dev_get_drvdata(dev);
+-	struct device *d0 = cl->mdevs[0]->dev;
+ 	unsigned int i;
+ 	int err;
+ 
+@@ -157,8 +156,20 @@ static int linlondp_cluster_bind(struct device *dev)
+ 	if (enable_fb)
+ 		drm_client_setup(&cl->kms->base, NULL);
+ 
+-	if (cl->mdevs[0]->enabled_by_gop)
+-		pm_runtime_set_active(d0);
++	/*
++	 * SCMI POWER genpd is now live (patches-7.2/0132) so the display
++	 * power domain is genuinely gated; previously it was only pinned
++	 * when the UEFI GOP framebuffer was inherited (enabled_by_gop).
++	 * Without GOP, genpd_power_off_unused() powers the display domain
++	 * off -> DPTX HPD reads 0 -> connector reported disconnected ->
++	 * "Cannot find any crtc or sizes" -> blank screen.  Hold an
++	 * unconditional runtime-PM ref on every DPU so the domain stays
++	 * powered through modeset and detect.
++	 */
++	for (i = 0; i < cl->n_mdevs; i++) {
++		pm_runtime_set_active(cl->mdevs[i]->dev);
++		pm_runtime_get_noresume(cl->mdevs[i]->dev);
++	}
+ 
+ 	return 0;
+ }
+@@ -179,6 +190,8 @@ static void linlondp_cluster_unbind(struct device *dev)
+ 	}
+ 
+ 	for (i = 0; i < cl->n_mdevs; i++) {
++		/* release the unconditional ref taken in bind */
++		pm_runtime_put_noidle(cl->mdevs[i]->dev);
+ 		if (pm_runtime_enabled(cl->mdevs[i]->dev))
+ 			pm_runtime_disable(cl->mdevs[i]->dev);
+ 	}
+-- 
+2.51.0

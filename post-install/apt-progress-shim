@@ -1,0 +1,42 @@
+#!/bin/bash
+# apt-get progress shim (r141) — wraps `apt-get install` with APT::Status-Fd so
+# every package unpack/configure ticks to /dev/tty3 (the d-i log VT, Alt+F3),
+# instead of the bulk transaction freezing the progress bar. Placed ahead of
+# /usr/bin in PATH by run-all.sh. Pass-through for everything except install.
+REAL=${NCZ_APT_GET_REAL:-/usr/bin/apt-get}
+APT_LOG=${NCZ_APT_LOG:-/var/log/cix-install/apt.log}
+progress_write() {
+  local event="$1" percent="$2" detail="$3" now tmp record
+  [ -n "${NCZ_PROGRESS_FILE:-}" ] || return 0
+  now=$(date +%s)
+  detail=$(printf '%s' "$detail" | tr '|\t\r\n' '     ' | cut -c1-180)
+  record="${NCZ_PROGRESS_STARTED:-$now}|$now|$event|${NCZ_PROGRESS_PHASE:-packages}|${NCZ_PROGRESS_INDEX:-0}|${NCZ_PROGRESS_TOTAL:-0}|${NCZ_PROGRESS_HOOK:-apt-get}|$percent||$detail"
+  tmp="${NCZ_PROGRESS_FILE}.apt.$$"
+  printf '%s\n' "$record" > "$tmp" && mv -f "$tmp" "$NCZ_PROGRESS_FILE"
+  [ -n "${NCZ_PROGRESS_LOG:-}" ] && printf '%s\n' "$record" >> "$NCZ_PROGRESS_LOG"
+}
+for a in "$@"; do
+  case "$a" in -s|--simulate|--dry-run) exec "$REAL" "$@";; esac
+done
+case " $* " in
+  *" install "*)
+    N=$("$REAL" -s "$@" 2>/dev/null | grep -c '^Inst')
+    { printf '  [apt] installing %s packages...\n' "$N" > /dev/tty3; } 2>/dev/null || true
+    progress_write APT 0 "Resolving package transaction ($N packages)"
+    "$REAL" "$@" -o APT::Status-Fd=3 -o Dpkg::Use-Pty=0 3>&1 1>>"$APT_LOG" 2>&1 |
+      while IFS=: read -r k pkg pct desc; do
+        if [ "$k" = pmstatus ]; then
+          { printf '  [apt %s%%] %s %s\n' "${pct%%.*}" "$pkg" "$desc" > /dev/tty3; } 2>/dev/null || true
+          progress_write APT "${pct%%.*}" "$pkg $desc"
+        fi
+      done
+    apt_rc="${PIPESTATUS[0]}"
+    if [ "$apt_rc" -eq 0 ]; then
+      progress_write INFO "" "Package transaction complete; continuing ${NCZ_PROGRESS_HOOK:-hook}"
+    else
+      progress_write WARN "" "Package transaction failed rc=$apt_rc"
+    fi
+    exit "$apt_rc"
+    ;;
+  *) exec "$REAL" "$@" ;;
+esac

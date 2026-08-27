@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
+Subject: [PATCH] topology: register cpufreq notifier on ACPI for missing capacity_freq_ref
+
+topology_set_freq_scale() warns when called early in ACPI boot
+(before the first cpufreq policy switch has populated
+capacity_freq_ref).  Keep the arch-topology cpufreq policy notifier
+registered on ACPI and use the policy's max_freq to fill the missing
+reference, silencing the warning and producing a stable freq-scale
+estimate from the very first call.
+
+Ported from srcshelton/gentoo-ebuilds:
+  20050-topology-has-missing-cpufreq-ref.patch
+
+Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
+[ported: applied verbatim from srcshelton/gentoo-ebuilds
+  20050-topology-has-missing-cpufreq-ref.patch]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/base/arch_topology.c b/drivers/base/arch_topology.c
+index 8c5e47c28..08a163c0b 100644
+--- a/drivers/base/arch_topology.c
++++ b/drivers/base/arch_topology.c
+@@ -404,6 +404,8 @@ init_cpu_capacity_callback(struct notifier_block *nb,
+ 	cpumask_andnot(cpus_to_visit, cpus_to_visit, policy->related_cpus);
+ 
+ 	for_each_cpu(cpu, policy->related_cpus) {
++		if (!acpi_disabled && per_cpu(capacity_freq_ref, cpu))
++			continue;
+ 		per_cpu(capacity_freq_ref, cpu) = policy->cpuinfo.max_freq;
+ 		freq_inv_set_max_ratio(cpu,
+ 				       per_cpu(capacity_freq_ref, cpu) * HZ_PER_KHZ);
+@@ -426,15 +428,35 @@ static struct notifier_block init_cpu_capacity_notifier = {
+ 	.notifier_call = init_cpu_capacity_callback,
+ };
+ 
++static bool topology_has_missing_cpufreq_ref(void)
++{
++	int cpu;
++
++	for_each_possible_cpu(cpu) {
++		if (!per_cpu(capacity_freq_ref, cpu))
++			return true;
++	}
++
++	return false;
++}
++
+ static int __init register_cpufreq_notifier(void)
+ {
+ 	int ret;
+ 
+ 	/*
+-	 * On ACPI-based systems skip registering cpufreq notifier as cpufreq
+-	 * information is not needed for cpu capacity initialization.
++	 * On ACPI-based systems, CPPC normally initializes CPU capacity and the
++	 * reference frequency before cpufreq policy creation.  If every possible
++	 * CPU already has a reference frequency, cpufreq information is not
++	 * needed for CPU capacity initialization.
++	 *
++	 * Some ACPI firmware provides enough CPPC data for cpufreq policies but
++	 * leaves capacity_freq_ref unset.  Keep the notifier active for that
++	 * case so init_cpu_capacity_callback() can seed the missing references
++	 * from policy->cpuinfo.max_freq before fast-switch users call
++	 * topology_set_freq_scale().
+ 	 */
+-	if (!acpi_disabled)
++	if (!acpi_disabled && !topology_has_missing_cpufreq_ref())
+ 		return -EINVAL;
+ 
+ 	if (!alloc_cpumask_var(&cpus_to_visit, GFP_KERNEL))

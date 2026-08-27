@@ -1,0 +1,46 @@
+From 0f2785ed64df2087b39bf2c36cd447dda719aea3 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 23 May 2026 12:41:38 -0400
+Subject: [PATCH 7/7] armchina-npu: drop IRQF_ONESHOT from request_irq (no
+ threaded handler)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+IRQF_ONESHOT is valid only for request_threaded_irq() with a real
+threaded handler. The driver's request_irq() call wraps to
+request_threaded_irq(irq, handler, NULL, flags, name, dev) with
+thread_fn=NULL, so IRQF_ONESHOT trips a WARN at kernel/irq/manage.c:1502
+during __setup_irq.
+
+Driver does NOT use a threaded IRQ — it uses a workqueue
+(INIT_WORK + create_singlethread_workqueue), so IRQF_ONESHOT is
+inappropriate. Driver's own comment at aipu_irq.c:67-69 calls this out:
+'Flag IRQF_ONESHOT is used when sharing interrupts with other devices
+using thread_irq. Remove it if you have no such a usage scenario.'
+This commit follows that guidance.
+
+Validated: WARN disappears from probe; behavior unchanged (IRQ still
+shared via IRQF_SHARED, still uses workqueue bottom half).
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ driver/armchina-npu/aipu_irq.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/driver/armchina-npu/aipu_irq.c b/driver/armchina-npu/aipu_irq.c
+index a4bad6e..10e912b 100755
+--- a/driver/armchina-npu/aipu_irq.c
++++ b/driver/armchina-npu/aipu_irq.c
+@@ -68,7 +68,7 @@ struct aipu_irq_object *aipu_create_irq_object(struct device *dev, u32 irqnum, v
+ 	 * Remove it if you have no such a usage scenario.
+ 	 */
+ 	ret = request_irq(irqnum, aipu_irq_handler_upper_half,
+-			  IRQF_ONESHOT | IRQF_SHARED | IRQF_PROBE_SHARED,
++			  IRQF_SHARED | IRQF_PROBE_SHARED,
+ 			  description, irq_obj->dev);
+ 	if (ret) {
+ 		dev_err(dev, "request_irq failed: irqnum %u, ret %d", irqnum, ret);
+-- 
+2.51.0
+

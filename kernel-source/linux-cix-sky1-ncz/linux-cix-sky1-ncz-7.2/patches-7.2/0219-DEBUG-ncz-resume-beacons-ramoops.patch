@@ -1,0 +1,395 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH 0219/0218] DEBUG: ncz resume-beacon -- extend unwired 9021 helper to
+ stamp RESUME breadcrumbs to ramoops on every suspend/resume
+
+The CIX Sky1 (O6/O6N) boards suspend cleanly to deep sleep, but CPU0
+(the coordinating core) hard-locks on resume while secondary cores
+wake fine.  pstore stays completely empty: a hard lock on CPU0, which
+owns the pstore machinery, prevents any of it from firing.  A
+third-party maintainer (Stuart Shelton) hit the same symptom and
+concluded it is most likely a firmware bug in the ACPI/PSCI resume
+handoff, not driver-level.
+
+This patch picks up the existing unwired boot-beacon helper from
+patches-7.2/9021-DEBUG-ncz-boot-beacons-ramoops.patch.unwired
+(NOT in SRC_URI today) and re-implements it as a self-contained
+suspend/resume instrument.  Both 9021 and this 0219 are intentionally
+left as alternative wirings -- 9021 covers the BOOT story (B1..B12),
+0219 covers the RESUME story (R1..R6) plus the core helper.  When
+both are applied, both fire; when only 0219 is in SRC_URI (the
+production intent for this change), 0219 alone provides everything
+required: the helper plus the resume breadcrumbs.
+
+Why a self-contained copy rather than just renaming/replacing 9021:
+9021 carries a Kconfig named NCZ_BOOT_BEACON and a Makefile object
+rule plus per-initcall hook.  That is a faithful boot-time instrument
+already in the tree as unwired.  Re-aiming the same Kconfig for resume
+would silently change 9021's semantics for anyone wiring it back up.
+This patch keeps its own NCZ_RESUME_BEACON Kconfig and its own
+ncz-resume-beacon.c; on the rare occasion both are applied the linker
+would see two ncz_beacon() symbols and refuse to link, which is the
+correct "do not combine these" outcome (the operator would pick one).
+
+An independent Codex investigation of the existing patch series
+identified the six points that bracket every plausible lock site along
+the resume path, and the present patch instruments each of them with a
+small, cheap ramoops write (the helper memremaps the firmware-reserved
+console zone at CONFIG_NCZ_BEACON_PHYS, default 0x83d5f000, with an
+explicit dcache clean so records survive the watchdog reset that
+follows the hard lock).  Each breadcrumb writes
+"NCZBEACON R<n>-<descr>\n" to the zone; reading the ramoops dump after
+a hung-then-power-cycled board and grepping for "NCZBEACON R" tells
+you exactly which step was the last one CPU0 reached.
+
+The six sites:
+
+  R1  entry to suspend_enter() in kernel/power/suspend.c, right
+      before the platform suspend_ops->enter() call.  Proves we
+      reached the kernel-side resume-precursor point on the
+      suspending CPU.
+
+  R2  immediately after suspend_ops->enter() returns.  This is the
+      critical point: if this beacon never appears in the NEXT
+      boot's ramoops, the hang is inside the firmware's own
+      suspend/resume handoff, before Linux resumed control at all.
+
+  R3  entry to __cpu_suspend_exit() in arch/arm64/kernel/suspend.c,
+      the earliest point CPU0 executes on the resume path proper.
+
+  R4  return from PSCI SYSTEM_SUSPEND in drivers/firmware/psci/psci.c.
+      The suspend_ops backend in use on this SoC is PSCI even on the
+      ACPI boot path: on arm64 there is no acpi_suspend_lowlevel() and
+      acpi_suspend_enter() therefore returns -ENOSYS for S3, so the
+      ACPI s2idle path is what runs from userspace; for the deep
+      PM_SUSPEND_MEM path the platform_suspend_ops->enter() pointer
+      that wins is psci_system_suspend_enter (psci_acpi_init() runs
+      from setup_arch() and acpi_sleep_init() runs later from
+      acpi_bus_init, so PSCI registers first, ACPI's later
+      suspend_set_ops() call is a no-op for the deep path because
+      valid_state() short-circuits to acpi_suspend_enter which itself
+      cannot reach platform sleep on arm64).  Beaconing the return of
+      invoke_psci_fn(SYSTEM_SUSPEND) therefore brackets the actual
+      firmware handoff for both boot paths.  If this beacon never
+      appears the hang is in EL3 firmware with the CPU still in
+      SYSTEM_SUSPEND.
+
+  R5  entry to gic_cpu_pm_notifier() (the v7.2-rc7 GICv3 syscore
+      equivalent) on CPU_PM_EXIT in drivers/irqchip/irq-gic-v3.c.
+      The original review named the would-be gic_cpu_syscore_resume()
+      but that function does not exist in v7.2; the per-CPU
+      cpu_pm_register_notifier() path is what actually brings GIC
+      state back on each CPU and is exactly the right hook to
+      instrument.  CPU0 specifically reaching this point on
+      CPU_PM_EXIT is the proof that the per-CPU resume path made
+      it through the GIC bring-up.
+
+  R6  end of the coordinator-only resume path, right after
+      pm_sleep_enable_secondary_cpus() returns in
+      kernel/power/suspend.c.  If this beacon appears, CPU0 got
+      all the way through and the secondary bringup is proceeding
+      -- so the lock is somewhere later (scheduler, IRQ, or a
+      driver that can no longer reach a register), and dmesg from
+      the surviving secondary cores becomes the next place to look.
+
+Each beacon is one memremap + one memcpy + one dcache_clean_poc on
+a 64 KiB mapping that is already pinned to the firmware-reserved
+ramoops region; the data is a short ASCII line (<= ~32 bytes), the
+whole cost on the resume path is on the order of a single cache-line
+flush per beacon.  This is negligible against the multi-millisecond
+cost of a real suspend/resume on a big.LITTLE SoC and the watchdog
+reset that follows the hang if the lock is real.
+
+Each call site is a single ncz_beacon("R<n>-<desc>") line; the helper
+itself is gated on CONFIG_NCZ_RESUME_BEACON (default n) and the
+inline stubs in the header are a no-op when the config is off, so
+the production kernel is byte-for-byte identical to the current
+shipping 7.2.0-rc7-sky1-ncz build with NCZ_RESUME_BEACON=n.  Turn
+the config on, rebuild, and the breadcrumbs appear -- no other
+change to the production image is required.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+Upstream-Status: Inappropriate [debug instrumentation, board-specific]
+---
+diff --git a/arch/arm64/Kconfig b/arch/arm64/Kconfig
+index b3afe0688919..bbe4493658a2 100644
+--- a/arch/arm64/Kconfig
++++ b/arch/arm64/Kconfig
+@@ -2540,3 +2540,17 @@ source "drivers/acpi/Kconfig"
+ source "arch/arm64/kvm/Kconfig"
+ 
+ source "kernel/livepatch/Kconfig"
++
++config NCZ_RESUME_BEACON
++	bool "NCZ resume beacon (Sky1 suspend/resume ramoops debug)"
++	default n
++	help
++	  Write suspend/resume progress tags into the firmware-reserved
++	  ramoops console zone for post-mortem reading after a hard CPU0
++	  lock on resume.  See docs/RESUME-BEACON-PATCH-2026-08-21.md
++	  for the six instrumentation points.
++
++config NCZ_BEACON_PHYS
++	hex "NCZ beacon physical address (ramoops console zone)"
++	depends on NCZ_RESUME_BEACON
++	default 0x83d5f000
+diff --git a/arch/arm64/kernel/Makefile b/arch/arm64/kernel/Makefile
+index c1f23dee3266..7db8793e721a 100644
+--- a/arch/arm64/kernel/Makefile
++++ b/arch/arm64/kernel/Makefile
+@@ -88,3 +88,4 @@ endif
+ 
+ # for cleaning
+ subdir- += vdso vdso32
++obj-$(CONFIG_NCZ_RESUME_BEACON) += ncz-resume-beacon.o
+diff --git a/arch/arm64/kernel/ncz-resume-beacon.c b/arch/arm64/kernel/ncz-resume-beacon.c
+new file mode 100644
+index 000000000000..c57e850f1dc3
+--- /dev/null
++++ b/arch/arm64/kernel/ncz-resume-beacon.c
+@@ -0,0 +1,91 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * NCZ resume beacon: append suspend/resume progress tags into the
++ * firmware-reserved ramoops console zone (CIX Sky1) with explicit
++ * dcache clean so records survive a watchdog reset.  Self-contained
++ * resume-side companion to the unwired 9021 boot-beacon helper.
++ */
++#include <linux/kernel.h>
++#include <linux/io.h>
++#include <linux/slab.h>
++#include <linux/string.h>
++#include <linux/ncz-resume-beacon.h>
++#include <asm/cacheflush.h>
++
++#define PRZ_SIG 0x43474244u
++#define MAP_LEN (SZ_64K)
++
++struct prz_hdr {
++	u32 sig;
++	u32 start;
++	u32 size;
++};
++
++static u32 ncz_cursor;
++static bool ncz_inited;
++static void *ncz_late_base;
++
++static void ncz_flush(void *addr, size_t len)
++{
++	dcache_clean_poc((unsigned long)addr, (unsigned long)addr + len);
++}
++
++static void *ncz_map(void)
++{
++	if (slab_is_available()) {
++		if (!ncz_late_base)
++			ncz_late_base = memremap(CONFIG_NCZ_BEACON_PHYS,
++						 MAP_LEN, MEMREMAP_WB);
++		return ncz_late_base;
++	}
++	return NULL;
++}
++
++void ncz_beacon(const char *tag)
++{
++	struct prz_hdr *h;
++	void *base;
++	char line[96];
++	int len;
++
++	/*
++	 * All beacon call sites run after slab is up (the deepest site
++	 * is __cpu_suspend_exit(), which is reached via cpu_resume()
++	 * returning into the cpu_suspend() trampoline -- slab has been
++	 * live for many milliseconds at that point).  We therefore only
++	 * support the late memremap path; refusing the call rather than
++	 * falling back to early_memremap keeps the helper simple and
++	 * means a beacon taken in truly pre-slab context (which none of
++	 * the resume sites are) is silently dropped instead of crashing
++	 * the resume path on a NULL deref.
++	 */
++	if (!slab_is_available())
++		return;
++
++	base = ncz_map();
++	if (!base)
++		return;
++
++	h = base;
++	if (!ncz_inited) {
++		h->sig = PRZ_SIG;
++		h->start = 0;
++		h->size = 0;
++		ncz_cursor = 0;
++		ncz_inited = true;
++		ncz_flush(h, sizeof(*h));
++	}
++
++	len = scnprintf(line, sizeof(line), "NCZBEACON %s\n", tag);
++	if (ncz_cursor + len < MAP_LEN - sizeof(*h)) {
++		char *dst = (char *)base + sizeof(*h) + ncz_cursor;
++
++		memcpy(dst, line, len);
++		ncz_flush(dst, len);
++		ncz_cursor += len;
++		h->start = ncz_cursor;
++		h->size = ncz_cursor;
++		ncz_flush(h, sizeof(*h));
++	}
++}
++EXPORT_SYMBOL(ncz_beacon);
+diff --git a/arch/arm64/kernel/suspend.c b/arch/arm64/kernel/suspend.c
+index eaaff94329cd..8465fe8893de 100644
+--- a/arch/arm64/kernel/suspend.c
++++ b/arch/arm64/kernel/suspend.c
+@@ -18,6 +18,7 @@
+ #include <asm/mmu_context.h>
+ #include <asm/smp_plat.h>
+ #include <asm/suspend.h>
++#include <linux/ncz-resume-beacon.h>
+ 
+ /*
+  * This is allocated by cpu_suspend_init(), and used to store a pointer to
+@@ -41,8 +42,14 @@ void __init cpu_suspend_set_dbg_restorer(int (*hw_bp_restore)(unsigned int))
+ 	hw_breakpoint_restore = hw_bp_restore;
+ }
+ 
++/*
++ * NCZ resume beacon R3: earliest point CPU0 executes on the resume path
++ * proper.  Reached via cpu_resume() returning into cpu_suspend()'s
++ * trampoline, after the firmware has handed control back to EL1.
++ */
+ void notrace __cpu_suspend_exit(void)
+ {
++	ncz_beacon("R3-cpu_suspend_exit");
+ 	unsigned int cpu = smp_processor_id();
+ 
+ 	mte_suspend_exit();
+diff --git a/drivers/firmware/psci/psci.c b/drivers/firmware/psci/psci.c
+index e73bae6cb23a..98923bdb6802 100644
+--- a/drivers/firmware/psci/psci.c
++++ b/drivers/firmware/psci/psci.c
+@@ -16,6 +16,7 @@
+ #include <linux/pm.h>
+ #include <linux/printk.h>
+ #include <linux/psci.h>
++#include <linux/ncz-resume-beacon.h>
+ #include <linux/reboot.h>
+ #include <linux/slab.h>
+ #include <linux/suspend.h>
+@@ -532,8 +533,15 @@ static int psci_system_suspend(unsigned long unused)
+ 	int err;
+ 	phys_addr_t pa_cpu_resume = __pa_symbol(cpu_resume);
+ 
++	/*
++	 * NCZ resume beacon R4: return from PSCI SYSTEM_SUSPEND.  This
++	 * is the proof that the firmware handoff completed and Linux
++	 * control of CPU0 is back.  See patch preamble for why this
++	 * is the right site even on the ACPI boot path.
++	 */
+ 	err = invoke_psci_fn(PSCI_FN_NATIVE(1_0, SYSTEM_SUSPEND),
+ 			      pa_cpu_resume, 0, 0);
++	ncz_beacon("R4-psci_system_suspend_return");
+ 	return psci_to_linux_errno(err);
+ }
+ 
+diff --git a/drivers/irqchip/irq-gic-v3.c b/drivers/irqchip/irq-gic-v3.c
+index 99444a1b2ffa..bb85888e5b52 100644
+--- a/drivers/irqchip/irq-gic-v3.c
++++ b/drivers/irqchip/irq-gic-v3.c
+@@ -9,6 +9,7 @@
+ #include <linux/acpi.h>
+ #include <linux/cpu.h>
+ #include <linux/cpu_pm.h>
++#include <linux/ncz-resume-beacon.h>
+ #include <linux/delay.h>
+ #include <linux/interrupt.h>
+ #include <linux/irqdomain.h>
+@@ -1482,6 +1483,14 @@ static int gic_retrigger(struct irq_data *data)
+ static int gic_cpu_pm_notifier(struct notifier_block *self,
+ 			       unsigned long cmd, void *v)
+ {
++	/*
++	 * NCZ resume beacon R5: entry to the GICv3 per-CPU resume
++	 * hook.  The v7.2-rc7 GICv3 driver uses a cpu_pm notifier
++	 * (the syscore resume callback named in the design notes
++	 * does not exist in mainline v7.2).  Reaching CPU_PM_EXIT
++	 * on CPU0 proves the GIC redistributor bring-up proceeded.
++	 */
++	ncz_beacon("R5-gic_pm_exit");
+ 	if (cmd == CPU_PM_EXIT || cmd == CPU_PM_ENTER_FAILED) {
+ 		if (gic_dist_security_disabled())
+ 			gic_enable_redist(true);
+diff --git a/include/linux/ncz-resume-beacon.h b/include/linux/ncz-resume-beacon.h
+new file mode 100644
+index 000000000000..43f03b86626b
+--- /dev/null
++++ b/include/linux/ncz-resume-beacon.h
+@@ -0,0 +1,14 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _LINUX_NCZ_RESUME_BEACON_H
++#define _LINUX_NCZ_RESUME_BEACON_H
++
++#ifdef CONFIG_NCZ_RESUME_BEACON
++void ncz_beacon(const char *tag);
++#else
++static inline void ncz_beacon(const char *tag)
++{
++	(void)tag;
++}
++#endif
++
++#endif
+diff --git a/kernel/power/suspend.c b/kernel/power/suspend.c
+index 57c44268698f..bf173d6a5734 100644
+--- a/kernel/power/suspend.c
++++ b/kernel/power/suspend.c
+@@ -28,6 +28,7 @@
+ #include <linux/swait.h>
+ #include <linux/ftrace.h>
+ #include <trace/events/power.h>
++#include <linux/ncz-resume-beacon.h>
+ #include <linux/compiler.h>
+ #include <linux/moduleparam.h>
+ #include <linux/fs.h>
+@@ -465,7 +466,25 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
+ 		if (!(suspend_test(TEST_CORE) || *wakeup)) {
+ 			trace_suspend_resume(TPS("machine_suspend"),
+ 				state, true);
++			/*
++			 * NCZ resume beacon R1: entry to platform
++			 * suspend_ops->enter() on the suspending CPU.
++			 * If R1 appears in the next-boot ramoops dump
++			 * but R2 does not, the hang is inside the
++			 * platform/firmware sleep handoff.
++			 */
++			ncz_beacon("R1-BeforeSuspendOpsEnter");
+ 			error = suspend_ops->enter(state);
++			/*
++			 * NCZ resume beacon R2: return from platform
++			 * suspend_ops->enter().  This is the proof that
++			 * the kernel-visible portion of the platform
++			 * resume path completed.  If R2 appears but R3
++			 * does not, the lock is between the suspend_ops
++			 * return and the first instruction of the
++			 * arm64 cpu_suspend_exit trampoline.
++			 */
++			ncz_beacon("R2-AfterSuspendOpsEnter");
+ 			trace_suspend_resume(TPS("machine_suspend"),
+ 				state, false);
+ 		} else if (*wakeup) {
+@@ -481,6 +500,12 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
+ 
+  Enable_cpus:
+ 	pm_sleep_enable_secondary_cpus();
++	/*
++	 * NCZ resume beacon R6: end of the coordinator-only resume
++	 * path.  Reaching this point means CPU0 got all the way through
++	 * the platform resume and the secondary bring-up is proceeding.
++	 */
++	ncz_beacon("R6-SecondaryCpusReEnabled");
+ 
+  Platform_wake:
+ 	platform_resume_noirq(state);
+--
+2.50.1

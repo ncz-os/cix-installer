@@ -1,0 +1,12 @@
+[Unit]
+Description=NCZ fleet backup to argonas2
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ncz-backup.sh
+RuntimeMaxSec=6h
+TimeoutStopSec=120
+# The script itself refuses to report success on an empty backup, so a
+# non-zero exit here is a REAL failure worth surfacing in list-timers.
