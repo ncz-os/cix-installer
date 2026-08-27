@@ -390,6 +390,31 @@ PORTALCONF
     fi
 fi
 
+# graphical-session.target is systemd-hardened against direct manual start
+# (RefuseManualStart) -- it must be reached via a unit that BindsTo= it.
+# singularity-session (the session-launcher subproject) ships exactly that
+# as config/systemd-user/singularity-session.target, installed under the
+# same isolated /opt prefix as the portal unit above and needing the same
+# bridge for the same reason: systemd --user does not search /opt.
+#
+# Without this bridge, xdg-desktop-portal-singularity.service (WantedBy=
+# graphical-session.target, enabled a few lines above) is enabled but NEVER
+# STARTS -- confirmed live on O6N 2026-08-27: portal routing worked and
+# correctly selected the singularity backend for Screenshot, but the
+# backend process itself never launched because nothing had ever started
+# graphical-session.target on this system. Root-caused down to this exact
+# missing symlink; fixed live, then reproduced from a clean session restart
+# with the bridge in place -- both org.freedesktop.portal.Screenshot and
+# the native singularity-screenshot binary produced real screenshots.
+if [ -f /opt/singularity/lib/systemd/user/singularity-session.target ]; then
+    install -d -m0755 /etc/systemd/user
+    ln -sfn /opt/singularity/lib/systemd/user/singularity-session.target \
+        /etc/systemd/user/singularity-session.target
+    echo "[20] wired singularity-session.target into systemd user-unit path (graphical-session.target bridge)"
+else
+    echo "[20] WARN: singularity-session.target missing from payload; graphical-session.target will never start, breaking Screenshot/ScreenCast and anything else WantedBy=graphical-session.target" >&2
+fi
+
 # ---------------------------------------------------------------------------
 # GPU userspace selector — ncz-gpu-env (Mali branch has NO
 # __EGL_VENDOR_LIBRARY_FILENAMES pin: that pin blackscreens libmali, confirmed
