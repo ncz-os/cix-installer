@@ -97,7 +97,7 @@ CORE_DESKTOP="greetd glycin-loaders \
     swaybg grim slurp fuzzel \
     xwayland \
     polkitd rtkit \
-    mesa-utils vulkan-tools libglu1-mesa \
+    mesa-utils vulkan-tools libglu1-mesa vainfo \
     libglib2.0-bin"
 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP; then
     ncz_ports_fallback
