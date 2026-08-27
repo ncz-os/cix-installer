@@ -154,13 +154,24 @@ fi
 #    On Cix Sky1: libnoe wheel (Cix-shipped at /usr/share/cix/pypi/) +
 #    llama-cpp-python (CPU fallback adapter).
 # ----------------------------------------------------------------------
-# cix-noe-umd 2.0.2 (staged via dpkg-deb -x by 25-cix-proprietary.sh) drops
+# cix-noe-umd (staged via dpkg-deb -x by 25-cix-proprietary.sh) drops
 # both the libnoe binding and the NOE_Engine wrapper into
 # /usr/share/cix/pypi. Install both into the venv, but only
-# when the venv is 3.11/3.12 — the wheels carry cp311/cp312 .so only, so
+# when the venv is 3.11/3.12 -- the wheels carry cp311/cp312 .so only, so
 # on a 3.13+ venv the import would fail at runtime.
-LIBNOE_WHL=$(ls /usr/share/cix/pypi/libnoe-*-py3-none-manylinux2014_aarch64.whl 2>/dev/null | head -1)
-NOE_ENGINE_WHL=$(ls /usr/share/cix/pypi/NOE_Engine-*-py3-none-manylinux2014_aarch64.whl 2>/dev/null | head -1)
+#
+# Track the LATEST cix-noe-umd, not a pinned version (operator directive
+# 2026-08-27) -- so this discovers whatever version is actually installed
+# rather than a hardcoded one. Confirmed real: an ls glob here for
+# NOE_Engine-*.whl (mixed case) silently killed the WHOLE hook under
+# set -e when cix-noe-umd 3.1.4 shipped it as noe_engine-3.0.0-...whl
+# (lowercase, on disk) -- ls found nothing, exited 2, and everything
+# after this point (including the libnoe install two lines below, whose
+# wheel WAS present) silently never ran. Both lookups are now case-
+# insensitive finds with || true so a genuinely absent wheel WARNs
+# instead of aborting the rest of this optional hook.
+LIBNOE_WHL=$(find /usr/share/cix/pypi -maxdepth 1 -iname 'libnoe-*-py3-none-manylinux2014_aarch64.whl' 2>/dev/null | sort | tail -1) || true
+NOE_ENGINE_WHL=$(find /usr/share/cix/pypi -maxdepth 1 -iname 'noe_engine-*-py3-none-manylinux2014_aarch64.whl' 2>/dev/null | sort | tail -1) || true
 if [ "$NPU_PY_OK" = "1" ] && [ -n "$LIBNOE_WHL" ]; then
     echo "[47]   installing libnoe (Cix NPU userspace binding) from $(basename "$LIBNOE_WHL")"
     # NON-FATAL ON PURPOSE, matching every other step in this script -- this
@@ -192,7 +203,7 @@ if [ "$NPU_PY_OK" = "1" ] && [ -n "$LIBNOE_WHL" ]; then
 elif [ "$NPU_PY_OK" != "1" ]; then
     echo "[47]   skipping libnoe install — venv python is not 3.11/3.12 (NPU adapter disabled)"
 else
-    echo "[47]   WARN: no libnoe wheel under /usr/share/cix/pypi — is cix-noe-umd 2.0.2 installed?"
+    echo "[47]   WARN: no libnoe wheel under /usr/share/cix/pypi — is cix-noe-umd installed?"
 fi
 
 # llama-cpp-python — CPU baseline + Vulkan fallback. Use the prebuilt

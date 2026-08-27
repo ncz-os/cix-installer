@@ -19,8 +19,16 @@
 # Validated 2026-06-17 on .66 (7.0.12-cix-sky1-next, armchina_npu KMD):
 # a Python 3.11 venv + cix-noe-umd 2.0.2 (libnoe 2.0.0 wheel) runs
 # all-MiniLM minilm_128.cix at ~56 emb/s real-tokenized (vs CPU 13.3,
-# Mali/panvk 8.8). UMD 1.1.1 (libnoe 0.5.0) and 3.1.2 do NOT work with
-# the in-tree KMD — 2.0.2 is the one matched to our v0-compat module.
+# Mali/panvk 8.8). UMD 1.1.1 (libnoe 0.5.0) and 3.1.2 did NOT work with
+# that in-tree KMD at the time.
+#
+# Re-validated 2026-08-27 on real O6N hardware (7.2.0-sky1-ncz) with the
+# LATEST cix-noe-umd (3.1.4, libnoe 3.1.3 wheel) -- operator directive is
+# to track latest, not pin to 2.0.2. import libnoe AND import NOE_Engine
+# both succeed, and embedkit.Engine.list_adapters() reports the npu-cix
+# adapter available ("libnoe + /dev/aipu present"). The version pin below
+# is gone: this hook and 47-embedkit.sh now discover whatever cix-noe-umd
+# version is actually installed (case-insensitive glob -- see 47 for why).
 #
 # This hook provides the 3.11 interpreter; 47-embedkit.sh consumes it.
 #
