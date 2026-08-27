@@ -26,7 +26,7 @@ brands the system as NCZ.
 > kernel, `7.2.0-sky1-ncz`. Validated on Radxa Orion O6N and Minisforum MS-R1;
 > Orange Pi 6 in progress.
 >
-> **Latest release:** [2026.08.18-v12](docs/releases/2026.08.18-v12.md) ·
+> **Latest release:** [2026.08.27-v14](docs/releases/2026.08.27-v14.md) ·
 > [Download](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
 
 > ### Remote access defaults
@@ -44,6 +44,23 @@ brands the system as NCZ.
 >
 > **→ [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)** — exactly what is
 > enabled, why, and how to disable each part.
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/branding/screenshots/desktop-sensor-panel.png" alt="Singularity desktop with the system sensor panel open" width="900">
+</p>
+<p align="center"><em>Singularity desktop (labwc/wlroots) — Chromium and the system sensor panel, showing live CPU/GPU/NPU/VPU temperatures, per-core clocks, network, memory and storage.</em></p>
+
+<p align="center">
+  <img src="assets/branding/screenshots/app-launcher.png" alt="Singularity app launcher" width="900">
+</p>
+<p align="center"><em>The app launcher — GTK4-native apps, dev tooling (Git, Claude Code), and system utilities.</em></p>
+
+<p align="center">
+  <img src="assets/branding/screenshots/network-panel.png" alt="Singularity network settings panel" width="900">
+</p>
+<p align="center"><em>Network settings — Wi-Fi, wired connections, and hotspot sharing.</em></p>
 
 ### Why this exists, and why it is built this way
 
