@@ -1,0 +1,153 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
+Subject: [PATCH] ACPI: thermal: bind devfreq cooling devices via
+ devfreq_cooling_get_device() helper
+
+(Replaces patches-7.2/0050-ACPI-thermal-bind-devfreq-cooling-devices-via-devfre.patch
+with the upstream-friendly variant from srcshelton/gentoo-ebuilds.  The
+helper exposes dfc->devfreq->dev.parent via a new EXPORT_SYMBOL_GPL in
+drivers/thermal/devfreq_cooling.c, so the ACPI side does not need to
+reach inside the devfreq_cooling_device struct or rely on a partial
+type-name string match.)
+
+When a devfreq cooling device is registered through
+of_devfreq_cooling_register*(), cdev->devdata stores the private
+struct devfreq_cooling_device pointer rather than a struct acpi_device.
+acpi_thermal_should_bind_cdev() blindly compared cdev->devdata against
+acpi_fetch_acpi_dev(handle), so the comparison always failed and the
+devfreq cooling device was never bound to any ACPI thermal trip point,
+even when DSDT _PSL/_ALx explicitly listed the underlying device.
+
+Resolve the real ACPI device by walking dfc->devfreq->dev.parent via the
+new devfreq_cooling_get_device() helper (which match-checks the cooling
+ops pointers so the helper is safe even when a non-devfreq cooling
+device is on the same trip).  This brings the 7.0 ACPI thermal binding
+behavior in line with the 6.6 BSP, allowing GPU/devfreq cooling devices
+to bind to their thermal zones again.
+
+Composition: this patch supersedes the prior in-tree fix
+(patches-7.2/0050) by applying the upstream-friendly helper-based
+variant directly.  The 0050 patch is removed from SRC_URI in the
+meta-recipe; the visible result is the helper-based diff.
+
+Ported from srcshelton/gentoo-ebuilds:
+  sys-kernel/cix-sources/files/7.2.x/0060-acpi-thermal-bind-devfreq-cooling-devices-safely.patch
+
+Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
+[ported: applied verbatim, replacing our 0050 in the patch series;
+ see comparison doc docs/upstream-patches/srcshelton-comparison-2026-08-20.md §3.5]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/acpi/thermal.c b/drivers/acpi/thermal.c
+index 61b93d183..332a38e95 100644
+--- a/drivers/acpi/thermal.c
++++ b/drivers/acpi/thermal.c
+@@ -26,6 +26,7 @@
+ #include <linux/reboot.h>
+ #include <linux/device.h>
+ #include <linux/platform_device.h>
++#include <linux/devfreq_cooling.h>
+ #include <linux/thermal.h>
+ #include <linux/acpi.h>
+ #include <linux/workqueue.h>
+@@ -617,9 +618,12 @@ static bool acpi_thermal_should_bind_cdev(struct thermal_zone_device *thermal,
+ 					  struct cooling_spec *c)
+ {
+ 	struct acpi_thermal_trip *acpi_trip = trip->priv;
+-	struct acpi_device *cdev_adev = cdev->devdata;
++	struct device *cdev_dev = devfreq_cooling_get_device(cdev);
++	struct acpi_device *cdev_adev;
+ 	int i;
+ 
++	cdev_adev = cdev_dev ? ACPI_COMPANION(cdev_dev) : cdev->devdata;
++
+ 	/* Skip critical and hot trips. */
+ 	if (!acpi_trip)
+ 		return false;
+diff --git a/drivers/thermal/devfreq_cooling.c b/drivers/thermal/devfreq_cooling.c
+index ac071abc4..bef68419c 100644
+--- a/drivers/thermal/devfreq_cooling.c
++++ b/drivers/thermal/devfreq_cooling.c
+@@ -118,6 +118,32 @@ static int devfreq_cooling_set_cur_state(struct thermal_cooling_device *cdev,
+ 	return 0;
+ }
+ 
++/**
++ * devfreq_cooling_get_device - get the device behind a devfreq cooling device
++ * @cdev: Cooling device to inspect
++ *
++ * Return: The underlying device for a devfreq cooling device, or NULL if
++ * @cdev was registered by another cooling driver.
++ */
++struct device *
++devfreq_cooling_get_device(struct thermal_cooling_device *cdev)
++{
++	struct devfreq_cooling_device *dfc;
++
++	if (!cdev || !cdev->ops ||
++	    cdev->ops->get_max_state != devfreq_cooling_get_max_state ||
++	    cdev->ops->get_cur_state != devfreq_cooling_get_cur_state ||
++	    cdev->ops->set_cur_state != devfreq_cooling_set_cur_state)
++		return NULL;
++
++	dfc = cdev->devdata;
++	if (!dfc || !dfc->devfreq)
++		return NULL;
++
++	return dfc->devfreq->dev.parent;
++}
++EXPORT_SYMBOL_GPL(devfreq_cooling_get_device);
++
+ /**
+  * get_perf_idx() - get the performance index corresponding to a frequency
+  * @em_pd:	Pointer to device's Energy Model
+@@ -459,7 +485,10 @@ of_devfreq_cooling_register_power(struct device_node *np, struct devfreq *df,
+ 	if (!name)
+ 		goto remove_qos_req;
+ 
+-	cdev = thermal_of_cooling_device_register(np, 0, name, dfc, ops);
++	if (np)
++		cdev = thermal_of_cooling_device_register(np, 0, name, dfc, ops);
++	else
++		cdev = thermal_cooling_device_register(name, dfc, ops);
+ 	kfree(name);
+ 
+ 	if (IS_ERR(cdev)) {
+diff --git a/include/linux/devfreq_cooling.h b/include/linux/devfreq_cooling.h
+index 14baa73fc..d0e870f10 100644
+--- a/include/linux/devfreq_cooling.h
++++ b/include/linux/devfreq_cooling.h
+@@ -39,7 +39,7 @@ struct devfreq_cooling_power {
+ 			      unsigned long freq, unsigned long voltage);
+ };
+ 
+-#ifdef CONFIG_DEVFREQ_THERMAL
++#if IS_REACHABLE(CONFIG_DEVFREQ_THERMAL)
+ 
+ struct thermal_cooling_device *
+ of_devfreq_cooling_register_power(struct device_node *np, struct devfreq *df,
+@@ -51,8 +51,10 @@ void devfreq_cooling_unregister(struct thermal_cooling_device *dfc);
+ struct thermal_cooling_device *
+ devfreq_cooling_em_register(struct devfreq *df,
+ 			    struct devfreq_cooling_power *dfc_power);
++struct device *
++devfreq_cooling_get_device(struct thermal_cooling_device *cdev);
+ 
+-#else /* !CONFIG_DEVFREQ_THERMAL */
++#else /* !IS_REACHABLE(CONFIG_DEVFREQ_THERMAL) */
+ 
+ static inline struct thermal_cooling_device *
+ of_devfreq_cooling_register_power(struct device_node *np, struct devfreq *df,
+@@ -85,5 +87,11 @@ devfreq_cooling_unregister(struct thermal_cooling_device *dfc)
+ {
+ }
+ 
+-#endif /* CONFIG_DEVFREQ_THERMAL */
++static inline struct device *
++devfreq_cooling_get_device(struct thermal_cooling_device *cdev)
++{
++	return NULL;
++}
++
++#endif /* IS_REACHABLE(CONFIG_DEVFREQ_THERMAL) */
+ #endif /* __DEVFREQ_COOLING_H__ */

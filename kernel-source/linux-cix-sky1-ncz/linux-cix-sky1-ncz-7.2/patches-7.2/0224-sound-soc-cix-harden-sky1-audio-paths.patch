@@ -1,0 +1,544 @@
+From e8374ad38c2c442683aea4ee224254b87c16ddc1 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 25 Aug 2026 17:23:02 +0000
+Subject: [PATCH] ASoC: cix: harden Sky1 audio paths
+
+Port srcshelton's 73050 sound/soc/cix hardening patch onto our v7.2 series after 0223.
+
+The clock, jack, TDM, IRQ, PM and softdep hunks apply directly or with offsets. The ACPI HDMI-codec section needed manual reconciliation because our series already resolves the hdmi-codec child below the DP firmware node and already assigns per-DP codec prefixes; preserve that local shape while adding managed card-to-I2S and card-to-codec device links plus bound-supplier deferral.
+---
+ sound/soc/cix/card-utils.c  | 151 +++++++++++++++++++++++++++---------
+ sound/soc/cix/cdns_i2s_mc.c |  49 +++++++-----
+ sound/soc/cix/cdns_i2s_sc.c |  28 +++++--
+ sound/soc/cix/sky1-card.c   |   1 +
+ 4 files changed, 164 insertions(+), 65 deletions(-)
+
+diff --git a/sound/soc/cix/card-utils.c b/sound/soc/cix/card-utils.c
+index 5f86b147e865..928a1ef2ce84 100644
+--- a/sound/soc/cix/card-utils.c
++++ b/sound/soc/cix/card-utils.c
+@@ -1,10 +1,13 @@
+ // SPDX-License-Identifier: GPL-2.0
+ // Copyright 2024 Cix Technology Group Co., Ltd.
++#include <linux/acpi.h>
+ #include <linux/clk.h>
++#include <linux/err.h>
+ #include <linux/module.h>
+ #include <linux/mfd/syscon.h>
+ #include <linux/platform_device.h>
+ #include <linux/regmap.h>
++#include <linux/string.h>
+ #include "card-utils.h"
+ #include <sound/jack.h>
+ #include <sound/hdmi-codec.h>
+@@ -60,8 +63,10 @@ static int cix_jack_init(struct snd_soc_pcm_runtime *rtd)
+ 		}
+ 		dev_info(dev, "codec component %s\n", codec_dai->component->name);
+ 
+-		snd_soc_component_set_jack(codec_dai->component,
+-						&link_info->jack[jack[i]], NULL);
++		ret = snd_soc_component_set_jack(codec_dai->component,
++						 &link_info->jack[jack[i]], NULL);
++		if (ret)
++			return ret;
+ 	}
+ 
+ 	return 0;
+@@ -100,16 +105,9 @@ static int cix_dailink_parsing_fmt(struct device_node *np,
+ static bool cix_dailink_status_check(struct device_node *np)
+ {
+ 	const char *status;
+-	int ret;
+ 
+-	ret = of_property_read_string(np, "status", &status);
+-
+-	if (status) {
+-		if (!strcmp(status, "okay") || !strcmp(status, "ok"))
+-			return true;
+-		else
+-			return false;
+-	}
++	if (!of_property_read_string(np, "status", &status))
++		return !strcmp(status, "okay") || !strcmp(status, "ok");
+ 
+ 	return true;
+ }
+@@ -158,6 +156,10 @@ static int dai_set_sysclk(struct snd_pcm_substream *substream,
+ 		} else if (sample_rate == 192000) {
+ 			mclk_fs = 256;
+ 			mclk_div = 0;
++		} else {
++			dev_err(rtd->dev, "Unsupported sample rate %u for 8kHz clock family\n",
++				sample_rate);
++			return -EINVAL;
+ 		}
+ 
+ 		mclk_parent = link_info->clks[AUDIO_CLK0];
+@@ -177,6 +179,10 @@ static int dai_set_sysclk(struct snd_pcm_substream *substream,
+ 		} else if (sample_rate == 176400) {
+ 			mclk_fs = 256;
+ 			mclk_div = 0;
++		} else {
++			dev_err(rtd->dev, "Unsupported sample rate %u for 11.025kHz clock family\n",
++				sample_rate);
++			return -EINVAL;
+ 		}
+ 
+ 		mclk_parent = link_info->clks[AUDIO_CLK2];
+@@ -301,9 +307,7 @@ static int cix_dailink_init(struct snd_soc_pcm_runtime *rtd)
+ 			return ret;
+ 	}
+ 
+-	cix_jack_init(rtd);
+-
+-	return 0;
++	return cix_jack_init(rtd);
+ }
+ 
+ static int cix_gpio_init(struct cix_asoc_card *priv)
+@@ -462,7 +466,8 @@ int cix_card_parse_of(struct cix_asoc_card *priv)
+ 		link->cpus = &comp_cpu[0];
+ 		link->num_cpus = 1;
+ 		link->cpus->of_node = args.np;
+-		link->id = args.args[0];
++		/* rtd->id indexes the compact link and link_info arrays. */
++		link->id = current_np;
+ 
+ 		link->platforms	= &comp_cpu[1];
+ 		link->num_platforms = 1;
+@@ -504,7 +509,9 @@ int cix_card_parse_of(struct cix_asoc_card *priv)
+ 		}
+ 		dev_info(dev, "\tcodec dai name:%s\n", link->codecs->dai_name );
+ 
+-		cix_dailink_parsing_fmt(np, codec, &link->dai_fmt);
++		ret = cix_dailink_parsing_fmt(np, codec, &link->dai_fmt);
++		if (ret)
++			goto err_put_codec;
+ 
+ 		of_property_read_u32(np, "mclk-fs", &link_info->mclk_fs);
+ 		if (link_info->mclk_fs) {
+@@ -529,11 +536,12 @@ int cix_card_parse_of(struct cix_asoc_card *priv)
+ 			}
+ 		}
+ 
+-		snd_soc_of_parse_tdm_slot(np,
+-					  &link_info->tx_mask,
+-					  &link_info->rx_mask,
+-					  &link_info->slots,
+-					  &link_info->slot_width);
++		ret = snd_soc_of_parse_tdm_slot(np, &link_info->tx_mask,
++						&link_info->rx_mask,
++						&link_info->slots,
++						&link_info->slot_width);
++		if (ret)
++			goto err_put_codec;
+ 
+ 		if (of_property_read_bool(np, "jack-det,dpin")) {
+ 			link_info->jack_pin[JACK_DPIN].pin = np->name ? np->name : "jack-dpin";
+@@ -546,7 +554,12 @@ int cix_card_parse_of(struct cix_asoc_card *priv)
+ 			snprintf(dp_str, sizeof(dp_str),
+ 				"HDMI/DP,pcm=%d", current_np);
+ 
+-			link_info->jack_pin[JACK_DPOUT].pin = kstrdup(dp_str, GFP_KERNEL);
++			link_info->jack_pin[JACK_DPOUT].pin =
++				devm_kstrdup(dev, dp_str, GFP_KERNEL);
++			if (!link_info->jack_pin[JACK_DPOUT].pin) {
++				ret = -ENOMEM;
++				goto err_put_codec;
++			}
+ 			link_info->jack_pin[JACK_DPOUT].mask = SND_JACK_LINEOUT;
+ 			link_info->jack_det_mask |= JACK_MASK_DPOUT;
+ 		}
+@@ -569,6 +582,8 @@ int cix_card_parse_of(struct cix_asoc_card *priv)
+ 		link->name = np->name ? np->name : link->cpus->dai_name;
+ 		link->ops = &cix_dailink_ops;
+ 		link->init = cix_dailink_init;
++		link->trigger_start = SND_SOC_TRIGGER_ORDER_DEFAULT;
++		link->trigger_stop = SND_SOC_TRIGGER_ORDER_LDC;
+ 
+ 		link++;
+ 		link_info++;
+@@ -786,9 +801,10 @@ static int cix_acpi_dp_audio_check_present(int idx)
+ 	return 0;
+ }
+ 
+-static const char *cix_acpi_dp_audio_get_cpu_name(int idx)
++static struct device *cix_acpi_dp_audio_get_i2s_dev(int idx)
+ {
+ 	struct acpi_device *adev;
++	struct device *dev;
+ 	char path[16];
+ 	acpi_handle handle;
+ 	acpi_status status;
+@@ -796,13 +812,17 @@ static const char *cix_acpi_dp_audio_get_cpu_name(int idx)
+ 	snprintf(path, 16, "\\_SB.I2S%d", idx + SKY1_AUDSS_DP_AUDIO_OFFSET);
+ 	status = acpi_get_handle(NULL, path, &handle);
+ 	if (ACPI_FAILURE(status))
+-		return NULL;
++		return ERR_PTR(-ENODEV);
+ 
+ 	adev = acpi_fetch_acpi_dev(handle);
+ 	if (!adev || !adev->status.present)
+-		return NULL;
++		return ERR_PTR(-ENODEV);
++
++	dev = bus_find_device_by_acpi_dev(&platform_bus_type, adev);
++	if (!dev)
++		return ERR_PTR(-EPROBE_DEFER);
+ 
+-	return dev_name(&adev->dev);
++	return dev;
+ }
+ 
+ /*
+@@ -818,7 +838,7 @@ static int cix_dp_match_hdmi_codec(struct device *dev, const void *data)
+ 	       !strcmp(to_platform_device(dev)->name, HDMI_CODEC_DRV_NAME);
+ }
+ 
+-static const char *cix_acpi_dp_audio_get_codec_name(int idx)
++static struct device *cix_acpi_dp_audio_get_codec_dev(int idx)
+ {
+ 	struct acpi_device *adev;
+ 	struct device *dev, *dpdev;
+@@ -837,18 +857,35 @@ static const char *cix_acpi_dp_audio_get_codec_name(int idx)
+ 
+ 	dev = bus_find_device_by_acpi_dev(&platform_bus_type, adev);
+ 	if (!dev)
+-		return NULL;
++		return ERR_PTR(-EPROBE_DEFER);
+ 
+ 	dpdev = device_find_child(dev, NULL, cix_dp_match_hdmi_codec);
++	put_device(dev);
+ 	if (!dpdev)
+-		return NULL;
++		return ERR_PTR(-EPROBE_DEFER);
+ 
+-	/*
+-	 * dev_name() is correct here: the hdmi-codec ASoC component is
+-	 * registered under the device name (hdmi-audio-codec.N.auto), which is
+-	 * what snd_soc matches dai_link codecs->name against.
+-	 */
+-	return dev_name(dpdev);
++	return dpdev;
++}
++
++static int cix_card_link_supplier(struct device *consumer,
++				  struct device *supplier)
++{
++	int ret;
++
++	if (!device_link_add(consumer, supplier,
++			     DL_FLAG_AUTOREMOVE_CONSUMER))
++		return dev_err_probe(consumer, -EINVAL,
++				     "failed to link supplier %s\n",
++				     dev_name(supplier));
++
++	device_lock(supplier);
++	ret = device_is_bound(supplier) ? 0 : -EPROBE_DEFER;
++	device_unlock(supplier);
++	if (!ret)
++		return 0;
++
++	return dev_err_probe(consumer, ret, "supplier %s not ready\n",
++			     dev_name(supplier));
+ }
+ 
+ int cix_card_parse_acpi(struct cix_asoc_card *priv)
+@@ -952,11 +989,51 @@ int cix_card_parse_acpi(struct cix_asoc_card *priv)
+ 
+ 	/* dp audio */
+ 	for (i = 0; i < SKY1_AUDSS_DP_AUDIO_COUNT; i++) {
++		struct device *codec_dev;
++		struct device *i2s_dev;
++		const char *codec_name;
++		const char *cpu_name;
+ 		char dp_str[32];
+ 
+ 		if (cix_acpi_dp_audio_check_present(i))
+ 			continue;
+ 
++		i2s_dev = cix_acpi_dp_audio_get_i2s_dev(i);
++		if (IS_ERR(i2s_dev)) {
++			ret = PTR_ERR(i2s_dev);
++			goto err;
++		}
++
++		codec_dev = cix_acpi_dp_audio_get_codec_dev(i);
++		if (IS_ERR(codec_dev)) {
++			ret = PTR_ERR(codec_dev);
++			put_device(i2s_dev);
++			goto err;
++		}
++
++		ret = cix_card_link_supplier(dev, i2s_dev);
++		if (ret) {
++			put_device(codec_dev);
++			put_device(i2s_dev);
++			goto err;
++		}
++
++		ret = cix_card_link_supplier(dev, codec_dev);
++		if (ret) {
++			put_device(codec_dev);
++			put_device(i2s_dev);
++			goto err;
++		}
++
++		cpu_name = devm_kstrdup(dev, dev_name(i2s_dev), GFP_KERNEL);
++		codec_name = devm_kstrdup(dev, dev_name(codec_dev), GFP_KERNEL);
++		put_device(codec_dev);
++		put_device(i2s_dev);
++		if (!cpu_name || !codec_name) {
++			ret = -ENOMEM;
++			goto err;
++		}
++
+ 		memcpy(link, &sky1_dailink[i + LK_I2S5_DP0], sizeof(struct snd_soc_dai_link));
+ 		memcpy(link_info, &sky1_link_info[i + LK_I2S5_DP0], sizeof(struct dai_link_info));
+ 
+@@ -964,8 +1041,8 @@ int cix_card_parse_acpi(struct cix_asoc_card *priv)
+ 		link->num_codecs = 1;
+ 		link->num_platforms = 1;
+ 
+-		link->cpus->name = cix_acpi_dp_audio_get_cpu_name(i);
+-		link->codecs->name = cix_acpi_dp_audio_get_codec_name(i);
++		link->cpus->name = cpu_name;
++		link->codecs->name = codec_name;
+ 		link->cpus->dai_name = "i2s-mc-aif1";
+ 		link->codecs->dai_name = "i2s-hifi";
+ 		link->platforms->name = link->cpus->name;
+diff --git a/sound/soc/cix/cdns_i2s_mc.c b/sound/soc/cix/cdns_i2s_mc.c
+index 6fd9f2216cd2..2779222b346f 100644
+--- a/sound/soc/cix/cdns_i2s_mc.c
++++ b/sound/soc/cix/cdns_i2s_mc.c
+@@ -171,7 +171,7 @@ struct cdns_i2s_mc_priv {
+ 	/* i2s id index */
+ 	int idx;
+ 
+-	bool is_master_mode;
++	bool is_master_mode[2];
+ 
+ 	u8 pin_out_num;
+ 	u8 pin_rx_mask;
+@@ -197,8 +197,8 @@ static int cdns_i2s_mc_clks_enable(struct cdns_i2s_mc_priv *i2s_mc_priv)
+ 
+ static void cdns_i2s_mc_clks_disable(struct cdns_i2s_mc_priv *i2s_mc_priv)
+ {
+-	clk_disable_unprepare(i2s_mc_priv->clk_hst);
+ 	clk_disable_unprepare(i2s_mc_priv->clk_i2s);
++	clk_disable_unprepare(i2s_mc_priv->clk_hst);
+ }
+ 
+ static void cdns_i2s_mc_adjust_pin_config(u8 pin_out, u8 *pin_mask, u32 slots)
+@@ -392,11 +392,11 @@ static int cdns_i2s_mc_set_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
+ 		switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
+ 		case SND_SOC_DAIFMT_BC_FC:
+ 			ctrl &= ~I2S_CTRL_T_MS;
+-			i2s_mc_priv->is_master_mode = false;
++			i2s_mc_priv->is_master_mode[cpu_dai->id] = false;
+ 			break;
+ 		case SND_SOC_DAIFMT_BP_FP:
+ 			ctrl |= I2S_CTRL_T_MS;
+-			i2s_mc_priv->is_master_mode = true;
++			i2s_mc_priv->is_master_mode[cpu_dai->id] = true;
+ 			break;
+ 		default:
+ 			return -EINVAL;
+@@ -471,11 +471,11 @@ static int cdns_i2s_mc_set_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
+ 		switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
+ 		case SND_SOC_DAIFMT_BC_FC:
+ 			ctrl &= ~I2S_CTRL_R_MS;
+-			i2s_mc_priv->is_master_mode = false;
++			i2s_mc_priv->is_master_mode[cpu_dai->id] = false;
+ 			break;
+ 		case SND_SOC_DAIFMT_BP_FP:
+ 			ctrl |= I2S_CTRL_R_MS;
+-			i2s_mc_priv->is_master_mode = true;
++			i2s_mc_priv->is_master_mode[cpu_dai->id] = true;
+ 			break;
+ 		default:
+ 			return -EINVAL;
+@@ -597,17 +597,18 @@ static int cdns_i2s_mc_hw_params(struct snd_pcm_substream *substream,
+ 	if (rate % 8000 == 0) {
+ 		/* Sampling rate is a multiple of 8KHz, select "audio_clk0" */
+ 		clk_parent = i2s_mc_priv->clks[AUDIO_CLK0];
+-
+-		ret = clk_set_parent(i2s_mc_priv->clk_i2s, clk_parent);
+ 	} else if (rate % 11025 == 0) {
+ 		/* Sampling rate is a multiple of 11.025KHz, select "audio_clk2" */
+ 		clk_parent = i2s_mc_priv->clks[AUDIO_CLK2];
+-
+-		ret = clk_set_parent(i2s_mc_priv->clk_i2s, clk_parent);
+ 	} else {
+ 		dev_err(i2s_mc_priv->dev, "Invalid sample rate\n");
+ 		return -EINVAL;
+ 	}
++	if (!clk_parent)
++		return dev_err_probe(dev, -ENOENT,
++				     "Missing parent clock for %u Hz\n", rate);
++
++	ret = clk_set_parent(i2s_mc_priv->clk_i2s, clk_parent);
+ 	if (ret) {
+ 		dev_err(i2s_mc_priv->dev, "Failed to set i2s clock parent\n");
+ 		return ret;
+@@ -616,7 +617,7 @@ static int cdns_i2s_mc_hw_params(struct snd_pcm_substream *substream,
+ 	i2s_clk_rate = clk_get_rate(i2s_mc_priv->clk_i2s);
+ 	dev_dbg(dev, "i2s clk rate = %d\n", i2s_clk_rate);
+ 
+-	if (i2s_mc_priv->is_master_mode) {
++	if (i2s_mc_priv->is_master_mode[cpu_dai->id]) {
+ 		if (i2s_clk_rate < rate * 2 * slot_width * 6) {
+ 			dev_err(i2s_mc_priv->dev,
+ 				"clk freq %d is too low, must greater then %d * %d * %d * 6 = %d\n",
+@@ -651,8 +652,11 @@ static int cdns_i2s_mc_hw_params(struct snd_pcm_substream *substream,
+ 						      &i2s_mc_priv->pin_tx_mask_adjust, slots);
+ 		}
+ 
+-		regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR, I2S_SRR_TSAMPLE_RATE,
+-				   FIELD_PREP(I2S_SRR_TSAMPLE_RATE, sample_rate));
++		if (i2s_mc_priv->is_master_mode[cpu_dai->id])
++			regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR,
++					   I2S_SRR_TSAMPLE_RATE,
++					   FIELD_PREP(I2S_SRR_TSAMPLE_RATE,
++						      sample_rate));
+ 		regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR, I2S_SRR_TRESOLUTION,
+ 				   FIELD_PREP(I2S_SRR_TRESOLUTION, (resolution - 1)));
+ 	} else {
+@@ -668,8 +672,11 @@ static int cdns_i2s_mc_hw_params(struct snd_pcm_substream *substream,
+ 						      &i2s_mc_priv->pin_rx_mask_adjust, slots);
+ 		}
+ 
+-		regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR, I2S_SRR_RSAMPLE_RATE,
+-				   FIELD_PREP(I2S_SRR_RSAMPLE_RATE, sample_rate));
++		if (i2s_mc_priv->is_master_mode[cpu_dai->id])
++			regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR,
++					   I2S_SRR_RSAMPLE_RATE,
++					   FIELD_PREP(I2S_SRR_RSAMPLE_RATE,
++						      sample_rate));
+ 		regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR, I2S_SRR_RRESOLUTION,
+ 				   FIELD_PREP(I2S_SRR_RRESOLUTION, (resolution - 1)));
+ 	}
+@@ -982,14 +989,16 @@ static int cdns_i2s_mc_probe(struct platform_device *pdev)
+ 
+ 	i2s_mc_priv->clk_hst = devm_clk_get(&pdev->dev, "hst");
+ 	if (IS_ERR(i2s_mc_priv->clk_hst)) {
+-		dev_err(&pdev->dev, "Failed to get clk_hst clock\n");
+-		return PTR_ERR(i2s_mc_priv->clk_hst);
++		ret = PTR_ERR(i2s_mc_priv->clk_hst);
++		return dev_err_probe(&pdev->dev, ret,
++				     "Failed to get clk_hst clock\n");
+ 	}
+ 
+ 	i2s_mc_priv->clk_i2s = devm_clk_get(&pdev->dev, "i2s");
+ 	if (IS_ERR(i2s_mc_priv->clk_i2s)) {
+-		dev_err(&pdev->dev, "Failed to get clk_i2s clock\n");
+-		return PTR_ERR(i2s_mc_priv->clk_i2s);
++		ret = PTR_ERR(i2s_mc_priv->clk_i2s);
++		return dev_err_probe(&pdev->dev, ret,
++				     "Failed to get clk_i2s clock\n");
+ 	}
+ 
+ 	for (i = 0; i < AUDIO_CLK_NUM; i++) {
+@@ -1017,7 +1026,7 @@ static int cdns_i2s_mc_probe(struct platform_device *pdev)
+ 	if (!irq_name)
+ 			return -ENOMEM;
+ 
+-	ret = devm_request_irq(&pdev->dev, irq, cdns_i2s_mc_isr, IRQF_SHARED,
++	ret = devm_request_irq(&pdev->dev, irq, cdns_i2s_mc_isr, 0,
+ 			       irq_name, i2s_mc_priv);
+ 	if (ret) {
+ 		dev_err(&pdev->dev, "Failed to request irq: %d", ret);
+diff --git a/sound/soc/cix/cdns_i2s_sc.c b/sound/soc/cix/cdns_i2s_sc.c
+index 53bf859fe0c8..e0e3cc780b37 100644
+--- a/sound/soc/cix/cdns_i2s_sc.c
++++ b/sound/soc/cix/cdns_i2s_sc.c
+@@ -285,8 +285,8 @@ static int cdns_i2s_sc_clks_enable(struct cdns_i2s_sc_priv *i2s_sc_priv)
+ 
+ static void cdns_i2s_sc_clks_disable(struct cdns_i2s_sc_priv *i2s_sc_priv)
+ {
+-	clk_disable_unprepare(i2s_sc_priv->clk_hst);
+ 	clk_disable_unprepare(i2s_sc_priv->clk_i2s);
++	clk_disable_unprepare(i2s_sc_priv->clk_hst);
+ }
+ 
+ static void cdns_i2s_sc_rxtx_common_config(struct cdns_i2s_sc_priv *i2s_sc_priv, bool on)
+@@ -401,7 +401,7 @@ static void cdns_i2s_sc_tx_config(struct cdns_i2s_sc_priv *i2s_sc_priv, bool on)
+ 				break;
+ 			udelay(125);
+ 		}
+-		if (!timeout)
++		if (fifo_level)
+ 			dev_warn(i2s_sc_priv->dev, "tx fifo transmit timeout\n");
+ 		else
+ 			/* Must wait at least single frame time to generate underrun,
+@@ -510,7 +510,16 @@ static int cdns_i2s_sc_set_tdm_slot(struct snd_soc_dai *cpu_dai, unsigned int tx
+ 
+ 	dev_dbg(dev, "tx_mask = 0x%x, rx_maske = 0x%x, slots = 0x%x, slot_width = 0x%x\n",
+ 		     tx_mask, rx_mask, slots, slot_width);
+-	if (slots > 16 || slot_width > 32) {
++	if (!slots) {
++		i2s_sc_priv->is_tdm_mode = false;
++		memset(&i2s_sc_priv->tdm_config, 0,
++		       sizeof(i2s_sc_priv->tdm_config));
++		return 0;
++	}
++
++	if (slots < 0 || slots > 16 || slot_width <= 0 || slot_width > 32 ||
++	    !(tx_mask | rx_mask) ||
++	    ((tx_mask | rx_mask) & ~GENMASK(slots - 1, 0))) {
+ 		dev_err(i2s_sc_priv->dev,
+ 			"TDM mode supports up to 16 slots and maximum slot width is 32 bit\n");
+ 		return -EINVAL;
+@@ -899,6 +908,7 @@ static struct snd_soc_dai_driver cdns_i2s_sc_dai = {
+ 	.ops = &cdns_i2s_sc_dai_ops,
+ 	.symmetric_rate = 1,
+ 	.symmetric_channels = 1,
++	.symmetric_sample_bits = 1,
+ };
+ 
+ static const struct snd_soc_component_driver cdns_i2s_sc_component = {
+@@ -1086,14 +1096,16 @@ static int cdns_i2s_sc_probe(struct platform_device *pdev)
+ 
+ 	i2s_sc_priv->clk_hst = devm_clk_get(&pdev->dev, "hst");
+ 	if (IS_ERR(i2s_sc_priv->clk_hst)) {
+-		dev_err(&pdev->dev, "Failed to get clk_hst clock\n");
+-		return PTR_ERR(i2s_sc_priv->clk_hst);
++		ret = PTR_ERR(i2s_sc_priv->clk_hst);
++		return dev_err_probe(&pdev->dev, ret,
++				     "Failed to get clk_hst clock\n");
+ 	}
+ 
+ 	i2s_sc_priv->clk_i2s = devm_clk_get(&pdev->dev, "i2s");
+ 	if (IS_ERR(i2s_sc_priv->clk_i2s)) {
+-		dev_err(&pdev->dev, "Failed to get clk_i2s clock\n");
+-		return PTR_ERR(i2s_sc_priv->clk_i2s);
++		ret = PTR_ERR(i2s_sc_priv->clk_i2s);
++		return dev_err_probe(&pdev->dev, ret,
++				     "Failed to get clk_i2s clock\n");
+ 	}
+ 
+ 	for (i = 0; i < AUDIO_CLK_NUM; i++) {
+@@ -1121,7 +1133,7 @@ static int cdns_i2s_sc_probe(struct platform_device *pdev)
+ 	if (!irq_name)
+ 			return -ENOMEM;
+ 
+-	ret = devm_request_irq(&pdev->dev, irq, cdns_i2s_sc_isr, IRQF_SHARED,
++	ret = devm_request_irq(&pdev->dev, irq, cdns_i2s_sc_isr, 0,
+ 			       irq_name, i2s_sc_priv);
+ 	if (ret) {
+ 		dev_err(&pdev->dev, "Failed to request irq: %d", ret);
+diff --git a/sound/soc/cix/sky1-card.c b/sound/soc/cix/sky1-card.c
+index d77bd59ffb57..37ce8c2fbbf2 100644
+--- a/sound/soc/cix/sky1-card.c
++++ b/sound/soc/cix/sky1-card.c
+@@ -68,6 +68,7 @@ static struct platform_driver sky1_card_pdrv = {
+ };
+ module_platform_driver(sky1_card_pdrv);
+ 
++MODULE_SOFTDEP("pre: snd_soc_cdns_i2s_mc");
+ MODULE_DESCRIPTION("Sky1 ALSA machine driver for Cix Technology");
+ MODULE_AUTHOR("Xing.Wang <xing.wang@cixtech.com>");
+ MODULE_LICENSE("GPL v2");
+-- 
+2.43.0
+

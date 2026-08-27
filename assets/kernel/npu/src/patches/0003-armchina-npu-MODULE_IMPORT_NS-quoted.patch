@@ -1,0 +1,23 @@
+From 6d1958c2c6df4b3c253fd64b8185c39802d11176 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 23 May 2026 12:11:51 -0400
+Subject: [PATCH 3/6] armchina-npu: quote DMA_BUF in MODULE_IMPORT_NS
+
+---
+ driver/armchina-npu/aipu_dma_buf.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/driver/armchina-npu/aipu_dma_buf.c b/driver/armchina-npu/aipu_dma_buf.c
+index 2346a5a..d12fad8 100755
+--- a/driver/armchina-npu/aipu_dma_buf.c
++++ b/driver/armchina-npu/aipu_dma_buf.c
+@@ -330,5 +330,5 @@ int aipu_detach_dma_buf(struct aipu_memory_manager *mm, int fd)
+ }
+ 
+ #if KERNEL_VERSION(5, 4, 0) < LINUX_VERSION_CODE
+-MODULE_IMPORT_NS(DMA_BUF);
++MODULE_IMPORT_NS("DMA_BUF");
+ #endif
+-- 
+2.51.0
+

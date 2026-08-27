@@ -1,0 +1,15 @@
+0001-mali-kbase-wq-unbound-flags.patch -p1
+0002-drivers-base-arm-fix-external-module-include-path.patch -p1
+0003-mm-get-unmapped-area-5arg.patch -p1
+0004-midgard-kbuild-fix-src-normalization.patch -p1
+0005-mali-kbase-mem-migrate-page-movable-api-removed.patch -p1
+0006-mali-kbase-hrtimer-setup-api.patch -p1
+0007-mali-kbase-fence-ops-drop-fence-value-str.patch -p1
+0008-midgard-makefile-route-config-defines-via-kcflags.patch -p1
+0009-mali-kbase-hrtimer-setup-on-stack-api.patch -p1
+0010-mali-kbase-devfreq-cix-scmi-register-em-perf-dev.patch -p1
+0011-mali-kbase-timer-delete-rename.patch -p1
+0012-mali-kbase-dma-fence-signal-void-return.patch -p1
+0013-mali-kbase-shmem-file-setup-vma-flags-t.patch -p1
+0014-mali-kbase-mmap-non-ack-vma-search.patch -p1
+0015-mali-kbase-ipa-null-model-guard.patch -p1

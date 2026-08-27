@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 24 Jun 2026 23:47:00 -0400
+Subject: [PATCH] drm: cix: update connector color format enums for v7.1
+
+The legacy DRM_COLOR_FORMAT_* constants were replaced by
+DRM_OUTPUT_COLOR_FORMAT_* enum values used as bit positions.
+Switch CIX virtual connector color_formats initialization accordingly.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/gpu/drm/cix/cix_virtual.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/cix_virtual.c b/drivers/gpu/drm/cix/cix_virtual.c
+--- a/drivers/gpu/drm/cix/cix_virtual.c
++++ b/drivers/gpu/drm/cix/cix_virtual.c
+@@ -239,3 +239,3 @@
+-	connector->display_info.color_formats = DRM_COLOR_FORMAT_RGB444   |
+-						DRM_COLOR_FORMAT_YCBCR422 |
+-						DRM_COLOR_FORMAT_YCBCR420;
++	connector->display_info.color_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444) |
++						BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422) |
++						BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420);

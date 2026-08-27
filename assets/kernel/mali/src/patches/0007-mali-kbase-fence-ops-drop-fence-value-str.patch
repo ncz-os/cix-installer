@@ -1,0 +1,62 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 25 Jul 2026 00:00:00 +0000
+Subject: [PATCH] mali_kbase: drop dma_fence_ops.fence_value_str on kernels that removed it
+
+Kernel 7.2 dropped the fence_value_str member from struct
+dma_fence_ops (confirmed by reading dma-fence.h directly: the struct
+now has get_driver_name, get_timeline_name, enable_signaling,
+signaled, wait, release, set_deadline -- no fence_value_str). Guard
+both kbase_fence_ops initializers (CSF and non-CSF) and the helper
+function with a version check so the field/function is only present
+on kernels that still have it.
+
+Fixes the mali_kbase.ko build against kernel 7.2.0-rc4-sky1-ncz.
+Codex (gpt-5.5) adversarial-reviewed: APPROVE.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/mali_kbase_fence_ops.c
++++ b/drivers/gpu/arm/midgard/mali_kbase_fence_ops.c
+@@ -54,6 +54,11 @@
+ 	return true;
+ }
+ 
++#if (KERNEL_VERSION(7, 2, 0) > LINUX_VERSION_CODE)
++/* Kernel 7.2 dropped dma_fence_ops.fence_value_str (see the two
++ * kbase_fence_ops initializers below) -- this helper is only referenced,
++ * and therefore only compiled, on older kernels that still have it.
++ */
+ static void kbase_fence_fence_value_str(struct dma_fence *fence, char *str, int size)
+ {
+ 	char *format;
+@@ -66,6 +71,7 @@
+ 	if (unlikely(!scnprintf(str, (size_t)size, format, fence->seqno)))
+ 		pr_err("Fail to encode fence seqno to string");
+ }
++#endif /* (KERNEL_VERSION(7, 2, 0) > LINUX_VERSION_CODE) */
+ 
+ #if MALI_USE_CSF
+ static void kbase_fence_release(struct dma_fence *fence)
+@@ -81,7 +87,9 @@
+ 					       .get_driver_name = kbase_fence_get_driver_name,
+ 					       .get_timeline_name = kbase_fence_get_timeline_name,
+ 					       .enable_signaling = kbase_fence_enable_signaling,
++#if (KERNEL_VERSION(7, 2, 0) > LINUX_VERSION_CODE)
+ 					       .fence_value_str = kbase_fence_fence_value_str,
++#endif
+ 					       .release = kbase_fence_release };
+ #else
+ extern const struct dma_fence_ops kbase_fence_ops; /* silence checker warning */
+@@ -89,7 +97,10 @@
+ 					       .get_driver_name = kbase_fence_get_driver_name,
+ 					       .get_timeline_name = kbase_fence_get_timeline_name,
+ 					       .enable_signaling = kbase_fence_enable_signaling,
+-					       .fence_value_str = kbase_fence_fence_value_str };
++#if (KERNEL_VERSION(7, 2, 0) > LINUX_VERSION_CODE)
++					       .fence_value_str = kbase_fence_fence_value_str,
++#endif
++					       };
+ #endif /* MALI_USE_CSF */
+ 
+ KBASE_EXPORT_TEST_API(kbase_fence_ops);

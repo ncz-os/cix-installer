@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 20 Jul 2026 02:00:00 -0400
+Subject: [PATCH] i2c: cadence: defer probe on missing input clock instead of failing
+
+Confirmed live on Orion O6N, 2026-07-19/20: same class of bug as
+0162/0163/0164 (linlondp/usb3-phy/cdnsp-sky1) -- devm_clk_get() fails
+with -ENOENT when clk-sky1-acpi has not mapped this clock yet, and
+the driver returns that raw error straight out of probe instead of
+the retryable -EPROBE_DEFER, so the driver core never retries it.
+
+Same fix already proven working for cix-usbdp-phy (0155) and pwm-sky1
+(0158). Applies the identical -ENOENT-to-EPROBE_DEFER translation.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/i2c/busses/i2c-cadence.c b/drivers/i2c/busses/i2c-cadence.c
+index 15d2332..d3f09ed 100644
+--- a/drivers/i2c/busses/i2c-cadence.c
++++ b/drivers/i2c/busses/i2c-cadence.c
+@@ -1552,7 +1552,9 @@ static int cdns_i2c_probe(struct platform_device *pdev)
+ 
+ 	id->clk = devm_clk_get_enabled(&pdev->dev, NULL);
+ 	if (IS_ERR(id->clk))
+-		return dev_err_probe(&pdev->dev, PTR_ERR(id->clk),
++		return dev_err_probe(&pdev->dev,
++				     PTR_ERR(id->clk) == -ENOENT ?
++				     -EPROBE_DEFER : PTR_ERR(id->clk),
+ 				     "input clock not found.\n");
+ 
+ 	id->reset = devm_reset_control_get_optional_shared(&pdev->dev, NULL);
+--
+2.51.0

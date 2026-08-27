@@ -1,0 +1,119 @@
+From f148c3aa2b39be1761dc823c53f56de045e6a754 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 29 Jul 2026 21:06:54 +0000
+Subject: [PATCH] drm/panthor: sky1: re-apply hw power-on at noirq system
+ resume (NCZ 0188)
+
+Port of the suspend/resume half of CIX's 7.1-line patch
+00112-drm-panthor-Sky1-CIXH5000-ACPI-bring-up.patch (Jianfeng Liu) onto
+our v7.2-rc2 series.
+
+Suspend-to-RAM cuts the Sky1 GPU power domain, losing both the IP-reset
+state and the RCSU Q-channel clock-gate enable bit (RCSU[0x218] BIT(0))
+that NCZ 0187 programs at probe. Resuming without re-applying that
+sequence leaves the GPU Q-channel gated and the first post-resume MMIO
+access misbehaves.
+
+Replace DEFINE_RUNTIME_DEV_PM_OPS (whose system-sleep hooks run
+pm_runtime_force_{suspend,resume} at the normal phase) with an explicit
+dev_pm_ops that moves the forced runtime transition to the *noirq*
+phase, and re-run sky1_hw_power_on() in resume_noirq before the forced
+runtime resume re-enables clocks and panthor_device_resume() touches
+GPU registers. panthor_device_is_initialized() guards the early-probe
+window where the scheduler (and the MMIO mappings' consumers) do not
+exist yet; sky1_hw_power_on() itself is a no-op on non-Sky1 hardware.
+
+This pairs with NCZ 0033 (DPM_FLAG_NO_DIRECT_COMPLETE), which keeps the
+PM core from optimizing out the suspend/resume callbacks for a
+runtime-suspended GPU -- together they guarantee the full re-init runs
+on every STR cycle.
+
+7.1 -> 7.2 adaptations: none of substance -- the 7.2 pm_runtime API is
+unchanged for this pattern; only the surrounding panthor_device.c
+context differs (7.2 suspend path ends with the clk_disable_unprepare
+ladder rather than 7.1's layout).
+
+Upstream-Status: Inappropriate [oe-specific]
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/gpu/drm/panthor/panthor_device.c | 26 ++++++++++++++++++++++++
+ drivers/gpu/drm/panthor/panthor_device.h |  2 ++
+ drivers/gpu/drm/panthor/panthor_drv.c    | 17 ++++++++++++----
+ 3 files changed, 41 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/gpu/drm/panthor/panthor_device.c b/drivers/gpu/drm/panthor/panthor_device.c
+index 71720bbc0fa7..a5bdf7e79fbf 100644
+--- a/drivers/gpu/drm/panthor/panthor_device.c
++++ b/drivers/gpu/drm/panthor/panthor_device.c
+@@ -806,3 +806,29 @@ int panthor_device_suspend(struct device *dev)
+ 	atomic_set(&ptdev->pm.state, PANTHOR_DEVICE_PM_STATE_SUSPENDED);
+ 	return 0;
+ }
++
++int panthor_device_suspend_noirq(struct device *dev)
++{
++	return pm_runtime_force_suspend(dev);
++}
++
++int panthor_device_resume_noirq(struct device *dev)
++{
++	struct panthor_device *ptdev = dev_get_drvdata(dev);
++	int ret;
++
++	/*
++	 * Sky1: after suspend-to-RAM the GPU power domain was cut, which
++	 * loses the IP-reset state and the RCSU Q-channel clock-gate enable
++	 * bit. Re-run power-on steps 3-5 (NCZ 0187) before runtime-resume
++	 * re-enables clocks and panthor_device_resume() touches GPU MMIO.
++	 * No-op on non-Sky1 hardware.
++	 */
++	if (panthor_device_is_initialized(ptdev)) {
++		ret = sky1_hw_power_on(ptdev);
++		if (ret)
++			return ret;
++	}
++
++	return pm_runtime_force_resume(dev);
++}
+diff --git a/drivers/gpu/drm/panthor/panthor_device.h b/drivers/gpu/drm/panthor/panthor_device.h
+index 0467ded130f6..e729aa906489 100644
+--- a/drivers/gpu/drm/panthor/panthor_device.h
++++ b/drivers/gpu/drm/panthor/panthor_device.h
+@@ -421,6 +421,8 @@ int panthor_device_mmap_io(struct panthor_device *ptdev,
+ 
+ int panthor_device_resume(struct device *dev);
+ int panthor_device_suspend(struct device *dev);
++int panthor_device_resume_noirq(struct device *dev);
++int panthor_device_suspend_noirq(struct device *dev);
+ 
+ static inline int panthor_device_resume_and_get(struct panthor_device *ptdev)
+ {
+diff --git a/drivers/gpu/drm/panthor/panthor_drv.c b/drivers/gpu/drm/panthor/panthor_drv.c
+index 5bfd5564fd54..481e52aa292a 100644
+--- a/drivers/gpu/drm/panthor/panthor_drv.c
++++ b/drivers/gpu/drm/panthor/panthor_drv.c
+@@ -1893,10 +1893,19 @@ static const struct acpi_device_id panthor_acpi_match[] = {
+ };
+ #endif
+ 
+-static DEFINE_RUNTIME_DEV_PM_OPS(panthor_pm_ops,
+-				 panthor_device_suspend,
+-				 panthor_device_resume,
+-				 NULL);
++/*
++ * System sleep: the noirq phase runs pm_runtime_force_{suspend,resume}
++ * (see panthor_device_{suspend,resume}_noirq). On Sky1 the resume_noirq
++ * hook re-applies the IP-reset + RCSU Q-channel sequence (NCZ 0187)
++ * before clocks are re-enabled via the forced runtime resume. Combined
++ * with DPM_FLAG_NO_DIRECT_COMPLETE (NCZ 0033) this guarantees a full
++ * hardware re-init on every suspend-to-RAM cycle.
++ */
++static const struct dev_pm_ops panthor_pm_ops = {
++	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(panthor_device_suspend_noirq,
++				      panthor_device_resume_noirq)
++	RUNTIME_PM_OPS(panthor_device_suspend, panthor_device_resume, NULL)
++};
+ 
+ static struct platform_driver panthor_driver = {
+ 	.probe = panthor_probe,

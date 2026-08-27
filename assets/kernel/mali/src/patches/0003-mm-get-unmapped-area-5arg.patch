@@ -1,0 +1,52 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] include/linux/version_compat_defs: mm_get_unmapped_area() lost its mm_struct* arg on newer kernels
+
+kbase_mm_get_unmapped_area_helper() in version_compat_defs.h calls the
+core kernel's mm_get_unmapped_area() with a 6-argument signature
+(mm, filp, addr, len, pgoff, flags) when LINUX_VERSION_CODE >=
+6.10.0. On Linux v7.2-rc4 (include/linux/sched/mm.h) the core
+function's signature has dropped the explicit struct mm_struct *
+parameter:
+
+  unsigned long mm_get_unmapped_area(struct file *filp, unsigned long addr,
+                                     unsigned long len, unsigned long pgoff,
+                                     unsigned long flags);
+
+so the existing >= 6.10.0 branch now fails to build:
+
+  error: passing argument 2 of 'mm_get_unmapped_area' makes integer
+  from pointer without a cast
+  error: too many arguments to function 'mm_get_unmapped_area';
+  expected 5, have 6
+
+Both call sites of kbase_mm_get_unmapped_area_helper() in this driver
+(drivers/gpu/arm/midgard/thirdparty/mali_kbase_mmap.c, lines ~185 and
+~403) always pass mm = current->mm, matching the new core function's
+implicit use of current->mm, so dropping the argument on the new
+signature is behavior-preserving here -- there is no call site that
+passes a foreign/non-current mm_struct.
+
+Add a new >= 7.0.0 branch that calls the 5-argument form. The existing
+6.10.0..6.x branch and the pre-6.10 mm->get_unmapped_area() fallback
+are both left unchanged.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/include/linux/version_compat_defs.h
++++ b/include/linux/version_compat_defs.h
+@@ -642,7 +642,13 @@
+ kbase_mm_get_unmapped_area_helper(struct mm_struct *mm, struct file *filp, unsigned long addr,
+ 				  unsigned long len, unsigned long pgoff, unsigned long flags)
+ {
+-#if (KERNEL_VERSION(6, 10, 0) <= LINUX_VERSION_CODE)
++#if (KERNEL_VERSION(7, 0, 0) <= LINUX_VERSION_CODE)
++	/* mm_get_unmapped_area() dropped its explicit struct mm_struct *
++	 * parameter and now always operates on current->mm. Every caller
++	 * of this helper in this driver already passes current->mm, so
++	 * this is equivalent. */
++	return mm_get_unmapped_area(filp, addr, len, pgoff, flags);
++#elif (KERNEL_VERSION(6, 10, 0) <= LINUX_VERSION_CODE)
+ 	return mm_get_unmapped_area(mm, filp, addr, len, pgoff, flags);
+ #else
+ 	return mm->get_unmapped_area(filp, addr, len, pgoff, flags);

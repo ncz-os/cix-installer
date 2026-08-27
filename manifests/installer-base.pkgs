@@ -1,0 +1,168 @@
+# installer-base.pkgs — always-on core toolset for the INSTALLED system + installer env
+#
+# Target: Debian Testing (Forky) arm64 / cixmini MS-R1 + Orion O6/O6N.
+# Scope:  packages that must be present on every installed NCZ-OS box AND in the
+#         installer runtime (esp. the new r130 choose-disk flow needs reliable
+#         lsblk/blkid/parted/nvme-cli to enumerate and label targets).
+#
+# This is a strict SUBSET of rescue.pkgs (the rescue partition is the superset).
+# Format: one binary package per line; blank lines and '# ...' comments ignored.
+# Consume with:  grep -vE '^\s*(#|$)' manifests/installer-base.pkgs
+#
+# NOTE: remote-access (openssh-server, inetutils-telnetd/openbsd-inetd, busybox)
+#       is already provisioned by post-install/36-telemetry.sh + 35-ssh.sh per
+#       CLAUDE.md directive 9; listed here only to document the contract.
+
+# --- initramfs builder ---------------------------------------------------
+# dracut is the PRIMARY initramfs builder as of 26.7 (metal-validated on O6N,
+# 7.2.0-rc7-sky1-ncz, 2026-08-16). It is seeded HERE, explicitly, because the
+# kernel package only expresses a PREFERENCE:
+#     Depends: dracut | initramfs-tools | linux-initramfs-tool
+# An alternation is satisfied by whichever alternative the offline mirror
+# actually contains. Before this line the mirror carried initramfs-tools and
+# only dracut-install (a helper, not the builder), so an install would have
+# silently fallen back to initramfs-tools and nobody would have seen a warning.
+# Seeding it makes the mirror match the intent.
+#
+# initramfs-tools is deliberately NOT listed: it is no longer the builder, and
+# it survives where it is still useful — the RESCUE partition toolkit
+# (manifests/rescue.pkgs) for repairing a target system's initrd.
+dracut
+dracut-core
+
+# --- DKMS accelerator rebuilds ----------------------------------------------
+# CIX GPU/NPU accelerator drivers are registered and rebuilt by the base
+# post-install hook path (79-dkms-prep, 82-mali-gpu, 83-panthor-gpu,
+# 86-cix-dkms-register). Only cix-npu-driver-dkms is a real .deb with
+# Depends: dkms; Mali, Panthor, and VPU are source-staged directly by hooks.
+#
+# DKMS is not enough by itself. 79-dkms-prep rebuilds the shipped kernel
+# header tree's Yocto host tools, and the accelerator DKMS packages then build
+# real modules during install. Those steps need a native compiler/toolchain;
+# Mali's upstream gpu.mk also invokes aarch64-linux-gnu-gcc explicitly. Seed
+# the tools here so the post-install path works offline and does not leave
+# cix-npu-driver-dkms half-configured for hook 25's purge sweep.
+#
+# Keep this in base rather than desktop so console/non-desktop installs and
+# future kernel upgrades have the same accelerator rebuild path.
+dkms
+build-essential
+gcc
+gcc-aarch64-linux-gnu
+make
+flex
+bison
+bc
+libelf-dev
+libselinux-dev
+
+# --- disk / partition identify (required by choose-disk UI) ---
+util-linux          # lsblk, blkid, wipefs, fdisk, sfdisk, cfdisk, lscpu
+parted
+gdisk
+nvme-cli
+smartmontools
+
+# --- hardware identify ---
+pciutils            # lspci
+usbutils            # lsusb
+dmidecode
+lshw
+
+# --- filesystems + recovery ---
+btrfs-progs         # installed root is btrfs — must be able to fsck/mount its own root
+e2fsprogs
+testdisk            # testdisk + photorec
+
+# --- boot management ---
+efibootmgr
+
+# --- network / diag ---
+dbus                 # compatibility package; dbus-broker owns the system bus when enabled
+dbus-broker          # system bus owner for base/console and desktop; 91-dbus-broker enables it
+iwd                  # sinty-nm WiFi backend
+wireguard-tools      # sinty-nm VPN backend
+network-manager      # fallback network owner when assets/sinty-nm/sinty-nmd is absent
+netplan.io           # 33-network.sh writes netplan NetworkManager renderer config for fallback
+iproute2
+net-tools
+iputils-ping
+ethtool
+tcpdump
+mtr-tiny
+curl
+wget
+rsync
+firmware-realtek
+firmware-linux-free
+firmware-misc-nonfree
+
+# Generic NIC firmware for real Sky1 boards.  The ISO also stages rtl_nic blobs
+# as raw assets for 12-sky1-firmware.sh, but the base/console rootfs must be
+# self-contained when desktop.squashfs is deselected.
+
+# --- operator quality-of-life ---
+htop
+tmux
+vim
+mc
+tree
+jq
+lsof
+
+# --- remote access (provisioned by post-install; documented here) ---
+openssh-server
+inetutils-telnetd
+openbsd-inetd
+# Static busybox for the UNWEDGEABLE failsafe console (post-install/37-failsafe-access.sh):
+# extracted (not installed) into /opt/ncz-failsafe so a /usr/lib clobber that wedges
+# every dynamic daemon still leaves a static root recovery shell on telnet :2323.
+busybox-static
+
+# zstd: post-install/72-rescue-partition.sh unpacks rescue-rootfs.tar.zst on the
+# INSTALLED system and hard-requires the binary. Ubuntu's base shipped it, Debian
+# forky's does not, so without it 72 aborts, no RESCUE_READY marker is written,
+# ncz-refind-refresh then refuses to write /EFI/BOOT/BOOTAA64.EFI, and late.sh
+# correctly declares the install unbootable -- after the base system is on disk.
+zstd
+
+# --- NCZ kernel channels ---
+# post-install/10-our-kernel.sh installs the kernel with apt. Until now the
+# only source for these was the Buildkite repo over the NETWORK, which meant
+# (a) a fresh install silently got whatever version Buildkite happened to be
+# serving rather than the kernel staged on the ISO, and (b) the squashfs base
+# layer could not build at all without network -- the LTS->legacy rename made
+# that visible immediately as "E: Unable to locate package
+# linux-image-cixmini-legacy", because the renamed package did not exist
+# upstream yet.
+# Seeding them here pulls the locally built .debs (published into the vendor
+# mirror from build/kernel-debs by build/build-vendor-mirror.sh) into the
+# offline closure, so the ISO ships the kernel it was built with.
+linux-image-cixmini
+cixmini-boot
+
+# --- locales ---------------------------------------------------------------
+# WITHOUT THIS PACKAGE THE SHIPPED SYSTEM HAS NO USABLE LOCALE.
+#
+# Measured on the built layers 2026-08-18: the only compiled locale present was
+# /usr/lib/locale/C.utf8; there was no /usr/share/i18n, no locale-gen, no
+# locale-archive, and /etc/default/locale was zero bytes. Meanwhile
+# post-install/23-locale-env.sh sets LANG=LC_ALL=en_US.UTF-8 -- a locale that
+# did not exist, so setlocale() failed and everything fell back to C. The hook
+# whose entire purpose is to stop the "not a UTF-8 locale" fallback was
+# pointing at a locale nobody had generated.
+#
+# In the base manifest rather than desktop.pkgs because the server variant
+# needs a working locale just as much as the desktop does.
+locales
+
+# --- console font (HiDPI text console) -----------------------------------
+# console-setup SHIPS THE TERMINUS CONSOLE FONTS that
+# post-install/95-console-font-autosize.sh selects (Lat15-Terminus*/
+# Lat15-TerminusBold32x16 on a 2160p panel). Seeded explicitly rather than
+# left to the hook's own apt-get: on a console-only install the text console
+# IS the user interface, and if the mirror lacks these the hook silently
+# leaves 8x16 "Fixed" on a 4K display (measured on .66, 2026-08-22 --
+# unreadable). kbd provides setfont itself.
+console-setup
+kbd

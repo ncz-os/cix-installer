@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 20 Aug 2026 18:00:00 -0400
+Subject: [PATCH] media: cix: amvx: drain both workqueues before destroying the if layer
+
+mvx_dev_remove() previously destroyed ctx->work_queue and sched->sched_queue
+after mvx_if_destroy(), which left a window where both queues could still
+drain work items that referenced sched->if_ops after the if context had
+already been freed:
+
+  irq_bottom (ctx->work_queue) -> mvx_sched_handle_irq -> sched->if_ops->irq()
+  sched_task (sched_queue)    -> sched->if_ops->irq()
+
+mvx_if_destroy() kobject_put()s ctx->kobj and then waits for the if_release
+completion; once it returns, the if context backing sched->if_ops has been
+kfree()d. Any work item that runs after that point dereferences freed memory.
+
+This UAF can present as a shutdown hang when the freed slab is reused for
+something the UAF writer then blocks on (e.g. a struct containing a mutex
+that another code path tries to acquire), which is consistent with the
+shutdown-hang symptom being root-caused on a parallel series.
+
+Drain ctx->work_queue and sched->sched_queue immediately after free_irq()
+so that no further work items can run once mvx_if_destroy() begins. The
+mvx_hwreg_destruct() MMIO release remains the last step. mvx_sched_destruct()
+is safe to call here -- mvx_lsid_destruct() is empty in this tree, and the
+scheduler's only other resource is its own workqueue.
+
+Also clear ctx->work_queue after destroy so any later reference (in the
+failure path) sees NULL rather than a freed pointer.
+
+Not yet hardware-tested; needs an Orion O6 shutdown test on real hardware
+before it can be trusted to fix the hang seen by the third party.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/media/platform/cix/dev/mvx_dev.c | 26 +++++++++++++++++++++++++-
+ 1 file changed, 25 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -1031,6 +1031,28 @@
+     int i;
+ 
+     free_irq(ctx->irq, ctx);
++
++    /*
++     * Drain ctx->work_queue and the scheduler's workqueue before tearing
++     * down the if layer.  Both queues run items that dereference
++     * sched->if_ops (the IRQ bottom-half calls mvx_sched_handle_irq ->
++     * sched->if_ops->irq(); sched_task fires sched->if_ops->irq() on
++     * every entry in its notify_list).  mvx_if_destroy() releases the
++     * last reference on ctx->kobj and then kfree()s the if context
++     * backing sched->if_ops, so any work item that runs after that
++     * dereferences freed memory.  In practice this UAF can present as a
++     * shutdown hang when the freed slab is reused for something that the
++     * UAF writer then blocks on (e.g. a struct containing a mutex that
++     * some other code path tries to acquire).
++     *
++     * mvx_sched_destruct() is a no-op on the lsids (mvx_lsid_destruct is
++     * empty) and only destroys sched->sched_queue, so it is safe to run
++     * here ahead of the devfreq / runtime-PM teardown that follows.
++     */
++    destroy_workqueue(ctx->work_queue);
++    ctx->work_queue = NULL;
++    mvx_sched_destruct(&ctx->scheduler);
++
+     mvx_devfreq_remove(ctx);
+     if (has_acpi_companion(ctx->dev)) {
+ #if VPU_CORE_ACPI_REF_POWERSOURCE
+@@ -1045,8 +1067,6 @@
+ 
+     MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_INFO, "remove");
+     mvx_if_destroy(ctx->if_ops);
+-    destroy_workqueue(ctx->work_queue);
+-    mvx_sched_destruct(&ctx->scheduler);
+     mvx_hwreg_destruct(&ctx->hwreg);
+     dev_set_drvdata(ctx->dev, NULL);
+     if (IS_ENABLED(CONFIG_DEBUG_FS))
+-- 
+2.51.0

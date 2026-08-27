@@ -1,0 +1,597 @@
+# desktop.pkgs — NCZ-OS 26.7 "Maximilian" Singularity Desktop offline closure.
+#
+# Singularity Desktop (labwc/wlroots, GTK4/Vala, GLES on CIX libmali) replaces
+# XFCE/X11. This seed is the runtime closure build-desktop-mirror.sh resolves +
+# bundles into the ISO pool so post-install/20-desktop.sh installs the desktop
+# fully OFFLINE from file:///cdrom. NO xubuntu-core, NO xfce4-*, NO Xorg display
+# server. Xwayland IS kept (X-app compat under Wayland).
+#
+# The Singularity shell binaries ship in /opt/singularity (singularity-opt.tgz);
+# the packages here are the SYSTEM libs they link against + the session infra.
+#
+# ncz-singularity-desktop (real Debian package, build/build-singularity-deb.sh
+# wraps singularity-opt.tgz) MUST be in this seed — post-install/20-desktop.sh
+# does `apt-get install ncz-singularity-desktop`, not a raw tarball extract
+# (that was an earlier design; the code moved to a real package, this seed
+# entry was never added to match — found + fixed 2026-07-27 running the
+# offline-mirror build for real for what looks like the first time: without
+# it, 20-desktop.sh hard-fails with "ncz-singularity-desktop not installable"
+# on any build that doesn't happen to have live network access to Buildkite).
+
+# --- greeter (SHIP: greetd + NATIVE singularity-greeter) --------------------
+# greetd is the display manager; the greeter is the native singularity-greeter
+# (wlr-layer-shell + Cairo/loginui), shipped in the /opt/singularity payload — no
+# distro greeter package. glycin-loaders = image loaders the Singularity shell
+# uses. NO lightdm (X11), NO regreet — Singularity is Wayland/Mali native.
+greetd
+glycin-loaders
+ncz-singularity-desktop
+
+# --- Singularity runtime libraries (what /opt/singularity binaries link) ----
+libgtk-4-1
+libadwaita-1-0
+libgtk4-layer-shell0
+libgee-0.8-2
+libpeas-2-0
+libjson-glib-1.0-0
+libsoup-3.0-0
+libvte-2.91-gtk4-0
+libgtksourceview-5-0
+libwebkitgtk-6.0-4
+libgraphene-1.0-0
+# The payload links these directly; keep them explicit because the current
+# package artifact predates correct shlib dependency generation.
+libtinysparql-3.0-0
+libupower-glib3
+libdbusmenu-glib4
+libsodium26
+upower
+gsettings-desktop-schemas
+libglib2.0-bin
+
+# --- Wayland session infra --------------------------------------------------
+foot
+xsettingsd
+seatd
+libseat1
+libliftoff0
+libinput10
+libxcb-composite0
+libxcb-ewmh2
+libxcb-icccm4
+libxcb-res0
+# labwc links libxcb-errors for readable X11 protocol errors under Xwayland.
+libxcb-errors0
+swaybg
+grim
+slurp
+# zenity backs ncz-screenshot-timer's delay-entry/countdown dialog (see
+# post-install/20-desktop.sh) -- a portal-independent screenshot path.
+# xdg-desktop-portal's Screenshot request hangs (GTask never returns) even
+# after the singularity.portal/wlr-fallback staging fixes below, so both
+# gnome-screenshot and Singularity's own screenshot utility fail; grim+
+# slurp called directly, with no portal involved, is what actually works
+# -- confirmed live on O6N 2026-08-25.
+zenity
+fuzzel
+xwayland
+polkitd
+xdg-desktop-portal
+
+# --- system bus --------------------------------------------------------------
+# dbus/dbus-broker are base-layer services. Desktop components depend on the
+# already-present system bus and do not seed the bus owner themselves.
+
+# --- AppArmor (NCZ-OS 26.7 audit W3.5) --------------------------------------
+# Mandatory access control via AppArmor. The kernel config
+# (assets/kernel/edge/config-7.2.0-rc7-sky1-ncz, verified at audit time):
+#   CONFIG_SECURITY_APPARMOR=y
+#   CONFIG_DEFAULT_SECURITY_APPARMOR=y
+#   CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf,ipe"
+# i.e. AppArmor is built AND is the default LSM (no lsm= cmdline override
+# needed). Bundled profiles load at boot in COMPLAIN mode by default;
+# post-install/92-apparmor-enable.sh enables apparmor.service but does
+# NOT flip any profile to enforce. Per Debian's apparmor-profiles
+# package description, the bundled profiles are not mature enough to
+# be shipped in enforce mode by default — that is a deliberate
+# policy, not an oversight. Do NOT write release notes claiming
+# shipped profiles are in enforce mode; they are not.
+#
+# apparmor-profiles pulls the upstream Debian profile bundle
+# (usr.sbin.*, abstractions/, tunables/). apparmor-utils ships the
+# `aa-complain` / `aa-enforce` / `aa-disable` admin CLI; not strictly
+# required for boot, but operators will want them to promote
+# individual tested profiles to enforce mode on a per-service basis
+# (aa-enforce <profile>) rather than blanket-enforcing the whole
+# bundle.
+#
+# The systemd unit (apparmor.service) loads shipped profiles at boot.
+# post-install/92-apparmor-enable.sh enables that unit and logs
+# `aa-status` so a future audit can see exactly which profiles are
+# loaded and in what mode.
+apparmor
+apparmor-profiles
+apparmor-utils
+
+# systemd-zram-generator is the userspace half of W3.6 (zram swap).
+# The kernel half (CONFIG_ZRAM=y, CONFIG_CRYPTO_ZSTD=y) must be set
+# in the CIX Sky1 kernel build — see post-install/93-zram-swap.sh
+# for the runtime check that proves the kernel supports zram.
+# Without CONFIG_ZRAM in the kernel, the generator creates no
+# devices and this package is a no-op until the kernel gains the
+# option. Verified at audit time that the shipped CIX Sky1 kernel
+# config (assets/kernel/edge/config-7.2.0-rc7-sky1-ncz) has
+# `# CONFIG_ZRAM is not set` and no CONFIG_CRYPTO_ZSTD — i.e. the
+# kernel half is MISSING. We ship the userspace anyway so a future
+# kernel rebuild with the option enabled gives us zram for free.
+systemd-zram-generator
+
+# --- native Wayland screensaver / idle-lock (57-screensaver) ----------------
+# HOLD 2026-08-21 (operator): the screensaver subsystem doesn't ship until
+# its own GLES3 migration passes full verification (94 hacks exist across
+# gl4es + GLES3-native but no fresh end-to-end audit has been run against
+# the mixed set). 57-screensaver.sh is removed from build-squashfs-layers.sh
+# and build-baked-rootfs.sh's hook loops AND from run-all.sh's hook regexes.
+# swayidle, swaylock, wlopm, and the GObject-introspection packages below
+# are removed from this manifest for the same reason -- they have no other
+# consumer (verified by grep against post-install/ + preseed/ on 2026-08-21).
+# When the hold lifts: restore these four packages AND 57-screensaver.sh
+# in the two build scripts and the two run-all.sh regexes (MACHINE_HOOKS_RE,
+# _SKIP_DESKTOP_RE) in the SAME COMMIT as the e2e audit evidence.
+
+# --- GPU / GL tooling (Mali GLES; Vulkan tools for diagnostics) -------------
+mesa-utils
+vulkan-tools
+vainfo
+# The Mesa Vulkan ICDs, which is what gives PANTHOR a Vulkan driver (panvk).
+# Without this the image ships the Vulkan loader, the tools and the validation
+# layers but no Mesa ICD, so /usr/share/vulkan/icd.d/ is empty and Panthor has
+# GL only -- measured on O6N 2026-08-19, where `dpkg -l mesa-vulkan-drivers`
+# read `un <none>`. The CIX blob is unaffected either way: it registers its own
+# ICD at /etc/vulkan/icd.d/mali.json, a path the loader searches separately.
+# Both can be installed at once; vulkaninfo then enumerates each GPU that has a
+# bound kernel driver.
+mesa-vulkan-drivers
+# Mesa's OpenCL ICD is the stock-Debian rusticl path for panthor. It requires
+# RUSTICL_ENABLE=panfrost (set by 16-mesa-gpu-2613.sh); without this package
+# clinfo reports zero platforms even after Vulkan works.
+mesa-opencl-icd
+libglu1-mesa
+clinfo
+glmark2-es2-wayland
+glmark2-wayland
+
+# --- audio (PipeWire) -------------------------------------------------------
+pipewire
+pipewire-pulse
+pipewire-alsa
+wireplumber
+# pactl is in pulseaudio-utils, and PipeWire Pulse intentionally only
+# suggests it. The Sky1 HDMI/DP autoswitch user service needs pactl to load
+# isolated module-alsa-sink instances and set the session default sink.
+pulseaudio-utils
+pavucontrol
+
+# --- removable media + bluetooth --------------------------------------------
+# NETWORK: sinty-nm is installed from the base layer by 32-sinty-nm.sh. Do NOT
+# add network-manager or network-manager-gnome here; NetworkManager is only the
+# base fallback when the gitignored sinty-nm build blob is absent.
+gvfs
+gvfs-backends
+udisks2
+gnome-disk-utility
+bluez
+blueman
+# vendor cix-debian-misc's bluetooth-autoconnect script does `import dbus`
+# with no declared dependency -- confirmed live on .66:
+# ModuleNotFoundError: No module named 'dbus', bluetooth-autoconnect.service
+# failed at every boot. python3-dbus is the missing runtime dependency.
+python3-dbus
+
+# --- fonts ------------------------------------------------------------------
+fonts-noto-core
+fonts-noto-cjk
+fonts-noto-color-emoji
+fonts-liberation
+
+# --- input methods (CJK) ----------------------------------------------------
+# Sky1 is a Chinese SoC with an expected domestic user base, and this project
+# ships bilingual EN/zh-CN documentation, so Chinese input is a first-class
+# requirement rather than an afterthought.
+#
+# The fonts were already here (fonts-noto-cjk above); what was missing was any
+# way to TYPE the characters they render. The shipped labwc implements the
+# text-input and input-method protocols (verified: get_input_method,
+# get_text_input, handle_text_input_commit are all present in the binary), so
+# fcitx5 has a compositor to talk to on Wayland.
+#
+# Closure measured against forky arm64: 25 packages, ~45 MB of .debs, 0
+# removals. Against a 3.4 GB ISO that is +1.3%.
+#
+# These are installed unconditionally; whether an IME AUTOSTARTS is decided at
+# install time by the language selection (see post-install/22-locale-gen.sh).
+# Shipping the packages and not enabling them costs 45 MB; NOT shipping them
+# means a Chinese user cannot type on a fully offline install, which is the
+# whole point of an offline installer.
+fcitx5
+fcitx5-chinese-addons
+fcitx5-config-qt
+im-config
+
+# --- browser + media -------------------------------------------------------
+# Vivaldi installs from the staged upstream .deb in 52-vivaldi.sh and remains
+# the default browser. Real, official Google Chrome for arm64 Linux (public
+# since Q2 2026, via Google's own signed apt repo) is the second browser —
+# build-desktop-mirror folds it into the offline desktop pool, pinned +
+# SHA256-verified against Google's published Packages index; no live apt
+# source on the shipped image, no snapd. ungoogled-chromium/XtraDeb (an
+# earlier stop-gap from before real Chrome existed for arm64) is dropped —
+# real Chrome supersedes it outright.
+# chromium-ncz-sky1 is OUR Chromium build (V4L2-M2M hardware decode, which no
+# upstream or distro arm64 build provides on Sky1). It is the default browser
+# and is pinned on the launcher alongside Chrome and the terminal, but it was
+# neither seeded here nor present in the forky mirror -- so the launcher would
+# have pinned a browser the image never installed.
+chromium-ncz-sky1
+google-chrome-stable
+mpv
+
+# --- archives + PDF + image (GTK, DE-agnostic) -----------------------------
+xarchiver
+7zip
+unrar-free
+papers
+
+# --- offline-apt tools (usable from the desktop with no network) -----------
+synaptic
+gdebi
+gdebi-core
+# software-properties-gtk is Ubuntu's PPA GUI.  NCZ uses its signed NCZ
+# repository plus Debian sources, so it has no role on the Debian base.
+
+# --- keyring / disk-usage ---------------------------------------------------
+# KEYRING: the NATIVE `singularity-keyring` (in /opt/singularity, D-Bus-activated
+# org.freedesktop.secrets) is THE Secret Service — gnome-keyring is NOT shipped
+# (20-desktop purges it; it would otherwise grab the secrets name first). seahorse
+# is dropped with it (seahorse depends on gnome-keyring; Singularity has its own
+# secret UI).
+baobab
+
+# --- image editing ----------------------------------------------------------
+gimp
+
+# --- runtime deps other hooks rely on (branding/avatars, agents) -----------
+# NO plymouth — the boot splash is the native KMS singularity-boot-splash
+# (/opt/singularity payload), 60-boot-splash purges plymouth outright.
+librsvg2-bin
+imagemagick
+whiptail
+# rsyslog removed: the installed system is journald-only. 36-telemetry
+# drops ForwardToSyslog=no + caps SystemMaxUse so journald is the single
+# syslog sink. 58-boot-hygiene apt-purges the Debian default rsyslog
+# pull-in so /var/log/{syslog,messages} never appears.
+
+# --- agent stack (podman + helpers; 30-agents) -----------------------------
+podman
+crun
+conmon
+netavark
+aardvark-dns
+catatonit
+
+# --- console fallback (telnet — fleet doctrine) -----------------------------
+inetutils-telnetd
+openbsd-inetd
+
+# --- toolchain bits some post-install hooks use -----------------------------
+nodejs
+npm
+
+# --- libs pulled to satisfy CIX/mesa closure (kept from prior closure) ------
+libxml2-16
+# Debian's ABI package name; replaces Ubuntu's libjpeg-turbo8.
+libjpeg62-turbo
+libva-glx2
+libwayland-bin
+libnice10
+libdrm-radeon1
+libdrm-nouveau2
+libdrm-freedreno1
+libdrm-tegra0
+libdrm-etnaviv1
+
+# --- desktop app infrastructure --------------------------------------------
+# 21-flatpak-arch-filter.sh configures Flathub with a deny-by-default target-architecture
+# filter, so neither the app store nor the CLI catalogue can expose foreign refs.
+flatpak
+gnome-session-canberra
+xdg-desktop-portal-gtk
+epiphany-browser
+# r181: falkon dropped — it half-configures (iF) on Sky1/qemu (its postinst was
+# the desktop apt rc=100), and its stale .desktop launcher errored like the
+# mnemos one. Vivaldi (staged .deb, 52-vivaldi.sh) is the default browser now;
+# epiphany stays as a lightweight secondary.
+feh
+
+# --- r130.4 bucket: GPU/Vulkan validation + benchmark tools 47-llm-stack +
+#     16-mesa request (glmark2 is split on Ubuntu: -x11 / -es2-x11 variants;
+#     the bare glmark2 / glmark2-es2 names do not exist) ---
+vulkan-validationlayers
+clinfo
+glmark2-x11
+glmark2-es2-x11
+glmark2-es2-wayland
+glmark2-wayland
+glslc
+
+# --- r130.4 bucket: agents + system utilities (nodejs/npm for ncz agents,
+#     podman DNS, syslog, dialog UI, SVG rasteriser) ---
+nodejs
+npm
+whiptail
+# rsyslog removed (duplicate of the entry above; journald is the only
+# syslog sink — see 36-telemetry + 58-boot-hygiene).
+librsvg2-bin
+aardvark-dns
+
+# --- r181: full podman runtime so `ncz agent install` + `ncz install mnemos`
+#     (the MNEMOS desktop icon) work OFFLINE. All present in server/resolute
+#     mirrors (bound at build time), so this is a safe explicit pin — 30-agents.sh
+#     also apt-installs these, this just guarantees they land in the delta. ---
+podman
+crun
+conmon
+netavark
+catatonit
+
+# --- r164: IceWM — ultra-light alternate WM (selectable at LightDM greeter)
+icewm
+icewm-common
+
+# --- r178: telnetd fleet lockout-prevention (doctrine #9). Baked here so
+# future desktop.squashfs includes it; until then late.sh installs it offline.
+inetutils-telnetd
+openbsd-inetd
+
+# --- r189.4: 47-llm-stack.sh Vulkan/SPIR-V substrate (was never wired into
+#     MACHINE_HOOKS_RE, so this hook never ran and these packages were never
+#     in the offline-mirror closure either -- fixing both together). ---
+libvulkan-dev
+glslang-tools
+glslang-dev
+spirv-tools
+spirv-headers
+vulkan-tools
+vulkan-validationlayers
+clinfo
+glmark2-x11
+glmark2-es2-x11
+glmark2-wayland
+shotcut
+handbrake
+ffmpeg
+audacity
+
+# --- GTK4/libadwaita native-Wayland apps, hardware-accelerated via GSK's
+#     GL renderer (GSK_RENDERER=gl, already set in singularity-desktop-session).
+#     kooha fixes the earlier screen-recording bug -- goes through
+#     xdg-desktop-portal's ScreenCast interface, which singularity.portal
+#     does implement. celluloid is a native GTK4 GUI complement to the CLI
+#     mpv already above (same VAAPI hardware decode path). loupe is GNOME's
+#     GPU-accelerated image viewer. The rest are small, real desktop-
+#     completeness gaps (calc/text-editor/font-viewer/characters/calendar/
+#     weather/sound-recorder/drawing), no GNOME-shell dependency drag. ---
+kooha
+celluloid
+loupe
+gnome-calculator
+gnome-text-editor
+gnome-font-viewer
+gnome-characters
+gnome-calendar
+gnome-weather
+gnome-sound-recorder
+drawing
+# Additional Wayland-first utilities: native image viewers and GNOME Console.
+# These are small, composited clients and do not pull in a second desktop
+# session or an Xorg server; Xwayland remains only for legacy applications.
+imv
+swayimg
+gnome-console
+
+# zstd: post-install/72-rescue-partition.sh unpacks rescue-rootfs.tar.zst on the
+# installed system and hard-requires it. The base layer is the Debian forky
+# rootfs tarball, which (unlike Ubuntu) does not ship zstd, and the base layer
+# installs no manifest -- so this delta is what puts it on the target. Without
+# it 72 aborts, RESCUE_READY is never written, and ncz-refind-refresh refuses
+# to install BOOTAA64.EFI, failing the install as unbootable.
+zstd
+
+# Generic Linux firmware. Debian splits what Ubuntu ships as one linux-firmware
+# package; without these the installed system has only CIX vendor firmware and
+# the kernel logs e.g. "Possible missing firmware /lib/firmware/rtl_nic/
+# rtl8125k-1.fw for built-in driver r8169". Seeded here so they are in the
+# offline mirror closure AND installed into the shipped layer.
+firmware-linux-free
+firmware-realtek
+firmware-misc-nonfree
+
+# curl + its trust store. Same Debian-vs-Ubuntu gap class as zstd above:
+# installer-base.pkgs lists curl, but that manifest only seeds the offline
+# MIRROR -- the base layer is the Debian forky rootfs tarball plus hooks and
+# installs no manifest, so nothing was actually putting curl on the target.
+# Confirmed on O6N 2026-08-02: post-install/30-agents.sh died with
+# "curl: command not found" (exit 127) and zoder was never installed; the
+# 46-python311.sh network fallbacks are gated on `command -v curl` and were
+# silently skipped for the same reason. ca-certificates is required for any
+# of those https fetches to validate.
+curl
+ca-certificates
+
+# systemd-timesyncd. Ubuntu bundles it inside systemd; Debian splits it into
+# its own package, so post-install/37-ntp-hostname.sh failed with
+# "Failed to enable unit: systemd-timesyncd.service does not exist"
+# (confirmed on O6N 2026-08-02). Sky1 boards have no working RTC -- O6N has no
+# /dev/rtc at all -- so without a time daemon the clock re-seeds from the image
+# build epoch on every boot and TLS certificate validation fails.
+systemd-timesyncd
+tzdata
+
+# python3-venv / python3-pip. Debian splits venv + ensurepip out of the base
+# python3 package (Ubuntu's python3 pulled them in), so post-install/47-embedkit.sh's
+# stdlib fallback died with:
+#   "You may need to use sudo with that command. After installing the
+#    python3-venv package, recreate your virtual environment.
+#    Failing command: /opt/ncz/embed-venv/bin/python3"
+# and /opt/ncz/embed-venv was never created (reproduced on O6N 2026-08-02:
+# `python3 -m venv` fails, python3-venv and python3-pip both absent). The
+# preferred path is uv (vendored by build/build-python311-assets.sh), but the
+# fallback has to actually work when uv is unavailable.
+python3-venv
+python3-pip
+
+# ---------------------------------------------------------------------------
+# HARDWARE EXPLOITATION AND WAYLAND/CLI TOOLING (audited on a live r239 install,
+# 2026-08-14). Everything below was MISSING from the shipped image while the
+# hardware or the desktop stack was already capable of using it.
+#
+# Wayland session capability
+#   xdg-desktop-portal-wlr  Screencast/screenshot portal for wlroots. Without it
+#                           SCREEN SHARING CANNOT WORK on this desktop -- labwc is
+#                           wlroots-based and only xdg-desktop-portal + -gtk were
+#                           installed. PipeWire 1.6.8 is already present, so this
+#                           is the one missing link in the chain.
+#   wl-clipboard            wl-copy/wl-paste. Baseline Wayland CLI clipboard; the
+#                           image shipped with no command-line clipboard at all.
+#   wlr-randr               Output/mode configuration from the CLI (4K, multi-head).
+#   wf-recorder             Screen recording; can drive the Linlon H.264 encoder.
+#   wev                     Input/event debugging -- directly useful on this board,
+#                           where USB keyboards need an xhci rebind to enumerate.
+#
+# Media / VPU
+#   gstreamer1.0-tools      gst-launch-1.0 / gst-inspect-1.0. The v4l2 codec plugins
+#                           (libgstv4l2codecs.so, libgstvideo4linux2.so) are ALREADY
+#                           installed but unusable from the shell without these, and
+#                           GStreamer's v4l2h264enc is the alternative to ffmpeg's
+#                           v4l2m2m encoder, which SIGSEGVs on teardown (upstream bug).
+#
+# Hardware diagnostics the box has hardware for
+#   nvme-cli                NVMe is the root device; SMART/temperature/namespace.
+#   smartmontools           Disk health.
+#   ethtool                 10GbE link, ring and offload inspection/tuning.
+#   iperf3                  Actually validate that 10GbE.
+#   lm-sensors              CLI counterpart to the desktop sensors panel.
+#   powertop                Power/idle analysis, relevant to the perf-mode work.
+#   sysstat                 iostat/mpstat/sar for performance investigation.
+#   btop, htop              Process and resource monitors.
+#
+# nvme-cli, smartmontools, ethtool and htop were already IN the offline pool as
+# transitive dependencies but were never seeded, so they never got installed.
+# Seeding them here costs no extra download.
+#
+# NOTE: the GPU also exposes OpenCL (clinfo reports ARM Platform /
+# Mali-G720-Immortalis r0p0). With the NPU unusable (no userspace driver on the
+# image at all), OpenCL on the GPU is currently the only working compute path.
+# ---------------------------------------------------------------------------
+xdg-desktop-portal-wlr
+wl-clipboard
+wlr-randr
+wf-recorder
+wev
+gstreamer1.0-tools
+nvme-cli
+smartmontools
+ethtool
+iperf3
+lm-sensors
+powertop
+sysstat
+btop
+htop
+
+# --- filesystem tooling for the EFI System Partition ---------------------
+# dosfstools was missing from the installed system: mkfs.vfat/fsck.fat are not
+# present once d-i finishes, so a shipped machine could not create or repair its
+# own ESP -- found on O6N when preparing a UEFI BIOS-update stick, where
+# mkfs.vfat simply did not exist. It is already in mgmt.pkgs and rescue.pkgs;
+# the installed desktop needs it too.
+dosfstools
+
+# --- FFmpeg 9 for the Linlon VPU ------------------------------------------
+# Debian's ffmpeg 8.1.2 cannot encode correctly through this hardware: upstream
+# decides plane layout from the V4L2 fourcc, so on a multi-planar driver it packs
+# every plane into plane 0 -- yuv420p SIGSEGVs and nv12 silently loses all chroma
+# (measured U=2 V=2 against U=127 V=126 in software). ncz-ffmpeg carries the fix.
+#
+# It installs under /opt/ncz-ffmpeg with an RPATH and symlinks ffmpeg/ffprobe/
+# ffplay into /usr/local/bin, so it wins on PATH without touching the system
+# libav* that the rest of the desktop links against (our soname is .63, forky
+# ships .62). The system ffmpeg stays installed for those library consumers.
+ncz-ffmpeg
+
+# --- hwclock, so the RTC can actually be written ---------------------------
+# Debian moved hwclock OUT of util-linux and into util-linux-extra, which no
+# manifest carried -- so the installed desktop had no way to write the RTC at
+# all. MEASURED on O6N 2026-08-17: RTC stuck at the firmware default
+# 2024-08-30 while the system clock was correct, dmesg seeding the system
+# clock from that stale RTC on every boot, and 'hwclock: command not found'.
+# Every fresh flash therefore booted ~2 years in the past until NTP won the
+# race, breaking TLS-validating tools (apt, curl, git) in the meantime.
+#
+# post-install/44-rtc-sync.sh does apt-install this as a fallback, but that
+# needs working network at install time -- exactly the thing a two-year-old
+# clock breaks. Seeding it here keeps the fix OFFLINE-first like the rest of
+# this closure.
+util-linux-extra
+
+# --- accelerator + audio diagnostics ---------------------------------------
+# MEASURED on O6N 2026-08-18: a fully working desktop with no way to inspect
+# either subsystem from a shell. `aplay -l` and `v4l2-ctl --info` were the
+# first two commands reached for during hardware validation and BOTH were
+# missing, on an image whose whole point is CIX Sky1 accelerator support.
+#
+# alsa-utils is not needed for audio to FUNCTION -- PipeWire drives the
+# cix_sky1 card fine without it -- but aplay/amixer/alsamixer/speaker-test are
+# how anyone confirms that from the command line, and how a user recovers a
+# muted or misrouted card when the GUI mixer is not available.
+#
+# v4l-utils is the only way to interrogate the Linlon VPU nodes (/dev/video0
+# mvxdec, /dev/video1 mvxenc): v4l2-ctl reports the codec formats the firmware
+# actually registered, which is exactly the check that distinguishes "VPU
+# driver loaded" from "VPU driver loaded AND firmware present". cixmini
+# already had v4l2-ctl, which is why the missing .fwb set was caught there
+# first and not here.
+alsa-utils
+v4l-utils
+
+# --- radio firmware: WiFi/Bluetooth for whatever is in the M.2 slot ---------
+# MEASURED 2026-08-18, and this was a real shipping defect: cixmini carries a
+# MediaTek MT7922 (mt7921e) and its three firmware blobs were present in
+# /lib/firmware/mediatek/ -- but `dpkg -S` matched NO PACKAGE for any of them.
+# They had been hand-dropped on that box at some point. No manifest carried
+# firmware-mediatek, so a CLEAN INSTALL of this image ships zero MediaTek
+# firmware and the WiFi is simply dead, on the very board we build on.
+#
+# It looked fine only because the build host had been hand-patched, which is
+# the most dangerous possible way for a gap like this to hide.
+#
+# The Sky1 boards differ in what sits in the M.2 slot, and Orange Pi 6 is a
+# target too, so cover the four families that realistically appear on an ARM
+# SBC rather than only the one chip we happen to own:
+#   mediatek    MT7902/7921/7922/7925/7961 -- cixmini's MT7922
+#   brcm80211   Broadcom/AMPAK AP6xxx -- the usual ARM SBC on-board module
+#   atheros     QCA6174/QCA9377 M.2 cards
+#   iwlwifi     Intel AX200/AX210 M.2 cards
+#   ath9k-htc   USB adapters (43 KB, free firmware)
+#
+# Each package carries BOTH the WiFi and the Bluetooth blobs for its family
+# (e.g. BT_RAM_CODE_MT7922_1_1_hdr.bin lives in firmware-mediatek), so this
+# also fixes Bluetooth on any board whose BT radio is actually wired up.
+#
+# Cost: ~99 MB of .deb, ~385 MB installed. A desktop image whose WiFi does not
+# come up is broken, so this is not optional weight.
+firmware-mediatek
+firmware-brcm80211
+firmware-atheros
+firmware-iwlwifi
+firmware-ath9k-htc

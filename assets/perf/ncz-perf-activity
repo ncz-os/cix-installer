@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+"""ncz-perf-activity — drive CPU performance policy from INPUT ACTIVITY.
+
+WHY: ncz-performance-mode pins every core at max with deep idle disabled and
+leaves it there from greeter start onward. Measured on O6N while the box sat
+doing nothing: all 12 cores at ceiling (2600/2500/2300/2200/1800 MHz),
+governor=performance, cpuidle LPI-1 and LPI-2 both disabled, package 44-50 C.
+That is the right behaviour while somebody is USING the machine and pure waste
+while nobody is.
+
+WHY INPUT AND NOT SESSION STATE: the greeter runs as user _greetd, so a
+session-scoped idle tool (swayidle et al) does not cover the logged-out case --
+which is most of the time on a box sitting at a login screen. Reading
+/dev/input covers greeter and session identically with no compositor
+integration.
+
+WHICH IDLE STATE WE RELEASE, AND WHY IT IS *NOT* THE DEEP ONE.
+
+An earlier version of this file had this exactly backwards, so the reasoning is
+spelled out. sysfs reports:
+    LPI-0    latency 0 us     (never touched)
+    LPI-1    latency 360 us   <- the SHALLOW state; this is what idle releases
+    LPI-2    latency 500 us   <- ClusterPD; stays DISABLED in BOTH modes
+
+Those sysfs numbers are microseconds and they UNDERSTATE LPI-2 by ~1000x. The
+incident note at the top of post-install/85-power-perf-mode.sh records the
+real, measured behaviour on this SoC:
+
+    "500-1200ms input-event delivery stalls tied to the CPU's deep ClusterPD
+     idle state (LPI-2) and the GPU's genpd power-domain gating"
+
+LPI-2 exit goes through a firmware/SCMI round trip that the declared 500 us
+does not model. That is the state that caused the greeter keyboard lag, so it
+is never re-armed here -- not at idle, not ever. LPI-1 was never independently
+implicated and is the shallower state, so it is the entire CPU idle-power
+opportunity available to us.
+
+NCZ_PERF_KEEP_STATE1=1 keeps even LPI-1 disabled, for a box where any wake
+latency is unacceptable.
+
+DEVFREQ IS NEVER TOUCHED. Writing a non-default devfreq governor to CIXH4000:00
+panics this SoC inside sky1_npu_devfreq_target(), and simple_ondemand being a
+polling governor turns that into a panic-reboot loop. GPU/NPU power state is
+therefore left exactly as ncz-performance-mode set it. See
+post-install/85-power-perf-mode.sh for the full incident notes.
+
+Only `performance` and `schedutil` exist on this platform -- there is no
+ondemand/conservative to fall back to.
+"""
+import os
+import glob
+import select
+import struct
+import signal
+import sys
+import time
+
+IDLE_SEC = float(os.environ.get("NCZ_PERF_IDLE_SEC", "60"))
+KEEP_STATE1_OFF = os.environ.get("NCZ_PERF_KEEP_STATE1", "0") == "1"
+# Pointer movement below this many accumulated units is treated as jitter, not
+# use. MEASURED on O6N: the attached Dell USB optical mouse emits a continuous
+# stream with nobody touching it -- 131 EV_REL plus 13 EV_KEY in five seconds.
+# Counting any wakeup as activity meant the machine could never idle at all.
+REL_THRESHOLD = int(os.environ.get("NCZ_PERF_REL_THRESHOLD", "24"))
+
+# INPUT ALONE IS THE WRONG TRIGGER ON THIS FLEET, and the O6N board is the
+# proof: it is the kernel boot-validation box, driven almost entirely over SSH.
+# A 40-minute kernel build there produces exactly ZERO /dev/input events, so an
+# input-only rule would drop it to schedutil and re-arm an idle state in the
+# middle of the compile -- throttling the one workload that most needs the CPU.
+#
+# So "busy" is the OR of a human at the keyboard and the machine doing work.
+# 1-minute loadavg is the cheap, universal second signal (one 4-byte read of
+# /proc/loadavg per cycle). logind was considered and REJECTED: on this very
+# board logind reported IdleHint=yes "6h ago" for a session whose mouse was
+# actively moving, because the compositor never updates the hint.
+LOAD_ACTIVE = float(os.environ.get("NCZ_PERF_LOAD_ACTIVE", "1.0"))
+
+# linux/input.h event types
+EV_SYN, EV_KEY, EV_REL, EV_ABS = 0, 1, 2, 3
+# struct input_event on 64-bit: timeval(8+8) + type(2) + code(2) + value(4)
+EV_FMT = "qqHHi"
+EV_SIZE = struct.calcsize(EV_FMT)
+CPUS = "/sys/devices/system/cpu"
+
+
+def log(msg):
+    sys.stderr.write("ncz-perf-activity: %s\n" % msg)
+    sys.stderr.flush()
+
+
+def read_first_line(path):
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except Exception:
+        return None
+
+
+def write_if_writable(path, value):
+    """Never fail the daemon over one unwritable knob; kernels differ."""
+    try:
+        with open(path, "w") as fh:
+            fh.write(value)
+        return True
+    except Exception:
+        return False
+
+
+def set_governor(gov):
+    n = 0
+    for g in glob.glob(CPUS + "/cpu*/cpufreq/scaling_governor"):
+        if write_if_writable(g, gov):
+            n += 1
+    return n
+
+
+def set_idle_state(state, disable):
+    """disable=True -> deep idle OFF (low latency). False -> allowed."""
+    n = 0
+    for c in glob.glob(CPUS + "/cpu*/cpuidle/state%d/disable" % state):
+        if write_if_writable(c, "1" if disable else "0"):
+            n += 1
+    return n
+
+
+def go_active():
+    # Both states off: lowest possible wake latency while somebody is using it.
+    set_idle_state(1, True)
+    set_idle_state(2, True)
+    set_governor("performance")
+
+
+def go_idle():
+    set_governor("schedutil")
+    # LPI-2 (ClusterPD) stays DISABLED even when idle: it is the state measured
+    # at 500-1200ms input-delivery stalls. Releasing it is what the previous
+    # version of this file got wrong.
+    set_idle_state(2, True)
+    # LPI-1 is the shallow state and the actual idle-power opportunity.
+    set_idle_state(1, KEEP_STATE1_OFF)
+
+
+def real_input_event_nodes():
+    """event* nodes that are ACTUAL user input, from /proc/bus/input/devices.
+
+    Opening every /dev/input/event* is wrong on this hardware: event0/1/2 are
+    the HDMI/DP ALSA jack devices ("cix,sky1 HDMI/DP,pcm=0" etc). They fire on
+    display power/hotplug transitions, so pinning the GPU power domain -- which
+    ncz-performance-mode does on every greetd start -- registered as "user
+    activity" and pulled the box straight back to performance. Observed
+    directly: the daemon logged "idle" then "active" with nobody at the
+    keyboard.
+
+    Selection is by HANDLER, which is how the kernel itself classifies these:
+    kbd/mouse/js/leds mean a real input device; a jack has none of them.
+    """
+    wanted = set()
+    try:
+        with open("/proc/bus/input/devices") as fh:
+            block = []
+            for line in fh.read().splitlines() + [""]:
+                if line.strip():
+                    block.append(line)
+                    continue
+                handlers = ""
+                events = []
+                for b in block:
+                    if b.startswith("H: Handlers="):
+                        handlers = b.split("=", 1)[1]
+                        events += [t for t in handlers.split() if t.startswith("event")]
+                if events and any(h in handlers for h in ("kbd", "mouse", "js")):
+                    for ev in events:
+                        wanted.add("/dev/input/" + ev)
+                block = []
+    except Exception:
+        # Fall back to everything rather than watching nothing at all.
+        return sorted(glob.glob("/dev/input/event*"))
+    return sorted(wanted)
+
+
+def open_input_devices():
+    """Open the real input devices. Devices come and go (USB), so this is
+    re-run when the set changes rather than assumed stable at boot."""
+    fds = {}
+    for path in real_input_event_nodes():
+        try:
+            fds[os.open(path, os.O_RDONLY | os.O_NONBLOCK)] = path
+        except Exception:
+            pass
+    return fds
+
+
+def loadavg_1min():
+    """1-minute load average, or 0.0 if unreadable."""
+    try:
+        with open("/proc/loadavg") as fh:
+            return float(fh.read().split()[0])
+    except Exception:
+        return 0.0
+
+
+def main():
+    if os.geteuid() != 0:
+        log("must run as root")
+        return 1
+
+    running = {"go": True}
+    def stop(_s, _f):
+        running["go"] = False
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    fds = open_input_devices()
+    if not fds:
+        log("no /dev/input/event* devices; refusing to run blind")
+        return 1
+    log("watching %d input devices, idle threshold %.0fs, load threshold %.2f, "
+        "LPI-1 released at idle=%s, LPI-2 never released"
+        % (len(fds), IDLE_SEC, LOAD_ACTIVE, not KEEP_STATE1_OFF))
+
+    active = True
+    go_active()
+    rel_accum = [0]
+    last_input = time.monotonic()
+    last_scan = time.monotonic()
+
+    while running["go"]:
+        timeout = max(0.5, IDLE_SEC - (time.monotonic() - last_input))
+        try:
+            r, _, _ = select.select(list(fds), [], [], timeout)
+        except (OSError, select.error):
+            for fd in list(fds):
+                try:
+                    os.close(fd)
+                except Exception:
+                    pass
+            fds = open_input_devices()
+            continue
+
+        now = time.monotonic()
+
+        # RECONCILE FROM SYSFS, do not trust our own flag. ncz-performance-mode
+        # is ALSO invoked by greetd's ExecStartPre and by
+        # ncz-performance-mode.service at graphical.target, so any greetd
+        # restart silently re-pins performance and re-disables both idle
+        # states behind our back. Because we only wrote on an edge, our
+        # `active` flag would then disagree with the hardware forever and idle
+        # would never be re-applied. Cheap: one file read per cycle.
+        if not active:
+            gov = read_first_line(CPUS + "/cpufreq/policy0/scaling_governor")
+            if gov is not None and gov != "schedutil":
+                go_idle()
+
+        if r:
+            real_activity = False
+            for fd in r:
+                try:
+                    while True:
+                        buf = os.read(fd, EV_SIZE)
+                        if not buf or len(buf) < EV_SIZE:
+                            break
+                        _, _, etype, _, value = struct.unpack(EV_FMT, buf)
+                        if etype == EV_KEY:
+                            # A key or button press is unambiguous use.
+                            real_activity = True
+                        elif etype in (EV_REL, EV_ABS):
+                            # Accumulate movement; jitter never reaches the
+                            # threshold, a deliberate move crosses it at once.
+                            rel_accum[0] += abs(value)
+                            if rel_accum[0] >= REL_THRESHOLD:
+                                real_activity = True
+                        # EV_SYN / EV_MSC are framing, never activity.
+                except BlockingIOError:
+                    pass
+                except Exception:
+                    pass
+
+            if real_activity:
+                rel_accum[0] = 0
+                last_input = now
+                if not active:
+                    go_active()
+                    active = True
+                    log("active")
+        # Machine busy counts as active even with nobody touching it.
+        load = loadavg_1min()
+        if load >= LOAD_ACTIVE:
+            last_input = now
+            if not active:
+                go_active()
+                active = True
+                log("active (load %.2f >= %.2f)" % (load, LOAD_ACTIVE))
+
+        elif active and (now - last_input) >= IDLE_SEC:
+            go_idle()
+            active = False
+            log("idle after %.0fs" % IDLE_SEC)
+
+        # Re-scan periodically so a keyboard plugged in later is still watched;
+        # otherwise a USB re-enumeration would leave us deaf and stuck idle.
+        if now - last_scan > 30:
+            last_scan = now
+            new = open_input_devices()
+            if set(new.values()) != set(fds.values()):
+                for fd in list(fds):
+                    try:
+                        os.close(fd)
+                    except Exception:
+                        pass
+                fds = new
+                log("input device set changed; now watching %d" % len(fds))
+
+    # Leave the machine responsive, not asleep, on exit.
+    go_active()
+    log("stopped; restored performance")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

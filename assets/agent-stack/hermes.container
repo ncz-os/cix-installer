@@ -1,0 +1,50 @@
+# NOTE: Hermes dashboard is bound to LOOPBACK (127.0.0.1) with HOST networking.
+# The Cix Sky1 kernel has no veth/bridge (CONFIG_VETH off), so the previous
+# design — a dedicated hermes-isolated Podman bridge network + PublishPort —
+# cannot start on metal ("create veth pair: Operation not supported", status=126,
+# verified MS-R1 .66 2026-07). The SAME trust-boundary property is preserved a
+# different way: Network=host + a 127.0.0.1 dashboard bind means the dashboard
+# is reachable ONLY from on-box clients, NEVER the LAN:
+#   - Host loopback (127.0.0.1) → hermes dashboard:  reachable
+#   - Host non-loopback / LAN   → hermes dashboard:  NOT reachable (bound to 127.0.0.1)
+# Operators wanting LAN access add an SSH tunnel or a reverse proxy with
+# TLS+auth on top — never re-bind the hermes Exec to 0.0.0.0.
+#
+# Tradeoff vs. the old isolated-bridge model: with Network=host, hermes shares
+# the host network namespace, so it CAN reach other host-loopback services
+# (the old own-namespace design blocked that). On a single-user LAN appliance
+# this is acceptable and is the only option on Sky1 until CONFIG_VETH lands in
+# the kernel (future kernel-config task). Network=host is the workaround.
+
+[Unit]
+Description=hermes agent (NousResearch Hermes Agent OSS)
+Documentation=https://github.com/NousResearch/hermes-agent
+Requires=nclawzero-load-agent-images.service
+Wants=network-online.target
+After=network-online.target nclawzero-load-agent-images.service
+
+[Container]
+Image=docker.io/nousresearch/hermes-agent@sha256:aa60e7483a6fad26eee233d2498d4f2b4223bf9d8990e3b07017f19b6ba7b6fe
+# Image pinned to immutable digest (arm64 manifest verified 2026-07). To roll
+# forward, resolve a newer sha256 via
+# `crane digest docker.io/nousresearch/hermes-agent:latest` and update here.
+# AutoUpdate=registry intentionally OMITTED. Image is large (~2.55 GB) so it is
+# network-pull only (not bundled offline on the ISO).
+ContainerName=hermes
+Pull=never
+# HOST networking. Bind the dashboard to 127.0.0.1 so it is loopback-only —
+# this is what enforces "not LAN-exposed" now that the isolated bridge is gone
+# (see header). --insecure serves the dashboard over plain HTTP (no TLS on a
+# loopback-only bind).
+Exec=dashboard --host 127.0.0.1 --port 8642 --no-open --insecure
+EnvironmentFile=/etc/nclawzero/agent-env
+Volume=hermes-data:/opt/data:Z
+Network=host
+
+[Service]
+TimeoutStartSec=600
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target default.target

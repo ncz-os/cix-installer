@@ -1,0 +1,29 @@
+[Unit]
+Description=NemoClaw — NVIDIA agent runtime (OpenShell sandbox)
+Documentation=https://github.com/NVIDIA/NemoClaw
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=ghcr.io/nvidia/nemoclaw/sandbox-base:latest
+# Pulled on demand by `ncz install nemoclaw` (arm64 manifest verified 2026-07);
+# intentionally not part of nclawzero-load-agent-images.service or ISO OCI
+# tarball bundling — the image is large (~2.4 GB), so it is network-pull only.
+ContainerName=nemoclaw
+Pull=never
+EnvironmentFile=/etc/nclawzero/agent-env
+Volume=nemoclaw-data:/data:Z
+# HOST networking (NOT PublishPort). The Cix Sky1 kernel has no veth/bridge
+# (CONFIG_VETH off) so any PublishPort= fails on metal with
+# "create veth pair: Operation not supported" (status=126, verified .66 2026-07).
+# Network=host binds the runtime directly on the host's :4000. Real fix =
+# CONFIG_VETH in a future kernel; this is the workaround.
+Network=host
+
+[Service]
+TimeoutStartSec=900
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target default.target

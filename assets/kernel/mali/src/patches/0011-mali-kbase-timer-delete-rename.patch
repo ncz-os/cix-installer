@@ -1,0 +1,151 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 25 Jul 2026 00:00:00 +0000
+Subject: [PATCH] mali_kbase: port del_timer(_sync)() to timer_delete(_sync)()
+
+Kernel 7.2 renamed the timer deletion API: del_timer_sync() ->
+timer_delete_sync(), and del_timer() -> timer_delete() (confirmed by
+reading include/linux/timer.h on this kernel -- neither old name is
+declared anywhere in it; only timer_delete(), timer_delete_sync(),
+timer_delete_sync_try(), timer_shutdown() and timer_shutdown_sync()
+remain. mod_timer() is untouched.). This is a pure rename with
+identical signature and return semantics (both still return int:
+whether the timer was pending before removal), not a behavioral
+change, so this is a faithful 1:1 mechanical substitution -- same
+class of fix as patches 0006/0009 (hrtimer_init -> hrtimer_setup
+family).
+
+Mechanically renamed all 13 call sites across 5 files (found by
+grepping the whole driver tree for del_timer_sync( and del_timer():
+mali_kbase_timeline.c (1), csf/mali_kbase_csf_tl_reader.c (2),
+csf/mali_kbase_csf_kcpu.c (8, incl. CONFIG_MALI_FENCE_DEBUG-only
+sites), mali_kbase_jd.c (1), mali_kbase_softjobs.c (1, the lone
+non-sync del_timer() call)).
+
+Fixes the mali_kbase.ko build against kernel 7.2.0-rc4-sky1-ncz (next
+error after patches 0008/0009/0010 unblocked the devfreq and
+hrtimer_setup_on_stack translation units).
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c	2026-07-26 03:17:09.571288054 +0800
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c	2026-07-26 03:17:09.587012138 +0800
+@@ -1390,7 +1390,7 @@
+ 
+ #ifdef CONFIG_MALI_FENCE_DEBUG
+ 	/* Fence gets signaled. Deactivate the timer for fence-wait timeout */
+-	del_timer(&kcpu_queue->fence_timeout);
++	timer_delete(&kcpu_queue->fence_timeout);
+ #endif
+ 
+ 	KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev, KCPU_FENCE_WAIT_END, kcpu_queue, fence->context,
+@@ -1418,7 +1418,7 @@
+ 		 * the timer would already have been deactivated inside
+ 		 * kbase_csf_fence_wait_callback().
+ 		 */
+-		del_timer_sync(&kcpu_queue->fence_timeout);
++		timer_delete_sync(&kcpu_queue->fence_timeout);
+ #endif
+ 		if (removed)
+ 			KBASE_KTRACE_ADD_CSF_KCPU(kctx->kbdev, KCPU_FENCE_WAIT_END, kcpu_queue,
+@@ -1719,11 +1719,11 @@
+ 	 */
+ 	atomic_set(&kcpu_queue->fence_signal_pending_cnt, 0);
+ #ifdef CONFIG_MALI_FENCE_DEBUG
+-	del = del_timer_sync(&kcpu_queue->fence_signal_timeout);
++	del = timer_delete_sync(&kcpu_queue->fence_signal_timeout);
+ 	dev_info(kctx->kbdev->dev, "kbase KCPU [%pK] delete fence signal timeout timer ret: %d",
+ 		 kcpu_queue, del);
+ #else
+-	del_timer_sync(&kcpu_queue->fence_signal_timeout);
++	timer_delete_sync(&kcpu_queue->fence_signal_timeout);
+ #endif
+ }
+ 
+@@ -1797,13 +1797,13 @@
+ #endif
+ 	} else {
+ #ifdef CONFIG_MALI_FENCE_DEBUG
+-		int del = del_timer_sync(&kcpu_queue->fence_signal_timeout);
++		int del = timer_delete_sync(&kcpu_queue->fence_signal_timeout);
+ 
+ 		dev_dbg(kctx->kbdev->dev, "kbase KCPU delete fence signal timeout timer ret: %d",
+ 			del);
+ 		CSTD_UNUSED(del);
+ #else
+-		del_timer_sync(&kcpu_queue->fence_signal_timeout);
++		timer_delete_sync(&kcpu_queue->fence_signal_timeout);
+ #endif
+ 	}
+ 
+@@ -2896,7 +2896,7 @@
+ 			mutex_lock(&kcpu_queue->lock);
+ 
+ 			if (atomic_read(&kcpu_queue->fence_signal_pending_cnt)) {
+-				int ret = del_timer_sync(&kcpu_queue->fence_signal_timeout);
++				int ret = timer_delete_sync(&kcpu_queue->fence_signal_timeout);
+ 
+ 				dev_dbg(kbdev->dev,
+ 					"Fence signal timeout on KCPU queue(%lu), kctx (%d_%d) was %s on suspend",
+@@ -2906,7 +2906,7 @@
+ 
+ #ifdef CONFIG_MALI_FENCE_DEBUG
+ 			if (kcpu_queue->fence_wait_processed) {
+-				int ret = del_timer_sync(&kcpu_queue->fence_timeout);
++				int ret = timer_delete_sync(&kcpu_queue->fence_timeout);
+ 
+ 				dev_dbg(kbdev->dev,
+ 					"Fence wait timeout on KCPU queue(%lu), kctx (%d_%d) was %s on suspend",
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_tl_reader.c	2026-07-26 03:17:09.511407233 +0800
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_tl_reader.c	2026-07-26 03:17:09.525103897 +0800
+@@ -348,7 +348,7 @@
+ 
+ void kbase_csf_tl_reader_term(struct kbase_csf_tl_reader *self)
+ {
+-	del_timer_sync(&self->read_timer);
++	timer_delete_sync(&self->read_timer);
+ }
+ 
+ int kbase_csf_tl_reader_start(struct kbase_csf_tl_reader *self, struct kbase_device *kbdev)
+@@ -406,7 +406,7 @@
+ 	/* Disable the tracebuffer on the CSFFW side. */
+ 	tl_reader_update_enable_bit(self, false);
+ 
+-	del_timer_sync(&self->read_timer);
++	timer_delete_sync(&self->read_timer);
+ 
+ 	spin_lock_irqsave(&self->read_lock, flags);
+ 
+--- a/drivers/gpu/arm/midgard/mali_kbase_jd.c	2026-07-26 03:17:09.632464893 +0800
++++ b/drivers/gpu/arm/midgard/mali_kbase_jd.c	2026-07-26 03:17:09.637278465 +0800
+@@ -1411,7 +1411,7 @@
+ 	 * queued outside the job scheduler.
+ 	 */
+ 
+-	del_timer_sync(&kctx->soft_job_timeout);
++	timer_delete_sync(&kctx->soft_job_timeout);
+ 	list_for_each_safe(entry, tmp, &kctx->waiting_soft_jobs) {
+ 		katom = list_entry(entry, struct kbase_jd_atom, queue);
+ 		kbase_cancel_soft_job(katom);
+--- a/drivers/gpu/arm/midgard/mali_kbase_softjobs.c	2026-07-26 03:17:09.683692164 +0800
++++ b/drivers/gpu/arm/midgard/mali_kbase_softjobs.c	2026-07-26 03:17:09.699091416 +0800
+@@ -281,7 +281,7 @@
+ 	}
+ 
+ 	if (cancel_timer)
+-		del_timer(&kctx->soft_job_timeout);
++		timer_delete(&kctx->soft_job_timeout);
+ 	spin_unlock_irqrestore(&kctx->waiting_soft_jobs_lock, lflags);
+ }
+ 
+--- a/drivers/gpu/arm/midgard/tl/mali_kbase_timeline.c	2026-07-26 03:17:09.450413745 +0800
++++ b/drivers/gpu/arm/midgard/tl/mali_kbase_timeline.c	2026-07-26 03:17:09.464905964 +0800
+@@ -291,7 +291,7 @@
+ 
+ 	/* Stop autoflush timer before releasing access to streams. */
+ 	atomic_set(&timeline->autoflush_timer_active, 0);
+-	del_timer_sync(&timeline->autoflush_timer);
++	timer_delete_sync(&timeline->autoflush_timer);
+ 
+ 	atomic_set(timeline->timeline_flags, 0);
+ }

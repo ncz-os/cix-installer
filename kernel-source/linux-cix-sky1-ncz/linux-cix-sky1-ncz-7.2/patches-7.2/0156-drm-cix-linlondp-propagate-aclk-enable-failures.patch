@@ -1,0 +1,47 @@
+From 2263a49951e0117f8f0ea96d0793c9ec060ba04e Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 13 Jul 2026 19:10:00 -0400
+Subject: [PATCH] drm: cix: linlondp: propagate aclk enable failures
+
+The probe path ignores clk_prepare_enable() failures and proceeds to access
+display MMIO, while resume logs the same failure but still enables IRQs and
+initializes hardware. Both paths can touch an unclocked display engine.
+
+Return the clock error through dev_err_probe() in both paths. This prevents
+MMIO, IRQ, or hardware initialization after aclk fails to enable.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/gpu/drm/cix/linlon-dp/linlondp_dev.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.c b/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.c
+index 80276de..feb1dde 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.c
++++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.c
+@@ -662,7 +662,10 @@ struct linlondp_dev *linlondp_dev_create(struct device *dev)
+ 		goto err_cleanup;
+ 	}
+ 
+-	clk_prepare_enable(mdev->aclk);
++	err = clk_prepare_enable(mdev->aclk);
++	if (err)
++		return ERR_PTR(dev_err_probe(dev, err,
++					     "failed to enable aclk\n"));
+ #endif
+ 	pm_runtime_get_sync(mdev->dev);
+ 	mdev->funcs = linlondp_identify(mdev->reg_base, &mdev->chip);
+@@ -804,7 +807,8 @@ int linlondp_dev_resume(struct linlondp_dev *mdev)
+ #if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
+ 	err = clk_prepare_enable(mdev->aclk);
+ 	if (err)
+-		dev_err(mdev->dev, "%s, failed to enable aclk\n", __func__);
++		return dev_err_probe(mdev->dev, err,
++				     "%s, failed to enable aclk\n", __func__);
+ #endif
+ 	mdev->funcs->enable_irq(mdev);
+ 
+-- 
+2.43.0
+

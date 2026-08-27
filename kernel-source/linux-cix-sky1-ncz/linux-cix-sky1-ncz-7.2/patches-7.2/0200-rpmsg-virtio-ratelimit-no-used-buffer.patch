@@ -1,0 +1,40 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] rpmsg: virtio: rate-limit the "no used buffer" message
+
+rpmsg_recv_done() logs at dev_err level whenever it is entered with no
+used buffer. That is not necessarily an error: a remoteproc driver may
+legitimately force the vring callback in order to poll for work.
+
+drivers/remoteproc/cix_dsp_rproc.c does exactly that. The DSP runs
+rpmsg-lite, which places TX messages in the avail ring rather than the
+used ring, so vring_interrupt() cannot detect them and the driver
+force-fires the callback on a timer. Every empty poll produced one
+dev_err line -- measured at ~16 lines/second on CIX Sky1 (O6N), which
+buries the journal and costs a printk per poll.
+
+Rate-limit the message. The diagnostic remains available for the case it
+was written for (a genuinely spurious device signal) without flooding.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/rpmsg/virtio_rpmsg_bus.c	2026-08-15 15:12:34.515121964 +0000
++++ b/drivers/rpmsg/virtio_rpmsg_bus.c	2026-08-15 18:17:41.525199601 +0000
+@@ -730,7 +730,17 @@
+ 
+ 	msg = virtqueue_get_buf(rvq, &len);
+ 	if (!msg) {
+-		dev_err(dev, "uhm, incoming signal, but no used buffer ?\n");
++		/*
++		 * Not necessarily an error: a driver may legitimately force this
++		 * callback to poll for work. cix_dsp_rproc does exactly that --
++		 * rpmsg-lite on the DSP puts TX messages in the avail ring rather
++		 * than the used ring, so vring_interrupt() cannot see them and the
++		 * driver force-fires the callback on a timer. Each empty poll then
++		 * printed at dev_err level, flooding the log at ~16 lines/s on
++		 * CIX Sky1. Rate-limit it: the diagnostic is still available, the
++		 * flood is not.
++		 */
++		dev_err_ratelimited(dev, "uhm, incoming signal, but no used buffer ?\n");
+ 		return;
+ 	}
+ 

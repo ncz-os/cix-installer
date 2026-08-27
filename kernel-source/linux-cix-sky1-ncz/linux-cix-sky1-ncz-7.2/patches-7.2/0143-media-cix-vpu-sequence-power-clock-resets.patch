@@ -1,0 +1,272 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 12 Jul 2026 23:58:00 -0400
+Subject: [PATCH] media: cix: vpu: sequence top power, clock and both resets
+
+Sky1 firmware describes a top-level VPU power resource and two resets, but
+the runtime-resume callback enabled the clock, released only vpu_reset, and
+then immediately read the VPU ID register.  In particular,
+vpu_rcsu_reset, which protects the register/control bridge, was never even
+acquired.
+
+Replay the ACPI top power-resource transition before enabling the clock and
+confirm its firmware status, then release the RCSU and core resets in that
+order.  Require both firmware-described reset controls, retain the Sky1
+reset provider's post-transition settling interval at the consumer so the
+same timing applies to ACPI reset lookup, and unwind every completed step
+when resume fails.  Assert the resets in the reverse order on suspend.
+
+This supersedes the incomplete reset and ACPI ordering changes in patches
+0139, 0140 and 0141.  Diagnostic patch 0142 is deliberately not included.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/media/platform/cix/dev/mvx_dev.c | 148 ++++++++++++++++++++++++++++---
+ 1 file changed, 136 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+index bf4ee37..dd48946 100755
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -95,6 +95,10 @@
+ #define MVE_RST_NAME        "vpu_reset"
+ #define MVE_RCSU_RST_NAME   "vpu_rcsu_reset"
+ 
++#define MVX_POWER_POLL_MIN_US       50
++#define MVX_POWER_POLL_MAX_US       100
++#define MVX_POWER_POLL_RETRIES      100
++
+ #define MVX_MAX_NUMBER_OF_PMDOMAINS 5
+ 
+ #define VPU_CORE_ACPI_REF_POWERSOURCE   1
+@@ -129,6 +133,7 @@ struct mvx_dev_ctx {
+     unsigned int pmdomains_cnt;
+     struct clk *clk;
+     struct reset_control *rstc;
++    struct reset_control *rcsu_rstc;
+     struct mvx_if_ops *if_ops;
+     struct mvx_client_ops client_ops;
+     struct mvx_hwreg hwreg;
+@@ -828,6 +833,15 @@ static int mvx_dev_probe(struct device *dev,
+         ret = -EFAULT;
+         goto destruct_hwreg;
+     }
++    ctx->rcsu_rstc = devm_reset_control_get_exclusive(dev,
++                                MVE_RCSU_RST_NAME);
++    if (IS_ERR(ctx->rcsu_rstc)) {
++        ret = PTR_ERR(ctx->rcsu_rstc);
++        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR,
++                      "Failed to get reset_control, %s: %d.",
++                      MVE_RCSU_RST_NAME, ret);
++        goto destruct_hwreg;
++    }
+ 
+     /* Request IRQ handler. */
+     ctx->irq = irq;
+@@ -1045,6 +1059,69 @@ static void mvx_pdev_remove(struct platform_device *pdev)
+     mvx_dev_remove(ctx);
+ }
+ 
++#ifdef CONFIG_ACPI
++static void mvx_acpi_top_power_off(struct device *dev)
++{
++    acpi_status status;
++
++    status = acpi_evaluate_object(ACPI_HANDLE(dev), "PPRS._OFF", NULL,
++                                  NULL);
++    if (ACPI_FAILURE(status))
++        dev_warn(dev, "failed to turn off VPU ACPI power resource: %s\n",
++                 acpi_format_exception(status));
++}
++
++static int mvx_acpi_top_power_on(struct device *dev)
++{
++    unsigned long long state;
++    acpi_status status;
++    int i;
++
++    status = acpi_evaluate_object(ACPI_HANDLE(dev), "PPRS._ON", NULL,
++                                  NULL);
++    if (ACPI_FAILURE(status)) {
++        dev_err(dev, "failed to turn on VPU ACPI power resource: %s\n",
++                acpi_format_exception(status));
++        mvx_acpi_top_power_off(dev);
++        return -EIO;
++    }
++
++    /* PPRS._STA reports the top-power enable latch in PGCTRL bit 12. */
++    for (i = 0; i < MVX_POWER_POLL_RETRIES; i++) {
++        status = acpi_evaluate_integer(ACPI_HANDLE(dev), "PPRS._STA",
++                                       NULL, &state);
++        if (ACPI_SUCCESS(status) && state)
++            return 0;
++        usleep_range(MVX_POWER_POLL_MIN_US, MVX_POWER_POLL_MAX_US);
++    }
++
++    dev_err(dev, "VPU ACPI power resource did not become ready: %s\n",
++            acpi_format_exception(status));
++    mvx_acpi_top_power_off(dev);
++    return ACPI_FAILURE(status) ? -EIO : -ETIMEDOUT;
++}
++#endif
++
++static int mvx_top_power_on(struct mvx_dev_ctx *ctx)
++{
++#ifdef CONFIG_ACPI
++    if (has_acpi_companion(ctx->dev))
++        return mvx_acpi_top_power_on(ctx->dev);
++#endif
++    return pm_runtime_resume_and_get(ctx->pmdomains[0]);
++}
++
++static void mvx_top_power_off(struct mvx_dev_ctx *ctx)
++{
++#ifdef CONFIG_ACPI
++    if (has_acpi_companion(ctx->dev)) {
++        mvx_acpi_top_power_off(ctx->dev);
++        return;
++    }
++#endif
++    pm_runtime_put_sync(ctx->pmdomains[0]);
++}
++
+ static int mvx_hw_init(struct device *dev)
+ {
+     struct mvx_dev_ctx *ctx = dev_get_drvdata(dev);
+@@ -1150,6 +1227,8 @@ static int mvx_pm_runtime_suspend(struct device *dev)
+      * the block is left in a clean, quiescent state across the suspend.
+      */
+     reset_control_assert(ctx->rstc);
++    usleep_range(MVX_POWER_POLL_MIN_US, MVX_POWER_POLL_MAX_US);
++    reset_control_assert(ctx->rcsu_rstc);
+     if (!IS_ERR_OR_NULL(ctx->clk))
+         clk_disable_unprepare(ctx->clk);
+ 
+@@ -1177,20 +1256,27 @@ static int mvx_pm_runtime_resume(struct device *dev)
+ {
+     int ret = 0;
+     struct mvx_dev_ctx *ctx = dev_get_drvdata(dev);
++    uint64_t domains_on = 0;
++    bool top_powered = false;
++    bool clk_enabled = false;
++    bool rcsu_deasserted = false;
++    bool core_deasserted = false;
++    bool irq_enabled = false;
+     int i;
+     uint64_t mask;
+ 
+     MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_INFO, "mvx_pm_runtime_resume");
+-    if (!has_acpi_companion(dev)) {
+-        pm_runtime_get_sync(ctx->pmdomains[0]);
+-    }
++
++    ret = mvx_top_power_on(ctx);
++    if (ret < 0)
++        return ret;
++    top_powered = true;
+ 
+     ret = clk_prepare_enable(ctx->clk);
+     if (ret) {
+         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Failed to enable clock, %d.", ret);
+-        return ret;
++        goto err_power;
+     }
+-
+     /*
+      * Order matters: deassert the reset BEFORE enabling the IRQ.  Otherwise
+      * the IRQ can fire mid-reset (when the device is not yet fully out of
+@@ -1198,8 +1284,22 @@ static int mvx_pm_runtime_resume(struct device *dev)
+      * any printk.  This matches upstream cixtech/cix_opensource__vpu_driver
+      * v1.0.1 (commit 4080a85).
+      */
+-    reset_control_deassert(ctx->rstc);
++    clk_enabled = true;
++
++    ret = reset_control_deassert(ctx->rcsu_rstc);
++    if (ret)
++        goto err_resume;
++    rcsu_deasserted = true;
++    usleep_range(MVX_POWER_POLL_MIN_US, MVX_POWER_POLL_MAX_US);
++
++    ret = reset_control_deassert(ctx->rstc);
++    if (ret)
++        goto err_resume;
++    core_deasserted = true;
++    usleep_range(MVX_POWER_POLL_MIN_US, MVX_POWER_POLL_MAX_US);
++
+     enable_irq(ctx->irq);
++    irq_enabled = true;
+ 
+     mvx_switch_qchannel_clock_gating(ctx, true);
+ 
+@@ -1207,7 +1307,7 @@ static int mvx_pm_runtime_resume(struct device *dev)
+     if (ctx->hwreg.hw_ver.revision == 0) {
+         ret = mvx_hwreg_init(&ctx->hwreg);
+         if (ret)
+-            return ret;
++            goto err_resume;
+     }
+ 
+     mask = mvx_hwreg_get_core_mask(&ctx->hwreg) << 1;
+@@ -1215,14 +1315,18 @@ static int mvx_pm_runtime_resume(struct device *dev)
+         if (mvx_test_bit(i, &mask)) {
+             if (has_acpi_companion(ctx->pmdomains[i])) {
+ #if VPU_CORE_ACPI_REF_POWERSOURCE
+-                pm_runtime_get_sync(ctx->pmdomains[i]);
++                ret = pm_runtime_resume_and_get(ctx->pmdomains[i]);
+ #else
+-                acpi_evaluate_object(to_acpi_device(ctx->pmdomains[i])->handle, 
+-                                        VPU_CORE_ACPI_MEMREPAIR_FUNC, NULL, NULL);
++                ret = ACPI_FAILURE(acpi_evaluate_object(
++                        to_acpi_device(ctx->pmdomains[i])->handle,
++                        VPU_CORE_ACPI_MEMREPAIR_FUNC, NULL, NULL)) ? -EIO : 0;
+ #endif
+             } else {
+-                pm_runtime_get_sync(ctx->pmdomains[i]);
++                ret = pm_runtime_resume_and_get(ctx->pmdomains[i]);
+             }
++            if (ret < 0)
++                goto err_resume;
++            domains_on |= BIT_ULL(i);
+         }
+     }
+ 
+@@ -1239,7 +1343,7 @@ static int mvx_pm_runtime_resume(struct device *dev)
+ 
+     ret = mvx_hw_init(dev);
+     if (ret)
+-        return ret;
++        goto err_resume;
+ 
+     if (IS_ERR_OR_NULL(ctx->scheduler.dev))
+         return ret;
+@@ -1247,6 +1351,26 @@ static int mvx_pm_runtime_resume(struct device *dev)
+     queue_work(ctx->work_queue, &ctx->work);
+     ret = mvx_sched_resume(&ctx->scheduler);
+ 
++    if (!ret)
++        return 0;
++
++err_resume:
++    for (i = ctx->pmdomains_cnt - 1; i >= 1; i--)
++        if (domains_on & BIT_ULL(i))
++            pm_runtime_put_sync(ctx->pmdomains[i]);
++    if (irq_enabled)
++        disable_irq(ctx->irq);
++    if (core_deasserted)
++        reset_control_assert(ctx->rstc);
++    if (rcsu_deasserted)
++        reset_control_assert(ctx->rcsu_rstc);
++    if (clk_enabled)
++        clk_disable_unprepare(ctx->clk);
++err_power:
++    if (top_powered)
++        mvx_top_power_off(ctx);
++    MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR,
++                  "VPU runtime resume failed: %d.", ret);
+     return ret;
+ }
+ 
+-- 
+2.47.3

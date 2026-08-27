@@ -1,0 +1,78 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Fri, 25 Jul 2026 00:00:00 +0000
+Subject: [PATCH] regulator: fwnode: fix uninitialized detection flags on O6N
+
+On O6N (CIX Sky1) the ACPI-declared regulators gbe, cam, etc. produced a
+burst of ~8 boot warnings from the regulator core:
+
+  gbe: IC does not support requested under-voltage limits
+  gbe: IC does not support requested over-current limits
+  gbe: IC does not support requested over-voltage limits
+  gbe: IC does not support requested temperature limits
+  (and the same four for cam)
+
+The warnings come from set_machine_constraints() in the regulator core:
+when a constraint's *_detection flag is set but the backing regulator
+driver has no matching set_*_protection op, handle_notify_limits() returns
+-EOPNOTSUPP and the core warns. gbe/cam are simple board rails whose ACPI
+description declares no oc/ov/uv/temp notification limits at all, so those
+detection flags should never have been set.
+
+Root cause is in the CIX fwnode/ACPI constraint parser
+fwnode_get_regulator_prot_limits(): unlike its upstream twin in
+of_regulator.c (of_get_regulator_prot_limits), it declared
+
+	bool found;			/* never initialized */
+	...
+	ret = fwnode_property_read_u32(np, prop, &pval);
+	if (!ret) {
+		fill_limit(l[j], pval);
+		found = true;		/* only ever set true, never false */
+	}
+	set[i] |= found;		/* reads stale/garbage 'found' */
+
+'found' is used uninitialized on the first level of every property class
+and is never cleared when a property is absent, so set[i] gets OR'd with
+stack garbage (or a stale 'true' from an earlier class). That spuriously
+raises over_current/over_voltage/over_temp/under_voltage_detection for
+rails that declared none of them, and the core then warns four times per
+such rail.
+
+Fix it to mirror the upstream of_regulator.c form: assign 'found' from the
+property read at the top of every level so it is true only when that exact
+property is present, false otherwise. Detection flags now reflect what the
+ACPI table actually declares, and the eight spurious warnings disappear.
+This is a genuine bug fix in the CIX ACPI constraint path, not a message
+demotion. The now-unused 'ret' local is dropped.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+Upstream-Status: Pending
+---
+ drivers/regulator/fwnode_regulator.c | 8 +++-----
+ 1 file changed, 3 insertions(+), 5 deletions(-)
+
+--- a/drivers/regulator/fwnode_regulator.c
++++ b/drivers/regulator/fwnode_regulator.c
+@@ -35,7 +35,7 @@
+ 				struct regulation_constraints *constraints)
+ {
+ 	u32 pval;
+-	int i, ret;
++	int i;
+ 	static const char *const props[] = {
+ 		"regulator-oc-%s-microamp",
+ 		"regulator-ov-%s-microvolt",
+@@ -64,11 +64,9 @@
+
+ 		for (j = 0; j < ARRAY_SIZE(lvl); j++) {
+ 			snprintf(prop, 255, props[i], lvl[j]);
+-			ret = fwnode_property_read_u32(np, prop, &pval);
+-			if (!ret) {
++			found = !fwnode_property_read_u32(np, prop, &pval);
++			if (found)
+ 				fill_limit(l[j], pval);
+-				found = true;
+-			}
+ 			set[i] |= found;
+ 		}
+ 	}

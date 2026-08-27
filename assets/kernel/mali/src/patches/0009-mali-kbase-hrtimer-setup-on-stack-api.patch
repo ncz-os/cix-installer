@@ -1,0 +1,41 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 25 Jul 2026 00:00:00 +0000
+Subject: [PATCH] mali_kbase: port hrtimer_init_on_stack()+.function to hrtimer_setup_on_stack()
+
+Same removal as patch 0006 (hrtimer_init()+timer->function assignment
+replaced by a single hrtimer_setup() call on kernel 7.2), but for the
+on-stack variant: hrtimer_init_on_stack(timer, clock_id, mode) is gone,
+replaced by hrtimer_setup_on_stack(timer, function, clock_id, mode)
+(confirmed in include/linux/hrtimer.h on this kernel). Patch 0006's
+call-site inventory missed this one because it only matched
+`hrtimer_init(`, not the on-stack variant, and this call site
+(kbase_pm_do_reset's reset-timeout watchdog) was unreached at compile
+time until patch 0008 fixed the CONFIG_MALI_DEVFREQ propagation bug
+that was blocking the build before it got this far.
+
+Only one call site in the whole driver (confirmed by grep for
+hrtimer_init_on_stack across the full tree). Same faithful 1:1
+semantic replacement as 0006: the ->function assignment happened
+immediately after hrtimer_init_on_stack() and before hrtimer_start(),
+so folding it into hrtimer_setup_on_stack()'s function argument changes
+nothing about ordering or behavior.
+
+Fixes the mali_kbase.ko build against kernel 7.2.0-rc4-sky1-ncz (next
+error after 0008 unblocked the devfreq translation units).
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_driver.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_driver.c
+@@ -4285,8 +4285,8 @@
+ 	rtdata.timed_out = false;
+ 
+ 	/* Create a timer to use as a timeout on the reset */
+-	hrtimer_init_on_stack(&rtdata.timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	rtdata.timer.function = kbasep_reset_timeout;
++	hrtimer_setup_on_stack(&rtdata.timer, kbasep_reset_timeout, CLOCK_MONOTONIC,
++				HRTIMER_MODE_REL);
+ 
+ 	hrtimer_start(&rtdata.timer, HR_TIMER_DELAY_MSEC(RESET_TIMEOUT), HRTIMER_MODE_REL);
+ 

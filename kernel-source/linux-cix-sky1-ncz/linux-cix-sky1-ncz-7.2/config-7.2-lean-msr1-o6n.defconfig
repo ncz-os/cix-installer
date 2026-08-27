@@ -1,0 +1,1148 @@
+# CONFIG_LOCALVERSION_AUTO is not set
+CONFIG_SYSVIPC=y
+CONFIG_POSIX_MQUEUE=y
+CONFIG_NO_HZ_FULL=y
+CONFIG_HIGH_RES_TIMERS=y
+CONFIG_BPF_SYSCALL=y
+CONFIG_BPF_JIT=y
+CONFIG_BPF_JIT_ALWAYS_ON=y
+CONFIG_BPF_LSM=y
+CONFIG_BSD_PROCESS_ACCT=y
+CONFIG_BSD_PROCESS_ACCT_V3=y
+CONFIG_TASKSTATS=y
+CONFIG_TASK_DELAY_ACCT=y
+CONFIG_TASK_XACCT=y
+CONFIG_TASK_IO_ACCOUNTING=y
+CONFIG_PSI=y
+CONFIG_RCU_LAZY=y
+CONFIG_IKCONFIG=y
+CONFIG_IKCONFIG_PROC=y
+CONFIG_UCLAMP_TASK=y
+CONFIG_NUMA_BALANCING=y
+CONFIG_CGROUP_FAVOR_DYNMODS=y
+CONFIG_MEMCG=y
+CONFIG_BLK_CGROUP=y
+CONFIG_CFS_BANDWIDTH=y
+CONFIG_RT_GROUP_SCHED=y
+CONFIG_UCLAMP_TASK_GROUP=y
+CONFIG_CGROUP_PIDS=y
+CONFIG_CGROUP_RDMA=y
+CONFIG_CGROUP_FREEZER=y
+CONFIG_CGROUP_HUGETLB=y
+CONFIG_CPUSETS=y
+CONFIG_CGROUP_DEVICE=y
+CONFIG_CGROUP_CPUACCT=y
+CONFIG_CGROUP_PERF=y
+CONFIG_CGROUP_BPF=y
+CONFIG_CGROUP_MISC=y
+CONFIG_NAMESPACES=y
+CONFIG_USER_NS=y
+CONFIG_CHECKPOINT_RESTORE=y
+CONFIG_SCHED_AUTOGROUP=y
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_EXPERT=y
+CONFIG_KALLSYMS_ALL=y
+CONFIG_PROFILING=y
+CONFIG_KEXEC=y
+CONFIG_ARCH_SUNXI=y
+CONFIG_ARCH_BCM=y
+CONFIG_ARCH_BCM2835=y
+CONFIG_ARCH_CIX=y
+CONFIG_ARCH_EXYNOS=y
+CONFIG_ARCH_K3=y
+CONFIG_ARCH_HISI=y
+CONFIG_ARCH_MEDIATEK=y
+CONFIG_ARCH_MESON=y
+CONFIG_ARCH_MVEBU=y
+CONFIG_ARCH_NXP=y
+CONFIG_ARCH_LAYERSCAPE=y
+CONFIG_ARCH_MXC=y
+CONFIG_ARCH_QCOM=y
+CONFIG_ARCH_RENESAS=y
+CONFIG_ARCH_ROCKCHIP=y
+CONFIG_ARCH_SEATTLE=y
+CONFIG_ARCH_SYNQUACER=y
+CONFIG_ARCH_TEGRA=y
+CONFIG_ARCH_THUNDER=y
+CONFIG_ARCH_THUNDER2=y
+CONFIG_ARCH_VEXPRESS=y
+CONFIG_ARCH_XGENE=y
+CONFIG_ARCH_ZYNQMP=y
+CONFIG_ARM64_ERRATUM_834220=y
+CONFIG_ARM64_VA_BITS_48=y
+CONFIG_NUMA=y
+CONFIG_XEN=y
+CONFIG_COMPAT=y
+CONFIG_COMPAT_ALIGNMENT_FIXUPS=y
+CONFIG_ARMV8_DEPRECATED=y
+CONFIG_SWP_EMULATION=y
+CONFIG_CP15_BARRIER_EMULATION=y
+CONFIG_SETEND_EMULATION=y
+CONFIG_ARM64_PMEM=y
+CONFIG_RANDOMIZE_BASE=y
+CONFIG_ARM64_ACPI_PARKING_PROTOCOL=y
+CONFIG_HIBERNATION=y
+CONFIG_PM_DEBUG=y
+CONFIG_PM_ADVANCED_DEBUG=y
+CONFIG_ENERGY_MODEL=y
+CONFIG_CPU_IDLE_GOV_MENU=y
+CONFIG_ARM_PSCI_CPUIDLE=y
+CONFIG_CPU_FREQ=y
+CONFIG_CPU_FREQ_STAT=y
+CONFIG_CPUFREQ_DT_PLATDEV=y
+# CONFIG_ARM_MEDIATEK_CPUFREQ_HW is not set
+CONFIG_ACPI_CPPC_CPUFREQ=m
+CONFIG_ACPI=y
+CONFIG_ACPI_PCI_SLOT=y
+CONFIG_ACPI_BGRT=y
+CONFIG_ACPI_HMAT=y
+CONFIG_ACPI_APEI=y
+CONFIG_ACPI_APEI_GHES=y
+CONFIG_ACPI_APEI_PCIEAER=y
+CONFIG_ACPI_APEI_MEMORY_FAILURE=y
+CONFIG_ACPI_CONFIGFS=y
+CONFIG_VIRTUALIZATION=y
+CONFIG_KVM=y
+CONFIG_KPROBES=y
+CONFIG_RANDOMIZE_KSTACK_OFFSET_DEFAULT=y
+CONFIG_MODULES=y
+CONFIG_MODVERSIONS=y
+CONFIG_MODULE_FORCE_LOAD=y
+CONFIG_MODULE_UNLOAD=y
+CONFIG_MODULE_FORCE_UNLOAD=y
+CONFIG_MODULE_COMPRESS=y
+CONFIG_MODULE_COMPRESS_XZ=y
+CONFIG_MODULE_DECOMPRESS=y
+CONFIG_BLK_DEV_BSGLIB=y
+CONFIG_BLK_DEV_INTEGRITY=y
+CONFIG_BLK_DEV_ZONED=y
+CONFIG_BLK_DEV_THROTTLING=y
+CONFIG_BLK_WBT=y
+CONFIG_BLK_CGROUP_IOCOST=y
+CONFIG_BLK_SED_OPAL=y
+CONFIG_PARTITION_ADVANCED=y
+CONFIG_KARMA_PARTITION=y
+# CONFIG_MQ_IOSCHED_KYBER is not set
+# CONFIG_IOSCHED_BFQ is not set
+CONFIG_BINFMT_MISC=m
+CONFIG_ZSWAP=y
+CONFIG_SLAB_FREELIST_RANDOM=y
+CONFIG_SLAB_FREELIST_HARDENED=y
+# CONFIG_COMPAT_BRK is not set
+CONFIG_MEMORY_HOTPLUG=y
+CONFIG_MHP_DEFAULT_ONLINE_TYPE_ONLINE_AUTO=y
+CONFIG_MEMORY_HOTREMOVE=y
+CONFIG_PAGE_REPORTING=y
+CONFIG_KSM=y
+CONFIG_MEMORY_FAILURE=y
+CONFIG_TRANSPARENT_HUGEPAGE=y
+CONFIG_DEFERRED_STRUCT_PAGE_INIT=y
+CONFIG_ZONE_DEVICE=y
+CONFIG_USERFAULTFD=y
+CONFIG_LRU_GEN=y
+CONFIG_LRU_GEN_ENABLED=y
+CONFIG_DAMON=y
+CONFIG_DAMON_RECLAIM=y
+CONFIG_DAMON_LRU_SORT=y
+CONFIG_DAMON_STAT=y
+CONFIG_NET=y
+CONFIG_PACKET=y
+CONFIG_UNIX=y
+CONFIG_XFRM_USER=m
+CONFIG_XFRM_SUB_POLICY=y
+CONFIG_XFRM_MIGRATE=y
+CONFIG_XFRM_STATISTICS=y
+CONFIG_XDP_SOCKETS=y
+CONFIG_INET=y
+CONFIG_IP_MULTICAST=y
+CONFIG_IP_ADVANCED_ROUTER=y
+CONFIG_IP_FIB_TRIE_STATS=y
+CONFIG_IP_MULTIPLE_TABLES=y
+CONFIG_IP_ROUTE_MULTIPATH=y
+CONFIG_IP_ROUTE_VERBOSE=y
+CONFIG_IP_MROUTE=y
+CONFIG_IP_MROUTE_MULTIPLE_TABLES=y
+CONFIG_IP_PIMSM_V1=y
+CONFIG_IP_PIMSM_V2=y
+CONFIG_SYN_COOKIES=y
+# CONFIG_INET_DIAG is not set
+CONFIG_TCP_CONG_ADVANCED=y
+# CONFIG_TCP_CONG_BIC is not set
+# CONFIG_TCP_CONG_WESTWOOD is not set
+# CONFIG_TCP_CONG_HTCP is not set
+CONFIG_TCP_AO=y
+CONFIG_TCP_MD5SIG=y
+CONFIG_IPV6_ROUTER_PREF=y
+CONFIG_IPV6_ROUTE_INFO=y
+CONFIG_IPV6_OPTIMISTIC_DAD=y
+CONFIG_IPV6_MIP6=y
+# CONFIG_IPV6_SIT is not set
+CONFIG_IPV6_SUBTREES=y
+CONFIG_IPV6_MROUTE=y
+CONFIG_IPV6_MROUTE_MULTIPLE_TABLES=y
+CONFIG_IPV6_PIMSM_V2=y
+CONFIG_IPV6_SEG6_LWTUNNEL=y
+CONFIG_IPV6_SEG6_HMAC=y
+CONFIG_IPV6_RPL_LWTUNNEL=y
+CONFIG_NETLABEL=y
+CONFIG_MPTCP=y
+CONFIG_NETWORK_PHY_TIMESTAMPING=y
+CONFIG_NETFILTER=y
+CONFIG_BRIDGE_NETFILTER=y
+CONFIG_NF_CONNTRACK=y
+CONFIG_NF_CONNTRACK_MARK=y
+CONFIG_NF_CONNTRACK_SECMARK=y
+CONFIG_NF_CONNTRACK_ZONES=y
+CONFIG_NF_CONNTRACK_PROCFS=y
+CONFIG_NF_CONNTRACK_EVENTS=y
+CONFIG_NF_CONNTRACK_TIMEOUT=y
+CONFIG_NF_CONNTRACK_TIMESTAMP=y
+CONFIG_NF_CONNTRACK_LABELS=y
+CONFIG_NF_TABLES=y
+CONFIG_NF_TABLES_INET=y
+CONFIG_NF_TABLES_NETDEV=y
+CONFIG_NFT_CT=y
+CONFIG_NFT_MASQ=y
+CONFIG_NFT_NAT=y
+CONFIG_NFT_COMPAT=y
+CONFIG_NETFILTER_XTABLES_COMPAT=y
+CONFIG_NETFILTER_XTABLES_LEGACY=y
+CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y
+CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
+CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
+CONFIG_IP_NF_IPTABLES_LEGACY=y
+CONFIG_NF_TABLES_ARP=y
+CONFIG_IP_NF_IPTABLES=y
+CONFIG_IP_NF_FILTER=y
+CONFIG_IP_NF_TARGET_REJECT=m
+CONFIG_IP_NF_NAT=y
+CONFIG_IP_NF_MANGLE=y
+# CONFIG_IP6_NF_IPTABLES_LEGACY is not set
+CONFIG_BRIDGE=y
+CONFIG_NET_SCHED=y
+CONFIG_NET_SCH_FQ_CODEL=y
+CONFIG_NET_SCH_DEFAULT=y
+CONFIG_DEFAULT_FQ_CODEL=y
+CONFIG_NET_EMATCH=y
+CONFIG_NET_CLS_ACT=y
+CONFIG_DCB=y
+CONFIG_MPLS=y
+CONFIG_NET_MPLS_GSO=y
+CONFIG_NET_SWITCHDEV=y
+CONFIG_NET_L3_MASTER_DEV=y
+CONFIG_CGROUP_NET_PRIO=y
+CONFIG_CGROUP_NET_CLASSID=y
+CONFIG_BPF_STREAM_PARSER=y
+CONFIG_CFG80211=m
+CONFIG_CFG80211_WEXT=y
+CONFIG_MAC80211=m
+CONFIG_MAC80211_MESH=y
+CONFIG_MAC80211_LEDS=y
+CONFIG_RFKILL=m
+CONFIG_RFKILL_INPUT=y
+CONFIG_PAGE_POOL_STATS=y
+CONFIG_PCI=y
+CONFIG_PCIEPORTBUS=y
+CONFIG_HOTPLUG_PCI_PCIE=y
+CONFIG_PCIEAER=y
+CONFIG_PCIE_DPC=y
+CONFIG_PCIE_PTM=y
+CONFIG_PCI_REALLOC_ENABLE_AUTO=y
+CONFIG_PCI_IOV=y
+CONFIG_PCI_PRI=y
+CONFIG_PCI_PASID=y
+CONFIG_PCI_P2PDMA=y
+CONFIG_HOTPLUG_PCI=y
+CONFIG_HOTPLUG_PCI_ACPI=y
+CONFIG_HOTPLUG_PCI_CPCI=y
+CONFIG_HOTPLUG_PCI_SHPC=y
+CONFIG_PCI_AARDVARK=y
+CONFIG_PCIE_BRCMSTB=y
+CONFIG_PCI_HOST_THUNDER_PEM=y
+CONFIG_PCI_HOST_THUNDER_ECAM=y
+CONFIG_PCI_HOST_GENERIC=y
+CONFIG_PCIE_MEDIATEK_GEN3=y
+CONFIG_PCI_TEGRA=y
+CONFIG_PCIE_ROCKCHIP_HOST=y
+CONFIG_PCI_XGENE=y
+CONFIG_PCIE_XILINX_NWL=y
+CONFIG_PCI_SKY1_HOST=y
+CONFIG_PCI_SKY1_HOST_CIX=y
+CONFIG_PCI_J721E_HOST=y
+CONFIG_PCI_J721E_EP=y
+# CONFIG_PCI_MESON is not set
+CONFIG_PCI_IMX6_HOST=y
+CONFIG_PCI_IMX6_EP=y
+CONFIG_PCI_LAYERSCAPE=y
+CONFIG_PCI_HISI=y
+CONFIG_PCIE_KIRIN=y
+CONFIG_PCIE_ARMADA_8K=y
+CONFIG_PCIE_QCOM=y
+CONFIG_PCIE_ROCKCHIP_DW_HOST=y
+CONFIG_PCIE_ROCKCHIP_DW_EP=y
+CONFIG_PCIE_LAYERSCAPE_GEN4=y
+CONFIG_PCI_ENDPOINT=y
+# CONFIG_PCI_PWRCTRL_TC9563 is not set
+CONFIG_CXL_BUS=y
+# CONFIG_CXL_PCI is not set
+# CONFIG_CXL_ACPI is not set
+CONFIG_DEVTMPFS=y
+CONFIG_FW_LOADER_COMPRESS=y
+CONFIG_FW_LOADER_COMPRESS_ZSTD=y
+CONFIG_HISILICON_LPC=y
+CONFIG_TEGRA_ACONNECT=y
+CONFIG_FSL_MC_BUS=y
+CONFIG_FSL_MC_UAPI_SUPPORT=y
+CONFIG_CONNECTOR=y
+CONFIG_ARM_SCMI_PROTOCOL=y
+CONFIG_DMI_SYSFS=y
+CONFIG_GOOGLE_FIRMWARE=y
+CONFIG_GOOGLE_COREBOOT_TABLE=y
+CONFIG_GOOGLE_FRAMEBUFFER_COREBOOT=y
+# CONFIG_EFI_VARS_PSTORE is not set
+CONFIG_RESET_ATTACK_MITIGATION=y
+CONFIG_QCOM_QSEECOM=y
+CONFIG_QCOM_QSEECOM_UEFISECAPP=y
+CONFIG_CIX_DSP=y
+CONFIG_OF_OVERLAY=y
+# CONFIG_PNP_DEBUG_MESSAGES is not set
+# CONFIG_XEN_BLKDEV_FRONTEND is not set
+CONFIG_BLK_DEV_NVME=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_NVME_MULTIPATH=y
+CONFIG_NVME_HWMON=y
+# SCMI hwmon sensors. MEASURED 2026-08-16: absent from this lean defconfig, so
+# olddefconfig took the default n and the driver was never built. On O6N the
+# SCMI stack itself came up fine -- perf (12 domains), clocks and genpd all
+# registered, and the log even reads "ACPI: activating SCMI protocol 0x12",
+# the SENSOR protocol -- but no device was created for 0x12 and no hwmon chip
+# appeared. The board showed 5 bare ACPI thermal zones (TZB0 TZB1 TZM0 TZM1
+# TZGT, unlabelled) instead of the 22 labelled readings (CPU_B0, GPU_AVE, NPU,
+# VPU, DDR_top, PCB_AMB, ...) that 7.0.12 shows, where this symbol is =y.
+# Nothing to do with acpi_scmi_en, which only chooses a clock provider.
+CONFIG_SENSORS_ARM_SCMI=y
+CONFIG_NVME_HOST_AUTH=y
+CONFIG_SRAM=y
+# ARMCHINA_NPU MUST NOT BE BUILT IN-TREE. The accelerator ships as a vendor
+# DKMS module (cix-npu-kmd -> updates/dkms/aipu.ko), and an in-tree copy wins
+# modprobe, so the DKMS module is rejected outright. Measured on O6N with r239:
+#
+#   armchina CIXH4000:00: sky1_npu_probe: NPU core num is 3
+#   armchina CIXH4000:00: sky1_npu_probe: armchina_aipu_probe done
+#   aipu: exports duplicate symbol armchina_aipu_alloc_dma_buf (owned by armchina_npu)
+#   aipu: exports duplicate symbol armchina_aipu_alloc_dma_buf (owned by armchina_npu)
+#
+# i.e. the in-tree armchina_npu.ko (kernel/drivers/misc/armchina-npu/) claims
+# the symbols first and the vendor module cannot load at all. This is exactly
+# what build-kernel-debs.sh has been warning about on every single build:
+#
+#   WARN: [edge] CONFIG_ARMCHINA_NPU=m is IN-TREE ... an in-tree copy masks the
+#   validated overlay/DKMS module at modprobe time
+#
+# and it matches the standing rule that CIX accelerator drivers ship DKMS,
+# never in-tree.
+#
+# NOTE: turning this off does not by itself make the NPU usable. There is no
+# userspace driver on the image at all (nothing under /usr/lib matching noe/npu),
+# so the device has no consumer either way. What this fixes is the kernel side
+# sabotaging its own vendor module.
+#
+# CONFIG_VIDEO_LINLON is deliberately LEFT AS IS despite the same warning: on a
+# real r239 install no in-tree mvx module is produced at all, the only module on
+# disk is updates/dkms/amvx.ko, and the VPU works in both directions (H.264
+# decode 90 frames @45x, encode 60 frames verified). Nothing is shadowed there,
+# so changing it would be a blind edit to a working path.
+# CONFIG_ARMCHINA_NPU is not set
+CONFIG_MD=y
+CONFIG_BLK_DEV_MD=m
+CONFIG_MD_RAID0=m
+CONFIG_MD_RAID1=m
+CONFIG_MD_RAID10=m
+CONFIG_MD_RAID456=m
+CONFIG_BLK_DEV_DM=m
+CONFIG_DM_MIRROR=m
+CONFIG_DM_SNAPSHOT=m
+CONFIG_DM_ZERO=m
+CONFIG_DM_INTEGRITY=m
+CONFIG_FUSION=y
+CONFIG_NETDEVICES=y
+CONFIG_VIRTIO_NET=y
+CONFIG_MACVLAN=m
+CONFIG_NETCONSOLE=y
+CONFIG_NETCONSOLE_DYNAMIC=y
+CONFIG_VETH=y
+CONFIG_NETKIT=y
+# CONFIG_NET_VENDOR_ARC is not set
+CONFIG_NET_TULIP=y
+CONFIG_NET_VENDOR_MEDIATEK=y
+CONFIG_R8169=y
+# CONFIG_NET_VENDOR_SEEQ is not set
+CONFIG_FDDI=y
+CONFIG_LED_TRIGGER_PHY=y
+CONFIG_REALTEK_PHY_HWMON=y
+# CONFIG_MDIO_BUS_MUX_MESON_G12A is not set
+# CONFIG_MDIO_BUS_MUX_MESON_GXL is not set
+# CONFIG_USB_NET_DRIVERS is not set
+CONFIG_ATH5K_PCI=y
+CONFIG_MT7921E=m
+# CONFIG_RTL_CARDS is not set
+CONFIG_RTW88=m
+# CONFIG_XEN_NETDEV_FRONTEND is not set
+CONFIG_INPUT_MOUSEDEV=y
+CONFIG_INPUT_MOUSEDEV_PSAUX=y
+CONFIG_MOUSE_PS2_ELANTECH=y
+CONFIG_MOUSE_PS2_SENTELIC=y
+CONFIG_INPUT_JOYSTICK=y
+CONFIG_INPUT_TABLET=y
+CONFIG_INPUT_TOUCHSCREEN=y
+CONFIG_INPUT_MISC=y
+# CONFIG_HYPERV_KEYBOARD is not set
+# CONFIG_LEGACY_PTYS is not set
+# CONFIG_LEGACY_TIOCSTI is not set
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+# CONFIG_SERIAL_8250_EXAR is not set
+CONFIG_SERIAL_8250_EXTENDED=y
+CONFIG_SERIAL_8250_SHARE_IRQ=y
+CONFIG_SERIAL_8250_BCM2835AUX=y
+CONFIG_SERIAL_8250_DW=y
+CONFIG_SERIAL_8250_OMAP=y
+CONFIG_SERIAL_8250_MT6577=y
+CONFIG_SERIAL_OF_PLATFORM=y
+CONFIG_SERIAL_AMBA_PL010=y
+CONFIG_SERIAL_AMBA_PL010_CONSOLE=y
+CONFIG_SERIAL_AMBA_PL011=y
+CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+CONFIG_SERIAL_MESON=y
+CONFIG_SERIAL_MESON_CONSOLE=y
+CONFIG_SERIAL_TEGRA=y
+CONFIG_SERIAL_IMX=y
+CONFIG_SERIAL_IMX_CONSOLE=y
+CONFIG_SERIAL_SH_SCI=y
+CONFIG_SERIAL_MSM=y
+CONFIG_SERIAL_MSM_CONSOLE=y
+CONFIG_SERIAL_QCOM_GENI=y
+CONFIG_SERIAL_QCOM_GENI_CONSOLE=y
+CONFIG_SERIAL_XILINX_PS_UART=y
+CONFIG_SERIAL_XILINX_PS_UART_CONSOLE=y
+CONFIG_SERIAL_FSL_LPUART=y
+CONFIG_SERIAL_FSL_LPUART_CONSOLE=y
+CONFIG_SERIAL_MVEBU_UART=y
+CONFIG_SERIAL_DEV_BUS=y
+CONFIG_VIRTIO_CONSOLE=y
+CONFIG_HW_RANDOM=y
+# CONFIG_HW_RANDOM_BCM2835 is not set
+# CONFIG_HW_RANDOM_IPROC_RNG200 is not set
+# CONFIG_HW_RANDOM_OMAP is not set
+# CONFIG_HW_RANDOM_HISI is not set
+# CONFIG_HW_RANDOM_XGENE is not set
+# CONFIG_HW_RANDOM_MESON is not set
+# CONFIG_HW_RANDOM_CAVIUM is not set
+# CONFIG_HW_RANDOM_MTK is not set
+# CONFIG_HW_RANDOM_ARM_SMCCC_TRNG is not set
+# CONFIG_HW_RANDOM_CN10K is not set
+# CONFIG_HW_RANDOM_ROCKCHIP is not set
+CONFIG_I2C=y
+CONFIG_I2C_CADENCE=y
+CONFIG_I2C_DESIGNWARE_CORE=y
+# CONFIG_I2C_DESIGNWARE_PLATFORM is not set
+# CONFIG_I2C_EXYNOS5 is not set
+CONFIG_I2C_SLAVE=y
+CONFIG_SPI=y
+CONFIG_SPI_MEM=y
+CONFIG_SPI_SPIDEV=y
+CONFIG_SPMI=y
+CONFIG_SPMI_MTK_PMIF=y
+CONFIG_PINCTRL_AMD=y
+CONFIG_PINCTRL_MAX77620=y
+CONFIG_PINCTRL_RK805=y
+CONFIG_PINCTRL_SINGLE=y
+CONFIG_PINCTRL_SKY1=y
+# CONFIG_PINCTRL_QCM2290 is not set
+# CONFIG_PINCTRL_SM6115 is not set
+# CONFIG_PINCTRL_SM8250 is not set
+# CONFIG_PINCTRL_X1E80100 is not set
+CONFIG_PINCTRL_QCOM_SPMI_PMIC=y
+CONFIG_PINCTRL_QCOM_SSBI_PMIC=y
+# CONFIG_PINCTRL_TEGRA238 is not set
+# CONFIG_PINCTRL_TEGRA264 is not set
+CONFIG_GPIO_SYSFS=y
+CONFIG_GPIO_CADENCE=y
+CONFIG_GPIO_DAVINCI=y
+CONFIG_GPIO_MPC8XXX=y
+CONFIG_GPIO_MXC=y
+CONFIG_GPIO_PL061=y
+# CONFIG_GPIO_ROCKCHIP is not set
+CONFIG_GPIO_XGENE=y
+CONFIG_GPIO_XLP=y
+CONFIG_GPIO_PCA953X=y
+CONFIG_GPIO_PCA953X_IRQ=y
+CONFIG_GPIO_MAX77620=y
+# CONFIG_GPIO_SHARED_PROXY is not set
+CONFIG_POWER_RESET_HISI=y
+CONFIG_POWER_RESET_MSM=y
+CONFIG_POWER_RESET_VEXPRESS=y
+CONFIG_POWER_RESET_XGENE=y
+CONFIG_POWER_RESET_SYSCON=y
+CONFIG_POWER_RESET_SYSCON_POWEROFF=y
+# CONFIG_POWER_SEQUENCING_QCOM_WCN is not set
+CONFIG_THERMAL_NETLINK=y
+CONFIG_THERMAL_STATISTICS=y
+CONFIG_THERMAL_GOV_FAIR_SHARE=y
+CONFIG_THERMAL_GOV_BANG_BANG=y
+CONFIG_THERMAL_GOV_USER_SPACE=y
+CONFIG_THERMAL_GOV_POWER_ALLOCATOR=y
+CONFIG_CPU_THERMAL=y
+CONFIG_DEVFREQ_THERMAL=y
+CONFIG_THERMAL_EMULATION=y
+# CONFIG_HISI_THERMAL is not set
+CONFIG_CIX_THERMAL=y
+CONFIG_TEGRA_SOCTHERM=y
+CONFIG_WATCHDOG=y
+CONFIG_WATCHDOG_SYSFS=y
+CONFIG_WATCHDOG_HRTIMER_PRETIMEOUT=y
+CONFIG_WATCHDOG_PRETIMEOUT_GOV=y
+# CONFIG_WATCHDOG_PRETIMEOUT_GOV_PANIC is not set
+# CONFIG_MEDIATEK_WATCHDOG is not set
+CONFIG_MFD_MAX77620=y
+CONFIG_MFD_MT6397=y
+CONFIG_MFD_RK8XX_I2C=y
+CONFIG_MFD_RK8XX_SPI=y
+CONFIG_MFD_SL28CPLD=y
+CONFIG_REGULATOR_FIXED_VOLTAGE=y
+CONFIG_REGULATOR_MT6358=y
+CONFIG_MEDIA_SUPPORT=m
+CONFIG_MEDIA_SUBDRV_AUTOSELECT=y
+# CONFIG_DVB_CORE is not set
+CONFIG_MEDIA_USB_SUPPORT=y
+CONFIG_MEDIA_PCI_SUPPORT=y
+# CONFIG_RADIO_ADAPTERS is not set
+CONFIG_V4L_PLATFORM_DRIVERS=y
+CONFIG_V4L_MEM2MEM_DRIVERS=y
+CONFIG_V4L_TEST_DRIVERS=y
+
+# ---------------------------------------------------------------------------
+# DRM CORE MUST BE BUILTIN on Sky1 -- =m costs ~10s of black screen at boot.
+#
+# 7.0.12 and 6.18, which put the installer on the monitor promptly for hundreds
+# of installs, both ship CONFIG_DRM=y with CONFIG_DRM_LINLONDP=m. The lean 7.2
+# pass dropped the core to =m with no recorded reason (every neighbouring entry
+# in this file carries a justification; this one did not), which means the WHOLE
+# stack -- drm core, kms_helper, display_helper, then linlondp -- has to be
+# pulled in by udev from the initrd before anything can paint. Measured on O6N
+# with r236/r237: roughly ten seconds of black screen with a blinking cursor
+# before the linlondp framebuffer takes over.
+#
+# Matching 7.0.12 exactly (core builtin, linlondp still a module) rather than
+# making linlondp builtin too: 7.0.12 proves =m for the driver is fine, so the
+# core tristate is the only variable worth changing.
+#
+# NOTE: a second candidate for the same ~10s remains open --
+# driver_deferred_probe_timeout defaults to 10 when CONFIG_MODULES=y, so a
+# late-loaded linlondp whose probe defers is released exactly on that deadline.
+# The two are distinguishable in one boot without a rebuild by appending
+# deferred_probe_timeout=1 to the cmdline: if the display comes up ~9s earlier
+# it is the deferred-probe deadline, not module-load latency. Check
+# "dmesg -t | grep -iE 'linlondp|deferred probe|Console: switching'" on the
+# installed system before assuming this change alone closed the gap.
+CONFIG_DRM=y
+CONFIG_DRM_PANIC=y
+CONFIG_DRM_PANIC_SCREEN="qr_code"
+CONFIG_DRM_LOAD_EDID_FIRMWARE=y
+CONFIG_DRM_DISPLAY_DP_AUX_CHARDEV=y
+CONFIG_DRM_CIX=m
+CONFIG_DRM_LINLONDP=m
+# CONFIG_DRM_CIX_VIRTUAL is not set
+CONFIG_DRM_TRILIN_DP_CIX=m
+CONFIG_DRM_TRILIN_DPSUB=m
+CONFIG_DRM_ETNAVIV=m
+CONFIG_DRM_HYPERV=m
+CONFIG_DRM_MSM=m
+# CONFIG_DRM_PANTHOR is not set
+CONFIG_FB=y
+CONFIG_FB_EFI=y
+CONFIG_FB_SIMPLE=y
+CONFIG_BACKLIGHT_CLASS_DEVICE=y
+CONFIG_BACKLIGHT_PWM=m
+CONFIG_FRAMEBUFFER_CONSOLE_ROTATION=y
+CONFIG_SOUND=m
+# CONFIG_SOUND_OSS_CORE_PRECLAIM is not set
+CONFIG_SND=m
+CONFIG_SND_OSSEMUL=y
+CONFIG_SND_DYNAMIC_MINORS=y
+CONFIG_SND_SEQUENCER=m
+CONFIG_SND_SEQ_DUMMY=m
+CONFIG_SND_HDA_HWDEP=y
+CONFIG_SND_HDA_INPUT_BEEP=y
+CONFIG_SND_HDA_PATCH_LOADER=y
+CONFIG_SND_HDA_POWER_SAVE_DEFAULT=10
+CONFIG_SND_HDA_PREALLOC_SIZE=2048
+CONFIG_SND_HDA_CIX_IPBLOQ=m
+CONFIG_SND_HDA_CODEC_REALTEK=m
+# CONFIG_SND_HDA_CODEC_ALC260 is not set
+# CONFIG_SND_HDA_CODEC_ALC262 is not set
+# CONFIG_SND_HDA_CODEC_ALC268 is not set
+# CONFIG_SND_HDA_CODEC_ALC662 is not set
+# CONFIG_SND_HDA_CODEC_ALC680 is not set
+# CONFIG_SND_HDA_CODEC_ALC861 is not set
+# CONFIG_SND_HDA_CODEC_ALC861VD is not set
+# CONFIG_SND_HDA_CODEC_ALC880 is not set
+# CONFIG_SND_HDA_CODEC_ALC882 is not set
+CONFIG_SND_SOC=m
+CONFIG_SND_SOC_CDNS_I2S_MC=m
+CONFIG_SND_SOC_MT8186=m
+CONFIG_SND_SOC_MT8186_MT6366=m
+CONFIG_SND_SOC_SOF_TOPLEVEL=y
+CONFIG_HID=y
+CONFIG_HID_BATTERY_STRENGTH=y
+CONFIG_HIDRAW=y
+CONFIG_HID_GENERIC=y
+CONFIG_HID_MULTITOUCH=m
+CONFIG_HID_BPF=y
+CONFIG_I2C_HID_ACPI=m
+CONFIG_USB_HID=y
+CONFIG_HID_PID=y
+CONFIG_USB_LED_TRIG=y
+CONFIG_USB=y
+CONFIG_USB_ANNOUNCE_NEW_DEVICES=y
+CONFIG_USB_DYNAMIC_MINORS=y
+CONFIG_USB_XHCI_HCD=y
+# CONFIG_USB_XHCI_RCAR is not set
+CONFIG_USB_CDNS_SUPPORT=y
+CONFIG_USB_CDNS3=y
+CONFIG_USB_CDNS3_GADGET=y
+CONFIG_USB_CDNS3_HOST=y
+
+# CONFIG_USB_CDNS3_PCI_WRAP: MUST stay off on Sky1. It has no explicit line in
+# this defconfig, so olddefconfig took its Kconfig default (default USB_CDNS3)
+# and made it BUILTIN when USB_CDNS3 went to =y above. Its PCI match table is
+# PCI_VDEVICE(CDNS, 0x0100) -- and Sky1's own PCIe ROOT PORTS enumerate as
+# 17cd:0100 ("Cadence Design Systems, Inc. CIX PCIe Root Port", four of them,
+# confirmed with lspci -nn on cixmini). So the Cadence USB3 PCI wrapper binds to
+# the SoC's PCIe bridges and dereferences NULL in cdns3_pci_probe:
+#
+#   Unable to handle kernel NULL pointer dereference at virtual address 0x108
+#   Call trace: cdns3_pci_probe+0x12c/0x360 / local_pci_probe / pci_device_probe
+#   CPU 7 PID 1 Comm swapper/0 -- Kernel panic - not syncing: Oops: Fatal
+#
+# Measured on O6N with r236 at 1.2s into boot, six reboot loops on the serial
+# console. The faulting instruction f9008680 is str x0,[x20,#0x108] with x20=0,
+# which is exactly the reported fault address.
+#
+# Sky1's real USB is CDNSP over ACPI (cdns-usbssp CIXH2031:* / CIXH2030:*), not
+# the PCI wrapper, so nothing is lost by turning it off. The comment further up
+# already records that making USB_CDNS3 builtin did not change the USB symptom
+# it was meant to fix, so the wrapper it dragged in was pure cost.
+# CONFIG_USB_CDNS3_PCI_WRAP is not set
+# CONFIG_USB_CDNS3_TI is not set
+# CONFIG_USB_CDNS3_IMX is not set
+CONFIG_USB_CDNSP=y
+CONFIG_USB_CDNSP_GADGET=y
+CONFIG_USB_CDNSP_HOST=y
+CONFIG_USB_ULPI=y
+CONFIG_USB_GADGET=y
+CONFIG_TYPEC=y
+CONFIG_TYPEC_RTS5453=y
+CONFIG_MMC=y
+CONFIG_MMC_BLOCK_MINORS=256
+CONFIG_LEDS_CLASS=y
+CONFIG_LEDS_BRIGHTNESS_HW_CHANGED=y
+CONFIG_LEDS_TRIGGER_HEARTBEAT=y
+CONFIG_LEDS_TRIGGER_CPU=y
+CONFIG_LEDS_TRIGGER_PANIC=y
+CONFIG_ACCESSIBILITY=y
+CONFIG_A11Y_BRAILLE_CONSOLE=y
+CONFIG_EDAC=y
+CONFIG_RTC_CLASS=y
+CONFIG_RTC_DRV_DS1307=y
+CONFIG_RTC_DRV_MAX77686=y
+CONFIG_RTC_DRV_RK808=y
+CONFIG_RTC_DRV_PCF8563=y
+CONFIG_RTC_DRV_PCF85063=y
+CONFIG_RTC_DRV_EFI=y
+# CONFIG_RTC_DRV_MESON_VRTC is not set
+CONFIG_RTC_DRV_PL031=y
+CONFIG_RTC_DRV_SUN6I=y
+CONFIG_RTC_DRV_TEGRA=y
+CONFIG_RTC_DRV_XGENE=y
+CONFIG_RTC_DRV_RX8900=y
+CONFIG_DMADEVICES=y
+CONFIG_ARM_DMA350=m
+CONFIG_DMA_BCM2835=y
+CONFIG_MV_XOR=y
+CONFIG_MV_XOR_V2=y
+CONFIG_TEGRA20_APB_DMA=y
+CONFIG_TEGRA210_ADMA=y
+CONFIG_ASYNC_TX_DMA=y
+CONFIG_UDMABUF=y
+CONFIG_DMABUF_HEAPS=y
+CONFIG_DMABUF_HEAPS_SYSTEM=y
+CONFIG_DMABUF_HEAPS_CMA=y
+CONFIG_VIRT_DRIVERS=y
+CONFIG_VIRTIO_PCI=y
+CONFIG_HYPERV=y
+# CONFIG_XEN_DEV_EVTCHN is not set
+# CONFIG_XENFS is not set
+# CONFIG_XEN_GNTDEV is not set
+# CONFIG_XEN_GRANT_DEV_ALLOC is not set
+# CONFIG_XEN_PCIDEV_STUB is not set
+# CONFIG_XEN_PRIVCMD is not set
+CONFIG_STAGING=y
+CONFIG_STAGING_MEDIA=y
+CONFIG_VIDEO_SUNXI=y
+CONFIG_CHROME_PLATFORMS=y
+CONFIG_CZNIC_PLATFORMS=y
+CONFIG_COMMON_CLK_RK808=y
+CONFIG_COMMON_CLK_SI5341=y
+CONFIG_COMMON_CLK_FSL_SAI=y
+CONFIG_CLK_QORIQ=y
+CONFIG_CLK_RASPBERRYPI=y
+CONFIG_COMMON_CLK_CIX=y
+CONFIG_CLK_SKY1_AUDSS=y
+CONFIG_CIX_ACPI_CLK=y
+CONFIG_CLK_IMX8MM=y
+CONFIG_CLK_IMX8MN=y
+CONFIG_CLK_IMX8MP=y
+CONFIG_CLK_IMX8MQ=y
+CONFIG_TI_SCI_CLK=y
+# CONFIG_COMMON_CLK_MT2712 is not set
+# CONFIG_COMMON_CLK_MT6779 is not set
+# CONFIG_COMMON_CLK_MT6795 is not set
+# CONFIG_COMMON_CLK_MT7622 is not set
+# CONFIG_COMMON_CLK_MT7981_ETHSYS is not set
+# CONFIG_COMMON_CLK_MT7986 is not set
+# CONFIG_COMMON_CLK_MT8167 is not set
+# CONFIG_COMMON_CLK_MT8173_IMGSYS is not set
+# CONFIG_COMMON_CLK_MT8173_MMSYS is not set
+# CONFIG_COMMON_CLK_MT8173_VDECSYS is not set
+# CONFIG_COMMON_CLK_MT8173_VENCSYS is not set
+# CONFIG_COMMON_CLK_MT8183 is not set
+# CONFIG_COMMON_CLK_MT8186 is not set
+# CONFIG_COMMON_CLK_MT8188 is not set
+# CONFIG_COMMON_CLK_MT8192 is not set
+# CONFIG_COMMON_CLK_MT8195_APUSYS is not set
+# CONFIG_COMMON_CLK_MT8195_IMP_IIC_WRAP is not set
+# CONFIG_COMMON_CLK_MT8195_MFGCFG is not set
+# CONFIG_COMMON_CLK_MT8195_SCP_ADSP is not set
+# CONFIG_COMMON_CLK_MT8195_VDOSYS is not set
+# CONFIG_COMMON_CLK_MT8195_VPPSYS is not set
+# CONFIG_COMMON_CLK_MT8196_MFGCFG is not set
+# CONFIG_COMMON_CLK_MT8196_MMSYS is not set
+# CONFIG_COMMON_CLK_MT8196_VDECSYS is not set
+# CONFIG_COMMON_CLK_MT8196_VENCSYS is not set
+# CONFIG_COMMON_CLK_MT8365 is not set
+# CONFIG_COMMON_CLK_MT8516 is not set
+CONFIG_COMMON_CLK_QCOM=y
+CONFIG_CLK_X1E80100_GCC=y
+# CONFIG_CLK_X1P42100_CAMCC is not set
+# CONFIG_CLK_X1P42100_VIDEOCC is not set
+CONFIG_QCOM_CLK_RPMH=y
+CONFIG_MSM_GCC_8916=y
+CONFIG_MSM_MMCC_8996=y
+CONFIG_MSM_GCC_8998=y
+CONFIG_SC_GCC_7180=y
+CONFIG_SC_GCC_7280=y
+CONFIG_SC_GCC_8180X=y
+CONFIG_SC_GCC_8280XP=y
+CONFIG_SDM_GCC_845=y
+CONFIG_QCOM_HFPLL=y
+# CONFIG_EXYNOS_CLKOUT is not set
+CONFIG_HWSPINLOCK=y
+CONFIG_SKY1_GPT_TIMER=y
+CONFIG_OMAP2PLUS_MBOX=y
+CONFIG_ROCKCHIP_MBOX=y
+CONFIG_BCM2835_MBOX=y
+CONFIG_IOMMU_IO_PGTABLE_ARMV7S=y
+CONFIG_ARM_SMMU=y
+CONFIG_ARM_SMMU_V3=y
+CONFIG_QCOM_IOMMU=y
+CONFIG_ROCKCHIP_IOMMU=y
+CONFIG_SUN50I_IOMMU=y
+CONFIG_TEGRA_IOMMU_SMMU=y
+CONFIG_REMOTEPROC=y
+CONFIG_CIX_DSP_RPROC=y
+CONFIG_SOC_CIX=y
+CONFIG_CIX_SKY1_SOCINFO=y
+CONFIG_CIX_SOC_ACPI=y
+# CONFIG_DPAA2_CONSOLE is not set
+CONFIG_FSL_RCPM=y
+CONFIG_MTK_PMIC_WRAP=y
+# CONFIG_MTK_MMSYS is not set
+CONFIG_QCOM_AOSS_QMP=y
+CONFIG_QCOM_COMMAND_DB=y
+CONFIG_QCOM_GENI_SE=y
+CONFIG_QCOM_LLCC=m
+CONFIG_QCOM_OCMEM=m
+CONFIG_QCOM_RPMH=y
+# CONFIG_EXYNOS_USI is not set
+CONFIG_RASPBERRYPI_POWER=y
+CONFIG_QCOM_RPMHPD=y
+CONFIG_TI_SCI_PM_DOMAINS=y
+CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND=y
+CONFIG_PM_DEVFREQ_EVENT=y
+CONFIG_EXTCON=y
+CONFIG_MEMORY=y
+CONFIG_PWM=y
+CONFIG_PWM_SKY1=y
+# CONFIG_BCM2712_MIP is not set
+CONFIG_SL28CPLD_INTC=y
+CONFIG_QCOM_PDC=y
+# CONFIG_IMX_MU_MSI is not set
+CONFIG_RESET_QCOM_AOSS=y
+# CONFIG_RESET_RASPBERRYPI is not set
+CONFIG_RESET_TI_SCI=y
+# CONFIG_PHY_MESON8B_USB2 is not set
+# CONFIG_PHY_FSL_IMX8MQ_USB is not set
+# CONFIG_PHY_MVEBU_A3700_COMPHY is not set
+# CONFIG_PHY_MVEBU_A3700_UTMI is not set
+CONFIG_PHY_CIX_USBDP=y
+CONFIG_PHY_CIX_USB2=y
+CONFIG_PHY_CIX_USB3=y
+CONFIG_PHY_CIX_PCIE=y
+# CONFIG_PHY_EXYNOS_DP_VIDEO is not set
+# CONFIG_PHY_EXYNOS_MIPI_VIDEO is not set
+CONFIG_ARM_CCI_PMU=y
+CONFIG_QCOM_L2_PMU=y
+CONFIG_QCOM_L3_PMU=y
+# CONFIG_THUNDERX2_PMU is not set
+CONFIG_XGENE_PMU=y
+CONFIG_HISI_PMU=y
+CONFIG_INTERCONNECT_QCOM=y
+CONFIG_INTERCONNECT_QCOM_SC7280=y
+CONFIG_INTERCONNECT_QCOM_SDM845=y
+CONFIG_INTERCONNECT_QCOM_SM8250=y
+CONFIG_INTERCONNECT_QCOM_X1E80100=y
+CONFIG_EXT4_FS=y
+CONFIG_EXT4_FS_POSIX_ACL=y
+CONFIG_EXT4_FS_SECURITY=y
+CONFIG_BTRFS_FS=y
+CONFIG_BTRFS_FS_POSIX_ACL=y
+CONFIG_FS_DAX=y
+CONFIG_EXPORTFS_BLOCK_OPS=y
+CONFIG_FS_ENCRYPTION=y
+CONFIG_FS_VERITY=y
+CONFIG_FS_VERITY_BUILTIN_SIGNATURES=y
+CONFIG_FANOTIFY=y
+CONFIG_FANOTIFY_ACCESS_PERMISSIONS=y
+CONFIG_FUSE_FS=y
+CONFIG_VIRTIO_FS=y
+CONFIG_OVERLAY_FS=y
+CONFIG_PROC_KCORE=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_TMPFS_INODE64=y
+CONFIG_HUGETLBFS=y
+CONFIG_EFIVAR_FS=y
+CONFIG_PSTORE_CONSOLE=y
+CONFIG_PSTORE_RAM=y
+CONFIG_NLS_DEFAULT="utf8"
+CONFIG_UNICODE=y
+CONFIG_PERSISTENT_KEYRINGS=y
+CONFIG_KEY_DH_OPERATIONS=y
+CONFIG_SECURITY_DMESG_RESTRICT=y
+CONFIG_SECURITY=y
+CONFIG_SECURITY_NETWORK_XFRM=y
+CONFIG_SECURITY_SELINUX=y
+CONFIG_SECURITY_TOMOYO=y
+CONFIG_SECURITY_APPARMOR=y
+CONFIG_SECURITY_YAMA=y
+CONFIG_SECURITY_LANDLOCK=y
+CONFIG_SECURITY_IPE=y
+CONFIG_INTEGRITY_SIGNATURE=y
+CONFIG_INTEGRITY_ASYMMETRIC_KEYS=y
+# CONFIG_INTEGRITY_TRUSTED_KEYRING is not set
+CONFIG_INTEGRITY_PLATFORM_KEYRING=y
+CONFIG_INTEGRITY_MACHINE_KEYRING=y
+CONFIG_IMA=y
+CONFIG_IMA_SIG_TEMPLATE=y
+CONFIG_IMA_DEFAULT_HASH_SHA256=y
+CONFIG_IMA_APPRAISE=y
+CONFIG_IMA_ARCH_POLICY=y
+CONFIG_EVM=y
+CONFIG_DEFAULT_SECURITY_APPARMOR=y
+CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf,ipe"
+CONFIG_INIT_ON_ALLOC_DEFAULT_ON=y
+CONFIG_FORTIFY_SOURCE=y
+CONFIG_HARDENED_USERCOPY=y
+CONFIG_BUG_ON_DATA_CORRUPTION=y
+CONFIG_CRYPTO_SELFTESTS=y
+CONFIG_CRYPTO_ECDSA=y
+CONFIG_CRYPTO_USER_API_HASH=y
+CONFIG_CRYPTO_USER_API_SKCIPHER=y
+CONFIG_CRYPTO_CMAC=y
+CONFIG_CRYPTO_DES=y
+CONFIG_CRYPTO_MD5=y
+CONFIG_CRYPTO_SHA512=y
+# CONFIG_CRYPTO_DEV_AMLOGIC_GXL is not set
+CONFIG_SECONDARY_TRUSTED_KEYRING=y
+CONFIG_SYSTEM_BLACKLIST_KEYRING=y
+CONFIG_PACKING=y
+# CONFIG_XZ_DEC_X86 is not set
+# CONFIG_XZ_DEC_POWERPC is not set
+# CONFIG_XZ_DEC_ARM is not set
+# CONFIG_XZ_DEC_ARMTHUMB is not set
+# CONFIG_XZ_DEC_SPARC is not set
+CONFIG_XZ_DEC_MICROLZMA=y
+CONFIG_CMA_SIZE_MBYTES=64
+CONFIG_IRQ_POLL=y
+CONFIG_FONTS=y
+CONFIG_FONT_8x8=y
+CONFIG_FONT_8x16=y
+CONFIG_FONT_TER16x32=y
+CONFIG_PRINTK_TIME=y
+CONFIG_BOOT_PRINTK_DELAY=y
+CONFIG_DYNAMIC_DEBUG=y
+CONFIG_STRIP_ASM_SYMS=y
+CONFIG_MAGIC_SYSRQ=y
+CONFIG_MAGIC_SYSRQ_DEFAULT_ENABLE=0x01b6
+CONFIG_UBSAN=y
+CONFIG_UBSAN_SHIFT=y
+# CONFIG_UBSAN_BOOL is not set
+# CONFIG_UBSAN_ENUM is not set
+CONFIG_PAGE_EXTENSION=y
+CONFIG_PAGE_POISONING=y
+CONFIG_DEBUG_WX=y
+CONFIG_SCHED_STACK_END_CHECK=y
+CONFIG_DEBUG_MEMORY_INIT=y
+CONFIG_KFENCE=y
+CONFIG_KFENCE_SAMPLE_INTERVAL=0
+CONFIG_HARDLOCKUP_DETECTOR=y
+CONFIG_SCHEDSTATS=y
+CONFIG_DEBUG_LIST=y
+# CONFIG_RCU_TRACE is not set
+CONFIG_FPROBE=y
+CONFIG_STACK_TRACER=y
+CONFIG_FTRACE_SYSCALLS=y
+CONFIG_TRACER_SNAPSHOT=y
+CONFIG_BLK_DEV_IO_TRACE=y
+CONFIG_HIST_TRIGGERS=y
+CONFIG_IO_STRICT_DEVMEM=y
+CONFIG_PID_IN_CONTEXTIDR=y
+
+# --- M.2 E-key WiFi/BT coverage (ncz: keep broad; card is pluggable, any vendor) ---
+CONFIG_WLAN=y
+CONFIG_RTW89=m
+CONFIG_RTW89_CORE=m
+CONFIG_RTW89_PCI=m
+CONFIG_RTW89_8852BE=m
+CONFIG_RTW89_8852CE=m
+CONFIG_RTW89_8922AE=m
+CONFIG_IWLWIFI=m
+CONFIG_IWLMVM=m
+CONFIG_IWLMLD=m
+CONFIG_MT7925E=m
+CONFIG_ATH11K=m
+CONFIG_ATH11K_PCI=m
+CONFIG_ATH12K=m
+# BT (E-key BT is USB-attached)
+CONFIG_BT=m
+CONFIG_BT_HCIBTUSB=m
+CONFIG_BT_HCIBTUSB_MTK=y
+CONFIG_BT_HCIBTUSB_RTL=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_USB_STORAGE=y
+CONFIG_USB_UAS=y
+CONFIG_VFAT_FS=y
+CONFIG_FAT_FS=y
+CONFIG_NLS_CODEPAGE_437=y
+CONFIG_NLS_ISO8859_1=y
+CONFIG_EFI=y
+CONFIG_TMPFS=y
+CONFIG_NVME_CORE=y
+CONFIG_VIDEO_LINLON=m
+CONFIG_SCSI=y
+CONFIG_BLK_DEV_SD=y
+CONFIG_SQUASHFS=m
+# The INSTALLER boots from an ISO9660 image. Without this the kernel brings up
+# the USB stick as a block device and then cannot mount it, and debian-installer
+# reports "No device for installation media was detected" -- which looks like a
+# missing storage driver but is not: USB_STORAGE, UAS, SCSI, BLK_DEV_SD and
+# XHCI are all already built in. The lean pass dropped ISO9660 as unnecessary,
+# which is true for the installed system and fatal for the installer.
+# JOLIET + NLS_UTF8 are needed for the long filenames the image actually uses.
+# The INSTALLER mounts its root filesystem out of base.squashfs and
+# desktop.squashfs, and a squashfs can only be mounted through a loop device.
+# Without this the install cannot complete no matter what else is fixed: d-i
+# gets past media detection and then has nothing to unpack from. The lean pass
+# dropped it because an installed system never loop-mounts anything.
+CONFIG_BLK_DEV_LOOP=y
+CONFIG_BLK_DEV_LOOP_MIN_COUNT=8
+CONFIG_ISO9660_FS=y
+CONFIG_JOLIET=y
+CONFIG_ZISOFS=y
+CONFIG_NLS_UTF8=y
+CONFIG_SQUASHFS_XZ=y
+# uinput lets a userspace process create a virtual keyboard/mouse. The lean
+# pass dropped it, which is defensible for an appliance and costly for us: with
+# no /dev/uinput there is no way to drive the desktop from a script, so every
+# UI-level check on O6 (hot-corner behaviour, launcher open/close, overlay
+# dismissal) has to be done by hand at the machine. Measured 2026-08-12 --
+# `modprobe uinput` found nothing to load because it is not built at all, and
+# three Singularity fixes had to ship validated only at the Wayland-protocol
+# layer. Module, not builtin: nothing needs it at boot.
+CONFIG_INPUT_UINPUT=m
+CONFIG_PM_DEVFREQ=y
+CONFIG_DEVFREQ_GOV_PERFORMANCE=y
+CONFIG_DEVFREQ_GOV_POWERSAVE=y
+CONFIG_DEVFREQ_GOV_USERSPACE=y
+CONFIG_DEVFREQ_GOV_PASSIVE=y
+CONFIG_KEYBOARD_IMX_BBM_SCMI=y
+CONFIG_SND_SOC_CIX=m
+CONFIG_SND_SOC_SOF=m
+CONFIG_SND_SOC_SOF_CIX_SKY1=m
+CONFIG_SND_SOC_HDMI_CODEC=m
+CONFIG_USB_CDNSP_SKY1=y
+CONFIG_RTC_DRV_IMX_BBM_SCMI=y
+CONFIG_COMMON_CLK_SCMI=y
+CONFIG_RESET_SCMI=y
+CONFIG_RESET_SKY1=y
+CONFIG_SND_COMPRESS_OFFLOAD=m
+CONFIG_SND_SOC_COMPRESS=y
+CONFIG_SND_SOC_TOPOLOGY=y
+CONFIG_SND_SOC_SOF_OF=m
+CONFIG_SND_SOC_SOF_OF_DEV=m
+CONFIG_SND_SOC_SOF_COMPRESS=y
+CONFIG_SND_SOC_SOF_IPC3=y
+CONFIG_SND_SOC_SOF_CIX_TOPLEVEL=y
+CONFIG_SND_SOC_SOF_CIX_COMMON=m
+CONFIG_CFG80211_REQUIRE_SIGNED_REGDB=y
+CONFIG_CFG80211_USE_KERNEL_REGDB_KEYS=y
+
+# ---------------------------------------------------------------------------
+# Restored from the 7.0.12 config after a config diff, 2026-08-13.
+#
+# 7.0.12 installs from a USB stick on this hardware; 7.2 r218 does not -- d-i
+# fails at "Detect and mount installation media" with 14 xhci root hubs up,
+# cdnsp-sky1 bound to all nine CIXH2030 instances, and ZERO devices enumerated
+# on any port (serial-captured from the d-i shell on O6N). Diffing the two
+# BUILT configs is what surfaced these; the initrd module prune was not the
+# cause (drivers/usb and drivers/gpu are both present in the installer).
+#
+# PHYLINK: 7.0.12 had it builtin, 7.2 dropped it entirely. It is the generic
+# MAC<->PHY layer a lot of ethernet drivers bind through, so losing it can take
+# wired networking with it -- and d-i on O6N had no network at all (no ping, no
+# ssh) while the installed 7.2 system does.
+CONFIG_PHYLINK=y
+
+# USB ethernet: the whole class went away. These are the dongles people
+# actually install through when the on-board NIC is unusable, and d-i is
+# wired-only here because the wireless drivers are pruned from the initrd for
+# size. Cheap to carry as modules.
+CONFIG_USB_NET_DRIVERS=y
+CONFIG_USB_USBNET=m
+CONFIG_USB_NET_AX8817X=m
+CONFIG_USB_NET_AX88179_178A=m
+CONFIG_USB_NET_CDCETHER=m
+CONFIG_USB_NET_CDC_NCM=m
+CONFIG_USB_NET_SMSC95XX=m
+CONFIG_USB_LAN78XX=m
+CONFIG_USB_RTL8152=m
+
+# Type-C: RTS5453 (the controller these boards actually use) was kept while
+# the generic Type-C plumbing around it was dropped. Sky1's USB-C is a combo
+# USB/DP PHY, so alt-mode and mux support are part of getting a port into USB
+# role rather than DP.
+CONFIG_TYPEC_DP_ALTMODE=m
+CONFIG_TYPEC_UCSI=m
+CONFIG_EXTCON_USB_GPIO=y
+
+# ---------------------------------------------------------------------------
+# USB dual-role connect detection, restored from 7.0.12 (2026-08-13).
+#
+# cdnsp/cdns3 on Sky1 is a DUAL-ROLE controller. The lean pass dropped the
+# plumbing that decides a port has something plugged into it and settles the
+# port into host role. Everything below is present in 7.0.12, which installs
+# from a USB stick on this board; all of it is absent in the lean 7.2, which
+# does not.
+#
+# Measured on O6N from the d-i shell with the stick in a USB-A port:
+#   /proc/partitions      -> nvme0n1 only, zero sd*
+#   /sys/bus/usb/devices  -> usb1..usb14 root hubs, ZERO downstream devices
+#   dmesg                 -> xhci-hcd.N.auto registered, cdnsp-sky1 bound to
+#                            all nine CIXH2030 instances, and not one
+#                            "new ... USB device" line
+#
+# i.e. the controllers come up and no port ever reports a connect. Restoring
+# USB_CDNS3 to builtin did NOT change this (verified on metal), which is what
+# points at role/connect detection rather than the controller driver.
+CONFIG_USB_OTG=y
+CONFIG_USB_CONN_GPIO=y
+CONFIG_USB_ULPI_BUS=y
+
+# Type-C port management. TYPEC_RTS5453 (the controller these boards use) was
+# kept while the generic TCPM/UCSI layer underneath it was dropped, leaving it
+# with nothing to register against.
+CONFIG_TYPEC_TCPM=m
+CONFIG_TYPEC_TCPCI=m
+
+# ---------------------------------------------------------------------------
+# DEVTMPFS_MOUNT: the reason d-i drew on the serial line instead of the screen.
+#
+# This makes the KERNEL mount devtmpfs on /dev before init runs. The lean pass
+# dropped it; 7.0.12, which put the installer on the monitor for hundreds of
+# installs, has it.
+#
+# Without it /dev is only whatever the initrd shipped, and the d-i initrd ships
+# exactly one node:
+#
+#     crw-r--r-- 1 root root 5, 1 /dev/console      <- and nothing else
+#
+# d-i's reopen-console runs from /init BEFORE S01mount mounts /dev, and both
+# paths by which tty1 could become a console candidate are device-node tests:
+#
+#     [ -e "/dev/$cons" ] && ...        # cons=tty1 after the tty0 rename
+#     [ -c /dev/tty1 ] && ...           # the later fallback
+#
+# With an empty /dev both fail, the console list ends up empty, and it falls to
+# "Nothing found? Default to /dev/console". detect-console then classifies
+# /dev/console as TERM_TYPE=serial, so the installer renders on the UART and the
+# monitor gets nothing -- on every board, whatever console= says.
+#
+# That is why no cmdline change fixed this: console selection was never the
+# problem, the missing device node was. It also explains why writing to
+# /dev/tty1 from a shell DID appear on screen -- by then S01mount had mounted
+# devtmpfs and the node existed, long after reopen-console had decided.
+CONFIG_DEVTMPFS_MOUNT=y
+
+# --- HiFi5 DSP transport ---------------------------------------------------
+# CONFIG_CIX_DSP_RPROC boots the DSP fine on its own: dsp_fw.bin loads and the
+# driver logs "DSP ready", registers virtio0 (type 7 = VIRTIO_ID_RPMSG) and gets
+# mbox_send_message == 0. But RPMSG was never named in this defconfig, so
+# olddefconfig resolved it to n, virtio0 had no driver, no rpmsg channel was
+# created, and userspace had no /dev/rpmsgN to open -- which is what
+# libdsp_wrap.so (XAF, statically linked) needs to reach the DSP.
+#
+# cix_dsp_rproc.c implements the rpmsg-lite link-up handshake explicitly
+# (deferred vq0 kick, link_state, rpmsg_lite_tx_callback), so this transport is
+# required, not optional.
+CONFIG_RPMSG=y
+CONFIG_RPMSG_VIRTIO=y
+CONFIG_RPMSG_CHAR=y
+CONFIG_RPMSG_CTRL=y
+CONFIG_RPMSG_NS=y
+
+# zram: compressed RAM swap (systemd-zram-generator drives it from userspace).
+# ZRAM selects ZSMALLOC; ZRAM_BACKEND_ZSTD selects ZSTD_COMPRESS/DECOMPRESS.
+CONFIG_ZRAM=y
+CONFIG_ZRAM_BACKEND_ZSTD=y
+CONFIG_ZRAM_DEF_COMP_ZSTD=y
+
+#
+# Android binder — required for Waydroid (containerised Android).
+#
+# The defconfig carried no Android symbols at all, so olddefconfig left
+# CONFIG_ANDROID_BINDER_IPC at its default of n and the shipped kernel had no
+# /dev/binder. Waydroid cannot start without it. Everything else Waydroid needs
+# was ALREADY enabled in this config and was verified before adding these:
+# MEMFD_CREATE=y, PSI=y, FUSE_FS=y, OVERLAY_FS=y, VETH=y, BRIDGE=y. Binder was
+# the only gap, which is why this is three lines rather than a port.
+#
+# Built in rather than modular: it is upstream kernel code, not a CIX
+# accelerator driver, so the "all CIX drivers are DKMS" rule does not apply. A
+# built-in binder is also always present at boot, which avoids Waydroid failing
+# on a module that was not loaded yet.
+#
+# ANDROID_BINDERFS gives /dev/binderfs, which is what current Waydroid expects;
+# it depends on ANDROID_BINDER_IPC and would be silently dropped without it.
+CONFIG_ANDROID_BINDER_IPC=y
+CONFIG_ANDROID_BINDERFS=y
+CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder"

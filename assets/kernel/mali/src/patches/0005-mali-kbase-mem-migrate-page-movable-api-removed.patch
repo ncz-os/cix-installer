@@ -1,0 +1,122 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 25 Jul 2026 00:00:00 +0000
+Subject: [PATCH] mali_kbase: disable page migration on kernels without __SetPageMovable
+
+Kernel 7.2 removed the per-page/per-mapping page-migration API
+(__SetPageMovable()/__ClearPageMovable()) in favour of a per-pagetype
+set_movable_ops(ops, pagetype) registry (mm/migrate.c). That registry
+only has slots wired up for two in-tree users -- PGTY_offline (balloon)
+and PGTY_zsmalloc -- with an explicit -EINVAL default for anything
+else; there is no supported mechanism for an out-of-tree third-party
+driver such as mali_kbase to register its own movable_operations.
+Extending mm/migrate.c's switch (and the page_movable_ops() dispatcher,
+and reserving a page_type bit) would be a core-MM change carried
+out-of-tree indefinitely -- judged too high-risk to attempt without
+upstream review.
+
+Instead, page-migration support for kbase-owned pages is treated as
+unavailable on kernels this new: version_compat_defs.h provides no-op
+__SetPageMovable()/__ClearPageMovable() shims, and
+kbase_mem_migrate_init() is changed to leave page_migration_static_key
+permanently at its initial "off" state (regardless of the insmod
+parameter or the large-pages default) so
+kbase_is_page_migration_enabled() always returns false. Every
+meaningful effect in mali_kbase_mem_migrate.c (alloc/free metadata,
+isolate/migrate/putback callbacks, MMU PGD migration) is already gated
+behind that accessor, so this mirrors the driver's own already-
+supported "page migration explicitly disabled" runtime mode
+(insmod kbase_page_migration_enabled=0), just made unconditional on
+kernels lacking the underlying API. No page is ever marked movable
+when the kernel has no isolate/migrate/putback path for it.
+
+Fixes the mali_kbase.ko build against kernel 7.2.0-rc4-sky1-ncz.
+Codex (gpt-5.5) adversarial-reviewed: APPROVE, no correctness
+blockers found.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/mali_kbase_mem_migrate.c
++++ b/drivers/gpu/arm/midgard/mali_kbase_mem_migrate.c
+@@ -682,6 +682,21 @@
+ {
+ 	struct kbase_mem_migrate *mem_migrate = &kbdev->mem_migrate;
+ 
++#if MALI_KBASE_NO_LEGACY_PAGE_MOVABLE_API
++	/* This kernel has no __SetPageMovable()/__ClearPageMovable() (see
++	 * version_compat_defs.h) and no way for an out-of-tree driver to
++	 * register with the replacement set_movable_ops() registry. Page
++	 * migration support is therefore unavailable on this kernel,
++	 * regardless of the insmod parameter or the large-pages default --
++	 * leave page_migration_static_key at its initial "off" count so
++	 * kbase_is_page_migration_enabled() always returns false and none
++	 * of the isolate/migrate/putback machinery in this file is ever
++	 * exercised.
++	 */
++	if (kbase_page_migration_enabled > 0)
++		dev_info(kbdev->dev,
++			 "Page migration was requested at insmod but is unsupported on this kernel (no page-movable-ops API for out-of-tree drivers); staying disabled.");
++#else
+ 	/* Page migration support compiled in, either explicitly or
+ 	 * by default, so the default behaviour is to follow the choice
+ 	 * of large pages if not selected at insmod. Check insmod parameter
+@@ -697,6 +712,7 @@
+ 		if (kbase_page_migration_enabled)
+ 			static_branch_inc(&page_migration_static_key);
+ 	}
++#endif /* MALI_KBASE_NO_LEGACY_PAGE_MOVABLE_API */
+ 
+ 	spin_lock_init(&mem_migrate->free_pages_lock);
+ 	INIT_LIST_HEAD(&mem_migrate->free_pages_list);
+--- a/include/linux/version_compat_defs.h
++++ b/include/linux/version_compat_defs.h
+@@ -760,6 +760,49 @@
+ }
+ #endif
+ 
++#if (KERNEL_VERSION(7, 2, 0) <= LINUX_VERSION_CODE)
++/*
++ * Kernel 7.2 removed the per-page/per-mapping page-migration API
++ * (__SetPageMovable() / __ClearPageMovable(), see the movable_ops /
++ * address_space_ops branches in mali_kbase_mem_migrate.c) in favour of a
++ * per-pagetype set_movable_ops(ops, pagetype) registry (mm/migrate.c).
++ * That registry only has slots wired up for two in-tree users --
++ * PGTY_offline (balloon) and PGTY_zsmalloc -- with an explicit -EINVAL
++ * default for anything else (see the switch in mm/migrate.c's
++ * set_movable_ops()); there is no supported mechanism for an out-of-tree
++ * third-party driver such as mali_kbase to register its own
++ * movable_operations. Extending mm/migrate.c's switch (and the
++ * page_movable_ops() dispatcher, and reserving a page_type bit) would be a
++ * core-MM change carried out-of-tree indefinitely -- high risk, outside
++ * this driver's scope, and not something to do without upstream review.
++ *
++ * Instead, page-migration support for kbase-owned pages is treated as
++ * unavailable on kernels this new: __SetPageMovable()/__ClearPageMovable()
++ * become no-ops. This is safe because every meaningful effect in
++ * mali_kbase_mem_migrate.c is already gated behind
++ * kbase_is_page_migration_enabled(), which kbase_mem_migrate_init() now
++ * forces permanently false whenever this shim is active -- so a page is
++ * never marked movable when the kernel has no way to isolate/migrate/
++ * putback it. This mirrors the driver's own already-supported "page
++ * migration explicitly disabled" runtime mode (insmod
++ * kbase_page_migration_enabled=0); it is not new/untested behaviour, just
++ * made unconditional on kernels lacking the underlying API.
++ */
++#define MALI_KBASE_NO_LEGACY_PAGE_MOVABLE_API 1
++#include <linux/migrate.h>
++static inline void __SetPageMovable(struct page *page, const struct movable_operations *mops)
++{
++	(void)page;
++	(void)mops;
++}
++static inline void __ClearPageMovable(struct page *page)
++{
++	(void)page;
++}
++#else
++#define MALI_KBASE_NO_LEGACY_PAGE_MOVABLE_API 0
++#endif /* (KERNEL_VERSION(7, 2, 0) <= LINUX_VERSION_CODE) */
++
+ #ifndef DEVFREQ_GOV_SIMPLE_ONDEMAND
+ #define DEVFREQ_GOV_SIMPLE_ONDEMAND "simple_ondemand"
+ #endif

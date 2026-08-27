@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2000
+From: Stuart Shelton <srcshelton@gmail.com>
+Subject: [PATCH] power: opp: accept ACPI-only configurations on !CONFIG_OF builds
+
+In _allocate_opp_table() treat -EOPNOTSUPP from
+dev_pm_opp_of_find_icc_paths() as success on non-OF builds.  The OPP
+core's own icc-paths lookup is OF-only, so on ACPI-only systems it
+unconditionally returns -EOPNOTSUPP and the OPP table is rejected
+even though there is no icc requirement to satisfy.
+
+Ported from srcshelton/gentoo-ebuilds:
+  30196-power-opp-accept-acpi-only-configurations.patch
+
+Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
+[ported: applied verbatim from srcshelton/gentoo-ebuilds
+  30196-power-opp-accept-acpi-only-configurations.patch]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/opp/core.c b/drivers/opp/core.c
+index ab0b0a2f8..3b624984a 100644
+--- a/drivers/opp/core.c
++++ b/drivers/opp/core.c
+@@ -1555,6 +1555,10 @@ static struct opp_table *_allocate_opp_table(struct device *dev, int index)
+ 
+ 	/* Find interconnect path(s) for the device */
+ 	ret = dev_pm_opp_of_find_icc_paths(dev, opp_table);
++	/* ACPI-only kernels have no OF interconnect paths to discover. */
++	if (ret == -EOPNOTSUPP && !IS_ENABLED(CONFIG_OF))
++		ret = 0;
++
+ 	if (ret) {
+ 		if (ret == -EPROBE_DEFER)
+ 			goto remove_opp_dev;

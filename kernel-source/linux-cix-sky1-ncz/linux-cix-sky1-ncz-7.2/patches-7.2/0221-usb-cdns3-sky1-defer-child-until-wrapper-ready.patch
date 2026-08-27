@@ -1,0 +1,119 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Fri, 21 Aug 2026 00:00:00 +0000
+Subject: [PATCH] usb: cdns3: sky1: defer child probe until wrapper is ready
+
+Sky1 ACPI describes each USB controller as a CIXH2030 wrapper with a
+CIXH2031 cdns-usbssp child.  The child platform device is ACPI-enumerated
+independently, so its cdnsp_plat_probe() can run before the wrapper probe
+has completed the hardware bring-up and runtime-PM activation sequence.
+
+When that happens, cdnsp_plat_probe() reaches:
+
+        pm_runtime_set_active(child);
+        pm_runtime_enable(child);
+
+while the CIXH2030 parent is still runtime-suspended/unfinished, producing
+one warning pair per controller at boot:
+
+        runtime PM trying to activate child device CIXH2031:0N
+        but parent (CIXH2030:0N) is not active
+        Enabling runtime PM for inactive device with active children
+
+Patch 0180 moved the wrapper's own PM activation before its child setup, but
+ACPI can still probe the already-created CIXH2031 child before the wrapper
+has reached that point.  Add an explicit wrapper-ready flag and make Sky1
+ACPI children return -EPROBE_DEFER until the parent has completed its setup.
+
+This keeps the CIXH2030 wrapper pinned by its active children; it does not
+restore pm_suspend_ignore_children(), which was shown to let the wrapper
+runtime-suspend underneath active xHCI children and lose port-change events.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+Upstream-Status: Pending
+---
+ drivers/usb/cdns3/cdnsp-plat.c | 29 +++++++++++++++++++++++++++++
+ drivers/usb/cdns3/cdnsp-sky1.c |  1 +
+ drivers/usb/cdns3/cdnsp-sky1.h |  1 +
+ 3 files changed, 31 insertions(+)
+
+diff --git a/drivers/usb/cdns3/cdnsp-plat.c b/drivers/usb/cdns3/cdnsp-plat.c
+index b58cc37..81de2cb 100644
+--- a/drivers/usb/cdns3/cdnsp-plat.c
++++ b/drivers/usb/cdns3/cdnsp-plat.c
+@@ -24,6 +24,7 @@
+ #include <linux/property.h>
+ 
+ #include "core.h"
++#include "cdnsp-sky1.h"
+ #include "gadget-export.h"
+ #include "drd.h"
+ 
+@@ -108,6 +109,30 @@ static void set_phy_power_off(struct cdns *cdns)
+ 	phy_power_off(cdns->usb2_phy);
+ }
+ 
++static const struct acpi_device_id cdnsp_sky1_parent_match[] = {
++	{ "CIXH2030" },
++	{ }
++};
++
++static int cdnsp_sky1_wait_for_parent(struct device *dev)
++{
++	struct device *parent = dev->parent;
++	struct cdnsp_sky1 *data;
++
++	if (!has_acpi_companion(dev) || !parent)
++		return 0;
++
++	if (!acpi_match_device(cdnsp_sky1_parent_match, parent))
++		return 0;
++
++	data = dev_get_drvdata(parent);
++	if (!data || !data->ready)
++		return dev_err_probe(dev, -EPROBE_DEFER,
++				     "waiting for Sky1 USB wrapper\n");
++
++	return 0;
++}
++
+ /**
+  * cdnsp_plat_probe - probe for cdnsp core device
+  * @pdev: Pointer to cdnsp core platform device
+@@ -122,6 +147,10 @@ static int cdnsp_plat_probe(struct platform_device *pdev)
+ 	void __iomem *regs;
+ 	int ret;
+ 
++	ret = cdnsp_sky1_wait_for_parent(dev);
++	if (ret)
++		return ret;
++
+ 	cdns = devm_kzalloc(dev, sizeof(*cdns), GFP_KERNEL);
+ 	if (!cdns)
+ 		return -ENOMEM;
+diff --git a/drivers/usb/cdns3/cdnsp-sky1.c b/drivers/usb/cdns3/cdnsp-sky1.c
+index 46094b0..0400779 100644
+--- a/drivers/usb/cdns3/cdnsp-sky1.c
++++ b/drivers/usb/cdns3/cdnsp-sky1.c
+@@ -825,6 +825,7 @@ static int cdnsp_sky1_probe(struct platform_device *pdev)
+ 		}
+ 	}
+ 
++	data->ready = true;
+ 	return 0;
+ err_pm:
+ 	pm_runtime_disable(dev);
+diff --git a/drivers/usb/cdns3/cdnsp-sky1.h b/drivers/usb/cdns3/cdnsp-sky1.h
+index 82563bd..7cf6ac3 100644
+--- a/drivers/usb/cdns3/cdnsp-sky1.h
++++ b/drivers/usb/cdns3/cdnsp-sky1.h
+@@ -116,6 +116,7 @@ struct cdnsp_sky1 {
+ 	int sof_clk_freq;
+ 	bool u3_disable;
+ 	bool ssp_disable;
++	bool ready;
+ 	int axi_bmax_value;
+ 	struct gpio_desc *oc_gpio;
+ };
+-- 
+2.51.0

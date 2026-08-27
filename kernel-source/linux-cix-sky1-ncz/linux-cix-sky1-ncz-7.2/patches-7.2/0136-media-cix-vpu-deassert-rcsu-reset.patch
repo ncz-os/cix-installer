@@ -1,0 +1,98 @@
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 12 Jul 2026 02:00:00 -0400
+Subject: [PATCH] media: cix: vpu: acquire and deassert vpu_rcsu_reset before first MMIO
+
+The mvx VPU driver defines MVE_RCSU_RST_NAME ("vpu_rcsu_reset") but only
+acquires and deasserts vpu_reset. On Sky1 v7.2 the RCSU (register-bridge)
+reset is left asserted at probe, so the first VPU MMIO read hits a bus
+DECERR and becomes an arm64 synchronous external abort (hard fault, no
+ramoops). The v1.0.1 IRQ-reset and v1.0.2 BUSCTRL changes cannot fix it
+because both occur after the first register transaction.
+
+Acquire the already-named RCSU reset (optional, for FW compat), deassert
+it before vpu_reset in the runtime-resume path with rollback on error,
+and assert in reverse order on suspend.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -141,6 +141,7 @@ struct mvx_dev_ctx {
+     unsigned int pmdomains_cnt;
+     struct clk *clk;
+     struct reset_control *rstc;
++    struct reset_control *rcsu_rstc;
+     struct mvx_if_ops *if_ops;
+     struct mvx_client_ops client_ops;
+     struct mvx_hwreg hwreg;
+@@ -948,6 +949,15 @@ static int mvx_dev_probe(struct device *dev,
+         ret = -EFAULT;
+         goto destruct_hwreg;
+     }
++    ctx->rcsu_rstc = devm_reset_control_get_optional_exclusive(dev,
++                                MVE_RCSU_RST_NAME);
++    if (IS_ERR(ctx->rcsu_rstc)) {
++        ret = PTR_ERR(ctx->rcsu_rstc);
++        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR,
++                      "Failed to get reset_control %s: %d.",
++                      MVE_RCSU_RST_NAME, ret);
++        goto destruct_hwreg;
++    }
+ 
+     /* Request IRQ handler. */
+     ctx->irq = irq;
+@@ -1311,6 +1321,8 @@ static int mvx_pm_runtime_suspend(struct device *dev)
+     }
+ 
+     reset_control_assert(ctx->rstc);
++    if (ctx->rcsu_rstc)
++        reset_control_assert(ctx->rcsu_rstc);
+     clk_disable_unprepare(ctx->clk);
+ 
+     for (i = 1; i < ctx->pmdomains_cnt; i++) {
+@@ -1337,6 +1350,7 @@ static int mvx_pm_runtime_resume(struct device *dev)
+ {
+     int ret = 0;
+     struct mvx_dev_ctx *ctx = dev_get_drvdata(dev);
++    bool rcsu_deasserted = false;
+     int i;
+     uint64_t mask;
+ 
+@@ -1351,7 +1365,18 @@ static int mvx_pm_runtime_resume(struct device *dev)
+         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Failed to enable clock, %d.", ret);
+         return ret;
+     }
+-    reset_control_deassert(ctx->rstc);
++
++    /* RCSU gates access to the VPU register aperture; release it first. */
++    if (ctx->rcsu_rstc) {
++        ret = reset_control_deassert(ctx->rcsu_rstc);
++        if (ret)
++            goto disable_clk;
++        rcsu_deasserted = true;
++    }
++
++    ret = reset_control_deassert(ctx->rstc);
++    if (ret)
++        goto assert_rcsu;
+     enable_irq(ctx->irq);
+ 
+     mvx_switch_qchannel_clock_gating(ctx, true);
+@@ -1418,6 +1449,15 @@ static int mvx_pm_runtime_resume(struct device *dev)
+     ret = mvx_sched_resume(&ctx->scheduler);
+ 
+     return ret;
++
++assert_rcsu:
++    if (rcsu_deasserted)
++        reset_control_assert(ctx->rcsu_rstc);
++disable_clk:
++    clk_disable_unprepare(ctx->clk);
++    MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR,
++                  "Failed to release VPU resets: %d.", ret);
++    return ret;
+ }
+ 
+ static int mvx_pm_runtime_idle(struct device *dev)

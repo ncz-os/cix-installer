@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 26 Jul 2026 23:37:00 -0400
+Subject: [PATCH] platform/sky1: guard sky1_power_model_work_handler against
+ NULL IPA model
+
+STATUS (2026-07-27): HARDWARE-VALIDATED on real O6N. Booted with this
+patch applied (2027+2028 SCMI probe-order fixes also present) and the
+sky1_power_model_work_handler/kbase_get_real_power_locked NULL-deref
+crash this patch targets did NOT recur — confirmed via full serial
+console capture through the boot. mali_kbase now gets past this specific
+race cleanly. (A DIFFERENT, unrelated NULL-deref was hit later in the
+same boot, in devfreq's clk_round_rate path — see README.md, that is a
+separate latent bug this patch does not address.)
+
+Real crash observed on cixmini/O6N with the 2027+2028 SCMI-perf-domain
+probe-order fixes applied (those fix the original mali_kbase EPROBE_DEFER
+block): once mali_kbase's probe gets far enough to actually run
+kbase_platform_sky1_late_init(), its hrtimer immediately queues
+sky1_power_model_work_handler(), which calls kbase_get_real_power_locked()
+-> get_current_model(). kbase_ipa_init() (which populates
+kbdev->ipa.configured_model / kbdev->ipa.fallback_model) runs from
+kbase_backend_devfreq_init()/kbase_devfreq_init(), a separate call with
+no ordering guarantee relative to platform_late_init_func(). This window
+was previously unreachable on this kernel (probe never got past the
+"perf" domain attach), so the race was latent and never fired. Root-caused
+from a real serial-console crash trace + addr2line against a
+debug-symbol build of mali_kbase.ko:
+
+    [    6.945344]   FSC = 0x04: level 0 translation fault
+    Workqueue: sky1_power_wq sky1_power_model_work_handler [mali_kbase]
+    kbase_get_real_power_locked+0xb0/0x378 [mali_kbase] (P)
+    Code: aa0003e1 d2847800 8b0002a0 94000c5e (f9400ac0)
+
+  $ addr2line -e mali_kbase.ko.debug -f -C 0x8ae28
+  kbase_get_real_power_locked
+  drivers/gpu/arm/midgard/ipa/mali_kbase_ipa.c:679
+
+Line 679 is `err = model->ops->get_dynamic_coeff(model, power_coeffs);`
+with `model` NULL (get_current_model() returned
+kbdev->ipa.configured_model, still unset). Disassembly confirms: the
+faulting instruction `ldr x0, [x22, #16]` reads model->ops with x22 (the
+model pointer) loaded a few instructions earlier from kbdev->ipa.*model,
+matching exactly.
+
+Fix: skip the sample (rather than trying to fix init ordering, which
+risks other regressions) if neither IPA model pointer is populated yet;
+the hrtimer re-arms unconditionally and retries next tick once
+kbase_ipa_init() has run. Moved get_sky1_static_power() after the guard
+since it doesn't need to run on the skip path.
+
+Upstream-Status: Inappropriate [oe-specific, sky1 platform code]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c | 27 ++++++++++++++++++++++---
+ 1 file changed, 24 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c b/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c
+index ddda122..9bc8926 100644
+--- a/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c
++++ b/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c
+@@ -303,13 +303,38 @@ static void sky1_power_model_work_handler(struct work_struct *work)
+ {
+ 	struct kbase_device *kbdev = container_of(work, struct kbase_device, sky1_power_work);
+ 	u32 power;
+-	u32 static_power = get_sky1_static_power(kbdev);
++	u32 static_power;
+ 
+ 	mutex_lock(&kbdev->ipa.lock);
++	/*
++	 * PROPOSED FIX (2026-07-26, NCZ 7.0.12-cix-sky1-next mali_kbase port,
++	 * UNTESTED ON HARDWARE): kbase_ipa_init() -- which populates
++	 * kbdev->ipa.{configured,fallback}_model -- runs from
++	 * kbase_backend_devfreq_init()/kbase_devfreq_init(), called during
++	 * kbase_device_init(). platform_late_init_func() (which starts the
++	 * hrtimer that queues this handler) is a separate, earlier-firing
++	 * hook with no ordering guarantee relative to devfreq/IPA init
++	 * completing first. On 7.0.12-cix-sky1-next this window was
++	 * previously unreachable (sky1_gpu_attach_pd()'s "perf" power-domain
++	 * attach permanently EPROBE_DEFERed before probe ever got this far);
++	 * once that's fixed (see the 2027/2028 kernel patches), this
++	 * handler's very first invocation can race ahead of kbase_ipa_init()
++	 * and call kbase_get_real_power_locked() -> get_current_model() with
++	 * both model pointers still NULL, which NULL-derefs on
++	 * model->ops->get_dynamic_coeff (confirmed via addr2line against a
++	 * real crash: mali_kbase_ipa.c:679, kbase_get_real_power_locked+0xb0).
++	 * Skip this sample if IPA isn't registered yet; the hrtimer re-arms
++	 * unconditionally and will retry on the next tick once it is.
++	 */
++	if (!kbdev->ipa.configured_model && !kbdev->ipa.fallback_model) {
++		mutex_unlock(&kbdev->ipa.lock);
++		return;
++	}
+ 	kbase_get_real_power_locked(kbdev, &power, kbdev->current_nominal_freq,
+ 						(kbdev->current_voltages[0] / 1000));
+ 	mutex_unlock(&kbdev->ipa.lock);
+ 
++	static_power = get_sky1_static_power(kbdev);
+ 	if(power > static_power)
+ 			power -= static_power;
+ 
+--
+2.51.0

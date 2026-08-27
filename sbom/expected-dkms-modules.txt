@@ -1,0 +1,8 @@
+# SBOM/SPDX-style expected DKMS registrations for kernel-coupled modules.
+# Format: package/version module [module...]
+# Keep this in sync with post-install/82-mali-gpu.sh,
+# post-install/83-panthor-gpu.sh, and post-install/86-cix-dkms-register.sh.
+aipu/6.2.0 aipu
+cix-gpu-kmd/1.0 mali_kbase memory_group_manager protected_memory_allocator
+cix-vpu-driver/1.0.2-ncz1 amvx
+panthor-cix/7.2.0 panthor

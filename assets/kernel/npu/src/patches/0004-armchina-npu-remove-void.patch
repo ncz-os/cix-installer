@@ -1,0 +1,33 @@
+From 197b869ef0dbdd3892e8a74b82a0a676d8aa9e3e Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 23 May 2026 12:11:51 -0400
+Subject: [PATCH 4/6] armchina-npu: sky1_npu_remove returns void
+
+---
+ driver/armchina-npu/sky1/sky1.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/driver/armchina-npu/sky1/sky1.c b/driver/armchina-npu/sky1/sky1.c
+index 835fe51..82d4afc 100644
+--- a/driver/armchina-npu/sky1/sky1.c
++++ b/driver/armchina-npu/sky1/sky1.c
+@@ -475,7 +475,7 @@ devfreq_init_failed:
+ 	return ret;
+ }
+ 
+-static int sky1_npu_remove(struct platform_device *p_dev)
++static void sky1_npu_remove(struct platform_device *p_dev)
+ {
+ 	dev_dbg(&p_dev->dev, "%s \n", __func__);
+ #ifdef CONFIG_ENABLE_DEVFREQ
+@@ -490,7 +490,6 @@ static int sky1_npu_remove(struct platform_device *p_dev)
+ 	pm_runtime_disable(&p_dev->dev);
+ #endif /* CONFIG_PM */
+ 
+-	return 0;
+ }
+ 
+ #ifdef CONFIG_PM
+-- 
+2.51.0
+

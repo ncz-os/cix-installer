@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 13 Jul 2026 12:31:00 -0400
+Subject: [PATCH] media: cix: amvx: use the firmware VPU clock alias
+
+Sky1 firmware describes one VPU clock: SCMI ID 0x43, exposed to CIXH3010:00
+with connection ID "vpu_clk".  ID 0x43 is CLK_TREE_VPU_APBCLK, so the
+existing vpu_clk request already acquires and enables the VPU register-bus
+clock.
+
+Do not require a second "vpu_apbclk" connection ID, which firmware does not
+provide.  Such a request fails probe after the valid vpu_clk request and
+devres then releases that first clock handle.
+
+Keep the existing RCSU-reset sequencing unchanged.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/media/platform/cix/dev/mvx_dev.c | 31 ++++---------------------------
+ 1 file changed, 4 insertions(+), 27 deletions(-)
+
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+index 0255ce8d1..69e3d3095 100755
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -92,7 +92,6 @@
+ #define MVX_PCI_DEVICE 0x0001
+ 
+ #define MVE_CLK_NAME        "vpu_clk"
+-#define MVE_APB_CLK_NAME    "vpu_apbclk"
+ #define MVE_RST_NAME        "vpu_reset"
+ #define MVE_RCSU_RST_NAME   "vpu_rcsu_reset"
+ 
+@@ -129,7 +128,6 @@ struct mvx_dev_ctx {
+     struct device *pmdomains[MVX_MAX_NUMBER_OF_PMDOMAINS];
+     unsigned int pmdomains_cnt;
+     struct clk *clk;
+-    struct clk *apb_clk;
+     struct reset_control *rstc;
+     struct reset_control *rcsu_rstc;
+     struct mvx_if_ops *if_ops;
+@@ -818,14 +816,7 @@ static int mvx_dev_probe(struct device *dev,
+-    ctx->clk = devm_clk_get_optional(dev, MVE_CLK_NAME);
+-    if (IS_ERR_OR_NULL(ctx->clk)) {
++    ctx->clk = devm_clk_get(dev, MVE_CLK_NAME);
++    if (IS_ERR(ctx->clk)) {
+         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Failed to get clock.");
+-        ret = -EFAULT;
++        ret = PTR_ERR(ctx->clk);
+         goto destruct_hwreg;
+     }
+-    ctx->apb_clk = devm_clk_get(dev, MVE_APB_CLK_NAME);
+-    if (IS_ERR(ctx->apb_clk)) {
+-        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR,
+-                        "Failed to get clock, %s.", MVE_APB_CLK_NAME);
+-        ret = PTR_ERR(ctx->apb_clk);
+-        goto destruct_hwreg;
+-    }
+     ctx->rstc = devm_reset_control_get(dev, MVE_RST_NAME);
+@@ -1171,7 +1162,6 @@ static int mvx_pm_runtime_suspend(struct device *dev)
+         reset_control_assert(ctx->rcsu_rstc);
+     if (!IS_ERR_OR_NULL(ctx->clk))
+         clk_disable_unprepare(ctx->clk);
+-    clk_disable_unprepare(ctx->apb_clk);
+ 
+     for (i = 1; i < ctx->pmdomains_cnt; i++) {
+         if (mvx_test_bit(i, &mask)) {
+@@ -1205,19 +1195,10 @@ static int mvx_pm_runtime_resume(struct device *dev)
+         pm_runtime_get_sync(ctx->pmdomains[0]);
+     }
+ 
+-    /* The register aperture is inaccessible until its APB clock is live. */
+-    ret = clk_prepare_enable(ctx->apb_clk);
+-    if (ret) {
+-        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR,
+-                        "Failed to enable clock %s, %d.",
+-                        MVE_APB_CLK_NAME, ret);
+-        return ret;
+-    }
+-
+     ret = clk_prepare_enable(ctx->clk);
+     if (ret) {
+         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Failed to enable clock, %d.", ret);
+-        goto disable_apb_clk;
++        return ret;
+     }
+ 
+     /*
+@@ -1279,10 +1260,6 @@ static int mvx_pm_runtime_resume(struct device *dev)
+     ret = mvx_sched_resume(&ctx->scheduler);
+ 
+     return ret;
+-
+-disable_apb_clk:
+-    clk_disable_unprepare(ctx->apb_clk);
+-    return ret;
+ }
+ 
+ static int mvx_pm_runtime_idle(struct device *dev)
+-- 
+2.51.0

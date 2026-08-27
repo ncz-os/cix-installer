@@ -1,0 +1,1257 @@
+From 60257104e1c098a4b05977a79fba07b374460e1d Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 11 Jul 2026 20:50:51 -0400
+Subject: [PATCH] media: cix: sync VPU driver with upstream v1.0.2
+
+Map the p1_7.0_v1.0.1..p1_7.0_v1.0.2 standalone driver delta from driver/ into drivers/media/platform/cix/ while retaining the existing Linux 7.2 compatibility changes.
+
+The DSM-only Kbuild/header changes are omitted because the in-tree port does not carry mvx_dsm.c or mvx_dsm.h. The vb2 wait callbacks were already correctly version-gated by the 7.2 port.
+
+Preserve mainline clock guards and the reset-before-clock / deassert-before-IRQ ordering. Add the v1.0.2 probe completion barrier, Sky1P BUSCTRL split cap, core-mask/register fixes, scheduler idle synchronization, firmware mapping changes, protocol updates, and logging/control additions.
+
+Upstream-Status: Backport [cixtech vpu_driver p1_7.0_v1.0.2, commit 5b9b07b44abc]
+---
+ drivers/media/platform/cix/dev/mvx_dev.c      |  28 +-
+ drivers/media/platform/cix/dev/mvx_hwreg.c    |  30 ++-
+ drivers/media/platform/cix/dev/mvx_hwreg.h    |  10 +-
+ .../media/platform/cix/dev/mvx_scheduler.c    |  69 +++--
+ .../media/platform/cix/dev/mvx_scheduler.h    |  10 +
+ .../cix/external/fw_v2/mve_protocol_def.h     |   2 +
+ .../cix/external/fw_v3/mve_protocol_def.h     |   2 +
+ drivers/media/platform/cix/if/mvx_firmware.c  |   8 +-
+ drivers/media/platform/cix/if/mvx_firmware.h  |   4 +
+ .../media/platform/cix/if/mvx_firmware_v2.c   |  21 +-
+ drivers/media/platform/cix/if/mvx_if.h        |  14 +
+ drivers/media/platform/cix/if/mvx_session.c   | 245 ++++++++++++++++--
+ drivers/media/platform/cix/if/mvx_session.h   |  22 ++
+ .../media/platform/cix/if/v4l2/mvx_ext_v4l2.c |   2 +-
+ .../platform/cix/if/v4l2/mvx_v4l2_ctrls.c     |  36 +++
+ .../platform/cix/if/v4l2/mvx_v4l2_fops.c      |   4 +
+ .../platform/cix/linux/mvx-v4l2-controls.h    |   3 +
+ drivers/media/platform/cix/mvx_log.c          | 102 +++++++-
+ drivers/media/platform/cix/mvx_log.h          |  36 +++
+ drivers/media/platform/cix/mvx_log_group.c    |   1 +
+ drivers/media/platform/cix/mvx_log_group.h    |   7 +
+ drivers/media/platform/cix/mvx_pm_runtime.c   |   1 +
+ 22 files changed, 589 insertions(+), 68 deletions(-)
+
+diff --git a/drivers/media/platform/cix/dev/mvx_dev.c b/drivers/media/platform/cix/dev/mvx_dev.c
+index 8b0e335bd..bf4ee371f 100755
+--- a/drivers/media/platform/cix/dev/mvx_dev.c
++++ b/drivers/media/platform/cix/dev/mvx_dev.c
+@@ -51,6 +51,7 @@
+ #include <linux/reset.h>
+ #include <linux/reset-controller.h>
+ #include <linux/clk.h>
++#include <linux/completion.h>
+ #include <linux/delay.h>
+ #include <linux/devfreq.h>
+ #include <linux/devfreq-event.h>
+@@ -143,6 +144,7 @@ struct mvx_dev_ctx {
+     struct devfreq_dev_profile devfreq_profile;
+     struct devfreq *devfreq;
+     unsigned long target_freq;
++    struct completion probe_done;
+ };
+ 
+ /**
+@@ -392,7 +394,7 @@ static int send_irq(struct mvx_client_session *csession)
+     return ret;
+ }
+ 
+-int soft_irq(struct mvx_client_session *csession)
++static int soft_irq(struct mvx_client_session *csession)
+ {
+     struct mvx_dev_ctx *ctx = csession->ctx;
+     int ret;
+@@ -424,6 +426,19 @@ static void print_debug(struct mvx_client_session *csession)
+     mvx_sched_print_debug(&ctx->scheduler, &csession->session);
+ }
+ 
++static int wait_probe_done(struct mvx_client_ops *client)
++{
++    struct mvx_dev_ctx *ctx = container_of(client, struct mvx_dev_ctx, client_ops);
++    unsigned long timeout;
++
++    timeout = wait_for_completion_timeout(&ctx->probe_done,
++                          msecs_to_jiffies(10000));
++    if (timeout == 0)
++        return -ETIMEDOUT;
++
++    return 0;
++}
++
+ static struct mvx_dev_ctx *work_to_ctx(struct work_struct *work)
+ {
+     return container_of(work, struct mvx_dev_ctx, work);
+@@ -757,6 +772,7 @@ static int mvx_dev_probe(struct device *dev,
+ 
+     ctx->dev = dev;
+     dev_set_drvdata(dev, ctx);
++    init_completion(&ctx->probe_done);
+ 
+     /* Setup client ops callbacks. */
+     ctx->client_ops.get_hw_ver = get_hw_ver;
+@@ -773,6 +789,7 @@ static int mvx_dev_probe(struct device *dev,
+     ctx->client_ops.update_load = update_load;
+     ctx->client_ops.terminate = terminate;
+     ctx->client_ops.reset_priority = reset_priority;
++    ctx->client_ops.wait_probe_done = wait_probe_done;
+ 
+     /* Create if context. */
+     ctx->if_ops = mvx_if_create(dev, &ctx->client_ops, ctx);
+@@ -915,6 +932,8 @@ static int mvx_dev_probe(struct device *dev,
+               mvx_hwreg_get_nlsid(&ctx->hwreg),
+               dev->id);
+ 
++    complete_all(&ctx->probe_done);
++
+     mvx_pm_runtime_put_sync(ctx->dev);
+     return 0;
+ 
+@@ -957,6 +976,8 @@ static int mvx_dev_probe(struct device *dev,
+     mvx_if_destroy(ctx->if_ops);
+ 
+ free_ctx:
++    complete_all(&ctx->probe_done);
++
+     devm_kfree(dev, ctx);
+     return ret;
+ }
+@@ -1032,6 +1053,11 @@ static int mvx_hw_init(struct device *dev)
+         return 0;
+ 
+     MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_INFO, "hardware init");
++    /* Sky1P MMHUB DDR remap uses 256-byte, four-channel interleaving. */
++    if (ctx->hwreg.hw_ver.svn_revision == MVE_SVN_4K)
++        busctrl_split = min_t(unsigned int, busctrl_split,
++                              MVE_BUSTCTRL_SPLIT_256);
++
+     mvx_hwreg_write(&ctx->hwreg, MVX_HWREG_BUSCTRL,
+                     busctrl_ref << MVE_BUSTCTRL_REF_SHIFT |
+                     busctrl_split);
+diff --git a/drivers/media/platform/cix/dev/mvx_hwreg.c b/drivers/media/platform/cix/dev/mvx_hwreg.c
+index a78958b22..57d09ccdf 100755
+--- a/drivers/media/platform/cix/dev/mvx_hwreg.c
++++ b/drivers/media/platform/cix/dev/mvx_hwreg.c
+@@ -33,6 +33,8 @@
+  * Includes
+  ****************************************************************************/
+ 
++#include <linux/bitops.h>
++#include <linux/bits.h>
+ #include <linux/device.h>
+ #include <linux/of_address.h>
+ #include <linux/module.h>
+@@ -44,13 +46,23 @@
+ #include "mvx_hwreg_v52_v76.h"
+ #include "mvx_pm_runtime.h"
+ 
+-static uint hw_ncores = MVX_NUMBER_OF_CORES;
+-module_param(hw_ncores, uint, 0660);
++static uint32_t sw_core_mask = (1 << MVX_MAX_NUMBER_OF_CORES) - 1;
++module_param(sw_core_mask, uint, 0660);
+ 
+ /****************************************************************************
+  * Static functions
+  ****************************************************************************/
+ 
++static uint32_t sw_core_active_limit(const struct mvx_hwreg *hwreg)
++{
++	uint32_t sw_eff;
++
++	if (hwreg->ncores == 0)
++		return 0;
++	sw_eff = sw_core_mask & GENMASK(hwreg->ncores - 1, 0);
++	return min(hwreg->ncores, (uint32_t)hweight32(sw_eff));
++}
++
+ static unsigned int get_offset(enum mvx_hwreg_what what)
+ {
+     switch (what) {
+@@ -338,7 +350,7 @@ static int lsid_regs_debugfs_init(struct mvx_lsid_hwreg *lsid_hwreg,
+     return 0;
+ }
+ 
+-int debugfs_init(struct mvx_hwreg *hwreg,
++static int debugfs_init(struct mvx_hwreg *hwreg,
+          struct dentry *parent)
+ {
+     int ret;
+@@ -391,8 +403,9 @@ static int mvx_hwreg_verify_core_mask(struct mvx_hwreg *hwreg)
+     uint32_t bit;
+     uint32_t core_mask = 0;
+     uint32_t ncores = 0;
+-    long unsigned int mask = (long unsigned int)hwreg->core_mask;
+-    int active_ncores = mvx_hwreg_get_ncores(hwreg);
++    unsigned long mask = (unsigned long)hwreg->core_mask &
++                  (unsigned long)sw_core_mask;
++    uint32_t active_ncores = sw_core_active_limit(hwreg);
+ 
+     /* Make sure # of cores in mask doesn't exceed # of active cores*/
+     for_each_set_bit(bit, &mask, hwreg->ncores) {
+@@ -575,12 +588,7 @@ uint32_t mvx_hwreg_get_fuse(struct mvx_hwreg *hwreg)
+ 
+ uint32_t mvx_hwreg_get_ncores(struct mvx_hwreg *hwreg)
+ {
+-    if (hwreg->ncores > hw_ncores) {
+-        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_INFO,
+-                "Downscale hw cores to %d.", hw_ncores);
+-        return hw_ncores;
+-    }
+-    return hwreg->ncores;
++    return sw_core_active_limit(hwreg);
+ }
+ 
+ uint32_t mvx_hwreg_get_nlsid(struct mvx_hwreg *hwreg)
+diff --git a/drivers/media/platform/cix/dev/mvx_hwreg.h b/drivers/media/platform/cix/dev/mvx_hwreg.h
+index 728103af7..daa0edb1d 100755
+--- a/drivers/media/platform/cix/dev/mvx_hwreg.h
++++ b/drivers/media/platform/cix/dev/mvx_hwreg.h
+@@ -113,8 +113,7 @@
+ #define MVX_RCSU_HWREG_HARVESTING_BITS              4
+ #define MVX_RCSU_HWREG_HARVESTING_MASK              ((1 << MVX_RCSU_HWREG_HARVESTING_BITS) - 1)
+ 
+-#define MVX_NUMBER_OF_LSID 4
+-#define MVX_NUMBER_OF_CORES 4
++#define MVX_MAX_NUMBER_OF_CORES 4
+ 
+ /* Timeout(ms) of wait VPU clear terminate register */
+ #define MVX_HWREG_TERMINATE_TIMEOUT 100
+@@ -357,10 +356,13 @@ void mvx_hwreg_get_hw_ver(struct mvx_hwreg *hwreg, struct mvx_hw_ver *hw_ver);
+ uint32_t mvx_hwreg_get_fuse(struct mvx_hwreg *hwreg);
+ 
+ /**
+- * mvx_hwreg_get_ncores() - Get hardware core number.
++ * mvx_hwreg_get_ncores() - Get active core count upper bound.
+  * @hwreg:    Pointer to hwreg object.
+  *
+- * Return: Value of hardware core number.
++ * Capped by MVX_HWREG_NCORES and module parameter sw_core_mask.
++ * The enabled core set is mvx_hwreg_get_core_mask().
++ *
++ * Return: Active core count limit.
+  */
+ uint32_t mvx_hwreg_get_ncores(struct mvx_hwreg *hwreg);
+ 
+diff --git a/drivers/media/platform/cix/dev/mvx_scheduler.c b/drivers/media/platform/cix/dev/mvx_scheduler.c
+index 3b4d67182..ecba8cf49 100755
+--- a/drivers/media/platform/cix/dev/mvx_scheduler.c
++++ b/drivers/media/platform/cix/dev/mvx_scheduler.c
+@@ -493,7 +493,7 @@ static const struct file_operations sched_fops = {
+     .release = single_release
+ };
+ 
+-int sched_debugfs_init(struct mvx_sched *sched,
++static int sched_debugfs_init(struct mvx_sched *sched,
+                struct dentry *parent)
+ {
+     struct dentry *dentry;
+@@ -599,7 +599,7 @@ int mvx_sched_session_construct(struct mvx_sched_session *session,
+ void mvx_sched_session_destruct(struct mvx_sched_session *session)
+ {}
+ 
+-void mvx_sched_list_insert_by_priority(struct mvx_sched *sched,
++static void mvx_sched_list_insert_by_priority(struct mvx_sched *sched,
+                 struct mvx_sched_session *session)
+ {
+     struct mvx_sched_session *tmp;
+@@ -648,19 +648,11 @@ int mvx_sched_switch_in(struct mvx_sched *sched,
+     return 0;
+ }
+ 
+-int mvx_sched_switch_out_rsp(struct mvx_sched *sched,
+-            struct mvx_sched_session *session)
++static bool is_all_lsid_idle(struct mvx_sched *sched)
+ {
+     int i;
+-    int ret;
+     bool all_lsid_idle = true;
+ 
+-    ret = mutex_lock_interruptible(&sched->mutex);
+-    if (ret != 0) {
+-        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_WARNING, "get scheduler lock fail.");
+-        return ret;
+-    }
+-
+     for (i = 0; i < sched->nlsid; i++)
+         all_lsid_idle &= mvx_lsid_idle(&sched->lsid[i]);
+ 
+@@ -674,13 +666,27 @@ int mvx_sched_switch_out_rsp(struct mvx_sched *sched,
+         }
+     }
+ 
++    return all_lsid_idle;
++}
++
++int mvx_sched_switch_out_rsp(struct mvx_sched *sched,
++            struct mvx_sched_session *session)
++{
++    int ret;
++
++    ret = mutex_lock_interruptible(&sched->mutex);
++    if (ret != 0) {
++        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_WARNING, "get scheduler lock fail.");
++        return ret;
++    }
++
+     if (sched->state == MVX_SCHED_STATE_SUSPEND) {
+-        if (all_lsid_idle == false)
++        if (!is_all_lsid_idle(sched))
+             goto end;
+ 
+         complete(&sched->cmp);
+     } else if (sched->state == MVX_SCHED_STATE_RUNNING) {
+-        if (list_empty_careful(&sched->pending) && all_lsid_idle == true)
++        if (list_empty_careful(&sched->pending) && is_all_lsid_idle(sched))
+             set_sched_state(sched, MVX_SCHED_STATE_IDLE);
+     }
+ 
+@@ -926,6 +932,7 @@ int mvx_sched_suspend(struct mvx_sched *sched)
+     int ret;
+     int i;
+     bool wait_suspend = false;
++    int wait_ret = wait_scheduler_timeout;
+ 
+     for (i = 0; i < sched->nlsid; i++) {
+         struct mvx_sched_session *ss = sched->lsid[i].session;
+@@ -954,9 +961,7 @@ int mvx_sched_suspend(struct mvx_sched *sched)
+ 
+     if (wait_suspend) {
+         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_INFO, "Waiting scheduler idle.");
+-        ret = wait_for_completion_timeout(&sched->cmp, msecs_to_jiffies(wait_scheduler_timeout));
+-        if (!ret)
+-            MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Waiting scheduler idle timeout.");
++        wait_ret = wait_for_completion_timeout(&sched->cmp, msecs_to_jiffies(wait_scheduler_timeout));
+     }
+ 
+     ret = mutex_lock_interruptible(&sched->mutex);
+@@ -965,6 +970,9 @@ int mvx_sched_suspend(struct mvx_sched *sched)
+         return -EBUSY;
+     }
+ 
++    if (wait_ret == 0 && !is_all_lsid_idle(sched))
++        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Waiting scheduler idle timeout.");
++
+     for (i = 0; i < MVX_LSID_MAX; i++)
+         if (sched->lsid[i].session)
+             unmap_session(sched, sched->lsid[i].session);
+@@ -1156,3 +1164,32 @@ void mvx_sched_get_realtime_fps(struct list_head *sessions)
+ 
+     mutex_unlock(&sched->sessions_mutex);
+ }
++
++void mvx_sched_collect_session_memory_stats(struct list_head *sessions,
++    struct mvx_log_group *group)
++{
++    struct mvx_sched_session *session;
++    struct mvx_sched_session *tmp;
++    struct mvx_sched *sched;
++    int write_idx = 0;
++
++    if (!group->memory)
++        return;
++
++    sched = container_of(sessions, struct mvx_sched, sessions);
++    mutex_lock(&sched->sessions_mutex);
++
++    list_for_each_entry_safe(session, tmp, sessions, session) {
++        if (session && session->isession) {
++            struct mvx_session *s = mvx_if_session_to_session(session->isession);
++            struct mvx_log_memory_stats stats = { 0 };
++
++            stats.session = s;
++            mvx_session_update_memory_stats(s, &stats, group, &write_idx);
++        }
++    }
++
++    mutex_unlock(&sched->sessions_mutex);
++
++    group->memory_msg_w = min(write_idx, MVX_LOG_FPS_MSG_UNITS);
++}
+diff --git a/drivers/media/platform/cix/dev/mvx_scheduler.h b/drivers/media/platform/cix/dev/mvx_scheduler.h
+index c1d48fc59..5848f4755 100755
+--- a/drivers/media/platform/cix/dev/mvx_scheduler.h
++++ b/drivers/media/platform/cix/dev/mvx_scheduler.h
+@@ -47,6 +47,7 @@
+ 
+ struct mvx_if_ops;
+ struct mvx_hwreg;
++struct mvx_log_group;
+ 
+ enum mvx_sched_state {
+     MVX_SCHED_STATE_IDLE,
+@@ -287,4 +288,13 @@ int mvx_sched_cancel_work(struct mvx_sched *sched);
+  */
+ void mvx_sched_get_realtime_fps(struct list_head *sessions);
+ 
++/**
++ * mvx_sched_collect_session_memory_stats() - collect memory stats of each
++ *                          session into the log group's memory buffer.
++ * @sessions:    Pointer to session list.
++ * @group:    Pointer to log group.
++ */
++void mvx_sched_collect_session_memory_stats(struct list_head *sessions,
++                        struct mvx_log_group *group);
++
+ #endif /* _MVX_SCHEDULER_H_ */
+diff --git a/drivers/media/platform/cix/external/fw_v2/mve_protocol_def.h b/drivers/media/platform/cix/external/fw_v2/mve_protocol_def.h
+index f5c7eddeb..bb718dde0 100755
+--- a/drivers/media/platform/cix/external/fw_v2/mve_protocol_def.h
++++ b/drivers/media/platform/cix/external/fw_v2/mve_protocol_def.h
+@@ -1964,6 +1964,8 @@ struct mve_buffer_param
+         #define MVE_BUFFER_PARAM_TYPE_GOP_RESET_LTR_PEROID_DYNAMIC   (28) /* reset ltr peroid dynamiclly */
+         #define MVE_BUFFER_PARAM_TYPE_ENC_STATS                  (29) /* encode stats */
+         #define MVE_BUFFER_PARAM_TYPE_OSD_RECTANGLES             (30) /* osd rectangles */
++        #define MVE_BUFFER_PARAM_TYPE_RATE_CONTROL_RRC_DQP_RANGE (36)
++        #define MVE_BUFFER_PARAM_TYPE_RATE_CONTROL_RRC_DQP_STEP  (37)
+ 
+     union
+     {
+diff --git a/drivers/media/platform/cix/external/fw_v3/mve_protocol_def.h b/drivers/media/platform/cix/external/fw_v3/mve_protocol_def.h
+index 97f9af186..e066ec7e7 100755
+--- a/drivers/media/platform/cix/external/fw_v3/mve_protocol_def.h
++++ b/drivers/media/platform/cix/external/fw_v3/mve_protocol_def.h
+@@ -1904,6 +1904,8 @@ struct mve_buffer_param
+         #define MVE_BUFFER_PARAM_TYPE_GOP_RESET_LTR_PEROID_DYNAMIC   (28) /* reset ltr peroid dynamiclly */
+         #define MVE_BUFFER_PARAM_TYPE_ENC_STATS                  (29) /* encode stats */
+         #define MVE_BUFFER_PARAM_TYPE_OSD_RECTANGLES             (30) /* osd rectangles */
++        #define MVE_BUFFER_PARAM_TYPE_RATE_CONTROL_RRC_DQP_RANGE (36)
++        #define MVE_BUFFER_PARAM_TYPE_RATE_CONTROL_RRC_DQP_STEP  (37)
+ 
+     union
+     {
+diff --git a/drivers/media/platform/cix/if/mvx_firmware.c b/drivers/media/platform/cix/if/mvx_firmware.c
+index 0a4f45343..fb4e64b65 100755
+--- a/drivers/media/platform/cix/if/mvx_firmware.c
++++ b/drivers/media/platform/cix/if/mvx_firmware.c
+@@ -608,14 +608,8 @@ int mvx_fw_construct(struct mvx_fw *fw,
+     fw->session = session;
+     fw->client_ops = client_ops;
+     fw->csession = csession;
+-    /**
+-     * Other cores always read firmware instance0 text_data(virtual address
+-     * 0x0000_0000 - 0x0000_00018) at the begining. Therefore, must do map for
+-     * core0(firmware instance0) even thouth disallow it.
+-     */
+-    core_mask |= 1;
+     fw->ncores = fls(core_mask); // used in fw_map(). fls() to make sure all the cores can be mapped
+-    fw->core_mask = core_mask;
++    fw->core_mask = (1 << fw->ncores) - 1; // Ensure all the cores with lower ID have fw mapped
+     fw->fw_bin = fw_bin;
+     mutex_init(&fw->mutex);
+     mutex_init(&fw->rpcmem_mutex);
+diff --git a/drivers/media/platform/cix/if/mvx_firmware.h b/drivers/media/platform/cix/if/mvx_firmware.h
+index 1bec45de3..e1e1a3b83 100755
+--- a/drivers/media/platform/cix/if/mvx_firmware.h
++++ b/drivers/media/platform/cix/if/mvx_firmware.h
+@@ -748,6 +748,8 @@ struct mvx_fw_set_option {
+         MVX_FW_SET_ENC_INTER_IPENALTY_ANGULAR,
+         MVX_FW_SET_ENC_INTER_IPENALTY_PLANAR,
+         MVX_FW_SET_ENC_INTER_IPENALTY_DC,
++        MVX_FW_SET_RATE_CONTROL_RRC_DQP_RANGE,
++        MVX_FW_SET_RATE_CONTROL_RRC_DQP_STEP,
+     } code;
+ 
+     /**
+@@ -852,6 +854,8 @@ struct mvx_fw_set_option {
+         uint32_t inter_ipenalty_planar;
+         uint32_t inter_ipenalty_dc;
+         struct mvx_lambda_scale lambda_scale;
++        uint32_t rrc_dqp_range;
++        uint32_t rrc_dqp_step;
+     };
+ };
+ #define MVX_FW_COLOR_DESC_DISPLAY_VALID         0x1
+diff --git a/drivers/media/platform/cix/if/mvx_firmware_v2.c b/drivers/media/platform/cix/if/mvx_firmware_v2.c
+index 70dfa58b7..89caf8fff 100755
+--- a/drivers/media/platform/cix/if/mvx_firmware_v2.c
++++ b/drivers/media/platform/cix/if/mvx_firmware_v2.c
+@@ -2010,8 +2010,25 @@ static int put_message_v2(struct mvx_fw *fw,
+                     msg->set_option.target_bitrate;
+             }
+ 
+-            ret = put_fw_buf_param(fw, &param,
+-                           sizeof(param.data.rate_control));
++            ret = put_fw_buf_param(fw, &param, sizeof(param.data.rate_control));
++            break;
++        }
++        case MVX_FW_SET_RATE_CONTROL_RRC_DQP_RANGE: {
++            struct mve_buffer_param param;
++
++            param.type = MVE_BUFFER_PARAM_TYPE_RATE_CONTROL_RRC_DQP_RANGE;
++            param.data.arg = msg->set_option.rrc_dqp_range;
++            ret = put_fw_buf_param(fw, &param, sizeof(param.data.arg));
++
++            break;
++        }
++        case MVX_FW_SET_RATE_CONTROL_RRC_DQP_STEP: {
++            struct mve_buffer_param param;
++
++            param.type = MVE_BUFFER_PARAM_TYPE_RATE_CONTROL_RRC_DQP_STEP;
++            param.data.arg = msg->set_option.rrc_dqp_step;
++            ret = put_fw_buf_param(fw, &param, sizeof(param.data.arg));
++
+             break;
+         }
+         case MVX_FW_SET_RATE_CONTROL_JPEG: {
+diff --git a/drivers/media/platform/cix/if/mvx_if.h b/drivers/media/platform/cix/if/mvx_if.h
+index 6df4f53ea..06e9181d2 100755
+--- a/drivers/media/platform/cix/if/mvx_if.h
++++ b/drivers/media/platform/cix/if/mvx_if.h
+@@ -501,6 +501,20 @@ struct mvx_client_ops {
+      */
+     void (*reset_priority)(struct mvx_client_session *session);
+ 
++    /**
++     * notify_dsm_event() - send sysevent to dsm.
++     *
++     * Return: None.
++     */
++    void (*notify_dsm_event)(struct mvx_client_session *csession, char *msg);
++
++    /**
++     * wait_probe_done() - Wait for device probe to complete.
++     *
++     * Return: 0 on success, else error code.
++     */
++    int (*wait_probe_done)(struct mvx_client_ops *client);
++
+ };
+ 
+ /****************************************************************************
+diff --git a/drivers/media/platform/cix/if/mvx_session.c b/drivers/media/platform/cix/if/mvx_session.c
+index d88c4ce9f..3d977800c 100755
+--- a/drivers/media/platform/cix/if/mvx_session.c
++++ b/drivers/media/platform/cix/if/mvx_session.c
+@@ -36,6 +36,7 @@
+ #include <linux/debugfs.h>
+ #include <linux/device.h>
+ #include <linux/list.h>
++#include <linux/hashtable.h>
+ #include <linux/module.h>
+ #include <linux/poll.h>
+ #include <linux/sched.h>
+@@ -1245,7 +1246,7 @@ static const uint8_t qtbl_luma_ref[MVX_FW_QUANT_LEN] = {
+     72, 92, 95, 98, 112, 100, 103, 99
+ };
+ 
+-void generate_quant_tbl(int quality,
++static void generate_quant_tbl(int quality,
+             const uint8_t qtbl_ref[MVX_FW_QUANT_LEN],
+             uint8_t qtbl[MVX_FW_QUANT_LEN])
+ {
+@@ -1694,6 +1695,25 @@ static int fw_encoder_setup(struct mvx_session *session)
+                 return ret;
+             }
+         }
++
++        if (session->rrc_dqp_range != MVX_INVALID_VAL) {
++            option.code = MVX_FW_SET_RATE_CONTROL_RRC_DQP_RANGE;
++            option.rrc_dqp_range = session->rrc_dqp_range;
++            ret = fw_set_option(session, &option);
++            if (ret != 0) {
++                MVX_SESSION_WARN(session, "Failed to set rrc_dqp_range");
++                return ret;
++            }
++        }
++        if (session->rrc_dqp_step != MVX_INVALID_VAL) {
++            option.code = MVX_FW_SET_RATE_CONTROL_RRC_DQP_STEP;
++            option.rrc_dqp_step = session->rrc_dqp_step;
++            ret = fw_set_option(session, &option);
++            if (ret != 0) {
++                MVX_SESSION_WARN(session, "Failed to set rrc_dqp_step");
++                return ret;
++            }
++        }
+     } else {
+         /*
+         //handle JPEG rc
+@@ -2321,6 +2341,87 @@ static int fw_encoder_setup(struct mvx_session *session)
+     return ret;
+ }
+ 
++static int fw_decoder_set_yuv2rgb_params(struct mvx_session *session)
++{
++    struct mvx_fw_set_option option;
++    int ret;
++
++    if (!mvx_is_rgb24(session->port[MVX_DIR_OUTPUT].format))
++        return 0;
++
++    option.code = MVX_FW_SET_DEC_YUV2RGB_PARAMS;
++
++    if (session->use_cust_color_conv_coef) {
++        memcpy(&option.yuv2rbg_csc_coef, &session->color_conv_coef,
++               sizeof(struct mvx_color_conv_coef));
++        ret = 0;
++    } else {
++        ret = generate_standards_yuv2rgb_coef(session->color_conv_mode,
++                              &option.yuv2rbg_csc_coef);
++    }
++
++    if (ret != 0)
++        return ret;
++
++    ret = fw_set_option(session, &option);
++    if (ret != 0) {
++        MVX_SESSION_WARN(session,
++                 "Failed to set yuv2rgb color conversion mode.");
++        return ret;
++    }
++
++    session->yuv2rgb_configured = true;
++
++    return 0;
++}
++
++/*
++ * Program YUV2RGB when userspace switches decoder output to RGB after the
++ * firmware was already configured for a YUV/AFBC output format.
++ *
++ * Called from mvx_session_set_format() while the capture port is stream-off.
++ * The firmware is left in STOPPED state; mvx_session_streamon() resumes it.
++ */
++static int fw_decoder_apply_yuv2rgb_on_format_change(struct mvx_session *session)
++{
++    int ret;
++
++    if (session->is_encoder || session->yuv2rgb_configured)
++        return 0;
++
++    if (!mvx_is_rgb24(session->port[MVX_DIR_OUTPUT].format))
++        return 0;
++
++    if (!is_fw_loaded(session))
++        return 0;
++
++    if (session->fw_state == MVX_FW_STATE_RUNNING) {
++        ret = fw_state_change(session, MVX_FW_STATE_STOPPED);
++        if (ret != 0)
++            return ret;
++
++        ret = wait_pending(session);
++        if (ret != 0)
++            return ret;
++    }
++
++    /*
++     * Output flush is only legal while stopped (or right after SEQ_PARAM).
++     * This clears the previous YUV/AFBC output configuration.
++     */
++    ret = fw_flush(session, MVX_DIR_OUTPUT);
++    if (ret != 0)
++        return ret;
++
++    ret = wait_pending(session);
++    if (ret != 0)
++        return ret;
++
++    session->port[MVX_DIR_OUTPUT].received_seq_param = false;
++
++    return fw_decoder_set_yuv2rgb_params(session);
++}
++
+ static int fw_decoder_setup(struct mvx_session *session)
+ {
+     int ret;
+@@ -2426,24 +2527,9 @@ static int fw_decoder_setup(struct mvx_session *session)
+ 
+     if( mvx_is_rgb24(session->port[MVX_DIR_OUTPUT].format))
+     {
+-        option.code = MVX_FW_SET_DEC_YUV2RGB_PARAMS;
+-
+-        if(session->use_cust_color_conv_coef)
+-        {
+-            ret =0;
+-            memcpy(&option.yuv2rbg_csc_coef,&session->color_conv_coef,sizeof(struct mvx_color_conv_coef));
+-        }
+-        else
+-        {
+-            ret =generate_standards_yuv2rgb_coef(session->color_conv_mode,&option.yuv2rbg_csc_coef);
+-        }
+-        if(0==ret)
+-        ret = fw_set_option(session, &option);
+-        if (ret != 0) {
+-            MVX_SESSION_WARN(session,
+-                     "Failed to set yuv2rgb color conversion mode.");
++        ret = fw_decoder_set_yuv2rgb_params(session);
++        if (ret != 0)
+             return ret;
+-        }
+     }
+     if (session->disabled_features != 0 || codec == MVX_FORMAT_AV1) {
+         option.code = MVX_FW_SET_DISABLE_FEATURES;
+@@ -3602,6 +3688,8 @@ int mvx_session_construct(struct mvx_session *session,
+     session->inter_ipenalty_angular = MVX_INVALID_VAL;
+     session->inter_ipenalty_planar = MVX_INVALID_VAL;
+     session->inter_ipenalty_dc = MVX_INVALID_VAL;
++    session->rrc_dqp_range = MVX_INVALID_VAL;
++    session->rrc_dqp_step = MVX_INVALID_VAL;
+ 
+     if (session->enable_buffer_dump == true) {
+         char input_file[64];
+@@ -3770,6 +3858,7 @@ int mvx_session_set_format(struct mvx_session *session,
+ {
+     struct mvx_session_port *port = &session->port[dir];
+     int ret;
++    enum mvx_format old_format = port->format;
+ 
+     if (session->error != 0)
+         return session->error;
+@@ -3856,6 +3945,13 @@ int mvx_session_set_format(struct mvx_session *session,
+         mvx_session_set_nalu_format(session,
+                     MVX_NALU_FORMAT_FOUR_BYTE_LENGTH_FIELD);
+ 
++    if (!session->is_encoder && dir == MVX_DIR_OUTPUT &&
++        mvx_is_rgb24(format) && !mvx_is_rgb24(old_format)) {
++        ret = fw_decoder_apply_yuv2rgb_on_format_change(session);
++        if (ret != 0)
++            return ret;
++    }
++
+     return 0;
+ }
+ 
+@@ -6807,6 +6903,58 @@ void mvx_session_update_realtime_fps(struct mvx_session *session)
+         avgfps, rtfps, frame_count, session->start.tv_sec, session->ts[ts_index].tv_sec);
+ }
+ 
++void mvx_session_update_memory_stats(struct mvx_session *session,
++    struct mvx_log_memory_stats *stats, struct mvx_log_group *group,
++    int *write_idx)
++{
++    enum mvx_direction dir;
++
++    /* Firmware memory. */
++    if (session->fw.text)
++        stats->fw_size += session->fw.text->count * MVE_PAGE_SIZE;
++    if (session->fw.bss)
++        stats->fw_size += session->fw.bss->count * MVE_PAGE_SIZE;
++    if (session->fw.bss_shared)
++        stats->fw_size += session->fw.bss_shared->count * MVE_PAGE_SIZE;
++
++    /* RPC memory. */
++    if (mutex_trylock(&session->fw.rpcmem_mutex)) {
++        struct mvx_mmu_pages *pages;
++        unsigned int bkt;
++
++        hash_for_each(session->fw.rpc_mem, bkt, pages, node)
++            stats->rpc_size += pages->count * MVE_PAGE_SIZE;
++        mutex_unlock(&session->fw.rpcmem_mutex);
++    }
++
++    /* Buffer memory. */
++    for (dir = MVX_DIR_INPUT; dir < MVX_DIR_MAX; dir++) {
++        struct mvx_session_port *port = &session->port[dir];
++        unsigned int i;
++        unsigned int port_size = 0;
++
++        for (i = 0; i < port->nplanes; i++)
++            port_size += port->size[i];
++
++        stats->buf_size += port->buffer_allocated * port_size;
++
++        if (dir == MVX_DIR_INPUT) {
++            stats->in_buf_count = port->buffer_allocated;
++            stats->in_buf_size = port_size;
++        } else {
++            stats->out_buf_count = port->buffer_allocated;
++            stats->out_buf_size = port_size;
++        }
++    }
++
++    if (session->port[get_bitstream_port(session)].format == MVX_FORMAT_JPEG)
++        stats->name = session->is_encoder ? "jpeg_enc" : "jpeg_dec";
++    else
++        stats->name = session->is_encoder ? "encoder" : "decoder";
++
++    mvx_log_session_memory_record(group, stats, write_idx);
++}
++
+ void mvx_session_update_buffer_count(struct mvx_session *session,
+                     enum mvx_direction dir)
+ {
+@@ -6916,3 +7064,64 @@ int mvx_session_set_enc_inter_ipenalty_dc(struct mvx_session *session, int val)
+ 
+     return 0;
+ }
++
++int mvx_session_set_rrc_dqp_range(struct mvx_session *session, int val)
++{
++    int ret;
++
++    if (session->error != 0)
++        return session->error;
++
++    if (is_fw_loaded(session) != false) {
++        struct mvx_fw_set_option option;
++        option.code = MVX_FW_SET_RATE_CONTROL_RRC_DQP_RANGE;
++        option.rrc_dqp_range = val;
++        ret = fw_set_option(session, &option);
++        if (ret != 0) {
++            MVX_SESSION_WARN(session,
++                 "Failed to set rrc dqp range");
++            return ret;
++        }
++    }
++
++    session->rrc_dqp_range = val;
++
++    return 0;
++}
++
++int mvx_session_set_rrc_dqp_step(struct mvx_session *session, int val)
++{
++    int ret;
++
++    if (session->error != 0)
++        return session->error;
++
++    if (is_fw_loaded(session) != false) {
++        struct mvx_fw_set_option option;
++        option.code = MVX_FW_SET_RATE_CONTROL_RRC_DQP_STEP;
++        option.rrc_dqp_step = val;
++        ret = fw_set_option(session, &option);
++        if (ret != 0) {
++            MVX_SESSION_WARN(session,
++                 "Failed to set rrc dqp step");
++            return ret;
++        }
++    }
++
++    session->rrc_dqp_step = val;
++
++    return 0;
++}
++
++int mvx_session_set_enc_disable_timescale(struct mvx_session *session, int val)
++{
++   if (session->error != 0)
++        return session->error;
++
++    if (is_fw_loaded(session) != false)
++        return -EBUSY;
++
++    session->disable_timescale = val;
++
++    return 0;
++}
+diff --git a/drivers/media/platform/cix/if/mvx_session.h b/drivers/media/platform/cix/if/mvx_session.h
+index ad02369a1..815c2035b 100755
+--- a/drivers/media/platform/cix/if/mvx_session.h
++++ b/drivers/media/platform/cix/if/mvx_session.h
+@@ -458,6 +458,8 @@ struct mvx_session {
+     uint32_t job_frames;
+     uint32_t force_key_frame;
+     bool pending_switch_out;
++    /* YUV2RGB CSC was programmed on the firmware session. */
++    bool yuv2rgb_configured;
+     bool is_encoder;
+     struct timespec64 *ts;
+     struct timespec64 start;
+@@ -475,6 +477,11 @@ struct mvx_session {
+     uint32_t inter_ipenalty_planar;
+     uint32_t inter_ipenalty_dc;
+     struct mvx_lambda_scale lambda_scale;
++    int rrc_dqp_range;
++    int rrc_dqp_step;
++    uint32_t disable_timescale;
++    uint32_t pause_counter;
++    uint32_t fps_before_pause;
+ };
+ 
+ /****************************************************************************
+@@ -695,6 +702,18 @@ static inline struct mvx_session *mvx_if_session_to_session(
+ void mvx_session_port_show(struct mvx_session_port *port,
+                struct seq_file *s);
+ 
++/**
++ * mvx_session_update_memory_stats() - Update memory stats for a session.
++ *        Collects fw/rpc size and calls V4L2 extension for buffer stats.
++ * @session:    Pointer to session.
++ * @stats:      Memory stats to fill.
++ * @group:      Pointer to the perf log group.
++ * @write_idx:  Pointer to current write index.
++ */
++void mvx_session_update_memory_stats(struct mvx_session *session,
++    struct mvx_log_memory_stats *stats, struct mvx_log_group *group,
++    int *write_idx);
++
+ /*
+  * Functions bellow implement different settings for a session.
+  *
+@@ -1485,6 +1504,9 @@ int mvx_session_set_enc_intra_ipenalty_dc(struct mvx_session *session, int val);
+ int mvx_session_set_enc_inter_ipenalty_angular(struct mvx_session *session, int val);
+ int mvx_session_set_enc_inter_ipenalty_planar(struct mvx_session *session, int val);
+ int mvx_session_set_enc_inter_ipenalty_dc(struct mvx_session *session, int val);
++int mvx_session_set_rrc_dqp_range(struct mvx_session *session, int val);
++int mvx_session_set_rrc_dqp_step(struct mvx_session *session, int val);
++int mvx_session_set_enc_disable_timescale(struct mvx_session *session, int val);
+ /**
+  * mvx_session_update_buffer_count() - Update session port buffer max and min.
+  * @session:    Pointer to session.
+diff --git a/drivers/media/platform/cix/if/v4l2/mvx_ext_v4l2.c b/drivers/media/platform/cix/if/v4l2/mvx_ext_v4l2.c
+index 110c78b52..c33d67ece 100755
+--- a/drivers/media/platform/cix/if/v4l2/mvx_ext_v4l2.c
++++ b/drivers/media/platform/cix/if/v4l2/mvx_ext_v4l2.c
+@@ -104,7 +104,7 @@ static const struct v4l2_ioctl_ops mvx_v4l2_ioctl_ops = {
+     .vidioc_default                 = mvx_v4l2_vidioc_default
+ };
+ 
+-int mvx_ext_if_register_device(struct mvx_ext_if *ext,
++static int mvx_ext_if_register_device(struct mvx_ext_if *ext,
+              const char *name,
+              bool is_encoder)
+ {
+diff --git a/drivers/media/platform/cix/if/v4l2/mvx_v4l2_ctrls.c b/drivers/media/platform/cix/if/v4l2/mvx_v4l2_ctrls.c
+index 7e7a8b7a3..22c887654 100755
+--- a/drivers/media/platform/cix/if/v4l2/mvx_v4l2_ctrls.c
++++ b/drivers/media/platform/cix/if/v4l2/mvx_v4l2_ctrls.c
+@@ -957,6 +957,18 @@ static int set_ctrl(struct v4l2_ctrl *ctrl)
+         i32_val = *ctrl->p_new.p_s32;
+         ret = mvx_session_set_enc_inter_ipenalty_dc(session, i32_val);
+         break;
++    case V4L2_CID_MVE_VIDEO_RRC_DQP_RANGE:
++        i32_val = *ctrl->p_new.p_s32;
++        ret = mvx_session_set_rrc_dqp_range(session, i32_val);
++        break;
++    case V4L2_CID_MVE_VIDEO_RRC_DQP_STEP:
++        i32_val = *ctrl->p_new.p_s32;
++        ret = mvx_session_set_rrc_dqp_step(session, i32_val);
++        break;
++    case V4L2_CID_MVE_VIDEO_ENC_DISABLE_TIMESCALE:
++        i32_val = *ctrl->p_new.p_s32;
++        ret = mvx_session_set_enc_disable_timescale(session, i32_val);
++        break;
+     }
+ unlock_mutex:
+     mutex_unlock(&vsession->mutex);
+@@ -2172,6 +2184,30 @@ int mvx_v4l2_ctrls_init_enc(struct v4l2_ctrl_handler *hnd)
+     if (ctrl == NULL)
+         goto handler_free;
+ 
++    ctrl = mvx_v4l2_ctrl_new_custom_int(
++        hnd, V4L2_CID_MVE_VIDEO_RRC_DQP_RANGE,
++        "rrc dqp range",
++        MVX_INVALID_VAL, 25, MVX_INVALID_VAL, 1);
++    if (ctrl == NULL)
++        goto handler_free;
++
++    ctrl = mvx_v4l2_ctrl_new_custom_int(
++        hnd, V4L2_CID_MVE_VIDEO_RRC_DQP_STEP,
++        "rrc dqp step",
++        MVX_INVALID_VAL, 25, MVX_INVALID_VAL, 1);
++    if (ctrl == NULL)
++        goto handler_free;
++
++    ctrl = mvx_v4l2_ctrl_new_custom_int(
++            hnd, V4L2_CID_MVE_VIDEO_ENC_DISABLE_TIMESCALE,
++            "disable timescale in vui",
++            0, 1, 0, 1);
++    if (ctrl == NULL)
++        goto handler_free;
++
++    ret = v4l2_ctrl_handler_setup(hnd);
++    if (ret != 0)
++        goto handler_free;
+     return 0;
+ 
+ handler_free:
+diff --git a/drivers/media/platform/cix/if/v4l2/mvx_v4l2_fops.c b/drivers/media/platform/cix/if/v4l2/mvx_v4l2_fops.c
+index 85c9654bd..4c69cd687 100755
+--- a/drivers/media/platform/cix/if/v4l2/mvx_v4l2_fops.c
++++ b/drivers/media/platform/cix/if/v4l2/mvx_v4l2_fops.c
+@@ -61,6 +61,10 @@ int mvx_v4l2_open(struct file *file)
+     struct v4l2_format fmt = { 0 };
+     int ret;
+ 
++    ret = ctx->client_ops->wait_probe_done(ctx->client_ops);
++    if (ret != 0)
++        return -EBUSY;
++
+     session = devm_kzalloc(ctx->dev, sizeof(*session), GFP_KERNEL);
+     if (session == NULL) {
+         MVX_LOG_PRINT(&mvx_log_if, MVX_LOG_WARNING,
+diff --git a/drivers/media/platform/cix/linux/mvx-v4l2-controls.h b/drivers/media/platform/cix/linux/mvx-v4l2-controls.h
+index 00701b964..a5eb52c2b 100755
+--- a/drivers/media/platform/cix/linux/mvx-v4l2-controls.h
++++ b/drivers/media/platform/cix/linux/mvx-v4l2-controls.h
+@@ -480,6 +480,9 @@ enum v4l2_cid_mve_video {
+     V4L2_CID_MVE_VIDEO_ENC_INTER_IPENALTY_ANGULAR,
+     V4L2_CID_MVE_VIDEO_ENC_INTER_IPENALTY_PLANAR,
+     V4L2_CID_MVE_VIDEO_ENC_INTER_IPENALTY_DC,
++    V4L2_CID_MVE_VIDEO_ENC_DISABLE_TIMESCALE,
++    V4L2_CID_MVE_VIDEO_RRC_DQP_RANGE,
++    V4L2_CID_MVE_VIDEO_RRC_DQP_STEP,
+ };
+ 
+ #define V4L2_SESSION_PRIORITY_PREEMPTION 0
+diff --git a/drivers/media/platform/cix/mvx_log.c b/drivers/media/platform/cix/mvx_log.c
+index 79c2644d7..349e72896 100755
+--- a/drivers/media/platform/cix/mvx_log.c
++++ b/drivers/media/platform/cix/mvx_log.c
+@@ -34,7 +34,9 @@
+  ******************************************************************************/
+ 
+ #include "mvx_log.h"
++#include "mvx_log_group.h"
+ #include "mvx_log_ram.h"
++#include "mvx_scheduler.h"
+ 
+ #include <linux/uaccess.h>
+ #include <linux/aio.h>
+@@ -50,12 +52,6 @@
+ #include <linux/version.h>
+ #include <linux/vmalloc.h>
+ 
+-
+-/******************************************************************************
+- * External functions
+- ******************************************************************************/
+-void mvx_sched_get_realtime_fps(struct list_head *sessions);
+-
+ /******************************************************************************
+  * Defines
+  ******************************************************************************/
+@@ -64,6 +60,9 @@ void mvx_sched_get_realtime_fps(struct list_head *sessions);
+ #define UNUSED(x) (void)(x)
+ #endif /* UNUSED */
+ 
++#define BYTES_TO_MB_WHOLE(b) ((unsigned int)((b) * 1000UL / 1024 / 1024) / 1000)
++#define BYTES_TO_MB_FRAC(b) ((unsigned int)((b) * 1000UL / 1024 / 1024) % 1000)
++
+ /******************************************************************************
+  * Types
+  ******************************************************************************/
+@@ -99,8 +98,6 @@ static const char *const severity_to_kern_level[] = {
+     KERN_DEBUG
+ };
+ 
+-void mvx_log_get_util(struct timer_list *timer);
+-
+ /******************************************************************************
+  * Static functions
+  ******************************************************************************/
+@@ -1093,9 +1090,89 @@ void mvx_log_group_construct(struct mvx_log_group *group,
+         memset(group->avgfps, 0, size);
+         group->rtfps = vmalloc(size);
+         memset(group->rtfps, 0, size);
++        group->memory = vmalloc(size);
++        memset(group->memory, 0, size);
++        group->memory_msg_w = 0;
+     }
+ }
+ 
++/******************************************************************************
++ * Session Memory Tracking
++ ******************************************************************************/
++
++/*
++ * mvx_log_session_memory_record() - Format and write one session's memory
++ *        stats to the group's memory buffer.
++ * @group:        Pointer to the perf log group.
++ * @stats:        Pointer to session memory stats.
++ * @write_idx:        Pointer to current write index (updated by this function).
++ */
++void mvx_log_session_memory_record(struct mvx_log_group *group,
++    struct mvx_log_memory_stats *stats, int *write_idx)
++{
++    unsigned int total;
++
++    if (!group->memory)
++        return;
++
++    total = stats->fw_size + stats->rpc_size + stats->buf_size;
++
++    scnprintf(group->memory + MVX_LOG_FPS_MSG_UNIT_SIZE * *write_idx,
++        MVX_LOG_FPS_MSG_UNIT_SIZE,
++        "[%px] %s: FW %u.%03u MB, RPC %u.%03u MB, Buffer %u.%03u MB (IN %u x %u, OUT %u x %u), Total %u.%03u MB\n",
++        stats->session,
++        stats->name,
++        BYTES_TO_MB_WHOLE(stats->fw_size),
++        BYTES_TO_MB_FRAC(stats->fw_size),
++        BYTES_TO_MB_WHOLE(stats->rpc_size),
++        BYTES_TO_MB_FRAC(stats->rpc_size),
++        BYTES_TO_MB_WHOLE(stats->buf_size),
++        BYTES_TO_MB_FRAC(stats->buf_size),
++        stats->in_buf_count, stats->in_buf_size,
++        stats->out_buf_count, stats->out_buf_size,
++        BYTES_TO_MB_WHOLE(total),
++        BYTES_TO_MB_FRAC(total));
++
++    *write_idx = (*write_idx + 1) % MVX_LOG_FPS_MSG_UNITS;
++}
++
++static ssize_t group_memory_read(struct file *file,
++                char __user *user_buffer,
++                size_t count,
++                loff_t *position)
++{
++    /* File path mvx/group/<group>/memory. */
++    struct mvx_log_group *group = get_inode_private(file, 1);
++    char *cache = group->memory + MVX_LOG_FPS_MSG_BUF_SIZE;
++    size_t len = 0;
++
++    /* Collect memory stats from all active sessions at read time. */
++    mvx_sched_collect_session_memory_stats(group->sessions, group);
++
++    mutex_lock(&group->mutex);
++    if (group->memory && group->memory_msg_w > 0) {
++        int i;
++        int num = group->memory_msg_w;
++        int offset = 0;
++        char *start = group->memory + offset;
++        if (start[0] == 0)
++            num = 0;
++        for (i = 0; i < num; i++) {
++            len += scnprintf(cache + len, MVX_LOG_FPS_MSG_UNIT_SIZE,
++                    "%s", group->memory + offset);
++            offset += MVX_LOG_FPS_MSG_UNIT_SIZE;
++            if (offset == MVX_LOG_FPS_MSG_BUF_SIZE)
++                offset = 0;
++        }
++    } else {
++        len = scnprintf(cache, MVX_LOG_FPS_MSG_UNIT_SIZE,
++                "No session memory info yet.\n");
++    }
++    mutex_unlock(&group->mutex);
++
++    return simple_read_from_buffer(user_buffer, count, position, cache, len);
++}
++
+ int mvx_log_group_add(struct mvx_log *log,
+               const char *name,
+               struct mvx_log_group *group)
+@@ -1135,6 +1212,9 @@ int mvx_log_group_add(struct mvx_log *log,
+             .read  = group_status_read,
+             .write = group_status_write,
+         };
++        static const struct file_operations memory_fops = {
++            .read    = group_memory_read,
++        };
+         /* Create <group>/utilization. */
+         debugfs_create_file("utilization", 0400, group->dentry, NULL,
+                         &group_util_fops);
+@@ -1150,6 +1230,10 @@ int mvx_log_group_add(struct mvx_log *log,
+         /* Create <group>/enable. */
+         debugfs_create_file("enable", 0600, group->dentry, NULL,
+                         &group_status_fops);
++
++        /* Create <group>/memory. */
++        debugfs_create_file("memory", 0400, group->dentry, NULL,
++                        &memory_fops);
+     } else {
+         /* Create <group>/drain. */
+         static const struct file_operations group_drain_fops = {
+@@ -1177,6 +1261,8 @@ void mvx_log_group_destruct(struct mvx_log_group *group)
+         vfree(group->avgfps);
+     if (group->rtfps)
+         vfree(group->rtfps);
++    if (group->memory)
++        vfree(group->memory);
+ }
+ 
+ const char *mvx_log_strrchr(const char *s)
+diff --git a/drivers/media/platform/cix/mvx_log.h b/drivers/media/platform/cix/mvx_log.h
+index 1ede55847..69401c7c8 100755
+--- a/drivers/media/platform/cix/mvx_log.h
++++ b/drivers/media/platform/cix/mvx_log.h
+@@ -258,11 +258,47 @@ struct mvx_log_group {
+     int rtfps_num;
+     char *avgfps;
+     int fps_msg_w;
++    char *memory;
++    int memory_msg_w;
+     bool has_update;
+     struct list_head *sessions;
+     struct mutex mutex;
+ };
+ 
++/**
++ * struct mvx_log_memory_stats - Memory statistics for a session.
++ * @session:        Pointer to session (for display).
++ * @name:        Session type name (e.g., "encoder", "decoder").
++ * @fw_size:        Firmware memory size in bytes.
++ * @rpc_size:        RPC memory size in bytes.
++ * @buf_size:        Buffer memory size in bytes.
++ * @in_buf_count:    Number of input buffers.
++ * @in_buf_size:    Size of each input buffer.
++ * @out_buf_count:    Number of output buffers.
++ * @out_buf_size:    Size of each output buffer.
++ */
++struct mvx_log_memory_stats {
++    void *session;
++    const char *name;
++    unsigned int fw_size;
++    unsigned int rpc_size;
++    unsigned int buf_size;
++    unsigned int in_buf_count;
++    unsigned int in_buf_size;
++    unsigned int out_buf_count;
++    unsigned int out_buf_size;
++};
++
++/**
++ * mvx_log_session_memory_record() - Format and write one session's memory
++ *        stats to the group's memory buffer.
++ * @group:        Pointer to the perf log group.
++ * @stats:        Pointer to session memory stats.
++ * @write_idx:        Pointer to current write index (updated by this function).
++ */
++void mvx_log_session_memory_record(struct mvx_log_group *group,
++    struct mvx_log_memory_stats *stats, int *write_idx);
++
+ /**
+  * struct mvx_log - Log class that keeps track of registered groups and drains.
+  */
+diff --git a/drivers/media/platform/cix/mvx_log_group.c b/drivers/media/platform/cix/mvx_log_group.c
+index 5ec9c11fe..cc9e4b095 100755
+--- a/drivers/media/platform/cix/mvx_log_group.c
++++ b/drivers/media/platform/cix/mvx_log_group.c
+@@ -36,6 +36,7 @@
+ #include <linux/vmalloc.h>
+ #include <linux/timer.h>
+ #include "mvx_log.h"
++#include "mvx_log_group.h"
+ 
+ /******************************************************************************
+  * Defines
+diff --git a/drivers/media/platform/cix/mvx_log_group.h b/drivers/media/platform/cix/mvx_log_group.h
+index 37f5e8e59..e32ae858f 100755
+--- a/drivers/media/platform/cix/mvx_log_group.h
++++ b/drivers/media/platform/cix/mvx_log_group.h
+@@ -37,6 +37,7 @@
+  ****************************************************************************/
+ 
+ #include "mvx_log.h"
++#include <linux/timer.h>
+ 
+ /******************************************************************************
+  * Prototypes
+@@ -66,4 +67,10 @@ int mvx_log_group_init(const char *entry_name);
+  */
+ void mvx_log_group_deinit(void);
+ 
++/**
++ * mvx_log_get_util() - Timer callback to compute and log utilization.
++ * @timer:        Pointer to timer_list.
++ */
++void mvx_log_get_util(struct timer_list *timer);
++
+ #endif /* _MVX_LOG_GROUP_H_ */
+diff --git a/drivers/media/platform/cix/mvx_pm_runtime.c b/drivers/media/platform/cix/mvx_pm_runtime.c
+index 16045950c..716e135c0 100755
+--- a/drivers/media/platform/cix/mvx_pm_runtime.c
++++ b/drivers/media/platform/cix/mvx_pm_runtime.c
+@@ -31,6 +31,7 @@
+ 
+ #include <linux/pm_runtime.h>
+ #include "mvx_log_group.h"
++#include "mvx_pm_runtime.h"
+ 
+ int mvx_pm_runtime_get_sync(struct device *dev)
+ {
+-- 
+2.43.0
+

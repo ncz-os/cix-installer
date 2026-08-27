@@ -1,0 +1,233 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] mali: kbase devfreq: rate-limit SCMI perf DVFS on Sky1 (port panthor 0023)
+
+The Sky1 SCP shares one SCMI mailbox across all perf domains. The mali kbase
+devfreq backend floods it under sustained GPU DVFS and returns pm_err on
+failure, causing devfreq to retry-storm -> SCMI transport wedge -> RCU stall
+-> SoC hard-hang. The panthor driver (7.0.x) already has this fix (patch 0023)
+and its GPU devfreq works cleanly (validated on 7.0.12: scaling, 38-40C, no
+stalls). Port the same 3 defenses into kbase_devfreq_target(): 100ms rate
+limit, dedup on last-set freq, error backoff + safe-freq boost, and ALWAYS
+return 0 (never return pm_err). Also update the cix_scmi_register_em() caller
+to the 2-arg (option-B) signature.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_devfreq.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_devfreq.c
+@@ -34,6 +34,8 @@
+ #include <linux/version.h>
+ #include <linux/pm_opp.h>
+ #include <linux/pm_domain.h>
++#include <linux/spinlock.h>
++#include <linux/ktime.h>
+ #if IS_ENABLED(CONFIG_CIX_SCMI_ENERGY_MODEL)
+ #include <linux/cix/cix_scmi_em.h>
+ #endif
+@@ -41,6 +43,105 @@
+ #include "mali_kbase_devfreq.h"
+ #include "mali_kbase_config_platform.h"
+ 
++#if IS_ENABLED(CONFIG_ARM_SCMI_PERF_DOMAIN)
++/*
++ * SCMI rate limiting for Sky1 GPU DVFS.
++ *
++ * The SCP firmware shares one SCMI mailbox across all performance domains.
++ * Keep GPU DVFS from retry-storming that mailbox when firmware starts
++ * returning errors or falling behind.
++ */
++#define KBASE_SCMI_RATE_LIMIT_US	100000
++#define KBASE_SCMI_MAX_ERRORS		3
++#define KBASE_SCMI_BACKOFF_BASE_US	500000
++#define KBASE_SCMI_BACKOFF_MAX_US	4000000
++
++static DEFINE_SPINLOCK(kbase_scmi_dvfs_lock);
++static ktime_t last_set_time;
++static unsigned long last_set_freq;
++static unsigned int scmi_err_count;
++static ktime_t backoff_until;
++static unsigned long safe_freq_mhz;
++
++static unsigned long kbase_devfreq_get_safe_freq_mhz(struct kbase_device *kbdev)
++{
++	struct dev_pm_opp *opp;
++	unsigned long min_freq = 0, max_freq = ULONG_MAX;
++	unsigned long mid_freq, safe_freq;
++	unsigned long irq_flags;
++	unsigned long cached_safe_freq_mhz;
++
++	spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++	if (safe_freq_mhz)
++		cached_safe_freq_mhz = safe_freq_mhz;
++	else
++		cached_safe_freq_mhz = 0;
++	spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
++
++	if (cached_safe_freq_mhz)
++		return cached_safe_freq_mhz;
++
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_lock();
++#endif
++	opp = dev_pm_opp_find_freq_ceil(kbdev->dev, &min_freq);
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_unlock();
++#endif
++	if (IS_ERR(opp))
++		return 0;
++#if KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE
++	dev_pm_opp_put(opp);
++#endif
++
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_lock();
++#endif
++	opp = dev_pm_opp_find_freq_floor(kbdev->dev, &max_freq);
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_unlock();
++#endif
++	if (IS_ERR(opp))
++		return 0;
++#if KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE
++	dev_pm_opp_put(opp);
++#endif
++
++	mid_freq = min_freq + (max_freq - min_freq) / 2;
++	safe_freq = mid_freq;
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_lock();
++#endif
++	opp = dev_pm_opp_find_freq_floor(kbdev->dev, &safe_freq);
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++	rcu_read_unlock();
++#endif
++	if (IS_ERR(opp)) {
++		safe_freq = mid_freq;
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++		rcu_read_lock();
++#endif
++		opp = dev_pm_opp_find_freq_ceil(kbdev->dev, &safe_freq);
++#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
++		rcu_read_unlock();
++#endif
++		if (IS_ERR(opp))
++			return 0;
++	}
++#if KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE
++	dev_pm_opp_put(opp);
++#endif
++
++	spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++	if (!safe_freq_mhz)
++		safe_freq_mhz = safe_freq / 1000000;
++	cached_safe_freq_mhz = safe_freq_mhz;
++	spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
++
++	return cached_safe_freq_mhz;
++}
++#endif
++
+ /**
+  * get_voltage() - Get the voltage value corresponding to the nominal frequency
+  *                 used by devfreq.
+@@ -133,6 +234,9 @@
+ 	unsigned long nominal_freq_mhz;
+ 	unsigned long current_gpu_level;
+ 	unsigned int j;
++	ktime_t now;
++	unsigned long irq_flags;
++	bool scmi_suppressed = false;
+ #endif
+ 
+ 	nominal_freq = *target_freq;
+@@ -232,11 +336,78 @@
+ 
+ 	/* PM firmware use MHz to set performace level */
+ 	nominal_freq_mhz = nominal_freq / 1000000;
++	if (kbdev->sky1_perf_dev) {
++		now = ktime_get();
++
++		spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++		if (ktime_before(now, backoff_until) ||
++		    nominal_freq == last_set_freq ||
++		    ktime_us_delta(now, last_set_time) < KBASE_SCMI_RATE_LIMIT_US)
++			scmi_suppressed = true;
++		spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
++
++		if (scmi_suppressed)
++			return 0;
++	}
++
+ 	pm_err = dev_pm_genpd_set_performance_state(kbdev->sky1_perf_dev, nominal_freq_mhz);
+ 	if (pm_err) {
+-		dev_err(dev, "Failed to set opp (%d) (target %lu)\n",
+-					pm_err, *target_freq);
+-		return pm_err;
++		if (kbdev->sky1_perf_dev) {
++			unsigned int errcnt;
++			unsigned long backoff_us;
++			unsigned long safe_mhz = 0;
++			bool boost_safe = false;
++
++			spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++			errcnt = ++scmi_err_count;
++			backoff_us = KBASE_SCMI_BACKOFF_BASE_US << min(errcnt - 1, 3u);
++			if (backoff_us > KBASE_SCMI_BACKOFF_MAX_US)
++				backoff_us = KBASE_SCMI_BACKOFF_MAX_US;
++			backoff_until = ktime_add_us(now, backoff_us);
++			boost_safe = (errcnt == KBASE_SCMI_MAX_ERRORS);
++			spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
++
++			dev_warn(dev,
++				 "GPU DVFS: SCMI set opp failed (%d) (target %lu), count=%u, backoff=%lu ms\n",
++				 pm_err, *target_freq, errcnt, backoff_us / 1000);
++
++			if (boost_safe) {
++				safe_mhz = kbase_devfreq_get_safe_freq_mhz(kbdev);
++				if (!safe_mhz || safe_mhz == nominal_freq_mhz)
++					return 0;
++
++				pm_err = dev_pm_genpd_set_performance_state(kbdev->sky1_perf_dev,
++									    safe_mhz);
++				if (!pm_err) {
++					spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++					last_set_freq = safe_mhz * 1000000;
++					last_set_time = ktime_get();
++					spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
++					dev_warn(dev,
++						 "GPU DVFS: boosted to safe SCMI opp %lu MHz after errors\n",
++						 safe_mhz);
++				} else {
++					dev_warn(dev,
++						 "GPU DVFS: safe SCMI opp boost failed (%d) (target %lu MHz)\n",
++						 pm_err, safe_mhz);
++				}
++			}
++
++			return 0;
++		}
++
++		dev_warn(dev, "GPU DVFS: failed to set opp (%d) (target %lu)\n",
++			 pm_err, *target_freq);
++		return 0;
++	}
++
++	if (kbdev->sky1_perf_dev) {
++		spin_lock_irqsave(&kbase_scmi_dvfs_lock, irq_flags);
++		last_set_freq = nominal_freq;
++		last_set_time = now;
++		scmi_err_count = 0;
++		backoff_until = 0;
++		spin_unlock_irqrestore(&kbase_scmi_dvfs_lock, irq_flags);
+ 	}
+ 
+ 	for (j = 0; j < PM_CLK_MAX_RETRY_TIMES; j++) {
+@@ -769,7 +940,7 @@
+ 	* ipa power model ops only after it is an EM device.
+ 	*/
+ #if IS_ENABLED(CONFIG_CIX_SCMI_ENERGY_MODEL)
+-	err = cix_scmi_register_em(kbdev->dev);
++	err = cix_scmi_register_em(kbdev->dev, kbdev->sky1_perf_dev);
+ 	if(err) {
+ 		dev_err(kbdev->dev, "Failed to register Energy Model (%d)", err);
+ 		goto cooling_reg_failed;

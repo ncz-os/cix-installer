@@ -1,0 +1,39 @@
+From 8d6d2a4087fcc69d73e6ca232fe7a2e32a3c0827 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 5 Aug 2026 22:53:54 -0400
+Subject: [PATCH 5/6] Do not call back() on an empty AV1 slice parameter vector
+
+PackerAV1::SaveSliceData() read slice_params.back() unconditionally. A client
+that submits slice data before, or without, any slice parameters therefore
+triggered the libstdc++ assertion
+
+  std::vector<_VASliceParameterBufferAV1>::back(): Assertion '!this->empty()'
+
+which aborts the calling process outright -- observed as a Chromium GPU process
+dying with exit_code=134. A driver should reject a submission, not kill its
+client. Bail out instead.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ utils/packer/packer_av1.cpp | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/utils/packer/packer_av1.cpp b/utils/packer/packer_av1.cpp
+index d840790..97d9a66 100644
+--- a/utils/packer/packer_av1.cpp
++++ b/utils/packer/packer_av1.cpp
+@@ -58,6 +58,11 @@ uint32_t PackerAV1::SaveSliceData(void *dst, void *data, uint32_t size)
+     if (!dst || !data || size == 0)
+         return 0;
+ 
++    // A client may submit slice data before, or without, any slice parameters.
++    // back() on an empty vector aborts the whole process, so bail out instead.
++    if (slice_params.empty())
++        return 0;
++
+     auto slice_param = slice_params.back();
+     if (size < slice_param.slice_data_size)
+         return 0;
+-- 
+2.50.1 (Apple Git-155)
+

@@ -1,0 +1,36 @@
+# Only the default branch (and the recovery branch) deploy the APT repo to
+# Pages. Tag pushes (v26.6*) must NOT create a pipeline — nothing here runs on
+# tags, and an empty pipeline is reported as "failed".
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "recovery/26.6-take1"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+pages:
+  stage: deploy
+  script:
+    # We must assume the runner has the .debs available as artifacts from an earlier stage
+    # or they are downloaded here from a remote object store (e.g. S3 or GitLab Package Registry)
+    # since we cannot store 250MB+ of binary blobs in the git repository itself.
+    - echo "Deploying APT repo to GitLab pages..."
+    - mkdir -p public/pool/main
+    - mkdir -p public/dists/resolute/main/binary-arm64
+    # Heredoc must live inside a single block-scalar step; bare column-0 lines
+    # would be parsed as top-level YAML keys and break the job definition.
+    - |
+      cat > public/dists/resolute/Release << "REL"
+      Origin: NCZ
+      Label: NCZ
+      Suite: resolute
+      Codename: resolute
+      Architectures: arm64
+      Components: main
+      Description: NCZ Magnetar CIX Repository
+      REL
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == "recovery/26.6-take1"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

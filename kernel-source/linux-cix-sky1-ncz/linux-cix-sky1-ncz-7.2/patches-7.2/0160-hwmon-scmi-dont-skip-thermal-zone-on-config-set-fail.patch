@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 18 Jul 2026 13:00:00 -0400
+Subject: [PATCH] hwmon: scmi: don't skip thermal-zone registration when
+ optional sensor config_set is unsupported
+
+CIX Sky1 firmware doesn't implement the optional SCMI sensor
+config_set command (Failed to get FC for protocol 13, then
+config_set returns -ENOENT for all 20 sensors, confirmed live on
+Orion O6N 2026-07-18). config_set is only meant to enable continuous
+updates -- an optimization, not a prerequisite for valid readings --
+sensors already return correct values without it (verified: 14/20
+scmi_sensors hwmon temp*_input entries read real board temperatures
+on this platform).
+
+But the probe loop `continue`s past scmi_thermal_sensor_register()
+whenever config_set fails, which on this firmware means it fires for
+every single sensor. Net effect: none of CPU_B0/B1/M0/M1, GPU_top/
+btm/AVE, NPU, VPU, DDR_top/btm, SOC_BRC/TRC, CI ever get a kernel
+thermal zone / cooling-device binding -- confirmed live: only 5
+generic acpitz zones exist, zero scmi-backed ones. No automatic
+throttling governance on any SoC-internal sensor, only whatever the
+coarse ACPI thermal zones cover.
+
+Fix: treat a failed config_set as informational (dev_dbg, this
+firmware just doesn't support the optional enable), not fatal to
+this sensor's probe -- fall through to attempt thermal-zone
+registration regardless, same as before for any sensor whose
+config_set does succeed.
+
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/hwmon/scmi-hwmon.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/hwmon/scmi-hwmon.c b/drivers/hwmon/scmi-hwmon.c
+index 0000000..0000000 100644
+--- a/drivers/hwmon/scmi-hwmon.c
++++ b/drivers/hwmon/scmi-hwmon.c
+@@ -341,11 +341,10 @@ static int scmi_hwmon_probe(struct scmi_device *sdev)
+ 		if (!sensor)
+ 			continue;
+
+ 		ret = sensor_ops->config_set(ph, i, sensor_config);
+-		if (ret) {
+-			dev_err(dev, "Error enabling sensor %s. err=%d\n",
+-				sensor->name, ret);
+-			continue;
+-		}
++		if (ret)
++			dev_dbg(dev,
++				"Sensor %s: optional config_set unsupported by firmware, err=%d (continuing without it)\n",
++				sensor->name, ret);
+
+ 		/*
+ 		 * Warn on any misconfiguration related to thermal zones but
+--
+2.51.0

@@ -1,0 +1,92 @@
+#!/bin/sh
+# ncz-gpu-status — report which GPU stack is selected and which one is live.
+#
+# Prints the SELECTED mode and the ACTUAL bound state separately on purpose:
+# when those two disagree the machine is in the half-switched state that used to
+# silently drop the desktop to llvmpipe, and this is the tool that shows it.
+set -u
+
+sel=$(sed -n 's/.*\bsky1\.gpu=\([a-z]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+src="kernel cmdline sky1.gpu="
+if [ -z "$sel" ]; then
+    sel=$(sed -n 's/.*\bncz\.gpu=\([a-z]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+    src="kernel cmdline ncz.gpu="
+fi
+if [ -z "$sel" ] && [ -r /etc/default/ncz-gpu ]; then
+    sel=$(sed -n 's/^[[:space:]]*GPU_MODE=["'"'"']*\([a-z]*\).*/\1/p' /etc/default/ncz-gpu | head -1)
+    src="/etc/default/ncz-gpu"
+fi
+case "$sel" in
+    vendor|mali)  sel=mali ;;
+    mesa|panthor) sel=panthor ;;
+    *)            sel=mali; src="built-in default" ;;
+esac
+
+# ldconfig is in /sbin, absent from an unprivileged PATH: without this the
+# resolutions below silently print blank for a normal user, which looks exactly
+# like a broken GL stack. Measured on O6N 2026-08-15.
+LDCONFIG=$(command -v ldconfig 2>/dev/null || echo /sbin/ldconfig)
+
+resolve() { "$LDCONFIG" -p 2>/dev/null | awk -v l="$1 " '$0 ~ l {print $NF; exit}'; }
+drm_card_driven_by() {
+    for dev in /sys/class/drm/card*/device/driver; do
+        [ -e "$dev" ] || continue
+        [ "$(basename "$(readlink -f "$dev")")" = "$1" ] && return 0
+    done
+    return 1
+}
+
+echo "=== NCZ-OS GPU stack ==="
+echo "selected      : $sel   (from $src)"
+echo "last applied  : $(cat /etc/ncz-gpu-profile 2>/dev/null || echo unset)"
+
+# Decide by what is actually BOUND, not merely loaded. Both modules can sit in
+# lsmod at once after a failed switch -- measured on O6N 2026-08-16, where a
+# stray mali_kbase at refcount 0 made this report "mali" while panthor owned
+# the GPU. /dev/mali0 and the panthor render node are the real evidence.
+if [ -e /dev/mali0 ]; then
+    live=mali
+elif lsmod 2>/dev/null | grep -q '^panthor ' && \
+     [ -e /sys/bus/platform/drivers/panthor/CIXH5000:00 ] && \
+     drm_card_driven_by panthor; then
+    live=panthor
+elif lsmod 2>/dev/null | grep -q '^panthor '; then
+    live="panthor (loaded, NOT bound)"
+elif lsmod 2>/dev/null | grep -q '^mali_kbase '; then
+    live="mali (loaded, NOT bound)"
+else
+    live=none
+fi
+echo "kernel driver : $live"
+echo "/dev/mali0    : $([ -e /dev/mali0 ] && echo present || echo absent)"
+echo -n "render nodes  : "
+for n in /dev/dri/renderD*; do
+    [ -e "$n" ] || continue
+    printf '%s(%s) ' "$n" "$(basename "$(readlink -f /sys/class/drm/$(basename "$n")/device/driver 2>/dev/null)" 2>/dev/null)"
+done
+echo
+
+if [ -e /etc/ld.so.conf.d/00-cixgpu-pro.conf ]; then
+    echo "userspace     : vendor Mali (/opt/cixgpu-* on the library path)"
+else
+    echo "userspace     : Mesa (panfrost/PanVK)"
+fi
+echo "libEGL.so.1   -> $(resolve libEGL.so.1)"
+echo "libGLESv2.so.2-> $(resolve libGLESv2.so.2)"
+echo "libOpenCL.so.1-> $(resolve libOpenCL.so.1)"
+echo "vulkan ICDs   : $(ls /etc/vulkan/icd.d/*.json /usr/share/vulkan/icd.d/*.json 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
+echo "blacklist file: $([ -e /etc/modprobe.d/ncz-gpu-drivers.conf ] && echo present || echo MISSING)"
+
+if [ "$live" != none ] && [ "$live" != "$sel" ]; then
+    echo
+    case "$live" in
+        *"NOT bound"*)
+            echo "WARNING: selected '$sel' but '$live'. The switcher failed or the"
+            echo "         selected driver cannot bind -- check: journalctl -u ncz-gpu-switcher"
+            ;;
+        *)
+            echo "WARNING: selected '$sel' but '$live' is bound. Reboot to apply, or the"
+            echo "         switcher failed -- check: journalctl -u ncz-gpu-switcher"
+            ;;
+    esac
+fi
