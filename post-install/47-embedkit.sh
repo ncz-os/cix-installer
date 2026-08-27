@@ -163,10 +163,22 @@ LIBNOE_WHL=$(ls /usr/share/cix/pypi/libnoe-*-py3-none-manylinux2014_aarch64.whl 
 NOE_ENGINE_WHL=$(ls /usr/share/cix/pypi/NOE_Engine-*-py3-none-manylinux2014_aarch64.whl 2>/dev/null | head -1)
 if [ "$NPU_PY_OK" = "1" ] && [ -n "$LIBNOE_WHL" ]; then
     echo "[47]   installing libnoe (Cix NPU userspace binding) from $(basename "$LIBNOE_WHL")"
-    pip_install --quiet "$LIBNOE_WHL" 2>&1 | tail -2
-    if [ -n "$NOE_ENGINE_WHL" ]; then
+    # NON-FATAL ON PURPOSE, matching every other step in this script -- this
+    # was the one place that still aborted the WHOLE hook under set -e on a
+    # pip/uv failure, which also skips step 4 (model staging) below even
+    # though model staging cannot fail for the same reason and has nothing
+    # to do with libnoe. A real libnoe install failure should degrade the
+    # NPU adapter, not silently drop the models too.
+    if ! pip_install --quiet "$LIBNOE_WHL" 2>&1 | tail -2; then
+        echo "[47]   WARN: libnoe install failed — NPU adapter unavailable; continuing (CPU/GPU fallback still works, models still staged below)"
+        NPU_PY_OK=0
+    fi
+    if [ "$NPU_PY_OK" = "1" ] && [ -n "$NOE_ENGINE_WHL" ]; then
         echo "[47]   installing NOE_Engine from $(basename "$NOE_ENGINE_WHL")"
-        pip_install --quiet "$NOE_ENGINE_WHL" 2>&1 | tail -2
+        if ! pip_install --quiet "$NOE_ENGINE_WHL" 2>&1 | tail -2; then
+            echo "[47]   WARN: NOE_Engine install failed — NPU adapter unavailable; continuing"
+            NPU_PY_OK=0
+        fi
     fi
     # Make the C lib (libnoe.so.0.6.0) discoverable for the cp311 extension.
     # "00-" prefix (not "cix-noe.conf") so this wins over aarch64-linux-gnu.conf
