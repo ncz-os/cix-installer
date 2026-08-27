@@ -142,6 +142,7 @@ systemd-zram-generator
 # --- GPU / GL tooling (Mali GLES; Vulkan tools for diagnostics) -------------
 mesa-utils
 vulkan-tools
+vainfo
 # The Mesa Vulkan ICDs, which is what gives PANTHOR a Vulkan driver (panvk).
 # Without this the image ships the Vulkan loader, the tools and the validation
 # layers but no Mesa ICD, so /usr/share/vulkan/icd.d/ is empty and Panthor has
