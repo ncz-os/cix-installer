@@ -21,6 +21,20 @@ ROOT          := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 VERSION       := $(shell date -u +%Y.%m.%d)
 MODE          ?= full
 VARIANT       ?= desktop
+
+# LATEST_SINGULARITY_DEB / desktop-hotfix.squashfs -- 2026-08-27. The ISO
+# target used to have NO dependency link to assets/squashfs/desktop-hotfix
+# .squashfs or assets/cix-debs/*.deb at all: that squashfs layer was staged
+# by a completely separate, unlinked script (build/build-squashfs-layers.sh)
+# that nothing forced anyone to re-run. Result, confirmed the hard way: a
+# real ISO build shipped a desktop-hotfix.squashfs (and therefore Singularity
+# Desktop) from HOURS before the actual latest vendored .deb, silently,
+# because the stale file already existed on disk and make had no reason to
+# touch it. This is the same "silent skip is how the payload went stale"
+# failure class this repo has hit more than once -- fixed here the same way,
+# by making it a real Make dependency instead of a step someone has to
+# remember.
+LATEST_SINGULARITY_DEB := $(shell ls -1 $(ROOT)/assets/cix-debs/ncz-singularity-desktop_*.deb 2>/dev/null | sort -V | tail -1)
 # SUBSTRATE ISO -- the debian-installer environment we build on top of. This
 # is NOT cosmetic: build-iso-di.sh harvests the substrate's udebs (kernel
 # module packages, fonts, GTK) and merges them into the image's own pool, so
@@ -157,8 +171,15 @@ offline-mirror: vendor-mirror
 	    echo "[offline-mirror] existing mirror matches local package pins and manifest seeds"; \
 	fi
 
+$(ROOT)/assets/squashfs/desktop-hotfix.squashfs: $(LATEST_SINGULARITY_DEB)
+	@echo "[hotfix-squashfs] rebuilding from $(LATEST_SINGULARITY_DEB)"
+	@bash $(ROOT)/build/build-squashfs-layers.sh hotfix
+	@echo "[hotfix-squashfs] pruning superseded ncz-singularity-desktop debs from assets/cix-debs/"
+	@cd $(ROOT)/assets/cix-debs && ls -1 ncz-singularity-desktop_*.deb 2>/dev/null | sort -V | head -n -1 | xargs -r rm -fv
+
 $(OUTPUT_ISO): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               offline-mirror \
+	               $(ROOT)/assets/squashfs/desktop-hotfix.squashfs \
 	               $(ROOT)/build/build-iso-di.sh \
 	               $(PRESEED)/preseed.cfg \
 	               $(PRESEED)/late.sh \
