@@ -8,8 +8,24 @@
 # and refuses to run without it, so the indexes here must match the pool.
 #
 # Locally built .debs are published automatically from build/kernel-debs/ and,
-# when present, build/sinty-out/ before indexing. Other local/vendor packages
+# when present, assets/cix-debs/ before indexing. Other local/vendor packages
 # may still be dropped into pool/main/ and re-indexed with this helper.
+#
+# 2026-08-27: SINTY_DEBS used to default to build/sinty-out/ -- a DIFFERENT
+# directory than assets/cix-debs/, which is what build/build-squashfs-layers
+# .sh's build_hotfix() actually reads (and what every session tonight staged
+# new .debs into). Nothing ever wrote to build/sinty-out/, so this publish
+# step silently found nothing new and the vendor-mirror kept re-indexing
+# whatever singularity-desktop version happened to already be in its pool
+# from days earlier -- while post-install/20-desktop.sh prefers dpkg -i from
+# that same pool (staged onto the ISO as /cdrom/pool/main/) OVER the
+# apt-get fallback, and runs AFTER the hotfix-squashfs layer extracts during
+# d-i, so it silently overwrote a correctly-rebuilt hotfix layer with the
+# stale package every time. Two consumers, two different "canonical"
+# directories, only one of them ever actually written to -- same failure
+# shape as the Makefile squashfs-dependency bug fixed earlier tonight, just
+# a different path to the same file going stale. Both consumers now point
+# at the one real canonical location.
 #
 # Usage:
 #   ./build/build-vendor-mirror.sh
@@ -25,7 +41,7 @@ ARCH="${ARCH:-arm64}"
 VENDOR="${VENDOR_MIRROR:-$REPO/build/$SUITE-vendor-mirror}"
 BINDIR="dists/$SUITE/main/binary-$ARCH"
 KERNEL_DEBS="${KERNEL_DEBS:-$REPO/build/kernel-debs}"
-SINTY_DEBS="${SINTY_DEBS:-$REPO/build/sinty-out}"
+SINTY_DEBS="${SINTY_DEBS:-$REPO/assets/cix-debs}"
 
 command -v apt-ftparchive >/dev/null 2>&1 || {
     echo "ERROR: apt-ftparchive not found (apt-utils)" >&2; exit 1; }
