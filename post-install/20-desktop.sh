@@ -212,6 +212,38 @@ fi
 rm -f /etc/xdg/autostart/gnome-keyring-*.desktop 2>/dev/null || true
 echo "[20] keyring: native singularity-keyring (org.freedesktop.secrets, D-Bus-activated)"
 
+# ---------------------------------------------------------------------------
+# Online Accounts (GOA) + the singularity xdg-desktop-portal backend.
+#
+# Both were shipping with real, complete UI/backend code and no way to run:
+#
+# - accounts_page.vala (singularity-shell) links against libgoa-1.0 and talks
+#   to org.gnome.OnlineAccounts over D-Bus, but only libgoa-1.0-dev (build
+#   headers) was ever pulled in -- the actual goa-daemon runtime package was
+#   never installed. "Add Account" had nothing to talk to.
+#
+# - xdg-desktop-portal-singularity implements Screenshot/ScreenCast/etc and
+#   installs cleanly (singularity.portal, its systemd --user unit, all
+#   correct). xdg-desktop-portal itself resolves and routes requests to it
+#   (confirmed live: `gdbus call ... org.freedesktop.portal.Screenshot`
+#   returns a valid request object). But its unit ships `preset: enabled`
+#   with actual state `disabled` -- the preset was never applied for the real
+#   user, so xdg-desktop-portal-singularity.service never activates
+#   (`Active: inactive (dead)`, zero journal entries). Every other
+#   user-session service in this file gets `systemctl --global enable`
+#   (pipewire, wireplumber, the audio-autoswitch unit, wallpaper units) --
+#   this one was simply missing from that list.
+#
+# Confirmed live on O6N 2026-08-27: `systemctl --user status goa-daemon`
+# reports "could not be found"; `systemctl --user status
+# xdg-desktop-portal-singularity` reports "inactive (dead)" with no journal
+# entries despite the portal router successfully dispatching to it.
+# ---------------------------------------------------------------------------
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    gnome-online-accounts 2>&1 | tail -3 || true
+systemctl --global enable xdg-desktop-portal-singularity.service 2>&1 | tail -2 || true
+echo "[20] GOA runtime + singularity portal backend: installed/enabled"
+
 # Fonts: Noto base + CJK + colour emoji.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation 2>&1 | tail -3 || true
