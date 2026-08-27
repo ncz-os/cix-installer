@@ -206,6 +206,10 @@ offline-mirror: vendor-mirror
 	    echo "[offline-mirror] existing mirror matches local package pins and manifest seeds"; \
 	fi
 
+
+$(ROOT)/assets/python311/uv:
+	@echo "[python311-assets] provisioning relocatable CPython 3.11 + uv (NPU venv, offline-first)"
+	@bash $(ROOT)/build/build-python311-assets.sh
 $(ROOT)/assets/squashfs/desktop-hotfix.squashfs: $(LATEST_SINGULARITY_DEB)
 	@echo "[hotfix-squashfs] rebuilding from $(LATEST_SINGULARITY_DEB)"
 	@bash $(ROOT)/build/build-squashfs-layers.sh hotfix
@@ -215,6 +219,7 @@ $(ROOT)/assets/squashfs/desktop-hotfix.squashfs: $(LATEST_SINGULARITY_DEB)
 $(OUTPUT_ISO): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               offline-mirror \
 	               $(ROOT)/assets/squashfs/desktop-hotfix.squashfs \
+	               $(ROOT)/assets/python311/uv \
 	               $(ROOT)/build/build-iso-di.sh \
 	               $(PRESEED)/preseed.cfg \
 	               $(PRESEED)/late.sh \
