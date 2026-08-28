@@ -1,0 +1,32 @@
+FROM debian:trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# cix-installer (NCZ-OS) build-host prerequisites — per README.md
+# "Build-host prerequisites" + enumerated from build/*.sh `need`/`command -v`
+# checks: bash, GNU coreutils/findutils/cpio, xorriso>=1.5, python3, dpkg-dev,
+# acpica-tools (iasl, for the NPU SSDT CPIO gate), apt-utils (apt-ftparchive),
+# squashfs-tools (mksquashfs/unsquashfs), debian-archive-keyring (signed
+# Debian mirror pulls in build-forky-mirror.sh).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash coreutils findutils cpio xorriso python3 dpkg-dev \
+    acpica-tools apt-utils squashfs-tools debian-archive-keyring \
+    git sudo ca-certificates curl gnupg fakeroot file \
+    zstd lz4 rsync bzip2 xz-utils unzip dosfstools locales \
+    vim less htop tmux \
+    qemu-system-arm qemu-utils qemu-efi-aarch64 ovmf \
+    p7zip-full kmod dosfstools mtools fakechroot \
+    gcc build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
+ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
+
+ARG BUILD_UID=1000
+ARG BUILD_GID=1000
+RUN groupadd -g ${BUILD_GID} builder \
+    && useradd -m -u ${BUILD_UID} -g ${BUILD_GID} -s /bin/bash builder \
+    && echo "builder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+USER builder
+WORKDIR /home/builder
