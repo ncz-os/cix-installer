@@ -117,11 +117,43 @@ if [ -f /usr/bin/chromium-ncz-sky1 ]; then
     cat > /usr/bin/chromium-ncz-sky1 <<'CHROMIUMWRAPPER'
 #!/bin/sh
 # Chromium NCZ Sky1 Edition launcher.
-exec /opt/chromium-ncz-sky1/chrome \
-  --ozone-platform=wayland \
+#
+# Render node: Chromium defaults to the first DRM render node it finds
+# (/dev/dri/renderD128). On boards where more than one linlondp instance is
+# present -- MS-R1 exposes card0..card3 as CIXH5010:00/:01/:03/:04 with
+# renderD128..renderD131 -- that is not the node backing the display, and
+# the GPU goes unused. Derive it from whichever connector actually reports
+# "connected", the same way ncz-wlr-connected-drm derives WLR_DRM_DEVICES.
+# Measured on O6N: card0-DP-2 connected -> renderD128, which is the node
+# that board already ran with.
+render_node=
+for status in /sys/class/drm/card*-*/status; do
+    [ -r "$status" ] || continue
+    [ "$(cat "$status" 2>/dev/null)" = connected ] || continue
+    card=${status#*/drm/}
+    card=${card%%-*}
+    card_device=$(readlink -f "/sys/class/drm/$card/device" 2>/dev/null) || continue
+    [ -n "$card_device" ] || continue
+    for render in /sys/class/drm/renderD*; do
+        [ -e "$render/device" ] || continue
+        [ "$(readlink -f "$render/device")" = "$card_device" ] || continue
+        node="/dev/dri/${render##*/}"
+        if [ -c "$node" ]; then
+            render_node=$node
+            break
+        fi
+    done
+    [ -n "$render_node" ] && break
+done
+
+set -- --ozone-platform=wayland \
   --enable-features=AcceleratedVideoDecoder \
   --disable-features=AudioServiceOutOfProcess,AudioServiceSandbox \
   "$@"
+# No connected output (headless boot, display asleep): leave Chromium's own
+# default rather than pinning a node that may be the wrong one.
+[ -n "$render_node" ] && set -- "--render-node-override=$render_node" "$@"
+exec /opt/chromium-ncz-sky1/chrome "$@"
 CHROMIUMWRAPPER
     chmod 0755 /usr/bin/chromium-ncz-sky1
     echo "[20] chromium-ncz-sky1 wrapper: disabled AudioServiceOutOfProcess/AudioServiceSandbox (silent-PCM fix)"
