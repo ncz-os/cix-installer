@@ -90,7 +90,21 @@ OUT="$REPO/build/kernel-debs"
 # All added as modules, so the boot path is unchanged. Verified present in the
 # BUILT .config, not just the defconfig -- olddefconfig silently drops symbols
 # whose dependencies are unmet.
-BUILD_REV="${BUILD_REV:-r258}"
+# r260 = r258's config set, but patch 0225 REPLACED. The r258 form of 0225
+# claimed every CIXH5010 DPU for the synthetic display cluster, and on MS-R1
+# one of them (CIXH5010:02) drives an eDP panel that does not physically
+# exist: its transmitter CIXH502F:02 waits forever on CIXH5040:00, the eDP
+# panel device, whose driver is not even built (CONFIG_DRM_CIX_EDP_PANEL is
+# unset). Because the cluster's component match list holds the TRANSMITTERS,
+# one unbindable entry stopped component_master_add_with_match() completing
+# and drm_dev_register() never ran for ANY DPU -- measured on .66 as ZERO DRM
+# cards where the unpatched kernel had four. 0225 now filters the match list
+# on device_is_bound(), waits on driver_deferred_probe_check_state() only when
+# something is still unbound (so a healthy board takes a fast path with no
+# added delay), and refuses to form a cluster of fewer than two DPUs so a
+# board can never end up with zero cards. r259 was built and verified without
+# 0225 as a fallback but never packaged, hence the gap in revision numbers.
+BUILD_REV="${BUILD_REV:-r260}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only
