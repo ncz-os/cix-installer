@@ -571,8 +571,33 @@ with open(output, "w", encoding="utf-8") as stream:
         stream.write(f"{operation}\t{path}\n")
 PYOVERLAY
   log "$role: mksquashfs upperdir delta -> $OUT/$role.squashfs"
+  # -xattrs-exclude is REPEATED, not replaced: mksquashfs accepts the flag more
+  # than once and the matches are OR'd.
+  #   ^trusted\.overlay\.  -- overlayfs internals (opaque/metacopy/redundant
+  #                          markers). Plain unsquashfs cannot replay them;
+  #                          keep them out of the published archive.
+  #   ^security\.selinux  -- HOST SELinux labels. NCZ-OS is a Debian image and
+  #                          must not carry the build host's MAC labels: on a
+  #                          Fedora Asahi host (or any podman-managed build)
+  #                          these come from THIS machine's SELinux policy
+  #                          (e.g. system_u:object_r:container_file_t:s0:c1022,
+  #                          c1023 = podman per-container MCS categories), and
+  #                          they are meaningless inside a Debian rootfs that
+  #                          is never going to be evaluated by that policy.
+  #                          Their presence also caused a false-positive
+  #                          corruption verdict in verify_squashfs(): when the
+  #                          verifier's extraction target cannot hold xattrs
+  #                          (e.g. an overlayfs upperdir without user_xattr),
+  #                          unsquashfs fails the restore with
+  #                          "write_xattr: failed to write xattr
+  #                          security.selinux ... extended attributes are not
+  #                          supported by the destination filesystem" and
+  #                          exits 2, condemning a perfectly good archive.
+  #                          Other xattrs are NOT stripped wholesale:
+  #                          security.capability (file caps, e.g. on /bin/ping)
+  #                          is legitimate Debian content and must survive.
   sudo mksquashfs "$U" "$OUT/$role.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 \
-    -xattrs-exclude '^trusted\.overlay\.' -noappend -no-progress 2>&1 | tail -2
+    -xattrs-exclude '^trusted\.overlay\.' -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
   verify_squashfs "$OUT/$role.squashfs" "$role"
   log "$role DONE: delta $(du -h "$OUT/$role.squashfs"|cut -f1)"
   sudo rm -rf "$L" "$MG" "$WK"
@@ -773,8 +798,20 @@ NMETH
     log "ERROR: failed to chmod 0755 $WORK/base before mksquashfs — refusing to publish a possibly-unbootable layer"
     exit 1
   }
+  # Drop the BUILD HOST's SELinux labels from the published archive. NCZ-OS is
+  # a Debian image; SELinux labels (e.g. system_u:object_r:container_file_t:s0
+  # :c1022,c1023 = podman per-container MCS categories from a Fedora Asahi
+  # build host) belong to THIS machine's policy and are wrong inside a rootfs
+  # that will never be evaluated by it. Shipping them also broke
+  # verify_squashfs(): when the verifier's extraction target cannot hold
+  # xattrs (e.g. an overlayfs upperdir without user_xattr), unsquashfs fails
+  # with "write_xattr: failed to write xattr security.selinux ... extended
+  # attributes are not supported by the destination filesystem" and exits 2,
+  # and the gate condemns a perfectly good archive ("refusing to publish").
+  # security.capability (file caps, e.g. on /bin/ping) is legitimate Debian
+  # content and is preserved -- this is NOT a blanket -no-xattrs.
   log "BASE: mksquashfs -> $OUT/base.squashfs"
-  sudo mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -noappend -no-progress 2>&1 | tail -3
+  sudo mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -3
   verify_squashfs "$OUT/base.squashfs" "base"
   log "BASE DONE: $(du -h "$OUT/base.squashfs"|cut -f1)"
 }
@@ -890,8 +927,20 @@ build_hotfix(){
   # belt; this assert is the braces. -comp zstd + -Xcompression-level 15
   # matches the other layers (build_base, build_layer) so a downstream
   # tool reading the squashfs sees uniform compression settings.
+  # Drop the BUILD HOST's SELinux labels from the published archive. NCZ-OS is
+  # a Debian image; SELinux labels (e.g. system_u:object_r:container_file_t:s0
+  # :c1022,c1023 = podman per-container MCS categories from a Fedora Asahi
+  # build host) belong to THIS machine's policy and are wrong inside a rootfs
+  # that will never be evaluated by it. Shipping them also broke
+  # verify_squashfs(): when the verifier's extraction target cannot hold
+  # xattrs (e.g. an overlayfs upperdir without user_xattr), unsquashfs fails
+  # with "write_xattr: failed to write xattr security.selinux ... extended
+  # attributes are not supported by the destination filesystem" and exits 2,
+  # and the gate condemns a perfectly good archive ("refusing to publish").
+  # security.capability (file caps, e.g. on /bin/ping) is legitimate Debian
+  # content and is preserved -- this is NOT a blanket -no-xattrs.
   log "HOTFIX: mksquashfs $WORK/hotfix -> $OUT/desktop-hotfix.squashfs"
-  sudo mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -noappend -no-progress 2>&1 | tail -2
+  sudo mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
   verify_squashfs "$OUT/desktop-hotfix.squashfs" "desktop-hotfix"
   # Write the overlay manifest. The install-time stub applies the manifest
   # BEFORE unsquashfs extraction (see preseed/extract-rootfs.sh's
