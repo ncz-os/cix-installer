@@ -284,6 +284,62 @@ if [ -f "$SSDT_CPIO" ] && should_apply_npu_ssdt; then
     # in pm_runtime_enable(NULL). Install an initramfs post-update hook so
     # every future regeneration re-prepends the override from the copy
     # persisted at /boot/npu-acpi-override.cpio above.
+    # 2026-08-27: the initramfs-tools post-update.d hook below CANNOT FIRE on
+    # this image. Measured on a fresh MS-R1 install: dracut is the installed
+    # initramfs generator (ii dracut 112-1) and initramfs-tools is REMOVED
+    # (rc 0.151, config files only). /etc/initramfs/post-update.d/ is an
+    # initramfs-tools path, so dracut never runs anything in it. Net effect:
+    # 80-npu.sh copied the CPIO to /boot, installed a hook that could never
+    # run, the npu-ssdt build gate passed on the artifact being present --
+    # and the override never reached the booted initrd at all. Every MS-R1
+    # shipped with `only 0 of 3 NPU cores usable - disabling NPU` and no
+    # /dev/aipu. The direct prepend above also only touched /boot, never the
+    # ESP copy that rEFInd actually loads.
+    #
+    # dracut has NATIVE support for exactly this: acpi_override=yes plus
+    # acpi_table_dir=<dir of .aml files> makes dracut build the uncompressed
+    # early CPIO itself on every regeneration, which is strictly better than
+    # re-prepending after the fact. It requires CONFIG_ACPI_TABLE_UPGRADE or
+    # CONFIG_ACPI_INITRD_TABLE_OVERRIDE in the kernel; this tree has
+    # CONFIG_ACPI_TABLE_UPGRADE=y.
+    #
+    # Verified on .66 across a real reboot: dracut-generated initrd starts
+    # with 070701 and contains kernel/firmware/acpi/ssdt-npucre.aml, /dev/aipu
+    # is present, and sky1_npu_probe reports armchina_aipu_probe done.
+    if command -v dracut >/dev/null 2>&1; then
+        # Extract the .aml out of the CPIO into a directory dracut can consume.
+        # The CPIO already uses the canonical kernel/firmware/acpi/ layout, so
+        # the payload is lifted out verbatim -- no regeneration from .asl here,
+        # which keeps this hook independent of iasl being present on target.
+        NCZ_ACPI_DIR=/usr/share/ncz/acpi
+        mkdir -p "$NCZ_ACPI_DIR"
+        if command -v cpio >/dev/null 2>&1; then
+            ( cd "$NCZ_ACPI_DIR" && cpio -idu --quiet < /boot/npu-acpi-override.cpio 2>/dev/null ) || true
+            if [ -f "$NCZ_ACPI_DIR/kernel/firmware/acpi/ssdt-npucre.aml" ]; then
+                mv -f "$NCZ_ACPI_DIR/kernel/firmware/acpi/ssdt-npucre.aml" "$NCZ_ACPI_DIR/ssdt-npucre.aml"
+                rm -rf "$NCZ_ACPI_DIR/kernel"
+            fi
+        fi
+        if [ -s "$NCZ_ACPI_DIR/ssdt-npucre.aml" ]; then
+            chmod 0644 "$NCZ_ACPI_DIR/ssdt-npucre.aml"
+            mkdir -p /etc/dracut.conf.d
+            cat > /etc/dracut.conf.d/20-ncz-npu-ssdt.conf << 'NPUDRACUT'
+# NPU ACPI _HID override for MS-R1-class boards whose firmware omits the
+# CIXH4010 NPU core _HIDs. dracut builds the uncompressed early CPIO itself
+# from acpi_table_dir, so the override survives every initrd regeneration --
+# unlike an initramfs-tools post-update.d hook, which never fires here because
+# this image uses dracut, not initramfs-tools.
+acpi_override="yes"
+acpi_table_dir="/usr/share/ncz/acpi"
+NPUDRACUT
+            echo "[80] installed /etc/dracut.conf.d/20-ncz-npu-ssdt.conf (dracut rebuilds the SSDT early-CPIO natively)"
+        else
+            echo "[80] WARN: could not stage ssdt-npucre.aml for dracut; NPU override will NOT survive an initrd rebuild"
+        fi
+    fi
+
+    # Kept for images that genuinely use initramfs-tools. Harmless (and inert)
+    # under dracut; the dracut path above is what actually works here.
     mkdir -p /etc/initramfs/post-update.d
     cat > /etc/initramfs/post-update.d/zz-npu-ssdt << 'NPUHOOK'
 #!/bin/sh
