@@ -356,3 +356,130 @@ Specific sources read for this document:
   - <https://www.cnx-software.com/2025/10/15/orange-pi-6-plus-cix-p1-sbc-64gb-lpddr5-45-tops-ai-performance/>
   - <https://www.cnx-software.com/2026/06/25/orange-pi-6-cix-cd8180-12-core-arm-sbc-gets-2-5gbe-networking-smaller-form-factor-drops-battery-support/>
   - <https://www.minisforum.com/products/ms-r1>
+
+---
+
+## 6. Display topology — added 2026-08-28
+
+Added because the 0225 display-cluster work proved that display enumeration
+differs per board more than any other subsystem, and nothing here was captured
+in the original table. Same **C**/**U** convention as above.
+
+### 6.1 The SoC exposes FIVE display pipelines; boards wire different subsets
+
+Each pipeline is an ACPI `CIXH5010` display-processing unit paired with a
+`CIXH502F` DisplayPort transmitter. Boards differ in **how many exist** and in
+**which indices** — not merely in count.
+
+| | O6N (measured) | MS-R1 (measured) | Orange Pi 6 / 6 Plus (vendor spec) |
+|---|---|---|---|
+| `CIXH5010` DPUs | `:00 :01 :04` — three. **C** | `:00`–`:04` — five. **C** | **U** (no hardware) |
+| `CIXH502F` transmitters | `:00 :01 :04` — three, all bound. **C** | `:00`–`:04` — five, `:02` never binds. **C** | **U** |
+| `CIXH50C0` display cluster | **PRESENT** (`:00`). **C** | **ABSENT**. **C** | **U** |
+| `CIXH5040` / `CIXH5041` (eDP panel + supplier) | present. **C** | present. **C** | eDP listed in spec. **C** |
+| DRM cards | 1 (`card0`) | 4 without 0225; 0 with the broken 0225 | **U** |
+| DRM connectors | `card0-DP-1/2/3` + 6 Writeback. **C** | **U** (board down) | **U** |
+
+O6N skipping `:02` and `:03` is the single most useful fact here: on MS-R1 the
+`:02` pipeline is the one wired to the eDP panel, and it is why the naive
+cluster synthesis hung the whole master.
+
+### 6.2 There is no native HDMI on Sky1 — every output is DisplayPort
+
+Measured on O6N: **every** DRM connector is DP-typed (`card0-DP-1/2/3`), and no
+HDMI-typed connector exists, even though the board has a physical HDMI socket.
+**C**.
+
+The vendor specs explain it: Orange Pi 6 drives HDMI 2.0 through a **Parade
+PS185 DP→HDMI bridge**. **C** (CNX-Software / LinuxGizmos). The transmitters are
+DisplayPort controllers (`trilin-dptx-cix`); HDMI is DP behind a bridge or DP++.
+
+Consequence for anyone reading `/sys/class/drm`: **a "DP-N" connector name says
+nothing about which physical socket it drives.** Counting DP connectors is not a
+measure of usable outputs. This invalidated an earlier acceptance criterion of
+"one card with four DP connectors" for MS-R1 — the correct test is that the
+connector backing a *physically wired* port reports `connected` with modes.
+
+### 6.3 Physical outputs per board
+
+| board | physical display outputs | source |
+|---|---|---|
+| MS-R1 | 1× HDMI + 2× USB-C DP-alt. Both USB-C ports measured advertising SVID `ff01` (DisplayPort) and `active=yes`. **C** | measured |
+| O6N | 1× HDMI + 1× DP; one USB-C (`port0` + `port0-partner`). **C** for port count | measured + vendor |
+| Orange Pi 6 Plus | HDMI 1.4 4K60, DP 1.4 4K120, 2× Type-C DP 4K60, eDP 4K60 — five interfaces. **C** (vendor) | vendor spec |
+| Orange Pi 6 | DP 1.4 4K120, HDMI 2.0 4K60 via PS185, eDP 4K60, DP over 2× full-function USB-C. **C** (vendor) | vendor spec |
+| Orion O6 | **U** — not measured, no board access | — |
+
+Orange Pi 6 Plus wiring all five interfaces (HDMI + DP + 2× USB-C + eDP) is a
+tidy explanation for why the SoC exposes five pipelines at all: MS-R1 has the
+same five present but its eDP pipeline drives a panel that does not physically
+exist on a mini PC.
+
+### 6.4 Board identity strings, as measured
+
+    O6N     Radxa Computer (Shenzhen) Co., Ltd. / Radxa Orion O6N
+            firmware 1.3.1, 2026-07-16
+            MemTotal 49076216 kB
+    MS-R1   Meigao Innovation Technology (Shenzhen) Co., Ltd
+            board P1WSB, product MS-R1, BIOS 1.0, 03/12/2026
+            CIX P1 CP8180 @ 2.6GHz, MemTotal 65450040 kB
+            2x Realtek RTL8127 10GbE, MediaTek MT7922 Wi-Fi
+
+Note MS-R1's DMI vendor is **Meigao Innovation**, not "Minisforum" — anything
+matching on a DMI vendor string must use the former.
+
+### 6.5 What we do NOT have
+
+- **No dmesg or probe log from the Orange Pi 6 Plus.** The 16GB unit we had
+  suffered an HDMI failure, and no boot log survives in MNEMOS, the local
+  memory store, or any session transcript — every surviving reference is
+  prospective ("in transit", "pending hardware"). Its schematic
+  (`OPi 6 PLUS V11 DSN 0612.pdf`) and the J135 UART debug header analysis are
+  all that remain.
+- **No measurements from Orion O6 or Orange Pi 6.** Everything for those two is
+  vendor spec only.
+- **No RAM-variant display data.** Whether 8/16/32/64GB SKUs of the same board
+  differ in display enumeration is **U**. Community reports (2026-08-28) claim
+  8GB and 16GB units needed distinct changes and that firmware 1.2.x vs 1.3.x
+  differs, but the specifics were lost with the developer's dead board.
+
+### 6.6 The design rule this produced
+
+Because `_STA` does not discriminate — measured on MS-R1, all five `CIXH502F`
+report `_STA` `0xB` **including the one that can never bind** — per-board
+display logic must key on **actual driver binding at runtime**, never on a
+board identity, a device count, or an ACPI status value. A patch keyed to
+"MS-R1 has five DPUs" breaks on the next variant; one keyed to "use what
+actually bound" survives boards we have never seen.
+
+### 6.7 Schematic-verified eDP comparison — the whole family except O6N
+
+Counts are string occurrences in `pdftotext -layout` output of the vendor
+schematics. All four **C** (measured from the PDFs, 2026-08-28).
+
+| board | schematic | eDP | DP2 | HDMI | USB-C |
+|---|---|---|---|---|---|
+| Radxa Orion O6 | `radxa_orion_o6_v1.20` (50pp) | **19** | 46 | 44 | 128 |
+| Radxa Orion O6N | `radxa_orion_o6n_v1.11` (46pp) | **0** | 23 | 43 | 65 |
+| Orange Pi 6 | `OPi_6-V11-SCH` (47pp) | **25** | 66 | 71 | 150 |
+| Orange Pi 6 Plus | `OPi 6 PLUS V11 DSN 0612` (66pp) | **29** | 67 | 72 | 155 |
+
+Real eDP *panel* interfaces (not just a routed lane) confirmed on three of four
+by backlight/panel-power/touch signals:
+
+    O6            sheet 16 "eDP/TP": DP2_TX0..3 -> EDP_TX0..3, DP2_AUXP/N,
+                  HPD_EDP, EDP_BLON, EDP_BLPWM, EDP_DIGON_CON,
+                  +3.3V_LCDVDD, SST_LCD_VDD, TPNL_SDA
+    Orange Pi 6   DP2_BLON, DP2_DIGON, DP2_BLPWM, EDP_TX0..3,
+                  TPNL_INT_L, TPNL_PWR_EN, +3.3V_TPNL
+    OPi 6 Plus    sheet "DP2 eDP/TOUCH PANEL"
+    O6N           NONE. Sheet 21 is "DP to HDMI". Zero eDP references.
+
+MS-R1 is not schematic-verified but its ACPI enumeration matches the eDP group:
+`CIXH502F:02` plus the `CIXH5040:00` eDP-panel device are both present. **C**.
+
+**O6N is the only board in the family without eDP on DP2, and it is the board
+all NCZ-OS display development targeted.** That is why the display-cluster
+failure class stayed invisible until MS-R1 was brought up: on every other board
+DP2 is a wired eDP pipeline with no panel fitted, i.e. a transmitter that can
+never bind.
