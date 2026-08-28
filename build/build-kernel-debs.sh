@@ -903,11 +903,48 @@ if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
     # completely EMPTY after the "fixed" postinst ran -- WORSE than stale,
     # zero accelerators registered at all.
     #
-    # CORRECT FIX: force-build + force-install each already-registered
-    # package DIRECTLY, by name, exactly like the manual recovery that
-    # restored O6N live (`dkms build ... --force` then
-    # `dkms install ... --force`) -- do not depend on `dkms remove` or
-    # `dkms autoinstall`'s own staleness heuristics at all.
+    # SECOND BUG (caught live on O6N 2026-08-28, r256 -> r257): the NCZ
+    # kernel packages use a KVER that does NOT change between revisions --
+    # KERNELRELEASE is "7.2.0-sky1-ncz" for both r256 and r257; only the
+    # Debian package revision differs. On such a same-KVER upgrade the
+    # package is already registered as "installed" for KVER from the prior
+    # revision, and `dkms install ... --force` short-circuits with
+    # "Error! This module/version combo is already installed for kernel
+    # 7.2.0-sky1-ncz" -- `--force` does NOT override that check (verified
+    # live on the board; every one of aipu/6.2.0, cix-gpu-kmd/1.0,
+    # cix-vpu-driver/1.0.2-ncz1 and panthor-cix/7.2.0 hit it). The build
+    # step right before it succeeds, so the only real failure is the
+    # install -- but the postinst (below) treated any non-zero exit as
+    # FATAL, leaving the machine half-configured (headers in iF, image in
+    # iU) for EVERY same-KVER upgrade. Verified live that the right
+    # sequence is `dkms uninstall -m PKG -v VER -k KVER` immediately
+    # before the build+install pair: uninstall drops only the installed
+    # .ko for that kernel and KEEPS the package's registration in
+    # `dkms status` (so it is still in our loop next time and autoinstall
+    # still picks it up), which is exactly what we want.
+    #
+    # `dkms uninstall` (NOT `dkms remove`) is the right tool here. The
+    # r255 attempt used `dkms remove -k $KVER`; on a package whose only
+    # remaining kernel version was $KVER, `dkms remove` deletes the
+    # package's registration entirely (not just the KVER-specific build),
+    # so `dkms status` comes back empty after the postinst and autoinstall
+    # has nothing to rebuild. uninstall is the surgical equivalent --
+    # it removes the .ko for KVER only, leaves the source registration
+    # intact, and lets the subsequent build+install --force land cleanly.
+    # The uninstall itself may legitimately fail (module not installed
+    # yet, e.g. a brand-new package on its first KVER), so its exit
+    # status is tolerated -- what matters is whether build+install then
+    # succeeds.
+    #
+    # CORRECT FIX: uninstall + force-build + force-install each already-
+    # registered package DIRECTLY, by name. Do not depend on `dkms remove`
+    # or `dkms autoinstall`'s own staleness heuristics at all. An install
+    # that fails ONLY because the combo is already present is also
+    # tolerated -- if `dkms status` still shows the package installed for
+    # $KVER after the attempt, the package is fine regardless of the
+    # install command's exit status (this can happen if a prior
+    # postinst's build step landed the .ko but crashed before the
+    # status record was updated, or after a manual recovery).
     log "forcing DKMS rebuild for every already-registered package (KVER-invariant versioning defeats autoinstall's own staleness check)"
     DKMS_LOG=/var/log/ncz-dkms-autoinstall.log
     : > "$DKMS_LOG"
@@ -917,12 +954,27 @@ if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
         ver="${pkgver#*/}"
         [ -n "$pkg" ] && [ -n "$ver" ] || continue
         log "  forcing $pkg/$ver for $KVER"
+        # Uninstall first to clear any stale installed .ko for this KVER
+        # from a prior same-KVER revision. Tolerate failure -- the module
+        # may not be installed yet (first-KVER install of a new package).
+        "$DKMS_BIN" uninstall -m "$pkg" -v "$ver" -k "$KVER" >>"$DKMS_LOG" 2>&1 || true
         if "$DKMS_BIN" build -m "$pkg" -v "$ver" -k "$KVER" --force >>"$DKMS_LOG" 2>&1 \
            && "$DKMS_BIN" install -m "$pkg" -v "$ver" -k "$KVER" --force >>"$DKMS_LOG" 2>&1; then
             log "  $pkg/$ver OK"
         else
-            echo "linux-headers-cixmini[$KVER]: FATAL: forced rebuild of $pkg/$ver failed" >&2
-            dkms_force_failed=1
+            # The build almost always succeeds; the install may still
+            # complain that the combo is already installed for KVER
+            # despite the uninstall above (e.g. uninstall did not clear
+            # the status record on this DKMS version). If `dkms status`
+            # confirms the package is installed for $KVER, the postinst's
+            # job is done -- do not fail the package upgrade over it.
+            if "$DKMS_BIN" status -m "$pkg" -v "$ver" -k "$KVER" 2>/dev/null \
+               | grep -q "$KVER"; then
+                log "  $pkg/$ver already installed for $KVER (install reported a non-zero exit but the .ko is in place); treating as OK"
+            else
+                echo "linux-headers-cixmini[$KVER]: FATAL: forced rebuild of $pkg/$ver failed" >&2
+                dkms_force_failed=1
+            fi
         fi
     done
     # Catch anything registered under /usr/src but never built for KVER at
