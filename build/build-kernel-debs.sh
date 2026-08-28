@@ -78,7 +78,19 @@ OUT="$REPO/build/kernel-debs"
 # Also adds CONFIG_NFS_FS/NFS_V4/SUNRPC -- absent entirely before, so no Sky1
 # board on this kernel could mount the ARGONAS shares -- and CONFIG_VHOST_NET
 # for KVM hosts.
-BUILD_REV="${BUILD_REV:-r257}"
+# r258 = r257 (patch 0225 display-cluster synthesis + NFS client + vhost-net)
+# PLUS the restored desktop capability set. The defconfig was derived from a
+# board-bringup config and whole categories were simply absent: CONFIG_TUN was
+# missing, so NO VPN of any kind could work (OpenVPN/WireGuard/Tailscale/
+# ZeroTier all need /dev/net/tun) while wireguard-tools shipped in
+# manifests/desktop.pkgs against a kernel that could not run it. Same shape for
+# USB audio and webcams (SND_USB_AUDIO, USB_VIDEO_CLASS), USB-serial adapters
+# (CP210x/FTDI/CH341/PL2303 -- on a dev-board distro whose own docs drive
+# boards over ttyUSB), exFAT, CIFS, LUKS (DM_CRYPT) and Bluetooth HID.
+# All added as modules, so the boot path is unchanged. Verified present in the
+# BUILT .config, not just the defconfig -- olddefconfig silently drops symbols
+# whose dependencies are unmet.
+BUILD_REV="${BUILD_REV:-r258}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only
