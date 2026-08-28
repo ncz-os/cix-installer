@@ -1,0 +1,44 @@
+# Yocto kernel build container -- ncz-yocto-y6
+#
+# Runs `bitbake linux-cix-sky1-ncz` for the CIX Sky1 kernel.
+#
+# BASE CHANGED 2026-08-28: ubuntu:22.04 -> debian:trixie, to match
+# Containerfile.isobuild so both build roles share one base distribution.
+# The previous Ubuntu base was never a deliberate choice, it was just what the
+# image happened to be built from, and it meant the two build hosts ran
+# different userlands for different halves of the same pipeline.
+#
+# THIS BASE CHANGE MUST BE VALIDATED BEFORE IT IS TRUSTED. The container is the
+# kernel's host toolchain environment: the native tools, python and shell that
+# bitbake runs. A base change can alter build output. The validation is an A/B:
+# build the SAME kernel source under the old and new bases and compare the
+# resulting Image byte-for-byte. Yocto pins SOURCE_DATE_EPOCH for
+# reproducibility, so a matching Image means the base change is inert.
+# Do not assume it; run it.
+FROM debian:trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Yocto host requirements (openembedded-core "Required Packages for the Build
+# Host", Debian/Ubuntu list) plus what the kernel recipe needs natively:
+# bc/bison/flex/libssl-dev/libelf-dev are the kernel's own build deps.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gawk wget git diffstat unzip texinfo gcc g++ make build-essential \
+    chrpath socat cpio python3 python3-pip python3-pexpect python3-git \
+    python3-jinja2 python3-subunit python3-venv xz-utils debianutils \
+    iputils-ping zstd lz4 file locales libacl1 bc libssl-dev libelf-dev \
+    bison flex ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
+ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+
+# bitbake refuses to run as root.
+ARG BUILD_UID=1000
+ARG BUILD_GID=1000
+RUN groupadd -g ${BUILD_GID} builder 2>/dev/null || true \
+    && useradd -m -u ${BUILD_UID} -g ${BUILD_GID} -s /bin/bash builder 2>/dev/null || true
+
+USER builder
+WORKDIR /workdir
+ENTRYPOINT ["/bin/bash", "-c"]
