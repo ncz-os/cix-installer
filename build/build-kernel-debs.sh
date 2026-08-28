@@ -69,7 +69,16 @@ OUT="$REPO/build/kernel-debs"
 # manual recovery that actually worked, and only uses `dkms autoinstall`
 # afterward as a catch-all for genuinely new registrations.
 
-BUILD_REV="${BUILD_REV:-r256}"
+# r257 = display-cluster synthesis (patch 0225) + NFS client + vhost-net.
+# 0225 makes the driver synthesize the linlondp cluster when firmware omits
+# the CIXH50C0 ACPI device, so MS-R1 gets ONE DRM card instead of four.
+# Measured cause of Chromium losing gpu_compositing on .66 (its Ozone layer
+# logs "Preferred drm_render_node not found, picking linlondp" and then
+# disables gpu compositing; O6N, which has a single card, shows neither).
+# Also adds CONFIG_NFS_FS/NFS_V4/SUNRPC -- absent entirely before, so no Sky1
+# board on this kernel could mount the ARGONAS shares -- and CONFIG_VHOST_NET
+# for KVM hosts.
+BUILD_REV="${BUILD_REV:-r257}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only
