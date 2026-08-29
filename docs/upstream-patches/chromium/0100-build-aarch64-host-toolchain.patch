@@ -1,0 +1,142 @@
+diff --git a/DEPS b/DEPS
+index 1946bf23d1..c0de5cd310 100644
+--- a/DEPS
++++ b/DEPS
+@@ -2294,7 +2294,7 @@ deps = {
+           'version': 'version:3@3.2',
+         },
+       ],
+-      'condition': 'host_os == "linux" and non_git_source',
++      'condition': 'host_os == "linux" and non_git_source and host_cpu != "arm64"',
+       'dep_type': 'cipd',
+   },
+ 
+diff --git a/tools/clang/scripts/build.py b/tools/clang/scripts/build.py
+index a9e248f2e5..d76d67f69d 100755
+--- a/tools/clang/scripts/build.py
++++ b/tools/clang/scripts/build.py
+@@ -300,6 +300,13 @@ def AddCMakeToPath():
+   elif sys.platform == 'darwin':
+     zip_name = 'cmake-3.26.4-macos-universal.tar.gz'
+     dir_name = ['cmake-3.26.4-macos-universal', 'CMake.app', 'Contents', 'bin']
++  elif platform.machine() in ('aarch64', 'arm64'):
++    # Upstream publishes the pinned CMake for linux-x86_64 only. Use the
++    # host's, which must be >= 3.26 (Ubuntu 24.04 ships 3.28).
++    if shutil.which('cmake'):
++      return
++    zip_name = 'cmake-3.26.4-linux-x86_64.tar.gz'
++    dir_name = ['cmake-3.26.4-linux-x86_64', 'bin']
+   else:
+     zip_name = 'cmake-3.26.4-linux-x86_64.tar.gz'
+     dir_name = ['cmake-3.26.4-linux-x86_64', 'bin']
+diff --git a/tools/rust/build_bindgen.py b/tools/rust/build_bindgen.py
+index 9f6786e979..dc4895bf7a 100755
+--- a/tools/rust/build_bindgen.py
++++ b/tools/rust/build_bindgen.py
+@@ -81,7 +81,8 @@ def RunCargo(cargo_args):
+     clang/llvm parts).  That's a bit icky, but ultimately okay.
+     """
+     ncursesw_dir = None
+-    if sys.platform.startswith('linux'):
++    if (sys.platform.startswith('linux')
++            and platform.machine() not in ('aarch64', 'arm64')):
+         ncursesw_dir = FetchNcurseswLibrary()
+ 
+     cargo_bin = os.path.join(RUST_TOOLCHAIN_OUT_DIR, 'bin', f'cargo{EXE}')
+@@ -139,7 +140,8 @@ def RunCargo(cargo_args):
+     env['LD'] = linker
+     env['RUSTFLAGS'] += f' -Clinker={linker}'
+ 
+-    if sys.platform.startswith('linux'):
++    if (sys.platform.startswith('linux')
++            and platform.machine() not in ('aarch64', 'arm64')):
+         # We use these flags to avoid linking with the system libstdc++.
+         sysroot = DownloadDebianSysroot('amd64')
+         sysroot_flag = f'--sysroot={sysroot}'
+diff --git a/tools/rust/build_rust.py b/tools/rust/build_rust.py
+index 0a44449a8b..dd819c508d 100755
+--- a/tools/rust/build_rust.py
++++ b/tools/rust/build_rust.py
+@@ -152,6 +152,8 @@ RUST_BETA_SYSROOT_DIR = os.path.join(THIRD_PARTY_DIR,
+ CIPD_DOWNLOAD_URL = f'https://chrome-infra-packages.appspot.com/dl'
+ OPENSSL_CIPD_LINUX_AMD_PATH = 'infra/3pp/static_libs/openssl/linux-amd64'
+ OPENSSL_CIPD_LINUX_AMD_VERSION = '1.1.1j.chromium.2'
++OPENSSL_CIPD_LINUX_ARM_PATH = 'infra/3pp/static_libs/openssl/linux-arm64'
++OPENSSL_CIPD_LINUX_ARM_VERSION = '1.1.1j.chromium.2'
+ OPENSSL_CIPD_MAC_AMD_PATH = 'infra/3pp/static_libs/openssl/mac-amd64'
+ OPENSSL_CIPD_MAC_AMD_VERSION = '1.1.1j.chromium.2'
+ OPENSSL_CIPD_MAC_ARM_PATH = 'infra/3pp/static_libs/openssl/mac-arm64'
+@@ -203,6 +205,9 @@ def AddOpenSSLToEnv():
+     elif sys.platform == 'win32':
+         ssl_url = (f'{CIPD_DOWNLOAD_URL}/{OPENSSL_CIPD_WIN_AMD_PATH}'
+                    f'/+/version:2@{OPENSSL_CIPD_WIN_AMD_VERSION}')
++    elif platform.machine() in ('aarch64', 'arm64'):
++        ssl_url = (f'{CIPD_DOWNLOAD_URL}/{OPENSSL_CIPD_LINUX_ARM_PATH}'
++                   f'/+/version:2@{OPENSSL_CIPD_LINUX_ARM_VERSION}')
+     else:
+         ssl_url = (f'{CIPD_DOWNLOAD_URL}/{OPENSSL_CIPD_LINUX_AMD_PATH}'
+                    f'/+/version:2@{OPENSSL_CIPD_LINUX_AMD_VERSION}')
+@@ -496,6 +501,7 @@ changelog-seen = 2'''
+ 
+             subs = {}
+             subs['DEBIAN_SYSROOT'] = quote_string(str(self._debian_sysroot))
++            subs['HOST_TRIPLE'] = RustTargetTriple()
+ 
+             if not os.path.exists(CARGO_HOME_DIR):
+                 os.makedirs(CARGO_HOME_DIR)
+@@ -584,6 +590,8 @@ def RustTargetTriple():
+             return 'x86_64-apple-darwin'
+     elif sys.platform == 'win32':
+         return 'x86_64-pc-windows-msvc'
++    elif platform.machine() in ('aarch64', 'arm64'):
++        return 'aarch64-unknown-linux-gnu'
+     else:
+         return 'x86_64-unknown-linux-gnu'
+ 
+@@ -610,6 +618,13 @@ def BuildLLVMLibraries(skip_checkout, llvm_force_head_revision):
+     if sys.platform.startswith('linux'):
+         build_cmd.append('--without-android')
+         build_cmd.append('--without-fuchsia')
++    if (sys.platform.startswith('linux')
++            and platform.machine() in ('aarch64', 'arm64')):
++        # No pinned Linux_aarch64 clang is published; bootstrap with the
++        # host toolchain instead (NCZ: LLVM 21 from apt.llvm.org).
++        host_cc = os.environ.get('NCZ_HOST_CC', '/usr/lib/llvm-21/bin/clang')
++        host_cxx = os.environ.get('NCZ_HOST_CXX', '/usr/lib/llvm-21/bin/clang++')
++        build_cmd += ['--host-cc', host_cc, '--host-cxx', host_cxx]
+     RunCommand(build_cmd + [
+         '--build-dir', RUST_HOST_LLVM_BUILD_DIR, '--install-dir',
+         RUST_HOST_LLVM_INSTALL_DIR
+@@ -793,7 +808,18 @@ def main():
+         # Fetch sysroot we build rustc against. This ensures a minimum supported
+         # host (not Chromium target). Since the rustc linux package is for
+         # x86_64 only, that is the sole needed sysroot.
+-        debian_sysroot = DownloadDebianSysroot('amd64', args.skip_checkout)
++        if platform.machine() in ('aarch64', 'arm64'):
++            # Upstream builds rustc against a Debian bullseye sysroot to pin a
++            # minimum glibc for the toolchain they PUBLISH. This one is never
++            # published -- it runs only inside the container that built it --
++            # and the sysroot actively breaks the link. rustc links through the
++            # host `cc`, whose libgcc_s.so.1 needs pthread_getspecific@GLIBC_2.34,
++            # pthread_once@GLIBC_2.34 and _dl_find_object@GLIBC_2.35, none of
++            # which exist in bullseye's glibc 2.31, so ld.lld rejects it under
++            # --no-allow-shlib-undefined while linking cargo.
++            debian_sysroot = None
++        else:
++            debian_sysroot = DownloadDebianSysroot('amd64', args.skip_checkout)
+ 
+     # Require zlib compression.
+     if sys.platform == 'win32':
+diff --git a/tools/rust/cargo-config.toml.template b/tools/rust/cargo-config.toml.template
+index 93b0d1164f..50af4b88b9 100644
+--- a/tools/rust/cargo-config.toml.template
++++ b/tools/rust/cargo-config.toml.template
+@@ -17,7 +17,7 @@ target-applies-to-host = true
+ # is impossible without this feature.
+ host-config = true
+ 
+-[host.x86_64-unknown-linux-gnu]
++[host.$HOST_TRIPLE]
+ # Use the same sysroot for host artifacts as target artifacts. Target rustflags
+ # are configured via environment variables.
+ rustflags = ["-Clink-arg=--sysroot=$DEBIAN_SYSROOT"]

@@ -1,0 +1,175 @@
+diff --git a/media/gpu/v4l2/v4l2_device.cc b/media/gpu/v4l2/v4l2_device.cc
+index fecd6a9a70..1488b69ad1 100644
+--- a/media/gpu/v4l2/v4l2_device.cc
++++ b/media/gpu/v4l2/v4l2_device.cc
+@@ -103,8 +103,9 @@ scoped_refptr<V4L2Queue> V4L2Device::GetQueue(enum v4l2_buf_type type) {
+   // TODO(acourbot): we should instead query the device for available queues,
+   // and allocate them accordingly. This will do for now though.
+   auto it = queues_.find(type);
+-  if (it != queues_.end())
++  if (it != queues_.end()) {
+     return scoped_refptr<V4L2Queue>(it->second);
++  }
+ 
+   scoped_refptr<V4L2Queue> queue = V4L2QueueFactory::CreateQueue(
+       this, type, base::BindOnce(&V4L2Device::OnQueueDestroyed, this, type));
+@@ -263,15 +264,27 @@ gfx::Size V4L2Device::AllocatedSizeFromV4L2Format(
+   size_t bytesperline = 0;
+   // Total bytes in the frame.
+   size_t sizeimage = 0;
++  // Bytes in the first physical plane. In true multi-planar formats,
++  // sizeimage is reported per physical plane, so coded geometry must be
++  // derived from plane 0 rather than the sum of all planes.
++  size_t plane0_sizeimage = 0;
++  bool has_separate_planes = false;
+ 
+   if (V4L2_TYPE_IS_MULTIPLANAR(format.type)) {
+     DCHECK_GT(format.fmt.pix_mp.num_planes, 0);
+-    bytesperline =
+-        base::checked_cast<int>(format.fmt.pix_mp.plane_fmt[0].bytesperline);
+-    for (size_t i = 0; i < format.fmt.pix_mp.num_planes; ++i) {
+-      sizeimage += base::checked_cast<int>(
+-          UNSAFE_TODO(format.fmt.pix_mp.plane_fmt[i]).sizeimage);
++    if (format.fmt.pix_mp.num_planes == 0 ||
++        format.fmt.pix_mp.num_planes > VIDEO_MAX_PLANES) {
++      VLOGF(1) << "Invalid format provided";
++      return coded_size;
+     }
++    has_separate_planes = format.fmt.pix_mp.num_planes > 1;
++    bytesperline =
++        base::checked_cast<size_t>(format.fmt.pix_mp.plane_fmt[0].bytesperline);
++    plane0_sizeimage =
++        base::checked_cast<size_t>(format.fmt.pix_mp.plane_fmt[0].sizeimage);
++    // Some stateful M2M drivers leave non-luma plane_fmt entries stale after
++    // S_FMT. Separate physical-plane geometry only depends on plane 0 here.
++    sizeimage = plane0_sizeimage;
+     visible_size.SetSize(base::checked_cast<int>(format.fmt.pix_mp.width),
+                          base::checked_cast<int>(format.fmt.pix_mp.height));
+     const uint32_t pix_fmt = format.fmt.pix_mp.pixelformat;
+@@ -282,8 +295,9 @@ gfx::Size V4L2Device::AllocatedSizeFromV4L2Format(
+     }
+     frame_format = frame_fourcc->ToVideoPixelFormat();
+   } else {
+-    bytesperline = base::checked_cast<int>(format.fmt.pix.bytesperline);
+-    sizeimage = base::checked_cast<int>(format.fmt.pix.sizeimage);
++    bytesperline = base::checked_cast<size_t>(format.fmt.pix.bytesperline);
++    sizeimage = base::checked_cast<size_t>(format.fmt.pix.sizeimage);
++    plane0_sizeimage = sizeimage;
+     visible_size.SetSize(base::checked_cast<int>(format.fmt.pix.width),
+                          base::checked_cast<int>(format.fmt.pix.height));
+     const uint32_t fourcc = format.fmt.pix.pixelformat;
+@@ -312,11 +326,18 @@ gfx::Size V4L2Device::AllocatedSizeFromV4L2Format(
+ 
+   // Adding up bpp for each component will give us total bpp for all components.
+   int total_bpp = 0;
+-  for (size_t i = 0; i < VideoFrame::NumPlanes(frame_format); ++i)
++  for (size_t i = 0; i < VideoFrame::NumPlanes(frame_format); ++i) {
+     total_bpp += VideoFrame::PlaneBitsPerPixel(frame_format, i);
++  }
++
++  const size_t coded_sizeimage =
++      has_separate_planes ? plane0_sizeimage : sizeimage;
++  const int coded_size_bits_per_pixel =
++      has_separate_planes ? plane_horiz_bits_per_pixel : total_bpp;
+ 
+-  if (sizeimage == 0 || bytesperline == 0 || plane_horiz_bits_per_pixel == 0 ||
+-      total_bpp == 0 || (bytesperline * 8) % plane_horiz_bits_per_pixel != 0) {
++  if (coded_sizeimage == 0 || bytesperline == 0 ||
++      plane_horiz_bits_per_pixel == 0 || total_bpp == 0 ||
++      (bytesperline * 8) % plane_horiz_bits_per_pixel != 0) {
+     VLOGF(1) << "Invalid format provided";
+     return coded_size;
+   }
+@@ -328,7 +349,8 @@ gfx::Size V4L2Device::AllocatedSizeFromV4L2Format(
+   // Sizeimage is coded_width * coded_height * total_bpp. In the case that we
+   // don't have exact alignment due to padding in the driver, round up so that
+   // the buffer is large enough.
+-  std::div_t res = std::div(sizeimage * 8, coded_width * total_bpp);
++  std::div_t res =
++      std::div(coded_sizeimage * 8, coded_width * coded_size_bits_per_pixel);
+   int coded_height = res.quot + std::min(res.rem, 1);
+ 
+   coded_size.SetSize(coded_width, coded_height);
+@@ -416,10 +438,10 @@ bool V4L2Device::ClearDevicePollInterrupt() {
+ 
+ bool V4L2Device::CanCreateEGLImageFrom(const Fourcc fourcc) const {
+   static uint32_t kEGLImageDrmFmtsSupported[] = {
+-    DRM_FORMAT_ARGB8888,
++      DRM_FORMAT_ARGB8888,
+ #if defined(ARCH_CPU_ARM_FAMILY)
+-    DRM_FORMAT_NV12,
+-    DRM_FORMAT_YVU420,
++      DRM_FORMAT_NV12,
++      DRM_FORMAT_YVU420,
+ #endif
+   };
+ 
+@@ -642,8 +664,9 @@ bool V4L2Device::StartPolling(V4L2DevicePoller::EventCallback event_callback,
+   bool ret = device_poller_->StartPolling(std::move(event_callback),
+                                           std::move(error_callback));
+ 
+-  if (!ret)
++  if (!ret) {
+     device_poller_ = nullptr;
++  }
+ 
+   return ret;
+ }
+@@ -657,8 +680,9 @@ bool V4L2Device::StopPolling() {
+ void V4L2Device::SchedulePoll() {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(client_sequence_checker_);
+ 
+-  if (!device_poller_ || !device_poller_->IsPolling())
++  if (!device_poller_ || !device_poller_->IsPolling()) {
+     return;
++  }
+ 
+   device_poller_->SchedulePoll();
+ }
+@@ -680,8 +704,9 @@ std::optional<struct v4l2_event> V4L2Device::DequeueEvent() {
+ V4L2RequestsQueue* V4L2Device::GetRequestsQueue() {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(client_sequence_checker_);
+ 
+-  if (requests_queue_creation_called_)
++  if (requests_queue_creation_called_) {
+     return requests_queue_.get();
++  }
+ 
+   requests_queue_creation_called_ = true;
+ 
+@@ -774,8 +799,9 @@ bool V4L2Device::SetExtCtrls(uint32_t ctrl_class,
+                              V4L2RequestRef* request_ref) {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(client_sequence_checker_);
+ 
+-  if (ctrls.empty())
++  if (ctrls.empty()) {
+     return true;
++  }
+ 
+   struct v4l2_ext_controls ext_ctrls = {};
+   ext_ctrls.which = V4L2_CTRL_WHICH_CUR_VAL;
+@@ -788,19 +814,21 @@ bool V4L2Device::SetExtCtrls(uint32_t ctrl_class,
+   ext_ctrls.count = ctrls.size();
+   ext_ctrls.controls = &ctrls[0].ctrl;
+ 
+-  if (request_ref)
++  if (request_ref) {
+     request_ref->ApplyCtrls(&ext_ctrls);
++  }
+ 
+   const int result = Ioctl(VIDIOC_S_EXT_CTRLS, &ext_ctrls);
+   if (result < 0) {
+-    if (ext_ctrls.error_idx == ext_ctrls.count)
++    if (ext_ctrls.error_idx == ext_ctrls.count) {
+       VPLOGF(1) << "VIDIOC_S_EXT_CTRLS: validation failed while trying to set "
+                    "controls";
+-    else
++    } else {
+       VPLOGF(1) << "VIDIOC_S_EXT_CTRLS: unable to set control (0x" << std::hex
+                 << ctrls[ext_ctrls.error_idx].ctrl.id << ") at index ("
+                 << ext_ctrls.error_idx << ")  to 0x"
+                 << ctrls[ext_ctrls.error_idx].ctrl.value;
++    }
+   }
+ 
+   return result == 0;
