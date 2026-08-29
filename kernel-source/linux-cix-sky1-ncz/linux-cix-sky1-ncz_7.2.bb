@@ -128,6 +128,7 @@ LINUX_VERSION = "7.2"
 KERNEL_LOCALVERSION = "-sky1-ncz"
 PATCHTOOL = "git"
 PV = "7.2+ncz"
+PR = "r1"
 KBRANCH = "master"
 KERNEL_PACKAGE_NAME = "kernel-${PN}"
 
@@ -362,6 +363,11 @@ SRC_URI = " \
     file://patches-7.2/0220-misc-armchina-npu-use-irq-object-as-dev-id.patch \
     file://patches-7.2/0221-usb-cdns3-sky1-defer-child-until-wrapper-ready.patch \
     file://patches-7.2/0222-usb-hub-recover-connect-events-on-powered-but-runtime-suspended-ports.patch \
+    file://patches-7.2/0223-drm-cix-expose-dp-eld-to-hdmi-codec.patch \
+    file://patches-7.2/0224-sound-soc-cix-harden-sky1-audio-paths.patch \
+    file://patches-7.2/0226-drm-cix-populate-dptx-connector-eld.patch \
+    file://patches-7.2/0227-drm-cix-make-linlondp-dpu-links-stateless.patch \
+    file://patches-7.2/0228-drm-cix-cap-linlondp-cluster-plane-creation.patch \
 "
 
 COMPATIBLE_MACHINE = "(cixmini)"
