@@ -73,3 +73,39 @@ the DPU cluster exceeds DRM's 32-plane limit (see
 `2026-08-29-gabor-orion-o6-analysis.md`). This board reaches a desktop and
 lacks GPU acceleration. Different layers, different boards; they should not be
 merged into one investigation without evidence.
+
+
+## Known-good baseline, measured on our O6N the same day
+
+Captured with `tools/ncz-gpu-report.sh` (added alongside this report):
+
+```
+cmdline : module_blacklist=panthor,typec_rts5453,rts5453   sky1.gpu=vendor
+KMD     : /sys/bus/platform/drivers/mali -> CIXH5000:00, mali_kbase loaded, /dev/mali0 present
+DRM     : card0 -> linlondp, renderD128 -> linlondp
+package : ii  cix-gpu-umd  2.0.0  arm64
+libmali : /opt/cixgpu-pro/lib/aarch64-linux-gnu/libmali.so.0.53.0
+resolves: libEGL.so.1    -> /opt/cixgpu-compat/lib/aarch64-linux-gnu/libEGL.so.1
+          libGLESv2.so.2 -> /opt/cixgpu-compat/lib/aarch64-linux-gnu/libGLESv2.so.2
+          libgbm.so.1    -> /opt/cixgpu-pro/lib/aarch64-linux-gnu/libgbm.so.1
+```
+
+So a working O6N runs the VENDOR stack with panthor blacklisted on the kernel
+command line. That sharpens the hypothesis: if a board keeps
+`module_blacklist=panthor` and `sky1.gpu=vendor` while `cix-gpu-umd` is absent,
+there is no GL driver at all — panthor is blocked and libmali does not exist.
+EGL then has nothing to open, which is precisely the reported
+`eglGetDisplay() failed with error: 0x3000` and the glmark2 crash, and it
+explains why manually switching to panfrost/panthor restored acceleration.
+
+This remains a hypothesis until the report script is run on that board.
+
+## Note on the diagnostic itself
+
+The first version of `ncz-gpu-report.sh` called `ldconfig` bare. `ldconfig`
+lives in `/usr/sbin`, which is not on a normal user's PATH, so the script
+reported libEGL, libGLESv2 and libmali as "not found" on our own O6N where
+they demonstrably work. That false negative would have sent someone hunting a
+missing library that was present the whole time. Fixed to resolve the binary
+explicitly. Worth remembering: a diagnostic that reports absence must prove it
+actually looked.
