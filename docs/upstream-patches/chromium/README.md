@@ -56,3 +56,97 @@ counter-evidence: the hardware path works and is verified bit-exact; only the
 flag withholds it.
 
 Author identity: Jason Perlow <jperlow@gmail.com> (never `@nvidia.com`).
+
+
+---
+
+# Chromium 153 patch set — hardware ENCODE, and building on aarch64
+
+Added 2026-08-29. These are carried on top of Chromium 153.0.7995.0 and were
+built and verified natively on ULTRA's Asahi side (192.168.207.88), producing
+`chromium-ncz-sky1_153.0.7995.0-ncz20260829_arm64.deb`.
+
+Read `0001` above first; it is the AV1 decode gate and is still not upstream
+(checked against chromium main on 2026-08-29: `media/gpu/args.gni` still reads
+`is_chromeos || (is_linux && use_vaapi) || is_win || is_apple`).
+
+## The encode patches
+
+`0002-media-gpu-enable-v4l2-video-encode-on-linux.patch`
+  Upstream compiles `v4l2_video_encode_accelerator.{cc,h}` only under
+  `if (is_chromeos)`, and `CreateV4L2VEA()` returns nullptr outside ChromeOS.
+  Every Linux V4L2 build therefore reports "Video Encode: Software only" no
+  matter which flags are set. This is what made `strings chrome` show the
+  entire decode side and nothing on the encode side in the shipped 151 build.
+  Necessary but NOT sufficient — on its own it only puts symbols in the binary.
+
+`0003-media-gpu-v4l2-coded-size-from-plane0-for-multiplanar.patch`
+  With encode enabled the GPU process crashed SIGTRAP / exit_code=133 in
+  `V4L2Device::AllocatedSizeFromV4L2Format` <- `SetFormats` <- `InitializeTask`,
+  and WebRTC silently fell back to OpenH264 after "Mojo is disconnected".
+  For true multi-planar formats the driver reports `sizeimage` PER PLANE
+  (NV12M 1280x720: plane0 921600, plane1 460800); Chromium summed the planes
+  and divided by TOTAL bits-per-pixel, computing a coded size of 1280x360,
+  which fails the check that coded size must contain the visible 1280x720.
+  Now derives coded geometry from plane 0. `--no-sandbox` does not change the
+  crash, so sandbox permissions were never involved.
+
+`0004-media-gpu-v4l2-skip-ym12-and-align-colorspace.patch`
+  The CIX `mvx` encoder ACCEPTS `V4L2_PIX_FMT_YUV420M` ("YM12") and then
+  returns poisoned plane metadata after `S_FMT` — plane 2 with
+  `sizeimage=4294967116`, `bytesperline=2863311530`. Chromium now skips that
+  sanitized YM12 path and uses NV12M/NV12, and aligns the image-processor
+  input/output colour spaces before `Process()` (an encode-only CHECK that
+  only surfaces once YM12 is skipped).
+
+`0005-media-gpu-sandbox-include-logging.patch`
+  Build fix, not behaviour: `hardware_video_decoding_sandbox_hook_linux.cc`
+  uses `LOG(ERROR)` without including `base/logging.h`. It compiles upstream
+  only because the configurations Google builds pull that header in
+  transitively; with `use_v4l2_codec=true` / `use_vaapi=false` it fails with
+  `error: use of undeclared identifier 'ERROR'`.
+
+## The build patch
+
+`0100-build-aarch64-host-toolchain.patch`
+  Chromium publishes host toolchains for `Linux_x64` ONLY (`Linux_aarch64`
+  404s), and from 153 a system toolchain is not a substitute: `//build/rust/
+  crubit` is a hard dep of `//components/cbor` and its std bindings exist only
+  under `use_chromium_rust_toolchain`, while `enable_rust=false` is refused by
+  `assert(enable_rust)`. So Chromium's own clang and rust must be built for
+  aarch64 first, and the scripts that do it assume x86-64 in six places:
+  the rust host triple, the OpenSSL cipd package, the pinned CMake, the pinned
+  bootstrap clang, the Debian sysroot (its glibc 2.31 cannot satisfy the host
+  `libgcc_s`, which needs `_dl_find_object@GLIBC_2.35`), and a prebuilt
+  x86-64 static ncursesw. The DEPS hunk skips an `infra/3pp/tools/gperf/
+  linux-arm64` cipd package that upstream does not publish.
+
+  Not in the patch, but required to build: `use_mold=false` (the cipd mold is
+  x86-64), an aarch64 `clang-format` in `buildtools/linux64-format` (crubit
+  pipes through it), Node **24.12.0** exactly — Node 22 makes
+  `build_ai_skills.mjs` exit 0 writing nothing because it guards on
+  `import.meta.main` — and `@rollup/rollup-linux-arm64-gnu` in
+  `third_party/devtools-frontend/src/node_modules`.
+
+## What is verified, and what is not
+
+Verified on O6N with `~/verify-chromium-encode.sh` (a real 720p WebRTC
+loopback with a fake camera, judged by which `/dev` node chrome holds and by
+`getStats`, not by about:gpu and not by a `--headless` run):
+
+    /dev/video-cixenc0 held by: 127335
+    ENCODESTAT frames=445 impl=V4L2VideoEncodeAccelerator size=1280x720
+    GPU process exits: 0
+
+Note the test must force H.264 via `setCodecPreferences`; left alone WebRTC
+negotiates VP8, which this VPU cannot encode at all, and the result looks like
+a failure. Some simulcast layers still fall back to OpenH264.
+
+NOT verified, and open: hardware DECODE does not work in this 153 build. The
+decoder node is opened and metadata parses, but playback never advances
+(`decoded=0 t=0.0`), while `--disable-accelerated-video-decode` plays the same
+clip (`decoded=510 t=16.8`). This is NOT caused by `0003`: a control build
+with `v4l2_device.cc` reverted to upstream HEAD fails identically. Since
+`docs/HW-VIDEO-DECODE-STATUS.md` records H.264 and VP9 decode working in the
+shipped 151 build, this is a 151 -> 153 regression that still needs
+root-causing.
