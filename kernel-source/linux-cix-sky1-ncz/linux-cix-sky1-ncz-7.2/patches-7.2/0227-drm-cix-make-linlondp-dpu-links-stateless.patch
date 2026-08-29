@@ -1,0 +1,32 @@
+From 5008c6f3b4d45c6f1e243c8af2c901c8e7588b91 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 29 Aug 2026 11:02:25 -0400
+Subject: [PATCH] drm/cix: make linlondp DPU links stateless
+
+linlondp_cluster_dpu_links_add() creates per-DPU device links and the driver explicitly deletes them on bind failure and unbind. Passing flags 0 creates managed links, but device_link_del() is only valid for stateless links, so the driver triggers a core warning for every DPU when it tears the links down.
+
+Create the cluster-to-DPU links with DL_FLAG_STATELESS. That matches the driver-owned lifetime model already implemented by linlondp_cluster_dpu_links_del() and keeps the explicit delete paths intact.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c b/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c
+index dcc338c..053f592 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c
++++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c
+@@ -89,7 +89,8 @@ static int linlondp_cluster_dpu_links_add(struct device *dev,
+ 	unsigned int i;
+ 
+ 	for (i = 0; i < cl->n_mdevs; i++) {
+-		cl->dpu_links[i] = device_link_add(dev, cl->mdevs[i]->dev, 0);
++		cl->dpu_links[i] = device_link_add(dev, cl->mdevs[i]->dev,
++						       DL_FLAG_STATELESS);
+ 		if (!cl->dpu_links[i]) {
+ 			linlondp_cluster_dpu_links_del(cl);
+ 			return -ENOMEM;
+-- 
+2.55.0
+
