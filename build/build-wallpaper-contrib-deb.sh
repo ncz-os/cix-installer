@@ -47,6 +47,21 @@ case "$PACK" in
  Installing this package adds them to the NCZ wallpaper rotation. They are
  picked up automatically by ncz-wallpaper-rotate; no configuration is needed."
         ;;
+    alex-jay-brady)
+        PKG="ncz-wallpapers-alex-jay-brady"
+        AUTHOR="Alex Jay Brady"
+        YEAR="2026"
+        BLURB="Wallpaper artwork by Alex Jay Brady"
+        HOMEPAGE="https://www.artstation.com/boac"
+        CREDITS="  ArtStation: https://www.artstation.com/boac"
+        LONG=" Eight 4K wallpapers contributed to NCZ-OS by Alex Jay Brady: Heavy
+ hydrogen mine, two Winnebago singularity drive ship pieces, Killing the star,
+ Approaching moebius world, Anti-stellar projectile gun, Destroying the braided
+ ringworld, and Galaxies exiting this doomed universe.
+ .
+ Installing this package adds them to the NCZ wallpaper rotation. They are
+ picked up automatically by ncz-wallpaper-rotate; no configuration is needed."
+        ;;
     *)
         echo "ERROR: unknown pack '$PACK' — add its metadata to this script." >&2
         exit 1 ;;
