@@ -260,10 +260,52 @@ echo "  wiping stale ESP entries + kernel images..."
 # initramfs hook runs this script. Installing waydroid was enough to remove it
 # a second time. So the wipe must spare *-rescue, which the staging code below
 # never writes and therefore cannot be stale.
+# AUTO-PROMOTE the outgoing kernel to a rescue image before deleting it.
+#
+# The *-rescue sparing below has existed since 2026-08-18, but nothing ever
+# STAGED one: it was documented as "operator-staged", so in practice these
+# boards ran with no fallback at all. Measured on MS-R1 2026-09-04: upgrading
+# to 7.2.3 removed /boot/vmlinuz-7.2.0-sky1-ncz (dpkg) and this wipe removed
+# the ESP copy, leaving exactly one kernel on the ESP. A hand-staged fallback
+# did not survive either -- installing CHROMIUM was enough to run this script
+# and delete it again.
+#
+# The kernel currently on the ESP is the one the machine has been booting, so
+# it is the best available definition of "known-good". Promote it rather than
+# copying from /boot, because by the time this hook runs dpkg has usually
+# already removed the old /boot/vmlinuz-*.
+#
+# Only one rescue image is kept: the previous one is replaced, so the ESP does
+# not grow without bound. (2G ESP, ~65M per kernel+initrd pair, measured on
+# both O6N and MS-R1.)
+if [ -n "$KVER_NEXT" ]; then
+    for _esp_k in /boot/efi/vmlinuz-*; do
+        [ -e "$_esp_k" ] || continue
+        case "$_esp_k" in *-rescue) continue ;; esac
+        _out_kver=${_esp_k##*/vmlinuz-}
+        # Never promote the kernel we are about to stage: that is not a fallback.
+        [ "$_out_kver" = "$KVER_NEXT" ] && continue
+        [ -s "$_esp_k" ] || continue
+        [ -s "/boot/efi/initrd.img-$_out_kver" ] || {
+            echo "  WARN: not promoting $_out_kver to rescue -- its initrd is missing on the ESP"
+            continue
+        }
+        rm -f /boot/efi/vmlinuz-*-rescue /boot/efi/initrd.img-*-rescue 2>/dev/null || true
+        if cp -f "$_esp_k" "/boot/efi/vmlinuz-$_out_kver-rescue" &&
+           cp -f "/boot/efi/initrd.img-$_out_kver" "/boot/efi/initrd.img-$_out_kver-rescue"; then
+            echo "  promoted outgoing kernel $_out_kver to rescue image"
+        else
+            rm -f "/boot/efi/vmlinuz-$_out_kver-rescue" "/boot/efi/initrd.img-$_out_kver-rescue" 2>/dev/null || true
+            echo "  WARN: could not promote $_out_kver to a rescue image"
+        fi
+        break
+    done
+fi
+
 for _esp_f in /boot/efi/vmlinuz-* /boot/efi/initrd.img-*; do
     [ -e "$_esp_f" ] || continue
     case "$_esp_f" in
-        *-rescue) echo "  preserving operator rescue image ${_esp_f##*/}"; continue ;;
+        *-rescue) echo "  preserving rescue image ${_esp_f##*/}"; continue ;;
     esac
     rm -f "$_esp_f"
 done
