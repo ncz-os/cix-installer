@@ -482,7 +482,17 @@ _ncz_panthor_live() {
 
 if [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
     NCZ_GPU_BACKEND=mali
-    LD_LIBRARY_PATH="/opt/cixgpu-pro/lib/aarch64-linux-gnu:/opt/cixgpu-compat/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    # Pin the CIX EGL vendor explicitly, mirroring what the panthor branch does
+    # for mesa. glvnd otherwise scans /usr/share/glvnd/egl_vendor.d, which ships
+    # only 50_mesa.json -- the CIX vendor lives under /opt/cixgpu-compat/share
+    # and is never found, so clients silently fall back to Mesa, which cannot
+    # drive Mali. Pinning also avoids installing 40_cix.json system-wide, where
+    # it would sort BEFORE 50_mesa and get tried first on the PANTHOR boot too.
+    __EGL_VENDOR_LIBRARY_FILENAMES=/opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json
+    # NOTE: /opt/cixgpu-compat is NOT added to LD_LIBRARY_PATH. It holds a whole
+    # second glvnd + Mesa 24.0.4; loading those alongside the system Mesa 26 is
+    # what produced "free(): invalid pointer". Only the blob dir goes on the path.
+    LD_LIBRARY_PATH="/opt/cixgpu-pro/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     WLR_DRM_NO_MODIFIERS=1
     # Explicit ICD pin (not just relying on /etc/vulkan/icd.d/mali.json being
     # enabled): the Vulkan loader's default ICD search does not reliably pick
@@ -495,7 +505,7 @@ if [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
     # stack does not apply /etc/environment, so sessions must inherit this
     # here (confirmed on O6N: mpv --hwdec=vaapi fails without it in-session).
     LIBVA_DRIVER_NAME=libcix_va
-    export NCZ_GPU_BACKEND LD_LIBRARY_PATH WLR_DRM_NO_MODIFIERS VK_DRIVER_FILES LIBVA_DRIVER_NAME
+    export NCZ_GPU_BACKEND LD_LIBRARY_PATH WLR_DRM_NO_MODIFIERS VK_DRIVER_FILES LIBVA_DRIVER_NAME __EGL_VENDOR_LIBRARY_FILENAMES
 elif _ncz_panthor_live; then
     # Panthor = open Mesa stack. Point glvnd/EGL at the mesa vendor ICD and strip
     # inherited CIX libmali paths so EGL/GBM resolve to mesa (panfrost/panvk).
