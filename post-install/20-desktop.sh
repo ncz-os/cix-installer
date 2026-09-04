@@ -513,6 +513,41 @@ elif _ncz_panthor_live; then
     LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     VK_LOADER_LAYERS_DISABLE=VK_LAYER_CIX_window_system_integration
     WLR_DRM_NO_MODIFIERS=1
+    # Pin the RENDER node to panthor's own device.
+    #
+    # ncz-wlr-connected-drm builds WLR_DRM_DEVICES from cards that have a
+    # CONNECTED output. On Sky1 that is only card0 = linlondp, the display
+    # controller; panthor is render-only and exposes no connectors, so it never
+    # appears in that list. With no WLR_RENDER_DRM_DEVICE, wlroots renders on
+    # the same device it scans out on -- linlondp -- which has no gallium
+    # driver. Mesa falls back to Zink, Zink needs a Vulkan ICD, none is
+    # installed, and EGL dies:
+    #
+    #   MESA: error: ZINK: vkCreateInstance failed (VK_ERROR_INCOMPATIBLE_DRIVER)
+    #   [render/egl.c:269]   Failed to initialize EGL
+    #   [../src/server.c:586] unable to create renderer
+    #
+    # greetd's greeter then exits after ~430ms without creating a session and
+    # start-limit-hits on the 5th try, so the Panthor boot entry comes up to a
+    # black screen while the Mali entry is fine. Mali never hits this because it
+    # renders through /dev/mali0 and the libmali blob, not a DRM render node.
+    #
+    # Metal-confirmed on O6N 2026-09-04 against 7.2.3-sky1-ncz+r263: setting
+    # this took the greeter from a crash-loop to "first surface committed" in
+    # 458ms with 0 restarts.
+    #
+    # Resolved dynamically -- renderD numbering is not stable across boots or
+    # boards (MS-R1 has four DPUs and lands on a different node than O6N).
+    for _ncz_rd in /sys/class/drm/renderD*; do
+        [ -e "$_ncz_rd/device/driver" ] || continue
+        [ "$(basename "$(readlink -f "$_ncz_rd/device/driver")")" = panthor ] || continue
+        if [ -c "/dev/dri/$(basename "$_ncz_rd")" ]; then
+            WLR_RENDER_DRM_DEVICE="/dev/dri/$(basename "$_ncz_rd")"
+            export WLR_RENDER_DRM_DEVICE
+        fi
+        break
+    done
+    unset _ncz_rd
     export NCZ_GPU_BACKEND __EGL_VENDOR_LIBRARY_FILENAMES VK_LOADER_LAYERS_DISABLE WLR_DRM_NO_MODIFIERS
     if [ -n "$LD_LIBRARY_PATH" ]; then export LD_LIBRARY_PATH; else unset LD_LIBRARY_PATH; fi
 else
