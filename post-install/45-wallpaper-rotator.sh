@@ -20,7 +20,14 @@ esac
 ASSETS=/usr/local/lib/cix-installer/assets/branding/wallpaper
 DEST=/usr/share/backgrounds/ncz
 mkdir -p "$DEST"
-for f in "$ASSETS"/ncz-wallpaper-*-2k.jpg; do
+# Glob on the ncz-wallpaper- prefix ONLY, never on a resolution suffix. The
+# suffix is a label, not a contract: the contrib packs are 3840x2160 and named
+# -4k, and a -2k glob silently skips anything that does not carry that exact
+# string. This file already lost art that way once -- the contrib builder's
+# header records the same failure with ncz-wallpaper-0*.jpg quietly ignoring
+# everything numbered 10 and above. A wallpaper that is simply absent from the
+# rotation looks identical to one that was never installed.
+for f in "$ASSETS"/ncz-wallpaper-*.jpg; do
     [ -f "$f" ] && install -m 0644 "$f" "$DEST/"
 done
 # Default = the Maximilian backdrop (26.7 release wallpaper).

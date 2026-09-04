@@ -2,7 +2,7 @@
 # gen-maximilian-art.py — procedural RETRO DIGITAL ART for NCZ-OS 26.7 "Maximilian".
 # Theme: Disney's The Black Hole (1979). Original homage art (not a copy).
 #   1) maximilian-robot-splash.png  — menacing red robot head (rEFInd banner)
-#   2) ncx-wallpaper-07-maximilian-2k.jpg — red scary black hole (desktop wallpaper)
+#   2) ncz-wallpaper-07-maximilian-blackhole-2k.jpg — red scary black hole (desktop wallpaper)
 # Deterministic (fixed seed). Requires Pillow + numpy. No AI, no external assets.
 import math, numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageChops
@@ -176,5 +176,5 @@ if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else "."
     robot_splash().save(f"{out}/maximilian-robot-splash.png")
     print("wrote maximilian-robot-splash.png")
-    blackhole().convert("RGB").save(f"{out}/ncx-wallpaper-07-maximilian-2k.jpg", quality=90)
-    print("wrote ncx-wallpaper-07-maximilian-2k.jpg")
+    blackhole().convert("RGB").save(f"{out}/ncz-wallpaper-07-maximilian-blackhole-2k.jpg", quality=90)
+    print("wrote ncz-wallpaper-07-maximilian-blackhole-2k.jpg")
