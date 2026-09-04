@@ -19,7 +19,7 @@
 # Usage:
 #   port-series.sh <tag> [worktree-dir]
 #
-# Env overrides (defaults suit the TYDEUS build host):
+# Env overrides (defaults suit ULTRA, where kernel builds run as of 2026-08-29):
 #   NCZ_KERNEL_CLONE   mainline clone to take the tag from   (~/linux-72)
 #   NCZ_RECIPE_DIR     dir holding linux-cix-sky1-ncz_7.2.bb
 set -uo pipefail
@@ -27,7 +27,7 @@ set -uo pipefail
 TAG="${1:?usage: port-series.sh <tag> [worktree]}"
 WT="${2:-$HOME/linux-port-$TAG}"
 CLONE="${NCZ_KERNEL_CLONE:-$HOME/linux-72}"
-SRC="${NCZ_RECIPE_DIR:-$HOME/yocto-docker/yocto6-ncz-tydeus/meta-cix/recipes-kernel/linux-cix-sky1-ncz}"
+SRC="${NCZ_RECIPE_DIR:-$HOME/yocto-work/meta-cix/recipes-kernel/linux-cix-sky1-ncz}"
 BB="$SRC/linux-cix-sky1-ncz_7.2.bb"
 PDIR="$SRC/linux-cix-sky1-ncz-7.2"
 
