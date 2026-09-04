@@ -1,0 +1,93 @@
+diff --git a/src/components/sidebar/pages/desktop_page.vala b/src/components/sidebar/pages/desktop_page.vala
+index d01dfad..4460def 100644
+--- a/src/components/sidebar/pages/desktop_page.vala
++++ b/src/components/sidebar/pages/desktop_page.vala
+@@ -1790,6 +1790,62 @@ namespace Singularity {
+             });
+         }
+ 
++        /*
++         * How many directory levels below each search root to scan.
++         *
++         * The scan used to enumerate each root and accept only entries whose
++         * content-type began with "image/". A directory's content-type is
++         * "inode/directory", so it failed that test and was skipped without
++         * ever being descended into -- which meant wallpapers were only ever
++         * found if they sat directly in a search root. Any distribution or
++         * user that groups wallpapers into folders had them silently ignored;
++         * the picker simply showed nothing from them, which is hard to tell
++         * apart from having none installed.
++         *
++         * Two levels covers the common layouts: a vendor folder such as
++         * <root>/<distro>/, and a collection or artist pack one deeper at
++         * <root>/<distro>/<pack>/. It is deliberately bounded rather than a
++         * full walk so a stray symlink or a deep unrelated tree under a search
++         * root cannot turn the scan into an unbounded traversal.
++         */
++        private const int WALLPAPER_SCAN_DEPTH = 2;
++
++        /*
++         * Collect image files from dir, descending up to depth levels.
++         * Runs on the wallpaper-scan thread; errors are ignored per directory
++         * so one unreadable folder cannot abort the whole scan.
++         */
++        private void scan_wallpaper_dir(File dir,
++                                        ArrayList<WallpaperCandidate> candidates,
++                                        HashSet<string> thread_seen,
++                                        int depth) {
++            try {
++                if (!dir.query_exists()) return;
++                var enumerator = dir.enumerate_children(
++                    "standard::name,standard::type,standard::content-type",
++                    FileQueryInfoFlags.NONE, null);
++                FileInfo info;
++                while ((info = enumerator.next_file(null)) != null) {
++                    if (info.get_file_type() == FileType.DIRECTORY) {
++                        if (depth > 0) {
++                            scan_wallpaper_dir(dir.get_child(info.get_name()),
++                                               candidates, thread_seen, depth - 1);
++                        }
++                        continue;
++                    }
++                    string mime = info.get_content_type();
++                    if (mime != null && mime.has_prefix("image/")) {
++                        string uri = dir.get_child(info.get_name()).get_uri();
++                        if (!thread_seen.contains(uri)) {
++                            thread_seen.add(uri);
++                            candidates.add(new WallpaperCandidate(uri, false));
++                        }
++                    }
++                }
++            } catch (Error e) {
++            }
++        }
++
+         private void populate_grid() {
+             int gen = ++wallpaper_grid_generation;
+             wallpaper_grid.remove_all();
+@@ -1820,23 +1876,8 @@ namespace Singularity {
+                 foreach (string uri in seen) thread_seen.add(uri);
+ 
+                 foreach (string path in scan_paths) {
+-                    try {
+-                        var dir = File.new_for_path(path);
+-                        if (!dir.query_exists()) continue;
+-                        var enumerator = dir.enumerate_children("standard::name,standard::content-type", FileQueryInfoFlags.NONE, null);
+-                        FileInfo info;
+-                        while ((info = enumerator.next_file(null)) != null) {
+-                            string mime = info.get_content_type();
+-                            if (mime.has_prefix("image/")) {
+-                                string uri = dir.get_child(info.get_name()).get_uri();
+-                                if (!thread_seen.contains(uri)) {
+-                                    thread_seen.add(uri);
+-                                    candidates.add(new WallpaperCandidate(uri, false));
+-                                }
+-                            }
+-                        }
+-                    } catch (Error e) {
+-                    }
++                    scan_wallpaper_dir(File.new_for_path(path), candidates, thread_seen,
++                                       WALLPAPER_SCAN_DEPTH);
+                 }
+ 
+                 GLib.Idle.add(() => {
