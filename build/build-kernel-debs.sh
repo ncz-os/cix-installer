@@ -134,6 +134,20 @@ resolve_kver() {   # <channel-dir> <sidecar-name> <default>
     fi
     if [ -s "$sidecar" ]; then
         v=$(tr -d " \t\r\n" < "$sidecar")
+        # HARD FAIL if the sidecar disagrees with the manifest. This fallback
+        # exists for the case where the asset KVER file is missing, but the
+        # staging directory is a build OUTPUT and routinely holds the PREVIOUS
+        # kernel: on 2026-09-04 it still read 7.2.0-sky1-ncz while the shipped
+        # kernel was 7.2.3-sky1-ncz. Warning and continuing means an ISO can be
+        # built against a kernel nobody intended, which is indistinguishable
+        # from success until the board boots the wrong thing.
+        mkver=$(sed -n 's/.*"kver": "\([^"]*\)".*/\1/p' "$ROOT/assets/kernel-manifest.json" 2>/dev/null | head -1)
+        if [ -n "$v" ] && [ -n "$mkver" ] && [ "$v" != "$mkver" ]; then
+            echo "ERROR: ISO-staging sidecar KVER ($v) disagrees with the kernel manifest ($mkver)." >&2
+            echo "       $sidecar is stale build output. Rebuild the kernel assets," >&2
+            echo "       delete build/iso-staging-di, or pass KVER_$3 explicitly." >&2
+            return 1
+        fi
         if [ -n "$v" ]; then
             echo "WARN: $asset absent/empty -- falling back to the ISO-staging sidecar" >&2
             echo "      $sidecar = $v" >&2
