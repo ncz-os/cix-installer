@@ -191,6 +191,41 @@ if [ -x scripts/apply-downstream-patches.sh ]; then
     bash scripts/apply-downstream-patches.sh
 fi
 
+# NCZ downstream patches against the bundled subprojects. Applied after the
+# upstream queue so upstream always wins a conflict. Each patch is checked with
+# --check first and skipped when already applied, so re-running is safe; a
+# patch that does not apply is a HARD failure rather than a warning, because a
+# silently-unpatched build looks identical to a patched one and that is exactly
+# how the labwc replug fix went missing from an earlier tarball.
+# Layout is /ncz-patches/<subproject>/NNNN-*.patch, and each patch applies with
+# paths relative to the root of THAT subproject. Keeping the subproject in the
+# directory name rather than guessing from the patch content means a patch can
+# never be applied against the wrong tree -- the first version of this assumed
+# every patch was for labwc, which would have silently mis-targeted the shell.
+if [ -d /ncz-patches ]; then
+    for _sub in /ncz-patches/*/; do
+        [ -d "$_sub" ] || continue
+        _name=$(basename "$_sub")
+        _tree="subprojects/$_name"
+        if [ ! -d "$_tree" ]; then
+            echo "ERROR: ncz patches exist for $_name but $_tree is not in this tree" >&2
+            exit 1
+        fi
+        for _p in "$_sub"*.patch; do
+            [ -e "$_p" ] || continue
+            if git -C "$_tree" apply --check "$_p" 2>/dev/null; then
+                git -C "$_tree" apply "$_p"
+                echo "    ncz patch applied: $_name/$(basename "$_p")"
+            elif git -C "$_tree" apply --reverse --check "$_p" 2>/dev/null; then
+                echo "    ncz patch already present: $_name/$(basename "$_p")"
+            else
+                echo "ERROR: ncz patch does not apply: $_name/$(basename "$_p")" >&2
+                exit 1
+            fi
+        done
+    done
+fi
+
 # NCZ shell integration: close the launcher popup before opening the full-screen
 # workspace chooser. Applied by ANCHOR, not by line number. Upstream refactors
 # this file often -- PR #15 moved every close path into layer_window.vala and
@@ -361,6 +396,14 @@ if [ "$(basename "$CE")" = podman ] && [ "$(getenforce 2>/dev/null)" = Enforcing
 fi
 if [ -n "$SRC_DIR" ]; then
     CE_ARGS+=(-v "$SRC_DIR":/src:ro -e SINGULARITY_SOURCE_DIR=/src)
+fi
+# Our downstream patch queue. The build clones its own copy of the source
+# INSIDE the container, so assets/singularity/patches/ is invisible to it
+# unless mounted -- which is why a tarball built here was a clean upstream
+# baseline and silently did NOT contain our labwc fix. Mount it read-only.
+NCZ_PATCHES="$REPO_ROOT/assets/singularity/patches"
+if [ -d "$NCZ_PATCHES" ]; then
+    CE_ARGS+=(-v "$NCZ_PATCHES":/ncz-patches:ro)
 fi
 "$CE" run "${CE_ARGS[@]}" "$IMAGE" bash -euo pipefail -c "$BUILD_SCRIPT"
 
