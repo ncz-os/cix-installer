@@ -1,38 +1,38 @@
 {
-  "generated_utc": "2026-09-04T14:49:53Z",
+  "generated_utc": "2026-09-04T16:44:40Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.2+r262_arm64.deb",
-      "sha256": "84cfd433c02e6ed484ec1ad8929ed29a0a2175249064feb837b79c47d8a5f0f6"
+      "file": "build/kernel-debs/cixmini-boot_1.2+r263_arm64.deb",
+      "sha256": "0b59b3f370e93c909bee94f7343cda9e6c6451ca87248ba190c89fd184817180"
     },
     {
-      "file": "build/kernel-debs/linux-headers-cixmini_7.2.0-sky1-ncz+r262_arm64.deb",
-      "sha256": "58e306e635993a5aefe2f56499acd99f5f332fc82d72dbd9a10c611117379b70"
+      "file": "build/kernel-debs/linux-headers-cixmini_7.2.3-sky1-ncz+r263_arm64.deb",
+      "sha256": "3d2faf594f095479aa07a2073108b0eb2992d840f982e74d7cf4fadd89bdfeea"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini_7.2.0-sky1-ncz+r262_arm64.deb",
-      "sha256": "808585f6905da4fc6b852e129a6c88c1ce99e4f4bad3c40cc2f53be486406490"
+      "file": "build/kernel-debs/linux-image-cixmini_7.2.3-sky1-ncz+r263_arm64.deb",
+      "sha256": "e7026eb6f68327177f79a964eff2296b5789784cd26e9a44431ad66da0a79fff"
     }
   ],
   "schema": 1,
   "variants": {
     "edge": {
       "config": {
-        "file": "assets/kernel/edge/config-7.2.0-sky1-ncz",
-        "sha256": "b828c26bda56226ccd3597a1a30e9d1258fb12a673e3f2b75cd1fa7583a6d32e"
+        "file": "assets/kernel/edge/config-7.2.3-sky1-ncz",
+        "sha256": "c39e6eb27995481cc3374c8bbbf3267d03535a7cfc5096a756ba0f51be97d881"
       },
       "dir": "assets/kernel/edge",
       "image": {
         "file": "assets/kernel/edge/Image-cixmini.bin",
-        "sha256": "a493cf826215a50f21ee66ba1e0d97466ade849847c5a227da4ba3e23afe3872",
+        "sha256": "cb558329f4ad7b4a366f89aef2e5f1c5ee6284f316ed2be41d5fdf58a5f6f0d8",
         "size": 47106560
       },
-      "kver": "7.2.0-sky1-ncz",
+      "kver": "7.2.3-sky1-ncz",
       "modules": {
         "file": "assets/kernel/edge/modules-cixmini.tgz",
-        "sha256": "b29b49d75fcfe6945e47a45597a7a6d1376e83fac3cb5e629f2ee6f8a2d65ac6",
-        "size": 8048884
+        "sha256": "3ff39799d5c5319647c9fae50d3bab01cbef7d9729fd0f5a7904e8f493d945e4",
+        "size": 8047798
       },
       "npu": null
     }
