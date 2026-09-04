@@ -129,6 +129,8 @@ apt-get install -y --no-install-recommends \
     libxcb-composite0-dev libxcb-render0-dev libxcb-res0-dev \
     libxcb-xfixes0-dev libxcb-errors-dev libxcb-present-dev \
     sassc scdoc \
+    libsdl2-dev libgl-dev libglu1-mesa-dev libx11-dev \
+    libcairo2-dev libpango1.0-dev libwayland-bin \
     libdisplay-info-dev \
     libseat-dev \
     libliftoff-dev \
@@ -221,6 +223,38 @@ print("    shell: launcher-popup fix applied")
 PY_NCZ_SHELL
 fi
 
+# SKIP singularity-gestures on this build.
+#
+# Its meson.build requires include_directories(..., "runtime/include"), and
+# runtime/ ships only a .gitignore -- the directory is populated by
+# scripts/bootstrap-runtime.sh, which downloads MediaPipe and ONNX Runtime at
+# build time. That script has NO architecture detection: it hardcodes
+#   onnxruntime-linux-x64-$onnx_version.tgz
+# so on aarch64 it fetches x86-64 binaries. The subproject is pulled in
+# unconditionally by the top-level meson.build (there is no meson option to
+# turn it off), so an arm64 build of singularity-desktop cannot configure at
+# all as of upstream d642160.
+#
+# Dropping the subproject line is a BUILD workaround, not a fix, and it is
+# deliberately confined to this staging copy -- nothing is committed upstream.
+# Reported separately; the real fix belongs in bootstrap-runtime.sh.
+if grep -q "subproject('"'"'singularity-gestures'"'"')" meson.build; then
+    sed -i "/subproject('"'"'singularity-gestures'"'"')/d" meson.build
+    echo "    NOTE: singularity-gestures skipped (bootstrap-runtime.sh is x86-64 only)"
+fi
+# The Makefile pulls the same bootstrap in independently of meson:
+#   Makefile:8   $(BUILD_DIR)/build.ninja: | gesture-runtime
+#   Makefile:17  compile: gesture-runtime $(BUILD_DIR)/build.ninja labwc
+# so `make compile` runs scripts/bootstrap-runtime.sh even after the subproject
+# is dropped. That script also hardcodes /usr/bin/python3.12, which does not
+# exist in this container, so it dies with "Error 127" before any download is
+# even attempted. Strip the prerequisite from both rules.
+if [ -f Makefile ] && grep -q "gesture-runtime" Makefile; then
+    sed -i "s/^compile: gesture-runtime /compile: /" Makefile
+    sed -i "s/: | gesture-runtime$/:/" Makefile   # keep the rule colon
+    echo "    NOTE: gesture-runtime make prerequisite removed"
+fi
+
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
@@ -311,6 +345,20 @@ echo "STAGED $(du -h /out/singularity-opt.tgz | cut -f1)"
 echo "== running build in $IMAGE ($CE) =="
 CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
          -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV")
+# On an SELinux-enforcing host the bind mount is unwritable from inside the
+# container, and the build only discovers it at the very END -- every subproject
+# compiles and installs to /work/stage, then the final tar dies with
+#     tar (child): /out/singularity-opt.tgz: Cannot open: Permission denied
+#     tar: /out/singularity-opt.tgz: Cannot write: Broken pipe
+# The "Broken pipe" is the visible line and is a red herring; the permission
+# error above it is the cause. Disable labelling for the mount rather than
+# relabelling the tree, which is what y6-run-ultra.sh already does on this host
+# for the same reason. Podman only -- docker does not take this flag the same
+# way, and this was written on a host without SELinux enforcing.
+if [ "$(basename "$CE")" = podman ] && [ "$(getenforce 2>/dev/null)" = Enforcing ]; then
+    CE_ARGS+=(--security-opt label=disable)
+    echo "   note: SELinux enforcing -- adding --security-opt label=disable for the /out mount"
+fi
 if [ -n "$SRC_DIR" ]; then
     CE_ARGS+=(-v "$SRC_DIR":/src:ro -e SINGULARITY_SOURCE_DIR=/src)
 fi
