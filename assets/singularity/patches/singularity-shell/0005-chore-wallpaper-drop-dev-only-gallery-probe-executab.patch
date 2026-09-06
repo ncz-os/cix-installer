@@ -1,0 +1,64 @@
+From 7b49f0d35213b9efaed3380e2150a17023b39fc5 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 6 Sep 2026 12:09:22 -0400
+Subject: [PATCH 05/17] chore(wallpaper): drop dev-only gallery probe
+ executable
+
+Not something an upstream maintainer should receive as part of the
+feature -- it was a local live-state debugging aid, not a test or a
+build artifact anything else depends on.
+---
+ meson.build                          |  7 -------
+ scripts/wallpaper-gallery-probe.vala | 28 ----------------------------
+ 2 files changed, 35 deletions(-)
+ delete mode 100644 scripts/wallpaper-gallery-probe.vala
+
+diff --git a/meson.build b/meson.build
+index ad77c93..03d85c1 100644
+--- a/meson.build
++++ b/meson.build
+@@ -463,10 +463,3 @@ wallpaper_gallery_test = executable('wallpaper-gallery-test',
+   dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep],
+ )
+ test('wallpaper-gallery', wallpaper_gallery_test)
+-
+-executable('wallpaper-gallery-probe',
+-  sources: ['src/core/wallpaper_gallery.vala', 'src/core/wallpaper_collections.vala',
+-            'src/core/wallpaper_rotation_state.vala', 'scripts/wallpaper-gallery-probe.vala'],
+-  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep],
+-  install: false,
+-)
+diff --git a/scripts/wallpaper-gallery-probe.vala b/scripts/wallpaper-gallery-probe.vala
+deleted file mode 100644
+index f668304..0000000
+--- a/scripts/wallpaper-gallery-probe.vala
++++ /dev/null
+@@ -1,28 +0,0 @@
+-// Run in the desktop user's environment to report the production scanner's
+-// candidates against the installed registry and current GSettings history.
+-using GLib;
+-using Gee;
+-using Singularity;
+-
+-int main(string[] args) {
+-    var roots = new ArrayList<string>();
+-    foreach (unowned string dir in Environment.get_system_data_dirs())
+-        roots.add(Path.build_filename(dir, "ncz-wallpapers", "collections"));
+-    roots.add(Path.build_filename(Environment.get_user_data_dir(), "ncz-wallpapers", "collections"));
+-    var collections = WallpaperCollections.parse(roots.to_array());
+-    var state = new WallpaperRotationState(Path.build_filename(Environment.get_user_config_dir(), "ncz-wallpaper"));
+-    string selected = state.get_selected_collection("ncz");
+-    string? root = null;
+-    var dirs = new ArrayList<string>();
+-    foreach (var collection in collections) {
+-        dirs.add(collection.dir);
+-        if (collection.id == selected) root = collection.dir;
+-    }
+-    if (root == null && collections.size > 0) root = collections[0].dir;
+-    var settings = new GLib.Settings("dev.sinty.desktop");
+-    var candidates = WallpaperGallery.scan(root, dirs.to_array(), settings.get_strv("recent-wallpapers"));
+-    stdout.printf("source=%s root=%s images=%d\n", selected, root ?? "(none)", candidates.size);
+-    foreach (var candidate in candidates)
+-        stdout.printf("%s\t%s\n", candidate.is_recent ? "recent" : "scan", candidate.uri);
+-    return 0;
+-}

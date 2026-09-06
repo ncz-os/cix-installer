@@ -1,0 +1,23 @@
+From d06d8257dc55e75530ab52645cc07a9bf6156561 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 6 Sep 2026 11:26:46 -0400
+Subject: [PATCH 15/17] fix(wallpaper): initialize helper process id
+
+(cherry picked from commit d3d0055b643f3600798e9c29e888601a45034012)
+---
+ src/components/sidebar/pages/wallpaper_ocs_browser.vala | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/components/sidebar/pages/wallpaper_ocs_browser.vala b/src/components/sidebar/pages/wallpaper_ocs_browser.vala
+index df5cf27..b1a1f65 100644
+--- a/src/components/sidebar/pages/wallpaper_ocs_browser.vala
++++ b/src/components/sidebar/pages/wallpaper_ocs_browser.vala
+@@ -147,7 +147,7 @@ namespace Singularity.Shell {
+             // Import invokes ImageMagick children. Stop the whole private process
+             // group so a timeout cannot leave a writer running after Retry.
+             string? identifier = process.get_identifier();
+-            int pid;
++            int pid = 0;
+             if (identifier != null && int.try_parse(identifier, out pid) && pid > 1)
+                 Posix.kill((Posix.pid_t) (-pid), Posix.Signal.KILL);
+             process.force_exit();
