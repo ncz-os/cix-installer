@@ -1,7 +1,7 @@
 From 358bd7034636cd3e10360badba3c55c04d62f4d1 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 11:26:09 -0400
-Subject: [PATCH 13/21] fix(wallpaper): reap timed-out import workers
+Subject: [PATCH 13/22] fix(wallpaper): reap timed-out import workers
 
 (cherry picked from commit e45f7a6e6d379e049c3250ee1f2e763561fc2872)
 ---
