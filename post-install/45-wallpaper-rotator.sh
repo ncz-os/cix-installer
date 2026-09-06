@@ -648,15 +648,16 @@ systemctl --global enable ncz-wallpaper-bing.timer >/dev/null 2>&1 \
     || echo "[45]   WARN: could not enable ncz-wallpaper-bing.timer"
 
 # Rotator: pick + apply. 26.7 default DE = Singularity (Wayland, GTK4): set the
-# backdrop via `dev.sinty.desktop background-picture-uri` (gsettings) and swaybg.
+# backdrop via `dev.sinty.desktop background-picture-uri` (gsettings), with the
+# native shell owning the visible wallpaper.
 cat > /usr/local/bin/ncz-wallpaper-rotate <<'ROT'
 #!/bin/sh
 WP_DIR=/usr/share/backgrounds/ncz
 
 # A systemd --user service may have been started before the compositor session
 # imported WAYLAND_DISPLAY and the /opt/singularity environment. Refresh the
-# values at rotate time so an old daemon process can still repaint the live
-# desktop instead of only changing dconf/state.
+# values at rotate time so an old daemon writes GSettings in the live desktop
+# session and the native shell receives the change.
 if command -v systemctl >/dev/null 2>&1; then
     _ncz_env=$(systemctl --user show-environment 2>/dev/null || true)
     for _ncz_name in DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP DESKTOP_SESSION \
@@ -686,7 +687,7 @@ fi
 [ -n "$PIC" ] && [ -f "$PIC" ] || PIC=$(ls $WP_DIR/ncz-wallpaper-*.jpg 2>/dev/null | shuf -n1)
 [ -z "$PIC" ] && exit 0
 # default.jpg is a convenience pointer, not the mechanism -- the wallpaper is
-# applied through gsettings/swaybg below. The rotator runs as the logged-in
+# applied through GSettings below. The rotator runs as the logged-in
 # user and $WP_DIR is root-owned 0755, so this ln FAILS with EPERM every time.
 # It was already suppressed with "|| true", which turned a guaranteed failure
 # into silence. Only attempt it when the directory is actually writable.
@@ -714,11 +715,8 @@ case "$DE" in
         if command -v gsettings >/dev/null 2>&1 && [ -d "$SSD" ]; then
             GSETTINGS_SCHEMA_DIR="$SSD" gsettings set dev.sinty.desktop background-picture-uri "$URI" 2>/dev/null || true
         fi
-        # Belt: repaint the live wallpaper layer via swaybg (single instance).
-        if command -v swaybg >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ]; then
-            pkill -x swaybg 2>/dev/null || true
-            swaybg -m fill -i "$PIC" >/dev/null 2>&1 &
-        fi
+        # The native shell observes this setting. A second background layer
+        # would hide changes made through the desktop wallpaper chooser.
         ;;
     gnome)
         URI="file://$PIC"
