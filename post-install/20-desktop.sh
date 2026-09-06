@@ -799,7 +799,8 @@ fi
 # Hook the packaged session launcher at the point where those variables are
 # known. The helper delays slightly so singularity-desktop can create its
 # initial wallpaper layer, then restarts the user service under the imported
-# environment so ncz-wallpaper-rotate owns the live swaybg.
+# environment so ncz-wallpaper-rotate writes GSettings in the live session.
+# The native shell owns the wallpaper; no second background layer is needed.
 # ---------------------------------------------------------------------------
 cat > /usr/local/bin/ncz-wallpaper-session-ready <<'WPREADY'
 #!/bin/sh
