@@ -277,6 +277,24 @@ if grep -q "subproject('"'"'singularity-gestures'"'"')" meson.build; then
     sed -i "/subproject('"'"'singularity-gestures'"'"')/d" meson.build
     echo "    NOTE: singularity-gestures skipped (bootstrap-runtime.sh is x86-64 only)"
 fi
+
+# SKIP singularity-edit on this build (TEMPORARY, 2026-09-05, wallpaper-UX
+# verification build only -- NOT committed upstream, NOT a permanent fix).
+#
+# Its vendored tree-sitter runtime (subprojects/singularity-edit/vendor/
+# tree-sitter/lib/src/lib.c) fails to compile under the GCC in this image
+# (16.2.0-1, Debian forky) -- ninja stops with subcommand failed and ZERO
+# compiler diagnostic output, reproduced identically 3 times at the exact
+# same object (vendor_tree-sitter_lib_src_lib.c.o), which is a toolchain/
+# vendored-code issue unrelated to any NCZ patch. singularity-edit is a
+# standalone subproject() call in the top-level meson.build with no
+# variable captured from it, so it is not a build dependency of
+# singularity-shell/singularity-desktop -- safe to skip when the goal is
+# testing shell-side changes, not the editor app itself.
+if grep -q "subproject('"'"'singularity-edit'"'"')" meson.build; then
+    sed -i "/subproject('"'"'singularity-edit'"'"')/d" meson.build
+    echo "    NOTE: singularity-edit skipped (tree-sitter vendor build fails under this GCC, unrelated to NCZ patches)"
+fi
 # The Makefile pulls the same bootstrap in independently of meson:
 #   Makefile:8   $(BUILD_DIR)/build.ninja: | gesture-runtime
 #   Makefile:17  compile: gesture-runtime $(BUILD_DIR)/build.ninja labwc
@@ -390,7 +408,13 @@ CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
 # relabelling the tree, which is what y6-run-ultra.sh already does on this host
 # for the same reason. Podman only -- docker does not take this flag the same
 # way, and this was written on a host without SELinux enforcing.
-if [ "$(basename "$CE")" = podman ] && [ "$(getenforce 2>/dev/null)" = Enforcing ]; then
+# NOTE (2026-09-05): basename "$CE" alone is NOT reliable -- podman-docker
+# installs a /usr/bin/docker that IS podman under the hood (command -v docker
+# picks it first, so $CE resolves to "docker" even on a podman-only host).
+# "$CE --version" still prints "podman version ..." in that case since it is
+# literally exec-ing the podman binary, so check the version STRING instead
+# of the resolved binary's name.
+if "$CE" --version 2>/dev/null | grep -qi podman && [ "$(getenforce 2>/dev/null)" = Enforcing ]; then
     CE_ARGS+=(--security-opt label=disable)
     echo "   note: SELinux enforcing -- adding --security-opt label=disable for the /out mount"
 fi
