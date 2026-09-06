@@ -1,0 +1,59 @@
+From 358bd7034636cd3e10360badba3c55c04d62f4d1 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 6 Sep 2026 11:26:09 -0400
+Subject: [PATCH 13/17] fix(wallpaper): reap timed-out import workers
+
+(cherry picked from commit e45f7a6e6d379e049c3250ee1f2e763561fc2872)
+---
+ .../sidebar/pages/wallpaper_ocs_browser.vala  | 24 +++++++++++++++----
+ 1 file changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/src/components/sidebar/pages/wallpaper_ocs_browser.vala b/src/components/sidebar/pages/wallpaper_ocs_browser.vala
+index b09658a..b6fa4b5 100644
+--- a/src/components/sidebar/pages/wallpaper_ocs_browser.vala
++++ b/src/components/sidebar/pages/wallpaper_ocs_browser.vala
+@@ -143,24 +143,40 @@ namespace Singularity.Shell {
+             if (loading || imports.busy) spinner.start(); else spinner.stop();
+         }
+ 
++        private static void stop_helper(Subprocess process) {
++            // Import invokes ImageMagick children. Stop the whole private process
++            // group so a timeout cannot leave a writer running after Retry.
++            string? identifier = process.get_identifier();
++            int pid;
++            if (identifier != null && int.try_parse(identifier, out pid) && pid > 1)
++                Posix.kill((Posix.pid_t) -pid, Posix.SIGKILL);
++            process.force_exit();
++        }
++
+         private async string command(string[] argv, Cancellable? cancel, uint timeout) throws Error {
+-            var process = new Subprocess.newv(argv, SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE);
++            var launcher = new SubprocessLauncher(SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE);
++            launcher.set_child_setup(() => { Posix.setsid(); });
++            var process = launcher.spawnv(argv);
+             bool timed_out = false;
+             uint timer = Timeout.add_seconds(timeout, () => {
+                 timed_out = true;
+-                process.force_exit();
++                stop_helper(process);
+                 return Source.REMOVE;
+             });
+             ulong cancel_handler = 0;
+             if (cancel != null) {
+-                cancel_handler = cancel.cancelled.connect(() => process.force_exit());
+-                if (cancel.is_cancelled()) process.force_exit();
++                cancel_handler = cancel.cancelled.connect(() => stop_helper(process));
++                if (cancel.is_cancelled()) stop_helper(process);
+             }
+             string output;
+             string errors;
+             try {
+                 // Drain and reap even after cancellation, then discard the result.
+                 yield process.communicate_utf8_async(null, null, out output, out errors);
++            } catch (Error e) {
++                stop_helper(process);
++                yield process.wait_async(null);
++                throw e;
+             } finally {
+                 if (!timed_out) Source.remove(timer);
+                 if (cancel_handler != 0) cancel.disconnect(cancel_handler);

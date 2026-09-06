@@ -1,0 +1,426 @@
+From d430ca8399fbe8c6ced7ed2c58c711d159477205 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 6 Sep 2026 01:38:06 -0400
+Subject: [PATCH 04/17] fix(wallpaper): enforce gallery source boundaries
+
+Admit recent images only when the selected collection scan contains them. Exclude separately registered nested packs while retaining provider subdirectories. Exercise the production scanner with mixed history and a live-state probe.
+
+(cherry picked from commit bd9dd7a8de0ce3ef1da7dcf638b1f60f5f003f14)
+---
+ meson.build                                   |  14 +++
+ scripts/wallpaper-gallery-probe.vala          |  28 +++++
+ .../sidebar/pages/desktop_page.vala           | 110 +-----------------
+ src/core/wallpaper_gallery.vala               | 108 +++++++++++++++++
+ tests/wallpaper_gallery_test.vala             |  81 +++++++++++++
+ 5 files changed, 236 insertions(+), 105 deletions(-)
+ create mode 100644 scripts/wallpaper-gallery-probe.vala
+ create mode 100644 src/core/wallpaper_gallery.vala
+ create mode 100644 tests/wallpaper_gallery_test.vala
+
+diff --git a/meson.build b/meson.build
+index 4444b81..ad77c93 100644
+--- a/meson.build
++++ b/meson.build
+@@ -283,6 +283,7 @@ singularity_core_sources = files(
+     'src/core/extreme_mode_manager.vala',
+     'src/core/wallpaper_manager.vala',
+     'src/core/wallpaper_collections.vala',
++    'src/core/wallpaper_gallery.vala',
+     'src/core/wallpaper_rotation_state.vala',
+     'src/core/wayland_gamma_backend.vala',
+     'src/core/shortcut_manager.vala',
+@@ -456,3 +457,16 @@ wallpaper_rotation_state_test = executable('wallpaper-rotation-state-test',
+   dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0')],
+ )
+ test('wallpaper-rotation-state', wallpaper_rotation_state_test)
++
++wallpaper_gallery_test = executable('wallpaper-gallery-test',
++  sources: ['src/core/wallpaper_gallery.vala', 'tests/wallpaper_gallery_test.vala'],
++  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep],
++)
++test('wallpaper-gallery', wallpaper_gallery_test)
++
++executable('wallpaper-gallery-probe',
++  sources: ['src/core/wallpaper_gallery.vala', 'src/core/wallpaper_collections.vala',
++            'src/core/wallpaper_rotation_state.vala', 'scripts/wallpaper-gallery-probe.vala'],
++  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep],
++  install: false,
++)
+diff --git a/scripts/wallpaper-gallery-probe.vala b/scripts/wallpaper-gallery-probe.vala
+new file mode 100644
+index 0000000..f668304
+--- /dev/null
++++ b/scripts/wallpaper-gallery-probe.vala
+@@ -0,0 +1,28 @@
++// Run in the desktop user's environment to report the production scanner's
++// candidates against the installed registry and current GSettings history.
++using GLib;
++using Gee;
++using Singularity;
++
++int main(string[] args) {
++    var roots = new ArrayList<string>();
++    foreach (unowned string dir in Environment.get_system_data_dirs())
++        roots.add(Path.build_filename(dir, "ncz-wallpapers", "collections"));
++    roots.add(Path.build_filename(Environment.get_user_data_dir(), "ncz-wallpapers", "collections"));
++    var collections = WallpaperCollections.parse(roots.to_array());
++    var state = new WallpaperRotationState(Path.build_filename(Environment.get_user_config_dir(), "ncz-wallpaper"));
++    string selected = state.get_selected_collection("ncz");
++    string? root = null;
++    var dirs = new ArrayList<string>();
++    foreach (var collection in collections) {
++        dirs.add(collection.dir);
++        if (collection.id == selected) root = collection.dir;
++    }
++    if (root == null && collections.size > 0) root = collections[0].dir;
++    var settings = new GLib.Settings("dev.sinty.desktop");
++    var candidates = WallpaperGallery.scan(root, dirs.to_array(), settings.get_strv("recent-wallpapers"));
++    stdout.printf("source=%s root=%s images=%d\n", selected, root ?? "(none)", candidates.size);
++    foreach (var candidate in candidates)
++        stdout.printf("%s\t%s\n", candidate.is_recent ? "recent" : "scan", candidate.uri);
++    return 0;
++}
+diff --git a/src/components/sidebar/pages/desktop_page.vala b/src/components/sidebar/pages/desktop_page.vala
+index 4a38423..425cb1b 100644
+--- a/src/components/sidebar/pages/desktop_page.vala
++++ b/src/components/sidebar/pages/desktop_page.vala
+@@ -5,16 +5,6 @@ using Singularity.Widgets;
+ 
+ namespace Singularity {
+ 
+-    internal class WallpaperCandidate : Object {
+-        public string uri { get; private set; }
+-        public bool is_recent { get; private set; }
+-
+-        public WallpaperCandidate(string uri, bool is_recent) {
+-            this.uri = uri;
+-            this.is_recent = is_recent;
+-        }
+-    }
+-
+     public class DesktopPage : SettingsPage {
+         private GLib.Settings settings;
+         private GLib.Settings? wm_settings;
+@@ -1896,97 +1886,10 @@ namespace Singularity {
+             });
+         }
+ 
+-        // How deep to walk below a scan root. /usr/share/backgrounds holds
+-        // ncz/, and a pack sits one further down (ncz/brandon-perlow), so two
+-        // levels is what the shipped layout needs. The bound exists because
+-        // $XDG_DATA_HOME/backgrounds is user-writable: someone who points it at
+-        // a deep tree should not stall the picker.
+-        private const int WALLPAPER_SCAN_MAX_DEPTH = 3;
+-
+-        // Walk one scan root, collecting images.
+-        //
+-        // The previous implementation enumerated a single level and kept only
+-        // entries whose content-type began with image/. /usr/share/backgrounds
+-        // contains no images at all -- only ncz/ and singularity/ -- and a
+-        // directory's content-type is inode/directory, so every shipped
+-        // wallpaper was silently skipped. The picker had never displayed them.
+-        private static void scan_wallpaper_dir(string path,
+-                                               ArrayList<WallpaperCandidate> candidates,
+-                                               HashSet<string> thread_seen,
+-                                               HashSet<string> visited_dirs,
+-                                               int depth) {
+-            if (depth > WALLPAPER_SCAN_MAX_DEPTH) return;
+-            // The scan roots overlap by construction (/usr/share/backgrounds and
+-            // /usr/share/backgrounds/singularity are both roots) and a pack may
+-            // declare a Dir already reachable from one of them. Without this,
+-            // those directories are walked more than once.
+-            if (visited_dirs.contains(path)) return;
+-            visited_dirs.add(path);
+-
+-            try {
+-                var dir = File.new_for_path(path);
+-                if (!dir.query_exists()) return;
+-                var enumerator = dir.enumerate_children(
+-                    "standard::name,standard::content-type,standard::type,standard::is-symlink,standard::symlink-target",
+-                    FileQueryInfoFlags.NONE, null);
+-                FileInfo info;
+-                while ((info = enumerator.next_file(null)) != null) {
+-                    var child = dir.get_child(info.get_name());
+-
+-                    if (info.get_file_type() == FileType.DIRECTORY) {
+-                        // Not followed as a directory either: a symlinked
+-                        // directory is the easy way to walk in a circle.
+-                        if (info.get_is_symlink()) continue;
+-                        scan_wallpaper_dir(child.get_path(), candidates, thread_seen,
+-                                           visited_dirs, depth + 1);
+-                        continue;
+-                    }
+-
+-                    // default.jpg is a symlink the rotator repoints at whichever
+-                    // wallpaper is current, at a target enumerated in this same
+-                    // directory -- following it would list one image twice, once
+-                    // under its own name and once as "default". Only elide a
+-                    // same-directory pointer like that one: a pack that ships an
+-                    // image as a symlink to a shared asset OUTSIDE this directory
+-                    // is real content, and the previous scanner listed it fine
+-                    // (content-type resolves through the link either way, since
+-                    // enumerate_children above passes no NOFOLLOW flag).
+-                    if (info.get_is_symlink()) {
+-                        string? target = info.get_symlink_target();
+-                        if (target != null) {
+-                            string resolved = Path.is_absolute(target)
+-                                ? target
+-                                : Path.build_filename(path, target);
+-                            if (Path.get_dirname(resolved) == path) continue;
+-                        }
+-                    }
+-
+-                    string mime = info.get_content_type();
+-                    if (mime == null || !mime.has_prefix("image/")) continue;
+-
+-                    string uri = child.get_uri();
+-                    if (thread_seen.contains(uri)) continue;
+-                    thread_seen.add(uri);
+-                    candidates.add(new WallpaperCandidate(uri, false));
+-                }
+-            } catch (Error e) {
+-            }
+-        }
+-
+         private void populate_grid() {
+             int gen = ++wallpaper_grid_generation;
+             wallpaper_grid.remove_all();
+-            var uris = new ArrayList<string>();
+             string[] recent = settings.get_strv("recent-wallpapers");
+-            foreach (string uri in recent) {
+-                if (!uris.contains(uri)) {
+-                    uris.add(uri);
+-                    add_wallpaper_card(uri, true);
+-                }
+-            }
+-
+-            var seen = new HashSet<string>();
+-            foreach (string uri in recent) seen.add(uri);
+ 
+             string selected_id = rotation_state.get_selected_collection("ncz");
+             string? scan_dir = null;
+@@ -2002,18 +1905,15 @@ namespace Singularity {
+                 scan_dir = wallpaper_collections[0].dir;
+             }
+ 
+-            string[] scan_paths = (scan_dir == null) ? new string[0] : new string[] { scan_dir };
++            var collection_dirs = new ArrayList<string>();
++            foreach (var collection in wallpaper_collections) collection_dirs.add(collection.dir);
+             new GLib.Thread<void>("wallpaper-scan", () => {
+-                var candidates = new ArrayList<WallpaperCandidate>();
+-                var thread_seen = new HashSet<string>();
+-                foreach (string uri in seen) thread_seen.add(uri);
+-
+-                var visited_dirs = new HashSet<string>();
+-                foreach (string path in scan_paths)
+-                    scan_wallpaper_dir(path, candidates, thread_seen, visited_dirs, 0);
++                var candidates = WallpaperGallery.scan(scan_dir, collection_dirs.to_array(), recent);
+ 
+                 GLib.Idle.add(() => {
+                     if (gen != wallpaper_grid_generation) return GLib.Source.REMOVE;
++                    debug("Wallpaper gallery: source=%s root=%s images=%d",
++                          selected_id, scan_dir ?? "(none)", candidates.size);
+                     append_wallpaper_candidates(candidates, gen, 0);
+                     return GLib.Source.REMOVE;
+                 });
+diff --git a/src/core/wallpaper_gallery.vala b/src/core/wallpaper_gallery.vala
+new file mode 100644
+index 0000000..26d1ca3
+--- /dev/null
++++ b/src/core/wallpaper_gallery.vala
+@@ -0,0 +1,108 @@
++using GLib;
++using Gee;
++
++namespace Singularity {
++    internal class WallpaperCandidate : Object {
++        public string uri { get; private set; }
++        public bool is_recent { get; private set; }
++
++        public WallpaperCandidate(string uri, bool is_recent) {
++            this.uri = uri;
++            this.is_recent = is_recent;
++        }
++    }
++
++    internal class WallpaperGallery : Object {
++        // Membership comes from the selected scan. History can reorder its
++        // members, but must never introduce images from another source.
++        public static ArrayList<WallpaperCandidate> scan(string? selected_dir,
++                                                        string[] collection_dirs,
++                                                        string[] recent) {
++            var scanned = new ArrayList<WallpaperCandidate>();
++            var members = new HashSet<string>();
++            var excluded = new HashSet<string>();
++            var result = new ArrayList<WallpaperCandidate>();
++            if (selected_dir == null) return result;
++            string root = File.new_for_path(selected_dir).get_path();
++            foreach (string dir in collection_dirs) {
++                string other = File.new_for_path(dir).get_path();
++                if (other != root) excluded.add(other);
++            }
++            scan_wallpaper_dir(root, scanned, members, new HashSet<string>(), excluded, 0);
++            var added = new HashSet<string>();
++            foreach (string uri in recent) {
++                if (members.contains(uri) && added.add(uri))
++                    result.add(new WallpaperCandidate(uri, true));
++            }
++            foreach (var candidate in scanned) {
++                if (added.add(candidate.uri)) result.add(candidate);
++            }
++            return result;
++        }
++
++        // Bound traversal of user-controlled collection directories.
++        private const int WALLPAPER_SCAN_MAX_DEPTH = 3;
++
++        // Other registered roots are separate sources, even when nested.
++        private static void scan_wallpaper_dir(string path,
++                                               ArrayList<WallpaperCandidate> candidates,
++                                               HashSet<string> thread_seen,
++                                               HashSet<string> visited_dirs,
++                                               HashSet<string> excluded_dirs,
++                                               int depth) {
++            if (depth > WALLPAPER_SCAN_MAX_DEPTH || excluded_dirs.contains(path)) return;
++            if (visited_dirs.contains(path)) return;
++            visited_dirs.add(path);
++
++            try {
++                var dir = File.new_for_path(path);
++                if (!dir.query_exists()) return;
++                var enumerator = dir.enumerate_children(
++                    "standard::name,standard::content-type,standard::type,standard::is-symlink,standard::symlink-target",
++                    FileQueryInfoFlags.NONE, null);
++                FileInfo info;
++                while ((info = enumerator.next_file(null)) != null) {
++                    var child = dir.get_child(info.get_name());
++
++                    if (info.get_file_type() == FileType.DIRECTORY) {
++                        // Not followed as a directory either: a symlinked
++                        // directory is the easy way to walk in a circle.
++                        if (info.get_is_symlink()) continue;
++                        scan_wallpaper_dir(child.get_path(), candidates, thread_seen,
++                                           visited_dirs, excluded_dirs, depth + 1);
++                        continue;
++                    }
++
++                    // default.jpg is a symlink the rotator repoints at whichever
++                    // wallpaper is current, at a target enumerated in this same
++                    // directory -- following it would list one image twice, once
++                    // under its own name and once as "default". Only elide a
++                    // same-directory pointer like that one: a pack that ships an
++                    // image as a symlink to a shared asset OUTSIDE this directory
++                    // is real content, and the previous scanner listed it fine
++                    // (content-type resolves through the link either way, since
++                    // enumerate_children above passes no NOFOLLOW flag).
++                    if (info.get_is_symlink()) {
++                        string? target = info.get_symlink_target();
++                        if (target != null) {
++                            string resolved = Path.is_absolute(target)
++                                ? target
++                                : Path.build_filename(path, target);
++                            if (Path.get_dirname(resolved) == path) continue;
++                        }
++                    }
++
++                    string mime = info.get_content_type();
++                    if (mime == null || !mime.has_prefix("image/")) continue;
++
++                    string uri = child.get_uri();
++                    if (thread_seen.contains(uri)) continue;
++                    thread_seen.add(uri);
++                    candidates.add(new WallpaperCandidate(uri, false));
++                }
++            } catch (Error e) {
++            }
++        }
++
++    }
++}
+diff --git a/tests/wallpaper_gallery_test.vala b/tests/wallpaper_gallery_test.vala
+new file mode 100644
+index 0000000..e301e9b
+--- /dev/null
++++ b/tests/wallpaper_gallery_test.vala
+@@ -0,0 +1,81 @@
++using GLib;
++using Gee;
++using Singularity;
++
++private string fixture_root;
++private string ncz;
++private string artist;
++private string bing;
++
++private string image_file(string dir, string name) {
++    string path = Path.build_filename(dir, name + ".svg");
++    try {
++        DirUtils.create_with_parents(dir, 0700);
++        FileUtils.set_contents(path, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"><rect width=\"1\" height=\"1\"/></svg>");
++    } catch (Error e) { error("fixture: %s", e.message); }
++    return File.new_for_path(path).get_uri();
++}
++
++private void test_recent_membership() {
++    string base_uri = image_file(ncz, "base");
++    string art_uri = image_file(artist, "art");
++    string bing_uri = image_file(bing, "daily");
++    var result = WallpaperGallery.scan(artist, {ncz, artist, bing},
++                                      {bing_uri, base_uri, art_uri, art_uri});
++    assert(result.size == 1);
++    assert(result[0].uri == art_uri);
++    assert(result[0].is_recent);
++}
++
++private void test_nested_collection_boundary() {
++    string base_uri = image_file(ncz, "base");
++    string art_uri = image_file(artist, "art");
++    var result = WallpaperGallery.scan(ncz + "/./", {ncz, artist + "/", bing}, {art_uri});
++    assert(result.size == 1);
++    assert(result[0].uri == base_uri);
++    assert(!result[0].is_recent);
++}
++
++private void test_provider_subdirectories() {
++    string daily = image_file(Path.build_filename(bing, "en-US"), "nested");
++    var result = WallpaperGallery.scan(bing, {ncz, artist, bing}, {});
++    assert(result.size == 2);
++    bool found = false;
++    foreach (var candidate in result) if (candidate.uri == daily) found = true;
++    assert(found);
++}
++
++private void test_missing_collection() {
++    string uri = image_file(ncz, "base");
++    assert(WallpaperGallery.scan(null, {ncz}, {uri}).size == 0);
++    assert(WallpaperGallery.scan(fixture_root + "/missing", {ncz}, {uri}).size == 0);
++}
++
++private void test_default_alias_and_directory_loop() {
++    try {
++        File.new_for_path(ncz + "/default.svg").make_symbolic_link("base.svg");
++        File.new_for_path(ncz + "/loop").make_symbolic_link(ncz);
++    } catch (Error e) { error("fixture: %s", e.message); }
++    string alias = File.new_for_path(ncz + "/default.svg").get_uri();
++    var result = WallpaperGallery.scan(ncz, {ncz, artist, bing}, {alias});
++    assert(result.size == 1);
++    assert(!result[0].is_recent);
++}
++
++public int main(string[] args) {
++    Test.init(ref args);
++    try { fixture_root = DirUtils.make_tmp("wallpaper-gallery-XXXXXX"); }
++    catch (Error e) { error("fixture: %s", e.message); }
++    ncz = fixture_root + "/ncz";
++    artist = ncz + "/artist";
++    bing = fixture_root + "/bing";
++    image_file(ncz, "base");
++    image_file(artist, "art");
++    image_file(bing, "daily");
++    Test.add_func("/wallpaper-gallery/recent-membership", test_recent_membership);
++    Test.add_func("/wallpaper-gallery/nested-boundary", test_nested_collection_boundary);
++    Test.add_func("/wallpaper-gallery/provider-subdirectories", test_provider_subdirectories);
++    Test.add_func("/wallpaper-gallery/missing-collection", test_missing_collection);
++    Test.add_func("/wallpaper-gallery/default-alias-loop", test_default_alias_and_directory_loop);
++    return Test.run();
++}

@@ -1,0 +1,200 @@
+From 78536b70708ad7cd4d886e259818bcdc87390ae2 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Fri, 4 Sep 2026 23:39:02 -0400
+Subject: [PATCH 02/17] feat(wallpaper): add rotation/selection state file
+ helpers shared with the rotator daemon
+
+(cherry picked from commit 50db4b389610f4da04d7e65e5c2e3eb634c7d1a8)
+---
+ meson.build                              |  6 ++
+ src/core/wallpaper_rotation_state.vala   | 78 +++++++++++++++++++++++
+ tests/wallpaper_rotation_state_test.vala | 79 ++++++++++++++++++++++++
+ 3 files changed, 163 insertions(+)
+ create mode 100644 src/core/wallpaper_rotation_state.vala
+ create mode 100644 tests/wallpaper_rotation_state_test.vala
+
+diff --git a/meson.build b/meson.build
+index 9b87a1d..e0903b2 100644
+--- a/meson.build
++++ b/meson.build
+@@ -448,3 +448,9 @@ wallpaper_collections_test = executable('wallpaper-collections-test',
+   dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep],
+ )
+ test('wallpaper-collections', wallpaper_collections_test)
++
++wallpaper_rotation_state_test = executable('wallpaper-rotation-state-test',
++  sources: ['src/core/wallpaper_rotation_state.vala', 'tests/wallpaper_rotation_state_test.vala'],
++  dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0')],
++)
++test('wallpaper-rotation-state', wallpaper_rotation_state_test)
+diff --git a/src/core/wallpaper_rotation_state.vala b/src/core/wallpaper_rotation_state.vala
+new file mode 100644
+index 0000000..a09313f
+--- /dev/null
++++ b/src/core/wallpaper_rotation_state.vala
+@@ -0,0 +1,78 @@
++using GLib;
++
++namespace Singularity {
++
++    // Reads and writes the plain-text state files
++    // cix-installer/post-install/45-wallpaper-rotator.sh's ncz-wallpaper-rotate
++    // and ncz-wallpaper-daemon shell scripts already poll every rotation cycle
++    // -- this class is the UI's side of that same shared state, not a new
++    // mechanism. config_dir is injected (rather than read from
++    // GLib.Environment here) so it's testable against a temp directory.
++    public class WallpaperRotationState : Object {
++        private const int DEFAULT_INTERVAL_SECONDS = 600;
++        private const int MIN_INTERVAL_SECONDS = 30;
++
++        private string config_dir;
++
++        public WallpaperRotationState(string config_dir) {
++            this.config_dir = config_dir;
++        }
++
++        private string path_for(string filename) {
++            return GLib.Path.build_filename(config_dir, filename);
++        }
++
++        private string? read_trimmed(string filename) {
++            string path = path_for(filename);
++            if (!FileUtils.test(path, FileTest.EXISTS)) return null;
++            string contents;
++            try {
++                FileUtils.get_contents(path, out contents);
++            } catch (Error e) {
++                return null;
++            }
++            return contents.strip();
++        }
++
++        private void write(string filename, string contents) {
++            GLib.DirUtils.create_with_parents(config_dir, 0700);
++            try {
++                FileUtils.set_contents(path_for(filename), contents);
++            } catch (Error e) {
++                warning("wallpaper rotation state: could not write %s: %s", filename, e.message);
++            }
++        }
++
++        public string get_selected_collection(string default_id) {
++            string? value = read_trimmed("collection");
++            return (value == null || value == "") ? default_id : value;
++        }
++
++        public void set_selected_collection(string id) {
++            write("collection", id);
++        }
++
++        public bool get_rotate_enabled() {
++            string? value = read_trimmed("rotate-enabled");
++            return value != "0";
++        }
++
++        public void set_rotate_enabled(bool enabled) {
++            write("rotate-enabled", enabled ? "1" : "0");
++        }
++
++        public int get_rotate_interval_seconds() {
++            string? value = read_trimmed("rotate-interval");
++            if (value == null) return DEFAULT_INTERVAL_SECONDS;
++            int64 parsed;
++            if (!int64.try_parse(value, out parsed)) return DEFAULT_INTERVAL_SECONDS;
++            int seconds = (int) parsed;
++            return seconds < MIN_INTERVAL_SECONDS ? MIN_INTERVAL_SECONDS : seconds;
++        }
++
++        public void set_rotate_interval_seconds(int seconds) {
++            int clamped = seconds < MIN_INTERVAL_SECONDS ? MIN_INTERVAL_SECONDS : seconds;
++            write("rotate-interval", clamped.to_string());
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/tests/wallpaper_rotation_state_test.vala b/tests/wallpaper_rotation_state_test.vala
+new file mode 100644
+index 0000000..4bc8262
+--- /dev/null
++++ b/tests/wallpaper_rotation_state_test.vala
+@@ -0,0 +1,79 @@
++using GLib;
++using Singularity;
++
++private string make_tmp_dir() {
++    return GLib.DirUtils.make_tmp("wprotation-XXXXXX");
++}
++
++private void test_selected_collection_defaults_when_unset() {
++    var state = new WallpaperRotationState(make_tmp_dir());
++    assert(state.get_selected_collection("ncz") == "ncz");
++}
++
++private void test_selected_collection_roundtrips() {
++    var state = new WallpaperRotationState(make_tmp_dir());
++    state.set_selected_collection("brandon-perlow");
++    assert(state.get_selected_collection("ncz") == "brandon-perlow");
++}
++
++private void test_selected_collection_strips_whitespace() {
++    string dir = make_tmp_dir();
++    try {
++        FileUtils.set_contents(GLib.Path.build_filename(dir, "collection"), " bing \n");
++    } catch (Error e) { error("test setup failed: %s", e.message); }
++    var state = new WallpaperRotationState(dir);
++    assert(state.get_selected_collection("ncz") == "bing");
++}
++
++private void test_rotate_enabled_defaults_true() {
++    var state = new WallpaperRotationState(make_tmp_dir());
++    assert(state.get_rotate_enabled() == true);
++}
++
++private void test_rotate_enabled_roundtrips_false() {
++    var state = new WallpaperRotationState(make_tmp_dir());
++    state.set_rotate_enabled(false);
++    assert(state.get_rotate_enabled() == false);
++    state.set_rotate_enabled(true);
++    assert(state.get_rotate_enabled() == true);
++}
++
++private void test_rotate_interval_defaults_to_600() {
++    var state = new WallpaperRotationState(make_tmp_dir());
++    assert(state.get_rotate_interval_seconds() == 600);
++}
++
++private void test_rotate_interval_roundtrips() {
++    var state = new WallpaperRotationState(make_tmp_dir());
++    state.set_rotate_interval_seconds(1800);
++    assert(state.get_rotate_interval_seconds() == 1800);
++}
++
++private void test_rotate_interval_clamps_to_30_minimum() {
++    var state = new WallpaperRotationState(make_tmp_dir());
++    state.set_rotate_interval_seconds(5);
++    assert(state.get_rotate_interval_seconds() == 30);
++}
++
++private void test_rotate_interval_garbage_on_disk_reads_as_default() {
++    string dir = make_tmp_dir();
++    try {
++        FileUtils.set_contents(GLib.Path.build_filename(dir, "rotate-interval"), "not-a-number\n");
++    } catch (Error e) { error("test setup failed: %s", e.message); }
++    var state = new WallpaperRotationState(dir);
++    assert(state.get_rotate_interval_seconds() == 600);
++}
++
++public int main(string[] args) {
++    Test.init(ref args);
++    Test.add_func("/wallpaper-rotation-state/selected-collection-defaults-when-unset", test_selected_collection_defaults_when_unset);
++    Test.add_func("/wallpaper-rotation-state/selected-collection-roundtrips", test_selected_collection_roundtrips);
++    Test.add_func("/wallpaper-rotation-state/selected-collection-strips-whitespace", test_selected_collection_strips_whitespace);
++    Test.add_func("/wallpaper-rotation-state/rotate-enabled-defaults-true", test_rotate_enabled_defaults_true);
++    Test.add_func("/wallpaper-rotation-state/rotate-enabled-roundtrips-false", test_rotate_enabled_roundtrips_false);
++    Test.add_func("/wallpaper-rotation-state/rotate-interval-defaults-to-600", test_rotate_interval_defaults_to_600);
++    Test.add_func("/wallpaper-rotation-state/rotate-interval-roundtrips", test_rotate_interval_roundtrips);
++    Test.add_func("/wallpaper-rotation-state/rotate-interval-clamps-to-30-minimum", test_rotate_interval_clamps_to_30_minimum);
++    Test.add_func("/wallpaper-rotation-state/rotate-interval-garbage-on-disk-reads-as-default", test_rotate_interval_garbage_on_disk_reads_as_default);
++    return Test.run();
++}
+\ No newline at end of file
