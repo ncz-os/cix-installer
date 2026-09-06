@@ -324,6 +324,13 @@ else
     fi
 fi
 
+# The local wallpaper-selector branch provides these pure-logic regressions
+# and a non-installed probe for comparing the gallery with live board state.
+if [ -x build/subprojects/singularity-shell/wallpaper-gallery-probe ]; then
+    meson test -C build --print-errorlogs wallpaper-gallery wallpaper-collections wallpaper-rotation-state
+    cp build/subprojects/singularity-shell/wallpaper-gallery-probe /out/
+fi
+
 # Install into the DESTDIR stage.
 rm -rf /work/stage
 DESTDIR=/work/stage meson install -C build
