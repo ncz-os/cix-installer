@@ -165,6 +165,44 @@ else
 fi
 cd singularity-desktop
 
+# The superproject commits fixed submodule pins, and they can be stale
+# relative to the branch .gitmodules itself declares each one tracks --
+# measured 2026-09-06: singularity-shell was dozens of commits behind its
+# own main, and labwc was pinned to a commit on main (an unrelated branch)
+# when .gitmodules says branch = singularity. A stale pin is not just
+# missing recent work -- it changes the file layout our downstream patches
+# expect, so a patch that applies cleanly against a subproject real branch
+# tip can fail against whatever old commit the superproject happens to have
+# committed.
+#
+# Re-pinning ONLY the subprojects carrying NCZ patches is not enough either:
+# doing that alone left singularity-shell on its current main (freshly
+# re-pinned) while libsingularity stayed on the superproject stale pin, and
+# shell main calls UtilizationMonitor / UtilizationReading / CapacityReading
+# APIs that the stale libsingularity does not define yet -- a real compile
+# failure, not a patch-apply failure. Submodules are cross-coupled by API,
+# not independent, so re-pin every submodule .gitmodules declares a tracked
+# branch for, to one consistent all-current-upstream baseline -- this is the
+# same policy already used to build this tree (see fc29d68, make the tree
+# build again from upstream HEAD), not a new one.
+if [ -z "${SINGULARITY_SOURCE_DIR:-}" ]; then
+    git config -f .gitmodules --get-regexp "branch$" | while read -r _key _branch; do
+        case "$_key" in
+            submodule.*.branch) ;;
+            *) continue ;;
+        esac
+        _tree=${_key#submodule.}
+        _tree=${_tree%.branch}
+        [ -d "$_tree" ] || continue
+        echo "    re-pinning $_tree to its tracked branch ($_branch)"
+        git -C "$_tree" fetch origin "$_branch"
+        git -C "$_tree" checkout FETCH_HEAD
+        if [ -f "$_tree/.gitmodules" ]; then
+            git -C "$_tree" submodule update --init --recursive
+        fi
+    done
+fi
+
 # Apply the downstream patch queue inside the disposable build workspace.
 # The helper is idempotent: already-applied patches are skipped, but a patch
 # that no longer applies fails the build. This closes the clean-worktree trap
