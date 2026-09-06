@@ -1,7 +1,7 @@
 From da7196378d00446d86f76bb28f71e6cf44fb3ce4 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sat, 5 Sep 2026 23:48:51 -0400
-Subject: [PATCH 03/17] feat(wallpaper): add source selector, grid scoping, and
+Subject: [PATCH 03/21] feat(wallpaper): add source selector, grid scoping, and
  rotation controls
 
 Implements Tasks 3-4 of docs/superpowers/plans/2026-09-04-wallpaper-source-selector-rotation.md

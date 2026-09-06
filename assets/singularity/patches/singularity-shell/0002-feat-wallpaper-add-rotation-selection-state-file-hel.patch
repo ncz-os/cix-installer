@@ -1,7 +1,7 @@
 From 78536b70708ad7cd4d886e259818bcdc87390ae2 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Fri, 4 Sep 2026 23:39:02 -0400
-Subject: [PATCH 02/17] feat(wallpaper): add rotation/selection state file
+Subject: [PATCH 02/21] feat(wallpaper): add rotation/selection state file
  helpers shared with the rotator daemon
 
 (cherry picked from commit 50db4b389610f4da04d7e65e5c2e3eb634c7d1a8)

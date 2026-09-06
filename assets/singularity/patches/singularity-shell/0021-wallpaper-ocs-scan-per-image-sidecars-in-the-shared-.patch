@@ -1,0 +1,387 @@
+From 6aad2136954c2c9c107f3e68f53f0b440557dc46 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 6 Sep 2026 17:34:40 -0400
+Subject: [PATCH 21/21] wallpaper(ocs): scan per-image sidecars in the shared
+ imported-ocs pack
+
+Every OCS import lands in one persistent user-side collection
+(Id=imported-ocs, Dir=~/.local/share/backgrounds/imported-ocs/) rather
+than a fresh singleton pack per item. Per-image provenance lives in
+<image-basename>.json sidecars next to each <image-basename>.jpg, so
+discover() now scans sidecars instead of reading a per-pack pack.json,
+and complete() validates each sidecar against the shared collection
+identity.
+
+WallpaperOcsImports.discover() rewrites the already imported check
+to scan *.json sidecars in the collection directory and add one
+provider:id per sidecar whose paired .jpg is also on disk. Old-shape
+directories (one pack.json per import, left over from earlier testing)
+contribute nothing and do not crash.
+
+WallpaperOcsImports.complete() is rewritten for the new import payload:
+- pack_id is now the fixed string imported-ocs, not a per-item id.
+- pack_json is dropped; each entry under images carries the new
+  sidecar basename instead.
+- The shared collection must be registered (id=imported-ocs), the
+  destination dir must exist, every per-image sidecar must exist on
+  disk and parse to the active import key. The safety property the old
+  class had -- never mark added unless real files actually landed
+  under the right identity -- is preserved.
+
+Tests in tests/wallpaper_ocs_test.vala are updated to the new payload
+shape and add four cases: multi-sidecar discover in one shared dir,
+orphan sidecar (no paired .jpg) being silently skipped, old-shape
+directory being tolerated without crashing, and a payload missing the
+new per-image sidecar field being rejected.
+---
+ src/core/wallpaper_ocs.vala   |  98 ++++++++++++++----
+ tests/wallpaper_ocs_test.vala | 185 +++++++++++++++++++++++++++++++---
+ 2 files changed, 250 insertions(+), 33 deletions(-)
+
+diff --git a/src/core/wallpaper_ocs.vala b/src/core/wallpaper_ocs.vala
+index 6a8b9cb..49cd3b8 100644
+--- a/src/core/wallpaper_ocs.vala
++++ b/src/core/wallpaper_ocs.vala
+@@ -146,6 +146,15 @@ namespace Singularity {
+     }
+     // The backend owns disk writes. This model tracks an active import and
+     // reconciles completed imports against its real registry/provenance files.
++    //
++    // OCS imports accumulate into ONE shared user-side collection ("Imported
++    // from OCS", Id=imported-ocs). Per-image provenance is in per-image
++    // sidecar JSON files (<image>.json) sitting next to each <image>.jpg in
++    // the collection's Dir. discover() scans sidecars to know what is already
++    // imported; complete() validates that each per-image response actually
++    // landed on disk and that the sidecar's (provider, ocs_id) matches the
++    // key the browser tried to import -- never mark "added" without real
++    // files landing under the right identity.
+     public class WallpaperOcsImports : Object {
+         private string active = "";
+         private HashSet<string> added = new HashSet<string>();
+@@ -157,53 +166,102 @@ namespace Singularity {
+         }
+         public void fail(string key) { if (active == key) active = ""; }
+         public bool is_added(string key) { return added.contains(key); }
+-        private static string installed_key(string dir) throws Error {
++        // Scan the sidecar files in `dir` (one per imported image) and return
++        // every "provider:id" pair represented by a well-formed sidecar whose
++        // image file also exists on disk. Old-shape directories from earlier
++        // one-pack-per-import testing have no sidecars and silently contribute
++        // nothing, which is what discover() wants.
++        private static Gee.ArrayList<string> sidecar_keys(string dir) {
++            var result = new Gee.ArrayList<string>();
++            if (!FileUtils.test(dir, FileTest.IS_DIR)) return result;
+             string data;
+-            FileUtils.get_contents(Path.build_filename(dir, "pack.json"), out data);
+-            var pack = WallpaperOcs.document(data, false);
+-            if (WallpaperOcs.text(pack, "origin") != "ocs") return "";
+-            string provider = WallpaperOcs.text(pack, "provider");
+-            string id = WallpaperOcs.text(WallpaperOcs.object_node(pack.get_member("source")), "ocs_id");
+-            if (!WallpaperOcs.provider_id(provider) || !WallpaperOcs.numeric_id(id)) return "";
+-            // Only the helper's normalized image files count, not metadata alone.
+             var listing = Dir.open(dir);
+             string? name;
+             while ((name = listing.read_name()) != null) {
+-                if (name.has_suffix(".jpg") && FileUtils.test(Path.build_filename(dir, name), FileTest.IS_REGULAR))
+-                    return provider + ":" + id;
++                if (!name.has_suffix(".json")) continue;
++                string sidecar_path = Path.build_filename(dir, name);
++                if (!FileUtils.test(sidecar_path, FileTest.IS_REGULAR)) continue;
++                string image_basename = name.substring(0, name.length - ".json".length);
++                if (!FileUtils.test(Path.build_filename(dir, image_basename + ".jpg"), FileTest.IS_REGULAR))
++                    continue;
++                try {
++                    FileUtils.get_contents(sidecar_path, out data);
++                    var doc = WallpaperOcs.document(data, false);
++                    if (WallpaperOcs.text(doc, "origin") != "ocs") continue;
++                    string provider = WallpaperOcs.text(doc, "provider");
++                    string id = WallpaperOcs.text(WallpaperOcs.object_node(doc.get_member("source")), "ocs_id");
++                    if (!WallpaperOcs.provider_id(provider) || !WallpaperOcs.numeric_id(id)) continue;
++                    result.add(provider + ":" + id);
++                } catch (Error e) {
++                    /* malformed sidecar is not an import */
++                }
+             }
+-            return "";
++            return result;
+         }
+         public void discover(ArrayList<WallpaperCollectionInfo> collections) {
+             added.clear();
+             foreach (var collection in collections) {
+-                try { string key = installed_key(collection.dir); if (key != "") added.add(key); }
+-                catch (Error e) { /* Absent/incomplete provenance is not an import. */ }
++                foreach (string key in sidecar_keys(collection.dir)) added.add(key);
+             }
+         }
++        // The single shared "Imported from OCS" collection: registered once on
++        // first import, identity never changes across imports. The picker
++        // surfaces it the same way as any other pack because the .collection
++        // file lives in the user search roots.
++        private const string IMPORTED_OCS_ID = "imported-ocs";
+         public void complete(string key, string data, string[] roots) throws Error {
+             if (active != key) throw new WallpaperOcsError.INVALID("No matching import is active");
+             var obj = WallpaperOcs.document(data, false);
+             string id = WallpaperOcs.text(obj, "pack_id");
+             string dir = WallpaperOcs.text(obj, "destination");
+             string collection_path = WallpaperOcs.text(obj, "collection");
+-            if (!Path.is_absolute(dir) || !FileUtils.test(collection_path, FileTest.IS_REGULAR) ||
+-                WallpaperOcs.text(obj, "pack_json") != Path.build_filename(dir, "pack.json"))
+-                throw new WallpaperOcsError.INVALID("Import did not produce registered pack files");
++            if (id != IMPORTED_OCS_ID)
++                throw new WallpaperOcsError.INVALID("Import does not target the shared imported-ocs collection");
++            if (!Path.is_absolute(dir) || !FileUtils.test(dir, FileTest.IS_DIR) ||
++                !FileUtils.test(collection_path, FileTest.IS_REGULAR))
++                throw new WallpaperOcsError.INVALID("Import did not produce registered collection files");
+             bool registered = false;
+             foreach (var collection in WallpaperCollections.parse(roots)) {
+-                if (collection.id == id && collection.dir == dir) registered = true;
++                if (collection.id == id && collection.dir == dir) { registered = true; break; }
+             }
+-            if (!registered || installed_key(dir) != key)
++            if (!registered)
+                 throw new WallpaperOcsError.INVALID("Imported pack is missing from the collection registry");
++            // Per-image files: every image in the response must point to a real
++            // sidecar file with a real .jpg next to it, AND the sidecar's
++            // provider:ocs_id must match the import's key. This preserves the
++            // old class's safety property: never mark something added unless
++            // real files actually landed on disk under the right identity.
+             var images = WallpaperOcs.array(obj, "images");
+-            if (images.get_length() == 0) throw new WallpaperOcsError.INVALID("Imported pack contains no images");
++            if (images.get_length() == 0)
++                throw new WallpaperOcsError.INVALID("Imported pack contains no images");
++            bool found_key = false;
+             foreach (var node in images.get_elements()) {
+-                string name = WallpaperOcs.text(WallpaperOcs.object_node(node), "file");
++                var image = WallpaperOcs.object_node(node);
++                // `file` and `sidecar` are basenames in the response payload,
++                // mirroring the old per-pack `file` field shape; the absolute
++                // path is built against the shared collection's `dir`.
++                string name = WallpaperOcs.text(image, "file");
++                string sidecar = WallpaperOcs.text(image, "sidecar");
+                 if (name != Path.get_basename(name) || !name.has_suffix(".jpg") ||
+                     !FileUtils.test(Path.build_filename(dir, name), FileTest.IS_REGULAR))
+                     throw new WallpaperOcsError.INVALID("Imported image is missing");
++                if (sidecar != Path.get_basename(sidecar) || !sidecar.has_suffix(".json"))
++                    throw new WallpaperOcsError.INVALID("Imported image sidecar path is malformed");
++                if (sidecar != name.substring(0, name.length - ".jpg".length) + ".json")
++                    throw new WallpaperOcsError.INVALID("Imported image sidecar does not pair with image");
++                string sidecar_path = Path.build_filename(dir, sidecar);
++                if (!FileUtils.test(sidecar_path, FileTest.IS_REGULAR))
++                    throw new WallpaperOcsError.INVALID("Imported image sidecar is missing");
++                string sidecar_data;
++                FileUtils.get_contents(sidecar_path, out sidecar_data);
++                var sidecar_doc = WallpaperOcs.document(sidecar_data, false);
++                string provider = WallpaperOcs.text(sidecar_doc, "provider");
++                string ocs_id = WallpaperOcs.text(WallpaperOcs.object_node(sidecar_doc.get_member("source")), "ocs_id");
++                string candidate = provider + ":" + ocs_id;
++                if (candidate == key) found_key = true;
+             }
++            if (!found_key)
++                throw new WallpaperOcsError.INVALID("No imported image sidecar matches the active import key");
+             added.add(key);
+             active = "";
+         }
+diff --git a/tests/wallpaper_ocs_test.vala b/tests/wallpaper_ocs_test.vala
+index 4bc77f1..7aa51ef 100644
+--- a/tests/wallpaper_ocs_test.vala
++++ b/tests/wallpaper_ocs_test.vala
+@@ -63,27 +63,186 @@ private void test_import_retry() {
+ private void remove_tree(string path) {
+     try { var dir = Dir.open(path); string? name; while ((name = dir.read_name()) != null) { string child = Path.build_filename(path, name); if (FileUtils.test(child, FileTest.IS_DIR)) remove_tree(child); else FileUtils.unlink(child); } DirUtils.remove(path); } catch (Error e) { error("cleanup: %s", e.message); }
+ }
++
++// Build the per-image sidecar JSON shape that the ncz-wallpaper-ocs helper
++// now writes: schema=1, origin="ocs", pack_id="imported-ocs", with provider
++// + source.ocs_id encoded in the same fields discover()/complete() parse.
++private string make_sidecar(string provider, string ocs_id, string image_filename) {
++    return "{\"schema\":1,\"origin\":\"ocs\",\"pack_id\":\"imported-ocs\",\"image\":{\"file\":\"" + image_filename + "\"}," +
++           "\"provider\":\"" + provider + "\"," +
++           "\"source\":{\"ocs_id\":\"" + ocs_id + "\",\"detailpage\":\"https://example/" + ocs_id + "\"," +
++           "\"download_url\":\"https://example/file\",\"downloadname1\":\"" + image_filename + "\",\"downloadsize1_kib\":42,\"tags\":[]}}";
++}
++
++// Build the new import-command return payload: pack_id fixed at "imported-ocs",
++// destination = shared directory, collection = shared .collection file, images
++// each with {file, sidecar}. No "pack_json" field any more (deleted).
++private string make_payload(string destination, string collection_path, string image_filename, string sidecar_path) {
++    return "{\"pack_id\":\"imported-ocs\",\"destination\":\"" + destination +
++           "\",\"collection\":\"" + collection_path +
++           "\",\"images\":[{\"file\":\"" + image_filename + "\",\"title\":\"Test\",\"sidecar\":\"" + sidecar_path + "\"}]}";
++}
++
+ private void test_import_complete() {
++    // New model: one shared "imported-ocs" directory + .collection file, with
++    // a per-image sidecar next to each normalized image. The pack_id returned
++    // by the helper is the fixed string "imported-ocs", not a per-import id.
+     string root = "";
+     try {
+         root = DirUtils.make_tmp("ocs-test-XXXXXX");
+-        string pack = Path.build_filename(root, "ocs-pling-123"); DirUtils.create(pack, 0700);
+-        string collection = Path.build_filename(root, "ocs.collection");
+-        FileUtils.set_contents(Path.build_filename(pack, "01.jpg"), "fixture");
+-        FileUtils.set_contents(Path.build_filename(pack, "pack.json"), "{\"origin\":\"ocs\",\"provider\":\"pling\",\"source\":{\"ocs_id\":\"123\"}}");
+-        FileUtils.set_contents(collection, "[Collection]\nId=ocs-pling-123\nName=Space\nDir=" + pack + "\nOrigin=ocs\n");
+-        string result = "{\"pack_id\":\"ocs-pling-123\",\"destination\":\"%s\",\"collection\":\"%s\",\"pack_json\":\"%s/pack.json\",\"images\":[{\"file\":\"01.jpg\"}]}".printf(pack, collection, pack);
+-        var state = new WallpaperOcsImports(); assert(state.begin("pling:123"));
+-        bool rejected = false; try { state.complete("pling:123", result.replace("01.jpg", "missing.jpg"), {root}); } catch (Error e) { rejected = true; } assert(rejected); assert(!state.is_added("pling:123"));
+-        state.complete("pling:123", result, {root}); assert(!state.busy); assert(state.is_added("pling:123")); assert(!state.begin("pling:123"));
+-        var reopened = new WallpaperOcsImports(); reopened.discover(WallpaperCollections.parse({root})); assert(reopened.is_added("pling:123")); assert(!reopened.is_added("kde-look:123"));
+-        FileUtils.unlink(Path.build_filename(pack, "01.jpg"));
+-        var missing = new WallpaperOcsImports(); missing.discover(WallpaperCollections.parse({root})); assert(!missing.is_added("pling:123"));
++        string pack_dir = Path.build_filename(root, "imported-ocs");
++        DirUtils.create(pack_dir, 0700);
++        string collection_path = Path.build_filename(root, "imported-ocs.collection");
++        FileUtils.set_contents(collection_path,
++            "[Collection]\nId=imported-ocs\nName=Imported from OCS\nType=static\nDir=" + pack_dir + "\n");
++        string image_filename = "pling-123-01-foo.jpg";
++        string sidecar_filename = "pling-123-01-foo.json";
++        FileUtils.set_contents(Path.build_filename(pack_dir, image_filename), "fixture-jpg");
++        FileUtils.set_contents(Path.build_filename(pack_dir, sidecar_filename),
++            make_sidecar("pling", "123", image_filename));
++
++        string result = make_payload(pack_dir, collection_path, image_filename,
++                                     sidecar_filename);
++
++        var state = new WallpaperOcsImports();
++        assert(state.begin("pling:123"));
++        // Missing .jpg -> complete() must reject and NOT mark added.
++        bool rejected = false;
++        try { state.complete("pling:123", result.replace("pling-123-01-foo.jpg", "missing.jpg"), {root}); }
++        catch (Error e) { rejected = true; }
++        assert(rejected);
++        assert(!state.is_added("pling:123"));
++        assert(state.busy);
++        // Happy path.
++        state.complete("pling:123", result, {root});
++        assert(!state.busy);
++        assert(state.is_added("pling:123"));
++        assert(!state.begin("pling:123"));
++
++        // A fresh imports model loaded from disk sees the import via discover().
++        var reopened = new WallpaperOcsImports();
++        reopened.discover(WallpaperCollections.parse({root}));
++        assert(reopened.is_added("pling:123"));
++        assert(!reopened.is_added("kde-look:123"));
++
++        // If the sidecar disappears, the key is no longer found. discover()
++        // must not crash, just not include it.
++        FileUtils.unlink(Path.build_filename(pack_dir, sidecar_filename));
++        var missing = new WallpaperOcsImports();
++        missing.discover(WallpaperCollections.parse({root}));
++        assert(!missing.is_added("pling:123"));
+     } catch (Error e) { error("%s", e.message); }
+     remove_tree(root);
+ }
++
++private void test_discover_collects_multiple_sidecars_in_one_dir() {
++    // The shared imported-ocs directory can hold many images from many
++    // providers; discover() must add a key for each sidecar, not just the
++    // first. This is the key behaviour that makes the old one-pack-per-import
++    // scan obsolete: discover() now means "scan sidecars, not a single
++    // pack.json".
++    string root = "";
++    try {
++        root = DirUtils.make_tmp("ocs-test-XXXXXX");
++        string pack_dir = Path.build_filename(root, "imported-ocs");
++        DirUtils.create(pack_dir, 0700);
++        FileUtils.set_contents(Path.build_filename(root, "imported-ocs.collection"),
++            "[Collection]\nId=imported-ocs\nName=Imported from OCS\nType=static\nDir=" + pack_dir + "\n");
++        // Two images from different providers, each with its sidecar.
++        FileUtils.set_contents(Path.build_filename(pack_dir, "pling-111-01-a.jpg"), "x");
++        FileUtils.set_contents(Path.build_filename(pack_dir, "pling-111-01-a.json"),
++            make_sidecar("pling", "111", "pling-111-01-a.jpg"));
++        FileUtils.set_contents(Path.build_filename(pack_dir, "kde-look-222-01-b.jpg"), "x");
++        FileUtils.set_contents(Path.build_filename(pack_dir, "kde-look-222-01-b.json"),
++            make_sidecar("kde-look", "222", "kde-look-222-01-b.jpg"));
++
++        var state = new WallpaperOcsImports();
++        state.discover(WallpaperCollections.parse({root}));
++        assert(state.is_added("pling:111"));
++        assert(state.is_added("kde-look:222"));
++        assert(!state.is_added("pling:999"));
++    } catch (Error e) { error("%s", e.message); }
++    remove_tree(root);
++}
++
++private void test_discover_skips_orphan_sidecar_without_image() {
++    // A sidecar JSON without its paired .jpg must NOT count as an import.
++    // discover() must not crash, just skip it -- this is the safety property
++    // that kept the old code honest (only normalized image files count, not
++    // metadata alone) applied to the new per-image model.
++    string root = "";
++    try {
++        root = DirUtils.make_tmp("ocs-test-XXXXXX");
++        string pack_dir = Path.build_filename(root, "imported-ocs");
++        DirUtils.create(pack_dir, 0700);
++        FileUtils.set_contents(Path.build_filename(root, "imported-ocs.collection"),
++            "[Collection]\nId=imported-ocs\nDir=" + pack_dir + "\n");
++        FileUtils.set_contents(Path.build_filename(pack_dir, "pling-333-01-c.json"),
++            make_sidecar("pling", "333", "pling-333-01-c.jpg"));
++
++        var state = new WallpaperOcsImports();
++        state.discover(WallpaperCollections.parse({root}));
++        assert(!state.is_added("pling:333"));
++    } catch (Error e) { error("%s", e.message); }
++    remove_tree(root);
++}
++
++private void test_discover_tolerates_old_shape_directory() {
++    // Old-shape directory left over from one-pack-per-import testing has a
++    // pack.json but no sidecars. discover() must skip it silently rather
++    // than error. This is the explicit "do not crash on the old convention"
++    // requirement.
++    string root = "";
++    try {
++        root = DirUtils.make_tmp("ocs-test-XXXXXX");
++        string old_pack = Path.build_filename(root, "ocs-pling-555-oldstyle");
++        DirUtils.create(old_pack, 0700);
++        FileUtils.set_contents(Path.build_filename(root, "ocs-pling-555-oldstyle.collection"),
++            "[Collection]\nId=ocs-pling-555-oldstyle\nName=Old\nDir=" + old_pack + "\n");
++        FileUtils.set_contents(Path.build_filename(old_pack, "pack.json"),
++            "{\"origin\":\"ocs\",\"provider\":\"pling\",\"source\":{\"ocs_id\":\"555\"}}");
++        FileUtils.set_contents(Path.build_filename(old_pack, "01.jpg"), "oldshape");
++
++        var state = new WallpaperOcsImports();
++        state.discover(WallpaperCollections.parse({root}));
++        assert(!state.is_added("pling:555"));
++    } catch (Error e) { error("%s", e.message); }
++    remove_tree(root);
++}
++
++private void test_import_complete_rejects_payload_without_sidecar_path() {
++    // Backwards-safety: a payload that still has the old per-image shape
++    // (no "sidecar" field per image) must be rejected. The Python helper
++    // generates sidecars now, so a missing one is a real failure, not a
++    // legacy shape we silently accept.
++    string root = "";
++    try {
++        root = DirUtils.make_tmp("ocs-test-XXXXXX");
++        string pack_dir = Path.build_filename(root, "imported-ocs");
++        DirUtils.create(pack_dir, 0700);
++        string collection_path = Path.build_filename(root, "imported-ocs.collection");
++        FileUtils.set_contents(collection_path,
++            "[Collection]\nId=imported-ocs\nDir=" + pack_dir + "\n");
++        string image_filename = "pling-777-01-x.jpg";
++        FileUtils.set_contents(Path.build_filename(pack_dir, image_filename), "fixture");
++        // Build a payload that looks almost right except the per-image entry
++        // lacks the "sidecar" field.
++        string bad_payload = "{\"pack_id\":\"imported-ocs\",\"destination\":\"" + pack_dir +
++                             "\",\"collection\":\"" + collection_path +
++                             "\",\"images\":[{\"file\":\"" + image_filename + "\",\"title\":\"x\"}]}";
++        var state = new WallpaperOcsImports();
++        assert(state.begin("pling:777"));
++        bool rejected = false;
++        try { state.complete("pling:777", bad_payload, {root}); }
++        catch (Error e) { rejected = true; }
++        assert(rejected);
++        assert(!state.is_added("pling:777"));
++    } catch (Error e) { error("%s", e.message); }
++    remove_tree(root);
++}
++
+ public int main(string[] args) {
+     Test.init(ref args);
+-    Test.add_func("/ocs/providers", test_providers); Test.add_func("/ocs/categories", test_categories); Test.add_func("/ocs/items", test_items); Test.add_func("/ocs/tags", test_tags); Test.add_func("/ocs/empty", test_empty); Test.add_func("/ocs/invalid", test_invalid); Test.add_func("/ocs/bad-items", test_bad_items); Test.add_func("/ocs/bad-categories", test_bad_categories); Test.add_func("/ocs/import-retry", test_import_retry); Test.add_func("/ocs/import-complete", test_import_complete);
++    Test.add_func("/ocs/providers", test_providers); Test.add_func("/ocs/categories", test_categories); Test.add_func("/ocs/items", test_items); Test.add_func("/ocs/tags", test_tags); Test.add_func("/ocs/empty", test_empty); Test.add_func("/ocs/invalid", test_invalid); Test.add_func("/ocs/bad-items", test_bad_items); Test.add_func("/ocs/bad-categories", test_bad_categories); Test.add_func("/ocs/import-retry", test_import_retry); Test.add_func("/ocs/import-complete", test_import_complete); Test.add_func("/ocs/discover-collects-multiple-sidecars-in-one-dir", test_discover_collects_multiple_sidecars_in_one_dir); Test.add_func("/ocs/discover-skips-orphan-sidecar-without-image", test_discover_skips_orphan_sidecar_without_image); Test.add_func("/ocs/discover-tolerates-old-shape-directory", test_discover_tolerates_old_shape_directory); Test.add_func("/ocs/import-complete-rejects-payload-without-sidecar-path", test_import_complete_rejects_payload_without_sidecar_path);
+     return Test.run();
+ }

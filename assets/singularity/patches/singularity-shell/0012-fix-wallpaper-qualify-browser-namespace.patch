@@ -1,7 +1,7 @@
 From 1c73ed0770d33568c7e2835feaacb813106ca49e Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 11:25:46 -0400
-Subject: [PATCH 12/17] fix(wallpaper): qualify browser namespace
+Subject: [PATCH 12/21] fix(wallpaper): qualify browser namespace
 
 (cherry picked from commit bcf080c6276c2ef3c93b6a5abadda3e661d04d6d)
 ---
