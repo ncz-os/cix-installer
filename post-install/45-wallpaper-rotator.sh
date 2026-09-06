@@ -616,6 +616,25 @@ Provider=bing
 Dir=/var/cache/ncz-wallpapers/bing
 EOF
 
+# Contributed Artist Packs, packaged as .debs by
+# build/build-wallpaper-contrib-deb.sh and staged at build time into
+# assets/wallpaper-debs/ (gitignored blobs, like assets/cix-debs -- rebuild
+# with that script, do not commit the .deb itself). Each pack's own postinst
+# is a no-op (dpkg-deb --build with no maintainer scripts): it only drops
+# images + one .collection file, so installing zero, one, or many of these
+# is just more or fewer packs in the Wallpaper Source selector, never a
+# failure mode.
+WALLPAPER_DEBS=/usr/local/lib/cix-installer/assets/wallpaper-debs
+if compgen -G "$WALLPAPER_DEBS/*.deb" > /dev/null 2>&1; then
+    echo "[45] installing contributed Artist Pack(s):"
+    for _deb in "$WALLPAPER_DEBS"/*.deb; do
+        echo "[45]   $(basename "$_deb")"
+    done
+    dpkg -i "$WALLPAPER_DEBS"/*.deb
+else
+    echo "[45] no contributed Artist Pack debs staged in $WALLPAPER_DEBS -- shipping NCZ + Bing only"
+fi
+
 # Daily refresh. A timer, not a loop inside the rotator: the image changes once
 # a day, and tying the fetch to the 10-minute rotation would hit Bing 144x/day
 # per user for no benefit.
