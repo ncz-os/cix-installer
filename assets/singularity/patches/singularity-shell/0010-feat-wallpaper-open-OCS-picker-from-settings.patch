@@ -1,7 +1,7 @@
 From 5cdcaf06ecdeab47010157edc95b0cb459e6a923 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 11:20:24 -0400
-Subject: [PATCH 10/21] feat(wallpaper): open OCS picker from settings
+Subject: [PATCH 10/22] feat(wallpaper): open OCS picker from settings
 
 (cherry picked from commit 6206da36cfde290e5dc6c121e7cd2183fa42d75f)
 ---

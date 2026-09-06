@@ -1,7 +1,7 @@
 From 16023aa1885dd94a1e33eef63cfab66a115365d3 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 16:49:31 -0400
-Subject: [PATCH 19/21] feat(wallpaper): native widgets, aggregate crawl,
+Subject: [PATCH 19/22] feat(wallpaper): native widgets, aggregate crawl,
  tag/category filters in OCS browser
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

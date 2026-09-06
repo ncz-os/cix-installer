@@ -1,7 +1,7 @@
 From 1b3eda7bc9a21b36598e2d37e34bdb2712cb015e Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 11:20:24 -0400
-Subject: [PATCH 09/21] feat(wallpaper): add async OCS browser
+Subject: [PATCH 09/22] feat(wallpaper): add async OCS browser
 
 (cherry picked from commit 5fdb080edbc7a95f7dcf694efbee8ccf483e33d6)
 ---
