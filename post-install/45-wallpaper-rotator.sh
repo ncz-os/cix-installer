@@ -17,21 +17,6 @@ case "$VARIANT" in
         ;;
 esac
 
-ASSETS=/usr/local/lib/cix-installer/assets/branding/wallpaper
-DEST=/usr/share/backgrounds/ncz
-mkdir -p "$DEST"
-# Glob on the ncz-wallpaper- prefix ONLY, never on a resolution suffix. The
-# suffix is a label, not a contract: the contrib packs are 3840x2160 and named
-# -4k, and a -2k glob silently skips anything that does not carry that exact
-# string. This file already lost art that way once -- the contrib builder's
-# header records the same failure with ncz-wallpaper-0*.jpg quietly ignoring
-# everything numbered 10 and above. A wallpaper that is simply absent from the
-# rotation looks identical to one that was never installed.
-for f in "$ASSETS"/ncz-wallpaper-*.jpg; do
-    [ -f "$f" ] && install -m 0644 "$f" "$DEST/"
-done
-# Default = the Maximilian backdrop (26.7 release wallpaper).
-ln -sfn ncz-wallpaper-07-maximilian-blackhole-2k.jpg "$DEST/default.jpg"
 
 # ---------------------------------------------------------------------------
 # COLLECTIONS: art paks, time-of-day sets and providers.
@@ -594,18 +579,6 @@ raise SystemExit(commands[cmd](args))
 PY
 BING_EOF
 
-# The shipped NCZ art, expressed as a collection so the built-in set and any
-# add-on pak go through exactly one code path.
-cat > /usr/share/ncz-wallpapers/collections/ncz.collection <<'EOF'
-[Collection]
-Id=ncz
-Name=NCZ-OS
-Comment=The wallpapers shipped with NCZ-OS
-Artist=NCZ
-Type=static
-Dir=/usr/share/backgrounds/ncz
-EOF
-
 cat > /usr/share/ncz-wallpapers/collections/bing.collection <<'EOF'
 [Collection]
 Id=bing
@@ -616,23 +589,57 @@ Provider=bing
 Dir=/var/cache/ncz-wallpapers/bing
 EOF
 
-# Contributed Artist Packs, packaged as .debs by
-# build/build-wallpaper-contrib-deb.sh and staged at build time into
-# assets/wallpaper-debs/ (gitignored blobs, like assets/cix-debs -- rebuild
-# with that script, do not commit the .deb itself). Each pack's own postinst
-# is a no-op (dpkg-deb --build with no maintainer scripts): it only drops
-# images + one .collection file, so installing zero, one, or many of these
-# is just more or fewer packs in the Wallpaper Source selector, never a
-# failure mode.
+# The Singularity Desktop project's own default wallpaper set ships inside
+# the /opt/singularity payload (subprojects/singularity-wallpapers,
+# installed to share/backgrounds/singularity by the desktop's own meson
+# build) -- not a separate NCZ .deb, since it is already installed the
+# moment ncz-singularity-desktop is. Just describe it as its own source,
+# distinct from NCZ's own cosmic art, in the Wallpaper Source selector.
+cat > /usr/share/ncz-wallpapers/collections/singularity-default.collection <<'EOF'
+[Collection]
+Id=singularity-default
+Name=Singularity Default
+Comment=The default wallpaper set that ships with Singularity Desktop
+Artist=Singularity
+Type=static
+Dir=/opt/singularity/share/backgrounds/singularity
+EOF
+
+# Artist Packs, packaged as .debs by build/build-wallpaper-contrib-deb.sh and
+# staged at build time into assets/wallpaper-debs/ (gitignored blobs, like
+# assets/cix-debs -- rebuild with that script, do not commit the .deb
+# itself). Each pack's own postinst is a no-op (dpkg-deb --build with no
+# maintainer scripts): it only drops images + one .collection file.
 WALLPAPER_DEBS=/usr/local/lib/cix-installer/assets/wallpaper-debs
-if compgen -G "$WALLPAPER_DEBS/*.deb" > /dev/null 2>&1; then
+
+# The NCZ pack is REQUIRED, not optional like a contributed pack: it is the
+# baseline default background (rotator.sh's own WP_DIR fallback and
+# ncz-wallpaper-rotate's COLLECTION default both assume /usr/share/
+# backgrounds/ncz has images in it), so a build that forgot to stage it
+# would otherwise silently ship a desktop with no default wallpaper -- the
+# exact silent-absence failure this rotator's own comments elsewhere warn
+# about. Fail loudly instead.
+NCZ_DEB=$(compgen -G "$WALLPAPER_DEBS/ncz-wallpapers-ncz_*.deb" 2>/dev/null | sort -V | tail -1 || true)
+if [ -z "$NCZ_DEB" ]; then
+    echo "[45] ERROR: ncz-wallpapers-ncz_*.deb not staged in $WALLPAPER_DEBS -- the desktop would have no default wallpaper" >&2
+    echo "[45]        rebuild it: build/build-wallpaper-contrib-deb.sh ncz" >&2
+    exit 1
+fi
+echo "[45] installing required NCZ wallpaper pack: $(basename "$NCZ_DEB")"
+dpkg -i "$NCZ_DEB"
+# Default = the Maximilian backdrop (26.7 release wallpaper). Set after the
+# pack installs the image it points at.
+ln -sfn ncz-wallpaper-07-maximilian-blackhole-2k.jpg /usr/share/backgrounds/ncz/default.jpg
+
+CONTRIB_DEBS=$(compgen -G "$WALLPAPER_DEBS/*.deb" | grep -v "^$WALLPAPER_DEBS/ncz-wallpapers-ncz_" || true)
+if [ -n "$CONTRIB_DEBS" ]; then
     echo "[45] installing contributed Artist Pack(s):"
-    for _deb in "$WALLPAPER_DEBS"/*.deb; do
+    printf '%s\n' "$CONTRIB_DEBS" | while read -r _deb; do
         echo "[45]   $(basename "$_deb")"
     done
-    dpkg -i "$WALLPAPER_DEBS"/*.deb
+    printf '%s\n' "$CONTRIB_DEBS" | xargs dpkg -i
 else
-    echo "[45] no contributed Artist Pack debs staged in $WALLPAPER_DEBS -- shipping NCZ + Bing only"
+    echo "[45] no contributed Artist Pack debs staged in $WALLPAPER_DEBS -- shipping NCZ + Bing + Singularity Default only"
 fi
 
 # Daily refresh. A timer, not a loop inside the rotator: the image changes once
