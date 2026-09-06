@@ -1,7 +1,7 @@
 From c6a9abec9c46076b634d32cc3a097a4fb6f03a92 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 11:22:07 -0400
-Subject: [PATCH 11/17] fix(wallpaper): qualify keyboard controller
+Subject: [PATCH 11/21] fix(wallpaper): qualify keyboard controller
 
 (cherry picked from commit 779e8d184f3eaaced073aa58ec3ee94ccf87650d)
 ---

@@ -1,7 +1,7 @@
 From 7b49f0d35213b9efaed3380e2150a17023b39fc5 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 12:09:22 -0400
-Subject: [PATCH 05/17] chore(wallpaper): drop dev-only gallery probe
+Subject: [PATCH 05/21] chore(wallpaper): drop dev-only gallery probe
  executable
 
 Not something an upstream maintainer should receive as part of the

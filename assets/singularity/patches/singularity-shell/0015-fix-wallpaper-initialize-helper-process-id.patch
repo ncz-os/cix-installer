@@ -1,7 +1,7 @@
 From d06d8257dc55e75530ab52645cc07a9bf6156561 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 11:26:46 -0400
-Subject: [PATCH 15/17] fix(wallpaper): initialize helper process id
+Subject: [PATCH 15/21] fix(wallpaper): initialize helper process id
 
 (cherry picked from commit d3d0055b643f3600798e9c29e888601a45034012)
 ---
