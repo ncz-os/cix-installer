@@ -1,7 +1,7 @@
 From 589951d438ad1130ed94483f0b8a67489fbf2f7b Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 11:18:47 -0400
-Subject: [PATCH 08/22] feat(wallpaper): parse OCS browser state
+Subject: [PATCH 08/23] feat(wallpaper): parse OCS browser state
 
 (cherry picked from commit 48ec48da3d75f1767781fa026be04864601a2c42)
 ---

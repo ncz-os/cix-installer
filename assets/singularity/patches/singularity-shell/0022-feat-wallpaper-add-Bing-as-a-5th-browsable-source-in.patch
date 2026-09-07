@@ -1,7 +1,7 @@
 From b1cc244a0c7b636f4a4c41363751bae1e2abed13 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 19:48:21 -0400
-Subject: [PATCH 22/22] feat(wallpaper): add Bing as a 5th browsable source in
+Subject: [PATCH 22/23] feat(wallpaper): add Bing as a 5th browsable source in
  the OCS browser
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
