@@ -1,7 +1,7 @@
 From efa49447b3300890c6b4bc93650d91a61411ea07 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 11:29:07 -0400
-Subject: [PATCH 16/23] fix(wallpaper): release closed browser reference
+Subject: [PATCH 16/24] fix(wallpaper): release closed browser reference
 
 (cherry picked from commit 2bac1d1d1782390aa0c202c28cb1c250bafd5562)
 ---
@@ -42,3 +42,6 @@ index b1a1f65..928204c 100644
                  return false;
              });
              var keys = new EventControllerKey();
+-- 
+2.55.0
+

@@ -1,7 +1,7 @@
 From 8af0aed34db2032a6b402ec767aee0752216ec36 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 23:22:14 -0400
-Subject: [PATCH 23/23] fix(wallpaper-ocs-browser): fix Bing selection
+Subject: [PATCH 23/24] fix(wallpaper-ocs-browser): fix Bing selection
  producing zero results
 
 Selecting Bing in the provider row silently fell through to the OCS
@@ -78,3 +78,6 @@ index 876ed01..5c39a02 100644
                  provider_row.current_value = initial;
                  updating = false;
                  loading = false;
+-- 
+2.55.0
+

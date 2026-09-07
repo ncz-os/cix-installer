@@ -1,7 +1,7 @@
 From 6aad2136954c2c9c107f3e68f53f0b440557dc46 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 17:34:40 -0400
-Subject: [PATCH 21/23] wallpaper(ocs): scan per-image sidecars in the shared
+Subject: [PATCH 21/24] wallpaper(ocs): scan per-image sidecars in the shared
  imported-ocs pack
 
 Every OCS import lands in one persistent user-side collection
@@ -385,3 +385,6 @@ index 4bc77f1..7aa51ef 100644
 +    Test.add_func("/ocs/providers", test_providers); Test.add_func("/ocs/categories", test_categories); Test.add_func("/ocs/items", test_items); Test.add_func("/ocs/tags", test_tags); Test.add_func("/ocs/empty", test_empty); Test.add_func("/ocs/invalid", test_invalid); Test.add_func("/ocs/bad-items", test_bad_items); Test.add_func("/ocs/bad-categories", test_bad_categories); Test.add_func("/ocs/import-retry", test_import_retry); Test.add_func("/ocs/import-complete", test_import_complete); Test.add_func("/ocs/discover-collects-multiple-sidecars-in-one-dir", test_discover_collects_multiple_sidecars_in_one_dir); Test.add_func("/ocs/discover-skips-orphan-sidecar-without-image", test_discover_skips_orphan_sidecar_without_image); Test.add_func("/ocs/discover-tolerates-old-shape-directory", test_discover_tolerates_old_shape_directory); Test.add_func("/ocs/import-complete-rejects-payload-without-sidecar-path", test_import_complete_rejects_payload_without_sidecar_path);
      return Test.run();
  }
+-- 
+2.55.0
+

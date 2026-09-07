@@ -1,7 +1,7 @@
 From 22cc316d80e56391d75ec0fab9a858634acb72ee Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 11:17:45 -0400
-Subject: [PATCH 07/23] test(wallpaper): specify OCS JSON contracts
+Subject: [PATCH 07/24] test(wallpaper): specify OCS JSON contracts
 
 (cherry picked from commit ef18117a43b7eb1169d020521df5775ddfaa1d6e)
 ---
@@ -143,3 +143,6 @@ index 0000000..7295e21
 +    Test.add_func("/ocs/providers", test_providers); Test.add_func("/ocs/categories", test_categories); Test.add_func("/ocs/items", test_items); Test.add_func("/ocs/empty", test_empty); Test.add_func("/ocs/invalid", test_invalid); Test.add_func("/ocs/bad-items", test_bad_items); Test.add_func("/ocs/bad-categories", test_bad_categories); Test.add_func("/ocs/import-retry", test_import_retry); Test.add_func("/ocs/import-complete", test_import_complete);
 +    return Test.run();
 +}
+-- 
+2.55.0
+

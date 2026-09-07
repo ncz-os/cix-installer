@@ -1,7 +1,7 @@
 From b33a9759b5e237ce46aeec102e3aac57bcf35fa0 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 16:49:19 -0400
-Subject: [PATCH 18/23] feat(wallpaper): parse OCS browse tags
+Subject: [PATCH 18/24] feat(wallpaper): parse OCS browse tags
 
 The OCS helper has always emitted a  JSON array per item in its
 browse response (a plain list of strings, possibly empty). WallpaperOcsItem
@@ -138,3 +138,6 @@ index 7295e21..4bc77f1 100644
 +    Test.add_func("/ocs/providers", test_providers); Test.add_func("/ocs/categories", test_categories); Test.add_func("/ocs/items", test_items); Test.add_func("/ocs/tags", test_tags); Test.add_func("/ocs/empty", test_empty); Test.add_func("/ocs/invalid", test_invalid); Test.add_func("/ocs/bad-items", test_bad_items); Test.add_func("/ocs/bad-categories", test_bad_categories); Test.add_func("/ocs/import-retry", test_import_retry); Test.add_func("/ocs/import-complete", test_import_complete);
      return Test.run();
  }
+-- 
+2.55.0
+
