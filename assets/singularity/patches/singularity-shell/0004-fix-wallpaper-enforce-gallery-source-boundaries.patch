@@ -1,7 +1,7 @@
 From d430ca8399fbe8c6ced7ed2c58c711d159477205 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 01:38:06 -0400
-Subject: [PATCH 04/23] fix(wallpaper): enforce gallery source boundaries
+Subject: [PATCH 04/24] fix(wallpaper): enforce gallery source boundaries
 
 Admit recent images only when the selected collection scan contains them. Exclude separately registered nested packs while retaining provider subdirectories. Exercise the production scanner with mixed history and a live-state probe.
 
@@ -424,3 +424,6 @@ index 0000000..e301e9b
 +    Test.add_func("/wallpaper-gallery/default-alias-loop", test_default_alias_and_directory_loop);
 +    return Test.run();
 +}
+-- 
+2.55.0
+

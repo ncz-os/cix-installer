@@ -1,7 +1,7 @@
 From a01cc3558106ff4781cb9c9a9d4b69fcc914b427 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 11:36:28 -0400
-Subject: [PATCH 17/23] fix(wallpaper): append dropdown strings safely
+Subject: [PATCH 17/24] fix(wallpaper): append dropdown strings safely
 
 (cherry picked from commit 3a6cee4390bab27e59c3d18133a4455926ffb9c7)
 ---
@@ -52,3 +52,6 @@ index 928204c..32a1e2b 100644
                  category_box.selected = categories.size > 0 ? initial : Gtk.INVALID_LIST_POSITION;
                  updating = false;
                  pages = 1;
+-- 
+2.55.0
+

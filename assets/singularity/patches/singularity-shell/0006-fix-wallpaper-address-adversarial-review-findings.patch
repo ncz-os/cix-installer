@@ -1,7 +1,7 @@
 From 59c6ea7f778d799eb24e7bfa3f7c8e536f4a3307 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 12:09:31 -0400
-Subject: [PATCH 06/23] fix(wallpaper): address adversarial review findings
+Subject: [PATCH 06/24] fix(wallpaper): address adversarial review findings
 
 Five real correctness issues found by an adversarial review of the
 prior four commits before opening this as an upstream PR:
@@ -170,3 +170,6 @@ index a09313f..dddafd5 100644
          }
  
          public void set_rotate_enabled(bool enabled) {
+-- 
+2.55.0
+

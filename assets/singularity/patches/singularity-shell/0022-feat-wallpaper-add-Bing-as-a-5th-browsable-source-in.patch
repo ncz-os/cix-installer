@@ -1,7 +1,7 @@
 From b1cc244a0c7b636f4a4c41363751bae1e2abed13 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 19:48:21 -0400
-Subject: [PATCH 22/23] feat(wallpaper): add Bing as a 5th browsable source in
+Subject: [PATCH 22/24] feat(wallpaper): add Bing as a 5th browsable source in
  the OCS browser
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -670,3 +670,6 @@ index 7aa51ef..7ccefe8 100644
 +    Test.add_func("/ocs/providers", test_providers); Test.add_func("/ocs/categories", test_categories); Test.add_func("/ocs/items", test_items); Test.add_func("/ocs/tags", test_tags); Test.add_func("/ocs/empty", test_empty); Test.add_func("/ocs/invalid", test_invalid); Test.add_func("/ocs/bad-items", test_bad_items); Test.add_func("/ocs/bad-categories", test_bad_categories); Test.add_func("/ocs/import-retry", test_import_retry); Test.add_func("/ocs/import-complete", test_import_complete); Test.add_func("/ocs/discover-collects-multiple-sidecars-in-one-dir", test_discover_collects_multiple_sidecars_in_one_dir); Test.add_func("/ocs/discover-skips-orphan-sidecar-without-image", test_discover_skips_orphan_sidecar_without_image); Test.add_func("/ocs/discover-tolerates-old-shape-directory", test_discover_tolerates_old_shape_directory); Test.add_func("/ocs/import-complete-rejects-payload-without-sidecar-path", test_import_complete_rejects_payload_without_sidecar_path); Test.add_func("/ocs/bing-markets-parses-tsv", test_bing_markets_parses_tsv); Test.add_func("/ocs/bing-markets-tolerates-blank-lines-and-whitespace", test_bing_markets_tolerates_blank_lines_and_whitespace); Test.add_func("/ocs/bing-markets-empty", test_bing_markets_empty); Test.add_func("/ocs/bing-items-parses-list-array", test_bing_items_parses_list_array); Test.add_func("/ocs/bing-items-empty-array", test_bing_items_empty_array); Test.add_func("/ocs/bing-items-rejects-non-array-root", test_bing_items_rejects_non_array_root); Test.add_func("/ocs/bing-items-rejects-bad-pinned-field", test_bing_items_rejects_bad_pinned_field);
      return Test.run();
  }
+-- 
+2.55.0
+

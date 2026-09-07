@@ -1,7 +1,7 @@
 From f551065e987a67138a168a90625b6184fc0df91c Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Fri, 4 Sep 2026 22:57:00 -0400
-Subject: [PATCH 01/23] feat(wallpaper): extract collection registry parsing
+Subject: [PATCH 01/24] feat(wallpaper): extract collection registry parsing
  into a testable core class
 
 ---
@@ -241,3 +241,6 @@ index 0000000..9fdd19d
 +    Test.add_func("/wallpaper-collections/dedupes-by-id-first-root-wins", test_dedupes_by_id_first_root_wins);
 +    return Test.run();
 +}
+-- 
+2.55.0
+

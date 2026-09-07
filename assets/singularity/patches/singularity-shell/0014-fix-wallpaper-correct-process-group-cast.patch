@@ -1,7 +1,7 @@
 From a58ad8cfe596d20d5a0a0db7ab997a7ef85612c3 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 11:26:30 -0400
-Subject: [PATCH 14/23] fix(wallpaper): correct process group cast
+Subject: [PATCH 14/24] fix(wallpaper): correct process group cast
 
 (cherry picked from commit 839b97dad04800f50d4b9d274b9e1d8d60c8f6bc)
 ---
@@ -21,3 +21,6 @@ index b6fa4b5..df5cf27 100644
              process.force_exit();
          }
  
+-- 
+2.55.0
+
