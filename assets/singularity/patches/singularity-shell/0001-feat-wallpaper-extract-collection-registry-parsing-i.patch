@@ -1,7 +1,7 @@
 From f551065e987a67138a168a90625b6184fc0df91c Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Fri, 4 Sep 2026 22:57:00 -0400
-Subject: [PATCH 01/22] feat(wallpaper): extract collection registry parsing
+Subject: [PATCH 01/23] feat(wallpaper): extract collection registry parsing
  into a testable core class
 
 ---

@@ -1,7 +1,7 @@
 From 6aad2136954c2c9c107f3e68f53f0b440557dc46 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 6 Sep 2026 17:34:40 -0400
-Subject: [PATCH 21/22] wallpaper(ocs): scan per-image sidecars in the shared
+Subject: [PATCH 21/23] wallpaper(ocs): scan per-image sidecars in the shared
  imported-ocs pack
 
 Every OCS import lands in one persistent user-side collection
