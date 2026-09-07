@@ -45,9 +45,12 @@ IMPORTED_OCS_DIRNAME = "imported-ocs"
 IMPORTED_OCS_COLLECTION_ID = IMPORTED_OCS_DIRNAME
 IMPORTED_OCS_COLLECTION_NAME = "Imported from OCS"
 
+# opendesktop.org and pling.com are the same OCS content network under two
+# brand names (opendesktop.org today just redirects to pling.com) -- listing
+# both as separate browsable sources duplicated the same content twice.
+# Confirmed and removed 2026-09-07 (operator, live-testing the OCS browser).
 PROVIDERS: dict[str, dict[str, str]] = {
     "pling": {"base": "https://api.pling.com/ocs/v1/", "web": "https://www.pling.com/p/{id}"},
-    "opendesktop": {"base": "https://api.opendesktop.org/ocs/v1/", "web": "https://www.opendesktop.org/p/{id}"},
     "kde-look": {"base": "https://api.kde-look.org/ocs/v1/", "web": "https://www.kde-look.org/p/{id}"},
     "gnome-look": {"base": "https://api.gnome-look.org/ocs/v1/", "web": "https://www.gnome-look.org/p/{id}"},
 }
