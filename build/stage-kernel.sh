@@ -32,7 +32,13 @@ PREV=$(readlink -f "$REPO/assets/kernel/edge" 2>/dev/null || true)
 case "${PREV:+$(basename "$PREV")}" in
     "${REV}-"*)
         echo "note: edge already points at a ${REV} staging ($(basename "$PREV")) -- re-run."
-        PREV=$(ls -dt "$REPO"/assets/kernel/*-sky1-ncz-* 2>/dev/null | grep -v "/${REV}-" | head -1)
+        # grep -v exits 1 when EVERY staged dir belongs to this REV (a
+        # genuinely first build on a host with no prior release staged) --
+        # under set -e that failure propagates through the command
+        # substitution and killed the whole script silently right here.
+        # || true lets a real "no previous release yet" case leave PREV
+        # empty instead of crashing.
+        PREV=$(ls -dt "$REPO"/assets/kernel/*-sky1-ncz-* 2>/dev/null | grep -v "/${REV}-" | head -1 || true)
         echo "      comparing against the release before it: ${PREV:-<none>}"
         ;;
 esac
