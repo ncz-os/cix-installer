@@ -51,6 +51,15 @@ set -uo pipefail
 # caller's interactive PATH having it.
 export PATH="$PATH:/usr/sbin:/sbin"
 
+# NEVER manually xz-compress a .ko file (or write one into place already
+# compressed) anywhere in this pipeline. The kernel's in-kernel XZ
+# decompressor requires --check=crc32 (or --check=none); a plain "xz -k
+# module.ko" uses xz's CLI default --check=crc64, which the kernel cannot
+# read. Symptom: modprobe "Invalid argument" + dmesg "decompression failed
+# with status 6" -- easy to misread as a vermagic/ABI mismatch, it is not.
+# Leave modules UNCOMPRESSED (plain .ko); kmod loads both .ko and .ko.xz
+# fine, so there is no need to compress at all. Measured 2026-09-07, O6N.
+
 REV="${BUILD_REV:?set BUILD_REV, e.g. BUILD_REV=r263}"
 REPO="${NCZ_INSTALLER_DIR:-$HOME/isobuild/cix-installer}"
 YOCTO="${NCZ_YOCTO_DIR:-$HOME/yocto-work}"
