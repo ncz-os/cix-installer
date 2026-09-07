@@ -45,6 +45,12 @@
 # human decides whether that ships.
 set -uo pipefail
 
+# modinfo/dkms live in /usr/sbin, which is NOT on PATH for a non-interactive
+# ssh/script shell on this system (confirmed missing on both cixmini and O6N)
+# -- a script meant to run identically everywhere cannot depend on the
+# caller's interactive PATH having it.
+export PATH="$PATH:/usr/sbin:/sbin"
+
 REV="${BUILD_REV:?set BUILD_REV, e.g. BUILD_REV=r263}"
 REPO="${NCZ_INSTALLER_DIR:-$HOME/isobuild/cix-installer}"
 YOCTO="${NCZ_YOCTO_DIR:-$HOME/yocto-work}"
