@@ -37,6 +37,8 @@ PROVIDERS: dict[str, dict[str, str]] = {
     "gnome-look": {"base": "https://api.gnome-look.org/ocs/v1/", "web": "https://www.gnome-look.org/p/{id}"},
 }
 
+PROVIDER_NAMES = {"pling": "Pling", "kde-look": "KDE Look", "gnome-look": "GNOME Look"}
+
 
 def die(message: str, code: int = 1) -> None:
     print(f"ERROR: {message}", file=sys.stderr)
@@ -330,12 +332,22 @@ def write_legacy_collection(pack_id: str, name: str, dest: Path, author: str | N
     collection_dir = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "ncz-wallpapers" / "collections"
     collection_dir.mkdir(parents=True, exist_ok=True)
     collection = collection_dir / f"{pack_id}.collection"
-    fields = ["[Collection]", f"Id={pack_id}", f"Name={name}", "Comment=User-fetched OCS wallpaper pack"]
+    fields = ["[Collection]", f"Id={pack_id}", f"Name={name}", "Comment=Theme pack", "PackKind=theme"]
     if author:
         fields.append(f"Artist={author}")
     fields += ["Type=static", f"Dir={dest}", "Origin=ocs"]
-    collection.write_text("\n".join(fields) + "\n", encoding="utf-8")
+    atomic_text(collection, "\n".join(fields) + "\n")
     return collection
+
+
+def atomic_text(path: Path, text: str) -> None:
+    fd, name = tempfile.mkstemp(prefix=".ocs-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
 
 
 def import_item(provider: str, item_id: str, width: int, height: int, base_dir: Path, dry_run: bool = False) -> dict[str, Any]:
@@ -346,8 +358,9 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
     if not download["url"]:
         die(f"{provider}:{item_id} has no downloadlink1")
 
-    pack_id = f"ocs-{provider}-{item_id}-{slugify(item['name'])}"[:96].rstrip("-")
-    dest = unique_dest(base_dir, pack_id)
+    # Fixed provider identity: every import grows the same theme pack.
+    pack_id = provider
+    dest = base_dir / provider
     if dry_run:
         return {"pack_id": pack_id, "destination": str(dest), "item": item}
 
@@ -363,14 +376,24 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
         if not images:
             die(f"{provider}:{item_id} contained no JPEG/PNG/WebP payload after real MIME sniffing")
 
-        dest.mkdir(parents=True)
+        dest.mkdir(parents=True, exist_ok=True)
         normalized: list[dict[str, Any]] = []
         for idx, src in enumerate(images, start=1):
             src_w, src_h = image_geometry(src)
-            out = dest / f"{idx:02d}-{slugify(src.stem)}.jpg"
-            normalize_image(src, out, width, height)
+            out = dest / f"{provider}-{item_id}-{idx:02d}-{slugify(src.stem)}.jpg"
+            staged = tmp / out.name
+            normalize_image(src, staged, width, height)
+            # Publish a complete image atomically, including on retry.
+            fd, pending = tempfile.mkstemp(prefix=".ocs-", dir=dest)
+            os.close(fd)
+            try:
+                shutil.copyfile(staged, pending)
+                os.replace(pending, out)
+            finally:
+                Path(pending).unlink(missing_ok=True)
             normalized.append({
                 "file": out.name,
+                "sidecar": out.with_suffix(".json").name,
                 "title": item["name"] if len(images) == 1 else src.stem,
                 "source_file": src.name,
                 "source_geometry": {"width": src_w, "height": src_h},
@@ -400,10 +423,15 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
             "images": normalized,
         }
         pack = {k: v for k, v in pack.items() if v is not None}
-        (dest / "pack.json").write_text(json.dumps(pack, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        collection = write_legacy_collection(pack_id, item["name"], dest, item["author"])
+        # Attribution belongs to each image, not to the provider collection.
+        for image in normalized:
+            sidecar = {k: v for k, v in pack.items() if k != "images"}
+            sidecar["pack_id"] = pack_id
+            sidecar["image"] = image
+            atomic_text(dest / image["sidecar"], json.dumps(sidecar, indent=2, sort_keys=True) + "\n")
+        collection = write_legacy_collection(pack_id, PROVIDER_NAMES[provider], dest, None)
 
-    return {"pack_id": pack_id, "destination": str(dest), "collection": str(collection), "images": normalized, "pack_json": str(dest / "pack.json")}
+    return {"pack_id": pack_id, "destination": str(dest), "collection": str(collection), "images": normalized}
 
 
 def cmd_providers(_: argparse.Namespace) -> None:
