@@ -13,7 +13,7 @@
 #    contain lib/modules/... paths, so tar runs from image/usr.
 #  - dkms-abi-gate takes a headers DIRECTORY, not the tarball.
 set -euo pipefail
-REPO=~/isobuild/cix-installer
+REPO="${NCZ_INSTALLER_DIR:-$HOME/isobuild/cix-installer}"
 # Derive the work dir from what was actually built instead of hardcoding a PV.
 # A version bump (7.2+ncz -> 7.2.3+ncz) otherwise silently stages the PREVIOUS
 # build directory, which still exists and still looks valid.
@@ -97,5 +97,5 @@ if [ "${NCZ_SKIP_PACKAGING:-0}" = 1 ]; then
 else
     echo "=== packaging as $REV"
     cd "$REPO" && BUILD_REV="$REV" build/build-kernel-debs.sh
+    ls -la "$REPO/build/kernel-debs/" | tail -4
 fi
-ls -la "$REPO/build/kernel-debs/" | tail -4
