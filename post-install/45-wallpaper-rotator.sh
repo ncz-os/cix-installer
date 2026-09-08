@@ -49,6 +49,9 @@ install -d /var/cache/ncz-wallpapers/bing
 chmod 1777 /var/cache/ncz-wallpapers/bing
 
 OCS_ASSETS=/usr/local/lib/cix-installer/assets/wallpaper
+if [ -f "$OCS_ASSETS/ncz-wallpaper-openverse" ]; then
+    install -m 0755 "$OCS_ASSETS/ncz-wallpaper-openverse" /usr/local/bin/ncz-wallpaper-openverse
+fi
 if [ -x "$OCS_ASSETS/ncz-wallpaper-ocs" ]; then
     install -m 0755 "$OCS_ASSETS/ncz-wallpaper-ocs" /usr/local/bin/ncz-wallpaper-ocs
     echo "[45]   installed OCS wallpaper backend"
