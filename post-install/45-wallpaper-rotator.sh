@@ -264,13 +264,13 @@ set -u
 #   ~/.config/ncz-wallpaper/bing-market  legacy single-market file
 #   en-US                                default
 exec python3 - "$@" <<'PY'
-import datetime
 import json
 import os
 import random
 import re
 import sys
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -279,8 +279,11 @@ CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"
 CONFIG_DIR = CONFIG_HOME / "ncz-wallpaper"
 DATA_ROOT = Path(os.environ.get("NCZ_BING_DATA_ROOT", os.environ.get("NCZ_BING_CACHE", "/var/cache/ncz-wallpapers/bing")))
 THUMB_ROOT = Path(os.environ.get("NCZ_BING_THUMB_ROOT", str(Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "ncz-wallpapers" / "thumbs" / "bing")))
-API = "https://www.bing.com/HPImageArchive.aspx"
+FEED_CACHE_ROOT = Path(os.environ.get("NCZ_BING_FEED_CACHE_ROOT", str(Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "ncz-wallpapers" / "feeds" / "bing")))
+API = os.environ.get("NCZ_BING_API", "https://www.bing.com/HPImageArchive.aspx")
+BING_ORIGIN = os.environ.get("NCZ_BING_ORIGIN", "https://www.bing.com")
 BACKFILL = ((0, 8), (7, 8))
+FEED_CACHE_SECONDS = 6 * 60 * 60
 MARKET_RE = re.compile(r"^[A-Za-z]{2}-[A-Za-z]{2}$")
 DATE_RE = re.compile(r"^[0-9]{8}$")
 
@@ -318,28 +321,39 @@ def all_archived_markets():
         return []
     return sorted(p.name for p in DATA_ROOT.iterdir() if p.is_dir() and MARKET_RE.match(p.name))
 
-def retention_days():
-    raw = os.environ.get("NCZ_BING_RETENTION_DAYS", "")
-    conf = CONFIG_DIR / "bing-retention-days"
-    if not raw and conf.is_file():
-        raw = conf.read_text(errors="ignore").strip()
-    if raw.lower() in ("", "default"):
-        return 365
-    if raw.lower() in ("0", "forever", "none", "never"):
-        return 0
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return 365
-
 def fetch_json(market, idx, n):
+    cache = FEED_CACHE_ROOT / f"{market}-{idx}-{n}.json"
+    try:
+        age = max(0, time.time() - cache.stat().st_mtime)
+        if age < FEED_CACHE_SECONDS:
+            return json.loads(cache.read_text())
+    except (OSError, json.JSONDecodeError):
+        pass
     params = urllib.parse.urlencode({"format": "js", "idx": idx, "n": n, "mkt": market})
     url = f"{API}?{params}"
-    with urllib.request.urlopen(url, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(url, timeout=30) as response:
+            raw = response.read().decode("utf-8")
+        payload = json.loads(raw)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(prefix=cache.name + ".", suffix=".part", dir=str(cache.parent))
+        os.close(fd)
+        tmp = Path(tmp_name)
+        try:
+            tmp.write_text(raw)
+            tmp.replace(cache)
+        finally:
+            tmp.unlink(missing_ok=True)
+        return payload
+    except Exception:
+        # An expired feed response is still better than losing the browse
+        # result offline. Permanent image storage remains separate below.
+        if cache.is_file():
+            return json.loads(cache.read_text())
+        raise
 
 def image_url(urlbase, tier):
-    return "https://www.bing.com" + urlbase + tier + ".jpg"
+    return BING_ORIGIN + urlbase + tier + ".jpg"
 
 def download(url, dest, timeout=90):
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -365,6 +379,9 @@ def normalize_image(image, market):
     urlbase = str(image.get("urlbase", "")).strip()
     if not DATE_RE.match(date) or not urlbase:
         return None
+    # urlbase is Bing's stable image identity (the OHR id plus market code),
+    # unlike our local date-based filename. Persist it for semantic dedup.
+    image_id = urlbase.split("id=", 1)[-1]
     return {
         "schema": 1,
         "provider": "bing",
@@ -372,6 +389,7 @@ def normalize_image(image, market):
         "date": date,
         "enddate": str(image.get("enddate", "")).strip(),
         "urlbase": urlbase,
+        "image_id": image_id,
         "caption": str(image.get("title", "")).replace("\n", " ").strip(),
         "copyright": str(image.get("copyright", "")).replace("\n", " ").strip(),
         "copyrightlink": str(image.get("copyrightlink", "")).strip(),
@@ -417,6 +435,13 @@ def fetch_market(market):
     directory = DATA_ROOT / market
     directory.mkdir(parents=True, exist_ok=True)
     fetched = 0
+    known_ids = set()
+    known_dates = set()
+    for date, archived_market, _image, meta in archive_entries(all_archived_markets()):
+        known_dates.add((archived_market, date))
+        image_id = str(meta.get("image_id", "")).strip()
+        if image_id:
+            known_ids.add(image_id)
     seen_dates = set()
     for idx, n in BACKFILL:
         try:
@@ -431,6 +456,9 @@ def fetch_market(market):
             if not meta or meta["date"] in seen_dates:
                 continue
             seen_dates.add(meta["date"])
+            identity = meta["image_id"]
+            if identity in known_ids or (market, meta["date"]) in known_dates:
+                continue
             out = directory / f"{meta['date']}.jpg"
             if not out.exists():
                 try:
@@ -439,26 +467,14 @@ def fetch_market(market):
                     except Exception:
                         download(image_url(meta["urlbase"], "_1920x1080"), out)
                     fetched += 1
+                    known_ids.add(identity)
+                    known_dates.add((market, meta["date"]))
                     log(f"{market}: cached {meta['date']} ({out.stat().st_size} bytes)")
                 except Exception as exc:
                     log(f"{market}: image {meta['date']} failed: {exc}")
                     continue
             write_sidecars(directory, meta)
-    prune_market(market)
     return fetched
-
-def prune_market(market):
-    keep_days = retention_days()
-    if keep_days <= 0:
-        return
-    cutoff = (datetime.datetime.now(datetime.UTC).date() - datetime.timedelta(days=keep_days)).strftime("%Y%m%d")
-    directory = DATA_ROOT / market
-    for image in sorted(directory.glob("*.jpg")):
-        date = image.stem
-        if DATE_RE.match(date) and date < cutoff and not is_pinned(image):
-            for suffix in (".jpg", ".txt", ".json"):
-                image.with_suffix(suffix).unlink(missing_ok=True)
-            log(f"{market}: pruned {date}")
 
 def archive_entries(markets):
     entries = []
@@ -532,6 +548,7 @@ def cmd_list(args):
         rows.append({
             "provider": "bing",
             "date": date,
+            "image_id": meta.get("image_id", ""),
             "market": market,
             "path": str(image),
             "caption": meta.get("caption", ""),
@@ -607,7 +624,7 @@ cat > /usr/share/ncz-wallpapers/collections/bing.collection <<'EOF'
 Id=bing
 Name=Bing
 PackKind=theme
-Comment=Bing's daily photograph, refreshed each day
+Comment=Bing's daily photographs, accumulated permanently by a daily refresh
 Type=provider
 Provider=bing
 Dir=/var/cache/ncz-wallpapers/bing
@@ -620,6 +637,7 @@ cat > /usr/lib/systemd/user/ncz-wallpaper-bing.service <<'EOF'
 [Unit]
 Description=Fetch Bing image of the day
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
