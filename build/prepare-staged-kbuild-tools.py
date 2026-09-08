@@ -37,6 +37,29 @@ def main():
                                   '-o', 'scripts/mod/elfconfig.h',
                                   '-o', 'scripts/mod/devicetable-offsets.h',
                                   'scripts/mod/modpost'], check=True)
+        # genksyms needs the same targeted rebuild as fixdep/modpost -- it is
+        # stripped from the shipped tree for the identical reason (uninative
+        # loader) but was missing from this list. Any DKMS module compiled
+        # with CONFIG_MODVERSIONS=y and EXPORT_SYMBOL invokes genksyms during
+        # its own build; without it present, that module's build fails with
+        # "scripts/genksyms/genksyms: not found" (Error 127) -- confirmed on
+        # real O6 hardware 2026-09-08 (aipu, cix-gpu-kmd both hit this; the
+        # DKMS packages whose object order never triggered a genksyms
+        # invocation built fine and made the failure look module-specific).
+        # parse.tab.c/parse.tab.h/lex.lex.c are yacc/lex-generated sources
+        # shipped pre-staged in the tarball. Without `-o` make reruns
+        # yacc/lex and regenerates them -- cosmetically different from the
+        # staged copies (confirmed 2026-09-08: real content, e.g. line
+        # ordering, differs release-to-release of yacc/flex), which the
+        # snapshot guard below correctly treats as an identity change and
+        # aborts on. Same fix as scripts/mod's two headers above: tell make
+        # the staged copies are already up to date so it links genksyms
+        # directly from them instead of regenerating.
+        subprocess.run(command + ['obj=scripts/genksyms',
+                                  '-o', 'scripts/genksyms/parse.tab.c',
+                                  '-o', 'scripts/genksyms/parse.tab.h',
+                                  '-o', 'scripts/genksyms/lex.lex.c',
+                                  'scripts/genksyms/genksyms'], check=True)
     finally:
         after = snapshot(root)
         changed = sorted(k for k in before.keys() | after.keys()
