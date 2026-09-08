@@ -8,6 +8,8 @@ import json
 import os
 from pathlib import Path
 import socket
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -224,6 +226,23 @@ def search(query, page=1, refresh=False):
             raise
 
 
+def validate_raster(data, extension):
+    # A plausible MIME signature alone is not a successfully imported image.
+    # Use the same ImageMagick dependency as OCS, without changing any pixels.
+    command = ["magick", "identify"] if shutil.which("magick") else ["identify"]
+    with tempfile.TemporaryDirectory(prefix="openverse-validate-") as directory:
+        path = Path(directory) / ("image" + extension)
+        path.write_bytes(data)
+        try:
+            result = subprocess.run(command + ["-format", "%m %w %h", str(path)],
+                                    capture_output=True, text=True, timeout=30, check=True)
+            image_format, width, height = result.stdout.strip().split()
+            if image_format not in ("JPEG", "PNG", "WEBP") or not 0 < int(width) * int(height) <= 100000000:
+                raise ValueError("Image dimensions or format are unsupported")
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            raise ValueError("Image could not be validated; a working ImageMagick installation is required") from error
+
+
 def import_image(image_id):
     item = normalize(authenticated("images/" + identity(image_id) + "/"))
     # Never attach API credentials to third-party image downloads.
@@ -240,6 +259,7 @@ def import_image(image_id):
         extension = ".webp"
     else:
         raise ValueError("Source did not return a supported JPEG, PNG or WebP image")
+    validate_raster(data, extension)
     root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
     destination = root / "backgrounds/openverse"
     destination.mkdir(parents=True, exist_ok=True)

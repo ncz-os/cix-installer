@@ -134,6 +134,7 @@ class OpenverseTests(unittest.TestCase):
             def __exit__(self, *args): pass
             def read(self, size): return payload
         with patch.object(ov, "authenticated", side_effect=lambda path: image(path.split('/')[1])), \
+             patch.object(ov, "validate_raster"), \
              patch.object(ov, "public_url", side_effect=lambda url: url), \
              patch.object(ov.urllib.request, "build_opener") as build:
             build.return_value.open.return_value = Response()
@@ -145,6 +146,11 @@ class OpenverseTests(unittest.TestCase):
         self.assertEqual(len(list(destination.glob("*.jpg"))), 2)
         self.assertEqual((destination / a["images"][0]["file"]).read_bytes(), payload)
         self.assertEqual(ov.read_json(destination / a["images"][0]["sidecar"])["license"], "by-sa")
+
+    def test_invalid_raster_is_rejected(self):
+        with patch.object(ov.subprocess, "run", side_effect=ov.subprocess.CalledProcessError(1, "identify")):
+            with self.assertRaises(ValueError):
+                ov.validate_raster(b"\xff\xd8\xffbroken", ".jpg")
 
 
 if __name__ == "__main__":
