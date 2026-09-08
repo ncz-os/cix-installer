@@ -269,15 +269,34 @@ fi
 # So ship the SOURCES and let the target rebuild them (`make modules_prepare`),
 # which is what post-install/10-our-kernel.sh now does. A tool whose loader IS
 # present (a natively-built tree) is kept as-is.
+#
+# 2026-09-08: a hardcoded name list (fixdep/modpost/mk_elfconfig) missed
+# scripts/genksyms/genksyms, which is uninative-linked exactly the same way.
+# It shipped present-but-unloadable, so `make modules_prepare` on the target
+# saw an existing file and never rebuilt it -- every DKMS module needing
+# EXPORT_SYMBOL versioning (aipu, cix-gpu-kmd) died on real O6 hardware with
+# "scripts/genksyms/genksyms: not found" (Error 127), while modules whose
+# object order never triggered a genksyms invocation (panthor-cix,
+# cix-vpu-driver) built fine and masked the failure as partial. Scan every
+# compiled host tool under scripts/ and arch/$ARCH/tools/ generically instead
+# of enumerating names, so the next uninative-linked tool DKMS needs does not
+# reproduce this exact failure mode.
 _stripped=0
-for _t in scripts/basic/fixdep scripts/mod/modpost scripts/mod/mk_elfconfig; do
-    [ -f "$ROOT/$_t" ] || continue
-    _interp=$(readelf -l "$ROOT/$_t" 2>/dev/null | sed -n 's/.*interpreter: \([^]]*\)].*/\1/p' | head -1)
+while IFS= read -r -d '' _t; do
+    # readelf exits non-zero on a non-ELF executable (shell/perl helper
+    # scripts also carry +x, e.g. scripts/xz_wrap.sh) -- under this script's
+    # `set -e -o pipefail`, an unguarded assignment from that pipeline exits
+    # the WHOLE extraction right here, silently truncating everything after
+    # (measured 2026-09-08: stage-kernel.sh died mid-loop with no error text,
+    # leaving a headers tarball that still shipped the broken genksyms). The
+    # `|| true` keeps a non-ELF file a no-op (empty interp -> case falls to
+    # the portable/keep branch) instead of aborting.
+    _interp=$( (readelf -l "$_t" 2>/dev/null || true) | sed -n 's/.*interpreter: \([^]]*\)].*/\1/p' | head -1)
     case "$_interp" in
         ""|/lib/*|/usr/lib/*) : ;;                       # portable, keep
-        *) rm -f "$ROOT/$_t"; _stripped=$((_stripped + 1)) ;;
+        *) rm -f "$_t"; _stripped=$((_stripped + 1)) ;;
     esac
-done
+done < <(find "$ROOT/scripts" "$ROOT/arch/$ARCH/tools" -type f -perm -u+x -print0 2>/dev/null)
 [ "$_stripped" -gt 0 ] && echo "[extract] stripped $_stripped non-portable host tool(s); target will rebuild them"
 
 TMP_OUT="$OUT.tmp"
