@@ -602,7 +602,8 @@ EOF
 cat > /usr/share/ncz-wallpapers/collections/bing.collection <<'EOF'
 [Collection]
 Id=bing
-Name=Bing Image of the Day
+Name=Bing
+PackKind=theme
 Comment=Bing's daily photograph, refreshed each day
 Type=provider
 Provider=bing
