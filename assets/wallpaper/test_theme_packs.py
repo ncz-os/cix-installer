@@ -11,6 +11,19 @@ ocs = importlib.machinery.SourceFileLoader(
 
 
 class ThemePacks(unittest.TestCase):
+    def test_catalog_cache_and_forced_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"XDG_CACHE_HOME": tmp, "NCZ_WALLPAPER_REFRESH": "0"}):
+            with patch.object(ocs, "fetch_items", return_value=[{"id": "101"}]) as fetch:
+                self.assertEqual(ocs.get_items("pling", "300"), [{"id": "101"}])
+                ocs.get_items("pling", "300")
+                self.assertEqual(fetch.call_count, 1)
+                with patch.dict(os.environ, {"NCZ_WALLPAPER_REFRESH": "1"}):
+                    ocs.get_items("pling", "300")
+                self.assertEqual(fetch.call_count, 2)
+            with patch.dict(os.environ, {"NCZ_WALLPAPER_REFRESH": "1"}), patch.object(ocs, "fetch_items", side_effect=SystemExit(1)):
+                self.assertEqual(ocs.get_items("pling", "300"), [{"id": "101"}])
+                self.assertTrue(ocs.STALE_CACHE)
+
     def test_accumulate_retry_and_isolate(self):
         def item(provider, identity):
             return dict(name="Same title", author="Uploader", tags=[],
@@ -32,10 +45,10 @@ class ThemePacks(unittest.TestCase):
                 c = ocs.import_item("kde-look", "101", 3840, 2160, root / "backgrounds")
             self.assertEqual(a["destination"], b["destination"])
             self.assertEqual(a, retry)
-            self.assertNotEqual(a["destination"], c["destination"])
-            self.assertEqual(len(list(Path(a["destination"]).glob("*.jpg"))), 2)
-            self.assertEqual(len(list(Path(a["destination"]).glob("*.json"))), 2)
-            self.assertEqual(len(list((root / "data/ncz-wallpapers/collections").glob("*.collection"))), 2)
+            self.assertEqual(a["destination"], c["destination"])
+            self.assertEqual(len(list(Path(a["destination"]).glob("*.jpg"))), 3)
+            self.assertEqual(len(list(Path(a["destination"]).glob("*.json"))), 3)
+            self.assertEqual(len(list((root / "data/ncz-wallpapers/collections").glob("*.collection"))), 1)
             self.assertIn("PackKind=theme", Path(a["collection"]).read_text())
 
 

@@ -38,6 +38,7 @@ PROVIDERS: dict[str, dict[str, str]] = {
 }
 
 PROVIDER_NAMES = {"pling": "Pling", "kde-look": "KDE Look", "gnome-look": "GNOME Look"}
+STALE_CACHE = False
 
 
 def die(message: str, code: int = 1) -> None:
@@ -147,6 +148,39 @@ def get_categories(provider: str) -> list[dict[str, Any]]:
 
 
 def get_items(provider: str, category: str, pages: int = 1) -> list[dict[str, Any]]:
+    global STALE_CACHE
+    # Persistent normalized catalog pages. Import detail/download URLs are
+    # deliberately fetched fresh by get_item(), never taken from this cache.
+    import fcntl
+    import hashlib
+    import time
+    cache_root = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "ncz-wallpapers/ocs/v1"
+    cache_root.mkdir(parents=True, exist_ok=True)
+    cache = cache_root / (hashlib.sha256(f"{provider}:{category}:{pages}".encode()).hexdigest() + ".json")
+    with (cache_root / (cache.stem + ".lock")).open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        saved = None
+        try:
+            saved = json.loads(cache.read_text())
+            if not isinstance(saved, list):
+                saved = None
+            if saved is not None and os.environ.get("NCZ_WALLPAPER_REFRESH") != "1" and time.time() - cache.stat().st_mtime < 21600:
+                return saved
+        except (OSError, ValueError):
+            pass
+        try:
+            items = fetch_items(provider, category, pages)
+            atomic_text(cache, json.dumps(items))
+            return items
+        except SystemExit:
+            if saved is not None:
+                STALE_CACHE = True
+                print("Using cached OCS results after refresh failure", file=sys.stderr)
+                return saved
+            raise
+
+
+def fetch_items(provider: str, category: str, pages: int = 1) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for page in range(max(1, pages)):
         params = {"categories": str(category)}
@@ -359,8 +393,8 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
         die(f"{provider}:{item_id} has no downloadlink1")
 
     # Fixed provider identity: every import grows the same theme pack.
-    pack_id = provider
-    dest = base_dir / provider
+    pack_id = "ocs"
+    dest = base_dir / pack_id
     if dry_run:
         return {"pack_id": pack_id, "destination": str(dest), "item": item}
 
@@ -429,7 +463,7 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
             sidecar["pack_id"] = pack_id
             sidecar["image"] = image
             atomic_text(dest / image["sidecar"], json.dumps(sidecar, indent=2, sort_keys=True) + "\n")
-        collection = write_legacy_collection(pack_id, PROVIDER_NAMES[provider], dest, None)
+        collection = write_legacy_collection(pack_id, "OCS", dest, None)
 
     return {"pack_id": pack_id, "destination": str(dest), "collection": str(collection), "images": normalized}
 
@@ -452,7 +486,24 @@ def cmd_index(args: argparse.Namespace) -> None:
 
 
 def cmd_browse(args: argparse.Namespace) -> None:
-    print(json.dumps({"schema": SCHEMA, "provider": args.provider, "category": args.category, "items": get_items(args.provider, args.category, args.pages)}, indent=2, sort_keys=True))
+    from concurrent.futures import ThreadPoolExecutor
+    networks = list(PROVIDERS) if args.provider == "ocs" else [args.provider]
+    items = []
+    errors = []
+    def browse_network(network):
+        try:
+            return network, get_items(network, args.category, args.pages)
+        except SystemExit:
+            return network, None
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for network, result in pool.map(browse_network, networks):
+            if result is None:
+                errors.append(network)
+            else:
+                items.extend(result)
+    if len(errors) == len(networks):
+        die("All OCS networks failed for this category")
+    print(json.dumps({"schema": SCHEMA, "provider": args.provider, "category": args.category, "items": items, "failed_networks": errors, "stale": STALE_CACHE}, indent=2, sort_keys=True))
 
 
 def cmd_item(args: argparse.Namespace) -> None:

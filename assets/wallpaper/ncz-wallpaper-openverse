@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""Openverse search/import and optional per-user registration. No shared credentials."""
+import argparse
+import fcntl
+import hashlib
+import ipaddress
+import json
+import os
+from pathlib import Path
+import socket
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+
+BASE = "https://api.openverse.org/v1/"
+AGENT = "Singularity-Wallpaper-Browser/1"
+TTL = 6 * 60 * 60
+
+
+def private_dir(path):
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.is_symlink() or path.stat().st_uid != os.getuid():
+        raise ValueError("Wallpaper storage must be owned by the current user")
+    path.chmod(0o700)
+    return path
+
+
+def config_dir():
+    return private_dir(Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ncz-wallpaper/credentials")
+
+
+def atomic(path, data):
+    fd, pending = tempfile.mkstemp(prefix=".pending-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(pending, path)
+    finally:
+        Path(pending).unlink(missing_ok=True)
+
+
+def save_json(path, obj):
+    atomic(path, (json.dumps(obj, ensure_ascii=False) + "\n").encode())
+
+
+def read_json(path):
+    try:
+        return json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+
+
+def public_url(url):
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Unsupported image URL")
+    # Feed URLs must not become requests to local services, including redirects.
+    for address in socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)):
+        if not ipaddress.ip_address(address[4][0]).is_global:
+            raise ValueError("Image URL does not identify a public server")
+    return url
+
+
+class MediaRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        public_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        raise ValueError("Unexpected redirect from Openverse API")
+
+
+def api(path, form=None, token=None):
+    headers = {"User-Agent": AGENT, "Accept": "application/json"}
+    data = None
+    if form is not None:
+        data = urllib.parse.urlencode(form).encode()
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    request = urllib.request.Request(BASE + path, data=data, headers=headers)
+    with urllib.request.build_opener(NoRedirect()).open(request, timeout=35) as response:
+        raw = response.read(8 * 1024 * 1024 + 1)
+        if len(raw) > 8 * 1024 * 1024:
+            raise ValueError("Openverse response exceeds size limit")
+        return json.loads(raw)
+
+
+def credential_path():
+    return config_dir() / "openverse.json"
+
+
+def token(force=False):
+    path = credential_path()
+    with (path.parent / "openverse.lock").open("a") as lock:
+        os.chmod(lock.name, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        credentials = read_json(path)
+        if not credentials:
+            return None
+        if force or credentials.get("expires_at", 0) <= time.time() + 60:
+            response = api("auth_tokens/token/", {
+                "grant_type": "client_credentials", "client_id": credentials["client_id"],
+                "client_secret": credentials["client_secret"]})
+            if response.get("token_type") != "Bearer" or not isinstance(response.get("expires_in"), int):
+                raise ValueError("Invalid Openverse token response")
+            credentials.update(access_token=text(response, "access_token", True),
+                               expires_at=time.time() + response["expires_in"])
+            save_json(path, credentials)
+        return credentials["access_token"]
+
+
+def authenticated(path):
+    access = token()
+    try:
+        return api(path, token=access)
+    except urllib.error.HTTPError as error:
+        if error.code == 401 and access:
+            return api(path, token=token(force=True))
+        raise
+
+
+def register(email):
+    email = email.strip()
+    if len(email) > 254 or "@" not in email or any(c.isspace() for c in email):
+        raise ValueError("Enter a valid email address")
+    path = credential_path()
+    with (path.parent / "openverse.lock").open("a") as lock:
+        os.chmod(lock.name, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if path.exists():
+            raise ValueError("Openverse credentials are already saved; registration was not repeated")
+        # Test local storage before sending a one-shot registration request.
+        fd, probe = tempfile.mkstemp(dir=path.parent)
+        os.close(fd)
+        Path(probe).unlink()
+        response = api("auth_tokens/register/", {
+            "name": "Singularity wallpaper user " + str(uuid.uuid4()), "email": email,
+            "description": "Personal desktop wallpaper search and download with per-image license attribution."})
+        credentials = {"client_id": text(response, "client_id", True),
+                       "client_secret": text(response, "client_secret", True)}
+        # Persist the one-time secrets BEFORE attempting any token exchange.
+        save_json(path, credentials)
+    return {"message": "Credentials saved. Verify your email using the Openverse link. Until then, anonymous-tier limits apply."}
+
+
+def text(obj, name, required=False):
+    value = obj.get(name)
+    if value is None and not required:
+        return ""
+    if not isinstance(value, str) or (required and not value.strip()):
+        raise ValueError("Invalid Openverse field: " + name)
+    return value
+
+
+def identity(value):
+    if str(uuid.UUID(value)) != value:
+        raise ValueError("Invalid Openverse image identity")
+    return value
+
+
+def normalize(entry):
+    result = {"provider": "openverse", "id": identity(text(entry, "id", True)),
+              "name": text(entry, "title"), "author": text(entry, "creator"),
+              "license": text(entry, "license", True), "license_version": text(entry, "license_version"),
+              "license_url": text(entry, "license_url"), "attribution": text(entry, "attribution"),
+              "preview": text(entry, "thumbnail", True), "url": text(entry, "url", True),
+              "page_url": text(entry, "foreign_landing_url"), "source": text(entry, "source"),
+              "creator_url": text(entry, "creator_url"), "tags": []}
+    for tag in entry.get("tags") or []:
+        result["tags"].append(text(tag, "name", True))
+    for dimension in ("width", "height"):
+        value = entry.get(dimension)
+        if value is not None and (type(value) is not int or value < 0):
+            raise ValueError("Invalid image dimensions")
+        result[dimension] = value
+    if (result["width"] or 0) >= 3840 and (result["height"] or 0) >= 2160:
+        result["tags"].append("4K")
+    return result
+
+
+def search(query, page=1, refresh=False):
+    if not query.strip() or len(query) > 200 or page < 1:
+        raise ValueError("Enter a search of 1–200 characters and a positive page")
+    params = urllib.parse.urlencode(dict(q=query.strip(), aspect_ratio="wide", size="large",
+                                        page_size=20, page=page, mature="false", filter_dead="true"))
+    root = private_dir(Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "ncz-wallpapers/openverse")
+    cache = root / (hashlib.sha256(params.encode()).hexdigest() + ".json")
+    with (root / "search.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            saved = read_json(cache)
+        except (ValueError, OSError):
+            saved = {}
+        if saved and not refresh and time.time() - cache.stat().st_mtime < TTL:
+            return dict(saved, cached=True, stale=False)
+        try:
+            response = authenticated("images/?" + params)
+            if not isinstance(response.get("results"), list) or type(response.get("page_count")) is not int:
+                raise ValueError("Invalid Openverse search response")
+            items = []
+            for entry in response["results"]:
+                # Missing media URLs are legal in the API but not importable.
+                if not entry.get("url"):
+                    continue
+                items.append(normalize(entry))
+            result = dict(schema=1, items=items, page=page, page_count=response["page_count"])
+            save_json(cache, result)
+            # Bound cached searches, not an exhaustive catalog mirror.
+            for old in sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[128:]:
+                old.unlink(missing_ok=True)
+            return dict(result, cached=False, stale=False)
+        except (OSError, ValueError):
+            if saved:
+                return dict(saved, cached=True, stale=True)
+            raise
+
+
+def import_image(image_id):
+    item = normalize(authenticated("images/" + identity(image_id) + "/"))
+    # Never attach API credentials to third-party image downloads.
+    request = urllib.request.Request(public_url(item["url"]), headers={"User-Agent": AGENT})
+    with urllib.request.build_opener(MediaRedirect()).open(request, timeout=60) as response:
+        data = response.read(64 * 1024 * 1024 + 1)
+    if len(data) > 64 * 1024 * 1024:
+        raise ValueError("Image exceeds 64 MiB limit")
+    if data.startswith(b"\xff\xd8\xff"):
+        extension = ".jpg"
+    elif data.startswith(b"\x89PNG\r\n\x1a\n"):
+        extension = ".png"
+    elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        extension = ".webp"
+    else:
+        raise ValueError("Source did not return a supported JPEG, PNG or WebP image")
+    root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+    destination = root / "backgrounds/openverse"
+    destination.mkdir(parents=True, exist_ok=True)
+    image = destination / ("openverse-" + image_id + extension)
+    atomic(image, data)
+    # Original bytes preserved: no resizing/cropping or loss of license metadata.
+    save_json(image.with_suffix(".json"), item)
+    registry = root / "ncz-wallpapers/collections"
+    registry.mkdir(parents=True, exist_ok=True)
+    collection = registry / "openverse.collection"
+    atomic(collection, ("[Collection]\nId=openverse\nName=Openverse\nComment=Theme pack\n"
+                        "PackKind=theme\nType=static\nDir=" + str(destination) + "\n").encode())
+    return dict(pack_id="openverse", destination=str(destination), collection=str(collection),
+                images=[dict(file=image.name, sidecar=image.with_suffix(".json").name)])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    browse = sub.add_parser("search")
+    browse.add_argument("query")
+    browse.add_argument("--page", type=int, default=1)
+    browse.add_argument("--refresh", action="store_true")
+    sub.add_parser("register", help="read the user's email from standard input")
+    sub.add_parser("status", help="report local registration presence, never secrets")
+    download = sub.add_parser("import")
+    download.add_argument("id")
+    args = parser.parse_args()
+    if args.command == "search":
+        result = search(args.query, args.page, args.refresh)
+    elif args.command == "register":
+        result = register(sys.stdin.read(256))
+    elif args.command == "status":
+        result = {"registered": credential_path().exists()}
+    else:
+        result = import_image(args.id)
+    print(json.dumps(result, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except urllib.error.HTTPError as error:
+        # Bodies/URLs can include credentials or personal data: do not log them.
+        print("Openverse HTTP " + str(error.code) + ("; rate limited, try later." if error.code == 429 else "; request failed."), file=sys.stderr)
+        sys.exit(1)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print("Openverse: " + str(error), file=sys.stderr)
+        sys.exit(1)
