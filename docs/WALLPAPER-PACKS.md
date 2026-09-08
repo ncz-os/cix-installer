@@ -201,12 +201,11 @@ it. Implications:
 
 * on first run, backfill the full window rather than starting from one image —
   a fresh install should not need two weeks of uptime to have a history;
-* keep the archive instead of pruning to 14 (retention becomes a setting, and
-  images already fetched are never re-downloaded — they are keyed `<date>.jpg`);
+* keep the archive forever instead of pruning it, and never re-download an
+  image already identified by Bing id or market/archive date;
 * **the archive is per market**, since each feed has its own images;
-* the picker shows the history as a dated grid and the user can pin any day's
-  image; that is a normal wallpaper selection, so it must not be clobbered by
-  the next daily fetch.
+* the picker shows the accumulated history as a dated grid; the next daily
+  fetch only appends unseen images and cannot clobber older selections.
 
 Each image already has its `<date>.txt` sidecar with title and copyright, so the
 history is self-describing.

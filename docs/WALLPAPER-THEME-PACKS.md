@@ -7,9 +7,9 @@ index; retries replace the same image rather than creating another collection.
 Each JPEG has its own JSON attribution/provenance sidecar. Registry and sidecar
 writes are atomic; images are normalized before atomic publication.
 
-Bing already has one `bing.collection` and one archive root with market
-subdirectories. Its fetch, pinning, retention and daily user timer continue
-to manage that archive. `PackKind=theme` records the display taxonomy. Theme
+Bing has one `bing.collection` and one permanent archive root with market
+subdirectories. Its daily user timer accumulates unseen feed entries forever.
+`PackKind=theme` records the display taxonomy. Theme
 packs and artist packs use the same collection registry and gallery path.
 NCZ, Singularity, Brandon Perlow and Alex Jay Brady are artist packs.
 
