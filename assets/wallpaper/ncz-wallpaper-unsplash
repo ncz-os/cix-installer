@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+"""Unsplash search/import using a per-user Access Key. No shared credentials."""
+import argparse
+import fcntl
+import hashlib
+import ipaddress
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+BASE = "https://api.unsplash.com/"
+AGENT = "Singularity-Wallpaper-Browser/1"
+TTL = 6 * 60 * 60
+
+
+def private_dir(path):
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.is_symlink() or path.stat().st_uid != os.getuid():
+        raise ValueError("Wallpaper storage must be owned by the current user")
+    path.chmod(0o700)
+    return path
+
+
+def config_dir():
+    return private_dir(Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ncz-wallpaper/credentials")
+
+
+def atomic(path, data):
+    fd, pending = tempfile.mkstemp(prefix=".pending-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(pending, path)
+    finally:
+        Path(pending).unlink(missing_ok=True)
+
+
+def save_json(path, obj):
+    atomic(path, (json.dumps(obj, ensure_ascii=False) + "\n").encode())
+
+
+def read_json(path):
+    try:
+        return json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+
+
+def public_url(url):
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Unsupported image URL")
+    for address in socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)):
+        if not ipaddress.ip_address(address[4][0]).is_global:
+            raise ValueError("Image URL does not identify a public server")
+    return url
+
+
+class MediaRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        public_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        raise ValueError("Unexpected redirect from Unsplash API")
+
+
+def credential_path():
+    return config_dir() / "unsplash.json"
+
+
+def access_key():
+    with (config_dir() / "unsplash.lock").open("a") as lock:
+        os.chmod(lock.name, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        value = read_json(credential_path()).get("access_key", "")
+        if not isinstance(value, str) or not value:
+            raise ValueError("Unsplash Access Key is not configured")
+        return value
+
+
+def configure(value):
+    value = value.strip()
+    if not value or len(value) > 200 or any(c.isspace() for c in value):
+        raise ValueError("Enter a valid Unsplash Access Key")
+    path = credential_path()
+    with (path.parent / "unsplash.lock").open("a") as lock:
+        os.chmod(lock.name, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        save_json(path, {"access_key": value})
+        os.chmod(path, 0o600)
+    return {"message": "Unsplash Access Key saved on this computer."}
+
+
+def api(path):
+    headers = {"User-Agent": AGENT, "Accept": "application/json", "Authorization": "Client-ID " + access_key()}
+    request = urllib.request.Request(BASE + path, headers=headers)
+    with urllib.request.build_opener(NoRedirect()).open(request, timeout=35) as response:
+        raw = response.read(8 * 1024 * 1024 + 1)
+        if len(raw) > 8 * 1024 * 1024:
+            raise ValueError("Unsplash response exceeds size limit")
+        return json.loads(raw)
+
+
+def text(obj, name, required=False):
+    value = obj.get(name)
+    if value is None and not required:
+        return ""
+    if not isinstance(value, str) or (required and not value.strip()):
+        raise ValueError("Invalid Unsplash field: " + name)
+    return value
+
+
+def identity(value):
+    if not isinstance(value, str) or not value or len(value) > 64 or not all(c.isalnum() or c in "-_" for c in value):
+        raise ValueError("Invalid Unsplash image identity")
+    return value
+
+
+def resize(raw, width=3840, height=2160):
+    public_url(raw)
+    parsed = urllib.parse.urlsplit(raw)
+    params = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    params += [("w", str(width)), ("h", str(height)), ("fit", "crop"), ("crop", "entropy"), ("fm", "jpg"), ("q", "85")]
+    return urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(params)))
+
+
+def attribution_url(url):
+    public_url(url)
+    parsed = urllib.parse.urlsplit(url)
+    params = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    params += [("utm_source", "singularity_wallpaper_browser"), ("utm_medium", "referral")]
+    return urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(params)))
+
+
+def normalize(entry):
+    user = entry.get("user")
+    urls = entry.get("urls")
+    links = entry.get("links")
+    if not isinstance(user, dict) or not isinstance(urls, dict) or not isinstance(links, dict):
+        raise ValueError("Invalid Unsplash photo response")
+    photo_id = identity(text(entry, "id", True))
+    author = text(user, "name", True)
+    author_url = text(user.get("links") or {}, "html", True)
+    page_url = text(links, "html", True)
+    raw = text(urls, "raw", True)
+    width, height = entry.get("width"), entry.get("height")
+    if type(width) is not int or type(height) is not int or width <= 0 or height <= 0:
+        raise ValueError("Invalid image dimensions")
+    description = entry.get("description") or entry.get("alt_description") or ""
+    if not isinstance(description, str):
+        raise ValueError("Invalid Unsplash description")
+    tags = []
+    for tag in entry.get("tags") or []:
+        if isinstance(tag, dict):
+            tags.append(text(tag, "title", True))
+    if width >= 3840 and height >= 2160:
+        tags.append("4K")
+    return {"provider": "unsplash", "id": photo_id, "name": description, "author": author,
+            "license": "Unsplash License", "license_version": "", "license_url": "https://unsplash.com/license",
+            "attribution": "Photo by " + author + " on Unsplash", "preview": text(urls, "small", True),
+            "url": resize(raw), "page_url": attribution_url(page_url), "source": "unsplash",
+            "creator_url": attribution_url(author_url),
+            "download_location": text(links, "download_location", True), "tags": tags, "width": width, "height": height}
+
+
+def search(query, page=1, refresh=False):
+    if not query.strip() or len(query) > 200 or page < 1:
+        raise ValueError("Enter a search of 1–200 characters and a positive page")
+    params = urllib.parse.urlencode(dict(query=query.strip(), page=page, per_page=20, orientation="landscape"))
+    root = private_dir(Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "ncz-wallpapers/unsplash")
+    cache = root / (hashlib.sha256(params.encode()).hexdigest() + ".json")
+    with (root / "search.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            saved = read_json(cache)
+        except (ValueError, OSError):
+            saved = {}
+        if saved and not refresh and time.time() - cache.stat().st_mtime < TTL:
+            return dict(saved, cached=True, stale=False)
+        try:
+            response = api("search/photos?" + params)
+            if not isinstance(response.get("results"), list) or type(response.get("total_pages")) is not int:
+                raise ValueError("Invalid Unsplash search response")
+            result = dict(schema=1, items=[normalize(e) for e in response["results"]], page=page,
+                          page_count=response["total_pages"])
+            save_json(cache, result)
+            for old in sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[128:]:
+                old.unlink(missing_ok=True)
+            return dict(result, cached=False, stale=False)
+        except (OSError, ValueError):
+            if saved:
+                return dict(saved, cached=True, stale=True)
+            raise
+
+
+def validate_raster(data, extension):
+    command = ["magick", "identify"] if shutil.which("magick") else ["identify"]
+    with tempfile.TemporaryDirectory(prefix="unsplash-validate-") as directory:
+        path = Path(directory) / ("image" + extension)
+        path.write_bytes(data)
+        try:
+            result = subprocess.run(command + ["-format", "%m %w %h", str(path)], capture_output=True, text=True, timeout=30, check=True)
+            image_format, width, height = result.stdout.strip().split()
+            if image_format not in ("JPEG", "PNG", "WEBP") or not 0 < int(width) * int(height) <= 100000000:
+                raise ValueError("Image dimensions or format are unsupported")
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            raise ValueError("Image could not be validated; a working ImageMagick installation is required") from error
+
+
+def import_image(image_id):
+    item = normalize(api("photos/" + identity(image_id)))
+    # Required Unsplash download tracking ping at the moment the photo is used.
+    tracked = api("photos/" + item["id"] + "/download")
+    if not isinstance(tracked, dict) or not isinstance(tracked.get("url"), str):
+        raise ValueError("Invalid Unsplash download tracking response")
+    request = urllib.request.Request(public_url(item["url"]), headers={"User-Agent": AGENT})
+    with urllib.request.build_opener(MediaRedirect()).open(request, timeout=60) as response:
+        data = response.read(64 * 1024 * 1024 + 1)
+    if len(data) > 64 * 1024 * 1024:
+        raise ValueError("Image exceeds 64 MiB limit")
+    extension = ".jpg" if data.startswith(b"\xff\xd8\xff") else ".png" if data.startswith(b"\x89PNG\r\n\x1a\n") else ".webp" if data.startswith(b"RIFF") and data[8:12] == b"WEBP" else ""
+    if not extension:
+        raise ValueError("Source did not return a supported JPEG, PNG or WebP image")
+    validate_raster(data, extension)
+    root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+    destination = root / "backgrounds/unsplash"
+    destination.mkdir(parents=True, exist_ok=True)
+    image = destination / ("unsplash-" + item["id"] + extension)
+    atomic(image, data)
+    save_json(image.with_suffix(".json"), item)
+    registry = root / "ncz-wallpapers/collections"
+    registry.mkdir(parents=True, exist_ok=True)
+    collection = registry / "unsplash.collection"
+    atomic(collection, ("[Collection]\nId=unsplash\nName=Unsplash\nComment=Theme pack\nPackKind=theme\nType=static\nDir=" + str(destination) + "\n").encode())
+    return dict(pack_id="unsplash", destination=str(destination), collection=str(collection),
+                images=[dict(file=image.name, sidecar=image.with_suffix(".json").name)])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    browse = sub.add_parser("search")
+    browse.add_argument("query")
+    browse.add_argument("--page", type=int, default=1)
+    browse.add_argument("--refresh", action="store_true")
+    sub.add_parser("configure", help="read the user's Access Key from standard input")
+    sub.add_parser("status", help="report local key presence, never the key")
+    download = sub.add_parser("import")
+    download.add_argument("id")
+    args = parser.parse_args()
+    if args.command == "search": result = search(args.query, args.page, args.refresh)
+    elif args.command == "configure": result = configure(sys.stdin.read(256))
+    elif args.command == "status": result = {"configured": credential_path().exists()}
+    else: result = import_image(args.id)
+    print(json.dumps(result, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except urllib.error.HTTPError as error:
+        print("Unsplash HTTP " + str(error.code) + ("; rate limited, try later." if error.code == 429 else "; request failed."), file=sys.stderr)
+        sys.exit(1)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print("Unsplash: " + str(error), file=sys.stderr)
+        sys.exit(1)

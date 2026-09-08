@@ -66,7 +66,30 @@ per-item attribution in adjacent JSON. One `openverse.collection` grows over
 time. The browse card and current-picture chooser expose attribution and links.
 Openverse metadata is plain label text; it is never trusted as Pango markup.
 
-Local tests: `python3 assets/wallpaper/test_openverse.py` and
+## Stock Photos and Unsplash
+
+The shell presents Openverse and Unsplash as one `Stock Photos` browse source.
+Openverse remains anonymously usable. When the user supplies an Unsplash Access
+Key, searches merge both normalized result sets while retaining each card's
+real `openverse` or `unsplash` provenance. Either service may fail independently
+without suppressing results from the other.
+
+`ncz-wallpaper-unsplash` stores only the user's Access Key in
+`$XDG_CONFIG_HOME/ncz-wallpaper/credentials/unsplash.json` (0600, parent
+directory 0700), with the same atomic writes and per-provider lock discipline
+as Openverse. Keys enter over stdin and requests authenticate with `Client-ID`.
+Search uses landscape results and asks `images.unsplash.com` for 3840x2160 JPEG
+bytes directly. Every import first calls `/photos/:id/download`, as required by
+Unsplash, then validates and atomically publishes the image and sidecar.
+
+There are deliberately two underlying theme packs, `openverse` and `unsplash`,
+despite the unified browse entry. This keeps unlike license and attribution
+obligations independently visible and auditable in local storage. Unsplash
+sidecars retain the photographer name/link, photo link, Unsplash attribution,
+and license link; displayed links include the required referral parameters.
+
+Local tests: `python3 assets/wallpaper/test_openverse.py`,
+`python3 assets/wallpaper/test_unsplash.py`, and
 `python3 assets/wallpaper/test_theme_packs.py`. Registration/token tests mock
 the network to avoid creating unwanted real accounts or verification emails.
 Live anonymous search and import were checked from O6N in an isolated temporary
