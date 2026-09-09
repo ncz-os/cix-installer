@@ -1,6 +1,7 @@
 #!/bin/bash
 # 43-hw-quirks.sh — post-install hardware quirk fixes for Sky1 / O6N, found on
-# real O6N metal (v5 install, 2026-07-29 serial capture). All three are
+# real O6N metal (v5 install, 2026-07-29 serial capture; item 4 added
+# 2026-09-09 from a real O6N audio-cutout investigation). All four are
 # hardware/kernel-level and apply to BOTH desktop and server SKUs, so this hook
 # is unconditional (no BUILD_VARIANT gate).
 #
@@ -23,9 +24,36 @@
 #
 #  (3) multipathd mask — single-disk appliance; DM-multipath is never used and
 #      multipathd.service fails at every boot. Mask it.
+#
+#  (4) cgroups-v2 RT-runtime starvation — the Sky1 kernel has
+#      CONFIG_RT_GROUP_SCHED=y, and cgroups v2's cpu controller does NOT
+#      expose cpu.rt_runtime_us the way cgroup v1 did, so every non-root
+#      cgroup gets ZERO real-time runtime with no interface to grant any.
+#      Any sched_setscheduler(SCHED_FIFO/SCHED_RR) call inside a normal user
+#      session cgroup returns EPERM regardless of capabilities. Confirmed on
+#      real O6N metal 2026-09-09: rtkit-daemon logged
+#      "Failed to make ourselves RT: Operation not permitted" on every single
+#      boot, and PipeWire's RTKit DBus client call for its audio DSP thread
+#      reported success ("acquired realtime priority 20 ... using RTKit")
+#      while `chrt` on that exact thread showed SCHED_OTHER priority 0 — the
+#      grant silently failed at the syscall level without the failure
+#      surfacing back to the caller. Proven root cause: `chrt` failed EPERM
+#      as root inside the normal session cgroup, then succeeded immediately
+#      after moving the same root shell to the root cgroup (0::/). This was
+#      a real, measured, partial contributor to intermittent HDMI audio
+#      cutouts during video playback on O6N (RT-scheduling starvation of
+#      PipeWire's audio thread causing ALSA XRUNs under otherwise-idle CPU;
+#      zero further XRUNs recorded in the 37+ minutes after this fix landed
+#      versus four recorded in the ~3 minutes before it). Disabling cgroup
+#      delegation of the `cpu` controller system-wide sidesteps the
+#      RT-runtime-zero default entirely; cpuset/io/memory/pids controllers
+#      are untouched. This does NOT by itself fully resolve the intermittent
+#      cutouts (a separate, still-open hardware-transport-boundary
+#      investigation is ongoing) but is a confirmed, verified, net-positive
+#      fix in its own right and should ship regardless.
 set -uo pipefail
 
-echo "[43] hw quirks: rtl_btusb blacklist + r8169 EEE-off + multipathd mask"
+echo "[43] hw quirks: rtl_btusb blacklist + r8169 EEE-off + multipathd mask + cgroup RT fix"
 
 # (1) stale out-of-tree Realtek BT module -----------------------------------
 install -d /etc/modprobe.d
@@ -74,6 +102,28 @@ fi
 systemctl disable multipathd.service 2>/dev/null || true
 systemctl mask    multipathd.service 2>/dev/null || true
 echo "  [43] multipathd masked (single-disk appliance, no DM-multipath)"
+
+# (4) cgroups-v2 RT-runtime starvation (CONFIG_RT_GROUP_SCHED + cgroup v2
+#     cpu controller with no cpu.rt_runtime_us interface) blocks rtkit-daemon
+#     and every RTKit-boosted client (PipeWire's audio thread among them)
+#     from ever actually getting SCHED_FIFO/SCHED_RR. Disable cgroup
+#     delegation of the cpu controller on the root slice.
+install -d /etc/systemd/system/-.slice.d
+cat > /etc/systemd/system/-.slice.d/disable-cpu-controller.conf <<'CPUEOF'
+# Sky1 kernel ships CONFIG_RT_GROUP_SCHED=y; cgroups v2's cpu controller has
+# no cpu.rt_runtime_us knob, so every non-root cgroup gets zero RT runtime
+# with no way to grant any -- sched_setscheduler(SCHED_FIFO/SCHED_RR) inside
+# a normal session cgroup returns EPERM regardless of capabilities. This
+# broke rtkit-daemon's own self-boost ("Failed to make ourselves RT:
+# Operation not permitted" on every boot) and silently broke every RTKit
+# client boost too (PipeWire's audio DSP thread never actually reached
+# realtime priority despite RTKit reporting success). Disabling cpu-controller
+# delegation system-wide sidesteps the RT-runtime-zero default; cpuset/io/
+# memory/pids controllers are untouched.
+[Slice]
+DisableControllers=cpu
+CPUEOF
+echo "  [43] cgroup cpu-controller delegation disabled (RT-scheduling fix for rtkit/PipeWire)"
 
 # Replace the vendor loader, which hard-coded a retired 6.6 kernel tree and
 # manually insmod-ed GPU/VPU modules before the current kernel was ready.
