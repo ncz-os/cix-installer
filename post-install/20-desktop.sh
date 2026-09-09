@@ -540,6 +540,43 @@ if [ -z "${WLR_DRM_DEVICES:-}" ]; then
     fi
     unset _ncz_drm_devices _ncz_status _ncz_card _ncz_device
 fi
+# Panthor (and any future render-only GPU) never owns a display connector on
+# Sky1 -- linlondp owns all of them -- so it can never appear in the
+# connected-output scan above, and it is NOT a KMS device wlroots can add to
+# WLR_DRM_DEVICES either (that variable is for backends that can be a KMS
+# master; wlroots' own session code explicitly rejects a card with zero
+# CRTCs/connectors: "not a KMS device", confirmed live on cixmini 2026-09-09
+# trying exactly that). The correct wlroots lever for a render-only secondary
+# GPU is WLR_RENDER_DRM_DEVICE, which only selects the EGL/GBM render target
+# and is independent of which device does KMS scanout. Without it, wlroots
+# gets scanout from linlondp but MESA-LOADER has no render device to find,
+# ZINK's Vulkan fallback also fails (VK_ERROR_INCOMPATIBLE_DRIVER), software
+# rendering is refused, and labwc dies with "unable to create renderer" --
+# root-caused 2026-09-09 after a 12h Panthor/mesa GUI boot in which greetd
+# crash-looped to start-limit-hit every single time (Panthor itself probed
+# and bound fine the whole time; only the renderer never came up, so the box
+# stayed reachable over the network throughout but never showed a login
+# screen). Point wlroots at Panthor's actual render node once ncz-gpu-env has
+# identified Panthor as the active backend. Dynamic discovery (no hardcoded
+# card/render numbers) so this is the same fix on every Sky1 board -- O6N,
+# MS-R1, cixmini, any future board -- regardless of DRM enumeration order
+# there (matches the existing connected-output scan's own "card number is
+# not stable" design above). Guarded on WLR_RENDER_DRM_DEVICE being unset so
+# it never overrides an explicit operator choice and is safe to re-source.
+if [ -z "${WLR_RENDER_DRM_DEVICE:-}" ] && [ "${NCZ_GPU_BACKEND:-}" = panthor ]; then
+    for _ncz_rdrv in /sys/class/drm/renderD*/device/driver; do
+        [ -e "$_ncz_rdrv" ] || continue
+        [ "$(basename "$(readlink -f "$_ncz_rdrv")")" = panthor ] || continue
+        _ncz_rnode=${_ncz_rdrv#*/drm/}
+        _ncz_rnode=${_ncz_rnode%%/*}
+        _ncz_rdevice=/dev/dri/$_ncz_rnode
+        [ -c "$_ncz_rdevice" ] || continue
+        WLR_RENDER_DRM_DEVICE=$_ncz_rdevice
+        export WLR_RENDER_DRM_DEVICE
+        break
+    done
+    unset _ncz_rdrv _ncz_rnode _ncz_rdevice
+fi
 DRMENV
 chmod 0755 /usr/local/bin/ncz-wlr-connected-drm
 
