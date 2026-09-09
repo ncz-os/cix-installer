@@ -1,9 +1,10 @@
 #!/bin/bash
 # 43-hw-quirks.sh — post-install hardware quirk fixes for Sky1 / O6N, found on
-# real O6N metal (v5 install, 2026-07-29 serial capture; item 4 added
-# 2026-09-09 from a real O6N audio-cutout investigation). All four are
-# hardware/kernel-level and apply to BOTH desktop and server SKUs, so this hook
-# is unconditional (no BUILD_VARIANT gate).
+# real O6N metal (v5 install, 2026-07-29 serial capture; items 4-6 added
+# 2026-09-09 from a real O6N audio/video investigation, also confirmed
+# present on cixmini/.66). All six are hardware/kernel-level and apply to
+# BOTH desktop and server SKUs, so this hook is unconditional (no
+# BUILD_VARIANT gate).
 #
 #  (1) rtl_btusb blacklist — a STALE out-of-tree Realtek BT module built for
 #      6.6.10-cix-build-generic ships in the CIX vendor rootfs and fails to load
@@ -167,6 +168,50 @@ fi
 exit 0
 LOADER
 chmod 0755 /usr/bin/load-modules.sh
+
+# (5) PipeWire quantum headroom for VPU-load audio underruns -- during heavy
+#     AV1 decode (confirmed on O6N, 2026-09-09: real ALSA XRUNs + genuine
+#     zero-content DMA ring windows captured live, correlated exactly with
+#     AV1 playback and absent under VP9 at the same resolution/bitrate),
+#     PipeWire's default 1024-frame (~21ms) quantum leaves too little margin
+#     against momentary VPU/DMA contention. Doubling the floor to 2048
+#     frames (~43ms) gives real headroom; audio latency cost is
+#     imperceptible for video playback. System-wide (not per-user) so it
+#     applies regardless of which account is logged in.
+install -d /etc/pipewire/pipewire.conf.d
+cat > /etc/pipewire/pipewire.conf.d/99-audio-underrun-headroom.conf <<'PWEOF'
+context.properties = {
+    default.clock.min-quantum = 2048
+}
+PWEOF
+echo "  [43] PipeWire min-quantum raised to 2048 (AV1-load audio underrun headroom)"
+
+# (6) VPU (amvx, ACPI id CIXH3010) devfreq governor -- ships as
+#     simple_ondemand and was observed on real O6N metal sitting at 350MHz
+#     of a 1000MHz max during active 4K AV1 decode, well below the GPU
+#     (CIXH5000)'s own performance-governor floor. Pin it to `performance`
+#     (matching the GPU) via udev so it runs at max clock whenever present,
+#     same pattern as the existing r8169 EEE-off rule above.
+cat > /usr/local/sbin/ncz-vpu-governor-performance <<'VPUEOF'
+#!/bin/sh
+# Pin the Sky1 VPU (amvx, CIXH3010) devfreq governor to performance.
+DEV="/sys/class/devfreq/${1:?}/governor"
+[ -w "$DEV" ] || exit 0
+echo performance > "$DEV" 2>/dev/null || true
+VPUEOF
+chmod 0755 /usr/local/sbin/ncz-vpu-governor-performance
+
+cat > /etc/udev/rules.d/71-vpu-governor-performance.rules <<'UDEVPUEOF'
+# Sky1 VPU (amvx) devfreq device -- pin governor to performance so 4K AV1
+# decode isn't left at a low-throughput ondemand step during active use.
+SUBSYSTEM=="devfreq", KERNEL=="CIXH3010:00", RUN+="/usr/local/sbin/ncz-vpu-governor-performance %k"
+UDEVPUEOF
+
+# apply immediately if the device already exists on this boot
+if [ -e /sys/class/devfreq/CIXH3010:00/governor ]; then
+    /usr/local/sbin/ncz-vpu-governor-performance "CIXH3010:00"
+    echo "  [43] VPU (CIXH3010) devfreq governor pinned to performance"
+fi
 
 echo "[43] hw quirks done"
 exit 0
