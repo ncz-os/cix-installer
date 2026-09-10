@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
@@ -130,6 +131,26 @@ def identity(value):
     return value
 
 
+# Defensive hygiene for any string pulled from the Unsplash response.
+# Mirrors the helper in ncz-wallpaper-ocs: collapse whitespace runs,
+# drop control chars (keeping tab/newline/CR so collapse can substitute
+# them with single spaces), and reject values that are empty after
+# stripping or exceed 200 characters of real content.
+_UNSPLASH_TEXT_LEN = 200
+_UNSPLASH_CONTROL = re.compile(r"[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f-\u1160\u17b4-\u17b5\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u206a-\u206f\ufeff\ufff9-\ufffc\U000e0000-\U000e007f]")
+_UNSPLASH_WHITESPACE = re.compile(r"\s+")
+
+
+def clean_text(value):
+    if value is None:
+        return None
+    stripped = _UNSPLASH_CONTROL.sub("", value).strip()
+    stripped = _UNSPLASH_WHITESPACE.sub(" ", stripped)
+    if not stripped or len(stripped) > _UNSPLASH_TEXT_LEN:
+        return None
+    return stripped
+
+
 def resize(raw, width=3840, height=2160):
     public_url(raw)
     parsed = urllib.parse.urlsplit(raw)
@@ -163,15 +184,19 @@ def normalize(entry):
     description = entry.get("description") or entry.get("alt_description") or ""
     if not isinstance(description, str):
         raise ValueError("Invalid Unsplash description")
+    description = clean_text(description) or ""
+    author = clean_text(author) or ""
     tags = []
     for tag in entry.get("tags") or []:
         if isinstance(tag, dict):
-            tags.append(text(tag, "title", True))
+            tag_title = clean_text(text(tag, "title", True))
+            if tag_title is not None:
+                tags.append(tag_title)
     if width >= 3840 and height >= 2160:
         tags.append("4K")
     return {"provider": "unsplash", "id": photo_id, "name": description, "author": author,
             "license": "Unsplash License", "license_version": "", "license_url": "https://unsplash.com/license",
-            "attribution": "Photo by " + author + " on Unsplash", "preview": text(urls, "small", True),
+            "attribution": ("Photo by " + author + " on Unsplash") if author else "", "preview": text(urls, "small", True),
             "url": resize(raw), "page_url": attribution_url(page_url), "source": "unsplash",
             "creator_url": attribution_url(author_url),
             "download_location": text(links, "download_location", True), "tags": tags, "width": width, "height": height}

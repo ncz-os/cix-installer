@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import shutil
 import subprocess
@@ -169,16 +170,39 @@ def identity(value):
     return value
 
 
+# Defensive hygiene for any string pulled from the Openverse response.
+# Mirrors the helper in ncz-wallpaper-ocs: collapse whitespace runs,
+# drop control chars (keeping tab/newline/CR so collapse can substitute
+# them with single spaces), and reject values that are empty after
+# stripping or exceed 200 characters of real content. Does NOT reject
+# values that merely look like account handles.
+_OPENVERSE_TEXT_LEN = 200
+_OPENVERSE_CONTROL = re.compile(r"[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f-\u1160\u17b4-\u17b5\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u206a-\u206f\ufeff\ufff9-\ufffc\U000e0000-\U000e007f]")
+_OPENVERSE_WHITESPACE = re.compile(r"\s+")
+
+
+def clean_text(value):
+    if value is None:
+        return None
+    stripped = _OPENVERSE_CONTROL.sub("", value).strip()
+    stripped = _OPENVERSE_WHITESPACE.sub(" ", stripped)
+    if not stripped or len(stripped) > _OPENVERSE_TEXT_LEN:
+        return None
+    return stripped
+
+
 def normalize(entry):
     result = {"provider": "openverse", "id": identity(text(entry, "id", True)),
-              "name": text(entry, "title"), "author": text(entry, "creator"),
+              "name": clean_text(text(entry, "title")) or "", "author": clean_text(text(entry, "creator")) or "",
               "license": text(entry, "license", True), "license_version": text(entry, "license_version"),
-              "license_url": text(entry, "license_url"), "attribution": text(entry, "attribution"),
+              "license_url": text(entry, "license_url"), "attribution": clean_text(text(entry, "attribution")) or "",
               "preview": text(entry, "thumbnail", True), "url": text(entry, "url", True),
               "page_url": text(entry, "foreign_landing_url"), "source": text(entry, "source"),
               "creator_url": text(entry, "creator_url"), "tags": []}
     for tag in entry.get("tags") or []:
-        result["tags"].append(text(tag, "name", True))
+        tag_name = clean_text(text(tag, "name", True))
+        if tag_name is not None:
+            result["tags"].append(tag_name)
     for dimension in ("width", "height"):
         value = entry.get(dimension)
         if value is not None and (type(value) is not int or value < 0):
