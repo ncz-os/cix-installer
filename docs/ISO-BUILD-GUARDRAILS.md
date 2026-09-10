@@ -25,6 +25,22 @@ build-to-build.**
   content-shaped ("the kernel changed", "the network broke") is often
   actually a mechanics regression.
 
+## Squashfs package contents must match the release mirror
+
+The layered installer copies prebuilt squashfs images into the target; it does
+not reinstall packages already present in those images. The ISO assembly step
+then prunes matching `.deb` files from the embedded pool to avoid carrying the
+desktop twice. Merely refreshing a mirror (or regenerating its `Packages` file)
+after a layer was built therefore does not update the installed system.
+
+`build/build-iso-di.sh` runs `build/verify-layer-mirror-versions.sh` before
+pruning. For every explicit base/desktop seed present in both places, the
+installed version in `desktop.squashfs` must be at least the newest version in
+the complete mirror pool. A mismatch is a contents/coherence failure and must
+be fixed by rebuilding the squashfs layers against the current mirror; do not
+remove the package from the index, add an apt pin, or rely on install-time
+network access to conceal it.
+
 ## Why this exists
 
 2026-08-26: a fresh O6N install shipped with the root filesystem (`/`) at

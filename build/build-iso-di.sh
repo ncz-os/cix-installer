@@ -802,6 +802,16 @@ if [ "$EMBED_MIRROR" = "1" ]; then
             --label "$(basename "$MIRROR_DIR")"
     fi
     if [ -d "$MIRROR_DIR/pool" ] && [ -d "$MIRROR_DIR/dists" ]; then
+        # The install target is populated by extracting these prebuilt layers;
+        # packages already present there are not reinstalled during d-i.  A
+        # mirror refreshed after the layer build can therefore carry a newer
+        # package while the ISO silently ships the old installed version.  Run
+        # this before copying/pruning the pool so every explicit seed is checked
+        # against the complete release input.
+        bash "$ROOT/build/verify-layer-mirror-versions.sh" \
+            --layer "$ROOT/assets/squashfs/desktop.squashfs" \
+            --pool "$MIRROR_DIR/pool" \
+            --label "$(basename "$MIRROR_DIR")"
         echo "    embedding offline mirror from $MIRROR_DIR"
         cp -a "$MIRROR_DIR/pool"  "$STAGING/pool"
         cp -a "$MIRROR_DIR/dists" "$STAGING/dists"
