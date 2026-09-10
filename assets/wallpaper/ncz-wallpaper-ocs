@@ -350,16 +350,53 @@ def find_real_images(paths: list[Path]) -> list[Path]:
     return sorted(images)
 
 
-def unique_dest(base: Path, pack_id: str) -> Path:
-    dest = base / pack_id
-    if not dest.exists():
-        return dest
-    n = 2
-    while True:
-        candidate = base / f"{pack_id}-{n}"
-        if not candidate.exists():
-            return candidate
-        n += 1
+# Shared pack identity. Every OCS import grows the same user-owned theme
+# pack, so a user importing five wallpapers over a week gets one collection
+# to browse and prune, not five single-image collections. The id matches the
+# existing Vala-side constant (WallpaperOcsImports.IMPORTED_OCS_ID) and the
+# collection.Name matches the provider's display_name drop-down ("OCS
+# Network"), both already shipped. write_legacy_collection() writes to
+# $XDG_DATA_HOME/ncz-wallpapers/collections by default
+# (~/.local/share/ncz-wallpapers/collections), which is under the user's
+# home, so can_delete_now() in wallpaper_collections.vala accepts the pack
+# and its individual images as user-prunable -- the same rule that already
+# applies to Bing. Re-importing the same item is idempotent: filenames are
+# deterministic per provider+item_id, so the JPEG and sidecar are atomically
+# overwritten (publish-after-write) and pack.json merges rather than
+# duplicates the entry. The pack.json "source" block still points at the
+# LAST imported item because it is consumed only by legacy_pack_key, which
+# favours the most-recent import for the same provider+id conflict.
+PACK_ID = "imported-ocs"
+PACK_DISPLAY_NAME = "OCS Network"
+
+
+def merged_pack_images(dest: Path, freshly_normalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Union the freshly-written image entries with any pre-existing ones
+    already living under `dest` (keyed by basename), so the shared pack
+    accumulates across imports. Entries whose JPEG has since been deleted
+    are dropped, keeping pack.json in sync with the on-disk directory."""
+    pack_json = dest / "pack.json"
+    seen: dict[str, dict[str, Any]] = {}
+    if pack_json.is_file():
+        try:
+            existing = json.loads(pack_json.read_text(encoding="utf-8"))
+            for image in existing.get("images", []) or []:
+                if not isinstance(image, dict):
+                    continue
+                name = image.get("file")
+                if not isinstance(name, str) or not name:
+                    continue
+                if not (dest / name).is_file():
+                    continue
+                seen[name] = image
+        except (OSError, ValueError):
+            pass  # malformed pack.json is treated as empty; a fresh one is written below
+    for image in freshly_normalized:
+        name = image.get("file")
+        if not isinstance(name, str) or not name:
+            continue
+        seen[name] = image
+    return list(seen.values())
 
 
 def write_legacy_collection(pack_id: str, name: str, dest: Path, author: str | None) -> Path:
@@ -392,8 +429,7 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
     if not download["url"]:
         die(f"{provider}:{item_id} has no downloadlink1")
 
-    # Fixed provider identity: every import grows the same theme pack.
-    pack_id = "ocs"
+    pack_id = PACK_ID
     dest = base_dir / pack_id
     if dry_run:
         return {"pack_id": pack_id, "destination": str(dest), "item": item}
@@ -417,7 +453,10 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
             out = dest / f"{provider}-{item_id}-{idx:02d}-{slugify(src.stem)}.jpg"
             staged = tmp / out.name
             normalize_image(src, staged, width, height)
-            # Publish a complete image atomically, including on retry.
+            # Publish a complete image atomically, including on retry. Same
+            # provider+item_id across calls => same basename => overwrite, so
+            # re-importing an item refreshes the JPEG in place rather than
+            # producing a duplicate sidecar or a second pack.json entry.
             fd, pending = tempfile.mkstemp(prefix=".ocs-", dir=dest)
             os.close(fd)
             try:
@@ -435,6 +474,10 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
             })
 
         author = item["author"] or "OCS uploader unknown"
+        # The "source"/"artist"/"name"/"license" keys describe the most-recent
+        # import's provenance, which is what legacy_pack_key and the rotators
+        # consume when the directory has only one import. image[] carries the
+        # accumulating union below.
         pack: dict[str, Any] = {
             "schema": SCHEMA,
             "id": pack_id,
@@ -454,16 +497,21 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
             "license": item.get("license") if item.get("license") else None,
             "license_note": "not specified by the OCS item" if not item.get("license") else None,
             "rotation": {"scope": "pack", "order": "shuffle", "interval": 600},
-            "images": normalized,
+            "images": merged_pack_images(dest, normalized),
         }
         pack = {k: v for k, v in pack.items() if v is not None}
         # Attribution belongs to each image, not to the provider collection.
+        # Each sidecar carries the most-recent provenance so per-image credit
+        # stays accurate; pack.json's images[] list is only used by the
+        # legacy fallback path, while discover() (WallpaperOcsImports) reads
+        # these sidecars directly -- which is the canonical path.
         for image in normalized:
             sidecar = {k: v for k, v in pack.items() if k != "images"}
             sidecar["pack_id"] = pack_id
             sidecar["image"] = image
             atomic_text(dest / image["sidecar"], json.dumps(sidecar, indent=2, sort_keys=True) + "\n")
-        collection = write_legacy_collection(pack_id, "OCS", dest, None)
+        atomic_text(dest / "pack.json", json.dumps(pack, indent=2, sort_keys=True) + "\n")
+        collection = write_legacy_collection(pack_id, PACK_DISPLAY_NAME, dest, None)
 
     return {"pack_id": pack_id, "destination": str(dest), "collection": str(collection), "images": normalized}
 
