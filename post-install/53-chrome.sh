@@ -1,13 +1,9 @@
 #!/bin/bash
 # 53-chrome.sh — post-install wiring for real, official Google Chrome
 # (arm64), the SECOND browser choice alongside Vivaldi (default,
-# 52-vivaldi.sh). The package itself installs earlier, as part of
-# 20-desktop.sh's normal apt-get install of the full desktop seed — Chrome
-# is folded into the offline desktop-mirror pool by build-desktop-mirror.sh,
-# pinned to an exact version + SHA256-verified against Google's own
-# published Packages index. This hook only does what apt's own postinst +
-# the mirror step don't: keep the image CDROM-only, and register the
-# alternative.
+# 52-vivaldi.sh). The package itself installs earlier at real-install time in
+# 25-live-browser-art.sh from the current NCZ Buildkite/R2 repository. This
+# hook handles the remaining browser wiring after that live install.
 #
 # Real Google Chrome for arm64 Linux launched publicly Q2 2026 and became
 # available via Google's own signed apt repo (dl.google.com/linux/chrome/deb)
@@ -33,9 +29,9 @@ case "$VARIANT" in
 esac
 
 if [ ! -x /usr/bin/google-chrome-stable ]; then
-    echo "[53] FATAL: google-chrome-stable is absent from a desktop/browser-enabled install" >&2
-    echo "[53]        expected it from the offline Forky mirror seed; check google-chrome-stable in manifests/desktop.pkgs and the ISO pool" >&2
-    exit 1
+    echo "[53] WARN: google-chrome-stable is absent; live install by 25-live-browser-art.sh was skipped or failed" >&2
+    echo "[53]       check its log and Buildkite/R2 reachability; continuing for offline-install support" >&2
+    exit 0
 fi
 
 # The Chrome .deb has used three desktop-file names across arm64 releases.

@@ -105,30 +105,6 @@ if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $
         echo "[20] WARN: some core desktop pkgs failed (see closure)"
 fi
 
-# chromium-ncz-sky1's launcher wrapper is baked into that package (no source
-# recipe of its own -- the .deb is built externally). On this board, Chromium's
-# audio-service out-of-process isolation delivers structurally silent PCM to a
-# correctly-negotiated PipeWire/Pulse stream (confirmed live: 0% nonzero bytes
-# at the sink monitor despite a healthy-looking stream; disabling isolation
-# restored real audio, 89.4-93.9% nonzero on repeat captures). Overwrite the
-# wrapper post-install so the fix ships regardless of what the upstream .deb
-# contains. Idempotent -- only touches the file if the package installed it.
-if [ -f /usr/bin/chromium-ncz-sky1 ]; then
-    cat > /usr/bin/chromium-ncz-sky1 <<'CHROMIUMWRAPPER'
-#!/bin/sh
-# Chromium NCZ Sky1 Edition launcher.
-exec /opt/chromium-ncz-sky1/chrome \
-  --ozone-platform=wayland \
-  --enable-features=AcceleratedVideoDecoder \
-  --disable-features=AudioServiceOutOfProcess,AudioServiceSandbox \
-  "$@"
-CHROMIUMWRAPPER
-    chmod 0755 /usr/bin/chromium-ncz-sky1
-    echo "[20] chromium-ncz-sky1 wrapper: disabled AudioServiceOutOfProcess/AudioServiceSandbox (silent-PCM fix)"
-else
-    echo "[20] WARN: chromium-ncz-sky1 wrapper not found; audio fix not applied" >&2
-fi
-
 # Audio: PipeWire stack so HDMI/analog reaches apps; pavucontrol for control.
 # pulseaudio-utils supplies pactl. PipeWire Pulse supports pactl load-module
 # for module-alsa-sink, which the Sky1 HDMI/DP autoswitch helper uses without
