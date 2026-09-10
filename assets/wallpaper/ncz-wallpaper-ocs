@@ -55,6 +55,39 @@ def node_text(elem: ET.Element | None, name: str, default: str = "") -> str:
     return child.text.strip() if child is not None and child.text is not None else default
 
 
+# Defensive hygiene for any string pulled from an external API response
+# before we write it into a sidecar or render it in the UI. ElementTree
+# already decodes XML entities on read, so a stray "&amp;" will never
+# reach us here -- this layer just collapses whitespace/newlines, drops
+# control chars, and caps absurd lengths. It explicitly does NOT reject
+# values that merely look like account handles (e.g. "dilaniweerasingha2000"):
+# for providers like OCS the handle IS the attribution, so rejecting on
+# appearance would erase legitimate credit for almost every import.
+_MAX_TEXT_LEN = 200
+# Any Unicode category starting with "C" (Other) -- includes C0/C1 control
+# codes (other than whitespace), format characters (ZWNJ etc.), surrogates,
+# and unassigned code points. Whitespace (tab, newline, CR, FF, VT) is
+# preserved through this pass so the next step can collapse runs of it
+# into single spaces instead of silently gluing tokens together.
+_CONTROL_CHARS = re.compile(r"[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f-\u1160\u17b4-\u17b5\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u206a-\u206f\ufeff\ufff9-\ufffc\U000e0000-\U000e007f]")
+_WHITESPACE_RUN = re.compile(r"\s+")
+
+
+def clean_text(value: str | None, *, max_length: int = _MAX_TEXT_LEN) -> str | None:
+    """Return a sanitized version of an external-API text field, or None if
+    the value is unusable (empty after stripping, only control characters,
+    or beyond max_length characters of real content)."""
+    if value is None:
+        return None
+    stripped = _CONTROL_CHARS.sub("", value).strip()
+    stripped = _WHITESPACE_RUN.sub(" ", stripped)
+    if not stripped:
+        return None
+    if len(stripped) > max_length:
+        return None
+    return stripped
+
+
 def ext_of(name: str) -> str:
     lowered = name.lower()
     for ext in sorted(ARCHIVE_EXTENSIONS, key=len, reverse=True):
@@ -121,7 +154,7 @@ def parse_content(elem: ET.Element, provider: str) -> dict[str, Any]:
         "provider": provider,
         "id": item_id,
         "name": node_text(elem, "name"),
-        "author": node_text(elem, "personid") or None,
+        "author": clean_text(node_text(elem, "personid")),
         "typeid": node_text(elem, "typeid") or None,
         "typename": node_text(elem, "typename") or None,
         "detailpage": node_text(elem, "detailpage") or PROVIDERS[provider]["web"].format(id=item_id),
