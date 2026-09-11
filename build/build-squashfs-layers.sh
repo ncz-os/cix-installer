@@ -578,8 +578,38 @@ PYOVERLAY
   sudo rm -rf "$L" "$MG" "$WK"
 }
 
+ensure_base_tarball_fresh(){
+  # The base tarball (assets/rootfs/rootfs-$APT_SUITE-arm64.tar.zst) is a
+  # fixed debootstrap snapshot -- unlike base.squashfs, which build_base()
+  # regenerates unconditionally every run, this INPUT can silently go stale
+  # (missed security updates, drifted against the current apt mirror) with
+  # nothing forcing a refresh. Operator directive 2026-09-11: never let it go
+  # stale unnoticed -- age-gate it here and auto-regenerate past the limit,
+  # same as if it were simply missing (which this also now self-heals).
+  local max_age_days="${BASE_TARBALL_MAX_AGE_DAYS:-5}"
+  local need_regen=0 age_days
+  if [ ! -f "$BASE_TARBALL" ]; then
+    log "BASE: $BASE_TARBALL absent -- generating"
+    need_regen=1
+  else
+    age_days=$(( ( $(date +%s) - $(stat -c %Y "$BASE_TARBALL") ) / 86400 ))
+    if [ "$age_days" -gt "$max_age_days" ]; then
+      log "BASE: $BASE_TARBALL is ${age_days}d old (>${max_age_days}d limit) -- regenerating"
+      need_regen=1
+    else
+      log "BASE: $BASE_TARBALL is ${age_days}d old (<=${max_age_days}d limit) -- reusing"
+    fi
+  fi
+  [ "$need_regen" = 1 ] || return 0
+  local gen="$ROOT/build/build-base-rootfs.sh"
+  [ -x "$gen" ] || { log "ERROR: $BASE_TARBALL needs (re)generation but $gen is missing/not executable"; exit 1; }
+  sudo bash "$gen" || { log "ERROR: base-rootfs regeneration failed"; exit 1; }
+  [ -f "$BASE_TARBALL" ] || { log "ERROR: $gen ran but did not produce $BASE_TARBALL"; exit 1; }
+}
+
 build_base(){
   log "BASE: extract $APT_SUITE base"
+  ensure_base_tarball_fresh
   # A failed base hook exits under `set -e` before normal cleanup. Detach any
   # stale mounts before retrying so rm never traverses host /proc or /sys.
   apt_unmount "$WORK/base"
