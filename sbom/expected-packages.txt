@@ -14,7 +14,6 @@ manifests/desktop.pkgs:btop
 manifests/desktop.pkgs:ca-certificates
 manifests/desktop.pkgs:catatonit
 manifests/desktop.pkgs:celluloid
-manifests/desktop.pkgs:chromium-ncz-sky1
 manifests/desktop.pkgs:clinfo
 manifests/desktop.pkgs:conmon
 manifests/desktop.pkgs:crun
@@ -64,7 +63,6 @@ manifests/desktop.pkgs:gnome-session-canberra
 manifests/desktop.pkgs:gnome-sound-recorder
 manifests/desktop.pkgs:gnome-text-editor
 manifests/desktop.pkgs:gnome-weather
-manifests/desktop.pkgs:google-chrome-stable
 manifests/desktop.pkgs:greetd
 manifests/desktop.pkgs:grim
 manifests/desktop.pkgs:gsettings-desktop-schemas
