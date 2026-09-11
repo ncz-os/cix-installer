@@ -603,7 +603,11 @@ ensure_base_tarball_fresh(){
   [ "$need_regen" = 1 ] || return 0
   local gen="$ROOT/build/build-base-rootfs.sh"
   [ -x "$gen" ] || { log "ERROR: $BASE_TARBALL needs (re)generation but $gen is missing/not executable"; exit 1; }
-  sudo bash "$gen" || { log "ERROR: base-rootfs regeneration failed"; exit 1; }
+  # No sudo: build-base-rootfs.sh runs mmdebstrap inside a podman container
+  # as the invoking user -- running it under sudo would use root's podman
+  # storage/config instead of this user's, which is a different (and here,
+  # unpopulated) container storage backend.
+  bash "$gen" || { log "ERROR: base-rootfs regeneration failed"; exit 1; }
   [ -f "$BASE_TARBALL" ] || { log "ERROR: $gen ran but did not produce $BASE_TARBALL"; exit 1; }
 }
 
