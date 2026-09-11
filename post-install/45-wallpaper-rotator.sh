@@ -261,11 +261,22 @@ set -u
 # ja-JP/en-AU served a Polish wildlife crossing -- different PHOTOGRAPHS, on the
 # same day. So the user can enable more than one feed at once.
 #
+# Default (operator directive 2026-09-11: pull ALL core regional markets, not
+# just en-US): the 13 markets that regularly receive unique/tailored daily
+# imagery -- Americas (en-US, en-CA, fr-CA, pt-BR), Europe (en-GB, fr-FR,
+# de-DE, es-ES, it-IT), Asia-Pacific (en-IN, ja-JP, zh-CN, ko-KR). Some of
+# these alias to the same photo on a given day (see the en-GB/de-DE/zh-CN
+# note above) -- that's expected and harmless, not a bug: the archive/dedup
+# logic downstream (merged_pack_images() in ncz-wallpaper-ocs) already
+# collapses identical images across sources by content, so pulling an
+# aliased market costs a redundant fetch, never a duplicate entry in the
+# picker.
+#
 # Config, in priority order:
 #   NCZ_BING_MARKETS="en-US ja-JP"       for testing
 #   ~/.config/ncz-wallpaper/bing-markets newline/comma/space separated markets
 #   ~/.config/ncz-wallpaper/bing-market  legacy single-market file
-#   en-US                                default
+#   (13-market default above)            default
 exec python3 - "$@" <<'PY'
 import json
 import os
@@ -289,6 +300,16 @@ BACKFILL = ((0, 8), (7, 8))
 FEED_CACHE_SECONDS = 6 * 60 * 60
 MARKET_RE = re.compile(r"^[A-Za-z]{2}-[A-Za-z]{2}$")
 DATE_RE = re.compile(r"^[0-9]{8}$")
+# The 13 markets that regularly receive unique/tailored daily imagery (see
+# the comment block above this script for the source breakdown and the
+# 2026-08-19 verification that several of these serve genuinely different
+# photos on the same day). "all" as a configured value expands to this list.
+ALL_MARKETS = [
+    "en-US", "en-CA", "fr-CA", "pt-BR",
+    "en-GB", "fr-FR", "de-DE", "es-ES", "it-IT",
+    "en-IN", "ja-JP", "zh-CN", "ko-KR",
+]
+DEFAULT_MARKETS_TEXT = " ".join(ALL_MARKETS)
 
 def quiet():
     return bool(os.environ.get("NCZ_BING_QUIET"))
@@ -311,13 +332,19 @@ def configured_markets():
             text = single.read_text(errors="ignore")
     if not text:
         text = os.environ.get("NCZ_BING_MARKET", "")
+    # "all" (any case, alone or as one of the tokens) is the UI's "All
+    # markets" selector's contract with this script -- it writes the literal
+    # string "all" to bing-markets rather than spelling out all 13 codes, so
+    # the market list here and ALL_MARKETS stay the single source of truth.
+    if text.strip().lower() == "all":
+        return list(ALL_MARKETS)
     markets = []
     seen = set()
-    for market in split_tokens(text or "en-US"):
+    for market in split_tokens(text or DEFAULT_MARKETS_TEXT):
         if MARKET_RE.match(market) and market not in seen:
             markets.append(market)
             seen.add(market)
-    return markets or ["en-US"]
+    return markets or list(ALL_MARKETS)
 
 def all_archived_markets():
     if not DATA_ROOT.is_dir():
