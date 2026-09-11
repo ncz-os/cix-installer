@@ -48,7 +48,7 @@ echo "[10] installing kernel via apt — edge=$KVER_NEXT"
 
 local_deb() {
     pattern="$1"
-    find /cdrom/pool/main -maxdepth 1 -type f -name "$pattern" 2>/dev/null | sort -V | tail -1
+    find /cdrom/pool/main -maxdepth 1 -type f -name "$pattern" 2>/dev/null | sort -V | tail -1 || true
 }
 
 # Wire the Buildkite apt source + refresh the index. Idempotent (safe to

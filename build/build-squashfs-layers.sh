@@ -687,7 +687,7 @@ build_base(){
   for h in $BASE_HOOKS; do
     [ -f "$WORK/base/usr/local/lib/cix-installer/post-install/$h.sh" ] || { log "  skip $h (absent)"; continue; }
     log "  -> $h"
-    if ! sudo chroot "$WORK/base" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$h.sh" 2>&1 | tail -3; then
+    if ! sudo chroot "$WORK/base" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$h.sh" 2>&1 | tail -200; then
       if [ "$h" = "10-our-kernel" ] || [ "$h" = "19-sinty-nm" ]; then
         log "ERROR: required base hook $h failed; refusing to publish an incomplete base layer"
         apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
