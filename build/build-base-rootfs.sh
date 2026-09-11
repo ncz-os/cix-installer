@@ -7,37 +7,45 @@
 # (no hostname, no rescue services, no branding).
 #
 # METHOD
-#   Uses `podman` + `mmdebstrap --mode=unshare` inside a debian:<codename>
-#   container. mmdebstrap is a single Perl script (debian-installer style)
-#   that bootstraps an apt-installable Debian rootfs inside its own
-#   user/mount namespaces, so NO host chroot and NO host bind mounts are
-#   ever created -- which eliminates a whole class of leftover-mount bugs
-#   this codebase has been bitten by (a bind-mounted ESP under $CHROOT
+#   Uses `podman` + `mmdebstrap --mode=root` inside a debian:<codename>
+#   container. mmdebstrap is a single Perl script that bootstraps an
+#   apt-installable Debian rootfs; running it as root inside a throwaway
+#   container means no HOST chroot and no HOST bind mounts are ever
+#   created -- eliminating a whole class of leftover-mount bugs this
+#   codebase has been bitten by (a bind-mounted ESP under a chroot dir
 #   being destroyed by `rm -rf` once wiped a build host's EFI System
 #   Partition; the unmount-safety helpers in build-rescue-rootfs.sh exist
-#   precisely because of that history).
+#   precisely because of that history). `--mode=unshare` was tried first
+#   and looked more elegant on paper (no host root needed at all) but a
+#   nested-quoting bug in an unrelated customize-hook masked whether it
+#   even worked; --mode=root is simpler and was the version actually
+#   verified end-to-end (fixed 2026-09-11, see build-squashfs-layers.sh's
+#   verified consumer test in the same session).
 #
 #   Why podman and not native mmdebstrap on Fedora?
 #   Fedora does not package mmdebstrap; manual install drags in a long Perl
-#   dependency chain (`File::Copy::Recursive`, `Lintian`, libtest-pkg-perl,
-#   `apt`, etc.) that we would need to vendor and keep current.  The same
+#   dependency chain we would need to vendor and keep current. The same
 #   repo already standardizes on `podman` for cross-distro work
-#   (build/build-singularity-podman.sh), and `debian:forky` is already
-#   pulled on ULTRA. The container itself is throwaway; the only artefact
-#   that ships is the boot-strapped tarball.
+#   (build/build-singularity-podman.sh).
 #
-#   Why `--mode=unshare`?
-#   mmdebstrap's other modes (`--mode=sudo`, `--mode=root`) need host-root
-#   and rely on chroot(2). `--mode=unshare` runs entirely in a user+
-#   mount namespace owned by the running mmdebstrap process, so its
-#   mount/unmount activity only affects the namespace, never the host
-#   filesystem. A crash, an OOM kill, or any other failure cannot leak
-#   mounts into `$CHROOT` because no host mounts exist there to begin
-#   with.
+#   Why no customize-hook for /etc/apt/sources.list?
+#   build_base() (build-squashfs-layers.sh) calls apt_offline(), which
+#   deletes/disables every pre-existing apt source before installing
+#   anything -- so whatever sources.list mmdebstrap writes here is
+#   discarded before it's ever read. Writing one was dead complexity, and
+#   the nested-quoting inside that hook (a single-quoted string containing
+#   an unescaped inner single quote) was the actual cause of this script
+#   silently exiting 127 with zero output when it made it into a commit
+#   without being re-verified against the committed content.
 #
-# Runs on any native aarch64 host with `podman` (e.g. ULTRA, Fedora Asahi
-# Remix aarch64), targeting an arm64 Debian/Forky base. No qemu, no binfmt;
-# the container's own arch matches the host's, and the guest matches too.
+# Runs on a NATIVE host matching the target arch (e.g. ULTRA, aarch64,
+# building an arm64 rootfs) -- no qemu/binfmt needed. Cross-arch (e.g.
+# ARGOS x86_64 building an arm64 rootfs) is NOT yet supported: it needs
+# qemu-user-static's binfmt_misc registration to carry the `F` (fix-binary)
+# flag so a container without its own qemu-aarch64 binary can still exec
+# foreign-arch code; ARGOS's current registration lacks it (checked
+# 2026-09-11: flags show `POF`, not `FPOF`) -- re-registering with F would
+# be the next step, not attempted here. See docs/BUILD-HOSTS.md.
 #
 # Usage: bash build/build-base-rootfs.sh [chroot_dir] [out_tarball] [suite] [arch] [mirror]
 set -euo pipefail
@@ -59,119 +67,63 @@ MIRROR="${5:-${NCZ_BASE_MIRROR:-https://deb.debian.org/debian}}"
 OUT="${2:-$ROOT/assets/rootfs/rootfs-$SUITE-arm64.tar.zst}"
 COMPONENTS="${COMPONENTS:-${NCZ_BASE_COMPONENTS:-main contrib non-free non-free-firmware}}"
 
-# Tool check: we don't need debootstrap on the host anymore. mmdebstrap is
-# inside the container; we just need host-side tar+podman+zstd to seal.
-for t in podman tar zstd; do
+for t in tar zstd; do
     command -v "$t" >/dev/null 2>&1 || { echo "ERROR: missing build-host tool: $t" >&2; exit 1; }
 done
+command -v podman >/dev/null 2>&1 || command -v docker >/dev/null 2>&1 || \
+    { echo "ERROR: need podman or docker on the build host" >&2; exit 1; }
 
 HOST_ARCH="$(uname -m)"
 case "$HOST_ARCH:$ARCH" in
-    aarch64:arm64) NEEDS_QEMU=0 ;;
-    x86_64:amd64)  NEEDS_QEMU=0 ;;
-    *)             NEEDS_QEMU=1 ;;
-esac
-if [ "$NEEDS_QEMU" = 1 ]; then
-    echo "ERROR: cross-arch ($HOST_ARCH -> $ARCH) is not supported via podman+mmdebstrap here." >&2
-    echo "       The same repo's other scripts rely on qemu-aarch64-static for cross-arch" >&2
-    echo "       debootstrap; extending that into the container path is out of scope." >&2
-    exit 1
-fi
-
-# Mirror sanity: refuse the historical "plain http" footgun. mmdebstrap
-# fetches packages from $MIRROR over HTTPS, so the mirror must be https.
-case "$MIRROR" in
-    https://*) ;;
-    *) echo "ERROR: MIRROR must be https for mmdebstrap's apt fetches: $MIRROR" >&2; exit 1 ;;
+    aarch64:arm64) ;;
+    x86_64:amd64)  ;;
+    *)
+        echo "ERROR: cross-arch ($HOST_ARCH -> $ARCH) is not supported here yet." >&2
+        echo "       Needs qemu-user-static binfmt_misc registered with the F flag" >&2
+        echo "       so a container without its own interpreter binary can still" >&2
+        echo "       exec foreign-arch code. See docs/BUILD-HOSTS.md." >&2
+        exit 1
+        ;;
 esac
 
 CONTAINER_IMAGE="${NCZ_BASE_CONTAINER_IMAGE:-debian:$SUITE}"
 CE="$(command -v podman || command -v docker || true)"
 [ -n "$CE" ] || { echo "ERROR: need podman or docker on the build host" >&2; exit 1; }
 
-echo "[base-rootfs] chroot:   $CHROOT   (host-side workspace only -- never chrooted)"
-echo "[base-rootfs] out:      $OUT"
-echo "[base-rootfs] suite:    $SUITE   arch: $ARCH   host: $HOST_ARCH (native=$([ "$NEEDS_QEMU" = 0 ] && echo yes || echo no))"
-echo "[base-rootfs] mirror:   $MIRROR"
-echo "[base-rootfs] image:    $CONTAINER_IMAGE   ($CE)"
+OUT_DIR="$(cd "$(dirname "$OUT")" 2>/dev/null && pwd || { mkdir -p "$(dirname "$OUT")" && cd "$(dirname "$OUT")" && pwd; })"
+OUT_BASE="$(basename "$OUT")"
+TAR_NAME="${OUT_BASE%.tar.zst}.tar"
+MM_COMPONENTS="$(echo "$COMPONENTS" | tr -s ' ' ',')"
+# mmdebstrap's OWN internal apt-get update runs inside the tree it is still
+# building, before ca-certificates is installed there -- the classic
+# bootstrap chicken-and-egg. https fails with a cert-verify error at that
+# point regardless of the host's own trust store. Use http for the
+# bootstrap mirror specifically; build_base() overwrites the rootfs's own
+# apt sources anyway (see the header comment above), so this has no effect
+# on what package sources the final image actually uses.
+BOOTSTRAP_MIRROR="${MIRROR/https:/http:}"
 
-# Host-side workdir -- where mmdebstrap's tarball lands and from which we
-# re-compress. This is NOT a chroot and NO mounts happen under it on the
-# host. Plain `rm -rf` at any point is always safe.
-mkdir -p "$(dirname "$OUT")"
-rm -rf "$CHROOT"
-mkdir -p "$CHROOT"
+echo "[base-rootfs] engine:  $CE"
+echo "[base-rootfs] out:     $OUT"
+echo "[base-rootfs] suite:   $SUITE   arch: $ARCH   host: $HOST_ARCH"
+echo "[base-rootfs] mirror:  $MIRROR"
 
-# ----------------------------------------------------------------------
-# Build script that runs INSIDE the container.
-#
-# Quote discipline: this whole block is passed as a single string argument
-# to podman; the values substituted in are all restricted to $SUITE, $ARCH,
-# $COMPONENTS, $MIRROR -- each of which we have bound to a value we know is
-# safe (no embedded quotes, no whitespace beyond [A-Za-z0-9 _./:]). Every
-# variable substitution here is therefore equivalent to a literal.
-# ----------------------------------------------------------------------
-read -r -d '' BUILD_SCRIPT <<BUILDSCRIPT || true
-set -euo pipefail
-export DEBIAN_FRONTEND=noninteractive
+CONTAINER_CMD=$(cat <<CMD
+set -e
 apt-get update -qq
-# CA bundle first so the in-namespace apt that mmdebstrap spawns can verify
-# the mirror's TLS chain.
-apt-get install -y --no-install-recommends ca-certificates mmdebstrap
-mkdir -p /work
-# --customize-hook fires inside the chroot after extract+install and before
-# the tarball is sealed, writing the exact sources.list line the old
-# debootstrap path produced, so build_base()'s "no offline mirror -> use
-# base sources" fallback continues to behave the same.
-HOOK='sh -c "set -e; mkdir -p /etc/apt; printf 'deb ${MIRROR} ${SUITE} ${COMPONENTS}\\n' > /etc/apt/sources.list"'
-mmdebstrap --mode=unshare --variant=minbase \\
-    --include=ca-certificates,apt-utils \\
-    --architectures=${ARCH} \\
-    --components=${COMPONENTS} \\
-    --skip=sign/tripwire \\
-    --customize-hook="\${HOOK}" \\
-    ${SUITE} /work/rootfs.tar ${MIRROR}
-BUILDSCRIPT
+apt-get install -y -qq --no-install-recommends mmdebstrap zstd >/dev/null
+mmdebstrap --arch=$ARCH --mode=root --format=tar \
+    --variant=minbase \
+    --include=ca-certificates,apt-utils \
+    --components="$MM_COMPONENTS" \
+    --customize-hook='chroot "\$1" /bin/sh -c "true > /etc/machine-id" 2>/dev/null || true' \
+    --customize-hook='rm -f "\$1/etc/resolv.conf"' \
+    "$SUITE" /out/$TAR_NAME "$BOOTSTRAP_MIRROR"
+zstd -19 -T0 -f /out/$TAR_NAME -o /out/$OUT_BASE
+rm -f /out/$TAR_NAME
+CMD
+)
 
-INNER_LOG="$CHROOT/mmdebstrap.log"
-echo "[base-rootfs] bootstrapping in $CONTAINER_IMAGE (unshare mode)..."
-"$CE" run --rm --privileged --network=host \
-    -v "$CHROOT":/work:Z \
-    "$CONTAINER_IMAGE" bash -euo pipefail -c "$BUILD_SCRIPT" \
-    >"$INNER_LOG" 2>&1
+"$CE" run --rm --network=host -v "$OUT_DIR":/out:Z "$CONTAINER_IMAGE" bash -c "$CONTAINER_CMD"
 
-[ -f "$CHROOT/rootfs.tar" ] || {
-    echo "ERROR: mmdebstrap produced no $CHROOT/rootfs.tar -- log tail:" >&2
-    tail -40 "$INNER_LOG" >&2 || true
-    exit 1
-}
-
-echo "[base-rootfs] container log tail:"
-tail -8 "$INNER_LOG" | sed 's/^/[base-rootfs]   /'
-
-# ----------------------------------------------------------------------
-# Stage 3 -- post-process on the host.
-#
-# mmdebstrap already strips apt cache, package lists, machine-id, and
-# resolv.conf the same way debootstrap's tar output does; we do the same
-# final pass here defensively -- a future mmdebstrap option change
-# (e.g. --keep-cache) would otherwise leak state, and the only consumer
-# test that catches leaks is the end-to-end build_base(), which is much
-# more expensive than a 4-line rm.
-# ----------------------------------------------------------------------
-echo "[base-rootfs] post-processing + compressing with zstd..."
-EXTRACT="$CHROOT/_finalize"
-mkdir -p "$EXTRACT"
-tar -xf "$CHROOT/rootfs.tar" -C "$EXTRACT"
-rm -rf "$EXTRACT/var/lib/apt/lists/"* "$EXTRACT/var/cache/apt/archives/"*.deb 2>/dev/null || true
-: > "$EXTRACT/etc/machine-id"
-rm -f "$EXTRACT/etc/resolv.conf"
-
-echo "[base-rootfs] writing $OUT"
-tar -C "$EXTRACT" --numeric-owner -cpf - . | zstd -19 -T0 -o "$OUT" -f
 echo "[base-rootfs] done: $(du -h "$OUT" | cut -f1)"
-
-# Final cleanup. No mounts were ever created under $CHROOT on the host,
-# so plain rm -rf is safe -- this is the line we kept tripping over with
-# the debootstrap path when a prior bind mount leaked into $CHROOT.
-rm -rf "$CHROOT"
