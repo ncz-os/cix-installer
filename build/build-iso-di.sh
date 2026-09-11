@@ -464,7 +464,19 @@ prepare_static_zstd_aarch64() {
         return 0
     fi
 
-    for t in curl tar make aarch64-linux-gnu-gcc aarch64-linux-gnu-ar aarch64-linux-gnu-ranlib; do
+    # This only needs to CROSS-compile when the build host itself isn't
+    # already aarch64 (the original ARGOS/x86 path). On a native aarch64
+    # host (ULTRA) the plain toolchain already produces an aarch64 binary --
+    # requiring the aarch64-linux-gnu-* cross-prefixed tools there is a
+    # host assumption left over from ARGOS, not a real requirement (fixed
+    # 2026-09-11 alongside the same-class base-rootfs pipeline retarget).
+    local cc=cc ar_tool=ar ranlib_tool=ranlib strip_tool=strip
+    if [ "$(uname -m)" != "aarch64" ]; then
+        cc=aarch64-linux-gnu-gcc ar_tool=aarch64-linux-gnu-ar
+        ranlib_tool=aarch64-linux-gnu-ranlib strip_tool=aarch64-linux-gnu-strip
+    fi
+
+    for t in curl tar make "$cc" "$ar_tool" "$ranlib_tool"; do
         command -v "$t" >/dev/null 2>&1 || {
             echo "ERROR: missing $t; install the arm64 cross toolchain or set ZSTD_STATIC_AARCH64=/path/to/static-arm64-zstd" >&2
             exit 1
@@ -483,16 +495,16 @@ prepare_static_zstd_aarch64() {
     tar xzf "$tarball" -C "$cache/src"
     jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
     make -C "$src" -j"$jobs" \
-        CC=aarch64-linux-gnu-gcc \
-        AR=aarch64-linux-gnu-ar \
-        RANLIB=aarch64-linux-gnu-ranlib \
+        CC="$cc" \
+        AR="$ar_tool" \
+        RANLIB="$ranlib_tool" \
         HAVE_THREAD=0 HAVE_ZLIB=0 HAVE_LZMA=0 HAVE_LZ4=0 \
         ZSTD_LEGACY_SUPPORT=0 \
         CFLAGS="-Os" LDFLAGS="-static" \
         zstd >&2
     install -m 0755 "$src/programs/zstd" "$bin"
-    if command -v aarch64-linux-gnu-strip >/dev/null 2>&1; then
-        aarch64-linux-gnu-strip --strip-all "$bin" || true
+    if command -v "$strip_tool" >/dev/null 2>&1; then
+        "$strip_tool" --strip-all "$bin" || true
     fi
     if command -v file >/dev/null 2>&1; then
         file "$bin" | grep -Eq 'ARM aarch64|ARM64' || {
