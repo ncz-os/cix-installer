@@ -666,7 +666,18 @@ systemctl --global enable ncz-wallpaper-bing.timer >/dev/null 2>&1 \
     || echo "[45]   WARN: could not enable ncz-wallpaper-bing.timer"
 
 # Rotator: pick + apply. 26.7 default DE = Singularity (Wayland, GTK4): set the
-# backdrop via `dev.sinty.desktop background-picture-uri` (gsettings) and swaybg.
+# backdrop via `dev.sinty.desktop background-picture-uri` (gsettings). The
+# native Singularity.Background window (one per monitor, a real
+# GtkLayerShell background-layer surface owned by singularity-desktop
+# itself) already listens for that key changing and repaints its own
+# Gtk.Picture -- confirmed live, root-caused 2026-09-11: a redundant
+# external `swaybg` process used to be spawned here too as a "belt", and
+# because it ran as its OWN separate Layer.BACKGROUND surface it visually
+# sat on top of the native layer, so every manual wallpaper pick from the
+# Settings UI (which only ever wrote the gsettings key) appeared to do
+# nothing -- the native layer WAS repainting correctly underneath the
+# whole time. Removed; gsettings is the only mechanism now, matching what
+# the Settings UI's own manual picker already relies on.
 cat > /usr/local/bin/ncz-wallpaper-rotate <<'ROT'
 #!/bin/sh
 WP_DIR=/usr/share/backgrounds/ncz
@@ -704,7 +715,7 @@ fi
 [ -n "$PIC" ] && [ -f "$PIC" ] || PIC=$(ls $WP_DIR/ncz-wallpaper-*.jpg 2>/dev/null | shuf -n1)
 [ -z "$PIC" ] && exit 0
 # default.jpg is a convenience pointer, not the mechanism -- the wallpaper is
-# applied through gsettings/swaybg below. The rotator runs as the logged-in
+# applied through gsettings below. The rotator runs as the logged-in
 # user and $WP_DIR is root-owned 0755, so this ln FAILS with EPERM every time.
 # It was already suppressed with "|| true", which turned a guaranteed failure
 # into silence. Only attempt it when the directory is actually writable.
@@ -731,11 +742,6 @@ case "$DE" in
         SSD=/opt/singularity/share/glib-2.0/schemas
         if command -v gsettings >/dev/null 2>&1 && [ -d "$SSD" ]; then
             GSETTINGS_SCHEMA_DIR="$SSD" gsettings set dev.sinty.desktop background-picture-uri "$URI" 2>/dev/null || true
-        fi
-        # Belt: repaint the live wallpaper layer via swaybg (single instance).
-        if command -v swaybg >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ]; then
-            pkill -x swaybg 2>/dev/null || true
-            swaybg -m fill -i "$PIC" >/dev/null 2>&1 &
         fi
         ;;
     gnome)
