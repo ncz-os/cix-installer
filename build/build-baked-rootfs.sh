@@ -5,7 +5,12 @@
 # machine-specific hooks (fstab, bootloader, rescue, user). Replaces the fragile
 # 30-hook in-chroot-at-install model.
 #
-# Run on ARGOS (x86 + qemu-aarch64-static + binfmt). Output: a baked rootfs.tar.zst.
+# Run on ULTRA or any native arm64 build host (debootstrap installed, no
+# qemu-aarch64-static/binfmt required since the host arch already matches the
+# target). Retargeted from ARGOS 2026-09-11 (operator): ARGOS is x86 and
+# needed qemu-user emulation for every step here; ULTRA is native aarch64
+# (Fedora Asahi Remix) and skips that layer entirely. Output: a baked
+# rootfs.tar.zst.
 set -uo pipefail
 ROOT="${ROOT:-$HOME/cix-installer-build/cix-installer}"
 
@@ -52,8 +57,15 @@ sudo rm -rf "$WORK"; mkdir -p "$CHROOT" "$LOGDIR"
 log "extract base rootfs ($(du -h "$BASE"|cut -f1))..."
 sudo tar -I 'zstd -d' -xpf "$BASE" -C "$CHROOT" || { log "FATAL extract"; exit 1; }
 
-log "stage qemu + network + hooks + assets into chroot"
-sudo cp /usr/bin/qemu-aarch64-static "$CHROOT/usr/bin/"
+log "stage network + hooks + assets into chroot"
+# qemu-aarch64-static is only needed when the build host itself isn't arm64
+# (e.g. the old ARGOS x86 path). On a native aarch64 host (ULTRA) the chroot
+# below execs directly -- copying/registering qemu there would be a no-op at
+# best and a stale-binary trap at worst.
+if [ "$(uname -m)" != "aarch64" ] && [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
+    [ -x /usr/bin/qemu-aarch64-static ] || { log "FATAL: cross-arch bake needs qemu-aarch64-static on this host"; exit 1; }
+    sudo cp /usr/bin/qemu-aarch64-static "$CHROOT/usr/bin/"
+fi
 sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf"
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer"
 sudo cp -a "$ROOT/post-install" "$CHROOT/usr/local/lib/cix-installer/"
