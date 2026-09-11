@@ -56,6 +56,7 @@ PYBIN=""
 NPU_PY_OK=1
 for cand in /opt/python3.11/bin/python3.11 \
             "$(command -v python3.11 2>/dev/null)" \
+            /opt/python3.12/bin/python3.12 \
             "$(command -v python3.12 2>/dev/null)"; do
     if [ -n "$cand" ] && [ -x "$cand" ]; then PYBIN="$cand"; break; fi
 done
