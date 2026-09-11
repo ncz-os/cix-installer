@@ -104,7 +104,7 @@ apt-get update -q
 # Build deps (Debian 13 / Ubuntu 26.04 names — see docs/upstream/singularity/
 # 20-pr-arm64-build.md). No arch guards needed; the tree builds clean on aarch64.
 apt-get install -y --no-install-recommends \
-    ca-certificates git golang-go \
+    ca-certificates curl git golang-go \
     libglib2.0-bin \
     valac meson ninja-build pkg-config gettext \
     libgtk-4-dev libadwaita-1-dev libgtk4-layer-shell-dev \
@@ -220,6 +220,61 @@ open(f, "w", encoding="utf-8").write(s.replace(anchor, add + anchor, 1))
 print("    shell: launcher-popup fix applied")
 PY_NCZ_SHELL
 fi
+
+# r-build: relocatable CPython 3.12 at /usr/bin/python3.12 inside this
+# disposable build container. subprojects/singularity-gestures/scripts/
+# bootstrap-runtime.sh (a precondition of `make compile`) hardcodes that
+# literal path to pull a cp312 MediaPipe wheel and extract libmediapipe.so;
+# without it the gesture-runtime Makefile target fails immediately, which in
+# turn breaks `make compile` (gesture-runtime is listed as an unconditional
+# prerequisite in the top-level Makefile).
+#
+# This is a BUILD-TIME-only concern, not a SHIPPED-SYSTEM concern: the build
+# container is throwaway, so we symlink into /usr/bin (which 46-python312.sh
+# deliberately avoids on the real Debian target system for the same
+# "do not clobber /usr/bin" reason). The same tarball that ships at
+# assets/python312/ on the ISO is what gets used here; when absent we
+# network-fetch from python-build-standalone (same source 46-python312.sh
+# network fallback uses).
+if [ -d /assets/python312 ]; then
+    PY312_TARBALL=$(find /assets/python312 -maxdepth 1 -type f \
+        -name "cpython-3.12*-aarch64-unknown-linux-gnu-install_only*.tar.gz" 2>/dev/null \
+        | sort | tail -1)
+    if [ -n "$PY312_TARBALL" ]; then
+        echo "    python3.12: using vendored $(basename "$PY312_TARBALL")"
+    fi
+fi
+if [ -z "${PY312_TARBALL:-}" ]; then
+    echo "    python3.12: no vendored tarball; attempting network fetch"
+    PBS_META=https://raw.githubusercontent.com/astral-sh/python-build-standalone/latest-release/latest-release.json
+    PBS_TAG=$(curl -fsSL "$PBS_META" 2>/dev/null \
+        | grep -oE "\"tag\"[[:space:]]*:[[:space:]]*\"[0-9]+\"" | grep -oE "[0-9]+" | head -1 || true)
+    echo "    python3.12: TAG=[$PBS_TAG]"
+    if [ -n "$PBS_TAG" ]; then
+        PBS_VERSION=$(curl -fsSL --max-time 20 \
+            "https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/${PBS_TAG}" 2>/dev/null \
+            | grep -oE "\"name\"[[:space:]]*:[[:space:]]*\"cpython-3\\.12\\.[0-9]+\\+${PBS_TAG}-aarch64-unknown-linux-gnu-install_only\\.tar\\.gz\"" \
+            | grep -oE "cpython-3\\.12\\.[0-9]+" | head -1 || true)
+        echo "    python3.12: CPVER=[$PBS_VERSION]"
+        [ -z "$PBS_VERSION" ] && PBS_VERSION=cpython-3.12.14
+        PBS_NAME="${PBS_VERSION}+${PBS_TAG}-aarch64-unknown-linux-gnu-install_only.tar.gz"
+        PY312_TARBALL=/tmp/py312.tar.gz
+        curl -fsSL -o "$PY312_TARBALL" \
+            "https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}/${PBS_NAME}"
+        echo "    python3.12: fetched $PBS_NAME"
+    fi
+fi
+if [ -z "${PY312_TARBALL:-}" ] || [ ! -f "$PY312_TARBALL" ]; then
+    echo "ERROR: could not obtain a python3.12 install_only tarball (no vendored copy, no network)" >&2
+    exit 1
+fi
+rm -rf /opt/python3.12 && mkdir -p /opt/python3.12
+tar -C /opt/python3.12 --strip-components=1 -xzf "$PY312_TARBALL"
+/opt/python3.12/bin/python3.12 -c "import ctypes,sys; assert sys.version_info[:2]==(3,12)" \
+    || { echo "ERROR: vendored python3.12 failed self-check" >&2; exit 1; }
+ln -sf /opt/python3.12/bin/python3.12 /usr/bin/python3.12
+/opt/python3.12/bin/python3.12 -m ensurepip --upgrade 2>/dev/null || true
+echo "    python3.12 ready: $(/usr/bin/python3.12 --version 2>&1) → /opt/python3.12"
 
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.

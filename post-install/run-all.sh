@@ -68,6 +68,18 @@ NCZ_BAKED=0
 #                        (assets/python311, on the ISO) — the libnoe wheel only
 #                        ships cp311/cp312 .so, so a 3.11 venv is REQUIRED (the
 #                        resolute system python is 3.14 and cannot import libnoe)
+#   46-python312       → relocatable CPython 3.12 at /opt/python3.12
+#                        (assets/python312, on the ISO). 3.12 is consumed both
+#                        at runtime (47-embedkit.sh's interpreter selection
+#                        already lists python3.12 as a fallback for the NPU
+#                        venv) AND at *build* time on the Singularity Desktop
+#                        build host (subprojects/singularity-gestures/
+#                        scripts/bootstrap-runtime.sh hardcodes
+#                        /usr/bin/python3.12 to extract libmediapipe.so from
+#                        a cp312 MediaPipe wheel — see
+#                        build/build-singularity-podman.sh for the build-
+#                        container provisioning step). Sibling of 46-python311,
+#                        same offline-first tarball mechanism.
 #   47-embedkit        → /opt/ncz/embed-venv (py3.11) + installs the libnoe wheel;
 #                        ship-critical libnoe import smoke. Ordered AFTER 25+46.
 #   80-npu             → validated armchina_npu.ko (ARCH_V3 fix) → updates/ for
@@ -140,7 +152,7 @@ NCZ_BAKED=0
 # Neither produced a single line in /var/log/cix-install/ -- there is no log
 # for a hook that was never invoked, which is exactly why this went unnoticed
 # across multiple ISO revisions.
-MACHINE_HOOKS_RE="^(12-sky1-firmware|15-mesa-sky1-pin|16-mesa-gpu-2613|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|25-live-browser-art|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|19-sinty-nm|33-network|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize)\.sh$"
+MACHINE_HOOKS_RE="^(12-sky1-firmware|15-mesa-sky1-pin|16-mesa-gpu-2613|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|25-live-browser-art|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|19-sinty-nm|33-network|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|46-python312|47-embedkit|47-llm-stack|48-server-variant|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)

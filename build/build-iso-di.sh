@@ -3189,6 +3189,18 @@ else
     echo "    python311 (NPU uv venv): NOT staged — NPU-from-Python will need network at install (uv fetches 3.11)"
 fi
 
+# r-build: relocatable CPython 3.12 — consumed by 46-python312.sh (shipped
+# system, 47-embedkit.sh's python3.12 fallback for the NPU venv becomes
+# real) AND by build/build-singularity-podman.sh (Singularity Desktop build
+# container, where gesture-runtime's bootstrap-runtime.sh hardcodes
+# /usr/bin/python3.12 to extract libmediapipe.so). Same gitignored blob dir
+# convention as python311; build with build/build-python312-assets.sh.
+if [ -d "$EXTRA/assets/python312" ]; then
+    echo "    python312 (gesture runtime + embedkit fallback): $(du -sh "$EXTRA/assets/python312" | cut -f1) — $(find "$EXTRA/assets/python312" -maxdepth 1 -type f | wc -l | tr -d ' ') file(s)"
+else
+    echo "    python312: NOT staged — gesture-runtime build will fail (no /usr/bin/python3.12 in build container) AND embedkit's python3.12 fallback will be a silent no-op"
+fi
+
 # r104: validated kernel-module overlays (e.g. armchina_npu.ko with ARCH_V3 +
 # iova_region=2 fixes). The 'kernel' subdir is special-cased above so only
 # stable/+edge/ get staged — explicitly stage modules-overlay/ so 80-npu.sh
