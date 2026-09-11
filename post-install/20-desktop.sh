@@ -273,12 +273,12 @@ echo "[20] diagnostics: systemd-coredump installed, G_MESSAGES_DEBUG=all set"
 # runs. The package postinst owns ldconfig setup.
 # ---------------------------------------------------------------------------
 echo "[20] installing Singularity Desktop payload"
-UPOWER_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'upower_*.deb' 2>/dev/null | sort -V | tail -1)
+UPOWER_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'upower_*.deb' 2>/dev/null | sort -V | tail -1 || true)
 if [ -n "$UPOWER_DEB" ] && ! dpkg-query -W -f='${Status}\n' upower 2>/dev/null | grep -q '^install ok installed$'; then
     echo "[20] using embedded upower deb: $(basename "$UPOWER_DEB")"
     dpkg -i --force-depends "$UPOWER_DEB" || true
 fi
-SINTY_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1)
+SINTY_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1 || true)
 if [ -n "$SINTY_DEB" ]; then
     echo "[20] using embedded payload deb: $(basename "$SINTY_DEB")"
     dpkg -i "$SINTY_DEB"

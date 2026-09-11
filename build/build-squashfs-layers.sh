@@ -471,7 +471,7 @@ $_found"
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       set +e
-      sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3
+      sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -200
       hook_rc=${PIPESTATUS[0]}
       set -e
       if [ "$hook_rc" -ne 0 ]; then
