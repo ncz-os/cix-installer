@@ -14,10 +14,39 @@
 #     apt-cache for ncz-wallpapers-* packages whose apt candidate is under a
 #     configured source, emits JSON. Called directly by the shell.
 #   /usr/local/bin/ncz-wallpaper-pack-install    — privileged (pkexec only);
-#     re-derives and re-checks the trusted source list itself before calling
-#     apt-get, rather than trusting the caller's argv. apt-get install on an
-#     already-installed package is a no-op (exit 0), so this is idempotent
-#     by construction -- no separate "already installed" branch is needed.
+#     takes the package AND the source URI the inventory step already
+#     resolved, then independently re-checks BOTH against the apt sources
+#     actually configured on this system (/etc/apt/sources.list.d/
+#     ncz-os-apt-*.list -- a plain root-owned file, not a per-user GSettings
+#     read) and against the package's live apt candidate, before calling
+#     apt-get. apt-get install on an already-installed package is a no-op
+#     (exit 0), so this is idempotent by construction -- no separate
+#     "already installed" branch is needed.
+#
+#     Earlier revision of this script had the privileged helper re-read the
+#     `artist-pack-apt-sources` GSettings key itself via `gsettings get` as
+#     root under pkexec. That is a real trust-boundary bug, not just an
+#     unverified caveat: GSettings/dconf resolves per-EUID, root's dconf
+#     "user" profile is not the desktop user's, and pkexec does not carry
+#     the invoking user's session/env across the privilege boundary. In
+#     THIS specific case the read would likely still have landed on the
+#     right value (nobody ever runs `gsettings set` on this key -- there is
+#     no UI control for it -- so both root and the desktop user fall
+#     through to the same build-time-compiled schema default at a fixed
+#     system path), but relying on that is fragile and the wrong invariant
+#     for a privileged trust check: it stops being safe the moment anyone
+#     ever does run `gsettings set` on this key by hand (e.g. to narrow the
+#     trusted list on a running system), because root's read would silently
+#     keep validating against the wider, stale compiled default instead of
+#     the intended live value -- a fail-OPEN, not fail-closed, direction.
+#     Fixed by moving the privileged side off GSettings entirely: it now
+#     checks the caller-supplied source against the plain, root-owned apt
+#     sources files 24-apt-sources.sh already writes, which is both simpler
+#     and a more literal reading of "the artist pack source is set at a
+#     config level from apt" than a hand-synced GSettings shadow-copy of
+#     the same two URIs. The unprivileged inventory script keeps reading
+#     GSettings -- that runs in the normal desktop session, where dconf
+#     behaves exactly as expected, so there is no reason to move it too.
 #   /usr/share/polkit-1/actions/dev.sinty.desktop.artist-pack-install.policy
 #     — scopes pkexec to exactly the install helper above, nothing broader.
 #
@@ -124,7 +153,7 @@ cat > /usr/local/bin/ncz-wallpaper-pack-install <<'INSTALLHELPER'
 #!/bin/sh
 # ncz-wallpaper-pack-install — privileged, single-purpose Artist Pack
 # installer. Installed root:root 0755; invoked ONLY via
-# `pkexec ncz-wallpaper-pack-install <package>` (see the
+# `pkexec ncz-wallpaper-pack-install <package> <source-uri>` (see the
 # dev.sinty.desktop.artist-pack-install polkit action) by
 # singularity-shell's ArtistPackManager. Never call this directly as a
 # general-purpose apt wrapper.
@@ -133,19 +162,32 @@ cat > /usr/local/bin/ncz-wallpaper-pack-install <<'INSTALLHELPER'
 # version is a no-op that still exits 0, so re-running this on an
 # already-installed pack is a safe, repeatable success, not an error.
 #
-# Defense in depth: this script does NOT trust its argv package name just
-# because it matched the naming pattern. It re-derives the trusted apt
-# source list from the SAME dev.sinty.desktop `artist-pack-apt-sources`
-# GSettings key the (unprivileged) inventory script reads, and refuses to
-# install anything whose apt candidate is not actually from one of those
-# sources -- the caller (a GUI button) already claims to have checked this,
-# but a pkexec entry point must not rely on the caller having checked
-# anything.
+# Defense in depth, done WITHOUT touching GSettings: this script does not
+# trust either argv value just because the caller (a GUI button) claims to
+# have already checked them. It cross-checks the supplied <source-uri>
+# against TWO independent, session-independent facts instead:
+#
+#   1. it must be a base URI actually wired as an NCZ-OS apt source on THIS
+#      system -- i.e. present in one of the plain, root-owned
+#      /etc/apt/sources.list.d/ncz-os-apt-*.list files 24-apt-sources.sh
+#      writes. These are the ONLY apt sources this hook (or 24-apt-sources.sh)
+#      ever adds, GPG-signed, and readable identically by any UID -- unlike a
+#      GSettings/dconf read, which resolves per-EUID and does NOT behave the
+#      same for a pkexec-elevated root process as it does for the desktop
+#      user's own session. See 49-artist-pack-browser.sh's header for why an
+#      earlier revision's `gsettings get ... as root` re-check was dropped.
+#   2. the package's LIVE apt candidate (`apt-cache madison`, queried fresh,
+#      right now) must actually resolve to that same source URI -- so this
+#      never trusts the caller's claim about where a package would come
+#      from, only what apt itself currently reports.
+#
+# Both checks must pass before apt-get ever runs.
 set -eu
 
 PKG="${1:-}"
-if [ -z "$PKG" ]; then
-    echo "usage: ncz-wallpaper-pack-install <package>" >&2
+SRC="${2:-}"
+if [ -z "$PKG" ] || [ -z "$SRC" ]; then
+    echo "usage: ncz-wallpaper-pack-install <package> <source-uri>" >&2
     exit 2
 fi
 case "$PKG" in
@@ -164,36 +206,37 @@ case "$PKG" in
         ;;
 esac
 
-SSD=/opt/singularity/share/glib-2.0/schemas
-gs_get_sources() {
-    if command -v gsettings >/dev/null 2>&1 && [ -d "$SSD" ]; then
-        GSETTINGS_SCHEMA_DIR="$SSD" gsettings get dev.sinty.desktop artist-pack-apt-sources 2>/dev/null || true
+# Check 1: SRC must be a base URI actually configured as an NCZ-OS apt
+# source on this system -- read directly from the plain root-owned apt
+# sources files, never from GSettings.
+CONFIGURED=0
+for f in /etc/apt/sources.list.d/ncz-os-apt-*.list; do
+    [ -e "$f" ] || continue
+    if grep -qF -- "$SRC" "$f" 2>/dev/null; then
+        CONFIGURED=1
+        break
     fi
-}
-SOURCES_RAW=$(gs_get_sources)
-SOURCES=$(printf '%s' "$SOURCES_RAW" | grep -oE "'[^']*'" | tr -d "'" | tr '\n' ' ')
-SOURCES=$(printf '%s' "$SOURCES" | sed 's/[[:space:]]*$//')
-if [ -z "$SOURCES" ]; then
-    echo "refusing to install '$PKG': no artist-pack-apt-sources are configured" >&2
+done
+if [ "$CONFIGURED" -ne 1 ]; then
+    echo "refusing to install '$PKG': '$SRC' is not a configured NCZ-OS apt source (checked /etc/apt/sources.list.d/ncz-os-apt-*.list)" >&2
     exit 1
 fi
 
-CAND_URI=$(apt-cache madison "$PKG" 2>/dev/null | ARTISTPACK_SOURCES="$SOURCES" awk -F'|' '
+# Check 2: the package's LIVE apt candidate must actually come from SRC --
+# re-derived fresh from apt-cache, never trusted from argv alone.
+CAND_URI=$(apt-cache madison "$PKG" 2>/dev/null | ARTISTPACK_SRC="$SRC" awk -F'|' '
     {
         uri = $3
         gsub(/^[ \t]+/, "", uri)
         n = split(uri, uriparts, " ")
         base = uriparts[1]
-        m = split(ENVIRON["ARTISTPACK_SOURCES"], srcs, " ")
-        for (i = 1; i <= m; i++) {
-            if (index(base, srcs[i]) == 1) {
-                print base
-                exit
-            }
+        if (index(base, ENVIRON["ARTISTPACK_SRC"]) == 1) {
+            print base
+            exit
         }
     }')
 if [ -z "$CAND_URI" ]; then
-    echo "refusing to install '$PKG': its apt candidate is not from a configured artist-pack-apt-sources entry" >&2
+    echo "refusing to install '$PKG': its apt candidate is not from '$SRC'" >&2
     exit 1
 fi
 
@@ -229,6 +272,8 @@ POLKIT
 chmod 0644 /usr/share/polkit-1/actions/dev.sinty.desktop.artist-pack-install.policy
 echo "[49]   polkit action installed: dev.sinty.desktop.artist-pack-install"
 
-echo "[49] Artist Pack browser backend installed. Trusted source(s) come from"
+echo "[49] Artist Pack browser backend installed. The browse/list side trusts"
 echo "[49] dev.sinty.desktop artist-pack-apt-sources (set by 20-desktop.sh's"
-echo "[49] gschema override), not from anything in this hook."
+echo "[49] gschema override); the privileged install side independently"
+echo "[49] cross-checks against the actual configured apt sources on disk"
+echo "[49] (/etc/apt/sources.list.d/ncz-os-apt-*.list) instead of GSettings."

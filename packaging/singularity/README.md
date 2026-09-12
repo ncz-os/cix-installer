@@ -88,19 +88,26 @@ the naming convention `build/build-wallpaper-contrib-deb.sh` uses) that are
 available or already installed, with an Install button per pack.
 
 **The apt source is config, not code — this is the point of the feature.**
-`ArtistPackManager` never touches apt, GSettings, or a URL itself. It shells
-out to two distro-provided scripts resolved by name via `PATH`:
+`ArtistPackManager` never touches apt or a URL itself. It shells out to two
+distro-provided scripts resolved by name via `PATH`:
 `ncz-wallpaper-pack-inventory` (unprivileged, lists) and
 `ncz-wallpaper-pack-install` (root, via `pkexec`, installs). Both are
-installed by `post-install/49-artist-pack-browser.sh` in this repo, and both
-read which apt source(s) to trust from the `artist-pack-apt-sources`
-GSettings key at RUNTIME — never from a literal in either the Vala UI or the
-shell scripts. The key's actual value for this distro is set the same way
-every other `dev.sinty.desktop` default is (accent color, dark mode,
-wallpaper, pinned apps): a packaged `.gschema.override` written by
-`post-install/20-desktop.sh`, kept in sync with the two sources
-`post-install/24-apt-sources.sh` wires. A different build variant swaps the
-override's value — nothing in either patch changes.
+installed by `post-install/49-artist-pack-browser.sh` in this repo. The
+inventory script reads which apt source(s) to trust for BROWSING from the
+`artist-pack-apt-sources` GSettings key at RUNTIME — never from a literal in
+the Vala UI or the shell scripts. The key's actual value for this distro is
+set the same way every other `dev.sinty.desktop` default is (accent color,
+dark mode, wallpaper, pinned apps): a packaged `.gschema.override` written by
+`post-install/20-desktop.sh`. A different build variant swaps the override's
+value — nothing in either patch changes.
+
+**The privileged install step does NOT use GSettings at all — see "Trust
+boundary fix" below.** It re-derives trust directly from the apt sources
+actually configured on the system
+(`/etc/apt/sources.list.d/ncz-os-apt-*.list`, the same plain files
+`post-install/24-apt-sources.sh` writes), plus a fresh, live `apt-cache
+madison` check. This is a deliberate, reviewed change from the first
+prototype of this feature (see below) — not an oversight.
 
 A distribution that never applies these two patches, or that applies them
 but never ships the two backend scripts, simply never sees the Artist Pack
@@ -108,51 +115,135 @@ browser section: `ArtistPackManager.is_available()` checks for
 `ncz-wallpaper-pack-inventory` on `PATH` and the whole group is skipped when
 it's absent. The feature is additive, not a hard dependency of the shell.
 
-**Verified without a full build** (no meson/vala toolchain in this
-sandbox): `data/dev.sinty.desktop.gschema.xml` parses and
-`glib-compile-schemas` accepts the new key; a `.gschema.override` setting it
-compiles clean under `--strict`; the SAME override compiles clean (with the
-unknown key silently ignored, matching `20-desktop.sh`'s own non-`--strict`
-invocation) against the schema WITHOUT this patch, so shipping the
-20-desktop.sh override ahead of this patch landing does not break the
-existing accent/dark-mode/wallpaper/pinned-apps overrides it sits next to;
-and both shell scripts embedded in `post-install/49-artist-pack-browser.sh`
-were run byte-for-byte against faked `apt-cache`/`apt-get`/`dpkg-query`/
-`gsettings`, exercising: a trusted-source package listed correctly,
-an untrusted-source package excluded even though its name matches the
-`ncz-wallpapers-*` convention, an already-installed pack reported
-`"installed":true`, and the install helper refusing a shell-metacharacter
-package name, a non-Artist-Pack name, and an untrusted-source package name.
-The Vala itself is unverified by a compiler — this sandbox cannot build the
-full GTK4/libsingularity toolchain — so review it as such before merging.
+**Verified with a real toolchain, on ULTRA (arm64 Fedora Asahi Remix), not
+just brace-balance checking:**
 
-**Known caveat, not verified either way on real hardware:**
-`ncz-wallpaper-pack-install` re-reads `artist-pack-apt-sources` via
-`gsettings get` while running AS ROOT under `pkexec`, to re-derive the
-trusted source list rather than trust its own argv. `gsettings`/dconf
-resolves values per-EUID, and root invoked through `pkexec` does not
-inherit the invoking user's dconf session — whether that read then falls
-back correctly to the schema's COMPILED default (the `.gschema.override`
-`20-desktop.sh` bakes in at install time, which is what this value is in
-the common case where no one has ever run `gsettings set` on this key) or
-instead sees an empty/default-empty value depends on dconf backend
-behaviour under a session-less root invocation that this sandbox has no way
-to exercise. If it resolves incorrectly, the failure mode is closed, not
-open: an empty read makes the helper refuse every install with "no
-artist-pack-apt-sources are configured" (see the script's own error path)
-rather than silently trusting an unintended source. Confirm this on real
-hardware (`pkexec ncz-wallpaper-pack-install ncz-wallpapers-<pack>` on an
-installed system with the override in place) before relying on the install
-path; if it does fail closed, the fix is to have the Vala caller pass the
-already-resolved source list as an argv (still re-validated, not trusted
-blindly) rather than have the privileged helper re-derive it from a
-GSettings read that may not resolve the same way root and the desktop
-session do.
+* `data/dev.sinty.desktop.gschema.xml` (patched) parses and
+  `glib-compile-schemas --strict` accepts the new key; a `.gschema.override`
+  setting it compiles clean under `--strict`; the SAME override against the
+  UNPATCHED schema compiles clean under a plain (non-`--strict`) invocation
+  with the unknown key silently ignored (matching `20-desktop.sh`'s own
+  non-`--strict` call) and correctly FAILS under `--strict` — so shipping
+  the `20-desktop.sh` override ahead of this patch landing does not break
+  the existing accent/dark-mode/wallpaper/pinned-apps overrides it sits
+  next to. All three outcomes reproduced exactly as claimed, with real
+  `glib-compile-schemas`.
+* **`patches/0002-shell-artist-pack-browser.patch` was rebased onto current
+  singularity-shell `master` and built with a REAL `meson setup` +
+  `meson compile` on ULTRA** (subprojects `libsingularity` +
+  `singularity-loginui`, GTK4/libadwaita/Vala toolchain, not simulated).
+  First attempt failed with a real compiler error the original prototype's
+  brace/paren-balance check could not have caught:
+  `` ../src/core/artist_pack_manager.vala:12.35-12.40: error: `Object' is an
+  ambiguous reference between `GLib.Object' and `Json.Object' `` — the file
+  does `using Json;` alongside `using GLib;`, so bare `Object` as a base
+  class is ambiguous. Fixed by qualifying both classes as `GLib.Object`
+  explicitly. After that fix the patched `singularity-shell` builds clean
+  (`ninja -C build`, zero errors, only pre-existing warnings unrelated to
+  this feature) and produces a working `singularity-desktop` binary.
+* Both shell scripts embedded in `post-install/49-artist-pack-browser.sh`
+  were run against faked `apt-cache`/`apt-get`/`dpkg-query`/`gsettings`,
+  exercising: a trusted-source package listed correctly, an
+  untrusted-source package excluded despite matching the
+  `ncz-wallpapers-*` name convention, empty-sources returning `[]` rather
+  than hanging/crashing, and the install helper refusing (a) a
+  shell-metacharacter package name, (b) a non-Artist-Pack name, (c) a
+  source URI absent from `/etc/apt/sources.list.d/ncz-os-apt-*.list`
+  entirely, (d) a configured-but-mismatched source where the package's
+  LIVE apt candidate actually resolves elsewhere, while (e) a genuinely
+  trusted, configured, live-matching install and (f) a re-install of an
+  already-installed pack both correctly reach `apt-get`.
+* **The empty-inventory case — the single most important behavior, since
+  it is the actual current production state — was verified against the
+  REAL, LIVE apt repos, not a fixture.** Fetched
+  `dists/any/main/binary-arm64/Packages` from both
+  `packages.buildkite.com/ncz-os/ncz/any/` (primary) and the Cloudflare R2
+  backup directly: 76 real packages exist between them, zero are named
+  `ncz-wallpapers-*`. Then ran the actual (unmodified)
+  `ncz-wallpaper-pack-inventory` script against a real, isolated
+  `apt-get update` of both live indexes (arm64) — it printed exactly `[]`,
+  no crash, no hang, no placeholder entry. The Vala side already renders a
+  `packs.size == 0` result as a plain "No Artist Packs available" row (see
+  `populate_artist_packs_async()` in the shell patch), so the end-to-end
+  empty state is what a real install would show today.
 
-## Rebuilding with all three patches
+### Trust boundary fix: install helper no longer reads GSettings as root
+
+The FIRST prototype of this feature had `ncz-wallpaper-pack-install`
+re-read the `artist-pack-apt-sources` GSettings key itself, via
+`gsettings get`, while running AS ROOT under `pkexec` — flagged at the time
+as an unverified caveat. Investigated properly rather than shipped as-is:
+
+GSettings/dconf resolves per-EUID. A `pkexec`-elevated root process does
+not share the desktop user's dconf session, so `gsettings get` as root
+consults root's own (essentially always-empty) dconf "user" profile, not
+the desktop user's, and falls through to the schema's build-time-compiled
+default at a fixed system path
+(`/opt/singularity/share/glib-2.0/schemas`). In THIS specific case that
+default happens to be reachable identically for both root and the desktop
+user, because nothing exposes a UI control to `gsettings set` this key at
+runtime — so the two would likely read the same value today. But relying
+on that is the wrong invariant for a privileged trust check: the moment
+anyone ever DOES run `gsettings set` on this key by hand (e.g. to narrow
+the trusted source list on a running system), root's read would silently
+keep validating against the wider, stale COMPILED default instead of the
+narrower live value — a fail-**open** direction, not the fail-closed one
+the original caveat assumed, and exactly the kind of drift a privileged
+re-check exists to prevent.
+
+**Fix:** the privileged path no longer touches GSettings at all.
+`ncz-wallpaper-pack-install` now takes the package name AND the source URI
+the inventory step already resolved
+(`ArtistPackManager.install_async(package, source)` →
+`pkexec ncz-wallpaper-pack-install <package> <source-uri>`), and
+independently re-validates that pairing against two session-independent
+facts: (1) the source URI must appear in one of the plain, root-owned
+`/etc/apt/sources.list.d/ncz-os-apt-*.list` files `24-apt-sources.sh`
+already writes — filesystem truth, identical for every UID, no dconf
+involved; and (2) the package's LIVE `apt-cache madison` candidate,
+queried fresh at install time, must actually resolve to that same URI —
+so the caller's claim is still never trusted blindly. This is also a more
+literal reading of the operator's "the artist pack source has to be set at
+a config level from apt" than a hand-synced GSettings shadow-copy of the
+same two URIs: it validates directly against apt's own configured sources
+rather than a parallel list that has to be kept in sync by hand. The
+unprivileged inventory script is unchanged and still reads GSettings
+normally — it runs in the desktop user's own session, where dconf behaves
+exactly as expected, so there was never a reason to move it.
+
+### polkit `.policy` + `pkexec`, not a D-Bus system daemon
+
+This codebase's actual pattern for privileged system changes elsewhere is
+a D-Bus call to a system daemon owning its own polkit action (e.g.
+`org.freedesktop.hostname1`-style). No existing `pkexec`+apt or
+PackageKit precedent was found anywhere in `singularity-shell` or its
+sibling repos, and that remains true after this pass (confirmed by
+grepping this repo's own `post-install/*.sh` for prior polkit usage: only
+mentions of udisks' own polkit action, nothing this repo added itself).
+
+Kept the prototype's `pkexec` + standalone-`.policy` approach rather than
+reworking it into a D-Bus daemon. Reasoning: the action is narrowly scoped
+(`org.freedesktop.policykit.exec.path` pins it to exactly one
+single-purpose script, not a general "run anything as root" grant), it is
+real polkit either way (same authentication UI, same admin-auth
+semantics), and standing up a whole system daemon for one install action
+would be materially more code and attack surface for a curated
+wallpaper-pack installer than the risk actually warrants. If a THIRD
+privileged action is ever added to this desktop, that would be the point
+to reconsider centralizing on a daemon; for a single action, `pkexec` +
+a tightly scoped `.policy` is proportionate.
+
+## Rebuilding with the Artist Pack patches
 
     SINGULARITY_REF=<pinned-ref> build/build-singularity.sh
 
-until all three land upstream, apply everything in `patches/` (numeric
-order) to the cloned `singularity-desktop` tree — schema patch at the repo
-root, shell patch inside `subprojects/singularity-shell` — before building.
+Open upstream PRs, both built and verified as described above:
+
+* `singularityos-lab/singularity-desktop` PR #252 (schema patch)
+* `singularityos-lab/singularity-shell` PR #28 (shell patch)
+
+Until both land, apply `patches/` in numeric order to the cloned
+`singularity-desktop` tree — the schema patch at the repo root, the shell
+patch inside `subprojects/singularity-shell` — before building. (PR #15,
+the layer-shell fix documented above, has already landed upstream; its
+patch file is retired from this directory.)
