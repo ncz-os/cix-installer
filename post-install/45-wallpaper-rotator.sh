@@ -113,7 +113,12 @@ _ini_get() {  # <file> <section> <key>
 
 _files_in() {  # <dir> -> image paths, one per line
     [ -d "$1" ] || return 0
-    find "$1" -maxdepth 1 -type f \
+    # -L: consolidate() (45-wallpaper-rotator.sh) exposes deduplicated bing
+    # images as symlinks, not real files -- plain `find -type f` reports
+    # type "l" for a symlink regardless of what it points to and silently
+    # matches nothing, which is exactly how this returned a false "0 images"
+    # count against a real, populated consolidated/ directory (2026-09-12).
+    find -L "$1" -maxdepth 1 -type f \
         \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) 2>/dev/null | sort
 }
 
@@ -166,7 +171,7 @@ cmd_list() {
         case "$type" in
             provider)
                 case "$(_ini_get "$f" Collection Provider)" in
-                    bing) cnt=$(find "${dir:-/var/cache/ncz-wallpapers/bing}" -mindepth 2 -maxdepth 2 -type f -iname '*.jpg' 2>/dev/null | wc -l) ;;
+                    bing) cnt=$(find -L "${dir:-/var/cache/ncz-wallpapers/bing}" -mindepth 2 -maxdepth 2 -type f -iname '*.jpg' 2>/dev/null | wc -l) ;;
                     *) cnt=$(_files_in "${dir:-/var/cache/ncz-wallpapers/$(_ini_get "$f" Collection Provider)}" | wc -l) ;;
                 esac
                 ;;
@@ -517,6 +522,34 @@ def archive_entries(markets):
             entries.append((date, market, image, meta))
     return sorted(entries, key=lambda item: (item[0], item[1], str(item[2])), reverse=True)
 
+def deduped_archive_entries(markets):
+    # cmd_pick()/cmd_latest()/cmd_info() calling archive_entries() directly
+    # when "all" markets are configured gives duplicated photos proportionally
+    # more weight in random.choice() -- a photo Bing served to 5 markets was
+    # 5x likelier to be picked for rotation than a genuinely unique one, since
+    # entries() lists one row per (market, date) pair, not per unique image.
+    # When "all" is configured, read the already-deduplicated consolidate()
+    # manifest instead, so every unique photo gets equal odds. A single/subset
+    # market selection has nothing to de-duplicate, so it keeps using the
+    # plain per-market entries unchanged.
+    if not is_all_markets_configured():
+        return archive_entries(markets)
+    index_path = consolidated_dir() / "index.json"
+    if not index_path.exists():
+        return archive_entries(markets)
+    try:
+        manifest = json.loads(index_path.read_text())
+    except (OSError, ValueError):
+        return archive_entries(markets)
+    entries = []
+    for item in manifest:
+        path = Path(item.get("path", ""))
+        if not path.exists():
+            continue
+        meta = {"caption": item.get("caption", ""), "copyright": item.get("copyright", "")}
+        entries.append((item.get("date", ""), item.get("market", ""), path, meta))
+    return sorted(entries, key=lambda item: (item[0], item[1], str(item[2])), reverse=True) or archive_entries(markets)
+
 def ensure_thumb(meta):
     urlbase = meta.get("urlbase", "")
     market = meta.get("market", "")
@@ -544,21 +577,21 @@ def cmd_fetch(_args):
     return 0 if total or archive_entries(markets) else 1
 
 def cmd_pick(_args):
-    entries = archive_entries(configured_markets())
+    entries = deduped_archive_entries(configured_markets())
     if not entries:
         return 1
     print(random.choice(entries)[2])
     return 0
 
 def cmd_latest(_args):
-    entries = archive_entries(configured_markets())
+    entries = deduped_archive_entries(configured_markets())
     if not entries:
         return 1
     print(entries[0][2])
     return 0
 
 def cmd_info(_args):
-    entries = archive_entries(configured_markets())
+    entries = deduped_archive_entries(configured_markets())
     if not entries:
         return 1
     meta = entries[0][3]
