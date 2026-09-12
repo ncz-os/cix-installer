@@ -21,8 +21,24 @@
 #
 # Mechanism (mirrors 80-npu.sh's overlay step): install the overlay to
 # /usr/lib/modules/$KVER/updates/amvx.ko, which takes depmod precedence over the
-# in-tree kernel/ copy, then depmod. amvx auto-loads at boot via the Sky1 ACPI
-# match (CIXH3010 -> amvx_dev), so no modules-load.d / initrd change is needed.
+# in-tree kernel/ copy, then depmod.
+#
+# NCZ 26.7 (O6N 7.2.5-sky1-ncz hardware validation, 2026-09-12): the assumption
+# above -- "amvx auto-loads at boot via the Sky1 ACPI match (CIXH3010), so no
+# modules-load.d change is needed" -- is WRONG in practice and was never
+# actually true unattended. Measured directly on O6N: modules.alias correctly
+# has "alias acpi*:CIXH3010:* amvx", /sys/bus/acpi/devices/CIXH3010:00 exists
+# with a matching modalias, depmod ran correctly -- and amvx STILL did not
+# autoload at boot (no driver bound, confirmed via the missing
+# .../CIXH3010:00/driver symlink). A plain modprobe amvx afterwards binds
+# it instantly with zero errors, so the module and match are both fine; this
+# is a udev-coldplug timing gap (the ACPI device enumerates very early, before
+# systemd-udevd's post-switch-root coldplug re-trigger reliably re-evaluates
+# it against the real root's module set) -- the exact same class of problem
+# 80-npu.sh already had to work around for aipu, which is why NPU does NOT
+# rely on modalias either. Fixed the same way below: explicit
+# /etc/modules-load.d/ncz-vpu.conf, independent of whether an amvx overlay
+# was applied this run.
 #
 # Only the NEXT kernel (7.0.x-cix-sky1-next) ships an overlay; LTS is skipped
 # (no overlay present -> the working in-tree LTS amvx is used). A vermagic guard
@@ -101,5 +117,25 @@ for i in "${!KERNEL_VERS[@]}"; do
     depmod -a "$KVER" 2>/dev/null
     echo "[81] $LABEL/$KVER: applied validated amvx overlay (vb2 q->lock fix, vermagic $OVM) -> updates/"
 done
+
+# --- Step: auto-load on boot (mirrors 80-npu.sh's ncz-npu.conf step) ---
+# See the header comment above for why this is needed despite amvx carrying a
+# correct ACPI modalias -- kernel-agnostic, so written once regardless of
+# which KVER(s) were processed above or whether an overlay was applied.
+mkdir -p /etc/modules-load.d
+cat > /etc/modules-load.d/ncz-vpu.conf << 'EOF'
+# NCZ 26.7: Cix Sky1 Linlon MVX (VPU) driver
+# Probes CIXH3010:00 -> amvx_dev; creates /dev/video-cixdec0 (decode) and
+# /dev/video-cixenc0 (encode).
+#
+# amvx carries a correct ACPI modalias (acpi*:CIXH3010:*) and modules.alias is
+# generated correctly by depmod -- but it still does not reliably autoload via
+# udev coldplug alone (measured on O6N 2026-09-12: alias present, ACPI device
+# present, driver NOT bound after boot, modprobe amvx afterwards binds
+# instantly). Same udev-coldplug-timing class of gap as aipu/NPU (see
+# 80-npu.sh's ncz-npu.conf comment) -- list it explicitly rather than rely on
+# modalias autoload.
+amvx
+EOF
 
 exit 0
