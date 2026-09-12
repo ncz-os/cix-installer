@@ -272,6 +272,33 @@ API = "https://www.bing.com/HPImageArchive.aspx"
 BACKFILL = ((0, 8), (7, 8))
 MARKET_RE = re.compile(r"^[A-Za-z]{2}-[A-Za-z]{2}$")
 DATE_RE = re.compile(r"^[0-9]{8}$")
+# The 14 markets Bing's HPImageArchive API genuinely serves that this
+# rotator supports. This is the "all" sentinel expands to (see
+# configured_markets() below) and the list cmd_markets() advertises --
+# both are derived from the same tuple so they cannot drift apart again.
+# Kept in sync with singularity-shell's BING_MARKETS_TABLE
+# (src/components/sidebar/pages/desktop_page.vala), which is the UI half
+# of this contract; en-AU was present here but missing there, and
+# fr-CA/pt-BR/es-ES/it-IT/en-IN/ko-KR were present there but missing
+# here -- this is the union of both, grouped Americas/Europe/Asia-Pacific
+# to match the UI's picker dialog.
+MARKET_NAMES = (
+    ("en-US", "United States"),
+    ("en-CA", "Canada English"),
+    ("fr-CA", "Canada French"),
+    ("pt-BR", "Brazil"),
+    ("en-GB", "United Kingdom"),
+    ("fr-FR", "France"),
+    ("de-DE", "Germany"),
+    ("es-ES", "Spain"),
+    ("it-IT", "Italy"),
+    ("en-IN", "India"),
+    ("ja-JP", "Japan"),
+    ("zh-CN", "China"),
+    ("ko-KR", "South Korea"),
+    ("en-AU", "Australia"),
+)
+DEFAULT_MARKETS = tuple(code for code, _ in MARKET_NAMES)
 
 def quiet():
     return bool(os.environ.get("NCZ_BING_QUIET"))
@@ -294,6 +321,15 @@ def configured_markets():
             text = single.read_text(errors="ignore")
     if not text:
         text = os.environ.get("NCZ_BING_MARKET", "")
+    # singularity-shell's "All Markets" selector writes the literal
+    # sentinel "all" (write_bing_markets_all(), a single line "all\n") to
+    # ~/.config/ncz-wallpaper/bing-markets. "all" never matches MARKET_RE
+    # (it isn't a 2-letter-dash-2-letter code), so without this check it
+    # was silently dropped by the per-token filter below and this
+    # function fell through to its "no valid tokens" default of just
+    # ["en-US"] -- "All Markets" was fetching/showing only one market.
+    if text.strip().lower() == "all":
+        return list(DEFAULT_MARKETS)
     markets = []
     seen = set()
     for market in split_tokens(text or "en-US"):
@@ -548,14 +584,12 @@ def cmd_pin(args, pinned):
     return 0
 
 def cmd_markets(_args):
-    print("en-US\tUnited States")
-    print("en-GB\tUnited Kingdom")
-    print("en-AU\tAustralia")
-    print("en-CA\tCanada")
-    print("de-DE\tGermany")
-    print("fr-FR\tFrance")
-    print("ja-JP\tJapan")
-    print("zh-CN\tChina")
+    # Advertise the same 14-market list "all" expands to (MARKET_NAMES
+    # above) -- this used to hardcode its own 8-market subset that had
+    # drifted out of sync with both configured_markets()'s "all" list and
+    # singularity-shell's BING_MARKETS_TABLE picker.
+    for code, name in MARKET_NAMES:
+        print(f"{code}\t{name}")
     return 0
 
 cmd = sys.argv[1] if len(sys.argv) > 1 else "fetch"
