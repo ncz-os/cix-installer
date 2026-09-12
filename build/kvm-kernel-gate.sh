@@ -49,7 +49,7 @@ fail() { echo "GATE: FAIL — $*" >&2; echo "  boot log: $LOG" >&2; exit 1; }
 [ -f "$CONFIG" ] || fail "no kernel .config found next to $IMAGE (pass one explicitly)"
 
 echo "=== kvm-kernel-gate ==="
-echo "  Image : $IMAGE ($(stat -c%s "$IMAGE") bytes)"
+echo "  Image : $IMAGE ($(stat -Lc%s "$IMAGE") bytes)"
 echo "  Config: $CONFIG"
 
 # ---------------------------------------------------------------------------
