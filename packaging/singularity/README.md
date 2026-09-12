@@ -239,7 +239,12 @@ a tightly scoped `.policy` is proportionate.
 
 Open upstream PRs, both built and verified as described above:
 
-* `singularityos-lab/singularity-desktop` PR #252 (schema patch)
+* `singularityos-lab/singularity-desktop` PR #253 (schema patch — #252 was
+  closed and reopened as #253 after discovering it had been built against a
+  stale GitLab-mirrored `master` that had diverged from the real GitHub
+  `master` for this repo; GitHub is NOT a passive mirror of GitLab for
+  `singularity-desktop` the way it is for `cix-installer` — verify against
+  the actual GitHub base before opening a PR here in future)
 * `singularityos-lab/singularity-shell` PR #28 (shell patch)
 
 Until both land, apply `patches/` in numeric order to the cloned
