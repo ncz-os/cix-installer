@@ -333,8 +333,8 @@ timeout "$INSTALL_TIMEOUT" qemu-system-aarch64 \
   -serial "file:$S0" -serial "file:$S1" -serial "file:$S2" \
   -display none -no-reboot \
   > "$ILOG" 2>&1
-cat "$S0" "$S1" "$S2" >> "$ILOG" 2>/dev/null
 irc=$?
+cat "$S0" "$S1" "$S2" >> "$ILOG" 2>/dev/null
 date -u +"  ended   %H:%M:%SZ  (qemu rc=$irc)"
 
 grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i" "$ILOG" \
@@ -342,17 +342,33 @@ grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i" "$I
 
 # Hard failure markers, checked before any success marker so a real abort is
 # never masked by later output.
-if grep -qE "Failed to run preseeded command|failed with exit code|install aborts|FAILED rc=|refusing to ship a broken install|refusing to boot" "$ILOG"; then
+if grep -aqE "Failed to run preseeded command|failed with exit code|install aborts|FAILED rc=|refusing to ship a broken install|refusing to boot|Installation step failed|failing step is: Finish the installation" "$ILOG"; then
   echo "--- offending output ---" >&2
-  grep -nE -B3 -A6 "Failed to run preseeded command|failed with exit code|install aborts|FAILED rc=|refusing to ship a broken install|refusing to boot" "$ILOG" | head -50 >&2
-  fail "the preseed/late_command failed — this is the v11 defect class"
+  grep -anE -B3 -A6 "Failed to run preseeded command|failed with exit code|install aborts|FAILED rc=|refusing to ship a broken install|refusing to boot|Installation step failed|failing step is: Finish the installation" "$ILOG" | head -50 >&2
+  fail "d-i reported a failed install step — this is the v11 defect class"
 fi
 if grep -qE "Kernel panic - not syncing" "$ILOG"; then
   grep -nE -A10 "Kernel panic" "$ILOG" | head -30 >&2
   fail "kernel panic during install"
 fi
-grep -qE "post-install hooks finished|finalizing apt sources|forcing clean reboot|nclawzero post-install complete|Post-install completed successfully|Completed with optional-step warnings" "$ILOG" \
-  || fail "install did not reach the finish stage (timeout at ${INSTALL_TIMEOUT}s?) — see $ILOG"
+# The qemutest preseed suppresses d-i's final "Installation complete" note,
+# and late.sh deliberately reboots from inside 07preseed.  Its hook banners
+# are written to tty3/target logs and are not guaranteed to appear on the
+# serial newt frontend captured here.  With -no-reboot, QEMU exiting cleanly
+# is the wording-independent signal that the guest requested the final reboot;
+# timeout(1) returns 124 when d-i instead remains at a dialog or menu.
+case "$irc" in
+  0)   echo "  guest requested reboot; QEMU exited cleanly (-no-reboot)" ;;
+  124) fail "install did not request its final reboot before ${INSTALL_TIMEOUT}s — see $ILOG" ;;
+  *)   fail "QEMU exited unexpectedly during install (rc=$irc) — see $ILOG" ;;
+esac
+
+# These are useful breadcrumbs when their output happens to share the serial
+# frontend, but they are not the gate: successful unattended installs can
+# legitimately expose none of them here.
+if grep -aqE "Installation complete|installation is complete|install complete .*rebooting|post-install hooks finished|finalizing apt sources|forcing clean reboot|nclawzero post-install complete|Post-install completed successfully|Completed with optional-step warnings" "$ILOG"; then
+  echo "  finish-stage text observed on captured serial"
+fi
 
 echo "  install completed without a failed hook"
 grep -cE "^\s+v [0-9]+-" "$ILOG" 2>/dev/null | sed 's/^/  hooks reported done: /' || true
@@ -379,8 +395,8 @@ timeout "$BOOT_TIMEOUT" qemu-system-aarch64 \
   -serial "file:$WORK/boot-serial2.log" \
   -display none -no-reboot \
   > "$BLOG" 2>&1
-cat "$WORK"/boot-serial*.log >> "$BLOG" 2>/dev/null
 brc=$?
+cat "$WORK"/boot-serial*.log >> "$BLOG" 2>/dev/null
 echo "  qemu rc=$brc"
 
 grep -qE "Linux version|Booting Linux|Starting vmlinuz-" "$BLOG" \
@@ -389,6 +405,10 @@ if grep -qE "Kernel panic - not syncing|Internal error: Oops" "$BLOG"; then
   grep -nE -A12 "Kernel panic|Internal error: Oops" "$BLOG" | head -30 >&2
   fail "installed system panicked on boot"
 fi
+case "$brc" in
+  0|124) ;; # clean guest exit, or the expected host timeout after userspace
+  *) fail "QEMU exited unexpectedly during installed-system boot (rc=$brc) — see $BLOG" ;;
+esac
 if grep -qE "Welcome to|systemd\[1\]|Reached target|login:|Started .*getty" "$BLOG"; then
   echo "  installed system reached userspace"
 else
