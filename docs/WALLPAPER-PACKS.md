@@ -235,10 +235,19 @@ for that pack the overlay is duplicative. A pack should be able to declare
 ## 7. Remaining work
 
 1. `DesktopPage`: scan from the pack registry and recurse (this alone surfaces
-   17 wallpapers + Bing for the first time)
+   17 wallpapers + Bing for the first time) — **DONE**, fixed upstream on
+   `singularity-shell` `master` (commit `f628c86`); see
+   `AUTHOR-PACKS-2026-08-21.md`.
 2. pack selector, rotation controls, Bing feed picker
 3. OCS browse + import-as-pack
 4. generate the meta index
+5. Artist Pack browser: list + install *not-yet-installed* curated packs
+   (`ncz-wallpapers-*` debs) from apt, distinct from 1-4 above which are all
+   about packs already on disk. Patched, not yet upstream — see
+   `packaging/singularity/README.md` ("Artist Pack browser"). The apt
+   source(s) it trusts are config (`dev.sinty.desktop`
+   `artist-pack-apt-sources`), set by `post-install/20-desktop.sh`, not
+   hardcoded in the browser.
 
 **Build note:** this needs the `debian:forky` container from
 `build/build-singularity.sh`. Debian's `libgtk4-layer-shell` conflicts with NCZ's

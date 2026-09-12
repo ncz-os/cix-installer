@@ -681,6 +681,16 @@ theme-mode='dark'
 icon-theme='Singularity'
 background-picture-uri='file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg'
 recent-wallpapers=['file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg']
+# Which apt source(s) the Desktop settings' Artist Pack browser trusts (see
+# post-install/49-artist-pack-browser.sh and packaging/singularity's
+# artist-pack-manager patch). This is the ONE place that list is set for
+# this build -- the browser's inventory/install backend reads it from here
+# at runtime, never a literal in the Vala UI or in 49's own script bodies.
+# A different build variant overrides this same key with a different value
+# (e.g. a staging repo) without touching the browser code at all. Kept in
+# sync with the two sources 24-apt-sources.sh wires (Buildkite PRIMARY,
+# Cloudflare R2 backup) -- if that hook's URLs ever change, update this too.
+artist-pack-apt-sources=['https://packages.buildkite.com/ncz-os/ncz/any/', 'https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev']
 # Pin the browsers and a terminal to the dock, grouped. The stock
 # dev.sinty.desktop pinned-apps default lists only the Sinty first-party apps,
 # so a fresh install from this branch had NO browser and NO terminal on the
