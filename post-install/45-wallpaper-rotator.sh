@@ -271,6 +271,7 @@ import json
 import os
 import random
 import re
+import shutil
 import sys
 import tempfile
 import urllib.parse
@@ -653,12 +654,19 @@ def cmd_consolidate(_args):
     # same date across markets.
     #
     # Consolidation is a REFERENCE, not a copy: each unique image is exposed
-    # as a symlink back into its source market directory (named
-    # "<market>-<date>.jpg" -- a bare "<date>.jpg" is not collision-safe here,
-    # since different markets commonly share a calendar date for genuinely
-    # different photos), plus its .txt/.json sidecars symlinked the same way,
-    # plus one "index.json" manifest a picker can read without re-deriving
-    # the market/date from the symlink name.
+    # as a symlink back into its source market directory, nested as
+    # consolidated/<first-seen-market>/<date>.jpg -- matching the SAME
+    # market/date two-levels-deep layout every other consumer of this cache
+    # already assumes (ncz-wallpaper-collections' bing cnt/pick logic does
+    # `-mindepth 2 -maxdepth 2` against whatever Dir= it's given; a flat
+    # consolidated/<market>-<date>.jpg layout silently returns a zero count
+    # there -- caught 2026-09-12 on real hardware, O6N still showed all 213
+    # raw images because the collection's Dir= pointed at consolidated/ but
+    # nothing under it matched depth 2). The (market, date) pair is already
+    # collision-free within its own source directory, so nesting by market
+    # is exactly as collision-safe as the flat name was, plus its .txt/.json
+    # sidecars symlinked the same way, plus one "index.json" manifest a
+    # picker can read without re-deriving the market/date from the path.
     #
     # Rebuilt from scratch on every call rather than reconciled incrementally:
     # the whole cache is small (14 markets x roughly a 15-day Bing backfill
@@ -668,9 +676,7 @@ def cmd_consolidate(_args):
     # or re-pruned source image to dangle from.
     out_dir = consolidated_dir()
     if out_dir.is_dir():
-        for entry in out_dir.iterdir():
-            if entry.is_file() or entry.is_symlink():
-                entry.unlink()
+        shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     seen = {}  # sha256 -> (market, date, image path) of the first-seen copy
@@ -692,9 +698,11 @@ def cmd_consolidate(_args):
 
     manifest = []
     for digest, (market, date, image) in seen.items():
-        link_name = f"{market}-{date}.jpg"
+        market_dir = out_dir / market
+        market_dir.mkdir(parents=True, exist_ok=True)
+        link_name = f"{date}.jpg"
         try:
-            _relink(out_dir / link_name, image)
+            _relink(market_dir / link_name, image)
         except OSError as exc:
             log(f"consolidate: {market}/{image.name}: symlink failed: {exc}")
             continue
@@ -704,14 +712,14 @@ def cmd_consolidate(_args):
             if not src.exists():
                 continue
             try:
-                _relink(out_dir / f"{market}-{date}{suffix}", src)
+                _relink(market_dir / f"{date}{suffix}", src)
             except OSError as exc:
                 log(f"consolidate: {market}/{src.name}: sidecar symlink failed: {exc}")
         manifest.append({
             "provider": "bing",
             "market": market,
             "date": date,
-            "path": str(out_dir / link_name),
+            "path": str(market_dir / link_name),
             "source_path": str(image),
             "sha256": digest,
             "caption": meta.get("caption", ""),
