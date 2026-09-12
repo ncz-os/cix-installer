@@ -1,20 +1,29 @@
 #!/bin/bash
-# build-kernel-debs.sh — debianize the staged cixmini kernel for APT/OTA.
+# build-kernel-debs.sh — debianize the staged cix-sky1-ncz kernel for APT/OTA.
 #
 # Produces two .debs under build/kernel-debs/:
-#   cixmini-boot_<ver>_arm64.deb           — OTA-safe systemd-boot entry hook
-#   linux-image-cixmini_<KVER>_arm64.deb    — edge kernel, the only shipping channel
-#   linux-headers-cixmini_<KVER>_arm64.deb  — matching headers for DKMS rebuilds
+#   cixmini-boot_<ver>_arm64.deb                 — OTA-safe systemd-boot entry hook
+#   linux-image-cix-sky1-ncz_<KVER>_arm64.deb    — edge kernel, the only shipping channel
+#   linux-headers-cix-sky1-ncz_<KVER>_arm64.deb  — matching headers for DKMS rebuilds
 #
 # These are the OTA-upgradable form of post-install/10-our-kernel.sh +
 # build/70-bootloader.sh. The bootloader hook is initrd-less and never wipes
 # the ESP — it only adds/updates entries for currently-installed kernels,
 # matching the validated r97/r98 boot exactly.
 #
+# Operator 2026-09-11: renamed package names from -cixmini to -cix-sky1-ncz so
+# the flavour matches KERNEL_LOCALVERSION="-sky1-ncz" (the real SoC/kernel
+# identifier, not the MS-R1 board nickname). cixmini-boot is kept as-is
+# because that package is board-specific (MS-R1/cixmini bootloader-entry
+# generator), not a kernel flavour. The transition is clean-Debian
+# (Replaces+Provides on the old flavour) — `apt upgrade` /
+# `apt install linux-image-cix-sky1-ncz` on a board that already has
+# linux-image-cixmini supersedes the old package instead of stranding it.
+#
 # Operator 2026-08-21: legacy 7.0.12-cix-sky1-next channel retired; only edge
-# is packaged. linux-image-cixmini-legacy and linux-image-cixmini-lts are gone
-# from the build; the empty-transitional-package trick that used to depend on
-# the legacy channel is also gone.
+# is packaged. linux-image-cix-sky1-ncz-legacy and linux-image-cix-sky1-ncz-lts
+# are gone from the build; the empty-transitional-package trick that used to
+# depend on the legacy channel is also gone.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"   # cix-installer/
@@ -68,8 +77,24 @@ OUT="$REPO/build/kernel-debs"
 # registered package directly (dkms build/install --force), matching the
 # manual recovery that actually worked, and only uses `dkms autoinstall`
 # afterward as a catch-all for genuinely new registrations.
+#
+# r266 = squashfs rebuild after the 26.7 / Trixie base migration; same
+# KERNELRELEASE, same r256 postinst, just a re-bumped revision so an OTA
+# upgrade re-extracts the kernel payload onto a freshly-built base rootfs.
+#
+# r267 = 2026-09-11 rename of the kernel-flavour package names. The
+# kernel payload itself is identical to r266 (same Image, same modules,
+# same headers tarball, same KERNELRELEASE). The change is purely in the
+# Debian packaging: linux-image-cixmini -> linux-image-cix-sky1-ncz and
+# linux-headers-cixmini -> linux-headers-cix-sky1-ncz, with the old names
+# listed in Replaces+Conflicts+Provides so apt supersedes any installed
+# board cleanly instead of leaving the old flavour dangling. Bumping
+# here is mandatory: a board already on r266 (old name) must see a
+# strictly-newer Version on the new-name package for the apt upgrade to
+# actually take the new name; same Version on two different Packages is
+# ambiguous to some tooling.
 
-BUILD_REV="${BUILD_REV:-r256}"
+BUILD_REV="${BUILD_REV:-r267}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only
@@ -383,7 +408,7 @@ if [ "$1" = configure ]; then
     # even if that hook is ever absent.
     # Restore the redirect over /usr/lib BEFORE invoking it. dpkg has just
     # overwritten that path with our packaged systemd-boot helper, and when
-    # cixmini-boot and a linux-image-cixmini-* upgrade in the same transaction
+    # cixmini-boot and a linux-image-cix-sky1-ncz upgrade in the same transaction
     # cixmini-boot is configured FIRST (the kernel depends on it) -- so every
     # later kernel postinst would call the /usr/lib path and refresh only inert
     # systemd-boot entries, leaving the real refind.conf stale. Putting the
@@ -440,7 +465,7 @@ EOF
 }
 
 # ----------------------------------------------------------------------
-# linux-image-cixmini-<channel>
+# Package 2: linux-image-cix-sky1-ncz
 # ----------------------------------------------------------------------
 build_kernel_deb() {
     local channel="$1"   # edge (only supported channel)
@@ -450,9 +475,11 @@ build_kernel_deb() {
 
     # ONE KERNEL, ONE NAME (operator 2026-08-11: "we do not use LTS or edge,
     # we are 7.2 only now"). The channel suffix is gone: the package is simply
-    # linux-image-cixmini. The channel argument survives only to pick the asset
-    # subdirectory and label the build log.
-    local pkg="linux-image-cixmini"
+    # linux-image-cix-sky1-ncz (renamed from linux-image-cixmini on 2026-09-11
+    # to match the actual kernel flavour: KERNEL_LOCALVERSION="-sky1-ncz",
+    # which already appears throughout this codebase). The channel argument
+    # survives only to pick the asset subdirectory and label the build log.
+    local pkg="linux-image-cix-sky1-ncz"
     local ver="$kver+$BUILD_REV"
     local root="$WORK/$pkg"
     rm -rf "$root"
@@ -523,7 +550,7 @@ KVER="$kver"
 # would rm -rf every kernel's modules. Bail if the version is missing.
 [ -n "\$KVER" ] || exit 0
 if [ "\$1" = configure ]; then
-    # The initramfs is regenerated by linux-headers-cixmini's postinst AFTER
+    # The initramfs is regenerated by linux-headers-cix-sky1-ncz's postinst AFTER
     # dkms autoinstall has rebuilt every accelerator module. Regenerating
     # it HERE would race that step and bake in stale modules. The standard
     # Debian kernel-package postinst triggers (update-initramfs / dracut via
@@ -531,7 +558,7 @@ if [ "\$1" = configure ]; then
     # do NOT call any initramfs builder in this postinst. See
     # docs/OTA-DKMS-HEADER-FIX-2026-08-21.md.
     #
-    # The Depends: linux-headers-cixmini (= \$ver) in DEBIAN/control forces
+    # The Depends: linux-headers-cix-sky1-ncz (= \$ver) in DEBIAN/control forces
     # apt to configure the headers package BEFORE this one, so by the time
     # we reach this line, the initrd at /boot/initrd.img-\$KVER is the one
     # built by the headers postinst and already contains the correct DKMS
@@ -573,33 +600,48 @@ Maintainer: $MAINT
 Section: kernel
 Priority: optional
 Installed-Size: $isize
-Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), linux-headers-cixmini (= $ver), kmod, dracut | initramfs-tools | linux-initramfs-tool, systemd
+Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), linux-headers-cix-sky1-ncz (= $ver), kmod, dracut | initramfs-tools | linux-initramfs-tool, systemd
 Description: NCZ cixmini Linux kernel ($kver)
  Prebuilt linux-cix-sky1 kernel image + modules for the NCZ cixmini (MS-R1).
  Installs vmlinuz, the module tree$( [ -n "$with_npu" ] && echo " (incl. armchina_npu)") and config,
  then refreshes the systemd-boot entry via cixmini-boot. Depends on a
- matching linux-headers-cixmini (= $ver); that package's postinst rebuilds
+ matching linux-headers-cix-sky1-ncz (= $ver); that package's postinst rebuilds
  every DKMS module against the new kernel and regenerates the initrd BEFORE
  this package's postinst runs (OTA-DKMS-HEADER-FIX-2026-08-21).
 EOF
-    # Renamed-package handoff. linux-image-cixmini-legacy ships the same
-    # /boot and /usr/lib/modules paths the old linux-image-cixmini-lts did,
-    # so without Replaces dpkg refuses to unpack it over a pre-rename board
-    # ("trying to overwrite ... which is also in package ..."). VERSIONED,
-    # and Breaks rather than Conflicts, because the old NAME survives as the
-    # empty transitional package built below -- an unversioned Conflicts
-    # would make that transitional package impossible to install alongside
-    # the very package it depends on.
-    # Take over from EVERY name this kernel was ever published under. Without
-    # this dpkg refuses to unpack over an existing board ("trying to overwrite
-    # ... which is also in package ...") because the file paths are identical,
-    # and an upgrade would strand the old package installed alongside.
+    # Renamed-package handoff. linux-image-cix-sky1-ncz-legacy ships the same
+    # /boot and /usr/lib/modules paths the old linux-image-cix-sky1-ncz-lts
+    # did, so without Replaces dpkg refuses to unpack it over a pre-rename
+    # board ("trying to overwrite ... which is also in package ...").
+    # Take over from EVERY name this kernel was ever published under.
+    # Without this dpkg refuses to unpack over an existing board ("trying
+    # to overwrite ... which is also in package ...") because the file paths
+    # are identical, and an upgrade would strand the old package installed
+    # alongside.
+    #
+    # ORIGINAL transitional-package reasoning (now stale but kept for the
+    # historical record): an old-style implementation used an EMPTY
+    # transitional package built below -- an unversioned Conflicts would
+    # have made that transitional package impossible to install alongside
+    # the very package it depends on. 2026-08-21 retired that mechanism
+    # entirely, so the modern rationale is purely the CONFLICTS-not-Breaks
+    # measurement below.
     # CONFLICTS, not Breaks. Breaks means "deconfigure the other package",
     # which dpkg refuses on its own -- MEASURED on O6N: "installing
-    # linux-image-cixmini would break linux-image-cixmini-edge, and
+    # linux-image-cix-sky1-ncz would break linux-image-cixmini, and
     # deconfiguration is not permitted (--auto-deconfigure might help)".
     # Provides+Replaces+Conflicts is the canonical take-over triple: apt
     # REMOVES the retired name and installs this in its place.
+    #
+    # 2026-09-11 rename handoff (operator): the previous-flavour name
+    # `linux-image-cixmini` is also in the take-over list. The board
+    # nickname "cixmini" was wrongly used as the kernel-flavour name --
+    # the flavour is the actual SoC/kernel identifier "cix-sky1-ncz"
+    # (matching KERNEL_LOCALVERSION="-sky1-ncz"), and the rename is the
+    # operator-directed fix. Boards with the old package installed get a
+    # clean upgrade via this control file rather than a stranded
+    # double-install.
+    #
     # ONE field each, comma-separated. dpkg-deb rejects a control file with the
     # same field repeated ("duplicate value for 'Replaces' field"), so these
     # cannot be emitted one relation per line.
@@ -610,7 +652,7 @@ EOF
     # which is also in package linux-image-<kver>". Declaring it beats the
     # --force-overwrite that post-install/10-our-kernel.sh has been using to
     # push past exactly this collision.
-    _OLD_NAMES="linux-image-cixmini-edge, linux-image-cixmini-lts, linux-image-cixmini-legacy, linux-image-$kver"
+    _OLD_NAMES="linux-image-cix-sky1-ncz-edge, linux-image-cix-sky1-ncz-lts, linux-image-cix-sky1-ncz-legacy, linux-image-cixmini-edge, linux-image-cixmini-lts, linux-image-cixmini-legacy, linux-image-cixmini, linux-image-$kver"
     printf 'Replaces: %s\n' "$_OLD_NAMES" >> "$root/DEBIAN/control"
     printf 'Conflicts: %s\n' "$_OLD_NAMES" >> "$root/DEBIAN/control"
     printf 'Provides: %s\n' "$_OLD_NAMES" >> "$root/DEBIAN/control"
@@ -618,7 +660,7 @@ EOF
 }
 
 # ----------------------------------------------------------------------
-# Package 3: linux-headers-cixmini
+# Package 3: linux-headers-cix-sky1-ncz
 #
 # WHY THIS PACKAGE EXISTS (r246/r247, both reproduced on O6N):
 #
@@ -626,7 +668,7 @@ EOF
 # protected_memory_allocator, panthor, amvx, aipu) ships out-of-tree via
 # DKMS. DKMS builds modules against /lib/modules/$KVER/build/, which must
 # be a header tree whose Makefile/.config/Module.symvers all agree on the
-# SAME $KVER. linux-image-cixmini ONLY shipped /usr/lib/modules/$KVER/kernel/
+# SAME $KVER. linux-image-cix-sky1-ncz ONLY shipped /usr/lib/modules/$KVER/kernel/
 # and /boot/{vmlinuz,config} -- it did NOT ship the build/ tree, because
 # before r246 the header tarball (assets/kernel/<ch>/headers-cixmini.tar.zst)
 # was a build-side artifact that stayed in the source repo and was
@@ -665,8 +707,8 @@ EOF
 #   4. Regenerate the initramfs (dracut primary, update-initramfs fallback)
 #      so the freshly-rebuilt modules get baked into the new initrd.
 #
-# linux-image-cixmini declares Depends: linux-headers-cixmini (= $ver), so
-# apt always installs the headers package FIRST in the same transaction.
+# linux-image-cix-sky1-ncz declares Depends: linux-headers-cix-sky1-ncz (= $ver),
+# so apt always installs the headers package FIRST in the same transaction.
 # By the time the image's own postinst runs, the build/ tree is in place
 # and DKMS modules are correct -- the image's own (now-suppressed) initrd
 # trigger would have raced against step 4 and baked in stale modules.
@@ -677,7 +719,7 @@ build_headers_deb() {
     local channel="$1"   # edge (only supported channel)
     local kver="$2"
     local label="$3"     # asset subdir (edge)
-    local pkg=linux-headers-cixmini
+    local pkg=linux-headers-cix-sky1-ncz
     local ver="$kver+$BUILD_REV"
     local src_tar="$ASSETS/$label/headers-cixmini.tar.zst"
     local root="$WORK/$pkg"
@@ -692,7 +734,7 @@ build_headers_deb() {
         # exists to prevent.
         echo "  [$channel] $pkg: ERROR: $src_tar missing; cannot build" >&2
         echo "  [$channel]         headers .deb without it" >&2
-        echo "  [$channel]         (linux-image-cixmini depends on this package, so" >&2
+        echo "  [$channel]         (linux-image-cix-sky1-ncz depends on this package, so" >&2
         echo "  [$channel]         a missing headers .deb will break the kernel install)" >&2
         return 1
     fi
@@ -738,11 +780,11 @@ set -e
 PATH="/usr/sbin:/sbin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin${PATH:+:$PATH}"
 export PATH
 KVER="__KVER__"
-[ -n "$KVER" ] || { echo "linux-headers-cixmini: empty KVER, aborting"; exit 1; }
+[ -n "$KVER" ] || { echo "linux-headers-cix-sky1-ncz: empty KVER, aborting"; exit 1; }
 B="/usr/lib/modules/$KVER/build"
 
-log() { echo "linux-headers-cixmini[$KVER]: $*"; }
-warn() { echo "linux-headers-cixmini[$KVER]: WARNING: $*" >&2; }
+log() { echo "linux-headers-cix-sky1-ncz[$KVER]: $*"; }
+warn() { echo "linux-headers-cix-sky1-ncz[$KVER]: WARNING: $*" >&2; }
 
 # 1. Stage the header tree to /lib/modules/$KVER/build.
 #
@@ -754,7 +796,7 @@ warn() { echo "linux-headers-cixmini[$KVER]: WARNING: $*" >&2; }
 # after a manual `rm -rf /usr/lib/modules/$KVER/build` and provides a
 # single, debuggable "is the tree present?" check.
 if [ ! -f "$B/Makefile" ] || [ ! -f "$B/.config" ] || [ ! -f "$B/Module.symvers" ]; then
-    echo "linux-headers-cixmini: ERROR: $B is missing required build files" >&2
+    echo "linux-headers-cix-sky1-ncz: ERROR: $B is missing required build files" >&2
     echo "                       (Makefile/.config/Module.symvers -- all three required)" >&2
     echo "                       Refusing to run dkms autoinstall without a header tree" >&2
     exit 1
@@ -912,7 +954,7 @@ if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
            && "$DKMS_BIN" install -m "$pkg" -v "$ver" -k "$KVER" --force >>"$DKMS_LOG" 2>&1; then
             log "  $pkg/$ver OK"
         else
-            echo "linux-headers-cixmini[$KVER]: FATAL: forced rebuild of $pkg/$ver failed" >&2
+            echo "linux-headers-cix-sky1-ncz[$KVER]: FATAL: forced rebuild of $pkg/$ver failed" >&2
             dkms_force_failed=1
         fi
     done
@@ -925,7 +967,7 @@ if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
         log "dkms forced rebuild OK"
         "$DKMS_BIN" status 2>/dev/null | sed 's/^/           /'
     else
-        echo "linux-headers-cixmini[$KVER]: FATAL: one or more forced DKMS rebuilds failed" >&2
+        echo "linux-headers-cix-sky1-ncz[$KVER]: FATAL: one or more forced DKMS rebuilds failed" >&2
         echo "                              see $DKMS_LOG" >&2
         if [ -s "$DKMS_LOG" ]; then
             tail -30 "$DKMS_LOG" | sed 's/^/                              /' >&2
@@ -943,7 +985,7 @@ if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
 else
     warn "dkms binary not found; skipping autoinstall"
     warn "install dkms + the four CIX DKMS packages separately, then re-run"
-    warn "  apt install --reinstall -y linux-headers-cixmini=\$(dpkg-query -W -f='\${Version}' linux-headers-cixmini)"
+    warn "  apt install --reinstall -y linux-headers-cix-sky1-ncz=\$(dpkg-query -W -f='\${Version}' linux-headers-cix-sky1-ncz)"
 fi
 
 # 4. Regenerate the initramfs. dracut is the primary builder (see
@@ -962,7 +1004,7 @@ if command -v dracut >/dev/null 2>&1; then
     if dracut --force --kver "$KVER" "/boot/initrd.img-$KVER"; then
         log "initrd regenerated (dracut)"
     else
-        echo "linux-headers-cixmini[$KVER]: FATAL: dracut failed" >&2
+        echo "linux-headers-cix-sky1-ncz[$KVER]: FATAL: dracut failed" >&2
         exit 1
     fi
 elif command -v update-initramfs >/dev/null 2>&1; then
@@ -971,7 +1013,7 @@ elif command -v update-initramfs >/dev/null 2>&1; then
        || update-initramfs -u -k "$KVER" 2>/dev/null; then
         log "initrd regenerated (update-initramfs)"
     else
-        echo "linux-headers-cixmini[$KVER]: FATAL: update-initramfs failed" >&2
+        echo "linux-headers-cix-sky1-ncz[$KVER]: FATAL: update-initramfs failed" >&2
         exit 1
     fi
 else
@@ -1025,7 +1067,7 @@ Installed-Size: $isize
 Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, make
 Recommends: dkms, build-essential, flex, bison, bc, libelf-dev, dracut | initramfs-tools | linux-initramfs-tool
 Description: NCZ cixmini kernel headers ($kver) with OTA-DKMS rebuild
-  Header tree for linux-image-cixmini-$kver, packaged as a separate .deb
+  Header tree for linux-image-cix-sky1-ncz-$kver, packaged as a separate .deb
   so an OTA install pulls both together. The postinst performs the full
   OTA-DKMS-HEADER-FIX-2026-08-21 sequence: stage the build/ tree, rebuild
   the host tools, run dkms autoinstall, and regenerate the initramfs.
@@ -1033,6 +1075,21 @@ Description: NCZ cixmini kernel headers ($kver) with OTA-DKMS rebuild
   vermagic on every DKMS-built accelerator module -- confirmed on O6N
   against r246 and r247. See docs/OTA-DKMS-HEADER-FIX-2026-08-21.md.
 EOF
+    # 2026-09-11 rename handoff (mirror of build_kernel_deb's). The previous
+    # flavour name `linux-headers-cixmini` is also taken over so a board that
+    # had the old headers .deb installed (and a Depends referring to it
+    # somewhere) gets a clean upgrade when this package replaces it. The
+    # `linux-image-cix-sky1-ncz` (image) .deb declares Depends on this
+    # package, so apt will install this new headers .deb in the same
+    # transaction -- and the Replaces here makes that install drop the
+    # old-name headers .deb rather than strand both. Same
+    # Replaces+Provides+Conflicts triple used for the image .deb; same
+    # one-field-each, comma-separated rule (dpkg-deb rejects a control file
+    # with the same field repeated).
+    _OLD_HEADERS_NAMES="linux-headers-cixmini, linux-headers-$kver"
+    printf 'Replaces: %s\n' "$_OLD_HEADERS_NAMES" >> "$root/DEBIAN/control"
+    printf 'Conflicts: %s\n' "$_OLD_HEADERS_NAMES" >> "$root/DEBIAN/control"
+    printf 'Provides: %s\n' "$_OLD_HEADERS_NAMES" >> "$root/DEBIAN/control"
     dpkg-deb --root-owner-group --build "$root" "$OUT/${pkg}_${ver}_arm64.deb"
 }
 
@@ -1076,17 +1133,24 @@ build_kernel_deb edge "$KVER_NEXT" edge   ""
 build_headers_deb edge "$KVER_NEXT" edge
 
 # ----------------------------------------------------------------------
-# Transitional packages: linux-image-cixmini-{edge,lts,legacy}
+# Transitional packages: linux-image-cix-sky1-ncz-{edge,lts,legacy} and
+# the 2026-09-11 linux-image-cixmini supersede
 #
 # Operator 2026-08-21: legacy channel is gone, so a board holding one of
 # the old kernel package names (edge, lts, legacy) needs to upgrade to
-# the new unified name `linux-image-cixmini`. That replacement is handled
-# by the linux-image-cixmini control's Provides+Replaces+Conflicts list
-# (see build_kernel_deb), not by an empty transitional package -- the
-# kernel deb itself owns the rename.
+# the unified name `linux-image-cix-sky1-ncz`. That replacement is handled
+# by the linux-image-cix-sky1-ncz control's Provides+Replaces+Conflicts
+# list (see build_kernel_deb), not by an empty transitional package --
+# the kernel deb itself owns the rename.
 #
-# No separate linux-image-cixmini-{edge,lts,legacy} package is built
-# any more.
+# Operator 2026-09-11: the same control file also takes over the
+# previous-flavour name `linux-image-cixmini` (the board nickname was
+# wrongly used as the kernel flavour; the flavour is now the actual
+# SoC/kernel identifier `cix-sky1-ncz`). Again no empty transitional
+# package -- the new package's Replaces+Provides list handles it.
+#
+# No separate linux-image-cix-sky1-ncz-{edge,lts,legacy} or
+# linux-image-cixmini{-edge,-lts,-legacy} package is built any more.
 # ----------------------------------------------------------------------
 
 echo ""

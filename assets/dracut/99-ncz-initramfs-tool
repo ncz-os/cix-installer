@@ -18,7 +18,7 @@
 # outright would leave the next person wondering whether the old pin was lost
 # by accident.
 #
-# WHAT PROTECTS THE BUILDER NOW: linux-image-cixmini depends on
+# WHAT PROTECTS THE BUILDER NOW: linux-image-cix-sky1-ncz depends on
 #     dracut | initramfs-tools | linux-initramfs-tool
 # with dracut FIRST, so apt prefers it and cannot satisfy the dependency by
 # quietly removing it. initramfs-tools is no longer installed in the main image

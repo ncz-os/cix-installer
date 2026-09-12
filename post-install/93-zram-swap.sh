@@ -46,7 +46,7 @@
 # here: post-install hooks run in the installer's chroot, so /sys
 # belongs to the running installer kernel, not the CIX Sky1 kernel
 # that was just installed. Instead we read the target kernel's own
-# config (/boot/config-<kver>, dropped by linux-image-cixmini) and
+# config (/boot/config-<kver>, dropped by linux-image-cix-sky1-ncz) and
 # its modules tree (/lib/modules/<kver>/kernel/drivers/block/zram/).
 # If the target kernel has CONFIG_ZRAM=y, or CONFIG_ZRAM=m with a
 # zram.ko present, AND has CONFIG_CRYPTO_ZSTD=y or =m, we log a
@@ -168,7 +168,7 @@ echo "[93] /etc/systemd/zram-generator.conf: zram0, zstd, ram*0.5 capped [1GiB, 
 # with no swap at all if we trusted the running-kernel probe.
 #
 # Instead we look at the TARGET kernel's own config and module
-# tree. /boot/config-<kver> is dropped by linux-image-cixmini at
+# tree. /boot/config-<kver> is dropped by linux-image-cix-sky1-ncz at
 # install time, so it is present in the chroot. We pick the
 # kernel that will actually boot: KVER_NEXT is the sidecar
 # written by the installer (see 10-our-kernel.sh), falling back to

@@ -68,7 +68,7 @@ EFI_RT_WORKAROUND="$(ncz_efi_rt_workaround)"
 #   - post-install/70-bootloader.sh (install time): reads the static
 #     KVER_NEXT sidecar file baked into the ISO.
 #   - /etc/kernel/postinst.d/zz1-ncz-refind-refresh (post-install, any
-#     future `apt install`/`apt upgrade` of linux-image-cixmini):
+#     future `apt install`/`apt upgrade` of linux-image-cix-sky1-ncz):
 #     discovers KVER_NEXT dynamically from /boot/vmlinuz-*.
 #
 # Both callers export KVER_NEXT, BUILD_VERSION before invoking

@@ -2307,7 +2307,14 @@ if [ "$EMBED_MIRROR" = "1" ]; then
             >> "$NCZ_PRUNE_KEEP" || true
         # Kernel packages: always reinstallable from the ISO. Keep the current
         # unified names as well as retired channel names for upgrade recovery.
-        printf '%s\n' linux-image-cixmini linux-headers-cixmini \
+        # 2026-09-11: linux-image-cix-sky1-ncz / linux-headers-cix-sky1-ncz are
+        # the new flavour; the bare -cixmini names are the old flavour kept
+        # here so a board that hasn't yet upgraded can still resolve its
+        # existing packages against the pool.
+        printf '%s\n' linux-image-cix-sky1-ncz linux-headers-cix-sky1-ncz \
+            linux-image-cixmini linux-headers-cixmini \
+            linux-image-cix-sky1-ncz-legacy linux-image-cix-sky1-ncz-edge \
+            linux-image-cix-sky1-ncz-lts \
             linux-image-cixmini-legacy linux-image-cixmini-edge \
             linux-image-cixmini-lts cixmini-boot ncz-usb-recovery >> "$NCZ_PRUNE_KEEP"
         # 10-our-kernel.sh may install zstd directly from the pruned ISO pool

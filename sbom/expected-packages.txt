@@ -197,7 +197,7 @@ manifests/installer-base.pkgs:iputils-ping
 manifests/installer-base.pkgs:iwd
 manifests/installer-base.pkgs:jq
 manifests/installer-base.pkgs:kbd
-manifests/installer-base.pkgs:linux-image-cixmini
+manifests/installer-base.pkgs:linux-image-cix-sky1-ncz
 manifests/installer-base.pkgs:locales
 manifests/installer-base.pkgs:lshw
 manifests/installer-base.pkgs:lsof

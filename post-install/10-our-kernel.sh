@@ -5,13 +5,13 @@
 # (install -D + tar xzf) straight from ISO assets into /boot and
 # /usr/lib/modules -- completely bypassing dpkg. Result: apt/dpkg had
 # ZERO record any kernel package was installed (`apt-cache policy
-# linux-image-cixmini` showed "Installed: (none)" even on a running
+# linux-image-cix-sky1-ncz` showed "Installed: (none)" even on a running
 # system using that exact kernel), so `apt upgrade` could never pull a
 # new kernel -- there was nothing dpkg thought needed upgrading. This
 # directly broke the documented "apt upgrade pulls new kernels, no
 # reinstall" OTA story (confirmed live on .66, 2026-07-06).
 #
-# Fix: install via `apt-get install linux-image-cixmini` from
+# Fix: install via `apt-get install linux-image-cix-sky1-ncz` from
 # the same Buildkite repo (ncz-os/ncz) the OTA channel already uses, so
 # dpkg tracks the kernel like any other package and a later `apt upgrade`
 # works as documented. This needs the Buildkite apt source wired +
@@ -20,6 +20,15 @@
 # we invoke it directly here rather than relying on hook ordering
 # (24-apt-sources.sh is idempotent -- safe to call twice; it still runs
 # again later in its normal position for the machine-gated hooks).
+#
+# Operator 2026-09-11: kernel-flavour package renamed from -cixmini to
+# -cix-sky1-ncz (the real SoC/kernel identifier, matching
+# KERNEL_LOCALVERSION="-sky1-ncz"). The rename is a clean-Debian
+# transition -- the new package's control file lists the old name under
+# Replaces+Provides so any existing board can `apt upgrade` /
+# `apt install linux-image-cix-sky1-ncz` and the old linux-image-cixmini
+# package is superseded by the new one instead of stranding two
+# kernel-flavour packages side by side.
 #
 # Operator 2026-08-21: legacy kernel channel retired. Edge is the only
 # shipping kernel and the KVER_NEXT sidecar is the only one read here.
@@ -53,7 +62,7 @@ local_deb() {
 
 # Wire the Buildkite apt source + refresh the index. Idempotent (safe to
 # call again later at its normal position). Needed now because the
-# linux-image-cixmini package lives only on Buildkite, not the Ubuntu
+# linux-image-cix-sky1-ncz package lives only on Buildkite, not the Ubuntu
 # archive.
 if [ -x "$HERE/24-apt-sources.sh" ]; then
     "$HERE/24-apt-sources.sh"
@@ -87,9 +96,9 @@ INSTALLED_KERNELS=0
 if [ -n "$KVER_NEXT" ]; then
     CIXBOOT_DEB=$(local_deb 'cixmini-boot_*.deb')
     USBRECOVERY_DEB=$(local_deb 'ncz-usb-recovery_*.deb')
-    HEADERS_DEB=$(local_deb 'linux-headers-cixmini_*.deb')
-    IMAGE_DEB=$(local_deb 'linux-image-cixmini_*.deb')
-    echo "  [edge] apt-get install linux-image-cixmini"
+    HEADERS_DEB=$(local_deb 'linux-headers-cix-sky1-ncz_*.deb')
+    IMAGE_DEB=$(local_deb 'linux-image-cix-sky1-ncz_*.deb')
+    echo "  [edge] apt-get install linux-image-cix-sky1-ncz"
     # r203: --force-overwrite. Edge kernel packages can transiently ship
     # the SAME versioned /boot files (e.g. a baked edge at 7.2.0-sky1-ncz+rN
     # and an incoming edge at 7.2.0-sky1-ncz+rN+1 both own
@@ -111,11 +120,11 @@ if [ -n "$KVER_NEXT" ]; then
     else
         echo "    WARN: embedded kernel deb set incomplete — falling back to apt package name"
         apt-get install -y --no-install-recommends \
-            -o Dpkg::Options::=--force-overwrite linux-image-cixmini
+            -o Dpkg::Options::=--force-overwrite linux-image-cix-sky1-ncz
     fi
     edge_ok=1
     if [ ! -s "/boot/vmlinuz-$KVER_NEXT" ]; then
-        echo "WARN: linux-image-cixmini installed, but /boot/vmlinuz-$KVER_NEXT is missing"
+        echo "WARN: linux-image-cix-sky1-ncz installed, but /boot/vmlinuz-$KVER_NEXT is missing"
         echo "      (KVER_NEXT sidecar / Buildkite package drift). /boot contents:"; ls -la /boot 2>&1
         edge_ok=0
     else
@@ -209,9 +218,13 @@ if [ "$INSTALLED_KERNELS" -eq 0 ]; then
     exit 1
 fi
 
-# Headers for DKMS (NPU/GPU/panthor drivers). There is still no
-# linux-headers-cixmini package on Buildkite, so the headers ship as a
-# tarball produced by build/extract-kernel-headers.sh:
+# Headers for DKMS (NPU/GPU/panthor drivers). The matching .deb is now
+# produced by build/build-kernel-debs.sh (linux-headers-cix-sky1-ncz_) and
+# is installed above with the rest of the kernel set. install_kernel_headers
+# below is a defence-in-depth fallback for ISO images where the .deb was
+# not staged -- the headers tarball (a separate, package-name-independent
+# asset, filename `headers-cixmini.tar.zst`) is extracted directly into
+# /lib/modules/$KVER/build so DKMS still has a usable tree:
 #   assets/kernel/edge/headers-cixmini.tar.zst    -> KVER_NEXT
 # Each unpacks to lib/modules/$KVER/build/ (Makefile, scripts/, include/,
 # arch/arm64/include/, .config, Module.symvers), which is exactly what DKMS

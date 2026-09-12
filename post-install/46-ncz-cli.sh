@@ -625,7 +625,7 @@ ncz_install_android() {
         echo >&2
         echo "  Running kernel: $(uname -r)" >&2
         echo "  Binder is enabled from the 7.2 kernel built after 2026-08-18." >&2
-        echo "  Update the kernel first:  sudo apt update && sudo apt install --only-upgrade linux-image-cixmini" >&2
+        echo "  Update the kernel first:  sudo apt update && sudo apt install --only-upgrade linux-image-cix-sky1-ncz" >&2
         exit 1
     fi
     echo "[ncz] binder present"

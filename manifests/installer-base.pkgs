@@ -138,7 +138,13 @@ zstd
 # Seeding them here pulls the locally built .debs (published into the vendor
 # mirror from build/kernel-debs by build/build-vendor-mirror.sh) into the
 # offline closure, so the ISO ships the kernel it was built with.
-linux-image-cixmini
+#
+# 2026-09-11: kernel-flavour package renamed from -cixmini to -cix-sky1-ncz
+# to match KERNEL_LOCALVERSION="-sky1-ncz". The new package's control file
+# supersedes the old name via Replaces+Provides, so an installed board with
+# linux-image-cixmini gets cleanly taken over by linux-image-cix-sky1-ncz
+# on the next apt upgrade.
+linux-image-cix-sky1-ncz
 cixmini-boot
 
 # --- locales ---------------------------------------------------------------

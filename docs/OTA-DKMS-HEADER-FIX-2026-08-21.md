@@ -7,9 +7,21 @@ broke GPU / VPU / NPU on every fresh boot until the operator manually fixed
 it. This document records the root cause, the fix that was applied (r246,
 r247, and the finalised r248), and how to verify it on a future kernel bump.
 
+> **Package-name note (2026-09-11).** The kernel-flavour package names
+> shown in this document's transcripts were `linux-image-cixmini` and
+> `linux-headers-cixmini`. Those were renamed to `linux-image-cix-sky1-ncz`
+> and `linux-headers-cix-sky1-ncz` (matching `KERNEL_LOCALVERSION="-sky1-ncz"`)
+> on 2026-09-11 — the board nickname was wrongly used as the kernel
+> flavour, and the flavour is now the actual SoC/kernel identifier. The
+> underlying mechanism (separate image + headers .debs, the OTA-DKMS
+> postinst sequence in the headers .deb, and the Depends relationship)
+> is unchanged; only the names differ. The transcripts below have been
+> updated to the new names so a reader reproducing the recipe sees what
+> `dpkg-deb -f` and the postinst actually produce today.
+
 ## What the defect looked like
 
-After `apt install linux-image-cixmini` of a freshly built kernel .deb, the
+After `apt install linux-image-cix-sky1-ncz` of a freshly built kernel .deb, the
 board rebooted into the new kernel with the GPU on llvmpipe (software
 rendering — confirmed by `vulkaninfo` reporting the llvmpipe ICD), the VPU
 falling back to the older in-tree amvx, and the NPU either failing `noe_init`
@@ -50,7 +62,7 @@ hand to compensate.
 
 ## Root cause
 
-`linux-image-cixmini_<KVER>+<REV>_arm64.deb` was being built by
+`linux-image-cix-sky1-ncz_<KVER>+<REV>_arm64.deb` was being built by
 [`build/build-kernel-debs.sh`](../build/build-kernel-debs.sh) as
 **Image + in-tree modules only** — it shipped:
 
@@ -93,10 +105,10 @@ Two .debs are now produced per kernel and installed together:
 
 | package                 | role                                                                |
 | ----------------------- | ------------------------------------------------------------------- |
-| `linux-image-cixmini`   | Image + in-tree modules + GPU overlay (unchanged)                   |
-| `linux-headers-cixmini` | `/lib/modules/$KVER/build/` + the postinst that fixes the OTA gap  |
+| `linux-image-cix-sky1-ncz`   | Image + in-tree modules + GPU overlay (unchanged)                   |
+| `linux-headers-cix-sky1-ncz` | `/lib/modules/$KVER/build/` + the postinst that fixes the OTA gap  |
 
-`linux-image-cixmini` declares `Depends: linux-headers-cixmini (= $ver)`,
+`linux-image-cix-sky1-ncz` declares `Depends: linux-headers-cix-sky1-ncz (= $ver)`,
 so apt always installs the headers package first in the same transaction
 and the image's postinst runs against an already-corrected tree. The
 headers .deb's postinst performs the full **OTA-DKMS-HEADER-FIX-2026-08-21**
@@ -149,13 +161,13 @@ the postinst is the heredoc starting with `# 1. Stage the header tree`.
 
 Two equivalent fixes were on the table:
 
-- A `linux-headers-cixmini` .deb installed as a `Depends:` of the image.
+- A `linux-headers-cix-sky1-ncz` .deb installed as a `Depends:` of the image.
 - The headers tarball bundled directly into the image .deb's payload,
   with the postinst sequence bolted onto the image's own postinst.
 
 A separate .deb won, for three reasons:
 
-1. **Clean dependency ordering.** With a `Depends: linux-headers-cixmini (= $ver)`,
+1. **Clean dependency ordering.** With a `Depends: linux-headers-cix-sky1-ncz (= $ver)`,
    apt guarantees the headers package configures before the image does.
    Bundling everything in one .deb would force a more fragile ordering
    argument (e.g. "do X before the standard kernel-package initramfs
@@ -169,7 +181,7 @@ A separate .deb won, for three reasons:
    tree on disk. Reinstalling the image-only .deb would silently do
    nothing about DKMS, because the image-only .deb still did not
    contain the postinst that does the rebuild. With a separate
-   headers .deb, `apt install --reinstall linux-headers-cixmini`
+   headers .deb, `apt install --reinstall linux-headers-cix-sky1-ncz`
    re-runs the whole (1)–(4) sequence and is the documented way to
    recover a board that finds itself with stale modules.
 
@@ -192,12 +204,12 @@ without hardware) after a future `build-kernel-debs.sh` run.
 # Build the .debs from a current assets/kernel/edge/ tree.
 $ bash build/build-kernel-debs.sh
 …
-  [edge] 7.2.0-sky1-ncz -> linux-image-cixmini (7.2.0-sky1-ncz+r248)
+  [edge] 7.2.0-sky1-ncz -> linux-image-cix-sky1-ncz (7.2.0-sky1-ncz+r248)
   [edge] staged 3 out-of-tree GPU module(s) into updates/
-  [edge] 7.2.0-sky1-ncz -> linux-headers-cixmini (7.2.0-sky1-ncz+r248)
+  [edge] 7.2.0-sky1-ncz -> linux-headers-cix-sky1-ncz (7.2.0-sky1-ncz+r248)
 
 # Confirm the headers .deb actually carries the build/ tree.
-$ dpkg-deb -c build/kernel-debs/linux-headers-cixmini_*.deb | head
+$ dpkg-deb -c build/kernel-debs/linux-headers-cix-sky1-ncz_*.deb | head
 drwxr-xr-x root/root         0  …  ./
 drwxr-xr-x root/root         0  …  ./usr/
 drwxr-xr-x root/root         0  …  ./usr/lib/
@@ -208,7 +220,7 @@ drwxr-xr-x root/root         0  …  ./usr/lib/modules/7.2.0-sky1-ncz/build/
 …
 
 # Confirm the postinst text was emitted with no shell-escape damage.
-$ dpkg-deb -e build/kernel-debs/linux-headers-cixmini_*.deb /tmp/hdr
+$ dpkg-deb -e build/kernel-debs/linux-headers-cix-sky1-ncz_*.deb /tmp/hdr
 $ sh -n /tmp/hdr/postinst && echo "postinst syntax OK"
 $ grep -c '__KVER__' /tmp/hdr/postinst       # must be 0
 0
@@ -216,14 +228,14 @@ $ head -10 /tmp/hdr/postinst
 #!/bin/sh
 set -e
 KVER="7.2.0-sky1-ncz"
-[ -n "$KVER" ] || { echo "linux-headers-cixmini: empty KVER, aborting"; exit 1; }
+[ -n "$KVER" ] || { echo "linux-headers-cix-sky1-ncz: empty KVER, aborting"; exit 1; }
 B="/usr/lib/modules/$KVER/build"
 …
 
 # Confirm the headers .deb has the matching Depends + the right runtime deps.
-$ dpkg-deb -f build/kernel-debs/linux-headers-cixmini_*.deb \
+$ dpkg-deb -f build/kernel-debs/linux-headers-cix-sky1-ncz_*.deb \
     Package Version Architecture Depends
-Package: linux-headers-cixmini
+Package: linux-headers-cix-sky1-ncz
 Version: 7.2.0-sky1-ncz+r248
 Architecture: arm64
 Depends: cixmini-boot (>= 1.2+r248), kmod, make
@@ -231,8 +243,8 @@ Recommends: dkms, build-essential, flex, bison, bc, libelf-dev,
             dracut | initramfs-tools | linux-initramfs-tool
 
 # Confirm the image .deb now depends on the headers .deb at the SAME version.
-$ dpkg-deb -f build/kernel-debs/linux-image-cixmini_*.deb Depends
-Depends: cixmini-boot (>= 1.2+r248), linux-headers-cixmini (= 7.2.0-sky1-ncz+r248),
+$ dpkg-deb -f build/kernel-debs/linux-image-cix-sky1-ncz_*.deb Depends
+Depends: cixmini-boot (>= 1.2+r248), linux-headers-cix-sky1-ncz (= 7.2.0-sky1-ncz+r248),
          kmod, dracut | initramfs-tools | linux-initramfs-tool, systemd
 ```
 
@@ -240,30 +252,30 @@ Depends: cixmini-boot (>= 1.2+r248), linux-headers-cixmini (= 7.2.0-sky1-ncz+r24
 
 ```sh
 # Confirm apt will pull both packages together.
-$ apt-cache policy linux-image-cixmini linux-headers-cixmini
-linux-image-cixmini:
+$ apt-cache policy linux-image-cix-sky1-ncz linux-headers-cix-sky1-ncz
+linux-image-cix-sky1-ncz:
   Installed: (none)
   Candidate: 7.2.0-sky1-ncz+r248
-linux-headers-cixmini:
+linux-headers-cix-sky1-ncz:
   Installed: (none)
   Candidate: 7.2.0-sky1-ncz+r248
 
 # Install the kernel (pulls headers as a Depends).
-$ sudo apt install linux-image-cixmini
+$ sudo apt install linux-image-cix-sky1-ncz
 …
-Setting up linux-headers-cixmini (7.2.0-sky1-ncz+r248) …
-linux-headers-cixmini[7.2.0-sky1-ncz]: release string OK (7.2.0-sky1-ncz)
-linux-headers-cixmini[7.2.0-sky1-ncz]: host tools already native
-linux-headers-cixmini[7.2.0-sky1-ncz]: running dkms autoinstall -k 7.2.0-sky1-ncz
-linux-headers-cixmini[7.2.0-sky1-ncz]: dkms autoinstall OK
+Setting up linux-headers-cix-sky1-ncz (7.2.0-sky1-ncz+r248) …
+linux-headers-cix-sky1-ncz[7.2.0-sky1-ncz]: release string OK (7.2.0-sky1-ncz)
+linux-headers-cix-sky1-ncz[7.2.0-sky1-ncz]: host tools already native
+linux-headers-cix-sky1-ncz[7.2.0-sky1-ncz]: running dkms autoinstall -k 7.2.0-sky1-ncz
+linux-headers-cix-sky1-ncz[7.2.0-sky1-ncz]: dkms autoinstall OK
            cix-gpu-kmd/1.0, 7.2.0-sky1-ncz, aarch64: installed
            panthor-cix/7.2.0, 7.2.0-sky1-ncz, aarch64: installed
            cix-vpu-driver/1.0.2-ncz1, 7.2.0-sky1-ncz, aarch64: installed
            aipu/6.2.0, 7.2.0-sky1-ncz, aarch64: installed
-linux-headers-cixmini[7.2.0-sky1-ncz]: regenerating initrd via dracut
-linux-headers-cixmini[7.2.0-sky1-ncz]: initrd regenerated (dracut)
-linux-headers-cixmini[7.2.0-sky1-ncz]: OTA-DKMS-HEADER-FIX sequence complete
-Setting up linux-image-cixmini (7.2.0-sky1-ncz+r248) …
+linux-headers-cix-sky1-ncz[7.2.0-sky1-ncz]: regenerating initrd via dracut
+linux-headers-cix-sky1-ncz[7.2.0-sky1-ncz]: initrd regenerated (dracut)
+linux-headers-cix-sky1-ncz[7.2.0-sky1-ncz]: OTA-DKMS-HEADER-FIX sequence complete
+Setting up linux-image-cix-sky1-ncz (7.2.0-sky1-ncz+r248) …
 
 # VERIFY, BEFORE REBOOT, that every DKMS module is now stamped against the
 # new kernel. THIS IS THE GATING CHECK. If the vermagic here is wrong the
@@ -327,7 +339,7 @@ r246/r247:
   itself succeeds (the kernels/modules/ are on disk; the operator has
   the rest of a working system minus the initrd). Cause: a chroot or
   rescue image missing both builders. Fix: install at least one
-  builder and re-run `apt install --reinstall linux-headers-cixmini`.
+  builder and re-run `apt install --reinstall linux-headers-cix-sky1-ncz`.
 
 - **`set -e` is honored throughout**, so any uncaught failure aborts
   the postinst and surfaces as a dpkg error in the apt transaction.

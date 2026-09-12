@@ -86,7 +86,7 @@ if [ "$STATUS" = 1 ]; then
     [ -f "$STATE" ] && { echo "last apply:"; sed 's/^/  /' "$STATE"; } || echo "last apply: (none recorded)"
     echo "installed cix/kernel packages:"
     dpkg-query -W -f='  ${Package} ${Version}\n' \
-        'linux-image-cixmini-*' 'cixmini-*' 'cix-*' 2>/dev/null | grep -v ' $' || echo "  (none)"
+        'linux-image-cix-sky1-ncz-*' 'linux-image-cixmini-*' 'cixmini-*' 'cix-*' 2>/dev/null | grep -v ' $' || echo "  (none)"
     exit 0
 fi
 

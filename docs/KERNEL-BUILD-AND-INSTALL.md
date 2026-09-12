@@ -7,7 +7,7 @@ release string stays exactly `7.2.0-sky1-ncz`. DKMS keys its rebuild state by
 that release string, so an upgrade that does not force a rebuild can leave GPU,
 VPU, and NPU modules built against the previous kernel's `Module.symvers`.
 
-The immediate r252 incident was not a kernel bug. `linux-headers-cixmini`
+The immediate r252 incident was not a kernel bug. `linux-headers-cix-sky1-ncz`
 already carried the `OTA-DKMS-HEADER-FIX-2026-08-21` postinst sequence that
 runs `dkms autoinstall -k "$KVER"` on every install, but the postinst tested:
 
@@ -130,7 +130,7 @@ from failed to active/exited-success.
    For the r252 incident fix, no Yocto rebuild is required. Rebuild only the
    `.deb` packages from the already-built r252 kernel assets with a higher
    `BUILD_REV`, because the changed payload is the
-   `linux-headers-cixmini` postinst.
+   `linux-headers-cix-sky1-ncz` postinst.
 
 6. Run the DKMS-load verification gate before installing on real hardware.
 
@@ -165,8 +165,8 @@ from failed to active/exited-success.
 
    ```bash
    sudo dpkg -i build/kernel-debs/cixmini-boot_*_arm64.deb \
-       build/kernel-debs/linux-image-cixmini_*_arm64.deb \
-       build/kernel-debs/linux-headers-cixmini_*_arm64.deb
+       build/kernel-debs/linux-image-cix-sky1-ncz_*_arm64.deb \
+       build/kernel-debs/linux-headers-cix-sky1-ncz_*_arm64.deb
    ```
 
    Then check the running KVER:

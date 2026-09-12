@@ -360,13 +360,13 @@ These five are not in Debian — they are NCZ's own builds:
 
 | package                | built by                                                                  | build host        |
 |------------------------|---------------------------------------------------------------------------|-------------------|
-| `linux-image-cixmini`  | `build/build-kernel-debs.sh` (Sky1 patches + cix-mini config + DKMS)      | aarch64 build host |
+| `linux-image-cix-sky1-ncz`  | `build/build-kernel-debs.sh` (Sky1 patches + cix-mini config + DKMS)      | aarch64 build host |
 | `cixmini-boot`         | rEFInd + bootloader entry generator (post-install/70-bootloader.sh lineage)| aarch64 build host |
 | `chromium-ncz-sky1`    | custom Chromium with V4L2-M2M HW decode (NCZ build infra)                | aarch64 build host |
 | `google-chrome-stable` | Google's signed stable build (downloaded fresh at build time)             | any host with network |
 | `ncz-ffmpeg`           | ffmpeg with CIX-specific decode/encode fixes, RPATH'd under /opt          | aarch64 build host |
 
-Three of them (`chromium-ncz-sky1`, `ncz-ffmpeg`, `linux-image-cixmini`)
+Three of them (`chromium-ncz-sky1`, `ncz-ffmpeg`, `linux-image-cix-sky1-ncz`)
 are NCZ's own builds against the Sky1 hardware — they need an aarch64
 build host that can cross-compile or run natively on cixmini. The other
 two (`google-chrome-stable`, `cixmini-boot`) need network to Google's
@@ -428,7 +428,7 @@ rebuild (none of which I can build in this session):
   Singularity Desktop payload). Built by `build-singularity.sh` →
   `build-singularity-deb.sh`. Requires git-cloning
   `singularityos-lab/singularity-desktop` + a Node/Go build chain.
-- `chromium-ncz-sky1_*.deb`, `ncz-ffmpeg_*.deb`, `linux-image-cixmini_*.deb`,
+- `chromium-ncz-sky1_*.deb`, `ncz-ffmpeg_*.deb`, `linux-image-cix-sky1-ncz_*.deb`,
   `cixmini-boot_*.deb`. NCZ build pipelines (see §6.2 table).
 - `google-chrome-stable_*.deb`. Fetched fresh from Google's repo at
   build time on a host with outbound network.

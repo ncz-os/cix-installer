@@ -4,7 +4,7 @@
 #
 # 10-our-kernel.sh (the previous hook, this one runs right after) installs
 # the kernel via apt, which pulls in the `cixmini-boot` package as a
-# dependency. The linux-image-cixmini package's own postinst scripts
+# dependency. The linux-image-cix-sky1-ncz package's own postinst scripts
 # directly call /usr/lib/cixmini/cixmini-update-bootloader on every install
 # or upgrade -- confirmed live on .66 (2026-07-06), this is the ONLY
 # mechanism that actually fires automatically; the conventional

@@ -448,7 +448,7 @@ assets/cix-debs/*.deb                            22 .debs from bake-assets
 assets/rescue/rescue-rootfs.tar.zst              187 MB
 assets/sinty-nm/sinty-nmd                        7.5 MB ELF (mode 0755)
 assets/singularity-boot-splash/singularity-boot-splash
-build/kernel-debs/{cixmini-boot,linux-image-cixmini,linux-headers-cixmini}_*.deb
+build/kernel-debs/{cixmini-boot,linux-image-cix-sky1-ncz,linux-headers-cix-sky1-ncz}_*.deb
 build/forky-mirror/                              1.4 GB
 build/forky-vendor-mirror/                       322 MB (8 packages indexed)
 build/tools/                                     user-space tool extraction cache

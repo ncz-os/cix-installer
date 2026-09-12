@@ -14,7 +14,7 @@
 # raw-copy the kernel from ISO assets, completely bypassing dpkg -- apt
 # had zero record any kernel package was installed, so `apt upgrade` could
 # never pull a new kernel (nothing to upgrade FROM). 10-our-kernel.sh now
-# installs the kernel via `apt-get install linux-image-cixmini-*`, which
+# installs the kernel via `apt-get install linux-image-cix-sky1-ncz`, which
 # means the kernel can change again later via a plain apt upgrade -- and
 # THAT needs a way to regenerate refind.conf for the new kernel. That part
 # is handled by post-install/11-fix-cixmini-boot.sh (redirects the

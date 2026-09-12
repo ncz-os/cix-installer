@@ -667,7 +667,7 @@ a current index.
   Debian-profiled image. Enabled by default on every image — this was never
   CDROM-only; the "offline-only" doctrine applied to specific single-vendor
   sources (see Vivaldi below), not the base archive.
-- **Kernels** — compiled `linux-image-cixmini-{lts,edge}` + `cixmini-boot`
+- **Kernels** — compiled `linux-image-cix-sky1-ncz` + `cixmini-boot`
   (`build/build-kernel-debs.sh`) → **Buildkite Packages** signed Debian registry
   `ncz-os/ncz`, wired by `post-install/24-apt-sources.sh`:
   `deb [signed-by=…] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main`.

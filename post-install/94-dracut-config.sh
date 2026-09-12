@@ -37,7 +37,7 @@ PIN_DST="/etc/apt/preferences.d/$PIN_NAME"
 
 # Install the apt pin FIRST and unconditionally -- it must be present even when
 # dracut is not, because its whole job is to stop dracut being pulled in
-# automatically. linux-image-cixmini depends on
+# automatically. linux-image-cix-sky1-ncz depends on
 # "initramfs-tools | dracut | linux-initramfs-tool", and without this pin
 # `apt remove initramfs-tools` would be satisfied by installing dracut,
 # silently switching the initramfs builder. initramfs-tools is a FALLBACK and
@@ -68,7 +68,7 @@ done
 #
 # Order matters. dracut is installed FIRST so the kernel's dependency is
 # satisfied at every point; only then is initramfs-tools removed. Doing it the
-# other way round would momentarily leave linux-image-cixmini unsatisfiable.
+# other way round would momentarily leave linux-image-cix-sky1-ncz unsatisfiable.
 if ! dpkg-query -W -f='${Status}' dracut 2>/dev/null | grep -q "install ok installed"; then
     echo "[94] installing dracut (primary initramfs builder for 26.7)"
     if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends dracut 2>&1 | tail -4; then
