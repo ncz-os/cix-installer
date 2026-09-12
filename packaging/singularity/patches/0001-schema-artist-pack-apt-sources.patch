@@ -1,15 +1,32 @@
-From 4152fa249b4b1bef2499a0dba4a81e7a14a0935d Mon Sep 17 00:00:00 2001
+From 6c748a4d19b6dbe08a6a117eb2c2556a4695d386 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Sat, 12 Sep 2026 16:46:20 -0400
+Date: Sat, 12 Sep 2026 17:17:34 -0400
 Subject: [PATCH] schema: add artist-pack-apt-sources key for the Artist Pack
  browser
 
+Adds the artist-pack-apt-sources (as) key to dev.sinty.desktop.gschema.xml,
+matching this schemas existing conventions (background-picture-uri,
+recent-wallpapers, pinned-apps, ...).
+
+This is the config surface for a curated wallpaper Artist Pack browser in
+singularity-shell (companion change there): which apt source(s) count as
+an artist pack source is deployment configuration, set via a packaged
+gschema override, never a literal in UI or script code. An empty default
+means no source is trusted, so a browser reading this key shows nothing
+rather than silently trusting an unconfigured repository.
+
+Verified: the patched schema parses and glib-compile-schemas --strict
+accepts the new key; a .gschema.override setting it compiles clean under
+--strict, and the SAME override compiles clean (unknown key silently
+ignored) against the schema WITHOUT this patch under a plain, non-strict
+invocation, and correctly fails under --strict -- so a distro can ship its
+override ahead of this patch landing without breaking existing overrides.
 ---
  data/dev.sinty.desktop.gschema.xml | 14 ++++++++++++++
  1 file changed, 14 insertions(+)
 
 diff --git a/data/dev.sinty.desktop.gschema.xml b/data/dev.sinty.desktop.gschema.xml
-index 5d86dfe..c44f0d4 100644
+index e1445ea..f016040 100644
 --- a/data/dev.sinty.desktop.gschema.xml
 +++ b/data/dev.sinty.desktop.gschema.xml
 @@ -120,6 +120,20 @@
@@ -34,5 +51,5 @@ index 5d86dfe..c44f0d4 100644
        <default>{}</default>
        <summary>Map of action names to custom accelerator strings</summary>
 -- 
-2.50.1 (Apple Git-155)
+2.55.0
 

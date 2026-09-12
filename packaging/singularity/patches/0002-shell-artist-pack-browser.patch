@@ -1,14 +1,48 @@
-From 02f1082bb72572aa636bbf8e0ffc9685cf7e3f43 Mon Sep 17 00:00:00 2001
+From d6ac89c1683600e99415a5d6f7200b410a4c117b Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Sat, 12 Sep 2026 16:49:59 -0400
+Date: Sat, 12 Sep 2026 17:17:59 -0400
 Subject: [PATCH] desktop: add Artist Pack browser, config-driven apt source
  via distro backend
 
+Adds an Artist Packs group to the Desktop settings page: lists curated
+wallpaper packs (ncz-wallpapers-* debs) available or already installed via
+apt, with an Install button per pack. Companion to the
+artist-pack-apt-sources schema key added in singularity-desktop.
+
+ArtistPackManager (src/core/artist_pack_manager.vala) never touches apt or
+a URL itself -- it shells out to two distro-provided scripts resolved by
+name via PATH: an unprivileged inventory script and a pkexec-gated install
+helper. A distro that does not ship the inventory script simply never sees
+this section (is_available() gates it), so this is additive, opt-in
+integration rather than a hard dependency.
+
+install_async() takes both the package name and the exact source URI the
+inventory step already reported for it, and passes both through to the
+privileged helper as argv -- the helper independently re-validates that
+pairing against the apt sources actually configured on the system and the
+package's live apt candidate, rather than the privileged side re-deriving
+trust itself from a session-dependent read. (A GSettings/dconf read is
+exactly that: it resolves per-EUID and does not behave the same for a
+pkexec-elevated process as it does for the desktop session, so the
+privileged side is deliberately built not to depend on it.)
+
+Uses only Singularity.Widgets (PreferencesGroup, ActionRow, Button), no
+raw Adw widgets, matching this codebase's established pattern.
+
+Verified with a real meson/vala/GTK4 toolchain (not just syntax checking):
+meson setup + ninja build clean, zero errors, produces a working
+singularity-desktop binary. Also verified end-to-end against the real,
+live production apt repos this distro currently publishes to: as of this
+patch neither configured source (Buildkite Packages primary, Cloudflare R2
+backup) has ever published a ncz-wallpapers-* package, so the empty-
+inventory path -- rendering a plain "No Artist Packs available" row, not a
+crash or placeholder -- is the actual behavior a real install shows today,
+and it was exercised against the live indexes, not a fixture.
 ---
  meson.build                                   |   1 +
- .../sidebar/pages/desktop_page.vala           |  89 ++++++++++
- src/core/artist_pack_manager.vala             | 160 ++++++++++++++++++
- 3 files changed, 250 insertions(+)
+ .../sidebar/pages/desktop_page.vala           |  90 +++++++++
+ src/core/artist_pack_manager.vala             | 187 ++++++++++++++++++
+ 3 files changed, 278 insertions(+)
  create mode 100644 src/core/artist_pack_manager.vala
 
 diff --git a/meson.build b/meson.build
@@ -24,18 +58,18 @@ index 13374ff..08abcb3 100644
      'src/core/shortcut_manager.vala',
      'src/core/ush_portal.vala',
 diff --git a/src/components/sidebar/pages/desktop_page.vala b/src/components/sidebar/pages/desktop_page.vala
-index 52576af..eea8b95 100644
+index 52576af..f56a1e6 100644
 --- a/src/components/sidebar/pages/desktop_page.vala
 +++ b/src/components/sidebar/pages/desktop_page.vala
-@@ -31,6 +31,8 @@ namespace Singularity {
-         private SelectionRow? decorations_side_row;
-         private WallpaperPreviewWidget preview_widget;
-         private FlowBox wallpaper_grid;
-+        private PreferencesGroup? artist_pack_group = null;
-+        private int artist_pack_refresh_generation = 0;
-         private int wallpaper_grid_generation = 0;
+@@ -35,6 +35,8 @@ namespace Singularity {
          private int wallpaper_accent_generation = 0;
          private string cached_wallpaper_accent = "#3584e4";
+         private static bool wallpaper_css_loaded = false;
++        private PreferencesGroup? artist_pack_group = null;
++        private int artist_pack_refresh_generation = 0;
+ 
+         // Appends a rounded-rectangle sub-path to the Cairo context.
+         private static void round_rect(Cairo.Context ctx, double x, double y, double w, double h, double r) {
 @@ -197,6 +199,25 @@ namespace Singularity {
              grid_group.add_row(grid_row);
              add_group(grid_group);
@@ -62,7 +96,7 @@ index 52576af..eea8b95 100644
              refresh_wallpaper_accent_async();
              update_preview_async();
              var wm = WallpaperManager.get_default();
-@@ -1950,6 +1971,74 @@ namespace Singularity {
+@@ -1950,6 +1971,75 @@ namespace Singularity {
              }
          }
  
@@ -110,11 +144,12 @@ index 52576af..eea8b95 100644
 +                var install_btn = new Button.with_label(pack.installed ? _("Installed") : _("Install"));
 +                install_btn.sensitive = !pack.installed;
 +                string captured_package = pack.package;
++                string captured_source = pack.source;
 +                Button captured_btn = install_btn;
 +                install_btn.clicked.connect(() => {
 +                    captured_btn.sensitive = false;
 +                    captured_btn.label = _("Installing…");
-+                    ArtistPackManager.get_default().install_async.begin(captured_package, null, (obj, res) => {
++                    ArtistPackManager.get_default().install_async.begin(captured_package, captured_source, null, (obj, res) => {
 +                        try {
 +                            ArtistPackManager.get_default().install_async.end(res);
 +                            captured_btn.label = _("Installed");
@@ -139,10 +174,10 @@ index 52576af..eea8b95 100644
              wallpaper_grid.remove_all();
 diff --git a/src/core/artist_pack_manager.vala b/src/core/artist_pack_manager.vala
 new file mode 100644
-index 0000000..4b934ea
+index 0000000..379de51
 --- /dev/null
 +++ b/src/core/artist_pack_manager.vala
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,187 @@
 +using GLib;
 +using Gee;
 +using Json;
@@ -154,7 +189,7 @@ index 0000000..4b934ea
 +     * the apt sources configured in dev.sinty.desktop's
 +     * artist-pack-apt-sources.
 +     */
-+    public class ArtistPackInfo : Object {
++    public class ArtistPackInfo : GLib.Object {
 +        public string package { get; private set; }
 +        public string title { get; private set; }
 +        public string summary { get; private set; }
@@ -196,8 +231,23 @@ index 0000000..4b934ea
 +     * dev.sinty.desktop `artist-pack-apt-sources` GSettings key - this class
 +     * never reads or filters on that value itself, so the browser and the
 +     * source policy stay independently configurable.
++     *
++     * install_async() intentionally takes the exact `source` URI the
++     * inventory script already reported for a pack, and passes it through
++     * to the privileged install helper as its own argv (rather than the
++     * privileged helper re-deriving "which sources are trusted" itself by
++     * re-reading GSettings as root under pkexec). The helper still
++     * independently re-checks that argv-supplied source both against the
++     * apt sources actually configured on the system and against the
++     * package's live apt candidate before installing anything - it does not
++     * blindly trust the caller. This split matters because GSettings/dconf
++     * is a per-user mechanism: a `pkexec`-elevated root process does not
++     * share the desktop user's dconf session, so having the privileged side
++     * re-read a GSettings key is fragile in a way that reading a plain,
++     * root-owned apt sources file is not. See the install helper and
++     * packaging/singularity/README.md for the full reasoning.
 +     */
-+    public class ArtistPackManager : Object {
++    public class ArtistPackManager : GLib.Object {
 +        private static ArtistPackManager? _instance = null;
 +        private const string INVENTORY_HELPER = "ncz-wallpaper-pack-inventory";
 +        private const string INSTALL_HELPER = "ncz-wallpaper-pack-install";
@@ -268,19 +318,31 @@ index 0000000..4b934ea
 +        /**
 +         * Installs one Artist Pack via pkexec + the distro's install helper.
 +         *
++         * `source` must be the exact `source` URI the inventory step
++         * already reported for this package (ArtistPackInfo.source) - it is
++         * passed through to the privileged helper as argv, which
++         * re-validates it independently rather than trusting this call.
++         * Never pass anything here other than a value that came back from
++         * fetch_inventory_async().
++         *
 +         * Idempotent by construction: the helper's own `apt-get install` is
 +         * a no-op (exit 0) when the package is already at the candidate
 +         * version, so calling this on an already-installed pack is a safe,
 +         * repeatable no-op rather than an error. The package-name shape
 +         * check here is defense in depth only - the privileged helper
-+         * re-validates the name and re-checks its apt candidate against the
-+         * configured sources itself before touching apt, so this check
-+         * existing or not does not change what the helper will actually do.
++         * re-validates both the name and the source against the system's
++         * actual apt configuration and the package's live apt candidate
++         * before touching apt, so this check existing or not does not
++         * change what the helper will actually do.
 +         */
-+        public async void install_async(string package, Cancellable? cancellable = null) throws Error {
++        public async void install_async(string package, string source, Cancellable? cancellable = null) throws Error {
 +            if (!Regex.match_simple("^ncz-wallpapers-[a-z0-9][a-z0-9-]*$", package)) {
 +                throw new ArtistPackError.INVALID_RESPONSE(
 +                    "Refusing to install %s: not an Artist Pack package name".printf(package));
++            }
++            if (source.strip().length == 0) {
++                throw new ArtistPackError.INVALID_RESPONSE(
++                    "Refusing to install %s: no source URI given".printf(package));
 +            }
 +            string? helper = Environment.find_program_in_path(INSTALL_HELPER);
 +            if (helper == null) {
@@ -292,7 +354,7 @@ index 0000000..4b934ea
 +            }
 +
 +            var proc = new Subprocess(SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE,
-+                                       pkexec, helper, package);
++                                       pkexec, helper, package, source);
 +            string stdout_data;
 +            string stderr_data;
 +            yield proc.communicate_utf8_async(null, cancellable, out stdout_data, out stderr_data);
@@ -304,5 +366,5 @@ index 0000000..4b934ea
 +    }
 +}
 -- 
-2.50.1 (Apple Git-155)
+2.55.0
 
