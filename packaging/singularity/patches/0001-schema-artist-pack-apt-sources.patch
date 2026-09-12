@@ -1,0 +1,38 @@
+From 4152fa249b4b1bef2499a0dba4a81e7a14a0935d Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 12 Sep 2026 16:46:20 -0400
+Subject: [PATCH] schema: add artist-pack-apt-sources key for the Artist Pack
+ browser
+
+---
+ data/dev.sinty.desktop.gschema.xml | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/data/dev.sinty.desktop.gschema.xml b/data/dev.sinty.desktop.gschema.xml
+index 5d86dfe..c44f0d4 100644
+--- a/data/dev.sinty.desktop.gschema.xml
++++ b/data/dev.sinty.desktop.gschema.xml
+@@ -120,6 +120,20 @@
+       <default>[]</default>
+       <summary>List of recently used wallpaper URIs</summary>
+     </key>
++    <key name="artist-pack-apt-sources" type="as">
++      <default>[]</default>
++      <summary>Artist Pack apt sources</summary>
++      <description>List of apt repository base URIs treated as sources of
++        curated Artist Packs (ncz-wallpapers-* debs) by the Desktop settings'
++        Artist Pack browser. Only packages whose apt candidate URI is under
++        one of these bases are listed for browsing/installing. Empty means no
++        source is trusted, so the browser shows nothing rather than silently
++        trusting an unconfigured repository. Distributions set this via a
++        packaged gschema override (see dev.sinty.desktop.gschema.override in
++        the distro's post-install), not by patching this default -- the whole
++        point is that the trusted source list is deployment configuration,
++        not something baked into the browser's code.</description>
++    </key>
+     <key name="custom-shortcuts" type="a{ss}">
+       <default>{}</default>
+       <summary>Map of action names to custom accelerator strings</summary>
+-- 
+2.50.1 (Apple Git-155)
+
