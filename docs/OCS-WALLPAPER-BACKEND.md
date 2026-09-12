@@ -34,6 +34,7 @@ ncz-wallpaper-ocs providers
 ncz-wallpaper-ocs categories pling
 ncz-wallpaper-ocs index -o assets/wallpaper/ocs-category-index.json
 ncz-wallpaper-ocs browse pling 300
+ncz-wallpaper-ocs browse pling 300 --pages 1 --page-size 50
 ncz-wallpaper-ocs item pling 2353422
 ncz-wallpaper-ocs import pling 2353422
 ```
@@ -41,6 +42,32 @@ ncz-wallpaper-ocs import pling 2353422
 `browse` filters on the item `downloadname1` extension. Raster images and
 archives are importable; SVG, theme packages, QML plugins and other payloads are
 not presented as wallpaper imports.
+
+### Paging — the server default is 10, not 50
+
+Measured 2026-09-12 against the shipped providers:
+
+```
+/content/data?categories=300              -> <itemsperpage>10</itemsperpage>
+                                             <totalitems>1971</totalitems>
+/content/data?categories=300&pagesize=50  -> 50 items
+/content/data?categories=300&pagesize=100 -> 100 items
+/content/data?categories=300&pagesize=101 -> statuscode 400 "Page size out of range"
+```
+
+`page` is 0-indexed, so omitting it is page 0. `--pages N` walks pages
+`0..N-1`. `--page-size` maps to OCS `pagesize` and is clamped to 1-100, so a
+caller can never trip the 400; `--page-size 0` (the default) leaves the
+parameter off and takes the server's 10. Both values are part of the response
+cache key, so changing either does not serve back the other's result.
+
+**A caller that omits `--page-size` sees about half a percent of a category.**
+The shell's aggregate crawl hit exactly this: one 10-item page across the 45
+usable pling categories yielded 394 unique importable items against a browser
+cap of 1500, which is where the "~400 wallpapers" ceiling came from. At
+`--page-size 50` the same 45 requests yield 1772, so the cap becomes the real
+limit. `api.kde-look.org` reports `totalitems=0` for category 300; only two of
+its categories are marked usable in the index.
 
 `import` fetches the item detail, downloads `downloadlink1` while following the
 Pling JWT redirect, unpacks archives, sniffs real MIME type with `file`,
