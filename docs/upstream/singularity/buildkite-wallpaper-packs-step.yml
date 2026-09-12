@@ -1,0 +1,69 @@
+# REFERENCE COPY of a step that IS committed and live.
+#
+# Unlike its sibling buildkite-publish-deb-step.yml -- which is a snippet a
+# human was supposed to paste and, as of 2026-09-12, NEVER WAS (ncz-os/
+# singularity-desktop's .buildkite/pipeline.yml contains only build_arm64, so
+# the ncz-singularity-desktop .deb is still published by a human running
+# build/build-singularity-deb.sh and piping it to ARGOS by hand) -- this step
+# is committed in that pipeline.yml under the key `publish_wallpaper_packs`.
+# This file exists so the step is reviewable from cix-installer, which owns
+# both the art and the packaging script it drives. It is NOT auto-deployed
+# from here; the same convention as build/ops/argos/*.sh. Edit the live copy
+# and update this to match.
+#
+# WHY IT LIVES IN THE SINGULARITY-DESKTOP PIPELINE AT ALL
+#
+# It has nothing to do with Singularity Desktop -- hence no `depends_on` and
+# no artifact download. Publication goes to the ARGOS apt host at
+# 192.168.207.22, so it needs an agent on our LAN, and cix-installer's own
+# .gitlab-ci.yml runs on GitLab SHARED runners with no route there. The arm64
+# Buildkite queue is the only CI we have that can reach it. Being an
+# independent step also means a wallpaper problem can never hold up or red the
+# desktop build.
+#
+# HOW IT GETS RUN
+#
+# tools/nightly/ncz-singularity-sync.sh publishes `upstream-mirror-ci` each
+# day = the upstream tree with .buildkite/, scripts/ and patches/ overlaid
+# from OUR fork's master, then triggers a Buildkite build of it. So a change
+# to the pipeline on ncz-os/singularity-desktop master reaches the next
+# nightly build on its own; nothing needs to be invoked by hand.
+#
+# IDEMPOTENCE
+#
+# A pack's version is human-bumped in build/build-wallpaper-contrib-deb.sh's
+# metadata block, so an unchanged pack rebuilds to the same version every
+# night. The step reads Package/Version off the BUILT ARTIFACT and skips the
+# upload when that exact pair is already in the published apt index, so the
+# daily run costs one clone and one 9 MB package build and uploads nothing
+# until a person bumps the version.
+#
+# KNOWN BLOCKER AS OF 2026-09-12
+#
+# The arm64 agent moved TYDEUS -> ULTRA on 2026-09-05 and the ARGOS deploy key
+# `~/.ssh/id_ed25519_argonas_apt` did NOT move with it. Nothing can publish
+# from CI until it is reprovisioned -- this step, and the desktop .deb step
+# whenever it is finally wired. The step therefore builds and verifies the
+# package, then raises a Buildkite warning annotation naming the missing key
+# instead of either failing every nightly or skipping silently.
+#
+# VERIFIED 2026-09-12, by running this step's command body on the arm64 agent
+# host itself (ULTRA, native aarch64 Fedora):
+#   - clone + live index fetch OK (76 package stanzas)
+#   - built ncz-wallpapers-brandon-perlow_1.0_all.deb, 9.2 MB, 7 real 4K JPEGs
+#   - already-published detection exercised in all four directions against the
+#     live index: absent pack -> publish, a genuinely published version ->
+#     skip, a bogus version -> publish, a seeded match -> skip
+#   - missing-deploy-key path reached, reported, step still exit 0
+# The TMPDIR export is not cosmetic: without it the first run died with
+# "lzma write error: Disk quota exceeded" because /tmp on that agent is a 31G
+# tmpfs sitting at 80%.
+
+  - label: ":art: package and publish contributed wallpaper packs (.deb)"
+    key: "publish_wallpaper_packs"
+    agents:
+      queue: "arm64"
+    timeout_in_minutes: 15
+    # See the live copy in ncz-os/singularity-desktop .buildkite/pipeline.yml
+    # for the full command body, including the $$-escaping rules that apply to
+    # every runtime shell variable in this file.

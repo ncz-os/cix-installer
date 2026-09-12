@@ -31,9 +31,26 @@ OUT="$ROOT/build/wallpaper-debs"
 # Pack metadata. Add a case here when adding a pack; refusing to guess an
 # author or a licence is deliberate -- this package is redistributed, and an
 # invented licence line is worse than no package.
+#
+# PACK_VERSION is HUMAN-BUMPED, in this block, in the same commit that changes
+# the art. It is deliberately not derived from git or from a content hash:
+#
+#   * A git-derived version (HEAD date + sha) changes on every unrelated
+#     cix-installer commit, so the nightly publish would re-upload megabytes of
+#     unchanged JPEG every day.
+#   * A content-hash version is stable when the art is stable, but hex sorts
+#     arbitrarily -- apt would read half of all real updates as DOWNGRADES and
+#     refuse them.
+#
+# So the version moves when, and only when, a person changes the pack, and it
+# moves monotonically. The publish step is what makes that safe to run daily:
+# it reads the version off the built artifact and skips the upload when that
+# exact version is already in the repository, so an unchanged pack costs
+# nothing and a bumped one ships on the next build.
 case "$PACK" in
     brandon-perlow)
         PKG="ncz-wallpapers-brandon-perlow"
+        PACK_VERSION="1.0"
         AUTHOR="Brandon Perlow"
         YEAR="2026"
         BLURB="Wallpaper artwork by Brandon Perlow"
@@ -52,9 +69,31 @@ case "$PACK" in
         exit 1 ;;
 esac
 
-VERSION="${NCZ_WALLPAPER_PACK_VERSION:-1.0}"
+VERSION="${NCZ_WALLPAPER_PACK_VERSION:-$PACK_VERSION}"
+# dpkg is the source of truth for what a valid Debian version string is. The
+# in-script default is always well formed; an override is not, and a malformed
+# one is far better caught here than by reprepro halfway through a publish.
+# Same guard, same reason, as build-singularity-deb.sh.
+if command -v dpkg >/dev/null 2>&1; then
+    dpkg --validate-version "$VERSION" || {
+        echo "ERROR: '$VERSION' is not a valid Debian version string (NCZ_WALLPAPER_PACK_VERSION override?)" >&2
+        exit 1
+    }
+fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+# mktemp -d creates 0700, and dpkg-deb records the staging root as the
+# package's "./" entry -- so without this the .deb ships `drwx------ ./`.
+# `dpkg -i` ignores that entry (verified 2026-09-12 on Debian 13: installing
+# such a package into an isolated root left it 0755), so this is NOT an
+# apt-install hazard. It DOES apply to anything that assembles a filesystem by
+# EXTRACTING debs -- `dpkg-deb -x` reproduced it immediately, turning a 0755
+# target into 0700 -- which is the shape of the 0700-root failure in
+# ~/.claude/rules/iso-build-guardrails.md (greetd could not chdir, the NIC
+# never linked, rtc-efi hung). Five packages already in the NCZ-OS pool carry
+# the bad mode, ncz-singularity-desktop among them; fixing it here keeps this
+# package out of that set.
+chmod 0755 "$WORK"
 
 # ART PAKS ARE COLLECTIONS.
 #
@@ -95,6 +134,12 @@ echo "  collection: $PACK ($AUTHOR)"
 # Installed-Size is in KiB and dpkg expects it to be roughly honest.
 SIZE_KB=$(du -sk "$WORK/usr" | cut -f1)
 
+# No Depends field at all: this package is JPEGs, a collection file and a
+# copyright note, and it depends on nothing. The field used to be written as a
+# literal `${misc:Depends}` and then deleted again by two `sed -i` calls --
+# which also made this script GNU-only, because `sed -i` with no backup suffix
+# is not portable and fails outright on BSD/macOS sed. Not emitting the line is
+# both correct and portable.
 cat > "$WORK/DEBIAN/control" <<CONTROL
 Package: $PKG
 Version: $VERSION
@@ -104,12 +149,9 @@ Architecture: all
 Maintainer: Jason Perlow <jperlow@gmail.com>
 Homepage: $HOMEPAGE
 Installed-Size: $SIZE_KB
-Depends: \${misc:Depends}
 Description: $BLURB
 $LONG
 CONTROL
-sed -i 's/Depends: ${misc:Depends}//' "$WORK/DEBIAN/control"
-sed -i '/^$/d;' "$WORK/DEBIAN/control"
 
 cat > "$WORK/usr/share/doc/$PKG/copyright" <<COPYRIGHT
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
@@ -138,6 +180,21 @@ COPYRIGHT
 
 install -d "$OUT"
 DEB="$OUT/${PKG}_${VERSION}_all.deb"
-dpkg-deb --build --root-owner-group "$WORK" "$DEB" >/dev/null
+# Capture the help text first rather than piping it into `grep -q`: under
+# `set -o pipefail` that pipeline is a race (grep -q exits on match, dpkg-deb
+# takes SIGPIPE, the pipeline reports failure on a dpkg-deb that supports the
+# option perfectly well). Measured in build-singularity-deb.sh on 2026-08-16 --
+# same pattern, same reason, and the fakeroot fallback this script previously
+# lacked entirely, so it now also builds on a host with an older dpkg-deb.
+_dpkg_deb_help="$(dpkg-deb --help 2>&1 || true)"
+if printf '%s' "$_dpkg_deb_help" | grep -q -- '--root-owner-group'; then
+    dpkg-deb --build --root-owner-group "$WORK" "$DEB" >/dev/null
+else
+    command -v fakeroot >/dev/null 2>&1 || {
+        echo "ERROR: dpkg-deb lacks --root-owner-group and fakeroot is unavailable" >&2
+        exit 1
+    }
+    fakeroot dpkg-deb --build "$WORK" "$DEB" >/dev/null
+fi
 echo "  built: $DEB ($(du -h "$DEB" | cut -f1))"
 dpkg-deb --info "$DEB" | sed 's/^/    /'
