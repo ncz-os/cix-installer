@@ -803,11 +803,11 @@ EOF
 cat > /usr/share/ncz-wallpapers/collections/bing.collection <<'EOF'
 [Collection]
 Id=bing
-Name=Bing Image of the Day
-Comment=Bing's daily photograph, refreshed each day
+Name=Bing (Combined, All Markets)
+Comment=Bing's daily photographs across all regional markets, de-duplicated
 Type=provider
 Provider=bing
-Dir=/var/cache/ncz-wallpapers/bing
+Dir=/var/cache/ncz-wallpapers/bing/consolidated
 EOF
 
 # Daily refresh. A timer, not a loop inside the rotator: the image changes once
