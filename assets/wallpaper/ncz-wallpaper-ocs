@@ -39,6 +39,11 @@ PROVIDERS: dict[str, dict[str, str]] = {
 
 PROVIDER_NAMES = {"pling": "Pling", "kde-look": "KDE Look", "gnome-look": "GNOME Look"}
 STALE_CACHE = False
+# OCS accepts `pagesize` between 1 and 100; 101 and above answer
+# statuscode 400 "Page size out of range" (measured 2026-09-12 against
+# api.pling.com), which fetch_xml turns into a hard failure. Clamp rather
+# than forwarding a caller's number straight to the server.
+MAX_PAGE_SIZE = 100
 
 
 def die(message: str, code: int = 1) -> None:
@@ -180,7 +185,11 @@ def get_categories(provider: str) -> list[dict[str, Any]]:
     return [parse_category(c) for c in root.findall(".//category")]
 
 
-def get_items(provider: str, category: str, pages: int = 1) -> list[dict[str, Any]]:
+def clamp_page_size(value: int) -> int:
+    return max(1, min(MAX_PAGE_SIZE, value))
+
+
+def get_items(provider: str, category: str, pages: int = 1, page_size: int = 0) -> list[dict[str, Any]]:
     global STALE_CACHE
     # Persistent normalized catalog pages. Import detail/download URLs are
     # deliberately fetched fresh by get_item(), never taken from this cache.
@@ -189,7 +198,10 @@ def get_items(provider: str, category: str, pages: int = 1) -> list[dict[str, An
     import time
     cache_root = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "ncz-wallpapers/ocs/v1"
     cache_root.mkdir(parents=True, exist_ok=True)
-    cache = cache_root / (hashlib.sha256(f"{provider}:{category}:{pages}".encode()).hexdigest() + ".json")
+    # page_size is part of the key: the same category at a different page
+    # size is a different result set, and reusing one for the other would
+    # silently serve a 10-item page to a caller that asked for 50.
+    cache = cache_root / (hashlib.sha256(f"{provider}:{category}:{pages}:{page_size}".encode()).hexdigest() + ".json")
     with (cache_root / (cache.stem + ".lock")).open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         saved = None
@@ -202,7 +214,7 @@ def get_items(provider: str, category: str, pages: int = 1) -> list[dict[str, An
         except (OSError, ValueError):
             pass
         try:
-            items = fetch_items(provider, category, pages)
+            items = fetch_items(provider, category, pages, page_size)
             atomic_text(cache, json.dumps(items))
             return items
         except SystemExit:
@@ -213,12 +225,25 @@ def get_items(provider: str, category: str, pages: int = 1) -> list[dict[str, An
             raise
 
 
-def fetch_items(provider: str, category: str, pages: int = 1) -> list[dict[str, Any]]:
+def fetch_items(provider: str, category: str, pages: int = 1, page_size: int = 0) -> list[dict[str, Any]]:
+    """Collect importable items from `pages` consecutive OCS pages.
+
+    OCS `page` is 0-indexed, so page 0 is the request with no `page` param.
+    `page_size` maps to the OCS `pagesize` parameter; 0 leaves it unset and
+    the server applies its own default of 10 (measured 2026-09-12 on all
+    three shipped providers via <meta><itemsperpage>). A caller that wants a
+    meaningful slice of a category MUST pass one: pling category 300 alone
+    reports <totalitems>1971</totalitems>, so the 10-item default surfaces
+    about half a percent of it.
+    """
     items: list[dict[str, Any]] = []
+    size = clamp_page_size(page_size) if page_size else 0
     for page in range(max(1, pages)):
         params = {"categories": str(category)}
         if page:
             params["page"] = str(page)
+        if size:
+            params["pagesize"] = str(size)
         root = fetch_xml(endpoint(provider, "content/data", params))
         for elem in root.findall(".//content"):
             item = parse_content(elem, provider)
@@ -573,7 +598,7 @@ def cmd_browse(args: argparse.Namespace) -> None:
     errors = []
     def browse_network(network):
         try:
-            return network, get_items(network, args.category, args.pages)
+            return network, get_items(network, args.category, args.pages, args.page_size)
         except SystemExit:
             return network, None
     with ThreadPoolExecutor(max_workers=3) as pool:
@@ -611,7 +636,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("browse", help="list importable items in a category")
     p.add_argument("provider")
     p.add_argument("category")
-    p.add_argument("--pages", type=int, default=1)
+    p.add_argument("--pages", type=int, default=1, help="number of consecutive OCS pages to walk")
+    p.add_argument("--page-size", type=int, default=0, dest="page_size",
+                   help=f"OCS pagesize, 1-{MAX_PAGE_SIZE} (clamped); 0 uses the server default of 10")
     p.set_defaults(func=cmd_browse)
     p = sub.add_parser("item", help="fetch one OCS item")
     p.add_argument("provider")
