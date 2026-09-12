@@ -247,6 +247,10 @@ install -m 0755 /dev/stdin /usr/local/bin/ncz-wallpaper-bing <<'BING_EOF'
 #   latest          print the newest archived image from the enabled markets
 #   info            print attribution for the newest archived image
 #   list [--all]    print archive entries as JSON for the history browser
+#   consolidate     rebuild the de-duplicated "consolidated" view (by sha256
+#                   image content, not filename/date) across every cached
+#                   market; fetch does this automatically when the configured
+#                   markets are "all"
 #   pin <mkt> <yyyymmdd> | unpin <mkt> <yyyymmdd>
 set -u
 
@@ -262,6 +266,7 @@ set -u
 #   en-US                                default
 exec python3 - "$@" <<'PY'
 import datetime
+import hashlib
 import json
 import os
 import random
@@ -318,7 +323,7 @@ def log(msg):
 def split_tokens(text):
     return [tok for tok in re.split(r"[\s,]+", text.strip()) if tok]
 
-def configured_markets():
+def _bing_markets_raw_text():
     text = os.environ.get("NCZ_BING_MARKETS", "")
     if not text:
         multi = CONFIG_DIR / "bing-markets"
@@ -329,6 +334,18 @@ def configured_markets():
             text = single.read_text(errors="ignore")
     if not text:
         text = os.environ.get("NCZ_BING_MARKET", "")
+    return text
+
+def is_all_markets_configured():
+    # Same sentinel comparison configured_markets() makes below, split out so
+    # cmd_fetch() can decide whether to auto-rebuild the consolidated view
+    # without re-deriving (and re-filtering) the whole market list.
+    # Consolidation only makes sense when more than one market is actually
+    # being pulled -- a single explicit market has nothing to de-duplicate.
+    return _bing_markets_raw_text().strip().lower() == "all"
+
+def configured_markets():
+    text = _bing_markets_raw_text()
     # singularity-shell's "All Markets" selector writes the literal
     # sentinel "all" (write_bing_markets_all(), a single line "all\n") to
     # ~/.config/ncz-wallpaper/bing-markets. "all" never matches MARKET_RE
@@ -527,6 +544,10 @@ def cmd_fetch(_args):
     markets = configured_markets()
     for market in markets:
         total += fetch_market(market)
+    if is_all_markets_configured():
+        # Only worth doing when more than one market is actually being
+        # pulled -- a single explicit market has nothing to de-duplicate.
+        cmd_consolidate([])
     return 0 if total or archive_entries(markets) else 1
 
 def cmd_pick(_args):
@@ -600,6 +621,110 @@ def cmd_markets(_args):
         print(f"{code}\t{name}")
     return 0
 
+def consolidated_dir():
+    return DATA_ROOT / "consolidated"
+
+def sha256_of(path, chunk_size=1024 * 1024):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+def _relink(dst, src):
+    # dst is always torn down and rebuilt fresh by cmd_consolidate() below, so
+    # in practice this only ever creates a new link -- the exists()/is_symlink()
+    # guard is defensive against a leftover from an interrupted prior run
+    # rather than something the normal path relies on.
+    if dst.exists() or dst.is_symlink():
+        dst.unlink()
+    dst.symlink_to(src)
+
+def cmd_consolidate(_args):
+    # Bing serves the SAME photograph to multiple regional markets on any
+    # given day (docs/WALLPAPER-PACKS.md #6: en-US/en-GB/de-DE/zh-CN and
+    # ja-JP/en-AU have each shared a single photo with the others on one real
+    # day). Now that "all" fetches every market, that shows up as heavy
+    # duplication in any view that walks every per-market directory. This
+    # rebuilds one de-duplicated view keyed on IMAGE CONTENT (sha256), never
+    # on filename/date -- each market's daily rotation is independent, so the
+    # same photograph can legitimately land under a different date in a
+    # different market, and two DIFFERENT photos can just as easily share the
+    # same date across markets.
+    #
+    # Consolidation is a REFERENCE, not a copy: each unique image is exposed
+    # as a symlink back into its source market directory (named
+    # "<market>-<date>.jpg" -- a bare "<date>.jpg" is not collision-safe here,
+    # since different markets commonly share a calendar date for genuinely
+    # different photos), plus its .txt/.json sidecars symlinked the same way,
+    # plus one "index.json" manifest a picker can read without re-deriving
+    # the market/date from the symlink name.
+    #
+    # Rebuilt from scratch on every call rather than reconciled incrementally:
+    # the whole cache is small (14 markets x roughly a 15-day Bing backfill
+    # window -- a few hundred images at most), and tearing down + recreating
+    # the directory is what makes this trivially idempotent and immune to
+    # stale symlinks -- nothing is left standing between runs for a deleted
+    # or re-pruned source image to dangle from.
+    out_dir = consolidated_dir()
+    if out_dir.is_dir():
+        for entry in out_dir.iterdir():
+            if entry.is_file() or entry.is_symlink():
+                entry.unlink()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    seen = {}  # sha256 -> (market, date, image path) of the first-seen copy
+    markets = all_archived_markets()
+    for market in markets:
+        directory = DATA_ROOT / market
+        for image in sorted(directory.glob("*.jpg")):
+            date = image.stem
+            if not DATE_RE.match(date):
+                continue
+            try:
+                digest = sha256_of(image)
+            except OSError as exc:
+                log(f"consolidate: {market}/{image.name}: could not hash: {exc}")
+                continue
+            if digest in seen:
+                continue  # same photograph already kept from an earlier market
+            seen[digest] = (market, date, image)
+
+    manifest = []
+    for digest, (market, date, image) in seen.items():
+        link_name = f"{market}-{date}.jpg"
+        try:
+            _relink(out_dir / link_name, image)
+        except OSError as exc:
+            log(f"consolidate: {market}/{image.name}: symlink failed: {exc}")
+            continue
+        meta = read_meta(image, market, date)
+        for suffix in (".txt", ".json"):
+            src = image.with_suffix(suffix)
+            if not src.exists():
+                continue
+            try:
+                _relink(out_dir / f"{market}-{date}{suffix}", src)
+            except OSError as exc:
+                log(f"consolidate: {market}/{src.name}: sidecar symlink failed: {exc}")
+        manifest.append({
+            "provider": "bing",
+            "market": market,
+            "date": date,
+            "path": str(out_dir / link_name),
+            "source_path": str(image),
+            "sha256": digest,
+            "caption": meta.get("caption", ""),
+            "copyright": meta.get("copyright", ""),
+        })
+
+    manifest.sort(key=lambda item: (item["date"], item["market"]), reverse=True)
+    (out_dir / "index.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    )
+    log(f"consolidate: {len(manifest)} unique image(s) from {len(markets)} market(s)")
+    return 0 if manifest else 1
+
 cmd = sys.argv[1] if len(sys.argv) > 1 else "fetch"
 args = sys.argv[2:]
 commands = {
@@ -609,13 +734,14 @@ commands = {
     "info": cmd_info,
     "list": cmd_list,
     "markets": cmd_markets,
+    "consolidate": cmd_consolidate,
 }
 if cmd == "pin":
     raise SystemExit(cmd_pin(args, True))
 if cmd == "unpin":
     raise SystemExit(cmd_pin(args, False))
 if cmd not in commands:
-    print("usage: ncz-wallpaper-bing {fetch|pick|latest|info|list [--all]|markets|pin <market> <yyyymmdd>|unpin <market> <yyyymmdd>}", file=sys.stderr)
+    print("usage: ncz-wallpaper-bing {fetch|pick|latest|info|list [--all]|markets|consolidate|pin <market> <yyyymmdd>|unpin <market> <yyyymmdd>}", file=sys.stderr)
     raise SystemExit(2)
 raise SystemExit(commands[cmd](args))
 PY
