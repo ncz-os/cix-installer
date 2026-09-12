@@ -252,6 +252,17 @@ install -m 0755 /dev/stdin /usr/local/bin/ncz-wallpaper-bing <<'BING_EOF'
 #   latest          print the newest archived image from the enabled markets
 #   info            print attribution for the newest archived image
 #   list [--all]    print archive entries as JSON for the history browser
+#   list --consolidated | list consolidated
+#                   print the DE-DUPLICATED entries as JSON, one row per
+#                   unique photograph instead of one row per (market, date)
+#                   pair -- what a BROWSING gallery wants when every market
+#                   is enabled (see cmd_list() for why the plain per-market
+#                   listing is wrong there)
+#   markets         print "<code>\t<Human Name>" per line; prepends the
+#                   "consolidated" pseudo-market when the configured markets
+#                   are the "all" sentinel, so a UI learns from the helper --
+#                   not from re-deriving the config -- that a combined view
+#                   is available
 #   consolidate     rebuild the de-duplicated "consolidated" view (by sha256
 #                   image content, not filename/date) across every cached
 #                   market; fetch does this automatically when the configured
@@ -291,6 +302,14 @@ API = "https://www.bing.com/HPImageArchive.aspx"
 BACKFILL = ((0, 8), (7, 8))
 MARKET_RE = re.compile(r"^[A-Za-z]{2}-[A-Za-z]{2}$")
 DATE_RE = re.compile(r"^[0-9]{8}$")
+# The pseudo-market id for the de-duplicated combined view. Deliberately NOT
+# shaped like a real market code, so it can never collide with one, is never
+# picked up by all_archived_markets()'s MARKET_RE filter (which is also what
+# stops consolidate() from recursing into its own output directory), and is
+# rejected by the per-token filter in configured_markets(). It is the id
+# cmd_markets() advertises and the one `list` accepts in place of a market.
+CONSOLIDATED_ID = "consolidated"
+CONSOLIDATED_NAME = "Combined (All Markets)"
 # The 14 markets Bing's HPImageArchive API genuinely serves that this
 # rotator supports. This is the "all" sentinel expands to (see
 # configured_markets() below) and the list cmd_markets() advertises --
@@ -530,6 +549,53 @@ def archive_entries(markets):
             entries.append((date, market, image, meta))
     return sorted(entries, key=lambda item: (item[0], item[1], str(item[2])), reverse=True)
 
+def consolidated_entries():
+    # Read the consolidate() manifest into the SAME
+    # (date, market, image, meta) shape archive_entries() returns, plus the
+    # source path as a fifth element.
+    #
+    # Two paths per row, and they are not interchangeable:
+    #   image  = consolidated/<first-seen-market>/<date>.jpg, the symlink.
+    #            This is what callers should PRINT/expose, because it is the
+    #            stable, de-duplicated identity of the photograph and what
+    #            the bing collection's Dir= already points at.
+    #   source = the real <market>/<date>.jpg it points back to. Needed for
+    #            is_pinned(), whose ".pinned" marker lives next to the
+    #            ORIGINAL and is deliberately not symlinked into the
+    #            consolidated view (a symlinked marker would encode pin state
+    #            that goes stale the moment somebody pins or unpins, until
+    #            the next consolidate run).
+    #
+    # meta comes from read_meta() against the symlink rather than from the
+    # manifest's caption/copyright pair, because the .json/.txt sidecars ARE
+    # symlinked alongside and carry the richer fields (urlbase in particular,
+    # without which ensure_thumb() cannot build a thumbnail).
+    #
+    # Returns [] on any failure -- a missing/corrupt manifest, or one whose
+    # images have since been pruned -- so callers can fall back to the plain
+    # per-market listing rather than showing an empty gallery.
+    index_path = consolidated_dir() / "index.json"
+    if not index_path.exists():
+        return []
+    try:
+        manifest = json.loads(index_path.read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(manifest, list):
+        return []
+    entries = []
+    for item in manifest:
+        if not isinstance(item, dict):
+            continue
+        path = Path(item.get("path", ""))
+        if not path.exists():
+            continue
+        market = item.get("market", "")
+        date = item.get("date", "")
+        source = Path(item.get("source_path", "")) if item.get("source_path") else path
+        entries.append((date, market, path, read_meta(path, market, date), source))
+    return sorted(entries, key=lambda item: (item[0], item[1], str(item[2])), reverse=True)
+
 def deduped_archive_entries(markets):
     # cmd_pick()/cmd_latest()/cmd_info() calling archive_entries() directly
     # when "all" markets are configured gives duplicated photos proportionally
@@ -542,21 +608,10 @@ def deduped_archive_entries(markets):
     # plain per-market entries unchanged.
     if not is_all_markets_configured():
         return archive_entries(markets)
-    index_path = consolidated_dir() / "index.json"
-    if not index_path.exists():
-        return archive_entries(markets)
-    try:
-        manifest = json.loads(index_path.read_text())
-    except (OSError, ValueError):
-        return archive_entries(markets)
-    entries = []
-    for item in manifest:
-        path = Path(item.get("path", ""))
-        if not path.exists():
-            continue
-        meta = {"caption": item.get("caption", ""), "copyright": item.get("copyright", "")}
-        entries.append((item.get("date", ""), item.get("market", ""), path, meta))
-    return sorted(entries, key=lambda item: (item[0], item[1], str(item[2])), reverse=True) or archive_entries(markets)
+    # Drop the source path; pick/latest/info only ever want the four-element
+    # rows archive_entries() produces, and the fallback they share returns
+    # exactly those.
+    return [row[:4] for row in consolidated_entries()] or archive_entries(markets)
 
 def ensure_thumb(meta):
     urlbase = meta.get("urlbase", "")
@@ -608,14 +663,50 @@ def cmd_info(_args):
     return 0
 
 def cmd_list(args):
-    if args and args[0] == "--all":
-        markets = all_archived_markets()
+    # A BROWSING gallery and a ROTATION pick want different things out of this
+    # cache, and until 2026-09-12 only the rotation side had been fixed.
+    #
+    # deduped_archive_entries() (used by pick/latest/info) already reads the
+    # consolidate() manifest when the "all" sentinel is configured. cmd_list()
+    # was left walking the raw per-market directories, so singularity-shell's
+    # online-source browser -- which crawls one `list <market>` per market and
+    # merges the results into one grid -- showed every photograph once per
+    # market that served it: 213 cards for 41 unique images on real hardware.
+    # De-duplication there has to happen ACROSS markets, which a per-market
+    # listing structurally cannot do, so the browser asks for the combined
+    # view explicitly instead:
+    #
+    #   list --consolidated   (equivalently: list consolidated)
+    #
+    # This is opt-in rather than implicit-on-"all" on purpose. `list <market>`
+    # keeps meaning exactly what it says -- everything archived for that one
+    # market -- so a per-market history view stays possible and no existing
+    # caller silently changes shape underneath itself.
+    args = [a for a in args]
+    consolidated = False
+    for token in ("--consolidated", CONSOLIDATED_ID):
+        while token in args:
+            args.remove(token)
+            consolidated = True
+    if consolidated:
+        # Market arguments are meaningless here: the combined view is one
+        # global de-duplication pass over every cached market, and each row
+        # is attributed to the market the photo was FIRST seen in, which is
+        # an artefact of iteration order rather than a filter axis.
+        entries = consolidated_entries()
+        if not entries:
+            # No manifest yet (consolidate has never run, or the cache was
+            # pruned out from under it). Degrade to the configured markets
+            # rather than printing an empty gallery.
+            entries = [row + (row[2],) for row in archive_entries(configured_markets())]
+    elif args and args[0] == "--all":
+        entries = [row + (row[2],) for row in archive_entries(all_archived_markets())]
     elif args:
-        markets = [m for m in args if MARKET_RE.match(m)]
+        entries = [row + (row[2],) for row in archive_entries([m for m in args if MARKET_RE.match(m)])]
     else:
-        markets = configured_markets()
+        entries = [row + (row[2],) for row in archive_entries(configured_markets())]
     rows = []
-    for date, market, image, meta in archive_entries(markets):
+    for date, market, image, meta, source in entries:
         thumb = ensure_thumb(meta)
         rows.append({
             "provider": "bing",
@@ -625,7 +716,9 @@ def cmd_list(args):
             "caption": meta.get("caption", ""),
             "copyright": meta.get("copyright", ""),
             "thumbnail_path": thumb,
-            "pinned": is_pinned(image),
+            # Pin state lives next to the ORIGINAL image, never next to a
+            # consolidated symlink -- see consolidated_entries().
+            "pinned": is_pinned(source),
         })
     print(json.dumps(rows, ensure_ascii=False, indent=2))
     return 0
@@ -651,6 +744,17 @@ def cmd_markets(_args):
     # above) -- this used to hardcode its own 8-market subset that had
     # drifted out of sync with both configured_markets()'s "all" list and
     # singularity-shell's BING_MARKETS_TABLE picker.
+    #
+    # When the "all" sentinel is configured, the combined pseudo-market goes
+    # FIRST. That line is how a UI finds out a de-duplicated view is
+    # available: the helper answers from the same is_all_markets_configured()
+    # the rest of this script uses, so a caller never has to re-read and
+    # re-interpret ~/.config/ncz-wallpaper/bing-markets and never has to
+    # decide what an absent file means. (singularity-shell's two halves
+    # disagreed on exactly that: the Bing Markets picker treats an absent
+    # file as "all", this script treats it as en-US only.)
+    if is_all_markets_configured():
+        print(f"{CONSOLIDATED_ID}\t{CONSOLIDATED_NAME}")
     for code, name in MARKET_NAMES:
         print(f"{code}\t{name}")
     return 0
@@ -782,7 +886,7 @@ if cmd == "pin":
 if cmd == "unpin":
     raise SystemExit(cmd_pin(args, False))
 if cmd not in commands:
-    print("usage: ncz-wallpaper-bing {fetch|pick|latest|info|list [--all]|markets|consolidate|pin <market> <yyyymmdd>|unpin <market> <yyyymmdd>}", file=sys.stderr)
+    print("usage: ncz-wallpaper-bing {fetch|pick|latest|info|list [--all|--consolidated|<market>...]|markets|consolidate|pin <market> <yyyymmdd>|unpin <market> <yyyymmdd>}", file=sys.stderr)
     raise SystemExit(2)
 raise SystemExit(commands[cmd](args))
 PY
