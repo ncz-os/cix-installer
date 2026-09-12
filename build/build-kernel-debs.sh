@@ -944,7 +944,7 @@ if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
     log "forcing DKMS rebuild for every already-registered package (KVER-invariant versioning defeats autoinstall's own staleness check)"
     DKMS_LOG=/var/log/ncz-dkms-autoinstall.log
     : > "$DKMS_LOG"
-    dkms_force_failed=0
+    dkms_force_failed_pkgs=""
     for pkgver in $("$DKMS_BIN" status 2>/dev/null | awk -F',' '{print $1}' | awk '{print $1}' | sort -u); do
         pkg="${pkgver%%/*}"
         ver="${pkgver#*/}"
@@ -954,8 +954,20 @@ if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
            && "$DKMS_BIN" install -m "$pkg" -v "$ver" -k "$KVER" --force >>"$DKMS_LOG" 2>&1; then
             log "  $pkg/$ver OK"
         else
-            echo "linux-headers-cix-sky1-ncz[$KVER]: FATAL: forced rebuild of $pkg/$ver failed" >&2
-            dkms_force_failed=1
+            # NCZ 26.7 (2026-09-12): a single incompatible accelerator driver
+            # (e.g. a vendor DKMS module using a DRM/kernel API this KVER
+            # removed -- measured on 7.3-rc2, panthor-cix vs the removed
+            # DRIVER_GEM_GPUVA flag) used to abort the ENTIRE postinst here,
+            # leaving linux-headers/linux-image unconfigured and the kernel
+            # unbootable even though every OTHER accelerator built fine and
+            # the board can boot on a different GPU backend (e.g. Mali
+            # instead of Panthor). Track failures per-package and warn
+            # loudly instead of aborting -- "never ship partial kernel"
+            # means don't hide the gap, not that one broken accelerator may
+            # block installing the kernel and every accelerator that DOES
+            # work.
+            echo "linux-headers-cix-sky1-ncz[$KVER]: WARNING: forced rebuild of $pkg/$ver failed -- $pkg will NOT be available on $KVER, continuing without it" >&2
+            dkms_force_failed_pkgs="${dkms_force_failed_pkgs:+$dkms_force_failed_pkgs }$pkg/$ver"
         fi
     done
     # Catch anything registered under /usr/src but never built for KVER at
@@ -963,11 +975,15 @@ if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
     # right tool for that, it is only the "already installed" skip that is
     # wrong for already-registered packages.
     "$DKMS_BIN" autoinstall -k "$KVER" >>"$DKMS_LOG" 2>&1 || true
-    if [ "$dkms_force_failed" -eq 0 ]; then
+    if [ -z "$dkms_force_failed_pkgs" ]; then
         log "dkms forced rebuild OK"
         "$DKMS_BIN" status 2>/dev/null | sed 's/^/           /'
     else
-        echo "linux-headers-cix-sky1-ncz[$KVER]: FATAL: one or more forced DKMS rebuilds failed" >&2
+        echo "linux-headers-cix-sky1-ncz[$KVER]: WARNING: one or more accelerator drivers failed to build for $KVER: $dkms_force_failed_pkgs" >&2
+        echo "                              the kernel WILL still be configured -- boards using an" >&2
+        echo "                              unaffected accelerator (e.g. Mali when panthor-cix fails)" >&2
+        echo "                              are unaffected; anything actually depending on a failed" >&2
+        echo "                              module will not have it available on $KVER" >&2
         echo "                              see $DKMS_LOG" >&2
         if [ -s "$DKMS_LOG" ]; then
             tail -30 "$DKMS_LOG" | sed 's/^/                              /' >&2
@@ -980,7 +996,6 @@ if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
         # truth for "which package broke".
         echo "                              current dkms status:" >&2
         "$DKMS_BIN" status 2>/dev/null | sed 's/^/                              /' >&2
-        exit 1
     fi
 else
     warn "dkms binary not found; skipping autoinstall"
