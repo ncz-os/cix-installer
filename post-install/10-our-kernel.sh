@@ -48,6 +48,21 @@ echo "[10] installing kernel via apt — edge=$KVER_NEXT"
 
 local_deb() {
     pattern="$1"
+    # Guard the directory existence check OUTSIDE the pipeline. Under
+    # `set -euo pipefail` (active in this script), `find` on a missing
+    # /cdrom/pool/main (the normal case at squashfs-layer BUILD time --
+    # /cdrom only exists when running from the live installed ISO) exits
+    # non-zero; pipefail then makes the whole `find | sort -V | tail -1`
+    # pipeline non-zero, which `set -e` treats as a fatal error on the
+    # `VAR=$(local_deb ...)` assignment -- silently killing the hook with
+    # no error message (the real find error was swallowed by 2>/dev/null).
+    # Every caller already treats an empty result as "no local deb, fall
+    # back to apt" -- that was always the intent; this makes the function
+    # actually honor it instead of aborting the script. Discovered
+    # 2026-09-13 rebuilding base.squashfs for the r271 kernel channel: the
+    # hook had silently never been able to complete since /cdrom stopped
+    # existing at build time, for any commit after this pattern landed.
+    [ -d /cdrom/pool/main ] || return 0
     find /cdrom/pool/main -maxdepth 1 -type f -name "$pattern" 2>/dev/null | sort -V | tail -1
 }
 

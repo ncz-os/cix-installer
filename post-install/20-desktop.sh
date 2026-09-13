@@ -329,12 +329,30 @@ echo "[20] diagnostics: systemd-coredump installed, G_MESSAGES_DEBUG=all set"
 # runs. The package postinst owns ldconfig setup.
 # ---------------------------------------------------------------------------
 echo "[20] installing Singularity Desktop payload"
-UPOWER_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'upower_*.deb' 2>/dev/null | sort -V | tail -1)
+# 2026-09-13: guard the /cdrom existence check OUTSIDE the pipeline, same
+# class of bug fixed in post-install/10-our-kernel.sh's local_deb() the
+# same day. Under `set -euo pipefail` (active in this script), `find` on
+# a missing /cdrom/pool/main -- the normal case at squashfs-layer BUILD
+# time, since /cdrom only exists when running from the live installed ISO
+# -- exits non-zero; pipefail then makes the whole `find | sort -V |
+# tail -1` pipeline non-zero, which `set -e` treats as fatal on the
+# `VAR=$(...)` assignment, silently killing this hook (the real find
+# error was swallowed by 2>/dev/null) before it ever reaches the
+# apt-get-install fallback both of these blocks intend to fall through to.
+if [ -d /cdrom/pool/main ]; then
+    UPOWER_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'upower_*.deb' 2>/dev/null | sort -V | tail -1)
+else
+    UPOWER_DEB=""
+fi
 if [ -n "$UPOWER_DEB" ] && ! dpkg-query -W -f='${Status}\n' upower 2>/dev/null | grep -q '^install ok installed$'; then
     echo "[20] using embedded upower deb: $(basename "$UPOWER_DEB")"
     dpkg -i --force-depends "$UPOWER_DEB" || true
 fi
-SINTY_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1)
+if [ -d /cdrom/pool/main ]; then
+    SINTY_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1)
+else
+    SINTY_DEB=""
+fi
 if [ -n "$SINTY_DEB" ]; then
     echo "[20] using embedded payload deb: $(basename "$SINTY_DEB")"
     dpkg -i "$SINTY_DEB"
