@@ -372,6 +372,15 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/wallpaper/." "$MG/usr/local/lib/cix-installer/assets/wallpaper/" 2>/dev/null || true
       log "  staged wallpaper backend assets ($(find "$ROOT/assets/wallpaper" -type f | wc -l | tr -d ' ') files)"
     fi
+    # Artist Pack .debs (build/build-wallpaper-contrib-deb.sh), gitignored
+    # blobs staged onto the build host like assets/cix-debs -- 45-wallpaper
+    # dpkg -i's whatever lands here, so a build without any staged is a
+    # normal (not broken) desktop, just without the contributed art.
+    if [ -d "$ROOT/assets/wallpaper-debs" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/wallpaper-debs"
+      sudo cp -a "$ROOT/assets/wallpaper-debs/." "$MG/usr/local/lib/cix-installer/assets/wallpaper-debs/" 2>/dev/null || true
+      log "  staged wallpaper Artist Pack debs ($(find "$ROOT/assets/wallpaper-debs" -type f -name '*.deb' | wc -l | tr -d ' ') packages)"
+    fi
     # r181: stage the Vivaldi .deb so 52-vivaldi.sh installs the browser OFFLINE
     # (the MNEMOS + agent launchers Exec vivaldi-stable; epiphany can't play
     # YouTube on arm64). Self-contained .deb, no mirror/closure changes needed.
@@ -641,7 +650,7 @@ build_base(){
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
   sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding wallpaper sinty-nm; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding wallpaper wallpaper-debs sinty-nm; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
     log "  staged sinty-nm daemon into BASE ($(du -h "$ROOT/assets/sinty-nm/sinty-nmd" | cut -f1))"
   else

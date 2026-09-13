@@ -17,21 +17,6 @@ case "$VARIANT" in
         ;;
 esac
 
-ASSETS=/usr/local/lib/cix-installer/assets/branding/wallpaper
-DEST=/usr/share/backgrounds/ncz
-mkdir -p "$DEST"
-# Glob on the ncz-wallpaper- prefix ONLY, never on a resolution suffix. The
-# suffix is a label, not a contract: the contrib packs are 3840x2160 and named
-# -4k, and a -2k glob silently skips anything that does not carry that exact
-# string. This file already lost art that way once -- the contrib builder's
-# header records the same failure with ncz-wallpaper-0*.jpg quietly ignoring
-# everything numbered 10 and above. A wallpaper that is simply absent from the
-# rotation looks identical to one that was never installed.
-for f in "$ASSETS"/ncz-wallpaper-*.jpg; do
-    [ -f "$f" ] && install -m 0644 "$f" "$DEST/"
-done
-# Default = the Maximilian backdrop (26.7 release wallpaper).
-ln -sfn ncz-wallpaper-07-maximilian-blackhole-2k.jpg "$DEST/default.jpg"
 
 # ---------------------------------------------------------------------------
 # COLLECTIONS: art paks, time-of-day sets and providers.
@@ -128,7 +113,12 @@ _ini_get() {  # <file> <section> <key>
 
 _files_in() {  # <dir> -> image paths, one per line
     [ -d "$1" ] || return 0
-    find "$1" -maxdepth 1 -type f \
+    # -L: consolidate() (45-wallpaper-rotator.sh) exposes deduplicated bing
+    # images as symlinks, not real files -- plain `find -type f` reports
+    # type "l" for a symlink regardless of what it points to and silently
+    # matches nothing, which is exactly how this returned a false "0 images"
+    # count against a real, populated consolidated/ directory (2026-09-12).
+    find -L "$1" -maxdepth 1 -type f \
         \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) 2>/dev/null | sort
 }
 
@@ -181,7 +171,7 @@ cmd_list() {
         case "$type" in
             provider)
                 case "$(_ini_get "$f" Collection Provider)" in
-                    bing) cnt=$(find "${dir:-/var/cache/ncz-wallpapers/bing}" -mindepth 2 -maxdepth 2 -type f -iname '*.jpg' 2>/dev/null | wc -l) ;;
+                    bing) cnt=$(find -L "${dir:-/var/cache/ncz-wallpapers/bing}" -mindepth 2 -maxdepth 2 -type f -iname '*.jpg' 2>/dev/null | wc -l) ;;
                     *) cnt=$(_files_in "${dir:-/var/cache/ncz-wallpapers/$(_ini_get "$f" Collection Provider)}" | wc -l) ;;
                 esac
                 ;;
@@ -254,25 +244,51 @@ install -m 0755 /dev/stdin /usr/local/bin/ncz-wallpaper-bing <<'BING_EOF'
 #   latest          print the newest archived image from the enabled markets
 #   info            print attribution for the newest archived image
 #   list [--all]    print archive entries as JSON for the history browser
+#   list --consolidated | list consolidated
+#                   print the DE-DUPLICATED entries as JSON, one row per
+#                   unique photograph instead of one row per (market, date)
+#                   pair -- what a BROWSING gallery wants when every market
+#                   is enabled (see cmd_list() for why the plain per-market
+#                   listing is wrong there)
+#   markets         print "<code>\t<Human Name>" per line; always prepends
+#                   the "consolidated" pseudo-market, since fetch always
+#                   covers every market now (see configured_markets()) and
+#                   the combined view is therefore always available
+#   consolidate     rebuild the de-duplicated "consolidated" view (by sha256
+#                   image content, not filename/date) across every cached
+#                   market, visiting the user's preferred market first (see
+#                   preferred_market()) so its copy of any duplicate photo
+#                   wins the tie-break; fetch always does this now, since
+#                   every market is always fetched
 #   pin <mkt> <yyyymmdd> | unpin <mkt> <yyyymmdd>
 set -u
 
 # Markets are real FEED SELECTORS, not translation settings. Verified
 # 2026-08-19: en-US served Palmanova, en-GB/de-DE/zh-CN served Whyte Cliff, and
 # ja-JP/en-AU served a Polish wildlife crossing -- different PHOTOGRAPHS, on the
-# same day. So the user can enable more than one feed at once.
+# same day. Every market is ALWAYS fetched and combined now (see
+# configured_markets()); the config below no longer restricts fetch at all.
 #
-# Config, in priority order:
-#   NCZ_BING_MARKETS="en-US ja-JP"       for testing
-#   ~/.config/ncz-wallpaper/bing-markets newline/comma/space separated markets
+# Config, in priority order -- now read as a PREFERRED-MARKET dedup
+# tie-breaker (preferred_market()), not a fetch filter. "all" (or an absent
+# file) means no preference, and cmd_consolidate() keeps its original
+# alphabetical dedup-winner order:
+#   NCZ_BING_MARKETS="en-US ja-JP"       for testing (first token wins)
+#   ~/.config/ncz-wallpaper/bing-markets newline/comma/space separated; only
+#                                         the first valid market code is used
 #   ~/.config/ncz-wallpaper/bing-market  legacy single-market file
-#   en-US                                default
+#   (none)                                absent file, empty content, or no
+#                                         valid market token -> no
+#                                         preference (None), same as "all" --
+#                                         see preferred_market()
 exec python3 - "$@" <<'PY'
 import datetime
+import hashlib
 import json
 import os
 import random
 import re
+import shutil
 import sys
 import tempfile
 import urllib.parse
@@ -287,6 +303,41 @@ API = "https://www.bing.com/HPImageArchive.aspx"
 BACKFILL = ((0, 8), (7, 8))
 MARKET_RE = re.compile(r"^[A-Za-z]{2}-[A-Za-z]{2}$")
 DATE_RE = re.compile(r"^[0-9]{8}$")
+# The pseudo-market id for the de-duplicated combined view. Deliberately NOT
+# shaped like a real market code, so it can never collide with one, is never
+# picked up by all_archived_markets()'s MARKET_RE filter (which is also what
+# stops consolidate() from recursing into its own output directory), and is
+# rejected by the per-token filter in configured_markets(). It is the id
+# cmd_markets() advertises and the one `list` accepts in place of a market.
+CONSOLIDATED_ID = "consolidated"
+CONSOLIDATED_NAME = "Combined (All Markets)"
+# The 14 markets Bing's HPImageArchive API genuinely serves that this
+# rotator supports. This is the "all" sentinel expands to (see
+# configured_markets() below) and the list cmd_markets() advertises --
+# both are derived from the same tuple so they cannot drift apart again.
+# Kept in sync with singularity-shell's BING_MARKETS_TABLE
+# (src/components/sidebar/pages/desktop_page.vala), which is the UI half
+# of this contract; en-AU was present here but missing there, and
+# fr-CA/pt-BR/es-ES/it-IT/en-IN/ko-KR were present there but missing
+# here -- this is the union of both, grouped Americas/Europe/Asia-Pacific
+# to match the UI's picker dialog.
+MARKET_NAMES = (
+    ("en-US", "United States"),
+    ("en-CA", "Canada English"),
+    ("fr-CA", "Canada French"),
+    ("pt-BR", "Brazil"),
+    ("en-GB", "United Kingdom"),
+    ("fr-FR", "France"),
+    ("de-DE", "Germany"),
+    ("es-ES", "Spain"),
+    ("it-IT", "Italy"),
+    ("en-IN", "India"),
+    ("ja-JP", "Japan"),
+    ("zh-CN", "China"),
+    ("ko-KR", "South Korea"),
+    ("en-AU", "Australia"),
+)
+DEFAULT_MARKETS = tuple(code for code, _ in MARKET_NAMES)
 
 def quiet():
     return bool(os.environ.get("NCZ_BING_QUIET"))
@@ -298,7 +349,7 @@ def log(msg):
 def split_tokens(text):
     return [tok for tok in re.split(r"[\s,]+", text.strip()) if tok]
 
-def configured_markets():
+def _bing_markets_raw_text():
     text = os.environ.get("NCZ_BING_MARKETS", "")
     if not text:
         multi = CONFIG_DIR / "bing-markets"
@@ -309,13 +360,43 @@ def configured_markets():
             text = single.read_text(errors="ignore")
     if not text:
         text = os.environ.get("NCZ_BING_MARKET", "")
-    markets = []
-    seen = set()
-    for market in split_tokens(text or "en-US"):
-        if MARKET_RE.match(market) and market not in seen:
-            markets.append(market)
-            seen.add(market)
-    return markets or ["en-US"]
+    return text
+
+def configured_markets():
+    # Fetch/list scope is now UNCONDITIONAL: every caller gets every market
+    # Bing serves, regardless of what ~/.config/ncz-wallpaper/bing-markets
+    # says. That config value used to mean "restrict fetch to just this
+    # market" -- it now means something different (see preferred_market()
+    # below): which market's copy of a duplicate photo to prefer when
+    # de-duplicating, purely a dedup tie-breaker, never a fetch filter.
+    # (operator 2026-09-12: "just have it be the preferred language, and
+    # have all the feeds be combined" -- the region/market picker in the UI
+    # always means "fetch and combine every market" now.)
+    return list(DEFAULT_MARKETS)
+
+def preferred_market():
+    # Read the SAME config value the region/market picker writes
+    # (~/.config/ncz-wallpaper/bing-markets), reinterpreted as a dedup
+    # tie-breaker preference rather than a fetch restriction.
+    #
+    # Returns:
+    #   None         no preference -- config absent, empty, or the literal
+    #                "all" sentinel (today's neutral/default state, in
+    #                which cmd_consolidate() keeps its original purely
+    #                alphabetical iteration order).
+    #   "en-GB" etc  the first valid market code found in the file. The
+    #                picker only ever writes zero or one market code (see
+    #                singularity-shell's write_bing_markets_codes()); if
+    #                more than one token is somehow present, only the
+    #                first is honoured -- a preference is singular by
+    #                definition, unlike the old fetch-restriction list.
+    text = _bing_markets_raw_text().strip()
+    if not text or text.lower() == "all":
+        return None
+    for market in split_tokens(text):
+        if MARKET_RE.match(market):
+            return market
+    return None
 
 def all_archived_markets():
     if not DATA_ROOT.is_dir():
@@ -478,6 +559,69 @@ def archive_entries(markets):
             entries.append((date, market, image, meta))
     return sorted(entries, key=lambda item: (item[0], item[1], str(item[2])), reverse=True)
 
+def consolidated_entries():
+    # Read the consolidate() manifest into the SAME
+    # (date, market, image, meta) shape archive_entries() returns, plus the
+    # source path as a fifth element.
+    #
+    # Two paths per row, and they are not interchangeable:
+    #   image  = consolidated/<first-seen-market>/<date>.jpg, the symlink.
+    #            This is what callers should PRINT/expose, because it is the
+    #            stable, de-duplicated identity of the photograph and what
+    #            the bing collection's Dir= already points at.
+    #   source = the real <market>/<date>.jpg it points back to. Needed for
+    #            is_pinned(), whose ".pinned" marker lives next to the
+    #            ORIGINAL and is deliberately not symlinked into the
+    #            consolidated view (a symlinked marker would encode pin state
+    #            that goes stale the moment somebody pins or unpins, until
+    #            the next consolidate run).
+    #
+    # meta comes from read_meta() against the symlink rather than from the
+    # manifest's caption/copyright pair, because the .json/.txt sidecars ARE
+    # symlinked alongside and carry the richer fields (urlbase in particular,
+    # without which ensure_thumb() cannot build a thumbnail).
+    #
+    # Returns [] on any failure -- a missing/corrupt manifest, or one whose
+    # images have since been pruned -- so callers can fall back to the plain
+    # per-market listing rather than showing an empty gallery.
+    index_path = consolidated_dir() / "index.json"
+    if not index_path.exists():
+        return []
+    try:
+        manifest = json.loads(index_path.read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(manifest, list):
+        return []
+    entries = []
+    for item in manifest:
+        if not isinstance(item, dict):
+            continue
+        path = Path(item.get("path", ""))
+        if not path.exists():
+            continue
+        market = item.get("market", "")
+        date = item.get("date", "")
+        source = Path(item.get("source_path", "")) if item.get("source_path") else path
+        entries.append((date, market, path, read_meta(path, market, date), source))
+    return sorted(entries, key=lambda item: (item[0], item[1], str(item[2])), reverse=True)
+
+def deduped_archive_entries(markets):
+    # cmd_pick()/cmd_latest()/cmd_info() calling archive_entries() directly
+    # gives duplicated photos proportionally more weight in random.choice()
+    # -- a photo Bing served to 5 markets was 5x likelier to be picked for
+    # rotation than a genuinely unique one, since entries() lists one row
+    # per (market, date) pair, not per unique image. configured_markets()
+    # now always returns every market, so there is always something to
+    # de-duplicate -- read the consolidate() manifest unconditionally
+    # (this used to be gated on the "all" sentinel, back when a single/
+    # subset market selection restricted fetch and had nothing to
+    # de-duplicate). Drop the source path; pick/latest/info only ever want
+    # the four-element rows archive_entries() produces, and the fallback
+    # (consolidate has never run yet against a freshly-fetched cache)
+    # returns exactly those.
+    return [row[:4] for row in consolidated_entries()] or archive_entries(markets)
+
 def ensure_thumb(meta):
     urlbase = meta.get("urlbase", "")
     market = meta.get("market", "")
@@ -498,24 +642,28 @@ def cmd_fetch(_args):
     markets = configured_markets()
     for market in markets:
         total += fetch_market(market)
+    # configured_markets() always covers every market now, so there is
+    # always more than one to de-duplicate -- this used to be gated on the
+    # "all" sentinel, back when a single/subset selection restricted fetch.
+    cmd_consolidate([])
     return 0 if total or archive_entries(markets) else 1
 
 def cmd_pick(_args):
-    entries = archive_entries(configured_markets())
+    entries = deduped_archive_entries(configured_markets())
     if not entries:
         return 1
     print(random.choice(entries)[2])
     return 0
 
 def cmd_latest(_args):
-    entries = archive_entries(configured_markets())
+    entries = deduped_archive_entries(configured_markets())
     if not entries:
         return 1
     print(entries[0][2])
     return 0
 
 def cmd_info(_args):
-    entries = archive_entries(configured_markets())
+    entries = deduped_archive_entries(configured_markets())
     if not entries:
         return 1
     meta = entries[0][3]
@@ -524,14 +672,50 @@ def cmd_info(_args):
     return 0
 
 def cmd_list(args):
-    if args and args[0] == "--all":
-        markets = all_archived_markets()
+    # A BROWSING gallery and a ROTATION pick want different things out of this
+    # cache, and until 2026-09-12 only the rotation side had been fixed.
+    #
+    # deduped_archive_entries() (used by pick/latest/info) already reads the
+    # consolidate() manifest when the "all" sentinel is configured. cmd_list()
+    # was left walking the raw per-market directories, so singularity-shell's
+    # online-source browser -- which crawls one `list <market>` per market and
+    # merges the results into one grid -- showed every photograph once per
+    # market that served it: 213 cards for 41 unique images on real hardware.
+    # De-duplication there has to happen ACROSS markets, which a per-market
+    # listing structurally cannot do, so the browser asks for the combined
+    # view explicitly instead:
+    #
+    #   list --consolidated   (equivalently: list consolidated)
+    #
+    # This is opt-in rather than implicit-on-"all" on purpose. `list <market>`
+    # keeps meaning exactly what it says -- everything archived for that one
+    # market -- so a per-market history view stays possible and no existing
+    # caller silently changes shape underneath itself.
+    args = [a for a in args]
+    consolidated = False
+    for token in ("--consolidated", CONSOLIDATED_ID):
+        while token in args:
+            args.remove(token)
+            consolidated = True
+    if consolidated:
+        # Market arguments are meaningless here: the combined view is one
+        # global de-duplication pass over every cached market, and each row
+        # is attributed to the market the photo was FIRST seen in, which is
+        # an artefact of iteration order rather than a filter axis.
+        entries = consolidated_entries()
+        if not entries:
+            # No manifest yet (consolidate has never run, or the cache was
+            # pruned out from under it). Degrade to the configured markets
+            # rather than printing an empty gallery.
+            entries = [row + (row[2],) for row in archive_entries(configured_markets())]
+    elif args and args[0] == "--all":
+        entries = [row + (row[2],) for row in archive_entries(all_archived_markets())]
     elif args:
-        markets = [m for m in args if MARKET_RE.match(m)]
+        entries = [row + (row[2],) for row in archive_entries([m for m in args if MARKET_RE.match(m)])]
     else:
-        markets = configured_markets()
+        entries = [row + (row[2],) for row in archive_entries(configured_markets())]
     rows = []
-    for date, market, image, meta in archive_entries(markets):
+    for date, market, image, meta, source in entries:
         thumb = ensure_thumb(meta)
         rows.append({
             "provider": "bing",
@@ -541,7 +725,9 @@ def cmd_list(args):
             "caption": meta.get("caption", ""),
             "copyright": meta.get("copyright", ""),
             "thumbnail_path": thumb,
-            "pinned": is_pinned(image),
+            # Pin state lives next to the ORIGINAL image, never next to a
+            # consolidated symlink -- see consolidated_entries().
+            "pinned": is_pinned(source),
         })
     print(json.dumps(rows, ensure_ascii=False, indent=2))
     return 0
@@ -563,15 +749,148 @@ def cmd_pin(args, pinned):
     return 0
 
 def cmd_markets(_args):
-    print("en-US\tUnited States")
-    print("en-GB\tUnited Kingdom")
-    print("en-AU\tAustralia")
-    print("en-CA\tCanada")
-    print("de-DE\tGermany")
-    print("fr-FR\tFrance")
-    print("ja-JP\tJapan")
-    print("zh-CN\tChina")
+    # Advertise the same 14-market list "all" expands to (MARKET_NAMES
+    # above) -- this used to hardcode its own 8-market subset that had
+    # drifted out of sync with both configured_markets()'s "all" list and
+    # singularity-shell's BING_MARKETS_TABLE picker.
+    #
+    # The combined pseudo-market now goes FIRST unconditionally: fetch
+    # always covers every market (configured_markets() above), so the
+    # de-duplicated combined view is always available, not just when the
+    # "all" sentinel happens to be configured. That used to be conditional
+    # -- and it was the source of a real cross-language disagreement:
+    # singularity-shell's Bing Markets picker treated an absent config file
+    # as "all" while this script, for FETCH purposes, treated it as en-US
+    # only. Making fetch unconditional (this whole change) removes that
+    # disagreement outright rather than papering over it here.
+    print(f"{CONSOLIDATED_ID}\t{CONSOLIDATED_NAME}")
+    for code, name in MARKET_NAMES:
+        print(f"{code}\t{name}")
     return 0
+
+def consolidated_dir():
+    return DATA_ROOT / "consolidated"
+
+def sha256_of(path, chunk_size=1024 * 1024):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+def _relink(dst, src):
+    # dst is always torn down and rebuilt fresh by cmd_consolidate() below, so
+    # in practice this only ever creates a new link -- the exists()/is_symlink()
+    # guard is defensive against a leftover from an interrupted prior run
+    # rather than something the normal path relies on.
+    if dst.exists() or dst.is_symlink():
+        dst.unlink()
+    dst.symlink_to(src)
+
+def cmd_consolidate(_args):
+    # Bing serves the SAME photograph to multiple regional markets on any
+    # given day (docs/WALLPAPER-PACKS.md #6: en-US/en-GB/de-DE/zh-CN and
+    # ja-JP/en-AU have each shared a single photo with the others on one real
+    # day). Now that "all" fetches every market, that shows up as heavy
+    # duplication in any view that walks every per-market directory. This
+    # rebuilds one de-duplicated view keyed on IMAGE CONTENT (sha256), never
+    # on filename/date -- each market's daily rotation is independent, so the
+    # same photograph can legitimately land under a different date in a
+    # different market, and two DIFFERENT photos can just as easily share the
+    # same date across markets.
+    #
+    # Consolidation is a REFERENCE, not a copy: each unique image is exposed
+    # as a symlink back into its source market directory, nested as
+    # consolidated/<first-seen-market>/<date>.jpg -- matching the SAME
+    # market/date two-levels-deep layout every other consumer of this cache
+    # already assumes (ncz-wallpaper-collections' bing cnt/pick logic does
+    # `-mindepth 2 -maxdepth 2` against whatever Dir= it's given; a flat
+    # consolidated/<market>-<date>.jpg layout silently returns a zero count
+    # there -- caught 2026-09-12 on real hardware, O6N still showed all 213
+    # raw images because the collection's Dir= pointed at consolidated/ but
+    # nothing under it matched depth 2). The (market, date) pair is already
+    # collision-free within its own source directory, so nesting by market
+    # is exactly as collision-safe as the flat name was, plus its .txt/.json
+    # sidecars symlinked the same way, plus one "index.json" manifest a
+    # picker can read without re-deriving the market/date from the path.
+    #
+    # Rebuilt from scratch on every call rather than reconciled incrementally:
+    # the whole cache is small (14 markets x roughly a 15-day Bing backfill
+    # window -- a few hundred images at most), and tearing down + recreating
+    # the directory is what makes this trivially idempotent and immune to
+    # stale symlinks -- nothing is left standing between runs for a deleted
+    # or re-pruned source image to dangle from.
+    out_dir = consolidated_dir()
+    if out_dir.is_dir():
+        shutil.rmtree(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    seen = {}  # sha256 -> (market, date, image path) of the first-seen copy
+    markets = all_archived_markets()
+    # Dedup-winner selection was a pure accident of alphabetical sort order
+    # until now -- never a deliberate choice, never configurable (a photo
+    # shared by de-DE and en-US always credited de-DE, purely because "d" <
+    # "e"). preferred_market() reads the user's chosen region; when set and
+    # actually archived, visit it FIRST so its copy of any given photo wins
+    # the dedup, falling back to alphabetical order for photos the
+    # preferred market doesn't happen to carry. No preference (None, or the
+    # market hasn't been fetched) keeps today's pure-alphabetical order
+    # unchanged -- this only ever reorders the ITERATION, never touches the
+    # sha256-keyed first-wins dedup mechanism itself.
+    preferred = preferred_market()
+    if preferred and preferred in markets:
+        markets = [preferred] + [m for m in markets if m != preferred]
+    for market in markets:
+        directory = DATA_ROOT / market
+        for image in sorted(directory.glob("*.jpg")):
+            date = image.stem
+            if not DATE_RE.match(date):
+                continue
+            try:
+                digest = sha256_of(image)
+            except OSError as exc:
+                log(f"consolidate: {market}/{image.name}: could not hash: {exc}")
+                continue
+            if digest in seen:
+                continue  # same photograph already kept from an earlier market
+            seen[digest] = (market, date, image)
+
+    manifest = []
+    for digest, (market, date, image) in seen.items():
+        market_dir = out_dir / market
+        market_dir.mkdir(parents=True, exist_ok=True)
+        link_name = f"{date}.jpg"
+        try:
+            _relink(market_dir / link_name, image)
+        except OSError as exc:
+            log(f"consolidate: {market}/{image.name}: symlink failed: {exc}")
+            continue
+        meta = read_meta(image, market, date)
+        for suffix in (".txt", ".json"):
+            src = image.with_suffix(suffix)
+            if not src.exists():
+                continue
+            try:
+                _relink(market_dir / f"{date}{suffix}", src)
+            except OSError as exc:
+                log(f"consolidate: {market}/{src.name}: sidecar symlink failed: {exc}")
+        manifest.append({
+            "provider": "bing",
+            "market": market,
+            "date": date,
+            "path": str(market_dir / link_name),
+            "source_path": str(image),
+            "sha256": digest,
+            "caption": meta.get("caption", ""),
+            "copyright": meta.get("copyright", ""),
+        })
+
+    manifest.sort(key=lambda item: (item["date"], item["market"]), reverse=True)
+    (out_dir / "index.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    )
+    log(f"consolidate: {len(manifest)} unique image(s) from {len(markets)} market(s)")
+    return 0 if manifest else 1
 
 cmd = sys.argv[1] if len(sys.argv) > 1 else "fetch"
 args = sys.argv[2:]
@@ -582,39 +901,81 @@ commands = {
     "info": cmd_info,
     "list": cmd_list,
     "markets": cmd_markets,
+    "consolidate": cmd_consolidate,
 }
 if cmd == "pin":
     raise SystemExit(cmd_pin(args, True))
 if cmd == "unpin":
     raise SystemExit(cmd_pin(args, False))
 if cmd not in commands:
-    print("usage: ncz-wallpaper-bing {fetch|pick|latest|info|list [--all]|markets|pin <market> <yyyymmdd>|unpin <market> <yyyymmdd>}", file=sys.stderr)
+    print("usage: ncz-wallpaper-bing {fetch|pick|latest|info|list [--all|--consolidated|<market>...]|markets|consolidate|pin <market> <yyyymmdd>|unpin <market> <yyyymmdd>}", file=sys.stderr)
     raise SystemExit(2)
 raise SystemExit(commands[cmd](args))
 PY
 BING_EOF
 
-# The shipped NCZ art, expressed as a collection so the built-in set and any
-# add-on pak go through exactly one code path.
-cat > /usr/share/ncz-wallpapers/collections/ncz.collection <<'EOF'
-[Collection]
-Id=ncz
-Name=NCZ-OS
-Comment=The wallpapers shipped with NCZ-OS
-Artist=NCZ
-Type=static
-Dir=/usr/share/backgrounds/ncz
-EOF
-
 cat > /usr/share/ncz-wallpapers/collections/bing.collection <<'EOF'
 [Collection]
 Id=bing
-Name=Bing Image of the Day
-Comment=Bing's daily photograph, refreshed each day
+Name=Bing (Combined, All Markets)
+Comment=Bing's daily photographs across all regional markets, de-duplicated
 Type=provider
 Provider=bing
-Dir=/var/cache/ncz-wallpapers/bing
+Dir=/var/cache/ncz-wallpapers/bing/consolidated
 EOF
+
+# The Singularity Desktop project's own default wallpaper set ships inside
+# the /opt/singularity payload (subprojects/singularity-wallpapers,
+# installed to share/backgrounds/singularity by the desktop's own meson
+# build) -- not a separate NCZ .deb, since it is already installed the
+# moment ncz-singularity-desktop is. Just describe it as its own source,
+# distinct from NCZ's own cosmic art, in the Wallpaper Source selector.
+cat > /usr/share/ncz-wallpapers/collections/singularity-default.collection <<'EOF'
+[Collection]
+Id=singularity-default
+Name=Singularity Default
+Comment=The default wallpaper set that ships with Singularity Desktop
+Artist=Singularity
+Type=static
+Dir=/opt/singularity/share/backgrounds/singularity
+EOF
+
+# Artist Packs, packaged as .debs by build/build-wallpaper-contrib-deb.sh and
+# staged at build time into assets/wallpaper-debs/ (gitignored blobs, like
+# assets/cix-debs -- rebuild with that script, do not commit the .deb
+# itself). Each pack's own postinst is a no-op (dpkg-deb --build with no
+# maintainer scripts): it only drops images + one .collection file.
+WALLPAPER_DEBS=/usr/local/lib/cix-installer/assets/wallpaper-debs
+
+# The NCZ pack is REQUIRED, not optional like a contributed pack: it is the
+# baseline default background (rotator.sh's own WP_DIR fallback and
+# ncz-wallpaper-rotate's COLLECTION default both assume /usr/share/
+# backgrounds/ncz has images in it), so a build that forgot to stage it
+# would otherwise silently ship a desktop with no default wallpaper -- the
+# exact silent-absence failure this rotator's own comments elsewhere warn
+# about. Fail loudly instead.
+NCZ_DEB=$(compgen -G "$WALLPAPER_DEBS/ncz-wallpapers-ncz_*.deb" 2>/dev/null | sort -V | tail -1 || true)
+if [ -z "$NCZ_DEB" ]; then
+    echo "[45] ERROR: ncz-wallpapers-ncz_*.deb not staged in $WALLPAPER_DEBS -- the desktop would have no default wallpaper" >&2
+    echo "[45]        rebuild it: build/build-wallpaper-contrib-deb.sh ncz" >&2
+    exit 1
+fi
+echo "[45] installing required NCZ wallpaper pack: $(basename "$NCZ_DEB")"
+dpkg -i "$NCZ_DEB"
+# Default = the Maximilian backdrop (26.7 release wallpaper). Set after the
+# pack installs the image it points at.
+ln -sfn ncz-wallpaper-07-maximilian-blackhole-2k.jpg /usr/share/backgrounds/ncz/default.jpg
+
+CONTRIB_DEBS=$(compgen -G "$WALLPAPER_DEBS/*.deb" | grep -v "^$WALLPAPER_DEBS/ncz-wallpapers-ncz_" || true)
+if [ -n "$CONTRIB_DEBS" ]; then
+    echo "[45] installing contributed Artist Pack(s):"
+    printf '%s\n' "$CONTRIB_DEBS" | while read -r _deb; do
+        echo "[45]   $(basename "$_deb")"
+    done
+    printf '%s\n' "$CONTRIB_DEBS" | xargs dpkg -i
+else
+    echo "[45] no contributed Artist Pack debs staged in $WALLPAPER_DEBS -- shipping NCZ + Bing + Singularity Default only"
+fi
 
 # Daily refresh. A timer, not a loop inside the rotator: the image changes once
 # a day, and tying the fetch to the 10-minute rotation would hit Bing 144x/day
@@ -648,15 +1009,16 @@ systemctl --global enable ncz-wallpaper-bing.timer >/dev/null 2>&1 \
     || echo "[45]   WARN: could not enable ncz-wallpaper-bing.timer"
 
 # Rotator: pick + apply. 26.7 default DE = Singularity (Wayland, GTK4): set the
-# backdrop via `dev.sinty.desktop background-picture-uri` (gsettings) and swaybg.
+# backdrop via `dev.sinty.desktop background-picture-uri` (gsettings), with the
+# native shell owning the visible wallpaper.
 cat > /usr/local/bin/ncz-wallpaper-rotate <<'ROT'
 #!/bin/sh
 WP_DIR=/usr/share/backgrounds/ncz
 
 # A systemd --user service may have been started before the compositor session
 # imported WAYLAND_DISPLAY and the /opt/singularity environment. Refresh the
-# values at rotate time so an old daemon process can still repaint the live
-# desktop instead of only changing dconf/state.
+# values at rotate time so an old daemon writes GSettings in the live desktop
+# session and the native shell receives the change.
 if command -v systemctl >/dev/null 2>&1; then
     _ncz_env=$(systemctl --user show-environment 2>/dev/null || true)
     for _ncz_name in DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP DESKTOP_SESSION \
@@ -686,7 +1048,7 @@ fi
 [ -n "$PIC" ] && [ -f "$PIC" ] || PIC=$(ls $WP_DIR/ncz-wallpaper-*.jpg 2>/dev/null | shuf -n1)
 [ -z "$PIC" ] && exit 0
 # default.jpg is a convenience pointer, not the mechanism -- the wallpaper is
-# applied through gsettings/swaybg below. The rotator runs as the logged-in
+# applied through GSettings below. The rotator runs as the logged-in
 # user and $WP_DIR is root-owned 0755, so this ln FAILS with EPERM every time.
 # It was already suppressed with "|| true", which turned a guaranteed failure
 # into silence. Only attempt it when the directory is actually writable.
@@ -714,11 +1076,8 @@ case "$DE" in
         if command -v gsettings >/dev/null 2>&1 && [ -d "$SSD" ]; then
             GSETTINGS_SCHEMA_DIR="$SSD" gsettings set dev.sinty.desktop background-picture-uri "$URI" 2>/dev/null || true
         fi
-        # Belt: repaint the live wallpaper layer via swaybg (single instance).
-        if command -v swaybg >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ]; then
-            pkill -x swaybg 2>/dev/null || true
-            swaybg -m fill -i "$PIC" >/dev/null 2>&1 &
-        fi
+        # The native shell observes this setting. A second background layer
+        # would hide changes made through the desktop wallpaper chooser.
         ;;
     gnome)
         URI="file://$PIC"

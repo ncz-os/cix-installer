@@ -53,6 +53,15 @@ cp "$SRC" "$WORK/"
 mkdir -p "$WORK/root/kernel/firmware/acpi"
 cp "$WORK/$TABLE" "$WORK/root/kernel/firmware/acpi/$TABLE"
 
+# Reproducible build: GNU cpio has no --mtime equivalent to tar's, and
+# embeds each file's real mtime by default -- iasl just created these
+# files moments ago, so every regeneration produced a byte-different
+# CPIO (same logical content, different timestamp), permanently
+# breaking sbom/expected-assets.txt's fixed hash for this file. Pin
+# every entry to epoch 0 before packing so identical input always
+# produces an identical archive.
+find "$WORK/root" -exec touch -h -d @0 {} +
+
 echo "[ssdt] packing early-CPIO (newc, uid/gid 0)"
 ( cd "$WORK/root" && find kernel -print0 | LC_ALL=C sort -z \
     | cpio --null -o -H newc --owner=0:0 --quiet ) > "$WORK/out.cpio"

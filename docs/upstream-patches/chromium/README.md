@@ -150,3 +150,31 @@ with `v4l2_device.cc` reverted to upstream HEAD fails identically. Since
 `docs/HW-VIDEO-DECODE-STATUS.md` records H.264 and VP9 decode working in the
 shipped 151 build, this is a 151 -> 153 regression that still needs
 root-causing.
+
+---
+
+# Chromium 154 — hardware DECODE regression (151->153) fixed
+
+Added 2026-09-07. Built and verified natively on ULTRA (192.168.207.88),
+producing `chromium-ncz-sky1_154.0.8037.0-ncz20260907_arm64.deb`. Carries
+0001/0002 above plus two new patches ported from still-open upstream Gerrit
+CLs (checked against chromium main 2026-09-07, neither merged):
+
+- `0003-v4l2-stateful-decoder-single-plane-autodetect.patch`
+  (crrev.com/c/8017442, qi.hou@nxp.com)
+- `0004-v4l2-stateful-decoder-source-change-before-dequeue.patch`
+  (crrev.com/c/8181668, qi.hou@nxp.com)
+
+These resolve the 151->153 decode regression documented above (`decoded=0
+t=0.0` against the CIX Sky1 stateful V4L2 decoder). Both apply clean against
+154.0.8037.0 with zero fuzz. Root cause was in the stateful decoder's
+single-plane autodetection and its source-change-before-dequeue ordering, not
+in `v4l2_device.cc` (the 153-era control-build revert of `0003` alone had
+already ruled that file out; these are unrelated NXP-authored fixes to a
+different part of the same decoder).
+
+Operator-confirmed working again on real hardware (192.168.207.66) after
+install, matching the 151 baseline's HW-VIDEO-DECODE-STATUS.md record. Not yet
+independently re-verified against the specific `sudo fuser -v
+/dev/video-cixdec0`-during-playback proof this doc's own methodology
+requires — do that before closing this out formally.
