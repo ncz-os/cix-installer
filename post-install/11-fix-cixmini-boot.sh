@@ -72,15 +72,40 @@ for f in /boot/vmlinuz-*; do
     esac
 done
 # Single shipping kernel (operator 2026-08-21): the legacy 7.0.12 line is
-# retired. Take the highest-versioned NCZ kernel present and ship only
-# that.
+# retired. Ship whichever NCZ kernel was staged MOST RECENTLY.
 #
-# sort -V ranks these correctly (verified):
-#   7.2.0-rc1 < 7.2.0-rc7 < 7.2.0 < 7.2.1        (release beats its own rc)
-#   7.2.0 < 7.2.1 < 7.3.0-rc1 < 7.10.0           (numeric, not lexical)
+# CORRECTED 2026-09-12 (O6N boot-break root cause): this used to be
+# `sort -V | tail -1` -- "take the highest-versioned kernel present" --
+# which assumes an upgrade (higher version == the one just installed).
+# That assumption is FALSE for an explicit downgrade. This wrapper is
+# invoked from linux-image-cix-sky1-ncz's own postinst
+# (`[ -x .../cixmini-update-bootloader ] && .../cixmini-update-bootloader`),
+# which runs BEFORE dpkg removes the files the OLD package version owned
+# but the new one does not -- that cleanup happens only after this same
+# package's postinst returns. So during a same-transaction downgrade (e.g.
+# 7.3.0-rc2 -> 7.2.5), BOTH kernels' /boot/vmlinuz-*/initrd.img-* are still
+# on disk at the instant this script scans them, and `sort -V` picked the
+# numerically-higher kernel that was just replaced -- exactly the one the
+# operator was downgrading away from -- and staged refind.conf to boot it.
+# Confirmed against the actual r271 postinst scripts on 2026-09-12; see
+# cix-installer git history / MNEMOS for the full trace.
+#
+# mtime does not have this blind spot: dpkg always rewrites the vmlinuz it
+# is installing NOW with a fresh mtime, regardless of whether that kernel's
+# version number is higher or lower than what it replaces. Pick the
+# candidate with the newest /boot/vmlinuz-<kver> mtime instead.
 if [ -n "$(printf '%s' "$NCZ_KVERS" | tr -d ' ')" ]; then
-    KVER_NEXT=$(printf '%s\n' $NCZ_KVERS | sort -V | tail -1)
-    echo "cixmini-update-bootloader: shipping kernel = $KVER_NEXT (edge-only)"
+    _newest_mtime=-1
+    for _k in $NCZ_KVERS; do
+        _f="/boot/vmlinuz-$_k"
+        [ -e "$_f" ] || continue
+        _mt=$(stat -c '%Y' "$_f" 2>/dev/null || echo -1)
+        if [ "$_mt" -gt "$_newest_mtime" ]; then
+            _newest_mtime=$_mt
+            KVER_NEXT="$_k"
+        fi
+    done
+    echo "cixmini-update-bootloader: shipping kernel = $KVER_NEXT (edge-only, newest-mtime)"
 fi
 
 if [ -z "$KVER_NEXT" ]; then
