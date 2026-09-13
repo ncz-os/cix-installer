@@ -140,6 +140,68 @@ if ! chroot "$MNT" ssh-keygen -A >/dev/null 2>&1 || \
 fi
 echo "[72]   rescue identity and SSH host keys generated"
 
+# --- per-device rescue hostname + static-IP-fallback octet (fix 2026-09-13) ---
+# The golden rescue-rootfs tarball (build/build-rescue-rootfs.sh) bakes ONE
+# constant RESCUE_HOSTNAME ("ncz-rescue") and ONE constant static-IP-fallback
+# address, identical across EVERY board that installs from this pipeline --
+# the same class of bug already fixed for the main OS by
+# post-install/37-ntp-hostname.sh (ncz-<MAC-derived-hex>), and the same class
+# of bug that already caused one real production collision on the static IP
+# (192.168.207.66 collided with cixmini the build host, fixed 2026-07-20 by
+# moving to .199 -- see build/build-rescue-rootfs.sh). .199 is no longer a
+# PRODUCTION collision, but it is still shared by every board's rescue
+# partition, so two boards booting rescue with no DHCP on the same LAN would
+# still collide with EACH OTHER. build-rescue-rootfs.sh runs on the generic
+# ARGOS build host and has no specific board to read a MAC from -- this hook
+# runs at install time ON the target board, same as 37-ntp-hostname.sh, so it
+# is the right place to make both values per-device.
+echo "[72] setting per-device rescue hostname + static-IP-fallback octet"
+RESCUE_MAC=""
+for ifpath in /sys/class/net/*; do
+    [ -e "$ifpath" ] || continue
+    iface=${ifpath##*/}
+    case "$iface" in lo|virbr*|docker*|veth*|br-*|tun*|tap*) continue ;; esac
+    if [ -d "$ifpath/wireless" ] || [ -d "$ifpath/phy80211" ]; then continue; fi
+    if [ -r "$ifpath/address" ]; then
+        m=$(tr -d ":" < "$ifpath/address" | tr "[:upper:]" "[:lower:]")
+        if [ -n "$m" ] && [ "$m" != "000000000000" ]; then
+            RESCUE_MAC="$m"
+            break
+        fi
+    fi
+done
+if [ -z "$RESCUE_MAC" ] && [ -r /etc/machine-id ]; then
+    # No wired NIC found (shouldn't happen on Sky1 boards) -- fall back to the
+    # just-generated machine-id, same ladder as 37-ntp-hostname.sh pass 3.
+    RESCUE_MAC=$(sha256sum /etc/machine-id 2>/dev/null | cut -c1-12)
+fi
+if [ -n "$RESCUE_MAC" ]; then
+    RESCUE_HOSTNAME_INSTALLED="ncz-rescue-${RESCUE_MAC: -6}"
+    # Map the MAC into 220-250: unused by this fleet's DHCP reservations
+    # (checked 2026-09-13, ip-dhcp-reserve list on the Island gateway) and
+    # distinct from the .199 baked default, so this is additive, not a
+    # replacement -- boards that fail this derivation still get .199.
+    OCTET_DEC=$(( 16#${RESCUE_MAC: -2} % 31 + 220 ))
+else
+    echo "[72] WARN: could not derive a MAC for rescue hostname/IP -- leaving baked defaults" >&2
+    RESCUE_HOSTNAME_INSTALLED=""
+    OCTET_DEC=""
+fi
+if [ -n "$RESCUE_HOSTNAME_INSTALLED" ]; then
+    echo "$RESCUE_HOSTNAME_INSTALLED" > "$MNT/etc/hostname"
+    if grep -q "^127\.0\.1\.1" "$MNT/etc/hosts" 2>/dev/null; then
+        sed -i "s|^127\.0\.1\.1.*|127.0.1.1\t${RESCUE_HOSTNAME_INSTALLED}|" "$MNT/etc/hosts"
+    else
+        printf '127.0.1.1\t%s\n' "$RESCUE_HOSTNAME_INSTALLED" >> "$MNT/etc/hosts"
+    fi
+    echo "[72]   rescue hostname -> $RESCUE_HOSTNAME_INSTALLED (MAC-derived)"
+fi
+if [ -n "$OCTET_DEC" ] && [ -f "$MNT/usr/local/sbin/ncz-rescue-net-fallback" ]; then
+    sed -i -E "s|192\.168\.207\.[0-9]+/24|192.168.207.${OCTET_DEC}/24|g" \
+        "$MNT/usr/local/sbin/ncz-rescue-net-fallback"
+    echo "[72]   rescue static-IP-fallback -> 192.168.207.${OCTET_DEC}/24 (MAC-derived)"
+fi
+
 # --- auto-network + remote recovery access (operator directive 2026-07-29) ---
 # A rescue partition that can't be reached over the network is useless when
 # the failure being recovered from is a bricked main-kernel boot -- physical
