@@ -23,6 +23,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PACK="${1:-brandon-perlow}"
 OUT="$ROOT/build/wallpaper-debs"
+ARTISTPACK_SOURCE_ROOT="${ARTISTPACK_SOURCE_ROOT:-${HOME:?}/Projects/artistpack/packs}"
 
 # Pack metadata, and where its source images and installed images live.
 # Add a case here when adding a pack; refusing to guess an author or a
@@ -46,6 +47,7 @@ case "$PACK" in
     ncz)
         PKG="ncz-wallpapers-ncz"
         SRC="$ROOT/assets/branding/wallpaper"
+        ARTISTPACK_SRC="$ARTISTPACK_SOURCE_ROOT/ncz"
         ART_SUBPATH=""
         AUTHOR="NCZ"
         YEAR="2026"
@@ -67,6 +69,7 @@ $CREDITS
     brandon-perlow)
         PKG="ncz-wallpapers-brandon-perlow"
         SRC="$ROOT/assets/branding/wallpaper/contrib/$PACK"
+        ARTISTPACK_SRC="$ARTISTPACK_SOURCE_ROOT/brandon-perlow"
         ART_SUBPATH="/$PACK"
         AUTHOR="Brandon Perlow"
         YEAR="2026"
@@ -95,6 +98,7 @@ $CONTRIB_ROYALTY_FREE_NOTE"
     alex-jay-brady)
         PKG="ncz-wallpapers-alex-jay-brady"
         SRC="$ROOT/assets/branding/wallpaper/contrib/$PACK"
+        ARTISTPACK_SRC="$ARTISTPACK_SOURCE_ROOT/alex-jay-brady"
         ART_SUBPATH="/$PACK"
         AUTHOR="Alex Jay Brady"
         YEAR="2026"
@@ -119,6 +123,7 @@ $CONTRIB_ROYALTY_FREE_NOTE"
     singularity)
         PKG="ncz-wallpapers-singularity"
         SRC="$ROOT/assets/branding/wallpaper/contrib/$PACK"
+        ARTISTPACK_SRC="$ARTISTPACK_SOURCE_ROOT/singularity"
         ART_SUBPATH="/$PACK"
         AUTHOR="Singularity Desktop"
         YEAR="2026"
@@ -149,6 +154,8 @@ $CREDITS
 esac
 
 [ -d "$SRC" ] || { echo "ERROR: no such pack: $SRC" >&2; exit 1; }
+[ -f "$ARTISTPACK_SRC/artist.json" ] || { echo "ERROR: missing ArtistPack manifest: $ARTISTPACK_SRC/artist.json" >&2; exit 1; }
+[ -f "$ARTISTPACK_SRC/pack.json" ] || { echo "ERROR: missing ArtistPack manifest: $ARTISTPACK_SRC/pack.json" >&2; exit 1; }
 
 VERSION="${NCZ_WALLPAPER_PACK_VERSION:-1.0}"
 WORK="$(mktemp -d)"
@@ -187,6 +194,17 @@ Type=static
 Dir=/usr/share/backgrounds/ncz$ART_SUBPATH
 COLLECTION
 echo "  collection: $PACK ($AUTHOR)"
+
+ARTISTPACK_DIR="$WORK/usr/share/ncz-wallpapers/collections/$PACK.artistpack"
+install -d "$ARTISTPACK_DIR"
+install -m 0644 "$ARTISTPACK_SRC/artist.json" "$ARTISTPACK_DIR/artist.json"
+install -m 0644 "$ARTISTPACK_SRC/pack.json" "$ARTISTPACK_DIR/pack.json"
+# The source manifest is catalog-ready and uses commit-pinned GitLab URLs.
+# Its packaged copy is offline-first, so point file entries at the exact
+# basenames installed in ART_DIR while leaving hashes and dimensions intact.
+sed -Ei 's#("file": ")https://gitlab\.com/[^"]*/([^"/]+)(")#\1\2\3#' \
+    "$ARTISTPACK_DIR/pack.json"
+echo "  ArtistPack metadata: $PACK.artistpack/{artist.json,pack.json}"
 
 # Installed-Size is in KiB and dpkg expects it to be roughly honest.
 SIZE_KB=$(du -sk "$WORK/usr" | cut -f1)
