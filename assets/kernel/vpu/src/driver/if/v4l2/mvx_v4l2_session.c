@@ -467,6 +467,19 @@ static void handle_event(struct mvx_session *session,
                             V4L2_FIELD_SEQ_TB : V4L2_FIELD_INTERLACED;
         unsigned int width = port->width;
         unsigned int height = port->height;
+        /*
+         * FIX (2026-09-13, round 2 -- review finding): capture the TRUE
+         * pre-event width/height before the unconditional port->width =
+         * port->new_width assignment below overwrites them. port->width/
+         * height are mutated unconditionally here regardless of whether the
+         * new resolution ever validates (pre-existing behaviour, unchanged
+         * by this fix) -- but the try_format() failure path further down
+         * needs the ORIGINAL values, not the post-mutation ones, to publish
+         * a self-consistent format alongside the untouched
+         * nplanes/stride/size/interlaced fields on that branch.
+         */
+        unsigned int prev_width = port->width;
+        unsigned int prev_height = port->height;
         if (dir == MVX_DIR_OUTPUT) {
             port->width = port->new_width;
             port->height = port->new_height;
@@ -510,7 +523,12 @@ static void handle_event(struct mvx_session *session,
              * around their own mvx_session_try_format() calls. So this call
              * site is already mutually exclusive with S_FMT/TRY_FMT under
              * the pre-existing locking discipline; no new lock is needed
-             * and none is taken here, matching every other caller.
+             * and none is taken here, matching every other caller. This
+             * ONLY proves S_FMT/TRY_FMT and this callback cannot interleave
+             * -- it says nothing about whether the values this callback
+             * commits are themselves internally consistent, which is a
+             * separate, non-locking concern handled by the try_ret==0/else
+             * split below and the prev_width/prev_height comment there.
              *
              * Writing port->nplanes/stride/size/interlaced back below is
              * not a new category of side effect: the two lines directly
@@ -520,6 +538,12 @@ static void handle_event(struct mvx_session *session,
              * change extends that established pattern to the remaining
              * geometry fields so they stay consistent with width/height
              * instead of lagging behind them until the next explicit S_FMT.
+             * Note the precedent is not a perfect match: width/height are
+             * unconditional writes of firmware-provided scalars, while
+             * nplanes/stride/size/interlaced are committed only when the
+             * fallible mvx_session_try_format() call below returns success
+             * -- see the try_ret handling immediately below for how the
+             * failure case is kept consistent.
              */
             uint8_t new_nplanes = port->nplanes;
             unsigned int new_stride[MVX_BUFFER_NPLANES];
@@ -541,19 +565,25 @@ static void handle_event(struct mvx_session *session,
                 port->interlaced = new_interlaced;
             } else {
                 /*
-                 * FIX (2026-09-13, cont'd -- review finding): try_format()
+                 * FIX (2026-09-13, round 2 -- review finding): try_format()
                  * clamps/rewrites *width and *height before it can fail
-                 * (e.g. on a downstream mvx_buffer_frame_dim() error), so a
-                 * non-zero try_ret can still leave width/height holding
-                 * values inconsistent with the port->nplanes/size/stride
-                 * we are about to publish via set_format() below (which are
-                 * deliberately left at their pre-call values on this
-                 * branch). Restore width/height to match, so a failed
-                 * try_format() cannot publish a self-inconsistent format to
-                 * userspace.
+                 * (e.g. on a downstream mvx_buffer_frame_dim() error), and
+                 * port->nplanes/stride/size/interlaced are deliberately
+                 * left UNTOUCHED on this branch (see the `if (try_ret == 0)`
+                 * above). Restoring width/height to port->width/port->height
+                 * would NOT be correct here: those struct fields were
+                 * already overwritten to port->new_width/new_height by the
+                 * unconditional assignment above, before try_format() ever
+                 * ran. Using prev_width/prev_height (captured before that
+                 * overwrite, at the top of this case) instead publishes the
+                 * OLD width/height alongside the OLD (equally untouched)
+                 * nplanes/stride/size/interlaced -- i.e. "as if this
+                 * resolution-change event never happened" -- which is the
+                 * only self-consistent thing to publish when the new
+                 * resolution failed to validate.
                  */
-                width = port->width;
-                height = port->height;
+                width = prev_width;
+                height = prev_height;
             }
         }
 
