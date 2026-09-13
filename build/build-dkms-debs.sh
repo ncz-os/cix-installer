@@ -126,6 +126,39 @@ case "\$1" in
         if ! dkms autoinstall -m "\$NAME" -v "\$VER" >/dev/null 2>&1; then
             echo "\$NAME: dkms build deferred (no matching kernel headers?)." >&2
             echo "  run: dkms autoinstall -m \$NAME -v \$VER" >&2
+        else
+            # Refresh the boot image so the newly-built module is actually
+            # loaded at boot, not shadowed by a stale copy embedded in the
+            # existing initramfs. NCZ-OS uses dracut, not update-initramfs or
+            # mkinitramfs; post-install/94-dracut-config.sh deliberately sets
+            # update_initramfs=no. Confirmed by ELF build-ID comparison after
+            # a real VPU incident on 2026-09-13: rebuilding via DKMS alone left
+            # the old module loading from the initramfs on every reboot.
+            KVER="\$(uname -r)"
+            if command -v dracut >/dev/null 2>&1; then
+                if TMP_INITRD="\$(mktemp /tmp/initrd-refresh-XXXXXX.img)"; then
+                    if dracut --force --kver "\$KVER" "\$TMP_INITRD"; then
+                        # Both copies matter: rEFInd boots the ESP copy, not
+                        # /boot's copy.
+                        for target in "/boot/initrd.img-\$KVER" "/boot/efi/initrd.img-\$KVER"; do
+                            if [ -d "\$(dirname "\$target")" ]; then
+                                if ! install -m 0644 "\$TMP_INITRD" "\$target"; then
+                                    echo "WARNING: failed to install refreshed initrd to \$target" >&2
+                                fi
+                            fi
+                        done
+                    else
+                        echo "WARNING: dracut failed to regenerate the initramfs -- the newly built module may not be loaded at next boot until this is done manually" >&2
+                    fi
+                    if ! rm -f "\$TMP_INITRD"; then
+                        echo "WARNING: failed to remove temporary initrd \$TMP_INITRD" >&2
+                    fi
+                else
+                    echo "WARNING: could not create a temporary file for the refreshed initramfs -- the newly built module may not be loaded at next boot" >&2
+                fi
+            else
+                echo "WARNING: dracut not found -- cannot refresh boot image; the newly built module may not be loaded at next boot" >&2
+            fi
         fi
     else
         echo "\$NAME: dkms is not installed; source staged only." >&2
