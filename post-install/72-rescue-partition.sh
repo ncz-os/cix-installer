@@ -177,11 +177,41 @@ if [ -z "$RESCUE_MAC" ] && [ -r /etc/machine-id ]; then
 fi
 if [ -n "$RESCUE_MAC" ]; then
     RESCUE_HOSTNAME_INSTALLED="ncz-rescue-${RESCUE_MAC: -6}"
-    # Map the MAC into 220-250: unused by this fleet's DHCP reservations
-    # (checked 2026-09-13, ip-dhcp-reserve list on the Island gateway) and
-    # distinct from the .199 baked default, so this is additive, not a
-    # replacement -- boards that fail this derivation still get .199.
-    OCTET_DEC=$(( 16#${RESCUE_MAC: -2} % 31 + 220 ))
+    # Map the MAC into a per-device static-IP-fallback octet.
+    #
+    # CORRECTED 2026-09-13 (zoder/MiniMax-M3 + TYDEUS/nemotron35 adversarial
+    # review, both independently confirmed): the original 31-bucket range
+    # (220-250, "% 31") mathematically cannot meet this block's own stated
+    # goal of avoiding rescue-to-rescue collisions. Birthday-paradox collision
+    # probability P(collision) ~= 1 - exp(-k(k-1)/2n): for n=31, k=10 boards
+    # -> ~76%, k=20 -> ~99.8%, k=30 -> ~99.9998%. A SINGLE IP octet cannot fix
+    # this for a 20-30 board fleet -- even the full 0-255 range (n=256) is
+    # still ~86% collision at k=30; the birthday problem needs roughly n>=k^2
+    # for a low collision rate, which one octet never supplies. A COMPLETE
+    # fix needs either (a) a two-MAC-byte-derived address outside
+    # 192.168.207.0/24 -- which defeats reachability, since this subnet is
+    # the fleet's only routed LAN segment (CLAUDE.md directive 8) -- or
+    # (b) an ARP-probe-and-retry claim added to ncz-rescue-net-fallback
+    # itself (a different file/service, out of scope for this hook). NEITHER
+    # is done here; this is a documented, accepted residual risk, not a
+    # closed one.
+    #
+    # What IS done: widen from 31 to 114 buckets (140-253). Verified clear
+    # 2026-09-13 against the Island gateway's `show ip dhcp reservations`
+    # (15 static reservations, all <= .101) and `show ip neighbors` (only
+    # live host above .101 was .132/forge-worker-01, well below this
+    # window). This is a MEANINGFUL REDUCTION, not a fix: at k=10 boards
+    # P(collision) drops from ~76% to ~35% (n=114); it does not reach a low
+    # absolute probability for a large fleet. The real exposure is narrower
+    # than "the whole fleet collides" -- it requires two boards to be
+    # simultaneously rescue-booted AND both to have failed DHCP AND to land
+    # on the same derived octet -- but the residual risk is real and should
+    # be tracked as a follow-up, not assumed solved by this widening.
+    OCTET_DEC=$(( 16#${RESCUE_MAC: -2} % 114 + 140 ))
+    # Never let a MAC-derived value land exactly on the shared .199 baked
+    # default -- that would make a MAC-derived board indistinguishable from
+    # one that failed derivation and is still sitting on the baked fallback.
+    [ "$OCTET_DEC" = 199 ] && OCTET_DEC=198
 else
     echo "[72] WARN: could not derive a MAC for rescue hostname/IP -- leaving baked defaults" >&2
     RESCUE_HOSTNAME_INSTALLED=""
