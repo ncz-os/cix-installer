@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""Install one Artist Pack .deb package. MUST run as root (via pkexec).
+
+Invoked as:  pkexec /usr/local/bin/ncz-wallpaper-pack-install <package> <source>
+
+`package` and `source` come from the desktop UI (singularity-shell's
+ArtistPackManager.install_async()), which already reported this exact
+(package, source) pair from a prior ncz-wallpaper-pack-inventory call. This
+script does NOT trust that pairing -- it is the actual security boundary,
+and independently re-derives and re-checks everything before touching apt:
+
+  1. `package` matches the Artist Pack naming pattern.
+  2. `source` is one of the apt sources ACTUALLY CONFIGURED on this
+     system, read from apt's own root-owned configuration (never from the
+     invoking user's GSettings/dconf -- a pkexec-elevated root process does
+     not share the desktop user's dconf session, so this must have its own
+     independently-trustworthy notion of "which sources are real").
+  3. The package's LIVE apt candidate (queried fresh here, not trusted from
+     argv) actually comes from that same configured source -- this is what
+     stops a caller from pairing a real package name with a source it does
+     not actually come from.
+
+Only if all three hold does this run `apt-get install`. Serialized system-
+wide via a lock file so two Install clicks in quick succession cannot race
+two concurrent apt/dpkg invocations. Idempotent: installing an
+already-installed pack at the current candidate version is a safe no-op
+(this falls out of apt-get install's own behaviour -- no special-casing
+needed).
+"""
+import fcntl
+import os
+import re
+import subprocess
+import sys
+import stat
+
+PACKAGE_PATTERN = re.compile(r"^ncz-wallpapers-[a-z0-9][a-z0-9-]*$")
+LOCK_PATH = "/run/lock/ncz-wallpaper-pack-install.lock"
+ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C", "LANG": "C",
+       "DEBIAN_FRONTEND": "noninteractive"}
+
+
+def die(message: str) -> int:
+    print(f"ncz-wallpaper-pack-install: {message}", file=sys.stderr)
+    return 1
+
+
+def check_root() -> bool:
+    return os.geteuid() == 0
+
+
+def configured_apt_sources() -> list[str]:
+    """Every URI apt is actually configured to use, from root-owned config.
+
+    Reads apt's OWN configuration -- /etc/apt/sources.list plus every
+    *.list / *.sources file under /etc/apt/sources.list.d/ -- not the
+    invoking user's GSettings key. This is the independently-trustworthy
+    side of the check: a value here can only have gotten there through
+    real, root-controlled apt configuration, not anything a desktop user
+    (or a compromised desktop process) can influence.
+    """
+    uris: list[str] = []
+    candidates = ["/etc/apt/sources.list"]
+    sources_dir = "/etc/apt/sources.list.d"
+    if os.path.isdir(sources_dir):
+        for name in sorted(os.listdir(sources_dir)):
+            if name.endswith((".list", ".sources")):
+                candidates.append(os.path.join(sources_dir, name))
+
+    for path in candidates:
+        if not os.path.isfile(path):
+            continue
+        try:
+            flags = os.O_RDONLY | os.O_CLOEXEC
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            fd = os.open(path, flags)
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                os.close(fd)
+                raise OSError("not a root-owned, non-writable regular file")
+            with os.fdopen(fd, encoding="utf-8", errors="strict") as handle:
+                text = handle.read()
+        except (OSError, UnicodeError) as exc:
+            raise RuntimeError(f"cannot safely read apt source file {path}: {exc}") from exc
+        if path.endswith(".sources"):
+            # DEB822 format: "URIs: <uri> [<uri> ...]" lines.
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.lower().startswith("uris:"):
+                    uris.extend(stripped.split(":", 1)[1].split())
+        else:
+            # One-line format: "deb [options] <uri> <suite> [components...]"
+            for line in text.splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                parts = stripped.split()
+                if not parts or parts[0] not in ("deb", "deb-src"):
+                    continue
+                idx = 1
+                if idx < len(parts) and parts[idx].startswith("["):
+                    while idx < len(parts) and not parts[idx].endswith("]"):
+                        idx += 1
+                    idx += 1
+                if idx < len(parts):
+                    uris.append(parts[idx])
+    return [uri.rstrip("/") for uri in uris]
+
+
+def live_candidate_source(package: str) -> str:
+    """The apt source URI the package's CURRENT candidate actually resolves to.
+
+    Re-queried here, fresh, right before installing -- not cached from any
+    earlier step -- to avoid a TOCTOU gap between validation and install.
+    """
+    try:
+        proc = subprocess.run(
+            ["/usr/bin/apt-cache", "policy", package],
+            capture_output=True, text=True, timeout=15, env=ENV,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    lines = proc.stdout.splitlines()
+    candidate_version = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("Candidate:"):
+            candidate_version = stripped.split(":", 1)[1].strip()
+            break
+    if not candidate_version:
+        return ""
+    in_block = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(candidate_version):
+            in_block = True
+            continue
+        if in_block:
+            if not stripped or not line.startswith((" ", "\t")):
+                break
+            parts = stripped.split()
+            if len(parts) >= 2 and ("://" in parts[1] or parts[1].startswith("file:")):
+                return parts[1].rstrip("/")
+    return ""
+
+
+def main(argv: list[str]) -> int:
+    if not check_root():
+        return die("must run as root (invoke via pkexec)")
+
+    if len(argv) != 3:
+        return die(f"usage: {argv[0]} <package> <source>")
+    package, source = argv[1], argv[2].rstrip("/")
+
+    if not PACKAGE_PATTERN.match(package):
+        return die(f"refusing to install '{package}': not an Artist Pack package name")
+    if not source.strip():
+        return die(f"refusing to install '{package}': empty source")
+
+    os.makedirs(os.path.dirname(LOCK_PATH), exist_ok=True)
+    lock_fd = os.open(LOCK_PATH, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        # All validation lives inside the same system-wide lock as apt-get and
+        # the live candidate is queried immediately before installation.
+        try:
+            sources = configured_apt_sources()
+        except RuntimeError as exc:
+            return die(f"configured-source check failed: {exc}")
+        if source not in sources:
+            return die(
+                f"configured-source check failed: source '{source}' is not one of "
+                f"this system's configured apt sources"
+            )
+        candidate_source = live_candidate_source(package)
+        if not candidate_source:
+            return die(f"candidate-source check failed: '{package}' has no live apt candidate")
+        if candidate_source != source:
+            return die(
+                f"candidate-source check failed: '{package}' candidate comes from "
+                f"'{candidate_source}', not requested source '{source}'"
+            )
+        proc = subprocess.run(
+            ["/usr/bin/apt-get", "install", "-y", "--", package],
+            env=ENV, timeout=300,
+        )
+        if proc.returncode != 0:
+            return die(f"apt-get install exited {proc.returncode} for '{package}'")
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
+
+    print(f"ncz-wallpaper-pack-install: installed {package}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

@@ -41,6 +41,23 @@ install -d /var/cache/ncz-wallpapers/bing
 chmod 1777 /var/cache/ncz-wallpapers/bing
 
 OCS_ASSETS=/usr/local/lib/cix-installer/assets/wallpaper
+for helper in ncz-wallpaper-pack-inventory ncz-wallpaper-pack-install; do
+    if [ -x "$OCS_ASSETS/$helper" ]; then
+        install -m 0755 "$OCS_ASSETS/$helper" "/usr/local/bin/$helper"
+        echo "[45]   installed Artist Pack backend: $helper"
+    else
+        echo "[45]   WARN: Artist Pack backend asset missing: $helper" >&2
+    fi
+done
+ARTIST_PACK_POLICY="$OCS_ASSETS/dev.sinty.desktop.artist-pack-install.policy"
+if [ -f "$ARTIST_PACK_POLICY" ]; then
+    install -d /usr/share/polkit-1/actions
+    install -m 0644 "$ARTIST_PACK_POLICY" \
+        /usr/share/polkit-1/actions/dev.sinty.desktop.artist-pack-install.policy
+    echo "[45]   installed Artist Pack polkit policy"
+else
+    echo "[45]   WARN: Artist Pack polkit policy asset missing" >&2
+fi
 if [ -x "$OCS_ASSETS/ncz-wallpaper-ocs" ]; then
     install -m 0755 "$OCS_ASSETS/ncz-wallpaper-ocs" /usr/local/bin/ncz-wallpaper-ocs
     echo "[45]   installed OCS wallpaper backend"
