@@ -1438,6 +1438,25 @@ fi
 echo "NCZ-ROOTMODE: $_rm" > /dev/kmsg 2>/dev/null || true
 echo "NCZ-ROOTMODE: $_rm" > /dev/console 2>/dev/null || true
 
+# 2026-09-08 GPU glvnd-compat belt (labwc SIGSEGV / free(): invalid pointer
+# incident, O6N first-boot). post-install/26-gpu-default-mali.sh correctly
+# disables /etc/ld.so.conf.d/01-cixgpu-compat.conf at install time via a
+# rename to .disabled -- but dpkg does not know about that rename, so the
+# dpkg --configure -a above (cix-libglvnd has a deferred/triggered postinst)
+# re-lays-down its shipped default conffile and silently UNDOES the disable
+# on every single fresh install's first boot, before hook 26 or the operator
+# ever gets a chance to notice. Symptom: labwc SIGSEGVs in __eglLoadVendors
+# (cix-libglvnd 1.1.0's ancient glvnd shim fighting the system glvnd 1.7.0 +
+# Mesa 26 stack) on every launch -- greetd start-limit-hits, black screen.
+# Same belt-after-dpkg-configure pattern as the root-mode fix above, for the
+# same reason: package postinsts are the last code to run before the login
+# screen, so re-assert our config choice AFTER them, not just at build time.
+if [ -e /etc/ld.so.conf.d/01-cixgpu-compat.conf ]; then
+    echo "ncz-firstboot: WARNING 01-cixgpu-compat.conf re-appeared after dpkg --configure -a -- disabling again" > /dev/kmsg 2>/dev/null || true
+    mv /etc/ld.so.conf.d/01-cixgpu-compat.conf /etc/ld.so.conf.d/01-cixgpu-compat.conf.disabled 2>/dev/null || true
+    ldconfig 2>/dev/null || true
+fi
+
 # Only finalize (disable + mark done) when the hostname is SETTLED. When we are
 # deliberately retrying the MAC-derive on a later boot (HOSTNAME_SETTLED=0), we
 # leave the service enabled and NOT-done so it runs again — dpkg-configure and

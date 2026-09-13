@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Browse and import Open Collaboration Services wallpapers."""
+"""Browse and import Open Collaboration Services wallpapers.
+
+Imports accumulate into a single user-side collection (Imported from OCS)
+under ~/.local/share/backgrounds/imported-ocs/, with per-image sidecar
+JSON files (one per imported image) carrying the OCS provenance that the
+old per-import pack.json used to carry. See docs/WALLPAPER-PACKS.md for
+the rationale."""
 
 from __future__ import annotations
 
@@ -31,9 +37,20 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 ARCHIVE_EXTENSIONS = {".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2"}
 IMPORTABLE_EXTENSIONS = IMAGE_EXTENSIONS | ARCHIVE_EXTENSIONS
 
+# The single, persistent user collection that accumulates every OCS import.
+# One directory, one .collection file, many images, each image gets its own
+# per-image sidecar carrying what the old per-pack pack.json used to carry.
+# See docs/WALLPAPER-PACKS.md section 5 for the rationale.
+IMPORTED_OCS_DIRNAME = "imported-ocs"
+IMPORTED_OCS_COLLECTION_ID = IMPORTED_OCS_DIRNAME
+IMPORTED_OCS_COLLECTION_NAME = "Imported from OCS"
+
+# opendesktop.org and pling.com are the same OCS content network under two
+# brand names (opendesktop.org today just redirects to pling.com) -- listing
+# both as separate browsable sources duplicated the same content twice.
+# Confirmed and removed 2026-09-07 (operator, live-testing the OCS browser).
 PROVIDERS: dict[str, dict[str, str]] = {
     "pling": {"base": "https://api.pling.com/ocs/v1/", "web": "https://www.pling.com/p/{id}"},
-    "opendesktop": {"base": "https://api.opendesktop.org/ocs/v1/", "web": "https://www.opendesktop.org/p/{id}"},
     "kde-look": {"base": "https://api.kde-look.org/ocs/v1/", "web": "https://www.kde-look.org/p/{id}"},
     "gnome-look": {"base": "https://api.gnome-look.org/ocs/v1/", "web": "https://www.gnome-look.org/p/{id}"},
 }
@@ -327,6 +344,73 @@ def unique_dest(base: Path, pack_id: str) -> Path:
         n += 1
 
 
+def imported_ocs_dir(base_dir: Path) -> Path:
+    """The single shared directory every OCS import lands in."""
+    return base_dir / IMPORTED_OCS_DIRNAME
+
+
+def ensure_imported_ocs_collection(dest: Path) -> Path:
+    """Create the shared .collection file ONCE (idempotent) and return its
+    path. Subsequent imports do not touch it -- the .collection file is
+    registered as a singleton on first import and left alone thereafter."""
+    collection_dir = (
+        Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+        / "ncz-wallpapers" / "collections"
+    )
+    collection_dir.mkdir(parents=True, exist_ok=True)
+    collection = collection_dir / f"{IMPORTED_OCS_COLLECTION_ID}.collection"
+    if collection.exists():
+        return collection
+    # No "Artist=" key: images come from many different uploaders across many
+    # providers, so a single fixed artist string would be a lie that overrides
+    # the per-image sidecar credit. WallpaperCollections.parse() treats a
+    # missing Artist as artist="", which is what we want -- the per-image
+    # sidecar (and the in-browser message label) carries the real attribution.
+    fields = [
+        "[Collection]",
+        f"Id={IMPORTED_OCS_COLLECTION_ID}",
+        f"Name={IMPORTED_OCS_COLLECTION_NAME}",
+        "Comment=User-fetched OCS wallpapers, accumulated from many items/providers",
+        "Type=static",
+        f"Dir={dest}",
+        "Origin=ocs",
+    ]
+    collection.write_text("\n".join(fields) + "\n", encoding="utf-8")
+    return collection
+
+
+def write_image_sidecar(image_path: Path, image_record: dict, item: dict, item_id: str,
+                        author_name: str, provider: str, final_url: str, imported_at: str) -> Path:
+    """Write the per-image provenance sidecar (<image-basename>.json) next
+    to the normalized image. Carries everything the old per-pack pack.json
+    carried, scoped to a single image: provider, author, license, source
+    OCS id, detail page, download info, normalization geometry."""
+    sidecar_path = image_path.with_suffix(".json")
+    sidecar = {
+        "schema": SCHEMA,
+        "origin": "ocs",
+        "pack_id": IMPORTED_OCS_COLLECTION_ID,
+        "image": image_record,
+        "artist": {"name": author_name, "credit": f"{author_name} from {provider}"},
+        "provider": provider,
+        "source": {
+            "ocs_id": item_id,
+            "detailpage": item["detailpage"],
+            "download_url": item["download"]["url"],
+            "resolved_download_url": final_url,
+            "downloadname1": item["download"]["name"],
+            "downloadsize1_kib": item["download"]["size_kib"],
+            "tags": item["tags"],
+        },
+        "license": item.get("license") if item.get("license") else None,
+        "license_note": "not specified by the OCS item" if not item.get("license") else None,
+        "imported_at": imported_at,
+    }
+    sidecar = {k: v for k, v in sidecar.items() if v is not None}
+    sidecar_path.write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return sidecar_path
+
+
 def write_legacy_collection(pack_id: str, name: str, dest: Path, author: str | None) -> Path:
     collection_dir = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "ncz-wallpapers" / "collections"
     collection_dir.mkdir(parents=True, exist_ok=True)
@@ -347,10 +431,15 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
     if not download["url"]:
         die(f"{provider}:{item_id} has no downloadlink1")
 
-    pack_id = f"ocs-{provider}-{item_id}-{slugify(item['name'])}"[:96].rstrip("-")
-    dest = unique_dest(base_dir, pack_id)
+    # All OCS imports land in the single shared "imported-ocs" directory;
+    # the .collection file is created once and left alone on subsequent calls.
+    dest = imported_ocs_dir(base_dir)
     if dry_run:
-        return {"pack_id": pack_id, "destination": str(dest), "item": item}
+        return {
+            "pack_id": IMPORTED_OCS_COLLECTION_ID,
+            "destination": str(dest),
+            "item": item,
+        }
 
     with tempfile.TemporaryDirectory(prefix="ncz-ocs-") as tmp_s:
         tmp = Path(tmp_s)
@@ -364,47 +453,41 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
         if not images:
             die(f"{provider}:{item_id} contained no JPEG/PNG/WebP payload after real MIME sniffing")
 
-        dest.mkdir(parents=True)
+        # Idempotent on first call (and only first call): creates the dir,
+        # registers the .collection file, leaves it alone thereafter. Per-image
+        # filenames are prefixed <provider>-<id>- so two different imports
+        # landing in the same shared directory cannot collide.
+        dest.mkdir(parents=True, exist_ok=True)
+        collection = ensure_imported_ocs_collection(dest)
+
+        author = item["author"] or "OCS uploader unknown"
+        imported_at = now_iso()
         normalized: list[dict[str, Any]] = []
         for idx, src in enumerate(images, start=1):
             src_w, src_h = image_geometry(src)
-            out = dest / f"{idx:02d}-{slugify(src.stem)}.jpg"
+            filename = f"{provider}-{item_id}-{idx:02d}-{slugify(src.stem)}.jpg"
+            out = dest / filename
             normalize_image(src, out, width, height)
-            normalized.append({
+            image_record = {
                 "file": out.name,
                 "title": item["name"] if len(images) == 1 else src.stem,
                 "source_file": src.name,
                 "source_geometry": {"width": src_w, "height": src_h},
                 "normalized_geometry": {"width": width, "height": height},
+            }
+            sidecar_path = write_image_sidecar(out, image_record, item, item_id, author, provider, final_url, imported_at)
+            normalized.append({
+                "file": out.name,
+                "title": image_record["title"],
+                "sidecar": sidecar_path.name,
             })
 
-        author = item["author"] or "OCS uploader unknown"
-        pack: dict[str, Any] = {
-            "schema": SCHEMA,
-            "id": pack_id,
-            "name": item["name"],
-            "artist": {"name": author, "credit": f"{author} from {provider}"},
-            "origin": "ocs",
-            "provider": provider,
-            "source": {
-                "ocs_id": item_id,
-                "detailpage": item["detailpage"],
-                "download_url": download["url"],
-                "resolved_download_url": final_url,
-                "downloadname1": download["name"],
-                "downloadsize1_kib": download["size_kib"],
-                "tags": item["tags"],
-            },
-            "license": item.get("license") if item.get("license") else None,
-            "license_note": "not specified by the OCS item" if not item.get("license") else None,
-            "rotation": {"scope": "pack", "order": "shuffle", "interval": 600},
-            "images": normalized,
-        }
-        pack = {k: v for k, v in pack.items() if v is not None}
-        (dest / "pack.json").write_text(json.dumps(pack, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        collection = write_legacy_collection(pack_id, item["name"], dest, item["author"])
-
-    return {"pack_id": pack_id, "destination": str(dest), "collection": str(collection), "images": normalized, "pack_json": str(dest / "pack.json")}
+    return {
+        "pack_id": IMPORTED_OCS_COLLECTION_ID,
+        "destination": str(dest),
+        "collection": str(collection),
+        "images": normalized,
+    }
 
 
 def cmd_providers(_: argparse.Namespace) -> None:
