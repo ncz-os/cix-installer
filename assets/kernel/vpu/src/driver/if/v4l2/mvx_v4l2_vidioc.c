@@ -1046,12 +1046,49 @@ static void mvx_get_composing(struct mvx_v4l2_session *vsession,
         if (mvx_is_afbc(format)) {
             s->r.left = vport->afbc_crop_left >> session->dual_afbc_downscaled;
             s->r.top = vport->afbc_crop_top >> session->dual_afbc_downscaled;
+            /*
+             * FIX (2026-09-13, thread continuation of fix/vpu-gfmt-sfmt-
+             * race-20260913 -- residual G_SELECTION containment failure):
+             * port->width/height are now the AFBC-padded coded size
+             * (natural size + afbc_crop_left/top -- see the matching fix
+             * in try_format(), mvx_session.c, for the full evidence
+             * trail). Using them here too would double-count the crop:
+             * origin=(left,top) PLUS a size that already includes that
+             * same padding pushes the rect's far edge beyond coded_size by
+             * the crop amount all over again -- exactly the live-proven
+             * G_SELECTION/COMPOSE-vs-G_FMT containment failure this fix
+             * addresses. The rect's size must be the NATURAL (unpadded)
+             * dimensions so that origin + size == the padded coded_size
+             * exactly: session->orig_width/orig_height, shifted by the
+             * same dual_afbc_downscaled factor already applied to
+             * left/top above for consistency.
+             */
+            s->r.width = session->orig_width >> session->dual_afbc_downscaled;
+            s->r.height = session->orig_height >> session->dual_afbc_downscaled;
         } else {
             s->r.left = 0;
             s->r.top = 0;
+            /*
+             * FIX (2026-09-13, thread continuation, round 2): try_format()
+             * now adds the SAME crop padding to port->width/height for
+             * EVERY output frame format, AFBC or not (see the round-2
+             * comment in try_format(), mvx_session.c, for why: Chromium
+             * commonly switches the CAPTURE queue from the driver's
+             * native AFBC format to a non-AFBC one within one
+             * negotiation, and needs the coded_size to stay stable across
+             * that switch). That means port->width/height here are the
+             * PADDED coded size (e.g. 1920x1084), not the natural picture
+             * size (1920x1080) -- using them directly would claim the
+             * padding rows/columns are part of the VISIBLE picture, which
+             * they are not (they carry no real decoded content). Use the
+             * natural session->orig_width/orig_height instead, exactly
+             * like the AFBC branch above, so origin (0,0) + size (orig)
+             * stays within the padded coded_size without overstating what
+             * is actually visible.
+             */
+            s->r.width = session->orig_width;
+            s->r.height = session->orig_height;
         }
-        s->r.width = port->width;
-        s->r.height = port->height;
     }
 }
 
