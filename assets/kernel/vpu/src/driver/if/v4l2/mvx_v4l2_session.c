@@ -475,7 +475,6 @@ static void handle_event(struct mvx_session *session,
             port->pending_source_change_event = false;
         }
 
-        p->field = port->interlaced ? field : V4L2_FIELD_NONE;
         if (dir == MVX_DIR_OUTPUT) {
             /*
              * FIX (2026-09-13): recompute width/height via the SAME
@@ -495,6 +494,32 @@ static void handle_event(struct mvx_session *session,
              * unable to diverge again -- this is a genuine CIX vendor driver
              * bug, confirmed present byte-identical in CIX's own pristine
              * 1.0.1 driver, not an NCZ-introduced regression.
+             *
+             * Locking (raised in review, verified against the call graph):
+             * mvx_session_try_format()/try_format() take no lock of their
+             * own and mutate only the out-parameters passed in. This
+             * MVX_SESSION_EVENT_PORT_CHANGED case is only ever reached via
+             * the firmware-message path -- mvx_sched_handle_irq()
+             * (dev/mvx_scheduler.c) does `mutex_lock(isession->mutex)`
+             * BEFORE calling `sched->if_ops->irq(isession)`, which is
+             * mvx_session_irq() (wired in mvx_if.c), which drives
+             * handle_fw_message() -> the mvx_handle_* handlers that fire
+             * this event. isession->mutex is the SAME &vsession->mutex
+             * mvx_session_construct() was given at session creation, i.e.
+             * the same mutex VIDIOC_S_FMT/TRY_FMT hold in mvx_v4l2_vidioc.c
+             * around their own mvx_session_try_format() calls. So this call
+             * site is already mutually exclusive with S_FMT/TRY_FMT under
+             * the pre-existing locking discipline; no new lock is needed
+             * and none is taken here, matching every other caller.
+             *
+             * Writing port->nplanes/stride/size/interlaced back below is
+             * not a new category of side effect: the two lines directly
+             * above (port->width = port->new_width; port->height =
+             * port->new_height;) already mutate canonical port geometry
+             * synchronously in this same handler, pre-dating this fix. This
+             * change extends that established pattern to the remaining
+             * geometry fields so they stay consistent with width/height
+             * instead of lagging behind them until the next explicit S_FMT.
              */
             uint8_t new_nplanes = port->nplanes;
             unsigned int new_stride[MVX_BUFFER_NPLANES];
@@ -514,9 +539,25 @@ static void handle_event(struct mvx_session *session,
                 memcpy(port->stride, new_stride, sizeof(port->stride));
                 memcpy(port->size, new_size, sizeof(port->size));
                 port->interlaced = new_interlaced;
+            } else {
+                /*
+                 * FIX (2026-09-13, cont'd -- review finding): try_format()
+                 * clamps/rewrites *width and *height before it can fail
+                 * (e.g. on a downstream mvx_buffer_frame_dim() error), so a
+                 * non-zero try_ret can still leave width/height holding
+                 * values inconsistent with the port->nplanes/size/stride
+                 * we are about to publish via set_format() below (which are
+                 * deliberately left at their pre-call values on this
+                 * branch). Restore width/height to match, so a failed
+                 * try_format() cannot publish a self-inconsistent format to
+                 * userspace.
+                 */
+                width = port->width;
+                height = port->height;
             }
         }
 
+        p->field = port->interlaced ? field : V4L2_FIELD_NONE;
         set_format(&vport->pix_mp, port->pixelformat, width, height,
                port->nplanes, port->size, port->stride);
         /*
