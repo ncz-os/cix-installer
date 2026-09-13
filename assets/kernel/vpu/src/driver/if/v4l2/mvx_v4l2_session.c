@@ -476,18 +476,67 @@ static void handle_event(struct mvx_session *session,
         }
 
         p->field = port->interlaced ? field : V4L2_FIELD_NONE;
-        if (dir == MVX_DIR_OUTPUT && mvx_is_afbc(port->format)) {
-            if (session->dual_afbc_downscaled)
-                width = session->port[dir].afbc_width_in_superblocks_downscaled << AFBC_SUPERBLOCK_SHIFT;
-            else
-                width = session->port[dir].afbc_width << AFBC_SUPERBLOCK_SHIFT;
-            height += session->port[dir].afbc_crop_top >> session->dual_afbc_downscaled;
+        if (dir == MVX_DIR_OUTPUT) {
+            /*
+             * FIX (2026-09-13): recompute width/height via the SAME
+             * validated path VIDIOC_S_FMT uses (mvx_session_try_format()
+             * -> try_format()) instead of duplicating the AFBC-crop-padding
+             * math independently here. The duplicated copy evaluated
+             * mvx_is_afbc(port->format) at a DIFFERENT INSTANT than
+             * try_format() does for the same resolution-change sequence, so
+             * it could (and, live-proven on cixmini/192.168.207.66 with a
+             * timestamped kernel trace, did) commit a height that disagreed
+             * with what a subsequent VIDIOC_S_FMT computes moments later for
+             * the identical session: VIDIOC_G_FMT returned 1920x1084 while
+             * VIDIOC_S_FMT computed 1920x1080, so Chromium's
+             * V4L2StatefulVideoDecoder::InitializeCAPTUREQueue() containment
+             * check rejected the format and hardware decode never started.
+             * Routing both through try_format() makes them structurally
+             * unable to diverge again -- this is a genuine CIX vendor driver
+             * bug, confirmed present byte-identical in CIX's own pristine
+             * 1.0.1 driver, not an NCZ-introduced regression.
+             */
+            uint8_t new_nplanes = port->nplanes;
+            unsigned int new_stride[MVX_BUFFER_NPLANES];
+            unsigned int new_size[MVX_BUFFER_NPLANES];
+            bool new_interlaced = port->interlaced;
+            int try_ret;
+
+            memcpy(new_stride, port->stride, sizeof(new_stride));
+            memcpy(new_size, port->size, sizeof(new_size));
+
+            try_ret = mvx_session_try_format(session, dir, port->format,
+                                &width, &height, &new_nplanes,
+                                new_stride, new_size,
+                                &new_interlaced);
+            if (try_ret == 0) {
+                port->nplanes = new_nplanes;
+                memcpy(port->stride, new_stride, sizeof(port->stride));
+                memcpy(port->size, new_size, sizeof(port->size));
+                port->interlaced = new_interlaced;
+            }
         }
 
         set_format(&vport->pix_mp, port->pixelformat, width, height,
                port->nplanes, port->size, port->stride);
-        vport->afbc_crop_left = port->afbc_crop_left;
-        vport->afbc_crop_top = port->afbc_crop_top;
+        /*
+         * FIX (2026-09-13, cont'd): only expose the AFBC crop offset to
+         * userspace (via VIDIOC_G_SELECTION) when the output is actually
+         * AFBC. port->afbc_crop_top/left are set unconditionally from the
+         * firmware's ALLOC_PARAM cropx/cropy regardless of output format,
+         * but a non-AFBC (linear) coded buffer is no longer padded to
+         * include that offset now that width/height come straight from
+         * mvx_session_try_format() above -- exposing a nonzero crop origin
+         * against an unpadded coded_size can make a client's visible_rect
+         * (origin = crop_top/left) fall outside coded_size.
+         */
+        if (dir == MVX_DIR_OUTPUT && !mvx_is_afbc(port->format)) {
+            vport->afbc_crop_left = 0;
+            vport->afbc_crop_top = 0;
+        } else {
+            vport->afbc_crop_left = port->afbc_crop_left;
+            vport->afbc_crop_top = port->afbc_crop_top;
+        }
         v4l2_event_queue_fh(&vsession->fh, &event);
         break;
     }
