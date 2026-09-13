@@ -135,7 +135,7 @@ def live_candidate_source(package: str) -> str:
     in_block = False
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith(candidate_version):
+        if re.match(r"^(?:\*\*\*\s+)?" + re.escape(candidate_version) + r"\s", stripped):
             in_block = True
             continue
         if in_block:

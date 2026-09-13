@@ -30,6 +30,10 @@ import os
 PACKAGE_PATTERN = re.compile(r"^ncz-wallpapers-[a-z0-9][a-z0-9-]*$")
 ENV = {**os.environ, "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
        "LC_ALL": "C", "LANG": "C"}
+# A distro-wide G_MESSAGES_DEBUG setting makes gsettings write diagnostic
+# lines to stdout ahead of the GVariant value, corrupting this machine-readable
+# subprocess boundary (observed on cixmini).
+ENV.pop("G_MESSAGES_DEBUG", None)
 
 
 def configured_sources() -> list[str]:
@@ -119,7 +123,7 @@ def apt_cache_policy_source(package: str) -> str:
     in_block = False
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith(candidate_version):
+        if re.match(r"^(?:\*\*\*\s+)?" + re.escape(candidate_version) + r"\s", stripped):
             in_block = True
             continue
         if in_block:
