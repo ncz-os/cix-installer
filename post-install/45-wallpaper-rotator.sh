@@ -250,28 +250,37 @@ install -m 0755 /dev/stdin /usr/local/bin/ncz-wallpaper-bing <<'BING_EOF'
 #                   pair -- what a BROWSING gallery wants when every market
 #                   is enabled (see cmd_list() for why the plain per-market
 #                   listing is wrong there)
-#   markets         print "<code>\t<Human Name>" per line; prepends the
-#                   "consolidated" pseudo-market when the configured markets
-#                   are the "all" sentinel, so a UI learns from the helper --
-#                   not from re-deriving the config -- that a combined view
-#                   is available
+#   markets         print "<code>\t<Human Name>" per line; always prepends
+#                   the "consolidated" pseudo-market, since fetch always
+#                   covers every market now (see configured_markets()) and
+#                   the combined view is therefore always available
 #   consolidate     rebuild the de-duplicated "consolidated" view (by sha256
 #                   image content, not filename/date) across every cached
-#                   market; fetch does this automatically when the configured
-#                   markets are "all"
+#                   market, visiting the user's preferred market first (see
+#                   preferred_market()) so its copy of any duplicate photo
+#                   wins the tie-break; fetch always does this now, since
+#                   every market is always fetched
 #   pin <mkt> <yyyymmdd> | unpin <mkt> <yyyymmdd>
 set -u
 
 # Markets are real FEED SELECTORS, not translation settings. Verified
 # 2026-08-19: en-US served Palmanova, en-GB/de-DE/zh-CN served Whyte Cliff, and
 # ja-JP/en-AU served a Polish wildlife crossing -- different PHOTOGRAPHS, on the
-# same day. So the user can enable more than one feed at once.
+# same day. Every market is ALWAYS fetched and combined now (see
+# configured_markets()); the config below no longer restricts fetch at all.
 #
-# Config, in priority order:
-#   NCZ_BING_MARKETS="en-US ja-JP"       for testing
-#   ~/.config/ncz-wallpaper/bing-markets newline/comma/space separated markets
+# Config, in priority order -- now read as a PREFERRED-MARKET dedup
+# tie-breaker (preferred_market()), not a fetch filter. "all" (or an absent
+# file) means no preference, and cmd_consolidate() keeps its original
+# alphabetical dedup-winner order:
+#   NCZ_BING_MARKETS="en-US ja-JP"       for testing (first token wins)
+#   ~/.config/ncz-wallpaper/bing-markets newline/comma/space separated; only
+#                                         the first valid market code is used
 #   ~/.config/ncz-wallpaper/bing-market  legacy single-market file
-#   en-US                                default
+#   (none)                                absent file, empty content, or no
+#                                         valid market token -> no
+#                                         preference (None), same as "all" --
+#                                         see preferred_market()
 exec python3 - "$@" <<'PY'
 import datetime
 import hashlib
@@ -353,32 +362,41 @@ def _bing_markets_raw_text():
         text = os.environ.get("NCZ_BING_MARKET", "")
     return text
 
-def is_all_markets_configured():
-    # Same sentinel comparison configured_markets() makes below, split out so
-    # cmd_fetch() can decide whether to auto-rebuild the consolidated view
-    # without re-deriving (and re-filtering) the whole market list.
-    # Consolidation only makes sense when more than one market is actually
-    # being pulled -- a single explicit market has nothing to de-duplicate.
-    return _bing_markets_raw_text().strip().lower() == "all"
-
 def configured_markets():
-    text = _bing_markets_raw_text()
-    # singularity-shell's "All Markets" selector writes the literal
-    # sentinel "all" (write_bing_markets_all(), a single line "all\n") to
-    # ~/.config/ncz-wallpaper/bing-markets. "all" never matches MARKET_RE
-    # (it isn't a 2-letter-dash-2-letter code), so without this check it
-    # was silently dropped by the per-token filter below and this
-    # function fell through to its "no valid tokens" default of just
-    # ["en-US"] -- "All Markets" was fetching/showing only one market.
-    if text.strip().lower() == "all":
-        return list(DEFAULT_MARKETS)
-    markets = []
-    seen = set()
-    for market in split_tokens(text or "en-US"):
-        if MARKET_RE.match(market) and market not in seen:
-            markets.append(market)
-            seen.add(market)
-    return markets or ["en-US"]
+    # Fetch/list scope is now UNCONDITIONAL: every caller gets every market
+    # Bing serves, regardless of what ~/.config/ncz-wallpaper/bing-markets
+    # says. That config value used to mean "restrict fetch to just this
+    # market" -- it now means something different (see preferred_market()
+    # below): which market's copy of a duplicate photo to prefer when
+    # de-duplicating, purely a dedup tie-breaker, never a fetch filter.
+    # (operator 2026-09-12: "just have it be the preferred language, and
+    # have all the feeds be combined" -- the region/market picker in the UI
+    # always means "fetch and combine every market" now.)
+    return list(DEFAULT_MARKETS)
+
+def preferred_market():
+    # Read the SAME config value the region/market picker writes
+    # (~/.config/ncz-wallpaper/bing-markets), reinterpreted as a dedup
+    # tie-breaker preference rather than a fetch restriction.
+    #
+    # Returns:
+    #   None         no preference -- config absent, empty, or the literal
+    #                "all" sentinel (today's neutral/default state, in
+    #                which cmd_consolidate() keeps its original purely
+    #                alphabetical iteration order).
+    #   "en-GB" etc  the first valid market code found in the file. The
+    #                picker only ever writes zero or one market code (see
+    #                singularity-shell's write_bing_markets_codes()); if
+    #                more than one token is somehow present, only the
+    #                first is honoured -- a preference is singular by
+    #                definition, unlike the old fetch-restriction list.
+    text = _bing_markets_raw_text().strip()
+    if not text or text.lower() == "all":
+        return None
+    for market in split_tokens(text):
+        if MARKET_RE.match(market):
+            return market
+    return None
 
 def all_archived_markets():
     if not DATA_ROOT.is_dir():
@@ -590,19 +608,18 @@ def consolidated_entries():
 
 def deduped_archive_entries(markets):
     # cmd_pick()/cmd_latest()/cmd_info() calling archive_entries() directly
-    # when "all" markets are configured gives duplicated photos proportionally
-    # more weight in random.choice() -- a photo Bing served to 5 markets was
-    # 5x likelier to be picked for rotation than a genuinely unique one, since
-    # entries() lists one row per (market, date) pair, not per unique image.
-    # When "all" is configured, read the already-deduplicated consolidate()
-    # manifest instead, so every unique photo gets equal odds. A single/subset
-    # market selection has nothing to de-duplicate, so it keeps using the
-    # plain per-market entries unchanged.
-    if not is_all_markets_configured():
-        return archive_entries(markets)
-    # Drop the source path; pick/latest/info only ever want the four-element
-    # rows archive_entries() produces, and the fallback they share returns
-    # exactly those.
+    # gives duplicated photos proportionally more weight in random.choice()
+    # -- a photo Bing served to 5 markets was 5x likelier to be picked for
+    # rotation than a genuinely unique one, since entries() lists one row
+    # per (market, date) pair, not per unique image. configured_markets()
+    # now always returns every market, so there is always something to
+    # de-duplicate -- read the consolidate() manifest unconditionally
+    # (this used to be gated on the "all" sentinel, back when a single/
+    # subset market selection restricted fetch and had nothing to
+    # de-duplicate). Drop the source path; pick/latest/info only ever want
+    # the four-element rows archive_entries() produces, and the fallback
+    # (consolidate has never run yet against a freshly-fetched cache)
+    # returns exactly those.
     return [row[:4] for row in consolidated_entries()] or archive_entries(markets)
 
 def ensure_thumb(meta):
@@ -625,10 +642,10 @@ def cmd_fetch(_args):
     markets = configured_markets()
     for market in markets:
         total += fetch_market(market)
-    if is_all_markets_configured():
-        # Only worth doing when more than one market is actually being
-        # pulled -- a single explicit market has nothing to de-duplicate.
-        cmd_consolidate([])
+    # configured_markets() always covers every market now, so there is
+    # always more than one to de-duplicate -- this used to be gated on the
+    # "all" sentinel, back when a single/subset selection restricted fetch.
+    cmd_consolidate([])
     return 0 if total or archive_entries(markets) else 1
 
 def cmd_pick(_args):
@@ -737,16 +754,16 @@ def cmd_markets(_args):
     # drifted out of sync with both configured_markets()'s "all" list and
     # singularity-shell's BING_MARKETS_TABLE picker.
     #
-    # When the "all" sentinel is configured, the combined pseudo-market goes
-    # FIRST. That line is how a UI finds out a de-duplicated view is
-    # available: the helper answers from the same is_all_markets_configured()
-    # the rest of this script uses, so a caller never has to re-read and
-    # re-interpret ~/.config/ncz-wallpaper/bing-markets and never has to
-    # decide what an absent file means. (singularity-shell's two halves
-    # disagreed on exactly that: the Bing Markets picker treats an absent
-    # file as "all", this script treats it as en-US only.)
-    if is_all_markets_configured():
-        print(f"{CONSOLIDATED_ID}\t{CONSOLIDATED_NAME}")
+    # The combined pseudo-market now goes FIRST unconditionally: fetch
+    # always covers every market (configured_markets() above), so the
+    # de-duplicated combined view is always available, not just when the
+    # "all" sentinel happens to be configured. That used to be conditional
+    # -- and it was the source of a real cross-language disagreement:
+    # singularity-shell's Bing Markets picker treated an absent config file
+    # as "all" while this script, for FETCH purposes, treated it as en-US
+    # only. Making fetch unconditional (this whole change) removes that
+    # disagreement outright rather than papering over it here.
+    print(f"{CONSOLIDATED_ID}\t{CONSOLIDATED_NAME}")
     for code, name in MARKET_NAMES:
         print(f"{code}\t{name}")
     return 0
@@ -810,6 +827,19 @@ def cmd_consolidate(_args):
 
     seen = {}  # sha256 -> (market, date, image path) of the first-seen copy
     markets = all_archived_markets()
+    # Dedup-winner selection was a pure accident of alphabetical sort order
+    # until now -- never a deliberate choice, never configurable (a photo
+    # shared by de-DE and en-US always credited de-DE, purely because "d" <
+    # "e"). preferred_market() reads the user's chosen region; when set and
+    # actually archived, visit it FIRST so its copy of any given photo wins
+    # the dedup, falling back to alphabetical order for photos the
+    # preferred market doesn't happen to carry. No preference (None, or the
+    # market hasn't been fetched) keeps today's pure-alphabetical order
+    # unchanged -- this only ever reorders the ITERATION, never touches the
+    # sha256-keyed first-wins dedup mechanism itself.
+    preferred = preferred_market()
+    if preferred and preferred in markets:
+        markets = [preferred] + [m for m in markets if m != preferred]
     for market in markets:
         directory = DATA_ROOT / market
         for image in sorted(directory.glob("*.jpg")):
