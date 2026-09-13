@@ -803,7 +803,16 @@ NMETH
   # chain is plausible, and this is the minimal belt-and-suspenders that
   # closes the class regardless of which side regresses. Set unconditionally;
   # a silent chmod here is exactly how a 700 root shipped undetected.
-  chmod 0755 "$WORK/base" || {
+  # 2026-09-13: this call was missing `sudo`, unlike the equivalent hotfix
+  # gate below (line ~914 at the time of this fix). $WORK/base is owned
+  # root:root (it's a chroot rootfs), so a bare `chmod` run as the
+  # unprivileged build user ALWAYS failed with "Operation not permitted" --
+  # meaning this guardrail (added 2026-08-26 specifically to catch a
+  # shipped 0700 root) could never once succeed, and every `base` stage
+  # rebuild since has hard-failed here. Confirmed: base.squashfs / dpkg
+  # dates were stuck at 2026-08-25, predating the gate's introduction --
+  # nobody had rebuilt the base layer since, because this always failed.
+  sudo chmod 0755 "$WORK/base" || {
     log "ERROR: failed to chmod 0755 $WORK/base before mksquashfs — refusing to publish a possibly-unbootable layer"
     exit 1
   }
