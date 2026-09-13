@@ -776,6 +776,11 @@ theme-mode='dark'
 icon-theme='Singularity'
 background-picture-uri='file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg'
 recent-wallpapers=['file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg']
+# Only these explicitly opted-in, system-configured NCZ repositories may
+# populate the Artist Pack browser. The privileged installer independently
+# validates the selected URI against root-owned apt configuration and the
+# package's live candidate.
+artist-pack-apt-sources=['https://packages.buildkite.com/ncz-os/ncz/any', 'https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev']
 # Pin the browsers and a terminal to the dock, grouped. The stock
 # dev.sinty.desktop pinned-apps default lists only the Sinty first-party apps,
 # so a fresh install from this branch had NO browser and NO terminal on the
