@@ -116,6 +116,33 @@ $CREDITS
 
 $CONTRIB_ROYALTY_FREE_NOTE"
         ;;
+    singularity)
+        PKG="ncz-wallpapers-singularity"
+        SRC="$ROOT/assets/branding/wallpaper/contrib/$PACK"
+        ART_SUBPATH="/$PACK"
+        AUTHOR="Singularity Desktop"
+        YEAR="2026"
+        BLURB="The default wallpaper set for the Singularity Desktop Environment"
+        HOMEPAGE="https://github.com/singularityos-lab/singularity-wallpapers"
+        CREDITS="  singularityos-lab/singularity-wallpapers: $HOMEPAGE"
+        LONG=" The official wallpaper set shipped with upstream Singularity Desktop:
+ default, epic, and prospective raster backgrounds plus the aurora, grid,
+ nebula, topology, void, and waves vector backdrops. Sourced directly from
+ the singularity-wallpapers repository upstream ships with the desktop.
+ .
+ Installing this package adds them to the NCZ wallpaper rotation. They are
+ picked up automatically by ncz-wallpaper-rotate; no configuration is needed."
+        COPYRIGHT_BODY=" These images are the official Singularity Desktop wallpaper set, taken
+ unmodified from $HOMEPAGE (subprojects/singularity-wallpapers in the
+ singularity-desktop superproject).
+
+ The artist:
+$CREDITS
+
+ License: GNU General Public License v3.0-only (GPL-3.0-only). See the
+ upstream repository's LICENSE file. Individual artwork may carry its own
+ terms per that repository's own README."
+        ;;
     *)
         echo "ERROR: unknown pack '$PACK' — add its metadata to this script." >&2
         exit 1 ;;
@@ -135,7 +162,7 @@ install -d "$WORK/DEBIAN" \
            "$WORK/usr/share/doc/$PKG"
 
 count=0
-for f in "$SRC"/*.jpg; do
+for f in "$SRC"/*.jpg "$SRC"/*.png "$SRC"/*.svg; do
     [ -f "$f" ] || continue
     # NCZ's own source directory also holds default.jpg and the contrib/
     # subdirectory for OTHER packs -- only the ncz-wallpaper-*.jpg files
@@ -146,7 +173,7 @@ for f in "$SRC"/*.jpg; do
     install -m 0644 "$f" "$ART_DIR/"
     count=$((count + 1))
 done
-[ "$count" -gt 0 ] || { echo "ERROR: no .jpg files in $SRC" >&2; exit 1; }
+[ "$count" -gt 0 ] || { echo "ERROR: no .jpg/.png/.svg files in $SRC" >&2; exit 1; }
 echo "  packaging $count image(s) from $PACK into /usr/share/backgrounds/ncz$ART_SUBPATH"
 
 cat > "$WORK/usr/share/ncz-wallpapers/collections/$PACK.collection" <<COLLECTION
