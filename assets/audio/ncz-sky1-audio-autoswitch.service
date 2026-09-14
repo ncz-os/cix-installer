@@ -2,7 +2,21 @@
 Description=NCZ CIX Sky1 HDMI/DP audio autoswitch
 Documentation=file:/usr/share/doc/ncz-sky1-audio-autoswitch.md
 ConditionPathExists=/proc/asound/cards
-After=pipewire-pulse.service wireplumber.service
+# WantedBy=default.target (below) previously started this for EVERY
+# systemd --user instance, including a bare SSH admin login with no
+# graphical session -- confirmed live on cixmini 2026-09-13: an
+# `ssh jasonperlow@` login spawned a second instance that raced the real
+# desktop user (mini)'s copy for the same ALSA hardware and caused
+# intermittent audio failures. graphical-session.target only becomes
+# reachable via the singularity-session.target bridge that 20-desktop.sh
+# installs (see the "graphical-session.target is systemd-hardened against
+# direct manual start" block there) -- the same mechanism that already
+# gates xdg-desktop-portal-singularity.service to real desktop sessions
+# only (verified live on O6N 2026-08-27: Screenshot/ScreenCast worked once
+# that bridge was in place). Mirroring that proven pattern here rather than
+# inventing a new one.
+PartOf=graphical-session.target
+After=graphical-session.target pipewire-pulse.service wireplumber.service
 Wants=pipewire-pulse.service wireplumber.service
 
 [Service]
@@ -12,4 +26,4 @@ Restart=on-failure
 RestartSec=3
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
