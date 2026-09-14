@@ -1,3 +1,34 @@
+OBSOLETE FOR ANY 7.3+ PORT -- DO NOT CARRY FORWARD.
+
+Confirmed 2026-09-14 against real upstream history: torvalds/linux
+v7.2-rc1 (dc59e4fea9d8) is missing `.num_rqs` in panthor_sched.c's
+`sched_args` designated initializer (matches the bug this patch fixes,
+below); v7.3-rc3 (fd73f4a66) sets `.num_rqs = 1` natively at the
+identical call site (drivers/gpu/drm/panthor/panthor_sched.c, one
+call site both tags). This patch's own commit message already noted
+"Upstream panthor sets .num_rqs = 1 at both sites" -- it exists only
+to bridge our forward-ported 7.2-era tree, which predates that
+struct-based drm_sched_init() field, back to what upstream already
+does. A clean pull of upstream panthor source at v7.3+ needs nothing
+here; re-applying this patch onto that source is a no-op at best.
+
+This patch is NOT part of the DKMS build graph today -- build/
+build-dkms-debs.sh explicitly `rm -rf`'s this whole patches/ directory
+before packaging (see its own "panthor: the whole asset dir minus
+build artifacts and the patches/ dir" comment); the fix is baked
+directly into the checked-in assets/kernel/panthor/panthor_sched.c
+(search `.num_rqs = 1`), which is correct and MUST STAY as long as
+this DKMS package (PACKAGE_VERSION=7.2.0 in dkms.conf) ships against
+7.2.x kernels. This banner exists so a future 7.3-targeting port does
+not re-derive or re-carry a fix that upstream already has.
+
+Kept for its historical/diagnostic value: the panic trace below is the
+exact r245-class incident (entity with out-of-bounds priority:0
+num_user_rqs:0) documented in ~/.claude/rules/kernel-build-checklist.md
+section 1.
+
+------------------------------------------------------------------
+
 From: Jason Perlow <jperlow@gmail.com>
 Subject: [PATCH] drm/panthor: set .num_rqs in drm_sched_init_args
 

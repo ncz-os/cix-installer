@@ -3503,7 +3503,11 @@ group_create_queue(struct panthor_group *group,
 		/* One run-queue: a single entity at priority 0.
 		 * Omitting this leaves the field zero, which makes
 		 * drm_sched_entity_init() reject priority 0 with
-		 * "out-of-bounds priority:0 num_user_rqs:0".
+		 * "out-of-bounds priority:0 num_user_rqs:0". Upstream
+		 * panthor already sets this natively as of v7.3-rc3
+		 * (drivers/gpu/drm/panthor/panthor_sched.c) -- this
+		 * line only bridges our older forward-ported base and
+		 * can be dropped once we pull from upstream directly.
 		 */
 		.num_rqs = 1,
 		.submit_wq = group->ptdev->scheduler->wq,
