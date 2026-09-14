@@ -14,6 +14,16 @@
 #  - dkms-abi-gate takes a headers DIRECTORY, not the tarball.
 set -euo pipefail
 REPO=~/isobuild/cix-installer
+# Where dated release dirs actually get written. Defaults to the historical
+# local location (unchanged behavior). Set NCZ_KERNEL_STAGING_ROOT to a path
+# under the shared ARGONAS yocto-shared export (e.g. /nfs-shared/kernel-staging
+# on TYDEUS, /mnt/argonas-yocto-shared/kernel-staging on ULTRA -- same NFS
+# export, both hosts also expose it at /nfs-shared via a compat symlink so a
+# checked-in edge symlink resolves identically regardless of which host built
+# it) so a kernel built on one host is immediately usable by mkosi/ISO work on
+# another, without a manual copy step.
+STAGING_ROOT="${NCZ_KERNEL_STAGING_ROOT:-$REPO/assets/kernel}"
+mkdir -p "$STAGING_ROOT"
 # Derive the work dir from what was actually built instead of hardcoding a PV.
 # A version bump (7.2+ncz -> 7.2.3+ncz) otherwise silently stages the PREVIOUS
 # build directory, which still exists and still looks valid.
@@ -23,7 +33,7 @@ REV=${BUILD_REV:?set BUILD_REV, e.g. BUILD_REV=r263}
 STAMP=$(date +%Y%m%d)
 KVER=$(ls "$W/image/usr/lib/modules" 2>/dev/null | head -1)
 [ -n "$KVER" ] || { echo "FAIL: cannot determine KVER"; exit 1; }
-DEST=$REPO/assets/kernel/${REV}-${KVER}-${STAMP}
+DEST=$STAGING_ROOT/${REV}-${KVER}-${STAMP}
 # Compare against the previous RELEASE, not against whatever edge currently
 # points at. A re-run of this same REV has already repointed edge at its own
 # dir, so comparing to edge compares the build against ITSELF and the staleness
@@ -38,7 +48,7 @@ case "${PREV:+$(basename "$PREV")}" in
         # substitution and killed the whole script silently right here.
         # || true lets a real "no previous release yet" case leave PREV
         # empty instead of crashing.
-        PREV=$(ls -dt "$REPO"/assets/kernel/*-sky1-ncz-* 2>/dev/null | grep -v "/${REV}-" | head -1 || true)
+        PREV=$(ls -dt "$STAGING_ROOT"/*-sky1-ncz-* 2>/dev/null | grep -v "/${REV}-" | head -1 || true)
         echo "      comparing against the release before it: ${PREV:-<none>}"
         ;;
 esac
@@ -82,7 +92,17 @@ HDRDIR=$DEST/headers-dir
 rm -rf "$HDRDIR" && mkdir -p "$HDRDIR"
 tar -I zstd -xf "$DEST/headers-cixmini.tar.zst" -C "$HDRDIR"
 
-ln -sfn "$(basename "$DEST")" "$REPO/assets/kernel/edge"
+# A relative symlink only works when DEST is a sibling of edge (the old,
+# local-default layout). Once staging moves to the shared root, edge and DEST
+# are in different directories entirely, so it must be absolute there -- but
+# an absolute symlink in the local-default case would tie assets/kernel/edge
+# (a checked-in file) to one machine's home-directory path, breaking on any
+# other clone. Keep the old relative form exactly when nothing opted in.
+if [ "$STAGING_ROOT" = "$REPO/assets/kernel" ]; then
+    ln -sfn "$(basename "$DEST")" "$REPO/assets/kernel/edge"
+else
+    ln -sfn "$DEST" "$REPO/assets/kernel/edge"
+fi
 echo "=== staged:"; ls -la "$DEST" | head -8
 
 echo "=== GATE 1: KVM boot + PCI collision lint"
