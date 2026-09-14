@@ -1519,8 +1519,25 @@ int mvx_v4l2_vidioc_s_parm(struct file *file,
         struct v4l2_captureparm *cparm = &a->parm.capture;
         /* Just do sanity check but not update fps as VPU doesn't support frame rate conversion */
         frameperiod = &a->parm.capture.timeperframe;
-        if (frameperiod->numerator * session->fps_n != frameperiod->denominator * session->fps_d ||
-            frameperiod->numerator == 0 || frameperiod->denominator == 0) {
+        /*
+         * Decode: sanity check only, per the comment above -- session->fps_n/
+         * fps_d is not authoritative here (see mvx_v4l2_vidioc_g_parm(): it's
+         * just a non-zero placeholder, defaulted to 60/1 in
+         * mvx_session_init() and never updated, since only the OUTPUT-port
+         * path below calls mvx_session_set_frame_rate()). A decode client
+         * that only ever calls S_PARM on CAPTURE (e.g. Chromium's V4L2
+         * stateful decoder) therefore always failed the equality check below
+         * against that untouched default -- confirmed live, fired on every
+         * decode session regardless of the bitstream's real rate.
+         *
+         * Encode: the negotiated rate is meaningful, so keep the strict
+         * equality check. u64 casts avoid 32-bit overflow in the cross
+         * multiplication.
+         */
+        if (frameperiod->numerator == 0 || frameperiod->denominator == 0 ||
+            (vsession->ext->is_encoder &&
+             (uint64_t)frameperiod->numerator * session->fps_n !=
+             (uint64_t)frameperiod->denominator * session->fps_d)) {
             MVX_SESSION_WARN(&session,
                 "v4l2: Invalid frame period from client (%d/%d). Return %d/%d",
                 frameperiod->numerator, frameperiod->denominator, session->fps_n, session->fps_d);
