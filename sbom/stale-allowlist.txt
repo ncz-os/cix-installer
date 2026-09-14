@@ -1,0 +1,10 @@
+# Packages deliberately pinned below their mirror's current candidate
+# version. One package name per line, '#' comments and blank lines ignored.
+#
+# Read by build/verify-sbom-against-manifests.py's staleness check
+# (build/preflight-sbom-check.sh's real-tree SBOM section). A package
+# listed here silences ITS OWN staleness warning without silencing the
+# check as a whole -- add an entry only when a version lag is a real,
+# deliberate decision (e.g. a regression in a newer upstream release),
+# and say why in a comment next to the entry so the pin doesn't outlive
+# its own reason.
