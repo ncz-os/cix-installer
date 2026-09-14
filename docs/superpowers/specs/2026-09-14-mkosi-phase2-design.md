@@ -217,15 +217,139 @@ stale silently. Not designed in this pass; flagging the shape of the fix
 confirmed case, generalized only if a second case turns up) rather than
 building a generic repo-wide staleness scanner speculatively.
 
+## Tool split (base=mmdebstrap, delta=mkosi) — GRAEAE-consulted, then directly tested
+
+Operator asked GRAEAE (2026-09-14) whether base and delta should stay on two
+different tools or unify on one. Not unanimous — three-way split across the
+muses:
+
+1. **Keep the split, harden mkosi's isolation** (winning synthesis,
+   openai/gpt-5.6-sol, plus xai/grok-4.3 and eih-deepseek-v4-flash) — pin
+   mkosi's version, add a post-build assertion that fails loudly on
+   missing/stale dpkg state, and get mkosi off the bare host (rootless/
+   user-namespace or a constrained container, validated for real rather than
+   assumed). Fallback if that isolation can't be reached acceptably: drop
+   mkosi from the delta path entirely and build a full role rootfs in the
+   same rootless-mmdebstrap-in-podman model as base, then diff it against
+   base afterward.
+2. **Unify on mmdebstrap for both** (arcee-trinity, eih-glm-5-2,
+   eih-nemotron-3-ultra) — three independent muses, with eih-nemotron-3-ultra
+   giving a concrete command: `mmdebstrap --directory=<existing-tree>
+   --skip=extract/essential,extract/base,setup/apt --include=<pkgs>` claimed
+   to install into an already-populated tree using its real dpkg state.
+3. **Unify on mkosi, containerized** (fireworks, groq) — both `gpt-oss-120b`
+   via different providers, so one independent voice, not two.
+
+Option 2's concrete claim was directly tested on PROTEUS the same night
+rather than taken on trust, since it would eliminate the whole mkosi-for-
+delta question if true:
+
+```
+$ mmdebstrap --arch=arm64 --mode=root \
+    --skip=extract/essential,extract/base,setup/apt --include=curl \
+    forky tree http://deb.debian.org/debian
+E: invalid mirror: tree          # wrong positional-arg order in the muses'
+                                  # own example; corrected to <suite> <target> <mirror>
+E: /home/.../tree is not empty   # target-must-be-empty check, undocumented
+                                  # in the muses' answer -- found the real
+                                  # override via `man mmdebstrap`: --skip=check/empty
+```
+
+Retried with `--skip=...,check/empty` added: mmdebstrap accepted the
+non-empty target, then crashed recreating device nodes that already existed
+in the tree (`mknod: .../dev/console: File exists`) — that step turned out to
+live under the `setup` stage, not `extract/base` as assumed, so it needed
+`--skip=setup` (not a finer-grained flag) to avoid.
+
+With `--skip=setup` added, mmdebstrap reported clean success — **and
+installed nothing**: no `.deb` downloaded to `var/cache/apt/archives`, dpkg's
+package count unchanged (79 before, 79 after), no `curl` binary. Skipping the
+whole `setup` stage also skips the apt config mmdebstrap writes for its own
+bootstrap; apt then ran against no effective sources despite the tree's own
+`/etc/apt/sources.list` existing, and failed silently rather than loudly.
+This is the "looks successful, did nothing real" failure class this whole
+session has been finding all night, now found inside a multi-muse
+recommendation too — a reminder that GRAEAE's confidently-stated technical
+claims still need the same verification as anything else, not an exemption.
+
+The only documented mmdebstrap pattern for "install more packages into an
+existing tree" is materially different from what was proposed: a fresh
+`mmdebstrap --skip=update,setup,cleanup,tar-in/mknod` invocation that
+`tar-in`s a pre-built tarball and only then runs `apt-get install` via a
+customize-hook — not "point mmdebstrap at a live directory and skip
+extraction stages." Making option 2 actually work would mean reverse-
+engineering exactly which of `setup`'s sub-tasks are safe to skip, which
+nothing in this consult (or mmdebstrap's own docs) demonstrates.
+
+**Decision: keep the split.** mmdebstrap for base (clean from-scratch
+bootstrap, already proven safe with zero host mounts), mkosi for delta (the
+one piece of this job that genuinely needs overlay mount semantics — real
+dependency resolution against an already-installed package set, not just a
+directory copy). Option 1's hardening asks are implemented in this same
+commit (see below); option 2 is closed, not deferred, on direct evidence
+rather than the consult's own split verdict.
+
+## Fix #1 (tmpfs guard) and Fix #3 (containerization) — implemented and verified
+
+Both gaps flagged in the earlier architecture review are closed in
+`build/build-role-delta-mkosi.sh`, verified end-to-end on PROTEUS by running
+the actual committed script (not just manual commands) against the real
+mmdebstrap base tarball:
+
+- **Tmpfs guard**: `WORK` now defaults to `/var/tmp/ncz-mkosi-delta-$ROLE`
+  and relocates to `$ROOT/build/.mkosi-delta-work` if that path turns out to
+  be tmpfs-backed, porting forward the exact idiom
+  `build-squashfs-layers.sh` already uses (same `stat -f -c %T` check, same
+  `WORK_EXPLICIT` escape hatch). The design doc previously claimed this was
+  "ported forward" when it was not; it now actually is.
+- **Containerization**: `sudo mkosi --force build` on the bare host is
+  replaced with the same build running inside a throwaway `podman run --rm`
+  container, closing the host-mount-risk gap build-base-rootfs.sh was
+  redesigned to avoid for the same reason (see that script's own header).
+  Empirically found and fixed along the way: `--privileged` alone was NOT
+  enough — the build failed with `OSError: [Errno 22] Invalid argument`
+  mounting mkosi's own workspace overlay, because podman's default
+  overlay-backed container rootfs cannot host a NESTED overlay mount (the
+  kernel's "overlay on overlay" restriction). Fix: bind-mount a real host
+  directory over `/var/tmp` inside the container for mkosi's workspace —
+  this turned out to be the *same* directory the tmpfs guard above already
+  guarantees is a real filesystem, so the two fixes share one mechanism.
+  Once that bind mount was in place, capabilities were narrowed from
+  `--privileged` down to `--cap-add=SYS_ADMIN` plus
+  `--security-opt apparmor=unconfined --security-opt label=disable`, tested
+  working at that narrower grant.
+- **mkosi version pinned**: `MKOSI_PKG_VERSION=27-1` (the exact
+  `debian:forky` apt candidate as of 2026-09-14), per the GRAEAE hardening
+  ask — was previously whatever the container's apt snapshot happened to
+  resolve, unpinned.
+- **dpkg-status hooks**: unchanged mechanism, re-verified working inside the
+  container (same `BUILDROOT`/`OUTPUTDIR` env vars mkosi hook scripts get
+  regardless of bare-host vs. containerized execution) — `curl`'s real
+  `Status: install ok installed` line survives into the final output.
+- **Post-build assertion**: unchanged (`$OUT_DIR/image/var/lib/dpkg/status`
+  existence check) — the output path shape is identical to before
+  (`$OUT_DIR/image/...`), containerization changes how the build runs, not
+  where its output lands, so no change was needed here.
+
 ## What's verified (as of this fork's work)
 
-- mkosi `BaseTrees=`/`Overlay=yes` mechanism exercised at small scale on
-  PROTEUS with a minimal package set (not the real installer-base/desktop
-  manifests) — see commit for exact evidence captured.
-- NOT yet run against the actual multi-thousand-package installer-base +
-  desktop manifests, which is the real proof this can replace the production
-  path (historically ~30 min per full layer rebuild per the existing script's
-  own comments) — that run needs to happen before this replaces
-  build-squashfs-layers.sh in the real ISO pipeline.
-- Cross-arch arm64 confirmed working generically (see the phase-2 spike), not
-  yet re-confirmed specifically inside the BaseTrees+Overlay delta flow.
+- mkosi `BaseTrees=`/`Overlay=yes` mechanism, containerized, with the tmpfs
+  guard and pinned version, exercised on PROTEUS by running the real
+  committed script end-to-end (not manual commands): real `curl` install
+  against the real mmdebstrap base tarball, real dpkg status survival
+  verified by inspecting the output directly.
+- Still a minimal package set (curl + 10 deps), NOT yet run against the
+  actual multi-thousand-package installer-base + desktop manifests, which is
+  the real proof this can replace the production path (historically ~30 min
+  per full layer rebuild per the existing script's own comments) — that run
+  needs to happen before this replaces build-squashfs-layers.sh in the real
+  ISO pipeline.
+- Cross-arch arm64 confirmed working generically (see the phase-2 spike) and
+  now specifically inside the containerized BaseTrees+Overlay delta flow too
+  (the container itself ran on PROTEUS's native x86_64 host building an
+  arm64 tree via the same qemu-user-static/binfmt path already proven).
+- Capability narrowing from `--privileged` to `--cap-add=SYS_ADMIN` was
+  tested exactly once, successfully — worth a second confirmation on a
+  different host before treating it as universally sufficient (AppArmor/
+  SELinux enforcement modes differ across hosts, and this was tested on
+  PROTEUS specifically).
