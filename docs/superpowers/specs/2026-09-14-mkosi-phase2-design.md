@@ -353,3 +353,94 @@ mmdebstrap base tarball:
   different host before treating it as universally sufficient (AppArmor/
   SELinux enforcement modes differ across hosts, and this was tested on
   PROTEUS specifically).
+
+## Real full-scale test against actual Sky1 manifests (2026-09-14, operator-authorized)
+
+Every result above was toy scale (11 packages, curl+deps). This is the real
+proof-gate: the actual `manifests/installer-base.pkgs` (168 lines, 60 real
+entries) and `manifests/desktop.pkgs` (597 lines, 199 real entries) against
+a real mmdebstrap base on PROTEUS. Only the base+delta package-installation
+MECHANISM was tested here -- deliberately NOT spliced into `build_layer()`
+and NOT a full bootable ISO attempt (separate, bigger step, not yet
+authorized).
+
+### Excluded packages, and why (not mechanism failures)
+
+10 of 259 real manifest entries are not installable from this test's plain
+public-Debian setup, all for reasons orthogonal to mmdebstrap/mkosi:
+
+- `linux-image-cixmini`, `cixmini-boot` (base) -- NCZ's own kernel/bootloader
+  debs, normally served via the internal offline mirror or
+  `assets/kernel/edge/` local staging, both absent in a fresh clone. The OLD
+  pipeline (`apt_offline()`) has the identical dependency on that mirror --
+  not a gap introduced by this migration.
+- `ncz-singularity-desktop`, `ncz-ffmpeg`, `chromium-ncz-sky1` (delta) --
+  same class, NCZ-built local .debs.
+- `google-chrome-stable` (delta) -- needs Google's own third-party apt
+  source, not in Debian main, normally added by an install-time hook.
+- `firmware-atheros`, `firmware-iwlwifi`, `firmware-mediatek`,
+  `firmware-brcm80211` (delta) -- **real finding, separate from the
+  mechanism test**: these are Debian package names that have been
+  reorganized in current forky. apt's own error for `firmware-atheros`
+  names the replacement directly: `firmware-ath9k-htc`. This means
+  `desktop.pkgs` itself has drifted against current Debian testing and
+  needs a real content update -- flagged here, not fixed (editing package
+  manifest content is a different kind of change than validating the build
+  mechanism, and out of scope for this pass).
+
+### Base layer: real result
+
+`manifests/installer-base.pkgs`, 58 installable entries, against the real
+mmdebstrap tarball (79 packages baseline, matching earlier toy-scale runs).
+
+    real  2m40.012s
+    79 -> 320 packages (58 top-level + 262 real transitive deps)
+    0 broken/half-installed entries (dpkg -l, full scan)
+    dpkg status Package: count == dpkg -l installed count (320 == 320)
+    spot-checked binaries (gcc, python3.14, sshd, curl, NetworkManager): all real, all present
+
+### Delta layer: real result -- the actual scale-dependent hazard test
+
+`manifests/desktop.pkgs`, 191 installable entries (a full GNOME/GTK4/Wayland
+desktop stack: GIMP, gnome-calculator/-calendar/-characters/-text-editor,
+epiphany, handbrake, pavucontrol, xdg-desktop-portal + backends, polkit,
+bluez, geoclue, ...), against the 320-package base tree, via the
+containerized mkosi build (commit `fb3b2d4`).
+
+    real  5m3.150s
+    output: 3.2G (base alone: 2.1G)
+    dpkg status Package: count in the MERGED delta: 1679 (base's 320 + full desktop resolution)
+    0 / 191 manifest packages missing from the merged dpkg status (exact cross-check, not sampling)
+    spot-checked binaries + real file content (usr/share/gimp = 35M): all real
+    containerized build ran clean under this much heavier load -- no crash, no mount failure, same SYS_ADMIN capability set as the toy test
+
+**This is the answer to the open question this doc already flagged**: "does
+the dpkg-status hook still work when MANY files differ from base, not just
+one?" mkosi's dedup pass DID strip `/var/lib/dpkg/status` and `status-old`
+again at this scale (confirmed in the build log, same as the 11-package
+case) -- and the save/restore hooks held, confirmed by the exact
+cross-check above, not just the script's own post-build assertion passing.
+
+### One real bug found and fixed by this test
+
+mkosi 27-1 flagged `Overlay=yes` as misplaced: `Setting Overlay should be
+configured in [Output], not [Content]`. Non-fatal (the build still worked),
+but a real schema deprecation this test's own scale caught that the toy
+test's shorter log didn't surface as clearly. Fixed: moved `Overlay=` into
+`[Output]` in `build-role-delta-mkosi.sh`, re-verified with a fresh small
+build -- warning gone, output unchanged.
+
+### Verdict
+
+The mmdebstrap+mkosi mechanism holds up at real Sky1 manifest scale, on
+both layers, including the one hazard (dpkg-status dedup) explicitly
+flagged as possibly scale-dependent. The pipeline is ready for the next
+real step -- splicing into `build_layer()` -- pending the operator's
+decision to take that step; this test does not include it.
+
+Still not exercised by this test: `installer-base.pkgs`'/`desktop.pkgs`'
+own NCZ-specific `.deb`s (kernel, chromium-ncz-sky1, ncz-singularity-desktop)
+which need either the internal apt mirror or local `.deb` staging to test
+for real; a full bootable-ISO attempt; and the metacopy-materialization +
+overlay-manifest-generation + mksquashfs steps `build_layer()` still owns
+downstream of this script's output.

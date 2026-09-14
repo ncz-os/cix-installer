@@ -169,11 +169,11 @@ Architecture=$ARCH
 [Output]
 Format=directory
 OutputDirectory=/out
+Overlay=yes
 
 [Content]
 Bootable=no
 BaseTrees=/base
-Overlay=yes
 CleanPackageMetadata=no
 PostInstallationScripts=save-dpkg-status.sh
 PostOutputScripts=restore-dpkg-status.sh
