@@ -234,7 +234,16 @@ driver_available() {
 
 userspace_mali() {
     enable_file "$LD_PRO"
-    enable_file "$LD_COMPAT"
+    # LD_COMPAT (/opt/cixgpu-compat) deliberately STAYS disabled. It ships a
+    # second, older Mesa (cix-mesa 24.0.4 glvnd+libEGL) that collides with the
+    # system Mesa 26 glvnd loader: two loaded copies of libEGL_mesa.so.0 under
+    # the same process corrupt __eglLoadVendors' pthread_once-guarded vendor
+    # list, crashing every labwc/greetd start with SIGSEGV in __libc_free.
+    # post-install/26-gpu-default-mali.sh (build/install time) already made
+    # this call; enabling it here on every mali-mode boot silently undid that
+    # decision on every single boot, which is why the crash kept coming back
+    # after a build that was supposed to have fixed it. libEGL_cix.so.1 (the
+    # blob's real vendor shim) lives in LD_PRO and needs nothing from here.
     enable_file "$ICD_MALI"
     # WSI implicit layer stays disabled: unverified against our blob revision,
     # and VK_DRIVER_FILES already handles ICD discovery explicitly.
