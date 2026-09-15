@@ -8,14 +8,25 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 . "$REPO/release.conf"
 
 SUITE="${SUITE:-$NCZ_BASE_CODENAME}"
-ARCH="${ARCH:-arm64}"
+# 2026-09-15: was hardcoded "arm64" regardless of caller -- an AMD64 build
+# silently pulled arm64 packages into its offline closure. Derive from the
+# same NCZ_TARGET_ARCH every other arch-aware script in this repo reads.
+ARCH="${ARCH:-${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}}"
 MIRROR_URL="${MIRROR_URL:-$NCZ_BASE_MIRROR}"
 COMPONENTS="${COMPONENTS:-$NCZ_BASE_COMPONENTS}"
 OUT="${OUT:-$REPO/build/$SUITE-mirror}"
 VENDOR_MIRROR="${VENDOR_MIRROR:-$REPO/build/$SUITE-vendor-mirror}"
 DEBIAN_KEYRING="${DEBIAN_KEYRING:-/usr/share/keyrings/debian-archive-keyring.gpg}"
-BASE_SEED="$REPO/manifests/installer-base.pkgs"
-DESKTOP_SEED="$REPO/manifests/desktop.pkgs"
+# Same arch-manifest-selection pattern as preflight-sbom-check.sh's
+# manifest_for(): prefer manifests/<name>-$ARCH.pkgs when it exists
+# (installer-base-amd64.pkgs, desktop-amd64.pkgs already do), falling back
+# to the original arm64/default filename -- arm64 behavior unchanged.
+_seed_for() {
+    local arch_file="$REPO/manifests/$1-$ARCH.pkgs"
+    if [ -f "$arch_file" ]; then echo "$arch_file"; else echo "$REPO/manifests/$1.pkgs"; fi
+}
+BASE_SEED="${BASE_SEED:-$(_seed_for installer-base)}"
+DESKTOP_SEED="${DESKTOP_SEED:-$(_seed_for desktop)}"
 
 [ "$SUITE" = "$NCZ_BASE_CODENAME" ] || {
     echo "ERROR: suite '$SUITE' does not match release profile '$NCZ_BASE_CODENAME'" >&2
