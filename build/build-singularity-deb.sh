@@ -77,7 +77,13 @@ cat > "$STAGE/DEBIAN/postinst" <<'POSTINST'
 set -e
 
 if [ "$1" = configure ]; then
-    echo "/opt/singularity/lib" > /etc/ld.so.conf.d/singularity.conf
+    # Some vendored subprojects (labwc's wlroots -> libdisplay-info chain)
+    # install under the GNU multiarch triplet dir instead of flat lib/,
+    # because meson's default libdir isn't propagated through 3 levels of
+    # nested subproject wraps. Cover both, or labwc dlopen-fails on
+    # libdisplay-info.so.5 and greetd crash-loops into a black screen.
+    # Confirmed live 2026-09-15 (external tester "blood", real O6 hardware).
+    printf '%s\n%s\n' "/opt/singularity/lib/aarch64-linux-gnu" "/opt/singularity/lib" > /etc/ld.so.conf.d/singularity.conf
     ldconfig
 
     # Compile the bundled GSettings schemas. Without this the desktop
