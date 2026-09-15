@@ -37,6 +37,23 @@
 # 54-gpu-accel.sh — T2 hardware detection is target-specific, not
 # meaningfully baked into a shared image at chroot-build time).
 # AMD64 only — never wired into the arm64 hook loops.
+#
+# UPDATED 2026-09-15 (operator follow-up): the T2 PCI-bridge check that used
+# to live inline here moved to the shared, unit-testable
+# post-install/lib/hw-detect.sh (`is_t2_hardware` / `t2_hardware_detail`) so
+# it isn't a copy-paste-only fact living in one hook. Detection itself is
+# unchanged (same [106b:1801] signature, verified 2026-09-14 in t2linux's
+# own patch) and now ALSO verified against REAL T2 hardware 2026-09-15
+# (read-only oracle check on MEDUSA, a real MacBookPro16,1 — see
+# hw-detect.sh's header for the exact lspci/DMI output). A DMI fallback was
+# added for when lspci itself is unavailable — this is a strict addition,
+# not a behavior change, since the old code skipped ALL T2 work whenever
+# lspci was missing regardless of real hardware.
+#
+# This hook ALSO now unconditionally logs "T2 hardware: detected/not
+# detected" on every amd64 run (before the headless/server variant check),
+# per operator directive: the diagnostic should be visible in install logs
+# whether or not it ends up mattering for this SKU.
 set +e
 
 if [ "$(dpkg --print-architecture 2>/dev/null)" != "amd64" ]; then
@@ -45,6 +62,17 @@ if [ "$(dpkg --print-architecture 2>/dev/null)" != "amd64" ]; then
 fi
 
 echo "[55] Apple T2 hardware detection + firmware wiring"
+
+HOOK_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
+# shellcheck source=post-install/lib/hw-detect.sh
+. "$HOOK_LIB_DIR/hw-detect.sh"
+
+# --- diagnostic: always logged on amd64, regardless of variant/gating ----
+if is_t2_hardware; then
+    echo "[55] T2 hardware: detected ($(t2_hardware_detail))"
+else
+    echo "[55] T2 hardware: not detected ($(t2_hardware_detail))"
+fi
 
 VARIANT=desktop
 [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ] && \
@@ -56,23 +84,12 @@ case "$VARIANT" in
         ;;
 esac
 
-if ! command -v lspci >/dev/null 2>&1; then
-    echo "[55] WARN: lspci absent (pciutils not staged?) — cannot detect T2 hardware, skipping"
+if ! is_t2_hardware; then
+    echo "[55] not T2 hardware — nothing to wire, skipping firmware install"
     exit 0
 fi
 
-# Apple's real PCI vendor ID (106b) + the T2 coprocessor's own bridge device
-# ID (1801) — the SAME identifier verified tonight (2026-09-14) directly in
-# t2linux's own 9001-ACPI-x86-Apple-T2-systems-need-early-CPU-offlining.patch
-# (`PCI_DEVICE_ID_APPLE_T2_BRIDGE 0x1801`), confirming this is the real,
-# correct hardware signature the T2 kernel patches themselves key off of —
-# not a guessed/invented ID.
-if ! lspci -nn | grep -qi '\[106b:1801\]'; then
-    echo "[55] no Apple T2 PCI bridge (106b:1801) detected — not T2 hardware, nothing to wire"
-    exit 0
-fi
-
-echo "[55] Apple T2 PCI bridge detected — wiring real t2-ubuntu-repo apt source"
+echo "[55] Apple T2 hardware confirmed — wiring real t2-ubuntu-repo apt source"
 
 install -d -m0755 /etc/apt/trusted.gpg.d
 T2_KEYRING=/etc/apt/trusted.gpg.d/t2-ubuntu-repo.gpg
