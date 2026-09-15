@@ -88,6 +88,14 @@ MANIFEST="${2:?manifest path required}"
 BASE_DIR="${3:?base directory required (a plain extracted rootfs tree, not a tarball)}"
 OUT_DIR="${4:?output directory required}"
 ARCH="${5:-arm64}"
+# mkosi's Architecture= uses systemd/uname-style tokens, not dpkg arch names
+# -- "amd64" is rejected outright ("'amd64' is not a valid Architecture").
+# NCZ_TARGET_ARCH/ARCH stay dpkg-style everywhere else in this pipeline
+# (manifest/.deb-glob matching), so translate ONLY for mkosi's own config.
+case "$ARCH" in
+  amd64) MKOSI_ARCH=x86-64 ;;
+  *)     MKOSI_ARCH="$ARCH" ;;
+esac
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ -r "$ROOT/release.conf" ]; then
@@ -301,7 +309,7 @@ cat > "$WORK/conf/mkosi.conf" <<EOF
 [Distribution]
 Distribution=debian
 Release=$NCZ_BASE_CODENAME
-Architecture=$ARCH
+Architecture=$MKOSI_ARCH
 Repositories=${NCZ_BASE_COMPONENTS// /,}
 
 [Output]

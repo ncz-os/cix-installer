@@ -348,11 +348,12 @@ if [ -n "$UPOWER_DEB" ] && ! dpkg-query -W -f='${Status}\n' upower 2>/dev/null |
     echo "[20] using embedded upower deb: $(basename "$UPOWER_DEB")"
     dpkg -i --force-depends "$UPOWER_DEB" || true
 fi
-if [ -d /cdrom/pool/main ]; then
-    SINTY_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1)
-else
-    SINTY_DEB=""
-fi
+SINTY_DEB=""
+for _d in /cdrom/pool/main /usr/local/lib/cix-installer/assets/cix-debs; do
+    [ -d "$_d" ] || continue
+    _c=$(find "$_d" -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1)
+    [ -n "$_c" ] && SINTY_DEB="$_c"
+done
 if [ -n "$SINTY_DEB" ]; then
     echo "[20] using embedded payload deb: $(basename "$SINTY_DEB")"
     dpkg -i "$SINTY_DEB"

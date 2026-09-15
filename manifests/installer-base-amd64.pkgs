@@ -46,7 +46,7 @@ testdisk
 # --- boot management ---
 efibootmgr
 grub-efi-amd64
-grub-pc-bios
+grub-pc-bin
 # grub-efi-amd64 REPLACES the Sky1 line's implicit rEFInd-only assumption.
 # AMD64 boots GRUB, not rEFInd — see docs/AMD64-PACKAGE-AUDIT.md and the
 # operator's dual-kernel-GRUB-selection decision (MNEMOS mem_1789429924427).

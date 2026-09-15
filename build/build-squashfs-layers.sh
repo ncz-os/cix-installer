@@ -89,14 +89,24 @@ else
   exit 1
 fi
 NCZ_BASE_CODENAME="${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
-BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64.tar.zst}"
+# amd64 support added 2026-09-15 for the AMD64 pipeline (PROTEUS/CERBERUS) --
+# mirrors the NCZ_TARGET_ARCH pattern already used by build-iso-di.sh/
+# build-baked-rootfs.sh. Defaults to the host's own arch so existing arm64
+# callers (ULTRA) are unaffected.
+NCZ_TARGET_ARCH="${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}"
+case "$NCZ_TARGET_ARCH" in
+  arm64) HOST_NATIVE_ARCH=aarch64; QEMU_BIN=qemu-aarch64-static ;;
+  amd64) HOST_NATIVE_ARCH=x86_64;  QEMU_BIN=qemu-x86-64-static ;;
+  *) echo "ERROR: unsupported NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH (expected arm64 or amd64)" >&2; exit 1 ;;
+esac
+BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-$NCZ_TARGET_ARCH.tar.zst}"
 APT_SUITE="${APT_SUITE:-$NCZ_BASE_CODENAME}"
 APT_COMPONENTS="${APT_COMPONENTS:-main}"
 # Both the Debian closure and our own packages (kernel, Chromium, Singularity)
 # must be reachable offline, or disabling the remote sources above would make
 # the NCZ packages unresolvable.
 MIRROR_DIRS="${MIRROR_DIRS:-$NCZ_BASE_CODENAME-mirror $NCZ_BASE_CODENAME-vendor-mirror}"
-QEMU="/usr/bin/qemu-aarch64-static"
+QEMU="/usr/bin/$QEMU_BIN"
 STAGE="${1:-base}"                            # base | desktop | server | all
 
 log(){ echo "[sqfs $(date -u +%H:%M:%S)] $*"; }
@@ -186,20 +196,30 @@ assert_rootfs_critical_owners(){
   done
   if [ "$bad" -ne 0 ]; then
     log "ERROR: refusing to chroot into a rootfs with user-owned system paths"
-    log "       Rebuild the base layer from assets/rootfs/rootfs-$APT_SUITE-arm64.tar.zst"
+    log "       Rebuild the base layer from assets/rootfs/rootfs-$APT_SUITE-$NCZ_TARGET_ARCH.tar.zst"
     log "       before rebuilding role deltas."
     return 1
   fi
 }
-# NATIVE arm64 (e.g. bigpi) needs no qemu-user; x86 (ARGOS) does.
-NATIVE=0; [ "$(uname -m)" = "aarch64" ] && NATIVE=1
-[ "$NATIVE" = 1 ] || { [ -x "$QEMU" ] || { echo "no qemu-aarch64-static (x86 host needs it)"; exit 1; }; }
+# NATIVE: host arch matches the TARGET arch (e.g. arm64-target on ULTRA/bigpi,
+# or amd64-target on PROTEUS/CERBERUS) needs no qemu-user; a genuine
+# cross-arch host does.
+NATIVE=0; [ "$(uname -m)" = "$HOST_NATIVE_ARCH" ] && NATIVE=1
+[ "$NATIVE" = 1 ] || { [ -x "$QEMU" ] || { echo "no $QEMU_BIN (cross-arch host needs it)"; exit 1; }; }
 log "arch=$(uname -m) native=$NATIVE ROOT=$ROOT WORK=$WORK OUT=$OUT"
 mkdir -p "$OUT" "$WORK"
 
 # machine-AGNOSTIC hooks safe to bake into base (NOT desktop-config)
-BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 19-sinty-nm"
-BASE_MANIFEST="${BASE_MANIFEST:-manifests/installer-base.pkgs}"
+case "$NCZ_TARGET_ARCH" in
+  amd64) BASE_HOOKS="10-amd64-kernel 19-sinty-nm" ;;
+  *)     BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 19-sinty-nm" ;;
+esac
+case "$NCZ_TARGET_ARCH" in
+  amd64) BASE_MANIFEST="${BASE_MANIFEST:-manifests/installer-base-amd64.pkgs}"
+         DESKTOP_MANIFEST="${DESKTOP_MANIFEST:-manifests/desktop-amd64.pkgs}" ;;
+  *)     BASE_MANIFEST="${BASE_MANIFEST:-manifests/installer-base.pkgs}"
+         DESKTOP_MANIFEST="${DESKTOP_MANIFEST:-manifests/desktop.pkgs}" ;;
+esac
 
 manifest_pkgs(){
   local manifest="$1"
@@ -345,7 +365,7 @@ build_layer(){ local role="$1" manifest="$2"
   # mksquashfs) is UNCHANGED from before -- those steps operate on $U's
   # content, not on how it was produced.
   MIRROR_DIRS="$MIRROR_DIRS" APT_SUITE="$APT_SUITE" APT_COMPONENTS="$APT_COMPONENTS" \
-    "$ROOT/build/build-role-delta-mkosi.sh" "$role" "$ROOT/$manifest" "$L" "$MKOUT" || {
+    "$ROOT/build/build-role-delta-mkosi.sh" "$role" "$ROOT/$manifest" "$L" "$MKOUT" "$NCZ_TARGET_ARCH" || {
     log "ERROR: $role mkosi delta build failed; refusing to publish an incomplete layer"
     sudo rm -rf "$L" "$MKOUT"
     return 1
@@ -475,6 +495,19 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/nvidia/." "$MG/usr/local/lib/cix-installer/assets/nvidia/" 2>/dev/null || true
       log "  staged nvidia cuda-keyring asset ($(find "$ROOT/assets/nvidia" -type f | wc -l | tr -d ' ') files)"
     fi
+    # AMD64 has no Buildkite-published ncz-singularity-desktop package yet
+    # (arm64's real production path -- see the apt_offline()/offline-mirror
+    # comment above), so stage the locally-built .deb the same way
+    # 10-our-kernel.sh already stages kernel debs for the no-mirror case, and
+    # let 20-desktop.sh's existing embedded-deb check (mirrors its
+    # /cdrom/pool/main pattern) find it here too. This is a staging path,
+    # not a new mechanism -- assets/cix-debs/*.deb is gitignored and
+    # build-host-local by the project's own convention (see .gitignore).
+    if [ -n "$(ls -1 "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*_"$NCZ_TARGET_ARCH".deb 2>/dev/null)" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/cix-debs"
+      sudo cp -a "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*_"$NCZ_TARGET_ARCH".deb "$MG/usr/local/lib/cix-installer/assets/cix-debs/" 2>/dev/null || true
+      log "  staged ncz-singularity-desktop deb (no Buildkite package yet for $NCZ_TARGET_ARCH)"
+    fi
     # Google Chrome installs from the profile-matched offline mirror. No
     # separate asset staging is needed here.
     # 26.7 (updated 2026-07-26): the Singularity Desktop payload is NO LONGER
@@ -503,7 +536,7 @@ build_layer(){ local role="$1" manifest="$2"
     _sing_candidates=""
     for _mirror in $MIRROR_DIRS; do
       _found=$(find "$ROOT/build/$_mirror/pool" -type f \
-        -name 'ncz-singularity-desktop_*_arm64.deb' 2>/dev/null || true)
+        -name "ncz-singularity-desktop_*_${NCZ_TARGET_ARCH}.deb" 2>/dev/null || true)
       [ -n "$_found" ] && _sing_candidates="$_sing_candidates
 $_found"
     done
@@ -624,7 +657,7 @@ for directory, names, files in os.walk(upper):
 PYMETACOPY
   apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
   # clean transient from the UPPER delta only (keep dpkg status/alternatives copy-ups)
-  sudo rm -rf "$U/var/lib/apt/lists/"* "$U/var/cache/apt/"* "$U/tmp/"* "$U/usr/bin/qemu-aarch64-static" 2>/dev/null || true
+  sudo rm -rf "$U/var/lib/apt/lists/"* "$U/var/cache/apt/"* "$U/tmp/"* "$U/usr/bin/$QEMU_BIN" 2>/dev/null || true
   # Preserve the overlay semantics in a sidecar consumed by the installer.
   # A raw upperdir contains both char-device 0:0 whiteouts and opaque directory
   # xattrs; ordinary unsquashfs understands neither when merging into a base.
@@ -927,7 +960,7 @@ NMETH
   sudo ln -sf /etc/machine-id "$WORK/base/var/lib/dbus/machine-id" 2>/dev/null || true
   sudo rm -f "$WORK/base"/etc/ssh/ssh_host_* "$WORK/base/var/lib/systemd/random-seed" 2>/dev/null || true
   # cleanup
-  sudo rm -f "$WORK/base/usr/sbin/policy-rc.d" "$WORK/base/usr/bin/qemu-aarch64-static"
+  sudo rm -f "$WORK/base/usr/sbin/policy-rc.d" "$WORK/base/usr/bin/$QEMU_BIN"
   sudo chroot "$WORK/base" apt-get clean 2>/dev/null || true
   sudo rm -rf "$WORK/base/var/lib/apt/lists/"* "$WORK/base/tmp/"* 2>/dev/null || true
   apt_unmount "$WORK/base"; umount_chroot "$WORK/base"
@@ -1126,11 +1159,11 @@ HOTFIX_MANIFEST
 
 case "$STAGE" in
   base)    build_base ;;
-  desktop) build_layer desktop manifests/desktop.pkgs ;;
+  desktop) build_layer desktop "$DESKTOP_MANIFEST" ;;
   hotfix)  build_hotfix ;;
   server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
            echo "       Boot the console entry (multi-user.target) instead." >&2
            exit 1 ;;
-  all)     build_base; build_layer desktop manifests/desktop.pkgs; build_hotfix ;;
+  all)     build_base; build_layer desktop "$DESKTOP_MANIFEST"; build_hotfix ;;
   *) echo "usage: $0 base|desktop|hotfix|server|all"; exit 2 ;;
 esac
