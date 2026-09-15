@@ -2522,6 +2522,17 @@ esac
 # .disk/udeb_include: tells d-i to use our network-console udeb etc.
 echo "    .disk/info:    $(cat "$STAGING/.disk/info")"
 
+# 2026-09-15: Steps 2+3 (below, through the amber-phosphor palette patch)
+# replace the D-I INSTALLER ENVIRONMENT'S OWN boot kernel with our Sky1
+# edge kernel -- necessary on real Sky1 hardware (Radxa Orion O6/O6N,
+# MS-R1), where the stock arm64 d-i kernel has no working UART/ACPI/GPU
+# video console for that board, so the installer itself can't even boot
+# without our patched kernel. AMD64 has no such need: the stock forky
+# netinst's own vmlinuz+initrd already boot correctly on generic PC
+# hardware, and swapping in an ARM64 kernel binary would make the
+# installer itself unbootable on the x86_64 hardware it's meant to
+# install onto. Skip Steps 2+3 entirely for non-arm64.
+if [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
 # ----------------------------------------------------------------------
 # Step 2 — replace ${INSTALL_DIR}/vmlinuz with our Sky1 installer kernel
 # ----------------------------------------------------------------------
@@ -2691,6 +2702,9 @@ echo "    overlay cpio: $(du -h "$OVERLAY_GZ" | cut -f1)"
 # (which is the load-bearing path; binary patch was a fallback for older
 # libnewt versions). User-visible effect: install dialogs use libnewt's
 # default red/blue/grey on trixie d-i instead of amber phosphor. Cosmetic.
+else
+    echo "[2+3] skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH -- stock d-i kernel/initrd already boot correctly, no Sky1 kernel swap needed)"
+fi
 if [ "$DI_CODENAME" != "bookworm" ]; then
     echo "[3.5] SKIP amber-phosphor binary patch on $DI_CODENAME (NEWT_COLORS env-var still applied below)"
     SKIP_NEWT_BINARY_PATCH=1
