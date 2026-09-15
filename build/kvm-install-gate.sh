@@ -330,6 +330,7 @@ timeout "$INSTALL_TIMEOUT" qemu-system-aarch64 \
   -device qemu-xhci,id=xhci \
   -device usb-storage,bus=xhci.0,drive=usbstick \
   -netdev user,id=n0 -device virtio-net-pci,netdev=n0,romfile= \
+  -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
   -serial "file:$S0" -serial "file:$S1" -serial "file:$S2" \
   -display none -no-reboot \
   > "$ILOG" 2>&1
@@ -375,6 +376,7 @@ timeout "$BOOT_TIMEOUT" qemu-system-aarch64 \
   -device nvme,drive=hd,serial=ncztest01 \
   -device virtio-gpu-pci \
   -netdev user,id=n0 -device virtio-net-pci,netdev=n0,romfile= \
+  -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
   -serial "file:$WORK/boot-serial0.log" -serial "file:$WORK/boot-serial1.log" \
   -serial "file:$WORK/boot-serial2.log" \
   -display none -no-reboot \
