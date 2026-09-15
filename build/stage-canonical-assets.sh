@@ -487,6 +487,31 @@ else
 fi
 
 # ----------------------------------------------------------------------
+# 4. mali + panthor DKMS .debs -- give apt an update path for the two
+#    accelerators that were never dpkg-tracked (build/build-dkms-debs.sh's
+#    own header comment: "apt cannot upgrade a package it does not know
+#    about"). vpu/npu already ship a real staged .deb via 3b above (from the
+#    vendor SDK); mali/panthor are NCZ's own DKMS source under
+#    assets/kernel/{mali,panthor}/ and had no equivalent until tonight.
+# ----------------------------------------------------------------------
+log "[4/4] mali+panthor DKMS .debs: building from assets/kernel/{mali,panthor}/"
+if [ -x "$REPO/build/build-dkms-debs.sh" ]; then
+    if bash "$REPO/build/build-dkms-debs.sh" mali panthor 2>&1 | sed 's/^/    /'; then
+        for d in "$REPO/build/dkms-debs"/cix-gpu-kmd-dkms_*.deb "$REPO/build/dkms-debs"/panthor-cix-dkms_*.deb; do
+            [ -e "$d" ] || continue
+            cp -an "$d" "$ASSETS/cix-debs/" && log "  staged $(basename "$d")"
+        done
+        reached=$((reached+1))
+    else
+        warn "build-dkms-debs.sh mali panthor failed -- mali/panthor stay dpkg-blind this build"
+        missing=$((missing+1))
+    fi
+else
+    warn "build/build-dkms-debs.sh not found or not executable"
+    missing=$((missing+1))
+fi
+
+# ----------------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------------
 log ""
