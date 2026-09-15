@@ -964,9 +964,24 @@ NMETH
   # ncz-amd64-desktop.img despite an empty machine-id) -- force key generation
   # unconditionally as a drop-in, ssh-keygen -A is idempotent and skips keys
   # that already exist so this is safe even when the first-boot path DOES fire.
+  #
+  # r2 (2026-09-15, same night): the first version of this drop-in did NOT
+  # work -- confirmed via a real interactive serial-console login on a
+  # rebuilt+re-tested image. `systemctl cat ssh.service` showed the merged
+  # unit runs the BASE fragment's `ExecStartPre=/usr/sbin/sshd -t` FIRST,
+  # then appends this drop-in's `ExecStartPre=/usr/bin/ssh-keygen -A` AFTER
+  # it -- a systemd drop-in's ExecStartPre= lines are APPENDED to the list,
+  # never reordered ahead of the base unit's own. So `sshd -t` ran first,
+  # failed immediately with "sshd: no hostkeys available -- exiting." (no
+  # keys exist yet), and the unit hit start-limit-hit before ssh-keygen ever
+  # got a chance to run. The empty `ExecStartPre=` line below clears the
+  # inherited list (including the base fragment's `sshd -t`) so this drop-in
+  # can redeclare both steps in the correct order.
   sudo mkdir -p "$WORK/base/etc/systemd/system/ssh.service.d"
   printf '[Service]
+ExecStartPre=
 ExecStartPre=/usr/bin/ssh-keygen -A
+ExecStartPre=/usr/sbin/sshd -t
 ' | sudo tee "$WORK/base/etc/systemd/system/ssh.service.d/10-ensure-hostkeys.conf" >/dev/null
   # cleanup
   sudo rm -f "$WORK/base/usr/sbin/policy-rc.d" "$WORK/base/usr/bin/$QEMU_BIN"
