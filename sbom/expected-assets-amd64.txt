@@ -1,0 +1,14 @@
+# SBOM/SPDX-style expected gitignored build assets -- AMD64/forky line.
+# Format: path|size|sha256
+# Real hashes computed 2026-09-15 from staged build-host assets (PROTEUS/CERBERUS).
+# No Sky1-only entries here (no cix-debs, no sky1-firmware, no NPU ACPI
+# override, no arm64 kernel) -- see sbom/expected-assets.txt for the
+# arm64/Sky1 manifest, which this file intentionally does not replace.
+assets/squashfs/base.squashfs|1643380736|d162a677999b1f910cd5372b16d7193b7fd7ba1d1a02a1486944cb4249ce720e
+assets/squashfs/desktop.squashfs|1651449856|9498bd9903607fd407b19b0648f9ff51d245dc8e901f371bd3b2a88778abdb10
+assets/kernel/amd64-stable/linux-image-7.2.6-1-t2-trixie_7.2.6-1_amd64.deb|176485604|e8668fbb8504fd1d6574ed95b9919dcbade9d6638ede060265cbe3d08a1158a5
+assets/kernel/amd64-stable/linux-headers-7.2.6-1-t2-trixie_7.2.6-1_amd64.deb|10665188|8e83e49020a4d6f01b5ab576cfc716fc7054c14ec1619237e4c60684a200b6ea
+assets/kernel/amd64-edge/linux-image-7.3.0-rc3-ncz-amd64-edge_7.3.0~rc3-1_amd64.deb|117559052|cf954dda1cd216dba9d30aa009af9c89626bd20e7e5e8fb8db943e8f54d002de
+assets/kernel/amd64-edge/linux-headers-7.3.0-rc3-ncz-amd64-edge_7.3.0~rc3-1_amd64.deb|10959424|3d0a1248026953e9387324ce918843861658a8b3757e10e5c9a37770d5aa9df9
+assets/rescue/rescue-rootfs-amd64.tar.zst|224165456|7c77d0f5c361d3292738906039e25555cdbfb2c390b06c3c442e487794e68a42
+assets/nvidia/cuda-keyring_1.1-1_all.deb|4182|d0d4ef986a44400f9db33c600ef33a985175e7cc63d805a10e1839c7a1e78f5f
