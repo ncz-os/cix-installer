@@ -66,7 +66,7 @@ menuentry '$title' {
     insmod ext2
     search --no-floppy --fs-uuid --set=root $ROOT_UUID
     echo 'Loading Linux $kver ...'
-    linux /boot/vmlinuz-$kver root=UUID=$ROOT_UUID rw quiet
+    linux /boot/vmlinuz-$kver root=UUID=$ROOT_UUID rw quiet console=tty0 console=ttyS0,115200n8
     echo 'Loading initial ramdisk ...'
     initrd /boot/initrd.img-$kver
 }
