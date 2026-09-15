@@ -192,47 +192,89 @@ needs to become a staged-asset pattern too (matching NVIDIA and everything
 else in this repo's offline-closure design) is a real open question, not
 resolved in this pass — flagged as follow-on below.
 
-## Install-time hardware detection — T2 firmware: still design-only
+## Install-time hardware detection — T2 firmware: DONE (follow-up pass)
 
-T2 detection uses the same `lspci -nn` mechanism (the T2 coprocessor is
-itself a PCI device, `PCI_DEVICE_ID_APPLE_T2_BRIDGE = 0x1801`, confirmed via
-the kernel patch series) — could piggyback on the same scan `54-gpu-accel.sh`
-already does. **Not implemented this pass** — real follow-on work.
+Implemented in `post-install/55-t2-firmware.sh`, same real-vendor-repo
+posture as `54-gpu-accel.sh`/`53-chrome.sh`. T2 detection uses the same
+`lspci -nn` mechanism the GPU hook uses — the T2 coprocessor is itself a PCI
+device, `[106b:1801]` (Apple vendor ID + `PCI_DEVICE_ID_APPLE_T2_BRIDGE`),
+confirmed directly in t2linux's own kernel patch (not guessed). The
+**real, corrected source** is `AdityaGarg8/t2-ubuntu-repo`, NOT
+`AdityaGarg8/Apple-Firmware` as an earlier pass cited — that repo does not
+exist (confirmed 404 via GitHub API; the earlier WebSearch citation was
+wrong). `t2-ubuntu-repo` is a real, verified apt repository (KEY.gpg and
+t2.list both confirmed HTTP 200 with real content) with explicit Debian 13
+(trixie) support. Only `apple-firmware-script` (provides `get-apple-firmware`)
+and `apple-t2-audio-config` are installed — the repo's kernel-driver
+packages (`apple-bce`, `applesmc-t2`, etc.) are deliberately NOT installed,
+per the repo's own documented warning that they conflict with a
+`linux-t2`-class kernel, which is exactly what our own v7.2.6+T2 build is.
 
-## What's actually done vs. follow-on (honest accounting)
+**Real caveat, not glossed over**: `get-apple-firmware` fetches actual macOS
+firmware packages from Apple's CDN based on detected Mac model at real
+install time — this has NOT been tested against real T2 hardware in this
+pass (no T2 machine was available). Verify on MEDUSA once it's repurposed as
+the T2 boot-validation target.
 
-**Done, this pass:**
-- 3 real manifest files (`installer-base-amd64.pkgs`, `desktop-amd64.pkgs`,
-  `rescue-amd64.pkgs`), every package classified with real reasoning.
-- This doc.
-- Real verification (not guessing): t2linux patch hardware-gating (already
-  done in an earlier pass tonight, cross-referenced here), GPU/accelerator
-  package names against a live Debian trixie host, Vivaldi/Chrome hook
-  behavior read from the actual scripts, the orphaned arch-fix commit found
-  via real git history search.
+## What's actually done vs. follow-on (honest accounting) — UPDATED after "fix all" pass
 
-**Follow-on work, explicitly not attempted this pass:**
-1. Merge/cherry-pick commit `39058bc5` (singularity-deb arch-derive fix)
-   before any real AMD64 `ncz-singularity-desktop` build is attempted (the
-   manifest currently comments the package out for exactly this reason).
-2. Build an AMD64 ffmpeg-hwaccel equivalent (VAAPI/NVENC) for
-   ncz-ffmpeg-Sky1-parity — starts from stock ffmpeg, not a port of either
-   existing Sky1 VPU integration.
-3. Generalize `post-install/52-vivaldi.sh`'s hardcoded arm64 glob + stage a
-   real Vivaldi amd64 `.deb`.
-4. Implement the T2-detection half of the hardware-detection hook (the GPU
-   half is done, see `post-install/54-gpu-accel.sh` above — T2 can reuse the
-   same `lspci -nn` scan already in that script, checking for
-   `PCI_DEVICE_ID_APPLE_T2_BRIDGE = 0x1801`, to conditionally pull in the
-   `apple-firmware` package cited in finding #6).
-5. Resolve the ARGOS-vs-PROTEUS/CERBERUS build-host divergence from
+**Done in this follow-up pass** (all 6 items from the original follow-on
+list below were addressed; see commit for this pass):
+
+1. **Merged the orphaned commit `39058bc5`** directly into
+   `build/build-singularity-deb.sh` (applied cleanly despite 7 weeks of
+   drift, verified via `git apply --check` before applying) — `ncz-singularity-desktop`
+   can now build correctly for amd64.
+2. **Ffmpeg hwaccel — reassessed, not a straight port.** Real finding:
+   Sky1's `ncz-ffmpeg` patch fixes a bug specific to Debian ffmpeg's V4L2
+   multi-planar fourcc handling — unrelated to VAAPI/NVENC codec paths.
+   Debian's stock `ffmpeg` package already ships VAAPI support compiled in,
+   so **Intel/AMD hwaccel needs no custom build at all**. NVIDIA is
+   different: Debian's ffmpeg excludes NVENC for licensing reasons
+   (nonfree), so a custom `--enable-nonfree --enable-nvenc` build is
+   genuinely still needed for NVIDIA — but this is a much narrower task
+   than Sky1's patch (no plane-layout work) and a full from-source compile
+   + hardware test is bigger than this pass's scope (no NVIDIA hardware
+   available to verify against in this fork; CERBERUS has a real RTX 4500
+   ADA — test there when attempting this). **Still follow-on, but rescoped**:
+   only NVIDIA needs a custom `ncz-ffmpeg-amd64-nvenc`-class package; VAAPI
+   needs nothing beyond the stock `ffmpeg` package already in the manifest.
+3. **`post-install/52-vivaldi.sh`'s glob is now arch-aware** (same
+   `NCZ_TARGET_ARCH`/`BUILD_ARCH`/`dpkg --print-architecture` pattern as
+   `post-install/21-flatpak-arch-filter.sh`). Staging a real Vivaldi amd64
+   `.deb` into `assets/vivaldi/` itself is still a separate, real follow-on
+   (Vivaldi does publish a real amd64 `.deb` — just not fetched in this
+   pass).
+4. **T2 firmware hook implemented** — see section above.
+5. **NVIDIA's `cuda-keyring_1.1-1_all.deb` staged** at `assets/nvidia/`
+   (real file, 4182 bytes, downloaded and verified via `file`) and wired
+   into `build/build-squashfs-layers.sh`'s asset-staging block, same
+   pattern as the Vivaldi/branding/wallpaper staging blocks.
+6. **Hook ordering — confirmed AND a real bug found+fixed.**
+   `post-install/run-all.sh` runs hooks in numeric-sort order, and
+   `10-our-kernel.sh` (kernel + headers) is in the REQUIRED phase, which
+   always runs before any numbered hook above it — so DKMS ordering for
+   `54`/`55` was never actually at risk. But a **real, separate bug** was
+   found in the same file: `54-gpu-accel.sh` was missing from
+   `MACHINE_HOOKS_RE`, meaning it would be **silently excluded and never
+   run** on a baked-image install (`NCZ_BAKED=1`) — the exact orphan-hook
+   bug class this same file's own comments describe for
+   `12-sky1-firmware`/`33-network`. Fixed by adding both `54-gpu-accel` and
+   `55-t2-firmware` to `MACHINE_HOOKS_RE` and `_SKIP_DESKTOP_RE`.
+
+**Follow-on work, still not attempted:**
+1. Actually stage a real Vivaldi amd64 `.deb` (the hook code is fixed, the
+   binary asset isn't fetched yet).
+2. Build the NVIDIA NVENC ffmpeg variant (rescoped smaller per above, but
+   still a real from-source build + hardware test on CERBERUS).
+3. Resolve the ARGOS-vs-PROTEUS/CERBERUS build-host divergence from
    `docs/BUILD-HOSTS.md`'s original amd64 plan (not this audit's scope).
-6. **BLOCKING, not polish**: `installer-base-amd64.pkgs`'s "NCZ kernel
-   channels" section currently has NO real kernel package names at all
-   (comments only) — an image built from this manifest as-is cannot boot.
-   Fill in the real package names once either in-flight AMD64 kernel build
-   (v7.2.6+T2 on PROTEUS, v7.3-rc3 edge on CERBERUS) lands as a packaged
-   `.deb`.
+4. **Still BLOCKING**: `installer-base-amd64.pkgs`'s "NCZ kernel channels"
+   section has no real kernel package names yet — fill in once either
+   in-flight AMD64 kernel build (v7.2.6+T2 on PROTEUS, v7.3-rc3 edge on
+   CERBERUS) lands as a packaged `.deb`.
+5. Verify `get-apple-firmware` against real T2 hardware (MEDUSA) — untested
+   in this pass, no T2 machine available.
 7. Stage the NVIDIA `cuda-keyring` `.deb` under `assets/nvidia/` to match
    this repo's offline-closure design, rather than leaving it as a
    build-time gap in `54-gpu-accel.sh`. Decide whether AMD's/Intel's
