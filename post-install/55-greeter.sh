@@ -205,4 +205,37 @@ if getent passwd _greetd >/dev/null 2>&1; then
     echo "[55] _greetd account expiry cleared: $(getent shadow _greetd 2>/dev/null || grep '^_greetd' /etc/shadow)"
 fi
 
+
+# --- pam_systemd must be ACTIVE in common-session, or the greeter can NEVER
+#     get an XDG_RUNTIME_DIR ------------------------------------------------
+# libpam-systemd ships in this image (it's a normal apt dependency of greetd/
+# systemd-logind usage), but the package being INSTALLED does not mean its PAM
+# profile is ENABLED — /usr/share/pam-configs/systemd only gets spliced into
+# /etc/pam.d/common-session via pam-auth-update, and nothing in this pipeline
+# was ever calling it. Without that line, systemd-logind never creates
+# /run/user/<uid> for the _greetd session, XDG_RUNTIME_DIR stays unset, and
+# labwc refuses to start:
+#
+#   [ERROR] [../src/main.c:262] XDG_RUNTIME_DIR is unset
+#   error: check_children: greeter exited without creating a session
+#   greetd.service: Failed with result 'start-limit-hit'
+#
+# Same failure SHAPE as the _greetd account-expiry bug above (a PAM session
+# gap -> silent crash-loop -> black screen with the display stack otherwise
+# fully up) — confirmed live on O6N hardware 2026-09-15, root-caused via
+# journalctl -b -u greetd + an empty /run/user/. --package enables just the
+# profile(s) shipped by installed packages (systemd's), non-interactively;
+# --force re-applies even if pam-auth-update thinks nothing changed, which
+# matters here because a base image built once with the bug already recorded
+# a (wrong) nothing to do state in its own PAM config state file.
+if command -v pam-auth-update >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive pam-auth-update --package --force         || echo '[55] WARN: pam-auth-update failed — greeter will XDG_RUNTIME_DIR-crash-loop'
+    if grep -q pam_systemd.so /etc/pam.d/common-session 2>/dev/null; then
+        echo '[55] pam_systemd active in common-session (XDG_RUNTIME_DIR will be set for _greetd)'
+    else
+        echo '[55] WARN: pam_systemd still absent from common-session after pam-auth-update — greeter WILL black-screen'
+    fi
+else
+    echo '[55] WARN: pam-auth-update not present — cannot verify/enable pam_systemd, greeter may black-screen'
+fi
 echo "[55] greetd + native singularity-greeter wired: /etc/greetd/{config.toml,singularity-labwc/}, NCZ logo + Maximilian backdrop, _greetd log dir"
