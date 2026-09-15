@@ -959,6 +959,15 @@ NMETH
   sudo rm -f "$WORK/base/var/lib/dbus/machine-id" 2>/dev/null || true
   sudo ln -sf /etc/machine-id "$WORK/base/var/lib/dbus/machine-id" 2>/dev/null || true
   sudo rm -f "$WORK/base"/etc/ssh/ssh_host_* "$WORK/base/var/lib/systemd/random-seed" 2>/dev/null || true
+  # sshd-keygen.service ConditionFirstBoot=yes is fragile on a pre-built image
+  # (measured 2026-09-15: ssh.service FAILED 4x on a real qemu boot test of
+  # ncz-amd64-desktop.img despite an empty machine-id) -- force key generation
+  # unconditionally as a drop-in, ssh-keygen -A is idempotent and skips keys
+  # that already exist so this is safe even when the first-boot path DOES fire.
+  sudo mkdir -p "$WORK/base/etc/systemd/system/ssh.service.d"
+  printf '[Service]
+ExecStartPre=/usr/bin/ssh-keygen -A
+' | sudo tee "$WORK/base/etc/systemd/system/ssh.service.d/10-ensure-hostkeys.conf" >/dev/null
   # cleanup
   sudo rm -f "$WORK/base/usr/sbin/policy-rc.d" "$WORK/base/usr/bin/$QEMU_BIN"
   sudo chroot "$WORK/base" apt-get clean 2>/dev/null || true
