@@ -564,7 +564,11 @@ fi
 # Singularity isolated env (singularity libs must precede GPU libs).
 export PATH="/opt/singularity/bin:$PATH"
 export XDG_DATA_DIRS="/opt/singularity/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-export LD_LIBRARY_PATH="/opt/singularity/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Some vendored subprojects (e.g. labwc's wlroots->libdisplay-info chain)
+# install under the GNU multiarch triplet dir instead of flat lib/, because
+# meson's default libdir resolution isn't propagated through 3 levels of
+# nested subproject wraps. Cover both so nothing silently fails to dlopen.
+export LD_LIBRARY_PATH="/opt/singularity/lib/aarch64-linux-gnu:/opt/singularity/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # greetd starts the selected command from a TTY PAM context.  Set the complete
 # graphical-session identity before labwc starts so D-Bus-activated user
 # services (notably Tracker/LocalSearch) do not fail their
@@ -639,7 +643,9 @@ export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=labwc
 export PATH="/opt/singularity/bin:$PATH"
 export GSETTINGS_SCHEMA_DIR=/opt/singularity/share/glib-2.0/schemas
 export XDG_DATA_DIRS="/opt/singularity/share:/usr/local/share:/usr/share"
-export LD_LIBRARY_PATH="/opt/singularity/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# See ncz-singularity's matching comment: some vendored subprojects (labwc's
+# wlroots->libdisplay-info chain) install under the multiarch triplet dir.
+export LD_LIBRARY_PATH="/opt/singularity/lib/aarch64-linux-gnu:/opt/singularity/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # _greetd cannot mkdir under /var/log at runtime; 55-greeter pre-creates the dir
 # (tmpfiles), but fall back to XDG_RUNTIME_DIR so the exec redirect never fails
 # (a failed redirect makes the wrapper exit before exec -> "greeter exited without
