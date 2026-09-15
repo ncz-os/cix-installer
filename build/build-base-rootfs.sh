@@ -6,6 +6,17 @@
 # this script's only job is the plain base, nothing NCZ-specific baked in
 # (no hostname, no rescue services, no branding).
 #
+# BUILD HOST (operator directive, 2026-09-14): this pipeline builds Sky1
+# arm64 images and runs on ULTRA (192.168.207.88, native aarch64 Fedora
+# Asahi) -- NOT PROTEUS. PROTEUS is x86_64 and is reserved for a future
+# amd64 variant of this pipeline. Building arm64 on PROTEUS works (podman
+# + qemu-user-static/binfmt cross-arch emulation) and was used for the
+# initial integration proof (this branch, commits through d9b51fb and the
+# build_layer() wiring commit), but emulation is measurably slower than
+# native arm64 and should not be the standing path. Run arm64 builds/
+# verification on ULTRA going forward; reach for PROTEUS again only when
+# the amd64 variant is the thing being built.
+#
 # METHOD
 #   Uses `podman` + `mmdebstrap --mode=root` inside a debian:<codename>
 #   container. mmdebstrap is a single Perl script that bootstraps an
