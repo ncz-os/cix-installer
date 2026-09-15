@@ -159,3 +159,11 @@ build/gst-cix-out/
 # commit a copy of /usr/sbin/debootstrap into the repo)
 build/tools/
 assets/kernel/*/headers-dir/
+
+# AMD64 kernel .deb payloads -- same large-binary/build-host-local
+# convention as assets/cix-debs/*.deb and assets/wallpaper-debs/*.deb.
+# KVER sidecars stay tracked; the .debs themselves do not.
+assets/kernel/amd64-stable/*.deb
+assets/kernel/amd64-edge/*.deb
+build/.sqfs-work/
+build/sinty-out/

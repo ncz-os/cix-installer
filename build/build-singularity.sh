@@ -440,9 +440,25 @@ tar -czf /out/singularity-opt.tgz opt/singularity
 echo "STAGED $(du -h /out/singularity-opt.tgz | cut -f1)"
 '
 
-echo "== running build in $IMAGE ($CE) =="
+# Pin the container platform explicitly. Without this, a locally-cached
+# image under the SAME tag but a DIFFERENT architecture (e.g. pulled earlier
+# in a session doing arm64 work) is reused as-is by both docker and podman --
+# no re-resolve, no warning -- and the whole build silently runs under qemu
+# emulation for the wrong target. Caught 2026-09-15 building this natively
+# on amd64 PROTEUS: "debian:forky" was still cached from an arm64 pipeline
+# run earlier the same session, so uname -m inside the container reported
+# aarch64 despite the host being amd64, and apt pulled arm64 packages the
+# whole way through with no visible error.
+case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
+    amd64|x86_64) NCZ_CONTAINER_PLATFORM=linux/amd64 ;;
+    arm64|aarch64) NCZ_CONTAINER_PLATFORM=linux/arm64 ;;
+    *) NCZ_CONTAINER_PLATFORM="" ;;
+esac
+
+echo "== running build in $IMAGE ($CE)${NCZ_CONTAINER_PLATFORM:+ platform=$NCZ_CONTAINER_PLATFORM} =="
 CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
          -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV")
+[ -n "$NCZ_CONTAINER_PLATFORM" ] && CE_ARGS+=(--platform "$NCZ_CONTAINER_PLATFORM")
 # On an SELinux-enforcing host the bind mount is unwritable from inside the
 # container, and the build only discovers it at the very END -- every subproject
 # compiles and installs to /work/stage, then the final tar dies with
