@@ -1,0 +1,109 @@
+# installer-base-amd64.pkgs — always-on core toolset, AMD64 variant.
+#
+# Derived from manifests/installer-base.pkgs (Sky1/arm64). Every package
+# there is arch-portable EXCEPT the three called out below — see
+# docs/AMD64-PACKAGE-AUDIT.md for the full accounting. Consume the same way:
+# grep -vE '^\s*(#|$)'.
+
+# --- initramfs builder --------------------------------------------------
+dracut
+dracut-core
+
+# --- DKMS accelerator rebuilds ----------------------------------------------
+# gcc-aarch64-linux-gnu DROPPED — that was the arm64 cross-compiler target
+# for Mali's gpu.mk invoking aarch64-linux-gnu-gcc explicitly. AMD64 has no
+# equivalent CIX accelerator DKMS stack (there is no CIX GPU/NPU/VPU on this
+# architecture at all — see docs/AMD64-PACKAGE-AUDIT.md "dropped" bucket).
+# Native `gcc` below is sufficient for any AMD64-native DKMS module.
+dkms
+build-essential
+gcc
+make
+flex
+bison
+bc
+libelf-dev
+libselinux-dev
+
+# --- disk / partition identify -------------------------------------------
+util-linux
+parted
+gdisk
+nvme-cli
+smartmontools
+
+# --- hardware identify ---
+pciutils
+usbutils
+dmidecode
+lshw
+
+# --- filesystems + recovery ---
+btrfs-progs
+e2fsprogs
+testdisk
+
+# --- boot management ---
+efibootmgr
+grub-efi-amd64
+grub-pc-bios
+# grub-efi-amd64 REPLACES the Sky1 line's implicit rEFInd-only assumption.
+# AMD64 boots GRUB, not rEFInd — see docs/AMD64-PACKAGE-AUDIT.md and the
+# operator's dual-kernel-GRUB-selection decision (MNEMOS mem_1789429924427).
+# grub-pc-bios is kept too for legacy-BIOS install targets (real AMD64
+# hardware still includes non-UEFI-only machines; Sky1 has no such concern).
+
+# --- network / diag ---
+dbus
+dbus-broker
+iwd
+wireguard-tools
+network-manager
+netplan.io
+iproute2
+net-tools
+iputils-ping
+ethtool
+tcpdump
+mtr-tiny
+curl
+wget
+rsync
+firmware-realtek
+firmware-linux-free
+firmware-misc-nonfree
+
+# --- operator quality-of-life ---
+htop
+tmux
+vim
+mc
+tree
+jq
+lsof
+
+# --- remote access ---
+openssh-server
+inetutils-telnetd
+openbsd-inetd
+busybox-static
+
+# --- zstd (same Debian-vs-Ubuntu gap as the Sky1 manifest documents) ------
+zstd
+
+# --- NCZ kernel channels — AMD64 line -------------------------------------
+# linux-image-cixmini / cixmini-boot DROPPED — Sky1-only kernel package
+# names. AMD64 real package names are TBD pending the two AMD64 kernel
+# builds currently in progress (v7.2.6+T2 unified stable on PROTEUS, v7.3-rc3
+# edge on CERBERUS) actually landing as packaged .debs — see
+# docs/AMD64-PACKAGE-AUDIT.md. Placeholder names, confirm against the real
+# built package names once available:
+#   linux-image-amd64-ncz-t2      (stable, unified T2+regular)
+#   linux-image-amd64-ncz-edge    (edge)
+
+# --- locales ---------------------------------------------------------------
+locales
+
+# --- console font ---
+console-setup
+kbd
