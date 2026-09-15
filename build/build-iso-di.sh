@@ -829,21 +829,34 @@ if [ -z "${MIRROR_DIR:-}" ]; then
     MIRROR_DIR="$ROOT/build/${ISO_APT_SUITE}-mirror"
 fi
 if [ "$EMBED_MIRROR" = "1" ]; then
+    # 2026-09-15: verify-local-package-versions.sh's own default DEB_DIRS
+    # is build/kernel-debs (arm64 only, no override passed here) -- on
+    # AMD64 that check always compares arm64 .debs against an amd64 pool
+    # and always fails, even though AMD64's kernel packages never go
+    # through this offline-apt-closure mechanism at all (they're dpkg -i'd
+    # directly from assets/kernel/amd64-{stable,edge}/ by
+    # post-install/10-amd64-kernel.sh). Only run it for arm64, where the
+    # comparison is actually meaningful.
     if [ ! -d "$MIRROR_DIR/pool" ] || [ ! -d "$MIRROR_DIR/dists" ] || \
-       ! bash "$ROOT/build/verify-local-package-versions.sh" \
+       { [ "$NCZ_TARGET_ARCH" = "arm64" ] && \
+         ! bash "$ROOT/build/verify-local-package-versions.sh" \
             --pool "$MIRROR_DIR/pool" \
             --label "$(basename "$MIRROR_DIR")" \
-            "${LOCAL_VERSION_ARGS[@]}" || \
+            "${LOCAL_VERSION_ARGS[@]}"; } || \
        ! bash "$ROOT/build/verify-offline-mirror-seeds.sh" \
             --mirror "$MIRROR_DIR" \
             --label "$(basename "$MIRROR_DIR")"; then
         echo "    offline mirror missing or stale after vendor publish; rebuilding $MIRROR_DIR"
         rm -rf "$MIRROR_DIR"
         bash "$ROOT/build/build-forky-mirror.sh"
-        bash "$ROOT/build/verify-local-package-versions.sh" \
-            --pool "$MIRROR_DIR/pool" \
-            --label "$(basename "$MIRROR_DIR")" \
-            "${LOCAL_VERSION_ARGS[@]}"
+        if [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
+            bash "$ROOT/build/verify-local-package-versions.sh" \
+                --pool "$MIRROR_DIR/pool" \
+                --label "$(basename "$MIRROR_DIR")" \
+                "${LOCAL_VERSION_ARGS[@]}"
+        else
+            echo "    verify-local-package-versions: skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH has no local packages in this closure)"
+        fi
         bash "$ROOT/build/verify-offline-mirror-seeds.sh" \
             --mirror "$MIRROR_DIR" \
             --label "$(basename "$MIRROR_DIR")"
@@ -2395,10 +2408,14 @@ if [ "$EMBED_MIRROR" = "1" ]; then
         fi
         rm -rf "$NCZ_PRUNE_DIR"
     fi
-    bash "$ROOT/build/verify-local-package-versions.sh" \
-        --pool "$STAGING/pool" \
-        --label "staged ISO pool" \
-        "${LOCAL_VERSION_ARGS[@]}"
+    if [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
+        bash "$ROOT/build/verify-local-package-versions.sh" \
+            --pool "$STAGING/pool" \
+            --label "staged ISO pool" \
+            "${LOCAL_VERSION_ARGS[@]}"
+    else
+        echo "    verify-local-package-versions: skipped for staged ISO pool (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH has no local packages in this closure)"
+    fi
     echo "    regenerating regular deb Packages index from the staged offline pool"
     mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH"
     (
