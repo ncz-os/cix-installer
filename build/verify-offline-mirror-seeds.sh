@@ -47,8 +47,16 @@ TMP="$(mktemp -d)"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
+# 2026-09-15: was hardcoded to the arm64 manifest filenames regardless of
+# ARCH -- same manifest_for()-style arch fallback as
+# preflight-sbom-check.sh/build-forky-mirror.sh: prefer manifests/<name>-
+# $ARCH.pkgs when present, fall back to the original filename otherwise.
+_seed_manifest_for() {
+    local arch_file="$ROOT/manifests/$1-$ARCH.pkgs"
+    if [ -f "$arch_file" ]; then echo "$arch_file"; else echo "$ROOT/manifests/$1.pkgs"; fi
+}
 {
-    for manifest in "$ROOT/manifests/installer-base.pkgs" "$ROOT/manifests/desktop.pkgs"; do
+    for manifest in "$(_seed_manifest_for installer-base)" "$(_seed_manifest_for desktop)"; do
         [ -s "$manifest" ] || { echo "ERROR: missing manifest: $manifest" >&2; exit 1; }
         sed 's/#.*//' "$manifest" | awk 'NF {print $1}'
     done
