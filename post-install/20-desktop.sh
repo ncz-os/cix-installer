@@ -694,6 +694,32 @@ if command -v swayidle >/dev/null 2>&1 && [ -x /usr/local/bin/ncz-idle-manager ]
         exec /usr/local/bin/ncz-idle-manager
     ) &
 fi
+# graphical-session.target (2026-09-15): nothing in this script ever pushed
+# the session's environment into the systemd --user manager, or told it a
+# graphical session had actually started. systemd --user starts in a bare
+# environment (it does NOT inherit this script's `export`s just because a
+# child process set them) -- so graphical-session.target, and everything in
+# graphical-session.target.wants/ (ncz-sky1-audio-autoswitch.service among
+# them), sat permanently dormant on every real login. Confirmed live on O6N:
+# ALSA hardware itself was fine (`speaker-test -D hw:0,1` played a real
+# tone), but `systemctl --user status graphical-session.target` was
+# `inactive (dead)`, so PipeWire/WirePlumber only ever exposed the dummy
+# `auto_null` sink -- zero journal entries for audio-autoswitch, meaning it
+# never even attempted to start.
+#
+# Backgrounded + gated on the Wayland socket existing, same reasoning and
+# same wait-loop shape as the idle-manager block above: systemd --user needs
+# a LIVE WAYLAND_DISPLAY value to import, which does not exist until labwc
+# (the exec target below) has actually started.
+(
+    _wd="${WAYLAND_DISPLAY:-wayland-0}"
+    _rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    _i=0
+    while [ ! -S "$_rt/$_wd" ] && [ $_i -lt 100 ]; do sleep 0.2; _i=$((_i+1)); done
+    export WAYLAND_DISPLAY="$_wd"
+    systemctl --user import-environment WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_SESSION_CLASS XDG_SESSION_DESKTOP XDG_CURRENT_DESKTOP 2>&1
+    systemctl --user start graphical-session.target 2>&1
+) &
 exec /opt/singularity/bin/singularity-labwc-session
 SINGLAUNCH
 chmod 0755 /usr/local/bin/ncz-singularity
