@@ -389,6 +389,18 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/vivaldi/." "$MG/usr/local/lib/cix-installer/assets/vivaldi/" 2>/dev/null || true
       log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
     fi
+    # Stage NVIDIA's real cuda-keyring .deb so 54-gpu-accel.sh (AMD64) can
+    # wire the official CUDA apt repo without a build-time network fetch --
+    # small (~4KB) signing-key installer, committed directly rather than
+    # gitignored like the large binary staging dirs above. AMD/Intel don't
+    # need pre-staging: their signing keys are fetched at real INSTALL time
+    # (54-gpu-accel.sh already handles that with its own validation), only
+    # NVIDIA ships its key as an installable .deb rather than a bare key URL.
+    if [ -d "$ROOT/assets/nvidia" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/nvidia"
+      sudo cp -a "$ROOT/assets/nvidia/." "$MG/usr/local/lib/cix-installer/assets/nvidia/" 2>/dev/null || true
+      log "  staged nvidia cuda-keyring asset ($(find "$ROOT/assets/nvidia" -type f | wc -l | tr -d ' ') files)"
+    fi
     # Google Chrome installs from the profile-matched offline mirror. No
     # separate asset staging is needed here.
     # 26.7 (updated 2026-07-26): the Singularity Desktop payload is NO LONGER
