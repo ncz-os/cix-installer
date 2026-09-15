@@ -251,11 +251,36 @@ apt_offline(){ local c="$1"
     sudo mv "$f" "$f.disabled-for-build"
     log "  apt: disabled $(basename "$f") for the build"
   done
+  local _mirror_found=0
   for m in $MIRROR_DIRS; do
     [ -d "$ROOT/build/$m/dists/$APT_SUITE" ] || continue
+    _mirror_found=1
     sudo mkdir -p "$c/mnt/$m"; sudo mount -o bind "$ROOT/build/$m" "$c/mnt/$m"
     echo "deb [trusted=yes] file:///mnt/$m $APT_SUITE $APT_COMPONENTS" | sudo tee -a "$c$NCZ_OFFLINE_SRC" >/dev/null
   done
+  # No local mirror on this host: apt_offline() previously left the chroot
+  # with ZERO apt sources in this case (every pre-existing one disabled
+  # above, nothing re-added), which is fine for the reproducibility
+  # contract but meant 20-desktop.sh's own apt-get install inside this
+  # merged chroot always failed here -- confirmed 2026-09-14, hit for real
+  # wiring build_layer()'s full production path on a host with no populated
+  # mirror. Same graceful non-reproducible live-network fallback already
+  # established in build_base() and build-role-delta-mkosi.sh: wire the
+  # real NCZ sources + a real Debian archive source, loudly labeled
+  # non-pinned, rather than leaving apt with nothing to install from at all.
+  if [ "$_mirror_found" = 0 ]; then
+    log "  apt_offline: no mirror for $APT_SUITE -- wiring live NCZ + base sources (non-reproducible fallback, matches build_base())"
+    sudo install -d "$c/etc/apt/keyrings"
+    if [ -f "$ROOT/post-install/buildkite-ncz-apt-keyring.asc" ] &&        gpg --dearmor < "$ROOT/post-install/buildkite-ncz-apt-keyring.asc" | sudo tee "$c/etc/apt/keyrings/buildkite-ncz-apt-keyring.gpg" >/dev/null 2>&1; then
+      echo "deb [signed-by=/etc/apt/keyrings/buildkite-ncz-apt-keyring.gpg] https://packages.buildkite.com/ncz-os/ncz/any/ any main" |         sudo tee "$c/etc/apt/sources.list.d/ncz-os-apt-buildkite-live.list" >/dev/null
+    fi
+    if [ -f "$ROOT/post-install/ncz-os-apt-keyring.asc" ] &&        gpg --dearmor < "$ROOT/post-install/ncz-os-apt-keyring.asc" | sudo tee "$c/etc/apt/keyrings/ncz-os-apt-keyring.gpg" >/dev/null 2>&1; then
+      echo "deb [signed-by=/etc/apt/keyrings/ncz-os-apt-keyring.gpg] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main" |         sudo tee "$c/etc/apt/sources.list.d/ncz-os-apt-r2-live.list" >/dev/null
+    fi
+    echo "deb $NCZ_BASE_MIRROR $NCZ_BASE_CODENAME $NCZ_BASE_COMPONENTS" |       sudo tee "$c/etc/apt/sources.list.d/ncz-base-live.list" >/dev/null
+    sudo chroot "$c" apt-get update -y 2>&1 | tail -8 || true
+    return 0
+  fi
   # A remote source here means the closure is no longer pinned. Fail rather
   # than silently building against a moving archive.
   # Scope the check to files apt ACTUALLY reads (*.list, *.sources). Scanning
@@ -272,6 +297,14 @@ apt_unmount(){ local c="$1"
   # Build-time only: never ship a file:// source pointing at a bind mount
   # that does not exist on the installed system.
   sudo rm -f "$c$NCZ_OFFLINE_SRC" 2>/dev/null || true
+  # Same build-time-only rule for apt_offline()'s no-mirror live fallback
+  # (Codex review finding, 2026-09-14): these are never meant to survive
+  # into the shipped image -- restoring the disabled-for-build originals
+  # just below would otherwise leave BOTH the restored originals AND these
+  # live copies active, a duplicate/inconsistent apt configuration.
+  sudo rm -f "$c/etc/apt/sources.list.d/ncz-os-apt-buildkite-live.list" \
+             "$c/etc/apt/sources.list.d/ncz-os-apt-r2-live.list" \
+             "$c/etc/apt/sources.list.d/ncz-base-live.list" 2>/dev/null || true
   # Restore the sources we moved aside, so the installed system keeps its own
   # apt configuration. Leaving them disabled would ship an image that cannot
   # update itself.
@@ -288,18 +321,37 @@ build_layer(){ local role="$1" manifest="$2"
   [ -f "$OUT/base.squashfs" ] || { echo "base.squashfs missing — build base first"; exit 1; }
   [ -f "$ROOT/$manifest" ] || { echo "manifest $manifest missing"; exit 1; }
   local L="$WORK/$role-lower" U="$WORK/$role-up" WK="$WORK/$role-wk" MG="$WORK/$role-mg"
+  local MKOUT="$WORK/$role-mkosi-out"
   # A killed prior build may leave bind mounts below MG. Unmount children first;
   # removing the tree while a mirror or /dev is still mounted risks deleting or
   # modifying the host-side source through that live mount.
   apt_unmount "$MG"; umount_chroot "$MG"
   sudo umount -lf "$MG" 2>/dev/null || true
-  sudo rm -rf "$L" "$U" "$WK" "$MG"
+  sudo rm -rf "$L" "$U" "$WK" "$MG" "$MKOUT"
   log "$role: unsquash base as lowerdir"
   sudo unsquashfs -f -d "$L" "$OUT/base.squashfs" >/dev/null 2>&1
   # The destination directory itself is not part of the squashfs payload.
   # Force ownership so maintainer scripts see a normal root-owned filesystem.
   sudo chown root:root "$L"
   assert_rootfs_critical_owners "$L" "$role lowerdir"
+  # 2026-09-14: package installation for this layer is now produced by
+  # build-role-delta-mkosi.sh (containerized mkosi, BaseTrees=$L +
+  # Overlay=yes) instead of a hand-rolled mount+chroot+apt-get here -- see
+  # that script's header for why (host-mount safety, the dpkg-status dedup
+  # hazard its hooks close, the offline-mirror single-source contract it now
+  # also enforces). It replaces ONLY package installation: the upperdir it
+  # hands back becomes $U below, and everything after this point (the
+  # brand-hook loop, metacopy materialization, overlay-manifest generation,
+  # mksquashfs) is UNCHANGED from before -- those steps operate on $U's
+  # content, not on how it was produced.
+  MIRROR_DIRS="$MIRROR_DIRS" APT_SUITE="$APT_SUITE" APT_COMPONENTS="$APT_COMPONENTS" \
+    "$ROOT/build/build-role-delta-mkosi.sh" "$role" "$ROOT/$manifest" "$L" "$MKOUT" || {
+    log "ERROR: $role mkosi delta build failed; refusing to publish an incomplete layer"
+    sudo rm -rf "$L" "$MKOUT"
+    return 1
+  }
+  sudo mv "$MKOUT/image" "$U"
+  sudo rm -rf "$MKOUT"
   # sudo: $WORK is root-owned as soon as any earlier stage has run under sudo,
   # so an unprivileged mkdir here fails with "mkdir: Permission denied" and
   # set -e aborts the build four seconds in, having logged nothing but the
@@ -309,9 +361,44 @@ build_layer(){ local role="$1" manifest="$2"
   # Overlay presents the upper/mount root as the chroot root. None of the
   # backing directories may retain invoking-user ownership or systemd's
   # maintainer scripts reject `/` as an unsafe path.
-  sudo chown root:root "$U" "$WK" "$MG"
+  sudo chown -R root:root "$U"
+  sudo chown root:root "$WK" "$MG"
+  # SECOND overlay mount, deliberately separate from mkosi's own internal one:
+  # the brand-hook loop below chroots into a MERGED base+delta view to install
+  # further packages (vivaldi, chrome, Artist Pack debs) and run installer
+  # hooks -- $U alone (mkosi's static output) has no base binaries in it and
+  # cannot be chrooted into on its own. See build-role-delta-mkosi.sh's
+  # "Integration" section for the full reasoning.
   sudo mount -t overlay overlay -o "lowerdir=$L,upperdir=$U,workdir=$WK" "$MG"
-  mount_chroot "$MG"; apt_offline "$MG"
+  mount_chroot "$MG"
+  # mkosi's Overlay=yes dedup pass strips /etc/ld.so.cache as a "duplicate
+  # path" during the delta build (same hazard class as the dpkg-status
+  # dedup issue the save/restore hooks in build-role-delta-mkosi.sh close --
+  # confirmed 2026-09-14 wiring the real production path: labwc's runtime-
+  # closure check failed on libdisplay-info.so.5 even though the .so file
+  # AND /etc/ld.so.conf.d/singularity.conf were both genuinely present in
+  # the delta's upperdir -- the merged chroot was just reading base's STALE
+  # cache, built before singularity.conf existed). Rebuilding here (rather
+  # than stashing/restoring the cache file like dpkg-status) is simpler and
+  # can't go stale: it reflects whatever ld.so.conf.d files are actually in
+  # the merged view at this exact point, base + delta combined.
+  # WORKAROUND for a real packaging defect, not a pipeline bug: the
+  # ncz-singularity-desktop .deb ships /etc/ld.so.conf.d/singularity.conf
+  # listing only /opt/singularity/lib, but its own libraries (e.g.
+  # libdisplay-info.so.5, confirmed 2026-09-14) actually live one level
+  # deeper at /opt/singularity/lib/aarch64-linux-gnu -- ldconfig does NOT
+  # recurse into subdirectories listed in ld.so.conf.d, so that path was
+  # never in the cache regardless of how many times ldconfig ran. The
+  # correct fix is the package's own conf file (build/build-singularity-deb.sh),
+  # not here -- this just unblocks the test ISO in the meantime. Remove once
+  # a corrected ncz-singularity-desktop package ships the right path itself.
+  echo "/opt/singularity/lib/aarch64-linux-gnu" | sudo tee "$MG/etc/ld.so.conf.d/zz-singularity-multiarch-workaround.conf" >/dev/null
+  sudo chroot "$MG" ldconfig
+  # apt_offline still runs here: mkosi already installed the manifest's
+  # top-level package set above, but the brand-hook loop's OWN apt/dpkg calls
+  # (52-vivaldi, 53-chrome, 45-wallpaper-rotator staging Artist Pack debs)
+  # need the same pinned offline source to resolve against.
+  apt_offline "$MG"
   echo -e '#!/bin/sh\nexit 101' | sudo tee "$MG/usr/sbin/policy-rc.d" >/dev/null; sudo chmod +x "$MG/usr/sbin/policy-rc.d"
   # r190.2: disable needrestart kernel hints -- same fix already applied in
   # build-baked-rootfs.sh and build-iso-di.sh, but never here. Without it,
@@ -322,19 +409,6 @@ build_layer(){ local role="$1" manifest="$2"
   # until manually killed).
   sudo mkdir -p "$MG/etc/needrestart/conf.d"
   printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$MG/etc/needrestart/conf.d/99-squashfs-layer.conf" >/dev/null
-  # r190.1: strip inline trailing comments too, not just whole-line ones --
-  # a `pkg  # comment` line used to be passed to apt-get install VERBATIM
-  # (comment text included), which corrupted the whole batch install and
-  # silently dropped unrelated packages (librsvg2-bin, in the 2026-07-05
-  # incident this fixes -- see project_cix_buildkite_mirror_2026_07_05).
-  local pkgs; pkgs=$(manifest_pkgs "$ROOT/$manifest")
-  log "$role: apt-install $(echo $pkgs|wc -w) top-level packages (complete set + closure)"
-  if ! sudo chroot "$MG" env DEBIAN_FRONTEND=noninteractive \
-      apt-get install -y --no-install-recommends $pkgs 2>&1 | tail -6; then
-    log "ERROR: $role package installation failed; refusing to publish an incomplete layer"
-    apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
-    return 1
-  fi
   if [ "$role" = "desktop" ]; then
     log "desktop: SINGULARITY desktop delta (Wayland-only; XFCE/X11 removed) + brand"
     # 26.7 "Maximilian": Singularity Desktop (labwc/wlroots, GTK4) REPLACES XFCE.
@@ -669,7 +743,27 @@ build_base(){
   # The base layer now consumes installer-base.pkgs explicitly.  If a pinned
   # offline mirror is present, use it; otherwise fall back to the rootfs' own
   # sources for local developer experiments.
-  if mirror_available; then apt_offline "$WORK/base"; else log "no mirror for $APT_SUITE -> using base sources"; fi
+  if mirror_available; then
+    apt_offline "$WORK/base"
+  else
+    # 24-apt-sources.sh's own header says it must wire NCZ's apt source(s)
+    # EARLY, before ANY hook that installs packages -- but nothing actually
+    # ran it before the manifest-driven install below until now. Stage just
+    # enough of the hook tree to run it here, before $_base_pkgs (which
+    # includes NCZ-custom packages like linux-image-cixmini/cixmini-boot,
+    # not just ordinary Debian ones). The full hook tree gets re-staged
+    # again further down for the BASE_HOOKS loop -- that re-copy is
+    # idempotent and harmless, it's just not early enough on its own.
+    log "no mirror for $APT_SUITE -> wiring NCZ + base apt sources early (24-apt-sources)"
+    sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer"
+    sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
+    sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
+    if ! sudo chroot "$WORK/base" bash -c 'cd /usr/local/lib/cix-installer/post-install && bash ./24-apt-sources.sh' 2>&1 | tail -12; then
+      log "ERROR: 24-apt-sources.sh failed with no local mirror available -- cannot resolve any base packages"
+      apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
+      return 1
+    fi
+  fi
   [ -f "$ROOT/$BASE_MANIFEST" ] || { echo "manifest $BASE_MANIFEST missing"; exit 1; }
   _base_pkgs=$(manifest_pkgs "$ROOT/$BASE_MANIFEST")
   log "BASE: apt-install $(echo $_base_pkgs|wc -w) always-on packages from $BASE_MANIFEST"
