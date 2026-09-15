@@ -34,6 +34,30 @@ set -euo pipefail
 INSTALLER_META=/usr/local/lib/cix-installer
 HERE="$(dirname "$0")"
 
+# 2026-09-15: this hook had NO arch guard, the same bug class already
+# found and fixed on 10-amd64-kernel.sh's side (see that hook's own
+# header for the ARM64 mirror image of this incident). Being REQUIRED and
+# run-all.sh's MACHINE_HOOKS_RE having no arch axis (filenames only), this
+# ran unconditionally on AMD64 too -- and genuinely tried
+# `apt-get install linux-image-cixmini` (the Sky1 arm64 kernel package)
+# on an amd64 target. That's a required-hook failure, which run-all.sh's
+# EXIT trap correctly treats as fatal-enough to skip 70-bootloader.sh
+# entirely (never wipe the ESP after a failed required step) -- so the
+# install silently shipped with a completely empty ESP and no bootloader,
+# surfacing only as "sh /cdrom/cixmini/late.sh failed" at the very end.
+# Same detection pattern as 10-amd64-kernel.sh/21-flatpak-arch-filter.sh/
+# 52-vivaldi.sh: env var first, then the late.sh-stamped BUILD_ARCH file,
+# then dpkg as a last-resort fallback.
+NCZ_SYSTEM_ARCH="${NCZ_TARGET_ARCH:-}"
+if [ -z "$NCZ_SYSTEM_ARCH" ] && [ -r "$INSTALLER_META/BUILD_ARCH" ]; then
+    NCZ_SYSTEM_ARCH=$(tr -d '[:space:]' < "$INSTALLER_META/BUILD_ARCH")
+fi
+NCZ_SYSTEM_ARCH="${NCZ_SYSTEM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
+if [ "$NCZ_SYSTEM_ARCH" != "arm64" ]; then
+    echo "[10-our-kernel] NCZ_SYSTEM_ARCH=$NCZ_SYSTEM_ARCH -- not arm64, skipping (AMD64 uses 10-amd64-kernel.sh)"
+    exit 0
+fi
+
 KVER_NEXT=""
 if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
     KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
