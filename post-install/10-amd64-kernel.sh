@@ -17,6 +17,28 @@
 # are the intended end state.
 set -euo pipefail
 
+# Real root cause of a full-install abort on arm64 (2026-09-15): this hook
+# was REQUIRED (run-all.sh's MACHINE_HOOKS_RE has no arch axis -- filenames
+# only) and had NO arch guard, so it ran unconditionally on every build.
+# On arm64, $ASSETS/amd64-{stable,edge} never exist, both install_one()
+# calls WARN-and-return, INSTALLED_KERNELS stays 0, and the hook's own
+# "no AMD64 kernel installed" check did `exit 1` -- a REQUIRED-hook
+# failure that run-all.sh (correctly) treats as fatal and aborts the
+# whole install ("Failed to run preseeded command ... exit code 1").
+# Same detection pattern already established in 21-flatpak-arch-filter.sh
+# and 52-vivaldi.sh: env var first, then the late.sh-stamped BUILD_ARCH
+# file, then dpkg as a last-resort fallback.
+INSTALLER_META=/usr/local/lib/cix-installer
+NCZ_SYSTEM_ARCH="${NCZ_TARGET_ARCH:-}"
+if [ -z "$NCZ_SYSTEM_ARCH" ] && [ -r "$INSTALLER_META/BUILD_ARCH" ]; then
+    NCZ_SYSTEM_ARCH=$(tr -d '[:space:]' < "$INSTALLER_META/BUILD_ARCH")
+fi
+NCZ_SYSTEM_ARCH="${NCZ_SYSTEM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
+if [ "$NCZ_SYSTEM_ARCH" != "amd64" ]; then
+    echo "[10-amd64] NCZ_SYSTEM_ARCH=$NCZ_SYSTEM_ARCH -- not amd64, skipping (arm64/Sky1 uses 10-our-kernel.sh)"
+    exit 0
+fi
+
 ASSETS=/usr/local/lib/cix-installer/assets/kernel
 INSTALLED_KERNELS=0
 
