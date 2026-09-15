@@ -3141,6 +3141,16 @@ if [ -d "$ROOT/assets" ]; then
                 # Lands at /usr/local/lib/cix-installer/assets/rescue/ on the
                 # target; consumed by post-install/72-rescue-partition.sh.
                 cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true
+                # AMD64's rescue rootfs is staged as rescue-rootfs-$ARCH.tar.zst
+                # (see sbom/expected-assets-amd64.txt); post-install/
+                # 72-rescue-partition.sh expects the plain arm64-era filename
+                # at runtime, so land it under that name too rather than
+                # teaching every consumer a second, arch-suffixed name.
+                if [ ! -f "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" ] && \
+                   [ -f "$EXTRA/assets/rescue/rescue-rootfs-$NCZ_TARGET_ARCH.tar.zst" ]; then
+                    cp -aL "$EXTRA/assets/rescue/rescue-rootfs-$NCZ_TARGET_ARCH.tar.zst" \
+                        "$EXTRA/assets/rescue/rescue-rootfs.tar.zst"
+                fi
                 if [ -f "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" ]; then
                     echo "    rescue-rootfs.tar.zst staged: $(du -h "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" | cut -f1)"
                 elif [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ]; then
@@ -3182,7 +3192,12 @@ if [ -d "$ROOT/assets" ]; then
                 esac
             done
             STAGED_CIX_DEBS=$(find "$EXTRA/assets/cix-debs" -maxdepth 1 -name '*.deb' | wc -l | tr -d ' ')
-            if [ "$STAGED_CIX_DEBS" = "0" ] && [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ]; then
+            # cix-debs is the Sky1 GPU proprietary userland (post-install/
+            # 25-cix-proprietary.sh, arm64-only) -- AMD64 gets its GPU
+            # userspace from real vendor apt repos instead
+            # (post-install/54-gpu-accel.sh: NVIDIA/AMD/Intel), so an empty
+            # assets/cix-debs/ is correct/expected on AMD64, not an error.
+            if [ "$STAGED_CIX_DEBS" = "0" ] && [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ] && [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
                 echo "ERROR: 0 CIX proprietary .debs staged — full desktop ISO would have no GPU userspace (dead greeter). Populate assets/cix-debs/ (see 25-cix-proprietary.sh)." >&2
                 exit 1
             fi
