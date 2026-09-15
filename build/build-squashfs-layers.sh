@@ -823,7 +823,7 @@ build_base(){
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
   sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding wallpaper wallpaper-debs sinty-nm; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs sinty-nm; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
     log "  staged sinty-nm daemon into BASE ($(du -h "$ROOT/assets/sinty-nm/sinty-nmd" | cut -f1))"
   else
