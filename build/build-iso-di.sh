@@ -2878,12 +2878,17 @@ done
 ( cd "$INITRD_PATCH_TMP/overlay" && find . | cpio -o -H newc --quiet | gzip -9 -n ) >> "$INITRD"
 echo "    initrd patched: amber palette + NCZ branding"
 rm -rf "$INITRD_PATCH_TMP"
-rm -rf "$WORK"
 
-# initrd.gz is a gzipped cpio. Linux supports concatenated multiple gzipped
-# initramfs members. Append directly — no padding needed for gz members.
-cat "$OVERLAY_GZ" >> "$STAGING/${INSTALL_DIR}/initrd.gz"
-rm -f "$OVERLAY_GZ"
+# Step 3's own tail: append the Sky1 modules/firmware overlay cpio built
+# above (arm64-only, see the Steps 2+3 arch gate earlier) onto initrd.gz.
+# WORK/OVERLAY_GZ are only ever set inside that same arm64-only block.
+if [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
+    rm -rf "$WORK"
+    # initrd.gz is a gzipped cpio. Linux supports concatenated multiple
+    # gzipped initramfs members. Append directly — no padding needed.
+    cat "$OVERLAY_GZ" >> "$STAGING/${INSTALL_DIR}/initrd.gz"
+    rm -f "$OVERLAY_GZ"
+fi
 echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
 
 # ----------------------------------------------------------------------
