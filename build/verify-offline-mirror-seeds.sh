@@ -34,7 +34,9 @@ LABEL="${LABEL:-$(basename "$MIRROR")}"
 # shellcheck source=../release.conf
 . "$ROOT/release.conf"
 SUITE="${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
-ARCH="${ARCH:-arm64}"
+# 2026-09-15: was hardcoded "arm64" -- same class of bug as
+# build-forky-mirror.sh/build-vendor-mirror.sh, fixed the same way.
+ARCH="${ARCH:-${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}}"
 PKG_INDEX="$MIRROR/dists/$SUITE/main/binary-$ARCH/Packages"
 [ -s "$PKG_INDEX" ] || {
     echo "ERROR: $LABEL missing Packages index: $PKG_INDEX" >&2
