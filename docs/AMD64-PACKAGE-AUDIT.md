@@ -210,11 +210,35 @@ packages (`apple-bce`, `applesmc-t2`, etc.) are deliberately NOT installed,
 per the repo's own documented warning that they conflict with a
 `linux-t2`-class kernel, which is exactly what our own v7.2.6+T2 build is.
 
-**Real caveat, not glossed over**: `get-apple-firmware` fetches actual macOS
-firmware packages from Apple's CDN based on detected Mac model at real
-install time — this has NOT been tested against real T2 hardware in this
-pass (no T2 machine was available). Verify on MEDUSA once it's repurposed as
-the T2 boot-validation target.
+**UPDATE 2026-09-15 — the PCI detection itself is now verified against
+REAL T2 hardware**, closing the caveat below for the detection step
+(the firmware-fetch step's own caveat still stands, see next paragraph).
+The `[106b:1801]` check moved out of this hook into a shared, testable
+`post-install/lib/hw-detect.sh` (`is_t2_hardware`/`t2_hardware_detail`),
+gained a DMI fallback (Apple `sys_vendor` + a T2-era `product_name` list,
+matching mainline Linux's own `x86_apple_machine` generic-Apple DMI test
+narrowed to T2-generation models) for when `lspci` itself is unavailable,
+and was read-only oracle-checked directly on MEDUSA (a real
+MacBookPro16,1): `lspci -nn` shows
+`04:00.1 ... Apple Inc. T2 Bridge Controller [106b:1801]`, and
+`/sys/class/dmi/id/{sys_vendor,product_name}` read `Apple Inc.` /
+`MacBookPro16,1` — both match this function's detection patterns exactly.
+The negative case was verified live on PROTEUS (real amd64 HP hardware,
+`sys_vendor=HP`): the hook runs end-to-end, logs
+`T2 hardware: not detected`, and cleanly skips the firmware install with
+no apt/network calls — confirmed via a real invocation, not by inspection.
+55-t2-firmware.sh now also unconditionally logs
+`T2 hardware: detected`/`not detected` on every amd64 run, before the
+headless/server variant gate, so this is visible in install logs
+regardless of SKU or whether it changes anything for that install.
+
+**Real caveat, not glossed over — still open**: `get-apple-firmware` itself
+(the actual macOS-firmware-CDN fetch, downstream of detection) fetches real
+firmware packages from Apple's own CDN based on the detected Mac model at
+real install time — this specific step has still NOT been exercised against
+real T2 hardware (MEDUSA is a read-only boot-validation oracle, not a
+target to install onto). Detection now IS verified; the firmware-fetch tool
+itself is the remaining unverified piece.
 
 ## What's actually done vs. follow-on (honest accounting) — UPDATED after "fix all" pass
 
