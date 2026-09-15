@@ -3416,7 +3416,18 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
     if [ -f "$SQUASHFS_DIR/base.squashfs" ]; then
         assert_squashfs_root_mode "$SQUASHFS_DIR/base.squashfs" "base"
         cp -L "$SQUASHFS_DIR/base.squashfs" "$EXTRA/base.squashfs"
-        [ -d "$ROOT/build/sqtools" ] && cp -a "$ROOT/build/sqtools" "$EXTRA/sqtools"
+        # sqtools (unsquashfs + its loader/libs) is a real ELF binary bundle,
+        # not a source asset -- it MUST match NCZ_TARGET_ARCH exactly, or the
+        # r159 extraction stub's very first exec fails (ARM64 unsquashfs on
+        # an AMD64 installer: exit 1, no diagnostic, nothing ever extracted
+        # -- confirmed 2026-09-15 by mounting a failed install's empty
+        # target disk directly). Prefer build/sqtools-$ARCH when present,
+        # falling back to the historical build/sqtools (arm64) name.
+        if [ -d "$ROOT/build/sqtools-$NCZ_TARGET_ARCH" ]; then
+            cp -a "$ROOT/build/sqtools-$NCZ_TARGET_ARCH" "$EXTRA/sqtools"
+        elif [ -d "$ROOT/build/sqtools" ]; then
+            cp -a "$ROOT/build/sqtools" "$EXTRA/sqtools"
+        fi
         # r190.3: stage EVERY built variant delta, not just $VARIANT -- the GRUB
         # menu offers both desktop and server as separate boot entries (see the
         # server.squashfs GRUB gate above), but extract-rootfs.sh looks for
