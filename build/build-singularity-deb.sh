@@ -13,7 +13,13 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TGZ="${1:-$REPO/build/sinty-out/singularity-opt.tgz}"
 PKG="ncz-singularity-desktop"
-ARCH=arm64
+# amd64/PEGASUS port: this was hardcoded arm64. build-singularity.sh builds
+# natively for whatever arch the container engine's default platform is (no
+# cross/emulation), so the produced singularity-opt.tgz binaries match the
+# BUILD HOST's arch, not necessarily arm64. Default to the host's dpkg arch;
+# allow an explicit override (e.g. building the .deb on a different host than
+# the one that produced the tarball).
+ARCH="${NCZ_SINGULARITY_ARCH:-$(dpkg --print-architecture 2>/dev/null || uname -m)}"
 GIT_SHA="${NCZ_SINGULARITY_GIT_SHA:-}"
 VERSION="${NCZ_SINGULARITY_VERSION:-$(date -u +%Y%m%d)+bk${BUILDKITE_BUILD_NUMBER:-0}${GIT_SHA:+~g${GIT_SHA}}}"
 OUT="${OUT:-$(cd "$(dirname "$TGZ")" && pwd)}"
