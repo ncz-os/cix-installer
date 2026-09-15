@@ -103,6 +103,24 @@ rm -f /usr/local/sbin/ncz-mali-kbase-allowed
 echo "[83] removed ncz-mali-kbase-load.service (ncz-gpu-switcher owns driver loading)"
 
 # --- 2. register the panthor-cix DKMS source (opt-in; built on demand) -------
+# build/build-dkms-debs.sh produces a real panthor-cix-dkms_*.deb from this
+# same asset dir (postinst: dkms add + autoinstall + dracut refresh, same as
+# 82-mali-gpu.sh). Prefer that real, dpkg-tracked package when staged — it's
+# what gives apt an update path; the raw source-copy below never registered
+# with dpkg. Fall back to raw source-copy only if no .deb is staged.
+PANTHOR_DEB=$(ls /usr/local/lib/cix-installer/assets/cix-debs/panthor-cix-dkms_*.deb 2>/dev/null | head -1)
+if [ -n "$PANTHOR_DEB" ]; then
+    if dpkg -i "$PANTHOR_DEB" >/dev/null 2>&1; then
+        echo "[83] installed $(basename "$PANTHOR_DEB") via dpkg — panthor-cix now apt-tracked"
+        echo "[83] panthor GPU stage done (selector installed; DKMS package installed)"
+        exit 0
+    fi
+    echo "[83] WARN: dpkg -i $(basename "$PANTHOR_DEB") failed — falling back to raw DKMS source registration"
+    # Same half-configured-record risk as 82-mali-gpu.sh -- clear it so a
+    # later real install attempt isn't blocked on a failed postinst here.
+    dpkg --purge panthor-cix-dkms >/dev/null 2>&1 || true
+fi
+
 if [ ! -d "$ASSET_DIR" ] || [ ! -f "$ASSET_DIR/dkms.conf" ]; then
     echo "[83] no panthor-cix DKMS source at $ASSET_DIR — skipping DKMS registration"
     echo "[83] panthor GPU stage done (selector installed; DKMS source absent)"
