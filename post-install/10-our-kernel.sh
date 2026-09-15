@@ -44,6 +44,16 @@ if [ -z "$KVER_NEXT" ]; then
     exit 1
 fi
 
+# KVER_EDGE (2026-09-15): optional SECOND, EXPERIMENTAL kernel line,
+# installed alongside KVER_NEXT (which this hook still treats as the
+# default/stable channel it always has). Not dpkg-tracked -- see the
+# install block below for why -- so absence is silently fine, not an
+# error the way an empty KVER_NEXT is.
+KVER_EDGE=""
+if [ -f "$INSTALLER_META/KVER_EDGE" ]; then
+    KVER_EDGE=$(cat "$INSTALLER_META/KVER_EDGE" 2>/dev/null || true)
+fi
+
 echo "[10] installing kernel via apt — edge=$KVER_NEXT"
 
 local_deb() {
@@ -181,6 +191,7 @@ echo "[10] pruning orphaned /usr/lib/modules/* trees (not KVER_NEXT)"
 for moddir in /usr/lib/modules/*/; do
     kver="$(basename "$moddir")"
     [ "$kver" = "$KVER_NEXT" ] && continue
+    [ -n "${KVER_EDGE:-}" ] && [ "$kver" = "$KVER_EDGE" ] && continue
     echo "    removing orphaned module tree: $kver"
     rm -rf "$moddir"
 done
@@ -211,6 +222,7 @@ else
         [ -e "$vmlinuz" ] || continue
         kver="${vmlinuz#/boot/vmlinuz-}"
         [ "$kver" = "$KVER_NEXT" ] && continue
+        [ -n "${KVER_EDGE:-}" ] && [ "$kver" = "$KVER_EDGE" ] && continue
         echo "    removing orphaned boot payload: $kver"
         rm -f "/boot/vmlinuz-$kver" "/boot/initrd.img-$kver" \
               "/boot/System.map-$kver" "/boot/config-$kver"
@@ -302,6 +314,69 @@ rebuild_host_tools() {
 }
 
 install_kernel_headers "$KVER_NEXT" edge   || true
+
+# --- KVER_EDGE: second, EXPERIMENTAL kernel line, installed side by side ----
+# with the stable/default kernel above (2026-09-15, operator directive: ship
+# a genuine dual-kernel ISO again). NOT via dpkg: the linux-image-cixmini
+# package NAME is fixed across every KVER (see build/build-kernel-debs.sh),
+# so dpkg can only ever track ONE installed version of it -- a second
+# dpkg -i would either collide or silently replace the first. Building a
+# distinctly-named edge package is real, separate follow-up work; in the
+# meantime this raw-copies the kernel the same way this hook's OWN header
+# comment says r193 correctly moved AWAY FROM for the shipping/default
+# kernel -- but that concern (apt/dpkg losing track -> "apt upgrade" can
+# never pull a new kernel) does not apply to an entry that is explicitly
+# manual/experimental and never auto-upgraded, the same posture
+# post-install/10-amd64-kernel.sh already documents for ITS edge line.
+if [ -n "$KVER_EDGE" ]; then
+    EDGE_SRC="$INSTALLER_META/assets/kernel/edge-experimental"
+    if [ -s "$EDGE_SRC/Image-cixmini.bin" ] && [ -s "$EDGE_SRC/modules-cixmini.tgz" ]; then
+        echo "  installing edge-experimental raw kernel $KVER_EDGE (non-dpkg-tracked)"
+        install -m 0644 "$EDGE_SRC/Image-cixmini.bin" "/boot/vmlinuz-$KVER_EDGE"
+        [ -f "$EDGE_SRC/config-$KVER_EDGE" ] && \
+            install -m 0644 "$EDGE_SRC/config-$KVER_EDGE" "/boot/config-$KVER_EDGE"
+        # lib/modules/$KVER/... at the tarball root; --keep-directory-symlink
+        # is mandatory on this usr-merged root (see install_kernel_headers's
+        # own comment below -- same landmine, same fix).
+        tar -C /usr --keep-directory-symlink -xzf "$EDGE_SRC/modules-cixmini.tgz" 2>&1 \
+            || echo "    WARN: modules-cixmini.tgz extraction reported errors"
+        if [ -d "/usr/lib/modules/$KVER_EDGE" ]; then
+            edge_modcount=$(find "/usr/lib/modules/$KVER_EDGE" \( -name '*.ko' -o -name '*.ko.xz' \) 2>/dev/null | wc -l)
+            if [ "$edge_modcount" -ge 50 ]; then
+                depmod -a "$KVER_EDGE" 2>/dev/null || true
+                install_kernel_headers "$KVER_EDGE" edge-experimental || \
+                    echo "    WARN: edge-experimental kernel headers unavailable -- DKMS rebuild blocked for $KVER_EDGE"
+                if command -v dracut >/dev/null 2>&1; then
+                    if dracut --force --kver "$KVER_EDGE" "/boot/initrd.img-$KVER_EDGE" 2>&1 | tail -10; then
+                        echo "    OK: edge-experimental /boot/vmlinuz-$KVER_EDGE + $edge_modcount .ko + initrd built"
+                    else
+                        echo "    WARN: edge-experimental dracut failed for $KVER_EDGE -- entry will be unbootable, dropping KVER_EDGE"
+                        rm -f "/boot/vmlinuz-$KVER_EDGE" "/boot/config-$KVER_EDGE"
+                        KVER_EDGE=""
+                    fi
+                else
+                    echo "    WARN: edge-experimental dracut missing -- cannot build initrd, dropping KVER_EDGE"
+                    rm -f "/boot/vmlinuz-$KVER_EDGE" "/boot/config-$KVER_EDGE"
+                    KVER_EDGE=""
+                fi
+            else
+                echo "    WARN: edge-experimental modules dir suspiciously small (.ko=$edge_modcount) -- dropping KVER_EDGE"
+                KVER_EDGE=""
+            fi
+        else
+            echo "    WARN: edge-experimental modules extraction produced no /usr/lib/modules/$KVER_EDGE -- dropping KVER_EDGE"
+            KVER_EDGE=""
+        fi
+    else
+        echo "  edge-experimental: KVER_EDGE=$KVER_EDGE set but Image/modules missing under $EDGE_SRC -- dropping KVER_EDGE"
+        KVER_EDGE=""
+    fi
+fi
+if [ -n "$KVER_EDGE" ]; then
+    echo "$KVER_EDGE" > "$INSTALLER_META/KVER_EDGE"
+else
+    rm -f "$INSTALLER_META/KVER_EDGE"
+fi
 
 for kver in "$KVER_NEXT"; do
     [ -z "$kver" ] && continue

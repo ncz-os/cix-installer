@@ -84,6 +84,7 @@ echo "[ncz-refind-refresh] rEFInd bootloader (staged kernel menu)"
 INSTALLER_META=/usr/local/lib/cix-installer
 REFIND_SRC="$INSTALLER_META/assets/refind/refind_aa64.efi"
 : "${KVER_NEXT:=}"
+: "${KVER_EDGE:=}"
 : "${BUILD_VERSION:=(unknown)}"
 RELEASE_FILE=/etc/cix-installer/RELEASE
 [ -s "$RELEASE_FILE" ] || RELEASE_FILE="$INSTALLER_META/RELEASE"
@@ -101,6 +102,7 @@ if [ -z "$KVER_NEXT" ]; then
 fi
 
 echo "  KVER_NEXT=$KVER_NEXT"
+echo "  KVER_EDGE=${KVER_EDGE:-<none>}"
 echo "  BUILD_VERSION=$BUILD_VERSION"
 
 # Prevent systemd-boot deb postinst from double-staging kernels to the ESP
@@ -347,6 +349,26 @@ elif [ -n "$KVER_NEXT" ]; then
     echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — edge entry will be SKIPPED"
 fi
 
+# EDGE_AVAILABLE (2026-09-15): the SECOND, EXPERIMENTAL kernel line (see
+# post-install/10-our-kernel.sh). Absence is not fatal -- single-kernel
+# ISOs still build -- only KVER_NEXT (stable/default) is required above.
+EDGE_AVAILABLE=0
+EDGE_INITRD_AVAILABLE=0
+if [ -n "${KVER_EDGE:-}" ] && [ -s "/boot/vmlinuz-$KVER_EDGE" ]; then
+    if [ ! -s "/boot/initrd.img-$KVER_EDGE" ]; then
+        echo "  WARN: /boot/vmlinuz-$KVER_EDGE exists but /boot/initrd.img-$KVER_EDGE is missing -- edge entry SKIPPED"
+    else
+        install -m 0644 "/boot/vmlinuz-$KVER_EDGE" "/boot/efi/vmlinuz-$KVER_EDGE"
+        echo "  staged /boot/efi/vmlinuz-$KVER_EDGE"
+        EDGE_AVAILABLE=1
+        install -m 0644 "/boot/initrd.img-$KVER_EDGE" "/boot/efi/initrd.img-$KVER_EDGE"
+        echo "  staged /boot/efi/initrd.img-$KVER_EDGE"
+        EDGE_INITRD_AVAILABLE=1
+    fi
+elif [ -n "${KVER_EDGE:-}" ]; then
+    echo "  WARN: /boot/vmlinuz-$KVER_EDGE missing — edge entry will be SKIPPED"
+fi
+
 if [ "$NEXT_AVAILABLE" = "0" ]; then
     echo "ERROR: edge kernel not installed — system is unbootable."
     exit 1
@@ -423,6 +445,22 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_CONSOLE_CMDLINE="$NEXT_CONSOLE_CMDLINE_NOBL module_blacklist=$NEXT_CONSOLE_MERGED_BL sky1.gpu=vendor"
     NEXT_CONSOLE_OPTIONS="$ROOT_OPTS $NEXT_CONSOLE_CMDLINE systemd.unit=multi-user.target"
 fi
+
+# EDGE (2026-09-15) — 7.3.0-rc3, EXPERIMENTAL kernel, CONSOLE-ONLY. Accelerator
+# DKMS (mali/panthor/vpu/npu) was NOT wired for this kernel line in this pass
+# -- the prebuilt .ko caches exist under assets/kernel/{mali,panthor,vpu,npu}/
+# 7.3.0-rc3-sky1-ncz/, but installing them safely needs per-hook multi-KVER
+# support (82-mali-gpu.sh, 83-panthor-gpu.sh and their VPU/NPU equivalents are
+# all single-KVER, keyed off KVER_NEXT only) -- real, separate follow-up work,
+# not done here. So this entry boots the SAME way the RESCUE entry does:
+# every accelerator blacklisted, GPU off, straight to a networked multi-user
+# console. It exists to prove the kernel/initrd itself boots on real
+# hardware; graphical/accelerated edge support is a known, flagged gap.
+EDGE_OPTIONS=""
+if [ "$EDGE_AVAILABLE" = "1" ]; then
+    EDGE_OPTIONS="$ROOT_OPTS console=ttyAMA0,115200 console=tty0 module_blacklist=$ALL_ACCEL_BLACKLIST sky1.gpu=none systemd.unit=multi-user.target"
+fi
+
 
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
 RESCUEPART_OPTIONS=""
@@ -670,6 +708,15 @@ fi
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$NEXT_CONSOLE_OPTIONS\""
+        echo "}"
+        echo
+    fi
+    if [ "$EDGE_AVAILABLE" = "1" ]; then
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Edge / Experimental Kernel (Console)\" {"
+        echo "    loader  /vmlinuz-$KVER_EDGE"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
+        echo "    options \"$EDGE_OPTIONS\""
         echo "}"
         echo
     fi

@@ -845,6 +845,14 @@ build_base(){
   # KVER sidecar that 10-our-kernel.sh + 70-bootloader.sh need to discover
   # the shipped edge kernel's KVER at install time.
   [ -f "$ROOT/assets/kernel/edge/KVER" ] && sudo cp "$ROOT/assets/kernel/edge/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
+  # KVER_EDGE sidecar (2026-09-15): a second, EXPERIMENTAL kernel line
+  # installed alongside the default (KVER_NEXT/stable). 10-our-kernel.sh
+  # installs it as a non-dpkg-tracked raw copy (see that hook for why: the
+  # linux-image-cixmini package NAME is fixed across every KVER, so dpkg
+  # cannot track two versions of it side by side without a package rename
+  # this pass did not have time to do safely -- edge is explicitly manual/
+  # non-OTA, same posture AMD64 already documents for ITS edge line).
+  [ -f "$ROOT/assets/kernel/edge-experimental/KVER" ] && sudo cp "$ROOT/assets/kernel/edge-experimental/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_EDGE"
   # r160: stage the COMPLETE rEFInd asset set, falling back to build/refind-bin
   # for anything assets/refind didn't provide (on bigpi the NFS sync had only
   # build/refind-bin — assets/refind was absent, so r159's base shipped just the

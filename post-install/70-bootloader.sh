@@ -69,6 +69,12 @@ run_refind_arm64() {
         echo "ERROR: KVER_NEXT sidecar missing (edge kernel is the only supported channel)"
         exit 1
     fi
+    # KVER_EDGE (2026-09-15): optional second, EXPERIMENTAL kernel line --
+    # see post-install/10-our-kernel.sh for how it gets installed. Absence
+    # is fine (single-kernel ISOs still build); ncz-refind-refresh.sh only
+    # emits the 5th menu entry when this is non-empty.
+    KVER_EDGE=""
+    [ -f "$INSTALLER_META/KVER_EDGE" ] && KVER_EDGE=$(cat "$INSTALLER_META/KVER_EDGE" 2>/dev/null || true)
 
     # Install the shared refresh script to its permanent home. Staged as an
     # ISO asset (assets/refind/ncz-refind-refresh.sh) so it's identical to
@@ -88,7 +94,7 @@ run_refind_arm64() {
     # 10-our-kernel.sh -- both this script and that one install/depend on
     # ncz-refind-refresh, but neither needs the other to have run first since
     # each installs its own copy of what it needs.)
-    export KVER_NEXT BUILD_VERSION NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME
+    export KVER_NEXT KVER_EDGE BUILD_VERSION NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME
     "$SHARED_DST"
 }
 
