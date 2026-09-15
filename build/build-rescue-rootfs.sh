@@ -24,6 +24,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 CHROOT="${1:-$ROOT/build/rescue-rootfs}"
+# Canonicalize to an absolute path. mounts_under()/unmount_all_under() below
+# match CHROOT against findmnt's TARGET column, which is always absolute --
+# a relative CHROOT (e.g. a caller passing "build/foo" from a different
+# cwd) silently never matches, unmount_all_under() unmounts NOTHING, and the
+# final tar happily reads the REAL host /proc and /sys straight into the
+# rescue tarball (observed 2026-09-15 porting this to amd64: real host
+# module list -- snd_pcm_dmaengine, nft_fib_inet -- showed up in the tar
+# output with permission-denied/File-shrank noise, and the resulting
+# tarball was ~20MB of compressed garbage instead of a real rootfs).
+case "$CHROOT" in /*) ;; *) CHROOT="$PWD/$CHROOT" ;; esac
 OUT="${2:-$ROOT/assets/rescue/rescue-rootfs.tar.zst}"
 # Defaults come from release.conf so the rescue environment can never drift to a
 # different distribution than the release it is recovering.
