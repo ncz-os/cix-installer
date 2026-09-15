@@ -169,3 +169,4 @@ build/.sqfs-work/
 build/sinty-out/
 build/disk-image/
 build/rescue-rootfs-amd64/
+build/kernel-debs-amd64/
