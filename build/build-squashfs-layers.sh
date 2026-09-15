@@ -766,6 +766,30 @@ ensure_base_tarball_fresh(){
 
 build_base(){
   log "BASE: extract $APT_SUITE base"
+  # r160b (2026-09-15): ensure the default NCZ wallpaper Artist Pack is
+  # staged BEFORE the base asset-copy loop runs. This build-time step
+  # existed in the old pipeline and was silently dropped when this one was
+  # written -- post-install/45-wallpaper-rotator.sh has always had a
+  # WARN-and-skip fallback for a missing assets/wallpaper-debs/ (so the
+  # build itself never failed loudly), but the real effect is total: no
+  # deb staged means no ncz-wallpapers-ncz package installed means no
+  # wallpaper timer/service unit exists on the finished system at all --
+  # confirmed live on O6N, systemctl list-unit-files came back with
+  # zero wallpaper-rotation matches. Same root cause likely blocks the
+  # Artist Pack install flow too (its polkit backend scripts install fine,
+  # but read from this same directory to list/install packs).
+  if ! ls "$ROOT/assets/wallpaper-debs/"*.deb >/dev/null 2>&1; then
+    log "  wallpaper-debs: none staged -- building the default NCZ pack"
+    if bash "$ROOT/build/build-wallpaper-contrib-deb.sh" ncz >/dev/null 2>&1; then
+      mkdir -p "$ROOT/assets/wallpaper-debs"
+      cp "$ROOT/build/wallpaper-debs/"*.deb "$ROOT/assets/wallpaper-debs/" 2>/dev/null || true
+      log "  wallpaper-debs: staged $(ls "$ROOT/assets/wallpaper-debs/"*.deb 2>/dev/null | wc -l) pack(s)"
+    else
+      log "  WARN: build-wallpaper-contrib-deb.sh ncz failed -- shipping with NO default wallpaper (see post-install/45-wallpaper-rotator.sh)"
+    fi
+  else
+    log "  wallpaper-debs: using existing $(ls "$ROOT/assets/wallpaper-debs/"*.deb 2>/dev/null | wc -l) staged pack(s)"
+  fi
   ensure_base_tarball_fresh
   # A failed base hook exits under `set -e` before normal cleanup. Detach any
   # stale mounts before retrying so rm never traverses host /proc or /sys.
