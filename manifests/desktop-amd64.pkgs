@@ -1,0 +1,280 @@
+# desktop-amd64.pkgs — NCZ-OS AMD64 desktop offline closure. FULL closure,
+# self-contained (a build consuming this file alone gets the complete
+# package set) — NOT a diff-only/divergence-only file.
+#
+# Derived from manifests/desktop.pkgs (the Sky1/arm64 desktop closure) by the
+# 2026-09-14 AMD64-line package audit (see docs/AMD64-PACKAGE-AUDIT.md for
+# full per-package reasoning, and for the classification-count table this
+# file's sections correspond to: DROPPED / KEPT-AS-IS / GENERIC-FIRMWARE /
+# x86-microcode / T2-conditional / GPU-vendor-conditional). The DROPPED
+# section below documents what was REMOVED from the Sky1 closure and why;
+# everything else in this file (the large "KEPT AS-IS" block onward) is the
+# actual portable closure content, listed in full, not summarized.
+#
+# Consume the same way as desktop.pkgs: grep -vE '^\s*(#|$)'.
+
+# ============================================================================
+# DROPPED — Sky1/CIX-chip-specific, no AMD64 equivalent needed
+# ============================================================================
+# chromium-ncz-sky1  — our custom V4L2-M2M hardware-decode Chromium build for
+#                       the Linlon VPU. Operator decision 2026-09-14: do not
+#                       build/ship a custom Chromium for AMD64 at all. Use
+#                       google-chrome-stable + Vivaldi only (both below).
+# ncz-ffmpeg         — Sky1 VPU-accelerated ffmpeg (see docs/AMD64-PACKAGE-
+#                       AUDIT.md "ffmpeg parity" section). NOT arch-portable;
+#                       needs its own AMD64 hwaccel build (VAAPI/NVENC), which
+#                       is NOT YET BUILT — see follow-on work in the audit doc.
+#                       Do not add ncz-ffmpeg itself to this manifest; a
+#                       future ncz-ffmpeg-amd64 (or similar) package name goes
+#                       here once that build exists. Stock `ffmpeg` (already
+#                       below, from the r189.4 bucket) covers software
+#                       encode/decode in the meantime.
+# libdrm-radeon1, libdrm-nouveau1, libdrm-freedreno1, libdrm-tegra0,
+# libdrm-etnaviv1    — these were pulled into the Sky1 closure only as
+#                       transitive Mesa dependency noise for architectures
+#                       NCZ-OS does not target; irrelevant to AMD64's own
+#                       real AMD/Intel/NVIDIA DRM backends (amdgpu/i915/
+#                       nouveau ship their own libdrm backends via
+#                       mesa-vulkan-drivers below). Not carried forward.
+
+# ============================================================================
+# KEPT AS-IS (portable, unchanged from desktop.pkgs)
+# ============================================================================
+greetd
+glycin-loaders
+# BLOCKED (zoder review, 2026-09-14 — do not uncomment until fixed):
+# ncz-singularity-desktop's packaging script (build/build-singularity-
+# deb.sh) hardcodes Architecture: arm64. A real fix already exists
+# (commit 39058bc5, "derive package Architecture, don't hardcode arm64") but
+# was NEVER MERGED to master — orphaned. No AMD64 ncz-singularity-desktop
+# .deb can be built until that commit is cherry-picked/merged. Listing the
+# package name here uncommented would claim a closure this manifest cannot
+# actually produce yet — see docs/AMD64-PACKAGE-AUDIT.md follow-on #1.
+# ncz-singularity-desktop
+libgtk-4-1
+libadwaita-1-0
+libgtk4-layer-shell0
+libgee-0.8-2
+libpeas-2-0
+libjson-glib-1.0-0
+libsoup-3.0-0
+libvte-2.91-gtk4-0
+libgtksourceview-5-0
+libwebkitgtk-6.0-4
+libgraphene-1.0-0
+libtinysparql-3.0-0
+libupower-glib3
+libdbusmenu-glib4
+libsodium26
+upower
+gsettings-desktop-schemas
+libglib2.0-bin
+foot
+xsettingsd
+seatd
+libseat1
+libliftoff0
+libinput10
+libxcb-composite0
+libxcb-ewmh2
+libxcb-icccm4
+libxcb-res0
+libxcb-errors0
+swaybg
+grim
+slurp
+zenity
+fuzzel
+xwayland
+polkitd
+xdg-desktop-portal
+apparmor
+apparmor-profiles
+apparmor-utils
+systemd-zram-generator
+mesa-utils
+vulkan-tools
+vainfo
+mesa-vulkan-drivers
+mesa-opencl-icd
+libglu1-mesa
+clinfo
+glmark2-es2-wayland
+glmark2-wayland
+glmark2-x11
+glmark2-es2-x11
+pipewire
+pipewire-pulse
+pipewire-alsa
+wireplumber
+pulseaudio-utils
+pavucontrol
+gvfs
+gvfs-backends
+udisks2
+gnome-disk-utility
+bluez
+blueman
+python3-dbus
+fonts-noto-core
+fonts-noto-cjk
+fonts-noto-color-emoji
+fonts-liberation
+fcitx5
+fcitx5-chinese-addons
+fcitx5-config-qt
+im-config
+google-chrome-stable
+mpv
+xarchiver
+7zip
+unrar-free
+papers
+synaptic
+gdebi
+gdebi-core
+baobab
+gimp
+librsvg2-bin
+imagemagick
+whiptail
+podman
+crun
+conmon
+netavark
+aardvark-dns
+catatonit
+inetutils-telnetd
+openbsd-inetd
+nodejs
+npm
+libxml2-16
+libjpeg62-turbo
+libva-glx2
+libwayland-bin
+libnice10
+flatpak
+gnome-session-canberra
+xdg-desktop-portal-gtk
+epiphany-browser
+feh
+vulkan-validationlayers
+glslc
+icewm
+icewm-common
+libvulkan-dev
+glslang-tools
+glslang-dev
+spirv-tools
+spirv-headers
+shotcut
+handbrake
+ffmpeg
+audacity
+kooha
+celluloid
+loupe
+gnome-calculator
+gnome-text-editor
+gnome-font-viewer
+gnome-characters
+gnome-calendar
+gnome-weather
+gnome-sound-recorder
+drawing
+imv
+swayimg
+gnome-console
+zstd
+curl
+ca-certificates
+systemd-timesyncd
+tzdata
+python3-venv
+python3-pip
+xdg-desktop-portal-wlr
+wl-clipboard
+wlr-randr
+wf-recorder
+wev
+gstreamer1.0-tools
+nvme-cli
+smartmontools
+ethtool
+iperf3
+lm-sensors
+powertop
+sysstat
+btop
+htop
+dosfstools
+util-linux-extra
+alsa-utils
+v4l-utils
+
+# ============================================================================
+# GENERIC FIRMWARE — kept, NOT Sky1-specific (real WiFi/BT cards found on
+# generic AMD64 laptops and desktops too, same package names in Debian).
+# ============================================================================
+firmware-linux-free
+firmware-realtek
+firmware-misc-nonfree
+firmware-mediatek
+firmware-brcm80211
+firmware-atheros
+firmware-iwlwifi
+firmware-ath9k-htc
+
+# --- x86-specific microcode (arm64 has no equivalent; rescue.pkgs' arm64
+#     header explicitly excluded these as "not applicable to a headless
+#     arm64 box" — they ARE applicable here) -------------------------------
+intel-microcode
+amd64-microcode
+
+# --- T2-CONDITIONAL firmware — installed only when the hardware-detection
+#     hook (see docs/AMD64-PACKAGE-AUDIT.md) identifies a real Apple T2
+#     machine, NOT unconditionally on every AMD64 install. Real source
+#     confirmed 2026-09-14: github.com/AdityaGarg8/Apple-Firmware ships an
+#     actual architecture-independent Debian package
+#     (apple-firmware_14.5-1_all.deb) carrying the T2/M1-era Broadcom
+#     WiFi/BT blobs. Independently cross-checked live on MEDUSA itself,
+#     which already has the AUR equivalent (apple-bcm-firmware) installed —
+#     hundreds of real files at /usr/lib/firmware/brcm/*apple*, one per
+#     T2/M1 Broadcom chip variant, confirmed present on real hardware.
+#     NOT YET WIRED into an install-time hook — see follow-on work in the
+#     audit doc. Listed here as the confirmed real package to pull in, not a
+#     guess.
+# apple-firmware   [T2-conditional — do not uncomment unconditionally]
+
+# ============================================================================
+# GPU/ACCELERATOR STACK — install-time hardware-detected, NOT unconditional.
+# Real package names verified live against Debian 13 trixie (CERBERUS,
+# 2026-09-14 apt-cache search — not guessed):
+# ============================================================================
+#   AMD (PCI vendor 1002/1022)  → rocm-opencl-icd, rocm-smi, rocminfo,
+#                                  rocm-device-libs-17, rocm-cmake
+#                                  (real Debian trixie packages, confirmed
+#                                  present in the main archive — no
+#                                  third-party repo needed for ROCm itself)
+#   NVIDIA (PCI vendor 10de)    → nvidia-driver (Debian non-free-firmware
+#                                  metapackage) for the driver; full CUDA
+#                                  toolkit needs NVIDIA's own apt repo
+#                                  (developer.download.nvidia.com/compute/
+#                                  cuda/repos/debian13/x86_64/ — already
+#                                  precedented live on CERBERUS itself)
+#   Intel (PCI vendor 8086)     → intel-media-va-driver (VAAPI, real Debian
+#                                  package). Full OpenVINO toolkit is NOT in
+#                                  Debian's archive (confirmed absent via
+#                                  live apt-cache search) — needs Intel's own
+#                                  repo (apt.repos.intel.com), same class of
+#                                  gap as CUDA above.
+#
+# Design (NOT YET IMPLEMENTED — see docs/AMD64-PACKAGE-AUDIT.md follow-on
+# work): an installer hook probes `lspci -nn` for PCI vendor IDs 10de/1002/
+# 1022/8086 and installs only the matching stack(s) — a machine can have more
+# than one (e.g. Intel iGPU + NVIDIA dGPU), so this is additive-per-vendor-
+# found, not a single exclusive choice. None of these packages are seeded
+# unconditionally in this manifest; they are installed by that future hook,
+# analogous to how post-install/12-sky1-firmware.sh and
+# post-install/53-chrome.sh already do conditional/staged installs on the
+# Sky1 side.
