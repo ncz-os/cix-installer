@@ -40,7 +40,8 @@ echo "[grub-refresh] KVER_STABLE=${KVER_STABLE:-<none>} KVER_EDGE=${KVER_EDGE:-<
 # Root UUID: GRUB entries pin root=UUID=... rather than a device path, which
 # survives disk renumbering (NVMe vs SATA enumeration order is not stable
 # across a firmware/BIOS update the way people assume).
-ROOT_DEV="$(findmnt -n -o SOURCE / )"
+ROOT_DEV="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+ROOT_DEV="${ROOT_DEV%%[*}"  # strip a bind-mount source annotation, e.g. /dev/sda1[/some/subdir]
 ROOT_UUID="$(blkid -s UUID -o value "$ROOT_DEV" 2>/dev/null || true)"
 if [ -z "$ROOT_UUID" ]; then
     echo "ERROR: could not resolve UUID for root device $ROOT_DEV" >&2
