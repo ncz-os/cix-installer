@@ -64,62 +64,6 @@ msg "=== r40 rootfs extract starting ==="
 echo "--- mounts ---"
 mount | grep -E "cdrom|hd-media|media|target|run/live" || true
 
-ncz_component_record() {
-    _ncz_comp=""
-    if [ -r /tmp/ncz-components ] && command -v tr >/dev/null 2>&1; then
-        _ncz_comp=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null || true)
-        [ -n "$_ncz_comp" ] && { printf '%s\n' "$_ncz_comp"; return 0; }
-    fi
-    if [ -r /var/lib/ncz-components/COMPONENTS ] && command -v tr >/dev/null 2>&1; then
-        _ncz_comp=$(tr -d ' \t\r\n' < /var/lib/ncz-components/COMPONENTS 2>/dev/null || true)
-        [ -n "$_ncz_comp" ] && {
-            printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
-            printf '%s\n' "$_ncz_comp"
-            return 0
-        }
-    fi
-    if command -v debconf-get >/dev/null 2>&1; then
-        _ncz_comp=$(debconf-get ncz/components 2>/dev/null | tr -d ' \t\r\n' || true)
-        [ -n "$_ncz_comp" ] && {
-            printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
-            printf '%s\n' "$_ncz_comp"
-            return 0
-        }
-    fi
-    if [ -r /var/lib/cdebconf/questions.dat ]; then
-        _ncz_comp=$(awk '
-            $0 == "Name: ncz/components" { inq=1; next }
-            inq && /^Value: / { sub(/^Value: /, ""); print; exit }
-            inq && /^Name: / { exit }
-        ' /var/lib/cdebconf/questions.dat 2>/dev/null | tr -d ' \t\r\n' || true)
-        [ -n "$_ncz_comp" ] && {
-            printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
-            printf '%s\n' "$_ncz_comp"
-            return 0
-        }
-    fi
-    for _ncz_log in /var/log/syslog /var/log/installer/syslog; do
-        [ -r "$_ncz_log" ] || continue
-        _ncz_comp=$(awk '
-            /debconf: --> GET ncz\/components/ { want=1; next }
-            want && /debconf: <-- 0 / {
-                sub(/^.*debconf: <-- 0 /, "")
-                val=$0
-                want=0
-            }
-            END { if (val != "") print val }
-        ' "$_ncz_log" 2>/dev/null | tr -d ' \t\r\n' || true)
-        [ -n "$_ncz_comp" ] && {
-            printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
-            mkdir -p /var/lib/ncz-components 2>/dev/null || true
-            printf '%s\n' "$_ncz_comp" > /var/lib/ncz-components/COMPONENTS 2>/dev/null || true
-            printf '%s\n' "$_ncz_comp"
-            return 0
-        }
-    done
-    return 1
-}
-
 # ============================================================================
 # r159: LAYERED SQUASHFS install via bundled unsquashfs (no kernel mount/overlay/loop
 # — those failed silently in the d-i env). The sqtools bundle (unsquashfs + libs +
@@ -142,6 +86,61 @@ if [ -n "$SQFS_DIR" ]; then
         exit 1
     fi
     run_unsq() { "$LDR" --library-path "$SQFS_DIR/sqtools" "$UNSQ_BIN" "$@"; }
+    ncz_component_record() {
+        _ncz_comp=""
+        if [ -r /tmp/ncz-components ] && command -v tr >/dev/null 2>&1; then
+            _ncz_comp=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null || true)
+            [ -n "$_ncz_comp" ] && { printf '%s\n' "$_ncz_comp"; return 0; }
+        fi
+        if [ -r /var/lib/ncz-components/COMPONENTS ] && command -v tr >/dev/null 2>&1; then
+            _ncz_comp=$(tr -d ' \t\r\n' < /var/lib/ncz-components/COMPONENTS 2>/dev/null || true)
+            [ -n "$_ncz_comp" ] && {
+                printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+                printf '%s\n' "$_ncz_comp"
+                return 0
+            }
+        fi
+        if command -v debconf-get >/dev/null 2>&1; then
+            _ncz_comp=$(debconf-get ncz/components 2>/dev/null | tr -d ' \t\r\n' || true)
+            [ -n "$_ncz_comp" ] && {
+                printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+                printf '%s\n' "$_ncz_comp"
+                return 0
+            }
+        fi
+        if [ -r /var/lib/cdebconf/questions.dat ]; then
+            _ncz_comp=$(awk '
+                $0 == "Name: ncz/components" { inq=1; next }
+                inq && /^Value: / { sub(/^Value: /, ""); print; exit }
+                inq && /^Name: / { exit }
+            ' /var/lib/cdebconf/questions.dat 2>/dev/null | tr -d ' \t\r\n' || true)
+            [ -n "$_ncz_comp" ] && {
+                printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+                printf '%s\n' "$_ncz_comp"
+                return 0
+            }
+        fi
+        for _ncz_log in /var/log/syslog /var/log/installer/syslog; do
+            [ -r "$_ncz_log" ] || continue
+            _ncz_comp=$(awk '
+                /debconf: --> GET ncz\/components/ { want=1; next }
+                want && /debconf: <-- 0 / {
+                    sub(/^.*debconf: <-- 0 /, "")
+                    val=$0
+                    want=0
+                }
+                END { if (val != "") print val }
+            ' "$_ncz_log" 2>/dev/null | tr -d ' \t\r\n' || true)
+            [ -n "$_ncz_comp" ] && {
+                printf '%s\n' "$_ncz_comp" > /tmp/ncz-components 2>/dev/null || true
+                mkdir -p /var/lib/ncz-components 2>/dev/null || true
+                printf '%s\n' "$_ncz_comp" > /var/lib/ncz-components/COMPONENTS 2>/dev/null || true
+                printf '%s\n' "$_ncz_comp"
+                return 0
+            }
+        done
+        return 1
+    }
     # The ISO installs one complete target.  The desktop layer is the internal
     # name for that complete payload; rEFInd provides console/recovery choices
     # after installation instead of selecting an install-time server overlay.
@@ -284,6 +283,31 @@ if [ -n "$SQFS_DIR" ]; then
             echo "[sqfs] WARNING: $ROLE.squashfs missing -- base-only degraded install" > $SER 2>&1
         fi
     fi
+    # 2026-08-26 ROOT-MODE GATE — post-full-layer-stack hard verification
+    # (docs/ISO-BUILD-GUARDRAILS.md). Root cause of the 0700-root incident,
+    # found+proven 2026-08-26: `unsquashfs -f -d /target` re-stamps /target's
+    # OWN mode from EACH layer's root entry (verified with the bundled sqtools
+    # unsquashfs AND squashfs-tools 4.6.1: an existing 755 dir became 700
+    # after extracting a layer whose root entry was drwx------).
+    # desktop-hotfix.squashfs was built 2026-08-25 out-of-repo from a
+    # mktemp -d staging dir (mode 0700), so the LAST layer stamped / to 0700
+    # on every install. The defensive chmod above (right after base) does
+    # NOT protect against a LATER layer (role delta or hotfix) re-breaking
+    # the mode -- pin 0755 again here, after the FULL layer stack, and
+    # hard-verify; exit 1 makes the install fail loudly instead of shipping
+    # a broken root.
+    chmod 0755 /target || { msg "FATAL: chmod 0755 /target failed (post-full-stack)"; exit 1; }
+    _ncz_rm=$(ls -ld /target 2>/dev/null | awk '{print $1}')
+    [ -n "$_ncz_rm" ] || _ncz_rm="???"
+    if [ "$_ncz_rm" != "drwxr-xr-x" ]; then
+        msg "FATAL: /target root mode is $_ncz_rm after layer extraction (expected drwxr-xr-x/0755) — refusing to ship a broken install"
+        exit 1
+    fi
+    msg "verified /target root mode = drwxr-xr-x (0755) after full layer stack"
+    if [ ! -f "/target/etc/os-release" ]; then
+        msg "FATAL: squashfs extract produced no os-release"
+        exit 1
+    fi
     ELAPSED=$(( $(date +%s) - START ))
     # BAKED marker: run-all runs ONLY machine hooks (fstab/rescue/bootloader), not
     # the desktop/kernel/network hooks — this is what avoids the regression.
@@ -324,6 +348,83 @@ if [ -n "$SQFS_DIR" ]; then
     else
         msg "WARNING: component selection unavailable in /tmp and cdebconf — consumers will default to ALL components"
     fi
+    # r159: finish deferred dpkg config; purge pkgs that cannot configure in a
+    # chroot (e.g. falkon needs a display) so d-i pkgsel's apt does not choke on a
+    # half-configured package. Bind-mount for maintainer scripts, then unmount.
+    for _m in proc sys dev; do mount --bind /$_m "/target/$_m" 2>/dev/null; done
+    mount --bind /dev/pts "/target/dev/pts" 2>/dev/null
+    chroot /target dpkg --configure -a 2>/dev/null
+    # r172: PRESERVE falkon (the NCZ web browser). It can't finish configuring in
+    # the d-i chroot (its postinst wants a display/dbus), so r159 purged it as
+    # "non-configured" — which left the installed desktop with NO working browser
+    # (firefox on resolute is a snap stub that no-ops in an offline image; only
+    # falkon + epiphany are real debs). Keep falkon (+ its parts) out of the purge
+    # and let ncz-firstboot's `dpkg --configure -a` finish it on first boot where
+    # X/dbus exist. Everything else non-ii is still purged so pkgsel's dpkg stays
+    # clean.
+    _BAD=$(chroot /target dpkg -l 2>/dev/null | awk '$1 ~ /^.[A-Z]/ && $1 != "ii" {print $2}' | grep -viE '^falkon')
+    [ -n "$_BAD" ] && { msg "purging non-configured (keeping falkon): $_BAD"; chroot /target dpkg --purge --force-all $_BAD 2>/dev/null; }
+    # Best-effort configure of falkon now; if it still can't (no display), it stays
+    # unpacked and ncz-firstboot configures it. pkgsel tolerates unpacked (unlike
+    # a broken statoverride) as long as dpkg itself isn't wedged.
+    chroot /target dpkg --configure falkon 2>/dev/null || true
+    # r169: drop orphaned dpkg statoverrides whose owning user no longer exists.
+    # The GNOME-purge/autoremove in the squashfs build (and this block's own
+    # dpkg --configure/purge above) can leave a statoverride like
+    #   geoclue geoclue 755 /var/lib/geoclue
+    # after the 'geoclue' system user is gone. A dangling override makes dpkg
+    # abort with "unknown system user 'geoclue' in statoverride file" on EVERY
+    # later dpkg op → d-i pkgsel apt-get install fails ("Installation step
+    # failed"). Clean at install time, after configure/purge, before pkgsel runs.
+    # r170: collect orphan paths in a FIRST read-only pass, then remove them —
+    # dpkg-statoverride --remove rewrites the very file we read, so removing
+    # inside the read loop corrupts it (r169 removed geoclue but mangled the
+    # file into an "unknown system user 'root'" abort). Guard on getent working
+    # so a broken NSS can't nuke every (legitimate, e.g. root:shadow) override.
+    chroot /target sh -c '
+        getent passwd root >/dev/null 2>&1 || exit 0
+        orphans=""
+        while read u g m f; do
+            [ -n "$u" ] && [ -n "$f" ] || continue
+            getent passwd "$u" >/dev/null 2>&1 || orphans="$orphans
+$f"
+        done < /var/lib/dpkg/statoverride
+        printf "%s\n" "$orphans" | while IFS= read -r p; do
+            [ -n "$p" ] && dpkg-statoverride --remove "$p" 2>/dev/null || true
+        done
+    ' 2>/dev/null || true
+    msg "pruned orphaned statoverrides (missing user)"
+    for _m in dev/pts dev sys proc; do umount "/target/$_m" 2>/dev/null; done
+    # r159: disable needrestart kernel hints so pkgsel/apt does not raise the
+    # "pending kernel upgrade / consider rebooting" note (baked kernel != d-i
+    # installer kernel) that blocks "Select and install software".
+    mkdir -p /target/etc/needrestart/conf.d
+    printf '$nrconf{kernelhints} = 0;\n' > /target/etc/needrestart/conf.d/99-baked.conf
+    # r160: per-machine ssh host keys. The Ubuntu cloud rootfs ships
+    # openssh-server but STRIPS the host keys (cloud-init would normally
+    # regenerate them); without keys sshd refuses to start and the installed
+    # system is unreachable on :22. Generate here, at install time, so every
+    # machine gets unique keys — never bake host keys into the squashfs.
+    chroot /target ssh-keygen -A 2>/dev/null || \
+        msg "WARNING: ssh-keygen -A failed (openssh-server missing from image?)"
+    # r160: fleet remote-access policy. The cloud-image drop-in forces
+    # PasswordAuthentication no; the fleet is LAN-only and wants password
+    # fallback when keys break. OpenSSH keyword resolution is first-value-wins
+    # across lexically-sorted sshd_config.d, so 10- beats any later drop-in.
+    rm -f /target/etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+    mkdir -p /target/etc/ssh/sshd_config.d
+    printf 'PasswordAuthentication yes\n' > /target/etc/ssh/sshd_config.d/10-ncz-fleet.conf
+    # r160: de-cloud the network stack. The cloud rootfs enables
+    # systemd-networkd + its wait-online + networkd-dispatcher ALONGSIDE
+    # NetworkManager; networkd has no .network config on NCZ so
+    # systemd-networkd-wait-online stalls every boot for its full ~120s
+    # timeout. NCZ is NetworkManager-managed — drop the networkd enablement
+    # symlinks (NM + NM-wait-online stay).
+    rm -f /target/etc/systemd/system/multi-user.target.wants/systemd-networkd.service \
+          /target/etc/systemd/system/multi-user.target.wants/networkd-dispatcher.service \
+          /target/etc/systemd/system/sockets.target.wants/systemd-networkd.socket \
+          /target/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service \
+          /target/etc/systemd/system/dbus-org.freedesktop.network1.service 2>/dev/null
     # first-boot oneshot: finish deferred dpkg config (chroot half-configured pkgs
     # e.g. falkon) + regen machine identity, before the display manager.
     mkdir -p /target/usr/local/sbin /target/etc/systemd/system/multi-user.target.wants
@@ -332,16 +433,90 @@ if [ -n "$SQFS_DIR" ]; then
 export DEBIAN_FRONTEND=noninteractive
 dpkg --configure -a 2>/dev/null || true
 [ -s /etc/machine-id ] || systemd-machine-id-setup 2>/dev/null || true
+
+# r177: per-machine hostname ncz-<last-6-hex-of-primary-ethernet-MAC>. The real
+# hardware MAC is authoritative HERE (first boot on the actual box), not at bake
+# time. Only rename when the hostname is still a placeholder/default so a
+# user-chosen name on later boots is never clobbered.
+HOSTNAME_SETTLED=1   # set to 0 to keep the service enabled + retry the derive next boot
+_cur=$(cat /etc/hostname 2>/dev/null | tr -d '[:space:]')
+case "$_cur" in
+    ""|ncz-setup|mini|cixmini|localhost|localhost.localdomain|debian|ubuntu|nclawzero)
+        # Find the primary ethernet MAC. Two passes per attempt: first prefer an
+        # iface with link (carrier=1), else the first eligible ethernet. Retry a
+        # few seconds in case NIC enumeration lags this early oneshot.
+        _pick_mac() {
+            for _pref in 1 0; do
+                for _if in /sys/class/net/*; do
+                    _n=${_if##*/}
+                    case "$_n" in
+                        lo|wl*|ww*|wlan*|docker*|veth*|virbr*|br-*|vmnet*|tap*|tun*|bond*|dummy*|sit*|ip6*) continue ;;
+                    esac
+                    # physical only: must have a backing device, must not be wireless
+                    [ -e "$_if/device" ] || continue
+                    [ -d "$_if/wireless" ] && continue
+                    _m=$(cat "$_if/address" 2>/dev/null)
+                    [ -n "$_m" ] || continue
+                    case "$_m" in 00:00:00:00:00:00) continue ;; esac
+                    if [ "$_pref" = 1 ] && [ "$(cat "$_if/carrier" 2>/dev/null)" != 1 ]; then
+                        continue
+                    fi
+                    printf '%s' "$_m"; return 0
+                done
+            done
+            return 1
+        }
+        _mac=""
+        _try=0
+        while [ "$_try" -lt 15 ]; do
+            _mac=$(_pick_mac) && [ -n "$_mac" ] && break
+            _mac=""; _try=$((_try+1)); sleep 1
+        done
+        _newname=""
+        if [ -n "$_mac" ]; then
+            _h6=$(printf '%s' "$_mac" | tr -d ':' | tr 'A-F' 'a-f' | tail -c 6)
+            [ -n "$_h6" ] && _newname="ncz-$_h6"
+        fi
+        if [ -z "$_newname" ]; then
+            # No eligible ethernet MAC this boot. RETRY on the next few boots so a
+            # slow-to-enumerate NIC eventually names the box; after MAXTRIES fall
+            # back to a machine-id-derived name so it is NEVER stuck as ncz-setup.
+            _bt=$(cat /var/lib/ncz-firstboot-tries 2>/dev/null)
+            case "$_bt" in ''|*[!0-9]*) _bt=0 ;; esac
+            _bt=$((_bt + 1))
+            printf '%s\n' "$_bt" > /var/lib/ncz-firstboot-tries 2>/dev/null || true
+            if [ "$_bt" -lt 3 ]; then
+                HOSTNAME_SETTLED=0
+                echo "ncz-firstboot: no eligible ethernet MAC yet (attempt $_bt) — will retry next boot" >&2
+            else
+                _mid=$(tr -cd '0-9a-f' < /etc/machine-id 2>/dev/null | tail -c 6)
+                [ -n "$_mid" ] && _newname="ncz-$_mid"
+                echo "ncz-firstboot: no ethernet MAC after $_bt boots — machine-id fallback ${_newname:-<none>}" >&2
+            fi
+        fi
+        if [ -n "$_newname" ]; then
+            if command -v hostnamectl >/dev/null 2>&1 && hostnamectl set-hostname "$_newname" 2>/dev/null; then
+                :
+            else
+                printf '%s\n' "$_newname" > /etc/hostname
+                hostname "$_newname" 2>/dev/null || true
+            fi
+            if grep -q '^127\.0\.1\.1' /etc/hosts 2>/dev/null; then
+                sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$_newname/" /etc/hosts
+            else
+                printf '127.0.1.1\t%s\n' "$_newname" >> /etc/hosts
+            fi
+        fi
+        ;;
+esac
+
 # 2026-08-26 first-boot root-mode belt (0700-root incident; see
-# docs/ISO-BUILD-GUARDRAILS.md). NOTE: this script is currently DEAD CODE —
-# partman/late_command is not a real d-i hook; the LIVE extraction path and
-# the LIVE ncz-firstboot are the r159 stub in build-iso-di.sh, which carries
-# the same belt. Kept in sync here so the twins do not diverge further.
-# The belt runs AFTER dpkg --configure -a (package postinsts are the last
-# code before a login screen) and before display-manager.service, correcting
-# a bad / mode before greetd would hit EACCES traversing /. Always emits a
-# NCZ-ROOTMODE marker to kmsg+console so build/kvm-install-gate.sh phase 2
-# can assert the final mode from outside the VM.
+# docs/ISO-BUILD-GUARDRAILS.md). Runs AFTER dpkg --configure -a above (package
+# postinsts are the last code to run before a login screen) and before
+# display-manager.service (unit ordering), so a bad / mode is corrected before
+# greetd would hit EACCES traversing /. Always emits a NCZ-ROOTMODE marker to
+# kmsg+console so build/kvm-install-gate.sh phase 2 can assert the final mode
+# from OUTSIDE the VM via the boot serial capture.
 _rm=$(ls -ld / 2>/dev/null | awk '{print $1}')
 [ -n "$_rm" ] || _rm="???"
 if [ "$_rm" != "drwxr-xr-x" ]; then
@@ -352,8 +527,35 @@ if [ "$_rm" != "drwxr-xr-x" ]; then
 fi
 echo "NCZ-ROOTMODE: $_rm" > /dev/kmsg 2>/dev/null || true
 echo "NCZ-ROOTMODE: $_rm" > /dev/console 2>/dev/null || true
-systemctl disable ncz-firstboot.service 2>/dev/null || true
-touch /var/lib/ncz-firstboot-done
+
+# 2026-09-08 GPU glvnd-compat belt (labwc SIGSEGV / free(): invalid pointer
+# incident, O6N first-boot). post-install/26-gpu-default-mali.sh correctly
+# disables /etc/ld.so.conf.d/01-cixgpu-compat.conf at install time via a
+# rename to .disabled -- but dpkg does not know about that rename, so the
+# dpkg --configure -a above (cix-libglvnd has a deferred/triggered postinst)
+# re-lays-down its shipped default conffile and silently UNDOES the disable
+# on every single fresh install's first boot, before hook 26 or the operator
+# ever gets a chance to notice. Symptom: labwc SIGSEGVs in __eglLoadVendors
+# (cix-libglvnd 1.1.0's ancient glvnd shim fighting the system glvnd 1.7.0 +
+# Mesa 26 stack) on every launch -- greetd start-limit-hits, black screen.
+# Same belt-after-dpkg-configure pattern as the root-mode fix above, for the
+# same reason: package postinsts are the last code to run before the login
+# screen, so re-assert our config choice AFTER them, not just at build time.
+if [ -e /etc/ld.so.conf.d/01-cixgpu-compat.conf ]; then
+    echo "ncz-firstboot: WARNING 01-cixgpu-compat.conf re-appeared after dpkg --configure -a -- disabling again" > /dev/kmsg 2>/dev/null || true
+    mv /etc/ld.so.conf.d/01-cixgpu-compat.conf /etc/ld.so.conf.d/01-cixgpu-compat.conf.disabled 2>/dev/null || true
+    ldconfig 2>/dev/null || true
+fi
+
+# Only finalize (disable + mark done) when the hostname is SETTLED. When we are
+# deliberately retrying the MAC-derive on a later boot (HOSTNAME_SETTLED=0), we
+# leave the service enabled and NOT-done so it runs again — dpkg-configure and
+# machine-id above already ran this boot, and the host will never be permanently
+# stuck as ncz-setup (machine-id fallback after MAXTRIES guarantees a name).
+if [ "${HOSTNAME_SETTLED:-1}" = 1 ]; then
+    systemctl disable ncz-firstboot.service 2>/dev/null || true
+    touch /var/lib/ncz-firstboot-done
+fi
 FBS
     chmod +x /target/usr/local/sbin/ncz-firstboot
     cat > /target/etc/systemd/system/ncz-firstboot.service <<'FBU'
@@ -373,33 +575,22 @@ ExecStart=/usr/local/sbin/ncz-firstboot
 WantedBy=multi-user.target
 FBU
     ln -sf ../ncz-firstboot.service /target/etc/systemd/system/multi-user.target.wants/ncz-firstboot.service
+    [ -e /target/etc/fstab ] || touch /target/etc/fstab
+    : > /target/etc/fstab.orig
+    # r177: deterministic hostname PLACEHOLDER. ncz-firstboot rewrites this to
+    # ncz-<mac6> on first boot (guarded on the placeholder). Baked squashfs may
+    # ship its own /etc/hostname; force the placeholder so the derive always fires.
+    printf 'ncz-setup\n' > /target/etc/hostname
+    [ -e /target/etc/resolv.conf ] || touch /target/etc/resolv.conf
     FINAL_MB=$(du -sm /target 2>/dev/null | awk '{print $1}')
     msg "--- layered squashfs install done: ${FINAL_MB} MB in ${ELAPSED}s (role=$_applied_role) ---"
     echo "[sqfs] DONE ${FINAL_MB}MB role=$_applied_role files=$(find /target -xdev -type f|wc -l)" > $SER 2>&1
     [ -f /target/etc/os-release ] || echo "[sqfs] WARN no os-release" > $SER 2>&1
     touch /target/.cix-r40-rootfs-extracted /target/.cix-squashfs-install
-    # 2026-08-26: MECHANICAL VERIFICATION GATE — root install must be mode 0755.
-    # Why: O6N install shipped with / mode 0700 and silently broke greetd +
-    # NIC + RTC. The corrective chmod above runs right after base extraction;
-    # this assert catches (a) a typo'd chmod in this file, (b) a later step
-    # re-breaking the root mode, (c) a different code path (ROLE=base,
-    # overlay sequence) re-introducing the bad mode. Stand-alone install
-    # safety net the operator requires: this class of bug must FAIL THE
-    # INSTALL LOUDLY here, not surface hours later on real hardware. Must
-    # run AFTER the corrective chmod (so it can't fail on the bug itself),
-    # and must be impossible to silently skip — `exit 1` on mismatch.
-    _ncz_root_mode=$(ls -ld /target 2>/dev/null | awk '{print $1}')
-    [ -n "$_ncz_root_mode" ] || _ncz_root_mode="???"
-    if [ "$_ncz_root_mode" != "drwxr-xr-x" ]; then
-        msg "FATAL: /target root mode is ${_ncz_root_mode}, expected drwxr-xr-x/0755 — refusing to ship a broken install"
-        echo "[sqfs] FATAL /target mode=${_ncz_root_mode} (expected drwxr-xr-x)" > $SER 2>&1
-        exit 1
-    fi
-    msg "verified /target root mode = drwxr-xr-x (0755) (gate OK)"
     exit 0
 fi
 
-
+# Find rootfs.tar.zst on the install media
 ROOTFS=""
 for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
     if [ -f "$d/rootfs.tar.zst" ]; then
