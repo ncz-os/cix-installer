@@ -167,3 +167,5 @@ assets/kernel/amd64-stable/*.deb
 assets/kernel/amd64-edge/*.deb
 build/.sqfs-work/
 build/sinty-out/
+build/disk-image/
+build/rescue-rootfs-amd64/
