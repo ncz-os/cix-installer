@@ -271,8 +271,16 @@ validate_rescue_rootfs_release() {
 # Both used to be WARN+skip in the staging loop below; for the shipping
 # configuration (--mode full) they are now hard failures.
 # netinstall/thin stay permissive (assets install online / by design).
+#
+# 2026-09-15: this whole block is Sky1/arm64-only content (CIX proprietary
+# GPU userspace, sinty-nm (ARM binary), NPU ACPI override, arm64
+# rescue-rootfs.tar.zst) -- gated to NCZ_TARGET_ARCH=arm64 so it doesn't
+# hard-fail an AMD64/forky build looking for assets that don't apply to
+# that arch. AMD64's equivalent asset set (kernel .debs, squashfs layers,
+# rescue-rootfs-amd64.tar.zst) is already verified earlier in the pipeline
+# by preflight-sbom-check.sh's arch-scoped manifest -- see the branch below.
 # ----------------------------------------------------------------------
-if [ "$MODE" = "full" ]; then
+if [ "$MODE" = "full" ] && [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
     # ----------------------------------------------------------------
     # 2026-08-21: restage the three gap categories the build host's
     # $ROOT/assets/ may be missing:
@@ -358,6 +366,18 @@ if [ "$MODE" = "full" ]; then
         echo "  See build/build-npu-ssdt.sh and packaging/cix-npu-driver-dkms-6.2.0/README.md." >&2
         exit 1
     fi
+elif [ "$MODE" = "full" ]; then
+    # AMD64/forky (and any other future non-arm64 arch): the assets this
+    # block guards for arm64 don't apply. Confirm the AMD64-equivalent set
+    # preflight-sbom-check.sh already verified is genuinely present rather
+    # than silently trusting an earlier pass -- a real re-check, not a skip.
+    for f in "assets/kernel/amd64-stable" "assets/kernel/amd64-edge" "assets/rescue/rescue-rootfs-$NCZ_TARGET_ARCH.tar.zst"; do
+        if [ ! -e "$ROOT/$f" ]; then
+            echo "ERROR: $NCZ_TARGET_ARCH full ISO missing required asset: $f (expected already verified by preflight-sbom-check.sh)" >&2
+            exit 1
+        fi
+    done
+    echo "[stage-canonical-assets] skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH -- arm64-only assets don't apply; AMD64 asset set re-confirmed present)"
 fi
 
 # Drift guard: surface kernel/NPU manifest drift (e.g. NPU vermagic != KVER)

@@ -37,7 +37,10 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 . "$REPO/release.conf"
 
 SUITE="${SUITE:-$NCZ_BASE_CODENAME}"
-ARCH="${ARCH:-arm64}"
+# 2026-09-15: was hardcoded "arm64" -- an AMD64 build's own vendor-mirror
+# index got published as (forky/arm64), so build-forky-mirror.sh's
+# [arch=amd64] apt source never resolved anything from it (e.g. Chrome).
+ARCH="${ARCH:-${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}}"
 VENDOR="${VENDOR_MIRROR:-$REPO/build/$SUITE-vendor-mirror}"
 BINDIR="dists/$SUITE/main/binary-$ARCH"
 KERNEL_DEBS="${KERNEL_DEBS:-$REPO/build/kernel-debs}"
