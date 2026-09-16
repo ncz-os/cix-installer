@@ -107,6 +107,21 @@ if [ "$HAS_NVIDIA" = 1 ]; then
         # mode, but confirm the ordering rather than assuming it.
         apt-get install -y cuda-drivers 2>&1 | tail -10
         echo "[54] NVIDIA: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null || echo 'driver installed, nvidia-smi not yet loadable this session (module needs a reboot to bind)')"
+        # cuda-drivers does NOT pull libnvidia-encode1/libnvcuvid1 as
+        # dependencies (confirmed live on CERBERUS, 2026-09-15: driver+CUDA
+        # toolkit fully installed via cuda-drivers, but NVENC failed with
+        # "OpenEncodeSessionEx failed: unsupported device" because these two
+        # packages were simply never installed). Without them stock ffmpeg's
+        # h264_nvenc/hevc_nvenc/av1_nvenc encoders (already compiled into
+        # Debian's ffmpeg package as of trixie 7.1.5 -- no custom ffmpeg
+        # build needed) fail outright. Pin the same driver-version stream
+        # `cuda-drivers` just installed to avoid an ABI-mismatched pull.
+        NV_DRIVER_VER="$(dpkg-query -W -f='${Version}' nvidia-driver 2>/dev/null | cut -d- -f1)"
+        if [ -n "$NV_DRIVER_VER" ]; then
+            apt-get install -y "libnvidia-encode1=${NV_DRIVER_VER}-1" "libnvcuvid1=${NV_DRIVER_VER}-1" 2>&1 | tail -10
+        else
+            apt-get install -y libnvidia-encode1 libnvcuvid1 2>&1 | tail -10
+        fi
     else
         echo "[54] WARN: NVIDIA GPU present but $NV_KEYRING_DEB not staged — skipping NVIDIA stack"
         echo "[54]       stage cuda-keyring_1.1-1_all.deb from developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/ under assets/nvidia/ to fix"

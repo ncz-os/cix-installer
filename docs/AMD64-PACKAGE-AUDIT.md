@@ -249,18 +249,55 @@ list below were addressed; see commit for this pass):
    `build/build-singularity-deb.sh` (applied cleanly despite 7 weeks of
    drift, verified via `git apply --check` before applying) — `ncz-singularity-desktop`
    can now build correctly for amd64.
-2. **Ffmpeg hwaccel — reassessed, not a straight port.** Real finding:
-   Sky1's `ncz-ffmpeg` patch fixes a bug specific to Debian ffmpeg's V4L2
-   multi-planar fourcc handling — unrelated to VAAPI/NVENC codec paths.
-   Debian's stock `ffmpeg` package already ships VAAPI support compiled in,
-   so **Intel/AMD hwaccel needs no custom build at all**. NVIDIA is
+2. **Ffmpeg hwaccel — RESOLVED 2026-09-15, no custom build needed at all
+   for ANY x86 vendor.** The previous version of this finding (below,
+   struck through in substance) claimed NVIDIA needed a custom
+   `--enable-nonfree --enable-nvenc` ffmpeg build. **That was wrong** —
+   verified with real hardware evidence on both PROTEUS (Intel iGPU) and
+   CERBERUS (real RTX 4500 ADA):
+   - Sky1's `ncz-ffmpeg` patch fixes a bug specific to Debian ffmpeg's V4L2
+     multi-planar fourcc handling — unrelated to VAAPI/NVENC codec paths,
+     confirming it doesn't port to x86 (correct in the original finding).
+   - Debian trixie's stock `ffmpeg` package (7:7.1.5-0+deb13u1) ships
+     `h264_nvenc`/`hevc_nvenc`/`av1_nvenc` AND `h264_vaapi`/`hevc_vaapi`/etc.
+     compiled in already — confirmed via `ffmpeg -encoders`. NVENC does NOT
+     require patent-encumbered codec source in ffmpeg itself: it's a thin
+     API wrapper that dlopens the proprietary NVIDIA driver's
+     `libnvidia-encode.so` at runtime, so there's nothing DFSG-restricted
+     for Debian to exclude.
+   - **Intel VAAPI**: real hardware-encode test on PROTEUS
+     (`ffmpeg -vaapi_device /dev/dri/renderD128 ... -c:v h264_vaapi`) —
+     succeeded, real 90-frame output file, correct codec tag.
+   - **NVIDIA NVENC**: real hardware-encode test on CERBERUS
+     (`ffmpeg -c:v h264_nvenc`, 4K60 input) — succeeded, `nvidia-smi
+     --query-gpu=utilization.encoder` measured **52% sustained** during the
+     run (direct GPU counter, not inferred from exit code), 72fps output on
+     4K (faster than realtime).
+   - **Real, separate bug found and fixed**: CERBERUS's `cuda-drivers`
+     install (`post-install/54-gpu-accel.sh`) does NOT pull in
+     `libnvidia-encode1`/`libnvcuvid1` as dependencies — the driver and full
+     CUDA toolkit were installed correctly but NVENC failed outright
+     (`OpenEncodeSessionEx failed: unsupported device`) until these two
+     packages were installed explicitly, pinned to the same driver-version
+     stream. Fixed in `54-gpu-accel.sh` — every future NVIDIA AMD64 install
+     would otherwise hit this. AMD/Intel VAAPI needed no equivalent fix.
+   - **`manifests/desktop-amd64.pkgs` needs no ffmpeg-specific entry at
+     all** — stock `ffmpeg` (already in the manifest generally) covers all
+     three vendors' hwaccel paths out of the box; only the
+     `libnvidia-encode1`/`libnvcuvid1` install-time fix above was needed,
+     and that's install-time-conditional (NVIDIA-only), not a manifest
+     addition.
+
+   Original (incorrect) finding, kept for history: "NVIDIA is
    different: Debian's ffmpeg excludes NVENC for licensing reasons
    (nonfree), so a custom `--enable-nonfree --enable-nvenc` build is
-   genuinely still needed for NVIDIA — but this is a much narrower task
-   than Sky1's patch (no plane-layout work) and a full from-source compile
-   + hardware test is bigger than this pass's scope (no NVIDIA hardware
-   available to verify against in this fork; CERBERUS has a real RTX 4500
-   ADA — test there when attempting this). **Still follow-on, but rescoped**:
+   genuinely still needed for NVIDIA." **This premise was never actually
+   verified against real Debian trixie packages or real hardware** — it
+   was a reasonable-sounding assumption (Debian does exclude some nonfree
+   codecs like `libfdk-aac`/openh264-in-some-contexts) that didn't hold for
+   NVENC specifically. Lesson: verify a "Debian excludes X for licensing"
+   claim against the actual shipped package before treating it as a real
+   gap requiring a custom build.
    only NVIDIA needs a custom `ncz-ffmpeg-amd64-nvenc`-class package; VAAPI
    needs nothing beyond the stock `ffmpeg` package already in the manifest.
 3. **`post-install/52-vivaldi.sh`'s glob is now arch-aware** (same
@@ -289,8 +326,9 @@ list below were addressed; see commit for this pass):
 **Follow-on work, still not attempted:**
 1. Actually stage a real Vivaldi amd64 `.deb` (the hook code is fixed, the
    binary asset isn't fetched yet).
-2. Build the NVIDIA NVENC ffmpeg variant (rescoped smaller per above, but
-   still a real from-source build + hardware test on CERBERUS).
+2. ~~Build the NVIDIA NVENC ffmpeg variant~~ — **DONE, and turned out to be
+   unnecessary**: 2026-09-15, real hardware-verified on CERBERUS. No custom
+   ffmpeg build needed for any x86 vendor; see finding #2 above.
 3. Resolve the ARGOS-vs-PROTEUS/CERBERUS build-host divergence from
    `docs/BUILD-HOSTS.md`'s original amd64 plan (not this audit's scope).
 4. **Still BLOCKING**: `installer-base-amd64.pkgs`'s "NCZ kernel channels"
