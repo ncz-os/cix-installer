@@ -77,16 +77,16 @@ wheels when they differ).
 ## A real, working example: the MNEMOS embedding server
 
 NCZ-OS ships a real, validated NPU workload: an OpenAI-compatible
-`/v1/embeddings` server backed by a NOE-compiled embedding model, used by
-MNEMOS (the fleet's memory server) for local, hardware-accelerated
-embedding generation instead of calling out to a cloud API.
+`/v1/embeddings` server backed by a NOE-compiled embedding model — useful
+for any application that wants local, hardware-accelerated embedding
+generation instead of calling out to a cloud API.
 
 - **Model**: `nomic-embed-text-v1.5`, compiled to a NOE graph with a fixed
   **256-token** max sequence length — `/opt/ncz/models/nomic-embed-text-v1.5_256.cix`
 - **Output**: 768-dimensional vectors
 - **Accuracy, measured**: cosine similarity **0.995330** against the
   onnxruntime CPU reference implementation on the same input — validated
-  on real O6N hardware, 2026-08-05
+  on a real Radxa Orion O6 board
 - **Throughput, measured**: **8.9 inferences/second** (112ms per call).
   Not fast in absolute terms, but every query runs entirely on-device with
   no network round-trip.
@@ -127,7 +127,6 @@ CIX's own model repository and toolkit for their SoCs:
 
 - **Public upstream**: https://github.com/cixtech/ai_model_hub
 - **Radxa's own docs for this on the O6 board**: https://docs.radxa.com/en/orion/o6/app-development/artificial-intelligence/ai-hub
-- **Staged copy**: ARGONAS `/mnt/datapool/projects/cix-ai-model-hub/latest/` (and a dated `25_Q3/` snapshot)
 
 Directory layout:
 
@@ -216,6 +215,5 @@ classes) are not the same thing.
 | Reference service | `ncz-npu-embed.service` → `127.0.0.1:8081/v1/embeddings` |
 | CIX AI Model Hub (public upstream) | https://github.com/cixtech/ai_model_hub |
 | CIX AI Model Hub (Radxa O6 docs) | https://docs.radxa.com/en/orion/o6/app-development/artificial-intelligence/ai-hub |
-| CIX AI Model Hub (staged copy) | ARGONAS `/mnt/datapool/projects/cix-ai-model-hub/latest/` |
 | CIX-optimized llama.cpp (on-device, prebuilt) | `/usr/share/cix/bin/llama-cli` |
 | CIX-optimized MNN (on-device, prebuilt) | `/usr/share/cix/bin/mnn/llm_demo` |
