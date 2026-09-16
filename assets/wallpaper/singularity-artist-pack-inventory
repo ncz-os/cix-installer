@@ -151,7 +151,7 @@ def main() -> int:
     try:
         sources = [source.rstrip("/") for source in configured_sources()]
     except RuntimeError as exc:
-        print(f"ncz-wallpaper-pack-inventory: {exc}", file=sys.stderr)
+        print(f"singularity-artist-pack-inventory: {exc}", file=sys.stderr)
         return 1
     if not sources:
         print("[]")
@@ -163,10 +163,10 @@ def main() -> int:
             capture_output=True, text=True, timeout=20, env=ENV,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"ncz-wallpaper-pack-inventory: apt-cache search failed: {exc}", file=sys.stderr)
+        print(f"singularity-artist-pack-inventory: apt-cache search failed: {exc}", file=sys.stderr)
         return 1
     if proc.returncode != 0:
-        print(f"ncz-wallpaper-pack-inventory: apt-cache search exited {proc.returncode}: "
+        print(f"singularity-artist-pack-inventory: apt-cache search exited {proc.returncode}: "
               f"{proc.stderr.strip()}", file=sys.stderr)
         return 1
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Install one Artist Pack .deb package. MUST run as root (via pkexec).
 
-Invoked as:  pkexec /usr/local/bin/ncz-wallpaper-pack-install <package> <source>
+Invoked as:  pkexec /usr/local/bin/singularity-artist-pack-install <package> <source>
 
 `package` and `source` come from the desktop UI (singularity-shell's
 ArtistPackManager.install_async()), which already reported this exact
-(package, source) pair from a prior ncz-wallpaper-pack-inventory call. This
+(package, source) pair from a prior singularity-artist-pack-inventory call. This
 script does NOT trust that pairing -- it is the actual security boundary,
 and independently re-derives and re-checks everything before touching apt:
 
@@ -35,13 +35,13 @@ import sys
 import stat
 
 PACKAGE_PATTERN = re.compile(r"^ncz-wallpapers-[a-z0-9][a-z0-9-]*$")
-LOCK_PATH = "/run/lock/ncz-wallpaper-pack-install.lock"
+LOCK_PATH = "/run/lock/singularity-artist-pack-install.lock"
 ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C", "LANG": "C",
        "DEBIAN_FRONTEND": "noninteractive"}
 
 
 def die(message: str) -> int:
-    print(f"ncz-wallpaper-pack-install: {message}", file=sys.stderr)
+    print(f"singularity-artist-pack-install: {message}", file=sys.stderr)
     return 1
 
 
@@ -193,7 +193,7 @@ def main(argv: list[str]) -> int:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)
 
-    print(f"ncz-wallpaper-pack-install: installed {package}")
+    print(f"singularity-artist-pack-install: installed {package}")
     return 0
 
 
