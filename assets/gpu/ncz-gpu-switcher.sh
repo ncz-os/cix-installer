@@ -234,7 +234,20 @@ driver_available() {
 
 userspace_mali() {
     enable_file "$LD_PRO"
-    enable_file "$LD_COMPAT"
+    # LD_COMPAT (01-cixgpu-compat.conf) is DELIBERATELY NEVER TOUCHED HERE.
+    # BUG FIXED 2026-09-16 (real, metal-verified on O6N): this used to
+    # enable_file it on every boot, which directly undid
+    # post-install/26-gpu-default-mali.sh's own, deliberate, extensively
+    # metal-verified (2026-09-04) decision to leave it disabled --
+    # /opt/cixgpu-compat is a COMPLETE second GL stack (cix-libglvnd 1.7.0
+    # + cix-mesa 24.0.4) that conflicts with the system's real glvnd/Mesa
+    # 26.x + GTK 4.22, and that hook's own header documents the exact
+    # failure mode re-enabling it causes: "Could not initialize EGL
+    # display" / labwc SIGSEGV inside libEGL's __eglLoadVendors, greetd
+    # start-limit-hit, black screen. This switcher was reintroducing that
+    # exact regression every single boot regardless of what the build
+    # baked in. Leave LD_COMPAT in whatever state 26-gpu-default-mali.sh
+    # set at install time -- this switcher has no business overriding it.
     enable_file "$ICD_MALI"
     # WSI implicit layer stays disabled: unverified against our blob revision,
     # and VK_DRIVER_FILES already handles ICD discovery explicitly.
@@ -269,7 +282,10 @@ userspace_panthor() {
     # Mesa in ld.so.conf order, so leaving it enabled means libEGL.so.1 still
     # resolves into /opt/cixgpu-* and abort()s hunting for /dev/mali0.
     disable_file "$LD_PRO"
-    disable_file "$LD_COMPAT"
+    # LD_COMPAT: not touched here either -- see userspace_mali()'s comment.
+    # This was already correctly a no-op in practice (26-gpu-default-mali.sh
+    # leaves it disabled at build time), kept out of both functions now for
+    # symmetry and so neither GPU mode can ever re-enable it again.
     disable_file "$ICD_MALI"
     disable_file "$WSI_LAYER"
     enable_file "$MESA_DEVSEL"
