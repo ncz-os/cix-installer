@@ -134,6 +134,25 @@ run_refind_amd64() {
     install -D -m 0755 "$SHARED_SRC" "$SHARED_DST"
     echo "  installed shared refresh script -> $SHARED_DST"
 
+    # Standard Debian /etc/kernel/postinst.d/ hook so a future `apt upgrade`
+    # of either kernel line regenerates refind.conf -- the same hookpoint
+    # grub-efi-amd64 used to provide via its own postinst.d script
+    # (update-grub), now that AMD64 boots rEFInd instead. Real target now
+    # that both kernel lines are actually published to a real apt repo
+    # (2026-09-16, ncz-apt via ncz-reprepro-publish.sh) -- see
+    # assets/refind/zz1-ncz-refind-refresh-amd64's own header for why this
+    # is simpler than arm64's cixmini-boot-redirect equivalent
+    # (11-fix-cixmini-boot.sh): AMD64 has no special-cased kernel package to
+    # redirect, just the plain standard hookpoint to use.
+    HOOK_SRC="$INSTALLER_META/assets/refind/zz1-ncz-refind-refresh-amd64"
+    HOOK_DST=/etc/kernel/postinst.d/zz1-ncz-refind-refresh-amd64
+    if [ -s "$HOOK_SRC" ]; then
+        install -D -m 0755 "$HOOK_SRC" "$HOOK_DST"
+        echo "  installed kernel postinst.d hook -> $HOOK_DST"
+    else
+        echo "  WARN: $HOOK_SRC missing -- future apt kernel upgrades will NOT regenerate refind.conf"
+    fi
+
     export KVER_STABLE KVER_EDGE BUILD_VERSION NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME
     "$SHARED_DST"
 }
