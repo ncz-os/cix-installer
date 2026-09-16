@@ -203,11 +203,24 @@ mv "$PKG_LIST.filtered" "$PKG_LIST"
 # live-network build -- never a silent mix of both.
 MIRROR_MOUNTS=()
 MIRROR_LIST_LINES=""
+SANDBOX_TREE_LINES=""
 for m in $MIRROR_DIRS; do
     [ -d "$ROOT/build/$m/dists/$APT_SUITE" ] || continue
     MIRROR_MOUNTS+=(-v "$ROOT/build/$m:/mnt/$m:ro,Z")
     MIRROR_LIST_LINES="$MIRROR_LIST_LINES
 deb [trusted=yes] file:///mnt/$m $APT_SUITE $APT_COMPONENTS"
+    # mkosi runs apt inside its OWN inner build sandbox (bubblewrap), separate
+    # from this outer podman container -- the -v bind mount above only makes
+    # /mnt/$m visible to the OUTER container, not to mkosi's inner sandbox
+    # where apt actually executes. Without an explicit SandboxTrees= entry,
+    # the offline sources.list.d file we just wrote points at a path
+    # (file:///mnt/$m/...) that genuinely does not exist from apt's point of
+    # view, even though it is real and populated one container layer out.
+    # Confirmed by direct reproduction: the identical outer bind mount works
+    # fine under a bare "podman run ... ls /mnt/$m"; only mkosi's own build
+    # step (apt-get update inside its inner sandbox) fails to see it.
+    SANDBOX_TREE_LINES="$SANDBOX_TREE_LINES
+SandboxTrees=/mnt/$m:/mnt/$m"
 done
 
 if [ -n "$MIRROR_LIST_LINES" ]; then
@@ -322,6 +335,7 @@ Bootable=no
 BaseTrees=/base
 CleanPackageMetadata=no
 PackageManagerTrees=/pkgmgr
+$(printf '%s\n' "$SANDBOX_TREE_LINES" | sed '/^$/d')
 PostInstallationScripts=save-dpkg-status.sh
 PostOutputScripts=restore-dpkg-status.sh
 Packages=
