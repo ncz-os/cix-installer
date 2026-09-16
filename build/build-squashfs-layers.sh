@@ -760,7 +760,14 @@ ensure_base_tarball_fresh(){
   # as the invoking user -- running it under sudo would use root's podman
   # storage/config instead of this user's, which is a different (and here,
   # unpopulated) container storage backend.
-  bash "$gen" || { log "ERROR: base-rootfs regeneration failed"; exit 1; }
+  # Forward NCZ_TARGET_ARCH and the resolved BASE_TARBALL path -- without
+  # these, build-base-rootfs.sh falls back to its own arm64-only defaults
+  # (ARCH=${4:-arm64}, OUT filename hardcoded -arm64.tar.zst) regardless of
+  # NCZ_TARGET_ARCH, silently producing an arm64 tarball under an amd64 run.
+  # Found 2026-09-15 rebuilding the amd64 forky ISO: the regen step exited 0
+  # having written rootfs-forky-arm64.tar, then failed the existence check
+  # below because BASE_TARBALL correctly expected the -amd64 name.
+  bash "$gen" "" "$BASE_TARBALL" "" "$NCZ_TARGET_ARCH" || { log "ERROR: base-rootfs regeneration failed"; exit 1; }
   [ -f "$BASE_TARBALL" ] || { log "ERROR: $gen ran but did not produce $BASE_TARBALL"; exit 1; }
 }
 
