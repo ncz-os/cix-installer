@@ -283,8 +283,26 @@ if [ -n "$KVER_NEXT" ]; then
         [ -e "$_esp_k" ] || continue
         case "$_esp_k" in *-rescue) continue ;; esac
         _out_kver=${_esp_k##*/vmlinuz-}
-        # Never promote the kernel we are about to stage: that is not a fallback.
-        [ "$_out_kver" = "$KVER_NEXT" ] && continue
+        # Never promote the kernel we are about to stage: that is not a
+        # fallback. BUG FIXED 2026-09-16 (real, metal-verified on O6N): this
+        # used to check ONLY against KVER_NEXT, never KVER_EDGE -- so on any
+        # regen where both lines were already staged, the loop's glob order
+        # (/boot/efi/vmlinuz-* sorts "7.2..." before "7.3...") meant the EDGE
+        # kernel (not matching KVER_NEXT) got promoted to -rescue. The
+        # resulting "RESCUE" menu entry then booted the edge kernel BINARY
+        # but with the Mali entry's OWN cmdline options (the rescue-entry
+        # generator below always uses $MALI_OPTIONS regardless of which
+        # kernel it's rescuing) -- i.e. requesting sky1.gpu=vendor on a
+        # kernel with no Mali/Panthor DKMS built for its own KVER (a known,
+        # separately-flagged gap for the edge line), which silently fell
+        # back to software-rendered Mesa instead of failing outright.
+        # Reported symptom: "7.3 is listed as a rescue kernel when it
+        # should not be" + "the rescue entry boots but GUI is software
+        # only" -- both explained by this one root cause.
+        case "$_out_kver" in
+            "$KVER_NEXT") continue ;;
+            "$KVER_EDGE") [ -n "$KVER_EDGE" ] && continue ;;
+        esac
         [ -s "$_esp_k" ] || continue
         [ -s "/boot/efi/initrd.img-$_out_kver" ] || {
             echo "  WARN: not promoting $_out_kver to rescue -- its initrd is missing on the ESP"
