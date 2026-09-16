@@ -174,16 +174,23 @@ sed 's/#.*//' "$MANIFEST" | sed -E 's/[[:space:]]+$//' | grep -vE '^[[:space:]]*
 
 # google-chrome-stable has no source anywhere in mkosi's sandboxed apt pass
 # by design -- it ships from Google's own dl.google.com repo, deliberately
-# wired ONLY by post-install/53-chrome.sh + installed by 20-desktop.sh in a
-# real, network-connected chroot AFTER this delta build finishes (operator
-# directive 2026-07-29: keep Google's apt repo enabled on the installed
-# system so Chrome self-updates from Google directly, forever -- staging a
-# pinned build-time copy inside this sandbox would defeat that). It stays
-# listed in the manifest FILE (SBOM/preflight tooling reads that), just not
-# passed to mkosi's own apt-get here. Confirmed empirically 2026-09-14: with
-# a real, working apt index (Debian forky + NCZ Buildkite/R2), every OTHER
-# manifest-listed package resolves fine -- this is the one genuine,
-# by-design exception, not a source-wiring bug.
+# excluded here and installed instead by post-install/53-chrome.sh in the
+# LATER brand-hook loop chroot (build_layer(), after this script returns).
+# That loop is STILL offline-mirror-pinned (apt_offline($MG)), not live
+# internet -- the "real, network-connected chroot" framing in an earlier
+# version of this comment was aspirational and wrong; correcting it
+# 2026-09-16 after finding 53-chrome.sh never actually ran the install (see
+# that file's own 2026-09-16 fix note). What actually makes this work is
+# that build-vendor-mirror.sh fetches + pins + SHA256-verifies a real
+# google-chrome-stable .deb into the SAME offline mirror this sandbox reads,
+# so a later apt-get install against that mirror resolves fine even without
+# live internet. The exclusion here just keeps it out of THIS pass (mkosi's
+# own Packages=/overlay-dedup machinery), not out of the offline mirror
+# itself. It stays listed in the manifest FILE (SBOM/preflight tooling reads
+# that), just not passed to mkosi's own apt-get here. Confirmed empirically
+# 2026-09-14: with a real, working apt index (Debian forky + NCZ
+# Buildkite/R2), every OTHER manifest-listed package resolves fine -- this
+# is the one genuine, by-design exception, not a source-wiring bug.
 # grep -v returns exit 1 (not just "no matches removed") when its OUTPUT is
 # empty -- if this exclusion ever left nothing behind, `&&` would skip the
 # mv and silently ship the UNFILTERED list (Chrome included) instead of
