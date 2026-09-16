@@ -201,7 +201,18 @@ if [ -n "$KVER_STABLE" ]; then
         [ -e "$_esp_k" ] || continue
         case "$_esp_k" in *-rescue) continue ;; esac
         _out_kver=${_esp_k##*/vmlinuz-}
-        [ "$_out_kver" = "$KVER_STABLE" ] && continue
+        # Never promote either kernel we're about to stage. Fixed 2026-09-16
+        # before this ever shipped: the arm64 script this was copied from had
+        # exactly this bug checking ONLY the primary (KVER_NEXT there,
+        # KVER_STABLE here) line, never the second (edge) line -- metal-
+        # verified real-world symptom on O6N: the edge kernel got promoted
+        # to -rescue whenever both lines were already staged, and its
+        # RESCUE menu entry then booted the edge kernel binary using the
+        # STABLE entry's own cmdline options.
+        case "$_out_kver" in
+            "$KVER_STABLE") continue ;;
+            "$KVER_EDGE") [ -n "$KVER_EDGE" ] && continue ;;
+        esac
         [ -s "$_esp_k" ] || continue
         [ -s "/boot/efi/initrd.img-$_out_kver" ] || {
             echo "  WARN: not promoting $_out_kver to rescue -- its initrd is missing on the ESP"
