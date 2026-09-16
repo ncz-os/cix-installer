@@ -41,7 +41,19 @@ install -d /var/cache/ncz-wallpapers/bing
 chmod 1777 /var/cache/ncz-wallpapers/bing
 
 OCS_ASSETS=/usr/local/lib/cix-installer/assets/wallpaper
-for helper in ncz-wallpaper-pack-inventory ncz-wallpaper-pack-install; do
+# 2026-09-16 real fix: renamed from ncz-wallpaper-pack-{install,inventory} to
+# match singularity-shell's ArtistPackManager.vala, which expects
+# /usr/local/bin/singularity-artist-pack-{install,inventory} -- the generic,
+# distro-neutral naming its own contribution guidelines require (no
+# NCZ-specific leakage into upstream code). This side had drifted out of
+# sync with that rename: the helpers, and the polkit policy's internal
+# exec.path, were still staged under the old ncz-wallpaper-pack-* names,
+# so ArtistPackManager.is_available() always returned false and Artist
+# Pack install silently could never work regardless of which desktop
+# build was running -- confirmed live on O6N (2026-09-16): the apt
+# packages themselves installed fine by hand, only the UI's own trigger
+# path was broken.
+for helper in singularity-artist-pack-inventory singularity-artist-pack-install; do
     if [ -x "$OCS_ASSETS/$helper" ]; then
         install -m 0755 "$OCS_ASSETS/$helper" "/usr/local/bin/$helper"
         echo "[45]   installed Artist Pack backend: $helper"
