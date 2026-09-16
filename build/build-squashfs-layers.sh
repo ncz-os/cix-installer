@@ -1119,6 +1119,68 @@ ExecStartPre=/usr/sbin/sshd -t
 # is honest and explicitly documented (this header comment + commit
 # message + build log line below).
 # ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
+# build_singularity_payload() — rebuild ncz-singularity-desktop from CURRENT
+# upstream head, unconditionally, before anything downstream consumes it.
+#
+# Real gap this closes (operator, 2026-09-16, after a shipped arm64 ISO
+# turned out to carry a singularity-desktop build 158 commits behind
+# upstream and missing a full set of already-merged/queued fixes): this
+# pipeline had a fully-working, reproducible build script for the payload
+# (build-singularity.sh, already defaulting SRC_REF=master i.e. current
+# head) and a working packager (build-singularity-deb.sh) -- but NOTHING
+# ever called them. build_hotfix()'s own error message, right below,
+# literally told a human to run both by hand and copy the .deb into
+# assets/cix-debs/ "then retry" -- a manual step nobody was reliably
+# doing every pipeline run, so whatever .deb happened to be sitting there
+# from a past session just kept getting reused, silently, forever.
+#
+# Fix: build fresh, every single pipeline invocation that touches the
+# desktop/hotfix layers -- no "if missing" check, no staleness heuristic.
+# This is the same doctrine the rest of this pipeline already applies to
+# the base rootfs and mkosi role deltas (rebuild from source every run,
+# trust no cache) -- singularity-desktop was the one artifact still
+# exempted from it, and that exemption is exactly what went stale.
+#
+# NOT arch-gated beyond what build-singularity.sh/build-singularity-deb.sh
+# already handle themselves (native container platform + dpkg
+# --print-architecture-derived ARCH) -- this runs identically on the
+# arm64 (ULTRA) and amd64 (PROTEUS) build hosts.
+build_singularity_payload(){
+  log "SINGULARITY: rebuilding ncz-singularity-desktop from current upstream head"
+  local _sinty_out="$ROOT/build/sinty-out"
+  local _tgz="$_sinty_out/singularity-opt.tgz"
+  rm -f "$_tgz"
+  OUT="$_sinty_out" SINGULARITY_IMAGE="debian:${NCZ_BASE_CODENAME}" \
+    bash "$ROOT/build/build-singularity.sh" || {
+      log "ERROR: build-singularity.sh failed -- refusing to fall back to a stale .deb"
+      exit 1
+    }
+  [ -s "$_tgz" ] || {
+    log "ERROR: build-singularity.sh reported success but $_tgz is missing/empty"
+    exit 1
+  }
+  local _deb
+  _deb="$(NCZ_SINGULARITY_ARCH="$NCZ_TARGET_ARCH" OUT="$_sinty_out" \
+    bash "$ROOT/build/build-singularity-deb.sh" "$_tgz" | tee /dev/stderr | \
+    sed -n 's/^Final \.deb: //p')"
+  [ -n "$_deb" ] && [ -s "$_deb" ] || {
+    log "ERROR: build-singularity-deb.sh did not produce a usable .deb"
+    exit 1
+  }
+  # Remove EVERY existing ncz-singularity-desktop .deb in assets/cix-debs/
+  # first -- not just the one build_hotfix()'s -V sort would have picked.
+  # A stale SECOND .deb left behind (a different version string, an older
+  # arch build) is exactly the kind of thing that silently wins a future
+  # sort-by-version comparison if this fresh one is ever missing for any
+  # reason; the directory should hold exactly one, always the one just
+  # built.
+  rm -f "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb
+  install -m 0644 "$_deb" "$ROOT/assets/cix-debs/"
+  log "SINGULARITY: staged $(basename "$_deb") -> assets/cix-debs/ (fresh, from head)"
+}
+
 build_hotfix(){
   log "HOTFIX: stage ncz-singularity-desktop /opt/singularity + /etc/ld.so.conf.d/singularity.conf"
   # Pick the LATEST ncz-singularity-desktop .deb from assets/cix-debs/ by version
@@ -1222,11 +1284,11 @@ HOTFIX_MANIFEST
 
 case "$STAGE" in
   base)    build_base ;;
-  desktop) build_layer desktop "$DESKTOP_MANIFEST" ;;
-  hotfix)  build_hotfix ;;
+  desktop) build_singularity_payload; build_layer desktop "$DESKTOP_MANIFEST" ;;
+  hotfix)  build_singularity_payload; build_hotfix ;;
   server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
            echo "       Boot the console entry (multi-user.target) instead." >&2
            exit 1 ;;
-  all)     build_base; build_layer desktop "$DESKTOP_MANIFEST"; build_hotfix ;;
+  all)     build_base; build_singularity_payload; build_layer desktop "$DESKTOP_MANIFEST"; build_hotfix ;;
   *) echo "usage: $0 base|desktop|hotfix|server|all"; exit 2 ;;
 esac
