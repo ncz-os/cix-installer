@@ -5,18 +5,21 @@ NCZ-OS wires up its Python runtime, and a real worked example. Every claim
 here traces to a file in this repo or a measurement taken on real hardware
 — nothing here is generic Zhouyi/NOE documentation restated from memory.
 
-## The hard constraint: fixed-shape models only, not LLMs
+## The hard constraint: fixed-shape models only on the NOE/Zhouyi path
 
 The Zhouyi NPU's compiler (NOE — Neural Operator Engine) bakes tensor
 input/output shapes into the compiled graph at **compile time**. There is
-no dynamic-shape support. This is why it can run something like a
-text-embedding model (fixed max sequence length, fixed output dimension)
-but cannot run an LLM (variable-length input, variable-length generation —
-the exact case NOE's ahead-of-time compilation model doesn't support).
+no dynamic-shape support on this specific hardware path. This is why it
+can run something like a text-embedding model (fixed max sequence length,
+fixed output dimension) or the vision/audio models in CIX's own model
+hub, but not an LLM's variable-length generation loop directly on NOE.
 
 If you're coming from GPU inference where shapes are usually flexible at
-runtime, this is the one thing to unlearn: for the NPU, the shape is part
-of the compiled artifact, not a runtime parameter.
+runtime, this is the one thing to unlearn: for NOE, the shape is part of
+the compiled artifact, not a runtime parameter. **This is a constraint of
+the NOE compiler path specifically, not of the SoC's AI capability as a
+whole** — see the LLM/VLM section below for how Sky1 actually runs LLMs,
+via a different runtime entirely.
 
 ## The Python runtime: why a dedicated 3.12 venv is mandatory, not a preference
 
@@ -118,23 +121,92 @@ through `NOE_Engine` inside the `/opt/ncz/noe-venv` interpreter, and serve
 it however fits your use case (the embed server wraps it in an HTTP API;
 a batch script could just call it directly).
 
-## "The CIX model hub"
+## The CIX AI Model Hub — the real thing, and where LLMs actually run
 
-If you've been pointed at "the CIX model hub" for getting models onto the
-NPU and are stuck — **we could not find any reference to this in this
-repository, in MNEMOS, or on live NCZ-OS systems.** It may be a real,
-separate CIX vendor tool or portal that exists outside what this project
-tracks, but we can't confirm what it is or how it's meant to be used from
-what's documented here. If you have a link or more context on what it
-actually is, that would help close this gap for real rather than guessing
-at it.
+**Correction to an earlier draft of this guide**: "the CIX model hub" is
+real. It's CIX's own model repository and toolkit for their SoCs:
 
-What we *can* confirm works, end to end, on real hardware, is the path
-above: compile your model to a fixed-shape `.cix` graph (via CIX's NOE
-compiler toolchain — the compilation step itself is not covered by this
-guide, only the runtime side that NCZ-OS packages), place it under
-`/opt/ncz/models/`, and load it through `NOE_Engine` inside
-`/opt/ncz/noe-venv`.
+- **Public upstream**: https://github.com/cixtech/ai_model_hub
+- **Radxa's own docs for this on the O6 board**: https://docs.radxa.com/en/orion/o6/app-development/artificial-intelligence/ai-hub
+- **A copy is staged on ARGONAS**: `/mnt/datapool/projects/cix-ai-model-hub/latest/` (and a dated `25_Q3/` snapshot)
+
+Real directory layout, confirmed from the ARGONAS copy:
+
+```
+ai_model_hub/
+├── models/
+│   ├── Audio/            # Speech_Recognition, Speaker_Verification, TTS
+│   ├── ComputeVision/    # Object_Detection, OCR, Face_Recognition/Detection,
+│   │                     # Pose_Estimation, Semantic_Segmentation, Depth_Estimation,
+│   │                     # Super_Resolution, Lane_Detection, BEV, Body_Analysis, ...
+│   ├── Generative_AI/    # Text_Image_Search, Image_to_Text, Text_to_Image, LLM
+│   └── MultiModal/       # VLM
+├── demos/                # Gradio/Streamlit demo .deb packages
+├── datasets/             # ImageNet/COCO/VOC download+prep scripts
+├── utils/                # shared postprocessing/eval/plotting
+├── scripts/              # LLM/VLM build, quantization, eval scripts
+├── LLM_README.md         # the LLM/VLM-specific workflow (see below)
+├── README.md / README_EN.md
+├── ReleaseNote.md, EULA.md, LICENSE (Apache-2.0 for the hub itself;
+│                                      EULA.md governs the models/software)
+```
+
+**Each non-LLM model directory follows the pattern this guide already
+described**: `inference_npu.py` runs the compiled `.cix` binary on the
+real Zhouyi NOE hardware path (fixed input/output shape, exactly the
+constraint above); `inference_onnx.py` runs the same model via ONNX
+Runtime on host or device for comparison. Demos install as ordinary
+`.deb` packages (e.g. `sudo dpkg -i ai-demo-manager_1.0.6_arm64.deb`,
+landing under `/opt/<demo-name>/`).
+
+### LLM/VLM specifically: this is the real correction
+
+**LLM/VLM inference on Sky1 does NOT go through the NOE/Zhouyi NPU
+compiler path at all** — the fixed-shape limitation above is real and
+still applies to NOE specifically, but the SoC still runs real LLMs, just
+via a different, CPU/GPU-based runtime that CIX ships prebuilt on the
+device:
+
+- **`llama.cpp`**, CIX SoC-hardware-optimized build, already installed at
+  **`/usr/share/cix/bin/llama-cli`**
+- **`MNN`**, already installed at **`/usr/share/cix/bin/mnn/llm_demo`**,
+  with a CPU backend and a GPU (OpenCL) backend
+
+The real workflow (from `LLM_README.md`, confirmed against the staged
+copy):
+
+**On an x86 host** (build tools, convert, quantize):
+```sh
+# build llama.cpp per scripts/llm-gen/build_tools.sh in the model hub repo
+cd llama.cpp
+pip install -r requirements.txt
+python3 convert_hf_to_gguf.py <MODEL_DIR>
+./build/bin/llama-quantize <MODEL_DIR>/<F16_GGUF> <MODEL_ID>-Q4_0.gguf Q4_0
+scp <MODEL_ID>-Q4_0.gguf user@board:/path/to/models/
+```
+
+**On the edge device** (real inference, real benchmarking):
+```sh
+taskset -c 0,5,6,7,8,9,10,11 llama-cli -m <MODEL_ID>-Q4_0.gguf -c 4096 -t 8 --conversation
+taskset -c 0,5,6,7,8,9,10,11 llama-bench -m <MODEL_ID>-Q4_0.gguf -pg 128,128 -t 8
+```
+
+MNN follows the same host-converts/device-runs shape, with its own
+export/quantize step (`llmexport.py --export mnn --quant_bit 4`) and a
+GPU-backed path — set `"backend_type": "OpenCL"` in the exported
+`config.json` to run on-device GPU instead of CPU:
+```sh
+taskset -c 0,9,10,11 /usr/share/cix/bin/mnn/llm_demo <MODEL_ID>-mnn/config.json prompt.txt
+```
+
+**So, concretely, when someone asks "can I run an LLM on the Sky1 NPU"**:
+the honest answer is "not on the NOE/Zhouyi hardware path — that's
+fixed-shape and can't do it — but yes, on the same board, via
+`llama.cpp`/`MNN` running on CPU or the GPU's OpenCL backend, and CIX
+ships both prebuilt." Don't conflate "the NPU" (NOE) with "the SoC's AI
+capability as a whole" (NOE + CPU + GPU, each suited to different model
+classes) — that conflation is what produced the too-broad "no LLMs at
+all" claim in an earlier draft of this guide.
 
 ## Quick reference
 
@@ -147,3 +219,8 @@ guide, only the runtime side that NCZ-OS packages), place it under
 | Kernel device node | `/dev/aipu` (independent of the Python stack — the kernel driver and device work even if the venv is broken; you only lose Python-level inference) |
 | Reference embedding model | `/opt/ncz/models/nomic-embed-text-v1.5_256.cix` (256-token fixed shape, 768-dim output) |
 | Reference service | `ncz-npu-embed.service` → `127.0.0.1:8081/v1/embeddings` |
+| CIX AI Model Hub (public upstream) | https://github.com/cixtech/ai_model_hub |
+| CIX AI Model Hub (Radxa O6 docs) | https://docs.radxa.com/en/orion/o6/app-development/artificial-intelligence/ai-hub |
+| CIX AI Model Hub (staged copy) | ARGONAS `/mnt/datapool/projects/cix-ai-model-hub/latest/` |
+| CIX-optimized llama.cpp (on-device, prebuilt) | `/usr/share/cix/bin/llama-cli` |
+| CIX-optimized MNN (on-device, prebuilt) | `/usr/share/cix/bin/mnn/llm_demo` |
