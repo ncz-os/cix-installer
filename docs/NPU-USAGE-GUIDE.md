@@ -121,16 +121,15 @@ through `NOE_Engine` inside the `/opt/ncz/noe-venv` interpreter, and serve
 it however fits your use case (the embed server wraps it in an HTTP API;
 a batch script could just call it directly).
 
-## The CIX AI Model Hub — the real thing, and where LLMs actually run
+## The CIX AI Model Hub
 
-**Correction to an earlier draft of this guide**: "the CIX model hub" is
-real. It's CIX's own model repository and toolkit for their SoCs:
+CIX's own model repository and toolkit for their SoCs:
 
 - **Public upstream**: https://github.com/cixtech/ai_model_hub
 - **Radxa's own docs for this on the O6 board**: https://docs.radxa.com/en/orion/o6/app-development/artificial-intelligence/ai-hub
-- **A copy is staged on ARGONAS**: `/mnt/datapool/projects/cix-ai-model-hub/latest/` (and a dated `25_Q3/` snapshot)
+- **Staged copy**: ARGONAS `/mnt/datapool/projects/cix-ai-model-hub/latest/` (and a dated `25_Q3/` snapshot)
 
-Real directory layout, confirmed from the ARGONAS copy:
+Directory layout:
 
 ```
 ai_model_hub/
@@ -159,12 +158,11 @@ Runtime on host or device for comparison. Demos install as ordinary
 `.deb` packages (e.g. `sudo dpkg -i ai-demo-manager_1.0.6_arm64.deb`,
 landing under `/opt/<demo-name>/`).
 
-### LLM/VLM specifically: this is the real correction
+### LLM/VLM inference
 
-**LLM/VLM inference on Sky1 does NOT go through the NOE/Zhouyi NPU
-compiler path at all** — the fixed-shape limitation above is real and
-still applies to NOE specifically, but the SoC still runs real LLMs, just
-via a different, CPU/GPU-based runtime that CIX ships prebuilt on the
+LLM/VLM inference on Sky1 does not go through the NOE/Zhouyi NPU compiler
+path — the fixed-shape limitation above applies to NOE specifically. LLMs
+run via a separate, CPU/GPU-based runtime that CIX ships prebuilt on the
 device:
 
 - **`llama.cpp`**, CIX SoC-hardware-optimized build, already installed at
@@ -199,14 +197,11 @@ GPU-backed path — set `"backend_type": "OpenCL"` in the exported
 taskset -c 0,9,10,11 /usr/share/cix/bin/mnn/llm_demo <MODEL_ID>-mnn/config.json prompt.txt
 ```
 
-**So, concretely, when someone asks "can I run an LLM on the Sky1 NPU"**:
-the honest answer is "not on the NOE/Zhouyi hardware path — that's
-fixed-shape and can't do it — but yes, on the same board, via
-`llama.cpp`/`MNN` running on CPU or the GPU's OpenCL backend, and CIX
-ships both prebuilt." Don't conflate "the NPU" (NOE) with "the SoC's AI
-capability as a whole" (NOE + CPU + GPU, each suited to different model
-classes) — that conflation is what produced the too-broad "no LLMs at
-all" claim in an earlier draft of this guide.
+So: an LLM cannot run on the NOE/Zhouyi hardware path (fixed-shape), but
+it runs on the same board via `llama.cpp`/`MNN` on CPU or the GPU's
+OpenCL backend, both shipped prebuilt by CIX. "The NPU" (NOE) and "the
+SoC's AI capability" (NOE + CPU + GPU, each suited to different model
+classes) are not the same thing.
 
 ## Quick reference
 
