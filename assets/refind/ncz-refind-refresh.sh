@@ -476,7 +476,26 @@ fi
 # hardware; graphical/accelerated edge support is a known, flagged gap.
 EDGE_OPTIONS=""
 if [ "$EDGE_AVAILABLE" = "1" ]; then
-    EDGE_OPTIONS="$ROOT_OPTS console=ttyAMA0,115200 console=tty0 module_blacklist=$ALL_ACCEL_BLACKLIST sky1.gpu=none systemd.unit=multi-user.target"
+    # BUG FIXED 2026-09-16 (real, metal-verified on O6N via the persistent
+    # serial logger on PROTEUS): this entry was missing $NEXT_CMDLINE_EXTRA
+    # (pcie_aspm=off sky1_pcie_native=off pcie_pnp_en acpi_scmi_en=off +
+    # the ramoops/panic knobs) -- exactly the class of bug this script's
+    # OWN comment on NEXT_CMDLINE_EXTRA already documents by name: "the 7.2
+    # forward-port was only ever metal-validated with these (r195 shipped
+    # edge WITHOUT them and the board hung at boot)". Same board, same
+    # missing quirks, same symptom recurred on the 7.3.0-rc3 edge line:
+    # captured serial trace showed the kernel boot clean through early
+    # init, then a HARD RESET (full BL2/BL31/SE_FW cold-boot firmware
+    # sequence on the very next line) right at "xhci-hcd ... new USB bus
+    # registered" -- no panic/oops printed (ramoops was also empty,
+    # because ramoops itself wasn't enabled on this cmdline either). USB
+    # was coincidental to where it hung, not necessarily the actual
+    # trigger -- the PCIe/SCMI knobs are the ones this board has already
+    # been proven to need. Reuse $NEXT_CMDLINE_EXTRA verbatim instead of
+    # duplicating the string, so a future change to those quirks (e.g. if
+    # they're ever tuned again) can't silently drift between the two
+    # entries the way this one did.
+    EDGE_OPTIONS="$ROOT_OPTS console=ttyAMA0,115200 console=tty0 module_blacklist=$ALL_ACCEL_BLACKLIST $NEXT_CMDLINE_EXTRA sky1.gpu=none systemd.unit=multi-user.target"
 fi
 
 
