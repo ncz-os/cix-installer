@@ -1,0 +1,542 @@
+#!/bin/bash
+
+# ncz-refind-refresh-amd64.sh — (re)generate the rEFInd ESP menu for the
+# AMD64/x86_64 target (T2 Macs + generic PC UEFI hardware, unified stable
+# kernel line + a separate experimental edge line).
+#
+# Standardized on rEFInd to match arm64/Sky1 rather than diverging on GRUB
+# (operator directive, 2026-09-16: "standardize on rEFInd on amd64, we
+# should not diverge" -- same boot menu shape, same branding/art, same
+# preference-learning and rescue-promotion mechanics as
+# assets/refind/ncz-refind-refresh.sh). This is a SEPARATE file rather than
+# a parameterized shared one, matching that script's own stated philosophy
+# (see its header): both run standalone on the target, detached from this
+# repo, so a shared library would need its own packaging/delivery path, and
+# duplication trades DRY for a delivery path that cannot silently go stale.
+#
+# Real differences from the arm64 script, and why:
+#   - refind_x64.efi (this repo's assets/refind/refind_x64.efi, extracted
+#     from Debian's own `refind` package -- NOT present in forky yet, only
+#     trixie/sid, so it is vendored as a build-time repo asset exactly the
+#     way refind_aa64.efi already is, never apt-installed on the target)
+#     instead of refind_aa64.efi; BOOTX64.EFI instead of BOOTAA64.EFI.
+#   - console=ttyS0,115200 (standard PC/T2 UART) instead of ttyAMA0.
+#   - NO MS-R1 efi=noruntime DMI workaround -- that is a specific Sky1
+#     board's firmware bug, meaningless on generic x86/T2 hardware.
+#   - NO Mali-vs-Panthor GPU-driver menu split, no sky1.gpu=, no
+#     accelerator module_blacklist juggling -- amd64 has no Sky1-style
+#     DKMS GPU choice; i915/amdgpu/nvidia are in-tree kernel drivers,
+#     selected by the hardware itself, not a boot-menu decision. The
+#     Stable-vs-Edge KERNEL LINE choice takes that split's place instead
+#     (see 70-bootloader.sh's run_refind_amd64()), matching what
+#     run_grub_amd64() already did before this file replaced it.
+#   - Rescue-kernel auto-promotion, operator timeout/default-selection
+#     preference learning, banner/icon staging, and the NVRAM
+#     firmware-fallback path are all KEPT verbatim -- none of that is
+#     Sky1-specific.
+set -euo pipefail
+
+echo "[ncz-refind-refresh-amd64] rEFInd bootloader (staged kernel menu)"
+
+INSTALLER_META=/usr/local/lib/cix-installer
+REFIND_SRC="$INSTALLER_META/assets/refind/refind_x64.efi"
+: "${KVER_STABLE:=}"
+: "${KVER_EDGE:=}"
+: "${BUILD_VERSION:=(unknown)}"
+RELEASE_FILE=/etc/cix-installer/RELEASE
+[ -s "$RELEASE_FILE" ] || RELEASE_FILE="$INSTALLER_META/RELEASE"
+if [ ! -s "$RELEASE_FILE" ]; then
+    echo "ERROR: NCZ release identity missing; refusing to write an ambiguously-versioned boot menu"
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$RELEASE_FILE"
+NCZ_RELEASE_SHORT="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
+
+if [ -z "$KVER_STABLE" ]; then
+    echo "ERROR: no KVER_STABLE provided (the stable kernel line is required)"
+    exit 1
+fi
+
+echo "  KVER_STABLE=$KVER_STABLE"
+echo "  KVER_EDGE=${KVER_EDGE:-<none>}"
+echo "  BUILD_VERSION=$BUILD_VERSION"
+
+# Prevent systemd-boot deb postinst from double-staging kernels to the ESP
+mkdir -p /etc/kernel
+echo "layout=other" > /etc/kernel/install.conf
+echo "  /etc/kernel/install.conf set to layout=other (disables double-staging)"
+
+if [ ! -s "$REFIND_SRC" ]; then
+    echo "ERROR: rEFInd binary missing/empty at $REFIND_SRC"
+    echo "       cannot install a bootloader."
+    exit 1
+fi
+echo "  rEFInd binary present: $REFIND_SRC ($(du -h "$REFIND_SRC" | cut -f1))"
+command -v efibootmgr >/dev/null 2>&1 || echo "  note: efibootmgr not present — relying on /EFI/BOOT/BOOTX64.EFI fallback"
+
+if ! findmnt -no FSTYPE /boot/efi >/dev/null 2>&1; then
+    echo "ERROR: /boot/efi is not mounted — cannot install the bootloader."
+    echo "  findmnt /boot/efi → not found"
+    echo "  block devices:"
+    lsblk 2>&1 | head -10 || true
+    echo "  fstab entry for /boot/efi:"
+    grep -E "/boot/efi" /etc/fstab 2>&1 || echo "  (no /boot/efi entry)"
+    exit 1
+fi
+ESP_FSTYPE=$(findmnt -no FSTYPE /boot/efi)
+if [ "$ESP_FSTYPE" != "vfat" ]; then
+    echo "ERROR: /boot/efi is mounted as $ESP_FSTYPE, expected vfat (FAT32 ESP)."
+    exit 1
+fi
+echo "  /boot/efi is mounted (vfat) — proceeding with rEFInd install"
+
+verify_payload_readable() {
+    local label="$1"
+    local path="$2"
+
+    if [ ! -r "$path" ]; then
+        echo "ERROR: $label payload $path is not readable."
+        echo "       Refusing to wipe the ESP until the source payload can be staged."
+        exit 1
+    fi
+    if ! dd if="$path" of=/dev/null bs=1M status=none; then
+        echo "ERROR: failed read probe for $label payload $path."
+        echo "       Refusing to wipe the ESP until the source payload can be copied."
+        exit 1
+    fi
+}
+
+STABLE_PREFLIGHT_READY=0
+if [ -n "$KVER_STABLE" ]; then
+    if [ -s "/boot/vmlinuz-$KVER_STABLE" ] && [ -s "/boot/initrd.img-$KVER_STABLE" ]; then
+        verify_payload_readable "stable kernel" "/boot/vmlinuz-$KVER_STABLE"
+        verify_payload_readable "stable initrd" "/boot/initrd.img-$KVER_STABLE"
+        STABLE_PREFLIGHT_READY=1
+        echo "  preflight OK: stable kernel/initrd present and readable for $KVER_STABLE"
+    elif [ -s "/boot/vmlinuz-$KVER_STABLE" ] && [ ! -s "/boot/initrd.img-$KVER_STABLE" ]; then
+        echo "ERROR: /boot/vmlinuz-$KVER_STABLE exists but /boot/initrd.img-$KVER_STABLE is missing or empty."
+        echo "       Refusing to wipe the ESP without a complete stable kernel payload."
+        exit 1
+    elif [ -e "/boot/vmlinuz-$KVER_STABLE" ]; then
+        echo "ERROR: incomplete stable kernel payload for $KVER_STABLE."
+        echo "       Need non-empty /boot/vmlinuz-$KVER_STABLE and /boot/initrd.img-$KVER_STABLE before ESP wipe."
+        exit 1
+    fi
+fi
+if [ "$STABLE_PREFLIGHT_READY" = "0" ]; then
+    echo "ERROR: no stable kernel has both a non-empty vmlinuz and initrd in /boot."
+    echo "       Refusing to wipe the ESP because there is nothing bootable to restage."
+    exit 1
+fi
+echo "  preflight OK: stable kernel payload is present"
+
+# Preflight (above) validated inputs under `set -euo pipefail`. The ESP is
+# vfat (no ownership/perms). The write section below tolerates vfat quirks
+# (cp ownership warnings, grep-no-match, best-effort efibootmgr). Under
+# strict errexit/pipefail those non-fatal ops could abort BEFORE
+# BOOTX64.EFI was written -> unbootable. Relax here; the write section
+# keeps its OWN explicit guards.
+set +e +u +o pipefail
+
+ROOT_SRC=$(findmnt -no SOURCE --nofsroot /)
+ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC")
+ROOT_FSTYPE=$(findmnt -no FSTYPE /)
+ROOT_SUBVOL=""
+if [ "$ROOT_FSTYPE" = "btrfs" ]; then
+    ROOT_FSROOT=$(findmnt -no FSROOT / 2>/dev/null || echo "/")
+    case "$ROOT_FSROOT" in
+        ""|"/") ROOT_SUBVOL="" ;;
+        *)      ROOT_SUBVOL="${ROOT_FSROOT#/}" ;;
+    esac
+fi
+echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol=${ROOT_SUBVOL:-(none)}"
+
+# console: serial (ttyS0, standard PC/T2 UART) FIRST so tty0 stays the
+# primary /dev/console (last console= wins) — plymouth + the graphical
+# greeter own tty0, while a real serial port still gets kernel messages AND
+# a serial-getty for lockout recovery (doctrine: serial console must work,
+# same as arm64).
+STABLE_CMDLINE_BASE="console=ttyS0,115200 console=tty0 systemd.condition_first_boot=false audit_backlog_limit=8192"
+
+merge_module_blacklist() {
+    _cmdline=$1
+    _extra=$2
+    case " $_cmdline " in
+        *" module_blacklist="*)
+            _prefix=${_cmdline%%module_blacklist=*}
+            _rest=${_cmdline#*module_blacklist=}
+            _blacklist=${_rest%% *}
+            _suffix=${_rest#"$_blacklist"}
+            printf '%smodule_blacklist=%s,%s%s\n' "$_prefix" "$_extra" "$_blacklist" "$_suffix"
+            ;;
+        *)
+            printf '%s module_blacklist=%s\n' "$_cmdline" "$_extra"
+            ;;
+    esac
+}
+
+# Graphical-only cmdline (appended to the desktop entry, NOT rescue). Same
+# reasoning as arm64: no Plymouth, native KMS paints after root mounts, and
+# loglevel=3 keeps known early driver warnings off the graphical VT while
+# staying fully available in dmesg/journal/pstore/serial. Rescue stays
+# verbose with a normal cursor.
+SPLASH="quiet loglevel=3 vt.global_cursor_default=0 systemd.show_status=false rd.systemd.show_status=false"
+[ -f /etc/kernel/cmdline.d/10-splash.conf ] && SPLASH=$(cat /etc/kernel/cmdline.d/10-splash.conf)
+
+ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=$ROOT_FSTYPE rw"
+if [ -n "$ROOT_SUBVOL" ]; then
+    ROOT_OPTS="$ROOT_OPTS rootflags=subvol=$ROOT_SUBVOL"
+fi
+
+echo "  wiping stale ESP entries + kernel images..."
+# PRESERVE OPERATOR-STAGED RESCUE KERNELS + AUTO-PROMOTE the outgoing kernel
+# to a rescue image before deleting it. Identical reasoning to arm64: every
+# menuentry this script emits points at the same /vmlinuz-$KVER_STABLE, so a
+# same-kver upgrade repoints the whole menu including any rescue entry —
+# there must always be a real known-good fallback that this wipe cannot
+# touch. Only one rescue image is kept (previous one replaced).
+if [ -n "$KVER_STABLE" ]; then
+    for _esp_k in /boot/efi/vmlinuz-*; do
+        [ -e "$_esp_k" ] || continue
+        case "$_esp_k" in *-rescue) continue ;; esac
+        _out_kver=${_esp_k##*/vmlinuz-}
+        [ "$_out_kver" = "$KVER_STABLE" ] && continue
+        [ -s "$_esp_k" ] || continue
+        [ -s "/boot/efi/initrd.img-$_out_kver" ] || {
+            echo "  WARN: not promoting $_out_kver to rescue -- its initrd is missing on the ESP"
+            continue
+        }
+        rm -f /boot/efi/vmlinuz-*-rescue /boot/efi/initrd.img-*-rescue 2>/dev/null || true
+        if cp -f "$_esp_k" "/boot/efi/vmlinuz-$_out_kver-rescue" &&
+           cp -f "/boot/efi/initrd.img-$_out_kver" "/boot/efi/initrd.img-$_out_kver-rescue"; then
+            echo "  promoted outgoing kernel $_out_kver to rescue image"
+        else
+            rm -f "/boot/efi/vmlinuz-$_out_kver-rescue" "/boot/efi/initrd.img-$_out_kver-rescue" 2>/dev/null || true
+            echo "  WARN: could not promote $_out_kver to a rescue image"
+        fi
+        break
+    done
+fi
+
+for _esp_f in /boot/efi/vmlinuz-* /boot/efi/initrd.img-*; do
+    [ -e "$_esp_f" ] || continue
+    case "$_esp_f" in
+        *-rescue) echo "  preserving rescue image ${_esp_f##*/}"; continue ;;
+    esac
+    rm -f "$_esp_f"
+done
+rm -rf /boot/efi/[0-9a-f]*  # Wipe 32-hex kernel-install machine-id dirs
+rm -f /boot/efi/EFI/Linux/* 2>/dev/null
+rm -rf /boot/efi/loader 2>/dev/null || true
+rm -rf /boot/efi/EFI/systemd 2>/dev/null || true
+# Capture the operator's current choices BEFORE deleting the file (same
+# reasoning as arm64 — this wipe is why the first attempt at preserving
+# them has to read BEFORE deletion, not after).
+NCZ_LIVE_DEFAULT=""
+NCZ_LIVE_TIMEOUT=""
+if [ -r /boot/efi/EFI/BOOT/refind.conf ]; then
+    NCZ_LIVE_DEFAULT=$(sed -n 's/^[[:space:]]*default_selection[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' \
+        /boot/efi/EFI/BOOT/refind.conf | head -1)
+    NCZ_LIVE_TIMEOUT=$(awk '$1 == "timeout" { print $2; exit }' /boot/efi/EFI/BOOT/refind.conf)
+fi
+rm -f /boot/efi/EFI/BOOT/refind.conf 2>/dev/null || true
+echo "  ESP wiped — proceeding with kernel/initrd staging"
+
+STABLE_AVAILABLE=0
+STABLE_INITRD_AVAILABLE=0
+
+if [ -n "$KVER_STABLE" ] && [ -s "/boot/vmlinuz-$KVER_STABLE" ]; then
+    if [ ! -s "/boot/initrd.img-$KVER_STABLE" ]; then
+        echo "ERROR: /boot/vmlinuz-$KVER_STABLE exists but /boot/initrd.img-$KVER_STABLE is missing or empty."
+        echo "       Refusing to write a stable loader entry without an initrd."
+        exit 1
+    fi
+    install -m 0644 "/boot/vmlinuz-$KVER_STABLE" "/boot/efi/vmlinuz-$KVER_STABLE"
+    echo "  staged /boot/efi/vmlinuz-$KVER_STABLE"
+    STABLE_AVAILABLE=1
+    install -m 0644 "/boot/initrd.img-$KVER_STABLE" "/boot/efi/initrd.img-$KVER_STABLE"
+    echo "  staged /boot/efi/initrd.img-$KVER_STABLE"
+    STABLE_INITRD_AVAILABLE=1
+fi
+
+# EDGE — the second, experimental kernel line (v7.3-rc3). Absence is not
+# fatal, only the stable line is required above.
+EDGE_AVAILABLE=0
+EDGE_INITRD_AVAILABLE=0
+if [ -n "${KVER_EDGE:-}" ] && [ -s "/boot/vmlinuz-$KVER_EDGE" ]; then
+    if [ ! -s "/boot/initrd.img-$KVER_EDGE" ]; then
+        echo "  WARN: /boot/vmlinuz-$KVER_EDGE exists but /boot/initrd.img-$KVER_EDGE is missing -- edge entry SKIPPED"
+    else
+        install -m 0644 "/boot/vmlinuz-$KVER_EDGE" "/boot/efi/vmlinuz-$KVER_EDGE"
+        echo "  staged /boot/efi/vmlinuz-$KVER_EDGE"
+        EDGE_AVAILABLE=1
+        install -m 0644 "/boot/initrd.img-$KVER_EDGE" "/boot/efi/initrd.img-$KVER_EDGE"
+        echo "  staged /boot/efi/initrd.img-$KVER_EDGE"
+        EDGE_INITRD_AVAILABLE=1
+    fi
+elif [ -n "${KVER_EDGE:-}" ]; then
+    echo "  WARN: /boot/vmlinuz-$KVER_EDGE missing — edge entry will be SKIPPED"
+fi
+
+if [ "$STABLE_AVAILABLE" = "0" ]; then
+    echo "ERROR: stable kernel not installed — system is unbootable."
+    exit 1
+fi
+
+STABLE_OPTIONS=""
+if [ "$STABLE_AVAILABLE" = "1" ]; then
+    STABLE_OPTIONS="$ROOT_OPTS $STABLE_CMDLINE_BASE"
+    [ -n "$SPLASH" ] && STABLE_OPTIONS="$STABLE_OPTIONS $SPLASH"
+fi
+
+# Console entry — reach a networked multi-user shell on the SHIPPING kernel
+# when the graphical handoff fails. No splash: this entry must stay verbose
+# so a boot failure is diagnosable on ttyS0/tty0.
+STABLE_CONSOLE_OPTIONS=""
+if [ "$STABLE_AVAILABLE" = "1" ]; then
+    STABLE_CONSOLE_OPTIONS="$ROOT_OPTS $STABLE_CMDLINE_BASE systemd.unit=multi-user.target"
+fi
+
+# EDGE — v7.3-rc3, EXPERIMENTAL kernel, CONSOLE-ONLY. Exists to prove the
+# kernel/initrd itself boots on real hardware; not a graphical-default
+# choice. Same treatment as arm64's edge entry.
+EDGE_OPTIONS=""
+if [ "$EDGE_AVAILABLE" = "1" ]; then
+    EDGE_OPTIONS="$ROOT_OPTS console=ttyS0,115200 console=tty0 systemd.unit=multi-user.target"
+fi
+
+RESCUE_READY="$INSTALLER_META/RESCUE_READY"
+RESCUEPART_OPTIONS=""
+if [ -f "$RESCUE_READY" ] && [ "$STABLE_AVAILABLE" = "1" ]; then
+    RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
+    if [ -n "$RESCUEPART_PARTUUID" ]; then
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw console=ttyS0,115200 console=tty0 systemd.unit=multi-user.target"
+        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
+    else
+        echo "ERROR: rescue-partition marker has no PARTUUID — refusing to ship without recovery"
+        exit 1
+    fi
+else
+    echo "ERROR: rescue partition is required but marker $RESCUE_READY or the shipping kernel is absent"
+    exit 1
+fi
+
+install -d -m 0755 /boot/efi/EFI/BOOT
+install -m 0644 "$REFIND_SRC" /boot/efi/EFI/BOOT/BOOTX64.EFI
+if [ ! -s /boot/efi/EFI/BOOT/BOOTX64.EFI ]; then
+    echo "ERROR: failed to install rEFInd to /boot/efi/EFI/BOOT/BOOTX64.EFI"
+    exit 1
+fi
+echo "  rEFInd installed → /boot/efi/EFI/BOOT/BOOTX64.EFI (firmware fallback path)"
+
+BANNER_SRC="$INSTALLER_META/assets/refind/ncz-banner.png"
+REFIND_BANNER=""
+if [ -s "$BANNER_SRC" ]; then
+    install -m 0644 "$BANNER_SRC" /boot/efi/EFI/BOOT/ncz-banner.png
+    REFIND_BANNER="ncz-banner.png"
+    echo "  rEFInd banner installed → /boot/efi/EFI/BOOT/ncz-banner.png"
+else
+    echo "  note: rEFInd banner asset absent ($BANNER_SRC) — using default rEFInd art"
+fi
+
+ICON_SRC="$INSTALLER_META/assets/refind/ncz.png"
+REFIND_ICON=""
+if [ -s "$ICON_SRC" ]; then
+    install -m 0644 "$ICON_SRC" /boot/efi/EFI/BOOT/ncz.png
+    REFIND_ICON="ncz.png"
+    echo "  rEFInd entry icon installed → /boot/efi/EFI/BOOT/ncz.png"
+fi
+
+ICONS_SRC="$INSTALLER_META/assets/refind/icons"
+if [ -d "$ICONS_SRC" ]; then
+    rm -rf /boot/efi/EFI/BOOT/icons
+    cp -r "$ICONS_SRC" /boot/efi/EFI/BOOT/icons
+    echo "  rEFInd icons/ installed → /boot/efi/EFI/BOOT/icons ($(ls /boot/efi/EFI/BOOT/icons 2>/dev/null | wc -l | tr -d ' ') files)"
+else
+    echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
+fi
+
+# Release policy: the stable kernel is the default graphical entry. Edge is
+# always an explicit console-only experiment.
+if [ "$STABLE_AVAILABLE" = "1" ]; then
+    # Must be UNIQUE across menu titles -- rEFInd matches default_selection
+    # as a substring, same trap arm64's own comment documents. "Stable
+    # (Default)" appears in exactly one title; keep it that way when adding
+    # entries.
+    DEFAULT_TOKEN="Stable (Default)"
+else
+    DEFAULT_TOKEN="edge"
+fi
+DESKTOP_COMPONENT_DISABLED=0
+if [ "$STABLE_AVAILABLE" = "1" ]; then
+    COMPONENTS_FILE=""
+    for _cf in /usr/local/lib/cix-installer/COMPONENTS \
+               /etc/cix-installer/COMPONENTS \
+               /var/lib/cix-components/COMPONENTS; do
+        [ -r "$_cf" ] && { COMPONENTS_FILE="$_cf"; break; }
+    done
+    if [ -n "$COMPONENTS_FILE" ]; then
+        _components=$(tr -d ' \t\r\n' < "$COMPONENTS_FILE" 2>/dev/null || true)
+        case ",$_components," in
+            *",desktop,"*) : ;;
+            *)
+                DESKTOP_COMPONENT_DISABLED=1
+                DEFAULT_TOKEN="Stable Console"
+                echo "  desktop component disabled; defaulting rEFInd to console entry"
+                ;;
+        esac
+    fi
+fi
+SAFE_DEFAULT_TOKEN="$DEFAULT_TOKEN"
+
+REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
+
+# PRESERVE THE OPERATOR'S CHOICES ACROSS REGENERATION — same mechanism as
+# arm64: stored prefs in /etc/ncz/refind-prefs.conf, plus learning from a
+# live refind.conf that disagrees with both the stored pref and the
+# would-generate value.
+NCZ_PREFS=/etc/ncz/refind-prefs.conf
+mkdir -p /etc/ncz 2>/dev/null || true
+
+_live_default="$NCZ_LIVE_DEFAULT"
+_live_timeout="$NCZ_LIVE_TIMEOUT"
+
+NCZ_REFIND_DEFAULT=""
+NCZ_REFIND_TIMEOUT=""
+# shellcheck source=/dev/null
+[ -r "$NCZ_PREFS" ] && . "$NCZ_PREFS"
+if [ "$DESKTOP_COMPONENT_DISABLED" = "1" ]; then
+    NCZ_REFIND_DEFAULT=""
+fi
+
+if [ "$DESKTOP_COMPONENT_DISABLED" != "1" ] \
+   && [ -n "$_live_default" ] && [ "$_live_default" != "$DEFAULT_TOKEN" ] \
+   && [ "$_live_default" != "$NCZ_REFIND_DEFAULT" ]; then
+    NCZ_REFIND_DEFAULT="$_live_default"
+    echo "  learned operator default_selection: $NCZ_REFIND_DEFAULT"
+fi
+if [ -n "$_live_timeout" ] && [ "$_live_timeout" != "10" ] \
+   && [ "$_live_timeout" != "$NCZ_REFIND_TIMEOUT" ]; then
+    NCZ_REFIND_TIMEOUT="$_live_timeout"
+    echo "  learned operator timeout: $NCZ_REFIND_TIMEOUT"
+fi
+
+REFIND_TIMEOUT="${NCZ_REFIND_TIMEOUT:-10}"
+case "$REFIND_TIMEOUT" in
+    ''|*[!0-9]*) REFIND_TIMEOUT=10 ;;
+esac
+
+if [ -n "$NCZ_REFIND_DEFAULT" ]; then
+    DEFAULT_TOKEN="$NCZ_REFIND_DEFAULT"
+fi
+
+{
+    printf 'NCZ_REFIND_DEFAULT="%s"\n' "$DEFAULT_TOKEN"
+    printf 'NCZ_REFIND_TIMEOUT=%s\n' "$REFIND_TIMEOUT"
+} > "$NCZ_PREFS" 2>/dev/null || true
+
+{
+    echo "# rEFInd — NCZ AMD64 $BUILD_VERSION (generated by ncz-refind-refresh-amd64)"
+    echo "# Kernels live on the FAT ESP; each kernel's initramfs mounts the"
+    echo "# $ROOT_FSTYPE root. No btrfs/ext4 EFI driver is required."
+    echo "timeout $REFIND_TIMEOUT"
+    echo "log_level 0"
+    echo "use_nvram false"
+    echo "resolution max"
+    [ -n "$REFIND_BANNER" ] && echo "banner $REFIND_BANNER"
+    [ -n "$REFIND_BANNER" ] && echo "banner_scale noscale"
+    echo "showtools shell,reboot,shutdown,firmware"
+    echo "scanfor manual"
+    echo "scan_all_linux_kernels false"
+    echo "default_selection \"$DEFAULT_TOKEN\""
+    echo
+    if [ "$STABLE_AVAILABLE" = "1" ]; then
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  Stable (Default)\" {"
+        echo "    loader  /vmlinuz-$KVER_STABLE"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$STABLE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_STABLE"
+        echo "    options \"$STABLE_OPTIONS\""
+        echo "}"
+        echo
+
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  Stable Console\" {"
+        echo "    loader  /vmlinuz-$KVER_STABLE"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$STABLE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_STABLE"
+        echo "    options \"$STABLE_CONSOLE_OPTIONS\""
+        echo "}"
+        echo
+    fi
+    if [ "$EDGE_AVAILABLE" = "1" ]; then
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  Edge / Experimental Kernel (Console)\" {"
+        echo "    loader  /vmlinuz-$KVER_EDGE"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
+        echo "    options \"$EDGE_OPTIONS\""
+        echo "}"
+        echo
+    fi
+    if [ -n "$RESCUEPART_OPTIONS" ]; then
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  Rescue Partition (Console)\" {"
+        echo "    loader  /vmlinuz-$KVER_STABLE"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$STABLE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_STABLE"
+        echo "    options \"$RESCUEPART_OPTIONS\""
+        echo "}"
+        echo
+    fi
+    # OPERATOR-STAGED RESCUE KERNELS. Preserved by the wipe above.
+    for _rescue_img in /boot/efi/vmlinuz-*-rescue; do
+        [ -e "$_rescue_img" ] || continue
+        _rescue_file=${_rescue_img##*/}
+        _rescue_tag=${_rescue_file#vmlinuz-}
+        _rescue_tag=${_rescue_tag%-rescue}
+        _rescue_options=$(printf '%s\n' "$STABLE_OPTIONS" | tr ' ' '\n' \
+            | grep -vE '^(quiet|)$' | paste -sd' ' -)
+        echo "menuentry \"RESCUE  -  $_rescue_tag known-good kernel\" {"
+        echo "    loader  /$_rescue_file"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -e "/boot/efi/initrd.img-$_rescue_tag-rescue" ] && \
+            echo "    initrd  /initrd.img-$_rescue_tag-rescue"
+        echo "    options \"$_rescue_options\""
+        echo "}"
+        echo
+    done
+} > "$REFIND_CONF"
+echo "  wrote $REFIND_CONF (default_selection=$DEFAULT_TOKEN)"
+
+# VALIDATE the default actually landed on an entry -- same trap/fix as
+# arm64 (2026-08-19): never trust a stored/learned default blindly.
+if ! grep '^menuentry ' "$REFIND_CONF" | grep -qF -- "$DEFAULT_TOKEN"; then
+    echo "  WARN: default_selection '$DEFAULT_TOKEN' matches no menu entry -- falling back to '$SAFE_DEFAULT_TOKEN'"
+    DEFAULT_TOKEN="$SAFE_DEFAULT_TOKEN"
+    sed -i "s/^default_selection \".*\"\$/default_selection \\\"$DEFAULT_TOKEN\\\"/" "$REFIND_CONF"
+    {
+        printf 'NCZ_REFIND_DEFAULT="%s"\n' "$DEFAULT_TOKEN"
+        printf 'NCZ_REFIND_TIMEOUT=%s\n' "$REFIND_TIMEOUT"
+    } > "$NCZ_PREFS" 2>/dev/null || true
+    echo "  corrected $REFIND_CONF and $NCZ_PREFS to default_selection=$DEFAULT_TOKEN"
+fi
+
+if command -v efibootmgr >/dev/null 2>&1; then
+    EFI_DEV=$(findmnt -no SOURCE /boot/efi)
+    EFI_DISK=$(lsblk -no PKNAME "$EFI_DEV" 2>/dev/null || true)
+    EFI_PART="${EFI_DEV##*[!0-9]}"
+    if [ -n "$EFI_DISK" ] && [ -n "$EFI_PART" ]; then
+        for _bn in $(efibootmgr 2>/dev/null | grep -F "nclawzero (rEFInd)" | sed -n "s/^Boot\([0-9A-Fa-f]\{4\}\).*/\1/p"); do
+            efibootmgr -b "$_bn" -B >/dev/null 2>&1 || true
+        done
+        efibootmgr -c -d "/dev/$EFI_DISK" -p "$EFI_PART" \
+            -L "nclawzero (rEFInd)" -l '\EFI\BOOT\BOOTX64.EFI' >/dev/null 2>&1 || true
+    fi
+fi
+
+echo ""
+echo "===== rEFInd installed — refind.conf ====="
+cat "$REFIND_CONF"
+echo ""
+echo "ESP contents:"
+ls -la /boot/efi/ 2>&1 | sed 's/^/  /' | head -25
+echo "  EFI/BOOT:"
+ls -la /boot/efi/EFI/BOOT/ 2>&1 | sed 's/^/    /'

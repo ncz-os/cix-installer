@@ -1,16 +1,21 @@
 #!/bin/bash
 # 70-bootloader.sh — bootloader install (install-time entry point).
 #
-# arm64/Sky1 uses rEFInd (see run_refind_arm64() below, unchanged from
-# r118-r193 -- history/comments preserved there). AMD64 has no rEFInd
-# story and no GPU-accelerator boot-time choice to make, so it gets a
-# separate GRUB path (run_grub_amd64()) generating a real dual-kernel menu
-# via assets/grub/ncz-grub-refresh.sh -- see that script's header for why
-# it hand-authors entries instead of relying on stock 10_linux.
+# Both arm64/Sky1 and AMD64 use rEFInd (operator directive, 2026-09-16:
+# "standardize on rEFInd on amd64, we should not diverge" -- same boot
+# menu shape, same branding/art, same preference-learning and
+# rescue-promotion mechanics on both architectures). AMD64 previously had a
+# separate GRUB path (run_grub_amd64(), removed); see
+# assets/refind/ncz-refind-refresh-amd64.sh's header for the concrete list
+# of what differs from the arm64 script (refind_x64.efi vs refind_aa64.efi,
+# BOOTX64.EFI vs BOOTAA64.EFI, no Sky1-specific cmdline/GPU-driver logic,
+# stable-vs-edge kernel-line entries instead of Mali-vs-Panthor) and what's
+# identical (rescue promotion, timeout/default learning, banner/icon
+# staging, NVRAM fallback).
 #
 # Dispatch is by dpkg architecture, not by any Sky1-specific signal, because
-# that's the actual fork this file needs: which bootloader exists on this
-# hardware family, not which board within a family.
+# that's the actual fork this file needs: which rEFInd binary + kernel-line
+# model applies to this hardware family, not which board within a family.
 set -euo pipefail
 
 echo "[70] bootloader — install-time setup"
@@ -99,12 +104,12 @@ run_refind_arm64() {
 }
 
 # ----------------------------------------------------------------------------
-# AMD64: GRUB, two real kernel lines (2026-09-15). See
-# assets/grub/ncz-grub-refresh.sh for why this hand-authors top-level
-# entries instead of trusting stock 10_linux (short version: 10_linux's
-# newest-kernel-is-default rule would make the untested edge/7.3-rc3 line
-# the silent default, since 7.3 sorts above 7.2.6 by plain version compare).
-run_grub_amd64() {
+# AMD64: rEFInd, two real kernel lines (stable + edge), standardized to
+# match arm64 2026-09-16 (was GRUB via run_grub_amd64()/
+# assets/grub/ncz-grub-refresh.sh until this change -- that script and the
+# grub-install/grub-efi-amd64/grub-pc-bin dependencies it needed are now
+# dead, flagged for removal rather than left stranded).
+run_refind_amd64() {
     KVER_LIST="$INSTALLER_META/KVER_LIST_AMD64"
     if [ ! -s "$KVER_LIST" ]; then
         echo "ERROR: $KVER_LIST missing (post-install/10-amd64-kernel.sh should have written it)"
@@ -117,8 +122,11 @@ run_grub_amd64() {
         exit 1
     fi
 
-    SHARED_SRC="$INSTALLER_META/assets/grub/ncz-grub-refresh.sh"
-    SHARED_DST=/usr/local/sbin/ncz-grub-refresh
+    # Staged as an ISO asset (assets/refind/ncz-refind-refresh-amd64.sh) so
+    # it's identical to the version installed here, not regenerated -- same
+    # one-source-of-truth pattern as arm64's ncz-refind-refresh.sh.
+    SHARED_SRC="$INSTALLER_META/assets/refind/ncz-refind-refresh-amd64.sh"
+    SHARED_DST=/usr/local/sbin/ncz-refind-refresh-amd64
     if [ ! -s "$SHARED_SRC" ]; then
         echo "ERROR: shared refresh script missing at $SHARED_SRC"
         exit 1
@@ -128,26 +136,10 @@ run_grub_amd64() {
 
     export KVER_STABLE KVER_EDGE BUILD_VERSION NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME
     "$SHARED_DST"
-
-    # ESP fallback path, same rationale as arm64's BOOTAA64.EFI: boot even
-    # with an empty NVRAM BootOrder. grub-install already registers a real
-    # NVRAM entry on a normal UEFI install; --removable additionally drops
-    # the fallback binary so a firmware that ignores/loses NVRAM still boots.
-    ESP="$(findmnt -n -o TARGET /boot/efi 2>/dev/null || true)"
-    if [ -n "$ESP" ]; then
-        grub-install --target=x86_64-efi --efi-directory="$ESP" \
-            --bootloader-id=ncz-os --recheck || \
-            echo "  WARN: grub-install (NVRAM entry) failed -- continuing on the --removable fallback"
-        grub-install --target=x86_64-efi --efi-directory="$ESP" \
-            --bootloader-id=ncz-os --removable --recheck || \
-            echo "  WARN: grub-install --removable failed -- ESP may not be bootable without a working NVRAM entry"
-    else
-        echo "  WARN: no /boot/efi mount found -- skipping grub-install (BIOS-only target? not yet handled here)"
-    fi
 }
 
 case "$(dpkg --print-architecture 2>/dev/null || uname -m)" in
     arm64|aarch64) run_refind_arm64 ;;
-    amd64|x86_64)  run_grub_amd64 ;;
+    amd64|x86_64)  run_refind_amd64 ;;
     *) echo "ERROR: unsupported architecture for bootloader install" >&2; exit 1 ;;
 esac
