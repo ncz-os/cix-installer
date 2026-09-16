@@ -74,45 +74,64 @@ mismatch between the two driver halves. If you hit this, check
 the installed package version against a stamp file and re-installs the
 wheels when they differ).
 
-## A real, working example: the MNEMOS embedding server
+## A real, working example: the on-device embedding server
 
 NCZ-OS ships a real, validated NPU workload: an OpenAI-compatible
-`/v1/embeddings` server backed by a NOE-compiled embedding model — useful
+`/v1/embeddings` server backed by NOE-compiled embedding models — useful
 for any application that wants local, hardware-accelerated embedding
 generation instead of calling out to a cloud API.
 
-- **Model**: `nomic-embed-text-v1.5`, compiled to a NOE graph with a fixed
-  **256-token** max sequence length — `/opt/ncz/models/nomic-embed-text-v1.5_256.cix`
-- **Output**: 768-dimensional vectors
-- **Accuracy, measured**: cosine similarity **0.995330** against the
-  onnxruntime CPU reference implementation on the same input — validated
-  on a real Radxa Orion O6 board
-- **Throughput, measured**: **8.9 inferences/second** (112ms per call).
-  Not fast in absolute terms, but every query runs entirely on-device with
-  no network round-trip.
-- **Interface**: OpenAI-compatible `/v1/embeddings`, served on
-  `127.0.0.1:8081`
 - **Service**: `ncz-npu-embed.service` (systemd), installed by
   `post-install/89-npu-embed-server.sh`, runs
   `/opt/ncz/noe-venv/bin/python /usr/local/bin/ncz-npu-embed-server.py`
+- **Interface**: OpenAI-compatible `/v1/embeddings`, served on
+  `127.0.0.1:8081`
+- **More than one model is registered**, and the three things that vary
+  between them are **all silent failures if you get them wrong** — the
+  wrong output dimension reshapes the hidden state into garbage, the
+  wrong input count (2 vs 3 tensors) or pooling strategy (`mean` vs
+  `cls`) produces a vector that looks valid but isn't the real embedding:
+
+  | Model | Graph | Dim | Inputs | Pooling | Max seq |
+  |---|---|---|---|---|---|
+  | `nomic-embed-text` | `nomic-embed-text-v1.5_256.cix` | 768 | 3 | mean | 256 |
+  | `bge-m3` | `bge-m3_256.cix` | 1024 | 2 | cls | 256 |
+
+  Clients ask for a model by name (`nomic-embed-text` or `bge-m3` in the
+  request body's `model` field); each is compiled as its own separate
+  fixed-shape `.cix` graph, so running more than one on the same device
+  is normal — there's no requirement that everything on a box share one
+  dimension.
+
+- **Accuracy, measured** (`nomic-embed-text`): cosine similarity
+  **0.995330** against the onnxruntime CPU reference implementation on
+  the same input — validated on a real Radxa Orion O6 board
+- **Throughput, measured** (`nomic-embed-text`): **8.9 inferences/second**
+  (112ms per call). Not fast in absolute terms, but every query runs
+  entirely on-device with no network round-trip.
 
 This service is **shipped disabled by default** on a fresh NCZ-OS
-install — it only auto-enables if the compiled `.cix` model file is
+install — it only auto-enables if a compiled `.cix` model file is
 actually staged at build time. If you want it running on your box and it
 isn't:
 
 ```sh
-# confirm the model is present
-ls -la /opt/ncz/models/nomic-embed-text-v1.5_256.cix
+# confirm a model is present (at least one of these)
+ls -la /opt/ncz/models/nomic-embed-text-v1.5_256.cix /opt/ncz/models/bge-m3_256.cix
 
 # if present but not running:
 sudo systemctl enable --now ncz-npu-embed.service
 sudo systemctl status ncz-npu-embed.service
 
-# quick test once it's up
+# quick test once it's up -- 768-dim
 curl http://127.0.0.1:8081/v1/embeddings \
   -H 'Content-Type: application/json' \
-  -d '{"input": "test sentence", "model": "nomic-embed-text-v1.5"}'
+  -d '{"input": "test sentence", "model": "nomic-embed-text"}'
+
+# 1024-dim
+curl http://127.0.0.1:8081/v1/embeddings \
+  -H 'Content-Type: application/json' \
+  -d '{"input": "test sentence", "model": "bge-m3"}'
 ```
 
 This is the reference pattern for running your own fixed-shape model on
@@ -211,7 +230,7 @@ classes) are not the same thing.
 | Embedding server hook (source) | `post-install/89-npu-embed-server.sh` |
 | Validated driver pairing (2026-09-15) | KMD 6.2.0 + UMD 3.1.4 (`3.1.4-cixdeb13-260714`) |
 | Kernel device node | `/dev/aipu` (independent of the Python stack — the kernel driver and device work even if the venv is broken; you only lose Python-level inference) |
-| Reference embedding model | `/opt/ncz/models/nomic-embed-text-v1.5_256.cix` (256-token fixed shape, 768-dim output) |
+| Reference embedding models | `nomic-embed-text` (768-dim) and `bge-m3` (1024-dim), both 256-token fixed shape — see model table above |
 | Reference service | `ncz-npu-embed.service` → `127.0.0.1:8081/v1/embeddings` |
 | CIX AI Model Hub (public upstream) | https://github.com/cixtech/ai_model_hub |
 | CIX AI Model Hub (Radxa O6 docs) | https://docs.radxa.com/en/orion/o6/app-development/artificial-intelligence/ai-hub |
