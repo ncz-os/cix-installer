@@ -120,7 +120,7 @@ mnemos_active(){ systemctl is-active --quiet mnemos.service 2>/dev/null; }
 mnemos_menu(){
   hr; say "  MNEMOS — persistent memory substrate"; hr
   say "  REST + MCP + OpenAI-compatible gateway on :5002 (sqlite-backed)."
-  say "  Pulled on demand from ghcr.io/ncz-os/mnemos (network required)."
+  say "  Pulled on demand from ghcr.io/ncz-os/mnemos-enterprise (network required)."
   if mnemos_active; then
     say "  service  : mnemos.service  ACTIVE"
     say "  endpoint : http://$(host_ip):5002   (health: curl -fsS http://127.0.0.1:5002/health)"
