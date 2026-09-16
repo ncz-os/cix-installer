@@ -776,7 +776,7 @@ REST, MCP and an OpenAI-compatible API.
 It installs **offline**. The image is bundled on the media and side-loaded with
 `podman load`; the quadlet is generated with `Pull=never` so a running system
 never silently reaches for a registry. A network pull of
-`ghcr.io/ncz-os/mnemos:latest` happens only if no bundled image is found, and
+`ghcr.io/ncz-os/mnemos-enterprise:latest` happens only if no bundled image is found, and
 is announced when it does.
 
 ```bash

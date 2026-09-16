@@ -5,7 +5,7 @@ Wants=network-online.target
 After=network-online.target
 
 [Container]
-Image=ghcr.io/ncz-os/mnemos:latest
+Image=ghcr.io/ncz-os/mnemos-enterprise:latest
 # Loaded on demand by `ncz install mnemos` — OFFLINE from the ISO-bundled OCI
 # archive (assets/agent-images/mnemos.oci.tar via `podman load`), or a ghcr
 # pull only if no bundled image is present. Pull=never so systemd never reaches
