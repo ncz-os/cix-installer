@@ -477,8 +477,20 @@ prepare_static_zstd() {
     case "$NCZ_TARGET_ARCH" in
         arm64)
             override_var="${ZSTD_STATIC_AARCH64:-}"
-            cc=aarch64-linux-gnu-gcc; ar=aarch64-linux-gnu-ar; ranlib=aarch64-linux-gnu-ranlib
-            strip_tool=aarch64-linux-gnu-strip
+            # 2026-09-16: this used to unconditionally cross-compile, which was
+            # correct back when arm64 ISO builds ran on an x86 host (TYPHON/
+            # cixmini). arm64 builds moved to ULTRA -- a NATIVE aarch64 host
+            # (Fedora Asahi, confirmed 2026-09-04) -- and ULTRA has no
+            # aarch64-linux-gnu-* cross toolchain installed (nor should it
+            # need one). Same native-vs-cross distinction the amd64 branch
+            # below already makes; arm64 just never got it because the
+            # assumption predates the ULTRA build-host move.
+            if [ "$(uname -m)" = aarch64 ]; then
+                cc=gcc; ar=ar; ranlib=ranlib; strip_tool=strip
+            else
+                cc=aarch64-linux-gnu-gcc; ar=aarch64-linux-gnu-ar; ranlib=aarch64-linux-gnu-ranlib
+                strip_tool=aarch64-linux-gnu-strip
+            fi
             file_pattern='ARM aarch64|ARM64'
             ;;
         amd64)
