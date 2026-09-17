@@ -24,8 +24,6 @@ manifests/installer-base-amd64.pkgs:btrfs-progs
 manifests/installer-base-amd64.pkgs:e2fsprogs
 manifests/installer-base-amd64.pkgs:testdisk
 manifests/installer-base-amd64.pkgs:efibootmgr
-manifests/installer-base-amd64.pkgs:grub-efi-amd64
-manifests/installer-base-amd64.pkgs:grub-pc-bin
 manifests/installer-base-amd64.pkgs:dbus
 manifests/installer-base-amd64.pkgs:dbus-broker
 manifests/installer-base-amd64.pkgs:iwd
