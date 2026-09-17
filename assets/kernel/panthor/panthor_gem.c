@@ -26,6 +26,23 @@
 #include "panthor_gem.h"
 #include "panthor_mmu.h"
 
+/*
+ * NCZ 2026-09-17: vma_is_cow_mapping(struct vm_area_struct *) does not exist
+ * on 7.2.6-sky1-ncz (it only has the older is_cow_mapping(vm_flags_t) and a
+ * newer vma_desc_is_cow_mapping(struct vm_area_desc *) for the mmap-desc
+ * path) -- this is a real, in-flight upstream VMA-flags API transition
+ * (vm_flags_t -> an opaque vma_flags_t bitset) that landed the vma-struct
+ * wrapper before 7.3.0-rc3-sky1-ncz but not yet in 7.2.6-sky1-ncz. Neither
+ * kernel's own wrapper name works on both, so avoid both entirely: implement
+ * the actual, decades-stable CoW definition directly against fields/macros
+ * (vma->vm_flags, VM_SHARED, VM_MAYWRITE) confirmed identical byte-for-byte
+ * on both 7.2.6-sky1-ncz and 7.3.0-rc3-sky1-ncz kernel headers.
+ */
+static inline bool ncz_panthor_vma_is_cow_mapping(const struct vm_area_struct *vma)
+{
+	return (vma->vm_flags & (VM_SHARED | VM_MAYWRITE)) == VM_MAYWRITE;
+}
+
 void panthor_gem_init(struct panthor_device *ptdev)
 {
 	int err;
@@ -761,7 +778,7 @@ static int panthor_gem_mmap(struct drm_gem_object *obj, struct vm_area_struct *v
 		return ret;
 	}
 
-	if (vma_is_cow_mapping(vma))
+	if (ncz_panthor_vma_is_cow_mapping(vma))
 		return -EINVAL;
 
 	if (!refcount_inc_not_zero(&bo->cmap.mmap_count)) {
