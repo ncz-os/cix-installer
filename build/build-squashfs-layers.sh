@@ -895,6 +895,50 @@ NMETH
 # is honest and explicitly documented (this header comment + commit
 # message + build log line below).
 # ----------------------------------------------------------------------------
+
+# build_singularity_payload() -- rebuild ncz-singularity-desktop from CURRENT
+# upstream head, unconditionally, before build_hotfix() (or anything else on
+# this branch) consumes it.
+#
+# Ported from build_singularity_payload() on wip/mkosi-pipeline-2026-09-14
+# (2026-09-17, operator rule 11: "build the new singularity for both arm64
+# and amd at next ISO build ... standard procedure"). NOT a dual-arch port --
+# this whole pipeline (BASE_TARBALL above hardcodes rootfs-*-arm64.tar.zst,
+# no NCZ_TARGET_ARCH concept exists anywhere in this file) only ever builds
+# arm64, so there is no second arch here to rebuild for. The wip branch's
+# dual-arch behavior depends on NCZ_TARGET_ARCH, which this branch does not
+# have; giving master real AMD64 squashfs-layer support is the mkosi-pipeline
+# migration itself; a function port cannot manufacture that. What this DOES
+# fix on master: the exact same stale-payload gap build_hotfix()'s own error
+# message below has been describing as a MANUAL step ("run both by hand ...
+# then retry") -- nothing on this branch ever called build-singularity.sh
+# automatically either, so master carried the identical staleness risk.
+build_singularity_payload(){
+  log "SINGULARITY: rebuilding ncz-singularity-desktop from current upstream head"
+  local _sinty_out="$ROOT/build/sinty-out"
+  local _tgz="$_sinty_out/singularity-opt.tgz"
+  rm -f "$_tgz"
+  OUT="$_sinty_out" SINGULARITY_IMAGE="debian:${NCZ_BASE_CODENAME}" \
+    bash "$ROOT/build/build-singularity.sh" || {
+      log "ERROR: build-singularity.sh failed -- refusing to fall back to a stale .deb"
+      exit 1
+    }
+  [ -s "$_tgz" ] || {
+    log "ERROR: build-singularity.sh reported success but $_tgz is missing/empty"
+    exit 1
+  }
+  local _deb
+  _deb="$(OUT="$_sinty_out" bash "$ROOT/build/build-singularity-deb.sh" "$_tgz" \
+    | tee /dev/stderr | sed -n 's/^Final \.deb: //p')"
+  [ -n "$_deb" ] && [ -s "$_deb" ] || {
+    log "ERROR: build-singularity-deb.sh did not produce a usable .deb"
+    exit 1
+  }
+  rm -f "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb
+  install -m 0644 "$_deb" "$ROOT/assets/cix-debs/"
+  log "SINGULARITY: staged $(basename "$_deb") -> assets/cix-debs/ (fresh, from head)"
+}
+
 build_hotfix(){
   log "HOTFIX: stage ncz-singularity-desktop /opt/singularity + /etc/ld.so.conf.d/singularity.conf"
   # Pick the LATEST ncz-singularity-desktop .deb from assets/cix-debs/ by version
@@ -998,11 +1042,11 @@ HOTFIX_MANIFEST
 
 case "$STAGE" in
   base)    build_base ;;
-  desktop) build_layer desktop manifests/desktop.pkgs ;;
-  hotfix)  build_hotfix ;;
+  desktop) build_singularity_payload; build_layer desktop manifests/desktop.pkgs ;;
+  hotfix)  build_singularity_payload; build_hotfix ;;
   server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
            echo "       Boot the console entry (multi-user.target) instead." >&2
            exit 1 ;;
-  all)     build_base; build_layer desktop manifests/desktop.pkgs; build_hotfix ;;
+  all)     build_base; build_singularity_payload; build_layer desktop manifests/desktop.pkgs; build_hotfix ;;
   *) echo "usage: $0 base|desktop|hotfix|server|all"; exit 2 ;;
 esac
