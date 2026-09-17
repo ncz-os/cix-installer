@@ -19,6 +19,10 @@
 #   2. Boot variable : `ncz_diag=0|off` on the kernel cmdline disables it even if
 #      staged; `ncz_diag=1` enables. Operators can flip it at the GRUB menu.
 #   Tunables (kernel cmdline): ncz_diag_pw=<pw>  ncz_diag_log=<host[:port]>
+#   Remote syslog is OPT-IN ONLY -- no default loghost is baked in (operator
+#   2026-09-17: a shipped installer must never phone home to an internal
+#   fleet address by default). Without ncz_diag_log, the forwarder simply
+#   never starts; the console banner tells the operator how to turn it on.
 #
 # Idempotent: safe to run repeatedly; daemons are tracked by pidfiles and only
 # (re)started when missing. Spawned in background by preseed/early_command.
@@ -48,9 +52,21 @@ case "$DIAG" in
         say "disabled via ncz_diag=$DIAG — exiting (no daemons started)"; exit 0;;
 esac
 PW=$(kv ncz_diag_pw);    PW=${PW:-diags}
-LOGDST=$(kv ncz_diag_log); LOGDST=${LOGDST:-192.168.207.22:5514}
-case "$LOGDST" in *:*) LOGHOST=${LOGDST%:*}; LOGPORT=${LOGDST##*:};; *) LOGHOST=$LOGDST; LOGPORT=5514;; esac
-say "cfg: pw=*** log=$LOGHOST:$LOGPORT"
+# No default loghost — a real, shipped installer must never phone home to an
+# internal fleet address by default. Remote syslog forwarding is OPT-IN ONLY
+# via ncz_diag_log=<host[:port]> on the boot cmdline; unset means no forward
+# daemon is even started (see start_syslogd). This used to default to
+# 192.168.207.22:5514 (ARGOS), which meant every real-hardware install's
+# console banner printed our internal fleet IP whether or not anyone wanted
+# remote logging — operator directive 2026-09-17: never ship that.
+LOGDST=$(kv ncz_diag_log)
+if [ -n "$LOGDST" ]; then
+    case "$LOGDST" in *:*) LOGHOST=${LOGDST%:*}; LOGPORT=${LOGDST##*:};; *) LOGHOST=$LOGDST; LOGPORT=5514;; esac
+    say "cfg: pw=*** log=$LOGHOST:$LOGPORT"
+else
+    LOGHOST=""; LOGPORT=""
+    say "cfg: pw=*** log=disabled (set ncz_diag_log=<host[:port]> on the boot cmdline to enable)"
+fi
 
 BB=/tmp/nczdiag/busybox
 BIN=/tmp/diagbin
@@ -269,12 +285,21 @@ installer_component_loader_busy() {
 }
 
 start_syslogd() {
+    if [ -z "$LOGHOST" ]; then
+        # No forwarder to guard re-entry with (there's no forward pidfile in
+        # this branch), so guard on klogd itself instead.
+        alive "$RUN/klogd.pid" && return 0
+        "$BB" klogd -n & echo $! > "$RUN/klogd.pid"
+        say "syslog forwarding disabled (no ncz_diag_log) — local /var/log/syslog + klogd only"
+        verify_pid "klogd" "$RUN/klogd.pid" || true
+        return 0
+    fi
     alive "$RUN/syslogd.pid" && return 0
+    "$BB" klogd -n & echo $! > "$RUN/klogd.pid"
     # Replace d-i's syslogd with ours so we keep /var/log/syslog AND forward to
     # the collector. -n = foreground (we background it), -R host:port = remote.
     ( "$BB" tail -F /var/log/syslog 2>/dev/null | while IFS= read -r _L; do printf "%s\n" "$_L" | "$BB" nc -w1 "$LOGHOST" "$LOGPORT" 2>/dev/null; done ) &
     echo $! > "$RUN/syslogd.pid"
-    "$BB" klogd -n & echo $! > "$RUN/klogd.pid"
     say "syslog forwarding -> $LOGHOST:$LOGPORT (+ klogd)"
     verify_pid "syslog-forwarder" "$RUN/syslogd.pid" || true
     verify_pid "klogd" "$RUN/klogd.pid" || true
@@ -367,7 +392,12 @@ say "NCZ installer diagnostics READY  (ncz_diag=$DIAG)  IP=${IP:-<none>}"
 say "  ssh:    ssh root@${IP:-<host>}            (password: $PW)"
 say "  telnet: telnet ${IP:-<host>} ${TELNET_PORT}             (rich shell)"
 say "  pull:   wget http://${IP:-<host>}:${HTTP_PORT}/var/log/syslog"
-say "  logs ->  $LOGHOST:$LOGPORT (remote syslog)"
+if [ -n "$LOGHOST" ]; then
+    say "  logs ->  $LOGHOST:$LOGPORT (remote syslog)"
+else
+    say "  logs:   remote syslog DISABLED -- add ncz_diag_log=<host[:port]> to the"
+    say "          boot cmdline (e.g. at the rEFInd/GRUB menu) to enable it"
+fi
 say "==================================================================="
 
 # ---- idempotent respawn for the life of the install -------------------------
