@@ -3585,7 +3585,21 @@ case "$NCZ_TARGET_ARCH" in
         MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
         ;;
     amd64)
-        MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 console=ttyS0,115200 audit_backlog_limit=8192 panic=30 nmi_watchdog=0"
+        # STRUCTURAL HARDENING 2026-09-17 (operator: "we need more intelligent
+        # detection for AMD/Intel systems for display console"): the DI_OPTS_GFX
+        # auto=true fix above is the actual bugfix, but a real, unconnected
+        # 16550 UART still gets its own d-i inittab respawn entry whenever it's
+        # listed here (harmless once auto=true is gone -- it just idles waiting
+        # for input on a port nothing is attached to -- but it's still a second,
+        # pointless installer instance and a confusing thing to land on if a
+        # human switches VTs). Rather than keep guessing at console= ordering
+        # heuristics for hardware we cannot enumerate at ISO-build time (every
+        # PC/laptop's UART presence and firmware console-registration behavior
+        # differs -- this exact class of bug already burned multiple arm64
+        # hardware revisions, see the extensive history above), the GFX/desktop
+        # entry simply never offers a serial console at all. Serial tracing is
+        # what the DIAG entry (MARTJOHNSON_R6, unchanged) is for.
+        MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 audit_backlog_limit=8192 panic=30 nmi_watchdog=0"
         ;;
 esac
 DI_PRIORITY=critical  # r134: was high; high drops d-i to interactive menu after finish-install (no auto-reboot). critical auto-progresses to the terminal reboot; the remove-media prompt is itself critical so it still shows.
@@ -3620,7 +3634,19 @@ DI_OPTS="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg
 # asked relative to preseed load. preseed/file= is unaffected.
 #
 # DIAG keeps auto=true, since it wants the single serial instance.
-DI_OPTS_GFX="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
+#
+# BUG FIXED 2026-09-17 (real, photographed on PEGASUS/AMD64 real hardware):
+# this line copy-pasted DI_OPTS verbatim, auto=true and all -- directly
+# contradicting the "WITHOUT auto=true" reasoning in the comment block right
+# above it. Effect: the DEFAULT desktop-install menu entry (set default=0,
+# below) tripped reopen-console's single-console preseeding path anyway,
+# picked ttyS0 (a real, firmware-registered 16550 UART on real PC hardware
+# even with nothing physically connected to it -- unlike arm64's ttyAMA2,
+# which simply does not exist on O6N and so never wins this pick), and
+# /sbin/debian-installer respawned there in a tight ~1s loop
+# (exitcode:0 each time -- a clean exit, not a crash) while the actual
+# laptop screen sat frozen at the last kernel boot message forever.
+DI_OPTS_GFX="priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
 # Diagnostics build switch: when on, enable the in-installer diag module
 # (ncz_diag=1) and verbose debconf logging (DEBCONF_DEBUG=5). Both are
 # omitted for DIAG_ENABLE=0 ship builds. Boot-time override: ncz_diag=0.
