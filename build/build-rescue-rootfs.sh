@@ -21,6 +21,15 @@
 # Usage:  sudo bash build/build-rescue-rootfs.sh [chroot_dir] [out_tarball] [suite] [arch] [mirror]
 set -euo pipefail
 
+# PROCESS GAP (2026-09-17): this script's output (assets/rescue/rescue-rootfs.tar.zst)
+# is gitignored and only ever built locally -- there is no forcing function that keeps
+# an already-installed board's on-disk rescue partition in sync with improvements made
+# here. O6N's rescue partition was found missing telnet entirely because it was
+# populated from a tarball built before telnet support was added to this script, and
+# nothing had refreshed it since. Real, still-open process question: should this build
+# on a schedule / CI trigger and get redeployed to fleet boards automatically, the way
+# kernel images do? Not solved here -- flagging for the operator.
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 CHROOT="${1:-$ROOT/build/rescue-rootfs}"
