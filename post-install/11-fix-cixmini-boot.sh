@@ -71,45 +71,75 @@ for f in /boot/vmlinuz-*; do
             ;;
     esac
 done
-# Single shipping kernel (operator 2026-08-21): the legacy 7.0.12 line is
-# retired. Ship whichever NCZ kernel was staged MOST RECENTLY.
-#
-# CORRECTED 2026-09-12 (O6N boot-break root cause): this used to be
-# `sort -V | tail -1` -- "take the highest-versioned kernel present" --
-# which assumes an upgrade (higher version == the one just installed).
-# That assumption is FALSE for an explicit downgrade. This wrapper is
-# invoked from linux-image-cix-sky1-ncz's own postinst
-# (`[ -x .../cixmini-update-bootloader ] && .../cixmini-update-bootloader`),
-# which runs BEFORE dpkg removes the files the OLD package version owned
-# but the new one does not -- that cleanup happens only after this same
-# package's postinst returns. So during a same-transaction downgrade (e.g.
-# 7.3.0-rc2 -> 7.2.5), BOTH kernels' /boot/vmlinuz-*/initrd.img-* are still
-# on disk at the instant this script scans them, and `sort -V` picked the
-# numerically-higher kernel that was just replaced -- exactly the one the
-# operator was downgrading away from -- and staged refind.conf to boot it.
-# Confirmed against the actual r271 postinst scripts on 2026-09-12; see
-# cix-installer git history / MNEMOS for the full trace.
-#
-# mtime does not have this blind spot: dpkg always rewrites the vmlinuz it
-# is installing NOW with a fresh mtime, regardless of whether that kernel's
-# version number is higher or lower than what it replaces. Pick the
-# candidate with the newest /boot/vmlinuz-<kver> mtime instead.
-if [ -n "$(printf '%s' "$NCZ_KVERS" | tr -d ' ')" ]; then
-    _newest_mtime=-1
-    for _k in $NCZ_KVERS; do
+# mtime, not `sort -V`, to pick the newest of a set (operator 2026-08-21 /
+# CORRECTED 2026-09-12 -- O6N boot-break root cause): `sort -V | tail -1`
+# assumes an upgrade (higher version == the one just installed), which is
+# FALSE for an explicit downgrade. This wrapper is invoked from
+# linux-image-cix-sky1-ncz's own postinst, which runs BEFORE dpkg removes
+# the files the OLD package version owned but the new one does not -- so
+# during a same-transaction downgrade (e.g. 7.3.0-rc2 -> 7.2.5) BOTH
+# kernels' vmlinuz/initrd are still on disk when this scans them, and
+# `sort -V` picked the numerically-higher kernel that was just replaced.
+# dpkg always rewrites the vmlinuz it installs NOW with a fresh mtime,
+# regardless of version number, so mtime doesn't have that blind spot.
+_newest_of() {
+    local _best="" _best_mt=-1 _k _f _mt
+    for _k in $1; do
         _f="/boot/vmlinuz-$_k"
         [ -e "$_f" ] || continue
         _mt=$(stat -c '%Y' "$_f" 2>/dev/null || echo -1)
-        if [ "$_mt" -gt "$_newest_mtime" ]; then
-            _newest_mtime=$_mt
-            KVER_NEXT="$_k"
+        if [ "$_mt" -gt "$_best_mt" ]; then
+            _best_mt=$_mt
+            _best="$_k"
         fi
     done
-    echo "cixmini-update-bootloader: shipping kernel = $KVER_NEXT (edge-only, newest-mtime)"
+    printf '%s' "$_best"
+}
+
+# BUG FIXED 2026-09-16 (real, metal-verified on O6N): this used to lump
+# EVERY installed kernel into one pool and hand the single newest-mtime one
+# to ncz-refind-refresh as KVER_NEXT -- with no KVER_EDGE at all. That was
+# fine back when this distro shipped exactly one kernel line ("Single
+# shipping kernel", operator 2026-08-21), but the dual-track stable+edge
+# model (operator 2026-09-13) means a live `apt install` of the EDGE line
+# (e.g. 7.3.0-rc3) now has a newer mtime than the already-installed STABLE
+# line (7.2.6) -- so the edge kernel silently became "KVER_NEXT" and
+# ncz-refind-refresh regenerated every "7.2 Mali/Panthor/Console" primary
+# menu entry to boot the 7.3-rc edge kernel under a "7.2" label. Reproduced
+# live: `apt install`-ing the edge kernel alone flipped default_selection
+# to boot 7.3.0-rc3 despite every visible label still saying "7.2".
+#
+# Fix: bucket candidates by whether their kver contains an "-rcN-" segment
+# (this project's own edge-kernel naming convention, e.g.
+# 7.3.0-rc3-sky1-ncz) and pick the newest-mtime kernel WITHIN each bucket
+# independently, so an edge install can never displace the stable slot (or
+# vice versa). A host with only one line still works exactly as before:
+# the sole kernel lands in its own bucket and gets promoted to KVER_NEXT if
+# the stable bucket is empty (preserves single-kernel-release behavior).
+_stable_kvers=""
+_edge_kvers=""
+for _k in $NCZ_KVERS; do
+    case "$_k" in
+        *-rc[0-9]*-*) _edge_kvers="$_edge_kvers $_k" ;;
+        *)            _stable_kvers="$_stable_kvers $_k" ;;
+    esac
+done
+KVER_NEXT="$(_newest_of "$_stable_kvers")"
+KVER_EDGE="$(_newest_of "$_edge_kvers")"
+
+# No stable kernel on this host (edge-only release, or a fresh edge install
+# with no stable line yet) -- fall back to promoting the edge kernel into
+# the KVER_NEXT slot, same as the old single-channel behavior, and leave
+# KVER_EDGE empty so ncz-refind-refresh doesn't generate a duplicate entry.
+if [ -z "$KVER_NEXT" ] && [ -n "$KVER_EDGE" ]; then
+    KVER_NEXT="$KVER_EDGE"
+    KVER_EDGE=""
 fi
 
+echo "cixmini-update-bootloader: stable=${KVER_NEXT:-<none>} edge=${KVER_EDGE:-<none>}"
+
 if [ -z "$KVER_NEXT" ]; then
-    echo "cixmini-update-bootloader: no edge kernel with a ready initrd found, skipping"
+    echo "cixmini-update-bootloader: no shipping kernel with a ready initrd found, skipping"
     exit 0
 fi
 
@@ -117,7 +147,7 @@ BUILD_VERSION="(unknown)"
 [ -f /usr/local/lib/cix-installer/BUILD_VERSION ] && \
     BUILD_VERSION=$(cat /usr/local/lib/cix-installer/BUILD_VERSION 2>/dev/null || true)
 
-KVER_NEXT="$KVER_NEXT" BUILD_VERSION="$BUILD_VERSION" "$REFRESH"
+KVER_NEXT="$KVER_NEXT" KVER_EDGE="$KVER_EDGE" BUILD_VERSION="$BUILD_VERSION" "$REFRESH"
 WRAPEOF
 chmod 0755 "$WRAPPER_STABLE"
 echo "[11] wrote stable wrapper source -> $WRAPPER_STABLE"
