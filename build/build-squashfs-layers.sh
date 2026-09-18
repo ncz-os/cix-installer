@@ -785,18 +785,30 @@ build_base(){
   # zero wallpaper-rotation matches. Same root cause likely blocks the
   # Artist Pack install flow too (its polkit backend scripts install fine,
   # but read from this same directory to list/install packs).
-  if ! ls "$ROOT/assets/wallpaper-debs/"*.deb >/dev/null 2>&1; then
-    log "  wallpaper-debs: none staged -- building the default NCZ pack"
-    if bash "$ROOT/build/build-wallpaper-contrib-deb.sh" ncz >/dev/null 2>&1; then
-      mkdir -p "$ROOT/assets/wallpaper-debs"
-      cp "$ROOT/build/wallpaper-debs/"*.deb "$ROOT/assets/wallpaper-debs/" 2>/dev/null || true
-      log "  wallpaper-debs: staged $(ls "$ROOT/assets/wallpaper-debs/"*.deb 2>/dev/null | wc -l) pack(s)"
-    else
-      log "  WARN: build-wallpaper-contrib-deb.sh ncz failed -- shipping with NO default wallpaper (see post-install/45-wallpaper-rotator.sh)"
+  # Ship all four packs we own: ncz (required, has its own fail-loud gate
+  # in 45-wallpaper-rotator.sh), singularity (repackages the upstream
+  # singularity-wallpapers set as an installable pack so ncz-wallpaper-rotate
+  # picks it up, distinct from the copy that ships inside /opt/singularity),
+  # and the contributed Brandon Perlow and Alex Jay Brady packs. Only ncz
+  # used to be auto-built here (as a fallback when NOTHING was staged), so a
+  # from-scratch build silently shipped without the other three --
+  # assets/wallpaper-debs/ is gitignored and build-wallpaper-contrib-deb.sh
+  # was never invoked for them.
+  mkdir -p "$ROOT/assets/wallpaper-debs"
+  for pack in ncz singularity brandon-perlow alex-jay-brady; do
+    if ls "$ROOT/assets/wallpaper-debs/ncz-wallpapers-${pack}_"*.deb >/dev/null 2>&1; then
+      continue
     fi
-  else
-    log "  wallpaper-debs: using existing $(ls "$ROOT/assets/wallpaper-debs/"*.deb 2>/dev/null | wc -l) staged pack(s)"
-  fi
+    log "  wallpaper-debs: $pack not staged -- building"
+    if bash "$ROOT/build/build-wallpaper-contrib-deb.sh" "$pack" >/dev/null 2>&1; then
+      cp "$ROOT/build/wallpaper-debs/"*.deb "$ROOT/assets/wallpaper-debs/" 2>/dev/null || true
+    elif [ "$pack" = ncz ]; then
+      log "  WARN: build-wallpaper-contrib-deb.sh ncz failed -- shipping with NO default wallpaper (see post-install/45-wallpaper-rotator.sh)"
+    else
+      log "  WARN: build-wallpaper-contrib-deb.sh $pack failed -- shipping without the $pack Artist Pack"
+    fi
+  done
+  log "  wallpaper-debs: staged $(ls "$ROOT/assets/wallpaper-debs/"*.deb 2>/dev/null | wc -l) pack(s)"
   ensure_base_tarball_fresh
   # A failed base hook exits under `set -e` before normal cleanup. Detach any
   # stale mounts before retrying so rm never traverses host /proc or /sys.
