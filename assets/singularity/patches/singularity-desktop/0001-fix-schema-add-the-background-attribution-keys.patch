@@ -1,0 +1,60 @@
+From 1a0d96e83ec6e212643e14e931b0b29b5db11eff Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Thu, 17 Sep 2026 10:45:19 -0400
+Subject: [PATCH] fix(schema): add the background-attribution keys the shell
+ already reads
+
+singularity-shell master reads show-wallpaper-attribution unguarded in
+desktop_page.vala and background.vala, and background-attribution-title
+and -author through SettingsSafety. g_settings_get_boolean() on a key the
+schema does not declare aborts the process, so opening the Desktop
+settings page crashes until these keys exist.
+
+Rebased onto current master and reduced to the schema alone. The
+singularity-shell submodule bump is dropped: master already points at a
+newer commit than this branch carried, so it was a regression as well as
+an unrelated concern.
+
+Assisted-by: Claude Code:claude-opus-5
+AI-Scope: Rebased the branch onto master, dropped the submodule-bump commit, and tightened the key descriptions.
+---
+ data/dev.sinty.desktop.gschema.xml | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/data/dev.sinty.desktop.gschema.xml b/data/dev.sinty.desktop.gschema.xml
+index c44f0d4..0712a58 100644
+--- a/data/dev.sinty.desktop.gschema.xml
++++ b/data/dev.sinty.desktop.gschema.xml
+@@ -116,6 +116,16 @@
+       <default>''</default>
+       <summary>URI of the background picture</summary>
+     </key>
++    <key name="background-attribution-title" type="s">
++      <default>''</default>
++      <summary>Attribution title for the current background</summary>
++      <description>Title of the current wallpaper. Empty when it carries no attribution.</description>
++    </key>
++    <key name="background-attribution-author" type="s">
++      <default>''</default>
++      <summary>Attribution author for the current background</summary>
++      <description>Creator credit for the current wallpaper. Empty when it carries no attribution.</description>
++    </key>
+     <key name="recent-wallpapers" type="as">
+       <default>[]</default>
+       <summary>List of recently used wallpaper URIs</summary>
+@@ -273,6 +283,12 @@
+       <description>Whether to show icons from the configured desktop folder.</description>
+     </key>
+ 
++    <key name="show-wallpaper-attribution" type="b">
++      <default>true</default>
++      <summary>Show Wallpaper Info</summary>
++      <description>Whether to show the wallpaper title and author on the desktop background.</description>
++    </key>
++
+     <key name="show-battery-percentage" type="b">
+       <default>false</default>
+       <summary>Show Battery Percentage</summary>
+-- 
+2.55.0
+
