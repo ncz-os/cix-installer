@@ -111,6 +111,10 @@ if pgrep -f "/opt/singularity/bin/singularity-lockscreen" >/dev/null 2>&1 \
    || pgrep -x swaylock >/dev/null 2>&1; then
     exit 0
 fi
+# A running animated hack must not keep rendering (GPU, battery) behind the
+# lock surface -- stop it before locking, whether the lock came from the idle
+# timeout, suspend, or Super+L. Idempotent no-op if no hack is running.
+[ -x /usr/local/bin/ncz-screensaver-hack-stop ] && /usr/local/bin/ncz-screensaver-hack-stop
 # Keep the lock client's stderr. Without this it goes nowhere: swayidle execs
 # ncz-lock which execs the locker, and nothing captures its output -- so when
 # the lock screen stopped accepting keystrokes three times in one day there was
@@ -127,6 +131,57 @@ fi
 exit 0
 LOCK
 chmod 0755 /usr/local/bin/ncz-lock
+
+# ---------------------------------------------------------------------------
+# 3b) ncz-screensaver-hack-{run,stop} — swayidle's timeout/resume pair for the
+#     animated-hack tier. Reads the configured hack-id, finds its manifest
+#     under the same generic search roots the screensaver-hacks plugin reads
+#     (/usr/share/singularity/screensaver-hacks/*.hack -- distro-neutral path,
+#     see singularity-plugins), and runs the binary directly. Idempotent: run
+#     is a no-op if one is already going; stop is a no-op if none is.
+# ---------------------------------------------------------------------------
+cat > /usr/local/bin/ncz-screensaver-hack-run <<'HACKRUN'
+#!/bin/sh
+# ncz-screensaver-hack-run — launch the configured GL hack fullscreen.
+set -u
+PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/ncz-screensaver-hack.pid
+if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+    exit 0
+fi
+command -v gsettings >/dev/null 2>&1 || exit 0
+# G_MESSAGES_DEBUG= (empty, exported for this call only) -- a session with
+# G_MESSAGES_DEBUG=all in its environment makes GLib/dconf debug lines land
+# on gsettings' stdout interleaved with the real value, at an unpredictable
+# line position, so neither `head -1` nor `tail -1` is reliably safe. Clear
+# it for the subprocess instead of trying to filter after the fact.
+HACK_ID=$(G_MESSAGES_DEBUG= gsettings get dev.ncz.screensaver hack-id 2>/dev/null | tr -d "'")
+[ -n "$HACK_ID" ] || exit 0
+BINARY=""
+for d in /usr/share/singularity/screensaver-hacks \
+         "${XDG_DATA_HOME:-$HOME/.local/share}/singularity/screensaver-hacks"; do
+    f="$d/$HACK_ID.hack"
+    [ -f "$f" ] || continue
+    BINARY=$(awk -F= '/^Binary=/{print substr($0,8); exit}' "$f")
+    [ -n "$BINARY" ] && break
+done
+[ -n "$BINARY" ] && [ -x "$BINARY" ] || exit 0
+"$BINARY" >"${XDG_RUNTIME_DIR:-/tmp}/ncz-screensaver-hack.log" 2>&1 &
+echo $! > "$PIDFILE"
+HACKRUN
+chmod 0755 /usr/local/bin/ncz-screensaver-hack-run
+
+cat > /usr/local/bin/ncz-screensaver-hack-stop <<'HACKSTOP'
+#!/bin/sh
+# ncz-screensaver-hack-stop — cooperative shutdown (SIGTERM) of a running hack.
+set -u
+PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/ncz-screensaver-hack.pid
+[ -f "$PIDFILE" ] || exit 0
+PID=$(cat "$PIDFILE" 2>/dev/null)
+rm -f "$PIDFILE"
+[ -n "$PID" ] && kill -TERM "$PID" 2>/dev/null
+exit 0
+HACKSTOP
+chmod 0755 /usr/local/bin/ncz-screensaver-hack-stop
 
 # ---------------------------------------------------------------------------
 # 4) dev.ncz.screensaver GSettings schema — the operator-facing configuration
@@ -169,6 +224,22 @@ cat > "$SYS_SCHEMADIR/dev.ncz.screensaver.gschema.xml" <<'GSCHEMA'
       <default>true</default>
       <summary>Lock On Suspend</summary>
       <description>Whether to lock the screen when the system suspends.</description>
+    </key>
+    <key name="hack-enabled" type="b">
+      <default>false</default>
+      <summary>Animated Screensaver Enabled</summary>
+      <description>Whether an animated GL hack runs before the lock timeout. Off by default -- opt-in until the hack collection is fully render-verified.</description>
+    </key>
+    <key name="hack-idle-delay" type="i">
+      <range min="0" max="86400"/>
+      <default>240</default>
+      <summary>Animated Screensaver Delay</summary>
+      <description>Seconds of inactivity before the animated hack starts. Should be shorter than idle-lock-delay; 0 means never.</description>
+    </key>
+    <key name="hack-id" type="s">
+      <default>''</default>
+      <summary>Selected Hack</summary>
+      <description>Id of the hack to run (matches a .hack manifest's Id). Empty means no hack is configured.</description>
     </key>
   </schema>
 </schemalist>
@@ -257,6 +328,17 @@ start_swayidle() {
     # Lock on suspend (before-sleep).
     if [ "$lock_en" = "true" ] && [ "$los" = "true" ]; then
         set -- "$@" before-sleep "$LOCK"
+        have_action=1
+    fi
+    # Animated hack before the lock. Only fires if it's genuinely shorter than
+    # the lock delay (0 means never-lock, so no such constraint then) -- a
+    # hack timer equal to or after the lock timer would never actually run.
+    hack_en=$(gb hack-enabled)
+    hack_delay=$(gi hack-idle-delay 240)
+    if [ "$hack_en" = "true" ] && [ "$hack_delay" -gt 0 ] && \
+       { [ "$idle" -eq 0 ] || [ "$hack_delay" -lt "$idle" ]; }; then
+        set -- "$@" timeout "$hack_delay" /usr/local/bin/ncz-screensaver-hack-run \
+                    resume       /usr/local/bin/ncz-screensaver-hack-stop
         have_action=1
     fi
     # Display power-off (DPMS) via wlopm.
