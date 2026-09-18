@@ -836,7 +836,7 @@ pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chr
 # of the shell into plugins, disabled by default (schema default lacks
 # them). They were always-on before that refactor. Keep the in-app
 # wallpaper browser's prior behavior by opting them back in here.
-enabled-plugins=['mpris-dock', 'downloads-dock', 'telegram-dock', 'launcher-entry-dock', 'tray-icons', 'emoji-search', 'tailscale', 'exe-icon', 'wallpapers-ocs', 'wallpapers-bing', 'wallpapers-stock']
+enabled-plugins=['mpris-dock', 'downloads-dock', 'telegram-dock', 'launcher-entry-dock', 'tray-icons', 'emoji-search', 'tailscale', 'exe-icon']
 GSCHEMA
     glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
         echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
