@@ -1,18 +1,59 @@
 # Singularity Desktop downstream patches
 
+**STALE-DOC WARNING (2026-09-18):** the `labwc` and `singularity-shell`
+sections below describe patches as present/VERIFIED, but commit `59b48a7`
+("retire the obsolete singularity/labwc/libsingularity patch queue")
+already deleted all of them from this tree -- those PRs merged upstream.
+This branch (`wip/mkosi-pipeline-2026-09-14`) inherited that retirement
+but not the doc fix that went with it on `master`. Left as-is rather than
+rewritten wholesale here, out of scope for the singularity-desktop patch
+this commit adds -- reconcile fully against `master` in a follow-up.
+
 Patches carried against `singularityos-lab/singularity-desktop` (and its
 bundled `labwc` subproject) for NCZ-OS on CIX Sky1, applied automatically by
 `build/build-singularity.sh` from `assets/singularity/patches/<subproject>/`
 after the upstream tree is cloned and every submodule is re-pinned to its own
 tracked branch tip (see the comment in that script for why the re-pin step
 exists). A patch that fails to apply is a hard build failure, not a warning —
-see the script for why.
+see the script for why. **The one exception:** a patch directory named after
+the root `singularity-desktop` repo itself (not a subproject/submodule)
+applies at the top level instead of `subprojects/<name>/` — see the
+`singularity-desktop` section below, the first patch to need this.
 
 Every patch here corresponds to an **open, unmerged upstream PR**. Once a PR
 merges, delete its patch(es) from here in the same commit that bumps past it
 — an applied-but-redundant patch is relatively harmless (the idempotency
 check just reports "already present"), but a stale README entry claiming a
 patch is still needed when it is not is actively misleading.
+
+## singularity-desktop — `assets/singularity/patches/singularity-desktop/`
+
+**Upstream PR:** [singularityos-lab/singularity-desktop#251](https://github.com/singularityos-lab/singularity-desktop/pull/251)
+(branch `master`), from `perlowja/singularity-desktop` branch
+`fix/wallpaper-attribution-gschema-keys`.
+
+**Fixes:** `singularity-shell` master reads `show-wallpaper-attribution`
+unguarded in `desktop_page.vala`/`background.vala`, and
+`background-attribution-title`/`-author` through `SettingsSafety`.
+`g_settings_get_boolean()`/`g_settings_get_string()` on a key the schema
+does not declare **aborts the process** (GLib fail-fast on a schema
+mismatch) — confirmed live on O6N tonight as a `singularity-desktop`
+SIGABRT crash loop (`g_settings_get_boolean` -> `singularity_background_construct`
+-> abort), 9 crashes in 35 seconds, via `coredumpctl`.
+
+- `0001-fix-schema-add-the-background-attribution-keys.patch` — adds the
+  three missing keys to `data/dev.sinty.desktop.gschema.xml`.
+
+**Status:** VERIFIED — a real container build (`build/build-singularity.sh`)
+applies the patch cleanly, and the staged payload's
+`opt/singularity/share/glib-2.0/schemas/dev.sinty.desktop.gschema.xml`
+genuinely declares all three keys (extracted and read directly from the
+build output, not inferred). `glib-compile-schemas` + `gsettings get`
+readback on the compiled schema confirms `show-wallpaper-attribution`
+returns `true` (the declared default). Separately, an earlier live stopgap
+deploy of this same fix to O6N (built directly from the PR branch, installed
+as `ncz-singularity-desktop_20260918+stopgap-pr251`) confirmed the crash
+itself no longer reproduces on real hardware.
 
 ## labwc — `assets/singularity/patches/labwc/`
 

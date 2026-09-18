@@ -245,6 +245,13 @@ if [ -d /ncz-patches ]; then
         [ -d "$_sub" ] || continue
         _name=$(basename "$_sub")
         _tree="subprojects/$_name"
+        # A patch directory named after the ROOT repo itself (singularity-desktop
+        # is not its own subproject/submodule) applies at the top level instead.
+        # Added 2026-09-18 for the first such patch (PR #251, gschema keys) --
+        # every prior ncz-patches entry targeted an actual subproject/submodule.
+        if [ ! -d "$_tree" ] && [ "$_name" = "$(basename "$PWD")" ]; then
+            _tree="."
+        fi
         if [ ! -d "$_tree" ]; then
             echo "ERROR: ncz patches exist for $_name but $_tree is not in this tree" >&2
             exit 1
