@@ -832,6 +832,11 @@ artist-pack-apt-sources=['https://packages.buildkite.com/ncz-os/ncz/any', 'https
 # Every id below was verified present in /usr/share/applications or
 # /opt/singularity/share/applications on a real r237 install.
 pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'org.gnome.Console.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
+# Upstream 795da47 (2026-09-18) split OCS/Bing/stock wallpaper browsing out
+# of the shell into plugins, disabled by default (schema default lacks
+# them). They were always-on before that refactor. Keep the in-app
+# wallpaper browser's prior behavior by opting them back in here.
+enabled-plugins=['mpris-dock', 'downloads-dock', 'telegram-dock', 'launcher-entry-dock', 'tray-icons', 'emoji-search', 'tailscale', 'exe-icon', 'wallpapers-ocs', 'wallpapers-bing', 'wallpapers-stock']
 GSCHEMA
     glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
         echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
