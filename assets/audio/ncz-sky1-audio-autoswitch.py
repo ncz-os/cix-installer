@@ -193,6 +193,12 @@ def load_sink(state: EldState, known_sinks: set[str]) -> bool:
             f"sink_name={state.sink_name}",
             f"device={device}",
             "namereg_fail=false",
+            # This node belongs to pipewire-pulse, so monitor.alsa.rules in
+            # WirePlumber do not configure it. Keep the DP audio stream running
+            # across idle gaps instead of closing/reopening the PCM and making
+            # the display reacquire audio at every playback boundary.
+            "sink_properties='node.suspend-on-idle=false "
+            "node.pause-on-idle=false session.suspend-timeout-seconds=0'",
         ]
     )
     if result.returncode == 0:

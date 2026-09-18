@@ -31,13 +31,29 @@ The daemon is intentionally a user service. It talks to the active user's PipeWi
    If none exists, load a PipeWire Pulse ALSA sink:
 
    ```sh
-   pactl load-module module-alsa-sink sink_name=ncz_sky1_hdmi_X_N device=hw:X,N namereg_fail=false
+   pactl load-module module-alsa-sink sink_name=ncz_sky1_hdmi_X_N device=hw:X,N namereg_fail=false \
+     "sink_properties='node.suspend-on-idle=false node.pause-on-idle=false session.suspend-timeout-seconds=0'"
    ```
 
    `module-alsa-sink`, `device`, and `sink_name` are documented by `pipewire-pulse-module-alsa-sink(7)`. The module family and `load-module` command format are documented by `pipewire-pulse-modules(7)` and `/usr/share/pipewire/pipewire-pulse.conf`.
 
 5. Set the default sink with `pactl set-default-sink` and move current sink inputs.
 6. If no display ELD is connected, leave normal desktop/analog fallback alone. If the current default is one of this daemon's sinks, restore the first non-`ncz_sky1_hdmi_*` sink.
+
+The fallback sink keeps streaming silence after its first playback, avoiding a
+PCM close/reopen and display audio reacquisition at every idle gap. The three
+properties above prevent immediate PipeWire suspension, idle pausing, and
+WirePlumber's delayed suspension, respectively. These are properties of the
+Pulse-created node; `monitor.alsa.rules` does not configure this node. Existing
+native ACP/UCM sinks retain their own policy. Keeping the fallback PCM running
+uses audio hardware while idle and holds that PCM open for PipeWire clients.
+
+See [the September 17 investigation](SKY1-AUDIO-IDLE-20260917.md) for the live
+before/after trace, the disconnected-port error explanation, and validation
+limits. Updating the helper does not change modules already loaded in a running
+session. A new graphical session loads the new properties; for immediate testing,
+stop the autoswitch service, unload only its identified `module-alsa-sink` module,
+and start the service again during a playback break. Preserve the sink volume.
 
 ## Board Evidence
 
