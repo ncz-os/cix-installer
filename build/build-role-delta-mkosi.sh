@@ -157,7 +157,22 @@ if [ -z "${WORK_EXPLICIT:-}" ] && [ "$(stat -f -c %T "$(dirname "$WORK")" 2>/dev
     WORK="$_alt"
 fi
 rm -rf "$WORK"
-mkdir -p "$WORK/conf" "$WORK/vartmp" "$WORK/pkgmgr/etc/apt/sources.list.d"
+mkdir -p "$WORK/conf" "$WORK/vartmp" "$WORK/pkgmgr/etc/apt/sources.list.d" \
+    "$WORK/skeleton/usr/sbin"
+# mkosi 27 already writes this exact policy-rc.d before its apt install and
+# unlinks it afterwards, but creates a new file mode 0644. Debian's
+# invoke-rc.d only consults POLICYHELPER when `test -x` succeeds, so daemon
+# postinst reloads run anyway and fail in the build sandbox. Seed the path as
+# executable through SkeletonTrees=: pathlib.write_text() then preserves the
+# existing inode mode when mkosi overwrites it, and mkosi's own post-install
+# unlink keeps it out of the output image. PackageManagerTrees= cannot do
+# this: that option populates mkosi's package-manager sandbox (apt config and
+# repositories), not the image root where invoke-rc.d looks for the helper.
+cat > "$WORK/skeleton/usr/sbin/policy-rc.d" << POLEOF
+#!/bin/sh
+exit 101
+POLEOF
+chmod 0755 "$WORK/skeleton/usr/sbin/policy-rc.d"
 trap 'rm -rf "$WORK"' EXIT
 
 _avail_gb=$(df -P --block-size=1G "$WORK" 2>/dev/null | awk 'NR==2{print $4+0}') || true
@@ -237,8 +252,20 @@ done
 
 if [ -n "$MIRROR_LIST_LINES" ]; then
     printf '%s\n' "$MIRROR_LIST_LINES" | sed '/^$/d' > "$WORK/pkgmgr/etc/apt/sources.list.d/ncz-offline-mirror.list"
-    NETWORK_ARGS=(--network=none)
-    echo "[$ROLE] offline mirror: $(printf '%s' "$MIRROR_LIST_LINES" | grep -c deb) source(s), --network=none for the build"
+    if grep -qxE 'firmware-b43-installer|firmware-b43legacy-installer' "$PKG_LIST"; then
+        # These two Debian packages contain no firmware. Their postinsts
+        # download fixed upstream blobs and verify hard-coded SHA-512 sums
+        # before b43-fwcutter extracts them. A networkless dpkg transaction
+        # therefore cannot configure them even though every .deb is present
+        # in the pinned mirror. Keep apt pointed exclusively at the local
+        # file:// source, but give these checksum-pinned postinst downloads
+        # the host network (HYDRA's rootful Podman bridge DNS is broken).
+        NETWORK_ARGS=(--network=host)
+        echo "[$ROLE] offline apt mirror: $(printf '%s' "$MIRROR_LIST_LINES" | grep -c deb) source(s); host network enabled only for checksum-pinned b43 firmware postinst downloads"
+    else
+        NETWORK_ARGS=(--network=none)
+        echo "[$ROLE] offline mirror: $(printf '%s' "$MIRROR_LIST_LINES" | grep -c deb) source(s), --network=none for the build"
+    fi
 else
     NETWORK_ARGS=()
     _mirror_dir_list="${MIRROR_DIRS// /,}"
@@ -345,6 +372,7 @@ Overlay=yes
 [Content]
 Bootable=no
 BaseTrees=/base
+SkeletonTrees=/skeleton
 CleanPackageMetadata=no
 PackageManagerTrees=/pkgmgr
 $(printf '%s\n' "$SANDBOX_TREE_LINES" | sed '/^$/d')
@@ -407,6 +435,7 @@ sudo podman run --rm \
     --security-opt label=disable \
     -v "$WORK/conf":/work:Z \
     -v "$WORK/pkgmgr":/pkgmgr:ro,Z \
+    -v "$WORK/skeleton":/skeleton:ro,Z \
     "${MIRROR_MOUNTS[@]}" \
     -v "$BASE_DIR":/base:ro,Z \
     -v "$OUT_DIR":/out:Z \

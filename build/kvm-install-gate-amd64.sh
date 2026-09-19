@@ -6,8 +6,9 @@
 #
 # AMD64-specific adaptations from the arm64 gate:
 #   - qemu-system-x86_64 / OVMF (not qemu-system-aarch64 / AAVMF)
-#   - console=ttyS0,115200 is ALREADY the shipped console (no ttyAMA2->ttyAMA0
-#     swap needed — the AMD64 GRUB entries were built with the right port)
+#   - the shipped graphical entry intentionally uses console=tty0 only; the
+#     throwaway qemutest copy rewrites that to ttyS0 so a headless gate can
+#     observe and drive d-i without changing the release ISO
 #   - /install.amd/vmlinuz (not /install.a64/vmlinuz)
 #   - virtio disk (/dev/vda) instead of nvme0n1 — matches this session's
 #     existing AMD64 QEMU test convention
@@ -52,6 +53,15 @@ sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.amd\/vmlinuz.*\)loglevel=4
 sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.amd\/vmlinuz.*\)loglevel=4/\1ncz_disk=\/dev\/vda ncz_fs=btrfs loglevel=4/' "$CFG"
 sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.amd\/vmlinuz.*\)loglevel=4/\1ncz_components=desktop,mgmt-container,rescue-partition loglevel=4/' "$CFG"
 sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.amd\/vmlinuz.*\)loglevel=4/\1ncz_unattended=1 loglevel=4/' "$CFG"
+# auto=true defers locale/keyboard questions until the preseed on /cdrom is
+# available. Without it, a serial-visible guest stops at "Select a language"
+# before the appended preseed answers can make the gate unattended.
+sed -i '/^[[:space:]]*linux[[:space:]]\+\/install\.amd\/vmlinuz.*auto=true/! s/\(^[[:space:]]*linux[[:space:]]\+\/install\.amd\/vmlinuz.*\)priority=critical/\1auto=true priority=critical/' "$CFG"
+# The release's default graphical entry has no serial console by design.
+# This gate uses -display none and validates the serial log, so make the
+# qemutest COPY serial-only; otherwise the guest boots successfully off-screen
+# while the gate waits forever for output that can never reach $S0.
+sed -i '/^[[:space:]]*linux[[:space:]]\+\/install\.amd\/vmlinuz/s/console=tty0/console=ttyS0,115200/' "$CFG"
 
 PSEED="$QEMU_STAGE/staging/cixmini/preseed.cfg"
 [ -f "$PSEED" ] || { echo "GATE FAIL: qemutest ISO has no cixmini/preseed.cfg"; exit 2; }
@@ -202,7 +212,8 @@ else
   fail "installed system booted a kernel but never reached userspace (see $BLOG)"
 fi
 
-DEFAULT_KVER=$(grep -aoE "Linux version [^ ]+" "$BLOG" | tail -1 | awk '{print $3}')
+DEFAULT_KVER=$(grep -aoE 'Linux version [^ ]+|Starting vmlinuz-[^[:space:]]+' "$BLOG" \
+  | tail -1 | sed -E 's/^Linux version //; s/^Starting vmlinuz-//' || true)
 echo "  default-boot kernel: ${DEFAULT_KVER:-<unknown>}"
 
 echo
