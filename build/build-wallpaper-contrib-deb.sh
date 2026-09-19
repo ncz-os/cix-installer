@@ -153,13 +153,29 @@ $CREDITS
         exit 1 ;;
 esac
 
+# The Singularity pack is derived from the freshly built desktop payload.  A
+# desktop-only layer rebuild does not populate the gitignored branding source
+# directory, so consume the canonical payload directly instead of silently
+# omitting the fourth shipping pack.
+SRC_TMP=""
+if [ "$PACK" = singularity ] && [ ! -d "$SRC" ]; then
+    SINGULARITY_TGZ="$ROOT/build/sinty-out/singularity-opt.tgz"
+    [ -s "$SINGULARITY_TGZ" ] || SINGULARITY_TGZ="$ROOT/assets/singularity/singularity-opt.tgz"
+    if [ -s "$SINGULARITY_TGZ" ]; then
+        SRC_TMP="$(mktemp -d)"
+        tar -xzf "$SINGULARITY_TGZ" -C "$SRC_TMP" --strip-components=5 \
+            'opt/singularity/share/backgrounds/singularity/'
+        SRC="$SRC_TMP"
+    fi
+fi
+
 [ -d "$SRC" ] || { echo "ERROR: no such pack: $SRC" >&2; exit 1; }
 [ -f "$ARTISTPACK_SRC/artist.json" ] || { echo "ERROR: missing ArtistPack manifest: $ARTISTPACK_SRC/artist.json" >&2; exit 1; }
 [ -f "$ARTISTPACK_SRC/pack.json" ] || { echo "ERROR: missing ArtistPack manifest: $ARTISTPACK_SRC/pack.json" >&2; exit 1; }
 
 VERSION="${NCZ_WALLPAPER_PACK_VERSION:-1.0}"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK" ${SRC_TMP:+"$SRC_TMP"}' EXIT
 
 # ART PAKS ARE COLLECTIONS -- see post-install/45-wallpaper-rotator.sh.
 ART_DIR="$WORK/usr/share/backgrounds/ncz$ART_SUBPATH"

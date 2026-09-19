@@ -105,7 +105,12 @@ APT_COMPONENTS="${APT_COMPONENTS:-main}"
 # Both the Debian closure and our own packages (kernel, Chromium, Singularity)
 # must be reachable offline, or disabling the remote sources above would make
 # the NCZ packages unresolvable.
-MIRROR_DIRS="${MIRROR_DIRS:-$NCZ_BASE_CODENAME-mirror $NCZ_BASE_CODENAME-vendor-mirror}"
+if [ -n "${MIRROR_DIRS+x}" ]; then
+  MIRROR_DIRS_EXPLICIT=1
+else
+  MIRROR_DIRS_EXPLICIT=0
+  MIRROR_DIRS="$NCZ_BASE_CODENAME-mirror $NCZ_BASE_CODENAME-vendor-mirror"
+fi
 QEMU="/usr/bin/$QEMU_BIN"
 STAGE="${1:-base}"                            # base | desktop | server | all
 
@@ -338,6 +343,15 @@ apt_unmount(){ local c="$1"
 # build a ROLE delta layer: overlay(base=lower) + apt-install the package set into
 # the upperdir, then squash ONLY the upperdir (the delta). NO NCZ desktop hooks.
 build_layer(){ local role="$1" manifest="$2"
+  # The desktop closure has its own complete, indexed repository.  The generic
+  # suite/vendor mirrors are inputs for the base role and are not substitutes
+  # for build/desktop-mirror.  Preserve an explicit operator override, but make
+  # every normal desktop invocation (including `all`) select the role mirror.
+  local MIRROR_DIRS="$MIRROR_DIRS"
+  if [ "$role" = desktop ] && [ "$MIRROR_DIRS_EXPLICIT" -eq 0 ]; then
+    MIRROR_DIRS="desktop-mirror"
+  fi
+  log "$role: apt mirror directories: $MIRROR_DIRS"
   [ -f "$OUT/base.squashfs" ] || { echo "base.squashfs missing — build base first"; exit 1; }
   [ -f "$ROOT/$manifest" ] || { echo "manifest $manifest missing"; exit 1; }
   local L="$WORK/$role-lower" U="$WORK/$role-up" WK="$WORK/$role-wk" MG="$WORK/$role-mg"
@@ -1193,6 +1207,23 @@ build_singularity_payload(){
   log "SINGULARITY: staged $(basename "$_deb") -> assets/cix-debs/ (fresh, from head)"
 }
 
+ensure_wallpaper_packs(){
+  local pack
+  mkdir -p "$ROOT/assets/wallpaper-debs"
+  for pack in ncz singularity brandon-perlow alex-jay-brady; do
+    if ls "$ROOT/assets/wallpaper-debs/ncz-wallpapers-${pack}_"*.deb >/dev/null 2>&1; then
+      continue
+    fi
+    log "wallpaper-debs: $pack not staged -- building"
+    bash "$ROOT/build/build-wallpaper-contrib-deb.sh" "$pack" >/dev/null || {
+      log "ERROR: required shipping wallpaper pack $pack failed to build"
+      return 1
+    }
+    cp "$ROOT/build/wallpaper-debs/"*.deb "$ROOT/assets/wallpaper-debs/" 2>/dev/null || true
+  done
+  log "wallpaper-debs: staged $(ls "$ROOT/assets/wallpaper-debs/"*.deb | wc -l) pack(s)"
+}
+
 build_hotfix(){
   log "HOTFIX: stage ncz-singularity-desktop /opt/singularity + /etc/ld.so.conf.d/singularity.conf"
   # Pick the LATEST ncz-singularity-desktop .deb from assets/cix-debs/ by version
@@ -1296,11 +1327,11 @@ HOTFIX_MANIFEST
 
 case "$STAGE" in
   base)    build_base ;;
-  desktop) build_singularity_payload; build_layer desktop "$DESKTOP_MANIFEST" ;;
+  desktop) build_singularity_payload; ensure_wallpaper_packs; build_layer desktop "$DESKTOP_MANIFEST" ;;
   hotfix)  build_singularity_payload; build_hotfix ;;
   server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
            echo "       Boot the console entry (multi-user.target) instead." >&2
            exit 1 ;;
-  all)     build_base; build_singularity_payload; build_layer desktop "$DESKTOP_MANIFEST"; build_hotfix ;;
+  all)     build_base; build_singularity_payload; ensure_wallpaper_packs; build_layer desktop "$DESKTOP_MANIFEST"; build_hotfix ;;
   *) echo "usage: $0 base|desktop|hotfix|server|all"; exit 2 ;;
 esac

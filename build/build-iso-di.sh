@@ -158,6 +158,10 @@ if [ "$EMBED_MIRROR" = "1" ]; then
         echo "[kernel-debs] no local kernel debs present; building them before mirror publication"
         bash "$ROOT/build/build-kernel-debs.sh"
     fi
+    if [ "$NCZ_TARGET_ARCH" = arm64 ] && ! compgen -G "$ROOT/build/usb-recovery-deb/ncz-usb-recovery_*.deb" >/dev/null; then
+        echo "[usb-recovery-deb] required by cixmini-boot; building it before mirror publication"
+        bash "$ROOT/build/build-usb-recovery-deb.sh"
+    fi
     echo "[vendor-mirror] publishing local kernel debs before SBOM preflight"
     bash "$ROOT/build/build-vendor-mirror.sh"
 fi

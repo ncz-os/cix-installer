@@ -74,7 +74,7 @@ assets/sky1-firmware/vp8dec.fwb|281088|5f627bbd25231cd775eac526b5704d15b61201d63
 assets/sky1-firmware/vp8enc.fwb|394240|eb94b47f0563eabe46f3c9587049a6cec10083c58a89c7d739c1054ddb75fa5f
 assets/sky1-firmware/vp9dec.fwb|306688|493037d0914503e77c3afd79814fa0ae0160fd0c497e4af7b0ec9797cb903bae
 assets/sky1-firmware/vp9enc.fwb|409728|558479709bafee0ff5c4d83f6cb6913808fbf8a96b6852d5d180488bbc26731b
-assets/squashfs/base.squashfs|1313247232|5da2e0e5daa930c340f2ebc7473fd9019a67266a53057d3c2243b5065565bcb2
+assets/squashfs/base.squashfs|913813504|72699c5aa5b3220177ca64cda5af92c7bfa659b97a99e3fe9736a6346e5118ff
 assets/squashfs/desktop-hotfix.overlay-manifest|49|e8c41c7d7f9626d8d1ffdf46c2095d2e13948c568f30a7323d783a5017628a87
 # NOTE 2026-09-18: desktop.squashfs and desktop-hotfix.squashfs entries below
 # will need updating on basically every future build now that
@@ -84,7 +84,7 @@ assets/squashfs/desktop-hotfix.overlay-manifest|49|e8c41c7d7f9626d8d1ffdf46c2095
 # A fixed size+sha256 gate on these two specific entries is now structurally
 # in tension with that design; flagging rather than silently deciding to
 # drop the gate for just these two files.
-assets/squashfs/desktop-hotfix.squashfs|11714560|be59336ac5c362187ed10c59e1684e20a9f74eb3327a31f009891b1317c4b535
-assets/squashfs/desktop.overlay-manifest|296|8c736d2ab84921c2e058ba418ff6d07c9bd4f0010df14e9bcf611b1c9601799b
-assets/squashfs/desktop.squashfs|1930563584|d929f3f2690716d24e90961c3a2016ff9349e2559e4f3535b95a40bf5ae89433
+assets/squashfs/desktop-hotfix.squashfs|11759616|0aa387fe43d01cfdb6ba66f7b338ac4115950dded89e0879283dc7200cdd5d8c
+assets/squashfs/desktop.overlay-manifest|446|4695f544ab1be3a1a28062ed0abfe71d68adaf798d9d46c8ec6680070cc270ae
+assets/squashfs/desktop.squashfs|1918033920|34206a874af7988d2d85d23e742a7479f7060f4b52171e8432f7402020846a92
 assets/vivaldi/vivaldi-stable_8.1.4087.55-1_arm64.deb|125072996|7120eed5c8df088927d305a6e9c59a06b7e01991f8faab372675d8c7e25f0bb9

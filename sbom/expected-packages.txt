@@ -26,7 +26,6 @@ manifests/desktop.pkgs:ethtool
 manifests/desktop.pkgs:fcitx5
 manifests/desktop.pkgs:fcitx5-chinese-addons
 manifests/desktop.pkgs:fcitx5-config-qt
-manifests/desktop.pkgs:feh
 manifests/desktop.pkgs:ffmpeg
 manifests/desktop.pkgs:firmware-ath9k-htc
 manifests/desktop.pkgs:firmware-atheros

@@ -57,7 +57,7 @@ OUT="$REPO/build/desktop-mirror"
 SEEDFILE="$REPO/manifests/desktop.pkgs"
 GAPS="$REPO/build/desktop-mirror.gaps"
 SUITE="$NCZ_BASE_CODENAME"
-ARCH=arm64
+ARCH="${ARCH:-${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}}"
 IDX="$SRC/dists/$SUITE/main/binary-$ARCH/Packages"
 
 # Source: Debian's own archive (release.conf NCZ_BASE_MIRROR/NCZ_BASE_COMPONENTS
@@ -130,8 +130,16 @@ if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
 deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/google-chrome-apt-keyring.asc] $GOOGLE_CHROME_URL stable main
 EOF
     cat > "$T/etc/apt/preferences.d/google-chrome.pref" <<EOF
+Package: *
+Pin: release o=Google LLC
+Pin-Priority: -1
+
+Package: google-chrome-stable
+Pin: release o=Google LLC
+Pin-Priority: 990
+
 Package: google-chrome-beta google-chrome-unstable google-chrome-canary
-Pin: origin dl.google.com
+Pin: release o=Google LLC
 Pin-Priority: -1
 EOF
     echo "  source: Google Chrome (${GOOGLE_CHROME_URL}) — tracking current stable, checksum-verified below"
@@ -142,6 +150,14 @@ cp "$BUILDKITE_NCZ_KEY" "$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc"
 chmod 0644 "$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc"
 cat >> "$T/etc/apt/sources.list" <<EOF
 deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc] $BUILDKITE_NCZ_URL any main
+EOF
+# Buildkite also carries a historical Ubuntu build of fonts-liberation for
+# Chrome consumers.  NCZ-OS is Debian-only; force Debian's exact Forky build
+# even though the Ubuntu version string sorts higher.
+cat > "$T/etc/apt/preferences.d/debian-only-overrides.pref" <<'EOF'
+Package: fonts-liberation
+Pin: version 1:2.1.5-3
+Pin-Priority: 1001
 EOF
 echo "  source: Buildkite Packages (${BUILDKITE_NCZ_URL}) — ncz-singularity-desktop + other CIX/NCZ-only packages"
 
@@ -249,13 +265,15 @@ else
     echo "  closure (union): $(wc -l < "$CLOSURE") packages; $bad seed(s) dropped as uninstallable"
 fi
 
-# download the exact closure versions into the pool -- INCREMENTAL: keep
-# whatever's already there (`apt-get download` itself skips re-fetching a
-# .deb that's already present at the exact candidate version, verified
-# empirically), so a re-run only pulls what's actually new/changed instead
-# of re-downloading the entire ~1500-package closure every time.
+# Build a clean snapshot.  Keeping an incremental pool is unsafe across a
+# distribution pivot: packages downloaded from the former Ubuntu source had
+# higher versions than Debian's candidates and remained indexable after the
+# source was corrected, producing a mixed, unsatisfiable closure.  The mirror
+# is derived output, so discard only its package files and repopulate it from
+# the exact candidates resolved above.
 mkdir -p "$OUT/pool/main"
-echo "  downloading closure debs from ports (incremental)..."
+find "$OUT/pool/main" -maxdepth 1 -type f -name '*.deb' -delete
+echo "  downloading clean Debian closure snapshot..."
 if ! ( cd "$OUT/pool/main" && xargs -r apt-get "${APTOPTS[@]}" download < "$CLOSURE" >/dev/null 2>&1 ); then
     echo "  WARN: some downloads failed (see gaps report)"
 fi
@@ -272,9 +290,9 @@ if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
     done
 fi
 
-# NCZ-OS-local packages: not published on Ubuntu ports, so add locally-built
-# copies directly in reprepro-style pool layout. Optional ones keep the mirror
-# usable as a standalone Ubuntu closure builder; required ones do not, because
+# NCZ-OS-local packages: not published in Debian, so add locally-built copies
+# directly in reprepro-style pool layout. Optional ones keep the mirror usable
+# as a standalone Debian closure builder; required ones do not, because
 # their absence produces an ISO that fails partway through an install.
 #
 # Both rows here are optional. cixmini-boot Depends on ncz-usb-recovery, but the
@@ -324,12 +342,9 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
     cp -f "$deb" "$pooldir/"
     echo "  added local NCZ package: $deb -> $pooldir/"
 done
-# No required-package gate here on purpose. This pool is build/desktop-mirror,
-# which is NOT in build-squashfs-layers.sh's MIRROR_DIRS ("$NCZ_BASE_CODENAME-mirror
-# $NCZ_BASE_CODENAME-vendor-mirror") -- the layer chroot never resolves against
-# it. cixmini-boot and its ncz-usb-recovery dependency both live in
-# build/forky-vendor-mirror/pool/main/, so that is the pool an offline install
-# depends on and the only one worth failing a build over.
+# The desktop delta consumes this pool directly. The complete ISO closure also
+# consumes it alongside the vendor pool, where cixmini-boot and its mandatory
+# ncz-usb-recovery dependency are published.
 
 # prune debs for packages no longer in the resolved closure (e.g. dropped
 # from the seed, or no longer pulled in as a dependency) so the pool doesn't
