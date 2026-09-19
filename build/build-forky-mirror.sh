@@ -16,6 +16,7 @@ MIRROR_URL="${MIRROR_URL:-$NCZ_BASE_MIRROR}"
 COMPONENTS="${COMPONENTS:-$NCZ_BASE_COMPONENTS}"
 OUT="${OUT:-$REPO/build/$SUITE-mirror}"
 VENDOR_MIRROR="${VENDOR_MIRROR:-$REPO/build/$SUITE-vendor-mirror}"
+DESKTOP_MIRROR="${DESKTOP_MIRROR:-$REPO/build/desktop-mirror}"
 DEBIAN_KEYRING="${DEBIAN_KEYRING:-/usr/share/keyrings/debian-archive-keyring.gpg}"
 # Same arch-manifest-selection pattern as preflight-sbom-check.sh's
 # manifest_for(): prefer manifests/<name>-$ARCH.pkgs when it exists
@@ -34,6 +35,7 @@ DESKTOP_SEED="${DESKTOP_SEED:-$(_seed_for desktop)}"
 }
 [ -r "$DEBIAN_KEYRING" ] || { echo "ERROR: Debian archive keyring missing: $DEBIAN_KEYRING" >&2; exit 1; }
 [ -d "$VENDOR_MIRROR/dists/$SUITE" ] || { echo "ERROR: vendor mirror missing: $VENDOR_MIRROR" >&2; exit 1; }
+[ -d "$DESKTOP_MIRROR/dists/$SUITE" ] || { echo "ERROR: desktop mirror missing: $DESKTOP_MIRROR" >&2; exit 1; }
 [ -s "$BASE_SEED" ] && [ -s "$DESKTOP_SEED" ] || { echo "ERROR: required seed manifest missing" >&2; exit 1; }
 if [ -e "$OUT" ] && [ -n "$(find "$OUT" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
     echo "ERROR: refusing to merge into existing mirror: $OUT" >&2
@@ -43,7 +45,7 @@ fi
 
 echo "== build-$SUITE-mirror =="
 echo "   suite=$SUITE arch=$ARCH source=$MIRROR_URL"
-echo "   seeds=$(basename "$BASE_SEED"),$(basename "$DESKTOP_SEED") vendor=$VENDOR_MIRROR"
+echo "   seeds=$(basename "$BASE_SEED"),$(basename "$DESKTOP_SEED") vendor=$VENDOR_MIRROR desktop=$DESKTOP_MIRROR"
 
 TMP="$(mktemp -d)"
 cleanup() { rm -rf "$TMP"; }
@@ -56,6 +58,7 @@ mkdir -p "$TMP/etc/apt/apt.conf.d" "$TMP/etc/apt/preferences.d" \
 cat > "$TMP/etc/apt/sources.list" <<EOF
 deb [arch=$ARCH signed-by=$DEBIAN_KEYRING] $MIRROR_URL $SUITE $COMPONENTS
 deb [arch=$ARCH trusted=yes] file://$VENDOR_MIRROR $SUITE main
+deb [arch=$ARCH trusted=yes] file://$DESKTOP_MIRROR $SUITE main
 EOF
 
 APTOPTS=(
@@ -82,7 +85,11 @@ echo "  explicit seed: $(wc -l < "$SEED") packages"
 SIMLOG="$TMP/sim.log"
 if ! apt-get "${APTOPTS[@]}" install -s -y $(tr '\n' ' ' < "$SEED") > "$SIMLOG" 2>&1; then
     echo "ERROR: profile package set is not installable as one closure" >&2
-    grep -E 'Depends:|Conflicts:|not installable|Unable to correct' "$SIMLOG" >&2 || tail -80 "$SIMLOG" >&2
+    grep -E 'Depends:|Conflicts:|Breaks:|not installable|Unable to correct|held broken' "$SIMLOG" >&2 || tail -80 "$SIMLOG" >&2
+    echo "  independently uninstallable seeds:" >&2
+    while read -r pkg; do
+        apt-get "${APTOPTS[@]}" install -s -y "$pkg" >/dev/null 2>&1 || echo "    $pkg" >&2
+    done < "$SEED"
     exit 1
 fi
 

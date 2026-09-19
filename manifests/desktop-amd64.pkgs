@@ -157,7 +157,8 @@ flatpak
 gnome-session-canberra
 xdg-desktop-portal-gtk
 epiphany-browser
-feh
+# feh is X11-only and post-install/59-desktop-curate.sh deliberately purges it
+# from this Wayland-only image. Keep the manifest aligned with shipped state.
 vulkan-validationlayers
 glslc
 icewm

@@ -165,7 +165,6 @@ manifests/desktop-amd64.pkgs:flatpak
 manifests/desktop-amd64.pkgs:gnome-session-canberra
 manifests/desktop-amd64.pkgs:xdg-desktop-portal-gtk
 manifests/desktop-amd64.pkgs:epiphany-browser
-manifests/desktop-amd64.pkgs:feh
 manifests/desktop-amd64.pkgs:vulkan-validationlayers
 manifests/desktop-amd64.pkgs:glslc
 manifests/desktop-amd64.pkgs:icewm

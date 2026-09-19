@@ -45,6 +45,7 @@ VENDOR="${VENDOR_MIRROR:-$REPO/build/$SUITE-vendor-mirror}"
 BINDIR="dists/$SUITE/main/binary-$ARCH"
 KERNEL_DEBS="${KERNEL_DEBS:-$REPO/build/kernel-debs}"
 SINTY_DEBS="${SINTY_DEBS:-$REPO/assets/cix-debs}"
+USB_RECOVERY_DEBS="${USB_RECOVERY_DEBS:-$REPO/build/usb-recovery-deb}"
 
 command -v apt-ftparchive >/dev/null 2>&1 || {
     echo "ERROR: apt-ftparchive not found (apt-utils)" >&2; exit 1; }
@@ -91,6 +92,17 @@ if compgen -G "$KERNEL_DEBS/*.deb" >/dev/null; then
     done
 else
     echo "WARN: no kernel debs found in $KERNEL_DEBS; vendor mirror will only reindex existing pool" >&2
+fi
+
+if compgen -G "$USB_RECOVERY_DEBS/ncz-usb-recovery_*.deb" >/dev/null; then
+    echo "== publishing USB recovery debs from $USB_RECOVERY_DEBS =="
+    for deb in "$USB_RECOVERY_DEBS"/ncz-usb-recovery_*.deb; do
+        publish_deb "$deb"
+    done
+elif [ "$ARCH" = arm64 ] && compgen -G "$KERNEL_DEBS/cixmini-boot_*.deb" >/dev/null; then
+    echo "ERROR: cixmini-boot requires ncz-usb-recovery, but no package exists in $USB_RECOVERY_DEBS" >&2
+    echo "       run: build/build-usb-recovery-deb.sh" >&2
+    exit 1
 fi
 
 if compgen -G "$SINTY_DEBS/ncz-singularity-desktop_*.deb" >/dev/null; then

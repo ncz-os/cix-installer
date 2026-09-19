@@ -113,7 +113,12 @@ fi
 # top-level code). Keep these in sync by hand if the source of truth changes.
 APT_SUITE="${APT_SUITE:-$NCZ_BASE_CODENAME}"
 APT_COMPONENTS="${APT_COMPONENTS:-main}"
-MIRROR_DIRS="${MIRROR_DIRS:-$NCZ_BASE_CODENAME-mirror $NCZ_BASE_CODENAME-vendor-mirror}"
+if [ -z "${MIRROR_DIRS+x}" ]; then
+    case "$ROLE" in
+      desktop) MIRROR_DIRS="desktop-mirror" ;;
+      *) MIRROR_DIRS="$NCZ_BASE_CODENAME-mirror $NCZ_BASE_CODENAME-vendor-mirror" ;;
+    esac
+fi
 
 # Pinned exact mkosi package version, per GRAEAE consult hardening ask
 # (2026-09-14, winning synthesis openai/gpt-5.6-sol): a floating "latest"

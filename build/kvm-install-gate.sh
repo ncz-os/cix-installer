@@ -112,6 +112,15 @@ SWAPPED=$(grep -c "console=ttyAMA0,115200" "$CFG" || true)
 echo "    swapped $SWAPPED console= entry/entries to ttyAMA0"
 [ "$SWAPPED" -ge 1 ] || { echo "GATE FAIL: console=ttyAMA2 swap matched zero lines — grub.cfg layout may have changed"; exit 2; }
 
+# The normal hardware menu entry is intentionally interactive and therefore
+# omits auto=true. Merely appending answers to preseed.cfg is too late for
+# localechooser: it asks before the file preseed is loaded. Make the install
+# entry automatic in this throwaway gate copy so early questions consume the
+# command-line/file preseeding instead of stopping at "Select a language".
+sed -i '/^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*preseed\/file=/ s#vmlinuz #vmlinuz auto=true #' "$CFG"
+AUTO_INSTALLS=$(grep -cE '^[[:space:]]*linux[[:space:]]+/install\.a64/vmlinuz auto=true .*preseed/file=' "$CFG" || true)
+[ "$AUTO_INSTALLS" -ge 1 ] || { echo "GATE FAIL: could not enable auto=true on the install entry"; exit 2; }
+
 # (2) unattended preseed overrides: the preseed deliberately leaves the
 # user/passwd questions UNSEEN so a real install stops for a human (by
 # design, see preseed.cfg r177 comment). For unattended runs, d-i reads
