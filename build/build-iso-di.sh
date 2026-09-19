@@ -154,7 +154,11 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
 if [ "$EMBED_MIRROR" = "1" ]; then
-    if ! compgen -G "$ROOT/build/kernel-debs/*.deb" >/dev/null; then
+    # build-kernel-debs.sh packages and KVM-gates the arm64 Sky1 kernel.
+    # AMD64 kernels are complete canonical asset trees staged directly below;
+    # invoking the Sky1 builder here on an amd64 release is both irrelevant
+    # and can pollute the vendor mirror with wrong-architecture packages.
+    if [ "$NCZ_TARGET_ARCH" = arm64 ] && ! compgen -G "$ROOT/build/kernel-debs/*.deb" >/dev/null; then
         echo "[kernel-debs] no local kernel debs present; building them before mirror publication"
         bash "$ROOT/build/build-kernel-debs.sh"
     fi
@@ -3244,10 +3248,26 @@ if [ -d "$ROOT/assets" ]; then
 fi
 [ -f "$ROOT/assets/ncz-cli.sh" ] && cp -aL "$ROOT/assets/ncz-cli.sh" "$EXTRA/assets/" 2>/dev/null || true
 
-# Stage target kernel. Edge (7.2.0-sky1-ncz) is the only shipping kernel.
-# full/thin stage the edge payload; netinstall uses the d-i substrate's kernel.
+# Stage target kernel payloads. AMD64 ships both the stable T2+PC line and the
+# vanilla edge line as .debs consumed by post-install/10-amd64-kernel.sh.
+# arm64 retains its single Sky1 edge payload; netinstall uses the d-i kernel.
 mkdir -p "$EXTRA/assets/kernel"
-if [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
+if [ "$NCZ_TARGET_ARCH" = amd64 ] && [ "$STAGE_NEXT_KERNEL" = "1" ]; then
+    for _amd64_channel in amd64-stable amd64-edge; do
+        _amd64_src="$ROOT/assets/kernel/$_amd64_channel"
+        [ -d "$_amd64_src" ] || {
+            echo "ERROR: missing $_amd64_src -- both AMD64 kernel channels are required" >&2
+            exit 1
+        }
+        cp -aL "$_amd64_src" "$EXTRA/assets/kernel/"
+        _amd64_debs=$(find "$EXTRA/assets/kernel/$_amd64_channel" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')
+        [ "$_amd64_debs" -ge 2 ] || {
+            echo "ERROR: $_amd64_channel staged only $_amd64_debs .deb(s), expected image + headers" >&2
+            exit 1
+        }
+        echo "    $_amd64_channel staged: $_amd64_debs packages ($(du -sh "$EXTRA/assets/kernel/$_amd64_channel" | cut -f1))"
+    done
+elif [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
     mkdir -p "$EXTRA/assets/kernel/edge"
     cp -L "$NEXT_KERN" "$EXTRA/assets/kernel/edge/"
     cp -L "$NEXT_TGZ"  "$EXTRA/assets/kernel/edge/"

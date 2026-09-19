@@ -1332,6 +1332,11 @@ case "$STAGE" in
   server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
            echo "       Boot the console entry (multi-user.target) instead." >&2
            exit 1 ;;
-  all)     build_base; build_singularity_payload; ensure_wallpaper_packs; build_layer desktop "$DESKTOP_MANIFEST"; build_hotfix ;;
+  all)     if [ -s "$OUT/base.squashfs" ]; then
+             log "BASE: reusing existing $OUT/base.squashfs ($(du -h "$OUT/base.squashfs" | cut -f1)); remove it or run 'base' to rebuild"
+           else
+             build_base
+           fi
+           build_singularity_payload; ensure_wallpaper_packs; build_layer desktop "$DESKTOP_MANIFEST"; build_hotfix ;;
   *) echo "usage: $0 base|desktop|hotfix|server|all"; exit 2 ;;
 esac
