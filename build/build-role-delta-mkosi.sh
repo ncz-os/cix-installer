@@ -389,7 +389,12 @@ IMG="debian:$NCZ_BASE_CODENAME"
 BOOTSTRAP_TAG="localhost/ncz-mkosi-builder:$MKOSI_PKG_VERSION"
 if ! sudo podman image exists "$BOOTSTRAP_TAG" 2>/dev/null; then
     echo "[$ROLE] preparing mkosi builder image ($BOOTSTRAP_TAG, one-time per host+version)"
-    _bootstrap_cid=$(sudo podman run -d "$IMG" sleep infinity)
+    # HYDRA's rootful Podman bridge has no working DNS while the host network
+    # does. This container only installs build tooling and contributes no
+    # filesystem content to the shipped delta, so use the host network for
+    # this bootstrap step explicitly. The real mkosi build below remains
+    # --network=none whenever an offline mirror was discovered.
+    _bootstrap_cid=$(sudo podman run -d --network=host "$IMG" sleep infinity)
     sudo podman exec "$_bootstrap_cid" bash -c "apt-get update -qq && apt-get install -y -qq mkosi=$MKOSI_PKG_VERSION"
     sudo podman commit "$_bootstrap_cid" "$BOOTSTRAP_TAG" >/dev/null
     sudo podman rm -f "$_bootstrap_cid" >/dev/null
