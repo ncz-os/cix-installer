@@ -1,27 +1,29 @@
 #!/bin/bash
 # build-desktop-mirror.sh — r130 fat/offline desktop closure mirror (arm64).
 #
-# Companion to build-server-mirror.sh. Where server-mirror carries the Ubuntu
-# Server closure (Priority required/important/standard + server seed), THIS
-# builds the closure of the Sky1 SINGULARITY desktop runtime set listed in
+# Builds the closure of the Sky1 SINGULARITY desktop runtime set listed in
 # manifests/desktop.pkgs (Singularity replaced XFCE in 26.7 — NO xubuntu-core,
 # NO xfce4-*; Wayland-native GTK4 runtime libs + Chromium + mpv + Xwayland).
+# (build-server-mirror.sh, formerly this file's Ubuntu-Server-closure
+# companion, was deleted 2026-08-21 as dead code — see
+# docs/UBUNTU-ERA-AUDIT-2026-08-21.md.)
 #
-# build-iso-di.sh merges build/desktop-mirror/pool into the ISO pool alongside
-# server-mirror and regenerates the single 'main' deb index from the combined
-# pool, so post-install/20-desktop.sh installs the desktop fully OFFLINE from
-# file:///cdrom (no ports.ubuntu.com dependency → no r129-style 20-desktop stall).
+# build-iso-di.sh merges build/desktop-mirror/pool into the ISO pool and
+# regenerates the single 'main' deb index from the combined pool, so
+# post-install/20-desktop.sh installs the desktop fully OFFLINE from
+# file:///cdrom (no live apt source dependency → no r129-style 20-desktop stall).
 #
 # Outputs:
-#   build/desktop-mirror/        apt repo (dists/resolute + pool) — POOL is what
+#   build/desktop-mirror/        apt repo (dists/<suite> + pool) — POOL is what
 #                                the ISO consumes; dists/ is for standalone use.
-#   build/desktop-mirror.gaps    closure pkgs not in the local resolute-mirror
+#   build/desktop-mirror.gaps    closure pkgs not in the local mirror
 #
-# Method (identical to build-server-mirror.sh): a self-contained apt root over
-# Ubuntu ports, arm64, simulate-install the desktop seed to compute the closure,
-# apt-get download the exact closure versions into the new pool, regenerate
-# indexes. Chromium is the one exception: Ubuntu 26.04 ships Chromium as snap
-# only, so the browser seed uses Google's own signed real Chrome build
+# Method: a self-contained apt root over Debian's own archive (release.conf
+# NCZ_BASE_MIRROR/NCZ_BASE_COMPONENTS), arm64, simulate-install the desktop
+# seed to compute the closure, apt-get download the exact closure versions
+# into the new pool, regenerate indexes. Chromium is the one exception: no
+# Debian/Ubuntu Chromium package is used at all, the browser seed uses
+# Google's own signed real Chrome build
 # (google-chrome-stable), pinned to one exact version + SHA256-verified, and
 # folded into this offline mirror. No live Google apt source is installed on
 # the appliance. (An earlier stop-gap used XtraDeb's ungoogled-chromium
@@ -58,9 +60,18 @@ SUITE="$NCZ_BASE_CODENAME"
 ARCH=arm64
 IDX="$SRC/dists/$SUITE/main/binary-$ARCH/Packages"
 
-# Source: Ubuntu ports (current, complete, authoritative). The desktop long
-# tail (gimp, catfish, synaptic, xfce goodies, ...) lives largely in universe.
-PORTS_URL="${PORTS_URL:-http://ports.ubuntu.com/ubuntu-ports}"
+# Source: Debian's own archive (release.conf NCZ_BASE_MIRROR/NCZ_BASE_COMPONENTS
+# -- the single source of truth for the base distro, same as SUITE above).
+# Historically pointed at Ubuntu ports on the claim that the desktop long tail
+# (gimp, catfish, synaptic, xfce goodies) "lives largely in universe" -- stale:
+# catfish and every xfce4-* package are already gone from manifests/desktop.pkgs
+# (removed when Singularity replaced XFCE in 26.7), and gimp/synaptic are
+# ordinary Debian main packages, never Ubuntu-universe-exclusive. Nothing in
+# the current seed needs Ubuntu. arm64 needs no separate "ports" archive on
+# Debian -- it is a normal release architecture on the main archive.
+: "${NCZ_BASE_MIRROR:?release.conf did not define NCZ_BASE_MIRROR}"
+: "${NCZ_BASE_COMPONENTS:?release.conf did not define NCZ_BASE_COMPONENTS}"
+PORTS_URL="${PORTS_URL:-$NCZ_BASE_MIRROR}"
 
 # Real, official Google Chrome for arm64 Linux (launched publicly Q2 2026,
 # available since via Google's own signed apt repo). Folded into the offline
@@ -106,10 +117,9 @@ mkdir -p "$T/etc/apt/preferences.d" "$T/etc/apt/apt.conf.d" "$T/etc/apt/keyrings
          "$T/var/cache/apt/archives/partial"
 : > "$T/var/lib/dpkg/status"
 
-echo "  source: Ubuntu ports ($PORTS_URL) — authoritative desktop closure"
+echo "  source: Debian ($PORTS_URL, $SUITE) — authoritative desktop closure"
 cat > "$T/etc/apt/sources.list" <<EOF
-deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE main universe restricted multiverse
-deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE-updates main universe restricted multiverse
+deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE $NCZ_BASE_COMPONENTS
 EOF
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
@@ -357,7 +367,7 @@ gzip -9c "$OUT/dists/$SUITE/main/binary-$ARCH/Packages" > "$OUT/dists/$SUITE/mai
     -o "APT::FTPArchive::Release::Architectures=$ARCH" \
     release "dists/$SUITE" > "dists/$SUITE/Release" )
 
-# closure packages that the local resolute-mirror did NOT have (informational)
+# closure packages that the local mirror did NOT have (informational)
 FILLED="$T/filled"
 if [ -f "$IDX" ]; then
     LOCAL_NAMES="$T/local-names"
@@ -370,10 +380,10 @@ fi
 # gap report
 {
     echo "# NCZ desktop-mirror gap report — $(date -u +%FT%TZ)"
-    echo "# Seed packages apt could not locate at all (bad name / not in resolute):"
+    echo "# Seed packages apt could not locate at all (bad name / not in the Debian archive):"
     if [ -s "$MISSING" ]; then sed 's/^/  MISSING-SEED: /' "$MISSING"; else echo "  (none)"; fi
     echo ""
-    echo "# Closure packages NOT in the local resolute-mirror (pulled from ports): $(wc -l < "$FILLED")"
+    echo "# Closure packages NOT in the local mirror (pulled from Debian directly): $(wc -l < "$FILLED")"
     if [ -s "$FILLED" ]; then sed 's/^/  FROM-PORTS: /' "$FILLED"; else echo "  (none)"; fi
     echo ""
     echo "# Unmet/uninstallable complaints from dependency resolution:"
