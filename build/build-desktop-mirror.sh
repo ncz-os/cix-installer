@@ -54,10 +54,14 @@ export LC_ALL=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$REPO/build/$NCZ_BASE_CODENAME-mirror"
 OUT="$REPO/build/desktop-mirror"
-SEEDFILE="$REPO/manifests/desktop.pkgs"
 GAPS="$REPO/build/desktop-mirror.gaps"
 SUITE="$NCZ_BASE_CODENAME"
 ARCH="${ARCH:-${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}}"
+if [ -f "$REPO/manifests/desktop-$ARCH.pkgs" ]; then
+    SEEDFILE="$REPO/manifests/desktop-$ARCH.pkgs"
+else
+    SEEDFILE="$REPO/manifests/desktop.pkgs"
+fi
 IDX="$SRC/dists/$SUITE/main/binary-$ARCH/Packages"
 
 # Source: Debian's own archive (release.conf NCZ_BASE_MIRROR/NCZ_BASE_COMPONENTS
@@ -283,8 +287,8 @@ fi
 # weeks, so without this every rebuild leaves the previous point release behind
 # and silently bloats the ISO. Keep only the version resolved and verified above.
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
-    chrome_keep="google-chrome-stable_${_chrome_ver}_arm64.deb"
-    for chrome_deb in "$OUT"/pool/main/google-chrome-stable_*_arm64.deb; do
+    chrome_keep="google-chrome-stable_${_chrome_ver}_${ARCH}.deb"
+    for chrome_deb in "$OUT"/pool/main/google-chrome-stable_*_"${ARCH}.deb"; do
         [ -e "$chrome_deb" ] || continue
         [ "$(basename "$chrome_deb")" = "$chrome_keep" ] || rm -f "$chrome_deb"
     done
@@ -301,8 +305,11 @@ fi
 #
 # Each row: <package name>|<glob of candidate .debs>|<required?>
 NCZ_LOCAL_DEBS="
-ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_arm64.deb|optional
+ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_${ARCH}.deb|optional
 ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_all.deb|optional
+"
+if [ "$ARCH" = arm64 ]; then
+NCZ_LOCAL_DEBS+="
 libdrm-common|$REPO/build/libdrm-debs/libdrm-common_2.4.134-3+ncz*_all.deb|required
 libdrm2|$REPO/build/libdrm-debs/libdrm2_2.4.134-3+ncz*_arm64.deb|required
 libdrm-amdgpu1|$REPO/build/libdrm-debs/libdrm-amdgpu1_2.4.134-3+ncz*_arm64.deb|required
@@ -313,6 +320,7 @@ libdrm-radeon1|$REPO/build/libdrm-debs/libdrm-radeon1_2.4.134-3+ncz*_arm64.deb|r
 libdrm-tegra0|$REPO/build/libdrm-debs/libdrm-tegra0_2.4.134-3+ncz*_arm64.deb|required
 libdrm-dev|$REPO/build/libdrm-debs/libdrm-dev_2.4.134-3+ncz*_arm64.deb|required
 "
+fi
 
 printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
     [ -n "$pkg" ] || continue
