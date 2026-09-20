@@ -85,46 +85,99 @@ fi
 
 # --- NVIDIA -------------------------------------------------------------
 if [ "$HAS_NVIDIA" = 1 ]; then
-    echo "[54] NVIDIA GPU detected — wiring real NVIDIA CUDA repo"
-    NV_KEYRING_DEB=/usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb
-    if [ -f "$NV_KEYRING_DEB" ]; then
-        dpkg -i "$NV_KEYRING_DEB" 2>&1 | tail -5
+    echo "[54] NVIDIA GPU detected — determining driver generation before wiring a repo"
+    # NVIDIA's proprietary driver is generation-tiered, not one package:
+    # Debian ships nvidia-driver (current), nvidia-legacy-470xx-driver
+    # (Kepler/some Maxwell), nvidia-legacy-390xx-driver (Fermi) -- and has
+    # NO working proprietary driver at all for pre-Fermi chips (nouveau
+    # only, no CUDA). Delegate the chip->branch mapping to Debian's own
+    # nvidia-detect tool rather than hand-rolling a PCI-ID table -- it
+    # already encodes this exact mapping. nvidia-detect lives in the
+    # contrib component, which this project's base sources do not enable
+    # by default (confirmed live on PROTEUS, 2026-09-20: only
+    # main+non-free-firmware enabled, `apt-cache show nvidia-detect` ->
+    # "No packages found") -- enable contrib+non-free just for this probe
+    # if not already present.
+    NV_CODENAME=$(. /etc/os-release 2>/dev/null; echo "$VERSION_CODENAME")
+    if [ -n "$NV_CODENAME" ] && ! grep -rqs 'contrib' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+        cat > /etc/apt/sources.list.d/ncz-nvidia-detect.list <<EOF
+deb http://deb.debian.org/debian/ $NV_CODENAME contrib non-free
+EOF
         apt-get update 2>&1 | tail -5
-        # cuda-drivers pulls the proprietary kernel driver + full CUDA
-        # toolkit in one metapackage. nvidia-open exists for Turing+ but
-        # cuda-drivers is the broadest-compatible real choice for an
-        # unknown-hardware-cohort install.
-        #
-        # CAVEAT (zoder review, 2026-09-14): nvidia-kernel-dkms builds its
-        # module against whatever kernel headers are visible RIGHT NOW —
-        # since this hook runs at real target-install time (not build-chroot
-        # baking, see the file header), that's the actual target kernel, so
-        # this is correct as long as the target's kernel headers package is
-        # already installed before this hook runs (verify hook ordering in
-        # run-all.sh puts the kernel/headers install before 54). If DKMS
-        # can't find headers it will fail loudly here rather than silently
-        # producing a module for the wrong kernel — that's the safe failure
-        # mode, but confirm the ordering rather than assuming it.
-        apt-get install -y cuda-drivers 2>&1 | tail -10
-        echo "[54] NVIDIA: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null || echo 'driver installed, nvidia-smi not yet loadable this session (module needs a reboot to bind)')"
-        # cuda-drivers does NOT pull libnvidia-encode1/libnvcuvid1 as
-        # dependencies (confirmed live on CERBERUS, 2026-09-15: driver+CUDA
-        # toolkit fully installed via cuda-drivers, but NVENC failed with
-        # "OpenEncodeSessionEx failed: unsupported device" because these two
-        # packages were simply never installed). Without them stock ffmpeg's
-        # h264_nvenc/hevc_nvenc/av1_nvenc encoders (already compiled into
-        # Debian's ffmpeg package as of trixie 7.1.5 -- no custom ffmpeg
-        # build needed) fail outright. Pin the same driver-version stream
-        # `cuda-drivers` just installed to avoid an ABI-mismatched pull.
-        NV_DRIVER_VER="$(dpkg-query -W -f='${Version}' nvidia-driver 2>/dev/null | cut -d- -f1)"
-        if [ -n "$NV_DRIVER_VER" ]; then
-            apt-get install -y "libnvidia-encode1=${NV_DRIVER_VER}-1" "libnvcuvid1=${NV_DRIVER_VER}-1" 2>&1 | tail -10
-        else
-            apt-get install -y libnvidia-encode1 libnvcuvid1 2>&1 | tail -10
-        fi
+    fi
+    apt-get install -y nvidia-detect >/tmp/ncz-nvidia-detect-install.log 2>&1
+
+    NV_ROUTE=current
+    NV_BRANCH_PKG=""
+    if command -v nvidia-detect >/dev/null 2>&1; then
+        NV_DETECT_OUT="$(nvidia-detect 2>&1)"
+        echo "[54] nvidia-detect: $(echo "$NV_DETECT_OUT" | tr '\n' ' ' | cut -c1-200)"
+        case "$NV_DETECT_OUT" in
+            *nvidia-legacy-390xx-driver*) NV_ROUTE=legacy; NV_BRANCH_PKG=nvidia-legacy-390xx-driver ;;
+            *nvidia-legacy-470xx-driver*) NV_ROUTE=legacy; NV_BRANCH_PKG=nvidia-legacy-470xx-driver ;;
+            *nvidia-driver*)              NV_ROUTE=current ;;
+            *)                            NV_ROUTE=unsupported ;;
+        esac
     else
-        echo "[54] WARN: NVIDIA GPU present but $NV_KEYRING_DEB not staged — skipping NVIDIA stack"
-        echo "[54]       stage cuda-keyring_1.1-1_all.deb from developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/ under assets/nvidia/ to fix"
+        echo "[54] WARN: nvidia-detect unavailable (contrib unreachable or install failed, see /tmp/ncz-nvidia-detect-install.log) -- cannot do generation-aware routing, falling back to the current-branch (cuda-drivers) install unconditionally"
+    fi
+
+    if [ "$NV_ROUTE" = "unsupported" ]; then
+        # Only fall back to nouveau for hardware nvidia-detect itself says
+        # has no supported driver branch (pre-Fermi). Any card with a real
+        # proprietary branch -- even the old 390xx one -- is preferred over
+        # nouveau below, since nouveau cannot provide CUDA/compute at all,
+        # which is the entire point of this hook.
+        echo "[54] NVIDIA: nvidia-detect found no supported driver branch for this card (pre-Fermi or unrecognized) -- leaving nouveau (in-kernel default) as the only real option, no proprietary/CUDA path exists for this hardware. Logic-verified against NVIDIA/Debian's own branch documentation, NOT boot-tested -- no NVIDIA hardware of any generation exists in the fleet to validate this or any NVIDIA branch against (operator-confirmed 2026-09-20, oldest fleet machine is an Intel-graphics-only Mac Mini)."
+    elif [ "$NV_ROUTE" = "legacy" ]; then
+        # Legacy branches are Debian in-archive packages, NOT NVIDIA's own
+        # cuda-keyring repo -- that repo only tracks the current branch and
+        # carries no drivers for Kepler/Fermi-class chips.
+        echo "[54] NVIDIA: routing to legacy branch $NV_BRANCH_PKG (nvidia-detect recommendation)"
+        apt-get install -y "$NV_BRANCH_PKG" 2>&1 | tail -10
+        echo "[54] NVIDIA: legacy driver installed. NOTE: NVIDIA's CUDA toolkit repo (cuda-keyring) only supports the current driver branch -- a matching older CUDA toolkit version must be sourced separately for this branch if CUDA (not just display/video accel) is required. Logic-verified against NVIDIA/Debian's own branch documentation, NOT boot-tested (no Kepler/Fermi-class NVIDIA hardware exists in the fleet to validate against, 2026-09-20)."
+    else
+        echo "[54] NVIDIA: wiring real NVIDIA CUDA repo (current driver branch)"
+        NV_KEYRING_DEB=/usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb
+        if [ -f "$NV_KEYRING_DEB" ]; then
+            dpkg -i "$NV_KEYRING_DEB" 2>&1 | tail -5
+            apt-get update 2>&1 | tail -5
+            # cuda-drivers pulls the proprietary kernel driver + full CUDA
+            # toolkit in one metapackage. nvidia-open exists for Turing+ but
+            # cuda-drivers is the broadest-compatible real choice for an
+            # unknown-hardware-cohort install.
+            #
+            # CAVEAT (zoder review, 2026-09-14): nvidia-kernel-dkms builds its
+            # module against whatever kernel headers are visible RIGHT NOW —
+            # since this hook runs at real target-install time (not build-chroot
+            # baking, see the file header), that's the actual target kernel, so
+            # this is correct as long as the target's kernel headers package is
+            # already installed before this hook runs (verify hook ordering in
+            # run-all.sh puts the kernel/headers install before 54). If DKMS
+            # can't find headers it will fail loudly here rather than silently
+            # producing a module for the wrong kernel — that's the safe failure
+            # mode, but confirm the ordering rather than assuming it.
+            apt-get install -y cuda-drivers 2>&1 | tail -10
+            echo "[54] NVIDIA: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null || echo 'driver installed, nvidia-smi not yet loadable this session (module needs a reboot to bind)')"
+            # cuda-drivers does NOT pull libnvidia-encode1/libnvcuvid1 as
+            # dependencies (confirmed live on CERBERUS, 2026-09-15: driver+CUDA
+            # toolkit fully installed via cuda-drivers, but NVENC failed with
+            # "OpenEncodeSessionEx failed: unsupported device" because these two
+            # packages were simply never installed). Without them stock ffmpeg's
+            # h264_nvenc/hevc_nvenc/av1_nvenc encoders (already compiled into
+            # Debian's ffmpeg package as of trixie 7.1.5 -- no custom ffmpeg
+            # build needed) fail outright. Pin the same driver-version stream
+            # `cuda-drivers` just installed to avoid an ABI-mismatched pull.
+            NV_DRIVER_VER="$(dpkg-query -W -f='${Version}' nvidia-driver 2>/dev/null | cut -d- -f1)"
+            if [ -n "$NV_DRIVER_VER" ]; then
+                apt-get install -y "libnvidia-encode1=${NV_DRIVER_VER}-1" "libnvcuvid1=${NV_DRIVER_VER}-1" 2>&1 | tail -10
+            else
+                apt-get install -y libnvidia-encode1 libnvcuvid1 2>&1 | tail -10
+            fi
+        else
+            echo "[54] WARN: NVIDIA GPU present but $NV_KEYRING_DEB not staged — skipping NVIDIA stack"
+            echo "[54]       stage cuda-keyring_1.1-1_all.deb from developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/ under assets/nvidia/ to fix"
+        fi
     fi
 fi
 
