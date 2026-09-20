@@ -1008,14 +1008,37 @@ ln -sf /lib/systemd/system/greetd.service /etc/systemd/system/display-manager.se
 # the seat via seatd/logind.
 systemctl enable seatd 2>/dev/null || true
 
-# _greetd user (created by the greetd package) needs GPU + seat + input access so
-# labwc can render the greeter on Mali.
-if id _greetd >/dev/null 2>&1; then
-    for g in video render input seat; do
-        getent group "$g" >/dev/null 2>&1 && usermod -aG "$g" _greetd 2>/dev/null || true
-    done
-    echo "[20] _greetd added to video/render/input/seat"
-fi
+# _greetd user (created by the greetd package's postinst) needs GPU + seat +
+# input access so labwc can render the greeter on Mali. Real incident
+# 2026-09-19: this used to be a single `if id _greetd` check with every
+# usermod suppressed by `|| true` -- on a real build, this hook can run in a
+# chroot pass BEFORE the greetd package's postinst has actually created the
+# account yet, so the `if` silently evaluated false and the whole block
+# no-opped. `_greetd` shipped with ZERO supplementary groups, seatd refused
+# it, greetd crash-looped past systemd's start-limit, and the box never got
+# a display (black screen) -- reproduced again on a fresh install from an
+# otherwise-correct ISO, confirming this is a real, repeatable build defect,
+# not one-off bad luck. `seat` is intentionally NOT in the group list: no
+# `seat` group exists on this system at all (confirmed live), the old code's
+# `getent group "$g" || true` masked that too.
+_GREETD_WAIT=0
+while ! id _greetd >/dev/null 2>&1; do
+    _GREETD_WAIT=$((_GREETD_WAIT + 1))
+    if [ "$_GREETD_WAIT" -gt 30 ]; then
+        echo "[20] FATAL: _greetd account never appeared after ${_GREETD_WAIT}s -- greetd package not installed or postinst failed; refusing to ship a greeter with no seat/GPU access" >&2
+        exit 1
+    fi
+    sleep 1
+done
+for g in video render input; do
+    if getent group "$g" >/dev/null 2>&1; then
+        usermod -aG "$g" _greetd
+    else
+        echo "[20] FATAL: required group '$g' does not exist -- cannot grant _greetd seat/GPU access" >&2
+        exit 1
+    fi
+done
+echo "[20] _greetd added to video/render/input (waited ${_GREETD_WAIT}s for the account)"
 echo "[20] greetd = display manager (native singularity-greeter wired by 55-greeter)"
 
 # Skip gnome-initial-setup wizard (creds already collected by d-i).
