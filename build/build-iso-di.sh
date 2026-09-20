@@ -16,6 +16,16 @@
 
 set -euo pipefail
 
+# LC_ALL=C: several steps below sort package-name/file lists with `sort -u`
+# in separate invocations and then diff them with `comm`, which requires
+# BOTH inputs sorted under the SAME collation order -- under a build host's
+# default locale, two independent `sort -u` calls can disagree on ordering
+# (case/locale-sensitive collation) even though each individually looks
+# "sorted", and `comm` then fails with "not in sorted order". Same fix
+# already applied in build-desktop-mirror.sh; this script needed it too
+# (hit live on HYDRA, 2026-09-20, rebuilding the amd64 repair1 ISO).
+export LC_ALL=C
+
 BOOKWORM_ISO=""
 ROOT=""
 VERSION=""
