@@ -212,23 +212,62 @@ EOF
         # codename (jammy) even for Debian targets — same non-gating
         # apt-suite-naming quirk as Intel's OpenVINO repo below.
         apt-get update 2>&1 | tail -5
-        # rocm-device-libs-17 (versioned) is the real Debian trixie package
-        # name for ROCm 7.x, not bare rocm-device-libs — and rocm-cmake is
-        # build tooling, not part of the runtime stack; not installed here.
-        # zoder review (2026-09-14) caught both.
-        apt-get install -y rocm-opencl-icd rocm-smi rocminfo rocm-device-libs-17 2>&1 | tail -10
+        # BUG FIXED 2026-09-20, hardware-validated on MEDUSA (real gfx1012
+        # Navi14/Radeon Pro 5300M): the package name below was
+        # "rocm-device-libs-17", which does not exist for this repo/suite --
+        # `apt-get install` with ANY unresolvable package name in the list
+        # fails the WHOLE command (apt does not partially install), so this
+        # whole AMD block died here on every real target before it ever
+        # reached the rocminfo/override-writing code further down. The real
+        # name AMD's own repo.radeon.com/rocm/apt/$ROCM_VERSION jammy
+        # component publishes is versioned to match $ROCM_VERSION itself
+        # (confirmed via `apt-cache madison rocm-device-libs7.2.4`), not a
+        # Debian-release-number suffix -- there IS also a Debian-native
+        # rocm-device-libs-21 (LLVM-21-versioned, unrelated numbering
+        # scheme), but that is not what this hook intends to install.
+        apt-get install -y rocm-opencl-icd rocm-smi rocminfo "rocm-device-libs${ROCM_VERSION}" 2>&1 | tail -10
         echo "[54] AMD: $(rocminfo 2>/dev/null | grep -m1 'Marketing Name' || echo 'ROCm stack installed, rocminfo not yet loadable this session (module needs a reboot to bind)')"
         # ROCm's officially-supported GPU list is narrow and does NOT include
-        # every real Radeon chip this hook may detect. Confirmed live on
-        # MEDUSA (2026-09-20): Navi14/gfx1012 (Radeon Pro 5300M) is NOT on
-        # ROCm's supported list — rocminfo/HIP apps can silently fail or
-        # refuse to enumerate the GPU without an explicit gfx-version
-        # override. AMDGPU_TARGETS/HSA_OVERRIDE_GFX_VERSION is the real,
-        # documented workaround (pick the nearest supported gfx version for
-        # the detected chip); this is honest best-effort, not a guarantee —
-        # unofficial-support chips may still hit real gaps ROCm's own docs
-        # don't promise to fix. Write a real per-chip override file so a user
-        # session picks it up without hand-editing anything.
+        # every real Radeon chip this hook may detect. MEASURED live on
+        # MEDUSA (2026-09-20, real gfx1012 Navi14/Radeon Pro 5300M) after
+        # fixing the package-name bug above:
+        #   - `rocminfo` alone does NOT silently fail on gfx1012 -- it
+        #     enumerates the GPU agent correctly with no override at all.
+        #     The "silently refuse to enumerate" framing this comment used
+        #     to have was not accurate for the HSA/ROCr layer.
+        #   - The REAL measured failure is one layer up: `clinfo`/the
+        #     rocm-opencl-icd OpenCL path reports "Number of devices: 0" for
+        #     the AMD platform on unofficial-support gfx1012, confirmed with
+        #     no override set.
+        #   - HSA_OVERRIDE_GFX_VERSION=10.3.0 DOES change what the HSA/ROCr
+        #     layer reports (`rocminfo` then shows gfx1030 instead of
+        #     gfx1012) -- so it is real and it is not a no-op.
+        #   - BUT it does NOT fix the OpenCL zero-device symptom: with the
+        #     override exported, `clinfo` still reports zero devices on this
+        #     exact package combination. Root cause is most likely that this
+        #     jammy component of AMD's own repo does not publish
+        #     rocm-opencl-icd/rocm-smi/libhsa-runtime64-1 under those names
+        #     at all (confirmed via `apt-cache madison`) -- only
+        #     rocm-core/rocm-device-libs/rocminfo/hsa-rocr(-dev) exist there
+        #     -- so `apt-get install rocm-opencl-icd rocm-smi rocminfo`
+        #     above silently falls back to Debian's OWN native ROCm 6.4.x
+        #     packages for those three, while rocm-core/rocm-device-libs
+        #     come from AMD's 7.2.4 repo. The result is a mixed-version ROCm
+        #     stack, and that mismatch is the more likely explanation for
+        #     the still-zero OpenCL device count than the gfx target alone.
+        #   - Net: this override is real and worth shipping (it demonstrably
+        #     fixes HSA/ROCr-layer identification, which HIP-runtime apps
+        #     that don't go through the OpenCL ICD may depend on), but it is
+        #     NOT a full fix for OpenCL compute on gfx1012 under this
+        #     package layout. That gap is real, unresolved, and belongs to a
+        #     separate follow-up (likely: stop relying on Debian's native
+        #     rocm-opencl-icd/rocm-smi and either pull AMD's actual OpenCL
+        #     runtime package names for this suite, or accept OpenCL is
+        #     unofficial-only on RDNA1 here and document it as such) rather
+        #     than something this override claims to already solve.
+        # Write a real per-chip override file so a user session picks it up
+        # without hand-editing anything -- this remains correct and worth
+        # doing even with the OpenCL gap above still open.
         GFX_NAME=$(rocminfo 2>/dev/null | grep -m1 -oE 'gfx[0-9a-f]+' || true)
         case "$GFX_NAME" in
             gfx1010|gfx1011|gfx1012)
@@ -237,9 +276,14 @@ EOF
                 cat > /etc/profile.d/ncz-rocm-gfx-override.sh <<'GFXEOF'
 # Written by post-install/54-gpu-accel.sh. This GPU's real gfx target
 # (RDNA1: gfx1010/1011/1012) is not on ROCm's officially-supported list.
-# Override to the nearest supported RDNA target so HIP/rocminfo don't
-# silently refuse to enumerate the device. Best-effort, not a guarantee --
-# some ROCm workloads may still hit real gaps on unofficial hardware.
+# Override to the nearest supported RDNA target so the HSA/ROCr runtime
+# layer (rocminfo, and HIP apps that go through it directly) reports a
+# supported target instead of the real unofficial one. Measured on real
+# gfx1012 hardware (MEDUSA, 2026-09-20): this does NOT by itself make
+# rocm-opencl-icd/clinfo see the device -- that gap is real and separate,
+# most likely caused by a mixed-version ROCm package stack rather than the
+# gfx target. Best-effort, not a guarantee -- some ROCm workloads may still
+# hit real gaps on unofficial hardware.
 export HSA_OVERRIDE_GFX_VERSION=10.3.0
 GFXEOF
                 chmod 0644 /etc/profile.d/ncz-rocm-gfx-override.sh
