@@ -165,8 +165,106 @@ EOF
         # zoder review (2026-09-14) caught both.
         apt-get install -y rocm-opencl-icd rocm-smi rocminfo rocm-device-libs-17 2>&1 | tail -10
         echo "[54] AMD: $(rocminfo 2>/dev/null | grep -m1 'Marketing Name' || echo 'ROCm stack installed, rocminfo not yet loadable this session (module needs a reboot to bind)')"
+        # ROCm's officially-supported GPU list is narrow and does NOT include
+        # every real Radeon chip this hook may detect. Confirmed live on
+        # MEDUSA (2026-09-20): Navi14/gfx1012 (Radeon Pro 5300M) is NOT on
+        # ROCm's supported list — rocminfo/HIP apps can silently fail or
+        # refuse to enumerate the GPU without an explicit gfx-version
+        # override. AMDGPU_TARGETS/HSA_OVERRIDE_GFX_VERSION is the real,
+        # documented workaround (pick the nearest supported gfx version for
+        # the detected chip); this is honest best-effort, not a guarantee —
+        # unofficial-support chips may still hit real gaps ROCm's own docs
+        # don't promise to fix. Write a real per-chip override file so a user
+        # session picks it up without hand-editing anything.
+        GFX_NAME=$(rocminfo 2>/dev/null | grep -m1 -oE 'gfx[0-9a-f]+' || true)
+        case "$GFX_NAME" in
+            gfx1010|gfx1011|gfx1012)
+                echo "[54] AMD: $GFX_NAME is RDNA1, narrow/unofficial ROCm support — writing HSA_OVERRIDE_GFX_VERSION=10.3.0 fallback (nearest officially-supported RDNA target)"
+                install -d /etc/profile.d
+                cat > /etc/profile.d/ncz-rocm-gfx-override.sh <<'GFXEOF'
+# Written by post-install/54-gpu-accel.sh. This GPU's real gfx target
+# (RDNA1: gfx1010/1011/1012) is not on ROCm's officially-supported list.
+# Override to the nearest supported RDNA target so HIP/rocminfo don't
+# silently refuse to enumerate the device. Best-effort, not a guarantee --
+# some ROCm workloads may still hit real gaps on unofficial hardware.
+export HSA_OVERRIDE_GFX_VERSION=10.3.0
+GFXEOF
+                chmod 0644 /etc/profile.d/ncz-rocm-gfx-override.sh
+                ;;
+        esac
     fi
 fi
+
+# --- NPU (Intel / AMD) ------------------------------------------------------
+# Separate from the GPU vendor loop above -- a machine can have an NPU with
+# no matching-vendor discrete GPU (or vice versa). Real PCI signatures
+# confirmed live against fleet hardware, 2026-09-20:
+#   Intel: class [1200] "Processing accelerators", vendor 8086 (confirmed on
+#          PROTEUS: "00:0b.0 Processing accelerators [1200]: Intel
+#          Corporation Arrow Lake NPU [8086:ad1d]"). Class 1200 is clean/
+#          NPU-specific for Intel -- do NOT match on class 1180 ("Signal
+#          processing controller") for Intel, PROTEUS also has two
+#          unrelated 1180-class telemetry/crash-log devices that would
+#          false-positive.
+#   AMD:   class [1180] "Signal processing controller", vendor 1022, device
+#          string containing "IPU" (confirmed on HYDRA and ACHILLES both:
+#          "Signal processing controller [1180]: ... AMD IPU Device
+#          [1022:1502]"). Class 1180 alone is NOT vendor-specific (Intel
+#          also uses it for non-NPU devices), so AMD's NPU match requires
+#          BOTH class 1180 AND vendor 1022 AND the "IPU" name substring.
+NPU_PCI=$(lspci -nn)
+HAS_INTEL_NPU=0; HAS_AMD_NPU=0
+echo "$NPU_PCI" | grep -qi '\[1200\]:.*\[8086:' && HAS_INTEL_NPU=1
+echo "$NPU_PCI" | grep -i '\[1180\]:.*\[1022:' | grep -qi 'ipu' && HAS_AMD_NPU=1
+
+if [ "$HAS_INTEL_NPU" = 1 ]; then
+    echo "[54] Intel NPU detected — installing OpenVINO NPU runtime"
+    # Reuses the Intel OpenVINO repo wired above if this machine also has an
+    # Intel GPU; if it doesn't (NPU with no matched Intel display-class
+    # device), the repo/keyring block from the Intel GPU section above never
+    # ran, so wire it here too -- idempotent, same keyring path.
+    install -d -m0755 /etc/apt/keyrings
+    INTEL_KEYRING=/etc/apt/keyrings/intel-openvino.gpg
+    if [ ! -f "$INTEL_KEYRING" ] || [ ! -s "$INTEL_KEYRING" ]; then
+        rm -f "$INTEL_KEYRING"
+        if curl -fsSL https://apt.repos.intel.com/openvino/2026/GPG-PUB-KEY-INTEL-OPENVINO-2026 2>/dev/null | gpg --dearmor -o "$INTEL_KEYRING" 2>/dev/null && \
+           [ -s "$INTEL_KEYRING" ] && [ "$(stat -c%s "$INTEL_KEYRING" 2>/dev/null || echo 0)" -gt 100 ]; then
+            echo "[54] fetched Intel OpenVINO signing key ($(stat -c%s "$INTEL_KEYRING") bytes)"
+        else
+            rm -f "$INTEL_KEYRING"
+            echo "[54] WARN: could not fetch a real Intel OpenVINO signing key — skipping Intel NPU stack"
+        fi
+    fi
+    if [ -f "$INTEL_KEYRING" ] && [ -s "$INTEL_KEYRING" ]; then
+        if [ ! -f /etc/apt/sources.list.d/intel-openvino.list ]; then
+            cat > /etc/apt/sources.list.d/intel-openvino.list <<EOF
+deb [signed-by=$INTEL_KEYRING] https://apt.repos.intel.com/openvino ubuntu24 main
+EOF
+            apt-get update 2>&1 | tail -5
+        fi
+        # intel-driver-compiler-npu + level-zero are the real NPU runtime
+        # packages (distinct from intel-opencl-icd, which is the GPU OpenCL
+        # ICD already installed above if an Intel GPU was also present).
+        apt-get install -y intel-driver-compiler-npu intel-level-zero-npu level-zero 2>&1 | tail -10
+        echo "[54] Intel NPU: OpenVINO NPU runtime + Level-Zero installed"
+    fi
+fi
+
+if [ "$HAS_AMD_NPU" = 1 ]; then
+    # AMD's XDNA/Ryzen-AI NPU has no equivalent mature Debian-native apt
+    # repo the way ROCm/OpenVINO do -- real, current AMD documentation
+    # points at building the xdna-driver + XRT runtime from source
+    # (github.com/amd/xdna-driver). That is a materially bigger, riskier
+    # install-time step than this hook's other vendor blocks (compiling a
+    # kernel-adjacent driver at install time, not just wiring an apt repo)
+    # and is deliberately NOT done here -- flagging the real hardware
+    # presence rather than silently no-op'ing, so it's visible instead of
+    # invisible.
+    echo "[54] AMD XDNA/Ryzen-AI NPU detected -- no mature apt-installable driver stack exists yet (real gap, not a bug in this hook)."
+    echo "[54]   AMD's own current path is building github.com/amd/xdna-driver + XRT from source, which this install-time hook deliberately does not attempt."
+fi
+
+echo "[54] NPU wiring done (Intel-NPU=$HAS_INTEL_NPU AMD-NPU=$HAS_AMD_NPU)"
 
 # --- Intel ------------------------------------------------------------------
 if [ "$HAS_INTEL" = 1 ]; then
