@@ -348,3 +348,48 @@ list below were addressed; see commit for this pass):
    headers/the kernel package before `54-gpu-accel.sh` runs — the NVIDIA
    `cuda-drivers`/DKMS install depends on this (see the CAVEAT comment in
    the script itself).
+
+## T2 Mac internal keyboard/trackpad does NOT work during d-i (expected, not a bug) — 2026-09-20
+
+Confirmed live on real MEDUSA hardware (MacBook Pro 16,1): the amd64 d-i
+installer boots and renders fine (real photo evidence, language-select menu
+fully visible), but the internal keyboard produces zero input — can't
+navigate. Root-caused, not a regression:
+
+**`build/build-iso-di.sh`'s Steps 2+3 (installer-kernel-swap + modules-cpio
+overlay) are gated `if [ "$NCZ_TARGET_ARCH" = "arm64" ]` entirely** — amd64
+d-i boots the stock Debian forky netinst kernel unmodified, by design (the
+comment there is correct: swapping in our own kernel binary would make the
+installer itself unbootable on generic x86_64 hardware it needs to install
+onto). But that stock Debian kernel has **zero T2 driver support** —
+`apple-bce`/`applespi`/`hid_apple` are t2linux's own out-of-tree patch set,
+never in mainline Debian — so the internal keyboard (which T2 Macs route
+through the T2 bridge co-processor, not standard USB/PS2) simply has no
+driver to respond to it during install, regardless of what's staged into
+the initrd. Confirmed our own amd64-stable kernel's `.config` HAS this
+support built in (`CONFIG_T2BCE_*`, `CONFIG_KEYBOARD_APPLESPI`,
+`CONFIG_HID_APPLETB_*`) — it's simply not the kernel d-i itself boots.
+
+**This matches t2linux's own documented installation model exactly**: their
+README's own install flow is apt-installing `linux-t2` (or a variant) AFTER
+a normal Ubuntu/Debian base install completes and reboots — T2 support is
+never expected to be present during the base OS's own installer. An
+external USB keyboard (via USB-C/Thunderbolt, normal xHCI, no T2 dependency)
+is the standard, expected way to drive any Debian/Ubuntu installer on a T2
+Mac, industry-wide, not something specific to this project.
+
+**Deliberately not "fixed" by swapping d-i's own kernel to our T2-aware one**
+(mirroring the arm64 approach) — the arm64 side of this exact file documents
+a real history of GRUB-hard-reset and black-screen regressions from
+initrd-size/module-compatibility issues when this kind of swap was done
+carelessly (see the r211/2026-07-28/2026-07-29 comments above Steps 2+3).
+Attempting the same for amd64 T2 support is a real, larger architectural
+change (a T2-vs-generic-PC d-i variant, or an unconditional kernel swap that
+needs validating against non-T2 PCs too) that needs its own deliberate
+design pass, not a quick patch under live-troubleshooting pressure.
+
+**Action for now**: use an external USB keyboard/mouse for the base install
+on any real T2 Mac; internal keyboard/trackpad/Touch Bar come online
+automatically once the system boots into the real amd64-stable T2 kernel
+post-install (already confirmed working via KVM gate). Document this in
+whatever user-facing MEDUSA/T2-Mac install instructions exist.
