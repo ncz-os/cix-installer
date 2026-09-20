@@ -2908,21 +2908,21 @@ echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
 # firmware overlay, same shape as TOOLS_GZ, unconditional on arch.
 FW_OVERLAY_WORK="$STAGING/.installer-firmware-overlay"
 rm -rf "$FW_OVERLAY_WORK"
-mkdir -p "$FW_OVERLAY_WORK/lib/firmware"
+mkdir -p "$FW_OVERLAY_WORK/usr/lib/firmware"
 for _fwdir in iwlwifi rtl_nic; do
     if [ -d "$ROOT/assets/firmware/$_fwdir" ]; then
-        mkdir -p "$FW_OVERLAY_WORK/lib/firmware/$_fwdir"
-        cp -L "$ROOT/assets/firmware/$_fwdir/"* "$FW_OVERLAY_WORK/lib/firmware/$_fwdir/" 2>/dev/null || true
+        mkdir -p "$FW_OVERLAY_WORK/usr/lib/firmware/$_fwdir"
+        cp -L "$ROOT/assets/firmware/$_fwdir/"* "$FW_OVERLAY_WORK/usr/lib/firmware/$_fwdir/" 2>/dev/null || true
     fi
 done
 # iwlwifi's driver also probes the bare (non-subdir) path for some
 # generations -- ship both locations, matching upstream linux-firmware's
 # own dual placement (usr/lib/firmware/iwlwifi-*.ucode AND
 # usr/lib/firmware/intel/iwlwifi/iwlwifi-*.ucode).
-if [ -d "$FW_OVERLAY_WORK/lib/firmware/iwlwifi" ]; then
-    cp -L "$FW_OVERLAY_WORK/lib/firmware/iwlwifi/"*.ucode "$FW_OVERLAY_WORK/lib/firmware/" 2>/dev/null || true
+if [ -d "$FW_OVERLAY_WORK/usr/lib/firmware/iwlwifi" ]; then
+    cp -L "$FW_OVERLAY_WORK/usr/lib/firmware/iwlwifi/"*.ucode "$FW_OVERLAY_WORK/usr/lib/firmware/" 2>/dev/null || true
 fi
-FW_FILE_COUNT=$(find "$FW_OVERLAY_WORK/lib/firmware" -type f | wc -l | tr -d ' ')
+FW_FILE_COUNT=$(find "$FW_OVERLAY_WORK/usr/lib/firmware" -type f | wc -l | tr -d ' ')
 if [ "$FW_FILE_COUNT" -gt 0 ]; then
     FW_GZ="$STAGING/.r80-firmware-overlay.cpio.gz"
     ( cd "$FW_OVERLAY_WORK" && find . -mindepth 1 -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$FW_GZ"
