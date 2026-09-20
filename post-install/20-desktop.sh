@@ -499,7 +499,93 @@ _ncz_panthor_live() {
     return 0
 }
 
-if [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
+# Non-Sky1 GPU stacks (amd64, and any other board this script runs on):
+# amdgpu/i915/nouveau/radeon/nvidia all ship a working Mesa/glvnd stack out of
+# the box and need NO vendor pin, unlike Mali/Panthor above. Before this
+# check existed, EVERY amd64 box fell through to the unconditional software
+# branch below regardless of having a perfectly good discrete or integrated
+# GPU bound, because that branch only knows how to recognize Mali/Panthor.
+# Metal-confirmed on MEDUSA (T2 MacBook, AMD Navi14): with this branch,
+# NCZ_GPU_BACKEND=amdgpu, radeonsi loads on all EGL platforms, no
+# software-render vars set. ncz-wlr-connected-drm (sourced separately by
+# every caller of this file) independently picks the DRM device that
+# actually has a connected output, so a dual-GPU box (iGPU + discrete) does
+# not need explicit discrete-vs-integrated logic here.
+_ncz_hw_gpu_driver() {
+    for _ncz_drv in amdgpu i915 nouveau radeon nvidia nvidia-drm; do
+        _ncz_drm_card_driven_by "$_ncz_drv" && { printf '%s' "$_ncz_drv"; return 0; }
+    done
+    return 1
+}
+
+if _ncz_hw_gpu_driver_name=$(_ncz_hw_gpu_driver); then
+    NCZ_GPU_BACKEND=$_ncz_hw_gpu_driver_name
+    export NCZ_GPU_BACKEND
+    if [ "$_ncz_hw_gpu_driver_name" = amdgpu ]; then
+        # singularity-desktop-session defaults GSK_RENDERER to GTK4's legacy
+        # "gl" renderer unless already set. GTK4's DMABUF texture-import path
+        # (dri2_query_image_common, called from gsk_renderer_render via
+        # libEGL_mesa) segfaults singularity-desktop on Mesa 26.1.6/radeonsi
+        # (Navi14) on a NULL __DRIimage handle -- a missing-null-check bug in
+        # a caller upstream of Mesa (still under investigation as of
+        # 2026-09-20, see MNEMOS/cix-installer issue tracking).
+        # GSK_RENDERER=ngl does NOT fix this: metal-confirmed on MEDUSA the
+        # identical crash still happens under ngl, just later (37-94s
+        # instead of immediately) -- the timing shift is real but this is
+        # NOT a resolved fix, it only delays the same underlying bug. Kept
+        # here because ngl is GTK4's actively-maintained renderer regardless
+        # and does not make anything worse; do not remove this line as part
+        # of "fixing" the crash without addressing the actual NULL-image
+        # root cause first.
+        GSK_RENDERER=ngl
+        export GSK_RENDERER
+        # RDNA1 (Navi 10/12/14 -- the 5300/5500/5600/5700 series, including
+        # MEDUSA's Navi14 5300M) has NO AV1 decode fixed-function hardware
+        # at all; AMD's first AV1 decode block shipped in RDNA2. Chrome
+        # still offers AV1 playback via software dav1d and, per Chromium's
+        # own driver bug list, correctly refuses VaapiVideoDecoder for AV1
+        # on this hardware (status=kUnsupportedConfig) -- metal-confirmed on
+        # MEDUSA via a real media-internals.txt export: every AV1 clip used
+        # Dav1dVideoDecoder (kIsPlatformVideoDecoder: false), zero hardware
+        # decodes. Disabling Chrome's AV1 decoder entirely makes AV1-capable
+        # sites (e.g. YouTube) fall back to VP9 or H.264, both of which
+        # Navi14's VCN block DOES decode in hardware -- trading AV1-only
+        # software playback for real hardware accel on everything else.
+        # Content that is ONLY available in AV1 has no such fallback and
+        # will simply fail to play; this is a real tradeoff, not a free fix,
+        # so it is scoped strictly to RDNA1 (device IDs 0x7310-0x736f) where
+        # AV1 was never hardware-accelerated in the first place -- RDNA2+
+        # AMD GPUs (device IDs from 0x73a0 on) get real AV1 hardware decode
+        # and must NOT have this flag forced.
+        # Read the ACTUAL amdgpu-bound card's PCI device ID directly from
+        # sysfs -- not lspci (an extra dependency this script has no other
+        # use for, and one that would need to correlate its own device list
+        # back to the specific card amdgpu is bound to on a system with more
+        # than one AMD PCI function, e.g. an AMD APU alongside a discrete
+        # AMD GPU). Matches the same /sys/class/drm/card*/device pattern
+        # _ncz_drm_card_driven_by already uses elsewhere in this file.
+        _ncz_amd_devid=
+        for _ncz_dev in /sys/class/drm/card*/device; do
+            [ -e "$_ncz_dev/driver" ] || continue
+            [ "$(basename "$(readlink -f "$_ncz_dev/driver")")" = amdgpu ] || continue
+            [ -r "$_ncz_dev/device" ] || continue
+            _ncz_amd_devid=$(cat "$_ncz_dev/device" 2>/dev/null)
+            _ncz_amd_devid=${_ncz_amd_devid#0x}
+            break
+        done
+        case "$_ncz_amd_devid" in
+            731[0-9a-fA-F]|732[0-9a-fA-F]|733[0-9a-fA-F]|734[0-9a-fA-F]|735[0-9a-fA-F]|736[0-9a-fA-F])
+                _ncz_chrome_flags="$HOME/.config/google-chrome-flags.conf"
+                install -d -m0755 "$(dirname "$_ncz_chrome_flags")" 2>/dev/null
+                if [ ! -f "$_ncz_chrome_flags" ] || ! grep -q 'AV1Decoder' "$_ncz_chrome_flags" 2>/dev/null; then
+                    echo '--disable-features=AV1Decoder' >> "$_ncz_chrome_flags"
+                fi
+                ;;
+        esac
+        unset _ncz_amd_devid _ncz_chrome_flags
+    fi
+    unset _ncz_hw_gpu_driver_name
+elif [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
     NCZ_GPU_BACKEND=mali
     # Pin the CIX EGL vendor explicitly, mirroring what the panthor branch does
     # for mesa. glvnd otherwise scans /usr/share/glvnd/egl_vendor.d, which ships
@@ -595,8 +681,8 @@ else
     GALLIUM_DRIVER=llvmpipe
     export NCZ_GPU_BACKEND WLR_RENDERER WLR_RENDERER_ALLOW_SOFTWARE LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER
 fi
-unset -f _ncz_drm_card_driven_by _ncz_panthor_live 2>/dev/null || true
-unset _ncz_dev
+unset -f _ncz_drm_card_driven_by _ncz_panthor_live _ncz_hw_gpu_driver 2>/dev/null || true
+unset _ncz_dev _ncz_drv _ncz_hw_gpu_driver_name
 GPUENV
 chmod 0755 /usr/local/bin/ncz-gpu-env
 
