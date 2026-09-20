@@ -356,6 +356,13 @@ guarantees a clean `make iso` run.
 > apt, and a few optional components fetch from the network. Those are the parts
 > a bad link degrades — not the install itself.
 
+> **T2 Mac users: have a USB keyboard ready.** The installer boots a generic
+> kernel with no Apple T2 driver support (by design — this matches t2linux's
+> own documented install flow, where the real T2 kernel takes over only after
+> install). The internal keyboard and trackpad will not respond during the
+> installer itself. Plug in any USB keyboard for this step; once installed,
+> the internal keyboard, trackpad, and Touch Bar all work normally.
+
 1. **Verify the download**, then flash to a USB stick (≥8 GB). Each release
    ships an `.md5` beside the ISO:
 
