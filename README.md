@@ -137,6 +137,34 @@ paths, and board/device-tree quirks. On any other board it may not boot, the
 NPU/GPU/VPU may not initialize, or the installer may need board-specific work.
 **Testers and donated hardware are the fastest way to change a ❌ to a ✅.**
 
+### x86_64 — Intel/AMD Macs and generic PCs
+
+> **Read this before you flash any Intel/AMD hardware.** The x86_64 path is
+> newer and far less exercised than Sky1. Three genuinely different hardware
+> classes exist here, each with its own real constraints — this is not one
+> "x86 support" claim.
+
+| Class | Window | Status |
+|---|---|---|
+| **T2 Macs** | **2017** (iMac Pro) – **2020** (last Intel Mac before Apple Silicon) | ⚠️ **One model actually tested**: 2019 MacBook Pro (AMD Navi14/gfx1012 dGPU). GPU acceleration (ROCm), arch-aware branding, first-boot DHCP and console HiDPI scaling all verified live on this machine. d-i deliberately boots the stock Debian netinst kernel (generic, no T2 driver) — this matches t2linux's own documented install flow; the real T2 kernel takes over post-install. The internal keyboard is unresponsive **during d-i only** (use a USB keyboard for the install itself); it works normally on the installed system. No other T2 model — iMac, Mac mini, MacBook Air, other MacBook Pro years — has been installed or booted. 2017–2020 is a hard boundary: there is no T2 Mac made outside it. |
+| **Pre-T2 Intel Macs** | **~2012–2017** | ⏳ **Hardware is in the fleet, not yet install-tested.** No T2 bridge, no d-i keyboard issue, no post-install kernel handoff — this class boots the same generic UEFI path as any PC. Broadcom Wi-Fi firmware (`b43`/`b43legacy`) has been added to the installer and installed-system firmware set specifically for this era. An i5-era Mac mini is on hand as real test hardware; NCZ-OS has not yet actually been installed on it. |
+| **Generic PC (UEFI, Intel/AMD)** | solid confidence **2014+**, likely works **2012+** | ⚠️ **Debian-backed, only lightly tested by us directly.** Debian Testing (Forky) itself supports this range; our own installer and post-install hooks have real hands-on validation on 2019–2024 hardware (PEGASUS: RTX 2060 laptop; HYDRA/ACHILLES: Ryzen 8700G desktops; PROTEUS/CERBERUS: current-generation Intel/AMD build hosts). Older boards should work via the base OS but have not been booted by us. |
+
+**GPU compute is a narrower window than "the base OS boots."** A working
+install does not imply working ROCm/CUDA/oneAPI — the compute stacks have
+their own, tighter hardware floors:
+
+| Vendor | Compute stack | Realistic floor | Notes |
+|---|---|---|---|
+| **AMD** | ROCm (open `amdgpu` + Mesa RADV/RadeonSI — no proprietary alternative) | **~2016+** (GCN4/Polaris and newer) | `gfx1010`/`1011`/`1012` parts (Navi 1x, including MEDUSA's 5300M) need `HSA_OVERRIDE_GFX_VERSION=10.3.0`; applied automatically by `post-install/54-gpu-accel.sh`. |
+| **NVIDIA** | CUDA (proprietary, generation-routed via Debian's `nvidia-detect`) | **2012+ / solid 2014+** (Kepler and newer); pre-Kepler falls back to nouveau, no CUDA | **Logic-verified only — no NVIDIA hardware exists anywhere in this fleet**, so this routing has never actually been boot-tested. Nouveau is the genuine last resort, never preferred over a working proprietary branch. |
+| **Intel** | oneAPI / Level-Zero (open `i915` + Mesa — Intel ships no proprietary Linux graphics driver) | **~2015+** (Skylake-class iGPU and newer) | |
+
+**NPU support is bleeding-edge only (2023+)** — Intel AI Boost / AMD XDNA-class
+silicon. Detection exists and has been hardware-verified against real fleet
+devices (PROTEUS/HYDRA/ACHILLES), but treat this as best-effort, not a
+support commitment.
+
 ### Driver support matrix — MS-R1 / O6 / O6N
 
 > **Which kernel is this table about?** NCZ-OS 26.7 ships **one** kernel:
