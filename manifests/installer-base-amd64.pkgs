@@ -82,6 +82,21 @@ tcpdump
 mtr-tiny
 curl
 wget
+
+# bolt (boltd/boltctl) -- userspace Thunderbolt device authorization/
+# management. Was entirely absent from this manifest. Metal-confirmed
+# missing on MEDUSA (T2 MacBook, real Kensington AD4010T4 Thunderbolt 4
+# Dock physically attached): the kernel's own thunderbolt subsystem and
+# firmware boot-time authorization already get a real device connected
+# and working at full USB4 40Gb/s (confirmed via `boltctl list` showing
+# status=authorized, authflags=boot -- BIOS/firmware pre-authorized it
+# before bolt.service ever ran), so basic dock functionality (USB
+# hub/ethernet passthrough) does not strictly need this package. But
+# without it there is no userspace visibility or approval flow for any
+# NEW/untrusted Thunderbolt device -- it would connect with no way to
+# see, approve, or set a security policy for it. rfkill/PCIe hardware
+# itself was never the gap; only this package was missing.
+bolt
 rsync
 firmware-realtek
 firmware-linux-free
