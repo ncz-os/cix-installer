@@ -2893,6 +2893,49 @@ rm -rf "$TOOLS_WORK" "$TOOLS_GZ"
 echo "    zstd: $ZSTD_STATIC_BIN"
 echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
 
+# r80: stage installer-time device firmware (WiFi + wired NIC) into the d-i
+# initrd, ALL arches — unlike Steps 2+3 above (arm64-only kernel/module
+# swap), this uses the SAME generic last-wins cpio-append mechanism as the
+# tools overlay just above, so it needs no arch gate at all. Confirmed live
+# 2026-09-20 on real PEGASUS (ASUS ROG Zephyrus, amd64) hardware: d-i's own
+# check-missing-firmware looped indefinitely during hw-detect on both the
+# Intel AX201 WiFi (iwlwifi-QuZ-a0-hr-b0-77.ucode) and the onboard Realtek
+# RTL8168h wired NIC (rtl_nic/rtl8168h-2.fw) -- the rtl_nic blob already
+# existed in this repo (assets/firmware/rtl_nic/, added for O6's USB NIC)
+# but was NEVER staged into the amd64 installer because the entire
+# concat-onto-initrd step it depended on lived inside the arm64-only gate.
+# There was no iwlwifi staging at all, any arch. Real fix: a generic
+# firmware overlay, same shape as TOOLS_GZ, unconditional on arch.
+FW_OVERLAY_WORK="$STAGING/.installer-firmware-overlay"
+rm -rf "$FW_OVERLAY_WORK"
+mkdir -p "$FW_OVERLAY_WORK/lib/firmware"
+for _fwdir in iwlwifi rtl_nic; do
+    if [ -d "$ROOT/assets/firmware/$_fwdir" ]; then
+        mkdir -p "$FW_OVERLAY_WORK/lib/firmware/$_fwdir"
+        cp -L "$ROOT/assets/firmware/$_fwdir/"* "$FW_OVERLAY_WORK/lib/firmware/$_fwdir/" 2>/dev/null || true
+    fi
+done
+# iwlwifi's driver also probes the bare (non-subdir) path for some
+# generations -- ship both locations, matching upstream linux-firmware's
+# own dual placement (usr/lib/firmware/iwlwifi-*.ucode AND
+# usr/lib/firmware/intel/iwlwifi/iwlwifi-*.ucode).
+if [ -d "$FW_OVERLAY_WORK/lib/firmware/iwlwifi" ]; then
+    cp -L "$FW_OVERLAY_WORK/lib/firmware/iwlwifi/"*.ucode "$FW_OVERLAY_WORK/lib/firmware/" 2>/dev/null || true
+fi
+FW_FILE_COUNT=$(find "$FW_OVERLAY_WORK/lib/firmware" -type f | wc -l | tr -d ' ')
+if [ "$FW_FILE_COUNT" -gt 0 ]; then
+    FW_GZ="$STAGING/.r80-firmware-overlay.cpio.gz"
+    ( cd "$FW_OVERLAY_WORK" && find . -mindepth 1 -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$FW_GZ"
+    gzip -t "$FW_GZ"
+    cat "$FW_GZ" >> "$STAGING/${INSTALL_DIR}/initrd.gz"
+    rm -f "$FW_GZ"
+    echo "    installer firmware overlay: $FW_FILE_COUNT file(s) (iwlwifi + rtl_nic)"
+else
+    echo "    WARN: no installer-time firmware staged -- assets/firmware/{iwlwifi,rtl_nic} both empty/absent"
+fi
+rm -rf "$FW_OVERLAY_WORK"
+echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
+
 # ---------------------------------------------------------------------------
 # Root-hub rescan, as a d-i STARTUP script inside the initrd.
 #
