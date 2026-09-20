@@ -473,6 +473,17 @@ file_size_bytes() {
 
 BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 BUILD_HOST=$(hostname -s 2>/dev/null || echo unknown)
+# VERSION only has a value if a caller explicitly passed --version. Most
+# real dispatches never do, so BUILD_VERSION (staged to
+# /usr/local/lib/cix-installer/BUILD_VERSION, read by post-install/50-brand.sh
+# into the console/MOTD banners) has been shipping BLANK -- a booted console
+# shows no build identity at all, which is exactly what made it hard to
+# confirm which ISO was installing on O6N tonight. Fall back to a real,
+# always-available identifier: the commit this ISO was actually built from.
+if [ -z "$VERSION" ]; then
+    VERSION="$(date -u +%Y%m%d)-$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo nogit)"
+    echo "  --version not given; defaulting BUILD_VERSION to $VERSION"
+fi
 
 # r27-compat-fix:
 # Ubuntu resolute .debs use control.tar.zst/data.tar.zst. Bookworm d-i's
