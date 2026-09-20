@@ -30,18 +30,49 @@ install -d -m 0755 /usr/local/bin
 
 cat > /usr/local/bin/ncz-console-font-autosize <<'SCRIPT'
 #!/bin/sh
-# Pick a VT font sized to whatever the framebuffer actually negotiated at
-# KMS time (/sys/class/graphics/fb0/virtual_size), so a board moved between a
-# small panel and a 4K monitor gets a legible console either way without a
-# rebuild. Thresholds are on vertical resolution, which tracks "is this
-# effectively a HiDPI panel" better than horizontal on today's aspect ratios.
+# Pick a VT font sized to the panel's REAL physical DPI, not raw pixel count.
+#
+# Raw-resolution thresholds are a poor proxy for "is this a HiDPI panel":
+# a 16" MacBook Retina panel at 3072x1920 (~229 DPI) and a 24" 1920x1200
+# desktop monitor (~94 DPI) can land in the same pixel-height bucket while
+# needing very different font sizes. Measured live on MEDUSA (T2 MacBook,
+# 2026-09-20): its eDP-1 EDID reports a 340mm x 220mm physical panel at
+# 3072x1920, i.e. ~229 DPI -- a true Retina panel -- but the old
+# height>=2000 threshold put it in the 20x10 bucket (height=1920, just
+# under 2000), producing the tiny/illegible console font the operator
+# photographed. DPI-based selection puts a 229 DPI panel in the correct
+# largest-font bucket regardless of its exact pixel height, and treats a
+# generic PC monitor or a Sky1 Mali panel identically -- same EDID-derived
+# number, no per-board special-casing.
+#
+# Method: read the connected DRM connector's EDID base block. Bytes 21/22
+# (0-indexed) are the standard "max horizontal/vertical image size" fields
+# in whole centimeters (EDID 1.x spec). DPI = negotiated pixel width /
+# (physical width in inches). Falls back to the old resolution-only
+# heuristic when a display reports no physical size in EDID (0x0 -- seen
+# on some projectors/TVs that deliberately omit it) or has no EDID at all.
 set -eu
 
 FB=/sys/class/graphics/fb0/virtual_size
-[ -r "$FB" ] || exit 0
+FB_WIDTH="" FB_HEIGHT=""
+if [ -r "$FB" ]; then
+    IFS=, read -r FB_WIDTH FB_HEIGHT < "$FB"
+fi
 
-IFS=, read -r WIDTH HEIGHT < "$FB"
-[ -n "${HEIGHT:-}" ] || exit 0
+DPI=""
+for edid in /sys/class/drm/card*-*/edid; do
+    conn_dir=$(dirname "$edid")
+    [ -r "$conn_dir/status" ] || continue
+    [ "$(cat "$conn_dir/status")" = "connected" ] || continue
+    [ -r "$edid" ] || continue
+    hcm=$(dd if="$edid" bs=1 skip=21 count=1 2>/dev/null | od -An -tu1 | tr -d ' ')
+    [ -n "${hcm:-}" ] || continue
+    [ "$hcm" -gt 0 ] 2>/dev/null || continue
+    [ -n "${FB_WIDTH:-}" ] || continue
+    # DPI = px * 25.4mm-per-inch / (hcm * 10mm-per-cm)
+    DPI=$(( (FB_WIDTH * 254) / (hcm * 100) ))
+    break
+done
 
 # DEBIAN font names. The upstream/Arch "ter-132n" style names do NOT exist on
 # Debian: console-setup ships Terminus as Lat15-Terminus<H>x<W>. Using the
@@ -49,14 +80,29 @@ IFS=, read -r WIDTH HEIGHT < "$FB"
 # the old "2>/dev/null || true" swallowed it, so a 3840x2160 panel was left on
 # the 8x16 "Fixed" default and the console was unreadable (measured on .66,
 # 2026-08-22). Verify the font exists and report failure instead of hiding it.
-if [ "$HEIGHT" -ge 2000 ]; then
-    FONT=Lat15-TerminusBold32x16   # 4K/2160p-class panels
-elif [ "$HEIGHT" -ge 1200 ]; then
-    FONT=Lat15-Terminus20x10       # 1440p-ish
-elif [ "$HEIGHT" -ge 900 ]; then
-    FONT=Lat15-Terminus16          # 1080p
+if [ -n "${DPI:-}" ]; then
+    if [ "$DPI" -ge 180 ]; then
+        FONT=Lat15-TerminusBold32x16   # true HiDPI/Retina (e.g. 229 DPI MacBook panel)
+    elif [ "$DPI" -ge 120 ]; then
+        FONT=Lat15-Terminus20x10       # moderately dense (e.g. 14" 1440p laptop panel)
+    elif [ "$DPI" -ge 90 ]; then
+        FONT=Lat15-Terminus16          # standard desktop-monitor DPI (~96)
+    else
+        exit 0                         # low-DPI large display: kernel default is fine
+    fi
 else
-    exit 0                         # leave the kernel default alone below that
+    # No usable EDID physical size -- fall back to the old resolution-only
+    # heuristic rather than leaving the console unscaled.
+    [ -n "${FB_HEIGHT:-}" ] || exit 0
+    if [ "$FB_HEIGHT" -ge 2000 ]; then
+        FONT=Lat15-TerminusBold32x16
+    elif [ "$FB_HEIGHT" -ge 1200 ]; then
+        FONT=Lat15-Terminus20x10
+    elif [ "$FB_HEIGHT" -ge 900 ]; then
+        FONT=Lat15-Terminus16
+    else
+        exit 0
+    fi
 fi
 
 if [ ! -f "/usr/share/consolefonts/$FONT.psf.gz" ]; then

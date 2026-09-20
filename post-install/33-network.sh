@@ -20,6 +20,47 @@ set -euo pipefail
 
 echo "[33-network] verifying NetworkManager + writing netplan"
 
+# Exclude the Apple T2 "iBridge" virtual USB ethernet-gadget interface from
+# network management. It enumerates as a normal cdc_ncm ethernet device
+# (idVendor=05ac idProduct=8233 -- fixed across every T2 Mac model, not
+# board-specific) but is the T2 coprocessor's internal USB bridge, never a
+# real LAN uplink; it never has anything on the other end and will never get
+# a DHCP lease.
+#
+# Root cause, measured live on MEDUSA (T2 MacBook, 2026-09-20): the netplan
+# wildcard `en*` match legitimately applies to BOTH this virtual interface
+# and the real dock/Thunderbolt ethernet NIC. NetworkManager's policy engine
+# auto-activated the phantom iBridge interface first, which timed out its
+# DHCP attempt every ~45s and immediately retried -- a genuine infinite
+# retry loop (confirmed via `journalctl -u NetworkManager`: repeating
+# "activation: beginning transaction (timeout in 45 seconds)" /
+# "ip-config-unavailable" cycles) -- while the REAL ethernet interface sat
+# with carrier detected but no activation attempt logged for 4m43s, until
+# the operator forced one manually. The phantom interface was starving the
+# real one's automatic DHCP. This udev rule stops NM from ever touching the
+# phantom interface, so the wildcard match's activation attempts go to real
+# NICs only -- fixes it for ANY hotplugged USB/Thunderbolt ethernet
+# interface on ANY T2 Mac, not just this one board.
+install -d -m 0755 /etc/udev/rules.d
+# NOTE ordering: netplan generates /run/udev/rules.d/90-netplan.rules, which
+# (for our `en*` wildcard match) EXPLICITLY sets ENV{NM_UNMANAGED}="0" to
+# force-manage anything matching the glob -- confirmed live on MEDUSA via
+# `udevadm test`, this clobbered an earlier attempt at this fix numbered
+# 71-*. Our rule must sort AFTER 90-netplan.rules (udev applies rule files
+# in filename order, later assignments win) to actually take effect -- 93-
+# does that while staying before 95-99 range reserved by other ncz rules.
+cat > /etc/udev/rules.d/93-ncz-unmanage-t2-ibridge.rules <<'UDEVRULES'
+# NCZ-OS: the Apple T2 "iBridge" coprocessor exposes a virtual USB ethernet
+# (cdc_ncm, idVendor=05ac idProduct=8233) that is never a real network link.
+# Tag it unmanaged so NetworkManager never attempts DHCP on it -- otherwise
+# its endless 45s-timeout retry loop starves autoconnect on the real wired
+# NIC that shares the same wildcard `en*` connection match. Must sort after
+# netplan's generated 90-netplan.rules -- see 33-network.sh comment.
+ACTION=="add|change", SUBSYSTEM=="net", ATTRS{idVendor}=="05ac", ATTRS{idProduct}=="8233", ENV{NM_UNMANAGED}="1"
+UDEVRULES
+chmod 0644 /etc/udev/rules.d/93-ncz-unmanage-t2-ibridge.rules
+echo "[33-network] installed udev rule to unmanage the Apple T2 iBridge virtual ethernet"
+
 # (a) Hard-fail if NM is not installed. preseed pkgsel/include puts it
 # there; if it is missing, the netinstall apt fetch failed silently and
 # the operator-visible symptom (no network) is exactly what we are
