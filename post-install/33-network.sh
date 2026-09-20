@@ -125,6 +125,35 @@ ENICONF
     exit 0
 fi
 
+# (a2) Real upstream NetworkManager needs a WiFi authentication backend to
+# manage wireless devices at all -- without one, WiFi PHYs sit stuck at
+# NM_DEVICE_STATE_UNAVAILABLE (state 20) forever, with no scan, no
+# connect, and no error surfaced anywhere obvious. 19-sinty-nm.sh already
+# installs `iwd` unconditionally (as sinty-nmd's own WiFi backend, "part
+# of the daemon's complete fleet contract"), but upstream NetworkManager
+# does NOT use iwd unless explicitly told to -- it defaults to
+# wpa_supplicant, which is NOT in any package manifest and is genuinely
+# absent from this image. This branch only runs when sinty-nmd is absent
+# and real NetworkManager is taking over (see the exit 0 above), so fix
+# it exactly here rather than touching 19-sinty-nm.sh's sinty-nmd/iwd
+# path, which this hook must not touch.
+#
+# Metal-confirmed on MEDUSA (T2 MacBook, AMD Navi14, no sinty-nmd staged):
+# wlan0 existed with a real driver-assigned MAC and real firmware loaded
+# (see post-install/55-t2-firmware.sh's Apple firmware fetch, a separate
+# fix), but NetworkManager logged
+# "Couldn't initialize supplicant interface: Failed to D-Bus activate
+# wpa_supplicant service" in a five-retry loop before giving up
+# ("supplicant interface keeps failing, giving up"), leaving the device
+# permanently unavailable. Installing wpasupplicant and restarting
+# NetworkManager fixed it immediately -- confirmed via a real
+# `nmcli device wifi list` scan returning real nearby access points.
+if ! dpkg-query -W -f='${Status}\n' wpasupplicant 2>/dev/null | grep -q "install ok installed"; then
+    echo "[33-network] installing wpasupplicant (NetworkManager's WiFi backend on the non-sinty-nmd fallback path)"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y wpasupplicant 2>&1 | tail -10 || \
+        echo "[33-network] WARN: wpasupplicant install failed -- WiFi devices will stay unavailable under NetworkManager"
+fi
+
 # (b) netplan with NetworkManager as renderer + match every wired/wireless
 # interface for DHCP. Wildcards survive interface-rename churn between
 # kernel boots (enp1s0 vs enp2s0 etc.).
