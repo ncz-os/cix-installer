@@ -218,6 +218,13 @@ v4l-utils
 # generic AMD64 laptops and desktops too, same package names in Debian).
 # ============================================================================
 firmware-linux-free
+# 2026-09-20: firmware-linux-free above is the FREE-licensed subset only --
+# firmware-linux (no suffix) is the broader non-free-inclusive metapackage
+# covering additional real hardware Debian ships firmware for that has no
+# individually-named package here (older/misc chipsets). Real gap found
+# during a comprehensive out-of-box hardware coverage pass, distinct from
+# the b43/AX201/RTL8168h chip-specific gaps found the same night.
+firmware-linux
 firmware-realtek
 firmware-misc-nonfree
 firmware-mediatek
@@ -225,6 +232,12 @@ firmware-brcm80211
 firmware-atheros
 firmware-iwlwifi
 firmware-ath9k-htc
+# 2026-09-20: Broadcom wired-NIC firmware (BCM577xx/578xx family, common on
+# business/enterprise laptops and servers) -- firmware-brcm80211 above only
+# covers Broadcom WiFi, not this separate wired-ethernet firmware family.
+# Same class of gap as the b43/AX201/RTL8168h findings the same night.
+firmware-bnx2
+firmware-bnx2x
 # 2026-09-18: older (pre-~2012) Intel Macs use b43/b43legacy-class Broadcom
 # WiFi, distinct from the brcmfmac-class chips firmware-brcm80211 already
 # covers (2012+ Macs, already confirmed working). b43 firmware isn't

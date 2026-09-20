@@ -85,7 +85,13 @@ wget
 rsync
 firmware-realtek
 firmware-linux-free
+firmware-linux
 firmware-misc-nonfree
+firmware-iwlwifi
+firmware-brcm80211
+firmware-atheros
+firmware-bnx2
+firmware-bnx2x
 
 # --- operator quality-of-life ---
 htop
