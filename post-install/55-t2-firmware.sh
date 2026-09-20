@@ -118,12 +118,65 @@ EOF
 apt-get update 2>&1 | tail -5
 apt-get install -y apple-firmware-script apple-t2-audio-config 2>&1 | tail -10
 
-if command -v get-apple-firmware >/dev/null 2>&1; then
-    echo "[55] running get-apple-firmware (fetches real macOS firmware from Apple's CDN)"
-    # </dev/null: this hook runs non-interactively during install; if the
-    # tool ever prompts (e.g. for a Mac model choice), reading from a closed
-    # stdin fails fast instead of hanging the install indefinitely.
-    get-apple-firmware < /dev/null 2>&1 | tail -20
+# get-apple-firmware's `get_from_online` path (Recovery Image download,
+# extracted with dmg2img) is not a hard dependency of the apple-firmware-script
+# package -- confirmed missing on a real install (MEDUSA, 2026-09-20). Without
+# it, the tool prints "dmg2img and/or its dependencies are missing!" and does
+# nothing further; install it explicitly here rather than relying on it being
+# pulled in as a Recommends this offline-mirror build may strip.
+if ! dpkg-query -W -f='${Status}\n' dmg2img 2>/dev/null | grep -q "install ok installed"; then
+    apt-get install -y dmg2img 2>&1 | tail -10
+fi
+
+# get-apple-firmware's OWN internal dependency check (`dmg2img >/dev/null
+# 2>&1 || install_package dmg2img`) triggers its own install-and-prompt flow
+# if dmg2img isn't actually runnable -- and that flow consumes stdin too,
+# which would eat the macOS-version answer piped in below and corrupt BOTH
+# prompts silently. Verify dmg2img is real and runnable before proceeding,
+# rather than assuming the apt-get above succeeded.
+if ! command -v dmg2img >/dev/null 2>&1; then
+    echo "[55] WARN: dmg2img still missing after install attempt -- skipping get-apple-firmware (would hit its own internal dependency prompt and corrupt the piped macOS-version answer below)"
+elif command -v get-apple-firmware >/dev/null 2>&1; then
+    echo "[55] running get-apple-firmware get_from_online (downloads a real macOS Recovery Image from Apple's CDN and extracts firmware from it)"
+    # PREVIOUSLY (and WRONG, metal-confirmed on MEDUSA 2026-09-20): calling
+    # `get-apple-firmware < /dev/null` with no subcommand hits its interactive
+    # "How do you want to copy the firmware to Linux?" menu; reading the
+    # closed stdin returns immediate EOF, so `read -r choice` gets an empty
+    # string, falls into the `(*) Error: Invalid option! exit 1` branch --
+    # except this whole invocation is piped through `tail -20`, and the
+    # script's own `echo "[55] T2 firmware wiring done"` runs unconditionally
+    # right after regardless of that exit code, so the failure was completely
+    # silent in every install log. Zero firmware files were ever written.
+    #
+    # THE FIX: pass the subcommand directly (documented via `get-apple-firmware
+    # -h`) to skip that menu entirely. `get_from_online` needs no prior macOS
+    # or EFI-partition staging -- a pure network fetch, matching what this
+    # hook's own header already describes. It still has ONE inner interactive
+    # prompt (which macOS version's Recovery Image to fetch); feed it the
+    # tool's own "RECOMMENDED" choice (Sonoma, option 7 as of apple-firmware-
+    # script 1.4-3 -- re-verify this number if the tool's menu ever
+    # reorders/adds entries) via stdin instead of closing it.
+    #
+    # Metal-confirmed end-to-end on MEDUSA: this downloaded a real ~753MB
+    # Recovery Image from oscdn.apple.com, extracted real per-board-model
+    # brcmfmac4364b2/b3 WiFi firmware + Bluetooth firmware, and after a
+    # `modprobe -r brcmfmac && modprobe brcmfmac` (first-boot-only; nothing
+    # needs to reload firmware on a real first boot, the driver simply hasn't
+    # tried yet) the WiFi chip loaded real firmware and a live
+    # `nmcli device wifi list` scan returned real nearby access points.
+    echo 7 | get-apple-firmware get_from_online 2>&1 | tail -30
+    # NOTE: a bare `brcmfmac*.bin` glob is NOT sufficient here -- the
+    # firmware-brcm80211 package (already in the amd64 manifests, a generic
+    # non-Apple Broadcom firmware set) can populate /lib/firmware/brcm/ with
+    # its OWN brcmfmac*.bin files independent of this hook, so that check
+    # would report success even when get-apple-firmware's own extraction
+    # failed. Apple's board-specific files are always named
+    # `<chip>-pcie.apple,<boardname>.bin` -- require that exact pattern.
+    if ls /lib/firmware/brcm/brcmfmac*.apple,*.bin >/dev/null 2>&1; then
+        echo "[55] Apple WiFi/BT firmware present in /lib/firmware/brcm/ ($(ls /lib/firmware/brcm/brcmfmac*.apple,*.bin | wc -l) board file(s))"
+    else
+        echo "[55] WARN: get-apple-firmware ran but no Apple-specific brcmfmac*.apple,*.bin firmware appeared in /lib/firmware/brcm/ -- check the tail above for the real failure"
+    fi
 else
     echo "[55] WARN: apple-firmware-script installed but get-apple-firmware not on PATH — check package contents"
 fi
