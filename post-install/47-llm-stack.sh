@@ -67,19 +67,37 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # the layer and have to be purged here. (mesa-vulkan-drivers is not in the
 # layer; it only ever came in as a dependency.) Verified on O6N: removing all
 # of these leaves the desktop, GLES and the blob Vulkan ICD working.
-NCZ_GPU_PURGE=""
-for p in mesa-vulkan-drivers libvulkan-dev vulkan-validationlayers \
-         spirv-tools spirv-headers glslang-tools glslang-dev; do
-    dpkg -l "$p" 2>/dev/null | grep -q "^ii" && NCZ_GPU_PURGE="$NCZ_GPU_PURGE $p"
-done
-if [ -n "$NCZ_GPU_PURGE" ]; then
-    echo "[47] purging GPU build stack (~242MB, unusable on this SoC):$NCZ_GPU_PURGE"
-    # shellcheck disable=SC2086
-    DEBIAN_FRONTEND=noninteractive apt-get remove -y $NCZ_GPU_PURGE 2>&1 | tail -3 || \
-        echo "[47] WARN: purge incomplete — continuing (non-fatal)"
-    DEBIAN_FRONTEND=noninteractive apt-get autoremove -y 2>&1 | tail -2 || true
+#
+# CIX-Sky1-ONLY. This entire "our real ICD is a vendor blob" premise is false
+# on amd64/x86_64: there is no vendor blob there, and mesa-vulkan-drivers
+# (RADV/ANV) IS the real, only Vulkan ICD. Confirmed live on a real T2 MacBook
+# (Navi14/AMD Radeon Pro 5300M, 2026-09-20): this purge ran unconditionally,
+# deleted mesa-vulkan-drivers, and left the box with a real hardware-capable
+# EGL/GLES path (radeonsi, confirmed via eglinfo) but NO Vulkan ICD at all —
+# /usr/share/vulkan/icd.d/ empty — which made labwc/wlroots' Vulkan renderer
+# path fall back to software (lavapipe), read by the operator as "GPU accel
+# is broken" even though the GPU driver itself was fine the whole time. Only
+# run this dev-stack purge on the Sky1/arm64 image, where the Mali blob ICD
+# genuinely replaces it.
+if [ "${NCZ_TARGET_ARCH:-arm64}" = "arm64" ]; then
+    NCZ_GPU_PURGE=""
+    for p in mesa-vulkan-drivers libvulkan-dev vulkan-validationlayers \
+             spirv-tools spirv-headers glslang-tools glslang-dev; do
+        dpkg -l "$p" 2>/dev/null | grep -q "^ii" && NCZ_GPU_PURGE="$NCZ_GPU_PURGE $p"
+    done
+    if [ -n "$NCZ_GPU_PURGE" ]; then
+        echo "[47] purging GPU build stack (~242MB, unusable on this SoC):$NCZ_GPU_PURGE"
+        # shellcheck disable=SC2086
+        DEBIAN_FRONTEND=noninteractive apt-get remove -y $NCZ_GPU_PURGE 2>&1 | tail -3 || \
+            echo "[47] WARN: purge incomplete — continuing (non-fatal)"
+        DEBIAN_FRONTEND=noninteractive apt-get autoremove -y 2>&1 | tail -2 || true
+    else
+        echo "[47] GPU build stack already absent"
+    fi
 else
-    echo "[47] GPU build stack already absent"
+    echo "[47] non-arm64 ($NCZ_TARGET_ARCH): keeping mesa-vulkan-drivers, it is the real Vulkan ICD here"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mesa-vulkan-drivers 2>&1 | tail -5 || \
+        echo "[47] WARN: mesa-vulkan-drivers install failed — continuing (non-fatal)"
 fi
 
 # No glslc / shader compiler: see the note above. Build GPU code on a build
