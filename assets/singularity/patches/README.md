@@ -18,6 +18,15 @@ patch is still needed when it is not is actively misleading.
 
 ## singularity-shell — active
 
+**Upstream PR:** [singularityos-lab/singularity-shell#30](https://github.com/singularityos-lab/singularity-shell/pull/30)
+— open, not yet merged. Patch `0002-choose-attribution-quadrant.patch`.
+Needs its schema companion, `singularity-desktop#262` below, or the
+Settings row this adds writes a key the shell can't read yet. Extends
+the wallpaper title/author overlay from a fixed bottom-left position to
+a user-selected quadrant.
+
+Delete this patch once PR #30 merges.
+
 **Upstream PR:** [singularityos-lab/singularity-shell#31](https://github.com/singularityos-lab/singularity-shell/pull/31)
 — open, not yet merged. Patch
 `0001-bound-keyboard-backlight-scale-marks.patch`.
@@ -35,6 +44,18 @@ MEDUSA: patched binary survived 2 full compositor restarts, 12 sidebar
 activations each, zero new coredumps.
 
 Delete this patch once PR #31 merges.
+
+## singularity-desktop — active
+
+**Upstream PR:** [singularityos-lab/singularity-desktop#262](https://github.com/singularityos-lab/singularity-desktop/pull/262)
+— open, not yet merged. Patch
+`0001-wallpaper-attribution-position-schema.patch` (applies at the
+top level, not under `subprojects/`, per this file's own root-repo
+exception above). Adds the `wallpaper-attribution-position` gschema
+key that `singularity-shell#30` above reads. Additive only, defaults
+to bottom-left, no existing behavior changes on its own.
+
+Delete this patch once PR #262 merges.
 
 ## Previously landed
 
