@@ -300,7 +300,7 @@ SRCEOF
     fi
 fi
 
-# --- the dpkg-status preservation hooks (REQUIRED, see design doc) ---------
+# --- package/account database preservation hooks (REQUIRED) ----------------
 # mkosi's Overlay=yes dedup pass unconditionally strips /var/lib/dpkg/status
 # (and status-old) from the delta output as a "duplicate path", even when the
 # content differs from base (confirmed empirically -- it is not a content
@@ -310,6 +310,10 @@ fi
 # inside the containerized build 2026-09-14 (same mechanism, same paths --
 # BUILDROOT/OUTPUTDIR are mkosi's own env vars for its hook scripts, set
 # identically whether mkosi runs bare or inside a container).
+# The same dedup pass also drops changed /etc/{passwd,group,shadow,gshadow}.
+# That loses system users created by package postinsts (observed with greetd:
+# its postinst created _greetd successfully, then the finalized delta reverted
+# to the base account databases). Preserve those files through the same stash.
 cat > "$WORK/conf/save-dpkg-status.sh" <<'SAVE'
 #!/bin/bash
 set -e
@@ -321,6 +325,13 @@ cp "$BUILDROOT/var/lib/dpkg/status" "$BUILDROOT/var/tmp/.saved-dpkg-status"
 }
 [ -f "$BUILDROOT/var/lib/dpkg/status-old" ] && \
     cp "$BUILDROOT/var/lib/dpkg/status-old" "$BUILDROOT/var/tmp/.saved-dpkg-status-old"
+for account_db in passwd group shadow gshadow; do
+    [ -f "$BUILDROOT/etc/$account_db" ] || {
+        echo "FATAL: missing /etc/$account_db before overlay dedup" >&2
+        exit 1
+    }
+    cp -a "$BUILDROOT/etc/$account_db" "$BUILDROOT/var/tmp/.saved-$account_db"
+done
 exit 0
 SAVE
 chmod +x "$WORK/conf/save-dpkg-status.sh"
@@ -342,6 +353,14 @@ set -e
 mv "$OUTPUTDIR/image/var/tmp/.saved-dpkg-status" "$OUTPUTDIR/image/var/lib/dpkg/status"
 [ -f "$OUTPUTDIR/image/var/tmp/.saved-dpkg-status-old" ] && \
     mv "$OUTPUTDIR/image/var/tmp/.saved-dpkg-status-old" "$OUTPUTDIR/image/var/lib/dpkg/status-old"
+for account_db in passwd group shadow gshadow; do
+    saved="$OUTPUTDIR/image/var/tmp/.saved-$account_db"
+    [ -f "$saved" ] || {
+        echo "FATAL: no saved $account_db database to restore" >&2
+        exit 1
+    }
+    mv "$saved" "$OUTPUTDIR/image/etc/$account_db"
+done
 exit 0
 RESTORE
 chmod +x "$WORK/conf/restore-dpkg-status.sh"
