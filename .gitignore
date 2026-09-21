@@ -173,3 +173,8 @@ build/kernel-debs-amd64/
 build/iso-receipts-stageAB/*.iso
 build/iso-receipts-stageAB/*.iso.*
 build/kvm-install-*
+build/chrome-deb-cache/
+build/forky-vendor-mirror/
+build/forky-mirror/
+build/kernel-debs/
+build/tool-cache/

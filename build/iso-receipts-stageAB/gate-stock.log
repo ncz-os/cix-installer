@@ -1,0 +1,35 @@
+[1/6] extracting build/iso-receipts-stageAB/ncz-d2-stock-2026.09.21.iso -> build/kvm-install-stock/iso-patch/staging
+[2/6] patching kernel cmdlines: console=ttyAMA2 -> ttyAMA0, add unattended preseed overrides
+    swapped 3 console= entry/entries to ttyAMA0
+[3/6] repacking -> build/iso-receipts-stageAB/ncz-d2-stock-2026.09.21-qemutest.iso
+xorriso 1.5.8.pl02 : RockRidge filesystem manipulator, libburnia project.
+
+Drive current: -outdev 'stdio:build/iso-receipts-stageAB/ncz-d2-stock-2026.09.21-qemutest.iso'
+Media current: stdio file, overwriteable
+Media status : is blank
+Media summary: 0 sessions, 0 data blocks, 0 data, 3310g free
+xorriso : NOTE : -as mkisofs: Ignored option '-cache-inodes'
+Added to ISO image: directory '/'='/home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/kvm-install-stock/iso-patch/staging'
+xorriso : UPDATE :    3818 files added in 1 seconds
+xorriso : UPDATE :    3818 files added in 1 seconds
+libisofs: WARNING : Image size exceeds 1024 cylinders. Cannot align partition.
+libisofs: WARNING : There are said to be BIOSes which will not boot this via MBR.
+xorriso : UPDATE :  1.85% done
+xorriso : UPDATE :  8.47% done
+xorriso : UPDATE :  38.87% done
+xorriso : UPDATE :  64.60% done, estimate finish Mon Sep 21 10:06:16 2026
+xorriso : UPDATE :  91.22% done
+xorriso : UPDATE :  97.36% done
+ISO image produced: 2896550 sectors
+Written to medium : 2896550 sectors at LBA 0
+Writing to 'stdio:build/iso-receipts-stageAB/ncz-d2-stock-2026.09.21-qemutest.iso' completed successfully.
+
+    qemutest ISO: 5.6G
+=== KVM INSTALL GATE ===
+  iso    : build/iso-receipts-stageAB/ncz-d2-stock-2026.09.21-qemutest.iso
+  accel  : tcg cpu=cortex-a72 mem=4096M smp=4
+  target : build/kvm-install-stock/target.qcow2 (40G)
+  logs   : build/kvm-install-stock/install.log / build/kvm-install-stock/boot.log
+
+--- phase 1: install (timeout 5400s) ---
+  started 14:06:17Z
