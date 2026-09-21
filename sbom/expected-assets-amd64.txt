@@ -12,10 +12,10 @@ assets/squashfs/base.squashfs|1436512256|797b625631f5267628a05804023b5826acac56b
 # reproducible/stable across builds by design. A fixed size+sha256 gate on
 # this specific entry is now structurally in tension with that design;
 # flagging rather than silently deciding to drop the gate for just this file.
-assets/squashfs/desktop.squashfs|1607843840|4341891ad752f3a7e86953afe6dc4f396108cf35cd1d70249e86c9d4552e36e7
-assets/kernel/amd64-stable/linux-image-7.2.6-1-t2-trixie_7.2.6-1_amd64.deb|176485604|e8668fbb8504fd1d6574ed95b9919dcbade9d6638ede060265cbe3d08a1158a5
-assets/kernel/amd64-stable/linux-headers-7.2.6-1-t2-trixie_7.2.6-1_amd64.deb|10665188|8e83e49020a4d6f01b5ab576cfc716fc7054c14ec1619237e4c60684a200b6ea
-assets/kernel/amd64-edge/linux-image-7.3.0-rc3-ncz-amd64-edge_7.3.0~rc3-1_amd64.deb|117559052|cf954dda1cd216dba9d30aa009af9c89626bd20e7e5e8fb8db943e8f54d002de
-assets/kernel/amd64-edge/linux-headers-7.3.0-rc3-ncz-amd64-edge_7.3.0~rc3-1_amd64.deb|10959424|3d0a1248026953e9387324ce918843861658a8b3757e10e5c9a37770d5aa9df9
+assets/squashfs/desktop.squashfs|1794879488|acc87d1538693f27761bec6fda8a0262b9565edf759f466df7a96ae7697eb6ab
+assets/kernel/amd64-stable/linux-image-7.2.6-2-t2-trixie_7.2.6-2_amd64.deb|176489384|2d582760564200a4e07e1e7d0c67eead9048333c1b2d07ffb2908610d2234114
+assets/kernel/amd64-stable/linux-headers-7.2.6-2-t2-trixie_7.2.6-2_amd64.deb|10665344|2b088437e42a05393c885dd8938545d33e5e183ae5392b331a8f482a8b8476f1
+assets/kernel/amd64-edge/linux-image-7.3.0-rc4-ncz-amd64-edge_7.3.0~rc4-1_amd64.deb|117567592|41ec0c96d13c4f643c7999b4c230a41be76e50f04027231fd933648f08a735bd
+assets/kernel/amd64-edge/linux-headers-7.3.0-rc4-ncz-amd64-edge_7.3.0~rc4-1_amd64.deb|10960576|fd6050a5559d4a998ceb5ef5a71f5602e6bfc75e61caf4002c99c3bb89daaecb
 assets/rescue/rescue-rootfs-amd64.tar.zst|223938939|1f9c6068b5c0bb492369783d8a3a43b53bcb7f81543f8b47d2d9632eb703da75
 assets/nvidia/cuda-keyring_1.1-1_all.deb|4182|d0d4ef986a44400f9db33c600ef33a985175e7cc63d805a10e1839c7a1e78f5f
