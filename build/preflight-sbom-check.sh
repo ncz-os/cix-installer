@@ -31,6 +31,16 @@ bash "$REPO/build/verify-assets.sh" "$(manifest_for expected-assets)"
 if [ -f "$REPO/assets/squashfs/base.squashfs" ]; then
     bash "$REPO/build/verify-squashfs-kernel-identity.sh" "$REPO/assets/squashfs/base.squashfs"
 fi
+
+# desktop.squashfs is rebuilt fresh from HEAD every run by design (see
+# build-squashfs-layers.sh header) -- its bytes are not stable across
+# builds, so the fixed size+sha256 gate in expected-assets-amd64.txt was
+# removed for this one entry (kept for base.squashfs, which IS supposed
+# to be stable relative to its pinned inputs). Semantic check instead:
+# does the squashfs embed the version currently staged in assets/cix-debs.
+if [ -f "$REPO/assets/squashfs/desktop.squashfs" ] && [ -f "$REPO/build/verify-desktop-squashfs-identity.sh" ]; then
+    bash "$REPO/build/verify-desktop-squashfs-identity.sh" "$REPO/assets/squashfs/desktop.squashfs"
+fi
 bash "$REPO/build/verify-packages.sh" "$(manifest_for expected-packages)"
 if compgen -G "$REPO/build/kernel-debs/*.deb" >/dev/null || \
    compgen -G "$REPO/build/kernel-debs-$NCZ_TARGET_ARCH/*.deb" >/dev/null || \

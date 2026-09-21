@@ -60,10 +60,10 @@ _seed_manifest_for() {
         [ -s "$manifest" ] || { echo "ERROR: missing manifest: $manifest" >&2; exit 1; }
         sed 's/#.*//' "$manifest" | awk 'NF {print $1}'
     done
-} | sort -u > "$TMP/seed"
+} | LC_ALL=C sort -u > "$TMP/seed"
 
-awk '/^Package: / {print $2}' "$PKG_INDEX" | sort -u > "$TMP/have"
-comm -23 "$TMP/seed" "$TMP/have" > "$TMP/missing"
+awk '/^Package: / {print $2}' "$PKG_INDEX" | LC_ALL=C sort -u > "$TMP/have"
+LC_ALL=C comm -23 "$TMP/seed" "$TMP/have" > "$TMP/missing"
 
 if [ -s "$TMP/missing" ]; then
     echo "ERROR: $LABEL is missing explicit manifest package(s):" >&2

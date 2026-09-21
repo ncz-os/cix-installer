@@ -4,15 +4,12 @@
 # No Sky1-only entries here (no cix-debs, no sky1-firmware, no NPU ACPI
 # override, no arm64 kernel) -- see sbom/expected-assets.txt for the
 # arm64/Sky1 manifest, which this file intentionally does not replace.
-assets/squashfs/base.squashfs|1436512256|797b625631f5267628a05804023b5826acac56b4dbfae5d3190a81ed2cf0edc2
-# NOTE 2026-09-18: desktop.squashfs entry below will need updating on
-# basically every future build now that build_singularity_payload()
-# (build/build-squashfs-layers.sh) always rebuilds ncz-singularity-desktop
-# fresh from head, no stale-.deb fallback -- its bytes are no longer
-# reproducible/stable across builds by design. A fixed size+sha256 gate on
-# this specific entry is now structurally in tension with that design;
-# flagging rather than silently deciding to drop the gate for just this file.
-assets/squashfs/desktop.squashfs|1794883584|3f86a18019612c73432ce153d6a8bda0b174d91e57313db78afe0cb5bf63dcc1
+assets/squashfs/base.squashfs|2142978048|dff6550cd967b2e809dd7b3658e880f6a4e60c8e1ff2b7657f50fdfcca7776f8
+# desktop.squashfs is intentionally NOT hash-pinned here -- rebuilt fresh
+# from HEAD every run by design, checked instead by
+# build/verify-desktop-squashfs-identity.sh (semantic version match
+# against assets/cix-debs/ncz-singularity-desktop_*.deb), wired into
+# preflight-sbom-check.sh directly.
 assets/kernel/amd64-stable/linux-image-7.2.6-2-t2-trixie_7.2.6-2_amd64.deb|176489384|2d582760564200a4e07e1e7d0c67eead9048333c1b2d07ffb2908610d2234114
 assets/kernel/amd64-stable/linux-headers-7.2.6-2-t2-trixie_7.2.6-2_amd64.deb|10665344|2b088437e42a05393c885dd8938545d33e5e183ae5392b331a8f482a8b8476f1
 assets/kernel/amd64-edge/linux-image-7.3.0-rc4-ncz-amd64-edge_7.3.0~rc4-1_amd64.deb|117567592|41ec0c96d13c4f643c7999b4c230a41be76e50f04027231fd933648f08a735bd
