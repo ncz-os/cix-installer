@@ -67,10 +67,13 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 mkdir -p "$WORK"
 DISK="$WORK/target.qcow2"
 VARS="$WORK/OVMF_VARS.fd"
-CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
-[ -f "$CODE" ] || CODE=/usr/share/OVMF/OVMF_CODE.fd
-SRCVARS=/usr/share/OVMF/OVMF_VARS_4M.fd
-[ -f "$SRCVARS" ] || SRCVARS=/usr/share/OVMF/OVMF_VARS.fd
+mkdir -p "$WORK/ovmf"
+cp /usr/share/OVMF/OVMF_CODE_4M.fd "$WORK/ovmf/OVMF_CODE_4M.fd" 2>/dev/null \
+  || sudo -n cat /usr/share/OVMF/OVMF_CODE_4M.fd > "$WORK/ovmf/OVMF_CODE_4M.fd"
+cp /usr/share/OVMF/OVMF_VARS_4M.fd "$WORK/ovmf/OVMF_VARS_4M.fd" 2>/dev/null \
+  || sudo -n cat /usr/share/OVMF/OVMF_VARS_4M.fd > "$WORK/ovmf/OVMF_VARS_4M.fd"
+CODE="$WORK/ovmf/OVMF_CODE_4M.fd"
+SRCVARS="$WORK/ovmf/OVMF_VARS_4M.fd"
 
 ACCEL="tcg"; CPU="qemu64"
 if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL="kvm"; CPU="host"; fi
@@ -481,16 +484,29 @@ rm -rf "$FW_OVERLAY"
 echo "    initrd.gz now: $(du -h "$STAGING/install.amd/initrd.gz" | cut -f1)"
 
 # G. Patch grub.cfg for unattended install + add a cixmini/preseed.cfg.
-echo "[3/6] patching kernel cmdlines for unattended install + creating cixmini/preseed.cfg"
+echo "[3/6] writing minimal serial-only grub.cfg (forky upstream's gfx modules break QEMU/OVMF boot)"
+# CRITICAL: same reasoning as kvm-install-gate-amd64-stock.sh above — the
+# upstream Forky netinst's grub.cfg uses gfx modules (insmod efi_gop/
+# efi_uga/video_bochs/video_cirrus, terminal_output gfxterm) that don't
+# exist outside grubx64.efi's built-in modules, and in this QEMU setup
+# the OUTER grub.cfg's terminal_output gfxterm leaves the menu with no
+# output medium and the install HANGS. Replace the entire file with a
+# serial-only minimal config. This is a tooling change, not a "stock
+# d-i" change — the d-i userspace, kernel, initrd, udebs are still
+# patched by the d-i hand-patches earlier in this script (steps A–F);
+# only the boot menu is replaced.
 CFG="$STAGING/boot/grub/grub.cfg"
-patch_line() {
-  local add="$1"
-  sed -i -E "s|(linux[[:space:]]+/install\\.amd/vmlinuz[^[:space:]]*[^[:space:]]+[[:space:]]+quiet)([[:space:]]+---[[:space:]]+quiet)?|\\1 ${add}\\2|" "$CFG"
+cat > "$CFG" <<'GRUBEOF'
+set timeout=5
+set default=0
+serial --unit=0 --speed=115200
+terminal_input serial
+terminal_output serial
+menuentry 'NCZ Install (forky + amd64 hand-patches)' {
+    linux /install.amd/vmlinuz auto=true priority=critical console=ttyS0,115200 ncz_unattended=1 --- quiet
+    initrd /install.amd/initrd.gz
 }
-patch_line "auto=true priority=critical"
-patch_line "console=ttyS0,115200"
-patch_line "preseed/file=/cdrom/cixmini/preseed.cfg"
-patch_line "ncz_unattended=1"
+GRUBEOF
 
 PSEED_DIR="$STAGING/cixmini"
 mkdir -p "$PSEED_DIR"

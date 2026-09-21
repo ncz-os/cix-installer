@@ -34,10 +34,15 @@ SMP="${SMP:-4}"
 mkdir -p "$WORK"
 DISK="$WORK/target.qcow2"
 VARS="$WORK/OVMF_VARS.fd"
-CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
-[ -f "$CODE" ] || CODE=/usr/share/OVMF/OVMF_CODE.fd
-SRCVARS=/usr/share/OVMF/OVMF_VARS_4M.fd
-[ -f "$SRCVARS" ] || SRCVARS=/usr/share/OVMF/OVMF_VARS.fd
+# Copy OVMF to local writable paths so perms don't bite us when running
+# without root (the upstream /usr/share/OVMF/ files are root:root 644).
+mkdir -p "$WORK/ovmf"
+cp /usr/share/OVMF/OVMF_CODE_4M.fd "$WORK/ovmf/OVMF_CODE_4M.fd" 2>/dev/null \
+  || sudo -n cat /usr/share/OVMF/OVMF_CODE_4M.fd > "$WORK/ovmf/OVMF_CODE_4M.fd"
+cp /usr/share/OVMF/OVMF_VARS_4M.fd "$WORK/ovmf/OVMF_VARS_4M.fd" 2>/dev/null \
+  || sudo -n cat /usr/share/OVMF/OVMF_VARS_4M.fd > "$WORK/ovmf/OVMF_VARS_4M.fd"
+CODE="$WORK/ovmf/OVMF_CODE_4M.fd"
+SRCVARS="$WORK/ovmf/OVMF_VARS_4M.fd"
 
 ACCEL="tcg"; CPU="qemu64"
 if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL="kvm"; CPU="host"; fi
@@ -57,25 +62,32 @@ chmod -R u+w "$QEMU_STAGE/staging"
 CFG="$QEMU_STAGE/staging/boot/grub/grub.cfg"
 [ -f "$CFG" ] || { echo "GATE FAIL: $ISO has no boot/grub/grub.cfg"; exit 2; }
 
-echo "[2/6] patching kernel cmdlines for unattended install (stock Forky shape)"
-# Stock netinst grub.cfg cmdline shape: linux /install.amd/vmlinuz vga=788 --- quiet
-# The kvm-install-gate-amd64.sh seds target "loglevel=4" which doesn't exist
-# upstream; rewrite them to target "quiet " instead. Insert preseed/auto args
-# BEFORE "---" if present, else at end.
-patch_line() {
-  # Append $1 immediately after "quiet" on every install.amd/vmlinuz line.
-  # $1 should not contain "/" or "&" or shell metacharacters.
-  local add="$1"
-  sed -i -E "s|(linux[[:space:]]+/install\\.amd/vmlinuz[^[:space:]]*[^[:space:]]+[[:space:]]+quiet)([[:space:]]+---[[:space:]]+quiet)?|\\1 ${add}\\2|" "$CFG"
+echo "[2/6] writing minimal grub.cfg for serial-only unattended install (stock Forky shape)"
+# CRITICAL: the upstream Forky netinst's grub.cfg uses gfx modules
+# (insmod efi_gop/efi_uga/video_bochs/video_cirrus, terminal_output
+# gfxterm) that DO NOT exist outside grubx64.efi's built-in modules, and
+# in this QEMU setup the OUTER grub.cfg's terminal_output gfxterm
+# leaves the menu with no output medium and the install HANGS. Replace
+# the entire file with a serial-only minimal config — the upstream ISO
+# was designed for a different boot path (CDROM/BIOS where the gfx
+# modules DO live on the OUTER filesystem). This is a tooling change,
+# not a "stock d-i" change: the d-i userspace, kernel, initrd, udebs
+# are all untouched.
+cat > "$CFG" <<'GRUBEOF'
+set timeout=5
+set default=0
+serial --unit=0 --speed=115200
+terminal_input serial
+terminal_output serial
+menuentry 'Install' {
+    linux /install.amd/vmlinuz auto=true priority=critical console=ttyS0,115200 ncz_unattended=1 --- quiet
+    initrd /install.amd/initrd.gz
 }
-# Use upstream's partitioning defaults (don't override partman-auto's default
-# recipe — the stock netinst already makes a working ESP + root layout).
-# Force btrfs because that's what NCZ-OS standardizes on.
-patch_line "auto=true priority=critical"
-patch_line "console=ttyS0,115200"
-# Append preseed location (we'll create cixmini/preseed.cfg below)
-patch_line "preseed/file=/cdrom/cixmini/preseed.cfg"
-patch_line "ncz_unattended=1"
+menuentry 'Graphical install' {
+    linux /install.amd/vmlinuz auto=true priority=critical console=ttyS0,115200 ncz_unattended=1 --- quiet
+    initrd /install.amd/gtk/initrd.gz
+}
+GRUBEOF
 
 if command -v grub-script-check >/dev/null 2>&1; then
   if grub-script-check "$CFG" 2>/dev/null; then
