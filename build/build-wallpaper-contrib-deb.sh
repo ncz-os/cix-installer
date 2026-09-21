@@ -178,10 +178,14 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK" ${SRC_TMP:+"$SRC_TMP"}' EXIT
 
 # ART PAKS ARE COLLECTIONS -- see post-install/45-wallpaper-rotator.sh.
+# The .collection file goes where WallpaperCollections.default_search_roots()
+# (libsingularity) scans, so the pack shows up in the Settings UI's own
+# Wallpaper Source picker, not just the bash rotator.
 ART_DIR="$WORK/usr/share/backgrounds/ncz$ART_SUBPATH"
+COLLECTIONS_DIR="$WORK/opt/singularity/share/singularity/wallpaper-collections"
 install -d "$WORK/DEBIAN" \
            "$ART_DIR" \
-           "$WORK/usr/share/ncz-wallpapers/collections" \
+           "$COLLECTIONS_DIR" \
            "$WORK/usr/share/doc/$PKG"
 
 count=0
@@ -199,7 +203,7 @@ done
 [ "$count" -gt 0 ] || { echo "ERROR: no .jpg/.png/.svg files in $SRC" >&2; exit 1; }
 echo "  packaging $count image(s) from $PACK into /usr/share/backgrounds/ncz$ART_SUBPATH"
 
-cat > "$WORK/usr/share/ncz-wallpapers/collections/$PACK.collection" <<COLLECTION
+cat > "$COLLECTIONS_DIR/$PACK.collection" <<COLLECTION
 [Collection]
 Id=$PACK
 Name=$AUTHOR
@@ -211,7 +215,7 @@ Dir=/usr/share/backgrounds/ncz$ART_SUBPATH
 COLLECTION
 echo "  collection: $PACK ($AUTHOR)"
 
-ARTISTPACK_DIR="$WORK/usr/share/ncz-wallpapers/collections/$PACK.artistpack"
+ARTISTPACK_DIR="$COLLECTIONS_DIR/$PACK.artistpack"
 install -d "$ARTISTPACK_DIR"
 install -m 0644 "$ARTISTPACK_SRC/artist.json" "$ARTISTPACK_DIR/artist.json"
 install -m 0644 "$ARTISTPACK_SRC/pack.json" "$ARTISTPACK_DIR/pack.json"
