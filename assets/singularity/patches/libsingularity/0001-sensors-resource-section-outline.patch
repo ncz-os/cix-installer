@@ -1,0 +1,41 @@
+From 9884b17a462f641270f74d6abe8f593c1dab987e Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Fri, 18 Sep 2026 14:53:49 -0400
+Subject: [PATCH] style: bordered frame for stacked popover sections
+
+Adds a .sensors-resource-section CSS class: a 1px border, 8px radius,
+and padding around each grouped section so stacked resource-pool
+sections sharing one popover column (GPU, VPU, Storage, ...) read as
+distinct cards instead of one continuous list.
+
+Restores styling from an earlier, unmerged NCZ patch to singularity-shell
+(commit df20256, before the sensors popover moved into its own plugin) --
+the class was never carried into libsingularity when that patch was
+written, so it silently had no effect once the panel code it targeted was
+rewritten. Companion PR against singularity-plugins applies this class in
+the sensors plugin's section builder.
+
+Assisted-by: Claude Code:claude-sonnet-5
+AI-Scope: Restored .sensors-resource-section bordered-card CSS outline styling from a prior isolated NCZ commit, never carried into the current sensors plugin.
+---
+ src/style/style.css | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/src/style/style.css b/src/style/style.css
+index 1515b08..f66e8d1 100644
+--- a/src/style/style.css
++++ b/src/style/style.css
+@@ -5386,3 +5386,13 @@ button.disk-card.selected {
+     outline: 2px solid @accent_color;
+     outline-offset: 2px;
+ }
++
++/* Bordered frame so stacked sections sharing a popover column (e.g. the
++   sensors panel's resource-pool groups: GPU, VPU, Storage, ...) read as
++   distinct cards instead of one continuous list. */
++.sensors-resource-section {
++    border: 1px solid alpha(@text_color, 0.12);
++    border-radius: 8px;
++    padding: 8px 10px;
++    margin-bottom: 4px;
++}

@@ -128,6 +128,8 @@ if [ -d "$PATCH_ROOT" ]; then
         case "$sub_name" in
             singularity-shell) upstream_url="https://github.com/singularityos-lab/singularity-shell.git" ;;
             singularity-desktop) upstream_url="https://github.com/singularityos-lab/singularity-desktop.git" ;;
+            singularity-plugins) upstream_url="https://github.com/singularityos-lab/singularity-plugins.git" ;;
+            libsingularity) upstream_url="https://github.com/singularityos-lab/libsingularity.git" ;;
             labwc) upstream_url="https://github.com/singularityos-lab/labwc.git" ;;
             *)
                 echo "[2] WARN: no known upstream URL for patch subproject '$sub_name' -- skipping its patch(es), add a case here if this is real"

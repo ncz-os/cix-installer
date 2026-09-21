@@ -68,6 +68,42 @@ to bottom-left, no existing behavior changes on its own.
 
 Delete this patch once PR #262 merges.
 
+## singularity-plugins — active
+
+**Upstream PR:** [singularityos-lab/singularity-plugins#2](https://github.com/singularityos-lab/singularity-plugins/pull/2)
+— open, not yet merged. Patch
+`0001-sensors-dpi-columns-bordered-sections.patch`.
+
+Restores two things that regressed when sensors moved out of
+`panel.vala` into this standalone plugin: (1) column count in the
+sensors popover now derives from monitor scale factor as well as
+logical width (up to 3 columns), not a fixed 1-or-2 split at one
+breakpoint; (2) `begin_detail_section()` applies the
+`sensors-resource-section` CSS class so each resource-pool section
+(CPU/GPU/VPU/Storage/...) reads as a distinct bordered card instead of
+one continuous list — the exact "outlined groups" behavior. Depends on
+`libsingularity#15` below for the CSS class to exist at all.
+
+Delete this patch once PR #2 merges.
+
+**Upstream PR:** [singularityos-lab/singularity-plugins#3](https://github.com/singularityos-lab/singularity-plugins/pull/3)
+— open, not yet merged. Patch
+`0002-bing-preferred-region-picker.patch`. Restores the preferred-market
+picker for the Bing wallpaper source that existed before the wallpaper
+plugin split.
+
+Delete this patch once PR #3 merges.
+
+## libsingularity — active
+
+**Upstream PR:** [singularityos-lab/libsingularity#15](https://github.com/singularityos-lab/libsingularity/pull/15)
+— open, not yet merged. Patch
+`0001-sensors-resource-section-outline.patch`. Adds the
+`.sensors-resource-section` CSS class (1px border, 8px radius, padding)
+that `singularity-plugins#2` above applies. CSS-only, 10 lines.
+
+Delete this patch once PR #15 merges.
+
 ## Previously landed
 
 **Currently no OTHER patches carried.** Everything else previously tracked
