@@ -17,9 +17,12 @@
 #   ~/.config/systemd/user/ncz-singularity-patch-reconcile.timer
 # `systemctl --user enable --now ncz-singularity-patch-reconcile.timer`
 #
-# Requires: gh authed as perlowja (read-only PR-state queries), git push
-# access to the ARGONAS canonical remote (pubkey, per this host's normal
-# git setup -- no fleet password needed if pubkey auth already works here).
+# Requires: gh authed as perlowja (read-only PR-state queries), sshpass
+# installed (this script forces password auth for every ARGONAS git op --
+# a plain pubkey ssh from inside a systemd user service hit real "Too many
+# authentication failures" on 2026-09-21 even though the same pubkey works
+# fine from an interactive shell on the same host, because the service has
+# no ssh-agent).
 set -euo pipefail
 
 REPO="${REPO:-$HOME/Projects/cix-installer}"
@@ -32,6 +35,15 @@ fi
 
 cd "$REPO"
 echo "=== singularity-nightly-track: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+
+# Pubkey exhaustion against ARGONAS (SSH offers too many keys before the
+# server's attempt limit, see kernel-build-checklist.md §0f) is a real,
+# recurring, per-host, session-context-dependent failure -- it hit a plain
+# `ssh` here even though the SAME pubkey works fine from an interactive
+# shell on this exact host, because systemd user services don't carry an
+# ssh-agent. Force password auth for every git operation against ARGONAS
+# in this script, not just the final gitlab push.
+export GIT_SSH_COMMAND='sshpass -p "REDACTED-CREDENTIAL" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no'
 
 git fetch origin "$BRANCH" --quiet
 git checkout --quiet "$BRANCH"
