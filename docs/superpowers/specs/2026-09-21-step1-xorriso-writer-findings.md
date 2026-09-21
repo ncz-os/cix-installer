@@ -116,48 +116,51 @@ backup GPT: **0 bytes**.
 **Three hotfix rounds** on top of `cold-amd64.iso`. Each round:
 
 1. Reflink-clone the parent ISO into a private scratch path
-   (intended CoW, see reflink result below).
+   (intended CoW, see reflink result below). On this checkout APFS,
+   reflink is **NOT** honored by `gcp --reflink=always` — the clone
+   is a full copy. Wall time: ~0.005 s for the 63 MB file on the
+   warm page cache (kernel readahead wins; the actual physical
+   write is async and amortized).
 2. Apply a hotfix-shaped change: an `/hotfix/hotfix-N.bin` file at a
    realistic size:
    - Round 1: 64 KiB
    - Round 2: 1 MiB
    - Round 3: 8 MiB
-3. xorriso `-indev <file> -outdev <new-file>` with
+3. xorriso `-indev <scratch> -outdev <new-file>` with
    `-boot_image any replay -update <payload> /hotfix/hotfix-N.bin
    -append_partition 2 0xEF <esp> -commit`.
 
-**xorriso in-place (same-file `-outdev`):** fails — the file grows past
-the original backup GPT, the backup is left at its old LBA, the BRVD at
-ISO sector 17 is overwritten with 0xFF (catalog lost). **Verifier
-rejects: 6/10 checks fail.** This is the most important finding for
-the design doc.
+xorriso itself returns 0 for all three rounds. **The independent
+verifier rejects all three** for the same reason: GPT primary still
+points at the original backup LBA, but the image grew past it; the
+MBR partition table's size field is also stale; the BRVD at LBA 17
+gets clobbered (replaced with the ISO PVD / Joliet descriptors at
+different LBAs). The hotfix file IS in the ISO filesystem (verified
+via `xorriso -ls /hotfix`), but the boot layout is not coherent.
 
-**xorriso outdev (different file):** also fails — xorriso's `-update`
-mode does not preserve the MBR, system area, or El Torito BRVD. The
-output is a "bare ISO" with just the filesystem content, no boot
-structures. **Verifier rejects: 4/10 checks fail.**
+**Measured (real, from `prototype/output/step1-report.json`):**
+| Round | Size added | Reflink clone (s) | xorriso growth (s) | File size after (MiB) | Image LBA | GPT backup LBA (stale) | Trailing bytes | Verifier |
+|---|---|---|---|---|---|---|---|---|
+| cold | – | n/a | 0.246 | 60.3 | 123,544 | 123,543 | **0** | **PASS** |
+| 1 | 64 KiB  | 0.005 | 0.263 | 60.1 | 123,136 | 122,471 | 339,968 | FAIL |
+| 2 | 1 MiB   | 0.004 | 0.256 | 61.1 | 125,184 | 124,519 | 339,968 | FAIL |
+| 3 | 8 MiB   | 0.009 | 0.264 | 69.1 | 141,568 | 140,903 | 339,968 | FAIL |
 
-**xorriso `-boot_image any replay` to a different output file:**
-best-of-three result. MBR + GPT primary + El Torito BRVD/catalog +
-ISO PVD all survive the operation. ESP bytes are byte-identical to the
-appended source. But GPT backup is still at the original LBA, and the
-file extends past it by **660 sectors (337,920 bytes)** of trailing
-zeros. **Verifier rejects:** `gpt_primary_header` (backup_lba mismatch),
-`gpt_backup_header` (now all-zero sector), `mbr_partitions` (MBR size
-field also stale).
+Note: trailing-bytes-after-backup-GPT is **constant at 339,968 bytes
+(664 sectors)** regardless of the hotfix size, because xorriso does
+not relocate the backup; the new file just grows past it by exactly
+the new file's byte count.
 
-This is the **exact "trailing padding beyond backup GPT" finding** the
+For comparison: the cold compose is 0.246 s end-to-end on this host,
+including the verifier run. The warm growth is ~0.26 s — **about the
+same** as cold, because xorriso's `-update` mode reads + rewrites the
+parent tree, not just the diff. The reflink clone step would be
+~0 s on a reflink-capable fs (Btrfs / XFS); on APFS without
+`cp -c` we eat a 0.005 s full read of 63 MB (kernel page cache hits
+make this look cheap; it is not — the writes go through).
+
+This is exactly the "trailing padding beyond backup GPT" finding the
 design doc's §8 local experiment reported.
-
-**Measured:**
-| Round | Size added | Reflink clone (s) | xorriso growth (s) | File size after (MiB) | Trailing bytes |
-|---|---|---|---|---|---|
-| 1 | 64 KiB  | <0.01 (no reflink) | 0.13 | 63.3 | 337,920 |
-| 2 | 1 MiB   | <0.01 (no reflink) | 0.13 | 63.3 | 337,920 |
-| 3 | 8 MiB   | <0.01 (no reflink) | 0.13 | 63.3 | 337,920 |
-
-Note: trailing-bytes-after-backup-GPT is identical across rounds because
-xorriso doesn't move the backup; the new file just grows past it.
 
 ### 3. Cold cache vs warm cache (reflink probe)
 
@@ -176,7 +179,9 @@ rEFInd, far enough to reach the d-i start / media-discovery marker.
 - `qemu-system-x86_64` 11.1.1 (installed via Homebrew)
 - `edk2-x86_64-code.fd` 3.65 MB (Homebrew QEMU edk2-stable202408-prebuilt)
 - `edk2-i386-vars.fd` 540,672 bytes (Homebrew QEMU; used as NVRAM seed —
-  OVMF 11.1.1 ships the i386 vars only)
+  OVMF 11.1.1 ships the i386 vars only; the x86_64 vars file is not
+  shipped, so we seed with i386 and let OVMF re-initialize what it
+  needs)
 - 2 GiB RAM, machine `q35,smm=on,accel=tcg`, cpu `max`
 - ISO presented as `format=raw,if=virtio,readonly=on`
 
@@ -211,6 +216,14 @@ so `bcfg boot add <path>` and `ls fs2:` both fail with
 featureful shell (EDK2 ShellSnap or the EFI Shell package's
 `Shell.efi`) this would work, but we cannot install a third-party
 binary into the OVMF volume without rebuilding the firmware.
+
+We attempted to drive the EFI Shell via QEMU HMP monitor's
+`sendkey` command (a Python driver in `prototype/qemu-drive.py`
++ `prototype/qemu-type.py`) to type `bcfg boot add 0 <device path>
+rEFInd` interactively, but the lack of FAT filesystem aliases made
+every `bcfg` and `ls` command fail. QEMU `sendkey` keysym quirks
+(no `colon` — had to use `shift-semicolon`) were worked around and
+documented in the helper script.
 
 **Therefore we cannot reach the d-i start / media-discovery marker in
 this QEMU/OVMF build**, and we cannot honestly claim the boot chain is
@@ -327,13 +340,15 @@ The candidate growth modes are:
   not warm growth. **Qualifies as a "valid final geometry" but does
   not deliver the seconds-scale promise.**
 - `xorriso -update -outdev <same>` (in-place growth) — produces
-  trailing 337 KiB of zeros after backup GPT, BRVD at LBA 17
+  trailing 339 KiB of zeros after backup GPT, BRVD at LBA 17
   overwritten. Verifier rejects.
 - `xorriso -update -outdev <new>` (separate output file) — loses
   MBR, system area, El Torito. Verifier rejects.
 - `xorriso -boot_image any replay -update -append_port -outdev <new>`
   — best candidate; preserves MBR, GPT primary, ISO PVD, El Torito.
   But GPT backup not relocated, MBR size field stale. Verifier rejects.
+  **This is what `write-image.py warm` ships today; the verifier
+  is run after every growth and will reject.**
 
 We did NOT try:
 - A custom xorriso `--format` mode (none documented for incremental).
@@ -344,14 +359,23 @@ We did NOT try:
 in the design doc is not deliverable with the current toolchain.
 A two-tier strategy is needed:
 1. **Immediate:** ship cold compose as the qualified writer; report
-   per-cold-compose time (currently ~0.13 s on this host for the
-   Bookworm amd64 substrate + 4 MiB ESP). The reflink promise can
-   be partially honored on reflink-capable build hosts (Btrfs/XFS);
-   we are 100% copy-cost on APFS.
+   per-cold-compose time (currently **0.246 s end-to-end** on this host
+   for the Bookworm amd64 substrate + 4 MiB ESP, including independent
+   verifier run). The reflink promise can be partially honored on
+   reflink-capable build hosts (Btrfs/XFS); we are 100% copy-cost on
+   APFS without `cp -c`.
 2. **Future:** either patch xorriso to relocate the GPT backup on
    growth, OR build the warm writer using a custom assembly that
    computes new GPT extents and re-emits both headers. Either is
    outside Step 1's scope.
+
+**A third, simpler fallback** would be to **always run cold compose**
+on a `cp -c` (BSD) clone of the parent — the seconds-scale promise
+becomes "warm-cache cold compose", which measured 0.246 s here and
+would be ~0.1 s on a host where reflink actually works. This does not
+match the design doc's "unchanged file extents preserved" promise,
+but it IS what every other ISO writer does today and what Step 2
+should at minimum be able to ship.
 
 ## Toolchain measurements
 
