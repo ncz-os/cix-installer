@@ -216,6 +216,35 @@ DEFAULT_KVER=$(grep -aoE 'Linux version [^ ]+|Starting vmlinuz-[^[:space:]]+' "$
   | tail -1 | sed -E 's/^Linux version //; s/^Starting vmlinuz-//' || true)
 echo "  default-boot kernel: ${DEFAULT_KVER:-<unknown>}"
 
+# --- post-boot on-disk assertions (dispatch 1 item 2 / review §10 Stage B) --
+# The checks above prove "qemu exited AND a kernel started". They do NOT
+# prove the installed disk has a real GPT + a real FAT ESP + the rescue
+# fallback is still selectable. The 2026-08-21 TYDEUS phase-2 failure
+# class (ext4 directly on /dev/vda, no GPT, AAVMF Synchronous Exception)
+# would not necessarily show up here either — and on amd64 the same
+# failure class is structurally possible if the recipe is misapplied.
+# The on-disk assertions are the gate that catches that.
+#
+# Each of these is a HARD FAIL per the review:
+#   * GPT (not MBR, not whole-disk fs)
+#   * FAT32 ESP, MOUNTED, with EFI files on the mount
+#   * real kernel banner in the boot log (already covered above; the
+#     helper re-asserts for stand-alone runnability)
+#   * root mode 0755 (re-asserted by the helper, including the
+#     strict-fail on "firstboot ran but no marker" sub-case)
+#   * rescue entry present and independently selectable from default
+#
+# The helper script returns non-zero with an explicit "GATE FAIL (installed-
+# disk-assert #N <check>): <detail>" line, naming exactly which check
+# failed — no generic timeout.
+if [ "${SKIP_DISK_ASSERT:-0}" != "1" ]; then
+  echo
+  echo "--- post-boot on-disk assertions (GPT, ESP, root mode, rescue) ---"
+  _IDA_HELPER="$(cd "$(dirname "$0")" && pwd)/kvm-installed-disk-assert.sh"
+  bash "$_IDA_HELPER" "$DISK" "$BLOG" amd64 \
+    || fail "installed-disk-assert helper failed (see output above) — this is the on-disk layout / ESP / rescue check, NOT a generic timeout"
+fi
+
 echo
 echo "GATE PASS (phase 1+2): $(basename "$ISO") installs and boots default kernel"
 echo "WORK=$WORK DISK=$DISK VARS=$VARS CODE=$CODE"

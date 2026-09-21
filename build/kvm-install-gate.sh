@@ -414,13 +414,47 @@ fi
 # failure, not a discovery on real hardware hours later. The marker can be
 # legitimately absent (boot timeout hit before firstboot finished under
 # TCG); warn in that case rather than fail, but a PRESENT marker with a
-# wrong mode is always fatal.
+# wrong mode is always fatal. The installed-disk-assert helper below
+# re-asserts the same condition with a HARD-FAIL on the "ncz-firstboot ran
+# but no marker" sub-case (the 0700-root regression class).
 RM=$(grep -aoE "NCZ-ROOTMODE: [^[:space:]]+" "$BLOG" | tail -1 | awk '{print $2}')
 if [ -n "$RM" ]; then
   [ "$RM" = "755" ] || [ "$RM" = "drwxr-xr-x" ] || fail "installed system reports root mode $RM (expected 755/drwxr-xr-x) — the 0700-root regression class is BACK (see docs/ISO-BUILD-GUARDRAILS.md)"
   echo "  root-mode self-test: / is 755 (NCZ-ROOTMODE marker: $RM)"
 else
   echo "  WARN: no NCZ-ROOTMODE marker in boot log — firstboot may not have completed before BOOT_TIMEOUT; root mode NOT verified" >&2
+fi
+
+# --- post-boot on-disk assertions (dispatch 1 item 2 / review §10 Stage B) --
+# The checks above prove "qemu exited AND a kernel started". They do NOT
+# prove the installed disk has a real GPT + a real FAT ESP + the rescue
+# fallback is still selectable. The 2026-08-21 TYDEUS phase-2 failure
+# class (ext4 directly on /dev/vda, no GPT, AAVMF Synchronous Exception)
+# passed the kernel-banner grep because the firmware hit the exception
+# BEFORE any kernel line — the banner check above catches that exact
+# case via "no banner -> fail" here, but a banner-then-panic-later path
+# would NOT. The on-disk assertions are the gate that catches that.
+#
+# Each of these is a HARD FAIL per the review:
+#   * GPT (not MBR, not whole-disk fs)
+#   * FAT32 ESP, MOUNTED, with EFI files on the mount
+#   * real kernel banner in the boot log (already covered above; the
+#     helper re-asserts for stand-alone runnability)
+#   * root mode 0755 (already covered above; helper re-asserts with a
+#     strict mode on "firstboot ran but no marker")
+#   * rescue entry present and independently selectable from default
+#
+# The helper script returns non-zero with an explicit "GATE FAIL (installed-
+# disk-assert #N <check>): <detail>" line, naming exactly which check
+# failed — no generic timeout.
+if [ "${SKIP_DISK_ASSERT:-0}" != "1" ]; then
+  echo
+  echo "--- post-boot on-disk assertions (GPT, ESP, root mode, rescue) ---"
+  # Resolve the helper relative to this script so the gate can run from
+  # any working directory and the assertion helper stays co-located.
+  _IDA_HELPER="$(cd "$(dirname "$0")" && pwd)/kvm-installed-disk-assert.sh"
+  bash "$_IDA_HELPER" "$DISK" "$BLOG" arm64 \
+    || fail "installed-disk-assert helper failed (see output above) — this is the on-disk layout / ESP / rescue check, NOT a generic timeout"
 fi
 
 echo

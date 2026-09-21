@@ -16,7 +16,28 @@ PIPE=/tmp/qe
 
 [ -f "$ISO" ] || { echo "FATAL: $ISO missing"; exit 1; }
 
-for p in $(pgrep -f "qemu-syste[m]-aarch64"); do kill "$p" 2>/dev/null; done
+# Per-run process ownership: track ONLY the PIDs this run actually started
+# (qemu + the FIFO consumer) and kill those on exit. Earlier this script
+# used `pgrep -f qemu-system-aarch64` to kill "leftover" qemus — that
+# swept up any unrelated qemu on a shared build host (the review §10
+# Stage B and dispatch 1 explicitly called this out as broad and unsafe
+# when the harness is run on a host with concurrent ISO gates or
+# unrelated emulation work). Per-run ownership is the discipline;
+# leftover cleanup is the operator's responsibility.
+declare -a OWNED_PIDS=()
+cleanup_owned() {
+    local rc=$?
+    [ -n "$CATPID" ] && kill "$CATPID" 2>/dev/null
+    for p in "${OWNED_PIDS[@]}"; do
+        kill "$p" 2>/dev/null
+        sleep 0.2
+        kill -9 "$p" 2>/dev/null
+    done
+    # Detach from the FIFO pipes — best effort, ignore errors.
+    exec 3>&- 2>/dev/null || true
+    return $rc
+}
+trap cleanup_owned EXIT
 sleep 2
 rm -f "$PIPE".in "$PIPE".out "$DISK" "$VARS" /tmp/e2e-guest.out
 # Everything this harness writes lands in a sticky /tmp, so anything left there
@@ -63,6 +84,7 @@ setsid qemu-system-aarch64 \
     -device virtio-gpu-pci -display none \
     -serial pipe:"$PIPE" >/tmp/e2e-qemu.log 2>&1 &
 QEMU_PID=$!
+OWNED_PIDS+=("$QEMU_PID")
 
 # If qemu died on startup there is no reader for the FIFO and the exec 3> below
 # would block forever; surface it as an error instead of a hang.
