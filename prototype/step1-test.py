@@ -5,7 +5,7 @@ step1-test.py — Step 1 qualification test driver.
 Runs:
     1. Cold compose of an initial real rEFInd + d-i ISO from the cached
        substrate (Bookworm amd64 netboot) and the rEFInd ESP.
-    2. N successive warm-growth runs (default 3), each:
+    2. N successive warm-growth runs (default 3). Each round:
         a. reflink-clones the previous artifact
         b. applies a hotfix-shaped change (a replacement of a single
            file at a realistic size — e.g. simulating a replaced
@@ -13,13 +13,11 @@ Runs:
         c. runs the independent verifier
         d. records the real numbers (clone time, growth time, byte
            counts, ESP-LBA, GPT backup LBA)
-    3. Reports every step's real numbers as a single JSON document.
 
-Each hotfix is sized to roughly simulate a real Debian package replacement
-or squashfs delta (a few hundred KB to a few MB). We don't simulate the
-whole Squasfs hotfix path (that needs the rest of the content-addressed
-graph, out of scope for Step 1); we simulate the "logical add/replace at a
-realistic size" part of a hotfix.
+The verifier result for warm rounds is recorded as-is — even when the
+verifier rejects the warm output. This is what the design doc §8 wants
+honest measurement of: "what it did not prove" includes the GPT backup
+relocation behavior, and the warm rounds are where that shows up.
 
 Run this script after import-substrate.py and build-refind-esp.py have
 populated the cache. Output goes to prototype/output/step1-report.json.
@@ -266,22 +264,29 @@ def main():
 
         warm_run = run_warm(args.arch, parent, warm_out, manifest_path,
                              payload_root, args.esp_image)
-        if warm_run["exit_code"] != 0:
-            log(f"Warm round {round_num} FAILED")
-            report["warm_rounds"].append({
-                "round": round_num,
-                "run": warm_run,
-                "error": "xorriso_warm_failed",
-            })
-            break
 
-        warm_layout = parse_iso_size(warm_out)
-        warm_layout["sha256"] = sha256_file(warm_out)
-        # Read the verifier report
-        vr_path = warm_out.parent / (warm_out.name + ".verify.json")
-        verifier_data = json.loads(vr_path.read_text()) if vr_path.is_file() else None
+        # Run the verifier on whatever xorriso produced, even if xorriso
+        # failed. The layout is part of the finding we want to capture.
+        warm_layout = None
+        verifier_data = None
+        if warm_out.exists():
+            warm_layout = parse_iso_size(warm_out)
+            warm_layout["sha256"] = sha256_file(warm_out)
+            vr_path = warm_out.parent / (warm_out.name + ".verify.json")
+            # Use check=False so the verifier's own exit code is captured
+            # but doesn't abort this driver.
+            vr_proc = subprocess.run([
+                sys.executable,
+                str(REPO_ROOT / "build" / "iso" / "verify-image.py"),
+                "--image", str(warm_out),
+                "--arch", args.arch,
+                "--level", "warm",
+                "--report", str(vr_path),
+                "--esp-image", str(args.esp_image),
+            ], capture_output=True, text=True)
+            verifier_data = json.loads(vr_path.read_text()) if vr_path.is_file() else None
+            verifier_data = verifier_data or {"passed": False, "verifier_exit_code": vr_proc.returncode}
 
-        # Read the receipt
         rcpt_path = warm_out.parent / (warm_out.name + ".receipt.json")
         receipt = json.loads(rcpt_path.read_text()) if rcpt_path.is_file() else None
 
@@ -293,7 +298,14 @@ def main():
             "receipt": receipt,
             "hotfix_size_bytes": size,
         })
-        parent = warm_out
+
+        # The "parent" for the next round is what we actually got, even if
+        # the verifier rejected it. This way every round reports the real
+        # state and the report shows the chained failure.
+        if warm_out.exists():
+            parent = warm_out
+        # If warm_out doesn't exist (xorriso failed early), fall back to
+        # the previous parent so the next round can still run.
 
     report["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     args.report.parent.mkdir(parents=True, exist_ok=True)
