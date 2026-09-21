@@ -164,17 +164,33 @@ if [ -d "$KERNEL_STAGING_DIR" ]; then
         newest_name="$(basename "$newest")"
         local_kver_dir="assets/kernel/$line"
         if [ -d "$local_kver_dir" ]; then
-            local_deb="$(find "$local_kver_dir" -maxdepth 1 -iname 'linux-image-*.deb' 2>/dev/null | head -1)"
+            # build/post-install/10-amd64-kernel.sh actually CONSUMES the
+            # highest-version file via `sort -V | tail -1`, so an older file
+            # sitting alongside a freshly-staged newer one (stage-amd64-
+            # kernel.sh never deletes the old version) is harmless to the
+            # real build -- checking only the FIRST `find` result (unsorted,
+            # arbitrary order) produced a false FAIL here 2026-09-21 even
+            # though the newest kernel was already staged correctly. Check
+            # whether the staged newest's checksum exists ANYWHERE locally,
+            # matching what the build will actually pick.
             staged_deb="$(find "$newest" -maxdepth 1 -iname 'linux-image-*.deb' 2>/dev/null | head -1)"
-            if [ -n "$local_deb" ] && [ -n "$staged_deb" ]; then
-                local_sum="$(sha256sum "$local_deb" 2>/dev/null | cut -d' ' -f1)"
+            local_debs=("$local_kver_dir"/linux-image-*.deb)
+            if [ -n "$staged_deb" ] && [ -e "${local_debs[0]}" ]; then
                 staged_sum="$(sha256sum "$staged_deb" 2>/dev/null | cut -d' ' -f1)"
-                if [ "$local_sum" = "$staged_sum" ]; then
+                match=0
+                for local_deb in "${local_debs[@]}"; do
+                    local_sum="$(sha256sum "$local_deb" 2>/dev/null | cut -d' ' -f1)"
+                    if [ "$local_sum" = "$staged_sum" ]; then
+                        match=1
+                        break
+                    fi
+                done
+                if [ "$match" -eq 1 ]; then
                     echo "[3] OK: $line -- locally staged kernel matches the newest in the shared pool ($newest_name)"
                 else
                     echo "[3] FAIL: $line -- locally staged kernel does NOT match the newest in the shared pool"
                     echo "          shared pool has: $newest_name"
-                    echo "          local:           $(basename "$local_deb")"
+                    echo "          local has:       $(basename -a "${local_debs[@]}" | paste -sd, -)"
                     echo "          run build/stage-amd64-kernel.sh $line (or the Sky1 equivalent) before building."
                     FAIL=$((FAIL + 1))
                 fi
