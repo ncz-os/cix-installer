@@ -61,6 +61,31 @@ UDEVRULES
 chmod 0644 /etc/udev/rules.d/93-ncz-unmanage-t2-ibridge.rules
 echo "[33-network] installed udev rule to unmanage the Apple T2 iBridge virtual ethernet"
 
+# r8152 (Realtek USB 2.5G/1G ethernet, the chip inside most USB-C/Thunderbolt
+# docks -- confirmed on a Kensington dock on MEDUSA, 2026-09-21) drops off the
+# USB bus under Linux's default USB autosuspend policy and never resumes: it
+# enumerates fine right after boot, works for as long as there's continuous
+# traffic (autosuspend only fires on IDLE), then vanishes entirely from
+# `nmcli`/`lsusb` after a period of no traffic -- confirmed live: the
+# physical ethernet link stays up the whole time (switch-side LEDs active,
+# and other USB devices on the SAME dock like keyboard/mouse keep working),
+# so it is specifically this chip's suspend/resume handling that fails, not
+# the cable, the dock's USB hub, or the driver failing to load. Only a full
+# reboot re-probes the bus and brings it back -- exactly the "only
+# enumerates on reboot" symptom that made this look like a boot-time
+# hardware problem instead of a runtime power-management one.
+# Match by USB driver name (r8152) rather than a specific vendor:product ID
+# so this covers any dock/adapter using this common chip, not just the one
+# board this was found on.
+cat > /etc/udev/rules.d/94-ncz-r8152-no-autosuspend.rules <<'UDEVRULES'
+# NCZ-OS: Realtek r8152 USB ethernet (common in USB-C/Thunderbolt docks)
+# drops off the bus under USB autosuspend and never resumes on its own.
+# Pin power/control=on for any device bound to this driver.
+ACTION=="add|bind", SUBSYSTEM=="usb", DRIVER=="r8152", TEST=="power/control", ATTR{power/control}="on"
+UDEVRULES
+chmod 0644 /etc/udev/rules.d/94-ncz-r8152-no-autosuspend.rules
+echo "[33-network] installed udev rule disabling USB autosuspend for r8152 ethernet adapters"
+
 # (a) Hard-fail if NM is not installed. preseed pkgsel/include puts it
 # there; if it is missing, the netinstall apt fetch failed silently and
 # the operator-visible symptom (no network) is exactly what we are
