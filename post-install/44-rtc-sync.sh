@@ -100,6 +100,20 @@ cat > /etc/systemd/system/ncz-rtc-sync.service <<'UNIT'
 [Unit]
 Description=Write the synchronised system clock back to the RTC
 Documentation=man:hwclock(8)
+# DO NOT let this block boot. Real-world measurement (MEDUSA, 2026-09-21):
+# with WantedBy=multi-user.target and no DefaultDependencies=no, systemd
+# adds an IMPLICIT Before=multi-user.target -- so graphical.target cannot
+# be reached until systemd-time-wait-sync.service (which this unit Wants)
+# gets a REAL NTP sync. Under healthy network this cost about 31s (already
+# measured and accepted as tolerable); with the network itself down at
+# boot (a separate, also-real bug), systemd-time-wait-sync.service stalled
+# for 22 MINUTES before the box ever reached a login prompt. The RTC write
+# only matters for the next power-off, not for the current session -- it
+# has no reason to gate boot at all. DefaultDependencies=no drops the
+# implicit Before= while leaving the explicit After= below untouched, so
+# this unit still runs (whenever NTP actually syncs) without holding
+# graphical.target hostage on network availability.
+DefaultDependencies=no
 # WAIT FOR AN ACTUAL SYNC, NOT JUST FOR THE TARGET.
 #
 # time-sync.target is reached when the time subsystem is UP, which is NOT the
