@@ -1,0 +1,132 @@
+From be9c0f3adf15a70f83a6cb8da249080cd72de529 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 21 Sep 2026 16:30:31 -0400
+Subject: [PATCH] fix(background): plain auto-contrast attribution text, live
+ quadrant move, 2-line wrap
+
+Three real, live-confirmed issues in the attribution overlay on top of
+0002's quadrant support:
+
+1. attribution-label CSS drew a rounded, padded, filled scrim behind the
+   text -- a pill/badge shape, not simple text. Dropped border-radius/
+   padding/background-color; kept only auto-contrast text color + a
+   drop-shadow for legibility, driven by the same light-bg luminance
+   class as before.
+
+2. Changing wallpaper-attribution-position did not move the label until
+   the next wallpaper change. GtkOverlay computes each overlay child's
+   position from halign/valign inside its OWN size_allocate, which does
+   not re-run just because the child requests reallocation with an
+   unchanged measured size. queue_allocate() on the overlay itself (not
+   just the label) is what actually re-triggers it.
+
+3. A long title+author line could run wide enough to pass under the
+   bottom-anchored, horizontally-centered dock. Wrap to 2 lines, capped
+   at 40 chars wide, ellipsized if still too long; justification follows
+   the active quadrant's side.
+
+Assisted-by: Claude Code:claude-sonnet-5
+AI-Scope: Root-caused and fixed all three against real operator reports on live hardware.
+---
+ src/components/background/background.vala | 44 ++++++++++++++++-------
+ 1 file changed, 31 insertions(+), 13 deletions(-)
+
+diff --git a/src/components/background/background.vala b/src/components/background/background.vala
+index 58cf1e2..4e456dd 100644
+--- a/src/components/background/background.vala
++++ b/src/components/background/background.vala
+@@ -121,6 +121,16 @@ namespace Singularity {
+             attribution_label.visible = false;
+             attribution_label.can_focus = false;
+             attribution_label.can_target = false;
++            // A long title+author line can run wide enough to pass under
++            // the bottom-anchored, horizontally-centered dock (or, in a
++            // top quadrant, run under the panel's own controls). Wrap to
++            // at most 2 lines instead of growing wider than the desktop
++            // furniture can tolerate.
++            attribution_label.wrap = true;
++            attribution_label.wrap_mode = Pango.WrapMode.WORD_CHAR;
++            attribution_label.lines = 2;
++            attribution_label.ellipsize = Pango.EllipsizeMode.END;
++            attribution_label.max_width_chars = 40;
+             wp_overlay = new Gtk.Overlay();
+             wp_overlay.set_child(wp_stack);
+             wp_overlay.add_overlay(attribution_label);
+@@ -224,22 +234,18 @@ namespace Singularity {
+         // and rationale unchanged, just relocated to the actual consumer.
+         private const string ATTRIBUTION_CSS = """
+ .background-window .attribution-label {
+-    border-radius: 8px;
+-    padding: 6px 12px;
+     font-size: 13px;
+     font-weight: 400;
+ }
+ .background-window.light-bg .attribution-label {
+-    /* Bright wallpaper: dark scrim with light foreground. */
+-    background-color: alpha(black, 0.65);
+-    color: white;
+-    text-shadow: 0 1px 2px alpha(black, 0.45);
++    /* Bright wallpaper: plain dark text, no scrim/pill background. */
++    color: black;
++    text-shadow: 0 1px 3px alpha(white, 0.55), 0 1px 1px alpha(white, 0.75);
+ }
+ .background-window:not(.light-bg) .attribution-label {
+-    /* Dark wallpaper: light scrim with dark foreground. */
+-    background-color: alpha(white, 0.72);
+-    color: black;
+-    text-shadow: 0 1px 2px alpha(white, 0.35);
++    /* Dark wallpaper: plain light text, no scrim/pill background. */
++    color: white;
++    text-shadow: 0 1px 3px alpha(black, 0.55), 0 1px 1px alpha(black, 0.75);
+ }
+ """;
+ 
+@@ -350,30 +356,42 @@ namespace Singularity {
+                     attribution_label.valign = Align.START;
+                     attribution_label.xalign = 0.0f;
+                     attribution_label.yalign = 0.0f;
++                    attribution_label.justify = Justification.LEFT;
+                     break;
+                 case "top-right":
+                     attribution_label.halign = Align.END;
+                     attribution_label.valign = Align.START;
+                     attribution_label.xalign = 1.0f;
+                     attribution_label.yalign = 0.0f;
++                    attribution_label.justify = Justification.RIGHT;
+                     break;
+                 case "bottom-right":
+                     attribution_label.halign = Align.END;
+                     attribution_label.valign = Align.END;
+                     attribution_label.xalign = 1.0f;
+                     attribution_label.yalign = 1.0f;
++                    attribution_label.justify = Justification.RIGHT;
+                     break;
+                 default:
+                     attribution_label.halign = Align.START;
+                     attribution_label.valign = Align.END;
+                     attribution_label.xalign = 0.0f;
+                     attribution_label.yalign = 1.0f;
++                    attribution_label.justify = Justification.LEFT;
+                     break;
+             }
+-            // Gtk.Overlay keeps its current child allocation when only the
+-            // alignment changes, so explicitly request a fresh allocation
+-            // for live GSettings changes to move the label immediately.
++            // queue_allocate() on the LABEL alone is not enough: GtkOverlay
++            // computes each overlay child's position from halign/valign
++            // inside its OWN size_allocate, which does not re-run just
++            // because a child requested reallocation with an unchanged
++            // measured size (only the alignment changed, not the size).
++            // Queuing the overlay itself forces that size_allocate to
++            // re-run, which is what actually moves the label on a live
++            // GSettings change -- confirmed live: the label was frozen at
++            // whatever corner was active on the last wallpaper change
++            // until this was added.
+             attribution_label.queue_allocate();
++            if (wp_overlay != null) wp_overlay.queue_allocate();
+         }
+ 
+         private void update_wallpaper(WallpaperManager manager) {
+-- 
+2.50.1 (Apple Git-155)
+
