@@ -170,3 +170,15 @@ build/sinty-out/
 build/disk-image/
 build/rescue-rootfs-amd64/
 build/kernel-debs-amd64/
+# prototype working state
+prototype/work/*
+!prototype/work/.gitkeep
+prototype/test-output/*
+!prototype/test-output/.gitkeep
+prototype/output/*
+!prototype/output/.gitkeep
+downloads/*.iso
+build/iso-cache/v1/blobs/sha256/*
+!build/iso-cache/v1/blobs/sha256/.gitkeep
+build/iso-cache/v1/nodes/*
+!build/iso-cache/v1/nodes/.gitkeep
