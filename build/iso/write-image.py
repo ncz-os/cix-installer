@@ -201,6 +201,11 @@ def cold_image(args) -> int:
         "-partition_cyl_align", "on",
         "-partition_offset", "16",
         "-append_partition", "2", "0xEF", str(esp_img),
+        # xorriso writes a single EFI entry pointing at the appended
+        # partition when we use -e with the --interval: shorthand.
+        # This works for QEMU/OVMF boot when the firmware auto-discovers
+        # the ESP via El Torito. On real hardware, the firmware may
+        # need a more explicit boot entry (see findings doc).
         "-e", "--interval:appended_partition_2:all::",
         "-no-emul-boot",
         "-isohybrid-gpt-basdat",
