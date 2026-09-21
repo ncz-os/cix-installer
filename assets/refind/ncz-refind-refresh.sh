@@ -831,8 +831,31 @@ if command -v efibootmgr >/dev/null 2>&1; then
         for _bn in $(efibootmgr 2>/dev/null | grep -F "nclawzero (rEFInd)" | sed -n "s/^Boot\([0-9A-Fa-f]\{4\}\).*/\1/p"); do
             efibootmgr -b "$_bn" -B >/dev/null 2>&1 || true
         done
-        efibootmgr -c -d "/dev/$EFI_DISK" -p "$EFI_PART" \
-            -L "nclawzero (rEFInd)" -l '\EFI\BOOT\BOOTAA64.EFI' >/dev/null 2>&1 || true
+        if ! efibootmgr -c -d "/dev/$EFI_DISK" -p "$EFI_PART" \
+            -L "nclawzero (rEFInd)" -l '\EFI\BOOT\BOOTAA64.EFI' >/dev/null 2>&1; then
+            echo "  WARN: efibootmgr -c failed -- no NVRAM boot entry created, relying on"
+            echo "        the /EFI/BOOT/BOOTAA64.EFI removable-media fallback path only."
+        else
+            # See the amd64 twin (ncz-refind-refresh-amd64.sh) for the full
+            # incident this guards against: efibootmgr's default insert position
+            # is not reliably "first" on real firmware, and a stale pre-existing
+            # BootOrder (legacy entries, PXE) can shadow a correctly-created
+            # entry indefinitely with no error surfaced anywhere.
+            _new_bn=$(efibootmgr 2>/dev/null | grep -F "nclawzero (rEFInd)" | sed -n "s/^Boot\([0-9A-Fa-f]\{4\}\).*/\1/p" | tail -1)
+            _cur_order=$(efibootmgr 2>/dev/null | sed -n 's/^BootOrder: //p')
+            if [ -n "$_new_bn" ] && [ -n "$_cur_order" ]; then
+                _rest=$(echo ",$_cur_order," | sed "s/,$_new_bn,/,/g" | sed 's/^,//; s/,$//')
+                _wanted_order="$_new_bn${_rest:+,$_rest}"
+                if efibootmgr -o "$_wanted_order" >/dev/null 2>&1; then
+                    echo "  BootOrder forced to put nclawzero (rEFInd) first: $_wanted_order"
+                else
+                    echo "  WARN: could not set BootOrder -- entry $_new_bn created but"
+                    echo "        firmware boot-order priority is unconfirmed"
+                fi
+            else
+                echo "  WARN: created NVRAM entry but could not read it back to fix BootOrder"
+            fi
+        fi
     fi
 fi
 
