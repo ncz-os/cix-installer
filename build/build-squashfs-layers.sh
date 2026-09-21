@@ -40,6 +40,25 @@ set -euo pipefail
 # "BASE: extract resolute base" on a Forky tree and died on a missing
 # rootfs-resolute-arm64.tar.zst.
 ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+# --- Preflight freshness gate (2026-09-21, operator directive) -------------
+# Refuse to start a build against a stale checkout, a stale kernel-staging
+# pool, or a downstream Singularity patch that no longer applies. See
+# preflight-freshness-gate.sh's own header for the three real incidents
+# (silent stale-commit build, silently-shipped-old-kernel, wasted parallel
+# rebuild) this exists to catch mechanically instead of by memory.
+# NCZ_SKIP_FRESHNESS_GATE=1 is the explicit, acknowledged escape hatch --
+# not a default, and never silent (it prints why it's skipping).
+if [ "${NCZ_SKIP_FRESHNESS_GATE:-0}" != "1" ]; then
+    if ! "$ROOT/build/preflight-freshness-gate.sh"; then
+        echo "[sqfs] ABORT: preflight-freshness-gate.sh failed -- see above." >&2
+        echo "[sqfs]        Set NCZ_SKIP_FRESHNESS_GATE=1 to build anyway (not recommended)." >&2
+        exit 1
+    fi
+else
+    echo "[sqfs] WARNING: NCZ_SKIP_FRESHNESS_GATE=1 -- skipping freshness gate, building against whatever is on disk"
+fi
+
 WORK="${WORK:-/tmp/ncz-sqfs}"
 
 # NEVER BUILD OR VERIFY A MULTI-GIGABYTE LAYER ON A tmpfs.
