@@ -1028,6 +1028,10 @@ OnCalendar=daily
 # rude; spread the requests out.
 RandomizedDelaySec=30m
 Persistent=true
+# Persistent= only replays a MISSED run; a freshly enabled timer has no prior
+# run to miss, so a fresh install would otherwise show an empty Bing cache
+# until the next daily slot (confirmed live: up to 24h with zero images).
+OnBootSec=2min
 
 [Install]
 WantedBy=timers.target
