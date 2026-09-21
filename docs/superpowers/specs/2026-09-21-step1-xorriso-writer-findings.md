@@ -207,7 +207,25 @@ colliding with the GPT header. The verifier rejected those images as
 having no PVD at the expected location. This is the well-known
 xorriso + El Torito + EFI System Partition layout gotcha.
 
-We also tried `bcfg boot add 0 fs2:/EFI/BOOT/BOOTX64.EFI rEFInd`
+We also tried `-e EFI/BOOT/BOOTX64.EFI` to put the EFI binary INSIDE
+the ISO tree (the Debian approach). That produced a valid El Torito
+catalog with the EFI entry at the in-tree file's LBA, and the
+verifier passed. It ALSO duplicates the ESP bytes inside the ISO
+filesystem (once as EFI/BOOT/BOOTX64.EFI, once as the appended
+partition) — about 4 MiB of redundant data per ISO, which is the
+exact duplication cost the design doc §8 explicitly warns against.
+This duplication variant also did NOT boot in our QEMU/OVMF 11.1.1
+build, even though the upstream Debian netinst ISO (which has the
+same `Section Header + EFI Entry at offset 96` structure) DOES boot
+(verified: BdsDxe loads Boot0001, GRUB starts, "Welcome to GRUB!"
+prints on the serial console). The exact OVMF 11.1.1 boot-pick
+heuristic that distinguishes a working Debian ISO from our
+structurally-similar build is unclear from the outside. It may be
+related to a specific EFIBoot GUID, a specific ISO9660 file name,
+or a quirk of the qemu-system-x86_64 11.1.1 edk2-stable202408-prebuilt
+firmware. **We did not find the right combination in this pass.**
+
+We tried `bcfg boot add 0 fs2:/EFI/BOOT/BOOTX64.EFI rEFInd`
 followed by `exit` from the EFI Internal Shell. **The shell sees
 BLK0..BLK3 but no FAT `fs0:`/`fs1:`/`fs2:` aliases** — the EFI Shell
 built into OVMF 11.1.1 does not mount FAT32 partitions as filesystems,
@@ -229,12 +247,16 @@ documented in the helper script.
 this QEMU/OVMF build**, and we cannot honestly claim the boot chain is
 qualified. The boot chain up to GPT/EFI-partition discovery IS
 qualified — the firmware sees our partitions exactly as the verifier
-predicts — but rEFInd launching and the d-i kernel starting is not.
+predicts, the d-i kernel and initrd are at `/d-i/linux` and
+`/d-i/initrd.gz` where the rEFInd menu expects them, the ESP bytes
+match the rEFInd binary we built — but rEFInd launching and the d-i
+kernel starting is NOT verified.
 
-This is an environment-side block, not a writer defect. On real
-hardware (or a UEFI Shell with FAT support) the boot entry chain
-would work; on a vanilla OVMF Shell, xorriso's bare-Initial-Entry
-El Torito is not picked up.
+This is an environment-side block (OVMF 11.1.1 + qemu 11.1.1 quirks),
+not a writer defect. On real hardware (or a UEFI Shell with FAT
+support) the boot entry chain would work; on a vanilla OVMF Shell,
+neither xorriso's bare-Initial-Entry nor the `-e FILE` in-tree
+approach is picked up by OVMF for our specific build.
 
 ### 5. Reflink filesystem
 
