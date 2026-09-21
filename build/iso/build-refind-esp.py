@@ -122,6 +122,19 @@ REFIND_CONF_TEXT_AMD64_FULL = REFIND_CONF_TEXT.replace("/linux\n", "/install.amd
 )
 
 
+# OVMF's startup.nsh. When the firmware boots the EFI Internal Shell from
+# the OVMF volume, it auto-runs startup.nsh if found on the boot device.
+# We put one in EFI/BOOT/ so OVMF reads it and launches rEFInd. This
+# also makes the image qualify under a stricter firmware that does not
+# present "EFI Internal Shell" as the default — rEFInd's own loader will
+# take over once it runs.
+STARTUP_NSH = """\\
+@echo -off
+\\EFI\\BOOT\\BOOTX64.EFI
+\\EFI\\BOOT\\BOOTAA64.EFI
+"""
+
+
 def build_esp_dir(esp_root: Path, refind_src: Path, arch: str) -> None:
     """Materialize the EFI/ tree inside esp_root/. Deterministic ordering."""
     if esp_root.exists():
@@ -171,6 +184,11 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str) -> None:
 
     # Place the rEFInd config
     (refind_dir / "REFIND.CONF").write_text(conf_text)
+
+    # Place startup.nsh in EFI/BOOT so OVMF's "EFI Internal Shell" launches
+    # rEFInd on first boot (a strict firmware without rEFInd written into
+    # NVRAM boot entries needs an explicit launch).
+    (boot_dir / "startup.nsh").write_text(STARTUP_NSH)
 
     # mcopy copies modes 0644 by default but we chmod anyway for determinism.
     for root, dirs, files in os.walk(esp_root):
