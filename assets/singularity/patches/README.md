@@ -16,6 +16,17 @@ merges, delete its patch(es) from here in the same commit that bumps past it
 check just reports "already present"), but a stale README entry claiming a
 patch is still needed when it is not is actively misleading.
 
+**This is now automated, not just a manual convention** (2026-09-21).
+`build/singularity-patch-reconcile.py` queries each `**Upstream PR:**` link's
+real GitHub state (`gh pr view --json state`) and, for anything MERGED,
+deletes the patch file(s) and rewrites this section into a retired entry —
+same shape as the retired entries below. `build/singularity-nightly-track.sh`
+runs it nightly (systemd timer, `build/systemd/ncz-singularity-patch-*`,
+03:15, same cadence as ULTRA's existing `ncz-singularity-sync`) and
+commits+pushes if anything changed. A human editing this file by hand is
+still fine — the script only ever removes, never re-adds — but the nightly
+run means a merged PR's patch won't sit stale for days between manual passes.
+
 ## singularity-shell — active
 
 **Upstream PR:** [singularityos-lab/singularity-shell#30](https://github.com/singularityos-lab/singularity-shell/pull/30)
