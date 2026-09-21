@@ -1,6 +1,21 @@
 # Required installer-environment udebs that must be explicitly preserved or
 # grafted into the ISO media pool. These are not target-system .deb packages,
 # so manifests/*.pkgs and sbom/expected-packages.txt do not cover them.
+#
+# 2026-09-21 (installer-wifi-scan): added the netcfg-WPA runtime chain
+# (wpasupplicant-udeb + its libnl-3-200-udeb / libnl-genl-3-200-udeb /
+# libiw30-udeb hard Depends + wireless-regdb-udeb for signed cfg80211 regdb
+# + wireless-tools-udeb for the iw_scan ESSID enumeration path). Today's
+# forky substrate ships all of these in its own pool, so this is a safety
+# belt rather than a graft: a future substrate that drops any one of them
+# gets a loud "ERROR: ... missing required d-i udeb ..." at build time
+# instead of a silent netcfg WCONFIG crash on a WiFi-only box.
 cdebconf-udeb
 cdebconf-newt-udeb
 hw-detect
+wpasupplicant-udeb
+wireless-regdb-udeb
+wireless-tools-udeb
+libiw30-udeb
+libnl-3-200-udeb
+libnl-genl-3-200-udeb

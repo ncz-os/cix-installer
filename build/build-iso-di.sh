@@ -1040,7 +1040,30 @@ echo "    udeb assertions: debootstrap-udeb + libzstd1-udeb + liblzma5-udeb pres
 # registration. Without cdebconf-newt-udeb's templates, main-menu can wedge
 # looking up standard button labels such as debconf/button-ok. Without
 # hw-detect, disk-detect installs from media but fails at the Detect disks step.
-REQUIRED_DI_UDEBS=(cdebconf-udeb cdebconf-newt-udeb hw-detect)
+#
+# 2026-09-21 (installer-wifi-scan): add the wireless stack so netcfg's
+# WPA-prompt path is reachable on the d-i ramdisk. wpasupplicant-udeb is
+# the daemon netcfg invokes from its WCONFIG_WPA state (netcfg.c:case
+# WCONFIG_WPA -> apt-install wpasupplicant -> START_WPA), and
+# wireless-regdb-udeb carries the signed regulatory.db cfg80211 needs to
+# validate against (without it, the world domain pin kills DFS-FCC bands).
+# wireless-tools-udeb + libiw30-udeb + libnl-{3,genl}-3-200-udeb are
+# hard Depends of wpasupplicant-udeb (verified against the substrate
+# forky main/debian-installer/binary-amd64/Packages index 2026-09-21).
+# Today's substrate ships all of them; listing them here is the safety
+# belt so a future substrate that drops any of them gets a loud "ERROR"
+# at harvest time instead of a silent netcfg WCONFIG crash later.
+REQUIRED_DI_UDEBS=(
+    cdebconf-udeb
+    cdebconf-newt-udeb
+    hw-detect
+    wpasupplicant-udeb
+    wireless-regdb-udeb
+    wireless-tools-udeb
+    libiw30-udeb
+    libnl-3-200-udeb
+    libnl-genl-3-200-udeb
+)
 for need_pkg in "${REQUIRED_DI_UDEBS[@]}"; do
     ensure_di_udeb_from_archive "$need_pkg" "$DI_CODENAME" "$NCZ_TARGET_ARCH"
 done
@@ -1051,7 +1074,7 @@ for need_pkg in "${REQUIRED_DI_UDEBS[@]}"; do
         exit 1
     fi
 done
-echo "    udeb assertions: cdebconf-udeb + cdebconf-newt-udeb + hw-detect present"
+echo "    udeb assertions: cdebconf-udeb + cdebconf-newt-udeb + hw-detect + wpasupplicant-udeb + wireless-regdb-udeb + wireless-tools-udeb + libiw30-udeb + libnl-3-200-udeb + libnl-genl-3-200-udeb present"
 
 # r40 full mode: replace /usr/sbin/debootstrap in the staged debootstrap-udeb
 # with a stub. thin/netinstall deliberately skip this so bookworm
@@ -2585,6 +2608,19 @@ fi
 # (err -2)"), and without drm_display_helper the linlondp/trilin display stack
 # cannot load, so keeping drivers/gpu alone (705f0f2) still left the installer
 # with no video. Keep drivers/media/cec; prune the rest of media below.
+#
+# 2026-09-21 (installer-wifi-scan): REMOVED mac80211 + wireless from the net
+# prune list. cfg80211 (kernel/net/wireless) and mac80211 (kernel/net/mac80211)
+# are the softMAC subsystems every in-kernel WiFi driver depends on (iwlwifi,
+# rtw89, ath11k, ath12k, mt76, etc. all stack on mac80211). Without them in
+# the installer initrd, netcfg's WCONFIG path (wireless-scan + WPA-prompt)
+# loads wpasupplicant-udeb's userland but the kernel can't associate — netcfg
+# then either wedges on a scan timeout or silently brings up an unconfigured
+# iface. Kept `bluetooth` in the prune list (BT init eats ~3M and the
+# installer has zero BT use cases). Drivers under kernel/drivers/net/wireless
+# were never pruned — confirmed against the r211 list. Net delta to overlay
+# size: mac80211.ko + cfg80211.ko ~ 2.0M uncompressed, all wireless drivers
+# combined ~ 35M on this kernel (compresses well in the initrd cpio).
 PRUNE_MOD_DIRS="sound drivers/bluetooth"
 MEDIA_DIR="$WORK/lib/modules/$KVER_INSTALLER/kernel/drivers/media"
 if [ -d "$MEDIA_DIR" ]; then
@@ -2595,7 +2631,7 @@ if [ -d "$MEDIA_DIR" ]; then
     done
     echo "    media pruned selectively (kept drivers/media/cec — drm_display_helper dependency)"
 fi
-PRUNE_NET_DIRS="bluetooth mac80211 wireless"
+PRUNE_NET_DIRS="bluetooth"
 _pruned_bytes=${_pruned_bytes:-0}
 for d in $PRUNE_MOD_DIRS; do
     p="$WORK/lib/modules/$KVER_INSTALLER/kernel/$d"
@@ -2609,7 +2645,7 @@ for d in $PRUNE_NET_DIRS; do
     _pruned_bytes=$((_pruned_bytes + $(du -sk "$p" | cut -f1)))
     rm -rf "$p"
 done
-echo "    pruned target-only modules (media-except-cec/sound/bluetooth/wireless — gpu+cec KEPT for O6N video): $((_pruned_bytes / 1024))M"
+echo "    pruned target-only modules (media-except-cec/sound/bluetooth — gpu+cec+wireless KEPT for O6N video + wifi scan): $((_pruned_bytes / 1024))M"
 
 depmod -a -b "$WORK" "$KVER_INSTALLER"
 [ -f "$WORK/lib/modules/$KVER_INSTALLER/modules.dep" ] || \
@@ -2626,6 +2662,44 @@ if [ -d "$ROOT/assets/firmware/rtl_nic" ]; then
     echo "    rtl_nic firmware → installer initrd: $(ls "$WORK/lib/firmware/rtl_nic" 2>/dev/null | wc -l | tr -d ' ') blobs"
 else
     echo "    WARN: assets/firmware/rtl_nic absent — O6 NIC will not link in installer"
+fi
+
+# 2026-09-21 (installer-wifi-scan): stage iwlwifi firmware + wireless-regdb
+# into the installer initrd. The d-i ramdisk has no `firmware-iwlwifi-udeb`
+# equivalent in Debian forky (verified: substrate's debian-installer
+# Packages index has no firmware-*-udeb family at all — wifi firmware is
+# loaded as raw blobs via /lib/firmware, exactly the rtl_nic model above).
+# Without these blobs, iwlwifi.ko probes but the firmware-load fails
+# ("Direct firmware load for iwlwifi-*.ucode failed with error -2") and
+# the iface never associates — netcfg's WCONFIG_ESSID scan then returns
+# zero results and we silently drop back to the operator with no useful
+# diagnosis. Assets/firmware/iwlwifi is the SAME blob tree the installed
+# system gets via 12-sky1-firmware.sh, so staging it here keeps the
+# installer and the OS agreeing on supported chip revisions.
+# wireless-regdb/ is the signed regulatory.db cfg80211 validates before
+# honouring channel data; without it cfg80211 pins to country 00 (world
+# domain, no DFS-FCC), and netcfg's wpa_supplicant start fails when
+# scanning DFS channels. Same call as rtl_nic: stage both blobs into the
+# initrd and let the kernel pick them up at module-load time. Failure
+# mode of missing assets/firmware/{iwlwifi,regdb} is identical to
+# rtl_nic: warn, don't fail the build (the assets tree is not on the
+# build-host's hot path, and some test ISOs deliberately ship without
+# wifi firmware).
+if [ -d "$ROOT/assets/firmware/iwlwifi" ]; then
+    mkdir -p "$WORK/lib/firmware/iwlwifi"
+    cp -L "$ROOT/assets/firmware/iwlwifi/"*.ucode "$WORK/lib/firmware/iwlwifi/" 2>/dev/null || true
+    echo "    iwlwifi firmware → installer initrd: $(ls "$WORK/lib/firmware/iwlwifi" 2>/dev/null | wc -l | tr -d ' ') ucode blobs"
+else
+    echo "    WARN: assets/firmware/iwlwifi absent — Intel WiFi will not associate in installer (wpa_supplicant will see no APs)"
+fi
+if [ -d "$ROOT/assets/firmware/regdb" ]; then
+    mkdir -p "$WORK/lib/firmware"
+    cp -L "$ROOT/assets/firmware/regdb/regulatory.db" \
+          "$ROOT/assets/firmware/regdb/regulatory.db.p7s" \
+          "$WORK/lib/firmware/" 2>/dev/null || true
+    echo "    wireless-regdb → installer initrd: $(ls "$WORK/lib/firmware/regulatory.db"* 2>/dev/null | wc -l | tr -d ' ') files"
+else
+    echo "    WARN: assets/firmware/regdb absent — installer WiFi will pin to world domain, no DFS-FCC channels"
 fi
 
 # Panthor is present in the installer kernel module set so the display stack
