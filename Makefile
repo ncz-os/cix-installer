@@ -71,20 +71,45 @@ UPSTREAM_SHA  := https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/S
 # got -- `make download` on a fresh checkout would silently pull a substrate
 # nobody has tested, and the substrate decides which d-i runs the install.
 #
-# So pin the one that was actually validated end to end. Measured 2026-08-13:
-# upstream had already moved to 69c4f9fce002... while the validated local copy
-# was 07aa61fb3843..., i.e. the drift is not hypothetical.
+# Substrate pin policy (corrected 2026-09-21 per dispatch 1 / architectural
+# review §3.3).
 #
-# To adopt a newer substrate, do it deliberately: download it, run
-# build/e2e-install-test.sh against an ISO built on it, and only then update
-# this hash in the same commit as the evidence.
-# Substrate rotated 2026-08-21: upstream serves
-# 4aae4d12acc0c71b7eaf2d03deae48098f84596e6806d3cf78ada53ba0c649a0
-# (last-modified 2026-08-17, +4 days since the prior pin 69c4f9fce0...).
-# Adopted in this commit because the operator requested a real ISO; the prior
-# pin was preventing `make download` outright. Validation: install-gate
-# (build/kvm-install-gate.sh) PASS against the ISO built on this substrate —
-# see docs/ISO-REBAKE-TYDEUS-2026-08-21.md §"Verification".
+# What the prior comments IMPLIED (and the review found STRONGER than the
+# cited TYDEUS report supports): that this checkout's installer has been
+# "validated end to end" against the August substrate, such that the hash
+# pin below constitutes a ship-ready gate.
+#
+# What was actually validated on 2026-08-21 (see
+# docs/ISO-REBAKE-TYDEUS-2026-08-21.md §6):
+#   * Phase 1: a modified testing-based installer (Sky1 7.2 kernel
+#     swap, expanded xz modules, d-i kmod closure, injected Wi-Fi
+#     firmware, finish-install progress scale) completed an install in
+#     QEMU/AAVMF. The installed system reached the "Finish the
+#     installation" dialog with all 67 post-install hooks returning.
+#   * Phase 2: the freshly installed qcow2 was booted as a machine.
+#     AAVMF found Boot0001, attempted /EFI/Linux/systemd-bootaa64.efi,
+#     raised a Synchronous Exception, never produced a kernel banner,
+#     and the gate hit its 600s phase-2 timeout. Disk inspection showed
+#     ext4 directly on /dev/vda with EFI files inside that single ext4
+#     filesystem — no GPT, no real ESP. The install wrote an unbootable
+#     image.
+#
+# That is NOT an end-to-end pass. Phase 1 = "installer completed", not
+# "installed system is correct". Phase 2 explicitly failed. The hash
+# pin below is provenance — i.e. THIS is the substrate the report's
+# install-side observation was made against — not a current gate-pass
+# receipt. The receipt for "the pinned image actually installs AND
+# boots" is provided by build/kvm-install-gate.sh (arm64) and
+# build/kvm-install-gate-amd64.sh (amd64), and per the architectural
+# review those gates need additional explicit GPT/ESP/banner/root-mode
+# /rescue assertions (dispatch 1, item 2) before they can be called
+# a real end-to-end gate either.
+#
+# To adopt a newer substrate: download it, run BOTH gate scripts against
+# an ISO built on it (install-phase AND installed-boot-phase both pass),
+# record the ISO hash + boot log + qcow2 layout in the same commit, and
+# THEN update SUBSTRATE_SHA. Until then, the pin below is "the substrate
+# the August install-side observation was made against," nothing more.
 SUBSTRATE_SHA := 4aae4d12acc0c71b7eaf2d03deae48098f84596e6806d3cf78ada53ba0c649a0
 
 DOWNLOADS     := $(ROOT)/downloads

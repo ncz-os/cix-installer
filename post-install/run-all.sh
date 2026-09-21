@@ -2,7 +2,21 @@
 # run-all.sh — orchestrate the numbered post-install hooks.
 #
 # Invoked from preseed late_command via in-target. Runs in chroot
-# context against the freshly-installed Debian Bookworm rootfs.
+# context against the deployed target rootfs.
+#
+# What "the deployed target rootfs" actually is (correcting a stale
+# description that pre-dated the full-mode Forky deployment): the
+# installer-side d-i bootstrap environment extracts prepared Forky
+# layers (built at build time from release.conf's pinned Forky archive
+# snapshot — see build/build-base-rootfs.sh + build/build-squashfs-layers.sh
+# + build/build-iso-di.sh for the actual extraction). There is no
+# full-upgrade/dist-upgrade from a Bookworm target; the on-disk OS is
+# the prepared Forky one, and this script runs against that. The
+# historical phrase "freshly installed Bookworm rootfs" describes a path
+# that has not been the full-mode execution since the move to prepared-
+# layer deployment. See docs/superpowers/specs/2026-09-21-multiarch-
+# modernization-bookworm-elimination-review.md §2.1 for the cited
+# five-step description of today's flow.
 #
 # 2026-05-03 — TWO-PHASE FAIL-TOLERANT PATTERN:
 #

@@ -1,18 +1,45 @@
 #!/bin/bash
-# build-iso-di.sh — bookworm d-i base + our Sky1 kernel + Ubuntu via late_command
+# build-iso-di.sh — full-mode d-i bootstrap that deploys a separately
+# prepared Forky OS onto the target.
 #
-# This rebuilds the r6 (Debian d-i) flow that's PROVEN to boot on Sky1
-# UEFI on MS-R1, with two extensions:
-#   1. Latest post-install hooks (incl. mali_csffw.bin symlink fix)
-#   2. late_command swaps /etc/apt/sources.list from Debian to Ubuntu
-#      after Debian 12 base lands, then apt full-upgrade to Ubuntu resolute.
-#      End-state is a Debian system on disk with our Sky1 kernels.
+# This is the r6 (Debian d-i) flow that has proven to boot on Sky1 UEFI on
+# MS-R1, extended for the current full-mode execution path:
 #
-# Why d-i not casper: r17-r24 proved Ubuntu casper kernel-panics on Sky1
-# USB boot regardless of bootloader (rEFInd, GRUB, systemd-boot). r6
-# proved bookworm d-i busybox initrd works. The bootloader doesn't matter;
-# the initrd init script does. d-i's busybox init is simple enough to
-# avoid whatever casper trips on.
+#   1. Build time: release.conf selects Debian Forky (the BASE OS); the
+#      mkosi role-delta producer and squashfs producer build the prepared
+#      base + desktop layers from that Forky archive snapshot.
+#   2. Build time: this script extracts the supplied Debian netinst
+#      (testing/Forky, per release.conf NCZ_BASE_CODENAME), discovers its
+#      suite, retains its udebs, and reconstructs the media pool. The
+#      historical --bookworm-iso flag is now --installer-iso (the alias
+#      remains for back-compat with existing callers).
+#   3. d-i runtime: the installer kernel/modules are replaced with the
+#      NCZ Sky1 artifacts on arm64; amd64 keeps the substrate installer
+#      kernel. Preseed runs the foreground component selector and disk
+#      chooser and supplies the partition recipe.
+#   4. Bootstrap boundary: in full mode, this script replaces debootstrap
+#      with a layer-extraction stub that unpacks the prepared base +
+#      selected desktop/hotfix content, handles the delta deletion
+#      semantics, validates the stack, fixes/verifies root mode after the
+#      last layer, and installs first-boot finalization.
+#   5. Target customization: preseed/late.sh stages metadata/assets,
+#      configures the local package source, and executes
+#      post-install/run-all.sh in the target. Hooks perform
+#      kernel/package installation, machine configuration, accelerator
+#      work, rescue preparation, and bootloader/initramfs generation.
+#      post-install/70-bootloader.sh standardizes rEFInd on both
+#      architectures. The late path finalizes APT sources and
+#      installation completion.
+#
+# Note: there is NO Bookworm target installation followed by full-upgrade
+# or dist-upgrade in this full-mode path. The target is prepared at build
+# time and deployed as flattened files; the d-i bootstrap is a separate
+# environment from the running target. Removing Bookworm changes the first
+# environment only; it does not require rearchitecting the second.
+#
+# Why d-i and not casper: r17-r24 proved Ubuntu casper kernel-panics on
+# Sky1 USB boot regardless of bootloader (rEFInd, GRUB, systemd-boot).
+# d-i's busybox initrd is simple enough to avoid whatever casper trips on.
 
 set -euo pipefail
 
@@ -40,7 +67,9 @@ NCZ_TARGET_ARCH="${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}"
 
 usage() {
     cat <<'EOF'
-Usage: build/build-iso-di.sh --bookworm-iso PATH --root PATH --version VERSION --output PATH [options]
+Usage: build/build-iso-di.sh --installer-iso PATH --root PATH --version VERSION --output PATH [options]
+  (alias: --bookworm-iso, DEPRECATED — accepted for back-compat with existing
+   callers; the input is the d-i installer media, not Bookworm-specific)
 
 Options:
   --mode {full|thin|netinstall|netinstall-bootstrap}
@@ -52,7 +81,13 @@ Options:
   --variant desktop
       Compatibility argument; the unified NCZ-OS target always installs the
       complete Singularity desktop stack.
+  --installer-iso PATH
+                 d-i netinst ISO to harvest (currently testing/Forky; the
+                 chosen installer is determined by release.conf).
   --bookworm-iso PATH
+                 DEPRECATED alias for --installer-iso. Kept for back-compat
+                 with run-fresh-*.sh callers; the input is NOT Bookworm-
+                 specific (release.conf pins the actual suite to Forky).
   --root PATH
   --version VERSION
   --output PATH
@@ -76,7 +111,19 @@ need_arg() {
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --bookworm-iso) need_arg "$1" "$#"; BOOKWORM_ISO="$2"; shift 2 ;;
+        --installer-iso)
+            need_arg "$1" "$#"; BOOKWORM_ISO="$2"; shift 2 ;;
+        --bookworm-iso)
+            # DEPRECATED alias for --installer-iso. The flag name implied
+            # the input suite; the actual suite is determined by
+            # release.conf (NCZ_BASE_CODENAME=forky) and the downloaded
+            # netinst, not by this flag. Existing callers (run-fresh-*.sh,
+            # Makefile, historical docs) still pass --bookworm-iso; keep
+            # that working but stop implying Bookworm. Per dispatch 1 /
+            # architectural review §10 Stage D item 4.
+            need_arg "$1" "$#"; BOOKWORM_ISO="$2"
+            echo "NOTICE: --bookworm-iso is deprecated; use --installer-iso instead (the input is the d-i media, not Bookworm-specific)" >&2
+            shift 2 ;;
         --root)         need_arg "$1" "$#"; ROOT="$2"; shift 2 ;;
         --version)      need_arg "$1" "$#"; VERSION="$2"; shift 2 ;;
         --output)       need_arg "$1" "$#"; OUTPUT="$2"; shift 2 ;;
@@ -154,7 +201,7 @@ case "$MODE" in
         ;;
 esac
 
-[ -f "$BOOKWORM_ISO" ] || { echo "ERROR: --bookworm-iso not a file"; exit 1; }
+[ -f "$BOOKWORM_ISO" ] || { echo "ERROR: --installer-iso (or its deprecated alias --bookworm-iso) is not a file: $BOOKWORM_ISO"; exit 1; }
 [ -d "$ROOT" ]         || { echo "ERROR: --root not a dir"; exit 1; }
 # Absolutize ROOT: derived paths (STAGING, DEBOOTSTRAP_PATCH_TMP) are used as
 # `ar`/output targets inside `cd`'d subshells, where a relative --root resolves
