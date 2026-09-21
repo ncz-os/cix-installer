@@ -4,7 +4,7 @@
 # No Sky1-only entries here (no cix-debs, no sky1-firmware, no NPU ACPI
 # override, no arm64 kernel) -- see sbom/expected-assets.txt for the
 # arm64/Sky1 manifest, which this file intentionally does not replace.
-assets/squashfs/base.squashfs|2142978048|dff6550cd967b2e809dd7b3658e880f6a4e60c8e1ff2b7657f50fdfcca7776f8
+assets/squashfs/base.squashfs|2142978048|32aecc844e244711d805bf48c15a27d2fe65b6bd1e09ac9aade453d2f6211cb5
 # desktop.squashfs is intentionally NOT hash-pinned here -- rebuilt fresh
 # from HEAD every run by design, checked instead by
 # build/verify-desktop-squashfs-identity.sh (semantic version match
