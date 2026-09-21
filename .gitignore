@@ -170,3 +170,6 @@ build/sinty-out/
 build/disk-image/
 build/rescue-rootfs-amd64/
 build/kernel-debs-amd64/
+build/iso-receipts-stageAB/*.iso
+build/iso-receipts-stageAB/*.iso.*
+build/kvm-install-*

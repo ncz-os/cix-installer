@@ -1,0 +1,395 @@
+NOTICE: --bookworm-iso is deprecated; use --installer-iso instead (the input is the d-i media, not Bookworm-specific)
+[vendor-mirror] publishing local kernel debs before SBOM preflight
+== publishing kernel debs from /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/kernel-debs ==
+  publish: cixmini-boot_1.2+r258_arm64.deb already present (657b7054e5d75536dee3455e8123d69664696285f26599f73241b4e429daf04e)
+  publish: linux-headers-cixmini_7.2.6-sky1-ncz+r258_arm64.deb already present (3908fa51f08eed9597ab5bc720d848b323803816c22de3e04776df13839e688e)
+  publish: linux-image-cixmini_7.2.6-sky1-ncz+r258_arm64.deb already present (2bbb92ea852cdb7fc505cefc43cb5e5209dd4425f201eff68129fe579fbcc090)
+== publishing USB recovery debs from /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/usb-recovery-deb ==
+  publish: ncz-usb-recovery_1.1_all.deb already present (9008f8da5cd827f8d2dd04f0e97ad0c51b5286bfac9a24ab8aea8db011febd50)
+== publishing Singularity desktop debs from /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/assets/cix-debs ==
+  publish: copied ncz-singularity-desktop_20260918+bk0_arm64.deb (d2c75a1702e0937b1e3146fa67ac3106d72c0f3cabecb987da7e0c7e0c697461)
+  publish: removed superseded ncz-singularity-desktop/arm64 deb: ncz-singularity-desktop_20260919+bk0_arm64.deb
+  publish: copied ncz-singularity-desktop_20260919+bk0_arm64.deb (5bbe3d90e639d8b02a5ff6a91e09b111e880b7fa330daf5bfac831f1ed1434e1)
+  publish: removed superseded ncz-singularity-desktop/arm64 deb: ncz-singularity-desktop_20260918+bk0_arm64.deb
+== publishing Google Chrome stable (arm64) ==
+  fetching google-chrome-stable_153.0.8010.52-1_arm64.deb ...
+  publish: google-chrome-stable_153.0.8010.52-1_arm64.deb already present (e5a1d646af594568941e3a61e7b8eddc693f769b7f166874c71f72c9cb806165)
+== vendor mirror: /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/forky-vendor-mirror (forky/arm64) ==
+   Package: cixmini-boot	Version: 1.2+r258
+   Package: google-chrome-stable	Version: 153.0.8010.52-1
+   Package: linux-headers-cixmini	Version: 7.2.6-sky1-ncz+r258
+   Package: linux-image-cixmini	Version: 7.2.6-sky1-ncz+r258
+   Package: ncz-singularity-desktop	Version: 20260919+bk0
+   Package: ncz-usb-recovery	Version: 1.1
+=== preflight-sbom-check (NCZ_TARGET_ARCH=arm64) ===
+verify-assets: PASS
+verify-packages: PASS
+verify-local-package-versions: checking forky-vendor-mirror against local deb dirs: /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/kernel-debs
+verify-local-package-versions: ok: cixmini-boot/arm64=1.2+r258
+verify-local-package-versions: ok: linux-headers-cixmini/arm64=7.2.6-sky1-ncz+r258
+verify-local-package-versions: ok: linux-image-cixmini/arm64=7.2.6-sky1-ncz+r258
+verify-local-package-versions: PASS
+verify-offline-mirror-seeds: PASS (forky-mirror has 226 explicit seed packages)
+verify-udebs: PASS
+verify-dkms-modules: PASS
+preflight-sbom-check: PASS
+[consistency] locating r159 branch in /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/build-iso-di.sh
+  stub heredoc body: lines 1149..1719
+  r159 branch:       lines 1184..1646
+[consistency] locating r159 branch in /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/preseed/extract-rootfs.sh
+  r159 branch:       lines 68..592
+[consistency] diffing normalized branches
+/home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/check-extract-rootfs-consistency.sh: line 225: /tmp/ncz-consistency-diff.txt: Permission denied
+
+================================================================
+  CONSISTENCY CHECK FAILED
+================================================================
+
+The r159 layered-squashfs branch in /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/build-iso-di.sh (the LIVE path
+baked into the /usr/sbin/debootstrap stub) and the equivalent branch
+in /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/preseed/extract-rootfs.sh (the dead twin) have drifted.
+
+This is EXACTLY the failure mode the 2026-08-26 0700-root incident
+exposed: a fix made in one file is forgotten in the other. Closing
+this trap is the point of the consistency check.
+
+DIFF (first 80 lines, after normalization for whitespace/comments/
+variable names/logging prefixes; structural differences only):
+
+--- /tmp/ncz-consistency-stub.zLSsM8.txt	2026-09-19 19:52:50.022549067 -0400
++++ /tmp/ncz-consistency-ext.S1OkqW.txt	2026-09-19 19:52:50.046767115 -0400
+@@ -3,13 +3,18 @@
+ [ -f "$d/base.squashfs" ] && { SQDIR_NORM="$d"; break; }
+ done
+ if [ -n "$SQDIR_NORM" ]; then
+-echo "LAYERED SQUASHFS install from $SQDIR_NORM" >&2
++set +e
++SER=/dev/ttyAMA0
++msg "LAYERED SQUASHFS install from $SQDIR_NORM (unsquashfs bundle)"
++echo "[sqfs] base=$(ls -la "$SQDIR_NORM/base.squashfs" 2>&1)" > $SER 2>&1
+ LDR=$(ls "$SQDIR_NORM"/sqtools/ld-* 2>/dev/null | head -1)
+-UNSQ="$SQDIR_NORM/sqtools/unsquashfs"
+-if [ ! -x "$UNSQ" ] || [ -z "$LDR" ]; then
+-echo "sqtools bundle missing (bin=$UNSQ ldr=$LDR)" >&2; exit 1
++UNSQ_NORM="$SQDIR_NORM/sqtools/unsquashfs"
++if [ ! -x "$UNSQ_NORM" ] || [ -z "$LDR" ]; then
++msg "FATAL: sqtools bundle missing (bin=$UNSQ_NORM ldr=$LDR)"
++echo "[sqfs] FATAL sqtools missing; ls: $(ls -la "$SQDIR_NORM/sqtools" 2>&1)" > $SER 2>&1
++exit 1
+ fi
+-rm -rf "$TARGET"/* "$TARGET"/.[!.]* 2>/dev/null || true
++run_unsq() { "$LDR" --library-path "$SQDIR_NORM/sqtools" "$UNSQ_NORM" "$@"; }
+ ncz_component_record() {
+ _ncz_comp=""
+ if [ -r /tmp/ncz-components ] && command -v tr >/dev/null 2>&1; then
+@@ -67,7 +72,7 @@
+ }
+ ROLE=desktop
+ _applied_role="$ROLE"
+-echo "component-selector state before ROLE decision: /tmp=[$(ls -l /tmp/ncz-components 2>&1)] value=[$(cat /tmp/ncz-components 2>/dev/null || true)] durable=[$(ls -l /var/lib/ncz-components/COMPONENTS 2>&1)] durable_value=[$(cat /var/lib/ncz-components/COMPONENTS 2>/dev/null || true)]" >&2
++msg "component-selector state before ROLE decision: /tmp=[$(ls -l /tmp/ncz-components 2>&1)] value=[$(cat /tmp/ncz-components 2>/dev/null || true)] durable=[$(ls -l /var/lib/ncz-components/COMPONENTS 2>&1)] durable_value=[$(cat /var/lib/ncz-components/COMPONENTS 2>/dev/null || true)]"
+ _ck=$(ncz_component_record 2>/dev/null || true)
+ if [ -n "$_ck" ]; then
+ _want_desktop=1
+@@ -78,123 +83,145 @@
+ if [ "$_want_desktop" = 0 ]; then
+ ROLE=base
+ _applied_role=base
+-echo "component-selector desktop OFF ($_ck); installing BASE ONLY" >&2
+-else
+-echo "component-selector desktop ON ($_ck); applying desktop overlay" >&2
++msg "component-selector: desktop toggle OFF — installing BASE ONLY (no desktop.squashfs overlay)"
+ fi
+-else
+-echo "component selection unavailable; defaulting to desktop overlay" >&2
+ fi
+-echo "unsquashfs base -> $TARGET" >&2
+-"$LDR" --library-path "$SQDIR_NORM/sqtools" "$UNSQ" -f -d "$TARGET" "$SQDIR_NORM/base.squashfs" >/dev/null 2>&1 || {
+-echo "unsquashfs base failed" >&2; exit 1; }
++START=$(date +%s)
++msg "extracting base.squashfs -> /target"
++echo "[sqfs] unsquashfs base ..." > $SER 2>&1
++run_unsq -f -d /target "$SQDIR_NORM/base.squashfs" >/dev/null 2>>$SER
++RC=$?
++echo "[sqfs] base rc=$RC -> $(find /target -xdev -type f 2>/dev/null | wc -l) files" > $SER 2>&1
++if [ "$RC" -ne 0 ]; then msg "FATAL: unsquashfs base rc=$RC"; exit 1; fi
++chmod 0755 /target || { msg "FATAL: chmod 0755 /target failed"; exit 1; }
+ if [ "$ROLE" = "desktop" ] && [ -f "$SQDIR_NORM/$ROLE.squashfs" ]; then
+ OVERLAY_MANIFEST="$SQDIR_NORM/$ROLE.overlay-manifest"
+-[ -s "$OVERLAY_MANIFEST" ] || {
+-echo "missing $ROLE overlay manifest" >&2
++if [ ! -s "$OVERLAY_MANIFEST" ]; then
++msg "FATAL: missing $ROLE overlay manifest"
+ exit 1
+-}
++fi
+ OVERLAY_COUNT=0
+ OVERLAY_TAB=$(printf '\t')
+ while IFS="$OVERLAY_TAB" read -r kind rel; do
+ case "$kind" in
+ '
+ whiteout|opaque) ;;
+-*)
+-echo "invalid $ROLE overlay operation '$kind'" >&2
+-exit 1
+-;;
++*) msg "FATAL: invalid $ROLE overlay operation '$kind'"; exit 1 ;;
+ esac
+ case "$rel" in
+
+LOOSE MODE: tolerated the known baseline drift only (sha256=e7fea7062bbf9fb44c305dcfe8226b649650ed0519cd6fc285ec3db1ea0798fd).
+Tighten this with --strict once the two files are synced.
+[stage-canonical-assets] stage-canonical-assets: [1/3] sky1-firmware: staging from /mnt/argonas-models/cix-installer-sky1-firmware-20260728
+[stage-canonical-assets] stage-canonical-assets:   sky1-firmware: 17 files (was 1, the lone mali_csffw.bin)
+[stage-canonical-assets] stage-canonical-assets: [2/3] mgmt: staging assets/mgmt/ncz-mgmt-rootfs.tar.zst
+[stage-canonical-assets] stage-canonical-assets:   mgmt rootfs already present (51M) -- skipping rebuild
+[stage-canonical-assets] stage-canonical-assets: [3/3] cix-debs: dropping pre-Q2 cix-noe-umd_2.0.2, staging matched-stack Q2 set
+[stage-canonical-assets] stage-canonical-assets:   base cix-debs staged from bake-assets-20260729: 22 packages
+[stage-canonical-assets] dpkg-deb: error: tar subprocess was killed by signal (Broken pipe)
+[stage-canonical-assets] stage-canonical-assets:   cix-mesa_24.0.4_arm64.deb already lacks 01-cixgpu-compat.conf -- nothing to strip
+[stage-canonical-assets] stage-canonical-assets:   removing pre-Q2 cix-noe-umd_2.0.2_arm64.deb (asid_base[32], incompatible with 6.2.0 KMD)
+[stage-canonical-assets] stage-canonical-assets:   extracting matched-stack debs from cix_noe_sdk_26_q2_release.tar.gz
+[stage-canonical-assets] stage-canonical-assets:     staged cix-ai-engine_2.0.0-cixdeb13-260714
+[stage-canonical-assets] stage-canonical-assets:     staged cix-ai-test_1.0.1-cixdeb13-260714
+[stage-canonical-assets] stage-canonical-assets:     staged cix-noe-umd_3.1.4-cixdeb13-260714
+[stage-canonical-assets] stage-canonical-assets:     staged cix-npu-umd_3.2.0-cixdeb13-260714
+[stage-canonical-assets] stage-canonical-assets:   cix-npu-driver-dkms +ncz3 already present (96K) -- skipping rebuild
+[stage-canonical-assets] stage-canonical-assets: assets/npu/npu-acpi-override.cpio already present (1024 bytes)
+[stage-canonical-assets] stage-canonical-assets:   libgtk4-layer-shell0 (ncz) already present -- skipping
+[stage-canonical-assets] stage-canonical-assets: [4/4] mali+panthor DKMS .debs: building from assets/kernel/{mali,panthor}/
+[stage-canonical-assets]     built: cix-gpu-kmd-dkms_1.0+ncz1_all.deb  (912K)
+[stage-canonical-assets]     built: panthor-cix-dkms_7.2.0+ncz1_all.deb  (348K)
+[stage-canonical-assets]     ---
+[stage-canonical-assets]     2 package(s) in /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/dkms-debs
+[stage-canonical-assets] stage-canonical-assets:   staged cix-gpu-kmd-dkms_1.0+ncz1_all.deb
+[stage-canonical-assets] stage-canonical-assets:   staged panthor-cix-dkms_7.2.0+ncz1_all.deb
+[stage-canonical-assets] stage-canonical-assets: 
+[stage-canonical-assets] stage-canonical-assets: summary:
+[stage-canonical-assets] stage-canonical-assets:   reached sources: 6
+[stage-canonical-assets] stage-canonical-assets:   missing  sources: 0
+[rescue-rootfs] verified release: Debian forky
+npu-ssdt-gate: ok: ASL source present (737 bytes, sha256 900fa2e2d6dde576…)
+npu-ssdt-gate: ok: CPIO is uncompressed newc (magic 070701, 1024 bytes)
+npu-ssdt-gate: ok: CPIO contains kernel/firmware/acpi/ssdt-npucre.aml
+npu-ssdt-gate: ok: inner AML signature=SSDT length=252B
+npu-ssdt-gate: WARN: iasl not installed (apt install acpica-tools) — blob regeneration will fail if the CPIO is deleted
+npu-ssdt-gate: PASS
+WARN: [edge] CONFIG_VIDEO_LINLON=m is IN-TREE in assets/kernel/edge/config-7.2.6-sky1-ncz — accelerators must ship out-of-tree (an in-tree copy masks the validated overlay/DKMS module at modprobe time)
+manifest check OK (1 warning(s))
+[info] edge kernel KVER: 7.2.6-sky1-ncz
+[1] preparing staging at /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/iso-staging-di
+    substrate extracted: 1.4G
+    d-i substrate codename: forky
+    capturing forky udebs + udeb index (will merge into forky)
+    captured 285 udebs from forky pool
+    captured forky udeb index (Packages.gz Release )
+    dropping forky pool/, dists/, doc/, firmware/
+verify-local-package-versions: checking forky-mirror against local deb dirs: /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/kernel-debs
+verify-local-package-versions: ok: cixmini-boot/arm64=1.2+r258
+verify-local-package-versions: ok: linux-headers-cixmini/arm64=7.2.6-sky1-ncz+r258
+verify-local-package-versions: ok: linux-image-cixmini/arm64=7.2.6-sky1-ncz+r258
+verify-local-package-versions: PASS
+verify-offline-mirror-seeds: PASS (forky-mirror has 226 explicit seed packages)
+    embedding offline mirror from /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/forky-mirror
+    offline mirror embedded: 1.6G pool / 1671 debs
+    merging bookworm udebs into resolute pool/
+    pool/ now has 285 udebs alongside the resolute debs
+    substrate is forky — skipping the bookworm-only udeb graft
+    udeb assertions: debootstrap-udeb + libzstd1-udeb + liblzma5-udeb present
+    fetching forky debian-installer Packages index for required udebs
+    grafting required udeb: cdebconf-udeb from forky (cdebconf-udeb_0.283_arm64.udeb)
+    grafting required udeb: cdebconf-newt-udeb from forky (cdebconf-newt-udeb_0.283_arm64.udeb)
+    grafting required udeb: hw-detect from forky (hw-detect_1.177_arm64.udeb)
+    udeb assertions: cdebconf-udeb + cdebconf-newt-udeb + hw-detect present
+    replacing /usr/sbin/debootstrap with r40 stub (rootfs.tar.zst install path)
+    patching debootstrap usrmerge chroot wrappers
+    patching debootstrap gnu-coreutils naming (gutsy + sbin/debootstrap)
+    patched gutsy: dbus forced into debootstrap base set (r98 systemd-resolved fix)
+    skipping usr/sbin/debootstrap gnu-coreutils patch (stub mode)
+    neutralizing flash-kernel-installer udeb -> exit-0 postinst stub (flash-kernel-installer_3.110_arm64.udeb)
+    flash-kernel-installer neutralized: postinst exit-0 (rEFInd installs via 70-bootloader.sh)
+    neutralizing grub-installer udeb -> exit-0 postinst stub (grub-installer_1.216_arm64.udeb)
+    grub-installer neutralized: postinst exit-0 (rEFInd installs via 70-bootloader.sh)
+    neutralizing nobootloader udeb -> exit-0 postinst stub (nobootloader_1.74_all.udeb)
+    nobootloader neutralized: postinst exit-0 (rEFInd installs via 70-bootloader.sh)
+    NOTE: main-menu udeb not in pool — nothing to brand
+    finish-install udeb templates NCZ-branded
+    NOTE: choose-mirror udeb has no templates — skipping brand
+    disk-detect udeb: preloads storage modules and extends disk_found wait to 90 settled attempts (~180s)
+    finish-install udeb: allocated 100 owned progress units to 07preseed/late_command
+    regenerating udeb Packages index from actual pool contents
+    udeb Packages: 288 entries indexed
+    preserving the full offline package closure for repair/reinstall
+verify-local-package-versions: checking staged ISO pool against local deb dirs: /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/kernel-debs
+verify-local-package-versions: ok: cixmini-boot/arm64=1.2+r258
+verify-local-package-versions: ok: linux-headers-cixmini/arm64=7.2.6-sky1-ncz+r258
+verify-local-package-versions: ok: linux-image-cixmini/arm64=7.2.6-sky1-ncz+r258
+verify-local-package-versions: PASS
+    regenerating regular deb Packages index from the staged offline pool
+    regular deb Packages: 1671 entries indexed
+verify-iso-offline-pool: PASS (1671 resolved packages retained; 1671 staged archives SHA256-verified)
+verify-offline-mirror-seeds: PASS (staged ISO offline repair pool has 226 explicit seed packages)
+    regenerating dists/forky/Release with both regular + udeb indexes
+    wrote 2 per-component Release files
+    Release file regenerated:
+      Acquire-By-Hash: yes
+      Architectures: arm64
+      Codename: forky
+      Components: main
+      Date: Mon, 21 Sep 2026 13:09:19 +0000
+      Description: nclawzero cixmini offline mirror — forky arm64 (regular + udebs)
+      Label: nclawzero-cixmini-forky
+      Origin: nclawzero
+      Suite: forky
+      Version: 1.0
+      MD5Sum:
+       c180c5b1efcee61c11758faaf6dade3b          1879276 main/binary-arm64/Packages
+       f3896c839656daf770315e10973643bf           548614 main/binary-arm64/Packages.gz
+       dbd8f368b3207add81627acb01c42098              135 main/binary-arm64/Release
+       2f5542486919aa2b89532ab781ce4e39           214329 main/debian-installer/binary-arm64/Packages
+       3b2add15174e2e55b729865ff1a1c98e            57823 main/debian-installer/binary-arm64/Packages.gz
+    deb member format summary:
+         1670 control.tar.xz	data.tar.xz
+            1 control.tar.zst	data.tar.zst
+    rewriting .disk/ markers for full mode
+    .disk/info:    NCZ-OS 26.7 Maximilian - Offline arm64 Binary 1
+[2] swapping /install.a64/vmlinuz to linux-cix-sky1 edge (7.2.6-sky1-ncz)
+    replaced: 44M
+[3] appending modules cpio to /install.a64/initrd.gz (7.2.6-sky1-ncz)
+    decompressed 243 .ko.xz modules -> plain .ko (d-i kmod udeb cannot read xz)
+    media pruned selectively (kept drivers/media/cec — drm_display_helper dependency)
+    pruned target-only modules (media-except-cec/sound/bluetooth/wireless — gpu+cec KEPT for O6N video): 14M
+    rtl_nic firmware → installer initrd: 40 blobs
+    Panthor Mali CSF firmware → installer initrd: 296K
+    overlay cpio: 7.4M
+[3.5] SKIP amber-phosphor binary patch on forky (NEWT_COLORS env-var still applied below)
+[3.5] patching d-i for amber phosphor palette + injecting NEWT_COLORS
+    OK: NEWT_COLORS exported in /init overlay (env-var path)
+    SKIP: newt.so binary patch (trixie substrate; NEWT_COLORS env-var path is sufficient)
+    NCZ-branding baked-in d-i initrd templates (main-menu title etc.)
+      main-menu.templates: NCZ-branded
+      di-utils.templates: no Debian strings changed
+      cdrom-detect.templates: no Debian strings changed
+      cdrom-checker.templates: no Debian strings changed
+      anna.templates: no Debian strings changed
+    initrd patched: amber palette + NCZ branding
+    initrd.gz now: 36M
+[3.1] appending zstdcat for resolute .deb extraction
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+  0      0   0      0   0      0      0      0                              0100  2.32M 100  2.32M   0      0  6.00M      0                              0100  2.32M 100  2.32M   0      0  5.99M      0                              0100  2.32M 100  2.32M   0      0  5.98M      0                              0
+make: Entering directory '/home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/tool-cache/zstd-1.5.7-arm64-static/src/zstd-1.5.7'
+make[1]: Entering directory '/home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/tool-cache/zstd-1.5.7-arm64-static/src/zstd-1.5.7/programs'
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/debug.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/entropy_common.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/error_private.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/fse_decompress.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/pool.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/threading.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_common.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/xxhash.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/fse_compress.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/hist.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/huf_compress.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_compress.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_compress_literals.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_compress_sequences.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_compress_superblock.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_double_fast.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_fast.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_lazy.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_ldm.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_opt.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_preSplit.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstdmt_compress.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/huf_decompress.o
+AS obj/conf_5727f46a27f1dbad9da39cabf4fe2541/huf_decompress_amd64.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_ddict.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_decompress.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd_decompress_block.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/cover.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/divsufsort.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/fastcover.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zdict.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/benchfn.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/benchzstd.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/datagen.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/dibio.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/fileio.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/fileio_asyncio.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/lorem.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/timefn.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/util.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstdcli.o
+CC obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstdcli_trace.o
+==> no threads, building without multithreading support
+==> no zlib, building zstd without .gz support
+==> no liblzma, building zstd without .xz/.lzma support
+==> no liblz4, building zstd without .lz4 support
+LINK obj/conf_5727f46a27f1dbad9da39cabf4fe2541/zstd
+zstd build completed
+make[1]: Leaving directory '/home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/tool-cache/zstd-1.5.7-arm64-static/src/zstd-1.5.7/programs'
+make: Leaving directory '/home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/tool-cache/zstd-1.5.7-arm64-static/src/zstd-1.5.7'
+    zstd: /home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/tool-cache/zstd-1.5.7-arm64-static/zstd
+    initrd.gz now: 36M
+    installer firmware overlay: 252 file(s) (iwlwifi + rtl_nic)
+    initrd.gz now: 157M
+    usb-rescan staged as /usr/lib/debian-installer-startup.d/S35usb-rescan
+    initrd.gz now: 157M
+[4] staging /cixmini extras
+    preseed retargeted: suite=forky mirror=snapshot.debian.org/archive/debian/20260920T203924Z
+    diag module staged (ncz_diag toggle; telnet :23 + http :8080 + remote syslog)
+    staged mali_kbase overlay -> /cixmini/assets/kernel/mali
+    staged Panthor DKMS source + prebuilt module -> /cixmini/assets/kernel/panthor
+    staged npu patch series (9 patches) -> /cixmini/assets/kernel/npu
+    staged vpu patch series (1 patches) -> /cixmini/assets/kernel/vpu
+    cix-debs staged: 32 packages
+    ncz-mgmt-rootfs.tar.zst staged: 51M
+    assets/models NOT bulk-copied (apt-delivered on MNEMOS install)
+    rescue-rootfs.tar.zst staged: 213M
+    assets/squashfs NOT bulk-copied (already staged at top level by the layered-squashfs block)
+    NEXT headers staged: 14M
+    NEXT config archived: config-7.2.6-sky1-ncz
+    edge kernel staged: 7.2.6-sky1-ncz  (44M image, 7.7M modules)
+    sky1-firmware: 33M
+    rtl_nic firmware (target): 40 blobs
+    wireless-regdb (target): 2 files
+    python311 (NPU uv venv): NOT staged — NPU-from-Python will need network at install (uv fetches 3.11)
+    modules-overlay: 2 .ko (2.7M)
+    refind: build/refind-bin/refind_aa64.efi absent — using tracked assets/refind/refind_aa64.efi
+    refind: refind_aa64.efi staged (256K)
+    refind: build/refind-bin/icons absent — using tracked assets/refind/icons
+    refind: icons/ staged (77 files)
+    layer root mode OK (0755): base
+    layer root mode OK (0755): desktop-hotfix
+    layer root mode OK (0755): desktop
+    LAYERED SQUASHFS staged: base 872M + desktop-hotfix:12M desktop:1.8G
+    build id: 2026.09.21-d2-retained  (2026-09-21 13:08:54 UTC on fedora)
+    release: NCZ-OS 26.7 Maximilian
+[5] writing /boot/grub/grub.cfg (r6-style preseed cmdline)
+    grub.cfg written (62 lines)
+[6] regenerating md5sum.txt
+[7] repacking via xorriso → build/iso-receipts-stageAB/ncz-d2-retained-2026.09.21.iso
+xorriso 1.5.8.pl02 : RockRidge filesystem manipulator, libburnia project.
+
+Drive current: -outdev 'stdio:build/iso-receipts-stageAB/ncz-d2-retained-2026.09.21.iso'
+Media current: stdio file, overwriteable
+Media status : is blank
+Media summary: 0 sessions, 0 data blocks, 0 data, 3351g free
+xorriso : NOTE : -as mkisofs: Ignored option '-cache-inodes'
+Added to ISO image: directory '/'='/home/jasonperlow/Projects/cix-installer-stockdi-2026-09-21/build/iso-staging-di'
+xorriso : UPDATE :    3818 files added in 1 seconds
+xorriso : UPDATE :    3818 files added in 1 seconds
+libisofs: WARNING : Image size exceeds 1024 cylinders. Cannot align partition.
+libisofs: WARNING : There are said to be BIOSes which will not boot this via MBR.
+xorriso : UPDATE :  3.75% done
+xorriso : UPDATE :  65.41% done
+ISO image produced: 2896550 sectors
+Written to medium : 2896550 sectors at LBA 0
+Writing to 'stdio:build/iso-receipts-stageAB/ncz-d2-retained-2026.09.21.iso' completed successfully.
+
+
+OUTPUT: build/iso-receipts-stageAB/ncz-d2-retained-2026.09.21.iso
+-rw-r--r--. 1 jasonperlow jasonperlow 5.6G Sep 21 09:10 build/iso-receipts-stageAB/ncz-d2-retained-2026.09.21.iso
+EXIT=0
