@@ -32,7 +32,7 @@ CONN_CARD=""; CONN_OUTPUT=""
 # and added up to 4.99 seconds after the connector had already appeared.
 try=0
 while [ "$try" -lt 120 ]; do
-    for c in /sys/class/drm/card*-DP-* /sys/class/drm/card*-HDMI-*; do
+    for c in /sys/class/drm/card*-eDP-* /sys/class/drm/card*-DP-* /sys/class/drm/card*-HDMI-*; do
         [ -e "$c/status" ] || continue
         if [ "$(cat $c/status 2>/dev/null)" = "connected" ]; then
             CONN_CARD=$(echo "$c" | sed -nE "s|^/sys/class/drm/(card[0-9]+)-.*|\\1|p")
