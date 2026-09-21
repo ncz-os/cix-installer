@@ -1355,10 +1355,28 @@ case "$STAGE" in
   server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
            echo "       Boot the console entry (multi-user.target) instead." >&2
            exit 1 ;;
-  all)     if [ -s "$OUT/base.squashfs" ]; then
-             log "BASE: reusing existing $OUT/base.squashfs ($(du -h "$OUT/base.squashfs" | cut -f1)); remove it or run 'base' to rebuild"
-           else
+  all)     # 2026-09-21: pure existence check silently reused a 2-day-stale
+           # base.squashfs after a kernel promotion (7.2.6-1 baked in, staged
+           # pool already at 7.2.6-2) -- both versions ended up installed
+           # side by side and rEFInd booted the stale one. Compare every
+           # staged KVER against what's actually embedded before reusing.
+           NEED_BASE_REBUILD=1
+           if [ -s "$OUT/base.squashfs" ]; then
+             NEED_BASE_REBUILD=0
+             for kv in "$ROOT"/assets/kernel/*/KVER; do
+               [ -s "$kv" ] || continue
+               kver=$(tr -d '[:space:]' < "$kv")
+               if ! unsquashfs -l "$OUT/base.squashfs" 2>/dev/null | grep -q "vmlinuz-${kver}$"; then
+                 log "BASE: staged kernel $kver (from $kv) not found in existing base.squashfs -- forcing rebuild"
+                 NEED_BASE_REBUILD=1
+                 break
+               fi
+             done
+           fi
+           if [ "$NEED_BASE_REBUILD" = 1 ]; then
              build_base
+           else
+             log "BASE: reusing existing $OUT/base.squashfs (staged kernels match embedded, $(du -h "$OUT/base.squashfs" | cut -f1)); remove it or run 'base' to force rebuild anyway"
            fi
            build_singularity_payload; ensure_wallpaper_packs; build_layer desktop "$DESKTOP_MANIFEST"; build_hotfix ;;
   *) echo "usage: $0 base|desktop|hotfix|server|all"; exit 2 ;;
