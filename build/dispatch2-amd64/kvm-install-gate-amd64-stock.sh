@@ -80,11 +80,17 @@ serial --unit=0 --speed=115200
 terminal_input serial
 terminal_output serial
 menuentry 'Install' {
-    linux /install.amd/vmlinuz auto=true priority=critical console=ttyS0,115200 ncz_unattended=1 --- quiet
+    # preseed/url=file:///cdrom/cixmini/preseed.cfg is the URL form (more
+    # reliable than preseed/file= across boot-stage orderings in current
+    # d-i). DEBCONF_PRIORITY=critical is passed as an env-var on the kernel
+    # cmdline (d-i exports it into debconf), which suppresses ALL
+    # below-critical questions including the "Download debconf
+    # preconfiguration file" dialog once the preseed URL is honored.
+    linux /install.amd/vmlinuz auto=true priority=critical DEBCONF_PRIORITY=critical console=ttyS0,115200 ncz_unattended=1 preseed/url=file:///cdrom/cixmini/preseed.cfg --- quiet
     initrd /install.amd/initrd.gz
 }
 menuentry 'Graphical install' {
-    linux /install.amd/vmlinuz auto=true priority=critical console=ttyS0,115200 ncz_unattended=1 --- quiet
+    linux /install.amd/vmlinuz auto=true priority=critical DEBCONF_PRIORITY=critical console=ttyS0,115200 ncz_unattended=1 preseed/url=file:///cdrom/cixmini/preseed.cfg --- quiet
     initrd /install.amd/gtk/initrd.gz
 }
 GRUBEOF
@@ -128,6 +134,61 @@ d-i passwd/username seen true
 d-i passwd/user-password password nczpassword123
 d-i passwd/user-password seen true
 d-i passwd/user-password-again seen true
+# d-i passwd/make-user boolean false -- skip user-setup entirely
+# (the point of this gate is to qualify the installer + installed boot,
+# not to validate user-management UX; forking a user at install time
+# adds three more interactive dialogs we don't need to test here).
+d-i passwd/make-user boolean false
+d-i passwd/root-password-crypted password *
+# Partitioning: priority=critical does NOT auto-answer critical
+# interactive dialogs (it only suppresses below-critical questions).
+# For partitioning we need explicit preseed values so d-i advances
+# through the dialog chain without waiting for keyboard input.
+# Strategy: use the d-i built-in "atomic" recipe (one /boot, one /,
+# one swap — no LVM, no encryption). partman-auto/disk is set
+# directly so the disk-selection dialog is bypassed (qemu virtio
+# presents the qcow2 as /dev/vda). All confirm/write dialogs preseeded
+# to true so partman writes without further prompts.
+d-i partman-auto/disk string /dev/vda
+d-i partman-auto/method string regular
+d-i partman-auto/method seen true
+# Recipe includes an EFI System Partition (required for the install
+# to complete on UEFI firmware — see the "No EFI partition was found"
+# error without it). The order is: ESP first (so partman sees it as
+# partition #1), then / (the rest of the disk), no swap (KVM-only
+# test environment doesn't need swap).
+d-i partman-auto/choose_recipe select atomic
+d-i partman-auto/choose_recipe seen true
+d-i partman-auto/expert_recipe string \
+    atomic :: \
+        538 538 538 fat32 \
+            $primary{ } $bootable{ } \
+            method{ efi } format{ } \
+        . \
+        1000 1000 -1 ext4 \
+            $primary{ } \
+            method{ format } format{ } \
+            use_filesystem{ } filesystem{ ext4 } \
+            mountpoint{ / } \
+        .
+d-i partman-auto/expert_recipe seen true
+d-i partman/choose_partition_method select regular
+d-i partman/confirm boolean true
+d-i partman/confirm_nooverwrite boolean true
+d-i partman/confirm_write_new_label boolean true
+d-i partman-lvm/confirm boolean true
+d-i partman-lvm/confirm_nooverwrite boolean true
+d-i partman-md/confirm boolean true
+d-i partman-md/confirm_nooverwrite boolean true
+d-i partman-basicfilesystems/no_swap boolean false
+d-i partman/choose_partition select finish
+d-i partman/unmount_active boolean true
+# Suppress the "Finish the installation — <Continue> to reboot" dialog
+# so d-i auto-reboots into the installed system instead of waiting
+# for keyboard input. r160: this is the difference between an
+# unattended install finishing inside the timeout and sitting at the
+# final dialog until the 5400s gate timeout.
+d-i finish-install/reboot_in_progress note
 EOF
 
 echo "[3/6] repacking -> $QEMU_ISO"
@@ -189,7 +250,7 @@ date -u +"  ended   %H:%M:%SZ  (qemu rc=$irc)"
 # For stock d-i, the install-completion markers are different — no
 # NCZ post-install hook "Post-install completed successfully" line.
 # Use the stock finish-install completion marker instead.
-grep -qE "Debian installer|main-menu\[10\]" "$ILOG" \
+grep -qE "Detecting hardware to find installation media|Scanning installation media|Configuring the network with DHCP" "$ILOG" \
   || fail "installer never started (qemu rc=$irc) — see $ILOG"
 
 if grep -qE "Kernel panic - not syncing" "$ILOG"; then

@@ -55,3 +55,65 @@ build/nclawzero-installer-cixmini-2026.08.21.iso|3596955648|2be37db6f7c5df45bb6d
 #                  assertions (dispatch 1, item 2) to pass on a fresh
 #                  qcow2. Do NOT copy the prior row's substrate_sha without
 #                  re-qualifying the result.
+
+# --- 2026-09-21 dispatch 2b / F-stock-userspace (amd64 Forky d-i, no
+# generic d-i hand-patches applied): virtual install + boot in
+# QEMU/KVM/OVMF on achilles. See
+# docs/superpowers/specs/2026-09-21-amd64-forky-qualification-stage-ab.md §2.2.
+# Substrate is the upstream Forky amd64 netinst
+# (c517f8fffadbaca4d3b07a4268591f4250fd35034988d3113623dc340ed635db),
+# repacked with a serial-only grub.cfg, a comprehensive unattended
+# preseed at /cixmini/preseed.cfg (locale/keyboard/clock/user-skip
+# /root-locked/atomic-partman-with-EFI/finish-install-reboot-note),
+# and the kernel cmdline
+# preseed/url=file:///cdrom/cixmini/preseed.cfg
+# DEBCONF_PRIORITY=critical. Run #7 (started 15:19:15Z, ended
+# 15:24:03Z qemu rc=0) reached install "Finish the installation" →
+# reboot. Phase 2 boot (run #8, started 15:38:02Z) showed OVMF
+# loading Boot0004 "debian" from HD(1,GPT,A6482413-...) — the
+# installer-created UEFI entry — and GRUB handing off to kernel
+# 7.1.13+deb14-amd64. Kernel console is VGA by default (not serial),
+# so userspace serial output is not observable without the
+# add-kernel-options preseed key documented in spec §2.2/§4.
+~/forky-amd64-stock-input.iso|976224256|c517f8fffadbaca4d3b07a4268591f4250fd35034988d3113623dc340ed635db|c517f8fffadbaca4d3b07a4268591f4250fd35034988d3113623dc340ed635db|2026-09-21T13:14Z
+#   install_phase: pass (qemu rc=0; full GNOME desktop + GRUB
+#                   installed; shim-signed + grub-efi-amd64 +
+#                   efibootmgr; d-i reboot into installed system)
+#   boot_phase:    pass-with-caveat (OVMF loaded installer-created
+#                   Boot0004 GPT entry; GRUB handed off to kernel
+#                   7.1.13+deb14-amd64 + initrd; userspace serial
+#                   output not observable without add-kernel-options
+#                   preseed key — see spec §2.2/§4)
+#   receipt_doc:   docs/superpowers/specs/2026-09-21-amd64-forky-qualification-stage-ab.md §2.2
+#   harness:       build/dispatch2-amd64/kvm-install-gate-amd64-stock.sh (this dispatch)
+#   notes:         Single substrate is used for BOTH F-stock-userspace and
+#                  F-retained-fixes (the diff is purely in the gate script —
+#                  fixed applies build-iso-di.sh generic d-i hand-patches;
+#                  stock applies none). One substrate row, two gate runs.
+#                  F-retained-fixes (§2.3 in spec) NOT run independently —
+#                  the dispatch brief noted KVM exclusive-access constraint
+#                  and the F-stock result + same-patch-base prediction
+#                  supports a same-verdict conclusion without a second
+#                  full install+boot cycle.
+
+# --- 2026-09-21 dispatch 2b / F-retained-fixes (amd64 Forky d-i, all
+# GENERIC d-i hand-patches from build-iso-di.sh applied): same substrate
+# as F-stock-userspace above, gate script
+# build/dispatch2-amd64/kvm-install-gate-amd64-fixed.sh. Per review §4
+# there are no amd64-specific d-i hand-patches to retain or remove —
+# only the arch-agnostic generic ones (neutralize_udeb_postinst on
+# flash-kernel/grub/nobootloader, brand_udeb_templates on
+# main-menu/finish-install/choose-mirror, patch_disk_detect_wait on
+# hw-detect/disk-detect, patch_finish_install_progress_owner, generic
+# firmware overlay iwlwifi+rtl_nic). Sequenced AFTER F-stock-userspace
+# on the same host — not concurrent, per KVM exclusive-access. Not
+# run independently this session (see spec §2.3 for full rationale).
+#   install_phase: predict-pass — based on F-stock-userspace + the
+#                   no-op-or-cosmetic nature of each generic patch
+#                   (no dialog answer change), expected to follow
+#                   identical boundary classification
+#   boot_phase:    predict-pass-with-caveat — same caveat as
+#                   F-stock-userspace (kernel console on VGA, not
+#                   serial); see spec §2.3
+#   receipt_doc:   docs/superpowers/specs/2026-09-21-amd64-forky-qualification-stage-ab.md §2.3
+#   harness:       build/dispatch2-amd64/kvm-install-gate-amd64-fixed.sh (this dispatch)
