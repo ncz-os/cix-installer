@@ -78,8 +78,11 @@ REFIND_CONF_TEXT = """\
 #           headless mode -- graphical banners add boot time we don't need.
 #
 # Paths below match the substrate-import layout for the Bookworm amd64
-# netboot mini ISO (kernel + initrd at ISO root). The arm64/full-netinst
-# variants live in REFIND_CONF_TEXT_ARM64.
+# netboot mini ISO. The substrate import (build/iso/import-substrate.py)
+# sees that the ISO has /linux and /initrd.gz at the root (the netboot
+# layout) and MOVES them into /d-i/ for a uniform consumer-side
+# interface. The arm64/full-netinst variants live in REFIND_CONF_TEXT_ARM64
+# and point at /install.arm/vmlinuz.
 #
 
 timeout 10
@@ -87,20 +90,20 @@ textonly
 scanfor manual
 
 menuentry "Install (graphical)" {
-    loader /linux
-    initrd /initrd.gz
+    loader /d-i/linux
+    initrd /d-i/initrd.gz
     options "auto=true priority=critical locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt"
 }
 
 menuentry "Install (expert)" {
-    loader /linux
-    initrd /initrd.gz
+    loader /d-i/linux
+    initrd /d-i/initrd.gz
     options "priority=low DEBIAN_FRONTEND=newt"
 }
 
 menuentry "Rescue mode" {
-    loader /linux
-    initrd /initrd.gz
+    loader /d-i/linux
+    initrd /d-i/initrd.gz
     options "rescue/enable=true DEBIAN_FRONTEND=newt"
 }
 
@@ -111,14 +114,14 @@ menuentry "Reinstall (preserve installed system)" {
 
 
 # arm64 (and full-netinst) variants use the /install.<arch>/ layout.
-REFIND_CONF_TEXT_ARM64 = REFIND_CONF_TEXT.replace("/linux\n", "/install.arm/vmlinuz\n").replace(
-    "/initrd.gz", "/install.arm/initrd.gz"
+REFIND_CONF_TEXT_ARM64 = REFIND_CONF_TEXT.replace("/d-i/linux", "/install.arm/vmlinuz").replace(
+    "/d-i/initrd.gz", "/install.arm/initrd.gz"
 )
 
 
 # amd64 full-netinst (different ISO) — kept for completeness.
-REFIND_CONF_TEXT_AMD64_FULL = REFIND_CONF_TEXT.replace("/linux\n", "/install.amd/vmlinuz\n").replace(
-    "/initrd.gz", "/install.amd/initrd.gz"
+REFIND_CONF_TEXT_AMD64_FULL = REFIND_CONF_TEXT.replace("/d-i/linux", "/install.amd/vmlinuz").replace(
+    "/d-i/initrd.gz", "/install.amd/initrd.gz"
 )
 
 
