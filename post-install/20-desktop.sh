@@ -867,6 +867,19 @@ if [ -d /run/singularity ] && [ -w /run/singularity ]; then
     : > /run/singularity/greeter-ready
     sleep 0.2
 fi
+# wlroots' libinput backend hard-refuses to initialize with ZERO input
+# devices present ("libinput initialization failed, no input devices" ->
+# "Failed to initialize backend" -> labwc exits -> greetd crash-loops ->
+# NO VIDEO AT ALL, not even a login screen). ncz-wait-input-ready already
+# tolerates this as a legitimate "recovery/KVM" case (a board with nothing
+# plugged in) and starts the greeter anyway after its bounded probe -- but
+# wlroots itself was never told to tolerate it too. Confirmed live on O6N,
+# 2026-09-21: literally zero /dev/input/event* nodes, only the virtual
+# /dev/input/mice. Set the escape hatch precisely when there is truly no
+# real input device, so a board WITH a keyboard/mouse keeps normal behavior.
+if ! ls /dev/input/event* >/dev/null 2>&1; then
+    export WLR_LIBINPUT_NO_DEVICES=1
+fi
 # `-S` is essential: greetd starts the selected user's session as soon as this
 # greeter compositor exits. A regular Labwc autostart leaves the compositor
 # alive after authentication, causing greetd to wait its five-second watchdog
