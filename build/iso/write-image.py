@@ -50,6 +50,7 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -67,6 +68,225 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def sha256_bytes(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+def crc32(data: bytes) -> int:
+    import zlib
+    return zlib.crc32(data) & 0xFFFFFFFF
+
+
+# Constants shared with verify-image.py (kept local to avoid coupling).
+SECTOR = 512
+EFI_SYS_PART_GUID_STORED = (
+    b"\x28\x73\x2A\xC1\x1F\xF8\xD2\x11\xBA\x4B\x00\xA0\xC9\x3E\xC9\x3B"
+)
+
+
+def read_at(path: Path, offset: int, length: int) -> bytes:
+    with path.open("rb") as f:
+        f.seek(offset)
+        return f.read(length)
+
+
+def write_at(path: Path, offset: int, data: bytes) -> None:
+    """Sparse-safe write that grows the file when offset+len exceeds current
+    size. Pad any gap with zeros. This is how we relocate the backup GPT to a
+    new tail of the image."""
+    size = path.stat().st_size
+    end = offset + len(data)
+    if end > size:
+        with path.open("r+b") as f:
+            f.seek(0, 2)
+            f.truncate(end)
+    with path.open("r+b") as f:
+        f.seek(offset)
+        f.write(data)
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except OSError:
+            pass
+
+
+def compute_gpt_header_crc32(header_buf: bytes) -> int:
+    """CRC32 of the GPT header with the CRC field zeroed (offsets 16..20).
+    Identical computation as the wire-format CRC the firmware computes."""
+    return crc32(header_buf[:16] + b"\x00\x00\x00\x00" + header_buf[20:92])
+
+
+def finalize_gpt_layout(image: Path) -> dict:
+    """GPT-layout rescue finalizer for warm-grown images.
+
+    Background (design §8 step 6 + local experiment §8): xorriso 1.5.8.pl02
+    does NOT maintain a valid GPT backup layout when growing an ISO via
+    ``-indev parent -outdev new -boot_image any replay -append_partition``.
+    Concretely, the warm growth:
+
+      * writes the EFI System Partition at a NEW (often smaller) LBA range,
+      * leaves the primary GPT header's ``backup_lba`` field pointing at the
+        parent's old end-of-image,
+      * writes zeros (or whatever the new ISO/PVD block happened to land on)
+        at the new tail LBA where the backup GPT header is supposed to live,
+      * does not update the protective-MBR partition-1 ``lba_size`` field.
+
+    The result is an ISO that boots in xorriso's eyes but fails every
+    independent UEFI validator: backup GPT signature is ``\\x00`` * 8,
+    primary CRC says "look at LBA 122471" (which is now mid-file), and the
+    MBR partition-1 size is one or more MB short of the actual image.
+
+    What we do to rescue the layout, while leaving the xorriso-written
+    ISO filesystem and EFI partition bytes intact:
+
+      1. Read the primary GPT header (still valid; primary CRC matches).
+      2. Read the primary partition entry array (still valid; its CRC
+         matches the bytes xorriso wrote).
+      3. Compute the new image_lba from the file size.
+      4. Allocate the backup entry array at the new tail
+         (backup_lba - 62 sectors, where 62 = ceil(248 entries * 128 bytes / 512)).
+      5. Write a freshly-computed backup GPT header at LBA (image_lba - 1)
+         with current_lba = image_lba - 1, backup_lba = 1, the same
+         part_entry_array bytes as the primary, and a fresh header CRC32.
+      6. Patch the primary header's ``backup_lba`` to ``image_lba - 1``,
+         set ``last_usable_lba = backup_part_entry_lba - 1`` (so the
+         usable range stops one sector before the backup entries), and
+         recompute the primary header CRC32.
+      7. Patch the protective-MBR partition-1 ``lba_size`` to cover the
+         full image (image_lba - 1 sectors).
+
+    The space between the EFI partition's last LBA and the new backup
+    entries' first LBA is conventional "post-data" / pre-backup padding
+    that UEFI firmwares tolerate in hybrid images; see the design doc's
+    note that "a qualified finalizer may truncate beyond the backup GPT
+    only after proving all referenced extents end within the retained
+    range".
+    """
+    size = image.stat().st_size
+    if size % SECTOR != 0:
+        raise ValueError(
+            f"finalize_gpt_layout: image {image} size {size} is not a "
+            f"multiple of {SECTOR} bytes"
+        )
+    image_lba = size // SECTOR
+    new_backup_lba = image_lba - 1
+
+    # 1. Read primary header
+    primary_header = read_at(image, 1 * SECTOR, SECTOR)
+    if primary_header[:8] != b"EFI PART":
+        raise ValueError(
+            f"finalize_gpt_layout: primary GPT signature at LBA 1 is "
+            f"{primary_header[:8]!r}, expected b'EFI PART' — refusing to "
+            f"rescue an image without a recognizable GPT primary header"
+        )
+
+    num_entries = struct.unpack("<I", primary_header[80:84])[0]
+    entry_size = struct.unpack("<I", primary_header[84:88])[0]
+    entry_array_bytes = num_entries * entry_size
+    entry_array_sectors = (entry_array_bytes + SECTOR - 1) // SECTOR
+
+    part_entry_lba_primary = struct.unpack("<Q", primary_header[72:80])[0]
+    if part_entry_lba_primary != 2:
+        # xorriso's cold compose always emits the array at LBA 2. We don't
+        # know what to do if a different layout comes in, so refuse.
+        raise ValueError(
+            f"finalize_gpt_layout: primary part_entry_lba={part_entry_lba_primary}, "
+            f"expected 2; refusing to rescue a non-standard layout"
+        )
+
+    primary_entries = read_at(
+        image,
+        part_entry_lba_primary * SECTOR,
+        entry_array_bytes,
+    )
+    # Sanity: xorriso must have written a CRC-matching array here.
+    stored_array_crc = struct.unpack("<I", primary_header[88:92])[0]
+    if crc32(primary_entries) != stored_array_crc:
+        raise ValueError(
+            f"finalize_gpt_layout: primary entry array CRC mismatch "
+            f"({crc32(primary_entries):#010x} vs stored {stored_array_crc:#010x}); "
+            f"refusing to rescue a layout whose primary entries are already corrupt"
+        )
+
+    # 2. Locate the new backup entry array (image tail - N sectors)
+    new_backup_part_entry_lba = new_backup_lba - (entry_array_sectors - 1)
+    new_last_usable_lba = new_backup_part_entry_lba - 1
+
+    # 3. Construct backup header. The backup header is a near-mirror of the
+    # primary, with current_lba = image_lba - 1, backup_lba = 1, and the
+    # same disk_guid + part_entry_array bytes.
+    backup_header = bytearray(primary_header)
+    struct.pack_into("<Q", backup_header, 24, new_backup_lba)  # current_lba
+    struct.pack_into("<Q", backup_header, 32, 1)                # backup_lba
+    struct.pack_into("<Q", backup_header, 40, 64)               # first_usable_lba
+    struct.pack_into("<Q", backup_header, 48, new_last_usable_lba)
+    struct.pack_into("<Q", backup_header, 72, new_backup_part_entry_lba)
+    struct.pack_into("<I", backup_header, 88, stored_array_crc)  # array CRC same
+
+    backup_header_crc = compute_gpt_header_crc32(bytes(backup_header))
+    struct.pack_into("<I", backup_header, 16, backup_header_crc)
+
+    # 4. Write the relocated backup partition entry array and header.
+    write_at(
+        image,
+        new_backup_part_entry_lba * SECTOR,
+        primary_entries,
+    )
+    write_at(image, new_backup_lba * SECTOR, bytes(backup_header))
+
+    # 5. Patch primary header in place: backup_lba, last_usable_lba, CRC.
+    new_primary_header = bytearray(primary_header)
+    struct.pack_into("<Q", new_primary_header, 32, new_backup_lba)
+    struct.pack_into("<Q", new_primary_header, 48, new_last_usable_lba)
+    new_primary_crc = compute_gpt_header_crc32(bytes(new_primary_header))
+    struct.pack_into("<I", new_primary_header, 16, new_primary_crc)
+    write_at(image, 1 * SECTOR, bytes(new_primary_header))
+
+    # 6. Patch the protective-MBR partition-1 ``lba_size`` to cover the full
+    # image. The MBR's partition table starts at offset 446, each entry is
+    # 16 bytes; entry 1 = bytes 446..461; the lba_size field is at offset
+    # 446+12 = 458 (4 bytes, LE). For images with ``-appended_part_as_gpt``
+    # the protective MBR uses type 0xEE and its partition-1 size is the
+    # canonical "whole-disk" value (image_lba - 1 sectors).
+    mbr = bytearray(read_at(image, 0, SECTOR))
+    table_off = 446
+    patched = False
+    for i in range(4):
+        entry_off = table_off + i * 16
+        ptype = mbr[entry_off + 4]
+        if ptype == 0xEE:
+            struct.pack_into("<I", mbr, entry_off + 12, image_lba - 1)
+            patched = True
+            break
+    if not patched:
+        # No protective-MBR 0xEE entry: the warm output is using a legacy
+        # MBR (no GPT). We don't currently rescue that case; refuse so
+        # the operator notices rather than silently shipping an image
+        # that won't boot.
+        raise ValueError(
+            "finalize_gpt_layout: no protective-MBR 0xEE entry found at "
+            "LBA 0; refusing to rescue a legacy-MBR layout (warm writer "
+            "must use -appended_part_as_gpt at cold compose time)"
+        )
+    write_at(image, 0, bytes(mbr))
+
+    return {
+        "image_lba": image_lba,
+        "new_backup_lba": new_backup_lba,
+        "new_backup_part_entry_lba": new_backup_part_entry_lba,
+        "new_last_usable_lba": new_last_usable_lba,
+        "primary_header_crc32": new_primary_crc,
+        "backup_header_crc32": backup_header_crc,
+        "entry_array_bytes": entry_array_bytes,
+        "entry_array_sectors": entry_array_sectors,
+        "protective_mbr_patched": True,
+    }
 
 
 def log(msg: str) -> None:
@@ -81,6 +301,30 @@ def _chmod_r(p: Path) -> None:
                        capture_output=True)
     except Exception:
         pass
+
+
+def _cleanup_scratch(scratch: Path) -> None:
+    """Robust cleanup of a warm-writer scratch path.
+
+    xorriso -outdev writes a regular FILE at the -outdev path; if a
+    prior run left a directory there, normal rmtree works; if xorriso
+    wrote a file (success or "SORRY" failure), we have to unlink the
+    file. Try the dir-first path, fall back to file path. Both must be
+    safe to call when scratch does not exist."""
+    if scratch.is_dir() and not scratch.is_symlink():
+        _chmod_r(scratch)
+        shutil.rmtree(scratch, ignore_errors=True)
+        return
+    if scratch.is_symlink() or scratch.is_file():
+        # Make writable in case xorriso marked it read-only.
+        try:
+            scratch.chmod(0o644)
+        except OSError:
+            pass
+        try:
+            scratch.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def cmd_with_log(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -282,7 +526,9 @@ def _load_manifest(path: Path) -> dict:
 
 
 def warm_image(args) -> int:
-    """Apply a hotfix-shaped change to a parent ISO via reflink + xorriso.
+    """Apply a hotfix-shaped change to a parent ISO via reflink + xorriso,
+    then rescue the GPT layout so the result passes independent UEFI/ISO
+    validation.
 
     The warm writer transaction (design doc §8) is:
 
@@ -295,7 +541,16 @@ def warm_image(args) -> int:
            must point at the new image.
         4. ``-commit`` flushes; per design §5 fsync-and-rename semantics
            protect against crashes leaving a partial object.
-        5. Independent verifier parses the result independently of xorriso.
+        5. GPT layout rescue finalizer. xorriso 1.5.8.pl02's
+           ``-boot_image any replay -append_partition`` mode does not
+           relocate the backup GPT when the image grows, so we
+           patch the primary header, write a fresh backup entry array and
+           header at the new tail, and fix the protective-MBR partition-1
+           size. ISO filesystem bytes and the EFI partition are left
+           untouched.
+        6. Independent verifier parses the result. A rejection ends the
+           transaction: a warm growth that does not pass independent
+           verification is not shippable.
     """
     parent = Path(args.parent).resolve()
     out = Path(args.output).resolve()
@@ -328,9 +583,17 @@ def warm_image(args) -> int:
     # 1. Reflink-clone the parent into a private scratch path.
     clone_t0 = time.monotonic()
     scratch = out.parent / f".warm-scratch-{out.name}"
-    if scratch.exists():
-        _chmod_r(scratch)
-        shutil.rmtree(scratch)
+    if scratch.is_symlink() or scratch.is_file():
+        # A previous failed run left a regular file or symlink at the scratch
+        # path; unlink unconditionally. Use unlink_with_retries for the
+        # macOS case where the prior xorriso may have set the file read-only.
+        _chmod_r(scratch.parent)
+        try:
+            scratch.unlink()
+        except FileNotFoundError:
+            pass
+    elif scratch.is_dir():
+        _cleanup_scratch(scratch)
     scratch.parent.mkdir(parents=True, exist_ok=True)
     reflink_copy(parent, scratch)
     clone_seconds = time.monotonic() - clone_t0
@@ -408,17 +671,48 @@ def warm_image(args) -> int:
         log(f"FAIL: xorriso warm exit {proc.returncode}")
         log(proc.stderr[:4000])
         # Clean up scratch even on failure
-        _chmod_r(scratch)
-        shutil.rmtree(scratch, ignore_errors=True)
+        _cleanup_scratch(scratch)
         return 1
 
-    # 5. Independent verification (do not trust xorriso exit status alone).
-    #    Note: as of xorriso 1.5.8.pl02, the warm writer's output has
-    #    stale GPT backup metadata (documented in
-    #    docs/superpowers/specs/2026-09-21-step1-xorriso-writer-findings.md).
-    #    We run the verifier to capture the failure mode but do NOT
-    #    propagate its exit code; the warm path is qualified only as
-    #    "transaction runs and content updates" in this Step 1 pass.
+    # 4b. GPT layout rescue finalizer.
+    #
+    # xorriso 1.5.8.pl02 does NOT maintain a valid GPT backup layout when
+    # growing an ISO via ``-indev parent -outdev new -boot_image any replay
+    # -append_partition``. The primary GPT's ``backup_lba`` still points at
+    # the parent's old end-of-image, the protective-MBR partition-1 size
+    # field still claims the parent's size, and the file's tail (where the
+    # backup GPT header should now live) is whatever ISO data and PVD/Joliet
+    # descriptors xorriso happened to write there.
+    #
+    # We rescue the layout by relocating the backup GPT entry array to the
+    # new tail of the file, writing a freshly-computed backup GPT header at
+    # LBA (image_lba - 1), and patching the primary header's ``backup_lba``
+    # + protective-MBR partition-1 size. The ISO 9660 filesystem bytes,
+    # El Torito catalog, and EFI partition bytes are left untouched (they
+    # already pass their own checks). This is the design §8 step 6
+    # "explicit finalization" for warm growth.
+    finalizer_log = {"status": "skipped"}
+    try:
+        finalizer_log = finalize_gpt_layout(out)
+        finalizer_log["status"] = "ok"
+        log(
+            f"finalizer: relocated backup GPT to LBA {finalizer_log['new_backup_lba']} "
+            f"(array at LBA {finalizer_log['new_backup_part_entry_lba']}); "
+            f"primary CRC {finalizer_log['primary_header_crc32']:#010x}, "
+            f"backup CRC {finalizer_log['backup_header_crc32']:#010x}"
+        )
+    except Exception as e:
+        finalizer_log = {"status": "failed", "error": str(e), "error_type": type(e).__name__}
+        log(f"FAIL: GPT rescue finalizer raised {type(e).__name__}: {e}")
+        _cleanup_scratch(scratch)
+        return 1
+
+    # 5. Independent verification. The design §8 mandate: do not trust
+    # xorriso's exit status alone. The verifier parses GPT, MBR, ISO PVD,
+    # El Torito catalog and verifies ESP-bytes-identical-to-source. We
+    # treat a verifier rejection as a transactional failure: the warm
+    # growth transaction must produce an image that passes independent
+    # UEFI/ISO validation, otherwise it does not exist for our purposes.
     verify_cmd = [sys.executable, str(REPO_ROOT / "build" / "iso" / "verify-image.py"),
                   "--image", str(out), "--arch", args.arch, "--level", "warm",
                   "--report", str(out.parent / (out.name + ".verify.json")),
@@ -427,19 +721,20 @@ def warm_image(args) -> int:
     verifier_exit = proc.returncode
 
     # Clean up scratch clone regardless of verifier outcome.
-    _chmod_r(scratch)
-    shutil.rmtree(scratch, ignore_errors=True)
+    _cleanup_scratch(scratch)
 
     if verifier_exit != 0:
-        log(f"NOTE: verifier rejected warm image (exit={verifier_exit}); see "
+        log(f"FAIL: verifier rejected warm image (exit={verifier_exit}); see "
             f"{out.parent / (out.name + '.verify.json')} for details. The "
-            "warm writer transaction itself ran successfully; the GPT "
-            "layout staleness is a known xorriso limitation documented in "
-            "docs/superpowers/specs/2026-09-21-step1-xorriso-writer-findings.md.")
+            f"warm writer transaction must produce an image that passes "
+            f"independent UEFI/ISO validation; a rejected image is not "
+            f"shippable.")
+        return verifier_exit or 1
 
     out_sha = sha256_file(out)
     log(f"warm growth: {out} sha256={out_sha} bytes={out.stat().st_size} "
-        f"clone_seconds={clone_seconds:.3f} growth_seconds={growth_seconds:.3f}")
+        f"clone_seconds={clone_seconds:.3f} growth_seconds={growth_seconds:.3f} "
+        f"verifier=PASS")
 
     receipt = {
         "schema_version": "warm-image-receipt/v1",
@@ -456,6 +751,7 @@ def warm_image(args) -> int:
         "clone_seconds": clone_seconds,
         "growth_seconds": growth_seconds,
         "reflink_fs_check": fs_check,
+        "gpt_rescue_finalizer": finalizer_log,
         "manifest_summary": {
             "add_count": len(adds),
             "replace_count": len(replaces),
