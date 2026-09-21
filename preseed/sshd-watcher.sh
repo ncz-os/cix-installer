@@ -104,7 +104,17 @@ NCZDNSHOOK
     write_ncz_dns_hook /usr/lib/pre-pkgsel.d
     echo "[watcher] installed ncz DNS hooks for base-installer.d + pre-pkgsel.d"
 }
-install_ncz_dns_hooks
+# 2026-09-21 (dispatch 2 Stage A): the DNS writer hooks are one of the four
+# "current applicable Sky1 d-i hardware fixes" being qualified for retirement.
+# NCZ_SKY1_OVERLAYS=0 -> F-stock-userspace: d-i uses its own DHCP-derived
+# resolver, no /target/etc/resolv.conf overwrite from base-installer.d /
+# pre-pkgsel.d. NCZ_SKY1_OVERLAYS=1 (default) -> F-retained-fixes (current
+# production behavior; sshd-watcher still runs sshd + cmdline reset).
+if [ "${NCZ_SKY1_OVERLAYS:-1}" = "1" ]; then
+    install_ncz_dns_hooks
+else
+    echo "[watcher] SKIP ncz DNS hooks (NCZ_SKY1_OVERLAYS=${NCZ_SKY1_OVERLAYS})"
+fi
 
 # Netinstall-bootstrap carries a small regular-deb pool on the ISO but keeps
 # .disk/base_installable absent so base-installer still debootstraps from the

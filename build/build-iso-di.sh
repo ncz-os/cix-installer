@@ -2288,7 +2288,16 @@ PYDISK
     rm -rf "$_tmp"
     echo "    disk-detect udeb: preloads storage modules and extends disk_found wait to 90 settled attempts (~180s)"
 }
-patch_disk_detect_wait "$STAGING/pool/main/h/hw-detect/disk-detect_*.udeb"
+# 2026-09-21 (dispatch 2 Stage A): the disk-detect udeb patch is one of the four
+# "current applicable Sky1 d-i hardware fixes" being qualified for retirement on
+# Forky. NCZ_SKY1_OVERLAYS=0 -> F-stock-userspace (kernel swap + product preseed
+# integration only; no d-i-internals hardware workaround). NCZ_SKY1_OVERLAYS=1
+# (default) -> F-retained-fixes (current production behavior).
+if [ "${NCZ_SKY1_OVERLAYS:-1}" = "1" ]; then
+    patch_disk_detect_wait "$STAGING/pool/main/h/hw-detect/disk-detect_*.udeb"
+else
+    echo "    [sky1-overlay] SKIP disk-detect udeb wait/prime patch (NCZ_SKY1_OVERLAYS=${NCZ_SKY1_OVERLAYS})"
+fi
 
 # Give NCZ late_command an explicit 100-unit allocation in finish-install's
 # OWN progress bar. Bookworm does not preload finish-install into the initrd:
@@ -2390,8 +2399,17 @@ PYFINISH
     rm -rf "$_tmp"
     echo "    finish-install udeb: allocated 100 owned progress units to 07preseed/late_command"
 }
-patch_finish_install_progress_owner \
-    "$STAGING/pool/main/f/finish-install/finish-install_*.udeb"
+# 2026-09-21 (dispatch 2 Stage A): finish-install progress-owner allocation is
+# one of the four "current applicable Sky1 d-i hardware fixes" being qualified
+# for retirement. NCZ_SKY1_OVERLAYS=0 -> F-stock-userspace, NCZ_SKY1_OVERLAYS=1
+# (default) -> F-retained-fixes. The cosmetic progress text difference is not
+# load-bearing for install success; it's a UX feature.
+if [ "${NCZ_SKY1_OVERLAYS:-1}" = "1" ]; then
+    patch_finish_install_progress_owner \
+        "$STAGING/pool/main/f/finish-install/finish-install_*.udeb"
+else
+    echo "    [sky1-overlay] SKIP finish-install progress-owner patch (NCZ_SKY1_OVERLAYS=${NCZ_SKY1_OVERLAYS})"
+fi
 
 # Step 5: regenerate the target-suite debian-installer Packages index
 # from the actual pool contents (not just copy bookworm's stale Packages).
@@ -3015,9 +3033,20 @@ install -m 0755 "$ROOT/preseed/usb-rescan.sh" \
 RESCAN_GZ="$STAGING/.rescan-overlay.cpio.gz"
 ( cd "$RESCAN_WORK" && find usr -mindepth 1 -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$RESCAN_GZ"
 gzip -t "$RESCAN_GZ"
-cat "$RESCAN_GZ" >> "$STAGING/${INSTALL_DIR}/initrd.gz"
-rm -rf "$RESCAN_WORK" "$RESCAN_GZ"
-echo "    usb-rescan staged as /usr/lib/debian-installer-startup.d/S35usb-rescan"
+# 2026-09-21 (dispatch 2 Stage A): the S35usb-rescan initrd-overlay is one of
+# the four "current applicable Sky1 d-i hardware fixes" being qualified for
+# retirement. NCZ_SKY1_OVERLAYS=0 -> F-stock-userspace (initrd runs vanilla
+# d-i startup scripts; the preseed copy of usb-rescan.sh is still staged at
+# /cixmini/usb-rescan.sh but the initrd-level S35 hook does NOT fire).
+# NCZ_SKY1_OVERLAYS=1 (default) -> F-retained-fixes.
+if [ "${NCZ_SKY1_OVERLAYS:-1}" = "1" ]; then
+    cat "$RESCAN_GZ" >> "$STAGING/${INSTALL_DIR}/initrd.gz"
+    rm -rf "$RESCAN_WORK" "$RESCAN_GZ"
+    echo "    usb-rescan staged as /usr/lib/debian-installer-startup.d/S35usb-rescan"
+else
+    rm -rf "$RESCAN_WORK" "$RESCAN_GZ"
+    echo "    [sky1-overlay] SKIP S35usb-rescan initrd overlay (NCZ_SKY1_OVERLAYS=${NCZ_SKY1_OVERLAYS})"
+fi
 echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
 
 # ----------------------------------------------------------------------
