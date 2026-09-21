@@ -79,7 +79,18 @@ if [ -z "$BRANCH" ] || [ "$BRANCH" = HEAD ]; then
     echo "[1] WARN: detached HEAD or unknown branch -- cannot compare against a remote tracking branch"
     WARN=$((WARN + 1))
 else
-    if git fetch origin "$BRANCH" --quiet 2>/dev/null; then
+    # NEVER a bare, unbounded `git fetch` here. Confirmed live on HYDRA
+    # 2026-09-21, TWICE, even after fixing client ~/.ssh/config fleet-wide
+    # (IdentitiesOnly + MaxAuthTries): a plain fetch against the ARGONAS
+    # origin can still hang indefinitely with no error, no timeout, no
+    # diagnostic (stderr was even redirected to /dev/null) -- it silently
+    # stalled an entire ISO build for 30+ minutes, twice, exactly the class
+    # of problem this gate exists to prevent. `timeout` bounds the hang;
+    # the sshpass password-auth wrapper is the same fleet-standard fallback
+    # every other network call in this repo already uses (kernel-build-
+    # checklist.md §0f) -- don't rely on client SSH config alone here.
+    if timeout 20 env GIT_SSH_COMMAND='sshpass -p "changeme" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o ConnectTimeout=10' \
+        git fetch origin "$BRANCH" --quiet 2>/dev/null; then
         LOCAL_SHA="$(git rev-parse HEAD)"
         REMOTE_SHA="$(git rev-parse "origin/$BRANCH" 2>/dev/null)"
         if [ -z "$REMOTE_SHA" ]; then
@@ -127,7 +138,7 @@ if [ -d "$PATCH_ROOT" ]; then
 
         tmp_clone="$(mktemp -d)"
         trap 'rm -rf "$tmp_clone"' RETURN
-        if ! git clone --quiet --depth 50 "$upstream_url" "$tmp_clone" 2>/dev/null; then
+        if ! timeout 30 git clone --quiet --depth 50 "$upstream_url" "$tmp_clone" 2>/dev/null; then
             echo "[2] WARN: could not clone $upstream_url to verify $sub_name patches -- no network, or a transient failure"
             WARN=$((WARN + 1))
             rm -rf "$tmp_clone"
