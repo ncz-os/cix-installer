@@ -33,3 +33,14 @@ Writing to 'stdio:build/iso-receipts-stageAB/ncz-d2-stock-2026.09.21-qemutest.is
 
 --- phase 1: install (timeout 5400s) ---
   started 14:06:17Z
+  ended   15:32:43Z  (qemu rc=0)
+  install completed without a failed hook
+  hooks reported done: 0
+
+--- phase 2: boot installed system (timeout 600s) ---
+  qemu rc=0
+  installed system reached userspace
+  WARN: no NCZ-ROOTMODE marker in boot log — firstboot may not have completed before BOOT_TIMEOUT; root mode NOT verified
+
+GATE PASS: ncz-d2-stock-2026.09.21-qemutest.iso installs and boots
+EXIT=0

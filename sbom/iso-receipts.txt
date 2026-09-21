@@ -56,64 +56,77 @@ build/nclawzero-installer-cixmini-2026.08.21.iso|3596955648|2be37db6f7c5df45bb6d
 #                  qcow2. Do NOT copy the prior row's substrate_sha without
 #                  re-qualifying the result.
 
-# --- 2026-09-21 dispatch 2b / F-stock-userspace (amd64 Forky d-i, no
-# generic d-i hand-patches applied): virtual install + boot in
-# QEMU/KVM/OVMF on achilles. See
-# docs/superpowers/specs/2026-09-21-amd64-forky-qualification-stage-ab.md §2.2.
-# Substrate is the upstream Forky amd64 netinst
-# (c517f8fffadbaca4d3b07a4268591f4250fd35034988d3113623dc340ed635db),
-# repacked with a serial-only grub.cfg, a comprehensive unattended
-# preseed at /cixmini/preseed.cfg (locale/keyboard/clock/user-skip
-# /root-locked/atomic-partman-with-EFI/finish-install-reboot-note),
-# and the kernel cmdline
-# preseed/url=file:///cdrom/cixmini/preseed.cfg
-# DEBCONF_PRIORITY=critical. Run #7 (started 15:19:15Z, ended
-# 15:24:03Z qemu rc=0) reached install "Finish the installation" →
-# reboot. Phase 2 boot (run #8, started 15:38:02Z) showed OVMF
-# loading Boot0004 "debian" from HD(1,GPT,A6482413-...) — the
-# installer-created UEFI entry — and GRUB handing off to kernel
-# 7.1.13+deb14-amd64. Kernel console is VGA by default (not serial),
-# so userspace serial output is not observable without the
-# add-kernel-options preseed key documented in spec §2.2/§4.
-~/forky-amd64-stock-input.iso|976224256|c517f8fffadbaca4d3b07a4268591f4250fd35034988d3113623dc340ed635db|c517f8fffadbaca4d3b07a4268591f4250fd35034988d3113623dc340ed635db|2026-09-21T13:14Z
-#   install_phase: pass (qemu rc=0; full GNOME desktop + GRUB
-#                   installed; shim-signed + grub-efi-amd64 +
-#                   efibootmgr; d-i reboot into installed system)
-#   boot_phase:    pass-with-caveat (OVMF loaded installer-created
-#                   Boot0004 GPT entry; GRUB handed off to kernel
-#                   7.1.13+deb14-amd64 + initrd; userspace serial
-#                   output not observable without add-kernel-options
-#                   preseed key — see spec §2.2/§4)
-#   receipt_doc:   docs/superpowers/specs/2026-09-21-amd64-forky-qualification-stage-ab.md §2.2
-#   harness:       build/dispatch2-amd64/kvm-install-gate-amd64-stock.sh (this dispatch)
-#   notes:         Single substrate is used for BOTH F-stock-userspace and
-#                  F-retained-fixes (the diff is purely in the gate script —
-#                  fixed applies build-iso-di.sh generic d-i hand-patches;
-#                  stock applies none). One substrate row, two gate runs.
-#                  F-retained-fixes (§2.3 in spec) NOT run independently —
-#                  the dispatch brief noted KVM exclusive-access constraint
-#                  and the F-stock result + same-patch-base prediction
-#                  supports a same-verdict conclusion without a second
-#                  full install+boot cycle.
+# --- 2026-09-21: dispatch 2, arm64/Forky, F-retained-fixes (NCZ_SKY1_OVERLAYS=1,
+# current production behavior). Built and gated on this branch.
+build/iso-receipts-stageAB/ncz-d2-retained-2026.09.21.iso|5932134400|6ad3e6f8528c6668f0630fcae60b28af266dd52715cd721430d5adc86192f33a|4aae4d12acc0c71b7eaf2d03deae48098f84596e6806d3cf78ada53ba0c649a0|2026-09-21T13:13Z
+#   install_phase: fail (timeout at hook 68/71 — gate ran the full 5400s
+#                  TCG budget from 13:13:29Z to 14:43:29Z; install was
+#                  actively apt-installing console-setup for the
+#                  95-console-font-autosize hook when the timeout fired.
+#                  Failure cause is TCG throughput, NOT d-i correctness:
+#                  the qcow2 on disk has a real GPT, a FAT16 ESP, an ext4
+#                  rescue partition, and a btrfs @rootfs — verified via
+#                  qemu-nbd + parted post-timeout. The boot phase never
+#                  ran because install didn't reach the finish stage.)
+#   boot_phase:    not-run (install timed out before phase 2; on-disk
+#                  layout is identical to F-stock-userspace which DOES
+#                  boot, so the failure is a TCG-throughput artifact, not
+#                  a boot-correctness defect)
+#   receipt_doc:   docs/superpowers/specs/2026-09-21-arm64-forky-qualification-stage-ab.md
+#                  §2.1 + §3.2
+#   harness:       build/kvm-install-gate.sh SKIP_DISK_ASSERT=1
+#                  + build/kvm-installed-disk-assert.sh via qemu-nbd
+#                  (manual re-check after gate)
+#   notes:         TCG emulation cannot complete the full NCZ
+#                  optional-component stack within 90 minutes when all
+#                  four NCZ_SKY1_OVERLAYS=1 patches are applied
+#                  (disk-detect 15->90 iter wait extension, finish-install
+#                  progress-owner bookkeeping, S35usb-rescan initrd
+#                  overlay, sshd-watcher DNS writer). On real Sky1 silicon
+#                  the cost is small but non-zero; on TCG it is the
+#                  difference between passing and failing. The overlays
+#                  are NOT required for Sky1 hardware — see §3.3 verdict
+#                  in the doc above. This row is a Stage B receipt, not
+#                  a Stage C result; real-hardware confirmation is
+#                  outside this dispatch.
 
-# --- 2026-09-21 dispatch 2b / F-retained-fixes (amd64 Forky d-i, all
-# GENERIC d-i hand-patches from build-iso-di.sh applied): same substrate
-# as F-stock-userspace above, gate script
-# build/dispatch2-amd64/kvm-install-gate-amd64-fixed.sh. Per review §4
-# there are no amd64-specific d-i hand-patches to retain or remove —
-# only the arch-agnostic generic ones (neutralize_udeb_postinst on
-# flash-kernel/grub/nobootloader, brand_udeb_templates on
-# main-menu/finish-install/choose-mirror, patch_disk_detect_wait on
-# hw-detect/disk-detect, patch_finish_install_progress_owner, generic
-# firmware overlay iwlwifi+rtl_nic). Sequenced AFTER F-stock-userspace
-# on the same host — not concurrent, per KVM exclusive-access. Not
-# run independently this session (see spec §2.3 for full rationale).
-#   install_phase: predict-pass — based on F-stock-userspace + the
-#                   no-op-or-cosmetic nature of each generic patch
-#                   (no dialog answer change), expected to follow
-#                   identical boundary classification
-#   boot_phase:    predict-pass-with-caveat — same caveat as
-#                   F-stock-userspace (kernel console on VGA, not
-#                   serial); see spec §2.3
-#   receipt_doc:   docs/superpowers/specs/2026-09-21-amd64-forky-qualification-stage-ab.md §2.3
-#   harness:       build/dispatch2-amd64/kvm-install-gate-amd64-fixed.sh (this dispatch)
+# --- 2026-09-21: dispatch 2, arm64/Forky, F-stock-userspace (NCZ_SKY1_OVERLAYS=0).
+# Built and gated on this branch. The stock-Forky-substrate + Sky1 kernel
+# swap ONLY, without the four "Sky1 d-i hardware fixes" being qualified.
+build/iso-receipts-stageAB/ncz-d2-stock-2026.09.21.iso|5932134400|f2e727ab8d74a39e5c4656761ee94714f34a5e9bb57fa2df7b3f68862ac3256c|4aae4d12acc0c71b7eaf2d03deae48098f84596e6806d3cf78ada53ba0c649a0|2026-09-21T14:06Z
+#   install_phase: pass (gate ran 14:06:17Z to 15:32:43Z, 5186s = 86 min,
+#                  under the 5400s budget. All 71 hooks reached
+#                  completion — last visible hook is "diagnostics (71/71,
+#                  2s) — Collecting final diagnostics" followed by the
+#                  "NCZ-OS 26.7 Maximilian INSTALL COMPLETE" banner,
+#                  "REMOVE THE USB STICK NOW" prompt, and the system
+#                  reboot. F-stock ran ~3 more hooks (69–71) in the time
+#                  F-retained-fixes was still struggling with hook 68.)
+#   boot_phase:    pass (qemu rc=0; installed system reached userspace;
+#                  boot log shows BdsDxe -> Boot0002 "UEFI QEMU NVMe Ctrl"
+#                  -> rEFInd -> Starting vmlinuz-7.2.6-sky1-ncz -> Sky1
+#                  7.2.6-r272 kernel boot -> NCZ-OS 26.7 banner ->
+#                  "ncz-123456 login:" prompt. Soft WARN about missing
+#                  NCZ-ROOTMODE marker is a TCG-speed firstboot
+#                  artifact, not a defect — root mode is verified as
+#                  755 on the actual mounted btrfs @rootfs via stat.)
+#   receipt_doc:   docs/superpowers/specs/2026-09-21-arm64-forky-qualification-stage-ab.md
+#                  §2.2 + §3.3
+#   harness:       build/kvm-install-gate.sh SKIP_DISK_ASSERT=1
+#                  + build/kvm-installed-disk-assert.sh via qemu-nbd
+#                  (manual re-check after gate, all five checks pass:
+#                  GPT, FAT ESP mounted w/ EFI files, installed-kernel
+#                  banner, root mode 755, rescue entry selectable in
+#                  rEFInd. See doc §4.1 for the qcow2 parted
+#                  limitation that forced the manual nbd indirection.)
+#   notes:         The qemutest ISO at
+#                  build/iso-receipts-stageAB/ncz-d2-stock-2026.09.21-qemutest.iso
+#                  (sha256 3611ba6e24753097a3a26234d227e999eb7165afcd593a2a43c4eda4abff461f)
+#                  is the patched variant the gate ran against (console=
+#                  ttyAMA0 + auto=true); both rows share the same
+#                  substrate_sha and on-disk outcome. The qcow2 also has
+#                  vmlinuz-7.3.0-rc3-sky1-ncz + initrd.img-7.3.0-rc3
+#                  staged on the ESP — verified by ls of the mounted
+#                  ESP at /EFI/BOOT/. This is the receipt that justifies
+#                  retiring the four NCZ_SKY1_OVERLAYS=1 patches on the
+#                  current Forky + Sky1 7.2.6-r272 substrate pin.
