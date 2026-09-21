@@ -73,6 +73,16 @@ def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+def _chmod_r(p: Path) -> None:
+    """Best-effort recursive chmod to writable so rmtree works on
+    read-only xorriso-extracted trees."""
+    try:
+        subprocess.run(["chmod", "-R", "u+w", str(p)], check=False,
+                       capture_output=True)
+    except Exception:
+        pass
+
+
 def cmd_with_log(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     log(f"$ {' '.join(str(c) for c in cmd)}")
     return subprocess.run(cmd, **kwargs)
@@ -317,9 +327,14 @@ def warm_image(args) -> int:
 
     # 1. Reflink-clone the parent into a private scratch path.
     clone_t0 = time.monotonic()
-    reflink_copy(parent, out)
+    scratch = out.parent / f".warm-scratch-{out.name}"
+    if scratch.exists():
+        _chmod_r(scratch)
+        shutil.rmtree(scratch)
+    scratch.parent.mkdir(parents=True, exist_ok=True)
+    reflink_copy(parent, scratch)
     clone_seconds = time.monotonic() - clone_t0
-    log(f"parent clone: {out} seconds={clone_seconds:.3f} bytes={out.stat().st_size}")
+    log(f"parent clone: {scratch} seconds={clone_seconds:.3f} bytes={scratch.stat().st_size}")
 
     # 2. Materialize payload files into a private staging tree under
     #    ``out.parent/.warm-stage``. The writer consumes staged payloads
@@ -338,27 +353,26 @@ def warm_image(args) -> int:
         dst.parent.mkdir(parents=True, exist_ok=True)
         reflink_copy(src, dst)
 
-    # 3. Build the xorriso command list. We open the SAME file as -indev
-    #    AND -outdev so the operation is in-place (xorriso handles the
-    #    seek-and-overwrite via -commit). The command list:
+    # 3. Build the xorriso command list. We use -indev = the scratch clone
+    #    and -outdev = the final output path. We do NOT update the parent
+    #    in place: that breaks GPT layout because xorriso does not
+    #    relocate the backup GPT when growing. The cloned scratch is the
+    #    read-only input; the output is a fresh file that xorriso writes
+    #    from scratch.
     #
-    #    -boot_image any discard   : drop existing boot catalog entries
-    #    -boot_image any cat_path : blank catalog path reset
-    #    -update ... <iso-path>    : add or replace files from staging tree
-    #    -cpx <iso-path>           : remove obsolete paths
-    #    -append_partition 2 0xEF  : re-append the (possibly changed) ESP
-    #    -boot_image any ...       : re-emit the boot catalog with EFI
-    #                               entry pointing at the new ESP
-    #    -commit                   : flush writes (no partial objects)
+    # The command list:
+    #    -boot_image any replay   : copy MBR/system area from input
+    #    -update ... <iso-path>   : add or replace files from staging tree
+    #    -cpx <iso-path>          : remove obsolete paths
+    #    -append_partition 2 0xEF : re-append the (possibly changed) ESP
+    #    -boot_image any ...      : re-emit EFI catalog entry for the ESP
+    #    -commit                  : flush writes (no partial objects)
     cmd = [
         "xorriso",
-        "-indev", str(out),
+        "-indev", str(scratch),
         "-outdev", str(out),
+        "-boot_image", "any", "replay",
     ]
-    # Drop existing boot catalog so we can rewrite it.
-    cmd += ["-boot_image", "any", "discard"]
-    cmd += ["-boot_image", "any", "cat_path="]
-
     # Map logical adds/replaces to xorriso -update. ``-update`` writes the
     # local file to the ISO at the given ISO path; it does NOT use
     # timestamp-based discovery.
@@ -378,17 +392,11 @@ def warm_image(args) -> int:
     #    an explicit re-append; "keep" would be wrong here.
     cmd += ["-append_partition", "2", "0xEF", str(esp_img)]
 
-    # Re-emit the El Torito boot catalog with an EFI entry for the ESP.
-    # We use the same xorrisofs syntax as the cold path so the layout
-    # matches and the verifier's checks pass without changes.
-    cmd += [
-        "-boot_image", "any",
-        "cat_path=/boot.cat,cat_hidden=on,boot_info_table=on,"
-        "platform_id=0xEF,boot=yes",
-    ]
-    # Match cold: keep GPT/MBR geometry consistent.
-    cmd += ["-boot_image", "any", "next",
-            "cat_path=/efi.img,cat_hidden=on,platform_id=0xEF,boot=yes"]
+    # xorriso's -boot_image replay (from step 3 above) already replays
+    # the parent's El Torito settings, which point at the ESP. We
+    # therefore do NOT need to re-emit -boot_image any here. The
+    # -append_partition above updates the ESP contents (in-place), and
+    # the replayed boot image will reference the new ESP bytes.
 
     # Final commit flushes all writes.
     cmd += ["-commit"]
