@@ -565,7 +565,14 @@ def cmd_providers(_: argparse.Namespace) -> None:
 
 
 def cmd_categories(args: argparse.Namespace) -> None:
-    print(json.dumps(get_categories(args.provider), indent=2, sort_keys=True))
+    # singularity-plugins' wallpapers-ocs Vala plugin (WallpaperOcs.categories())
+    # parses this subcommand's stdout as a JSON OBJECT (same document-parser it
+    # uses for `browse`'s output), not a bare array -- confirmed live 2026-09-21,
+    # MEDUSA: real error "Could not load OCS Network choices: Expected a JSON
+    # object" the moment this printed a plain `[...]` list. Wrap it, matching
+    # the same self-naming convention `providers` (key "providers") and `index`
+    # (key "entries") already use.
+    print(json.dumps({"schema": SCHEMA, "provider": args.provider, "categories": get_categories(args.provider)}, indent=2, sort_keys=True))
 
 
 def cmd_index(args: argparse.Namespace) -> None:
