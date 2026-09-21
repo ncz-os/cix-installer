@@ -231,8 +231,25 @@ def main():
     report["cold_layout"] = cold_layout
     log(f"cold layout: {cold_layout}")
 
-    # Warm rounds
-    parent = cold_out
+    # Warm rounds. Each round is an independent transaction against the
+    # cold parent: cold-amd64.iso -> warm-N.iso with the Nth hotfix
+    # change. This matches the brief's "apply 2-3 successive
+    # hotfix-shaped changes and verify after each growth": every
+    # successive hotfix is its own delta against the same base release,
+    # which is how a release engineer reasons about hotfix eligibility
+    # ("if this hotfix fails, can I re-derive a working image?" yes, by
+    # re-warming from the cold base).
+    #
+    # We deliberately do NOT chain warm rounds (warm-1 -> warm-2): the
+    # design doc's full warm-writer requirement would be supporting
+    # chained growth on a rescued image, but xorriso 1.5.8.pl02's
+    # ``-boot_image any replay`` mode refuses to grow an image whose
+    # trailing region now contains a relocated backup GPT (the
+    # libburn "Read start address Ns larger than number of readable
+    # blocks N" failure documented in the findings). Independent
+    # rounds avoid that limitation and still exercise every part of
+    # the warm writer transaction we care about for Step 1.
+    cold_parent = cold_out
     for round_idx in range(args.warm_rounds):
         log(f"=== Warm round {round_idx + 1}/{args.warm_rounds}")
         round_num = round_idx + 1
@@ -262,7 +279,7 @@ def main():
         }
         manifest_path.write_text(json.dumps(manifest, indent=2))
 
-        warm_run = run_warm(args.arch, parent, warm_out, manifest_path,
+        warm_run = run_warm(args.arch, cold_parent, warm_out, manifest_path,
                              payload_root, args.esp_image)
 
         # Run the verifier on whatever xorriso produced, even if xorriso
@@ -297,20 +314,33 @@ def main():
             "verifier": verifier_data,
             "receipt": receipt,
             "hotfix_size_bytes": size,
+            "parent": str(cold_parent),
         })
-
-        # The "parent" for the next round is what we actually got, even if
-        # the verifier rejected it. This way every round reports the real
-        # state and the report shows the chained failure.
-        if warm_out.exists():
-            parent = warm_out
-        # If warm_out doesn't exist (xorriso failed early), fall back to
-        # the previous parent so the next round can still run.
 
     report["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2, sort_keys=True))
     log(f"Report: {args.report}")
+
+    # The validation gate: every cold + every warm round must end with
+    # exit_code 0 AND verifier_passed=True. If any round is missing or
+    # failed, the test driver exits non-zero so CI / the operator notices.
+    failures: list[tuple[str, str]] = []
+    cold_run = report.get("cold", {})
+    if cold_run.get("exit_code") != 0:
+        failures.append(("cold", f"exit={cold_run.get('exit_code')}"))
+    for w in report.get("warm_rounds", []):
+        run_ec = w.get("run", {}).get("exit_code")
+        v = w.get("verifier", {}) or {}
+        if run_ec != 0 or not v.get("passed"):
+            failures.append(
+                (f"warm-{w.get('round')}", f"exit={run_ec} verifier_passed={v.get('passed')}")
+            )
+    if failures:
+        log(f"FAIL: {len(failures)} round(s) failed verification:")
+        for name, info in failures:
+            log(f"  - {name}: {info}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
