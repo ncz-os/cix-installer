@@ -23,6 +23,14 @@ manifest_for() {
 
 echo "=== preflight-sbom-check (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH) ==="
 bash "$REPO/build/verify-assets.sh" "$(manifest_for expected-assets)"
+
+# verify-assets.sh checks base.squashfs by opaque size+sha256 only -- it
+# cannot tell WHY the hash changed (or didn't). Semantic check: does the
+# squashfs actually contain every currently-staged kernel, by name.
+# See MNEMOS mem_1789997635556_0497ae.
+if [ -f "$REPO/assets/squashfs/base.squashfs" ]; then
+    bash "$REPO/build/verify-squashfs-kernel-identity.sh" "$REPO/assets/squashfs/base.squashfs"
+fi
 bash "$REPO/build/verify-packages.sh" "$(manifest_for expected-packages)"
 if compgen -G "$REPO/build/kernel-debs/*.deb" >/dev/null || \
    compgen -G "$REPO/build/kernel-debs-$NCZ_TARGET_ARCH/*.deb" >/dev/null || \

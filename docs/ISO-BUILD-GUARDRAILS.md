@@ -221,3 +221,37 @@ in build/build-iso-di.sh, preseed/extract-rootfs.sh, preseed/late.sh,
 diag-console.sh) should be run through this tool against the LITERAL
 committed line before the commit lands -- not an equivalent typed into a
 normal shell. This is now the standard practice, not optional.
+
+## Squashfs layer reuse must verify identity, not just check existence
+
+Cost a shipped ISO booting the wrong kernel, 2026-09-21 on HYDRA. See
+MNEMOS `mem_1789997635556_0497ae` for the full incident.
+
+`build/build-squashfs-layers.sh`'s `all` action reused an existing
+`base.squashfs` on nothing but `[ -s "$OUT/base.squashfs" ]` -- no
+staleness check at all. The file was 2 days old (kernel 7.2.6-1 baked in)
+when the amd64 stable kernel line was promoted to 7.2.6-2. Nothing forced
+a rebuild. The result booted with BOTH kernel versions on disk and rEFInd
+picked the stale one -- the ISO booted cleanly to a login prompt, which is
+exactly why this is dangerous: a passing boot test does not prove the
+*correct* kernel booted.
+
+**Fixed**: `all` now compares every staged `assets/kernel/*/KVER` against
+what is actually embedded in the existing `base.squashfs` (via
+`unsquashfs -l`, no extraction) before reusing it, and forces a real
+rebuild on any mismatch.
+
+- [ ] Any layer-reuse/caching mechanism in this pipeline (squashfs layers,
+      and the incremental ISO-assembly design proposed in
+      `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`)
+      must key on real content/artifact identity, never bare file
+      existence or mtime alone. This incident happened in the SAME session
+      that was designing a proper content-addressed cache for the ISO
+      stage -- the existing pipeline already had an unrelated instance of
+      exactly the bug class that design work exists to prevent.
+- [ ] After any kernel promotion (KVER bump), confirm `base.squashfs`'s
+      mtime is NEWER than the promotion, not just that the build "ran" --
+      a silently-reused stale layer produces no error, no warning by
+      default, and a fully successful-looking boot.
+- [ ] A boot reaching a login prompt is not sufficient proof of a correct
+      build. Check the actual banner/`uname -r` against the intended KVER.
