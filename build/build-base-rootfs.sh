@@ -139,6 +139,14 @@ MM_COMPONENTS="$(echo "$COMPONENTS" | tr -s ' ' ',')"
 # on what package sources the final image actually uses.
 BOOTSTRAP_MIRROR="${MIRROR/https:/http:}"
 
+# A pinned snapshot.debian.org mirror (release.conf's NCZ_BASE_MIRROR_SNAPSHOT)
+# carries a short-lived Valid-Until; mmdebstrap's internal apt would refuse it
+# as expired without this. No-op against the live deb.debian.org mirror.
+APTOPT_ARGS=()
+if [ -n "${NCZ_BASE_MIRROR_APT_OPTS:-}" ]; then
+    APTOPT_ARGS=(--aptopt='Acquire::Check-Valid-Until=false')
+fi
+
 echo "[base-rootfs] engine:  $CE"
 echo "[base-rootfs] out:     $OUT"
 echo "[base-rootfs] suite:   $SUITE   arch: $ARCH   host: $HOST_ARCH"
@@ -152,6 +160,7 @@ mmdebstrap --arch=$ARCH --mode=root --format=tar \
     --variant=minbase \
     --include=ca-certificates,apt-utils \
     --components="$MM_COMPONENTS" \
+    ${APTOPT_ARGS[@]+"${APTOPT_ARGS[@]}"} \
     --customize-hook='chroot "\$1" /bin/sh -c "true > /etc/machine-id" 2>/dev/null || true' \
     --customize-hook='rm -f "\$1/etc/resolv.conf"' \
     "$SUITE" /out/$TAR_NAME "$BOOTSTRAP_MIRROR"
