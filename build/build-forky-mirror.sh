@@ -55,8 +55,13 @@ mkdir -p "$TMP/etc/apt/apt.conf.d" "$TMP/etc/apt/preferences.d" \
          "$TMP/var/cache/apt/archives/partial"
 : > "$TMP/var/lib/dpkg/status"
 
+# A pinned snapshot.debian.org mirror carries a short-lived Valid-Until --
+# NCZ_BASE_MIRROR_APT_OPTS (release.conf) adds check-valid-until=no only when
+# actually pinned, so an unpinned live-mirror build keeps normal expiry checks.
+MIRROR_DEB_OPTS="arch=$ARCH signed-by=$DEBIAN_KEYRING"
+[ -n "${NCZ_BASE_MIRROR_APT_OPTS:-}" ] && MIRROR_DEB_OPTS="$MIRROR_DEB_OPTS,$NCZ_BASE_MIRROR_APT_OPTS"
 cat > "$TMP/etc/apt/sources.list" <<EOF
-deb [arch=$ARCH signed-by=$DEBIAN_KEYRING] $MIRROR_URL $SUITE $COMPONENTS
+deb [$MIRROR_DEB_OPTS] $MIRROR_URL $SUITE $COMPONENTS
 deb [arch=$ARCH trusted=yes] file://$VENDOR_MIRROR $SUITE main
 deb [arch=$ARCH trusted=yes] file://$DESKTOP_MIRROR $SUITE main
 EOF
@@ -142,3 +147,12 @@ gzip -9n -c "$OUT/dists/$SUITE/main/binary-$ARCH/Packages" \
 
 COUNT="$(grep -c '^Package: ' "$OUT/dists/$SUITE/main/binary-$ARCH/Packages")"
 echo "  verified offline mirror: $COUNT package records, $(du -sh "$OUT/pool" | cut -f1) pool"
+
+# Provenance record for SBOM/audit -- which exact archive state this ISO's
+# base packages came from, since MIRROR_URL alone in the build log scrolls
+# away and isn't attached to the artifact itself.
+{
+    echo "source=$MIRROR_URL"
+    echo "snapshot=${NCZ_BASE_MIRROR_SNAPSHOT:-none (live mirror)}"
+    echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$OUT/NCZ_MIRROR_PROVENANCE.txt"

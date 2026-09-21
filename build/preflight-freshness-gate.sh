@@ -208,6 +208,20 @@ else
     WARN=$((WARN + 1))
 fi
 
+# --- 4. Debian base-mirror snapshot pin staleness ---------------------------
+# WARN only, never FAIL: an old pin doesn't make a build wrong (it's still
+# fully reproducible against that snapshot), it just means the shipped
+# package set is behind what a deliberate `build/pin-forky-snapshot.sh` bump
+# would pick up. forky moves fast enough that this is worth surfacing.
+if [ -f "$REPO_ROOT/release.conf" ] && grep -q '^NCZ_BASE_MIRROR_SNAPSHOT=' "$REPO_ROOT/release.conf"; then
+    if ! bash "$REPO_ROOT/build/pin-forky-snapshot.sh" --check 2>&1 | sed 's/^/[4] /'; then
+        echo "[4] WARN: base-mirror snapshot pin is stale -- run build/pin-forky-snapshot.sh to bump it"
+        WARN=$((WARN + 1))
+    fi
+else
+    echo "[4] OK: base mirror is not pinned (live deb.debian.org) -- nothing to check"
+fi
+
 echo "=== preflight-freshness-gate: $FAIL failure(s), $WARN warning(s) ==="
 if [ "$FAIL" -gt 0 ]; then
     exit 1

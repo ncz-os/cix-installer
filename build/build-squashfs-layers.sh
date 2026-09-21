@@ -321,7 +321,11 @@ apt_offline(){ local c="$1"
     if [ -f "$ROOT/post-install/ncz-os-apt-keyring.asc" ] &&        gpg --dearmor < "$ROOT/post-install/ncz-os-apt-keyring.asc" | sudo tee "$c/etc/apt/keyrings/ncz-os-apt-keyring.gpg" >/dev/null 2>&1; then
       echo "deb [signed-by=/etc/apt/keyrings/ncz-os-apt-keyring.gpg] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main" |         sudo tee "$c/etc/apt/sources.list.d/ncz-os-apt-r2-live.list" >/dev/null
     fi
-    echo "deb $NCZ_BASE_MIRROR $NCZ_BASE_CODENAME $NCZ_BASE_COMPONENTS" |       sudo tee "$c/etc/apt/sources.list.d/ncz-base-live.list" >/dev/null
+    # A pinned snapshot.debian.org mirror (release.conf) expires its Release
+    # file quickly -- without check-valid-until=no this apt-get update fails
+    # closed the moment NCZ_BASE_MIRROR_SNAPSHOT is set.
+    _mirror_opts="${NCZ_BASE_MIRROR_APT_OPTS:+[$NCZ_BASE_MIRROR_APT_OPTS] }"
+    echo "deb ${_mirror_opts}$NCZ_BASE_MIRROR $NCZ_BASE_CODENAME $NCZ_BASE_COMPONENTS" |       sudo tee "$c/etc/apt/sources.list.d/ncz-base-live.list" >/dev/null
     sudo chroot "$c" apt-get update -y 2>&1 | tail -8 || true
     return 0
   fi
