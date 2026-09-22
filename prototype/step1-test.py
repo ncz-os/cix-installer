@@ -9,18 +9,21 @@ Runs:
         a. reflink-clones the previous artifact
         b. applies a hotfix-shaped change (a replacement of a single
            file at a realistic size — e.g. simulating a replaced
-           squashfs or .deb) via -update + explicit -append_partition
-        c. runs the independent verifier
+           squashfs or .deb) via xorriso -update + a separate -update
+           of the in-tree /efi.img (the ESP image is replaced on every
+           growth; the EFI Initial Entry's load LBA is rewritten by
+           -boot_image any replay)
+        c. runs the independent verifier (with --esp-image so the
+           embedded-ESP bytes are checked)
         d. records the real numbers (clone time, growth time, byte
-           counts, ESP-LBA, GPT backup LBA)
+           counts, ESP-LBA, verifier verdict)
 
 The verifier result for warm rounds is recorded as-is — even when the
 verifier rejects the warm output. This is what the design doc §8 wants
-honest measurement of: "what it did not prove" includes the GPT backup
-relocation behavior, and the warm rounds are where that shows up.
+honest measurement of.
 
 Run this script after import-substrate.py and build-refind-esp.py have
-populated the cache. Output goes to prototype/output/step1-report.json.
+populated the cache. Output goes to the directory passed via --report.
 """
 from __future__ import annotations
 
