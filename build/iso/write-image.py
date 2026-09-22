@@ -68,10 +68,6 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def sha256_bytes(b: bytes) -> str:
@@ -502,6 +498,7 @@ def cold_image(args) -> int:
                   -b <legacy-isolinux-bin>
                   -no-emul-boot
                   --efi-boot /efi.img
+                  -isohybrid-mbr /path/to/isohdpfx.bin
                   -isohybrid-gpt-basdat
                   -o <out> <substrate-tree>
 
@@ -517,17 +514,20 @@ def cold_image(args) -> int:
         it produces the legacy initial entry at offset 32.
       * ``--efi-boot /efi.img`` puts the EFI binary at offset 96 and
         tells xorriso to write the matching Section Header Entry.
+      * ``-isohybrid-mbr`` provides the 432-byte MBR template from the
+        Debian isolinux package (cached under build/iso-cache/syslinux/
+        because most build hosts do not ship it). Without a real MBR
+        template OVMF 11.1.1 could not find a bootable device from the
+        SATA/DVD-ROM path on our real-OVMF boot test.
       * ``-isohybrid-gpt-basdat`` adds the protective-MBR + GPT for
         hybrid USB boot. The GPT is invalid on this layout (no actual
         appended partition), so we do NOT use it as a boot hint; the
         boot goes via El Torito.
 
-    The size cost is one ESP image duplicated inside the ISO tree. We
-    pay it explicitly: the brief allows the design-doc §8 "larger FAT
-    ESP with kernel/initrd inside it, rewritten on every growth"
-    fallback. The kernel/initrd themselves live in the ISO tree
-    (not in the ESP image) — rEFInd finds them via its ISO9660 driver,
-    so the kernel+initrd can be arbitrarily large.
+    The kernel + initrd live INSIDE the FAT ESP at /linux and /initrd.gz
+    (see build-refind-esp.py). The ISO 9660 filesystem that surrounds
+    the ESP only carries installer payload (driver .debs, preseed, etc.),
+    not anything the bootloader needs to find.
     """
     out = Path(args.output).resolve()
     if out.exists():
@@ -648,10 +648,17 @@ def cold_image(args) -> int:
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))
     log(f"receipt: {receipt_path}")
 
-    # Verify (independent of xorriso exit status)
+    # Verify (independent of xorriso exit status). Pass --esp-image so the
+    # verifier actually checks that the bytes at the EFI Initial Entry's
+    # load_lba match the source ESP image -- without --esp-image, the
+    # verifier only walks structural metadata (MBR / PVD / El Torito
+    # catalog layout) and would happily print "verifier: OK" even if the
+    # ESP bytes inside the image had been corrupted. The warm path already
+    # passes --esp-image; the cold path needs to as well.
     verify_cmd = [sys.executable, str(REPO_ROOT / "build" / "iso" / "verify-image.py"),
                   "--image", str(out), "--arch", args.arch, "--level", "cold",
-                  "--report", str(out.parent / (out.name + ".verify.json"))]
+                  "--report", str(out.parent / (out.name + ".verify.json")),
+                  "--esp-image", str(esp_img)]
     proc = cmd_with_log(verify_cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         log(f"FAIL: verifier rejected cold image")
