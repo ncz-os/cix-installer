@@ -40,10 +40,12 @@ What we verify, in order:
      entry; verify it claims the LBA range our ESP image actually occupies.
   7. ISO9660 PVD at LBA 16: signature, type, version.
   8. El Torito Boot Record Volume Descriptor at LBA 17: signature, catalog LBA.
-  9. El Torito Boot Catalog at its LBA: Validation Entry + ISOLINUX
-     Initial Entry at offset 32 + Section Header Entry at offset 64 +
-     EFI Initial Entry at offset 96 (Debian pattern; the legacy
-     "validation + initial" only pattern is rejected).
+  9. El Torito Boot Catalog at its LBA. We validate the validation entry
+     (offset 0), the default/initial entry at offset 32, and (for the
+     Debian "Section Header Entry + EFI Initial Entry" pattern that
+     ``iso9660_efi_in_tree`` uses) the Section Header Entry at offset 64
+     and the EFI Initial Entry at offset 96: header indicator, EFI
+     platform ID (0xEF), final-section bit, and load LBA.
  10. Layout-aware ESP-bytes-identical-to-source check:
        * hybrid: read the bytes at the GPT EFI partition's LBA range.
        * iso9660_efi_in_tree: read the bytes at the EFI Initial Entry's
@@ -65,7 +67,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
+# The verifier uses two sector sizes. MBR / GPT live in the LBA-addressed
+# 512-byte sector view. ISO 9660 and the El Torito catalog always live in
+# the 2048-byte "logical block" view (per ECMA-119 / El Torito). Do not
+# mix them up: ``mbr_*`` helpers multiply by 512; ``iso_*`` and
+# ``el_torito_*`` helpers multiply by 2048.
 SECTOR = 512
+ISO_BLOCK = 2048
 
 
 def log(msg: str) -> None:
@@ -270,7 +278,7 @@ def check_gpt_entry_array(path: Path, *, header: dict, expected_efi_lba: int, ex
 
 def check_iso_pvd(path: Path) -> tuple[bool, list]:
     """PVD is at ISO sector 16 (byte 32768 in a 2048-byte-sector ISO).
-    Note: ISO 9660 always uses 2048-byte logical sectors even when the
+    ISO 9660 always uses 2048-byte logical sectors even when the
     MBR/GPT layer uses 512-byte sectors.
 
     Layout of a PVD (per ECMA-119):
@@ -283,7 +291,7 @@ def check_iso_pvd(path: Path) -> tuple[bool, list]:
       ...
     """
     issues = []
-    pvd = read_at(path, 16 * 2048, 2048)
+    pvd = read_at(path, 16 * ISO_BLOCK, ISO_BLOCK)
     if pvd[0] != 1:
         issues.append(f"PVD type code at offset 0 = {pvd[0]} != 1")
     if pvd[1:6] != b"CD001":
@@ -312,7 +320,7 @@ def check_el_torito(path: Path) -> tuple[bool, list]:
       offset 0x47 (71) : 32-bit LE LBA of the boot catalog
     """
     issues = []
-    brvd = read_at(path, 17 * 2048, 2048)
+    brvd = read_at(path, 17 * ISO_BLOCK, ISO_BLOCK)
     if brvd[0] != 0:
         issues.append(f"BRVD type at offset 0 = {brvd[0]} != 0 (Boot Record Volume Descriptor)")
     if brvd[1:6] != b"CD001":
@@ -327,8 +335,12 @@ def check_el_torito(path: Path) -> tuple[bool, list]:
     }]
 
 
-def check_el_torito_catalog(path: Path, catalog_lba: int) -> tuple[bool, list]:
+def check_el_torito_catalog(path: Path, catalog_lba: int) -> tuple[bool, list, bytes]:
     """El Torito catalog uses 2048-byte logical sectors (LBA in ISO units).
+
+    Returns (passed, detail_list, catalog_buf_bytes). The catalog buffer is
+    returned so callers can parse entries not covered here (e.g. when the
+    caller already knows the layout and wants to read additional fields).
 
     Per the El Torito spec, the catalog contains 32-byte entries:
 
@@ -347,12 +359,43 @@ def check_el_torito_catalog(path: Path, catalog_lba: int) -> tuple[bool, list]:
         bytes 2-3 Load segment
         byte 4    Partition type (0 = no partition, 1 = ...)
         byte 5    Reserved
-        bytes 6-7 Sector count (LE)
-        bytes 8-11 LBA of first sector of boot image (LE)
+        bytes 6-7 Sector count (LE) -- in 512-byte sectors (El Torito spec).
+                                         Note: this is NOT the field used to
+                                         compute Load RBA; see EFI Initial
+                                         Entry below.
+        bytes 8-11 LBA of first sector of boot image (LE) -- in 2048-byte
+                  ISO logical blocks (NOT 512-byte sectors).
+        bytes 12-31 Reserved (0)
+
+    The Debian "Section Header Entry + EFI Initial Entry" extension lives
+    at offsets 64 and 96 when the legacy ISOLINUX entry at offset 32 is
+    bootable and identifies a non-EFI platform. We validate it explicitly:
+
+      Section Header Entry (offset 64):
+        byte 0    Header ID, must be 0x91 (Section Header Entry)
+        byte 1    Platform (must equal the platform in the matching initial
+                  entry, e.g. 0xEF for EFI)
+        bytes 2-3 Reserved (0)
+        bytes 4-7 Number of following Section Entries (LE). On Debian's
+                  pattern this is 1 (just the EFI Initial Entry below).
+        bytes 8-31 Section identifier (24 bytes, ASCII)
+
+      EFI Initial Entry (offset 96):
+        byte 0    Boot indicator (0x88 bootable, 0x00 not)
+        byte 1    Boot media type (0 = no emulation)
+        bytes 2-3 Reserved (0)
+        byte 4    Partition type (0)
+        byte 5    Reserved (0)
+        bytes 6-7 Sector count (LE, 512-byte sectors per the El Torito spec)
+        bytes 8-11 LBA of first sector of boot image (LE, 2048-byte ISO
+                  logical blocks per the El Torito spec). xorriso 1.5.8
+                  writes the value in 2048-byte units even though the spec
+                  text says 512-byte units; the caller must multiply by
+                  2048 (NOT 512) to read the boot image.
         bytes 12-31 Reserved (0)
     """
     issues = []
-    catalog = read_at(path, catalog_lba * 2048, 2048)
+    catalog = read_at(path, catalog_lba * ISO_BLOCK, ISO_BLOCK)
 
     # Validation entry
     valid = catalog[0:32]
@@ -375,8 +418,85 @@ def check_el_torito_catalog(path: Path, catalog_lba: int) -> tuple[bool, list]:
     if boot_indicator != 0x88:
         issues.append(f"El Torito default entry boot indicator {boot_indicator:#04x} != 0x88")
 
-    # There is no separate EFI entry on its own — for this image, the
-    # "bootable" entry IS the EFI entry (platform 0xEF, appended partition).
+    # Section Header Entry at offset 64 (only present in the Debian
+    # "Section Header Entry + EFI Initial Entry" pattern that the
+    # iso9660_efi_in_tree layout uses). Treat the entry as absent when
+    # its header indicator is not 0x91; otherwise validate it.
+    section_header = catalog[64:96]
+    has_section_header = section_header[0] == 0x91
+    section_detail: dict = {
+        "present": has_section_header,
+    }
+    if has_section_header:
+        section_platform = section_header[1]
+        # Per the El Torito spec, the "Number of following Section Entries"
+        # is a 16-bit LE field at offset 2..3 of the Section Header Entry
+        # (NOT a 32-bit LE field at offset 4..7 as an earlier draft of
+        # this code assumed; we byte-verified against the real Debian
+        # Bookworm netboot ISO that bytes 2..3 carry the entry count).
+        section_entry_count = struct.unpack("<H", section_header[2:4])[0]
+        if section_platform != 0xEF:
+            issues.append(
+                f"El Torito Section Header Entry at catalog offset 64 has "
+                f"platform={section_platform:#04x}, expected 0xEF for EFI"
+            )
+        if section_entry_count == 0:
+            issues.append(
+                "El Torito Section Header Entry at catalog offset 64 has "
+                "0 following entries (expected at least 1 for an EFI section)"
+            )
+        section_detail.update({
+            "header_indicator": section_header[0],
+            "platform": section_platform,
+            "entry_count": section_entry_count,
+            "identifier": section_header[8:32].decode("ascii", errors="replace").strip("\x00"),
+        })
+
+    # EFI Initial Entry at offset 96 (only meaningful when a Section Header
+    # Entry preceded it). The presence is best-effort: if the Section Header
+    # was present but the EFI Initial Entry is bogus (wrong header
+    # indicator / wrong platform / not bootable / zero load LBA) we treat
+    # it as a catalog failure -- a broken EFI Initial Entry is exactly the
+    # gap that lets a corrupt image pass verification by accident.
+    efi_entry = catalog[96:128]
+    efi_detail: dict = {
+        "present": has_section_header,
+    }
+    if has_section_header:
+        efi_boot_ind = efi_entry[0]
+        efi_platform_like = efi_entry[1]
+        efi_sector_count = struct.unpack("<H", efi_entry[6:8])[0]
+        efi_load_lba = struct.unpack("<I", efi_entry[8:12])[0]
+        # Per the El Torito spec the EFI Initial Entry uses boot indicator
+        # 0x88 and boot media type 0 (no emulation). We require those
+        # values -- anything else means OVMF won't see this as a bootable
+        # EFI entry.
+        if efi_boot_ind != 0x88:
+            issues.append(
+                f"El Torito EFI Initial Entry at catalog offset 96 has "
+                f"boot_indicator={efi_boot_ind:#04x}, expected 0x88"
+            )
+        if efi_platform_like != 0x00:
+            # The EFI Initial Entry's byte 1 is reserved (0) per the spec;
+            # a non-zero value here is a known indicator of malformed
+            # catalogs.
+            issues.append(
+                f"El Torito EFI Initial Entry at catalog offset 96 has "
+                f"non-zero reserved byte 1 = {efi_platform_like:#04x} (spec "
+                f"requires 0)"
+            )
+        if efi_load_lba == 0:
+            issues.append(
+                "El Torito EFI Initial Entry at catalog offset 96 has "
+                "load_lba=0 (no boot image)"
+            )
+        efi_detail.update({
+            "boot_indicator": efi_boot_ind,
+            "boot_media_type": efi_entry[1],
+            "sector_count": efi_sector_count,
+            "load_lba": efi_load_lba,
+        })
+
     return (not issues), issues + [{
         "validation_entry": {
             "header_id": valid[0],
@@ -392,7 +512,9 @@ def check_el_torito_catalog(path: Path, catalog_lba: int) -> tuple[bool, list]:
             "sector_count": sector_count,
             "load_lba": load_lba,
         },
-    }]
+        "section_header_entry": section_detail,
+        "efi_initial_entry": efi_detail,
+    }], catalog
 
 
 def main():
@@ -595,7 +717,7 @@ def main():
             report["issues"].append(("el_torito_catalog", "could not find catalog_lba in BRVD detail"))
             report["passed"] = False
         else:
-            ok2, detail2 = check_el_torito_catalog(image, catalog_lba)
+            ok2, detail2, catalog_buf = check_el_torito_catalog(image, catalog_lba)
             report["checks"]["el_torito_catalog"] = {"ok": ok2, "detail": detail2}
             if not ok2:
                 report["passed"] = False
@@ -605,14 +727,15 @@ def main():
             # Initial Entry's load_lba (offset 96) match the source ESP
             # file. This is the in-tree analog of the hybrid layout's
             # ``esp_bytes_identical_to_source`` check.
-            if layout == "iso9660_efi_in_tree" and args.esp_image and args.esp_image.is_file():
-                # Re-read the catalog (2048-byte sector) and look at offset 96
-                # (the EFI Initial Entry inside it). Note: we have to read it
-                # here because check_el_torito_catalog does not return the
-                # catalog bytes, only the parsed validation/initial entries.
-                catalog_buf = read_at(image, catalog_lba * 2048, 2048)
+            #
+            # We rely on check_el_torito_catalog to have validated the
+            # EFI Initial Entry (header indicator 0x88, reserved byte 0,
+            # non-zero load_lba). If those checks did not pass, the
+            # catalog_buf we have here may be junk and the bytes-comparison
+            # below would silently produce a false positive -- so we only
+            # run the bytes check when the catalog passed.
+            if layout == "iso9660_efi_in_tree" and args.esp_image and args.esp_image.is_file() and ok2:
                 init_e = catalog_buf[96:96+32]
-                boot_ind = init_e[0]
                 load_lba = struct.unpack("<I", init_e[8:12])[0]
                 # The sector_count field in the EFI Initial Entry is NOT
                 # reliable in our layout: xorriso '-boot_image any replay'
@@ -626,60 +749,32 @@ def main():
                 # after the warm writer's update commands; xorriso has
                 # already accepted the layout (exit 0) by the time we run.
                 #
-                # The load_rba field is xorriso's "LBA in 2048-byte ISO
-                # sectors" -- confirmed by byte-diff against the source
-                # ESP image at offset load_rba * 2048 (NOT * 512). Note
-                # the El Torito spec text says 512-byte sectors; xorriso
-                # does NOT honor that, and that's what we have to live with.
+                # Unit notes: the El Torito spec text reads both the Load
+                # RBA field and the Sector Count field as 512-byte units,
+                # but the spec also separately says "CD-ROM sector" for
+                # Load RBA in practice. xorriso 1.5.8.pl02 emits Load RBA
+                # in 2048-byte ISO logical blocks (verified by byte-diff
+                # against the source ESP at load_lba * 2048 -- a * 512
+                # byte offset never matches). The Sector Count field is
+                # not used by this check (it is 0 in our layout) so its
+                # unit does not affect us; we rely on the source ESP size
+                # for the read length instead.
                 expected_size = args.esp_image.stat().st_size
-                if boot_ind == 0x88 and load_lba > 0 and expected_size > 0:
-                    actual_bytes = read_at(image, load_lba * 2048, expected_size)
-                    source_bytes = args.esp_image.read_bytes()
-                    ok3 = actual_bytes == source_bytes
-                    report["checks"]["esp_bytes_identical_to_source"] = {
-                        "ok": ok3,
-                        "source_sha256": sha256_bytes(source_bytes),
-                        "actual_sha256": sha256_bytes(actual_bytes),
-                        "expected_size_bytes": expected_size,
-                        "actual_size_bytes": len(actual_bytes),
-                        "source_lba": load_lba,
-                        "source_layout": "iso9660_efi_in_tree (Section Header Entry at catalog offset 64 + EFI Initial Entry at offset 96)",
-                    }
-                    if not ok3:
-                        report["passed"] = False
-                        report["issues"].append(("esp_bytes_identical_to_source", "mismatch"))
-                else:
-                    # Fall through to the legacy (hybrid) layout path: we
-                    # trust the sector_count field for that layout.
-                    sector_count = struct.unpack("<H", init_e[6:8])[0]
-                    if boot_ind == 0x88 and sector_count > 0:
-                        expected_size = sector_count * 512
-                        actual_bytes = read_at(image, load_lba * 512, expected_size)
-                        source_bytes = args.esp_image.read_bytes()
-                        ok3 = actual_bytes == source_bytes
-                        report["checks"]["esp_bytes_identical_to_source"] = {
-                            "ok": ok3,
-                            "source_sha256": sha256_bytes(source_bytes),
-                            "actual_sha256": sha256_bytes(actual_bytes),
-                            "expected_size_bytes": expected_size,
-                            "actual_size_bytes": len(actual_bytes),
-                            "source_lba": load_lba,
-                            "source_layout": "iso9660_efi_in_tree (sector_count fallback)",
-                        }
-                        if not ok3:
-                            report["passed"] = False
-                            report["issues"].append(("esp_bytes_identical_to_source", "mismatch"))
-                    else:
-                        report["checks"]["esp_bytes_identical_to_source"] = {
-                            "ok": False,
-                            "detail": (
-                                f"EFI Initial Entry at catalog offset 96 has "
-                                f"boot_indicator={boot_ind:#04x} sector_count={sector_count} "
-                                f"load_lba={load_lba}; cannot verify ESP bytes"
-                            ),
-                        }
-                        report["passed"] = False
-                        report["issues"].append(("esp_bytes_identical_to_source", "EFI Initial Entry invalid"))
+                actual_bytes = read_at(image, load_lba * ISO_BLOCK, expected_size)
+                source_bytes = args.esp_image.read_bytes()
+                ok3 = actual_bytes == source_bytes
+                report["checks"]["esp_bytes_identical_to_source"] = {
+                    "ok": ok3,
+                    "source_sha256": sha256_bytes(source_bytes),
+                    "actual_sha256": sha256_bytes(actual_bytes),
+                    "expected_size_bytes": expected_size,
+                    "actual_size_bytes": len(actual_bytes),
+                    "source_lba": load_lba,
+                    "source_layout": "iso9660_efi_in_tree (Section Header Entry at catalog offset 64 + EFI Initial Entry at offset 96)",
+                }
+                if not ok3:
+                    report["passed"] = False
+                    report["issues"].append(("esp_bytes_identical_to_source", "mismatch"))
 
     # Trailing padding detection (design §8 "what it did not prove"):
     # Only applicable to the hybrid layout (which has a backup GPT). On
