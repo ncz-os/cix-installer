@@ -655,5 +655,286 @@ class CleanupScratchTests(unittest.TestCase):
         self.assertFalse(d.exists())
 
 
+# ----- iso9660_efi_in_tree (in-tree ESP) helpers and tests -----
+
+
+def _make_section_header_entry() -> bytes:
+    """Build a 32-byte Section Header Entry per the El Torito spec.
+
+    Layout:
+      byte 0    Header ID (0x91)
+      byte 1    Platform (0xEF for EFI)
+      bytes 2-3 Number of following Section Entries (LE uint16)
+      bytes 4-31 Section identifier (28 bytes, ASCII)
+    """
+    e = bytearray(32)
+    e[0] = 0x91
+    e[1] = 0xEF
+    struct.pack_into("<H", e, 2, 1)
+    return bytes(e)
+
+
+def _make_efi_initial_entry(load_lba: int) -> bytes:
+    """Build a 32-byte EFI Initial Entry per the El Torito spec.
+
+    Layout:
+      byte 0    Boot indicator (0x88 = bootable)
+      byte 1    Boot media type (0 = no emulation)
+      bytes 2-3 Reserved
+      byte 4    Partition type (0)
+      byte 5    Reserved
+      bytes 6-7 Sector count (LE uint16; 0 in our layout)
+      bytes 8-11 LBA of first sector of boot image (LE uint32, in 2048-byte units)
+      bytes 12-31 Reserved
+    """
+    e = bytearray(32)
+    e[0] = 0x88
+    e[1] = 0x00
+    struct.pack_into("<H", e, 6, 0)
+    struct.pack_into("<I", e, 8, load_lba)
+    return bytes(e)
+
+
+def _make_debian_pattern_catalog(load_lba: int) -> bytes:
+    """Build a 2048-byte El Torito catalog with the Debian pattern:
+    validation entry (offset 0) + initial entry (offset 32) +
+    Section Header Entry (offset 64) + EFI Initial Entry (offset 96).
+    """
+    cat = bytearray(2048)
+    # Validation entry at offset 0
+    cat[0] = 0x01
+    cat[1] = 0x00  # platform = x86 (the legacy initial entry's platform)
+    # 24-byte ID string
+    id_string = b"EL TORITO SPECIFICATION\x00"
+    assert len(id_string) == 24
+    cat[4:28] = id_string
+    # Key bytes
+    cat[30] = 0x55
+    cat[31] = 0xAA
+    # Compute the validation entry checksum so that the word sum is 0.
+    s = 0
+    for i in range(0, 32, 2):
+        s += struct.unpack("<H", cat[i:i+2])[0]
+    s = (-s) & 0xFFFF
+    struct.pack_into("<H", cat, 28, s)
+    # Initial/default entry at offset 32 (legacy BIOS boot, sector_count 76,
+    # load_lba arbitrary).
+    cat[32] = 0x88  # bootable
+    cat[33] = 0     # no emulation
+    struct.pack_into("<H", cat, 38, 76)
+    struct.pack_into("<I", cat, 40, 28672)
+    # Section Header Entry at offset 64
+    cat[64:96] = _make_section_header_entry()
+    # EFI Initial Entry at offset 96
+    cat[96:128] = _make_efi_initial_entry(load_lba)
+    return bytes(cat)
+
+
+class Iso9660InTreeEspBytesTests(unittest.TestCase):
+    """Verify the iso9660_efi_in_tree layout's bytes-comparison check:
+    the verifier actually proves the bytes at the EFI Initial Entry's
+    load_lba match the source ESP image, and it correctly rejects a
+    deliberately-corrupted ESP."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.tmp_dir = Path(self.tmp.name)
+
+    def _build_minimal_iso_with_esp(
+        self, *, catalog_lba: int, esp_load_lba: int, esp_bytes: bytes
+    ) -> tuple[Path, Path]:
+        """Build a minimal iso9660_efi_in_tree image with an ESP at the
+        given load_lba. The image has only what the verifier inspects:
+        MBR (zero), ISO PVD (sector 16), BRVD (sector 17), El Torito
+        catalog (sector catalog_lba), and the ESP bytes at load_lba.
+        """
+        image_path = self.tmp_dir / "image.iso"
+        # Make the image just large enough to hold the ESP at load_lba.
+        image_size = (esp_load_lba * 2048) + len(esp_bytes)
+        buf = bytearray(image_size)
+        # ISO PVD at sector 16
+        buf[16 * 2048:17 * 2048] = _make_iso_pvd("INTREE")
+        # BRVD at sector 17
+        buf[17 * 2048:18 * 2048] = _make_brvd(catalog_lba)
+        # El Torito catalog
+        buf[catalog_lba * 2048:(catalog_lba + 1) * 2048] = _make_debian_pattern_catalog(esp_load_lba)
+        # ESP bytes at load_lba
+        buf[esp_load_lba * 2048:esp_load_lba * 2048 + len(esp_bytes)] = esp_bytes
+        image_path.write_bytes(bytes(buf))
+
+        esp_path = self.tmp_dir / "esp.img"
+        esp_path.write_bytes(esp_bytes)
+        return image_path, esp_path
+
+    def _verifier(self, image: Path, esp: Path, layout: str = "auto") -> tuple[bool, dict]:
+        report_path = image.parent / (image.name + ".verify.json")
+        proc = subprocess_run_safe(
+            [
+                sys.executable,
+                str(ISO_DIR / "verify-image.py"),
+                "--image", str(image),
+                "--arch", "amd64",
+                "--level", "warm",
+                "--report", str(report_path),
+                "--esp-image", str(esp),
+                "--layout", layout,
+            ]
+        )
+        report: dict = {}
+        if report_path.exists():
+            report = json.loads(report_path.read_text())
+        return proc.returncode == 0, report
+
+    def test_clean_image_passes_verifier(self) -> None:
+        esp_bytes = b"REFIND!" * (64 * 1024 // len(b"REFIND!"))  # ~64 KiB
+        image, esp = self._build_minimal_iso_with_esp(
+            catalog_lba=18, esp_load_lba=20, esp_bytes=esp_bytes
+        )
+        ok, report = self._verifier(image, esp)
+        self.assertTrue(
+            ok,
+            f"clean iso9660_efi_in_tree image should pass; issues={report.get('issues')!r}"
+        )
+        check = report["checks"]["esp_bytes_identical_to_source"]
+        self.assertTrue(check["ok"])
+        self.assertEqual(check["source_sha256"], check["actual_sha256"])
+
+    def test_corrupted_esp_is_rejected(self) -> None:
+        """The negative test the brief asks for: corrupt one byte of the
+        embedded ESP image after cold-compose; the verifier MUST reject."""
+        esp_bytes = b"\xCC" * (64 * 1024)  # 64 KiB
+        image, esp = self._build_minimal_iso_with_esp(
+            catalog_lba=18, esp_load_lba=20, esp_bytes=esp_bytes
+        )
+        # Corrupt one byte deep inside the ESP (not at the very start,
+        # which is the reserved area of the FAT image header; pick a
+        # safe offset).
+        with image.open("r+b") as f:
+            target_offset = 20 * 2048 + 0x1000
+            f.seek(target_offset)
+            orig = f.read(1)
+            self.assertTrue(orig, "test precondition: ESP byte must be readable")
+            f.seek(target_offset)
+            f.write(bytes([(orig[0] ^ 0xFF) & 0xFF]))
+        ok, report = self._verifier(image, esp)
+        self.assertFalse(
+            ok,
+            f"corrupted ESP should fail verification; got issues={report.get('issues')!r}"
+        )
+        issue_kinds = [k for k, _ in report.get("issues", [])]
+        self.assertIn("esp_bytes_identical_to_source", issue_kinds)
+
+    def test_efi_initial_entry_validation_rejects_bad_boot_indicator(self) -> None:
+        """The new validation: an EFI Initial Entry whose boot indicator
+        is not 0x88 must cause the verifier to fail at the catalog check,
+        not silently pass."""
+        esp_bytes = (b"\xCC" * 1024)
+        # Build the catalog by hand and patch the EFI Initial Entry's
+        # boot indicator to 0x00 (not bootable).
+        cat = bytearray(_make_debian_pattern_catalog(20))
+        cat[96] = 0x00  # EFI boot indicator: not bootable
+        image = self.tmp_dir / "image.iso"
+        image_size = 20 * 2048 + len(esp_bytes)
+        buf = bytearray(image_size)
+        buf[16 * 2048:17 * 2048] = _make_iso_pvd("INTREE")
+        buf[17 * 2048:18 * 2048] = _make_brvd(18)
+        buf[18 * 2048:19 * 2048] = bytes(cat)
+        buf[20 * 2048:20 * 2048 + len(esp_bytes)] = esp_bytes
+        image.write_bytes(bytes(buf))
+        esp = self.tmp_dir / "esp.img"
+        esp.write_bytes(esp_bytes)
+        ok, report = self._verifier(image, esp)
+        self.assertFalse(ok, "EFI Initial Entry with bad boot_indicator must fail")
+        issue_kinds = [k for k, _ in report.get("issues", [])]
+        self.assertIn("el_torito_catalog", issue_kinds)
+        # The detail should name the bad boot indicator explicitly.
+        catalog_detail = report["checks"]["el_torito_catalog"]["detail"]
+        flat = json.dumps(catalog_detail)
+        self.assertIn("boot_indicator", flat)
+
+    def test_efi_initial_entry_validation_rejects_zero_load_lba(self) -> None:
+        """Zero load_lba in the EFI Initial Entry is rejected (no boot
+        image would actually be loaded)."""
+        esp_bytes = (b"\xCC" * 1024)
+        cat = bytearray(_make_debian_pattern_catalog(0))  # zero load_lba
+        image = self.tmp_dir / "image.iso"
+        image_size = 1024 * 1024
+        buf = bytearray(image_size)
+        buf[16 * 2048:17 * 2048] = _make_iso_pvd("INTREE")
+        buf[17 * 2048:18 * 2048] = _make_brvd(18)
+        buf[18 * 2048:19 * 2048] = bytes(cat)
+        image.write_bytes(bytes(buf))
+        esp = self.tmp_dir / "esp.img"
+        esp.write_bytes(esp_bytes)
+        ok, report = self._verifier(image, esp)
+        self.assertFalse(ok, "EFI Initial Entry with load_lba=0 must fail")
+        issue_kinds = [k for k, _ in report.get("issues", [])]
+        self.assertIn("el_torito_catalog", issue_kinds)
+        flat = json.dumps(report["checks"]["el_torito_catalog"]["detail"])
+        self.assertIn("load_lba=0", flat)
+
+
+class BuildRefindEspRequiresKernelTests(unittest.TestCase):
+    """``build-refind-esp.py`` must fail loudly when --d-i-kernel or
+    --d-i-initrd is missing -- the previous behavior of silently
+    producing a refind.conf with three enabled menu entries pointing at
+    /linux and /initrd.gz that did not exist was a latent boot failure."""
+
+    def test_argparse_requires_d_i_kernel(self) -> None:
+        tmp_dir = tempfile.mkdtemp()
+        # No --d-i-kernel provided
+        proc = subprocess_run_safe([
+            sys.executable, str(ISO_DIR / "build-refind-esp.py"),
+            "--arch", "amd64",
+            "--out-dir", tmp_dir,
+            "--d-i-initrd", "/nonexistent/initrd.gz",
+        ])
+        self.assertNotEqual(
+            proc.returncode, 0,
+            f"argparse must reject when --d-i-kernel is missing; got rc={proc.returncode}, "
+            f"stderr={proc.stderr[:500]!r}"
+        )
+        self.assertIn("--d-i-kernel", proc.stderr)
+
+    def test_argparse_requires_d_i_initrd(self) -> None:
+        tmp_dir = tempfile.mkdtemp()
+        proc = subprocess_run_safe([
+            sys.executable, str(ISO_DIR / "build-refind-esp.py"),
+            "--arch", "amd64",
+            "--out-dir", tmp_dir,
+            "--d-i-kernel", "/nonexistent/linux",
+        ])
+        self.assertNotEqual(
+            proc.returncode, 0,
+            f"argparse must reject when --d-i-initrd is missing; got rc={proc.returncode}, "
+            f"stderr={proc.stderr[:500]!r}"
+        )
+        self.assertIn("--d-i-initrd", proc.stderr)
+
+    def test_build_esp_dir_rejects_missing_kernel(self) -> None:
+        # Construct a synthetic refind_src directory containing a
+        # refind_x64.efi file (the only file build_esp_dir looks up).
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            refind_src = td_path / "refind"
+            refind_src.mkdir()
+            (refind_src / "refind_x64.efi").write_bytes(b"\x00" * 1024)
+            esp_root = td_path / "esp-tree"
+            esp_root.mkdir()
+            # Pass a non-existent kernel; build_esp_dir must raise.
+            with self.assertRaises(FileNotFoundError):
+                build_refind_esp = _load_module(
+                    ISO_DIR / "build-refind-esp.py", "bre_mod"
+                )
+                build_refind_esp.build_esp_dir(
+                    esp_root,
+                    refind_src,
+                    "amd64",
+                    d_i_kernel=td_path / "no-such-linux",
+                    d_i_initrd=td_path / "no-such-initrd",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
