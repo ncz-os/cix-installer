@@ -5,6 +5,15 @@
 **Applies to:** the six patches in `docs/upstream-patches/cix-vaapi/`. Without
 them, browser hardware video decode does not work at all on this platform.
 
+**This document covers the VA-API route only.** The AV1 row below ("does not
+work", vendor-side gap) is accurate for VA-API specifically and remains true.
+There is a SEPARATE, working decode path — the V4L2 stateful decoder
+(`docs/upstream-patches/chromium/README.md`, patch 0001 + the 154-era NXP
+regression fixes) — that DOES decode AV1 (and VP9) correctly today, confirmed
+live 2026-09-22 on O6N with real playback and Chromium's own
+media-internals log. See that doc for the real, current AV1 status; treat
+this doc's AV1 row as "blocked via VA-API," not "blocked, period."
+
 Every "works" below was confirmed by **looking at the picture** (a `grim`
 screenshot of the compositor), not by a proxy signal. That distinction matters
 here — see *How to verify* at the end.

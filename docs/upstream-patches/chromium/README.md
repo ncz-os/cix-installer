@@ -174,7 +174,38 @@ already ruled that file out; these are unrelated NXP-authored fixes to a
 different part of the same decoder).
 
 Operator-confirmed working again on real hardware (192.168.207.66) after
-install, matching the 151 baseline's HW-VIDEO-DECODE-STATUS.md record. Not yet
-independently re-verified against the specific `sudo fuser -v
-/dev/video-cixdec0`-during-playback proof this doc's own methodology
-requires — do that before closing this out formally.
+install, matching the 151 baseline's HW-VIDEO-DECODE-STATUS.md record.
+
+**Independently re-verified 2026-09-22 on O6N (192.168.207.3), real live
+playback, both codecs:**
+
+`fuser /dev/video-cixdec0` / `lsof /dev/video0` during playback showed the
+Chromium GPU process (chrome, gpu-process) holding the VPU decode node with a
+distinct file descriptor per codec session (FD 121u during VP9 playback, a
+fresh FD 192u opened the moment AV1 playback started) -- exactly the proof
+this doc's own methodology requires, satisfied for real.
+
+Stronger evidence: Chromium's own `chrome://media-internals` log (saved from
+the live session, committed at
+`docs/superpowers/specs/evidence/2026-09-22-o6n-chromium-v4l2-av1-vp9-hw-decode-media-internals.txt`)
+states directly, for both codecs:
+
+    "kVideoDecoderName": "V4L2VideoDecoder",
+    "kIsPlatformVideoDecoder": true,
+    "Selected V4L2VideoDecoder for video decoding, config: codec: av1,
+     profile: av1 profile main, ... coded size: [1920,1080] ..."
+
+    "Selected V4L2VideoDecoder for video decoding, config: codec: vp9,
+     profile: vp9 profile0, ... coded size: [1920,1080] ..."
+
+Both VP9 and AV1 hardware decode via the V4L2 stateful path are CONFIRMED
+WORKING on chromium-ncz-sky1 154.0.8037.0-ncz20260907, real 1080p content,
+real hardware -- both the process-holds-the-node proxy AND Chromium's own
+internal decoder-selection log agree. This closes out the open verification
+item above.
+
+Note this is a DIFFERENT decode path than `docs/HW-VIDEO-DECODE-STATUS.md`
+describes -- that doc is scoped to the VA-API route (cix-vaapi), where AV1
+genuinely remains blocked on a vendor-side gap (see that doc). The V4L2
+stateful decoder (this patch set, 0001 + the 154 NXP regression fixes) is a
+separate pipeline, and it is the one that works for AV1 today.
