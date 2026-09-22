@@ -179,7 +179,16 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str) -> None:
     refind_dir.mkdir()
     shutil.copy2(str(refind_efi_src), str(refind_dir / refind_loader))
 
-    drivers_dir = refind_dir / "DRIVERS"
+    # rEFInd auto-loads drivers from a "drivers_x64"/"drivers_aa64"
+    # subdirectory of the directory containing the RUNNING rEFInd binary
+    # -- not a fixed "EFI/refind/DRIVERS" path. Our El Torito EFI entry
+    # launches EFI/BOOT/BOOTX64.EFI (the fallback-path copy), so the
+    # drivers must live under EFI/BOOT/, matching driver_dir's real
+    # case-sensitive name. Placing them under EFI/REFIND/DRIVERS (wrong
+    # case, wrong location) is why the ISO9660 driver never loaded and
+    # the /d-i/linux menu entries silently never appeared -- rEFInd
+    # drops an unresolvable loader without printing an error.
+    drivers_dir = boot_dir / driver_dir
     drivers_dir.mkdir()
     shutil.copy2(str(iso_driver_src), str(drivers_dir / iso_driver))
     if ext4_driver_src.is_file():
