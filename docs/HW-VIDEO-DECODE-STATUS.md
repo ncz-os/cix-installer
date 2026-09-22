@@ -24,7 +24,9 @@ here — see *How to verify* at the end.
 |---|---|---|---|
 | **H.264** 1080p | works | **works** | renderer CPU ~27% → ~3.5%, 0 dropped frames |
 | **VP9** 720p | works | **works** | renderer CPU ~12.5% → ~3.5% |
-| **AV1** | hangs | **does not work** | blocked upstream, see below |
+| **AV1** (VA-API) | hangs | does not work via VA-API | blocked upstream, see below |
+| **AV1** (V4L2) | n/a | **works** | separate pipeline, see `upstream-patches/chromium/README.md` |
+| **VP9** (V4L2) | n/a | **works** | confirmed alongside AV1, same pipeline |
 | **HEVC** | inconclusive | untested | see *Known issues* |
 | **H.264 / HEVC encode** | works | n/a | Chromium gates VA-API encode itself |
 
