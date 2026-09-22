@@ -230,7 +230,14 @@ def make_fat_image_mtools(esp_root: Path, out_img: Path, size_mib: int = 4) -> d
     subprocess.run([
         mformat,
         "-i", str(out_img),   # image file (replaces the positional device arg)
-        "-F",                 # force FAT32 even on tiny images
+        # No -F: let mformat pick FAT12/16 by size. Debian's own working
+        # netboot ISO uses a FAT12 El Torito EFI image at a similar size
+        # (confirmed by inspection: file(1) reports "FAT (12 bit)" on
+        # their /boot/grub/efi.img); forcing FAT32 on a 4 MiB image is
+        # far below FAT32's practical/spec minimum (~32 MiB) and OVMF
+        # failed to load ANY bootable entry from the result on real
+        # OVMF/qemu (confirmed twice) while the FAT12-formatted Debian
+        # image boots fine under the identical invocation.
         "-v", "REFIND",       # volume label
         "-N", serial,         # serial number (stable)
     ], check=True)
