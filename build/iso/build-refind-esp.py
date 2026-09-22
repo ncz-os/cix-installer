@@ -69,20 +69,32 @@ REFIND_CONF_TEXT = """\
 # Every entry is explicit; we do NOT rely on rEFInd's auto-scan because
 # auto-scan requires rEFInd to enumerate ISO9660 contents, and the ISO9660
 # driver presence/behavior is part of what we are qualifying. The explicit
-# loader/initrd paths below are the ones rEFInd will look up via the
-# ISO9660 driver (EFI/REFIND/DRIVERS/).
+# loader/initrd paths below reference FILES INSIDE THIS ESP IMAGE (the FAT
+# volume that rEFInd itself lives on), NOT the ISO 9660 filesystem.
+#
+# Why the d-i kernel/initrd live in the ESP (and not the ISO 9660 tree):
+#
+# Loading the rEFInd iso9660 driver from the FAT El Torito boot image
+# causes the driver to claim the optical disc and refuse to give it back,
+# which makes rEFInd's own volume (the FAT image we're running from) lose
+# its EFI_SIMPLE_FILE_SYSTEM_PROTOCOL on the next ReinitVolumes() pass --
+# resulting in the well-known rEFInd message
+#
+#     Error: Load Error while (re)opening our installation volume
+#
+# This is a known, documented upstream rEFInd limitation
+# (https://www.rodsbooks.com/refind/drivers.html : "When the ISO-9660
+# driver is loaded from the El Torito image, the driver discovers that
+# the optical disc is in use and refuses to access it"). Upstream's
+# official recommendation is to put the kernel+initrd inside the FAT
+# image; we do that here. The cost is one ~50 MiB ESP instead of ~4 MiB
+# (justified by the warm-writer transaction's seconds-scale promise --
+# we still pay only the size delta on growth, not the whole image).
 #
 # timeout 10: 10s before default boot (graphical install) if no key press.
 # scanfor manual: ignore auto-scanned disks; use only the explicit entries.
 # textonly: keep output compatible with serial consoles and QEMU's default
 #           headless mode -- graphical banners add boot time we don't need.
-#
-# Paths below match the substrate-import layout for the Bookworm amd64
-# netboot mini ISO. The substrate import (build/iso/import-substrate.py)
-# sees that the ISO has /linux and /initrd.gz at the root (the netboot
-# layout) and MOVES them into /d-i/ for a uniform consumer-side
-# interface. The arm64/full-netinst variants live in REFIND_CONF_TEXT_ARM64
-# and point at /install.arm/vmlinuz.
 #
 
 timeout 10
@@ -90,21 +102,21 @@ textonly
 scanfor manual
 
 menuentry "Install (graphical)" {
-    loader /d-i/linux
-    initrd /d-i/initrd.gz
-    options "auto=true priority=critical locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt"
+    loader /linux
+    initrd /initrd.gz
+    options "auto=true priority=critical locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=ttyS0,115200n8"
 }
 
 menuentry "Install (expert)" {
-    loader /d-i/linux
-    initrd /d-i/initrd.gz
-    options "priority=low DEBIAN_FRONTEND=newt"
+    loader /linux
+    initrd /initrd.gz
+    options "priority=low DEBIAN_FRONTEND=newt console=ttyS0,115200n8"
 }
 
 menuentry "Rescue mode" {
-    loader /d-i/linux
-    initrd /d-i/initrd.gz
-    options "rescue/enable=true DEBIAN_FRONTEND=newt"
+    loader /linux
+    initrd /initrd.gz
+    options "rescue/enable=true DEBIAN_FRONTEND=newt console=ttyS0,115200n8"
 }
 
 menuentry "Reinstall (preserve installed system)" {
@@ -113,16 +125,19 @@ menuentry "Reinstall (preserve installed system)" {
 """
 
 
-# arm64 (and full-netinst) variants use the /install.<arch>/ layout.
-REFIND_CONF_TEXT_ARM64 = REFIND_CONF_TEXT.replace("/d-i/linux", "/install.arm/vmlinuz").replace(
-    "/d-i/initrd.gz", "/install.arm/initrd.gz"
-)
+# arm64 netboot: same as amd64 since the substrate-import (import-substrate.py)
+# MOVES /install.arm/vmlinuz and /install.arm/initrd.gz into /d-i/ as well
+# (the substrate layout fix: arm64 netboot has the /install.arm/ tree the
+# same way amd64 netboot has its own /install.amd/ tree; both are normalized
+# to /d-i/{linux,initrd.gz} by import-substrate.py).
+REFIND_CONF_TEXT_ARM64 = REFIND_CONF_TEXT
 
 
-# amd64 full-netinst (different ISO) — kept for completeness.
-REFIND_CONF_TEXT_AMD64_FULL = REFIND_CONF_TEXT.replace("/d-i/linux", "/install.amd/vmlinuz").replace(
-    "/d-i/initrd.gz", "/install.amd/initrd.gz"
-)
+# amd64 full-netinst: the substrate import surfaces both layouts under /d-i/
+# (either the (linux, initrd.gz) netboot form OR the /install.amd/ tree);
+# import-substrate.py consolidates both into /d-i/ for a uniform consumer-side
+# interface, so REFIND_CONF_TEXT above already covers both.
+REFIND_CONF_TEXT_AMD64_FULL = REFIND_CONF_TEXT
 
 
 # OVMF's startup.nsh. When the firmware boots the EFI Internal Shell from
@@ -133,74 +148,132 @@ REFIND_CONF_TEXT_AMD64_FULL = REFIND_CONF_TEXT.replace("/d-i/linux", "/install.a
 # take over once it runs.
 STARTUP_NSH = """\\
 @echo -off
-\\EFI\\BOOT\\BOOTX64.EFI
-\\EFI\\BOOT\\BOOTAA64.EFI
+\\EFI\\BOOT\\bootx64.efi
+\\EFI\\BOOT\\bootaa64.efi
 """
 
 
-def build_esp_dir(esp_root: Path, refind_src: Path, arch: str) -> None:
-    """Materialize the EFI/ tree inside esp_root/. Deterministic ordering."""
+def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
+                   d_i_payload: "tuple[Path, Path] | None" = None) -> dict:
+    """Materialize the EFI/ tree inside esp_root/. Deterministic ordering.
+
+    If ``d_i_payload`` is given, the d-i kernel + initrd are also copied
+    into the ESP at /linux and /initrd.gz, and the EFI size needs to fit
+    them (~50 MiB). When ``d_i_payload`` is None, no kernel/initrd live
+    in the ESP; the loader+initrd paths in REFIND.CONF would have to point
+    at the ISO 9660 filesystem, which (when combined with the iso9660
+    driver) triggers rEFInd's well-known "Load Error while (re)opening
+    our installation volume" failure on El Torito FAT no-emulation boot.
+
+    Returns a dict of file inventory (relative paths) for the receipt.
+    """
     if esp_root.exists():
         shutil.rmtree(esp_root)
     esp_root.mkdir(parents=True)
 
     if arch == "amd64":
         efi_arch = "x64"
-        boot_loader = "BOOTX64.EFI"
-        refind_loader = "REFIND-X64.EFI"
-        iso_driver = "ISO9660_X64.EFI"
-        ext4_driver = "EXT4_X64.EFI"
+        # rEFInd binary name. Use the same lower-case name as upstream's
+        # refind-cd-<ver>.iso: ``bootx64.efi``. EFI specifies case-insensitive
+        # matching but matching upstream removes one class of edge cases with
+        # strict firmwares and matches what an operator already expects.
+        boot_loader = "bootx64.efi"
+        refind_loader = "refind_x64.efi"
+        ext4_driver = "ext4_x64.efi"
         driver_dir = "drivers_x64"
         conf_text = REFIND_CONF_TEXT
+        conf_basename = "refind.conf"
     else:  # arm64
         efi_arch = "aa64"
-        boot_loader = "BOOTAA64.EFI"
-        refind_loader = "REFIND-AA64.EFI"
-        iso_driver = "ISO9660_AA64.EFI"
-        ext4_driver = "EXT4_AA64.EFI"
+        boot_loader = "bootaa64.efi"
+        refind_loader = "refind_aa64.efi"
+        ext4_driver = "ext4_aa64.efi"
         driver_dir = "drivers_aa64"
         conf_text = REFIND_CONF_TEXT_ARM64
+        conf_basename = "refind.conf"
 
     # Locate source files in the extracted .deb
     refind_efi_src = refind_src / f"refind_{efi_arch}.efi"
-    iso_driver_src = refind_src / driver_dir / f"iso9660_{efi_arch}.efi"
     ext4_driver_src = refind_src / driver_dir / f"ext4_{efi_arch}.efi"
 
     if not refind_efi_src.is_file():
         raise FileNotFoundError(f"missing rEFInd EFI binary: {refind_efi_src}")
-    if not iso_driver_src.is_file():
-        raise FileNotFoundError(f"missing rEFInd ISO9660 driver: {iso_driver_src}")
 
     boot_dir = esp_root / "EFI" / "BOOT"
     boot_dir.mkdir(parents=True)
     shutil.copy2(str(refind_efi_src), str(boot_dir / boot_loader))
 
+    # Place refind's arch-named binary under EFI/REFIND/ for tools that
+    # look there (e.g. `refind-install`, recovery flows).
     refind_dir = esp_root / "EFI" / "REFIND"
     refind_dir.mkdir()
     shutil.copy2(str(refind_efi_src), str(refind_dir / refind_loader))
 
-    # rEFInd auto-loads drivers from a "drivers_x64"/"drivers_aa64"
-    # subdirectory of the directory containing the RUNNING rEFInd binary
-    # -- not a fixed "EFI/refind/DRIVERS" path. Our El Torito EFI entry
-    # launches EFI/BOOT/BOOTX64.EFI (the fallback-path copy), so the
-    # drivers must live under EFI/BOOT/, matching driver_dir's real
-    # case-sensitive name. Placing them under EFI/REFIND/DRIVERS (wrong
-    # case, wrong location) is why the ISO9660 driver never loaded and
-    # the /d-i/linux menu entries silently never appeared -- rEFInd
-    # drops an unresolvable loader without printing an error.
-    drivers_dir = boot_dir / driver_dir
-    drivers_dir.mkdir()
-    shutil.copy2(str(iso_driver_src), str(drivers_dir / iso_driver))
-    if ext4_driver_src.is_file():
-        shutil.copy2(str(ext4_driver_src), str(drivers_dir / ext4_driver))
+    # rEFInd auto-loads drivers from a ``drivers_x64`` / ``drivers_aa64``
+    # subdirectory of the directory containing the RUNNING rEFInd binary.
+    # Our El Torito EFI entry launches EFI/BOOT/BOOTX64.EFI (the
+    # fallback-path copy), so the drivers must live under EFI/BOOT/.
+    #
+    # Drivers we deliberately EXCLUDE: iso9660_x64.efi. Loading it from
+    # inside the FAT El Torito image causes the iso9660 driver to claim
+    # the optical disc and refuse to give it back -- which makes rEFInd
+    # lose its own EFI_SIMPLE_FILE_SYSTEM_PROTOCOL on the next
+    # ReinitVolumes() pass, surfacing as:
+    #
+    #     Error: Load Error while (re)opening our installation volume
+    #
+    # We do NOT install a drivers_x64/ (or drivers_aa64/) directory at all
+    # in the El Torito boot layout. The drivers in that directory are
+    # auto-loaded by rEFInd's EFI driver-binding manager and any driver
+    # that gets bound to the optical disc BlockIo handle (the FAT image
+    # we're running from) competes with our own EFI_SIMPLE_FILE_SYSTEM
+    # install on that handle -- rEFInd's "Load Error while (re)opening
+    # our installation volume" symptom surfaces on the next
+    # ReinitVolumes() pass. Upstream rEFInd docs (drivers.html) are
+    # explicit: "When the ISO-9660 driver is loaded from the El Torito
+    # image, the driver discovers that the optical disc is in use and
+    # refuses to access it." The same class of issue affects the ext4
+    # driver (and any other BlockIo-claiming driver) on this layout, so
+    # we ship NO drivers from the ESP at all and place the kernel+initrd
+    # inside the FAT image (where rEFInd reads them via its own SFS
+    # protocol handle, no driver needed). The drivers_x64/ directory
+    # is still auto-scanned by rEFInd at install time on real hardware
+    # from the running ESP at /EFI/REFIND -- we just don't ship them
+    # with this bootable El Torito image.
 
-    # Place the rEFInd config
-    (refind_dir / "REFIND.CONF").write_text(conf_text)
+    # Place refind.conf NEXT TO the running binary. rEFInd's
+    # CONFIG_FILE_NAME ("refind.conf", case-insensitive on FAT) is
+    # resolved relative to SelfDir -- the directory containing the
+    # current rEFInd binary. When launched as EFI/BOOT/BOOTX64.EFI
+    # (the El Torito fallback boot path), SelfDir is EFI/BOOT/. Putting
+    # refind.conf only at EFI/REFIND/REFIND.CONF (the install path) is
+    # incorrect for the El Torito boot and produces the message
+    # "Configuration file 'refind.conf' missing!" at startup, followed
+    # by rEFInd continuing with only its built-in tools menu. We write
+    # the file at BOTH EFI/BOOT/ (correct for the fallback boot) AND
+    # EFI/REFIND/ (correct for the installed path) so the same image
+    # works in both contexts.
+    (boot_dir / conf_basename).write_text(conf_text)
+    (refind_dir / conf_basename.upper()).write_text(conf_text)
 
     # Place startup.nsh in EFI/BOOT so OVMF's "EFI Internal Shell" launches
     # rEFInd on first boot (a strict firmware without rEFInd written into
     # NVRAM boot entries needs an explicit launch).
     (boot_dir / "startup.nsh").write_text(STARTUP_NSH)
+
+    # Place d-i payload (kernel + initrd) in the ESP. Loaded via EFI
+    # Simple File System protocol (rEFInd's own volume) -- no iso9660
+    # driver involved.
+    payload_files: list[str] = []
+    if d_i_payload is not None:
+        linux_src, initrd_src = d_i_payload
+        if not linux_src.is_file():
+            raise FileNotFoundError(f"missing d-i kernel: {linux_src}")
+        if not initrd_src.is_file():
+            raise FileNotFoundError(f"missing d-i initrd: {initrd_src}")
+        shutil.copy2(str(linux_src), str(esp_root / "linux"))
+        shutil.copy2(str(initrd_src), str(esp_root / "initrd.gz"))
+        payload_files = ["linux", "initrd.gz"]
 
     # mcopy copies modes 0644 by default but we chmod anyway for determinism.
     for root, dirs, files in os.walk(esp_root):
@@ -208,6 +281,11 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str) -> None:
             os.chmod(Path(root) / d, 0o755)
         for f in files:
             os.chmod(Path(root) / f, 0o644)
+
+    inventory = sorted(
+        str(p.relative_to(esp_root)) for p in esp_root.rglob("*") if p.is_file()
+    )
+    return {"inventory": inventory, "d_i_payload_files": payload_files}
 
 
 def make_fat_image_mtools(esp_root: Path, out_img: Path, size_mib: int = 4) -> dict:
@@ -286,15 +364,28 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     ap.add_argument("--out-dir", required=True, type=Path)
-    ap.add_argument("--size-mib", type=int, default=4,
-                    help="ESP image size in MiB (default 4)")
+    ap.add_argument("--size-mib", type=int, default=64,
+                    help="ESP image size in MiB (default 64; must be large "
+                         "enough for the d-i kernel + initrd if included)")
     ap.add_argument("--keep-tree", action="store_true",
                     help="keep the intermediate EFI/ tree on disk")
+    ap.add_argument("--d-i-kernel", type=Path, default=None,
+                    help="path to a d-i kernel (linux) image; if given with "
+                         "--d-i-initrd the payload is embedded in the ESP so "
+                         "rEFInd does not need the iso9660 driver at boot")
+    ap.add_argument("--d-i-initrd", type=Path, default=None,
+                    help="path to a d-i initrd (initrd.gz) image")
     args = ap.parse_args()
+
+    if (args.d_i_kernel is None) != (args.d_i_initrd is None):
+        ap.error("--d-i-kernel and --d-i-initrd must be given together")
 
     refind_src = find_refind_extract(args.arch)
     esp_root = args.out_dir / "esp-tree"
-    build_esp_dir(esp_root, refind_src, args.arch)
+    payload = None
+    if args.d_i_kernel is not None and args.d_i_initrd is not None:
+        payload = (args.d_i_kernel, args.d_i_initrd)
+    build_info = build_esp_dir(esp_root, refind_src, args.arch, d_i_payload=payload)
 
     esp_img = args.out_dir / "esp.img"
     info = make_fat_image_mtools(esp_root, esp_img, args.size_mib)
@@ -302,9 +393,17 @@ def main():
     esp_img_sha = sha256_file(esp_img)
     esp_img_size = esp_img.stat().st_size
 
-    if arch := args.arch:
-        refind_efi_path = refind_src / ("refind_x64.efi" if arch == "amd64" else "refind_aa64.efi")
-        iso_driver_path = refind_src / ("drivers_x64/iso9660_x64.efi" if arch == "amd64" else "drivers_aa64/iso9660_aa64.efi")
+    refind_efi_path = refind_src / ("refind_x64.efi" if args.arch == "amd64" else "refind_aa64.efi")
+    ext4_driver_path = refind_src / ("drivers_x64/ext4_x64.efi" if args.arch == "amd64" else "drivers_aa64/ext4_aa64.efi")
+
+    payload_sha = None
+    if args.d_i_kernel is not None and args.d_i_initrd is not None:
+        payload_sha = {
+            "linux_sha256": sha256_file(args.d_i_kernel),
+            "linux_size_bytes": args.d_i_kernel.stat().st_size,
+            "initrd_sha256": sha256_file(args.d_i_initrd),
+            "initrd_size_bytes": args.d_i_initrd.stat().st_size,
+        }
 
     receipt = {
         "schema_version": "esp-receipt/v1",
@@ -314,16 +413,18 @@ def main():
         "esp_image_size_bytes": esp_img_size,
         "build_tool": info,
         "refind_efi_sha256": sha256_file(refind_efi_path),
-        "iso9660_driver_sha256": sha256_file(iso_driver_path),
-        "esp_tree_inventory": sorted(
-            str(p.relative_to(esp_root)) for p in esp_root.rglob("*") if p.is_file()
-        ),
+        "ext4_driver_sha256": sha256_file(ext4_driver_path),
+        "esp_tree_inventory": build_info["inventory"],
+        "d_i_payload_in_esp": build_info["d_i_payload_files"],
+        "d_i_payload": payload_sha,
     }
     (args.out_dir / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True))
     print(f"ESP image: {esp_img}")
     print(f"  sha256:  {esp_img_sha}")
     print(f"  size:    {esp_img_size} bytes ({esp_img_size / 1024 / 1024:.2f} MiB)")
     print(f"  build:   {info['tool']} ({info.get('tool_version', '')})")
+    if build_info["d_i_payload_files"]:
+        print(f"  d-i payload embedded: {build_info['d_i_payload_files']}")
 
     if not args.keep_tree:
         shutil.rmtree(esp_root)
