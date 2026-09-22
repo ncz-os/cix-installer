@@ -4,9 +4,9 @@
 # AMD64 analogue of 10-our-kernel.sh (arm64/Sky1). Differs in one
 # structural way: arm64 has exactly one shipping "edge" kernel, resolved
 # via apt from the Buildkite repo. AMD64 has no apt repo for its kernels
-# yet (both lines were just built on PROTEUS/CERBERUS this session, see
-# docs/AMD64-PACKAGE-AUDIT.md) — so this hook installs the two staged
-# .deb sets directly with dpkg, the same pattern 10-our-kernel.sh already
+# yet (both lines were built on PROTEUS/CERBERUS) — so this hook installs
+# the two staged .deb sets directly with dpkg, the same pattern
+# 10-our-kernel.sh already
 # uses for its *embedded-deb* fast path (local_deb()+dpkg -i), just
 # without an apt-repo fallback because none exists.
 #
