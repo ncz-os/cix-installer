@@ -874,6 +874,76 @@ class Iso9660InTreeEspBytesTests(unittest.TestCase):
         flat = json.dumps(report["checks"]["el_torito_catalog"]["detail"])
         self.assertIn("load_lba=0", flat)
 
+    def test_section_header_entry_with_zero_following_is_rejected(self) -> None:
+        """A Section Header Entry at catalog offset 64 with 0 following
+        entries is a malformed catalog -- the EFI Initial Entry below it
+        would not be associated with any section and OVMF would silently
+        skip it. The verifier must reject.
+
+        Covers Codex review item 5 ("number of following entries" should
+        be validated, not just trust bytes 96-127 as the EFI entry).
+        """
+        esp_bytes = b"\xCC" * 1024
+        cat = bytearray(_make_debian_pattern_catalog(20))
+        # Section Header Entry at offset 64: header 0x91, platform 0xEF,
+        # entry_count = 0 (the malformed case)
+        cat[64] = 0x91
+        cat[65] = 0xEF
+        struct.pack_into("<H", cat, 66, 0)
+        image = self.tmp_dir / "image.iso"
+        image_size = 1024 * 1024
+        buf = bytearray(image_size)
+        buf[16 * 2048:17 * 2048] = _make_iso_pvd("INTREE")
+        buf[17 * 2048:18 * 2048] = _make_brvd(18)
+        buf[18 * 2048:19 * 2048] = bytes(cat)
+        buf[20 * 2048:20 * 2048 + len(esp_bytes)] = esp_bytes
+        image.write_bytes(bytes(buf))
+        esp = self.tmp_dir / "esp.img"
+        esp.write_bytes(esp_bytes)
+        ok, report = self._verifier(image, esp)
+        self.assertFalse(
+            ok,
+            "Section Header Entry with 0 following entries must fail"
+        )
+        issue_kinds = [k for k, _ in report.get("issues", [])]
+        self.assertIn("el_torito_catalog", issue_kinds)
+        flat = json.dumps(report["checks"]["el_torito_catalog"]["detail"])
+        self.assertIn("0 following entries", flat)
+
+    def test_section_header_entry_with_wrong_platform_is_rejected(self) -> None:
+        """A Section Header Entry whose platform byte is not 0xEF is a
+        malformed catalog (the EFI Initial Entry below would be ignored
+        by OVMF). The verifier must reject.
+
+        Covers Codex review item 5 (EFI platform ID validation).
+        """
+        esp_bytes = b"\xCC" * 1024
+        cat = bytearray(_make_debian_pattern_catalog(20))
+        # Section Header Entry: header 0x91, platform 0x00 (wrong!),
+        # entry_count = 1
+        cat[64] = 0x91
+        cat[65] = 0x00  # platform = x86, not EFI
+        struct.pack_into("<H", cat, 66, 1)
+        image = self.tmp_dir / "image.iso"
+        image_size = 1024 * 1024
+        buf = bytearray(image_size)
+        buf[16 * 2048:17 * 2048] = _make_iso_pvd("INTREE")
+        buf[17 * 2048:18 * 2048] = _make_brvd(18)
+        buf[18 * 2048:19 * 2048] = bytes(cat)
+        buf[20 * 2048:20 * 2048 + len(esp_bytes)] = esp_bytes
+        image.write_bytes(bytes(buf))
+        esp = self.tmp_dir / "esp.img"
+        esp.write_bytes(esp_bytes)
+        ok, report = self._verifier(image, esp)
+        self.assertFalse(
+            ok,
+            "Section Header Entry with non-EFI platform must fail"
+        )
+        issue_kinds = [k for k, _ in report.get("issues", [])]
+        self.assertIn("el_torito_catalog", issue_kinds)
+        flat = json.dumps(report["checks"]["el_torito_catalog"]["detail"])
+        self.assertIn("expected 0xEF", flat)
+
 
 class BuildRefindEspRequiresKernelTests(unittest.TestCase):
     """``build-refind-esp.py`` must fail loudly when --d-i-kernel or
