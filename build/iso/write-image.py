@@ -595,14 +595,16 @@ def cold_image(args) -> int:
         # EFI binary at /efi.img (FAT image inside ISO tree) — Section
         # Header Entry at offset 64 + EFI Initial Entry at offset 96.
         "--efi-boot", "/efi.img",
-        # Real isohybrid MBR template (from the isolinux package), not
-        # just -isohybrid-gpt-basdat alone — that flag alone produced a
-        # bare El Torito boot record with no MBR/GPT hybrid structure at
-        # all, unlike Debian's own ISO which reports
-        # "MBR isohybrid cyl-align-on GPT". This is believed to be why
-        # BdsDxe could not find a bootable device on the SATA/DVD-ROM
-        # path.
-        "-isohybrid-mbr", "/usr/lib/ISOLINUX/isohdpfx.bin",
+        # Real isohybrid MBR template (from the Debian isolinux package),
+        # not just -isohybrid-gpt-basdat alone — that flag alone produced
+        # a bare El Torito boot record with no MBR/GPT hybrid structure
+        # at all, unlike Debian's own ISO which reports
+        # "MBR isohybrid cyl-align-on GPT". This is what BdsDxe on OVMF
+        # needs to find a bootable device from a SATA/DVD-ROM path.
+        # isohdpfx.bin is cached under build/iso-cache/syslinux/ from the
+        # Debian bookworm isolinux package (cached here because most build
+        # hosts do not ship the isolinux package at /usr/lib/ISOLINUX/).
+        "-isohybrid-mbr", str(REPO_ROOT / "build" / "iso-cache" / "syslinux" / "isohdpfx.bin"),
         "-isohybrid-gpt-basdat",
         "-o", str(out),
         str(stage),
