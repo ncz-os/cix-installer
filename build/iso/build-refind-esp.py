@@ -3,8 +3,7 @@
 build-refind-esp.py — Build a deterministic FAT ESP image carrying rEFInd,
 the Debian Installer kernel + initrd, and an explicit refind.conf menu.
 
-Layout produced (matches upstream rEFInd's official refind-cd-<ver>.iso
-conventions where they apply, adapted for El Torito FAT no-emulation boot):
+Layout produced (file paths inside the FAT ESP image):
 
     EFI/BOOT/BOOTX64.EFI                 (refind_x64.efi, renamed for fallback boot)
     EFI/BOOT/REFIND.CONF                 (explicit menu — no auto-scan reliance)
@@ -93,16 +92,22 @@ REFIND_CONF_TEXT = """\
 #
 # Why no rEFInd filesystem driver is shipped from the El Torito ESP:
 #
-# In practice, loading the rEFInd ISO 9660 (or any other BlockIo-claiming)
-# driver from the FAT El Torito boot image on real OVMF has reproducibly
-# caused the "Error: Load Error while (re)opening our installation
-# volume" message at boot, which then drops the operator back to the EFI
-# Internal Shell without ever reaching the kernel. The reproducible
-# observation (live, on real OVMF + qemu) is that the boot fails; the
-# upstream protocol-level cause is documented but we have not pinned it
-# down to a single UEFI specification clause. Empirically the fix is
-# the same: do not ship the driver, and put the kernel + initrd inside
-# the FAT image so rEFInd can read them via its own SFS handle.
+# On the real OVMF/qemu boot chain used to qualify this layout, loading
+# the rEFInd ISO 9660 driver from the FAT El Torito boot image
+# reproducibly caused a "Load Error while (re)opening our installation
+# volume" failure at boot, dropping the operator to the EFI Internal
+# Shell without ever reaching the kernel. The reproducible observation
+# is the failure mode with the ISO 9660 driver specifically; we have
+# not independently verified any other rEFInd filesystem driver (ext4,
+# XFS, NTFS, HFS+, ...) on this image, so we do not claim that
+# "BlockIo-claiming drivers in general" cause the failure -- just that
+# the ISO 9660 driver did, and we did not test the others. The
+# mitigation we observed to work on real OVMF is the same either way:
+# do not ship any driver from this ESP, and put the kernel + initrd
+# inside the FAT image so rEFInd reads them via its own SFS handle.
+# rEFInd can still auto-load drivers from a drivers_x64/ directory
+# under EFI/REFIND/ at install time on real hardware; we simply do not
+# ship that directory here.
 #
 # timeout 10: 10s before default boot (graphical install) if no key press.
 # scanfor manual: ignore auto-scanned disks; use only the explicit entries.
@@ -227,14 +232,16 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
     # rEFInd ISO 9660 driver reproducibly caused a "Load Error while
     # (re)opening our installation volume" failure at boot, dropping the
     # operator to the EFI Internal Shell without ever reaching the
-    # kernel. The reproducible observation is the failure mode; we have
-    # not independently verified the underlying protocol-level cause. The
-    # simplest mitigation that we have observed to work on real OVMF is to
-    # not load any driver from this ESP and put the kernel + initrd
-    # inside the FAT image so rEFInd reads them via its own
-    # EFI_SIMPLE_FILE_SYSTEM_PROTOCOL. rEFInd can still auto-load drivers
-    # from a drivers_x64/ directory under EFI/REFIND/ at install time on
-    # real hardware; we simply do not ship that directory here.
+    # kernel. The reproducible observation is the failure mode with the
+    # ISO 9660 driver specifically; we did not test other rEFInd
+    # filesystem drivers (ext4, XFS, NTFS, HFS+, ...) so we do not
+    # generalize the failure to "any BlockIo-claiming driver". The
+    # mitigation that we observed to work on real OVMF is to not ship
+    # any driver from this ESP and put the kernel + initrd inside the
+    # FAT image so rEFInd reads them via its own
+    # EFI_SIMPLE_FILE_SYSTEM_PROTOCOL. rEFInd can still auto-load
+    # drivers from a drivers_x64/ directory under EFI/REFIND/ at install
+    # time on real hardware; we simply do not ship that directory here.
 
     # Place refind.conf NEXT TO the running binary. rEFInd's
     # CONFIG_FILE_NAME ("refind.conf", case-insensitive on FAT) is

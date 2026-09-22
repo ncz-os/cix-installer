@@ -342,7 +342,9 @@ def check_el_torito_catalog(path: Path, catalog_lba: int) -> tuple[bool, list, b
     returned so callers can parse entries not covered here (e.g. when the
     caller already knows the layout and wants to read additional fields).
 
-    Per the El Torito spec, the catalog contains 32-byte entries:
+    Per the El Torito spec, the catalog contains 32-byte entries. Two
+    fields with the same byte offsets (6..7 Sector count; 8..11 Load RBA)
+    use DIFFERENT units; the rest of the field sizes are uniform:
 
       Validation Entry (offset 0):
         byte 0    Header ID, must be 0x01
@@ -360,11 +362,16 @@ def check_el_torito_catalog(path: Path, catalog_lba: int) -> tuple[bool, list, b
         byte 4    Partition type (0 = no partition, 1 = ...)
         byte 5    Reserved
         bytes 6-7 Sector count (LE) -- in 512-byte sectors (El Torito spec).
-                                         Note: this is NOT the field used to
-                                         compute Load RBA; see EFI Initial
-                                         Entry below.
+                                          Note: this is NOT the field used to
+                                          compute Load RBA; see EFI Initial
+                                          Entry below.
         bytes 8-11 LBA of first sector of boot image (LE) -- in 2048-byte
-                  ISO logical blocks (NOT 512-byte sectors).
+                  ISO logical blocks, also called "CD-ROM logical blocks"
+                  or "CD sectors" in the spec. The spec deliberately
+                  defines Load RBA in 2048-byte units, not 512-byte units;
+                  xorriso 1.5.8.pl02 emits it in 2048-byte units, matching
+                  the spec. (The two field units are NOT the same field;
+                  do not collapse them into "both are 512-byte sectors".)
         bytes 12-31 Reserved (0)
 
     The Debian "Section Header Entry + EFI Initial Entry" extension lives
@@ -386,12 +393,11 @@ def check_el_torito_catalog(path: Path, catalog_lba: int) -> tuple[bool, list, b
         bytes 2-3 Reserved (0)
         byte 4    Partition type (0)
         byte 5    Reserved (0)
-        bytes 6-7 Sector count (LE, 512-byte sectors per the El Torito spec)
+        bytes 6-7 Sector count (LE, 512-byte units per the El Torito spec)
         bytes 8-11 LBA of first sector of boot image (LE, 2048-byte ISO
-                  logical blocks per the El Torito spec). xorriso 1.5.8
-                  writes the value in 2048-byte units even though the spec
-                  text says 512-byte units; the caller must multiply by
-                  2048 (NOT 512) to read the boot image.
+                  logical blocks per the El Torito spec -- same units as
+                  the Initial/Default Entry's Load RBA, same units the
+                  spec defines for any "CD-ROM logical block" reference)
         bytes 12-31 Reserved (0)
     """
     issues = []
@@ -749,16 +755,16 @@ def main():
                 # after the warm writer's update commands; xorriso has
                 # already accepted the layout (exit 0) by the time we run.
                 #
-                # Unit notes: the El Torito spec text reads both the Load
-                # RBA field and the Sector Count field as 512-byte units,
-                # but the spec also separately says "CD-ROM sector" for
-                # Load RBA in practice. xorriso 1.5.8.pl02 emits Load RBA
-                # in 2048-byte ISO logical blocks (verified by byte-diff
-                # against the source ESP at load_lba * 2048 -- a * 512
-                # byte offset never matches). The Sector Count field is
-                # not used by this check (it is 0 in our layout) so its
-                # unit does not affect us; we rely on the source ESP size
-                # for the read length instead.
+                # Unit notes: the El Torito spec defines the Load RBA field
+                # in 2048-byte ISO logical blocks (also called "CD-ROM
+                # logical blocks" / "CD sectors" in the spec), which is
+                # the same unit xorriso 1.5.8.pl02 writes. The Sector
+                # Count field is defined in 512-byte units per the spec
+                # (a different unit than Load RBA -- the two fields are
+                # NOT both 512-byte units). We rely on the source ESP size
+                # for the read length and never use Sector Count here, so
+                # the unit mismatch between Load RBA and Sector Count
+                # does not affect this check.
                 expected_size = args.esp_image.stat().st_size
                 actual_bytes = read_at(image, load_lba * ISO_BLOCK, expected_size)
                 source_bytes = args.esp_image.read_bytes()
