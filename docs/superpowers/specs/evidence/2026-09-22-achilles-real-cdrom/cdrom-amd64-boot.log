@@ -1,0 +1,648 @@
+[2J[001;001H[=3h[2J[001;001H[2J[001;001H[8;042;160t[2J[001;001H[2J[001;001H[8;056;240t[2J[001;001HBdsDxe: loading Boot0002 "UEFI QEMU DVD-ROM QM00005 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x2,0xFFFF,0x0)
+BdsDxe: starting Boot0002 "UEFI QEMU DVD-ROM QM00005 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x2,0xFFFF,0x0)
+Icons directory doesn't exist; setting textonly = TRUE!
+[2J[001;001H[1m[37m[44m[001;001H                                                                                                                                                                [002;001H                                                                                                                                                                [003;001H                                                                                                                                                                [002;004HrEFInd - Initializing...[0m[37m[40m[005;001H[2J[001;001H[1m[37m[44m[001;001H                                                                                                                                                                [002;001H                                                                                                                                                                [003;001H                                                                                                                                                                [002;004HrEFInd - Main Menu[0m[37m[40m[005;001H[005;003H[1m[37m[42m Boot Install (graphical) from REFIND[006;003H[0m[37m[40m Boot Install (expert) from REFIND[007;003H Boot Rescue mode from REFIND[008;003H Reboot to EFI Internal Shell[009;003H About rEFInd[010;003H Manage Hidden Tags Menu[011;003H Shut Down Computer[012;003H Reboot Computer[013;003H Reboot to Computer Setup Utility[1m[32m[40m[005;001H [038;001H [041;001HUse arrow keys to move cursor; Enter to boot;[042;001HInsert, Tab, or F2 for more options; Esc or Backspace to refresh[1m[33m[40m[040;004HAutomatic boot in 10 seconds  [040;004HAutomatic boot in 9 seconds  [040;004HAutomatic boot in 8 seconds  [040;004HAutomatic boot in 7 seconds  [040;004HAutomatic boot in 6 seconds  [040;004HAutomatic boot in 5 seconds  [040;004HAutomatic boot in 4 seconds  [040;004HAutomatic boot in 3 seconds  [040;004HAutomatic boot in 2 seconds  [040;004HAutomatic boot in 1 seconds  [040;004HAutomatic boot in 0 seconds  [0m[37m[40m[2J[001;001H[1m[37m[44m[001;001H                                                                                                                                                                [002;001H                                                                                                                                                                [003;001H                                                                                                                                                                [002;004HrEFInd - Booting OS[0m[37m[40m[005;001HStarting linux
+Using load options 'auto=true priority=critical locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=ttyS0,115200n8 initrd=\initrd.gz'
+EFI stub: Loaded initrd from command line option
+[    0.000000] Linux version 6.1.0-50-amd64 (debian-kernel@lists.debian.org) (gcc-12 (Debian 12.2.0-14+deb12u1) 12.2.0, GNU ld (GNU Binutils for Debian) 2.40) #1 SMP PREEMPT_DYNAMIC Debian 6.1.176-1 (2026-07-02)
+[    0.000000] Command line: auto=true priority=critical locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=ttyS0,115200n8 initrd=\initrd.gz
+[    0.000000] BIOS-provided physical RAM map:
+[    0.000000] BIOS-e820: [mem 0x0000000000000000-0x000000000009ffff] usable
+[    0.000000] BIOS-e820: [mem 0x0000000000100000-0x00000000007fffff] usable
+[    0.000000] BIOS-e820: [mem 0x0000000000800000-0x0000000000807fff] ACPI NVS
+[    0.000000] BIOS-e820: [mem 0x0000000000808000-0x000000000080afff] usable
+[    0.000000] BIOS-e820: [mem 0x000000000080b000-0x000000000080bfff] ACPI NVS
+[    0.000000] BIOS-e820: [mem 0x000000000080c000-0x0000000000813fff] usable
+[    0.000000] BIOS-e820: [mem 0x0000000000814000-0x00000000008fffff] ACPI NVS
+[    0.000000] BIOS-e820: [mem 0x0000000000900000-0x000000007ed3efff] usable
+[    0.000000] BIOS-e820: [mem 0x000000007ed3f000-0x000000007edfffff] reserved
+[    0.000000] BIOS-e820: [mem 0x000000007ee00000-0x000000007f8ecfff] usable
+[    0.000000] BIOS-e820: [mem 0x000000007f8ed000-0x000000007fb6cfff] reserved
+[    0.000000] BIOS-e820: [mem 0x000000007fb6d000-0x000000007fb7efff] ACPI data
+[    0.000000] BIOS-e820: [mem 0x000000007fb7f000-0x000000007fbfefff] ACPI NVS
+[    0.000000] BIOS-e820: [mem 0x000000007fbff000-0x000000007fef3fff] usable
+[    0.000000] BIOS-e820: [mem 0x000000007fef4000-0x000000007ff77fff] reserved
+[    0.000000] BIOS-e820: [mem 0x000000007ff78000-0x000000007fffffff] ACPI NVS
+[    0.000000] BIOS-e820: [mem 0x00000000e0000000-0x00000000efffffff] reserved
+[    0.000000] BIOS-e820: [mem 0x00000000ffc00000-0x00000000ffffffff] reserved
+[    0.000000] BIOS-e820: [mem 0x000000fd00000000-0x000000ffffffffff] reserved
+[    0.000000] NX (Execute Disable) protection: active
+[    0.000000] extended physical RAM map:
+[    0.000000] reserve setup_data: [mem 0x0000000000000000-0x000000000009ffff] usable
+[    0.000000] reserve setup_data: [mem 0x0000000000100000-0x00000000007fffff] usable
+[    0.000000] reserve setup_data: [mem 0x0000000000800000-0x0000000000807fff] ACPI NVS
+[    0.000000] reserve setup_data: [mem 0x0000000000808000-0x000000000080afff] usable
+[    0.000000] reserve setup_data: [mem 0x000000000080b000-0x000000000080bfff] ACPI NVS
+[    0.000000] reserve setup_data: [mem 0x000000000080c000-0x0000000000813fff] usable
+[    0.000000] reserve setup_data: [mem 0x0000000000814000-0x00000000008fffff] ACPI NVS
+[    0.000000] reserve setup_data: [mem 0x0000000000900000-0x000000007d269017] usable
+[    0.000000] reserve setup_data: [mem 0x000000007d269018-0x000000007d28ec57] usable
+[    0.000000] reserve setup_data: [mem 0x000000007d28ec58-0x000000007e008017] usable
+[    0.000000] reserve setup_data: [mem 0x000000007e008018-0x000000007e011a57] usable
+[    0.000000] reserve setup_data: [mem 0x000000007e011a58-0x000000007ed3efff] usable
+[    0.000000] reserve setup_data: [mem 0x000000007ed3f000-0x000000007edfffff] reserved
+[    0.000000] reserve setup_data: [mem 0x000000007ee00000-0x000000007f8ecfff] usable
+[    0.000000] reserve setup_data: [mem 0x000000007f8ed000-0x000000007fb6cfff] reserved
+[    0.000000] reserve setup_data: [mem 0x000000007fb6d000-0x000000007fb7efff] ACPI data
+[    0.000000] reserve setup_data: [mem 0x000000007fb7f000-0x000000007fbfefff] ACPI NVS
+[    0.000000] reserve setup_data: [mem 0x000000007fbff000-0x000000007fef3fff] usable
+[    0.000000] reserve setup_data: [mem 0x000000007fef4000-0x000000007ff77fff] reserved
+[    0.000000] reserve setup_data: [mem 0x000000007ff78000-0x000000007fffffff] ACPI NVS
+[    0.000000] reserve setup_data: [mem 0x00000000e0000000-0x00000000efffffff] reserved
+[    0.000000] reserve setup_data: [mem 0x00000000ffc00000-0x00000000ffffffff] reserved
+[    0.000000] reserve setup_data: [mem 0x000000fd00000000-0x000000ffffffffff] reserved
+[    0.000000] efi: EFI v2.70 by Ubuntu distribution of EDK II
+[    0.000000] efi: SMBIOS=0x7f986000 ACPI=0x7fb7e000 ACPI 2.0=0x7fb7e014 MEMATTR=0x7ea6e018 INITRD=0x7e038718 RNG=0x7fb73018 
+[    0.000000] random: crng init done
+[    0.000000] secureboot: Secure boot disabled
+[    0.000000] SMBIOS 2.8 present.
+[    0.000000] DMI: QEMU Standard PC (Q35 + ICH9, 2009), BIOS 2025.11-3ubuntu7.2 08/26/2026
+[    0.000000] tsc: Fast TSC calibration using PIT
+[    0.000000] tsc: Detected 4200.014 MHz processor
+[    0.001465] last_pfn = 0x7fef4 max_arch_pfn = 0x10000000000
+[    0.002077] x86/PAT: Configuration [0-7]: WB  WC  UC- UC  WB  WP  UC- WT  
+[    0.035754] Using GB pages for direct mapping
+[    0.039617] RAMDISK: [mem 0x79880000-0x7bf6bfff]
+[    0.039942] ACPI: Early table checksum verification disabled
+[    0.040211] ACPI: RSDP 0x000000007FB7E014 000024 (v02 BOCHS )
+[    0.040393] ACPI: XSDT 0x000000007FB7D0E8 000054 (v01 BOCHS  BXPC     00000001      01000013)
+[    0.040787] ACPI: FACP 0x000000007FB79000 0000F4 (v03 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.041200] ACPI: DSDT 0x000000007FB7A000 002109 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.041257] ACPI: FACS 0x000000007FBDD000 000040
+[    0.041297] ACPI: APIC 0x000000007FB78000 000078 (v03 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.041318] ACPI: HPET 0x000000007FB77000 000038 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.041337] ACPI: MCFG 0x000000007FB76000 00003C (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.041357] ACPI: WAET 0x000000007FB75000 000028 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.041376] ACPI: BGRT 0x000000007FB74000 000038 (v01 INTEL  EDK2     00000002      01000013)
+[    0.041428] ACPI: Reserving FACP table memory at [mem 0x7fb79000-0x7fb790f3]
+[    0.041446] ACPI: Reserving DSDT table memory at [mem 0x7fb7a000-0x7fb7c108]
+[    0.041451] ACPI: Reserving FACS table memory at [mem 0x7fbdd000-0x7fbdd03f]
+[    0.041456] ACPI: Reserving APIC table memory at [mem 0x7fb78000-0x7fb78077]
+[    0.041462] ACPI: Reserving HPET table memory at [mem 0x7fb77000-0x7fb77037]
+[    0.041467] ACPI: Reserving MCFG table memory at [mem 0x7fb76000-0x7fb7603b]
+[    0.041472] ACPI: Reserving WAET table memory at [mem 0x7fb75000-0x7fb75027]
+[    0.041477] ACPI: Reserving BGRT table memory at [mem 0x7fb74000-0x7fb74037]
+[    0.044233] No NUMA configuration found
+[    0.044251] Faking a node at [mem 0x0000000000000000-0x000000007fef3fff]
+[    0.044719] NODE_DATA(0) allocated [mem 0x7fe44000-0x7fe6efff]
+[    0.050564] Zone ranges:
+[    0.050585]   DMA      [mem 0x0000000000001000-0x0000000000ffffff]
+[    0.050634]   DMA32    [mem 0x0000000001000000-0x000000007fef3fff]
+[    0.050644]   Normal   empty
+[    0.050655]   Device   empty
+[    0.050665] Movable zone start for each node
+[    0.050687] Early memory node ranges
+[    0.050707]   node   0: [mem 0x0000000000001000-0x000000000009ffff]
+[    0.050800]   node   0: [mem 0x0000000000100000-0x00000000007fffff]
+[    0.050806]   node   0: [mem 0x0000000000808000-0x000000000080afff]
+[    0.050811]   node   0: [mem 0x000000000080c000-0x0000000000813fff]
+[    0.050816]   node   0: [mem 0x0000000000900000-0x000000007ed3efff]
+[    0.050836]   node   0: [mem 0x000000007ee00000-0x000000007f8ecfff]
+[    0.050841]   node   0: [mem 0x000000007fbff000-0x000000007fef3fff]
+[    0.051003] Initmem setup node 0 [mem 0x0000000000001000-0x000000007fef3fff]
+[    0.051787] On node 0, zone DMA: 1 pages in unavailable ranges
+[    0.051961] On node 0, zone DMA: 96 pages in unavailable ranges
+[    0.051969] On node 0, zone DMA: 8 pages in unavailable ranges
+[    0.051975] On node 0, zone DMA: 1 pages in unavailable ranges
+[    0.052081] On node 0, zone DMA: 236 pages in unavailable ranges
+[    0.054886] On node 0, zone DMA32: 193 pages in unavailable ranges
+[    0.054984] On node 0, zone DMA32: 786 pages in unavailable ranges
+[    0.055033] On node 0, zone DMA32: 268 pages in unavailable ranges
+[    0.055286] ACPI: PM-Timer IO Port: 0x608
+[    0.055605] ACPI: LAPIC_NMI (acpi_id[0xff] dfl dfl lint[0x1])
+[    0.055867] IOAPIC[0]: apic_id 0, version 32, address 0xfec00000, GSI 0-23
+[    0.055949] ACPI: INT_SRC_OVR (bus 0 bus_irq 0 global_irq 2 dfl dfl)
+[    0.056113] ACPI: INT_SRC_OVR (bus 0 bus_irq 5 global_irq 5 high level)
+[    0.056146] ACPI: INT_SRC_OVR (bus 0 bus_irq 9 global_irq 9 high level)
+[    0.056207] ACPI: INT_SRC_OVR (bus 0 bus_irq 10 global_irq 10 high level)
+[    0.056214] ACPI: INT_SRC_OVR (bus 0 bus_irq 11 global_irq 11 high level)
+[    0.056332] ACPI: Using ACPI (MADT) for SMP configuration information
+[    0.056363] ACPI: HPET id: 0x8086a201 base: 0xfed00000
+[    0.057085] smpboot: Allowing 1 CPUs, 0 hotplug CPUs
+[    0.057748] PM: hibernation: Registered nosave memory: [mem 0x00000000-0x00000fff]
+[    0.057770] PM: hibernation: Registered nosave memory: [mem 0x000a0000-0x000fffff]
+[    0.057780] PM: hibernation: Registered nosave memory: [mem 0x00800000-0x00807fff]
+[    0.057789] PM: hibernation: Registered nosave memory: [mem 0x0080b000-0x0080bfff]
+[    0.057801] PM: hibernation: Registered nosave memory: [mem 0x00814000-0x008fffff]
+[    0.057811] PM: hibernation: Registered nosave memory: [mem 0x7e05a000-0x7e062fff]
+[    0.057820] PM: hibernation: Registered nosave memory: [mem 0x7ed3f000-0x7edfffff]
+[    0.057829] PM: hibernation: Registered nosave memory: [mem 0x7f8ed000-0x7fbfefff]
+[    0.057914] [mem 0x80000000-0xdfffffff] available for PCI devices
+[    0.057949] Booting paravirtualized kernel on bare hardware
+[    0.058171] clocksource: refined-jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645519600211568 ns
+[    0.066481] setup_percpu: NR_CPUS:8192 nr_cpumask_bits:1 nr_cpu_ids:1 nr_node_ids:1
+[    0.069659] percpu: Embedded 62 pages/cpu s217088 r8192 d28672 u2097152
+[    0.071004] Fallback order for Node 0: 0 
+[    0.071193] Built 1 zonelists, mobility grouping on.  Total pages: 512565
+[    0.071205] Policy zone: DMA32
+[    0.071330] Kernel command line: auto=true priority=critical locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=ttyS0,115200n8 initrd=\initrd.gz
+[    0.072254] Unknown kernel command line parameters "auto=true priority=critical locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt", will be passed to user space.
+[    0.074767] Dentry cache hash table entries: 262144 (order: 9, 2097152 bytes, linear)
+[    0.075900] Inode-cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.077047] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.104186] Memory: 245088K/2090796K available (14343K kernel code, 2338K rwdata, 9116K rodata, 2820K init, 17356K bss, 174388K reserved, 0K cma-reserved)
+[    0.108306] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.110195] ftrace: allocating 40432 entries in 158 pages
+[    0.141121] ftrace: allocated 158 pages with 5 groups
+[    0.147726] Dynamic Preempt: voluntary
+[    0.149730] rcu: Preemptible hierarchical RCU implementation.
+[    0.149748] rcu: 	RCU restricting CPUs from NR_CPUS=8192 to nr_cpu_ids=1.
+[    0.149819] 	Trampoline variant of Tasks RCU enabled.
+[    0.149824] 	Rude variant of Tasks RCU enabled.
+[    0.149830] 	Tracing variant of Tasks RCU enabled.
+[    0.149904] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.149925] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    0.176594] NR_IRQS: 524544, nr_irqs: 256, preallocated irqs: 16
+[    0.180608] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.183830] Console: colour dummy device 80x25
+[    0.199060] printk: console [ttyS0] enabled
+[    0.199790] ACPI: Core revision 20220331
+[    0.203390] clocksource: hpet: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604467 ns
+[    0.206454] APIC: Switch to symmetric I/O mode setup
+[    0.206894] x2apic: IRQ remapping doesn't support X2APIC mode
+[    0.209723] ..TIMER: vector=0x30 apic1=0 pin1=2 apic2=-1 pin2=-1
+[    0.228420] clocksource: tsc-early: mask: 0xffffffffffffffff max_cycles: 0x3c8a6ebf4fa, max_idle_ns: 440795385315 ns
+[    0.228800] Calibrating delay loop (skipped), value calculated using timer frequency.. 8400.02 BogoMIPS (lpj=16800056)
+[    0.229985] x86/cpu: User Mode Instruction Prevention (UMIP) activated
+[    0.236790] Last level iTLB entries: 4KB 0, 2MB 0, 4MB 0
+[    0.236992] Last level dTLB entries: 4KB 0, 2MB 0, 4MB 0, 1GB 0
+[    0.237981] Spectre V1 : Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+[    0.238345] Spectre V2 : Mitigation: Retpolines
+[    0.238431] Spectre V2 : Spectre v2 / SpectreRSB: Filling RSB on context switch and VMEXIT
+[    0.238598] Speculative Store Bypass: Vulnerable
+[    0.239655] x86/fpu: Supporting XSAVE feature 0x001: 'x87 floating point registers'
+[    0.242432] x86/fpu: Supporting XSAVE feature 0x002: 'SSE registers'
+[    0.242540] x86/fpu: Supporting XSAVE feature 0x004: 'AVX registers'
+[    0.242634] x86/fpu: Supporting XSAVE feature 0x008: 'MPX bounds registers'
+[    0.242731] x86/fpu: Supporting XSAVE feature 0x010: 'MPX CSR'
+[    0.242859] x86/fpu: Supporting XSAVE feature 0x200: 'Protection Keys User registers'
+[    0.243047] x86/fpu: xstate_offset[2]:  576, xstate_sizes[2]:  256
+[    0.243205] x86/fpu: xstate_offset[3]:  960, xstate_sizes[3]:   64
+[    0.243289] x86/fpu: xstate_offset[4]: 1024, xstate_sizes[4]:   64
+[    0.243374] x86/fpu: xstate_offset[9]: 2688, xstate_sizes[9]:    8
+[    0.243466] x86/fpu: Enabled xstate features 0x21f, context size is 2696 bytes, using 'standard' format.
+[    0.431532] Freeing SMP alternatives memory: 36K
+[    0.432021] pid_max: default: 32768 minimum: 301
+[    0.447059] LSM: Security Framework initializing
+[    0.447932] landlock: Up and running.
+[    0.447996] Yama: disabled by default; enable with sysctl kernel.yama.*
+[    0.450229] AppArmor: AppArmor initialized
+[    0.450319] TOMOYO Linux initialized
+[    0.450695] LSM support for eBPF active
+[    0.452508] Mount-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.452731] Mountpoint-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.580598] smpboot: CPU0: AMD QEMU TCG CPU version 2.5+ (family: 0x6, model: 0x6, stepping: 0x3)
+[    0.581820] cblist_init_generic: Setting adjustable number of callback queues.
+[    0.581947] cblist_init_generic: Setting shift to 0 and lim to 1.
+[    0.582226] cblist_init_generic: Setting adjustable number of callback queues.
+[    0.582329] cblist_init_generic: Setting shift to 0 and lim to 1.
+[    0.582691] cblist_init_generic: Setting adjustable number of callback queues.
+[    0.582795] cblist_init_generic: Setting shift to 0 and lim to 1.
+[    0.583134] Performance Events: PMU not available due to virtualization, using software events only.
+[    0.584736] signal: max sigframe size: 3632
+[    0.585410] rcu: Hierarchical SRCU implementation.
+[    0.585498] rcu: 	Max phase no-delay instances is 1000.
+[    0.589256] NMI watchdog: Perf NMI watchdog permanently disabled
+[    0.590742] smp: Bringing up secondary CPUs ...
+[    0.590865] smp: Brought up 1 node, 1 CPU
+[    0.590943] smpboot: Max logical packages: 1
+[    0.591044] smpboot: Total of 1 processors activated (8400.02 BogoMIPS)
+[    0.628011] node 0 deferred pages initialised in 32ms
+[    0.637049] devtmpfs: initialized
+[    0.639329] x86/mm: Memory block size: 128MB
+[    0.643539] ACPI: PM: Registering ACPI NVS region [mem 0x00800000-0x00807fff] (32768 bytes)
+[    0.643765] ACPI: PM: Registering ACPI NVS region [mem 0x0080b000-0x0080bfff] (4096 bytes)
+[    0.643880] ACPI: PM: Registering ACPI NVS region [mem 0x00814000-0x008fffff] (966656 bytes)
+[    0.644083] ACPI: PM: Registering ACPI NVS region [mem 0x7fb7f000-0x7fbfefff] (524288 bytes)
+[    0.644241] ACPI: PM: Registering ACPI NVS region [mem 0x7ff78000-0x7fffffff] (557056 bytes)
+[    0.645487] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.645907] futex hash table entries: 256 (order: 2, 16384 bytes, linear)
+[    0.647756] pinctrl core: initialized pinctrl subsystem
+[    0.662961] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.665763] DMA: preallocated 256 KiB GFP_KERNEL pool for atomic allocations
+[    0.666351] DMA: preallocated 256 KiB GFP_KERNEL|GFP_DMA pool for atomic allocations
+[    0.666760] DMA: preallocated 256 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.666969] audit: initializing netlink subsys (disabled)
+[    0.670994] thermal_sys: Registered thermal governor 'fair_share'
+[    0.671014] thermal_sys: Registered thermal governor 'bang_bang'
+[    0.671104] thermal_sys: Registered thermal governor 'step_wise'
+[    0.671184] thermal_sys: Registered thermal governor 'user_space'
+[    0.671262] thermal_sys: Registered thermal governor 'power_allocator'
+[    0.672252] audit: type=2000 audit(1790093624.464:1): state=initialized audit_enabled=0 res=1
+[    0.672625] cpuidle: using governor ladder
+[    0.672760] cpuidle: using governor menu
+[    0.678727] efi: Freeing EFI boot services memory: 41988K
+[    0.678926] acpiphp: ACPI Hot Plug PCI Controller Driver version: 0.5
+[    0.680899] PCI: MMCONFIG for domain 0000 [bus 00-ff] at [mem 0xe0000000-0xefffffff] (base 0xe0000000)
+[    0.681424] PCI: MMCONFIG at [mem 0xe0000000-0xefffffff] reserved in E820
+[    0.682913] PCI: Using configuration type 1 for base access
+[    0.695845] kprobes: kprobe jump-optimization is enabled. All kprobes are optimized if possible.
+[    0.737239] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    0.737349] HugeTLB: 16380 KiB vmemmap can be freed for a 1.00 GiB page
+[    0.737446] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    0.737534] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[    0.749092] ACPI: Added _OSI(Module Device)
+[    0.749172] ACPI: Added _OSI(Processor Device)
+[    0.749234] ACPI: Added _OSI(Processor Aggregator Device)
+[    0.783104] ACPI: 1 ACPI AML tables successfully acquired and loaded
+[    0.793485] ACPI: Interpreter enabled
+[    0.794203] ACPI: PM: (supports S0 S3 S4 S5)
+[    0.794285] ACPI: Using IOAPIC for interrupt routing
+[    0.794935] PCI: Using host bridge windows from ACPI; if necessary, use "pci=nocrs" and report a bug
+[    0.795075] PCI: Ignoring E820 reservations for host bridge windows
+[    0.795977] ACPI: Enabled 2 GPEs in block 00 to 3F
+[    0.811451] ACPI: PCI Root Bridge [PCI0] (domain 0000 [bus 00-ff])
+[    0.811921] acpi PNP0A08:00: _OSC: OS supports [ExtendedConfig ASPM ClockPM Segments MSI HPX-Type3]
+[    0.812824] acpi PNP0A08:00: _OSC: platform does not support [PCIeHotplug LTR]
+[    0.813383] acpi PNP0A08:00: _OSC: OS now controls [SHPCHotplug PME AER PCIeCapability]
+[    0.816300] PCI host bridge to bus 0000:00
+[    0.816479] pci_bus 0000:00: root bus resource [io  0x0000-0x0cf7 window]
+[    0.816628] pci_bus 0000:00: root bus resource [io  0x0d00-0xffff window]
+[    0.816667] pci_bus 0000:00: root bus resource [mem 0x000a0000-0x000bffff window]
+[    0.816784] pci_bus 0000:00: root bus resource [mem 0x80000000-0xdfffffff window]
+[    0.816886] pci_bus 0000:00: root bus resource [mem 0xf0000000-0xfebfffff window]
+[    0.816985] pci_bus 0000:00: root bus resource [mem 0x100000000-0x8ffffffff window]
+[    0.817184] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    0.818134] pci 0000:00:00.0: [8086:29c0] type 00 class 0x060000
+[    0.820849] pci 0000:00:01.0: [1234:1111] type 00 class 0x030000
+[    0.821533] pci 0000:00:01.0: BAR 0 [mem 0x80000000-0x80ffffff pref]
+[    0.822506] pci 0000:00:01.0: BAR 2 [mem 0x810c5000-0x810c5fff]
+[    0.824678] pci 0000:00:01.0: ROM [mem 0xffff0000-0xffffffff pref]
+[    0.824902] pci 0000:00:01.0: BAR 0: assigned to efifb
+[    0.825108] pci 0000:00:01.0: Video device with shadowed ROM at [mem 0x000c0000-0x000dffff]
+[    0.825742] pci 0000:00:02.0: [8086:10d3] type 00 class 0x020000
+[    0.826907] pci 0000:00:02.0: BAR 0 [mem 0x810a0000-0x810bffff]
+[    0.828014] pci 0000:00:02.0: BAR 1 [mem 0x81080000-0x8109ffff]
+[    0.829170] pci 0000:00:02.0: BAR 2 [io  0x6060-0x607f]
+[    0.830263] pci 0000:00:02.0: BAR 3 [mem 0x810c0000-0x810c3fff]
+[    0.832659] pci 0000:00:02.0: ROM [mem 0xfff80000-0xffffffff pref]
+[    0.834509] pci 0000:00:02.0: enabling Extended Tags
+[    0.837869] pci 0000:00:1f.0: [8086:2918] type 00 class 0x060100
+[    0.838188] pci 0000:00:1f.0: quirk: [io  0x0600-0x067f] claimed by ICH6 ACPI/GPIO/TCO
+[    0.838647] pci 0000:00:1f.2: [8086:2922] type 00 class 0x010601
+[    0.840907] pci 0000:00:1f.2: BAR 4 [io  0x6040-0x605f]
+[    0.841441] pci 0000:00:1f.2: BAR 5 [mem 0x810c4000-0x810c4fff]
+[    0.842333] pci 0000:00:1f.3: [8086:2930] type 00 class 0x0c0500
+[    0.843578] pci 0000:00:1f.3: BAR 4 [io  0x6000-0x603f]
+[    0.846733] ACPI: PCI: Interrupt link LNKA configured for IRQ 10
+[    0.847178] ACPI: PCI: Interrupt link LNKB configured for IRQ 10
+[    0.847473] ACPI: PCI: Interrupt link LNKC configured for IRQ 11
+[    0.847773] ACPI: PCI: Interrupt link LNKD configured for IRQ 11
+[    0.848060] ACPI: PCI: Interrupt link LNKE configured for IRQ 10
+[    0.848338] ACPI: PCI: Interrupt link LNKF configured for IRQ 10
+[    0.848615] ACPI: PCI: Interrupt link LNKG configured for IRQ 11
+[    0.848911] ACPI: PCI: Interrupt link LNKH configured for IRQ 11
+[    0.849693] ACPI: PCI: Interrupt link GSIA configured for IRQ 16
+[    0.849824] ACPI: PCI: Interrupt link GSIB configured for IRQ 17
+[    0.849954] ACPI: PCI: Interrupt link GSIC configured for IRQ 18
+[    0.850078] ACPI: PCI: Interrupt link GSID configured for IRQ 19
+[    0.850195] ACPI: PCI: Interrupt link GSIE configured for IRQ 20
+[    0.850308] ACPI: PCI: Interrupt link GSIF configured for IRQ 21
+[    0.850420] ACPI: PCI: Interrupt link GSIG configured for IRQ 22
+[    0.850529] ACPI: PCI: Interrupt link GSIH configured for IRQ 23
+[    0.852986] iommu: Default domain type: Translated 
+[    0.853077] iommu: DMA domain TLB invalidation policy: lazy mode 
+[    0.853990] pps_core: LinuxPPS API ver. 1 registered
+[    0.854069] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    0.854223] PTP clock support registered
+[    0.854428] EDAC MC: Ver: 3.0.0
+[    0.855867] Registered efivars operations
+[    0.861372] NetLabel: Initializing
+[    0.861435] NetLabel:  domain hash size = 128
+[    0.861502] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    0.862073] NetLabel:  unlabeled traffic allowed by default
+[    0.862169] PCI: Using ACPI for IRQ routing
+[    0.866639] pci 0000:00:01.0: vgaarb: setting as boot VGA device
+[    0.866783] pci 0000:00:01.0: vgaarb: bridge control possible
+[    0.866900] pci 0000:00:01.0: vgaarb: VGA device added: decodes=io+mem,owns=io+mem,locks=none
+[    0.867026] vgaarb: loaded
+[    0.867440] hpet0: at MMIO 0xfed00000, IRQs 2, 8, 0
+[    0.867556] hpet0: 3 comparators, 64-bit 100.000000 MHz counter
+[    0.872465] clocksource: Switched to clocksource tsc-early
+[    0.982062] VFS: Disk quotas dquot_6.6.0
+[    0.982259] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    0.989970] AppArmor: AppArmor Filesystem Enabled
+[    0.990281] pnp: PnP ACPI init
+[    0.992674] system 00:05: [mem 0xe0000000-0xefffffff window] has been reserved
+[    0.995045] pnp: PnP ACPI: found 6 devices
+[    1.018837] clocksource: acpi_pm: mask: 0xffffff max_cycles: 0xffffff, max_idle_ns: 2085701024 ns
+[    1.019519] NET: Registered PF_INET protocol family
+[    1.020727] IP idents hash table entries: 32768 (order: 6, 262144 bytes, linear)
+[    1.155208] tcp_listen_portaddr_hash hash table entries: 1024 (order: 2, 16384 bytes, linear)
+[    1.163650] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    1.186622] TCP established hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    1.188384] TCP bind hash table entries: 16384 (order: 7, 524288 bytes, linear)
+[    1.188662] TCP: Hash tables configured (established 16384 bind 16384)
+[    1.225476] MPTCP token hash table entries: 2048 (order: 4, 49152 bytes, linear)
+[    1.226387] UDP hash table entries: 1024 (order: 3, 32768 bytes, linear)
+[    1.228541] UDP-Lite hash table entries: 1024 (order: 3, 32768 bytes, linear)
+[    1.229724] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    1.230342] NET: Registered PF_XDP protocol family
+[    1.230564] pci 0000:00:02.0: ROM [mem 0xfff80000-0xffffffff pref]: can't claim; no compatible bridge window
+[    1.231538] pci 0000:00:02.0: ROM [mem 0x81000000-0x8107ffff pref]: assigned
+[    1.231878] pci_bus 0000:00: resource 4 [io  0x0000-0x0cf7 window]
+[    1.231969] pci_bus 0000:00: resource 5 [io  0x0d00-0xffff window]
+[    1.232056] pci_bus 0000:00: resource 6 [mem 0x000a0000-0x000bffff window]
+[    1.232148] pci_bus 0000:00: resource 7 [mem 0x80000000-0xdfffffff window]
+[    1.232238] pci_bus 0000:00: resource 8 [mem 0xf0000000-0xfebfffff window]
+[    1.232335] pci_bus 0000:00: resource 9 [mem 0x100000000-0x8ffffffff window]
+[    1.232740] PCI: CLS 0 bytes, default 64
+[    1.252526] Trying to unpack rootfs image as initramfs...
+[    1.269125] Initialise system trusted keyrings
+[    1.270341] Key type blacklist registered
+[    1.274129] workingset: timestamp_bits=36 max_order=19 bucket_order=0
+[    1.302057] zbud: loaded
+[    1.329165] integrity: Platform Keyring initialized
+[    1.329398] integrity: Machine keyring initialized
+[    1.329473] Key type asymmetric registered
+[    1.329591] Asymmetric key parser 'x509' registered
+[    2.252018] tsc: Refined TSC clocksource calibration: 4200.043 MHz
+[    2.252404] clocksource: tsc: mask: 0xffffffffffffffff max_cycles: 0x3c8a8a7ca6f, max_idle_ns: 440795367444 ns
+[    2.252645] clocksource: Switched to clocksource tsc
+[    3.224392] Freeing initrd memory: 39856K
+[    3.298477] alg: self-tests for CTR-KDF (hmac(sha256)) passed
+[    3.298834] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 248)
+[    3.299321] io scheduler mq-deadline registered
+[    3.307074] shpchp: Standard Hot Plug PCI Controller Driver version: 0.4
+[    3.309680] Serial: 8250/16550 driver, 4 ports, IRQ sharing enabled
+[    3.311137] 00:03: ttyS0 at I/O 0x3f8 (irq = 4, base_baud = 115200) is a 16550A
+[    3.314683] Linux agpgart interface v0.103
+[    3.315889] AMD-Vi: AMD IOMMUv2 functionality not available on this system - This is not a bug.
+[    3.318377] i8042: PNP: PS/2 Controller [PNP0303:KBD,PNP0f13:MOU] at 0x60,0x64 irq 1,12
+[    3.320568] serio: i8042 KBD port at 0x60,0x64 irq 1
+[    3.320778] serio: i8042 AUX port at 0x60,0x64 irq 12
+[    3.321846] mousedev: PS/2 mouse device common for all mice
+[    3.323931] input: AT Translated Set 2 keyboard as /devices/platform/i8042/serio0/input/input0
+[    3.325372] rtc_cmos 00:04: RTC can wake from S4
+[    3.327304] rtc_cmos 00:04: registered as rtc0
+[    3.327783] rtc_cmos 00:04: setting system clock to 2026-09-22T16:13:47 UTC (1790093627)
+[    3.329910] rtc_cmos 00:04: alarms up to one day, y3k, 242 bytes nvram
+[    3.330311] ledtrig-cpu: registered to indicate activity on CPUs
+[    3.331119] efifb: probing for efifb
+[    3.331403] efifb: framebuffer at 0x80000000, using 4000k, total 4000k
+[    3.331500] efifb: mode is 1280x800x32, linelength=5120, pages=1
+[    3.331591] efifb: scrolling: redraw
+[    3.331666] efifb: Truecolor: size=8:8:8:8, shift=24:16:8:0
+[    3.338397] Console: switching to colour frame buffer device 160x50
+[    3.340854] fb0: EFI VGA frame buffer device
+[    3.387404] NET: Registered PF_INET6 protocol family
+[    3.403665] Segment Routing with IPv6
+[    3.404050] In-situ OAM (IOAM) with IPv6
+[    3.404413] mip6: Mobile IPv6
+[    3.404648] NET: Registered PF_PACKET protocol family
+[    3.404986] mpls_gso: MPLS GSO support
+[    3.406270] IPI shorthand broadcast: enabled
+[    3.406632] sched_clock: Marking stable (3384118355, 19682951)->(3410884686, -7083380)
+[    3.408416] registered taskstats version 1
+[    3.408629] Loading compiled-in X.509 certificates
+[    3.483530] Loaded X.509 cert 'Build time autogenerated kernel key: 0a219777213e78bd031a2420db649c60888ff27d'
+[    3.486684] zswap: loaded using pool lzo/zbud
+[    3.488038] Key type .fscrypt registered
+[    3.488122] Key type fscrypt-provisioning registered
+[    3.504656] Key type encrypted registered
+[    3.504793] AppArmor: AppArmor sha1 policy hashing enabled
+[    3.505665] ima: No TPM chip found, activating TPM-bypass!
+[    3.505791] ima: Allocated hash algorithm: sha256
+[    3.506919] ima: No architecture policies found
+[    3.507298] evm: Initialising EVM extended attributes:
+[    3.507377] evm: security.selinux
+[    3.507438] evm: security.SMACK64 (disabled)
+[    3.507496] evm: security.SMACK64EXEC (disabled)
+[    3.507557] evm: security.SMACK64TRANSMUTE (disabled)
+[    3.507625] evm: security.SMACK64MMAP (disabled)
+[    3.507687] evm: security.apparmor
+[    3.507810] evm: security.ima
+[    3.507866] evm: security.capability
+[    3.507924] evm: HMAC attrs: 0x1
+[    3.896281] clk: Disabling unused clocks
+[    3.915568] Freeing unused decrypted memory: 2036K
+[    3.959454] Freeing unused kernel image (initmem) memory: 2820K
+[    3.959652] Write protecting the kernel read-only data: 26624k
+[    3.961610] Freeing unused kernel image (text/rodata gap) memory: 2040K
+[    3.962221] Freeing unused kernel image (rodata/data gap) memory: 1124K
+[    4.069563] x86/mm: Checked W+X mappings: passed, no W+X pages found.
+[    4.069864] Run /init as init process
+[    4.703307] e1000e: Intel(R) PRO/1000 Network Driver
+[    4.703419] e1000e: Copyright(c) 1999 - 2015 Intel Corporation.
+[    4.734088] ACPI: \_SB_.GSIG: Enabled at IRQ 22
+[    4.752168] e1000e 0000:00:02.0: Interrupt Throttling Rate (ints/sec) set to dynamic conservative mode
+[    4.816982] e1000e 0000:00:02.0 0000:00:02.0 (uninitialized): registered PHC clock
+[    4.847989] ACPI: bus type drm_connector registered
+[    4.881955] e1000e 0000:00:02.0 eth0: (PCI Express:2.5GT/s:Width x1) 52:54:00:12:34:56
+[    4.882131] e1000e 0000:00:02.0 eth0: Intel(R) PRO/1000 Network Connection
+[    4.882311] e1000e 0000:00:02.0 eth0: MAC: 3, PHY: 8, PBA No: 000000-000
+[    4.912253] e1000e 0000:00:02.0 enp0s2: renamed from eth0
+[    4.942366] Console: switching to colour dummy device 80x25
+[    4.948049] bochs-drm 0000:00:01.0: vgaarb: deactivate vga console
+[    4.949331] [drm] Found bochs VGA, ID 0xb0c5.
+[    4.949403] [drm] Framebuffer size 16384 kB @ 0x80000000, mmio @ 0x810c5000.
+[    4.951340] [drm] Found EDID data blob.
+[    4.961111] [drm] Initialized bochs-drm 1.0.0 20130925 for 0000:00:01.0 on minor 0
+[    4.988631] fbcon: bochs-drmdrmfb (fb0) is primary device
+[    5.007131] Console: switching to colour frame buffer device 160x50
+[    5.013511] bochs-drm 0000:00:01.0: [drm] fb0: bochs-drmdrmfb frame buffer device
+Starting system log daemon: syslogd, klogd.
+[1;24r[4l(B)0[m[1;24r[H[J[24;1H[m                                                                               [1;24r[4l(B)0[m[1;24r[H[J[24;1H[m                                                                               [1;24r[4l(B)0[m[1;24r[H[J[24;1H[m                                                                               /var/run/utmp: No such file or directory
+[4l[?1h=[0m(B[1;24r[H[J[H[J[7m                                                                                [m[7m                                                                                [m
+[H[7m                                                                                
+[m[H[7m[m[32m[40m[                            [37m[31m ([37m-*[31m)[37m                             [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[                          [37m[31m ([37m0*start[31m)[37m                          [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[                          [37m[31m ([37m0*start[31m)[37m                          [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[                          [37m[31m ([37m0*start[31m)[37m                          [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[J[7m[m[32m[40m[                          [37m[31m ([37m0*start[31m)[37m                          [32m][[34m Sep 22 [37m16:13 [32m][0m[2;80H [3;80H [4;80H [5;80H [6;80H [7;80H [8;80H [9;80H [10;80H [11;80H [12;80H [13;80H [14;80H [15;80H [16;80H [17;80H [18;80H [19;80H [20;80H [21;80H [22;80H [23;80H [24;80H [H[7m[m[32m[40m[                          [37m[31m ([37m0*start[31m)[37m                          [32m][[34m Sep 22 [37m16:13 [32m][24;80H[0m[2;1H[H[7m[m[32m[40m[                          [37m[31m ([37m0*start[31m)[37m                          [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[                     [37m0- start  [31m ([37m2*shell[31m)[37m                     [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[                     [37m0- start  [31m ([37m2*shell[31m)[37m                     [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[                     [37m0- start  [31m ([37m2*shell[31m)[37m                     [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[J[7m[m[32m[40m[                     [37m0- start  [31m ([37m2*shell[31m)[37m                     [32m][[34m Sep 22 [37m16:13 [32m][0m[2;80H [3;80H [4;80H [5;80H [6;80H [7;80H [8;80H [9;80H [10;80H [11;80H [12;80H [13;80H [14;80H [15;80H [16;80H [17;80H [18;80H [19;80H [20;80H [21;80H [22;80H [23;80H [24;80H [H[7m[m[32m[40m[                     [37m0- start  [31m ([37m2*shell[31m)[37m                     [32m][[34m Sep 22 [37m16:13 [32m][24;80H[0m[2;1H[H[7m[m[32m[40m[                     [37m0- start  [31m ([37m2*shell[31m)[37m                     [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[                [37m0 start  2- shell  [31m ([37m3*shell[31m)[37m                 [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[                [37m0 start  2- shell  [31m ([37m3*shell[31m)[37m                 [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[                [37m0 start  2- shell  [31m ([37m3*shell[31m)[37m                 [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[J[7m[m[32m[40m[                [37m0 start  2- shell  [31m ([37m3*shell[31m)[37m                 [32m][[34m Sep 22 [37m16:13 [32m][0m[2;80H [3;80H [4;80H [5;80H [6;80H [7;80H [8;80H [9;80H [10;80H [11;80H [12;80H [13;80H [14;80H [15;80H [16;80H [17;80H [18;80H [19;80H [20;80H [21;80H [22;80H [23;80H [24;80H [H[7m[m[32m[40m[                [37m0 start  2- shell  [31m ([37m3*shell[31m)[37m                 [32m][[34m Sep 22 [37m16:13 [32m][24;80H[0m[2;1H[H[7m[m[32m[40m[                [37m0 start  2- shell  [31m ([37m3*shell[31m)[37m                 [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[             [37m0 start  2 shell  3- shell  [31m ([37m4*log[31m)[37m             [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[             [37m0 start  2 shell  3- shell  [31m ([37m4*log[31m)[37m             [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[             [37m0 start  2 shell  3- shell  [31m ([37m4*log[31m)[37m             [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[J[7m[m[32m[40m[             [37m0 start  2 shell  3- shell  [31m ([37m4*log[31m)[37m             [32m][[34m Sep 22 [37m16:13 [32m][0m[2;80H [3;80H [4;80H [5;80H [6;80H [7;80H [8;80H [9;80H [10;80H [11;80H [12;80H [13;80H [14;80H [15;80H [16;80H [17;80H [18;80H [19;80H [20;80H [21;80H [22;80H [23;80H [24;80H [H[7m[m[32m[40m[             [37m0 start  2 shell  3- shell  [31m ([37m4*log[31m)[37m             [32m][[34m Sep 22 [37m16:13 [32m][24;80H[0m[2;1H[H[7m[m[32m[40m[             [37m0 start  2 shell  3- shell  [31m ([37m4*log[31m)[37m             [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[        [37m0 start  [31m ([37m1*shell[31m)[37m  2 shell  3 shell  4- log         [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[        [37m0 start  [31m ([37m1*shell[31m)[37m  2 shell  3 shell  4- log         [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[        [37m0 start  [31m ([37m1*shell[31m)[37m  2 shell  3 shell  4- log         [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[J[7m[m[32m[40m[        [37m0 start  [31m ([37m1*shell[31m)[37m  2 shell  3 shell  4- log         [32m][[34m Sep 22 [37m16:13 [32m][0m[2;80H [3;80H [4;80H [5;80H [6;80H [7;80H [8;80H [9;80H [10;80H [11;80H [12;80H [13;80H [14;80H [15;80H [16;80H [17;80H [18;80H [19;80H [20;80H [21;80H [22;80H [23;80H [24;80H [H[7m[m[32m[40m[        [37m0 start  [31m ([37m1*shell[31m)[37m  2 shell  3 shell  4- log         [32m][[34m Sep 22 [37m16:13 [32m][24;80H[0m[2;1H[H[7m[m[32m[40m[        [37m0 start  [31m ([37m1*shell[31m)[37m  2 shell  3 shell  4- log         [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[      [37m0 start  [31m ([37m1*installer[31m)[37m  2 shell  3 shell  4- log       [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[H[7m[m[32m[40m[      [37m0 start  [31m ([37m1*installer[31m)[37m  2 shell  3 shell  4- log       [32m][[34m Sep 22 [37m16:13 [32m]
+[0m[37m[40m[J                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                [24;79H [4h [4l[0m                                                                               [H[7m[m[32m[40m[           [37m[31m ([37m1*installer[31m)[37m  2 shell  3 shell  4- log           [32m][[34m Sep 22 [37m16:13 [32m][23B[0m[22A[37m[40m[J[1m[44m                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                [24;79H [4h [4l[2;1H[9;3H[0m(0[30m[47mlqqqqqqqqqqqqqqqqqqqqqu[0m(B[30m[47m [31mDetecting network hardware[30m (0tqqqqqqqqqqqqqqqqqqqqqqk[10;3Hx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [11;3H[0m(0[30m[47mx[0m(B[30m[47m [35C[1m[37m[44m0%[34C[0m[30m[47m (0x[0m(B[1m[37m[40m [12;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [13;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [14;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [15;3H[0m(0[30m[47mmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj[0m(B[1m[37m[40m [16;4H                                                                           [13;5H[0m[30m[47mDetecting hardware, please wait...[34D[2A[1m[37m[41m [34C[44m2[13;5H[11;6H[41m  [32C[44m5[13;5H[11;8H[41m                               95%                              [13;5H[11;38H100[31C    [13;5H[9;3H[44m                                                                           [10;3H                                                                            [11;3H                                                                            [12;3H                                                                            [13;3H                                                                            [14;3H                                                                            [15;3H                                                                            [16;4H                                                                            [8B[0m[37m[40m[0m                                                                               [22A[37m[40m[J[1m[44m                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                [24;79H [4h [4l[2;1H[9;3H[0m(0[30m[47mlqqqqqqqqqqqqqqu[0m(B[30m[47m [31mDetecting link on enp0s2; please wait...[30m (0tqqqqqqqqqqqqqqqk[10;3Hx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [11;3H[0m(0[30m[47mx[0m(B[30m[47m [35C[1m[37m[44m0%[34C[0m[30m[47m (0x[0m(B[1m[37m[40m [12;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [13;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [14;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [15;3H[0m(0[30m[47mx[0m(B[30m[47m     <Cancel>                                                            (0x[0m(B[1m[37m[40m [16;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [17;3H[0m(0[30m[47mmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj[0m(B[1m[37m[40m [18;4H                                                                           [15;10H[0m[37m[41m<Cancel>[7D[11;5H[1m     [30C[44m8[15;10H[9;3H                                                                           [10;3H                                                                            [11;3H       [30C  [34C   [12;3H                                                                            [13;3H                                                                            [14;3H                                                                            [15;3H                                                                            [16;3H                                                                            [17;3H                                                                            [18;4H                                                                            [6B[0m[37m[40m[0m                                                                               [22A[37m[40m[J[1m[44m                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                [24;79H [4h [4l[2;1H[9;3H[0m(0[30m[47mlqqqqqqqqqqqqqqqqqqu[0m(B[30m[47m [31mWaiting for link-local address...[30m (0tqqqqqqqqqqqqqqqqqqk[10;3Hx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [11;3H[0m(0[30m[47mx[0m(B[30m[47m [35C[1m[37m[44m0%[34C[0m[30m[47m (0x[0m(B[1m[37m[40m [12;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [13;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [14;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [15;3H[0m(0[30m[47mx[0m(B[30m[47m     <Cancel>                                                            (0x[0m(B[1m[37m[40m [16;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [17;3H[0m(0[30m[47mmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj[0m(B[1m[37m[40m [18;4H                                                                           [15;10H[11;5H[41m     [30C[44m8[15;9H[0m[37m[41m<Cancel>[7D[4A[1m      [23C[44m16[15;10H[11;16H[41m      [17C[44m25[15;10H[11;22H[41m      [11C[44m33[15;10H[11;28H[41m      [5C[44m41[15;10H[H[0m[7m[m[32m[40m[           [37m[31m ([37m1*installer[31m)[37m  2 shell  3 shell  4- log           [32m][[34m Sep 22 [37m16:14 [32m][15;10H[0m[11;34H[1m[37m[41m     5[44m0[15;10H[11;40H[41m8%    [15;10H[11;38H100[5C                              [15;10H[9;3H[44m                                                                           [10;3H                                                                            [11;3H                                                                            [12;3H                                                                            [13;3H                                                                            [14;3H                                                                            [15;3H                                                                            [16;3H                                                                            [17;3H                                                                            [18;4H                                                                            [6B[0m[37m[40m[0m                                                                               [22A[37m[40m[J[1m[44m                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                [24;79H [4h [4l[2;1H[9;3H[0m(0[30m[47mlqqqqqqqqqqqqqqqqu[0m(B[30m[47m [31mAttempting IPv6 autoconfiguration...[30m (0tqqqqqqqqqqqqqqqqqk[10;3Hx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [11;3H[0m(0[30m[47mx[0m(B[30m[47m [35C[1m[37m[44m0%[34C[0m[30m[47m (0x[0m(B[1m[37m[40m [12;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [13;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [14;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [15;3H[0m(0[30m[47mx[0m(B[30m[47m     <Cancel>                                                            (0x[0m(B[1m[37m[40m [16;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [17;3H[0m(0[30m[47mmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj[0m(B[1m[37m[40m [18;4H                                                                           [15;10H[11;5H[41m     [30C[44m8[15;9H[0m[37m[41m<Cancel>[7D[4A[1m                            100%                                  [15;10H[9;3H[44m                                                                           [10;3H                                                                            [11;3H                                                                            [12;3H                                                                            [13;3H                                                                            [14;3H                                                                            [15;3H                                                                            [16;3H                                                                            [17;3H                                                                            [18;4H                                                                            [6B[0m[37m[40m[0m                                                                               [22A[37m[40m[J[1m[44m                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                [24;79H [4h [4l[2;1H[9;3H[0m(0[30m[47mlqqqqqqqqqqqqqqqqu[0m(B[30m[47m [31mAttempting IPv6 autoconfiguration...[30m (0tqqqqqqqqqqqqqqqqqk[10;3Hx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [11;3H[0m(0[30m[47mx[0m(B[30m[47m [35C[1m[37m[44m0%[34C[0m[30m[47m (0x[0m(B[1m[37m[40m [12;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [13;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [14;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [15;3H[0m(0[30m[47mx[0m(B[30m[47m     <Cancel>                                                            (0x[0m(B[1m[37m[40m [16;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [17;3H[0m(0[30m[47mmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj[0m(B[1m[37m[40m [18;4H                                                                           [15;10H[11;5H[41m   [32C[44m5[15;9H[0m[37m[41m<Cancel>[7D[4A[1m    [27C[44m10[15;10H[11;12H[41m   [25C[44m5[15;10H[11;15H[41m    [20C[44m20[15;10H[11;19H[41m   [18C[44m5[15;10H[11;22H[41m    [13C[44m30[15;10H[11;26H[41m   [11C[44m5[15;10H[11;29H[41m    [6C[44m40[15;10H[11;33H[41m   [44m   45[15;10H[11;36H[41m   5[44m0[15;10H[11;40H[41m5%  [15;10H[11;39H60%     [15;10H[11;40H5[6C    [15;10H[11;39H70[10C   [15;10H[11;40H5[13C    [15;10H[11;39H80[17C   [15;10H[11;40H5[20C    [15;10H[11;39H90[24C   [15;10H[11;40H5[27C    [15;10H[11;38H100[31C    [15;10H[9;3H[44m                                                                           [10;3H                                                                            [11;3H                                                                            [12;3H                                                                            [13;3H                                                                            [14;3H                                                                            [15;3H                                                                            [16;3H                                                                            [17;3H                                                                            [18;4H                                                                            [6B[0m[37m[40m[0m                                                                               [22A[37m[40m[J[1m[44m                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                [24;79H [4h [4l[2;1H[9;3H[0m(0[30m[47mlqqqqqqqqqqqqqqqqqqu[0m(B[30m[47m [31mConfiguring the network with DHCP[30m (0tqqqqqqqqqqqqqqqqqqk[10;3Hx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [11;3H[0m(0[30m[47mx[0m(B[30m[47m [35C[1m[37m[44m0%[34C[0m[30m[47m (0x[0m(B[1m[37m[40m [12;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [13;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [14;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [15;3H[0m(0[30m[47mx[0m(B[30m[47m     <Cancel>                                                            (0x[0m(B[1m[37m[40m [16;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [17;3H[0m(0[30m[47mmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj[0m(B[1m[37m[40m [18;4H                                                                           [15;10H[13;5H[0m[30m[47mThis may take some time.[15;9H[37m[41m<Cancel>[7D[11;5H[1m  [33C[44m4[15;10H[11;7H[41m   [30C[44m8[15;10H[9;3H                                                                           [10;3H                                                                            [11;3H       [30C  [34C   [12;3H                                                                            [13;3H                                                                            [14;3H                                                                            [15;3H                                                                            [16;3H                                                                            [17;3H                                                                            [18;4H                                                                             [9A[0m(0[30m[47mlqqqqqqqqqqqqqqqqqqu[0m(B[30m[47m [31mConfiguring the network with DHCP[30m (0tqqqqqqqqqqqqqqqqqqk[10;3Hx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [11;3H[0m(0[30m[47mx[0m(B[30m[47m [1m[37m[41m                                 100%                                  [0m[30m[47m (0x[0m(B[1m[37m[40m [12;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [13;3H[0m(0[30m[47mx[0m(B[30m[47m This may take some time.                                                (0x[0m(B[1m[37m[40m [14;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [15;3H[0m(0[30m[47mmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj[0m(B[1m[37m[40m [16;4H                                                                           [13;5H[0m[30m[47mNetwork autoconfiguration has succeeded[39D[9;3H[1m[37m[44m                                                                           [10;3H                                                                            [11;3H                                                                            [12;3H                                                                            [13;3H                                                                            [14;3H                                                                            [15;3H                                                                            [16;4H                                                                            [8B[0m[37m[40m[0m                                                                               [22A[37m[40m[J[1m[44m                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                [24;79H [4h [4l[2;1H[3;3H[0m(0[30m[47mlqqqqqqqqqqqqqu[0m(B[30m[47m [31m[!!] Download debconf preconfiguration file[30m (0tqqqqqqqqqqqqqk[4;3Hx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [5;3H[0m(0[30m[47mx[0m(B[30m[47m In order to perform an automated install, you need to supply a          (0x[0m(B[1m[37m[40m [6;3H[0m(0[30m[47mx[0m(B[30m[47m preconfiguration file (which can in turn pull in other files). To do    (0x[0m(B[1m[37m[40m [7;3H[0m(0[30m[47mx[0m(B[30m[47m that, you need to provide a (perhaps partial) URL.                      (0x[0m(B[1m[37m[40m [8;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [9;3H[0m(0[30m[47mx[0m(B[30m[47m This can be as simple as the machine name where your preseed files      (0x[0m(B[1m[37m[40m [10;3H[0m(0[30m[47mx[0m(B[30m[47m reside up to a full URL. Any of these could be made to work:            (0x[0m(B[1m[37m[40m [11;3H[0m(0[30m[47mx[0m(B[30m[47m   intra         [for example.com, these three are equivalent]           (0x[0m(B[1m[37m[40m [12;3H[0m(0[30m[47mx[0m(B[30m[47m   intra.example.com                                                     (0x[0m(B[1m[37m[40m [13;3H[0m(0[30m[47mx[0m(B[30m[47m   http://intra.example.com/d-i/./lenny/preseed.cfg                      (0x[0m(B[1m[37m[40m [14;3H[0m(0[30m[47mx[0m(B[30m[47m   http://192.168.0.1/~phil/test47.txt                                   (0x[0m(B[1m[37m[40m [15;3H[0m(0[30m[47mx[0m(B[30m[47m   floppy://preseed.cfg                                                  (0x[0m(B[1m[37m[40m [16;3H[0m(0[30m[47mx[0m(B[30m[47m   file:///hd-media/kiosk/./preseed.cfg                                  (0x[0m(B[1m[37m[40m [17;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [18;3H[0m(0[30m[47mx[0m(B[30m[47m [37m[44m_____________________________________________________________________[30m[47m   (0x[0m(B[1m[37m[40m [19;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [20;3H[0m(0[30m[47mx[0m(B[30m[47m                               <Continue>                                (0x[0m(B[1m[37m[40m [21;3H[0m(0[30m[47mx[0m(B[30m[47m                                                                         (0x[0m(B[1m[37m[40m [22;3H[0m(0[30m[47mmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj[0m(B[1m[37m[40m [23;4H                                                                           
+[44m<Tab> moves; <Space> selects; <Enter> activates buttons[18;5H
