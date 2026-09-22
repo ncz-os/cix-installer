@@ -11,13 +11,23 @@
 >
 > **📚 Start here:** [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the ISO](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
 
-**Customized debian-installer ISO builder for the NCZ Linux
-distribution.**
+**Stock-debian-installer ISO assembly for the NCZ Linux distribution.**
+
+The installer uses the **upstream Debian Installer (d-i) unmodified** as
+the runtime that drives the install — NCZ-specific customisations are
+applied at the **assembly layer** (squashfs payload + small set of
+grafted udebs + cixmini payload on the ISO media + rEFInd ESP), not by
+hand-patching d-i itself. See the [Architecture](#architecture) section
+below and `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
+for what "assembly layer" means concretely.
 
 Produces a fully-unattended UEFI-bootable installer ISO that
-partitions the target disk and debootstraps a **Debian Testing
-(Forky)** base on disk, then
-layers a hardware-appropriate kernel + vendor userspace runtimes +
+partitions the target disk and installs a **Debian Testing (Forky)**
+base on disk (the d-i substrate ISO itself is the real Debian netinst;
+for amd64 it is Bookworm netboot pinned by content hash, for arm64/Sky1
+it is the Forky-testing netinst — see `release.conf`'s
+`NCZ_BASE_CODENAME=forky` and `docs/NEXT_ISO.md` for the substrate pin),
+then layers a hardware-appropriate kernel + vendor userspace runtimes +
 desktop environment + Claude Code + the (opt-in) NCZ agent stack, and
 brands the system as NCZ.
 
@@ -107,8 +117,39 @@ x86 platform, when sample hardware is obtainable for validation.
   nemoclaw` for NVIDIA NemoClaw, and `ncz install mnemos` for the MNEMOS memory
   system. Nothing agentic auto-starts at boot or auto-pulls from the network.
 
-The current build path inside `build/build-iso-di.sh` is the Cix Sky1
-implementation; the architecture is the reusable scaffold.
+The current build path is a **two-stage pipeline**, not a single script:
+
+1. **Content (squashfs layer producer)** — `build/build-squashfs-layers.sh`
+   builds the `base.squashfs` / `desktop.squashfs` / `hotfix.squashfs`
+   layers (debootstrap-installed package closure + overlay-role deltas),
+   with the right packages per `manifests/{installer-base,desktop}.pkgs`
+   and the right post-install hooks for the target architecture. The
+   role-delta overlays go through `build/build-role-delta-mkosi.sh`,
+   which uses mkosi under the hood for the layered-overlay semantics.
+   This is the Cix Sky1 implementation; the architecture is the
+   reusable scaffold.
+2. **Assembly (bootable ISO writer)** — `build/build-iso-di.sh` (the
+   Sky1/arm64 orchestration script) and the new
+   `build/iso/{import-substrate,build-refind-esp,stage-cixmini-payload,patch-debootstrap-stub,write-image,verify-image}.py`
+   xorriso-based writer (the amd64 cold/warm path that supersedes the old
+   monolithic pipeline — see
+   `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
+   for why this split exists) assemble those layers plus a stock Debian
+   Installer substrate into the final bootable ISO.
+
+The NCZ-specific installer customisations now live at the assembly layer
+on top of an **unmodified stock d-i** — d-i itself is stock; the only
+grafts are the targeted NCZ payload that has to ship in the initrd (the
+patched `debootstrap-udeb` stub that drives the install-time branch,
+plus the cixmini boot assets and NCZ hardware-initrd overlays — all
+shipped as ordinary udeb files in the substrate pool, not as a patched
+d-i source tree).
+
+> **Note on `build/build-iso.sh`:** the file still exists in the tree but
+> is **STALE / ABANDONED** — its own header now flags this. It describes
+> an unrelated 2026-05-03 Ubuntu-Server subiquity pivot and is not part
+> of the current build path. See its own header for the warning and the
+> pointer to the current pipeline.
 
 ## Hardware support & testing status
 
@@ -281,10 +322,61 @@ The corresponding source for every one of these is published — see
 
 ## Quick start (build the ISO)
 
+The ISO is produced by a **two-stage pipeline**. They are not
+interchangeable; each does a distinct job:
+
+| Stage | Tool | What it produces |
+|---|---|---|
+| **1. Content** (squashfs layers) | `bash build/build-squashfs-layers.sh [base\|desktop\|hotfix\|all]` | `base.squashfs` (~2 GB) + `desktop.squashfs` + `hotfix.squashfs` under `assets/squashfs/`. This is what the installer extracts to disk. |
+| **2. Assembly** (bootable ISO) | `make iso` (arm64/Sky1) **or** the new xorriso-based writer (amd64) | `build/nclawzero-installer-cixmini-<version>.iso` — a hybrid UEFI-bootable ISO containing the d-i substrate + rEFInd ESP + the squashfs layers above + the cixmini payload. |
+
+**For Cix Sky1 (arm64) — the validated production path:**
+
 ```bash
-make
-# → outputs: build/nclawzero-installer-cixmini-${VERSION}.iso
+make                              # downloads the d-i substrate + assembles
+                                  # → build/nclawzero-installer-cixmini-${VERSION}.iso
 ```
+
+**For amd64 (T2 Macs, generic PC) — the new xorriso-based writer
+(qualified cold path; warm-growth path validated as a prototype but
+not yet promoted to a `make` target):**
+
+```bash
+# 1. Import the d-i substrate (one-shot, cached by content hash):
+bash build/iso/import-substrate.py \
+    --iso-url https://deb.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/mini.iso \
+    --arch amd64
+
+# 2. Build the base + desktop layers if not already built:
+bash build/build-squashfs-layers.sh base
+# (desktop-amd64 layer staging is not yet wired into the new writer as
+#  of 2026-09-22 — only base has been boot-verified end-to-end on amd64.)
+
+# 3. Assemble:
+bash build/iso/stage-cixmini-payload.py --arch amd64 ...
+bash build/iso/build-refind-esp.py  --arch amd64 ...
+bash build/iso/write-image.py       --arch amd64 --mode cold ...
+
+# 4. Independently verify:
+bash build/iso/verify-image.py <iso>
+```
+
+> **Real, current amd64 status (2026-09-22, confirmed this session):**
+> a real, boot-verified `cold-amd64-*.iso` exists (base-only, 1.69 GB),
+> built against the Bookworm amd64 netboot substrate and the new
+> xorriso writer. **Desktop squashfs has not yet been staged for this
+> new pipeline** — the amd64 desktop layer build path is not yet wired
+> into the new writer; if you need desktop on amd64 right now, that gap
+> needs to be closed in a follow-up. **arm64/Sky1 has not yet been
+> attempted with this new writer** — only an amd64 substrate node exists
+> under `build/iso-cache/v1/nodes/`. The current arm64/Sky1 production
+> path is still `make iso` / `build/build-iso-di.sh` (see the design
+> doc for the long-term migration plan).
+
+> **`build/build-iso.sh` is STALE/ABANDONED** — it describes an unrelated
+> 2026-05-03 Ubuntu-subiquity live-ISO repack and is not invoked by
+> anything in the current pipeline. Its own header now flags this. Do
+> not run it; do not be misled by its name.
 
 ### Build-host prerequisites
 
@@ -413,6 +505,34 @@ mirror, which was a recurring source of install failures under the old
 apt-at-install-time model).
 
 ![Architecture diagram](docs/architecture.svg)
+
+The build pipeline is split into **two distinct stages**:
+
+| Stage | Output | Where it lives |
+|---|---|---|
+| **Content producer** — mkosi-based squashfs layers | `base.squashfs`, `desktop.squashfs`, `hotfix.squashfs`, etc. | `build/build-squashfs-layers.sh` (the shell front-end) + `build/build-role-delta-mkosi.sh` (the mkosi delta producer) + `build/build-squashfs-layers.sh`'s `build_layer()` shell wrapper that drives the actual `mksquashfs` invocation. Manifest-driven; `manifests/installer-base.pkgs` (arm64) / `manifests/installer-base-amd64.pkgs` (amd64) + `manifests/desktop.pkgs` etc. name every package. |
+| **Assembly writer** — xorriso-based ISO writer | Bootable UEFI ISO + rEFInd ESP + cixmini payload + d-i substrate | `build/build-iso-di.sh` (the arm64/Sky1 orchestration; invokes d-i's BusyBox init, grafts udebs, swaps the installer kernel) and the new `build/iso/{import-substrate,build-refind-esp,stage-cixmini-payload,patch-debootstrap-stub,write-image,verify-image}.py` (the amd64 path that supersedes the monolithic pipeline — see `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`). |
+
+The NCZ-specific installer customisations live at the **assembly layer**
+on top of an **unmodified stock Debian Installer** — there is no
+hand-patched d-i source tree in this repo. d-i itself is stock (the
+substrate is the real Debian Installer netinst/mini ISO, pinned by
+content hash per architecture — Bookworm for amd64, Forky for the
+arm64/Sky1 production path). The NCZ delta ships as:
+
+- the layered squashfs payload that the install-time stub extracts to
+  disk;
+- a small set of **grafted** udebs in the d-i initrd (the `debootstrap-udeb`
+  stub the install-time branch runs, plus cixmini boot assets);
+- the cixmini payload directory staged into the ISO tree;
+- the rEFInd ESP image that boots the chosen kernel/initrd pair.
+
+This is intentionally **not** a d-i replacement: d-i's BusyBox init,
+its hardware-detection, its partman, and its udeb resolver are all the
+real, upstream ones. The assembly layer composes them with our payload.
+See `docs/ISO-BUILD-GUARDRAILS.md` for the constraints this split
+imposes (e.g. why `preseed/extract-rootfs.sh` is the historical
+dead-code twin of the live stub baked into the patched `debootstrap-udeb`).
 
 **NCZ-OS ships ONE build.** There is no separate desktop and server image,
 and no variant picker. What used to be the "Magnetar" server variant is now
