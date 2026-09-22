@@ -606,16 +606,34 @@ def main():
             # file. This is the in-tree analog of the hybrid layout's
             # ``esp_bytes_identical_to_source`` check.
             if layout == "iso9660_efi_in_tree" and args.esp_image and args.esp_image.is_file():
-                # Re-read the catalog and look at offset 96 (EFI Initial Entry)
-                init_e = catalog[96:96+32] if isinstance(catalog_lba, int) else None
-                if init_e is None:
-                    init_e = read_at(image, catalog_lba * 2048 + 96, 32)
+                # Re-read the catalog (2048-byte sector) and look at offset 96
+                # (the EFI Initial Entry inside it). Note: we have to read it
+                # here because check_el_torito_catalog does not return the
+                # catalog bytes, only the parsed validation/initial entries.
+                catalog_buf = read_at(image, catalog_lba * 2048, 2048)
+                init_e = catalog_buf[96:96+32]
                 boot_ind = init_e[0]
                 load_lba = struct.unpack("<I", init_e[8:12])[0]
-                sector_count = struct.unpack("<H", init_e[6:8])[0]
-                if boot_ind == 0x88 and sector_count > 0:
-                    expected_size = sector_count * 512
-                    actual_bytes = read_at(image, load_lba * 512, expected_size)
+                # The sector_count field in the EFI Initial Entry is NOT
+                # reliable in our layout: xorriso '-boot_image any replay'
+                # emits it as 0 in BOTH the cold and warm ISO even when the
+                # EFI image is correctly written. xorriso instead resolves
+                # the actual image size from the file path stored in the
+                # PVD's bootstrap file entry. We don't try to parse that
+                # here; we just use the SIZE OF THE SOURCE ESP IMAGE as the
+                # authoritative size. The ESP image is required to be at
+                # most the size of the parent ISO's free contiguous region
+                # after the warm writer's update commands; xorriso has
+                # already accepted the layout (exit 0) by the time we run.
+                #
+                # The load_rba field is xorriso's "LBA in 2048-byte ISO
+                # sectors" -- confirmed by byte-diff against the source
+                # ESP image at offset load_rba * 2048 (NOT * 512). Note
+                # the El Torito spec text says 512-byte sectors; xorriso
+                # does NOT honor that, and that's what we have to live with.
+                expected_size = args.esp_image.stat().st_size
+                if boot_ind == 0x88 and load_lba > 0 and expected_size > 0:
+                    actual_bytes = read_at(image, load_lba * 2048, expected_size)
                     source_bytes = args.esp_image.read_bytes()
                     ok3 = actual_bytes == source_bytes
                     report["checks"]["esp_bytes_identical_to_source"] = {
@@ -631,16 +649,37 @@ def main():
                         report["passed"] = False
                         report["issues"].append(("esp_bytes_identical_to_source", "mismatch"))
                 else:
-                    report["checks"]["esp_bytes_identical_to_source"] = {
-                        "ok": False,
-                        "detail": (
-                            f"EFI Initial Entry at catalog offset 96 has "
-                            f"boot_indicator={boot_ind:#04x} sector_count={sector_count}; "
-                            f"cannot verify ESP bytes"
-                        ),
-                    }
-                    report["passed"] = False
-                    report["issues"].append(("esp_bytes_identical_to_source", "EFI Initial Entry invalid"))
+                    # Fall through to the legacy (hybrid) layout path: we
+                    # trust the sector_count field for that layout.
+                    sector_count = struct.unpack("<H", init_e[6:8])[0]
+                    if boot_ind == 0x88 and sector_count > 0:
+                        expected_size = sector_count * 512
+                        actual_bytes = read_at(image, load_lba * 512, expected_size)
+                        source_bytes = args.esp_image.read_bytes()
+                        ok3 = actual_bytes == source_bytes
+                        report["checks"]["esp_bytes_identical_to_source"] = {
+                            "ok": ok3,
+                            "source_sha256": sha256_bytes(source_bytes),
+                            "actual_sha256": sha256_bytes(actual_bytes),
+                            "expected_size_bytes": expected_size,
+                            "actual_size_bytes": len(actual_bytes),
+                            "source_lba": load_lba,
+                            "source_layout": "iso9660_efi_in_tree (sector_count fallback)",
+                        }
+                        if not ok3:
+                            report["passed"] = False
+                            report["issues"].append(("esp_bytes_identical_to_source", "mismatch"))
+                    else:
+                        report["checks"]["esp_bytes_identical_to_source"] = {
+                            "ok": False,
+                            "detail": (
+                                f"EFI Initial Entry at catalog offset 96 has "
+                                f"boot_indicator={boot_ind:#04x} sector_count={sector_count} "
+                                f"load_lba={load_lba}; cannot verify ESP bytes"
+                            ),
+                        }
+                        report["passed"] = False
+                        report["issues"].append(("esp_bytes_identical_to_source", "EFI Initial Entry invalid"))
 
     # Trailing padding detection (design §8 "what it did not prove"):
     # Only applicable to the hybrid layout (which has a backup GPT). On
