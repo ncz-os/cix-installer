@@ -44,8 +44,9 @@ What we verify, in order:
      (offset 0), the default/initial entry at offset 32, and (for the
      Debian "Section Header Entry + EFI Initial Entry" pattern that
      ``iso9660_efi_in_tree`` uses) the Section Header Entry at offset 64
-     and the EFI Initial Entry at offset 96: header indicator, EFI
-     platform ID (0xEF), final-section bit, and load LBA.
+     (header indicator 0x91, platform 0xEF, non-zero entry count) and the
+     EFI Initial Entry at offset 96 (boot indicator 0x88, reserved byte
+     zero, non-zero load LBA in 2048-byte ISO logical blocks).
  10. Layout-aware ESP-bytes-identical-to-source check:
        * hybrid: read the bytes at the GPT EFI partition's LBA range.
        * iso9660_efi_in_tree: read the bytes at the EFI Initial Entry's
@@ -382,14 +383,19 @@ def check_el_torito_catalog(path: Path, catalog_lba: int) -> tuple[bool, list, b
         byte 0    Header ID, must be 0x91 (Section Header Entry)
         byte 1    Platform (must equal the platform in the matching initial
                   entry, e.g. 0xEF for EFI)
-        bytes 2-3 Reserved (0)
-        bytes 4-7 Number of following Section Entries (LE). On Debian's
-                  pattern this is 1 (just the EFI Initial Entry below).
-        bytes 8-31 Section identifier (24 bytes, ASCII)
+        bytes 2-3 Number of following Section Entries (LE uint16). On
+                  Debian's pattern this is 1 (just the EFI Initial Entry
+                  below). The El Torito spec defines this as a 16-bit LE
+                  field at offset 2..3 -- NOT a 32-bit LE field at offset
+                  4..7; we byte-verified this against the real Debian
+                  Bookworm netboot ISO.
+        bytes 4-31 Section identifier (28 bytes, ASCII)
 
       EFI Initial Entry (offset 96):
         byte 0    Boot indicator (0x88 bootable, 0x00 not)
-        byte 1    Boot media type (0 = no emulation)
+        byte 1    Boot media type (0 = no emulation; per the spec this
+                  byte is reserved on the EFI Initial Entry and many
+                  firmwares reject non-zero values)
         bytes 2-3 Reserved (0)
         byte 4    Partition type (0)
         byte 5    Reserved (0)
