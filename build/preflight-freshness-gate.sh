@@ -147,8 +147,12 @@ if [ -d "$PATCH_ROOT" ]; then
             continue
         fi
 
+        # Apply for real (not --check) IN SEQUENCE, since later patches in a
+        # subproject commonly depend on earlier ones' changes already being
+        # present -- a dry-run --check against the unmodified base would
+        # falsely report every non-first patch as failing.
         for p in "${patches[@]}"; do
-            if git -C "$tmp_clone" apply --check "$REPO_ROOT/$p" 2>/dev/null; then
+            if git -C "$tmp_clone" apply "$REPO_ROOT/$p" 2>/dev/null; then
                 echo "[2] OK: $sub_name/$(basename "$p") applies cleanly against real current upstream default branch"
             else
                 echo "[2] FAIL: $sub_name/$(basename "$p") does NOT apply against real current upstream default branch"
