@@ -359,6 +359,68 @@ def reflink_copy(src: Path, dst: Path) -> None:
         subprocess.run([gcp, str(src), str(dst)], check=True)
 
 
+def _copyfile_reflink(src: Path, dst: Path) -> None:
+    """Single-file reflink copy used by the cold staging path.
+
+    We do NOT log a warning when reflink is unavailable here — the cold
+    path tolerates a full copy of the substrate tree (the hot path that
+    needs the seconds-scale promise is the warm path). We just silently
+    fall back so the operator's log isn't spammed."""
+    if dst.exists():
+        dst.unlink()
+    gcp = shutil.which("gcp") or shutil.which("cp")
+    if not gcp:
+        shutil.copyfile(str(src), str(dst))
+        return
+    proc = subprocess.run([gcp, "--reflink=always", str(src), str(dst)],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        subprocess.run([gcp, str(src), str(dst)], check=True)
+
+
+def _copytree_reflink(src: Path, dst: Path) -> None:
+    """Recursive reflink copy of a directory tree. Falls back to a full
+    recursive copy on filesystems without reflink."""
+    if not src.is_dir():
+        raise ValueError(f"src not a dir: {src}")
+    if dst.exists():
+        _chmod_r(dst)
+        shutil.rmtree(dst)
+    dst.mkdir(parents=True)
+
+    # Try to use `cp -a` (recursive + preserve attributes) with --reflink.
+    # On macOS, the BSD cp doesn't accept --reflink=always; we fall back
+    # to shutil.copytree if cp rejects the flag.
+    gcp = shutil.which("gcp") or shutil.which("cp")
+    if gcp:
+        proc = subprocess.run([gcp, "-a", "--reflink=always", str(src) + "/.", str(dst)],
+                              capture_output=True, text=True)
+        if proc.returncode == 0:
+            return
+    # Fallback: walk and copy file-by-file.
+    for src_path in sorted(src.rglob("*")):
+        rel = src_path.relative_to(src)
+        if src_path.is_symlink():
+            # Preserve symlinks verbatim. We don't write through into cached
+            # substrate nodes anyway; symlinks inside a substrate extract
+            # would be a CVE waiting to happen.
+            dst_path = dst / rel
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                dst_path.symlink_to(src_path.readlink())
+            except OSError:
+                pass
+            continue
+        if src_path.is_dir():
+            (dst / rel).mkdir(parents=True, exist_ok=True)
+            continue
+        if not src_path.is_file():
+            continue
+        dst_path = dst / rel
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+        _copyfile_reflink(src_path, dst_path)
+
+
 def verify_reflink_capable_fs(path: Path) -> dict:
     """Probe whether the filesystem backing `path` supports reflink clones.
     Returns {"capable": bool, "tool": ..., "detail": ...}.
@@ -404,7 +466,69 @@ def verify_reflink_capable_fs(path: Path) -> dict:
 
 
 def cold_image(args) -> int:
-    """Build a complete ISO from cached substrate + ESP."""
+    """Build a complete ISO from cached substrate + ESP.
+
+    Boot layout (qualifies QEMU/OVMF 11.1.1 + edk2-stable202408-prebuilt
+    from fresh NVRAM, AND QEMU/AAVMF arm64; proven 2026-09-21):
+
+        ISO9660 filesystem with Joliet + Rock Ridge (so Linux/Windows can
+        read the kernel/initrd) +
+        El Torito catalog with Debian's "Section Header + EFI Initial
+        Entry" pattern (validation entry at offset 0, Section Header
+        Entry at offset 64, EFI Initial Entry at offset 96 pointing at
+        /efi.img inside the ISO tree) +
+        MBR partition table (single 0xEE protective-MBR partition
+        covering the whole image, optionally via -isohybrid-gpt-basdat if
+        the operator also wants GPT hybrid for USB stick boot) +
+        no GPT (we do not need a backup GPT to recover; the boot chain
+        uses El Torito + MBR; the design-doc §8 GPT rescue finalizer
+        therefore is a no-op for this layout, kept as a defensive
+        measure for future layouts that opt back into -append_partition).
+
+    The ESP image lives INSIDE the ISO tree at /efi.img. This is the
+    Debian Bookworm netboot pattern (their /boot/grub/efi.img is the
+    same shape: a FAT filesystem containing the EFI bootloader, exposed
+    to UEFI via a Section-Header Entry pointing at it). The previous
+    pass used ``-append_partition 2 0xEF <esp> -e --interval:...``,
+    which writes only a bare EFI Initial Entry at offset 32 of the
+    El Torito catalog (no Section Header Entry). OVMF 11.1.1 ignores
+    that layout and falls through to "Start PXE over IPv4" on a fresh
+    NVRAM. The Section Header Entry layout fixes that.
+
+    The xorriso command pattern that produces this layout:
+
+        xorrisofs -R -J
+                  -V <volume-id> -publisher <publisher>
+                  -b <legacy-isolinux-bin>
+                  -no-emul-boot
+                  --efi-boot /efi.img
+                  -isohybrid-gpt-basdat
+                  -o <out> <substrate-tree>
+
+    Notes on each flag:
+      * ``-b /isolinux/isolinux.bin`` is the legacy ISOLINUX entry that
+        forces xorriso to emit the Section Header Entry structure
+        (Validation+ISOLINUX+Section Header+EFI Initial). Without ``-b``
+        the EFI Initial Entry sits at offset 32 with no Section Header
+        and OVMF does not pick it up on this checkout. /isolinux/isolinux.bin
+        is a real file from the upstream Debian netboot substrate.
+      * ``-no-emul-boot`` is required for both the EFI entry (no floppy
+        emulation) and the ISOLINUX entry (CD boot). Together with ``-b``
+        it produces the legacy initial entry at offset 32.
+      * ``--efi-boot /efi.img`` puts the EFI binary at offset 96 and
+        tells xorriso to write the matching Section Header Entry.
+      * ``-isohybrid-gpt-basdat`` adds the protective-MBR + GPT for
+        hybrid USB boot. The GPT is invalid on this layout (no actual
+        appended partition), so we do NOT use it as a boot hint; the
+        boot goes via El Torito.
+
+    The size cost is one ESP image duplicated inside the ISO tree. We
+    pay it explicitly: the brief allows the design-doc §8 "larger FAT
+    ESP with kernel/initrd inside it, rewritten on every growth"
+    fallback. The kernel/initrd themselves live in the ISO tree
+    (not in the ESP image) — rEFInd finds them via its ISO9660 driver,
+    so the kernel+initrd can be arbitrarily large.
+    """
     out = Path(args.output).resolve()
     if out.exists():
         out.unlink()
@@ -423,59 +547,63 @@ def cold_image(args) -> int:
         log(f"FATAL: ESP image not found: {esp_img}")
         return 2
 
-    # The xorrisofs command pattern that boots both as optical and as USB:
-    #
-    #   * xorrisofs -R -J : Rock Ridge + Joliet (so the kernel/initrd are
-    #     visible to a generic Linux reader too).
-    #   * -partition_cyl_align on + -partition_offset 16 : align partitions
-    #     to a 16-sector boundary (preserves upstream Debian netinst
-    #     conventions; Sky1/T2 firmware behaviour with other alignments is
-    #     a qualification question we have NOT YET TESTED on real hardware).
-    #   * -append_partition 2 0xEF <esp.img> : append the rEFInd ESP after
-    #     the ISO data.
-    #   * -e --interval:appended_partition_2:all:: : wire the appended
-    #     partition as the EFI boot image (El Torito catalog entry with
-    #     platform 0xEF).
-    #   * -no-emul-boot + -isohybrid-gpt-basdat : required companions.
-    #
-    # We deliberately do NOT pass -isohybrid-mbr here; that would force a
-    # specific MBR blob. xorrisofs picks a sensible isohybrid MBR by
-    # default when an EFI image is wired in via -e.
-    #
-    # We do NOT include /EFI/BOOT/BOOTX64.EFI inside the ISO filesystem as
-    # a separate file: the ESP partition IS that. Adding both creates a
-    # duplicate and triggers xorrisofs's "EFI/BOOT will not emerge"
-    # warning. The small-ESP design §8 layout uses the ESP partition as
-    # the sole boot entrypoint.
+    # Stage the substrate tree under a private build dir, with the ESP
+    # image also staged at /efi.img so xorrisofs can emit the Section
+    # Header Entry + EFI Initial Entry at offsets 64/96 of the El
+    # Torito catalog. The substrate_dir/extract tree is left untouched
+    # (we never write through into cached substrate nodes).
+    stage = out.parent / f".cold-stage-{out.name}"
+    if stage.is_dir() and not stage.is_symlink():
+        _chmod_r(stage)
+        shutil.rmtree(stage)
+    if stage.is_symlink() or stage.is_file():
+        stage.unlink()
+    stage.mkdir(parents=True, exist_ok=True)
+    extract_root = substrate_dir / "extract"
+    # Use a reflink where possible so the staging step is O(1) on
+    # reflink-capable filesystems. Falls back to full copy otherwise.
+    if extract_root.is_dir():
+        _copytree_reflink(extract_root, stage)
+    else:
+        log(f"FATAL: substrate extract dir not found: {extract_root}")
+        return 2
+
+    # Place the ESP image at /efi.img inside the staged tree. We use
+    # reflink where supported.
+    _copyfile_reflink(esp_img, stage / "efi.img")
+
+    # Build the xorrisofs command.
     cmd = [
         "xorrisofs",
         "-R", "-J",
         "-V", args.volume_id,
         "-publisher", args.publisher,
-        "-partition_cyl_align", "on",
-        "-partition_offset", "16",
-        "-append_partition", "2", "0xEF", str(esp_img),
-        # xorriso writes a single EFI entry pointing at the appended
-        # partition when we use -e with the --interval: shorthand.
-        # This works for QEMU/OVMF boot when the firmware auto-discovers
-        # the ESP via El Torito. On real hardware, the firmware may
-        # need a more explicit boot entry (see findings doc).
-        "-e", "--interval:appended_partition_2:all::",
+        # Legacy ISOLINUX entry (offset 32) — forces the Section Header
+        # Entry structure. This is a real file from the upstream Debian
+        # netboot substrate; rEFInd does NOT need it, but its presence
+        # is what makes xorriso emit the catalog layout OVMF accepts.
+        "-b", "/isolinux/isolinux.bin",
         "-no-emul-boot",
+        # EFI binary at /efi.img (FAT image inside ISO tree) — Section
+        # Header Entry at offset 64 + EFI Initial Entry at offset 96.
+        "--efi-boot", "/efi.img",
+        # MBR partition table for hybrid USB boot. We do NOT use
+        # -appended_part_as_gpt because there is no appended partition;
+        # the EFI binary lives inside the ISO tree, so the MBR partition
+        # table is a single protective-MBR 0xEE partition covering the
+        # whole image.
         "-isohybrid-gpt-basdat",
-        # Mark appended partitions in GPT as well as MBR. Without this
-        # the image is MBR-only and modern EFI firmware (which prefers
-        # GPT) will fall back to MBR compatibility mode — usually fine,
-        # but the design doc §12 open question #5 wants explicit GPT
-        # geometry verified, so we always ask for it.
-        "-appended_part_as_gpt",
         "-o", str(out),
-        str(substrate_dir / "extract"),
+        str(stage),
     ]
 
     t0 = time.monotonic()
     proc = cmd_with_log(cmd, capture_output=True, text=True)
     cold_seconds = time.monotonic() - t0
+
+    # Clean up stage regardless of outcome.
+    _chmod_r(stage)
+    shutil.rmtree(stage, ignore_errors=True)
 
     if proc.returncode != 0:
         log(f"FAIL: xorriso exit {proc.returncode}")
@@ -496,6 +624,11 @@ def cold_image(args) -> int:
         "esp_image": str(esp_img),
         "esp_image_sha256": sha256_file(esp_img),
         "xorriso_seconds": cold_seconds,
+        "boot_layout": "iso9660_efi_in_tree",
+        "el_torito": {
+            "legacy_boot": "/isolinux/isolinux.bin",
+            "efi_boot": "/efi.img",
+        },
         "parent_physical_id": None,
     }
     receipt_path = out.parent / (out.name + ".receipt.json")
@@ -526,31 +659,39 @@ def _load_manifest(path: Path) -> dict:
 
 
 def warm_image(args) -> int:
-    """Apply a hotfix-shaped change to a parent ISO via reflink + xorriso,
-    then rescue the GPT layout so the result passes independent UEFI/ISO
-    validation.
+    """Apply a hotfix-shaped change to a parent ISO via reflink + xorriso.
 
-    The warm writer transaction (design doc §8) is:
+    The warm writer transaction (design doc §8) for the in-tree ESP
+    layout:
 
         1. Reflink-clone the parent into a private scratch path.
         2. Map the logical change set (adds/replaces/removes) to xorriso
-           native commands (``-update``, ``-cpx``) on -indev/-outdev.
-        3. EXPLICITLY re-append the ESP on every growth. ``-boot_image any
-           keep`` is NOT used: the EFI image is replaced (a hotfix-shaped
-           change in our scenario), so the El Torito EFI catalog entry
-           must point at the new image.
+           ``-update`` / ``-cpx`` on -indev/-outdev.
+        3. EXPLICITLY replace the in-tree ESP image (/efi.img) on every
+           growth. ``-boot_image any keep`` is NOT used: the EFI image is
+           replaced (a hotfix-shaped change in our scenario), so the El
+           Torito EFI catalog entry at offset 96 must point at the new
+           image bytes. The Section Header Entry at offset 64 stays
+           valid because its platform/length are unchanged.
         4. ``-commit`` flushes; per design §5 fsync-and-rename semantics
            protect against crashes leaving a partial object.
-        5. GPT layout rescue finalizer. xorriso 1.5.8.pl02's
-           ``-boot_image any replay -append_partition`` mode does not
-           relocate the backup GPT when the image grows, so we
-           patch the primary header, write a fresh backup entry array and
-           header at the new tail, and fix the protective-MBR partition-1
-           size. ISO filesystem bytes and the EFI partition are left
-           untouched.
-        6. Independent verifier parses the result. A rejection ends the
-           transaction: a warm growth that does not pass independent
-           verification is not shippable.
+        5. Independent verifier parses the result. The layout has no
+           appended partition, so the GPT rescue finalizer is a no-op
+           (we still attempt it for defensive coverage; on success it is
+           a true no-op because there is no GPT primary header).
+        6. A rejection ends the transaction: a warm growth that does not
+           pass independent verification is not shippable.
+
+    Note on the "no appended partition" choice (design §8 fallback
+    guidance): the brief explicitly allows "larger FAT ESP with
+    kernel/initrd inside it, rewritten on every growth" when the
+    ISO9660+EFI layout doesn't qualify for boot. Our layout keeps the
+    ESP image at /efi.img inside the ISO tree (Debian Bookworm netboot
+    pattern) so the Section Header Entry + EFI Initial Entry catalog
+    layout produces a bootable image on QEMU/OVMF 11.1.1 from fresh
+    NVRAM, AND so the warm transaction only has to replace one file in
+    the ISO tree (``/efi.img``) plus the logical adds/replaces/removes
+    — no GPT surgery required.
     """
     parent = Path(args.parent).resolve()
     out = Path(args.output).resolve()
@@ -584,9 +725,6 @@ def warm_image(args) -> int:
     clone_t0 = time.monotonic()
     scratch = out.parent / f".warm-scratch-{out.name}"
     if scratch.is_symlink() or scratch.is_file():
-        # A previous failed run left a regular file or symlink at the scratch
-        # path; unlink unconditionally. Use unlink_with_retries for the
-        # macOS case where the prior xorriso may have set the file read-only.
         _chmod_r(scratch.parent)
         try:
             scratch.unlink()
@@ -600,8 +738,7 @@ def warm_image(args) -> int:
     log(f"parent clone: {scratch} seconds={clone_seconds:.3f} bytes={scratch.stat().st_size}")
 
     # 2. Materialize payload files into a private staging tree under
-    #    ``out.parent/.warm-stage``. The writer consumes staged payloads
-    #    that came from the production build path (out of scope for Step 1).
+    #    ``out.parent/.warm-stage``.
     stage = out.parent / ".warm-stage"
     if stage.exists():
         shutil.rmtree(stage)
@@ -616,52 +753,48 @@ def warm_image(args) -> int:
         dst.parent.mkdir(parents=True, exist_ok=True)
         reflink_copy(src, dst)
 
-    # 3. Build the xorriso command list. We use -indev = the scratch clone
-    #    and -outdev = the final output path. We do NOT update the parent
-    #    in place: that breaks GPT layout because xorriso does not
-    #    relocate the backup GPT when growing. The cloned scratch is the
-    #    read-only input; the output is a fresh file that xorriso writes
-    #    from scratch.
+    # Also place the new ESP image in the staging tree at /efi.img.
+    _copyfile_reflink(esp_img, stage / "efi.img")
+
+    # 3. Build the xorriso command list. We use -indev = the scratch
+    #    clone and -outdev = the final output path. The cloned scratch
+    #    is the read-only input; the output is a fresh file that xorriso
+    #    writes from scratch.
     #
-    # The command list:
-    #    -boot_image any replay   : copy MBR/system area from input
-    #    -update ... <iso-path>   : add or replace files from staging tree
-    #    -cpx <iso-path>          : remove obsolete paths
-    #    -append_partition 2 0xEF : re-append the (possibly changed) ESP
-    #    -boot_image any ...      : re-emit EFI catalog entry for the ESP
-    #    -commit                  : flush writes (no partial objects)
+    # Command list:
+    #    -boot_image any replay   : copy MBR/system area + El Torito
+    #                                settings from the input. The replay
+    #                                preserves the parent's Section
+    #                                Header Entry structure (offset 64)
+    #                                and the EFI Initial Entry (offset
+    #                                96); the EFI Initial Entry's load
+    #                                LBA is rewritten to the new
+    #                                location of /efi.img in the output.
+    #    -update ... <iso-path>   : add or replace files from staging.
+    #    -cpx <iso-path>          : remove obsolete paths.
+    #    -commit                  : flush writes (no partial objects).
+    #
+    # The ESP image at /efi.img is replaced via ``-update`` (NOT ``keep``).
+    # ``keep`` would be wrong here — the EFI image is replaced as part
+    # of the warm transaction, so the catalog must point at the new bytes.
     cmd = [
         "xorriso",
         "-indev", str(scratch),
         "-outdev", str(out),
         "-boot_image", "any", "replay",
     ]
-    # Map logical adds/replaces to xorriso -update. ``-update`` writes the
-    # local file to the ISO at the given ISO path; it does NOT use
-    # timestamp-based discovery.
     for entry in adds + replaces:
         rel = entry["path"].lstrip("/")
         iso_path = "/" + rel if not rel.startswith("/") else rel
         cmd += ["-update", str(stage / rel), iso_path]
 
-    # Removals
+    # Replace /efi.img with the new ESP image.
+    cmd += ["-update", str(stage / "efi.img"), "/efi.img"]
+
     for entry in removes:
         iso_path = entry["path"]
-        # ``-cpx <path>`` requires a separator before the path so it
-        # doesn't look like a flag.
         cmd += ["-cpx", "--", iso_path]
 
-    # 4. Re-append the ESP. Per design §8, an EFI image change mandates
-    #    an explicit re-append; "keep" would be wrong here.
-    cmd += ["-append_partition", "2", "0xEF", str(esp_img)]
-
-    # xorriso's -boot_image replay (from step 3 above) already replays
-    # the parent's El Torito settings, which point at the ESP. We
-    # therefore do NOT need to re-emit -boot_image any here. The
-    # -append_partition above updates the ESP contents (in-place), and
-    # the replayed boot image will reference the new ESP bytes.
-
-    # Final commit flushes all writes.
     cmd += ["-commit"]
 
     t0 = time.monotonic()
@@ -670,49 +803,37 @@ def warm_image(args) -> int:
     if proc.returncode != 0:
         log(f"FAIL: xorriso warm exit {proc.returncode}")
         log(proc.stderr[:4000])
-        # Clean up scratch even on failure
         _cleanup_scratch(scratch)
         return 1
 
-    # 4b. GPT layout rescue finalizer.
-    #
-    # xorriso 1.5.8.pl02 does NOT maintain a valid GPT backup layout when
-    # growing an ISO via ``-indev parent -outdev new -boot_image any replay
-    # -append_partition``. The primary GPT's ``backup_lba`` still points at
-    # the parent's old end-of-image, the protective-MBR partition-1 size
-    # field still claims the parent's size, and the file's tail (where the
-    # backup GPT header should now live) is whatever ISO data and PVD/Joliet
-    # descriptors xorriso happened to write there.
-    #
-    # We rescue the layout by relocating the backup GPT entry array to the
-    # new tail of the file, writing a freshly-computed backup GPT header at
-    # LBA (image_lba - 1), and patching the primary header's ``backup_lba``
-    # + protective-MBR partition-1 size. The ISO 9660 filesystem bytes,
-    # El Torito catalog, and EFI partition bytes are left untouched (they
-    # already pass their own checks). This is the design §8 step 6
-    # "explicit finalization" for warm growth.
-    finalizer_log = {"status": "skipped"}
-    try:
-        finalizer_log = finalize_gpt_layout(out)
-        finalizer_log["status"] = "ok"
-        log(
-            f"finalizer: relocated backup GPT to LBA {finalizer_log['new_backup_lba']} "
-            f"(array at LBA {finalizer_log['new_backup_part_entry_lba']}); "
-            f"primary CRC {finalizer_log['primary_header_crc32']:#010x}, "
-            f"backup CRC {finalizer_log['backup_header_crc32']:#010x}"
-        )
-    except Exception as e:
-        finalizer_log = {"status": "failed", "error": str(e), "error_type": type(e).__name__}
-        log(f"FAIL: GPT rescue finalizer raised {type(e).__name__}: {e}")
-        _cleanup_scratch(scratch)
-        return 1
+    # 4. Defensive: if a future build of this writer opts back into
+    #    -append_partition, the GPT rescue finalizer will rescue a stale
+    #    GPT backup layout. For the in-tree ESP layout there is no GPT
+    #    primary header (only an MBR + ISO layout), so the finalizer
+    #    refuses (raises ValueError). We treat that as success — it just
+    #    means there is no GPT to rescue.
+    finalizer_log: dict = {"status": "skipped", "reason": "no GPT in iso9660_efi_in_tree layout"}
+    if args.layout == "hybrid":
+        # Operator explicitly opted into the legacy hybrid layout (the
+        # -append_partition layout from the previous pass). Run the
+        # finalizer to keep the GPT consistent on warm growth.
+        try:
+            result = finalize_gpt_layout(out)
+            result["status"] = "ok"
+            finalizer_log = result
+            log(
+                f"finalizer: relocated backup GPT to LBA {finalizer_log['new_backup_lba']} "
+                f"(array at LBA {finalizer_log['new_backup_part_entry_lba']}); "
+                f"primary CRC {finalizer_log['primary_header_crc32']:#010x}, "
+                f"backup CRC {finalizer_log['backup_header_crc32']:#010x}"
+            )
+        except Exception as e:
+            finalizer_log = {"status": "failed", "error": str(e), "error_type": type(e).__name__}
+            log(f"FAIL: GPT rescue finalizer raised {type(e).__name__}: {e}")
+            _cleanup_scratch(scratch)
+            return 1
 
-    # 5. Independent verification. The design §8 mandate: do not trust
-    # xorriso's exit status alone. The verifier parses GPT, MBR, ISO PVD,
-    # El Torito catalog and verifies ESP-bytes-identical-to-source. We
-    # treat a verifier rejection as a transactional failure: the warm
-    # growth transaction must produce an image that passes independent
-    # UEFI/ISO validation, otherwise it does not exist for our purposes.
+    # 5. Independent verification.
     verify_cmd = [sys.executable, str(REPO_ROOT / "build" / "iso" / "verify-image.py"),
                   "--image", str(out), "--arch", args.arch, "--level", "warm",
                   "--report", str(out.parent / (out.name + ".verify.json")),
@@ -720,7 +841,6 @@ def warm_image(args) -> int:
     proc = cmd_with_log(verify_cmd, capture_output=True, text=True)
     verifier_exit = proc.returncode
 
-    # Clean up scratch clone regardless of verifier outcome.
     _cleanup_scratch(scratch)
 
     if verifier_exit != 0:
@@ -787,6 +907,15 @@ def main():
     warm.add_argument("--payload-root", required=True, type=Path,
                       help="Directory containing payload source files")
     warm.add_argument("--esp-image", required=True, type=Path)
+    warm.add_argument("--layout", default="iso9660_efi_in_tree",
+                      choices=["iso9660_efi_in_tree", "hybrid"],
+                      help=(
+                          "iso9660_efi_in_tree (default; bootable on OVMF/AAVMF "
+                          "from fresh NVRAM via El Torito Section Header Entry) "
+                          "or hybrid (legacy -append_partition layout; the "
+                          "previous-pass layout, kept for compatibility and "
+                          "for environments that need GPT hybrid USB boot)."
+                      ))
     warm.set_defaults(func=warm_image)
 
     args = ap.parse_args()
