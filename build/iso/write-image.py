@@ -63,6 +63,7 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_CACHE_ROOT = REPO_ROOT / "build" / "iso-cache" / "v1"
 
 
 # ----- helpers -----
@@ -293,6 +294,137 @@ def finalize_gpt_layout(image: Path) -> dict:
 
 def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
+
+
+def stage_cixmini_payload(stage_dir: Path, payload_dir: Path,
+                          patched_udeb: Path | None) -> dict:
+    """Copy the staged r159 cixmini payload into ``stage_dir/cixmini/`` so
+    it lands at the ISO top level at ``/cixmini/`` once xorrisofs packs
+    the tree.
+
+    The payload is the verbatim output of ``build/iso/stage-cixmini-payload.py``
+    (or any directory with the same shape): ``base.squashfs``,
+    ``desktop.squashfs``, ``desktop.overlay-manifest``, ``sqtools/``.
+    Together those are what the r159 stub CONSUMES at install time
+    (``/cdrom/cixmini/base.squashfs`` etc.).
+
+    If ``patched_udeb`` is given (output of ``build/iso/patch-debootstrap-stub.py``
+    on a netboot-layout substrate where the substrate has no ``/pool/``),
+    it is also copied into ``stage_dir/cixmini/debootstrap-udeb/<name>``
+    so the operator can inspect the patched udeb that's ready to be
+    served to d-i (e.g. by extending the substrate's apt sources
+    later; for netboot mini.iso substrates the patched udeb is staged
+    here but not auto-installed — see the brief and
+    patch-debootstrap-stub.py for why).
+
+    Returns a small receipt dict suitable for inclusion in the
+    cold/warm image receipt.
+    """
+    if not payload_dir.is_dir():
+        raise RuntimeError(f"cixmini payload dir not found: {payload_dir}")
+    cixmini_dst = stage_dir / "cixmini"
+    if cixmini_dst.exists():
+        _chmod_r(cixmini_dst)
+        shutil.rmtree(cixmini_dst)
+    cixmini_dst.mkdir(parents=True)
+    # Copy each expected entry by name rather than cp -a the whole
+    # directory so an unexpected file in the payload (a stray NOTES,
+    # receipts/ subdir, etc.) doesn't pollute the ISO tree.
+    expected = ["base.squashfs", "desktop.squashfs", "desktop.overlay-manifest",
+                "sqtools"]
+    staged = []
+    for name in expected:
+        src = payload_dir / name
+        if src.exists():
+            dst = cixmini_dst / name
+            if src.is_dir():
+                subprocess.run(["cp", "-a", str(src) + "/.", str(dst)],
+                               check=True)
+            else:
+                shutil.copy2(str(src), str(dst))
+            staged.append(name)
+    receipt = {
+        "schema_version": "cixmini-payload-in-tree/v1",
+        "payload_dir": str(payload_dir),
+        "payload_dir_sha256": sha256_dir_bytes(payload_dir) if payload_dir.is_dir() else None,
+        "staged_files": staged,
+    }
+    log(f"cixmini payload staged at {cixmini_dst}: {staged}")
+
+    if patched_udeb is not None:
+        if not patched_udeb.is_file():
+            raise RuntimeError(f"patched udeb not found: {patched_udeb}")
+        dst_dir = cixmini_dst / "debootstrap-udeb"
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        dst = dst_dir / patched_udeb.name
+        shutil.copy2(str(patched_udeb), str(dst))
+        receipt["patched_udeb"] = str(dst)
+        receipt["patched_udeb_sha256"] = sha256_file(dst)
+        log(f"patched udeb staged at {dst} (sha256={receipt['patched_udeb_sha256']})")
+    return receipt
+
+
+def sha256_dir_bytes(d: Path) -> str:
+    """Hash a directory's contents (relative path + sha256 of each file,
+    sorted) — used to bind the cixmini payload content to the cold/warm
+    receipt so a payload change after a build produces a different
+    receipt and a different artifact."""
+    h = hashlib.sha256()
+    files = sorted(p for p in d.rglob("*") if p.is_file())
+    for f in files:
+        rel = f.relative_to(d).as_posix()
+        h.update(rel.encode("utf-8"))
+        h.update(b"\0")
+        h.update(sha256_file(f).encode("ascii"))
+        h.update(b"\n")
+    return h.hexdigest()
+
+
+def resolve_cixmini_args(args, default_cache_root: Path) -> tuple[Path | None, Path | None]:
+    """Resolve --cixmini-payload-dir / --patched-udeb from the args
+    namespace, falling back to auto-detection under the cache if
+    neither is provided.
+
+    Auto-detection: pick the most-recently-modified payload node under
+    ``build/iso-cache/v1/cixmini-payload/`` and the most-recently-modified
+    patched udeb under ``build/iso-cache/v1/cixmini-udeb/`` for the
+    matching architecture. The "most recent" is by mtime (cheaper than
+    parsing receipts and the cache is monotonic). If nothing is
+    cached, both return None and the caller logs INFO that the ISO
+    will be payload-less (d-i will fall back to network install —
+    the same behavior as a stock Debian netinst ISO).
+    """
+    payload_dir = getattr(args, "cixmini_payload_dir", None)
+    patched_udeb = getattr(args, "patched_udeb", None)
+
+    if payload_dir is None:
+        candidates_root = default_cache_root / "cixmini-payload"
+        if candidates_root.is_dir():
+            payload_nodes = sorted(
+                [p for p in candidates_root.iterdir() if p.is_dir()],
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if payload_nodes:
+                payload_dir = payload_nodes[0]
+                log(f"auto-resolved --cixmini-payload-dir: {payload_dir}")
+
+    if patched_udeb is None:
+        candidates_root = default_cache_root / "cixmini-udeb"
+        if candidates_root.is_dir():
+            for udeb_node in sorted(
+                [p for p in candidates_root.iterdir() if p.is_dir()],
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            ):
+                # Pick the first .udeb file inside.
+                udeb_files = sorted(udeb_node.glob("*.udeb"))
+                if udeb_files:
+                    patched_udeb = udeb_files[0]
+                    log(f"auto-resolved --patched-udeb: {patched_udeb}")
+                    break
+
+    return payload_dir, patched_udeb
 
 
 def _chmod_r(p: Path) -> None:
@@ -584,6 +716,24 @@ def cold_image(args) -> int:
     # reflink where supported.
     _copyfile_reflink(esp_img, stage / "efi.img")
 
+    # Stage the r159 install-tree payload at /cixmini/ inside the
+    # staged tree. This is what makes the ISO deliver a real,
+    # offline-installable rootfs at install time (the stub debootstrap
+    # reads from /cdrom/cixmini/base.squashfs etc.). If no payload is
+    # available, this is a no-op and the ISO will fall back to a
+    # network install — same as a stock Debian netinst ISO.
+    payload_dir, patched_udeb = resolve_cixmini_args(args, DEFAULT_CACHE_ROOT)
+    payload_receipt = None
+    if payload_dir is not None:
+        payload_receipt = stage_cixmini_payload(
+            stage_dir=stage,
+            payload_dir=payload_dir,
+            patched_udeb=patched_udeb,
+        )
+    else:
+        log("INFO: no cixmini payload staged — d-i will fall back to "
+            "network install (same as stock Debian netinst ISO)")
+
     # Build the xorrisofs command.
     cmd = [
         "xorrisofs",
@@ -655,6 +805,7 @@ def cold_image(args) -> int:
             "efi_boot": "/efi.img",
         },
         "parent_physical_id": None,
+        "cixmini_payload": payload_receipt,
     }
     receipt_path = out.parent / (out.name + ".receipt.json")
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))
@@ -788,6 +939,24 @@ def warm_image(args) -> int:
     # Also place the new ESP image in the staging tree at /efi.img.
     _copyfile_reflink(esp_img, stage / "efi.img")
 
+    # Stage the r159 install-tree payload at /cixmini/ inside the
+    # warm-stage tree. This is the same logic as the cold path; on a
+    # warm growth that replaces the cixmini payload (e.g. a hotfix
+    # replaces base.squashfs), the new payload files are picked up by
+    # the xorriso -update step below.
+    payload_dir, patched_udeb = resolve_cixmini_args(args, DEFAULT_CACHE_ROOT)
+    payload_receipt = None
+    if payload_dir is not None:
+        payload_receipt = stage_cixmini_payload(
+            stage_dir=stage,
+            payload_dir=payload_dir,
+            patched_udeb=patched_udeb,
+        )
+    else:
+        log("INFO: no cixmini payload staged in warm growth — parent "
+            "ISO's /cixmini/ is preserved verbatim by xorriso "
+            "-boot_image any replay")
+
     # 3. Build the xorriso command list. We use -indev = the scratch
     #    clone and -outdev = the final output path. The cloned scratch
     #    is the read-only input; the output is a fresh file that xorriso
@@ -909,6 +1078,7 @@ def warm_image(args) -> int:
             "replace_count": len(replaces),
             "remove_count": len(removes),
         },
+        "cixmini_payload": payload_receipt,
     }
     receipt_path = out.parent / (out.name + ".receipt.json")
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))
@@ -924,6 +1094,17 @@ def main():
     cold.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     cold.add_argument("--substrate-node-dir", required=True, type=Path)
     cold.add_argument("--esp-image", required=True, type=Path)
+    cold.add_argument("--cixmini-payload-dir", type=Path, default=None,
+                      help="staged cixmini payload dir from "
+                           "build/iso/stage-cixmini-payload.py. If "
+                           "omitted, auto-detects the latest node under "
+                           "build/iso-cache/v1/cixmini-payload/.")
+    cold.add_argument("--patched-udeb", type=Path, default=None,
+                      help="patched debootstrap-udeb from "
+                           "build/iso/patch-debootstrap-stub.py "
+                           "(netboot substrate). If omitted, "
+                           "auto-detects the latest "
+                           "build/iso-cache/v1/cixmini-udeb/<key>/*.udeb.")
     cold.add_argument("--output", required=True, type=Path)
     cold.add_argument("--volume-id", default="NCZOSREFIND")
     cold.add_argument("--publisher", default="NCZ-OS prototype")
@@ -939,6 +1120,12 @@ def main():
     warm.add_argument("--payload-root", required=True, type=Path,
                       help="Directory containing payload source files")
     warm.add_argument("--esp-image", required=True, type=Path)
+    warm.add_argument("--cixmini-payload-dir", type=Path, default=None,
+                      help="staged cixmini payload dir (see --cixmini-payload-dir "
+                           "on the cold subcommand). Auto-detects by default.")
+    warm.add_argument("--patched-udeb", type=Path, default=None,
+                      help="patched debootstrap-udeb (see --patched-udeb "
+                           "on the cold subcommand). Auto-detects by default.")
     warm.add_argument("--layout", default="iso9660_efi_in_tree",
                       choices=["iso9660_efi_in_tree", "hybrid"],
                       help=(
