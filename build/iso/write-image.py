@@ -297,7 +297,8 @@ def log(msg: str) -> None:
 
 
 def stage_cixmini_payload(stage_dir: Path, payload_dir: Path,
-                          patched_udeb: Path | None) -> dict:
+                          patched_udeb: Path | None,
+                          preseed_dir: Path | None = None) -> dict:
     """Copy the staged r159 cixmini payload into ``stage_dir/cixmini/`` so
     it lands at the ISO top level at ``/cixmini/`` once xorrisofs packs
     the tree.
@@ -316,6 +317,22 @@ def stage_cixmini_payload(stage_dir: Path, payload_dir: Path,
     later; for netboot mini.iso substrates the patched udeb is staged
     here but not auto-installed — see the brief and
     patch-debootstrap-stub.py for why).
+
+    If ``preseed_dir`` is given (default: ``<repo>/preseed`` if it
+    exists), its files are also copied into ``stage_dir/cixmini/``
+    AFTER the payload. This is how d-i's existing
+    ``preseed/file=/cdrom/cixmini/preseed.cfg`` kernel-cmdline
+    reference (see build-refind-esp.py options line) resolves at
+    install time. The build-iso-di.sh pipeline copies these into
+    ``$STAGING/cixmini/`` at lines ~2988-3054 (``preseed.cfg``,
+    ``late.sh``, ``extract-rootfs.sh``, etc.); this writer does the
+    same so a cold build that includes /cixmini/preseed.cfg is
+    directly drive-able past the "Download debconf preconfiguration
+    file" prompt without the kvm-install-gate.sh ISO re-pack.
+
+    Note: ``preseed/`` itself is NOT modified — this script only
+    READS from it (the brief's "Do NOT touch ... preseed/" rule is
+    about modification, not reading).
 
     Returns a small receipt dict suitable for inclusion in the
     cold/warm image receipt.
@@ -361,6 +378,23 @@ def stage_cixmini_payload(stage_dir: Path, payload_dir: Path,
         receipt["patched_udeb"] = str(dst)
         receipt["patched_udeb_sha256"] = sha256_file(dst)
         log(f"patched udeb staged at {dst} (sha256={receipt['patched_udeb_sha256']})")
+
+    # Stage the preseed/ tree verbatim if requested. Files land at
+    # /cixmini/preseed.cfg, /cixmini/late.sh, etc. so d-i's
+    # preseed/file=/cdrom/cixmini/preseed.cfg reference resolves.
+    if preseed_dir is not None and preseed_dir.is_dir():
+        preseed_staged = []
+        for entry in sorted(preseed_dir.iterdir()):
+            if entry.name.startswith("."):
+                continue
+            if not entry.is_file():
+                continue
+            dst = cixmini_dst / entry.name
+            shutil.copy2(str(entry), str(dst))
+            preseed_staged.append(entry.name)
+        receipt["preseed_dir"] = str(preseed_dir)
+        receipt["preseed_staged_files"] = preseed_staged
+        log(f"preseed/ staged at {cixmini_dst}: {preseed_staged}")
     return receipt
 
 
@@ -725,10 +759,16 @@ def cold_image(args) -> int:
     payload_dir, patched_udeb = resolve_cixmini_args(args, DEFAULT_CACHE_ROOT)
     payload_receipt = None
     if payload_dir is not None:
+        # Read-only use of preseed/ (the brief allows reading; the
+        # "Do NOT touch" rule is about modifying). build-iso-di.sh
+        # ~line 2988 copies these same files into $EXTRA/preseed.cfg,
+        # late.sh, etc.; we mirror that here.
+        preseed_dir = REPO_ROOT / "preseed" if (REPO_ROOT / "preseed").is_dir() else None
         payload_receipt = stage_cixmini_payload(
             stage_dir=stage,
             payload_dir=payload_dir,
             patched_udeb=patched_udeb,
+            preseed_dir=preseed_dir,
         )
     else:
         log("INFO: no cixmini payload staged — d-i will fall back to "
@@ -947,10 +987,12 @@ def warm_image(args) -> int:
     payload_dir, patched_udeb = resolve_cixmini_args(args, DEFAULT_CACHE_ROOT)
     payload_receipt = None
     if payload_dir is not None:
+        preseed_dir = REPO_ROOT / "preseed" if (REPO_ROOT / "preseed").is_dir() else None
         payload_receipt = stage_cixmini_payload(
             stage_dir=stage,
             payload_dir=payload_dir,
             patched_udeb=patched_udeb,
+            preseed_dir=preseed_dir,
         )
     else:
         log("INFO: no cixmini payload staged in warm growth — parent "
