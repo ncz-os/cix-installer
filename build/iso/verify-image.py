@@ -8,38 +8,46 @@ delegating to xorriso. The design doc §8 is explicit: do not trust xorriso
 exit status alone. xorriso can exit 0 and still produce a layout that fails
 firmware/d-i media discovery.
 
+Two layouts are supported (auto-detected by the presence of a GPT primary
+header at LBA 1):
+
+  * ``iso9660_efi_in_tree`` (default since 2026-09-21): no GPT, the ESP
+    image lives at /efi.img inside the ISO tree. The El Torito catalog
+    uses Debian's Section Header Entry + EFI Initial Entry pattern
+    (offset 64 / 96). This is what actually boots on QEMU/OVMF 11.1.1
+    from fresh NVRAM.
+
+  * ``hybrid`` (legacy; available via ``--layout hybrid``): the previous
+    -append_partition layout. The ESP is an appended EFI System
+    Partition described by a GPT primary + backup + entry array. Requires
+    the GPT rescue finalizer on warm growth.
+
 What we verify, in order:
 
   1. Image file is openable and large enough to contain a usable ISO + GPT
      trailing region.
   2. MBR signature (0x55AA at byte 510 of LBA 0).
-  3. MBR partition table: partition 2 (the EFI System Partition) entry
-     claims the byte range our ESP image claims, with type 0xEF and bootable.
-  4. GPT primary header at LBA 1:
-        signature "EFI PART"
-        revision
-        header_size == 92
-        current LBA == 1
-        backup LBA == (image_bytes/512 - 1)
-        partition entries LBA == 2
-        number of partition entries >= 128
-        size of each partition entry == 128
-        CRC32 of header matches stored CRC (with CRC field zeroed)
-        CRC32 of partition entry array matches stored CRC
-  5. GPT backup header at LBA (image_bytes/512 - 1): same CRC32 validations.
-  6. Protective MBR partition 1 claims the entire image (or the entire ISO
-     data region if there's a gap).
-  7. ISO9660 PVD at LBA 16 (the standard location for a 16-sector PVD):
-        signature "CD001"
-        volume id, publisher, application id round-trip what we expect
-  8. El Torito Boot Record Volume Descriptor at LBA 17:
-        signature "CD001"
-        Boot Catalog LBA matches the value reported by the boot catalog
-  9. El Torito Boot Catalog at its LBA:
-        Validation Entry + Default Entry present and sane.
-  10. The actual ESP partition bytes (read from the image at the LBA range
-      declared in the GPT) are byte-for-byte identical to the file we
-      appended (--esp-image source).
+  3. MBR partition table: either a single 0xEE protective entry
+     (iso9660_efi_in_tree with -isohybrid-gpt-basdat), or a 0xEF ESP
+     partition (hybrid layout's legacy MBR), or no entries
+     (iso9660_efi_in_tree without -isohybrid). Layout-aware.
+  4. (hybrid only) GPT primary header at LBA 1: signature, revision,
+     header_size, current_lba, backup_lba, partition_entries_lba,
+     num_part_entries, size_of_part_entry, header CRC32, entry array CRC.
+  5. (hybrid only) GPT backup header at LBA (image_bytes/512 - 1): same
+     CRC32 validations.
+  6. (hybrid only) GPT entry-array walk to locate the EFI System Partition
+     entry; verify it claims the LBA range our ESP image actually occupies.
+  7. ISO9660 PVD at LBA 16: signature, type, version.
+  8. El Torito Boot Record Volume Descriptor at LBA 17: signature, catalog LBA.
+  9. El Torito Boot Catalog at its LBA: Validation Entry + ISOLINUX
+     Initial Entry at offset 32 + Section Header Entry at offset 64 +
+     EFI Initial Entry at offset 96 (Debian pattern; the legacy
+     "validation + initial" only pattern is rejected).
+ 10. Layout-aware ESP-bytes-identical-to-source check:
+       * hybrid: read the bytes at the GPT EFI partition's LBA range.
+       * iso9660_efi_in_tree: read the bytes at the EFI Initial Entry's
+         load_lba (offset 96 of the catalog).
 
 If any check fails we exit 1 and write a structured JSON report with the
 failing checks enumerated. The goal: a verifier whose output the operator
@@ -80,25 +88,38 @@ def read_at(path: Path, offset: int, length: int) -> bytes:
 
 
 def check_mbr_signature(path: Path) -> tuple[bool, str]:
-    """MBR signature 0x55AA at byte 510 of sector 0."""
+    """MBR signature 0x55AA at byte 510 of sector 0.
+
+    Informational, not a pass/fail gate: the iso9660_efi_in_tree layout
+    may have 0x0000 here (xorriso without -isohybrid-mbr does not write
+    a signature byte in this position; the boot chain still works because
+    El Torito drives the boot, not the MBR). The hybrid layout should
+    have 0x55AA here; the verifier reports the value either way.
+    """
     sig = read_at(path, 510, 2)
     if sig == b"\x55\xAA":
         return True, "ok"
-    return False, f"signature bytes at 510-511: {sig.hex()} (expected 55aa)"
+    if sig == b"\x00\x00":
+        return True, "no MBR signature (El Torito-only layout; expected for iso9660_efi_in_tree without -isohybrid-mbr)"
+    return False, f"signature bytes at 510-511: {sig.hex()} (expected 55aa or 0000)"
 
 
 def check_mbr_partitions(path: Path, expected_esp_size: int, has_gpt: bool) -> tuple[bool, list[str]]:
     """Inspect the MBR partition table.
 
-    Two valid shapes:
+    Three valid shapes:
       * Legacy MBR + ESP: MBR has a 0xEF partition claiming the ESP region.
-        Used when -appended_part_as_gpt is NOT set.
+        Used when -appended_part_as_gpt is NOT set (hybrid layout).
       * Protective MBR + GPT: MBR has a single 0xEE partition claiming the
         entire image, and the ESP lives in a GPT entry only. Used when
-        -appended_part_as_gpt IS set (which is what we ship).
+        -appended_part_as_gpt IS set (hybrid layout).
+      * No MBR entries: the iso9660_efi_in_tree layout uses El Torito +
+        ISO 9660 only. The MBR signature byte may or may not be set by
+        xorriso, but no entries are required.
 
-    For Step 1 we accept either shape; we report which one we got and
-    require that the protective MBR partition cover at least the image."""
+    For Step 1 we accept any of these; we report which one we got and
+    require that the protective MBR partition cover at least the image
+    when present."""
     issues = []
     table = read_at(path, 446, 64)
     partitions = []
@@ -123,15 +144,13 @@ def check_mbr_partitions(path: Path, expected_esp_size: int, has_gpt: bool) -> t
             issues.append("protective MBR missing 0xEE entry (expected with -appended_part_as_gpt)")
         return (not issues), issues + [{"all_partitions": partitions, "protective_mbr": True}]
     else:
-        # Legacy MBR + 0xEF partition.
+        # Either legacy MBR + 0xEF, or no entries (iso9660_efi_in_tree).
         efi_partition = next((p for p in partitions if p["type"] == 0xEF), None)
-        if efi_partition is None:
-            issues.append("no MBR partition with type 0xEF (EFI System Partition)")
-        else:
-            if efi_partition["lba_size"] * SECTOR < expected_esp_size:
-                issues.append(
-                    f"MBR EFI partition size {efi_partition['lba_size'] * SECTOR} < expected ESP size {expected_esp_size}"
-                )
+        if efi_partition is not None and efi_partition["lba_size"] * SECTOR < expected_esp_size:
+            issues.append(
+                f"MBR EFI partition size {efi_partition['lba_size'] * SECTOR} < expected ESP size {expected_esp_size}"
+            )
+        # No entries is fine (no-MBR iso9660_efi_in_tree layout).
         return (not issues), issues + [{"all_partitions": partitions, "protective_mbr": False}]
 
 
@@ -384,127 +403,171 @@ def main():
     ap.add_argument("--report", type=Path, help="write structured JSON report here")
     ap.add_argument("--esp-image", type=Path,
                     help="if set, verify the bytes at the appended ESP partition "
+                         "or at the in-tree EFI binary location (depending on layout) "
                          "are identical to this file")
     ap.add_argument("--parent", type=Path,
                     help="if set (warm level), also verify unchanged file extents "
                          "match the parent's extents")
+    ap.add_argument("--layout", default="auto",
+                    choices=["auto", "iso9660_efi_in_tree", "hybrid"],
+                    help=(
+                        "auto (default; infer from image contents), "
+                        "iso9660_efi_in_tree (no GPT; ESP at /efi.img in tree), "
+                        "hybrid (legacy -append_partition layout with GPT)"
+                    ))
     args = ap.parse_args()
 
     image = args.image.resolve()
     image_size = image.stat().st_size
     image_lba = image_size // SECTOR
 
+    # Auto-detect layout: if a valid GPT primary header is at LBA 1, this
+    # is the hybrid layout (the previous-pass -append_partition output).
+    # Otherwise it is the iso9660_efi_in_tree layout.
+    layout = args.layout
+    if layout == "auto":
+        primary_probe = read_at(image, 1 * SECTOR, SECTOR)
+        if primary_probe[:8] == b"EFI PART":
+            layout = "hybrid"
+        else:
+            layout = "iso9660_efi_in_tree"
+
     report = {
-        "schema_version": "verify-image-report/v1",
+        "schema_version": "verify-image-report/v2",
         "image": str(image),
         "image_size_bytes": image_size,
         "image_lba": image_lba,
         "arch": args.arch,
         "level": args.level,
+        "layout": layout,
         "checks": {},
         "passed": True,
         "issues": [],
     }
 
-    # 1. MBR signature
+    # 1. MBR signature (always expected; with -isohybrid-* we get one,
+    #    without it the byte 510..511 might still be 0x55AA via
+    #    xorriso's default MBR).
     ok, detail = check_mbr_signature(image)
     report["checks"]["mbr_signature"] = {"ok": ok, "detail": detail}
     if not ok:
         report["passed"] = False
         report["issues"].append(("mbr_signature", detail))
 
-    # 2. MBR partition table. We re-check after parsing the GPT, so we
-    #    know whether the MBR is the legacy (0xEF present) or the
-    #    protective-MBR + GPT (0xEE only) shape.
-    # 3. Primary GPT at LBA 1
-    primary_header_buf = read_at(image, 1 * SECTOR, SECTOR)
-    ok, detail = check_gpt_header(primary_header_buf, is_backup=False, expected_image_lba=image_lba)
-    report["checks"]["gpt_primary_header"] = {"ok": ok, "detail": detail}
-    if not ok:
-        report["passed"] = False
-        report["issues"].append(("gpt_primary_header", detail))
-
-    # 4. Backup GPT at LBA (image_lba - 1)
-    backup_header_buf = read_at(image, (image_lba - 1) * SECTOR, SECTOR)
-    ok, detail = check_gpt_header(backup_header_buf, is_backup=True, expected_image_lba=image_lba)
-    report["checks"]["gpt_backup_header"] = {"ok": ok, "detail": detail}
-    if not ok:
-        report["passed"] = False
-        report["issues"].append(("gpt_backup_header", detail))
-
-    has_gpt = report["checks"]["gpt_primary_header"]["ok"] and report["checks"]["gpt_backup_header"]["ok"]
-
-    # 5. GPT entry array CRC + walk to find EFI partition
-    try:
-        ph = parse_gpt_header(primary_header_buf)
-        n = ph["num_part_entries"]
-        sz = ph["size_of_part_entry"]
-        arr = read_at(image, ph["part_entry_lba"] * SECTOR, n * sz)
-        actual_crc = crc32(arr)
-        crc_ok = actual_crc == ph["part_entry_array_crc32_stored"]
-
-        # Walk entries; the EFI System Partition type GUID in mixed-endian
-        # storage is 28732AC1-1FF8-D211-BA4B-00A0C93EC93B.
-        efi_sys_guid_stored = b"\x28\x73\x2A\xC1\x1F\xF8\xD2\x11\xBA\x4B\x00\xA0\xC9\x3E\xC9\x3B"
-        efi_partition = None
-        for i in range(n):
-            entry = arr[i * sz:(i + 1) * sz]
-            if entry[:16] == b"\x00" * 16:
-                continue
-            if entry[:16] == efi_sys_guid_stored:
-                efi_partition = {
-                    "index": i,
-                    "first_lba": struct.unpack("<Q", entry[32:40])[0],
-                    "last_lba": struct.unpack("<Q", entry[40:48])[0],
-                    "size_lba": struct.unpack("<Q", entry[40:48])[0] - struct.unpack("<Q", entry[32:40])[0] + 1,
-                    "attrs": struct.unpack("<Q", entry[48:56])[0],
-                }
-                break
-
-        report["checks"]["gpt_entry_array_crc"] = {
-            "ok": crc_ok,
-            "stored_crc32": ph["part_entry_array_crc32_stored"],
-            "computed_crc32": actual_crc,
-        }
-        if not crc_ok:
+    if layout == "hybrid":
+        # Hybrid layout: full GPT primary + backup + entry array checks.
+        primary_header_buf = read_at(image, 1 * SECTOR, SECTOR)
+        ok, detail = check_gpt_header(primary_header_buf, is_backup=False, expected_image_lba=image_lba)
+        report["checks"]["gpt_primary_header"] = {"ok": ok, "detail": detail}
+        if not ok:
             report["passed"] = False
-            report["issues"].append(("gpt_entry_array_crc", "CRC mismatch"))
-        report["checks"]["gpt_efi_partition"] = {"ok": efi_partition is not None, "efi": efi_partition}
-        if efi_partition is None:
+            report["issues"].append(("gpt_primary_header", detail))
+
+        backup_header_buf = read_at(image, (image_lba - 1) * SECTOR, SECTOR)
+        ok, detail = check_gpt_header(backup_header_buf, is_backup=True, expected_image_lba=image_lba)
+        report["checks"]["gpt_backup_header"] = {"ok": ok, "detail": detail}
+        if not ok:
             report["passed"] = False
-            report["issues"].append(("gpt_efi_partition", "no EFI partition"))
-        else:
-            # Now that we have the actual ESP extent, redo the MBR-partition-2
-            # check to make sure MBR and GPT agree.
-            expected_efi_bytes = efi_partition["size_lba"] * SECTOR
-            ok, mbr_detail = check_mbr_partitions(image, expected_esp_size=expected_efi_bytes, has_gpt=has_gpt)
-            report["checks"]["mbr_partitions"] = {"ok": ok, "detail": mbr_detail}
-            if not ok:
+            report["issues"].append(("gpt_backup_header", detail))
+
+        has_gpt = report["checks"]["gpt_primary_header"]["ok"] and report["checks"]["gpt_backup_header"]["ok"]
+
+        try:
+            ph = parse_gpt_header(primary_header_buf)
+            n = ph["num_part_entries"]
+            sz = ph["size_of_part_entry"]
+            arr = read_at(image, ph["part_entry_lba"] * SECTOR, n * sz)
+            actual_crc = crc32(arr)
+            crc_ok = actual_crc == ph["part_entry_array_crc32_stored"]
+
+            efi_sys_guid_stored = b"\x28\x73\x2A\xC1\x1F\xF8\xD2\x11\xBA\x4B\x00\xA0\xC9\x3E\xC9\x3B"
+            efi_partition = None
+            for i in range(n):
+                entry = arr[i * sz:(i + 1) * sz]
+                if entry[:16] == b"\x00" * 16:
+                    continue
+                if entry[:16] == efi_sys_guid_stored:
+                    efi_partition = {
+                        "index": i,
+                        "first_lba": struct.unpack("<Q", entry[32:40])[0],
+                        "last_lba": struct.unpack("<Q", entry[40:48])[0],
+                        "size_lba": struct.unpack("<Q", entry[40:48])[0] - struct.unpack("<Q", entry[32:40])[0] + 1,
+                        "attrs": struct.unpack("<Q", entry[48:56])[0],
+                    }
+                    break
+
+            report["checks"]["gpt_entry_array_crc"] = {
+                "ok": crc_ok,
+                "stored_crc32": ph["part_entry_array_crc32_stored"],
+                "computed_crc32": actual_crc,
+            }
+            if not crc_ok:
                 report["passed"] = False
-                report["issues"].append(("mbr_partitions", mbr_detail))
-            # Compare actual bytes of the EFI partition to the source ESP file
-            if args.esp_image and args.esp_image.is_file():
-                actual_bytes = read_at(image, efi_partition["first_lba"] * SECTOR, expected_efi_bytes)
-                source_bytes = args.esp_image.read_bytes()
-                ok = actual_bytes == source_bytes
-                report["checks"]["esp_bytes_identical_to_source"] = {
-                    "ok": ok,
-                    "source_sha256": sha256_bytes(source_bytes),
-                    "actual_sha256": sha256_bytes(actual_bytes),
-                    "expected_size_bytes": expected_efi_bytes,
-                    "actual_size_bytes": len(actual_bytes),
-                }
+                report["issues"].append(("gpt_entry_array_crc", "CRC mismatch"))
+            report["checks"]["gpt_efi_partition"] = {"ok": efi_partition is not None, "efi": efi_partition}
+            if efi_partition is None:
+                report["passed"] = False
+                report["issues"].append(("gpt_efi_partition", "no EFI partition"))
+            else:
+                expected_efi_bytes = efi_partition["size_lba"] * SECTOR
+                ok, mbr_detail = check_mbr_partitions(image, expected_esp_size=expected_efi_bytes, has_gpt=has_gpt)
+                report["checks"]["mbr_partitions"] = {"ok": ok, "detail": mbr_detail}
                 if not ok:
                     report["passed"] = False
-                    report["issues"].append(("esp_bytes_identical_to_source", "mismatch"))
-
-    except ValueError as e:
+                    report["issues"].append(("mbr_partitions", mbr_detail))
+                if args.esp_image and args.esp_image.is_file():
+                    actual_bytes = read_at(image, efi_partition["first_lba"] * SECTOR, expected_efi_bytes)
+                    source_bytes = args.esp_image.read_bytes()
+                    ok = actual_bytes == source_bytes
+                    report["checks"]["esp_bytes_identical_to_source"] = {
+                        "ok": ok,
+                        "source_sha256": sha256_bytes(source_bytes),
+                        "actual_sha256": sha256_bytes(actual_bytes),
+                        "expected_size_bytes": expected_efi_bytes,
+                        "actual_size_bytes": len(actual_bytes),
+                        "source_lba": efi_partition["first_lba"],
+                    }
+                    if not ok:
+                        report["passed"] = False
+                        report["issues"].append(("esp_bytes_identical_to_source", "mismatch"))
+        except ValueError as e:
+            report["checks"]["gpt_primary_header"] = {
+                "ok": False,
+                "detail": f"failed to re-parse for entry array check: {e}",
+            }
+            report["passed"] = False
+            report["issues"].append(("gpt_primary_header", str(e)))
+    else:
+        # iso9660_efi_in_tree layout: no GPT, no appended partition.
+        # Mark GPT checks as N/A so the report is honest about what we
+        # verified (we did not verify GPT because there is no GPT).
         report["checks"]["gpt_primary_header"] = {
-            "ok": False,
-            "detail": f"failed to re-parse for entry array check: {e}",
+            "ok": True,
+            "detail": "N/A: iso9660_efi_in_tree layout has no GPT primary header",
         }
-        report["passed"] = False
-        report["issues"].append(("gpt_primary_header", str(e)))
+        report["checks"]["gpt_backup_header"] = {
+            "ok": True,
+            "detail": "N/A: iso9660_efi_in_tree layout has no GPT backup header",
+        }
+        report["checks"]["gpt_entry_array_crc"] = {
+            "ok": True,
+            "detail": "N/A: iso9660_efi_in_tree layout has no GPT entry array",
+            "stored_crc32": 0,
+            "computed_crc32": 0,
+        }
+        report["checks"]["gpt_efi_partition"] = {
+            "ok": True,
+            "detail": "N/A: EFI binary lives at /efi.img inside the ISO tree",
+            "efi": None,
+        }
+        # MBR partition table: in this layout, the MBR has either a
+        # single 0xEE protective entry (if -isohybrid-gpt-basdat was
+        # used) or no entries (if not). Accept either.
+        ok, mbr_detail = check_mbr_partitions(image, expected_esp_size=0, has_gpt=False)
+        report["checks"]["mbr_partitions"] = {"ok": ok, "detail": mbr_detail}
+        if not ok:
+            report["passed"] = False
+            report["issues"].append(("mbr_partitions", mbr_detail))
 
     # 6. ISO PVD
     ok, detail = check_iso_pvd(image)
@@ -538,22 +601,72 @@ def main():
                 report["passed"] = False
                 report["issues"].append(("el_torito_catalog", detail2))
 
+            # iso9660_efi_in_tree: also verify that the bytes at the EFI
+            # Initial Entry's load_lba (offset 96) match the source ESP
+            # file. This is the in-tree analog of the hybrid layout's
+            # ``esp_bytes_identical_to_source`` check.
+            if layout == "iso9660_efi_in_tree" and args.esp_image and args.esp_image.is_file():
+                # Re-read the catalog and look at offset 96 (EFI Initial Entry)
+                init_e = catalog[96:96+32] if isinstance(catalog_lba, int) else None
+                if init_e is None:
+                    init_e = read_at(image, catalog_lba * 2048 + 96, 32)
+                boot_ind = init_e[0]
+                load_lba = struct.unpack("<I", init_e[8:12])[0]
+                sector_count = struct.unpack("<H", init_e[6:8])[0]
+                if boot_ind == 0x88 and sector_count > 0:
+                    expected_size = sector_count * 512
+                    actual_bytes = read_at(image, load_lba * 512, expected_size)
+                    source_bytes = args.esp_image.read_bytes()
+                    ok3 = actual_bytes == source_bytes
+                    report["checks"]["esp_bytes_identical_to_source"] = {
+                        "ok": ok3,
+                        "source_sha256": sha256_bytes(source_bytes),
+                        "actual_sha256": sha256_bytes(actual_bytes),
+                        "expected_size_bytes": expected_size,
+                        "actual_size_bytes": len(actual_bytes),
+                        "source_lba": load_lba,
+                        "source_layout": "iso9660_efi_in_tree (Section Header Entry at catalog offset 64 + EFI Initial Entry at offset 96)",
+                    }
+                    if not ok3:
+                        report["passed"] = False
+                        report["issues"].append(("esp_bytes_identical_to_source", "mismatch"))
+                else:
+                    report["checks"]["esp_bytes_identical_to_source"] = {
+                        "ok": False,
+                        "detail": (
+                            f"EFI Initial Entry at catalog offset 96 has "
+                            f"boot_indicator={boot_ind:#04x} sector_count={sector_count}; "
+                            f"cannot verify ESP bytes"
+                        ),
+                    }
+                    report["passed"] = False
+                    report["issues"].append(("esp_bytes_identical_to_source", "EFI Initial Entry invalid"))
+
     # Trailing padding detection (design §8 "what it did not prove"):
-    # If the file extends beyond (backup GPT LBA + 1) sectors, there's trailing
-    # padding AFTER the backup GPT. xorriso sometimes adds this; report it.
+    # Only applicable to the hybrid layout (which has a backup GPT). On
+    # the iso9660_efi_in_tree layout there is no backup GPT.
     backup_lba = None
-    try:
-        h = parse_gpt_header(backup_header_buf)
-        backup_lba = h["current_lba"]
-    except Exception:
-        pass
-    if backup_lba is not None:
-        trailing_bytes = image_size - (backup_lba + 1) * SECTOR
+    if layout == "hybrid":
+        try:
+            h = parse_gpt_header(backup_header_buf)
+            backup_lba = h["current_lba"]
+        except Exception:
+            pass
+        if backup_lba is not None:
+            trailing_bytes = image_size - (backup_lba + 1) * SECTOR
+            report["checks"]["trailing_padding_after_backup_gpt"] = {
+                "ok": True,  # informational, not a pass/fail
+                "trailing_bytes": max(0, trailing_bytes),
+                "image_lba": image_lba,
+                "backup_lba": backup_lba,
+            }
+    else:
         report["checks"]["trailing_padding_after_backup_gpt"] = {
-            "ok": True,  # informational, not a pass/fail
-            "trailing_bytes": max(0, trailing_bytes),
+            "ok": True,
+            "detail": "N/A: iso9660_efi_in_tree layout has no backup GPT",
+            "trailing_bytes": 0,
             "image_lba": image_lba,
-            "backup_lba": backup_lba,
+            "backup_lba": None,
         }
 
     if args.report:
