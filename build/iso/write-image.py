@@ -584,14 +584,25 @@ def cold_image(args) -> int:
         # is what makes xorriso emit the catalog layout OVMF accepts.
         "-b", "/isolinux/isolinux.bin",
         "-no-emul-boot",
+        # -boot-info-table patches isolinux.bin post-hoc with the LBA/
+        # length it needs. Debian's own working netboot ISO has this
+        # (visible as "boot-info-table isohybrid-suitable" in
+        # xorriso -report_el_torito); our earlier cold image lacked it
+        # entirely and OVMF's BdsDxe could not enumerate a bootable
+        # device from the result ("failed to load Boot0002 ... Not
+        # Found", confirmed live on real OVMF/qemu twice).
+        "-boot-info-table",
         # EFI binary at /efi.img (FAT image inside ISO tree) — Section
         # Header Entry at offset 64 + EFI Initial Entry at offset 96.
         "--efi-boot", "/efi.img",
-        # MBR partition table for hybrid USB boot. We do NOT use
-        # -appended_part_as_gpt because there is no appended partition;
-        # the EFI binary lives inside the ISO tree, so the MBR partition
-        # table is a single protective-MBR 0xEE partition covering the
-        # whole image.
+        # Real isohybrid MBR template (from the isolinux package), not
+        # just -isohybrid-gpt-basdat alone — that flag alone produced a
+        # bare El Torito boot record with no MBR/GPT hybrid structure at
+        # all, unlike Debian's own ISO which reports
+        # "MBR isohybrid cyl-align-on GPT". This is believed to be why
+        # BdsDxe could not find a bootable device on the SATA/DVD-ROM
+        # path.
+        "-isohybrid-mbr", "/usr/lib/ISOLINUX/isohdpfx.bin",
         "-isohybrid-gpt-basdat",
         "-o", str(out),
         str(stage),
