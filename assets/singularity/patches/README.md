@@ -38,24 +38,6 @@ a user-selected quadrant.
 
 Delete this patch once PR #30 merges.
 
-**Upstream PR:** [singularityos-lab/singularity-shell#31](https://github.com/singularityos-lab/singularity-shell/pull/31)
-— open, not yet merged. Patch
-`0001-bound-keyboard-backlight-scale-marks.patch`.
-
-Fixes a real crash: the keyboard-backlight `GtkScale` in `SystemView` drew
-one tick mark per raw hardware brightness level. On MEDUSA (T2 MacBook,
-AMD Navi14), the backlight controller reports `max_brightness=14660`,
-so the sidebar's minimum width came out around 14,794px; at 2x HiDPI
-scale the compositor tried to allocate a 29588x1406 EGL surface, past
-Mesa's max texture size. The failed allocation left a NULL `__DRIimage`
-that Mesa then queried without a NULL check, segfaulting
-`dri2_query_image_common()`. Confirmed via gdb on 6 real coredumps, all
-showing the identical 29588x1406 buffer. Metal-confirmed fixed on
-MEDUSA: patched binary survived 2 full compositor restarts, 12 sidebar
-activations each, zero new coredumps.
-
-Delete this patch once PR #31 merges.
-
 ## singularity-desktop — active
 
 **Upstream PR:** [singularityos-lab/singularity-desktop#262](https://github.com/singularityos-lab/singularity-desktop/pull/262)
