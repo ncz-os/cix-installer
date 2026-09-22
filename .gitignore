@@ -175,8 +175,12 @@ prototype/work/*
 !prototype/work/.gitkeep
 prototype/test-output/*
 !prototype/test-output/.gitkeep
+prototype/test-output-new/*
+!prototype/test-output-new/.gitkeep
 prototype/output/*
 !prototype/output/.gitkeep
+prototype/payloads/*
+!prototype/payloads/.gitkeep
 downloads/*.iso
 build/iso-cache/v1/blobs/sha256/*
 !build/iso-cache/v1/blobs/sha256/.gitkeep

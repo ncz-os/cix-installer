@@ -5,25 +5,32 @@ write-image.py — Cold and warm ISO writer for the incremental d-i prototype.
 Two operations:
 
     cold -- Build a complete bootable image from cached components (substrate
-            import, rEFInd ESP) using xorriso in mkisofs emulation mode. The
-            output is a hybrid ISO9660 + EFI GPT layout, like the upstream
-            Debian netboot ISO but with our rEFInd ESP replacing its GRUB ESP.
+            import, rEFInd ESP) using xorrisofs in mkisofs emulation mode. The
+            output is an ISO 9660 filesystem with the rEFInd ESP image embedded
+            at /efi.img inside the ISO tree (Debian's Section Header Entry +
+            EFI Initial Entry pattern at El Torito catalog offsets 64 / 96).
+            There is NO appended partition and NO GPT; the boot chain goes
+            via El Torito only.
 
     warm -- Take a previously-published ISO ("parent") and a list of logical
             changes (added/replaced/removed file paths), reflink-clone the
-            parent into a private scratch ISO, apply the change set using
-            native xorriso commands (``-update``, ``-cpx`` etc.), append a
-            fresh ESP image via ``-append_partition`` (NEVER ``keep`` unless
-            the EFI image is byte-for-byte unchanged), and produce a new
-            physical artifact.
+            parent into a private scratch ISO, replace the in-tree /efi.img
+            (the ESP image is replaced on EVERY warm growth; the EFI Initial
+            Entry's load LBA is rewritten to the new location by xorriso
+            ``-boot_image any replay``), apply the change set with xorriso
+            ``-update`` / ``-cpx``, and produce a new physical artifact.
 
 The warm path is what the design doc Section 8 calls "the warm writer
 transaction". This is the operation that delivers the seconds-scale hotfix
 promise (subject to a real reflink-capable scratch filesystem).
 
 Both operations end with an INDEPENDENT verification step that parses the
-resulting GPT, MBR, El Torito and extent map itself — we do NOT trust
-xorriso's exit status alone (design §8 explicit constraint).
+resulting MBR, ISO 9660 PVD, El Torito catalog (validation + initial + Section
+Header + EFI Initial entries) and the actual bytes of the embedded ESP -- we
+do NOT trust xorriso's exit status alone (design §8 explicit constraint).
+The cold and warm paths BOTH pass --esp-image to the verifier so it can
+verify the embedded ESP bytes match the source FAT image; a corrupt ESP at
+the EFI Initial Entry's load LBA is detected and rejected.
 
 Safety rails (carried over from the design doc):
 
@@ -33,10 +40,9 @@ Safety rails (carried over from the design doc):
       a private scratch clone.
     * Reflink is tested on the actual scratch filesystem before a warm run
       proceeds (see verify_reflink_capable_fs).
-    * The ESP is appended EXPLICITLY on every warm growth with
-      ``-append_partition``. ``keep`` is rejected when the EFI image has
-      changed (and it WILL have changed unless the user passed
-      ``--esp unchanged``).
+    * The kernel + initrd are REQUIRED inputs to build-refind-esp.py; the
+      ESP image embedded in the ISO always contains them. The cold and warm
+      paths never ship an ESP whose loader points at files that don't exist.
 
 For Step 1 we ship just enough to qualify the writer + boot layout, not the
 full content-addressed graph. We do not yet seal every node, key every
@@ -473,13 +479,13 @@ def cold_image(args) -> int:
         Entry" pattern (validation entry at offset 0, Section Header
         Entry at offset 64, EFI Initial Entry at offset 96 pointing at
         /efi.img inside the ISO tree) +
-        MBR partition table (single 0xEE protective-MBR partition
-        covering the whole image, optionally via -isohybrid-gpt-basdat if
-        the operator also wants GPT hybrid for USB stick boot) +
+        MBR signature 0x55AA + a 0x17 partition entry pointing at the
+        ISO's first sector (written by -isohybrid-mbr / -isohybrid-gpt-basdat) +
         no GPT (we do not need a backup GPT to recover; the boot chain
-        uses El Torito + MBR; the design-doc §8 GPT rescue finalizer
-        therefore is a no-op for this layout, kept as a defensive
-        measure for future layouts that opt back into -append_partition).
+        uses El Torito, not the MBR/GPT layer; the design-doc §8 GPT
+        rescue finalizer is therefore a no-op for this layout, kept as a
+        defensive measure for future layouts that opt back into
+        -append_partition).
 
     The ESP image lives INSIDE the ISO tree at /efi.img. This is the
     Debian Bookworm netboot pattern (their /boot/grub/efi.img is the
@@ -516,13 +522,18 @@ def cold_image(args) -> int:
         tells xorriso to write the matching Section Header Entry.
       * ``-isohybrid-mbr`` provides the 432-byte MBR template from the
         Debian isolinux package (cached under build/iso-cache/syslinux/
-        because most build hosts do not ship it). Without a real MBR
-        template OVMF 11.1.1 could not find a bootable device from the
-        SATA/DVD-ROM path on our real-OVMF boot test.
-      * ``-isohybrid-gpt-basdat`` adds the protective-MBR + GPT for
+        because most build hosts do not ship it). xorriso writes the
+        template into the produced image's LBA 0 and sets the MBR
+        signature byte to 0x55AA plus a 0x17 partition entry pointing
+        at the ISO's first sector. The boot chain still goes via El
+        Torito (the Section Header Entry at catalog offset 64 is what
+        OVMF actually uses), but the hybrid MBR is what makes the
+        image readable as a hybrid ISO/USB stick on a wider set of
+        firmwares.
+      * ``-isohybrid-gpt-basdat`` adds a protective-MBR + GPT for
         hybrid USB boot. The GPT is invalid on this layout (no actual
-        appended partition), so we do NOT use it as a boot hint; the
-        boot goes via El Torito.
+        appended partition; the boot goes via El Torito), so we do NOT
+        use it as a boot hint.
 
     The kernel + initrd live INSIDE the FAT ESP at /linux and /initrd.gz
     (see build-refind-esp.py). The ISO 9660 filesystem that surrounds
