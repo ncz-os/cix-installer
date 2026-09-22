@@ -467,8 +467,8 @@ def cold_image(args) -> int:
     Boot layout (qualifies QEMU/OVMF 11.1.1 + edk2-stable202408-prebuilt
     from fresh NVRAM, AND QEMU/AAVMF arm64; proven 2026-09-21):
 
-        ISO9660 filesystem with Joliet + Rock Ridge (so Linux/Windows can
-        read the kernel/initrd) +
+        ISO9660 filesystem with Joliet + Rock Ridge (so Linux/Windows
+        can read installer payload: driver .debs, preseed, etc.) +
         El Torito catalog with Debian's "Section Header + EFI Initial
         Entry" pattern (validation entry at offset 0, Section Header
         Entry at offset 64, EFI Initial Entry at offset 96 pointing at
@@ -526,8 +526,9 @@ def cold_image(args) -> int:
 
     The kernel + initrd live INSIDE the FAT ESP at /linux and /initrd.gz
     (see build-refind-esp.py). The ISO 9660 filesystem that surrounds
-    the ESP only carries installer payload (driver .debs, preseed, etc.),
-    not anything the bootloader needs to find.
+    the ESP only carries installer payload (driver .debs, preseed, etc.);
+    the bootloader reads kernel and initrd via its own SFS handle on the
+    FAT volume, not from ISO 9660.
     """
     out = Path(args.output).resolve()
     if out.exists():
