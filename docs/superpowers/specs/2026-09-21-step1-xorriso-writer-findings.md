@@ -54,6 +54,19 @@ substrate for these reasons:
    layout" using a real d-i substrate — not invent a synthetic one like
    the design doc's own toy experiment did.
 
+> **Reading this section:** "Bookworm" here is the **d-i runtime substrate**,
+> not the installed OS. The d-i BusyBox initrd that runs the install
+> itself comes from Bookworm netinst; the **installed** system comes from
+> Forky via the squashfs layers + post-install hooks, the same way the
+> arm64/Sky1 production path works. This is the documented
+> "Bookworm d-i / Forky target" boundary from the design doc
+> (`docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`,
+> §2 "Evidence and discrepancies" + §3 "Hard contracts"). Picking the
+> Bookworm netboot substrate is not a return to Bookworm-the-target — it
+> is "give the install a stable, small d-i runtime, install Forky on disk."
+> Forky (Debian testing) is unstable, so the d-i runtime is the stable
+> Bookworm for the install path; only the installed system tracks Forky.
+
 ### Why rEFInd via `mtools` for the ESP
 
 We use the Debian-packaged `refind_0.14.2-2.1_amd64.deb` binary plus

@@ -32,9 +32,12 @@ installation validation are release-blocking milestones below.
 
 No new mkosi bootable-image configuration is required. mkosi retains its current
 job producing layers. Making mkosi the final image formatter would not itself
-solve ISO block reuse or preserve this project's patched d-i runtime. A pinned
-assembly container may package xorriso and the other tools; it is not a new
-installed OS or live-initrd design.
+solve ISO block reuse or preserve this project's NCZ customisations on top
+of the stock d-i runtime (the grafted udebs in the initrd, the cixmini payload
+staging, the debootstrap-udeb install-time stub — see §3 "Hard contracts" —
+NOT a patched d-i source tree). A pinned assembly container may package
+xorriso and the other tools; it is not a new installed OS or live-initrd
+design.
 
 The performance promise is **a newly assembled bootable candidate in seconds for
 an eligible small hotfix**, on a qualified local reflink filesystem, once the

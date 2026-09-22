@@ -1,25 +1,53 @@
 #!/bin/bash
-# build-iso.sh — repack Ubuntu Server live-arm64 ISO with our customizations.
+# build-iso.sh — ⚠️  STALE / ABANDONED — DO NOT USE for current builds.
 #
-# Pivoted 2026-05-03 from Debian d-i (preseed) to Ubuntu Server (subiquity
-# autoinstall via cloud-init). Reasons:
-#   - Debian d-i + 7.0.1 kernel = panic in 60s on trixie userspace
-#   - Ubuntu 25.04+ has Mesa 24.x with Mali-G720 panthor support
-#   - Sky1-Linux issue #12 confirms Ubuntu 26.04 works on MS-R1
-#   - subiquity is text-mode + autoinstall via YAML user-data
+# This script describes an Ubuntu-Server (subiquity / cloud-init autoinstall)
+# live-arm64 ISO repack from a 2026-05-03 pivot, and is COMPLETELY UNRELATED
+# to the current NCZ-OS build architecture. It is preserved on disk only so
+# git archaeology / history stays readable; nothing in the current build
+# pipeline invokes it. If you arrived here looking for "how do I build the
+# ISO?": you want the two-stage pipeline below, not this file.
 #
-# DUAL-KERNEL still ships:
-#   - 7.0.1-next (linux-cix-sky1-next, explicit test entry)
+#   Stage 1 — content (squashfs layers):
+#     bash build/build-squashfs-layers.sh all         # base+desktop+hotfix
 #
-# Process:
-#   1. Extract Ubuntu Server live ISO (has /casper/ squashfs + /boot/grub/)
-#   2. Replace /casper/vmlinuz with our Sky1 LTS kernel + inject modules cpio
-#      onto /casper/initrd (LIVE session runs our kernel, not Ubuntu stock)
-#   3. Stage /cixmini/ on ISO with all post-install assets
-#   4. Stage /cloud-init/ with user-data (autoinstall) + meta-data
-#   5. Replace /boot/grub/grub.cfg with our menu (LTS default, NEXT test,
-#      SAFE rescue) — kernel cmdline includes `autoinstall ds=nocloud-net...`
-#   6. Repack as UEFI-bootable hybrid ISO via xorriso
+#   Stage 2 — assembly (bootable ISO):
+#     make iso                                        # Cix Sky1 arm64 path
+#     bash build/iso/import-substrate.py …            # amd64 substrate import
+#     bash build/iso/write-image.py …                 # xorriso cold/warm writer
+#     bash build/iso/verify-image.py …                # independent verifier
+#
+# What this script USED to do (pre-2026-08 pivot, kept verbatim for history):
+#
+#   Pivoted 2026-05-03 from Debian d-i (preseed) to Ubuntu Server (subiquity
+#   autoinstall via cloud-init). Reasons (stale — Ubuntu subiquity was itself
+#   abandoned for the current Debian d-i + xorriso-writer architecture; see
+#   docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md):
+#     - Debian d-i + 7.0.1 kernel = panic in 60s on trixie userspace
+#     - Ubuntu 25.04+ has Mesa 24.x with Mali-G720 panthor support
+#     - Sky1-Linux issue #12 confirms Ubuntu 26.04 works on MS-R1
+#     - subiquity is text-mode + autoinstall via YAML user-data
+#
+#   DUAL-KERNEL still ships:
+#     - 7.0.1-next (linux-cix-sky1-next, explicit test entry)
+#
+#   Process (also stale, no longer the production path):
+#     1. Extract Ubuntu Server live ISO (has /casper/ squashfs + /boot/grub/)
+#     2. Replace /casper/vmlinuz with our Sky1 LTS kernel + inject modules cpio
+#        onto /casper/initrd (LIVE session runs our kernel, not Ubuntu stock)
+#     3. Stage /cixmini/ on ISO with all post-install assets
+#     4. Stage /cloud-init/ with user-data (autoinstall) + meta-data
+#     5. Replace /boot/grub/grub.cfg with our menu (LTS default, NEXT test,
+#        SAFE rescue) — kernel cmdline includes `autoinstall ds=nocloud-net...`
+#     6. Repack as UEFI-bootable hybrid ISO via xorriso
+#
+# The current Debian d-i + xorriso-writer architecture (see ISO-BUILD-GUARDRAILS
+# and the superpowers/specs design doc) does NOT do any of the above — there
+# is no Ubuntu live ISO, no subiquity/cloud-init, no casper squashfs, no GRUB
+# menu replacement. If you actually need this script, you are probably working
+# on the wrong branch. Verify before deleting: `git log -- build/build-iso.sh`
+# last touched 2026-08-23 ("agent-stack: move install behind ncz CLI"); no
+# other in-tree build/Makefile/scripts invokes it.
 
 set -euo pipefail
 

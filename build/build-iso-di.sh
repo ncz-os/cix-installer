@@ -1,18 +1,41 @@
 #!/bin/bash
-# build-iso-di.sh — bookworm d-i base + our Sky1 kernel + Ubuntu via late_command
+# build-iso-di.sh — arm64/Sky1 ISO assembly: Forky-installed system built on
+# top of the Debian Installer substrate.
 #
-# This rebuilds the r6 (Debian d-i) flow that's PROVEN to boot on Sky1
-# UEFI on MS-R1, with two extensions:
-#   1. Latest post-install hooks (incl. mali_csffw.bin symlink fix)
-#   2. late_command swaps /etc/apt/sources.list from Debian to Ubuntu
-#      after Debian 12 base lands, then apt full-upgrade to Ubuntu resolute.
-#      End-state is a Debian system on disk with our Sky1 kernels.
+# This is the **arm64/Sky1 production pipeline**. It orchestrates the
+# build of a bootable ISO from:
+#   1. A pinned Debian Installer substrate (the `--bookworm-iso` flag name
+#      is historical — predates the Bookworm→Forky migration; the actual
+#      substrate passed in by `make iso` is `debian-testing-arm64-netinst.iso`,
+#      which is **Debian Testing (Forky)** per `release.conf`'s
+#      `NCZ_BASE_CODENAME=forky` and `Makefile`'s `UPSTREAM_ISO` default).
+#      For amd64 the substrate is Bookworm netboot (see
+#      `build/iso/import-substrate.py`); for arm64/Sky1 it is Forky.
+#   2. The mkosi-built squashfs layers produced by `build/build-squashfs-layers.sh`
+#      (`base.squashfs`, `desktop.squashfs`, `hotfix.squashfs`).
+#   3. The NCZ cixmini payload (post-install hooks, kernel/headers .debs,
+#      assets, branding) staged onto the ISO media under /cdrom/cixmini/.
+#
+# The end-state is **a Debian (Forky) system on disk** with the Sky1 kernel
+# + drivers + desktop; the d-i runtime itself is the real, upstream Debian
+# Installer (not a hand-patched fork). The NCZ-specific delta lives at the
+# assembly layer — small set of grafted udebs in the d-i initrd (the patched
+# `debootstrap-udeb` stub that drives the install-time branch) + the
+# squashfs layers + the cixmini payload. d-i itself is stock.
+#
+# **This pipeline is being superseded by the new xorriso-based writer**
+# (`build/iso/{import-substrate,build-refind-esp,stage-cixmini-payload,patch-debootstrap-stub,write-image,verify-image}.py`),
+# qualified and shipped for amd64 first; see
+# `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
+# for the design rationale and the long-term migration plan. Until the new
+# writer's arm64 substrate is imported and arm64 cold/warm paths are
+# promoted, this script remains the arm64/Sky1 production path.
 #
 # Why d-i not casper: r17-r24 proved Ubuntu casper kernel-panics on Sky1
 # USB boot regardless of bootloader (rEFInd, GRUB, systemd-boot). r6
-# proved bookworm d-i busybox initrd works. The bootloader doesn't matter;
-# the initrd init script does. d-i's busybox init is simple enough to
-# avoid whatever casper trips on.
+# proved the Debian Installer BusyBox initrd works. The bootloader doesn't
+# matter; the initrd init script does. d-i's BusyBox init is simple enough
+# to avoid whatever casper trips on.
 
 set -euo pipefail
 
@@ -42,11 +65,20 @@ usage() {
     cat <<'EOF'
 Usage: build/build-iso-di.sh --bookworm-iso PATH --root PATH --version VERSION --output PATH [options]
 
+(The `--bookworm-iso` flag name is historical — predates the Bookworm→Forky
+substrate migration. The actual substrate passed in by `make iso` is
+`debian-testing-arm64-netinst.iso`, which is **Debian Testing (Forky)** per
+`release.conf`'s `NCZ_BASE_CODENAME=forky` and `Makefile`'s `UPSTREAM_ISO`
+default. The flag still accepts a Bookworm ISO on amd64 if you want one;
+`make iso` does NOT pass Bookworm there. Code reads the value as just
+"the d-i substrate ISO to extract"; the codename is auto-detected from
+its content.)
+
 Options:
   --mode {full|thin|netinstall|netinstall-bootstrap}
-      full       default; bundled rootfs.tar.zst + embedded resolute mirror
-      thin       embedded resolute mirror, real debootstrap, no rootfs.tar.zst
-      netinstall canonical ports.ubuntu.com debootstrap, NEXT kernel only, <500 MB
+      full       default; bundled rootfs.tar.zst + embedded forky mirror
+      thin       embedded forky mirror, real debootstrap, no rootfs.tar.zst
+      netinstall canonical deb.debian.org debootstrap, NEXT kernel only, <500 MB
       netinstall-bootstrap
                  netinstall + local pkgsel bootstrap pool, still <1 GB
   --variant desktop
