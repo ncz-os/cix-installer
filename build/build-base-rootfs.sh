@@ -85,7 +85,7 @@ fi
 SUITE="${3:-$NCZ_BASE_CODENAME}"
 ARCH="${4:-arm64}"
 MIRROR="${5:-${NCZ_BASE_MIRROR:-https://deb.debian.org/debian}}"
-OUT="${2:-$ROOT/assets/rootfs/rootfs-$SUITE-arm64.tar.zst}"
+OUT="${2:-$ROOT/assets/rootfs/rootfs-$SUITE-$ARCH.tar.zst}"
 COMPONENTS="${COMPONENTS:-${NCZ_BASE_COMPONENTS:-main contrib non-free non-free-firmware}}"
 
 for t in tar zstd; do
