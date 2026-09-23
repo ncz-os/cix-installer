@@ -19,6 +19,18 @@
 # NO mali there. RUNS INSIDE CHROOT via run-all.sh, after 81-vpu.sh.
 set +e
 
+# Mali-G720 (Sky1) is arm64-only hardware. Without this guard, run-all.sh runs
+# this hook unconditionally on every image including amd64 T2 builds -- same
+# class of bug fixed 2026-09-22 in 83-panthor-gpu.sh, where the analogous
+# unconditional `dkms add` broke real amd64 T2 kernel installs (dkms then
+# force-rebuilds every registered package, trying to compile Sky1 GPU source
+# against x86_64 headers). Match the arch-guard convention from
+# 54-gpu-accel.sh / 55-t2-firmware.sh / 83-panthor-gpu.sh.
+if [ "$(dpkg --print-architecture 2>/dev/null)" != "arm64" ]; then
+    echo "[82] not arm64 (Sky1 Mali-G720 hardware only) -- skipping"
+    exit 0
+fi
+
 INSTALLER_META=/usr/local/lib/cix-installer
 ASSET_DIR="$INSTALLER_META/assets/kernel/mali"     # overlay + DKMS source + patch
 RL_PATCH="$ASSET_DIR/mali-kbase-scmi-ratelimit.patch"
