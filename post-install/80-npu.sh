@@ -27,6 +27,17 @@
 
 set +e
 
+# Zhouyi v3 NPU is Sky1/arm64-only hardware. Without this guard, run-all.sh
+# runs this hook unconditionally on every image including amd64 T2 builds --
+# same class of bug fixed 2026-09-22 in 83-panthor-gpu.sh after it broke a
+# real amd64 kernel install (registered arm64-only DKMS source that fails to
+# compile on x86_64). Match the arch-guard convention from 54-gpu-accel.sh /
+# 55-t2-firmware.sh / 83-panthor-gpu.sh.
+if [ "$(dpkg --print-architecture 2>/dev/null)" != "arm64" ]; then
+    echo "[80] not arm64 (Sky1 NPU hardware only) -- skipping"
+    exit 0
+fi
+
 INSTALLER_META=/usr/local/lib/cix-installer
 ASSETS=/usr/local/lib/cix-installer/assets/npu
 if [ ! -d "$ASSETS" ] && [ -d /cdrom/cixmini/assets/npu ]; then
