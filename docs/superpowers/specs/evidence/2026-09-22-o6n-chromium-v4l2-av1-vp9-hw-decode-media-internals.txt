@@ -1,0 +1,3116 @@
+[
+  {
+    "properties": {
+      "render_id": 7,
+      "player_id": 0,
+      "created": "2026-09-22 17:40:00.682064 UTC",
+      "origin_url": "https://www.youtube.com/",
+      "kFrameUrl": "https://www.youtube.com/watch?v=-t5THcdJCNw",
+      "kFrameTitle": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube",
+      "url": "blob:https://www.youtube.com/c714a262-57e8-4c19-907b-fb79f444e2f5",
+      "info": "Effective playback rate changed from 0 to 1",
+      "kRendererName": "RendererImpl",
+      "pipeline_state": "kStopped",
+      "kVideoTracks": [
+        {
+          "alpha mode": "is_opaque",
+          "codec": "av1",
+          "coded size": "1920x1080",
+          "color space": {
+            "matrix": "BT709",
+            "primaries": "BT709",
+            "range": "LIMITED",
+            "transfer": "BT709"
+          },
+          "encryption scheme": "Unencrypted",
+          "has extra data": false,
+          "hdr metadata": {},
+          "natural size": "1920x1080",
+          "orientation": "0°",
+          "profile": "av1 profile main",
+          "visible rect": "0,0 1920x1080"
+        }
+      ],
+      "kAudioTracks": [
+        {
+          "bytes per channel": 4,
+          "bytes per frame": 8,
+          "channel layout": "STEREO",
+          "channels": 2,
+          "codec": "opus",
+          "codec delay": 312,
+          "discard decoder delay": true,
+          "encryption scheme": "Unencrypted",
+          "has extra data": true,
+          "profile": "unknown",
+          "sample format": "Float 32-bit",
+          "samples per second": 48000,
+          "seek preroll": "80000us"
+        }
+      ],
+      "kIsAudioDecryptingDemuxerStream": false,
+      "kAudioDecoderName": "OpusAudioDecoder",
+      "kIsPlatformAudioDecoder": false,
+      "kIsVideoDecryptingDemuxerStream": false,
+      "kVideoDecoderName": "V4L2VideoDecoder",
+      "kIsPlatformVideoDecoder": true,
+      "dimensions": "1920x1080",
+      "kResolution": "1920x1080",
+      "duration": 6.041,
+      "video_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "audio_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "pipeline_buffering_state": {
+        "for_suspended_start": false,
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "event": "kPause"
+    },
+    "events": [
+      {
+        "time": 0,
+        "key": "created",
+        "value": "2026-09-22 17:40:00.682064 UTC"
+      },
+      {
+        "time": 4.242999999998574,
+        "key": "origin_url",
+        "value": "https://www.youtube.com/"
+      },
+      {
+        "time": 4.283999999999651,
+        "key": "kFrameUrl",
+        "value": "https://www.youtube.com/watch?v=-t5THcdJCNw"
+      },
+      {
+        "time": 4.292999999997846,
+        "key": "kFrameTitle",
+        "value": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube"
+      },
+      {
+        "time": 4.576999999997497,
+        "key": "url",
+        "value": "blob:https://www.youtube.com/c714a262-57e8-4c19-907b-fb79f444e2f5"
+      },
+      {
+        "time": 4.644000000000233,
+        "key": "info",
+        "value": "ChunkDemuxer"
+      },
+      {
+        "time": 4.710999999999331,
+        "key": "kRendererName",
+        "value": "RendererImpl"
+      },
+      {
+        "time": 4.779999999998836,
+        "key": "pipeline_state",
+        "value": "kStarting"
+      },
+      {
+        "time": 190.9989999999998,
+        "key": "kVideoTracks",
+        "value": [
+          {
+            "alpha mode": "is_opaque",
+            "codec": "av1",
+            "coded size": "1920x1080",
+            "color space": {
+              "matrix": "BT709",
+              "primaries": "BT709",
+              "range": "LIMITED",
+              "transfer": "BT709"
+            },
+            "encryption scheme": "Unencrypted",
+            "has extra data": false,
+            "hdr metadata": {},
+            "natural size": "1920x1080",
+            "orientation": "0°",
+            "profile": "av1 profile main",
+            "visible rect": "0,0 1920x1080"
+          }
+        ]
+      },
+      {
+        "time": 191.1389999999992,
+        "key": "kAudioTracks",
+        "value": [
+          {
+            "bytes per channel": 4,
+            "bytes per frame": 8,
+            "channel layout": "STEREO",
+            "channels": 2,
+            "codec": "opus",
+            "codec delay": 312,
+            "discard decoder delay": true,
+            "encryption scheme": "Unencrypted",
+            "has extra data": true,
+            "profile": "unknown",
+            "sample format": "Float 32-bit",
+            "samples per second": 48000,
+            "seek preroll": "80000us"
+          }
+        ]
+      },
+      {
+        "time": 202.5789999999979,
+        "key": "info",
+        "value": "Cannot select SymphoniaAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 202.60900000000038,
+        "key": "info",
+        "value": "Cannot select IamfAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 202.7619999999988,
+        "key": "kIsAudioDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 202.76499999999942,
+        "key": "kAudioDecoderName",
+        "value": "OpusAudioDecoder"
+      },
+      {
+        "time": 202.76599999999962,
+        "key": "kIsPlatformAudioDecoder",
+        "value": false
+      },
+      {
+        "time": 202.78099999999904,
+        "key": "info",
+        "value": "Selected OpusAudioDecoder for audio decoding, config: codec: opus, profile: unknown, bytes_per_channel: 4, channel_layout: STEREO, channels: 2, samples_per_second: 48000, sample_format: Float 32-bit, bytes_per_frame: 8, seek_preroll: 80000us, codec_delay: 312, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 202.86599999999817,
+        "key": "info",
+        "value": "Cannot select DecryptingVideoDecoder for video decoding. status=DecoderStatus::Codes::kUnsupportedEncryptionMode"
+      },
+      {
+        "time": 248.77599999999802,
+        "key": "info",
+        "value": "VideoDecoderPipeline |decoder_| Initialize() successful"
+      },
+      {
+        "time": 249.15799999999945,
+        "key": "kIsVideoDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 249.16200000000026,
+        "key": "kVideoDecoderName",
+        "value": "V4L2VideoDecoder"
+      },
+      {
+        "time": 249.16300000000047,
+        "key": "kIsPlatformVideoDecoder",
+        "value": true
+      },
+      {
+        "time": 249.21600000000035,
+        "key": "info",
+        "value": "Selected V4L2VideoDecoder for video decoding, config: codec: av1, profile: av1 profile main, level: not available, alpha_mode: is_opaque, coded size: [1920,1080], visible rect: [0,0,1920,1080], natural size: [1920,1080], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, color space: {primaries:BT709, transfer:BT709, matrix:BT709, range:LIMITED}, spatial format: [projection_type: none, stereo_mode: mono]"
+      },
+      {
+        "time": 249.29699999999866,
+        "key": "pipeline_state",
+        "value": "kPlaying"
+      },
+      {
+        "time": 282.6299999999974,
+        "key": "dimensions",
+        "value": "1920x1080"
+      },
+      {
+        "time": 282.6359999999986,
+        "key": "kResolution",
+        "value": "1920x1080"
+      },
+      {
+        "time": 60.70799999999872,
+        "key": "duration",
+        "value": 6.041
+      },
+      {
+        "time": 282.275999999998,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 252.71500000000015,
+        "key": "audio_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 282.7729999999974,
+        "key": "pipeline_buffering_state",
+        "value": {
+          "for_suspended_start": false,
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 7477.983999999997,
+        "key": "info",
+        "value": "Effective playback rate changed from 0 to 1"
+      },
+      {
+        "time": 7478.264999999999,
+        "key": "event",
+        "value": "kPlay"
+      },
+      {
+        "time": 13774.171999999999,
+        "key": "event",
+        "value": "kEnded"
+      },
+      {
+        "time": 13811.462,
+        "key": "event",
+        "value": "kWebMediaPlayerDestroyed"
+      },
+      {
+        "time": 13774.383999999998,
+        "key": "event",
+        "value": "kPause"
+      },
+      {
+        "time": 13811.487999999998,
+        "key": "pipeline_state",
+        "value": "kStopping"
+      },
+      {
+        "time": 13812.883999999998,
+        "key": "pipeline_state",
+        "value": "kStopped"
+      }
+    ]
+  },
+  {
+    "properties": {
+      "render_id": 7,
+      "player_id": 1,
+      "created": "2026-09-22 17:40:03.506485 UTC",
+      "origin_url": "https://www.youtube.com/",
+      "kFrameUrl": "https://www.youtube.com/watch?v=-t5THcdJCNw",
+      "kFrameTitle": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube",
+      "url": "https://www.youtube.com/s/search/audio/failure.mp3",
+      "kTotalBytes": "0x1981",
+      "kIsStreaming": false,
+      "kIsSingleOrigin": true,
+      "kIsRangeHeaderSupported": true,
+      "kRendererName": "RendererImpl",
+      "pipeline_state": "kSuspended",
+      "info": "Selected FFmpegAudioDecoder for audio decoding, config: codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format",
+      "kAudioTracks": [
+        {
+          "bytes per channel": 4,
+          "bytes per frame": 4,
+          "channel layout": "MONO",
+          "channels": 1,
+          "codec": "aac",
+          "codec delay": 0,
+          "discard decoder delay": true,
+          "encryption scheme": "Unencrypted",
+          "has extra data": true,
+          "profile": "unknown",
+          "sample format": "Float 32-bit planar",
+          "samples per second": 44100,
+          "seek preroll": "0us"
+        }
+      ],
+      "kMaxDuration": 0.487619,
+      "kStartTime": 0,
+      "kBitrate": 107116,
+      "kIsAudioDecryptingDemuxerStream": false,
+      "kAudioDecoderName": "FFmpegAudioDecoder",
+      "kIsPlatformAudioDecoder": false,
+      "debug": "FFmpegDemuxer: av_read_frame(): End of file",
+      "duration": 0.487619,
+      "audio_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "pipeline_buffering_state": {
+        "for_suspended_start": false,
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "event": "kSuspended",
+      "auto_picture_in_picture_info": {
+        "blocked_due_to_content_setting": false,
+        "has_audio_focus": true,
+        "has_safe_url": true,
+        "is_playing": true,
+        "meets_media_engagement_conditions": true,
+        "reason": "BrowserInitiated",
+        "was_recently_audible": true
+      }
+    },
+    "events": [
+      {
+        "time": 0,
+        "key": "created",
+        "value": "2026-09-22 17:40:03.506485 UTC"
+      },
+      {
+        "time": 0.26900000000023283,
+        "key": "origin_url",
+        "value": "https://www.youtube.com/"
+      },
+      {
+        "time": 0.27700000000186265,
+        "key": "kFrameUrl",
+        "value": "https://www.youtube.com/watch?v=-t5THcdJCNw"
+      },
+      {
+        "time": 0.282999999999447,
+        "key": "kFrameTitle",
+        "value": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube"
+      },
+      {
+        "time": 0.49399999999877764,
+        "key": "url",
+        "value": "https://www.youtube.com/s/search/audio/failure.mp3"
+      },
+      {
+        "time": 207.1110000000008,
+        "key": "kTotalBytes",
+        "value": "0x1981"
+      },
+      {
+        "time": 207.1160000000018,
+        "key": "kIsStreaming",
+        "value": false
+      },
+      {
+        "time": 207.1160000000018,
+        "key": "kIsSingleOrigin",
+        "value": true
+      },
+      {
+        "time": 207.117000000002,
+        "key": "kIsRangeHeaderSupported",
+        "value": true
+      },
+      {
+        "time": 301.4330000000009,
+        "key": "kRendererName",
+        "value": "RendererImpl"
+      },
+      {
+        "time": 301.46199999999953,
+        "key": "pipeline_state",
+        "value": "kStarting"
+      },
+      {
+        "time": 302.8100000000013,
+        "key": "info",
+        "value": "FFmpegDemuxer: created audio stream, config codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: NONE, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 302.8189999999995,
+        "key": "kAudioTracks",
+        "value": [
+          {
+            "bytes per channel": 4,
+            "bytes per frame": 4,
+            "channel layout": "MONO",
+            "channels": 1,
+            "codec": "aac",
+            "codec delay": 0,
+            "discard decoder delay": true,
+            "encryption scheme": "Unencrypted",
+            "has extra data": true,
+            "profile": "unknown",
+            "sample format": "Float 32-bit planar",
+            "samples per second": 44100,
+            "seek preroll": "0us"
+          }
+        ]
+      },
+      {
+        "time": 302.82900000000154,
+        "key": "kMaxDuration",
+        "value": 0.487619
+      },
+      {
+        "time": 302.83000000000175,
+        "key": "kStartTime",
+        "value": 0
+      },
+      {
+        "time": 302.83000000000175,
+        "key": "kBitrate",
+        "value": 107116
+      },
+      {
+        "time": 304.887999999999,
+        "key": "info",
+        "value": "Cannot select SymphoniaAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 304.98199999999997,
+        "key": "info",
+        "value": "Cannot select IamfAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 305.02600000000166,
+        "key": "info",
+        "value": "Cannot select OpusAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedConfig"
+      },
+      {
+        "time": 305.39400000000023,
+        "key": "kIsAudioDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 305.39500000000044,
+        "key": "kAudioDecoderName",
+        "value": "FFmpegAudioDecoder"
+      },
+      {
+        "time": 305.39600000000064,
+        "key": "kIsPlatformAudioDecoder",
+        "value": false
+      },
+      {
+        "time": 305.40300000000207,
+        "key": "info",
+        "value": "Selected FFmpegAudioDecoder for audio decoding, config: codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 305.91200000000026,
+        "key": "pipeline_state",
+        "value": "kPlaying"
+      },
+      {
+        "time": 309.3029999999999,
+        "key": "debug",
+        "value": "FFmpegDemuxer: av_read_frame(): End of file"
+      },
+      {
+        "time": 302.8159999999989,
+        "key": "duration",
+        "value": 0.487619
+      },
+      {
+        "time": 309.1970000000001,
+        "key": "audio_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 374.1919999999991,
+        "key": "pipeline_buffering_state",
+        "value": {
+          "for_suspended_start": false,
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 16318.713000000003,
+        "key": "pipeline_state",
+        "value": "kSuspending"
+      },
+      {
+        "time": 16318.965000000004,
+        "key": "pipeline_state",
+        "value": "kSuspended"
+      },
+      {
+        "time": 16319.002999999997,
+        "key": "event",
+        "value": "kSuspended"
+      },
+      {
+        "time": 127202.54200000002,
+        "key": "auto_picture_in_picture_info",
+        "value": {
+          "blocked_due_to_content_setting": false,
+          "has_audio_focus": true,
+          "has_safe_url": true,
+          "is_playing": true,
+          "meets_media_engagement_conditions": true,
+          "reason": "BrowserInitiated",
+          "was_recently_audible": true
+        }
+      },
+      {
+        "time": 203109.997,
+        "key": "auto_picture_in_picture_info",
+        "value": {
+          "blocked_due_to_content_setting": false,
+          "has_audio_focus": true,
+          "has_safe_url": true,
+          "is_playing": true,
+          "meets_media_engagement_conditions": true,
+          "reason": "BrowserInitiated",
+          "was_recently_audible": true
+        }
+      }
+    ]
+  },
+  {
+    "properties": {
+      "render_id": 7,
+      "player_id": 2,
+      "created": "2026-09-22 17:40:03.507484 UTC",
+      "origin_url": "https://www.youtube.com/",
+      "kFrameUrl": "https://www.youtube.com/watch?v=-t5THcdJCNw",
+      "kFrameTitle": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube",
+      "url": "https://www.youtube.com/s/search/audio/no_input.mp3",
+      "kTotalBytes": "0x1b29",
+      "kIsStreaming": false,
+      "kIsSingleOrigin": true,
+      "kIsRangeHeaderSupported": true,
+      "kRendererName": "RendererImpl",
+      "pipeline_state": "kSuspended",
+      "info": "Selected FFmpegAudioDecoder for audio decoding, config: codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format",
+      "kAudioTracks": [
+        {
+          "bytes per channel": 4,
+          "bytes per frame": 4,
+          "channel layout": "MONO",
+          "channels": 1,
+          "codec": "aac",
+          "codec delay": 0,
+          "discard decoder delay": true,
+          "encryption scheme": "Unencrypted",
+          "has extra data": true,
+          "profile": "unknown",
+          "sample format": "Float 32-bit planar",
+          "samples per second": 44100,
+          "seek preroll": "0us"
+        }
+      ],
+      "kMaxDuration": 0.557279,
+      "kStartTime": 0,
+      "kBitrate": 99813,
+      "kIsAudioDecryptingDemuxerStream": false,
+      "kAudioDecoderName": "FFmpegAudioDecoder",
+      "kIsPlatformAudioDecoder": false,
+      "debug": "FFmpegDemuxer: av_read_frame(): End of file",
+      "duration": 0.557279,
+      "audio_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "pipeline_buffering_state": {
+        "for_suspended_start": false,
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "event": "kSuspended",
+      "auto_picture_in_picture_info": {
+        "blocked_due_to_content_setting": false,
+        "has_audio_focus": true,
+        "has_safe_url": true,
+        "is_playing": true,
+        "meets_media_engagement_conditions": true,
+        "reason": "BrowserInitiated",
+        "was_recently_audible": true
+      }
+    },
+    "events": [
+      {
+        "time": 0,
+        "key": "created",
+        "value": "2026-09-22 17:40:03.507484 UTC"
+      },
+      {
+        "time": 0.18500000000130967,
+        "key": "origin_url",
+        "value": "https://www.youtube.com/"
+      },
+      {
+        "time": 0.19099999999889405,
+        "key": "kFrameUrl",
+        "value": "https://www.youtube.com/watch?v=-t5THcdJCNw"
+      },
+      {
+        "time": 0.19700000000011642,
+        "key": "kFrameTitle",
+        "value": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube"
+      },
+      {
+        "time": 0.3760000000002037,
+        "key": "url",
+        "value": "https://www.youtube.com/s/search/audio/no_input.mp3"
+      },
+      {
+        "time": 205.94900000000052,
+        "key": "kTotalBytes",
+        "value": "0x1b29"
+      },
+      {
+        "time": 205.96299999999974,
+        "key": "kIsStreaming",
+        "value": false
+      },
+      {
+        "time": 205.96500000000015,
+        "key": "kIsSingleOrigin",
+        "value": true
+      },
+      {
+        "time": 205.96700000000055,
+        "key": "kIsRangeHeaderSupported",
+        "value": true
+      },
+      {
+        "time": 300.1959999999999,
+        "key": "kRendererName",
+        "value": "RendererImpl"
+      },
+      {
+        "time": 300.2489999999998,
+        "key": "pipeline_state",
+        "value": "kStarting"
+      },
+      {
+        "time": 301.72999999999956,
+        "key": "info",
+        "value": "FFmpegDemuxer: created audio stream, config codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: NONE, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 301.762999999999,
+        "key": "kAudioTracks",
+        "value": [
+          {
+            "bytes per channel": 4,
+            "bytes per frame": 4,
+            "channel layout": "MONO",
+            "channels": 1,
+            "codec": "aac",
+            "codec delay": 0,
+            "discard decoder delay": true,
+            "encryption scheme": "Unencrypted",
+            "has extra data": true,
+            "profile": "unknown",
+            "sample format": "Float 32-bit planar",
+            "samples per second": 44100,
+            "seek preroll": "0us"
+          }
+        ]
+      },
+      {
+        "time": 301.78299999999945,
+        "key": "kMaxDuration",
+        "value": 0.557279
+      },
+      {
+        "time": 301.78399999999965,
+        "key": "kStartTime",
+        "value": 0
+      },
+      {
+        "time": 301.78399999999965,
+        "key": "kBitrate",
+        "value": 99813
+      },
+      {
+        "time": 303.46199999999953,
+        "key": "info",
+        "value": "Cannot select SymphoniaAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 303.5040000000008,
+        "key": "info",
+        "value": "Cannot select IamfAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 303.5159999999996,
+        "key": "info",
+        "value": "Cannot select OpusAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedConfig"
+      },
+      {
+        "time": 303.9320000000007,
+        "key": "kIsAudioDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 303.9330000000009,
+        "key": "kAudioDecoderName",
+        "value": "FFmpegAudioDecoder"
+      },
+      {
+        "time": 303.9340000000011,
+        "key": "kIsPlatformAudioDecoder",
+        "value": false
+      },
+      {
+        "time": 303.9409999999989,
+        "key": "info",
+        "value": "Selected FFmpegAudioDecoder for audio decoding, config: codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 304.34000000000015,
+        "key": "pipeline_state",
+        "value": "kPlaying"
+      },
+      {
+        "time": 308.1759999999995,
+        "key": "debug",
+        "value": "FFmpegDemuxer: av_read_frame(): End of file"
+      },
+      {
+        "time": 301.7540000000008,
+        "key": "duration",
+        "value": 0.557279
+      },
+      {
+        "time": 307.8130000000019,
+        "key": "audio_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 373.0839999999989,
+        "key": "pipeline_buffering_state",
+        "value": {
+          "for_suspended_start": false,
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 16317.739999999998,
+        "key": "pipeline_state",
+        "value": "kSuspending"
+      },
+      {
+        "time": 16318.114999999998,
+        "key": "pipeline_state",
+        "value": "kSuspended"
+      },
+      {
+        "time": 16318.165999999997,
+        "key": "event",
+        "value": "kSuspended"
+      },
+      {
+        "time": 127201.688,
+        "key": "auto_picture_in_picture_info",
+        "value": {
+          "blocked_due_to_content_setting": false,
+          "has_audio_focus": true,
+          "has_safe_url": true,
+          "is_playing": true,
+          "meets_media_engagement_conditions": true,
+          "reason": "BrowserInitiated",
+          "was_recently_audible": true
+        }
+      },
+      {
+        "time": 203109.13400000002,
+        "key": "auto_picture_in_picture_info",
+        "value": {
+          "blocked_due_to_content_setting": false,
+          "has_audio_focus": true,
+          "has_safe_url": true,
+          "is_playing": true,
+          "meets_media_engagement_conditions": true,
+          "reason": "BrowserInitiated",
+          "was_recently_audible": true
+        }
+      }
+    ]
+  },
+  {
+    "properties": {
+      "render_id": 7,
+      "player_id": 3,
+      "created": "2026-09-22 17:40:03.508214 UTC",
+      "origin_url": "https://www.youtube.com/",
+      "kFrameUrl": "https://www.youtube.com/watch?v=-t5THcdJCNw",
+      "kFrameTitle": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube",
+      "url": "https://www.youtube.com/s/search/audio/open.mp3",
+      "kTotalBytes": "0x1817",
+      "kIsStreaming": false,
+      "kIsSingleOrigin": true,
+      "kIsRangeHeaderSupported": true,
+      "kRendererName": "RendererImpl",
+      "pipeline_state": "kSuspended",
+      "info": "Selected FFmpegAudioDecoder for audio decoding, config: codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format",
+      "kAudioTracks": [
+        {
+          "bytes per channel": 4,
+          "bytes per frame": 4,
+          "channel layout": "MONO",
+          "channels": 1,
+          "codec": "aac",
+          "codec delay": 0,
+          "discard decoder delay": true,
+          "encryption scheme": "Unencrypted",
+          "has extra data": true,
+          "profile": "unknown",
+          "sample format": "Float 32-bit planar",
+          "samples per second": 44100,
+          "seek preroll": "0us"
+        }
+      ],
+      "kMaxDuration": 0.325079,
+      "kStartTime": 0,
+      "kBitrate": 151766,
+      "kIsAudioDecryptingDemuxerStream": false,
+      "kAudioDecoderName": "FFmpegAudioDecoder",
+      "kIsPlatformAudioDecoder": false,
+      "debug": "FFmpegDemuxer: av_read_frame(): End of file",
+      "duration": 0.325079,
+      "audio_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "pipeline_buffering_state": {
+        "for_suspended_start": false,
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "event": "kSuspended",
+      "auto_picture_in_picture_info": {
+        "blocked_due_to_content_setting": false,
+        "has_audio_focus": true,
+        "has_safe_url": true,
+        "is_playing": true,
+        "meets_media_engagement_conditions": true,
+        "reason": "BrowserInitiated",
+        "was_recently_audible": true
+      }
+    },
+    "events": [
+      {
+        "time": 0,
+        "key": "created",
+        "value": "2026-09-22 17:40:03.508214 UTC"
+      },
+      {
+        "time": 0.2180000000007567,
+        "key": "origin_url",
+        "value": "https://www.youtube.com/"
+      },
+      {
+        "time": 0.22800000000279397,
+        "key": "kFrameUrl",
+        "value": "https://www.youtube.com/watch?v=-t5THcdJCNw"
+      },
+      {
+        "time": 0.2319999999999709,
+        "key": "kFrameTitle",
+        "value": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube"
+      },
+      {
+        "time": 0.3760000000002037,
+        "key": "url",
+        "value": "https://www.youtube.com/s/search/audio/open.mp3"
+      },
+      {
+        "time": 205.3189999999995,
+        "key": "kTotalBytes",
+        "value": "0x1817"
+      },
+      {
+        "time": 205.32500000000073,
+        "key": "kIsStreaming",
+        "value": false
+      },
+      {
+        "time": 205.32600000000093,
+        "key": "kIsSingleOrigin",
+        "value": true
+      },
+      {
+        "time": 205.32700000000114,
+        "key": "kIsRangeHeaderSupported",
+        "value": true
+      },
+      {
+        "time": 299.59600000000137,
+        "key": "kRendererName",
+        "value": "RendererImpl"
+      },
+      {
+        "time": 299.6270000000004,
+        "key": "pipeline_state",
+        "value": "kStarting"
+      },
+      {
+        "time": 303.09600000000137,
+        "key": "info",
+        "value": "FFmpegDemuxer: created audio stream, config codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: NONE, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 303.1100000000006,
+        "key": "kAudioTracks",
+        "value": [
+          {
+            "bytes per channel": 4,
+            "bytes per frame": 4,
+            "channel layout": "MONO",
+            "channels": 1,
+            "codec": "aac",
+            "codec delay": 0,
+            "discard decoder delay": true,
+            "encryption scheme": "Unencrypted",
+            "has extra data": true,
+            "profile": "unknown",
+            "sample format": "Float 32-bit planar",
+            "samples per second": 44100,
+            "seek preroll": "0us"
+          }
+        ]
+      },
+      {
+        "time": 303.1180000000022,
+        "key": "kMaxDuration",
+        "value": 0.325079
+      },
+      {
+        "time": 303.1190000000024,
+        "key": "kStartTime",
+        "value": 0
+      },
+      {
+        "time": 303.1190000000024,
+        "key": "kBitrate",
+        "value": 151766
+      },
+      {
+        "time": 323.5720000000001,
+        "key": "info",
+        "value": "Cannot select SymphoniaAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 323.6190000000024,
+        "key": "info",
+        "value": "Cannot select IamfAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 323.6310000000012,
+        "key": "info",
+        "value": "Cannot select OpusAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedConfig"
+      },
+      {
+        "time": 323.9750000000022,
+        "key": "kIsAudioDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 323.9770000000026,
+        "key": "kAudioDecoderName",
+        "value": "FFmpegAudioDecoder"
+      },
+      {
+        "time": 323.97899999999936,
+        "key": "kIsPlatformAudioDecoder",
+        "value": false
+      },
+      {
+        "time": 323.9930000000022,
+        "key": "info",
+        "value": "Selected FFmpegAudioDecoder for audio decoding, config: codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 324.08000000000175,
+        "key": "pipeline_state",
+        "value": "kPlaying"
+      },
+      {
+        "time": 325,
+        "key": "debug",
+        "value": "FFmpegDemuxer: av_read_frame(): End of file"
+      },
+      {
+        "time": 303.10499999999956,
+        "key": "duration",
+        "value": 0.325079
+      },
+      {
+        "time": 325.10699999999997,
+        "key": "audio_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 373.02000000000044,
+        "key": "pipeline_buffering_state",
+        "value": {
+          "for_suspended_start": false,
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 16317.019,
+        "key": "pipeline_state",
+        "value": "kSuspending"
+      },
+      {
+        "time": 16317.556000000004,
+        "key": "pipeline_state",
+        "value": "kSuspended"
+      },
+      {
+        "time": 16317.597999999998,
+        "key": "event",
+        "value": "kSuspended"
+      },
+      {
+        "time": 127201.09999999999,
+        "key": "auto_picture_in_picture_info",
+        "value": {
+          "blocked_due_to_content_setting": false,
+          "has_audio_focus": true,
+          "has_safe_url": true,
+          "is_playing": true,
+          "meets_media_engagement_conditions": true,
+          "reason": "BrowserInitiated",
+          "was_recently_audible": true
+        }
+      },
+      {
+        "time": 203108.64,
+        "key": "auto_picture_in_picture_info",
+        "value": {
+          "blocked_due_to_content_setting": false,
+          "has_audio_focus": true,
+          "has_safe_url": true,
+          "is_playing": true,
+          "meets_media_engagement_conditions": true,
+          "reason": "BrowserInitiated",
+          "was_recently_audible": true
+        }
+      }
+    ]
+  },
+  {
+    "properties": {
+      "render_id": 7,
+      "player_id": 4,
+      "created": "2026-09-22 17:40:03.508959 UTC",
+      "origin_url": "https://www.youtube.com/",
+      "kFrameUrl": "https://www.youtube.com/watch?v=-t5THcdJCNw",
+      "kFrameTitle": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube",
+      "url": "https://www.youtube.com/s/search/audio/success.mp3",
+      "kTotalBytes": "0x19ec",
+      "kIsStreaming": false,
+      "kIsSingleOrigin": true,
+      "kIsRangeHeaderSupported": true,
+      "kRendererName": "RendererImpl",
+      "pipeline_state": "kSuspended",
+      "info": "Selected FFmpegAudioDecoder for audio decoding, config: codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format",
+      "kAudioTracks": [
+        {
+          "bytes per channel": 4,
+          "bytes per frame": 4,
+          "channel layout": "MONO",
+          "channels": 1,
+          "codec": "aac",
+          "codec delay": 0,
+          "discard decoder delay": true,
+          "encryption scheme": "Unencrypted",
+          "has extra data": true,
+          "profile": "unknown",
+          "sample format": "Float 32-bit planar",
+          "samples per second": 44100,
+          "seek preroll": "0us"
+        }
+      ],
+      "kMaxDuration": 0.487619,
+      "kStartTime": 0,
+      "kBitrate": 108871,
+      "kIsAudioDecryptingDemuxerStream": false,
+      "kAudioDecoderName": "FFmpegAudioDecoder",
+      "kIsPlatformAudioDecoder": false,
+      "debug": "FFmpegDemuxer: av_read_frame(): End of file",
+      "duration": 0.487619,
+      "audio_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "pipeline_buffering_state": {
+        "for_suspended_start": false,
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "event": "kSuspended",
+      "auto_picture_in_picture_info": {
+        "blocked_due_to_content_setting": false,
+        "has_audio_focus": true,
+        "has_safe_url": true,
+        "is_playing": true,
+        "meets_media_engagement_conditions": true,
+        "reason": "BrowserInitiated",
+        "was_recently_audible": true
+      }
+    },
+    "events": [
+      {
+        "time": 0,
+        "key": "created",
+        "value": "2026-09-22 17:40:03.508959 UTC"
+      },
+      {
+        "time": 0.19799999999668216,
+        "key": "origin_url",
+        "value": "https://www.youtube.com/"
+      },
+      {
+        "time": 0.20399999999790452,
+        "key": "kFrameUrl",
+        "value": "https://www.youtube.com/watch?v=-t5THcdJCNw"
+      },
+      {
+        "time": 0.20799999999871943,
+        "key": "kFrameTitle",
+        "value": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube"
+      },
+      {
+        "time": 0.3449999999975262,
+        "key": "url",
+        "value": "https://www.youtube.com/s/search/audio/success.mp3"
+      },
+      {
+        "time": 204.7019999999975,
+        "key": "kTotalBytes",
+        "value": "0x19ec"
+      },
+      {
+        "time": 204.7059999999983,
+        "key": "kIsStreaming",
+        "value": false
+      },
+      {
+        "time": 204.70699999999852,
+        "key": "kIsSingleOrigin",
+        "value": true
+      },
+      {
+        "time": 204.70799999999872,
+        "key": "kIsRangeHeaderSupported",
+        "value": true
+      },
+      {
+        "time": 299.0709999999999,
+        "key": "kRendererName",
+        "value": "RendererImpl"
+      },
+      {
+        "time": 299.09999999999854,
+        "key": "pipeline_state",
+        "value": "kStarting"
+      },
+      {
+        "time": 300.3729999999996,
+        "key": "info",
+        "value": "FFmpegDemuxer: created audio stream, config codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: NONE, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 300.4269999999997,
+        "key": "kAudioTracks",
+        "value": [
+          {
+            "bytes per channel": 4,
+            "bytes per frame": 4,
+            "channel layout": "MONO",
+            "channels": 1,
+            "codec": "aac",
+            "codec delay": 0,
+            "discard decoder delay": true,
+            "encryption scheme": "Unencrypted",
+            "has extra data": true,
+            "profile": "unknown",
+            "sample format": "Float 32-bit planar",
+            "samples per second": 44100,
+            "seek preroll": "0us"
+          }
+        ]
+      },
+      {
+        "time": 300.4409999999989,
+        "key": "kMaxDuration",
+        "value": 0.487619
+      },
+      {
+        "time": 300.4419999999991,
+        "key": "kStartTime",
+        "value": 0
+      },
+      {
+        "time": 300.4419999999991,
+        "key": "kBitrate",
+        "value": 108871
+      },
+      {
+        "time": 302.8809999999976,
+        "key": "info",
+        "value": "Cannot select SymphoniaAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 302.98699999999735,
+        "key": "info",
+        "value": "Cannot select IamfAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 303.11399999999776,
+        "key": "info",
+        "value": "Cannot select OpusAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedConfig"
+      },
+      {
+        "time": 303.48399999999674,
+        "key": "kIsAudioDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 303.48499999999694,
+        "key": "kAudioDecoderName",
+        "value": "FFmpegAudioDecoder"
+      },
+      {
+        "time": 303.48599999999715,
+        "key": "kIsPlatformAudioDecoder",
+        "value": false
+      },
+      {
+        "time": 303.5109999999986,
+        "key": "info",
+        "value": "Selected FFmpegAudioDecoder for audio decoding, config: codec: aac, profile: unknown, bytes_per_channel: 4, channel_layout: MONO, channels: 1, samples_per_second: 44100, sample_format: Float 32-bit planar, bytes_per_frame: 4, seek_preroll: 0us, codec_delay: 0, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 303.7559999999976,
+        "key": "pipeline_state",
+        "value": "kPlaying"
+      },
+      {
+        "time": 306.9479999999967,
+        "key": "debug",
+        "value": "FFmpegDemuxer: av_read_frame(): End of file"
+      },
+      {
+        "time": 300.40499999999884,
+        "key": "duration",
+        "value": 0.487619
+      },
+      {
+        "time": 306.9419999999991,
+        "key": "audio_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 371.79599999999846,
+        "key": "pipeline_buffering_state",
+        "value": {
+          "for_suspended_start": false,
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 16316.282,
+        "key": "pipeline_state",
+        "value": "kSuspending"
+      },
+      {
+        "time": 16317.078000000001,
+        "key": "pipeline_state",
+        "value": "kSuspended"
+      },
+      {
+        "time": 16317.114000000001,
+        "key": "event",
+        "value": "kSuspended"
+      },
+      {
+        "time": 127200.70499999999,
+        "key": "auto_picture_in_picture_info",
+        "value": {
+          "blocked_due_to_content_setting": false,
+          "has_audio_focus": true,
+          "has_safe_url": true,
+          "is_playing": true,
+          "meets_media_engagement_conditions": true,
+          "reason": "BrowserInitiated",
+          "was_recently_audible": true
+        }
+      },
+      {
+        "time": 203108.21,
+        "key": "auto_picture_in_picture_info",
+        "value": {
+          "blocked_due_to_content_setting": false,
+          "has_audio_focus": true,
+          "has_safe_url": true,
+          "is_playing": true,
+          "meets_media_engagement_conditions": true,
+          "reason": "BrowserInitiated",
+          "was_recently_audible": true
+        }
+      }
+    ]
+  },
+  {
+    "properties": {
+      "render_id": 7,
+      "player_id": 5,
+      "created": "2026-09-22 17:41:04.078669 UTC",
+      "origin_url": "https://www.youtube.com/",
+      "kFrameUrl": "https://www.youtube.com/watch?v=-t5THcdJCNw",
+      "kFrameTitle": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube",
+      "url": "blob:https://www.youtube.com/53d6229e-d8d4-4728-b28e-abd3a61445f7",
+      "info": "Selected V4L2VideoDecoder for video decoding, config: codec: av1, profile: av1 profile main, level: not available, alpha_mode: is_opaque, coded size: [1920,1080], visible rect: [0,0,1920,1080], natural size: [1920,1080], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, color space: {primaries:BT709, transfer:BT709, matrix:BT709, range:LIMITED}, spatial format: [projection_type: none, stereo_mode: mono]",
+      "kRendererName": "RendererImpl",
+      "pipeline_state": "kStopped",
+      "kVideoTracks": [
+        {
+          "alpha mode": "is_opaque",
+          "codec": "av1",
+          "coded size": "1920x1080",
+          "color space": {
+            "matrix": "BT709",
+            "primaries": "BT709",
+            "range": "LIMITED",
+            "transfer": "BT709"
+          },
+          "encryption scheme": "Unencrypted",
+          "has extra data": false,
+          "hdr metadata": {},
+          "natural size": "1920x1080",
+          "orientation": "0°",
+          "profile": "av1 profile main",
+          "visible rect": "0,0 1920x1080"
+        }
+      ],
+      "kAudioTracks": [
+        {
+          "bytes per channel": 4,
+          "bytes per frame": 8,
+          "channel layout": "STEREO",
+          "channels": 2,
+          "codec": "opus",
+          "codec delay": 312,
+          "discard decoder delay": true,
+          "encryption scheme": "Unencrypted",
+          "has extra data": true,
+          "profile": "unknown",
+          "sample format": "Float 32-bit",
+          "samples per second": 48000,
+          "seek preroll": "80000us"
+        }
+      ],
+      "kIsAudioDecryptingDemuxerStream": false,
+      "kAudioDecoderName": "OpusAudioDecoder",
+      "kIsPlatformAudioDecoder": false,
+      "kIsVideoDecryptingDemuxerStream": false,
+      "kVideoDecoderName": "V4L2VideoDecoder",
+      "kIsPlatformVideoDecoder": true,
+      "dimensions": "1920x1080",
+      "kResolution": "1920x1080",
+      "duration": 15.041,
+      "video_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "audio_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "pipeline_buffering_state": {
+        "for_suspended_start": false,
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "event": "kWebMediaPlayerDestroyed"
+    },
+    "events": [
+      {
+        "time": 0,
+        "key": "created",
+        "value": "2026-09-22 17:41:04.078669 UTC"
+      },
+      {
+        "time": 0.23000000000320142,
+        "key": "origin_url",
+        "value": "https://www.youtube.com/"
+      },
+      {
+        "time": 0.23800000000483124,
+        "key": "kFrameUrl",
+        "value": "https://www.youtube.com/watch?v=-t5THcdJCNw"
+      },
+      {
+        "time": 0.24399999999877764,
+        "key": "kFrameTitle",
+        "value": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube"
+      },
+      {
+        "time": 0.39800000000104774,
+        "key": "url",
+        "value": "blob:https://www.youtube.com/53d6229e-d8d4-4728-b28e-abd3a61445f7"
+      },
+      {
+        "time": 0.4370000000053551,
+        "key": "info",
+        "value": "ChunkDemuxer"
+      },
+      {
+        "time": 0.4599999999991269,
+        "key": "kRendererName",
+        "value": "RendererImpl"
+      },
+      {
+        "time": 0.4860000000044238,
+        "key": "pipeline_state",
+        "value": "kStarting"
+      },
+      {
+        "time": 108.93100000000413,
+        "key": "kVideoTracks",
+        "value": [
+          {
+            "alpha mode": "is_opaque",
+            "codec": "av1",
+            "coded size": "1920x1080",
+            "color space": {
+              "matrix": "BT709",
+              "primaries": "BT709",
+              "range": "LIMITED",
+              "transfer": "BT709"
+            },
+            "encryption scheme": "Unencrypted",
+            "has extra data": false,
+            "hdr metadata": {},
+            "natural size": "1920x1080",
+            "orientation": "0°",
+            "profile": "av1 profile main",
+            "visible rect": "0,0 1920x1080"
+          }
+        ]
+      },
+      {
+        "time": 109.12900000000081,
+        "key": "kAudioTracks",
+        "value": [
+          {
+            "bytes per channel": 4,
+            "bytes per frame": 8,
+            "channel layout": "STEREO",
+            "channels": 2,
+            "codec": "opus",
+            "codec delay": 312,
+            "discard decoder delay": true,
+            "encryption scheme": "Unencrypted",
+            "has extra data": true,
+            "profile": "unknown",
+            "sample format": "Float 32-bit",
+            "samples per second": 48000,
+            "seek preroll": "80000us"
+          }
+        ]
+      },
+      {
+        "time": 110.72300000000541,
+        "key": "info",
+        "value": "Cannot select SymphoniaAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 110.74799999999959,
+        "key": "info",
+        "value": "Cannot select IamfAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 110.77300000000105,
+        "key": "kIsAudioDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 110.77400000000489,
+        "key": "kAudioDecoderName",
+        "value": "OpusAudioDecoder"
+      },
+      {
+        "time": 110.77500000000146,
+        "key": "kIsPlatformAudioDecoder",
+        "value": false
+      },
+      {
+        "time": 110.7870000000039,
+        "key": "info",
+        "value": "Selected OpusAudioDecoder for audio decoding, config: codec: opus, profile: unknown, bytes_per_channel: 4, channel_layout: STEREO, channels: 2, samples_per_second: 48000, sample_format: Float 32-bit, bytes_per_frame: 8, seek_preroll: 80000us, codec_delay: 312, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 110.86500000000524,
+        "key": "info",
+        "value": "Cannot select DecryptingVideoDecoder for video decoding. status=DecoderStatus::Codes::kUnsupportedEncryptionMode"
+      },
+      {
+        "time": 116.75,
+        "key": "info",
+        "value": "Effective playback rate changed from 0 to 1"
+      },
+      {
+        "time": 132.0280000000057,
+        "key": "info",
+        "value": "VideoDecoderPipeline |decoder_| Initialize() successful"
+      },
+      {
+        "time": 132.4930000000022,
+        "key": "kIsVideoDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 132.49599999999919,
+        "key": "kVideoDecoderName",
+        "value": "V4L2VideoDecoder"
+      },
+      {
+        "time": 132.49700000000303,
+        "key": "kIsPlatformVideoDecoder",
+        "value": true
+      },
+      {
+        "time": 132.5370000000039,
+        "key": "info",
+        "value": "Selected V4L2VideoDecoder for video decoding, config: codec: av1, profile: av1 profile main, level: not available, alpha_mode: is_opaque, coded size: [1920,1080], visible rect: [0,0,1920,1080], natural size: [1920,1080], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, color space: {primaries:BT709, transfer:BT709, matrix:BT709, range:LIMITED}, spatial format: [projection_type: none, stereo_mode: mono]"
+      },
+      {
+        "time": 132.57700000000477,
+        "key": "pipeline_state",
+        "value": "kPlaying"
+      },
+      {
+        "time": 166.39700000000448,
+        "key": "dimensions",
+        "value": "1920x1080"
+      },
+      {
+        "time": 166.40400000000227,
+        "key": "kResolution",
+        "value": "1920x1080"
+      },
+      {
+        "time": 82.99200000000565,
+        "key": "duration",
+        "value": 15.041
+      },
+      {
+        "time": 166.39100000000326,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 135.14199999999983,
+        "key": "audio_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 166.43500000000495,
+        "key": "pipeline_buffering_state",
+        "value": {
+          "for_suspended_start": false,
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 116.86100000000442,
+        "key": "event",
+        "value": "kPlay"
+      },
+      {
+        "time": 10201.677000000003,
+        "key": "video_buffering_state",
+        "value": {
+          "reason": "DECODER_UNDERFLOW",
+          "state": "BUFFERING_HAVE_NOTHING"
+        }
+      },
+      {
+        "time": 10202.364000000001,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 11688.749000000003,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 13203.144,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 14718.073000000004,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 15385.118000000002,
+        "key": "pipeline_state",
+        "value": "kStopping"
+      },
+      {
+        "time": 15385.157,
+        "key": "event",
+        "value": "kWebMediaPlayerDestroyed"
+      },
+      {
+        "time": 15386.661,
+        "key": "pipeline_state",
+        "value": "kStopped"
+      }
+    ]
+  },
+  {
+    "properties": {
+      "render_id": 7,
+      "player_id": 6,
+      "created": "2026-09-22 17:41:19.623864 UTC",
+      "origin_url": "https://www.youtube.com/",
+      "kFrameUrl": "https://www.youtube.com/watch?v=-t5THcdJCNw",
+      "kFrameTitle": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube",
+      "url": "blob:https://www.youtube.com/83c592b9-2ed4-4974-b6c8-a7a481247e1a",
+      "info": "Selected V4L2VideoDecoder for video decoding, config: codec: vp9, profile: vp9 profile0, level: not available, alpha_mode: is_opaque, coded size: [1920,1080], visible rect: [0,0,1920,1080], natural size: [1920,1080], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, color space: {primaries:BT709, transfer:BT709, matrix:BT709, range:LIMITED}, spatial format: [projection_type: none, stereo_mode: mono]",
+      "kRendererName": "RendererImpl",
+      "pipeline_state": "kStopped",
+      "kVideoTracks": [
+        {
+          "alpha mode": "is_opaque",
+          "codec": "vp9",
+          "coded size": "1920x1080",
+          "color space": {
+            "matrix": "BT709",
+            "primaries": "BT709",
+            "range": "LIMITED",
+            "transfer": "BT709"
+          },
+          "encryption scheme": "Unencrypted",
+          "has extra data": false,
+          "hdr metadata": {},
+          "natural size": "1920x1080",
+          "orientation": "0°",
+          "profile": "vp9 profile0",
+          "visible rect": "0,0 1920x1080"
+        }
+      ],
+      "kAudioTracks": [
+        {
+          "bytes per channel": 4,
+          "bytes per frame": 8,
+          "channel layout": "STEREO",
+          "channels": 2,
+          "codec": "opus",
+          "codec delay": 312,
+          "discard decoder delay": true,
+          "encryption scheme": "Unencrypted",
+          "has extra data": true,
+          "profile": "unknown",
+          "sample format": "Float 32-bit",
+          "samples per second": 48000,
+          "seek preroll": "80000us"
+        }
+      ],
+      "kIsAudioDecryptingDemuxerStream": false,
+      "kAudioDecoderName": "OpusAudioDecoder",
+      "kIsPlatformAudioDecoder": false,
+      "kIsVideoDecryptingDemuxerStream": false,
+      "kVideoDecoderName": "V4L2VideoDecoder",
+      "kIsPlatformVideoDecoder": true,
+      "dimensions": "1920x1080",
+      "kResolution": "1920x1080",
+      "duration": 4022.701,
+      "video_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "audio_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "pipeline_buffering_state": {
+        "for_suspended_start": false,
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "event": "kWebMediaPlayerDestroyed"
+    },
+    "events": [
+      {
+        "time": 0,
+        "key": "created",
+        "value": "2026-09-22 17:41:19.623864 UTC"
+      },
+      {
+        "time": 0.24900000000343425,
+        "key": "origin_url",
+        "value": "https://www.youtube.com/"
+      },
+      {
+        "time": 0.2640000000028522,
+        "key": "kFrameUrl",
+        "value": "https://www.youtube.com/watch?v=-t5THcdJCNw"
+      },
+      {
+        "time": 0.2710000000006403,
+        "key": "kFrameTitle",
+        "value": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube"
+      },
+      {
+        "time": 0.45200000000477303,
+        "key": "url",
+        "value": "blob:https://www.youtube.com/83c592b9-2ed4-4974-b6c8-a7a481247e1a"
+      },
+      {
+        "time": 0.5030000000042492,
+        "key": "info",
+        "value": "ChunkDemuxer"
+      },
+      {
+        "time": 0.5509999999994761,
+        "key": "kRendererName",
+        "value": "RendererImpl"
+      },
+      {
+        "time": 0.5930000000007567,
+        "key": "pipeline_state",
+        "value": "kStarting"
+      },
+      {
+        "time": 102.52500000000146,
+        "key": "kVideoTracks",
+        "value": [
+          {
+            "alpha mode": "is_opaque",
+            "codec": "vp9",
+            "coded size": "1920x1080",
+            "color space": {
+              "matrix": "BT709",
+              "primaries": "BT709",
+              "range": "LIMITED",
+              "transfer": "BT709"
+            },
+            "encryption scheme": "Unencrypted",
+            "has extra data": false,
+            "hdr metadata": {},
+            "natural size": "1920x1080",
+            "orientation": "0°",
+            "profile": "vp9 profile0",
+            "visible rect": "0,0 1920x1080"
+          }
+        ]
+      },
+      {
+        "time": 102.69200000000274,
+        "key": "kAudioTracks",
+        "value": [
+          {
+            "bytes per channel": 4,
+            "bytes per frame": 8,
+            "channel layout": "STEREO",
+            "channels": 2,
+            "codec": "opus",
+            "codec delay": 312,
+            "discard decoder delay": true,
+            "encryption scheme": "Unencrypted",
+            "has extra data": true,
+            "profile": "unknown",
+            "sample format": "Float 32-bit",
+            "samples per second": 48000,
+            "seek preroll": "80000us"
+          }
+        ]
+      },
+      {
+        "time": 104.63500000000204,
+        "key": "info",
+        "value": "Cannot select SymphoniaAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 104.66100000000006,
+        "key": "info",
+        "value": "Cannot select IamfAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 104.68600000000151,
+        "key": "kIsAudioDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 104.68700000000536,
+        "key": "kAudioDecoderName",
+        "value": "OpusAudioDecoder"
+      },
+      {
+        "time": 104.68800000000192,
+        "key": "kIsPlatformAudioDecoder",
+        "value": false
+      },
+      {
+        "time": 104.70100000000093,
+        "key": "info",
+        "value": "Selected OpusAudioDecoder for audio decoding, config: codec: opus, profile: unknown, bytes_per_channel: 4, channel_layout: STEREO, channels: 2, samples_per_second: 48000, sample_format: Float 32-bit, bytes_per_frame: 8, seek_preroll: 80000us, codec_delay: 312, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 104.77400000000489,
+        "key": "info",
+        "value": "Cannot select DecryptingVideoDecoder for video decoding. status=DecoderStatus::Codes::kUnsupportedEncryptionMode"
+      },
+      {
+        "time": 136.9930000000022,
+        "key": "info",
+        "value": "Effective playback rate changed from 0 to 1"
+      },
+      {
+        "time": 143.13700000000244,
+        "key": "info",
+        "value": "VideoDecoderPipeline |decoder_| Initialize() successful"
+      },
+      {
+        "time": 143.31300000000192,
+        "key": "kIsVideoDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 143.31500000000233,
+        "key": "kVideoDecoderName",
+        "value": "V4L2VideoDecoder"
+      },
+      {
+        "time": 143.31600000000617,
+        "key": "kIsPlatformVideoDecoder",
+        "value": true
+      },
+      {
+        "time": 143.3440000000046,
+        "key": "info",
+        "value": "Selected V4L2VideoDecoder for video decoding, config: codec: vp9, profile: vp9 profile0, level: not available, alpha_mode: is_opaque, coded size: [1920,1080], visible rect: [0,0,1920,1080], natural size: [1920,1080], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, color space: {primaries:BT709, transfer:BT709, matrix:BT709, range:LIMITED}, spatial format: [projection_type: none, stereo_mode: mono]"
+      },
+      {
+        "time": 143.3729999999996,
+        "key": "pipeline_state",
+        "value": "kPlaying"
+      },
+      {
+        "time": 178.9930000000022,
+        "key": "dimensions",
+        "value": "1920x1080"
+      },
+      {
+        "time": 179.0020000000004,
+        "key": "kResolution",
+        "value": "1920x1080"
+      },
+      {
+        "time": 25.052000000003318,
+        "key": "duration",
+        "value": 4022.701
+      },
+      {
+        "time": 163.38200000000506,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 153.208000000006,
+        "key": "audio_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 179.18700000000536,
+        "key": "pipeline_buffering_state",
+        "value": {
+          "for_suspended_start": false,
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 137.1229999999996,
+        "key": "event",
+        "value": "kPlay"
+      },
+      {
+        "time": 8332.937000000005,
+        "key": "pipeline_state",
+        "value": "kStopping"
+      },
+      {
+        "time": 8332.991000000002,
+        "key": "event",
+        "value": "kWebMediaPlayerDestroyed"
+      },
+      {
+        "time": 8333.621,
+        "key": "pipeline_state",
+        "value": "kStopped"
+      }
+    ]
+  },
+  {
+    "properties": {
+      "render_id": 7,
+      "player_id": 7,
+      "created": "2026-09-22 17:41:28.060199 UTC",
+      "origin_url": "https://www.youtube.com/",
+      "kFrameUrl": "https://www.youtube.com/watch?v=-t5THcdJCNw",
+      "kFrameTitle": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube",
+      "url": "blob:https://www.youtube.com/db4b48fc-610d-41fa-9b18-6f9cf382a826",
+      "info": "Selected V4L2VideoDecoder for video decoding, config: codec: vp9, profile: vp9 profile0, level: not available, alpha_mode: is_opaque, coded size: [3840,2160], visible rect: [0,0,3840,2160], natural size: [3840,2160], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, color space: {primaries:BT709, transfer:BT709, matrix:BT709, range:LIMITED}, spatial format: [projection_type: none, stereo_mode: mono]",
+      "kRendererName": "RendererImpl",
+      "pipeline_state": "kStopped",
+      "kAudioTracks": [
+        {
+          "bytes per channel": 4,
+          "bytes per frame": 8,
+          "channel layout": "STEREO",
+          "channels": 2,
+          "codec": "opus",
+          "codec delay": 312,
+          "discard decoder delay": true,
+          "encryption scheme": "Unencrypted",
+          "has extra data": true,
+          "profile": "unknown",
+          "sample format": "Float 32-bit",
+          "samples per second": 48000,
+          "seek preroll": "80000us"
+        }
+      ],
+      "kVideoTracks": [
+        {
+          "alpha mode": "is_opaque",
+          "codec": "vp9",
+          "coded size": "3840x2160",
+          "color space": {
+            "matrix": "BT709",
+            "primaries": "BT709",
+            "range": "LIMITED",
+            "transfer": "BT709"
+          },
+          "encryption scheme": "Unencrypted",
+          "has extra data": false,
+          "hdr metadata": {},
+          "natural size": "3840x2160",
+          "orientation": "0°",
+          "profile": "vp9 profile0",
+          "visible rect": "0,0 3840x2160"
+        }
+      ],
+      "kIsAudioDecryptingDemuxerStream": false,
+      "kAudioDecoderName": "OpusAudioDecoder",
+      "kIsPlatformAudioDecoder": false,
+      "seek_target": 6.772812,
+      "kIsVideoDecryptingDemuxerStream": false,
+      "kVideoDecoderName": "V4L2VideoDecoder",
+      "kIsPlatformVideoDecoder": true,
+      "dimensions": "3840x2160",
+      "kResolution": "3840x2160",
+      "duration": 4022.701,
+      "video_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "audio_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "pipeline_buffering_state": {
+        "for_suspended_start": false,
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "event": "kWebMediaPlayerDestroyed",
+      "kVideoPlaybackRoughness": 146.129,
+      "kVideoPlaybackFreezingRatio": 4.000420016800672,
+      "kFramerate": 60,
+      "auto_picture_in_picture_info": {
+        "blocked_due_to_content_setting": false,
+        "has_audio_focus": true,
+        "has_safe_url": true,
+        "is_playing": true,
+        "meets_media_engagement_conditions": true,
+        "reason": "BrowserInitiated",
+        "was_recently_audible": true
+      }
+    },
+    "events": [
+      {
+        "time": 0,
+        "key": "created",
+        "value": "2026-09-22 17:41:28.060199 UTC"
+      },
+      {
+        "time": 0.3289999999979045,
+        "key": "origin_url",
+        "value": "https://www.youtube.com/"
+      },
+      {
+        "time": 0.341999999996915,
+        "key": "kFrameUrl",
+        "value": "https://www.youtube.com/watch?v=-t5THcdJCNw"
+      },
+      {
+        "time": 0.3499999999985448,
+        "key": "kFrameTitle",
+        "value": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube"
+      },
+      {
+        "time": 0.5290000000022701,
+        "key": "url",
+        "value": "blob:https://www.youtube.com/db4b48fc-610d-41fa-9b18-6f9cf382a826"
+      },
+      {
+        "time": 0.5849999999991269,
+        "key": "info",
+        "value": "ChunkDemuxer"
+      },
+      {
+        "time": 0.6279999999969732,
+        "key": "kRendererName",
+        "value": "RendererImpl"
+      },
+      {
+        "time": 0.669000000001688,
+        "key": "pipeline_state",
+        "value": "kStarting"
+      },
+      {
+        "time": 11.91700000000128,
+        "key": "kAudioTracks",
+        "value": [
+          {
+            "bytes per channel": 4,
+            "bytes per frame": 8,
+            "channel layout": "STEREO",
+            "channels": 2,
+            "codec": "opus",
+            "codec delay": 312,
+            "discard decoder delay": true,
+            "encryption scheme": "Unencrypted",
+            "has extra data": true,
+            "profile": "unknown",
+            "sample format": "Float 32-bit",
+            "samples per second": 48000,
+            "seek preroll": "80000us"
+          }
+        ]
+      },
+      {
+        "time": 36.37299999999959,
+        "key": "kVideoTracks",
+        "value": [
+          {
+            "alpha mode": "is_opaque",
+            "codec": "vp9",
+            "coded size": "3840x2160",
+            "color space": {
+              "matrix": "BT709",
+              "primaries": "BT709",
+              "range": "LIMITED",
+              "transfer": "BT709"
+            },
+            "encryption scheme": "Unencrypted",
+            "has extra data": false,
+            "hdr metadata": {},
+            "natural size": "3840x2160",
+            "orientation": "0°",
+            "profile": "vp9 profile0",
+            "visible rect": "0,0 3840x2160"
+          }
+        ]
+      },
+      {
+        "time": 37.12999999999738,
+        "key": "info",
+        "value": "Effective playback rate changed from 0 to 1"
+      },
+      {
+        "time": 38.08899999999994,
+        "key": "info",
+        "value": "Cannot select SymphoniaAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 38.10899999999674,
+        "key": "info",
+        "value": "Cannot select IamfAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 38.13100000000122,
+        "key": "kIsAudioDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 38.13199999999779,
+        "key": "kAudioDecoderName",
+        "value": "OpusAudioDecoder"
+      },
+      {
+        "time": 38.13300000000163,
+        "key": "kIsPlatformAudioDecoder",
+        "value": false
+      },
+      {
+        "time": 38.1449999999968,
+        "key": "info",
+        "value": "Selected OpusAudioDecoder for audio decoding, config: codec: opus, profile: unknown, bytes_per_channel: 4, channel_layout: STEREO, channels: 2, samples_per_second: 48000, sample_format: Float 32-bit, bytes_per_frame: 8, seek_preroll: 80000us, codec_delay: 312, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 38.22200000000157,
+        "key": "info",
+        "value": "Cannot select DecryptingVideoDecoder for video decoding. status=DecoderStatus::Codes::kUnsupportedEncryptionMode"
+      },
+      {
+        "time": 38.34100000000035,
+        "key": "seek_target",
+        "value": 6.772812
+      },
+      {
+        "time": 45.75200000000041,
+        "key": "info",
+        "value": "VideoDecoderPipeline |decoder_| Initialize() successful"
+      },
+      {
+        "time": 45.98199999999633,
+        "key": "kIsVideoDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 45.98399999999674,
+        "key": "kVideoDecoderName",
+        "value": "V4L2VideoDecoder"
+      },
+      {
+        "time": 45.98599999999715,
+        "key": "kIsPlatformVideoDecoder",
+        "value": true
+      },
+      {
+        "time": 46.01400000000285,
+        "key": "info",
+        "value": "Selected V4L2VideoDecoder for video decoding, config: codec: vp9, profile: vp9 profile0, level: not available, alpha_mode: is_opaque, coded size: [3840,2160], visible rect: [0,0,3840,2160], natural size: [3840,2160], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, color space: {primaries:BT709, transfer:BT709, matrix:BT709, range:LIMITED}, spatial format: [projection_type: none, stereo_mode: mono]"
+      },
+      {
+        "time": 46.04899999999907,
+        "key": "pipeline_state",
+        "value": "kPlaying"
+      },
+      {
+        "time": 46.17399999999907,
+        "key": "pipeline_state",
+        "value": "kSeeking"
+      },
+      {
+        "time": 599.3960000000006,
+        "key": "pipeline_state",
+        "value": "kPlaying"
+      },
+      {
+        "time": 814.4449999999997,
+        "key": "dimensions",
+        "value": "3840x2160"
+      },
+      {
+        "time": 814.4570000000022,
+        "key": "kResolution",
+        "value": "3840x2160"
+      },
+      {
+        "time": 10.989999999997963,
+        "key": "duration",
+        "value": 4022.701
+      },
+      {
+        "time": 814.502999999997,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 602.4029999999984,
+        "key": "audio_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 814.6200000000026,
+        "key": "pipeline_buffering_state",
+        "value": {
+          "for_suspended_start": false,
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 37.25699999999779,
+        "key": "event",
+        "value": "kPlay"
+      },
+      {
+        "time": 5621.325999999994,
+        "key": "video_buffering_state",
+        "value": {
+          "reason": "DECODER_UNDERFLOW",
+          "state": "BUFFERING_HAVE_NOTHING"
+        }
+      },
+      {
+        "time": 5626.158000000003,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 7104.594999999994,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 8621.318000000007,
+        "key": "video_buffering_state",
+        "value": {
+          "reason": "DECODER_UNDERFLOW",
+          "state": "BUFFERING_HAVE_NOTHING"
+        }
+      },
+      {
+        "time": 8639.177000000003,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 10143.273999999998,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 11621.128000000004,
+        "key": "video_buffering_state",
+        "value": {
+          "reason": "DECODER_UNDERFLOW",
+          "state": "BUFFERING_HAVE_NOTHING"
+        }
+      },
+      {
+        "time": 11643.464,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 13131.858,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 14621.352000000006,
+        "key": "video_buffering_state",
+        "value": {
+          "reason": "DECODER_UNDERFLOW",
+          "state": "BUFFERING_HAVE_NOTHING"
+        }
+      },
+      {
+        "time": 14625.874000000003,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 16107.480999999992,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 17620.981999999996,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 19121.465000000004,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 20621.297,
+        "key": "video_buffering_state",
+        "value": {
+          "reason": "DECODER_UNDERFLOW",
+          "state": "BUFFERING_HAVE_NOTHING"
+        }
+      },
+      {
+        "time": 20621.912000000004,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 22137.742000000006,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 82107.81099999999,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 83474.83499999999,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 92040.305,
+        "key": "kVideoPlaybackRoughness",
+        "value": 146.129
+      },
+      {
+        "time": 92040.31999999998,
+        "key": "kVideoPlaybackFreezingRatio",
+        "value": 4.000420016800672
+      },
+      {
+        "time": 92040.321,
+        "key": "kFramerate",
+        "value": 60
+      },
+      {
+        "time": 92041.57199999999,
+        "key": "auto_picture_in_picture_info",
+        "value": {
+          "blocked_due_to_content_setting": false,
+          "has_audio_focus": true,
+          "has_safe_url": true,
+          "is_playing": true,
+          "meets_media_engagement_conditions": true,
+          "reason": "BrowserInitiated",
+          "was_recently_audible": true
+        }
+      },
+      {
+        "time": 92378.34699999998,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 94195.497,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 94296.408,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 121931.60199999998,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 125745.87899999999,
+        "key": "event",
+        "value": "kWebMediaPlayerDestroyed"
+      },
+      {
+        "time": 125745.88699999999,
+        "key": "pipeline_state",
+        "value": "kStopping"
+      },
+      {
+        "time": 125747.31099999999,
+        "key": "pipeline_state",
+        "value": "kStopped"
+      }
+    ]
+  },
+  {
+    "properties": {
+      "render_id": 7,
+      "player_id": 8,
+      "created": "2026-09-22 17:43:35.958744 UTC",
+      "origin_url": "https://www.youtube.com/",
+      "kFrameUrl": "https://www.youtube.com/results?search_query=coyote+vs.+acme",
+      "kFrameTitle": "coyote vs. acme - YouTube",
+      "url": "blob:https://www.youtube.com/231e2990-857c-4f13-925b-93dcd862f219",
+      "info": "Selected V4L2VideoDecoder for video decoding, config: codec: av1, profile: av1 profile main, level: not available, alpha_mode: is_opaque, coded size: [854,480], visible rect: [0,0,854,480], natural size: [854,480], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, color space: {primaries:BT709, transfer:BT709, matrix:BT709, range:LIMITED}, spatial format: [projection_type: none, stereo_mode: mono]",
+      "kRendererName": "RendererImpl",
+      "pipeline_state": "kSuspended",
+      "kAudioTracks": [
+        {
+          "bytes per channel": 4,
+          "bytes per frame": 8,
+          "channel layout": "STEREO",
+          "channels": 2,
+          "codec": "opus",
+          "codec delay": 312,
+          "discard decoder delay": true,
+          "encryption scheme": "Unencrypted",
+          "has extra data": true,
+          "profile": "unknown",
+          "sample format": "Float 32-bit",
+          "samples per second": 48000,
+          "seek preroll": "80000us"
+        }
+      ],
+      "kVideoTracks": [
+        {
+          "alpha mode": "is_opaque",
+          "codec": "av1",
+          "coded size": "854x480",
+          "color space": {
+            "matrix": "BT709",
+            "primaries": "BT709",
+            "range": "LIMITED",
+            "transfer": "BT709"
+          },
+          "encryption scheme": "Unencrypted",
+          "has extra data": false,
+          "hdr metadata": {},
+          "natural size": "854x480",
+          "orientation": "0°",
+          "profile": "av1 profile main",
+          "visible rect": "0,0 854x480"
+        }
+      ],
+      "kIsAudioDecryptingDemuxerStream": false,
+      "kAudioDecoderName": "OpusAudioDecoder",
+      "kIsPlatformAudioDecoder": false,
+      "kIsVideoDecryptingDemuxerStream": false,
+      "kVideoDecoderName": "V4L2VideoDecoder",
+      "kIsPlatformVideoDecoder": true,
+      "dimensions": "854x480",
+      "kResolution": "854x480",
+      "duration": 106.501,
+      "video_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "audio_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "pipeline_buffering_state": {
+        "for_suspended_start": false,
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "event": "kSuspended",
+      "auto_picture_in_picture_info": {
+        "blocked_due_to_content_setting": false,
+        "has_audio_focus": true,
+        "has_safe_url": true,
+        "is_playing": true,
+        "meets_media_engagement_conditions": true,
+        "reason": "BrowserInitiated",
+        "was_recently_audible": true
+      }
+    },
+    "events": [
+      {
+        "time": 0,
+        "key": "created",
+        "value": "2026-09-22 17:43:35.958744 UTC"
+      },
+      {
+        "time": 0.3019999999960419,
+        "key": "origin_url",
+        "value": "https://www.youtube.com/"
+      },
+      {
+        "time": 0.3120000000053551,
+        "key": "kFrameUrl",
+        "value": "https://www.youtube.com/results?search_query=coyote+vs.+acme"
+      },
+      {
+        "time": 0.3170000000100117,
+        "key": "kFrameTitle",
+        "value": "coyote vs. acme - YouTube"
+      },
+      {
+        "time": 0.47899999999208376,
+        "key": "url",
+        "value": "blob:https://www.youtube.com/231e2990-857c-4f13-925b-93dcd862f219"
+      },
+      {
+        "time": 0.5229999999864958,
+        "key": "info",
+        "value": "ChunkDemuxer"
+      },
+      {
+        "time": 0.5519999999960419,
+        "key": "kRendererName",
+        "value": "RendererImpl"
+      },
+      {
+        "time": 0.6779999999853317,
+        "key": "pipeline_state",
+        "value": "kStarting"
+      },
+      {
+        "time": 112.30999999999767,
+        "key": "kAudioTracks",
+        "value": [
+          {
+            "bytes per channel": 4,
+            "bytes per frame": 8,
+            "channel layout": "STEREO",
+            "channels": 2,
+            "codec": "opus",
+            "codec delay": 312,
+            "discard decoder delay": true,
+            "encryption scheme": "Unencrypted",
+            "has extra data": true,
+            "profile": "unknown",
+            "sample format": "Float 32-bit",
+            "samples per second": 48000,
+            "seek preroll": "80000us"
+          }
+        ]
+      },
+      {
+        "time": 113.17999999999302,
+        "key": "kVideoTracks",
+        "value": [
+          {
+            "alpha mode": "is_opaque",
+            "codec": "av1",
+            "coded size": "854x480",
+            "color space": {
+              "matrix": "BT709",
+              "primaries": "BT709",
+              "range": "LIMITED",
+              "transfer": "BT709"
+            },
+            "encryption scheme": "Unencrypted",
+            "has extra data": false,
+            "hdr metadata": {},
+            "natural size": "854x480",
+            "orientation": "0°",
+            "profile": "av1 profile main",
+            "visible rect": "0,0 854x480"
+          }
+        ]
+      },
+      {
+        "time": 115.00399999998626,
+        "key": "info",
+        "value": "Effective playback rate changed from 0 to 1"
+      },
+      {
+        "time": 115.51399999999558,
+        "key": "info",
+        "value": "Cannot select SymphoniaAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 115.54099999999744,
+        "key": "info",
+        "value": "Cannot select IamfAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 115.59799999999814,
+        "key": "kIsAudioDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 115.59899999998743,
+        "key": "kAudioDecoderName",
+        "value": "OpusAudioDecoder"
+      },
+      {
+        "time": 115.60000000000582,
+        "key": "kIsPlatformAudioDecoder",
+        "value": false
+      },
+      {
+        "time": 115.63500000000931,
+        "key": "info",
+        "value": "Selected OpusAudioDecoder for audio decoding, config: codec: opus, profile: unknown, bytes_per_channel: 4, channel_layout: STEREO, channels: 2, samples_per_second: 48000, sample_format: Float 32-bit, bytes_per_frame: 8, seek_preroll: 80000us, codec_delay: 312, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 115.72399999998743,
+        "key": "info",
+        "value": "Cannot select DecryptingVideoDecoder for video decoding. status=DecoderStatus::Codes::kUnsupportedEncryptionMode"
+      },
+      {
+        "time": 139.39300000001094,
+        "key": "info",
+        "value": "VideoDecoderPipeline |decoder_| Initialize() successful"
+      },
+      {
+        "time": 139.82600000000093,
+        "key": "kIsVideoDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 139.83799999998882,
+        "key": "kVideoDecoderName",
+        "value": "V4L2VideoDecoder"
+      },
+      {
+        "time": 139.84500000000116,
+        "key": "kIsPlatformVideoDecoder",
+        "value": true
+      },
+      {
+        "time": 139.92699999999604,
+        "key": "info",
+        "value": "Selected V4L2VideoDecoder for video decoding, config: codec: av1, profile: av1 profile main, level: not available, alpha_mode: is_opaque, coded size: [854,480], visible rect: [0,0,854,480], natural size: [854,480], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, color space: {primaries:BT709, transfer:BT709, matrix:BT709, range:LIMITED}, spatial format: [projection_type: none, stereo_mode: mono]"
+      },
+      {
+        "time": 140.07800000000861,
+        "key": "pipeline_state",
+        "value": "kPlaying"
+      },
+      {
+        "time": 163.86799999998766,
+        "key": "dimensions",
+        "value": "854x480"
+      },
+      {
+        "time": 163.88200000001234,
+        "key": "kResolution",
+        "value": "854x480"
+      },
+      {
+        "time": 114.1929999999993,
+        "key": "duration",
+        "value": 106.501
+      },
+      {
+        "time": 280.6840000000084,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 149.18899999998393,
+        "key": "audio_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 164.04800000000978,
+        "key": "pipeline_buffering_state",
+        "value": {
+          "for_suspended_start": false,
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 115.1019999999844,
+        "key": "event",
+        "value": "kPlay"
+      },
+      {
+        "time": 831.9180000000051,
+        "key": "event",
+        "value": "kPause"
+      },
+      {
+        "time": 16421.66200000001,
+        "key": "pipeline_state",
+        "value": "kSuspending"
+      },
+      {
+        "time": 16421.96100000001,
+        "key": "pipeline_state",
+        "value": "kSuspended"
+      },
+      {
+        "time": 16422.12599999999,
+        "key": "event",
+        "value": "kSuspended"
+      },
+      {
+        "time": 40106.956999999995,
+        "key": "auto_picture_in_picture_info",
+        "value": {
+          "blocked_due_to_content_setting": false,
+          "has_audio_focus": true,
+          "has_safe_url": true,
+          "is_playing": true,
+          "meets_media_engagement_conditions": true,
+          "reason": "BrowserInitiated",
+          "was_recently_audible": true
+        }
+      }
+    ]
+  },
+  {
+    "properties": {
+      "render_id": 7,
+      "player_id": 9,
+      "created": "2026-09-22 17:43:37.101629 UTC",
+      "origin_url": "https://www.youtube.com/",
+      "kFrameUrl": "https://www.youtube.com/watch?v=H-43VeYGiPM",
+      "kFrameTitle": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube",
+      "url": "blob:https://www.youtube.com/b062b56e-3a5e-431a-93c8-70081fd79f46",
+      "info": "Selected V4L2VideoDecoder for video decoding, config: codec: av1, profile: av1 profile main, level: not available, alpha_mode: is_opaque, coded size: [3840,2160], visible rect: [0,0,3840,2160], natural size: [3840,2160], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, color space: {primaries:BT709, transfer:BT709, matrix:BT709, range:LIMITED}, spatial format: [projection_type: none, stereo_mode: mono]",
+      "kRendererName": "RendererImpl",
+      "pipeline_state": "kPlaying",
+      "kVideoTracks": [
+        {
+          "alpha mode": "is_opaque",
+          "codec": "av1",
+          "coded size": "3840x2160",
+          "color space": {
+            "matrix": "BT709",
+            "primaries": "BT709",
+            "range": "LIMITED",
+            "transfer": "BT709"
+          },
+          "encryption scheme": "Unencrypted",
+          "has extra data": false,
+          "hdr metadata": {},
+          "natural size": "3840x2160",
+          "orientation": "0°",
+          "profile": "av1 profile main",
+          "visible rect": "0,0 3840x2160"
+        }
+      ],
+      "kAudioTracks": [
+        {
+          "bytes per channel": 4,
+          "bytes per frame": 8,
+          "channel layout": "STEREO",
+          "channels": 2,
+          "codec": "opus",
+          "codec delay": 312,
+          "discard decoder delay": true,
+          "encryption scheme": "Unencrypted",
+          "has extra data": true,
+          "profile": "unknown",
+          "sample format": "Float 32-bit",
+          "samples per second": 48000,
+          "seek preroll": "80000us"
+        }
+      ],
+      "kIsAudioDecryptingDemuxerStream": false,
+      "kAudioDecoderName": "OpusAudioDecoder",
+      "kIsPlatformAudioDecoder": false,
+      "kIsVideoDecryptingDemuxerStream": false,
+      "kVideoDecoderName": "V4L2VideoDecoder",
+      "kIsPlatformVideoDecoder": true,
+      "dimensions": "3840x2160",
+      "kResolution": "3840x2160",
+      "auto_picture_in_picture_info": {
+        "blocked_due_to_content_setting": false,
+        "has_audio_focus": true,
+        "has_safe_url": true,
+        "is_playing": true,
+        "meets_media_engagement_conditions": true,
+        "reason": "BrowserInitiated",
+        "was_recently_audible": true
+      },
+      "duration": 106.501,
+      "video_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "audio_buffering_state": {
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "pipeline_buffering_state": {
+        "for_suspended_start": false,
+        "state": "BUFFERING_HAVE_ENOUGH"
+      },
+      "event": "kPlay",
+      "kVideoPlaybackRoughness": 191.968,
+      "kVideoPlaybackFreezingRatio": 1.3978468842160787,
+      "kFramerate": 24
+    },
+    "events": [
+      {
+        "time": 0,
+        "key": "created",
+        "value": "2026-09-22 17:43:37.101629 UTC"
+      },
+      {
+        "time": 0.275999999983469,
+        "key": "origin_url",
+        "value": "https://www.youtube.com/"
+      },
+      {
+        "time": 0.28899999998975545,
+        "key": "kFrameUrl",
+        "value": "https://www.youtube.com/watch?v=H-43VeYGiPM"
+      },
+      {
+        "time": 0.2989999999990687,
+        "key": "kFrameTitle",
+        "value": "Tokyo Rainy Night Walk, Sangu-bashi to Shibuya • 4K HDR - YouTube"
+      },
+      {
+        "time": 0.48099999999976717,
+        "key": "url",
+        "value": "blob:https://www.youtube.com/b062b56e-3a5e-431a-93c8-70081fd79f46"
+      },
+      {
+        "time": 0.5349999999743886,
+        "key": "info",
+        "value": "ChunkDemuxer"
+      },
+      {
+        "time": 0.5840000000025611,
+        "key": "kRendererName",
+        "value": "RendererImpl"
+      },
+      {
+        "time": 0.6269999999785796,
+        "key": "pipeline_state",
+        "value": "kStarting"
+      },
+      {
+        "time": 81.94199999998091,
+        "key": "kVideoTracks",
+        "value": [
+          {
+            "alpha mode": "is_opaque",
+            "codec": "av1",
+            "coded size": "3840x2160",
+            "color space": {
+              "matrix": "BT709",
+              "primaries": "BT709",
+              "range": "LIMITED",
+              "transfer": "BT709"
+            },
+            "encryption scheme": "Unencrypted",
+            "has extra data": false,
+            "hdr metadata": {},
+            "natural size": "3840x2160",
+            "orientation": "0°",
+            "profile": "av1 profile main",
+            "visible rect": "0,0 3840x2160"
+          }
+        ]
+      },
+      {
+        "time": 82.09399999998277,
+        "key": "kAudioTracks",
+        "value": [
+          {
+            "bytes per channel": 4,
+            "bytes per frame": 8,
+            "channel layout": "STEREO",
+            "channels": 2,
+            "codec": "opus",
+            "codec delay": 312,
+            "discard decoder delay": true,
+            "encryption scheme": "Unencrypted",
+            "has extra data": true,
+            "profile": "unknown",
+            "sample format": "Float 32-bit",
+            "samples per second": 48000,
+            "seek preroll": "80000us"
+          }
+        ]
+      },
+      {
+        "time": 83.71799999999348,
+        "key": "info",
+        "value": "Cannot select SymphoniaAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 83.737999999983,
+        "key": "info",
+        "value": "Cannot select IamfAudioDecoder for audio decoding. status=DecoderStatus::Codes::kUnsupportedCodec"
+      },
+      {
+        "time": 83.76199999998789,
+        "key": "kIsAudioDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 83.76299999997718,
+        "key": "kAudioDecoderName",
+        "value": "OpusAudioDecoder"
+      },
+      {
+        "time": 83.76399999999558,
+        "key": "kIsPlatformAudioDecoder",
+        "value": false
+      },
+      {
+        "time": 83.77700000000186,
+        "key": "info",
+        "value": "Selected OpusAudioDecoder for audio decoding, config: codec: opus, profile: unknown, bytes_per_channel: 4, channel_layout: STEREO, channels: 2, samples_per_second: 48000, sample_format: Float 32-bit, bytes_per_frame: 8, seek_preroll: 80000us, codec_delay: 312, has extra data: true, encryption scheme: Unencrypted, discard decoder delay: true, target_output_channel_layout: STEREO, target_output_sample_format: Unknown sample format"
+      },
+      {
+        "time": 83.85499999998137,
+        "key": "info",
+        "value": "Cannot select DecryptingVideoDecoder for video decoding. status=DecoderStatus::Codes::kUnsupportedEncryptionMode"
+      },
+      {
+        "time": 93.43399999997928,
+        "key": "info",
+        "value": "Effective playback rate changed from 0 to 1"
+      },
+      {
+        "time": 111.52599999998347,
+        "key": "info",
+        "value": "VideoDecoderPipeline |decoder_| Initialize() successful"
+      },
+      {
+        "time": 112.80999999999767,
+        "key": "kIsVideoDecryptingDemuxerStream",
+        "value": false
+      },
+      {
+        "time": 112.81299999999464,
+        "key": "kVideoDecoderName",
+        "value": "V4L2VideoDecoder"
+      },
+      {
+        "time": 112.81399999998393,
+        "key": "kIsPlatformVideoDecoder",
+        "value": true
+      },
+      {
+        "time": 112.83999999999651,
+        "key": "info",
+        "value": "Selected V4L2VideoDecoder for video decoding, config: codec: av1, profile: av1 profile main, level: not available, alpha_mode: is_opaque, coded size: [3840,2160], visible rect: [0,0,3840,2160], natural size: [3840,2160], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, color space: {primaries:BT709, transfer:BT709, matrix:BT709, range:LIMITED}, spatial format: [projection_type: none, stereo_mode: mono]"
+      },
+      {
+        "time": 112.87299999999232,
+        "key": "pipeline_state",
+        "value": "kPlaying"
+      },
+      {
+        "time": 228.8059999999823,
+        "key": "dimensions",
+        "value": "3840x2160"
+      },
+      {
+        "time": 228.82600000000093,
+        "key": "kResolution",
+        "value": "3840x2160"
+      },
+      {
+        "time": 236.4189999999944,
+        "key": "auto_picture_in_picture_info",
+        "value": {
+          "blocked_due_to_content_setting": false,
+          "has_audio_focus": true,
+          "has_safe_url": true,
+          "is_playing": true,
+          "meets_media_engagement_conditions": true,
+          "reason": "BrowserInitiated",
+          "was_recently_audible": true
+        }
+      },
+      {
+        "time": 60.304999999993015,
+        "key": "duration",
+        "value": 106.501
+      },
+      {
+        "time": 228.80999999999767,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 115.59799999999814,
+        "key": "audio_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 228.9899999999907,
+        "key": "pipeline_buffering_state",
+        "value": {
+          "for_suspended_start": false,
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 93.55499999999302,
+        "key": "event",
+        "value": "kPlay"
+      },
+      {
+        "time": 7154.532999999996,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 8669.516999999993,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 10171.190999999992,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 11655.650999999983,
+        "key": "video_buffering_state",
+        "value": {
+          "state": "BUFFERING_HAVE_ENOUGH"
+        }
+      },
+      {
+        "time": 38957.079,
+        "key": "kVideoPlaybackRoughness",
+        "value": 191.968
+      },
+      {
+        "time": 38957.090999999986,
+        "key": "kVideoPlaybackFreezingRatio",
+        "value": 1.3978468842160787
+      },
+      {
+        "time": 38957.091999999975,
+        "key": "kFramerate",
+        "value": 24
+      }
+    ]
+  }
+]

@@ -84,6 +84,7 @@ echo "[ncz-refind-refresh] rEFInd bootloader (staged kernel menu)"
 INSTALLER_META=/usr/local/lib/cix-installer
 REFIND_SRC="$INSTALLER_META/assets/refind/refind_aa64.efi"
 : "${KVER_NEXT:=}"
+: "${KVER_EDGE:=}"
 : "${BUILD_VERSION:=(unknown)}"
 RELEASE_FILE=/etc/cix-installer/RELEASE
 [ -s "$RELEASE_FILE" ] || RELEASE_FILE="$INSTALLER_META/RELEASE"
@@ -101,6 +102,7 @@ if [ -z "$KVER_NEXT" ]; then
 fi
 
 echo "  KVER_NEXT=$KVER_NEXT"
+echo "  KVER_EDGE=${KVER_EDGE:-<none>}"
 echo "  BUILD_VERSION=$BUILD_VERSION"
 
 # Prevent systemd-boot deb postinst from double-staging kernels to the ESP
@@ -260,10 +262,70 @@ echo "  wiping stale ESP entries + kernel images..."
 # initramfs hook runs this script. Installing waydroid was enough to remove it
 # a second time. So the wipe must spare *-rescue, which the staging code below
 # never writes and therefore cannot be stale.
+# AUTO-PROMOTE the outgoing kernel to a rescue image before deleting it.
+#
+# The *-rescue sparing below has existed since 2026-08-18, but nothing ever
+# STAGED one: it was documented as "operator-staged", so in practice these
+# boards ran with no fallback at all. Measured on MS-R1 2026-09-04: upgrading
+# to 7.2.3 removed /boot/vmlinuz-7.2.0-sky1-ncz (dpkg) and this wipe removed
+# the ESP copy, leaving exactly one kernel on the ESP. A hand-staged fallback
+# did not survive either -- installing CHROMIUM was enough to run this script
+# and delete it again.
+#
+# The kernel currently on the ESP is the one the machine has been booting, so
+# it is the best available definition of "known-good". Promote it rather than
+# copying from /boot, because by the time this hook runs dpkg has usually
+# already removed the old /boot/vmlinuz-*.
+#
+# Only one rescue image is kept: the previous one is replaced, so the ESP does
+# not grow without bound. (2G ESP, ~65M per kernel+initrd pair, measured on
+# both O6N and MS-R1.)
+if [ -n "$KVER_NEXT" ]; then
+    for _esp_k in /boot/efi/vmlinuz-*; do
+        [ -e "$_esp_k" ] || continue
+        case "$_esp_k" in *-rescue) continue ;; esac
+        _out_kver=${_esp_k##*/vmlinuz-}
+        # Never promote the kernel we are about to stage: that is not a
+        # fallback. BUG FIXED 2026-09-16 (real, metal-verified on O6N): this
+        # used to check ONLY against KVER_NEXT, never KVER_EDGE -- so on any
+        # regen where both lines were already staged, the loop's glob order
+        # (/boot/efi/vmlinuz-* sorts "7.2..." before "7.3...") meant the EDGE
+        # kernel (not matching KVER_NEXT) got promoted to -rescue. The
+        # resulting "RESCUE" menu entry then booted the edge kernel BINARY
+        # but with the Mali entry's OWN cmdline options (the rescue-entry
+        # generator below always uses $MALI_OPTIONS regardless of which
+        # kernel it's rescuing) -- i.e. requesting sky1.gpu=vendor on a
+        # kernel with no Mali/Panthor DKMS built for its own KVER (a known,
+        # separately-flagged gap for the edge line), which silently fell
+        # back to software-rendered Mesa instead of failing outright.
+        # Reported symptom: "7.3 is listed as a rescue kernel when it
+        # should not be" + "the rescue entry boots but GUI is software
+        # only" -- both explained by this one root cause.
+        case "$_out_kver" in
+            "$KVER_NEXT") continue ;;
+            "$KVER_EDGE") [ -n "$KVER_EDGE" ] && continue ;;
+        esac
+        [ -s "$_esp_k" ] || continue
+        [ -s "/boot/efi/initrd.img-$_out_kver" ] || {
+            echo "  WARN: not promoting $_out_kver to rescue -- its initrd is missing on the ESP"
+            continue
+        }
+        rm -f /boot/efi/vmlinuz-*-rescue /boot/efi/initrd.img-*-rescue 2>/dev/null || true
+        if cp -f "$_esp_k" "/boot/efi/vmlinuz-$_out_kver-rescue" &&
+           cp -f "/boot/efi/initrd.img-$_out_kver" "/boot/efi/initrd.img-$_out_kver-rescue"; then
+            echo "  promoted outgoing kernel $_out_kver to rescue image"
+        else
+            rm -f "/boot/efi/vmlinuz-$_out_kver-rescue" "/boot/efi/initrd.img-$_out_kver-rescue" 2>/dev/null || true
+            echo "  WARN: could not promote $_out_kver to a rescue image"
+        fi
+        break
+    done
+fi
+
 for _esp_f in /boot/efi/vmlinuz-* /boot/efi/initrd.img-*; do
     [ -e "$_esp_f" ] || continue
     case "$_esp_f" in
-        *-rescue) echo "  preserving operator rescue image ${_esp_f##*/}"; continue ;;
+        *-rescue) echo "  preserving rescue image ${_esp_f##*/}"; continue ;;
     esac
     rm -f "$_esp_f"
 done
@@ -303,6 +365,26 @@ if [ -n "$KVER_NEXT" ] && [ -s "/boot/vmlinuz-$KVER_NEXT" ]; then
 
 elif [ -n "$KVER_NEXT" ]; then
     echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — edge entry will be SKIPPED"
+fi
+
+# EDGE_AVAILABLE (2026-09-15): the SECOND, EXPERIMENTAL kernel line (see
+# post-install/10-our-kernel.sh). Absence is not fatal -- single-kernel
+# ISOs still build -- only KVER_NEXT (stable/default) is required above.
+EDGE_AVAILABLE=0
+EDGE_INITRD_AVAILABLE=0
+if [ -n "${KVER_EDGE:-}" ] && [ -s "/boot/vmlinuz-$KVER_EDGE" ]; then
+    if [ ! -s "/boot/initrd.img-$KVER_EDGE" ]; then
+        echo "  WARN: /boot/vmlinuz-$KVER_EDGE exists but /boot/initrd.img-$KVER_EDGE is missing -- edge entry SKIPPED"
+    else
+        install -m 0644 "/boot/vmlinuz-$KVER_EDGE" "/boot/efi/vmlinuz-$KVER_EDGE"
+        echo "  staged /boot/efi/vmlinuz-$KVER_EDGE"
+        EDGE_AVAILABLE=1
+        install -m 0644 "/boot/initrd.img-$KVER_EDGE" "/boot/efi/initrd.img-$KVER_EDGE"
+        echo "  staged /boot/efi/initrd.img-$KVER_EDGE"
+        EDGE_INITRD_AVAILABLE=1
+    fi
+elif [ -n "${KVER_EDGE:-}" ]; then
+    echo "  WARN: /boot/vmlinuz-$KVER_EDGE missing — edge entry will be SKIPPED"
 fi
 
 if [ "$NEXT_AVAILABLE" = "0" ]; then
@@ -381,6 +463,97 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_CONSOLE_CMDLINE="$NEXT_CONSOLE_CMDLINE_NOBL module_blacklist=$NEXT_CONSOLE_MERGED_BL sky1.gpu=vendor"
     NEXT_CONSOLE_OPTIONS="$ROOT_OPTS $NEXT_CONSOLE_CMDLINE systemd.unit=multi-user.target"
 fi
+
+# EDGE (2026-09-15) — 7.3.0-rc3, EXPERIMENTAL kernel, CONSOLE-ONLY. Accelerator
+# DKMS (mali/panthor/vpu/npu) was NOT wired for this kernel line in this pass
+# -- the prebuilt .ko caches exist under assets/kernel/{mali,panthor,vpu,npu}/
+# 7.3.0-rc3-sky1-ncz/, but installing them safely needs per-hook multi-KVER
+# support (82-mali-gpu.sh, 83-panthor-gpu.sh and their VPU/NPU equivalents are
+# all single-KVER, keyed off KVER_NEXT only) -- real, separate follow-up work,
+# not done here. So this entry boots the SAME way the RESCUE entry does:
+# every accelerator blacklisted, GPU off, straight to a networked multi-user
+# console. It exists to prove the kernel/initrd itself boots on real
+# hardware; graphical/accelerated edge support is a known, flagged gap.
+EDGE_OPTIONS=""
+if [ "$EDGE_AVAILABLE" = "1" ]; then
+    # BUG FIXED 2026-09-16 (real, metal-verified on O6N via the persistent
+    # serial logger on PROTEUS): this entry was missing $NEXT_CMDLINE_EXTRA
+    # (pcie_aspm=off sky1_pcie_native=off pcie_pnp_en acpi_scmi_en=off +
+    # the ramoops/panic knobs) -- exactly the class of bug this script's
+    # OWN comment on NEXT_CMDLINE_EXTRA already documents by name: "the 7.2
+    # forward-port was only ever metal-validated with these (r195 shipped
+    # edge WITHOUT them and the board hung at boot)". Same board, same
+    # missing quirks, same symptom recurred on the 7.3.0-rc3 edge line:
+    # captured serial trace showed the kernel boot clean through early
+    # init, then a HARD RESET (full BL2/BL31/SE_FW cold-boot firmware
+    # sequence on the very next line) right at "xhci-hcd ... new USB bus
+    # registered" -- no panic/oops printed (ramoops was also empty,
+    # because ramoops itself wasn't enabled on this cmdline either). USB
+    # was coincidental to where it hung, not necessarily the actual
+    # trigger -- the PCIe/SCMI knobs are the ones this board has already
+    # been proven to need. Reuse $NEXT_CMDLINE_EXTRA verbatim instead of
+    # duplicating the string, so a future change to those quirks (e.g. if
+    # they're ever tuned again) can't silently drift between the two
+    # entries the way this one did.
+    EDGE_OPTIONS="$ROOT_OPTS console=ttyAMA0,115200 console=tty0 module_blacklist=$ALL_ACCEL_BLACKLIST $NEXT_CMDLINE_EXTRA sky1.gpu=none systemd.unit=multi-user.target"
+fi
+
+# EDGE_ACCEL_OPTIONS (2026-09-22): the SECOND edge entry, with the Mali vendor
+# stack wired in -- mirrors MALI_OPTIONS construction above but on the edge
+# cmdline ($NEXT_CMDLINE_BASE which already embeds $NEXT_CMDLINE_EXTRA, NOT
+# just $NEXT_CMDLINE_EXTRA like the console entry). Until tonight the edge
+# line only had a console entry; this is what closes the gap between "we
+# built and staged 7.3.0-rc4-sky1-ncz overlays" and "a board can actually
+# boot them".
+#
+# Gating (all three required, no exceptions):
+#   1. $EDGE_AVAILABLE=1 -- the edge kernel payload is staged to /boot/efi
+#      (same as the existing console entry; saves us emitting a menu entry
+#      pointing at a kernel/initrd that doesn't exist).
+#   2. $KVER_EDGE is non-empty.
+#   3. The mali overlay for $KVER_EDGE actually exists under
+#      $INSTALLER_META/assets/kernel/mali/$KVER_EDGE/ AND has at least one
+#      .ko in it -- same provenance check build-kernel-debs.sh does at line
+#      524. Without this check, an unaccelerated edge (overlay absent, only
+#      the kernel staged) would offer a boot entry that would silently
+#      fall back to software rendering -- exactly the failure mode
+#      assets/kernel/mali/README.md warns against ("a mismatched vermagic is
+#      refused outright by the kernel, not silently degraded").
+#
+# Does NOT change DEFAULT_TOKEN or otherwise promote the edge line to
+# default: edge stays experimental, the stable Mali entry keeps that role.
+EDGE_ACCEL_OPTIONS=""
+EDGE_ACCEL_AVAILABLE=0
+if [ "$EDGE_AVAILABLE" = "1" ] && [ -n "${KVER_EDGE:-}" ] \
+   && [ -d "$INSTALLER_META/assets/kernel/mali/$KVER_EDGE" ]; then
+    # Count .ko files under the edge-kver mali dir without invoking `ls` on a
+    # glob -- shellcheck SC2012, and `ls *.ko` is fragile if any filename has
+    # a space (the staged files don't, but a hand-staged overlay might).
+    _ncz_mali_kos=$(find "$INSTALLER_META/assets/kernel/mali/$KVER_EDGE" \
+        -maxdepth 1 -type f -name '*.ko' 2>/dev/null | wc -l)
+    if [ "$_ncz_mali_kos" -gt 0 ]; then
+    # Same blacklist as the stable MALI_OPTIONS: blacklist panthor so the
+    # vendor Mali kbase + mgm + pma trio (all staged under
+    # assets/kernel/mali/$KVER_EDGE/) wins the GPU. Panthor DKMS is also
+    # staged at assets/kernel/panthor/$KVER_EDGE/ but is NOT used by THIS
+    # entry -- it has no current cmdline cmdline-token-wired menu entry of
+    # its own on the edge line (per the EDGE line's own experimental scope,
+    # the same single-entry-or-nothing design that the stable line used
+    # before r194).
+    EDGE_ACCEL_GPU_BLACKLIST="panthor"
+    # $NEXT_CMDLINE_BASE already concatenates $NEXT_CMDLINE_EXTRA (see line 214:
+    # NEXT_CMDLINE_BASE="$NEXT_CMDLINE_BASE $NEXT_CMDLINE_EXTRA"), so reusing
+    # NEXT_CMDLINE_BASE here gives the same PCIe/SCMI/ramoops knobs the stable
+    # Mali entry gets without duplicating the string. Don't append
+    # $NEXT_CMDLINE_EXTRA again -- the 2026-09-16 O6N edge hang was caused by
+    # exactly that kind of drift between cmdline copies.
+    EDGE_ACCEL_CMDLINE="$ROOT_OPTS $NEXT_CMDLINE_BASE"
+    [ -n "$SPLASH" ] && EDGE_ACCEL_CMDLINE="$EDGE_ACCEL_CMDLINE $SPLASH"
+    EDGE_ACCEL_OPTIONS="$(merge_module_blacklist "$EDGE_ACCEL_CMDLINE" "$EDGE_ACCEL_GPU_BLACKLIST") sky1.gpu=vendor"
+    EDGE_ACCEL_AVAILABLE=1
+    fi
+fi
+
 
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
 RESCUEPART_OPTIONS=""
@@ -628,6 +801,32 @@ fi
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$NEXT_CONSOLE_OPTIONS\""
+        echo "}"
+        echo
+    fi
+    if [ "$EDGE_AVAILABLE" = "1" ]; then
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Edge / Experimental Kernel (Console)\" {"
+        echo "    loader  /vmlinuz-$KVER_EDGE"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
+        echo "    options \"$EDGE_OPTIONS\""
+        echo "}"
+        echo
+    fi
+    if [ "$EDGE_ACCEL_AVAILABLE" = "1" ]; then
+        # Parallel entry to the (Console) one above: same edge kernel, but the
+        # vendor Mali/Panthor DKMS modules are wired in. Only emitted when the
+        # accelerated staging (gate above) actually verified the mali overlay
+        # .ko files exist for $KVER_EDGE -- never as a best-effort guess.
+        # Must NOT match DEFAULT_TOKEN exactly: rEFInd matches default_selection
+        # as a substring (see DEFAULT_TOKEN comment above), so a literal
+        # "Mali (Default)" suffix on the stable entry already reserves the
+        # exact-match slot. "Mali (Experimental)" is unique.
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Edge / Experimental Kernel (Mali, Experimental)\" {"
+        echo "    loader  /vmlinuz-$KVER_EDGE"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
+        echo "    options \"$EDGE_ACCEL_OPTIONS\""
         echo "}"
         echo
     fi

@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""List available Artist Pack wallpaper packages from configured apt sources.
+
+Unprivileged: runs as the invoking desktop user, never as root. Reads the
+`artist-pack-apt-sources` key from the `dev.sinty.desktop` GSettings schema
+(as this user, via plain `gsettings get` -- no dconf access as root is
+assumed or needed here) to decide which configured apt source(s) count as
+an Artist Pack source, per singularity-shell's ArtistPackManager: "which
+apt source(s) count as an artist pack source is entirely the distro's
+call... this class never reads or filters on that value itself."
+
+Emits a JSON array on stdout, one object per matching `ncz-wallpapers-*`
+package:
+
+    [{"package": "...", "title": "...", "summary": "...",
+      "version": "...", "source": "...", "installed": true|false}, ...]
+
+Exit 0 even when the result is an empty list (no sources configured, or no
+matching packages) -- that is a normal, successful answer, not a failure.
+Non-zero exit + a stderr message is reserved for a REAL failure (apt
+itself broken, the GSettings schema missing entirely).
+"""
+import json
+import re
+import subprocess
+import sys
+import ast
+import os
+
+PACKAGE_PATTERN = re.compile(r"^ncz-wallpapers-[a-z0-9][a-z0-9-]*$")
+ENV = {**os.environ, "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+       "LC_ALL": "C", "LANG": "C"}
+# A distro-wide G_MESSAGES_DEBUG setting makes gsettings write diagnostic
+# lines to stdout ahead of the GVariant value, corrupting this machine-readable
+# subprocess boundary (observed on cixmini).
+ENV.pop("G_MESSAGES_DEBUG", None)
+
+
+def configured_sources() -> list[str]:
+    """Read artist-pack-apt-sources from dev.sinty.desktop as this user.
+
+    A missing schema/key is a real packaging failure. Only a present key whose
+    value is an empty array represents the normal "no sources configured" case.
+    """
+    try:
+        proc = subprocess.run(
+            ["/usr/bin/gsettings", "get", "dev.sinty.desktop", "artist-pack-apt-sources"],
+            capture_output=True, text=True, timeout=10, env=ENV,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"cannot read GSettings key: {exc}") from exc
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or "GSettings schema/key is unavailable")
+    # gsettings prints a GVariant array literal, e.g. "['a', 'b']" or "@as []".
+    raw = proc.stdout.strip()
+    try:
+        # GVariant array-of-string syntax is valid Python list syntax for the
+        # simple case this key uses (plain strings, no escapes beyond what
+        # Python's own literal_eval already handles).
+        if raw.startswith("@as "):
+            raw = raw[4:].strip()
+        value = ast.literal_eval(raw)
+        if isinstance(value, list) and all(isinstance(v, str) for v in value):
+            return value
+    except (ValueError, SyntaxError):
+        pass
+    raise RuntimeError("artist-pack-apt-sources is not a valid string array")
+
+
+def apt_cache_show(package: str) -> dict | None:
+    """One `apt-cache show` record for `package`'s current candidate, or None."""
+    try:
+        proc = subprocess.run(
+            ["/usr/bin/apt-cache", "show", package],
+            capture_output=True, text=True, timeout=15, env=ENV,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    # apt-cache show can print multiple stanzas (multiple versions); the
+    # first stanza is the candidate apt would actually install.
+    stanza = proc.stdout.split("\n\n", 1)[0]
+    fields: dict[str, str] = {}
+    for line in stanza.splitlines():
+        if ":" in line and not line.startswith((" ", "\t")):
+            key, _, value = line.partition(":")
+            fields[key.strip()] = value.strip()
+    return fields
+
+
+def apt_cache_policy_source(package: str) -> str:
+    """Best-effort apt source label (origin/site) for `package`'s candidate.
+
+    `apt-cache policy` lists each candidate's provenance as a line like
+    "500 https://apt.ncz-os.example/ncz any/main arm64 Packages" under the
+    version block -- the URL there is what a configured
+    artist-pack-apt-sources entry is expected to match against. This is a
+    best-effort label for display only; the INSTALL helper independently
+    re-derives and re-validates the real source at install time rather than
+    trusting anything this inventory step reports.
+    """
+    try:
+        proc = subprocess.run(
+            ["/usr/bin/apt-cache", "policy", package],
+            capture_output=True, text=True, timeout=15, env=ENV,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    lines = proc.stdout.splitlines()
+    candidate_version = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("Candidate:"):
+            candidate_version = stripped.split(":", 1)[1].strip()
+            break
+    if not candidate_version:
+        return ""
+    # Find the version-table block for the candidate version, then take the
+    # first provenance line under it.
+    in_block = False
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r"^(?:\*\*\*\s+)?" + re.escape(candidate_version) + r"\s", stripped):
+            in_block = True
+            continue
+        if in_block:
+            if not stripped or not line.startswith((" ", "\t")):
+                break
+            # e.g. "500 https://apt.ncz-os.example/ncz any/main arm64 Packages"
+            parts = stripped.split()
+            if len(parts) >= 2 and ("://" in parts[1] or parts[1].startswith("file:")):
+                return parts[1].rstrip("/")
+    return ""
+
+
+def is_installed(package: str) -> bool:
+    try:
+        proc = subprocess.run(
+            ["/usr/bin/dpkg-query", "-W", "-f=${Status}", package],
+            capture_output=True, text=True, timeout=10, env=ENV,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0 and "install ok installed" in proc.stdout
+
+
+def main() -> int:
+    try:
+        sources = [source.rstrip("/") for source in configured_sources()]
+    except RuntimeError as exc:
+        print(f"ncz-wallpaper-pack-inventory: {exc}", file=sys.stderr)
+        return 1
+    if not sources:
+        print("[]")
+        return 0
+
+    try:
+        proc = subprocess.run(
+            ["/usr/bin/apt-cache", "search", "--names-only", "^ncz-wallpapers-"],
+            capture_output=True, text=True, timeout=20, env=ENV,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"ncz-wallpaper-pack-inventory: apt-cache search failed: {exc}", file=sys.stderr)
+        return 1
+    if proc.returncode != 0:
+        print(f"ncz-wallpaper-pack-inventory: apt-cache search exited {proc.returncode}: "
+              f"{proc.stderr.strip()}", file=sys.stderr)
+        return 1
+
+    results = []
+    for line in proc.stdout.splitlines():
+        package = line.split(" ", 1)[0].strip()
+        if not PACKAGE_PATTERN.match(package):
+            continue
+        source = apt_cache_policy_source(package)
+        if source.rstrip("/") not in sources:
+            continue
+        fields = apt_cache_show(package) or {}
+        description = fields.get("Description", package)
+        summary = description.splitlines()[0] if description else package
+        results.append({
+            "package": package,
+            # Debian carries no separate Title field; its short Description
+            # is the real human-facing package label and conventional summary.
+            "title": summary,
+            "summary": summary,
+            "version": fields.get("Version", ""),
+            "source": source,
+            "installed": is_installed(package),
+        })
+
+    print(json.dumps(results))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

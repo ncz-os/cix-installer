@@ -140,7 +140,7 @@ NCZ_BAKED=0
 # Neither produced a single line in /var/log/cix-install/ -- there is no log
 # for a hook that was never invoked, which is exactly why this went unnoticed
 # across multiple ISO revisions.
-MACHINE_HOOKS_RE="^(12-sky1-firmware|15-mesa-sky1-pin|16-mesa-gpu-2613|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|19-sinty-nm|33-network|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|49-artist-pack-browser|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize)\.sh$"
+MACHINE_HOOKS_RE="^(12-sky1-firmware|15-mesa-sky1-pin|16-mesa-gpu-2613|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|19-sinty-nm|33-network|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|49-artist-pack-browser|50-brand|52-vivaldi|53-chrome|54-gpu-accel|55-t2-firmware|55-greeter|56-icon-theme|57-qotd|58-boot-hygiene|59-desktop-curate|60-boot-splash|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize)\.sh$"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
@@ -253,6 +253,15 @@ fi
 # It was in the skip list until 2026-08-22, harmless only because the component
 # selection was being lost and desktop was therefore never actually OFF.
 _SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pack-browser|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|59-desktop-curate|60-boot-splash|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|89-npu-embed-server)\.sh$'
+# 54-gpu-accel and 55-t2-firmware are deliberately NOT in this list: GPU
+# compute (ROCm/CUDA/OpenVINO) and WiFi/BT firmware are not desktop-specific
+# concerns (a headless/console install with a discrete GPU still wants
+# compute drivers; networking firmware isn't gated on desktop apps) — each
+# hook already has its own correct BUILD_VARIANT=server|headless check for
+# the real SKU distinction. Only the install-time desktop COMPONENT toggle
+# is what this regex gates, a separate concept from BUILD_VARIANT.
+# 49-artist-pack-browser IS in this list: it is desktop-only (Singularity
+# Desktop settings UI), so it is correctly skipped when desktop is OFF.
 # Per-toggle skips (work whether desktop is ON or OFF).
 _SKIP_BROWSERS_RE='^(52-vivaldi|53-chrome)\.sh$'
 _SKIP_MGMT_RE='^(38-recovery-container)\.sh$'

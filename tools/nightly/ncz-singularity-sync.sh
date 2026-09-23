@@ -25,6 +25,11 @@
 #  - On failure: log only. Never blocks/fails other jobs on this host.
 set -uo pipefail
 
+# Captured before anything else runs, so the ARGONAS staging check below can
+# tell "a file from THIS run landed" apart from "some old file is still sitting
+# there" -- see the freshness check at step 6 for why this matters.
+SYNC_START_EPOCH="$(date +%s)"
+
 # ---- config ------------------------------------------------------------
 UPSTREAM_REPO="https://github.com/singularityos-lab/singularity-desktop.git"
 WORKDIR="/home/jasonperlow/sinty-build/sync/singularity-desktop-mirror.git"
@@ -216,12 +221,30 @@ TMP_ART="/tmp/${STAGE_NAME}"
 #
 # What remains here is VERIFICATION: confirm a dated payload actually landed
 # for this build, rather than assuming the pipeline's staging step worked.
-log "verifying the pipeline staged a payload to ARGONAS"
+log "verifying the pipeline staged a NEW payload to ARGONAS (not just an old one still sitting there)"
+# BUG FOUND 2026-09-14: this used to be `ls -t ... | head -1` -- the single
+# most-recently-modified file matching the glob, full stop. If the pipeline's
+# own scp step silently failed (it did, for over a week: ULTRA's buildkite
+# agent key was never authorized on ARGONAS after the arm64 queue moved off
+# TYDEUS), `ls -t` still happily returned whatever OLD file happened to be
+# newest among the leftovers and this script logged "OK: ... payload staged"
+# every single run. The build kept reporting success, ncz-singularity-desktop
+# went 7+ days without a real rebuild, and nothing here ever said so. `ls -t`
+# proves recency relative to OTHER staged files, not relative to THIS run --
+# only a comparison against SYNC_START_EPOCH (captured before the build was
+# even triggered) proves that.
 STAGED_LS="$(sshpass -p "$ARGONAS_PASS" ssh -o PubkeyAuthentication=no \
     -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
     "root@${ARGONAS_HOST}" "ls -t ${ARGONAS_DST}/staged/singularity-opt-*.tgz 2>/dev/null | head -1")" || true
 if [ -z "$STAGED_LS" ]; then
     fail "no staged payload found in ${ARGONAS_DST}/staged after a PASSING build #$BUILD_NUM -- the pipeline's staging step did not deliver"
+fi
+STAGED_MTIME="$(sshpass -p "$ARGONAS_PASS" ssh -o PubkeyAuthentication=no \
+    -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+    "root@${ARGONAS_HOST}" "stat -c %Y '$STAGED_LS' 2>/dev/null")" || STAGED_MTIME=0
+case "$STAGED_MTIME" in ''|*[!0-9]*) STAGED_MTIME=0 ;; esac
+if [ "$STAGED_MTIME" -le "$SYNC_START_EPOCH" ]; then
+    fail "newest staged payload $STAGED_LS predates this sync run (mtime=$STAGED_MTIME, run started=$SYNC_START_EPOCH) -- the pipeline's staging step did NOT deliver a new file this time, even though the build passed; check the buildkite job's own 'stage the payload to ARGONAS' step and ULTRA's SSH trust to ARGONAS (this exact failure mode: 2026-09-14, key never re-authorized after the arm64 queue moved off TYDEUS)"
 fi
 STAGED_SIZE="$(sshpass -p "$ARGONAS_PASS" ssh -o PubkeyAuthentication=no \
     -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \

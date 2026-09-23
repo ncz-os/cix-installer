@@ -189,7 +189,7 @@ selection.)
 * Artist: `Brandon Perlow` (with homepage + credit)
 * Image directory: `/usr/share/backgrounds/brandon-perlow/` (mini-owned
   before this task; pack.json was written by root through it, root-owned)
-* 10 numbered JPEGs: `ncz-wallpaper-08-nimbus-i-2k.jpg` …
+* 10 numbered JPEGs: `ncz-wallpaper-08-nimbus-i-4k.jpg` …
   `ncz-wallpaper-17-nimbus-ogn-iv-2k.jpg` (the original 7 plus 3 newly
   added: sittra-jump, nimbus-ogn-iii, nimbus-ogn-iv; each at 3840×2160
   except 09-nimbus-ii which is 3840×2240)
@@ -234,13 +234,13 @@ Dir=/usr/share/backgrounds/brandon-perlow
   "license_note": "LICENCE NOT YET PINNED. The author has granted permission to distribute this artwork as part of NCZ-OS, but a specific licence has not been recorded here. Anyone redistributing this package separately, or reusing the artwork outside NCZ-OS, should contact the author first.",
   "rotation": {"scope": "pack", "order": "shuffle", "interval": 600},
   "images": [
-    {"file": "ncz-wallpaper-08-nimbus-i-2k.jpg",         "title": "Nimbus I",              "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
-    {"file": "ncz-wallpaper-09-nimbus-ii-2k.jpg",        "title": "Nimbus II",             "is_animated": false, "source_geometry": {"width": 3840, "height": 2240}},
-    {"file": "ncz-wallpaper-10-cthulhu-destruction-i-2k.jpg",  "title": "Cthulhu Destruction I",   "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
-    {"file": "ncz-wallpaper-11-cthulhu-destruction-ii-2k.jpg", "title": "Cthulhu Destruction II",  "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
-    {"file": "ncz-wallpaper-12-cthulhu-destruction-iii-2k.jpg","title": "Cthulhu Destruction III", "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
-    {"file": "ncz-wallpaper-13-cthulhu-flat-2k.jpg",          "title": "Cthulhu Flat",            "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
-    {"file": "ncz-wallpaper-14-cthulhu-spaceship-2k.jpg",      "title": "Cthulhu Spaceship",       "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
+    {"file": "ncz-wallpaper-08-nimbus-i-4k.jpg",         "title": "Nimbus I",              "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
+    {"file": "ncz-wallpaper-09-nimbus-ii-4k.jpg",        "title": "Nimbus II",             "is_animated": false, "source_geometry": {"width": 3840, "height": 2240}},
+    {"file": "ncz-wallpaper-10-cthulhu-destruction-i-4k.jpg",  "title": "Cthulhu Destruction I",   "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
+    {"file": "ncz-wallpaper-11-cthulhu-destruction-ii-4k.jpg", "title": "Cthulhu Destruction II",  "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
+    {"file": "ncz-wallpaper-12-cthulhu-destruction-iii-4k.jpg","title": "Cthulhu Destruction III", "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
+    {"file": "ncz-wallpaper-13-cthulhu-flat-4k.jpg",          "title": "Cthulhu Flat",            "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
+    {"file": "ncz-wallpaper-14-cthulhu-spaceship-4k.jpg",      "title": "Cthulhu Spaceship",       "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
     {"file": "ncz-wallpaper-15-sittra-jump-2k.jpg",            "title": "Sittra Jump",             "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
     {"file": "ncz-wallpaper-16-nimbus-ogn-iii-2k.jpg",         "title": "Nimbus OGN III",          "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}},
     {"file": "ncz-wallpaper-17-nimbus-ogn-iv-2k.jpg",          "title": "Nimbus OGN IV",           "is_animated": false, "source_geometry": {"width": 3840, "height": 2160}}
@@ -460,7 +460,7 @@ TOTAL candidates seen by picker: 28
       /usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg
       /usr/share/backgrounds/ncz/default.jpg   (the symlink; own URI)
   pack brandon-perlow: 10 image(s)
-      /usr/share/backgrounds/brandon-perlow/ncz-wallpaper-08-nimbus-i-2k.jpg
+      /usr/share/backgrounds/brandon-perlow/ncz-wallpaper-08-nimbus-i-4k.jpg
       ...
       /usr/share/backgrounds/brandon-perlow/ncz-wallpaper-17-nimbus-ogn-iv-2k.jpg
   pack singularity: 10 image(s)
@@ -536,9 +536,9 @@ swaybg:       swaybg -m fill -i /usr/share/backgrounds/ncz/ncz-wallpaper-07-maxi
 #### brandon-perlow
 
 ```
-state:        /usr/share/backgrounds/brandon-perlow/ncz-wallpaper-11-cthulhu-destruction-ii-2k.jpg
+state:        /usr/share/backgrounds/brandon-perlow/ncz-wallpaper-11-cthulhu-destruction-ii-4k.jpg
 gsettings:    change_notify: /dev/sinty/desktop/background-picture-uri
-swaybg:       swaybg -m fill -i /usr/share/backgrounds/brandon-perlow/ncz-wallpaper-11-cthulhu-destruction-ii-2k.jpg
+swaybg:       swaybg -m fill -i /usr/share/backgrounds/brandon-perlow/ncz-wallpaper-11-cthulhu-destruction-ii-4k.jpg
 ```
 
 Screenshots: `attachments/o6n-desktop-brandon-perlow-2026-08-21.png`

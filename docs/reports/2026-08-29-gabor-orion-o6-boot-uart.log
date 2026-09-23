@@ -1,0 +1,126 @@
+Serial (UART) boot capture from Gábor Sebestyén <segabor@gmail.com>, received
+2026-08-29. Board: Radxa Orion O6 (ORIGINAL O6, not O6N), BIOS 1.3.1
+2026-07-16. Kernel 7.2.0-sky1-ncz, NCZ-OS installer, ncz_rev=2026.08.27,
+ncz_variant=desktop, preseed /cdrom/cixmini/preseed.cfg, ncz_diag=1.
+
+Verbatim excerpt as supplied. Two defects are visible and are analysed in
+docs/reports/2026-08-29-gabor-orion-o6-analysis.md.
+
+[    1.349732] hw perfevents: enabled with armv8_pmuv3_1 PMU driver, 7 (0,8000003f) counters available
+[    1.351253] NET: Registered PF_INET6 protocol family
+[    1.363061] registered taskstats version 1
+[    1.491884] Freeing initrd memory: 33692K
+[    1.519135] integrity: secureboot mode unknown, no efi
+[    1.533650] scmi_perf: late fwnode provider registered (12 domains)
+[    1.540521] clk-sky1-acpi CIXHA010:00: Mapped 205 ACPI clock lookup entries
+[    1.543298] cdnsp-sky1 CIXH2030:06: ---------sky1_usb_clk_disable_all----------
+[    1.550498] i2c i2c-0: using pinctrl states for GPIO recovery
+[    1.563537] clocksource: sky1_counter: mask: 0xffffffffffffffff max_cycles: 0x5c40939b5, max_idle_ns: 440795202646 ns
+[    1.568119] cix-usbdp-phy CIXH2033:00: phy init default mode 03
+[    1.569512] cix-usbdp-phy CIXH2033:01: phy init default mode 02
+[    1.570170] cix-usbdp-phy CIXH2033:01: set dp phy mode: 19
+[    1.573291] cix-usbdp-phy CIXH2033:03: set dp phy mode: 19
+[    1.574100] cix-pcie-phy CIXH2023:01: nsubnodes = 1, num_lanes = 4
+[    1.574546] cix-pcie-phy CIXH2023:02: nsubnodes = 3, num_lanes = 4
+[    1.585469] xhci-hcd xhci-hcd.6.auto: xHCI Host Controller
+[    1.618426] cix-dsp-rproc CIXH6000:00: wdg irq registered
+[    1.621209] sky1-pcie-cix sky1-pcie.1.auto: sky1_pcie_probe starting!
+[    1.823990] cix_pm: system ready - pm_runtime callbacks enabled
+[    1.830531] Freeing unused kernel memory: 4032K
+[    1.843897] sky1-pcie-cix sky1-pcie.1.auto: Link up
+[    1.848855] pci 0000:91:00.0: [144d:a80c] type 00 class 0x010802 PCIe Endpoint
+[    1.863417] nvme nvme0: pci function 0000:91:00.0
+[    1.864166] pci 0000:61:00.0: [10ec:b852] type 00 class 0x028000 PCIe Endpoint
+[    1.896320] pci 0000:31:00.0: [10ec:8126] type 00 class 0x020000 PCIe Endpoint
+[    1.938100] Run /init as init process
+[    1.938114]     preseed/file=/cdrom/cixmini/preseed.cfg
+[    1.938116]     ncz_diag=1
+[    1.938118]     ncz_variant=desktop
+[    1.938119]     ncz_rev=2026.08.27
+[    1.938120]     anna/choose_modules=network-console
+[    1.944895] pci 0000:01:00.0: [10ec:8126] type 00 class 0x020000 PCIe Endpoint
+[    2.012353] r8169 0000:31:00.0 eth0: RTL8126A, 00:48:54:20:41:84, XID 64a, IRQ 148
+[    2.028545] r8169 0000:01:00.0 eth1: RTL8126A, 00:48:54:20:41:83, XID 64a, IRQ 151
+[    2.029030] r8169 0000:31:00.0 enp49s0: renamed from eth0
+[    2.045454] r8169 0000:01:00.0 enp1s0: renamed from eth1
+[    2.064440] nvme nvme0: 12/0/0 default/read/poll queues
+[    2.069713]  nvme0n1: p1 p2 p3
+[    2.068087] usb 3-1: New USB device found, idVendor=13d3, idProduct=3570 (Realtek Bluetooth Radio)
+[    2.068452] usb 2-1: New USB device found, idVendor=05ac, idProduct=1003 (Hub in Apple Extended USB Keyboard)
+[    2.340125] usb 10-1: New USB device found, idVendor=0781, idProduct=5591 (SanDisk Ultra USB 3.0)
+[    2.439024] rtw89_core: Unknown symbol ieee80211_stop_tx_ba_session (err -2)
+[    2.439251] rtw89_core: Unknown symbol ieee80211_gtk_rekey_notify (err -2)
+   ... (rtw89_core reports ~70 further Unknown symbol errors, all mac80211/cfg80211) ...
+[    2.450111] rtw89_core: Unknown symbol ieee80211_rx_napi (err -2)
+[    2.460805] usb 2-1.1: New USB device found, idVendor=046d, idProduct=c050 (Logitech USB-PS/2 Optical Mouse)
+[    2.641023] usb 2-1.3: New USB device found, idVendor=05ac, idProduct=020b (Apple Extended USB Keyboard)
+[    2.667439] [drm] Found ARMCHINA Linlon-D60 version r0p0
+[    2.668042] linlondp_parse_acpi node.name=pipeline@0
+[    2.668360] linlondp_parse_acpi pipeId=0, n_pipelines=2
+[    2.669405] [drm] Pipeline-0: n_layers: 4, n_scalers: 2, output: single-link  1 PPC
+[    2.670270] [drm]     output_link[0]: DP00.
+[    2.672217] [drm] Found ARMCHINA Linlon-D60 version r0p0   (DP01)
+[    2.688131] [drm] Found ARMCHINA Linlon-D60 version r0p0   (DP02)
+[    2.696967] [drm] Found ARMCHINA Linlon-D60 version r0p0   (DP03)
+[    2.705904] [drm] Found ARMCHINA Linlon-D60 version r0p0   (DP04)
+[    2.714346] linlondp-cluster CIXH50C0:00: linlon-cluster: ACPI cluster HID CIXH50C0 (CIXH50C0:00) - match CIXH50C0 / cix,dpu-acpi-paths or c0
+[    2.714966] linlondp_add_acpi_slave. remote.name=CIXH502F:00
+[    2.716118] linlondp_add_acpi_slave. remote.name=CIXH502F:01
+[    2.717229] linlondp_add_acpi_slave. remote.name=CIXH502F:02
+[    2.718316] linlondp_add_acpi_slave. remote.name=CIXH502F:03
+[    2.719370] linlondp_add_acpi_slave. remote.name=CIXH502F:04
+[    2.720407] linlondp-cluster CIXH50C0:00: linlon-cluster: registered 5 DPU(s) for ACPI cluster CIXH50C0, component master
+[    2.721290] Console: switching to colour dummy device 80x25
+[    2.721645] [drm] CRTC-0: master(pipe-0) slave(pipe-1) sbs(Off).
+[    2.721663] [drm] CRTC-1: master(pipe-1) slave(pipe-0) sbs(Off).
+   ... CRTC-2 through CRTC-9, alternating master/slave ...
+[    2.721743] [drm] CRTC-9: master(pipe-1) slave(pipe-0) sbs(Off).
+
+=== DEFECT 1: DRM plane init warning ===
+[    2.723238] ------------[ cut here ]------------
+[    2.723250] WARNING: /usr/src/kernel/drivers/gpu/drm/drm_plane.c:379 at __drm_universal_plane_init+0x4b8/0x668, CPU#8: (udev-worker)/237
+[    8.139196] Modules linked in: trilin_dpsub linlon_dp(+) rfkill drm_display_helper drm_client_lib cec drm_dma_helper drm_kms_helper cppc_cpu0
+[    8.153108] CPU: 8 UID: 0 PID: 237 Comm: (udev-worker) Tainted: G S                  7.2.0-sky1-ncz #1 PREEMPTLAZY
+[    8.163535] Tainted: [S]=CPU_OUT_OF_SPEC
+[    8.167446] Hardware name: Radxa Computer (Shenzhen) Co., Ltd. Radxa Orion O6/Radxa Orion O6, BIOS 1.3.1 2026-07-16T11:55:04+00:00
+[    8.186125] pc : __drm_universal_plane_init+0x4b8/0x668
+[    8.191342] lr : drm_universal_plane_init+0x70/0xb0
+[    8.270782] Call trace:
+[    8.273219]  __drm_universal_plane_init+0x4b8/0x668 (P)
+[    8.278437]  drm_universal_plane_init+0x70/0xb0
+[    8.282958]  linlondp_kms_add_planes_multi+0x22c/0x720 [linlon_dp]
+[    8.289140]  linlondp_kms_attach_cluster+0x160/0x320 [linlon_dp]
+[    8.295142]  linlondp_cluster_bind+0x164/0x500 [linlon_dp]
+[    8.300623]  try_to_bring_up_aggregate_device+0x240/0x330
+[    8.306022]  component_master_add_with_match+0xd4/0x120
+[    8.311239]  linlondp_cluster_probe+0x47c/0x730 [linlon_dp]
+[    8.316806]  platform_probe+0x64/0xb8
+[    8.320470]  really_probe+0xc8/0x3e8
+[    8.356207]  linlondp_mod_init+0x68/0xfb8 [linlon_dp]
+[    8.361253]  do_one_initcall+0x5c/0x438
+[    8.405388] ---[ end trace 0000000000000000 ]---
+
+=== DEFECT 2: five managed device-link deletions, one per DPU ===
+[    8.410288] Unable to drop a managed device link reference
+[    8.410300] WARNING: /usr/src/kernel/drivers/base/core.c:1020 at device_link_put_kref+0x34/0xd0, CPU#9: (udev-worker)/237
+[    8.485785] pc : device_link_put_kref+0x34/0xd0
+[    8.569395] Call trace:
+[    8.571832]  device_link_put_kref+0x34/0xd0 (P)
+[    8.576355]  device_link_del+0x34/0x58
+[    8.580095]  linlondp_cluster_bind+0x2a0/0x500 [linlon_dp]
+[    8.585581]  try_to_bring_up_aggregate_device+0x240/0x330
+[    8.590971]  component_master_add_with_match+0xd4/0x120
+[    8.596187]  linlondp_cluster_probe+0x47c/0x730 [linlon_dp]
+[    8.690293] ---[ end trace 0000000000000000 ]---
+   ... the same warning repeats four more times, x21 = 0x1, 0x2, 0x3, 0x4,
+   i.e. once per registered DPU (CIXH502F:00..04) ...
+[    9.529544] Unable to drop a managed device link reference
+[    9.550601] WARNING: /usr/src/kernel/drivers/base/core.c:1020 at device_link_put_kref+0x34/0xd0, CPU#0: (udev-worker)/237
+[    9.639226] x21: 0000000000000004
+[    9.721536]  really_probe+0xc8/0x3e8
+
+=== storage and installer came up regardless ===
+[    3.397209] scsi 0:0:0:0: Direct-Access     SanDisk  Ultra USB 3.0    1.00 PQ: 0 ANSI: 6
+[    3.402687] sd 0:0:0:0: [sda] 30031872 512-byte logical blocks: (15.4 GB/14.3 GiB)
+   installer menu reached: "0 start  (1**installer)  2 shell  3 shell  4- log"
+   rtw89_core Unknown symbol errors continue to repeat at ~11.55s.

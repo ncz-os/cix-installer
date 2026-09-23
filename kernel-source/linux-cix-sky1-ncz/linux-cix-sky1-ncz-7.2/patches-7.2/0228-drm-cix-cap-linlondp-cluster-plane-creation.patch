@@ -1,0 +1,169 @@
+From a9d216e09e6f6ea5c2576447e869c326f3082698 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 29 Aug 2026 11:03:15 -0400
+Subject: [PATCH] drm/cix: cap linlondp cluster plane creation
+
+The DRM plane index is used in 32-bit masks, and v7.2 rejects plane 32 and above in __drm_universal_plane_init(). A five-DPU CIX Sky1 cluster exposes two pipelines with four layers per DPU, which asks one DRM device for 40 planes. Plane creation then fails partway through KMS attach, so the whole display cluster never binds and the board has no display.
+
+Count the requested cluster planes up front, allocate every primary plane before any overlay, and then add overlays only while the DRM plane budget remains. Four-DPU systems that request exactly 32 planes still receive all of them, while five-DPU systems keep one primary per CRTC and skip only the excess overlays with an explicit log that names the requested count, created count and DRM limit.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ .../gpu/drm/cix/linlon-dp/linlondp_plane.c    | 103 ++++++++++++++----
+ 1 file changed, 83 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_plane.c b/drivers/gpu/drm/cix/linlon-dp/linlondp_plane.c
+index 53e8901..b555923 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/linlondp_plane.c
++++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_plane.c
+@@ -15,6 +15,12 @@
+ #include "linlondp_kms.h"
+ #include "linlondp_framebuffer.h"
+ 
++/*
++ * __drm_universal_plane_init() in drm_plane.c uses 32-bit plane masks
++ * and rejects plane index 32 and above.
++ */
++#define LINLONDP_DRM_PLANE_LIMIT 32
++
+ static int linlondp_plane_init_data_flow(struct drm_plane_state *st,
+ 					 struct linlondp_crtc_state *kcrtc_st,
+ 					 struct linlondp_data_flow_cfg *dflow)
+@@ -402,12 +408,16 @@ static void linlondp_set_crtc_plane_mask(struct linlondp_kms_dev *kms,
+ }
+ 
+ /* use Layer0 as primary */
++static bool linlondp_layer_is_primary(struct linlondp_layer *layer)
++{
++	return layer->base.id == LINLONDP_COMPONENT_LAYER0;
++}
++
+ static u32 get_plane_type(struct linlondp_kms_dev *kms,
+ 			  struct linlondp_component *c)
+ {
+-	bool is_primary = (c->id == LINLONDP_COMPONENT_LAYER0);
+-
+-	return is_primary ? DRM_PLANE_TYPE_PRIMARY : DRM_PLANE_TYPE_OVERLAY;
++	return c->id == LINLONDP_COMPONENT_LAYER0 ?
++	       DRM_PLANE_TYPE_PRIMARY : DRM_PLANE_TYPE_OVERLAY;
+ }
+ 
+ /**
+@@ -642,43 +652,96 @@ int linlondp_kms_add_planes(struct linlondp_kms_dev *kms,
+ 	return linlondp_kms_add_planes_multi(kms, &mdev, 1);
+ }
+ 
+-int linlondp_kms_add_planes_multi(struct linlondp_kms_dev *kms,
+-				  struct linlondp_dev **mdevs,
+-				  unsigned int n_mdevs)
++static int linlondp_kms_count_planes_multi(struct linlondp_dev **mdevs,
++					  unsigned int n_mdevs,
++					  unsigned int *primaries)
+ {
+-	struct linlondp_pipeline *pipe;
+-	unsigned int di, n_planes;
+-	int i, j, err;
++	unsigned int di, n_planes = 0, n_primaries = 0;
++	int i, j;
+ 
+-	/* __drm_universal_plane_init() rejects num_total_plane >= 64. */
+-	n_planes = 0;
+ 	for (di = 0; di < n_mdevs; di++) {
+ 		struct linlondp_dev *mdev = mdevs[di];
+ 
+ 		for (i = 0; i < mdev->n_pipelines; i++) {
+-			pipe = mdev->pipelines[i];
+-			n_planes += pipe->n_layers;
++			struct linlondp_pipeline *pipe = mdev->pipelines[i];
++
++			for (j = 0; j < pipe->n_layers; j++) {
++				n_planes++;
++				if (linlondp_layer_is_primary(pipe->layers[j]))
++					n_primaries++;
++			}
+ 		}
+ 	}
+-	if (n_planes > 64) {
+-		DRM_ERROR("linlondp: %u planes exceed DRM core limit (64); fewer DPUs or layers required for one card\n",
+-			  n_planes);
+-		return -EINVAL;
+-	}
++
++	*primaries = n_primaries;
++	return n_planes;
++}
++
++static int linlondp_kms_add_planes_by_type(struct linlondp_kms_dev *kms,
++					   struct linlondp_dev **mdevs,
++					   unsigned int n_mdevs,
++					   enum drm_plane_type type,
++					   unsigned int *created)
++{
++	unsigned int di;
++	int i, j, err;
+ 
+ 	for (di = 0; di < n_mdevs; di++) {
+ 		struct linlondp_dev *mdev = mdevs[di];
+ 
+ 		for (i = 0; i < mdev->n_pipelines; i++) {
+-			pipe = mdev->pipelines[i];
++			struct linlondp_pipeline *pipe = mdev->pipelines[i];
+ 
+ 			for (j = 0; j < pipe->n_layers; j++) {
+-				err = linlondp_plane_add(kms, pipe->layers[j]);
++				struct linlondp_layer *layer = pipe->layers[j];
++
++				if (get_plane_type(kms, &layer->base) != type)
++					continue;
++				if (*created >= LINLONDP_DRM_PLANE_LIMIT)
++					return 0;
++
++				err = linlondp_plane_add(kms, layer);
+ 				if (err)
+ 					return err;
++				(*created)++;
+ 			}
+ 		}
+ 	}
+ 
+ 	return 0;
+ }
++
++int linlondp_kms_add_planes_multi(struct linlondp_kms_dev *kms,
++				  struct linlondp_dev **mdevs,
++				  unsigned int n_mdevs)
++{
++	unsigned int n_planes, n_primaries, created = 0;
++	int err;
++
++	n_planes = linlondp_kms_count_planes_multi(mdevs, n_mdevs,
++						     &n_primaries);
++	if (n_primaries > LINLONDP_DRM_PLANE_LIMIT) {
++		DRM_ERROR("linlondp: %u primary planes exceed DRM core limit (%u); fewer CRTCs required for one card\n",
++			  n_primaries, LINLONDP_DRM_PLANE_LIMIT);
++		return -EINVAL;
++	}
++
++	err = linlondp_kms_add_planes_by_type(kms, mdevs, n_mdevs,
++					       DRM_PLANE_TYPE_PRIMARY, &created);
++	if (err)
++		return err;
++
++	err = linlondp_kms_add_planes_by_type(kms, mdevs, n_mdevs,
++					       DRM_PLANE_TYPE_OVERLAY, &created);
++	if (err)
++		return err;
++
++	if (created < n_planes)
++		DRM_WARN("linlondp: requested %u planes, created %u; DRM core limit is %u, skipping excess overlays\n",
++			 n_planes, created, LINLONDP_DRM_PLANE_LIMIT);
++	else
++		DRM_INFO("linlondp: requested %u planes, created %u; DRM core limit is %u\n",
++			 n_planes, created, LINLONDP_DRM_PLANE_LIMIT);
++
++	return 0;
++}
+-- 
+2.55.0
+

@@ -237,11 +237,27 @@ mkdir -p "$(dirname "$OUT")"
 #
 # Writing the suffix as a localversion file makes the tree self-consistent, so
 # a regeneration reproduces the same release string instead of a different one.
+#
+# BUG (measured on O6N 2026-09-13, 7.3.0-rc3-sky1-ncz headers): on an -rcN
+# kernel the Makefile's own EXTRAVERSION already contributes "-rcN" to the
+# release string kbuild computes (KERNELVERSION = VERSION.PATCHLEVEL.SUBLEVEL
+# + EXTRAVERSION). The base computed here originally omitted EXTRAVERSION, so
+# stripping only "7.3.0" from KVER="7.3.0-rc3-sky1-ncz" left a suffix of
+# "-rc3-sky1-ncz" -- which, appended to kbuild's own "7.3.0-rc3", produced a
+# DOUBLED release string "7.3.0-rc3-rc3-sky1-ncz" after modules_prepare. Every
+# DKMS module built against that tree got stamped with the wrong vermagic and
+# would have refused to load against the real "7.3.0-rc3-sky1-ncz" kernel --
+# same failure class as the bug this whole mechanism exists to prevent, just
+# reached from the -rcN direction instead of the release-vs-final direction.
+# Fix: include EXTRAVERSION in the base before computing the suffix, so only
+# the NCZ-specific tail (e.g. "-sky1-ncz") ends up in localversion-ncz and
+# kbuild's own EXTRAVERSION supplies the "-rcN" part exactly once.
 _base=$(sed -n 's/^VERSION = *//p;' "$ROOT/Makefile" 2>/dev/null | head -1)
 _patch=$(sed -n 's/^PATCHLEVEL = *//p' "$ROOT/Makefile" 2>/dev/null | head -1)
 _sub=$(sed -n 's/^SUBLEVEL = *//p' "$ROOT/Makefile" 2>/dev/null | head -1)
+_extra=$(sed -n 's/^EXTRAVERSION = *//p' "$ROOT/Makefile" 2>/dev/null | head -1)
 if [ -n "$_base" ] && [ -n "$_patch" ]; then
-    _kbase="$_base.$_patch${_sub:+.$_sub}"
+    _kbase="$_base.$_patch${_sub:+.$_sub}${_extra}"
     case "$KVER" in
         "$_kbase"?*)
             _suffix=${KVER#"$_kbase"}

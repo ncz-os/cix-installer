@@ -9,6 +9,7 @@ assets/agent-images/*.oci.tar
 assets/agent-images/*.tar
 assets/branding/_candidates/
 assets/cix-debs/*.deb
+assets/wallpaper-debs/*.deb
 assets/gpu/*.tar.gz
 assets/gpu/*.tar.zst
 assets/kernel/*.bin
@@ -80,6 +81,7 @@ build/*.iso.*-part*
 build/iso-staging/
 build/iso-staging-di/
 build/kernel-debs/
+build/dkms-debs/
 build/libdrm-debs/
 build/keys/
 build/*.log
@@ -156,3 +158,4 @@ build/gst-cix-out/
 # build/tools/extracted/ — gitignored so the build host doesn't accidentally
 # commit a copy of /usr/sbin/debootstrap into the repo)
 build/tools/
+assets/kernel/*/headers-dir/

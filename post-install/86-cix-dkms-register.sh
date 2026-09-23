@@ -19,6 +19,16 @@
 # is allowed to be fatal.
 set -uo pipefail
 
+# NPU (aipu) and VPU (amvx) are Sky1/arm64-only hardware. Without this guard,
+# run-all.sh runs this hook unconditionally on every image including amd64 T2
+# builds -- same class of bug fixed 2026-09-22 in 83-panthor-gpu.sh. Match the
+# arch-guard convention from 54-gpu-accel.sh / 55-t2-firmware.sh /
+# 83-panthor-gpu.sh.
+if [ "$(dpkg --print-architecture 2>/dev/null)" != "arm64" ]; then
+    echo "[86] not arm64 (Sky1 NPU/VPU hardware only) -- skipping"
+    exit 0
+fi
+
 INSTALLER_META=/usr/local/lib/cix-installer
 
 KVER_NEXT=""

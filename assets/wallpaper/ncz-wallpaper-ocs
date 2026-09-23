@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Browse and import Open Collaboration Services wallpapers."""
+"""Browse and import Open Collaboration Services wallpapers.
+
+Imports accumulate into a single user-side collection (Imported from OCS)
+under ~/.local/share/backgrounds/imported-ocs/, with per-image sidecar
+JSON files (one per imported image) carrying the OCS provenance that the
+old per-import pack.json used to carry. See docs/WALLPAPER-PACKS.md for
+the rationale."""
 
 from __future__ import annotations
 
@@ -31,13 +37,31 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 ARCHIVE_EXTENSIONS = {".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2"}
 IMPORTABLE_EXTENSIONS = IMAGE_EXTENSIONS | ARCHIVE_EXTENSIONS
 
+# The single, persistent user collection that accumulates every OCS import.
+# One directory, one .collection file, many images, each image gets its own
+# per-image sidecar carrying what the old per-pack pack.json used to carry.
+# See docs/WALLPAPER-PACKS.md section 5 for the rationale.
+IMPORTED_OCS_DIRNAME = "imported-ocs"
+IMPORTED_OCS_COLLECTION_ID = IMPORTED_OCS_DIRNAME
+IMPORTED_OCS_COLLECTION_NAME = "Imported from OCS"
+
+# opendesktop.org and pling.com are the same OCS content network under two
+# brand names (opendesktop.org today just redirects to pling.com) -- listing
+# both as separate browsable sources duplicated the same content twice.
+# Confirmed and removed 2026-09-07 (operator, live-testing the OCS browser).
 PROVIDERS: dict[str, dict[str, str]] = {
     "pling": {"base": "https://api.pling.com/ocs/v1/", "web": "https://www.pling.com/p/{id}"},
-    "opendesktop": {"base": "https://api.opendesktop.org/ocs/v1/", "web": "https://www.opendesktop.org/p/{id}"},
     "kde-look": {"base": "https://api.kde-look.org/ocs/v1/", "web": "https://www.kde-look.org/p/{id}"},
     "gnome-look": {"base": "https://api.gnome-look.org/ocs/v1/", "web": "https://www.gnome-look.org/p/{id}"},
 }
 
+PROVIDER_NAMES = {"pling": "Pling", "kde-look": "KDE Look", "gnome-look": "GNOME Look"}
+STALE_CACHE = False
+# OCS accepts `pagesize` between 1 and 100; 101 and above answer
+# statuscode 400 "Page size out of range" (measured 2026-09-12 against
+# api.pling.com), which fetch_xml turns into a hard failure. Clamp rather
+# than forwarding a caller's number straight to the server.
+MAX_PAGE_SIZE = 100
 
 def die(message: str, code: int = 1) -> None:
     print(f"ERROR: {message}", file=sys.stderr)
@@ -145,12 +169,75 @@ def get_categories(provider: str) -> list[dict[str, Any]]:
     return [parse_category(c) for c in root.findall(".//category")]
 
 
-def get_items(provider: str, category: str, pages: int = 1) -> list[dict[str, Any]]:
+def clamp_page_size(value: int) -> int:
+    return max(1, min(MAX_PAGE_SIZE, value))
+
+
+def atomic_text(path: Path, text: str) -> None:
+    fd, name = tempfile.mkstemp(prefix=".ocs-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def get_items(provider: str, category: str, pages: int = 1, page_size: int = 0) -> list[dict[str, Any]]:
+    global STALE_CACHE
+    # Persistent normalized catalog pages. Import detail/download URLs are
+    # deliberately fetched fresh by get_item(), never taken from this cache.
+    import fcntl
+    import hashlib
+    import time
+    cache_root = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "ncz-wallpapers/ocs/v1"
+    cache_root.mkdir(parents=True, exist_ok=True)
+    # page_size is part of the key: the same category at a different page
+    # size is a different result set, and reusing one for the other would
+    # silently serve a 10-item page to a caller that asked for 50.
+    cache = cache_root / (hashlib.sha256(f"{provider}:{category}:{pages}:{page_size}".encode()).hexdigest() + ".json")
+    with (cache_root / (cache.stem + ".lock")).open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        saved = None
+        try:
+            saved = json.loads(cache.read_text())
+            if not isinstance(saved, list):
+                saved = None
+            if saved is not None and os.environ.get("NCZ_WALLPAPER_REFRESH") != "1" and time.time() - cache.stat().st_mtime < 21600:
+                return saved
+        except (OSError, ValueError):
+            pass
+        try:
+            items = fetch_items(provider, category, pages, page_size)
+            atomic_text(cache, json.dumps(items))
+            return items
+        except SystemExit:
+            if saved is not None:
+                STALE_CACHE = True
+                print("Using cached OCS results after refresh failure", file=sys.stderr)
+                return saved
+            raise
+
+
+def fetch_items(provider: str, category: str, pages: int = 1, page_size: int = 0) -> list[dict[str, Any]]:
+    """Collect importable items from `pages` consecutive OCS pages.
+
+    OCS `page` is 0-indexed, so page 0 is the request with no `page` param.
+    `page_size` maps to the OCS `pagesize` parameter; 0 leaves it unset and
+    the server applies its own default of 10 (measured 2026-09-12 on all
+    three shipped providers via <meta><itemsperpage>). A caller that wants a
+    meaningful slice of a category MUST pass one: pling category 300 alone
+    reports <totalitems>1971</totalitems>, so the 10-item default surfaces
+    about half a percent of it.
+    """
     items: list[dict[str, Any]] = []
+    size = clamp_page_size(page_size) if page_size else 0
     for page in range(max(1, pages)):
         params = {"categories": str(category)}
         if page:
             params["page"] = str(page)
+        if size:
+            params["pagesize"] = str(size)
         root = fetch_xml(endpoint(provider, "content/data", params))
         for elem in root.findall(".//content"):
             item = parse_content(elem, provider)
@@ -327,6 +414,73 @@ def unique_dest(base: Path, pack_id: str) -> Path:
         n += 1
 
 
+def imported_ocs_dir(base_dir: Path) -> Path:
+    """The single shared directory every OCS import lands in."""
+    return base_dir / IMPORTED_OCS_DIRNAME
+
+
+def ensure_imported_ocs_collection(dest: Path) -> Path:
+    """Create the shared .collection file ONCE (idempotent) and return its
+    path. Subsequent imports do not touch it -- the .collection file is
+    registered as a singleton on first import and left alone thereafter."""
+    collection_dir = (
+        Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+        / "ncz-wallpapers" / "collections"
+    )
+    collection_dir.mkdir(parents=True, exist_ok=True)
+    collection = collection_dir / f"{IMPORTED_OCS_COLLECTION_ID}.collection"
+    if collection.exists():
+        return collection
+    # No "Artist=" key: images come from many different uploaders across many
+    # providers, so a single fixed artist string would be a lie that overrides
+    # the per-image sidecar credit. WallpaperCollections.parse() treats a
+    # missing Artist as artist="", which is what we want -- the per-image
+    # sidecar (and the in-browser message label) carries the real attribution.
+    fields = [
+        "[Collection]",
+        f"Id={IMPORTED_OCS_COLLECTION_ID}",
+        f"Name={IMPORTED_OCS_COLLECTION_NAME}",
+        "Comment=User-fetched OCS wallpapers, accumulated from many items/providers",
+        "Type=static",
+        f"Dir={dest}",
+        "Origin=ocs",
+    ]
+    collection.write_text("\n".join(fields) + "\n", encoding="utf-8")
+    return collection
+
+
+def write_image_sidecar(image_path: Path, image_record: dict, item: dict, item_id: str,
+                        author_name: str, provider: str, final_url: str, imported_at: str) -> Path:
+    """Write the per-image provenance sidecar (<image-basename>.json) next
+    to the normalized image. Carries everything the old per-pack pack.json
+    carried, scoped to a single image: provider, author, license, source
+    OCS id, detail page, download info, normalization geometry."""
+    sidecar_path = image_path.with_suffix(".json")
+    sidecar = {
+        "schema": SCHEMA,
+        "origin": "ocs",
+        "pack_id": IMPORTED_OCS_COLLECTION_ID,
+        "image": image_record,
+        "artist": {"name": author_name, "credit": f"{author_name} from {provider}"},
+        "provider": provider,
+        "source": {
+            "ocs_id": item_id,
+            "detailpage": item["detailpage"],
+            "download_url": item["download"]["url"],
+            "resolved_download_url": final_url,
+            "downloadname1": item["download"]["name"],
+            "downloadsize1_kib": item["download"]["size_kib"],
+            "tags": item["tags"],
+        },
+        "license": item.get("license") if item.get("license") else None,
+        "license_note": "not specified by the OCS item" if not item.get("license") else None,
+        "imported_at": imported_at,
+    }
+    sidecar = {k: v for k, v in sidecar.items() if v is not None}
+    sidecar_path.write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return sidecar_path
+
+
 def write_legacy_collection(pack_id: str, name: str, dest: Path, author: str | None) -> Path:
     collection_dir = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "ncz-wallpapers" / "collections"
     collection_dir.mkdir(parents=True, exist_ok=True)
@@ -347,10 +501,15 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
     if not download["url"]:
         die(f"{provider}:{item_id} has no downloadlink1")
 
-    pack_id = f"ocs-{provider}-{item_id}-{slugify(item['name'])}"[:96].rstrip("-")
-    dest = unique_dest(base_dir, pack_id)
+    # All OCS imports land in the single shared "imported-ocs" directory;
+    # the .collection file is created once and left alone on subsequent calls.
+    dest = imported_ocs_dir(base_dir)
     if dry_run:
-        return {"pack_id": pack_id, "destination": str(dest), "item": item}
+        return {
+            "pack_id": IMPORTED_OCS_COLLECTION_ID,
+            "destination": str(dest),
+            "item": item,
+        }
 
     with tempfile.TemporaryDirectory(prefix="ncz-ocs-") as tmp_s:
         tmp = Path(tmp_s)
@@ -364,47 +523,41 @@ def import_item(provider: str, item_id: str, width: int, height: int, base_dir: 
         if not images:
             die(f"{provider}:{item_id} contained no JPEG/PNG/WebP payload after real MIME sniffing")
 
-        dest.mkdir(parents=True)
+        # Idempotent on first call (and only first call): creates the dir,
+        # registers the .collection file, leaves it alone thereafter. Per-image
+        # filenames are prefixed <provider>-<id>- so two different imports
+        # landing in the same shared directory cannot collide.
+        dest.mkdir(parents=True, exist_ok=True)
+        collection = ensure_imported_ocs_collection(dest)
+
+        author = item["author"] or "OCS uploader unknown"
+        imported_at = now_iso()
         normalized: list[dict[str, Any]] = []
         for idx, src in enumerate(images, start=1):
             src_w, src_h = image_geometry(src)
-            out = dest / f"{idx:02d}-{slugify(src.stem)}.jpg"
+            filename = f"{provider}-{item_id}-{idx:02d}-{slugify(src.stem)}.jpg"
+            out = dest / filename
             normalize_image(src, out, width, height)
-            normalized.append({
+            image_record = {
                 "file": out.name,
                 "title": item["name"] if len(images) == 1 else src.stem,
                 "source_file": src.name,
                 "source_geometry": {"width": src_w, "height": src_h},
                 "normalized_geometry": {"width": width, "height": height},
+            }
+            sidecar_path = write_image_sidecar(out, image_record, item, item_id, author, provider, final_url, imported_at)
+            normalized.append({
+                "file": out.name,
+                "title": image_record["title"],
+                "sidecar": sidecar_path.name,
             })
 
-        author = item["author"] or "OCS uploader unknown"
-        pack: dict[str, Any] = {
-            "schema": SCHEMA,
-            "id": pack_id,
-            "name": item["name"],
-            "artist": {"name": author, "credit": f"{author} from {provider}"},
-            "origin": "ocs",
-            "provider": provider,
-            "source": {
-                "ocs_id": item_id,
-                "detailpage": item["detailpage"],
-                "download_url": download["url"],
-                "resolved_download_url": final_url,
-                "downloadname1": download["name"],
-                "downloadsize1_kib": download["size_kib"],
-                "tags": item["tags"],
-            },
-            "license": item.get("license") if item.get("license") else None,
-            "license_note": "not specified by the OCS item" if not item.get("license") else None,
-            "rotation": {"scope": "pack", "order": "shuffle", "interval": 600},
-            "images": normalized,
-        }
-        pack = {k: v for k, v in pack.items() if v is not None}
-        (dest / "pack.json").write_text(json.dumps(pack, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        collection = write_legacy_collection(pack_id, item["name"], dest, item["author"])
-
-    return {"pack_id": pack_id, "destination": str(dest), "collection": str(collection), "images": normalized, "pack_json": str(dest / "pack.json")}
+    return {
+        "pack_id": IMPORTED_OCS_COLLECTION_ID,
+        "destination": str(dest),
+        "collection": str(collection),
+        "images": normalized,
+    }
 
 
 def cmd_providers(_: argparse.Namespace) -> None:
@@ -425,7 +578,24 @@ def cmd_index(args: argparse.Namespace) -> None:
 
 
 def cmd_browse(args: argparse.Namespace) -> None:
-    print(json.dumps({"schema": SCHEMA, "provider": args.provider, "category": args.category, "items": get_items(args.provider, args.category, args.pages)}, indent=2, sort_keys=True))
+    from concurrent.futures import ThreadPoolExecutor
+    networks = list(PROVIDERS) if args.provider == "ocs" else [args.provider]
+    items = []
+    errors = []
+    def browse_network(network):
+        try:
+            return network, get_items(network, args.category, args.pages, args.page_size)
+        except SystemExit:
+            return network, None
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for network, result in pool.map(browse_network, networks):
+            if result is None:
+                errors.append(network)
+            else:
+                items.extend(result)
+    if len(errors) == len(networks):
+        die("All OCS networks failed for this category")
+    print(json.dumps({"schema": SCHEMA, "provider": args.provider, "category": args.category, "items": items, "failed_networks": errors, "stale": STALE_CACHE}, indent=2, sort_keys=True))
 
 
 def cmd_item(args: argparse.Namespace) -> None:
@@ -452,7 +622,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("browse", help="list importable items in a category")
     p.add_argument("provider")
     p.add_argument("category")
-    p.add_argument("--pages", type=int, default=1)
+    p.add_argument("--pages", type=int, default=1, help="number of consecutive OCS pages to walk")
+    p.add_argument("--page-size", type=int, default=0, dest="page_size",
+                   help=f"OCS pagesize, 1-{MAX_PAGE_SIZE} (clamped); 0 uses the server default of 10")
     p.set_defaults(func=cmd_browse)
     p = sub.add_parser("item", help="fetch one OCS item")
     p.add_argument("provider")

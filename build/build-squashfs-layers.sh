@@ -372,6 +372,15 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/wallpaper/." "$MG/usr/local/lib/cix-installer/assets/wallpaper/" 2>/dev/null || true
       log "  staged wallpaper backend assets ($(find "$ROOT/assets/wallpaper" -type f | wc -l | tr -d ' ') files)"
     fi
+    # Artist Pack .debs (build/build-wallpaper-contrib-deb.sh), gitignored
+    # blobs staged onto the build host like assets/cix-debs -- 45-wallpaper
+    # dpkg -i's whatever lands here, so a build without any staged is a
+    # normal (not broken) desktop, just without the contributed art.
+    if [ -d "$ROOT/assets/wallpaper-debs" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/wallpaper-debs"
+      sudo cp -a "$ROOT/assets/wallpaper-debs/." "$MG/usr/local/lib/cix-installer/assets/wallpaper-debs/" 2>/dev/null || true
+      log "  staged wallpaper Artist Pack debs ($(find "$ROOT/assets/wallpaper-debs" -type f -name '*.deb' | wc -l | tr -d ' ') packages)"
+    fi
     # r181: stage the Vivaldi .deb so 52-vivaldi.sh installs the browser OFFLINE
     # (the MNEMOS + agent launchers Exec vivaldi-stable; epiphany can't play
     # YouTube on arm64). Self-contained .deb, no mirror/closure changes needed.
@@ -379,6 +388,18 @@ build_layer(){ local role="$1" manifest="$2"
       sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/vivaldi"
       sudo cp -a "$ROOT/assets/vivaldi/." "$MG/usr/local/lib/cix-installer/assets/vivaldi/" 2>/dev/null || true
       log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
+    fi
+    # Stage NVIDIA's real cuda-keyring .deb so 54-gpu-accel.sh (AMD64) can
+    # wire the official CUDA apt repo without a build-time network fetch --
+    # small (~4KB) signing-key installer, committed directly rather than
+    # gitignored like the large binary staging dirs above. AMD/Intel don't
+    # need pre-staging: their signing keys are fetched at real INSTALL time
+    # (54-gpu-accel.sh already handles that with its own validation), only
+    # NVIDIA ships its key as an installable .deb rather than a bare key URL.
+    if [ -d "$ROOT/assets/nvidia" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/nvidia"
+      sudo cp -a "$ROOT/assets/nvidia/." "$MG/usr/local/lib/cix-installer/assets/nvidia/" 2>/dev/null || true
+      log "  staged nvidia cuda-keyring asset ($(find "$ROOT/assets/nvidia" -type f | wc -l | tr -d ' ') files)"
     fi
     # Google Chrome installs from the profile-matched offline mirror. No
     # separate asset staging is needed here.
@@ -571,8 +592,33 @@ with open(output, "w", encoding="utf-8") as stream:
         stream.write(f"{operation}\t{path}\n")
 PYOVERLAY
   log "$role: mksquashfs upperdir delta -> $OUT/$role.squashfs"
+  # -xattrs-exclude is REPEATED, not replaced: mksquashfs accepts the flag more
+  # than once and the matches are OR'd.
+  #   ^trusted\.overlay\.  -- overlayfs internals (opaque/metacopy/redundant
+  #                          markers). Plain unsquashfs cannot replay them;
+  #                          keep them out of the published archive.
+  #   ^security\.selinux  -- HOST SELinux labels. NCZ-OS is a Debian image and
+  #                          must not carry the build host's MAC labels: on a
+  #                          Fedora Asahi host (or any podman-managed build)
+  #                          these come from THIS machine's SELinux policy
+  #                          (e.g. system_u:object_r:container_file_t:s0:c1022,
+  #                          c1023 = podman per-container MCS categories), and
+  #                          they are meaningless inside a Debian rootfs that
+  #                          is never going to be evaluated by that policy.
+  #                          Their presence also caused a false-positive
+  #                          corruption verdict in verify_squashfs(): when the
+  #                          verifier's extraction target cannot hold xattrs
+  #                          (e.g. an overlayfs upperdir without user_xattr),
+  #                          unsquashfs fails the restore with
+  #                          "write_xattr: failed to write xattr
+  #                          security.selinux ... extended attributes are not
+  #                          supported by the destination filesystem" and
+  #                          exits 2, condemning a perfectly good archive.
+  #                          Other xattrs are NOT stripped wholesale:
+  #                          security.capability (file caps, e.g. on /bin/ping)
+  #                          is legitimate Debian content and must survive.
   sudo mksquashfs "$U" "$OUT/$role.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 \
-    -xattrs-exclude '^trusted\.overlay\.' -noappend -no-progress 2>&1 | tail -2
+    -xattrs-exclude '^trusted\.overlay\.' -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
   verify_squashfs "$OUT/$role.squashfs" "$role"
   log "$role DONE: delta $(du -h "$OUT/$role.squashfs"|cut -f1)"
   sudo rm -rf "$L" "$MG" "$WK"
@@ -616,7 +662,7 @@ build_base(){
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
   sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding wallpaper sinty-nm; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding wallpaper wallpaper-debs sinty-nm; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
     log "  staged sinty-nm daemon into BASE ($(du -h "$ROOT/assets/sinty-nm/sinty-nmd" | cut -f1))"
   else
@@ -769,12 +815,33 @@ NMETH
   # chain is plausible, and this is the minimal belt-and-suspenders that
   # closes the class regardless of which side regresses. Set unconditionally;
   # a silent chmod here is exactly how a 700 root shipped undetected.
-  chmod 0755 "$WORK/base" || {
+  # 2026-09-13: this call was missing `sudo`, unlike the equivalent hotfix
+  # gate below (line ~914 at the time of this fix). $WORK/base is owned
+  # root:root (it's a chroot rootfs), so a bare `chmod` run as the
+  # unprivileged build user ALWAYS failed with "Operation not permitted" --
+  # meaning this guardrail (added 2026-08-26 specifically to catch a
+  # shipped 0700 root) could never once succeed, and every `base` stage
+  # rebuild since has hard-failed here. Confirmed: base.squashfs / dpkg
+  # dates were stuck at 2026-08-25, predating the gate's introduction --
+  # nobody had rebuilt the base layer since, because this always failed.
+  sudo chmod 0755 "$WORK/base" || {
     log "ERROR: failed to chmod 0755 $WORK/base before mksquashfs — refusing to publish a possibly-unbootable layer"
     exit 1
   }
+  # Drop the BUILD HOST's SELinux labels from the published archive. NCZ-OS is
+  # a Debian image; SELinux labels (e.g. system_u:object_r:container_file_t:s0
+  # :c1022,c1023 = podman per-container MCS categories from a Fedora Asahi
+  # build host) belong to THIS machine's policy and are wrong inside a rootfs
+  # that will never be evaluated by it. Shipping them also broke
+  # verify_squashfs(): when the verifier's extraction target cannot hold
+  # xattrs (e.g. an overlayfs upperdir without user_xattr), unsquashfs fails
+  # with "write_xattr: failed to write xattr security.selinux ... extended
+  # attributes are not supported by the destination filesystem" and exits 2,
+  # and the gate condemns a perfectly good archive ("refusing to publish").
+  # security.capability (file caps, e.g. on /bin/ping) is legitimate Debian
+  # content and is preserved -- this is NOT a blanket -no-xattrs.
   log "BASE: mksquashfs -> $OUT/base.squashfs"
-  sudo mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -noappend -no-progress 2>&1 | tail -3
+  sudo mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -3
   verify_squashfs "$OUT/base.squashfs" "base"
   log "BASE DONE: $(du -h "$OUT/base.squashfs"|cut -f1)"
 }
@@ -828,6 +895,50 @@ NMETH
 # is honest and explicitly documented (this header comment + commit
 # message + build log line below).
 # ----------------------------------------------------------------------------
+
+# build_singularity_payload() -- rebuild ncz-singularity-desktop from CURRENT
+# upstream head, unconditionally, before build_hotfix() (or anything else on
+# this branch) consumes it.
+#
+# Ported from build_singularity_payload() on wip/mkosi-pipeline-2026-09-14
+# (2026-09-17, operator rule 11: "build the new singularity for both arm64
+# and amd at next ISO build ... standard procedure"). NOT a dual-arch port --
+# this whole pipeline (BASE_TARBALL above hardcodes rootfs-*-arm64.tar.zst,
+# no NCZ_TARGET_ARCH concept exists anywhere in this file) only ever builds
+# arm64, so there is no second arch here to rebuild for. The wip branch's
+# dual-arch behavior depends on NCZ_TARGET_ARCH, which this branch does not
+# have; giving master real AMD64 squashfs-layer support is the mkosi-pipeline
+# migration itself; a function port cannot manufacture that. What this DOES
+# fix on master: the exact same stale-payload gap build_hotfix()'s own error
+# message below has been describing as a MANUAL step ("run both by hand ...
+# then retry") -- nothing on this branch ever called build-singularity.sh
+# automatically either, so master carried the identical staleness risk.
+build_singularity_payload(){
+  log "SINGULARITY: rebuilding ncz-singularity-desktop from current upstream head"
+  local _sinty_out="$ROOT/build/sinty-out"
+  local _tgz="$_sinty_out/singularity-opt.tgz"
+  rm -f "$_tgz"
+  OUT="$_sinty_out" SINGULARITY_IMAGE="debian:${NCZ_BASE_CODENAME}" \
+    bash "$ROOT/build/build-singularity.sh" || {
+      log "ERROR: build-singularity.sh failed -- refusing to fall back to a stale .deb"
+      exit 1
+    }
+  [ -s "$_tgz" ] || {
+    log "ERROR: build-singularity.sh reported success but $_tgz is missing/empty"
+    exit 1
+  }
+  local _deb
+  _deb="$(OUT="$_sinty_out" bash "$ROOT/build/build-singularity-deb.sh" "$_tgz" \
+    | tee /dev/stderr | sed -n 's/^Final \.deb: //p')"
+  [ -n "$_deb" ] && [ -s "$_deb" ] || {
+    log "ERROR: build-singularity-deb.sh did not produce a usable .deb"
+    exit 1
+  }
+  rm -f "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb
+  install -m 0644 "$_deb" "$ROOT/assets/cix-debs/"
+  log "SINGULARITY: staged $(basename "$_deb") -> assets/cix-debs/ (fresh, from head)"
+}
+
 build_hotfix(){
   log "HOTFIX: stage ncz-singularity-desktop /opt/singularity + /etc/ld.so.conf.d/singularity.conf"
   # Pick the LATEST ncz-singularity-desktop .deb from assets/cix-debs/ by version
@@ -890,8 +1001,20 @@ build_hotfix(){
   # belt; this assert is the braces. -comp zstd + -Xcompression-level 15
   # matches the other layers (build_base, build_layer) so a downstream
   # tool reading the squashfs sees uniform compression settings.
+  # Drop the BUILD HOST's SELinux labels from the published archive. NCZ-OS is
+  # a Debian image; SELinux labels (e.g. system_u:object_r:container_file_t:s0
+  # :c1022,c1023 = podman per-container MCS categories from a Fedora Asahi
+  # build host) belong to THIS machine's policy and are wrong inside a rootfs
+  # that will never be evaluated by it. Shipping them also broke
+  # verify_squashfs(): when the verifier's extraction target cannot hold
+  # xattrs (e.g. an overlayfs upperdir without user_xattr), unsquashfs fails
+  # with "write_xattr: failed to write xattr security.selinux ... extended
+  # attributes are not supported by the destination filesystem" and exits 2,
+  # and the gate condemns a perfectly good archive ("refusing to publish").
+  # security.capability (file caps, e.g. on /bin/ping) is legitimate Debian
+  # content and is preserved -- this is NOT a blanket -no-xattrs.
   log "HOTFIX: mksquashfs $WORK/hotfix -> $OUT/desktop-hotfix.squashfs"
-  sudo mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -noappend -no-progress 2>&1 | tail -2
+  sudo mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
   verify_squashfs "$OUT/desktop-hotfix.squashfs" "desktop-hotfix"
   # Write the overlay manifest. The install-time stub applies the manifest
   # BEFORE unsquashfs extraction (see preseed/extract-rootfs.sh's
@@ -919,11 +1042,11 @@ HOTFIX_MANIFEST
 
 case "$STAGE" in
   base)    build_base ;;
-  desktop) build_layer desktop manifests/desktop.pkgs ;;
-  hotfix)  build_hotfix ;;
+  desktop) build_singularity_payload; build_layer desktop manifests/desktop.pkgs ;;
+  hotfix)  build_singularity_payload; build_hotfix ;;
   server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
            echo "       Boot the console entry (multi-user.target) instead." >&2
            exit 1 ;;
-  all)     build_base; build_layer desktop manifests/desktop.pkgs; build_hotfix ;;
+  all)     build_base; build_singularity_payload; build_layer desktop manifests/desktop.pkgs; build_hotfix ;;
   *) echo "usage: $0 base|desktop|hotfix|server|all"; exit 2 ;;
 esac
