@@ -1,0 +1,503 @@
+#!/usr/bin/env python3
+"""
+stage-cixmini-payload.py — Stage the real install-tree payload under
+``build/iso-cache/v1/cixmini-payload/`` for later verbatim copy into an
+ISO's ``/cixmini/`` top-level directory.
+
+Background (see ``docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md``
+and the brief for the 2026-09-22 port task):
+
+  * The legacy monolithic ``build/build-iso-di.sh`` shipped a real
+    install-tree payload by replacing ``/usr/sbin/debootstrap`` inside
+    the d-i installer's ``debootstrap-udeb`` with an NCZ "r159" stub.
+    The stub, when invoked by base-installer at install time, looks for
+    ``/cdrom/cixmini/{base.squashfs,<role>.squashfs,<role>.overlay-manifest}``
+    and uses a bundled static ``unsquashfs`` (from ``build/sqtools-$ARCH/``)
+    to extract them onto ``$TARGET`` (the real target disk d-i mounted),
+    reproducing overlayfs-upperdir semantics without a kernel overlay
+    mount.
+
+  * The new incremental pipeline (``build/iso/write-image.py`` cold +
+    warm) consumes ``build/iso-cache/v1/nodes/<arch>/substrate/<key>/extract``
+    (a real xorriso-extracted Debian netboot ISO tree) plus the rEFInd
+    ESP image. That tree is bootable and reaches the d-i preseed prompt
+    (proven on ACHILLES 2026-09-22, see
+    ``docs/superpowers/specs/evidence/2026-09-22-achilles-cold-fixed/``),
+    but it has NO local install-tree payload — d-i would try a network
+    install if driven further.
+
+  * This script ports the r159 stub's payload-side half of the
+    mechanism into the new pipeline. It stages
+    ``build/iso-cache/v1/cixmini-payload/{base.squashfs,desktop.squashfs,
+    desktop.overlay-manifest,sqtools/}`` from the real, built
+    ``assets/squashfs/*.squashfs`` (the same layers
+    ``build/build-squashfs-layers.sh all`` produces via
+    ``mmdebstrap``/``mksquashfs``) plus the architecture-matched static
+    ``unsquashfs`` bundle from ``build/sqtools-$ARCH/``.
+
+  * The OTHER half — patching ``/usr/sbin/debootstrap`` inside the
+    installer's ``debootstrap-udeb`` to invoke this payload — is the job
+    of ``patch-debootstrap-stub.py``. The two are intentionally separate
+    scripts; this one is purely the payload-side, the other is purely
+    the installer-side.
+
+What this script does, line by line:
+
+  1. Validates the required input squashfs assets exist on disk. Real
+     assets only — no synthetic/toy layers (per the brief).
+  2. Verifies the squashfs layer ROOT entries are mode ``drwxr-xr-x``
+     (0755) using the host's ``unsquashfs -ll``. This is the
+     ``assert_squashfs_root_mode`` gate ``build/build-iso-di.sh``
+     enforces at ~line 3438 (the 2026-08-26 root-mode gate,
+     documented in ``docs/ISO-BUILD-GUARDRAILS.md``) — without it,
+     ``unsquashfs -f -d $TARGET`` would re-stamp ``$TARGET``'s OWN mode
+     from each layer's root entry (last layer wins), and a layer built
+     from a mktemp-0700 staging dir would ship ``/`` at 0700 and break
+     greetd / NIC bring-up / RTC for every non-root UID. We refuse to
+     stage a layer whose root entry isn't 0755.
+  3. Verifies every delta overlay has a non-empty companion
+     ``<role>.overlay-manifest`` (the r159 stub FATALs on a missing
+     manifest — silent delta extraction without whiteout/opaque
+     semantics reproduces the v15 DBus/network/greeter failure).
+  4. Verifies the architecture-matched sqtools bundle exists. This
+     matters because an ARM64 ``unsquashfs`` running on an AMD64
+     installer fails SILENTLY (exit 1, no diagnostic, nothing extracted
+     — confirmed 2026-09-15 by mounting a failed install's empty
+     target disk directly). The r159 stub exec's ``$SQDIR/sqtools/unsquashfs``
+     via the bundled loader, and the loader+libs MUST match the
+     installer runtime's architecture.
+  5. Stages the files into ``build/iso-cache/v1/cixmini-payload/`` as
+     a content-addressed, immutable tree (write-once; if you change
+     inputs, the cache key changes and downstream consumers get a new
+     path). This is the same shape as the substrate import cache.
+
+What this script does NOT do:
+
+  * It does NOT patch ``debootstrap-udeb``. That's
+    ``patch-debootstrap-stub.py``'s job and is a separate concern (the
+    installer-side, not the payload-side).
+  * It does NOT touch the substrate tree. The substrate node under
+    ``build/iso-cache/v1/nodes/<arch>/substrate/<key>/`` is the
+    verbatim extracted mini.iso and is read-only from this script's
+    perspective.
+  * It does NOT build squashfs assets. If
+    ``assets/squashfs/desktop.squashfs`` doesn't exist, the script
+    reports what's missing and exits 1; it does not synthesize.
+
+Output layout::
+
+    build/iso-cache/v1/cixmini-payload/<node-key>/
+        base.squashfs                  (verbatim from assets/squashfs/)
+        desktop.squashfs               (verbatim, optional)
+        desktop.overlay-manifest       (verbatim, required iff desktop.squashfs)
+        sqtools/                       (verbatim from build/sqtools-<arch>/)
+            unsquashfs, ld-*, lib*.so.*
+        receipts/stage-cixmini-payload-receipt.json
+        receipts/stage-cixmini-payload-metadata.json
+        receipts/node-key.json
+
+The node-key formula is::
+
+    sha256(canonical_encode({
+        schema_version: "cixmini-payload-stage/v1",
+        arch: "amd64",
+        base_sha256, desktop_sha256, overlay_sha256, sqtools_manifest_sha256,
+        base_mtime_ns, desktop_mtime_ns, overlay_mtime_ns,
+        tool_versions
+    }))
+
+Time/byte factors appear in the key so a clean rebuild on a different
+host (different ``unsquashfs`` version, different ``mksquashfs``
+compression parameters producing a bytewise different layer) produces a
+fresh node instead of silently matching an older cached payload. The
+key is for cache invalidation, NOT for content trust — content trust
+comes from the per-file SHA256s and the receipt schema.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_CACHE_ROOT = REPO_ROOT / "build" / "iso-cache" / "v1"
+SQUASHFS_DIR = REPO_ROOT / "assets" / "squashfs"
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def sha256_bytes(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+def canonical_encode(obj: dict) -> bytes:
+    """RFC 8785-style: sorted keys, no whitespace. Stable across runs."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def log(msg: str) -> None:
+    print(msg, file=sys.stderr, flush=True)
+
+
+def tool_version(tool: str) -> str:
+    try:
+        out = subprocess.check_output([tool, "--version"], text=True, stderr=subprocess.STDOUT)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return f"{tool}-missing"
+    return out.splitlines()[0].strip()
+
+
+def assert_squashfs_root_mode(squashfs_path: Path, label: str) -> None:
+    """Gate lifted verbatim from ``build/build-iso-di.sh`` ~line 3438.
+
+    The 2026-08-26 root-mode gate (see
+    ``docs/ISO-BUILD-GUARDRAILS.md``): ``unsquashfs -f -d $TARGET``
+    re-stamps ``$TARGET``'s OWN mode from each layer's root entry at
+    install time (last layer wins). A layer built from a mktemp -d
+    staging dir (mode 0700) shipped ``/`` at 0700 and broke greetd /
+    NIC / RTC for every non-root UID. We refuse to stage a layer
+    whose root entry isn't 0755.
+
+    The busybox-side check the stub itself uses (ls -ld) doesn't apply
+    here (we're on the build host, not in the installer runtime), so we
+    use the host's ``unsquashfs -ll`` and read the mode column of the
+    first ``squashfs-root`` entry. Same semantics.
+
+    Note: we deliberately capture ``unsquashfs``'s full output BEFORE
+    greping it. ``set -o pipefail`` + ``unsquashfs -ll | grep -m1``
+    SIGPIPEs unsquashfs when grep exits after the first match while
+    unsquashfs still has buffered output, aborting the whole build
+    with exit 141. The same race is documented in
+    ``build/build-iso-di.sh`` ~line 3415. We follow the same fix
+    pattern: capture-then-grep.
+    """
+    if shutil.which("unsquashfs") is None:
+        raise RuntimeError(
+            "unsquashfs not available — cannot verify squashfs layer root "
+            "modes (squashfs-tools required)"
+        )
+    try:
+        out = subprocess.check_output(
+            ["unsquashfs", "-ll", str(squashfs_path)],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8", errors="replace")
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"unsquashfs -ll failed for {squashfs_path}: {e}"
+        ) from e
+    # Find the first '... squashfs-root$' line. unsquashfs -ll on
+    # modern squashfs-tools puts the root entry on the first line;
+    # older versions may not, in which case the absence is itself
+    # diagnostic (the layer is malformed).
+    line = ""
+    for ln in out.splitlines():
+        if ln.rstrip().endswith(" squashfs-root"):
+            line = ln
+            break
+    if not line:
+        raise RuntimeError(
+            f"{label} ({squashfs_path}) has no squashfs-root entry in "
+            f"'unsquashfs -ll' output — malformed layer"
+        )
+    mode = line.split(" ", 1)[0]
+    if mode != "drwxr-xr-x":
+        raise RuntimeError(
+            f"FATAL: {label} ({squashfs_path}) squashfs ROOT entry is "
+            f"'{mode}' (expected drwxr-xr-x / 0755). "
+            f"unsquashfs -f stamps this mode onto / at install time "
+            f"(the 2026-08-26 0700-root incident). Rebuild the layer "
+            f"from a 0755 staging dir:\n"
+            f"    unsquashfs -d /tmp/fix {squashfs_path} && "
+            f"chmod 0755 /tmp/fix && "
+            f"mksquashfs /tmp/fix {squashfs_path}.new -comp zstd -noappend "
+            f"&& mv {squashfs_path}.new {squashfs_path}"
+        )
+    log(f"    layer root mode OK (0755): {label}")
+
+
+def verify_overlay_manifest(manifest_path: Path, role: str, layer_path: Path) -> None:
+    """The r159 stub FATALs at install time if ``<role>.overlay-manifest``
+    is missing or empty for a layer that is being applied as a delta.
+    We mirror that gate here so a missing manifest is caught at BUILD
+    time, not at install time. (See ``build/build-iso-di.sh`` ~line
+    1255.)"""
+    if not manifest_path.is_file():
+        raise RuntimeError(
+            f"FATAL: {role} layer {layer_path} has no overlay manifest: "
+            f"{manifest_path} — rebuild with build/build-squashfs-layers.sh"
+        )
+    if manifest_path.stat().st_size == 0:
+        raise RuntimeError(
+            f"FATAL: {role} overlay manifest is EMPTY: {manifest_path} — "
+            f"rebuild with build/build-squashfs-layers.sh"
+        )
+    # Smoke-check: every non-comment line is tab-separated kind<TAB>rel,
+    # kind in {whiteout, opaque}. Don't validate rel paths here (the
+    # stub does that at install time) but make sure the format is
+    # parsable.
+    bad = []
+    for ln in manifest_path.read_text().splitlines():
+        if not ln or ln.lstrip().startswith("#"):
+            continue
+        parts = ln.split("\t")
+        if len(parts) < 2 or parts[0] not in ("whiteout", "opaque"):
+            bad.append(ln)
+    if bad:
+        raise RuntimeError(
+            f"FATAL: {role} overlay manifest {manifest_path} has "
+            f"malformed lines (must be tab-separated kind<TAB>rel, kind "
+            f"in {{whiteout,opaque}}): {bad[:3]}"
+        )
+
+
+def _chmod_r(p: Path) -> None:
+    """Best-effort recursive chmod to writable so rmtree works on
+    read-only xorriso-extracted or sudo-restricted trees."""
+    try:
+        subprocess.run(["chmod", "-R", "u+w", str(p)], check=False,
+                       capture_output=True)
+    except Exception:
+        pass
+
+
+def stage_payload(
+    arch: str,
+    squashfs_dir: Path,
+    cache_root: Path,
+    force: bool = False,
+) -> Path:
+    """Run the staging. Returns the staged node directory.
+
+    Raises RuntimeError on any gate failure.
+    """
+    if arch not in ("amd64", "arm64"):
+        raise RuntimeError(f"unsupported arch: {arch} (must be amd64 or arm64)")
+
+    # --- 1. Validate base.squashfs (REQUIRED) ---------------------------
+    base_layer = squashfs_dir / "base.squashfs"
+    if not base_layer.is_file():
+        raise RuntimeError(
+            f"FATAL: required base layer missing: {base_layer}\n"
+            f"  Build it with: NCZ_TARGET_ARCH={arch} "
+            f"NCZ_SKIP_FRESHNESS_GATE=1 "
+            f"ARTISTPACK_SOURCE_ROOT=/home/jasonperlow/Projects/artistpack/packs "
+            f"sudo -E bash build/build-squashfs-layers.sh base"
+        )
+    assert_squashfs_root_mode(base_layer, "base")
+
+    # --- 2. Validate desktop.squashfs + overlay-manifest (OPTIONAL) ------
+    # If desktop is present, both it AND its manifest are required.
+    # If desktop is absent, we still ship a working base-only flow —
+    # the r159 stub's component-selector just won't trigger the desktop
+    # overlay (it logs "skipping desktop overlay" with no manifest).
+    desktop_layer = squashfs_dir / "desktop.squashfs"
+    desktop_manifest = squashfs_dir / "desktop.overlay-manifest"
+    desktop_present = desktop_layer.is_file()
+    if desktop_present:
+        assert_squashfs_root_mode(desktop_layer, "desktop")
+        verify_overlay_manifest(desktop_manifest, "desktop", desktop_layer)
+    else:
+        if desktop_manifest.is_file():
+            log(f"WARNING: {desktop_manifest} present without {desktop_layer} — "
+                f"ignoring manifest (would never be applied at install time)")
+        log(f"INFO: desktop layer absent; the r159 stub will skip the "
+            f"desktop overlay and install base-only")
+
+    # --- 3. Validate sqtools (REQUIRED — bundled static unsquashfs) ------
+    sqtools_src = REPO_ROOT / "build" / f"sqtools-{arch}"
+    sqtools_unsq = sqtools_src / "unsquashfs"
+    if not sqtools_src.is_dir() or not sqtools_unsq.is_file():
+        raise RuntimeError(
+            f"FATAL: sqtools bundle missing or incomplete: {sqtools_src}\n"
+            f"  An ARM64 unsquashfs running on an AMD64 installer fails "
+            f"SILENTLY (exit 1, no diagnostic, nothing extracted — "
+            f"confirmed 2026-09-15). The architecture-matched static "
+            f"unsquashfs + loader is REQUIRED.\n"
+            f"  Build it for {arch}: see build/build-sqtools.sh or the "
+            f"build-squashfs-layers.sh packaging step."
+        )
+
+    # --- 4. Compute cache key ------------------------------------------
+    sqtools_manifest_lines = []
+    for p in sorted(sqtools_src.iterdir()):
+        try:
+            rel = p.name
+            sha = sha256_file(p) if p.is_file() else ""
+            mode = oct(p.stat().st_mode & 0o7777)
+            sqtools_manifest_lines.append(f"{rel}\t{mode}\t{sha}")
+        except OSError as e:
+            sqtools_manifest_lines.append(f"{p.name}\t<error:{e}>\t")
+    sqtools_manifest = "\n".join(sqtools_manifest_lines)
+
+    def _stat(path: Path) -> dict:
+        if not path.exists():
+            return {"present": False}
+        s = path.stat()
+        return {
+            "present": True,
+            "sha256": sha256_file(path),
+            "size": s.st_size,
+            "mtime_ns": s.st_mtime_ns,
+        }
+
+    canonical_payload = canonical_encode({
+        "schema_version": "cixmini-payload-stage/v1",
+        "arch": arch,
+        "base": _stat(base_layer),
+        "desktop": _stat(desktop_layer) if desktop_present else {"present": False},
+        "desktop_overlay_manifest": _stat(desktop_manifest) if desktop_present else {"present": False},
+        "sqtools_manifest": sqtools_manifest,
+        "tool_versions": {
+            "unsquashfs": tool_version("unsquashfs"),
+            "mksquashfs": tool_version("mksquashfs"),
+            "xorriso": tool_version("xorriso"),
+        },
+    })
+    node_key = sha256_bytes(canonical_payload)
+    node_dir = cache_root / "cixmini-payload" / node_key
+    receipts = node_dir / "receipts"
+    if node_dir.exists() and not force:
+        log(f"node exists: {node_dir}")
+        log(f"node_key: {node_key}")
+        return node_dir
+
+    if node_dir.exists():
+        _chmod_r(node_dir)
+        shutil.rmtree(node_dir)
+    node_dir.mkdir(parents=True)
+    receipts.mkdir()
+
+    # --- 5. Copy base.squashfs ------------------------------------------
+    shutil.copy2(str(base_layer), str(node_dir / "base.squashfs"))
+    log(f"    staged base.squashfs ({base_layer.stat().st_size} bytes)")
+
+    # --- 6. Copy desktop.squashfs + manifest (if present) --------------
+    if desktop_present:
+        shutil.copy2(str(desktop_layer), str(node_dir / "desktop.squashfs"))
+        shutil.copy2(str(desktop_manifest), str(node_dir / "desktop.overlay-manifest"))
+        log(f"    staged desktop.squashfs ({desktop_layer.stat().st_size} bytes)")
+        log(f"    staged desktop.overlay-manifest "
+            f"({desktop_manifest.stat().st_size} bytes)")
+
+    # --- 7. Copy sqtools/ (architecture-matched) ------------------------
+    # cp -a to preserve permissions; the unsquashfs binary must remain
+    # executable in the staged tree because xorriso preserves perms
+    # when packing the ISO 9660 filesystem.
+    subprocess.run(
+        ["cp", "-a", str(sqtools_src) + "/.", str(node_dir / "sqtools")],
+        check=True,
+    )
+    log(f"    staged sqtools/ from {sqtools_src}")
+
+    # --- 8. Write receipts ----------------------------------------------
+    metadata = {
+        "schema_version": "cixmini-payload-metadata/v1",
+        "arch": arch,
+        "node_key": node_key,
+        "inputs": {
+            "base": str(base_layer),
+            "desktop": str(desktop_layer) if desktop_present else None,
+            "desktop_overlay_manifest": str(desktop_manifest) if desktop_present else None,
+            "sqtools": str(sqtools_src),
+        },
+        "tool_versions": json.loads(canonical_payload)["tool_versions"],
+        "files": [],
+    }
+    for p in sorted(node_dir.rglob("*")):
+        if p.is_file():
+            try:
+                rel = p.relative_to(node_dir)
+                size = p.stat().st_size
+                mode = oct(p.stat().st_mode & 0o7777)
+                sha = sha256_file(p)
+                metadata["files"].append({
+                    "path": str(rel), "size": size, "mode": mode, "sha256": sha,
+                })
+            except OSError as e:
+                log(f"WARNING: could not stat {p}: {e}")
+    receipts.joinpath("stage-cixmini-payload-metadata.json").write_text(
+        json.dumps(metadata, indent=2, sort_keys=True)
+    )
+
+    receipt = {
+        "schema_version": "cixmini-payload-receipt/v1",
+        "node_key": node_key,
+        "node_kind": "cixmini-payload",
+        "arch": arch,
+        "inputs": {
+            "base_sha256": sha256_file(base_layer),
+            "base_size": base_layer.stat().st_size,
+            "desktop_sha256": (sha256_file(desktop_layer)
+                               if desktop_present else None),
+            "desktop_size": (desktop_layer.stat().st_size
+                             if desktop_present else None),
+            "desktop_overlay_manifest_sha256": (
+                sha256_file(desktop_manifest) if desktop_present else None
+            ),
+            "desktop_overlay_manifest_size": (
+                desktop_manifest.stat().st_size if desktop_present else None
+            ),
+            "sqtools_dir": str(sqtools_src),
+            "sqtools_manifest_sha256": sha256_bytes(sqtools_manifest.encode()),
+        },
+        "outputs": {
+            "staged_dir": str(node_dir),
+        },
+    }
+    receipts.joinpath("stage-cixmini-payload-receipt.json").write_text(
+        json.dumps(receipt, indent=2, sort_keys=True)
+    )
+
+    receipts.joinpath("node-key.json").write_text(json.dumps({
+        "node_key": node_key,
+        "canonical_payload_hex": canonical_payload.hex(),
+        "canonical_payload_sha256": sha256_bytes(canonical_payload),
+    }, indent=2, sort_keys=True))
+
+    log(f"node_key: {node_key}")
+    log(f"node_dir: {node_dir}")
+    return node_dir
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--arch", required=True, choices=["amd64", "arm64"],
+                    help="target architecture (must match the substrate and "
+                         "sqtools-$ARCH bundle)")
+    ap.add_argument("--squashfs-dir", type=Path, default=SQUASHFS_DIR,
+                    help=f"directory containing base.squashfs / desktop.* "
+                         f"(default: {SQUASHFS_DIR})")
+    ap.add_argument("--cache-root", type=Path, default=DEFAULT_CACHE_ROOT,
+                    help=f"cache root (default: {DEFAULT_CACHE_ROOT})")
+    ap.add_argument("--force", action="store_true",
+                    help="re-stage even if the node already exists")
+    args = ap.parse_args()
+
+    try:
+        node_dir = stage_payload(
+            arch=args.arch,
+            squashfs_dir=args.squashfs_dir.resolve(),
+            cache_root=args.cache_root.resolve(),
+            force=args.force,
+        )
+    except RuntimeError as e:
+        log(f"FATAL: {e}")
+        return 2
+    log(f"OK: staged payload at {node_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -19,18 +19,18 @@ The MNEMOS server image is multi-arch on ghcr; extract the **arm64** manifest
 
 ```sh
 skopeo copy --override-arch arm64 --override-os linux \
-    docker://ghcr.io/ncz-os/mnemos:latest \
-    oci-archive:assets/agent-images/mnemos.oci.tar:ghcr.io/ncz-os/mnemos:latest
+    docker://ghcr.io/ncz-os/mnemos-enterprise:latest \
+    oci-archive:assets/agent-images/mnemos.oci.tar:ghcr.io/ncz-os/mnemos-enterprise:latest
 ```
 
 Result is ~260 MB (compressed layers preserved). The archive is tagged
-`ghcr.io/ncz-os/mnemos:latest` so `podman load` yields exactly the ref the
+`ghcr.io/ncz-os/mnemos-enterprise:latest` so `podman load` yields exactly the ref the
 quadlet's `Image=` expects.
 
 Verify the arm64 manifest exists before regenerating:
 
 ```sh
-skopeo inspect --raw docker://ghcr.io/ncz-os/mnemos:latest | \
+skopeo inspect --raw docker://ghcr.io/ncz-os/mnemos-enterprise:latest | \
     python3 -c 'import sys,json;print([m["platform"]["architecture"] for m in json.load(sys.stdin)["manifests"]])'
 ```
 

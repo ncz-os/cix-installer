@@ -37,11 +37,15 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 . "$REPO/release.conf"
 
 SUITE="${SUITE:-$NCZ_BASE_CODENAME}"
-ARCH="${ARCH:-arm64}"
+# 2026-09-15: was hardcoded "arm64" -- an AMD64 build's own vendor-mirror
+# index got published as (forky/arm64), so build-forky-mirror.sh's
+# [arch=amd64] apt source never resolved anything from it (e.g. Chrome).
+ARCH="${ARCH:-${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}}"
 VENDOR="${VENDOR_MIRROR:-$REPO/build/$SUITE-vendor-mirror}"
 BINDIR="dists/$SUITE/main/binary-$ARCH"
 KERNEL_DEBS="${KERNEL_DEBS:-$REPO/build/kernel-debs}"
 SINTY_DEBS="${SINTY_DEBS:-$REPO/assets/cix-debs}"
+USB_RECOVERY_DEBS="${USB_RECOVERY_DEBS:-$REPO/build/usb-recovery-deb}"
 
 command -v apt-ftparchive >/dev/null 2>&1 || {
     echo "ERROR: apt-ftparchive not found (apt-utils)" >&2; exit 1; }
@@ -90,11 +94,67 @@ else
     echo "WARN: no kernel debs found in $KERNEL_DEBS; vendor mirror will only reindex existing pool" >&2
 fi
 
+if compgen -G "$USB_RECOVERY_DEBS/ncz-usb-recovery_*.deb" >/dev/null; then
+    echo "== publishing USB recovery debs from $USB_RECOVERY_DEBS =="
+    for deb in "$USB_RECOVERY_DEBS"/ncz-usb-recovery_*.deb; do
+        publish_deb "$deb"
+    done
+elif [ "$ARCH" = arm64 ] && compgen -G "$KERNEL_DEBS/cixmini-boot_*.deb" >/dev/null; then
+    echo "ERROR: cixmini-boot requires ncz-usb-recovery, but no package exists in $USB_RECOVERY_DEBS" >&2
+    echo "       run: build/build-usb-recovery-deb.sh" >&2
+    exit 1
+fi
+
 if compgen -G "$SINTY_DEBS/ncz-singularity-desktop_*.deb" >/dev/null; then
     echo "== publishing Singularity desktop debs from $SINTY_DEBS =="
     for deb in "$SINTY_DEBS"/ncz-singularity-desktop_*.deb; do
         publish_deb "$deb"
     done
+
+# Google Chrome (2026-09-15): this script's own header has documented since
+# it was written that the vendor mirror carries "Google's signed Chrome
+# build" alongside the kernel/singularity-desktop debs -- but the actual
+# fetch-and-publish logic for it was never present. post-install/53-chrome.sh
+# expects google-chrome-stable to already be apt-installed by 20-desktop.sh
+# from this mirror, and hard-FATALs when it is not: confirmed live on O6N,
+# "google-chrome-stable is absent from a desktop/browser-enabled install".
+# Fetch is live (not staged/cached), same posture as the kernel-debs/
+# singularity-desktop publish steps above: always the CURRENT stable release,
+# checksum-verified against Google's own signed Packages index (not merely
+# TLS transport trust) before it ever reaches the pool.
+CHROME_DEB_CACHE="${CHROME_DEB_CACHE:-$REPO/build/chrome-deb-cache}"
+GOOGLE_CHROME_URL="${GOOGLE_CHROME_URL:-https://dl.google.com/linux/chrome/deb}"
+if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "amd64" ]; then
+    echo "== publishing Google Chrome stable ($ARCH) =="
+    mkdir -p "$CHROME_DEB_CACHE"
+    _chrome_pkgs="$(curl -fsSL -m 60 "$GOOGLE_CHROME_URL/dists/stable/main/binary-$ARCH/Packages" 2>/dev/null || true)"
+    if [ -z "$_chrome_pkgs" ]; then
+        echo "  WARN: could not reach $GOOGLE_CHROME_URL -- Chrome will be absent from this mirror" >&2
+    else
+        _chrome_entry="$(printf '%s\n' "$_chrome_pkgs" | awk '/^Package: google-chrome-stable$/{f=1} f{print} f&&/^$/{exit}')"
+        _chrome_file="$(printf '%s\n' "$_chrome_entry" | sed -n 's/^Filename: //p')"
+        _chrome_sha="$(printf '%s\n' "$_chrome_entry" | sed -n 's/^SHA256: //p')"
+        if [ -z "$_chrome_file" ] || [ -z "$_chrome_sha" ]; then
+            echo "  WARN: google-chrome-stable/$ARCH not present in the signed index -- skipping" >&2
+        else
+            _chrome_deb="$CHROME_DEB_CACHE/$(basename "$_chrome_file")"
+            if [ -f "$_chrome_deb" ] && [ "$(sha256sum "$_chrome_deb" | awk '{print $1}')" = "$_chrome_sha" ]; then
+                echo "  cached: $(basename "$_chrome_deb") already verified"
+            else
+                echo "  fetching $(basename "$_chrome_file") ..."
+                if curl -fsSL -m 300 "$GOOGLE_CHROME_URL/$_chrome_file" -o "$_chrome_deb.part" \
+                   && [ "$(sha256sum "$_chrome_deb.part" | awk '{print $1}')" = "$_chrome_sha" ]; then
+                    mv -f "$_chrome_deb.part" "$_chrome_deb"
+                else
+                    echo "  ERROR: download or SHA256 mismatch for $_chrome_file -- refusing to publish" >&2
+                    rm -f "$_chrome_deb.part"
+                    _chrome_deb=""
+                fi
+            fi
+            [ -n "$_chrome_deb" ] && [ -f "$_chrome_deb" ] && publish_deb "$_chrome_deb"
+        fi
+    fi
+fi
 fi
 
 cd "$VENDOR"

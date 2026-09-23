@@ -24,26 +24,37 @@ frozen-in-time legacy distro.
 >
 > **📚 Start here:** [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the ISO](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
 
-**Customized debian-installer ISO builder for the NCZ Linux
-distribution.**
+**Stock-debian-installer ISO assembly for the NCZ Linux distribution.**
+
+The installer uses the **upstream Debian Installer (d-i) unmodified** as
+the runtime that drives the install — NCZ-specific customisations are
+applied at the **assembly layer** (squashfs payload + small set of
+grafted udebs + cixmini payload on the ISO media + rEFInd ESP), not by
+hand-patching d-i itself. See the [Architecture](#architecture) section
+below and `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
+for what "assembly layer" means concretely.
 
 Produces a fully-unattended UEFI-bootable installer ISO for **two first-class
 target architectures** that share one build pipeline and one userland:
 
-- **Arm64 — CIX Sky1** (Radxa Orion O6/O6N, Minisforum MS-R1). Native
-  Mali-G720 GLES + Panthor Vulkan, Zhouyi V3 NPU, Linlon VPU — all driven
+- **Arm64 -- CIX Sky1** (Radxa Orion O6/O6N, Minisforum MS-R1). Native
+  Mali-G720 GLES + Panthor Vulkan, Zhouyi V3 NPU, Linlon VPU -- all driven
   by CIX-licensed DKMS accelerator modules wired on top of the
   Sky1-mainline kernel.
-- **AMD64 — Apple T2 Mac** (MacBookPro/MacBookAir 2018–2020) and any
+- **AMD64 -- Apple T2 Mac** (MacBookPro/MacBookAir 2018-2020) and any
   generic x86-64 PC (no CIX accelerator stack). Standard Intel/AMD/NVIDIA
   drivers wired at install time from each vendor's real, signed apt
   repository; T2-specific Apple firmware + audio config from the
   AdityaGarg8 `t2-ubuntu-repo`.
 
-Both target a **Debian Testing (Forky)** base on disk, layer the same
-hardware-appropriate kernel + vendor userspace runtimes + Singularity
-desktop + Claude Code + the (opt-in) NCZ agent stack, and brand the
-system as NCZ.
+Both partition the target disk and install a **Debian Testing (Forky)**
+base on disk (the d-i substrate ISO itself is the real Debian netinst;
+for amd64 it is Bookworm netboot pinned by content hash, for arm64/Sky1
+it is the Forky-testing netinst -- see `release.conf`'s
+`NCZ_BASE_CODENAME=forky` and `docs/NEXT_ISO.md` for the substrate pin),
+then layer the same hardware-appropriate kernel + vendor userspace
+runtimes + Singularity desktop + Claude Code + the (opt-in) NCZ agent
+stack, and brand the system as NCZ.
 
 > **NCZ-OS 26.7 "Maximilian"** ships the **Singularity** desktop
 > (labwc/wlroots, native Mali GLES) — X11/XFCE is fully removed.
@@ -168,10 +179,39 @@ shared desktop, shared agent stack):**
   nemoclaw` for NVIDIA NemoClaw, and `ncz install mnemos` for the MNEMOS memory
   system. Nothing agentic auto-starts at boot or auto-pulls from the network.
 
-The `build/build-iso-di.sh` build path validates `NCZ_TARGET_ARCH` in
-{`arm64`, `amd64`} at line 95; the architecture-switching logic is the
-reusable scaffold, and the per-arch payloads (kernel, firmware, accelerator
-hooks, manifests) are committed alongside each other.
+The current build path is a **two-stage pipeline**, not a single script:
+
+1. **Content (squashfs layer producer)** — `build/build-squashfs-layers.sh`
+   builds the `base.squashfs` / `desktop.squashfs` / `hotfix.squashfs`
+   layers (debootstrap-installed package closure + overlay-role deltas),
+   with the right packages per `manifests/{installer-base,desktop}.pkgs`
+   and the right post-install hooks for the target architecture. The
+   role-delta overlays go through `build/build-role-delta-mkosi.sh`,
+   which uses mkosi under the hood for the layered-overlay semantics.
+   This is the Cix Sky1 implementation; the architecture is the
+   reusable scaffold.
+2. **Assembly (bootable ISO writer)** — `build/build-iso-di.sh` (the
+   Sky1/arm64 orchestration script) and the new
+   `build/iso/{import-substrate,build-refind-esp,stage-cixmini-payload,patch-debootstrap-stub,write-image,verify-image}.py`
+   xorriso-based writer (the amd64 cold/warm path that supersedes the old
+   monolithic pipeline — see
+   `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
+   for why this split exists) assemble those layers plus a stock Debian
+   Installer substrate into the final bootable ISO.
+
+The NCZ-specific installer customisations now live at the assembly layer
+on top of an **unmodified stock d-i** — d-i itself is stock; the only
+grafts are the targeted NCZ payload that has to ship in the initrd (the
+patched `debootstrap-udeb` stub that drives the install-time branch,
+plus the cixmini boot assets and NCZ hardware-initrd overlays — all
+shipped as ordinary udeb files in the substrate pool, not as a patched
+d-i source tree).
+
+> **Note on `build/build-iso.sh`:** the file still exists in the tree but
+> is **STALE / ABANDONED** — its own header now flags this. It describes
+> an unrelated 2026-05-03 Ubuntu-Server subiquity pivot and is not part
+> of the current build path. See its own header for the warning and the
+> pointer to the current pipeline.
 
 ## Hardware support & testing status
 
@@ -196,12 +236,35 @@ hooks, manifests) are committed alongside each other.
 
 ### AMD64 — Apple T2 Mac and generic x86-64 PC
 
-| Hardware | Status |
-|---|---|
-| **Apple T2 MacBook** (MacBookPro 15,1 / 15,3 / 16,1 / 16,2 / 16,3 / 16,4 / MacBookAir 8,1 / 8,2 / 9,1 — 2018–2020) | ✅ **Verified working on real T2 hardware** (2 machines) on `7.2.7-2-t2-trixie`. Installer boot, d-i preseed, the NCZ post-install hooks, `apple-bce` audio + Touch Bar + keyboard + trackpad, Wi-Fi/BT via `apple-firmware-script` (Apple CDN at first boot), `apple-t2-audio-config`, and standard EFI dual-boot all confirmed. Real-hardware validation against MEDUSA (T2 MacBook, repurposed as T2 boot-validation target) plus a second T2 Mac. **Hardware detection is by PCI `106b:1801`** — Apple's T2 bridge device ID, the same identifier the T2 kernel patches themselves key off of; verified directly in `t2linux`'s `9001-ACPI-x86-Apple-T2-systems-need-early-CPU-offlining.patch`. |
-| **Apple T2 Mac** — T2 + `7.3.0-rc4-2-t2-trixie` (edge) | ⚠️ **Staged but KVM-gated, not yet hardware-boot-tested.** The edge T2 build carries `t2linux`'s 21-patch series against `7.3.0-rc4` plus the proven-stable patches that gate on DMI / PCI ID; it has cleared `kvm-install-gate.sh` but no T2 Mac has booted it yet. Plan: a real-T2 boot test on MEDUSA in the same session the edge becomes the recommended line. |
-| **Generic x86-64 PC** (Intel iGPU + dGPU / NVIDIA / AMD dGPU) | ✅ **Same `7.2.7-2-t2-trixie` kernel, unified-stable with no T2-specific gating.** Any i5/i7/i9 or Ryzen machine without a T2 coprocessor boots identically and is treated as a generic PC by the post-install hooks (T2 firmware hook exits no-op when `lspci -nn` finds no `106b:1801`). |
-| **Generic x86-64** — accelerator wiring | ✅ NVIDIA → real NVIDIA CUDA apt repo (`developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/`, `cuda-drivers` metapackage). AMD → real AMD ROCm apt repo (`repo.radeon.com/rocm/apt/7.2.4`, ROCm 7.2.4 OpenCL + `rocm-smi`). Intel → real Intel OpenVINO apt repo (`apt.repos.intel.com/openvino/2026`, `openvino` + `intel-opencl-icd` + `intel-media-va-driver`). Each is wired **only when its PCI display class (`0300` / `0302` / `0380`) is present** by `post-install/54-gpu-accel.sh`. Verified live on real machines. |
+### x86_64 — Intel/AMD Macs and generic PCs
+
+> **Read this before you flash any Intel/AMD hardware.** The x86_64 path is
+> newer and far less exercised than Sky1. Three genuinely different hardware
+> classes exist here, each with its own real constraints — this is not one
+> "x86 support" claim.
+
+| Class | Window | Status |
+|---|---|---|
+| **T2 Macs** | **2017** (iMac Pro) – **2020** (last Intel Mac before Apple Silicon) | ⚠️ **One model actually tested**: 2019 MacBook Pro (AMD Navi14/gfx1012 dGPU). GPU acceleration (ROCm), arch-aware branding, first-boot DHCP and console HiDPI scaling all verified live on this machine. d-i deliberately boots the stock Debian netinst kernel (generic, no T2 driver) — this matches t2linux's own documented install flow; the real T2 kernel takes over post-install. The internal keyboard is unresponsive **during d-i only** (use a USB keyboard for the install itself); it works normally on the installed system. No other T2 model — iMac, Mac mini, MacBook Air, other MacBook Pro years — has been installed or booted. 2017–2020 is a hard boundary: there is no T2 Mac made outside it. |
+| **Pre-T2 Intel Macs** | **~2012–2017** | ⏳ **Hardware is in the fleet, not yet install-tested.** No T2 bridge, no d-i keyboard issue, no post-install kernel handoff — this class boots the same generic UEFI path as any PC. Broadcom Wi-Fi firmware (`b43`/`b43legacy`) has been added to the installer and installed-system firmware set specifically for this era. An i5-era Mac mini is on hand as real test hardware; NCZ-OS has not yet actually been installed on it. |
+| **Generic PC (UEFI, Intel/AMD)** | solid confidence **2014+**, likely works **2012+** | ⚠️ **Debian-backed, only lightly tested by us directly.** Debian Testing (Forky) itself supports this range; our own installer and post-install hooks have real hands-on validation on 2019–2024 hardware (PEGASUS: RTX 2060 laptop; HYDRA/ACHILLES: Ryzen 8700G desktops; PROTEUS/CERBERUS: current-generation Intel/AMD build hosts). Older boards should work via the base OS but have not been booted by us. |
+
+**GPU compute is a narrower window than "the base OS boots."** A working
+install does not imply working ROCm/CUDA/oneAPI — the compute stacks have
+their own, tighter hardware floors:
+
+| Vendor | Compute stack | Realistic floor | Notes |
+|---|---|---|---|
+| **AMD** | ROCm (open `amdgpu` + Mesa RADV/RadeonSI — no proprietary alternative) | **~2016+** (GCN4/Polaris and newer) | `gfx1010`/`1011`/`1012` parts (Navi 1x, including MEDUSA's 5300M) need `HSA_OVERRIDE_GFX_VERSION=10.3.0`; applied automatically by `post-install/54-gpu-accel.sh`. |
+| **NVIDIA** | CUDA (proprietary, generation-routed via Debian's `nvidia-detect`) | **2012+ / solid 2014+** (Kepler and newer); pre-Kepler falls back to nouveau, no CUDA | **Logic-verified only — no NVIDIA hardware exists anywhere in this fleet**, so this routing has never actually been boot-tested. Nouveau is the genuine last resort, never preferred over a working proprietary branch. |
+| **Intel** | oneAPI / Level-Zero (open `i915` + Mesa — Intel ships no proprietary Linux graphics driver) | **~2015+** (Skylake-class iGPU and newer) | |
+
+**NPU support is bleeding-edge only (2023+)** — Intel AI Boost / AMD XDNA-class
+silicon. Detection exists and has been hardware-verified against real fleet
+devices (PROTEUS/HYDRA/ACHILLES), but treat this as best-effort, not a
+support commitment.
+
+### Driver support matrix — MS-R1 / O6 / O6N
 
 **What "untested" means for you:** parts of the build path are
 **per-board-specific** — e.g. an ACPI SSDT override that works around the
@@ -329,34 +392,63 @@ The corresponding source for every one of these is published — see
 
 ## Quick start (build the ISO)
 
-The build script (`build/build-iso-di.sh`) accepts both `NCZ_TARGET_ARCH=arm64`
-and `NCZ_TARGET_ARCH=amd64` at line 95; the top-level `Makefile` currently
-exposes only the Arm64 build as `make iso` (the AMD64 entry point is
-[documented below](#building-an-amd64-t2--generic-x86-64-iso) — it is the
-same script invoked with a different `NCZ_TARGET_ARCH`, AMD64 package
-manifests, and the AMD64 substrate netinst ISO).
+The ISO is produced by a **two-stage pipeline**. They are not
+interchangeable; each does a distinct job:
 
-### Arm64 — CIX Sky1 / cixmini
+| Stage | Tool | What it produces |
+|---|---|---|
+| **1. Content** (squashfs layers) | `bash build/build-squashfs-layers.sh [base\|desktop\|hotfix\|all]` | `base.squashfs` (~2 GB) + `desktop.squashfs` + `hotfix.squashfs` under `assets/squashfs/`. This is what the installer extracts to disk. |
+| **2. Assembly** (bootable ISO) | `make iso` (arm64/Sky1) **or** the new xorriso-based writer (amd64) | `build/nclawzero-installer-cixmini-<version>.iso` — a hybrid UEFI-bootable ISO containing the d-i substrate + rEFInd ESP + the squashfs layers above + the cixmini payload. |
+
+**For Cix Sky1 (arm64) — the validated production path:**
 
 ```bash
-make
-# → outputs: build/nclawzero-installer-cixmini-${VERSION}.iso
+make                              # downloads the d-i substrate + assembles
+                                  # → build/nclawzero-installer-cixmini-${VERSION}.iso
 ```
 
-This produces the ISO for the Sky1 board family (Radxa Orion O6/O6N,
-Minisforum MS-R1, MetaComputing CP8180 Framework mainboard, Orange Pi 6).
-The substrate is `debian-testing-arm64-netinst.iso` (Debian Forky arm64
-netinst); the build script downloads, validates against the pinned
-`SUBSTRATE_SHA`, then layers the `7.2.x-sky1-ncz` kernel and the four
-CIX DKMS accelerator modules (`mali_kbase`, `panthor`, `amvx`, `aipu`)
-on top.
+**For amd64 (T2 Macs, generic PC) — the new xorriso-based writer
+(qualified cold path; warm-growth path validated as a prototype but
+not yet promoted to a `make` target):**
 
-The default `make iso` target runs the **full** build mode, including
-`build/kvm-install-gate.sh` (a KVM-based end-to-end install test) so
-that a `make iso` that exits clean is "safe to ship to hardware." For
-faster dev iteration on an already-built tree, override `MODE=thin`.
+```bash
+# 1. Import the d-i substrate (one-shot, cached by content hash):
+bash build/iso/import-substrate.py \
+    --iso-url https://deb.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/mini.iso \
+    --arch amd64
 
-#### Build-host prerequisites (Arm64)
+# 2. Build the base + desktop layers if not already built:
+bash build/build-squashfs-layers.sh base
+# (desktop-amd64 layer staging is not yet wired into the new writer as
+#  of 2026-09-22 — only base has been boot-verified end-to-end on amd64.)
+
+# 3. Assemble:
+bash build/iso/stage-cixmini-payload.py --arch amd64 ...
+bash build/iso/build-refind-esp.py  --arch amd64 ...
+bash build/iso/write-image.py       --arch amd64 --mode cold ...
+
+# 4. Independently verify:
+bash build/iso/verify-image.py <iso>
+```
+
+> **Real, current amd64 status (2026-09-22, confirmed this session):**
+> a real, boot-verified `cold-amd64-*.iso` exists (base-only, 1.69 GB),
+> built against the Bookworm amd64 netboot substrate and the new
+> xorriso writer. **Desktop squashfs has not yet been staged for this
+> new pipeline** — the amd64 desktop layer build path is not yet wired
+> into the new writer; if you need desktop on amd64 right now, that gap
+> needs to be closed in a follow-up. **arm64/Sky1 has not yet been
+> attempted with this new writer** — only an amd64 substrate node exists
+> under `build/iso-cache/v1/nodes/`. The current arm64/Sky1 production
+> path is still `make iso` / `build/build-iso-di.sh` (see the design
+> doc for the long-term migration plan).
+
+> **`build/build-iso.sh` is STALE/ABANDONED** — it describes an unrelated
+> 2026-05-03 Ubuntu-subiquity live-ISO repack and is not invoked by
+> anything in the current pipeline. Its own header now flags this. Do
+> not run it; do not be misled by its name.
+
+### Build-host prerequisites
 
 The `make iso` (and `make download`) targets need a Linux host with at least:
 
@@ -493,6 +585,13 @@ is no MS-R1 NPU on x86 hardware.)
 > apt, and a few optional components fetch from the network. Those are the parts
 > a bad link degrades — not the install itself.
 
+> **T2 Mac users: have a USB keyboard ready.** The installer boots a generic
+> kernel with no Apple T2 driver support (by design — this matches t2linux's
+> own documented install flow, where the real T2 kernel takes over only after
+> install). The internal keyboard and trackpad will not respond during the
+> installer itself. Plug in any USB keyboard for this step; once installed,
+> the internal keyboard, trackpad, and Touch Bar all work normally.
+
 1. **Verify the download**, then flash to a USB stick (≥8 GB). Each release
    ships an `.md5` beside the ISO:
 
@@ -545,6 +644,34 @@ mirror, which was a recurring source of install failures under the old
 apt-at-install-time model).
 
 ![Architecture diagram](docs/architecture.svg)
+
+The build pipeline is split into **two distinct stages**:
+
+| Stage | Output | Where it lives |
+|---|---|---|
+| **Content producer** — mkosi-based squashfs layers | `base.squashfs`, `desktop.squashfs`, `hotfix.squashfs`, etc. | `build/build-squashfs-layers.sh` (the shell front-end) + `build/build-role-delta-mkosi.sh` (the mkosi delta producer) + `build/build-squashfs-layers.sh`'s `build_layer()` shell wrapper that drives the actual `mksquashfs` invocation. Manifest-driven; `manifests/installer-base.pkgs` (arm64) / `manifests/installer-base-amd64.pkgs` (amd64) + `manifests/desktop.pkgs` etc. name every package. |
+| **Assembly writer** — xorriso-based ISO writer | Bootable UEFI ISO + rEFInd ESP + cixmini payload + d-i substrate | `build/build-iso-di.sh` (the arm64/Sky1 orchestration; invokes d-i's BusyBox init, grafts udebs, swaps the installer kernel) and the new `build/iso/{import-substrate,build-refind-esp,stage-cixmini-payload,patch-debootstrap-stub,write-image,verify-image}.py` (the amd64 path that supersedes the monolithic pipeline — see `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`). |
+
+The NCZ-specific installer customisations live at the **assembly layer**
+on top of an **unmodified stock Debian Installer** — there is no
+hand-patched d-i source tree in this repo. d-i itself is stock (the
+substrate is the real Debian Installer netinst/mini ISO, pinned by
+content hash per architecture — Bookworm for amd64, Forky for the
+arm64/Sky1 production path). The NCZ delta ships as:
+
+- the layered squashfs payload that the install-time stub extracts to
+  disk;
+- a small set of **grafted** udebs in the d-i initrd (the `debootstrap-udeb`
+  stub the install-time branch runs, plus cixmini boot assets);
+- the cixmini payload directory staged into the ISO tree;
+- the rEFInd ESP image that boots the chosen kernel/initrd pair.
+
+This is intentionally **not** a d-i replacement: d-i's BusyBox init,
+its hardware-detection, its partman, and its udeb resolver are all the
+real, upstream ones. The assembly layer composes them with our payload.
+See `docs/ISO-BUILD-GUARDRAILS.md` for the constraints this split
+imposes (e.g. why `preseed/extract-rootfs.sh` is the historical
+dead-code twin of the live stub baked into the patched `debootstrap-udeb`).
 
 **NCZ-OS ships ONE build.** There is no separate desktop and server image,
 and no variant picker. What used to be the "Magnetar" server variant is now
@@ -967,7 +1094,7 @@ REST, MCP and an OpenAI-compatible API.
 It installs **offline**. The image is bundled on the media and side-loaded with
 `podman load`; the quadlet is generated with `Pull=never` so a running system
 never silently reaches for a registry. A network pull of
-`ghcr.io/ncz-os/mnemos:latest` happens only if no bundled image is found, and
+`ghcr.io/ncz-os/mnemos-enterprise:latest` happens only if no bundled image is found, and
 is announced when it does.
 
 ```bash

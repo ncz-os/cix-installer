@@ -85,31 +85,99 @@ fi
 
 # --- NVIDIA -------------------------------------------------------------
 if [ "$HAS_NVIDIA" = 1 ]; then
-    echo "[54] NVIDIA GPU detected — wiring real NVIDIA CUDA repo"
-    NV_KEYRING_DEB=/usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb
-    if [ -f "$NV_KEYRING_DEB" ]; then
-        dpkg -i "$NV_KEYRING_DEB" 2>&1 | tail -5
+    echo "[54] NVIDIA GPU detected — determining driver generation before wiring a repo"
+    # NVIDIA's proprietary driver is generation-tiered, not one package:
+    # Debian ships nvidia-driver (current), nvidia-legacy-470xx-driver
+    # (Kepler/some Maxwell), nvidia-legacy-390xx-driver (Fermi) -- and has
+    # NO working proprietary driver at all for pre-Fermi chips (nouveau
+    # only, no CUDA). Delegate the chip->branch mapping to Debian's own
+    # nvidia-detect tool rather than hand-rolling a PCI-ID table -- it
+    # already encodes this exact mapping. nvidia-detect lives in the
+    # contrib component, which this project's base sources do not enable
+    # by default (confirmed live on PROTEUS, 2026-09-20: only
+    # main+non-free-firmware enabled, `apt-cache show nvidia-detect` ->
+    # "No packages found") -- enable contrib+non-free just for this probe
+    # if not already present.
+    NV_CODENAME=$(. /etc/os-release 2>/dev/null; echo "$VERSION_CODENAME")
+    if [ -n "$NV_CODENAME" ] && ! grep -rqs 'contrib' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+        cat > /etc/apt/sources.list.d/ncz-nvidia-detect.list <<EOF
+deb http://deb.debian.org/debian/ $NV_CODENAME contrib non-free
+EOF
         apt-get update 2>&1 | tail -5
-        # cuda-drivers pulls the proprietary kernel driver + full CUDA
-        # toolkit in one metapackage. nvidia-open exists for Turing+ but
-        # cuda-drivers is the broadest-compatible real choice for an
-        # unknown-hardware-cohort install.
-        #
-        # CAVEAT (zoder review, 2026-09-14): nvidia-kernel-dkms builds its
-        # module against whatever kernel headers are visible RIGHT NOW —
-        # since this hook runs at real target-install time (not build-chroot
-        # baking, see the file header), that's the actual target kernel, so
-        # this is correct as long as the target's kernel headers package is
-        # already installed before this hook runs (verify hook ordering in
-        # run-all.sh puts the kernel/headers install before 54). If DKMS
-        # can't find headers it will fail loudly here rather than silently
-        # producing a module for the wrong kernel — that's the safe failure
-        # mode, but confirm the ordering rather than assuming it.
-        apt-get install -y cuda-drivers 2>&1 | tail -10
-        echo "[54] NVIDIA: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null || echo 'driver installed, nvidia-smi not yet loadable this session (module needs a reboot to bind)')"
+    fi
+    apt-get install -y nvidia-detect >/tmp/ncz-nvidia-detect-install.log 2>&1
+
+    NV_ROUTE=current
+    NV_BRANCH_PKG=""
+    if command -v nvidia-detect >/dev/null 2>&1; then
+        NV_DETECT_OUT="$(nvidia-detect 2>&1)"
+        echo "[54] nvidia-detect: $(echo "$NV_DETECT_OUT" | tr '\n' ' ' | cut -c1-200)"
+        case "$NV_DETECT_OUT" in
+            *nvidia-legacy-390xx-driver*) NV_ROUTE=legacy; NV_BRANCH_PKG=nvidia-legacy-390xx-driver ;;
+            *nvidia-legacy-470xx-driver*) NV_ROUTE=legacy; NV_BRANCH_PKG=nvidia-legacy-470xx-driver ;;
+            *nvidia-driver*)              NV_ROUTE=current ;;
+            *)                            NV_ROUTE=unsupported ;;
+        esac
     else
-        echo "[54] WARN: NVIDIA GPU present but $NV_KEYRING_DEB not staged — skipping NVIDIA stack"
-        echo "[54]       stage cuda-keyring_1.1-1_all.deb from developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/ under assets/nvidia/ to fix"
+        echo "[54] WARN: nvidia-detect unavailable (contrib unreachable or install failed, see /tmp/ncz-nvidia-detect-install.log) -- cannot do generation-aware routing, falling back to the current-branch (cuda-drivers) install unconditionally"
+    fi
+
+    if [ "$NV_ROUTE" = "unsupported" ]; then
+        # Only fall back to nouveau for hardware nvidia-detect itself says
+        # has no supported driver branch (pre-Fermi). Any card with a real
+        # proprietary branch -- even the old 390xx one -- is preferred over
+        # nouveau below, since nouveau cannot provide CUDA/compute at all,
+        # which is the entire point of this hook.
+        echo "[54] NVIDIA: nvidia-detect found no supported driver branch for this card (pre-Fermi or unrecognized) -- leaving nouveau (in-kernel default) as the only real option, no proprietary/CUDA path exists for this hardware. Logic-verified against NVIDIA/Debian's own branch documentation, NOT boot-tested -- no NVIDIA hardware of any generation exists in the fleet to validate this or any NVIDIA branch against (operator-confirmed 2026-09-20, oldest fleet machine is an Intel-graphics-only Mac Mini)."
+    elif [ "$NV_ROUTE" = "legacy" ]; then
+        # Legacy branches are Debian in-archive packages, NOT NVIDIA's own
+        # cuda-keyring repo -- that repo only tracks the current branch and
+        # carries no drivers for Kepler/Fermi-class chips.
+        echo "[54] NVIDIA: routing to legacy branch $NV_BRANCH_PKG (nvidia-detect recommendation)"
+        apt-get install -y "$NV_BRANCH_PKG" 2>&1 | tail -10
+        echo "[54] NVIDIA: legacy driver installed. NOTE: NVIDIA's CUDA toolkit repo (cuda-keyring) only supports the current driver branch -- a matching older CUDA toolkit version must be sourced separately for this branch if CUDA (not just display/video accel) is required. Logic-verified against NVIDIA/Debian's own branch documentation, NOT boot-tested (no Kepler/Fermi-class NVIDIA hardware exists in the fleet to validate against, 2026-09-20)."
+    else
+        echo "[54] NVIDIA: wiring real NVIDIA CUDA repo (current driver branch)"
+        NV_KEYRING_DEB=/usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb
+        if [ -f "$NV_KEYRING_DEB" ]; then
+            dpkg -i "$NV_KEYRING_DEB" 2>&1 | tail -5
+            apt-get update 2>&1 | tail -5
+            # cuda-drivers pulls the proprietary kernel driver + full CUDA
+            # toolkit in one metapackage. nvidia-open exists for Turing+ but
+            # cuda-drivers is the broadest-compatible real choice for an
+            # unknown-hardware-cohort install.
+            #
+            # CAVEAT (zoder review, 2026-09-14): nvidia-kernel-dkms builds its
+            # module against whatever kernel headers are visible RIGHT NOW —
+            # since this hook runs at real target-install time (not build-chroot
+            # baking, see the file header), that's the actual target kernel, so
+            # this is correct as long as the target's kernel headers package is
+            # already installed before this hook runs (verify hook ordering in
+            # run-all.sh puts the kernel/headers install before 54). If DKMS
+            # can't find headers it will fail loudly here rather than silently
+            # producing a module for the wrong kernel — that's the safe failure
+            # mode, but confirm the ordering rather than assuming it.
+            apt-get install -y cuda-drivers 2>&1 | tail -10
+            echo "[54] NVIDIA: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null || echo 'driver installed, nvidia-smi not yet loadable this session (module needs a reboot to bind)')"
+            # cuda-drivers does NOT pull libnvidia-encode1/libnvcuvid1 as
+            # dependencies (confirmed live on CERBERUS, 2026-09-15: driver+CUDA
+            # toolkit fully installed via cuda-drivers, but NVENC failed with
+            # "OpenEncodeSessionEx failed: unsupported device" because these two
+            # packages were simply never installed). Without them stock ffmpeg's
+            # h264_nvenc/hevc_nvenc/av1_nvenc encoders (already compiled into
+            # Debian's ffmpeg package as of trixie 7.1.5 -- no custom ffmpeg
+            # build needed) fail outright. Pin the same driver-version stream
+            # `cuda-drivers` just installed to avoid an ABI-mismatched pull.
+            NV_DRIVER_VER="$(dpkg-query -W -f='${Version}' nvidia-driver 2>/dev/null | cut -d- -f1)"
+            if [ -n "$NV_DRIVER_VER" ]; then
+                apt-get install -y "libnvidia-encode1=${NV_DRIVER_VER}-1" "libnvcuvid1=${NV_DRIVER_VER}-1" 2>&1 | tail -10
+            else
+                apt-get install -y libnvidia-encode1 libnvcuvid1 2>&1 | tail -10
+            fi
+        else
+            echo "[54] WARN: NVIDIA GPU present but $NV_KEYRING_DEB not staged — skipping NVIDIA stack"
+            echo "[54]       stage cuda-keyring_1.1-1_all.deb from developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/ under assets/nvidia/ to fix"
+        fi
     fi
 fi
 
@@ -144,14 +212,156 @@ EOF
         # codename (jammy) even for Debian targets — same non-gating
         # apt-suite-naming quirk as Intel's OpenVINO repo below.
         apt-get update 2>&1 | tail -5
-        # rocm-device-libs-17 (versioned) is the real Debian trixie package
-        # name for ROCm 7.x, not bare rocm-device-libs — and rocm-cmake is
-        # build tooling, not part of the runtime stack; not installed here.
-        # zoder review (2026-09-14) caught both.
-        apt-get install -y rocm-opencl-icd rocm-smi rocminfo rocm-device-libs-17 2>&1 | tail -10
+        # BUG FIXED 2026-09-20, hardware-validated on MEDUSA (real gfx1012
+        # Navi14/Radeon Pro 5300M): the package name below was
+        # "rocm-device-libs-17", which does not exist for this repo/suite --
+        # `apt-get install` with ANY unresolvable package name in the list
+        # fails the WHOLE command (apt does not partially install), so this
+        # whole AMD block died here on every real target before it ever
+        # reached the rocminfo/override-writing code further down. The real
+        # name AMD's own repo.radeon.com/rocm/apt/$ROCM_VERSION jammy
+        # component publishes is versioned to match $ROCM_VERSION itself
+        # (confirmed via `apt-cache madison rocm-device-libs7.2.4`), not a
+        # Debian-release-number suffix -- there IS also a Debian-native
+        # rocm-device-libs-21 (LLVM-21-versioned, unrelated numbering
+        # scheme), but that is not what this hook intends to install.
+        apt-get install -y rocm-opencl-icd rocm-smi rocminfo "rocm-device-libs${ROCM_VERSION}" 2>&1 | tail -10
         echo "[54] AMD: $(rocminfo 2>/dev/null | grep -m1 'Marketing Name' || echo 'ROCm stack installed, rocminfo not yet loadable this session (module needs a reboot to bind)')"
+        # ROCm's officially-supported GPU list is narrow and does NOT include
+        # every real Radeon chip this hook may detect. MEASURED live on
+        # MEDUSA (2026-09-20, real gfx1012 Navi14/Radeon Pro 5300M) after
+        # fixing the package-name bug above:
+        #   - `rocminfo` alone does NOT silently fail on gfx1012 -- it
+        #     enumerates the GPU agent correctly with no override at all.
+        #     The "silently refuse to enumerate" framing this comment used
+        #     to have was not accurate for the HSA/ROCr layer.
+        #   - The REAL measured failure is one layer up: `clinfo`/the
+        #     rocm-opencl-icd OpenCL path reports "Number of devices: 0" for
+        #     the AMD platform on unofficial-support gfx1012, confirmed with
+        #     no override set.
+        #   - HSA_OVERRIDE_GFX_VERSION=10.3.0 DOES change what the HSA/ROCr
+        #     layer reports (`rocminfo` then shows gfx1030 instead of
+        #     gfx1012) -- so it is real and it is not a no-op.
+        #   - BUT it does NOT fix the OpenCL zero-device symptom: with the
+        #     override exported, `clinfo` still reports zero devices on this
+        #     exact package combination. Root cause is most likely that this
+        #     jammy component of AMD's own repo does not publish
+        #     rocm-opencl-icd/rocm-smi/libhsa-runtime64-1 under those names
+        #     at all (confirmed via `apt-cache madison`) -- only
+        #     rocm-core/rocm-device-libs/rocminfo/hsa-rocr(-dev) exist there
+        #     -- so `apt-get install rocm-opencl-icd rocm-smi rocminfo`
+        #     above silently falls back to Debian's OWN native ROCm 6.4.x
+        #     packages for those three, while rocm-core/rocm-device-libs
+        #     come from AMD's 7.2.4 repo. The result is a mixed-version ROCm
+        #     stack, and that mismatch is the more likely explanation for
+        #     the still-zero OpenCL device count than the gfx target alone.
+        #   - Net: this override is real and worth shipping (it demonstrably
+        #     fixes HSA/ROCr-layer identification, which HIP-runtime apps
+        #     that don't go through the OpenCL ICD may depend on), but it is
+        #     NOT a full fix for OpenCL compute on gfx1012 under this
+        #     package layout. That gap is real, unresolved, and belongs to a
+        #     separate follow-up (likely: stop relying on Debian's native
+        #     rocm-opencl-icd/rocm-smi and either pull AMD's actual OpenCL
+        #     runtime package names for this suite, or accept OpenCL is
+        #     unofficial-only on RDNA1 here and document it as such) rather
+        #     than something this override claims to already solve.
+        # Write a real per-chip override file so a user session picks it up
+        # without hand-editing anything -- this remains correct and worth
+        # doing even with the OpenCL gap above still open.
+        GFX_NAME=$(rocminfo 2>/dev/null | grep -m1 -oE 'gfx[0-9a-f]+' || true)
+        case "$GFX_NAME" in
+            gfx1010|gfx1011|gfx1012)
+                echo "[54] AMD: $GFX_NAME is RDNA1, narrow/unofficial ROCm support — writing HSA_OVERRIDE_GFX_VERSION=10.3.0 fallback (nearest officially-supported RDNA target)"
+                install -d /etc/profile.d
+                cat > /etc/profile.d/ncz-rocm-gfx-override.sh <<'GFXEOF'
+# Written by post-install/54-gpu-accel.sh. This GPU's real gfx target
+# (RDNA1: gfx1010/1011/1012) is not on ROCm's officially-supported list.
+# Override to the nearest supported RDNA target so the HSA/ROCr runtime
+# layer (rocminfo, and HIP apps that go through it directly) reports a
+# supported target instead of the real unofficial one. Measured on real
+# gfx1012 hardware (MEDUSA, 2026-09-20): this does NOT by itself make
+# rocm-opencl-icd/clinfo see the device -- that gap is real and separate,
+# most likely caused by a mixed-version ROCm package stack rather than the
+# gfx target. Best-effort, not a guarantee -- some ROCm workloads may still
+# hit real gaps on unofficial hardware.
+export HSA_OVERRIDE_GFX_VERSION=10.3.0
+GFXEOF
+                chmod 0644 /etc/profile.d/ncz-rocm-gfx-override.sh
+                ;;
+        esac
     fi
 fi
+
+# --- NPU (Intel / AMD) ------------------------------------------------------
+# Separate from the GPU vendor loop above -- a machine can have an NPU with
+# no matching-vendor discrete GPU (or vice versa). Real PCI signatures
+# confirmed live against fleet hardware, 2026-09-20:
+#   Intel: class [1200] "Processing accelerators", vendor 8086 (confirmed on
+#          PROTEUS: "00:0b.0 Processing accelerators [1200]: Intel
+#          Corporation Arrow Lake NPU [8086:ad1d]"). Class 1200 is clean/
+#          NPU-specific for Intel -- do NOT match on class 1180 ("Signal
+#          processing controller") for Intel, PROTEUS also has two
+#          unrelated 1180-class telemetry/crash-log devices that would
+#          false-positive.
+#   AMD:   class [1180] "Signal processing controller", vendor 1022, device
+#          string containing "IPU" (confirmed on HYDRA and ACHILLES both:
+#          "Signal processing controller [1180]: ... AMD IPU Device
+#          [1022:1502]"). Class 1180 alone is NOT vendor-specific (Intel
+#          also uses it for non-NPU devices), so AMD's NPU match requires
+#          BOTH class 1180 AND vendor 1022 AND the "IPU" name substring.
+NPU_PCI=$(lspci -nn)
+HAS_INTEL_NPU=0; HAS_AMD_NPU=0
+echo "$NPU_PCI" | grep -qi '\[1200\]:.*\[8086:' && HAS_INTEL_NPU=1
+echo "$NPU_PCI" | grep -i '\[1180\]:.*\[1022:' | grep -qi 'ipu' && HAS_AMD_NPU=1
+
+if [ "$HAS_INTEL_NPU" = 1 ]; then
+    echo "[54] Intel NPU detected — installing OpenVINO NPU runtime"
+    # Reuses the Intel OpenVINO repo wired above if this machine also has an
+    # Intel GPU; if it doesn't (NPU with no matched Intel display-class
+    # device), the repo/keyring block from the Intel GPU section above never
+    # ran, so wire it here too -- idempotent, same keyring path.
+    install -d -m0755 /etc/apt/keyrings
+    INTEL_KEYRING=/etc/apt/keyrings/intel-openvino.gpg
+    if [ ! -f "$INTEL_KEYRING" ] || [ ! -s "$INTEL_KEYRING" ]; then
+        rm -f "$INTEL_KEYRING"
+        if curl -fsSL https://apt.repos.intel.com/openvino/2026/GPG-PUB-KEY-INTEL-OPENVINO-2026 2>/dev/null | gpg --dearmor -o "$INTEL_KEYRING" 2>/dev/null && \
+           [ -s "$INTEL_KEYRING" ] && [ "$(stat -c%s "$INTEL_KEYRING" 2>/dev/null || echo 0)" -gt 100 ]; then
+            echo "[54] fetched Intel OpenVINO signing key ($(stat -c%s "$INTEL_KEYRING") bytes)"
+        else
+            rm -f "$INTEL_KEYRING"
+            echo "[54] WARN: could not fetch a real Intel OpenVINO signing key — skipping Intel NPU stack"
+        fi
+    fi
+    if [ -f "$INTEL_KEYRING" ] && [ -s "$INTEL_KEYRING" ]; then
+        if [ ! -f /etc/apt/sources.list.d/intel-openvino.list ]; then
+            cat > /etc/apt/sources.list.d/intel-openvino.list <<EOF
+deb [signed-by=$INTEL_KEYRING] https://apt.repos.intel.com/openvino ubuntu24 main
+EOF
+            apt-get update 2>&1 | tail -5
+        fi
+        # intel-driver-compiler-npu + level-zero are the real NPU runtime
+        # packages (distinct from intel-opencl-icd, which is the GPU OpenCL
+        # ICD already installed above if an Intel GPU was also present).
+        apt-get install -y intel-driver-compiler-npu intel-level-zero-npu level-zero 2>&1 | tail -10
+        echo "[54] Intel NPU: OpenVINO NPU runtime + Level-Zero installed"
+    fi
+fi
+
+if [ "$HAS_AMD_NPU" = 1 ]; then
+    # AMD's XDNA/Ryzen-AI NPU has no equivalent mature Debian-native apt
+    # repo the way ROCm/OpenVINO do -- real, current AMD documentation
+    # points at building the xdna-driver + XRT runtime from source
+    # (github.com/amd/xdna-driver). That is a materially bigger, riskier
+    # install-time step than this hook's other vendor blocks (compiling a
+    # kernel-adjacent driver at install time, not just wiring an apt repo)
+    # and is deliberately NOT done here -- flagging the real hardware
+    # presence rather than silently no-op'ing, so it's visible instead of
+    # invisible.
+    echo "[54] AMD XDNA/Ryzen-AI NPU detected -- no mature apt-installable driver stack exists yet (real gap, not a bug in this hook)."
+    echo "[54]   AMD's own current path is building github.com/amd/xdna-driver + XRT from source, which this install-time hook deliberately does not attempt."
+fi
+
+echo "[54] NPU wiring done (Intel-NPU=$HAS_INTEL_NPU AMD-NPU=$HAS_AMD_NPU)"
 
 # --- Intel ------------------------------------------------------------------
 if [ "$HAS_INTEL" = 1 ]; then

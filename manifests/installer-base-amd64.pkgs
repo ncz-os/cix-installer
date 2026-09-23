@@ -45,13 +45,27 @@ testdisk
 
 # --- boot management ---
 efibootmgr
-grub-efi-amd64
-grub-pc-bios
-# grub-efi-amd64 REPLACES the Sky1 line's implicit rEFInd-only assumption.
-# AMD64 boots GRUB, not rEFInd — see docs/AMD64-PACKAGE-AUDIT.md and the
-# operator's dual-kernel-GRUB-selection decision (MNEMOS mem_1789429924427).
-# grub-pc-bios is kept too for legacy-BIOS install targets (real AMD64
-# hardware still includes non-UEFI-only machines; Sky1 has no such concern).
+# 2026-09-16 (operator: "standardize on rEFInd on amd64, we should not
+# diverge"): grub-efi-amd64 + grub-pc-bin REMOVED. AMD64 now boots rEFInd,
+# same as arm64/Sky1 -- see post-install/70-bootloader.sh's
+# run_refind_amd64() and assets/refind/ncz-refind-refresh-amd64.sh. The
+# rEFInd binary (assets/refind/refind_x64.efi) is a vendored build-time
+# repo asset, not an apt-installed package, matching arm64's
+# refind_aa64.efi -- extracted from Debian's own `refind` .deb (0.14.2-2.1,
+# trixie/sid; not yet in forky) since this project never apt-installs
+# `refind` itself on the target.
+#
+# Known scope reduction, flagged rather than silently dropped: rEFInd is a
+# UEFI-only boot manager, so this removes support for real legacy-BIOS-only
+# x86 hardware (grub-pc-bin was the BIOS path). Every real AMD64 target
+# this project currently builds/tests against (T2 Macs, PROTEUS/CERBERUS/
+# HYDRA/ACHILLES) is UEFI, so this is not believed to affect any live
+# target -- revisit if a genuine BIOS-only target ever needs support.
+#
+# rescue-amd64.pkgs' OWN grub-efi-amd64/grub-pc-bios/memtest86+/ms-sys/
+# syslinux/syslinux-efi are UNRELATED to this and were NOT touched -- those
+# are standalone recovery-USB/BIOS-boot tooling for the rescue environment
+# itself, not the main OS's bootloader choice.
 
 # --- network / diag ---
 dbus
@@ -68,10 +82,31 @@ tcpdump
 mtr-tiny
 curl
 wget
+
+# bolt (boltd/boltctl) -- userspace Thunderbolt device authorization/
+# management. Was entirely absent from this manifest. Metal-confirmed
+# missing on MEDUSA (T2 MacBook, real Kensington AD4010T4 Thunderbolt 4
+# Dock physically attached): the kernel's own thunderbolt subsystem and
+# firmware boot-time authorization already get a real device connected
+# and working at full USB4 40Gb/s (confirmed via `boltctl list` showing
+# status=authorized, authflags=boot -- BIOS/firmware pre-authorized it
+# before bolt.service ever ran), so basic dock functionality (USB
+# hub/ethernet passthrough) does not strictly need this package. But
+# without it there is no userspace visibility or approval flow for any
+# NEW/untrusted Thunderbolt device -- it would connect with no way to
+# see, approve, or set a security policy for it. rfkill/PCIe hardware
+# itself was never the gap; only this package was missing.
+bolt
 rsync
 firmware-realtek
 firmware-linux-free
+firmware-linux
 firmware-misc-nonfree
+firmware-iwlwifi
+firmware-brcm80211
+firmware-atheros
+firmware-bnx2
+firmware-bnx2x
 
 # --- operator quality-of-life ---
 htop

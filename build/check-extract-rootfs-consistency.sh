@@ -108,22 +108,24 @@ echo "  r159 branch:       lines ${STUB_R159_START}..${STUB_R159_END}"
 
 # ---------------------------------------------------------------------------
 # Step 2: locate the r159 branch in preseed/extract-rootfs.sh.
-# It's the `if [ -n "$SQFS_DIR" ]` block, which the file has always carried.
+# 2026-09-15: previously anchored on the `if [ -n "$SQFS_DIR" ]` line for
+# START and a naive first-`fi`-at-column-0 scan for END. Both were buggy:
+# START excluded the media-scan loop + ncz_component_record() (present
+# ahead of the if in this file but INSIDE the stub's comment-anchored
+# bound), asymmetric with the stub's own comment-anchor start. END could
+# match a `fi` that is merely literal TEXT inside the ncz-firstboot
+# heredoc body (<<'FBS' ... FBS) rather than the real top-level closer,
+# silently truncating the compared region ~50 lines early. Fixed by using
+# the SAME comment-anchor technique as the stub (Step 1) on both ends.
 # ---------------------------------------------------------------------------
 echo "[consistency] locating r159 branch in $EXTRACT_ROOTFS"
-# Anchor on the unique `if [ -n "$SQFS_DIR" ]` line that opens the r159
-# branch (extract-rootfs.sh's SQFS_DIR variable is unique to that branch;
-# the legacy rootfs.tar.zst fallback below it uses ROOTFS= instead).
-EXT_R159_START=$(grep -n 'if \[ -n "\$SQFS_DIR" \]' "$EXTRACT_ROOTFS" | head -1 | cut -d: -f1 || true)
+EXT_R159_START=$(grep -n '^# r159' "$EXTRACT_ROOTFS" | head -1 | cut -d: -f1 || true)
 if [ -z "$EXT_R159_START" ]; then
-    echo "ERROR: could not locate r159 branch in $EXTRACT_ROOTFS (anchor 'if [ -n \"\$SQFS_DIR\" ]' not found)" >&2
+    echo "ERROR: could not locate r159 branch in $EXTRACT_ROOTFS (anchor '# r159' not found)" >&2
     exit 2
 fi
-# Find the closing fi. The r159 branch ends at the first top-level `fi`
-# after SQFS_DIR is checked -- which matches a line that is just `fi` at
-# indent 0. (extract-rootfs.sh's legacy rootfs.tar.zst branch follows.)
 EXT_R159_END=$(awk -v start="$EXT_R159_START" \
-    'NR >= start && /^fi$/ { print NR; exit }' "$EXTRACT_ROOTFS")
+    'NR >= start && /^# Find rootfs.tar.zst/ { print NR-1; exit }' "$EXTRACT_ROOTFS")
 if [ -z "$EXT_R159_END" ]; then
     echo "ERROR: could not bound r159 branch in $EXTRACT_ROOTFS" >&2
     exit 2
@@ -264,7 +266,41 @@ else
     # Loose mode must still catch NEW drift, so it only permits the exact
     # current normalized diff body. Exclude the first two unified-diff header
     # lines because they contain mktemp paths and timestamps.
-    KNOWN_LOOSE_DIFF_SHA256="4e475024ab3411cccaf96e72480261676bf2669ba5c3f46379e77d1de5b96cec"
+    #
+    # 2026-09-15 REVIEWED RESYNC: the bound-detection above (Step 2) was
+    # itself buggy -- START excluded the media-scan loop + ncz_component_record()
+    # (present ahead of the `if` in extract-rootfs.sh but inside the stub's
+    # comment-anchored bound), and END could match a `fi` that is merely
+    # literal TEXT inside the ncz-firstboot heredoc body, truncating the
+    # compared region ~50 lines early. Both fixed to use the same
+    # comment-anchor technique as the stub. Re-diffing on the CORRECT,
+    # complete bound found real content drift beyond the 2026-08-26
+    # baseline: extract-rootfs.sh's ncz-firstboot was missing the r177
+    # MAC-based hostname derivation and the 2026-09-08 GPU glvnd-compat
+    # belt entirely (both backported from the stub, the live source of
+    # truth for those), and its root-mode gate was positioned only after
+    # the base layer (not after the full base+role+hotfix stack like the
+    # stub's incident-driven gate) -- also fixed to match the stub's
+    # placement. extract-rootfs.sh is DEAD CODE (partman/late_command is
+    # not a real d-i hook -- see the file's own header), so none of this
+    # touched what actually ships; only the unexecuted reference twin was
+    # brought current with the live stub.
+    #
+    # The REMAINING permitted drift below is deliberate, reviewed, and in
+    # the SAFE direction: extract-rootfs.sh now carries genuine additional
+    # value the stub lacks (msg()/SER serial diagnostic tracing throughout,
+    # a run_unsq() wrapper, explicit rc-code capture per extraction step,
+    # ELAPSED timing, an operator-facing WARNING when a role squashfs is
+    # missing from the media, and richer multi-location + per-component-bit
+    # persistence of the install-time component selection). None of that
+    # was backported into the LIVE stub in this pass -- doing so safely
+    # needs a real boot-tested change to boot-critical code, which is
+    # properly its own follow-up (recommended: port msg()/SER + the WARNING
+    # message into the stub, verified via build/kvm-install-gate.sh), not
+    # something to bundle into a gate-unblocking pass. Once that lands,
+    # this baseline should go back to empty and the gate tightened to
+    # --strict per build-iso-di.sh's own standing TODO comment.
+    KNOWN_LOOSE_DIFF_SHA256="e7fea7062bbf9fb44c305dcfe8226b649650ed0519cd6fc285ec3db1ea0798fd"
     LOOSE_DIFF_SHA256=$(tail -n +3 /tmp/ncz-consistency-diff.txt | sha256sum | awk '{print $1}')
     if [ "$LOOSE_DIFF_SHA256" = "$KNOWN_LOOSE_DIFF_SHA256" ]; then
         echo "LOOSE MODE: tolerated the known baseline drift only (sha256=$LOOSE_DIFF_SHA256)."

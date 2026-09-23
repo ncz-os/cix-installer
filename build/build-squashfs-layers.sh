@@ -40,6 +40,25 @@ set -euo pipefail
 # "BASE: extract resolute base" on a Forky tree and died on a missing
 # rootfs-resolute-arm64.tar.zst.
 ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+# --- Preflight freshness gate (2026-09-21, operator directive) -------------
+# Refuse to start a build against a stale checkout, a stale kernel-staging
+# pool, or a downstream Singularity patch that no longer applies. See
+# preflight-freshness-gate.sh's own header for the three real incidents
+# (silent stale-commit build, silently-shipped-old-kernel, wasted parallel
+# rebuild) this exists to catch mechanically instead of by memory.
+# NCZ_SKIP_FRESHNESS_GATE=1 is the explicit, acknowledged escape hatch --
+# not a default, and never silent (it prints why it's skipping).
+if [ "${NCZ_SKIP_FRESHNESS_GATE:-0}" != "1" ]; then
+    if ! "$ROOT/build/preflight-freshness-gate.sh"; then
+        echo "[sqfs] ABORT: preflight-freshness-gate.sh failed -- see above." >&2
+        echo "[sqfs]        Set NCZ_SKIP_FRESHNESS_GATE=1 to build anyway (not recommended)." >&2
+        exit 1
+    fi
+else
+    echo "[sqfs] WARNING: NCZ_SKIP_FRESHNESS_GATE=1 -- skipping freshness gate, building against whatever is on disk"
+fi
+
 WORK="${WORK:-/tmp/ncz-sqfs}"
 
 # NEVER BUILD OR VERIFY A MULTI-GIGABYTE LAYER ON A tmpfs.
@@ -89,14 +108,29 @@ else
   exit 1
 fi
 NCZ_BASE_CODENAME="${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
-BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64.tar.zst}"
+# amd64 support added 2026-09-15 for the AMD64 pipeline (PROTEUS/CERBERUS) --
+# mirrors the NCZ_TARGET_ARCH pattern already used by build-iso-di.sh/
+# build-baked-rootfs.sh. Defaults to the host's own arch so existing arm64
+# callers (ULTRA) are unaffected.
+NCZ_TARGET_ARCH="${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}"
+case "$NCZ_TARGET_ARCH" in
+  arm64) HOST_NATIVE_ARCH=aarch64; QEMU_BIN=qemu-aarch64-static ;;
+  amd64) HOST_NATIVE_ARCH=x86_64;  QEMU_BIN=qemu-x86-64-static ;;
+  *) echo "ERROR: unsupported NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH (expected arm64 or amd64)" >&2; exit 1 ;;
+esac
+BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-$NCZ_TARGET_ARCH.tar.zst}"
 APT_SUITE="${APT_SUITE:-$NCZ_BASE_CODENAME}"
 APT_COMPONENTS="${APT_COMPONENTS:-main}"
 # Both the Debian closure and our own packages (kernel, Chromium, Singularity)
 # must be reachable offline, or disabling the remote sources above would make
 # the NCZ packages unresolvable.
-MIRROR_DIRS="${MIRROR_DIRS:-$NCZ_BASE_CODENAME-mirror $NCZ_BASE_CODENAME-vendor-mirror}"
-QEMU="/usr/bin/qemu-aarch64-static"
+if [ -n "${MIRROR_DIRS+x}" ]; then
+  MIRROR_DIRS_EXPLICIT=1
+else
+  MIRROR_DIRS_EXPLICIT=0
+  MIRROR_DIRS="$NCZ_BASE_CODENAME-mirror $NCZ_BASE_CODENAME-vendor-mirror"
+fi
+QEMU="/usr/bin/$QEMU_BIN"
 STAGE="${1:-base}"                            # base | desktop | server | all
 
 log(){ echo "[sqfs $(date -u +%H:%M:%S)] $*"; }
@@ -186,20 +220,30 @@ assert_rootfs_critical_owners(){
   done
   if [ "$bad" -ne 0 ]; then
     log "ERROR: refusing to chroot into a rootfs with user-owned system paths"
-    log "       Rebuild the base layer from assets/rootfs/rootfs-$APT_SUITE-arm64.tar.zst"
+    log "       Rebuild the base layer from assets/rootfs/rootfs-$APT_SUITE-$NCZ_TARGET_ARCH.tar.zst"
     log "       before rebuilding role deltas."
     return 1
   fi
 }
-# NATIVE arm64 (e.g. bigpi) needs no qemu-user; x86 (ARGOS) does.
-NATIVE=0; [ "$(uname -m)" = "aarch64" ] && NATIVE=1
-[ "$NATIVE" = 1 ] || { [ -x "$QEMU" ] || { echo "no qemu-aarch64-static (x86 host needs it)"; exit 1; }; }
+# NATIVE: host arch matches the TARGET arch (e.g. arm64-target on ULTRA/bigpi,
+# or amd64-target on PROTEUS/CERBERUS) needs no qemu-user; a genuine
+# cross-arch host does.
+NATIVE=0; [ "$(uname -m)" = "$HOST_NATIVE_ARCH" ] && NATIVE=1
+[ "$NATIVE" = 1 ] || { [ -x "$QEMU" ] || { echo "no $QEMU_BIN (cross-arch host needs it)"; exit 1; }; }
 log "arch=$(uname -m) native=$NATIVE ROOT=$ROOT WORK=$WORK OUT=$OUT"
 mkdir -p "$OUT" "$WORK"
 
 # machine-AGNOSTIC hooks safe to bake into base (NOT desktop-config)
-BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 19-sinty-nm"
-BASE_MANIFEST="${BASE_MANIFEST:-manifests/installer-base.pkgs}"
+case "$NCZ_TARGET_ARCH" in
+  amd64) BASE_HOOKS="10-amd64-kernel 19-sinty-nm" ;;
+  *)     BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 19-sinty-nm" ;;
+esac
+case "$NCZ_TARGET_ARCH" in
+  amd64) BASE_MANIFEST="${BASE_MANIFEST:-manifests/installer-base-amd64.pkgs}"
+         DESKTOP_MANIFEST="${DESKTOP_MANIFEST:-manifests/desktop-amd64.pkgs}" ;;
+  *)     BASE_MANIFEST="${BASE_MANIFEST:-manifests/installer-base.pkgs}"
+         DESKTOP_MANIFEST="${DESKTOP_MANIFEST:-manifests/desktop.pkgs}" ;;
+esac
 
 manifest_pkgs(){
   local manifest="$1"
@@ -251,11 +295,40 @@ apt_offline(){ local c="$1"
     sudo mv "$f" "$f.disabled-for-build"
     log "  apt: disabled $(basename "$f") for the build"
   done
+  local _mirror_found=0
   for m in $MIRROR_DIRS; do
     [ -d "$ROOT/build/$m/dists/$APT_SUITE" ] || continue
+    _mirror_found=1
     sudo mkdir -p "$c/mnt/$m"; sudo mount -o bind "$ROOT/build/$m" "$c/mnt/$m"
     echo "deb [trusted=yes] file:///mnt/$m $APT_SUITE $APT_COMPONENTS" | sudo tee -a "$c$NCZ_OFFLINE_SRC" >/dev/null
   done
+  # No local mirror on this host: apt_offline() previously left the chroot
+  # with ZERO apt sources in this case (every pre-existing one disabled
+  # above, nothing re-added), which is fine for the reproducibility
+  # contract but meant 20-desktop.sh's own apt-get install inside this
+  # merged chroot always failed here -- confirmed 2026-09-14, hit for real
+  # wiring build_layer()'s full production path on a host with no populated
+  # mirror. Same graceful non-reproducible live-network fallback already
+  # established in build_base() and build-role-delta-mkosi.sh: wire the
+  # real NCZ sources + a real Debian archive source, loudly labeled
+  # non-pinned, rather than leaving apt with nothing to install from at all.
+  if [ "$_mirror_found" = 0 ]; then
+    log "  apt_offline: no mirror for $APT_SUITE -- wiring live NCZ + base sources (non-reproducible fallback, matches build_base())"
+    sudo install -d "$c/etc/apt/keyrings"
+    if [ -f "$ROOT/post-install/buildkite-ncz-apt-keyring.asc" ] &&        gpg --dearmor < "$ROOT/post-install/buildkite-ncz-apt-keyring.asc" | sudo tee "$c/etc/apt/keyrings/buildkite-ncz-apt-keyring.gpg" >/dev/null 2>&1; then
+      echo "deb [signed-by=/etc/apt/keyrings/buildkite-ncz-apt-keyring.gpg] https://packages.buildkite.com/ncz-os/ncz/any/ any main" |         sudo tee "$c/etc/apt/sources.list.d/ncz-os-apt-buildkite-live.list" >/dev/null
+    fi
+    if [ -f "$ROOT/post-install/ncz-os-apt-keyring.asc" ] &&        gpg --dearmor < "$ROOT/post-install/ncz-os-apt-keyring.asc" | sudo tee "$c/etc/apt/keyrings/ncz-os-apt-keyring.gpg" >/dev/null 2>&1; then
+      echo "deb [signed-by=/etc/apt/keyrings/ncz-os-apt-keyring.gpg] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main" |         sudo tee "$c/etc/apt/sources.list.d/ncz-os-apt-r2-live.list" >/dev/null
+    fi
+    # A pinned snapshot.debian.org mirror (release.conf) expires its Release
+    # file quickly -- without check-valid-until=no this apt-get update fails
+    # closed the moment NCZ_BASE_MIRROR_SNAPSHOT is set.
+    _mirror_opts="${NCZ_BASE_MIRROR_APT_OPTS:+[$NCZ_BASE_MIRROR_APT_OPTS] }"
+    echo "deb ${_mirror_opts}$NCZ_BASE_MIRROR $NCZ_BASE_CODENAME $NCZ_BASE_COMPONENTS" |       sudo tee "$c/etc/apt/sources.list.d/ncz-base-live.list" >/dev/null
+    sudo chroot "$c" apt-get update -y 2>&1 | tail -8 || true
+    return 0
+  fi
   # A remote source here means the closure is no longer pinned. Fail rather
   # than silently building against a moving archive.
   # Scope the check to files apt ACTUALLY reads (*.list, *.sources). Scanning
@@ -272,6 +345,14 @@ apt_unmount(){ local c="$1"
   # Build-time only: never ship a file:// source pointing at a bind mount
   # that does not exist on the installed system.
   sudo rm -f "$c$NCZ_OFFLINE_SRC" 2>/dev/null || true
+  # Same build-time-only rule for apt_offline()'s no-mirror live fallback
+  # (Codex review finding, 2026-09-14): these are never meant to survive
+  # into the shipped image -- restoring the disabled-for-build originals
+  # just below would otherwise leave BOTH the restored originals AND these
+  # live copies active, a duplicate/inconsistent apt configuration.
+  sudo rm -f "$c/etc/apt/sources.list.d/ncz-os-apt-buildkite-live.list" \
+             "$c/etc/apt/sources.list.d/ncz-os-apt-r2-live.list" \
+             "$c/etc/apt/sources.list.d/ncz-base-live.list" 2>/dev/null || true
   # Restore the sources we moved aside, so the installed system keeps its own
   # apt configuration. Leaving them disabled would ship an image that cannot
   # update itself.
@@ -285,21 +366,49 @@ apt_unmount(){ local c="$1"
 # build a ROLE delta layer: overlay(base=lower) + apt-install the package set into
 # the upperdir, then squash ONLY the upperdir (the delta). NO NCZ desktop hooks.
 build_layer(){ local role="$1" manifest="$2"
+  # The desktop closure has its own complete, indexed repository.  The generic
+  # suite/vendor mirrors are inputs for the base role and are not substitutes
+  # for build/desktop-mirror.  Preserve an explicit operator override, but make
+  # every normal desktop invocation (including `all`) select the role mirror.
+  local MIRROR_DIRS="$MIRROR_DIRS"
+  if [ "$role" = desktop ] && [ "$MIRROR_DIRS_EXPLICIT" -eq 0 ]; then
+    MIRROR_DIRS="desktop-mirror"
+  fi
+  log "$role: apt mirror directories: $MIRROR_DIRS"
   [ -f "$OUT/base.squashfs" ] || { echo "base.squashfs missing — build base first"; exit 1; }
   [ -f "$ROOT/$manifest" ] || { echo "manifest $manifest missing"; exit 1; }
   local L="$WORK/$role-lower" U="$WORK/$role-up" WK="$WORK/$role-wk" MG="$WORK/$role-mg"
+  local MKOUT="$WORK/$role-mkosi-out"
   # A killed prior build may leave bind mounts below MG. Unmount children first;
   # removing the tree while a mirror or /dev is still mounted risks deleting or
   # modifying the host-side source through that live mount.
   apt_unmount "$MG"; umount_chroot "$MG"
   sudo umount -lf "$MG" 2>/dev/null || true
-  sudo rm -rf "$L" "$U" "$WK" "$MG"
+  sudo rm -rf "$L" "$U" "$WK" "$MG" "$MKOUT"
   log "$role: unsquash base as lowerdir"
   sudo unsquashfs -f -d "$L" "$OUT/base.squashfs" >/dev/null 2>&1
   # The destination directory itself is not part of the squashfs payload.
   # Force ownership so maintainer scripts see a normal root-owned filesystem.
   sudo chown root:root "$L"
   assert_rootfs_critical_owners "$L" "$role lowerdir"
+  # 2026-09-14: package installation for this layer is now produced by
+  # build-role-delta-mkosi.sh (containerized mkosi, BaseTrees=$L +
+  # Overlay=yes) instead of a hand-rolled mount+chroot+apt-get here -- see
+  # that script's header for why (host-mount safety, the dpkg-status dedup
+  # hazard its hooks close, the offline-mirror single-source contract it now
+  # also enforces). It replaces ONLY package installation: the upperdir it
+  # hands back becomes $U below, and everything after this point (the
+  # brand-hook loop, metacopy materialization, overlay-manifest generation,
+  # mksquashfs) is UNCHANGED from before -- those steps operate on $U's
+  # content, not on how it was produced.
+  MIRROR_DIRS="$MIRROR_DIRS" APT_SUITE="$APT_SUITE" APT_COMPONENTS="$APT_COMPONENTS" \
+    "$ROOT/build/build-role-delta-mkosi.sh" "$role" "$ROOT/$manifest" "$L" "$MKOUT" "$NCZ_TARGET_ARCH" || {
+    log "ERROR: $role mkosi delta build failed; refusing to publish an incomplete layer"
+    sudo rm -rf "$L" "$MKOUT"
+    return 1
+  }
+  sudo mv "$MKOUT/image" "$U"
+  sudo rm -rf "$MKOUT"
   # sudo: $WORK is root-owned as soon as any earlier stage has run under sudo,
   # so an unprivileged mkdir here fails with "mkdir: Permission denied" and
   # set -e aborts the build four seconds in, having logged nothing but the
@@ -309,9 +418,44 @@ build_layer(){ local role="$1" manifest="$2"
   # Overlay presents the upper/mount root as the chroot root. None of the
   # backing directories may retain invoking-user ownership or systemd's
   # maintainer scripts reject `/` as an unsafe path.
-  sudo chown root:root "$U" "$WK" "$MG"
+  sudo chown -R root:root "$U"
+  sudo chown root:root "$WK" "$MG"
+  # SECOND overlay mount, deliberately separate from mkosi's own internal one:
+  # the brand-hook loop below chroots into a MERGED base+delta view to install
+  # further packages (vivaldi, chrome, Artist Pack debs) and run installer
+  # hooks -- $U alone (mkosi's static output) has no base binaries in it and
+  # cannot be chrooted into on its own. See build-role-delta-mkosi.sh's
+  # "Integration" section for the full reasoning.
   sudo mount -t overlay overlay -o "lowerdir=$L,upperdir=$U,workdir=$WK" "$MG"
-  mount_chroot "$MG"; apt_offline "$MG"
+  mount_chroot "$MG"
+  # mkosi's Overlay=yes dedup pass strips /etc/ld.so.cache as a "duplicate
+  # path" during the delta build (same hazard class as the dpkg-status
+  # dedup issue the save/restore hooks in build-role-delta-mkosi.sh close --
+  # confirmed 2026-09-14 wiring the real production path: labwc's runtime-
+  # closure check failed on libdisplay-info.so.5 even though the .so file
+  # AND /etc/ld.so.conf.d/singularity.conf were both genuinely present in
+  # the delta's upperdir -- the merged chroot was just reading base's STALE
+  # cache, built before singularity.conf existed). Rebuilding here (rather
+  # than stashing/restoring the cache file like dpkg-status) is simpler and
+  # can't go stale: it reflects whatever ld.so.conf.d files are actually in
+  # the merged view at this exact point, base + delta combined.
+  # WORKAROUND for a real packaging defect, not a pipeline bug: the
+  # ncz-singularity-desktop .deb ships /etc/ld.so.conf.d/singularity.conf
+  # listing only /opt/singularity/lib, but its own libraries (e.g.
+  # libdisplay-info.so.5, confirmed 2026-09-14) actually live one level
+  # deeper at /opt/singularity/lib/aarch64-linux-gnu -- ldconfig does NOT
+  # recurse into subdirectories listed in ld.so.conf.d, so that path was
+  # never in the cache regardless of how many times ldconfig ran. The
+  # correct fix is the package's own conf file (build/build-singularity-deb.sh),
+  # not here -- this just unblocks the test ISO in the meantime. Remove once
+  # a corrected ncz-singularity-desktop package ships the right path itself.
+  echo "/opt/singularity/lib/aarch64-linux-gnu" | sudo tee "$MG/etc/ld.so.conf.d/zz-singularity-multiarch-workaround.conf" >/dev/null
+  sudo chroot "$MG" ldconfig
+  # apt_offline still runs here: mkosi already installed the manifest's
+  # top-level package set above, but the brand-hook loop's OWN apt/dpkg calls
+  # (52-vivaldi, 53-chrome, 45-wallpaper-rotator staging Artist Pack debs)
+  # need the same pinned offline source to resolve against.
+  apt_offline "$MG"
   echo -e '#!/bin/sh\nexit 101' | sudo tee "$MG/usr/sbin/policy-rc.d" >/dev/null; sudo chmod +x "$MG/usr/sbin/policy-rc.d"
   # r190.2: disable needrestart kernel hints -- same fix already applied in
   # build-baked-rootfs.sh and build-iso-di.sh, but never here. Without it,
@@ -322,19 +466,6 @@ build_layer(){ local role="$1" manifest="$2"
   # until manually killed).
   sudo mkdir -p "$MG/etc/needrestart/conf.d"
   printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$MG/etc/needrestart/conf.d/99-squashfs-layer.conf" >/dev/null
-  # r190.1: strip inline trailing comments too, not just whole-line ones --
-  # a `pkg  # comment` line used to be passed to apt-get install VERBATIM
-  # (comment text included), which corrupted the whole batch install and
-  # silently dropped unrelated packages (librsvg2-bin, in the 2026-07-05
-  # incident this fixes -- see project_cix_buildkite_mirror_2026_07_05).
-  local pkgs; pkgs=$(manifest_pkgs "$ROOT/$manifest")
-  log "$role: apt-install $(echo $pkgs|wc -w) top-level packages (complete set + closure)"
-  if ! sudo chroot "$MG" env DEBIAN_FRONTEND=noninteractive \
-      apt-get install -y --no-install-recommends $pkgs 2>&1 | tail -6; then
-    log "ERROR: $role package installation failed; refusing to publish an incomplete layer"
-    apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
-    return 1
-  fi
   if [ "$role" = "desktop" ]; then
     log "desktop: SINGULARITY desktop delta (Wayland-only; XFCE/X11 removed) + brand"
     # 26.7 "Maximilian": Singularity Desktop (labwc/wlroots, GTK4) REPLACES XFCE.
@@ -401,6 +532,19 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/nvidia/." "$MG/usr/local/lib/cix-installer/assets/nvidia/" 2>/dev/null || true
       log "  staged nvidia cuda-keyring asset ($(find "$ROOT/assets/nvidia" -type f | wc -l | tr -d ' ') files)"
     fi
+    # AMD64 has no Buildkite-published ncz-singularity-desktop package yet
+    # (arm64's real production path -- see the apt_offline()/offline-mirror
+    # comment above), so stage the locally-built .deb the same way
+    # 10-our-kernel.sh already stages kernel debs for the no-mirror case, and
+    # let 20-desktop.sh's existing embedded-deb check (mirrors its
+    # /cdrom/pool/main pattern) find it here too. This is a staging path,
+    # not a new mechanism -- assets/cix-debs/*.deb is gitignored and
+    # build-host-local by the project's own convention (see .gitignore).
+    if [ -n "$(ls -1 "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*_"$NCZ_TARGET_ARCH".deb 2>/dev/null)" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/cix-debs"
+      sudo cp -a "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*_"$NCZ_TARGET_ARCH".deb "$MG/usr/local/lib/cix-installer/assets/cix-debs/" 2>/dev/null || true
+      log "  staged ncz-singularity-desktop deb (no Buildkite package yet for $NCZ_TARGET_ARCH)"
+    fi
     # Google Chrome installs from the profile-matched offline mirror. No
     # separate asset staging is needed here.
     # 26.7 (updated 2026-07-26): the Singularity Desktop payload is NO LONGER
@@ -429,7 +573,7 @@ build_layer(){ local role="$1" manifest="$2"
     _sing_candidates=""
     for _mirror in $MIRROR_DIRS; do
       _found=$(find "$ROOT/build/$_mirror/pool" -type f \
-        -name 'ncz-singularity-desktop_*_arm64.deb' 2>/dev/null || true)
+        -name "ncz-singularity-desktop_*_${NCZ_TARGET_ARCH}.deb" 2>/dev/null || true)
       [ -n "$_found" ] && _sing_candidates="$_sing_candidates
 $_found"
     done
@@ -550,7 +694,7 @@ for directory, names, files in os.walk(upper):
 PYMETACOPY
   apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
   # clean transient from the UPPER delta only (keep dpkg status/alternatives copy-ups)
-  sudo rm -rf "$U/var/lib/apt/lists/"* "$U/var/cache/apt/"* "$U/tmp/"* "$U/usr/bin/qemu-aarch64-static" 2>/dev/null || true
+  sudo rm -rf "$U/var/lib/apt/lists/"* "$U/var/cache/apt/"* "$U/tmp/"* "$U/usr/bin/$QEMU_BIN" 2>/dev/null || true
   # Preserve the overlay semantics in a sidecar consumed by the installer.
   # A raw upperdir contains both char-device 0:0 whiteouts and opaque directory
   # xattrs; ordinary unsquashfs understands neither when merging into a base.
@@ -624,8 +768,85 @@ PYOVERLAY
   sudo rm -rf "$L" "$MG" "$WK"
 }
 
+ensure_base_tarball_fresh(){
+  # The base tarball (assets/rootfs/rootfs-$APT_SUITE-arm64.tar.zst) is a
+  # fixed mmdebstrap snapshot -- unlike base.squashfs, which build_base()
+  # regenerates unconditionally every run, this INPUT can silently go stale
+  # (missed security updates, drifted against the current apt mirror) with
+  # nothing forcing a refresh. Never let it go stale unnoticed -- age-gate it
+  # here and auto-regenerate past the limit, same as if it were simply
+  # missing (which this also self-heals).
+  local max_age_days="${BASE_TARBALL_MAX_AGE_DAYS:-5}"
+  local need_regen=0 age_days
+  if [ ! -f "$BASE_TARBALL" ]; then
+    log "BASE: $BASE_TARBALL absent -- generating"
+    need_regen=1
+  else
+    age_days=$(( ( $(date +%s) - $(stat -c %Y "$BASE_TARBALL") ) / 86400 ))
+    if [ "$age_days" -gt "$max_age_days" ]; then
+      log "BASE: $BASE_TARBALL is ${age_days}d old (>${max_age_days}d limit) -- regenerating"
+      need_regen=1
+    else
+      log "BASE: $BASE_TARBALL is ${age_days}d old (<=${max_age_days}d limit) -- reusing"
+    fi
+  fi
+  [ "$need_regen" = 1 ] || return 0
+  local gen="$ROOT/build/build-base-rootfs.sh"
+  [ -x "$gen" ] || { log "ERROR: $BASE_TARBALL needs (re)generation but $gen is missing/not executable"; exit 1; }
+  # No sudo: build-base-rootfs.sh runs mmdebstrap inside a podman container
+  # as the invoking user -- running it under sudo would use root's podman
+  # storage/config instead of this user's, which is a different (and here,
+  # unpopulated) container storage backend.
+  # Forward NCZ_TARGET_ARCH and the resolved BASE_TARBALL path -- without
+  # these, build-base-rootfs.sh falls back to its own arm64-only defaults
+  # (ARCH=${4:-arm64}, OUT filename hardcoded -arm64.tar.zst) regardless of
+  # NCZ_TARGET_ARCH, silently producing an arm64 tarball under an amd64 run.
+  # Found 2026-09-15 rebuilding the amd64 forky ISO: the regen step exited 0
+  # having written rootfs-forky-arm64.tar, then failed the existence check
+  # below because BASE_TARBALL correctly expected the -amd64 name.
+  bash "$gen" "" "$BASE_TARBALL" "" "$NCZ_TARGET_ARCH" || { log "ERROR: base-rootfs regeneration failed"; exit 1; }
+  [ -f "$BASE_TARBALL" ] || { log "ERROR: $gen ran but did not produce $BASE_TARBALL"; exit 1; }
+}
+
 build_base(){
   log "BASE: extract $APT_SUITE base"
+  # r160b (2026-09-15): ensure the default NCZ wallpaper Artist Pack is
+  # staged BEFORE the base asset-copy loop runs. This build-time step
+  # existed in the old pipeline and was silently dropped when this one was
+  # written -- post-install/45-wallpaper-rotator.sh has always had a
+  # WARN-and-skip fallback for a missing assets/wallpaper-debs/ (so the
+  # build itself never failed loudly), but the real effect is total: no
+  # deb staged means no ncz-wallpapers-ncz package installed means no
+  # wallpaper timer/service unit exists on the finished system at all --
+  # confirmed live on O6N, systemctl list-unit-files came back with
+  # zero wallpaper-rotation matches. Same root cause likely blocks the
+  # Artist Pack install flow too (its polkit backend scripts install fine,
+  # but read from this same directory to list/install packs).
+  # Ship all four packs we own: ncz (required, has its own fail-loud gate
+  # in 45-wallpaper-rotator.sh), singularity (repackages the upstream
+  # singularity-wallpapers set as an installable pack so ncz-wallpaper-rotate
+  # picks it up, distinct from the copy that ships inside /opt/singularity),
+  # and the contributed Brandon Perlow and Alex Jay Brady packs. Only ncz
+  # used to be auto-built here (as a fallback when NOTHING was staged), so a
+  # from-scratch build silently shipped without the other three --
+  # assets/wallpaper-debs/ is gitignored and build-wallpaper-contrib-deb.sh
+  # was never invoked for them.
+  mkdir -p "$ROOT/assets/wallpaper-debs"
+  for pack in ncz singularity brandon-perlow alex-jay-brady; do
+    if ls "$ROOT/assets/wallpaper-debs/ncz-wallpapers-${pack}_"*.deb >/dev/null 2>&1; then
+      continue
+    fi
+    log "  wallpaper-debs: $pack not staged -- building"
+    if bash "$ROOT/build/build-wallpaper-contrib-deb.sh" "$pack" >/dev/null 2>&1; then
+      cp "$ROOT/build/wallpaper-debs/"*.deb "$ROOT/assets/wallpaper-debs/" 2>/dev/null || true
+    elif [ "$pack" = ncz ]; then
+      log "  WARN: build-wallpaper-contrib-deb.sh ncz failed -- shipping with NO default wallpaper (see post-install/45-wallpaper-rotator.sh)"
+    else
+      log "  WARN: build-wallpaper-contrib-deb.sh $pack failed -- shipping without the $pack Artist Pack"
+    fi
+  done
+  log "  wallpaper-debs: staged $(ls "$ROOT/assets/wallpaper-debs/"*.deb 2>/dev/null | wc -l) pack(s)"
+  ensure_base_tarball_fresh
   # A failed base hook exits under `set -e` before normal cleanup. Detach any
   # stale mounts before retrying so rm never traverses host /proc or /sys.
   apt_unmount "$WORK/base"
@@ -647,7 +868,27 @@ build_base(){
   # The base layer now consumes installer-base.pkgs explicitly.  If a pinned
   # offline mirror is present, use it; otherwise fall back to the rootfs' own
   # sources for local developer experiments.
-  if mirror_available; then apt_offline "$WORK/base"; else log "no mirror for $APT_SUITE -> using base sources"; fi
+  if mirror_available; then
+    apt_offline "$WORK/base"
+  else
+    # 24-apt-sources.sh's own header says it must wire NCZ's apt source(s)
+    # EARLY, before ANY hook that installs packages -- but nothing actually
+    # ran it before the manifest-driven install below until now. Stage just
+    # enough of the hook tree to run it here, before $_base_pkgs (which
+    # includes NCZ-custom packages like linux-image-cixmini/cixmini-boot,
+    # not just ordinary Debian ones). The full hook tree gets re-staged
+    # again further down for the BASE_HOOKS loop -- that re-copy is
+    # idempotent and harmless, it's just not early enough on its own.
+    log "no mirror for $APT_SUITE -> wiring NCZ + base apt sources early (24-apt-sources)"
+    sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer"
+    sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
+    sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
+    if ! sudo chroot "$WORK/base" bash -c 'cd /usr/local/lib/cix-installer/post-install && bash ./24-apt-sources.sh' 2>&1 | tail -12; then
+      log "ERROR: 24-apt-sources.sh failed with no local mirror available -- cannot resolve any base packages"
+      apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
+      return 1
+    fi
+  fi
   [ -f "$ROOT/$BASE_MANIFEST" ] || { echo "manifest $BASE_MANIFEST missing"; exit 1; }
   _base_pkgs=$(manifest_pkgs "$ROOT/$BASE_MANIFEST")
   log "BASE: apt-install $(echo $_base_pkgs|wc -w) always-on packages from $BASE_MANIFEST"
@@ -662,7 +903,7 @@ build_base(){
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
   sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind rescue branding wallpaper wallpaper-debs sinty-nm; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs sinty-nm; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
     log "  staged sinty-nm daemon into BASE ($(du -h "$ROOT/assets/sinty-nm/sinty-nmd" | cut -f1))"
   else
@@ -684,6 +925,14 @@ build_base(){
   # KVER sidecar that 10-our-kernel.sh + 70-bootloader.sh need to discover
   # the shipped edge kernel's KVER at install time.
   [ -f "$ROOT/assets/kernel/edge/KVER" ] && sudo cp "$ROOT/assets/kernel/edge/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
+  # KVER_EDGE sidecar (2026-09-15): a second, EXPERIMENTAL kernel line
+  # installed alongside the default (KVER_NEXT/stable). 10-our-kernel.sh
+  # installs it as a non-dpkg-tracked raw copy (see that hook for why: the
+  # linux-image-cixmini package NAME is fixed across every KVER, so dpkg
+  # cannot track two versions of it side by side without a package rename
+  # this pass did not have time to do safely -- edge is explicitly manual/
+  # non-OTA, same posture AMD64 already documents for ITS edge line).
+  [ -f "$ROOT/assets/kernel/edge-experimental/KVER" ] && sudo cp "$ROOT/assets/kernel/edge-experimental/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_EDGE"
   # r160: stage the COMPLETE rEFInd asset set, falling back to build/refind-bin
   # for anything assets/refind didn't provide (on bigpi the NFS sync had only
   # build/refind-bin — assets/refind was absent, so r159's base shipped just the
@@ -798,8 +1047,32 @@ NMETH
   sudo rm -f "$WORK/base/var/lib/dbus/machine-id" 2>/dev/null || true
   sudo ln -sf /etc/machine-id "$WORK/base/var/lib/dbus/machine-id" 2>/dev/null || true
   sudo rm -f "$WORK/base"/etc/ssh/ssh_host_* "$WORK/base/var/lib/systemd/random-seed" 2>/dev/null || true
+  # sshd-keygen.service ConditionFirstBoot=yes is fragile on a pre-built image
+  # (measured 2026-09-15: ssh.service FAILED 4x on a real qemu boot test of
+  # ncz-amd64-desktop.img despite an empty machine-id) -- force key generation
+  # unconditionally as a drop-in, ssh-keygen -A is idempotent and skips keys
+  # that already exist so this is safe even when the first-boot path DOES fire.
+  #
+  # r2 (2026-09-15, same night): the first version of this drop-in did NOT
+  # work -- confirmed via a real interactive serial-console login on a
+  # rebuilt+re-tested image. `systemctl cat ssh.service` showed the merged
+  # unit runs the BASE fragment's `ExecStartPre=/usr/sbin/sshd -t` FIRST,
+  # then appends this drop-in's `ExecStartPre=/usr/bin/ssh-keygen -A` AFTER
+  # it -- a systemd drop-in's ExecStartPre= lines are APPENDED to the list,
+  # never reordered ahead of the base unit's own. So `sshd -t` ran first,
+  # failed immediately with "sshd: no hostkeys available -- exiting." (no
+  # keys exist yet), and the unit hit start-limit-hit before ssh-keygen ever
+  # got a chance to run. The empty `ExecStartPre=` line below clears the
+  # inherited list (including the base fragment's `sshd -t`) so this drop-in
+  # can redeclare both steps in the correct order.
+  sudo mkdir -p "$WORK/base/etc/systemd/system/ssh.service.d"
+  printf '[Service]
+ExecStartPre=
+ExecStartPre=/usr/bin/ssh-keygen -A
+ExecStartPre=/usr/sbin/sshd -t
+' | sudo tee "$WORK/base/etc/systemd/system/ssh.service.d/10-ensure-hostkeys.conf" >/dev/null
   # cleanup
-  sudo rm -f "$WORK/base/usr/sbin/policy-rc.d" "$WORK/base/usr/bin/qemu-aarch64-static"
+  sudo rm -f "$WORK/base/usr/sbin/policy-rc.d" "$WORK/base/usr/bin/$QEMU_BIN"
   sudo chroot "$WORK/base" apt-get clean 2>/dev/null || true
   sudo rm -rf "$WORK/base/var/lib/apt/lists/"* "$WORK/base/tmp/"* 2>/dev/null || true
   apt_unmount "$WORK/base"; umount_chroot "$WORK/base"
@@ -896,23 +1169,33 @@ NMETH
 # message + build log line below).
 # ----------------------------------------------------------------------------
 
-# build_singularity_payload() -- rebuild ncz-singularity-desktop from CURRENT
-# upstream head, unconditionally, before build_hotfix() (or anything else on
-# this branch) consumes it.
+# ----------------------------------------------------------------------------
+# build_singularity_payload() — rebuild ncz-singularity-desktop from CURRENT
+# upstream head, unconditionally, before anything downstream consumes it.
 #
-# Ported from build_singularity_payload() on wip/mkosi-pipeline-2026-09-14
-# (2026-09-17, operator rule 11: "build the new singularity for both arm64
-# and amd at next ISO build ... standard procedure"). NOT a dual-arch port --
-# this whole pipeline (BASE_TARBALL above hardcodes rootfs-*-arm64.tar.zst,
-# no NCZ_TARGET_ARCH concept exists anywhere in this file) only ever builds
-# arm64, so there is no second arch here to rebuild for. The wip branch's
-# dual-arch behavior depends on NCZ_TARGET_ARCH, which this branch does not
-# have; giving master real AMD64 squashfs-layer support is the mkosi-pipeline
-# migration itself; a function port cannot manufacture that. What this DOES
-# fix on master: the exact same stale-payload gap build_hotfix()'s own error
-# message below has been describing as a MANUAL step ("run both by hand ...
-# then retry") -- nothing on this branch ever called build-singularity.sh
-# automatically either, so master carried the identical staleness risk.
+# Real gap this closes (operator, 2026-09-16, after a shipped arm64 ISO
+# turned out to carry a singularity-desktop build 158 commits behind
+# upstream and missing a full set of already-merged/queued fixes): this
+# pipeline had a fully-working, reproducible build script for the payload
+# (build-singularity.sh, already defaulting SRC_REF=master i.e. current
+# head) and a working packager (build-singularity-deb.sh) -- but NOTHING
+# ever called them. build_hotfix()'s own error message, right below,
+# literally told a human to run both by hand and copy the .deb into
+# assets/cix-debs/ "then retry" -- a manual step nobody was reliably
+# doing every pipeline run, so whatever .deb happened to be sitting there
+# from a past session just kept getting reused, silently, forever.
+#
+# Fix: build fresh, every single pipeline invocation that touches the
+# desktop/hotfix layers -- no "if missing" check, no staleness heuristic.
+# This is the same doctrine the rest of this pipeline already applies to
+# the base rootfs and mkosi role deltas (rebuild from source every run,
+# trust no cache) -- singularity-desktop was the one artifact still
+# exempted from it, and that exemption is exactly what went stale.
+#
+# NOT arch-gated beyond what build-singularity.sh/build-singularity-deb.sh
+# already handle themselves (native container platform + dpkg
+# --print-architecture-derived ARCH) -- this runs identically on the
+# arm64 (ULTRA) and amd64 (PROTEUS) build hosts.
 build_singularity_payload(){
   log "SINGULARITY: rebuilding ncz-singularity-desktop from current upstream head"
   local _sinty_out="$ROOT/build/sinty-out"
@@ -928,15 +1211,40 @@ build_singularity_payload(){
     exit 1
   }
   local _deb
-  _deb="$(OUT="$_sinty_out" bash "$ROOT/build/build-singularity-deb.sh" "$_tgz" \
-    | tee /dev/stderr | sed -n 's/^Final \.deb: //p')"
+  _deb="$(NCZ_SINGULARITY_ARCH="$NCZ_TARGET_ARCH" OUT="$_sinty_out" \
+    bash "$ROOT/build/build-singularity-deb.sh" "$_tgz" | tee /dev/stderr | \
+    sed -n 's/^Final \.deb: //p')"
   [ -n "$_deb" ] && [ -s "$_deb" ] || {
     log "ERROR: build-singularity-deb.sh did not produce a usable .deb"
     exit 1
   }
+  # Remove EVERY existing ncz-singularity-desktop .deb in assets/cix-debs/
+  # first -- not just the one build_hotfix()'s -V sort would have picked.
+  # A stale SECOND .deb left behind (a different version string, an older
+  # arch build) is exactly the kind of thing that silently wins a future
+  # sort-by-version comparison if this fresh one is ever missing for any
+  # reason; the directory should hold exactly one, always the one just
+  # built.
   rm -f "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb
   install -m 0644 "$_deb" "$ROOT/assets/cix-debs/"
   log "SINGULARITY: staged $(basename "$_deb") -> assets/cix-debs/ (fresh, from head)"
+}
+
+ensure_wallpaper_packs(){
+  local pack
+  mkdir -p "$ROOT/assets/wallpaper-debs"
+  for pack in ncz singularity brandon-perlow alex-jay-brady; do
+    if ls "$ROOT/assets/wallpaper-debs/ncz-wallpapers-${pack}_"*.deb >/dev/null 2>&1; then
+      continue
+    fi
+    log "wallpaper-debs: $pack not staged -- building"
+    bash "$ROOT/build/build-wallpaper-contrib-deb.sh" "$pack" >/dev/null || {
+      log "ERROR: required shipping wallpaper pack $pack failed to build"
+      return 1
+    }
+    cp "$ROOT/build/wallpaper-debs/"*.deb "$ROOT/assets/wallpaper-debs/" 2>/dev/null || true
+  done
+  log "wallpaper-debs: staged $(ls "$ROOT/assets/wallpaper-debs/"*.deb | wc -l) pack(s)"
 }
 
 build_hotfix(){
@@ -1042,11 +1350,16 @@ HOTFIX_MANIFEST
 
 case "$STAGE" in
   base)    build_base ;;
-  desktop) build_singularity_payload; build_layer desktop manifests/desktop.pkgs ;;
+  desktop) build_singularity_payload; ensure_wallpaper_packs; build_layer desktop "$DESKTOP_MANIFEST" ;;
   hotfix)  build_singularity_payload; build_hotfix ;;
   server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
            echo "       Boot the console entry (multi-user.target) instead." >&2
            exit 1 ;;
-  all)     build_base; build_singularity_payload; build_layer desktop manifests/desktop.pkgs; build_hotfix ;;
+  all)     if [ -s "$OUT/base.squashfs" ]; then
+             log "BASE: reusing existing $OUT/base.squashfs ($(du -h "$OUT/base.squashfs" | cut -f1)); remove it or run 'base' to rebuild"
+           else
+             build_base
+           fi
+           build_singularity_payload; ensure_wallpaper_packs; build_layer desktop "$DESKTOP_MANIFEST"; build_hotfix ;;
   *) echo "usage: $0 base|desktop|hotfix|server|all"; exit 2 ;;
 esac

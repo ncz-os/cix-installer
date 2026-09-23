@@ -1102,8 +1102,16 @@ ncz_npu_install_time || echo "[npu] install-time NPU fixes returned nonzero (non
 # rEFInd-present, never on efibootmgr success. (refind.conf OR'd in as belt-and-
 # suspenders in case a future ESP layout renames the fallback binary.)
 ncz_bootable() {
+    # 2026-09-15: was arm64/rEFInd-only (BOOTAA64.EFI / refind.conf), so
+    # every AMD64 install -- which ships GRUB's --removable fallback binary
+    # at BOOTX64.EFI instead -- always evaluated false here, forced
+    # ncz_force_reboot's "NOT bootable" branch, and failed the finish step
+    # (exit 1) even on a genuinely bootable install. Check the real fallback
+    # binary for whichever bootloader this arch actually ships instead of
+    # assuming rEFInd/arm64.
     [ -f /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ] || \
-    [ -f /target/boot/efi/EFI/BOOT/refind.conf ]
+    [ -f /target/boot/efi/EFI/BOOT/refind.conf ] || \
+    [ -f /target/boot/efi/EFI/BOOT/BOOTX64.EFI ]
 }
 # ncz_force_reboot: drive the reboot OURSELVES rather than trusting
 # finish-install's menu loop. On Sky1 METAL the priority=critical finish-install

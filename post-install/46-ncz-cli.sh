@@ -12,7 +12,7 @@
 # implemented + OFFLINE-CAPABLE: it `podman load`s the arm64 MNEMOS image
 # bundled on the ISO (assets/agent-images/mnemos.oci.tar), then starts it as
 # a quadlet service (Pull=never) with a persistent sqlite volume. Only if no
-# bundled image is present does it fall back to pulling ghcr.io/ncz-os/mnemos
+# bundled image is present does it fall back to pulling ghcr.io/ncz-os/mnemos-enterprise
 # (overridable via MNEMOS_IMAGE). `models` lists the installed model library.
 #
 # Also stages the canonical npu_embed_v2.py wrapper (Python ctypes around
@@ -72,7 +72,7 @@ readonly NCZ_QUADLET_ACTIVE="/etc/containers/systemd"
 readonly NEMOCLAW_IMAGE="ghcr.io/nvidia/nemoclaw/sandbox-base:latest"
 # MNEMOS server image. Overridable (e.g. pin a tag) via the MNEMOS_IMAGE env.
 # Multi-arch (linux/arm64 present) — runs on Cix Sky1.
-readonly MNEMOS_IMAGE="${MNEMOS_IMAGE:-ghcr.io/ncz-os/mnemos:latest}"
+readonly MNEMOS_IMAGE="${MNEMOS_IMAGE:-ghcr.io/ncz-os/mnemos-enterprise:latest}"
 
 ncz_help() {
     cat <<HELP
@@ -357,12 +357,12 @@ ncz_install_mnemos() {
                 exit 1
             fi
         fi
-        # The bundled archive is tagged ghcr.io/ncz-os/mnemos:latest. If the
+        # The bundled archive is tagged ghcr.io/ncz-os/mnemos-enterprise:latest. If the
         # operator overrode MNEMOS_IMAGE to a different tag, retag the loaded
         # image so the Pull=never quadlet (Image=$MNEMOS_IMAGE) can resolve it.
         if ! podman image exists "$MNEMOS_IMAGE" 2>/dev/null \
-           && podman image exists ghcr.io/ncz-os/mnemos:latest 2>/dev/null; then
-            podman tag ghcr.io/ncz-os/mnemos:latest "$MNEMOS_IMAGE" 2>/dev/null || true
+           && podman image exists ghcr.io/ncz-os/mnemos-enterprise:latest 2>/dev/null; then
+            podman tag ghcr.io/ncz-os/mnemos-enterprise:latest "$MNEMOS_IMAGE" 2>/dev/null || true
         fi
     fi
     if ! podman image exists "$MNEMOS_IMAGE" 2>/dev/null; then

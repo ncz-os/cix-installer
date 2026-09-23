@@ -153,19 +153,39 @@ $CREDITS
         exit 1 ;;
 esac
 
+# The Singularity pack is derived from the freshly built desktop payload.  A
+# desktop-only layer rebuild does not populate the gitignored branding source
+# directory, so consume the canonical payload directly instead of silently
+# omitting the fourth shipping pack.
+SRC_TMP=""
+if [ "$PACK" = singularity ] && [ ! -d "$SRC" ]; then
+    SINGULARITY_TGZ="$ROOT/build/sinty-out/singularity-opt.tgz"
+    [ -s "$SINGULARITY_TGZ" ] || SINGULARITY_TGZ="$ROOT/assets/singularity/singularity-opt.tgz"
+    if [ -s "$SINGULARITY_TGZ" ]; then
+        SRC_TMP="$(mktemp -d)"
+        tar -xzf "$SINGULARITY_TGZ" -C "$SRC_TMP" --strip-components=5 \
+            'opt/singularity/share/backgrounds/singularity/'
+        SRC="$SRC_TMP"
+    fi
+fi
+
 [ -d "$SRC" ] || { echo "ERROR: no such pack: $SRC" >&2; exit 1; }
 [ -f "$ARTISTPACK_SRC/artist.json" ] || { echo "ERROR: missing ArtistPack manifest: $ARTISTPACK_SRC/artist.json" >&2; exit 1; }
 [ -f "$ARTISTPACK_SRC/pack.json" ] || { echo "ERROR: missing ArtistPack manifest: $ARTISTPACK_SRC/pack.json" >&2; exit 1; }
 
 VERSION="${NCZ_WALLPAPER_PACK_VERSION:-1.0}"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK" ${SRC_TMP:+"$SRC_TMP"}' EXIT
 
 # ART PAKS ARE COLLECTIONS -- see post-install/45-wallpaper-rotator.sh.
+# The .collection file goes where WallpaperCollections.default_search_roots()
+# (libsingularity) scans, so the pack shows up in the Settings UI's own
+# Wallpaper Source picker, not just the bash rotator.
 ART_DIR="$WORK/usr/share/backgrounds/ncz$ART_SUBPATH"
+COLLECTIONS_DIR="$WORK/opt/singularity/share/singularity/wallpaper-collections"
 install -d "$WORK/DEBIAN" \
            "$ART_DIR" \
-           "$WORK/usr/share/ncz-wallpapers/collections" \
+           "$COLLECTIONS_DIR" \
            "$WORK/usr/share/doc/$PKG"
 
 count=0
@@ -183,7 +203,7 @@ done
 [ "$count" -gt 0 ] || { echo "ERROR: no .jpg/.png/.svg files in $SRC" >&2; exit 1; }
 echo "  packaging $count image(s) from $PACK into /usr/share/backgrounds/ncz$ART_SUBPATH"
 
-cat > "$WORK/usr/share/ncz-wallpapers/collections/$PACK.collection" <<COLLECTION
+cat > "$COLLECTIONS_DIR/$PACK.collection" <<COLLECTION
 [Collection]
 Id=$PACK
 Name=$AUTHOR
@@ -195,7 +215,7 @@ Dir=/usr/share/backgrounds/ncz$ART_SUBPATH
 COLLECTION
 echo "  collection: $PACK ($AUTHOR)"
 
-ARTISTPACK_DIR="$WORK/usr/share/ncz-wallpapers/collections/$PACK.artistpack"
+ARTISTPACK_DIR="$COLLECTIONS_DIR/$PACK.artistpack"
 install -d "$ARTISTPACK_DIR"
 install -m 0644 "$ARTISTPACK_SRC/artist.json" "$ARTISTPACK_DIR/artist.json"
 install -m 0644 "$ARTISTPACK_SRC/pack.json" "$ARTISTPACK_DIR/pack.json"

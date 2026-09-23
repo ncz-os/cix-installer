@@ -20,6 +20,72 @@ set -euo pipefail
 
 echo "[33-network] verifying NetworkManager + writing netplan"
 
+# Exclude the Apple T2 "iBridge" virtual USB ethernet-gadget interface from
+# network management. It enumerates as a normal cdc_ncm ethernet device
+# (idVendor=05ac idProduct=8233 -- fixed across every T2 Mac model, not
+# board-specific) but is the T2 coprocessor's internal USB bridge, never a
+# real LAN uplink; it never has anything on the other end and will never get
+# a DHCP lease.
+#
+# Root cause, measured live on MEDUSA (T2 MacBook, 2026-09-20): the netplan
+# wildcard `en*` match legitimately applies to BOTH this virtual interface
+# and the real dock/Thunderbolt ethernet NIC. NetworkManager's policy engine
+# auto-activated the phantom iBridge interface first, which timed out its
+# DHCP attempt every ~45s and immediately retried -- a genuine infinite
+# retry loop (confirmed via `journalctl -u NetworkManager`: repeating
+# "activation: beginning transaction (timeout in 45 seconds)" /
+# "ip-config-unavailable" cycles) -- while the REAL ethernet interface sat
+# with carrier detected but no activation attempt logged for 4m43s, until
+# the operator forced one manually. The phantom interface was starving the
+# real one's automatic DHCP. This udev rule stops NM from ever touching the
+# phantom interface, so the wildcard match's activation attempts go to real
+# NICs only -- fixes it for ANY hotplugged USB/Thunderbolt ethernet
+# interface on ANY T2 Mac, not just this one board.
+install -d -m 0755 /etc/udev/rules.d
+# NOTE ordering: netplan generates /run/udev/rules.d/90-netplan.rules, which
+# (for our `en*` wildcard match) EXPLICITLY sets ENV{NM_UNMANAGED}="0" to
+# force-manage anything matching the glob -- confirmed live on MEDUSA via
+# `udevadm test`, this clobbered an earlier attempt at this fix numbered
+# 71-*. Our rule must sort AFTER 90-netplan.rules (udev applies rule files
+# in filename order, later assignments win) to actually take effect -- 93-
+# does that while staying before 95-99 range reserved by other ncz rules.
+cat > /etc/udev/rules.d/93-ncz-unmanage-t2-ibridge.rules <<'UDEVRULES'
+# NCZ-OS: the Apple T2 "iBridge" coprocessor exposes a virtual USB ethernet
+# (cdc_ncm, idVendor=05ac idProduct=8233) that is never a real network link.
+# Tag it unmanaged so NetworkManager never attempts DHCP on it -- otherwise
+# its endless 45s-timeout retry loop starves autoconnect on the real wired
+# NIC that shares the same wildcard `en*` connection match. Must sort after
+# netplan's generated 90-netplan.rules -- see 33-network.sh comment.
+ACTION=="add|change", SUBSYSTEM=="net", ATTRS{idVendor}=="05ac", ATTRS{idProduct}=="8233", ENV{NM_UNMANAGED}="1"
+UDEVRULES
+chmod 0644 /etc/udev/rules.d/93-ncz-unmanage-t2-ibridge.rules
+echo "[33-network] installed udev rule to unmanage the Apple T2 iBridge virtual ethernet"
+
+# r8152 (Realtek USB 2.5G/1G ethernet, the chip inside most USB-C/Thunderbolt
+# docks -- confirmed on a Kensington dock on MEDUSA, 2026-09-21) drops off the
+# USB bus under Linux's default USB autosuspend policy and never resumes: it
+# enumerates fine right after boot, works for as long as there's continuous
+# traffic (autosuspend only fires on IDLE), then vanishes entirely from
+# `nmcli`/`lsusb` after a period of no traffic -- confirmed live: the
+# physical ethernet link stays up the whole time (switch-side LEDs active,
+# and other USB devices on the SAME dock like keyboard/mouse keep working),
+# so it is specifically this chip's suspend/resume handling that fails, not
+# the cable, the dock's USB hub, or the driver failing to load. Only a full
+# reboot re-probes the bus and brings it back -- exactly the "only
+# enumerates on reboot" symptom that made this look like a boot-time
+# hardware problem instead of a runtime power-management one.
+# Match by USB driver name (r8152) rather than a specific vendor:product ID
+# so this covers any dock/adapter using this common chip, not just the one
+# board this was found on.
+cat > /etc/udev/rules.d/94-ncz-r8152-no-autosuspend.rules <<'UDEVRULES'
+# NCZ-OS: Realtek r8152 USB ethernet (common in USB-C/Thunderbolt docks)
+# drops off the bus under USB autosuspend and never resumes on its own.
+# Pin power/control=on for any device bound to this driver.
+ACTION=="add|bind", SUBSYSTEM=="usb", DRIVER=="r8152", TEST=="power/control", ATTR{power/control}="on"
+UDEVRULES
+chmod 0644 /etc/udev/rules.d/94-ncz-r8152-no-autosuspend.rules
+echo "[33-network] installed udev rule disabling USB autosuspend for r8152 ethernet adapters"
+
 # (a) Hard-fail if NM is not installed. preseed pkgsel/include puts it
 # there; if it is missing, the netinstall apt fetch failed silently and
 # the operator-visible symptom (no network) is exactly what we are
@@ -82,6 +148,35 @@ ENICONF
     systemctl enable systemd-networkd-wait-online.service 2>&1 | tail -2 || true
     echo "[33-network] systemd-networkd DHCP fallback enabled"
     exit 0
+fi
+
+# (a2) Real upstream NetworkManager needs a WiFi authentication backend to
+# manage wireless devices at all -- without one, WiFi PHYs sit stuck at
+# NM_DEVICE_STATE_UNAVAILABLE (state 20) forever, with no scan, no
+# connect, and no error surfaced anywhere obvious. 19-sinty-nm.sh already
+# installs `iwd` unconditionally (as sinty-nmd's own WiFi backend, "part
+# of the daemon's complete fleet contract"), but upstream NetworkManager
+# does NOT use iwd unless explicitly told to -- it defaults to
+# wpa_supplicant, which is NOT in any package manifest and is genuinely
+# absent from this image. This branch only runs when sinty-nmd is absent
+# and real NetworkManager is taking over (see the exit 0 above), so fix
+# it exactly here rather than touching 19-sinty-nm.sh's sinty-nmd/iwd
+# path, which this hook must not touch.
+#
+# Metal-confirmed on MEDUSA (T2 MacBook, AMD Navi14, no sinty-nmd staged):
+# wlan0 existed with a real driver-assigned MAC and real firmware loaded
+# (see post-install/55-t2-firmware.sh's Apple firmware fetch, a separate
+# fix), but NetworkManager logged
+# "Couldn't initialize supplicant interface: Failed to D-Bus activate
+# wpa_supplicant service" in a five-retry loop before giving up
+# ("supplicant interface keeps failing, giving up"), leaving the device
+# permanently unavailable. Installing wpasupplicant and restarting
+# NetworkManager fixed it immediately -- confirmed via a real
+# `nmcli device wifi list` scan returning real nearby access points.
+if ! dpkg-query -W -f='${Status}\n' wpasupplicant 2>/dev/null | grep -q "install ok installed"; then
+    echo "[33-network] installing wpasupplicant (NetworkManager's WiFi backend on the non-sinty-nmd fallback path)"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y wpasupplicant 2>&1 | tail -10 || \
+        echo "[33-network] WARN: wpasupplicant install failed -- WiFi devices will stay unavailable under NetworkManager"
 fi
 
 # (b) netplan with NetworkManager as renderer + match every wired/wireless

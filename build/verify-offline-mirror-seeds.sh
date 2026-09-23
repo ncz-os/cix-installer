@@ -34,7 +34,9 @@ LABEL="${LABEL:-$(basename "$MIRROR")}"
 # shellcheck source=../release.conf
 . "$ROOT/release.conf"
 SUITE="${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
-ARCH="${ARCH:-arm64}"
+# 2026-09-15: was hardcoded "arm64" -- same class of bug as
+# build-forky-mirror.sh/build-vendor-mirror.sh, fixed the same way.
+ARCH="${ARCH:-${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}}"
 PKG_INDEX="$MIRROR/dists/$SUITE/main/binary-$ARCH/Packages"
 [ -s "$PKG_INDEX" ] || {
     echo "ERROR: $LABEL missing Packages index: $PKG_INDEX" >&2
@@ -45,8 +47,16 @@ TMP="$(mktemp -d)"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
+# 2026-09-15: was hardcoded to the arm64 manifest filenames regardless of
+# ARCH -- same manifest_for()-style arch fallback as
+# preflight-sbom-check.sh/build-forky-mirror.sh: prefer manifests/<name>-
+# $ARCH.pkgs when present, fall back to the original filename otherwise.
+_seed_manifest_for() {
+    local arch_file="$ROOT/manifests/$1-$ARCH.pkgs"
+    if [ -f "$arch_file" ]; then echo "$arch_file"; else echo "$ROOT/manifests/$1.pkgs"; fi
+}
 {
-    for manifest in "$ROOT/manifests/installer-base.pkgs" "$ROOT/manifests/desktop.pkgs"; do
+    for manifest in "$(_seed_manifest_for installer-base)" "$(_seed_manifest_for desktop)"; do
         [ -s "$manifest" ] || { echo "ERROR: missing manifest: $manifest" >&2; exit 1; }
         sed 's/#.*//' "$manifest" | awk 'NF {print $1}'
     done
