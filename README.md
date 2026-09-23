@@ -5,6 +5,19 @@
 <h1 align="center">NCZ-OS</h1>
 <p align="center"><em>Debian for Arm64 (CIX Sky1) and AMD64 (Apple T2) — GPU, VPU and NPU that actually work</em></p>
 
+## Why NCZ-OS exists
+
+Our objective is to build the most modern, hardware-exploitative Linux
+distribution possible for Arm64 and x86 systems — while extending those
+same advantages to legacy but still-useful hardware, such as Apple T2
+Macs and x86 PCs from 2012 onward, that can no longer migrate to modern
+operating systems from Apple and Microsoft.
+
+We aim to meaningfully reduce the e-waste pile by giving these
+still-capable systems new life and purpose in the age of agentic systems
+and generative AI — real, current kernel and driver work, not a
+frozen-in-time legacy distro.
+
 # cix-installer
 
 > **🌐 Language:** English · [简体中文](README.zh-CN.md)
