@@ -1,4 +1,13 @@
 #!/bin/bash
+# ⚠️  DEPRECATED (operator, 2026-09-23) — being replaced by the new incremental
+# xorriso ISO writer (build/iso/{import-substrate,write-image,verify-image}.py,
+# see docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md).
+# The new writer currently only covers amd64 (base layer only — desktop is not
+# yet wired in). This script REMAINS the real, current production path for
+# arm64/Sky1 until that migration is completed for this architecture too — it
+# is deprecated as the long-term direction, not disabled. Do not extend this
+# script with new capability; add it to the new writer instead. See README.md
+# Quick start for the full current two-stage pipeline.
 # build-iso-di.sh — arm64/Sky1 ISO assembly: Forky-installed system built on
 # top of the Debian Installer substrate.
 #
