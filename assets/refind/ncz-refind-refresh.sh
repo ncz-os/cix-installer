@@ -498,6 +498,62 @@ if [ "$EDGE_AVAILABLE" = "1" ]; then
     EDGE_OPTIONS="$ROOT_OPTS console=ttyAMA0,115200 console=tty0 module_blacklist=$ALL_ACCEL_BLACKLIST $NEXT_CMDLINE_EXTRA sky1.gpu=none systemd.unit=multi-user.target"
 fi
 
+# EDGE_ACCEL_OPTIONS (2026-09-22): the SECOND edge entry, with the Mali vendor
+# stack wired in -- mirrors MALI_OPTIONS construction above but on the edge
+# cmdline ($NEXT_CMDLINE_BASE which already embeds $NEXT_CMDLINE_EXTRA, NOT
+# just $NEXT_CMDLINE_EXTRA like the console entry). Until tonight the edge
+# line only had a console entry; this is what closes the gap between "we
+# built and staged 7.3.0-rc4-sky1-ncz overlays" and "a board can actually
+# boot them".
+#
+# Gating (all three required, no exceptions):
+#   1. $EDGE_AVAILABLE=1 -- the edge kernel payload is staged to /boot/efi
+#      (same as the existing console entry; saves us emitting a menu entry
+#      pointing at a kernel/initrd that doesn't exist).
+#   2. $KVER_EDGE is non-empty.
+#   3. The mali overlay for $KVER_EDGE actually exists under
+#      $INSTALLER_META/assets/kernel/mali/$KVER_EDGE/ AND has at least one
+#      .ko in it -- same provenance check build-kernel-debs.sh does at line
+#      524. Without this check, an unaccelerated edge (overlay absent, only
+#      the kernel staged) would offer a boot entry that would silently
+#      fall back to software rendering -- exactly the failure mode
+#      assets/kernel/mali/README.md warns against ("a mismatched vermagic is
+#      refused outright by the kernel, not silently degraded").
+#
+# Does NOT change DEFAULT_TOKEN or otherwise promote the edge line to
+# default: edge stays experimental, the stable Mali entry keeps that role.
+EDGE_ACCEL_OPTIONS=""
+EDGE_ACCEL_AVAILABLE=0
+if [ "$EDGE_AVAILABLE" = "1" ] && [ -n "${KVER_EDGE:-}" ] \
+   && [ -d "$INSTALLER_META/assets/kernel/mali/$KVER_EDGE" ]; then
+    # Count .ko files under the edge-kver mali dir without invoking `ls` on a
+    # glob -- shellcheck SC2012, and `ls *.ko` is fragile if any filename has
+    # a space (the staged files don't, but a hand-staged overlay might).
+    _ncz_mali_kos=$(find "$INSTALLER_META/assets/kernel/mali/$KVER_EDGE" \
+        -maxdepth 1 -type f -name '*.ko' 2>/dev/null | wc -l)
+    if [ "$_ncz_mali_kos" -gt 0 ]; then
+    # Same blacklist as the stable MALI_OPTIONS: blacklist panthor so the
+    # vendor Mali kbase + mgm + pma trio (all staged under
+    # assets/kernel/mali/$KVER_EDGE/) wins the GPU. Panthor DKMS is also
+    # staged at assets/kernel/panthor/$KVER_EDGE/ but is NOT used by THIS
+    # entry -- it has no current cmdline cmdline-token-wired menu entry of
+    # its own on the edge line (per the EDGE line's own experimental scope,
+    # the same single-entry-or-nothing design that the stable line used
+    # before r194).
+    EDGE_ACCEL_GPU_BLACKLIST="panthor"
+    # $NEXT_CMDLINE_BASE already concatenates $NEXT_CMDLINE_EXTRA (see line 214:
+    # NEXT_CMDLINE_BASE="$NEXT_CMDLINE_BASE $NEXT_CMDLINE_EXTRA"), so reusing
+    # NEXT_CMDLINE_BASE here gives the same PCIe/SCMI/ramoops knobs the stable
+    # Mali entry gets without duplicating the string. Don't append
+    # $NEXT_CMDLINE_EXTRA again -- the 2026-09-16 O6N edge hang was caused by
+    # exactly that kind of drift between cmdline copies.
+    EDGE_ACCEL_CMDLINE="$ROOT_OPTS $NEXT_CMDLINE_BASE"
+    [ -n "$SPLASH" ] && EDGE_ACCEL_CMDLINE="$EDGE_ACCEL_CMDLINE $SPLASH"
+    EDGE_ACCEL_OPTIONS="$(merge_module_blacklist "$EDGE_ACCEL_CMDLINE" "$EDGE_ACCEL_GPU_BLACKLIST") sky1.gpu=vendor"
+    EDGE_ACCEL_AVAILABLE=1
+    fi
+fi
+
 
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
 RESCUEPART_OPTIONS=""
@@ -754,6 +810,23 @@ fi
         [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
         [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
         echo "    options \"$EDGE_OPTIONS\""
+        echo "}"
+        echo
+    fi
+    if [ "$EDGE_ACCEL_AVAILABLE" = "1" ]; then
+        # Parallel entry to the (Console) one above: same edge kernel, but the
+        # vendor Mali/Panthor DKMS modules are wired in. Only emitted when the
+        # accelerated staging (gate above) actually verified the mali overlay
+        # .ko files exist for $KVER_EDGE -- never as a best-effort guess.
+        # Must NOT match DEFAULT_TOKEN exactly: rEFInd matches default_selection
+        # as a substring (see DEFAULT_TOKEN comment above), so a literal
+        # "Mali (Default)" suffix on the stable entry already reserves the
+        # exact-match slot. "Mali (Experimental)" is unique.
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Edge / Experimental Kernel (Mali, Experimental)\" {"
+        echo "    loader  /vmlinuz-$KVER_EDGE"
+        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
+        echo "    options \"$EDGE_ACCEL_OPTIONS\""
         echo "}"
         echo
     fi
