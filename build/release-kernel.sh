@@ -129,6 +129,17 @@ else
 fi
 
 step "3/7 stage mali overlay + verify vermagic"
+# Skip step 3 when --skip-gpu-kmd was passed: this whole step exists to copy
+# cix-gpu-kmd's bitbake-built .ko files into assets/kernel/mali/$KVER/, so
+# when we didn't bitbake-build cix-gpu-kmd there is nothing to copy. Without
+# this guard --skip-gpu-kmd still trips on the "[ -n "$GPUDIR" ] || die"
+# below -- verified 2026-09-22 on ULTRA (Fedora Asahi, native aarch64),
+# building 7.2.7-sky1-ncz overlays directly via dkms rather than the Yocto
+# recipe. (The DKMS-built modules then need to be copied into assets/ by
+# hand -- see the "d822a06-style" build path, not the canonical Yocto path.)
+if [ "$SKIP_GPU" = 1 ]; then
+    step "3/7 stage mali overlay -- SKIPPED (--skip-gpu-kmd)"
+else
 GPUDIR="$(ls -dt "$WORKROOT"/cix-gpu-kmd/*/image/usr/lib/modules/*/extra/cix 2>/dev/null | head -1)"
 [ -n "$GPUDIR" ] || die "no cix-gpu-kmd image dir -- the module did not build"
 DEST="$REPO/assets/kernel/mali/$KVER"
@@ -148,6 +159,7 @@ done
 # ready" unless memory_group_manager and protected_memory_allocator are present.
 [ "$n" -ge 3 ] || die "staged only $n GPU module(s), need 3 (mali_kbase, memory_group_manager, protected_memory_allocator)"
 echo "  staged $n modules into $DEST, all vermagic=$KVER"
+fi
 
 # ------------------------------------------------------- 4. assets + gates
 step "4/7 stage kernel assets and run boot/ABI gates"
