@@ -13,7 +13,16 @@
 #    contain lib/modules/... paths, so tar runs from image/usr.
 #  - dkms-abi-gate takes a headers DIRECTORY, not the tarball.
 set -euo pipefail
-REPO=~/isobuild/cix-installer
+# REPO is overridable via NCZ_INSTALLER_DIR, matching release-kernel.sh's
+# convention (release-kernel.sh sets this when it calls stage-kernel.sh).
+# The historical default stays ~/isobuild/cix-installer so an interactive
+# invocation behaves identically. Without this env var, release-kernel.sh
+# running against an installer at e.g. ~/kernel-port-v726 (the dispatch
+# host's actual checkout) would silently stage against ~/isobuild/cix-installer
+# instead -- measured 2026-09-22 on ULTRA: step 4 wrote the staged kernel to
+# ~/isobuild/cix-installer/assets/kernel/r275-7.3.0-rc3-... even though the
+# caller passed NCZ_INSTALLER_DIR=~/kernel-port-v726.
+REPO="${NCZ_INSTALLER_DIR:-$HOME/isobuild/cix-installer}"
 # Where dated release dirs actually get written. Defaults to the historical
 # local location (unchanged behavior). Set NCZ_KERNEL_STAGING_ROOT to a path
 # under the shared ARGONAS yocto-shared export (e.g. /nfs-shared/kernel-staging
