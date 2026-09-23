@@ -467,6 +467,19 @@ static void handle_event(struct mvx_session *session,
                             V4L2_FIELD_SEQ_TB : V4L2_FIELD_INTERLACED;
         unsigned int width = port->width;
         unsigned int height = port->height;
+        /*
+         * FIX (2026-09-13, round 2 -- review finding): capture the TRUE
+         * pre-event width/height before the unconditional port->width =
+         * port->new_width assignment below overwrites them. port->width/
+         * height are mutated unconditionally here regardless of whether the
+         * new resolution ever validates (pre-existing behaviour, unchanged
+         * by this fix) -- but the try_format() failure path further down
+         * needs the ORIGINAL values, not the post-mutation ones, to publish
+         * a self-consistent format alongside the untouched
+         * nplanes/stride/size/interlaced fields on that branch.
+         */
+        unsigned int prev_width = port->width;
+        unsigned int prev_height = port->height;
         if (dir == MVX_DIR_OUTPUT) {
             port->width = port->new_width;
             port->height = port->new_height;
@@ -475,19 +488,126 @@ static void handle_event(struct mvx_session *session,
             port->pending_source_change_event = false;
         }
 
-        p->field = port->interlaced ? field : V4L2_FIELD_NONE;
-        if (dir == MVX_DIR_OUTPUT && mvx_is_afbc(port->format)) {
-            if (session->dual_afbc_downscaled)
-                width = session->port[dir].afbc_width_in_superblocks_downscaled << AFBC_SUPERBLOCK_SHIFT;
-            else
-                width = session->port[dir].afbc_width << AFBC_SUPERBLOCK_SHIFT;
-            height += session->port[dir].afbc_crop_top >> session->dual_afbc_downscaled;
+        if (dir == MVX_DIR_OUTPUT) {
+            /*
+             * FIX (2026-09-13): recompute width/height via the SAME
+             * validated path VIDIOC_S_FMT uses (mvx_session_try_format()
+             * -> try_format()) instead of duplicating the AFBC-crop-padding
+             * math independently here. The duplicated copy evaluated
+             * mvx_is_afbc(port->format) at a DIFFERENT INSTANT than
+             * try_format() does for the same resolution-change sequence, so
+             * it could (and, live-proven on cixmini/192.168.207.66 with a
+             * timestamped kernel trace, did) commit a height that disagreed
+             * with what a subsequent VIDIOC_S_FMT computes moments later for
+             * the identical session: VIDIOC_G_FMT returned 1920x1084 while
+             * VIDIOC_S_FMT computed 1920x1080, so Chromium's
+             * V4L2StatefulVideoDecoder::InitializeCAPTUREQueue() containment
+             * check rejected the format and hardware decode never started.
+             * Routing both through try_format() makes them structurally
+             * unable to diverge again -- this is a genuine CIX vendor driver
+             * bug, confirmed present byte-identical in CIX's own pristine
+             * 1.0.1 driver, not an NCZ-introduced regression.
+             *
+             * Locking (raised in review, verified against the call graph):
+             * mvx_session_try_format()/try_format() take no lock of their
+             * own and mutate only the out-parameters passed in. This
+             * MVX_SESSION_EVENT_PORT_CHANGED case is only ever reached via
+             * the firmware-message path -- mvx_sched_handle_irq()
+             * (dev/mvx_scheduler.c) does `mutex_lock(isession->mutex)`
+             * BEFORE calling `sched->if_ops->irq(isession)`, which is
+             * mvx_session_irq() (wired in mvx_if.c), which drives
+             * handle_fw_message() -> the mvx_handle_* handlers that fire
+             * this event. isession->mutex is the SAME &vsession->mutex
+             * mvx_session_construct() was given at session creation, i.e.
+             * the same mutex VIDIOC_S_FMT/TRY_FMT hold in mvx_v4l2_vidioc.c
+             * around their own mvx_session_try_format() calls. So this call
+             * site is already mutually exclusive with S_FMT/TRY_FMT under
+             * the pre-existing locking discipline; no new lock is needed
+             * and none is taken here, matching every other caller. This
+             * ONLY proves S_FMT/TRY_FMT and this callback cannot interleave
+             * -- it says nothing about whether the values this callback
+             * commits are themselves internally consistent, which is a
+             * separate, non-locking concern handled by the try_ret==0/else
+             * split below and the prev_width/prev_height comment there.
+             *
+             * Writing port->nplanes/stride/size/interlaced back below is
+             * not a new category of side effect: the two lines directly
+             * above (port->width = port->new_width; port->height =
+             * port->new_height;) already mutate canonical port geometry
+             * synchronously in this same handler, pre-dating this fix. This
+             * change extends that established pattern to the remaining
+             * geometry fields so they stay consistent with width/height
+             * instead of lagging behind them until the next explicit S_FMT.
+             * Note the precedent is not a perfect match: width/height are
+             * unconditional writes of firmware-provided scalars, while
+             * nplanes/stride/size/interlaced are committed only when the
+             * fallible mvx_session_try_format() call below returns success
+             * -- see the try_ret handling immediately below for how the
+             * failure case is kept consistent.
+             */
+            uint8_t new_nplanes = port->nplanes;
+            unsigned int new_stride[MVX_BUFFER_NPLANES];
+            unsigned int new_size[MVX_BUFFER_NPLANES];
+            bool new_interlaced = port->interlaced;
+            int try_ret;
+
+            memcpy(new_stride, port->stride, sizeof(new_stride));
+            memcpy(new_size, port->size, sizeof(new_size));
+
+            try_ret = mvx_session_try_format(session, dir, port->format,
+                                &width, &height, &new_nplanes,
+                                new_stride, new_size,
+                                &new_interlaced);
+            if (try_ret == 0) {
+                port->nplanes = new_nplanes;
+                memcpy(port->stride, new_stride, sizeof(port->stride));
+                memcpy(port->size, new_size, sizeof(port->size));
+                port->interlaced = new_interlaced;
+            } else {
+                /*
+                 * FIX (2026-09-13, round 2 -- review finding): try_format()
+                 * clamps/rewrites *width and *height before it can fail
+                 * (e.g. on a downstream mvx_buffer_frame_dim() error), and
+                 * port->nplanes/stride/size/interlaced are deliberately
+                 * left UNTOUCHED on this branch (see the `if (try_ret == 0)`
+                 * above). Restoring width/height to port->width/port->height
+                 * would NOT be correct here: those struct fields were
+                 * already overwritten to port->new_width/new_height by the
+                 * unconditional assignment above, before try_format() ever
+                 * ran. Using prev_width/prev_height (captured before that
+                 * overwrite, at the top of this case) instead publishes the
+                 * OLD width/height alongside the OLD (equally untouched)
+                 * nplanes/stride/size/interlaced -- i.e. "as if this
+                 * resolution-change event never happened" -- which is the
+                 * only self-consistent thing to publish when the new
+                 * resolution failed to validate.
+                 */
+                width = prev_width;
+                height = prev_height;
+            }
         }
 
+        p->field = port->interlaced ? field : V4L2_FIELD_NONE;
         set_format(&vport->pix_mp, port->pixelformat, width, height,
                port->nplanes, port->size, port->stride);
-        vport->afbc_crop_left = port->afbc_crop_left;
-        vport->afbc_crop_top = port->afbc_crop_top;
+        /*
+         * FIX (2026-09-13, cont'd): only expose the AFBC crop offset to
+         * userspace (via VIDIOC_G_SELECTION) when the output is actually
+         * AFBC. port->afbc_crop_top/left are set unconditionally from the
+         * firmware's ALLOC_PARAM cropx/cropy regardless of output format,
+         * but a non-AFBC (linear) coded buffer is no longer padded to
+         * include that offset now that width/height come straight from
+         * mvx_session_try_format() above -- exposing a nonzero crop origin
+         * against an unpadded coded_size can make a client's visible_rect
+         * (origin = crop_top/left) fall outside coded_size.
+         */
+        if (dir == MVX_DIR_OUTPUT && !mvx_is_afbc(port->format)) {
+            vport->afbc_crop_left = 0;
+            vport->afbc_crop_top = 0;
+        } else {
+            vport->afbc_crop_left = port->afbc_crop_left;
+            vport->afbc_crop_top = port->afbc_crop_top;
+        }
         v4l2_event_queue_fh(&vsession->fh, &event);
         break;
     }

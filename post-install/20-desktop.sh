@@ -117,11 +117,43 @@ if [ -f /usr/bin/chromium-ncz-sky1 ]; then
     cat > /usr/bin/chromium-ncz-sky1 <<'CHROMIUMWRAPPER'
 #!/bin/sh
 # Chromium NCZ Sky1 Edition launcher.
-exec /opt/chromium-ncz-sky1/chrome \
-  --ozone-platform=wayland \
+#
+# Render node: Chromium defaults to the first DRM render node it finds
+# (/dev/dri/renderD128). On boards where more than one linlondp instance is
+# present -- MS-R1 exposes card0..card3 as CIXH5010:00/:01/:03/:04 with
+# renderD128..renderD131 -- that is not the node backing the display, and
+# the GPU goes unused. Derive it from whichever connector actually reports
+# "connected", the same way ncz-wlr-connected-drm derives WLR_DRM_DEVICES.
+# Measured on O6N: card0-DP-2 connected -> renderD128, which is the node
+# that board already ran with.
+render_node=
+for status in /sys/class/drm/card*-*/status; do
+    [ -r "$status" ] || continue
+    [ "$(cat "$status" 2>/dev/null)" = connected ] || continue
+    card=${status#*/drm/}
+    card=${card%%-*}
+    card_device=$(readlink -f "/sys/class/drm/$card/device" 2>/dev/null) || continue
+    [ -n "$card_device" ] || continue
+    for render in /sys/class/drm/renderD*; do
+        [ -e "$render/device" ] || continue
+        [ "$(readlink -f "$render/device")" = "$card_device" ] || continue
+        node="/dev/dri/${render##*/}"
+        if [ -c "$node" ]; then
+            render_node=$node
+            break
+        fi
+    done
+    [ -n "$render_node" ] && break
+done
+
+set -- --ozone-platform=wayland \
   --enable-features=AcceleratedVideoDecoder \
   --disable-features=AudioServiceOutOfProcess,AudioServiceSandbox \
   "$@"
+# No connected output (headless boot, display asleep): leave Chromium's own
+# default rather than pinning a node that may be the wrong one.
+[ -n "$render_node" ] && set -- "--render-node-override=$render_node" "$@"
+exec /opt/chromium-ncz-sky1/chrome "$@"
 CHROMIUMWRAPPER
     chmod 0755 /usr/bin/chromium-ncz-sky1
     echo "[20] chromium-ncz-sky1 wrapper: disabled AudioServiceOutOfProcess/AudioServiceSandbox (silent-PCM fix)"
@@ -297,12 +329,30 @@ echo "[20] diagnostics: systemd-coredump installed, G_MESSAGES_DEBUG=all set"
 # runs. The package postinst owns ldconfig setup.
 # ---------------------------------------------------------------------------
 echo "[20] installing Singularity Desktop payload"
-UPOWER_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'upower_*.deb' 2>/dev/null | sort -V | tail -1)
+# 2026-09-13: guard the /cdrom existence check OUTSIDE the pipeline, same
+# class of bug fixed in post-install/10-our-kernel.sh's local_deb() the
+# same day. Under `set -euo pipefail` (active in this script), `find` on
+# a missing /cdrom/pool/main -- the normal case at squashfs-layer BUILD
+# time, since /cdrom only exists when running from the live installed ISO
+# -- exits non-zero; pipefail then makes the whole `find | sort -V |
+# tail -1` pipeline non-zero, which `set -e` treats as fatal on the
+# `VAR=$(...)` assignment, silently killing this hook (the real find
+# error was swallowed by 2>/dev/null) before it ever reaches the
+# apt-get-install fallback both of these blocks intend to fall through to.
+if [ -d /cdrom/pool/main ]; then
+    UPOWER_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'upower_*.deb' 2>/dev/null | sort -V | tail -1)
+else
+    UPOWER_DEB=""
+fi
 if [ -n "$UPOWER_DEB" ] && ! dpkg-query -W -f='${Status}\n' upower 2>/dev/null | grep -q '^install ok installed$'; then
     echo "[20] using embedded upower deb: $(basename "$UPOWER_DEB")"
     dpkg -i --force-depends "$UPOWER_DEB" || true
 fi
-SINTY_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1)
+if [ -d /cdrom/pool/main ]; then
+    SINTY_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1)
+else
+    SINTY_DEB=""
+fi
 if [ -n "$SINTY_DEB" ]; then
     echo "[20] using embedded payload deb: $(basename "$SINTY_DEB")"
     dpkg -i "$SINTY_DEB"
@@ -450,7 +500,17 @@ _ncz_panthor_live() {
 
 if [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
     NCZ_GPU_BACKEND=mali
-    LD_LIBRARY_PATH="/opt/cixgpu-pro/lib/aarch64-linux-gnu:/opt/cixgpu-compat/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    # Pin the CIX EGL vendor explicitly, mirroring what the panthor branch does
+    # for mesa. glvnd otherwise scans /usr/share/glvnd/egl_vendor.d, which ships
+    # only 50_mesa.json -- the CIX vendor lives under /opt/cixgpu-compat/share
+    # and is never found, so clients silently fall back to Mesa, which cannot
+    # drive Mali. Pinning also avoids installing 40_cix.json system-wide, where
+    # it would sort BEFORE 50_mesa and get tried first on the PANTHOR boot too.
+    __EGL_VENDOR_LIBRARY_FILENAMES=/opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json
+    # NOTE: /opt/cixgpu-compat is NOT added to LD_LIBRARY_PATH. It holds a whole
+    # second glvnd + Mesa 24.0.4; loading those alongside the system Mesa 26 is
+    # what produced "free(): invalid pointer". Only the blob dir goes on the path.
+    LD_LIBRARY_PATH="/opt/cixgpu-pro/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     WLR_DRM_NO_MODIFIERS=1
     # Explicit ICD pin (not just relying on /etc/vulkan/icd.d/mali.json being
     # enabled): the Vulkan loader's default ICD search does not reliably pick
@@ -463,7 +523,7 @@ if [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
     # stack does not apply /etc/environment, so sessions must inherit this
     # here (confirmed on O6N: mpv --hwdec=vaapi fails without it in-session).
     LIBVA_DRIVER_NAME=libcix_va
-    export NCZ_GPU_BACKEND LD_LIBRARY_PATH WLR_DRM_NO_MODIFIERS VK_DRIVER_FILES LIBVA_DRIVER_NAME
+    export NCZ_GPU_BACKEND LD_LIBRARY_PATH WLR_DRM_NO_MODIFIERS VK_DRIVER_FILES LIBVA_DRIVER_NAME __EGL_VENDOR_LIBRARY_FILENAMES
 elif _ncz_panthor_live; then
     # Panthor = open Mesa stack. Point glvnd/EGL at the mesa vendor ICD and strip
     # inherited CIX libmali paths so EGL/GBM resolve to mesa (panfrost/panvk).
@@ -481,6 +541,41 @@ elif _ncz_panthor_live; then
     LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     VK_LOADER_LAYERS_DISABLE=VK_LAYER_CIX_window_system_integration
     WLR_DRM_NO_MODIFIERS=1
+    # Pin the RENDER node to panthor's own device.
+    #
+    # ncz-wlr-connected-drm builds WLR_DRM_DEVICES from cards that have a
+    # CONNECTED output. On Sky1 that is only card0 = linlondp, the display
+    # controller; panthor is render-only and exposes no connectors, so it never
+    # appears in that list. With no WLR_RENDER_DRM_DEVICE, wlroots renders on
+    # the same device it scans out on -- linlondp -- which has no gallium
+    # driver. Mesa falls back to Zink, Zink needs a Vulkan ICD, none is
+    # installed, and EGL dies:
+    #
+    #   MESA: error: ZINK: vkCreateInstance failed (VK_ERROR_INCOMPATIBLE_DRIVER)
+    #   [render/egl.c:269]   Failed to initialize EGL
+    #   [../src/server.c:586] unable to create renderer
+    #
+    # greetd's greeter then exits after ~430ms without creating a session and
+    # start-limit-hits on the 5th try, so the Panthor boot entry comes up to a
+    # black screen while the Mali entry is fine. Mali never hits this because it
+    # renders through /dev/mali0 and the libmali blob, not a DRM render node.
+    #
+    # Metal-confirmed on O6N 2026-09-04 against 7.2.3-sky1-ncz+r263: setting
+    # this took the greeter from a crash-loop to "first surface committed" in
+    # 458ms with 0 restarts.
+    #
+    # Resolved dynamically -- renderD numbering is not stable across boots or
+    # boards (MS-R1 has four DPUs and lands on a different node than O6N).
+    for _ncz_rd in /sys/class/drm/renderD*; do
+        [ -e "$_ncz_rd/device/driver" ] || continue
+        [ "$(basename "$(readlink -f "$_ncz_rd/device/driver")")" = panthor ] || continue
+        if [ -c "/dev/dri/$(basename "$_ncz_rd")" ]; then
+            WLR_RENDER_DRM_DEVICE="/dev/dri/$(basename "$_ncz_rd")"
+            export WLR_RENDER_DRM_DEVICE
+        fi
+        break
+    done
+    unset _ncz_rd
     export NCZ_GPU_BACKEND __EGL_VENDOR_LIBRARY_FILENAMES VK_LOADER_LAYERS_DISABLE WLR_DRM_NO_MODIFIERS
     if [ -n "$LD_LIBRARY_PATH" ]; then export LD_LIBRARY_PATH; else unset LD_LIBRARY_PATH; fi
 else
@@ -696,6 +791,8 @@ recent-wallpapers=['file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilia
 # (e.g. a staging repo) without touching the browser code at all. Kept in
 # sync with the two sources 24-apt-sources.sh wires (Buildkite PRIMARY,
 # Cloudflare R2 backup) -- if that hook's URLs ever change, update this too.
+# The privileged installer independently validates the selected URI against
+# root-owned apt configuration and the package's live candidate.
 artist-pack-apt-sources=['https://packages.buildkite.com/ncz-os/ncz/any/', 'https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev']
 # Pin the browsers and a terminal to the dock, grouped. The stock
 # dev.sinty.desktop pinned-apps default lists only the Sinty first-party apps,
@@ -738,7 +835,8 @@ fi
 # Hook the packaged session launcher at the point where those variables are
 # known. The helper delays slightly so singularity-desktop can create its
 # initial wallpaper layer, then restarts the user service under the imported
-# environment so ncz-wallpaper-rotate owns the live swaybg.
+# environment so ncz-wallpaper-rotate writes GSettings in the live session.
+# The native shell owns the wallpaper; no second background layer is needed.
 # ---------------------------------------------------------------------------
 cat > /usr/local/bin/ncz-wallpaper-session-ready <<'WPREADY'
 #!/bin/sh

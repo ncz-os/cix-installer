@@ -157,20 +157,66 @@ a coarse hint; the extension is the truth. Sampled 2026-08-19:
 Regenerating the index is a script run, not a shell release, so a new provider
 or a dead endpoint is a data change.
 
-## 5. Downloads are rebuilt into local packs
+## 5. OCS imports accumulate into one shared pack, not one pack per item
 
-A download is not a loose file. On import we run the same normalisation the pak
-builder does, so there is ONE code path for everything on disk:
+**Status (2026-09-06): the design described here has changed.** Earlier revisions
+of this document described each imported OCS item landing as its own
+`<id>/pack.json` pack (one-pack-per-import). The current implementation does not
+do that. Every OCS import lands in ONE persistent user-side collection named
+`Imported from OCS`, with per-image provenance kept in a sidecar next to each
+image. The reason for the change: the picker shows imports as one scrollable
+pool, not as a stack of singleton packs, and a single shared collection
+matches that UX without losing any attribution/licensing fidelity. The change
+was operator-directed and the per-image attribution goal — real credit and
+licence state preserved per picture, never fabricated at the pack level — is
+unchanged. It just lives in per-image sidecars now, not in a per-pack
+manifest.
+
+The on-disk shape:
+
+* one fixed directory: `~/.local/share/backgrounds/imported-ocs/`
+* one fixed `.collection` registration under
+  `~/.local/share/ncz-wallpapers/collections/imported-ocs.collection`,
+  with `Id=imported-ocs`, `Name=Imported from OCS`, `Type=static`, no
+  `Artist=` key (artist is genuinely ambiguous across many uploaders from
+  many providers; `WallpaperCollections.parse()` treats a missing `Artist`
+  as the empty string, which is what we want — per-image sidecars carry
+  the real credit);
+* every import's normalized image goes into that SAME shared directory,
+  with the filename prefixed `<provider>-<id>-` so two different imports
+  landing in the same directory cannot collide
+  (e.g. `pling-2370583-01-morning-clouds.jpg`,
+  `kde-look-2369549-01-milkywaymoo.jpg`);
+* alongside each image, a `<image-basename>.json` sidecar carrying the
+  exact provenance the old per-pack `pack.json` carried, scoped to that
+  one image: `origin`, `provider`, `artist.name`/`artist.credit`,
+  `source.{ocs_id,detailpage,download_url,resolved_download_url,...}`,
+  `license` (or null + `license_note` when the OCS item did not specify
+  one), `source.tags`, the source and normalized geometry, and an
+  `imported_at` timestamp.
+
+The `.collection` file is written ONCE — first import creates it,
+subsequent imports leave it alone. Re-running the import command is
+idempotent at the registration layer even though new images continue to
+accumulate.
+
+The same normalisation code path is used:
 
 1. fetch, follow the pling JWT redirect, unpack if it is an archive
 2. sniff real image types, discard the rest
 3. normalise to the panel resolution (cover-crop, Lanczos, never squash)
-4. write `pack.json` with provenance: provider, author, source URL, licence if
-   stated, `"origin": "ocs"`
-5. land under `~/.local/share/backgrounds/<id>/`, where the picker already looks
+4. write the per-image sidecar (NOT a per-pack `pack.json`)
+5. land under `~/.local/share/backgrounds/imported-ocs/`, the picker already
+   looks at that directory because the registered `Dir=` points there
 
-The downloaded set then rotates, filters and attributes exactly like a curated
-pack, while remaining honestly labelled as user-fetched.
+The downloaded set then rotates, filters and attributes exactly like a
+curated pack, while remaining honestly labelled as user-fetched. The
+attribution overlay (section 6c) reads the per-image sidecar for the
+credit line, since "artist" at the pack level is no longer a single name.
+
+Old-shape directories left over from earlier testing (one `pack.json` per
+import) are not migrated. `discover()` skips them rather than crashing
+on the missing sidecar convention.
 
 ## 6. Backend already shipped (DONE)
 

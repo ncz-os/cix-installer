@@ -22,6 +22,23 @@
 # RUNS INSIDE CHROOT via run-all.sh, after 82-mali-gpu.sh.
 set +e
 
+# CIX Sky1/Mali-G720 hardware is arm64-only. Without this guard, run-all.sh
+# runs this hook unconditionally on every image (including amd64 T2 builds),
+# `dkms add`-registering panthor-cix there too -- confirmed 2026-09-22 on
+# real MEDUSA/PEGASUS hardware: panthor-cix has no Yocto-staged .deb
+# alternative (unlike cix-gpu-kmd/mali, which ships prebuilt and only falls
+# back to dkms-add when a .deb is missing), so this dkms-add ALWAYS runs, and
+# the amd64 T2 linux-headers-cixmini postinst's "force rebuild every
+# registered DKMS package" step then tries to compile Sky1 Mali GLES/Vulkan
+# GPU source against an x86_64 kernel -- a real, guaranteed compile failure
+# (panthor_gem.c: implicit declaration, wrong arch entirely) that aborted the
+# whole kernel package install on both real T2 boxes. Match the existing
+# arch-guard convention from 54-gpu-accel.sh / 55-t2-firmware.sh.
+if [ "$(dpkg --print-architecture 2>/dev/null)" != "arm64" ]; then
+    echo "[83] not arm64 (Sky1/Mali-G720 hardware only) -- skipping panthor-cix entirely"
+    exit 0
+fi
+
 INSTALLER_META=/usr/local/lib/cix-installer
 ASSET_DIR="$INSTALLER_META/assets/kernel/panthor"      # panthor-cix-dkms source
 GPU_ASSET_DIR="$INSTALLER_META/assets/gpu"             # ncz-gpu-select + conf
@@ -103,6 +120,24 @@ rm -f /usr/local/sbin/ncz-mali-kbase-allowed
 echo "[83] removed ncz-mali-kbase-load.service (ncz-gpu-switcher owns driver loading)"
 
 # --- 2. register the panthor-cix DKMS source (opt-in; built on demand) -------
+# build/build-dkms-debs.sh produces a real panthor-cix-dkms_*.deb from this
+# same asset dir (postinst: dkms add + autoinstall + dracut refresh, same as
+# 82-mali-gpu.sh). Prefer that real, dpkg-tracked package when staged — it's
+# what gives apt an update path; the raw source-copy below never registered
+# with dpkg. Fall back to raw source-copy only if no .deb is staged.
+PANTHOR_DEB=$(ls /usr/local/lib/cix-installer/assets/cix-debs/panthor-cix-dkms_*.deb 2>/dev/null | head -1)
+if [ -n "$PANTHOR_DEB" ]; then
+    if dpkg -i "$PANTHOR_DEB" >/dev/null 2>&1; then
+        echo "[83] installed $(basename "$PANTHOR_DEB") via dpkg — panthor-cix now apt-tracked"
+        echo "[83] panthor GPU stage done (selector installed; DKMS package installed)"
+        exit 0
+    fi
+    echo "[83] WARN: dpkg -i $(basename "$PANTHOR_DEB") failed — falling back to raw DKMS source registration"
+    # Same half-configured-record risk as 82-mali-gpu.sh -- clear it so a
+    # later real install attempt isn't blocked on a failed postinst here.
+    dpkg --purge panthor-cix-dkms >/dev/null 2>&1 || true
+fi
+
 if [ ! -d "$ASSET_DIR" ] || [ ! -f "$ASSET_DIR/dkms.conf" ]; then
     echo "[83] no panthor-cix DKMS source at $ASSET_DIR — skipping DKMS registration"
     echo "[83] panthor GPU stage done (selector installed; DKMS source absent)"

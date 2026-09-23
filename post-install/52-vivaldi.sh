@@ -31,9 +31,16 @@ case "$VARIANT" in
 esac
 
 VIV_DIR=/usr/local/lib/cix-installer/assets/vivaldi
-DEB=$(ls "$VIV_DIR"/vivaldi-stable_*_arm64.deb 2>/dev/null | sort -V | tail -1)
+INSTALLER_META=/usr/local/lib/cix-installer
+NCZ_SYSTEM_ARCH="${NCZ_TARGET_ARCH:-}"
+if [ -z "$NCZ_SYSTEM_ARCH" ] && [ -r "$INSTALLER_META/BUILD_ARCH" ]; then
+    NCZ_SYSTEM_ARCH=$(tr -d '[:space:]' < "$INSTALLER_META/BUILD_ARCH")
+fi
+NCZ_SYSTEM_ARCH="${NCZ_SYSTEM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
+
+DEB=$(ls "$VIV_DIR"/vivaldi-stable_*_"${NCZ_SYSTEM_ARCH}".deb 2>/dev/null | sort -V | tail -1)
 if [ -z "$DEB" ]; then
-    echo "[52] WARN: no staged Vivaldi .deb under $VIV_DIR — skipping (launchers targeting vivaldi-stable will error)"
+    echo "[52] WARN: no staged Vivaldi .deb for arch=$NCZ_SYSTEM_ARCH under $VIV_DIR — skipping (launchers targeting vivaldi-stable will error)"
     exit 0
 fi
 

@@ -252,6 +252,48 @@ else
     missing=$((missing+1))
 fi
 
+# 3a2. cix-mesa ships /etc/ld.so.conf.d/01-cixgpu-compat.conf, which puts
+# a whole second, ancient (1.1.0) glvnd + Mesa-24 stack on the SYSTEM loader
+# path. That fights the current Debian glvnd 1.7.0 + Mesa 26 stack the desktop
+# actually needs: labwc SIGSEGVs inside __eglLoadVendors ("free(): invalid
+# pointer"), greetd hits its restart limit, black screen on every boot.
+#
+# post-install/26-gpu-default-mali.sh renames the file to .disabled at install
+# time, but that is a workaround, not a fix -- the file ships as a plain data
+# file inside cix-mesa's .deb (not even a dpkg-tracked conffile), so any later
+# ordinary reinstall/reconfigure of that package -- which ncz-firstboot.service
+# triggers unconditionally via `dpkg --configure -a` on every fresh install's
+# first boot -- writes it right back, undoing the rename before greetd ever
+# starts (confirmed on O6N, 2026-09-08).
+#
+# Real fix: strip the conffile from the vendor .deb ONCE, here, at staging
+# time, so it never ships in the first place and no install-time or first-boot
+# workaround is needed anywhere. Verified live on O6N that cixgpu-compat is not
+# needed at all: libEGL_cix.so (the real Mali vendor driver, in cixgpu-pro,
+# untouched here) links against libc only, and the vendor JSON mechanism finds
+# it fine through the system glvnd once cixgpu-compat is off the loader path.
+CIX_MESA_DEB=$(ls -1 "$ASSETS/cix-debs"/cix-mesa_*.deb 2>/dev/null | head -1)
+if [ -n "$CIX_MESA_DEB" ] && command -v dpkg-deb >/dev/null 2>&1; then
+    if dpkg-deb -c "$CIX_MESA_DEB" | grep -q '01-cixgpu-compat.conf'; then
+        T=$(mktemp -d)
+        dpkg-deb -R "$CIX_MESA_DEB" "$T"
+        rm -f "$T/etc/ld.so.conf.d/01-cixgpu-compat.conf"
+        # conffiles/md5sums must not reference a file we just removed, or dpkg
+        # errors on install.
+        sed -i '\#^/etc/ld.so.conf.d/01-cixgpu-compat.conf$#d' "$T/DEBIAN/conffiles" 2>/dev/null || true
+        if [ -f "$T/DEBIAN/md5sums" ]; then
+            sed -i '\#etc/ld.so.conf.d/01-cixgpu-compat.conf#d' "$T/DEBIAN/md5sums"
+        fi
+        dpkg-deb -b "$T" "$CIX_MESA_DEB" >/dev/null
+        rm -rf "$T"
+        log "  repackaged $(basename "$CIX_MESA_DEB"): dropped 01-cixgpu-compat.conf (root fix for the glvnd/EGL crash)"
+    else
+        log "  $(basename "$CIX_MESA_DEB") already lacks 01-cixgpu-compat.conf -- nothing to strip"
+    fi
+elif [ -n "$CIX_MESA_DEB" ]; then
+    warn "dpkg-deb not available -- cannot strip 01-cixgpu-compat.conf from $(basename "$CIX_MESA_DEB"); the ncz-firstboot belt-and-suspenders re-disable is still in place as a fallback"
+fi
+
 # 3b. drop the older cix-noe-umd so the matched-stack 3.1.4 wins.
 # pre-Q2 ABI (asid_base[32]) is incompatible with the cix-npu-driver-dkms 6.2.0
 # KMD, which speaks asid_base[4]. A board that installs cix-noe-umd_2.0.2 on top
@@ -442,6 +484,31 @@ else
             missing=$((missing+1))
         fi
     fi
+fi
+
+# ----------------------------------------------------------------------
+# 4. mali + panthor DKMS .debs -- give apt an update path for the two
+#    accelerators that were never dpkg-tracked (build/build-dkms-debs.sh's
+#    own header comment: "apt cannot upgrade a package it does not know
+#    about"). vpu/npu already ship a real staged .deb via 3b above (from the
+#    vendor SDK); mali/panthor are NCZ's own DKMS source under
+#    assets/kernel/{mali,panthor}/ and had no equivalent until tonight.
+# ----------------------------------------------------------------------
+log "[4/4] mali+panthor DKMS .debs: building from assets/kernel/{mali,panthor}/"
+if [ -x "$REPO/build/build-dkms-debs.sh" ]; then
+    if bash "$REPO/build/build-dkms-debs.sh" mali panthor 2>&1 | sed 's/^/    /'; then
+        for d in "$REPO/build/dkms-debs"/cix-gpu-kmd-dkms_*.deb "$REPO/build/dkms-debs"/panthor-cix-dkms_*.deb; do
+            [ -e "$d" ] || continue
+            cp -an "$d" "$ASSETS/cix-debs/" && log "  staged $(basename "$d")"
+        done
+        reached=$((reached+1))
+    else
+        warn "build-dkms-debs.sh mali panthor failed -- mali/panthor stay dpkg-blind this build"
+        missing=$((missing+1))
+    fi
+else
+    warn "build/build-dkms-debs.sh not found or not executable"
+    missing=$((missing+1))
 fi
 
 # ----------------------------------------------------------------------

@@ -5,6 +5,15 @@
 **Applies to:** the six patches in `docs/upstream-patches/cix-vaapi/`. Without
 them, browser hardware video decode does not work at all on this platform.
 
+**This document covers the VA-API route only.** The AV1 row below ("does not
+work", vendor-side gap) is accurate for VA-API specifically and remains true.
+There is a SEPARATE, working decode path — the V4L2 stateful decoder
+(`docs/upstream-patches/chromium/README.md`, patch 0001 + the 154-era NXP
+regression fixes) — that DOES decode AV1 (and VP9) correctly today, confirmed
+live 2026-09-22 on O6N with real playback and Chromium's own
+media-internals log. See that doc for the real, current AV1 status; treat
+this doc's AV1 row as "blocked via VA-API," not "blocked, period."
+
 Every "works" below was confirmed by **looking at the picture** (a `grim`
 screenshot of the compositor), not by a proxy signal. That distinction matters
 here — see *How to verify* at the end.
@@ -15,7 +24,9 @@ here — see *How to verify* at the end.
 |---|---|---|---|
 | **H.264** 1080p | works | **works** | renderer CPU ~27% → ~3.5%, 0 dropped frames |
 | **VP9** 720p | works | **works** | renderer CPU ~12.5% → ~3.5% |
-| **AV1** | hangs | **does not work** | blocked upstream, see below |
+| **AV1** (VA-API) | hangs | does not work via VA-API | blocked upstream, see below |
+| **AV1** (V4L2) | n/a | **works** | separate pipeline, see `upstream-patches/chromium/README.md` |
+| **VP9** (V4L2) | n/a | **works** | confirmed alongside AV1, same pipeline |
 | **HEVC** | inconclusive | untested | see *Known issues* |
 | **H.264 / HEVC encode** | works | n/a | Chromium gates VA-API encode itself |
 

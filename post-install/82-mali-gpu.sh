@@ -19,6 +19,18 @@
 # NO mali there. RUNS INSIDE CHROOT via run-all.sh, after 81-vpu.sh.
 set +e
 
+# Mali-G720 (Sky1) is arm64-only hardware. Without this guard, run-all.sh runs
+# this hook unconditionally on every image including amd64 T2 builds -- same
+# class of bug fixed 2026-09-22 in 83-panthor-gpu.sh, where the analogous
+# unconditional `dkms add` broke real amd64 T2 kernel installs (dkms then
+# force-rebuilds every registered package, trying to compile Sky1 GPU source
+# against x86_64 headers). Match the arch-guard convention from
+# 54-gpu-accel.sh / 55-t2-firmware.sh / 83-panthor-gpu.sh.
+if [ "$(dpkg --print-architecture 2>/dev/null)" != "arm64" ]; then
+    echo "[82] not arm64 (Sky1 Mali-G720 hardware only) -- skipping"
+    exit 0
+fi
+
 INSTALLER_META=/usr/local/lib/cix-installer
 ASSET_DIR="$INSTALLER_META/assets/kernel/mali"     # overlay + DKMS source + patch
 RL_PATCH="$ASSET_DIR/mali-kbase-scmi-ratelimit.patch"
@@ -60,17 +72,38 @@ else
 fi
 
 # --- 2. register cix-gpu-kmd with DKMS for future kernel rebuilds ----------
-# Ship the SOURCE tree, mirroring 83-panthor-gpu.sh, rather than a
-# cix-gpu-dkms_*.deb. Nothing in this repo ever built that deb, so this branch
-# silently took its else-path on every install since it was written and the
-# DKMS half of the GPU story never existed -- the prebuilt overlay was carrying
-# it alone, which is why an rc5-stamped overlay against an rc6 kernel produced a
-# no-GPU boot with nothing to fall back on.
+# build/build-dkms-debs.sh now produces a real cix-gpu-kmd-dkms_*.deb from
+# this same $DKMS_SRC + dkms.conf (its postinst does dkms add + autoinstall +
+# the dracut initramfs refresh, matching the 2026-09-13 VPU lesson that a
+# bare `dkms build` without a boot-image refresh leaves the OLD module loading
+# from the initramfs regardless of what DKMS just built). Prefer that real,
+# dpkg-tracked package -- it is what gives apt an update path at all (the
+# raw source-copy this hook used before never registered with dpkg, so apt
+# could not see or upgrade cix-gpu-kmd; this is the gap build-dkms-debs.sh's
+# own header comment describes). Fall back to the raw source-copy method
+# ONLY if no staged .deb is present, so an older or partial build tree still
+# gets a working (if dpkg-blind) DKMS registration rather than nothing.
 #
 # post-install/79-dkms-prep.sh must have run first: the shipped kernel headers
 # are a Yocto build-host artifact and cannot build anything until it repairs
 # them (foreign fixdep/modpost, missing localversion). See that script.
-if [ -d "$DKMS_SRC" ] && [ -f "$ASSET_DIR/dkms.conf" ]; then
+MALI_DEB=$(ls /usr/local/lib/cix-installer/assets/cix-debs/cix-gpu-kmd-dkms_*.deb 2>/dev/null | head -1)
+if [ -n "$MALI_DEB" ]; then
+    if dpkg -i "$MALI_DEB" >/dev/null 2>&1; then
+        echo "[82] installed $(basename "$MALI_DEB") via dpkg — cix-gpu-kmd now apt-tracked"
+    else
+        echo "[82] WARN: dpkg -i $(basename "$MALI_DEB") failed — falling back to raw DKMS source registration"
+        # A postinst failure can leave dpkg's record for this package
+        # half-configured, which would make a LATER real 'apt install
+        # cix-gpu-kmd-dkms' refuse to proceed until 'dpkg --configure -a' is
+        # run manually. Clear that now so the fallback path (and any future
+        # real install attempt) starts from a clean dpkg state.
+        dpkg --purge cix-gpu-kmd-dkms >/dev/null 2>&1 || true
+        MALI_DEB=""
+    fi
+fi
+
+if [ -z "$MALI_DEB" ] && [ -d "$DKMS_SRC" ] && [ -f "$ASSET_DIR/dkms.conf" ]; then
     SRC=/usr/src/cix-gpu-kmd-$DKMS_VER
     rm -rf "$SRC"; mkdir -p "$SRC"
     cp -a "$DKMS_SRC/." "$SRC/"
@@ -87,7 +120,7 @@ if [ -d "$DKMS_SRC" ] && [ -f "$ASSET_DIR/dkms.conf" ]; then
 
     if command -v dkms >/dev/null 2>&1; then
         dkms add -m cix-gpu-kmd -v "$DKMS_VER" >/dev/null 2>&1 \
-            && echo "[82] dkms add cix-gpu-kmd/$DKMS_VER" \
+            && echo "[82] dkms add cix-gpu-kmd/$DKMS_VER (dpkg-blind fallback — no staged .deb)" \
             || echo "[82] dkms add skipped (already registered?)"
         # Build now only if the headers are usable; otherwise DKMS autoinstalls
         # on the next kernel upgrade and the prebuilt overlay covers this boot.
@@ -102,8 +135,8 @@ if [ -d "$DKMS_SRC" ] && [ -f "$ASSET_DIR/dkms.conf" ]; then
     else
         echo "[82] dkms absent — source staged to $SRC, overlay covers boot"
     fi
-else
-    echo "[82] no DKMS source at $DKMS_SRC — relying on pre-built overlay"
+elif [ -z "$MALI_DEB" ]; then
+    echo "[82] no staged .deb and no DKMS source at $DKMS_SRC — relying on pre-built overlay"
 fi
 
 # The ncz-mali-kbase-allowed ExecCondition helper that used to be written here

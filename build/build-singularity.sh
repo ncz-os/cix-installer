@@ -129,6 +129,8 @@ apt-get install -y --no-install-recommends \
     libxcb-composite0-dev libxcb-render0-dev libxcb-res0-dev \
     libxcb-xfixes0-dev libxcb-errors-dev libxcb-present-dev \
     sassc scdoc \
+    libsdl2-dev libgl-dev libglu1-mesa-dev libx11-dev \
+    libcairo2-dev libpango1.0-dev libwayland-bin \
     libdisplay-info-dev \
     libseat-dev \
     libliftoff-dev \
@@ -163,6 +165,44 @@ else
 fi
 cd singularity-desktop
 
+# The superproject commits fixed submodule pins, and they can be stale
+# relative to the branch .gitmodules itself declares each one tracks --
+# measured 2026-09-06: singularity-shell was dozens of commits behind its
+# own main, and labwc was pinned to a commit on main (an unrelated branch)
+# when .gitmodules says branch = singularity. A stale pin is not just
+# missing recent work -- it changes the file layout our downstream patches
+# expect, so a patch that applies cleanly against a subproject real branch
+# tip can fail against whatever old commit the superproject happens to have
+# committed.
+#
+# Re-pinning ONLY the subprojects carrying NCZ patches is not enough either:
+# doing that alone left singularity-shell on its current main (freshly
+# re-pinned) while libsingularity stayed on the superproject stale pin, and
+# shell main calls UtilizationMonitor / UtilizationReading / CapacityReading
+# APIs that the stale libsingularity does not define yet -- a real compile
+# failure, not a patch-apply failure. Submodules are cross-coupled by API,
+# not independent, so re-pin every submodule .gitmodules declares a tracked
+# branch for, to one consistent all-current-upstream baseline -- this is the
+# same policy already used to build this tree (see fc29d68, make the tree
+# build again from upstream HEAD), not a new one.
+if [ -z "${SINGULARITY_SOURCE_DIR:-}" ]; then
+    git config -f .gitmodules --get-regexp "branch$" | while read -r _key _branch; do
+        case "$_key" in
+            submodule.*.branch) ;;
+            *) continue ;;
+        esac
+        _tree=${_key#submodule.}
+        _tree=${_tree%.branch}
+        [ -d "$_tree" ] || continue
+        echo "    re-pinning $_tree to its tracked branch ($_branch)"
+        git -C "$_tree" fetch origin "$_branch"
+        git -C "$_tree" checkout FETCH_HEAD
+        if [ -f "$_tree/.gitmodules" ]; then
+            git -C "$_tree" submodule update --init --recursive
+        fi
+    done
+fi
+
 # Apply the downstream patch queue inside the disposable build workspace.
 # The helper is idempotent: already-applied patches are skipped, but a patch
 # that no longer applies fails the build. This closes the clean-worktree trap
@@ -187,6 +227,41 @@ if [ -x scripts/apply-downstream-patches.sh ]; then
     # build. Removed the pre-check; the per-patch idempotency in
     # apply-downstream-patches.sh is the correct and only gate.
     bash scripts/apply-downstream-patches.sh
+fi
+
+# NCZ downstream patches against the bundled subprojects. Applied after the
+# upstream queue so upstream always wins a conflict. Each patch is checked with
+# --check first and skipped when already applied, so re-running is safe; a
+# patch that does not apply is a HARD failure rather than a warning, because a
+# silently-unpatched build looks identical to a patched one and that is exactly
+# how the labwc replug fix went missing from an earlier tarball.
+# Layout is /ncz-patches/<subproject>/NNNN-*.patch, and each patch applies with
+# paths relative to the root of THAT subproject. Keeping the subproject in the
+# directory name rather than guessing from the patch content means a patch can
+# never be applied against the wrong tree -- the first version of this assumed
+# every patch was for labwc, which would have silently mis-targeted the shell.
+if [ -d /ncz-patches ]; then
+    for _sub in /ncz-patches/*/; do
+        [ -d "$_sub" ] || continue
+        _name=$(basename "$_sub")
+        _tree="subprojects/$_name"
+        if [ ! -d "$_tree" ]; then
+            echo "ERROR: ncz patches exist for $_name but $_tree is not in this tree" >&2
+            exit 1
+        fi
+        for _p in "$_sub"*.patch; do
+            [ -e "$_p" ] || continue
+            if git -C "$_tree" apply --check "$_p" 2>/dev/null; then
+                git -C "$_tree" apply "$_p"
+                echo "    ncz patch applied: $_name/$(basename "$_p")"
+            elif git -C "$_tree" apply --reverse --check "$_p" 2>/dev/null; then
+                echo "    ncz patch already present: $_name/$(basename "$_p")"
+            else
+                echo "ERROR: ncz patch does not apply: $_name/$(basename "$_p")" >&2
+                exit 1
+            fi
+        done
+    done
 fi
 
 # NCZ shell integration: close the launcher popup before opening the full-screen
@@ -221,6 +296,56 @@ print("    shell: launcher-popup fix applied")
 PY_NCZ_SHELL
 fi
 
+# SKIP singularity-gestures on this build.
+#
+# Its meson.build requires include_directories(..., "runtime/include"), and
+# runtime/ ships only a .gitignore -- the directory is populated by
+# scripts/bootstrap-runtime.sh, which downloads MediaPipe and ONNX Runtime at
+# build time. That script has NO architecture detection: it hardcodes
+#   onnxruntime-linux-x64-$onnx_version.tgz
+# so on aarch64 it fetches x86-64 binaries. The subproject is pulled in
+# unconditionally by the top-level meson.build (there is no meson option to
+# turn it off), so an arm64 build of singularity-desktop cannot configure at
+# all as of upstream d642160.
+#
+# Dropping the subproject line is a BUILD workaround, not a fix, and it is
+# deliberately confined to this staging copy -- nothing is committed upstream.
+# Reported separately; the real fix belongs in bootstrap-runtime.sh.
+if grep -q "subproject('"'"'singularity-gestures'"'"')" meson.build; then
+    sed -i "/subproject('"'"'singularity-gestures'"'"')/d" meson.build
+    echo "    NOTE: singularity-gestures skipped (bootstrap-runtime.sh is x86-64 only)"
+fi
+
+# SKIP singularity-edit on this build (TEMPORARY, 2026-09-05, wallpaper-UX
+# verification build only -- NOT committed upstream, NOT a permanent fix).
+#
+# Its vendored tree-sitter runtime (subprojects/singularity-edit/vendor/
+# tree-sitter/lib/src/lib.c) fails to compile under the GCC in this image
+# (16.2.0-1, Debian forky) -- ninja stops with subcommand failed and ZERO
+# compiler diagnostic output, reproduced identically 3 times at the exact
+# same object (vendor_tree-sitter_lib_src_lib.c.o), which is a toolchain/
+# vendored-code issue unrelated to any NCZ patch. singularity-edit is a
+# standalone subproject() call in the top-level meson.build with no
+# variable captured from it, so it is not a build dependency of
+# singularity-shell/singularity-desktop -- safe to skip when the goal is
+# testing shell-side changes, not the editor app itself.
+if grep -q "subproject('"'"'singularity-edit'"'"')" meson.build; then
+    sed -i "/subproject('"'"'singularity-edit'"'"')/d" meson.build
+    echo "    NOTE: singularity-edit skipped (tree-sitter vendor build fails under this GCC, unrelated to NCZ patches)"
+fi
+# The Makefile pulls the same bootstrap in independently of meson:
+#   Makefile:8   $(BUILD_DIR)/build.ninja: | gesture-runtime
+#   Makefile:17  compile: gesture-runtime $(BUILD_DIR)/build.ninja labwc
+# so `make compile` runs scripts/bootstrap-runtime.sh even after the subproject
+# is dropped. That script also hardcodes /usr/bin/python3.12, which does not
+# exist in this container, so it dies with "Error 127" before any download is
+# even attempted. Strip the prerequisite from both rules.
+if [ -f Makefile ] && grep -q "gesture-runtime" Makefile; then
+    sed -i "s/^compile: gesture-runtime /compile: /" Makefile
+    sed -i "s/: | gesture-runtime$/:/" Makefile   # keep the rule colon
+    echo "    NOTE: gesture-runtime make prerequisite removed"
+fi
+
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
@@ -235,6 +360,13 @@ else
             --buildtype=release -Dxwayland=enabled --force-fallback-for=wlroots-0.20
         ninja -C build-labwc
     fi
+fi
+
+# The local wallpaper-selector branch provides these pure-logic regressions
+# and a non-installed probe for comparing the gallery with live board state.
+if [ -x build/subprojects/singularity-shell/wallpaper-gallery-probe ]; then
+    meson test -C build --print-errorlogs wallpaper-gallery wallpaper-collections wallpaper-rotation-state
+    cp build/subprojects/singularity-shell/wallpaper-gallery-probe /out/
 fi
 
 # Install into the DESTDIR stage.
@@ -311,8 +443,36 @@ echo "STAGED $(du -h /out/singularity-opt.tgz | cut -f1)"
 echo "== running build in $IMAGE ($CE) =="
 CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
          -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV")
+# On an SELinux-enforcing host the bind mount is unwritable from inside the
+# container, and the build only discovers it at the very END -- every subproject
+# compiles and installs to /work/stage, then the final tar dies with
+#     tar (child): /out/singularity-opt.tgz: Cannot open: Permission denied
+#     tar: /out/singularity-opt.tgz: Cannot write: Broken pipe
+# The "Broken pipe" is the visible line and is a red herring; the permission
+# error above it is the cause. Disable labelling for the mount rather than
+# relabelling the tree, which is what y6-run-ultra.sh already does on this host
+# for the same reason. Podman only -- docker does not take this flag the same
+# way, and this was written on a host without SELinux enforcing.
+# NOTE (2026-09-05): basename "$CE" alone is NOT reliable -- podman-docker
+# installs a /usr/bin/docker that IS podman under the hood (command -v docker
+# picks it first, so $CE resolves to "docker" even on a podman-only host).
+# "$CE --version" still prints "podman version ..." in that case since it is
+# literally exec-ing the podman binary, so check the version STRING instead
+# of the resolved binary's name.
+if "$CE" --version 2>/dev/null | grep -qi podman && [ "$(getenforce 2>/dev/null)" = Enforcing ]; then
+    CE_ARGS+=(--security-opt label=disable)
+    echo "   note: SELinux enforcing -- adding --security-opt label=disable for the /out mount"
+fi
 if [ -n "$SRC_DIR" ]; then
     CE_ARGS+=(-v "$SRC_DIR":/src:ro -e SINGULARITY_SOURCE_DIR=/src)
+fi
+# Our downstream patch queue. The build clones its own copy of the source
+# INSIDE the container, so assets/singularity/patches/ is invisible to it
+# unless mounted -- which is why a tarball built here was a clean upstream
+# baseline and silently did NOT contain our labwc fix. Mount it read-only.
+NCZ_PATCHES="$REPO_ROOT/assets/singularity/patches"
+if [ -d "$NCZ_PATCHES" ]; then
+    CE_ARGS+=(-v "$NCZ_PATCHES":/ncz-patches:ro)
 fi
 "$CE" run "${CE_ARGS[@]}" "$IMAGE" bash -euo pipefail -c "$BUILD_SCRIPT"
 

@@ -1,0 +1,132 @@
+# rescue-amd64.pkgs — full toolset for the AMD64 on-disk RESCUE PARTITION.
+#
+# Derived from manifests/rescue.pkgs (Sky1/arm64). That file's own header
+# explicitly documents x86 tooling as EXCLUDED "not applicable to a headless
+# arm64 box" — this file is exactly that exclusion list, restored, plus one
+# real arm64-only drop. See docs/AMD64-PACKAGE-AUDIT.md.
+#
+# Everything else in rescue.pkgs is arch-portable and carried forward
+# unchanged (filesystems, block/partition/disk, imaging/data-recovery,
+# network/remote-access, hardware/diag, kernel/module/initrd repair,
+# shell/edit/scripting) — not re-listed here line-by-line, see the audit doc.
+
+# ============================================================================
+# RESTORED — rescue.pkgs' own header calls these out as excluded for arm64;
+# they are real requirements on AMD64.
+# ============================================================================
+intel-microcode
+amd64-microcode
+memtest86+
+syslinux
+syslinux-efi
+ms-sys
+# ms-sys writes Windows-compatible MBR/VBR boot sectors — genuinely useful on
+# a generic-PC rescue partition that may need to repair a dual-boot Windows
+# install, unlike the arm64 line which never has one.
+
+# ============================================================================
+# DROPPED — arm64/device-tree specific, no equivalent needed (AMD64 uses
+# ACPI, not device tree)
+# ============================================================================
+# device-tree-compiler  — dtc, for inspecting/patching CIX Sky1 .dtb/.dts.
+#                          No device tree on AMD64 at all.
+
+# ============================================================================
+# Everything below is unchanged from rescue.pkgs (arch-portable) — listed in
+# full for a self-contained consumer, per rescue.pkgs' own stated design
+# goal ("a rescue-rootfs builder can consume this alone").
+# ============================================================================
+btrfs-progs
+e2fsprogs
+xfsprogs
+f2fs-tools
+ntfs-3g
+exfatprogs
+dosfstools
+mtools
+nilfs-tools
+squashfs-tools
+util-linux
+parted
+gdisk
+nvme-cli
+smartmontools
+hdparm
+sdparm
+sg3-utils
+lvm2
+mdadm
+cryptsetup
+multipath-tools
+gddrescue
+testdisk
+fsarchiver
+partclone
+pv
+pigz
+xz-utils
+zstd
+systemd-sysv
+systemd-timesyncd
+dbus
+iproute2
+net-tools
+iputils-ping
+ethtool
+tcpdump
+mtr-tiny
+traceroute
+socat
+netcat-openbsd
+iperf3
+bind9-dnsutils
+openssh-server
+dropbear-bin
+picocom
+inetutils-telnetd
+openbsd-inetd
+busybox-static
+dhcpcd-base
+firmware-linux-free
+firmware-realtek
+firmware-misc-nonfree
+curl
+wget
+rsync
+sshfs
+nfs-common
+cifs-utils
+lftp
+pciutils
+usbutils
+dmidecode
+lshw
+hwinfo
+inxi
+efibootmgr
+efivar
+grub-efi-amd64
+grub-pc-bios
+kexec-tools
+stress-ng
+memtester
+lm-sensors
+kmod
+initramfs-tools
+cpio
+lz4
+kpartx
+binutils
+vim
+nano
+less
+mc
+tmux
+file
+tree
+jq
+htop
+lsof
+strace
+gnupg
+python3

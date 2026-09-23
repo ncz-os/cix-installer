@@ -3308,6 +3308,104 @@ static int try_format(struct mvx_session *session,
         *height = session->orig_height;
     }
 
+    if (dir == MVX_DIR_OUTPUT && mvx_is_frame(format) != false) {
+        /*
+         * FIX (2026-09-13, thread continuation of fix/vpu-gfmt-sfmt-race-
+         * 20260913 -- residual G_SELECTION/COMPOSE containment failure):
+         * AFBC coded buffers are padded beyond the natural width/height by
+         * the firmware-reported crop offset (session->port[OUTPUT].
+         * afbc_crop_left/top, populated from ALLOC_PARAM cropx/cropy in
+         * handle_alloc_param() below). mvx_get_composing() (mvx_v4l2_
+         * vidioc.c) exposes that SAME offset as the origin of VIDIOC_
+         * G_SELECTION/V4L2_SEL_TGT_COMPOSE's visible_rect, with width/
+         * height equal to the natural (unpadded) size -- so unless THIS
+         * function's width/height (the single source VIDIOC_G_FMT/S_FMT/
+         * TRY_FMT all publish, per the PORT_CHANGED fix in mvx_v4l2_
+         * session.c) also account for that offset, a client sees a
+         * visible_rect whose bottom/right edge falls OUTSIDE coded_size by
+         * exactly the crop amount.
+         *
+         * Live-proven on cixmini/192.168.207.66 with a timestamped kernel
+         * trace (MNEMOS mem_1789294723332_1c07f6 follow-up): for this
+         * session port->format=13 (is_afbc=1), afbc_crop_top=4,
+         * afbc_crop_left=0. Without this padding, VIDIOC_G_FMT reported
+         * coded_size 1920x1080 while VIDIOC_G_SELECTION/COMPOSE reported
+         * visible_rect {left=0, top=4, width=1920, height=1080} -- a rect
+         * whose bottom edge (1084) exceeds the coded height (1080) by
+         * exactly afbc_crop_top, failing Chromium's
+         * gfx::Rect(coded_size).Contains(*visible_rect) CHECK() in
+         * V4L2StatefulVideoDecoder::InitializeCAPTUREQueue() and aborting
+         * the entire GPU process (SIGABRT, exit_code=134) -- reproduced
+         * both with a local H.264 clip and, per live desktop evidence the
+         * same session, with real AV1/YouTube playback, so this is
+         * codec-agnostic, not specific to either repro.
+         *
+         * Applied to EVERY output frame format, not just AFBC (an
+         * AFBC-only-gated first cut was tried and found insufficient):
+         * ALLOC_PARAM's cropx/cropy are populated UNCONDITIONALLY in
+         * handle_alloc_param() regardless of the port's format at the
+         * time -- they describe THIS resolution epoch (refreshed on every
+         * PORT_CHANGED, tied 1:1 to session->orig_width/orig_height, read
+         * a few lines above), not a stale/unrelated leftover. Chromium
+         * commonly issues a SECOND VIDIOC_S_FMT for a DIFFERENT (non-AFBC/
+         * linear) pixel format after reading the driver's native AFBC
+         * format via the first G_FMT -- live-proven the same session:
+         * format=13 (is_afbc=1) during PORT_CHANGED, immediately followed
+         * by a VIDIOC_S_FMT for format=20 (is_afbc=0) requesting
+         * width=1920 height=1084 (the SAME padded size just read from the
+         * AFBC format's G_FMT). An AFBC-only-gated version of this fix
+         * left that non-AFBC branch unpadded, silently dropping the
+         * requested 1084 back to 1080; Chromium's own gfx::Rect(
+         * adjusted_size).Contains(gfx::Rect(chosen_size)) check in the
+         * SAME function (v4l2_stateful_video_decoder.cc:820) then rejected
+         * 1080 for shrinking below the 1084 already negotiated for the
+         * SAME port in the SAME call: "The adjusted coded size (1920x1080)
+         * should contain the original coded size(1920x1084)." -- the
+         * original Thread-1 symptom, reached via a different route because
+         * fixing the first CHECK() let the code get further before hitting
+         * this second, previously-unreached one. Applying the SAME crop
+         * padding regardless of the target format's AFBC-ness keeps the
+         * coded_size this port publishes STABLE across a format switch
+         * within one negotiation, which both of Chromium's checks require.
+         * For a port that has never carried AFBC output (crop_left/top
+         * permanently 0 for its whole lifetime), this is an unconditional
+         * no-op, verified by inspecting handle_alloc_param(): cropx/cropy
+         * assignment carries no AFBC-specific gate (only mvx_get_
+         * composing()'s USE of them for G_SELECTION origin is AFBC-gated,
+         * per the pre-existing "cont'd" fix already in this file).
+         *
+         * End-to-end verified after this fix: real H.264 decode of a
+         * 1080p test clip through to EOS, with VIDIOC_G_SELECTION/COMPOSE
+         * reporting {left=0, top=4, width=1920, height=1080} against a
+         * now-consistent coded_size of 1920x1084 for BOTH the AFBC and the
+         * negotiated NV12 CAPTURE format, CAPTURE-queue buffer completions
+         * with monotonically advancing timestamps (33333ns/frame, 30fps)
+         * from first frame through Decode(): EOS and the LAST-marked
+         * buffer -- not merely the absence of the crash.
+         *
+         * Flagged open follow-up: not proven against a session that is
+         * non-AFBC from firmware negotiation onward but where cropx/cropy
+         * is ALSO firmware-reported nonzero for an unrelated reason (e.g.
+         * a codec-level alignment concept distinct from AFBC tiling) -- no
+         * such case was observed in either repro this session (local
+         * H.264 clip or the live AV1/YouTube trace), but it is a real gap
+         * in test coverage, not a proven-safe generalization.
+         *
+         * Scope note: intentionally NOT applied when the
+         * dual_afbc_downscaled special case (below, in the AFBC
+         * size-computation block) unconditionally reassigns *width/*height
+         * to session->orig_width/orig_height >> 1 -- that reassignment
+         * runs after this one and would silently overwrite it. There is no
+         * live evidence that the downscaled path is exercised by either
+         * repro, so this fix deliberately leaves it a no-op there rather
+         * than guessing at untested crop/downscale interaction; flagged as
+         * a genuine open follow-up if that path is ever found to need the
+         * same treatment.
+         */
+        *width += session->port[dir].afbc_crop_left;
+        *height += session->port[dir].afbc_crop_top;
+    }
+
     if( dir == MVX_DIR_OUTPUT
         && !mvx_is_afbc(format)
         && session->crop.crop_en !=0
