@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">NCZ-OS</h1>
-<p align="center"><em>Arm64 Linux for CIX Sky1 — GPU, VPU and NPU that actually work</em></p>
+<p align="center"><em>Debian for Arm64 (CIX Sky1) and AMD64 (Apple T2) — GPU, VPU and NPU that actually work</em></p>
 
 # cix-installer
 
@@ -14,17 +14,38 @@
 **Customized debian-installer ISO builder for the NCZ Linux
 distribution.**
 
-Produces a fully-unattended UEFI-bootable installer ISO that
-partitions the target disk and debootstraps a **Debian Testing
-(Forky)** base on disk, then
-layers a hardware-appropriate kernel + vendor userspace runtimes +
-desktop environment + Claude Code + the (opt-in) NCZ agent stack, and
-brands the system as NCZ.
+Produces a fully-unattended UEFI-bootable installer ISO for **two first-class
+target architectures** that share one build pipeline and one userland:
+
+- **Arm64 — CIX Sky1** (Radxa Orion O6/O6N, Minisforum MS-R1). Native
+  Mali-G720 GLES + Panthor Vulkan, Zhouyi V3 NPU, Linlon VPU — all driven
+  by CIX-licensed DKMS accelerator modules wired on top of the
+  Sky1-mainline kernel.
+- **AMD64 — Apple T2 Mac** (MacBookPro/MacBookAir 2018–2020) and any
+  generic x86-64 PC (no CIX accelerator stack). Standard Intel/AMD/NVIDIA
+  drivers wired at install time from each vendor's real, signed apt
+  repository; T2-specific Apple firmware + audio config from the
+  AdityaGarg8 `t2-ubuntu-repo`.
+
+Both target a **Debian Testing (Forky)** base on disk, layer the same
+hardware-appropriate kernel + vendor userspace runtimes + Singularity
+desktop + Claude Code + the (opt-in) NCZ agent stack, and brand the
+system as NCZ.
 
 > **NCZ-OS 26.7 "Maximilian"** ships the **Singularity** desktop
-> (labwc/wlroots, native Mali GLES) — X11/XFCE is fully removed — on a single
-> kernel, `7.2.0-sky1-ncz`. Validated on Radxa Orion O6N and Minisforum MS-R1;
-> Orange Pi 6 in progress.
+> (labwc/wlroots, native Mali GLES) — X11/XFCE is fully removed.
+>
+> **Current kernels (staged on `argonas:/mnt/datapool/yocto-shared/kernel-staging/`):**
+>
+> | line | Sky1 (Arm64) | T2 / generic PC (AMD64) |
+> |---|---|---|
+> | **Stable** | `7.2.7-sky1-ncz` (r274, 2026-09-22) | `7.2.7-2-t2-trixie` (2026-09-22) — Apple T2 + generic PCs, unified |
+> | **Edge** | `7.3.0-rc4-sky1-ncz` (r273, 2026-09-20) | `7.3.0-rc4-2-t2-trixie` (2026-09-23) — T2 patch set, KVM-gated, not yet hardware-boot-tested |
+>
+> The Sky1 "edge" line is what the image ships. The Sky1 "stable" line
+> is what boot-test gates pass against before a release. The AMD64
+> unified stable (T2 + PCs) is **hardware boot-tested on real T2 Macs**;
+> the AMD64 edge is staged but KVM-gated only.
 >
 > **Latest release:** [2026.08.27-v14](docs/releases/2026.08.27-v14.md) ·
 > [Download](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
@@ -84,31 +105,60 @@ NCZ is **vendor-neutral by design and intent.** Goal: support every
 Arm silicon system shipping in the marketplace and every mainstream
 x86 platform, when sample hardware is obtainable for validation.
 
-- **Shipping target**: Cix Sky1 / CP8180 — **Radxa Orion O6N** and
-  **Minisforum MS-R1**, both metal-validated. This is where the build path is
-  most exercised and where the offline-capable proprietary-userspace layer is
-  wired in. **Orange Pi 6** validation is in progress. The repo name reflects
-  history; the project scope does not.
-- **Arm roadmap**: Radxa Qualcomm-platform boards (Snapdragon + Hexagon NPU),
-  Rockchip RK3588 / RK3576 family, MediaTek Genio, Apple Silicon (kit-only,
-  not OS), and any Arm SoC shipping in volume that we can sample.
-- **x86 roadmap**: parallel build path, both **Intel** (CPU + iGPU +
-  NPU via OpenVINO 2026.x) and **AMD** (Ryzen / XDNA NPU / ROCm) as
-  first-class targets. The build script already takes
-  `--platform=x86_64`; only adapter-level work is gated.
+**Current shipping targets (both are first-class — shared build pipeline,
+shared desktop, shared agent stack):**
+
+- **Arm64 — CIX Sky1 / CP8180** — **Radxa Orion O6N** and **Minisforum
+  MS-R1**, both metal-validated. This is where the CIX proprietary
+  userspace (`libmali`, NOE, VPU firmware) and the four DKMS accelerator
+  modules (`mali_kbase`, `panthor`, `amvx`, `aipu`) are wired in. **Orange
+  Pi 6** validation is in progress. The repo name reflects history; the
+  project scope does not.
+- **AMD64 — Apple T2 Mac** — MacBookPro (15,1 / 15,3 / 16,1 / 16,2 / 16,3 / 16,4)
+  and MacBookAir (8,1 / 8,2 / 9,1) shipped 2018–2020 with the T2
+  coprocessor. Detection is by PCI `106b:1801` — Apple's own T2 bridge
+  device ID, the same identifier `t2linux`'s `linux-t2-patches` keys off
+  of (verified directly in the
+  `9001-ACPI-x86-Apple-T2-systems-need-early-CPU-offlining.patch` source).
+  On a T2 Mac, NCZ-OS wires `apple-bce`, `applesmc`, HID and APFS in-tree
+  (our own `v7.2.6+T2` kernel) and pulls Apple firmware + audio config
+  from AdityaGarg8's real, signed `t2-ubuntu-repo` at first boot.
+- **AMD64 — generic x86-64 PC** — same build, same userland, no CIX
+  stack. The same ISO boots a normal Intel/AMD desktop or server; the
+  vendor-specific accelerator repos (NVIDIA CUDA, AMD ROCm, Intel
+  OpenVINO) wire automatically based on `lspci -nn` PCI-class detection
+  in `post-install/54-gpu-accel.sh`. A machine with no discrete GPU is
+  a silent no-op.
+
+**Architecture policy, both directions:**
+
+- **Arm roadmap**: Radxa Qualcomm-platform boards (Snapdragon + Hexagon
+  NPU), Rockchip RK3588 / RK3576 family, MediaTek Genio, Apple Silicon
+  (kit-only, not OS), and any Arm SoC shipping in volume that we can
+  sample.
+- **x86 roadmap**: keep AMD64 as a real first-class architecture; no
+  arch-guards or fast paths that assume Arm64. The build script's
+  `NCZ_TARGET_ARCH` validator (`build/build-iso-di.sh` line 95) accepts
+  both `arm64` and `amd64`; the AMD64 package manifests
+  (`manifests/installer-base-amd64.pkgs`, `desktop-amd64.pkgs`,
+  `rescue-amd64.pkgs`) are committed alongside the Arm64 originals
+  (audit: [`docs/AMD64-PACKAGE-AUDIT.md`](docs/AMD64-PACKAGE-AUDIT.md)).
 - **Embedding inference**: handled by `mnemos-embedkit`
   (https://github.com/mnemos-os/mnemos-embedkit) — vendor-agnostic
   Python kit that auto-detects the highest-tier accelerator (NPU >
   GPU > CPU) at runtime. Same `Engine.auto()` call works on every
-  silicon path.
+  silicon path. On x86 the NPU tier falls back to OpenVINO (Intel),
+  ROCm (AMD), or CUDA (NVIDIA) depending on what the install hook found.
 - **Agent runtimes**: side-by-side selectable and **fully opt-in — none is
   installed or active by default.** Run `ncz` (or `ncz agent install <name>`)
   to install `zeroclaw`, `openclaw`, `hermes`, or `portainer`, `ncz install
   nemoclaw` for NVIDIA NemoClaw, and `ncz install mnemos` for the MNEMOS memory
   system. Nothing agentic auto-starts at boot or auto-pulls from the network.
 
-The current build path inside `build/build-iso-di.sh` is the Cix Sky1
-implementation; the architecture is the reusable scaffold.
+The `build/build-iso-di.sh` build path validates `NCZ_TARGET_ARCH` in
+{`arm64`, `amd64`} at line 95; the architecture-switching logic is the
+reusable scaffold, and the per-arch payloads (kernel, firmware, accelerator
+hooks, manifests) are committed alongside each other.
 
 ## Hardware support & testing status
 
@@ -121,29 +171,42 @@ implementation; the architecture is the reusable scaffold.
 > design*, but "designed to support" is not the same as "tested on." Here
 > is the honest state of hardware validation.
 
+### Arm64 — CIX Sky1 boards (the original shipping target)
+
 | Board | SoC | Status |
 |---|---|---|
-| **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **Verified working** on `7.2.0-sky1-ncz`. UEFI boot, the installer, GPU (Mali `mali_kbase`), NPU (Zhouyi embeddings), VPU, audio and networking validated on this box. |
+| **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **Verified working** on `7.2.x-sky1-ncz`. UEFI boot, the installer, GPU (Mali `mali_kbase`), NPU (Zhouyi embeddings), VPU, audio and networking validated on this box. |
 | **Radxa Orion O6** | Cix Sky1 | ⚠️ **Not directly tested by us — user-reported working.** Hardware-closer to the MS-R1 than the O6N is; users have confirmed install and boot on their own O6 boards, including the Realtek NIC (RTL8125/8126) working out of the box via the `rtl_nic` firmware shipped in both the installer and the installed system. We have not put our own hands on an O6. |
-| **Radxa Orion O6N** (48 GB) | Cix Sky1 | ✅ **Verified working — our primary dev/debug target**, on `7.2.0-sky1-ncz`. Same Sky1 SoC, O6 board family. The Mali `mali_kbase` GPU driver port and the full Singularity desktop stack were built and validated here. Install, boot, GPU (GLES 3.2), NPU (~95 ms/256-token embed), VPU (H.264/HEVC encode + 8 decode formats), audio and 2.5 GbE all confirmed on the shipping image. |
+| **Radxa Orion O6N** (48 GB) | Cix Sky1 | ✅ **Verified working — our primary dev/debug target**, on `7.2.x-sky1-ncz`. Same Sky1 SoC, O6 board family. The Mali `mali_kbase` GPU driver port and the full Singularity desktop stack were built and validated here. Install, boot, GPU (GLES 3.2), NPU (~95 ms/256-token embed), VPU (H.264/HEVC encode + 8 decode formats), audio and 2.5 GbE all confirmed on the shipping image. |
 | **MetaComputing AI PC** — Arm mainboard for Framework Laptop 13 | Cix Sky1 / **CP8180** | ⏳ **Untested, but the same SoC we ship on.** MetaComputing's CP8180 mainboard drops into the Framework Laptop 13 chassis: 12-core Armv9 (Cortex-A720 + A520, up to 2.6 GHz), 10-core Mali GPU, ~45 TOPS NPU, 16/32 GB RAM, from $549. Same silicon as the MS-R1 and O6N, so the kernel, GPU/VPU/NPU drivers and userspace should carry over; the unknowns are laptop-specific — panel/eDP, battery and thermals, lid/suspend, and the Framework EC. **No hardware in hand — testers welcome.** Note the 28 W TDP against a 55 Wh battery. |
 | **Orange Pi 6** (Cix variant) | Cix Sky1 | ⏳ **Validation in progress — hardware arriving.** Expected within two weeks of 2026-08-18. The radio firmware added in installer v12 (`firmware-brcm80211`, `firmware-mediatek`, `firmware-atheros`, `firmware-iwlwifi`) exists partly to cover whatever WiFi/BT module this board ships. |
-| Other Arm (RK3588/RK3576, MediaTek Genio, Snapdragon) and x86 (Intel, AMD) | — | 🗺️ Roadmap / adapter-level only — not built or tested yet. |
 
-**What "untested" means for you:** parts of the build path are MS-R1-specific
-— e.g. an ACPI SSDT override that works around the MS-R1 *factory BIOS bug*
-(it omits `_HID="CIXH4010"` so the NPU cores never enumerate), firmware blob
-paths, and board/device-tree quirks. On any other board it may not boot, the
-NPU/GPU/VPU may not initialize, or the installer may need board-specific work.
-**Testers and donated hardware are the fastest way to change a ❌ to a ✅.**
+### AMD64 — Apple T2 Mac and generic x86-64 PC
 
-### Driver support matrix — MS-R1 / O6 / O6N
+| Hardware | Status |
+|---|---|
+| **Apple T2 MacBook** (MacBookPro 15,1 / 15,3 / 16,1 / 16,2 / 16,3 / 16,4 / MacBookAir 8,1 / 8,2 / 9,1 — 2018–2020) | ✅ **Verified working on real T2 hardware** (2 machines) on `7.2.7-2-t2-trixie`. Installer boot, d-i preseed, the NCZ post-install hooks, `apple-bce` audio + Touch Bar + keyboard + trackpad, Wi-Fi/BT via `apple-firmware-script` (Apple CDN at first boot), `apple-t2-audio-config`, and standard EFI dual-boot all confirmed. Real-hardware validation against MEDUSA (T2 MacBook, repurposed as T2 boot-validation target) plus a second T2 Mac. **Hardware detection is by PCI `106b:1801`** — Apple's T2 bridge device ID, the same identifier the T2 kernel patches themselves key off of; verified directly in `t2linux`'s `9001-ACPI-x86-Apple-T2-systems-need-early-CPU-offlining.patch`. |
+| **Apple T2 Mac** — T2 + `7.3.0-rc4-2-t2-trixie` (edge) | ⚠️ **Staged but KVM-gated, not yet hardware-boot-tested.** The edge T2 build carries `t2linux`'s 21-patch series against `7.3.0-rc4` plus the proven-stable patches that gate on DMI / PCI ID; it has cleared `kvm-install-gate.sh` but no T2 Mac has booted it yet. Plan: a real-T2 boot test on MEDUSA in the same session the edge becomes the recommended line. |
+| **Generic x86-64 PC** (Intel iGPU + dGPU / NVIDIA / AMD dGPU) | ✅ **Same `7.2.7-2-t2-trixie` kernel, unified-stable with no T2-specific gating.** Any i5/i7/i9 or Ryzen machine without a T2 coprocessor boots identically and is treated as a generic PC by the post-install hooks (T2 firmware hook exits no-op when `lspci -nn` finds no `106b:1801`). |
+| **Generic x86-64** — accelerator wiring | ✅ NVIDIA → real NVIDIA CUDA apt repo (`developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/`, `cuda-drivers` metapackage). AMD → real AMD ROCm apt repo (`repo.radeon.com/rocm/apt/7.2.4`, ROCm 7.2.4 OpenCL + `rocm-smi`). Intel → real Intel OpenVINO apt repo (`apt.repos.intel.com/openvino/2026`, `openvino` + `intel-opencl-icd` + `intel-media-va-driver`). Each is wired **only when its PCI display class (`0300` / `0302` / `0380`) is present** by `post-install/54-gpu-accel.sh`. Verified live on real machines. |
 
-> **Which kernel is this table about?** NCZ-OS 26.7 ships **one** kernel:
-> `7.2.0-sky1-ncz` (`linux-cix-sky1-ncz`, corresponding source in
-> [`kernel-source/`](kernel-source/SOURCE.md)). The earlier
-> `7.0.12-cix-sky1-next` channel has been **removed from the image** — it is
-> not a fallback and not a rescue kernel.
+**What "untested" means for you:** parts of the build path are
+**per-board-specific** — e.g. an ACPI SSDT override that works around the
+MS-R1 *factory BIOS bug* (it omits `_HID="CIXH4010"` so the NPU cores
+never enumerate, Sky1-only), T2-specific `apple-bce`/`applesmc`/`bcm5974`
+patch series (AMD64-only, gated on `PCI 106b:1801` and DMI), firmware
+blob paths, and board/device-tree quirks. On any other board it may not
+boot, the NPU/GPU/VPU may not initialize, or the installer may need
+board-specific work. **Testers and donated hardware are the fastest way
+to change a ❌ to a ✅.**
+
+### Driver support matrix — MS-R1 / O6 / O6N (Sky1 / ARM64)
+
+> **Which kernel is this table about?** NCZ-OS 26.7 ships **one** Sky1
+> kernel line: `linux-cix-sky1-ncz` (the version staged at image-build
+> time; the symlink `assets/kernel/edge` is the canonical pointer). The
+> earlier `7.0.12-cix-sky1-next` channel has been **removed from the
+> image** — it is not a fallback and not a rescue kernel.
 >
 > **Both GPU drivers ship.** `mali_kbase` (CIX vendor DDK, `cix-gpu-kmd`) is
 > the default and provides GLES 3.2 and OpenCL via `libmali`. `panthor`
@@ -253,12 +316,34 @@ The corresponding source for every one of these is published — see
 
 ## Quick start (build the ISO)
 
+The build script (`build/build-iso-di.sh`) accepts both `NCZ_TARGET_ARCH=arm64`
+and `NCZ_TARGET_ARCH=amd64` at line 95; the top-level `Makefile` currently
+exposes only the Arm64 build as `make iso` (the AMD64 entry point is
+[documented below](#building-an-amd64-t2--generic-x86-64-iso) — it is the
+same script invoked with a different `NCZ_TARGET_ARCH`, AMD64 package
+manifests, and the AMD64 substrate netinst ISO).
+
+### Arm64 — CIX Sky1 / cixmini
+
 ```bash
 make
 # → outputs: build/nclawzero-installer-cixmini-${VERSION}.iso
 ```
 
-### Build-host prerequisites
+This produces the ISO for the Sky1 board family (Radxa Orion O6/O6N,
+Minisforum MS-R1, MetaComputing CP8180 Framework mainboard, Orange Pi 6).
+The substrate is `debian-testing-arm64-netinst.iso` (Debian Forky arm64
+netinst); the build script downloads, validates against the pinned
+`SUBSTRATE_SHA`, then layers the `7.2.x-sky1-ncz` kernel and the four
+CIX DKMS accelerator modules (`mali_kbase`, `panthor`, `amvx`, `aipu`)
+on top.
+
+The default `make iso` target runs the **full** build mode, including
+`build/kvm-install-gate.sh` (a KVM-based end-to-end install test) so
+that a `make iso` that exits clean is "safe to ship to hardware." For
+faster dev iteration on an already-built tree, override `MODE=thin`.
+
+#### Build-host prerequisites (Arm64)
 
 The `make iso` (and `make download`) targets need a Linux host with at least:
 
@@ -284,7 +369,73 @@ The .asl source is committed at `assets/npu/ssdt-npucre.asl`; the generated
 `.cpio` is regenerated from source by `build/build-npu-ssdt.sh` (called from
 `build/stage-canonical-assets.sh`, which runs automatically in `--mode full`).
 
-### Validating the NPU SSDT wiring
+### Building an AMD64 (T2 / generic x86-64) ISO
+
+The top-level `Makefile` does **not** (yet) ship an `make iso-amd64`
+target; the AMD64 entry point is the same `build/build-iso-di.sh` script
+invoked explicitly with the right environment. Real, working recipe (the
+one that produced the boot-tested `7.2.7-2-t2-trixie` stable line):
+
+```bash
+# 1. Download the Debian AMD64 (trixie) netinst substrate — manually, since
+#    the Makefile UPSTREAM_ISO points at the Arm64 one. The trixie codename
+#    is the right substrate for the T2 + generic-PC line because t2linux's
+#    whole patch set targets Debian trixie class kernels.
+curl -fLO https://cdimage.debian.org/cdimage/weekly-builds/amd64/iso-cd/debian-testing-amd64-netinst.iso
+
+# 2. Build the AMD64 ISO. The script accepts --bookworm-iso (the arg name
+#    is historical, not literal — trixie and forky are both supported
+#    substrates per build-iso-di.sh's trixie/forky detection at line 725)
+#    and validates NCZ_TARGET_ARCH ∈ {arm64, amd64} at line 95.
+sudo NCZ_TARGET_ARCH=amd64 \
+     bash build/build-iso-di.sh \
+       --bookworm-iso downloads/debian-testing-amd64-netinst.iso \
+       --root . \
+       --version $(date -u +%Y.%m.%d) \
+       --output build/nclawzero-installer-cixmini-${VERSION}-amd64.iso \
+       --mode full \
+       --variant desktop
+
+# 4. Run the install gate (KVM) before shipping to real hardware.
+sudo bash build/kvm-install-gate.sh \
+     build/nclawzero-installer-cixmini-${VERSION}-amd64.iso
+```
+
+**What changes for AMD64:**
+
+- `NCZ_TARGET_ARCH=amd64` — validated by the build script, routes through
+  the AMD64 package manifests (`manifests/installer-base-amd64.pkgs`,
+  `desktop-amd64.pkgs`, `rescue-amd64.pkgs`) — see
+  [`docs/AMD64-PACKAGE-AUDIT.md`](docs/AMD64-PACKAGE-AUDIT.md) for the
+  Sky1 → AMD64 manifest diff and rationale.
+- **The kernel is downloaded from the staged `kernel-staging/` of the
+  build host**, not committed under `assets/kernel/edge` (the
+  Arm64 symlink) — for AMD64 the kernel is the
+  `7.2.7-2-t2-trixie` (stable) or `7.3.0-rc4-2-t2-trixie` (edge)
+  package on the build host, downloaded during the build via the
+  real apt source. Both kernels are staged on
+  `argonas:/mnt/datapool/yocto-shared/kernel-staging/`.
+- The four CIX DKMS accelerator modules are **not** installed
+  (`post-install/82-mali-gpu.sh`, `83-panthor-gpu.sh`, `81-vpu.sh`,
+  `80-npu.sh` are no-ops on AMD64 — they key off `dpkg --print-architecture`
+  the same way `54-gpu-accel.sh` and `55-t2-firmware.sh` do).
+- `post-install/54-gpu-accel.sh` wires the matching GPU vendor's
+  real apt repo (NVIDIA / AMD ROCm / Intel OpenVINO) from `lspci -nn`
+  PCI-class detection at first boot — additive per vendor found.
+- `post-install/55-t2-firmware.sh` runs only on T2 hardware
+  (PCI `106b:1801`); no-op on generic x86-64 PCs.
+- `post-install/21-flatpak-arch-filter.sh` filters the Flathub remote
+  catalogue to the running architecture (`aarch64` on Arm64, `x86_64`
+  on AMD64) so a Flathub app marked only for the wrong arch cannot
+  silently install with mismatched dependencies.
+
+**Current AMD64 build state:** stable `7.2.7-2-t2-trixie` is
+**hardware-boot-tested on real T2 Macs**; edge
+`7.3.0-rc4-2-t2-trixie` is staged and KVM-gate-PASSES but not yet
+hardware-boot-tested. Use stable for production; treat edge as
+the next-iteration preview.
+
+### Validating the NPU SSDT wiring (Arm64 / Sky1 specific)
 
 A fast standalone check that the assets/npu/ tree is consistent (the .asl
 source compiles, the .cpio is present, the CPIO is in uncompressed newc
@@ -313,7 +464,8 @@ The gate exits 0 on PASS and 1 on FAIL with an explicit remediation per
 failure mode (missing .asl, missing .cpio, bad magic, missing entry,
 unrecognised inner AML signature, or missing iasl). It is the same gate
 `build-iso-di.sh` invokes in its full-mode preflight, so a PASS here
-guarantees a clean `make iso` run.
+guarantees a clean `make iso` run. (AMD64 builds skip this gate — there
+is no MS-R1 NPU on x86 hardware.)
 
 ## Quick start (install on hardware)
 
@@ -351,8 +503,10 @@ guarantees a clean `make iso` run.
    > target with `lsblk` immediately before running it. Naming the wrong device
    > destroys that disk.
 
-2. Plug the USB into the target (cixmini / Orion O6/O6N), power on, and hit the
-   F-key for the UEFI boot menu to pick the USB device.
+2. Plug the USB into the target (Sky1 board — Radxa Orion O6/O6N, MS-R1 —
+   **or any T2 Mac / generic x86-64 PC if you built the AMD64 ISO**), power on,
+   and hit the F-key for the UEFI boot menu to pick the USB device. On a T2
+   Mac, hold Option (⌥) at boot instead.
 
    Realtek NICs, including the Orion O6's RTL8125/8126, work out of the box;
    the `rtl_nic` firmware ships in both the installer and the installed system.
@@ -397,9 +551,12 @@ The ISO also ships:
   The same package set is **also** mirrored into the Buildkite `ncz-os/ncz`
   apt repo (31 packages, ~81 MB) so it can be re-pulled post-install without
   a reinstall — see [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources).
-- The kernel (`7.2.0-sky1-ncz`) with its firmware. Earlier releases also
-  carried an older `7.0.12-cix-sky1-next` channel on a dedicated rescue
-  partition; that channel has since been **removed from the image**.
+- The kernel (`7.2.x-sky1-ncz`, the version staged under `assets/kernel/edge`
+  at build time) with its firmware. Earlier releases also carried an older
+  `7.0.12-cix-sky1-next` channel on a dedicated rescue partition; that
+  channel has since been **removed from the image**. For AMD64 / T2 the
+  kernel is `7.2.7-2-t2-trixie` (stable) or `7.3.0-rc4-2-t2-trixie` (edge),
+  pulled from the build host's `kernel-staging/` at build.
 - Quadlet definitions for zeroclaw plus optional OpenClaw, Hermes, and
   NemoClaw templates (staged only — none active by default)
 - Native KMS boot splash (`singularity-boot-splash`, custom NCZ logo/loading
@@ -417,6 +574,16 @@ via `ncz` after install.
   <img src="assets/branding/wallpaper/ncz-wallpaper-05-magnetar-jets-2k.jpg" alt="" width="820">
 </p>
 
+
+> **Scope: Arm64 / CIX Sky1.** The CIX Zhouyi V3 NPU stack below is
+> Sky1-only (no NPU on T2 Macs, no NPU on the generic x86-64 path).
+> On AMD64 the equivalent on-device accelerator tier is whatever
+> `post-install/54-gpu-accel.sh` detected — Intel OpenVINO (CPU + iGPU +
+> NPU on Meteor Lake and newer), AMD ROCm (XDNA NPU + dGPU), or NVIDIA
+> CUDA — and `embedkit.Engine.auto()` falls back to those adapters in the
+> same priority order (NPU > GPU > CPU) it does on Sky1. The
+> `docs/AI-ML-STACK.md` reference covers the full kit; this section
+> covers the Sky1 wiring that ships with the image.
 
 The ISO ships a working **NPU embedding stack** so a freshly-installed
 appliance does semantic memory at NPU latency, offline, with no setup. This is
@@ -504,7 +671,8 @@ library is for, how to route a workload across the four compute engines
 | Path | Source | Notes |
 |---|---|---|
 | `assets/cix-debs/` | Staged CIX proprietary `.deb`s (gitignored) | Also mirrored into Buildkite `ncz-os/ncz` (31 packages, see OTA channel section) |
-| `assets/kernel/{legacy,edge}/` | Yocto build of `meta-cix:linux-cix-sky1-ncz` (7.2, `edge/`) channels (gitignored) | `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER` per kernel; also has a `modules-overlay/$KVER/` subdir for validated fixup `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`, `82-mali-gpu.sh`) — the NCZRESCUE partition boots this same legacy kernel, see `build/build-rescue-rootfs.sh` |
+| `assets/kernel/{edge}/` | Yocto build of `meta-cix:linux-cix-sky1-ncz` (the `edge` symlink points at the staged kernel dir; older kernels live as dated sibling dirs e.g. `r264-7.2.4-sky1-ncz-20260907/`) — gitignored | `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER` per kernel; also has a `modules-overlay/$KVER/` subdir for validated fixup `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`, `82-mali-gpu.sh`) — the NCZRESCUE partition boots the same kernel, see `build/build-rescue-rootfs.sh` |
+| `kernel-staging/` (build-host side) | `argonas:/mnt/datapool/yocto-shared/kernel-staging/` | AMD64 kernel `.deb` staging — `amd64-stable-7.2.7-2-t2-trixie-20260922/` and `amd64-edge-7.3.0-rc4-2-t2-trixie-20260923/` are the current T2 line, downloaded at AMD64 ISO build time |
 | `assets/agent-stack/*` | This repo | systemd quadlets for zeroclaw/openclaw/hermes/portainer/mnemos/nemoclaw |
 | `assets/branding/*` | This repo | os-release, motd, wallpapers, rEFInd banner/icons |
 | `preseed/preseed.cfg`, `preseed/late.sh` | This repo | d-i unattended preseed + late_command (pre-chroot, install-time-only) |
@@ -671,6 +839,9 @@ a current index.
   (`build/build-kernel-debs.sh`) → **Buildkite Packages** signed Debian registry
   `ncz-os/ncz`, wired by `post-install/24-apt-sources.sh`:
   `deb [signed-by=…] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main`.
+  For AMD64 / T2 installs the T2 kernel is sourced from the same Buildkite
+  registry under a different binary package name (`linux-image-7.2.7-2-t2-trixie`),
+  so a single `ncz-update` on any architecture pulls from the same source.
   Buildkite Packages serves over a CloudFront-backed CDN, so `apt update`/
   `apt upgrade` against this source is fast and doesn't depend on any single
   origin server staying up.
@@ -701,6 +872,13 @@ full reinstall.
 pulling anything.
 
 ## Upstream contributions
+
+> **Scope: Arm64 / CIX Sky1.** Everything in this section was produced on
+> Sky1 silicon (Mali-G720, Linlon V5276, the CIX VA-API driver stack) and
+> does not apply to the AMD64 / T2 or generic-x86 paths — those go
+> through `post-install/54-gpu-accel.sh` (vendor apt repos) and the
+> standard Mesa / FFmpeg / Chromium / Firefox stack without CIX-specific
+> patches.
 
 Work that started here and went upstream, or is staged to. None of it is
 NCZ-specific: the defects are in shared code, so the fixes belong with
@@ -867,8 +1045,9 @@ posture and how to harden it.
 
 - [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
 - [`gitlab.com/ncz-os/zoder`](https://gitlab.com/ncz-os/zoder) — the coding and adversarial-review agent used to build this distribution. Routes work across local and hosted models; every non-trivial change here goes through its review loop before it lands.
-- [`gitlab.com/ncz-os/mnemos`](https://gitlab.com/ncz-os/mnemos) — the memory server that `ncz install mnemos` deploys. REST + MCP + an OpenAI-compatible gateway on `:5002`, SQLite-backed, with NPU-accelerated embeddings on this hardware.
-- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the kernel recipe (`linux-cix-sky1-ncz_7.2.bb`) and the Cix userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer and mirrored in-repo under [`kernel-source/`](kernel-source/SOURCE.md), so no separate kernel-source repo is needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
+- [`gitlab.com/ncz-os/mnemos`](https://gitlab.com/ncz-os/mnemos) — the memory server that `ncz install mnemos` deploys. REST + MCP + an OpenAI-compatible gateway on `:5002`, SQLite-backed, with NPU-accelerated embeddings on Sky1 and OpenVINO/ROCm/CUDA-accelerated embeddings on AMD64 depending on what the install detected.
+- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the Sky1 kernel recipe (`linux-cix-sky1-ncz_7.2.bb`) and the Cix userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer and mirrored in-repo under [`kernel-source/`](kernel-source/SOURCE.md), so no separate kernel-source repo is needed to reproduce a build. See [`docs/KERNEL-BUILD-YOCTO.md`](docs/KERNEL-BUILD-YOCTO.md).
+- **T2 kernel source** — the T2 patches are an in-tree carry of [`t2linux`](https://github.com/AdityaGarg8/t2linux)'s `linux-t2-patches` series (apple-bce, applesmc, HID, APFS, bcm5974) against the `linux-stable` 7.2 and 7.3-rc4 bases. T2 firmware wiring lives upstream in [`AdityaGarg8/t2-ubuntu-repo`](https://adityagarg8.github.io/t2-ubuntu-repo/) (the apt source `55-t2-firmware.sh` wires at first boot). NCZ-OS does not vendor a fork of either; we consume the upstream series and ship the staged Debian-built `.deb`s.
 
 
 ## Releases
@@ -965,6 +1144,15 @@ are our work rather than a debt we owe.
   26.7 is built on Forky.
 - **Mesa, wlroots and labwc** — the open graphics and compositor stack the
   Panthor path depends on.
+- **The t2linux community** — for maintaining the `linux-t2-patches` series
+  that makes booting a T2 Mac on mainline Linux possible at all.
+  AdityaGarg8's `t2-ubuntu-repo` (real WiFi/BT firmware via `apple-firmware-script`,
+  `apple-t2-audio-config`) is what makes the AMD64/T2 NCZ-OS install reach a
+  usable desktop instead of a console. The two real T2 MacBooks we boot-tested
+  on are thanks to that work, not ours.
+- **Apple's own Asahi Linux alumni** — `get-apple-firmware`'s macOS-CDN
+  firmware fetcher is the Asahi-derived tooling the T2 firmware hook calls;
+  without it, the T2 path has no WiFi/BT firmware at all.
 
 ### And Rachel
 
