@@ -157,7 +157,8 @@ flatpak
 gnome-session-canberra
 xdg-desktop-portal-gtk
 epiphany-browser
-feh
+# feh is X11-only and post-install/59-desktop-curate.sh deliberately purges it
+# from this Wayland-only image. Keep the manifest aligned with shipped state.
 vulkan-validationlayers
 glslc
 icewm
@@ -217,6 +218,13 @@ v4l-utils
 # generic AMD64 laptops and desktops too, same package names in Debian).
 # ============================================================================
 firmware-linux-free
+# 2026-09-20: firmware-linux-free above is the FREE-licensed subset only --
+# firmware-linux (no suffix) is the broader non-free-inclusive metapackage
+# covering additional real hardware Debian ships firmware for that has no
+# individually-named package here (older/misc chipsets). Real gap found
+# during a comprehensive out-of-box hardware coverage pass, distinct from
+# the b43/AX201/RTL8168h chip-specific gaps found the same night.
+firmware-linux
 firmware-realtek
 firmware-misc-nonfree
 firmware-mediatek
@@ -224,6 +232,38 @@ firmware-brcm80211
 firmware-atheros
 firmware-iwlwifi
 firmware-ath9k-htc
+# 2026-09-20: Broadcom wired-NIC firmware (BCM577xx/578xx family, common on
+# business/enterprise laptops and servers) -- firmware-brcm80211 above only
+# covers Broadcom WiFi, not this separate wired-ethernet firmware family.
+# Same class of gap as the b43/AX201/RTL8168h findings the same night.
+firmware-bnx2
+firmware-bnx2x
+# REMOVED 2026-09-22: firmware-b43-installer / firmware-b43legacy-installer
+# (added 2026-09-18, see below for the original reasoning -- still valid
+# as a hardware-coverage argument, but the package can't actually build
+# through this pipeline). Its postinst needs to fetch the firmware from
+# Broadcom's site at package-configure time, which the mkosi sandboxed
+# apt install has no route to (real build failure, confirmed on ACHILLES
+# 2026-09-22: `dpkg` exit 1, "Errors were encountered while processing:
+# firmware-b43-installer / firmware-b43legacy-installer"). These are
+# pre-~2012 Intel Mac WiFi chips -- not an NCZ-OS target platform (Sky1,
+# T2 Macs via brcmfmac, or modern AMD/nvidia amd64) -- so dropping rather
+# than solving the sandboxed-fetch problem for hardware this build
+# doesn't actually ship to.
+#
+# Original 2026-09-18 note, for context: "older (pre-~2012) Intel Macs use
+# b43/b43legacy-class Broadcom WiFi, distinct from the brcmfmac-class chips
+# firmware-brcm80211 already covers (2012+ Macs, already confirmed
+# working). b43 firmware isn't Debian-redistributable -- same caveat class
+# as the T2 WiFi firmware fetch. Real gap, never previously evaluated (not
+# a deliberate DROPPED-section exclusion) -- confirmed via kernel .config
+# audit (CONFIG_B43/CONFIG_B43LEGACY both present) that the driver side
+# was already covered, only the firmware package was missing."
+# 2026-09-17: confirmed present on the real, official Debian 13.7.0 amd64
+# DVD-1 "with firmware" pool/non-free-firmware -- AMD iGPU firmware, real
+# gap (many laptops pair a discrete GPU with an AMD APU's integrated one,
+# e.g. Ryzen-based machines like the one this gap was found on).
+firmware-amd-graphics
 
 # --- x86-specific microcode (arm64 has no equivalent; rescue.pkgs' arm64
 #     header explicitly excluded these as "not applicable to a headless

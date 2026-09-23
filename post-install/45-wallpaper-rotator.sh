@@ -22,17 +22,21 @@ esac
 # COLLECTIONS: art paks, time-of-day sets and providers.
 #
 # A collection is a .collection file (INI-shaped, like a .desktop entry) under
-# /usr/share/ncz-wallpapers/collections/. A pak such as
-# ncz-wallpapers-brandon-perlow ships its images under
-# /usr/share/backgrounds/ncz/<id>/ plus one .collection file, and appears in the
-# rotator with no edit to any script -- which is the whole point: art is data,
-# not code.
+# /opt/singularity/share/singularity/wallpaper-collections/ -- the same
+# directory WallpaperCollections.default_search_roots() (libsingularity)
+# scans for the Settings UI's own Wallpaper Source picker, so a collection
+# dropped here is visible to both that picker and this rotator instead of
+# two divergent copies. A pak such as ncz-wallpapers-brandon-perlow ships
+# its images under /usr/share/backgrounds/ncz/<id>/ plus one .collection
+# file, and appears in the rotator with no edit to any script -- which is
+# the whole point: art is data, not code.
 #
 # Types:
 #   static     one directory, pick at random
 #   timeofday  named sub-directories keyed by a start time (dawn/day/dusk/night)
 #   provider   fetched, currently `bing` (image of the day)
 # ---------------------------------------------------------------------------
+install -d /opt/singularity/share/singularity/wallpaper-collections
 install -d /usr/share/ncz-wallpapers/collections
 install -d /var/cache/ncz-wallpapers/bing
 # The rotator runs as the logged-in user, so the Bing cache must be writable by
@@ -41,7 +45,19 @@ install -d /var/cache/ncz-wallpapers/bing
 chmod 1777 /var/cache/ncz-wallpapers/bing
 
 OCS_ASSETS=/usr/local/lib/cix-installer/assets/wallpaper
-for helper in ncz-wallpaper-pack-inventory ncz-wallpaper-pack-install; do
+# 2026-09-16 real fix: renamed from ncz-wallpaper-pack-{install,inventory} to
+# match singularity-shell's ArtistPackManager.vala, which expects
+# /usr/local/bin/singularity-artist-pack-{install,inventory} -- the generic,
+# distro-neutral naming its own contribution guidelines require (no
+# NCZ-specific leakage into upstream code). This side had drifted out of
+# sync with that rename: the helpers, and the polkit policy's internal
+# exec.path, were still staged under the old ncz-wallpaper-pack-* names,
+# so ArtistPackManager.is_available() always returned false and Artist
+# Pack install silently could never work regardless of which desktop
+# build was running -- confirmed live on O6N (2026-09-16): the apt
+# packages themselves installed fine by hand, only the UI's own trigger
+# path was broken.
+for helper in singularity-artist-pack-inventory singularity-artist-pack-install; do
     if [ -x "$OCS_ASSETS/$helper" ]; then
         install -m 0755 "$OCS_ASSETS/$helper" "/usr/local/bin/$helper"
         echo "[45]   installed Artist Pack backend: $helper"
@@ -79,9 +95,14 @@ install -m 0755 /dev/stdin /usr/local/bin/ncz-wallpaper-collections <<'COLLECTIO
 # entry so it is familiar and parseable with the tools already here). They live
 # in, in ascending priority:
 #
-#     /usr/share/ncz-wallpapers/collections/     shipped + packaged art paks
-#     /etc/ncz-wallpapers/collections/           site overrides
-#     ~/.local/share/ncz-wallpapers/collections/ per-user
+#     /opt/singularity/share/singularity/wallpaper-collections/  shipped + packaged art paks
+#     /usr/share/singularity/wallpaper-collections/               site overrides
+#     ~/.local/share/singularity/wallpaper-collections/           per-user
+#
+# Same directory WallpaperCollections.default_search_roots() (libsingularity)
+# scans for the Settings UI's own Wallpaper Source picker -- one canonical
+# location, not two divergent copies. The old ncz-wallpapers/collections/
+# paths are still read (lowest priority) for any not-yet-repackaged pack.
 #
 # A pak (e.g. ncz-wallpapers-brandon-perlow) drops its images under
 # /usr/share/backgrounds/ncz/<id>/ and one .collection file. Nothing else is
@@ -107,8 +128,15 @@ install -m 0755 /dev/stdin /usr/local/bin/ncz-wallpaper-collections <<'COLLECTIO
 #   ncz-wallpaper-collections path <id>     -> the .collection file
 set -u
 
-SYS_DIRS="/usr/share/ncz-wallpapers/collections /etc/ncz-wallpapers/collections"
-USER_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ncz-wallpapers/collections"
+# Canonical location is Singularity's own collection search path
+# (WallpaperCollections.default_search_roots() in libsingularity), so a
+# collection dropped here is visible both to the Settings UI's Wallpaper
+# Source picker and to this rotator -- one location, not two divergent
+# copies. The old ncz-wallpapers/ paths stay as a read-only fallback for
+# any not-yet-repackaged pack.
+SYS_DIRS="/opt/singularity/share/singularity/wallpaper-collections /usr/share/singularity/wallpaper-collections /etc/singularity/wallpaper-collections /usr/share/ncz-wallpapers/collections /etc/ncz-wallpapers/collections"
+USER_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/singularity/wallpaper-collections"
+USER_DIR_LEGACY="${XDG_DATA_HOME:-$HOME/.local/share}/ncz-wallpapers/collections"
 
 _ini_get() {  # <file> <section> <key>
     awk -v sect="$2" -v key="$3" '
@@ -142,7 +170,7 @@ _files_in() {  # <dir> -> image paths, one per line
 # Resolve a collection id to its .collection file (user dir wins).
 collection_path() {
     local id="$1" d
-    for d in "$USER_DIR" $SYS_DIRS; do
+    for d in "$USER_DIR" "$USER_DIR_LEGACY" $SYS_DIRS; do
         [ -f "$d/$id.collection" ] && { printf '%s\n' "$d/$id.collection"; return 0; }
     done
     return 1
@@ -173,7 +201,7 @@ _timeofday_dir() {  # <file> <base>
 
 cmd_list() {
     local d f id name type dir cnt
-    { for d in $SYS_DIRS "$USER_DIR"; do
+    { for d in $SYS_DIRS "$USER_DIR" "$USER_DIR_LEGACY"; do
         [ -d "$d" ] || continue
         for f in "$d"/*.collection; do
             [ -f "$f" ] || continue
@@ -931,7 +959,7 @@ raise SystemExit(commands[cmd](args))
 PY
 BING_EOF
 
-cat > /usr/share/ncz-wallpapers/collections/bing.collection <<'EOF'
+cat > /opt/singularity/share/singularity/wallpaper-collections/bing.collection <<'EOF'
 [Collection]
 Id=bing
 Name=Bing (Combined, All Markets)
@@ -947,7 +975,7 @@ EOF
 # build) -- not a separate NCZ .deb, since it is already installed the
 # moment ncz-singularity-desktop is. Just describe it as its own source,
 # distinct from NCZ's own cosmic art, in the Wallpaper Source selector.
-cat > /usr/share/ncz-wallpapers/collections/singularity-default.collection <<'EOF'
+cat > /opt/singularity/share/singularity/wallpaper-collections/singularity-default.collection <<'EOF'
 [Collection]
 Id=singularity-default
 Name=Singularity Default
@@ -1016,6 +1044,10 @@ OnCalendar=daily
 # rude; spread the requests out.
 RandomizedDelaySec=30m
 Persistent=true
+# Persistent= only replays a MISSED run; a freshly enabled timer has no prior
+# run to miss, so a fresh install would otherwise show an empty Bing cache
+# until the next daily slot (confirmed live: up to 24h with zero images).
+OnBootSec=2min
 
 [Install]
 WantedBy=timers.target

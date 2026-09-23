@@ -1,26 +1,41 @@
 #!/bin/bash
-# 53-chrome.sh — post-install wiring for real, official Google Chrome
-# (arm64), the SECOND browser choice alongside Vivaldi (default,
-# 52-vivaldi.sh). The package itself installs earlier, as part of
-# 20-desktop.sh's normal apt-get install of the full desktop seed — Chrome
-# is folded into the offline desktop-mirror pool by build-desktop-mirror.sh,
-# pinned to an exact version + SHA256-verified against Google's own
-# published Packages index. This hook only does what apt's own postinst +
-# the mirror step don't: keep the image CDROM-only, and register the
-# alternative.
+# 53-chrome.sh — installs + wires real, official Google Chrome, the SECOND
+# browser choice alongside Vivaldi (default, 52-vivaldi.sh).
+#
+# 2026-09-16 FIX: this hook used to assume google-chrome-stable was already
+# installed and only did post-install wiring (repo/keyring, alternatives,
+# launcher) -- it never actually installed the package. That assumption was
+# wrong: build-role-delta-mkosi.sh deliberately EXCLUDES google-chrome-stable
+# from mkosi's own Packages= pass (grep -vxF 'google-chrome-stable', by
+# design, so Chrome comes from a later, separate step instead of mkosi's
+# overlay/dedup machinery) -- and unlike Vivaldi (which IS in that Packages=
+# pass and so appears for free), nothing ever ran the follow-up
+# `apt-get install google-chrome-stable` this hook was supposed to be that
+# follow-up step. Confirmed empirically 2026-09-16: dpkg had zero record of
+# the package in a real built desktop rootfs, and an isolated
+# `apt-get install --dry-run google-chrome-stable` against the same offline
+# mirror resolves cleanly -- so the .deb genuinely is staged (real, pinned
+# copy fetched by build-vendor-mirror.sh into forky-vendor-mirror), it was
+# just never asked for. Install it explicitly here, against the same
+# offline-mirror-pinned apt config the chroot already has (apt_offline($MG)
+# runs before the brand-hook loop in build_layer()) -- identical mechanism
+# to 20-desktop.sh's mpv/fonts/systemd-coredump installs.
+#
+# See build/build-role-delta-mkosi.sh for the Packages= exclusion and
+# build/build-vendor-mirror.sh for the pinned-version + SHA256-verified
+# mirroring of google-chrome-stable, and post-install/84-vpu-vaapi.sh for the
+# fix that makes its hardware video decode (VA-API — H264/HEVC/VP9/AV1)
+# actually work.
 #
 # Real Google Chrome for arm64 Linux launched publicly Q2 2026 and became
 # available via Google's own signed apt repo (dl.google.com/linux/chrome/deb)
-# by 2026-07. See build/build-desktop-mirror.sh for the mirroring + pinning
-# + checksum-verification of google-chrome-stable, and
-# post-install/84-vpu-vaapi.sh for the fix that makes its hardware video
-# decode (VA-API — H264/HEVC/VP9/AV1) actually work.
+# by 2026-07.
 #
 # RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop / run-all.sh).
 set +e
 APPDIR=/usr/share/applications
 
-echo "[53] Google Chrome post-install wiring (second browser, alongside Vivaldi)"
+echo "[53] Google Chrome install + post-install wiring (second browser, alongside Vivaldi)"
 
 VARIANT=desktop
 [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ] && \
@@ -31,6 +46,13 @@ case "$VARIANT" in
         exit 0
         ;;
 esac
+
+if [ ! -x /usr/bin/google-chrome-stable ]; then
+    echo "[53] google-chrome-stable not yet installed — installing from the offline mirror"
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y google-chrome-stable 2>&1 | tail -10; then
+        echo "[53] WARN: apt-get install google-chrome-stable failed — see closure/mirror output above" >&2
+    fi
+fi
 
 if [ ! -x /usr/bin/google-chrome-stable ]; then
     echo "[53] FATAL: google-chrome-stable is absent from a desktop/browser-enabled install" >&2

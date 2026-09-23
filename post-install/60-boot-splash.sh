@@ -31,7 +31,20 @@ case "$VARIANT" in
         ;;
 esac
 
-BSP=/opt/singularity/bin/singularity-boot-splash
+# The payload's own binary name changed from singularity-boot-splash to
+# singularity-splash at some point (confirmed 2026-09-14 against a real
+# freshly-built package) -- but build-singularity.sh's own install-time
+# assertion still checks for the OLD name, so older payload generations may
+# still ship it under that name. Check both, preferring the current one,
+# so this hook works across package generations instead of hard-failing on
+# whichever name a given build happens to produce.
+if [ -x /opt/singularity/bin/singularity-splash ]; then
+    BSP=/opt/singularity/bin/singularity-splash
+elif [ -x /opt/singularity/bin/singularity-boot-splash ]; then
+    BSP=/opt/singularity/bin/singularity-boot-splash
+else
+    BSP=/opt/singularity/bin/singularity-splash
+fi
 
 # --- (1) ensure the binary is present ----------------------------------------
 if [ ! -x "$BSP" ]; then
@@ -74,7 +87,13 @@ echo "[60] verified: singularity-boot-splash dynamic-link closure complete"
 cat > /usr/local/bin/ncz-boot-splash <<'WRAPPER'
 #!/bin/sh
 set -eu
-BSP=/opt/singularity/bin/singularity-boot-splash
+if [ -x /opt/singularity/bin/singularity-splash ]; then
+    BSP=/opt/singularity/bin/singularity-splash
+elif [ -x /opt/singularity/bin/singularity-boot-splash ]; then
+    BSP=/opt/singularity/bin/singularity-boot-splash
+else
+    BSP=/opt/singularity/bin/singularity-splash
+fi
 install -d -m 1777 /run/singularity
 rm -f /run/singularity/greeter-ready
 card=""

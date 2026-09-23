@@ -348,11 +348,12 @@ if [ -n "$UPOWER_DEB" ] && ! dpkg-query -W -f='${Status}\n' upower 2>/dev/null |
     echo "[20] using embedded upower deb: $(basename "$UPOWER_DEB")"
     dpkg -i --force-depends "$UPOWER_DEB" || true
 fi
-if [ -d /cdrom/pool/main ]; then
-    SINTY_DEB=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1)
-else
-    SINTY_DEB=""
-fi
+SINTY_DEB=""
+for _d in /cdrom/pool/main /usr/local/lib/cix-installer/assets/cix-debs; do
+    [ -d "$_d" ] || continue
+    _c=$(find "$_d" -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1)
+    [ -n "$_c" ] && SINTY_DEB="$_c"
+done
 if [ -n "$SINTY_DEB" ]; then
     echo "[20] using embedded payload deb: $(basename "$SINTY_DEB")"
     dpkg -i "$SINTY_DEB"
@@ -498,7 +499,93 @@ _ncz_panthor_live() {
     return 0
 }
 
-if [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
+# Non-Sky1 GPU stacks (amd64, and any other board this script runs on):
+# amdgpu/i915/nouveau/radeon/nvidia all ship a working Mesa/glvnd stack out of
+# the box and need NO vendor pin, unlike Mali/Panthor above. Before this
+# check existed, EVERY amd64 box fell through to the unconditional software
+# branch below regardless of having a perfectly good discrete or integrated
+# GPU bound, because that branch only knows how to recognize Mali/Panthor.
+# Metal-confirmed on MEDUSA (T2 MacBook, AMD Navi14): with this branch,
+# NCZ_GPU_BACKEND=amdgpu, radeonsi loads on all EGL platforms, no
+# software-render vars set. ncz-wlr-connected-drm (sourced separately by
+# every caller of this file) independently picks the DRM device that
+# actually has a connected output, so a dual-GPU box (iGPU + discrete) does
+# not need explicit discrete-vs-integrated logic here.
+_ncz_hw_gpu_driver() {
+    for _ncz_drv in amdgpu i915 nouveau radeon nvidia nvidia-drm; do
+        _ncz_drm_card_driven_by "$_ncz_drv" && { printf '%s' "$_ncz_drv"; return 0; }
+    done
+    return 1
+}
+
+if _ncz_hw_gpu_driver_name=$(_ncz_hw_gpu_driver); then
+    NCZ_GPU_BACKEND=$_ncz_hw_gpu_driver_name
+    export NCZ_GPU_BACKEND
+    if [ "$_ncz_hw_gpu_driver_name" = amdgpu ]; then
+        # singularity-desktop-session defaults GSK_RENDERER to GTK4's legacy
+        # "gl" renderer unless already set. GTK4's DMABUF texture-import path
+        # (dri2_query_image_common, called from gsk_renderer_render via
+        # libEGL_mesa) segfaults singularity-desktop on Mesa 26.1.6/radeonsi
+        # (Navi14) on a NULL __DRIimage handle -- a missing-null-check bug in
+        # a caller upstream of Mesa (still under investigation as of
+        # 2026-09-20, see MNEMOS/cix-installer issue tracking).
+        # GSK_RENDERER=ngl does NOT fix this: metal-confirmed on MEDUSA the
+        # identical crash still happens under ngl, just later (37-94s
+        # instead of immediately) -- the timing shift is real but this is
+        # NOT a resolved fix, it only delays the same underlying bug. Kept
+        # here because ngl is GTK4's actively-maintained renderer regardless
+        # and does not make anything worse; do not remove this line as part
+        # of "fixing" the crash without addressing the actual NULL-image
+        # root cause first.
+        GSK_RENDERER=ngl
+        export GSK_RENDERER
+        # RDNA1 (Navi 10/12/14 -- the 5300/5500/5600/5700 series, including
+        # MEDUSA's Navi14 5300M) has NO AV1 decode fixed-function hardware
+        # at all; AMD's first AV1 decode block shipped in RDNA2. Chrome
+        # still offers AV1 playback via software dav1d and, per Chromium's
+        # own driver bug list, correctly refuses VaapiVideoDecoder for AV1
+        # on this hardware (status=kUnsupportedConfig) -- metal-confirmed on
+        # MEDUSA via a real media-internals.txt export: every AV1 clip used
+        # Dav1dVideoDecoder (kIsPlatformVideoDecoder: false), zero hardware
+        # decodes. Disabling Chrome's AV1 decoder entirely makes AV1-capable
+        # sites (e.g. YouTube) fall back to VP9 or H.264, both of which
+        # Navi14's VCN block DOES decode in hardware -- trading AV1-only
+        # software playback for real hardware accel on everything else.
+        # Content that is ONLY available in AV1 has no such fallback and
+        # will simply fail to play; this is a real tradeoff, not a free fix,
+        # so it is scoped strictly to RDNA1 (device IDs 0x7310-0x736f) where
+        # AV1 was never hardware-accelerated in the first place -- RDNA2+
+        # AMD GPUs (device IDs from 0x73a0 on) get real AV1 hardware decode
+        # and must NOT have this flag forced.
+        # Read the ACTUAL amdgpu-bound card's PCI device ID directly from
+        # sysfs -- not lspci (an extra dependency this script has no other
+        # use for, and one that would need to correlate its own device list
+        # back to the specific card amdgpu is bound to on a system with more
+        # than one AMD PCI function, e.g. an AMD APU alongside a discrete
+        # AMD GPU). Matches the same /sys/class/drm/card*/device pattern
+        # _ncz_drm_card_driven_by already uses elsewhere in this file.
+        _ncz_amd_devid=
+        for _ncz_dev in /sys/class/drm/card*/device; do
+            [ -e "$_ncz_dev/driver" ] || continue
+            [ "$(basename "$(readlink -f "$_ncz_dev/driver")")" = amdgpu ] || continue
+            [ -r "$_ncz_dev/device" ] || continue
+            _ncz_amd_devid=$(cat "$_ncz_dev/device" 2>/dev/null)
+            _ncz_amd_devid=${_ncz_amd_devid#0x}
+            break
+        done
+        case "$_ncz_amd_devid" in
+            731[0-9a-fA-F]|732[0-9a-fA-F]|733[0-9a-fA-F]|734[0-9a-fA-F]|735[0-9a-fA-F]|736[0-9a-fA-F])
+                _ncz_chrome_flags="$HOME/.config/google-chrome-flags.conf"
+                install -d -m0755 "$(dirname "$_ncz_chrome_flags")" 2>/dev/null
+                if [ ! -f "$_ncz_chrome_flags" ] || ! grep -q 'AV1Decoder' "$_ncz_chrome_flags" 2>/dev/null; then
+                    echo '--disable-features=AV1Decoder' >> "$_ncz_chrome_flags"
+                fi
+                ;;
+        esac
+        unset _ncz_amd_devid _ncz_chrome_flags
+    fi
+    unset _ncz_hw_gpu_driver_name
+elif [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
     NCZ_GPU_BACKEND=mali
     # Pin the CIX EGL vendor explicitly, mirroring what the panthor branch does
     # for mesa. glvnd otherwise scans /usr/share/glvnd/egl_vendor.d, which ships
@@ -594,8 +681,8 @@ else
     GALLIUM_DRIVER=llvmpipe
     export NCZ_GPU_BACKEND WLR_RENDERER WLR_RENDERER_ALLOW_SOFTWARE LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER
 fi
-unset -f _ncz_drm_card_driven_by _ncz_panthor_live 2>/dev/null || true
-unset _ncz_dev
+unset -f _ncz_drm_card_driven_by _ncz_panthor_live _ncz_hw_gpu_driver 2>/dev/null || true
+unset _ncz_dev _ncz_drv _ncz_hw_gpu_driver_name
 GPUENV
 chmod 0755 /usr/local/bin/ncz-gpu-env
 
@@ -697,6 +784,32 @@ if command -v swayidle >/dev/null 2>&1 && [ -x /usr/local/bin/ncz-idle-manager ]
         exec /usr/local/bin/ncz-idle-manager
     ) &
 fi
+# graphical-session.target (2026-09-15): nothing in this script ever pushed
+# the session's environment into the systemd --user manager, or told it a
+# graphical session had actually started. systemd --user starts in a bare
+# environment (it does NOT inherit this script's `export`s just because a
+# child process set them) -- so graphical-session.target, and everything in
+# graphical-session.target.wants/ (ncz-sky1-audio-autoswitch.service among
+# them), sat permanently dormant on every real login. Confirmed live on O6N:
+# ALSA hardware itself was fine (`speaker-test -D hw:0,1` played a real
+# tone), but `systemctl --user status graphical-session.target` was
+# `inactive (dead)`, so PipeWire/WirePlumber only ever exposed the dummy
+# `auto_null` sink -- zero journal entries for audio-autoswitch, meaning it
+# never even attempted to start.
+#
+# Backgrounded + gated on the Wayland socket existing, same reasoning and
+# same wait-loop shape as the idle-manager block above: systemd --user needs
+# a LIVE WAYLAND_DISPLAY value to import, which does not exist until labwc
+# (the exec target below) has actually started.
+(
+    _wd="${WAYLAND_DISPLAY:-wayland-0}"
+    _rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    _i=0
+    while [ ! -S "$_rt/$_wd" ] && [ $_i -lt 100 ]; do sleep 0.2; _i=$((_i+1)); done
+    export WAYLAND_DISPLAY="$_wd"
+    systemctl --user import-environment WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_SESSION_CLASS XDG_SESSION_DESKTOP XDG_CURRENT_DESKTOP 2>&1
+    systemctl --user start graphical-session.target 2>&1
+) &
 exec /opt/singularity/bin/singularity-labwc-session
 SINGLAUNCH
 chmod 0755 /usr/local/bin/ncz-singularity
@@ -753,6 +866,19 @@ LOGDIR=/var/log/singularity-greeter
 if [ -d /run/singularity ] && [ -w /run/singularity ]; then
     : > /run/singularity/greeter-ready
     sleep 0.2
+fi
+# wlroots' libinput backend hard-refuses to initialize with ZERO input
+# devices present ("libinput initialization failed, no input devices" ->
+# "Failed to initialize backend" -> labwc exits -> greetd crash-loops ->
+# NO VIDEO AT ALL, not even a login screen). ncz-wait-input-ready already
+# tolerates this as a legitimate "recovery/KVM" case (a board with nothing
+# plugged in) and starts the greeter anyway after its bounded probe -- but
+# wlroots itself was never told to tolerate it too. Confirmed live on O6N,
+# 2026-09-21: literally zero /dev/input/event* nodes, only the virtual
+# /dev/input/mice. Set the escape hatch precisely when there is truly no
+# real input device, so a board WITH a keyboard/mouse keeps normal behavior.
+if ! ls /dev/input/event* >/dev/null 2>&1; then
+    export WLR_LIBINPUT_NO_DEVICES=1
 fi
 # `-S` is essential: greetd starts the selected user's session as soon as this
 # greeter compositor exits. A regular Labwc autostart leaves the compositor
@@ -812,6 +938,11 @@ artist-pack-apt-sources=['https://packages.buildkite.com/ncz-os/ncz/any/', 'http
 # Every id below was verified present in /usr/share/applications or
 # /opt/singularity/share/applications on a real r237 install.
 pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'org.gnome.Console.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
+# Upstream 795da47 (2026-09-18) split OCS/Bing/stock wallpaper browsing out
+# of the shell into plugins, disabled by default (schema default lacks
+# them). They were always-on before that refactor. Keep the in-app
+# wallpaper browser's prior behavior by opting them back in here.
+enabled-plugins=['mpris-dock', 'downloads-dock', 'telegram-dock', 'launcher-entry-dock', 'tray-icons', 'emoji-search', 'tailscale', 'exe-icon', 'wallpapers-ocs', 'wallpapers-bing', 'sensors']
 GSCHEMA
     glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
         echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
@@ -983,14 +1114,37 @@ ln -sf /lib/systemd/system/greetd.service /etc/systemd/system/display-manager.se
 # the seat via seatd/logind.
 systemctl enable seatd 2>/dev/null || true
 
-# _greetd user (created by the greetd package) needs GPU + seat + input access so
-# labwc can render the greeter on Mali.
-if id _greetd >/dev/null 2>&1; then
-    for g in video render input seat; do
-        getent group "$g" >/dev/null 2>&1 && usermod -aG "$g" _greetd 2>/dev/null || true
-    done
-    echo "[20] _greetd added to video/render/input/seat"
-fi
+# _greetd user (created by the greetd package's postinst) needs GPU + seat +
+# input access so labwc can render the greeter on Mali. Real incident
+# 2026-09-19: this used to be a single `if id _greetd` check with every
+# usermod suppressed by `|| true` -- on a real build, this hook can run in a
+# chroot pass BEFORE the greetd package's postinst has actually created the
+# account yet, so the `if` silently evaluated false and the whole block
+# no-opped. `_greetd` shipped with ZERO supplementary groups, seatd refused
+# it, greetd crash-looped past systemd's start-limit, and the box never got
+# a display (black screen) -- reproduced again on a fresh install from an
+# otherwise-correct ISO, confirming this is a real, repeatable build defect,
+# not one-off bad luck. `seat` is intentionally NOT in the group list: no
+# `seat` group exists on this system at all (confirmed live), the old code's
+# `getent group "$g" || true` masked that too.
+_GREETD_WAIT=0
+while ! id _greetd >/dev/null 2>&1; do
+    _GREETD_WAIT=$((_GREETD_WAIT + 1))
+    if [ "$_GREETD_WAIT" -gt 30 ]; then
+        echo "[20] FATAL: _greetd account never appeared after ${_GREETD_WAIT}s -- greetd package not installed or postinst failed; refusing to ship a greeter with no seat/GPU access" >&2
+        exit 1
+    fi
+    sleep 1
+done
+for g in video render input; do
+    if getent group "$g" >/dev/null 2>&1; then
+        usermod -aG "$g" _greetd
+    else
+        echo "[20] FATAL: required group '$g' does not exist -- cannot grant _greetd seat/GPU access" >&2
+        exit 1
+    fi
+done
+echo "[20] _greetd added to video/render/input (waited ${_GREETD_WAIT}s for the account)"
 echo "[20] greetd = display manager (native singularity-greeter wired by 55-greeter)"
 
 # Skip gnome-initial-setup wizard (creds already collected by d-i).

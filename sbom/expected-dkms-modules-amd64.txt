@@ -1,0 +1,4 @@
+# SBOM/SPDX-style expected DKMS registrations -- AMD64/forky line.
+# AMD64 ships no accelerator DKMS modules (Sky1 GPU/VPU/NPU DKMS is
+# arm64-only, see feedback_cix_drivers_all_dkms_never_intree.md).
+# Intentionally empty: nothing required here.

@@ -1,27 +1,29 @@
 #!/bin/bash
 # build-desktop-mirror.sh — r130 fat/offline desktop closure mirror (arm64).
 #
-# Companion to build-server-mirror.sh. Where server-mirror carries the Ubuntu
-# Server closure (Priority required/important/standard + server seed), THIS
-# builds the closure of the Sky1 SINGULARITY desktop runtime set listed in
+# Builds the closure of the Sky1 SINGULARITY desktop runtime set listed in
 # manifests/desktop.pkgs (Singularity replaced XFCE in 26.7 — NO xubuntu-core,
 # NO xfce4-*; Wayland-native GTK4 runtime libs + Chromium + mpv + Xwayland).
+# (build-server-mirror.sh, formerly this file's Ubuntu-Server-closure
+# companion, was deleted 2026-08-21 as dead code — see
+# docs/UBUNTU-ERA-AUDIT-2026-08-21.md.)
 #
-# build-iso-di.sh merges build/desktop-mirror/pool into the ISO pool alongside
-# server-mirror and regenerates the single 'main' deb index from the combined
-# pool, so post-install/20-desktop.sh installs the desktop fully OFFLINE from
-# file:///cdrom (no ports.ubuntu.com dependency → no r129-style 20-desktop stall).
+# build-iso-di.sh merges build/desktop-mirror/pool into the ISO pool and
+# regenerates the single 'main' deb index from the combined pool, so
+# post-install/20-desktop.sh installs the desktop fully OFFLINE from
+# file:///cdrom (no live apt source dependency → no r129-style 20-desktop stall).
 #
 # Outputs:
-#   build/desktop-mirror/        apt repo (dists/resolute + pool) — POOL is what
+#   build/desktop-mirror/        apt repo (dists/<suite> + pool) — POOL is what
 #                                the ISO consumes; dists/ is for standalone use.
-#   build/desktop-mirror.gaps    closure pkgs not in the local resolute-mirror
+#   build/desktop-mirror.gaps    closure pkgs not in the local mirror
 #
-# Method (identical to build-server-mirror.sh): a self-contained apt root over
-# Ubuntu ports, arm64, simulate-install the desktop seed to compute the closure,
-# apt-get download the exact closure versions into the new pool, regenerate
-# indexes. Chromium is the one exception: Ubuntu 26.04 ships Chromium as snap
-# only, so the browser seed uses Google's own signed real Chrome build
+# Method: a self-contained apt root over Debian's own archive (release.conf
+# NCZ_BASE_MIRROR/NCZ_BASE_COMPONENTS), arm64, simulate-install the desktop
+# seed to compute the closure, apt-get download the exact closure versions
+# into the new pool, regenerate indexes. Chromium is the one exception: no
+# Debian/Ubuntu Chromium package is used at all, the browser seed uses
+# Google's own signed real Chrome build
 # (google-chrome-stable), pinned to one exact version + SHA256-verified, and
 # folded into this offline mirror. No live Google apt source is installed on
 # the appliance. (An earlier stop-gap used XtraDeb's ungoogled-chromium
@@ -52,15 +54,28 @@ export LC_ALL=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$REPO/build/$NCZ_BASE_CODENAME-mirror"
 OUT="$REPO/build/desktop-mirror"
-SEEDFILE="$REPO/manifests/desktop.pkgs"
 GAPS="$REPO/build/desktop-mirror.gaps"
 SUITE="$NCZ_BASE_CODENAME"
-ARCH=arm64
+ARCH="${ARCH:-${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}}"
+if [ -f "$REPO/manifests/desktop-$ARCH.pkgs" ]; then
+    SEEDFILE="$REPO/manifests/desktop-$ARCH.pkgs"
+else
+    SEEDFILE="$REPO/manifests/desktop.pkgs"
+fi
 IDX="$SRC/dists/$SUITE/main/binary-$ARCH/Packages"
 
-# Source: Ubuntu ports (current, complete, authoritative). The desktop long
-# tail (gimp, catfish, synaptic, xfce goodies, ...) lives largely in universe.
-PORTS_URL="${PORTS_URL:-http://ports.ubuntu.com/ubuntu-ports}"
+# Source: Debian's own archive (release.conf NCZ_BASE_MIRROR/NCZ_BASE_COMPONENTS
+# -- the single source of truth for the base distro, same as SUITE above).
+# Historically pointed at Ubuntu ports on the claim that the desktop long tail
+# (gimp, catfish, synaptic, xfce goodies) "lives largely in universe" -- stale:
+# catfish and every xfce4-* package are already gone from manifests/desktop.pkgs
+# (removed when Singularity replaced XFCE in 26.7), and gimp/synaptic are
+# ordinary Debian main packages, never Ubuntu-universe-exclusive. Nothing in
+# the current seed needs Ubuntu. arm64 needs no separate "ports" archive on
+# Debian -- it is a normal release architecture on the main archive.
+: "${NCZ_BASE_MIRROR:?release.conf did not define NCZ_BASE_MIRROR}"
+: "${NCZ_BASE_COMPONENTS:?release.conf did not define NCZ_BASE_COMPONENTS}"
+PORTS_URL="${PORTS_URL:-$NCZ_BASE_MIRROR}"
 
 # Real, official Google Chrome for arm64 Linux (launched publicly Q2 2026,
 # available since via Google's own signed apt repo). Folded into the offline
@@ -106,10 +121,9 @@ mkdir -p "$T/etc/apt/preferences.d" "$T/etc/apt/apt.conf.d" "$T/etc/apt/keyrings
          "$T/var/cache/apt/archives/partial"
 : > "$T/var/lib/dpkg/status"
 
-echo "  source: Ubuntu ports ($PORTS_URL) — authoritative desktop closure"
+echo "  source: Debian ($PORTS_URL, $SUITE) — authoritative desktop closure"
 cat > "$T/etc/apt/sources.list" <<EOF
-deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE main universe restricted multiverse
-deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE-updates main universe restricted multiverse
+deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE $NCZ_BASE_COMPONENTS
 EOF
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
@@ -120,8 +134,16 @@ if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
 deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/google-chrome-apt-keyring.asc] $GOOGLE_CHROME_URL stable main
 EOF
     cat > "$T/etc/apt/preferences.d/google-chrome.pref" <<EOF
+Package: *
+Pin: release o=Google LLC
+Pin-Priority: -1
+
+Package: google-chrome-stable
+Pin: release o=Google LLC
+Pin-Priority: 990
+
 Package: google-chrome-beta google-chrome-unstable google-chrome-canary
-Pin: origin dl.google.com
+Pin: release o=Google LLC
 Pin-Priority: -1
 EOF
     echo "  source: Google Chrome (${GOOGLE_CHROME_URL}) — tracking current stable, checksum-verified below"
@@ -132,6 +154,14 @@ cp "$BUILDKITE_NCZ_KEY" "$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc"
 chmod 0644 "$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc"
 cat >> "$T/etc/apt/sources.list" <<EOF
 deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc] $BUILDKITE_NCZ_URL any main
+EOF
+# Buildkite also carries a historical Ubuntu build of fonts-liberation for
+# Chrome consumers.  NCZ-OS is Debian-only; force Debian's exact Forky build
+# even though the Ubuntu version string sorts higher.
+cat > "$T/etc/apt/preferences.d/debian-only-overrides.pref" <<'EOF'
+Package: fonts-liberation
+Pin: version 1:2.1.5-3
+Pin-Priority: 1001
 EOF
 echo "  source: Buildkite Packages (${BUILDKITE_NCZ_URL}) — ncz-singularity-desktop + other CIX/NCZ-only packages"
 
@@ -239,13 +269,15 @@ else
     echo "  closure (union): $(wc -l < "$CLOSURE") packages; $bad seed(s) dropped as uninstallable"
 fi
 
-# download the exact closure versions into the pool -- INCREMENTAL: keep
-# whatever's already there (`apt-get download` itself skips re-fetching a
-# .deb that's already present at the exact candidate version, verified
-# empirically), so a re-run only pulls what's actually new/changed instead
-# of re-downloading the entire ~1500-package closure every time.
+# Build a clean snapshot.  Keeping an incremental pool is unsafe across a
+# distribution pivot: packages downloaded from the former Ubuntu source had
+# higher versions than Debian's candidates and remained indexable after the
+# source was corrected, producing a mixed, unsatisfiable closure.  The mirror
+# is derived output, so discard only its package files and repopulate it from
+# the exact candidates resolved above.
 mkdir -p "$OUT/pool/main"
-echo "  downloading closure debs from ports (incremental)..."
+find "$OUT/pool/main" -maxdepth 1 -type f -name '*.deb' -delete
+echo "  downloading clean Debian closure snapshot..."
 if ! ( cd "$OUT/pool/main" && xargs -r apt-get "${APTOPTS[@]}" download < "$CLOSURE" >/dev/null 2>&1 ); then
     echo "  WARN: some downloads failed (see gaps report)"
 fi
@@ -255,16 +287,16 @@ fi
 # weeks, so without this every rebuild leaves the previous point release behind
 # and silently bloats the ISO. Keep only the version resolved and verified above.
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
-    chrome_keep="google-chrome-stable_${_chrome_ver}_arm64.deb"
-    for chrome_deb in "$OUT"/pool/main/google-chrome-stable_*_arm64.deb; do
+    chrome_keep="google-chrome-stable_${_chrome_ver}_${ARCH}.deb"
+    for chrome_deb in "$OUT"/pool/main/google-chrome-stable_*_"${ARCH}.deb"; do
         [ -e "$chrome_deb" ] || continue
         [ "$(basename "$chrome_deb")" = "$chrome_keep" ] || rm -f "$chrome_deb"
     done
 fi
 
-# NCZ-OS-local packages: not published on Ubuntu ports, so add locally-built
-# copies directly in reprepro-style pool layout. Optional ones keep the mirror
-# usable as a standalone Ubuntu closure builder; required ones do not, because
+# NCZ-OS-local packages: not published in Debian, so add locally-built copies
+# directly in reprepro-style pool layout. Optional ones keep the mirror usable
+# as a standalone Debian closure builder; required ones do not, because
 # their absence produces an ISO that fails partway through an install.
 #
 # Both rows here are optional. cixmini-boot Depends on ncz-usb-recovery, but the
@@ -273,8 +305,11 @@ fi
 #
 # Each row: <package name>|<glob of candidate .debs>|<required?>
 NCZ_LOCAL_DEBS="
-ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_arm64.deb|optional
+ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_${ARCH}.deb|optional
 ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_all.deb|optional
+"
+if [ "$ARCH" = arm64 ]; then
+NCZ_LOCAL_DEBS+="
 libdrm-common|$REPO/build/libdrm-debs/libdrm-common_2.4.134-3+ncz*_all.deb|required
 libdrm2|$REPO/build/libdrm-debs/libdrm2_2.4.134-3+ncz*_arm64.deb|required
 libdrm-amdgpu1|$REPO/build/libdrm-debs/libdrm-amdgpu1_2.4.134-3+ncz*_arm64.deb|required
@@ -285,6 +320,7 @@ libdrm-radeon1|$REPO/build/libdrm-debs/libdrm-radeon1_2.4.134-3+ncz*_arm64.deb|r
 libdrm-tegra0|$REPO/build/libdrm-debs/libdrm-tegra0_2.4.134-3+ncz*_arm64.deb|required
 libdrm-dev|$REPO/build/libdrm-debs/libdrm-dev_2.4.134-3+ncz*_arm64.deb|required
 "
+fi
 
 printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
     [ -n "$pkg" ] || continue
@@ -314,12 +350,9 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
     cp -f "$deb" "$pooldir/"
     echo "  added local NCZ package: $deb -> $pooldir/"
 done
-# No required-package gate here on purpose. This pool is build/desktop-mirror,
-# which is NOT in build-squashfs-layers.sh's MIRROR_DIRS ("$NCZ_BASE_CODENAME-mirror
-# $NCZ_BASE_CODENAME-vendor-mirror") -- the layer chroot never resolves against
-# it. cixmini-boot and its ncz-usb-recovery dependency both live in
-# build/forky-vendor-mirror/pool/main/, so that is the pool an offline install
-# depends on and the only one worth failing a build over.
+# The desktop delta consumes this pool directly. The complete ISO closure also
+# consumes it alongside the vendor pool, where cixmini-boot and its mandatory
+# ncz-usb-recovery dependency are published.
 
 # prune debs for packages no longer in the resolved closure (e.g. dropped
 # from the seed, or no longer pulled in as a dependency) so the pool doesn't
@@ -357,7 +390,7 @@ gzip -9c "$OUT/dists/$SUITE/main/binary-$ARCH/Packages" > "$OUT/dists/$SUITE/mai
     -o "APT::FTPArchive::Release::Architectures=$ARCH" \
     release "dists/$SUITE" > "dists/$SUITE/Release" )
 
-# closure packages that the local resolute-mirror did NOT have (informational)
+# closure packages that the local mirror did NOT have (informational)
 FILLED="$T/filled"
 if [ -f "$IDX" ]; then
     LOCAL_NAMES="$T/local-names"
@@ -370,10 +403,10 @@ fi
 # gap report
 {
     echo "# NCZ desktop-mirror gap report — $(date -u +%FT%TZ)"
-    echo "# Seed packages apt could not locate at all (bad name / not in resolute):"
+    echo "# Seed packages apt could not locate at all (bad name / not in the Debian archive):"
     if [ -s "$MISSING" ]; then sed 's/^/  MISSING-SEED: /' "$MISSING"; else echo "  (none)"; fi
     echo ""
-    echo "# Closure packages NOT in the local resolute-mirror (pulled from ports): $(wc -l < "$FILLED")"
+    echo "# Closure packages NOT in the local mirror (pulled from Debian directly): $(wc -l < "$FILLED")"
     if [ -s "$FILLED" ]; then sed 's/^/  FROM-PORTS: /' "$FILLED"; else echo "  (none)"; fi
     echo ""
     echo "# Unmet/uninstallable complaints from dependency resolution:"

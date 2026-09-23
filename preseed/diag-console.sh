@@ -77,16 +77,26 @@ HTTP_PORT=8080
 SSH_PORT=22
 
 # ---- stage the static busybox + applet farm ---------------------------------
+# Self-describing at runtime via uname -m, not a build-time constant: the
+# medium may carry either arch's diag module (arm64 Sky1 vs amd64/T2), and
+# the binary must match the RUNNING kernel, not whichever was baked at
+# build time. Maps uname -m -> our asset-naming convention (busybox-arm64 /
+# busybox-amd64), matching NCZ_TARGET_ARCH on the build side.
+case "$(uname -m)" in
+    aarch64) BB_ARCH=arm64 ;;
+    x86_64)  BB_ARCH=amd64 ;;
+    *) say "FATAL: unsupported uname -m for diag busybox: $(uname -m)"; exit 1 ;;
+esac
 if [ ! -x "$BB" ]; then
     mkdir -p "$(dirname "$BB")" 2>/dev/null || true
     # robust: scan every mount for the install medium (USB or CD)
-    for src in /cdrom/cixmini/busybox-arm64 /hd-media/cixmini/busybox-arm64 \
-               /media/cdrom/cixmini/busybox-arm64 /run/live/medium/cixmini/busybox-arm64; do
+    for src in /cdrom/cixmini/busybox-$BB_ARCH /hd-media/cixmini/busybox-$BB_ARCH \
+               /media/cdrom/cixmini/busybox-$BB_ARCH /run/live/medium/cixmini/busybox-$BB_ARCH; do
             [ -f "$src" ] && { cp "$src" "$BB" && chmod 0755 "$BB" && say "staged busybox from $src" && break; }
     done
     if [ ! -x "$BB" ]; then
         while read _d _mp _r; do
-            [ -f "$_mp/cixmini/busybox-arm64" ] && { cp "$_mp/cixmini/busybox-arm64" "$BB" && chmod 0755 "$BB" && say "staged busybox from $_mp/cixmini (mount-scan)" && break; }
+            [ -f "$_mp/cixmini/busybox-$BB_ARCH" ] && { cp "$_mp/cixmini/busybox-$BB_ARCH" "$BB" && chmod 0755 "$BB" && say "staged busybox from $_mp/cixmini (mount-scan)" && break; }
         done < /proc/mounts
     fi
 fi

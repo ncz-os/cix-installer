@@ -4,6 +4,21 @@
 `preseed/extract-rootfs.sh`, `build/build-iso-di.sh`, or
 `post-install/run-all.sh`'s hook-invocation framework.**
 
+> **Note on current scope (2026-09-22):** the *arm64/Sky1* build path is
+> still `build/build-iso-di.sh` + `build/build-squashfs-layers.sh` (the
+> monolithic pipeline this document was written about). The new
+> xorriso-based **amd64** assembly writer
+> (`build/iso/{import-substrate,build-refind-esp,stage-cixmini-payload,patch-debootstrap-stub,write-image,verify-image}.py`)
+> is the superseding design — see
+> `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
+> for the long-term migration plan. The guardrails below apply to the
+> arm64 pipeline they were written about; the new writer has its own
+> equivalent gates (independent `verify-image.py`, content-addressed
+> substrate cache, xorriso cold/warm writers with rescue finalizer).
+> Both paths share the squashfs-layer producer (`build-squashfs-layers.sh`)
+> and the post-install-hook framework, so anything below about those
+> still applies.
+
 ## The core rule
 
 **The ISO build MECHANICS are stable. Only the image CONTENTS change

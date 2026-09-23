@@ -8,14 +8,26 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 . "$REPO/release.conf"
 
 SUITE="${SUITE:-$NCZ_BASE_CODENAME}"
-ARCH="${ARCH:-arm64}"
+# 2026-09-15: was hardcoded "arm64" regardless of caller -- an AMD64 build
+# silently pulled arm64 packages into its offline closure. Derive from the
+# same NCZ_TARGET_ARCH every other arch-aware script in this repo reads.
+ARCH="${ARCH:-${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}}"
 MIRROR_URL="${MIRROR_URL:-$NCZ_BASE_MIRROR}"
 COMPONENTS="${COMPONENTS:-$NCZ_BASE_COMPONENTS}"
 OUT="${OUT:-$REPO/build/$SUITE-mirror}"
 VENDOR_MIRROR="${VENDOR_MIRROR:-$REPO/build/$SUITE-vendor-mirror}"
+DESKTOP_MIRROR="${DESKTOP_MIRROR:-$REPO/build/desktop-mirror}"
 DEBIAN_KEYRING="${DEBIAN_KEYRING:-/usr/share/keyrings/debian-archive-keyring.gpg}"
-BASE_SEED="$REPO/manifests/installer-base.pkgs"
-DESKTOP_SEED="$REPO/manifests/desktop.pkgs"
+# Same arch-manifest-selection pattern as preflight-sbom-check.sh's
+# manifest_for(): prefer manifests/<name>-$ARCH.pkgs when it exists
+# (installer-base-amd64.pkgs, desktop-amd64.pkgs already do), falling back
+# to the original arm64/default filename -- arm64 behavior unchanged.
+_seed_for() {
+    local arch_file="$REPO/manifests/$1-$ARCH.pkgs"
+    if [ -f "$arch_file" ]; then echo "$arch_file"; else echo "$REPO/manifests/$1.pkgs"; fi
+}
+BASE_SEED="${BASE_SEED:-$(_seed_for installer-base)}"
+DESKTOP_SEED="${DESKTOP_SEED:-$(_seed_for desktop)}"
 
 [ "$SUITE" = "$NCZ_BASE_CODENAME" ] || {
     echo "ERROR: suite '$SUITE' does not match release profile '$NCZ_BASE_CODENAME'" >&2
@@ -23,6 +35,7 @@ DESKTOP_SEED="$REPO/manifests/desktop.pkgs"
 }
 [ -r "$DEBIAN_KEYRING" ] || { echo "ERROR: Debian archive keyring missing: $DEBIAN_KEYRING" >&2; exit 1; }
 [ -d "$VENDOR_MIRROR/dists/$SUITE" ] || { echo "ERROR: vendor mirror missing: $VENDOR_MIRROR" >&2; exit 1; }
+[ -d "$DESKTOP_MIRROR/dists/$SUITE" ] || { echo "ERROR: desktop mirror missing: $DESKTOP_MIRROR" >&2; exit 1; }
 [ -s "$BASE_SEED" ] && [ -s "$DESKTOP_SEED" ] || { echo "ERROR: required seed manifest missing" >&2; exit 1; }
 if [ -e "$OUT" ] && [ -n "$(find "$OUT" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
     echo "ERROR: refusing to merge into existing mirror: $OUT" >&2
@@ -32,7 +45,7 @@ fi
 
 echo "== build-$SUITE-mirror =="
 echo "   suite=$SUITE arch=$ARCH source=$MIRROR_URL"
-echo "   seeds=$(basename "$BASE_SEED"),$(basename "$DESKTOP_SEED") vendor=$VENDOR_MIRROR"
+echo "   seeds=$(basename "$BASE_SEED"),$(basename "$DESKTOP_SEED") vendor=$VENDOR_MIRROR desktop=$DESKTOP_MIRROR"
 
 TMP="$(mktemp -d)"
 cleanup() { rm -rf "$TMP"; }
@@ -42,9 +55,15 @@ mkdir -p "$TMP/etc/apt/apt.conf.d" "$TMP/etc/apt/preferences.d" \
          "$TMP/var/cache/apt/archives/partial"
 : > "$TMP/var/lib/dpkg/status"
 
+# A pinned snapshot.debian.org mirror carries a short-lived Valid-Until --
+# NCZ_BASE_MIRROR_APT_OPTS (release.conf) adds check-valid-until=no only when
+# actually pinned, so an unpinned live-mirror build keeps normal expiry checks.
+MIRROR_DEB_OPTS="arch=$ARCH signed-by=$DEBIAN_KEYRING"
+[ -n "${NCZ_BASE_MIRROR_APT_OPTS:-}" ] && MIRROR_DEB_OPTS="$MIRROR_DEB_OPTS,$NCZ_BASE_MIRROR_APT_OPTS"
 cat > "$TMP/etc/apt/sources.list" <<EOF
-deb [arch=$ARCH signed-by=$DEBIAN_KEYRING] $MIRROR_URL $SUITE $COMPONENTS
+deb [$MIRROR_DEB_OPTS] $MIRROR_URL $SUITE $COMPONENTS
 deb [arch=$ARCH trusted=yes] file://$VENDOR_MIRROR $SUITE main
+deb [arch=$ARCH trusted=yes] file://$DESKTOP_MIRROR $SUITE main
 EOF
 
 APTOPTS=(
@@ -71,7 +90,11 @@ echo "  explicit seed: $(wc -l < "$SEED") packages"
 SIMLOG="$TMP/sim.log"
 if ! apt-get "${APTOPTS[@]}" install -s -y $(tr '\n' ' ' < "$SEED") > "$SIMLOG" 2>&1; then
     echo "ERROR: profile package set is not installable as one closure" >&2
-    grep -E 'Depends:|Conflicts:|not installable|Unable to correct' "$SIMLOG" >&2 || tail -80 "$SIMLOG" >&2
+    grep -E 'Depends:|Conflicts:|Breaks:|not installable|Unable to correct|held broken' "$SIMLOG" >&2 || tail -80 "$SIMLOG" >&2
+    echo "  independently uninstallable seeds:" >&2
+    while read -r pkg; do
+        apt-get "${APTOPTS[@]}" install -s -y "$pkg" >/dev/null 2>&1 || echo "    $pkg" >&2
+    done < "$SEED"
     exit 1
 fi
 
@@ -124,3 +147,12 @@ gzip -9n -c "$OUT/dists/$SUITE/main/binary-$ARCH/Packages" \
 
 COUNT="$(grep -c '^Package: ' "$OUT/dists/$SUITE/main/binary-$ARCH/Packages")"
 echo "  verified offline mirror: $COUNT package records, $(du -sh "$OUT/pool" | cut -f1) pool"
+
+# Provenance record for SBOM/audit -- which exact archive state this ISO's
+# base packages came from, since MIRROR_URL alone in the build log scrolls
+# away and isn't attached to the artifact itself.
+{
+    echo "source=$MIRROR_URL"
+    echo "snapshot=${NCZ_BASE_MIRROR_SNAPSHOT:-none (live mirror)}"
+    echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$OUT/NCZ_MIRROR_PROVENANCE.txt"

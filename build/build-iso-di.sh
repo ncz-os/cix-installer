@@ -1,20 +1,53 @@
 #!/bin/bash
-# build-iso-di.sh — bookworm d-i base + our Sky1 kernel + Ubuntu via late_command
+# build-iso-di.sh — arm64/Sky1 ISO assembly: Forky-installed system built on
+# top of the Debian Installer substrate.
 #
-# This rebuilds the r6 (Debian d-i) flow that's PROVEN to boot on Sky1
-# UEFI on MS-R1, with two extensions:
-#   1. Latest post-install hooks (incl. mali_csffw.bin symlink fix)
-#   2. late_command swaps /etc/apt/sources.list from Debian to Ubuntu
-#      after Debian 12 base lands, then apt full-upgrade to Ubuntu resolute.
-#      End-state is a Debian system on disk with our Sky1 kernels.
+# This is the **arm64/Sky1 production pipeline**. It orchestrates the
+# build of a bootable ISO from:
+#   1. A pinned Debian Installer substrate (the `--bookworm-iso` flag name
+#      is historical — predates the Bookworm→Forky migration; the actual
+#      substrate passed in by `make iso` is `debian-testing-arm64-netinst.iso`,
+#      which is **Debian Testing (Forky)** per `release.conf`'s
+#      `NCZ_BASE_CODENAME=forky` and `Makefile`'s `UPSTREAM_ISO` default).
+#      For amd64 the substrate is Bookworm netboot (see
+#      `build/iso/import-substrate.py`); for arm64/Sky1 it is Forky.
+#   2. The mkosi-built squashfs layers produced by `build/build-squashfs-layers.sh`
+#      (`base.squashfs`, `desktop.squashfs`, `hotfix.squashfs`).
+#   3. The NCZ cixmini payload (post-install hooks, kernel/headers .debs,
+#      assets, branding) staged onto the ISO media under /cdrom/cixmini/.
+#
+# The end-state is **a Debian (Forky) system on disk** with the Sky1 kernel
+# + drivers + desktop; the d-i runtime itself is the real, upstream Debian
+# Installer (not a hand-patched fork). The NCZ-specific delta lives at the
+# assembly layer — small set of grafted udebs in the d-i initrd (the patched
+# `debootstrap-udeb` stub that drives the install-time branch) + the
+# squashfs layers + the cixmini payload. d-i itself is stock.
+#
+# **This pipeline is being superseded by the new xorriso-based writer**
+# (`build/iso/{import-substrate,build-refind-esp,stage-cixmini-payload,patch-debootstrap-stub,write-image,verify-image}.py`),
+# qualified and shipped for amd64 first; see
+# `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
+# for the design rationale and the long-term migration plan. Until the new
+# writer's arm64 substrate is imported and arm64 cold/warm paths are
+# promoted, this script remains the arm64/Sky1 production path.
 #
 # Why d-i not casper: r17-r24 proved Ubuntu casper kernel-panics on Sky1
 # USB boot regardless of bootloader (rEFInd, GRUB, systemd-boot). r6
-# proved bookworm d-i busybox initrd works. The bootloader doesn't matter;
-# the initrd init script does. d-i's busybox init is simple enough to
-# avoid whatever casper trips on.
+# proved the Debian Installer BusyBox initrd works. The bootloader doesn't
+# matter; the initrd init script does. d-i's BusyBox init is simple enough
+# to avoid whatever casper trips on.
 
 set -euo pipefail
+
+# LC_ALL=C: several steps below sort package-name/file lists with `sort -u`
+# in separate invocations and then diff them with `comm`, which requires
+# BOTH inputs sorted under the SAME collation order -- under a build host's
+# default locale, two independent `sort -u` calls can disagree on ordering
+# (case/locale-sensitive collation) even though each individually looks
+# "sorted", and `comm` then fails with "not in sorted order". Same fix
+# already applied in build-desktop-mirror.sh; this script needed it too
+# (hit live on HYDRA, 2026-09-20, rebuilding the amd64 repair1 ISO).
+export LC_ALL=C
 
 BOOKWORM_ISO=""
 ROOT=""
@@ -32,11 +65,20 @@ usage() {
     cat <<'EOF'
 Usage: build/build-iso-di.sh --bookworm-iso PATH --root PATH --version VERSION --output PATH [options]
 
+(The `--bookworm-iso` flag name is historical — predates the Bookworm→Forky
+substrate migration. The actual substrate passed in by `make iso` is
+`debian-testing-arm64-netinst.iso`, which is **Debian Testing (Forky)** per
+`release.conf`'s `NCZ_BASE_CODENAME=forky` and `Makefile`'s `UPSTREAM_ISO`
+default. The flag still accepts a Bookworm ISO on amd64 if you want one;
+`make iso` does NOT pass Bookworm there. Code reads the value as just
+"the d-i substrate ISO to extract"; the codename is auto-detected from
+its content.)
+
 Options:
   --mode {full|thin|netinstall|netinstall-bootstrap}
-      full       default; bundled rootfs.tar.zst + embedded resolute mirror
-      thin       embedded resolute mirror, real debootstrap, no rootfs.tar.zst
-      netinstall canonical ports.ubuntu.com debootstrap, NEXT kernel only, <500 MB
+      full       default; bundled rootfs.tar.zst + embedded forky mirror
+      thin       embedded forky mirror, real debootstrap, no rootfs.tar.zst
+      netinstall canonical deb.debian.org debootstrap, NEXT kernel only, <500 MB
       netinstall-bootstrap
                  netinstall + local pkgsel bootstrap pool, still <1 GB
   --variant desktop
@@ -96,6 +138,15 @@ case "$NCZ_TARGET_ARCH" in
     *) echo "ERROR: unsupported NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH (expected arm64 or amd64)" >&2; exit 1 ;;
 esac
 
+# d-i netinst ISOs use a per-arch top-level install dir for the kernel+initrd
+# pair -- confirmed against the real upstream layout (mounted both netinst
+# ISOs directly): arm64 = install.a64/, amd64 = install.amd/. Every place
+# that used to hardcode ${INSTALL_DIR}/ now goes through this.
+case "$NCZ_TARGET_ARCH" in
+    arm64) INSTALL_DIR=install.a64 ;;
+    amd64) INSTALL_DIR=install.amd ;;
+esac
+
 EMBED_MIRROR=1
 STAGE_ROOTFS=1
 PATCH_DEBOOTSTRAP_STUB=1
@@ -145,9 +196,17 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
 if [ "$EMBED_MIRROR" = "1" ]; then
-    if ! compgen -G "$ROOT/build/kernel-debs/*.deb" >/dev/null; then
+    # build-kernel-debs.sh packages and KVM-gates the arm64 Sky1 kernel.
+    # AMD64 kernels are complete canonical asset trees staged directly below;
+    # invoking the Sky1 builder here on an amd64 release is both irrelevant
+    # and can pollute the vendor mirror with wrong-architecture packages.
+    if [ "$NCZ_TARGET_ARCH" = arm64 ] && ! compgen -G "$ROOT/build/kernel-debs/*.deb" >/dev/null; then
         echo "[kernel-debs] no local kernel debs present; building them before mirror publication"
         bash "$ROOT/build/build-kernel-debs.sh"
+    fi
+    if [ "$NCZ_TARGET_ARCH" = arm64 ] && ! compgen -G "$ROOT/build/usb-recovery-deb/ncz-usb-recovery_*.deb" >/dev/null; then
+        echo "[usb-recovery-deb] required by cixmini-boot; building it before mirror publication"
+        bash "$ROOT/build/build-usb-recovery-deb.sh"
     fi
     echo "[vendor-mirror] publishing local kernel debs before SBOM preflight"
     bash "$ROOT/build/build-vendor-mirror.sh"
@@ -262,8 +321,16 @@ validate_rescue_rootfs_release() {
 # Both used to be WARN+skip in the staging loop below; for the shipping
 # configuration (--mode full) they are now hard failures.
 # netinstall/thin stay permissive (assets install online / by design).
+#
+# 2026-09-15: this whole block is Sky1/arm64-only content (CIX proprietary
+# GPU userspace, sinty-nm (ARM binary), NPU ACPI override, arm64
+# rescue-rootfs.tar.zst) -- gated to NCZ_TARGET_ARCH=arm64 so it doesn't
+# hard-fail an AMD64/forky build looking for assets that don't apply to
+# that arch. AMD64's equivalent asset set (kernel .debs, squashfs layers,
+# rescue-rootfs-amd64.tar.zst) is already verified earlier in the pipeline
+# by preflight-sbom-check.sh's arch-scoped manifest -- see the branch below.
 # ----------------------------------------------------------------------
-if [ "$MODE" = "full" ]; then
+if [ "$MODE" = "full" ] && [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
     # ----------------------------------------------------------------
     # 2026-08-21: restage the three gap categories the build host's
     # $ROOT/assets/ may be missing:
@@ -349,6 +416,18 @@ if [ "$MODE" = "full" ]; then
         echo "  See build/build-npu-ssdt.sh and packaging/cix-npu-driver-dkms-6.2.0/README.md." >&2
         exit 1
     fi
+elif [ "$MODE" = "full" ]; then
+    # AMD64/forky (and any other future non-arm64 arch): the assets this
+    # block guards for arm64 don't apply. Confirm the AMD64-equivalent set
+    # preflight-sbom-check.sh already verified is genuinely present rather
+    # than silently trusting an earlier pass -- a real re-check, not a skip.
+    for f in "assets/kernel/amd64-stable" "assets/kernel/amd64-edge" "assets/rescue/rescue-rootfs-$NCZ_TARGET_ARCH.tar.zst"; do
+        if [ ! -e "$ROOT/$f" ]; then
+            echo "ERROR: $NCZ_TARGET_ARCH full ISO missing required asset: $f (expected already verified by preflight-sbom-check.sh)" >&2
+            exit 1
+        fi
+    done
+    echo "[stage-canonical-assets] skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH -- arm64-only assets don't apply; AMD64 asset set re-confirmed present)"
 fi
 
 # Drift guard: surface kernel/NPU manifest drift (e.g. NPU vermagic != KVER)
@@ -436,26 +515,67 @@ file_size_bytes() {
 
 BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 BUILD_HOST=$(hostname -s 2>/dev/null || echo unknown)
+# VERSION only has a value if a caller explicitly passed --version. Most
+# real dispatches never do, so BUILD_VERSION (staged to
+# /usr/local/lib/cix-installer/BUILD_VERSION, read by post-install/50-brand.sh
+# into the console/MOTD banners) has been shipping BLANK -- a booted console
+# shows no build identity at all, which is exactly what made it hard to
+# confirm which ISO was installing on O6N tonight. Fall back to a real,
+# always-available identifier: the commit this ISO was actually built from.
+if [ -z "$VERSION" ]; then
+    VERSION="$(date -u +%Y%m%d)-$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo nogit)"
+    echo "  --version not given; defaulting BUILD_VERSION to $VERSION"
+fi
 
 # r27-compat-fix:
 # Ubuntu resolute .debs use control.tar.zst/data.tar.zst. Bookworm d-i's
 # bootstrap extractor recognizes the member but shells out to zstdcat, which
 # the busybox initrd does not ship. Build or reuse a static arm64 zstd and add
 # it to the initrd as a separate concatenated cpio member.
-prepare_static_zstd_aarch64() {
+prepare_static_zstd() {
     local version="${ZSTD_VERSION:-1.5.7}"
-    local cache="$ROOT/build/tool-cache/zstd-$version-aarch64-static"
-    local bin="${ZSTD_STATIC_AARCH64:-$cache/zstd}"
+    local override_var cc ar ranlib strip_tool file_pattern
+    case "$NCZ_TARGET_ARCH" in
+        arm64)
+            override_var="${ZSTD_STATIC_AARCH64:-}"
+            # 2026-09-16: this used to unconditionally cross-compile, which was
+            # correct back when arm64 ISO builds ran on an x86 host (TYPHON/
+            # cixmini). arm64 builds moved to ULTRA -- a NATIVE aarch64 host
+            # (Fedora Asahi, confirmed 2026-09-04) -- and ULTRA has no
+            # aarch64-linux-gnu-* cross toolchain installed (nor should it
+            # need one). Same native-vs-cross distinction the amd64 branch
+            # below already makes; arm64 just never got it because the
+            # assumption predates the ULTRA build-host move.
+            if [ "$(uname -m)" = aarch64 ]; then
+                cc=gcc; ar=ar; ranlib=ranlib; strip_tool=strip
+            else
+                cc=aarch64-linux-gnu-gcc; ar=aarch64-linux-gnu-ar; ranlib=aarch64-linux-gnu-ranlib
+                strip_tool=aarch64-linux-gnu-strip
+            fi
+            file_pattern='ARM aarch64|ARM64'
+            ;;
+        amd64)
+            override_var="${ZSTD_STATIC_X86_64:-}"
+            # PROTEUS/build hosts for this arch are themselves native x86_64
+            # (unlike the arm64 side, which needs a real cross toolchain) --
+            # no aarch64-linux-gnu-* style prefix needed.
+            cc=gcc; ar=ar; ranlib=ranlib
+            strip_tool=strip
+            file_pattern='x86-64|x86_64'
+            ;;
+    esac
+    local cache="$ROOT/build/tool-cache/zstd-$version-$NCZ_TARGET_ARCH-static"
+    local bin="${override_var:-$cache/zstd}"
     local src="$cache/src/zstd-$version"
     local tarball="$cache/zstd-$version.tar.gz"
     local jobs
 
-    if [ -n "${ZSTD_STATIC_AARCH64:-}" ]; then
-        [ -x "$ZSTD_STATIC_AARCH64" ] || {
-            echo "ERROR: ZSTD_STATIC_AARCH64 is set but not executable: $ZSTD_STATIC_AARCH64" >&2
+    if [ -n "$override_var" ]; then
+        [ -x "$override_var" ] || {
+            echo "ERROR: static-zstd override is set but not executable: $override_var" >&2
             exit 1
         }
-        printf '%s\n' "$ZSTD_STATIC_AARCH64"
+        printf '%s\n' "$override_var"
         return 0
     fi
 
@@ -464,9 +584,9 @@ prepare_static_zstd_aarch64() {
         return 0
     fi
 
-    for t in curl tar make aarch64-linux-gnu-gcc aarch64-linux-gnu-ar aarch64-linux-gnu-ranlib; do
+    for t in curl tar make "$cc" "$ar" "$ranlib"; do
         command -v "$t" >/dev/null 2>&1 || {
-            echo "ERROR: missing $t; install the arm64 cross toolchain or set ZSTD_STATIC_AARCH64=/path/to/static-arm64-zstd" >&2
+            echo "ERROR: missing $t for $NCZ_TARGET_ARCH static zstd build; install the toolchain or set ZSTD_STATIC_${NCZ_TARGET_ARCH^^}=/path/to/static-zstd" >&2
             exit 1
         }
     done
@@ -483,20 +603,20 @@ prepare_static_zstd_aarch64() {
     tar xzf "$tarball" -C "$cache/src"
     jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
     make -C "$src" -j"$jobs" \
-        CC=aarch64-linux-gnu-gcc \
-        AR=aarch64-linux-gnu-ar \
-        RANLIB=aarch64-linux-gnu-ranlib \
+        CC="$cc" \
+        AR="$ar" \
+        RANLIB="$ranlib" \
         HAVE_THREAD=0 HAVE_ZLIB=0 HAVE_LZMA=0 HAVE_LZ4=0 \
         ZSTD_LEGACY_SUPPORT=0 \
         CFLAGS="-Os" LDFLAGS="-static" \
         zstd >&2
     install -m 0755 "$src/programs/zstd" "$bin"
-    if command -v aarch64-linux-gnu-strip >/dev/null 2>&1; then
-        aarch64-linux-gnu-strip --strip-all "$bin" || true
+    if command -v "$strip_tool" >/dev/null 2>&1; then
+        "$strip_tool" --strip-all "$bin" || true
     fi
     if command -v file >/dev/null 2>&1; then
-        file "$bin" | grep -Eq 'ARM aarch64|ARM64' || {
-            echo "ERROR: built zstd is not an aarch64 ELF: $(file "$bin")" >&2
+        file "$bin" | grep -Eq "$file_pattern" || {
+            echo "ERROR: built zstd is not a $NCZ_TARGET_ARCH ELF: $(file "$bin")" >&2
             exit 1
         }
         file "$bin" | grep -qi 'statically linked' || {
@@ -626,7 +746,7 @@ EOF
 ensure_di_udeb_from_archive() {
     local pkg="$1"
     local suite="${2:-$DI_CODENAME}"
-    local arch="${3:-arm64}"
+    local arch="${3:-$NCZ_TARGET_ARCH}"
     local mirror="${DI_UDEB_MIRROR:-https://deb.debian.org/debian}"
     local index="$STAGING/.tmp-${suite}-${arch}-di-Packages"
     local entry filename sha256 url dest actual
@@ -766,8 +886,8 @@ if [ -d "$STAGING/pool" ]; then
     echo "    captured $UDEBCT udebs from $DI_CODENAME pool"
 fi
 # Copy substrate's debian-installer index (Packages, Packages.gz, Release)
-if [ -d "$STAGING/dists/$DI_CODENAME/main/debian-installer/binary-arm64" ]; then
-    cp -a "$STAGING/dists/$DI_CODENAME/main/debian-installer/binary-arm64/." "$TMP_UDEBS/dists-installer/"
+if [ -d "$STAGING/dists/$DI_CODENAME/main/debian-installer/binary-$NCZ_TARGET_ARCH" ]; then
+    cp -a "$STAGING/dists/$DI_CODENAME/main/debian-installer/binary-$NCZ_TARGET_ARCH/." "$TMP_UDEBS/dists-installer/"
     echo "    captured $DI_CODENAME udeb index ($(ls "$TMP_UDEBS/dists-installer/" | tr '\n' ' '))"
 fi
 
@@ -782,21 +902,34 @@ if [ -z "${MIRROR_DIR:-}" ]; then
     MIRROR_DIR="$ROOT/build/${ISO_APT_SUITE}-mirror"
 fi
 if [ "$EMBED_MIRROR" = "1" ]; then
+    # 2026-09-15: verify-local-package-versions.sh's own default DEB_DIRS
+    # is build/kernel-debs (arm64 only, no override passed here) -- on
+    # AMD64 that check always compares arm64 .debs against an amd64 pool
+    # and always fails, even though AMD64's kernel packages never go
+    # through this offline-apt-closure mechanism at all (they're dpkg -i'd
+    # directly from assets/kernel/amd64-{stable,edge}/ by
+    # post-install/10-amd64-kernel.sh). Only run it for arm64, where the
+    # comparison is actually meaningful.
     if [ ! -d "$MIRROR_DIR/pool" ] || [ ! -d "$MIRROR_DIR/dists" ] || \
-       ! bash "$ROOT/build/verify-local-package-versions.sh" \
+       { [ "$NCZ_TARGET_ARCH" = "arm64" ] && \
+         ! bash "$ROOT/build/verify-local-package-versions.sh" \
             --pool "$MIRROR_DIR/pool" \
             --label "$(basename "$MIRROR_DIR")" \
-            "${LOCAL_VERSION_ARGS[@]}" || \
+            "${LOCAL_VERSION_ARGS[@]}"; } || \
        ! bash "$ROOT/build/verify-offline-mirror-seeds.sh" \
             --mirror "$MIRROR_DIR" \
             --label "$(basename "$MIRROR_DIR")"; then
         echo "    offline mirror missing or stale after vendor publish; rebuilding $MIRROR_DIR"
         rm -rf "$MIRROR_DIR"
         bash "$ROOT/build/build-forky-mirror.sh"
-        bash "$ROOT/build/verify-local-package-versions.sh" \
-            --pool "$MIRROR_DIR/pool" \
-            --label "$(basename "$MIRROR_DIR")" \
-            "${LOCAL_VERSION_ARGS[@]}"
+        if [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
+            bash "$ROOT/build/verify-local-package-versions.sh" \
+                --pool "$MIRROR_DIR/pool" \
+                --label "$(basename "$MIRROR_DIR")" \
+                "${LOCAL_VERSION_ARGS[@]}"
+        else
+            echo "    verify-local-package-versions: skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH has no local packages in this closure)"
+        fi
         bash "$ROOT/build/verify-offline-mirror-seeds.sh" \
             --mirror "$MIRROR_DIR" \
             --label "$(basename "$MIRROR_DIR")"
@@ -873,7 +1006,7 @@ fi
 if [ "$DI_CODENAME" != "bookworm" ]; then
     echo "    substrate is $DI_CODENAME — skipping the bookworm-only udeb graft"
 else
-TRIXIE_ISO_PATH="${TRIXIE_ISO:-$ROOT/downloads/debian-13.4.0-arm64-netinst.iso}"
+TRIXIE_ISO_PATH="${TRIXIE_ISO:-$ROOT/downloads/debian-13.4.0-${NCZ_TARGET_ARCH}-netinst.iso}"
 [ -f "$TRIXIE_ISO_PATH" ] || { echo "ERROR: missing required TRIXIE_ISO=$TRIXIE_ISO_PATH" >&2; exit 1; }
 
 echo "    grafting trixie shell-side udebs (debootstrap + libzstd + liblzma)"
@@ -882,8 +1015,8 @@ rm -rf "$TRIXIE_TMP"
 mkdir -p "$TRIXIE_TMP"
 7z x -y -o"$TRIXIE_TMP" "$TRIXIE_ISO_PATH" \
     'pool/main/d/debootstrap/debootstrap-udeb_*_all.udeb' \
-    'pool/main/libz/libzstd/libzstd1-udeb_*_arm64.udeb' \
-    'pool/main/x/xz-utils/liblzma5-udeb_*_arm64.udeb' \
+    "pool/main/libz/libzstd/libzstd1-udeb_*_${NCZ_TARGET_ARCH}.udeb" \
+    "pool/main/x/xz-utils/liblzma5-udeb_*_${NCZ_TARGET_ARCH}.udeb" \
     >/dev/null
 
 # Codex A1 fix: verify ALL 5 expected udebs were extracted, not silently miss
@@ -941,7 +1074,7 @@ echo "    udeb assertions: debootstrap-udeb + libzstd1-udeb + liblzma5-udeb pres
 # hw-detect, disk-detect installs from media but fails at the Detect disks step.
 REQUIRED_DI_UDEBS=(cdebconf-udeb cdebconf-newt-udeb hw-detect)
 for need_pkg in "${REQUIRED_DI_UDEBS[@]}"; do
-    ensure_di_udeb_from_archive "$need_pkg" "$DI_CODENAME" arm64
+    ensure_di_udeb_from_archive "$need_pkg" "$DI_CODENAME" "$NCZ_TARGET_ARCH"
 done
 for need_pkg in "${REQUIRED_DI_UDEBS[@]}"; do
     HITS=$(find "$STAGING/pool" -name "${need_pkg}_*.udeb" 2>/dev/null | wc -l)
@@ -1509,7 +1642,7 @@ if [ -z "$ROOTFS" ]; then
     exit 1
 fi
 
-# Verify zstd exists in d-i runtime (injected via prepare_static_zstd_aarch64)
+# Verify zstd exists in d-i runtime (injected via prepare_static_zstd)
 if ! command -v zstd >/dev/null 2>&1; then
     if [ -x /usr/bin/zstd ]; then
         ZSTD=/usr/bin/zstd
@@ -2250,14 +2383,14 @@ patch_finish_install_progress_owner \
 # After the trixie graft, the d-i Packages index MUST reflect the new udeb set
 # or anna can't find the new udebs.
 echo "    regenerating udeb Packages index from actual pool contents"
-mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64"
+mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/debian-installer/binary-$NCZ_TARGET_ARCH"
 (
     cd "$STAGING"
     dpkg-scanpackages --type udeb --multiversion pool/main /dev/null 2>/dev/null \
-        > dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages
-    gzip -9cn dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages \
-        > dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages.gz
-    UDEBCT=$(grep -c '^Package: ' dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64/Packages || true)
+        > dists/$ISO_APT_SUITE/main/debian-installer/binary-$NCZ_TARGET_ARCH/Packages
+    gzip -9cn dists/$ISO_APT_SUITE/main/debian-installer/binary-$NCZ_TARGET_ARCH/Packages \
+        > dists/$ISO_APT_SUITE/main/debian-installer/binary-$NCZ_TARGET_ARCH/Packages.gz
+    UDEBCT=$(grep -c '^Package: ' dists/$ISO_APT_SUITE/main/debian-installer/binary-$NCZ_TARGET_ARCH/Packages || true)
     echo "    udeb Packages: $UDEBCT entries indexed"
 )
 
@@ -2267,102 +2400,36 @@ mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/debian-installer/binary-arm64"
 # which are indexed separately above.) Runs before the Step 6 Release regen so
 # the Release hashes the rebuilt index.
 if [ "$EMBED_MIRROR" = "1" ]; then
-    # ---------------------------------------------------------------
-    # Prune the staged pool: drop every .deb whose package is already
-    # installed inside a shipped squashfs layer.
-    #
-    # The ISO was carrying the desktop/server package sets twice -- once
-    # installed in the layers, once as .debs for the offline mirror.
-    # Measured on forky10: 1005 MB of a 1013 MB pool was already in a
-    # layer, while a real install apt-installed only three packages that
-    # were not (locales, libc-l10n, systemd-container). A package already
-    # present on the variant that would ask for it can never be fetched
-    # from the pool, and the desktop hooks are variant-gated, so
-    # desktop-only packages are requested by neither variant.
-    #
-    # The mirror is still built in full -- build-squashfs-layers.sh needs
-    # it to construct the layers. This prunes only the ISO copy.
-    #
-    # Set NCZ_KEEP_FULL_POOL=1 to ship the unpruned pool.
-    # ---------------------------------------------------------------
-    if [ "${NCZ_KEEP_FULL_POOL:-0}" = "1" ]; then
-        echo "    pool prune DISABLED (NCZ_KEEP_FULL_POOL=1) — shipping the full mirror"
+    # Pre-baked files do not replace reinstallable package archives. Preserve
+    # the complete resolved closure for offline repair from mounted media.
+    # Never prune using a layer's dpkg status: that made ISO contents depend
+    # on whether unsquashfs could restore privileged overlay xattrs.
+    echo "    preserving the full offline package closure for repair/reinstall"
+    if [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
+        bash "$ROOT/build/verify-local-package-versions.sh" \
+            --pool "$STAGING/pool" \
+            --label "staged ISO pool" \
+            "${LOCAL_VERSION_ARGS[@]}"
     else
-        # Scratch lives under $STAGING (house style, cf. .installer-kernel-overlay)
-        # so it is cleaned with the build tree instead of leaking into /tmp if
-        # the build dies mid-prune.
-        NCZ_PRUNE_DIR="$STAGING/.prune-scratch"
-        rm -rf "$NCZ_PRUNE_DIR"; mkdir -p "$NCZ_PRUNE_DIR"
-        NCZ_PRUNE_KEEP="$NCZ_PRUNE_DIR/keep"; : > "$NCZ_PRUNE_KEEP"
-        # Packages any hook names on an apt-get install line. Cheap
-        # insurance against a non-variant-gated hook wanting something the
-        # other variant's layer does not carry.
-        grep -hoE "apt-get install[^|;&]*" "$ROOT"/post-install/*.sh "$ROOT"/preseed/*.sh 2>/dev/null \
-            | tr " " "\n" \
-            | grep -E "^[a-z0-9][a-z0-9.+-]+$" \
-            | grep -vE "^(apt-get|install|y|q|f|the|from|via|which|full|fail|seed|our|offline|mirror|unmet|desktop|network)$" \
-            >> "$NCZ_PRUNE_KEEP" || true
-        # Kernel packages: always reinstallable from the ISO. Keep the current
-        # unified names as well as retired channel names for upgrade recovery.
-        printf '%s\n' linux-image-cixmini linux-headers-cixmini \
-            linux-image-cixmini-legacy linux-image-cixmini-edge \
-            linux-image-cixmini-lts cixmini-boot ncz-usb-recovery >> "$NCZ_PRUNE_KEEP"
-        # 10-our-kernel.sh may install zstd directly from the pruned ISO pool
-        # before network time/certs are sane. Keep its tiny dependency chain in
-        # the same local pool so dpkg can configure it without apt's resolver.
-        printf '%s\n' zstd zlib1g libgcc-s1 liblz4-1 liblzma5 libstdc++6 >> "$NCZ_PRUNE_KEEP"
-        # Observed install-time installs that no layer provides.
-        printf '%s\n' locales libc-l10n systemd-container >> "$NCZ_PRUNE_KEEP"
-        # 20-desktop.sh installs the local ncz-singularity-desktop payload
-        # directly from /cdrom/pool/main; keep upower so that package does not
-        # land with a broken dependency while network apt sources are cold.
-        printf '%s\n' upower >> "$NCZ_PRUNE_KEEP"
-
-        NCZ_PRUNE_HAVE="$NCZ_PRUNE_DIR/have"; : > "$NCZ_PRUNE_HAVE"
-        for _l in base desktop server; do
-            # Read the SOURCE layers: $EXTRA/*.squashfs is not staged until later.
-            _sq="$ROOT/assets/squashfs/$_l.squashfs"
-            [ -f "$_sq" ] || continue
-            _tmp="$NCZ_PRUNE_DIR/$_l"; rm -rf "$_tmp"; mkdir -p "$_tmp"
-            if unsquashfs -f -d "$_tmp" -q "$_sq" var/lib/dpkg/status >/dev/null 2>&1 \
-               && [ -f "$_tmp/var/lib/dpkg/status" ]; then
-                sed -n 's/^Package: //p' "$_tmp/var/lib/dpkg/status" >> "$NCZ_PRUNE_HAVE"
-            fi
-            rm -rf "$_tmp"
-        done
-        if [ ! -s "$NCZ_PRUNE_HAVE" ]; then
-            echo "    pool prune SKIPPED — could not read any layer's dpkg status" >&2
-        else
-            _before=$(du -sm "$STAGING/pool" 2>/dev/null | cut -f1)
-            sort -u "$NCZ_PRUNE_HAVE" -o "$NCZ_PRUNE_HAVE"
-            sort -u "$NCZ_PRUNE_KEEP" -o "$NCZ_PRUNE_KEEP"
-            _dropped=0
-            while IFS= read -r _deb; do
-                _name=$(basename "$_deb"); _name=${_name%%_*}
-                grep -qxF "$_name" "$NCZ_PRUNE_KEEP" && continue
-                grep -qxF "$_name" "$NCZ_PRUNE_HAVE" || continue
-                rm -f "$_deb" && _dropped=$((_dropped + 1))
-            done < <(find "$STAGING/pool" -name '*.deb')
-            _after=$(du -sm "$STAGING/pool" 2>/dev/null | cut -f1)
-            echo "    pool pruned: dropped $_dropped deb(s) already inside a squashfs layer (${_before}M -> ${_after}M)"
-        fi
-        rm -rf "$NCZ_PRUNE_DIR"
+        echo "    verify-local-package-versions: skipped for staged ISO pool (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH has no local packages in this closure)"
     fi
-    bash "$ROOT/build/verify-local-package-versions.sh" \
-        --pool "$STAGING/pool" \
-        --label "staged ISO pool" \
-        "${LOCAL_VERSION_ARGS[@]}"
     echo "    regenerating regular deb Packages index from the staged offline pool"
-    mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64"
+    mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH"
     (
         cd "$STAGING"
         dpkg-scanpackages --type deb --multiversion pool/main /dev/null 2>/dev/null \
-            > dists/$ISO_APT_SUITE/main/binary-arm64/Packages
-        gzip -9cn dists/$ISO_APT_SUITE/main/binary-arm64/Packages \
-            > dists/$ISO_APT_SUITE/main/binary-arm64/Packages.gz
-        DEBCT=$(grep -c '^Package: ' dists/$ISO_APT_SUITE/main/binary-arm64/Packages || true)
+            > dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH/Packages
+        gzip -9cn dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH/Packages \
+            > dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH/Packages.gz
+        DEBCT=$(grep -c '^Package: ' dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH/Packages || true)
         echo "    regular deb Packages: $DEBCT entries indexed"
     )
+    python3 "$ROOT/build/verify-iso-offline-pool.py" \
+        --source-index "$MIRROR_DIR/dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH/Packages" \
+        --staging "$STAGING" \
+        --index "dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH/Packages"
+    bash "$ROOT/build/verify-offline-mirror-seeds.sh" \
+        --mirror "$STAGING" --label "staged ISO offline repair pool"
 fi
 
 if [ "$EMBED_MIRROR" = "0" ] && [ "$BOOTSTRAP_POOL" = "0" ]; then
@@ -2370,27 +2437,27 @@ if [ "$EMBED_MIRROR" = "0" ] && [ "$BOOTSTRAP_POOL" = "0" ]; then
     # Codex R78-INVALID-RELEASE-AUDIT):
     #
     # take7 attempted to force base-installer onto the http mirror by
-    # removing the target-suite regular binary-arm64 index entirely. That
+    # removing the target-suite regular binary-$NCZ_TARGET_ARCH index entirely. That
     # broke debootstrap's Release validation — it sees Components: main
-    # declared but no main/binary-arm64/Packages hashes → "Invalid
+    # declared but no main/binary-$NCZ_TARGET_ARCH/Packages hashes → "Invalid
     # Release file" red dialog.
     #
     # The actual lever for "use http, not cdrom" is `.disk/base_installable`,
     # NOT the regular Packages content. We remove the .disk markers
     # above; here we keep an empty regular Packages so the Release file
     # is consistent with `Components: main` and anna can still find
-    # main/debian-installer/binary-arm64/Packages for udeb loading.
+    # main/debian-installer/binary-$NCZ_TARGET_ARCH/Packages for udeb loading.
     echo "    netinstall mode: writing empty regular Packages index for Release-file consistency"
-    mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64"
-    : > "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages"
-    gzip -9cn "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages" \
-        > "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages.gz"
+    mkdir -p "$STAGING/dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH"
+    : > "$STAGING/dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH/Packages"
+    gzip -9cn "$STAGING/dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH/Packages" \
+        > "$STAGING/dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH/Packages.gz"
 elif [ "$BOOTSTRAP_POOL" = "1" ]; then
-    if [ ! -s "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages" ]; then
+    if [ ! -s "$STAGING/dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH/Packages" ]; then
         echo "ERROR: bootstrap pool did not provide a non-empty regular Packages index" >&2
         exit 1
     fi
-    BOOTSTRAP_DEBCT=$(grep -c '^Package: ' "$STAGING/dists/$ISO_APT_SUITE/main/binary-arm64/Packages" || true)
+    BOOTSTRAP_DEBCT=$(grep -c '^Package: ' "$STAGING/dists/$ISO_APT_SUITE/main/binary-$NCZ_TARGET_ARCH/Packages" || true)
     echo "    bootstrap pool regular Packages: $BOOTSTRAP_DEBCT entries indexed"
 fi
 
@@ -2401,13 +2468,13 @@ echo "    regenerating dists/$ISO_APT_SUITE/Release with both regular + udeb ind
 (
     cd "$STAGING"
     write_translation_indexes "$ISO_APT_SUITE" main
-    write_component_release_files "$ISO_APT_SUITE" arm64
+    write_component_release_files "$ISO_APT_SUITE" "$NCZ_TARGET_ARCH"
     if [ "$EMBED_MIRROR" = "1" ]; then
-        write_suite_release "$ISO_APT_SUITE" arm64 main "nclawzero cixmini offline mirror — $ISO_APT_SUITE arm64 (regular + udebs)"
+        write_suite_release "$ISO_APT_SUITE" "$NCZ_TARGET_ARCH" main "nclawzero cixmini offline mirror — $ISO_APT_SUITE $NCZ_TARGET_ARCH (regular + udebs)"
     elif [ "$BOOTSTRAP_POOL" = "1" ]; then
-        write_suite_release "$ISO_APT_SUITE" arm64 main "nclawzero cixmini netinstall bootstrap pool - $ISO_APT_SUITE arm64"
+        write_suite_release "$ISO_APT_SUITE" "$NCZ_TARGET_ARCH" main "nclawzero cixmini netinstall bootstrap pool - $ISO_APT_SUITE $NCZ_TARGET_ARCH"
     else
-        write_suite_release "$ISO_APT_SUITE" arm64 main "nclawzero cixmini netinstall udeb substrate — $ISO_APT_SUITE arm64"
+        write_suite_release "$ISO_APT_SUITE" "$NCZ_TARGET_ARCH" main "nclawzero cixmini netinstall udeb substrate — $ISO_APT_SUITE $NCZ_TARGET_ARCH"
     fi
 )
 echo "    Release file regenerated:"
@@ -2443,33 +2510,44 @@ fi
 printf 'dvd\n' > "$STAGING/.disk/cd_type"
 case "$MODE" in
     netinstall)
-        printf '%s - Netinstall arm64 Binary 1\n' "$NCZ_RELEASE_LABEL" > "$STAGING/.disk/info"
+        printf '%s - Netinstall %s Binary 1\n' "$NCZ_RELEASE_LABEL" "$NCZ_TARGET_ARCH" > "$STAGING/.disk/info"
         ;;
     netinstall-bootstrap)
-        printf '%s - Netinstall Bootstrap arm64 Binary 1\n' "$NCZ_RELEASE_LABEL" > "$STAGING/.disk/info"
+        printf '%s - Netinstall Bootstrap %s Binary 1\n' "$NCZ_RELEASE_LABEL" "$NCZ_TARGET_ARCH" > "$STAGING/.disk/info"
         ;;
     thin)
-        printf '%s - Thin arm64 Binary 1\n' "$NCZ_RELEASE_LABEL" > "$STAGING/.disk/info"
+        printf '%s - Thin %s Binary 1\n' "$NCZ_RELEASE_LABEL" "$NCZ_TARGET_ARCH" > "$STAGING/.disk/info"
         ;;
     *)
-        printf '%s - Offline arm64 Binary 1\n' "$NCZ_RELEASE_LABEL" > "$STAGING/.disk/info"
+        printf '%s - Offline %s Binary 1\n' "$NCZ_RELEASE_LABEL" "$NCZ_TARGET_ARCH" > "$STAGING/.disk/info"
         ;;
 esac
 # .disk/udeb_include: tells d-i to use our network-console udeb etc.
 echo "    .disk/info:    $(cat "$STAGING/.disk/info")"
 
+# 2026-09-15: Steps 2+3 (below, through the amber-phosphor palette patch)
+# replace the D-I INSTALLER ENVIRONMENT'S OWN boot kernel with our Sky1
+# edge kernel -- necessary on real Sky1 hardware (Radxa Orion O6/O6N,
+# MS-R1), where the stock arm64 d-i kernel has no working UART/ACPI/GPU
+# video console for that board, so the installer itself can't even boot
+# without our patched kernel. AMD64 has no such need: the stock forky
+# netinst's own vmlinuz+initrd already boot correctly on generic PC
+# hardware, and swapping in an ARM64 kernel binary would make the
+# installer itself unbootable on the x86_64 hardware it's meant to
+# install onto. Skip Steps 2+3 entirely for non-arm64.
+if [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
 # ----------------------------------------------------------------------
-# Step 2 — replace install.a64/vmlinuz with our Sky1 installer kernel
+# Step 2 — replace ${INSTALL_DIR}/vmlinuz with our Sky1 installer kernel
 # ----------------------------------------------------------------------
-echo "[2] swapping /install.a64/vmlinuz to linux-cix-sky1 $INSTALLER_KERNEL_LABEL ($KVER_INSTALLER)"
-[ -f "$STAGING/install.a64/vmlinuz" ] || { echo "ERROR: bookworm has no /install.a64/vmlinuz"; exit 1; }
-cp -L "$INSTALLER_KERN" "$STAGING/install.a64/vmlinuz"
-echo "    replaced: $(du -h "$STAGING/install.a64/vmlinuz" | cut -f1)"
+echo "[2] swapping /${INSTALL_DIR}/vmlinuz to linux-cix-sky1 $INSTALLER_KERNEL_LABEL ($KVER_INSTALLER)"
+[ -f "$STAGING/${INSTALL_DIR}/vmlinuz" ] || { echo "ERROR: bookworm has no /${INSTALL_DIR}/vmlinuz"; exit 1; }
+cp -L "$INSTALLER_KERN" "$STAGING/${INSTALL_DIR}/vmlinuz"
+echo "    replaced: $(du -h "$STAGING/${INSTALL_DIR}/vmlinuz" | cut -f1)"
 
 # ----------------------------------------------------------------------
-# Step 3 — concat our modules cpio onto install.a64/initrd.gz
+# Step 3 — concat our modules cpio onto ${INSTALL_DIR}/initrd.gz
 # ----------------------------------------------------------------------
-echo "[3] appending modules cpio to /install.a64/initrd.gz ($KVER_INSTALLER)"
+echo "[3] appending modules cpio to /${INSTALL_DIR}/initrd.gz ($KVER_INSTALLER)"
 
 WORK="$STAGING/.installer-kernel-overlay"
 rm -rf "$WORK"
@@ -2627,6 +2705,9 @@ echo "    overlay cpio: $(du -h "$OVERLAY_GZ" | cut -f1)"
 # (which is the load-bearing path; binary patch was a fallback for older
 # libnewt versions). User-visible effect: install dialogs use libnewt's
 # default red/blue/grey on trixie d-i instead of amber phosphor. Cosmetic.
+else
+    echo "[2+3] skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH -- stock d-i kernel/initrd already boot correctly, no Sky1 kernel swap needed)"
+fi
 if [ "$DI_CODENAME" != "bookworm" ]; then
     echo "[3.5] SKIP amber-phosphor binary patch on $DI_CODENAME (NEWT_COLORS env-var still applied below)"
     SKIP_NEWT_BINARY_PATCH=1
@@ -2638,7 +2719,7 @@ INITRD_PATCH_TMP="$STAGING/.init-patch-tmp"
 rm -rf "$INITRD_PATCH_TMP"
 mkdir -p "$INITRD_PATCH_TMP/extract" "$INITRD_PATCH_TMP/overlay/usr/lib/cdebconf/frontend"
 
-INITRD="$STAGING/install.a64/initrd.gz"
+INITRD="$STAGING/${INSTALL_DIR}/initrd.gz"
 
 # Pull /init and newt.so out of the existing initrd (gunzip handles
 # concatenated streams; cpio handles concatenated archives, last-wins)
@@ -2800,13 +2881,18 @@ done
 ( cd "$INITRD_PATCH_TMP/overlay" && find . | cpio -o -H newc --quiet | gzip -9 -n ) >> "$INITRD"
 echo "    initrd patched: amber palette + NCZ branding"
 rm -rf "$INITRD_PATCH_TMP"
-rm -rf "$WORK"
 
-# initrd.gz is a gzipped cpio. Linux supports concatenated multiple gzipped
-# initramfs members. Append directly — no padding needed for gz members.
-cat "$OVERLAY_GZ" >> "$STAGING/install.a64/initrd.gz"
-rm -f "$OVERLAY_GZ"
-echo "    initrd.gz now: $(du -h "$STAGING/install.a64/initrd.gz" | cut -f1)"
+# Step 3's own tail: append the Sky1 modules/firmware overlay cpio built
+# above (arm64-only, see the Steps 2+3 arch gate earlier) onto initrd.gz.
+# WORK/OVERLAY_GZ are only ever set inside that same arm64-only block.
+if [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
+    rm -rf "$WORK"
+    # initrd.gz is a gzipped cpio. Linux supports concatenated multiple
+    # gzipped initramfs members. Append directly — no padding needed.
+    cat "$OVERLAY_GZ" >> "$STAGING/${INSTALL_DIR}/initrd.gz"
+    rm -f "$OVERLAY_GZ"
+fi
+echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
 
 # ----------------------------------------------------------------------
 # Step 3.1 — append zstd tools for resolute data.tar.zst/control.tar.zst
@@ -2817,7 +2903,7 @@ echo "[3.1] appending zstdcat for resolute .deb extraction"
 # d-i's bootstrap extractor shells out to zstdcat for .tar.zst members.
 # Put zstd in both /bin and /usr/bin because different extractor code paths
 # use different PATHs across debootstrap/cdebootstrap/dpkg-deb variants.
-ZSTD_STATIC_BIN=$(prepare_static_zstd_aarch64)
+ZSTD_STATIC_BIN=$(prepare_static_zstd)
 TOOLS_WORK="$STAGING/.r27-tools-overlay"
 rm -rf "$TOOLS_WORK"
 # Stage under usr/bin ONLY, for the same usr-merge reason as the kernel-module
@@ -2834,10 +2920,53 @@ ln -s zstd "$TOOLS_WORK/usr/bin/zstdcat"
 TOOLS_GZ="$STAGING/.r27-tools-overlay.cpio.gz"
 ( cd "$TOOLS_WORK" && find . -mindepth 1 -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$TOOLS_GZ"
 gzip -t "$TOOLS_GZ"
-cat "$TOOLS_GZ" >> "$STAGING/install.a64/initrd.gz"
+cat "$TOOLS_GZ" >> "$STAGING/${INSTALL_DIR}/initrd.gz"
 rm -rf "$TOOLS_WORK" "$TOOLS_GZ"
 echo "    zstd: $ZSTD_STATIC_BIN"
-echo "    initrd.gz now: $(du -h "$STAGING/install.a64/initrd.gz" | cut -f1)"
+echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
+
+# r80: stage installer-time device firmware (WiFi + wired NIC) into the d-i
+# initrd, ALL arches — unlike Steps 2+3 above (arm64-only kernel/module
+# swap), this uses the SAME generic last-wins cpio-append mechanism as the
+# tools overlay just above, so it needs no arch gate at all. Confirmed live
+# 2026-09-20 on real PEGASUS (ASUS ROG Zephyrus, amd64) hardware: d-i's own
+# check-missing-firmware looped indefinitely during hw-detect on both the
+# Intel AX201 WiFi (iwlwifi-QuZ-a0-hr-b0-77.ucode) and the onboard Realtek
+# RTL8168h wired NIC (rtl_nic/rtl8168h-2.fw) -- the rtl_nic blob already
+# existed in this repo (assets/firmware/rtl_nic/, added for O6's USB NIC)
+# but was NEVER staged into the amd64 installer because the entire
+# concat-onto-initrd step it depended on lived inside the arm64-only gate.
+# There was no iwlwifi staging at all, any arch. Real fix: a generic
+# firmware overlay, same shape as TOOLS_GZ, unconditional on arch.
+FW_OVERLAY_WORK="$STAGING/.installer-firmware-overlay"
+rm -rf "$FW_OVERLAY_WORK"
+mkdir -p "$FW_OVERLAY_WORK/usr/lib/firmware"
+for _fwdir in iwlwifi rtl_nic; do
+    if [ -d "$ROOT/assets/firmware/$_fwdir" ]; then
+        mkdir -p "$FW_OVERLAY_WORK/usr/lib/firmware/$_fwdir"
+        cp -L "$ROOT/assets/firmware/$_fwdir/"* "$FW_OVERLAY_WORK/usr/lib/firmware/$_fwdir/" 2>/dev/null || true
+    fi
+done
+# iwlwifi's driver also probes the bare (non-subdir) path for some
+# generations -- ship both locations, matching upstream linux-firmware's
+# own dual placement (usr/lib/firmware/iwlwifi-*.ucode AND
+# usr/lib/firmware/intel/iwlwifi/iwlwifi-*.ucode).
+if [ -d "$FW_OVERLAY_WORK/usr/lib/firmware/iwlwifi" ]; then
+    cp -L "$FW_OVERLAY_WORK/usr/lib/firmware/iwlwifi/"*.ucode "$FW_OVERLAY_WORK/usr/lib/firmware/" 2>/dev/null || true
+fi
+FW_FILE_COUNT=$(find "$FW_OVERLAY_WORK/usr/lib/firmware" -type f | wc -l | tr -d ' ')
+if [ "$FW_FILE_COUNT" -gt 0 ]; then
+    FW_GZ="$STAGING/.r80-firmware-overlay.cpio.gz"
+    ( cd "$FW_OVERLAY_WORK" && find . -mindepth 1 -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$FW_GZ"
+    gzip -t "$FW_GZ"
+    cat "$FW_GZ" >> "$STAGING/${INSTALL_DIR}/initrd.gz"
+    rm -f "$FW_GZ"
+    echo "    installer firmware overlay: $FW_FILE_COUNT file(s) (iwlwifi + rtl_nic)"
+else
+    echo "    WARN: no installer-time firmware staged -- assets/firmware/{iwlwifi,rtl_nic} both empty/absent"
+fi
+rm -rf "$FW_OVERLAY_WORK"
+echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
 
 # ---------------------------------------------------------------------------
 # Root-hub rescan, as a d-i STARTUP script inside the initrd.
@@ -2871,10 +3000,10 @@ install -m 0755 "$ROOT/preseed/usb-rescan.sh" \
 RESCAN_GZ="$STAGING/.rescan-overlay.cpio.gz"
 ( cd "$RESCAN_WORK" && find usr -mindepth 1 -print | cpio -o -H newc --quiet | gzip -9 -n ) > "$RESCAN_GZ"
 gzip -t "$RESCAN_GZ"
-cat "$RESCAN_GZ" >> "$STAGING/install.a64/initrd.gz"
+cat "$RESCAN_GZ" >> "$STAGING/${INSTALL_DIR}/initrd.gz"
 rm -rf "$RESCAN_WORK" "$RESCAN_GZ"
 echo "    usb-rescan staged as /usr/lib/debian-installer-startup.d/S35usb-rescan"
-echo "    initrd.gz now: $(du -h "$STAGING/install.a64/initrd.gz" | cut -f1)"
+echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
 
 # ----------------------------------------------------------------------
 # Step 4 — stage /cixmini/ with preseed.cfg + late.sh + post-install + assets
@@ -2954,8 +3083,8 @@ chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh" 
 # the module is not staged and ncz_diag/DEBCONF_DEBUG are not added below.
 if [ "${DIAG_ENABLE:-1}" = 1 ]; then
     cp "$ROOT/preseed/diag-console.sh"    "$EXTRA/diag-console.sh"
-    cp "$ROOT/assets/diag/busybox-arm64"  "$EXTRA/busybox-arm64"
-    chmod 0755 "$EXTRA/diag-console.sh" "$EXTRA/busybox-arm64"
+    cp "$ROOT/assets/diag/busybox-$NCZ_TARGET_ARCH"  "$EXTRA/busybox-$NCZ_TARGET_ARCH"
+    chmod 0755 "$EXTRA/diag-console.sh" "$EXTRA/busybox-$NCZ_TARGET_ARCH"
     echo "    diag module staged (ncz_diag toggle; telnet :23 + http :8080 + remote syslog)"
 else
     echo "    diag module DISABLED (DIAG_ENABLE=0) — ship-clean image"
@@ -3077,6 +3206,16 @@ if [ -d "$ROOT/assets" ]; then
                 # Lands at /usr/local/lib/cix-installer/assets/rescue/ on the
                 # target; consumed by post-install/72-rescue-partition.sh.
                 cp -aL "$d" "$EXTRA/assets/$bn" 2>/dev/null || true
+                # AMD64's rescue rootfs is staged as rescue-rootfs-$ARCH.tar.zst
+                # (see sbom/expected-assets-amd64.txt); post-install/
+                # 72-rescue-partition.sh expects the plain arm64-era filename
+                # at runtime, so land it under that name too rather than
+                # teaching every consumer a second, arch-suffixed name.
+                if [ ! -f "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" ] && \
+                   [ -f "$EXTRA/assets/rescue/rescue-rootfs-$NCZ_TARGET_ARCH.tar.zst" ]; then
+                    cp -aL "$EXTRA/assets/rescue/rescue-rootfs-$NCZ_TARGET_ARCH.tar.zst" \
+                        "$EXTRA/assets/rescue/rescue-rootfs.tar.zst"
+                fi
                 if [ -f "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" ]; then
                     echo "    rescue-rootfs.tar.zst staged: $(du -h "$EXTRA/assets/rescue/rescue-rootfs.tar.zst" | cut -f1)"
                 elif [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ]; then
@@ -3118,7 +3257,12 @@ if [ -d "$ROOT/assets" ]; then
                 esac
             done
             STAGED_CIX_DEBS=$(find "$EXTRA/assets/cix-debs" -maxdepth 1 -name '*.deb' | wc -l | tr -d ' ')
-            if [ "$STAGED_CIX_DEBS" = "0" ] && [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ]; then
+            # cix-debs is the Sky1 GPU proprietary userland (post-install/
+            # 25-cix-proprietary.sh, arm64-only) -- AMD64 gets its GPU
+            # userspace from real vendor apt repos instead
+            # (post-install/54-gpu-accel.sh: NVIDIA/AMD/Intel), so an empty
+            # assets/cix-debs/ is correct/expected on AMD64, not an error.
+            if [ "$STAGED_CIX_DEBS" = "0" ] && [ "$MODE" = "full" ] && [ "$VARIANT" = "desktop" ] && [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
                 echo "ERROR: 0 CIX proprietary .debs staged — full desktop ISO would have no GPU userspace (dead greeter). Populate assets/cix-debs/ (see 25-cix-proprietary.sh)." >&2
                 exit 1
             fi
@@ -3130,10 +3274,26 @@ if [ -d "$ROOT/assets" ]; then
 fi
 [ -f "$ROOT/assets/ncz-cli.sh" ] && cp -aL "$ROOT/assets/ncz-cli.sh" "$EXTRA/assets/" 2>/dev/null || true
 
-# Stage target kernel. Edge (7.2.0-sky1-ncz) is the only shipping kernel.
-# full/thin stage the edge payload; netinstall uses the d-i substrate's kernel.
+# Stage target kernel payloads. AMD64 ships both the stable T2+PC line and the
+# vanilla edge line as .debs consumed by post-install/10-amd64-kernel.sh.
+# arm64 retains its single Sky1 edge payload; netinstall uses the d-i kernel.
 mkdir -p "$EXTRA/assets/kernel"
-if [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
+if [ "$NCZ_TARGET_ARCH" = amd64 ] && [ "$STAGE_NEXT_KERNEL" = "1" ]; then
+    for _amd64_channel in amd64-stable amd64-edge; do
+        _amd64_src="$ROOT/assets/kernel/$_amd64_channel"
+        [ -d "$_amd64_src" ] || {
+            echo "ERROR: missing $_amd64_src -- both AMD64 kernel channels are required" >&2
+            exit 1
+        }
+        cp -aL "$_amd64_src" "$EXTRA/assets/kernel/"
+        _amd64_debs=$(find "$EXTRA/assets/kernel/$_amd64_channel" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')
+        [ "$_amd64_debs" -ge 2 ] || {
+            echo "ERROR: $_amd64_channel staged only $_amd64_debs .deb(s), expected image + headers" >&2
+            exit 1
+        }
+        echo "    $_amd64_channel staged: $_amd64_debs packages ($(du -sh "$EXTRA/assets/kernel/$_amd64_channel" | cut -f1))"
+    done
+elif [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
     mkdir -p "$EXTRA/assets/kernel/edge"
     cp -L "$NEXT_KERN" "$EXTRA/assets/kernel/edge/"
     cp -L "$NEXT_TGZ"  "$EXTRA/assets/kernel/edge/"
@@ -3318,7 +3478,18 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
     if [ -f "$SQUASHFS_DIR/base.squashfs" ]; then
         assert_squashfs_root_mode "$SQUASHFS_DIR/base.squashfs" "base"
         cp -L "$SQUASHFS_DIR/base.squashfs" "$EXTRA/base.squashfs"
-        [ -d "$ROOT/build/sqtools" ] && cp -a "$ROOT/build/sqtools" "$EXTRA/sqtools"
+        # sqtools (unsquashfs + its loader/libs) is a real ELF binary bundle,
+        # not a source asset -- it MUST match NCZ_TARGET_ARCH exactly, or the
+        # r159 extraction stub's very first exec fails (ARM64 unsquashfs on
+        # an AMD64 installer: exit 1, no diagnostic, nothing ever extracted
+        # -- confirmed 2026-09-15 by mounting a failed install's empty
+        # target disk directly). Prefer build/sqtools-$ARCH when present,
+        # falling back to the historical build/sqtools (arm64) name.
+        if [ -d "$ROOT/build/sqtools-$NCZ_TARGET_ARCH" ]; then
+            cp -a "$ROOT/build/sqtools-$NCZ_TARGET_ARCH" "$EXTRA/sqtools"
+        elif [ -d "$ROOT/build/sqtools" ]; then
+            cp -a "$ROOT/build/sqtools" "$EXTRA/sqtools"
+        fi
         # r190.3: stage EVERY built variant delta, not just $VARIANT -- the GRUB
         # menu offers both desktop and server as separate boot entries (see the
         # server.squashfs GRUB gate above), but extract-rootfs.sh looks for
@@ -3347,9 +3518,9 @@ if [ "$STAGE_ROOTFS" = "1" ]; then
         done
         echo "    LAYERED SQUASHFS staged: base $(du -h "$EXTRA/base.squashfs"|cut -f1) +${STAGED_VARIANTS:- NONE}"
         ROOTFS_TARBALL=""
-    elif ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-$ISO_APT_SUITE-arm64.tar.zst"; [ -f "$ROOTFS_TARBALL" ]; then
+    elif ROOTFS_TARBALL="$ROOT/assets/rootfs/rootfs-${ISO_APT_SUITE}-${NCZ_TARGET_ARCH}.tar.zst"; [ -f "$ROOTFS_TARBALL" ]; then
         cp -L "$ROOTFS_TARBALL" "$EXTRA/rootfs.tar.zst"
-        echo "    rootfs.tar.zst staged: $(du -h "$EXTRA/rootfs.tar.zst" | cut -f1) ($ISO_APT_SUITE arm64 pre-built target)"
+        echo "    rootfs.tar.zst staged: $(du -h "$EXTRA/rootfs.tar.zst" | cut -f1) ($ISO_APT_SUITE $NCZ_TARGET_ARCH pre-built target)"
     else
         echo "ERROR: $ROOTFS_TARBALL missing — run build-rootfs.sh first" >&2
         exit 1
@@ -3399,7 +3570,25 @@ mkdir -p "$STAGING/boot/grub"
 # FIRST so tty0 stays primary. The installer now does the same, and lists BOTH
 # UARTs so one ISO covers O6N (ttyAMA0) and MS-R1 (ttyAMA2) -- a console= naming
 # a port that does not exist is ignored, so listing both is safe.
-MARTJOHNSON_R6="loglevel=4 console=ttyAMA0,115200 console=ttyAMA2,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+# arm64 (Sky1): serial-first UART cmdline, ACPI/SMMU quirks, USB-C PD chip
+# blacklist -- all Sky1-hardware-specific, see the comment above.
+# amd64: no Sky1 UART/ACPI/SMMU quirks apply. Standard PC/T2 serial console
+# (ttyS0 -- the conventional first 16550 UART) + tty0, no special flags.
+# T2-vs-regular hardware detection/handling happens post-install via
+# post-install/lib/hw-detect.sh + 55-t2-firmware.sh, not via installer
+# cmdline hacks -- the SAME kernel cmdline boots both.
+case "$NCZ_TARGET_ARCH" in
+    arm64)
+        MARTJOHNSON_R6="loglevel=4 console=ttyAMA0,115200 console=ttyAMA2,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+        ;;
+    amd64)
+        MARTJOHNSON_R6="loglevel=4 console=ttyS0,115200 console=tty0 audit_backlog_limit=8192 panic=30 nmi_watchdog=0"
+        ;;
+esac
+case "$NCZ_TARGET_ARCH" in
+    arm64) DIAG_CONSOLE_LABEL="O6/O6N ttyAMA0, 115200" ;;
+    amd64) DIAG_CONSOLE_LABEL="ttyS0, 115200" ;;
+esac
 # SCREEN-ONLY cmdline for the entries a human boots at the machine.
 #
 # debian-installer picks its UI console from /sys/class/tty/console/active, and
@@ -3441,7 +3630,28 @@ MARTJOHNSON_R6="loglevel=4 console=ttyAMA0,115200 console=ttyAMA2,115200 console
 #
 # The DIAG entry keeps keep_bootcon AND the explicit UARTs, because a serial
 # trace is its whole purpose.
-MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+case "$NCZ_TARGET_ARCH" in
+    arm64)
+        MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+        ;;
+    amd64)
+        # STRUCTURAL HARDENING 2026-09-17 (operator: "we need more intelligent
+        # detection for AMD/Intel systems for display console"): the DI_OPTS_GFX
+        # auto=true fix above is the actual bugfix, but a real, unconnected
+        # 16550 UART still gets its own d-i inittab respawn entry whenever it's
+        # listed here (harmless once auto=true is gone -- it just idles waiting
+        # for input on a port nothing is attached to -- but it's still a second,
+        # pointless installer instance and a confusing thing to land on if a
+        # human switches VTs). Rather than keep guessing at console= ordering
+        # heuristics for hardware we cannot enumerate at ISO-build time (every
+        # PC/laptop's UART presence and firmware console-registration behavior
+        # differs -- this exact class of bug already burned multiple arm64
+        # hardware revisions, see the extensive history above), the GFX/desktop
+        # entry simply never offers a serial console at all. Serial tracing is
+        # what the DIAG entry (MARTJOHNSON_R6, unchanged) is for.
+        MARTJOHNSON_R6_GFX="loglevel=4 console=tty0 audit_backlog_limit=8192 panic=30 nmi_watchdog=0"
+        ;;
+esac
 DI_PRIORITY=critical  # r134: was high; high drops d-i to interactive menu after finish-install (no auto-reboot). critical auto-progresses to the terminal reboot; the remove-media prompt is itself critical so it still shows.
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
@@ -3474,7 +3684,19 @@ DI_OPTS="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg
 # asked relative to preseed load. preseed/file= is unaffected.
 #
 # DIAG keeps auto=true, since it wants the single serial instance.
-DI_OPTS_GFX="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
+#
+# BUG FIXED 2026-09-17 (real, photographed on PEGASUS/AMD64 real hardware):
+# this line copy-pasted DI_OPTS verbatim, auto=true and all -- directly
+# contradicting the "WITHOUT auto=true" reasoning in the comment block right
+# above it. Effect: the DEFAULT desktop-install menu entry (set default=0,
+# below) tripped reopen-console's single-console preseeding path anyway,
+# picked ttyS0 (a real, firmware-registered 16550 UART on real PC hardware
+# even with nothing physically connected to it -- unlike arm64's ttyAMA2,
+# which simply does not exist on O6N and so never wins this pick), and
+# /sbin/debian-installer respawned there in a tight ~1s loop
+# (exitcode:0 each time -- a clean exit, not a crash) while the actual
+# laptop screen sat frozen at the last kernel boot message forever.
+DI_OPTS_GFX="priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
 # Diagnostics build switch: when on, enable the in-installer diag module
 # (ncz_diag=1) and verbose debconf logging (DEBCONF_DEBUG=5). Both are
 # omitted for DIAG_ENABLE=0 ship builds. Boot-time override: ncz_diag=0.
@@ -3530,26 +3752,26 @@ menuentry "$GRUB_INSTALL_TITLE" {
     set background_color=black
     set color_normal=light-green/black
     echo ">> ncz-installer loading Sky1 $INSTALLER_KERNEL_LABEL kernel + d-i ($NCZ_RELEASE_CODENAME)..."
-    linux  /install.a64/vmlinuz $DI_OPTS_GFX ncz_variant=desktop ncz_rev=$VERSION $MARTJOHNSON_R6_GFX
+    linux  /${INSTALL_DIR}/vmlinuz $DI_OPTS_GFX ncz_variant=desktop ncz_rev=$VERSION $MARTJOHNSON_R6_GFX
     echo ">> Loading initrd (modules + preseed + zstd)..."
-    initrd /install.a64/initrd.gz
+    initrd /${INSTALL_DIR}/initrd.gz
 }
 
 menuentry "SAFE — rescue shell ($INSTALLER_KERNEL_LABEL, no install)" {
     set background_color=black
     set color_normal=light-green/black
     echo ">> Loading rescue mode ($INSTALLER_KERNEL_LABEL $KVER_INSTALLER)..."
-    linux  /install.a64/vmlinuz rescue/enable=true $MARTJOHNSON_R6_GFX
-    initrd /install.a64/initrd.gz
+    linux  /${INSTALL_DIR}/vmlinuz rescue/enable=true $MARTJOHNSON_R6_GFX
+    initrd /${INSTALL_DIR}/initrd.gz
 }
 
-menuentry "DIAG — unified install, full serial trace (O6/O6N ttyAMA0, 115200)" {
+menuentry "DIAG — unified install, full serial trace ($DIAG_CONSOLE_LABEL)" {
     set background_color=black
     set color_normal=light-green/black
-    echo ">> DIAG boot: full kernel + d-i trace on ttyAMA0 @115200..."
-    linux  /install.a64/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION anna/choose_modules=network-console earlycon ignore_loglevel console=ttyAMA0,115200 console=ttyAMA2,115200 console=tty0 efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453
+    echo ">> DIAG boot: full kernel + d-i trace on $DIAG_CONSOLE_LABEL..."
+    linux  /${INSTALL_DIR}/vmlinuz $DI_OPTS ncz_variant=desktop ncz_rev=$VERSION anna/choose_modules=network-console earlycon ignore_loglevel $MARTJOHNSON_R6
     echo ">> Loading initrd (trace mode)..."
-    initrd /install.a64/initrd.gz
+    initrd /${INSTALL_DIR}/initrd.gz
 }
 GRUB
 echo "    grub.cfg written ($(wc -l < "$GRUB_CFG") lines)"

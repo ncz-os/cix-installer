@@ -3,6 +3,14 @@
 **There is exactly one valid ISO at a time.** Every rebuild follows this
 sequence.
 
+> **Pipeline note (2026-09-22):** the arm64/Sky1 production path is
+> `build/build-iso-di.sh` (the script below). The new xorriso-based
+> amd64 writer (`build/iso/write-image.py` + sibling scripts) supersedes
+> it for amd64; that path uses the same content producer
+> (`build-squashfs-layers.sh`) but a different assembly stage. arm64 has
+> not yet been migrated to the new writer (no amd64 parity yet) — see
+> `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`.
+
 ## 1. Rebuild what changed
 
 ```bash
@@ -23,7 +31,7 @@ obsolete.
 > 32 GB tmpfs; the script relocates automatically, but a manual `WORK=`
 > override on tmpfs will fail at ~21% and report as archive corruption.
 
-## 2. Bake the ISO
+## 2. Bake the ISO (arm64/Sky1 production path)
 
 ```bash
 sudo ./build/build-iso-di.sh \
@@ -33,7 +41,45 @@ sudo ./build/build-iso-di.sh \
   --output build/nclawzero-installer-cixmini-<VERSION>.iso
 ```
 
-## 3. Gate it before it reaches hardware
+> **Note on the `--bookworm-iso` flag name:** the flag is historical
+> (predates the Bookworm→Forky substrate migration). The actual substrate
+> is `debian-testing-arm64-netinst.iso`, which is **Debian Testing /
+> Forky**, NOT Bookworm — see `release.conf`'s `NCZ_BASE_CODENAME=forky`
+> and `Makefile`'s `UPSTREAM_ISO` default. The Makefile target `make iso`
+> passes the right ISO automatically; calling `build-iso-di.sh` by hand
+> is for explicit substrate override or gate-only invocation.
+
+## 3. Bake the ISO (amd64 — new xorriso writer)
+
+The new amd64 path is a Python composition, not a single shell call:
+
+```bash
+# 1. Import the d-i substrate (Bookworm amd64 netboot, pinned by hash).
+#    One-shot per substrate; subsequent builds reuse the cache:
+bash build/iso/import-substrate.py --arch amd64 \
+    --iso-url https://deb.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/mini.iso
+
+# 2. Build the rEFInd ESP image (deterministic, content-hashed):
+bash build/iso/build-refind-esp.py --arch amd64
+
+# 3. Stage the cixmini payload + patched debootstrap stub:
+bash build/iso/stage-cixmini-payload.py --arch amd64
+bash build/iso/patch-debootstrap-stub.py --arch amd64
+
+# 4. Compose the bootable ISO:
+bash build/iso/write-image.py --arch amd64 --mode cold \
+    --output build/ncz-cold-amd64-<VERSION>.iso
+
+# 5. Verify independently:
+bash build/iso/verify-image.py build/ncz-cold-amd64-<VERSION>.iso
+```
+
+> **Real, current amd64 status (2026-09-22):** base-only ISO is
+> boot-verified end-to-end (1.69 GB). Desktop squashfs is NOT yet
+> staged for the new writer, and arm64/Sky1 has never been attempted
+> with the new writer. Both are real gaps — do not imply otherwise.
+
+## 4. Gate it before it reaches hardware
 
 ```bash
 sudo ./build/kvm-install-gate.sh build/nclawzero-installer-cixmini-<VERSION>.iso
@@ -47,7 +93,7 @@ hardware because no gate ran it.
 Then validate on real hardware: install on an O6N or MS-R1 and confirm the
 accelerators with a workload, not a probe.
 
-## 4. Publish
+## 5. Publish
 
 1. Update **`docs/releases/<VERSION>.md`** with what is in the release, and the
    **README** if capability or hardware status changed.

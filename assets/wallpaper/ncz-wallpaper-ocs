@@ -423,9 +423,12 @@ def ensure_imported_ocs_collection(dest: Path) -> Path:
     """Create the shared .collection file ONCE (idempotent) and return its
     path. Subsequent imports do not touch it -- the .collection file is
     registered as a singleton on first import and left alone thereafter."""
+    # Same directory WallpaperCollections.default_search_roots() scans, so
+    # the Settings UI's Wallpaper Source picker sees this pack too instead
+    # of a second, invisible copy.
     collection_dir = (
         Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
-        / "ncz-wallpapers" / "collections"
+        / "singularity" / "wallpaper-collections"
     )
     collection_dir.mkdir(parents=True, exist_ok=True)
     collection = collection_dir / f"{IMPORTED_OCS_COLLECTION_ID}.collection"
@@ -565,7 +568,14 @@ def cmd_providers(_: argparse.Namespace) -> None:
 
 
 def cmd_categories(args: argparse.Namespace) -> None:
-    print(json.dumps(get_categories(args.provider), indent=2, sort_keys=True))
+    # singularity-plugins' wallpapers-ocs Vala plugin (WallpaperOcs.categories())
+    # parses this subcommand's stdout as a JSON OBJECT (same document-parser it
+    # uses for `browse`'s output), not a bare array -- confirmed live 2026-09-21,
+    # MEDUSA: real error "Could not load OCS Network choices: Expected a JSON
+    # object" the moment this printed a plain `[...]` list. Wrap it, matching
+    # the same self-naming convention `providers` (key "providers") and `index`
+    # (key "entries") already use.
+    print(json.dumps({"schema": SCHEMA, "provider": args.provider, "categories": get_categories(args.provider)}, indent=2, sort_keys=True))
 
 
 def cmd_index(args: argparse.Namespace) -> None:
