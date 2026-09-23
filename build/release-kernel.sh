@@ -38,6 +38,7 @@
 # Usage:
 #   BUILD_REV=r263 build/release-kernel.sh
 #   BUILD_REV=r263 build/release-kernel.sh --skip-kernel   # kernel already built
+#   BUILD_REV=r263 build/release-kernel.sh --skip-kernel --skip-mali-build # resume after GPU build
 #   BUILD_REV=r263 build/release-kernel.sh --no-dkms-debs
 #
 # Exit non-zero on the first failure. Nothing here publishes or pushes: the
@@ -67,10 +68,11 @@ RUNNER="${NCZ_YOCTO_RUNNER:-$YOCTO/y6-run-ultra.sh}"
 WORKROOT="${NCZ_WORKROOT:-$HOME/ybuild/tmp/work/cixmini-nclawzero-linux}"
 EXTRA_CONF="${NCZ_BITBAKE_EXTRA_CONF:-}"
 
-SKIP_KERNEL=0; DO_DKMS=1; SKIP_GPU=0
+SKIP_KERNEL=0; DO_DKMS=1; SKIP_GPU=0; SKIP_MALI=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --skip-kernel)  SKIP_KERNEL=1; shift ;;
+        --skip-mali-build) SKIP_MALI=1; shift ;;
         --skip-gpu-kmd) SKIP_GPU=1;    shift ;;
         --no-dkms-debs) DO_DKMS=0;     shift ;;
         -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
@@ -120,7 +122,7 @@ echo "  KVER = $KVER"
 echo "  from = $KDIR"
 
 # ------------------------------------------------------------- 2. gpu (mali)
-if [ "$SKIP_GPU" = 0 ]; then
+if [ "$SKIP_GPU" = 0 ] && [ "$SKIP_MALI" = 0 ]; then
     step "2/7 build cix-gpu-kmd (mali) against $KVER"
     bb -c cleansstate cix-gpu-kmd || die "cix-gpu-kmd cleansstate failed"
     bb cix-gpu-kmd                || die "cix-gpu-kmd build failed"
@@ -185,14 +187,29 @@ if [ $SKIP_GPU = 0 ]; then
     [ -d "$HDRDIR" ] || die "no staged headers-dir at $HDRDIR -- did stage-kernel.sh run?"
     PANTHOR_VER="$(command -v dkms >/dev/null 2>&1 || PATH="$PATH:/usr/sbin"; dkms status 2>/dev/null | grep -oE '^panthor-cix/[0-9.]+' | head -1 | cut -d/ -f2)"
     [ -n "$PANTHOR_VER" ] || die "panthor-cix not registered in dkms -- nothing to rebuild"
-    sudo dkms build  panthor-cix/"$PANTHOR_VER" -k "$KVER" --kernelsourcedir "$HDRDIR"         || die "panthor-cix dkms build failed against $HDRDIR"
-    sudo dkms install panthor-cix/"$PANTHOR_VER" -k "$KVER" --kernelsourcedir "$HDRDIR" --force         || die "panthor-cix dkms install failed"
-    PKO="/lib/modules/$KVER/updates/dkms/panthor.ko"
-    [ -e "$PKO" ] || PKO="$(find /var/lib/dkms/panthor-cix/$PANTHOR_VER/$KVER -iname 'panthor.ko*' 2>/dev/null | head -1)"
-    [ -n "$PKO" ] && [ -e "$PKO" ] || die "panthor.ko not found after dkms install"
+    python3 "$REPO/build/prepare-staged-kbuild-tools.py" "$HDRDIR" || die "native staged-header tools failed"
+    "$REPO/build/dkms-abi-gate.sh" "$REPO/assets/kernel/edge/Image-cixmini.bin" "$HDRDIR" --config "$REPO/assets/kernel/edge/config-$KVER" || die "ABI gate after host-tool preparation failed"
+    sudo dkms build panthor-cix/"$PANTHOR_VER" -k "$KVER" --kernelsourcedir "$HDRDIR" --force || die "panthor-cix dkms build failed against $HDRDIR"
+    "$REPO/build/dkms-abi-gate.sh" "$REPO/assets/kernel/edge/Image-cixmini.bin" "$HDRDIR" --config "$REPO/assets/kernel/edge/config-$KVER" || die "ABI gate after DKMS build failed"
+
+    # Export DKMS build output rather than invoking install on the build
+    # host: Fedora DKMS runs a host-wide dracut post-transaction hook even
+    # with --installtree and --no-depmod. Packages need the built module,
+    # not a build-host kernel installation or an initramfs regeneration.
+    STAGED="$(readlink -f "$REPO/assets/kernel/edge")"
+    PANTHOR_ROOT="$(mktemp -d "$STAGED/panthor-root.XXXXXX")" || die "cannot create module staging root"
+    tar -xzf "$STAGED/modules-cixmini.tgz" -C "$PANTHOR_ROOT" || die "cannot extract staged modules"
+    PKO_SOURCE="/var/lib/dkms/panthor-cix/$PANTHOR_VER/$KVER/$(uname -m)/module/panthor.ko"
+    [ -s "$PKO_SOURCE" ] || die "panthor.ko missing from the completed DKMS build"
+    PKO="$PANTHOR_ROOT/lib/modules/$KVER/updates/dkms/panthor.ko"
+    install -D -m 0644 "$PKO_SOURCE" "$PKO" || die "cannot stage built panthor.ko"
     pvm="$(modinfo -F vermagic "$PKO" 2>/dev/null | awk '{print $1}')"
     [ "$pvm" = "$KVER" ] || die "panthor vermagic mismatch: '$pvm' vs kernel '$KVER'"
-    echo "  panthor.ko vermagic=$KVER confirmed, built against $HDRDIR"
+    depmod -b "$PANTHOR_ROOT" -a "$KVER" || die "staged module depmod failed"
+    tar -C "$PANTHOR_ROOT" -czf "$STAGED/modules-cixmini.tgz.new" "lib/modules/$KVER" || die "cannot pack staged Panthor module"
+    mv "$STAGED/modules-cixmini.tgz.new" "$STAGED/modules-cixmini.tgz" || die "cannot update staged modules"
+    echo "  panthor.ko vermagic=$KVER confirmed, built against $HDRDIR and included in staged modules"
+
 else
     step "4b/7 panthor-cix rebuild -- SKIPPED"
 fi

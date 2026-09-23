@@ -688,11 +688,9 @@ EOF
 #
 #   1. Stage the tarball content to /lib/modules/$KVER/build/ (idempotent
 #      -- safe to re-run on a board that already has the headers).
-#   2. Run `make ARCH=arm64 modules_prepare` to rebuild the host tools the
-#      headers tarball omits (fixdep, modpost -- both unrunnable because
-#      they are Yocto build-host binaries; see 79-dkms-prep.sh for the
-#      full story). The expected late failure on kernel/bounds.s is
-#      documented and harmless: modpost and fixdep are built by then.
+#   2. Rebuild fixdep/modpost through the shared native host-tool helper.
+#      Preserve the exact staged headers/configuration and kernel identity;
+#      never run top-level modules_prepare or syncconfig on this tree.
 #   3. Run `dkms autoinstall -k $KVER` to rebuild every registered DKMS
 #      package against the now-correct headers. FAIL LOUDLY if any package
 #      fails to build -- a silently-stale GPU driver is worse than a failed
@@ -745,6 +743,9 @@ build_headers_deb() {
     [ -f "$root/usr/lib/modules/$kver/build/Makefile" ] \
         || { echo "ERROR: $src_tar did not yield a complete build/ tree" >&2; exit 1; }
 
+    install -D -m 0755 "$REPO/build/prepare-staged-kbuild-tools.py" \
+        "$root/usr/libexec/ncz/prepare-staged-kbuild-tools.py"
+
     # Postinst: the OTA-DKMS-HEADER-FIX-2026-08-21 sequence.
     # This is the file that does what the operator has been doing by hand
     # twice (r246, r247). Keep the rationale in the heredoc, not just in
@@ -795,87 +796,15 @@ if [ ! -f "$B/Makefile" ] || [ ! -f "$B/.config" ] || [ ! -f "$B/Module.symvers"
     exit 1
 fi
 
-# 2. modules_prepare -- rebuild the host tools the tarball omits.
-#
-# The headers tarball is built from a Yocto split build dir. The compiled
-# host tools (scripts/basic/fixdep, scripts/mod/modpost) are Yocto
-# build-host binaries linked against the uninative loader, which does not
-# exist on the target. Running them produces
-#   /bin/sh: 1: .../fixdep: not found
-# which DKMS surfaces as a baffling "Error 127" on the first .o. Rebuild
-# them natively here, before any dkms call.
-#
-# Pin the localversion while we are in the tree. The tarball already
-# carries a localversion-ncz (see extract-kernel-headers.sh), but a manual
-# re-extract or a re-run of `make modules_prepare` can REWRITE the kernel
-# release string and silently stamp every rebuilt module with a vermagic
-# that does not match the running kernel. This is the SECOND mode of the
-# r246/r247 bug -- 79-dkms-prep.sh already guards it; do so again here so
-# the OTA path is independent of any post-install step.
-SUFFIX=""
-case "$KVER" in
-    *-sky1-ncz) SUFFIX="-sky1-ncz" ;;
-    *-cix-sky1-next) SUFFIX="-cix-sky1-next" ;;
-esac
-if [ -n "$SUFFIX" ]; then
-    if [ "$(cat "$B/localversion-ncz" 2>/dev/null)" != "$SUFFIX" ]; then
-        printf '%s\n' "$SUFFIX" > "$B/localversion-ncz"
-        log "pinned localversion-ncz=$SUFFIX"
-    fi
-fi
-
-# Detect-and-rebuild the foreign host tools, exactly as 79-dkms-prep.sh
-# does. Reproduced here (rather than shelling out to 79) because the OTA
-# path cannot assume the post-install hooks ever ran: a board that
-# upgraded from a pre-79 world, or that was installed via a non-standard
-# path, will never have invoked 79. The header tree must be self-healing.
-tool_usable() {
-    [ -x "$1" ] || return 1
-    "$1" --version >/dev/null 2>&1 || return 1
-    case $? in 126|127) return 1;; esac
-    return 0
+# 2. Rebuild only native host tools, retaining all exact-build headers.
+# Top-level modules_prepare/syncconfig can rewrite the kernel identity or
+# configuration. The shared helper invokes Kbuild's host rules directly
+# and refuses any header/config/symbol change.
+log "preparing native host tools without regenerating kernel headers"
+python3 /usr/libexec/ncz/prepare-staged-kbuild-tools.py "$B" || {
+    warn "native host-tool preparation failed; refusing DKMS rebuild"
+    exit 1
 }
-need_rebuild=0
-for tool in scripts/basic/fixdep scripts/mod/modpost; do
-    tool_usable "$B/$tool" || need_rebuild=1
-done
-
-if [ "$need_rebuild" = "1" ]; then
-    log "rebuilding host tools natively (shipped ones are Yocto build-host binaries)"
-    SEL="$B/scripts/selinux/Makefile"
-    SELBAK=""
-    restore_selinux() {
-        [ -n "${SELBAK:-}" ] && [ -f "$SELBAK" ] && cp -a "$SELBAK" "$SEL"
-        [ -n "${SELBAK:-}" ] && rm -f "$SELBAK"
-        SELBAK=""
-    }
-    trap 'restore_selinux' EXIT INT TERM
-    if [ -f "$SEL" ]; then
-        SELBAK="$(mktemp)"; cp -a "$SEL" "$SELBAK"; : > "$SEL"
-    fi
-    LOG=/var/log/ncz-headers-modules-prepare.log
-    if make -C "$B" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare >>"$LOG" 2>&1; then
-        log "modules_prepare clean (log: $LOG)"
-    else
-        # A late failure on kernel/bounds.s is EXPECTED -- the headers
-        # tarball does not carry the full source tree that target depends
-        # on, and 79-dkms-prep.sh documents this in detail. The two tools
-        # we actually needed (fixdep, modpost) are built by the time kbuild
-        # reaches that target, so a non-zero exit is harmless.
-        log "modules_prepare returned non-zero (expected: headers omit some generated sources; see $LOG)"
-    fi
-    restore_selinux
-    trap - EXIT INT TERM
-    for tool in scripts/basic/fixdep scripts/mod/modpost; do
-        if tool_usable "$B/$tool"; then
-            log "$tool -> native"
-        else
-            warn "$tool still unusable; DKMS builds will fail (see $LOG)"
-        fi
-    done
-else
-    log "host tools already native"
-fi
 
 # Verify the release string the tree will stamp equals KVER. If it does
 # not, every module DKMS is about to build will be stamped with a vermagic
@@ -1109,7 +1038,7 @@ Maintainer: $MAINT
 Section: kernel
 Priority: optional
 Installed-Size: $isize
-Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, make
+Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, make, gcc, python3
 Recommends: dkms, build-essential, flex, bison, bc, libelf-dev, dracut | initramfs-tools | linux-initramfs-tool
 Description: NCZ cixmini kernel headers ($kver) with OTA-DKMS rebuild
   Header tree for linux-image-cixmini-$kver, packaged as a separate .deb
