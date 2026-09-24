@@ -135,6 +135,22 @@ def patch_t2_kernel(
     if preseed_cfg is not None and not preseed_cfg.is_file():
         raise RuntimeError(f"FATAL: preseed.cfg not found: {preseed_cfg}")
 
+    # The moment preseed.cfg goes into the initrd it is what every install
+    # reads, so this is the last place a snapshot drift can still be cheap.
+    if preseed_cfg is not None:
+        gate = REPO_ROOT / "build" / "check-preseed-mirror-sync.sh"
+        if gate.is_file():
+            r = subprocess.run(["bash", str(gate)], capture_output=True, text=True)
+            if r.returncode != 0:
+                raise RuntimeError(
+                    "FATAL: preseed.cfg's mirror block has drifted from "
+                    "release.conf -- refusing to bake it into the initrd.\n"
+                    + r.stdout + r.stderr
+                )
+            log(f"    {r.stdout.strip()}")
+        else:
+            log(f"WARNING: {gate} missing -- preseed/release.conf mirror sync NOT checked")
+
     helpers: list[Path] = []
     if helper_dir is not None:
         missing = [n for n in BAKED_HELPERS if not (helper_dir / n).is_file()]
