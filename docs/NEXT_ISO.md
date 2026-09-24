@@ -63,7 +63,7 @@ bash build/iso/import-substrate.py --arch amd64 \
 bash build/iso/build-refind-esp.py --arch amd64
 
 # 3. Stage the cixmini payload + patched debootstrap stub:
-bash build/iso/stage-cixmini-payload.py --arch amd64
+bash build/iso/stage-ncz-payload.py --arch amd64
 bash build/iso/patch-debootstrap-stub.py --arch amd64
 
 # 4. Compose the bootable ISO:

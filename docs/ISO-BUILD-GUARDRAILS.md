@@ -8,7 +8,7 @@
 > still `build/build-iso-di.sh` + `build/build-squashfs-layers.sh` (the
 > monolithic pipeline this document was written about). The new
 > xorriso-based **amd64** assembly writer
-> (`build/iso/{import-substrate,build-refind-esp,stage-cixmini-payload,patch-debootstrap-stub,write-image,verify-image}.py`)
+> (`build/iso/{import-substrate,build-refind-esp,stage-ncz-payload,patch-debootstrap-stub,write-image,verify-image}.py`)
 > is the superseding design — see
 > `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
 > for the long-term migration plan. The guardrails below apply to the

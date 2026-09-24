@@ -37,7 +37,7 @@ Two partitions, GPT:
        esp.img (rEFInd + the d-i kernel/initrd -- unchanged, that
        script already builds a real FAT image with mtools).
   2 -- data (type 8300, ext4), containing /cixmini/<payload tree> --
-       the same logical content write-image.py's stage_cixmini_payload()
+       the same logical content write-image.py's stage_ncz_payload()
        staged into the ISO tree, built directly here instead (and with
        the missing desktop-hotfix.squashfs / desktop-hotfix.overlay-manifest
        / busybox-$ARCH entries that write-image.py's own `expected` list
@@ -76,7 +76,7 @@ require_free_space() and verify_data_partition_content().
 
 Usage:
     write-usb-image.py --arch {amd64,arm64} --esp-img PATH
-        --cixmini-payload-dir PATH [--patched-udeb PATH]
+        --ncz-payload-dir PATH [--patched-udeb PATH]
         [--preseed-dir PATH] --out PATH [--data-size-mib N]
         [--work-dir PATH]
 """
@@ -110,9 +110,9 @@ GPT_TYPE_LINUX = "8300"
 GPT_TYPE_GUID_ESP = bytes.fromhex("28732ac11ff8d211ba4b00a0c93ec93b")
 GPT_TYPE_GUID_LINUX = bytes.fromhex("af3dc60f838472478e793d69d8477de4")
 
-# Real staleness bug found 2026-09-24: write-image.py's stage_cixmini_payload()
+# Real staleness bug found 2026-09-24: write-image.py's stage_ncz_payload()
 # `expected` list never picked up desktop-hotfix.squashfs / its manifest /
-# busybox-$ARCH even after stage-cixmini-payload.py started producing them
+# busybox-$ARCH even after stage-ncz-payload.py started producing them
 # the same session. Fixed here; the file list is arch-suffix-aware for busybox.
 def expected_payload_names(arch: str) -> list[str]:
     return [
@@ -242,24 +242,24 @@ def verify_data_partition_content(data_img: Path, staged_root: Path) -> None:
         f"({total} bytes) with matching sha256")
 
 
-def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
-                        patched_udeb: Path | None, preseed_dir: Path | None,
-                        allow_missing_stub: bool = False,
-                        post_install_dir: Path | None = None,
-                        build_version: str | None = None) -> dict:
-    """Same shape as write-image.py's stage_cixmini_payload(), corrected
+def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
+                           patched_udeb: Path | None, preseed_dir: Path | None,
+                           allow_missing_stub: bool = False,
+                           post_install_dir: Path | None = None,
+                           build_version: str | None = None) -> dict:
+    """Same shape as write-image.py's stage_ncz_payload(), corrected
     for the hotfix/busybox staleness bug documented above."""
     if not payload_dir.is_dir():
         raise RuntimeError(f"FATAL: cixmini payload dir not found: {payload_dir}")
-    cixmini_dst = stage_dir / "cixmini"
-    cixmini_dst.mkdir(parents=True, exist_ok=True)
+    ncz_payload_dst = stage_dir / "cixmini"
+    ncz_payload_dst.mkdir(parents=True, exist_ok=True)
 
     staged = []
     for name in expected_payload_names(arch):
         src = payload_dir / name
         if not src.exists():
             continue
-        dst = cixmini_dst / name
+        dst = ncz_payload_dst / name
         if src.is_dir():
             run(["cp", "-a", str(src) + "/.", str(dst)])
         else:
@@ -296,7 +296,7 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
     if patched_udeb is not None:
         if not patched_udeb.is_file():
             raise RuntimeError(f"FATAL: patched udeb not found: {patched_udeb}")
-        dst_dir = cixmini_dst / "debootstrap-udeb"
+        dst_dir = ncz_payload_dst / "debootstrap-udeb"
         dst_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(patched_udeb), str(dst_dir / patched_udeb.name))
         receipt["patched_udeb"] = patched_udeb.name
@@ -320,7 +320,7 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # $EXTRA/post-install"); the raw-GPT writer dropped it in the migration, and
     # late.sh's baked-mode refresh (which deletes the target's tree BEFORE
     # copying) then died under set -e with the scripts already gone. Staged
-    # here from the repo rather than through stage-cixmini-payload.py's
+    # here from the repo rather than through stage-ncz-payload.py's
     # content-addressed cache on purpose: these are source files that change
     # constantly, and folding them into the payload node key would re-stage
     # 3.3 GiB of squashfs every time a hook comment is edited.
@@ -330,8 +330,8 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
                 f"FATAL: {post_install_dir} has no run-all.sh -- refusing to "
                 f"stage a post-install tree that cannot run"
             )
-        run(["cp", "-a", str(post_install_dir), str(cixmini_dst / "post-install")])
-        names = sorted(p.name for p in (cixmini_dst / "post-install").iterdir())
+        run(["cp", "-a", str(post_install_dir), str(ncz_payload_dst / "post-install")])
+        names = sorted(p.name for p in (ncz_payload_dst / "post-install").iterdir())
         receipt["post_install_staged"] = len(names)
         log(f"    post-install/ staged: {len(names)} entries")
 
@@ -345,7 +345,7 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # file 23-base-apt-sources.sh sources for the pinned mirror.
     release_conf = REPO_ROOT / "release.conf"
     if release_conf.is_file():
-        shutil.copy2(str(release_conf), str(cixmini_dst / "RELEASE"))
+        shutil.copy2(str(release_conf), str(ncz_payload_dst / "RELEASE"))
         receipt["release_conf_sha256"] = sha256_file(release_conf)
     meta = {
         "BUILD_VERSION": build_version or "",
@@ -355,7 +355,7 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
     }
     for name, value in meta.items():
         if value:
-            (cixmini_dst / name).write_text(value + "\n")
+            (ncz_payload_dst / name).write_text(value + "\n")
     receipt["media_metadata"] = {k: v for k, v in meta.items() if v}
     log(f"    media metadata staged: {sorted(receipt['media_metadata'])}"
         f"{' + RELEASE' if release_conf.is_file() else ''}")
@@ -365,7 +365,7 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
         for entry in sorted(preseed_dir.iterdir()):
             if entry.name.startswith(".") or not entry.is_file():
                 continue
-            shutil.copy2(str(entry), str(cixmini_dst / entry.name))
+            shutil.copy2(str(entry), str(ncz_payload_dst / entry.name))
             preseed_staged.append(entry.name)
         receipt["preseed_staged_files"] = preseed_staged
         log(f"    preseed/ staged: {preseed_staged}")
@@ -373,14 +373,14 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
     return receipt
 
 
-def build_data_partition_img(cixmini_tree_dir: Path, out_img: Path,
-                              size_mib: int | None) -> int:
-    """Build an ext4 filesystem image containing cixmini_tree_dir's
+def build_data_partition_img(ncz_payload_tree_dir: Path, out_img: Path,
+                             size_mib: int | None) -> int:
+    """Build an ext4 filesystem image containing ncz_payload_tree_dir's
     PARENT layout (i.e. out_img's root gets a real /cixmini dir) via a
     real loopback mount (root required for device-node ownership inside
     the ext4 image, same pattern already used by patch-initrd-t2-kernel.py
     for depmod). Returns the final image size in bytes."""
-    content_bytes = du_bytes(cixmini_tree_dir.parent)
+    content_bytes = du_bytes(ncz_payload_tree_dir.parent)
     if size_mib is None:
         # 20% headroom for ext4 metadata/journal + round up to 64MiB boundary.
         needed_mib = int(content_bytes * 1.20 / (1024 * 1024)) + 32
@@ -416,7 +416,7 @@ def build_data_partition_img(cixmini_tree_dir: Path, out_img: Path,
             raise RuntimeError(f"FATAL: losetup --show gave no device for {out_img}")
         run(["sudo", "mount", loop_dev, str(mnt)])
         try:
-            run(["sudo", "cp", "-a", str(cixmini_tree_dir), str(mnt) + "/"])
+            run(["sudo", "cp", "-a", str(ncz_payload_tree_dir), str(mnt) + "/"])
             run(["sudo", "chmod", "-R", "a+rX", str(mnt / "cixmini")])
             # cp never fsyncs, so a writeback failure (ENOSPC on the BACKING
             # file) is invisible to it. Force the flush here, where a real
@@ -431,7 +431,7 @@ def build_data_partition_img(cixmini_tree_dir: Path, out_img: Path,
 
     # "sync -f" is necessary but NOT sufficient: ext4 with errors=continue
     # keeps going after a write error. Prove the content is really there.
-    verify_data_partition_content(out_img, cixmini_tree_dir.parent)
+    verify_data_partition_content(out_img, ncz_payload_tree_dir.parent)
 
     return size_bytes
 
@@ -708,7 +708,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     ap.add_argument("--esp-img", required=True, type=Path)
-    ap.add_argument("--cixmini-payload-dir", required=True, type=Path)
+    ap.add_argument("--ncz-payload-dir", required=True, type=Path)
     ap.add_argument("--patched-udeb", type=Path,
                      help="Patched debootstrap-udeb carrying the r159 stub, "
                           "from build/iso/patch-debootstrap-stub.py. REQUIRED "
@@ -740,8 +740,8 @@ def main() -> int:
     if not args.esp_img.is_file():
         log(f"FATAL: ESP image not found: {args.esp_img}")
         return 1
-    if not args.cixmini_payload_dir.is_dir():
-        log(f"FATAL: cixmini payload dir not found: {args.cixmini_payload_dir}")
+    if not args.ncz_payload_dir.is_dir():
+        log(f"FATAL: cixmini payload dir not found: {args.ncz_payload_dir}")
         return 1
 
     # NOT tempfile.TemporaryDirectory(): its default $TMPDIR is /tmp, which is
@@ -750,7 +750,7 @@ def main() -> int:
     work_root = args.work_dir if args.work_dir is not None else args.out.resolve().parent
     work_root.mkdir(parents=True, exist_ok=True)
     require_free_space(work_root,
-                       du_bytes(args.cixmini_payload_dir) + FREE_SPACE_MARGIN,
+                       du_bytes(args.ncz_payload_dir) + FREE_SPACE_MARGIN,
                        "the staged cixmini/ tree")
     tmp = Path(tempfile.mkdtemp(prefix="write-usb-image-", dir=str(work_root)))
     log(f"    work dir: {tmp}")
@@ -759,8 +759,8 @@ def main() -> int:
         stage_dir.mkdir()
 
         log("[1/4] staging cixmini/ tree")
-        payload_receipt = build_cixmini_tree(
-            stage_dir, args.cixmini_payload_dir, args.arch,
+        payload_receipt = build_ncz_payload_tree(
+            stage_dir, args.ncz_payload_dir, args.arch,
             args.patched_udeb, args.preseed_dir if args.preseed_dir.is_dir() else None,
             args.allow_missing_debootstrap_stub,
             args.post_install_dir if args.post_install_dir.is_dir() else None,
@@ -804,7 +804,7 @@ def main() -> int:
             "esp_img_size": esp_size,
             "data_img_size": data_size,
             "partitions": part_info,
-            "cixmini_payload": payload_receipt,
+            "ncz_payload": payload_receipt,
         }
         receipt_path = args.out.with_suffix(args.out.suffix + ".receipt.json")
         receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))

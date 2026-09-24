@@ -10,7 +10,7 @@
 # Source: github.com/Sky1-Linux/sky1-firmware (git tracked) staged into
 # the ISO under /cdrom/cixmini/assets/sky1-firmware/ by the build pipeline
 # (build/build-squashfs-layers.sh + build/build-iso-di.sh + the new
-# build/iso/{import-substrate,stage-cixmini-payload,write-image}.py
+# build/iso/{import-substrate,stage-ncz-payload,write-image}.py
 # assembly writer; see docs/ISO-BUILD-GUARDRAILS.md), copied into
 # /usr/local/lib/cix-installer/assets/sky1-firmware by late.sh. This hook
 # drops it into /lib/firmware on the target.

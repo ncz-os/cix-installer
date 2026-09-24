@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-stage-cixmini-payload.py — Stage the real install-tree payload under
-``build/iso-cache/v1/cixmini-payload/`` for later verbatim copy into an
+stage-ncz-payload.py — Stage the real install-tree payload under
+``build/iso-cache/v1/ncz-payload/`` for later verbatim copy into an
 ISO's ``/cixmini/`` top-level directory.
 
 Background (see ``docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md``
@@ -28,7 +28,7 @@ and the brief for the 2026-09-22 port task):
 
   * This script ports the r159 stub's payload-side half of the
     mechanism into the new pipeline. It stages
-    ``build/iso-cache/v1/cixmini-payload/{base.squashfs,desktop.squashfs,
+    ``build/iso-cache/v1/ncz-payload/{base.squashfs,desktop.squashfs,
     desktop.overlay-manifest,sqtools/}`` from the real, built
     ``assets/squashfs/*.squashfs`` (the same layers
     ``build/build-squashfs-layers.sh all`` produces via
@@ -66,7 +66,7 @@ What this script does, line by line:
      target disk directly). The r159 stub exec's ``$SQDIR/sqtools/unsquashfs``
      via the bundled loader, and the loader+libs MUST match the
      installer runtime's architecture.
-  5. Stages the files into ``build/iso-cache/v1/cixmini-payload/`` as
+  5. Stages the files into ``build/iso-cache/v1/ncz-payload/`` as
      a content-addressed, immutable tree (write-once; if you change
      inputs, the cache key changes and downstream consumers get a new
      path). This is the same shape as the substrate import cache.
@@ -86,20 +86,20 @@ What this script does NOT do:
 
 Output layout::
 
-    build/iso-cache/v1/cixmini-payload/<node-key>/
+    build/iso-cache/v1/ncz-payload/<node-key>/
         base.squashfs                  (verbatim from assets/squashfs/)
         desktop.squashfs               (verbatim, optional)
         desktop.overlay-manifest       (verbatim, required iff desktop.squashfs)
         sqtools/                       (verbatim from build/sqtools-<arch>/)
             unsquashfs, ld-*, lib*.so.*
-        receipts/stage-cixmini-payload-receipt.json
-        receipts/stage-cixmini-payload-metadata.json
+        receipts/stage-ncz-payload-receipt.json
+        receipts/stage-ncz-payload-metadata.json
         receipts/node-key.json
 
 The node-key formula is::
 
     sha256(canonical_encode({
-        schema_version: "cixmini-payload-stage/v1",
+        schema_version: "ncz-payload-stage/v1",
         arch: "amd64",
         base_sha256, desktop_sha256, overlay_sha256, sqtools_manifest_sha256,
         base_mtime_ns, desktop_mtime_ns, overlay_mtime_ns,
@@ -384,7 +384,7 @@ def stage_payload(
         }
 
     canonical_payload = canonical_encode({
-        "schema_version": "cixmini-payload-stage/v1",
+        "schema_version": "ncz-payload-stage/v1",
         "arch": arch,
         "base": _stat(base_layer),
         "desktop": _stat(desktop_layer) if desktop_present else {"present": False},
@@ -408,8 +408,8 @@ def stage_payload(
     # cache HIT on a half-built node. Build into .partial.<pid>, publish by
     # rename once the receipt exists, and treat a receipt-less node as
     # incomplete rather than trusting it.
-    node_dir = cache_root / "cixmini-payload" / node_key
-    done_marker = node_dir / "receipts" / "stage-cixmini-payload-receipt.json"
+    node_dir = cache_root / "ncz-payload" / node_key
+    done_marker = node_dir / "receipts" / "stage-ncz-payload-receipt.json"
     if node_dir.exists() and not force:
         if done_marker.is_file():
             log(f"node exists: {node_dir}")
@@ -467,7 +467,7 @@ def stage_payload(
 
     # --- 8. Write receipts ----------------------------------------------
     metadata = {
-        "schema_version": "cixmini-payload-metadata/v1",
+        "schema_version": "ncz-payload-metadata/v1",
         "arch": arch,
         "node_key": node_key,
         "inputs": {
@@ -496,14 +496,14 @@ def stage_payload(
                 })
             except OSError as e:
                 log(f"WARNING: could not stat {p}: {e}")
-    receipts.joinpath("stage-cixmini-payload-metadata.json").write_text(
+    receipts.joinpath("stage-ncz-payload-metadata.json").write_text(
         json.dumps(metadata, indent=2, sort_keys=True)
     )
 
     receipt = {
-        "schema_version": "cixmini-payload-receipt/v1",
+        "schema_version": "ncz-payload-receipt/v1",
         "node_key": node_key,
-        "node_kind": "cixmini-payload",
+        "node_kind": "ncz-payload",
         "arch": arch,
         "inputs": {
             "base_sha256": sha256_file(base_layer),
@@ -544,7 +544,7 @@ def stage_payload(
     }, indent=2, sort_keys=True))
 
     # Atomic publish: written last, so a node without it is never served.
-    receipts.joinpath("stage-cixmini-payload-receipt.json").write_text(
+    receipts.joinpath("stage-ncz-payload-receipt.json").write_text(
         json.dumps(receipt, indent=2, sort_keys=True)
     )
     os.replace(build_dir, node_dir)
