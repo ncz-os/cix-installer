@@ -88,7 +88,45 @@ DISK_LIST=$(list-devices disk 2>/dev/null | sort -u)
 # The disk that holds the install media must never be a target. Resolve the
 # media mount source robustly back to its parent whole disk (handles by-*,
 # mapper, loop/Ventoy, plain partitions).
-MEDIA_PART=$(awk '$2=="/cdrom"||$2=="/hd-media"||$2=="/run/live/medium"||$2=="/media/cdrom"{print $1; exit}' /proc/mounts 2>/dev/null)
+#
+# 2026-09-24: this used to take the FIRST of four conventional mountpoints
+# that appeared in /proc/mounts, which is not the same question as "where is
+# the payload". partman/early_command's own device search mounts candidate
+# devices at /cdrom while hunting for this script, so /cdrom can easily be
+# something unrelated while the real payload lives under /hd-media -- and then
+# the disk protected from wiping is the wrong one, and the real install medium
+# is offered as a target. Use the directory this script was actually FOUND in
+# (NCZ_MEDIA_DIR, exported by partman/early_command; $0's own directory as a
+# fallback) and resolve THAT to its mountpoint by longest-prefix match.
+NCZ_MEDIA_DIR="${NCZ_MEDIA_DIR:-}"
+if [ -z "$NCZ_MEDIA_DIR" ]; then
+    case "$0" in
+        */*) NCZ_MEDIA_DIR=$(dirname "$0") ;;
+    esac
+fi
+
+MEDIA_PART=""
+if [ -n "$NCZ_MEDIA_DIR" ] && [ -d "$NCZ_MEDIA_DIR" ]; then
+    _mdir=$(readlink -f "$NCZ_MEDIA_DIR" 2>/dev/null); [ -n "$_mdir" ] || _mdir="$NCZ_MEDIA_DIR"
+    _best=""; _bestlen=0
+    while read -r _mdev _mmp _mrest; do
+        [ "$_mmp" = "/" ] && continue
+        case "$_mdir/" in
+            "$_mmp"/*)
+                _l=${#_mmp}
+                if [ "$_l" -gt "$_bestlen" ]; then _bestlen=$_l; _best=$_mdev; fi
+                ;;
+        esac
+    done < /proc/mounts
+    MEDIA_PART="$_best"
+    [ -n "$MEDIA_PART" ] && \
+        log "install media resolved from the payload dir actually in use: $_mdir -> $MEDIA_PART"
+fi
+if [ -z "$MEDIA_PART" ]; then
+    MEDIA_PART=$(awk '$2=="/cdrom"||$2=="/hd-media"||$2=="/run/live/medium"||$2=="/media/cdrom"{print $1; exit}' /proc/mounts 2>/dev/null)
+    [ -n "$MEDIA_PART" ] && \
+        log "WARNING: payload dir unknown; fell back to the first conventional media mountpoint -> $MEDIA_PART"
+fi
 MEDIA_DISK=""
 if [ -n "$MEDIA_PART" ]; then
     MEDIA_DISK=$(parent_disk_of_dev "$MEDIA_PART")
