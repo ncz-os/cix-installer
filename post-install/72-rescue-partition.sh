@@ -14,8 +14,8 @@
 #   this hook leaves behind. Here we only touch the rescue PARTITION (never the
 #   ESP), so nothing we do gets clobbered.
 #
-# 2026-08-11 (operator: "we are 7.2 only now"): the rescue partition ships
-# the SHIPPING (edge) kernel from assets/kernel/edge. It used to ship
+# On arm64 the rescue partition ships the SHIPPING kernel from
+# assets/kernel/edge. It used to ship
 # legacy 7.0.12 on the "a recovery env should be boring" principle, which
 # was right while two kernels existed. With one kernel that rule would leave
 # the rescue partition carrying modules for a kernel no longer built --
@@ -37,19 +37,51 @@ MARKER="$INSTALLER_META/RESCUE_READY"
 
 echo "[72] rescue partition population"
 
-# --- preconditions (skip soft) ---
-KVER_NEXT=""
-[ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
-if [ -z "$KVER_NEXT" ]; then
-    echo "[72] ERROR: no KVER_NEXT sidecar — cannot build a rescue partition" >&2
-    exit 1
+# --- preconditions ---
+# arm64 stages a raw Image + modules archive and records KVER_NEXT on the ISO.
+# AMD64 installs its stable and edge .debs in 10-amd64-kernel.sh and records
+# the successfully installed versions in KVER_LIST_AMD64.  This hook used to
+# understand only the arm64 contract, so every AMD64 run failed here before it
+# could write RESCUE_READY; ncz-refind-refresh-amd64 then (correctly) refused
+# to ship without recovery and returned bootloader rc=1.
+NCZ_SYSTEM_ARCH="${NCZ_TARGET_ARCH:-}"
+if [ -z "$NCZ_SYSTEM_ARCH" ] && [ -r "$INSTALLER_META/BUILD_ARCH" ]; then
+    NCZ_SYSTEM_ARCH=$(tr -d '[:space:]' < "$INSTALLER_META/BUILD_ARCH")
 fi
+NCZ_SYSTEM_ARCH="${NCZ_SYSTEM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
+KVER_RESCUE=""
+case "$NCZ_SYSTEM_ARCH" in
+    amd64|x86_64)
+        KVER_RESCUE=$(sed -n '1p' "$INSTALLER_META/KVER_LIST_AMD64" 2>/dev/null || true)
+        if [ -z "$KVER_RESCUE" ]; then
+            echo "[72] ERROR: no stable kernel in KVER_LIST_AMD64 — cannot build AMD64 rescue partition" >&2
+            exit 1
+        fi
+        if [ ! -s "/boot/vmlinuz-$KVER_RESCUE" ] || \
+           [ ! -s "/boot/initrd.img-$KVER_RESCUE" ] || \
+           [ ! -d "/usr/lib/modules/$KVER_RESCUE" ]; then
+            echo "[72] ERROR: installed AMD64 stable kernel payload is incomplete for $KVER_RESCUE" >&2
+            exit 1
+        fi
+        ;;
+    arm64|aarch64)
+        [ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_RESCUE=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
+        if [ -z "$KVER_RESCUE" ]; then
+            echo "[72] ERROR: no KVER_NEXT sidecar — cannot build an arm64 rescue partition" >&2
+            exit 1
+        fi
+        if [ ! -f "$ASSETS_KERNEL/edge/Image-cixmini.bin" ] || [ ! -f "$ASSETS_KERNEL/edge/modules-cixmini.tgz" ]; then
+            echo "[72] ERROR: shipping kernel assets missing under $ASSETS_KERNEL/edge" >&2
+            exit 1
+        fi
+        ;;
+    *)
+        echo "[72] ERROR: unsupported target architecture '$NCZ_SYSTEM_ARCH'" >&2
+        exit 1
+        ;;
+esac
 if [ ! -f "$TARBALL" ]; then
     echo "[72] ERROR: $TARBALL not present (run build/build-rescue-rootfs.sh at bake time)" >&2
-    exit 1
-fi
-if [ ! -f "$ASSETS_KERNEL/edge/Image-cixmini.bin" ] || [ ! -f "$ASSETS_KERNEL/edge/modules-cixmini.tgz" ]; then
-    echo "[72] ERROR: shipping kernel assets missing under $ASSETS_KERNEL/edge" >&2
     exit 1
 fi
 for t in blkid lsblk findmnt zstd tar depmod; do
@@ -278,22 +310,52 @@ echo "[72] auto-network + remote access verified (single owner: ncz-rescue-net)"
 # tarball carries a top-level lib/ entry, and on a usrmerge rootfs /lib is a
 # symlink to usr/lib. A naive extract would clobber that symlink and orphan
 # ld-linux — the exact failure mode this rescue env exists to repair.
-echo "[72] installing shipping kernel $KVER_NEXT into rescue rootfs"
-install -D -m 0644 "$ASSETS_KERNEL/edge/Image-cixmini.bin" "$MNT/boot/vmlinuz-$KVER_NEXT"
-tar xzf "$ASSETS_KERNEL/edge/modules-cixmini.tgz" -C "$MNT/usr" --strip-components=0 --keep-directory-symlink
-if [ ! -d "$MNT/usr/lib/modules/$KVER_NEXT" ]; then
-    echo "[72] WARN: modules tarball did not produce $MNT/usr/lib/modules/$KVER_NEXT"
+echo "[72] installing shipping kernel $KVER_RESCUE into rescue rootfs"
+if [ "$NCZ_SYSTEM_ARCH" = "amd64" ] || [ "$NCZ_SYSTEM_ARCH" = "x86_64" ]; then
+    # The .deb install already produced the authoritative kernel, initrd and
+    # module tree. Copy those exact files so rescue cannot drift from the T2
+    # kernel that 70-bootloader.sh stages on the ESP.
+    install -D -m 0644 "/boot/vmlinuz-$KVER_RESCUE" "$MNT/boot/vmlinuz-$KVER_RESCUE" || {
+        echo "[72] ERROR: failed to copy AMD64 rescue kernel" >&2
+        umount "$MNT" 2>/dev/null || true
+        exit 1
+    }
+    install -D -m 0644 "/boot/initrd.img-$KVER_RESCUE" "$MNT/boot/initrd.img-$KVER_RESCUE" || {
+        echo "[72] ERROR: failed to copy AMD64 rescue initrd" >&2
+        umount "$MNT" 2>/dev/null || true
+        exit 1
+    }
+    mkdir -p "$MNT/usr/lib/modules/$KVER_RESCUE"
+    cp -a "/usr/lib/modules/$KVER_RESCUE/." "$MNT/usr/lib/modules/$KVER_RESCUE/" || {
+        echo "[72] ERROR: failed to copy AMD64 rescue modules" >&2
+        umount "$MNT" 2>/dev/null || true
+        exit 1
+    }
+else
+    install -D -m 0644 "$ASSETS_KERNEL/edge/Image-cixmini.bin" "$MNT/boot/vmlinuz-$KVER_RESCUE" || {
+        echo "[72] ERROR: failed to copy arm64 rescue kernel" >&2
+        umount "$MNT" 2>/dev/null || true
+        exit 1
+    }
+    tar xzf "$ASSETS_KERNEL/edge/modules-cixmini.tgz" -C "$MNT/usr" --strip-components=0 --keep-directory-symlink || {
+        echo "[72] ERROR: failed to extract arm64 rescue modules" >&2
+        umount "$MNT" 2>/dev/null || true
+        exit 1
+    }
+fi
+if [ ! -d "$MNT/usr/lib/modules/$KVER_RESCUE" ]; then
+    echo "[72] WARN: kernel install did not produce $MNT/usr/lib/modules/$KVER_RESCUE"
     ls "$MNT/usr/lib/modules/" 2>&1 | sed 's/^/        /'
 else
-    MODC=$(find "$MNT/usr/lib/modules/$KVER_NEXT" -name '*.ko*' 2>/dev/null | wc -l)
+    MODC=$(find "$MNT/usr/lib/modules/$KVER_RESCUE" -name '*.ko*' 2>/dev/null | wc -l)
     echo "[72] $MODC modules staged; running depmod"
-    depmod -b "$MNT" "$KVER_NEXT" 2>/dev/null || echo "[72] WARN: depmod returned non-zero"
+    depmod -b "$MNT" "$KVER_RESCUE" 2>/dev/null || echo "[72] WARN: depmod returned non-zero"
 fi
 
 # initrd: reuse the main system's edge initrd (generic; mounts root=PARTUUID).
 # 70-bootloader.sh stages the ESP copy; this in-rootfs copy is for completeness.
-if [ -s "/boot/initrd.img-$KVER_NEXT" ]; then
-    install -D -m 0644 "/boot/initrd.img-$KVER_NEXT" "$MNT/boot/initrd.img-$KVER_NEXT"
+if [ -s "/boot/initrd.img-$KVER_RESCUE" ]; then
+    install -D -m 0644 "/boot/initrd.img-$KVER_RESCUE" "$MNT/boot/initrd.img-$KVER_RESCUE"
 fi
 
 # --- AGENTS.md (refresh from asset if present) ---
@@ -313,9 +375,14 @@ fi
 
 # --- readiness marker for 70-bootloader.sh ---
 RP_PARTUUID=$(blkid -s PARTUUID -o value "$RESCUE_SRC" 2>/dev/null || true)
+if [ -z "$RP_PARTUUID" ]; then
+    echo "[72] ERROR: $RESCUE_SRC has no PARTUUID; cannot create a bootable rescue entry" >&2
+    umount "$MNT" 2>/dev/null || true
+    exit 1
+fi
 {
     echo "PARTUUID=$RP_PARTUUID"
-    echo "KVER=$KVER_NEXT"
+    echo "KVER=$KVER_RESCUE"
     echo "DEV=$RESCUE_SRC"
 } > "$MARKER"
 echo "[72] wrote marker $MARKER (PARTUUID=$RP_PARTUUID)"

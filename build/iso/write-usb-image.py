@@ -335,6 +335,58 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         receipt["post_install_staged"] = len(names)
         log(f"    post-install/ staged: {len(names)} entries")
 
+    # Install-time assets are deliberately outside the content-addressed
+    # squashfs node: like post-install/, they can change without rebuilding a
+    # multi-gigabyte base layer.  The original raw-GPT writer staged neither
+    # tree.  late.sh therefore kept whatever happened to be baked into the
+    # base image: on the first real AMD64/T2 installs that meant no rescue
+    # rootfs at all, while 72-rescue-partition.sh and the bootloader require
+    # one.  It also let 70-bootloader.sh drift from the shared rEFInd script it
+    # invokes.  Stage and validate both inputs as one coherent payload.
+    assets_dst = ncz_payload_dst / "assets"
+    refind_src = REPO_ROOT / "assets" / "refind"
+    required_refind = (
+        ("refind_x64.efi", "ncz-refind-refresh-amd64.sh",
+         "zz1-ncz-refind-refresh-amd64")
+        if arch == "amd64"
+        else ("refind_aa64.efi", "ncz-refind-refresh.sh")
+    )
+    missing_refind = [name for name in required_refind
+                      if not (refind_src / name).is_file()]
+    if missing_refind:
+        raise RuntimeError(
+            f"FATAL: required {arch} rEFInd assets missing from {refind_src}: "
+            f"{missing_refind}"
+        )
+    shutil.copytree(str(refind_src), str(assets_dst / "refind"),
+                    symlinks=True)
+
+    rescue_dir = REPO_ROOT / "assets" / "rescue"
+    rescue_candidates = [
+        rescue_dir / f"rescue-rootfs-{arch}.tar.zst",
+        rescue_dir / "rescue-rootfs.tar.zst",
+    ]
+    rescue_src = next((p for p in rescue_candidates if p.is_file()), None)
+    if rescue_src is None:
+        raise RuntimeError(
+            f"FATAL: no {arch} rescue rootfs (checked: "
+            f"{', '.join(str(p) for p in rescue_candidates)}). "
+            f"Build it before emitting install media: sudo bash "
+            f"build/build-rescue-rootfs.sh build/rescue-rootfs-{arch} "
+            f"assets/rescue/rescue-rootfs-{arch}.tar.zst forky {arch}"
+        )
+    (assets_dst / "rescue").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(rescue_src),
+                 str(assets_dst / "rescue" / "rescue-rootfs.tar.zst"))
+    agents_src = rescue_dir / "AGENTS.md"
+    if agents_src.is_file():
+        shutil.copy2(str(agents_src), str(assets_dst / "rescue" / "AGENTS.md"))
+    receipt["runtime_assets_staged"] = {
+        "refind": list(required_refind),
+        "rescue_rootfs": str(rescue_src),
+    }
+    log(f"    runtime assets staged: rEFInd ({arch}) + {rescue_src.name}")
+
     # Media identity/metadata. late.sh copies BUILD_VERSION / BUILD_DATE /
     # BUILD_HOST / BUILD_ARCH / RELEASE off the medium into
     # /target/{etc,usr/local/lib}/cix-installer, where 50-brand.sh reads the
@@ -786,6 +838,12 @@ def main() -> int:
         ] + ["ncz-payload/sqtools/unsquashfs"]
         if payload_receipt.get("post_install_staged"):
             required_data_files.append("ncz-payload/post-install/run-all.sh")
+        if payload_receipt.get("runtime_assets_staged"):
+            required_data_files.extend([
+                "ncz-payload/assets/refind/" +
+                ("refind_x64.efi" if args.arch == "amd64" else "refind_aa64.efi"),
+                "ncz-payload/assets/rescue/rescue-rootfs.tar.zst",
+            ])
         if "patched_udeb" in payload_receipt:
             required_data_files.append(
                 f"ncz-payload/debootstrap-udeb/{payload_receipt['patched_udeb']}")
