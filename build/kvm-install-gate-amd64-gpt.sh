@@ -115,9 +115,23 @@ if not rest:
     sys.exit('GATE FAIL: Install menuentry not found while patching')
 end = rest.index('\n}')
 body, tail = rest[:end], rest[end:]
-new_body, n = re.subn(r'(options\s+")([^"]*)(")',
-                      lambda m: m.group(1) + m.group(2).rstrip() + ' ' + params + m.group(3),
-                      body, count=1)
+def fix_options(m):
+    opts = m.group(2).split()
+    # The LAST console= on the cmdline is the one /dev/console resolves to.
+    # The shipped entry ends with console=tty0, so every "[ncz] ..." message
+    # written to /dev/console by preseed.cfg, disk-fs-chooser.sh and late.sh
+    # lands on the VGA screen and never reaches the serial log this gate
+    # reads -- which makes a real failure look like an unexplained one.
+    # Reorder so the serial console is last. (Measured: without this, a
+    # partman/early_command failure showed the cdebconf error dialog with
+    # zero NCZ diagnostics anywhere in serial0.log.)
+    consoles = [o for o in opts if o.startswith('console=')]
+    rest = [o for o in opts if not o.startswith('console=')]
+    serial = [c for c in consoles if c.startswith('console=ttyS')]
+    other = [c for c in consoles if not c.startswith('console=ttyS')]
+    return m.group(1) + ' '.join(rest + other + serial) + ' ' + params + m.group(3)
+
+new_body, n = re.subn(r'(options\s+")([^"]*)(")', fix_options, body, count=1)
 if n != 1:
     sys.exit('GATE FAIL: could not find the options line in the Install entry')
 open(path, 'w').write(head + marker + new_body + tail)
