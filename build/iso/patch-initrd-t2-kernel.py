@@ -201,6 +201,7 @@ def patch_t2_kernel(
     preseed_cfg: Path | None = None,
     helper_dir: Path | None = None,
     diag_busybox: Path | None = None,
+    ssh_udeb_dir: Path | None = None,
 ) -> tuple[Path, Path]:
     if not base_initrd.is_file():
         raise RuntimeError(f"FATAL: no base initrd at {base_initrd}")
@@ -237,6 +238,13 @@ def patch_t2_kernel(
         helpers = [helper_dir / n for n in BAKED_HELPERS]
     if diag_busybox is not None and not diag_busybox.is_file():
         raise RuntimeError(f"FATAL: diag busybox not found: {diag_busybox}")
+    ssh_udebs: list[Path] = []
+    if ssh_udeb_dir is not None:
+        if not ssh_udeb_dir.is_dir():
+            raise RuntimeError(f"FATAL: --ssh-udeb-dir not found: {ssh_udeb_dir}")
+        ssh_udebs = sorted(ssh_udeb_dir.glob("*.udeb"))
+        if not ssh_udebs:
+            raise RuntimeError(f"FATAL: no *.udeb files in {ssh_udeb_dir}")
 
     canonical = canonical_encode({
         "schema_version": "ncz-initrd-t2kernel/v3",
@@ -247,6 +255,7 @@ def patch_t2_kernel(
         "preseed_cfg": _stat(preseed_cfg) if preseed_cfg is not None else {"present": False},
         "helpers": {p.name: _stat(p) for p in helpers},
         "diag_busybox": _stat(diag_busybox) if diag_busybox is not None else {"present": False},
+        "ssh_udebs": sorted(u.name for u in ssh_udebs),
     })
 # Content-addressed cache nodes are created EMPTY and filled afterwards, and
 # every reader treats "the directory exists" as "the build succeeded". An
@@ -373,6 +382,13 @@ def patch_t2_kernel(
             dst.chmod(0o755)
             log(f"    baked {diag_busybox} -> initrd /ncz/busybox "
                 f"({diag_busybox.stat().st_size} bytes)")
+        if ssh_udebs:
+            ssh_udeb_out = ncz_dir / "ssh-udebs"
+            ssh_udeb_out.mkdir(parents=True, exist_ok=True)
+            for u in ssh_udebs:
+                shutil.copy2(u, ssh_udeb_out / u.name)
+            log(f"    baked {len(ssh_udebs)} ssh udebs -> initrd "
+                f"/ncz/ssh-udebs/: {[u.name for u in ssh_udebs]}")
 
         # Real usr-merge gotcha (verbatim from build-iso-di.sh): NEVER
         # emit a bare top-level "lib" dir entry, or a later archive's
@@ -435,6 +451,7 @@ def patch_t2_kernel(
             "baked_preseed_cfg": str(preseed_cfg) if preseed_cfg else None,
             "baked_helpers": [h.name for h in helpers],
             "baked_diag_busybox": str(diag_busybox) if diag_busybox else None,
+            "baked_ssh_udebs": [u.name for u in ssh_udebs],
         },
         "outputs": {
             "linux": str(out_linux),
@@ -473,6 +490,16 @@ def main() -> int:
                           "S30initrd-preseed auto-loads it with zero "
                           "device/mount dependency). Pass --preseed-cfg= "
                           "(empty) to skip.")
+    ap.add_argument("--ssh-udeb-dir", type=Path, default=None,
+                     help="Directory of *.udeb files (openssh-server-udeb + "
+                          "its real deps) baked into the initrd at "
+                          "/ncz/ssh-udebs/ so early_command can udpkg -i "
+                          "them with zero medium/device dependency -- d-i "
+                          "never starts sshd on its own in auto=true "
+                          "unattended mode (only the optional network-console "
+                          "component does that), so remote diagnostics need "
+                          "this to exist at all. Defaults to "
+                          "assets/ssh-udebs/<arch> if present.")
     args = ap.parse_args()
     preseed_cfg = args.preseed_cfg if str(args.preseed_cfg) else None
     if preseed_cfg is not None and not preseed_cfg.is_file():
@@ -493,11 +520,21 @@ def main() -> int:
             log(f"WARNING: no {cand} -- the diag console will have no baked "
                 f"busybox and must find one on the medium")
 
+    ssh_udeb_dir = args.ssh_udeb_dir
+    if ssh_udeb_dir is None:
+        cand = REPO_ROOT / "assets" / "ssh-udebs" / args.arch
+        if cand.is_dir() and any(cand.glob("*.udeb")):
+            ssh_udeb_dir = cand
+        else:
+            log(f"WARNING: no {cand} -- remote SSH diagnostics will not be "
+                f"available during install (d-i never starts sshd on its "
+                f"own in auto=true unattended mode)")
+
     try:
         linux_out, initrd_out = patch_t2_kernel(
             args.base_initrd, args.kernel_deb, args.arch,
             args.cache_root, args.force, preseed_cfg,
-            helper_dir, diag_busybox,
+            helper_dir, diag_busybox, ssh_udeb_dir,
         )
     except RuntimeError as e:
         log(str(e))
