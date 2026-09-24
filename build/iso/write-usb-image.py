@@ -86,12 +86,14 @@ import argparse
 import hashlib
 import json
 import shutil
+import socket
 import struct
 import subprocess
 import sys
 import tempfile
 import time
 import zlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -243,7 +245,8 @@ def verify_data_partition_content(data_img: Path, staged_root: Path) -> None:
 def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
                         patched_udeb: Path | None, preseed_dir: Path | None,
                         allow_missing_stub: bool = False,
-                        post_install_dir: Path | None = None) -> dict:
+                        post_install_dir: Path | None = None,
+                        build_version: str | None = None) -> dict:
     """Same shape as write-image.py's stage_cixmini_payload(), corrected
     for the hotfix/busybox staleness bug documented above."""
     if not payload_dir.is_dir():
@@ -331,6 +334,31 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
         names = sorted(p.name for p in (cixmini_dst / "post-install").iterdir())
         receipt["post_install_staged"] = len(names)
         log(f"    post-install/ staged: {len(names)} entries")
+
+    # Media identity/metadata. late.sh copies BUILD_VERSION / BUILD_DATE /
+    # BUILD_HOST / BUILD_ARCH / RELEASE off the medium into
+    # /target/{etc,usr/local/lib}/cix-installer, where 50-brand.sh reads the
+    # build serial and 23-base-apt-sources.sh reads the release profile.
+    # build-iso-di.sh staged these; the raw-GPT writer did not, so every hook
+    # that reads them silently fell back to whatever the squashfs happened to
+    # bake in months earlier. RELEASE is release.conf verbatim -- the same
+    # file 23-base-apt-sources.sh sources for the pinned mirror.
+    release_conf = REPO_ROOT / "release.conf"
+    if release_conf.is_file():
+        shutil.copy2(str(release_conf), str(cixmini_dst / "RELEASE"))
+        receipt["release_conf_sha256"] = sha256_file(release_conf)
+    meta = {
+        "BUILD_VERSION": build_version or "",
+        "BUILD_DATE": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "BUILD_HOST": socket.gethostname(),
+        "BUILD_ARCH": arch,
+    }
+    for name, value in meta.items():
+        if value:
+            (cixmini_dst / name).write_text(value + "\n")
+    receipt["media_metadata"] = {k: v for k, v in meta.items() if v}
+    log(f"    media metadata staged: {sorted(receipt['media_metadata'])}"
+        f"{' + RELEASE' if release_conf.is_file() else ''}")
 
     if preseed_dir is not None and preseed_dir.is_dir():
         preseed_staged = []
@@ -689,6 +717,9 @@ def main() -> int:
                      help="Build without the r159 stub. The result CANNOT "
                           "install NCZ-OS; only for deliberate test media.")
     ap.add_argument("--preseed-dir", type=Path, default=REPO_ROOT / "preseed")
+    ap.add_argument("--build-version", default=None,
+                     help="Build serial staged as cixmini/BUILD_VERSION and "
+                          "read by post-install/50-brand.sh.")
     ap.add_argument("--post-install-dir", type=Path,
                      default=REPO_ROOT / "post-install",
                      help="post-install hook tree staged at cixmini/post-install; "
@@ -733,6 +764,7 @@ def main() -> int:
             args.patched_udeb, args.preseed_dir if args.preseed_dir.is_dir() else None,
             args.allow_missing_debootstrap_stub,
             args.post_install_dir if args.post_install_dir.is_dir() else None,
+            args.build_version,
         )
 
         log("[2/4] building ext4 data partition image")

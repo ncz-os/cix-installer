@@ -131,7 +131,18 @@ for _rel in /cdrom/cixmini/RELEASE /hd-media/cixmini/RELEASE \
             /media/cdrom/cixmini/RELEASE /run/live/medium/cixmini/RELEASE; do
     [ -r "$_rel" ] && . "$_rel" && break
 done
-INDEX=/cdrom/dists/${NCZ_BASE_CODENAME:-resolute}/main/binary-arm64/Packages
+# 2026-09-24: this had TWO amd64-migration leftovers in one line. The suite
+# fallback was "resolute" -- an Ubuntu codename this project stopped targeting
+# and which exists nowhere in the archive any more, so an unset
+# NCZ_BASE_CODENAME silently produced a path that can never match. And
+# binary-arm64 was hardcoded, so on amd64 the index was looked for under the
+# wrong architecture and never found. Both now follow the real target.
+NCZ_DEB_ARCH=$(uname -m 2>/dev/null)
+case "$NCZ_DEB_ARCH" in
+    aarch64) NCZ_DEB_ARCH=arm64 ;;
+    x86_64)  NCZ_DEB_ARCH=amd64 ;;
+esac
+INDEX=/cdrom/dists/${NCZ_BASE_CODENAME:-forky}/main/binary-${NCZ_DEB_ARCH}/Packages
 
 if [ -e /cdrom/.disk/base_installable ]; then
     echo "[ncz-bootstrap-pool] base-installable media already uses cdrom; skipping" >> "$LOG"
@@ -157,7 +168,7 @@ if ! grep -qs ' /target/cdrom ' /proc/mounts; then
 fi
 
 cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<EOF
-deb [trusted=yes] file:///cdrom ${NCZ_BASE_CODENAME:-resolute} main
+deb [trusted=yes] file:///cdrom ${NCZ_BASE_CODENAME:-forky} main
 EOF
 cat > /target/etc/apt/preferences.d/00cixmini-bootstrap-pool.pref <<'EOF'
 Package: *
