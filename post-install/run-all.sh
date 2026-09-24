@@ -421,6 +421,7 @@ finalize_bootloader() {
         BOOTLOADER_RC=${PIPESTATUS[0]}
         if [ "$BOOTLOADER_RC" -ne 0 ]; then
             progress_finish FAIL "Bootloader installation failed" "$BOOTLOADER_RC"
+            tty_msg "  ✗ 70-bootloader.sh FAILED rc=$BOOTLOADER_RC — log: /var/log/cix-install/70-bootloader.log"
             echo "[cix-installer] CRITICAL: 70-bootloader.sh failed rc=$BOOTLOADER_RC"
             echo "[cix-installer] System will likely fail to boot — see $LOGDIR/70-bootloader.log"
         else

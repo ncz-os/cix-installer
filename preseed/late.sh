@@ -1170,7 +1170,8 @@ ncz_bootable() {
 ncz_preserve_di_logs() {
     _dst=/target/var/log/installer
     mkdir -p "$_dst" 2>/dev/null || return 0
-    for _f in /var/log/syslog /var/log/partman /var/log/hardware-summary; do
+    for _f in /var/log/syslog /var/log/partman /var/log/hardware-summary \
+              /var/log/diag-console.log /var/log/diag-sshd.log; do
         [ -r "$_f" ] && cp -a "$_f" "$_dst/" 2>/dev/null || true
     done
     # dmesg gives the kernel-side timeline of the INSTALLER boot, which is a
