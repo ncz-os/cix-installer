@@ -61,10 +61,19 @@ the expected types/sizes, and read back real bytes from BOTH partitions
 at their reported offsets (magic bytes / on-disk filenames) rather than
 just trusting sgdisk's paint operation succeeded.
 
+SCRATCH SPACE (2026-09-24, real bug): the staged tree and the ext4 data
+image are built in --work-dir, which defaults to the OUTPUT image's own
+directory -- deliberately NOT $TMPDIR. On several fleet build hosts /tmp
+is a RAM-backed tmpfs; filling it while populating the loop-mounted ext4
+does NOT fail the build, it silently loses the payload (cp never fsyncs,
+so ENOSPC lands at writeback after cp has already exited 0). See
+require_free_space() and verify_data_partition_content().
+
 Usage:
     write-usb-image.py --arch {amd64,arm64} --esp-img PATH
         --cixmini-payload-dir PATH [--patched-udeb PATH]
         [--preseed-dir PATH] --out PATH [--data-size-mib N]
+        [--work-dir PATH]
 """
 from __future__ import annotations
 
@@ -115,6 +124,105 @@ def sha256_file(path: Path) -> str:
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     log(f"    $ {' '.join(str(c) for c in cmd)}")
     return subprocess.run(cmd, check=True, **kw)
+
+
+def du_bytes(path: Path) -> int:
+    return int(
+        run(["du", "-sb", str(path)], stdout=subprocess.PIPE, text=True)
+        .stdout.split()[0]
+    )
+
+
+# Headroom over the exact requirement: ext4 metadata/journal inside the image
+# plus whatever scratch the kernel wants while the loop mount is populated.
+FREE_SPACE_MARGIN = 512 * 1024 * 1024
+
+
+def require_free_space(work_dir: Path, need_bytes: int, what: str) -> None:
+    """Fail LOUDLY *before* building, never silently after.
+
+    Real root cause of the empty-data-partition bug, measured 2026-09-24 on
+    PROTEUS: with the work dir on a 16 GiB tmpfs /tmp, the `cp -a` into the
+    loop-mounted ext4 exhausts the BACKING filesystem. The kernel logs
+
+        critical space allocation error, dev loop0, sector ... op WRITE
+        EXT4-fs (loop0): failed to convert unwritten extents to written
+                         extents -- potential data loss!
+        Aborting journal on device loop0-8.
+
+    and `cp` STILL EXITS 0 -- it never fsyncs, so the failure lands at
+    writeback, after cp has already returned success. `umount` exits 0 too.
+    The build then wrote a bit-perfect, receipt-matching image whose data
+    partition contained nothing but lost+found. Every GPT image built on
+    2026-09-24 (13:28, 13:50, 14:09) had exactly this.
+    """
+    have = shutil.disk_usage(str(work_dir)).free
+    if have < need_bytes:
+        raise RuntimeError(
+            f"FATAL: not enough free space in work dir {work_dir} for {what}: "
+            f"need {need_bytes} bytes, have {have}. Point --work-dir at real "
+            f"disk with room -- running out of space here does NOT fail this "
+            f"build loudly, it produces a SILENTLY EMPTY data partition."
+        )
+    log(f"    free-space check OK for {what}: need {need_bytes}, have {have}")
+
+
+def tree_digest(root: Path) -> dict:
+    """{relative path -> (size, sha256)} for every REGULAR file under root.
+    Symlinks and directories are skipped (nothing in the payload tree is a
+    symlink, and lost+found is a directory)."""
+    out = {}
+    for f in sorted(root.rglob("*")):
+        if f.is_symlink() or not f.is_file():
+            continue
+        out[str(f.relative_to(root))] = (f.stat().st_size, sha256_file(f))
+    return out
+
+
+def verify_data_partition_content(data_img: Path, staged_root: Path) -> None:
+    """Loop-mount data_img READ-ONLY and prove every staged file is really
+    in it, byte for byte.
+
+    This is the ONLY check that catches the silent ENOSPC data loss
+    described in require_free_space(): mkfs writes the ext4 superblock long
+    before the payload copy, so any check that reads only the first few KiB
+    of the image passes happily on a completely empty filesystem.
+    """
+    want = tree_digest(staged_root)
+    if not want:
+        raise RuntimeError(
+            f"FATAL: staged tree {staged_root} is EMPTY -- refusing to build "
+            f"install media with no payload"
+        )
+    mnt = Path(tempfile.mkdtemp(prefix="ncz-data-verify-", dir=str(data_img.parent)))
+    loop_dev = ""
+    try:
+        loop_dev = run(["sudo", "/sbin/losetup", "-f", "--show", str(data_img)],
+                       stdout=subprocess.PIPE, text=True).stdout.strip()
+        if not loop_dev:
+            raise RuntimeError("FATAL: losetup --show returned no device")
+        run(["sudo", "mount", "-o", "ro", loop_dev, str(mnt)])
+        try:
+            got = tree_digest(mnt)
+        finally:
+            run(["sudo", "umount", str(mnt)])
+    finally:
+        if loop_dev:
+            subprocess.run(["sudo", "/sbin/losetup", "-d", loop_dev])
+        shutil.rmtree(mnt, ignore_errors=True)
+
+    missing = sorted(k for k in want if k not in got)
+    mismatched = sorted(k for k in want if k in got and got[k] != want[k])
+    if missing or mismatched:
+        raise RuntimeError(
+            f"FATAL: data partition image {data_img} does not contain the "
+            f"staged payload. missing={missing[:10]} (total {len(missing)}), "
+            f"mismatched={mismatched[:10]} (total {len(mismatched)}). This is "
+            f"the silent-ENOSPC failure class -- check work-dir free space."
+        )
+    total = sum(v[0] for v in want.values())
+    log(f"    verify OK: data partition holds all {len(want)} staged files "
+        f"({total} bytes) with matching sha256")
 
 
 def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
@@ -169,17 +277,21 @@ def build_data_partition_img(cixmini_tree_dir: Path, out_img: Path,
     real loopback mount (root required for device-node ownership inside
     the ext4 image, same pattern already used by patch-initrd-t2-kernel.py
     for depmod). Returns the final image size in bytes."""
-    du_bytes = int(
-        run(["du", "-sb", str(cixmini_tree_dir.parent)], stdout=subprocess.PIPE, text=True)
-        .stdout.split()[0]
-    )
+    content_bytes = du_bytes(cixmini_tree_dir.parent)
     if size_mib is None:
         # 20% headroom for ext4 metadata/journal + round up to 64MiB boundary.
-        needed_mib = int(du_bytes * 1.20 / (1024 * 1024)) + 32
+        needed_mib = int(content_bytes * 1.20 / (1024 * 1024)) + 32
         size_mib = ((needed_mib + 63) // 64) * 64
         size_mib = max(size_mib, 256)
     size_bytes = size_mib * 1024 * 1024
-    log(f"    data partition: content {du_bytes} bytes -> image {size_mib} MiB")
+    log(f"    data partition: content {content_bytes} bytes -> image {size_mib} MiB")
+    if size_bytes < content_bytes:
+        raise RuntimeError(
+            f"FATAL: --data-size-mib {size_mib} ({size_bytes} bytes) is smaller "
+            f"than the {content_bytes} bytes of payload it must hold"
+        )
+    require_free_space(out_img.parent, size_bytes + FREE_SPACE_MARGIN,
+                       "the ext4 data partition image")
 
     out_img.parent.mkdir(parents=True, exist_ok=True)
     if out_img.exists():
@@ -189,23 +301,34 @@ def build_data_partition_img(cixmini_tree_dir: Path, out_img: Path,
 
     run(["/sbin/mkfs.ext4", "-F", "-L", "NCZDATA", "-q", str(out_img)])
 
-    mnt = Path(tempfile.mkdtemp(prefix="ncz-data-mnt-"))
+    # Take the loop device straight from --show. The previous code discarded
+    # it and re-queried via "losetup -j", parsing the first line of what can
+    # be a multi-line listing -- a needless way to end up on another device.
+    mnt = Path(tempfile.mkdtemp(prefix="ncz-data-mnt-", dir=str(out_img.parent)))
+    loop_dev = ""
     try:
-        run(["sudo", "/sbin/losetup", "-fP", "--show", str(out_img)],
-            stdout=subprocess.PIPE, text=True)
-        loop_dev = run(
-            ["sudo", "/sbin/losetup", "-j", str(out_img)],
-            stdout=subprocess.PIPE, text=True,
-        ).stdout.split(":")[0].strip()
+        loop_dev = run(["sudo", "/sbin/losetup", "-f", "--show", str(out_img)],
+                       stdout=subprocess.PIPE, text=True).stdout.strip()
+        if not loop_dev:
+            raise RuntimeError(f"FATAL: losetup --show gave no device for {out_img}")
         run(["sudo", "mount", loop_dev, str(mnt)])
         try:
             run(["sudo", "cp", "-a", str(cixmini_tree_dir), str(mnt) + "/"])
             run(["sudo", "chmod", "-R", "a+rX", str(mnt / "cixmini")])
+            # cp never fsyncs, so a writeback failure (ENOSPC on the BACKING
+            # file) is invisible to it. Force the flush here, where a real
+            # error can still surface instead of being swallowed by umount.
+            run(["sudo", "sync", "-f", str(mnt)])
         finally:
             run(["sudo", "umount", str(mnt)])
     finally:
-        subprocess.run(["sudo", "/sbin/losetup", "-d", loop_dev])
-        mnt.rmdir()
+        if loop_dev:
+            subprocess.run(["sudo", "/sbin/losetup", "-d", loop_dev])
+        shutil.rmtree(mnt, ignore_errors=True)
+
+    # "sync -f" is necessary but NOT sufficient: ext4 with errors=continue
+    # keeps going after a write error. Prove the content is really there.
+    verify_data_partition_content(out_img, cixmini_tree_dir.parent)
 
     return size_bytes
 
@@ -303,6 +426,14 @@ def main() -> int:
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--data-size-mib", type=int, default=None,
                      help="Data partition size; default: auto-sized from content + headroom")
+    ap.add_argument("--work-dir", type=Path, default=None,
+                     help="Scratch directory for the staged tree and the ext4 "
+                          "data image. Defaults to the OUTPUT image's own "
+                          "directory (i.e. real disk), deliberately NOT "
+                          "$TMPDIR -- on a tmpfs /tmp this build runs out of "
+                          "space and silently produces an EMPTY data "
+                          "partition (measured 2026-09-24, see "
+                          "require_free_space()).")
     args = ap.parse_args()
 
     if not args.esp_img.is_file():
@@ -312,8 +443,17 @@ def main() -> int:
         log(f"FATAL: cixmini payload dir not found: {args.cixmini_payload_dir}")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="write-usb-image-") as tmp:
-        tmp = Path(tmp)
+    # NOT tempfile.TemporaryDirectory(): its default $TMPDIR is /tmp, which is
+    # a RAM-backed tmpfs on several fleet build hosts. See require_free_space().
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    work_root = args.work_dir if args.work_dir is not None else args.out.resolve().parent
+    work_root.mkdir(parents=True, exist_ok=True)
+    require_free_space(work_root,
+                       du_bytes(args.cixmini_payload_dir) + FREE_SPACE_MARGIN,
+                       "the staged cixmini/ tree")
+    tmp = Path(tempfile.mkdtemp(prefix="write-usb-image-", dir=str(work_root)))
+    log(f"    work dir: {tmp}")
+    try:
         stage_dir = tmp / "stage"
         stage_dir.mkdir()
 
@@ -353,6 +493,8 @@ def main() -> int:
         receipt_path = args.out.with_suffix(args.out.suffix + ".receipt.json")
         receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))
         log(f"OK: {args.out} ({args.out.stat().st_size} bytes), receipt at {receipt_path}")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
     return 0
 
