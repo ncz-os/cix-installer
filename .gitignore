@@ -75,6 +75,10 @@ build/cix-repo.squashfs
 build/desktop-mirror/
 build/desktop-mirror.gaps
 build/*.fd
+build/*.img
+build/*.img.receipt.json
+build/*.iso.receipt.json
+build/*.iso.verify.json
 build/*.iso
 build/.iso-*-done
 build/*.iso.*-part*
@@ -186,3 +190,6 @@ build/iso-cache/v1/blobs/sha256/*
 !build/iso-cache/v1/blobs/sha256/.gitkeep
 build/iso-cache/v1/nodes/*
 !build/iso-cache/v1/nodes/.gitkeep
+build/iso-cache/v1/*/
+!build/iso-cache/v1/blobs/
+!build/iso-cache/v1/nodes/

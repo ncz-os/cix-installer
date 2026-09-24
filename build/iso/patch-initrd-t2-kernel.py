@@ -106,18 +106,22 @@ def patch_t2_kernel(
     arch: str,
     cache_root: Path,
     force: bool = False,
+    preseed_cfg: Path | None = None,
 ) -> tuple[Path, Path]:
     if not base_initrd.is_file():
         raise RuntimeError(f"FATAL: no base initrd at {base_initrd}")
     if not kernel_deb.is_file():
         raise RuntimeError(f"FATAL: kernel .deb missing: {kernel_deb}")
+    if preseed_cfg is not None and not preseed_cfg.is_file():
+        raise RuntimeError(f"FATAL: preseed.cfg not found: {preseed_cfg}")
 
     canonical = canonical_encode({
-        "schema_version": "cixmini-initrd-t2kernel/v1",
+        "schema_version": "cixmini-initrd-t2kernel/v2",
         "arch": arch,
         "base_initrd": _stat(base_initrd),
         "kernel_deb": _stat(kernel_deb),
         "prune_mod_dirs": PRUNE_MOD_DIRS,
+        "preseed_cfg": _stat(preseed_cfg) if preseed_cfg is not None else {"present": False},
     })
     node_key = sha256_bytes(canonical)
     node_dir = cache_root / "cixmini-initrd-t2kernel" / node_key
@@ -181,27 +185,52 @@ def patch_t2_kernel(
             check=True,
         )
 
+        # --- bake preseed.cfg into the initrd ROOT -----------------------
+        # Real root cause (confirmed on metal 2026-09-24, not a QEMU
+        # artifact): our boot path never does a genuine El-Torito CD-ROM
+        # boot (kernel+initrd load straight off the ESP via rEFInd/UEFI),
+        # so `preseed/file=/cdrom/cixmini/preseed.cfg` depends on
+        # cdrom-detect classifying + mounting the medium before that
+        # fetch runs -- timing/classification that a real USB-written
+        # hybrid medium doesn't guarantee the way QEMU's clean ATAPI
+        # CD-ROM emulation did. d-i's OWN initrd-preseed hook
+        # (lib/debian-installer-startup.d/S30initrd-preseed) already
+        # auto-loads file:///preseed.cfg straight off the initrd
+        # filesystem with ZERO device/mount dependency if the file is
+        # simply present at the initrd root -- so bake it there instead
+        # of fetching it from /cdrom at all.
+        if preseed_cfg is not None:
+            shutil.copy2(preseed_cfg, overlay_root / "preseed.cfg")
+            log(f"    baked {preseed_cfg} -> initrd root /preseed.cfg "
+                f"({preseed_cfg.stat().st_size} bytes)")
+
         # Real usr-merge gotcha (verbatim from build-iso-di.sh): NEVER
         # emit a bare top-level "lib" dir entry, or a later archive's
         # directory-creation deletes the base initrd's lib->usr/lib
-        # symlink (and libc/the dynamic loader with it).
+        # symlink (and libc/the dynamic loader with it). preseed.cfg is
+        # a plain root-level FILE (no directory-creation collision), so
+        # it's safe to list explicitly alongside the lib/ walk.
         overlay_cpio_gz = tmp / "overlay.cpio.gz"
-        find_proc = subprocess.Popen(
+        filelist = tmp / "overlay.filelist"
+        find_lib = subprocess.run(
             ["find", "lib", "-mindepth", "1", "-print"],
-            cwd=overlay_root, stdout=subprocess.PIPE,
-        )
-        cpio_proc = subprocess.Popen(
-            ["cpio", "-o", "-H", "newc", "--quiet"],
-            cwd=overlay_root, stdin=find_proc.stdout, stdout=subprocess.PIPE,
-        )
-        find_proc.stdout.close()
-        with overlay_cpio_gz.open("wb") as out_f:
-            with gzip.GzipFile(fileobj=out_f, mode="wb", compresslevel=9) as gz_out:
-                shutil.copyfileobj(cpio_proc.stdout, gz_out)
-        cpio_proc.wait()
-        find_proc.wait()
-        if cpio_proc.returncode != 0 or find_proc.returncode != 0:
-            raise RuntimeError("FATAL: overlay cpio/find failed")
+            cwd=overlay_root, check=True, capture_output=True, text=True,
+        ).stdout
+        with filelist.open("w") as fl:
+            fl.write(find_lib)
+            if preseed_cfg is not None:
+                fl.write("preseed.cfg\n")
+        with filelist.open("rb") as fl_in:
+            cpio_proc = subprocess.Popen(
+                ["cpio", "-o", "-H", "newc", "--quiet"],
+                cwd=overlay_root, stdin=fl_in, stdout=subprocess.PIPE,
+            )
+            with overlay_cpio_gz.open("wb") as out_f:
+                with gzip.GzipFile(fileobj=out_f, mode="wb", compresslevel=9) as gz_out:
+                    shutil.copyfileobj(cpio_proc.stdout, gz_out)
+            cpio_proc.wait()
+        if cpio_proc.returncode != 0:
+            raise RuntimeError("FATAL: overlay cpio pack failed")
         log(f"    overlay cpio: {overlay_cpio_gz.stat().st_size} bytes")
 
         # --- concatenate onto the (already firmware-patched) base initrd
@@ -249,12 +278,23 @@ def main() -> int:
     ap.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     ap.add_argument("--cache-root", type=Path, default=DEFAULT_CACHE_ROOT)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--preseed-cfg", type=Path,
+                     default=REPO_ROOT / "preseed" / "preseed.cfg",
+                     help="Baked into the initrd root as /preseed.cfg (d-i's "
+                          "S30initrd-preseed auto-loads it with zero "
+                          "device/mount dependency). Pass --preseed-cfg= "
+                          "(empty) to skip.")
     args = ap.parse_args()
+    preseed_cfg = args.preseed_cfg if str(args.preseed_cfg) else None
+    if preseed_cfg is not None and not preseed_cfg.is_file():
+        preseed_cfg = None
+        log(f"WARNING: no preseed.cfg at {args.preseed_cfg} -- initrd will "
+            f"NOT carry a baked-in preseed")
 
     try:
         linux_out, initrd_out = patch_t2_kernel(
             args.base_initrd, args.kernel_deb, args.arch,
-            args.cache_root, args.force,
+            args.cache_root, args.force, preseed_cfg,
         )
     except RuntimeError as e:
         log(str(e))
