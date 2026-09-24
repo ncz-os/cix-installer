@@ -100,6 +100,24 @@ def _stat(path: Path) -> dict:
     return {"present": True, "sha256": sha256_file(path), "size": s.st_size}
 
 
+# Helpers preseed.cfg's early_command needs. They were copied off the mounted
+# medium, but early_command runs at S33preseed_early_command -- right after
+# S30initrd-preseed loads the baked /preseed.cfg and long before anything has
+# necessarily mounted an NCZ medium anywhere. So $NCZSRC often does not resolve
+# yet, the copies fail into a log nobody reads, and the diagnostic SSH server,
+# the USB rescan and the component selector simply never run. Baking them into
+# the initrd root gives early_command the same zero-mount-dependency guarantee
+# the preseed itself already has; preseed.cfg prefers /ncz/<name> and still
+# falls back to the medium.
+BAKED_HELPERS = [
+    "diag-console.sh",
+    "usb-rescan.sh",
+    "sshd-watcher.sh",
+    "component-selector.sh",
+    "locale-keyboard-chooser.sh",
+]
+
+
 def patch_t2_kernel(
     base_initrd: Path,
     kernel_deb: Path,
@@ -107,6 +125,8 @@ def patch_t2_kernel(
     cache_root: Path,
     force: bool = False,
     preseed_cfg: Path | None = None,
+    helper_dir: Path | None = None,
+    diag_busybox: Path | None = None,
 ) -> tuple[Path, Path]:
     if not base_initrd.is_file():
         raise RuntimeError(f"FATAL: no base initrd at {base_initrd}")
@@ -115,13 +135,28 @@ def patch_t2_kernel(
     if preseed_cfg is not None and not preseed_cfg.is_file():
         raise RuntimeError(f"FATAL: preseed.cfg not found: {preseed_cfg}")
 
+    helpers: list[Path] = []
+    if helper_dir is not None:
+        missing = [n for n in BAKED_HELPERS if not (helper_dir / n).is_file()]
+        if missing:
+            raise RuntimeError(
+                f"FATAL: {helper_dir} is missing early_command helpers "
+                f"{missing} -- baking an incomplete set would reintroduce the "
+                f"silent no-op this bake exists to prevent"
+            )
+        helpers = [helper_dir / n for n in BAKED_HELPERS]
+    if diag_busybox is not None and not diag_busybox.is_file():
+        raise RuntimeError(f"FATAL: diag busybox not found: {diag_busybox}")
+
     canonical = canonical_encode({
-        "schema_version": "cixmini-initrd-t2kernel/v2",
+        "schema_version": "cixmini-initrd-t2kernel/v3",
         "arch": arch,
         "base_initrd": _stat(base_initrd),
         "kernel_deb": _stat(kernel_deb),
         "prune_mod_dirs": PRUNE_MOD_DIRS,
         "preseed_cfg": _stat(preseed_cfg) if preseed_cfg is not None else {"present": False},
+        "helpers": {p.name: _stat(p) for p in helpers},
+        "diag_busybox": _stat(diag_busybox) if diag_busybox is not None else {"present": False},
     })
     node_key = sha256_bytes(canonical)
     node_dir = cache_root / "cixmini-initrd-t2kernel" / node_key
@@ -204,6 +239,28 @@ def patch_t2_kernel(
             log(f"    baked {preseed_cfg} -> initrd root /preseed.cfg "
                 f"({preseed_cfg.stat().st_size} bytes)")
 
+        # --- bake early_command's helpers into the initrd too -------------
+        # /ncz is a NEW top-level directory, so the usr-merge clean_path()
+        # hazard documented below does not apply to it: that bites only when a
+        # later archive creates a DIRECTORY where the base has a SYMLINK
+        # (lib -> usr/lib). Nothing in the base initrd is called "ncz".
+        ncz_dir = overlay_root / "ncz"
+        if helpers or diag_busybox is not None:
+            ncz_dir.mkdir(parents=True, exist_ok=True)
+        for h in helpers:
+            dst = ncz_dir / h.name
+            shutil.copy2(h, dst)
+            dst.chmod(0o755)
+        if helpers:
+            log(f"    baked {len(helpers)} early_command helpers -> initrd "
+                f"/ncz/: {[h.name for h in helpers]}")
+        if diag_busybox is not None:
+            dst = ncz_dir / "busybox"
+            shutil.copy2(diag_busybox, dst)
+            dst.chmod(0o755)
+            log(f"    baked {diag_busybox} -> initrd /ncz/busybox "
+                f"({diag_busybox.stat().st_size} bytes)")
+
         # Real usr-merge gotcha (verbatim from build-iso-di.sh): NEVER
         # emit a bare top-level "lib" dir entry, or a later archive's
         # directory-creation deletes the base initrd's lib->usr/lib
@@ -220,6 +277,11 @@ def patch_t2_kernel(
             fl.write(find_lib)
             if preseed_cfg is not None:
                 fl.write("preseed.cfg\n")
+            if ncz_dir.is_dir():
+                fl.write(subprocess.run(
+                    ["find", "ncz", "-print"],
+                    cwd=overlay_root, check=True, capture_output=True, text=True,
+                ).stdout)
         with filelist.open("rb") as fl_in:
             cpio_proc = subprocess.Popen(
                 ["cpio", "-o", "-H", "newc", "--quiet"],
@@ -256,6 +318,9 @@ def patch_t2_kernel(
             "kernel_deb": str(kernel_deb),
             "kernel_deb_sha256": sha256_file(kernel_deb),
             "prune_mod_dirs": PRUNE_MOD_DIRS,
+            "baked_preseed_cfg": str(preseed_cfg) if preseed_cfg else None,
+            "baked_helpers": [h.name for h in helpers],
+            "baked_diag_busybox": str(diag_busybox) if diag_busybox else None,
         },
         "outputs": {
             "linux": str(out_linux),
@@ -278,6 +343,14 @@ def main() -> int:
     ap.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     ap.add_argument("--cache-root", type=Path, default=DEFAULT_CACHE_ROOT)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--helper-dir", type=Path, default=REPO_ROOT / "preseed",
+                     help="Directory holding the early_command helper scripts "
+                          "baked into the initrd at /ncz/. Pass --helper-dir= "
+                          "(empty) to skip.")
+    ap.add_argument("--diag-busybox", type=Path, default=None,
+                     help="Static busybox baked in at /ncz/busybox for the "
+                          "diag console; defaults to "
+                          "assets/diag/busybox-<arch>.")
     ap.add_argument("--preseed-cfg", type=Path,
                      default=REPO_ROOT / "preseed" / "preseed.cfg",
                      help="Baked into the initrd root as /preseed.cfg (d-i's "
@@ -291,10 +364,24 @@ def main() -> int:
         log(f"WARNING: no preseed.cfg at {args.preseed_cfg} -- initrd will "
             f"NOT carry a baked-in preseed")
 
+    helper_dir = args.helper_dir if str(args.helper_dir) else None
+    if helper_dir is not None and not helper_dir.is_dir():
+        log(f"FATAL: --helper-dir {helper_dir} is not a directory")
+        return 1
+    diag_busybox = args.diag_busybox
+    if diag_busybox is None:
+        cand = REPO_ROOT / "assets" / "diag" / f"busybox-{args.arch}"
+        if cand.is_file():
+            diag_busybox = cand
+        else:
+            log(f"WARNING: no {cand} -- the diag console will have no baked "
+                f"busybox and must find one on the medium")
+
     try:
         linux_out, initrd_out = patch_t2_kernel(
             args.base_initrd, args.kernel_deb, args.arch,
             args.cache_root, args.force, preseed_cfg,
+            helper_dir, diag_busybox,
         )
     except RuntimeError as e:
         log(str(e))
