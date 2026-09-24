@@ -1055,14 +1055,23 @@ def stage_patched_udeb_in_cache(
     node_key = sha256_bytes(canonical_payload)
     node_dir = cache_root / "cixmini-udeb" / node_key
     if node_dir.exists():
-        log(f"    patched udeb cache node exists: {node_dir}")
-        return node_dir
-    node_dir.mkdir(parents=True)
-    shutil.copy2(str(patched_udeb), str(node_dir / patched_udeb.name))
-    (node_dir / "node-key.json").write_text(json.dumps({
+        if (node_dir / "node-key.json").is_file():
+            log(f"    patched udeb cache node exists: {node_dir}")
+            return node_dir
+        log(f"    WARNING: incomplete cache node (no node-key.json): {node_dir} -- restaging")
+        shutil.rmtree(node_dir)
+    # Same atomicity rule as the other cache nodes: build under
+    # .partial.<pid>, publish by rename once node-key.json is written, so an
+    # interrupted run cannot leave a node that later runs serve as a hit.
+    build_dir = node_dir.parent / f"{node_key}.partial.{os.getpid()}"
+    shutil.rmtree(build_dir, ignore_errors=True)
+    build_dir.mkdir(parents=True)
+    shutil.copy2(str(patched_udeb), str(build_dir / patched_udeb.name))
+    (build_dir / "node-key.json").write_text(json.dumps({
         "node_key": node_key,
         "canonical_payload_sha256": sha256_bytes(canonical_payload),
     }, indent=2, sort_keys=True))
+    os.replace(build_dir, node_dir)
     log(f"    staged patched udeb at {node_dir}")
     return node_dir
 

@@ -50,6 +50,7 @@ import argparse
 import gzip
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -110,13 +111,25 @@ def patch_initrd(
         "firmware_tar": _stat(firmware_tar),
     })
     node_key = sha256_bytes(canonical)
+# Content-addressed cache nodes are created EMPTY and filled afterwards, and
+# every reader treats "the directory exists" as "the build succeeded". An
+# interrupted or crashed run therefore leaves a partial node that later runs
+# serve as a cache HIT -- silently shipping half a build. Fix: build into a
+# sibling .partial.<pid> directory and os.replace() it into its final name only
+# after the receipt has been written, so a node is either absent or complete.
+# A node that somehow exists without its receipt is treated as incomplete and
+# rebuilt rather than trusted.
     node_dir = cache_root / "cixmini-initrd" / node_key
     if node_dir.exists() and not force:
-        log(f"node exists: {node_dir}")
-        return node_dir / "initrd.gz"
+        if (node_dir / "receipt.json").is_file():
+            log(f"node exists: {node_dir}")
+            return node_dir / "initrd.gz"
+        log(f"WARNING: incomplete cache node (no receipt.json): {node_dir} -- rebuilding")
     if node_dir.exists():
         shutil.rmtree(node_dir)
-    node_dir.mkdir(parents=True)
+    build_dir = node_dir.parent / f"{node_key}.partial.{os.getpid()}"
+    shutil.rmtree(build_dir, ignore_errors=True)
+    build_dir.mkdir(parents=True)
 
     with tempfile.TemporaryDirectory(prefix="patch-initrd-") as tmp:
         tmp = Path(tmp)
@@ -160,7 +173,7 @@ def patch_initrd(
             (dest_fw / f.name).chmod(0o644)
         log(f"    injected {len(brcm_files)} brcmfmac firmware files into lib/firmware/brcm/")
 
-        out_initrd = node_dir / "initrd.gz"
+        out_initrd = build_dir / "initrd.gz"
         log(f"    repacking cpio+gzip -> {out_initrd}")
         find_proc = subprocess.Popen(
             ["find", "."], cwd=extract_dir, stdout=subprocess.PIPE,
@@ -198,9 +211,11 @@ def patch_initrd(
             "initrd_gz_size": out_initrd.stat().st_size,
         },
     }
-    (node_dir / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True))
-    log(f"OK: patched initrd at {out_initrd}")
-    return out_initrd
+    (build_dir / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True))
+    # Atomic publish: until this rename, no other run can see a partial node.
+    os.replace(build_dir, node_dir)
+    log(f"OK: patched initrd at {node_dir / 'initrd.gz'}")
+    return node_dir / "initrd.gz"
 
 
 def main() -> int:
