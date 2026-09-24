@@ -314,6 +314,38 @@ def stage_payload(
         log(f"INFO: desktop layer absent; the r159 stub will skip the "
             f"desktop overlay and install base-only")
 
+    # --- 2b. Validate desktop-hotfix.squashfs + overlay-manifest (OPTIONAL) --
+    # The r159 install-time stub already looks for a "$ROLE-hotfix.squashfs"
+    # layer (patch-debootstrap-stub.py's HOTFIX_ROLE="$ROLE-hotfix") and
+    # applies it if present -- that logic was already wired. What was
+    # missing until 2026-09-24 was this build-side staging step, so a real
+    # hotfix.squashfs built by build/build-squashfs-layers.sh's `hotfix`
+    # target sat in assets/squashfs/ and never made it onto the ISO.
+    hotfix_layer = squashfs_dir / "desktop-hotfix.squashfs"
+    hotfix_manifest = squashfs_dir / "desktop-hotfix.overlay-manifest"
+    hotfix_present = hotfix_layer.is_file()
+    if hotfix_present:
+        assert_squashfs_root_mode(hotfix_layer, "desktop-hotfix")
+        if hotfix_manifest.is_file():
+            verify_overlay_manifest(hotfix_manifest, "desktop-hotfix", hotfix_layer)
+        else:
+            log(f"WARNING: {hotfix_layer} present without an overlay manifest — "
+                f"staging it anyway; the stub applies it as a plain overlay")
+    else:
+        log(f"INFO: desktop-hotfix layer absent; skipping (not required)")
+
+    # --- 2c. Validate the diag busybox (OPTIONAL, per-arch) ----------------
+    # preseed/diag-console.sh looks for /cdrom/cixmini/busybox-$ARCH at
+    # runtime (the diag console's static busybox + applet farm). It is a
+    # committed binary at assets/diag/busybox-$ARCH, not something this
+    # pipeline builds -- just copy it onto the ISO top-level cixmini/ dir,
+    # matching where diag-console.sh actually looks.
+    busybox_src = REPO_ROOT / "assets" / "diag" / f"busybox-{arch}"
+    busybox_present = busybox_src.is_file()
+    if not busybox_present:
+        log(f"WARNING: {busybox_src} absent — diag console will have no "
+            f"fallback busybox on this medium")
+
     # --- 3. Validate sqtools (REQUIRED — bundled static unsquashfs) ------
     sqtools_src = REPO_ROOT / "build" / f"sqtools-{arch}"
     sqtools_unsq = sqtools_src / "unsquashfs"
@@ -357,6 +389,12 @@ def stage_payload(
         "base": _stat(base_layer),
         "desktop": _stat(desktop_layer) if desktop_present else {"present": False},
         "desktop_overlay_manifest": _stat(desktop_manifest) if desktop_present else {"present": False},
+        "desktop_hotfix": _stat(hotfix_layer) if hotfix_present else {"present": False},
+        "desktop_hotfix_overlay_manifest": (
+            _stat(hotfix_manifest) if hotfix_present and hotfix_manifest.is_file()
+            else {"present": False}
+        ),
+        "busybox": _stat(busybox_src) if busybox_present else {"present": False},
         "sqtools_manifest": sqtools_manifest,
         "tool_versions": {
             "unsquashfs": tool_version("unsquashfs"),
@@ -390,6 +428,21 @@ def stage_payload(
         log(f"    staged desktop.overlay-manifest "
             f"({desktop_manifest.stat().st_size} bytes)")
 
+    # --- 6b. Copy desktop-hotfix.squashfs + manifest (if present) ------
+    if hotfix_present:
+        shutil.copy2(str(hotfix_layer), str(node_dir / "desktop-hotfix.squashfs"))
+        log(f"    staged desktop-hotfix.squashfs ({hotfix_layer.stat().st_size} bytes)")
+        if hotfix_manifest.is_file():
+            shutil.copy2(str(hotfix_manifest), str(node_dir / "desktop-hotfix.overlay-manifest"))
+            log(f"    staged desktop-hotfix.overlay-manifest "
+                f"({hotfix_manifest.stat().st_size} bytes)")
+
+    # --- 6c. Copy the diag busybox (if present) -------------------------
+    if busybox_present:
+        shutil.copy2(str(busybox_src), str(node_dir / f"busybox-{arch}"))
+        (node_dir / f"busybox-{arch}").chmod(0o755)
+        log(f"    staged busybox-{arch} ({busybox_src.stat().st_size} bytes)")
+
     # --- 7. Copy sqtools/ (architecture-matched) ------------------------
     # cp -a to preserve permissions; the unsquashfs binary must remain
     # executable in the staged tree because xorriso preserves perms
@@ -409,6 +462,11 @@ def stage_payload(
             "base": str(base_layer),
             "desktop": str(desktop_layer) if desktop_present else None,
             "desktop_overlay_manifest": str(desktop_manifest) if desktop_present else None,
+            "desktop_hotfix": str(hotfix_layer) if hotfix_present else None,
+            "desktop_hotfix_overlay_manifest": (
+                str(hotfix_manifest) if hotfix_present and hotfix_manifest.is_file() else None
+            ),
+            "busybox": str(busybox_src) if busybox_present else None,
             "sqtools": str(sqtools_src),
         },
         "tool_versions": json.loads(canonical_payload)["tool_versions"],
@@ -447,6 +505,18 @@ def stage_payload(
             ),
             "desktop_overlay_manifest_size": (
                 desktop_manifest.stat().st_size if desktop_present else None
+            ),
+            "desktop_hotfix_sha256": (
+                sha256_file(hotfix_layer) if hotfix_present else None
+            ),
+            "desktop_hotfix_size": (
+                hotfix_layer.stat().st_size if hotfix_present else None
+            ),
+            "busybox_sha256": (
+                sha256_file(busybox_src) if busybox_present else None
+            ),
+            "busybox_size": (
+                busybox_src.stat().st_size if busybox_present else None
             ),
             "sqtools_dir": str(sqtools_src),
             "sqtools_manifest_sha256": sha256_bytes(sqtools_manifest.encode()),
