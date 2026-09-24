@@ -57,6 +57,7 @@ import argparse
 import gzip
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -174,14 +175,26 @@ def patch_t2_kernel(
         "helpers": {p.name: _stat(p) for p in helpers},
         "diag_busybox": _stat(diag_busybox) if diag_busybox is not None else {"present": False},
     })
+# Content-addressed cache nodes are created EMPTY and filled afterwards, and
+# every reader treats "the directory exists" as "the build succeeded". An
+# interrupted or crashed run therefore leaves a partial node that later runs
+# serve as a cache HIT -- silently shipping half a build. Fix: build into a
+# sibling .partial.<pid> directory and os.replace() it into its final name only
+# after the receipt has been written, so a node is either absent or complete.
+# A node that somehow exists without its receipt is treated as incomplete and
+# rebuilt rather than trusted.
     node_key = sha256_bytes(canonical)
     node_dir = cache_root / "cixmini-initrd-t2kernel" / node_key
     if node_dir.exists() and not force:
-        log(f"node exists: {node_dir}")
-        return node_dir / "linux", node_dir / "initrd.gz"
+        if (node_dir / "receipt.json").is_file():
+            log(f"node exists: {node_dir}")
+            return node_dir / "linux", node_dir / "initrd.gz"
+        log(f"WARNING: incomplete cache node (no receipt.json): {node_dir} -- rebuilding")
     if node_dir.exists():
         shutil.rmtree(node_dir)
-    node_dir.mkdir(parents=True)
+    build_dir = node_dir.parent / f"{node_key}.partial.{os.getpid()}"
+    shutil.rmtree(build_dir, ignore_errors=True)
+    build_dir.mkdir(parents=True)
 
     with tempfile.TemporaryDirectory(prefix="patch-t2kernel-") as tmp:
         tmp = Path(tmp)
@@ -230,7 +243,6 @@ def patch_t2_kernel(
         )
         if not (overlay_modules / "modules.dep").is_file():
             raise RuntimeError("FATAL: depmod did not produce modules.dep")
-        import os
         subprocess.run(
             ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", str(overlay_root)],
             check=True,
@@ -312,14 +324,14 @@ def patch_t2_kernel(
         log(f"    overlay cpio: {overlay_cpio_gz.stat().st_size} bytes")
 
         # --- concatenate onto the (already firmware-patched) base initrd
-        out_initrd = node_dir / "initrd.gz"
+        out_initrd = build_dir / "initrd.gz"
         with out_initrd.open("wb") as out_f:
             with base_initrd.open("rb") as base_f:
                 shutil.copyfileobj(base_f, out_f)
             with overlay_cpio_gz.open("rb") as ov_f:
                 shutil.copyfileobj(ov_f, out_f)
 
-        out_linux = node_dir / "linux"
+        out_linux = build_dir / "linux"
         shutil.copy2(vmlinuz_src, out_linux)
 
     receipt = {
@@ -347,9 +359,11 @@ def patch_t2_kernel(
             "initrd_gz_size": out_initrd.stat().st_size,
         },
     }
-    (node_dir / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True))
+    (build_dir / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True))
+    # Atomic publish: until this rename, no other run can see a partial node.
+    os.replace(build_dir, node_dir)
     log(f"OK: T2-kernel-patched linux+initrd at {node_dir}")
-    return out_linux, out_initrd
+    return node_dir / "linux", node_dir / "initrd.gz"
 
 
 def main() -> int:

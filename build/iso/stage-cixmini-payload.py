@@ -403,44 +403,56 @@ def stage_payload(
         },
     })
     node_key = sha256_bytes(canonical_payload)
+    # See patch-initrd-t2-kernel.py for the full note: a cache node created
+    # empty and filled afterwards turns an interrupted run into a permanent
+    # cache HIT on a half-built node. Build into .partial.<pid>, publish by
+    # rename once the receipt exists, and treat a receipt-less node as
+    # incomplete rather than trusting it.
     node_dir = cache_root / "cixmini-payload" / node_key
-    receipts = node_dir / "receipts"
+    done_marker = node_dir / "receipts" / "stage-cixmini-payload-receipt.json"
     if node_dir.exists() and not force:
-        log(f"node exists: {node_dir}")
-        log(f"node_key: {node_key}")
-        return node_dir
+        if done_marker.is_file():
+            log(f"node exists: {node_dir}")
+            log(f"node_key: {node_key}")
+            return node_dir
+        log(f"WARNING: incomplete cache node (no receipt): {node_dir} -- restaging")
 
     if node_dir.exists():
         _chmod_r(node_dir)
         shutil.rmtree(node_dir)
-    node_dir.mkdir(parents=True)
+    build_dir = node_dir.parent / f"{node_key}.partial.{os.getpid()}"
+    if build_dir.exists():
+        _chmod_r(build_dir)
+        shutil.rmtree(build_dir)
+    build_dir.mkdir(parents=True)
+    receipts = build_dir / "receipts"
     receipts.mkdir()
 
     # --- 5. Copy base.squashfs ------------------------------------------
-    shutil.copy2(str(base_layer), str(node_dir / "base.squashfs"))
+    shutil.copy2(str(base_layer), str(build_dir / "base.squashfs"))
     log(f"    staged base.squashfs ({base_layer.stat().st_size} bytes)")
 
     # --- 6. Copy desktop.squashfs + manifest (if present) --------------
     if desktop_present:
-        shutil.copy2(str(desktop_layer), str(node_dir / "desktop.squashfs"))
-        shutil.copy2(str(desktop_manifest), str(node_dir / "desktop.overlay-manifest"))
+        shutil.copy2(str(desktop_layer), str(build_dir / "desktop.squashfs"))
+        shutil.copy2(str(desktop_manifest), str(build_dir / "desktop.overlay-manifest"))
         log(f"    staged desktop.squashfs ({desktop_layer.stat().st_size} bytes)")
         log(f"    staged desktop.overlay-manifest "
             f"({desktop_manifest.stat().st_size} bytes)")
 
     # --- 6b. Copy desktop-hotfix.squashfs + manifest (if present) ------
     if hotfix_present:
-        shutil.copy2(str(hotfix_layer), str(node_dir / "desktop-hotfix.squashfs"))
+        shutil.copy2(str(hotfix_layer), str(build_dir / "desktop-hotfix.squashfs"))
         log(f"    staged desktop-hotfix.squashfs ({hotfix_layer.stat().st_size} bytes)")
         if hotfix_manifest.is_file():
-            shutil.copy2(str(hotfix_manifest), str(node_dir / "desktop-hotfix.overlay-manifest"))
+            shutil.copy2(str(hotfix_manifest), str(build_dir / "desktop-hotfix.overlay-manifest"))
             log(f"    staged desktop-hotfix.overlay-manifest "
                 f"({hotfix_manifest.stat().st_size} bytes)")
 
     # --- 6c. Copy the diag busybox (if present) -------------------------
     if busybox_present:
-        shutil.copy2(str(busybox_src), str(node_dir / f"busybox-{arch}"))
-        (node_dir / f"busybox-{arch}").chmod(0o755)
+        shutil.copy2(str(busybox_src), str(build_dir / f"busybox-{arch}"))
+        (build_dir / f"busybox-{arch}").chmod(0o755)
         log(f"    staged busybox-{arch} ({busybox_src.stat().st_size} bytes)")
 
     # --- 7. Copy sqtools/ (architecture-matched) ------------------------
@@ -448,7 +460,7 @@ def stage_payload(
     # executable in the staged tree because xorriso preserves perms
     # when packing the ISO 9660 filesystem.
     subprocess.run(
-        ["cp", "-a", str(sqtools_src) + "/.", str(node_dir / "sqtools")],
+        ["cp", "-a", str(sqtools_src) + "/.", str(build_dir / "sqtools")],
         check=True,
     )
     log(f"    staged sqtools/ from {sqtools_src}")
@@ -472,10 +484,10 @@ def stage_payload(
         "tool_versions": json.loads(canonical_payload)["tool_versions"],
         "files": [],
     }
-    for p in sorted(node_dir.rglob("*")):
+    for p in sorted(build_dir.rglob("*")):
         if p.is_file():
             try:
-                rel = p.relative_to(node_dir)
+                rel = p.relative_to(build_dir)
                 size = p.stat().st_size
                 mode = oct(p.stat().st_mode & 0o7777)
                 sha = sha256_file(p)
@@ -525,15 +537,17 @@ def stage_payload(
             "staged_dir": str(node_dir),
         },
     }
-    receipts.joinpath("stage-cixmini-payload-receipt.json").write_text(
-        json.dumps(receipt, indent=2, sort_keys=True)
-    )
-
     receipts.joinpath("node-key.json").write_text(json.dumps({
         "node_key": node_key,
         "canonical_payload_hex": canonical_payload.hex(),
         "canonical_payload_sha256": sha256_bytes(canonical_payload),
     }, indent=2, sort_keys=True))
+
+    # Atomic publish: written last, so a node without it is never served.
+    receipts.joinpath("stage-cixmini-payload-receipt.json").write_text(
+        json.dumps(receipt, indent=2, sort_keys=True)
+    )
+    os.replace(build_dir, node_dir)
 
     log(f"node_key: {node_key}")
     log(f"node_dir: {node_dir}")
