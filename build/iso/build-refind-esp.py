@@ -166,19 +166,19 @@ menuentry "{info_line}" {{
 menuentry "NCZ-OS Installer -- Install" {{
     loader /linux
     initrd /initrd.gz
-    options "auto=true priority=critical interface=auto netcfg/dhcp_timeout=120 locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
+    options "auto=true priority=critical ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
 }}
 
 menuentry "NCZ-OS Installer -- Install (expert)" {{
     loader /linux
     initrd /initrd.gz
-    options "priority=low interface=auto netcfg/dhcp_timeout=120 DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
+    options "priority=low ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
 }}
 
 menuentry "NCZ-OS Installer -- Rescue mode" {{
     loader /linux
     initrd /initrd.gz
-    options "rescue/enable=true interface=auto netcfg/dhcp_timeout=120 DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
+    options "rescue/enable=true ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
 }}
 
 menuentry "NCZ-OS Installer -- Reinstall (preserve installed system)" {{
