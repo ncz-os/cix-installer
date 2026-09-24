@@ -903,7 +903,21 @@ build_base(){
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
   sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs sinty-nm; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  # Real, current assets/ subdirs meant to ship inside the target OS.
+  # Deliberately excludes: assets/rootfs (base-tarball build cache),
+  # assets/squashfs (this script's own output dir), assets/models (not
+  # consumed by anything in this pipeline yet -- verify before adding),
+  # and mesa/cix-py/vivaldi/nvidia/wallpaper-debs/cix-debs's *.deb payload
+  # which the desktop-role branch stages separately below. Found stale
+  # 2026-09-24 (real 7.34GB reference ISO vs a 3.56GB new build) --
+  # agent-images/agent-stack/audio/cix-c-shims/cix-mm/dev/diag/docs/
+  # dracut/embedkit/keys/npu/regreet/singularity were silently dropped by
+  # this allowlist, breaking the NCZ agent stack, EmbedKit LLM stack, the
+  # regreet login theme, NPU assets, and Singularity Desktop's own asset
+  # tree on every amd64 build since this loop was last updated.
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs sinty-nm agent-images agent-stack audio cix-c-shims cix-mm dev diag docs dracut embedkit keys npu regreet singularity; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  # Standalone files at assets/ root -- same silent-drop bug, same fix.
+  for f in install_ncz_agents.sh kernel-manifest.json README.md cix-deb-repo.gpg; do [ -f "$ROOT/assets/$f" ] && sudo cp -a "$ROOT/assets/$f" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
     log "  staged sinty-nm daemon into BASE ($(du -h "$ROOT/assets/sinty-nm/sinty-nmd" | cut -f1))"
   else
