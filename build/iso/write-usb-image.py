@@ -241,7 +241,8 @@ def verify_data_partition_content(data_img: Path, staged_root: Path) -> None:
 
 
 def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
-                        patched_udeb: Path | None, preseed_dir: Path | None) -> dict:
+                        patched_udeb: Path | None, preseed_dir: Path | None,
+                        allow_missing_stub: bool = False) -> dict:
     """Same shape as write-image.py's stage_cixmini_payload(), corrected
     for the hotfix/busybox staleness bug documented above."""
     if not payload_dir.is_dir():
@@ -279,6 +280,15 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
 
     receipt = {"staged_files": staged}
 
+    # The patched debootstrap udeb is NOT optional decoration. It carries the
+    # r159 stub that replaces /usr/sbin/debootstrap, and that stub is the one
+    # and only live path that extracts base.squashfs into /target: there is
+    # no partman/late_command hook in d-i (verified against partman-base 241),
+    # so extract-rootfs.sh never runs. Without this udeb on the medium,
+    # bootstrap-base network-debootstraps a bare Debian and the install
+    # silently produces the wrong system. preseed.cfg's partman/early_command
+    # installs it and refuses to continue if it is missing; refuse here too,
+    # at build time, where it is cheap to notice.
     if patched_udeb is not None:
         if not patched_udeb.is_file():
             raise RuntimeError(f"FATAL: patched udeb not found: {patched_udeb}")
@@ -286,6 +296,20 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
         dst_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(patched_udeb), str(dst_dir / patched_udeb.name))
         receipt["patched_udeb"] = patched_udeb.name
+        log(f"    staged patched debootstrap udeb: {patched_udeb.name}")
+    elif allow_missing_stub:
+        log("    WARNING: --allow-missing-debootstrap-stub -- this medium will "
+            "NOT install NCZ-OS. partman/early_command will abort the install.")
+    else:
+        raise RuntimeError(
+            "FATAL: no --patched-udeb. The r159 debootstrap stub is the only "
+            "live path that extracts base.squashfs into /target (there is no "
+            "partman/late_command hook in d-i), so a medium without it cannot "
+            "install this distro -- it would network-debootstrap a bare "
+            "Debian instead. Build one with build/iso/patch-debootstrap-stub.py "
+            "and pass it here, or pass --allow-missing-debootstrap-stub if you "
+            "are deliberately building a non-installing test medium."
+        )
 
     if preseed_dir is not None and preseed_dir.is_dir():
         preseed_staged = []
@@ -636,7 +660,13 @@ def main() -> int:
     ap.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     ap.add_argument("--esp-img", required=True, type=Path)
     ap.add_argument("--cixmini-payload-dir", required=True, type=Path)
-    ap.add_argument("--patched-udeb", type=Path)
+    ap.add_argument("--patched-udeb", type=Path,
+                     help="Patched debootstrap-udeb carrying the r159 stub, "
+                          "from build/iso/patch-debootstrap-stub.py. REQUIRED "
+                          "for a medium that can actually install.")
+    ap.add_argument("--allow-missing-debootstrap-stub", action="store_true",
+                     help="Build without the r159 stub. The result CANNOT "
+                          "install NCZ-OS; only for deliberate test media.")
     ap.add_argument("--preseed-dir", type=Path, default=REPO_ROOT / "preseed")
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--data-size-mib", type=int, default=None,
@@ -676,6 +706,7 @@ def main() -> int:
         payload_receipt = build_cixmini_tree(
             stage_dir, args.cixmini_payload_dir, args.arch,
             args.patched_udeb, args.preseed_dir if args.preseed_dir.is_dir() else None,
+            args.allow_missing_debootstrap_stub,
         )
 
         log("[2/4] building ext4 data partition image")
@@ -695,6 +726,9 @@ def main() -> int:
             f"cixmini/{n}" for n in payload_receipt["staged_files"]
             if n != "sqtools"
         ] + ["cixmini/sqtools/unsquashfs"]
+        if "patched_udeb" in payload_receipt:
+            required_data_files.append(
+                f"cixmini/debootstrap-udeb/{payload_receipt['patched_udeb']}")
         if "preseed.cfg" in payload_receipt.get("preseed_staged_files", []):
             required_data_files.append("cixmini/preseed.cfg")
         verify_image(args.out, part_info, args.esp_img, data_img,
