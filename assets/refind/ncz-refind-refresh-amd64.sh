@@ -131,6 +131,22 @@ if [ "$STABLE_PREFLIGHT_READY" = "0" ]; then
 fi
 echo "  preflight OK: stable kernel payload is present"
 
+# Recovery is part of the release contract, but validate it before touching
+# the ESP.  This check used to run after stale kernels and refind.conf had
+# already been deleted, so the deterministic AMD64 rescue-hook failure turned
+# an otherwise recoverable ESP into an unbootable one before returning rc=1.
+RESCUE_READY="$INSTALLER_META/RESCUE_READY"
+RESCUEPART_PARTUUID=""
+if [ -f "$RESCUE_READY" ]; then
+    RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
+fi
+if [ -z "$RESCUEPART_PARTUUID" ]; then
+    echo "ERROR: rescue partition is required but $RESCUE_READY has no PARTUUID"
+    echo "       Refusing to modify the ESP until recovery is ready."
+    exit 1
+fi
+echo "  preflight OK: rescue partition PARTUUID=$RESCUEPART_PARTUUID"
+
 # Preflight (above) validated inputs under `set -euo pipefail`. The ESP is
 # vfat (no ownership/perms). The write section below tolerates vfat quirks
 # (cp ownership warnings, grep-no-match, best-effort efibootmgr). Under
@@ -317,21 +333,8 @@ if [ "$EDGE_AVAILABLE" = "1" ]; then
     EDGE_OPTIONS="$ROOT_OPTS console=ttyS0,115200 console=tty0 systemd.unit=multi-user.target"
 fi
 
-RESCUE_READY="$INSTALLER_META/RESCUE_READY"
-RESCUEPART_OPTIONS=""
-if [ -f "$RESCUE_READY" ] && [ "$STABLE_AVAILABLE" = "1" ]; then
-    RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
-    if [ -n "$RESCUEPART_PARTUUID" ]; then
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw console=ttyS0,115200 console=tty0 systemd.unit=multi-user.target"
-        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
-    else
-        echo "ERROR: rescue-partition marker has no PARTUUID — refusing to ship without recovery"
-        exit 1
-    fi
-else
-    echo "ERROR: rescue partition is required but marker $RESCUE_READY or the shipping kernel is absent"
-    exit 1
-fi
+RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw console=ttyS0,115200 console=tty0 systemd.unit=multi-user.target"
+echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
 
 install -d -m 0755 /boot/efi/EFI/BOOT
 install -m 0644 "$REFIND_SRC" /boot/efi/EFI/BOOT/BOOTX64.EFI
