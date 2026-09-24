@@ -299,15 +299,15 @@ def log(msg: str) -> None:
 def stage_ncz_payload(stage_dir: Path, payload_dir: Path,
                       patched_udeb: Path | None,
                       preseed_dir: Path | None = None) -> dict:
-    """Copy the staged r159 cixmini payload into ``stage_dir/cixmini/`` so
-    it lands at the ISO top level at ``/cixmini/`` once xorrisofs packs
+    """Copy the staged r159 ncz-payload into ``stage_dir/cixmini/`` so
+    it lands at the ISO top level at ``/ncz-payload/`` once xorrisofs packs
     the tree.
 
     The payload is the verbatim output of ``build/iso/stage-ncz-payload.py``
     (or any directory with the same shape): ``base.squashfs``,
     ``desktop.squashfs``, ``desktop.overlay-manifest``, ``sqtools/``.
     Together those are what the r159 stub CONSUMES at install time
-    (``/cdrom/cixmini/base.squashfs`` etc.).
+    (``/cdrom/ncz-payload/base.squashfs`` etc.).
 
     If ``patched_udeb`` is given (output of ``build/iso/patch-debootstrap-stub.py``
     on a netboot-layout substrate where the substrate has no ``/pool/``),
@@ -321,12 +321,12 @@ def stage_ncz_payload(stage_dir: Path, payload_dir: Path,
     If ``preseed_dir`` is given (default: ``<repo>/preseed`` if it
     exists), its files are also copied into ``stage_dir/cixmini/``
     AFTER the payload. This is how d-i's existing
-    ``preseed/file=/cdrom/cixmini/preseed.cfg`` kernel-cmdline
+    ``preseed/file=/cdrom/ncz-payload/preseed.cfg`` kernel-cmdline
     reference (see build-refind-esp.py options line) resolves at
     install time. The build-iso-di.sh pipeline copies these into
-    ``$STAGING/cixmini/`` at lines ~2988-3054 (``preseed.cfg``,
+    ``$STAGING/ncz-payload/`` at lines ~2988-3054 (``preseed.cfg``,
     ``late.sh``, ``extract-rootfs.sh``, etc.); this writer does the
-    same so a cold build that includes /cixmini/preseed.cfg is
+    same so a cold build that includes /ncz-payload/preseed.cfg is
     directly drive-able past the "Download debconf preconfiguration
     file" prompt without the kvm-install-gate.sh ISO re-pack.
 
@@ -338,8 +338,8 @@ def stage_ncz_payload(stage_dir: Path, payload_dir: Path,
     cold/warm image receipt.
     """
     if not payload_dir.is_dir():
-        raise RuntimeError(f"cixmini payload dir not found: {payload_dir}")
-    ncz_payload_dst = stage_dir / "cixmini"
+        raise RuntimeError(f"ncz-payload dir not found: {payload_dir}")
+    ncz_payload_dst = stage_dir / "ncz-payload"
     if ncz_payload_dst.exists():
         _chmod_r(ncz_payload_dst)
         shutil.rmtree(ncz_payload_dst)
@@ -366,7 +366,7 @@ def stage_ncz_payload(stage_dir: Path, payload_dir: Path,
         "payload_dir_sha256": sha256_dir_bytes(payload_dir) if payload_dir.is_dir() else None,
         "staged_files": staged,
     }
-    log(f"cixmini payload staged at {ncz_payload_dst}: {staged}")
+    log(f"ncz-payload staged at {ncz_payload_dst}: {staged}")
 
     if patched_udeb is not None:
         if not patched_udeb.is_file():
@@ -380,8 +380,8 @@ def stage_ncz_payload(stage_dir: Path, payload_dir: Path,
         log(f"patched udeb staged at {dst} (sha256={receipt['patched_udeb_sha256']})")
 
     # Stage the preseed/ tree verbatim if requested. Files land at
-    # /cixmini/preseed.cfg, /cixmini/late.sh, etc. so d-i's
-    # preseed/file=/cdrom/cixmini/preseed.cfg reference resolves.
+    # /ncz-payload/preseed.cfg, /ncz-payload/late.sh, etc. so d-i's
+    # preseed/file=/cdrom/ncz-payload/preseed.cfg reference resolves.
     if preseed_dir is not None and preseed_dir.is_dir():
         preseed_staged = []
         for entry in sorted(preseed_dir.iterdir()):
@@ -400,7 +400,7 @@ def stage_ncz_payload(stage_dir: Path, payload_dir: Path,
 
 def sha256_dir_bytes(d: Path) -> str:
     """Hash a directory's contents (relative path + sha256 of each file,
-    sorted) — used to bind the cixmini payload content to the cold/warm
+    sorted) — used to bind the ncz-payload content to the cold/warm
     receipt so a payload change after a build produces a different
     receipt and a different artifact."""
     h = hashlib.sha256()
@@ -750,10 +750,10 @@ def cold_image(args) -> int:
     # reflink where supported.
     _copyfile_reflink(esp_img, stage / "efi.img")
 
-    # Stage the r159 install-tree payload at /cixmini/ inside the
+    # Stage the r159 install-tree payload at /ncz-payload/ inside the
     # staged tree. This is what makes the ISO deliver a real,
     # offline-installable rootfs at install time (the stub debootstrap
-    # reads from /cdrom/cixmini/base.squashfs etc.). If no payload is
+    # reads from /cdrom/ncz-payload/base.squashfs etc.). If no payload is
     # available, this is a no-op and the ISO will fall back to a
     # network install — same as a stock Debian netinst ISO.
     payload_dir, patched_udeb = resolve_ncz_payload_args(args, DEFAULT_CACHE_ROOT)
@@ -771,7 +771,7 @@ def cold_image(args) -> int:
             preseed_dir=preseed_dir,
         )
     else:
-        log("INFO: no cixmini payload staged — d-i will fall back to "
+        log("INFO: no ncz-payload staged — d-i will fall back to "
             "network install (same as stock Debian netinst ISO)")
 
     # Build the xorrisofs command.
@@ -979,9 +979,9 @@ def warm_image(args) -> int:
     # Also place the new ESP image in the staging tree at /efi.img.
     _copyfile_reflink(esp_img, stage / "efi.img")
 
-    # Stage the r159 install-tree payload at /cixmini/ inside the
+    # Stage the r159 install-tree payload at /ncz-payload/ inside the
     # warm-stage tree. This is the same logic as the cold path; on a
-    # warm growth that replaces the cixmini payload (e.g. a hotfix
+    # warm growth that replaces the ncz-payload (e.g. a hotfix
     # replaces base.squashfs), the new payload files are picked up by
     # the xorriso -update step below.
     payload_dir, patched_udeb = resolve_ncz_payload_args(args, DEFAULT_CACHE_ROOT)
@@ -995,8 +995,8 @@ def warm_image(args) -> int:
             preseed_dir=preseed_dir,
         )
     else:
-        log("INFO: no cixmini payload staged in warm growth — parent "
-            "ISO's /cixmini/ is preserved verbatim by xorriso "
+        log("INFO: no ncz-payload staged in warm growth — parent "
+            "ISO's /ncz-payload/ is preserved verbatim by xorriso "
             "-boot_image any replay")
 
     # 3. Build the xorriso command list. We use -indev = the scratch
@@ -1137,7 +1137,7 @@ def main():
     cold.add_argument("--substrate-node-dir", required=True, type=Path)
     cold.add_argument("--esp-image", required=True, type=Path)
     cold.add_argument("--ncz-payload-dir", type=Path, default=None,
-                      help="staged cixmini payload dir from "
+                      help="staged ncz-payload dir from "
                            "build/iso/stage-ncz-payload.py. If "
                            "omitted, auto-detects the latest node under "
                            "build/iso-cache/v1/ncz-payload/.")
@@ -1163,7 +1163,7 @@ def main():
                       help="Directory containing payload source files")
     warm.add_argument("--esp-image", required=True, type=Path)
     warm.add_argument("--ncz-payload-dir", type=Path, default=None,
-                      help="staged cixmini payload dir (see --ncz-payload-dir "
+                      help="staged ncz-payload dir (see --ncz-payload-dir "
                            "on the cold subcommand). Auto-detects by default.")
     warm.add_argument("--patched-udeb", type=Path, default=None,
                       help="patched debootstrap-udeb (see --patched-udeb "

@@ -51,8 +51,8 @@ PREFIX=/opt/python3.11
 PYBIN="$PREFIX/bin/python3.11"
 
 ASSETS=/usr/local/lib/cix-installer/assets/python311
-if [ ! -d "$ASSETS" ] && [ -d /cdrom/cixmini/assets/python311 ]; then
-    ASSETS=/cdrom/cixmini/assets/python311
+if [ ! -d "$ASSETS" ] && [ -d /cdrom/ncz-payload/assets/python311 ]; then
+    ASSETS=/cdrom/ncz-payload/assets/python311
 fi
 
 echo "[46] provisioning relocatable CPython 3.11 → $PREFIX"

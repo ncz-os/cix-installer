@@ -35,7 +35,7 @@
 #     1. Extract Ubuntu Server live ISO (has /casper/ squashfs + /boot/grub/)
 #     2. Replace /casper/vmlinuz with our Sky1 LTS kernel + inject modules cpio
 #        onto /casper/initrd (LIVE session runs our kernel, not Ubuntu stock)
-#     3. Stage /cixmini/ on ISO with all post-install assets
+#     3. Stage /ncz-payload/ on ISO with all post-install assets
 #     4. Stage /cloud-init/ with user-data (autoinstall) + meta-data
 #     5. Replace /boot/grub/grub.cfg with our menu (LTS default, NEXT test,
 #        SAFE rescue) — kernel cmdline includes `autoinstall ds=nocloud-net...`
@@ -83,7 +83,7 @@ done
 NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
 
 STAGING="$ROOT/build/iso-staging"
-EXTRA="$STAGING/cixmini"
+EXTRA="$STAGING/ncz-payload"
 CLOUDINIT="$STAGING/cloud-init"
 
 # Tools
@@ -354,9 +354,9 @@ rm -f "$NEXT_MOD_GZ"
 echo "    /casper/initrd-next: $(du -h "$STAGING/casper/initrd-next" | cut -f1)"
 
 # ----------------------------------------------------------------------
-# Step 4 — stage /cixmini extras on the ISO
+# Step 4 — stage /ncz-payload extras on the ISO
 # ----------------------------------------------------------------------
-echo "[4] staging /cixmini extras"
+echo "[4] staging /ncz-payload extras"
 mkdir -p "$EXTRA/post-install" "$EXTRA/assets"
 cp -r "$ROOT/post-install/"*.sh "$EXTRA/post-install/"
 chmod 755 "$EXTRA/post-install/"*.sh
@@ -386,7 +386,7 @@ if [ -d "$ROOT/assets/cix-debs" ] && [ "$(ls -A $ROOT/assets/cix-debs 2>/dev/nul
     cp -rL "$ROOT/assets/cix-debs" "$EXTRA/assets/"
 fi
 
-# Stage BOTH kernel sets — post-install reads from /cixmini/assets/kernel/{lts,next}/
+# Stage BOTH kernel sets — post-install reads from /ncz-payload/assets/kernel/{lts,next}/
 if [ -d "$ROOT/assets/kernel" ] && [ "$(ls -A $ROOT/assets/kernel 2>/dev/null)" ]; then
     cp -rL "$ROOT/assets/kernel" "$EXTRA/assets/"
     echo "    kernel: $(du -sh $EXTRA/assets/kernel | cut -f1)"

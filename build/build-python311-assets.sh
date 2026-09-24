@@ -134,4 +134,4 @@ echo "assets/python311 now contains:"
 ls -la "$OUT" | sed 's/^/  /'
 echo ""
 echo "build/build-iso-di.sh stages this directory automatically; 46-python311.sh"
-echo "consumes it offline-first from /cdrom/cixmini/assets/python311."
+echo "consumes it offline-first from /cdrom/ncz-payload/assets/python311."

@@ -9,15 +9,15 @@
 # vs cd-from-iso) makes hard-coded paths fragile. This script:
 #
 #   1. logs everything to /target/var/log/cix-installer-late.log
-#   2. probes ALL plausible locations for the bundled /cixmini dir
+#   2. probes ALL plausible locations for the bundled /ncz-payload dir
 #   3. copies it into /target/usr/local/lib/cix-installer
 #   4. invokes /usr/local/lib/cix-installer/post-install/run-all.sh
 #      in a debconf-disconnected target chroot
 #   5. emits a clear, debuggable error if any step fails — including
 #      mountpoint state, dir contents, and exit codes
 #
-# This script lives at /cdrom/cixmini/late.sh in the ISO; preseed's
-# late_command invokes it via `sh /cdrom/cixmini/late.sh` (with
+# This script lives at /cdrom/ncz-payload/late.sh in the ISO; preseed's
+# late_command invokes it via `sh /cdrom/ncz-payload/late.sh` (with
 # multi-path fallback to find the script itself if /cdrom moved).
 
 set -e
@@ -67,13 +67,13 @@ if command -v flock >/dev/null 2>&1; then
 fi
 
 # Release identity is independent from BUILD_VERSION (the per-ISO build serial).
-# build-iso-di.sh stages release.conf as /cixmini/RELEASE; source it before any
+# build-iso-di.sh stages release.conf as /ncz-payload/RELEASE; source it before any
 # installer-visible text and copy it into the installed system below.
 NCZ_PRODUCT_NAME="NCZ-OS"
 NCZ_RELEASE_VERSION="unknown"
 NCZ_RELEASE_CODENAME=""
-for _release in /cdrom/cixmini/RELEASE /hd-media/cixmini/RELEASE \
-                /media/cdrom/cixmini/RELEASE /run/live/medium/cixmini/RELEASE; do
+for _release in /cdrom/ncz-payload/RELEASE /hd-media/ncz-payload/RELEASE \
+                /media/cdrom/ncz-payload/RELEASE /run/live/medium/ncz-payload/RELEASE; do
     if [ -s "$_release" ]; then
         . "$_release"
         NCZ_RELEASE_SOURCE="$_release"
@@ -158,7 +158,7 @@ echo "--- mounts ---"
 mount | grep -E "cdrom|hd-media|media|target" || true
 echo
 echo "--- candidate source dirs ---"
-for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
+for d in /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
     if [ -d "$d" ]; then
         echo "FOUND: $d"
         ls -la "$d" | head -10
@@ -170,12 +170,12 @@ echo
 
 # Pick the first source that exists
 SRC=""
-for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
+for d in /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
     [ -d "$d" ] && SRC="$d" && break
 done
 
 if [ -z "$SRC" ]; then
-    echo "FATAL: no /cixmini source found in any expected location."
+    echo "FATAL: no /ncz-payload source found in any expected location."
     echo "Mounts:"
     mount
     echo
@@ -195,7 +195,7 @@ echo
 
 echo "--- copying $SRC → /target/usr/local/lib/cix-installer ---"
 mkdir -p /target/usr/local/lib
-# 2026-05-04 codex review: rm -rf + cp -a so reruns don't nest cixmini/
+# 2026-05-04 codex review: rm -rf + cp -a so reruns don't nest ncz-payload/
 # inside existing /target/usr/local/lib/cix-installer/.
 # r157: a BAKED rootfs already ships /usr/local/lib/cix-installer with the
 # generic-hook results + baked assets (refind_aa64.efi, rescue, kernel) +
@@ -492,16 +492,16 @@ if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     # nonexistent source: v14 did so unconditionally, making every apt update
     # probe a series of missing Packages files before falling through to the
     # network repositories.
-    if [ -s /cdrom/cixmini/apt-repo/Packages ] || \
-       [ -s /cdrom/cixmini/apt-repo/Packages.gz ] || \
-       [ -s /cdrom/cixmini/apt-repo/Packages.xz ] || \
-       [ -s /cdrom/cixmini/apt-repo/Packages.zst ]; then
-        echo "deb [trusted=yes] file:///cdrom/cixmini/apt-repo /" \
+    if [ -s /cdrom/ncz-payload/apt-repo/Packages ] || \
+       [ -s /cdrom/ncz-payload/apt-repo/Packages.gz ] || \
+       [ -s /cdrom/ncz-payload/apt-repo/Packages.xz ] || \
+       [ -s /cdrom/ncz-payload/apt-repo/Packages.zst ]; then
+        echo "deb [trusted=yes] file:///cdrom/ncz-payload/apt-repo /" \
             > /target/etc/apt/sources.list.d/cixmini-offline.list
         echo "    NCZ flat offline repository enabled"
     else
         rm -f /target/etc/apt/sources.list.d/cixmini-offline.list
-        echo "WARN: /cdrom/cixmini/apt-repo has no Packages index; NCZ packages require configured network repositories"
+        echo "WARN: /cdrom/ncz-payload/apt-repo has no Packages index; NCZ packages require configured network repositories"
     fi
 
     # Add file:///cdrom apt source to /target's sources.list so apt-get
@@ -713,7 +713,7 @@ esac
 # NO PIPE, and specifically NOT `tee`. MEASURED on the r243 KVM install: this
 # block was piped through `tee -a "$LOG" >&2`, and d-i busybox has no tee
 # applet --
-#     /cdrom/cixmini/late.sh: line 550: tee: not found
+#     /cdrom/ncz-payload/late.sh: line 550: tee: not found
 # -- so the ONE diagnostic written to answer "why is the bar frozen" silently
 # produced nothing, and the trailing `|| true` hid the failure. The bar stayed
 # frozen and the log still could not say why.
@@ -1018,12 +1018,12 @@ ncz_npu_install_time() {
     # --- FIX B: zhouyi_v3 armchina_npu.ko -> updates/ (machine-agnostic) ---
     # Only lands what the baked base did not already ship; safe to re-run.
     #
-    # r186.1: $SRC (the live ISO /cixmini mount) can be missing this file
+    # r186.1: $SRC (the live ISO /ncz-payload mount) can be missing this file
     # even when the repo + the baked rootfs both have it — observed on .66
     # r186 (cix-installer-late.log: FIX A ran, FIX B silently never fired,
     # "no CIXH4010 cores" -> unidentified hardware version 5 at boot,
     # /dev/aipu absent). Root cause is upstream in the squashfs/ISO staging of
-    # assets/kernel/modules-overlay into /cixmini; this fallback makes FIX B
+    # assets/kernel/modules-overlay into /ncz-payload; this fallback makes FIX B
     # resilient to that regardless: /target/usr/local/lib/cix-installer/assets
     # is populated from the BAKED image (confirmed present even when $SRC
     # lacked it) and is unioned from $SRC earlier in this script, so it is at

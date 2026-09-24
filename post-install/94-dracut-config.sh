@@ -43,7 +43,7 @@ PIN_DST="/etc/apt/preferences.d/$PIN_NAME"
 # silently switching the initramfs builder. initramfs-tools is a FALLBACK and
 # must not be purged as a side effect.
 for _p in "${INSTALLER_META:-/usr/local/lib/cix-installer}/assets/dracut/$PIN_NAME" \
-          "/cdrom/cixmini/assets/dracut/$PIN_NAME"; do
+          "/cdrom/ncz-payload/assets/dracut/$PIN_NAME"; do
     if [ -r "$_p" ]; then
         mkdir -p /etc/apt/preferences.d
         if cmp -s "$_p" "$PIN_DST"; then
@@ -95,7 +95,7 @@ fi
 
 SRC=""
 for _s in "${INSTALLER_META:-/usr/local/lib/cix-installer}/assets/dracut/$CONF_NAME" \
-          "/cdrom/cixmini/assets/dracut/$CONF_NAME"; do
+          "/cdrom/ncz-payload/assets/dracut/$CONF_NAME"; do
     [ -r "$_s" ] && { SRC="$_s"; break; }
 done
 if [ -z "$SRC" ]; then

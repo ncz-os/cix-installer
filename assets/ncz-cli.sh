@@ -57,7 +57,7 @@ agent_valid() {
 }
 
 asset_dir() {
-    for d in /usr/local/lib/cix-installer/assets/agent-stack /cdrom/cixmini/assets/agent-stack; do
+    for d in /usr/local/lib/cix-installer/assets/agent-stack /cdrom/ncz-payload/assets/agent-stack; do
         [ -d "$d" ] && { echo "$d"; return 0; }
     done
     return 1
@@ -124,7 +124,7 @@ OPENCLAW
         chown 1000:1000 /var/lib/nclawzero/openclaw-home/openclaw.json 2>/dev/null || true
     fi
 
-    for d in /usr/local/lib/cix-installer/assets/agent-images /cdrom/cixmini/assets/agent-images; do
+    for d in /usr/local/lib/cix-installer/assets/agent-images /cdrom/ncz-payload/assets/agent-images; do
         [ -d "$d" ] && cp -an "$d"/. "$IMAGE_DIR"/ 2>/dev/null || true
     done
 

@@ -63,8 +63,8 @@ sed -i '/^[[:space:]]*linux[[:space:]]\+\/install\.amd\/vmlinuz.*auto=true/! s/\
 # while the gate waits forever for output that can never reach $S0.
 sed -i '/^[[:space:]]*linux[[:space:]]\+\/install\.amd\/vmlinuz/s/console=tty0/console=ttyS0,115200/' "$CFG"
 
-PSEED="$QEMU_STAGE/staging/cixmini/preseed.cfg"
-[ -f "$PSEED" ] || { echo "GATE FAIL: qemutest ISO has no cixmini/preseed.cfg"; exit 2; }
+PSEED="$QEMU_STAGE/staging/ncz-payload/preseed.cfg"
+[ -f "$PSEED" ] || { echo "GATE FAIL: qemutest ISO has no ncz-payload/preseed.cfg"; exit 2; }
 sed -i \
   -e 's/^d-i[[:space:]]\+time\/zone[[:space:]]\+string[[:space:]].*/d-i time\/zone string UTC/' \
   -e 's/^d-i[[:space:]]\+clock-setup\/ntp[[:space:]]\+boolean[[:space:]].*/d-i clock-setup\/ntp boolean false/' \

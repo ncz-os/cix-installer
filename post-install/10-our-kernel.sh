@@ -44,7 +44,7 @@ HERE="$(dirname "$0")"
 # EXIT trap correctly treats as fatal-enough to skip 70-bootloader.sh
 # entirely (never wipe the ESP after a failed required step) -- so the
 # install silently shipped with a completely empty ESP and no bootloader,
-# surfacing only as "sh /cdrom/cixmini/late.sh failed" at the very end.
+# surfacing only as "sh /cdrom/ncz-payload/late.sh failed" at the very end.
 # Same detection pattern as 10-amd64-kernel.sh/21-flatpak-arch-filter.sh/
 # 52-vivaldi.sh: env var first, then the late.sh-stamped BUILD_ARCH file,
 # then dpkg as a last-resort fallback.
@@ -280,7 +280,7 @@ install_kernel_headers() {
     local kver="$1" channel="$2" tarball="" d
     [ -z "$kver" ] && return 0
     [ -f "/lib/modules/$kver/build/Makefile" ] && return 0
-    for d in "$INSTALLER_META/assets/kernel/$channel" "/cdrom/cixmini/assets/kernel/$channel"; do
+    for d in "$INSTALLER_META/assets/kernel/$channel" "/cdrom/ncz-payload/assets/kernel/$channel"; do
         [ -f "$d/headers-cixmini.tar.zst" ] || continue
         tarball="$d/headers-cixmini.tar.zst"
         break

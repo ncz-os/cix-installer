@@ -138,8 +138,8 @@ sed -i 's/\(^[[:space:]]*linux[[:space:]]\+\/install\.a64\/vmlinuz.*\)loglevel=4
 # leaves these unanswered so real installs use Debian's native localechooser
 # and keyboard-configuration dialogs. For the gate only, patch the extracted
 # qemutest ISO's preseed with standard d-i answers plus seen=true.
-PSEED="$QEMU_STAGE/staging/cixmini/preseed.cfg"
-[ -f "$PSEED" ] || { echo "GATE FAIL: qemutest ISO has no cixmini/preseed.cfg"; exit 2; }
+PSEED="$QEMU_STAGE/staging/ncz-payload/preseed.cfg"
+[ -f "$PSEED" ] || { echo "GATE FAIL: qemutest ISO has no ncz-payload/preseed.cfg"; exit 2; }
 
 # Normalize existing clock answers in place before appending the KVM-only
 # block. The shipped preseed sets clock-setup/ntp=true and marks it seen for
@@ -227,8 +227,8 @@ if [ "${MODEWATCH:-0}" = "1" ]; then
   # extract-rootfs.sh is dead code (partman/late_command is not a real d-i
   # hook); disk-fs-chooser.sh actually runs via partman/early_command, so the
   # watcher is live from partman onward and observes the stub extraction.
-  ERS="$QEMU_STAGE/staging/cixmini/disk-fs-chooser.sh"
-  [ -f "$ERS" ] || { echo "GATE FAIL: MODEWATCH=1 but no cixmini/disk-fs-chooser.sh in staging"; exit 2; }
+  ERS="$QEMU_STAGE/staging/ncz-payload/disk-fs-chooser.sh"
+  [ -f "$ERS" ] || { echo "GATE FAIL: MODEWATCH=1 but no ncz-payload/disk-fs-chooser.sh in staging"; exit 2; }
   MWTMP="$WORK/modewatch-snippet.sh"
   cat > "$MWTMP" <<'MODEWATCH_SNIP'
 # ==== MODEWATCH (QEMU diagnostic gate only — NEVER shipped) =================

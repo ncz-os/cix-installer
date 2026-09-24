@@ -51,7 +51,7 @@ if [ ! -x "$BSP" ]; then
     echo "[60] singularity-boot-splash not in payload — installing staged asset"
     for c in /usr/local/lib/cix-installer/assets/singularity-boot-splash/singularity-boot-splash \
              /cdrom/assets/singularity-boot-splash/singularity-boot-splash \
-             /run/cixmini/assets/singularity-boot-splash/singularity-boot-splash; do
+             /run/ncz-payload/assets/singularity-boot-splash/singularity-boot-splash; do
         if [ -f "$c" ]; then
             install -d -m0755 /opt/singularity/bin
             install -m0755 "$c" "$BSP"

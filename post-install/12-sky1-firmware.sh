@@ -8,7 +8,7 @@
 #   rtw89 (Realtek WiFi, if used)  → rtw8852b*.bin
 #
 # Source: github.com/Sky1-Linux/sky1-firmware (git tracked) staged into
-# the ISO under /cdrom/cixmini/assets/sky1-firmware/ by the build pipeline
+# the ISO under /cdrom/ncz-payload/assets/sky1-firmware/ by the build pipeline
 # (build/build-squashfs-layers.sh + build/build-iso-di.sh + the new
 # build/iso/{import-substrate,stage-ncz-payload,write-image}.py
 # assembly writer; see docs/ISO-BUILD-GUARDRAILS.md), copied into

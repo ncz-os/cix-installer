@@ -18,7 +18,7 @@ qemu-img create -f qcow2 "$DISK" 40G >/dev/null 2>&1
 # VM-test-only passwd seeds (the shipped preseed deliberately PROMPTS for these;
 # we inject via cmdline so the dry-run completes unattended without changing the ISO).
 PASSWD_SEEDS="passwd/user-fullname=Test passwd/username=mini passwd/user-password=mini passwd/user-password-again=mini user-setup/allow-password-weak=true"
-APPEND="auto=true priority=critical preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120 ncz_diag=1 ncz_variant=${VARIANT} $PASSWD_SEEDS console=ttyAMA0 loglevel=4 DEBIAN_FRONTEND=text"
+APPEND="auto=true priority=critical preseed/file=/cdrom/ncz-payload/preseed.cfg interface=auto netcfg/dhcp_timeout=120 ncz_diag=1 ncz_variant=${VARIANT} $PASSWD_SEEDS console=ttyAMA0 loglevel=4 DEBIAN_FRONTEND=text"
 
 echo "[vm-install] variant=$VARIANT log=$LOG  $(date)"
 timeout 3600 qemu-system-aarch64 \

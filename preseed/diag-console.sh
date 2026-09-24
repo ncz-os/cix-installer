@@ -90,13 +90,13 @@ esac
 if [ ! -x "$BB" ]; then
     mkdir -p "$(dirname "$BB")" 2>/dev/null || true
     # robust: scan every mount for the install medium (USB or CD)
-    for src in /cdrom/cixmini/busybox-$BB_ARCH /hd-media/cixmini/busybox-$BB_ARCH \
-               /media/cdrom/cixmini/busybox-$BB_ARCH /run/live/medium/cixmini/busybox-$BB_ARCH; do
+    for src in /cdrom/ncz-payload/busybox-$BB_ARCH /hd-media/ncz-payload/busybox-$BB_ARCH \
+               /media/cdrom/ncz-payload/busybox-$BB_ARCH /run/live/medium/ncz-payload/busybox-$BB_ARCH; do
             [ -f "$src" ] && { cp "$src" "$BB" && chmod 0755 "$BB" && say "staged busybox from $src" && break; }
     done
     if [ ! -x "$BB" ]; then
         while read _d _mp _r; do
-            [ -f "$_mp/cixmini/busybox-$BB_ARCH" ] && { cp "$_mp/cixmini/busybox-$BB_ARCH" "$BB" && chmod 0755 "$BB" && say "staged busybox from $_mp/cixmini (mount-scan)" && break; }
+            [ -f "$_mp/ncz-payload/busybox-$BB_ARCH" ] && { cp "$_mp/ncz-payload/busybox-$BB_ARCH" "$BB" && chmod 0755 "$BB" && say "staged busybox from $_mp/ncz-payload (mount-scan)" && break; }
         done < /proc/mounts
     fi
 fi

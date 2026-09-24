@@ -31,7 +31,7 @@ fi
 SINTY_NMD=""
 for c in /usr/local/lib/cix-installer/assets/sinty-nm/sinty-nmd \
          /cdrom/assets/sinty-nm/sinty-nmd \
-         /run/cixmini/assets/sinty-nm/sinty-nmd; do
+         /run/ncz-payload/assets/sinty-nm/sinty-nmd; do
     [ -f "$c" ] && { SINTY_NMD="$c"; break; }
 done
 

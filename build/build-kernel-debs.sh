@@ -126,7 +126,7 @@ MAINT="NCZ <nczero@nclawzero.dev>"
 # exists to prevent. Say which source won.
 resolve_kver() {   # <channel-dir> <sidecar-name> <default>
     local asset="$REPO/assets/kernel/$1/KVER"
-    local sidecar="$REPO/build/iso-staging-di/cixmini/$2"
+    local sidecar="$REPO/build/iso-staging-di/ncz-payload/$2"
     local v
     if [ -s "$asset" ]; then
         v=$(tr -d " \t\r\n" < "$asset")

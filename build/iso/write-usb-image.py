@@ -9,7 +9,7 @@ use case. The El-Torito + isohybrid-MBR/GPT-basdat + append_partition
 machinery in write-image.py exists to make ONE artifact bootable as both
 a real CD/DVD and a USB stick; we only need the second. Carrying the
 ISO9660 mastering step bought nothing and cost a real bug: d-i's early
-`preseed/file=/cdrom/cixmini/preseed.cfg` kernel-param fetch depends on
+`preseed/file=/cdrom/ncz-payload/preseed.cfg` kernel-param fetch depends on
 some d-i component classifying + mounting the medium as a CD-ROM before
 that fetch runs, and on a real USB-written hybrid medium that timing is
 not guaranteed (confirmed on real MEDUSA hardware 2026-09-24, not a QEMU
@@ -27,8 +27,8 @@ Real, confirmed-in-initrd d-i mechanism this relies on (investigated
     volume was.
   * Our OWN r159 stub (patch-debootstrap-stub.py) and preseed.cfg
     already search FOUR candidate mount points for the payload tree:
-    /cdrom/cixmini, /hd-media/cixmini, /media/cdrom/cixmini,
-    /run/live/medium/cixmini -- i.e. this pipeline was already written
+    /cdrom/ncz-payload, /hd-media/ncz-payload, /media/cdrom/ncz-payload,
+    /run/live/medium/ncz-payload -- i.e. this pipeline was already written
     defensively for a non-ISO9660 medium; this script is what finally
     exercises that path for real.
 
@@ -36,7 +36,7 @@ Two partitions, GPT:
   1 -- ESP (type ef00, FAT), verbatim bytes of build-refind-esp.py's
        esp.img (rEFInd + the d-i kernel/initrd -- unchanged, that
        script already builds a real FAT image with mtools).
-  2 -- data (type 8300, ext4), containing /cixmini/<payload tree> --
+  2 -- data (type 8300, ext4), containing /ncz-payload/<payload tree> --
        the same logical content write-image.py's stage_ncz_payload()
        staged into the ISO tree, built directly here instead (and with
        the missing desktop-hotfix.squashfs / desktop-hotfix.overlay-manifest
@@ -250,8 +250,8 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     """Same shape as write-image.py's stage_ncz_payload(), corrected
     for the hotfix/busybox staleness bug documented above."""
     if not payload_dir.is_dir():
-        raise RuntimeError(f"FATAL: cixmini payload dir not found: {payload_dir}")
-    ncz_payload_dst = stage_dir / "cixmini"
+        raise RuntimeError(f"FATAL: ncz-payload dir not found: {payload_dir}")
+    ncz_payload_dst = stage_dir / "ncz-payload"
     ncz_payload_dst.mkdir(parents=True, exist_ok=True)
 
     staged = []
@@ -376,7 +376,7 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
 def build_data_partition_img(ncz_payload_tree_dir: Path, out_img: Path,
                              size_mib: int | None) -> int:
     """Build an ext4 filesystem image containing ncz_payload_tree_dir's
-    PARENT layout (i.e. out_img's root gets a real /cixmini dir) via a
+    PARENT layout (i.e. out_img's root gets a real /ncz-payload dir) via a
     real loopback mount (root required for device-node ownership inside
     the ext4 image, same pattern already used by patch-initrd-t2-kernel.py
     for depmod). Returns the final image size in bytes."""
@@ -417,7 +417,7 @@ def build_data_partition_img(ncz_payload_tree_dir: Path, out_img: Path,
         run(["sudo", "mount", loop_dev, str(mnt)])
         try:
             run(["sudo", "cp", "-a", str(ncz_payload_tree_dir), str(mnt) + "/"])
-            run(["sudo", "chmod", "-R", "a+rX", str(mnt / "cixmini")])
+            run(["sudo", "chmod", "-R", "a+rX", str(mnt / "ncz-payload")])
             # cp never fsyncs, so a writeback failure (ENOSPC on the BACKING
             # file) is invisible to it. Force the flush here, where a real
             # error can still surface instead of being swallowed by umount.
@@ -607,8 +607,8 @@ def verify_image_data_files(image_path: Path, part_num: int, required: list[str]
             missing = [r for r in required
                        if not (mnt / r).is_file() or (mnt / r).stat().st_size == 0]
             if missing:
-                listing = sorted(p.name for p in (mnt / "cixmini").iterdir()) \
-                    if (mnt / "cixmini").is_dir() else ["<no cixmini/ directory>"]
+                listing = sorted(p.name for p in (mnt / "ncz-payload").iterdir()) \
+                    if (mnt / "ncz-payload").is_dir() else ["<no ncz-payload/ directory>"]
                 raise RuntimeError(
                     f"FATAL: the finished image's data partition is missing "
                     f"required payload: {missing}. What is actually there: "
@@ -718,11 +718,11 @@ def main() -> int:
                           "install NCZ-OS; only for deliberate test media.")
     ap.add_argument("--preseed-dir", type=Path, default=REPO_ROOT / "preseed")
     ap.add_argument("--build-version", default=None,
-                     help="Build serial staged as cixmini/BUILD_VERSION and "
+                     help="Build serial staged as ncz-payload/BUILD_VERSION and "
                           "read by post-install/50-brand.sh.")
     ap.add_argument("--post-install-dir", type=Path,
                      default=REPO_ROOT / "post-install",
-                     help="post-install hook tree staged at cixmini/post-install; "
+                     help="post-install hook tree staged at ncz-payload/post-install; "
                           "late.sh refreshes the installed copy from it.")
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--data-size-mib", type=int, default=None,
@@ -741,7 +741,7 @@ def main() -> int:
         log(f"FATAL: ESP image not found: {args.esp_img}")
         return 1
     if not args.ncz_payload_dir.is_dir():
-        log(f"FATAL: cixmini payload dir not found: {args.ncz_payload_dir}")
+        log(f"FATAL: ncz-payload dir not found: {args.ncz_payload_dir}")
         return 1
 
     # NOT tempfile.TemporaryDirectory(): its default $TMPDIR is /tmp, which is
@@ -751,14 +751,14 @@ def main() -> int:
     work_root.mkdir(parents=True, exist_ok=True)
     require_free_space(work_root,
                        du_bytes(args.ncz_payload_dir) + FREE_SPACE_MARGIN,
-                       "the staged cixmini/ tree")
+                       "the staged ncz-payload/ tree")
     tmp = Path(tempfile.mkdtemp(prefix="write-usb-image-", dir=str(work_root)))
     log(f"    work dir: {tmp}")
     try:
         stage_dir = tmp / "stage"
         stage_dir.mkdir()
 
-        log("[1/4] staging cixmini/ tree")
+        log("[1/4] staging ncz-payload/ tree")
         payload_receipt = build_ncz_payload_tree(
             stage_dir, args.ncz_payload_dir, args.arch,
             args.patched_udeb, args.preseed_dir if args.preseed_dir.is_dir() else None,
@@ -769,7 +769,7 @@ def main() -> int:
 
         log("[2/4] building ext4 data partition image")
         data_img = tmp / "data.img"
-        build_data_partition_img(stage_dir / "cixmini", data_img, args.data_size_mib)
+        build_data_partition_img(stage_dir / "ncz-payload", data_img, args.data_size_mib)
 
         log("[3/4] laying out GPT + writing partitions")
         esp_size = args.esp_img.stat().st_size
@@ -781,16 +781,16 @@ def main() -> int:
 
         log("[4/4] independent verification")
         required_data_files = [
-            f"cixmini/{n}" for n in payload_receipt["staged_files"]
+            f"ncz-payload/{n}" for n in payload_receipt["staged_files"]
             if n != "sqtools"
-        ] + ["cixmini/sqtools/unsquashfs"]
+        ] + ["ncz-payload/sqtools/unsquashfs"]
         if payload_receipt.get("post_install_staged"):
-            required_data_files.append("cixmini/post-install/run-all.sh")
+            required_data_files.append("ncz-payload/post-install/run-all.sh")
         if "patched_udeb" in payload_receipt:
             required_data_files.append(
-                f"cixmini/debootstrap-udeb/{payload_receipt['patched_udeb']}")
+                f"ncz-payload/debootstrap-udeb/{payload_receipt['patched_udeb']}")
         if "preseed.cfg" in payload_receipt.get("preseed_staged_files", []):
-            required_data_files.append("cixmini/preseed.cfg")
+            required_data_files.append("ncz-payload/preseed.cfg")
         verify_image(args.out, part_info, args.esp_img, data_img,
                      required_data_files, tmp)
 

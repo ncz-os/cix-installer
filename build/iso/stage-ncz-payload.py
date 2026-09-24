@@ -2,7 +2,7 @@
 """
 stage-ncz-payload.py — Stage the real install-tree payload under
 ``build/iso-cache/v1/ncz-payload/`` for later verbatim copy into an
-ISO's ``/cixmini/`` top-level directory.
+ISO's ``/ncz-payload/`` top-level directory.
 
 Background (see ``docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md``
 and the brief for the 2026-09-22 port task):
@@ -11,7 +11,7 @@ and the brief for the 2026-09-22 port task):
     install-tree payload by replacing ``/usr/sbin/debootstrap`` inside
     the d-i installer's ``debootstrap-udeb`` with an NCZ "r159" stub.
     The stub, when invoked by base-installer at install time, looks for
-    ``/cdrom/cixmini/{base.squashfs,<role>.squashfs,<role>.overlay-manifest}``
+    ``/cdrom/ncz-payload/{base.squashfs,<role>.squashfs,<role>.overlay-manifest}``
     and uses a bundled static ``unsquashfs`` (from ``build/sqtools-$ARCH/``)
     to extract them onto ``$TARGET`` (the real target disk d-i mounted),
     reproducing overlayfs-upperdir semantics without a kernel overlay
@@ -335,10 +335,10 @@ def stage_payload(
         log(f"INFO: desktop-hotfix layer absent; skipping (not required)")
 
     # --- 2c. Validate the diag busybox (OPTIONAL, per-arch) ----------------
-    # preseed/diag-console.sh looks for /cdrom/cixmini/busybox-$ARCH at
+    # preseed/diag-console.sh looks for /cdrom/ncz-payload/busybox-$ARCH at
     # runtime (the diag console's static busybox + applet farm). It is a
     # committed binary at assets/diag/busybox-$ARCH, not something this
-    # pipeline builds -- just copy it onto the ISO top-level cixmini/ dir,
+    # pipeline builds -- just copy it onto the ISO top-level ncz-payload/ dir,
     # matching where diag-console.sh actually looks.
     busybox_src = REPO_ROOT / "assets" / "diag" / f"busybox-{arch}"
     busybox_present = busybox_src.is_file()

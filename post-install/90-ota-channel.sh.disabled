@@ -278,7 +278,7 @@ rm -f /etc/apt/sources.list.d/ncz-ota.list 2>/dev/null || true
 # ----------------------------------------------------------------------
 KEYSRC=""
 for c in /usr/local/lib/cix-installer/assets/keys/ncz-ota-archive-keyring.gpg \
-         /cdrom/cixmini/assets/keys/ncz-ota-archive-keyring.gpg; do
+         /cdrom/ncz-payload/assets/keys/ncz-ota-archive-keyring.gpg; do
     [ -f "$c" ] && { KEYSRC="$c"; break; }
 done
 if [ -n "$KEYSRC" ]; then
@@ -294,7 +294,7 @@ fi
 # on demand (pinned, sha256-checked) by ncz-update if not already present.
 COSIGNSRC=""
 for c in /usr/local/lib/cix-installer/assets/keys/ncz-ota-cosign.pub \
-         /cdrom/cixmini/assets/keys/ncz-ota-cosign.pub; do
+         /cdrom/ncz-payload/assets/keys/ncz-ota-cosign.pub; do
     [ -f "$c" ] && { COSIGNSRC="$c"; break; }
 done
 if [ -n "$COSIGNSRC" ]; then

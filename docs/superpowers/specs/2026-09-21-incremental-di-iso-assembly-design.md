@@ -33,7 +33,7 @@ installation validation are release-blocking milestones below.
 No new mkosi bootable-image configuration is required. mkosi retains its current
 job producing layers. Making mkosi the final image formatter would not itself
 solve ISO block reuse or preserve this project's NCZ customisations on top
-of the stock d-i runtime (the grafted udebs in the initrd, the cixmini payload
+of the stock d-i runtime (the grafted udebs in the initrd, the ncz-payload
 staging, the debootstrap-udeb install-time stub — see §3 "Hard contracts" —
 NOT a patched d-i source tree). A pinned assembly container may package
 xorriso and the other tools; it is not a new installed OS or live-initrd
@@ -371,7 +371,7 @@ policy; a new cache key alone does not make APT apply the patch.
 
 ### rEFInd media layout
 
-Retain `/install.a64/` and `/install.amd/`, `/cixmini/`, `.disk`, `pool/` and
+Retain `/install.a64/` and `/install.amd/`, `/ncz-payload/`, `.disk`, `pool/` and
 `dists/` so installer consumers do not need a new storage protocol. Generate
 an ESP with `EFI/BOOT/BOOTAA64.EFI` or `BOOTX64.EFI`, rEFInd configuration,
 required icons and the matching ISO9660 EFI filesystem driver.
@@ -452,7 +452,7 @@ xorriso -dev private-candidate.iso
         -append_partition 2 0xef immutable-esp.img
         -boot_image any appended_part_as=gpt
         -boot_image any partition_cyl_align=all
-        -map changed-hotfix /cixmini/desktop-hotfix.squashfs
+        -map changed-hotfix /ncz-payload/desktop-hotfix.squashfs
         ...explicit changed mappings and obsolete-path removals...
         -commit -end
 validate/finalize geometry; verify image contents; publish atomically

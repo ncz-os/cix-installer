@@ -107,7 +107,7 @@ set -euo pipefail
 # Absolute staged-asset path, matching 12-sky1-firmware.sh and the other hooks.
 # A $(dirname $0)-relative path resolves differently depending on where the hook
 # is invoked from, and build-iso-di.sh stages this tree to a FIXED location:
-# assets/perf -> /cixmini/assets/perf -> /usr/local/lib/cix-installer/assets/perf
+# assets/perf -> /ncz-payload/assets/perf -> /usr/local/lib/cix-installer/assets/perf
 # on the target (the generic `*) cp -aL` branch of its asset loop).
 PERF_SRC=/usr/local/lib/cix-installer/assets/perf/ncz-perf-activity
 if [ -s "$PERF_SRC" ]; then

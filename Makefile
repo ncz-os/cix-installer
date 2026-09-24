@@ -153,7 +153,7 @@ kernel-debs:
 # --debs-dir straight at assets/cix-debs/ (tried first, reverted) makes the
 # check FAIL PERMANENTLY: that directory also holds ~30 dpkg-i-direct-only
 # packages (cix-vaapi, cix-mesa, cix-gpu-umd, ...) that are staged onto the
-# ISO's /cixmini/assets/cix-debs/ via 25-cix-proprietary.sh and were never
+# ISO's /ncz-payload/assets/cix-debs/ via 25-cix-proprietary.sh and were never
 # meant to exist in the apt-mirror pool at all, so they always show
 # "missing" regardless of anything real changing.
 #
