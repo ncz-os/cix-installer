@@ -466,7 +466,18 @@ echo
 # 2026-05-08 netinstall-bootstrap keeps base_installable absent but adds a
 # small non-empty regular Packages index for pkgsel/include. In that mode,
 # file:///cdrom is valid for pkgsel/post-install package fallback.
-CDROM_REGULAR_INDEX=/cdrom/dists/${NCZ_BASE_CODENAME:-resolute}/main/binary-arm64/Packages
+# 2026-09-24: this had TWO amd64-migration leftovers in one line. The suite
+# fallback was "resolute" -- an Ubuntu codename this project stopped targeting
+# and which exists nowhere in the archive any more, so an unset
+# NCZ_BASE_CODENAME silently produced a path that can never match. And
+# binary-arm64 was hardcoded, so on amd64 the index was looked for under the
+# wrong architecture and never found. Both now follow the real target.
+NCZ_DEB_ARCH=$(uname -m 2>/dev/null)
+case "$NCZ_DEB_ARCH" in
+    aarch64) NCZ_DEB_ARCH=arm64 ;;
+    x86_64)  NCZ_DEB_ARCH=amd64 ;;
+esac
+CDROM_REGULAR_INDEX=/cdrom/dists/${NCZ_BASE_CODENAME:-forky}/main/binary-${NCZ_DEB_ARCH}/Packages
 if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     echo "--- mounting cdrom into /target for offline apt-get during post-install ---"
     mkdir -p /target/cdrom
@@ -497,7 +508,7 @@ if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     # install in chroot can find packages locally. [trusted=yes] bypasses
     # GPG (we don't sign our offline mirror Release file yet).
     cat > /target/etc/apt/sources.list.d/cixmini-cdrom.list <<CDROM_LIST
-deb [trusted=yes] file:///cdrom ${NCZ_BASE_CODENAME:-resolute} main
+deb [trusted=yes] file:///cdrom ${NCZ_BASE_CODENAME:-forky} main
 CDROM_LIST
     # During d-i the target clock can still be at the firmware default. APT
     # rejects the freshly generated ISO Release file as "not valid yet" in
@@ -1314,7 +1325,7 @@ grep -rhsE '^[[:space:]]*deb' \
 # list for an actual Ubuntu base, and take the codename from release.conf
 # rather than hard-coding it.
 if [ "${NCZ_BASE_NAME:-}" = "Ubuntu" ]; then
-    _ubu_suite="${NCZ_BASE_CODENAME:-resolute}"
+    _ubu_suite="${NCZ_BASE_CODENAME:-forky}"
     echo "--- writing canonical ports.ubuntu.com network sources ($_ubu_suite) ---"
     cat > /target/etc/apt/sources.list <<PORTS
 deb http://ports.ubuntu.com/ubuntu-ports $_ubu_suite main universe restricted multiverse

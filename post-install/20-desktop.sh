@@ -46,7 +46,7 @@ if [ -r "$RELEASE" ]; then
     # shellcheck disable=SC1090
     . "$RELEASE"
 fi
-NCZ_APT_SUITE="${NCZ_BASE_CODENAME:-resolute}"
+NCZ_APT_SUITE="${NCZ_BASE_CODENAME:-forky}"
 if [ -d "/cdrom/dists/$NCZ_APT_SUITE" ] && [ ! -f /etc/apt/sources.list.d/cixmini-cdrom.list ]; then
     echo "deb [trusted=yes] file:///cdrom $NCZ_APT_SUITE main" \
         > /etc/apt/sources.list.d/cixmini-cdrom.list
