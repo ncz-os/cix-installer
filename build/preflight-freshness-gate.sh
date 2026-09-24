@@ -172,7 +172,15 @@ fi
 # --- 3. Kernel-staging pool freshness ---------------------------------------
 if [ -d "$KERNEL_STAGING_DIR" ]; then
     for line in amd64-stable amd64-edge; do
-        newest="$(find "$KERNEL_STAGING_DIR" -maxdepth 1 -type d -name "${line}-*" 2>/dev/null | sort | tail -1)"
+        # Directory names are NOT lexically ordered by recency (e.g. an
+        # "...-rc4-3-t2-xhcifix-DATE" variant sorts before a same-date
+        # "...-rc4-t2-trixie-DATE" one because '3' < 't' lexically, even
+        # though the xhcifix one was staged later) -- match
+        # stage-amd64-kernel.sh's own selection (ls -dt, real mtime) or this
+        # check disagrees with what actually got staged. Found + fixed
+        # 2026-09-23 after it produced a false FAIL against a genuinely
+        # fresher local stage.
+        newest="$(find "$KERNEL_STAGING_DIR" -maxdepth 1 -type d -name "${line}-*" -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)"
         if [ -z "$newest" ]; then
             echo "[3] WARN: no staged kernel found for line '$line' under $KERNEL_STAGING_DIR"
             WARN=$((WARN + 1))
