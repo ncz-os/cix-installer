@@ -55,11 +55,16 @@ no equivalent "build a filesystem image with a userspace tool" story
 the way FAT+mtools does).
 
 Independent verification, same doctrine as write-image.py /
-verify-image.py ("do not trust tool exit status alone"): after writing,
-re-read the GPT table via `sgdisk -p`, confirm exactly 2 partitions with
-the expected types/sizes, and read back real bytes from BOTH partitions
-at their reported offsets (magic bytes / on-disk filenames) rather than
-just trusting sgdisk's paint operation succeeded.
+verify-image.py ("do not trust tool exit status alone") -- rewritten
+2026-09-24 because the first cut did not live up to that doctrine. It
+compared the first 4096 BYTES per partition, had a literal `pass` where
+the partition-count check belonged, and so passed cleanly on an image
+whose data partition was completely empty. verify_image() now parses both
+GPT headers itself (struct/zlib, no sgdisk), checks every CRC32 primary
+and backup, checks geometry/type-GUID/name against what was intended,
+hashes the FULL byte content of both partitions against their sources,
+and loop-mounts the finished data partition to confirm the payload files
+an install actually needs are really in it.
 
 SCRATCH SPACE (2026-09-24, real bug): the staged tree and the ext4 data
 image are built in --work-dir, which defaults to the OUTPUT image's own
@@ -85,13 +90,23 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
+import zlib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
+SECTOR_SIZE = 512
+
 # GPT partition type GUIDs sgdisk understands by short code.
 GPT_TYPE_ESP = "ef00"
 GPT_TYPE_LINUX = "8300"
+
+# The same two types as they really appear on disk: 16-byte mixed-endian
+# GUIDs. verify_image() compares these directly out of the partition array
+# rather than grepping sgdisk's English prose for "EFI system partition".
+GPT_TYPE_GUID_ESP = bytes.fromhex("28732ac11ff8d211ba4b00a0c93ec93b")
+GPT_TYPE_GUID_LINUX = bytes.fromhex("af3dc60f838472478e793d69d8477de4")
 
 # Real staleness bug found 2026-09-24: write-image.py's stage_cixmini_payload()
 # `expected` list never picked up desktop-hotfix.squashfs / its manifest /
@@ -247,6 +262,21 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
         staged.append(name)
     log(f"    cixmini tree staged: {staged}")
 
+    # The staging loop skips anything absent, so without this it accepts an
+    # EMPTY payload directory without complaint and happily builds install
+    # media that cannot install anything (found 2026-09-24 alongside the
+    # empty-data-partition bug). base.squashfs is the root filesystem and
+    # sqtools/ is the arch-matched unsquashfs that extracts it: with either
+    # one missing there is no install, so refuse here rather than at the
+    # d-i prompt on the operator's hardware.
+    for required in ("base.squashfs", "sqtools"):
+        if required not in staged:
+            raise RuntimeError(
+                f"FATAL: payload dir {payload_dir} has no {required} -- "
+                f"refusing to build install media that cannot install. "
+                f"Staged: {staged}"
+            )
+
     receipt = {"staged_files": staged}
 
     if patched_udeb is not None:
@@ -380,40 +410,225 @@ def write_partition_bytes(image_path: Path, start_sector: int, src: Path) -> Non
          f"seek={offset}", "oflag=seek_bytes", "conv=notrunc", "status=none"])
 
 
-def verify_image(image_path: Path, part_info: dict, esp_img: Path, data_img: Path) -> None:
-    """Independent re-read: parse the GPT table back, confirm 2
-    partitions with the right types, and confirm the bytes actually on
-    disk at each partition's offset match what we intended to write."""
-    out = run(["/sbin/sgdisk", "-p", str(image_path)], stdout=subprocess.PIPE, text=True).stdout
-    log(out)
-    if "Number of partitions" not in out and "2 " not in out:
-        pass  # sgdisk -p format varies by version; real check is below.
+def parse_gpt(image_path: Path) -> dict:
+    """Parse BOTH GPT headers out of the finished image and check each
+    one's CRC32s for real -- the header's own CRC and the partition-entry
+    array CRC, primary and backup. Pure struct/zlib: no sgdisk, so the
+    check is genuinely independent of the tool that wrote the table."""
+    img_size = image_path.stat().st_size
+    if img_size % SECTOR_SIZE:
+        raise RuntimeError(
+            f"FATAL: image size {img_size} is not a whole number of "
+            f"{SECTOR_SIZE}-byte sectors"
+        )
+    last_lba = img_size // SECTOR_SIZE - 1
+    result = {}
+    with image_path.open("rb") as f:
+        for which, hdr_lba in (("primary", 1), ("backup", last_lba)):
+            f.seek(hdr_lba * SECTOR_SIZE)
+            hdr = f.read(SECTOR_SIZE)
+            if hdr[0:8] != b"EFI PART":
+                raise RuntimeError(
+                    f"FATAL: no GPT signature in the {which} header at LBA "
+                    f"{hdr_lba} of {image_path}"
+                )
+            hdr_size = struct.unpack_from("<I", hdr, 12)[0]
+            if not 92 <= hdr_size <= SECTOR_SIZE:
+                raise RuntimeError(f"FATAL: absurd {which} GPT header size {hdr_size}")
+            stored_hdr_crc = struct.unpack_from("<I", hdr, 16)[0]
+            calc_hdr_crc = zlib.crc32(
+                hdr[:16] + b"\x00\x00\x00\x00" + hdr[20:hdr_size]
+            ) & 0xFFFFFFFF
+            if stored_hdr_crc != calc_hdr_crc:
+                raise RuntimeError(
+                    f"FATAL: {which} GPT header CRC32 mismatch in {image_path}: "
+                    f"stored {stored_hdr_crc:#010x}, computed {calc_hdr_crc:#010x}"
+                )
+            cur_lba, bak_lba = struct.unpack_from("<QQ", hdr, 24)
+            first_usable, last_usable = struct.unpack_from("<QQ", hdr, 40)
+            entries_lba = struct.unpack_from("<Q", hdr, 72)[0]
+            n_entries, entry_size = struct.unpack_from("<II", hdr, 80)
+            stored_arr_crc = struct.unpack_from("<I", hdr, 88)[0]
+            if cur_lba != hdr_lba:
+                raise RuntimeError(
+                    f"FATAL: {which} GPT header self-pointer is LBA {cur_lba}, "
+                    f"but it was read from LBA {hdr_lba}"
+                )
+            f.seek(entries_lba * SECTOR_SIZE)
+            arr = f.read(n_entries * entry_size)
+            calc_arr_crc = zlib.crc32(arr) & 0xFFFFFFFF
+            if stored_arr_crc != calc_arr_crc:
+                raise RuntimeError(
+                    f"FATAL: {which} GPT partition-array CRC32 mismatch in "
+                    f"{image_path}: stored {stored_arr_crc:#010x}, computed "
+                    f"{calc_arr_crc:#010x}"
+                )
+            parts = {}
+            for idx in range(n_entries):
+                ent = arr[idx * entry_size:(idx + 1) * entry_size]
+                type_guid = ent[0:16]
+                if type_guid == b"\x00" * 16:
+                    continue
+                first, last = struct.unpack_from("<QQ", ent, 32)
+                name = ent[56:128].decode("utf-16-le", "replace").rstrip("\x00")
+                parts[idx + 1] = {
+                    "type_guid": type_guid,
+                    "start_sector": first,
+                    "end_sector": last,
+                    "name": name,
+                }
+            result[which] = {
+                "current_lba": cur_lba,
+                "backup_lba": bak_lba,
+                "first_usable": first_usable,
+                "last_usable": last_usable,
+                "partitions": parts,
+            }
+    return result
 
-    for part, (src, typecode) in ((1, (esp_img, GPT_TYPE_ESP)), (2, (data_img, GPT_TYPE_LINUX))):
-        info = part_info[part]
-        offset = info["start_sector"] * 512
-        expect_size = src.stat().st_size
-        with image_path.open("rb") as f:
-            f.seek(offset)
-            got = f.read(min(4096, expect_size))
-        with src.open("rb") as f:
-            want = f.read(min(4096, expect_size))
+
+def hash_image_range(image_path: Path, offset: int, length: int) -> str:
+    h = hashlib.sha256()
+    with image_path.open("rb") as f:
+        f.seek(offset)
+        remaining = length
+        while remaining:
+            chunk = f.read(min(1024 * 1024, remaining))
+            if not chunk:
+                raise RuntimeError(
+                    f"FATAL: {image_path} ended {remaining} bytes early while "
+                    f"hashing the range at offset {offset}"
+                )
+            h.update(chunk)
+            remaining -= len(chunk)
+    return h.hexdigest()
+
+
+def verify_image_data_files(image_path: Path, part_num: int, required: list[str],
+                            work_dir: Path) -> None:
+    """Loop-mount the FINISHED image's data partition read-only and confirm
+    the files an install actually needs are present and non-empty."""
+    mnt = Path(tempfile.mkdtemp(prefix="ncz-img-verify-", dir=str(work_dir)))
+    loop_dev = ""
+    try:
+        loop_dev = run(["sudo", "/sbin/losetup", "-fP", "--show", str(image_path)],
+                       stdout=subprocess.PIPE, text=True).stdout.strip()
+        if not loop_dev:
+            raise RuntimeError("FATAL: losetup --show returned no device")
+        part_dev = Path(f"{loop_dev}p{part_num}")
+        # udev populates the partition nodes asynchronously after losetup -P.
+        # `udevadm settle` is not usable here -- it exits 1 on this host even
+        # when the nodes do appear -- so poll for the real thing instead.
+        for _ in range(100):
+            if part_dev.exists():
+                break
+            time.sleep(0.1)
+        if not part_dev.exists():
+            raise RuntimeError(
+                f"FATAL: the kernel did not expose {part_dev} within 10s -- "
+                f"the GPT in {image_path} is not readable as a real partition "
+                f"table"
+            )
+        run(["sudo", "mount", "-o", "ro", part_dev, str(mnt)])
+        try:
+            missing = [r for r in required
+                       if not (mnt / r).is_file() or (mnt / r).stat().st_size == 0]
+            if missing:
+                listing = sorted(p.name for p in (mnt / "cixmini").iterdir()) \
+                    if (mnt / "cixmini").is_dir() else ["<no cixmini/ directory>"]
+                raise RuntimeError(
+                    f"FATAL: the finished image's data partition is missing "
+                    f"required payload: {missing}. What is actually there: "
+                    f"{listing}"
+                )
+        finally:
+            run(["sudo", "umount", str(mnt)])
+    finally:
+        if loop_dev:
+            subprocess.run(["sudo", "/sbin/losetup", "-d", loop_dev])
+        shutil.rmtree(mnt, ignore_errors=True)
+    log(f"    verify OK: finished image's partition {part_num} holds "
+        f"{len(required)} required payload files")
+
+
+def verify_image(image_path: Path, part_info: dict, esp_img: Path, data_img: Path,
+                 required_data_files: list[str], work_dir: Path) -> None:
+    """Independent re-read of the finished image.
+
+    Rewritten 2026-09-24 after the empty-data-partition incident. The
+    previous version compared the first 4096 BYTES of each partition and
+    had a literal no-op (`pass`) where the partition-count check was
+    supposed to be, so a corruption at offset 8192 -- or an entirely empty
+    data filesystem -- passed verification cleanly. Every check here reads
+    the whole thing.
+    """
+    gpt = parse_gpt(image_path)
+    log("    verify OK: primary and backup GPT header + partition-array "
+        "CRC32s are self-consistent")
+
+    prim, bak = gpt["primary"], gpt["backup"]
+    if prim["partitions"] != bak["partitions"]:
+        raise RuntimeError(
+            f"FATAL: primary and backup GPT disagree about the partitions:\n"
+            f"  primary: {prim['partitions']}\n  backup:  {bak['partitions']}"
+        )
+    if prim["backup_lba"] != bak["current_lba"]:
+        raise RuntimeError(
+            f"FATAL: primary GPT points at backup LBA {prim['backup_lba']} but "
+            f"the backup header lives at LBA {bak['current_lba']}"
+        )
+
+    parts = prim["partitions"]
+    if sorted(parts) != [1, 2]:
+        raise RuntimeError(
+            f"FATAL: expected exactly partitions 1 and 2, found {sorted(parts)}"
+        )
+
+    expect = (
+        (1, esp_img, GPT_TYPE_GUID_ESP, "NCZESP"),
+        (2, data_img, GPT_TYPE_GUID_LINUX, "NCZDATA"),
+    )
+    for num, src, want_guid, want_name in expect:
+        p = parts[num]
+        if p["type_guid"] != want_guid:
+            raise RuntimeError(
+                f"FATAL: partition {num} type GUID is "
+                f"{p['type_guid'].hex()}, expected {want_guid.hex()} "
+                f"({want_name})"
+            )
+        if p["name"] != want_name:
+            raise RuntimeError(
+                f"FATAL: partition {num} is named {p['name']!r}, expected "
+                f"{want_name!r}"
+            )
+        if (p["start_sector"] != part_info[num]["start_sector"]
+                or p["end_sector"] != part_info[num]["end_sector"]):
+            raise RuntimeError(
+                f"FATAL: partition {num} on disk spans sectors "
+                f"{p['start_sector']}..{p['end_sector']}, but the layout step "
+                f"reported {part_info[num]['start_sector']}.."
+                f"{part_info[num]['end_sector']}"
+            )
+        part_bytes = (p["end_sector"] - p["start_sector"] + 1) * SECTOR_SIZE
+        src_bytes = src.stat().st_size
+        if part_bytes < src_bytes:
+            raise RuntimeError(
+                f"FATAL: partition {num} is {part_bytes} bytes but {src} is "
+                f"{src_bytes} bytes -- the source does not fit"
+            )
+        offset = p["start_sector"] * SECTOR_SIZE
+        got = hash_image_range(image_path, offset, src_bytes)
+        want = sha256_file(src)
         if got != want:
             raise RuntimeError(
-                f"FATAL: verify failed -- partition {part} bytes at offset "
-                f"{offset} do not match {src} (first 4096 bytes differ)"
+                f"FATAL: partition {num} content mismatch. All {src_bytes} "
+                f"bytes at offset {offset} hash to {got}, but {src} hashes to "
+                f"{want}"
             )
-        log(f"    verify OK: partition {part} first 4096 bytes match {src}")
+        log(f"    verify OK: partition {num} ({want_name}) -- geometry, type "
+            f"GUID and all {src_bytes} bytes match {src} (sha256 {got[:16]}...)")
 
-    ptype_out = run(["/sbin/sgdisk", "-i", "1", str(image_path)],
-                     stdout=subprocess.PIPE, text=True).stdout
-    if "EFI system partition" not in ptype_out:
-        raise RuntimeError(f"FATAL: partition 1 is not an EFI system partition:\n{ptype_out}")
-    ptype_out2 = run(["/sbin/sgdisk", "-i", "2", str(image_path)],
-                      stdout=subprocess.PIPE, text=True).stdout
-    if "Linux filesystem" not in ptype_out2:
-        raise RuntimeError(f"FATAL: partition 2 is not a Linux filesystem partition:\n{ptype_out2}")
-    log("    verify OK: partition typecodes confirmed via independent sgdisk -i re-read")
+    verify_image_data_files(image_path, 2, required_data_files, work_dir)
 
 
 def main() -> int:
@@ -476,7 +691,14 @@ def main() -> int:
         write_partition_bytes(args.out, part_info[2]["start_sector"], data_img)
 
         log("[4/4] independent verification")
-        verify_image(args.out, part_info, args.esp_img, data_img)
+        required_data_files = [
+            f"cixmini/{n}" for n in payload_receipt["staged_files"]
+            if n != "sqtools"
+        ] + ["cixmini/sqtools/unsquashfs"]
+        if "preseed.cfg" in payload_receipt.get("preseed_staged_files", []):
+            required_data_files.append("cixmini/preseed.cfg")
+        verify_image(args.out, part_info, args.esp_img, data_img,
+                     required_data_files, tmp)
 
         receipt = {
             "schema_version": "ncz-usb-image-receipt/v1",
