@@ -122,19 +122,19 @@ scanfor manual
 menuentry "Install (graphical)" {
     loader /linux
     initrd /initrd.gz
-    options "auto=true priority=critical locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=ttyS0,115200n8"
+    options "auto=true priority=critical locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
 }
 
 menuentry "Install (expert)" {
     loader /linux
     initrd /initrd.gz
-    options "priority=low DEBIAN_FRONTEND=newt console=ttyS0,115200n8"
+    options "priority=low DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
 }
 
 menuentry "Rescue mode" {
     loader /linux
     initrd /initrd.gz
-    options "rescue/enable=true DEBIAN_FRONTEND=newt console=ttyS0,115200n8"
+    options "rescue/enable=true DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
 }
 
 menuentry "Reinstall (preserve installed system)" {
