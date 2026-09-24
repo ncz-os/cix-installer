@@ -45,6 +45,10 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
     age_days=$(( (now_epoch - $(pin_epoch "$NCZ_BASE_MIRROR_SNAPSHOT")) / 86400 ))
     max_days="${NCZ_BASE_MIRROR_SNAPSHOT_MAX_AGE_DAYS:-14}"
     echo "[pin] current: $NCZ_BASE_MIRROR_SNAPSHOT (${age_days}d old, max ${max_days}d)"
+    # preseed.cfg carries the same snapshot as a SEPARATE hardcoded string, in
+    # a different file, with no templating step between them. Checking the age
+    # of the pin while the preseed quietly points somewhere else is not a check.
+    build/check-preseed-mirror-sync.sh || exit 1
     [ "$age_days" -le "$max_days" ]
     exit $?
 fi
@@ -72,4 +76,9 @@ fi
 OLD="$NCZ_BASE_MIRROR_SNAPSHOT"
 sed -i.bak "s/^NCZ_BASE_MIRROR_SNAPSHOT=\"[^\"]*\"/NCZ_BASE_MIRROR_SNAPSHOT=\"$NEWEST\"/" release.conf
 rm -f release.conf.bak
-echo "[pin] bumped: $OLD -> $NEWEST -- review, test a build, then commit"
+echo "[pin] bumped: $OLD -> $NEWEST"
+# Carry the bump into preseed.cfg's hardcoded mirror block in the same breath.
+# Leaving that to a human is how the two drifted apart in the first place.
+build/check-preseed-mirror-sync.sh --fix
+build/check-preseed-mirror-sync.sh
+echo "[pin] release.conf + preseed.cfg both at $NEWEST -- review, test a build, then commit"
