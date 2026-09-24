@@ -22,15 +22,15 @@
 #      `build/iso/import-substrate.py`); for arm64/Sky1 it is Forky.
 #   2. The mkosi-built squashfs layers produced by `build/build-squashfs-layers.sh`
 #      (`base.squashfs`, `desktop.squashfs`, `hotfix.squashfs`).
-#   3. The NCZ cixmini payload (post-install hooks, kernel/headers .debs,
-#      assets, branding) staged onto the ISO media under /cdrom/cixmini/.
+#   3. The NCZ ncz-payload tree (post-install hooks, kernel/headers .debs,
+#      assets, branding) staged onto the ISO media under /cdrom/ncz-payload/.
 #
 # The end-state is **a Debian (Forky) system on disk** with the Sky1 kernel
 # + drivers + desktop; the d-i runtime itself is the real, upstream Debian
 # Installer (not a hand-patched fork). The NCZ-specific delta lives at the
 # assembly layer — small set of grafted udebs in the d-i initrd (the patched
 # `debootstrap-udeb` stub that drives the install-time branch) + the
-# squashfs layers + the cixmini payload. d-i itself is stock.
+# squashfs layers + the ncz-payload. d-i itself is stock.
 #
 # **This pipeline is being superseded by the new xorriso-based writer**
 # (`build/iso/{import-substrate,build-refind-esp,stage-ncz-payload,patch-debootstrap-stub,write-image,verify-image}.py`),
@@ -466,7 +466,7 @@ if [ -f "$ROOT/build/kernel-manifest.py" ]; then
 fi
 
 STAGING="$ROOT/build/iso-staging-di"
-EXTRA="$STAGING/cixmini"
+EXTRA="$STAGING/ncz-payload"
 
 for t in xorriso 7z cpio gzip gunzip find depmod dd ar tar stat apt-ftparchive \
          dpkg-scanpackages python3 awk sed sort uniq grep head du wc md5sum \
@@ -1178,7 +1178,7 @@ fi
 # r159: LAYERED SQUASHFS — prefer base.squashfs (+ <role> delta) via the bundled
 # unsquashfs (loader + libs in sqtools/). Pure userspace, no kernel mount/overlay.
 SQDIR=""
-for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
+for d in /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
     [ -f "$d/base.squashfs" ] && { SQDIR="$d"; break; }
 done
 if [ -n "$SQDIR" ]; then
@@ -1640,7 +1640,7 @@ fi
 
 # Find rootfs.tar.zst on the install media
 ROOTFS=""
-for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
+for d in /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
     if [ -f "$d/rootfs.tar.zst" ]; then
         ROOTFS="$d/rootfs.tar.zst"
         break
@@ -2981,7 +2981,7 @@ echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
 # Root-hub rescan, as a d-i STARTUP script inside the initrd.
 #
 # This lived in preseed/early_command first, which cannot work: the preseed is
-# loaded with preseed/file=/cdrom/cixmini/preseed.cfg, i.e. it lives ON the
+# loaded with preseed/file=/cdrom/ncz-payload/preseed.cfg, i.e. it lives ON the
 # installation medium.  When the medium does not enumerate, /cdrom never
 # mounts, the preseed never loads, early_command never runs -- and the rescan
 # meant to make the medium readable is itself unreachable.  Measured on O6N
@@ -3015,14 +3015,14 @@ echo "    usb-rescan staged as /usr/lib/debian-installer-startup.d/S35usb-rescan
 echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
 
 # ----------------------------------------------------------------------
-# Step 4 — stage /cixmini/ with preseed.cfg + late.sh + post-install + assets
+# Step 4 — stage /ncz-payload/ with preseed.cfg + late.sh + post-install + assets
 # ----------------------------------------------------------------------
-echo "[4] staging /cixmini extras"
+echo "[4] staging /ncz-payload extras"
 # --- NCZ 26.6: Add custom APT repository to the ISO payload
 if [ -d "$ROOT/build/apt-repo" ]; then
     echo "--- staging NCZ offline apt repository ---"
-    mkdir -p "$STAGING/cixmini/apt-repo"
-    cp -r "$ROOT/build/apt-repo/"* "$STAGING/cixmini/apt-repo/"
+    mkdir -p "$STAGING/ncz-payload/apt-repo"
+    cp -r "$ROOT/build/apt-repo/"* "$STAGING/ncz-payload/apt-repo/"
 fi
 
 if [ "$MODE" = "full" ]; then
@@ -3127,11 +3127,11 @@ done
 
 cp -a "$ROOT/post-install" "$EXTRA/post-install"
 
-# r202: stage the mali_kbase GPU overlay into /cixmini so 82-mali-gpu can install
-# it at install time (NOT baked into base.squashfs; late.sh union-syncs /cixmini,
+# r202: stage the mali_kbase GPU overlay into /ncz-payload so 82-mali-gpu can install
+# it at install time (NOT baked into base.squashfs; late.sh union-syncs /ncz-payload,
 # baked-wins). Without this /dev/mali0 is absent (panthor blacklisted in Mali mode).
 mkdir -p "$EXTRA/assets/kernel"
-[ -d "$ROOT/assets/kernel/mali" ] && cp -a "$ROOT/assets/kernel/mali" "$EXTRA/assets/kernel/" && echo "    staged mali_kbase overlay -> /cixmini/assets/kernel/mali"
+[ -d "$ROOT/assets/kernel/mali" ] && cp -a "$ROOT/assets/kernel/mali" "$EXTRA/assets/kernel/" && echo "    staged mali_kbase overlay -> /ncz-payload/assets/kernel/mali"
 
 # Stage the patched Panthor DKMS source and vermagic-matched prebuilt module.
 # This is separate from the Mali overlay because Panthor is opt-in, but it
@@ -3140,7 +3140,7 @@ mkdir -p "$EXTRA/assets/kernel"
 # ACPI power-supply (_PR0) un-secure path.
 if [ -d "$ROOT/assets/kernel/panthor" ]; then
     cp -a "$ROOT/assets/kernel/panthor" "$EXTRA/assets/kernel/"
-    echo "    staged Panthor DKMS source + prebuilt module -> /cixmini/assets/kernel/panthor"
+    echo "    staged Panthor DKMS source + prebuilt module -> /ncz-payload/assets/kernel/panthor"
 fi
 
 # Stage the NPU and VPU patch series -- the patches ONLY, not the whole trees.
@@ -3161,7 +3161,7 @@ for _cixdrv in npu vpu; do
         mkdir -p "$EXTRA/assets/kernel/$_cixdrv/src/patches"
         cp -aL "$ROOT/assets/kernel/$_cixdrv/src/patches/." \
                "$EXTRA/assets/kernel/$_cixdrv/src/patches/" 2>/dev/null || true
-        echo "    staged $_cixdrv patch series ($(find "$EXTRA/assets/kernel/$_cixdrv/src/patches" -name '*.patch' | wc -l) patches) -> /cixmini/assets/kernel/$_cixdrv"
+        echo "    staged $_cixdrv patch series ($(find "$EXTRA/assets/kernel/$_cixdrv/src/patches" -name '*.patch' | wc -l) patches) -> /ncz-payload/assets/kernel/$_cixdrv"
     fi
 done
 
@@ -3173,15 +3173,15 @@ if [ -d "$ROOT/assets" ]; then
     for d in "$ROOT/assets"/*; do
         bn=$(basename "$d")
         case "$bn" in
-            kernel) ;;  # handled below — staged into /cixmini/assets/kernel/
+            kernel) ;;  # handled below — staged into /ncz-payload/assets/kernel/
             squashfs)
                 # r191.1: NEVER bulk-copy assets/squashfs/ here -- the LAYERED
                 # SQUASHFS block below already stages base.squashfs +
-                # every built variant delta at the TOP-LEVEL /cixmini/ path
+                # every built variant delta at the TOP-LEVEL /ncz-payload/ path
                 # (the one extract-rootfs.sh actually reads). This generic
                 # loop had no exclusion for it, so every build since layered
                 # squashfs was introduced (r158) silently duplicated the full
-                # base+desktop+server set into /cixmini/assets/squashfs/ too --
+                # base+desktop+server set into /ncz-payload/assets/squashfs/ too --
                 # ~2.6GB of pure waste on the r191 ISO (found 2026-07-06,
                 # operator flagged the 7.98GB ISO size). Same bloat class as
                 # the rootfs exclusion above.
@@ -3207,12 +3207,12 @@ if [ -d "$ROOT/assets" ]; then
                 ;;
             rootfs)
                 # NEVER bulk-copy assets/rootfs/ into the ISO. The install
-                # rootfs is staged separately as /cixmini/rootfs.tar.zst (see
+                # rootfs is staged separately as /ncz-payload/rootfs.tar.zst (see
                 # ROOTFS_TARBALL below) and extract-rootfs.sh reads only that
                 # path. The *.tar.zst tarballs here are multi-GB; copying the
                 # whole dir duplicated the rootfs (and dragged in obsolete base
                 # tarballs), bloating the ISO by gigabytes.
-                echo "    assets/rootfs NOT bulk-copied (install rootfs staged as /cixmini/rootfs.tar.zst)"
+                echo "    assets/rootfs NOT bulk-copied (install rootfs staged as /ncz-payload/rootfs.tar.zst)"
                 ;;
             rescue)
                 # r130: dedicated rescue-partition rootfs tarball + AGENTS.md.
@@ -3333,7 +3333,7 @@ else
     echo "    edge kernel: not present — installer will ship the d-i substrate kernel"
 fi
 
-# Sky1 firmware assets: drop into /cixmini/assets/sky1-firmware/ exactly
+# Sky1 firmware assets: drop into /ncz-payload/assets/sky1-firmware/ exactly
 # where 12-sky1-firmware.sh expects to find it after late.sh stages it.
 if [ -d "$ROOT/assets/sky1-firmware" ]; then
     cp -rL "$ROOT/assets/sky1-firmware" "$EXTRA/assets/" 2>/dev/null || true
@@ -3669,7 +3669,7 @@ DI_PRIORITY=critical  # r134: was high; high drops d-i to interactive menu after
 if [ "$MODE" = "netinstall" ]; then
     DI_PRIORITY=critical
 fi
-DI_OPTS="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
+DI_OPTS="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/ncz-payload/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
 
 # Same options WITHOUT auto=true, for the entries a human boots at the machine.
 #
@@ -3709,7 +3709,7 @@ DI_OPTS="auto=true priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg
 # /sbin/debian-installer respawned there in a tight ~1s loop
 # (exitcode:0 each time -- a clean exit, not a crash) while the actual
 # laptop screen sat frozen at the last kernel boot message forever.
-DI_OPTS_GFX="priority=$DI_PRIORITY preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
+DI_OPTS_GFX="priority=$DI_PRIORITY preseed/file=/cdrom/ncz-payload/preseed.cfg interface=auto netcfg/dhcp_timeout=120"
 # Diagnostics build switch: when on, enable the in-installer diag module
 # (ncz_diag=1) and verbose debconf logging (DEBCONF_DEBUG=5). Both are
 # omitted for DIAG_ENABLE=0 ship builds. Boot-time override: ncz_diag=0.

@@ -104,7 +104,7 @@ expect_echo() {
 }
 
 
-DI_OPTS='auto=true priority=critical preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120 ncz_diag=1 DEBCONF_DEBUG=5 ncz_variant=desktop'
+DI_OPTS='auto=true priority=critical preseed/file=/cdrom/ncz-payload/preseed.cfg interface=auto netcfg/dhcp_timeout=120 ncz_diag=1 DEBCONF_DEBUG=5 ncz_variant=desktop'
 # Test-only answers for the deliberately-interactive account questions.
 USERS='passwd/user-fullname=Test\ User passwd/username=ncztest passwd/user-password=ncztest1234 passwd/user-password-again=ncztest1234 passwd/user-default-groups=audio\ cdrom\ video\ sudo'
 # The installer intentionally prompts for the target disk (destructive). It

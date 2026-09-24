@@ -32,7 +32,7 @@ echo "[46] installing ncz CLI + /opt/cix/npu_embed_v2.py"
 # assets/cix-py/ (build-squashfs-layers.sh); a plain install-media chroot
 # still has /cdrom, so check both.
 NPU_WRAPPER_SRC=/usr/local/lib/cix-installer/assets/cix-py/npu_embed_v2.py
-[ -f "$NPU_WRAPPER_SRC" ] || NPU_WRAPPER_SRC=/cdrom/cixmini/assets/cix-py/npu_embed_v2.py
+[ -f "$NPU_WRAPPER_SRC" ] || NPU_WRAPPER_SRC=/cdrom/ncz-payload/assets/cix-py/npu_embed_v2.py
 if [ -f "$NPU_WRAPPER_SRC" ]; then
     install -D -m 0644 "$NPU_WRAPPER_SRC" /opt/cix/npu_embed_v2.py
     echo "    /opt/cix/npu_embed_v2.py staged ($(wc -l < /opt/cix/npu_embed_v2.py) lines)"
@@ -44,7 +44,7 @@ fi
 # an operator explicitly runs `sudo ncz agent install`; all Podman/quadlet/env
 # setup happens there, not in the OS installer.
 AGENT_HELPER_SRC=/usr/local/lib/cix-installer/assets/ncz-cli.sh
-[ -f "$AGENT_HELPER_SRC" ] || AGENT_HELPER_SRC=/cdrom/cixmini/assets/ncz-cli.sh
+[ -f "$AGENT_HELPER_SRC" ] || AGENT_HELPER_SRC=/cdrom/ncz-payload/assets/ncz-cli.sh
 if [ -f "$AGENT_HELPER_SRC" ]; then
     install -D -m 0755 "$AGENT_HELPER_SRC" /usr/local/lib/ncz-agent-cli
     echo "    /usr/local/lib/ncz-agent-cli staged (agent install remains on-demand)"
@@ -343,7 +343,7 @@ ncz_install_mnemos() {
         for mnemos_tar in \
             /var/lib/nclawzero/agent-images/mnemos.oci.tar \
             /usr/local/lib/cix-installer/assets/agent-images/mnemos.oci.tar \
-            /cdrom/cixmini/assets/agent-images/mnemos.oci.tar; do
+            /cdrom/ncz-payload/assets/agent-images/mnemos.oci.tar; do
             [ -f "$mnemos_tar" ] || continue
             echo "[ncz] loading bundled MNEMOS image OFFLINE from $mnemos_tar"
             if podman load -i "$mnemos_tar"; then mnemos_loaded=1; break; fi

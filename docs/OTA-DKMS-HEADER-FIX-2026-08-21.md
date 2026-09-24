@@ -343,7 +343,7 @@ should never have to be repeated:
 ```sh
 # (OLD, no longer required)
 $ sudo -i
-# cp /cdrom/cixmini/assets/kernel/edge/headers-cixmini.tar.zst /tmp/
+# cp /cdrom/ncz-payload/assets/kernel/edge/headers-cixmini.tar.zst /tmp/
 # mkdir -p /usr/src
 # tar --zstd -xf /tmp/headers-cixmini.tar.zst -C /usr
 # cd /usr/lib/modules/$(uname -r)/build

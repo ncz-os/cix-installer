@@ -29,7 +29,7 @@ frozen-in-time legacy distro.
 The installer uses the **upstream Debian Installer (d-i) unmodified** as
 the runtime that drives the install — NCZ-specific customisations are
 applied at the **assembly layer** (squashfs payload + small set of
-grafted udebs + cixmini payload on the ISO media + rEFInd ESP), not by
+grafted udebs + ncz-payload on the ISO media + rEFInd ESP), not by
 hand-patching d-i itself. See the [Architecture](#architecture) section
 below and `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
 for what "assembly layer" means concretely.
@@ -398,7 +398,7 @@ interchangeable; each does a distinct job:
 | Stage | Tool | What it produces |
 |---|---|---|
 | **1. Content** (squashfs layers) | `bash build/build-squashfs-layers.sh [base\|desktop\|hotfix\|all]` | `base.squashfs` (~2 GB) + `desktop.squashfs` + `hotfix.squashfs` under `assets/squashfs/`. This is what the installer extracts to disk. |
-| **2. Assembly** (bootable ISO) | `make iso` (arm64/Sky1) **or** the new xorriso-based writer (amd64) | `build/nclawzero-installer-cixmini-<version>.iso` — a hybrid UEFI-bootable ISO containing the d-i substrate + rEFInd ESP + the squashfs layers above + the cixmini payload. |
+| **2. Assembly** (bootable ISO) | `make iso` (arm64/Sky1) **or** the new xorriso-based writer (amd64) | `build/nclawzero-installer-cixmini-<version>.iso` — a hybrid UEFI-bootable ISO containing the d-i substrate + rEFInd ESP + the squashfs layers above + the ncz-payload. |
 
 **For Cix Sky1 (arm64) — the validated production path:**
 
@@ -650,7 +650,7 @@ The build pipeline is split into **two distinct stages**:
 | Stage | Output | Where it lives |
 |---|---|---|
 | **Content producer** — mkosi-based squashfs layers | `base.squashfs`, `desktop.squashfs`, `hotfix.squashfs`, etc. | `build/build-squashfs-layers.sh` (the shell front-end) + `build/build-role-delta-mkosi.sh` (the mkosi delta producer) + `build/build-squashfs-layers.sh`'s `build_layer()` shell wrapper that drives the actual `mksquashfs` invocation. Manifest-driven; `manifests/installer-base.pkgs` (arm64) / `manifests/installer-base-amd64.pkgs` (amd64) + `manifests/desktop.pkgs` etc. name every package. |
-| **Assembly writer** — xorriso-based ISO writer | Bootable UEFI ISO + rEFInd ESP + cixmini payload + d-i substrate | `build/build-iso-di.sh` (the arm64/Sky1 orchestration; invokes d-i's BusyBox init, grafts udebs, swaps the installer kernel) and the new `build/iso/{import-substrate,build-refind-esp,stage-ncz-payload,patch-debootstrap-stub,write-image,verify-image}.py` (the amd64 path that supersedes the monolithic pipeline — see `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`). |
+| **Assembly writer** — xorriso-based ISO writer | Bootable UEFI ISO + rEFInd ESP + ncz-payload + d-i substrate | `build/build-iso-di.sh` (the arm64/Sky1 orchestration; invokes d-i's BusyBox init, grafts udebs, swaps the installer kernel) and the new `build/iso/{import-substrate,build-refind-esp,stage-ncz-payload,patch-debootstrap-stub,write-image,verify-image}.py` (the amd64 path that supersedes the monolithic pipeline — see `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`). |
 
 The NCZ-specific installer customisations live at the **assembly layer**
 on top of an **unmodified stock Debian Installer** — there is no
@@ -663,7 +663,7 @@ arm64/Sky1 production path). The NCZ delta ships as:
   disk;
 - a small set of **grafted** udebs in the d-i initrd (the `debootstrap-udeb`
   stub the install-time branch runs, plus cixmini boot assets);
-- the cixmini payload directory staged into the ISO tree;
+- the ncz-payload directory staged into the ISO tree;
 - the rEFInd ESP image that boots the chosen kernel/initrd pair.
 
 This is intentionally **not** a d-i replacement: d-i's BusyBox init,

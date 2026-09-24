@@ -91,7 +91,7 @@ for i in "${!KERNEL_VERS[@]}"; do
     OVERLAY=""
     for cand in \
         "$INSTALLER_META/assets/kernel/modules-overlay/$KVER/amvx.ko" \
-        "/cdrom/cixmini/assets/kernel/modules-overlay/$KVER/amvx.ko"; do
+        "/cdrom/ncz-payload/assets/kernel/modules-overlay/$KVER/amvx.ko"; do
         [ -f "$cand" ] && { OVERLAY="$cand"; break; }
     done
 

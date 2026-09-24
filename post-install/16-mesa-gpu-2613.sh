@@ -12,7 +12,7 @@
 # +20.6% prefill / +12.9% decode (llama.cpp Vulkan) and rusticl FP16 ~3.6 TFLOPS.
 #
 # Asset: assets/gpu/mesa-26.1.3-ncz-arm64.tar.gz → staged by build-iso to
-# /cdrom/cixmini/assets/gpu/, copied by late.sh to
+# /cdrom/ncz-payload/assets/gpu/, copied by late.sh to
 # /usr/local/lib/cix-installer/assets/gpu/. Tarball extracts to /opt/mesa-26.1.3.
 set -uo pipefail
 

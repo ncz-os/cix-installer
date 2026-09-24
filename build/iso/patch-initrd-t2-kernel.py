@@ -337,7 +337,7 @@ def patch_t2_kernel(
         # Real root cause (confirmed on metal 2026-09-24, not a QEMU
         # artifact): our boot path never does a genuine El-Torito CD-ROM
         # boot (kernel+initrd load straight off the ESP via rEFInd/UEFI),
-        # so `preseed/file=/cdrom/cixmini/preseed.cfg` depends on
+        # so `preseed/file=/cdrom/ncz-payload/preseed.cfg` depends on
         # cdrom-detect classifying + mounting the medium before that
         # fetch runs -- timing/classification that a real USB-written
         # hybrid medium doesn't guarantee the way QEMU's clean ATAPI

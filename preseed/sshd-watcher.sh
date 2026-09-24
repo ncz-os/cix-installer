@@ -127,8 +127,8 @@ LOG=/var/log/early_command.log
 # dists/<NCZ_BASE_CODENAME>, so a hard-coded suite makes every apt-get update
 # against file:///cdrom fail with "File not found - /cdrom/dists/<suite>/...".
 NCZ_BASE_CODENAME=""
-for _rel in /cdrom/cixmini/RELEASE /hd-media/cixmini/RELEASE \
-            /media/cdrom/cixmini/RELEASE /run/live/medium/cixmini/RELEASE; do
+for _rel in /cdrom/ncz-payload/RELEASE /hd-media/ncz-payload/RELEASE \
+            /media/cdrom/ncz-payload/RELEASE /run/live/medium/ncz-payload/RELEASE; do
     [ -r "$_rel" ] && . "$_rel" && break
 done
 # 2026-09-24: this had TWO amd64-migration leftovers in one line. The suite

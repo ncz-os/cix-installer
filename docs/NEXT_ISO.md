@@ -62,7 +62,7 @@ bash build/iso/import-substrate.py --arch amd64 \
 # 2. Build the rEFInd ESP image (deterministic, content-hashed):
 bash build/iso/build-refind-esp.py --arch amd64
 
-# 3. Stage the cixmini payload + patched debootstrap stub:
+# 3. Stage the ncz-payload + patched debootstrap stub:
 bash build/iso/stage-ncz-payload.py --arch amd64
 bash build/iso/patch-debootstrap-stub.py --arch amd64
 

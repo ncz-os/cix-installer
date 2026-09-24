@@ -25,8 +25,8 @@
 set -uo pipefail
 
 ASSETS=/usr/local/lib/cix-installer/assets/cix-debs
-if [ ! -d "$ASSETS" ] && [ -d /cdrom/cixmini/assets/cix-debs ]; then
-    ASSETS=/cdrom/cixmini/assets/cix-debs
+if [ ! -d "$ASSETS" ] && [ -d /cdrom/ncz-payload/assets/cix-debs ]; then
+    ASSETS=/cdrom/ncz-payload/assets/cix-debs
 fi
 
 # Variant-aware filtering. The dep-closure check (build/check-cix-deps.sh) showed

@@ -34,7 +34,7 @@
 #
 # r55+ adds live progress feedback to /dev/tty3 (the d-i log VT — Alt+F3 during
 # install) so the long extract phase no longer sits silent at "1%".
-echo "[EXTRACT-TOP] running pid=$$ $(date 2>/dev/null); base=[$(ls -la /cdrom/cixmini/base.squashfs 2>&1)]; cdrom_mounted=[$(mount|grep -c cdrom)]" > /dev/ttyAMA0 2>&1
+echo "[EXTRACT-TOP] running pid=$$ $(date 2>/dev/null); base=[$(ls -la /cdrom/ncz-payload/base.squashfs 2>&1)]; cdrom_mounted=[$(mount|grep -c cdrom)]" > /dev/ttyAMA0 2>&1
 set -e
 
 LOG=/var/log/cix-rootfs-extract.log
@@ -67,10 +67,10 @@ mount | grep -E "cdrom|hd-media|media|target|run/live" || true
 # ============================================================================
 # r159: LAYERED SQUASHFS install via bundled unsquashfs (no kernel mount/overlay/loop
 # — those failed silently in the d-i env). The sqtools bundle (unsquashfs + libs +
-# loader) is staged to <media>/cixmini/sqtools by build-iso. Preferred over the
+# loader) is staged to <media>/ncz-payload/sqtools by build-iso. Preferred over the
 # rootfs.tar.zst path; falls through to the tarball if no base.squashfs present.
 SQFS_DIR=""
-for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
+for d in /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
     [ -f "$d/base.squashfs" ] && { SQFS_DIR="$d"; break; }
 done
 if [ -n "$SQFS_DIR" ]; then
@@ -149,7 +149,7 @@ if [ -n "$SQFS_DIR" ]; then
     # If the operator opted out of the desktop, do NOT extract desktop.squashfs
     # at all — the system boots to console via cixmini-console.conf (set as
     # default by 70-bootloader.sh when COMPONENTS_DESKTOP=0). BASE-only installs
-    # are still bit-identical to the previous /cdrom/cixmini/base.squashfs
+    # are still bit-identical to the previous /cdrom/ncz-payload/base.squashfs
     # payload, which carries a usable userspace (network, ssh, etc.) — the
     # desktop is purely an overlay.
     ROLE=desktop
@@ -592,7 +592,7 @@ fi
 
 # Find rootfs.tar.zst on the install media
 ROOTFS=""
-for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
+for d in /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
     if [ -f "$d/rootfs.tar.zst" ]; then
         ROOTFS="$d/rootfs.tar.zst"
         SIZE=$(stat -c%s "$ROOTFS" 2>/dev/null || echo 0)

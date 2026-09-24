@@ -7,7 +7,7 @@ that ``build/build-iso-di.sh`` writes verbatim into its staged udeb at
 
 Why this is a separate script from ``stage-ncz-payload.py``:
 
-  The payload is the ``/cdrom/cixmini/{base,desktop,...}`` tree the stub
+  The payload is the ``/cdrom/ncz-payload/{base,desktop,...}`` tree the stub
   CONSUMES at install time. The patched udeb is the ``/usr/sbin/debootstrap``
   binary the stub REPLACES inside the installer's own runtime. They are
   two different artifacts, two different production pipelines, and
@@ -22,9 +22,9 @@ syntax-checked at build time):
     (the real target disk d-i mounted);
   * if ``$TARGET/etc/os-release`` already exists (re-run, idempotent),
     exits 0;
-  * else, looks for ``/cdrom/cixmini/base.squashfs`` (and the same under
-    ``/hd-media/cixmini``, ``/media/cdrom/cixmini``,
-    ``/run/live/medium/cixmini`` — first match wins);
+  * else, looks for ``/cdrom/ncz-payload/base.squashfs`` (and the same under
+    ``/hd-media/ncz-payload``, ``/media/cdrom/ncz-payload``,
+    ``/run/live/medium/ncz-payload`` — first match wins);
   * unsquashfs's ``base.squashfs`` onto ``$TARGET`` using a BUNDLED,
     architecture-matched static ``unsquashfs`` from
     ``$SQDIR/sqtools/unsquashfs`` (NOT the installer runtime's own
@@ -57,7 +57,7 @@ Substrate layout the script handles:
     there is no ``/pool/`` in the extracted tree. The patched udeb is
     written to a dedicated path inside the staged ISO tree
     (``build/iso-cache/v1/ncz-udeb/<key>/debootstrap-udeb_<ver>_all.udeb``)
-    which ``write-image.py`` copies to ``/cixmini/debootstrap-udeb/``
+    which ``write-image.py`` copies to ``/ncz-payload/debootstrap-udeb/``
     on the ISO so it can be referenced (and is visibly staged) for
     operator inspection. The udeb assertions are SKIPPED on this layout
     with a clear message; the brief allows this fallback honestly
@@ -169,7 +169,7 @@ fi
 # r159: LAYERED SQUASHFS — prefer base.squashfs (+ <role> delta) via the bundled
 # unsquashfs (loader + libs in sqtools/). Pure userspace, no kernel mount/overlay.
 SQDIR=""
-for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
+for d in /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
     [ -f "$d/base.squashfs" ] && { SQDIR="$d"; break; }
 done
 if [ -n "$SQDIR" ]; then
@@ -631,7 +631,7 @@ fi
 
 # Find rootfs.tar.zst on the install media
 ROOTFS=""
-for d in /cdrom/cixmini /hd-media/cixmini /media/cdrom/cixmini /run/live/medium/cixmini; do
+for d in /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
     if [ -f "$d/rootfs.tar.zst" ]; then
         ROOTFS="$d/rootfs.tar.zst"
         break
@@ -1039,7 +1039,7 @@ def stage_patched_udeb_in_cache(
     """For netboot-layout substrates (no pool/), write the patched udeb
     to a per-build cache node and return its path. The caller
     (write-image.py) will copy this into the ISO tree at
-    ``/cixmini/debootstrap-udeb/`` for operator inspection.
+    ``/ncz-payload/debootstrap-udeb/`` for operator inspection.
 
     For install_dir-layout substrates, this function is NOT called:
     the patched udeb is written back to
@@ -1093,7 +1093,7 @@ def patch_substrate(
       * ``netboot`` (mini.iso, what this branch uses) — no pool. Patch
         an external --source-udeb and stage the result under
         cache_root/ncz-udeb/<key>/ so write-image.py can copy it
-        into the ISO at /cixmini/debootstrap-udeb/.
+        into the ISO at /ncz-payload/debootstrap-udeb/.
     """
     pool = _find_substrate_pool(substrate_node_dir)
     layout = "install_dir" if pool else "netboot"

@@ -40,8 +40,8 @@ fi
 
 INSTALLER_META=/usr/local/lib/cix-installer
 ASSETS=/usr/local/lib/cix-installer/assets/npu
-if [ ! -d "$ASSETS" ] && [ -d /cdrom/cixmini/assets/npu ]; then
-    ASSETS=/cdrom/cixmini/assets/npu
+if [ ! -d "$ASSETS" ] && [ -d /cdrom/ncz-payload/assets/npu ]; then
+    ASSETS=/cdrom/ncz-payload/assets/npu
 fi
 SSDT_CPIO="$ASSETS/npu-acpi-override.cpio"
 
@@ -140,7 +140,7 @@ for i in "${!KERNEL_VERS[@]}"; do
     OVERLAY=""
     for cand in \
         "/usr/local/lib/cix-installer/assets/kernel/modules-overlay/$KVER/armchina_npu.ko" \
-        "/cdrom/cixmini/assets/kernel/modules-overlay/$KVER/armchina_npu.ko"; do
+        "/cdrom/ncz-payload/assets/kernel/modules-overlay/$KVER/armchina_npu.ko"; do
         [ -f "$cand" ] && { OVERLAY="$cand"; break; }
     done
     if [ -n "$OVERLAY" ]; then
