@@ -242,7 +242,8 @@ def verify_data_partition_content(data_img: Path, staged_root: Path) -> None:
 
 def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
                         patched_udeb: Path | None, preseed_dir: Path | None,
-                        allow_missing_stub: bool = False) -> dict:
+                        allow_missing_stub: bool = False,
+                        post_install_dir: Path | None = None) -> dict:
     """Same shape as write-image.py's stage_cixmini_payload(), corrected
     for the hotfix/busybox staleness bug documented above."""
     if not payload_dir.is_dir():
@@ -310,6 +311,26 @@ def build_cixmini_tree(stage_dir: Path, payload_dir: Path, arch: str,
             "and pass it here, or pass --allow-missing-debootstrap-stub if you "
             "are deliberately building a non-installing test medium."
         )
+
+    # post-install/ -- the ~80 hooks run-all.sh executes inside /target.
+    # build-iso-di.sh:3124 staged this onto every ISO ("cp -a $ROOT/post-install
+    # $EXTRA/post-install"); the raw-GPT writer dropped it in the migration, and
+    # late.sh's baked-mode refresh (which deletes the target's tree BEFORE
+    # copying) then died under set -e with the scripts already gone. Staged
+    # here from the repo rather than through stage-cixmini-payload.py's
+    # content-addressed cache on purpose: these are source files that change
+    # constantly, and folding them into the payload node key would re-stage
+    # 3.3 GiB of squashfs every time a hook comment is edited.
+    if post_install_dir is not None:
+        if not (post_install_dir / "run-all.sh").is_file():
+            raise RuntimeError(
+                f"FATAL: {post_install_dir} has no run-all.sh -- refusing to "
+                f"stage a post-install tree that cannot run"
+            )
+        run(["cp", "-a", str(post_install_dir), str(cixmini_dst / "post-install")])
+        names = sorted(p.name for p in (cixmini_dst / "post-install").iterdir())
+        receipt["post_install_staged"] = len(names)
+        log(f"    post-install/ staged: {len(names)} entries")
 
     if preseed_dir is not None and preseed_dir.is_dir():
         preseed_staged = []
@@ -668,6 +689,10 @@ def main() -> int:
                      help="Build without the r159 stub. The result CANNOT "
                           "install NCZ-OS; only for deliberate test media.")
     ap.add_argument("--preseed-dir", type=Path, default=REPO_ROOT / "preseed")
+    ap.add_argument("--post-install-dir", type=Path,
+                     default=REPO_ROOT / "post-install",
+                     help="post-install hook tree staged at cixmini/post-install; "
+                          "late.sh refreshes the installed copy from it.")
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--data-size-mib", type=int, default=None,
                      help="Data partition size; default: auto-sized from content + headroom")
@@ -707,6 +732,7 @@ def main() -> int:
             stage_dir, args.cixmini_payload_dir, args.arch,
             args.patched_udeb, args.preseed_dir if args.preseed_dir.is_dir() else None,
             args.allow_missing_debootstrap_stub,
+            args.post_install_dir if args.post_install_dir.is_dir() else None,
         )
 
         log("[2/4] building ext4 data partition image")
@@ -726,6 +752,8 @@ def main() -> int:
             f"cixmini/{n}" for n in payload_receipt["staged_files"]
             if n != "sqtools"
         ] + ["cixmini/sqtools/unsquashfs"]
+        if payload_receipt.get("post_install_staged"):
+            required_data_files.append("cixmini/post-install/run-all.sh")
         if "patched_udeb" in payload_receipt:
             required_data_files.append(
                 f"cixmini/debootstrap-udeb/{payload_receipt['patched_udeb']}")

@@ -205,8 +205,26 @@ mkdir -p /target/usr/local/lib
 # baked tree and only refresh the post-install scripts from the ISO.
 if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-baked ]; then
     echo "[late r157] baked rootfs detected — preserving baked assets + marker, refreshing post-install scripts only"
-    rm -rf /target/usr/local/lib/cix-installer/post-install
-    cp -a "$SRC/post-install" /target/usr/local/lib/cix-installer/
+    # 2026-09-24: this used to `rm -rf` the baked post-install/ tree and THEN
+    # copy from $SRC unconditionally. When the raw-GPT writer stopped staging
+    # post-install/ onto the medium (build-iso-di.sh:3124 did; the new
+    # write-usb-image.py did not), that copy failed under `set -e` -- AFTER
+    # the delete -- so the target was left with no post-install scripts at
+    # all and late.sh died on the spot. The refresh itself is deliberate
+    # (post-install fixes must be able to land without a squashfs rebuild,
+    # same reasoning as the ncz-refind-refresh.sh block below), so keep it --
+    # but only when the medium really has a tree to refresh FROM, and never
+    # destroy a working one to find that out.
+    if [ -d "$SRC/post-install" ] && [ -f "$SRC/post-install/run-all.sh" ]; then
+        rm -rf /target/usr/local/lib/cix-installer/post-install
+        cp -a "$SRC/post-install" /target/usr/local/lib/cix-installer/
+        echo "[late] refreshed post-install scripts from $SRC/post-install"
+    elif [ -f /target/usr/local/lib/cix-installer/post-install/run-all.sh ]; then
+        echo "[late] WARN: install media carries no post-install/ — keeping the scripts baked into the image"
+    else
+        echo "[late] FATAL: no post-install/ on the install media AND none baked into the image — nothing would configure this system" >&2
+        exit 1
+    fi
     # r160: union-sync assets from the ISO. The layered-squashfs base stages
     # only a SUBSET of assets (e.g. assets/refind/ holds just refind_aa64.efi
     # — no ncz.png / ncz-banner.png / icons/), so preserving the baked tree
@@ -272,6 +290,12 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
 else
     rm -rf /target/usr/local/lib/cix-installer
     cp -a "$SRC" /target/usr/local/lib/cix-installer
+fi
+# Same class of trap as the refresh above: a bare glob under `set -e` turns
+# a missing directory into an unexplained late.sh death. Say what is wrong.
+if [ ! -f /target/usr/local/lib/cix-installer/post-install/run-all.sh ]; then
+    echo "[late] FATAL: /target/usr/local/lib/cix-installer/post-install/run-all.sh is missing after the copy step" >&2
+    exit 1
 fi
 chmod 755 /target/usr/local/lib/cix-installer/post-install/*.sh
 echo "    copy ok"
