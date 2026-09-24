@@ -3109,8 +3109,12 @@ fi
 #
 # diag-console.sh is exempt when DIAG_ENABLE=0, because a ship-clean image
 # deliberately omits it and the preseed reference is expected to no-op.
-for _h in $(grep -oE '\$NCZSRC/[a-z0-9._-]+\.sh' "$ROOT/preseed/preseed.cfg" \
-            | sed 's|.*/||' | sort -u); do
+# 2026-09-24: early_command now resolves its helpers through _ncz_helper
+# (baked /ncz/<name> first, $NCZSRC/<name> second), so a grep for the bare
+# $NCZSRC/<name>.sh form alone matches NOTHING and this gate silently stops
+# gating. Match both spellings.
+for _h in $(grep -oE '(\$NCZSRC/|_ncz_helper )[a-z0-9._-]+\.sh' "$ROOT/preseed/preseed.cfg" \
+            | sed -e 's|.*/||' -e 's|^_ncz_helper ||' | sort -u); do
     if [ "$_h" = "diag-console.sh" ] && [ "${DIAG_ENABLE:-1}" != 1 ]; then
         continue
     fi
