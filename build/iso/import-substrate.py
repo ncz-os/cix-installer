@@ -6,10 +6,28 @@ Given a real Debian Installer ISO -- STOCK, UNMODIFIED d-i, target suite
 Debian forky/testing (bookworm is FULLY DEPRECATED project-wide, operator
 2026-09-24: never point this at a bookworm substrate again; a bookworm
 substrate mixed with real forky udebs/mirror fetches produces a real,
-observed GLIBC_2.38 ABI break in cdebconf) --
+observed GLIBC_2.38 ABI break in cdebconf) -- USE THE DAILY BUILD, NOT
+the per-suite "current" build. Real, measured 2026-09-24: even
 deb.debian.org/debian/dists/forky/main/installer-<arch>/current/images/
-netboot/mini.iso, mount or xorriso-extract it into an immutable
-content-addressed tree under build/iso-cache/v1/nodes/<arch>/substrate/<key>/.
+netboot/mini.iso (the per-suite path, and the same substrate whether
+fetched live or from release.conf's pinned snapshot.debian.org
+timestamp -- both were byte-identical) carries a STALE d-i userland
+that lagged forky's live glibc bump: its own libc.so.6 topped out at
+GLIBC_2.38/2.39 while the CURRENT forky archive's busybox-udeb needed
+GLIBC_2.42, so anna fetching real udebs from a live/pinned mirror broke
+with "version GLIBC_2.42 not found (required by sh)" the same way
+the earlier bookworm substrate did with GLIBC_2.38. The per-suite
+netboot.iso is NOT rebuilt on every archive change and can silently
+drift behind. The FIX: use
+https://d-i.debian.org/daily-images/<arch>/daily/netboot/mini.iso
+instead -- rebuilt daily against the live archive, confirmed via direct
+extraction that its libc.so.6 carries up through GLIBC_2.43, matching
+what the live/pinned forky archive's own udebs actually require.
+Verified end-to-end: zero GLIBC errors, real forky udebs (rescue-check,
+rootskel, wpasupplicant-udeb, busybox-udeb, etc.) all loaded cleanly
+via real QEMU boot against a daily-build substrate.
+mount or xorriso-extract it into an immutable content-addressed tree
+under build/iso-cache/v1/nodes/<arch>/substrate/<key>/.
 
 This replaces the monolithic ``$STAGING`` extraction in build/build-iso-di.sh
 without touching the imported tree afterward. The substrate ISO is treated as
