@@ -2,9 +2,13 @@
 """
 import-substrate.py — One verified extraction per substrate digest.
 
-Given a real Debian Installer ISO (currently the Bookworm amd64 netboot/mini
-ISO from deb.debian.org/debian/dists/<suite>/main/installer-<arch>/current/
-images/netboot/mini.iso), mount or xorriso-extract it into an immutable
+Given a real Debian Installer ISO -- STOCK, UNMODIFIED d-i, target suite
+Debian forky/testing (bookworm is FULLY DEPRECATED project-wide, operator
+2026-09-24: never point this at a bookworm substrate again; a bookworm
+substrate mixed with real forky udebs/mirror fetches produces a real,
+observed GLIBC_2.38 ABI break in cdebconf) --
+deb.debian.org/debian/dists/forky/main/installer-<arch>/current/images/
+netboot/mini.iso, mount or xorriso-extract it into an immutable
 content-addressed tree under build/iso-cache/v1/nodes/<arch>/substrate/<key>/.
 
 This replaces the monolithic ``$STAGING`` extraction in build/build-iso-di.sh
