@@ -163,22 +163,22 @@ menuentry "{info_line}" {{
     disabled
 }}
 
-menuentry "NCZ-OS Installer -- Install (graphical)" {{
+menuentry "NCZ-OS Installer -- Install" {{
     loader /linux
     initrd /initrd.gz
-    options "auto=true priority=critical locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
+    options "auto=true priority=critical preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120 locale=en_US.UTF-8 keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
 }}
 
 menuentry "NCZ-OS Installer -- Install (expert)" {{
     loader /linux
     initrd /initrd.gz
-    options "priority=low DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
+    options "priority=low preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120 DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
 }}
 
 menuentry "NCZ-OS Installer -- Rescue mode" {{
     loader /linux
     initrd /initrd.gz
-    options "rescue/enable=true DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
+    options "rescue/enable=true preseed/file=/cdrom/cixmini/preseed.cfg interface=auto netcfg/dhcp_timeout=120 DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
 }}
 
 menuentry "NCZ-OS Installer -- Reinstall (preserve installed system)" {{
