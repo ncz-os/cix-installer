@@ -296,14 +296,14 @@ def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
-def stage_cixmini_payload(stage_dir: Path, payload_dir: Path,
-                          patched_udeb: Path | None,
-                          preseed_dir: Path | None = None) -> dict:
+def stage_ncz_payload(stage_dir: Path, payload_dir: Path,
+                      patched_udeb: Path | None,
+                      preseed_dir: Path | None = None) -> dict:
     """Copy the staged r159 cixmini payload into ``stage_dir/cixmini/`` so
     it lands at the ISO top level at ``/cixmini/`` once xorrisofs packs
     the tree.
 
-    The payload is the verbatim output of ``build/iso/stage-cixmini-payload.py``
+    The payload is the verbatim output of ``build/iso/stage-ncz-payload.py``
     (or any directory with the same shape): ``base.squashfs``,
     ``desktop.squashfs``, ``desktop.overlay-manifest``, ``sqtools/``.
     Together those are what the r159 stub CONSUMES at install time
@@ -339,11 +339,11 @@ def stage_cixmini_payload(stage_dir: Path, payload_dir: Path,
     """
     if not payload_dir.is_dir():
         raise RuntimeError(f"cixmini payload dir not found: {payload_dir}")
-    cixmini_dst = stage_dir / "cixmini"
-    if cixmini_dst.exists():
-        _chmod_r(cixmini_dst)
-        shutil.rmtree(cixmini_dst)
-    cixmini_dst.mkdir(parents=True)
+    ncz_payload_dst = stage_dir / "cixmini"
+    if ncz_payload_dst.exists():
+        _chmod_r(ncz_payload_dst)
+        shutil.rmtree(ncz_payload_dst)
+    ncz_payload_dst.mkdir(parents=True)
     # Copy each expected entry by name rather than cp -a the whole
     # directory so an unexpected file in the payload (a stray NOTES,
     # receipts/ subdir, etc.) doesn't pollute the ISO tree.
@@ -353,7 +353,7 @@ def stage_cixmini_payload(stage_dir: Path, payload_dir: Path,
     for name in expected:
         src = payload_dir / name
         if src.exists():
-            dst = cixmini_dst / name
+            dst = ncz_payload_dst / name
             if src.is_dir():
                 subprocess.run(["cp", "-a", str(src) + "/.", str(dst)],
                                check=True)
@@ -361,17 +361,17 @@ def stage_cixmini_payload(stage_dir: Path, payload_dir: Path,
                 shutil.copy2(str(src), str(dst))
             staged.append(name)
     receipt = {
-        "schema_version": "cixmini-payload-in-tree/v1",
+        "schema_version": "ncz-payload-in-tree/v1",
         "payload_dir": str(payload_dir),
         "payload_dir_sha256": sha256_dir_bytes(payload_dir) if payload_dir.is_dir() else None,
         "staged_files": staged,
     }
-    log(f"cixmini payload staged at {cixmini_dst}: {staged}")
+    log(f"cixmini payload staged at {ncz_payload_dst}: {staged}")
 
     if patched_udeb is not None:
         if not patched_udeb.is_file():
             raise RuntimeError(f"patched udeb not found: {patched_udeb}")
-        dst_dir = cixmini_dst / "debootstrap-udeb"
+        dst_dir = ncz_payload_dst / "debootstrap-udeb"
         dst_dir.mkdir(parents=True, exist_ok=True)
         dst = dst_dir / patched_udeb.name
         shutil.copy2(str(patched_udeb), str(dst))
@@ -389,12 +389,12 @@ def stage_cixmini_payload(stage_dir: Path, payload_dir: Path,
                 continue
             if not entry.is_file():
                 continue
-            dst = cixmini_dst / entry.name
+            dst = ncz_payload_dst / entry.name
             shutil.copy2(str(entry), str(dst))
             preseed_staged.append(entry.name)
         receipt["preseed_dir"] = str(preseed_dir)
         receipt["preseed_staged_files"] = preseed_staged
-        log(f"preseed/ staged at {cixmini_dst}: {preseed_staged}")
+        log(f"preseed/ staged at {ncz_payload_dst}: {preseed_staged}")
     return receipt
 
 
@@ -414,25 +414,25 @@ def sha256_dir_bytes(d: Path) -> str:
     return h.hexdigest()
 
 
-def resolve_cixmini_args(args, default_cache_root: Path) -> tuple[Path | None, Path | None]:
-    """Resolve --cixmini-payload-dir / --patched-udeb from the args
+def resolve_ncz_payload_args(args, default_cache_root: Path) -> tuple[Path | None, Path | None]:
+    """Resolve --ncz-payload-dir / --patched-udeb from the args
     namespace, falling back to auto-detection under the cache if
     neither is provided.
 
     Auto-detection: pick the most-recently-modified payload node under
-    ``build/iso-cache/v1/cixmini-payload/`` and the most-recently-modified
-    patched udeb under ``build/iso-cache/v1/cixmini-udeb/`` for the
+    ``build/iso-cache/v1/ncz-payload/`` and the most-recently-modified
+    patched udeb under ``build/iso-cache/v1/ncz-udeb/`` for the
     matching architecture. The "most recent" is by mtime (cheaper than
     parsing receipts and the cache is monotonic). If nothing is
     cached, both return None and the caller logs INFO that the ISO
     will be payload-less (d-i will fall back to network install —
     the same behavior as a stock Debian netinst ISO).
     """
-    payload_dir = getattr(args, "cixmini_payload_dir", None)
+    payload_dir = getattr(args, "ncz_payload_dir", None)
     patched_udeb = getattr(args, "patched_udeb", None)
 
     if payload_dir is None:
-        candidates_root = default_cache_root / "cixmini-payload"
+        candidates_root = default_cache_root / "ncz-payload"
         if candidates_root.is_dir():
             payload_nodes = sorted(
                 [p for p in candidates_root.iterdir() if p.is_dir()],
@@ -441,10 +441,10 @@ def resolve_cixmini_args(args, default_cache_root: Path) -> tuple[Path | None, P
             )
             if payload_nodes:
                 payload_dir = payload_nodes[0]
-                log(f"auto-resolved --cixmini-payload-dir: {payload_dir}")
+                log(f"auto-resolved --ncz-payload-dir: {payload_dir}")
 
     if patched_udeb is None:
-        candidates_root = default_cache_root / "cixmini-udeb"
+        candidates_root = default_cache_root / "ncz-udeb"
         if candidates_root.is_dir():
             for udeb_node in sorted(
                 [p for p in candidates_root.iterdir() if p.is_dir()],
@@ -756,7 +756,7 @@ def cold_image(args) -> int:
     # reads from /cdrom/cixmini/base.squashfs etc.). If no payload is
     # available, this is a no-op and the ISO will fall back to a
     # network install — same as a stock Debian netinst ISO.
-    payload_dir, patched_udeb = resolve_cixmini_args(args, DEFAULT_CACHE_ROOT)
+    payload_dir, patched_udeb = resolve_ncz_payload_args(args, DEFAULT_CACHE_ROOT)
     payload_receipt = None
     if payload_dir is not None:
         # Read-only use of preseed/ (the brief allows reading; the
@@ -764,7 +764,7 @@ def cold_image(args) -> int:
         # ~line 2988 copies these same files into $EXTRA/preseed.cfg,
         # late.sh, etc.; we mirror that here.
         preseed_dir = REPO_ROOT / "preseed" if (REPO_ROOT / "preseed").is_dir() else None
-        payload_receipt = stage_cixmini_payload(
+        payload_receipt = stage_ncz_payload(
             stage_dir=stage,
             payload_dir=payload_dir,
             patched_udeb=patched_udeb,
@@ -845,7 +845,7 @@ def cold_image(args) -> int:
             "efi_boot": "/efi.img",
         },
         "parent_physical_id": None,
-        "cixmini_payload": payload_receipt,
+        "ncz_payload": payload_receipt,
     }
     receipt_path = out.parent / (out.name + ".receipt.json")
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))
@@ -984,11 +984,11 @@ def warm_image(args) -> int:
     # warm growth that replaces the cixmini payload (e.g. a hotfix
     # replaces base.squashfs), the new payload files are picked up by
     # the xorriso -update step below.
-    payload_dir, patched_udeb = resolve_cixmini_args(args, DEFAULT_CACHE_ROOT)
+    payload_dir, patched_udeb = resolve_ncz_payload_args(args, DEFAULT_CACHE_ROOT)
     payload_receipt = None
     if payload_dir is not None:
         preseed_dir = REPO_ROOT / "preseed" if (REPO_ROOT / "preseed").is_dir() else None
-        payload_receipt = stage_cixmini_payload(
+        payload_receipt = stage_ncz_payload(
             stage_dir=stage,
             payload_dir=payload_dir,
             patched_udeb=patched_udeb,
@@ -1120,7 +1120,7 @@ def warm_image(args) -> int:
             "replace_count": len(replaces),
             "remove_count": len(removes),
         },
-        "cixmini_payload": payload_receipt,
+        "ncz_payload": payload_receipt,
     }
     receipt_path = out.parent / (out.name + ".receipt.json")
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))
@@ -1136,17 +1136,17 @@ def main():
     cold.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     cold.add_argument("--substrate-node-dir", required=True, type=Path)
     cold.add_argument("--esp-image", required=True, type=Path)
-    cold.add_argument("--cixmini-payload-dir", type=Path, default=None,
+    cold.add_argument("--ncz-payload-dir", type=Path, default=None,
                       help="staged cixmini payload dir from "
-                           "build/iso/stage-cixmini-payload.py. If "
+                           "build/iso/stage-ncz-payload.py. If "
                            "omitted, auto-detects the latest node under "
-                           "build/iso-cache/v1/cixmini-payload/.")
+                           "build/iso-cache/v1/ncz-payload/.")
     cold.add_argument("--patched-udeb", type=Path, default=None,
                       help="patched debootstrap-udeb from "
                            "build/iso/patch-debootstrap-stub.py "
                            "(netboot substrate). If omitted, "
                            "auto-detects the latest "
-                           "build/iso-cache/v1/cixmini-udeb/<key>/*.udeb.")
+                           "build/iso-cache/v1/ncz-udeb/<key>/*.udeb.")
     cold.add_argument("--output", required=True, type=Path)
     cold.add_argument("--volume-id", default="NCZOSREFIND")
     cold.add_argument("--publisher", default="NCZ-OS prototype")
@@ -1162,8 +1162,8 @@ def main():
     warm.add_argument("--payload-root", required=True, type=Path,
                       help="Directory containing payload source files")
     warm.add_argument("--esp-image", required=True, type=Path)
-    warm.add_argument("--cixmini-payload-dir", type=Path, default=None,
-                      help="staged cixmini payload dir (see --cixmini-payload-dir "
+    warm.add_argument("--ncz-payload-dir", type=Path, default=None,
+                      help="staged cixmini payload dir (see --ncz-payload-dir "
                            "on the cold subcommand). Auto-detects by default.")
     warm.add_argument("--patched-udeb", type=Path, default=None,
                       help="patched debootstrap-udeb (see --patched-udeb "

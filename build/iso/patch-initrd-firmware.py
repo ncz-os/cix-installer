@@ -2,7 +2,7 @@
 """
 patch-initrd-firmware.py -- inject real device firmware into a Debian
 Installer initrd, content-addressed and cached the same way
-patch-debootstrap-stub.py and stage-cixmini-payload.py already are.
+patch-debootstrap-stub.py and stage-ncz-payload.py already are.
 
 Why this exists (operator, 2026-09-24): T2 MacBooks need the real Apple/
 Broadcom WiFi firmware (brcmfmac4355c1/4364b2/4364b3/4377b3 board
@@ -42,7 +42,7 @@ Usage:
     patch-initrd-firmware.py --substrate-node-dir DIR --arch {amd64,arm64}
         [--firmware-tar PATH] [--cache-root DIR] [--force]
 
-Output: <cache-root>/cixmini-initrd/<node_key>/initrd.gz + receipt.json
+Output: <cache-root>/ncz-initrd/<node_key>/initrd.gz + receipt.json
 """
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ def patch_initrd(
         raise RuntimeError(f"FATAL: firmware tarball missing: {firmware_tar}")
 
     canonical = canonical_encode({
-        "schema_version": "cixmini-initrd-patch/v1",
+        "schema_version": "ncz-initrd-patch/v1",
         "arch": arch,
         "src_initrd": _stat(src_initrd),
         "firmware_tar": _stat(firmware_tar),
@@ -119,7 +119,7 @@ def patch_initrd(
 # after the receipt has been written, so a node is either absent or complete.
 # A node that somehow exists without its receipt is treated as incomplete and
 # rebuilt rather than trusted.
-    node_dir = cache_root / "cixmini-initrd" / node_key
+    node_dir = cache_root / "ncz-initrd" / node_key
     if node_dir.exists() and not force:
         if (node_dir / "receipt.json").is_file():
             log(f"node exists: {node_dir}")
@@ -194,9 +194,9 @@ def patch_initrd(
             raise RuntimeError("FATAL: cpio/find repack failed")
 
     receipt = {
-        "schema_version": "cixmini-initrd-patch-receipt/v1",
+        "schema_version": "ncz-initrd-patch-receipt/v1",
         "node_key": node_key,
-        "node_kind": "cixmini-initrd",
+        "node_kind": "ncz-initrd",
         "arch": arch,
         "inputs": {
             "src_initrd": str(src_initrd),

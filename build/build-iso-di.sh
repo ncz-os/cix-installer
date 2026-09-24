@@ -33,7 +33,7 @@
 # squashfs layers + the cixmini payload. d-i itself is stock.
 #
 # **This pipeline is being superseded by the new xorriso-based writer**
-# (`build/iso/{import-substrate,build-refind-esp,stage-cixmini-payload,patch-debootstrap-stub,write-image,verify-image}.py`),
+# (`build/iso/{import-substrate,build-refind-esp,stage-ncz-payload,patch-debootstrap-stub,write-image,verify-image}.py`),
 # qualified and shipped for amd64 first; see
 # `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
 # for the design rationale and the long-term migration plan. Until the new

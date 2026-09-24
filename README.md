@@ -192,7 +192,7 @@ The current build path is a **two-stage pipeline**, not a single script:
    reusable scaffold.
 2. **Assembly (bootable ISO writer)** — `build/build-iso-di.sh` (the
    Sky1/arm64 orchestration script) and the new
-   `build/iso/{import-substrate,build-refind-esp,stage-cixmini-payload,patch-debootstrap-stub,write-image,verify-image}.py`
+   `build/iso/{import-substrate,build-refind-esp,stage-ncz-payload,patch-debootstrap-stub,write-image,verify-image}.py`
    xorriso-based writer (the amd64 cold/warm path that supersedes the old
    monolithic pipeline — see
    `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
@@ -423,7 +423,7 @@ bash build/build-squashfs-layers.sh base
 #  of 2026-09-22 — only base has been boot-verified end-to-end on amd64.)
 
 # 3. Assemble:
-bash build/iso/stage-cixmini-payload.py --arch amd64 ...
+bash build/iso/stage-ncz-payload.py --arch amd64 ...
 bash build/iso/build-refind-esp.py  --arch amd64 ...
 bash build/iso/write-image.py       --arch amd64 --mode cold ...
 
@@ -650,7 +650,7 @@ The build pipeline is split into **two distinct stages**:
 | Stage | Output | Where it lives |
 |---|---|---|
 | **Content producer** — mkosi-based squashfs layers | `base.squashfs`, `desktop.squashfs`, `hotfix.squashfs`, etc. | `build/build-squashfs-layers.sh` (the shell front-end) + `build/build-role-delta-mkosi.sh` (the mkosi delta producer) + `build/build-squashfs-layers.sh`'s `build_layer()` shell wrapper that drives the actual `mksquashfs` invocation. Manifest-driven; `manifests/installer-base.pkgs` (arm64) / `manifests/installer-base-amd64.pkgs` (amd64) + `manifests/desktop.pkgs` etc. name every package. |
-| **Assembly writer** — xorriso-based ISO writer | Bootable UEFI ISO + rEFInd ESP + cixmini payload + d-i substrate | `build/build-iso-di.sh` (the arm64/Sky1 orchestration; invokes d-i's BusyBox init, grafts udebs, swaps the installer kernel) and the new `build/iso/{import-substrate,build-refind-esp,stage-cixmini-payload,patch-debootstrap-stub,write-image,verify-image}.py` (the amd64 path that supersedes the monolithic pipeline — see `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`). |
+| **Assembly writer** — xorriso-based ISO writer | Bootable UEFI ISO + rEFInd ESP + cixmini payload + d-i substrate | `build/build-iso-di.sh` (the arm64/Sky1 orchestration; invokes d-i's BusyBox init, grafts udebs, swaps the installer kernel) and the new `build/iso/{import-substrate,build-refind-esp,stage-ncz-payload,patch-debootstrap-stub,write-image,verify-image}.py` (the amd64 path that supersedes the monolithic pipeline — see `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`). |
 
 The NCZ-specific installer customisations live at the **assembly layer**
 on top of an **unmodified stock Debian Installer** — there is no

@@ -5,7 +5,7 @@ patch-debootstrap-stub.py — Replace ``/usr/sbin/debootstrap`` inside
 that ``build/build-iso-di.sh`` writes verbatim into its staged udeb at
 ``build/build-iso-di.sh:1102-1671``).
 
-Why this is a separate script from ``stage-cixmini-payload.py``:
+Why this is a separate script from ``stage-ncz-payload.py``:
 
   The payload is the ``/cdrom/cixmini/{base,desktop,...}`` tree the stub
   CONSUMES at install time. The patched udeb is the ``/usr/sbin/debootstrap``
@@ -56,7 +56,7 @@ Substrate layout the script handles:
   * ``netboot`` (mini.iso, the substrate this branch currently uses):
     there is no ``/pool/`` in the extracted tree. The patched udeb is
     written to a dedicated path inside the staged ISO tree
-    (``build/iso-cache/v1/cixmini-udeb/<key>/debootstrap-udeb_<ver>_all.udeb``)
+    (``build/iso-cache/v1/ncz-udeb/<key>/debootstrap-udeb_<ver>_all.udeb``)
     which ``write-image.py`` copies to ``/cixmini/debootstrap-udeb/``
     on the ISO so it can be referenced (and is visibly staged) for
     operator inspection. The udeb assertions are SKIPPED on this layout
@@ -1053,7 +1053,7 @@ def stage_patched_udeb_in_cache(
         "source": "external --source-udeb (netboot substrate)",
     })
     node_key = sha256_bytes(canonical_payload)
-    node_dir = cache_root / "cixmini-udeb" / node_key
+    node_dir = cache_root / "ncz-udeb" / node_key
     if node_dir.exists():
         if (node_dir / "node-key.json").is_file():
             log(f"    patched udeb cache node exists: {node_dir}")
@@ -1092,7 +1092,7 @@ def patch_substrate(
         the 3+3 required udebs.
       * ``netboot`` (mini.iso, what this branch uses) — no pool. Patch
         an external --source-udeb and stage the result under
-        cache_root/cixmini-udeb/<key>/ so write-image.py can copy it
+        cache_root/ncz-udeb/<key>/ so write-image.py can copy it
         into the ISO at /cixmini/debootstrap-udeb/.
     """
     pool = _find_substrate_pool(substrate_node_dir)
@@ -1132,7 +1132,7 @@ def patch_substrate(
     if not source_udeb.is_file():
         raise RuntimeError(f"--source-udeb not found: {source_udeb}")
     log(f"    substrate has no pool/; patching external udeb {source_udeb}")
-    with tempfile.TemporaryDirectory(prefix="cixmini-udeb-stage.") as tmpdir_str:
+    with tempfile.TemporaryDirectory(prefix="ncz-udeb-stage.") as tmpdir_str:
         tmpdir = Path(tmpdir_str)
         out_udeb = tmpdir / source_udeb.name
         receipt = patch_udeb(

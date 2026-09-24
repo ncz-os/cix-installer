@@ -48,7 +48,7 @@ Usage:
     patch-initrd-t2-kernel.py --base-initrd PATH --kernel-deb PATH
         --arch {amd64,arm64} [--cache-root DIR] [--force]
 
-Output: <cache-root>/cixmini-initrd-t2kernel/<node_key>/{linux,initrd.gz}
+Output: <cache-root>/ncz-initrd-t2kernel/<node_key>/{linux,initrd.gz}
         + receipt.json
 """
 from __future__ import annotations
@@ -239,7 +239,7 @@ def patch_t2_kernel(
         raise RuntimeError(f"FATAL: diag busybox not found: {diag_busybox}")
 
     canonical = canonical_encode({
-        "schema_version": "cixmini-initrd-t2kernel/v3",
+        "schema_version": "ncz-initrd-t2kernel/v3",
         "arch": arch,
         "base_initrd": _stat(base_initrd),
         "kernel_deb": _stat(kernel_deb),
@@ -257,7 +257,7 @@ def patch_t2_kernel(
 # A node that somehow exists without its receipt is treated as incomplete and
 # rebuilt rather than trusted.
     node_key = sha256_bytes(canonical)
-    node_dir = cache_root / "cixmini-initrd-t2kernel" / node_key
+    node_dir = cache_root / "ncz-initrd-t2kernel" / node_key
     if node_dir.exists() and not force:
         if (node_dir / "receipt.json").is_file():
             log(f"node exists: {node_dir}")
@@ -420,9 +420,9 @@ def patch_t2_kernel(
         shutil.copy2(vmlinuz_src, out_linux)
 
     receipt = {
-        "schema_version": "cixmini-initrd-t2kernel-receipt/v1",
+        "schema_version": "ncz-initrd-t2kernel-receipt/v1",
         "node_key": node_key,
-        "node_kind": "cixmini-initrd-t2kernel",
+        "node_kind": "ncz-initrd-t2kernel",
         "arch": arch,
         "kver": kver,
         "inputs": {
