@@ -74,6 +74,79 @@ DEFAULT_CACHE_ROOT = REPO_ROOT / "build" / "iso-cache" / "v1"
 PRUNE_MOD_DIRS = ["sound"]
 
 
+def module_name(path: Path) -> str:
+    """foo.ko / foo.ko.xz / foo.ko.zst -> foo"""
+    return path.name.split(".ko")[0]
+
+
+def module_depends(paths: dict) -> dict:
+    """{module name -> [dependency names]} for every module in `paths`.
+
+    Batched modinfo with a hard alignment check: modinfo prints one line per
+    input file, but an empty depends field is easy to get wrong, so if the
+    line count does not match the batch we fall back to one call per file
+    rather than silently attributing one module's deps to another.
+    """
+    deps = {}
+    names = list(paths)
+    CHUNK = 400
+    for i in range(0, len(names), CHUNK):
+        batch = names[i:i + CHUNK]
+        out = subprocess.run(
+            ["/sbin/modinfo", "-F", "depends"] + [str(paths[b]) for b in batch],
+            capture_output=True, text=True,
+        ).stdout.split("\n")
+        if out and out[-1] == "":
+            out.pop()
+        if len(out) != len(batch):
+            for b in batch:
+                line = subprocess.run(
+                    ["/sbin/modinfo", "-F", "depends", str(paths[b])],
+                    capture_output=True, text=True,
+                ).stdout.strip()
+                deps[b] = [d for d in line.split(",") if d]
+            continue
+        for b, line in zip(batch, out):
+            deps[b] = [d for d in line.strip().split(",") if d]
+    return deps
+
+
+def prune_unsatisfiable_modules(overlay_modules: Path) -> list:
+    """Remove every module whose dependencies pruning has taken away.
+
+    Real, measured reason (2026-09-24, against the shipped 7.2.7-2-t2-trixie
+    module set): dropping kernel/sound leaves 19 modules behind whose
+    `depends` still name snd / snd-pcm / snd-soc-core, which is what produces
+    the "Unknown symbol snd_pcm_new (err -2)" class of errors on every
+    install boot. t2bce_audio -- the T2 codec driver, which lives under
+    kernel/drivers/staging/t2bce/ and so survives a kernel/sound prune -- is
+    only ONE of those 19; naming it explicitly would have fixed a twentieth
+    of the problem and left the rest.
+
+    So compute the closure instead of maintaining a list: drop anything with
+    a missing dependency, repeat until it settles. Measured result on this
+    kernel: 26 modules removed over 3 rounds, all audio / TV-capture /
+    soundwire / USB-audio-gadget, and 0 modules left with unresolvable
+    dependencies. Keeping kernel/sound instead would add 380 modules and
+    ~16 MiB compressed to the overlay for a silent text-mode installer.
+    """
+    present = {}
+    for f in overlay_modules.rglob("*.ko*"):
+        present[module_name(f)] = f
+    deps = module_depends(present)
+    removed = []
+    while True:
+        gone = [m for m, ds in deps.items()
+                if m in present and any(d not in present for d in ds)]
+        if not gone:
+            break
+        for m in gone:
+            present[m].unlink()
+            del present[m]
+            removed.append(m)
+    return sorted(removed)
+
+
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -237,6 +310,18 @@ def patch_t2_kernel(
             log(f"    decompressed {len(xz_mods)} .ko.xz modules -> plain .ko "
                 f"(d-i kmod cannot read xz)")
 
+        orphans = prune_unsatisfiable_modules(overlay_modules)
+        if orphans:
+            log(f"    pruned {len(orphans)} modules left with unsatisfiable "
+                f"dependencies by the kernel/{'+'.join(PRUNE_MOD_DIRS)} prune: "
+                f"{orphans}")
+        leftover = prune_unsatisfiable_modules(overlay_modules)
+        if leftover:
+            raise RuntimeError(
+                f"FATAL: dependency prune did not converge -- still "
+                f"unsatisfiable: {leftover}"
+            )
+
         subprocess.run(
             ["sudo", "/sbin/depmod", "-a", "-b", str(overlay_root), kver],
             check=True,
@@ -346,6 +431,7 @@ def patch_t2_kernel(
             "kernel_deb": str(kernel_deb),
             "kernel_deb_sha256": sha256_file(kernel_deb),
             "prune_mod_dirs": PRUNE_MOD_DIRS,
+            "pruned_unsatisfiable_modules": orphans,
             "baked_preseed_cfg": str(preseed_cfg) if preseed_cfg else None,
             "baked_helpers": [h.name for h in helpers],
             "baked_diag_busybox": str(diag_busybox) if diag_busybox else None,
