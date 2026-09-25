@@ -1,5 +1,5 @@
 #!/bin/bash
-# kvm-install-gate-amd64-gpt.sh — unattended install gate for the RAW GPT USB
+# kvm-install-gate-gpt.sh — architecture-generic unattended install gate for the RAW GPT USB
 # image built by build/iso/write-usb-image.py.
 #
 # WHY A SEPARATE GATE (2026-09-24). build/kvm-install-gate-amd64.sh is
@@ -24,12 +24,22 @@
 # earlier today. mtools reads and writes the FAT ESP in place via
 # "image@@<byte offset>", so no loop mount and no root are needed for the patch.
 #
-# Usage: build/kvm-install-gate-amd64-gpt.sh IMAGE [WORKDIR]
+# Usage: build/kvm-install-gate-gpt.sh IMAGE [WORKDIR]
 #   DISK_GB, MEM, SMP, INSTALL_TIMEOUT, BOOT_TIMEOUT overridable by env.
 set -euo pipefail
 
-IMG="${1:?usage: kvm-install-gate-amd64-gpt.sh IMAGE.img [WORKDIR]}"
-WORK="${2:-$HOME/kvm-install-amd64-gpt}"
+IMG="${1:?usage: kvm-install-gate-gpt.sh IMAGE.img [WORKDIR]}"
+ARCH="${ARCH:-}"
+if [ -z "$ARCH" ]; then
+    ARCH=$(python3 - "$IMG.receipt.json" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+print(json.loads(p.read_text()).get("arch", "")) if p.is_file() else None
+PY
+)
+fi
+case "$ARCH" in amd64|arm64) ;; *) echo "GATE FAIL: set ARCH=amd64|arm64 or provide $IMG.receipt.json" >&2; exit 2 ;; esac
+WORK="${2:-$HOME/kvm-install-$ARCH-gpt}"
 DISK_GB="${DISK_GB:-30}"
 INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-5400}"
 BOOT_TIMEOUT="${BOOT_TIMEOUT:-600}"
@@ -37,7 +47,20 @@ MEM="${MEM:-4096}"
 SMP="${SMP:-4}"
 
 [ -f "$IMG" ] || { echo "GATE FAIL: no such image: $IMG" >&2; exit 2; }
-for t in qemu-system-x86_64 qemu-img mcopy mdir; do
+QEMU="qemu-system-x86_64"
+MACHINE="q35"
+CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
+SRCVARS=/usr/share/OVMF/OVMF_VARS_4M.fd
+if [ "$ARCH" = arm64 ]; then
+    QEMU="qemu-system-aarch64"
+    MACHINE="virt,gic-version=3"
+    CODE=/usr/share/AAVMF/AAVMF_CODE.fd
+    SRCVARS=/usr/share/AAVMF/AAVMF_VARS.fd
+fi
+BOOT_VIDEO_ARGS=()
+[ "$ARCH" = amd64 ] && BOOT_VIDEO_ARGS=(-vga std)
+[ "$ARCH" = arm64 ] && BOOT_VIDEO_ARGS=(-device virtio-gpu-pci)
+for t in "$QEMU" qemu-img mcopy mdir; do
     command -v "$t" >/dev/null 2>&1 || { echo "GATE FAIL: $t not installed" >&2; exit 2; }
 done
 SGDISK="$(command -v sgdisk || echo /sbin/sgdisk)"
@@ -48,12 +71,13 @@ SGDISK="$(command -v sgdisk || echo /sbin/sgdisk)"
 mkdir -p "$WORK"
 DISK="$WORK/target.qcow2"
 VARS="$WORK/OVMF_VARS.fd"
-CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
-[ -f "$CODE" ] || CODE=/usr/share/OVMF/OVMF_CODE.fd
-SRCVARS=/usr/share/OVMF/OVMF_VARS_4M.fd
-[ -f "$SRCVARS" ] || SRCVARS=/usr/share/OVMF/OVMF_VARS.fd
-[ -f "$CODE" ] && [ -f "$SRCVARS" ] || { echo "GATE FAIL: no OVMF firmware" >&2; exit 2; }
+if [ "$ARCH" = amd64 ]; then
+    [ -f "$CODE" ] || CODE=/usr/share/OVMF/OVMF_CODE.fd
+    [ -f "$SRCVARS" ] || SRCVARS=/usr/share/OVMF/OVMF_VARS.fd
+fi
+[ -f "$CODE" ] && [ -f "$SRCVARS" ] || { echo "GATE FAIL: no UEFI firmware for $ARCH" >&2; exit 2; }
 ACCEL="tcg"; CPU="qemu64"
+[ "$ARCH" = arm64 ] && CPU="max"
 if [ -r /dev/kvm ]; then ACCEL="kvm"; CPU="host"; fi
 
 TEST_IMG="$WORK/$(basename "${IMG%.img}")-qemutest.img"
@@ -151,7 +175,7 @@ grep -qE '^timeout 1$' "$VERIFY" \
   || { echo "GATE FAIL: timeout was not reduced on the ESP" >&2; exit 2; }
 echo "    ESP readback confirms options, default_selection and timeout"
 
-echo "=== KVM INSTALL GATE (AMD64 raw GPT image) ==="
+echo "=== KVM INSTALL GATE ($ARCH raw GPT image) ==="
 echo "  image  : $TEST_IMG"
 echo "  accel  : $ACCEL cpu=$CPU mem=${MEM}M smp=$SMP"
 echo "  target : $DISK (${DISK_GB}G)"
@@ -169,8 +193,8 @@ echo
 echo "[4/6] phase 1: install (timeout ${INSTALL_TIMEOUT}s)"
 date -u +"  started %H:%M:%SZ"
 set +e
-timeout "$INSTALL_TIMEOUT" qemu-system-x86_64 \
-  -M q35 -accel "$ACCEL" -cpu "$CPU" -smp "$SMP" -m "$MEM" \
+timeout "$INSTALL_TIMEOUT" "$QEMU" \
+  -M "$MACHINE" -accel "$ACCEL" -cpu "$CPU" -smp "$SMP" -m "$MEM" \
   -drive if=pflash,format=raw,unit=0,file="$CODE",readonly=on \
   -drive if=pflash,format=raw,unit=1,file="$VARS" \
   -drive file="$DISK",if=virtio,format=qcow2 \
@@ -219,12 +243,12 @@ grep -q "ORPHAN" "$ILOG" && { echo "  WARNING: orphaned hooks reported:" >&2; gr
 echo
 echo "[6/6] phase 2: boot the installed disk (timeout ${BOOT_TIMEOUT}s)"
 set +e
-timeout "$BOOT_TIMEOUT" qemu-system-x86_64 \
-  -M q35 -accel "$ACCEL" -cpu "$CPU" -smp "$SMP" -m "$MEM" \
+timeout "$BOOT_TIMEOUT" "$QEMU" \
+  -M "$MACHINE" -accel "$ACCEL" -cpu "$CPU" -smp "$SMP" -m "$MEM" \
   -drive if=pflash,format=raw,unit=0,file="$CODE",readonly=on \
   -drive if=pflash,format=raw,unit=1,file="$VARS" \
   -drive file="$DISK",if=virtio,format=qcow2 \
-  -vga std \
+  "${BOOT_VIDEO_ARGS[@]}" \
   -netdev user,id=n0,hostfwd=tcp::2224-:22 -device virtio-net-pci,netdev=n0,romfile= \
   -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
   -serial "file:$WORK/boot-serial0.log" \

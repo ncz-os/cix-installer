@@ -36,7 +36,7 @@ hardlinks into shared cache objects.
 
 Output layout under the node key:
 
-    d-i/                 -> contents of /install.amd or /install.arm
+    d-i/                 -> contents of /install.amd or /install.a64
     isolinux/            -> /isolinux.bin, /isolinux.cfg, ldlinux.c32, etc
     grub-efi/            -> /boot/grub/efi.img (verbatim)
     grub-config/         -> /boot/grub/*.cfg (verbatim)
@@ -232,7 +232,11 @@ def main():
     # We support BOTH layouts. The "d-i" subdir will contain either the
     # full /install.<arch>/ tree OR the (linux, initrd.gz) pair, depending
     # on which the source ISO has.
-    install_dir = "install.amd" if args.arch == "amd64" else "install.arm"
+    # Debian's arm64 optical media calls this directory install.a64 (the
+    # legacy monolith's INSTALL_DIR mapping already had the correct name).
+    # The previous install.arm spelling meant --arch arm64 completed with an
+    # "unknown" node lacking d-i/linux and d-i/initrd.gz.
+    install_dir = "install.amd" if args.arch == "amd64" else "install.a64"
     has_install_dir = (extract_root / install_dir).is_dir()
     has_linux_initrd = (extract_root / "linux").is_file() and (extract_root / "initrd.gz").is_file()
 

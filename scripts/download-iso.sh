@@ -1,13 +1,12 @@
 #!/bin/bash
-# download-iso.sh — fetch the NCZ-OS cix-installer ISO from GitLab's generic
+# download-iso.sh — fetch the NCZ-OS installer image from GitLab's generic
 # package registry (split into 3 parts to stay under GitLab's upload size
 # cap, see README.md -> "Current ISO") and reassemble it into one file.
 #
 # Usage: bash download-iso.sh [version] [output-file]
 #   version      package version, e.g. 26.6-r193 (default: latest tag on the
 #                ncz-os/cix-installer GitLab release page)
-#   output-file  where to write the reassembled ISO
-#                (default: nclawzero-installer-cixmini-<date-from-name>.iso)
+#   output-file  where to write the reassembled .img
 set -euo pipefail
 
 PROJECT_ID=81838641
@@ -51,8 +50,8 @@ if [ -z "$OUT" ]; then
     OUT=$(echo "$FIRST" | sed -E 's/\.[a-zA-Z0-9_-]*part[0-9]+$//')
 fi
 
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+DOWNLOAD_TMPDIR=$(mktemp -d "$HOME/build-tmp/download-image.XXXXXX")
+trap 'rm -rf "$DOWNLOAD_TMPDIR"' EXIT
 
 echo "[download-iso] parts to fetch:"
 echo "$PART_NAMES" | sed 's/^/  /'
@@ -60,9 +59,9 @@ echo "$PART_NAMES" | sed 's/^/  /'
 : > "$OUT"
 while IFS= read -r name; do
     echo "[download-iso] downloading $name"
-    curl -fsSL "${BASE}/${VERSION}/${name}" -o "$TMPDIR/$name"
-    cat "$TMPDIR/$name" >> "$OUT"
-    rm -f "$TMPDIR/$name"
+    curl -fsSL "${BASE}/${VERSION}/${name}" -o "$DOWNLOAD_TMPDIR/$name"
+    cat "$DOWNLOAD_TMPDIR/$name" >> "$OUT"
+    rm -f "$DOWNLOAD_TMPDIR/$name"
 done <<< "$PART_NAMES"
 
 echo "[download-iso] reassembled -> $OUT"

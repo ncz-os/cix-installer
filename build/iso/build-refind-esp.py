@@ -114,8 +114,18 @@ def find_refind_extract(arch: str) -> Path:
     else:
         raise ValueError(f"unsupported arch: {arch}")
     if not base.is_dir():
+        # The tracked runtime rEFInd tree is already the source of truth used
+        # by post-install/70-bootloader.sh on both architectures.  Requiring a
+        # developer's untracked prototype/work extraction made the nominal
+        # arm64 path impossible on a clean checkout even though the required
+        # binary, icons and artwork were all committed.
+        tracked = REPO_ROOT / "assets" / "refind"
+        efi = tracked / ("refind_x64.efi" if arch == "amd64" else "refind_aa64.efi")
+        if efi.is_file() and (tracked / "icons").is_dir():
+            return tracked
         raise FileNotFoundError(
-            f"rEFInd extract not found at {base}; run extract-refind-deb.sh first"
+            f"rEFInd extract not found at {base}, and tracked fallback {tracked} "
+            f"does not contain {efi.name} plus icons/"
         )
     return base
 

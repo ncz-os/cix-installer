@@ -390,58 +390,27 @@ disabled outright (`CONFIG_ARMCHINA_NPU=n`) for the same reason: the vendor's
 The corresponding source for every one of these is published — see
 [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md).
 
-## Quick start (build the ISO)
+## Quick start (build the installer image)
 
-The ISO is produced by a **two-stage pipeline**. They are not
+The raw GPT image is produced by a **two-stage pipeline**. They are not
 interchangeable; each does a distinct job:
 
 | Stage | Tool | What it produces |
 |---|---|---|
 | **1. Content** (squashfs layers) | `bash build/build-squashfs-layers.sh [base\|desktop\|hotfix\|all]` | `base.squashfs` (~2 GB) + `desktop.squashfs` + `hotfix.squashfs` under `assets/squashfs/`. This is what the installer extracts to disk. |
-| **2. Assembly** (bootable ISO) | `make iso` (arm64/Sky1) **or** the new xorriso-based writer (amd64) | `build/nclawzero-installer-cixmini-<version>.iso` — a hybrid UEFI-bootable ISO containing the d-i substrate + rEFInd ESP + the squashfs layers above + the ncz-payload. |
+| **2. Assembly** (bootable GPT image) | `make image ARCH=<arm64\|amd64>` | `build/ncz-os-<arch>-<YYYYMMDD>-<short-sha>.img` — a raw two-partition GPT disk image with a rEFInd ESP and ext4 `ncz-payload` partition. |
 
-**For Cix Sky1 (arm64) — the validated production path:**
-
-```bash
-make                              # downloads the d-i substrate + assembles
-                                  # → build/nclawzero-installer-cixmini-${VERSION}.iso
-```
-
-**For amd64 (T2 Macs, generic PC) — the new xorriso-based writer
-(qualified cold path; warm-growth path validated as a prototype but
-not yet promoted to a `make` target):**
+Both architectures use `build/build-installer-image.sh` and
+`build/iso/write-usb-image.py`; only their packaged kernel and assets differ.
 
 ```bash
-# 1. Import the d-i substrate (one-shot, cached by content hash):
-bash build/iso/import-substrate.py \
-    --iso-url https://deb.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/mini.iso \
-    --arch amd64
-
-# 2. Build the base + desktop layers if not already built:
-bash build/build-squashfs-layers.sh base
-# (desktop-amd64 layer staging is not yet wired into the new writer as
-#  of 2026-09-22 — only base has been boot-verified end-to-end on amd64.)
-
-# 3. Assemble:
-bash build/iso/stage-ncz-payload.py --arch amd64 ...
-bash build/iso/build-refind-esp.py  --arch amd64 ...
-bash build/iso/write-image.py       --arch amd64 --mode cold ...
-
-# 4. Independently verify:
-bash build/iso/verify-image.py <iso>
+make image ARCH=arm64             # Cix Sky1
+make image ARCH=amd64 \
+  UPSTREAM_ISO=debian-testing-amd64-netinst.iso
 ```
 
-> **Real, current amd64 status (2026-09-22, confirmed this session):**
-> a real, boot-verified `cold-amd64-*.iso` exists (base-only, 1.69 GB),
-> built against the Bookworm amd64 netboot substrate and the new
-> xorriso writer. **Desktop squashfs has not yet been staged for this
-> new pipeline** — the amd64 desktop layer build path is not yet wired
-> into the new writer; if you need desktop on amd64 right now, that gap
-> needs to be closed in a follow-up. **arm64/Sky1 has not yet been
-> attempted with this new writer** — only an amd64 substrate node exists
-> under `build/iso-cache/v1/nodes/`. The current arm64/Sky1 production
-> path is still `make iso` / `build/build-iso-di.sh` (see the design
-> doc for the long-term migration plan).
+`make image-verified` builds the same artifact and runs the shared raw-GPT
+install-and-detached-boot gate (`build/kvm-install-gate-gpt.sh`).
 
 > **`build/build-iso.sh` is STALE/ABANDONED** — it describes an unrelated
 > 2026-05-03 Ubuntu-subiquity live-ISO repack and is not invoked by
@@ -474,12 +443,9 @@ The .asl source is committed at `assets/npu/ssdt-npucre.asl`; the generated
 `.cpio` is regenerated from source by `build/build-npu-ssdt.sh` (called from
 `build/stage-canonical-assets.sh`, which runs automatically in `--mode full`).
 
-### Building an AMD64 (T2 / generic x86-64) ISO
+### Building an AMD64 (T2 / generic x86-64) image
 
-The top-level `Makefile` does **not** (yet) ship an `make iso-amd64`
-target; the AMD64 entry point is the same `build/build-iso-di.sh` script
-invoked explicitly with the right environment. Real, working recipe (the
-one that produced the boot-tested `7.2.7-2-t2-trixie` stable line):
+Use the same target as arm64 with the architecture and substrate changed:
 
 ```bash
 # 1. Download the Debian AMD64 (trixie) netinst substrate — manually, since
@@ -488,22 +454,8 @@ one that produced the boot-tested `7.2.7-2-t2-trixie` stable line):
 #    whole patch set targets Debian trixie class kernels.
 curl -fLO https://cdimage.debian.org/cdimage/weekly-builds/amd64/iso-cd/debian-testing-amd64-netinst.iso
 
-# 2. Build the AMD64 ISO. The script accepts --bookworm-iso (the arg name
-#    is historical, not literal — trixie and forky are both supported
-#    substrates per build-iso-di.sh's trixie/forky detection at line 725)
-#    and validates NCZ_TARGET_ARCH ∈ {arm64, amd64} at line 95.
-sudo NCZ_TARGET_ARCH=amd64 \
-     bash build/build-iso-di.sh \
-       --bookworm-iso downloads/debian-testing-amd64-netinst.iso \
-       --root . \
-       --version $(date -u +%Y.%m.%d) \
-       --output build/nclawzero-installer-cixmini-${VERSION}-amd64.iso \
-       --mode full \
-       --variant desktop
-
-# 4. Run the install gate (KVM) before shipping to real hardware.
-sudo bash build/kvm-install-gate.sh \
-     build/nclawzero-installer-cixmini-${VERSION}-amd64.iso
+make image-verified ARCH=amd64 \
+  UPSTREAM_ISO=debian-testing-amd64-netinst.iso
 ```
 
 **What changes for AMD64:**
@@ -593,17 +545,17 @@ is no MS-R1 NPU on x86 hardware.)
 > the internal keyboard, trackpad, and Touch Bar all work normally.
 
 1. **Verify the download**, then flash to a USB stick (≥8 GB). Each release
-   ships an `.md5` beside the ISO:
+   ships a `.sha256` beside the image:
 
    ```bash
-   md5sum -c nclawzero-installer-cixmini-<version>.iso.md5
+   sha256sum -c ncz-os-<arch>-<date>-<sha>.img.sha256
    ```
 
-   Then write it. The ISO is a hybrid image — copy it to the **whole device**
+   Then write it. Copy the raw GPT image to the **whole device**
    (`/dev/sdX`), not a partition (`/dev/sdX1`):
 
    ```bash
-   sudo dd if=nclawzero-installer-cixmini-<version>.iso of=/dev/sdX \
+   sudo dd if=ncz-os-<arch>-<date>-<sha>.img of=/dev/sdX \
         bs=4M status=progress oflag=direct conv=fsync
    sync
    ```

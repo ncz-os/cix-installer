@@ -718,7 +718,8 @@ REQUIRED_UDEB_SHELL = ["debootstrap-udeb", "libzstd1-udeb", "liblzma5-udeb"]
 REQUIRED_UDEB_DI = ["cdebconf-udeb", "cdebconf-newt-udeb", "hw-detect"]
 
 
-def verify_udeb_required(substrate_pool: Path, required, label: str):
+def verify_udeb_required(substrate_pool: Path, required, label: str,
+                         fatal: bool = True):
     """Check that each name in ``required`` is present in the pool at
     ``pool/**/<name>_*.udeb``. Returns a list of names that were FOUND
     (so a caller can both gate and report). Raises RuntimeError if any
@@ -739,13 +740,13 @@ def verify_udeb_required(substrate_pool: Path, required, label: str):
         else:
             missing.append(pkg)
             log(f"    udeb assertion [{label}]: {pkg}: MISSING")
-    if missing:
+    if missing and fatal:
         raise RuntimeError(
             f"ERROR: substrate pool missing required udeb(s): {missing} "
             f"(search: {substrate_pool}/**/<name>_*.udeb). "
             f"See build-iso-di.sh line ~1035 for why each is required."
         )
-    return found
+    return found, missing
 
 
 def _run_ar(ar_args, cwd=None):
@@ -954,11 +955,20 @@ def patch_udeb(udeb_path: Path, output_path: Path, stub_text: str,
 
     Returns a receipt dict with the patch metadata.
     """
-    if output_path.exists() and not force:
+    in_place = udeb_path.resolve() == output_path.resolve()
+    final_output = output_path
+    if output_path.exists() and not force and not in_place:
         log(f"output exists: {output_path}")
         return {"output": str(output_path), "patched": False}
-    if output_path.exists():
+    if output_path.exists() and not in_place:
         output_path.unlink()
+    if in_place:
+        # Never unlink the input before ar has read it.  The old code did
+        # exactly that with --force, while without --force it returned an
+        # "output exists" cache hit and patched nothing.  Build beside the
+        # source and atomically replace only after all verification passes.
+        output_path = output_path.with_name(output_path.name + f".patched.{os.getpid()}")
+        output_path.unlink(missing_ok=True)
 
     members = _list_udeb_members(udeb_path)
     debian_binary, control_member, data_member = members
@@ -1020,6 +1030,9 @@ def patch_udeb(udeb_path: Path, output_path: Path, stub_text: str,
     out_members = _list_udeb_members(output_path)
     log(f"    patched udeb members: {out_members}")
 
+    if in_place:
+        os.replace(output_path, final_output)
+        output_path = final_output
     return {
         "input_udeb": str(udeb_path),
         "output_udeb": str(output_path),
@@ -1103,22 +1116,30 @@ def patch_substrate(
     _syntax_check_stub(syntax_checked_stub, "r159")
 
     if pool is not None:
-        # Full Debian netinst substrate path.
+        # Full Debian netinst substrate path.  Keep the imported substrate
+        # immutable: the old in-place call was both contrary to the cache
+        # contract and, due to output==input, actually returned "exists"
+        # without patching anything.
         if not skip_udeb_assertions:
             verify_udeb_required(pool, REQUIRED_UDEB_SHELL, "shell-side")
-            verify_udeb_required(pool, REQUIRED_UDEB_DI, "d-i runtime")
+            _, baked_only = verify_udeb_required(
+                pool, REQUIRED_UDEB_DI, "d-i runtime pool", fatal=False)
+            if baked_only:
+                log("    NOTE: d-i runtime components absent from optical pool "
+                    f"(expected when baked into initrd): {baked_only}")
         else:
             log("    --skip-udeb-assertions: skipping 3+3 udeb gate")
         debootstrap_udeb = _find_debootstrap_udeb(pool)
-        log(f"    patching in place: {debootstrap_udeb}")
-        receipt = patch_udeb(
-            udeb_path=debootstrap_udeb,
-            output_path=debootstrap_udeb,  # in-place
-            stub_text=syntax_checked_stub,
-            force=force,
-        )
+        log(f"    patching immutable source: {debootstrap_udeb}")
+        with tempfile.TemporaryDirectory(prefix="ncz-udeb-stage.") as tmpdir_str:
+            out_udeb = Path(tmpdir_str) / debootstrap_udeb.name
+            receipt = patch_udeb(debootstrap_udeb, out_udeb,
+                                 syntax_checked_stub, force=True)
+            staged = stage_patched_udeb_in_cache(out_udeb, cache_root)
         receipt["layout"] = layout
-        receipt["in_place"] = True
+        receipt["in_place"] = False
+        receipt["staged_dir"] = str(staged)
+        receipt["staged_udeb_path"] = str(staged / debootstrap_udeb.name)
         return receipt
 
     # Netboot substrate path.

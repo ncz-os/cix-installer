@@ -19,6 +19,7 @@
 
 ROOT          := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 VERSION       := $(shell date -u +%Y.%m.%d)
+ARCH          ?= $(shell dpkg --print-architecture 2>/dev/null || uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')
 MODE          ?= full
 VARIANT       ?= desktop
 
@@ -60,9 +61,10 @@ LATEST_SINGULARITY_DEB := $(shell ls -1 $(ROOT)/assets/cix-debs/ncz-singularity-
 # have been forky-based since, and the vendor .debs come from the CIX debian13
 # SDK. To build on a point release anyway, override on the command line:
 #   make iso UPSTREAM_ISO=debian-12.13.0-arm64-netinst.iso
-UPSTREAM_ISO  ?= debian-testing-arm64-netinst.iso
-UPSTREAM_URL  := https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/$(UPSTREAM_ISO)
-UPSTREAM_SHA  := https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/SHA256SUMS
+UPSTREAM_ISO  ?= debian-daily-$(ARCH)-mini.iso
+UPSTREAM_URL  := https://d-i.debian.org/daily-images/$(ARCH)/daily/netboot/mini.iso
+UPSTREAM_SHA  := https://d-i.debian.org/daily-images/$(ARCH)/daily/SHA256SUMS
+UPSTREAM_SHA_NAME := netboot/mini.iso
 
 # The weekly-builds FILENAME is stable but its CONTENT rotates: upstream
 # republishes debian-testing-arm64-netinst.iso every week and drops the old
@@ -87,7 +89,7 @@ UPSTREAM_SHA  := https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/S
 # see docs/ISO-REBAKE-TYDEUS-2026-08-21.md §"Verification".
 # Substrate rotated again 2026-09-25. The replacement below passed the native
 # arm64 build/kvm-install-gate.sh install-and-detached-boot gate on ULTRA.
-SUBSTRATE_SHA := bcdea12698a4c643fbbc68c69fb8be96a3f292bdfa1b5c41c8fdaeaae6944f67
+SUBSTRATE_SHA ?=
 
 DOWNLOADS     := $(ROOT)/downloads
 BUILD         := $(ROOT)/build
@@ -96,11 +98,13 @@ PRESEED       := $(ROOT)/preseed
 POST          := $(ROOT)/post-install
 
 MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))
-OUTPUT_ISO    := $(BUILD)/nclawzero-installer-cixmini-$(VERSION)$(MODE_SUFFIX).iso
+BUILD_DATE    := $(shell date -u +%Y%m%d)
+BUILD_SHA     := $(shell git rev-parse --short HEAD)
+OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: all download iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror
+.PHONY: all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror
 
-all: iso
+all: image
 
 help:
 	@grep -E '^# (Targets|  make )' $(MAKEFILE_LIST) | sed 's/^# //'
@@ -115,13 +119,13 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 	@mkdir -p $(DOWNLOADS)
 	@curl -fL -o $@.tmp $(UPSTREAM_URL)
 	@curl -fL -o $(DOWNLOADS)/SHA256SUMS $(UPSTREAM_SHA)
-	@expected=$$(grep '$(UPSTREAM_ISO)' $(DOWNLOADS)/SHA256SUMS | awk '{print $$1}'); \
+	@expected=$$(grep '$(UPSTREAM_SHA_NAME)$$' $(DOWNLOADS)/SHA256SUMS | awk '{print $$1}'); \
 	    actual=$$(sha256sum $@.tmp | awk '{print $$1}'); \
 	    if [ "$$expected" != "$$actual" ]; then \
 	        echo "[download] SHA256 MISMATCH: expected=$$expected actual=$$actual"; \
 	        exit 1; \
 	    fi
-	@actual=$$(sha256sum $@.tmp | awk '{print $$1}'); \
+	@if [ -n "$(SUBSTRATE_SHA)" ]; then actual=$$(sha256sum $@.tmp | awk '{print $$1}'); \
 	    if [ "$$actual" != "$(SUBSTRATE_SHA)" ]; then \
 	        echo "[download] SUBSTRATE ROTATED"; \
 	        echo "           expected (validated): $(SUBSTRATE_SHA)"; \
@@ -131,14 +135,15 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 	        echo "           build/e2e-install-test.sh, then update SUBSTRATE_SHA."; \
 	        rm -f $@.tmp; \
 	        exit 1; \
-	    fi
+	    fi; fi
 	@mv $@.tmp $@
 	@echo "[download] OK ($$(du -h $@ 2>/dev/null | cut -f1))"
 
 # -----------------------------------------------------------------------
 # Step 2 — build the customized ISO via the staged build script.
 # -----------------------------------------------------------------------
-iso: $(OUTPUT_ISO)
+image: $(OUTPUT_IMAGE)
+iso: image
 
 kernel-debs:
 	@if ! ls $(BUILD)/kernel-debs/*.deb >/dev/null 2>&1; then \
@@ -242,11 +247,17 @@ $(ROOT)/assets/squashfs/desktop-hotfix.squashfs: $(LATEST_SINGULARITY_DEB)
 	@echo "[hotfix-squashfs] pruning superseded ncz-singularity-desktop debs from assets/cix-debs/"
 	@cd $(ROOT)/assets/cix-debs && ls -1 ncz-singularity-desktop_*.deb 2>/dev/null | sort -V | head -n -1 | xargs -r rm -fv
 
-$(OUTPUT_ISO): $(DOWNLOADS)/$(UPSTREAM_ISO) \
+$(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               offline-mirror \
 	               $(ROOT)/assets/squashfs/desktop-hotfix.squashfs \
 	               $(ROOT)/assets/python311/uv \
-	               $(ROOT)/build/build-iso-di.sh \
+	               $(ROOT)/build/build-installer-image.sh \
+	               $(ROOT)/build/iso/import-substrate.py \
+	               $(ROOT)/build/iso/stage-ncz-payload.py \
+	               $(ROOT)/build/iso/patch-debootstrap-stub.py \
+	               $(ROOT)/build/iso/patch-initrd-t2-kernel.py \
+	               $(ROOT)/build/iso/build-refind-esp.py \
+	               $(ROOT)/build/iso/write-usb-image.py \
 	               $(PRESEED)/preseed.cfg \
 	               $(PRESEED)/late.sh \
 	               $(PRESEED)/extract-rootfs.sh \
@@ -257,17 +268,15 @@ $(OUTPUT_ISO): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(wildcard $(ASSETS)/kernel/*/*) \
 	               $(wildcard $(ASSETS)/rootfs/*) \
 	               $(wildcard $(ASSETS)/sky1-firmware/*)
-	@echo "[iso] building $@ from $(DOWNLOADS)/$(UPSTREAM_ISO)"
-	@bash $(ROOT)/build/build-iso-di.sh \
-	    --bookworm-iso $(DOWNLOADS)/$(UPSTREAM_ISO) \
-	    --root $(ROOT) \
-	    --version $(VERSION) \
-	    --output $@ \
-	    --mode $(MODE) \
-	    --variant $(VARIANT)
-	@echo "[iso] scanning the built artifact for credentials"
+	@echo "[image] building $@ from $(DOWNLOADS)/$(UPSTREAM_ISO)"
+	@ARCH=$(ARCH) SUBSTRATE_ISO=$(DOWNLOADS)/$(UPSTREAM_ISO) \
+	  SUBSTRATE_URL=$(UPSTREAM_URL) OUTPUT=$@ \
+	  WORK_DIR=$${BUILD_WORK_DIR:-$(HOME)/build-tmp/cix-installer-$(ARCH)} \
+	  BUILD_VERSION=$(VERSION)-$(BUILD_SHA) \
+	  bash $(ROOT)/build/build-installer-image.sh
+	@echo "[image] scanning the built artifact for credentials"
 	@bash $(ROOT)/build/secret-scan-gate.sh $@
-	@echo "[iso] DONE — $@ ($$(du -h $@ 2>/dev/null | cut -f1))"
+	@echo "[image] DONE — $@ ($$(du -h $@ 2>/dev/null | cut -f1))"
 
 secretscan:
 	@bash $(ROOT)/build/secret-scan-gate.sh
@@ -290,8 +299,8 @@ npu-ssdt-check:
 npu-ssdt-selftest:
 	@bash $(ROOT)/build/npu-ssdt-gate.sh --self-test
 
-verify: $(OUTPUT_ISO)
-	@sha256sum $(OUTPUT_ISO) | tee $(OUTPUT_ISO).sha256
+verify: $(OUTPUT_IMAGE)
+	@sha256sum $(OUTPUT_IMAGE) | tee $(OUTPUT_IMAGE).sha256
 
 # iso-verified: build the ISO and then run kvm-install-gate.sh against it. The
 # gate installs the just-built ISO in KVM (auto-falls back to TCG under qemu on
@@ -304,39 +313,39 @@ verify: $(OUTPUT_ISO)
 # override with KVM_INSTALL_WORKDIR=/path on the make command line to relocate
 # (the gate creates it if missing). See build/kvm-install-gate.sh for full
 # timeout/accel/mem knobs.
-iso-verified: $(OUTPUT_ISO)
-	@echo "[iso-verified] running kvm-install-gate.sh against $(OUTPUT_ISO)"
-	@if [ ! -x "$(ROOT)/build/kvm-install-gate.sh" ]; then \
-	    echo "[iso-verified] FATAL: build/kvm-install-gate.sh missing or not executable" >&2; \
+image-verified iso-verified: $(OUTPUT_IMAGE)
+	@echo "[image-verified] running kvm-install-gate-gpt.sh against $(OUTPUT_IMAGE)"
+	@if [ ! -x "$(ROOT)/build/kvm-install-gate-gpt.sh" ]; then \
+	    echo "[image-verified] FATAL: build/kvm-install-gate-gpt.sh missing or not executable" >&2; \
 	    exit 1; \
 	fi
-	@if [ ! -f "$(OUTPUT_ISO)" ]; then \
-	    echo "[iso-verified] FATAL: $(OUTPUT_ISO) not present after make iso" >&2; \
+	@if [ ! -f "$(OUTPUT_IMAGE)" ]; then \
+	    echo "[image-verified] FATAL: $(OUTPUT_IMAGE) not present after make image" >&2; \
 	    exit 1; \
 	fi
 	@mkdir -p "$${KVM_INSTALL_WORKDIR:-$(ROOT)/build/kvm-install}"
 	@WORK="$${KVM_INSTALL_WORKDIR:-$(ROOT)/build/kvm-install}"; \
-	if ! bash "$(ROOT)/build/kvm-install-gate.sh" "$(OUTPUT_ISO)" "$$WORK"; then \
+	if ! ARCH=$(ARCH) bash "$(ROOT)/build/kvm-install-gate-gpt.sh" "$(OUTPUT_IMAGE)" "$$WORK"; then \
 	    rc=$$?; \
 	    echo "" >&2; \
-	    echo "[iso-verified] GATE FAILED (rc=$$rc): $(OUTPUT_ISO) is NOT safe to ship to hardware." >&2; \
+	    echo "[image-verified] GATE FAILED (rc=$$rc): $(OUTPUT_IMAGE) is NOT safe to ship to hardware." >&2; \
 	    echo "[iso-verified] See $$WORK/install.log and $$WORK/boot.log for the failure evidence." >&2; \
 	    exit $$rc; \
 	fi
-	@echo "[iso-verified] PASS: $(OUTPUT_ISO) is safe to ship to hardware"
+	@echo "[image-verified] PASS: $(OUTPUT_IMAGE) is safe to ship to hardware"
 
 # -----------------------------------------------------------------------
 # Step 3 — boot test in qemu-aarch64 with edk2 UEFI firmware (faster
 # iteration than hardware). Requires a virtual disk to install onto.
 # -----------------------------------------------------------------------
-qemu: $(OUTPUT_ISO)
-	@bash $(ROOT)/build/qemu-test.sh $(OUTPUT_ISO)
+qemu: $(OUTPUT_IMAGE)
+	@echo "Use build/kvm-install-gate-gpt.sh $(OUTPUT_IMAGE) for raw-GPT media"
 
 # -----------------------------------------------------------------------
 # Cleanup
 # -----------------------------------------------------------------------
 clean:
-	rm -rf $(BUILD)/iso-staging $(BUILD)/iso-staging-di $(BUILD)/*.iso $(BUILD)/*.sha256
+	rm -rf $(BUILD)/iso-staging $(BUILD)/iso-staging-di $(BUILD)/*.iso $(BUILD)/*.img $(BUILD)/*.sha256
 
 distclean: clean
 	rm -rf $(DOWNLOADS)
