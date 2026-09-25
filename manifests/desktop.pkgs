@@ -116,6 +116,11 @@ apparmor
 apparmor-profiles
 apparmor-utils
 
+# post-install/34-firewall.sh installs and validates the nftables policy during
+# target setup. Seed the package explicitly so that install is offline-safe;
+# the hook's apt-get fallback must not depend on live Debian access.
+nftables
+
 # systemd-zram-generator is the userspace half of W3.6 (zram swap).
 # The kernel half (CONFIG_ZRAM=y, CONFIG_CRYPTO_ZSTD=y) must be set
 # in the CIX Sky1 kernel build — see post-install/93-zram-swap.sh
