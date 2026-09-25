@@ -943,6 +943,11 @@ if [ -r "$RUNALL_RC_FILE" ]; then
 else
     RET="$WAIT_RET"
 fi
+# cdebconf's confmodule uses RET as its own global response payload.  Keep the
+# authoritative run-all result under a name that later db_* calls cannot
+# overwrite (observed on amd64 as RET="OK", followed by BusyBox "bad number"
+# and a false finish-install failure after an otherwise bootable install).
+RUNALL_RET="$RET"
 
 # 2026-08-26 round-2 defensive chmod (follow-up to 7de5ce6). The round-1
 # extract-rootfs.sh gate verified live on O6N at the gate-pass window, but
@@ -1198,7 +1203,7 @@ ncz_force_reboot() {
     reboot 2>/dev/null || reboot -f 2>/dev/null || true
 }
 FINALIZE_OK=0
-{ [ "$RET" = "0" ] || ncz_bootable; } && FINALIZE_OK=1
+{ [ "$RUNALL_RET" = "0" ] || ncz_bootable; } && FINALIZE_OK=1
 
 # 2026-08-26 round-2 HARD-FAIL MECHANICAL VERIFICATION GATE.
 #
@@ -1246,8 +1251,8 @@ if [ "$_ncz_root_mode_final" != "drwxr-xr-x" ]; then
         # bootability heuristic off so finish-install surfaces the failure.
         # Preserve an existing non-zero RET (a run-all failure we shouldn't
         # overwrite); only stamp RET=1 if run-all had succeeded.
-        if [ "${RET:-0}" = "0" ]; then
-            RET=1
+        if [ "${RUNALL_RET:-0}" = "0" ]; then
+            RUNALL_RET=1
         fi
         FINALIZE_OK=0
         _ncz_root_mode_ok=0
@@ -1261,14 +1266,14 @@ fi
 # preseed/menu instead of showing the "Installation complete" conclusion screen.
 db_try db_subst nclawzero/install-step STEP "nclawzero post-install complete - finalizing..."
 db_try db_progress INFO nclawzero/install-step
-ttymsg "post-install hooks finished (rc=$RET); finalizing apt sources + bootloader."
+ttymsg "post-install hooks finished (rc=$RUNALL_RET); finalizing apt sources + bootloader."
 
 # Codex A2 fix: don't leave bind-mount around after late_command finishes
 if [ "${CDROM_BIND_MOUNTED:-0}" = "1" ]; then
     umount /target/cdrom 2>&1 || true
     rmdir /target/cdrom 2>&1 || true
 fi
-echo "target run-all.sh exited: $RET"
+echo "target run-all.sh exited: $RUNALL_RET"
 
 # r130 fix (MrSBC/COS feedback 2026-06-23): strip ALL CD-ROM apt sources from
 # /target before reboot. The offline mirror sources are required DURING
@@ -1468,8 +1473,8 @@ if ncz_bootable && [ "${_ncz_root_mode_ok:-1}" = "1" ]; then
           db_fset finish-install/reboot_in_progress seen true 2>/dev/null || true
         ) 2>/dev/null || true
     fi
-    if [ "$RET" != "0" ]; then
-        echo "[late r155] post-install rc=$RET but rEFInd present at /EFI/BOOT/BOOTAA64.EFI -> system is bootable; exiting 0 (no red error)"
+    if [ "$RUNALL_RET" != "0" ]; then
+        echo "[late r155] post-install rc=$RUNALL_RET but rEFInd present on the ESP -> system is bootable; exiting 0 (no red error)"
         ttymsg "install complete (some optional hooks failed, system is bootable)" 2>/dev/null || true
     fi
     exit 0
@@ -1484,8 +1489,8 @@ echo "[late r174] no rEFInd at /target/boot/efi/EFI/BOOT/BOOTAA64.EFI -> install
 # which STILL exits non-zero but spams a confusing error over the real cause.
 # Force a clean numeric exit: any non-"0"/non-numeric RET (including empty)
 # reports as 1; a genuine numeric non-zero RET is passed through unchanged.
-case "$RET" in
+case "$RUNALL_RET" in
     0)          exit 1 ;;                       # bootloader missing despite rc=0
     ''|*[!0-9]*) exit 1 ;;                      # non-numeric/empty RET
-    *)          exit "$RET" ;;                  # genuine numeric failure code
+    *)          exit "$RUNALL_RET" ;;           # genuine numeric failure code
 esac
