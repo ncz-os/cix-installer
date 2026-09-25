@@ -34,7 +34,7 @@ BAKE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 \
 20-desktop 22-display-fix 25-cix-proprietary 26-gpu-default-open 27-net-caps \
 31-remote-access 32-quadlet-shim 35-fstrim-fix 35-ssh 36-telemetry \
 39-usb-gpt-autofix 40-claude-code 45-wallpaper-rotator 46-ncz-cli 46-python311 \
-47-embedkit 47-llm-stack 50-brand 56-icon-theme 60-boot-splash \
+47-embedkit 47-llm-stack 50-brand 56-icon-theme 58-screensaver-chooser 60-boot-splash \
 80-npu 92-buildkite-apt"
 
 log(){ echo "[bake $(date +%H:%M:%S)] $*"; }
@@ -58,7 +58,7 @@ sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf"
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer"
 sudo cp -a "$ROOT/post-install" "$CHROOT/usr/local/lib/cix-installer/"
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets"
-for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu wallpaper; do
+for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu wallpaper screensaver-chooser; do
   [ -d "$ROOT/assets/$_d" ] && sudo cp -a "$ROOT/assets/$_d" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
 done   # deliberately EXCLUDES assets/rootfs (base tarballs + baked output)
 [ -f "$ROOT/assets/ncz-cli.sh" ] && sudo cp -a "$ROOT/assets/ncz-cli.sh" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true

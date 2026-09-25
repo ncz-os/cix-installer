@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-SCHEMA=dev.ncz.screensaver
-CATALOG=/usr/share/ncz-screensaver-chooser/hacks.tsv
+SCHEMA=${NCZ_SCREENSAVER_SCHEMA:-dev.ncz.screensaver}
+CATALOG=${NCZ_SCREENSAVER_CATALOG:-/usr/share/ncz-screensaver-chooser/hacks.tsv}
 RUNTIME=${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}
 PIDFILE=$RUNTIME/ncz-screensaver.pid
 
@@ -18,9 +18,13 @@ find_hack() {
     id=$1
     case "$id" in *[!A-Za-z0-9_-]*|'') return 1;; esac
     awk -F '\t' -v id="$id" '$1 == id { found=1 } END { exit !found }' "$CATALOG" || return 1
-    for dir in /usr/libexec/ncz-screensavers /usr/lib/ncz-screensavers /opt/ncz-screensavers/bin /usr/local/libexec/ncz-screensavers; do
+    search_dirs=${NCZ_SCREENSAVER_DIRS:-/usr/libexec/ncz-screensavers:/usr/lib/ncz-screensavers:/opt/ncz-screensavers/bin:/usr/local/libexec/ncz-screensavers}
+    old_ifs=$IFS
+    IFS=:
+    for dir in $search_dirs; do
         [ -x "$dir/$id" ] && { printf '%s\n' "$dir/$id"; return 0; }
     done
+    IFS=$old_ifs
     command -v "$id" 2>/dev/null || return 1
 }
 
