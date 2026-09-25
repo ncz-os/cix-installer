@@ -191,6 +191,11 @@ BAKED_HELPERS = [
     "locale-keyboard-chooser.sh",
 ]
 
+REQUIRED_SSH_UDEBS = (
+    "libc6-udeb", "zlib1g-udeb", "libcrypt1-udeb", "libcrypto3-udeb",
+    "openssh-client-udeb", "openssh-server-udeb",
+)
+
 
 def patch_t2_kernel(
     base_initrd: Path,
@@ -255,6 +260,15 @@ def patch_t2_kernel(
         ssh_udebs = sorted(ssh_udeb_dir.glob("*.udeb"))
         if not ssh_udebs:
             raise RuntimeError(f"FATAL: no *.udeb files in {ssh_udeb_dir}")
+        missing_ssh_udebs = [
+            pkg for pkg in REQUIRED_SSH_UDEBS
+            if not any(u.name.startswith(pkg + "_") for u in ssh_udebs)
+        ]
+        if missing_ssh_udebs:
+            raise RuntimeError(
+                f"FATAL: incomplete diagnostic SSH udeb closure in "
+                f"{ssh_udeb_dir}; missing {missing_ssh_udebs}"
+            )
 
     canonical = canonical_encode({
         "schema_version": "ncz-initrd-t2kernel/v3",
