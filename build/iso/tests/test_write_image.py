@@ -1003,7 +1003,85 @@ class BuildRefindEspRequiresKernelTests(unittest.TestCase):
                     "amd64",
                     d_i_kernel=td_path / "no-such-linux",
                     d_i_initrd=td_path / "no-such-initrd",
+                    info_line="test",
                 )
+
+
+class BuildRefindEspConsoleOptionsTests(unittest.TestCase):
+    """On-screen entries must not trigger reopen-console's UART-only path."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module(ISO_DIR / "build-refind-esp.py", "bre_options_mod")
+
+    def _render(self, arch: str) -> str:
+        if arch == "arm64":
+            values = (
+                self.mod.ARM64_INSTALL_OPTIONS,
+                self.mod.ARM64_EXPERT_OPTIONS,
+                self.mod.ARM64_RESCUE_OPTIONS,
+            )
+            template = self.mod.REFIND_CONF_TEXT_ARM64_TEMPLATE
+        else:
+            values = (
+                self.mod.AMD64_INSTALL_OPTIONS,
+                self.mod.AMD64_EXPERT_OPTIONS,
+                self.mod.AMD64_RESCUE_OPTIONS,
+            )
+            template = self.mod.REFIND_CONF_TEXT_TEMPLATE
+        return template.format(
+            info_line="test",
+            install_options=values[0],
+            expert_options=values[1],
+            rescue_options=values[2],
+        )
+
+    @staticmethod
+    def _entry_options(conf: str, title: str) -> str:
+        marker = f'menuentry "{title}" {{'
+        body = conf.split(marker, 1)[1].split("\n}", 1)[0]
+        return body.split('options "', 1)[1].split('"', 1)[0]
+
+    def test_arm64_screen_entries_drop_auto_and_keep_bootcon(self) -> None:
+        conf = self._render("arm64")
+        for title in (
+            "NCZ-OS Installer -- Install",
+            "NCZ-OS Installer -- Install (expert)",
+        ):
+            options = self._entry_options(conf, title)
+            self.assertNotIn("auto=true", options)
+            self.assertNotIn("keep_bootcon", options)
+            self.assertIn("console=tty0 console=ttyAMA0,115200", options)
+            for quirk in (
+                "efi=noruntime",
+                "acpi=force",
+                "arm-smmu-v3.disable_bypass=0",
+                "audit_backlog_limit=8192",
+                "clk_ignore_unused",
+                "panic=30",
+                "nmi_watchdog=0",
+                "module_blacklist=typec_rts5453,rts5453",
+            ):
+                self.assertIn(quirk, options)
+
+    def test_rescue_preserves_existing_serial_capability(self) -> None:
+        arm64 = self._entry_options(
+            self._render("arm64"), "NCZ-OS Installer -- Rescue mode"
+        )
+        self.assertNotIn("auto=true", arm64)
+        self.assertIn("keep_bootcon", arm64)
+        self.assertIn("console=ttyAMA0,115200", arm64)
+
+    def test_amd64_screen_entries_are_tty0_only(self) -> None:
+        conf = self._render("amd64")
+        for title in (
+            "NCZ-OS Installer -- Install",
+            "NCZ-OS Installer -- Install (expert)",
+        ):
+            options = self._entry_options(conf, title)
+            self.assertNotIn("auto=true", options)
+            self.assertNotIn("ttyS0", options)
+            self.assertIn("console=tty0", options)
 
 
 if __name__ == "__main__":
