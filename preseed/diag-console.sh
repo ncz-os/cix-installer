@@ -141,16 +141,27 @@ chmod 0755 "$RUN/diagsh"
 export PATH=$BIN:/usr/bin:/bin:/usr/sbin:/sbin
 export TERM="${TERM:-vt100}" HOME=/root PS1='ncz-diag:\w# '
 
-# BusyBox telnetd allocates a PTY for the login shell.  Some d-i paths reach
-# early_command before devpts is mounted, which leaves telnet reachable but
-# causes sessions to close immediately instead of getting a shell.
-mkdir -p /dev/pts
-if ! mount | grep -q ' on /dev/pts '; then
-    mount -t devpts devpts /dev/pts 2>/dev/null \
-        && say "devpts mounted for telnet diagnostics" \
-        || say "WARNING: could not mount devpts; telnet shell may fail"
-fi
-[ -e /dev/ptmx ] || ln -s pts/ptmx /dev/ptmx 2>/dev/null || true
+# BusyBox telnetd allocates a PTY for the login shell. Some d-i paths reach
+# early_command before devpts can be mounted. Do not publish a listener in
+# that state: it accepts TCP and then immediately closes every session. This
+# helper is also called by every retry, so a transient early mount failure is
+# repaired as soon as devpts becomes available.
+ensure_devpts() {
+    mkdir -p /dev/pts
+    if ! grep -q '[[:space:]]/dev/pts[[:space:]]devpts[[:space:]]' /proc/mounts 2>/dev/null; then
+        mount -t devpts devpts /dev/pts 2>/dev/null || {
+            say "telnet deferred: devpts is not mounted yet (will retry)"
+            return 1
+        }
+        say "devpts mounted for telnet diagnostics"
+    fi
+    [ -e /dev/ptmx ] || ln -s pts/ptmx /dev/ptmx 2>/dev/null || true
+    [ -e /dev/ptmx ] || {
+        say "telnet deferred: /dev/ptmx is unavailable (will retry)"
+        return 1
+    }
+    return 0
+}
 
 # ---- root password so SSH password-auth + telnet login work -----------------
 # d-i root is otherwise locked, so set a known simple password here.
@@ -250,7 +261,10 @@ verify_listener() {
 install_udeb_from_media() {
     _pkg="$1"
     _udeb=""
-    for _base in /cdrom /hd-media /media/cdrom /run/live/medium; do
+    # The raw-GPT pipeline bakes these into the initrd because early_command
+    # runs before partition 2 is necessarily mounted. Legacy ISO paths remain
+    # as fallbacks for the older assembler.
+    for _base in /ncz/ssh-udebs /cdrom /hd-media /media/cdrom /run/live/medium; do
         [ -d "$_base" ] || continue
         _udeb=$(find "$_base" -name "${_pkg}_*.udeb" 2>/dev/null | head -1)
         [ -n "$_udeb" ] && break
@@ -271,23 +285,15 @@ install_udeb_from_media() {
     }
 }
 install_sshd_udebs() {
-    # anna-install talks to the single cdebconf instance; doing that while
-    # main-menu has a live dialog up can corrupt/hang the installer UI. In the
-    # wedged-installer scenario (main-menu waiting on a question forever) go
-    # straight to direct udpkg, which does not touch the debconf frontend.
-    if ps 2>/dev/null | grep -E '([[:space:]]|/)main-menu([[:space:]]|$)' | grep -v grep >/dev/null 2>&1; then
-        say "main-menu active; using direct udpkg for openssh-server-udeb (skipping anna-install)"
-    elif command -v anna-install >/dev/null 2>&1; then
-        say "sshd not present; installing openssh-server-udeb for diagnostics"
-        anna-install openssh-server-udeb >/tmp/diag-anna-sshd.log 2>&1 && return 0
-        say "ERROR: anna-install openssh-server-udeb failed; falling back to direct udpkg"
-        _anna_err=$(sed -n '1,8p' /tmp/diag-anna-sshd.log 2>/dev/null | tr '\n' ' ')
-        [ -n "$_anna_err" ] && say "anna-install error: $_anna_err"
-    else
-        say "anna-install unavailable; falling back to direct udpkg for openssh-server-udeb"
-    fi
-    for _dep in libc6-udeb libcrypt1-udeb libcrypto3-udeb zlib1g-udeb; do
-        install_udeb_from_media "$_dep" || say "WARNING: optional sshd dependency $_dep not installed from media; will try sshd anyway"
+    # early_command deliberately launches this module with fd 3 closed so it
+    # cannot retain cdebconf's protocol pipe. anna-install sources
+    # /usr/share/debconf/confmodule, whose _db_cmd writes to fd 3; invoking it
+    # here therefore always fails with "dup2(3,1): Bad file descriptor" and
+    # can never be a valid path. Direct udpkg neither needs fd 3 nor contends
+    # with main-menu's single cdebconf frontend.
+    say "installing diagnostic SSH udebs directly (cdebconf fd 3 is intentionally closed)"
+    for _dep in libc6-udeb zlib1g-udeb libcrypt1-udeb libcrypto3-udeb openssh-client-udeb; do
+        install_udeb_from_media "$_dep" || say "WARNING: sshd dependency $_dep not installed from media; will try sshd anyway"
     done
     install_udeb_from_media openssh-server-udeb || return 1
 }
@@ -326,6 +332,7 @@ start_syslogd() {
 }
 start_telnetd() {
     alive "$RUN/telnetd.pid" && return 0
+    ensure_devpts || return 1
     "$BB" telnetd -F -l "$BIN/login" -p "$TELNET_PORT" & echo $! > "$RUN/telnetd.pid"
     verify_listener "telnetd" "$RUN/telnetd.pid" "$TELNET_PORT" || true
 }
