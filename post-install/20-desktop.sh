@@ -87,7 +87,7 @@ fi
 # /opt/singularity payload; renders via Cairo/loginui, no GTK). NO lightdm, NO
 # Xorg server, NO XFCE, NO regreet. grim = greeter/lock screenshot util.
 CORE_DESKTOP="greetd glycin-loaders \
-    libgtk-4-1 libadwaita-1-0 libgtk4-layer-shell0 \
+    libgtk-4-1 gir1.2-gtk-4.0 python3-gi libnotify-bin libadwaita-1-0 libgtk4-layer-shell0 \
     libgee-0.8-2 libpeas-2-0 libjson-glib-1.0-0 libsoup-3.0-0 \
     libvte-2.91-gtk4-0 libgtksourceview-5-0 libwebkitgtk-6.0-4 \
     libgraphene-1.0-0 libtinysparql-3.0-0 libupower-glib3 \

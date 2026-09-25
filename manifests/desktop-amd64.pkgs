@@ -52,6 +52,9 @@ glycin-loaders
 # actually produce yet — see docs/AMD64-PACKAGE-AUDIT.md follow-on #1.
 # ncz-singularity-desktop
 libgtk-4-1
+gir1.2-gtk-4.0
+python3-gi
+libnotify-bin
 libadwaita-1-0
 libgtk4-layer-shell0
 libgee-0.8-2

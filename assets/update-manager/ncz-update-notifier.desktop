@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=NCZ-OS Update Notifier
+Comment=Notify when system package updates are available
+Exec=/usr/bin/ncz-update-notifier
+Icon=system-software-update
+Terminal=false
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

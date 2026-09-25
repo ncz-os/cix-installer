@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=NCZ-OS Updates
+Comment=Review and install system software updates
+Exec=/usr/bin/ncz-update-manager
+Icon=system-software-update
+Terminal=false
+Categories=System;
+Keywords=update;upgrade;packages;apt;
+StartupNotify=true
