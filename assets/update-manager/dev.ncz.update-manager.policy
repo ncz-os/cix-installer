@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>NCZ-OS</vendor>
+  <vendor_url>https://gitlab.com/ncz-os/cix-installer</vendor_url>
+  <action id="dev.ncz.update-manager">
+    <description>Refresh package information or install system updates</description>
+    <message>Authentication is required to update NCZ-OS</message>
+    <icon_name>system-software-update</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/ncz-update-apply</annotate>
+  </action>
+</policyconfig>

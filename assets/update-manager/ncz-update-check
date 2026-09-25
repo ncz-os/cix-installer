@@ -1,0 +1,55 @@
+#!/usr/bin/python3
+"""Report upgrades from the machine's currently configured APT sources."""
+
+import json
+import re
+import subprocess
+import sys
+
+DESKTOP_PACKAGE = "ncz-singularity-desktop"
+LINE_RE = re.compile(
+    r"^(?P<package>[^/]+)/(?P<suite>\S+)\s+(?P<candidate>\S+)\s+\S+\s+"
+    r"\[upgradable from: (?P<installed>[^\]]+)\]$"
+)
+
+
+def collect() -> list[dict[str, object]]:
+    proc = subprocess.run(
+        ["apt", "list", "--upgradable"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env={"LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
+    )
+    if proc.returncode:
+        raise RuntimeError(proc.stderr.strip() or f"apt exited {proc.returncode}")
+
+    updates = []
+    for line in proc.stdout.splitlines():
+        match = LINE_RE.match(line.strip())
+        if not match:
+            continue
+        item: dict[str, object] = match.groupdict()
+        item["desktop"] = item["package"] == DESKTOP_PACKAGE
+        updates.append(item)
+    updates.sort(key=lambda item: (not bool(item["desktop"]), str(item["package"])))
+    return updates
+
+
+def main() -> int:
+    try:
+        updates = collect()
+    except (OSError, RuntimeError) as error:
+        print(json.dumps({"error": str(error), "updates": []}))
+        return 1
+    print(json.dumps({
+        "count": len(updates),
+        "desktop_update": any(item["desktop"] for item in updates),
+        "updates": updates,
+    }))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
