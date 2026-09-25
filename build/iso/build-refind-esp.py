@@ -153,8 +153,22 @@ AMD64_RESCUE_OPTIONS = (
     "DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
 )
 
+# The on-screen arm64 entries offer NO serial console at all.  Root-caused
+# live on real O6N hardware via SSH into a broken boot (see the commit
+# message): reopen-console enters its single-console preseeding path because
+# "interface=auto" matches its own grep -qw auto /proc/cmdline test -- removing
+# auto=true does NOT disable it -- and in that path it picks the console
+# carrying the kernel C (CON_CONSDEV) flag.  On Sky1 the PL011 registers at
+# ~0.9s, after tty0 at ~0.0001s, and the later registration takes CON_CONSDEV,
+# so console= ORDER cannot change the outcome.  reopen-console then writes a
+# single inittab entry for that UART and d-i never appears on the monitor.
+# Offering no serial here leaves no device carrying C, so reopen-console falls
+# through to its [ -c /dev/tty1 ] fallback and picks tty1 -- the screen.
+# This is exactly why the pre-rEFInd GRUB ISOs worked: they named ttyAMA2,
+# which does not exist on O6N, so no serial console ever registered.
+# Serial tracing remains available on the Rescue entry and via diag-console.
 SKY1_GFX_OPTIONS = (
-    "console=tty0 console=ttyAMA0,115200 efi=noruntime acpi=force "
+    "console=tty0 efi=noruntime acpi=force "
     "arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused "
     "panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
 )
