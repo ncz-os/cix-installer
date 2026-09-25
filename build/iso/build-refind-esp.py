@@ -210,10 +210,8 @@ menuentry "NCZ-OS Installer -- Reinstall (preserve installed system)" {{
 # to tty0, since ttyS0 doesn't exist on this board. The serial capture
 # looked exactly like a hang/wedge until the local display was checked.
 REFIND_CONF_TEXT_ARM64_TEMPLATE = REFIND_CONF_TEXT_TEMPLATE.replace(
-    'console=ttyS0,115200n8', 'console=ttyAMA0,115200'
-).replace(
-    'console=ttyAMA0,115200 console=tty0',
-    'console=ttyAMA0,115200 console=tty0 efi=noruntime acpi=force '
+    'console=ttyS0,115200n8 console=tty0',
+    'console=tty0 console=ttyAMA0,115200 efi=noruntime acpi=force '
     'arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused '
     'keep_bootcon panic=30 nmi_watchdog=0 '
     'module_blacklist=typec_rts5453,rts5453'
