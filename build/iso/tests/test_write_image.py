@@ -1042,7 +1042,7 @@ class BuildRefindEspConsoleOptionsTests(unittest.TestCase):
         body = conf.split(marker, 1)[1].split("\n}", 1)[0]
         return body.split('options "', 1)[1].split('"', 1)[0]
 
-    def test_arm64_screen_entries_drop_auto_and_keep_bootcon(self) -> None:
+    def test_arm64_screen_entries_offer_no_serial_console(self) -> None:
         conf = self._render("arm64")
         for title in (
             "NCZ-OS Installer -- Install",
@@ -1051,7 +1051,11 @@ class BuildRefindEspConsoleOptionsTests(unittest.TestCase):
             options = self._entry_options(conf, title)
             self.assertNotIn("auto=true", options)
             self.assertNotIn("keep_bootcon", options)
-            self.assertIn("console=tty0 console=ttyAMA0,115200", options)
+            self.assertIn("console=tty0", options)
+            # No serial console at all: any registered UART takes the kernel
+            # C (CON_CONSDEV) flag and reopen-console then pins d-i to it,
+            # leaving the monitor blank.  Verified live on real O6N.
+            self.assertNotIn("ttyAMA", options)
             for quirk in (
                 "efi=noruntime",
                 "acpi=force",
