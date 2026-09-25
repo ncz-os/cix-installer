@@ -49,8 +49,12 @@ esac
 
 if [ ! -x /usr/bin/google-chrome-stable ]; then
     echo "[53] google-chrome-stable not yet installed — installing from the offline mirror"
-    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y google-chrome-stable 2>&1 | tail -10; then
-        echo "[53] WARN: apt-get install google-chrome-stable failed — see closure/mirror output above" >&2
+    # Do not tail this transaction. The old pipeline both discarded the
+    # diagnostic that identifies a missing package/dependency/signature and,
+    # without pipefail, reported tail's success instead of apt-get's failure.
+    # The per-hook log is the durable install audit trail; retain apt verbatim.
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y google-chrome-stable; then
+        echo "[53] WARN: apt-get install google-chrome-stable failed — full apt output is above" >&2
     fi
 fi
 
@@ -130,7 +134,7 @@ Types: deb
 URIs: https://dl.google.com/linux/chrome-stable/deb/
 Suites: stable
 Components: main
-Architectures: arm64
+Architectures: $(dpkg --print-architecture)
 Signed-By: $CHROME_KEYRING
 EOF
         chmod 0644 "$CHROME_SOURCES"
