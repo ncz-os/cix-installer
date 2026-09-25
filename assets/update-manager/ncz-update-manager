@@ -1,0 +1,186 @@
+#!/usr/bin/python3
+"""Plain-GTK4 update viewer and updater for NCZ-OS."""
+
+import json
+import subprocess
+import threading
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import GLib, Gtk  # noqa: E402
+
+CHECKER = "/usr/bin/ncz-update-check"
+HELPER = "/usr/libexec/ncz-update-apply"
+
+
+class UpdateWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="NCZ-OS Updates")
+        self.set_default_size(720, 560)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        outer.set_margin_top(18)
+        outer.set_margin_bottom(18)
+        outer.set_margin_start(18)
+        outer.set_margin_end(18)
+        self.set_child(outer)
+
+        title = Gtk.Label(label="System Updates", xalign=0)
+        title.add_css_class("title-1")
+        outer.append(title)
+        self.status = Gtk.Label(label="Checking configured package sources…", xalign=0)
+        self.status.set_wrap(True)
+        outer.append(self.status)
+
+        self.scroller = Gtk.ScrolledWindow(vexpand=True)
+        self.listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.listbox.add_css_class("boxed-list")
+        self.scroller.set_child(self.listbox)
+        outer.append(self.scroller)
+
+        self.progress = Gtk.ProgressBar(show_text=True)
+        self.progress.set_visible(False)
+        outer.append(self.progress)
+
+        self.log = Gtk.TextView(editable=False, cursor_visible=False, monospace=True)
+        self.log.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        log_scroll = Gtk.ScrolledWindow(min_content_height=130, vexpand=False)
+        log_scroll.set_child(self.log)
+        log_scroll.set_visible(False)
+        self.log_scroll = log_scroll
+        outer.append(log_scroll)
+
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        actions.set_halign(Gtk.Align.END)
+        self.refresh_button = Gtk.Button(label="Refresh")
+        self.refresh_button.connect("clicked", lambda _button: self.run_privileged("refresh"))
+        self.apply_button = Gtk.Button(label="Install Updates")
+        self.apply_button.add_css_class("suggested-action")
+        self.apply_button.connect("clicked", lambda _button: self.run_privileged("apply"))
+        self.apply_button.set_sensitive(False)
+        actions.append(self.refresh_button)
+        actions.append(self.apply_button)
+        outer.append(actions)
+        self.load_updates()
+
+    def clear_rows(self):
+        while child := self.listbox.get_first_child():
+            self.listbox.remove(child)
+
+    def load_updates(self):
+        self.set_busy(True, "Checking installed packages…")
+        threading.Thread(target=self._check_worker, daemon=True).start()
+
+    def _check_worker(self):
+        try:
+            result = subprocess.run(
+                [CHECKER], text=True, capture_output=True, check=True
+            )
+            payload = json.loads(result.stdout)
+            GLib.idle_add(self.show_updates, payload)
+        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
+            GLib.idle_add(self.show_error, f"Could not check for updates: {error}")
+
+    def show_updates(self, payload):
+        self.set_busy(False)
+        self.clear_rows()
+        updates = payload.get("updates", [])
+        if not updates:
+            self.status.set_text("Your system is up to date.")
+            self.apply_button.set_sensitive(False)
+            return False
+        desktop = bool(payload.get("desktop_update"))
+        message = f"{len(updates)} package update{'s' if len(updates) != 1 else ''} available."
+        if desktop:
+            message += " A Singularity Desktop update is included."
+        self.status.set_text(message)
+        for update in updates:
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            box.set_margin_top(8)
+            box.set_margin_bottom(8)
+            box.set_margin_start(10)
+            box.set_margin_end(10)
+            name = str(update["package"])
+            if update.get("desktop"):
+                name += " — Singularity Desktop"
+            heading = Gtk.Label(label=name, xalign=0)
+            heading.add_css_class("heading")
+            detail = Gtk.Label(
+                label=f'{update["installed"]} → {update["candidate"]}  ({update["suite"]})',
+                xalign=0,
+            )
+            detail.add_css_class("dim-label")
+            box.append(heading)
+            box.append(detail)
+            self.listbox.append(box)
+        self.apply_button.set_sensitive(True)
+        return False
+
+    def show_error(self, message):
+        self.set_busy(False)
+        self.status.set_text(message)
+        return False
+
+    def set_busy(self, busy, text=None):
+        self.refresh_button.set_sensitive(not busy)
+        self.apply_button.set_sensitive(False if busy else self.apply_button.get_sensitive())
+        self.progress.set_visible(busy)
+        if busy:
+            self.progress.set_text(text or "Working…")
+            self.progress.pulse()
+
+    def run_privileged(self, action):
+        self.set_busy(True, "Refreshing package indexes…" if action == "refresh" else "Installing updates…")
+        self.log_scroll.set_visible(True)
+        self.log.get_buffer().set_text("")
+        threading.Thread(target=self._apply_worker, args=(action,), daemon=True).start()
+
+    def _apply_worker(self, action):
+        try:
+            process = subprocess.Popen(
+                ["pkexec", HELPER, action],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+            )
+            assert process.stdout is not None
+            for line in process.stdout:
+                GLib.idle_add(self.append_log, line)
+            result = process.wait()
+            GLib.idle_add(self.operation_finished, action, result)
+        except OSError as error:
+            GLib.idle_add(self.show_error, f"Could not start updater: {error}")
+
+    def append_log(self, line):
+        buffer = self.log.get_buffer()
+        buffer.insert(buffer.get_end_iter(), line)
+        mark = buffer.create_mark(None, buffer.get_end_iter(), False)
+        self.log.scroll_mark_onscreen(mark)
+        self.progress.pulse()
+        return False
+
+    def operation_finished(self, action, result):
+        if result == 0:
+            self.status.set_text("Package information refreshed." if action == "refresh" else "Updates installed successfully.")
+            self.load_updates()
+        else:
+            self.set_busy(False)
+            self.status.set_text("Update was cancelled or failed. Details are shown below.")
+        return False
+
+
+class UpdateApplication(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="dev.ncz.UpdateManager")
+
+    def do_activate(self):
+        window = self.get_active_window()
+        if window is None:
+            window = UpdateWindow(self)
+        window.present()
+
+
+if __name__ == "__main__":
+    raise SystemExit(UpdateApplication().run())
