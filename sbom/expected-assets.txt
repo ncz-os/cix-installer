@@ -21,19 +21,19 @@ assets/cix-debs/cix-llama-cpp_1.0.0_arm64.deb|4413772|8ded3e24f72fed0c1b9756c187
 assets/cix-debs/cix-mesa_24.0.4_arm64.deb|25889528|996a11f18d238398d36582eb10ec9da2429fe7cc6feaeec569df6a7510d11084
 assets/cix-debs/cix-mnn_1.0.0_arm64.deb|2084332|954bc31f597074d1a318964dee5ce1c575ff7656e4b8c97d5acaf954da3ab5bb
 assets/cix-debs/cix-noe-umd_3.1.4-cixdeb13-260714_arm64.deb|3043938|b6075dc63331849452b68d755f2940332a0851f7940770813be2480c0d51abf8
-assets/cix-debs/cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz3_arm64.deb|94604|604b0a187af76be4ef964f25dadba18b35080e6a5ca2d3cfb29796229ca638ab
+assets/cix-debs/cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz3_arm64.deb|94684|33c50737daf469322666aca6e8b5a866465bdb86ee0bc92173e7e6f152d826b4
 assets/cix-debs/cix-npu-umd_3.2.0-cixdeb13-260714_arm64.deb|375880|f851cb9996f8422d723da82a81a811b7da8f51af27af0326f69a0ab65e9b491a
 assets/cix-debs/cix-optee_1.0.0_arm64.deb|1340356|6c441ed7a2927cd1d9e8cde65b82a063e36a0578bb4983eafaa092265bbb7579
 assets/cix-debs/cix-sd-demo_1.4.0_arm64.deb|835116|5e6d3aae482c8b2a8d99cef63bb1ba42c56a1670a446884ce23049e24f03d05c
 assets/cix-debs/cix-tools_1.0.0_arm64.deb|271336|11a52be12c84f7dd4508f7a7814c87b66363403df8911af9281a56df51057c85
 assets/cix-debs/cix-whisper-cpp_1.0.0_arm64.deb|1228976|47e3a01af9b78d2f541eac32364cbaf908e20551198a9ae61781343e2e475157
-assets/kernel/edge/Image-cixmini.bin|47176192|b741a531dd6af6be1e58c4b4438aecdc869ea6852bc2f57963091bef17ea5e51
-assets/kernel/edge/KVER|14|c09fcff477f4b166302b076d348e9fb5288c49a09caf0e08783113e0305cfd8a
-assets/kernel/edge/config-7.2.6-sky1-ncz|277983|0b5e533c6ef7d2c6ef522610f0d9d62cd392b3e2aa135ab62d88b66fc1effce5
-assets/kernel/edge/modules-cixmini.tgz|8056800|ac67fc987fa25987bf34cfeab618aec31e92f3d6861363d2636861cb97ec85b7
-assets/mgmt/ncz-mgmt-rootfs.tar.zst|52812966|eb6b612c37eac0360889e8baad2d67126e282d5f42b532bee1898c8576d35d23
-assets/npu/npu-acpi-override.cpio|1024|fc01b9fe9e45686ba822398e51f2cd2e04d12383fc50513d0f13102221454691
-assets/rescue/rescue-rootfs.tar.zst|223345647|fb6fba029c3aaab1252fbd5f05cc1f0906c6e1d0bd89e2a61e413a7b15217698
+assets/kernel/edge/Image-cixmini.bin|47045120|197efb79e1b18ccd59ceaf4d0a6e199f590db6cc4c16f60001f53d13d5df7412
+assets/kernel/edge/KVER|15|64d0eb80992cd3525fdf777652a22426f826a6d4fb9f4056f693eed25f780526
+assets/kernel/edge/config-7.2.7-sky1-ncz|277983|4311532380cb46902b704febdaeaad4f4009f4c69a4b6910db2896c9c6e0ee15
+assets/kernel/edge/modules-cixmini.tgz|8060930|777bb9222b851fed09f10396a83ecb790d7aeecd451fb7b05f26578123ac1b0f
+assets/mgmt/ncz-mgmt-rootfs.tar.zst|52738848|115b20093894cd18e9d95eaa9b3a03e0ceb6e79d9038895b5d0bbaf5788d3822
+assets/npu/npu-acpi-override.cpio|1024|2039be4e1978d8829392b661348955eacb21fc727adadedca97260b188c711bc
+assets/rescue/rescue-rootfs.tar.zst|210319362|561b55dc163be0e9a81fa092e01aac82cef9ce95a7ee260037521b751034d21b
 assets/singularity-boot-splash/singularity-boot-splash|76152|d0f0f1414a6ba7d3b712e4cea4f6869fed03a0ac09fa77279a3c424ac35436aa
 assets/sinty-nm/sinty-nmd|7536824|b413c7cf3fa9c9a44081c2c4ba94f57e2f933f2b357be06591519e906d9bb0b7
 assets/sky1-firmware/arm/mali/arch12.8/mali_csffw.bin|303104|4394522f3d1f92d1b5239412466829aa5d2a7b898709a9e87ddf00e63519c953
@@ -74,7 +74,7 @@ assets/sky1-firmware/vp8dec.fwb|281088|5f627bbd25231cd775eac526b5704d15b61201d63
 assets/sky1-firmware/vp8enc.fwb|394240|eb94b47f0563eabe46f3c9587049a6cec10083c58a89c7d739c1054ddb75fa5f
 assets/sky1-firmware/vp9dec.fwb|306688|493037d0914503e77c3afd79814fa0ae0160fd0c497e4af7b0ec9797cb903bae
 assets/sky1-firmware/vp9enc.fwb|409728|558479709bafee0ff5c4d83f6cb6913808fbf8a96b6852d5d180488bbc26731b
-assets/squashfs/base.squashfs|913813504|72699c5aa5b3220177ca64cda5af92c7bfa659b97a99e3fe9736a6346e5118ff
+assets/squashfs/base.squashfs|1104957440|8330f6413f851165112093d534254102448bfead7ede1cdfb85b8253a9f992fb
 assets/squashfs/desktop-hotfix.overlay-manifest|49|e8c41c7d7f9626d8d1ffdf46c2095d2e13948c568f30a7323d783a5017628a87
 # NOTE 2026-09-18: desktop.squashfs and desktop-hotfix.squashfs entries below
 # will need updating on basically every future build now that
@@ -84,7 +84,7 @@ assets/squashfs/desktop-hotfix.overlay-manifest|49|e8c41c7d7f9626d8d1ffdf46c2095
 # A fixed size+sha256 gate on these two specific entries is now structurally
 # in tension with that design; flagging rather than silently deciding to
 # drop the gate for just these two files.
-assets/squashfs/desktop-hotfix.squashfs|11759616|0aa387fe43d01cfdb6ba66f7b338ac4115950dded89e0879283dc7200cdd5d8c
+assets/squashfs/desktop-hotfix.squashfs|11776000|0f3ac8dbbb5afba2e9755151610f45083eae33d6bcceb875f176d8f78901977c
 assets/squashfs/desktop.overlay-manifest|446|4695f544ab1be3a1a28062ed0abfe71d68adaf798d9d46c8ec6680070cc270ae
-assets/squashfs/desktop.squashfs|1918033920|34206a874af7988d2d85d23e742a7479f7060f4b52171e8432f7402020846a92
+assets/squashfs/desktop.squashfs|2052382720|2c27b2096fce881a7086bc448db083353acc3179281df930c076ece3408fdc16
 assets/vivaldi/vivaldi-stable_8.1.4087.55-1_arm64.deb|125072996|7120eed5c8df088927d305a6e9c59a06b7e01991f8faab372675d8c7e25f0bb9
