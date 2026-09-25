@@ -70,8 +70,10 @@ fi
 
 BB=/tmp/nczdiag/busybox
 BIN=/tmp/diagbin
-RUN=/tmp/diag
-mkdir -p "$RUN"
+RUN=/run/nczdiag
+"$BB" mkdir -p "$RUN" || { say "FATAL: cannot create runtime directory $RUN"; exit 1; }
+[ -d "$RUN" ] && [ -w "$RUN" ] \
+    || { say "FATAL: runtime path is not a writable directory: $RUN"; exit 1; }
 TELNET_PORT=23
 HTTP_PORT=8080
 SSH_PORT=22
