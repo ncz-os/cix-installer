@@ -134,7 +134,7 @@ nftables
 # kernel rebuild with the option enabled gives us zram for free.
 systemd-zram-generator
 
-# --- native Wayland screensaver / idle-lock (57-screensaver) ----------------
+# --- native Wayland screensaver chooser / idle-lock --------------------------
 # HOLD 2026-08-21 (operator): the screensaver subsystem doesn't ship until
 # its own GLES3 migration passes full verification (94 hacks exist across
 # gl4es + GLES3-native but no fresh end-to-end audit has been run against
@@ -144,6 +144,14 @@ systemd-zram-generator
 # are removed from this manifest for the same reason -- they have no other
 # consumer (verified by grep against post-install/ + preseed/ on 2026-08-21).
 # When the hold lifts: restore these four packages AND 57-screensaver.sh
+# Build dependencies are used in the image assembly chroot for the NCZ Vala UI.
+valac
+meson
+ninja-build
+libgtk-4-dev
+libgee-0.8-dev
+swayidle
+swaylock
 # in the two build scripts and the two run-all.sh regexes (MACHINE_HOOKS_RE,
 # _SKIP_DESKTOP_RE) in the SAME COMMIT as the e2e audit evidence.
 
