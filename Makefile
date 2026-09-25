@@ -85,7 +85,9 @@ UPSTREAM_SHA  := https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/S
 # pin was preventing `make download` outright. Validation: install-gate
 # (build/kvm-install-gate.sh) PASS against the ISO built on this substrate —
 # see docs/ISO-REBAKE-TYDEUS-2026-08-21.md §"Verification".
-SUBSTRATE_SHA := 4aae4d12acc0c71b7eaf2d03deae48098f84596e6806d3cf78ada53ba0c649a0
+# Substrate rotated again 2026-09-25. The replacement below passed the native
+# arm64 build/kvm-install-gate.sh install-and-detached-boot gate on ULTRA.
+SUBSTRATE_SHA := bcdea12698a4c643fbbc68c69fb8be96a3f292bdfa1b5c41c8fdaeaae6944f67
 
 DOWNLOADS     := $(ROOT)/downloads
 BUILD         := $(ROOT)/build
@@ -96,7 +98,7 @@ POST          := $(ROOT)/post-install
 MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))
 OUTPUT_ISO    := $(BUILD)/nclawzero-installer-cixmini-$(VERSION)$(MODE_SUFFIX).iso
 
-.PHONY: all download iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs vendor-mirror offline-mirror
+.PHONY: all download iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror
 
 all: iso
 
@@ -182,7 +184,15 @@ sinty-out-sync:
 # continue), not an error.
 SINTY_DEBS_ARG := --debs-dir $(BUILD)/sinty-out
 
-vendor-mirror: kernel-debs sinty-out-sync
+usb-recovery-deb:
+	@if ! ls $(BUILD)/usb-recovery-deb/ncz-usb-recovery_*.deb >/dev/null 2>&1; then \
+		echo "[usb-recovery-deb] no package present; building it"; \
+		bash $(ROOT)/build/build-usb-recovery-deb.sh; \
+	else \
+		echo "[usb-recovery-deb] using existing package from $(BUILD)/usb-recovery-deb"; \
+	fi
+
+vendor-mirror: kernel-debs usb-recovery-deb sinty-out-sync
 	@echo "[vendor-mirror] publishing local debs and regenerating vendor index"
 	@bash $(ROOT)/build/build-vendor-mirror.sh
 	@bash $(ROOT)/build/verify-local-package-versions.sh \
@@ -190,7 +200,23 @@ vendor-mirror: kernel-debs sinty-out-sync
 	    --label forky-vendor-mirror \
 	    $(SINTY_DEBS_ARG)
 
-offline-mirror: vendor-mirror
+libdrm-debs:
+	@if ! ls $(BUILD)/libdrm-debs/libdrm-common_*+ncz*_all.deb >/dev/null 2>&1; then \
+		echo "[libdrm-debs] no patched package set present; building it"; \
+		bash $(ROOT)/build/build-libdrm-debs.sh; \
+	else \
+		echo "[libdrm-debs] using existing packages from $(BUILD)/libdrm-debs"; \
+	fi
+
+desktop-mirror: vendor-mirror libdrm-debs
+	@if [ ! -d $(BUILD)/desktop-mirror/dists/$(shell . $(ROOT)/release.conf; printf '%s' "$$NCZ_BASE_CODENAME") ]; then \
+		echo "[desktop-mirror] missing; building desktop package closure"; \
+		bash $(ROOT)/build/build-desktop-mirror.sh; \
+	else \
+		echo "[desktop-mirror] using existing mirror from $(BUILD)/desktop-mirror"; \
+	fi
+
+offline-mirror: desktop-mirror
 	@if [ ! -d $(BUILD)/forky-mirror/pool ] || \
 	    ! bash $(ROOT)/build/verify-local-package-versions.sh \
 	        --pool $(BUILD)/forky-mirror/pool \
