@@ -197,11 +197,21 @@ menuentry "NCZ-OS Installer -- Reinstall (preserve installed system)" {{
 """
 
 
-# arm64 netboot: same layout as amd64. The rEFInd menu references /linux
-# and /initrd.gz at the FAT image root regardless of arch; the build_esp_dir
-# function copies the supplied kernel + initrd verbatim into the ESP at
-# those paths.
-REFIND_CONF_TEXT_ARM64_TEMPLATE = REFIND_CONF_TEXT_TEMPLATE
+# arm64 netboot: same layout as amd64, EXCEPT the serial console. Sky1
+# real hardware (O6N) exposes its debug UART as ttyAMA0 (PL011), not the
+# 8250-style ttyS0 that amd64/T2 hardware uses -- confirmed both by the
+# working post-install rEFInd generator (assets/refind/ncz-refind-refresh.sh,
+# which already correctly emits console=ttyAMA0,115200 for arm64) and by a
+# real O6N boot test on 2026-09-25: REFIND_CONF_TEXT_ARM64_TEMPLATE used to
+# be a bare alias of the amd64 template (console=ttyS0,115200n8), so ttyS0
+# never bound as a console on real Sky1 hardware -- the kernel booted fine
+# (confirmed live on the local/HDMI console: real xHCI/PCIe/Sky1 hardware
+# enumeration, netconsole started) but every byte of it silently went only
+# to tty0, since ttyS0 doesn't exist on this board. The serial capture
+# looked exactly like a hang/wedge until the local display was checked.
+REFIND_CONF_TEXT_ARM64_TEMPLATE = REFIND_CONF_TEXT_TEMPLATE.replace(
+    'console=ttyS0,115200n8', 'console=ttyAMA0,115200'
+)
 
 
 # amd64 full-netinst: same layout as amd64 netboot. The d-i kernel and
