@@ -82,10 +82,11 @@ SSH_PORT=22
 # the binary must match the RUNNING kernel, not whichever was baked at
 # build time. Maps uname -m -> our asset-naming convention (busybox-arm64 /
 # busybox-amd64), matching NCZ_TARGET_ARCH on the build side.
-case "$(uname -m)" in
+BB_UNAME_M=$(/tmp/nczdiag/busybox uname -m 2>/dev/null)
+case "$BB_UNAME_M" in
     aarch64) BB_ARCH=arm64 ;;
     x86_64)  BB_ARCH=amd64 ;;
-    *) say "FATAL: unsupported uname -m for diag busybox: $(uname -m)"; exit 1 ;;
+    *) say "FATAL: unsupported uname -m for diag busybox: $BB_UNAME_M"; exit 1 ;;
 esac
 if [ ! -x "$BB" ]; then
     mkdir -p "$(dirname "$BB")" 2>/dev/null || true
@@ -110,8 +111,15 @@ if ! "$BB" true >/tmp/bbdiag.exec-test.log 2>&1; then
     mount 2>/dev/null | sed -n '1,40p' || true
     exit 1
 fi
-mkdir -p "$BIN"; "$BB" --install -s "$BIN" 2>/dev/null
-say "applet farm: $(ls "$BIN" 2>/dev/null | wc -l) applets in $BIN"
+"$BB" mkdir -p "$BIN"; "$BB" --install "$BIN" 2>/dev/null
+# Some d-i tmpfs builds accept BusyBox --install but create no links. Build
+# the applet farm explicitly in that case so diagnostics do not die silently.
+if [ ! -x "$BIN/chpasswd" ]; then
+    for _applet in chpasswd httpd ifconfig klogd login nc netstat route sh tail telnetd udhcpc; do
+        "$BB" ln -sf "$BB" "$BIN/$_applet" 2>/dev/null || true
+    done
+fi
+say "applet farm: $("$BB" ls "$BIN" 2>/dev/null | "$BB" wc -l) applets in $BIN"
 export PATH=$BIN:/usr/bin:/bin:/usr/sbin:/sbin
 for _applet in chpasswd httpd ifconfig klogd login nc netstat route sh tail telnetd udhcpc; do
     if [ ! -x "$BIN/$_applet" ]; then

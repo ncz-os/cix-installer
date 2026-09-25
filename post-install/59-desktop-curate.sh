@@ -94,6 +94,17 @@ rm -f "$APPDIR"/Vivaldi.desktop 2>/dev/null || true
 # retain only the canonical launcher used by the post-install hook.
 rm -f "$APPDIR"/Google-Chrome.desktop "$APPDIR"/com.google.Chrome.desktop \
       /etc/skel/Desktop/com.google.Chrome.desktop 2>/dev/null || true
+# AMD64 ships Google Chrome + Vivaldi only. Remove any stale Chromium launcher
+# inherited from an older rootfs/package iteration; the Sky1 arm64 image keeps
+# its real chromium-ncz-sky1 launcher and is intentionally unaffected.
+if [ "$(dpkg --print-architecture)" = amd64 ]; then
+    for chromium_dir in "$APPDIR" /etc/skel/Desktop \
+        /opt/singularity/share/applications; do
+        [ -d "$chromium_dir" ] || continue
+        find "$chromium_dir" -maxdepth 1 -type f \
+            -iname '*chromium*.desktop' -delete 2>/dev/null || true
+    done
+fi
 # Redundant /usr/share copies of the NCZ launchers — the canonical foot-based
 # versions live in /opt/singularity/share/applications (earlier on the session
 # XDG_DATA_DIRS, so they mask these). Drop the /usr/share copy whenever the /opt

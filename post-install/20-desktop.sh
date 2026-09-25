@@ -944,6 +944,15 @@ pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chr
 # wallpaper browser's prior behavior by opting them back in here.
 enabled-plugins=['mpris-dock', 'downloads-dock', 'telegram-dock', 'launcher-entry-dock', 'tray-icons', 'emoji-search', 'tailscale', 'exe-icon', 'wallpapers-ocs', 'wallpapers-bing', 'sensors']
 GSCHEMA
+    # The Sky1 image ships chromium-ncz-sky1, but the AMD64 manifest
+    # deliberately does not. Leaving its desktop ID in pinned-apps makes
+    # Singularity synthesize a broken generic "chromium" dock/launcher item
+    # even though no Chromium package or .desktop file exists on AMD64.
+    if [ "$(dpkg --print-architecture)" = amd64 ]; then
+        sed -i "s/'chromium-ncz-sky1.desktop', //" \
+            "$SCHEMADIR/99-ncz-defaults.gschema.override"
+        echo "[20] amd64 launcher defaults: omitted absent chromium-ncz-sky1"
+    fi
     glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
         echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
     echo "[20] gschema override: accent=red, dark-mode, Maximilian wallpaper"
