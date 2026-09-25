@@ -94,6 +94,8 @@ xdg-desktop-portal
 apparmor
 apparmor-profiles
 apparmor-utils
+# post-install/34-firewall.sh requires this in the offline closure.
+nftables
 systemd-zram-generator
 mesa-utils
 vulkan-tools
