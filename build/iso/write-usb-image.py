@@ -387,6 +387,64 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     }
     log(f"    runtime assets staged: rEFInd ({arch}) + {rescue_src.name}")
 
+    # Architecture payloads are content, not build mechanics.  Keep the GPT
+    # writer shared and select the same committed asset families the legacy
+    # arm64 assembler placed under /ncz-payload/assets/.  In particular this
+    # is what carries Sky1's Image/modules/headers/config set, Mali/Panthor,
+    # NPU/VPU DKMS sources and prebuilt overlays, MPAM/NPU data and firmware.
+    # AMD64 uses the identical loop but naturally has amd64-{stable,edge}
+    # kernel package directories instead of the Sky1 edge tarball shape.
+    asset_names = (
+        "agent-stack", "branding", "cix-debs", "diag", "firmware",
+        "kernel", "npu", "python311", "sky1-firmware", "mgmt",
+    )
+    copied_assets = []
+    for name in asset_names:
+        src = REPO_ROOT / "assets" / name
+        dst = assets_dst / name
+        if not src.exists():
+            continue
+        if name == "kernel":
+            channels = (("edge", "mali", "mali-70012", "modules-overlay",
+                         "npu", "panthor", "vpu") if arch == "arm64"
+                        else ("amd64-stable", "amd64-edge"))
+            dst.mkdir(parents=True, exist_ok=True)
+            for channel in channels:
+                child = src / channel
+                if child.exists():
+                    shutil.copytree(child, dst / channel, symlinks=False,
+                                    dirs_exist_ok=True)
+            copied_assets.append(name)
+            continue
+        if name == "cix-debs" and arch != "arm64":
+            continue
+        if name == "cix-debs":
+            dst.mkdir(parents=True, exist_ok=True)
+            excluded = ("cix-unit-test_", "cix-ltp_", "cix-gpu-test_",
+                        "cix-vpu-test_", "cix-npu-onnxruntime_",
+                        "cix-noe-umd_1.1.1_")
+            for child in src.iterdir():
+                if child.name.startswith(excluded):
+                    continue
+                if child.is_file():
+                    shutil.copy2(child, dst / child.name)
+            copied_assets.append(name)
+            continue
+        shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
+        copied_assets.append(name)
+    ncz_cli = REPO_ROOT / "assets" / "ncz-cli.sh"
+    if ncz_cli.is_file():
+        shutil.copy2(ncz_cli, assets_dst / ncz_cli.name)
+    if arch == "arm64":
+        edge = assets_dst / "kernel" / "edge"
+        required_edge = ("Image-cixmini.bin", "modules-cixmini.tgz", "KVER")
+        missing_edge = [n for n in required_edge if not (edge / n).is_file()]
+        if missing_edge:
+            raise RuntimeError(f"FATAL: arm64 Sky1 edge payload incomplete: {missing_edge}")
+        shutil.copy2(edge / "KVER", ncz_payload_dst / "KVER_NEXT")
+    receipt["architecture_assets_staged"] = copied_assets
+    log(f"    architecture assets staged ({arch}): {copied_assets}")
+
     # Media identity/metadata. late.sh copies BUILD_VERSION / BUILD_DATE /
     # BUILD_HOST / BUILD_ARCH / RELEASE off the medium into
     # /target/{etc,usr/local/lib}/cix-installer, where 50-brand.sh reads the

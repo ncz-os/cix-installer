@@ -194,7 +194,7 @@ BAKED_HELPERS = [
 
 def patch_t2_kernel(
     base_initrd: Path,
-    kernel_deb: Path,
+    kernel_deb: Path | None,
     arch: str,
     cache_root: Path,
     force: bool = False,
@@ -202,11 +202,21 @@ def patch_t2_kernel(
     helper_dir: Path | None = None,
     diag_busybox: Path | None = None,
     ssh_udeb_dir: Path | None = None,
+    kernel_image: Path | None = None,
+    modules_tar: Path | None = None,
 ) -> tuple[Path, Path]:
     if not base_initrd.is_file():
         raise RuntimeError(f"FATAL: no base initrd at {base_initrd}")
-    if not kernel_deb.is_file():
+    if kernel_deb is not None and not kernel_deb.is_file():
         raise RuntimeError(f"FATAL: kernel .deb missing: {kernel_deb}")
+    if kernel_image is not None and not kernel_image.is_file():
+        raise RuntimeError(f"FATAL: kernel image missing: {kernel_image}")
+    if modules_tar is not None and not modules_tar.is_file():
+        raise RuntimeError(f"FATAL: modules tarball missing: {modules_tar}")
+    if kernel_deb is None and (kernel_image is None or modules_tar is None):
+        raise RuntimeError("FATAL: provide --kernel-deb, or both --kernel-image and --modules-tar")
+    if kernel_deb is not None and (kernel_image is not None or modules_tar is not None):
+        raise RuntimeError("FATAL: --kernel-deb and --kernel-image/--modules-tar are mutually exclusive")
     if preseed_cfg is not None and not preseed_cfg.is_file():
         raise RuntimeError(f"FATAL: preseed.cfg not found: {preseed_cfg}")
 
@@ -250,7 +260,9 @@ def patch_t2_kernel(
         "schema_version": "ncz-initrd-t2kernel/v3",
         "arch": arch,
         "base_initrd": _stat(base_initrd),
-        "kernel_deb": _stat(kernel_deb),
+        "kernel_deb": _stat(kernel_deb) if kernel_deb else {"present": False},
+        "kernel_image": _stat(kernel_image) if kernel_image else {"present": False},
+        "modules_tar": _stat(modules_tar) if modules_tar else {"present": False},
         "prune_mod_dirs": PRUNE_MOD_DIRS,
         "preseed_cfg": _stat(preseed_cfg) if preseed_cfg is not None else {"present": False},
         "helpers": {p.name: _stat(p) for p in helpers},
@@ -280,24 +292,31 @@ def patch_t2_kernel(
 
     with tempfile.TemporaryDirectory(prefix="patch-t2kernel-") as tmp:
         tmp = Path(tmp)
-        deb_extract = tmp / "deb"
-        deb_extract.mkdir()
-        log(f"    extracting {kernel_deb} -> {deb_extract}")
-        subprocess.run(["dpkg-deb", "-x", str(kernel_deb), str(deb_extract)], check=True)
+        kernel_extract = tmp / "kernel"
+        kernel_extract.mkdir()
+        if kernel_deb is not None:
+            log(f"    extracting {kernel_deb} -> {kernel_extract}")
+            subprocess.run(["dpkg-deb", "-x", str(kernel_deb), str(kernel_extract)], check=True)
+        else:
+            log(f"    extracting Sky1 modules {modules_tar} -> {kernel_extract}")
+            subprocess.run(["tar", "-xzf", str(modules_tar), "-C", str(kernel_extract)], check=True)
 
-        modules_dirs = sorted((deb_extract / "lib" / "modules").glob("*"))
+        modules_dirs = sorted((kernel_extract / "lib" / "modules").glob("*"))
         if len(modules_dirs) != 1:
             raise RuntimeError(
                 f"FATAL: expected exactly one lib/modules/<kver> dir in "
-                f"{kernel_deb}, found {len(modules_dirs)}: {modules_dirs}"
+                f"kernel input, found {len(modules_dirs)}: {modules_dirs}"
             )
         kver = modules_dirs[0].name
         log(f"    real kernel version: {kver}")
 
-        vmlinuz_candidates = sorted((deb_extract / "boot").glob(f"vmlinuz-{kver}"))
-        if not vmlinuz_candidates:
-            raise RuntimeError(f"FATAL: no boot/vmlinuz-{kver} in {kernel_deb}")
-        vmlinuz_src = vmlinuz_candidates[0]
+        if kernel_deb is not None:
+            vmlinuz_candidates = sorted((kernel_extract / "boot").glob(f"vmlinuz-{kver}"))
+            if not vmlinuz_candidates:
+                raise RuntimeError(f"FATAL: no boot/vmlinuz-{kver} in {kernel_deb}")
+            vmlinuz_src = vmlinuz_candidates[0]
+        else:
+            vmlinuz_src = kernel_image
 
         # --- build the modules overlay -------------------------------
         overlay_root = tmp / "overlay"
@@ -390,6 +409,51 @@ def patch_t2_kernel(
             log(f"    baked {len(ssh_udebs)} ssh udebs -> initrd "
                 f"/ncz/ssh-udebs/: {[u.name for u in ssh_udebs]}")
 
+        # Persistent installer branding ported from build-iso-di.sh's
+        # brand_udeb_templates()/initrd overlay.  The components present in
+        # the base initrd register these templates before media discovery, so
+        # branding must be in the initrd rather than only on partition 2.
+        initrd_extract = tmp / "initrd-extract"
+        initrd_extract.mkdir()
+        gz = subprocess.Popen(["gzip", "-dc", str(base_initrd)], stdout=subprocess.PIPE)
+        cp = subprocess.run(["cpio", "-id", "--quiet"], cwd=initrd_extract,
+                            stdin=gz.stdout, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+        gz.stdout.close()
+        gz_rc = gz.wait()
+        # cpio returns 2 here solely because an unprivileged build user cannot
+        # mknod the initrd's dev/{console,null}; all regular files (including
+        # the templates we need) are still extracted.  Gate the actual inputs
+        # below instead of rejecting that expected device-node warning.
+        if gz_rc != 0 or cp.returncode not in (0, 2):
+            raise RuntimeError("FATAL: could not extract base initrd for persistent UI branding")
+        replacements = (
+            ("Debian installer main menu", "NCZ-OS installer main menu"),
+            ("Debian GNU/Linux Installer menu", "NCZ-OS installer menu"),
+            ("Debian GNU/Linux installer main menu", "NCZ-OS installer main menu"),
+            ("the Debian installer", "the NCZ-OS installer"),
+            ("Debian installer", "NCZ-OS installer"),
+            ("Debian GNU/Linux", "NCZ-OS"),
+        )
+        branded = []
+        for component in ("main-menu", "finish-install", "choose-mirror",
+                          "di-utils", "cdrom-detect", "cdrom-checker", "anna"):
+            src = initrd_extract / "var" / "lib" / "dpkg" / "info" / f"{component}.templates"
+            if not src.is_file():
+                continue
+            text = src.read_text(errors="surrogateescape")
+            changed = text
+            for old, new in replacements:
+                changed = changed.replace(old, new)
+            if changed == text:
+                continue
+            dst = overlay_root / "var" / "lib" / "dpkg" / "info" / src.name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(changed, errors="surrogateescape")
+            dst.chmod(0o644)
+            branded.append(component)
+        log(f"    baked persistent NCZ d-i template branding: {branded}")
+
         # Real usr-merge gotcha (verbatim from build-iso-di.sh): NEVER
         # emit a bare top-level "lib" dir entry, or a later archive's
         # directory-creation deletes the base initrd's lib->usr/lib
@@ -410,6 +474,12 @@ def patch_t2_kernel(
                 fl.write(subprocess.run(
                     ["find", "ncz", "-print"],
                     cwd=overlay_root, check=True, capture_output=True, text=True,
+                ).stdout)
+            branded_root = overlay_root / "var"
+            if branded_root.is_dir():
+                fl.write(subprocess.run(
+                    ["find", "var", "-print"], cwd=overlay_root, check=True,
+                    capture_output=True, text=True,
                 ).stdout)
         with filelist.open("rb") as fl_in:
             cpio_proc = subprocess.Popen(
@@ -444,8 +514,10 @@ def patch_t2_kernel(
         "inputs": {
             "base_initrd": str(base_initrd),
             "base_initrd_sha256": sha256_file(base_initrd),
-            "kernel_deb": str(kernel_deb),
-            "kernel_deb_sha256": sha256_file(kernel_deb),
+            "kernel_deb": str(kernel_deb) if kernel_deb else None,
+            "kernel_deb_sha256": sha256_file(kernel_deb) if kernel_deb else None,
+            "kernel_image": str(kernel_image) if kernel_image else None,
+            "modules_tar": str(modules_tar) if modules_tar else None,
             "prune_mod_dirs": PRUNE_MOD_DIRS,
             "pruned_unsatisfiable_modules": orphans,
             "baked_preseed_cfg": str(preseed_cfg) if preseed_cfg else None,
@@ -472,7 +544,12 @@ def patch_t2_kernel(
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--base-initrd", required=True, type=Path)
-    ap.add_argument("--kernel-deb", required=True, type=Path)
+    group = ap.add_mutually_exclusive_group(required=True)
+    group.add_argument("--kernel-deb", type=Path)
+    group.add_argument("--kernel-image", type=Path,
+                       help="raw Sky1 Image-cixmini.bin; requires --modules-tar")
+    ap.add_argument("--modules-tar", type=Path,
+                    help="Sky1 modules-cixmini.tgz used with --kernel-image")
     ap.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     ap.add_argument("--cache-root", type=Path, default=DEFAULT_CACHE_ROOT)
     ap.add_argument("--force", action="store_true")
@@ -535,6 +612,7 @@ def main() -> int:
             args.base_initrd, args.kernel_deb, args.arch,
             args.cache_root, args.force, preseed_cfg,
             helper_dir, diag_busybox, ssh_udeb_dir,
+            args.kernel_image, args.modules_tar,
         )
     except RuntimeError as e:
         log(str(e))

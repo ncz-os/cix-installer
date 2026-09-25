@@ -28,11 +28,11 @@ PRESEED=preseed/preseed.cfg
 FIX=0
 [ "${1:-}" = "--fix" ] && FIX=1
 
-: "${NCZ_BASE_MIRROR:?release.conf must define NCZ_BASE_MIRROR}"
+: "${NCZ_DI_MIRROR:?release.conf must define NCZ_DI_MIRROR}"
 : "${NCZ_BASE_CODENAME:?release.conf must define NCZ_BASE_CODENAME}"
 
 # https://snapshot.debian.org/archive/debian/<SNAP>  ->  host + directory
-_noscheme="${NCZ_BASE_MIRROR#*://}"
+_noscheme="${NCZ_DI_MIRROR#*://}"
 WANT_HOST="${_noscheme%%/*}"
 WANT_DIR="/${_noscheme#*/}"
 [ "$WANT_DIR" = "/$_noscheme" ] && WANT_DIR="/"
@@ -88,13 +88,13 @@ fi
 cat >&2 <<EOF
 [mirror-sync] FAILED: $PRESEED and release.conf disagree.
 
-  release.conf is the source of truth for the pinned snapshot; preseed.cfg
+  release.conf is the source of truth for the live d-i mirror; preseed.cfg
   carries a hardcoded copy because the pipeline stages it verbatim with no
   templating step. Fix with:
 
       build/check-preseed-mirror-sync.sh --fix
 
-  Letting these drift means d-i's choose-mirror fetches a different archive
-  state than the squashfs was built from.
+  Letting these drift means daily d-i can fetch udebs from an ABI-incompatible
+  or expired archive.
 EOF
 exit 1

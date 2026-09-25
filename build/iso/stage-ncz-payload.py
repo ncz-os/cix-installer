@@ -348,6 +348,14 @@ def stage_payload(
 
     # --- 3. Validate sqtools (REQUIRED — bundled static unsquashfs) ------
     sqtools_src = REPO_ROOT / "build" / f"sqtools-{arch}"
+    if arch == "arm64" and not sqtools_src.is_dir():
+        # Historical arm64 builds predate the suffixed directory; unlike the
+        # amd64 bundle, build/sqtools is unambiguously AArch64 (its loader is
+        # ld-linux-aarch64.so.1).  Retain that warm-cache compatibility while
+        # still never allowing an amd64 bundle into an arm64 image.
+        legacy = REPO_ROOT / "build" / "sqtools"
+        if (legacy / "ld-linux-aarch64.so.1").is_file():
+            sqtools_src = legacy
     sqtools_unsq = sqtools_src / "unsquashfs"
     if not sqtools_src.is_dir() or not sqtools_unsq.is_file():
         raise RuntimeError(
