@@ -42,9 +42,16 @@ if [ ! -d "$SUBSTRATE_NODE/extract/pool" ]; then
     UDEB_INDEX="$WORK_DIR/Packages-debian-installer.xz"
     curl -fL -o "$UDEB_INDEX" \
       "https://deb.debian.org/debian/dists/forky/main/debian-installer/binary-$ARCH/Packages.xz"
+    # Consume the complete index instead of exiting awk on the first match.
+    # With pipefail enabled, an early awk exit closes the pipe while xz is
+    # still writing, so xz receives SIGPIPE and the whole substitution exits
+    # 141 even though the requested Filename was found successfully.
     UDEB_REL=$(xz -dc "$UDEB_INDEX" | awk '
       $1 == "Package:" { pkg=$2 }
-      pkg == "debootstrap-udeb" && $1 == "Filename:" { print $2; exit }
+      !found && pkg == "debootstrap-udeb" && $1 == "Filename:" {
+        print $2
+        found=1
+      }
     ')
     [ -n "$UDEB_REL" ] || { echo "FATAL: debootstrap-udeb absent from forky installer index" >&2; exit 1; }
     DEBOOTSTRAP_UDEB="$WORK_DIR/$(basename "$UDEB_REL")"
