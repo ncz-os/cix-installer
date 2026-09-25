@@ -160,7 +160,7 @@ verify_squashfs(){
   # fails with "Permission denied" and yields rc=1 without unsquashfs having
   # run at all. The first version of this gate did exactly that and destroyed
   # a freshly built, untested layer on a false corruption verdict.
-  vlog="$(mktemp "/tmp/ncz-verify-$name.XXXXXX.log")" || return 0
+  vlog="$(mktemp "${TMPDIR:-/tmp}/ncz-verify-$name.XXXXXX.log")" || return 0
   vd="$(sudo mktemp -d "$WORK/.verify-$name.XXXXXX")"
   log "$name: verifying archive (full decompress -- catches silent mksquashfs corruption)"
   rc=0
@@ -402,6 +402,7 @@ build_layer(){ local role="$1" manifest="$2"
   # mksquashfs) is UNCHANGED from before -- those steps operate on $U's
   # content, not on how it was produced.
   MIRROR_DIRS="$MIRROR_DIRS" APT_SUITE="$APT_SUITE" APT_COMPONENTS="$APT_COMPONENTS" \
+    WORK="$WORK/$role-mkosi-work" WORK_EXPLICIT=1 \
     "$ROOT/build/build-role-delta-mkosi.sh" "$role" "$ROOT/$manifest" "$L" "$MKOUT" "$NCZ_TARGET_ARCH" || {
     log "ERROR: $role mkosi delta build failed; refusing to publish an incomplete layer"
     sudo rm -rf "$L" "$MKOUT"

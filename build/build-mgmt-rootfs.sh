@@ -119,11 +119,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive bash -eu <<CHROOT_APT
+if ! chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp bash -eu <<CHROOT_APT
 apt-get update
 apt-get install -y --no-install-recommends $PKGS
 apt-get clean
 CHROOT_APT
+then
+    mountpoint -q "$CHROOT/proc" || mount -t proc proc "$CHROOT/proc"
+    chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp dpkg --configure -a
+    chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp apt-get install -f -y
+    chroot "$CHROOT" apt-get clean
+fi
 
 # ----------------------------------------------------------------------
 # Stage 3 - container configuration (baked into the rootfs).
