@@ -288,9 +288,14 @@ f = "subprojects/singularity-shell/src/core/main.vala"
 s = open(f, encoding="utf-8").read()
 if "Close the launcher popup first" in s:
     print("    shell: launcher-popup fix already present"); raise SystemExit(0)
-anchor = "        if (!ensure_workspace_overview()) return;\n        workspace_overview.toggle();"
-if anchor not in s:
-    raise SystemExit("ERROR: main.vala anchor gone -- upstream moved; rebase the NCZ launcher-popup fix")
+start = s.find("    private void toggle_workspace_overview() {")
+end = s.find("\n    }", start)
+if start < 0 or end < 0:
+    raise SystemExit("ERROR: toggle_workspace_overview() gone -- upstream moved; rebase the NCZ launcher-popup fix")
+body = s[start:end]
+anchor = "        if (!ensure_workspace_overview()) return;"
+if anchor not in body:
+    raise SystemExit("ERROR: toggle_workspace_overview() anchor gone -- upstream moved; rebase the NCZ launcher-popup fix")
 add = ("        // Close the launcher popup first: the workspace chooser is a\n"
        "        // full-screen TOP layer, and leaving AppMenu visible lets the\n"
        "        // chooser hover over (and visually occlude) the main menu when\n"
@@ -298,7 +303,8 @@ add = ("        // Close the launcher popup first: the workspace chooser is a\n"
        "        if (app_menu != null && app_menu.visible) {\n"
        "            app_menu.toggle();\n"
        "        }\n")
-open(f, "w", encoding="utf-8").write(s.replace(anchor, add + anchor, 1))
+patched = body.replace(anchor, add + anchor, 1)
+open(f, "w", encoding="utf-8").write(s[:start] + patched + s[end:])
 print("    shell: launcher-popup fix applied")
 PY_NCZ_SHELL
 fi
