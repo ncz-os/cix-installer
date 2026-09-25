@@ -11,6 +11,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WallpaperOwnerTest(unittest.TestCase):
+    def test_singularity_rotation_state_path_precedes_legacy_path(self):
+        source = (ROOT / "post-install/45-wallpaper-rotator.sh").read_text()
+        rotator = source.split("<<'ROT'\n", 1)[1].split("\nROT\n", 1)[0]
+        self.assertIn(
+            'CONF="$CONFIG_HOME/singularity/wallpaper-rotation/collection"', rotator
+        )
+        self.assertIn('LEGACY_CONF="$CONFIG_HOME/ncz-wallpaper/collection"', rotator)
+        self.assertLess(
+            rotator.index('CONF="$CONFIG_HOME/singularity/'),
+            rotator.index("LEGACY_CONF="),
+        )
+
     def run_rotator(self, desktop):
         source = (ROOT / "post-install/45-wallpaper-rotator.sh").read_text()
         script = source.split("<<'ROT'\n", 1)[1].split("\nROT\n", 1)[0]
