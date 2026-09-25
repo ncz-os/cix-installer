@@ -189,7 +189,7 @@ date -u +"  ended   %H:%M:%SZ  (qemu rc=$irc)"
 
 echo
 echo "[5/6] checking the install log"
-grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i |Linux version" "$ILOG" \
+grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i |Linux version|Starting linux|Installing the base system|Starting NCZ-OS post-install plan" "$ILOG" \
   || fail "the installer never started (qemu rc=$irc) -- see $ILOG"
 
 # The gaps this session fixed, each with its own message, so a failure names
@@ -203,8 +203,8 @@ fi
 if grep -qE "disk-fs-chooser.sh not found on install media|extract-rootfs.sh not found on install media|late.sh not found on install media" "$ILOG"; then
     fail "a payload script was not found on the medium -- the data partition may be empty"
 fi
-if grep -qE "Failed to run preseeded command|failed with exit code|install aborts|FAILED rc=|refusing to ship a broken install|refusing to boot" "$ILOG"; then
-    grep -nE -B3 -A6 "Failed to run preseeded command|failed with exit code|install aborts|FAILED rc=|refusing to ship a broken install|refusing to boot" "$ILOG" | head -50 >&2
+if grep -qE "Failed to run preseeded command|failed with exit code|install aborts|70-bootloader\.sh FAILED rc=|Post-install failed: bootloader rc=|refusing to ship a broken install|refusing to boot" "$ILOG"; then
+    grep -nE -B3 -A6 "Failed to run preseeded command|failed with exit code|install aborts|70-bootloader\.sh FAILED rc=|Post-install failed: bootloader rc=|refusing to ship a broken install|refusing to boot" "$ILOG" | head -50 >&2
     fail "a preseeded command failed"
 fi
 if grep -qE "Kernel panic - not syncing" "$ILOG"; then
