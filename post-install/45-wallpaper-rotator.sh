@@ -238,10 +238,13 @@ cmd_pick() {
             provider=$(_ini_get "$f" Collection Provider)
             case "$provider" in
                 bing)
-                    # Refresh is best-effort: a failed or offline fetch must still
-                    # yield yesterday's cached image rather than no wallpaper.
+                    # Fetching belongs to ncz-wallpaper-bing.timer.  Doing a full
+                    # 14-market refresh here made every 10-minute rotation depend
+                    # on the network and allowed it to overlap the daily fetch's
+                    # destructive consolidated-view rebuild.  `pick` already
+                    # falls back from a missing/stale consolidated manifest to
+                    # the real per-market archive, including older cached days.
                     if [ -x /usr/local/bin/ncz-wallpaper-bing ]; then
-                        /usr/local/bin/ncz-wallpaper-bing fetch >/dev/null 2>&1
                         /usr/local/bin/ncz-wallpaper-bing pick
                         return $?
                     fi
@@ -1088,14 +1091,51 @@ COLLECTION=""
 [ -z "$COLLECTION" ] && COLLECTION=ncz
 
 PIC=""
+PICK_STATUS=127
+PICK_ERROR="collection helper is not installed or executable"
+STATE_DIR=${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ncz-wallpaper}
+STATE_FILE="$STATE_DIR/ncz-wallpaper-state"
+STATE_COLLECTION_FILE="$STATE_DIR/ncz-wallpaper-state.collection"
+mkdir -p "$STATE_DIR" 2>/dev/null || true
+
+wallpaper_log() {
+    # stderr is captured by ncz-wallpaper-rotator.service and is therefore
+    # inspectable with `journalctl --user -u ncz-wallpaper-rotator.service`.
+    printf '%s\n' "ncz-wallpaper-rotate: $*" >&2
+}
+
 if [ -x /usr/local/bin/ncz-wallpaper-collections ]; then
-    PIC=$(/usr/local/bin/ncz-wallpaper-collections pick "$COLLECTION" 2>/dev/null)
+    PICK_ERROR_FILE="$STATE_DIR/ncz-wallpaper-pick-error.$$"
+    PIC=$(/usr/local/bin/ncz-wallpaper-collections pick "$COLLECTION" 2>"$PICK_ERROR_FILE")
+    PICK_STATUS=$?
+    PICK_ERROR=$(tr '\n' ' ' < "$PICK_ERROR_FILE" 2>/dev/null)
+    rm -f "$PICK_ERROR_FILE"
 fi
-# Fall back to the flat directory if the collection yielded nothing -- an empty
-# pak, a provider that could not reach the network, or a mistyped id must not
-# leave the desktop with no wallpaper at all.
-[ -n "$PIC" ] && [ -f "$PIC" ] || PIC=$(ls $WP_DIR/ncz-wallpaper-*.jpg 2>/dev/null | shuf -n1)
-[ -z "$PIC" ] && exit 0
+if [ "$PICK_STATUS" -ne 0 ] || [ -z "$PIC" ] || [ ! -f "$PIC" ]; then
+    REASON="status=$PICK_STATUS returned=${PIC:-<empty>}"
+    [ -n "$PIC" ] && [ ! -f "$PIC" ] && REASON="$REASON (file does not exist)"
+    [ -n "$PICK_ERROR" ] && REASON="$REASON error=$PICK_ERROR"
+
+    # Never make a transient provider/cache failure look like the user chose
+    # the built-in NCZ collection.  Reapply the last successful image only
+    # when it was picked for this same collection; otherwise leave the current
+    # desktop untouched and let the next timer cycle retry.
+    LAST_COLLECTION=""
+    [ -r "$STATE_COLLECTION_FILE" ] && LAST_COLLECTION=$(tr -d " \t\r\n" < "$STATE_COLLECTION_FILE" 2>/dev/null)
+    LAST_PIC=""
+    [ -r "$STATE_FILE" ] && LAST_PIC=$(sed -n '1p' "$STATE_FILE" 2>/dev/null)
+    if [ "$LAST_COLLECTION" = "$COLLECTION" ] && [ -n "$LAST_PIC" ] && [ -f "$LAST_PIC" ]; then
+        PIC=$LAST_PIC
+        wallpaper_log "collection '$COLLECTION' pick failed ($REASON); keeping last valid image '$PIC'"
+    elif [ "$COLLECTION" = ncz ]; then
+        PIC=$(find "$WP_DIR" -maxdepth 1 -type f -name 'ncz-wallpaper-*.jpg' 2>/dev/null | shuf -n1)
+        [ -n "$PIC" ] && wallpaper_log "default collection '$COLLECTION' pick failed ($REASON); using built-in image '$PIC'"
+    else
+        wallpaper_log "collection '$COLLECTION' pick failed ($REASON); leaving the current wallpaper unchanged"
+        exit 1
+    fi
+fi
+[ -z "$PIC" ] && { wallpaper_log "collection '$COLLECTION' has no usable image"; exit 1; }
 # default.jpg is a convenience pointer, not the mechanism -- the wallpaper is
 # applied through GSettings below. The rotator runs as the logged-in
 # user and $WP_DIR is root-owned 0755, so this ln FAILS with EPERM every time.
@@ -1135,7 +1175,8 @@ case "$DE" in
         gsettings set org.gnome.desktop.background picture-options zoom 2>/dev/null || true
         ;;
 esac
-echo "$PIC" > ${XDG_RUNTIME_DIR:-/tmp}/ncz-wallpaper-state 2>/dev/null
+printf '%s\n' "$PIC" > "$STATE_FILE" 2>/dev/null
+printf '%s\n' "$COLLECTION" > "$STATE_COLLECTION_FILE" 2>/dev/null
 ROT
 chmod 0755 /usr/local/bin/ncz-wallpaper-rotate
 
