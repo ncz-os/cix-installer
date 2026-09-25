@@ -22,12 +22,14 @@ run_capture() { local log=$1; shift; "$@" 2>&1 | tee "$log"; }
 echo "[1/6] importing $ARCH substrate"
 run_capture "$WORK_DIR/import.log" python3 "$ROOT/build/iso/import-substrate.py" \
   --iso "$SUBSTRATE_ISO" --iso-url "$SUBSTRATE_URL" --arch "$ARCH"
-SUBSTRATE_NODE=$(sed -n 's/^node_dir: //p' "$WORK_DIR/import.log" | tail -1)
+SUBSTRATE_NODE=$(sed -n -e 's/^node_dir: //p' -e 's/^node exists: //p' \
+  "$WORK_DIR/import.log" | tail -1)
 [ -d "$SUBSTRATE_NODE/extract/d-i" ] || { echo "FATAL: imported substrate has no extract/d-i" >&2; exit 1; }
 
 echo "[2/6] staging architecture-matched squashfs payload"
 run_capture "$WORK_DIR/payload.log" python3 "$ROOT/build/iso/stage-ncz-payload.py" --arch "$ARCH"
-PAYLOAD_NODE=$(sed -n 's/^node_dir: //p' "$WORK_DIR/payload.log" | tail -1)
+PAYLOAD_NODE=$(sed -n -e 's/^node_dir: //p' -e 's/^node exists: //p' \
+  -e 's/^OK: staged payload at //p' "$WORK_DIR/payload.log" | tail -1)
 [ -d "$PAYLOAD_NODE" ] || { echo "FATAL: payload node not reported" >&2; exit 1; }
 
 echo "[3/6] patching debootstrap installer stub"
