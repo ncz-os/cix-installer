@@ -792,7 +792,11 @@ fi
     while [ ! -S "$_rt/$_wd" ] && [ $_i -lt 100 ]; do sleep 0.2; _i=$((_i+1)); done
     export WAYLAND_DISPLAY="$_wd"
     systemctl --user import-environment WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_SESSION_CLASS XDG_SESSION_DESKTOP XDG_CURRENT_DESKTOP 2>&1
-    systemctl --user start graphical-session.target 2>&1
+    # graphical-session.target is RefuseManualStart-hardened (see the bridge
+    # comment above) -- start singularity-session.target instead, which
+    # BindsTo=graphical-session.target and pulls it in as a real dependency
+    # job rather than the manual job RefuseManualStart blocks.
+    systemctl --user start singularity-session.target 2>&1
     if systemctl --user cat ncz-idle-manager.service >/dev/null 2>&1; then
         systemctl --user restart ncz-idle-manager.service 2>&1
     fi
