@@ -110,6 +110,7 @@ if compgen -G "$SINTY_DEBS/ncz-singularity-desktop_*.deb" >/dev/null; then
     for deb in "$SINTY_DEBS"/ncz-singularity-desktop_*.deb; do
         publish_deb "$deb"
     done
+fi
 
 # Google Chrome (2026-09-15): this script's own header has documented since
 # it was written that the vendor mirror carries "Google's signed Chrome
@@ -122,20 +123,30 @@ if compgen -G "$SINTY_DEBS/ncz-singularity-desktop_*.deb" >/dev/null; then
 # singularity-desktop publish steps above: always the CURRENT stable release,
 # checksum-verified against Google's own signed Packages index (not merely
 # TLS transport trust) before it ever reaches the pool.
+#
+# 2026-09-25 AMD64 fix: this block was accidentally placed inside the
+# SINTY_DEBS conditional above. AMD64 deliberately has no locally-built
+# ncz-singularity-desktop package yet, so its vendor-mirror run skipped the
+# entire Chrome fetch without saying so and published an index with no Chrome.
+# Chrome is an independent release input: fetch it independently and fail the
+# mirror build rather than allowing a browser-enabled ISO to be assembled with
+# a known-incomplete pool.
 CHROME_DEB_CACHE="${CHROME_DEB_CACHE:-$REPO/build/chrome-deb-cache}"
 GOOGLE_CHROME_URL="${GOOGLE_CHROME_URL:-https://dl.google.com/linux/chrome/deb}"
 if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "amd64" ]; then
     echo "== publishing Google Chrome stable ($ARCH) =="
     mkdir -p "$CHROME_DEB_CACHE"
-    _chrome_pkgs="$(curl -fsSL -m 60 "$GOOGLE_CHROME_URL/dists/stable/main/binary-$ARCH/Packages" 2>/dev/null || true)"
-    if [ -z "$_chrome_pkgs" ]; then
-        echo "  WARN: could not reach $GOOGLE_CHROME_URL -- Chrome will be absent from this mirror" >&2
+    if ! _chrome_pkgs="$(curl -fsSL -m 60 "$GOOGLE_CHROME_URL/dists/stable/main/binary-$ARCH/Packages")" \
+       || [ -z "$_chrome_pkgs" ]; then
+        echo "  ERROR: could not fetch Google's $ARCH Packages index; refusing an incomplete vendor mirror" >&2
+        exit 1
     else
         _chrome_entry="$(printf '%s\n' "$_chrome_pkgs" | awk '/^Package: google-chrome-stable$/{f=1} f{print} f&&/^$/{exit}')"
         _chrome_file="$(printf '%s\n' "$_chrome_entry" | sed -n 's/^Filename: //p')"
         _chrome_sha="$(printf '%s\n' "$_chrome_entry" | sed -n 's/^SHA256: //p')"
         if [ -z "$_chrome_file" ] || [ -z "$_chrome_sha" ]; then
-            echo "  WARN: google-chrome-stable/$ARCH not present in the signed index -- skipping" >&2
+            echo "  ERROR: google-chrome-stable/$ARCH is absent or incomplete in Google's Packages index" >&2
+            exit 1
         else
             _chrome_deb="$CHROME_DEB_CACHE/$(basename "$_chrome_file")"
             if [ -f "$_chrome_deb" ] && [ "$(sha256sum "$_chrome_deb" | awk '{print $1}')" = "$_chrome_sha" ]; then
@@ -148,13 +159,12 @@ if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "amd64" ]; then
                 else
                     echo "  ERROR: download or SHA256 mismatch for $_chrome_file -- refusing to publish" >&2
                     rm -f "$_chrome_deb.part"
-                    _chrome_deb=""
+                    exit 1
                 fi
             fi
-            [ -n "$_chrome_deb" ] && [ -f "$_chrome_deb" ] && publish_deb "$_chrome_deb"
+            publish_deb "$_chrome_deb"
         fi
     fi
-fi
 fi
 
 cd "$VENDOR"
