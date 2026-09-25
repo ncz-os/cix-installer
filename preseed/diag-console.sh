@@ -36,7 +36,7 @@ LOG=/var/log/diag-console.log
 exec >> "$LOG" 2>&1
 say() {
     echo "[diag] $*"
-    for _v in /dev/console /dev/tty3 /dev/ttyAMA0; do
+    for _v in /dev/console /dev/tty3 /dev/ttyAMA0 /dev/ttyS0; do
         echo "[diag] $*" > "$_v" 2>/dev/null || true
     done
 }
