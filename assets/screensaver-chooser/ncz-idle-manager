@@ -1,0 +1,52 @@
+#!/bin/bash
+set -uo pipefail
+
+SCHEMA=dev.ncz.screensaver
+RUNNER=/usr/libexec/ncz-screensaver-run
+LOCK=/usr/local/bin/ncz-lock
+SWAYIDLE_PID=
+MONITOR_PID=
+
+stop_idle() {
+    if [ -n "$SWAYIDLE_PID" ]; then
+        kill "$SWAYIDLE_PID" 2>/dev/null || true
+        wait "$SWAYIDLE_PID" 2>/dev/null || true
+        SWAYIDLE_PID=
+    fi
+    "$RUNNER" --stop
+}
+
+start_idle() {
+    stop_idle
+    mode=$(gsettings get "$SCHEMA" mode | tr -d "'")
+    idle=$(gsettings get "$SCHEMA" hack-idle-delay)
+    lock_enabled=$(gsettings get "$SCHEMA" lock-enabled)
+    lock_delay=$(gsettings get "$SCHEMA" lock-delay)
+    lock_on_suspend=$(gsettings get "$SCHEMA" lock-on-suspend)
+    args=(-w)
+    if [ "$mode" != off ]; then
+        args+=(timeout "$idle" "$RUNNER --start" resume "$RUNNER --stop")
+    fi
+    if [ "$lock_enabled" = true ]; then
+        lock_at=$((idle + lock_delay))
+        [ "$mode" = off ] && lock_at=$idle
+        args+=(timeout "$lock_at" "$LOCK")
+        [ "$lock_on_suspend" = true ] && args+=(before-sleep "$LOCK")
+    fi
+    [ "${#args[@]}" -gt 1 ] || return 0
+    swayidle "${args[@]}" &
+    SWAYIDLE_PID=$!
+}
+
+cleanup() {
+    stop_idle
+    [ -n "$MONITOR_PID" ] && kill "$MONITOR_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+start_idle
+coproc MONITOR { gsettings monitor "$SCHEMA"; }
+MONITOR_PID=$MONITOR_PID
+while IFS= read -r _line <&"${MONITOR[0]}"; do
+    start_idle
+done
