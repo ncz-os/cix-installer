@@ -59,7 +59,7 @@ mkdir -p "$TMP/etc/apt/apt.conf.d" "$TMP/etc/apt/preferences.d" \
 # NCZ_BASE_MIRROR_APT_OPTS (release.conf) adds check-valid-until=no only when
 # actually pinned, so an unpinned live-mirror build keeps normal expiry checks.
 MIRROR_DEB_OPTS="arch=$ARCH signed-by=$DEBIAN_KEYRING"
-[ -n "${NCZ_BASE_MIRROR_APT_OPTS:-}" ] && MIRROR_DEB_OPTS="$MIRROR_DEB_OPTS,$NCZ_BASE_MIRROR_APT_OPTS"
+[ -n "${NCZ_BASE_MIRROR_APT_OPTS:-}" ] && MIRROR_DEB_OPTS="$MIRROR_DEB_OPTS $NCZ_BASE_MIRROR_APT_OPTS"
 cat > "$TMP/etc/apt/sources.list" <<EOF
 deb [$MIRROR_DEB_OPTS] $MIRROR_URL $SUITE $COMPONENTS
 deb [arch=$ARCH trusted=yes] file://$VENDOR_MIRROR $SUITE main
