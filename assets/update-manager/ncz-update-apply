@@ -1,0 +1,27 @@
+#!/bin/sh
+# Narrow privileged backend for the NCZ Update Manager. This deliberately
+# accepts actions, not arbitrary apt arguments.
+set -eu
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "ncz-update-apply must run as root (normally through pkexec)" >&2
+    exit 1
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+export LC_ALL=C.UTF-8
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+case "${1:-}" in
+    refresh)
+        exec apt-get -o Acquire::Check-Date=false update
+        ;;
+    apply)
+        apt-get -o Acquire::Check-Date=false update
+        exec apt-get -y -o Dpkg::Use-Pty=0 -o Dpkg::Progress-Fancy=0 full-upgrade
+        ;;
+    *)
+        echo "usage: ncz-update-apply {refresh|apply}" >&2
+        exit 2
+        ;;
+esac
