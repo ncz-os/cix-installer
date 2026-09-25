@@ -173,7 +173,7 @@ cat > "$WORK/skeleton/usr/sbin/policy-rc.d" << POLEOF
 exit 101
 POLEOF
 chmod 0755 "$WORK/skeleton/usr/sbin/policy-rc.d"
-trap 'rm -rf "$WORK"' EXIT
+trap 'sudo rm -rf "$WORK"' EXIT
 
 _avail_gb=$(df -P --block-size=1G "$WORK" 2>/dev/null | awk 'NR==2{print $4+0}') || true
 _avail_gb="${_avail_gb:-0}"

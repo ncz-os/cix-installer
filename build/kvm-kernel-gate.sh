@@ -37,7 +37,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="${1:-$REPO/assets/kernel/edge/Image-cixmini.bin}"
 CONFIG="${2:-}"
 TIMEOUT="${GATE_TIMEOUT:-120}"
-LOG="$(mktemp /tmp/kvm-kernel-gate.XXXXXX.log)"
+LOG="$(mktemp "${TMPDIR:-/tmp}/kvm-kernel-gate.XXXXXX.log")"
 
 if [ -z "$CONFIG" ]; then
   CONFIG="$(ls "$(dirname "$IMAGE")"/config-* 2>/dev/null | head -1)"
