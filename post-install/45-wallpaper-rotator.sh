@@ -1081,11 +1081,13 @@ if command -v systemctl >/dev/null 2>&1; then
     unset _ncz_env _ncz_name _ncz_line
 fi
 
-# WHICH COLLECTION. The user's choice lives in a plain file so it can be set
-# without a settings daemon and read identically from a timer, a shell or the
-# desktop. Unset = "ncz", the shipped art, which is the pre-collections
-# behaviour.
-CONF="${XDG_CONFIG_HOME:-$HOME/.config}/ncz-wallpaper/collection"
+# WHICH COLLECTION. Singularity Desktop writes the user's choice directly to
+# its wallpaper-rotation state directory. Keep reading the old NCZ-owned path
+# as a fallback for upgrades from builds that exposed it independently.
+CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
+CONF="$CONFIG_HOME/singularity/wallpaper-rotation/collection"
+LEGACY_CONF="$CONFIG_HOME/ncz-wallpaper/collection"
+[ ! -r "$CONF" ] && CONF=$LEGACY_CONF
 COLLECTION=""
 [ -r "$CONF" ] && COLLECTION=$(tr -d " \t\r\n" < "$CONF" 2>/dev/null)
 [ -z "$COLLECTION" ] && COLLECTION=ncz
@@ -1197,14 +1199,18 @@ sleep 2
 # who changes the interval or turns rotation off should not have to log out for
 # it to take effect.
 #
-#   ~/.config/ncz-wallpaper/rotate-enabled   "0" disables rotation entirely
-#   ~/.config/ncz-wallpaper/rotate-interval  seconds between changes
+#   ~/.config/singularity/wallpaper-rotation/rotate-enabled
+#   ~/.config/singularity/wallpaper-rotation/rotate-interval
 #
 # Defaults preserve the previous behaviour exactly: enabled, 600s.
-CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ncz-wallpaper"
+CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
+CONF_DIR="$CONFIG_HOME/singularity/wallpaper-rotation"
+LEGACY_CONF_DIR="$CONFIG_HOME/ncz-wallpaper"
 while true; do
     interval=""
-    [ -r "$CONF_DIR/rotate-interval" ] && interval=$(tr -d " \t\r\n" < "$CONF_DIR/rotate-interval" 2>/dev/null)
+    INTERVAL_CONF="$CONF_DIR/rotate-interval"
+    [ ! -r "$INTERVAL_CONF" ] && INTERVAL_CONF="$LEGACY_CONF_DIR/rotate-interval"
+    [ -r "$INTERVAL_CONF" ] && interval=$(tr -d " \t\r\n" < "$INTERVAL_CONF" 2>/dev/null)
     case "$interval" in
         ''|*[!0-9]*) interval=600 ;;
     esac
@@ -1215,7 +1221,9 @@ while true; do
     sleep "$interval"
 
     enabled=""
-    [ -r "$CONF_DIR/rotate-enabled" ] && enabled=$(tr -d " \t\r\n" < "$CONF_DIR/rotate-enabled" 2>/dev/null)
+    ENABLED_CONF="$CONF_DIR/rotate-enabled"
+    [ ! -r "$ENABLED_CONF" ] && ENABLED_CONF="$LEGACY_CONF_DIR/rotate-enabled"
+    [ -r "$ENABLED_CONF" ] && enabled=$(tr -d " \t\r\n" < "$ENABLED_CONF" 2>/dev/null)
     [ "$enabled" = "0" ] && continue
     /usr/local/bin/ncz-wallpaper-rotate
 done
