@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="dev.ncz.screensaver" path="/dev/ncz/screensaver/">
+    <key name="mode" type="s"><default>'off'</default><summary>Screensaver mode</summary></key>
+    <key name="hack-id" type="s"><default>'hyprsaver_aurora_gles3'</default><summary>Selected screensaver</summary></key>
+    <key name="random-hacks" type="as"><default>[]</default><summary>Random rotation set</summary></key>
+    <key name="hack-idle-delay" type="i"><range min="60" max="86400"/><default>300</default><summary>Idle delay</summary></key>
+    <key name="cycle-delay" type="i"><range min="60" max="86400"/><default>600</default><summary>Rotation interval</summary></key>
+    <key name="lock-enabled" type="b"><default>true</default><summary>Lock after screensaver</summary></key>
+    <key name="lock-delay" type="i"><range min="0" max="86400"/><default>60</default><summary>Lock delay after screensaver</summary></key>
+    <key name="lock-on-suspend" type="b"><default>true</default><summary>Lock on suspend</summary></key>
+  </schema>
+</schemalist>

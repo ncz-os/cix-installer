@@ -623,17 +623,21 @@ $_found"
       sudo cp -a "$ROOT/assets/ncz-cli.sh" "$MG/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
       log "  staged ncz agent helper"
     fi
+    if [ -d "$ROOT/assets/screensaver-chooser" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets"
+      sudo cp -a "$ROOT/assets/screensaver-chooser" "$MG/usr/local/lib/cix-installer/assets/"
+      log "  staged screensaver chooser"
+    fi
     # r312: agent-stack setup is no longer a baked or install-time hook. It is
     # exclusively operator-driven after boot via `ncz agent install`.
     # 26.7 Singularity brand-hook order. 20-desktop = the Singularity installer
     # (extracts /opt/singularity, curates sessions, purges XFCE/Xorg) — runs
     # FIRST so the Wayland desktop exists before the cosmetic hooks. 84-vpu-mpv
-    # writes /etc/mpv HW-decode. 57-screensaver = NATIVE Wayland idle-lock
-    # (swayidle + Singularity lockscreen; the X11 xscreensaver is purged) — no
-    # longer dropped. 59-desktop-curate
+    # writes /etc/mpv HW-decode. 58-screensaver-chooser installs the NCZ-owned
+    # Vala picker and Wayland idle manager. 59-desktop-curate
     # LAST of the app hooks (after 20/52-vivaldi/46-ncz-cli) so it sees
     # every app-creating hook's output when it curates the launcher.
-    for bh in 20-desktop 22-display-fix 23-locale-env 50-brand 52-vivaldi 53-chrome 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 84-vpu-vaapi 57-qotd 46-ncz-cli 59-desktop-curate 60-boot-splash; do
+    for bh in 20-desktop 22-display-fix 23-locale-env 50-brand 52-vivaldi 53-chrome 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 84-vpu-vaapi 57-qotd 46-ncz-cli 58-screensaver-chooser 59-desktop-curate 60-boot-splash; do
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       set +e
@@ -916,7 +920,7 @@ build_base(){
   # this allowlist, breaking the NCZ agent stack, EmbedKit LLM stack, the
   # regreet login theme, NPU assets, and Singularity Desktop's own asset
   # tree on every amd64 build since this loop was last updated.
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs sinty-nm agent-images agent-stack audio cix-c-shims cix-mm dev diag docs dracut embedkit keys npu regreet singularity; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs screensaver-chooser sinty-nm agent-images agent-stack audio cix-c-shims cix-mm dev diag docs dracut embedkit keys npu regreet singularity; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   # Standalone files at assets/ root -- same silent-drop bug, same fix.
   for f in install_ncz_agents.sh kernel-manifest.json README.md cix-deb-repo.gpg; do [ -f "$ROOT/assets/$f" ] && sudo cp -a "$ROOT/assets/$f" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then

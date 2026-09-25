@@ -1,0 +1,63 @@
+#!/bin/sh
+set -eu
+
+SCHEMA=${NCZ_SCREENSAVER_SCHEMA:-dev.ncz.screensaver}
+CATALOG=${NCZ_SCREENSAVER_CATALOG:-/usr/share/ncz-screensaver-chooser/hacks.tsv}
+RUNTIME=${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}
+PIDFILE=$RUNTIME/ncz-screensaver.pid
+
+stop_hack() {
+    if [ -f "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE" 2>/dev/null || true)
+        rm -f "$PIDFILE"
+        [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null || true
+    fi
+}
+
+find_hack() {
+    id=$1
+    case "$id" in *[!A-Za-z0-9_-]*|'') return 1;; esac
+    awk -F '\t' -v id="$id" '$1 == id { found=1 } END { exit !found }' "$CATALOG" || return 1
+    search_dirs=${NCZ_SCREENSAVER_DIRS:-/usr/libexec/ncz-screensavers:/usr/lib/ncz-screensavers:/opt/ncz-screensavers/bin:/usr/local/libexec/ncz-screensavers}
+    old_ifs=$IFS
+    IFS=:
+    for dir in $search_dirs; do
+        [ -x "$dir/$id" ] && { printf '%s\n' "$dir/$id"; return 0; }
+    done
+    IFS=$old_ifs
+    command -v "$id" 2>/dev/null || return 1
+}
+
+run_hack() {
+    binary=$(find_hack "$1") || { echo "screensaver binary not found: $1" >&2; return 1; }
+    stop_hack
+    "$binary" >>"$RUNTIME/ncz-screensaver.log" 2>&1 &
+    echo $! >"$PIDFILE"
+}
+
+case "${1:-}" in
+    --stop) stop_hack ;;
+    --preview) [ "$#" -eq 2 ] || exit 2; run_hack "$2" ;;
+    --start)
+        mode=$(gsettings get "$SCHEMA" mode | tr -d "'")
+        [ "$mode" != off ] || exit 0
+        if [ "$mode" = one ]; then
+            id=$(gsettings get "$SCHEMA" hack-id | tr -d "'")
+            run_hack "$id"
+            exit 0
+        fi
+        trap 'stop_hack; exit 0' INT TERM EXIT
+        cycle=$(gsettings get "$SCHEMA" cycle-delay)
+        while :; do
+            configured=$(gsettings get "$SCHEMA" random-hacks | tr -d "[],'")
+            if [ -n "$configured" ]; then
+                id=$(printf '%s\n' $configured | shuf -n1)
+            else
+                id=$(cut -f1 "$CATALOG" | shuf -n1)
+            fi
+            run_hack "$id" || true
+            sleep "$cycle" & wait $!
+        done
+        ;;
+    *) echo "usage: ncz-screensaver-run --start|--stop|--preview ID" >&2; exit 2 ;;
+esac

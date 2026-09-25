@@ -768,22 +768,6 @@ if command -v singularity-leafs >/dev/null 2>&1; then
 else
     export TERMINAL=foot
 fi
-# Native Wayland screensaver (idle->lock). Started once the compositor socket is
-# up; backgrounded, dies with the session. Wayland-native (swayidle -> the native
-# Singularity lockscreen); no X11. ncz-idle-manager reads the dev.ncz.screensaver
-# GSettings schema and restarts swayidle live when the operator changes a setting
-# in the "Screensaver & Lock" app — timeouts are configured, NOT hardcoded.
-# Installed by 57-screensaver.sh.
-if command -v swayidle >/dev/null 2>&1 && [ -x /usr/local/bin/ncz-idle-manager ]; then
-    (
-        _wd="${WAYLAND_DISPLAY:-wayland-0}"
-        _rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-        _i=0
-        while [ ! -S "$_rt/$_wd" ] && [ $_i -lt 100 ]; do sleep 0.2; _i=$((_i+1)); done
-        export WAYLAND_DISPLAY="$_wd"
-        exec /usr/local/bin/ncz-idle-manager
-    ) &
-fi
 # graphical-session.target (2026-09-15): nothing in this script ever pushed
 # the session's environment into the systemd --user manager, or told it a
 # graphical session had actually started. systemd --user starts in a bare
@@ -809,6 +793,9 @@ fi
     export WAYLAND_DISPLAY="$_wd"
     systemctl --user import-environment WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_SESSION_CLASS XDG_SESSION_DESKTOP XDG_CURRENT_DESKTOP 2>&1
     systemctl --user start graphical-session.target 2>&1
+    if systemctl --user cat ncz-idle-manager.service >/dev/null 2>&1; then
+        systemctl --user restart ncz-idle-manager.service 2>&1
+    fi
 ) &
 exec /opt/singularity/bin/singularity-labwc-session
 SINGLAUNCH
