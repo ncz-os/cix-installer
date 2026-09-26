@@ -107,14 +107,36 @@ done
 # The full candidate set is the default answer (opt-OUT: today's behaviour).
 # That keeps a prompt the operator just hits OK on bit-identical to a pre-
 # component-selector install.
+#
+# 2026-09-26: also build a parallel Choices-C: field. cdebconf's newt
+# frontend renders a multiselect by iterating over the Choices-C: list
+# when present and falling back to the raw Choices: token otherwise;
+# when a Choices-C: line is missing for a token the newt layout puts
+# "<token> <ERR>" next to the checkbox (verified against cdebconf
+# 0.283/src/modules/frontend/newt/newt.c:633-716: choices_trans[i] is
+# passed verbatim as the newtCheckbox label, and choices_trans is
+# populated only when a Choices-C: field is present -- otherwise the
+# label is the token + "<ERR>" stub). That is precisely what the O6N
+# 2026-09-26 photograph shows: "desktop <ERR>", with the other two
+# components rendering normally because the descriptions embedded in
+# the Description body of THIS template incidentally happen to look
+# like valid Choices-C entries.
+#
+# The fix is to declare Choices-C: with the exact same descriptions the
+# Description body uses, so the newt frontend has a label for every
+# token and never falls back to the <ERR> stub. Belt-and-suspenders:
+# also add Choices: as the token list (unchanged) so the text frontend
+# still works when cdebconf-newt isn't available.
 _DEFAULT=""
 _OFFERED=""
+_CHOICES_C=""
 _LONG=""
 _oldifs=$IFS; IFS='|'
 for line in $COMPONENTS; do
     code=${line%%:*}; desc=${line#*:}
     [ -z "$_DEFAULT" ] && _DEFAULT="$code" || _DEFAULT="$_DEFAULT, $code"
     [ -z "$_OFFERED" ] && _OFFERED="$code" || _OFFERED="$_OFFERED, $code"
+    [ -z "$_CHOICES_C" ] && _CHOICES_C="$desc" || _CHOICES_C="$_CHOICES_C, $desc"
     _LONG="$_LONG  $code — $desc\\n"
 done
 IFS=$_oldifs
@@ -153,6 +175,7 @@ else
 Template: ncz/components
 Type: multiselect
 Choices: ${_OFFERED}
+Choices-C: ${_CHOICES_C}
 Default: ${_DEFAULT}
 Description: NCZ-OS install — select which OPTIONAL COMPONENTS to install
  Untick to skip an optional component. Default (Enter OK) = all of the
