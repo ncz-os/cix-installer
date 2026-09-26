@@ -351,14 +351,23 @@ ensure_resolv_conf() {
         [ -n "$rc_target" ] && mkdir -p "$(dirname "$rc_target")" 2>/dev/null
     fi
 
-    # Pull current LAN gateway from default route. Fall back to
-    # 192.168.207.1 if no default route yet.
+    # Pull current LAN gateway from default route. If there is no default
+    # route yet there is no gateway to name, so emit none: the public
+    # resolvers below still work. This used to fall back to a hardcoded
+    # 192.168.207.1, which is only correct on one LAN and is unreachable
+    # everywhere else -- including inside qemu's 10.0.2.0/24. Because that
+    # address was written FIRST, with options timeout:2 attempts:3, every
+    # lookup burned ~6s on a dead resolver before reaching 8.8.8.8.
+    # Measured on ULTRA 2026-09-26: choose-mirror ran at 23:30:51 against
+    # exactly that resolv.conf, every fetch failed, and it reported "mirror
+    # does not have any suite symlinks" / "mirror does not support the
+    # specified release (forky)". The corrected file landed at 23:30:53, two
+    # seconds too late, and the install stopped on the mirror dialog.
     ROUTER="$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}')"
-    [ -z "$ROUTER" ] && ROUTER="192.168.207.1"
 
     rc_tmp="/tmp/.watcher-resolv.tmp.$$"
     {
-        if [ "$include_router" = "1" ]; then
+        if [ "$include_router" = "1" ] && [ -n "$ROUTER" ]; then
             echo "search nclawzero.lan"
             echo "nameserver $ROUTER"
         fi
