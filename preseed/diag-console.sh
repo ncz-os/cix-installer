@@ -207,8 +207,17 @@ esac
 exit 0
 US
 chmod 0755 "$RUN/udhcpc.script"
+# r-net1: a default route is part of "network up". netcfg can leave an
+# interface addressed but routeless (observed on O6N 2026-09-26: IP
+# 192.168.207.3/24 on-link, no default, netcfg/confirm_static=true with an
+# empty netcfg/get_gateway). d-i's own udebs are fetched from the live
+# archive by anna, so a routeless install dies later at "Bad archive mirror"
+# with no hint that routing is the real problem. Treating an IP alone as
+# success made this respawn loop skip the very repair it already knows how
+# to do -- the udhcpc script below installs $router as the default route.
+has_default_route() { "$BB" route -n 2>/dev/null | grep -qE "^0\.0\.0\.0"; }
 diag_net_up() {
-    [ -n "$(current_ip)" ] && return 0
+    [ -n "$(current_ip)" ] && has_default_route && return 0
     for _ifp in /sys/class/net/*; do
         _ifn=$(basename "$_ifp")
         [ "$_ifn" = "lo" ] && continue
@@ -222,7 +231,7 @@ diag_net_up() {
             >/tmp/diag-udhcpc-"$_ifn".log 2>&1
         _got=$(current_ip)
         if [ -n "$_got" ]; then
-            say "network up: $_ifn $_got (diag-owned one-shot DHCP)"
+            say "network up: $_ifn $_got default_route=$(has_default_route && echo yes || echo NO) (diag-owned one-shot DHCP)"
             return 0
         fi
     done
