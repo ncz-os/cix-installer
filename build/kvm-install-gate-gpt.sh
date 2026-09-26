@@ -206,7 +206,7 @@ timeout "$INSTALL_TIMEOUT" "$QEMU" \
   -drive file="$TEST_IMG",if=none,id=usbstick,format=raw \
   -device qemu-xhci,id=xhci \
   -device usb-storage,bus=xhci.0,drive=usbstick,bootindex=1 \
-  -netdev user,id=n0 -device virtio-net-pci,netdev=n0,romfile= \
+  -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2225-:22,hostfwd=tcp:127.0.0.1:18080-:8080 -device virtio-net-pci,netdev=n0,romfile= \
   -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
   -serial "file:$S0" \
   -display none -no-reboot \
