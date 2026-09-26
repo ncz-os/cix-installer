@@ -1,36 +1,31 @@
-# NCZ-OS Screensaver Chooser
+# NCZ-OS Screensaver Chooser Plugin
 
-This is an NCZ-owned GTK4/Vala application. It is not part of Singularity
-Desktop. It configures an NCZ user service that uses `swayidle` and the
-compositor's `ext-idle-notify-v1` support, starts native GLES3 screensaver
-binaries with no arguments, and hands locking to `singularity-lockscreen`.
+This libpeas-2 plugin provides the Singularity settings surface for the NCZ-OS
+screensaver runner and idle manager. It uses GTK4 and libsingularity. The
+existing GSettings schema remains the persistent configuration interface.
 
-## Catalog
+## Catalogue
 
-`hacks.tsv` is the 140-target inventory from `ncz-screensavers` commit
-`251bf22`. Source family comes directly from its Meson target groups: 92 base
-and Round ports, 35 hyprsaver shaders, and 13 RSS-SDL2-GLES2 ports. Theme is a
-separate NCZ editorial classification based on the validated captures, source
-names, shader names, and upstream descriptions. The seven themes are:
+`hacks.tsv` is generated from the real target lists in the ncz-screensavers
+`meson.build`. Regenerate it with:
 
-- Abstract & Psychedelic
-- Geometry & Fractals
-- Nature & Organic
-- Particles & Physics
-- Space & Sci-Fi
-- Machines & Objects
-- Text & Data
+```sh
+tools/generate-catalog.py /path/to/ncz-screensavers/meson.build hacks.tsv
+```
 
-The three packaged previews are real captures from the same repository. The
-MVP uses static preview images because each current hack owns a Wayland
-layer-shell surface; it does not expose a child-surface API that GTK can embed.
-The `Preview now` action launches the selected real hack on the current display.
+The shipping groups are Black Hole Simulation, hyprsaver, xshadertoy, and
+Classics. The generator fails if any selected entry has no build target.
+
+The packaged captures predate this catalogue. `hyprsaver_snowfall_gles3` is
+still present. `dangerball_gles3` and `hypnowheel_gles3` are no longer shipped.
 
 ## Build
 
-```sh
-meson setup ~/build-tmp/ncz-screensaver-chooser
-meson compile -C ~/build-tmp/ncz-screensaver-chooser
-```
+The Singularity SDK is installed under `/opt/singularity` in NCZ-OS:
 
-The application has no per-hack parameter UI. Every hack is launched as-is.
+```sh
+PKG_CONFIG_PATH=/opt/singularity/lib/pkgconfig \
+VALAFLAGS=--vapidir=/opt/singularity/share/vala/vapi \
+meson setup build --prefix=/opt/singularity
+ninja -C build
+```

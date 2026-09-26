@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "[58] installing NCZ-OS Vala/GTK4 screensaver chooser"
+echo "[58] installing NCZ-OS Singularity screensaver plugin"
 VARIANT=desktop
 [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ] && VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
 case "$VARIANT" in server|headless) exit 0;; esac
@@ -12,9 +12,14 @@ SRC=/usr/local/lib/cix-installer/assets/screensaver-chooser
 
 BUILD=/root/build-tmp/ncz-screensaver-chooser
 install -d -m0755 "$BUILD"
-meson setup --wipe "$BUILD" "$SRC"
+PKG_CONFIG_PATH=/opt/singularity/lib/pkgconfig \
+VALAFLAGS=--vapidir=/opt/singularity/share/vala/vapi \
+meson setup --wipe "$BUILD" "$SRC" --prefix=/opt/singularity
 meson compile -C "$BUILD"
-install -D -m0755 "$BUILD/ncz-screensaver-chooser" /usr/bin/ncz-screensaver-chooser
+install -D -m0755 "$BUILD/libscreensaver-chooser.so" \
+    /opt/singularity/lib/singularity/plugins/screensaver-chooser/libscreensaver-chooser.so
+install -D -m0644 "$BUILD/screensaver-chooser.plugin" \
+    /opt/singularity/lib/singularity/plugins/screensaver-chooser/screensaver-chooser.plugin
 install -D -m0755 "$SRC/ncz-screensaver-run" /usr/libexec/ncz-screensaver-run
 install -D -m0755 "$SRC/ncz-idle-manager" /usr/libexec/ncz-idle-manager
 install -D -m0644 "$SRC/hacks.tsv" /usr/share/ncz-screensaver-chooser/hacks.tsv
@@ -26,7 +31,6 @@ for preview in "$SRC"/previews/*.b64; do
     chmod 0644 "$target"
 done
 install -D -m0644 "$SRC/dev.ncz.screensaver.gschema.xml" /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml
-install -D -m0644 "$SRC/dev.ncz.ScreensaverChooser.desktop" /usr/share/applications/dev.ncz.ScreensaverChooser.desktop
 install -D -m0644 "$SRC/ncz-idle-manager.service" /usr/lib/systemd/user/ncz-idle-manager.service
 
 cat > /usr/local/bin/ncz-lock <<'EOF'
@@ -44,4 +48,4 @@ chmod 0755 /usr/local/bin/ncz-lock
 
 glib-compile-schemas /usr/share/glib-2.0/schemas
 systemctl --global enable ncz-idle-manager.service >/dev/null
-echo "[58] installed 140-hack chooser and ext-idle-notify-v1 manager"
+echo "[58] installed screensaver plugin and ext-idle-notify-v1 manager"
