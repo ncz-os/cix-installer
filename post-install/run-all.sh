@@ -166,7 +166,7 @@ fi
 # every numbered script in the directory.
 PHASE0_HOOKS=$(ls 0[0-9]-*.sh 2>/dev/null | sort || true)
 REQUIRED_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
-    grep -E '^(10-our-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network)\.sh$' || true)
+    grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network)\.sh$' || true)
 if [ "$NCZ_BAKED" = 1 ]; then
     # 12-sky1-firmware and 33-network MUST SURVIVE THE BAKED FILTER.
     #
@@ -187,7 +187,7 @@ if [ "$NCZ_BAKED" = 1 ]; then
     # network config. Both are genuinely per-install work and must run under
     # --mode full like any other machine hook.
     REQUIRED_HOOKS=$(printf '%s\n' $REQUIRED_HOOKS | \
-        grep -E '^(10-our-kernel|11-fix-cixmini-boot)\.sh$' || true)
+        grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot)\.sh$' || true)
 fi
 # 12-sky1-firmware and 33-network are NOT excluded here any more.
 #
@@ -207,7 +207,7 @@ fi
 # must run, but neither should be able to abort an otherwise good install.
 # MACHINE_HOOKS_RE already lists both.
 OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
-    grep -vE '^(0[0-9]|10-our-kernel|11-fix-cixmini-boot|70-bootloader|99-diagnostics)\.sh$' || true)
+    grep -vE '^(0[0-9]|10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot|70-bootloader|99-diagnostics)\.sh$' || true)
 if [ "$NCZ_BAKED" = 1 ]; then
     OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -E "$MACHINE_HOOKS_RE" || true)
 fi
