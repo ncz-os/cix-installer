@@ -415,6 +415,23 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
     return {"inventory": inventory, "d_i_payload_files": payload_files}
 
 
+def _required_esp_mib(esp_root: Path, requested_mib: int) -> int:
+    """Grow the ESP so its contents fit, treating requested_mib as a floor.
+
+    The size was a fixed --size-mib from the caller. When the amd64 d-i
+    initrd reached 246.9 MiB the 256 MiB image overflowed and mcopy failed
+    with "Disk full" (2026-09-26). A larger constant only defers that.
+
+    FAT needs room past the payload for reserved sectors, both FAT copies
+    and per-file cluster slack, and mformat picks the cluster size from the
+    image size. 15% plus an 8 MiB floor covers that at the sizes we ship.
+    """
+    total = sum(f.stat().st_size for f in esp_root.rglob("*") if f.is_file())
+    needed_bytes = int(total * 1.15) + 8 * 1024 * 1024
+    needed_mib = -(-needed_bytes // (1024 * 1024))  # ceil
+    return max(requested_mib, needed_mib)
+
+
 def make_fat_image_mtools(esp_root: Path, out_img: Path, size_mib: int = 4) -> dict:
     """Build a FAT image using mtools (mformat + mcopy). mtools is the
     portable, deterministic path: it writes a flat file directly and supports
@@ -436,6 +453,8 @@ def make_fat_image_mtools(esp_root: Path, out_img: Path, size_mib: int = 4) -> d
     mmd = shutil.which("mmd")
     if not (mformat and mcopy and mmd):
         raise RuntimeError("mtools (mformat/mcopy/mmd) is required on PATH")
+
+    size_mib = _required_esp_mib(esp_root, size_mib)
 
     out_img.parent.mkdir(parents=True, exist_ok=True)
     if out_img.exists():
