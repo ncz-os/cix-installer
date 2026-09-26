@@ -487,28 +487,95 @@ else
 fi
 
 # ----------------------------------------------------------------------
-# 4. mali + panthor DKMS .debs -- give apt an update path for the two
+# 4. mali + panthor + npu DKMS .debs -- give apt an update path for the
 #    accelerators that were never dpkg-tracked (build/build-dkms-debs.sh's
 #    own header comment: "apt cannot upgrade a package it does not know
-#    about"). vpu/npu already ship a real staged .deb via 3b above (from the
-#    vendor SDK); mali/panthor are NCZ's own DKMS source under
-#    assets/kernel/{mali,panthor}/ and had no equivalent until tonight.
+#    about"). vpu already ships a real staged .deb via 3b above (from the
+#    vendor SDK); mali/panthor/npu are NCZ's own DKMS source under
+#    assets/kernel/{mali,panthor,npu}/ and had no equivalent until the
+#    nuked SDK tarball left npu orphaned.
+#
+#    The npu deb is cix-npu-kmd/1.0 (older vendor tree; assets/kernel/npu/
+#    README.md and post-install/80-npu.sh: this one bundles the v0-compat
+#    ioctls + SMMU 32-bit constraint + asid_base widening that the in-tree
+#    armchina_npu does NOT carry, so without an OUT-OF-TREE build the
+#    installed system has /dev/aipu but jobs dispatch-fail -- measured on
+#    O6N 2026-08-17). build-dkms-debs.sh takes the same SRC_TREE mirror
+#    rule that post-install/86-cix-dkms-register.sh uses for the source
+#    tree, so the deb installs identically.
+#
+#    Malice/fail-loud: every accelerator overlay listed in
+#    ACCEL_OVERLAYS that has a source tree MUST produce a deb. Missing
+#    deb = build error, not warning (the operator's r296.2 lesson from
+#    2026-09-26: "a silently-absent accelerator is exactly how this shipped").
 # ----------------------------------------------------------------------
-log "[4/4] mali+panthor DKMS .debs: building from assets/kernel/{mali,panthor}/"
+log "[4/4] mali+panthor+npu DKMS .debs: building from assets/kernel/{mali,panthor,npu}/"
+DKMS_BUILT=()
+DKMS_MISSING=()
 if [ -x "$REPO/build/build-dkms-debs.sh" ]; then
-    if bash "$REPO/build/build-dkms-debs.sh" mali panthor 2>&1 | sed 's/^/    /'; then
-        for d in "$REPO/build/dkms-debs"/cix-gpu-kmd-dkms_*.deb "$REPO/build/dkms-debs"/panthor-cix-dkms_*.deb; do
+    # Try to build all three; the script skips gracefully when a source tree
+    # lacks the .ko or dkms.conf (it skips with a SKIP line, not a failure).
+    if bash "$REPO/build/build-dkms-debs.sh" mali panthor npu 2>&1 | sed 's/^/    /'; then
+        for d in "$REPO/build/dkms-debs"/cix-gpu-kmd-dkms_*.deb \
+                 "$REPO/build/dkms-debs"/panthor-cix-dkms_*.deb \
+                 "$REPO/build/dkms-debs"/cix-npu-kmd-dkms_*.deb; do
             [ -e "$d" ] || continue
-            cp -an "$d" "$ASSETS/cix-debs/" && log "  staged $(basename "$d")"
+            if cp -an "$d" "$ASSETS/cix-debs/" 2>/dev/null; then
+                log "  staged $(basename "$d")"
+                DKMS_BUILT+=("$(basename "$d")")
+            fi
         done
         reached=$((reached+1))
     else
-        warn "build-dkms-debs.sh mali panthor failed -- mali/panthor stay dpkg-blind this build"
+        warn "build-dkms-debs.sh mali panthor npu returned non-zero"
         missing=$((missing+1))
     fi
 else
     warn "build/build-dkms-debs.sh not found or not executable"
     missing=$((missing+1))
+fi
+
+# r-npu-2026-09-26: COMPLETENESS GATE. The four CIX accelerators are a
+# closed set (kernel-build-checklist.md §0c). A board that ships with
+# one missing has a known-to-bug install (silently absent /dev/accel
+# nodes, or worse: a /dev that exists but every job wedges). Mirror
+# that the four DKMS trees above all produced a deb. If the build-dkms
+# call skipped one (no src/, no dkms.conf), surface that NOW, not in a
+# post-install dmesg. The op-mode (NCZ_ISO) is the only place this can
+# fail fast without a hardware boot.
+EXPECTED_DKMS=(cix-gpu-kmd panthor-cix cix-npu-kmd)
+for n in "${EXPECTED_DKMS[@]}"; do
+    case " ${DKMS_BUILT[*]} " in
+        *"${n}-dkms_"*) : ;;   # present
+        *)
+            # Was there a vendor .deb already? The SDK branch (3b above)
+            # may have staged cix-npu-driver-dkms_*.deb; if so, that's the
+            # *replacement* for cix-npu-kmd (post-install/86-cix-dkms-
+            # register.sh retires cix-npu-kmd in favor of aipu/6.2.0).
+            # For NPU specifically, "vendor deb present" IS the satisfied
+            # case. For mali/panthor there's no vendor source.
+            if [ "$n" = "cix-npu-kmd" ] \
+                && ls "$ASSETS/cix-debs"/cix-npu-driver-dkms_*.deb >/dev/null 2>&1; then
+                log "  $n: vendor cix-npu-driver-dkms_*.deb staged by 3b above (NPU satisfied via SDK path)"
+            else
+                warn "ACCELERATOR OVERLAY MISSING: $n"
+                warn "  expected \${REPO}/build/dkms-debs/${n}-dkms_*.deb OR \${ASSETS}/cix-debs/${n}*.deb"
+                warn "  the installed system will ship without this accelerator; this is the same class of defect as the"
+                warn "  O6N 2026-09-26 GPU-less image (missing CIX proprietary deb -> no /dev/mali0 -> greetd crash-loop)."
+                DKMS_MISSING+=("$n")
+            fi
+            ;;
+    esac
+done
+if [ "${#DKMS_MISSING[@]}" -gt 0 ]; then
+    err "BUILD INCOMPLETE: ${#DKMS_MISSING[@]} accelerator overlay(s) missing: ${DKMS_MISSING[*]}"
+    err "  this image would boot with at least one accelerator unavailable. refusing to ship."
+    err "  fix by either:"
+    err "    1. building the matching NCZ assets/kernel/<driver>/{src,dkms.conf} tree,"
+    err "    2. OR dropping STRICT mode (set NCZ_DKMS_INCOMPLETE=1 in the build env)."
+    if [ "${NCZ_DKMS_INCOMPLETE:-0}" != "1" ]; then
+        missing=$((missing + ${#DKMS_MISSING[@]}))
+    fi
 fi
 
 # ----------------------------------------------------------------------
