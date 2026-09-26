@@ -62,6 +62,34 @@ if [ "$DEB_COUNT" = "0" ]; then
     exit 0
 fi
 
+# r-cix1 (2026-09-26): a SHORT payload is a silent build defect, not a valid
+# netinstall. assets/cix-debs/*.deb is gitignored (.gitignore:11, ~74MB), so a
+# FRESH CLONE of this repo has none of them - only the singularity desktop deb,
+# which is generated during the build rather than checked in. The old logic saw
+# a non-empty directory, installed that single deb and exited 0, and the image
+# shipped with NO GPU userland while every gate reported success.
+#
+# Measured on O6N 2026-09-26 against ncz-os-arm64-20260926-51b314c.img: 21 of
+# the 22 validated packages absent, including cix-gpu-umd (the Mali userland)
+# and cix-libglvnd. mali_kbase loaded and /dev/mali0 existed, but labwc could
+# not create an EGL context ("EGL_EXT_platform_base not supported"), so greetd
+# crash-looped and the machine booted to a black screen.
+#
+# The validated set is 22 (archive MANIFEST, cix-installer-bake-assets-
+# 20260729). The "37 packages" in this file's header is stale.
+# Restore with:
+#   cp /mnt/argonas/datapool/archives/cix-installer-bake-assets-20260729/\
+#      assets/cix-debs/*.deb assets/cix-debs/
+NCZ_CIX_DEB_MIN=${NCZ_CIX_DEB_MIN:-22}
+if [ "$IS_SERVER" != "1" ] && [ "$DEB_COUNT" -lt "$NCZ_CIX_DEB_MIN" ]; then
+    echo "[25] FATAL: only $DEB_COUNT proprietary Cix .debs present, expected >= $NCZ_CIX_DEB_MIN."
+    echo "[25] assets/cix-debs/*.deb is gitignored - a fresh clone does NOT have them."
+    echo "[25] Restore from the ARGONAS bake-assets archive (see comment above),"
+    echo "[25] or set NCZ_CIX_DEB_MIN=0 to build a deliberately GPU-less image."
+    echo "[25] Shipping without cix-gpu-umd yields a BLACK SCREEN: no EGL, greetd crash-loop."
+    exit 1
+fi
+
 cd "$ASSETS" || { echo "ERROR: cannot cd to $ASSETS"; exit 1; }
 # Skip:
 #   1. Cix's kernel image/headers debs (we installed our own in 10-)
