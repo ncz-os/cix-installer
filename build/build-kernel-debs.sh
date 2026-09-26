@@ -529,9 +529,26 @@ build_kernel_deb() {
             gm=$((gm + 1))
         done
         echo "  [$channel] staged $gm out-of-tree GPU module(s) into updates/"
-        [ "$gm" -ge 3 ] || echo "  WARN: [$channel] expected 3 GPU modules (mali_kbase, memory_group_manager, protected_memory_allocator), staged $gm -- the GPU will not initialise without all three (kbase defers with -517 'Memory group manager is not ready')"
+        # r-npu-2026-09-26: was a WARN. Promote to a fatal gate. Same class
+        # of defect as the proprietary CIX deb shortfall (r-cix1, 9e3e0a2)
+        # and the missing-NPU-DKMS build (stage-canonical-assets.sh /
+        # kernel-manifest.py this same commit): a silent accelerator
+        # absence at build time becomes a black-screen, no-/dev/mali0
+        # boot at flash time. kbase defers -517 without memory_group_manager,
+        # which the original WARN warned about but did not block.
+        if [ "$gm" -lt 3 ]; then
+            echo "  ERROR: [$channel] only $gm/3 mali GPU modules staged" >&2
+            echo "         (need mali_kbase, memory_group_manager, protected_memory_allocator)" >&2
+            echo "         the kernel will boot with kbase deferring -517 'Memory group manager is not ready'" >&2
+            echo "         -> no /dev/mali0 -> greetd crash-loop -> black screen." >&2
+            echo "         this is the O6N 2026-09-26 GPU-less install class." >&2
+            exit 1
+        fi
     else
-        echo "  WARN: [$channel] no prebuilt GPU modules at $ASSETS/mali/$kver -- the installed system will have NO GPU and fall back to software rendering"
+        echo "  ERROR: [$channel] no prebuilt GPU modules at $ASSETS/mali/$kver" >&2
+        echo "         the installed system would have NO GPU and fall back to software rendering." >&2
+        echo "         this is the O6N 2026-09-26 GPU-less install class." >&2
+        exit 1
     fi
 
     mc=$(find "$root/usr/lib/modules/$kver" \( -name '*.ko' -o -name '*.ko.xz' \) | wc -l)
