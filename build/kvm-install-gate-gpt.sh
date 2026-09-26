@@ -153,6 +153,11 @@ def fix_options(m):
     rest = [o for o in opts if not o.startswith('console=')]
     serial = [c for c in consoles if c.startswith('console=ttyS')]
     other = [c for c in consoles if not c.startswith('console=ttyS')]
+    # Reordering alone is a no-op here: the shipped entry carries only
+    # console=tty0, so `serial` is empty and d-i keeps logging to the VGA
+    # console that this headless gate cannot read. Add one when absent.
+    if not serial:
+        serial = ['console=ttyS0,115200']
     return m.group(1) + ' '.join(rest + other + serial) + ' ' + params + m.group(3)
 
 new_body, n = re.subn(r'(options\s+")([^"]*)(")', fix_options, body, count=1)
