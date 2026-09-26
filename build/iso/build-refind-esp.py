@@ -47,6 +47,13 @@ import json
 import os
 import shutil
 import subprocess
+
+# mtools prompts on stdin when it dislikes the FAT geometry it probes.
+# A non-interactive build has nobody to answer, so mmd / mformat / mcopy
+# block forever -- observed 2026-09-26 on both arches, stuck at
+# "[5/6] building rEFInd ESP" at 0%% CPU with mmd hung in poll().
+# Set it in os.environ so every mtools subprocess inherits it.
+os.environ.setdefault("MTOOLS_SKIP_CHECK", "1")
 import sys
 from pathlib import Path
 
