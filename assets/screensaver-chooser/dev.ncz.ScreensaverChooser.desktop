@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Screensaver & Lock
-Comment=Choose animated screensavers and idle locking
-Exec=ncz-screensaver-chooser
-Icon=preferences-desktop-screensaver
-Terminal=false
-Categories=Settings;DesktopSettings;
-Keywords=screensaver;lock;idle;display;
