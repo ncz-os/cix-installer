@@ -114,7 +114,7 @@ apt-get install -y --no-install-recommends \
     gstreamer1.0-plugins-good gstreamer1.0-pipewire \
     libpulse-dev libpolkit-gobject-1-dev libpolkit-agent-1-dev \
     libjson-glib-dev libpeas-2-dev libpipewire-0.3-dev \
-    libgee-0.8-dev libsoup-3.0-dev \
+    libgee-0.8-dev libsoup-3.0-dev libenchant-2-dev \
     libgirepository-1.0-dev gobject-introspection \
     libupower-glib-dev \
     libatspi2.0-dev libcmocka-dev libdbusmenu-glib-dev libfontconfig-dev \
