@@ -34,9 +34,17 @@ SCHEMA = 1
 # Prebuilt, vermagic-locked accelerator module overlays. Each is a directory of
 # <KVER>/ subdirectories holding .ko files built against exactly that release.
 # post-install/8x-*.sh installs the subdirectory matching the kernel it stages.
+#
+# r-npu-2026-09-26: npu added to the closed set (kernel-build-checklist.md §0c).
+# The 6.2.0 SDK source lives under assets/kernel/npu/{src,dkms.conf}; the
+# runtime deb is the vendor cix-npu-driver-dkms_6.2.0+*.deb staged by
+# build/stage-canonical-assets.sh (3b). Until now the manifest only checked
+# mali + panthor, so a missing-NPU build passed silently -- exactly the
+# O6N 2026-09-26 defect (image booted with NO /dev/aipu, no error).
 ACCEL_OVERLAYS = {
     "mali":    "assets/kernel/mali",
     "panthor": "assets/kernel/panthor",
+    "npu":     "assets/kernel/npu",
 }
 
 # Accelerator drivers must be out-of-tree (DKMS / prebuilt overlay), never built
@@ -273,22 +281,47 @@ def overlay_vermagic_errors():
 
 
 def overlay_present_errors(live):
-    """Each shipped variant needs an accelerator overlay matching its KVER.
-    A missing overlay is a silent no-GPU boot, so make it a build-time failure."""
+    """Each shipped variant needs an accelerator overlay (or DKMS source
+    tree, for the npu case) per ACCEL_OVERLAYS. A missing overlay is a
+    silent no-X-accel boot, so make it a build-time failure.
+
+    r-npu-2026-09-26: was mali-only, which let a missing-NPU build pass
+    on O6N (image booted with NO /dev/aipu, no error anywhere). Walk all
+    ACCEL_OVERLAYS and require each one for every shipped variant. NPU
+    ships as DKMS rather than as a vermagic-locked .ko overlay, so its
+    presence check is for the source tree (assets/kernel/npu/{src,
+    dkms.conf}) -- without it the DKMS deb cannot build."""
     errors = []
     for label, v in live.get("variants", {}).items():
         kver = v.get("kver")
         if not kver:
             continue
-        base = os.path.join(ROOT, ACCEL_OVERLAYS["mali"])
-        if not os.path.isdir(base):
-            continue
-        if not os.path.isdir(os.path.join(base, kver)):
-            have = [k for k in sorted(os.listdir(base))
-                    if os.path.isdir(os.path.join(base, k)) and k not in ("patches", "src")]
-            errors.append(f"[{label}] no mali overlay for kver={kver} "
-                          f"(assets/kernel/mali/{kver}/ missing; have: {', '.join(have) or 'none'})"
-                          " — this board would boot with no /dev/mali0")
+        for ovr_name, ovr_dir in ACCEL_OVERLAYS.items():
+            base = os.path.join(ROOT, ovr_dir)
+            if not os.path.isdir(base):
+                if ovr_name == "npu":
+                    errors.append(f"[{label}] NPU DKMS source tree missing "
+                                  f"({ovr_dir}/ absent). Without it the "
+                                  f"DKMS deb cannot build and the install "
+                                  f"will boot without /dev/aipu.")
+                continue
+            if ovr_name == "npu":
+                if not (os.path.isdir(os.path.join(base, "src"))
+                        and os.path.isfile(os.path.join(base, "dkms.conf"))):
+                    errors.append(f"[{label}] NPU DKMS source tree missing "
+                                  f"({ovr_dir}/{{src,dkms.conf}} absent). "
+                                  f"Without it the DKMS deb cannot build "
+                                  f"and the install will boot without "
+                                  f"/dev/aipu.")
+                continue
+            if not os.path.isdir(os.path.join(base, kver)):
+                have = [k for k in sorted(os.listdir(base))
+                        if os.path.isdir(os.path.join(base, k))
+                        and k not in ("patches", "src")]
+                errors.append(f"[{label}] no {ovr_name} overlay for kver={kver} "
+                              f"({ovr_dir}/{kver}/ missing; have: {', '.join(have) or 'none'})"
+                              f" — this board would boot with no working "
+                              f"{ovr_name} accelerator")
     return errors
 
 
