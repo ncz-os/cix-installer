@@ -137,19 +137,19 @@ def find_refind_extract(arch: str) -> Path:
     return base
 
 
-# Restore the old builder's auto-install timing for the normal Install entry.
-# auto=true makes d-i apply the initrd-baked preseed at the auto-install point,
-# after networking is configured, instead of allowing choose-mirror to race
-# DHCP's resolv.conf update.  Do not copy the old ISO's /cdrom preseed/file
-# option here: the raw-GPT medium's data partition is ext4, and a real KVM run
-# showed cdrom-detect reject it after probing only ISO9660/VFAT.  /preseed.cfg
-# is already loaded from the initrd before main-menu starts.  Expert remains
-# the human/on-screen path (the old DI_OPTS_GFX): it deliberately omits
-# auto=true because d-i's single-console preseeding path can select a firmware
-# UART and make the installer disappear from the local display.  Rescue is not
-# an automatic/preseeded install either.
+# Match the old builder's unattended DI_OPTS for the normal Install entry.
+# auto=true makes d-i apply the preseed at the auto-install point, after
+# networking is configured, instead of allowing choose-mirror to race DHCP's
+# resolv.conf update.  The preseed early_command mounts the raw-GPT ext4 data
+# partition at /cdrom after USB rescan, before cdrom-detect runs; that makes the
+# explicit medium path valid on this hd-media layout too.  Expert remains the
+# human/on-screen path (the old DI_OPTS_GFX): it deliberately omits auto=true
+# because d-i's single-console preseeding path can select a firmware UART and
+# make the installer disappear from the local display.  Rescue is not an
+# automatic/preseeded install either.
 AMD64_INSTALL_OPTIONS = (
-    "auto=true priority=critical ipv6.disable=1 interface=auto "
+    "auto=true priority=critical preseed/file=/cdrom/ncz-payload/preseed.cfg "
+    "ipv6.disable=1 interface=auto "
     "netcfg/dhcp_timeout=120 locale=en_US.UTF-8 "
     "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=tty0"
 )

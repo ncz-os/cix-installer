@@ -87,6 +87,7 @@ python3 "$ROOT/build/iso/build-refind-esp.py" --arch "$ARCH" \
 echo "[6/6] writing and independently verifying raw GPT image"
 python3 "$ROOT/build/iso/write-usb-image.py" --arch "$ARCH" \
   --esp-img "$WORK_DIR/esp/esp.img" --ncz-payload-dir "$PAYLOAD_NODE" \
+  --installer-pool "$SUBSTRATE_NODE/extract/pool" \
   --patched-udeb "$PATCHED_UDEB" --build-version "$BUILD_VERSION" \
   --out "$OUTPUT" --work-dir "$WORK_DIR/writer"
 sha256sum "$OUTPUT" > "$OUTPUT.sha256"
