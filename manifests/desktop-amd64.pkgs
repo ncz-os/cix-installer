@@ -104,6 +104,16 @@ mesa-vulkan-drivers
 mesa-opencl-icd
 libglu1-mesa
 clinfo
+
+# Firmware visibility (see desktop.pkgs). On amd64 fwupd additionally
+# enumerates System Firmware and UEFI dbx.
+fwupd
+# Intel GPU capability adapter. GPU class is derived from each vendor's own
+# tooling rather than a model table (a hardcoded list cannot cover unreleased
+# silicon); intel_gpu_top is that tool for i915/xe. amd64 ONLY -- verified
+# 2026-09-27 that intel-gpu-tools is absent from the forky arm64 index, and
+# seeding it into desktop.pkgs would hard-fail build-forky-mirror.sh.
+intel-gpu-tools
 glmark2-es2-wayland
 glmark2-wayland
 glmark2-x11
