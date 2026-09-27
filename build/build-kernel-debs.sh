@@ -104,7 +104,7 @@ OUT="$REPO/build/kernel-debs"
 # added delay), and refuses to form a cluster of fewer than two DPUs so a
 # board can never end up with zero cards. r259 was built and verified without
 # 0225 as a fallback but never packaged, hence the gap in revision numbers.
-BUILD_REV="${BUILD_REV:-r260}"
+BUILD_REV="${BUILD_REV:-r261}"
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only
