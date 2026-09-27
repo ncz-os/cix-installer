@@ -73,6 +73,25 @@ DEFAULT_CACHE_ROOT = REPO_ROOT / "build" / "iso-cache" / "v1"
 PRUNE_MOD_DIRS = ["sound"]
 
 
+def patch_check_missing_firmware(source: str) -> str:
+    """Make d-i's firmware audit retain the complete kernel boot log."""
+    truncate_start = source.find("\t# Truncate if needed:\n")
+    truncate_end = source.find(
+        "\n\tif [ -s $dmesg_file ]; then", truncate_start
+    )
+    if truncate_start < 0 or truncate_end < 0:
+        raise RuntimeError(
+            "FATAL: check-missing-firmware timestamp logic changed upstream; "
+            "refusing to ship an unverified patch"
+        )
+    replacement = (
+        "\t# NCZ downstream: always retain the full boot log. Firmware load\n"
+        "\t# failures can predate hw-detect's saved timestamp.\n"
+        "\tlog \"looking at complete dmesg (NCZ firmware audit)\"\n"
+    )
+    return source[:truncate_start] + replacement + source[truncate_end:]
+
+
 def write_single_member_initrd(base_initrd: Path, overlay_initrd: Path,
                                output: Path) -> None:
     """Write base + overlay CPIO archives inside one gzip member.
@@ -287,7 +306,7 @@ def patch_t2_kernel(
             )
 
     canonical = canonical_encode({
-        "schema_version": "ncz-initrd-t2kernel/v3",
+        "schema_version": "ncz-initrd-t2kernel/v4",
         "arch": arch,
         "base_initrd": _stat(base_initrd),
         "kernel_deb": _stat(kernel_deb) if kernel_deb else {"present": False},
@@ -457,6 +476,28 @@ def patch_t2_kernel(
         # below instead of rejecting that expected device-node warning.
         if gz_rc != 0 or cp.returncode not in (0, 2):
             raise RuntimeError("FATAL: could not extract base initrd for persistent UI branding")
+
+        # Debian hw-detect's checker normally remembers the timestamp of its
+        # previous invocation and discards all older dmesg lines.  Firmware
+        # failures emitted during boot can therefore sit permanently behind
+        # that cursor while every later check reports "no missing firmware".
+        # Patch the actual d-i program in the overlay: every invocation scans
+        # the complete boot log, while the rest of upstream's parsing,
+        # filtering, prompting, and firmware loading remains untouched.
+        fwcheck_src = initrd_extract / "usr" / "bin" / "check-missing-firmware"
+        if not fwcheck_src.is_file():
+            raise RuntimeError(
+                "FATAL: d-i initrd has no /usr/bin/check-missing-firmware to patch"
+            )
+        fwcheck = patch_check_missing_firmware(
+            fwcheck_src.read_text(errors="surrogateescape")
+        )
+        fwcheck_dst = overlay_root / "usr" / "bin" / "check-missing-firmware"
+        fwcheck_dst.parent.mkdir(parents=True, exist_ok=True)
+        fwcheck_dst.write_text(fwcheck, errors="surrogateescape")
+        fwcheck_dst.chmod(0o755)
+        log("    patched d-i check-missing-firmware to scan complete dmesg")
+
         replacements = (
             ("Debian installer main menu", "NCZ-OS installer main menu"),
             ("Debian GNU/Linux Installer menu", "NCZ-OS installer menu"),
@@ -504,6 +545,12 @@ def patch_t2_kernel(
                 fl.write(subprocess.run(
                     ["find", "ncz", "-print"],
                     cwd=overlay_root, check=True, capture_output=True, text=True,
+                ).stdout)
+            fwcheck_root = overlay_root / "usr"
+            if fwcheck_root.is_dir():
+                fl.write(subprocess.run(
+                    ["find", "usr", "-print"], cwd=overlay_root, check=True,
+                    capture_output=True, text=True,
                 ).stdout)
             branded_root = overlay_root / "var"
             if branded_root.is_dir():

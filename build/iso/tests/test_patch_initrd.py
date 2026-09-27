@@ -36,5 +36,31 @@ class SingleMemberInitrdTest(unittest.TestCase):
             self.assertEqual(inflater.unused_data, b"")
 
 
+class MissingFirmwarePatchTest(unittest.TestCase):
+    def test_removes_timestamp_truncation_but_keeps_following_logic(self):
+        source = """get_fresh_dmesg() {
+\tdmesg > $dmesg_file
+\t# Truncate if needed:
+\tif [ -f $dmesg_ts ]; then
+\t\tsed -i "1,$ln d" $dmesg_file
+\telse
+\t\tlog first
+\tfi
+
+\tif [ -s $dmesg_file ]; then
+\t\tlog save
+\tfi
+}
+"""
+        patched = MODULE.patch_check_missing_firmware(source)
+        self.assertNotIn('sed -i "1,$ln d"', patched)
+        self.assertIn("looking at complete dmesg (NCZ firmware audit)", patched)
+        self.assertIn("if [ -s $dmesg_file ]; then", patched)
+
+    def test_fails_closed_if_upstream_shape_changes(self):
+        with self.assertRaisesRegex(RuntimeError, "changed upstream"):
+            MODULE.patch_check_missing_firmware("get_fresh_dmesg() { dmesg; }")
+
+
 if __name__ == "__main__":
     unittest.main()

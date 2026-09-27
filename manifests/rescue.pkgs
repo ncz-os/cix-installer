@@ -83,9 +83,7 @@ dhcpcd-base         # Debian DHCP client; busybox udhcpc is the final fallback
 # builder also copies assets/firmware/rtl_nic directly, but Debian firmware
 # packages make the standalone image less brittle and cover future Realtek
 # additions that the committed asset snapshot may not yet include.
-firmware-linux-free
-firmware-realtek
-firmware-misc-nonfree
+# Complete firmware seed: manifests/firmware.pkgs.
 curl
 wget
 rsync

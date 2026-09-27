@@ -93,9 +93,7 @@ mtr-tiny
 curl
 wget
 rsync
-firmware-realtek
-firmware-linux-free
-firmware-misc-nonfree
+# Complete firmware seed: manifests/firmware.pkgs.
 
 # Generic NIC firmware for real Sky1 boards.  The ISO also stages rtl_nic blobs
 # as raw assets for 12-sky1-firmware.sh, but the base/console rootfs must be

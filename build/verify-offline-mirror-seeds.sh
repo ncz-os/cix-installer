@@ -56,7 +56,7 @@ _seed_manifest_for() {
     if [ -f "$arch_file" ]; then echo "$arch_file"; else echo "$ROOT/manifests/$1.pkgs"; fi
 }
 {
-    for manifest in "$(_seed_manifest_for installer-base)" "$(_seed_manifest_for desktop)"; do
+    for manifest in "$(_seed_manifest_for installer-base)" "$(_seed_manifest_for desktop)" "$ROOT/manifests/firmware.pkgs"; do
         [ -s "$manifest" ] || { echo "ERROR: missing manifest: $manifest" >&2; exit 1; }
         sed 's/#.*//' "$manifest" | awk 'NF {print $1}'
     done
