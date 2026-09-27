@@ -87,9 +87,7 @@ inetutils-telnetd
 openbsd-inetd
 busybox-static
 dhcpcd-base
-firmware-linux-free
-firmware-realtek
-firmware-misc-nonfree
+# Complete firmware seed: manifests/firmware.pkgs.
 curl
 wget
 rsync

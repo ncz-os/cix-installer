@@ -435,9 +435,7 @@ zstd
 # the kernel logs e.g. "Possible missing firmware /lib/firmware/rtl_nic/
 # rtl8125k-1.fw for built-in driver r8169". Seeded here so they are in the
 # offline mirror closure AND installed into the shipped layer.
-firmware-linux-free
-firmware-realtek
-firmware-misc-nonfree
+# Complete firmware seed: manifests/firmware.pkgs.
 
 # curl + its trust store. Same Debian-vs-Ubuntu gap class as zstd above:
 # installer-base.pkgs lists curl, but that manifest only seeds the offline
@@ -613,8 +611,3 @@ v4l-utils
 #
 # Cost: ~99 MB of .deb, ~385 MB installed. A desktop image whose WiFi does not
 # come up is broken, so this is not optional weight.
-firmware-mediatek
-firmware-brcm80211
-firmware-atheros
-firmware-iwlwifi
-firmware-ath9k-htc

@@ -1,0 +1,45 @@
+# Complete architecture-neutral firmware BOM for the NCZ-OS offline closure.
+#
+# Every binary package named firmware-* published by the configured Debian
+# suite for our supported architectures belongs here.  Keep exclusions in
+# firmware-bom.allow instead of silently omitting them.
+firmware-amd-graphics
+firmware-ast
+firmware-ath9k-htc
+firmware-atheros
+firmware-bnx2
+firmware-bnx2x
+firmware-brcm80211
+firmware-carl9170
+firmware-cavium
+firmware-cirrus
+firmware-intel-graphics
+firmware-intel-misc
+firmware-intel-sound
+firmware-ipw2x00
+firmware-ivtv
+firmware-iwlwifi
+firmware-libertas
+firmware-linux
+firmware-linux-free
+firmware-linux-nonfree
+firmware-marvell-prestera
+firmware-mediatek
+firmware-misc-nonfree
+firmware-myricom
+firmware-netronome
+firmware-netxen
+firmware-nvidia-graphics
+firmware-nvidia-gsp
+firmware-qcom-dragonboard845c
+firmware-qcom-dsp
+firmware-qcom-rb3gen2
+firmware-qcom-rb5
+firmware-qcom-soc
+firmware-qlogic
+firmware-realtek
+firmware-samsung
+firmware-siano
+firmware-sof-signed
+firmware-ti-connectivity
+firmware-zd1211
