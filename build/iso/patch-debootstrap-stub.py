@@ -394,6 +394,20 @@ if [ -n "$SQDIR" ]; then
     # half-configured package. Bind-mount for maintainer scripts, then unmount.
     for _m in proc sys dev; do mount --bind /$_m "$TARGET/$_m" 2>/dev/null; done
     mount --bind /dev/pts "$TARGET/dev/pts" 2>/dev/null
+    # The arm64 base layer can omit Text::Iconv even though debconf's Encoding.pm
+    # unconditionally calls it. That makes every debconf-apt-progress invocation
+    # fail after apt itself succeeds, and apt-setup loops forever at 50mirror.
+    # Install the package from the on-media pool before any d-i target-side
+    # debconf frontend runs. Do not mask mirror errors: make the rootfs complete.
+    _ICONV_DEB=$(find /cdrom/pool -type f -name 'libtext-iconv-perl_*_arm64.deb' 2>/dev/null | head -1)
+    if [ -n "$_ICONV_DEB" ] && ! chroot "$TARGET" dpkg-query -W libtext-iconv-perl >/dev/null 2>&1; then
+        cp "$_ICONV_DEB" "$TARGET/tmp/ncz-libtext-iconv-perl.deb" || {
+            echo "FATAL: r159 stub: cannot stage libtext-iconv-perl" >&2; exit 1; }
+        chroot "$TARGET" dpkg -i /tmp/ncz-libtext-iconv-perl.deb 2>&1 || {
+            echo "FATAL: r159 stub: cannot install libtext-iconv-perl" >&2; exit 1; }
+        rm -f "$TARGET/tmp/ncz-libtext-iconv-perl.deb"
+        echo "I: r159 stub: installed libtext-iconv-perl for debconf progress" >&2
+    fi
     chroot "$TARGET" dpkg --configure -a 2>/dev/null
     # r172: PRESERVE falkon (the NCZ web browser). It can't finish configuring in
     # the d-i chroot (its postinst wants a display/dbus), so r159 purged it as
