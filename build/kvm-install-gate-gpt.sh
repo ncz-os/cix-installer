@@ -78,7 +78,23 @@ fi
 [ -f "$CODE" ] && [ -f "$SRCVARS" ] || { echo "GATE FAIL: no UEFI firmware for $ARCH" >&2; exit 2; }
 ACCEL="tcg"; CPU="qemu64"
 [ "$ARCH" = arm64 ] && CPU="max"
-if [ -r /dev/kvm ]; then ACCEL="kvm"; CPU="host"; fi
+if [ -r /dev/kvm ]; then
+  ACCEL="kvm"; CPU="host"
+elif [ -e /dev/kvm ]; then
+  # /dev/kvm EXISTS but this user cannot read it. Falling through to TCG
+  # silently is how a gate ends up 10-40x slower and then "fails" on the
+  # phase-1 timeout with no functional defect at all -- measured on HYDRA
+  # 2026-09-27, where /dev/kvm carried gid 987 (which resolves to the
+  # unrelated group "crontab") while the real kvm group is gid 992. The
+  # user was correctly in group kvm and still had no access, so every gate
+  # run on that host had been quietly emulating.
+  echo "WARNING: /dev/kvm exists but is not readable by $(id -un) -- falling back to TCG" >&2
+  echo "         emulation, which is ROUGHLY 10-40x SLOWER. A phase-1 timeout from here" >&2
+  echo "         is probably the timeout, NOT a broken image. Device is $(stat -c '%U:%G (gid %g)' /dev/kvm 2>/dev/null)," >&2
+  echo "         your groups are: $(id -Gn). If the gid does not match the kvm group" >&2
+  echo "         ($(getent group kvm 2>/dev/null || echo 'no kvm group')), that mismatch is the cause." >&2
+  echo "         Re-run as root, or fix the device's group, to get real acceleration." >&2
+fi
 
 TEST_IMG="$WORK/$(basename "${IMG%.img}")-qemutest.img"
 
