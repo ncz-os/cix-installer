@@ -15,12 +15,11 @@ thunderbolt.ko).
 Architecture (same as the arm64 precedent, adapted):
   1. Swap the d-i kernel binary (/linux in the ESP) for our real T2
      vmlinuz.
-  2. Do NOT rebuild the base d-i initrd's userspace at all -- APPEND a
-     separate modules cpio onto the end of initrd.gz (gzip and cpio both
-     support concatenated streams; the kernel's initramfs unpacker
-     extracts each archive in sequence, later entries winning on
-     conflict). This keeps the real, working d-i environment (debconf,
-     preseed, busybox, etc.) completely untouched.
+  2. Do NOT rebuild the base d-i initrd's userspace at all. Concatenate the
+     base and overlay CPIO archives inside ONE gzip member. The kernel's
+     initramfs unpacker extracts each CPIO archive in sequence, later entries
+     winning on conflict. Do not concatenate gzip members: the Sky1 arm64
+     kernel stops after the first member and silently loses the overlay.
   3. Real gotchas ported verbatim from the arm64 precedent:
      - d-i's own kmod udeb cannot decompress .ko.xz despite claiming to
        (zero lzma code linked in) -- decompress every .ko.xz in the
@@ -72,6 +71,23 @@ DEFAULT_CACHE_ROOT = REPO_ROOT / "build" / "iso-cache" / "v1"
 # appended, not baked into a firmware-size-limited image the way Sky1's
 # is, so there is no real size pressure forcing aggressive pruning here.
 PRUNE_MOD_DIRS = ["sound"]
+
+
+def write_single_member_initrd(base_initrd: Path, overlay_initrd: Path,
+                               output: Path) -> None:
+    """Write base + overlay CPIO archives inside one gzip member.
+
+    Python's gzip reader consumes concatenated input members, which also makes
+    this safe if an upstream initrd already uses that representation. The
+    output deliberately has one member for kernels that stop inflating after
+    the first gzip stream (observed with the Sky1 arm64 installer kernel).
+    """
+    with output.open("wb") as raw_out:
+        with gzip.GzipFile(fileobj=raw_out, mode="wb", compresslevel=9,
+                           mtime=0) as gz_out:
+            for source in (base_initrd, overlay_initrd):
+                with gzip.open(source, "rb") as gz_in:
+                    shutil.copyfileobj(gz_in, gz_out)
 
 
 def module_name(path: Path) -> str:
@@ -508,13 +524,11 @@ def patch_t2_kernel(
             raise RuntimeError("FATAL: overlay cpio pack failed")
         log(f"    overlay cpio: {overlay_cpio_gz.stat().st_size} bytes")
 
-        # --- concatenate onto the (already firmware-patched) base initrd
+        # Keep both CPIO archives in one gzip member. Concatenating the two
+        # .gz files worked on amd64 but the Sky1 arm64 kernel stopped after
+        # the first member, dropping /preseed.cfg and /ncz completely.
         out_initrd = build_dir / "initrd.gz"
-        with out_initrd.open("wb") as out_f:
-            with base_initrd.open("rb") as base_f:
-                shutil.copyfileobj(base_f, out_f)
-            with overlay_cpio_gz.open("rb") as ov_f:
-                shutil.copyfileobj(ov_f, out_f)
+        write_single_member_initrd(base_initrd, overlay_cpio_gz, out_initrd)
 
         out_linux = build_dir / "linux"
         shutil.copy2(vmlinuz_src, out_linux)
