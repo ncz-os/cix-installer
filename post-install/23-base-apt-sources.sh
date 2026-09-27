@@ -12,7 +12,7 @@ RELEASE=/usr/local/lib/cix-installer/RELEASE
 
 case "${NCZ_BASE_NAME:-}" in
     Debian)
-        : "${NCZ_BASE_MIRROR:?Debian profile requires NCZ_BASE_MIRROR}"
+        : "${NCZ_RUNTIME_MIRROR:?Debian profile requires NCZ_RUNTIME_MIRROR}"
         : "${NCZ_BASE_CODENAME:?Debian profile requires NCZ_BASE_CODENAME}"
         : "${NCZ_BASE_COMPONENTS:?Debian profile requires NCZ_BASE_COMPONENTS}"
         KEYRING=/usr/share/keyrings/debian-archive-keyring.gpg
@@ -36,7 +36,7 @@ case "${NCZ_BASE_NAME:-}" in
         # it was handed over. These are one-line-format options in release.conf
         # and deb822 fields here, so translate rather than paste.
         NCZ_APT_EXTRA_FIELDS=""
-        for _opt in ${NCZ_BASE_MIRROR_APT_OPTS:-}; do
+        for _opt in ${NCZ_RUNTIME_MIRROR_APT_OPTS:-}; do
             case "$_opt" in
                 check-valid-until=*)
                     NCZ_APT_EXTRA_FIELDS="${NCZ_APT_EXTRA_FIELDS}Check-Valid-Until: ${_opt#*=}
@@ -52,24 +52,38 @@ case "${NCZ_BASE_NAME:-}" in
         {
             cat <<EOF
 Types: deb
-URIs: ${NCZ_BASE_MIRROR}
+URIs: ${NCZ_RUNTIME_MIRROR}
 Suites: ${NCZ_BASE_CODENAME}
 Components: ${NCZ_BASE_COMPONENTS}
 Signed-By: ${KEYRING}
 EOF
             printf '%s' "$NCZ_APT_EXTRA_FIELDS"
         } > /etc/apt/sources.list.d/ncz-base.sources
-        echo "[23] configured Debian ${NCZ_BASE_CODENAME} base: ${NCZ_BASE_MIRROR}"
+        echo "[23] configured Debian ${NCZ_BASE_CODENAME} base: ${NCZ_RUNTIME_MIRROR}"
         if [ -n "$NCZ_APT_EXTRA_FIELDS" ]; then
             echo "[23] applied mirror options: $(printf '%s' "$NCZ_APT_EXTRA_FIELDS" | tr '\n' ' ')"
         fi
         # Prove the file apt will really read, not the script that wrote it.
-        if [ -n "${NCZ_BASE_MIRROR_SNAPSHOT:-}" ] && \
-           ! grep -qi '^Check-Valid-Until:[[:space:]]*no' \
-                /etc/apt/sources.list.d/ncz-base.sources; then
-            echo "[23] FATAL: pinned to snapshot ${NCZ_BASE_MIRROR_SNAPSHOT} but ncz-base.sources has no Check-Valid-Until: no -- apt would start refusing updates the moment that snapshot's Release expires" >&2
-            exit 1
-        fi
+        # Guard on the URI we actually wrote, not on the build-time pin:
+        # the installed system now tracks NCZ_RUNTIME_MIRROR, which is
+        # normally unpinned and must NOT carry Check-Valid-Until: no.
+        case "${NCZ_RUNTIME_MIRROR}" in
+            *snapshot.debian.org*)
+                if ! grep -qi '^Check-Valid-Until:[[:space:]]*no' \
+                        /etc/apt/sources.list.d/ncz-base.sources; then
+                    echo "[23] FATAL: runtime mirror is a snapshot (${NCZ_RUNTIME_MIRROR}) but ncz-base.sources has no Check-Valid-Until: no -- apt would start refusing updates the moment that snapshot's Release expires" >&2
+                    exit 1
+                fi
+                echo "[23] WARNING: installed system is pinned to a snapshot and will not receive updates"
+                ;;
+            *)
+                if grep -qi '^Check-Valid-Until:[[:space:]]*no' \
+                        /etc/apt/sources.list.d/ncz-base.sources; then
+                    echo "[23] FATAL: runtime mirror ${NCZ_RUNTIME_MIRROR} is not a snapshot, so Check-Valid-Until: no must not be set -- that would suppress genuine Release expiry" >&2
+                    exit 1
+                fi
+                ;;
+        esac
         ;;
     Ubuntu)
         echo "[23] retaining Ubuntu base sources for this profile"
