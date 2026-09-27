@@ -1008,7 +1008,7 @@ class BuildRefindEspRequiresKernelTests(unittest.TestCase):
 
 
 class BuildRefindEspConsoleOptionsTests(unittest.TestCase):
-    """On-screen entries must not trigger reopen-console's UART-only path."""
+    """Keep unattended and human-entry console/preseed semantics distinct."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -1049,7 +1049,6 @@ class BuildRefindEspConsoleOptionsTests(unittest.TestCase):
             "NCZ-OS Installer -- Install (expert)",
         ):
             options = self._entry_options(conf, title)
-            self.assertNotIn("auto=true", options)
             self.assertNotIn("keep_bootcon", options)
             self.assertIn("console=tty0", options)
             # No serial console at all: any registered UART takes the kernel
@@ -1068,6 +1067,22 @@ class BuildRefindEspConsoleOptionsTests(unittest.TestCase):
             ):
                 self.assertIn(quirk, options)
 
+    def test_install_restores_auto_mode_without_invalid_cdrom_fetch(self) -> None:
+        for arch in ("amd64", "arm64"):
+            options = self._entry_options(
+                self._render(arch), "NCZ-OS Installer -- Install"
+            )
+            self.assertIn("auto=true", options)
+            self.assertNotIn("preseed/file=", options)
+
+    def test_expert_remains_human_interactive_on_both_arches(self) -> None:
+        for arch in ("amd64", "arm64"):
+            options = self._entry_options(
+                self._render(arch), "NCZ-OS Installer -- Install (expert)"
+            )
+            self.assertNotIn("auto=true", options)
+            self.assertNotIn("preseed/file=", options)
+
     def test_rescue_preserves_existing_serial_capability(self) -> None:
         arm64 = self._entry_options(
             self._render("arm64"), "NCZ-OS Installer -- Rescue mode"
@@ -1083,7 +1098,6 @@ class BuildRefindEspConsoleOptionsTests(unittest.TestCase):
             "NCZ-OS Installer -- Install (expert)",
         ):
             options = self._entry_options(conf, title)
-            self.assertNotIn("auto=true", options)
             self.assertNotIn("ttyS0", options)
             self.assertIn("console=tty0", options)
 
