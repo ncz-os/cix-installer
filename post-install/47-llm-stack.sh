@@ -79,7 +79,9 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # is broken" even though the GPU driver itself was fine the whole time. Only
 # run this dev-stack purge on the Sky1/arm64 image, where the Mali blob ICD
 # genuinely replaces it.
-if [ "${NCZ_TARGET_ARCH:-arm64}" = "arm64" ]; then
+TARGET_ARCH="$(dpkg --print-architecture 2>/dev/null || true)"
+if [ "$TARGET_ARCH" = "arm64" ]; then
+    echo "[47] architecture=$TARGET_ARCH: Sky1 Mali blob replaces Mesa Vulkan; purge is applicable"
     NCZ_GPU_PURGE=""
     for p in mesa-vulkan-drivers libvulkan-dev vulkan-validationlayers \
              spirv-tools spirv-headers glslang-tools glslang-dev; do
@@ -95,7 +97,7 @@ if [ "${NCZ_TARGET_ARCH:-arm64}" = "arm64" ]; then
         echo "[47] GPU build stack already absent"
     fi
 else
-    echo "[47] non-arm64 ($NCZ_TARGET_ARCH): keeping mesa-vulkan-drivers, it is the real Vulkan ICD here"
+    echo "[47] architecture=${TARGET_ARCH:-unknown}: keeping mesa-vulkan-drivers; Mesa ICDs are required off arm64"
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mesa-vulkan-drivers 2>&1 | tail -5 || \
         echo "[47] WARN: mesa-vulkan-drivers install failed — continuing (non-fatal)"
 fi
