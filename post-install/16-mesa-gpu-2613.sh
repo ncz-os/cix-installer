@@ -16,13 +16,24 @@
 # /usr/local/lib/cix-installer/assets/gpu/. Tarball extracts to /opt/mesa-26.1.3.
 set -uo pipefail
 
+TARGET_ARCH="$(dpkg --print-architecture 2>/dev/null || true)"
+ENVF=/etc/environment
+if [ "$TARGET_ARCH" != "arm64" ]; then
+    echo "[16] architecture=${TARGET_ARCH:-unknown}: NCZ Mesa 26.1.3 is an arm64/Sky1 payload; leaving the detected GPU's distribution driver settings unchanged"
+    if [ -f "$ENVF" ]; then
+        sed -i '/^RUSTICL_ENABLE=panfrost$/d;\|^VK_DRIVER_FILES=.*/panfrost_2613_icd\.aarch64\.json$|d' "$ENVF"
+        echo "[16] removed any stale Sky1 panfrost environment overrides"
+    fi
+    exit 0
+fi
+echo "[16] architecture=$TARGET_ARCH: applying the Sky1 panfrost Vulkan/OpenCL configuration"
+
 SRC=/usr/local/lib/cix-installer/assets/gpu/mesa-26.1.3-ncz-arm64.tar.gz
 PREFIX=/opt/mesa-26.1.3
 LIBDIR="$PREFIX/lib/aarch64-linux-gnu"
 VK_ICD="$PREFIX/share/vulkan/icd.d/panfrost_icd.aarch64.json"
 RUSTICL_LIB="$LIBDIR/libRusticlOpenCL.so.1"
 
-ENVF=/etc/environment
 touch "$ENVF"
 set_env() {  # key value — idempotent replace-or-append
     local k="$1" v="$2"
