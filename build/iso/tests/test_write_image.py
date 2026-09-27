@@ -1067,13 +1067,15 @@ class BuildRefindEspConsoleOptionsTests(unittest.TestCase):
             ):
                 self.assertIn(quirk, options)
 
-    def test_install_restores_auto_mode_without_invalid_cdrom_fetch(self) -> None:
+    def test_install_restores_unattended_medium_preseed_on_both_arches(self) -> None:
         for arch in ("amd64", "arm64"):
             options = self._entry_options(
                 self._render(arch), "NCZ-OS Installer -- Install"
             )
             self.assertIn("auto=true", options)
-            self.assertNotIn("preseed/file=", options)
+            self.assertIn(
+                "preseed/file=/cdrom/ncz-payload/preseed.cfg", options
+            )
 
     def test_expert_remains_human_interactive_on_both_arches(self) -> None:
         for arch in ("amd64", "arm64"):

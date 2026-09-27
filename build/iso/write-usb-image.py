@@ -83,6 +83,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import shutil
@@ -483,7 +484,8 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     return receipt
 
 
-def stage_offline_mirror(stage_dir: Path, arch: str) -> None:
+def stage_offline_mirror(stage_dir: Path, arch: str,
+                         installer_pool: Path) -> None:
     """Copy the offline apt closure to the medium root as dists/ + pool/.
 
     This is what makes an install offline. post-install/20-desktop.sh gates
@@ -524,6 +526,46 @@ def stage_offline_mirror(stage_dir: Path, arch: str) -> None:
 
     for name in ("dists", "pool"):
         shutil.copytree(mirror / name, stage_dir / name, symlinks=True)
+
+    # preseed/file=/cdrom/... makes d-i treat the already-mounted GPT data
+    # partition as installation media and run load-cdrom before netcfg.  The
+    # raw-image mirror contains regular .debs only, while cdrom-retriever
+    # requires the installer Packages path to exist in (and be hashed by)
+    # Release even when every required udeb is already baked into the initrd.
+    # Carry the substrate's matching udeb pool and index it, as the old ISO
+    # builder did. An empty index lets load-cdrom return, but leaves main-menu
+    # with no next component; this must be a real installer repository.
+    if not installer_pool.is_dir():
+        raise RuntimeError(f"FATAL: installer udeb pool missing: {installer_pool}")
+    shutil.copytree(installer_pool, stage_dir / "pool", dirs_exist_ok=True,
+                    symlinks=True)
+    installer_index = (stage_dir / "dists" / suite / "main" /
+                       "debian-installer" / f"binary-{arch}")
+    installer_index.mkdir(parents=True, exist_ok=True)
+    packages = installer_index / "Packages"
+    with packages.open("wb") as stream:
+        subprocess.run(
+            ["dpkg-scanpackages", "--type", "udeb", "--multiversion",
+             "pool/main", "/dev/null"],
+            cwd=stage_dir, check=True, stdout=stream,
+        )
+    with gzip.GzipFile(filename=str(installer_index / "Packages.gz"),
+                       mode="wb", mtime=0) as stream:
+        stream.write(packages.read_bytes())
+
+    release = stage_dir / "dists" / suite / "Release"
+    release_cmd = [
+        "apt-ftparchive",
+        "-o", f"APT::FTPArchive::Release::Suite={suite}",
+        "-o", f"APT::FTPArchive::Release::Codename={suite}",
+        "-o", f"APT::FTPArchive::Release::Architectures={arch}",
+        "-o", "APT::FTPArchive::Release::Components=main",
+        "-o", "APT::FTPArchive::Release::Origin=NCZ-OS",
+        "-o", "APT::FTPArchive::Release::Label=NCZ-OS offline media",
+        "release", str(stage_dir / "dists" / suite),
+    ]
+    with release.open("wb") as stream:
+        subprocess.run(release_cmd, check=True, stdout=stream)
 
     debs = sum(1 for _ in (stage_dir / "pool").rglob("*.deb"))
     log(f"    offline apt closure staged ({arch}, suite={suite}): "
@@ -872,6 +914,8 @@ def main() -> int:
     ap.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     ap.add_argument("--esp-img", required=True, type=Path)
     ap.add_argument("--ncz-payload-dir", required=True, type=Path)
+    ap.add_argument("--installer-pool", required=True, type=Path,
+                    help="Architecture-matched substrate pool containing udebs")
     ap.add_argument("--patched-udeb", type=Path,
                      help="Patched debootstrap-udeb carrying the r159 stub, "
                           "from build/iso/patch-debootstrap-stub.py. REQUIRED "
@@ -932,7 +976,7 @@ def main() -> int:
 
         log("[2/4] building ext4 data partition image")
         data_img = tmp / "data.img"
-        stage_offline_mirror(stage_dir, args.arch)
+        stage_offline_mirror(stage_dir, args.arch, args.installer_pool)
         build_data_partition_img(stage_dir / "ncz-payload", data_img, args.data_size_mib)
 
         log("[3/4] laying out GPT + writing partitions")
