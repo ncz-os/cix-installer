@@ -153,7 +153,9 @@ image: $(OUTPUT_IMAGE)
 iso: image
 
 kernel-debs:
-	@if ! ls $(BUILD)/kernel-debs/*.deb >/dev/null 2>&1; then \
+	@if [ "$(ARCH)" != arm64 ]; then \
+	    echo "[kernel-debs] skipping Sky1 kernel packages for $(ARCH)"; \
+	elif ! ls $(BUILD)/kernel-debs/*.deb >/dev/null 2>&1; then \
 	    echo "[kernel-debs] no debs present; building local kernel packages"; \
 	    bash $(ROOT)/build/build-kernel-debs.sh; \
 	else \
