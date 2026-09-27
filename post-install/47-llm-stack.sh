@@ -107,27 +107,44 @@ fi
 
 echo
 echo "[47] verification:"
-for tool in vulkaninfo clinfo glmark2; do
+for tool in clinfo glmark2; do
     if command -v "$tool" >/dev/null 2>&1; then
-        echo "    OK  $tool ($($tool --version 2>&1 | head -1 | sed 's/^/    /'))"
+        echo "    OK  $tool is executable"
     else
         echo "    --  $tool (not installed)"
     fi
 done
 
-# Smoke: can the Vulkan loader enumerate any device? Inside chroot the
-# answer is almost certainly "no" (no /dev/dri yet), but vulkaninfo at
-# least loading without segfaulting is a good signal that the libs
-# linked clean. Don't fail the hook on absence.
-if command -v vulkaninfo >/dev/null 2>&1; then
-    if vulkaninfo --summary 2>&1 | grep -q "GPU id"; then
-        echo "[47] vulkaninfo enumerated a Vulkan device (unexpected in chroot — but fine)"
-    else
-        echo "[47] vulkaninfo present (no devices in chroot — expected; first boot will see Mali-G720)"
-    fi
+# A chroot normally has no GPU device nodes, so device enumeration is not a
+# valid install-time assertion. Verify the installed loader tool and the ICD
+# configuration that it will consume at first boot instead. These checks are
+# deliberately fatal: an empty command substitution is not proof of Vulkan.
+VULKAN_TOOLS_VERSION="$(dpkg-query -W -f='${Version}' vulkan-tools 2>/dev/null || true)"
+if [ -z "$VULKAN_TOOLS_VERSION" ] || ! command -v vulkaninfo >/dev/null 2>&1; then
+    echo "[47] ERROR: vulkan-tools/vulkaninfo is not installed" >&2
+    exit 1
+fi
+if ldd "$(command -v vulkaninfo)" 2>&1 | grep -q 'not found'; then
+    echo "[47] ERROR: vulkaninfo has unresolved shared-library dependencies" >&2
+    exit 1
 fi
 
+if [ "$TARGET_ARCH" = "amd64" ] && ! dpkg-query -W -f='${Status}' mesa-vulkan-drivers 2>/dev/null | grep -q '^install ok installed$'; then
+    echo "[47] ERROR: amd64 requires the mesa-vulkan-drivers package" >&2
+    exit 1
+fi
+
+shopt -s nullglob
+VULKAN_ICDS=(/etc/vulkan/icd.d/*.json /usr/share/vulkan/icd.d/*.json)
+shopt -u nullglob
+if [ "${#VULKAN_ICDS[@]}" -eq 0 ]; then
+    echo "[47] ERROR: no Vulkan ICD JSON is installed" >&2
+    exit 1
+fi
+echo "    OK  vulkaninfo (vulkan-tools $VULKAN_TOOLS_VERSION)"
+echo "    OK  ${#VULKAN_ICDS[@]} Vulkan ICD JSON file(s) installed"
+
 echo
-echo "[47] Vulkan + SPIR-V baked. r75 ships ready for llama.cpp Vulkan + NPU embedder workloads."
+echo "[47] Vulkan runtime verification passed; diagnostic tools are staged."
 echo "     Next-step (post-install): user runs 'ncz install mnemos' to fetch the bge-small-zh.cix model"
 echo "     and start the NPU embedder server (P4 scope-2 / r75 task #98)."
