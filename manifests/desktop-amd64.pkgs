@@ -90,6 +90,11 @@ zenity
 fuzzel
 xwayland
 polkitd
+# PipeWire/WirePlumber request realtime scheduling through rtkit.  Keep this
+# explicit: 20-desktop.sh installs it in the same transaction as the desktop,
+# so one missing candidate prevents every package in that transaction from
+# being installed on the offline target.
+rtkit
 xdg-desktop-portal
 apparmor
 apparmor-profiles
