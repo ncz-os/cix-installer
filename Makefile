@@ -61,10 +61,17 @@ LATEST_SINGULARITY_DEB := $(shell ls -1 $(ROOT)/assets/cix-debs/ncz-singularity-
 # have been forky-based since, and the vendor .debs come from the CIX debian13
 # SDK. To build on a point release anyway, override on the command line:
 #   make iso UPSTREAM_ISO=debian-12.13.0-arm64-netinst.iso
-UPSTREAM_ISO  ?= debian-daily-$(ARCH)-mini.iso
-UPSTREAM_URL  := https://d-i.debian.org/daily-images/$(ARCH)/daily/netboot/mini.iso
-UPSTREAM_SHA  := https://d-i.debian.org/daily-images/$(ARCH)/daily/SHA256SUMS
-UPSTREAM_SHA_NAME := netboot/mini.iso
+# Substrate = the NETINST, not netboot/mini.iso. The netinst carries its own
+# /pool (285 udebs) and /dists/<codename>/Release, so anna and choose-mirror
+# are satisfied from the medium. mini.iso carries neither, which makes the
+# live archive a hard boot-time dependency and puts the install on the
+# DHCP/DNS settling race (see build/iso/import-substrate.py, which supports
+# BOTH layouts). Forky is testing and rotates under us; an on-media closure
+# is the only stable target until it releases.
+UPSTREAM_ISO  ?= debian-testing-$(ARCH)-netinst.iso
+UPSTREAM_URL  := https://cdimage.debian.org/cdimage/weekly-builds/$(ARCH)/iso-cd/$(UPSTREAM_ISO)
+UPSTREAM_SHA  := https://cdimage.debian.org/cdimage/weekly-builds/$(ARCH)/iso-cd/SHA256SUMS
+UPSTREAM_SHA_NAME := $(UPSTREAM_ISO)
 
 # The weekly-builds FILENAME is stable but its CONTENT rotates: upstream
 # republishes debian-testing-arm64-netinst.iso every week and drops the old
