@@ -394,12 +394,49 @@ if [ -n "$SQDIR" ]; then
     # half-configured package. Bind-mount for maintainer scripts, then unmount.
     for _m in proc sys dev; do mount --bind /$_m "$TARGET/$_m" 2>/dev/null; done
     mount --bind /dev/pts "$TARGET/dev/pts" 2>/dev/null
-    # The arm64 base layer can omit Text::Iconv even though debconf's Encoding.pm
+    # The raw-GPT data partition is mounted by d-i as /cdrom, but it is not an
+    # apt CD-ROM and apt-cdrom cannot register it.  Make the regular on-media
+    # repository visible inside the target before apt-setup and user-setup run,
+    # and remove the baked live sources for the duration of installation.
+    # late.sh replaces these with the runtime update sources before reboot.
+    _TARGET_ARCH=$(chroot "$TARGET" dpkg --print-architecture 2>/dev/null)
+    _MEDIA_SUITE=""
+    for _d in /cdrom/dists/*; do
+        [ -s "$_d/main/binary-${_TARGET_ARCH}/Packages" ] || continue
+        _MEDIA_SUITE=${_d##*/}
+        break
+    done
+    if [ -n "$_MEDIA_SUITE" ]; then
+        mkdir -p "$TARGET/cdrom" "$TARGET/etc/apt/sources.list.d"
+        mount --bind /cdrom "$TARGET/cdrom" 2>/dev/null || {
+            echo "FATAL: r159 stub: cannot bind installation repository into target" >&2; exit 1; }
+        rm -f "$TARGET/etc/apt/sources.list.d/"*.list \
+              "$TARGET/etc/apt/sources.list.d/"*.sources
+        echo "deb [trusted=yes] file:///cdrom $_MEDIA_SUITE main" > "$TARGET/etc/apt/sources.list"
+        mkdir -p "$TARGET/etc/apt/apt.conf.d"
+        echo 'Acquire::Check-Date "false";' > "$TARGET/etc/apt/apt.conf.d/00ncz-install-time-clock"
+        # apt-setup 0.200 only consults use_mirror when
+        # /cdrom/.disk/base_installable exists.  This raw-GPT medium correctly
+        # has no such marker, so 50mirror otherwise ignores use_mirror=false
+        # and unconditionally regenerates the configured HTTP source. Anna is
+        # finished by this point, so remove only that apt-setup generator; the
+        # preseeded 60local repository becomes the sole install source.
+        if [ -x /usr/lib/apt-setup/generators/50mirror ]; then
+            mv /usr/lib/apt-setup/generators/50mirror \
+               /usr/lib/apt-setup/generators/.50mirror.ncz-disabled || {
+                echo "FATAL: r159 stub: cannot disable apt-setup 50mirror" >&2; exit 1; }
+        fi
+        echo "I: r159 stub: target apt pinned to file:///cdrom $_MEDIA_SUITE/main for installation" >&2
+    else
+        echo "FATAL: r159 stub: no on-media $_TARGET_ARCH apt repository found" >&2
+        exit 1
+    fi
+    # A base layer can omit Text::Iconv even though debconf's Encoding.pm
     # unconditionally calls it. That makes every debconf-apt-progress invocation
     # fail after apt itself succeeds, and apt-setup loops forever at 50mirror.
     # Install the package from the on-media pool before any d-i target-side
     # debconf frontend runs. Do not mask mirror errors: make the rootfs complete.
-    _ICONV_DEB=$(find /cdrom/pool -type f -name 'libtext-iconv-perl_*_arm64.deb' 2>/dev/null | head -1)
+    _ICONV_DEB=$(find /cdrom/pool -type f -name "libtext-iconv-perl_*_${_TARGET_ARCH}.deb" 2>/dev/null | head -1)
     if [ -n "$_ICONV_DEB" ] && ! chroot "$TARGET" dpkg-query -W libtext-iconv-perl >/dev/null 2>&1; then
         cp "$_ICONV_DEB" "$TARGET/tmp/ncz-libtext-iconv-perl.deb" || {
             echo "FATAL: r159 stub: cannot stage libtext-iconv-perl" >&2; exit 1; }
