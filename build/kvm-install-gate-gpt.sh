@@ -256,9 +256,26 @@ if grep -qE "Kernel panic - not syncing" "$ILOG"; then
     grep -nE -A10 "Kernel panic" "$ILOG" | head -30 >&2
     fail "kernel panic during install"
 fi
+# The serial log is progress/UI output: ANSI sequences and progress-bar
+# carriage returns pad and split phrases, so grep the log only after
+# normalising it. Without this, "Ship-critical post-install hooks failed"
+# is present but unmatchable.
+ncz_norm_log() {
+    sed 's/\x1b\[[0-9;?]*[A-Za-z]//g; s/\x1b[()][A-Z0-9]//g' "$1" | tr '\r' '\n' | tr -s ' '
+}
+
+# A ship-critical hook failure is a FAILED INSTALL, whatever else the log says.
+# run-all.sh emits this immediately before late.sh prints its completion
+# marker, and late.sh prints that marker unconditionally -- so checking the
+# marker alone reports success on a broken install.
+if ncz_norm_log "$ILOG" | grep -qai "Ship-critical post-install hooks failed"; then
+    ncz_norm_log "$ILOG" | grep -ai -B2 -A2 "Ship-critical post-install hooks failed" | head -20 >&2
+    fail "a ship-critical post-install hook failed -- the install is not shippable"
+fi
+
 grep -qE "post-install hooks finished|finalizing apt sources|forcing clean reboot|nclawzero post-install complete|Post-install completed successfully|Completed with optional-step warnings" "$ILOG" \
-  || fail "install did not reach the finish stage (timeout at ${INSTALL_TIMEOUT}s?) -- see $ILOG"
-echo "  install completed without a failed hook"
+  || fail "install did not reach the finish stage -- qemu rc=${irc:-?} (rc=124 means the ${INSTALL_TIMEOUT}s timeout expired; any other rc means the run was terminated early, which is NOT a timeout) -- see $ILOG"
+echo "  install reached the finish stage with no ship-critical hook failure"
 grep -q "ORPHAN" "$ILOG" && { echo "  WARNING: orphaned hooks reported:" >&2; grep "ORPHAN" "$ILOG" | head -10 >&2; } || true
 
 echo
