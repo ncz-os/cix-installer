@@ -1,0 +1,11 @@
+POKY_BBLAYERS_CONF_VERSION = "2"
+BBPATH = "${TOPDIR}"
+BBFILES ?= ""
+BBLAYERS ?= " \
+  @LAYERS_CONTAINER@/openembedded-core/meta \
+  @LAYERS_CONTAINER@/meta-yocto/meta-poky \
+  @LAYERS_CONTAINER@/meta-openembedded-wrynose/meta-oe \
+  @LAYERS_CONTAINER@/meta-openembedded-wrynose/meta-python \
+  @LAYERS_CONTAINER@/meta-openembedded-wrynose/meta-networking \
+  @LAYERS_CONTAINER@/meta-cix \
+  "
