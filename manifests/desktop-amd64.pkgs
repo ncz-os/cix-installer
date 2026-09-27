@@ -303,13 +303,11 @@ amd64-microcode
 
 # ============================================================================
 # GPU/ACCELERATOR STACK — install-time hardware-detected, NOT unconditional.
-# Real package names verified live against Debian 13 trixie (CERBERUS,
-# 2026-09-14 apt-cache search — not guessed):
+# Real package names verified against Debian forky:
 # ============================================================================
 #   AMD (PCI vendor 1002/1022)  → rocm-opencl-icd, rocm-smi, rocminfo,
-#                                  rocm-device-libs-17, rocm-cmake
-#                                  (real Debian trixie packages, confirmed
-#                                  present in the main archive — no
+#                                  rocm-device-libs-21, libamdhip64-6, hipcc,
+#                                  rocm-cmake (Debian packages; no
 #                                  third-party repo needed for ROCm itself)
 #   NVIDIA (PCI vendor 10de)    → nvidia-driver (Debian non-free-firmware
 #                                  metapackage) for the driver; full CUDA
