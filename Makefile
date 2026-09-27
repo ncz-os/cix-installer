@@ -230,11 +230,15 @@ desktop-mirror: vendor-mirror libdrm-debs
 
 offline-mirror: desktop-mirror
 	@if [ ! -d $(BUILD)/forky-mirror/pool ] || \
-	    ! bash $(ROOT)/build/verify-local-package-versions.sh \
+	    ! { [ "$(ARCH)" != "arm64" ] || \
+	      bash $(ROOT)/build/verify-local-package-versions.sh \
 	        --pool $(BUILD)/forky-mirror/pool \
 	        --label forky-mirror \
-	        $(SINTY_DEBS_ARG) >/dev/null 2>&1 || \
+	        $(SINTY_DEBS_ARG) >/dev/null 2>&1; } || \
 	    ! bash $(ROOT)/build/verify-offline-mirror-seeds.sh \
+	        --mirror $(BUILD)/forky-mirror \
+	        --label forky-mirror >/dev/null 2>&1 || \
+	    ! bash $(ROOT)/build/verify-firmware-bom.sh \
 	        --mirror $(BUILD)/forky-mirror \
 	        --label forky-mirror >/dev/null 2>&1; then \
 	    echo "[offline-mirror] missing or stale; rebuilding from refreshed vendor mirror"; \
@@ -243,6 +247,7 @@ offline-mirror: desktop-mirror
 	else \
 	    echo "[offline-mirror] existing mirror matches local package pins and manifest seeds"; \
 	fi
+	@bash $(ROOT)/build/verify-firmware-bom.sh --mirror $(BUILD)/forky-mirror --label forky-mirror
 
 
 $(ROOT)/assets/python311/uv:
