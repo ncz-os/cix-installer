@@ -1,0 +1,5 @@
+# Deliberate firmware BOM exclusions, one binary package name per line.
+#
+# This file is intentionally empty.  Add a firmware-* package here only with
+# a reviewable explanation; build/verify-firmware-bom.sh reports and excludes
+# listed packages from the required closure.

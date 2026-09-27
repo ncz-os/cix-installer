@@ -232,27 +232,17 @@ v4l-utils
 # GENERIC FIRMWARE — kept, NOT Sky1-specific (real WiFi/BT cards found on
 # generic AMD64 laptops and desktops too, same package names in Debian).
 # ============================================================================
-firmware-linux-free
 # 2026-09-20: firmware-linux-free above is the FREE-licensed subset only --
 # firmware-linux (no suffix) is the broader non-free-inclusive metapackage
 # covering additional real hardware Debian ships firmware for that has no
 # individually-named package here (older/misc chipsets). Real gap found
 # during a comprehensive out-of-box hardware coverage pass, distinct from
 # the b43/AX201/RTL8168h chip-specific gaps found the same night.
-firmware-linux
-firmware-realtek
-firmware-misc-nonfree
-firmware-mediatek
-firmware-brcm80211
-firmware-atheros
-firmware-iwlwifi
-firmware-ath9k-htc
 # 2026-09-20: Broadcom wired-NIC firmware (BCM577xx/578xx family, common on
 # business/enterprise laptops and servers) -- firmware-brcm80211 above only
 # covers Broadcom WiFi, not this separate wired-ethernet firmware family.
 # Same class of gap as the b43/AX201/RTL8168h findings the same night.
-firmware-bnx2
-firmware-bnx2x
+# Complete firmware seed: manifests/firmware.pkgs.
 # REMOVED 2026-09-22: firmware-b43-installer / firmware-b43legacy-installer
 # (added 2026-09-18, see below for the original reasoning -- still valid
 # as a hardware-coverage argument, but the package can't actually build
@@ -278,7 +268,6 @@ firmware-bnx2x
 # DVD-1 "with firmware" pool/non-free-firmware -- AMD iGPU firmware, real
 # gap (many laptops pair a discrete GPU with an AMD APU's integrated one,
 # e.g. Ryzen-based machines like the one this gap was found on).
-firmware-amd-graphics
 
 # --- x86-specific microcode (arm64 has no equivalent; rescue.pkgs' arm64
 #     header explicitly excluded these as "not applicable to a headless

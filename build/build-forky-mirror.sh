@@ -28,6 +28,7 @@ _seed_for() {
 }
 BASE_SEED="${BASE_SEED:-$(_seed_for installer-base)}"
 DESKTOP_SEED="${DESKTOP_SEED:-$(_seed_for desktop)}"
+FIRMWARE_SEED="${FIRMWARE_SEED:-$REPO/manifests/firmware.pkgs}"
 
 [ "$SUITE" = "$NCZ_BASE_CODENAME" ] || {
     echo "ERROR: suite '$SUITE' does not match release profile '$NCZ_BASE_CODENAME'" >&2
@@ -36,7 +37,7 @@ DESKTOP_SEED="${DESKTOP_SEED:-$(_seed_for desktop)}"
 [ -r "$DEBIAN_KEYRING" ] || { echo "ERROR: Debian archive keyring missing: $DEBIAN_KEYRING" >&2; exit 1; }
 [ -d "$VENDOR_MIRROR/dists/$SUITE" ] || { echo "ERROR: vendor mirror missing: $VENDOR_MIRROR" >&2; exit 1; }
 [ -d "$DESKTOP_MIRROR/dists/$SUITE" ] || { echo "ERROR: desktop mirror missing: $DESKTOP_MIRROR" >&2; exit 1; }
-[ -s "$BASE_SEED" ] && [ -s "$DESKTOP_SEED" ] || { echo "ERROR: required seed manifest missing" >&2; exit 1; }
+[ -s "$BASE_SEED" ] && [ -s "$DESKTOP_SEED" ] && [ -s "$FIRMWARE_SEED" ] || { echo "ERROR: required seed manifest missing" >&2; exit 1; }
 if [ -e "$OUT" ] && [ -n "$(find "$OUT" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
     echo "ERROR: refusing to merge into existing mirror: $OUT" >&2
     echo "       choose a new OUT directory or audit and remove that exact prior mirror first." >&2
@@ -45,7 +46,7 @@ fi
 
 echo "== build-$SUITE-mirror =="
 echo "   suite=$SUITE arch=$ARCH source=$MIRROR_URL"
-echo "   seeds=$(basename "$BASE_SEED"),$(basename "$DESKTOP_SEED") vendor=$VENDOR_MIRROR desktop=$DESKTOP_MIRROR"
+echo "   seeds=$(basename "$BASE_SEED"),$(basename "$DESKTOP_SEED"),$(basename "$FIRMWARE_SEED") vendor=$VENDOR_MIRROR desktop=$DESKTOP_MIRROR"
 
 TMP="$(mktemp -d)"
 cleanup() { rm -rf "$TMP"; }
@@ -83,7 +84,7 @@ apt-get "${APTOPTS[@]}" update >/dev/null
 
 SEED="$TMP/seed"
 {
-    grep -hvE '^[[:space:]]*(#|$)' "$BASE_SEED" "$DESKTOP_SEED" | awk '{print $1}'
+    grep -hvE '^[[:space:]]*(#|$)' "$BASE_SEED" "$DESKTOP_SEED" "$FIRMWARE_SEED" | awk '{print $1}'
 } | sort -u > "$SEED"
 echo "  explicit seed: $(wc -l < "$SEED") packages"
 
@@ -104,6 +105,25 @@ awk '/^Inst / {print $2}' "$SIMLOG" | sort -u > "$CLOSURE"
 echo "  resolved closure: $(wc -l < "$CLOSURE") packages"
 
 mkdir -p "$OUT/pool/main" "$OUT/dists/$SUITE/main/binary-$ARCH"
+# Preserve the package universe apt resolved against.  The generated mirror
+# index below describes only the closure and therefore cannot prove that a
+# newly-published firmware package was omitted.  This local metadata snapshot
+# makes verify-firmware-bom.sh an offline-capable, independently-triggerable
+# gate rather than a comparison of the closure with itself.
+mkdir -p "$OUT/.ncz-published-packages/$ARCH"
+: > "$OUT/.ncz-published-packages/$ARCH/Packages"
+while read -r index component index_arch; do
+    case "$component" in main|non-free-firmware) ;; *) continue ;; esac
+    [ "$index_arch" = "$ARCH" ] || continue
+    /usr/lib/apt/apt-helper cat-file "$index" \
+        >> "$OUT/.ncz-published-packages/$ARCH/Packages"
+done < <(apt-get "${APTOPTS[@]}" indextargets \
+    --format '$(FILENAME) $(COMPONENT) $(ARCHITECTURE)' \
+    'Identifier: Packages')
+[ -s "$OUT/.ncz-published-packages/$ARCH/Packages" ] || {
+    echo "ERROR: could not preserve local $SUITE/$ARCH publication indices" >&2
+    exit 1
+}
 echo "  downloading exact closure"
 if ! (cd "$OUT/pool/main" && xargs -r apt-get "${APTOPTS[@]}" download < "$CLOSURE"); then
     echo "ERROR: failed to download complete closure; output is intentionally not indexed" >&2
