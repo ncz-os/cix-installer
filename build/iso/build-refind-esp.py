@@ -137,17 +137,19 @@ def find_refind_extract(arch: str) -> Path:
     return base
 
 
-# The on-screen installer entries deliberately do not use auto=true.  This
-# ports the reopen-console fix and incident history documented beside
-# DI_OPTS_GFX in build/build-iso-di.sh: auto=true selects d-i's single-console
-# preseeding path, which can choose a firmware-registered UART regardless of
-# console= ordering.  On arm64, keep_bootcon compounds that failure by keeping
-# the early UART registered.  priority=critical still suppresses low-priority
-# questions, and the initrd-baked/file preseed remains active without
-# auto=true.  The rescue entry is not an automatic/preseeded install, so it
-# retains the existing serial-capable console options.
+# Match the old builder's unattended DI_OPTS for the normal Install entry.
+# auto=true makes d-i apply the preseed at the auto-install point, after
+# networking is configured, instead of allowing choose-mirror to race DHCP's
+# resolv.conf update.  The preseed early_command mounts the raw-GPT ext4 data
+# partition at /cdrom after USB rescan, before cdrom-detect runs; that makes the
+# explicit medium path valid on this hd-media layout too.  Expert remains the
+# human/on-screen path (the old DI_OPTS_GFX): it deliberately omits auto=true
+# because d-i's single-console preseeding path can select a firmware UART and
+# make the installer disappear from the local display.  Rescue is not an
+# automatic/preseeded install either.
 AMD64_INSTALL_OPTIONS = (
-    "priority=critical ipv6.disable=1 interface=auto "
+    "auto=true priority=critical preseed/file=/cdrom/ncz-payload/preseed.cfg "
+    "ipv6.disable=1 interface=auto "
     "netcfg/dhcp_timeout=120 locale=en_US.UTF-8 "
     "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=tty0"
 )
@@ -493,8 +495,11 @@ def make_fat_image_mtools(esp_root: Path, out_img: Path, size_mib: int = 4) -> d
         cur = ""
         for part in parent_parts:
             cur = f"{cur}/{part}"
-            # mmd is idempotent on existing dirs; ignore "already exists".
-            subprocess.run([mmd, "-i", str(out_img), f"::{cur}"],
+            # Repeated parents are expected while walking multiple files.
+            # mmd prompts on /dev/tty for an existing directory unless its
+            # primary-name clash policy is explicit; -D s makes that case a
+            # non-interactive skip (exit 2, intentionally ignored here).
+            subprocess.run([mmd, "-D", "s", "-i", str(out_img), f"::{cur}"],
                            check=False, capture_output=True)
         subprocess.run([
             mcopy, "-i", str(out_img), "-pQ",
