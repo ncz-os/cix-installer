@@ -1,0 +1,12 @@
+HEAD: 4d0acf2d1e1f26eed8b75c461ffd021f0cb86846
+origin: https://chromium.googlesource.com/chromium/src.git
+captured: 2026-09-27T18:09:11-04:00 from hydra:/home/jasonperlow/electron-build/src
+
+Submodule pointer changes NOT captured (gclient sync state, not edits):
+  third_party/boringssl/src
+  third_party/devtools-frontend/src
+  third_party/ffmpeg
+  third_party/perfetto
+  third_party/sqlite/src
+  third_party/webrtc
+  v8
