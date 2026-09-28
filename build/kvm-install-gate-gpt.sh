@@ -323,7 +323,8 @@ timeout "$BOOT_TIMEOUT" "$QEMU" \
   -M "$MACHINE" -accel "$ACCEL" -cpu "$CPU" -smp "$SMP" -m "$MEM" \
   -drive if=pflash,format=raw,unit=0,file="$CODE",readonly=on \
   -drive if=pflash,format=raw,unit=1,file="$VARS" \
-  -drive file="$DISK",if=virtio,format=qcow2 \
+  -drive file="$DISK",if=none,id=targetdisk,format=qcow2 \
+  -device virtio-blk-pci,drive=targetdisk,bootindex=1,romfile= \
   "${BOOT_VIDEO_ARGS[@]}" \
   -netdev user,id=n0,hostfwd=tcp::2224-:22 -device virtio-net-pci,netdev=n0,romfile= \
   -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
