@@ -29,8 +29,23 @@ stage_line() {  # <line-name e.g. amd64-stable> <staging-dir-prefix e.g. amd64-s
     [ -n "$latest" ] || { echo "ERROR: no staged build found for $line (looked for $SHARED/${prefix}*)" >&2; return 1; }
     local dest="$ROOT/assets/kernel/$line"
     mkdir -p "$dest"
+    # cp -f overwrites files BY NAME, but a fresh kernel line (new version
+    # string) carries .deb basenames that the previous run did not have on
+    # disk -- so on any kernel bump the old .deb(s) silently accumulate
+    # alongside the new ones and the install hook's `find ... | sort -V |
+    # tail -1` would still resolve cleanly (sort -V picks the highest), but
+    # *humans* reading the dir see two lines and rightly wonder which one is
+    # shipping. More importantly: a future hook that does anything other
+    # than `sort -V | tail -1` (e.g. a dpkg -i of all of them, an `ls`
+    # listing, a verifier counting files) sees the previous version and the
+    # disagreement with KVER is the failure mode that broke the 2026-09-28
+    # image. Wipe the dest's previous .debs first; KVER is overwritten
+    # below anyway. We do NOT delete the dest itself -- other entries may
+    # be added there by hand (asset-curation scripts, recovery flows).
+    find "$dest" -maxdepth 1 -type f \( -name 'linux-image-*_amd64.deb' \
+        -o -name 'linux-headers-*_amd64.deb' \) -delete
     cp -f "$latest"/*.deb "$latest/KVER" "$dest/"
-    echo "[stage-amd64-kernel] $line <- $(basename "$latest")"
+    echo "[stage-amd64-kernel] $line <- $(basename "$latest") (pruned to $(ls "$dest"/linux-image-*_amd64.deb 2>/dev/null | wc -l) image + $(ls "$dest"/linux-headers-*_amd64.deb 2>/dev/null | wc -l) headers pair)"
 }
 
 case "$WHAT" in

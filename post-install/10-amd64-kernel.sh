@@ -46,21 +46,66 @@ install_one(){
     local label="$1" dir="$2"
     local kver img hdr
     [ -d "$dir" ] || { echo "[10-amd64] WARN: $dir absent — skipping $label"; return 0; }
-    kver=$(cat "$dir/KVER" 2>/dev/null || true)
-    img=$(find "$dir" -maxdepth 1 -name 'linux-image-*.deb' | sort -V | tail -1)
-    hdr=$(find "$dir" -maxdepth 1 -name 'linux-headers-*.deb' | sort -V | tail -1)
+    # Sort -V picks the highest-version .deb when more than one is staged --
+    # but stage-amd64-kernel.sh now prunes to exactly one image + one
+    # headers pair per line, so the "two versions accumulated" condition is
+    # closed at the source. If we ever see multiple here, log it loudly;
+    # silently picking tail-1 would mask a real regression of the staging
+    # contract.
+    img=$(find "$dir" -maxdepth 1 -name 'linux-image-*.deb')
+    hdr=$(find "$dir" -maxdepth 1 -name 'linux-headers-*.deb')
+    local img_count=0 hdr_count=0
+    [ -n "$img" ] && img_count=$(echo "$img" | wc -l | tr -d ' ')
+    [ -n "$hdr" ] && hdr_count=$(echo "$hdr" | wc -l | tr -d ' ')
+    if [ "$img_count" -ne 1 ] || [ "$hdr_count" -ne 1 ]; then
+        echo "[10-amd64] ERROR: $label has $img_count image .deb(s) and $hdr_count headers .deb(s) (must be exactly 1 each -- stage-amd64-kernel.sh should prune)" >&2
+        ls -1 "$dir"/linux-image-*_amd64.deb "$dir"/linux-headers-*_amd64.deb 2>/dev/null | sed 's/^/    /' >&2
+        return 0
+    fi
+    # KVER from the .deb FILENAME, NOT from a KVER sidecar file. The sidecar
+    # is a build-host text file tracked in git; it can drift out of sync
+    # with the .deb the build actually shipped if base.squashfs was reused
+    # from a prior build, and that drift is exactly what produced the
+    # false "no AMD64 kernel installed" ERROR on 2026-09-28 (kernel was
+    # installed -- vmlinuz-7.3.0-rc5 was right there -- but the hook
+    # checked /boot/vmlinuz-$KVER sidecar's rc4-xhcifix and saw it absent).
+    # The .deb filename is the upstream kernel package maintainer's own
+    # declaration of the installed version -- it can disagree with nothing.
+    # Naming convention: linux-image-<KVER>_<PKGVER>_amd64.deb
+    kver="$(basename "$img")"
+    kver="${kver#linux-image-}"
+    kver="${kver%_amd64.deb}"
+    kver="${kver%_*}"      # strip the _<PKGVER> suffix, leaving "7.3.0-rc5-1-t2-trixie"
     if [ -z "$kver" ] || [ -z "$img" ]; then
-        echo "[10-amd64] WARN: $label incomplete (kver='$kver' img='$img') — skipping"
+        echo "[10-amd64] WARN: $label incomplete (could not derive kver from '$(basename "$img" 2>/dev/null)') — skipping"
         return 0
     fi
     echo "[10-amd64] installing $label kernel $kver"
     echo "    $(basename "$img")"
-    [ -n "$hdr" ] && echo "    $(basename "$hdr")"
+    echo "    $(basename "$hdr")"
     # dpkg first (fast, no network); fix any unmet deps via apt against the
     # sources 24-apt-sources.sh already wired for the base manifest install.
-    if ! dpkg -i "$img" ${hdr:+"$hdr"} 2>&1 | tail -20; then
+    if ! dpkg -i "$img" "$hdr" 2>&1 | tail -20; then
         echo "    dpkg reported unmet deps — resolving via apt-get -f install"
         apt-get -f install -y 2>&1 | tail -20 || true
+    fi
+    # Verify against the kernel package we ACTUALLY installed, by querying
+    # dpkg -- the .deb is now part of dpkg's database, so this can no
+    # longer disagree with reality the way the KVER sidecar did. Falling
+    # back to /boot/vmlinuz-$kver keeps a useful diagnostic if dpkg-query
+    # somehow doesn't see the install (e.g. the dpkg -i was redirected to
+    # apt-get -f which resolved a different version).
+    # dpkg-query -W was rejected by dpkg under --root on some hosts
+    # ("unknown option -W"); dpkg -s works uniformly and reports the
+    # Status line the way dpkg-query -W -f='${Status}' does.
+    local pkg_status pkg_ok=0
+    pkg_status="$(dpkg -s "linux-image-${kver}" 2>/dev/null \
+                  | awk '/^Status: / { sub(/^Status: /, "", $0); print; exit }')"
+    case "$pkg_status" in
+        *"install ok installed"*) pkg_ok=1 ;;
+    esac
+    if [ "$pkg_ok" -ne 1 ]; then
+        echo "[10-amd64] WARN: $label: dpkg says linux-image-${kver} is not 'install ok installed' (got '${pkg_status:-<absent>}')" >&2
     fi
     if [ ! -s "/boot/vmlinuz-$kver" ]; then
         echo "[10-amd64] WARN: $label installed but /boot/vmlinuz-$kver missing" >&2
@@ -72,7 +117,7 @@ install_one(){
         echo "[10-amd64] WARN: $label modules dir suspiciously small (.ko=$modcount)" >&2
         return 0
     fi
-    echo "    OK: /boot/vmlinuz-$kver + $modcount .ko modules"
+    echo "    OK: /boot/vmlinuz-$kver + $modcount .ko modules (dpkg-query confirms install)"
     INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
     depmod -a "$kver" 2>/dev/null || true
     echo "$kver" >> /usr/local/lib/cix-installer/KVER_LIST_AMD64
