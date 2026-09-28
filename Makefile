@@ -152,15 +152,103 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 image: $(OUTPUT_IMAGE)
 iso: image
 
+# Bug 1 fix (2026-09-28, arm64/Sky1 freshness). The previous shape -- "reuse
+# whatever .debs already sit in $(BUILD)/kernel-debs/" -- silently shipped a
+# stale kernel when a previous build run had been started against a newer
+# assets/kernel/edge symlink target, the new run switched the symlink back
+# to an older one (the staged dated dir pool is rotated independently of
+# any in-flight ISO build), and the existing build/kernel-debs/ directory
+# still held the newer .debs. The vendor mirror therefore published the
+# newer kernel while KVER said the older one, and post-install/10-our-
+# kernel.sh then aborted the whole base layer:
+#     WARN: edge kernel unavailable -- Phase 1 cannot continue.
+#     ERROR: no kernel installed (edge failed) -- Phase 1 cannot continue.
+#     [sqfs] ERROR: required base hook 10-our-kernel failed
+# Exactly the class of staleness already gated on the amd64 side by
+# build/preflight-freshness-gate.sh -- mirror its shape here: compare the
+# version carried by the existing .debs (extracted from the .deb
+# filename -- the same key the post-install hook resolves) against
+# assets/kernel/edge/KVER (following the symlink, since edge IS a
+# symlink), and rebuild -- rotating the stale set aside, never deleting
+# it, the same convention build-squashfs-layers.sh uses for stale
+# base.squashfs layers -- when they disagree. The freshness comparison
+# is purely a Makefile-side invariant: build-kernel-debs.sh itself
+# (resolve_kver) already hard-fails on a stale sidecar KVER inside its
+# own scope, and we want the same guarantee at the wrapper level so the
+# wrapper never silently publishes a stale set.
+#
+# arm64-only: this target is the Sky1 kernel package target. The amd64
+# kernel line(s) live under assets/kernel/amd64-{stable,edge} and are
+# staged via build/stage-amd64-kernel.sh, never via this target. $(ARCH)
+# is the build host's dpkg architecture, not the target ISO's --
+# NCZ_TARGET_ARCH on the build invocation distinguishes the two; the
+# existing arm64-only `using existing debs` path is preserved exactly
+# for ARCH=arm64 hosts. For ARCH!=arm64 (i.e. amd64 build hosts, the
+# usual case), this target is a no-op as before.
+#
+# The four branches below, in order:
+#   (a) arch != arm64: skip (no-op on amd64 build hosts).
+#   (b) build/kernel-debs/*.deb absent: build from scratch.
+#   (c) assets/kernel/edge/KVER absent: edge symlink is dangling or the
+#       staged pool is empty -- build-kernel-debs.sh's resolve_kver will
+#       refuse to package against a stale sidecar, so we refuse too at
+#       the wrapper level rather than silently publishing a set whose
+#       KVER we cannot verify. Rotate any existing set aside (never
+#       delete: the operator may need the .deb to confirm what was
+#       actually shipped before the freshness mismatch was caught) and
+#       rebuild.
+#   (d) KVER present: compare what the existing linux-image-cixmini
+#       _arm64.deb carries (parsed from the filename, the same key the
+#       post-install hook resolves) against assets/kernel/edge/KVER.
+#       If they match, REUSE (no rebuild). If they disagree, ROTATE
+#       THE STALE SET ASIDE and rebuild -- same shape as
+#       build-squashfs-layers.sh's base.squashfs staleness rotation,
+#       same defect class closed by 3fc79c3 for desktop-mirror and by
+#       preflight-freshness-gate.sh for the kernel-staging pool on
+#       amd64. Confirmed live 2026-09-28: an arm64 build run had
+#       previously been started against a newer edge symlink target,
+#       the symlink was rotated back to 7.2.8-sky1-ncz, the stale
+#       build/kernel-debs/ still held a 7.3.0-rc5-sky1-ncz+r278 set,
+#       and post-install/10-our-kernel.sh then aborted the whole base
+#       layer with "no kernel installed (edge failed)" because the
+#       vendor mirror had published rc5 while KVER said 7.2.8.
 kernel-debs:
 	@if [ "$(ARCH)" != arm64 ]; then \
 	    echo "[kernel-debs] skipping Sky1 kernel packages for $(ARCH)"; \
 	elif ! ls $(BUILD)/kernel-debs/*.deb >/dev/null 2>&1; then \
 	    echo "[kernel-debs] no debs present; building local kernel packages"; \
 	    bash $(ROOT)/build/build-kernel-debs.sh; \
+	elif [ ! -f "$(ROOT)/assets/kernel/edge/KVER" ]; then \
+	    echo "[kernel-debs] assets/kernel/edge/KVER missing -- cannot verify freshness; rebuilding" >&2; \
+	    _kdebs_ts="$$(date -u +%Y%m%d-%H%M%S)"; \
+	    if mv "$(BUILD)/kernel-debs" "$(BUILD)/kernel-debs.stale-$${_kdebs_ts}" 2>/dev/null; then \
+	        echo "[kernel-debs]   rotated stale set aside as $(BUILD)/kernel-debs.stale-$${_kdebs_ts}" >&2; \
+	    else \
+	        echo "[kernel-debs]   WARN: could not rotate stale set aside ($(BUILD)/kernel-debs exists but KVER is gone)" >&2; \
+	    fi; \
+	    bash $(ROOT)/build/build-kernel-debs.sh; \
 	else \
-	    echo "[kernel-debs] using existing debs from $(BUILD)/kernel-debs"; \
-	    find $(BUILD)/kernel-debs -maxdepth 1 -name '*.deb' -printf '  %f\n' | sort; \
+	    _want_kver="$$(tr -d '[:space:]' < "$(ROOT)/assets/kernel/edge/KVER")"; \
+	    _have_kver="$$(ls -1 $(BUILD)/kernel-debs/linux-image-cixmini_*_arm64.deb 2>/dev/null \
+	        | head -1 \
+	        | sed -nE 's/.*linux-image-cixmini_([^_]+)_arm64\.deb/\1/p')"; \
+	    if [ -z "$$_have_kver" ]; then \
+	        echo "[kernel-debs] existing set carries no linux-image-cixmini_*_arm64.deb -- rebuilding"; \
+	        bash $(ROOT)/build/build-kernel-debs.sh; \
+	    elif [ "$$_have_kver" = "$$_want_kver" ]; then \
+	        echo "[kernel-debs] using existing debs from $(BUILD)/kernel-debs (KVER=$$_have_kver matches assets/kernel/edge/KVER)"; \
+	        find $(BUILD)/kernel-debs -maxdepth 1 -name '*.deb' -printf '  %f\n' | sort; \
+	    else \
+	        echo "[kernel-debs] STALE: existing debs KVER=$$_have_kver != assets/kernel/edge/KVER=$$_want_kver" >&2; \
+	        _kdebs_ts="$$(date -u +%Y%m%d-%H%M%S)"; \
+	        if mv "$(BUILD)/kernel-debs" "$(BUILD)/kernel-debs.stale-$${_kdebs_ts}" 2>/dev/null; then \
+	            echo "[kernel-debs]   rotated stale set aside as $(BUILD)/kernel-debs.stale-$${_kdebs_ts}" >&2; \
+	        else \
+	            echo "[kernel-debs]   WARN: could not rotate stale set aside -- removing in place" >&2; \
+	            rm -rf "$(BUILD)/kernel-debs"; \
+	        fi; \
+	        bash $(ROOT)/build/build-kernel-debs.sh; \
+	    fi; \
 	fi
 
 # SINTY_DEBS_ARG / sinty-out-sync -- 2026-08-27. verify-local-package-
