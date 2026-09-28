@@ -118,5 +118,28 @@ exit 0
 LOADER
 chmod 0755 /usr/bin/load-modules.sh
 
+# --- DMA-BUF heaps must be reachable by the compositor user ----------------
+# The Mali vendor GBM (libgbm.so.1 from cix-gpu-umd) allocates through
+# /dev/dma_heap/*. The kernel creates those nodes 0600 root:root, so a
+# compositor running unprivileged -- greetd's _greetd, or any desktop
+# session -- gets EACCES. wlroots then reports only
+#     [render/egl.c:595] Failed to create GBM device
+# which names neither dma_heap nor a permission problem, so this is
+# expensive to rediscover.
+#
+# Measured on O6N 2026-09-28: an identical labwc invocation SUCCEEDED as root
+# and FAILED as _greetd with identical library resolution. _greetd could
+# already read and write /dev/dri/card0, /dev/dri/renderD128 and /dev/mali0,
+# so the DRM and GPU nodes were never the issue -- only the heaps were.
+#
+# render is the right group: _greetd and desktop users are already members
+# for /dev/dri/renderD128. 0660 not 0666 -- these hand out DMA buffers and
+# should not be world-writable.
+install -d /etc/udev/rules.d
+cat > /etc/udev/rules.d/71-ncz-dma-heap.rules <<'DMAEOF'
+SUBSYSTEM=="dma_heap", GROUP="render", MODE="0660"
+DMAEOF
+echo "[43] dma_heap udev rule installed (render:0660)"
+
 echo "[43] hw quirks done"
 exit 0
