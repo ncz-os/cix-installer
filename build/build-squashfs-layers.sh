@@ -1374,8 +1374,48 @@ case "$STAGE" in
   server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
            echo "       Boot the console entry (multi-user.target) instead." >&2
            exit 1 ;;
-  all)     if [ -s "$OUT/base.squashfs" ]; then
-             log "BASE: reusing existing $OUT/base.squashfs ($(du -h "$OUT/base.squashfs" | cut -f1)); remove it or run 'base' to rebuild"
+  all)     # BASE was rebuilt unconditionally until a moment ago, then quietly
+           # switched to "reuse if exists" to skip ~25min rebuilds on
+           # desktop-only iteration. The reuse check only asked "does the
+           # file exist" -- it could not notice a kernel bump in
+           # assets/kernel/ because base.squashfs had already cached the
+           # previous kernel's basenames. Combined with the install hook
+           # reading its expected KVER from a side-car file that the kernel
+           # bump commit (c291de2) also updated, the two files could agree
+           # while the IMAGE still shipped the old kernel -- the install
+           # gate then reported a false "no AMD64 kernel installed" because
+           # the side-car's KVER did not match what /boot actually held
+           # (2026-09-28, base.squashfs mtime 2026-09-26 vs c291de2 from
+           # 2026-09-27).
+           #
+           # Same defect class closed in 3fc79c3 for desktop-mirror: a
+           # layer cached on inputs that exclude what changed. The fix
+           # there is the same fix here -- a verifier that compares the
+           # layer's contents against the staged source, and a rebuild
+           # that rotates the stale layer aside when it fails. Exactly one
+           # pair-per-line invariant (enforced by stage-amd64-kernel.sh,
+           # also fixed in this commit) makes that comparison meaningful:
+           # "staged source has 1 image + 1 headers per line AND base
+           # embeds the same basenames" is a sharp predicate, not a
+           # "staged 2, layer 2, off-by-one" ambiguity.
+           if [ -s "$OUT/base.squashfs" ]; then
+             if NCZ_TARGET_ARCH="$NCZ_TARGET_ARCH" bash "$ROOT/build/verify-base-kernel-assets.sh" \
+                  --layer "$OUT/base.squashfs" --label base.squashfs; then
+               log "BASE: reusing existing $OUT/base.squashfs ($(du -h "$OUT/base.squashfs" | cut -f1))"
+             else
+               log "BASE: STALE vs staged amd64 kernel assets; rebuilding"
+               _stale_ts="$(date -u +%Y%m%d-%H%M%S)"
+               if sudo mv -f "$OUT/base.squashfs" "$OUT/base.squashfs.stale-${_stale_ts}" 2>/dev/null; then
+                 :
+               elif mv -f "$OUT/base.squashfs" "$OUT/base.squashfs.stale-${_stale_ts}" 2>/dev/null; then
+                 :
+               else
+                 log "ERROR: could not rotate stale $OUT/base.squashfs aside -- refusing to clobber it" >&2
+                 exit 1
+               fi
+               log "  kept for inspection: $OUT/base.squashfs.stale-${_stale_ts}"
+               build_base
+             fi
            else
              build_base
            fi
