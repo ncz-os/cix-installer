@@ -226,6 +226,13 @@ desktop-mirror: vendor-mirror libdrm-debs
 	@if [ ! -d $(BUILD)/desktop-mirror/dists/$(shell . $(ROOT)/release.conf; printf '%s' "$$NCZ_BASE_CODENAME") ]; then \
 		echo "[desktop-mirror] missing; building desktop package closure"; \
 		bash $(ROOT)/build/build-desktop-mirror.sh; \
+	elif ! bash $(ROOT)/build/verify-desktop-mirror-seeds.sh \
+	        --mirror $(BUILD)/desktop-mirror --label desktop-mirror; then \
+		echo "[desktop-mirror] STALE vs the desktop manifest; rebuilding"; \
+		mv $(BUILD)/desktop-mirror $(BUILD)/desktop-mirror.stale-$$(date -u +%Y%m%d-%H%M%S); \
+		bash $(ROOT)/build/build-desktop-mirror.sh; \
+		bash $(ROOT)/build/verify-desktop-mirror-seeds.sh \
+		    --mirror $(BUILD)/desktop-mirror --label desktop-mirror; \
 	else \
 		echo "[desktop-mirror] using existing mirror from $(BUILD)/desktop-mirror"; \
 	fi
