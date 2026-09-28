@@ -35,38 +35,67 @@ set -uo pipefail
 REFRESH=/usr/local/sbin/ncz-refind-refresh-amd64
 [ -x "$REFRESH" ] || { echo "zz1-ncz-refind-refresh-amd64: $REFRESH not present, skipping"; exit 0; }
 
+BOOTDIR="${BOOTDIR:-/boot}"
+
+# A kernel is PRERELEASE if its version carries an -rcN component.
+#
+# The suffix alone cannot separate the two lines. Both are built from the
+# same t2 patch series and both land as "...-t2-trixie", so the old
+# '*-t2-trixie' stable glob matched release AND release-candidate kernels
+# and took whichever was newest. Measured 2026-09-28: PEGASUS was booting
+# 7.3.0-rc4-2-t2-trixie under a menu entry labelled "Stable (Default)".
+# Staging rc5 would have repeated it and demoted 7.2.8 on both boxes.
+#
+# The old edge glob had the mirror-image hole: it matched ONLY
+# '*-ncz-amd64-edge', so MEDUSA's 7.3.0-rc4-3-t2-trixie-xhcifix matched
+# neither pattern, fell through both and was dropped from the ESP while
+# still installed in /boot.
+#
+# Classify on the -rc marker, which is what actually separates them.
+is_prerelease() {
+    case "$1" in *-rc[0-9]*) return 0 ;; *) return 1 ;; esac
+}
+
+classify() {
+    # classify <kver> -- echoes "stable", "edge", or nothing.
+    case "$1" in
+        *-rescue)          return ;;
+        *-ncz-amd64-edge)  echo edge; return ;;
+    esac
+    # Trailing * so a variant suffix (e.g. -xhcifix) still classifies
+    # instead of falling through unseen.
+    case "$1" in
+        *-t2-trixie*) if is_prerelease "$1"; then echo edge; else echo stable; fi ;;
+    esac
+}
+
 find_newest() {
-    # find_newest <suffix-pattern> -- echoes the kernel version string
-    # (the part after "vmlinuz-") of the /boot/vmlinuz-* whose name matches
-    # the pattern and has the newest mtime, or nothing if none match / none
-    # have a ready initrd.
-    local pattern="$1" newest="" newest_mtime=-1
-    for f in /boot/vmlinuz-*; do
+    # find_newest <stable|edge> -- echoes the kernel version string of the
+    # $BOOTDIR/vmlinuz-* in that class with the newest mtime, or nothing.
+    local want="$1" newest="" newest_mtime=-1 kver cls mt
+    for f in "$BOOTDIR"/vmlinuz-*; do
         [ -e "$f" ] || continue
-        kver="${f#/boot/vmlinuz-}"
-        case "$kver" in
-            *-rescue) continue ;;
-            $pattern)
-                [ -s "/boot/initrd.img-$kver" ] || {
-                    echo "zz1-ncz-refind-refresh-amd64: $kver matches but has no initrd yet (mid-transaction?), skipping" >&2
-                    continue
-                }
-                mt=$(stat -c '%Y' "$f" 2>/dev/null || echo -1)
-                if [ "$mt" -gt "$newest_mtime" ]; then
-                    newest_mtime=$mt
-                    newest="$kver"
-                fi
-                ;;
-        esac
+        kver="${f##*/vmlinuz-}"
+        cls=$(classify "$kver")
+        [ "$cls" = "$want" ] || continue
+        [ -s "$BOOTDIR/initrd.img-$kver" ] || {
+            echo "zz1-ncz-refind-refresh-amd64: $kver matches but has no initrd yet (mid-transaction?), skipping" >&2
+            continue
+        }
+        mt=$(stat -c '%Y' "$f" 2>/dev/null || echo -1)
+        if [ "$mt" -gt "$newest_mtime" ]; then
+            newest_mtime=$mt
+            newest="$kver"
+        fi
     done
     echo "$newest"
 }
 
-KVER_STABLE=$(find_newest '*-t2-trixie')
-KVER_EDGE=$(find_newest '*-ncz-amd64-edge')
+KVER_STABLE=$(find_newest stable)
+KVER_EDGE=$(find_newest edge)
 
 if [ -z "$KVER_STABLE" ]; then
-    echo "zz1-ncz-refind-refresh-amd64: no stable (*-t2-trixie) kernel with a ready initrd found, skipping"
+    echo "zz1-ncz-refind-refresh-amd64: no stable (non-rc *-t2-trixie) kernel with a ready initrd found, skipping"
     exit 0
 fi
 
