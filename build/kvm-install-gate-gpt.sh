@@ -283,7 +283,40 @@ fi
 if grep -qE "no post-install/ on the install media AND none baked" "$ILOG"; then
     fail "late.sh found no post-install scripts on the medium or in the image"
 fi
-if grep -qE "disk-fs-chooser.sh not found on install media|extract-rootfs.sh not found on install media|late.sh not found on install media" "$ILOG"; then
+# AUTHORITATIVE FIRST: post-install writes one row per step to progress.tsv,
+# already preserved under $EVIDENCE/cix-install/. Consult it BEFORE pattern-
+# matching the serial log, because the serial log cannot distinguish a real
+# failure from d-i quoting the text of a command that failed (see below).
+PROGRESS_TSV="$EVIDENCE/cix-install/progress.tsv"
+if [ -f "$PROGRESS_TSV" ] && grep -q "^[0-9]*|[0-9]*|FAIL|" "$PROGRESS_TSV"; then
+    echo "  post-install step record ($PROGRESS_TSV):" >&2
+    grep -E "^[0-9]*\|[0-9]*\|(FAIL|SKIP)\|" "$PROGRESS_TSV" | sed 's/^/    /' >&2
+    failed_step="$(grep -m1 "^[0-9]*|[0-9]*|FAIL|" "$PROGRESS_TSV" | cut -d'|' -f7)"
+    fail "post-install step ${failed_step:-unknown} failed -- see $EVIDENCE/cix-install/"
+fi
+
+# ONLY NOW the serial-log heuristic, and ONLY because progress.tsv did not
+# already answer. That ORDERING is the whole fix; the pattern below cannot
+# disambiguate on its own and should not be trusted to.
+#
+# Why: d-i's error dialog ECHOES BACK the full text of the preseeded command
+# it ran, and that command literally contains
+#     echo "[ncz] FATAL: late.sh not found on install media"
+# as its own fallback branch. So the marker appears in the log whenever that
+# command fails for ANY reason -- including a reason that has nothing to do
+# with a missing payload. Adding the "[ncz] FATAL:" prefix does NOT help:
+# tested 2026-09-28 against the real quoted text, it still matches.
+#
+# Measured 2026-09-28: a build whose real fault was 10-amd64-kernel.sh
+# verifying against a stale KVER was reported by this check as "the data
+# partition may be empty", while late.sh had in fact run and executed 76
+# post-install steps.
+#
+# What makes the ordering sound: if a payload script really is missing,
+# late.sh never runs, so no progress.tsv is produced and control reaches
+# here legitimately. If late.sh did run, progress.tsv exists and the check
+# above has already reported the real failing step.
+if grep -qE "\[ncz\] FATAL: (disk-fs-chooser|extract-rootfs|late)\.sh not found on install media" "$ILOG"; then
     fail "a payload script was not found on the medium -- the data partition may be empty"
 fi
 if grep -qE "Failed to run preseeded command|failed with exit code|install aborts|70-bootloader\.sh FAILED rc=|Post-install failed: bootloader rc=|refusing to ship a broken install|refusing to boot" "$ILOG"; then
