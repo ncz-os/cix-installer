@@ -228,6 +228,37 @@ if [ -d "$KERNEL_STAGING_DIR" ]; then
             WARN=$((WARN + 1))
         fi
     done
+
+    # ORPHANED PREFIXES. The loop above, and stage-amd64-kernel.sh's
+    # stage_line, both glob ONLY "amd64-stable-*" and "amd64-edge-*". A
+    # kernel published under any other amd64-* name is therefore invisible
+    # to the whole pipeline -- not an error anywhere, just silently never
+    # staged. Measured 2026-09-27: two real, correctly-built kernels went in
+    # as amd64-t2-7.2.8-1-t2-trixie-20260927 and
+    # amd64-t2-7.3.0-rc5-1-t2-trixie-20260927 and were ignored for a full
+    # build cycle while this very check reported "matches the newest in the
+    # shared pool", because it compared against the newest thing matching
+    # its OWN prefix. A guard cannot see what it does not glob, so look for
+    # the names nothing globs.
+    orphans=""
+    while IFS= read -r d; do
+        [ -n "$d" ] || continue
+        case "$(basename "$d")" in
+            amd64-stable-*|amd64-edge-*) ;;
+            *) orphans="$orphans $(basename "$d")" ;;
+        esac
+    done <<EOF
+$(find "$KERNEL_STAGING_DIR" -maxdepth 1 -type d -name 'amd64-*' 2>/dev/null)
+EOF
+    if [ -n "$orphans" ]; then
+        echo "[3] FAIL: kernel-staging holds amd64 build(s) under a prefix nothing consumes:"
+        for o in $orphans; do echo "          $o"; done
+        echo "          stage-amd64-kernel.sh only globs amd64-stable-* and amd64-edge-*,"
+        echo "          so these will NEVER be staged into an image."
+        echo "          Rename to the correct line prefix, or republish with"
+        echo "          build/publish-amd64-kernel.sh {stable|edge} <deb-dir>."
+        FAIL=$((FAIL + 1))
+    fi
 else
     echo "[3] WARN: kernel-staging dir not found/mounted ($KERNEL_STAGING_DIR) -- cannot verify kernel freshness on this host"
     WARN=$((WARN + 1))
