@@ -1,0 +1,49 @@
+FROM debian:trixie
+
+# ncz-imagebuild:trixie -- the arm64 IMAGE build environment for ULTRA.
+#
+# ULTRA is Fedora Asahi, so `make image` cannot run on the bare host: the
+# Makefile's libdrm-debs and mirror targets are dpkg-native. The pre-existing
+# ~/build-env/Containerfile.cix-installer covers the README's build-host
+# prerequisites but NOT the source-build dependencies the Makefile actually
+# reaches (libdrm-debs died on debhelper-compat/meson/libpciaccess-dev/...),
+# and ~/build-env/run.sh references an ncz-buildenv:trixie image that was
+# never built. This image is the union of both plus what the build really
+# needs, so ULTRA can serve its designated arm64 image-build role.
+ENV DEBIAN_FRONTEND=noninteractive
+
+# README build-host prerequisites (from Containerfile.cix-installer).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash coreutils findutils cpio xorriso python3 dpkg-dev \
+    acpica-tools apt-utils squashfs-tools debian-archive-keyring \
+    git sudo ca-certificates curl gnupg fakeroot file \
+    zstd lz4 rsync bzip2 xz-utils unzip dosfstools locales \
+    vim less htop tmux \
+    qemu-system-arm qemu-utils qemu-efi-aarch64 ovmf \
+    p7zip-full kmod mtools fakechroot \
+    gcc build-essential \
+ && rm -rf /var/lib/apt/lists/*
+
+# Source-build deps the Makefile reaches: libdrm-debs (meson/x11/udev/pciaccess),
+# plus the mmdebstrap/mkosi layer builders and loop/partition tooling the
+# image writer needs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    debhelper meson ninja-build pkgconf \
+    libpciaccess-dev libudev-dev libx11-dev libxext-dev libxdamage-dev \
+    libxfixes-dev libxshmfence-dev libxxf86vm-dev libxrandr-dev \
+    python3-docutils python3-setuptools python3-pip python3-jinja2 \
+    mmdebstrap mkosi debootstrap \
+    parted gdisk util-linux e2fsprogs \
+    devscripts equivs \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
+ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
+
+ARG BUILD_UID=1000
+ARG BUILD_GID=1000
+RUN groupadd -g ${BUILD_GID} builder \
+ && useradd -m -u ${BUILD_UID} -g ${BUILD_GID} -s /bin/bash builder \
+ && echo "builder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+WORKDIR /work
