@@ -1,13 +1,12 @@
 #!/bin/bash
-# 54-gpu-accel.sh — AMD64 GPU/accelerator stack, real vendor repos.
+# 54-gpu-accel.sh - AMD64 GPU/accelerator stack.
 #
 # NCZ-OS is not a free-software-only distro (operator directive 2026-09-14:
 # "We are not a free only distro like Debian, we install to make things
 # work."). Same posture as 53-chrome.sh (real Google apt repo, real signed
 # package) and 24-apt-sources.sh (our own Buildkite repo) — this hook wires
-# each GPU vendor's REAL OFFICIAL apt repo and installs their real driver
-# stack, not a free-software reimplementation or Debian's own (older/
-# incomplete) in-archive packages.
+# each GPU vendor's appropriate package source. AMD uses Debian's native ROCm
+# packages because AMD does not publish a Debian suite.
 #
 # Detects installed GPU(s) via `lspci -nn` PCI class + vendor ID matching
 # (class 0300/0302/0380 = VGA/3D/display controller) and wires ONLY the
@@ -20,10 +19,9 @@
 #   NVIDIA: developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/
 #           cuda-keyring_1.1-1_all.deb — NVIDIA's own signing-key+source
 #           installer package. Confirmed current for Debian 13 (trixie).
-#   AMD:    repo.radeon.com/rocm/apt/<version> + repo.radeon.com/rocm/rocm.gpg.key
-#           AMD's ROCm docs have a dedicated "Debian native installation"
-#           page — this is not an Ubuntu-only path despite amdgpu-install's
-#           download page listing Ubuntu-codenamed .deb filenames.
+#   AMD:    Debian's configured repositories. Do not mix Ubuntu ROCm packages
+#           into Debian; repo.radeon.com publishes jammy and noble suites but
+#           no Debian suite.
 #   Intel:  apt.repos.intel.com/openvino, component named ubuntuNN even when
 #           targeting Debian (Intel does not publish a debianNN-named
 #           component; the ubuntu24 component is what their own current
@@ -183,112 +181,25 @@ fi
 
 # --- AMD ------------------------------------------------------------------
 if [ "$HAS_AMD" = 1 ]; then
-    echo "[54] AMD GPU detected — wiring real AMD ROCm repo"
-    install -d -m0755 /etc/apt/keyrings
-    ROCM_KEYRING=/etc/apt/keyrings/rocm.gpg
-    if [ ! -f "$ROCM_KEYRING" ] || [ ! -s "$ROCM_KEYRING" ]; then
-        rm -f "$ROCM_KEYRING"
-        # zoder review (2026-09-14): the old check only tested curl's exit
-        # code with both stages' stderr swallowed — a curl 200-with-HTML-
-        # error-page or a gpg failure could leave an EMPTY (or garbage)
-        # keyring file that still passes a bare `-f` test, then fail
-        # confusingly later at `apt-get update`. Check the key material is
-        # real (non-trivial size) before trusting it.
-        if curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | gpg --dearmor -o "$ROCM_KEYRING" 2>/dev/null && \
-           [ -s "$ROCM_KEYRING" ] && [ "$(stat -c%s "$ROCM_KEYRING" 2>/dev/null || echo 0)" -gt 100 ]; then
-            echo "[54] fetched ROCm signing key ($(stat -c%s "$ROCM_KEYRING") bytes)"
-        else
-            rm -f "$ROCM_KEYRING"
-            echo "[54] WARN: could not fetch a real repo.radeon.com/rocm/rocm.gpg.key (no network at install time, or key content invalid) — skipping AMD stack"
-        fi
+    echo "[54] AMD GPU detected: using Debian-native ROCm packages; no AMD Ubuntu repository will be configured"
+    # Remove files produced by older revisions of this hook so an upgrade or
+    # rerun cannot keep the unpinned jammy source active.
+    rm -f /etc/apt/sources.list.d/rocm.list /etc/apt/keyrings/rocm.gpg \
+        /etc/profile.d/ncz-rocm-gfx-override.sh
+    echo "[54] removed any legacy repo.radeon.com source, keyring, and RDNA1 override"
+    apt-get update 2>&1 | tail -5
+    ROCM_DEBIAN_PACKAGES="rocminfo rocm-smi rocm-opencl-icd rocm-device-libs-21 libamdhip64-6 hipcc rocm-cmake"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $ROCM_DEBIAN_PACKAGES 2>&1 | tail -12
+    ROCM_INSTALL_RC=${PIPESTATUS[0]}
+    if [ "$ROCM_INSTALL_RC" -eq 0 ]; then
+        echo "[54] AMD: Debian-native ROCm packages installed"
+    else
+        echo "[54] WARN: Debian-native ROCm package installation was incomplete"
     fi
-    if [ -f "$ROCM_KEYRING" ] && [ -s "$ROCM_KEYRING" ]; then
-        ROCM_VERSION="${NCZ_ROCM_VERSION:-7.2.4}"
-        cat > /etc/apt/sources.list.d/rocm.list <<EOF
-# Written by post-install/54-gpu-accel.sh — real AMD official ROCm repo.
-deb [signed-by=$ROCM_KEYRING] https://repo.radeon.com/rocm/apt/$ROCM_VERSION jammy main
-EOF
-        # AMD's Debian docs pin the component suite name to an Ubuntu
-        # codename (jammy) even for Debian targets — same non-gating
-        # apt-suite-naming quirk as Intel's OpenVINO repo below.
-        apt-get update 2>&1 | tail -5
-        # BUG FIXED 2026-09-20, hardware-validated on MEDUSA (real gfx1012
-        # Navi14/Radeon Pro 5300M): the package name below was
-        # "rocm-device-libs-17", which does not exist for this repo/suite --
-        # `apt-get install` with ANY unresolvable package name in the list
-        # fails the WHOLE command (apt does not partially install), so this
-        # whole AMD block died here on every real target before it ever
-        # reached the rocminfo/override-writing code further down. The real
-        # name AMD's own repo.radeon.com/rocm/apt/$ROCM_VERSION jammy
-        # component publishes is versioned to match $ROCM_VERSION itself
-        # (confirmed via `apt-cache madison rocm-device-libs7.2.4`), not a
-        # Debian-release-number suffix -- there IS also a Debian-native
-        # rocm-device-libs-21 (LLVM-21-versioned, unrelated numbering
-        # scheme), but that is not what this hook intends to install.
-        apt-get install -y rocm-opencl-icd rocm-smi rocminfo "rocm-device-libs${ROCM_VERSION}" 2>&1 | tail -10
-        echo "[54] AMD: $(rocminfo 2>/dev/null | grep -m1 'Marketing Name' || echo 'ROCm stack installed, rocminfo not yet loadable this session (module needs a reboot to bind)')"
-        # ROCm's officially-supported GPU list is narrow and does NOT include
-        # every real Radeon chip this hook may detect. MEASURED live on
-        # MEDUSA (2026-09-20, real gfx1012 Navi14/Radeon Pro 5300M) after
-        # fixing the package-name bug above:
-        #   - `rocminfo` alone does NOT silently fail on gfx1012 -- it
-        #     enumerates the GPU agent correctly with no override at all.
-        #     The "silently refuse to enumerate" framing this comment used
-        #     to have was not accurate for the HSA/ROCr layer.
-        #   - The REAL measured failure is one layer up: `clinfo`/the
-        #     rocm-opencl-icd OpenCL path reports "Number of devices: 0" for
-        #     the AMD platform on unofficial-support gfx1012, confirmed with
-        #     no override set.
-        #   - HSA_OVERRIDE_GFX_VERSION=10.3.0 DOES change what the HSA/ROCr
-        #     layer reports (`rocminfo` then shows gfx1030 instead of
-        #     gfx1012) -- so it is real and it is not a no-op.
-        #   - BUT it does NOT fix the OpenCL zero-device symptom: with the
-        #     override exported, `clinfo` still reports zero devices on this
-        #     exact package combination. Root cause is most likely that this
-        #     jammy component of AMD's own repo does not publish
-        #     rocm-opencl-icd/rocm-smi/libhsa-runtime64-1 under those names
-        #     at all (confirmed via `apt-cache madison`) -- only
-        #     rocm-core/rocm-device-libs/rocminfo/hsa-rocr(-dev) exist there
-        #     -- so `apt-get install rocm-opencl-icd rocm-smi rocminfo`
-        #     above silently falls back to Debian's OWN native ROCm 6.4.x
-        #     packages for those three, while rocm-core/rocm-device-libs
-        #     come from AMD's 7.2.4 repo. The result is a mixed-version ROCm
-        #     stack, and that mismatch is the more likely explanation for
-        #     the still-zero OpenCL device count than the gfx target alone.
-        #   - Net: this override is real and worth shipping (it demonstrably
-        #     fixes HSA/ROCr-layer identification, which HIP-runtime apps
-        #     that don't go through the OpenCL ICD may depend on), but it is
-        #     NOT a full fix for OpenCL compute on gfx1012 under this
-        #     package layout. That gap is real, unresolved, and belongs to a
-        #     separate follow-up (likely: stop relying on Debian's native
-        #     rocm-opencl-icd/rocm-smi and either pull AMD's actual OpenCL
-        #     runtime package names for this suite, or accept OpenCL is
-        #     unofficial-only on RDNA1 here and document it as such) rather
-        #     than something this override claims to already solve.
-        # Write a real per-chip override file so a user session picks it up
-        # without hand-editing anything -- this remains correct and worth
-        # doing even with the OpenCL gap above still open.
-        GFX_NAME=$(rocminfo 2>/dev/null | grep -m1 -oE 'gfx[0-9a-f]+' || true)
-        case "$GFX_NAME" in
-            gfx1010|gfx1011|gfx1012)
-                echo "[54] AMD: $GFX_NAME is RDNA1, narrow/unofficial ROCm support — writing HSA_OVERRIDE_GFX_VERSION=10.3.0 fallback (nearest officially-supported RDNA target)"
-                install -d /etc/profile.d
-                cat > /etc/profile.d/ncz-rocm-gfx-override.sh <<'GFXEOF'
-# Written by post-install/54-gpu-accel.sh. This GPU's real gfx target
-# (RDNA1: gfx1010/1011/1012) is not on ROCm's officially-supported list.
-# Override to the nearest supported RDNA target so the HSA/ROCr runtime
-# layer (rocminfo, and HIP apps that go through it directly) reports a
-# supported target instead of the real unofficial one. Measured on real
-# gfx1012 hardware (MEDUSA, 2026-09-20): this does NOT by itself make
-# rocm-opencl-icd/clinfo see the device -- that gap is real and separate,
-# most likely caused by a mixed-version ROCm package stack rather than the
-# gfx target. Best-effort, not a guarantee -- some ROCm workloads may still
-# hit real gaps on unofficial hardware.
-export HSA_OVERRIDE_GFX_VERSION=10.3.0
-GFXEOF
-                chmod 0644 /etc/profile.d/ncz-rocm-gfx-override.sh
-                ;;
-        esac
+    if GFX_NAME=$(rocminfo 2>/dev/null | grep -m1 -oE 'gfx[0-9a-f]+'); then
+        echo "[54] AMD: rocminfo detected $GFX_NAME; workload support still depends on the GPU generation"
+    else
+        echo "[54] AMD: rocminfo did not enumerate a GPU in the installer session; no OpenCL support claim is made"
     fi
 fi
 

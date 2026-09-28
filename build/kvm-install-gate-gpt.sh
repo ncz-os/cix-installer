@@ -65,6 +65,8 @@ for t in "$QEMU" qemu-img mcopy mdir; do
 done
 SGDISK="$(command -v sgdisk || echo /sbin/sgdisk)"
 [ -x "$SGDISK" ] || { echo "GATE FAIL: sgdisk not installed" >&2; exit 2; }
+DEBUGFS="$(command -v debugfs || echo /sbin/debugfs)"
+[ -x "$DEBUGFS" ] || { echo "GATE FAIL: debugfs not installed" >&2; exit 2; }
 
 # NEVER /tmp: it is a RAM-backed tmpfs on several fleet build hosts and this
 # copies a multi-GiB image. Same rule as write-usb-image.py's --work-dir.
@@ -187,6 +189,7 @@ mcopy -o -i "$TEST_IMG@@$ESP_OFF" "$CFG" ::/EFI/BOOT/refind.conf \
   || { echo "GATE FAIL: could not write the patched refind.conf back to the ESP" >&2; exit 2; }
 # Read it back out of the image, not off our own scratch copy.
 VERIFY="$WORK/refind.conf.readback"
+rm -f "$VERIFY"
 mcopy -i "$TEST_IMG@@$ESP_OFF" ::/EFI/BOOT/refind.conf "$VERIFY"
 grep -q 'ncz_unattended=1' "$VERIFY" \
   || { echo "GATE FAIL: patched refind.conf did not make it onto the ESP" >&2; exit 2; }
@@ -206,7 +209,9 @@ qemu-img create -f qcow2 "$DISK" "${DISK_GB}G" >/dev/null || { echo "GATE FAIL: 
 cp "$SRCVARS" "$VARS"
 
 S0="$WORK/serial0.log"; ILOG="$WORK/install.log"; BLOG="$WORK/boot.log"
+EVIDENCE="$WORK/target-logs"
 rm -f "$S0" "$ILOG" "$BLOG" "$WORK/boot-serial0.log"
+rm -rf "$EVIDENCE"
 
 fail() { echo; echo "GATE FAIL: $*" >&2; exit 1; }
 
@@ -232,6 +237,39 @@ set -e
 cat "$S0" >> "$ILOG" 2>/dev/null
 date -u +"  ended   %H:%M:%SZ  (qemu rc=$irc)"
 
+# The serial console is only progress/UI output.  The actionable failure record
+# lives on the installed filesystem, and phase 1 has powered the guest off by
+# this point.  Extract it before making any gate decision so a failing gate is
+# self-diagnosing.  This is deliberately rootless: convert the qcow2 to sparse
+# raw images and let debugfs read the ext4 root partition directly.
+echo "  preserving target-side installer logs in $EVIDENCE"
+mkdir -p "$EVIDENCE"
+EVIDENCE_DISK="$WORK/.target-evidence.raw"
+EVIDENCE_ROOT="$WORK/.target-root-evidence.raw"
+rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT"
+if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
+    ROOT_LBA=$("$SGDISK" -i 3 "$EVIDENCE_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+    ROOT_END_LBA=$("$SGDISK" -i 3 "$EVIDENCE_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+    if [ -n "$ROOT_LBA" ] && [ -n "$ROOT_END_LBA" ]; then
+        ROOT_BYTES=$(((ROOT_END_LBA - ROOT_LBA + 1) * 512))
+        if qemu-img convert --image-opts -S 4k -O raw \
+            "driver=raw,file.driver=file,file.filename=$EVIDENCE_DISK,offset=$((ROOT_LBA * 512)),size=$ROOT_BYTES" \
+            "$EVIDENCE_ROOT"; then
+            "$DEBUGFS" -R "dump /var/log/cix-installer-late.log $EVIDENCE/cix-installer-late.log" \
+                "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
+            "$DEBUGFS" -R "rdump /var/log/cix-install $EVIDENCE" \
+                "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
+        fi
+    fi
+fi
+rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT"
+if [ -s "$EVIDENCE/cix-installer-late.log" ]; then
+    echo "  preserved: $EVIDENCE/cix-installer-late.log"
+else
+    echo "  WARNING: target late log was unavailable (install may not have created the root filesystem)" >&2
+fi
+[ -d "$EVIDENCE/cix-install" ] && echo "  preserved: $EVIDENCE/cix-install/ (per-hook logs)"
+
 echo
 echo "[5/6] checking the install log"
 grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i |Linux version|Starting linux|Installing the base system|Starting NCZ-OS post-install plan" "$ILOG" \
@@ -256,9 +294,26 @@ if grep -qE "Kernel panic - not syncing" "$ILOG"; then
     grep -nE -A10 "Kernel panic" "$ILOG" | head -30 >&2
     fail "kernel panic during install"
 fi
+# The serial log is progress/UI output: ANSI sequences and progress-bar
+# carriage returns pad and split phrases, so grep the log only after
+# normalising it. Without this, "Ship-critical post-install hooks failed"
+# is present but unmatchable.
+ncz_norm_log() {
+    sed 's/\x1b\[[0-9;?]*[A-Za-z]//g; s/\x1b[()][A-Z0-9]//g' "$1" | tr '\r' '\n' | tr -s ' '
+}
+
+# A ship-critical hook failure is a FAILED INSTALL, whatever else the log says.
+# run-all.sh emits this immediately before late.sh prints its completion
+# marker, and late.sh prints that marker unconditionally -- so checking the
+# marker alone reports success on a broken install.
+if ncz_norm_log "$ILOG" | grep -qai "Ship-critical post-install hooks failed"; then
+    ncz_norm_log "$ILOG" | grep -ai -B2 -A2 "Ship-critical post-install hooks failed" | head -20 >&2
+    fail "a ship-critical post-install hook failed -- the install is not shippable"
+fi
+
 grep -qE "post-install hooks finished|finalizing apt sources|forcing clean reboot|nclawzero post-install complete|Post-install completed successfully|Completed with optional-step warnings" "$ILOG" \
-  || fail "install did not reach the finish stage (timeout at ${INSTALL_TIMEOUT}s?) -- see $ILOG"
-echo "  install completed without a failed hook"
+  || fail "install did not reach the finish stage -- qemu rc=${irc:-?} (rc=124 means the ${INSTALL_TIMEOUT}s timeout expired; any other rc means the run was terminated early, which is NOT a timeout) -- see $ILOG"
+echo "  install reached the finish stage with no ship-critical hook failure"
 grep -q "ORPHAN" "$ILOG" && { echo "  WARNING: orphaned hooks reported:" >&2; grep "ORPHAN" "$ILOG" | head -10 >&2; } || true
 
 echo
