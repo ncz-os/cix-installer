@@ -349,6 +349,23 @@ grep -qE "post-install hooks finished|finalizing apt sources|forcing clean reboo
 echo "  install reached the finish stage with no ship-critical hook failure"
 grep -q "ORPHAN" "$ILOG" && { echo "  WARNING: orphaned hooks reported:" >&2; grep "ORPHAN" "$ILOG" | head -10 >&2; } || true
 
+# Optional-hook failures do NOT fail the gate: run-all.sh runs Phase 2 in the
+# fail-tolerant phase deliberately, so the bootloader always gets written. But
+# they were INVISIBLE here -- the gate read only FAIL/SKIP rows, so an image
+# passed clean while a hook was broken. O6N shipped and ran for two days with
+# 53-chrome.sh failed (a stale desktop-mirror held no google-chrome-stable);
+# progress.tsv recorded it as WARN, the gate printed nothing, and the missing
+# browser was found by hand. Report them; do not fail on them.
+if [ -f "$PROGRESS_TSV" ]; then
+    OPTIONAL_WARNS="$(awk -F'|' '$3 == "WARN" && $7 != "" { print $7 }' "$PROGRESS_TSV" | sort -u)"
+    if [ -n "$OPTIONAL_WARNS" ]; then
+        echo "  WARNING: optional hooks reported failures (install still ships):" >&2
+        printf '    %s\n' $OPTIONAL_WARNS >&2
+    else
+        echo "  no optional-hook warnings in progress.tsv"
+    fi
+fi
+
 echo
 echo "[6/6] phase 2: boot the installed disk (timeout ${BOOT_TIMEOUT}s)"
 set +e
