@@ -44,6 +44,7 @@ SCHEMA = 1
 ACCEL_OVERLAYS = {
     "mali":    "assets/kernel/mali",
     "panthor": "assets/kernel/panthor",
+    "vpu":     "assets/kernel/vpu",
     "npu":     "assets/kernel/npu",
 }
 
