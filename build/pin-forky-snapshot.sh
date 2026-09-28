@@ -49,6 +49,42 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
     # a different file, with no templating step between them. Checking the age
     # of the pin while the preseed quietly points somewhere else is not a check.
     build/check-preseed-mirror-sync.sh || exit 1
+
+    # AGE IS NOT EXPIRY. The pin 20260920T203924Z was 7 days old -- well
+    # inside the 14-day budget, so this check returned 0 -- while its Release
+    # file had ALREADY been invalid for nearly five hours, and both arches
+    # failed their builds on it that night (see 699183f). forky is testing;
+    # its Release carries a Valid-Until far shorter than the age budget, so
+    # the age test can never catch this on its own. Ask the archive.
+    rel_url="https://snapshot.debian.org/archive/debian/${NCZ_BASE_MIRROR_SNAPSHOT}/dists/${NCZ_BASE_CODENAME}/Release"
+    valid_until="$(curl -sfL --max-time 60 "$rel_url" \
+        | sed -n 's/^Valid-Until: *//p' | head -1)"
+    if [ -z "$valid_until" ]; then
+        # A guard that passes when it could not verify is the bug being fixed
+        # here, so an unreachable or malformed Release is a FAILURE, not a
+        # shrug. If snapshot.debian.org is genuinely down, re-run the check.
+        echo "[pin] ERROR: could not read Valid-Until from $rel_url -- refusing to report the pin healthy without checking it" >&2
+        exit 1
+    fi
+    vu_epoch="$(date -u -d "$valid_until" +%s 2>/dev/null \
+        || date -u -j -f '%a, %d %b %Y %H:%M:%S %Z' "$valid_until" +%s 2>/dev/null)"
+    if [ -z "$vu_epoch" ]; then
+        echo "[pin] ERROR: could not parse Valid-Until '$valid_until'" >&2
+        exit 1
+    fi
+    # Warn before it bites: a pin that dies mid-build costs a whole rebuild.
+    grace_h="${NCZ_BASE_MIRROR_SNAPSHOT_EXPIRY_GRACE_HOURS:-24}"
+    left_h=$(( (vu_epoch - now_epoch) / 3600 ))
+    if [ "$left_h" -lt 0 ]; then
+        echo "[pin] EXPIRED: Release Valid-Until $valid_until passed $(( -left_h ))h ago -- run build/pin-forky-snapshot.sh" >&2
+        exit 1
+    fi
+    echo "[pin] Release valid for a further ${left_h}h (warn under ${grace_h}h)"
+    if [ "$left_h" -lt "$grace_h" ]; then
+        echo "[pin] EXPIRING: under ${grace_h}h of validity left -- re-pin before starting a build" >&2
+        exit 1
+    fi
+
     [ "$age_days" -le "$max_days" ]
     exit $?
 fi
