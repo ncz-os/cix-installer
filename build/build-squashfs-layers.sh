@@ -245,7 +245,7 @@ base_assets_stamp() {
     for a in gpu audio refind grub branding screensaver-chooser dracut regreet diag keys dev docs embedkit; do
       [ -d "assets/$a" ] && find "assets/$a" \( -type f -o -type l \) -print
     done
-    ls release.conf manifests/* 2>/dev/null
+    ls release.conf manifests/installer-base*.pkgs 2>/dev/null   # what the base layer installs; other manifests are not base inputs
   ) | LC_ALL=C sort | ( cd "$ROOT" && while IFS= read -r f; do [ -f "$f" ] && sha256sum "$f"; done ) | sha256sum | cut -d' ' -f1
 }
 base_stamp_in_layer() {   # layer -> stamp or empty
