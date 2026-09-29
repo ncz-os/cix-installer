@@ -255,31 +255,40 @@ TPL
     # kernel cmdline (the KVM install gate already does), which skips
     # this prompt entirely.
     # ------------------------------------------------------------------
-    log "showing component prompt (synchronous; unattended runs preseed ncz_components= on the cmdline)"
-    _prompt_rc=99
-    if debconf-loadtemplate ncz /tmp/ncz-components.templates 2>/dev/null; then
-        db_set      ncz/components "$_DEFAULT" 2>/dev/null || true
-        db_fset     ncz/components seen false 2>/dev/null || true
-        db_settitle ncz/components 2>/dev/null || true
-        if db_input critical ncz/components && db_go; then
-            if db_get ncz/components; then
-                CHOSEN="$RET"
-                _prompt_rc=0
+    # The dialog is DEFERRED to just before partitioning (partman/early_command runs this script again with --prompt).
+    # Shown here, in the first early_command, it was followed by 15-20 s of silent d-i steps (cdrom-detect, the media
+    # preseed reload, localechooser, load-cdrom, ethdetect) with an empty blue console on both arches; now the
+    # questions come in one block right before the install progress bars start. Until then everything is enabled.
+    if [ "${1:-}" != "--prompt" ]; then
+        CHOSEN="$_DEFAULT"
+        log "interactive install: the component dialog is shown right before partitioning (all components enabled until then)"
+    else
+        log "showing component prompt (synchronous; unattended runs preseed ncz_components= on the cmdline)"
+        _prompt_rc=99
+        if debconf-loadtemplate ncz /tmp/ncz-components.templates 2>/dev/null; then
+            db_set      ncz/components "$_DEFAULT" 2>/dev/null || true
+            db_fset     ncz/components seen false 2>/dev/null || true
+            db_settitle ncz/components 2>/dev/null || true
+            if db_input critical ncz/components && db_go; then
+                if db_get ncz/components; then
+                    CHOSEN="$RET"
+                    _prompt_rc=0
+                fi
+            else
+                _prompt_rc=2
             fi
         else
-            _prompt_rc=2
+            _prompt_rc=3
         fi
-    else
-        _prompt_rc=3
-    fi
-    if [ "$_prompt_rc" = 0 ]; then
-        log "component prompt answered: $CHOSEN"
-    elif [ "$_prompt_rc" = 3 ]; then
-        log "WARNING: could not load component template — using default (all enabled)"
-        CHOSEN="$_DEFAULT"
-    else
-        log "WARNING: component prompt could not be shown/completed (rc=$_prompt_rc) — using default (all enabled)"
-        CHOSEN="$_DEFAULT"
+        if [ "$_prompt_rc" = 0 ]; then
+            log "component prompt answered: $CHOSEN"
+        elif [ "$_prompt_rc" = 3 ]; then
+            log "WARNING: could not load component template — using default (all enabled)"
+            CHOSEN="$_DEFAULT"
+        else
+            log "WARNING: component prompt could not be shown/completed (rc=$_prompt_rc) — using default (all enabled)"
+            CHOSEN="$_DEFAULT"
+        fi
     fi
 fi
 
@@ -365,27 +374,6 @@ if [ -d "$COMP_DST_DIR" ] || [ -d "$ALT_DST_DIR" ]; then
     fi
     if [ -d "$ALT_DST_DIR" ]; then
         echo "$CHOSEN" > "$ALT_DST_DIR/COMPONENTS" 2>/dev/null || true
-    fi
-fi
-
-# Keep the screen alive. Between this dialog and d-i's next visible step (disk detection, loading partman udebs, the
-# disk chooser) nothing draws, and the console was an empty blue screen with only newt's help line for 15-20 s
-# (reproduced under KVM on both arches). Open a progress bar naming what is happening; the next step's own progress
-# dialog replaces it. NCZ_NO_PREP_PROGRESS=1 disables it (tests).
-if [ -z "${NCZ_NO_PREP_PROGRESS:-}" ] && command -v db_progress >/dev/null 2>&1; then
-    cat > /tmp/ncz-prep.templates <<TPL
-Template: ncz/prep-title
-Type: text
-Description: $(ncz_ui_brand) - preparing the installation
-
-Template: ncz/prep-info
-Type: text
-Description: Detecting disks and loading installer components. This can take a minute...
-TPL
-    if debconf-loadtemplate ncz /tmp/ncz-prep.templates 2>/dev/null; then
-        db_progress START 0 10 ncz/prep-title 2>/dev/null || true
-        db_progress INFO ncz/prep-info 2>/dev/null || true
-        db_progress SET 1 2>/dev/null || true
     fi
 fi
 

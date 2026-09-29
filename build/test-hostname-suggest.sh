@@ -90,11 +90,11 @@ EOF
 mkdir -p "$W/bin"; printf '#!/bin/sh\nexit 0\n' > "$W/bin/debconf-loadtemplate"; chmod +x "$W/bin/debconf-loadtemplate"
 mkfix h; dmi h product_uuid "3F2504E0-4F89-11D3-9A0C-0305E82C3301"
 EXPECT=$(gen h sh); EXPECT=$(name "$EXPECT")
-helper() {   # $1 = cmdline text, $2 = answer ("" = accept default)
+helper() {   # $1 = cmdline text, $2 = answer ("" = accept default), $3 = mode ("" or --prompt)
     printf '%s\n' "$1" > "$W/cmdline"
     PATH="$W/bin:$PATH" NCZ_DMI_DIR="$W/h/dmi" NCZ_NET_DIR="$W/h/net" NCZ_MACHINE_ID=/nonexistent \
       NCZ_CONFMODULE="$W/confmodule" NCZ_HOSTNAME_GEN="$GEN" NCZ_HOSTNAME_STATE="$W/state" NCZ_CMDLINE="$W/cmdline" \
-      NCZ_EARLY_LOG="$W/log" NCZ_TEST_CALLS="$W/calls" NCZ_TEST_ANSWER="$2" sh "$HELPER" >/dev/null 2>&1
+      NCZ_HOSTNAME_ASKED="$W/asked" NCZ_EARLY_LOG="$W/log" NCZ_TEST_CALLS="$W/calls" NCZ_TEST_ANSWER="$2" sh "$HELPER" ${3:-} >/dev/null 2>&1
 }
 applied() { sed -n 's/^set netcfg\/get_hostname //p' "$W/calls" | tail -1; }
 
@@ -106,22 +106,30 @@ grep -q '^fset netcfg/get_hostname seen true' "$W/calls" && ok "unattended: ques
 rm -f "$W/state" "$W/calls"; helper "ncz_unattended=1" ""
 grep -q '^input' "$W/calls" && bad "ncz_unattended=1 prompted" || ok "ncz_unattended=1 never prompts"
 
-rm -f "$W/state" "$W/calls"; helper "quiet splash" ""
-grep -q '^input critical ncz/hostname' "$W/calls" && ok "interactive: asks at CRITICAL priority (d-i's own question is suppressed at priority=critical)" || bad "interactive: no critical prompt"
-grep -q "^set ncz/hostname $EXPECT" "$W/calls" && ok "interactive: the generated name is the seeded default" || bad "interactive: default not seeded"
-check "interactive, Enter accepted: generated name applied" "$(applied)" "$EXPECT"
+rm -f "$W/state" "$W/calls" "$W/asked"; helper "quiet splash" ""
+grep -q '^input' "$W/calls" && bad "interactive: the FIRST (early_command) run prompted; the dialog is deferred to partman/early_command" || ok "interactive: the early run never prompts (the dialog is deferred to right before partitioning)"
+check "interactive, early run: the generated name is applied for netcfg" "$(applied)" "$EXPECT"
+: > "$W/calls"; helper "quiet splash" "" --prompt
+grep -q '^input critical ncz/hostname' "$W/calls" && ok "interactive --prompt: asks at CRITICAL priority (d-i's own question is suppressed at priority=critical)" || bad "interactive --prompt: no critical prompt"
+grep -q "^set ncz/hostname $EXPECT" "$W/calls" && ok "interactive --prompt: the generated name is the seeded default" || bad "interactive --prompt: default not seeded"
+check "interactive --prompt, Enter accepted: generated name applied" "$(applied)" "$EXPECT"
+: > "$W/calls"; helper "quiet splash" "" --prompt
+grep -q '^input' "$W/calls" && bad "--prompt asked twice" || ok "--prompt asks only once"
 
-rm -f "$W/state" "$W/calls"; helper "quiet" "Kitchen-PC"
+rm -f "$W/state" "$W/calls" "$W/asked"; helper "quiet" ""; helper "quiet" "Kitchen-PC" --prompt
 check "interactive, operator types a name: it wins (lower-cased)" "$(applied)" "kitchen-pc"
-rm -f "$W/state" "$W/calls"; helper "quiet" "bad name!"
+[ "$(cat "$W/state")" = kitchen-pc ] && ok "the chosen name is saved for the installed system" || bad "state file not updated"
+rm -f "$W/state" "$W/calls" "$W/asked"; helper "quiet" ""; helper "quiet" "bad name!" --prompt
 check "interactive, invalid answer: falls back to the generated name" "$(applied)" "$EXPECT"
+rm -f "$W/state" "$W/calls" "$W/asked"; helper "ncz_unattended=1" ""; : > "$W/calls"; helper "ncz_unattended=1" "" --prompt
+grep -q '^input' "$W/calls" && bad "--prompt on an unattended install prompted" || ok "--prompt on an unattended install never prompts"
 
 rm -f "$W/state" "$W/calls"; helper "ncz_components=desktop ncz_hostname=lab-07" ""
 check "ncz_hostname= overrides the generated name" "$(applied)" "lab-07"
 
 # the 18e8a14 bug: the media preseed reload resets netcfg/get_hostname; the second early_command run
 # must put the SAME name back, without prompting again
-rm -f "$W/state" "$W/calls"; helper "quiet" "Kitchen-PC"
+rm -f "$W/state" "$W/calls" "$W/asked"; helper "quiet" ""; helper "quiet" "Kitchen-PC" --prompt
 : > "$W/calls"                               # "reload": nothing carried over except /tmp state
 helper "quiet" "somethingelse"
 check "after a preseed reload the earlier choice is re-applied" "$(applied)" "kitchen-pc"
