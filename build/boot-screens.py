@@ -19,6 +19,9 @@ ap.add_argument("--interactive", action="store_true")
 ap.add_argument("--extra-opts", default="")
 ap.add_argument("--telnet-port", type=int, default=12323)
 ap.add_argument("--probe", default="")
+ap.add_argument("--answer", action="append", default=[], help="REGEX=KEYS: when the serial console screen matches REGEX send KEYS once (\\r = Enter)")
+ap.add_argument("--vt", action="store_true", help="also read the fbcon VTs over the diag telnet (slow)")
+ap.add_argument("--rows", type=int, default=24); ap.add_argument("--cols", type=int, default=80)
 ap.add_argument("--mem", type=int, default=4096)
 ap.add_argument("--smp", type=int, default=4)
 a = ap.parse_args()
@@ -52,8 +55,8 @@ if a.arch == "arm64":
     qemu, machine, code, srcvars, gpu = "qemu-system-aarch64", "virt,gic-version=3", "/usr/share/AAVMF/AAVMF_CODE.fd", "/usr/share/AAVMF/AAVMF_VARS.fd", ["-device", "ramfb", "-device", "usb-kbd"]
 else:
     qemu, machine, code, srcvars, gpu = "qemu-system-x86_64", "q35", "/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd", ["-vga", "std"]
-disk = os.path.join(W, "target.qcow2"); vars_ = os.path.join(W, "VARS.fd"); s0 = os.path.join(W, "serial0.log"); mon = os.path.join(W, "mon.sock")
-for f in (disk, vars_, s0, mon):
+ser = os.path.join(W, "serial.sock"); disk = os.path.join(W, "target.qcow2"); vars_ = os.path.join(W, "VARS.fd"); s0 = os.path.join(W, "serial0.log"); mon = os.path.join(W, "mon.sock")
+for f in (disk, vars_, s0, mon, ser):
     if os.path.exists(f): os.remove(f)
 subprocess.check_call(["qemu-img", "create", "-f", "qcow2", disk, "30G"], stdout=subprocess.DEVNULL)
 shutil.copy(srcvars, vars_)
@@ -65,7 +68,7 @@ cmd = [qemu, "-M", machine, "-accel", "kvm", "-cpu", "host", "-smp", str(a.smp),
        "-device", "qemu-xhci,id=xhci", "-device", "usb-storage,bus=xhci.0,drive=usbstick,bootindex=1",
        "-netdev", "user,id=n0,hostfwd=tcp:127.0.0.1:%d-:23" % a.telnet_port, "-device", "virtio-net-pci,netdev=n0,romfile=",
        "-object", "rng-random,filename=/dev/urandom,id=rng0", "-device", "virtio-rng-pci,rng=rng0",
-       "-serial", f"file:{s0}", "-monitor", f"unix:{mon},server,nowait", "-display", "none", "-no-reboot"] + gpu
+       "-serial", f"unix:{ser},server=on,wait=off", "-monitor", f"unix:{mon},server,nowait", "-display", "none", "-no-reboot"] + gpu
 p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 t0 = time.monotonic()
 for _ in range(50):
@@ -74,6 +77,43 @@ for _ in range(50):
 c = socket.socket(socket.AF_UNIX); c.connect(mon); c.settimeout(3)
 try: c.recv(4096)
 except Exception: pass
+import threading
+try:
+    import pyte
+except ImportError:
+    sys.exit("boot-screens.py needs pyte (python3 -m venv V && V/bin/pip install pyte)")
+for _ in range(50):
+    if os.path.exists(ser): break
+    time.sleep(0.2)
+sc = socket.socket(socket.AF_UNIX); sc.connect(ser); sc.settimeout(0.5)
+screen = pyte.Screen(a.cols, a.rows); stream = pyte.Stream(screen)
+lock = threading.Lock(); rawlog = open(s0, "wb"); done = threading.Event()
+answered = set()
+rules = [(re.compile(x.split("=", 1)[0], re.S), x.split("=", 1)[1].encode().decode("unicode_escape").encode()) for x in a.answer]
+TS = os.path.join(W, "serial-screens"); shutil.rmtree(TS, ignore_errors=True); os.makedirs(TS)
+def screen_text():
+    return "\n".join(l.rstrip() for l in screen.display).rstrip("\n")
+def pump():
+    last, changed, nsnap, lastsnap = "", time.monotonic(), 0, None
+    while not done.is_set():
+        try: d = sc.recv(65536)
+        except socket.timeout: d = b""
+        except OSError: break
+        with lock:
+            if d:
+                rawlog.write(d); rawlog.flush(); stream.feed(d.decode("latin1"))
+            txt = screen_text()
+        now = time.monotonic()
+        if txt != last: last, changed = txt, now
+        elif txt.strip() and now - changed > 2.0 and txt != lastsnap:
+            lastsnap = txt
+            open(os.path.join(TS, f"{nsnap:04d}-{int(now - t0):04d}s.txt"), "w").write(f"# t={int(now - t0)}s\n{txt}\n"); nsnap += 1
+        for i, (rx, keys) in enumerate(rules):
+            if i not in answered and txt and rx.search(txt) and now - changed > 1.0:
+                answered.add(i); sc.sendall(keys)
+                open(os.path.join(W, "answers.log"), "a").write(f"t={int(now - t0)}s rule {i} matched -> {keys!r}\n")
+threading.Thread(target=pump, daemon=True).start()
+
 T = os.path.join(W, "texts"); shutil.rmtree(T, ignore_errors=True); os.makedirs(T)
 
 def tn_read(sock, until, timeout=8):
@@ -136,7 +176,7 @@ try:
         c.sendall(f"screendump {f}\n".encode())
         try: c.recv(4096)
         except Exception: pass
-        if t > 20:
+        if t > 20 and a.vt:
             open(os.path.join(T, f"{n:04d}-{t:04d}s-tty1.txt"), "w").write(grab_vt(1))
             open(os.path.join(T, f"{n:04d}-{t:04d}s-tty3.txt"), "w").write(grab_vt(3))
         if t > 20 and a.probe:
@@ -144,6 +184,7 @@ try:
         n += 1
         time.sleep(a.every)
 finally:
+    done.set()
     if p.poll() is None: p.terminate()
     time.sleep(1)
 if shutil.which("convert"):

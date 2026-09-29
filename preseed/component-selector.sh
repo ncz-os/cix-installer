@@ -73,8 +73,8 @@ log() {
     # Progress chatter goes to VT3 (and the serial diag console); VT1/console is the
     # newt UI and raw lines written over it corrupt the screen. Failures stay visible.
     case "$*" in
-        ABORT*|FATAL*|ERROR*) _vs="/dev/console /dev/tty1 /dev/tty3 /dev/ttyAMA0" ;;
-        *) _vs="/dev/tty3 /dev/ttyAMA0" ;;
+        ABORT*|FATAL*|ERROR*) _vs="/dev/console /dev/tty1 /dev/tty3" ;;
+        *) _vs="/dev/tty3" ;;
     esac
     for _v in $_vs; do
         echo "[ncz components] $*" > "$_v" 2>/dev/null || true
