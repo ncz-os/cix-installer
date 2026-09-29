@@ -1,0 +1,13 @@
+host: cerberus
+path: /home/jasonperlow/Projects/cix-installer
+base_commit: 85e8934b5dba6c9a40622e8926a6f2f6c9ac7308
+origin:
+origin	https://gitlab.com/ncz-os/cix-installer.git (fetch)
+origin	https://gitlab.com/ncz-os/cix-installer.git (push)
+
+selected_files:
+  assets/screensaver-chooser/screensaver-chooser/meson.build
+  assets/screensaver-chooser/screensaver-chooser/screensaver-chooser.plugin
+  assets/screensaver-chooser/screensaver-chooser/screensaver_chooser.vala
+  build-tmp/regen/extract.py
+  build-tmp/regen/hacks.tsv
