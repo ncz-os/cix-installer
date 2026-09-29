@@ -156,14 +156,14 @@ both on every push.
 * Phase A/B (this branch): no file moves. Adds the inventory, lists, lint, guards,
   markers and tests; changes `run-all.sh`, the 27 platform hooks (guard block at
   the first code line) and 14 mixed hooks (one comment line).
-* Phase C (after `release/dual-arch-2026-09-29` exists): `git mv` per inventory,
-  so `git log --follow` keeps history. `tools/platform-split-move.sh` is scripted and
-  re-runnable: it moves files, then rewrites every referencing path in `Makefile`,
-  `build/`, `preseed/late.sh` and `extract-rootfs.sh` payload staging, docs, tests,
-  `.gitignore` (the `sky1-firmware` blob directory moves under
-  `platforms/sky1-arm64/assets/`) and CI files. Compatibility symlinks at the old
-  paths are kept for one release only where a caller cannot be rewritten (for
-  example a fleet host script); each is listed in `docs/PLATFORM-SPLIT.md`.
+* Phase C (implemented on refactor/platform-split-2026-09-29; details and the
+  workflow in docs/PLATFORM-SPLIT.md):  per inventory in one pure-rename commit
+  (history follows), done by the re-runnable platform-tools/platform-split-move.py. The
+  planned regex rewrite of every referencing path was replaced by a generated flat
+  build view (platform-tools/platform-assemble.py, hard links, git-ignored): builders
+  copy whole directories such as assets/kernel that now span several sources, so path
+  rewriting would have changed semantics, and fleet hosts stage blobs at flat paths.
+  This is the compatibility layer; no per-file symlinks were needed.
 * Both ISO/image builders (`build-iso-di.sh`, `build-installer-image.sh`) must keep
   producing the same payload under the same names.
 * Proof that nothing changed: before the move, capture for each platform a payload
