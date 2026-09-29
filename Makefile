@@ -142,7 +142,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror
 
 all: image
 
@@ -525,3 +525,8 @@ clean:
 
 distclean: clean
 	rm -rf $(DOWNLOADS)
+
+# static dual-architecture parity: manifest pairs, ncz-screensavers debs, hook arch-gate lint (docs/DUAL-ARCH-PARITY.md)
+parity:
+	build/test-dual-arch-parity.sh
+	build/verify-dual-arch-parity.sh

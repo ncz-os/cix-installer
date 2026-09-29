@@ -1,0 +1,6 @@
+22-locale-gen.sh	common hook; matched words are the input-method env file names, not platform behavior
+46-ncz-cli.sh	common CLI installer; sky1-specific subcommands are runtime-detected. LEAD 8 platform-split phase B owns per-platform hook lists
+46-python311.sh	installs relocatable aarch64 CPython for the NPU libnoe wheel; no-ops when the arm64 asset is absent. Split by phase B
+55-greeter.sh	common greeter hook; Mali only appears in a message string
+57-screensaver.sh	common hook; Mali/Wayland only in message strings
+99-diagnostics.sh	common diagnostics dump; sky1 tokens are probe commands that tolerate absence

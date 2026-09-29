@@ -29,6 +29,12 @@
 # /usr/local/sbin (NOT /usr/local/lib/cix-installer/, which is
 # install-time metadata not guaranteed to persist) so the self-healing
 # hook has something to re-apply from indefinitely.
+# ARCH GATE (dual-arch parity): Sky1-only hook. run-all.sh runs every hook on every architecture, so
+# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this; docs/DUAL-ARCH-PARITY.md).
+_ncz_a="${NCZ_TARGET_ARCH:-$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)}"
+[ -n "$_ncz_a" ] || _ncz_a="$(dpkg --print-architecture 2>/dev/null || true)"
+if [ "$_ncz_a" != arm64 ]; then echo "[11] Sky1-only hook; target architecture is '${_ncz_a:-unknown}' -- skipping"; exit 0; fi
+unset _ncz_a
 set -euo pipefail
 
 WRAPPER_STABLE=/usr/local/sbin/.ncz-cixmini-update-bootloader

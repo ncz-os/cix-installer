@@ -11,6 +11,12 @@
 # Chrome hardware AV1/H264/HEVC/VP9 decode confirmed working end-to-end).
 #
 # RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop / run-all.sh).
+# ARCH GATE (dual-arch parity): Sky1-only hook. run-all.sh runs every hook on every architecture, so
+# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this; docs/DUAL-ARCH-PARITY.md).
+_ncz_a="${NCZ_TARGET_ARCH:-$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)}"
+[ -n "$_ncz_a" ] || _ncz_a="$(dpkg --print-architecture 2>/dev/null || true)"
+if [ "$_ncz_a" != arm64 ]; then echo "[84] Sky1-only hook; target architecture is '${_ncz_a:-unknown}' -- skipping"; exit 0; fi
+unset _ncz_a
 set +e
 
 echo "[84] mpv HW video (Sky1 amvx VPU)"

@@ -29,6 +29,12 @@
 # it only resets controllers when that recovery is actually needed. This avoids
 # stealing a healthy keyboard from the greeter and avoids a needless boot stall.
 # Verified cycle-free with `systemd-analyze verify`.
+# ARCH GATE (dual-arch parity): Sky1-only hook. run-all.sh runs every hook on every architecture, so
+# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this; docs/DUAL-ARCH-PARITY.md).
+_ncz_a="${NCZ_TARGET_ARCH:-$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)}"
+[ -n "$_ncz_a" ] || _ncz_a="$(dpkg --print-architecture 2>/dev/null || true)"
+if [ "$_ncz_a" != arm64 ]; then echo "[41] Sky1-only hook; target architecture is '${_ncz_a:-unknown}' -- skipping"; exit 0; fi
+unset _ncz_a
 set -uo pipefail
 
 echo "[41] USB2-companion rescan workaround (Sky1 7.2 xhci)"

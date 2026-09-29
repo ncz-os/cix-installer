@@ -19,6 +19,12 @@
 # /usr/local/bin/cix-{ffmpeg,ffprobe,ffplay}. RUNS INSIDE CHROOT via run-all.sh
 # (no sudo — we are already root in the target). Skips cleanly if the bundle
 # is absent (e.g. server variant without multimedia).
+# ARCH GATE (dual-arch parity): Sky1-only hook. run-all.sh runs every hook on every architecture, so
+# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this; docs/DUAL-ARCH-PARITY.md).
+_ncz_a="${NCZ_TARGET_ARCH:-$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)}"
+[ -n "$_ncz_a" ] || _ncz_a="$(dpkg --print-architecture 2>/dev/null || true)"
+if [ "$_ncz_a" != arm64 ]; then echo "[83] Sky1-only hook; target architecture is '${_ncz_a:-unknown}' -- skipping"; exit 0; fi
+unset _ncz_a
 set -uo pipefail
 
 BUNDLE="/usr/local/lib/cix-installer/assets/cix-mm/bundle.tgz"
