@@ -57,6 +57,10 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     printf 'NCZ-OS 26.7 Maximilian Desktop\n' > "$r/etc/issue"
     printf '[Service]\nSuccessExitStatus=1\n' > "$r/etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf"
     echo x > "$r/etc/ld.so.cache"; echo x > "$r/etc/.updated"
+    # sshd: Include first, password login in the fleet drop-in (as 35-ssh.sh / extract-rootfs.sh write it)
+    mkdir -p "$r/etc/ssh/sshd_config.d"
+    printf 'Include /etc/ssh/sshd_config.d/*.conf\nKbdInteractiveAuthentication no\nUsePAM yes\n' > "$r/etc/ssh/sshd_config"
+    printf 'PasswordAuthentication yes\n' > "$r/etc/ssh/sshd_config.d/10-ncz-fleet.conf"
     # never-software-render pieces (common)
     mkdir -p "$r/usr/local/bin" "$r/usr/bin" "$r/etc/systemd/system/multi-user.target.wants" "$r/opt/singularity/bin"
     echo '#!/bin/sh' > "$r/usr/local/bin/ncz-gpu-hw-present"
@@ -171,6 +175,11 @@ m_amd64_strip_nosudo() { m_amd64_strip "$1"; sed -i '/^Package: sudo$/,+2d' "$1/
 m_amd64_strip_nochrome() { m_amd64_strip "$1"; sed -i '/^Package: google-chrome-stable$/,+2d' "$1/var/lib/dpkg/status"; }
 m_amd64_strip_stale_bing() { m_amd64_strip "$1"; printf 'old' > "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
 m_amd64_strip_nokernel() { m_amd64_strip "$1"; rm -rf "$1/usr/lib/modules"; }
+m_ssh_off()      { printf 'PasswordAuthentication no\n' > "$1/etc/ssh/sshd_config.d/10-ncz-fleet.conf"; }
+m_ssh_late_no()  { printf 'PasswordAuthentication no\n' > "$1/etc/ssh/sshd_config.d/60-cloudimg-settings.conf"; }
+m_ssh_unset()    { rm -f "$1/etc/ssh/sshd_config.d/10-ncz-fleet.conf"; }
+m_ssh_main_first() { printf 'PasswordAuthentication no\nInclude /etc/ssh/sshd_config.d/*.conf\n' > "$1/etc/ssh/sshd_config"; }
+m_ssh_nofile()   { rm -f "$1/etc/ssh/sshd_config"; }
 m_gpu_hwp()      { rm -f "$1/usr/local/bin/ncz-gpu-hw-present"; }
 m_gpu_status()   { echo '#!/bin/sh' > "$1/usr/bin/ncz-gpu-status"; }
 m_gpu_unit()     { rm -f "$1/etc/systemd/system/multi-user.target.wants/ncz-gpu-health.service"; }
@@ -238,6 +247,11 @@ run_case "amd64: ncz-performance-mode leak fails"                   1 m_amd64_le
 run_case "amd64: cix-detect-display leak fails"                     1 m_amd64_leak_display
 run_case "gpu: amd64 with a leaked Mali EGL entry fails"        1 m_gpu_egl_leak
 unset TEST_ARCH
+run_case "ssh: PasswordAuthentication no fails"                1 m_ssh_off
+run_case "ssh: a later drop-in saying no does not override 10-"  0 m_ssh_late_no
+run_case "ssh: no PasswordAuthentication anywhere fails"        1 m_ssh_unset
+run_case "ssh: a main-file 'no' before the Include wins and fails" 1 m_ssh_main_first
+run_case "ssh: missing sshd_config fails"                       1 m_ssh_nofile
 run_case "gpu: missing ncz-gpu-hw-present fails"               1 m_gpu_hwp
 run_case "gpu: ncz-gpu-status without --require-hardware fails" 1 m_gpu_status
 run_case "gpu: health unit not enabled fails"                   1 m_gpu_unit
