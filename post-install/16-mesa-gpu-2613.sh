@@ -14,6 +14,17 @@
 # Asset: assets/gpu/mesa-26.1.3-ncz-arm64.tar.gz → staged by build-iso to
 # /cdrom/ncz-payload/assets/gpu/, copied by late.sh to
 # /usr/local/lib/cix-installer/assets/gpu/. Tarball extracts to /opt/mesa-26.1.3.
+# NCZ-PLATFORM-GUARD: sky1-arm64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
+# run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
+# undetectable arch does NOT skip (legacy behavior).
+_ncz_pg_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(dpkg --print-architecture 2>/dev/null || true)
+case "$_ncz_pg_arch" in
+    arm64|aarch64|"") ;;
+    *) echo "[${0##*/}] platform guard: arch=$_ncz_pg_arch is not sky1-arm64; skipping"; exit 0 ;;
+esac
+unset _ncz_pg_arch
 set -uo pipefail
 
 TARGET_ARCH="$(dpkg --print-architecture 2>/dev/null || true)"

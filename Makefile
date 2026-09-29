@@ -142,7 +142,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform
 
 all: image
 
@@ -433,6 +433,8 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(wildcard $(ASSETS)/kernel/*/*) \
 	               $(wildcard $(ASSETS)/rootfs/*) \
 	               $(wildcard $(ASSETS)/sky1-firmware/*)
+	@echo "[image] platform-split lint (inventory, hooks.list, deny patterns, guards, manifest divergence)"
+	@bash $(ROOT)/build/lint-platform.sh
 	@echo "[image] verifying arm64 inputs (sky1-firmware, cix-debs, rescue-rootfs, mirror)"
 	@NCZ_TARGET_ARCH=$(ARCH) bash $(ROOT)/build/verify-arm64-inputs.sh --mirror
 	@if [ -n "$(SUBSTRATE_SHA)" ]; then \
@@ -453,6 +455,18 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	@echo "[image] scanning the built artifact for credentials"
 	@bash $(ROOT)/build/secret-scan-gate.sh $@
 	@echo "[image] DONE — $@ ($$(du -h $@ 2>/dev/null | cut -f1))"
+
+# Platform split (docs/PLATFORM-SPLIT-DESIGN.md): the inventory in
+# docs/platform-inventory.tsv is the source of truth; post-install/hooks.list.*
+# are generated from it and run-all.sh runs only the listed hooks.
+lint-platform:
+	@bash $(ROOT)/build/lint-platform.sh
+
+gen-hooks-lists:
+	@bash $(ROOT)/build/gen-hooks-lists.sh
+
+test-platform:
+	@bash $(ROOT)/build/test-platform-lint.sh
 
 secretscan:
 	@bash $(ROOT)/build/secret-scan-gate.sh

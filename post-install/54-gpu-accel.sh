@@ -34,6 +34,17 @@
 # zoder review (2026-09-14) correctly flagged an earlier draft of this
 # comment as copy-pasted from 53-chrome.sh without adjusting for that; fixed.
 # AMD64 only — never wired into the arm64 hook loops.
+# NCZ-PLATFORM-GUARD: amd64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
+# run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
+# undetectable arch does NOT skip (legacy behavior).
+_ncz_pg_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(dpkg --print-architecture 2>/dev/null || true)
+case "$_ncz_pg_arch" in
+    amd64|x86_64|"") ;;
+    *) echo "[${0##*/}] platform guard: arch=$_ncz_pg_arch is not amd64; skipping"; exit 0 ;;
+esac
+unset _ncz_pg_arch
 set +e
 
 if [ "$(dpkg --print-architecture 2>/dev/null)" != "amd64" ]; then

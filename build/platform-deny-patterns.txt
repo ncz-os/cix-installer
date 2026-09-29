@@ -1,0 +1,14 @@
+# platform-deny-patterns.txt -- tokens that belong to ONE platform and must not
+# appear in a COMMON post-install hook (build/lint-platform.sh, DENY check).
+#
+# Columns: id	platform whose token it is	ERE (grep -iE)
+# Matched against the non-comment lines of every hook classified `common`,
+# after the installer's own directory name (cix-installer) is removed.
+# A reviewed, deliberate use goes in docs/platform-deny-exceptions.tsv with a
+# reason; otherwise move the code to a platform hook.
+sky1-soc	sky1	\bsky1\b|\bcixmini|cixtech|cix[-_/.]|/opt/cix|\bcp8180|\bcd8180|ms-r1|orion
+sky1-accel	sky1	libmali|mali_kbase|\bmali\b|panthor|panfrost|panvk|aipu|amvx|armchina|linlon|\bnoe\b|libnoe|zhouyi|\bnpu\b|\bvpu\b
+sky1-uart	sky1	ttyAMA
+amd64-t2	amd64	\bt2\b|t2smc|t2gmux|t2smp|t2thunderbolt|applesmc|\bapple\b|\bvbt\b|macbook
+amd64-gpu	amd64	nvidia|\bcuda\b|rocm|amdgpu|\bi915\b|intel-media|intel-microcode|amd64-microcode
+amd64-boot	amd64	refind_x64|grub-efi-amd64|syslinux

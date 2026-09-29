@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 70-bootloader.sh — bootloader install (install-time entry point).
 #
 # Both arm64/Sky1 and AMD64 use rEFInd (operator directive, 2026-09-16:

@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: unit installed on every arch by design; auto-enable is arm64 only (line ~264) (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 85-power-perf-mode.sh — install ncz-performance-mode: forces the CPU out of
 # deep idle states (LPI-1/LPI-2) and pins the GPU power domain always-on while
 # a Singularity desktop session is active, then reverts on logout.

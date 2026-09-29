@@ -31,6 +31,17 @@
 # and have no meaning anywhere else. dkms itself is already in the image
 # (3.2.2-1, confirmed on CHIMERA) and the matching linux-headers package
 # ships in assets/kernel/amd64-stable, so the build has what it needs.
+# NCZ-PLATFORM-GUARD: amd64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
+# run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
+# undetectable arch does NOT skip (legacy behavior).
+_ncz_pg_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(dpkg --print-architecture 2>/dev/null || true)
+case "$_ncz_pg_arch" in
+    amd64|x86_64|"") ;;
+    *) echo "[${0##*/}] platform guard: arch=$_ncz_pg_arch is not amd64; skipping"; exit 0 ;;
+esac
+unset _ncz_pg_arch
 set -uo pipefail
 
 ASSETS=/usr/local/lib/cix-installer/assets/kernel

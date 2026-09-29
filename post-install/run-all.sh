@@ -234,6 +234,74 @@ OPT_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
 if [ "$NCZ_BAKED" = 1 ]; then
     OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | grep -E "$MACHINE_HOOKS_RE" || true)
 fi
+# Platform hook list (docs/PLATFORM-SPLIT-DESIGN.md).
+#
+# Every hook used to run on every platform and self-gate. That is how a Sky1
+# hook (36-telemetry) enabled serial-getty@ttyAMA0 on amd64 and hung boot.
+# post-install/hooks.list.<platform> (generated from docs/platform-inventory.tsv
+# by build/gen-hooks-lists.sh) now names the hooks that belong to a platform.
+# When a list is present, a hook that is NOT on it is skipped, and each skip is
+# logged with its reason. This only ever REMOVES hooks from the plan; it never
+# adds one, and the baked/component filters above and below still apply.
+# No list on disk (older payloads, build-iso.sh) or an unknown architecture
+# means the previous behavior: every hook is a candidate.
+#   NCZ_PLATFORM      explicit platform override (sky1-arm64 | amd64)
+#   NCZ_HOOKS_LIST    explicit list file override
+#   NCZ_HOOKS_LIST=none  disable the list (escape hatch)
+PLATFORM="${NCZ_PLATFORM:-}"
+if [ -z "$PLATFORM" ]; then
+    case "$_NCZ_SYSTEM_ARCH" in
+        arm64|aarch64) PLATFORM=sky1-arm64 ;;
+        amd64|x86_64)  PLATFORM=amd64 ;;
+        *)             PLATFORM= ;;
+    esac
+fi
+HOOKS_LIST="${NCZ_HOOKS_LIST:-}"
+if [ -z "$HOOKS_LIST" ] && [ -n "$PLATFORM" ]; then
+    if   [ -f "$HOOK_DIR/hooks.list.$PLATFORM" ]; then HOOKS_LIST="$HOOK_DIR/hooks.list.$PLATFORM"
+    elif [ -f "$HOOK_DIR/hooks.list" ];            then HOOKS_LIST="$HOOK_DIR/hooks.list"
+    fi
+fi
+[ "$HOOKS_LIST" = none ] && HOOKS_LIST=""
+_PLAT_SKIPPED=""
+if [ -n "$HOOKS_LIST" ] && { [ ! -f "$HOOKS_LIST" ] || [ ! -r "$HOOKS_LIST" ] || ! grep -qvE '^[[:space:]]*(#|$)' "$HOOKS_LIST"; }; then
+    echo "[cix-installer] WARNING: hooks list $HOOKS_LIST is not a readable, non-empty file; running every hook (legacy behavior)"
+    HOOKS_LIST=""
+fi
+if [ -n "$HOOKS_LIST" ]; then
+    _LISTED=$(grep -vE '^[[:space:]]*(#|$)' "$HOOKS_LIST" | awk '{print $1}')
+    _platform_filter() {   # stdin: hook names, stdout: those on the list
+        local h
+        while IFS= read -r h; do
+            [ -n "$h" ] || continue
+            if printf '%s\n' "$_LISTED" | grep -qxF -- "$h"; then
+                printf '%s\n' "$h"
+            fi
+        done
+    }
+    PHASE0_HOOKS=$(printf '%s\n' $PHASE0_HOOKS | _platform_filter)
+    REQUIRED_HOOKS=$(printf '%s\n' $REQUIRED_HOOKS | _platform_filter)
+    OPT_HOOKS=$(printf '%s\n' $OPT_HOOKS | _platform_filter)
+    # The three filters above ran in subshells; recompute the skip set here.
+    _PLAT_SKIPPED=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
+        grep -vE '^(70-bootloader|99-diagnostics)\.sh$' | \
+        while IFS= read -r h; do printf '%s\n' "$_LISTED" | grep -qxF -- "$h" || printf '%s\n' "$h"; done || true)
+    _PLAT_SKIP_RE=""
+    if [ -n "$_PLAT_SKIPPED" ]; then
+        _PLAT_SKIP_RE="^($(printf '%s\n' $_PLAT_SKIPPED | sed 's/\.sh$//' | paste -sd'|' -))\.sh$"
+        _n=$(printf '%s\n' $_PLAT_SKIPPED | awk 'NF{n++} END{print n+0}')
+        echo "[cix-installer] platform=$PLATFORM hooks.list=$HOOKS_LIST: skipping $_n hook(s) that belong to another platform (not on the list):"
+        printf '%s\n' $_PLAT_SKIPPED | sed 's/^/[cix-installer]   PLATFORM-SKIP: /'
+    else
+        echo "[cix-installer] platform=$PLATFORM hooks.list=$HOOKS_LIST: every on-disk hook is listed"
+    fi
+    # A listed hook that is not on disk is a payload/inventory mismatch: say so.
+    for _lh in $_LISTED; do
+        [ -e "$HOOK_DIR/$_lh" ] || echo "[cix-installer] WARNING: $_lh is on $HOOKS_LIST but missing from $HOOK_DIR"
+    done
+else
+    echo "[cix-installer] no platform hooks list (platform=${PLATFORM:-unknown}); running every hook (legacy behavior)"
+fi
 # r303: install-time component toggle (see preseed/component-selector.sh). The
 # chooser writes one-bit-per-toggle files at /usr/local/lib/cix-installer/
 # COMPONENTS_<name> (0 or 1) AND a single comma-separated COMPONENTS file. This
@@ -345,7 +413,8 @@ _SKIP_ALL_RE="${_SKIP_DESKTOP_RE}|${_SKIP_BROWSERS_RE}|${_SKIP_MGMT_RE}|${_SKIP_
 _orphans=$(comm -13 <(printf '%s\n' $_planned | sort -u) \
                     <(printf '%s\n' $_ondisk | sort -u) \
            | grep -vE '^(70-bootloader|99-diagnostics)\.sh$' \
-           | grep -vE "$_SKIP_ALL_RE" || true)
+           | grep -vE "$_SKIP_ALL_RE" \
+           | { if [ -n "${_PLAT_SKIP_RE:-}" ]; then grep -vE "$_PLAT_SKIP_RE"; else cat; fi; } || true)
 if [ -n "$_orphans" ]; then
     echo "[cix-installer] WARNING: hooks present on disk but in NO execution list (NCZ_BAKED=${NCZ_BAKED:-0}):"
     printf '%s\n' $_orphans | sed 's/^/[cix-installer]   ORPHAN: /'
