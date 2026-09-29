@@ -316,6 +316,23 @@ amd64-microcode
 #                                  repo (apt.repos.intel.com), same class of
 #                                  gap as CUDA above.
 #
+# INTERIM (2026-09-29), pending the vendor-probe hook described below.
+# Ship the Intel VAAPI driver unconditionally on amd64. Every amd64 machine
+# this project supports has an Intel iGPU -- the T2 Macs carry UHD 630
+# (8086:3e9b) and PEGASUS a CometLake UHD (8086:9bc4) -- so there is no
+# machine where this is dead weight, and waiting for the probe framework
+# left real hardware with NO video acceleration at all.
+#
+# MEASURED on PEGASUS 2026-09-29:
+#     vainfo: va_openDriver() returns -1
+#       (tried iHD_drv_video.so, then i965_drv_video.so)
+#     VAAPI profiles: 0        va-driver packages installed: 0
+# versus 19 profiles on the T2 Macs, which get radeonsi VAAPI from mesa via
+# the dGPU. PEGASUS therefore decodes all video on the CPU -- the same class
+# of problem as the thermal complaint that started this, on a machine whose
+# RTX 2060 and iGPU can both do it in hardware.
+intel-media-va-driver
+
 # Design (NOT YET IMPLEMENTED — see docs/AMD64-PACKAGE-AUDIT.md follow-on
 # work): an installer hook probes `lspci -nn` for PCI vendor IDs 10de/1002/
 # 1022/8086 and installs only the matching stack(s) — a machine can have more
