@@ -109,7 +109,8 @@ V=0.3.2                                                     # highest dir under 
 mkdir -p build/ncz-screensavers-out && rm -f build/ncz-screensavers-out/*.deb
 cp /mnt/argonas-projects/ncz-screensavers-debs/$V/ncz-screensavers_${V}_arm64.deb build/ncz-screensavers-out/
 grep -qx ncz-screensavers manifests/install-extra.pkgs || echo ncz-screensavers >> manifests/install-extra.pkgs
-sudo rm -rf build/desktop-mirror                            # so the local deb is re-added to the pool
+sudo rm -rf build/desktop-mirror build/forky-mirror          # re-add the local deb to the pool AND re-resolve the install mirror
+                                                            # (the seed check compares package NAMES, so a new VERSION of the same package would not trigger a rebuild)
 # stage 0 (about 8 minutes), stage 2, gate: exactly as in sections 1 and 2.
 ```
 
