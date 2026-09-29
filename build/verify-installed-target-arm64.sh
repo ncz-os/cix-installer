@@ -257,6 +257,34 @@ for w in $(lsnames /etc/systemd/user | grep '\.wants$'); do
 done
 [ "$audsw" = 1 ] || gate_miss audio "ncz-sky1-audio-autoswitch.service is not enabled (no .wants symlink under /etc/systemd/user)"
 
+# --- (vii) Bing wallpaper prefetch (helper, user units, patched plugin) -----------------------
+# LEAD 4's fix: the helper prefetches at login (no jitter) and daily; the Settings plugin gained a
+# "Preferred market" row. Assert the helper, the three units (enabled for users) and that the
+# wallpapers-bing plugin .so is the PATCHED build (its settings string is in the binary). The helper's
+# `fetch --if-stale` smoke run (exit 0 or 75) is checked from the first-boot report by the gate.
+echo "[verify-target] (vii) Bing wallpaper prefetch"
+exists /usr/local/bin/ncz-wallpaper-bing || gate_miss wallpaper "/usr/local/bin/ncz-wallpaper-bing"
+for u in ncz-wallpaper-bing.service ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do
+    exists "/usr/lib/systemd/user/$u" || gate_miss wallpaper "/usr/lib/systemd/user/$u"
+done
+for t in ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do
+    en=0
+    for w in $(lsnames /etc/systemd/user | grep '\.wants$'); do
+        lsnames "/etc/systemd/user/$w" | grep -qx "$t" && en=1
+    done
+    [ "$en" = 1 ] || gate_miss wallpaper "$t is not enabled for users (no .wants symlink under /etc/systemd/user)"
+done
+WSO=/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so
+if fetch "$WSO" "$TMP/libwallpapers-bing.so"; then
+    if grep -aq 'Preferred market' "$TMP/libwallpapers-bing.so"; then
+        echo "[verify-target]     wallpapers-bing plugin is the patched build (Preferred market row)"
+    else
+        gate_miss wallpaper "$WSO does not contain 'Preferred market' (stale, unpatched plugin build)"
+    fi
+else
+    gate_miss wallpaper "$WSO (plugin missing)"
+fi
+
 # --- (vi) ncz-screensavers (only when this image is meant to ship it) ---------
 # The image records that intent in its own payload: manifests/install-extra.pkgs.
 # Intent, in order: VERIFY_EXPECT_SCREENSAVERS=1|0 from the caller (the gate sets it from the

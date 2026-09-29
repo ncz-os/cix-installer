@@ -9,6 +9,25 @@
 set -uo pipefail
 echo "[97] installing the first-boot failed-unit report"
 install -d -m0755 /etc/systemd/system/multi-user.target.wants
+install -d -m0755 /usr/local/sbin
+cat > /usr/local/sbin/ncz-firstboot-report <<'REPORT'
+#!/bin/sh
+# Evidence for the KVM gate, written once ~30 s after the first multi-user boot:
+#   - systemctl --failed
+#   - a smoke run of the Bing wallpaper helper (`fetch --if-stale` must exit 0, or 75 when offline)
+sleep 30
+{
+    date -u +"# first boot report %FT%TZ"
+    systemctl --failed --no-legend --plain --no-pager
+    if [ -x /usr/local/bin/ncz-wallpaper-bing ]; then
+        timeout 90 /usr/local/bin/ncz-wallpaper-bing fetch --if-stale > /var/log/ncz-wallpaper-smoke.log 2>&1
+        echo "# wallpaper-bing-rc=$?"
+    fi
+    echo "# end"
+} > /var/log/ncz-first-boot-failed.txt 2>&1
+sync
+REPORT
+chmod 0755 /usr/local/sbin/ncz-firstboot-report
 cat > /etc/systemd/system/ncz-firstboot-report.service <<'UNIT'
 [Unit]
 Description=Record failed units after the first boot (NCZ gate evidence)
@@ -20,7 +39,7 @@ ConditionPathExists=!/var/log/ncz-first-boot-failed.txt
 # version of this unit never ran for exactly that reason.
 [Service]
 Type=simple
-ExecStart=/bin/sh -c 'sleep 30; { date -u +"# first boot report %FT%TZ"; systemctl --failed --no-legend --plain --no-pager; echo "# end"; } > /var/log/ncz-first-boot-failed.txt 2>&1; sync'
+ExecStart=/usr/local/sbin/ncz-firstboot-report
 
 [Install]
 WantedBy=multi-user.target

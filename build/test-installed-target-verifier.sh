@@ -40,6 +40,13 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     printf 'xx h264_v4l2m2m xx' > "$r/usr/lib/aarch64-linux-gnu/libavcodec.so.62.1.100"
     printf 'Package: google-chrome-stable\nStatus: install ok installed\n\nPackage: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$r/var/lib/dpkg/status"
     mkdir -p "$r/etc"; echo ncz-acrab-1717 > "$r/etc/hostname"
+    # bing wallpaper prefetch
+    mkdir -p "$r/usr/local/bin" "$r/usr/lib/systemd/user" "$r/etc/systemd/user/timers.target.wants" "$r/opt/singularity/lib/singularity/plugins/wallpapers-bing"
+    echo x > "$r/usr/local/bin/ncz-wallpaper-bing"
+    for u in ncz-wallpaper-bing.service ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do echo x > "$r/usr/lib/systemd/user/$u"; done
+    ln -s /usr/lib/systemd/user/ncz-wallpaper-bing.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"
+    ln -s /usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing-daily.timer"
+    printf 'xx Preferred market xx' > "$r/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/etc"; printf 'root:x:0:\nsudo:x:27:nczuser\n' > "$r/etc/group"
@@ -110,6 +117,11 @@ m_aud_nopactl()  { rm -f "$1/usr/bin/pactl"; }
 m_hn_setup()    { echo ncz-setup > "$1/etc/hostname"; }
 m_hn_machex()   { echo ncz-20e7bc > "$1/etc/hostname"; }
 m_hn_upper()    { echo NCZ-Acrab-1717 > "$1/etc/hostname"; }
+m_wp_nohelper() { rm -f "$1/usr/local/bin/ncz-wallpaper-bing"; }
+m_wp_nounit()   { rm -f "$1/usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer"; }
+m_wp_noenable() { rm -f "$1/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"; }
+m_wp_stale()    { printf 'old plugin build' > "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
+m_wp_noplugin() { rm -f "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
 m_no_loader()   { rm -f "$1/usr/bin/load-modules.sh"; }
 
 run_case "healthy installed root passes"        0 ""
@@ -128,6 +140,11 @@ run_case "no cixdec0 loader fails"              1 m_no_loader
 run_case "placeholder hostname fails"           1 m_hn_setup
 run_case "MAC-hex fallback hostname fails"      1 m_hn_machex
 run_case "malformed generated hostname fails"   1 m_hn_upper
+run_case "no wallpaper helper fails"            1 m_wp_nohelper
+run_case "missing daily timer unit fails"       1 m_wp_nounit
+run_case "wallpaper timer not enabled fails"    1 m_wp_noenable
+run_case "stale unpatched plugin .so fails"     1 m_wp_stale
+run_case "missing wallpapers-bing plugin fails" 1 m_wp_noplugin
 run_case "sudo not installed fails"             1 m_no_sudo
 run_case "empty sudo group fails"               1 m_sudo_empty
 run_case "VA driver present but mpv on v4l2 fails" 1 m_va_but_mpv_v4l2

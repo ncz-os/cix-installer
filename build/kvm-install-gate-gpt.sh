@@ -470,6 +470,12 @@ if [ "$ARCH" = arm64 ]; then
         fail "no first-boot report (/var/log/ncz-first-boot-failed.txt) on the installed disk -- 97-firstboot-report did not run or the guest did not reach multi-user long enough (BOOT_TIMEOUT=${BOOT_TIMEOUT}s)"
     fi
     ALLOW="$SCRIPT_DIR/first-boot-failed-allowlist.txt"
+    WP_RC="$(sed -n 's/^# wallpaper-bing-rc=//p' "$FBR" | tail -1)"
+    case "$WP_RC" in
+        0|75) echo "    wallpaper helper smoke: fetch --if-stale exit $WP_RC (0 = cache fresh/fetched, 75 = offline)" ;;
+        "")   fail "the first-boot report has no wallpaper-bing result (ncz-wallpaper-bing missing or the report script did not run it)" ;;
+        *)    fail "ncz-wallpaper-bing fetch --if-stale exited $WP_RC in the guest (expected 0 or 75); see the guest's /var/log/ncz-wallpaper-smoke.log" ;;
+    esac
     FAILED_UNITS="$(grep -vE '^#|^[[:space:]]*$' "$FBR" | awk '{print $1}' | sed 's/^[^A-Za-z0-9_@.-]*//' | sort -u)"
     BAD=""
     for u in $FAILED_UNITS; do
