@@ -3018,6 +3018,9 @@ echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
 # Step 4 — stage /ncz-payload/ with preseed.cfg + late.sh + post-install + assets
 # ----------------------------------------------------------------------
 echo "[4] staging /ncz-payload extras"
+# The joined preseed/early_command must stay small enough for d-i to hand back
+# through debconf (15,634 bytes broke media detection on 2026-09-29).
+bash "$ROOT/build/check-early-command-size.sh" "$ROOT/preseed/preseed.cfg" || exit 1
 # --- NCZ 26.6: Add custom APT repository to the ISO payload
 if [ -d "$ROOT/build/apt-repo" ]; then
     echo "--- staging NCZ offline apt repository ---"
@@ -3084,9 +3087,10 @@ cp "$ROOT/preseed/sshd-watcher.sh"    "$EXTRA/sshd-watcher.sh"
 # r173: interactive disk + root-filesystem chooser (partman/early_command).
 cp "$ROOT/preseed/disk-fs-chooser.sh" "$EXTRA/disk-fs-chooser.sh"
 cp "$ROOT/preseed/component-selector.sh" "$EXTRA/component-selector.sh"
+cp "$ROOT/preseed/hostname-suggest.sh" "$EXTRA/hostname-suggest.sh"
 # Root-hub rescan + video diagnostic, invoked from preseed early_command.
 cp "$ROOT/preseed/usb-rescan.sh"      "$EXTRA/usb-rescan.sh"
-chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh" "$EXTRA/disk-fs-chooser.sh" "$EXTRA/component-selector.sh" "$EXTRA/usb-rescan.sh"
+chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh" "$EXTRA/disk-fs-chooser.sh" "$EXTRA/component-selector.sh" "$EXTRA/hostname-suggest.sh" "$EXTRA/usb-rescan.sh"
 
 # Remote-diagnostics module (single, removable). DIAG_ENABLE=0 ships clean:
 # the module is not staged and ncz_diag/DEBCONF_DEBUG are not added below.
