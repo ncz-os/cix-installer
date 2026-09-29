@@ -1268,7 +1268,7 @@ fi
 echo "[20] verified: Singularity boot/login dynamic-link closure complete"
 
 # --- 26.7 Maximilian: VPU/VAAPI media production apps (video edit + transcode + audio) ---
-echo "[20] installing media production apps (Shotcut/Kdenlive/HandBrake/Audacity + players)"
+echo "[20] installing media production apps (Shotcut/HandBrake/Audacity + players)"
 # Install one at a time. A single apt transaction fails WHOLESALE when any
 # one name is unavailable, and the old "|| echo WARN" then hid WHICH package
 # was missing -- measured on CHIMERA 2026-09-29, where the batch failed and
@@ -1276,7 +1276,7 @@ echo "[20] installing media production apps (Shotcut/Kdenlive/HandBrake/Audacity
 # was two names (kdenlive, vlc) that are requested here but absent from
 # manifests/desktop.pkgs, so the offline closure can never contain them.
 _ncz_media_ok=""; _ncz_media_missing=""
-for _app in shotcut kdenlive handbrake ffmpeg audacity mpv vlc ; do
+for _app in shotcut handbrake ffmpeg audacity mpv ; do
     if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
            "$_app" >/dev/null 2>&1 ; then
         _ncz_media_ok="$_ncz_media_ok $_app"
