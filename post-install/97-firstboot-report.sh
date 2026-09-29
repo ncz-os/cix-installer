@@ -12,13 +12,15 @@ install -d -m0755 /etc/systemd/system/multi-user.target.wants
 cat > /etc/systemd/system/ncz-firstboot-report.service <<'UNIT'
 [Unit]
 Description=Record failed units after the first boot (NCZ gate evidence)
-After=multi-user.target network-online.target
 ConditionPathExists=!/var/log/ncz-first-boot-failed.txt
 
+# Type=simple on purpose: a oneshot in multi-user.target's wants would hold the target (and the
+# display manager behind it) for the 30 s sleep, and After=multi-user.target on a unit wanted by
+# multi-user.target is an ordering cycle that systemd resolves by dropping the job -- the first
+# version of this unit never ran for exactly that reason.
 [Service]
-Type=oneshot
+Type=simple
 ExecStart=/bin/sh -c 'sleep 30; { date -u +"# first boot report %FT%TZ"; systemctl --failed --no-legend --plain --no-pager; echo "# end"; } > /var/log/ncz-first-boot-failed.txt 2>&1; sync'
-TimeoutStartSec=120
 
 [Install]
 WantedBy=multi-user.target
