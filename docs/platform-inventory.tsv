@@ -336,3 +336,5 @@ build/software-render-allowlist.tsv	common	-	software-render lint allowlist
 assets/singularity/patches/singularity-session/0001-session-no-software-fallback-with-gpu.patch	common	-	labwc-session: no software retry on a machine with a GPU
 
 build/test-base-stamp.sh	common	-	base.squashfs reuse stamp tests
+build/reap-images.sh	common	-	image reaping policy script
+build/test-reap-images.sh	common	-	reap-images fixture tests
