@@ -355,6 +355,8 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
     # delete it again. Record it as intentionally present.
     grep -qxF "$pkg" "$CLOSURE" || echo "$pkg" >> "$CLOSURE"
 done
+# comm(1) below needs the closure sorted in the C locale; the loop above appended.
+LC_ALL=C sort -u -o "$CLOSURE" "$CLOSURE"
 # The desktop delta consumes this pool directly. The complete ISO closure also
 # consumes it alongside the vendor pool, where cixmini-boot and its mandatory
 # ncz-usb-recovery dependency are published.
