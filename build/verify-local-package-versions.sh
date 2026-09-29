@@ -35,7 +35,16 @@ done
 [ -d "$POOL" ] || { echo "verify-local-package-versions: ERROR: pool not found: $POOL" >&2; exit 2; }
 for dir in "${DEB_DIRS[@]}"; do
     [ -n "$dir" ] || { echo "verify-local-package-versions: ERROR: empty deb dir argument" >&2; exit 2; }
-    [ -d "$dir" ] || { echo "verify-local-package-versions: ERROR: deb dir not found: $dir" >&2; exit 2; }
+    if [ ! -d "$dir" ]; then
+        # build/kernel-debs only exists on arm64 (Sky1 kernel packages; the amd64 kernels are staged by
+        # stage-amd64-kernel.sh and have no local .deb build). A missing directory is an error on arm64
+        # and a skip elsewhere - the first amd64 build of the dual-arch release died here.
+        if [ "${NCZ_TARGET_ARCH:-$(dpkg --print-architecture 2>/dev/null)}" = arm64 ]; then
+            echo "verify-local-package-versions: ERROR: deb dir not found: $dir" >&2; exit 2
+        fi
+        echo "verify-local-package-versions: skipping absent $dir (not an arm64 build)" >&2
+        continue
+    fi
 done
 
 tmp="$(mktemp -d)"
