@@ -185,6 +185,9 @@ mktarget "$T" "skipped:no-nvidia-gpu";           expect_rc 0 "target: auto deriv
 mktarget "$T" "skipped:kepler-older-unsupported" conf-only; expect_rc 0 "target: Kepler skip passes" "$TG" --root "$T" --expect skipped
 mktarget "$T" "skipped:no-nvidia-gpu" installed; expect_rc 1 "target: skipped but nvcc exists is rejected" "$TG" --root "$T" --expect skipped
 mktarget "$T" "skipped:";                        expect_rc 1 "target: skip without a reason is rejected" "$TG" --root "$T" --expect skipped
+mktarget "$T" "skipped: ";                    expect_rc 1 "target: whitespace-only skip reason is rejected" "$TG" --root "$T" --expect skipped
+mktarget "$T" "skipped:no-nvidia-gpu"; printf 'Package: cuda-nvcc-11-8\nStatus: install ok installed\nVersion: 11.8-1\n\n' > "$T/var/lib/dpkg/status"
+                                              expect_rc 1 "target: ANY installed cuda-nvcc-* contradicts a skip" "$TG" --root "$T" --expect skipped
 mktarget "$T" "failed:would-remove-packages";    expect_rc 1 "target: recorded failure is always rejected (auto)" "$TG" --root "$T"
 mktarget "$T" "failed:would-remove-packages";    expect_rc 1 "target: recorded failure is rejected (expect skipped)" "$TG" --root "$T" --expect skipped
 mktarget "$T" "";                                expect_rc 1 "target: no status file is rejected (silent hook)" "$TG" --root "$T"

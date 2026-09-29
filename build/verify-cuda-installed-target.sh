@@ -74,6 +74,7 @@ case "$EXPECT" in
         [ -f "$TARGET/etc/profile.d/ncz-cuda.sh" ] || bad "missing /etc/profile.d/ncz-cuda.sh"
         [ -f "$TARGET/etc/apt/preferences.d/ncz-nvidia-cuda.pref" ] || bad "missing driver-branch apt pin"
         [ -f "$TARGET/var/lib/ncz/cuda-setup.done" ] || bad "no cuda-setup.done stamp"
+        [ -n "$TVER" ] || bad "$CONF has no TOOLKIT: cannot verify the toolkit packages"
         if [ -n "$TVER" ]; then
             dpkg_has "cuda-nvcc-$TVER" || bad "dpkg does not list cuda-nvcc-$TVER as installed"
             dpkg_has "cuda-libraries-dev-$TVER" || bad "dpkg does not list cuda-libraries-dev-$TVER (headers) as installed"
@@ -92,11 +93,15 @@ case "$EXPECT" in
         ;;
     skipped)
         [ "$KIND" = skipped ] || bad "expected a deliberate CUDA skip, status is '$STATUS'"
-        [ -n "${STATUS#skipped:}" ] || bad "skip recorded without a reason"
+        _why="${STATUS#skipped:}"; _why="$(printf '%s' "$_why" | tr -d ' \t')"
+        [ -n "$_why" ] || bad "skip recorded without a reason"
         [ ! -e "$NVCC" ] || bad "status says skipped but nvcc exists: $NVCC"
-        for pkg in cuda-nvcc-13-4 cuda-nvcc-12-9; do
-            ! dpkg_has "$pkg" || bad "status says skipped but $pkg is installed"
-        done
+        # any installed cuda-nvcc-* package contradicts a skip (not a fixed list: toolkits change)
+        if [ -f "$TARGET/var/lib/dpkg/status" ]; then
+            for pkg in $(awk 'BEGIN{RS="";FS="\n"} { n=""; ok=0; for(i=1;i<=NF;i++){ if($i ~ /^Package: cuda-nvcc-/) n=substr($i,10); if($i=="Status: install ok installed") ok=1 } if(n!="" && ok) print n }' "$TARGET/var/lib/dpkg/status"); do
+                bad "status says skipped but $pkg is installed"
+            done
+        fi
         ;;
 esac
 
