@@ -1269,6 +1269,25 @@ echo "[20] verified: Singularity boot/login dynamic-link closure complete"
 
 # --- 26.7 Maximilian: VPU/VAAPI media production apps (video edit + transcode + audio) ---
 echo "[20] installing media production apps (Shotcut/Kdenlive/HandBrake/Audacity + players)"
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    shotcut kdenlive handbrake ffmpeg audacity mpv vlc 2>&1 | tail -3 || \
-  echo "[20] WARN: media apps not all in offline mirror (needs mirror population)"
+# Install one at a time. A single apt transaction fails WHOLESALE when any
+# one name is unavailable, and the old "|| echo WARN" then hid WHICH package
+# was missing -- measured on CHIMERA 2026-09-29, where the batch failed and
+# reported only "media apps not all in offline mirror" while the real cause
+# was two names (kdenlive, vlc) that are requested here but absent from
+# manifests/desktop.pkgs, so the offline closure can never contain them.
+_ncz_media_ok=""; _ncz_media_missing=""
+for _app in shotcut kdenlive handbrake ffmpeg audacity mpv vlc ; do
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+           "$_app" >/dev/null 2>&1 ; then
+        _ncz_media_ok="$_ncz_media_ok $_app"
+    else
+        _ncz_media_missing="$_ncz_media_missing $_app"
+    fi
+done
+[ -n "$_ncz_media_ok" ] && echo "[20] media apps installed:$_ncz_media_ok"
+if [ -n "$_ncz_media_missing" ]; then
+    echo "[20] WARN: media apps NOT in the offline mirror:$_ncz_media_missing"
+    echo "[20]       (add them to manifests/desktop.pkgs so the closure carries them,"
+    echo "[20]        or drop them from this list -- naming a package here that the"
+    echo "[20]        manifest omits can never succeed on an offline install)"
+fi
