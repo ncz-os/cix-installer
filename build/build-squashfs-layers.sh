@@ -246,7 +246,12 @@ base_assets_stamp() {
       [ -d "assets/$a" ] && find "assets/$a" \( -type f -o -type l \) -print
     done
     ls release.conf manifests/installer-base*.pkgs 2>/dev/null   # what the base layer installs; other manifests are not base inputs
-  ) | LC_ALL=C sort | ( cd "$ROOT" && while IFS= read -r f; do [ -f "$f" ] && sha256sum "$f"; done ) | sha256sum | cut -d' ' -f1
+  ) | LC_ALL=C sort | ( cd "$ROOT" && while IFS= read -r f; do [ -f "$f" ] && sha256sum "$f"; done
+      # kernel channel LAYOUT (directory names and symlink targets, not the multi-GB contents): a rename such as
+      # edge -> mainline must not be masked by a reused base layer that still carries the old names
+      echo "kernel-layout"
+      find assets/kernel -maxdepth 2 \( -type d -o -type l \) -printf '%p -> %l\n' 2>/dev/null | LC_ALL=C sort
+    ) | sha256sum | cut -d' ' -f1
 }
 base_stamp_in_layer() {   # layer -> stamp or empty
   { unsquashfs -cat "$1" "$BASE_STAMP_REL" 2>/dev/null || true; } | tr -d '[:space:]'   # absent stamp (old layer) => empty => rebuild; must not trip set -e/pipefail

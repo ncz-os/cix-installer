@@ -19,4 +19,5 @@ echo c2 > "$R/manifests/installer-base.pkgs"; [ "$(stamp)" != "$s3" ] && ok "edi
 grep -q 'base_assets_stamp | sudo tee' "$SRC" && ok "build_base writes the stamp into the layer" || no "build_base does not write the stamp"
 grep -q '_have_stamp="$(base_stamp_in_layer' "$SRC" && ok "the reuse check compares the layer's stamp" || no "reuse check does not compare"
 s4="$(stamp)"; echo x > "$R/manifests/nvidia-cuda-amd64.pkgs"; [ "$(stamp)" = "$s4" ] && ok "an unrelated manifest (cuda) does not force a base rebuild" || no "unrelated manifest changed the stamp"
+mkdir -p "$R/assets/kernel/edge"; k0="$(stamp)"; mv "$R/assets/kernel/edge" "$R/assets/kernel/mainline"; [ "$(stamp)" != "$k0" ] && ok "renaming a kernel channel directory changes the stamp" || no "kernel rename not noticed"
 echo "base stamp tests: $PASS passed, $FAILS failed"; [ "$FAILS" = 0 ]
