@@ -1,0 +1,35 @@
+diff --git a/assets/kernel/edge b/assets/kernel/edge
+index b10bb96..25569fb 120000
+--- a/assets/kernel/edge
++++ b/assets/kernel/edge
+@@ -1 +1 @@
+-r271-7.2.5-sky1-ncz-20260912
+\ No newline at end of file
++r275-7.3.0-rc3-sky1-ncz-20260922
+\ No newline at end of file
+diff --git a/assets/kernel/panthor/panthor_drv.c b/assets/kernel/panthor/panthor_drv.c
+index 5b59c9f..e82380d 100644
+--- a/assets/kernel/panthor/panthor_drv.c
++++ b/assets/kernel/panthor/panthor_drv.c
+@@ -1782,7 +1782,7 @@ static void panthor_debugfs_init(struct drm_minor *minor)
+  */
+ static const struct drm_driver panthor_drm_driver = {
+ 	.driver_features = DRIVER_RENDER | DRIVER_GEM | DRIVER_SYNCOBJ |
+-			   DRIVER_SYNCOBJ_TIMELINE | DRIVER_GEM_GPUVA,
++			   DRIVER_SYNCOBJ_TIMELINE,
+ 	.open = panthor_open,
+ 	.postclose = panthor_postclose,
+ 	.show_fdinfo = panthor_show_fdinfo,
+diff --git a/assets/kernel/panthor/panthor_gem.c b/assets/kernel/panthor/panthor_gem.c
+index 5b80cb5..3b9c86e 100644
+--- a/assets/kernel/panthor/panthor_gem.c
++++ b/assets/kernel/panthor/panthor_gem.c
+@@ -761,7 +761,7 @@ static int panthor_gem_mmap(struct drm_gem_object *obj, struct vm_area_struct *v
+ 		return ret;
+ 	}
+ 
+-	if (is_cow_mapping(vma->vm_flags))
++	if (vma_is_cow_mapping(vma))
+ 		return -EINVAL;
+ 
+ 	if (!refcount_inc_not_zero(&bo->cmap.mmap_count)) {

@@ -1,0 +1,15 @@
+host: ultra
+path: /home/jasonperlow/isobuild/cix-installer
+base_commit: 1d90a526c20bdb0f10fc6734667e870b96b58509
+origin:
+github	https://github.com/ncz-os/cix-installer.git (fetch)
+github	https://github.com/ncz-os/cix-installer.git (push)
+gitlab	https://gitlab.com/ncz-os/cix-installer.git (fetch)
+gitlab	https://gitlab.com/ncz-os/cix-installer.git (push)
+origin	file:///mnt/argonas-git/cix-installer.git (fetch)
+origin	file:///mnt/argonas-git/cix-installer.git (push)
+
+selected_files:
+  assets/kernel/edge
+  assets/kernel/panthor/panthor_drv.c
+  assets/kernel/panthor/panthor_gem.c
