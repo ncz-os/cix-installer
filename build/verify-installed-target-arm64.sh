@@ -73,7 +73,17 @@ done
 echo "[verify-target]     .fwb present: $n/16"
 
 # --- kernel version (newest Sky1 kernel in the image) --------------------
-KVER="$(lsnames /usr/lib/modules | grep -E -- '-sky1-ncz$' | sort -V | tail -1)"
+# The kernel this image ships and boots is recorded in KVER_NEXT (the payload's
+# edge kernel). The rootfs can also carry an older/experimental Sky1 kernel from
+# the baked base layer (2026-09-29: 7.3.0-rc3 next to 7.2.8), so "newest
+# directory" would verify the wrong one. Fall back to newest only if KVER_NEXT
+# is unreadable.
+KVER=""
+if fetch /usr/local/lib/cix-installer/KVER_NEXT "$TMP/KVER_NEXT"; then
+    KVER="$(tr -d '[:space:]' < "$TMP/KVER_NEXT")"
+    exists "/usr/lib/modules/$KVER" || { gate_miss kernel "KVER_NEXT names $KVER but /usr/lib/modules/$KVER is absent"; KVER=""; }
+fi
+[ -n "$KVER" ] || KVER="$(lsnames /usr/lib/modules | grep -E -- '-sky1-ncz$' | sort -V | tail -1)"
 if [ -z "$KVER" ]; then
     gate_miss kernel "no *-sky1-ncz directory under /usr/lib/modules"
 else

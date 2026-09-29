@@ -31,6 +31,9 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     printf 'amvx' | xz -c > "$r/usr/lib/modules/$KVER/kernel/drivers/media/platform/cix/amvx.ko.xz"
     printf 'updates/dkms/aipu.ko.xz:\nkernel/drivers/media/platform/cix/amvx.ko.xz:\n' > "$r/usr/lib/modules/$KVER/modules.dep"
     echo x > "$r/usr/src/aipu-6.2.0/dkms.conf"
+    mkdir -p "$r/usr/local/lib/cix-installer" "$r/usr/lib/modules/7.3.0-rc3-sky1-ncz"
+    echo "$KVER" > "$r/usr/local/lib/cix-installer/KVER_NEXT"
+    printf 'x' > "$r/usr/lib/modules/7.3.0-rc3-sky1-ncz/modules.dep"   # older kernel must be ignored
     echo x > "$r/usr/sbin/dkms"; echo x > "$r/usr/bin/ffmpeg"
     echo 'ln -sf $_d /dev/video-cixdec0' > "$r/usr/bin/load-modules.sh"
     printf 'xx h264_v4l2m2m xx' > "$r/usr/lib/aarch64-linux-gnu/libavcodec.so.62.1.100"
