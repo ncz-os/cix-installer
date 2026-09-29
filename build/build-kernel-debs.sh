@@ -96,9 +96,13 @@ OUT="$REPO/build/kernel-debs"
 # installed on boards from the previous image and silently loses to it in apt.
 # Derive it from the staging directory name (rNNN-<kver>-...) and refuse a
 # BUILD_REV override that is older than the staged directory.
-_EDGE_DIR_NAME="$(basename "$(readlink -f "$REPO/assets/kernel/edge" 2>/dev/null)" 2>/dev/null || true)"
+# Read the symlink TARGET STRING (no -f): resolving it needs the NFS staging tree mounted, and
+# an unreachable mount must not silently fall back to the stale constant.
+_EDGE_LINK="$(readlink "$REPO/assets/kernel/edge" 2>/dev/null || true)"
+_EDGE_DIR_NAME="$(basename "${_EDGE_LINK:-edge}")"
 _EDGE_REV=""
 case "$_EDGE_DIR_NAME" in r[0-9]*-*) _EDGE_REV="${_EDGE_DIR_NAME%%-*}" ;; esac
+case "${_EDGE_REV#r}" in *[!0-9]*) _EDGE_REV="" ;; esac
 BUILD_REV="${BUILD_REV:-${_EDGE_REV:-r258}}"
 if [ -n "$_EDGE_REV" ] && [ "${BUILD_REV#r}" -lt "${_EDGE_REV#r}" ] 2>/dev/null; then
     echo "ERROR: BUILD_REV=$BUILD_REV is older than the staged kernel directory ($_EDGE_DIR_NAME); refusing to build a downgrade-labelled kernel deb" >&2
