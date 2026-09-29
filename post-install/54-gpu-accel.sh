@@ -164,6 +164,11 @@ ncz_nvidia_dynamic_setup() {
             ncz_cuda_status "failed:sequoia-policy-not-applied"; return 0
         fi
     fi
+    # All three deferred-install assets must exist BEFORE anything is written: a partial refresh of the payload must
+    # not leave a pin and a selection behind with no tool to act on them.
+    for _a in ncz-cuda-setup ncz-cuda-setup.service ncz-cuda-setup.timer; do
+        [ -f "$NCZ_NV_ASSETS/$_a" ] || { echo "[54] WARN: $NCZ_NV_ASSETS/$_a not staged"; ncz_cuda_status "failed:deferred-asset-missing"; return 0; }
+    done
     install -d -m0755 /etc/apt/preferences.d
     ncz_cuda_pin_file "$fam" > /etc/apt/preferences.d/ncz-nvidia-cuda.pref
     install -D -m0755 "$NCZ_NV_ASSETS/ncz-cuda-setup" /usr/local/sbin/ncz-cuda-setup

@@ -257,6 +257,9 @@ got="$(run54w "$RTX" 0)"; [ ! -e "$SB/etc/crypto-policies/back-ends/apt-sequoia.
 got="$(run54w "$GTX680" 0)"; eq "54: Kepler GPU is skipped and logged" "$got" "skipped:kepler-older-unsupported"
 [ ! -x "$SB/usr/local/sbin/ncz-cuda-setup" ] && ok "54: Kepler installs nothing" || nok "54: Kepler installed the setup tool"
 got="$(run54w "$IGPU" 0)"; eq "54: no NVIDIA GPU is skipped" "$got" "skipped:no-nvidia-gpu"
+got="$( rm -f "$SB/assets/ncz-cuda-setup.timer"; run54w "$RTX" 0 )"; eq "54: a missing deferred asset fails before any pin/selection side effect" "$got" "failed:deferred-asset-missing"
+[ ! -e "$SB/etc/apt/preferences.d/ncz-nvidia-cuda.pref" ] && ok "54: no apt pin was written when an asset was missing" || nok "54: pin written despite a missing asset"
+cp "$ROOT/assets/nvidia/ncz-cuda-setup.timer" "$SB/assets/"
 got="$(run54w "$RTX" 0 0)"; eq "54: component chooser answer 0 skips" "$got" "skipped:component-not-selected"
 got="$(run54w "$RTX" 0 1)"; eq "54: component chooser answer 1 installs" "$got" "installed:13.4.92-1"
 got="$(run54w "$RTX" 0 none 1)"; eq "54: NCZ_SKIP_CUDA=1 skips" "$got" "skipped:operator-disabled"
@@ -313,7 +316,8 @@ case "\$*" in
         remove) echo "Remv libfoo [1.0]"; exit 0 ;;
         *)      echo "Inst cuda-nvcc-13-4 (13.4.92-1 NVIDIA)"; exit 0 ;;
      esac ;;
-  *) [ "\${STUB_APT:-ok}" = fetchfail ] && { echo "E: Failed to fetch https://developer.download.nvidia.com/x  Connection failed" >&2; exit 100; }
+  *) [ "\${STUB_APT:-ok}" = drvfail ] && case "\$*" in *cuda-drivers*) echo "E: Sub-process /usr/bin/dpkg returned an error code (1)" >&2; exit 100 ;; esac
+     [ "\${STUB_APT:-ok}" = fetchfail ] && { echo "E: Failed to fetch https://developer.download.nvidia.com/x  Connection failed" >&2; exit 100; }
      echo "\$*" >> "$CS/apt.calls"
      [ "\${STUB_APT:-ok}" = nonvcc ] || { mkdir -p "$CS/cuda/bin"; printf '#!/bin/sh\necho "Cuda compilation tools, release 13.4"\n' > "$CS/cuda/bin/nvcc"; chmod +x "$CS/cuda/bin/nvcc"; }
      exit 0 ;;
@@ -351,6 +355,14 @@ csconf turing-plus; eq "setup: index unavailable -> retryable (rc 75)" "$(STUB_A
 eq "setup: index unavailable -> pending" "$(st)" "pending:index-unavailable"
 csconf turing-plus; eq "setup: download failure -> retryable (rc 75)" "$(STUB_APT=fetchfail cs run)" 75
 eq "setup: download failure -> pending:download" "$(st)" "pending:download"
+# a stale transient line earlier in the log must not hide a HARD driver failure (was: pending:download forever)
+csconf turing-plus; echo "2026-09-28T00:00:00Z E: Failed to fetch https://developer.download.nvidia.com/old Connection failed" > "$CS/setup.log"
+eq "setup: hard driver failure after an old fetch error is a hard failure (rc 1)" "$(STUB_APT=drvfail cs run)" 1
+eq "setup: ... recorded as failed:driver-install, not pending:download" "$(st)" "failed:driver-install"
+# no curl must not mean "network is up"
+nc() { sed -n '/^net_up() {/,/^}/p' "$ROOT/assets/nvidia/ncz-cuda-setup" > "$CS/netup.sh"
+       ( HOST=nonexistent.invalid; getent() { return 0; }; command() { if [ "$1" = -v ] && [ "$2" = curl ]; then return 1; fi; builtin command "$@"; }; . "$CS/netup.sh"; net_up ); }
+expect_rc 1 "setup: without curl an unreachable host is NOT reported as network up" nc
 csconf turing-plus; eq "setup: install that yields no nvcc (rc 1)" "$(STUB_APT=nonvcc cs run)" 1
 eq "setup: no nvcc -> failed:nvcc-missing" "$(st)" "failed:nvcc-missing"
 [ ! -e "$CS/var/lib/ncz/cuda-setup.done" ] && ok "setup: no stamp after a failure" || nok "setup: stamp after failure"

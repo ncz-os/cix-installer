@@ -69,7 +69,8 @@ net_up() {
     if command -v curl >/dev/null 2>&1; then
         curl -fsI --max-time 15 "https://$HOST/compute/cuda/repos/" >/dev/null 2>&1
     else
-        return 0
+        # no curl: prove the HTTPS port answers instead of assuming the network is up
+        timeout 15 bash -c "exec 3<>/dev/tcp/$HOST/443" >/dev/null 2>&1
     fi
 }
 
@@ -144,16 +145,22 @@ do_run() {
     fi
 
     # Driver first so a toolkit problem never costs the display driver.
+    # attempt_log prints only what THIS apt transaction appended to the log: an older "Failed to fetch" line must not
+    # turn a hard failure (dpkg/dkms/resolver) into an endless "pending:download" retry (zoder review, verified).
+    local logoff
+    attempt_log() { tail -c +"$((logoff + 1))" "$LOG" 2>/dev/null; }
+    logoff=$(wc -c < "$LOG" 2>/dev/null || echo 0)
     # shellcheck disable=SC2086
     if ! apt_run install -y --no-install-recommends --no-remove $drv >>"$LOG" 2>&1; then
-        if grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect' "$LOG"; then
+        if attempt_log | grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect'; then
             set_status "pending:download"; backoff_note soft >/dev/null; return 75
         fi
         set_status "failed:driver-install"; backoff_note hard >/dev/null; return 1
     fi
+    logoff=$(wc -c < "$LOG" 2>/dev/null || echo 0)
     # shellcheck disable=SC2086
     if ! apt_run install -y --no-install-recommends --no-remove $pkgs >>"$LOG" 2>&1; then
-        if tail -n 40 "$LOG" | grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect'; then
+        if attempt_log | grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect'; then
             set_status "pending:download"; backoff_note soft >/dev/null; return 75
         fi
         set_status "failed:toolkit-install"; backoff_note hard >/dev/null; return 1

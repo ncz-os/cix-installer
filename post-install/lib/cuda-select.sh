@@ -69,7 +69,7 @@ ncz_cuda_nvidia_ids() {
 # R580 also supports Turing, R615 does not support Pascal. Returns 1 when no
 # NVIDIA display controller is present.
 ncz_cuda_pick_family() {
-    local ids id fam best="" bestid="" rank
+    local ids id fam best="" bestid="" bestrank=0 rank
     ids=$(ncz_cuda_nvidia_ids "${1:-}") || return 1
     [ -n "$ids" ] || return 1
     for id in $ids; do
