@@ -1,39 +1,29 @@
 #!/usr/bin/env python3
-"""singularity-patch-reconcile.py -- auto-retire downstream Singularity
-patches once their tracked upstream PR merges.
+"""singularity-patch-reconcile.py -- track the upstream state of every
+downstream Singularity patch and retire the ones that landed.
 
-WHY THIS EXISTS (2026-09-20/21, operator directive): "As new merges occur,
-no-op the patches." assets/singularity/patches/README.md's own convention
-already says a merged patch should be deleted "in the same commit that
-bumps past it" -- but that has always been a REMEMBERED manual step, same
-class of gap preflight-freshness-gate.sh closed for build freshness.
-preflight-freshness-gate.sh's check #2 (does the patch still `git apply
---check` against upstream) is a WEAK merge signal: a patch can still apply
-cleanly after its PR merged (no conflicting drift yet), so "still applies"
-does not mean "still needed". The reliable signal is the PR's own state,
-queried directly via `gh pr view --json state,mergedAt,mergeCommitOid`.
+The unit of work is a patch FILE under assets/singularity/patches/<sub>/,
+not a README block. Each file is matched to the README block that names it
+and classified:
 
-This script:
-  1. Parses assets/singularity/patches/README.md's "## <subproject> --
-     active" sections for "**Upstream PR:** [owner/repo#N](url)" blocks
-     and the "Patch `NNNN-*.patch`" filename(s) each one names.
-  2. Queries `gh pr view <url> --json state,mergedAt,mergeCommitOid` for
-     each -- real GitHub state, not an inference from patch-apply success.
-  3. For every MERGED PR: deletes the named patch file(s), removes the
-     block from its "active" section, and appends a "retired" entry
-     matching the file's own existing convention (see the OPEN merged
-     entries already in this file for the exact shape being matched).
-  4. Writes the whole file back only if at least one patch was retired;
-     never touches it otherwise. Never invents an "active" entry -- this
-     script only ever REMOVES, it does not add new tracked PRs.
+  RETIRE        PR MERGED, block not marked superseded, and the patch
+                reverse-applies to upstream head (`git apply --check -R`),
+                i.e. upstream really contains the change. Only these are
+                ever deleted.
+  MERGED-KEEP   PR MERGED but the patch does not reverse-apply: upstream
+                differs from the patch, keep it and decide by hand.
+  CLOSED        PR CLOSED unmerged: keep the patch, needs a decision.
+  SUPERSEDED    README block says superseded: never deleted automatically.
+  OPEN          PR open: keep.
+  NO-PR         README entry with no upstream PR link: keep.
+  ORPHAN        patch file with no README entry: keep, add an entry.
 
-Exits 0 with nothing retired (the normal nightly case), 0 with a summary
-of what was retired, or 2 on a real error (gh not authed, README
-unparseable). Never touches git itself -- the caller commits/pushes,
-same separation of concerns as the freshness gate.
+Nothing but RETIRE changes the tree. The caller commits and pushes.
 
-Usage: build/singularity-patch-reconcile.py [--dry-run]
+Usage: build/singularity-patch-reconcile.py [--dry-run] [--upstream-cache DIR]
+Exit: 0 normally, 2 on a real error.
 """
+
 import json
 import re
 import subprocess
@@ -42,168 +32,262 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PATCH_ROOT = REPO_ROOT / "assets" / "singularity" / "patches"
-README = PATCH_ROOT / "README.md"
+UPSTREAM_URL = "https://github.com/singularityos-lab/{sub}.git"
 
 PR_BLOCK_RE = re.compile(
     r"\*\*Upstream PR:\*\*\s*\[([^\]]+)\]\((https://github\.com/[^)]+)\)"
 )
+BLOCK_START_RE = re.compile(r"^\*\*(?:Upstream PR|No upstream PR):\*\*")
 PATCH_NAME_RE = re.compile(r"`([0-9]{4}-[A-Za-z0-9._-]+\.patch)`")
-SECTION_RE = re.compile(r"^## (.+?)(?:\s+[-—]+\s+active)?\s*$")
+SUPERSEDED_RE = re.compile(r"\bsuperseded\b", re.IGNORECASE)
 
 
-def gh_pr_state(url: str) -> dict:
+class Block:
+    def __init__(self, sub, start, end, text):
+        self.sub = sub
+        self.start = start
+        self.end = end
+        self.text = text
+        m = PR_BLOCK_RE.search(text)
+        self.pr_label = m.group(1) if m else None
+        self.pr_url = m.group(2) if m else None
+        self.patches = PATCH_NAME_RE.findall(text)
+        self.superseded = bool(SUPERSEDED_RE.search(text))
+
+
+def gh_pr_state(url):
     out = subprocess.run(
         ["gh", "pr", "view", url, "--json", "state,mergedAt,mergeCommit"],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     if out.returncode != 0:
         raise RuntimeError(f"gh pr view {url} failed: {out.stderr.strip()}")
     data = json.loads(out.stdout)
     mc = data.get("mergeCommit") or {}
-    data["mergeCommitOid"] = mc.get("oid", "unknown") if isinstance(mc, dict) else "unknown"
+    data["mergeCommitOid"] = (
+        mc.get("oid", "unknown") if isinstance(mc, dict) else "unknown"
+    )
     return data
 
 
-def split_blocks(section_text: str) -> list[str]:
-    # Blocks are separated by a blank line before the next "**Upstream PR:**"
-    parts = re.split(r"\n(?=\*\*Upstream PR:\*\*)", section_text)
-    return [p for p in parts if p.strip()]
-
-
-def main() -> int:
-    dry_run = "--dry-run" in sys.argv
-
-    if not README.is_file():
-        print(f"[reconcile] no {README} -- nothing to reconcile")
-        return 0
-
-    text = README.read_text()
+def parse_readme(text):
+    """Return the Blocks found in every '## <sub> -- active' section."""
     lines = text.split("\n")
-
-    # Locate every "active" section by header, and its body up to the next
-    # "## " header.
-    section_spans = []  # (name, start_line_idx, end_line_idx)
-    cur_name = None
+    blocks = []
+    sub = None
     cur_start = None
+
+    def flush(end):
+        nonlocal cur_start
+        if sub is not None and cur_start is not None:
+            blocks.append(Block(sub, cur_start, end, "\n".join(lines[cur_start:end])))
+        cur_start = None
+
     for i, line in enumerate(lines):
         if line.startswith("## "):
-            if cur_name is not None:
-                section_spans.append((cur_name, cur_start, i))
-            m = SECTION_RE.match(line)
-            if m and line.rstrip().endswith("active"):
-                cur_name = m.group(1).strip()
-                cur_start = i + 1
+            flush(i)
+            if line.rstrip().endswith("active"):
+                sub = re.sub(r"\s+[-—]+\s+active\s*$", "", line[3:]).strip()
             else:
-                cur_name = None
-                cur_start = None
-    if cur_name is not None:
-        section_spans.append((cur_name, cur_start, len(lines)))
+                sub = None
+        elif sub is not None and BLOCK_START_RE.match(line):
+            flush(i)
+            cur_start = i
+    flush(len(lines))
+    return blocks
 
-    if not section_spans:
-        print("[reconcile] no active sections found in README.md")
-        return 0
 
-    retired_notes = []
-    removed_line_ranges = []  # (start, end) exclusive, in original `lines`
-    deleted_files = []
+def list_patches(patch_root):
+    out = []
+    if not patch_root.is_dir():
+        return out
+    for d in sorted(p for p in patch_root.iterdir() if p.is_dir()):
+        for f in sorted(d.glob("*.patch")):
+            out.append((d.name, f))
+    return out
 
-    for sub_name, start, end in section_spans:
-        section_text = "\n".join(lines[start:end])
-        blocks = split_blocks(section_text)
-        # Track cumulative offset within this section to map block back to
-        # absolute line numbers.
-        offset = start
-        for block in blocks:
-            block_lines = block.split("\n")
-            block_start = offset
-            block_end = offset + len(block_lines)
-            offset = block_end
 
-            m = PR_BLOCK_RE.search(block)
-            if not m:
-                continue
-            pr_label, pr_url = m.group(1), m.group(2)
-
-            try:
-                state = gh_pr_state(pr_url)
-            except Exception as e:
-                print(f"[reconcile] WARN: could not check {pr_label} ({pr_url}): {e}")
-                continue
-
-            if state.get("state") != "MERGED":
-                print(f"[reconcile] OK: {pr_label} still open -- keeping patch")
-                continue
-
-            patch_names = PATCH_NAME_RE.findall(block)
-            if not patch_names:
-                print(f"[reconcile] WARN: {pr_label} is MERGED but no patch filename found in its block -- skipping, check README.md by hand")
-                continue
-
-            merge_sha = (state.get("mergeCommitOid") or "unknown")[:40]
-            merged_at = (state.get("mergedAt") or "unknown-date")[:10]
-
-            found_all = True
-            for pname in patch_names:
-                candidates = list((PATCH_ROOT / sub_name).glob(pname)) if (PATCH_ROOT / sub_name).is_dir() else []
-                if not candidates:
-                    # root-repo exception dirs (e.g. singularity-desktop
-                    # patch applying at top level) still live under their
-                    # own subdir name in this tree -- same glob covers it.
-                    print(f"[reconcile] WARN: {pr_label} is MERGED but patch file {pname} not found under {PATCH_ROOT / sub_name} -- skipping")
-                    found_all = False
-                    continue
-                for c in candidates:
-                    if dry_run:
-                        print(f"[reconcile] DRY-RUN: would delete {c.relative_to(REPO_ROOT)}")
-                    else:
-                        c.unlink()
-                    deleted_files.append(str(c.relative_to(REPO_ROOT)))
-
-            if not found_all:
-                continue
-
-            print(f"[reconcile] RETIRE: {pr_label} MERGED ({merge_sha}, {merged_at}) -- removing {', '.join(patch_names)}")
-            removed_line_ranges.append((block_start, block_end))
-            retired_notes.append(
-                f"## {sub_name} — retired {merged_at}\n\n"
-                f"**Upstream PR:** [{pr_label}]({pr_url})\n"
-                f"— **MERGED** (`{merge_sha}`, {merged_at}), auto-retired by "
-                f"build/singularity-patch-reconcile.py. Patch(es) "
-                f"{', '.join(f'`{p}`' for p in patch_names)} deleted.\n"
+def reverse_applies(sub, patch, cache):
+    """True if `patch` reverse-applies to the head of upstream <sub>."""
+    clone = Path(cache) / sub
+    url = UPSTREAM_URL.format(sub=sub)
+    if (clone / ".git").is_dir():
+        r = subprocess.run(
+            ["git", "-C", str(clone), "fetch", "--quiet", "--depth", "1", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(
+                f"fetch {url} failed, refusing to judge against a stale cache: {r.stderr.strip()}"
             )
-
-    if not retired_notes:
-        print("[reconcile] nothing to retire -- all tracked PRs still open")
-        return 0
-
-    if dry_run:
-        print(f"[reconcile] DRY-RUN: would retire {len(retired_notes)} patch(es), README.md left untouched")
-        return 0
-
-    # Remove retired blocks from the file (highest line first so earlier
-    # indices stay valid), then append the retired notes near the top of
-    # the "Previously landed" section if present, else at end of file.
-    new_lines = list(lines)
-    for start, end in sorted(removed_line_ranges, reverse=True):
-        del new_lines[start:end]
-
-    new_text = "\n".join(new_lines)
-    # Strip any section that is now empty (just a header with no blocks left).
-    new_text = re.sub(
-        r"## ([^\n]+?) — active\n+(?=## |\Z)", "", new_text
-    )
-
-    insertion_marker = "## Previously landed"
-    note_block = "\n" + "\n".join(retired_notes)
-    if insertion_marker in new_text:
-        new_text = new_text.replace(insertion_marker, note_block.strip("\n") + "\n\n" + insertion_marker, 1)
+        subprocess.run(
+            ["git", "-C", str(clone), "reset", "--hard", "--quiet", "FETCH_HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
     else:
-        new_text = new_text.rstrip("\n") + "\n\n" + note_block.strip("\n") + "\n"
+        clone.parent.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(
+            ["git", "clone", "--quiet", "--depth", "1", url, str(clone)],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"clone {url} failed: {r.stderr.strip()}")
+    chk = subprocess.run(
+        ["git", "-C", str(clone), "apply", "--check", "-R", str(Path(patch).resolve())],
+        capture_output=True,
+        text=True,
+    )
+    return chk.returncode == 0
 
-    README.write_text(new_text)
-    print(f"[reconcile] retired {len(retired_notes)} patch(es), deleted {len(deleted_files)} file(s): {', '.join(deleted_files)}")
+
+def classify(sub, patch, blocks, state_fn, reverse_fn):
+    """Return (status, detail, block) for one patch file."""
+    name = Path(patch).name
+    block = next((b for b in blocks if b.sub == sub and name in b.patches), None)
+    if block is None:
+        return "ORPHAN", "no README entry", None
+    if block.superseded:
+        return (
+            "SUPERSEDED",
+            "README block says superseded; not deleting automatically",
+            block,
+        )
+    if not block.pr_url:
+        return "NO-PR", "no upstream PR", block
+    try:
+        state = state_fn(block.pr_url)
+    except Exception as e:  # network/gh failure must never delete anything
+        return "ERROR", f"could not check {block.pr_label}: {e}", block
+    st = state.get("state")
+    if st == "OPEN":
+        return "OPEN", f"{block.pr_label} open", block
+    if st == "CLOSED":
+        return (
+            "CLOSED",
+            f"{block.pr_label} closed upstream, keep patch, needs decision",
+            block,
+        )
+    if st == "MERGED":
+        try:
+            ok = reverse_fn(sub, patch)
+        except Exception as e:
+            return "ERROR", f"reverse-apply check failed: {e}", block
+        if ok:
+            return (
+                "RETIRE",
+                f"{block.pr_label} merged and the patch reverse-applies to upstream head",
+                block,
+            )
+        return (
+            "MERGED-KEEP",
+            f"{block.pr_label} merged but the patch does not reverse-apply to upstream head, keep and decide",
+            block,
+        )
+    return "ERROR", f"{block.pr_label} unknown state {st!r}", block
+
+
+def reconcile(patch_root, readme_path, state_fn, reverse_fn, dry_run=False):
+    """Run the whole pass. Returns (results, retired_files)."""
+    text = readme_path.read_text() if readme_path.is_file() else ""
+    blocks = parse_readme(text)
+    results = []
+    for sub, f in list_patches(patch_root):
+        status, detail, block = classify(sub, f, blocks, state_fn, reverse_fn)
+        results.append((sub, f, status, detail, block))
+
+    # A block retires only when every patch it names is RETIRE and present.
+    retire_blocks = []
+    for b in blocks:
+        mine = [r for r in results if r[4] is b]
+        named = set(b.patches)
+        present = {r[1].name for r in mine}
+        if mine and named <= present and all(r[2] == "RETIRE" for r in mine):
+            retire_blocks.append(b)
+
+    retired_files = []
+    for b in retire_blocks:
+        for r in results:
+            if r[4] is b:
+                retired_files.append(r[1])
+
+    if retired_files and not dry_run:
+        state = {b: state_fn(b.pr_url) for b in retire_blocks}
+        lines = text.split("\n")
+        notes = []
+        for b in retire_blocks:
+            merged_at = (state[b].get("mergedAt") or "unknown-date")[:10]
+            sha = (state[b].get("mergeCommitOid") or "unknown")[:40]
+            notes.append(
+                f"## {b.sub} — retired {merged_at}\n\n"
+                f"**Upstream PR:** [{b.pr_label}]({b.pr_url})\n"
+                f"— **MERGED** (`{sha}`, {merged_at}), auto-retired by "
+                f"build/singularity-patch-reconcile.py after the patch reverse-applied "
+                f"to upstream head. Patch(es) {', '.join(f'`{p}`' for p in b.patches)} deleted.\n"
+            )
+        for b in sorted(retire_blocks, key=lambda x: x.start, reverse=True):
+            del lines[b.start : b.end]
+        new_text = "\n".join(lines)
+        new_text = re.sub(r"## ([^\n]+?) — active\n+(?=## |\Z)", "", new_text)
+        marker = "## Previously landed"
+        note_block = "\n".join(notes).strip("\n")
+        if marker in new_text:
+            new_text = new_text.replace(marker, note_block + "\n\n" + marker, 1)
+        else:
+            new_text = new_text.rstrip("\n") + "\n\n" + note_block + "\n"
+        readme_path.write_text(new_text)
+        for f in retired_files:
+            f.unlink()
+    return results, retired_files
+
+
+def main(argv):
+    dry_run = "--dry-run" in argv
+    cache = None
+    if "--upstream-cache" in argv:
+        cache = argv[argv.index("--upstream-cache") + 1]
+    if cache is None:
+        import os
+
+        cache = os.environ.get("NCZ_UPSTREAM_CACHE") or str(
+            Path.home() / ".cache" / "ncz-singularity-upstream"
+        )
+
+    readme = PATCH_ROOT / "README.md"
+    if not readme.is_file():
+        print(f"[reconcile] no {readme} -- nothing to reconcile")
+        return 0
+    try:
+        results, retired = reconcile(
+            PATCH_ROOT,
+            readme,
+            gh_pr_state,
+            lambda sub, p: reverse_applies(sub, p, cache),
+            dry_run=dry_run,
+        )
+    except Exception as e:
+        print(f"[reconcile] ERROR: {e}", file=sys.stderr)
+        return 2
+
+    for sub, f, status, detail, _ in results:
+        print(f"[reconcile] {status}: {sub}/{f.name}: {detail}")
+    if retired:
+        verb = "would delete" if dry_run else "deleted"
+        print(
+            f"[reconcile] {verb} {len(retired)} file(s): "
+            + ", ".join(str(f.relative_to(REPO_ROOT)) for f in retired)
+        )
+    else:
+        print("[reconcile] nothing retired")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

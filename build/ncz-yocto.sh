@@ -42,6 +42,8 @@ done
 }
 
 command -v git >/dev/null || { echo "ERROR: git is required" >&2; exit 1; }
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/argonas-ssh.sh"
+ncz_argonas_git_ssh
 mkdir -p "$LAYERS_ROOT"
 
 fetch_layer() {
@@ -54,7 +56,7 @@ fetch_layer() {
         if ! git clone "$url" "$dir"; then
             [ -n "$fallback" ] || return 1
             echo "[ncz-yocto] primary unavailable; trying fleet-auth fallback for $name"
-            GIT_SSH_COMMAND='sshpass -p "REDACTED-CREDENTIAL" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no' git clone "$fallback" "$dir"
+            git clone "$fallback" "$dir"
         fi
     fi
     [ -w "$dir/.git/objects" ] || {
@@ -69,8 +71,7 @@ fetch_layer() {
     fi
     if ! git -C "$dir" cat-file -e "$revision^{commit}" 2>/dev/null && [ -n "$fallback" ]; then
         echo "[ncz-yocto] pinned object absent from primary; fetching fleet-auth fallback for $name"
-        GIT_SSH_COMMAND='sshpass -p "REDACTED-CREDENTIAL" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no' \
-            git -C "$dir" fetch "$fallback" '+refs/heads/*:refs/remotes/fleet/*'
+        git -C "$dir" fetch "$fallback" '+refs/heads/*:refs/remotes/fleet/*'
     fi
     git -C "$dir" cat-file -e "$revision^{commit}" 2>/dev/null || {
         echo "ERROR: pinned revision $revision not found for $name" >&2; return 1

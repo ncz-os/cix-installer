@@ -16,16 +16,16 @@ merges, delete its patch(es) from here in the same commit that bumps past it
 check just reports "already present"), but a stale README entry claiming a
 patch is still needed when it is not is actively misleading.
 
-**This is now automated, not just a manual convention** (2026-09-21).
-`build/singularity-patch-reconcile.py` queries each `**Upstream PR:**` link's
-real GitHub state (`gh pr view --json state`) and, for anything MERGED,
-deletes the patch file(s) and rewrites this section into a retired entry —
-same shape as the retired entries below. `build/singularity-nightly-track.sh`
-runs it nightly (systemd timer, `build/systemd/ncz-singularity-patch-*`,
-03:15, same cadence as ULTRA's existing `ncz-singularity-sync`) and
-commits+pushes if anything changed. A human editing this file by hand is
-still fine — the script only ever removes, never re-adds — but the nightly
-run means a merged PR's patch won't sit stale for days between manual passes.
+**This is automated** (2026-09-29 rewrite). `build/singularity-patch-reconcile.py`
+walks every patch FILE here, matches it to its block in this README, and
+queries the PR state (`gh pr view --json state`). A patch is deleted only when
+its PR is MERGED, its block is not marked superseded, and it reverse-applies to
+upstream head (`git apply --check -R`). CLOSED PRs, merged-but-different
+patches, superseded blocks and patches with no entry here are reported and kept.
+`build/singularity-nightly-track.sh` runs it nightly from `main` (systemd user
+timer, 03:15) and commits any retirement to a bot branch
+`auto/singularity-reconcile-<date>`, never to `main`. Every patch file needs a
+block here (`**Upstream PR:**` or `**No upstream PR:**`).
 
 ## singularity-shell — active
 
@@ -38,6 +38,13 @@ a user-selected quadrant.
 
 Delete this patch once PR #30 merges.
 
+**No upstream PR:** branch `feat/wallpaper-plain-contrast` (not pushed). Patch
+`0003-plain-contrast-live-quadrant-and-wrap.patch`. Plain auto-contrast
+attribution text, live quadrant update and two-line wrap. Depends on
+`singularity-shell#30` above; file it only after #30 merges.
+
+Delete this patch once it lands upstream.
+
 ## singularity-desktop — active
 
 **Upstream PR:** [singularityos-lab/singularity-desktop#262](https://github.com/singularityos-lab/singularity-desktop/pull/262)
@@ -49,6 +56,13 @@ key that `singularity-shell#30` above reads. Additive only, defaults
 to bottom-left, no existing behavior changes on its own.
 
 Delete this patch once PR #262 merges.
+
+**No upstream PR:** not filed. Patch
+`0002-sensors-settings-keys-and-color-mode.patch`. Declares the sensors-*
+gschema keys plus `sensors-color-mode`; planned as a small schema PR once
+`singularity-plugins#2` and the contrast work settle.
+
+Delete this patch once the keys land upstream.
 
 ## singularity-plugins — active
 
@@ -80,6 +94,19 @@ activation with network-aware retry). Both need the helper flags added in
 `assets/wallpaper/ncz-wallpaper-bing`; see `docs/WALLPAPER-BING-PREFETCH.md`.
 
 Delete these patches once they merge upstream.
+
+**Upstream PR:** [singularityos-lab/singularity-plugins#4](https://github.com/singularityos-lab/singularity-plugins/pull/4)
+— open, not yet merged. Patch
+`0003-ocs-fetch-index-and-fix-import-owner.patch`. `choices()` fetches its
+own index and the import finds its provider through `owner_id`.
+
+Delete this patch once PR #4 merges.
+
+**No upstream PR:** not filed. Patch
+`0005-sensors-adaptive-contrast.patch`. Sensors text keeps contrast against
+the real background; depends on `singularity-plugins#2`.
+
+Delete this patch once it lands upstream.
 
 ## libsingularity — active
 

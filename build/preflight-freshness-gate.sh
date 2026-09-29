@@ -131,8 +131,9 @@ else
     # the sshpass password-auth wrapper is the same fleet-standard fallback
     # every other network call in this repo already uses (kernel-build-
     # checklist.md §0f) -- don't rely on client SSH config alone here.
-    if timeout 20 env GIT_SSH_COMMAND='sshpass -p "REDACTED-CREDENTIAL" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o ConnectTimeout=10' \
-        git fetch origin "$BRANCH" --quiet 2>/dev/null; then
+    . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/argonas-ssh.sh"
+    ncz_argonas_git_ssh -o ConnectTimeout=10
+    if timeout 20 git fetch origin "$BRANCH" --quiet 2>/dev/null; then
         LOCAL_SHA="$(git rev-parse HEAD)"
         REMOTE_SHA="$(git rev-parse "origin/$BRANCH" 2>/dev/null)"
         if [ -z "$REMOTE_SHA" ]; then

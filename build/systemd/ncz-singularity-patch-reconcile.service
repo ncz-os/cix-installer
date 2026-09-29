@@ -4,5 +4,5 @@ Description=Retire cix-installer Singularity patches whose upstream PR merged
 [Service]
 Type=oneshot
 Environment=REPO=%h/Projects/cix-installer
-Environment=BRANCH=wip/mkosi-pipeline-2026-09-14
+Environment=BRANCH=main
 ExecStart=%h/Projects/cix-installer/build/singularity-nightly-track.sh
