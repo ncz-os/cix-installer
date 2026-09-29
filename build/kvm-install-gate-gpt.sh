@@ -278,8 +278,8 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
             # that never wired it up); treat that as a fatal gate defect, not
             # a soft skip, because the gate would then be lying to CI about
             # accelerator coverage.
-            if [ "$ARCH" = arm64 ]; then
-                VERIFIER="$SCRIPT_DIR/verify-installed-target-arm64.sh"
+            if true; then   # both architectures: COMMON sections for all, Sky1 sections for arm64, leak checks for amd64
+                VERIFIER="$SCRIPT_DIR/verify-installed-target.sh"
                 if [ ! -x "$VERIFIER" ]; then
                     rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT"
                     fail "arm64 installed-target verifier not found/executable at $VERIFIER (refusing to ship an image with no accelerator coverage check)"
@@ -295,7 +295,7 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
                     fi
                 fi
                 rc_v=0
-                "$VERIFIER" "$EVIDENCE_ROOT" "$DEBUGFS" || rc_v=$?
+                "$VERIFIER" "$EVIDENCE_ROOT" "$DEBUGFS" "$ARCH" || rc_v=$?
                 if [ "$rc_v" -ne 0 ]; then
                     # The verifier prints its own GATE: lines on miss; preserve
                     # the raw image so the operator can re-run the verifier
@@ -452,7 +452,7 @@ echo "  default-boot kernel: ${DEFAULT_KVER:-<unknown>}"
 # First-boot health: the installed system writes `systemctl --failed` to
 # /var/log/ncz-first-boot-failed.txt 30 s after multi-user.target (97-firstboot-report.sh). Read it
 # off the disk phase 2 just booted; any failed unit that is not on the allow-list fails the gate.
-if [ "$ARCH" = arm64 ]; then
+if true; then   # both architectures
     echo
     echo "  first-boot failed-unit report"
     FBR="$WORK/first-boot-failed.txt"; rm -f "$FBR"

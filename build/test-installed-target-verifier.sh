@@ -5,7 +5,7 @@
 # debugfs, xz. A guard is only trusted once it has failed on purpose.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERIFIER="$HERE/verify-installed-target-arm64.sh"
+VERIFIER="$HERE/verify-installed-target.sh"
 MKE2FS="$(command -v mke2fs || echo /usr/sbin/mke2fs)"
 DEBUGFS="$(command -v debugfs || echo /sbin/debugfs)"
 for t in "$MKE2FS" "$DEBUGFS"; do [ -x "$t" ] || { echo "SKIP: $t not available"; exit 0; }; done
@@ -49,6 +49,14 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     printf 'xx Preferred market xx' > "$r/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"
     mkdir -p "$r/opt/singularity/lib/singularity/plugins/sensors"
     printf 'xx sensors_contrast_ensure_contrast xx' > "$r/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"
+    # release identity + final ldconfig (common to both architectures)
+    mkdir -p "$r/usr/local/lib/cix-installer" "$r/etc/systemd/system/ldconfig.service.d"
+    echo "${TEST_ARCH:-arm64}" > "$r/usr/local/lib/cix-installer/BUILD_ARCH"
+    echo "2026.09.29-abcdef0" > "$r/usr/local/lib/cix-installer/BUILD_VERSION"
+    printf 'NCZ_PRODUCT_NAME="NCZ-OS"\nNCZ_RELEASE_VERSION="26.7"\nNCZ_RELEASE_CODENAME="Maximilian"\n' > "$r/usr/local/lib/cix-installer/RELEASE"
+    printf 'NCZ-OS 26.7 Maximilian Desktop\n' > "$r/etc/issue"
+    printf '[Service]\nSuccessExitStatus=1\n' > "$r/etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf"
+    echo x > "$r/etc/ld.so.cache"; echo x > "$r/etc/.updated"
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/etc"; printf 'root:x:0:\nsudo:x:27:nczuser\n' > "$r/etc/group"
@@ -82,7 +90,7 @@ run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name 
     [ -n "$mut" ] && "$mut" "$r"
     img="$W/img-$RANDOM"; truncate -s 16M "$img"
     "$MKE2FS" -q -t ext4 -d "$r" "$img" 2>/dev/null || { echo "FAIL  $name: mke2fs"; FAILS=$((FAILS+1)); return; }
-    out="$("$VERIFIER" "$img" "$DEBUGFS" 2>&1)"; rc=$?
+    out="$("$VERIFIER" "$img" "$DEBUGFS" "${TEST_ARCH:-arm64}" 2>&1)"; rc=$?
     if [ "$rc" = "$want" ]; then echo "PASS  $name (rc=$rc)"; PASS=$((PASS+1));
     else echo "FAIL  $name: rc=$rc want=$want"; printf '%s\n' "$out" | sed 's/^/      /'; FAILS=$((FAILS+1)); fi
     rm -rf "$r" "$img"
@@ -126,6 +134,30 @@ m_wp_stale()    { printf 'old plugin build' > "$1/opt/singularity/lib/singularit
 m_wp_noplugin() { rm -f "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
 m_sens_stale()  { printf 'old sensors build' > "$1/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"; }
 m_sens_missing() { rm -f "$1/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"; }
+m_id_arch()     { echo arm64 > "$1/usr/local/lib/cix-installer/BUILD_ARCH"; }
+m_id_release()  { echo 'NCZ_PRODUCT_NAME="Other"' > "$1/usr/local/lib/cix-installer/RELEASE"; }
+m_ld_dropin()   { rm -f "$1/etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf"; }
+m_ld_stamp()    { rm -f "$1/etc/.updated"; }
+m_leak_getty()  { mkdir -p "$1/etc/systemd/system/getty.target.wants"; ln -s /lib/systemd/system/serial-getty@.service "$1/etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service"; }
+m_leak_perf()   { mkdir -p "$1/etc/systemd/system/graphical.target.wants"; ln -s /etc/systemd/system/ncz-performance-mode.service "$1/etc/systemd/system/graphical.target.wants/ncz-performance-mode.service"; }
+m_leak_display() { mkdir -p "$1/etc/systemd/system/sysinit.target.wants"; ln -s /etc/systemd/system/cix-detect-display.service "$1/etc/systemd/system/sysinit.target.wants/cix-detect-display.service"; }
+m_amd64_strip() {   # what an x86 install does NOT have: everything Sky1
+    rm -rf "$1/usr/lib/firmware" "$1/usr/src/aipu-6.2.0" "$1/usr/lib/aarch64-linux-gnu" "$1/usr/bin/load-modules.sh" \
+           "$1/etc/mpv" "$1/usr/local/bin/ncz-sky1-audio-autoswitch" "$1/etc/systemd/user/ncz-sky1-audio-autoswitch.service"
+    rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-sky1-audio-autoswitch.service"
+    rm -rf "$1/usr/lib/modules/$KVER"; mkdir -p "$1/usr/lib/modules/7.2.8-1-t2-trixie"
+    sed -i '/^Package: chromium-ncz-sky1$/,+2d' "$1/var/lib/dpkg/status"
+}
+m_id_arch_amd64() { m_amd64_strip "$1"; echo arm64 > "$1/usr/local/lib/cix-installer/BUILD_ARCH"; }
+m_id_arch_arm()  { echo amd64 > "$1/usr/local/lib/cix-installer/BUILD_ARCH"; }
+m_amd64_leak_perf() { m_amd64_strip "$1"; m_leak_perf "$1"; }
+m_amd64_leak_display() { m_amd64_strip "$1"; m_leak_display "$1"; }
+m_amd64_strip_leak() { m_amd64_strip "$1"; m_leak_getty "$1"; }
+m_amd64_strip_nohost() { m_amd64_strip "$1"; echo ncz-setup > "$1/etc/hostname"; }
+m_amd64_strip_nosudo() { m_amd64_strip "$1"; sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
+m_amd64_strip_nochrome() { m_amd64_strip "$1"; sed -i '/^Package: google-chrome-stable$/,+2d' "$1/var/lib/dpkg/status"; }
+m_amd64_strip_stale_bing() { m_amd64_strip "$1"; printf 'old' > "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
+m_amd64_strip_nokernel() { m_amd64_strip "$1"; rm -rf "$1/usr/lib/modules"; }
 m_no_loader()   { rm -f "$1/usr/bin/load-modules.sh"; }
 
 run_case "healthy installed root passes"        0 ""
@@ -170,5 +202,23 @@ run_case "no pactl fails"                       1 m_aud_nopactl
 run_case "screensavers not requested is skipped" 0 m_ss_unrequested
 VERIFY_EXPECT_SCREENSAVERS=1 run_case "expected by the caller but absent fails even with no manifest" 1 m_ss_unrequested
 
+
+# ---- arm64-only checks must not run on amd64 and Sky1 policy must not leak onto it -----------------
+export TEST_ARCH=amd64
+run_case "amd64: a healthy x86 target passes with no Sky1 content"  0 m_amd64_strip
+run_case "amd64: serial-getty@ttyAMA0 leak fails"                   1 m_amd64_strip_leak
+run_case "amd64: placeholder hostname fails"                        1 m_amd64_strip_nohost
+run_case "amd64: sudo missing fails"                                1 m_amd64_strip_nosudo
+run_case "amd64: google-chrome-stable missing fails"                1 m_amd64_strip_nochrome
+run_case "amd64: stale Bing plugin fails"                           1 m_amd64_strip_stale_bing
+run_case "amd64: no kernel module tree fails"                       1 m_amd64_strip_nokernel
+run_case "amd64: BUILD_ARCH of the other architecture fails"        1 m_id_arch_amd64
+run_case "amd64: ncz-performance-mode leak fails"                   1 m_amd64_leak_perf
+run_case "amd64: cix-detect-display leak fails"                     1 m_amd64_leak_display
+unset TEST_ARCH
+run_case "arm64: wrong BUILD_ARCH fails"                        1 m_id_arch_arm
+run_case "identity: RELEASE not NCZ-OS fails"                   1 m_id_release
+run_case "ldconfig: tolerate-race drop-in missing fails"        1 m_ld_dropin
+run_case "ldconfig: /etc/.updated stamp missing fails"         1 m_ld_stamp
 echo "verifier tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
