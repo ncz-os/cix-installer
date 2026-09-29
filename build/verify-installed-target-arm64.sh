@@ -116,14 +116,20 @@ else
     elif ! ko="$(plain_module "$ext")" || [ -z "$ko" ]; then
         gate_miss npu "cannot decompress $AIPU_REL (missing xz/zstd tool)"
     else
-        strs="$(grep -aoE '[[:print:]]{4,}' "$ko")"
-        if printf '%s\n' "$strs" | grep -qE '^version=6\.2\.0$'; then
-            echo "[verify-target]     aipu $AIPU_REL version=6.2.0"
-        elif printf '%s\n' "$strs" | grep -qE '^version=5\.11\.0$'; then
-            gate_miss npu "aipu $AIPU_REL is version 5.11.0 (old generation)"
+        # The aipu module carries no MODULE_VERSION tag. Its KMD version is the
+        # %s argument of the probe banner "AIPU KMD (v%s) probe start...", stored
+        # as a standalone string immediately before the format string, so the
+        # old generation reads "5.11.0" there and the matched one "6.2.0".
+        strs="$(grep -aoE '[[:print:]]{3,}' "$ko")"
+        if printf '%s\n' "$strs" | grep -A1 -xE '6\.2\.0' | grep -q 'AIPU KMD (v%s)'; then
+            echo "[verify-target]     aipu $AIPU_REL KMD version 6.2.0"
+        elif printf '%s\n' "$strs" | grep -qxE '5\.11\.0'; then
+            gate_miss npu "aipu $AIPU_REL is KMD 5.11.0 (old generation)"
         else
-            gate_miss npu "aipu $AIPU_REL carries no version=6.2.0 string"
+            gate_miss npu "aipu $AIPU_REL does not carry KMD version 6.2.0 before its probe banner"
         fi
+        # DKMS must also hold it as built for this kernel.
+        exists "/var/lib/dkms/aipu/6.2.0/$KVER" || gate_miss npu "/var/lib/dkms/aipu/6.2.0/$KVER (dkms state for the shipped kernel)"
     fi
 fi
 

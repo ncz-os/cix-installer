@@ -27,10 +27,11 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     done
     echo fw > "$r/usr/lib/firmware/dsp_fw.bin"
     echo fw > "$r/usr/lib/firmware/arm/mali/arch12.8/mali_csffw.bin"
-    printf 'junk\0version=6.2.0\0more' | xz -c > "$r/usr/lib/modules/$KVER/updates/dkms/aipu.ko.xz"
+    printf 'junk\0006.2.0\000AIPU KMD (v%%s) probe start...\000more' | xz -c > "$r/usr/lib/modules/$KVER/updates/dkms/aipu.ko.xz"
     printf 'amvx' | xz -c > "$r/usr/lib/modules/$KVER/kernel/drivers/media/platform/cix/amvx.ko.xz"
     printf 'updates/dkms/aipu.ko.xz:\nkernel/drivers/media/platform/cix/amvx.ko.xz:\n' > "$r/usr/lib/modules/$KVER/modules.dep"
     echo x > "$r/usr/src/aipu-6.2.0/dkms.conf"
+    mkdir -p "$r/var/lib/dkms/aipu/6.2.0/$KVER"
     mkdir -p "$r/usr/local/lib/cix-installer" "$r/usr/lib/modules/7.3.0-rc3-sky1-ncz"
     echo "$KVER" > "$r/usr/local/lib/cix-installer/KVER_NEXT"
     printf 'x' > "$r/usr/lib/modules/7.3.0-rc3-sky1-ncz/modules.dep"   # older kernel must be ignored
@@ -54,9 +55,10 @@ run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name 
 
 m_no_fwb()      { rm -f "$1/usr/lib/firmware/hevcenc.fwb"; }
 m_no_dsp()      { rm -f "$1/usr/lib/firmware/dsp_fw.bin"; }
-m_old_aipu()    { printf 'version=5.11.0\0' | xz -c > "$1/usr/lib/modules/$KVER/updates/dkms/aipu.ko.xz"; }
+m_old_aipu()    { printf 'junk\0005.11.0\000AIPU KMD (v%%s) probe start...\000' | xz -c > "$1/usr/lib/modules/$KVER/updates/dkms/aipu.ko.xz"; }
 m_no_aipu()     { rm -f "$1/usr/lib/modules/$KVER/updates/dkms/aipu.ko.xz"; printf 'kernel/drivers/media/platform/cix/amvx.ko.xz:\n' > "$1/usr/lib/modules/$KVER/modules.dep"; }
 m_no_src()      { rm -rf "$1/usr/src/aipu-6.2.0"; }
+m_no_dkmsstate() { rm -rf "$1/var/lib/dkms/aipu/6.2.0/$KVER"; }
 m_no_dkms()     { rm -f "$1/usr/sbin/dkms"; }
 m_no_amvx()     { printf 'updates/dkms/aipu.ko.xz:\n' > "$1/usr/lib/modules/$KVER/modules.dep"; }
 m_no_chrome()   { printf 'Package: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$1/var/lib/dpkg/status"; }
@@ -70,6 +72,7 @@ run_case "missing dsp_fw.bin fails"             1 m_no_dsp
 run_case "aipu 5.11.0 fails"                    1 m_old_aipu
 run_case "aipu not built fails"                 1 m_no_aipu
 run_case "no /usr/src/aipu-6.2.0 fails"         1 m_no_src
+run_case "no dkms state for the kernel fails"   1 m_no_dkmsstate
 run_case "no dkms binary fails"                 1 m_no_dkms
 run_case "amvx not registered fails"            1 m_no_amvx
 run_case "google-chrome-stable absent fails"    1 m_no_chrome
