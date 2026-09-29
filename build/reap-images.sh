@@ -68,7 +68,7 @@ list_remote() {  # host:dir
     local h="${1%%:*}" d="${1#*:}"
     while IFS='|' read -r n g v m; do
         [ -n "$n" ] && REC+=("$1|$n|$g|$v|$m")
-    done < <($SSH "$h" "cd '$d' 2>/dev/null && for f in ncz-os-$ARCH-*.img; do [ -f \"\$f\" ] || continue; printf '%s|%s|%s|%s\n' \"\$f\" \"\$([ -f \"\$f.gated\" ] && echo 1 || echo 0)\" \"\$([ -f \"\$f.validated\" ] && echo 1 || echo 0)\" \"\$(stat -c %Y \"\$f\")\"; done")
+    done < <($SSH "$h" "cd '$d' 2>/dev/null && for f in ncz-os-$ARCH-*.img; do [ -f \"\$f\" ] || continue; printf '%s|%s|%s|%s\n' \"\$f\" \"\$([ -f \"\$f.gated\" ] && echo 1 || echo 0)\" \"\$([ -f \"\$f.validated\" ] && echo 1 || echo 0)\" \"\$(stat -c %Y \"\$f\" 2>/dev/null || stat -f %m \"\$f\")\"; done")
 }
 for d in "${DIRS[@]}"; do list_local "$d"; done
 list_local "$ARCHIVE"
@@ -119,7 +119,7 @@ del_file() {   # loc file
     local loc="$1" f="$2" sha="-" h d
     case "$loc" in
         *:*) h="${loc%%:*}"; d="${loc#*:}"
-             sha=$($SSH "$h" "sha256sum '$d/$f' 2>/dev/null | cut -d' ' -f1" 2>/dev/null); : "${sha:=unknown}" ;;
+             sha=$($SSH "$h" "(sha256sum '$d/$f' 2>/dev/null || shasum -a 256 '$d/$f') | cut -d' ' -f1" 2>/dev/null); : "${sha:=unknown}" ;;
         *)   [ -f "$loc/$f" ] && sha=$(sha_of "$loc/$f") ;;
     esac
     echo "  $([ $APPLY = 1 ] && echo DELETE || echo would delete) $loc/$f  sha256=$sha"
