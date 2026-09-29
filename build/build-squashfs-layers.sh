@@ -249,7 +249,7 @@ base_assets_stamp() {
   ) | LC_ALL=C sort | ( cd "$ROOT" && while IFS= read -r f; do [ -f "$f" ] && sha256sum "$f"; done ) | sha256sum | cut -d' ' -f1
 }
 base_stamp_in_layer() {   # layer -> stamp or empty
-  unsquashfs -cat "$1" "$BASE_STAMP_REL" 2>/dev/null | tr -d '[:space:]'
+  { unsquashfs -cat "$1" "$BASE_STAMP_REL" 2>/dev/null || true; } | tr -d '[:space:]'   # absent stamp (old layer) => empty => rebuild; must not trip set -e/pipefail
 }
 
 case "$NCZ_TARGET_ARCH" in
