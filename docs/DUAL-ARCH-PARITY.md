@@ -88,7 +88,33 @@ Verified-in column: V = shared verifier section (runs for both arches), K = KVM 
 `build/hook-arch-allowlist.tsv` lists them with a reason. LEAD 8's platform split (phase B, per-platform hook lists) is
 the real fix; the lint stops NEW ungated hooks.
 
-## Policy: no software rendering
+## Policy: no software rendering (COMMON)
 
-If a machine has a GPU it must never render in software. Tracked as a COMMON item; see the implementation notes in the
-release record.
+If a machine has a GPU it never renders in software. One shared answer to "is there a GPU?" is
+`assets/gpu/ncz-gpu-hw-present` (a hardware render node or `/dev/mali0` or an unbound `CIXH5000`; virtual and
+display-only devices do not count, so a GPU-less KVM guest keeps working).
+
+| piece | where | verified |
+|---|---|---|
+| `ncz-gpu-env` refuses the software branch when a GPU exists (`NCZ_ALLOW_SOFTWARE_FALLBACK=1` opts in) and exports the GPU selection to the systemd user manager / D-Bus activation | `post-install/20-desktop.sh` | fixtures `build/test-no-software-render.sh`; verifier (gpu) |
+| `ncz-gpu-status --require-hardware`: EGL + Vulkan probes in the session AND a bare `env -i`, forced-software variables, health log `/var/log/ncz-gpu-health.log`, `/etc/issue.d` banner, exit non-zero | `assets/gpu/ncz-gpu-status` | fixtures both directions; KVM gate reads the health log |
+| `ncz-gpu-health.service` (installed by `98-gpu-health.sh`, both arches) | `post-install/98-gpu-health.sh` | verifier (gpu); KVM gate expects `OK no GPU: software allowed` in a guest |
+| `singularity-labwc-session` overlay patch: no software retry with a GPU | `assets/singularity/patches/singularity-session/0001-*` | verifier (gpu) greps `hw_render_device_present`; guard function unit-tested |
+| Sky1 only: Mali EGL vendor registered system-wide (`/etc/glvnd/egl_vendor.d/10_cix.json`), removed by the switcher on a Panthor boot | `26-gpu-default-mali.sh`, `assets/gpu/ncz-gpu-switcher.sh` | verifier (gpu) arm64 asserts the link, amd64 asserts it is absent |
+| grep-deny lint for software-render settings and console-only `sky1.gpu=none` entries | `build/lint-no-software-render.sh` + `build/software-render-allowlist.tsv` | `make parity` |
+
+Only real hardware can show that glvnd really prefers `10_cix` over `50_mesa` on an O6N or MS-R1 and that a bare-env
+`eglinfo` reports the Mali renderer there.
+
+## Build inputs that can go stale
+
+`base.squashfs` is reused by `build-squashfs-layers.sh all`. It now carries a fingerprint of the hand-edited asset
+dirs and installer-base manifests (`BASE-ASSETS.sha256`) and is rebuilt when it differs (`build/test-base-stamp.sh`).
+Before this, an image shipped an audio daemon without the HDA fallback and no `ncz-gpu-hw-present`.
+
+## Image reaping
+
+`build/reap-images.sh` deletes superseded images of one architecture after a newer one is gated and shipped. Dry run
+by default; keeps the newest gated image (which must exist in the ARGONAS archive), the newest operator-validated one,
+anything newer, and anything without a `.gated` marker unless named with `--supersede`; logs name, location and sha256
+of every deletion to `reap.log` next to the archived images. Never touches the other architecture.
