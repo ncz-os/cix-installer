@@ -48,12 +48,6 @@ if [ -z "${BUILD_VERSION:-}" ]; then
         exit 3
     fi
 fi
-# Build the canonical "<version>-<sha>" string BUILD_VERSION from a
-# caller-supplied BUILD_SHA if necessary, so the rest of the pipeline
-# (which reads BUILD_VERSION as a single string) gets a consistent shape.
-if [ -z "${BUILD_VERSION:-}" ] && [ -n "${BUILD_SHA:-}" ]; then
-    BUILD_VERSION="$(date -u +%Y.%m.%d)-${BUILD_SHA}"
-fi
 # Final guard -- this should be unreachable, but a defense-in-depth
 # refuse-to-ship-empty-sha guard here means a regression in the
 # caller-supplied path ALSO can't slip an empty sha past us.

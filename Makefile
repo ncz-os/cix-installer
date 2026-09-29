@@ -116,8 +116,10 @@ BUILD_DATE    := $(shell date -u +%Y%m%d)
 # BUILD_SHA explicitly on the make command line. The check is a real shell
 # exit, not a $(if) test, so `make` itself stops with a clear diagnostic.
 BUILD_SHA     := $(shell git rev-parse --short HEAD 2>/dev/null)
+ifneq ($(filter image image-verified iso iso-verified all,$(or $(MAKECMDGOALS),all)),)
 ifeq ($(strip $(BUILD_SHA)),)
 $(error BUILD_SHA is empty: git rev-parse failed (dubious-ownership, missing git, or detached HEAD?). Run `git config --global --add safe.directory '*'` and retry, or set BUILD_SHA=<sha> on the make command line. An unstamped `ncz-os-<arch>-<date>-.img` is not a valid artifact.)
+endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 

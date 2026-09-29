@@ -269,22 +269,14 @@ def _asset_kernel_ignore(base_dir: str, names: list[str]) -> list[str]:
     exactly the kind of subtle content-drift bug that becomes invisible
     until an installer chokes on a half-prepared headers-dir.
     """
-    out = []
-    for n in names:
-        if n.endswith(".native-prepare-rejected") or n.endswith("-rejected"):
-            out.append(n)
-            continue
-        if ".stale-" in n or n.endswith(".stale") or n.endswith("-stale"):
-            out.append(n)
-            continue
-        # Match the build-squashfs-layers.sh glob exactly so the two
-        # pruning passes agree on what is dev-only junk.
-        if (n.startswith(".pre-") or ".pre-" in n or
-                n.startswith(".bak") or ".bak" in n or
-                n.startswith(".r57-bak") or ".r57-bak" in n):
-            out.append(n)
-            continue
-    return out
+    import fnmatch
+    # Exact mirror of build-squashfs-layers.sh line ~941 plus the two known
+    # aborted-staging suffixes; anchored globs, never substring matches, so a
+    # legitimate file that merely contains ".bak" or ".pre-" mid-name survives.
+    patterns = ("*.native-prepare-rejected", "*.stale-*", "*.stale",
+                "*.pre-*", "*.bak", "*.r57-bak")
+    return [n for n in names
+            if any(fnmatch.fnmatchcase(n, pat) for pat in patterns)]
 
 
 def _copytree_dangling_symlink_safe(src: Path, dst: Path, *,
