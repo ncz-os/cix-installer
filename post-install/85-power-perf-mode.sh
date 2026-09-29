@@ -241,7 +241,35 @@ RemainAfterExit=yes
 [Install]
 WantedBy=graphical.target
 UNIT
-systemctl enable ncz-performance-mode.service >/dev/null 2>&1 || true
+# ARCH GATE (2026-09-29). Everything above is Sky1 reasoning -- CIXH4000
+# devfreq, LPI-1/LPI-2, 2600 MHz, "44-50 C" -- and this hook had no arch or
+# hardware gate at all, so it also pinned the governor on amd64 T2 laptops.
+#
+# MEASURED on CHIMERA and MEDUSA (MacBookPro16,1, i9-9980HK / i7-9750H)
+# 2026-09-29: ncz-performance-mode enabled+active, governor=performance,
+# intel_pstate, cpu0 at 4650 MHz AT IDLE, package 65-70 C with both chassis
+# fans running. The operator measured 100 C -- the coretemp crit threshold --
+# playing YouTube. Dropping to powersave took idle 70 C -> 54 C.
+#
+# intel_pstate's "powersave" is NOT a low-performance mode: it is the normal
+# demand-scaling governor and still turbos under load. "performance" only
+# pins maximum P-state permanently, which on a thin laptop chassis buys
+# nothing at idle and costs headroom under load.
+#
+# The unit and its script are still INSTALLED on every arch so an operator
+# can start it by hand; only the automatic enable is Sky1-only.
+_ncz_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_arch" ] || _ncz_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
+[ -n "$_ncz_arch" ] || _ncz_arch=$(dpkg --print-architecture 2>/dev/null || true)
+if [ "$_ncz_arch" = "arm64" ]; then
+    systemctl enable ncz-performance-mode.service >/dev/null 2>&1 || true
+    echo "[85] ncz-performance-mode ENABLED (arm64/Sky1)"
+else
+    systemctl disable ncz-performance-mode.service >/dev/null 2>&1 || true
+    echo "[85] arch=$_ncz_arch -- ncz-performance-mode installed but NOT enabled"
+    echo "[85]   (pinning the max P-state is a Sky1 policy; on x86 laptops it"
+    echo "[85]    idles the CPU at max clock and costs thermal headroom)"
+fi
 systemctl daemon-reload >/dev/null 2>&1 || true
 
 # Wire into greetd.service directly via a systemd drop-in. Real gap found
