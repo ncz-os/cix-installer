@@ -285,6 +285,21 @@ else
     gate_miss wallpaper "$WSO (plugin missing)"
 fi
 
+# --- (viii) sensors plugin carries the adaptive-contrast code -----------------------------------
+# 0005-sensors-adaptive-contrast.patch adds sensors/contrast.vala; its compiled symbols are in the
+# plugin. A plugin without them is a stale/unpatched build.
+echo "[verify-target] (viii) sensors plugin"
+SSO=/opt/singularity/lib/singularity/plugins/sensors/libsensors.so
+if fetch "$SSO" "$TMP/libsensors.so"; then
+    if grep -aq 'sensors_contrast_ensure_contrast' "$TMP/libsensors.so"; then
+        echo "[verify-target]     libsensors.so contains the adaptive-contrast code"
+    else
+        gate_miss sensors "$SSO has no sensors_contrast_* symbols (stale, unpatched plugin build)"
+    fi
+else
+    gate_miss sensors "$SSO (plugin missing)"
+fi
+
 # --- (vi) ncz-screensavers (only when this image is meant to ship it) ---------
 # The image records that intent in its own payload: manifests/install-extra.pkgs.
 # Intent, in order: VERIFY_EXPECT_SCREENSAVERS=1|0 from the caller (the gate sets it from the

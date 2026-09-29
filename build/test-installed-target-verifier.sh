@@ -47,6 +47,8 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     ln -s /usr/lib/systemd/user/ncz-wallpaper-bing.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"
     ln -s /usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing-daily.timer"
     printf 'xx Preferred market xx' > "$r/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"
+    mkdir -p "$r/opt/singularity/lib/singularity/plugins/sensors"
+    printf 'xx sensors_contrast_ensure_contrast xx' > "$r/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/etc"; printf 'root:x:0:\nsudo:x:27:nczuser\n' > "$r/etc/group"
@@ -122,6 +124,8 @@ m_wp_nounit()   { rm -f "$1/usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer"
 m_wp_noenable() { rm -f "$1/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"; }
 m_wp_stale()    { printf 'old plugin build' > "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
 m_wp_noplugin() { rm -f "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
+m_sens_stale()  { printf 'old sensors build' > "$1/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"; }
+m_sens_missing() { rm -f "$1/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"; }
 m_no_loader()   { rm -f "$1/usr/bin/load-modules.sh"; }
 
 run_case "healthy installed root passes"        0 ""
@@ -145,6 +149,8 @@ run_case "missing daily timer unit fails"       1 m_wp_nounit
 run_case "wallpaper timer not enabled fails"    1 m_wp_noenable
 run_case "stale unpatched plugin .so fails"     1 m_wp_stale
 run_case "missing wallpapers-bing plugin fails" 1 m_wp_noplugin
+run_case "stale sensors plugin fails"           1 m_sens_stale
+run_case "missing sensors plugin fails"         1 m_sens_missing
 run_case "sudo not installed fails"             1 m_no_sudo
 run_case "empty sudo group fails"               1 m_sudo_empty
 run_case "VA driver present but mpv on v4l2 fails" 1 m_va_but_mpv_v4l2
