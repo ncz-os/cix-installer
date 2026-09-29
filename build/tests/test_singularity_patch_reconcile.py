@@ -69,9 +69,9 @@ class Fixture:
         git(d, "commit", "-q", "-m", "a")
         (d / "f.txt").write_text(new)
         diff = subprocess.run(
-            ["git", "-C", str(d), "diff"], capture_output=True, text=True
+            ["git", "-C", str(d), "diff"], capture_output=True, text=True, check=False
         ).stdout
-        subprocess.run(["rm", "-rf", str(d / ".git")])
+        subprocess.run(["rm", "-rf", str(d / ".git")], check=False)
         pd = self.patches / sub
         pd.mkdir(exist_ok=True)
         (pd / name).write_text(diff)
@@ -90,6 +90,7 @@ class Fixture:
                     str(patch),
                 ],
                 capture_output=True,
+                check=False,
             )
             return r.returncode == 0
 
@@ -202,7 +203,7 @@ class ReconcileTests(unittest.TestCase):
         def boom(url):
             raise RuntimeError("gh down")
 
-        results, retired = rc.reconcile(
+        results, _ = rc.reconcile(
             self.fx.patches, self.fx.readme, boom, self.fx.reverse_fn()
         )
         self.assertEqual(self.statuses(results), {"0001-a.patch": "ERROR"})
@@ -238,7 +239,7 @@ class ReconcileTests(unittest.TestCase):
             + block(2, "0001-b.patch")
             + "## Previously landed\n"
         )
-        results, retired = self.run_pass("MERGED")
+        _, retired = self.run_pass("MERGED")
         self.assertEqual(
             sorted(f.name for f in retired), ["0001-a.patch", "0001-b.patch"]
         )

@@ -61,6 +61,7 @@ def gh_pr_state(url):
         capture_output=True,
         text=True,
         timeout=30,
+        check=False,
     )
     if out.returncode != 0:
         raise RuntimeError(f"gh pr view {url} failed: {out.stderr.strip()}")
@@ -119,6 +120,7 @@ def reverse_applies(sub, patch, cache):
             capture_output=True,
             text=True,
             timeout=300,
+            check=False,
         )
         if r.returncode != 0:
             raise RuntimeError(
@@ -137,6 +139,7 @@ def reverse_applies(sub, patch, cache):
             capture_output=True,
             text=True,
             timeout=600,
+            check=False,
         )
         if r.returncode != 0:
             raise RuntimeError(f"clone {url} failed: {r.stderr.strip()}")
@@ -144,6 +147,7 @@ def reverse_applies(sub, patch, cache):
         ["git", "-C", str(clone), "apply", "--check", "-R", str(Path(patch).resolve())],
         capture_output=True,
         text=True,
+        check=False,
     )
     return chk.returncode == 0
 
@@ -164,7 +168,7 @@ def classify(sub, patch, blocks, state_fn, reverse_fn):
         return "NO-PR", "no upstream PR", block
     try:
         state = state_fn(block.pr_url)
-    except Exception as e:  # network/gh failure must never delete anything
+    except Exception as e:  # noqa: BLE001
         return "ERROR", f"could not check {block.pr_label}: {e}", block
     st = state.get("state")
     if st == "OPEN":
@@ -178,7 +182,7 @@ def classify(sub, patch, blocks, state_fn, reverse_fn):
     if st == "MERGED":
         try:
             ok = reverse_fn(sub, patch)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             return "ERROR", f"reverse-apply check failed: {e}", block
         if ok:
             return (
@@ -272,7 +276,7 @@ def main(argv):
             lambda sub, p: reverse_applies(sub, p, cache),
             dry_run=dry_run,
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"[reconcile] ERROR: {e}", file=sys.stderr)
         return 2
 
