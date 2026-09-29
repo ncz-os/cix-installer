@@ -3335,9 +3335,38 @@ fi
 
 # Sky1 firmware assets: drop into /ncz-payload/assets/sky1-firmware/ exactly
 # where 12-sky1-firmware.sh expects to find it after late.sh stages it.
+#
+# r-SKY1-2026-09-29: the previous shape silently absorbed a missing or
+# partial source tree (`cp -rL ... 2>/dev/null || true`), and
+# assets/sky1-firmware/ is GITIGNORED — a fresh clone of this repo carries
+# nothing here, the build shipped with VPU codecs / DSP fw / Mali CSF
+# firmware absent, and every downstream gate (post-install,
+# kvm-install-gate-gpt.sh) reported success because the post-install hook
+# degraded the same way. The build-side pre-flight gate
+# build/verify-arm64-inputs.sh catches the source tree; this block now
+# fails LOUDLY (not silently) on a missing source, and re-verifies the
+# staged copy on arm64 so a half-empty src -> empty dst cannot slip past.
 if [ -d "$ROOT/assets/sky1-firmware" ]; then
-    cp -rL "$ROOT/assets/sky1-firmware" "$EXTRA/assets/" 2>/dev/null || true
+    cp -rL "$ROOT/assets/sky1-firmware" "$EXTRA/assets/"
     echo "    sky1-firmware: $(du -sh "$EXTRA/assets/sky1-firmware" | cut -f1)"
+else
+    if [ "$NCZ_TARGET_ARCH" = arm64 ]; then
+        echo "ERROR: $ROOT/assets/sky1-firmware missing — arm64 ISO cannot ship without VPU codecs / DSP fw / Mali CSF firmware." >&2
+        echo "       Populate it (see build/verify-arm64-inputs.sh for restore hints) before re-running." >&2
+        exit 1
+    else
+        echo "    sky1-firmware: source tree absent, skipping (amd64-only build)"
+    fi
+fi
+# arm64-only re-verify of the staged copy. build/verify-arm64-inputs.sh
+# honours $VERIFY_FIRMWARE_DIR so we re-use it to re-check what landed
+# under $EXTRA. Same exit-1 contract: a stale or partial src tree that
+# somehow made it past the source-side check (e.g. between two checkouts
+# sharing the same $EXTRA) cannot silently publish.
+if [ "$NCZ_TARGET_ARCH" = arm64 ]; then
+    VERIFY_FIRMWARE_DIR="$EXTRA/assets/sky1-firmware" \
+        bash "$ROOT/build/verify-arm64-inputs.sh" \
+        || { echo "ERROR: staged $EXTRA/assets/sky1-firmware does not satisfy arm64 firmware requirements (see verify-arm64-inputs.sh output above)" >&2; exit 1; }
 fi
 
 # r79: Realtek rtl_nic firmware (upstream linux-firmware) for the INSTALLED

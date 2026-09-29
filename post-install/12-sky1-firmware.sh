@@ -55,9 +55,66 @@ else
     echo "[12] note: $REGDB_SRC absent — keeping existing regulatory.db (Wi-Fi may stay in world domain)"
 fi
 
+# ----------------------------------------------------------------------
+# 2026-09-28 arm64 gate: the missing-source-dir branch below used to be
+# `WARN + exit 0`, which is how the 2026-09-27 arm64 install shipped
+# without VPU codecs / DSP fw / Mali CSF firmware while every gate
+# reported success. Same detection shape as 10-our-kernel.sh /
+# 36-telemetry.sh: env var first, then the late.sh-stamped BUILD_ARCH
+# file, then dpkg as a last-resort fallback. The arm64 gate is
+# introduced AFTER the rtl_nic + regdb best-effort blocks above so amd64
+# behaviour is unchanged (those blocks still run on amd64, and on amd64
+# we exit 0 here without ever touching the arm64 fail-loud branches).
+_ncz_arch="${NCZ_TARGET_ARCH:-}"
+if [ -z "$_ncz_arch" ] && [ -r /usr/local/lib/cix-installer/BUILD_ARCH ]; then
+    _ncz_arch=$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH)
+fi
+if [ -z "$_ncz_arch" ]; then
+    _ncz_arch=$(dpkg --print-architecture 2>/dev/null || true)
+fi
+case "$_ncz_arch" in
+    arm64) ;;
+    *)
+        echo "[12] arch=$_ncz_arch -- rtl_nic + regdb done above, Sky1 firmware not applicable"
+        exit 0
+        ;;
+esac
+
+# arm64: every required blob MUST be present, both at the source-side
+# ($SRC exists & non-empty) and at the destination-side (after the cp
+# below, the same key blobs must resolve under $DEST). The 16 .fwb
+# codecs are what the in-tree VPU (CONFIG_VIDEO_LINLON) needs;
+# dsp_fw.bin is the HiFi5 DSP remoteproc binary; mali_csffw.bin is the
+# Mali-G720 CSF firmware (panthor requests arm/mali/arch12.8/...).
+REQUIRED_FWB="av1dec.fwb avs2dec.fwb avsdec.fwb h264dec.fwb h264enc.fwb hevcdec.fwb hevcenc.fwb jpegdec.fwb jpegenc.fwb mpeg2dec.fwb mpeg4dec.fwb vc1dec.fwb vp8dec.fwb vp8enc.fwb vp9dec.fwb vp9enc.fwb"
+REQUIRED_OTHER="dsp_fw.bin arm/mali/arch12.8/mali_csffw.bin"
+
+_missing=0
 if [ ! -d "$SRC" ] || [ -z "$(ls -A "$SRC" 2>/dev/null)" ]; then
-    echo "[12] WARN: $SRC missing or empty — skipping (GPU/DSP/VPU drivers will fail at runtime)"
-    exit 0
+    echo "[12] FATAL: $SRC missing or empty — arm64 ISO requires Sky1 firmware (VPU codecs, DSP fw, Mali CSF)."
+    echo "[12] The build-side pre-flight (build/verify-arm64-inputs.sh) should have caught this;"
+    echo "[12] if you got here, that gate was skipped — fix the build, not this hook."
+    echo "[12] Required source-side items:"
+    for f in $REQUIRED_FWB $REQUIRED_OTHER; do echo "    - $SRC/$f"; done
+    exit 1
+fi
+for f in $REQUIRED_FWB; do
+    if [ ! -s "$SRC/$f" ]; then
+        echo "[12] FATAL: required source blob missing or empty: $SRC/$f"
+        _missing=1
+    fi
+done
+for f in $REQUIRED_OTHER; do
+    if [ ! -s "$SRC/$f" ]; then
+        echo "[12] FATAL: required source blob missing or empty: $SRC/$f"
+        _missing=1
+    fi
+done
+if [ "$_missing" -ne 0 ]; then
+    echo "[12] one or more arm64 firmware blobs are absent from the staged source tree;"
+    echo "[12] restore from /mnt/argonas-projects/cix-installer/assets/sky1-firmware (ULTRA) or"
+    echo "[12] root@192.168.207.101:/mnt/datapool/projects/cix-installer/assets/sky1-firmware."
+    exit 1
 fi
 
 echo "[12] copying Sky1 firmware blobs $SRC → $DEST"
@@ -86,13 +143,32 @@ if [ -f "$DEST/arm/mali/mali_csffw.bin" ]; then
 fi
 
 echo "    key blobs:"
+_dst_missing=0
 for f in mali_csffw.bin arm/mali_csffw.bin arm/mali/mali_csffw.bin dsp_fw.bin h264dec.fwb hevcdec.fwb av1dec.fwb; do
     if [ -e "$DEST/$f" ]; then
         echo "      ✓ $f"
     else
         echo "      ✗ $f (missing — driver may fail to init)"
+        _dst_missing=1
     fi
 done
+# arm64: every required blob must end up under $DEST too. The 16 .fwb
+# codecs + dsp_fw.bin + arm/mali/arch12.8/mali_csffw.bin are the
+# non-negotiable set; the source-side check above already proved the
+# source tree has them, so a missing destination is a copy defect
+# (read-only $DEST, full disk, etc.) that must surface.
+_required_dst="$REQUIRED_FWB $REQUIRED_OTHER"
+for f in $_required_dst; do
+    if [ ! -e "$DEST/$f" ]; then
+        echo "[12] FATAL: required destination blob missing after copy: $DEST/$f"
+        _dst_missing=1
+    fi
+done
+if [ "$_dst_missing" -ne 0 ]; then
+    echo "[12] one or more required firmware blobs did not land in $DEST;"
+    echo "[12] check that $DEST is writable and has space."
+    exit 1
+fi
 
 # r49: a kernel may lack CONFIG_FW_LOADER_COMPRESS_ZSTD,
 # so .zst-compressed firmware blobs (Ubuntu resolute default for linux-firmware)

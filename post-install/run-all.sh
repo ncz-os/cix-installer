@@ -44,6 +44,29 @@ CRITICAL_HOOK_FAILURES=""
 # fail-tolerant phase so the bootloader/diagnostics always execute, but a
 # failure is propagated to d-i after those recovery affordances are written.
 CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition)\.sh$'
+# 2026-09-28 arm64 ship-critical expansion: on arm64, a failure of
+# 12-sky1-firmware (no VPU codecs / DSP fw / Mali CSF) or 25-cix-proprietary
+# (no GPU userland, no NPU DKMS) is just as un-shippable as a missing greeter.
+# Both hooks used to degrade to a WARN that the install carried forward, and
+# the result was a black-screen or inoperable-NPU shipped artifact. amd64
+# keeps CRITICAL_OPTIONAL_HOOKS_RE unchanged (same regex bytes).
+INSTALLER_META=/usr/local/lib/cix-installer
+_NCZ_SYSTEM_ARCH="${NCZ_TARGET_ARCH:-}"
+if [ -z "$_NCZ_SYSTEM_ARCH" ] && [ -r "$INSTALLER_META/BUILD_ARCH" ]; then
+    _NCZ_SYSTEM_ARCH=$(tr -d '[:space:]' < "$INSTALLER_META/BUILD_ARCH")
+fi
+_NCZ_SYSTEM_ARCH="${_NCZ_SYSTEM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
+case "$_NCZ_SYSTEM_ARCH" in
+    arm64)
+        CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition|12-sky1-firmware|25-cix-proprietary)\.sh$'
+        ;;
+    amd64|"")
+        # amd64: leave CRITICAL_OPTIONAL_HOOKS_RE untouched. Empty detection
+        # falls into the same branch -- the project's amd64 build hosts are
+        # the canonical default, so we err on the side of NOT arm64-gating
+        # anything unless we positively know we are on arm64.
+        ;;
+esac
 # Phase 1 must complete before the EXIT trap is allowed to touch the ESP.
 REQUIRED_PHASE_OK=0
 # r156: baked-image mode — generic hooks already ran at build time; run

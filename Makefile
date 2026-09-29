@@ -375,6 +375,8 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(ROOT)/assets/squashfs/desktop-hotfix.squashfs \
 	               $(ROOT)/assets/python311/uv \
 	               $(ROOT)/build/build-installer-image.sh \
+	               $(ROOT)/build/build-iso-di.sh \
+	               $(ROOT)/build/verify-arm64-inputs.sh \
 	               $(ROOT)/build/iso/import-substrate.py \
 	               $(ROOT)/build/iso/stage-ncz-payload.py \
 	               $(ROOT)/build/iso/patch-debootstrap-stub.py \
@@ -391,6 +393,8 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(wildcard $(ASSETS)/kernel/*/*) \
 	               $(wildcard $(ASSETS)/rootfs/*) \
 	               $(wildcard $(ASSETS)/sky1-firmware/*)
+	@echo "[image] verifying arm64 inputs (sky1-firmware, cix-debs, rescue-rootfs, mirror)"
+	@bash $(ROOT)/build/verify-arm64-inputs.sh --mirror
 	@echo "[image] building $@ from $(DOWNLOADS)/$(UPSTREAM_ISO)"
 	@ARCH=$(ARCH) SUBSTRATE_ISO=$(DOWNLOADS)/$(UPSTREAM_ISO) \
 	  SUBSTRATE_URL=$(UPSTREAM_URL) OUTPUT=$@ \

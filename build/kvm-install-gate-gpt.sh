@@ -28,6 +28,11 @@
 #   DISK_GB, MEM, SMP, INSTALL_TIMEOUT, BOOT_TIMEOUT overridable by env.
 set -euo pipefail
 
+# Resolve the gate's own directory so we can locate sibling scripts
+# (verify-installed-target-arm64.sh etc.) even when invoked via relative
+# path or via `bash path/to/gate.sh` from another working directory.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 IMG="${1:?usage: kvm-install-gate-gpt.sh IMAGE.img [WORKDIR]}"
 ARCH="${ARCH:-}"
 if [ -z "$ARCH" ]; then
@@ -259,6 +264,41 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
                 "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
             "$DEBUGFS" -R "rdump /var/log/cix-install $EVIDENCE" \
                 "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
+            # arm64 ONLY: before we throw away the raw root image, assert that
+            # the installed target actually carries the Sky1/Cix/NPU userspace
+            # the rest of the install chain claims it does. The companion
+            # script (build/verify-installed-target-arm64.sh) is also arm64-
+            # only by intent; the gate is the layer that gates it out on
+            # amd64 (this `if` block). Failing here means the shipped image is
+            # silently missing accelerator artifacts even though every other
+            # gate passed -- which is exactly the regression mode the script
+            # exists to catch.
+            #
+            # The verify script can be missing locally (developer workstation
+            # that never wired it up); treat that as a fatal gate defect, not
+            # a soft skip, because the gate would then be lying to CI about
+            # accelerator coverage.
+            if [ "$ARCH" = arm64 ]; then
+                VERIFIER="$SCRIPT_DIR/verify-installed-target-arm64.sh"
+                if [ ! -x "$VERIFIER" ]; then
+                    rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT"
+                    fail "arm64 installed-target verifier not found/executable at $VERIFIER (refusing to ship an image with no accelerator coverage check)"
+                fi
+                echo "  arm64: verifying installed target accelerator artifacts"
+                rc_v=0
+                "$VERIFIER" "$EVIDENCE_ROOT" "$DEBUGFS" || rc_v=$?
+                if [ "$rc_v" -ne 0 ]; then
+                    # The verifier prints its own GATE: lines on miss; preserve
+                    # the raw image so the operator can re-run the verifier
+                    # against it by hand after fixing the build.
+                    mv "$EVIDENCE_ROOT" "$WORK/target-root-evidence.kept.raw" \
+                        || cp "$EVIDENCE_ROOT" "$WORK/target-root-evidence.kept.raw" \
+                        || true
+                    rm -f "$EVIDENCE_DISK"
+                    fail "arm64 installed-target accelerator check failed (rc=$rc_v) -- raw image preserved at $WORK/target-root-evidence.kept.raw; see $EVIDENCE/cix-install/ for per-hook logs"
+                fi
+                echo "  arm64: installed-target accelerator artifacts verified"
+            fi
         fi
     fi
 fi
