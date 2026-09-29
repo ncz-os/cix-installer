@@ -306,6 +306,11 @@ echo "[verify-target] (v-b) Sky1 HDMI/DP audio autoswitch"
 exists /usr/local/bin/ncz-sky1-audio-autoswitch || gate_miss audio "/usr/local/bin/ncz-sky1-audio-autoswitch (20-desktop did not install it)"
 exists /etc/systemd/user/ncz-sky1-audio-autoswitch.service || gate_miss audio "/etc/systemd/user/ncz-sky1-audio-autoswitch.service"
 exists /usr/bin/pactl || gate_miss audio "/usr/bin/pactl (pulseaudio-utils; the autoswitch daemon needs it)"
+# the installed daemon must be the multi-board one (analog fallback for boards with
+# the cix-ipbloq-hda card, e.g. MS-R1), not the DP-only first version
+if fetch /usr/local/bin/ncz-sky1-audio-autoswitch "$TMP/audsw.py"; then
+    grep -q '^def analog_device(' "$TMP/audsw.py" && grep -q '^def hda_cards(' "$TMP/audsw.py" || gate_miss audio "installed ncz-sky1-audio-autoswitch lacks the HDA analog fallback (MS-R1 would have no sink)"
+fi
 audsw=0
 for w in $(lsnames /etc/systemd/user | grep '\.wants$'); do
     lsnames "/etc/systemd/user/$w" | grep -qx 'ncz-sky1-audio-autoswitch.service' && audsw=1
