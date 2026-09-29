@@ -130,7 +130,7 @@ do_run() {
     # that already has its driver exercise only the toolkit path).
     drv=${NCZ_CUDA_DRIVER_PKGS-$(conf DRIVER_PKGS)}; pkgs=$(conf TOOLKIT_PKGS)
     # shellcheck disable=SC2086
-    sim=$(apt_run install -s -y --no-install-recommends $drv $pkgs 2>&1); local rc=$?
+    sim=$(apt_run install -s -y --no-install-recommends --no-remove $drv $pkgs 2>&1); local rc=$?
     if [ $rc -ne 0 ]; then
         log "simulation failed (rc=$rc):"; echo "$sim" | tail -20 | sed 's/^/    /' | tee -a "$LOG" >&2
         if echo "$sim" | grep -qE 'Unable to locate package|Temporary failure|Could not resolve|Failed to fetch'; then
@@ -145,14 +145,14 @@ do_run() {
 
     # Driver first so a toolkit problem never costs the display driver.
     # shellcheck disable=SC2086
-    if ! apt_run install -y --no-install-recommends $drv >>"$LOG" 2>&1; then
+    if ! apt_run install -y --no-install-recommends --no-remove $drv >>"$LOG" 2>&1; then
         if grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect' "$LOG"; then
             set_status "pending:download"; backoff_note soft >/dev/null; return 75
         fi
         set_status "failed:driver-install"; backoff_note hard >/dev/null; return 1
     fi
     # shellcheck disable=SC2086
-    if ! apt_run install -y --no-install-recommends $pkgs >>"$LOG" 2>&1; then
+    if ! apt_run install -y --no-install-recommends --no-remove $pkgs >>"$LOG" 2>&1; then
         if tail -n 40 "$LOG" | grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect'; then
             set_status "pending:download"; backoff_note soft >/dev/null; return 75
         fi
