@@ -1,5 +1,5 @@
-# Generated from ncz-screensavers meson.build by tools/generate-catalog.py
-blackhole_gles3	Blackhole	Black Hole Simulation	Black Hole Simulation
+# Generated from meson.build (ncz_ship_bins) by tools/generate-catalog.py
+blackhole_gles3	Black Hole	Black Hole Simulation	Black Hole Simulation
 hyprsaver_attitude_gles3	Attitude	hyprsaver	hyprsaver
 hyprsaver_aurora_gles3	Aurora	hyprsaver	hyprsaver
 hyprsaver_bezier_gles3	Bezier	hyprsaver	hyprsaver
@@ -37,24 +37,23 @@ hyprsaver_waterfall_gles3	Waterfall	hyprsaver	hyprsaver
 hyprsaver_wormhole_gles3	Wormhole	hyprsaver	hyprsaver
 xshadertoy_alienbeacon_gles3	Alienbeacon	xshadertoy	xshadertoy
 xshadertoy_batteredplanet_gles3	Batteredplanet	xshadertoy	xshadertoy
-xshadertoy_bestill0-0_gles3	Bestill0 0	xshadertoy	xshadertoy
-xshadertoy_bestill1-0_gles3	Bestill1 0	xshadertoy	xshadertoy
-xshadertoy_bestill2-0_gles3	Bestill2 0	xshadertoy	xshadertoy
-xshadertoy_bestill3-0_gles3	Bestill3 0	xshadertoy	xshadertoy
-xshadertoy_bestill4-0_gles3	Bestill4 0	xshadertoy	xshadertoy
-xshadertoy_bestill5-0_gles3	Bestill5 0	xshadertoy	xshadertoy
-xshadertoy_bubblecolors_gles3	Bubblecolors	xshadertoy	xshadertoy
+xshadertoy_bestill0-0_gles3	Bestill 0.0	xshadertoy	xshadertoy
+xshadertoy_bestill1-0_gles3	Bestill 1.0	xshadertoy	xshadertoy
+xshadertoy_bestill2-0_gles3	Bestill 2.0	xshadertoy	xshadertoy
+xshadertoy_bestill3-0_gles3	Bestill 3.0	xshadertoy	xshadertoy
+xshadertoy_bestill4-0_gles3	Bestill 4.0	xshadertoy	xshadertoy
+xshadertoy_bestill5-0_gles3	Bestill 5.0	xshadertoy	xshadertoy
 xshadertoy_darktransit_gles3	Darktransit	xshadertoy	xshadertoy
 xshadertoy_downfall_gles3	Downfall	xshadertoy	xshadertoy
-xshadertoy_driftclouds_gles3	Driftclouds	xshadertoy	xshadertoy
 xshadertoy_elementalring_gles3	Elementalring	xshadertoy	xshadertoy
 xshadertoy_fluxcore_gles3	Fluxcore	xshadertoy	xshadertoy
 xshadertoy_gimbalharmonics_gles3	Gimbalharmonics	xshadertoy	xshadertoy
 xshadertoy_goldenapollian_gles3	Goldenapollian	xshadertoy	xshadertoy
 xshadertoy_hexplasma_gles3	Hexplasma	xshadertoy	xshadertoy
+xshadertoy_iridescence_gles3	Iridescence	xshadertoy	xshadertoy
 xshadertoy_logarithmiccircles_gles3	Logarithmiccircles	xshadertoy	xshadertoy
-xshadertoy_neongravity-0_gles3	Neongravity 0	xshadertoy	xshadertoy
 xshadertoy_neongravity-1_gles3	Neongravity 1	xshadertoy	xshadertoy
+xshadertoy_neonhorizon_gles3	Neonhorizon	xshadertoy	xshadertoy
 xshadertoy_neontriangulator_gles3	Neontriangulator	xshadertoy	xshadertoy
 xshadertoy_noxfire_gles3	Noxfire	xshadertoy	xshadertoy
 xshadertoy_polarnight_gles3	Polarnight	xshadertoy	xshadertoy
@@ -65,22 +64,22 @@ xshadertoy_selfreflect_gles3	Selfreflect	xshadertoy	xshadertoy
 xshadertoy_skyline_gles3	Skyline	xshadertoy	xshadertoy
 xshadertoy_stardome_gles3	Stardome	xshadertoy	xshadertoy
 xshadertoy_starnest_gles3	Starnest	xshadertoy	xshadertoy
+xshadertoy_stratus_gles3	Stratus	xshadertoy	xshadertoy
 xshadertoy_stripeytorus_gles3	Stripeytorus	xshadertoy	xshadertoy
-xshadertoy_synthwavecity_gles3	Synthwavecity	xshadertoy	xshadertoy
 xshadertoy_topologica_gles3	Topologica	xshadertoy	xshadertoy
 xshadertoy_trainmandala_gles3	Trainmandala	xshadertoy	xshadertoy
 xshadertoy_trizm_gles3	Trizm	xshadertoy	xshadertoy
 xshadertoy_truchetzoom_gles3	Truchetzoom	xshadertoy	xshadertoy
 xshadertoy_universeball_gles3	Universeball	xshadertoy	xshadertoy
-voronoi_gles3	Voronoi	Classics	Classics
-projectiveplane_gles3	Projectiveplane	Classics	Classics
-klein_gles3	Klein	Classics	Classics
-hypertorus_gles3	Hypertorus	Classics	Classics
-cubestorm_gles3	Cubestorm	Classics	Classics
-hexstrut_gles3	Hexstrut	Classics	Classics
-crackberg_gles3	Crackberg	Classics	Classics
 cityflow_gles3	Cityflow	Classics	Classics
+crackberg_gles3	Crackberg	Classics	Classics
+cubestorm_gles3	Cubestorm	Classics	Classics
 geodesic_gles3	Geodesic	Classics	Classics
-gravitywell_gles3	Gravitywell	Classics	Classics
-noof_gles3	Noof	Classics	Classics
 gibson_gles3	Gibson	Classics	Classics
+gravitywell_gles3	Gravitywell	Classics	Classics
+hexstrut_gles3	Hexstrut	Classics	Classics
+hypertorus_gles3	Hypertorus	Classics	Classics
+klein_gles3	Klein	Classics	Classics
+noof_gles3	Noof	Classics	Classics
+projectiveplane_gles3	Projectiveplane	Classics	Classics
+voronoi_gles3	Voronoi	Classics	Classics

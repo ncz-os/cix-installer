@@ -141,9 +141,10 @@ systemd-zram-generator
 
 # --- native Wayland screensaver chooser / idle-lock --------------------------
 # HOLD 2026-08-21 (operator): the screensaver subsystem doesn't ship until
-# its own GLES3 migration passes full verification (94 hacks exist across
-# gl4es + GLES3-native but no fresh end-to-end audit has been run against
-# the mixed set). 57-screensaver.sh is removed from build-squashfs-layers.sh
+# its own GLES3 migration passes full verification. Update 2026-09-30: the
+# set is now 84 native GLES3 hacks (Black Hole, hyprsaver, xshadertoy, the
+# twelve classics) with no OpenGL 1 or gl4es code left in the ncz-screensavers
+# package; assets/screensaver-chooser/hacks.tsv lists exactly that set. 57-screensaver.sh is removed from build-squashfs-layers.sh
 # and build-baked-rootfs.sh's hook loops AND from run-all.sh's hook regexes.
 # swayidle, swaylock, wlopm, and the GObject-introspection packages below
 # are removed from this manifest for the same reason -- they have no other
