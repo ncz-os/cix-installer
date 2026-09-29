@@ -6,6 +6,109 @@
 # silently drop the desktop to llvmpipe, and this is the tool that shows it.
 set -u
 
+REQUIRE_HW=0; QUIET=0
+for _a in "$@"; do
+    case "$_a" in
+        --require-hardware) REQUIRE_HW=1 ;;
+        --quiet) QUIET=1 ;;
+    esac
+done
+
+# ---------------------------------------------------------------------------------------------------------------
+# --require-hardware: NEVER-SOFTWARE-RENDER health check (operator policy 2026-09-29).
+#
+# If this machine has a hardware GPU, every renderer a user process can get must be that GPU: not llvmpipe, softpipe,
+# swrast, lavapipe or SwiftShader, and no software-forcing variable may be set. Probes run TWICE, once in the session
+# environment and once in a bare `env -i` environment, because a process that does not inherit the compositor's GPU
+# variables (ssh, cron, systemd --user, D-Bus activation, portals, flatpak, autostart) used to fall back to llvmpipe
+# on Sky1 while the compositor itself was fine.
+#
+# Writes $NCZ_GPU_HEALTH_LOG (default /var/log/ncz-gpu-health.log), prints a banner on failure, exits non-zero.
+# A machine without a hardware GPU (KVM) passes with "no GPU: software allowed".
+# Test seams: NCZ_SYSROOT, NCZ_GPU_HW_PRESENT, NCZ_PROBE_EGL_SESSION, NCZ_PROBE_EGL_BARE, NCZ_PROBE_VK_SESSION,
+# NCZ_PROBE_VK_BARE (each a command printing the probe's text), NCZ_GPU_HEALTH_LOG, NCZ_GPU_BANNER.
+# ---------------------------------------------------------------------------------------------------------------
+if [ "$REQUIRE_HW" = 1 ]; then
+    LOG="${NCZ_GPU_HEALTH_LOG:-/var/log/ncz-gpu-health.log}"
+    BANNER="${NCZ_GPU_BANNER:-/etc/issue.d/50-ncz-gpu-health.issue}"
+    HWP="${NCZ_GPU_HW_PRESENT:-$(command -v ncz-gpu-hw-present 2>/dev/null || echo /usr/local/bin/ncz-gpu-hw-present)}"
+    SOFT_RE='llvmpipe|softpipe|swrast|lavapipe|software rasterizer|swiftshader'
+    stamp=$(date -u +%FT%TZ 2>/dev/null || echo unknown)
+    problems=""
+    add() { problems="$problems
+  - $1"; }
+
+    wlog() { { printf '%s\n' "$1" >> "$LOG"; } 2>/dev/null; }
+    if [ ! -x "$HWP" ]; then
+        echo "GPU HEALTH ERROR: $HWP is missing, cannot tell whether this machine has a GPU (a check that cannot run must not pass)" >&2
+        wlog "$stamp ERROR ncz-gpu-hw-present missing"
+        exit 2
+    fi
+    hw=$("$HWP" 2>/dev/null) && has_hw=1 || has_hw=0
+    if [ "$has_hw" = 0 ]; then
+        msg="$stamp OK no GPU: software allowed (no hardware render device on this machine)"
+        [ "$QUIET" = 1 ] || echo "$msg"
+        mkdir -p "$(dirname "$LOG")" 2>/dev/null; wlog "$msg"
+        rm -f "$BANNER" 2>/dev/null
+        exit 0
+    fi
+
+    # 1. software-forcing variables in this environment or in the system-wide files
+    for v in LIBGL_ALWAYS_SOFTWARE WLR_RENDERER_ALLOW_SOFTWARE; do
+        eval "val=\${$v:-}"; [ -n "$val" ] && [ "$val" != 0 ] && add "$v=$val is set in the environment"
+    done
+    [ "${WLR_RENDERER:-}" = pixman ] && add "WLR_RENDERER=pixman is set in the environment"
+    [ "${GSK_RENDERER:-}" = cairo ] && add "GSK_RENDERER=cairo is set in the environment"
+    case "${GALLIUM_DRIVER:-}${MESA_LOADER_DRIVER_OVERRIDE:-}" in *llvmpipe*|*softpipe*|*swrast*) add "a Mesa software driver is forced (GALLIUM_DRIVER/MESA_LOADER_DRIVER_OVERRIDE)" ;; esac
+    for f in "${NCZ_SYSROOT:-}"/etc/environment "${NCZ_SYSROOT:-}"/etc/environment.d/*.conf; do
+        [ -r "$f" ] || continue
+        if grep -Eq '^[[:space:]]*(LIBGL_ALWAYS_SOFTWARE|WLR_RENDERER_ALLOW_SOFTWARE)=[^0[:space:]]|^[[:space:]]*WLR_RENDERER=pixman|^[[:space:]]*GSK_RENDERER=cairo|GALLIUM_DRIVER=(llvmpipe|softpipe|swrast)' "$f"; then
+            add "$f forces software rendering"
+        fi
+    done
+
+    # 2. probes: EGL and Vulkan, session env and bare env
+    probe() {   # name seam-var default-command bare(0|1)
+        _name=$1; _seam=$2; _def=$3; _bare=$4
+        eval "_cmd=\${$_seam:-}"
+        if [ -n "$_cmd" ]; then out=$(sh -c "$_cmd" 2>&1)                       # test seam: run as given
+        elif [ -z "$_def" ]; then echo "$_name: probe tool not installed (skipped)" >> "$LOG.tmp" 2>/dev/null; return 0
+        elif [ "$_bare" = 1 ]; then out=$(env -i HOME="${HOME:-/root}" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH=/usr/sbin:/usr/bin:/sbin:/bin sh -c "$_def" 2>&1)
+        else out=$(sh -c "$_def" 2>&1); fi
+        { echo "== $_name"; printf '%s\n' "$out" | head -40; } >> "$LOG.tmp" 2>/dev/null
+        if printf '%s\n' "$out" | grep -Eiq "$SOFT_RE"; then add "$_name renders in SOFTWARE: $(printf '%s\n' "$out" | grep -Ei "$SOFT_RE" | head -1)"; fi
+    }
+    { : > "$LOG.tmp"; } 2>/dev/null
+    EGLCMD=""; command -v eglinfo >/dev/null 2>&1 && EGLCMD="eglinfo -B 2>&1 | grep -Ei 'renderer|vendor'"
+    VKCMD=""; command -v vulkaninfo >/dev/null 2>&1 && VKCMD="vulkaninfo --summary 2>&1 | grep -Ei 'deviceName|driverName'"
+    SESSION_PRE=""
+    [ -r /usr/local/bin/ncz-gpu-env ] && SESSION_PRE=". /usr/local/bin/ncz-gpu-env >/dev/null 2>&1; "
+    probe "EGL (session environment)"   NCZ_PROBE_EGL_SESSION "${EGLCMD:+$SESSION_PRE$EGLCMD}" 0
+    probe "EGL (bare environment)"      NCZ_PROBE_EGL_BARE    "$EGLCMD" 1
+    probe "Vulkan (session environment)" NCZ_PROBE_VK_SESSION "${VKCMD:+$SESSION_PRE$VKCMD}" 0
+    probe "Vulkan (bare environment)"   NCZ_PROBE_VK_BARE     "$VKCMD" 1
+
+    mkdir -p "$(dirname "$LOG")" 2>/dev/null
+    if [ -z "$problems" ]; then
+        wlog "$stamp OK hardware GPU ($hw): no software renderer in the session or bare environment"; { cat "$LOG.tmp" >> "$LOG"; } 2>/dev/null
+        rm -f "$LOG.tmp" "$BANNER" 2>/dev/null
+        [ "$QUIET" = 1 ] || echo "GPU health OK: hardware GPU ($hw), no software rendering detected"
+        exit 0
+    fi
+    wlog "$stamp FAIL hardware GPU ($hw) present but software rendering is in use:$problems"; { cat "$LOG.tmp" >> "$LOG"; } 2>/dev/null
+    rm -f "$LOG.tmp"
+    mkdir -p "$(dirname "$BANNER")" 2>/dev/null
+    {
+        echo "*** NCZ-OS: this machine has a GPU ($hw) but software rendering is in use ***"
+        echo "    details: $LOG     check: ncz-gpu-status --require-hardware"
+    } > "$BANNER.new" 2>/dev/null && mv -f "$BANNER.new" "$BANNER" 2>/dev/null
+    {
+        echo "GPU HEALTH FAIL: hardware GPU ($hw) present but software rendering is in use:$problems"
+        echo "See $LOG"
+    } >&2
+    exit 1
+fi
+
 sel=$(sed -n 's/.*\bsky1\.gpu=\([a-z]*\).*/\1/p' /proc/cmdline 2>/dev/null)
 src="kernel cmdline sky1.gpu="
 if [ -z "$sel" ]; then

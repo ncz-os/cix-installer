@@ -57,6 +57,18 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     printf 'NCZ-OS 26.7 Maximilian Desktop\n' > "$r/etc/issue"
     printf '[Service]\nSuccessExitStatus=1\n' > "$r/etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf"
     echo x > "$r/etc/ld.so.cache"; echo x > "$r/etc/.updated"
+    # never-software-render pieces (common)
+    mkdir -p "$r/usr/local/bin" "$r/usr/bin" "$r/etc/systemd/system/multi-user.target.wants" "$r/opt/singularity/bin"
+    echo '#!/bin/sh' > "$r/usr/local/bin/ncz-gpu-hw-present"
+    printf '#!/bin/sh\n# --require-hardware\n' > "$r/usr/bin/ncz-gpu-status"
+    echo x > "$r/etc/systemd/system/ncz-gpu-health.service"; ln -s /etc/systemd/system/ncz-gpu-health.service "$r/etc/systemd/system/multi-user.target.wants/ncz-gpu-health.service"
+    echo 'NCZ_ALLOW_SOFTWARE_FALLBACK' > "$r/usr/local/bin/ncz-gpu-env"
+    echo 'hw_render_device_present() { :; }' > "$r/opt/singularity/bin/singularity-labwc-session"
+    if [ "${TEST_ARCH:-arm64}" = arm64 ]; then
+        mkdir -p "$r/opt/cixgpu-compat/share/glvnd/egl_vendor.d" "$r/etc/glvnd/egl_vendor.d"
+        echo '{}' > "$r/opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json"
+        ln -s /opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json "$r/etc/glvnd/egl_vendor.d/10_cix.json"
+    fi
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/etc"; printf 'root:x:0:\nsudo:x:27:nczuser\n' > "$r/etc/group"
@@ -159,6 +171,13 @@ m_amd64_strip_nosudo() { m_amd64_strip "$1"; sed -i '/^Package: sudo$/,+2d' "$1/
 m_amd64_strip_nochrome() { m_amd64_strip "$1"; sed -i '/^Package: google-chrome-stable$/,+2d' "$1/var/lib/dpkg/status"; }
 m_amd64_strip_stale_bing() { m_amd64_strip "$1"; printf 'old' > "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
 m_amd64_strip_nokernel() { m_amd64_strip "$1"; rm -rf "$1/usr/lib/modules"; }
+m_gpu_hwp()      { rm -f "$1/usr/local/bin/ncz-gpu-hw-present"; }
+m_gpu_status()   { echo '#!/bin/sh' > "$1/usr/bin/ncz-gpu-status"; }
+m_gpu_unit()     { rm -f "$1/etc/systemd/system/multi-user.target.wants/ncz-gpu-health.service"; }
+m_gpu_env()      { echo x > "$1/usr/local/bin/ncz-gpu-env"; }
+m_gpu_session()  { echo x > "$1/opt/singularity/bin/singularity-labwc-session"; }
+m_gpu_egl()      { rm -f "$1/etc/glvnd/egl_vendor.d/10_cix.json"; }
+m_gpu_egl_leak() { m_amd64_strip "$1"; mkdir -p "$1/etc/glvnd/egl_vendor.d"; ln -s /x "$1/etc/glvnd/egl_vendor.d/10_cix.json"; }
 m_no_loader()   { rm -f "$1/usr/bin/load-modules.sh"; }
 
 run_case "healthy installed root passes"        0 ""
@@ -217,7 +236,14 @@ run_case "amd64: no kernel module tree fails"                       1 m_amd64_st
 run_case "amd64: BUILD_ARCH of the other architecture fails"        1 m_id_arch_amd64
 run_case "amd64: ncz-performance-mode leak fails"                   1 m_amd64_leak_perf
 run_case "amd64: cix-detect-display leak fails"                     1 m_amd64_leak_display
+run_case "gpu: amd64 with a leaked Mali EGL entry fails"        1 m_gpu_egl_leak
 unset TEST_ARCH
+run_case "gpu: missing ncz-gpu-hw-present fails"               1 m_gpu_hwp
+run_case "gpu: ncz-gpu-status without --require-hardware fails" 1 m_gpu_status
+run_case "gpu: health unit not enabled fails"                   1 m_gpu_unit
+run_case "gpu: ncz-gpu-env without the software guard fails"    1 m_gpu_env
+run_case "gpu: labwc-session without the overlay patch fails"   1 m_gpu_session
+run_case "gpu: arm64 without the Mali EGL vendor entry fails"   1 m_gpu_egl
 run_case "arm64: wrong BUILD_ARCH fails"                        1 m_id_arch_arm
 run_case "identity: RELEASE not NCZ-OS fails"                   1 m_id_release
 run_case "ldconfig: tolerate-race drop-in missing fails"        1 m_ld_dropin

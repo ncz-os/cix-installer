@@ -108,6 +108,18 @@ echo "[26] libGLX.so.0    -> $(ldconfig -p 2>/dev/null | awk '/libGLX.so.0 /{pri
 echo "[26] libEGL.so.1    -> $(ldconfig -p 2>/dev/null | awk '/libEGL.so.1 /{print $NF; exit}')"
 echo "[26] libGLESv2.so.2 -> $(ldconfig -p 2>/dev/null | awk '/libGLESv2.so.2 /{print $NF; exit}')"
 echo "[26] libOpenCL.so.1 -> $(ldconfig -p 2>/dev/null | awk '/libOpenCL.so.1 /{print $NF; exit}')"
+# --- system-wide Mali EGL vendor (never-software-render) ---------------------------------------------------
+# glvnd's default search path has only Mesa; without this entry any process that does not inherit the compositor's
+# __EGL_VENDOR_LIBRARY_FILENAMES (ssh, cron, systemd --user, D-Bus activation, portals) renders with llvmpipe on a
+# Mali board. The shipped default is Mali; ncz-gpu-switcher removes the entry on a Panthor boot.
+if [ -r /opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json ]; then
+    mkdir -p /etc/glvnd/egl_vendor.d
+    ln -sfn /opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json /etc/glvnd/egl_vendor.d/10_cix.json
+    echo "[26] registered the Mali EGL vendor system-wide (/etc/glvnd/egl_vendor.d/10_cix.json)"
+else
+    echo "[26] WARNING: /opt/cixgpu-compat/.../40_cix.json absent; Mali EGL vendor not registered system-wide"
+fi
+
 # --- runtime GPU switching lives in ncz-gpu-switcher now -------------------
 # This hook used to install /usr/local/sbin/ncz-gpu-profile from
 # assets/gpu/ncz-gpu-profile and call it to write a modprobe.d blacklist. Both

@@ -505,7 +505,7 @@ cat > /usr/local/bin/ncz-gpu-env <<'GPUENV'
 # (open Mesa/panvk, panthor-bound DRM card) are mutually exclusive, chosen per
 # rEFInd boot entry. POSIX sh; safe to source.
 _ncz_drm_card_driven_by() {
-    for _ncz_dev in /sys/class/drm/card*/device/driver; do
+    for _ncz_dev in "${NCZ_SYSROOT:-}"/sys/class/drm/card*/device/driver; do
         [ -e "$_ncz_dev" ] || continue
         [ "$(basename "$(readlink -f "$_ncz_dev")")" = "$1" ] && return 0
     done
@@ -513,8 +513,8 @@ _ncz_drm_card_driven_by() {
 }
 
 _ncz_panthor_live() {
-    grep -q '^panthor ' /proc/modules 2>/dev/null || return 1
-    [ -e /sys/bus/platform/drivers/panthor/CIXH5000:00 ] || return 1
+    grep -q '^panthor ' "${NCZ_SYSROOT:-}"/proc/modules 2>/dev/null || return 1
+    [ -e "${NCZ_SYSROOT:-}"/sys/bus/platform/drivers/panthor/CIXH5000:00 ] || return 1
     _ncz_drm_card_driven_by panthor || return 1
     return 0
 }
@@ -605,7 +605,7 @@ if _ncz_hw_gpu_driver_name=$(_ncz_hw_gpu_driver); then
         unset _ncz_amd_devid _ncz_chrome_flags
     fi
     unset _ncz_hw_gpu_driver_name
-elif [ -e /dev/mali0 ] && grep -q '^mali_kbase ' /proc/modules 2>/dev/null; then
+elif [ -e "${NCZ_SYSROOT:-}"/dev/mali0 ] && grep -q '^mali_kbase ' "${NCZ_SYSROOT:-}"/proc/modules 2>/dev/null; then
     NCZ_GPU_BACKEND=mali
     # Pin the CIX EGL vendor explicitly, mirroring what the panthor branch does
     # for mesa. glvnd otherwise scans /usr/share/glvnd/egl_vendor.d, which ships
@@ -686,20 +686,56 @@ elif _ncz_panthor_live; then
     export NCZ_GPU_BACKEND __EGL_VENDOR_LIBRARY_FILENAMES VK_LOADER_LAYERS_DISABLE WLR_DRM_NO_MODIFIERS
     if [ -n "$LD_LIBRARY_PATH" ]; then export LD_LIBRARY_PATH; else unset LD_LIBRARY_PATH; fi
 else
-    # NO usable GPU stack — Mali (/dev/mali0 + mali_kbase) absent AND Panthor
-    # either absent or not bound to a DRM card. A loaded-but-unbound panthor
-    # module is not enough: the only renderD* nodes can belong to linlondp, the
-    # display controller, which makes Mesa/Zink fail EGL before Labwc can draw.
-    # Force wlroots(pixman) + Mesa(llvmpipe) CPU rendering so the greeter/session
-    # STILL COME UP (degraded, software-rendered) on the linlondp display. A
-    # visible software desktop beats a looping black screen; once the GPU stack
-    # is healthy the Mali/Panthor branch above takes over.
-    NCZ_GPU_BACKEND=software
-    WLR_RENDERER=pixman
-    WLR_RENDERER_ALLOW_SOFTWARE=1
-    LIBGL_ALWAYS_SOFTWARE=1
-    GALLIUM_DRIVER=llvmpipe
-    export NCZ_GPU_BACKEND WLR_RENDERER WLR_RENDERER_ALLOW_SOFTWARE LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER
+    # NO usable GPU stack -- Mali (/dev/mali0 + mali_kbase) absent AND Panthor either absent or not bound to a DRM
+    # card, and no Mesa hardware driver bound.
+    #
+    # NEVER-SOFTWARE-RENDER policy (operator, 2026-09-29): if this machine HAS a GPU it must not render in software.
+    # This branch used to force wlroots(pixman) + llvmpipe unconditionally so a broken GPU stack still showed a
+    # (slow) desktop; on a machine with a GPU that hid the fault. Now:
+    #   * hardware GPU present (build/../assets/gpu/ncz-gpu-hw-present)  -> REFUSE: NCZ_GPU_BACKEND=failed, a loud
+    #     message on stderr / the journal / /var/log/ncz-gpu-health.log, and NO software variables. The compositor
+    #     fails visibly instead of quietly crawling on the CPU; ncz-gpu-status --require-hardware reports it.
+    #     NCZ_ALLOW_SOFTWARE_FALLBACK=1 restores the old behavior for an operator who wants it.
+    #   * no hardware GPU (KVM, headless VM)                              -> software rendering, as before.
+    _ncz_hw_present() {
+        if [ -n "${NCZ_GPU_HW_PRESENT_CMD:-}" ]; then "$NCZ_GPU_HW_PRESENT_CMD" >/dev/null 2>&1; return $?; fi
+        command -v ncz-gpu-hw-present >/dev/null 2>&1 && ncz-gpu-hw-present >/dev/null 2>&1
+    }
+    if _ncz_hw_present && [ "${NCZ_ALLOW_SOFTWARE_FALLBACK:-0}" != 1 ]; then
+        NCZ_GPU_BACKEND=failed
+        export NCZ_GPU_BACKEND
+        _ncz_msg="ncz-gpu-env: a hardware GPU is present but no hardware GPU stack is usable; software rendering REFUSED (NCZ_ALLOW_SOFTWARE_FALLBACK=1 overrides). Run: ncz-gpu-status --require-hardware"
+        echo "$_ncz_msg" >&2
+        logger -t ncz-gpu-env "$_ncz_msg" 2>/dev/null || true
+        echo "$(date -u +%FT%TZ 2>/dev/null) FAIL $_ncz_msg" >> "${NCZ_GPU_HEALTH_LOG:-/var/log/ncz-gpu-health.log}" 2>/dev/null || true
+        unset _ncz_msg
+    else
+        if _ncz_hw_present; then echo "ncz-gpu-env: WARNING NCZ_ALLOW_SOFTWARE_FALLBACK=1: software rendering ALLOWED on a machine with a GPU" >&2; fi
+        NCZ_GPU_BACKEND=software
+        WLR_RENDERER=pixman
+        WLR_RENDERER_ALLOW_SOFTWARE=1
+        LIBGL_ALWAYS_SOFTWARE=1
+        GALLIUM_DRIVER=llvmpipe
+        export NCZ_GPU_BACKEND WLR_RENDERER WLR_RENDERER_ALLOW_SOFTWARE LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER
+    fi
+    unset -f _ncz_hw_present 2>/dev/null || true
+fi
+
+# Export the GPU selection to the systemd --user manager and to D-Bus-activated services. They do NOT inherit the
+# compositor's environment, so before this a process started by systemd --user, dbus activation, a portal, flatpak
+# or xdg-autostart lost the GPU variables (on Sky1 that meant llvmpipe). Sourced by the session and greeter wrappers
+# only; NCZ_GPU_ENV_NO_IMPORT=1 disables it (tests).
+if [ -z "${NCZ_GPU_ENV_NO_IMPORT:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+    _ncz_imp=""
+    for _ncz_v in NCZ_GPU_BACKEND LD_LIBRARY_PATH VK_DRIVER_FILES __EGL_VENDOR_LIBRARY_FILENAMES VK_LOADER_LAYERS_DISABLE WLR_DRM_NO_MODIFIERS WLR_RENDER_DRM_DEVICE GSK_RENDERER; do
+        eval "_ncz_val=\${$_ncz_v:-}"
+        [ -n "$_ncz_val" ] && _ncz_imp="$_ncz_imp $_ncz_v"
+    done
+    if [ -n "$_ncz_imp" ]; then
+        command -v systemctl >/dev/null 2>&1 && systemctl --user import-environment $_ncz_imp 2>/dev/null || true
+        command -v dbus-update-activation-environment >/dev/null 2>&1 && dbus-update-activation-environment --systemd $_ncz_imp 2>/dev/null || true
+    fi
+    unset _ncz_imp _ncz_v _ncz_val
 fi
 unset -f _ncz_drm_card_driven_by _ncz_panthor_live _ncz_hw_gpu_driver 2>/dev/null || true
 unset _ncz_dev _ncz_drv _ncz_hw_gpu_driver_name

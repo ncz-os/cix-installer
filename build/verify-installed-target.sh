@@ -414,15 +414,42 @@ echo "[verify-target] (info) VA-API drivers:${va:- none}"
 
 fi
 
+# --- (gpu) never-software-render policy, both architectures -------------------------------------------
+# A machine with a GPU must not render in software. Assert the pieces that enforce it are on the target: the shared
+# hardware probe, the --require-hardware health check + its boot unit, the ncz-gpu-env refusal (no unconditional
+# software branch), the labwc-session overlay patch (no software retry with a GPU), and on Sky1 the system-wide Mali
+# EGL vendor (so processes without the compositor's environment do not fall back to llvmpipe).
+echo "[verify-target] (gpu) never-software-render"
+GPU_OK=1
+exists /usr/local/bin/ncz-gpu-hw-present || { gate_miss gpu "/usr/local/bin/ncz-gpu-hw-present (98-gpu-health.sh)"; GPU_OK=0; }
+if fetch /usr/bin/ncz-gpu-status "$TMP/gpustatus"; then
+    grep -q -- '--require-hardware' "$TMP/gpustatus" || { gate_miss gpu "ncz-gpu-status lacks --require-hardware"; GPU_OK=0; }
+else gate_miss gpu "/usr/bin/ncz-gpu-status"; GPU_OK=0; fi
+exists /etc/systemd/system/multi-user.target.wants/ncz-gpu-health.service || { gate_miss gpu "ncz-gpu-health.service is not enabled"; GPU_OK=0; }
+if fetch /usr/local/bin/ncz-gpu-env "$TMP/gpuenv"; then
+    grep -q 'NCZ_ALLOW_SOFTWARE_FALLBACK' "$TMP/gpuenv" || { gate_miss gpu "ncz-gpu-env has no software-refusal guard"; GPU_OK=0; }
+else gate_miss gpu "/usr/local/bin/ncz-gpu-env"; GPU_OK=0; fi
+if fetch /opt/singularity/bin/singularity-labwc-session "$TMP/labwcsession"; then
+    grep -q 'hw_render_device_present' "$TMP/labwcsession" || { gate_miss gpu "singularity-labwc-session still retries with software rendering on a GPU machine (overlay patch not applied)"; GPU_OK=0; }
+else gate_miss gpu "/opt/singularity/bin/singularity-labwc-session"; GPU_OK=0; fi
+if [ "$ARCH" = arm64 ]; then
+    if exists /opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json; then
+        exists /etc/glvnd/egl_vendor.d/10_cix.json || { gate_miss gpu "/etc/glvnd/egl_vendor.d/10_cix.json (Mali EGL vendor not registered system-wide: any process without the compositor environment renders in llvmpipe)"; GPU_OK=0; }
+    fi
+else
+    exists /etc/glvnd/egl_vendor.d/10_cix.json && { gate_miss gpu "Mali EGL vendor entry leaked onto amd64"; GPU_OK=0; }
+fi
+
 echo "[fact] arch=$ARCH"
+echo "[fact] gpu_policy_ok=${GPU_OK:-0}"
 echo "[fact] hostname_format_ok=$([ -n "${HN:-}" ] && printf '%s' "$HN" | grep -Eq '^ncz-[a-z]{1,8}-[0-9]{4}$' && echo 1 || echo 0)"
 echo "[fact] sudo_ok=$([ -n "${SUDO_MEMBERS:-}" ] && echo 1 || echo 0)"
 echo "[fact] screensavers_version=${SS_STATUS:-none}"
 echo "[fact] bing_plugin_patched=${BING_PATCHED:-0}"
 echo "[fact] sensors_plugin_patched=${SENSORS_PATCHED:-0}"
 if [ "$FAIL" -ne 0 ]; then
-    echo "GATE: arm64 installed-target accelerator check FAILED (see GATE: lines above)" >&2
+    echo "GATE: $ARCH installed-target check FAILED (see GATE: lines above)" >&2
     exit 1
 fi
-echo "[verify-target] OK: arm64 installed-target accelerator artifacts present"
+echo "[verify-target] OK: $ARCH installed-target artifacts present"
 exit 0

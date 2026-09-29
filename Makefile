@@ -544,3 +544,7 @@ distclean: clean
 parity:
 	build/test-dual-arch-parity.sh
 	build/verify-dual-arch-parity.sh
+	build/test-no-software-render.sh
+	build/lint-no-software-render.sh
+	build/test-installer-screens.sh
+	build/test-ncz-ui.sh

@@ -282,7 +282,7 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
                 VERIFIER="$SCRIPT_DIR/verify-installed-target.sh"
                 if [ ! -x "$VERIFIER" ]; then
                     rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT"
-                    fail "arm64 installed-target verifier not found/executable at $VERIFIER (refusing to ship an image with no accelerator coverage check)"
+                    fail "$ARCH installed-target verifier not found/executable at $VERIFIER (refusing to ship an image with no accelerator coverage check)"
                 fi
                 echo "  arm64: verifying installed target accelerator artifacts"
                 # The verifier cannot tell from the target alone whether this image was meant to ship
@@ -304,9 +304,9 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
                         || cp "$EVIDENCE_ROOT" "$WORK/target-root-evidence.kept.raw" \
                         || true
                     rm -f "$EVIDENCE_DISK"
-                    fail "arm64 installed-target accelerator check failed (rc=$rc_v) -- raw image preserved at $WORK/target-root-evidence.kept.raw; see $EVIDENCE/cix-install/ for per-hook logs"
+                    fail "$ARCH installed-target check failed (rc=$rc_v) -- raw image preserved at $WORK/target-root-evidence.kept.raw; see $EVIDENCE/cix-install/ for per-hook logs"
                 fi
-                echo "  arm64: installed-target accelerator artifacts verified"
+                echo "  $ARCH: installed-target artifacts verified"
             fi
         fi
     fi
@@ -463,11 +463,26 @@ if true; then   # both architectures
         if [ -n "$FB_S" ] && [ -n "$FB_E" ] && qemu-img convert --image-opts -S 4k -O raw \
             "driver=raw,file.driver=file,file.filename=$FB_DISK,offset=$((FB_S * 512)),size=$(((FB_E - FB_S + 1) * 512))" "$FB_ROOT"; then
             "$DEBUGFS" -R "dump /var/log/ncz-first-boot-failed.txt $FBR" "$FB_ROOT" >/dev/null 2>&1 || true
+            GHL="$WORK/gpu-health.log"; rm -f "$GHL"
+            "$DEBUGFS" -R "dump /var/log/ncz-gpu-health.log $GHL" "$FB_ROOT" >/dev/null 2>&1 || true
         fi
     fi
     rm -f "$FB_DISK" "$FB_ROOT"
     if [ ! -s "$FBR" ]; then
         fail "no first-boot report (/var/log/ncz-first-boot-failed.txt) on the installed disk -- 97-firstboot-report did not run or the guest did not reach multi-user long enough (BOOT_TIMEOUT=${BOOT_TIMEOUT}s)"
+    fi
+    # never-software-render: 98-gpu-health ran on first boot. A KVM guest has no hardware GPU, so the expected line is
+    # "OK no GPU: software allowed"; "FAIL" means a GPU is present and software rendering is in use.
+    if [ ! -s "$GHL" ]; then
+        fail "no GPU health log (/var/log/ncz-gpu-health.log) on the installed disk -- 98-gpu-health / ncz-gpu-health.service did not run"
+    elif grep -q ' FAIL ' "$GHL"; then
+        cat "$GHL" >&2; fail "the GPU health check reports software rendering on a machine with a GPU"
+    elif grep -q 'no GPU: software allowed' "$GHL"; then
+        echo "    GPU health: no GPU: software allowed (KVM guest has no hardware GPU)"
+    elif grep -q ' OK hardware GPU' "$GHL"; then
+        echo "    GPU health: hardware GPU, no software rendering"
+    else
+        cat "$GHL" >&2; fail "unrecognized GPU health log"
     fi
     ALLOW="$SCRIPT_DIR/first-boot-failed-allowlist.txt"
     WP_RC="$(sed -n 's/^# wallpaper-bing-rc=//p' "$FBR" | tail -1)"

@@ -87,6 +87,8 @@ for _ in range(50):
     time.sleep(0.2)
 sc = socket.socket(socket.AF_UNIX); sc.connect(ser); sc.settimeout(0.5)
 screen = pyte.Screen(a.cols, a.rows); stream = pyte.Stream(screen)
+import codecs
+dec = codecs.getincrementaldecoder("utf-8")("replace")
 lock = threading.Lock(); rawlog = open(s0, "wb"); done = threading.Event()
 answered = set()
 rules = [(re.compile(x.split("=", 1)[0], re.S), x.split("=", 1)[1].encode().decode("unicode_escape").encode()) for x in a.answer]
@@ -101,7 +103,7 @@ def pump():
         except OSError: break
         with lock:
             if d:
-                rawlog.write(d); rawlog.flush(); stream.feed(d.decode("latin1"))
+                rawlog.write(d); rawlog.flush(); stream.feed(dec.decode(d))
             txt = screen_text()
         now = time.monotonic()
         if txt != last: last, changed = txt, now

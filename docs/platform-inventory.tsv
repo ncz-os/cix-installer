@@ -328,3 +328,10 @@ preseed/ncz-ui.sh	common	-	shared d-i dialog look (brand, arch, build id)
 build/test-ncz-ui.sh	common	-	ncz-ui.sh tests
 build/check-installer-screens.py	common	-	console-screen content checker
 build/test-installer-screens.sh	common	-	console-screen checker tests
+post-install/98-gpu-health.sh	common	-	never-software-render health check unit (both architectures)
+assets/gpu/ncz-gpu-hw-present	common	-	shared hardware-GPU-present probe
+build/lint-no-software-render.sh	common	-	grep-deny for software-rendering settings
+build/test-no-software-render.sh	common	-	never-software-render fixture tests
+build/software-render-allowlist.tsv	common	-	software-render lint allowlist
+assets/singularity/patches/singularity-session/0001-session-no-software-fallback-with-gpu.patch	common	-	labwc-session: no software retry on a machine with a GPU
+
