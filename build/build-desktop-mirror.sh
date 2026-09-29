@@ -307,6 +307,7 @@ fi
 NCZ_LOCAL_DEBS="
 ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_${ARCH}.deb|optional
 ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_all.deb|optional
+ncz-screensavers|$REPO/build/ncz-screensavers-out/ncz-screensavers_*_${ARCH}.deb|optional
 "
 if [ "$ARCH" = arm64 ]; then
 NCZ_LOCAL_DEBS+="
@@ -349,6 +350,10 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
     mkdir -p "$pooldir"
     cp -f "$deb" "$pooldir/"
     echo "  added local NCZ package: $deb -> $pooldir/"
+    # A local package is not a Debian seed, so it is absent from the resolved
+    # closure and the "prune debs no longer in the closure" pass below would
+    # delete it again. Record it as intentionally present.
+    grep -qxF "$pkg" "$CLOSURE" || echo "$pkg" >> "$CLOSURE"
 done
 # The desktop delta consumes this pool directly. The complete ISO closure also
 # consumes it alongside the vendor pool, where cixmini-boot and its mandatory

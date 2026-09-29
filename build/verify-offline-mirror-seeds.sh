@@ -60,6 +60,10 @@ _seed_manifest_for() {
         [ -s "$manifest" ] || { echo "ERROR: missing manifest: $manifest" >&2; exit 1; }
         sed 's/#.*//' "$manifest" | awk 'NF {print $1}'
     done
+    # Optional: see build-forky-mirror.sh (EXTRA_SEED).
+    if [ -s "$ROOT/manifests/install-extra.pkgs" ]; then
+        sed 's/#.*//' "$ROOT/manifests/install-extra.pkgs" | awk 'NF {print $1}'
+    fi
 } | LC_ALL=C sort -u > "$TMP/seed"
 
 # LC_ALL=C is load-bearing on all three. `sort` in a UTF-8 locale collates
