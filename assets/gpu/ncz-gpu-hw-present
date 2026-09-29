@@ -1,0 +1,26 @@
+#!/bin/sh
+# ncz-gpu-hw-present -- does this machine have a real (hardware) GPU?
+#
+#   exit 0 and print the driver names  : a hardware GPU is present
+#   exit 1                             : none (headless, or only a virtual / display-only device)
+#
+# NEVER-SOFTWARE-RENDER policy (operator, 2026-09-29): if a machine has a GPU it must not render in software, so
+# every fallback needs one shared answer to "is there a GPU?". Virtual GPUs (KVM: virtio_gpu, bochs, simpledrm, ...)
+# and display-only controllers (Sky1 linlondp) do not count, so a GPU-less VM may still use software rendering.
+# Test seam: NCZ_SYSROOT prefixes /sys and /dev.
+R="${NCZ_SYSROOT:-}"
+SKIP='simpledrm|simple-framebuffer|virtio_gpu|virtio-gpu|vgem|vkms|bochs|bochs-drm|cirrus|cirrus-qemu|qxl|vmwgfx|hyperv_drm|hyperv-drm|ast|mgag200|udl|gud|linlondp|komeda|trilin_dpsub|ramfb'
+found=""
+for n in "$R"/sys/class/drm/renderD*; do
+    [ -e "$n/device/driver" ] || continue
+    d=$(basename "$(readlink -f "$n/device/driver")")
+    case "$d" in *[!A-Za-z0-9_.-]*|"") continue ;; esac
+    if printf '%s\n' "$d" | grep -Eqx "$SKIP"; then continue; fi
+    found="$found $d"
+done
+# Sky1: the Mali blob has no DRM render node at all (/dev/mali0), and the GPU device exists even when unbound.
+[ -e "$R/dev/mali0" ] && found="$found mali"
+[ -e "$R/sys/bus/platform/devices/CIXH5000:00" ] && found="$found cix-gpu(CIXH5000)"
+[ -n "$found" ] || exit 1
+printf '%s\n' $found | sort -u | tr '\n' ' '; echo
+exit 0

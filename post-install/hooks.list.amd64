@@ -59,4 +59,5 @@
 95-console-font-autosize.sh
 96-setuid-audit.sh
 97-firstboot-report.sh
+98-gpu-health.sh
 99-diagnostics.sh

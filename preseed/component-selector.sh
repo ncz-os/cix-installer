@@ -67,14 +67,19 @@
 set +e
 
 . /usr/share/debconf/confmodule 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
+# shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
+for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
+    [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
+done
+command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
 
 log() {
     echo "[ncz components] $*"
     # Progress chatter goes to VT3 (and the serial diag console); VT1/console is the
     # newt UI and raw lines written over it corrupt the screen. Failures stay visible.
     case "$*" in
-        ABORT*|FATAL*|ERROR*) _vs="/dev/console /dev/tty1 /dev/tty3 /dev/ttyAMA0" ;;
-        *) _vs="/dev/tty3 /dev/ttyAMA0" ;;
+        ABORT*|FATAL*|ERROR*) _vs="/dev/console /dev/tty1 /dev/tty3" ;;
+        *) _vs="/dev/tty3" ;;
     esac
     for _v in $_vs; do
         echo "[ncz components] $*" > "$_v" 2>/dev/null || true
@@ -159,7 +164,7 @@ for line in $COMPONENTS; do
     [ -z "$_DEFAULT" ] && _DEFAULT="$code" || _DEFAULT="$_DEFAULT, $code"
     [ -z "$_OFFERED" ] && _OFFERED="$code" || _OFFERED="$_OFFERED, $code"
     [ -z "$_CHOICES_C" ] && _CHOICES_C="$desc" || _CHOICES_C="$_CHOICES_C, $desc"
-    _LONG="$_LONG  $code — $desc\\n"
+    _LONG="$_LONG  $code - $desc\\n"
 done
 IFS=$_oldifs
 
@@ -199,17 +204,19 @@ Type: multiselect
 Choices: ${_CHOICES_C}
 Choices-C: ${_OFFERED}
 Default: ${_DEFAULT}
-Description: NCZ-OS install — select which OPTIONAL COMPONENTS to install
+Description: $(ncz_ui_brand) - optional components
  Untick to skip an optional component. Default (Enter OK) = all of the
  below installed, which is exactly what the previous installer shipped.
  .
-  desktop          — toggle the Singularity desktop GUI on/off (this is the
+  desktop          - toggle the Singularity desktop GUI on/off (this is the
                      full desktop overlay + desktop hooks, including browsers
                      and wallpaper rotator; OFF = console)
-  mgmt-container   — ncz-recovery nspawn container (rescue tier)
-  rescue-partition — 4 GiB NCZRESCUE partition (rescue rootfs + boot entry)
+  mgmt-container   - ncz-recovery nspawn container (rescue tier)
+  rescue-partition - 4 GiB NCZRESCUE partition (rescue rootfs + boot entry)
  .
 ${_LONG}
+ .
+ $(ncz_ui_id)
 TPL
     # ------------------------------------------------------------------
     # SYNCHRONOUS FOREGROUND prompt — 2026-08-24 root-cause fix for the
