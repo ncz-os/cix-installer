@@ -106,7 +106,19 @@ POST          := $(ROOT)/post-install
 
 MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))
 BUILD_DATE    := $(shell date -u +%Y%m%d)
-BUILD_SHA     := $(shell git rev-parse --short HEAD)
+# BUILD_SHA used to silently fall back to empty when git rev-parse failed
+# (dubious-ownership inside the rootful imagebuild container, missing git,
+# shallow clone with --depth=0, etc.), producing artifacts named
+# `ncz-os-<arch>-<date>-.img` -- the 2026-09-28 arm64 incident. Directive 10
+# requires the commit SHA be stamped into the artifact; an unstamped one is
+# not a real artifact. Fail LOUD here instead, and let the operator either
+# fix git ownership (`git config --global --add safe.directory '*'`) or pass
+# BUILD_SHA explicitly on the make command line. The check is a real shell
+# exit, not a $(if) test, so `make` itself stops with a clear diagnostic.
+BUILD_SHA     := $(shell git rev-parse --short HEAD 2>/dev/null)
+ifeq ($(strip $(BUILD_SHA)),)
+$(error BUILD_SHA is empty: git rev-parse failed (dubious-ownership, missing git, or detached HEAD?). Run `git config --global --add safe.directory '*'` and retry, or set BUILD_SHA=<sha> on the make command line. An unstamped `ncz-os-<arch>-<date>-.img` is not a valid artifact.)
+endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
 .PHONY: all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror

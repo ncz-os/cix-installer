@@ -243,6 +243,81 @@ def verify_data_partition_content(data_img: Path, staged_root: Path) -> None:
         f"({total} bytes) with matching sha256")
 
 
+def _asset_kernel_ignore(base_dir: str, names: list[str]) -> list[str]:
+    """Prune dev-only / aborted / stale siblings from a staged asset tree.
+
+    The kernel staging script (``build/stage-kernel.sh``) and the shared
+    kernel-staging pool on /mnt/argonas-yocto-shared regularly leave
+    sibling directories or files alongside the real artifact, named:
+
+      * ``*.native-prepare-rejected`` / ``*-rejected`` -- left behind by an
+        aborted or failed ``linux_modules_prepare`` run; its OWN name
+        admits it was rejected. Shipping it onto the ISO wastes
+        ~600 MiB and trips dkms-abi-gate against a half-prepared
+        include/config (the 2026-09-28 arm64 stage-2 incident).
+      * ``*.stale-<ts>`` -- rotated aside by
+        ``build/build-squashfs-layers.sh``'s base-rebuild branch so an
+        operator can compare manually; also dead weight on the medium.
+      * ``*.pre-*`` / ``*.bak`` / ``*.bak-*`` -- pruned from the
+        staged asset tree by ``build/build-squashfs-layers.sh`` line ~941
+        for exactly this reason; we follow the same precedent so an ISO
+        built either way does not accidentally ship them.
+
+    This is the asset-tree analog of build-squashfs-layers.sh's
+    ``sudo find ... -delete`` block: both run on the SAME trees at
+    different points in the pipeline, and a divergence between them is
+    exactly the kind of subtle content-drift bug that becomes invisible
+    until an installer chokes on a half-prepared headers-dir.
+    """
+    out = []
+    for n in names:
+        if n.endswith(".native-prepare-rejected") or n.endswith("-rejected"):
+            out.append(n)
+            continue
+        if ".stale-" in n or n.endswith(".stale") or n.endswith("-stale"):
+            out.append(n)
+            continue
+        # Match the build-squashfs-layers.sh glob exactly so the two
+        # pruning passes agree on what is dev-only junk.
+        if (n.startswith(".pre-") or ".pre-" in n or
+                n.startswith(".bak") or ".bak" in n or
+                n.startswith(".r57-bak") or ".r57-bak" in n):
+            out.append(n)
+            continue
+    return out
+
+
+def _copytree_dangling_symlink_safe(src: Path, dst: Path, *,
+                                    ignore=None, dirs_exist_ok: bool = True
+                                    ) -> None:
+    """Copy a directory tree to ``dst`` while preserving symlinks AS
+    symlinks. Tolerates dangling symlinks inside ``src`` by construction
+    (``symlinks=True``); refuses to swallow other errors.
+
+    Defect (measured ULTRA arm64 make image 2026-09-28 20:12):
+    ``shutil.copytree(src, dst, symlinks=False)`` -- the default --
+    FOLLOWS symlinks. A staged headers tree contains
+    ``scripts/kernel-doc`` whose target was removed by an upstream
+    kernel-doc refactor. Following the symlink raises ``FileNotFoundError``
+    inside copytree, which is then wrapped in a ``shutil.Error`` listing
+    EVERY path that came before it -- making the error read like a
+    wholesale copy failure even though the one real fault is the single
+    dangling symlink at ``scripts/kernel-doc``.
+
+    The fix is the same one ``write-usb-image.py`` already uses at line
+    362 for the rEFInd asset (``shutil.copytree(refind_src, ..., symlinks=True)``):
+    copy the symlink as a symlink, never resolve it. The rEFInd copy has
+    worked for the entire pipeline history precisely because it did this
+    one thing differently from the kernel channel loop below, which did
+    not. We adopt the same pattern uniformly here and pass through any
+    other error (including a real missing file) so the distinction
+    between "benign dangling symlink" and "missing real file" survives
+    in the traceback rather than getting swallowed.
+    """
+    shutil.copytree(str(src), str(dst), symlinks=True,
+                    ignore=ignore, dirs_exist_ok=dirs_exist_ok)
+
+
 def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
                            patched_udeb: Path | None, preseed_dir: Path | None,
                            allow_missing_stub: bool = False,
@@ -412,9 +487,35 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
             dst.mkdir(parents=True, exist_ok=True)
             for channel in channels:
                 child = src / channel
-                if child.exists():
-                    shutil.copytree(child, dst / channel, symlinks=False,
-                                    dirs_exist_ok=True)
+                if not child.exists():
+                    continue
+                if child.is_symlink():
+                    # Edge (and historically the amd64 lines) is itself a
+                    # symlink into the shared kernel-staging pool. Resolve
+                    # it explicitly: copying a symlink with shutil.copytree
+                    # would land the SYMLINK on the medium, which then
+                    # breaks the installer's first read of KVER (a symlink
+                    # whose target is a path inside the installer's
+                    # chroot that doesn't exist). Following once here
+                    # produces a real directory on the medium.
+                    real_src = child.resolve()
+                    if not real_src.is_dir():
+                        log(f"    WARN: assets/kernel/{channel} symlink "
+                            f"target missing: {real_src} -- skipping "
+                            f"this channel (kernel not staged on this host)")
+                        continue
+                    child = real_src
+                _copytree_dangling_symlink_safe(
+                    child, dst / channel,
+                    ignore=_asset_kernel_ignore,
+                    dirs_exist_ok=True,
+                )
+                pruned = _asset_kernel_ignore(
+                    str(child),
+                    [p.name for p in child.iterdir()],
+                )
+                if pruned:
+                    log(f"    pruned {channel}: {pruned}")
             copied_assets.append(name)
             continue
         if name == "cix-debs" and arch != "arm64":
