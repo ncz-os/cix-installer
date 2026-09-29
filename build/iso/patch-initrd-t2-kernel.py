@@ -223,6 +223,7 @@ BAKED_HELPERS = [
     "usb-rescan.sh",
     "sshd-watcher.sh",
     "component-selector.sh",
+    "hostname-suggest.sh",
     "locale-keyboard-chooser.sh",
 ]
 
