@@ -1,0 +1,60 @@
+host: ultra
+path: /home/jasonperlow/kernel-port-v726
+base_commit: 1ceaee8db8a2be38b4e4ed2636ff89735ed1183c
+origin:
+origin	file:///mnt/argonas-git/cix-installer.git (fetch)
+origin	file:///mnt/argonas-git/cix-installer.git (push)
+
+selected_files:
+  README.md
+  assets/dracut/99-ncz-initramfs-tool
+  assets/refind/ncz-refind-refresh.sh
+  assets/wallpaper/ncz-wallpaper-ocs
+  assets/wallpaper/ncz-wallpaper-openverse
+  assets/wallpaper/ncz-wallpaper-unsplash
+  assets/wallpaper/ocs-category-index.json
+  assets/wallpaper/test_openverse.py
+  assets/wallpaper/test_theme_packs.py
+  assets/wallpaper/test_unsplash.py
+  build/build-baked-rootfs.sh
+  build/build-base-rootfs.sh
+  build/build-iso-di.sh
+  build/build-kernel-debs.sh
+  build/build-ota-repo.sh
+  build/build-python312-assets.sh
+  build/build-singularity-podman.sh
+  build/build-singularity.sh
+  build/build-squashfs-layers.sh
+  build/kvm-install-gate.sh
+  build/kvm-kernel-gate.sh
+  build/verify-layer-mirror-versions.sh
+  docs/BUILD-HOSTS.md
+  docs/ISO-BUILD-GUARDRAILS.md
+  docs/ISO-REBAKE-ARGOS-2026-08-21.md
+  docs/ISO-REBAKE-TYDEUS-2026-08-21.md
+  docs/KERNEL-BUILD-AND-INSTALL.md
+  docs/OTA-DKMS-HEADER-FIX-2026-08-21.md
+  docs/WALLPAPER-PACKS.md
+  docs/WALLPAPER-THEME-PACKS.md
+  manifests/desktop.pkgs
+  manifests/installer-base.pkgs
+  post-install/10-our-kernel.sh
+  post-install/11-fix-cixmini-boot.sh
+  post-install/20-desktop.sh
+  post-install/25-live-browser-art.sh
+  post-install/43-hw-quirks.sh
+  post-install/45-wallpaper-rotator.sh
+  post-install/46-ncz-cli.sh
+  post-install/46-python312.sh
+  post-install/47-embedkit.sh
+  post-install/53-chrome.sh
+  post-install/70-bootloader.sh
+  post-install/78-audio.sh
+  post-install/81-vpu.sh
+  post-install/90-ota-channel.sh.disabled
+  post-install/93-zram-swap.sh
+  post-install/94-dracut-config.sh
+  post-install/run-all.sh
+  sbom/expected-assets.txt
+  sbom/expected-packages.txt
+  tests/test_wallpaper_bing.py
