@@ -18,6 +18,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("dir")
 ap.add_argument("--require-dialog", action="append", default=[])
 ap.add_argument("--require-header", default=None)
+ap.add_argument("--start-at", default=None, help="ignore every state before the first one containing TEXT (the bootloader echoes the test kernel command line)")
 ap.add_argument("--no-blank-after", default=None, help="after the first state containing TEXT, no later state may be a blank console (only the screen tab bar): the UI must stay up until the install progress")
 a = ap.parse_args()
 
@@ -33,8 +34,11 @@ if not files:
     sys.exit("check-installer-screens: FAIL no console states captured in %s" % a.dir)
 bad = 0; seen = {t: False for t in a.require_dialog}
 hdr = re.compile(a.require_header) if a.require_header else None
+started_chk = a.start_at is None
 for f in files:
     txt = open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read()
+    if not started_chk and a.start_at in txt: started_chk = True
+    if not started_chk: continue
     for t in seen:
         if t in txt: seen[t] = True
     for rx, why in BAD:

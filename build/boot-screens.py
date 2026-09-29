@@ -19,6 +19,7 @@ ap.add_argument("--interactive", action="store_true")
 ap.add_argument("--extra-opts", default="")
 ap.add_argument("--telnet-port", type=int, default=12323)
 ap.add_argument("--probe", default="")
+ap.add_argument("--console", choices=["auto","serial","vt"], default="auto", help="where d-i draws: serial (arm64 under KVM, auto=true picks the UART) or the fbcon VT (amd64): vt reads /dev/vcs1 over the diagnostic telnet and types via the qemu monitor")
 ap.add_argument("--ask-disk", action="store_true", help="do not preset ncz_disk/ncz_fs: the disk, filesystem and erase-confirmation dialogs appear")
 ap.add_argument("--answer", action="append", default=[], help="REGEX=KEYS: when the serial console screen matches REGEX send KEYS once (\\r = Enter)")
 ap.add_argument("--vt", action="store_true", help="also read the fbcon VTs over the diag telnet (slow)")
@@ -113,7 +114,7 @@ def pump():
         elif txt.strip() and now - changed > 2.0 and txt != lastsnap:
             lastsnap = txt
             open(os.path.join(TS, f"{nsnap:04d}-{int(now - t0):04d}s.txt"), "w").write(f"# t={int(now - t0)}s\n{txt}\n"); nsnap += 1
-        for i, (rx, keys) in enumerate(rules):
+        for i, (rx, keys) in enumerate(rules if (a.console == 'serial' or (a.console == 'auto' and a.arch != 'amd64')) else []):
             if i not in answered and txt and rx.search(txt) and now - changed > 3.5:
                 answered.add(i); sc.sendall(keys)
                 open(os.path.join(W, "answers.log"), "a").write(f"t={int(now - t0)}s rule {i} matched -> {keys!r}\n")
@@ -173,9 +174,83 @@ def grab_vt(vt=1):
     except Exception as e:
         return "(telnet not ready: %s)\n" % e
 
+
+FBS = os.path.join(W, "fb-states"); shutil.rmtree(FBS, ignore_errors=True); os.makedirs(FBS)
+def ppm_content_fraction(path):
+    """fraction of sampled pixels that differ from the dominant colour (a bare blue console has ~0)"""
+    try:
+        d = open(path, "rb").read()
+        parts = d.split(None, 4)
+        w, h = int(parts[1]), int(parts[2]); off = len(d) - w * h * 3
+        px = d[off:]
+        step = 3 * 5
+        cnt = {}
+        for i in range(0, len(px) - 2, step):
+            k = px[i:i+3]; cnt[k] = cnt.get(k, 0) + 1
+        tot = sum(cnt.values()); top = max(cnt.values())
+        return 1.0 - top / tot
+    except Exception:
+        return None
+
+MODE = a.console if a.console != "auto" else ("vt" if a.arch == "amd64" else "serial")
+KEYMAP = {b"\r": "ret", b"\t": "tab", b" ": "spc"}
+def send_keys_monitor(keys):
+    for ch in [keys[i:i+1] for i in range(len(keys))]:
+        k = KEYMAP.get(ch, ch.decode())
+        c.sendall(f"sendkey {k}\n".encode())
+        try: c.recv(4096)
+        except Exception: pass
+        time.sleep(0.15)
 n = 0
 try:
-    while p.poll() is None and time.monotonic() - t0 < a.secs:
+    if MODE == "vt":
+        # the UI is on the fbcon VT: poll the VT text back to back, record each change as a "screen", answer by rules
+        last, nsnap, changed = None, 0, time.monotonic()
+        answered_vt = set()
+        next_dump = 0; next_probe = 0; fb_hist = []; fb_last = None; nfb = 0
+        while p.poll() is None and time.monotonic() - t0 < a.secs:
+            t = int(time.monotonic() - t0)
+            fbp = os.path.join(S, f"{n:04d}-{t:04d}s.ppm")
+            c.sendall(f"screendump {fbp}\n".encode())
+            try: c.recv(4096)
+            except Exception: pass
+            time.sleep(0.4)
+            frac = ppm_content_fraction(fbp) if os.path.exists(fbp) else None
+            if frac is not None:
+                sig = "content" if frac > 0.004 else "blank"
+                fb_hist.append((int(time.monotonic() - t0), sig))
+                # a persistent state = two consecutive equal samples
+                if len(fb_hist) >= 2 and fb_hist[-1][1] == fb_hist[-2][1] and fb_hist[-1][1] != fb_last:
+                    fb_last = fb_hist[-1][1]
+                    open(os.path.join(FBS, f"{nfb:04d}-{fb_hist[-2][0]:04d}s.txt"), "w").write(
+                        f"# t={fb_hist[-2][0]}s\n" + ("[framebuffer: dialog or progress on screen, %.1f%% non-background pixels]\n" % (frac * 100) if sig == "content" else ""))
+                    nfb += 1
+            if t >= next_dump:
+                next_dump = t + 30
+                n += 1
+            else:
+                try: os.remove(fbp)
+                except OSError: pass
+            if a.probe and t >= next_probe and t > 30:
+                open(os.path.join(T, f"{n:04d}-{t:04d}s-probe.txt"), "w").write(probe(a.probe)); next_probe = t + 25
+            txt = grab_vt(1).rstrip("\n")
+            if txt.startswith("(telnet not ready") or txt.startswith("(no console size"):
+                time.sleep(2); continue
+            now = time.monotonic()
+            if txt != last:
+                seen_any = nsnap > 0 or txt.strip()
+                if seen_any:
+                    open(os.path.join(TS, f"{nsnap:04d}-{int(now - t0):04d}s.txt"), "w").write(f"# t={int(now - t0)}s\n{txt}\n"); nsnap += 1
+                    with lock: rawlog.write((f"\n--- t={int(now - t0)}s ---\n" + txt + "\n").encode()); rawlog.flush()
+                last, changed = txt, now
+            for i, (rx, keys) in enumerate(rules):
+                if i not in answered_vt and txt and rx.search(txt) and now - changed > 3.5:
+                    answered_vt.add(i); send_keys_monitor(keys)
+                    open(os.path.join(W, "answers.log"), "a").write(f"t={int(now - t0)}s rule {i} matched -> {keys!r}\n")
+                    last = None   # force a fresh state after the keys
+            time.sleep(0.5)
+    else:
+      while p.poll() is None and time.monotonic() - t0 < a.secs:
         t = int(time.monotonic() - t0)
         f = os.path.join(S, f"{n:04d}-{t:04d}s.ppm")
         c.sendall(f"screendump {f}\n".encode())

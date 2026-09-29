@@ -368,5 +368,26 @@ if [ -d "$COMP_DST_DIR" ] || [ -d "$ALT_DST_DIR" ]; then
     fi
 fi
 
+# Keep the screen alive. Between this dialog and d-i's next visible step (disk detection, loading partman udebs, the
+# disk chooser) nothing draws, and the console was an empty blue screen with only newt's help line for 15-20 s
+# (reproduced under KVM on both arches). Open a progress bar naming what is happening; the next step's own progress
+# dialog replaces it. NCZ_NO_PREP_PROGRESS=1 disables it (tests).
+if [ -z "${NCZ_NO_PREP_PROGRESS:-}" ] && command -v db_progress >/dev/null 2>&1; then
+    cat > /tmp/ncz-prep.templates <<TPL
+Template: ncz/prep-title
+Type: text
+Description: $(ncz_ui_brand) - preparing the installation
+
+Template: ncz/prep-info
+Type: text
+Description: Detecting disks and loading installer components. This can take a minute...
+TPL
+    if debconf-loadtemplate ncz /tmp/ncz-prep.templates 2>/dev/null; then
+        db_progress START 0 10 ncz/prep-title 2>/dev/null || true
+        db_progress INFO ncz/prep-info 2>/dev/null || true
+        db_progress SET 1 2>/dev/null || true
+    fi
+fi
+
 log "chooser complete: components=$CHOSEN"
 exit 0
