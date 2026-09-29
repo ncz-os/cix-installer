@@ -89,29 +89,43 @@ Both verifiers have negative tests: `build/test-arm64-gates.sh` and
 
 ## 3. Adding or replacing `ncz-screensavers` (short path)
 
-The wiring lives on branch `feat/ncz-screensavers-pkg-wiring-2026-09-29`
-(nothing else is changed): a `build/ncz-screensavers-out/` row in the desktop
-mirror's local-package table, and `post-install/59-ncz-screensavers-pkg.sh`,
-a hook that installs the package from the offline mirror when a candidate
-exists (simulates first, refuses removals, no-op when absent). It does not edit
-`58-screensaver-chooser.sh` or the held `57-screensaver.sh`.
-
-To ship a new package build (arm64 shown; amd64 is identical with its arch):
+Wiring lives on branch `feat/ncz-screensavers-pkg-wiring-2026-09-29` (not merged
+into the baseline image). It touches only: a `build/ncz-screensavers-out/` row in
+the desktop mirror's local-package table (and keeps local NCZ packages out of the
+closure prune), an optional `manifests/install-extra.pkgs` that seeds the install
+media's offline mirror WITHOUT baking the package into the layers, and
+`post-install/59-ncz-screensavers-pkg.sh`, which installs the package at install
+time when the mirror has a candidate (simulates first, refuses removals, no-op
+when absent). It does not edit `58-screensaver-chooser.sh` or the held
+`57-screensaver.sh`. Proven with a dummy package in a scratch worktree:
+desktop-mirror kept and indexed it, and forky-mirror grew 1805 -> 1806 packages.
 
 ```
-git merge feat/ncz-screensavers-pkg-wiring-2026-09-29          # once
+git merge feat/ncz-screensavers-pkg-wiring-2026-09-29                # once
 mkdir -p build/ncz-screensavers-out
 cp /path/to/ncz-screensavers_<ver>_arm64.deb build/ncz-screensavers-out/
-rm -rf build/desktop-mirror build/forky-mirror                   # force the pool to pick it up
-# re-run stage 0 (about 8 minutes), then stage 1 is NOT needed (the hook installs at
-# install time from the offline mirror), then stage 2 and the gate as above.
+echo ncz-screensavers >> manifests/install-extra.pkgs
+rm -rf build/desktop-mirror                     # so the local deb is re-added to the pool
+# stage 0 again (about 8 minutes; verify-offline-mirror-seeds now sees the new seed and
+# rebuilds forky-mirror). Stage 1 is NOT needed: the package is not baked.
+# Then stage 2 (make image BUILD_SHA=...) and the gate exactly as above.
 ```
 
-Stage 1 only has to be repeated if you change anything baked into the layers
-(the package is not baked). If the package has Depends outside what the desktop
-closure already carries, list those names in `manifests/desktop.pkgs`.
-Confirm the pool carries it before stage 2:
-`grep -A2 '^Package: ncz-screensavers$' build/desktop-mirror/dists/*/main/binary-arm64/Packages`.
-After the gate, `dpkg -s ncz-screensavers` inside the installed target (or the
-`[59-ncz-screensavers] installed ...` line in `target-logs/cix-installer-late.log`)
-proves it landed.
+If the package has Depends outside what the desktop closure already carries,
+list those names in `manifests/install-extra.pkgs` too. Before stage 2 confirm
+`grep -c '^Package: ncz-screensavers$' build/forky-mirror/dists/*/main/binary-arm64/Packages`
+is 1. After the gate, the `[59-ncz-screensavers] installed ...` line in
+`target-logs/cix-installer-late.log` proves it landed.
+
+## 4. Two build-breaking limits found on 2026-09-29 (both now guarded)
+
+- `preseed/early_command`, joined, must stay under 13,000 bytes
+  (`build/check-early-command-size.sh`, run by `build-iso-di.sh`). At 15,634 bytes
+  `/bin/preseed_command` dies in confmodule (`return: line 88: Illegal number`),
+  early_command never mounts the ext4 medium and d-i stops at "Incorrect
+  installation media detected". Put logic in a helper under `preseed/` and add it
+  to `BAKED_HELPERS` in `build/iso/patch-initrd-t2-kernel.py` (see
+  `hostname-suggest.sh`).
+- `late.sh` asset union-sync must survive a dangling baked symlink where the media
+  has a directory (`assets/kernel/edge` in `base.squashfs`); regression test
+  `build/test-late-union-sync.sh`.
