@@ -39,7 +39,7 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     printf 'ln -sf $_d /dev/video-cixdec0\nln -sf $_e /dev/video-cixenc0\n' > "$r/usr/bin/load-modules.sh"
     printf 'xx h264_v4l2m2m xx' > "$r/usr/lib/aarch64-linux-gnu/libavcodec.so.62.1.100"
     printf 'Package: google-chrome-stable\nStatus: install ok installed\n\nPackage: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$r/var/lib/dpkg/status"
-    echo ncz-acrab-1717 > "$r/etc/hostname"
+    mkdir -p "$r/etc"; echo ncz-acrab-1717 > "$r/etc/hostname"
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/etc"; printf 'root:x:0:\nsudo:x:27:nczuser\n' > "$r/etc/group"
