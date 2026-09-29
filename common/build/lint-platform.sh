@@ -33,9 +33,7 @@ fi
 
 ROOT="${NCZ_LINT_ROOT:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}"
 INV="$ROOT/docs/platform-inventory.tsv"
-DENY="$ROOT/build/platform-deny-patterns.txt"
 DENY_EXC="$ROOT/docs/platform-deny-exceptions.tsv"
-MAN_DIV="$ROOT/docs/manifest-divergence.tsv"
 HOOKDIR="$ROOT/post-install"
 
 FINDINGS=0
@@ -43,13 +41,29 @@ fail() { echo "LINT-$1: $2"; FINDINGS=$((FINDINGS + 1)); }
 
 [ -f "$INV" ] || { echo "LINT-FORMAT: missing $INV"; exit 1; }
 
+# Source layout (docs/PLATFORM-SPLIT.md): files live under common/ or
+# platforms/<platform>/ and are addressed by the historical flat path everywhere
+# else (inventory, hook names, build view).  unsplit_path maps source -> flat.
 list_files() {
     if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
        && [ "$(git -C "$ROOT" rev-parse --show-toplevel)" = "$(cd "$ROOT" && pwd -P)" ]; then
         git -C "$ROOT" ls-files --cached --others --exclude-standard
     else
-        (cd "$ROOT" && find . -type f -not -path './.git/*' | sed 's#^\./##')
+        (cd "$ROOT" && find . \( -type f -o -type l \) -not -path './.git/*' | sed 's#^\./##')
     fi | LC_ALL=C sort
+}
+BUILD_ROOTS="post-install manifests assets build preseed tests tools scripts packaging packages sbom docker kernel-source"
+SPLIT=0; [ -d "$ROOT/common" ] && SPLIT=1
+# echo "<flat path>" for a source path, "" (and rc 1) when it is not a moved build file
+unsplit_path() {
+    case "$1" in
+        common/*) echo "${1#common/}" ;;
+        platforms/*/*) local r="${1#platforms/}"; echo "${r#*/}" ;;
+        *) echo "$1" ;;
+    esac
+}
+src_place() {   # flat path + class -> required source prefix
+    case "$1" in common|mixed) echo "common/" ;; sky1) echo "platforms/sky1-arm64/" ;; amd64) echo "platforms/amd64/" ;; esac
 }
 
 # ---------------------------------------------------------------- FORMAT
@@ -86,11 +100,31 @@ classify() {
 }
 
 # ----------------------------------------------------------------- COVER
-FILES=$(list_files)
+RAW=$(list_files)
+declare -A SRC
+FILES=""
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    flat=$(unsplit_path "$f")
+    case "$flat" in
+        post-install/*|manifests/*|assets/*|build/*|preseed/*|tests/*|tools/*|scripts/*|packaging/*|packages/*|sbom/*|docker/*|kernel-source/*)
+            if [ "$flat" = "$f" ] && [ "$SPLIT" = 1 ]; then
+                fail LAYOUT "tracked file at a flat build path after the split (must live under common/ or platforms/<p>/): $f"
+            fi ;;
+    esac
+    SRC[$flat]="$f"
+    FILES+="$flat"$'\n'
+done <<< "$RAW"
 declare -A USED
 while IFS= read -r f; do
     [ -n "$f" ] || continue
-    if classify "$f"; then USED[$REPLY_ROW]=1; else fail COVER "no inventory row for tracked file: $f"; fi
+    if classify "$f"; then
+        USED[$REPLY_ROW]=1
+        if [ "$SPLIT" = 1 ] && [ "${SRC[$f]}" != "$f" ]; then
+            want=$(src_place "$f" "$REPLY_CLASS"); want=$(src_place "$REPLY_CLASS")
+            case "${SRC[$f]}" in "$want"*) ;; *) fail LAYOUT "$f is class $REPLY_CLASS and must live under ${want}, not ${SRC[$f]}" ;; esac
+        fi
+    else fail COVER "no inventory row for tracked file: $f"; fi
 done <<< "$FILES"
 for p in "${!CLS[@]}"; do
     [ -n "${USED[$p]+x}" ] && continue
@@ -101,27 +135,30 @@ for p in "${!CLS[@]}"; do
 done
 
 # ----------------------------------------------------------------- HOOKS
-HOOKS=$(cd "$HOOKDIR" 2>/dev/null && ls [0-9][0-9]-*.sh 2>/dev/null | LC_ALL=C sort || true)
+DENY="$ROOT/${SRC[build/platform-deny-patterns.txt]:-build/platform-deny-patterns.txt}"
+GEN="$ROOT/${SRC[build/gen-hooks-lists.sh]:-build/gen-hooks-lists.sh}"
+HOOKS=$(printf '%s' "$FILES" | sed -n 's#^post-install/\([0-9][0-9]-[^/]*\.sh\)$#\1#p' | LC_ALL=C sort)
+hook_file() { echo "$ROOT/${SRC[post-install/$1]:-post-install/$1}"; }
 for h in $HOOKS; do
     if [ -z "${CLS[post-install/$h]+x}" ]; then
         fail HOOKS "hook $h has no exact inventory row (a directory prefix is not enough for a hook)"
     fi
 done
-if [ -x "$ROOT/build/gen-hooks-lists.sh" ]; then
-    if ! gen_out=$(NCZ_LINT_ROOT="$ROOT" "$ROOT/build/gen-hooks-lists.sh" --check 2>&1); then
+if [ -x "$GEN" ]; then
+    if ! gen_out=$(NCZ_LINT_ROOT="$ROOT" "$GEN" --check 2>&1); then
         printf '%s\n' "$gen_out" | sed 's/^/LINT-HOOKS: /'
         FINDINGS=$((FINDINGS + 1))
     fi
 else
-    fail HOOKS "build/gen-hooks-lists.sh is missing or not executable"
+    fail HOOKS "gen-hooks-lists.sh is missing or not executable"
 fi
 for plat in sky1-arm64 amd64; do
     case "$plat" in sky1-arm64) own=sky1 ;; amd64) own=amd64 ;; esac
-    lst="$HOOKDIR/hooks.list.$plat"
+    lst="$ROOT/${SRC[post-install/hooks.list.$plat]:-post-install/hooks.list.$plat}"
     if [ ! -f "$lst" ]; then fail HOOKS "missing $lst"; continue; fi
     listed=$(grep -vE '^[[:space:]]*(#|$)' "$lst" | awk '{print $1}')
     for l in $listed; do
-        [ -f "$HOOKDIR/$l" ] || fail HOOKS "$plat list names $l which does not exist in post-install/"
+        [ -n "${SRC[post-install/$l]+x}" ] || fail HOOKS "$plat list names $l which does not exist in post-install/"
     done
     for h in $HOOKS; do
         c="${CLS[post-install/$h]:-}"
@@ -147,7 +184,7 @@ if [ -f "$DENY" ]; then
     for h in $HOOKS; do
         [ "${CLS[post-install/$h]:-}" = common ] || continue
         # non-comment lines, with the installer's own directory name removed
-        body=$(grep -vE '^[[:space:]]*#' "$HOOKDIR/$h" | sed -E 's/cix-install(er)?//Ig')
+        body=$(grep -vE '^[[:space:]]*#' "$(hook_file "$h")" | sed -E 's/cix-install(er)?//Ig')
         while IFS=$'\t' read -r id plat re; do
             case "$id" in ''|'#'*) continue ;; esac
             line=$(printf '%s\n' "$body" | grep -iEm1 -- "$re" || true)
@@ -168,11 +205,11 @@ for h in $HOOKS; do
     c="${CLS[post-install/$h]:-}"
     case "$c" in
         sky1|amd64)
-            { { grep -q 'NCZ-PLATFORM-GUARD' "$HOOKDIR/$h" && grep -qE '^[[:space:]]*case "\$_ncz_pg_arch" in' "$HOOKDIR/$h"; } \
-              || { grep -q 'ARCH GATE (dual-arch parity)' "$HOOKDIR/$h" && grep -qE 'exit 0' "$HOOKDIR/$h"; }; } \
+            { { grep -q 'NCZ-PLATFORM-GUARD' "$(hook_file "$h")" && grep -qE '^[[:space:]]*case "\$_ncz_pg_arch" in' "$(hook_file "$h")"; } \
+              || { grep -q 'ARCH GATE (dual-arch parity)' "$(hook_file "$h")" && grep -qE 'exit 0' "$(hook_file "$h")"; }; } \
                 || fail GUARD "$c hook $h has no NCZ-PLATFORM-GUARD (or release-branch ARCH GATE) early-exit block" ;;
         mixed)
-            grep -q 'NCZ-MIXED-HOOK' "$HOOKDIR/$h" \
+            grep -q 'NCZ-MIXED-HOOK' "$(hook_file "$h")" \
                 || fail GUARD "mixed hook $h has no NCZ-MIXED-HOOK marker" ;;
     esac
 done

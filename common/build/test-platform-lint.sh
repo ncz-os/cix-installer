@@ -54,7 +54,7 @@ X
     NCZ_LINT_ROOT="$r" bash "$r/build/gen-hooks-lists.sh" >/dev/null
 }
 
-run_lint() { NCZ_LINT_ROOT="$1" bash "$1/build/lint-platform.sh" 2>&1; }
+run_lint() { local d="$1/build"; [ -d "$1/common/build" ] && d="$1/common/build"; NCZ_LINT_ROOT="$1" bash "$d/lint-platform.sh" 2>&1; }
 
 expect_pass() {  # name [root]
     local out rc; out=$(run_lint "${2:-$F}"); rc=$?
@@ -139,6 +139,27 @@ mkfixture "$F"; printf '#!/bin/bash\necho x\n' > "$F/post-install/30-x86.sh"
 expect_fail "amd64 hook without guard is rejected" "$F" "amd64 hook 30-x86.sh has no NCZ-PLATFORM-GUARD"
 mkfixture "$F"; printf '#!/bin/bash\necho x\n' > "$F/post-install/40-mix.sh"
 expect_fail "mixed hook without marker is rejected" "$F" "mixed hook 40-mix.sh has no NCZ-MIXED-HOOK"
+
+# ---- LAYOUT (physically split tree) -----------------------------------------
+mksplit() {  # build a split-layout fixture from a flat one
+    local r="$1"; mkfixture "$r"
+    mkdir -p "$r/common/post-install" "$r/platforms/sky1-arm64/post-install" "$r/platforms/amd64/post-install" "$r/common/build" "$r/common/docs_unused"
+    rmdir "$r/common/docs_unused"
+    mv "$r/post-install/10-common.sh" "$r/post-install/40-mix.sh" "$r/common/post-install/"
+    mv "$r/post-install/20-sky.sh" "$r/post-install/hooks.list.sky1-arm64" "$r/platforms/sky1-arm64/post-install/"
+    mv "$r/post-install/30-x86.sh" "$r/post-install/hooks.list.amd64" "$r/platforms/amd64/post-install/"
+    rmdir "$r/post-install"
+    mv "$r/build"/* "$r/common/build/"; rmdir "$r/build"
+    sed -i "s#^post-install/hooks.list.sky1-arm64\t[a-z0-9]*#post-install/hooks.list.sky1-arm64\tsky1#; s#^post-install/hooks.list.amd64\t[a-z0-9]*#post-install/hooks.list.amd64\tamd64#" "$r/docs/platform-inventory.tsv"
+}
+mksplit "$F"
+expect_pass "split-layout fixture passes"
+mksplit "$F"; mv "$F/platforms/sky1-arm64/post-install/20-sky.sh" "$F/common/post-install/"
+expect_fail "sky1 hook under common/ is rejected" "$F" "20-sky.sh is class sky1 and must live under platforms/sky1-arm64/"
+mksplit "$F"; mv "$F/common/post-install/10-common.sh" "$F/platforms/amd64/post-install/"
+expect_fail "common hook under a platform is rejected" "$F" "10-common.sh is class common and must live under common/"
+mksplit "$F"; mkdir -p "$F/post-install"; printf '#!/bin/bash\n' > "$F/post-install/10-common.sh"
+expect_fail "tracked flat build path after the split is rejected" "$F" "LINT-LAYOUT: tracked file at a flat build path"
 
 # ---- run-all.sh: hooks.list handling ---------------------------------------
 # Real run-all.sh against fake hooks. It only ever removes hooks from the plan.

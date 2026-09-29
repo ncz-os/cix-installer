@@ -49,6 +49,35 @@ def classify(rows, path):
     return rows[best] if best else None
 
 
+BEGIN = "# BEGIN platform-split generated (platform-tools/platform-split-move.py; do not edit)"
+END = "# END platform-split generated"
+
+
+def rewrite_gitignore(root):
+    """Ignore the generated flat view and mirror every build-root ignore rule onto the
+    source locations (common/<r>/..., platforms/*/<r>/...), so blobs staged in either
+    place stay untracked exactly as they were in the flat tree."""
+    path = os.path.join(root, ".gitignore")
+    lines = open(path).read().split("\n")
+    if BEGIN in lines:
+        a, b = lines.index(BEGIN), lines.index(END)
+        lines = lines[:a] + lines[b + 1:]
+    while lines and lines[-1] == "":
+        lines.pop()
+    gen = [BEGIN,
+           "# The flat build view is generated from common/ and platforms/<platform>/.",
+           ] + ["/%s/" % r for r in ROOTS] + ["/.platform-assembled"]
+    for l in lines:
+        neg = l.startswith("!")
+        body = l[1:] if neg else l
+        first = body.split("/", 1)[0]
+        if first in ROOTS and "/" in body:
+            gen.append(("!" if neg else "") + "common/" + body)
+            gen.append(("!" if neg else "") + "platforms/*/" + body)
+    gen.append(END)
+    open(path, "w").write("\n".join(lines + [""] + gen) + "\n")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -75,6 +104,8 @@ def main():
         return 2
     print("platform-split-move: %d file(s) to move (%d already in place)"
           % (len(plan), sum(1 for f in files if f.split("/", 1)[0] in ("common", "platforms"))))
+    if not a.dry_run:
+        rewrite_gitignore(root)
     if a.dry_run:
         for s, d in plan[:20]:
             print("  %s -> %s" % (s, d))

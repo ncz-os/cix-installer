@@ -18,6 +18,17 @@
 #   make npu-ssdt-selftest — self-test the npu-ssdt-gate.sh (5 isolated cases)
 
 ROOT          := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+
+# Platform split (docs/PLATFORM-SPLIT.md). Sources live in common/ and
+# platforms/<platform>/; every builder still reads the flat paths (post-install/,
+# assets/, build/, ...), which are generated here as hard links BEFORE any rule or
+# wildcard below is evaluated. NCZ_ASSEMBLE_SCOPE=all (default) reproduces the
+# pre-split tree exactly; sky1-arm64 or amd64 links common + that platform only.
+NCZ_ASSEMBLE_SCOPE ?= all
+_ASSEMBLED := $(shell python3 $(ROOT)/platform-tools/platform-assemble.py --scope $(NCZ_ASSEMBLE_SCOPE) --quiet 1>&2 || echo FAILED)
+ifeq ($(_ASSEMBLED),FAILED)
+$(error platform-tools/platform-assemble.py failed; see the message above)
+endif
 VERSION       := $(shell date -u +%Y.%m.%d)
 ARCH          ?= $(shell dpkg --print-architecture 2>/dev/null || uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')
 MODE          ?= full
@@ -142,7 +153,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform assemble assemble-check
 
 all: image
 
@@ -459,6 +470,12 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 # Platform split (docs/PLATFORM-SPLIT-DESIGN.md): the inventory in
 # docs/platform-inventory.tsv is the source of truth; post-install/hooks.list.*
 # are generated from it and run-all.sh runs only the listed hooks.
+assemble:
+	@python3 $(ROOT)/platform-tools/platform-assemble.py --scope $(NCZ_ASSEMBLE_SCOPE)
+
+assemble-check:
+	@python3 $(ROOT)/platform-tools/platform-assemble.py --scope $(NCZ_ASSEMBLE_SCOPE) --check
+
 lint-platform:
 	@bash $(ROOT)/build/lint-platform.sh
 
