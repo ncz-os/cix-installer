@@ -183,6 +183,49 @@ else
     gate_miss browser "/var/lib/dpkg/status unreadable"
 fi
 
+# --- (v) VA-API + mpv ----------------------------------------------------------
+echo "[verify-target] (v) VA-API and mpv hardware decode wiring"
+exists /usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so || gate_miss vaapi "/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so (cix-vaapi not installed)"
+exists /usr/lib/aarch64-linux-gnu/dri/linlondp_drv_video.so || gate_miss vaapi "linlondp_drv_video.so compat symlink (84-vpu-vaapi did not run)"
+exists /usr/share/cix/lib/libva.so.2 || gate_miss vaapi "/usr/share/cix/lib/libva.so.2 (cix-libva2 runtime matching the driver ABI)"
+if fetch /etc/environment.d/60-ncz-vaapi.conf "$TMP/vaenv" && grep -q 'LIBVA_DRIVER_NAME=libcix_va' "$TMP/vaenv"; then :; else gate_miss vaapi "/etc/environment.d/60-ncz-vaapi.conf with LIBVA_DRIVER_NAME=libcix_va"; fi
+if fetch /etc/mpv/mpv.conf "$TMP/mpv.conf" && grep -q '^hwdec=' "$TMP/mpv.conf"; then
+    echo "[verify-target]     mpv: $(grep -m1 '^hwdec=' "$TMP/mpv.conf")"
+else
+    gate_miss vpu "/etc/mpv/mpv.conf with a hwdec= line (84-vpu-mpv)"
+fi
+
+# --- (vi) ncz-screensavers (only when this image is meant to ship it) ---------
+# The image records that intent in its own payload: manifests/install-extra.pkgs.
+if fetch /usr/local/lib/cix-installer/manifests/install-extra.pkgs "$TMP/extra.pkgs" && sed 's/#.*//' "$TMP/extra.pkgs" | awk 'NF {print $1}' | grep -qx ncz-screensavers; then
+    echo "[verify-target] (vi) ncz-screensavers"
+    SS_STATUS="$(awk 'BEGIN{RS="";FS="\n"} { pk=""; st=""; ver=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /) pk=substr($i,10); if($i ~ /^Status: /) st=substr($i,9); if($i ~ /^Version: /) ver=substr($i,10)} if(pk=="ncz-screensavers" && st=="install ok installed") print ver }' "$TMP/dpkg-status" 2>/dev/null)"
+    if [ -z "$SS_STATUS" ]; then
+        gate_miss screensavers "ncz-screensavers is not installed (59-ncz-screensavers-pkg did not install it)"
+    else
+        echo "[verify-target]     ncz-screensavers $SS_STATUS installed"
+        for f in /usr/bin/ncz-screensaver /usr/bin/ncz-screensaver-settings /usr/libexec/ncz-screensaver-idled /usr/libexec/ncz-screensaver-run \
+                 /usr/lib/systemd/user/ncz-screensaver-idled.service /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml \
+                 /usr/share/ncz-screensavers/hacks.tsv; do
+            exists "$f" || gate_miss screensavers "$f"
+        done
+        NHACK="$(lsnames /usr/lib/ncz-screensavers | grep -c '_gles3$')"
+        [ "$NHACK" -ge 84 ] && echo "[verify-target]     hack binaries: $NHACK" || gate_miss screensavers "only $NHACK *_gles3 hack binaries in /usr/lib/ncz-screensavers (need 84)"
+        # the schema must be compiled into gschemas.compiled or the settings UI and idle timer cannot read it
+        if fetch /usr/share/glib-2.0/schemas/gschemas.compiled "$TMP/gschemas.compiled" && grep -aq 'dev.ncz.screensaver' "$TMP/gschemas.compiled"; then :; else gate_miss screensavers "dev.ncz.screensaver missing from gschemas.compiled (glib-compile-schemas did not run)"; fi
+        # the idle timer is enabled, and the older swayidle idle manager is NOT (they would both lock the session)
+        idled=0; oldidle=0
+        for w in $(lsnames /etc/systemd/user | grep '\.wants$'); do
+            lsnames "/etc/systemd/user/$w" | grep -qx 'ncz-screensaver-idled.service' && idled=1
+            lsnames "/etc/systemd/user/$w" | grep -qx 'ncz-idle-manager.service' && oldidle=1
+        done
+        [ "$idled" = 1 ] || gate_miss screensavers "ncz-screensaver-idled.service is not enabled (no .wants symlink under /etc/systemd/user)"
+        [ "$oldidle" = 0 ] || gate_miss screensavers "ncz-idle-manager.service is still enabled next to ncz-screensaver-idled"
+    fi
+else
+    echo "[verify-target] (vi) ncz-screensavers not requested by this image; skipped"
+fi
+
 # --- (info) VA-API ---------------------------------------------------------
 va=""
 for d in /usr/lib/aarch64-linux-gnu/dri /usr/lib/dri; do

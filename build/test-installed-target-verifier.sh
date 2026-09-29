@@ -39,6 +39,26 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     echo 'ln -sf $_d /dev/video-cixdec0' > "$r/usr/bin/load-modules.sh"
     printf 'xx h264_v4l2m2m xx' > "$r/usr/lib/aarch64-linux-gnu/libavcodec.so.62.1.100"
     printf 'Package: google-chrome-stable\nStatus: install ok installed\n\nPackage: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$r/var/lib/dpkg/status"
+    # VA-API + mpv
+    mkdir -p "$r/usr/share/cix/lib" "$r/etc/environment.d" "$r/etc/mpv"
+    echo x > "$r/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so"
+    ln -s libcix_va_drv_video.so "$r/usr/lib/aarch64-linux-gnu/dri/linlondp_drv_video.so"
+    echo x > "$r/usr/share/cix/lib/libva.so.2"
+    echo 'LIBVA_DRIVER_NAME=libcix_va' > "$r/etc/environment.d/60-ncz-vaapi.conf"
+    echo 'hwdec=vaapi' > "$r/etc/mpv/mpv.conf"
+    # ncz-screensavers
+    mkdir -p "$r/usr/local/lib/cix-installer/manifests" "$r/usr/lib/ncz-screensavers" "$r/usr/libexec" "$r/usr/lib/systemd/user" \
+             "$r/usr/share/glib-2.0/schemas" "$r/usr/share/ncz-screensavers" "$r/etc/systemd/user/graphical-session.target.wants"
+    echo ncz-screensavers > "$r/usr/local/lib/cix-installer/manifests/install-extra.pkgs"
+    for n in $(seq 1 84); do echo x > "$r/usr/lib/ncz-screensavers/hack${n}_gles3"; done
+    echo x > "$r/usr/bin/ncz-screensaver"; echo x > "$r/usr/bin/ncz-screensaver-settings"
+    echo x > "$r/usr/libexec/ncz-screensaver-idled"; echo x > "$r/usr/libexec/ncz-screensaver-run"
+    echo x > "$r/usr/lib/systemd/user/ncz-screensaver-idled.service"
+    echo x > "$r/usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml"
+    echo x > "$r/usr/share/ncz-screensavers/hacks.tsv"
+    printf 'GSettings dev.ncz.screensaver blob' > "$r/usr/share/glib-2.0/schemas/gschemas.compiled"
+    ln -s /usr/lib/systemd/user/ncz-screensaver-idled.service "$r/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"
+    printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: 0.3.2\n\n' >> "$r/var/lib/dpkg/status"
 }
 
 run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name or ""
@@ -64,6 +84,17 @@ m_no_amvx()     { printf 'updates/dkms/aipu.ko.xz:\n' > "$1/usr/lib/modules/$KVE
 m_no_chrome()   { printf 'Package: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$1/var/lib/dpkg/status"; }
 m_half_chrome() { printf 'Package: google-chrome-stable\nStatus: deinstall ok config-files\n\nPackage: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$1/var/lib/dpkg/status"; }
 m_no_v4l2m2m()  { printf 'plain' > "$1/usr/lib/aarch64-linux-gnu/libavcodec.so.62.1.100"; }
+m_no_vadrv()    { rm -f "$1/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so"; }
+m_no_vasym()    { rm -f "$1/usr/lib/aarch64-linux-gnu/dri/linlondp_drv_video.so"; }
+m_no_libva()    { rm -f "$1/usr/share/cix/lib/libva.so.2"; }
+m_no_mpv()      { echo 'vo=gpu' > "$1/etc/mpv/mpv.conf"; }
+m_ss_missing()  { sed -i '/ncz-screensavers/,+3d' "$1/var/lib/dpkg/status"; }
+m_ss_hacks()    { rm -f "$1"/usr/lib/ncz-screensavers/hack1*_gles3; }
+m_ss_noidled()  { rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"; }
+m_ss_oldidle()  { ln -s /usr/lib/systemd/user/ncz-idle-manager.service "$1/etc/systemd/user/graphical-session.target.wants/ncz-idle-manager.service"; }
+m_ss_schema()   { printf 'nothing' > "$1/usr/share/glib-2.0/schemas/gschemas.compiled"; }
+m_ss_launcher() { rm -f "$1/usr/bin/ncz-screensaver"; }
+m_ss_unrequested() { : > "$1/usr/local/lib/cix-installer/manifests/install-extra.pkgs"; m_ss_missing "$1"; }
 m_no_loader()   { rm -f "$1/usr/bin/load-modules.sh"; }
 
 run_case "healthy installed root passes"        0 ""
@@ -79,6 +110,17 @@ run_case "google-chrome-stable absent fails"    1 m_no_chrome
 run_case "chrome removed-not-purged fails"      1 m_half_chrome
 run_case "ffmpeg without v4l2m2m fails"         1 m_no_v4l2m2m
 run_case "no cixdec0 loader fails"              1 m_no_loader
+run_case "no VA driver fails"                   1 m_no_vadrv
+run_case "no linlondp symlink fails"            1 m_no_vasym
+run_case "no matched libva runtime fails"       1 m_no_libva
+run_case "mpv without hwdec fails"              1 m_no_mpv
+run_case "screensavers requested but absent fails" 1 m_ss_missing
+run_case "screensavers with 74 of 84 hacks fails"  1 m_ss_hacks
+run_case "screensavers without launcher fails"  1 m_ss_launcher
+run_case "idled timer not enabled fails"        1 m_ss_noidled
+run_case "old idle-manager still enabled fails" 1 m_ss_oldidle
+run_case "schema not compiled fails"            1 m_ss_schema
+run_case "screensavers not requested is skipped" 0 m_ss_unrequested
 
 echo "verifier tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]

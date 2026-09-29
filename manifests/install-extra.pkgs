@@ -7,3 +7,4 @@
 #
 # ncz-screensavers is added here when its .deb is staged in
 # build/ncz-screensavers-out/ (see docs/ARM64-IMAGE-BUILD.md).
+ncz-screensavers

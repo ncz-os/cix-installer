@@ -184,6 +184,10 @@ case "$BUILD_VARIANT" in
                 cix-gpu-kmd-dkms_
                 panthor-cix-dkms_
                 cix-firmware_
+                cix-vaapi_
+                cix-libva2_
+                cix-libva-drm2_
+                cix-libcme_
             "
             for prefix in $NEED_PREFIXES; do
                 if compgen -G "$DEB_DIR/${prefix}*.deb" > /dev/null; then
@@ -244,6 +248,21 @@ if [ "$CHECK_MIRROR" = 1 ]; then
                 mark_miss "mirror.index" "$PKG_FILE (no entry for Package: ${pkg})"
             fi
         done
+    fi
+fi
+
+# (e) ncz-screensavers: when manifests/install-extra.pkgs asks for it, the .deb
+# must be staged (and, with --mirror, present in the offline mirror) --------
+EXTRA_MANIFEST="$ROOT/manifests/install-extra.pkgs"
+if [ -s "$EXTRA_MANIFEST" ] && sed 's/#.*//' "$EXTRA_MANIFEST" | awk 'NF {print $1}' | grep -qx ncz-screensavers; then
+    if ! ls "$ROOT"/build/ncz-screensavers-out/ncz-screensavers_*_arm64.deb >/dev/null 2>&1; then
+        mark_miss "ncz-screensavers.deb" "$ROOT/build/ncz-screensavers-out/ncz-screensavers_*_arm64.deb (install-extra.pkgs requests it)"
+    fi
+    if [ "$CHECK_MIRROR" = 1 ]; then
+        FM="${BUILD_DIR:-$ROOT/build}/forky-mirror"
+        if ! find "$FM/pool" -type f -name 'ncz-screensavers_*_arm64.deb' 2>/dev/null | grep -q . ; then
+            mark_miss "ncz-screensavers.mirror" "$FM/pool (no ncz-screensavers_*_arm64.deb; re-run stage 0)"
+        fi
     fi
 fi
 
