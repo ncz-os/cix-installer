@@ -218,6 +218,8 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
     if [ -d "$SRC/post-install" ] && [ -f "$SRC/post-install/run-all.sh" ]; then
         rm -rf /target/usr/local/lib/cix-installer/post-install
         cp -a "$SRC/post-install" /target/usr/local/lib/cix-installer/
+        mkdir -p /target/usr/local/lib/cix-installer/manifests
+        cp -a "$SRC/manifests/." /target/usr/local/lib/cix-installer/manifests/ 2>/dev/null || true
         echo "[late] refreshed post-install scripts from $SRC/post-install"
     elif [ -f /target/usr/local/lib/cix-installer/post-install/run-all.sh ]; then
         echo "[late] WARN: install media carries no post-install/ — keeping the scripts baked into the image"

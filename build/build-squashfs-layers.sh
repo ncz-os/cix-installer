@@ -485,6 +485,8 @@ build_layer(){ local role="$1" manifest="$2"
     # base-build time), so an edited hook (e.g. 60-boot-splash's plymouth purge)
     # would NOT take effect on a desktop-only rebuild without this.
     sudo cp -a "$ROOT/post-install/." "$MG/usr/local/lib/cix-installer/post-install/" 2>/dev/null || true
+    sudo mkdir -p "$MG/usr/local/lib/cix-installer/manifests"
+    sudo cp -a "$ROOT/manifests/." "$MG/usr/local/lib/cix-installer/manifests/" 2>/dev/null || true
     [ -s "$ROOT/release.conf" ] && \
       sudo install -m 0644 "$ROOT/release.conf" "$MG/usr/local/lib/cix-installer/RELEASE"
     # r166: stage the NCZ branding assets the brand hooks read. The base build
@@ -887,6 +889,8 @@ build_base(){
     log "no mirror for $APT_SUITE -> wiring NCZ + base apt sources early (24-apt-sources)"
     sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer"
     sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
+    sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/manifests"
+    sudo cp -a "$ROOT/manifests/." "$WORK/base/usr/local/lib/cix-installer/manifests/" 2>/dev/null || true
     sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
     if ! sudo chroot "$WORK/base" bash -c 'cd /usr/local/lib/cix-installer/post-install && bash ./24-apt-sources.sh' 2>&1 | tail -12; then
       log "ERROR: 24-apt-sources.sh failed with no local mirror available -- cannot resolve any base packages"
@@ -906,6 +910,8 @@ build_base(){
   # stage the installer hook tree + assets the base hooks read
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer"
   sudo cp -a "$ROOT/post-install" "$WORK/base/usr/local/lib/cix-installer/"
+  sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/manifests"
+  sudo cp -a "$ROOT/manifests/." "$WORK/base/usr/local/lib/cix-installer/manifests/" 2>/dev/null || true
   sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
   # Real, current assets/ subdirs meant to ship inside the target OS.

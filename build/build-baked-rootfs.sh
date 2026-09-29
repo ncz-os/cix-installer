@@ -57,6 +57,8 @@ sudo cp /usr/bin/qemu-aarch64-static "$CHROOT/usr/bin/"
 sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf"
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer"
 sudo cp -a "$ROOT/post-install" "$CHROOT/usr/local/lib/cix-installer/"
+sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/manifests"
+sudo cp -a "$ROOT/manifests/." "$CHROOT/usr/local/lib/cix-installer/manifests/" 2>/dev/null || true
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets"
 for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu wallpaper screensaver-chooser; do
   [ -d "$ROOT/assets/$_d" ] && sudo cp -a "$ROOT/assets/$_d" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
