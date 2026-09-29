@@ -169,21 +169,34 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
     pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol pulseaudio-utils 2>&1 | tail -3 || true
 systemctl --global enable pipewire pipewire-pulse wireplumber 2>&1 | tail -2 || true
 
-if [ -f /cdrom/ncz-payload/assets/audio/ncz-sky1-audio-autoswitch.py ] && \
-   [ -f /cdrom/ncz-payload/assets/audio/ncz-sky1-audio-autoswitch.service ]; then
-    install -m 0755 /cdrom/ncz-payload/assets/audio/ncz-sky1-audio-autoswitch.py \
+# Asset lookup (2026-09-29 regression fix): the ISO installer exposes the payload
+# at /cdrom/ncz-payload, but the image install path has no /cdrom -- there the
+# same payload is already copied into the target at
+# /usr/local/lib/cix-installer. Looking only under /cdrom skipped this block on
+# the image (build 28a868c), so the target had a card but only PipeWire's Dummy
+# Output sink. Search both roots; stay loud if neither has the files.
+_audio_root=""
+for _r in /cdrom/ncz-payload /usr/local/lib/cix-installer; do
+    if [ -f "$_r/assets/audio/ncz-sky1-audio-autoswitch.py" ] && \
+       [ -f "$_r/assets/audio/ncz-sky1-audio-autoswitch.service" ]; then
+        _audio_root="$_r"
+        break
+    fi
+done
+if [ -n "$_audio_root" ]; then
+    install -m 0755 "$_audio_root/assets/audio/ncz-sky1-audio-autoswitch.py" \
         /usr/local/bin/ncz-sky1-audio-autoswitch
     install -d -m 0755 /etc/systemd/user /usr/share/doc
-    install -m 0644 /cdrom/ncz-payload/assets/audio/ncz-sky1-audio-autoswitch.service \
+    install -m 0644 "$_audio_root/assets/audio/ncz-sky1-audio-autoswitch.service" \
         /etc/systemd/user/ncz-sky1-audio-autoswitch.service
-    if [ -f /cdrom/ncz-payload/docs/NCZ-SKY1-AUDIO-AUTOSWITCH.md ]; then
-        install -m 0644 /cdrom/ncz-payload/docs/NCZ-SKY1-AUDIO-AUTOSWITCH.md \
+    if [ -f "$_audio_root/docs/NCZ-SKY1-AUDIO-AUTOSWITCH.md" ]; then
+        install -m 0644 "$_audio_root/docs/NCZ-SKY1-AUDIO-AUTOSWITCH.md" \
             /usr/share/doc/ncz-sky1-audio-autoswitch.md
     fi
     systemctl --global enable ncz-sky1-audio-autoswitch.service 2>&1 | tail -2 || true
-    echo "[20] Sky1 HDMI/DP audio autoswitch user service staged"
+    echo "[20] Sky1 HDMI/DP audio autoswitch user service staged (from $_audio_root)"
 else
-    echo "[20] Sky1 HDMI/DP audio autoswitch assets absent; skipping"
+    echo "[20] WARN: Sky1 HDMI/DP audio autoswitch assets not found under /cdrom/ncz-payload or /usr/local/lib/cix-installer; the desktop will have a Dummy Output sink only" >&2
 fi
 
 # Removable media + bluetooth. (NO network-manager-gnome — the base-layer

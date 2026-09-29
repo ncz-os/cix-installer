@@ -14,6 +14,9 @@
 #         helper that creates /dev/video-cixdec0, and a distro ffmpeg whose
 #         libavcodec carries the *_v4l2m2m codecs
 #   (iv)  browsers: google-chrome-stable and chromium-ncz-sky1 installed
+#   (v-b) Sky1 HDMI/DP audio autoswitch: daemon + user unit installed and enabled
+#         under a .wants dir, pactl present (without it the desktop only ever
+#         shows PipeWire's Dummy Output)
 #   (info) VA-API driver files (reported, never a failure)
 #
 # Usage: verify-installed-target-arm64.sh <EVIDENCE_ROOT_RAW> <DEBUGFS>
@@ -194,6 +197,22 @@ if fetch /etc/mpv/mpv.conf "$TMP/mpv.conf" && grep -q '^hwdec=' "$TMP/mpv.conf";
 else
     gate_miss vpu "/etc/mpv/mpv.conf with a hwdec= line (84-vpu-mpv)"
 fi
+
+# --- (v-b) Sky1 audio: a real (non-dummy) sink can be created ---------------
+# WirePlumber ACP cannot expose the Sky1 card (UCM HiFi probes all 3 DP PCMs and
+# is dropped when any connector has no monitor), so the autoswitch user service
+# is the only thing that creates a real sink. Regression 2026-09-29 (image
+# 28a868c): 20-desktop.sh looked only under /cdrom, installed nothing, and the
+# desktop showed only "Dummy Output".
+echo "[verify-target] (v-b) Sky1 HDMI/DP audio autoswitch"
+exists /usr/local/bin/ncz-sky1-audio-autoswitch || gate_miss audio "/usr/local/bin/ncz-sky1-audio-autoswitch (20-desktop did not install it)"
+exists /etc/systemd/user/ncz-sky1-audio-autoswitch.service || gate_miss audio "/etc/systemd/user/ncz-sky1-audio-autoswitch.service"
+exists /usr/bin/pactl || gate_miss audio "/usr/bin/pactl (pulseaudio-utils; the autoswitch daemon needs it)"
+audsw=0
+for w in $(lsnames /etc/systemd/user | grep '\.wants$'); do
+    lsnames "/etc/systemd/user/$w" | grep -qx 'ncz-sky1-audio-autoswitch.service' && audsw=1
+done
+[ "$audsw" = 1 ] || gate_miss audio "ncz-sky1-audio-autoswitch.service is not enabled (no .wants symlink under /etc/systemd/user)"
 
 # --- (vi) ncz-screensavers (only when this image is meant to ship it) ---------
 # The image records that intent in its own payload: manifests/install-extra.pkgs.
