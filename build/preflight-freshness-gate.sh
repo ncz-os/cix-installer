@@ -38,13 +38,20 @@
 #      build fails partway through, not after.
 #
 #   3. The kernel-staging pool's newest dated directory for each line
-#      (amd64-stable, amd64-edge) is genuinely newer than or equal to
+#      (amd64-stable, amd64-edge, and the single arm64/Sky1 line under the
+#      r<N>-*-sky1-ncz-* namespace) is genuinely newer than or equal to
 #      whatever this checkout's own kernel-line pointer resolves to. This
-#      does not replace stage-amd64-kernel.sh; it exists to catch the
-#      window where a fresher kernel was JUST promoted to the shared pool
-#      but a concurrently-running or freshly-started build hasn't picked
-#      it up, so the operator gets an explicit answer instead of silently
-#      shipping the older kernel.
+#      does not replace stage-amd64-kernel.sh (or stage-kernel.sh); it
+#      exists to catch the window where a fresher kernel was JUST promoted
+#      to the shared pool but a concurrently-running or freshly-started
+#      build hasn't picked it up, so the operator gets an explicit answer
+#      instead of silently shipping the older kernel. Measured 2026-09-28
+#      on ULTRA: an arm64 image shipped with the WRONG Sky1 kernel because
+#      this check [3] had no arm64 arm -- a real rc5-vs-7.2.8 mismatch
+#      went all the way through the install, post-install/10-our-kernel.sh
+#      installed rc5, and the post-install then looked for /boot/vmlinuz-
+#      7.2.8-sky1-ncz which had never been written. The amd64 side of the
+#      same night caught its equivalent drift immediately via the gate.
 #
 # Exit 0 = clean, safe to build. Exit 1 = a real problem was found and
 # printed; do not proceed with the build until it's resolved or explicitly
@@ -56,16 +63,51 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
-KERNEL_STAGING_DIR="/mnt/argonas/datapool/yocto-shared/kernel-staging"
-for candidate in /mnt/argonas-yocto-shared/kernel-staging /nfs-shared/kernel-staging; do
-    [ -d "$candidate" ] && KERNEL_STAGING_DIR="$candidate"
+# Mount spelling DIFFERS PER HOST (ARGONAS kernel-staging export):
+#   ULTRA:           /mnt/argonas-yocto-shared
+#   TYDEUS:          /nfs-shared
+#   PROTEUS/ARGOS/
+#   HYDRA/ACHILLES/
+#   CERBERUS:        /mnt/argonas/datapool/yocto-shared
+# build/stage-amd64-kernel.sh already probes three of these; copy the
+# pattern so a fresh build host never has to edit either script to find
+# the same shared pool. The override flag still wins, by design.
+KERNEL_STAGING_DIR=""
+for candidate in /mnt/argonas/datapool/yocto-shared/kernel-staging \
+                  /mnt/argonas-yocto-shared/kernel-staging \
+                  /nfs-shared/kernel-staging; do
+    [ -d "$candidate" ] && KERNEL_STAGING_DIR="$candidate" && break
 done
+KERNEL_STAGING_DIR="${KERNEL_STAGING_DIR:-/mnt/argonas/datapool/yocto-shared/kernel-staging}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --kernel-staging-dir) KERNEL_STAGING_DIR="$2"; shift 2 ;;
         *) echo "unknown arg: $1" >&2; exit 1 ;;
     esac
 done
+
+# Same arch-detection pattern post-install/10-our-kernel.sh:51-57 and
+# 10-amd64-kernel.sh:32-38 already use: env var first, then the
+# late.sh-stamped BUILD_ARCH file, then dpkg as a last-resort fallback.
+# This gate is at BUILD time, not install time, so BUILD_ARCH is normally
+# absent -- but the pattern is the project's canonical one and using it
+# here means an operator who sets NCZ_TARGET_ARCH in either phase gets
+# the same answer.
+NCZ_SYSTEM_ARCH="${NCZ_TARGET_ARCH:-}"
+if [ -z "$NCZ_SYSTEM_ARCH" ] && [ -r "$REPO_ROOT/.cix/BUILD_ARCH" ]; then
+    NCZ_SYSTEM_ARCH=$(tr -d '[:space:]' < "$REPO_ROOT/.cix/BUILD_ARCH")
+fi
+NCZ_SYSTEM_ARCH="${NCZ_SYSTEM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
+
+# Reuse assets/refind/zz1-ncz-refind-refresh-amd64's exact classifier:
+# the only difference between a "stable" and a "prerelease" kernel here is
+# the presence of -rc<digit> in its name (7.3.0-rc5 vs 7.2.8). Anything
+# carrying -rc<N> is in the prerelease/edge class; everything else is
+# stable. The amd64 rEFInd helper does this already; the same logic
+# works for the single-namespace Sky1 pool (r272/r273/r274/r277/r278).
+is_prerelease() {
+    case "$1" in *-rc[0-9]*) return 0 ;; *) return 1 ;; esac
+}
 
 FAIL=0
 WARN=0
@@ -170,93 +212,275 @@ else
 fi
 
 # --- 3. Kernel-staging pool freshness ---------------------------------------
-if [ -d "$KERNEL_STAGING_DIR" ]; then
-    for line in amd64-stable amd64-edge; do
-        # Directory names are NOT lexically ordered by recency (e.g. an
-        # "...-rc4-3-t2-xhcifix-DATE" variant sorts before a same-date
-        # "...-rc4-t2-trixie-DATE" one because '3' < 't' lexically, even
-        # though the xhcifix one was staged later) -- match
-        # stage-amd64-kernel.sh's own selection (ls -dt, real mtime) or this
-        # check disagrees with what actually got staged. Found + fixed
-        # 2026-09-23 after it produced a false FAIL against a genuinely
-        # fresher local stage.
-        newest="$(find "$KERNEL_STAGING_DIR" -maxdepth 1 -type d -name "${line}-*" -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)"
-        if [ -z "$newest" ]; then
-            echo "[3] WARN: no staged kernel found for line '$line' under $KERNEL_STAGING_DIR"
-            WARN=$((WARN + 1))
-            continue
+#
+# Two parallel arms -- amd64 and arm64 (Sky1). Both consume the SAME
+# shared ARGONAS pool, but their packaging and naming differ:
+#
+#   amd64 has TWO namespaces (amd64-stable-*, amd64-edge-*); each line's
+#   payload is a .deb pair (linux-image-*.deb + linux-headers-*.deb) the
+#   installer dpkg-installs. Comparison: sha256 of the .deb in the pool
+#   vs the .deb in assets/kernel/<line>/. This is the "byte-for-byte
+#   unchanged" path -- the per-line body is now in check_amd64_line() but
+#   every line it prints is identical to what the old inline loop emitted.
+#
+#   arm64 (Sky1) has ONE namespace (r<N>-<kver>-sky1-ncz-<date>) with the
+#   -rc marker splitting the same set into a stable class and a
+#   prerelease class -- identical to how assets/refind/zz1-ncz-refind-
+#   refresh-amd64 classifies amd64 kernels. The local pointer is an
+#   absolute symlink (assets/kernel/edge -> <pool>/r<N>-...) whose
+#   payload is Image-cixmini.bin + modules-cixmini.tgz + ... -- NOT a
+#   .deb. Comparison: resolve the symlink, take its basename, compare to
+#   the newest pool dir of the same class (by mtime). Newer-but-other-
+#   class is WARN (deliberate-pin case), not FAIL.
+#
+# Pool-mount discovery and the -rc classifier are both duplicated by
+# design from existing files (stage-amd64-kernel.sh and the rEFInd
+# helper respectively) rather than imported -- a build-host that lacks
+# the helper dir or has a renamed pool layout still gets a working gate.
+
+# arm64 arm -- one local pointer (assets/kernel/edge -> <pool>/r<N>-...).
+# Symlink target is the LIVE pin. Pool dirs carry the -rc marker that
+# classifies them into stable vs prerelease/edge (same as the amd64
+# rEFInd helper). FAIL vs WARN is decided by whether the newer pool dir
+# is the SAME class as the live pin:
+#   FAIL -- symlink is missing, points outside the pool, or points at a
+#           pool dir that is NOT the newest in its class (operator's
+#           claimed pin has been superseded by a same-class build).
+#   WARN -- a newer pool dir exists, but it is in the OTHER class
+#           (deliberate pin: pinned to stable r277 while prerelease
+#           r278 exists, or vice versa). Printed but not failed, so the
+#           operator can see the decision rather than guess at it.
+check_arm64_edge() {
+    local local_pointer="assets/kernel/edge"
+    if [ ! -L "$local_pointer" ]; then
+        echo "[3] FAIL: arm64 -- $local_pointer is not a symlink (Sky1 builds consume the pool via this absolute symlink)"
+        FAIL=$((FAIL + 1))
+        return
+    fi
+    local target
+    target="$(readlink "$local_pointer")"
+    if [ ! -e "$target" ]; then
+        echo "[3] FAIL: arm64 -- $local_pointer is dangling (readlink -> $target)"
+        echo "          the pool path this host sees is $(cd "$KERNEL_STAGING_DIR" 2>/dev/null && pwd || echo 'unknown')"
+        echo "          but the symlink was made on a host where the pool mounts at a different path."
+        echo "          repoint: ln -sfn \"$KERNEL_STAGING_DIR/<pool-dir>\" $local_pointer"
+        FAIL=$((FAIL + 1))
+        return
+    fi
+    # Resolve to absolute for the "points outside the pool" check -- a
+    # relative symlink would silently misbehave against every consumer.
+    local abs_target
+    abs_target="$(cd "$(dirname "$target")" && pwd)/$(basename "$target")"
+    case "$abs_target" in
+        "$KERNEL_STAGING_DIR"/*) ;;
+        *)
+            echo "[3] FAIL: arm64 -- $local_pointer resolves to $abs_target"
+            echo "          which is OUTSIDE the kernel-staging pool ($KERNEL_STAGING_DIR)."
+            echo "          Nothing in the build reads from a path outside the pool."
+            FAIL=$((FAIL + 1))
+            return
+            ;;
+    esac
+    local pin_name
+    pin_name="$(basename "$abs_target")"
+    local pin_class=""
+    if is_prerelease "$pin_name"; then pin_class="prerelease"; else pin_class="stable"; fi
+    # Newest in each class, by mtime (lexical order is wrong for the same
+    # reason the amd64 loop sorts by mtime -- see its inline comment).
+    # %T@ gives fractional seconds (e.g. 1790570677.4776231330); strip
+    # everything past the decimal so `-gt` can compare integers.
+    local newest_stable="" newest_stable_mtime=-1
+    local newest_pre="" newest_pre_mtime=-1
+    local d name mt
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        d="${line#* }"
+        name="$(basename "$d")"
+        mt="${line%% *}"
+        mt="${mt%%.*}"
+        if is_prerelease "$name"; then
+            [ "$mt" -gt "$newest_pre_mtime" ] && { newest_pre_mtime="$mt"; newest_pre="$name"; }
+        else
+            [ "$mt" -gt "$newest_stable_mtime" ] && { newest_stable_mtime="$mt"; newest_stable="$name"; }
         fi
-        newest_name="$(basename "$newest")"
-        local_kver_dir="assets/kernel/$line"
-        if [ -d "$local_kver_dir" ]; then
-            # build/post-install/10-amd64-kernel.sh actually CONSUMES the
-            # highest-version file via `sort -V | tail -1`, so an older file
-            # sitting alongside a freshly-staged newer one (stage-amd64-
-            # kernel.sh never deletes the old version) is harmless to the
-            # real build -- checking only the FIRST `find` result (unsorted,
-            # arbitrary order) produced a false FAIL here 2026-09-21 even
-            # though the newest kernel was already staged correctly. Check
-            # whether the staged newest's checksum exists ANYWHERE locally,
-            # matching what the build will actually pick.
-            staged_deb="$(find "$newest" -maxdepth 1 -iname 'linux-image-*.deb' 2>/dev/null | head -1)"
-            local_debs=("$local_kver_dir"/linux-image-*.deb)
-            if [ -n "$staged_deb" ] && [ -e "${local_debs[0]}" ]; then
-                staged_sum="$(sha256sum "$staged_deb" 2>/dev/null | cut -d' ' -f1)"
-                match=0
-                for local_deb in "${local_debs[@]}"; do
-                    local_sum="$(sha256sum "$local_deb" 2>/dev/null | cut -d' ' -f1)"
-                    if [ "$local_sum" = "$staged_sum" ]; then
-                        match=1
-                        break
-                    fi
-                done
-                if [ "$match" -eq 1 ]; then
-                    echo "[3] OK: $line -- locally staged kernel matches the newest in the shared pool ($newest_name)"
+    done <<EOF
+$(find "$KERNEL_STAGING_DIR" -maxdepth 1 -type d -name 'r[0-9]*-*' -printf '%T@ %p\n' 2>/dev/null)
+EOF
+    # If the live pin matches the newest in its class, that's the only
+    # condition under which we have nothing to say. Surface a WARN if a
+    # newer OTHER-class build exists (deliberate pin), FAIL if a newer
+    # SAME-class build exists (the operator's pin has been superseded).
+    case "$pin_class" in
+        stable)
+            if [ "$pin_name" = "$newest_stable" ]; then
+                if [ -n "$newest_pre" ]; then
+                    echo "[3] OK: arm64 -- $local_pointer -> $pin_name (newest stable, pinned while newer prerelease $newest_pre is published -- deliberate)"
+                    echo "[3] WARN: arm64 -- newer prerelease-class build exists: $newest_pre (pinning to stable $pin_name is a deliberate choice; not failing it)"
+                    WARN=$((WARN + 1))
                 else
-                    echo "[3] FAIL: $line -- locally staged kernel does NOT match the newest in the shared pool"
-                    echo "          shared pool has: $newest_name"
-                    echo "          local has:       $(basename -a "${local_debs[@]}" | paste -sd, -)"
-                    echo "          run build/stage-amd64-kernel.sh $line (or the Sky1 equivalent) before building."
-                    FAIL=$((FAIL + 1))
+                    echo "[3] OK: arm64 -- $local_pointer -> $pin_name (newest stable, no prerelease-class build published)"
                 fi
             else
-                echo "[3] WARN: $line -- could not find a linux-image-*.deb locally or in $newest to compare"
-                WARN=$((WARN + 1))
+                echo "[3] FAIL: arm64 -- $local_pointer -> $pin_name (stable class) but the pool's newest stable build is $newest_stable"
+                echo "          Newer stable builds of the SAME class exist; the operator's pin is stale."
+                echo "          Newer prerelease (informational, not the failure): ${newest_pre:-<none>}"
+                echo "          Repoint to $newest_stable, or confirm the operator explicitly wants $pin_name."
+                FAIL=$((FAIL + 1))
+            fi
+            ;;
+        prerelease)
+            if [ "$pin_name" = "$newest_pre" ]; then
+                if [ -n "$newest_stable" ]; then
+                    echo "[3] OK: arm64 -- $local_pointer -> $pin_name (newest prerelease, pinned while newer stable $newest_stable is published -- deliberate)"
+                    echo "[3] WARN: arm64 -- newer stable-class build exists: $newest_stable (pinning to prerelease $pin_name is a deliberate choice; not failing it)"
+                    WARN=$((WARN + 1))
+                else
+                    echo "[3] OK: arm64 -- $local_pointer -> $pin_name (newest prerelease, no stable-class build published)"
+                fi
+            else
+                echo "[3] FAIL: arm64 -- $local_pointer -> $pin_name (prerelease class) but the pool's newest prerelease build is $newest_pre"
+                echo "          Newer prerelease builds of the SAME class exist; the operator's pin is stale."
+                echo "          Newer stable (informational, not the failure): ${newest_stable:-<none>}"
+                echo "          Repoint to $newest_pre, or confirm the operator explicitly wants $pin_name."
+                FAIL=$((FAIL + 1))
+            fi
+            ;;
+    esac
+}
+
+# amd64 arm -- one function per line, parameterised only by the line name
+# so the loop body is in one place. The body is BYTE-FOR-BYTE the same as
+# the original inline loop: same find, same mtime sort, same sha256
+# comparison against assets/kernel/<line>/, same OK/FAIL/WARN output.
+# This is the explicit posture the task brief asked for: refactor plus
+# an arm64 arm, NOT a rewrite.
+check_amd64_line() {
+    local line="$1"
+    local newest
+    # Directory names are NOT lexically ordered by recency (e.g. an
+    # "...-rc4-3-t2-xhcifix-DATE" variant sorts before a same-date
+    # "...-rc4-t2-trixie-DATE" one because '3' < 't' lexically, even
+    # though the xhcifix one was staged later) -- match
+    # stage-amd64-kernel.sh's own selection (ls -dt, real mtime) or this
+    # check disagrees with what actually got staged. Found + fixed
+    # 2026-09-23 after it produced a false FAIL against a genuinely
+    # fresher local stage.
+    newest="$(find "$KERNEL_STAGING_DIR" -maxdepth 1 -type d -name "${line}-*" -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)"
+    if [ -z "$newest" ]; then
+        echo "[3] WARN: no staged kernel found for line '$line' under $KERNEL_STAGING_DIR"
+        WARN=$((WARN + 1))
+        return
+    fi
+    local newest_name
+    newest_name="$(basename "$newest")"
+    local local_kver_dir="assets/kernel/$line"
+    if [ -d "$local_kver_dir" ]; then
+        # build/post-install/10-amd64-kernel.sh actually CONSUMES the
+        # highest-version file via `sort -V | tail -1`, so an older file
+        # sitting alongside a freshly-staged newer one (stage-amd64-
+        # kernel.sh never deletes the old version) is harmless to the
+        # real build -- checking only the FIRST `find` result (unsorted,
+        # arbitrary order) produced a false FAIL here 2026-09-21 even
+        # though the newest kernel was already staged correctly. Check
+        # whether the staged newest's checksum exists ANYWHERE locally,
+        # matching what the build will actually pick.
+        local staged_deb
+        staged_deb="$(find "$newest" -maxdepth 1 -iname 'linux-image-*.deb' 2>/dev/null | head -1)"
+        local local_debs
+        local_debs=("$local_kver_dir"/linux-image-*.deb)
+        if [ -n "$staged_deb" ] && [ -e "${local_debs[0]}" ]; then
+            local staged_sum
+            staged_sum="$(sha256sum "$staged_deb" 2>/dev/null | cut -d' ' -f1)"
+            local match=0 local_deb local_sum
+            for local_deb in "${local_debs[@]}"; do
+                local_sum="$(sha256sum "$local_deb" 2>/dev/null | cut -d' ' -f1)"
+                if [ "$local_sum" = "$staged_sum" ]; then
+                    match=1
+                    break
+                fi
+            done
+            if [ "$match" -eq 1 ]; then
+                echo "[3] OK: $line -- locally staged kernel matches the newest in the shared pool ($newest_name)"
+            else
+                echo "[3] FAIL: $line -- locally staged kernel does NOT match the newest in the shared pool"
+                echo "          shared pool has: $newest_name"
+                echo "          local has:       $(basename -a "${local_debs[@]}" | paste -sd, -)"
+                echo "          run build/stage-amd64-kernel.sh $line (or the Sky1 equivalent) before building."
+                FAIL=$((FAIL + 1))
             fi
         else
-            echo "[3] WARN: no local $local_kver_dir to compare against shared pool's $newest_name"
+            echo "[3] WARN: $line -- could not find a linux-image-*.deb locally or in $newest to compare"
             WARN=$((WARN + 1))
         fi
-    done
+    else
+        echo "[3] WARN: no local $local_kver_dir to compare against shared pool's $newest_name"
+        WARN=$((WARN + 1))
+    fi
+}
 
-    # ORPHANED PREFIXES. The loop above, and stage-amd64-kernel.sh's
-    # stage_line, both glob ONLY "amd64-stable-*" and "amd64-edge-*". A
-    # kernel published under any other amd64-* name is therefore invisible
-    # to the whole pipeline -- not an error anywhere, just silently never
-    # staged. Measured 2026-09-27: two real, correctly-built kernels went in
-    # as amd64-t2-7.2.8-1-t2-trixie-20260927 and
-    # amd64-t2-7.3.0-rc5-1-t2-trixie-20260927 and were ignored for a full
-    # build cycle while this very check reported "matches the newest in the
-    # shared pool", because it compared against the newest thing matching
-    # its OWN prefix. A guard cannot see what it does not glob, so look for
-    # the names nothing globs.
+if [ -d "$KERNEL_STAGING_DIR" ]; then
+    case "$NCZ_SYSTEM_ARCH" in
+        amd64)
+            for line in amd64-stable amd64-edge; do
+                check_amd64_line "$line"
+            done
+            ;;
+        arm64)
+            check_arm64_edge
+            ;;
+        *)
+            # An arch we don't recognise. Don't claim OK -- say we don't
+            # know and let the operator route by hand. WARN, not FAIL,
+            # so an unknown future arch doesn't break the build pipeline,
+            # but the operator sees the gap.
+            echo "[3] WARN: NCZ_SYSTEM_ARCH='$NCZ_SYSTEM_ARCH' -- neither amd64 nor arm64, skipping kernel freshness check (set NCZ_TARGET_ARCH=amd64|arm64 to force)"
+            WARN=$((WARN + 1))
+            ;;
+    esac
+
+    # ORPHANED PREFIXES. Both arms above glob only their own prefix, and
+    # nothing else in the pipeline sees anything else. So a kernel that
+    # was published under a name NEITHER arm matches (e.g. the legacy
+    # sky1-<ver>-<date> namespace, an amd64-t2- prefix variant, a typo'd
+    # edge name) is invisible to every consumer -- not an error anywhere,
+    # just silently never staged. Measured 2026-09-27: two real, correctly
+    # -built amd64 kernels went in as amd64-t2-* and were ignored for a
+    # full build cycle while this very check reported "matches the newest
+    # in the shared pool". Measured 2026-09-28: the pool held
+    # sky1-7.2.8-20260927 (no r<N>, no sky1-ncz suffix) which matched
+    # neither arm64 glob nor the prior amd64 glob. A guard cannot see
+    # what it does not glob, so look for the names nothing globs. We
+    # enumerate EVERY subdir of the pool (not just the ones matching one
+    # arm's prefix -- otherwise the orphan is invisible by construction).
     orphans=""
     while IFS= read -r d; do
         [ -n "$d" ] || continue
         case "$(basename "$d")" in
+            # amd64: the two live lines.
             amd64-stable-*|amd64-edge-*) ;;
-            *) orphans="$orphans $(basename "$d")" ;;
+            # arm64: the single live namespace -- r<N>-<kver>-sky1-ncz-<date>.
+            # The trailing * lets a future suffix (e.g. -xhcifix) still
+            # classify instead of falling through unseen, same posture as
+            # assets/refind/zz1-ncz-refind-refresh-amd64's classifier.
+            r[0-9]*-*-sky1-ncz*) ;;
+            # Anything else under the pool that LOOKS like a kernel
+            # build (starts with amd64-, r<digit>-, or sky1-) is an
+            # orphan. Plain top-level dirs (lost+found, etc.) are not.
+            amd64-*|r[0-9]*-*|sky1-*) orphans="$orphans $(basename "$d")" ;;
+            *) ;;
         esac
     done <<EOF
-$(find "$KERNEL_STAGING_DIR" -maxdepth 1 -type d -name 'amd64-*' 2>/dev/null)
+$(find "$KERNEL_STAGING_DIR" -maxdepth 1 -mindepth 1 -type d 2>/dev/null)
 EOF
     if [ -n "$orphans" ]; then
-        echo "[3] FAIL: kernel-staging holds amd64 build(s) under a prefix nothing consumes:"
+        echo "[3] FAIL: kernel-staging holds build(s) under a prefix nothing consumes:"
         for o in $orphans; do echo "          $o"; done
-        echo "          stage-amd64-kernel.sh only globs amd64-stable-* and amd64-edge-*,"
-        echo "          so these will NEVER be staged into an image."
+        echo "          The amd64 arm globs amd64-stable-* and amd64-edge-*;"
+        echo "          the arm64 arm globs r<digit>*-*-sky1-ncz*. Anything else"
+        echo "          will NEVER be staged into an image."
         echo "          Rename to the correct line prefix, or republish with"
-        echo "          build/publish-amd64-kernel.sh {stable|edge} <deb-dir>."
+        echo "          build/publish-amd64-kernel.sh {stable|edge} <deb-dir> (amd64)"
+        echo "          or build/stage-kernel.sh (arm64)."
         FAIL=$((FAIL + 1))
     fi
 else
