@@ -98,7 +98,7 @@ manager, logged in through the greeter.
 | --- | --- |
 | MEDUSA | Login at 11:17:08; 103 MB and 8 thumbnails at +10 s, complete (128 MB, 36 unique photos, 36 thumbnails) at +15 s. With the timers disabled the plugin alone did the same. |
 | CHIMERA | Complete 5 s after login. Helper wrapped to fail with 75 three times: plugin retried at +30 s, +60 s, +120 s and then populated. Service with a dead proxy: exit 75, auto-restart, recovered after the proxy was removed. |
-| PEGASUS | Helper and service from a cleared cache: complete in 5 s, exit 0. (A full session restart was not possible while another test was using the desktop.) |
+| PEGASUS | Login at 11:47:18; 94 MB and first batch at +5 s, complete (128 MB, 36 photos, 36 thumbnails) at +10 s. Helper and service alone from a cleared cache: 5 s, exit 0. |
 
 Preferred market on CHIMERA and MEDUSA: the row lists Automatic plus the 14
 advertised markets; choosing Japan gave Japanese titles and credits in the
