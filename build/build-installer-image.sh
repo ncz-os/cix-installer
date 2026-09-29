@@ -12,7 +12,54 @@ SUBSTRATE_ISO=${SUBSTRATE_ISO:?set SUBSTRATE_ISO to a Debian installer ISO}
 SUBSTRATE_URL=${SUBSTRATE_URL:-file://$SUBSTRATE_ISO}
 OUTPUT=${OUTPUT:?set OUTPUT to the final .img path}
 WORK_DIR=${WORK_DIR:-$HOME/build-tmp/cix-installer-$ARCH}
-BUILD_VERSION=${BUILD_VERSION:-$(date -u +%Y.%m.%d)-$(git -C "$ROOT" rev-parse --short HEAD)}
+
+# BUILD_VERSION / BUILD_SHA -- directive 10 requires the commit SHA be
+# stamped into every produced artifact. The caller (Makefile, dispatch
+# host, CI) is the AUTHORITATIVE source: if it set BUILD_VERSION and/or
+# BUILD_SHA in its environment, use those verbatim. Only fall back to git
+# if neither was given. Inside the rootful ncz-imagebuild container git
+# can't read the host checkout because of dubious-ownership (the host UID
+# is not the container UID), so add the canonical safe-directory escape
+# hatch BEFORE invoking git -- this is the same fleet-standard fix the
+# kernel-build checklist §0f and preflight-freshness-gate.sh already use,
+# just applied one step earlier so the in-container default works
+# without manual intervention. If git STILL fails after that, error out
+# loudly rather than silently producing a `ncz-os-arm64-<date>-.img`
+# with an empty sha component (the 2026-09-28 arm64 stage-2 incident:
+# the operator got an unstamped artifact and the entire nightly ISO
+# pipeline stalled because nobody could tell which build was which).
+if [ -z "${BUILD_VERSION:-}" ]; then
+    git config --global --add safe.directory '*' 2>/dev/null || true
+    if command -v git >/dev/null 2>&1 && [ -d "$ROOT/.git" ]; then
+        _sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || true)
+        if [ -n "$_sha" ]; then
+            BUILD_VERSION="$(date -u +%Y.%m.%d)-${_sha}"
+        fi
+    fi
+    if [ -z "${BUILD_VERSION:-}" ]; then
+        echo "FATAL: BUILD_VERSION/BUILD_SHA unresolved." >&2
+        echo "       Either pass BUILD_VERSION=\$(date -u +%Y.%m.%d)-<sha> or" >&2
+        echo "       BUILD_SHA=<sha> in the environment, or fix git ownership" >&2
+        echo "       in the container (git config --global --add safe.directory '*')." >&2
+        echo "       An unstamped 'ncz-os-<arch>-<date>-.img' is not a valid artifact." >&2
+        exit 3
+    fi
+fi
+# Build the canonical "<version>-<sha>" string BUILD_VERSION from a
+# caller-supplied BUILD_SHA if necessary, so the rest of the pipeline
+# (which reads BUILD_VERSION as a single string) gets a consistent shape.
+if [ -z "${BUILD_VERSION:-}" ] && [ -n "${BUILD_SHA:-}" ]; then
+    BUILD_VERSION="$(date -u +%Y.%m.%d)-${BUILD_SHA}"
+fi
+# Final guard -- this should be unreachable, but a defense-in-depth
+# refuse-to-ship-empty-sha guard here means a regression in the
+# caller-supplied path ALSO can't slip an empty sha past us.
+case "$BUILD_VERSION" in
+    *-) echo "FATAL: BUILD_VERSION ends in '-' (empty sha component): $BUILD_VERSION" >&2
+         echo "       an unstamped artifact is not a valid artifact." >&2
+         exit 3 ;;
+esac
+echo "[build-installer-image] BUILD_VERSION=$BUILD_VERSION"
 CACHE_ROOT=${CACHE_ROOT:-$ROOT/build/iso-cache/v1}
 export TMPDIR=${TMPDIR:-$HOME/build-tmp}
 mkdir -p "$TMPDIR" "$WORK_DIR" "$(dirname "$OUTPUT")"
