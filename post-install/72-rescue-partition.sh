@@ -16,7 +16,7 @@
 #   ESP), so nothing we do gets clobbered.
 #
 # On arm64 the rescue partition ships the SHIPPING kernel from
-# assets/kernel/edge. It used to ship
+# assets/kernel/mainline. It used to ship
 # legacy 7.0.12 on the "a recovery env should be boring" principle, which
 # was right while two kernels existed. With one kernel that rule would leave
 # the rescue partition carrying modules for a kernel no longer built --

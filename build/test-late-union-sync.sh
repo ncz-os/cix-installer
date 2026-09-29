@@ -1,11 +1,11 @@
 #!/bin/bash
 # test-late-union-sync.sh -- regression test for preseed/late.sh's asset
 # union-sync when the baked layer carries a DANGLING absolute symlink where the
-# install media has a populated directory (assets/kernel/edge).
+# install media has a populated directory (assets/kernel/mainline).
 #
 # Extracts the union-sync subshell from late.sh and runs it under `set -e`
 # (late.sh's mode) against a fixture, with both a dangling link at
-# kernel/edge and a directory that sorts LAST in `find` order beneath it -- the
+# kernel/mainline and a directory that sorts LAST in `find` order beneath it -- the
 # exact shape that killed the 2026-09-29 arm64 install. A control run with the
 # pre-fix loop must fail, so the test proves it can detect the defect.
 set -uo pipefail
@@ -38,10 +38,10 @@ EOF
 run_case() {  # $1 name  $2 mode  $3 expected rc
     local name="$1" mode="$2" want="$3" src="$W/src-$RANDOM" dsta rc
     dsta="$W/dst-$RANDOM"
-    mkdir -p "$src/assets/kernel/edge/headers-dir/zzz/deep" "$dsta/kernel"
-    echo k > "$src/assets/kernel/edge/KVER"
-    echo d > "$src/assets/kernel/edge/headers-dir/zzz/deep/file"
-    ln -s /nonexistent/kernel-staging/r277 "$dsta/kernel/edge"          # dangling, like base.squashfs
+    mkdir -p "$src/assets/kernel/mainline/headers-dir/zzz/deep" "$dsta/kernel"
+    echo k > "$src/assets/kernel/mainline/KVER"
+    echo d > "$src/assets/kernel/mainline/headers-dir/zzz/deep/file"
+    ln -s /nonexistent/kernel-staging/r277 "$dsta/kernel/mainline"          # dangling, like base.squashfs
     {
         echo 'set -e'
         echo "SRC=$src DSTA=$dsta"
@@ -49,14 +49,14 @@ run_case() {  # $1 name  $2 mode  $3 expected rc
         echo 'echo union-done'
     } > "$W/run.sh"
     "$SH" "$W/run.sh" > "$W/out" 2>&1; rc=$?
-    if [ "$rc" = "$want" ] && { [ "$want" != 0 ] || [ -f "$dsta/kernel/edge/headers-dir/zzz/deep/file" ]; }; then
+    if [ "$rc" = "$want" ] && { [ "$want" != 0 ] || [ -f "$dsta/kernel/mainline/headers-dir/zzz/deep/file" ]; }; then
         echo "PASS  $name (rc=$rc)"; PASS=$((PASS + 1))
     else
         echo "FAIL  $name: rc=$rc want=$want"; sed 's/^/      /' "$W/out"; FAILS=$((FAILS + 1))
     fi
 }
 PASS=0; FAILS=0
-run_case "fixed union-sync replaces the dangling edge link and copies the tree" fixed 0
+run_case "fixed union-sync replaces the dangling mainline link and copies the tree" fixed 0
 run_case "control: pre-fix loop dies on the dangling link (test can detect it)" prefix 1
 echo "late union-sync tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]

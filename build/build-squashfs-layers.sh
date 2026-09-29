@@ -967,8 +967,9 @@ build_base(){
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-vpu-test_*.deb \
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-npu-onnxruntime_*.deb 2>/dev/null || true
   # KVER sidecar that 10-our-kernel.sh + 70-bootloader.sh need to discover
-  # the shipped edge kernel's KVER at install time.
-  [ -f "$ROOT/assets/kernel/edge/KVER" ] && sudo cp "$ROOT/assets/kernel/edge/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
+  # the shipped (mainline) kernel's KVER at install time. The sidecar keeps
+  # its historical KVER_NEXT name because installed systems already carry it.
+  [ -f "$ROOT/assets/kernel/mainline/KVER" ] && sudo cp "$ROOT/assets/kernel/mainline/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
   # KVER_EDGE sidecar (2026-09-15): a second, EXPERIMENTAL kernel line
   # installed alongside the default (KVER_NEXT/stable). 10-our-kernel.sh
   # installs it as a non-dpkg-tracked raw copy (see that hook for why: the
@@ -976,7 +977,31 @@ build_base(){
   # cannot track two versions of it side by side without a package rename
   # this pass did not have time to do safely -- edge is explicitly manual/
   # non-OTA, same posture AMD64 already documents for ITS edge line).
-  [ -f "$ROOT/assets/kernel/edge-experimental/KVER" ] && sudo cp "$ROOT/assets/kernel/edge-experimental/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_EDGE"
+  #
+  # 2026-09-29: the experimental line is the "edge" channel
+  # (assets/kernel/edge, test-only 7.3.x). Unlike the retired
+  # edge-experimental link (relative, into a directory tracked in git), edge
+  # is an ABSOLUTE symlink into the shared kernel-staging pool, and the cp -a
+  # above copied it as a link that dangles on every installed system. Replace
+  # it in the base with a dereferenced copy of exactly the files
+  # 10-our-kernel.sh consumes. The mainline pointer is left alone: the
+  # shipping kernel is installed from the kernel debs, and late.sh repairs
+  # its dangling link from the install media.
+  _edge_dst="$WORK/base/usr/local/lib/cix-installer/assets/kernel/edge"
+  sudo rm -rf "$_edge_dst"
+  sudo rm -f "$WORK/base/usr/local/lib/cix-installer/KVER_EDGE"
+  if [ -s "$ROOT/assets/kernel/edge/KVER" ] && [ -s "$ROOT/assets/kernel/edge/Image-cixmini.bin" ] \
+     && [ -s "$ROOT/assets/kernel/edge/modules-cixmini.tgz" ]; then
+    _edge_kver=$(tr -d '[:space:]' < "$ROOT/assets/kernel/edge/KVER")
+    sudo mkdir -p "$_edge_dst"
+    for _ef in KVER Image-cixmini.bin modules-cixmini.tgz "config-$_edge_kver" headers-cixmini.tar.zst; do
+      [ -f "$ROOT/assets/kernel/edge/$_ef" ] && sudo cp -L "$ROOT/assets/kernel/edge/$_ef" "$_edge_dst/"
+    done
+    sudo cp -L "$ROOT/assets/kernel/edge/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_EDGE"
+    log "  staged edge (test-only) kernel $_edge_kver into BASE as a non-default entry"
+  else
+    log "  no complete assets/kernel/edge payload -- no experimental kernel entry"
+  fi
   # r160: stage the COMPLETE rEFInd asset set, falling back to build/refind-bin
   # for anything assets/refind didn't provide (on bigpi the NFS sync had only
   # build/refind-bin — assets/refind was absent, so r159's base shipped just the

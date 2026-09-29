@@ -279,7 +279,7 @@ for label in legacy edge; do
     fi
 done
 KVER_LEGACY=$(cat "$ROOT/assets/kernel/legacy/KVER")
-KVER_NEXT=$(cat "$ROOT/assets/kernel/edge/KVER")
+KVER_NEXT=$(cat "$ROOT/assets/kernel/mainline/KVER")
 echo "[info] LTS kernel KVER:  $KVER_LEGACY"
 echo "[info] NEXT kernel KVER: $KVER_NEXT (explicit test entry)"
 
@@ -343,12 +343,12 @@ rm -f "$MOD_GZ"
 # ----------------------------------------------------------------------
 echo "[3.6] building NEXT live path: linux-cix-sky1-next ($KVER_NEXT)"
 
-install -m 0644 "$ROOT/assets/kernel/edge/Image-cixmini.bin" "$STAGING/casper/vmlinuz-next"
+install -m 0644 "$ROOT/assets/kernel/mainline/Image-cixmini.bin" "$STAGING/casper/vmlinuz-next"
 
 # Start NEXT initrd from the upstream base copy + append NEXT modules
 mv "$STAGING/casper/initrd-base" "$STAGING/casper/initrd-next"
 NEXT_MOD_GZ="$STAGING/.next-live-overlay.cpio.gz"
-build_live_overlay_cpio "NEXT" "$KVER_NEXT" "$ROOT/assets/kernel/edge/modules-cixmini.tgz" "$NEXT_MOD_GZ"
+build_live_overlay_cpio "NEXT" "$KVER_NEXT" "$ROOT/assets/kernel/mainline/modules-cixmini.tgz" "$NEXT_MOD_GZ"
 append_live_overlay_to_initrd "$STAGING/casper/initrd-next" "$NEXT_MOD_GZ"
 rm -f "$NEXT_MOD_GZ"
 echo "    /casper/initrd-next: $(du -h "$STAGING/casper/initrd-next" | cut -f1)"

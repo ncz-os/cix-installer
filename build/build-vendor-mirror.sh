@@ -85,6 +85,17 @@ publish_deb() {
     done < <(find "$VENDOR/pool/main" -type f -name "${pkg}_*.deb" -print0)
 }
 
+# Sky1 kernel pin (2026-09-29). Every .deb in $KERNEL_DEBS used to be
+# published, and publish_deb keeps whichever same-named package it copies
+# last -- so the r278 7.3.0-rc5 test set that staging left in
+# build/kernel-debs replaced 7.2.8 here (2026-09-28). The Sky1 kernel
+# packages are now pinned to the SHIPPING pointer's KVER
+# (assets/kernel/mainline/KVER), checked before anything is copied and
+# again on the final pool. A newer rc in the tree can no longer be
+# ingested for the shipping channel; it fails the build instead.
+SKY1_KVER_FILE="${SKY1_KVER_FILE:-$REPO/assets/kernel/mainline/KVER}"
+"$REPO/build/check-kernel-deb-pin.sh" "$SKY1_KVER_FILE" "$KERNEL_DEBS"
+
 if compgen -G "$KERNEL_DEBS/*.deb" >/dev/null; then
     echo "== publishing kernel debs from $KERNEL_DEBS =="
     for deb in "$KERNEL_DEBS"/*.deb; do
@@ -166,6 +177,10 @@ if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "amd64" ]; then
         fi
     fi
 fi
+
+# The pool can also hold a Sky1 kernel from an EARLIER run that this run
+# did not replace. Check what will actually be indexed.
+"$REPO/build/check-kernel-deb-pin.sh" "$SKY1_KVER_FILE" "$VENDOR/pool/main"
 
 cd "$VENDOR"
 mkdir -p "$BINDIR"
