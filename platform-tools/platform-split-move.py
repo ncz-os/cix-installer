@@ -91,14 +91,21 @@ def main():
     files = [f for f in out.decode().split("\0") if f]
     plan, bad = [], []
     for f in files:
-        top = f.split("/", 1)[0]
+        flat = f
+        if f.startswith("common/"):
+            flat = f[len("common/"):]
+        elif f.startswith("platforms/"):
+            flat = f.split("/", 2)[2] if f.count("/") >= 2 else f
+        top = flat.split("/", 1)[0]
         if top not in ROOTS:
             continue
-        cls = classify(rows, f)
+        cls = classify(rows, flat)
         if cls is None:
-            bad.append(f)
+            bad.append(flat)
             continue
-        plan.append((f, os.path.join(DEST[cls], f)))
+        dest = os.path.join(DEST[cls], flat)
+        if dest != f:
+            plan.append((f, dest))   # new at a flat path, or living under the wrong source dir
     if bad:
         print("platform-split-move: %d tracked file(s) have no inventory row:" % len(bad), file=sys.stderr)
         for f in bad[:50]:
