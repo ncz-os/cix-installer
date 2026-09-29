@@ -1,0 +1,3 @@
+# Units allowed to be in the failed state after the installed system's first boot in the KVM gate.
+# One unit per line (first word); anything after it is the reason. Every entry needs a reason;
+# an empty list is the goal.

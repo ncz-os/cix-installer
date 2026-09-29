@@ -449,6 +449,43 @@ DEFAULT_KVER=$(grep -aoE 'Linux version [^ ]+|Starting vmlinuz-[^[:space:]]+' "$
   | tail -1 | sed -E 's/^Linux version //; s/^Starting vmlinuz-//' || true)
 echo "  default-boot kernel: ${DEFAULT_KVER:-<unknown>}"
 
+# First-boot health: the installed system writes `systemctl --failed` to
+# /var/log/ncz-first-boot-failed.txt 30 s after multi-user.target (97-firstboot-report.sh). Read it
+# off the disk phase 2 just booted; any failed unit that is not on the allow-list fails the gate.
+if [ "$ARCH" = arm64 ]; then
+    echo
+    echo "  first-boot failed-unit report"
+    FBR="$WORK/first-boot-failed.txt"; rm -f "$FBR"
+    FB_DISK="$WORK/.fb-disk.raw"; FB_ROOT="$WORK/.fb-root.raw"; rm -f "$FB_DISK" "$FB_ROOT"
+    if qemu-img convert -S 4k -O raw "$DISK" "$FB_DISK"; then
+        FB_S=$("$SGDISK" -i 3 "$FB_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+        FB_E=$("$SGDISK" -i 3 "$FB_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+        if [ -n "$FB_S" ] && [ -n "$FB_E" ] && qemu-img convert --image-opts -S 4k -O raw \
+            "driver=raw,file.driver=file,file.filename=$FB_DISK,offset=$((FB_S * 512)),size=$(((FB_E - FB_S + 1) * 512))" "$FB_ROOT"; then
+            "$DEBUGFS" -R "dump /var/log/ncz-first-boot-failed.txt $FBR" "$FB_ROOT" >/dev/null 2>&1 || true
+        fi
+    fi
+    rm -f "$FB_DISK" "$FB_ROOT"
+    if [ ! -s "$FBR" ]; then
+        fail "no first-boot report (/var/log/ncz-first-boot-failed.txt) on the installed disk -- 97-firstboot-report did not run or the guest did not reach multi-user long enough (BOOT_TIMEOUT=${BOOT_TIMEOUT}s)"
+    fi
+    ALLOW="$SCRIPT_DIR/first-boot-failed-allowlist.txt"
+    FAILED_UNITS="$(grep -vE '^#|^[[:space:]]*$' "$FBR" | awk '{print $1}' | sed 's/^[^A-Za-z0-9_@.-]*//' | sort -u)"
+    BAD=""
+    for u in $FAILED_UNITS; do
+        if [ -f "$ALLOW" ] && grep -vE '^#|^[[:space:]]*$' "$ALLOW" | awk '{print $1}' | grep -qxF "$u"; then
+            echo "    failed (allowed): $u"
+        else
+            BAD="$BAD $u"
+        fi
+    done
+    if [ -n "$BAD" ]; then
+        cat "$FBR" >&2
+        fail "units failed on the installed system's first boot:$BAD (fix them, or add to build/first-boot-failed-allowlist.txt with the reason)"
+    fi
+    echo "    no unexpected failed units on first boot ($(echo "$FAILED_UNITS" | grep -c . || true) allowed)"
+fi
+
 echo
 echo "GATE PASS (phase 1+2): $(basename "$IMG") installs and boots"
 echo "WORK=$WORK DISK=$DISK VARS=$VARS CODE=$CODE"

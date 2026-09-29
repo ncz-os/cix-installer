@@ -1399,6 +1399,20 @@ if [ "$FINALIZE_OK" = "1" ]; then
     done
 fi
 
+# Final ldconfig, once, after every package/dkms/post-install step has finished. On the first
+# boot of 18e8a14 ldconfig.service failed ("Renaming of /etc/ld.so.cache~ to /etc/ld.so.cache
+# failed: No such file or directory"): the boot clock still read the image build date, systemd
+# judged /etc older than /usr and ran ldconfig.service while something else was also rebuilding
+# the cache. Build the cache here and stamp /etc and /var as up to date (mtime in the future is
+# harmless) so ConditionNeedsUpdate= skips it, and let the unit tolerate exit status 1 if it
+# ever does run.
+if [ "$FINALIZE_OK" = "1" ]; then
+    in-target ldconfig 2>/dev/null || true
+    in-target sh -c 'touch -d "+2 days" /etc/.updated /var/.updated' 2>/dev/null || true
+    mkdir -p /target/etc/systemd/system/ldconfig.service.d
+    printf '[Service]\nSuccessExitStatus=1\n' > /target/etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf
+fi
+
 # r56: loud REMOVE-USB banner so user sees it on every TTY before d-i reboots.
 # d-i preseed (reboot_in_progress no longer set to note) will then prompt the
 # user to dismiss before the actual reboot fires.
