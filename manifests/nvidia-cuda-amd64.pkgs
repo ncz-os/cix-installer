@@ -1,0 +1,37 @@
+# nvidia-cuda-amd64.pkgs -- seeds for the OPTIONAL NVIDIA driver + CUDA 13.4
+# toolkit closure folded into the AMD64 offline mirror.
+#
+# Consumed by build/build-desktop-mirror.sh and build/build-forky-mirror.sh
+# (and checked by build/verify-*-mirror-seeds.sh) ONLY for amd64, and only
+# when NCZ_INCLUDE_CUDA is not 0. It is deliberately NOT part of
+# desktop-amd64.pkgs: the mkosi role delta installs that manifest into every
+# image, whereas these packages are installed at real install time by
+# post-install/54-gpu-accel.sh, and only when a Turing-or-newer NVIDIA GPU is
+# present. They come from NVIDIA's own signed Debian 13 repo
+# (developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/), wired
+# by the staged cuda-keyring package; assets/nvidia/ncz-nvidia-cuda.pref keeps
+# the driver on the R615 branch.
+#
+# Measured 2026-09-29 on PEGASUS (forky, RTX 2060; real install, apt reported
+# "Need to get 1,393 MB ... 2,742 MB of additional disk space"):
+#   cuda-compiler-13-4 + cuda-cudart-dev-13-4 + cuda-libraries-13-4
+#   = 32 packages, 1.39 GB download, 2.74 GB installed (13.4.2-1 metapackages).
+# Mirror closure added on top of the amd64 desktop seed (resolved against the
+# forky snapshot + NVIDIA repo, no existing package changes version): +130
+# packages -- 32 CUDA (1.33 GB), 53 driver stack (0.33 GB), 45 Debian-side
+# (gcc-16/g++-16/binutils/libc6-dev/make/dpkg-dev pulled by the build-essential
+# dependency of cuda-nvcc; forky gcc 16.2 is a supported nvcc host compiler).
+# The full cuda-toolkit-13-4 metapackage (Nsight Compute 1.5 GB installed,
+# docs, math-library headers) is ~2.0 GB download / ~4.2 GB installed larger
+# and is NOT shipped; `apt install cuda-toolkit-13-4` remains available live.
+
+# --- driver (R615, open kernel modules, Turing+ only) -----------------------
+nvidia-detect   # solo: Conflicts nvidia-kernel-support; resolved on its own
+cuda-drivers
+libnvidia-encode1
+libnvcuvid1
+
+# --- CUDA 13.4 toolkit, slim developer set ----------------------------------
+cuda-compiler-13-4
+cuda-cudart-dev-13-4
+cuda-libraries-13-4

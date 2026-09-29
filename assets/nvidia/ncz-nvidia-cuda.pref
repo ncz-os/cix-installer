@@ -1,0 +1,18 @@
+# /etc/apt/preferences.d/ncz-nvidia-cuda.pref -- written by NCZ-OS
+# (post-install/54-gpu-accel.sh; same file is used by the offline-mirror
+# builders).
+#
+# CUDA 13.4 is paired with the R615 driver branch (NVIDIA CUDA 13.4 release
+# notes: "CUDA 13.4 new features and newly enabled platforms require an R615
+# or later driver"). Pin the driver family to 615.* so a newer NVIDIA branch
+# (or Debian's older in-archive 550.x) never silently replaces the proven
+# driver. Point releases inside 615.* still update normally. To move to a new
+# branch deliberately, delete this file (or edit the version glob).
+#
+# Toolkit packages are versioned by name (cuda-*-13-4), so a future
+# cuda-toolkit-13-5 is a different package and is never pulled in by a normal
+# upgrade; do not install the unversioned `cuda` / `cuda-toolkit` metapackages
+# if you want to stay on 13.4.
+Package: cuda-drivers cuda-drivers-* nvidia-* libnvidia-* libcuda1 libcudadebugger1 libnvcuvid1 firmware-nvidia-* xserver-xorg-video-nvidia
+Pin: version 615.*
+Pin-Priority: 1001

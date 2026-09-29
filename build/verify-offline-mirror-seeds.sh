@@ -56,7 +56,10 @@ _seed_manifest_for() {
     if [ -f "$arch_file" ]; then echo "$arch_file"; else echo "$ROOT/manifests/$1.pkgs"; fi
 }
 {
-    for manifest in "$(_seed_manifest_for installer-base)" "$(_seed_manifest_for desktop)" "$ROOT/manifests/firmware.pkgs"; do
+    _cuda_manifest=""
+    [ "$ARCH" = "amd64" ] && [ "${NCZ_INCLUDE_CUDA:-1}" != "0" ] && \
+        [ -f "$ROOT/manifests/nvidia-cuda-amd64.pkgs" ] && _cuda_manifest="$ROOT/manifests/nvidia-cuda-amd64.pkgs"
+    for manifest in "$(_seed_manifest_for installer-base)" "$(_seed_manifest_for desktop)" "$ROOT/manifests/firmware.pkgs" ${_cuda_manifest:+"$_cuda_manifest"}; do
         [ -s "$manifest" ] || { echo "ERROR: missing manifest: $manifest" >&2; exit 1; }
         sed 's/#.*//' "$manifest" | awk 'NF {print $1}'
     done

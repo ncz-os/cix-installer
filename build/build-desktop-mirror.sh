@@ -64,6 +64,19 @@ else
 fi
 IDX="$SRC/dists/$SUITE/main/binary-$ARCH/Packages"
 
+# Optional NVIDIA driver (R615) + CUDA 13.4 toolkit closure, amd64 only. The
+# packages come from NVIDIA's own signed Debian 13 repo (not the Debian
+# archive) and are installed at real install time by post-install/54.
+# NCZ_INCLUDE_CUDA=0 builds a mirror without them.
+CUDA_SEEDFILE=""
+if [ "$ARCH" = "amd64" ] && [ "${NCZ_INCLUDE_CUDA:-1}" != "0" ] && \
+   [ -f "$REPO/manifests/nvidia-cuda-amd64.pkgs" ]; then
+    CUDA_SEEDFILE="$REPO/manifests/nvidia-cuda-amd64.pkgs"
+fi
+NVIDIA_CUDA_URL="${NVIDIA_CUDA_URL:-https://developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/}"
+NVIDIA_KEYRING_DEB="$REPO/assets/nvidia/cuda-keyring_1.1-1_all.deb"
+NVIDIA_PREF="$REPO/assets/nvidia/ncz-nvidia-cuda.pref"
+
 # Source: Debian's own archive (release.conf NCZ_BASE_MIRROR/NCZ_BASE_COMPONENTS
 # -- the single source of truth for the base distro, same as SUITE above).
 # Historically pointed at Ubuntu ports on the claim that the desktop long tail
@@ -149,6 +162,24 @@ EOF
     echo "  source: Google Chrome (${GOOGLE_CHROME_URL}) — tracking current stable, checksum-verified below"
 fi
 
+if [ -n "$CUDA_SEEDFILE" ]; then
+    [ -f "$NVIDIA_KEYRING_DEB" ] && [ -f "$NVIDIA_PREF" ] || {
+        echo "ERROR: $NVIDIA_KEYRING_DEB / $NVIDIA_PREF missing (needed for the CUDA closure)" >&2; exit 1; }
+    # NVIDIA ships its signing key inside the cuda-keyring package we already
+    # stage for 54-gpu-accel.sh; extract it rather than carry a second copy.
+    _kx="$T/keyring-x"; mkdir -p "$_kx"
+    dpkg-deb -x "$NVIDIA_KEYRING_DEB" "$_kx"
+    [ -f "$_kx/usr/share/keyrings/cuda-archive-keyring.gpg" ] || {
+        echo "ERROR: cuda-archive-keyring.gpg not found inside $NVIDIA_KEYRING_DEB" >&2; exit 1; }
+    cp "$_kx/usr/share/keyrings/cuda-archive-keyring.gpg" "$T/etc/apt/keyrings/cuda-archive-keyring.gpg"
+    cat >> "$T/etc/apt/sources.list" <<EOF
+deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/cuda-archive-keyring.gpg] $NVIDIA_CUDA_URL /
+EOF
+    # Same pin the installed system uses: driver family stays on 615.*.
+    cp "$NVIDIA_PREF" "$T/etc/apt/preferences.d/ncz-nvidia-cuda.pref"
+    echo "  source: NVIDIA CUDA repo ($NVIDIA_CUDA_URL) -- driver 615.* + CUDA 13.4 (seed: $(basename "$CUDA_SEEDFILE"))"
+fi
+
 [ -f "$BUILDKITE_NCZ_KEY" ] || { echo "ERROR: $BUILDKITE_NCZ_KEY missing"; exit 1; }
 cp "$BUILDKITE_NCZ_KEY" "$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc"
 chmod 0644 "$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc"
@@ -230,13 +261,36 @@ apt-cache "${APTOPTS[@]}" pkgnames 2>/dev/null | sort -u > "$ALL_NAMES"
 # seed = the EXPLICIT desktop seed only (no req/imp/std injection — those base
 # priorities are server-mirror's job; the desktop closure pulls its own deps).
 SEED="$T/seed"
-grep -vE '^\s*(#|$)' "$SEEDFILE" | awk '{print $1}' | sort -u > "$SEED"
+grep -hvE '^\s*(#|$)' "$SEEDFILE" ${CUDA_SEEDFILE:+"$CUDA_SEEDFILE"} | awk '{print $1}' | sort -u > "$SEED"
 echo "  seed packages (explicit desktop): $(wc -l < "$SEED")"
 
 # split seed into present vs missing-from-ports
 PRESENT="$T/present"; MISSING="$T/missing"
 comm -12 "$SEED" "$ALL_NAMES" > "$PRESENT"
+
+# "solo" seeds (marked `# solo` in the CUDA manifest) cannot share a
+# transaction with the rest of the seed -- NVIDIA's nvidia-detect Conflicts
+# with nvidia-kernel-support, which cuda-drivers pulls in. They still belong in
+# the offline pool (54-gpu-accel.sh installs nvidia-detect first, and the driver
+# install then replaces it), so resolve them on their own and union the result.
+SOLO="$T/solo"; : > "$SOLO"
+if [ -n "$CUDA_SEEDFILE" ]; then
+    grep -E '^[[:space:]]*[A-Za-z0-9][A-Za-z0-9._+-]*[[:space:]]+#[[:space:]]*solo([[:space:]:]|$)' "$CUDA_SEEDFILE" | awk '{print $1}' | sort -u > "$SOLO" || true
+    grep -vxFf "$SOLO" "$PRESENT" > "$PRESENT.atomic" || true
+    mv "$PRESENT.atomic" "$PRESENT"
+fi
 comm -23 "$SEED" "$ALL_NAMES" > "$MISSING"
+
+# The CUDA seeds are not optional once requested: a silently dropped seed would
+# ship an ISO whose NVIDIA install step can never succeed offline.
+if [ -n "$CUDA_SEEDFILE" ]; then
+    _cuda_missing="$(grep -vE '^\s*(#|$)' "$CUDA_SEEDFILE" | awk '{print $1}' | sort -u | comm -12 - "$MISSING")"
+    if [ -n "$_cuda_missing" ]; then
+        echo "ERROR: CUDA/NVIDIA seed package(s) not visible in any configured source:" >&2
+        echo "$_cuda_missing" | sed 's/^/  /' >&2
+        exit 1
+    fi
+fi
 
 echo "  seed present in ports: $(wc -l < "$PRESENT")   missing: $(wc -l < "$MISSING")"
 
@@ -252,6 +306,8 @@ if apt-get "${APTOPTS[@]}" install -s -y $(tr '\n' ' ' < "$PRESENT") > "$SIMLOG"
     echo "  closure resolved atomically: $(wc -l < "$CLOSURE") packages"
 else
     echo "  atomic resolve failed; falling back to tolerant per-seed union..."
+    grep -E "Depends:|Conflicts:|Breaks:|but it is not|Unable to correct|held broken|^E:" "$SIMLOG" | head -20 | sed "s/^/    atomic: /"
+    cp "$SIMLOG" "${DESKTOP_MIRROR_SIMLOG:-/dev/null}" 2>/dev/null || true
     : > "$CLOSURE.acc"
     bad=0
     while read -r p; do
@@ -267,6 +323,39 @@ else
     done < "$PRESENT"
     sort -u "$CLOSURE.acc" > "$CLOSURE"
     echo "  closure (union): $(wc -l < "$CLOSURE") packages; $bad seed(s) dropped as uninstallable"
+fi
+
+while read -r _solo; do
+    [ -n "$_solo" ] || continue
+    if apt-get "${APTOPTS[@]}" install -s -y "$_solo" > "$T/solo.log" 2>&1 && grep -q '^Inst ' "$T/solo.log"; then
+        awk '/^Inst /{print $2}' "$T/solo.log" >> "$CLOSURE"
+        echo "  solo seed resolved separately: $_solo"
+    else
+        echo "ERROR: solo seed $_solo is not installable on its own" >&2; tail -5 "$T/solo.log" >&2; exit 1
+    fi
+done < "$SOLO"
+sort -u "$CLOSURE" -o "$CLOSURE"
+
+if [ -n "$CUDA_SEEDFILE" ]; then
+    # The resolver must have chosen NVIDIA's R615 driver and the 13.4 toolkit,
+    # not Debian's older in-archive nvidia 550.x or another CUDA branch.
+    # Only meaningful for the atomic resolve ($SIMLOG holds the Inst lines);
+    # the per-seed fallback cannot prove the pinned versions, so it fails here.
+    _pick() { awk -v p="$1" '$1=="Inst" && $2==p {v=$3; sub(/^\(/,"",v); print v; exit}' "$SIMLOG"; }
+    _drv="$(_pick nvidia-open)"; _nvcc="$(_pick cuda-nvcc-13-4)"; _cc="$(_pick cuda-compiler-13-4)"
+    case "$_drv" in 615.*) ;; *) echo "ERROR: CUDA closure resolved nvidia-open='$_drv' (want 615.*)" >&2; exit 1 ;; esac
+    case "$_cc" in 13.4.*) ;; *) echo "ERROR: CUDA closure resolved cuda-compiler-13-4='$_cc' (want 13.4.*)" >&2; exit 1 ;; esac
+    [ -n "$_nvcc" ] || { echo "ERROR: cuda-nvcc-13-4 missing from closure" >&2; exit 1; }
+    # Never ship a proprietary (non-open) kernel module for this path.
+    if grep -q '^Inst nvidia-kernel-dkms ' "$SIMLOG"; then
+        echo "ERROR: closure pulled the proprietary nvidia-kernel-dkms (want nvidia-kernel-open-dkms)" >&2; exit 1
+    fi
+    echo "  CUDA closure OK: nvidia-open=$_drv cuda-compiler-13-4=$_cc cuda-nvcc-13-4=$_nvcc"
+fi
+if [ "${DESKTOP_MIRROR_RESOLVE_ONLY:-0}" = "1" ]; then
+    echo "  DESKTOP_MIRROR_RESOLVE_ONLY=1 -- closure resolved, not downloading"
+    cp "$SIMLOG" "${DESKTOP_MIRROR_SIMLOG:-/dev/null}" 2>/dev/null || true
+    exit 0
 fi
 
 # Build a clean snapshot.  Keeping an incremental pool is unsafe across a

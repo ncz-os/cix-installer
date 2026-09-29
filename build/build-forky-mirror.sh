@@ -29,6 +29,13 @@ _seed_for() {
 BASE_SEED="${BASE_SEED:-$(_seed_for installer-base)}"
 DESKTOP_SEED="${DESKTOP_SEED:-$(_seed_for desktop)}"
 FIRMWARE_SEED="${FIRMWARE_SEED:-$REPO/manifests/firmware.pkgs}"
+# Optional amd64 NVIDIA driver + CUDA 13.4 seeds (see build-desktop-mirror.sh).
+# They resolve from the desktop-mirror pool, which carries NVIDIA's packages.
+CUDA_SEED="${CUDA_SEED:-}"
+if [ -z "$CUDA_SEED" ] && [ "$ARCH" = "amd64" ] && [ "${NCZ_INCLUDE_CUDA:-1}" != "0" ] && \
+   [ -f "$REPO/manifests/nvidia-cuda-amd64.pkgs" ]; then
+    CUDA_SEED="$REPO/manifests/nvidia-cuda-amd64.pkgs"
+fi
 
 [ "$SUITE" = "$NCZ_BASE_CODENAME" ] || {
     echo "ERROR: suite '$SUITE' does not match release profile '$NCZ_BASE_CODENAME'" >&2
@@ -61,6 +68,10 @@ mkdir -p "$TMP/etc/apt/apt.conf.d" "$TMP/etc/apt/preferences.d" \
 # actually pinned, so an unpinned live-mirror build keeps normal expiry checks.
 MIRROR_DEB_OPTS="arch=$ARCH signed-by=$DEBIAN_KEYRING"
 [ -n "${NCZ_BASE_MIRROR_APT_OPTS:-}" ] && MIRROR_DEB_OPTS="$MIRROR_DEB_OPTS $NCZ_BASE_MIRROR_APT_OPTS"
+# Keep Debian's older in-archive nvidia 550.x from beating the pooled 615.x.
+if [ -n "$CUDA_SEED" ]; then
+    cp "$REPO/assets/nvidia/ncz-nvidia-cuda.pref" "$TMP/etc/apt/preferences.d/ncz-nvidia-cuda.pref"
+fi
 cat > "$TMP/etc/apt/sources.list" <<EOF
 deb [$MIRROR_DEB_OPTS] $MIRROR_URL $SUITE $COMPONENTS
 deb [arch=$ARCH trusted=yes] file://$VENDOR_MIRROR $SUITE main
@@ -84,9 +95,17 @@ apt-get "${APTOPTS[@]}" update >/dev/null
 
 SEED="$TMP/seed"
 {
-    grep -hvE '^[[:space:]]*(#|$)' "$BASE_SEED" "$DESKTOP_SEED" "$FIRMWARE_SEED" | awk '{print $1}'
+    grep -hvE '^[[:space:]]*(#|$)' "$BASE_SEED" "$DESKTOP_SEED" "$FIRMWARE_SEED" ${CUDA_SEED:+"$CUDA_SEED"} | awk '{print $1}'
 } | sort -u > "$SEED"
 echo "  explicit seed: $(wc -l < "$SEED") packages"
+# `# solo` seeds (see build-desktop-mirror.sh) are resolved on their own: they
+# conflict with the driver stack and cannot share its transaction.
+SOLO="$TMP/solo"; : > "$SOLO"
+if [ -n "$CUDA_SEED" ]; then
+    grep -E '^[[:space:]]*[A-Za-z0-9][A-Za-z0-9._+-]*[[:space:]]+#[[:space:]]*solo([[:space:]:]|$)' "$CUDA_SEED" | awk '{print $1}' | sort -u > "$SOLO" || true
+    grep -vxFf "$SOLO" "$SEED" > "$SEED.atomic" || true
+    mv "$SEED.atomic" "$SEED"
+fi
 
 SIMLOG="$TMP/sim.log"
 if ! apt-get "${APTOPTS[@]}" install -s -y $(tr '\n' ' ' < "$SEED") > "$SIMLOG" 2>&1; then
@@ -101,6 +120,15 @@ fi
 
 CLOSURE="$TMP/closure"
 awk '/^Inst / {print $2}' "$SIMLOG" | sort -u > "$CLOSURE"
+while read -r _solo; do
+    [ -n "$_solo" ] || continue
+    if apt-get "${APTOPTS[@]}" install -s -y "$_solo" > "$TMP/solo.log" 2>&1 && grep -q '^Inst ' "$TMP/solo.log"; then
+        awk '/^Inst /{print $2}' "$TMP/solo.log" >> "$CLOSURE"
+    else
+        echo "ERROR: solo seed $_solo is not installable on its own" >&2; tail -5 "$TMP/solo.log" >&2; exit 1
+    fi
+done < "$SOLO"
+sort -u "$CLOSURE" -o "$CLOSURE"
 [ -s "$CLOSURE" ] || { echo "ERROR: resolver returned an empty closure" >&2; exit 1; }
 echo "  resolved closure: $(wc -l < "$CLOSURE") packages"
 

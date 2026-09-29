@@ -56,7 +56,10 @@ MANIFEST="$ROOT/manifests/desktop-$ARCH.pkgs"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-sed 's/#.*//' "$MANIFEST" | awk 'NF {print $1}' | LC_ALL=C sort -u > "$TMP/seed"
+CUDA_MANIFEST=""
+[ "$ARCH" = "amd64" ] && [ "${NCZ_INCLUDE_CUDA:-1}" != "0" ] && \
+    [ -f "$ROOT/manifests/nvidia-cuda-amd64.pkgs" ] && CUDA_MANIFEST="$ROOT/manifests/nvidia-cuda-amd64.pkgs"
+sed 's/#.*//' "$MANIFEST" ${CUDA_MANIFEST:+"$CUDA_MANIFEST"} | awk 'NF {print $1}' | LC_ALL=C sort -u > "$TMP/seed"
 awk '/^Package: / {print $2}' "$PKG_INDEX"      | LC_ALL=C sort -u > "$TMP/have"
 LC_ALL=C comm -23 "$TMP/seed" "$TMP/have" > "$TMP/missing"
 

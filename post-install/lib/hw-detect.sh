@@ -116,3 +116,36 @@ t2_hardware_detail() {
     fi
     echo "no PCI or DMI probe available -- cannot verify, treating as not-T2 (fail closed)"
 }
+
+# ---------------------------------------------------------------------------
+# nvidia_turing_plus_present [FILE] -- is there an NVIDIA display/3D controller
+# new enough for CUDA 13.x and the R615 open kernel modules (Turing or newer)?
+# ---------------------------------------------------------------------------
+#
+# CUDA 13 dropped Maxwell, Pascal and Volta (NVIDIA CUDA 13.x release notes),
+# and NVIDIA's open kernel modules only support Turing and newer. NVIDIA PCI
+# device IDs grow with each generation: Kepler 0x0fxx-0x11xx, Maxwell
+# 0x13xx-0x17xx, Pascal 0x1bxx-0x1dxx, Volta 0x1dbx, Turing starts at 0x1e02
+# (TITAN RTX), Ampere/Ada/Blackwell are all 0x2000 and above. So "device ID
+# >= 0x1e00" is the Turing-or-newer test. Verified 2026-09-29 against a real
+# RTX 2060 (10de:1f08).
+#
+# Reads `lspci -nn` output from FILE when given (fixtures/tests), otherwise
+# runs lspci. Only display-class lines ([0300]/[0302]/[0380]) count. Fails
+# CLOSED: no lspci and no FILE means "not detected".
+nvidia_turing_plus_present() {
+    local out id
+    if [ -n "${1:-}" ]; then
+        out=$(cat "$1" 2>/dev/null) || return 1
+    else
+        command -v lspci >/dev/null 2>&1 || return 1
+        out=$(lspci -nn 2>/dev/null) || return 1
+    fi
+    for id in $(printf '%s\n' "$out" | grep -E '\[03(00|02|80)\]:' \
+                | grep -oiE '\[10de:[0-9a-f]{4}\]' | sed -E 's/^\[10de:([0-9a-fA-F]{4})\]$/\1/'); do
+        if [ $((16#$id)) -ge $((16#1e00)) ]; then
+            return 0
+        fi
+    done
+    return 1
+}

@@ -41,6 +41,84 @@ if [ "$(dpkg --print-architecture 2>/dev/null)" != "amd64" ]; then
     exit 0
 fi
 
+# Shared PCI helpers (nvidia_turing_plus_present). Absence is handled by
+# ncz_cuda_toolkit_install, which then logs a skip instead of guessing.
+_HW_DETECT="$(dirname "$(readlink -f "$0")")/lib/hw-detect.sh"
+# shellcheck disable=SC1090
+[ -r "$_HW_DETECT" ] && . "$_HW_DETECT"
+
+# --- CUDA 13.4 toolkit (NVIDIA route only) ----------------------------------
+# CUDA 13.4 no longer bundles the driver (NVIDIA CUDA 13.4 installation guide:
+# "the CUDA Toolkit and the NVIDIA driver are installed and versioned
+# independently"), so the driver install (NVIDIA branch below) and this toolkit step are separate.
+# Decision record, measured on PEGASUS (forky, kernel 7.2.8-t2, RTX 2060,
+# driver 615.71.09) 2026-09-29:
+#   - Set: cuda-compiler-13-4 (nvcc) + cuda-cudart-dev-13-4 + cuda-libraries-13-4
+#     = 32 packages, 1.39 GB download / 2.74 GB installed, zero removals.
+#     The full cuda-toolkit-13-4 (66 packages, +~2.0 GB download / +~4.2 GB
+#     installed; Nsight Compute alone is 1.5 GB) is left to a live
+#     `apt install`.
+#   - Host compiler: CUDA 13.4 nvcc supports GCC 6-16; Debian forky's default
+#     gcc 16.2.0 compiled and ran a kernel unmodified, so no -ccbin / alternate
+#     gcc / -allow-unsupported-compiler is configured.
+#   - Layout: /usr/local/cuda-13.4 plus the /usr/local/cuda alternatives link
+#     and /etc/ld.so.conf.d/*cuda*.conf come from the packages themselves; this
+#     step adds only PATH via /etc/profile.d and the apt pin, then runs ldconfig.
+# Status is recorded in /var/lib/ncz/cuda-toolkit.status as one of
+#   installed:<nvcc pkg version> | skipped:<reason> | failed:<reason>
+# so the installed-target gate (build/verify-cuda-installed-target.sh) can tell
+# a deliberate skip from a silent failure. A failure here is logged loudly but
+# NEVER aborts the rest of post-install.
+NCZ_CUDA_STATUS=/var/lib/ncz/cuda-toolkit.status
+NCZ_CUDA_PKGS="cuda-compiler-13-4 cuda-cudart-dev-13-4 cuda-libraries-13-4"
+ncz_cuda_status() {
+    mkdir -p "$(dirname "$NCZ_CUDA_STATUS")" 2>/dev/null
+    echo "$1" > "$NCZ_CUDA_STATUS" 2>/dev/null
+    echo "[54] CUDA toolkit: $1"
+}
+ncz_cuda_toolkit_install() {
+    if [ "${NCZ_SKIP_CUDA:-0}" = 1 ]; then
+        ncz_cuda_status "skipped:operator-disabled"; return 0
+    fi
+    if ! type nvidia_turing_plus_present >/dev/null 2>&1; then
+        ncz_cuda_status "skipped:hw-detect-lib-missing"; return 0
+    fi
+    if ! nvidia_turing_plus_present; then
+        ncz_cuda_status "skipped:no-turing-plus-gpu"; return 0
+    fi
+    # Zero removals or nothing (operator rule: simulate before installing).
+    local sim
+    sim=$(apt-get install -s -y --no-install-recommends $NCZ_CUDA_PKGS 2>&1)
+    if [ $? -ne 0 ]; then
+        echo "[54] ERROR: CUDA toolkit set is not installable:"; echo "$sim" | tail -15 | sed 's/^/[54]   /'
+        ncz_cuda_status "failed:not-installable"; return 0
+    fi
+    if echo "$sim" | grep -q '^Remv '; then
+        echo "[54] ERROR: installing the CUDA toolkit would REMOVE packages -- refusing:"
+        echo "$sim" | grep '^Remv ' | sed 's/^/[54]   /'
+        ncz_cuda_status "failed:would-remove-packages"; return 0
+    fi
+    apt-get install -y --no-install-recommends $NCZ_CUDA_PKGS > /var/log/ncz-cuda-install.log 2>&1
+    tail -15 /var/log/ncz-cuda-install.log | sed 's/^/[54]   /'
+    ldconfig 2>/dev/null || true
+    if [ ! -x /usr/local/cuda-13.4/bin/nvcc ] || ! dpkg -s cuda-nvcc-13-4 >/dev/null 2>&1; then
+        echo "[54] ERROR: CUDA toolkit install did not produce /usr/local/cuda-13.4/bin/nvcc"
+        ncz_cuda_status "failed:nvcc-missing"; return 0
+    fi
+    install -d -m0755 /etc/profile.d
+    cat > /etc/profile.d/ncz-cuda.sh <<'PROFEOF'
+# Written by post-install/54-gpu-accel.sh. CUDA 13.4 toolkit on PATH; the
+# runtime libraries are found through /etc/ld.so.conf.d (no LD_LIBRARY_PATH).
+if [ -d /usr/local/cuda/bin ]; then
+    case ":$PATH:" in *:/usr/local/cuda/bin:*) ;; *) PATH="$PATH:/usr/local/cuda/bin" ;; esac
+    export PATH
+fi
+PROFEOF
+    chmod 0644 /etc/profile.d/ncz-cuda.sh
+    ncz_cuda_status "installed:$(dpkg-query -W -f='${Version}' cuda-nvcc-13-4 2>/dev/null)"
+    echo "[54] CUDA: $(/usr/local/cuda-13.4/bin/nvcc --version 2>/dev/null | tail -2 | tr '\n' ' ')"
+}
+
 echo "[54] AMD64 GPU/accelerator vendor detection + real driver-repo wiring"
 
 VARIANT=desktop
@@ -49,12 +127,14 @@ VARIANT=desktop
 case "$VARIANT" in
     server|headless)
         echo "[54] BUILD_VARIANT=$VARIANT — headless SKU; skipping GPU accelerator wiring"
+        ncz_cuda_status "skipped:headless-variant"
         exit 0
         ;;
 esac
 
 if ! command -v lspci >/dev/null 2>&1; then
     echo "[54] WARN: lspci absent (pciutils not staged?) — cannot detect GPU vendor, skipping"
+    ncz_cuda_status "skipped:lspci-absent"
     exit 0
 fi
 
@@ -73,6 +153,10 @@ echo "$DISPLAY_PCI" | grep -qi '\[10de:' && HAS_NVIDIA=1
 # (2026-09-14) correctly flagged it as dead code; removed.
 echo "$DISPLAY_PCI" | grep -qi '\[1002:' && HAS_AMD=1
 echo "$DISPLAY_PCI" | grep -qi '\[8086:' && HAS_INTEL=1
+
+if [ "$HAS_NVIDIA" = 0 ]; then
+    ncz_cuda_status "skipped:no-nvidia-gpu"
+fi
 
 if [ "$HAS_NVIDIA" = 0 ] && [ "$HAS_AMD" = 0 ] && [ "$HAS_INTEL" = 0 ]; then
     echo "[54] no NVIDIA/AMD/Intel display controller detected via lspci — nothing to wire"
@@ -96,8 +180,15 @@ if [ "$HAS_NVIDIA" = 1 ]; then
     # main+non-free-firmware enabled, `apt-cache show nvidia-detect` ->
     # "No packages found") -- enable contrib+non-free just for this probe
     # if not already present.
-    NV_CODENAME=$(. /etc/os-release 2>/dev/null; echo "$VERSION_CODENAME")
-    if [ -n "$NV_CODENAME" ] && ! grep -rqs 'contrib' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+    # BUG FIXED 2026-09-29 (found live on PEGASUS): this used to read
+    # VERSION_CODENAME from /etc/os-release, which on NCZ-OS is the product
+    # codename "maximilian", not a Debian suite -- the written source then
+    # 404'd and broke every later `apt-get update` (E: ... maximilian Release
+    # does not have a Release file). The Debian suite is NCZ_BASE_CODENAME
+    # from the installer RELEASE file. Also look at deb822 *.sources: 23-base-
+    # apt-sources already enables contrib there, so no extra source is needed.
+    NV_CODENAME=$( . /usr/local/lib/cix-installer/RELEASE 2>/dev/null; echo "${NCZ_BASE_CODENAME:-forky}")
+    if [ -n "$NV_CODENAME" ] && ! grep -rqs 'contrib' /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null; then
         cat > /etc/apt/sources.list.d/ncz-nvidia-detect.list <<EOF
 deb http://deb.debian.org/debian/ $NV_CODENAME contrib non-free
 EOF
@@ -126,11 +217,13 @@ EOF
         # proprietary branch -- even the old 390xx one -- is preferred over
         # nouveau below, since nouveau cannot provide CUDA/compute at all,
         # which is the entire point of this hook.
+        ncz_cuda_status "skipped:no-supported-nvidia-driver-branch"
         echo "[54] NVIDIA: nvidia-detect found no supported driver branch for this card (pre-Fermi or unrecognized) -- leaving nouveau (in-kernel default) as the only real option, no proprietary/CUDA path exists for this hardware. Logic-verified against NVIDIA/Debian's own branch documentation, NOT boot-tested -- no NVIDIA hardware of any generation exists in the fleet to validate this or any NVIDIA branch against (operator-confirmed 2026-09-20, oldest fleet machine is an Intel-graphics-only Mac Mini)."
     elif [ "$NV_ROUTE" = "legacy" ]; then
         # Legacy branches are Debian in-archive packages, NOT NVIDIA's own
         # cuda-keyring repo -- that repo only tracks the current branch and
         # carries no drivers for Kepler/Fermi-class chips.
+        ncz_cuda_status "skipped:legacy-nvidia-branch-no-cuda-13"
         echo "[54] NVIDIA: routing to legacy branch $NV_BRANCH_PKG (nvidia-detect recommendation)"
         apt-get install -y "$NV_BRANCH_PKG" 2>&1 | tail -10
         echo "[54] NVIDIA: legacy driver installed. NOTE: NVIDIA's CUDA toolkit repo (cuda-keyring) only supports the current driver branch -- a matching older CUDA toolkit version must be sourced separately for this branch if CUDA (not just display/video accel) is required. Logic-verified against NVIDIA/Debian's own branch documentation, NOT boot-tested (no Kepler/Fermi-class NVIDIA hardware exists in the fleet to validate against, 2026-09-20)."
@@ -139,11 +232,27 @@ EOF
         NV_KEYRING_DEB=/usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb
         if [ -f "$NV_KEYRING_DEB" ]; then
             dpkg -i "$NV_KEYRING_DEB" 2>&1 | tail -5
-            apt-get update 2>&1 | tail -5
-            # cuda-drivers pulls the proprietary kernel driver + full CUDA
-            # toolkit in one metapackage. nvidia-open exists for Turing+ but
-            # cuda-drivers is the broadest-compatible real choice for an
-            # unknown-hardware-cohort install.
+            # Keep the driver family on R615 (CUDA 13.4's branch) BEFORE any
+            # NVIDIA package is resolved.
+            NV_PREF="$(dirname "$NV_KEYRING_DEB")/ncz-nvidia-cuda.pref"
+            if [ -f "$NV_PREF" ]; then
+                install -D -m0644 "$NV_PREF" /etc/apt/preferences.d/ncz-nvidia-cuda.pref
+            else
+                echo "[54] WARN: $NV_PREF not staged -- driver/CUDA are NOT pinned to R615"
+            fi
+            # Offline install: the driver and CUDA closure is in the bundled
+            # /cdrom pool (same wiring as 20-desktop.sh). Live apt update
+            # keeps working through the NVIDIA source the keyring package
+            # just wrote; an unreachable network here is not fatal.
+            NCZ_APT_SUITE="$( . /usr/local/lib/cix-installer/RELEASE 2>/dev/null; echo "${NCZ_BASE_CODENAME:-forky}")"
+            if [ -d "/cdrom/dists/$NCZ_APT_SUITE" ] && [ ! -f /etc/apt/sources.list.d/cixmini-cdrom.list ]; then
+                echo "deb [trusted=yes] file:///cdrom $NCZ_APT_SUITE main" \
+                    > /etc/apt/sources.list.d/cixmini-cdrom.list
+            fi
+            apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 -o Acquire::Retries=0 2>&1 | tail -5
+            # cuda-drivers is the driver-only metapackage (nvidia-open, the
+            # Turing+ open kernel modules; since CUDA 13.4 it no longer
+            # brings any toolkit -- ncz_cuda_toolkit_install below does).
             #
             # CAVEAT (zoder review, 2026-09-14): nvidia-kernel-dkms builds its
             # module against whatever kernel headers are visible RIGHT NOW —
@@ -172,8 +281,14 @@ EOF
             else
                 apt-get install -y libnvidia-encode1 libnvcuvid1 2>&1 | tail -10
             fi
+            if ! nvidia_turing_plus_present 2>/dev/null; then
+                echo "[54] WARN: NVIDIA GPU older than Turing: R615 open kernel modules and CUDA 13 do not support it; cuda-drivers was installed by the pre-CUDA-13 logic but will not bind. Use Debian's nvidia-driver (550 branch, live apt) for Maxwell/Pascal/Volta."
+            fi
+            # Driver first (kernel modules + userspace), then the toolkit.
+            ncz_cuda_toolkit_install
         else
             echo "[54] WARN: NVIDIA GPU present but $NV_KEYRING_DEB not staged — skipping NVIDIA stack"
+            ncz_cuda_status "failed:keyring-not-staged"
             echo "[54]       stage cuda-keyring_1.1-1_all.deb from developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/ under assets/nvidia/ to fix"
         fi
     fi
@@ -305,5 +420,10 @@ EOF
         echo "[54] Intel: OpenVINO + VAAPI stack installed"
     fi
 fi
+
+# One final ldconfig so the CUDA ld.so.conf.d entries are in the cache no
+# matter which hooks ran before (the installed system has an ldconfig
+# first-boot race; see preseed/extract-rootfs.sh).
+ldconfig 2>/dev/null || true
 
 echo "[54] GPU/accelerator wiring done (NVIDIA=$HAS_NVIDIA AMD=$HAS_AMD Intel=$HAS_INTEL)"
