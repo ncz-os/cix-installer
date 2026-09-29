@@ -3089,6 +3089,7 @@ cp "$ROOT/preseed/disk-fs-chooser.sh" "$EXTRA/disk-fs-chooser.sh"
 cp "$ROOT/preseed/component-selector.sh" "$EXTRA/component-selector.sh"
 cp "$ROOT/preseed/hostname-suggest.sh" "$EXTRA/hostname-suggest.sh"
 cp "$ROOT/preseed/ncz-hostname-gen.sh" "$EXTRA/ncz-hostname-gen.sh"
+cp "$ROOT/preseed/ncz-ui.sh" "$EXTRA/ncz-ui.sh"   # shared dialog look (brand + arch/build line)
 # the installed system names itself from the same file on first boot
 mkdir -p "$EXTRA/assets/hostnames" && cp "$ROOT/preseed/ncz-hostname-gen.sh" "$EXTRA/assets/hostnames/ncz-hostname-gen.sh"
 # Root-hub rescan + video diagnostic, invoked from preseed early_command.

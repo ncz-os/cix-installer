@@ -225,6 +225,7 @@ BAKED_HELPERS = [
     "component-selector.sh",
     "hostname-suggest.sh",
     "ncz-hostname-gen.sh",
+    "ncz-ui.sh",
     "locale-keyboard-chooser.sh",
 ]
 

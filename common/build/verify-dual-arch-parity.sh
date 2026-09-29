@@ -12,7 +12,7 @@
 #     commit (BUILT-FROM.txt), and their SHA256SUMS verify.
 #  3. hook arch lint (build/lint-hook-arch-gates.sh).
 # --facts: both targets must report hostname_format_ok=1, sudo_ok=1, bing_plugin_patched=1,
-#  sensors_plugin_patched=1, and identical screensavers_version, release_version and release_codename.
+#  sensors_plugin_patched=1, gpu_policy_ok=1, ssh_password_ok=1, and identical screensavers_version, release_version and release_codename.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="${PARITY_ROOT:-$(cd "$HERE/.." && pwd)}"
@@ -24,7 +24,7 @@ pkgs_of() { sed 's/#.*//' "$1" 2>/dev/null | awk 'NF {print $1}' | LC_ALL=C sort
 if [ "${1:-}" = "--facts" ]; then
     A="${2:?arm64 facts file}"; B="${3:?amd64 facts file}"
     fact() { sed -n "s/^\[fact\] $2=//p" "$1" | tail -1; }
-    for k in hostname_format_ok sudo_ok bing_plugin_patched sensors_plugin_patched; do
+    for k in hostname_format_ok sudo_ok bing_plugin_patched sensors_plugin_patched gpu_policy_ok ssh_password_ok; do
         [ "$(fact "$A" $k)" = 1 ] || bad "arm64 fact $k is '$(fact "$A" $k)', expected 1"
         [ "$(fact "$B" $k)" = 1 ] || bad "amd64 fact $k is '$(fact "$B" $k)', expected 1"
     done

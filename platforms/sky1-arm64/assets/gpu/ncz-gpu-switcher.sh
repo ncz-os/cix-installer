@@ -72,6 +72,21 @@ LEGACY="/etc/modprobe.d/ncz-gpu-profile.conf /etc/modprobe.d/ncz-gpu.conf"
 
 LDCONFIG=$(command -v ldconfig 2>/dev/null || echo /sbin/ldconfig)
 
+# glvnd EGL vendor for the Mali blob. libglvnd only scans /usr/share/glvnd/egl_vendor.d (Mesa) and /etc/glvnd/
+# egl_vendor.d by default; the CIX vendor file lives under /opt and was found only where __EGL_VENDOR_LIBRARY_FILENAMES
+# was exported (the compositor session). Every other process (ssh, cron, systemd --user, D-Bus activation, portals,
+# flatpak, autostart) therefore got Mesa's llvmpipe on a Mali board. A 10_ entry in /etc sorts ahead of 50_mesa, so
+# Mali wins with no environment at all; when the blob cannot load (KVM, no GPU) glvnd falls through to Mesa. The
+# entry exists ONLY while Mali is the selected stack, otherwise it would be tried first on a Panthor boot.
+EGL_SRC=${NCZ_EGL_VENDOR_SRC:-/opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json}
+EGL_LINK=${NCZ_EGL_VENDOR_LINK:-/etc/glvnd/egl_vendor.d/10_cix.json}
+egl_vendor_on() {
+    [ -r "$EGL_SRC" ] || { log "WARN: $EGL_SRC missing; Mali EGL vendor NOT registered system-wide"; return 0; }
+    mkdir -p "$(dirname "$EGL_LINK")"
+    ln -sfn "$EGL_SRC" "$EGL_LINK"
+}
+egl_vendor_off() { rm -f "$EGL_LINK"; }
+
 log() { echo "ncz-gpu-switcher: $*"; }
 # Errors go to stderr so the unit's StandardError=journal+console surfaces them
 # on a degraded boot, where the journal is the harder place to look.
@@ -249,6 +264,7 @@ userspace_mali() {
     # baked in. Leave LD_COMPAT in whatever state 26-gpu-default-mali.sh
     # set at install time -- this switcher has no business overriding it.
     enable_file "$ICD_MALI"
+    egl_vendor_on
     # WSI implicit layer stays disabled: unverified against our blob revision,
     # and VK_DRIVER_FILES already handles ICD discovery explicitly.
     disable_file "$WSI_LAYER"
@@ -287,6 +303,7 @@ userspace_panthor() {
     # leaves it disabled at build time), kept out of both functions now for
     # symmetry and so neither GPU mode can ever re-enable it again.
     disable_file "$ICD_MALI"
+    egl_vendor_off
     disable_file "$WSI_LAYER"
     enable_file "$MESA_DEVSEL"
     "$LDCONFIG" 2>/dev/null || true

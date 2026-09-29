@@ -113,7 +113,7 @@ if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -n "$DEBCONF_REDIR" ] \
     cat > /tmp/ncz-progress.templates <<NCZTPL
 Template: nclawzero/install-progress
 Type: text
-Description: Installing ${NCZ_RELEASE_LABEL} — please be patient (several minutes)
+Description: Installing ${NCZ_RELEASE_LABEL} - please be patient (several minutes)
  The full desktop, GPU/NPU drivers, kernels and agents are being installed.
  The parent bar may remain in one position while the status below it changes.
  Press Alt+F3 at any time for live, per-step detail.

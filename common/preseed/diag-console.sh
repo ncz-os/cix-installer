@@ -36,7 +36,8 @@ LOG=/var/log/diag-console.log
 exec >> "$LOG" 2>&1
 say() {
     echo "[diag] $*"
-    for _v in /dev/tty3 /dev/ttyAMA0 /dev/ttyS0; do
+    # VT3 only: on a serial-console install the newt UI owns ttyAMA0/ttyS0 and any write there lands on the dialog
+    for _v in /dev/tty3; do
         echo "[diag] $*" > "$_v" 2>/dev/null || true
     done
 }

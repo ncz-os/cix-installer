@@ -1,0 +1,73 @@
+From 78891f421840a3e8df4280461c6eba3ac6763f96 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 29 Sep 2026 14:45:10 -0400
+Subject: [PATCH] session: never retry with software rendering on a machine
+ that has a GPU
+
+The second normal-mode attempt forced GSK_RENDERER=cairo / WLR_RENDERER=pixman / LIBGL_ALWAYS_SOFTWARE whenever
+the compositor failed early. On a machine with a GPU that masks the real fault (driver, render node, EGL vendor)
+behind a slow CPU-rendered session that looks like it works.
+
+Refuse the retry when a hardware render device exists (/dev/mali0, or a renderD* node owned by a real GPU driver;
+virtual and display-only drivers do not count, so a GPU-less VM keeps the fallback), log why, and continue to Safe
+Mode, which does not force software rendering either. NCZ_ALLOW_SOFTWARE_FALLBACK=1 opts back in.
+
+Assisted-by: Claude Code:claude-sonnet-5
+AI-Scope: Wrote the hw_render_device_present guard and the refusal path around the software retry.
+---
+ src/singularity-labwc-session | 39 +++++++++++++++++++++++++++++------
+ 1 file changed, 33 insertions(+), 6 deletions(-)
+
+diff --git a/src/singularity-labwc-session b/src/singularity-labwc-session
+index 439b931..bc666ef 100755
+--- a/src/singularity-labwc-session
++++ b/src/singularity-labwc-session
+@@ -180,12 +180,39 @@ if ! is_recovery_failure "$_ATTEMPT_RC" "$_ATTEMPT_DT"; then
+     exit "$_ATTEMPT_RC"
+ fi
+ 
+-# Preserve the existing renderer fallback as the second normal-mode attempt.
+-echo "[$(date)] early compositor failure; retrying with software rendering (GSK_RENDERER=cairo, WLR_RENDERER=pixman)" >> "$_LLOG"
+-enable_software_rendering
+-run_attempt "software compositor session"
+-if ! is_recovery_failure "$_ATTEMPT_RC" "$_ATTEMPT_DT"; then
+-    exit "$_ATTEMPT_RC"
++# Second normal-mode attempt with software rendering -- ONLY on a machine that has no hardware GPU.
++#
++# The software retry used to run whenever the compositor failed early. On a machine WITH a GPU that hides the real
++# fault (a broken driver, missing render node, wrong EGL vendor) behind a slow CPU-rendered session that looks
++# "working". If any hardware render device exists the retry is refused loudly and the session goes on to Safe Mode
++# (which does not force software rendering either). NCZ_ALLOW_SOFTWARE_FALLBACK=1 opts back in.
++hw_render_device_present() {
++    # /dev/mali0 is the Arm Mali blob (no DRM render node); renderD* nodes owned by a virtual or display-only
++    # driver do not count, so a GPU-less VM keeps its software fallback.
++    [ -e /dev/mali0 ] && return 0
++    for _n in /sys/class/drm/renderD*; do
++        [ -e "$_n/device/driver" ] || continue
++        _d=$(basename "$(readlink -f "$_n/device/driver")")
++        case "$_d" in
++            simpledrm|simple-framebuffer|virtio_gpu|virtio-gpu|vgem|vkms|bochs|bochs-drm|cirrus|cirrus-qemu|qxl|vmwgfx|hyperv_drm|hyperv-drm|ast|mgag200|udl|gud|linlondp|komeda|trilin_dpsub|ramfb) ;;
++            *) return 0 ;;
++        esac
++    done
++    return 1
++}
++
++if hw_render_device_present && [ "${NCZ_ALLOW_SOFTWARE_FALLBACK:-0}" != "1" ]; then
++    _msg="early compositor failure on a machine WITH a GPU; software rendering REFUSED (never-software-render policy; set NCZ_ALLOW_SOFTWARE_FALLBACK=1 to allow); check the GPU stack: ncz-gpu-status --require-hardware"
++    echo "[$(date)] $_msg" >> "$_LLOG"
++    echo "singularity-labwc-session: $_msg" >&2
++    logger -t singularity-labwc-session "$_msg" 2>/dev/null || true
++else
++    echo "[$(date)] early compositor failure; retrying with software rendering (GSK_RENDERER=cairo, WLR_RENDERER=pixman)" >> "$_LLOG"
++    enable_software_rendering
++    run_attempt "software compositor session"
++    if ! is_recovery_failure "$_ATTEMPT_RC" "$_ATTEMPT_DT"; then
++        exit "$_ATTEMPT_RC"
++    fi
+ fi
+ 
+ write_safe_marker "$_ATTEMPT_RC" "$_ATTEMPT_DT" || true
+-- 
+2.55.0
+

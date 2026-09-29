@@ -1,0 +1,4 @@
+# file	reason (each use is guarded by ncz-gpu-hw-present / NCZ_ALLOW_SOFTWARE_FALLBACK or is a machine with no GPU)
+post-install/20-desktop.sh	ncz-gpu-env software branch: only reached when ncz-gpu-hw-present says no GPU or NCZ_ALLOW_SOFTWARE_FALLBACK=1
+post-install/46-ncz-cli.sh	waydroid LXC EGL setting for the container guest (mesa), not a host renderer override
+assets/gpu/ncz-gpu-status	the health check DETECTS these settings; it never sets them

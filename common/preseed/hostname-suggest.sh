@@ -22,6 +22,11 @@
 # Test seams: NCZ_CONFMODULE, NCZ_HOSTNAME_GEN, NCZ_HOSTNAME_STATE, NCZ_CMDLINE, NCZ_EARLY_LOG.
 . "${NCZ_CONFMODULE:-/usr/share/debconf/confmodule}" 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
 command -v db_set >/dev/null 2>&1 || exit 0
+# shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
+for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
+    [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
+done
+command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
 
 STATE="${NCZ_HOSTNAME_STATE:-/tmp/.ncz-hostname}"
 LOG="${NCZ_EARLY_LOG:-/var/log/early_command.log}"
@@ -65,11 +70,13 @@ else
 Template: ncz/hostname
 Type: string
 Default: $NAME
-Description: NCZ-OS install -- name this computer
+Description: $(ncz_ui_brand) - name this computer
  A name was generated for this machine: $NAME
  .
  Press Enter to accept it, or type your own name (letters, digits and hyphens, at most 63
  characters). It stays the same if you swap network adapters.
+ .
+ $(ncz_ui_id)
 TPL
         if debconf-loadtemplate ncz /tmp/ncz-hostname.templates 2>/dev/null ; then
             db_set ncz/hostname "$NAME" 2>/dev/null || true
