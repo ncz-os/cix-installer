@@ -14,6 +14,17 @@
 # assembly writer; see docs/ISO-BUILD-GUARDRAILS.md), copied into
 # /usr/local/lib/cix-installer/assets/sky1-firmware by late.sh. This hook
 # drops it into /lib/firmware on the target.
+# NCZ-PLATFORM-GUARD: sky1-arm64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
+# run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
+# undetectable arch does NOT skip (legacy behavior).
+_ncz_pg_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(dpkg --print-architecture 2>/dev/null || true)
+case "$_ncz_pg_arch" in
+    arm64|aarch64|"") ;;
+    *) echo "[${0##*/}] platform guard: arch=$_ncz_pg_arch is not sky1-arm64; skipping"; exit 0 ;;
+esac
+unset _ncz_pg_arch
 set -euo pipefail
 
 SRC=/usr/local/lib/cix-installer/assets/sky1-firmware

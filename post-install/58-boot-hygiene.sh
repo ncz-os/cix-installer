@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: generic unit hygiene plus cix_resume unit masking (Sky1); TODO split (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 58-boot-hygiene.sh — a clean boot: zero failed systemd units (no plymouth
 # reds/oranges), zero avoidable log spam. Idempotent; Phase-2 optional; runs in
 # the chroot at build/install time and is safe to re-run on a live system.

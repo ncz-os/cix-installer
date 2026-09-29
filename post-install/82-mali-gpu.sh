@@ -17,6 +17,17 @@
 # mali_kbase is out-of-tree (no in-tree ACPI auto-load like amvx), so add a
 # modules-load.d entry for the 7.2 kernel. LTS (7.0.12) uses in-tree panthor —
 # NO mali there. RUNS INSIDE CHROOT via run-all.sh, after 81-vpu.sh.
+# NCZ-PLATFORM-GUARD: sky1-arm64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
+# run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
+# undetectable arch does NOT skip (legacy behavior).
+_ncz_pg_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(dpkg --print-architecture 2>/dev/null || true)
+case "$_ncz_pg_arch" in
+    arm64|aarch64|"") ;;
+    *) echo "[${0##*/}] platform guard: arch=$_ncz_pg_arch is not sky1-arm64; skipping"; exit 0 ;;
+esac
+unset _ncz_pg_arch
 set +e
 
 # Mali-G720 (Sky1) is arm64-only hardware. Without this guard, run-all.sh runs

@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: launcher curation generic; amd64 branch at line ~100; TODO split (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 59-desktop-curate.sh — curate the Singularity app launcher to a clean,
 # working, Wayland-only app set. Zero-compromise: only functioning, appropriate
 # apps appear.

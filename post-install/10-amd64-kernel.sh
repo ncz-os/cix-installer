@@ -15,6 +15,17 @@
 # entry. Do not prune one the way 10-our-kernel.sh prunes "not KVER_NEXT"
 # — that pruning exists because arm64 ships exactly one kernel; here two
 # are the intended end state.
+# NCZ-PLATFORM-GUARD: amd64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
+# run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
+# undetectable arch does NOT skip (legacy behavior).
+_ncz_pg_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(dpkg --print-architecture 2>/dev/null || true)
+case "$_ncz_pg_arch" in
+    amd64|x86_64|"") ;;
+    *) echo "[${0##*/}] platform guard: arch=$_ncz_pg_arch is not amd64; skipping"; exit 0 ;;
+esac
+unset _ncz_pg_arch
 set -euo pipefail
 
 # Real root cause of a full-install abort on arm64 (2026-09-15): this hook

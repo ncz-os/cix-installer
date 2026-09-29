@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: Singularity desktop install; arm64 chromium-ncz-sky1 wrapper plus amd64 branch (line ~961); TODO split arch branches (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 20-desktop.sh — NCZ-OS 26.7 "Maximilian" Singularity Desktop installer.
 #
 # Singularity Desktop (labwc/wlroots, GTK4/Vala, GLES on CIX libmali) is THE

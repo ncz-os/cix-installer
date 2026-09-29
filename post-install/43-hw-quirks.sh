@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: rtl_btusb blacklist is Sky1 only; r8169/atlantic EEE-off and multipathd mask are generic; TODO split (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 43-hw-quirks.sh — post-install hardware quirk fixes for Sky1 / O6N, found on
 # real O6N metal (v5 install, 2026-07-29 serial capture). All three are
 # hardware/kernel-level and apply to BOTH desktop and server SKUs, so this hook

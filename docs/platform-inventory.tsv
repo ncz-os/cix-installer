@@ -1,0 +1,319 @@
+# path	class	feature	reason
+# class: common|sky1|amd64|mixed.  feature: - or comma list of t2,nvidia-cuda.  A path ending in / is a directory prefix; the longest matching row wins.
+.codex-audit-brief.md	common	-	audit artifact
+.codex-audit.out	common	-	audit artifact
+.codex-review-brief.md	common	-	audit artifact
+.codex-review.out	common	-	audit artifact
+.gitignore	common	-	repo config
+.gitlab-ci.yml	common	-	CI
+CODEX_FINDINGS_r145.md	common	-	audit artifact
+LICENSE	common	-	license
+Makefile	mixed	-	ARCH-selected build front end
+README.md	common	-	readme
+README.zh-CN.md	common	-	readme
+STEP1-CONTINUATION-BRIEF.md	common	-	brief
+STEP1-FIX-CODEX-FINDINGS.md	common	-	brief
+STEP1-XORRISO-WRITER-BRIEF.md	common	-	brief
+STEP2-CIXMINI-PAYLOAD-BRIEF.md	common	-	brief
+assets/README.md	common	-	asset tree notes
+assets/agent-images/	common	-	agent OCI image staging notes
+assets/agent-stack/	common	-	quadlet container definitions
+assets/audio/	sky1	-	Sky1 audio autoswitch (ncz-sky1-audio-autoswitch)
+assets/branding/	common	-	logos, icon theme, wallpapers, quotes
+assets/cix-c-shims/	sky1	-	CIX aipu ioctl shim source
+assets/cix-deb-repo.gpg	sky1	-	CIX vendor apt repo key
+assets/cix-debs/	sky1	-	CIX closed-source userspace debs
+assets/cix-mm/	sky1	-	CIX multimedia bundle
+assets/cix-py/	sky1	-	CIX NPU python glue
+assets/dev/	common	-	developer/diag helpers (disabled hook, art generator)
+assets/diag/busybox-amd64	amd64	-	static busybox for failsafe console (x86_64)
+assets/diag/busybox-arm64	sky1	-	static busybox for failsafe console (aarch64)
+assets/docs/	common	-	on-image documentation
+assets/dracut/	sky1	-	Sky1 dracut configuration
+assets/embedkit/	sky1	-	mnemos-embedkit wheel for the NPU venv
+assets/firmware/apple-t2/	amd64	t2	Apple T2 firmware
+assets/firmware/iwlwifi/	amd64	-	Intel WiFi firmware for x86 laptops
+assets/firmware/regdb/	common	-	wireless regulatory database
+assets/firmware/rtl_nic/	common	-	Realtek NIC firmware; used by x86 and Orion boards
+assets/gpu/	sky1	-	ncz-gpu-select/switcher for mali/panthor
+assets/hostnames/	common	-	hostname generator word list
+assets/install_ncz_agents.sh	common	-	agent stack installer
+assets/kernel-manifest.json	sky1	-	Sky1 kernel manifest
+assets/kernel/	sky1	-	Sky1 kernel staging, mali/panthor/vpu/npu overlays, patches (default for the tree)
+assets/kernel/.gitkeep	common	-	placeholder
+assets/kernel/amd64-edge/	amd64	-	amd64 edge kernel KVER stamp
+assets/kernel/amd64-stable/	amd64	-	amd64 stable kernel KVER stamp
+assets/kernel/t2gmux/	amd64	t2	T2 gmux DKMS source
+assets/kernel/t2smc/	amd64	t2	T2 SMC DKMS source
+assets/kernel/t2smp/	amd64	t2	T2 SMP DKMS source
+assets/kernel/t2thunderbolt/	amd64	t2	T2 Thunderbolt DKMS source
+assets/keys/	common	-	OTA archive keyring and cosign key
+assets/models/	sky1	-	.cix NPU model bundle
+assets/ncz-cli.sh	common	-	ncz CLI helper staged by 46-ncz-cli
+assets/npu/	sky1	-	NPU embed server and SSDT source
+assets/nvidia/	amd64	nvidia-cuda	NVIDIA CUDA apt keyring
+assets/perf/	sky1	-	ncz-perf-activity for ncz-performance-mode
+assets/refind/	common	-	rEFInd theme art and icons
+assets/refind/ncz-refind-refresh-amd64.sh	amd64	-	rEFInd refresh for amd64 kernels
+assets/refind/ncz-refind-refresh.sh	sky1	-	rEFInd refresh for Sky1 kernels (Image-cixmini, MS-R1 gating)
+assets/refind/refind_aa64.efi	sky1	-	rEFInd arm64 binary
+assets/refind/refind_x64.efi	amd64	-	rEFInd x86_64 binary
+assets/refind/zz1-ncz-refind-refresh-amd64	amd64	-	kernel postinst hook for amd64 rEFInd refresh
+assets/regreet/	common	-	notes
+assets/rescue/	common	-	rescue notes
+assets/screensaver-chooser/	common	-	chooser plugin and idle manager
+assets/singularity/	common	-	Singularity patch series
+assets/sinty-nm/	common	-	sinty-nm service files
+assets/sky1-firmware/	sky1	-	gitignored Sky1 firmware blob input
+assets/ssh-udebs/amd64/	amd64	-	amd64 d-i ssh udebs
+assets/ssh-udebs/arm64/	sky1	-	arm64 d-i ssh udebs
+assets/update-manager/	common	-	update manager
+assets/vivaldi/vivaldi-stable_8.1.4087.55-1_amd64.deb	amd64	-	Vivaldi amd64 deb
+assets/vivaldi/vivaldi-stable_8.1.4087.55-1_arm64.deb	sky1	-	Vivaldi arm64 deb
+assets/wallpaper/	common	-	wallpaper tooling
+build/70-bootloader.sh	sky1	-	legacy Sky1 bootloader copy with MS-R1 efi=noruntime gating
+build/boot-timeline.py	common	-	boot log timeline analysis
+build/build-apt-repo.sh	common	-	apt repo assembly from release.conf
+build/build-baked-rootfs.sh	sky1	-	bakes generic hooks in an arm64 chroot (31 arm64 refs, 1 amd64)
+build/build-base-rootfs.sh	common	-	mmdebstrap base rootfs with ARCH parameter
+build/build-bootstrap-pool.sh	common	-	netinstall bootstrap pool
+build/build-desktop-mirror.sh	common	-	closure mirror; seed file chosen as manifests/desktop-$ARCH.pkgs
+build/build-dkms-debs.sh	sky1	-	packages CIX accelerator DKMS sources
+build/build-forky-mirror.sh	common	-	profile-matched forky offline closure
+build/build-gst-cix.sh	sky1	-	CIX GStreamer plugins out of tree
+build/build-installer-image.sh	common	-	shared raw-GPT image orchestration for amd64 and arm64
+build/build-iso-di.sh	mixed	-	deprecated d-i ISO builder; both arch paths (241 arm64 refs, 57 amd64)
+build/build-iso.sh	sky1	-	stale Ubuntu-era arm64 ISO builder
+build/build-kernel-debs.sh	sky1	-	debianizes the cixmini kernel
+build/build-libdrm-debs.sh	sky1	-	libdrm with NCZ ACPI platform fix for Sky1 GPU
+build/build-mgmt-rootfs.sh	sky1	-	server management rootfs from arm64 mgmt.pkgs
+build/build-mirror.sh	sky1	-	legacy resolute arm64 mirror
+build/build-npu-ssdt.sh	sky1	-	NPU ACPI SSDT early CPIO
+build/build-ota-image.sh	sky1	-	OTA OCI image of the arm64 repo
+build/build-ota-repo.sh	sky1	-	OTA repo with Sky1 kernel debs
+build/build-python311-assets.sh	sky1	-	aarch64 CPython 3.11 assets for the NPU venv
+build/build-rescue-rootfs.sh	common	-	rescue rootfs; ARCH-parameterised
+build/build-role-delta-mkosi.sh	common	-	mkosi role delta with ARCH parameter (arm64 default)
+build/build-singularity-deb.sh	common	-	wraps the Singularity payload as a deb
+build/build-singularity.sh	mixed	-	Singularity payload build; arm64 default, amd64 container platform branch; TODO parametrize
+build/build-squashfs-layers.sh	common	-	shared layer builder; per-arch branches driven by ARCH (phase C: extract arch tables)
+build/build-usb-recovery-deb.sh	sky1	-	ncz-usb-recovery deb for the Sky1 USB2 bug
+build/build-vendor-mirror.sh	common	-	vendor mirror index regeneration
+build/build-wallpaper-contrib-deb.sh	common	-	wallpaper pack debs
+build/check-early-command-size.sh	common	-	preseed size gate
+build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
+build/check-preseed-mirror-sync.sh	common	-	preseed mirror vs release.conf gate
+build/component-prompt-gate.sh	common	-	interactive component prompt gate
+build/containers/	common	-	build container definitions
+build/dkms-abi-gate.sh	sky1	-	staged headers vs Sky1 kernel gate
+build/e2e-install-test.sh	common	-	unattended install test driver
+build/extract-kernel-headers.sh	sky1	-	Sky1 kernel headers asset
+build/first-boot-failed-allowlist.txt	common	-	KVM gate first-boot allowlist
+build/gen-branding-assets.py	common	-	branding art generator
+build/gen-hooks-lists.sh	common	-	generates post-install/hooks.list.<platform> from the inventory
+build/gen-maximilian-art.py	common	-	procedural art generator
+build/google-chrome-apt-keyring.asc	common	-	Google apt key
+build/interactive-install.py	common	-	interactive d-i QEMU driver
+build/iso-cache/	amd64	-	syslinux isohdpfx.bin for x86 hybrid ISO
+build/iso/build-refind-esp.py	common	-	rEFInd ESP builder (both arches)
+build/iso/import-substrate.py	common	-	substrate import
+build/iso/patch-debootstrap-stub.py	sky1	-	r159 debootstrap stub patch (16 arm64 refs, 2 amd64)
+build/iso/patch-initrd-firmware.py	common	-	initrd firmware patch (both arches)
+build/iso/patch-initrd-t2-kernel.py	amd64	t2	T2 kernel initrd patch
+build/iso/stage-ncz-payload.py	common	-	shared payload stager
+build/iso/tests/	common	-	ISO writer tests
+build/iso/tests/prove-arm64-stage2-fixes.py	sky1	-	arm64 stage-2 proof
+build/iso/verify-image.py	common	-	image verifier
+build/iso/write-image.py	common	-	image writer
+build/iso/write-usb-image.py	common	-	USB image writer
+build/kernel-manifest.py	sky1	-	Sky1 accelerator module overlay manifest
+build/kernel-port-watch.sh	sky1	-	Sky1 kernel forward-port watcher
+build/kvm-install-gate-amd64.sh	amd64	-	amd64 KVM install gate
+build/kvm-install-gate-gpt.sh	common	-	architecture-generic KVM gate for raw GPT images
+build/kvm-install-gate.sh	sky1	-	arm64 ISO KVM install gate
+build/kvm-kernel-gate.sh	sky1	-	Sky1 kernel boot gate
+build/lint-platform.sh	common	-	platform-split lint (inventory, hook lists, deny patterns, guards, manifest divergence)
+build/logs/	sky1	-	Sky1 bitbake/KVM resume logs
+build/ncz-logd.sh	common	-	syslog collector
+build/ncz-yocto.sh	sky1	-	Yocto bootstrap for the CIX vendor stack
+build/npu-ssdt-gate.sh	sky1	-	NPU SSDT gate
+build/ops/	common	-	fleet and publishing ops
+build/ota-image-digest.txt	sky1	-	OTA image digest record
+build/pin-forky-snapshot.sh	common	-	snapshot pin bump
+build/platform-deny-patterns.txt	common	-	tokens that must not appear in COMMON hooks
+build/port-series.sh	sky1	-	Sky1 kernel patch series replay
+build/preflight-freshness-gate.sh	mixed	-	freshness gate with arm64 and amd64 checks (41/36 refs); TODO split per platform
+build/preflight-sbom-check.sh	common	-	arch-scoped SBOM preflight
+build/publish-amd64-kernel.sh	amd64	-	publishes amd64 kernels to ARGONAS staging
+build/qemu-test-console-patch.sh	sky1	-	qemu-aarch64 console patch
+build/qemu-test-interactive-patch.sh	sky1	-	qemu-aarch64 interactive patch
+build/qemu-test.sh	sky1	-	qemu-aarch64 ISO test
+build/release-kernel.sh	sky1	-	Sky1 kernel release
+build/release-ota.sh	sky1	-	OTA release
+build/secret-scan-gate.sh	common	-	secret scan gate
+build/server-mirror.gaps	common	-	server mirror gap notes
+build/singularity-nightly-track.sh	common	-	singularity nightly tracker
+build/singularity-patch-reconcile.py	common	-	singularity patch reconcile
+build/sqtools-amd64/	amd64	-	x86_64 unsquashfs toolchain
+build/sqtools/	sky1	-	aarch64 unsquashfs toolchain
+build/stage-amd64-kernel.sh	amd64	-	stages amd64 kernels from ARGONAS
+build/stage-canonical-assets.sh	sky1	-	restages CIX-NCZ gitignored blobs (183 arm64/cix refs)
+build/stage-kernel.sh	sky1	-	stages a Sky1 kernel
+build/systemd/	common	-	singularity patch reconcile units
+build/test-amd64-kernel-classifier.sh	amd64	-	amd64 kernel classifier test
+build/test-arm64-freshness-gate.sh	sky1	-	arm64 freshness gate test
+build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test
+build/test-hostname-suggest.sh	common	-	hostname algorithm tests
+build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier test
+build/test-late-union-sync.sh	common	-	late.sh union sync test
+build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
+build/test-under-di-busybox.sh	common	-	d-i busybox runner
+build/tests/	common	-	offline pool tests
+build/validate-accelerators.sh	sky1	-	GPU/NPU/VPU binding validation
+build/verify-arm64-inputs.sh	sky1	-	Sky1 input preflight
+build/verify-assets.sh	common	-	SBOM asset verifier
+build/verify-base-kernel-assets.sh	amd64	-	staged amd64 kernel asset verifier
+build/verify-desktop-mirror-seeds.sh	common	-	desktop seed verifier
+build/verify-dkms-modules.sh	sky1	-	DKMS coverage verifier (20 arm64/cix refs)
+build/verify-firmware-bom.sh	common	-	firmware BOM verifier
+build/verify-installed-target-arm64.sh	sky1	-	installed-target accelerator verifier
+build/verify-iso-offline-pool.py	common	-	offline pool verifier
+build/verify-local-package-versions.sh	common	-	local package version gate
+build/verify-offline-mirror-seeds.sh	common	-	mirror seed verifier
+build/verify-overlays.py	sky1	-	module overlay verifier
+build/verify-packages.sh	common	-	package seed verifier
+build/verify-udebs.sh	common	-	udeb verifier
+build/yocto-layers.conf	sky1	-	Yocto layer pins for the CIX stack
+build/yocto/	sky1	-	Yocto config templates
+docker/	common	-	host build containers and notes
+docker/Containerfile.yocto	sky1	-	Yocto build container
+docs/	common	-	documentation
+docs/manifest-divergence.tsv	common	-	reviewed package differences between platform manifests
+docs/platform-deny-exceptions.tsv	common	-	reviewed exceptions to the deny patterns
+docs/platform-inventory.tsv	common	-	this inventory
+docs/reports/	sky1	-	Sky1 kernel port reports
+docs/upstream-patches/	sky1	-	chromium v4l2 and cix-vaapi patch series
+kernel-source/	sky1	-	corresponding source of the Sky1 kernel
+manifests/desktop-amd64.pkgs	amd64	t2,nvidia-cuda	full amd64 desktop closure (microcode, intel media, T2/GPU conditionals)
+manifests/desktop.pkgs	sky1	-	full arm64/Sky1 desktop closure (chromium-ncz-sky1, ncz-ffmpeg, singularity); phase C: split into common plus delta
+manifests/firmware-bom.allow	common	-	firmware BOM exclusions
+manifests/firmware.pkgs	common	-	architecture-neutral firmware BOM
+manifests/install-extra.pkgs	common	-	extra installer packages; arch-neutral
+manifests/installer-base-amd64.pkgs	amd64	t2	amd64 installer base (bolt for T2 Thunderbolt docks)
+manifests/installer-base.pkgs	sky1	-	arm64 installer base (cixmini-boot, linux-image-cixmini, cross gcc)
+manifests/mgmt.pkgs	sky1	-	server nspawn management rootfs; implicitly arm64 today
+manifests/rescue-amd64.pkgs	amd64	-	amd64 rescue set (grub-efi-amd64, syslinux, memtest86+, ms-sys, microcode)
+manifests/rescue.pkgs	sky1	-	arm64 rescue set (device-tree-compiler)
+packages/mnemos-cix-integration/	sky1	-	MNEMOS NPU embedder package
+packaging/	common	-	Singularity and gtk4-layer-shell packaging
+packaging/cix-npu-driver-dkms-6.2.0/	sky1	-	NPU DKMS packaging
+packaging/cix-npu-kmd/	sky1	-	NPU KMD packaging
+post-install/05-time-sync.sh	common	-	clock fix before HTTPS; arch-neutral (no platform tokens)
+post-install/10-amd64-kernel.sh	amd64	-	installs staged amd64 kernel debs with dpkg; amd64 analogue of 10-our-kernel
+post-install/10-our-kernel.sh	sky1	-	apt-installs linux-image-cixmini; own guard exits when arch != arm64 (line ~56)
+post-install/11-fix-cixmini-boot.sh	sky1	-	redirects cixmini-boot kernel postinst to rEFInd; no-op unless /usr/lib/cixmini exists
+post-install/12-sky1-firmware.sh	sky1	-	copies Sky1 SoC blobs (mali_csffw, dsp_fw, *.fwb) to /lib/firmware; own arch guard
+post-install/13-firmware-bom.sh	common	-	installs manifests/firmware.pkgs, an architecture-neutral BOM
+post-install/15-mesa-sky1-pin.sh	sky1	-	apt pin for 1sky1 Mesa builds; only meaningful on Sky1 archive
+post-install/16-mesa-gpu-2613.sh	sky1	-	NCZ Mesa 26.1.3 panfrost/panvk stack under /opt; own arch guard
+post-install/19-sinty-nm.sh	common	-	native network owner for every variant and arch
+post-install/20-desktop.sh	mixed	-	Singularity desktop install; arm64 chromium-ncz-sky1 wrapper plus amd64 branch (line ~961); TODO split arch branches
+post-install/21-flatpak-arch-filter.sh	common	-	Flathub remote filter keyed on BUILD_ARCH; generic
+post-install/22-display-fix.sh	mixed	-	Sky1 DRM/linlondp detector; unit enable is arm64-only but xorg/udev drop-ins are written on every arch; TODO make sky1-only body
+post-install/22-locale-gen.sh	common	-	locale generation; generic
+post-install/23-base-apt-sources.sh	common	-	upstream APT base sources; generic
+post-install/23-locale-env.sh	common	-	systemd --user locale env; generic
+post-install/24-apt-sources.sh	common	-	NCZ apt sources; generic
+post-install/25-cix-proprietary.sh	sky1	-	installs CIX closed-source userspace debs from assets/cix-debs
+post-install/26-gpu-default-mali.sh	sky1	-	makes CIX libmali the default GPU stack; touches only CIX ld paths and Vulkan ICDs
+post-install/27-net-caps.sh	common	-	cap_net_raw on ping; generic
+post-install/31-remote-access.sh	common	-	remote access notes/config; generic
+post-install/32-quadlet-shim.sh	common	-	no-op stub
+post-install/33-network.sh	mixed	t2	netplan/NetworkManager wiring is generic; also installs udev/NM rules unmanaging the Apple T2 iBridge NIC; TODO move T2 rules to an amd64 t2 hook
+post-install/34-firewall.sh	common	-	nftables baseline; generic
+post-install/34-fstab.sh	common	-	writes /etc/fstab; generic
+post-install/35-fstrim-fix.sh	common	-	excludes vfat from fstrim; Sky1 motivated but harmless and correct on every arch
+post-install/35-ssh.sh	common	-	openssh plus fleet keys; generic
+post-install/36-telemetry.sh	mixed	-	telnet/journald generic; serial-getty ttyAMA0 enable gated on arm64 (lines ~198-210); TODO split UART part
+post-install/37-failsafe-access.sh	common	-	static busybox break-glass console; arch selected from assets/diag
+post-install/37-ntp-hostname.sh	common	-	hostname and timesyncd; generic
+post-install/38-recovery-container.sh	common	-	server nspawn recovery tier; generic
+post-install/39-usb-gpt-autofix.sh	common	-	GPT backup header heal on install media; generic
+post-install/40-claude-code.sh	common	-	npm CLI install; generic
+post-install/41-usb2-rescan.sh	mixed	-	installs ncz-usb-recovery package; Sky1 xhci bug workaround but runtime-gated (keyboard_present) and harmless elsewhere; TODO decide sky1-only
+post-install/43-hw-quirks.sh	mixed	-	rtl_btusb blacklist is Sky1 only; r8169/atlantic EEE-off and multipathd mask are generic; TODO split
+post-install/44-apple-vbt-spoof.sh	amd64	t2	rEFInd macOS spoof for Apple firmware VBT; Apple Macs only
+post-install/44-rtc-sync.sh	common	-	RTC localtime/hwclock sync; generic
+post-install/45-wallpaper-rotator.sh	common	-	wallpaper rotation; generic
+post-install/46-ncz-cli.sh	mixed	-	ncz CLI is generic; also stages /opt/cix/npu_embed_v2.py and NPU status (Sky1); TODO split NPU parts
+post-install/46-python311.sh	sky1	-	relocatable aarch64 CPython 3.11 for the NPU venv
+post-install/47-embedkit.sh	sky1	-	mnemos-embedkit plus libnoe (manylinux2014_aarch64 wheels)
+post-install/47-llm-stack.sh	mixed	-	vulkan/clinfo runtime; explicit arm64 and amd64 branches (lines ~83,132); TODO split
+post-install/48-server-variant.sh	common	-	server variant toggle; generic
+post-install/49-artist-pack-browser.sh	common	-	artist pack backend; generic
+post-install/50-brand.sh	mixed	-	branding generic; issue SOC label detects Sky1 via uname/cpuinfo (line ~117)
+post-install/50-update-manager.sh	common	-	update manager; generic
+post-install/52-vivaldi.sh	common	-	Vivaldi from staged deb; selects arch by BUILD_ARCH
+post-install/53-chrome.sh	common	-	Google Chrome apt wiring; dpkg architecture aware
+post-install/54-gpu-accel.sh	amd64	nvidia-cuda	AMD64 GPU/accelerator stack (ROCm, CUDA, Intel); guard exits when arch != amd64
+post-install/55-greeter.sh	common	-	greetd plus singularity-greeter; generic
+post-install/55-t2-firmware.sh	amd64	t2	Apple T2 WiFi/BT firmware and audio; guard exits when arch != amd64
+post-install/56-icon-theme.sh	common	-	icon theme; generic
+post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux/t2smp/t2thunderbolt DKMS on T2 Macs
+post-install/57-qotd.sh	common	-	quote of the day; generic
+post-install/57-screensaver.sh	common	-	legacy idle-lock screensaver stack; generic
+post-install/58-boot-hygiene.sh	mixed	-	generic unit hygiene plus cix_resume unit masking (Sky1); TODO split
+post-install/58-screensaver-chooser.sh	common	-	screensaver chooser; generic
+post-install/59-desktop-curate.sh	mixed	-	launcher curation generic; amd64 branch at line ~100; TODO split
+post-install/59-ncz-screensavers-pkg.sh	common	-	installs ncz-screensavers if the mirror carries it
+post-install/60-boot-splash.sh	common	-	KMS boot splash; DRM-generic (panthor initramfs strip is a harmless sed)
+post-install/70-bootloader.sh	mixed	-	rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies
+post-install/72-rescue-partition.sh	mixed	-	rescue partition; explicit arm64 and amd64 kernel branches; TODO split
+post-install/79-dkms-prep.sh	sky1	-	makes Sky1 kernel headers DKMS-usable; installs aarch64 cross compiler
+post-install/80-npu.sh	sky1	-	Zhouyi/aipu NPU driver and SSDT; own arch guard
+post-install/81-vpu.sh	sky1	-	amvx VPU module overlay; own arch guard
+post-install/82-mali-gpu.sh	sky1	-	mali_kbase DKMS; own arch guard
+post-install/83-panthor-gpu.sh	sky1	-	panthor DKMS and ncz-gpu-select; own arch guard
+post-install/83-vpu-ffmpeg.sh	sky1	-	cix-ffmpeg VPU build
+post-install/84-vpu-mpv.sh	sky1	-	mpv v4l2m2m-copy on the amvx VPU
+post-install/84-vpu-vaapi.sh	sky1	-	cix VA-API driver detection fix under /usr/lib/aarch64-linux-gnu
+post-install/85-power-perf-mode.sh	mixed	-	unit installed on every arch by design; auto-enable is arm64 only (line ~264)
+post-install/86-cix-dkms-register.sh	sky1	-	registers NPU and VPU DKMS sources; own arch guard
+post-install/87-mpam-cache-partition.sh	sky1	-	CPU MPAM/resctrl cache partitioning (Sky1 CI-700)
+post-install/88-noe-umd-venv.sh	sky1	-	cix-noe-umd python venv
+post-install/89-npu-embed-server.sh	sky1	-	NPU embeddings server (Zhouyi)
+post-install/90-ota-channel.sh.disabled	common	-	disabled hook; not executed
+post-install/91-dbus-broker.sh	common	-	dbus-broker; generic
+post-install/92-apparmor-enable.sh	common	-	AppArmor; generic
+post-install/93-zram-swap.sh	common	-	zram swap; generic
+post-install/94-dracut-config.sh	sky1	-	stages 10-ncz-sky1.conf dracut config
+post-install/95-console-font-autosize.sh	common	-	VT font autosize; generic
+post-install/96-setuid-audit.sh	common	-	setuid audit; generic
+post-install/97-firstboot-report.sh	common	-	first-boot failed-unit report; arch-neutral
+post-install/99-diagnostics.sh	common	-	final diagnostics dump; generic
+post-install/apt-progress-shim	common	-	apt progress wrapper
+post-install/buildkite-ncz-apt-keyring.asc	common	-	NCZ apt repo key
+post-install/hooks.list.amd64	common	-	generated ordered hook list for platform amd64 (build/gen-hooks-lists.sh)
+post-install/hooks.list.sky1-arm64	common	-	generated ordered hook list for platform sky1-arm64 (build/gen-hooks-lists.sh)
+post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
+post-install/ncz-os-apt-keyring.asc	common	-	NCZ apt repo key
+post-install/run-all.sh	common	-	hook orchestrator; platform selection via hooks.list
+preseed/	common	-	installer helpers (hostname, disk chooser, diag console, rescan)
+preseed/extract-rootfs.sh	mixed	-	rootfs extraction with per-arch paths; TODO split
+preseed/late.sh	mixed	-	install-time late command; per-arch branches (141 arm64 refs, 5 amd64); TODO split
+preseed/preseed.cfg	mixed	-	d-i preseed with per-arch tuning
+prototype/	common	-	QEMU prototype drivers
+public/	common	-	apt Release stub
+release.conf	common	-	release identity (platform overlays in phase C)
+sbom/	sky1	-	arm64 default SBOM lists
+sbom/expected-assets-amd64.txt	amd64	-	amd64 SBOM assets
+sbom/expected-dkms-modules-amd64.txt	amd64	-	amd64 SBOM DKMS
+sbom/expected-packages-amd64.txt	amd64	-	amd64 SBOM packages
+sbom/expected-udebs-amd64.txt	amd64	-	amd64 SBOM udebs
+scripts/	common	-	helper scripts
+staging/	common	-	xwayland staging
+tests/	common	-	unit tests
+tools/	common	-	dev tools
+tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on cixmini
+tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
+tools/verify-drivers.sh	sky1	-	Sky1 driver fidelity check

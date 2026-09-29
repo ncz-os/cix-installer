@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: branding generic; issue SOC label detects Sky1 via uname/cpuinfo (line ~117) (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 50-brand.sh — NCZ 26.7 "Maximilian" identity.
 #
 # "Maximilian" is the RELEASE codename (26.7) — it applies to BOTH variants,

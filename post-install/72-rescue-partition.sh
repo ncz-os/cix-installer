@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: rescue partition; explicit arm64 and amd64 kernel branches; TODO split (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 72-rescue-partition.sh — populate the r130 dedicated RESCUE PARTITION.
 #
 # The partman recipe in preseed.cfg creates a 4 GiB ext4 partition

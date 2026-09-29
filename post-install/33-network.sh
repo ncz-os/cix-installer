@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: netplan/NetworkManager wiring is generic; also installs udev/NM rules unmanaging the Apple T2 iBridge NIC; TODO move T2 rules to an amd64 t2 hook (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 33-network.sh — wire NetworkManager as the active netplan renderer.
 #
 # 2026-05-08 take23 (per .66 take22 install): resolute defaults to

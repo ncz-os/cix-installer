@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: Sky1 DRM/linlondp detector; unit enable is arm64-only but xorg/udev drop-ins are written on every arch; TODO make sky1-only body (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 22-display-fix.sh — Sky1 DRM card numbering shifts between boots due to
 # driver-init race. Detector runs at every boot AFTER udev-settle, with a
 # 30-second retry loop because Sky1 linlondp probes asynchronously.

@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: ncz CLI is generic; also stages /opt/cix/npu_embed_v2.py and NPU status (Sky1); TODO split NPU parts (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 46-ncz-cli.sh — install /usr/local/bin/ncz + /opt/cix/npu_embed_v2.py.
 #
 # r75 P5/P7 (#115/#99): foundational `ncz` command with subcommands:

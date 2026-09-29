@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: installs ncz-usb-recovery package; Sky1 xhci bug workaround but runtime-gated (keyboard_present) and harmless elsewhere; TODO decide sky1-only (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 41-usb2-rescan.sh — workaround for the CIX Sky1 (Sky1/CD8180) boot-time
 # USB2-companion enumeration bug observed on the 7.2 kernel.
 #

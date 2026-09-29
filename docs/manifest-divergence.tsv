@@ -1,0 +1,37 @@
+# manifest-divergence.tsv -- reviewed package differences between the arm64/Sky1
+# and amd64 manifests. build/lint-platform.sh (MANIFEST) fails when a package is in
+# only one of manifests/<base>.pkgs and manifests/<base>-amd64.pkgs without a row
+# here, and when a row no longer describes a real difference.
+# Columns: manifest	package	side that HAS it (sky1|amd64)	reason
+desktop	chromium-ncz-sky1	sky1	custom V4L2-M2M Chromium for the Linlon VPU; amd64 ships google-chrome-stable and Vivaldi only (operator 2026-09-14)
+desktop	ncz-ffmpeg	sky1	Sky1 VPU-accelerated ffmpeg, not arch-portable; an amd64 hwaccel build does not exist yet (docs/AMD64-PACKAGE-AUDIT.md)
+desktop	ncz-singularity-desktop	sky1	amd64 package blocked: build-singularity-deb.sh hardcoded Architecture arm64 (docs/AMD64-PACKAGE-AUDIT.md follow-on 1); reconcile in DUAL-ARCH-PARITY
+desktop	libdrm-radeon1	sky1	transitive Mesa dependency noise in the Sky1 closure; amd64 gets its own DRM backends via mesa-vulkan-drivers
+desktop	libdrm-nouveau2	sky1	same as libdrm-radeon1
+desktop	libdrm-freedreno1	sky1	same as libdrm-radeon1
+desktop	libdrm-tegra0	sky1	same as libdrm-radeon1
+desktop	libdrm-etnaviv1	sky1	same as libdrm-radeon1
+desktop	valac	sky1	Vala UI build dependency used in the arm64 image-assembly chroot; not carried into the amd64 closure
+desktop	meson	sky1	same as valac
+desktop	ninja-build	sky1	same as valac
+desktop	libgtk-4-dev	sky1	same as valac
+desktop	libgee-0.8-dev	sky1	same as valac
+desktop	swayidle	sky1	idle-lock screensaver stack (57-screensaver HOLD); not carried into the amd64 closure
+desktop	swaylock	sky1	same as swayidle
+desktop	amd64-microcode	amd64	x86 CPU microcode
+desktop	intel-microcode	amd64	x86 CPU microcode
+desktop	intel-gpu-tools	amd64	Intel iGPU diagnostics (T2 MacBooks)
+desktop	intel-media-va-driver	amd64	Intel VA-API driver (T2 MacBooks, x86 iGPUs)
+installer-base	bolt	amd64	Thunderbolt device authorization for T2 MacBook docks
+installer-base	cixmini-boot	sky1	Sky1-only kernel boot package
+installer-base	linux-image-cixmini	sky1	Sky1 kernel package; amd64 installs linux-image-amd64-ncz-t2 via 10-amd64-kernel.sh
+installer-base	gcc-aarch64-linux-gnu	sky1	arm64 cross-compiler target used by DKMS prep on Sky1
+rescue	device-tree-compiler	sky1	dtc for inspecting CIX Sky1 device trees
+rescue	amd64-microcode	amd64	x86 CPU microcode
+rescue	intel-microcode	amd64	x86 CPU microcode
+rescue	grub-efi-amd64	amd64	x86 rescue boot loader
+rescue	grub-pc-bios	amd64	x86 BIOS rescue boot loader
+rescue	memtest86+	amd64	x86 memory tester
+rescue	ms-sys	amd64	Windows-compatible MBR/VBR writer for x86 rescue media
+rescue	syslinux	amd64	x86 rescue boot loader
+rescue	syslinux-efi	amd64	x86 rescue boot loader

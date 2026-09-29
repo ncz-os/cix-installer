@@ -30,6 +30,17 @@
 # embedkit Engine.auto() picks at runtime: on Cix Sky1 it sees libnoe
 # + /dev/aipu and selects the npu-cix adapter; on a hypothetical x86
 # variant of this image it would fall back to cpu-llamacpp.
+# NCZ-PLATFORM-GUARD: sky1-arm64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
+# run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
+# undetectable arch does NOT skip (legacy behavior).
+_ncz_pg_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
+[ -n "$_ncz_pg_arch" ] || _ncz_pg_arch=$(dpkg --print-architecture 2>/dev/null || true)
+case "$_ncz_pg_arch" in
+    arm64|aarch64|"") ;;
+    *) echo "[${0##*/}] platform guard: arch=$_ncz_pg_arch is not sky1-arm64; skipping"; exit 0 ;;
+esac
+unset _ncz_pg_arch
 set -euo pipefail
 
 ASSETS=/usr/local/lib/cix-installer/assets/embedkit

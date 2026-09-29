@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: vulkan/clinfo runtime; explicit arm64 and amd64 branches (lines ~83,132); TODO split (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 47-llm-stack.sh — GPU/compute RUNTIME + diagnostics for the LLM and NPU
 # tiers, so the appliance ships "plug-in-and-it-works" without manual apt.
 #

@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: telnet/journald generic; serial-getty ttyAMA0 enable gated on arm64 (lines ~198-210); TODO split UART part (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 36-telemetry.sh — maximum-telemetry + lockout-prevention console.
 #
 # Operator requirement (2026-06-01): "telnetd enabled by default with
