@@ -50,7 +50,7 @@ ncz_default_hostname() {
         if [ -r "$ifpath/address" ]; then
             mac=$(tr -d ":" < "$ifpath/address" | tr "[:upper:]" "[:lower:]")
             if [ -n "$mac" ] && [ "$mac" != "000000000000" ]; then
-                printf "ncz-%s" "${mac: -8}"
+                printf "ncz-%s" "${mac: -6}"
                 return 0
             fi
         fi
@@ -66,7 +66,7 @@ ncz_default_hostname() {
             if [ -r "$ifpath/address" ]; then
                 mac=$(tr -d ":" < "$ifpath/address" | tr "[:upper:]" "[:lower:]")
                 if [ -n "$mac" ] && [ "$mac" != "000000000000" ]; then
-                    printf "ncz-%s" "${mac: -8}"
+                    printf "ncz-%s" "${mac: -6}"
                     return 0
                 fi
             fi
@@ -81,7 +81,7 @@ ncz_default_hostname() {
         mid=$(cat /etc/machine-id | tr -d "\r\n")
         if [ -n "$mid" ]; then
             local h
-            h=$(printf "%s" "$mid" | sha256sum | cut -c1-8)
+            h=$(printf "%s" "$mid" | sha256sum | cut -c1-6)
             printf "ncz-%s" "$h"
             return 0
         fi
