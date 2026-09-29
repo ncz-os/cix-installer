@@ -18,6 +18,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("dir")
 ap.add_argument("--require-dialog", action="append", default=[])
 ap.add_argument("--require-header", default=None)
+ap.add_argument("--no-blank-after", default=None, help="after the first state containing TEXT, no later state may be a blank console (only the screen tab bar): the UI must stay up until the install progress")
 a = ap.parse_args()
 
 BAD = [
@@ -45,6 +46,16 @@ for f in files:
     if hdr and re.search(r"[lk]q{5,}|x .* x", txt) and not hdr.search(txt):
         bad += 1
         print("check-installer-screens: FAIL %s: dialog without the branded header /%s/" % (f, a.require_header), file=sys.stderr)
+if a.no_blank_after:
+    started = False
+    for f in files:
+        txt = open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read()
+        if a.no_blank_after in txt: started = True
+        if not started: continue
+        body = [l for l in txt.split("\n")[1:] if l.strip() and not re.match(r"^\[?\s*\(\d\*+\w+\)\s+2 shell", l.strip()) and "(1**installer)" not in l]
+        if not body:
+            bad += 1
+            print("check-installer-screens: FAIL %s: blank console after the %r dialog (the UI vanished; the operator sees an empty blue screen)" % (f, a.no_blank_after), file=sys.stderr)
 for t, ok in seen.items():
     if not ok:
         bad += 1

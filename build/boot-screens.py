@@ -19,6 +19,7 @@ ap.add_argument("--interactive", action="store_true")
 ap.add_argument("--extra-opts", default="")
 ap.add_argument("--telnet-port", type=int, default=12323)
 ap.add_argument("--probe", default="")
+ap.add_argument("--ask-disk", action="store_true", help="do not preset ncz_disk/ncz_fs: the disk, filesystem and erase-confirmation dialogs appear")
 ap.add_argument("--answer", action="append", default=[], help="REGEX=KEYS: when the serial console screen matches REGEX send KEYS once (\\r = Enter)")
 ap.add_argument("--vt", action="store_true", help="also read the fbcon VTs over the diag telnet (slow)")
 ap.add_argument("--rows", type=int, default=24); ap.add_argument("--cols", type=int, default=80)
@@ -37,8 +38,10 @@ cfg = os.path.join(W, "refind.conf")
 subprocess.check_call(["mcopy", "-o", "-n", "-i", f"{img}@@{off}", "::/EFI/BOOT/refind.conf", cfg])
 text = open(cfg).read()
 params = ("passwd/username=nczuser passwd/user-fullname=NCZTestUser passwd/user-password=nczpassword123 "
-          "passwd/user-password-again=nczpassword123 ncz_diag_pw=parity-screen-test ncz_disk=/dev/vda ncz_fs=ext4 "
+          "passwd/user-password-again=nczpassword123 ncz_diag_pw=parity-screen-test "
           "debian-installer/locale=en_US.UTF-8 keyboard-configuration/xkb-keymap=us clock-setup/ntp=false time/zone=UTC")
+if not a.ask_disk:
+    params += " ncz_disk=/dev/vda ncz_fs=ext4"
 if not a.interactive:
     params += " ncz_unattended=1 ncz_components=desktop,mgmt-container,rescue-partition"
 marker = 'menuentry "NCZ-OS Installer -- Install" {'

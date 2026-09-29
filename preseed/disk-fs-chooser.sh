@@ -278,6 +278,42 @@ fi
 case "$CHOSEN_FS" in ext4|btrfs) : ;; *) abort "invalid root fs '$CHOSEN_FS'" ;; esac
 log "TARGET DISK = $CHOSEN_DISK   ROOT FS = $CHOSEN_FS"
 
+# --- interactive only: an unmistakable review + confirmation before ANYTHING is erased -----------------------------
+# The operator picked a disk and/or filesystem in a dialog (no ncz_disk=/ncz_fs= preset), so show what is about to
+# happen and require an explicit Yes; declining stops the install with nothing touched. Presets (unattended runs, the
+# KVM gate) skip this and only log.
+if [ -z "$OVR_DISK" ] || [ -z "$OVR_FS" ]; then
+    _ncz_sel=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null || true)
+    case ",$_ncz_sel," in *",rescue-partition,"*|",,") _ncz_resc=yes ;; *) _ncz_resc=no ;; esac
+    cat > /tmp/ncz-confirm.templates <<TPL
+Template: ncz/confirm-erase
+Type: boolean
+Default: false
+Description: $(ncz_ui_brand) - ERASE ${CHOSEN_DISK} and install?
+ Please review your choices:
+ .
+   Target disk:       ${CHOSEN_DISK}
+   Root filesystem:   ${CHOSEN_FS}
+   Rescue partition:  ${_ncz_resc}
+   Components:        ${_ncz_sel:-all}
+ .
+ CONTINUING ERASES EVERYTHING ON ${CHOSEN_DISK}. This cannot be undone.
+ .
+ $(ncz_ui_id)
+TPL
+    debconf-loadtemplate ncz /tmp/ncz-confirm.templates 2>/dev/null || abort "could not load the erase-confirmation template (never erase without asking)"
+    db_set   ncz/confirm-erase false 2>/dev/null || true
+    db_fset  ncz/confirm-erase seen false || abort "db_fset confirm-erase seen failed"
+    db_settitle ncz/confirm-erase 2>/dev/null
+    db_input critical ncz/confirm-erase || abort "erase confirmation could not be displayed (db_input rc=$?)"
+    db_go || abort "erase confirmation cancelled / backed out"
+    db_get ncz/confirm-erase || abort "db_get confirm-erase failed"
+    [ "$RET" = true ] || abort "the operator did not confirm erasing $CHOSEN_DISK"
+    log "operator CONFIRMED erasing $CHOSEN_DISK"
+else
+    log "unattended: erasing $CHOSEN_DISK (ncz_disk=/ncz_fs= preset)"
+fi
+
 # --- pin + VERIFY partman FIRST, then wipe (never wipe on an unproven pin) ---
 # Root partition uses CHOSEN_FS; ESP (fat32) + rescue (ext4) are fixed, matching
 # the static preseed recipe byte-for-byte.
@@ -354,14 +390,38 @@ log "partman pins VERIFIED (exact recipe match): disk=$CHOSEN_DISK recipe=cixmin
 # --- ONLY NOW: prep the chosen disk (swapoff / unmount / wipe stale GPT) -----
 # Replaces the OLD hardcoded /dev/nvme0n1 dd-zap. We wipe only the OPERATOR-
 # CHOSEN, verified, pinned whole disk.
+# A visible step: the erase is destructive and used to happen with a blank screen. A debconf progress bar names the disk.
+_ncz_prog=0
+cat > /tmp/ncz-erase.templates <<TPL
+Template: ncz/erase-title
+Type: text
+Description: $(ncz_ui_brand) - erasing ${CHOSEN_DISK}
+
+Template: ncz/erase-info
+Type: text
+Description: \${STEP}
+TPL
+if debconf-loadtemplate ncz /tmp/ncz-erase.templates 2>/dev/null && db_progress START 0 3 ncz/erase-title 2>/dev/null; then
+    _ncz_prog=1
+fi
+ncz_step() {   # n text
+    [ "$_ncz_prog" = 1 ] || return 0
+    db_subst ncz/erase-info STEP "$2" 2>/dev/null || true
+    db_progress INFO ncz/erase-info 2>/dev/null || true
+    db_progress SET "$1" 2>/dev/null || true
+}
+ncz_step 0 "ERASING $CHOSEN_DISK: stopping swap and unmounting"
 D="$CHOSEN_DISK"; base="${D##*/}"
 awk 'NR>1{print $1}' /proc/swaps 2>/dev/null | grep "^${D}" | while read _s; do swapoff "$_s" 2>/dev/null || true; done
 awk -v dd="$D" '$1 ~ dd {print $2}' /proc/mounts 2>/dev/null | sort -r | while read _mp; do sync; umount "$_mp" 2>/dev/null || { sleep 1; umount "$_mp" 2>/dev/null || true; }; done
+ncz_step 1 "ERASING $CHOSEN_DISK: clearing the old partition table"
 SZ=$(cat "/sys/block/$base/size" 2>/dev/null)
 dd if=/dev/zero of="$D" bs=1M count=16 2>/dev/null
 [ -n "$SZ" ] && dd if=/dev/zero of="$D" bs=512 seek=$((SZ-2048)) count=2048 2>/dev/null
 sync; blockdev --rereadpt "$D" 2>/dev/null || true; udevadm settle 2>/dev/null || true
 log "cleared stale GPT on $D (partman pins already verified)"
+ncz_step 3 "$CHOSEN_DISK erased; the installer continues"
+[ "$_ncz_prog" = 1 ] && db_progress STOP 2>/dev/null
 
 # stash the choices for later hooks / diagnostics
 echo "$CHOSEN_DISK" > /tmp/ncz-target-disk 2>/dev/null || true
