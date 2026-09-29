@@ -225,8 +225,7 @@ if [ "$CHECK_MIRROR" = 1 ]; then
     # The build dir defaults to ROOT/build; honour it if set so the gate
     # works from anywhere the build is invoked.
     for debname in google-chrome-stable chromium-ncz-sky1; do
-        if compgen -G "$MIRROR_ROOT/pool/main/**/${debname}_*_arm64.deb" > /dev/null \
-            || find "$MIRROR_ROOT/pool" -type f -name "${debname}_*_arm64.deb" 2>/dev/null | grep -q .; then
+        if find "$MIRROR_ROOT/pool" -type f -name "${debname}_*_arm64.deb" 2>/dev/null | grep -q .; then
             N_MIRROR_DEBS=$((N_MIRROR_DEBS + 1))
         else
             mark_miss "mirror.deb" "$MIRROR_ROOT/pool (missing: ${debname}_*_arm64.deb)"

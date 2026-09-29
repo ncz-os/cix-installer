@@ -31,7 +31,7 @@ set -euo pipefail
 # Resolve the gate's own directory so we can locate sibling scripts
 # (verify-installed-target-arm64.sh etc.) even when invoked via relative
 # path or via `bash path/to/gate.sh` from another working directory.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 IMG="${1:?usage: kvm-install-gate-gpt.sh IMAGE.img [WORKDIR]}"
 ARCH="${ARCH:-}"

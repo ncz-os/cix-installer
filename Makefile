@@ -394,7 +394,7 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(wildcard $(ASSETS)/rootfs/*) \
 	               $(wildcard $(ASSETS)/sky1-firmware/*)
 	@echo "[image] verifying arm64 inputs (sky1-firmware, cix-debs, rescue-rootfs, mirror)"
-	@bash $(ROOT)/build/verify-arm64-inputs.sh --mirror
+	@NCZ_TARGET_ARCH=$(ARCH) bash $(ROOT)/build/verify-arm64-inputs.sh --mirror
 	@echo "[image] building $@ from $(DOWNLOADS)/$(UPSTREAM_ISO)"
 	@ARCH=$(ARCH) SUBSTRATE_ISO=$(DOWNLOADS)/$(UPSTREAM_ISO) \
 	  SUBSTRATE_URL=$(UPSTREAM_URL) OUTPUT=$@ \
