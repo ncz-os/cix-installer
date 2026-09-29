@@ -32,7 +32,7 @@ fi
 MOVE=$(git log --format=%H --grep='^platform-split: physical move' -1)
 EDITED=""
 if [ -n "$MOVE" ]; then
-    EDITED=$(git diff --name-only --diff-filter=AMR "$MOVE" HEAD | sed -E 's#^common/##; s#^platforms/[^/]+/##' | LC_ALL=C sort -u)
+    EDITED=$(git diff --name-only --diff-filter=ADMRT "$MOVE" HEAD | sed -E 's#^common/##; s#^platforms/[^/]+/##' | LC_ALL=C sort -u)
 fi
 ROOTS="post-install manifests assets build preseed tests tools scripts packaging packages sbom docker kernel-source"
 FAIL=0

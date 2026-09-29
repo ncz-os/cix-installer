@@ -34,8 +34,10 @@ def load_inventory(path):
     for line in open(path):
         if line.startswith("#") or not line.strip():
             continue
-        p, cls = line.rstrip("\n").split("\t")[:2]
-        rows[p] = cls
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) < 4 or parts[1] not in DEST:
+            raise SystemExit("platform-split-move: malformed inventory row: %r" % line.rstrip())
+        rows[parts[0]] = parts[1]
     return rows
 
 
@@ -66,7 +68,7 @@ def rewrite_gitignore(root):
         lines.pop()
     gen = [BEGIN,
            "# The flat build view is generated from common/ and platforms/<platform>/.",
-           ] + ["/%s/" % r for r in ROOTS] + ["/.platform-assembled"]
+           ] + ["/%s/" % r for r in ROOTS] + ["/.platform-assembled", "/.platform-assembled.*"]
     for l in lines:
         neg = l.startswith("!")
         body = l[1:] if neg else l
@@ -118,7 +120,10 @@ def main():
         chunk = plan[i:i + B]
         # `git mv` takes one destination per call for a file, so feed pairs through update-index-free rename
         for s, d in chunk:
-            subprocess.run(["git", "-C", root, "mv", "-k", s, d], check=True)
+            if os.path.lexists(os.path.join(root, d)):
+                print("platform-split-move: WARN destination exists, not moving %s" % s, file=sys.stderr)
+                continue
+            subprocess.run(["git", "-C", root, "mv", s, d], check=True)
     # remove now-empty flat directories (the view recreates them)
     for r in ROOTS:
         base = os.path.join(root, r)

@@ -49,6 +49,11 @@ Makefile runs it before any rule or wildcard is evaluated; `make assemble` does 
   layer, and it is the same for the fleet hosts that reference flat paths. Tracked
   symlinks (`assets/kernel/edge`, `assets/docs/*.md`, `kernel-source/.../files`) are
   recreated verbatim in the view; their relative targets are only meaningful there.
+* After a checkout, pull or rebase, `make` re-assembles first, but a script run directly does not:
+  run `platform-tools/install-git-hooks.sh` once per clone to refresh the view on
+  post-checkout, post-merge and post-rewrite. Do not assemble on a pre-split branch (its flat
+  files are tracked there). The assembler takes an exclusive lock and writes its state file
+  atomically, so concurrent `make` runs are safe.
 * Known limit: a build step that WRITES a tracked file in place (for example
   `build/ota-image-digest.txt`) writes into the view; the change is not tracked. Copy such
   output to the source path if it must be committed.
