@@ -466,6 +466,17 @@ case "$_cur" in
             done
             return 1
         }
+        # ONE ALGORITHM (2026-09-29): the same generator the installer uses (IAU star name + 4-digit
+        # seed from a stable machine identity, never a swappable NIC). Falls through to the legacy
+        # machine-id / MAC logic below only if the generator is missing from the image.
+        _newname=""
+        for _g in /usr/local/lib/cix-installer/assets/hostnames/ncz-hostname-gen.sh /usr/local/lib/cix-installer/ncz-hostname-gen.sh ; do
+            if [ -f "$_g" ]; then
+                _gn=$(sh "$_g" 2>/dev/null)
+                case "$_gn" in ncz-[a-z]*-[0-9][0-9][0-9][0-9]) _newname="$_gn"; echo "ncz-firstboot: generator named this machine $_newname" >&2 ;; esac
+                break
+            fi
+        done
         # IDENTITY SOURCE (2026-09-29). machine-id FIRST, MAC only as fallback.
         #
         # The MAC scheme names the box after whatever ethernet adapter happens
@@ -493,9 +504,8 @@ case "$_cur" in
         # the name as long as the same adapter stayed. Neither survives both a
         # reinstall and a hardware swap. Hardware swaps are what actually bit
         # us, so machine-id wins.
-        _newname=""
         _mid=$(tr -cd '0-9a-f' < /etc/machine-id 2>/dev/null)
-        if [ -n "$_mid" ]; then
+        if [ -z "$_newname" ] && [ -n "$_mid" ]; then
             _h6=$(printf '%s' "$_mid" | sha256sum | cut -c1-6)
             [ -n "$_h6" ] && _newname="ncz-$_h6"
             echo "ncz-firstboot: machine-id derived $_newname" >&2

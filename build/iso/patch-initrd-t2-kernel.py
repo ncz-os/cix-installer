@@ -224,6 +224,7 @@ BAKED_HELPERS = [
     "sshd-watcher.sh",
     "component-selector.sh",
     "hostname-suggest.sh",
+    "ncz-hostname-gen.sh",
     "locale-keyboard-chooser.sh",
 ]
 
