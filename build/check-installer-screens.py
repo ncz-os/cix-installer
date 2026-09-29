@@ -19,6 +19,7 @@ ap.add_argument("dir")
 ap.add_argument("--require-dialog", action="append", default=[])
 ap.add_argument("--require-header", default=None)
 ap.add_argument("--start-at", default=None, help="ignore every state before the first one containing TEXT (the bootloader echoes the test kernel command line)")
+ap.add_argument("--after-t", type=int, default=None, help="with --no-blank-after: only judge states at or after this many seconds since boot (the states carry a # t=N header)")
 ap.add_argument("--no-blank-after", default=None, help="after the first state containing TEXT, no later state may be a blank console (only the screen tab bar): the UI must stay up until the install progress")
 a = ap.parse_args()
 
@@ -54,7 +55,9 @@ if a.no_blank_after:
     started = False
     for f in files:
         txt = open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read()
+        m_t = re.match(r"# t=(\d+)s", txt)
         if a.no_blank_after in txt: started = True
+        if a.after_t is not None and m_t and int(m_t.group(1)) >= a.after_t: started = True
         if not started: continue
         body = [l for l in txt.split("\n")[1:] if l.strip() and not re.match(r"^\[?\s*\(\d\*+\w+\)\s+2 shell", l.strip()) and "(1**installer)" not in l]
         if not body:

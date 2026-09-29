@@ -182,7 +182,7 @@ def ppm_content_fraction(path):
         d = open(path, "rb").read()
         parts = d.split(None, 4)
         w, h = int(parts[1]), int(parts[2]); off = len(d) - w * h * 3
-        px = d[off:]
+        px = d[off:off + int(h * 0.96) * w * 3]   # ignore the bottom rows: newt's help line stays lit on an otherwise empty screen
         step = 3 * 5
         cnt = {}
         for i in range(0, len(px) - 2, step):

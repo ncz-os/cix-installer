@@ -347,3 +347,4 @@ build/reap-images.sh	common	-	image reaping policy script
 build/test-reap-images.sh	common	-	reap-images fixture tests
 build/ship-image.sh	common	-	publish a gated image (ARGONAS + operator Mac) and reap superseded ones
 build/test-wallpaper-probe.sh	common	-	Bing helper offline probe test
+build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, chatter, blank screen)
