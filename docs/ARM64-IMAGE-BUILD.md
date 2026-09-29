@@ -30,14 +30,14 @@ ULTRA, only downloads/sstate/kernel staging are on ARGONAS.
    `r<N>-<kver>-sky1-ncz-<date>`. Directories with any other prefix inside
    `/mnt/argonas-yocto-shared/kernel-staging` fail preflight gate [3]
    (move them to `kernel-staging-archive/`, do not delete).
-4. Substrate ISO is NOT pinned by the Makefile: `downloads/debian-testing-arm64-netinst.iso`
-   is fetched from Debian's rolling weekly-builds when the file is absent. On 2026-09-29 a
-   fresh worktree pulled the 20260928 weekly d-i, and the resulting image stopped at
-   "Detect and mount installation media: Incorrect installation media detected"
-   (its initrd carries newer util-linux/blkid than the 20260921 d-i the working images
-   used). Until that is root-caused, copy the known-good substrate into the worktree
-   BEFORE stage 2 (ULTRA: `~/Projects/cix-installer/downloads/debian-testing-arm64-netinst.iso`,
-   1,019,523,072 bytes, sha256 starting bcdea12698a4c643fbbc) and `touch` it.
+4. The d-i substrate is NOT pinned by the Makefile: `downloads/debian-testing-arm64-netinst.iso`
+   is fetched from Debian's rolling weekly-builds when the file is absent, so a fresh
+   worktree silently moves to the newest weekly installer. The image in this record
+   used the 20260921 substrate (copied from `~/Projects/cix-installer/downloads` on
+   ULTRA, 1,019,523,072 bytes, sha256 starting bcdea12698a4c643fbbc). The 20260928
+   weekly was NOT the cause of the "Incorrect installation media" failure seen on
+   2026-09-29 (that was the early_command size, section 5), but it was also
+   never gated; pin or copy the substrate deliberately.
 5. `ncz-imagebuild:trixie` in BOTH podman stores (rootless build, rootful run):
    `podman save localhost/ncz-imagebuild:trixie | sudo podman load`.
    A prune deletes it; rebuild from `build/containers/Containerfile.ncz-imagebuild`.
@@ -117,7 +117,7 @@ list those names in `manifests/install-extra.pkgs` too. Before stage 2 confirm
 is 1. After the gate, the `[59-ncz-screensavers] installed ...` line in
 `target-logs/cix-installer-late.log` proves it landed.
 
-## 4. Two build-breaking limits found on 2026-09-29 (both now guarded)
+## 5. Two build-breaking limits found on 2026-09-29 (both now guarded)
 
 - `preseed/early_command`, joined, must stay under 13,000 bytes
   (`build/check-early-command-size.sh`, run by `build-iso-di.sh`). At 15,634 bytes
