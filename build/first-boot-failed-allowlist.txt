@@ -1,3 +1,4 @@
 # Units allowed to be in the failed state after the installed system's first boot in the KVM gate.
 # One unit per line (first word); anything after it is the reason. Every entry needs a reason;
 # an empty list is the goal.
+ncz-gpu-switcher.service  fails by design in the KVM guest: it requires the Sky1 Mali ACPI device CIXH5000 (virt has none) and is loud about it. On the O6N it must NOT be failed - check systemctl --failed there.
