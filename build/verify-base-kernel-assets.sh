@@ -74,6 +74,32 @@ EMBED_BASE="usr/local/lib/cix-installer/assets/kernel"
 # The two amd64 kernel lines the install hook reads. arm64 has its own
 # asset layout (assets/kernel/edge/, KVER_NEXT, etc.) and a different
 # hook (10-our-kernel.sh) -- out of scope for this verifier.
+#
+# Bug 2 fix (2026-09-28, arm64 host). The verifier used to RUN on every
+# host that built a base.squashfs, including ULTRA (arm64/Sky1).
+# On an arm64 host assets/kernel/amd64-{stable,edge}/ hold only a KVER
+# stub -- there is no Image-cixmini.bin, no .deb pairs, nothing this
+# verifier knows how to compare -- so the per-line pair sanity check
+# reported empty channels and exited 1:
+#     ERROR: base.squashfs: amd64-stable holds 0 image(s) and 0 headers(s) (must be exactly 1 of each)
+#     ERROR: base.squashfs: amd64-edge holds 0 image(s) and 0 headers(s) (must be exactly 1 of each)
+# On ULTRA's 2026-09-28 arm64 build run the verifier aborted
+# base.squashfs reuse even though the kernel input it would have
+# checked (amd64 lines) was not relevant to that image at all. Gate the
+# verifier the same way post-install/10-our-kernel.sh and
+# post-install/10-amd64-kernel.sh already gate themselves: env var
+# first, then the late.sh-stamped BUILD_ARCH sidecar, then
+# dpkg --print-architecture as a last-resort fallback. On arm64 it
+# skips cleanly; on amd64 it runs the existing comparison as before.
+ARCH="${NCZ_TARGET_ARCH:-}"
+if [ -z "$ARCH" ] && [ -r "$ROOT/build/iso-staging-di/ncz-payload/BUILD_ARCH" ]; then
+    ARCH=$(tr -d '[:space:]' < "$ROOT/build/iso-staging-di/ncz-payload/BUILD_ARCH")
+fi
+ARCH="${ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
+if [ "$ARCH" != "amd64" ]; then
+    echo "verify-base-kernel-assets: skipped (NCZ_TARGET_ARCH=$ARCH -- amd64-only verifier; arm64/Sky1 uses assets/kernel/edge + 10-our-kernel.sh, not the amd64 .deb-pair layout this verifier compares against)"
+    exit 0
+fi
 LINES=(amd64-stable amd64-edge)
 
 EMBED_LIST="$(mktemp "${TMPDIR:-/tmp}/ncz-vbka-embed.XXXXXX")"
