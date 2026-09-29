@@ -8,3 +8,12 @@
 # ncz-screensavers is added here when its .deb is staged in
 # build/ncz-screensavers-out/ (see docs/ARM64-IMAGE-BUILD.md).
 ncz-screensavers
+#
+# The installer's user-setup step runs `apt-get install sudo` in the target, and
+# finish-install / pkgsel reach for installation-report and popularity-contest.
+# The media's /cdrom index only lists what the seed closure resolved, so on the raw
+# GPT images these were "Unable to locate package" / "Package 'sudo' has no
+# installation candidate" (user-setup then failed and the first user had no sudo).
+sudo
+installation-report
+popularity-contest

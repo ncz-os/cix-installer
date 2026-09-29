@@ -90,7 +90,20 @@ OUT="$REPO/build/kernel-debs"
 # All added as modules, so the boot path is unchanged. Verified present in the
 # BUILT .config, not just the defconfig -- olddefconfig silently drops symbols
 # whose dependencies are unmet.
-BUILD_REV="${BUILD_REV:-r258}"
+# The revision must follow the kernel that is actually staged. It was a constant
+# (r258) while assets/kernel/edge pointed at r277, so images shipped
+# linux-image-cixmini 7.2.8-sky1-ncz+r258, which sorts BELOW the +r277 already
+# installed on boards from the previous image and silently loses to it in apt.
+# Derive it from the staging directory name (rNNN-<kver>-...) and refuse a
+# BUILD_REV override that is older than the staged directory.
+_EDGE_DIR_NAME="$(basename "$(readlink -f "$REPO/assets/kernel/edge" 2>/dev/null)" 2>/dev/null || true)"
+_EDGE_REV=""
+case "$_EDGE_DIR_NAME" in r[0-9]*-*) _EDGE_REV="${_EDGE_DIR_NAME%%-*}" ;; esac
+BUILD_REV="${BUILD_REV:-${_EDGE_REV:-r258}}"
+if [ -n "$_EDGE_REV" ] && [ "${BUILD_REV#r}" -lt "${_EDGE_REV#r}" ] 2>/dev/null; then
+    echo "ERROR: BUILD_REV=$BUILD_REV is older than the staged kernel directory ($_EDGE_DIR_NAME); refusing to build a downgrade-labelled kernel deb" >&2
+    exit 1
+fi
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
 # shipped rEFInd generator (assets/refind/ncz-refind-refresh.sh) changes: apt only

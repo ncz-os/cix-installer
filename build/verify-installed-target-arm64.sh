@@ -183,6 +183,21 @@ else
     gate_miss browser "/var/lib/dpkg/status unreadable"
 fi
 
+# --- (iv-b) first user has working sudo ------------------------------------------------
+# user-setup runs `apt-get install sudo` in the target; when the media index could not
+# resolve it ("Package 'sudo' has no installation candidate") the step failed and the
+# first user had no sudo. Assert the package is installed and the sudo group has a member.
+echo "[verify-target] (iv-b) sudo for the first user"
+if awk 'BEGIN{RS="";FS="\n"} { pk=""; st=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /) pk=substr($i,10); if($i ~ /^Status: /) st=substr($i,9)} if(pk=="sudo" && st=="install ok installed") f=1 } END{exit(f?0:1)}' "$TMP/dpkg-status" 2>/dev/null; then
+    if fetch /etc/group "$TMP/group" && awk -F: '$1=="sudo" && $4!="" {f=1} END{exit(f?0:1)}' "$TMP/group"; then
+        echo "[verify-target]     sudo installed; sudo group members: $(awk -F: '$1=="sudo"{print $4}' "$TMP/group")"
+    else
+        gate_miss sudo "the sudo group in /etc/group has no members (first user not added)"
+    fi
+else
+    gate_miss sudo "sudo is not installed (user-setup could not resolve it from the media index)"
+fi
+
 # --- (v) VA-API + mpv ----------------------------------------------------------
 echo "[verify-target] (v) VA-API and mpv hardware decode wiring"
 exists /usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so || gate_miss vaapi "/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so (cix-vaapi not installed)"

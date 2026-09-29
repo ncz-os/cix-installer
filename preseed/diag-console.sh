@@ -36,7 +36,7 @@ LOG=/var/log/diag-console.log
 exec >> "$LOG" 2>&1
 say() {
     echo "[diag] $*"
-    for _v in /dev/console /dev/tty3 /dev/ttyAMA0 /dev/ttyS0; do
+    for _v in /dev/tty3 /dev/ttyAMA0 /dev/ttyS0; do
         echo "[diag] $*" > "$_v" 2>/dev/null || true
     done
 }
@@ -51,7 +51,7 @@ case "$DIAG" in
     0|off|no|false|disable|disabled)
         say "disabled via ncz_diag=$DIAG — exiting (no daemons started)"; exit 0;;
 esac
-PW=$(kv ncz_diag_pw);    PW=${PW:-diags}
+PW=$(kv ncz_diag_pw);    PW_EXPLICIT=0; [ -n "$PW" ] && PW_EXPLICIT=1; PW=${PW:-diags}
 # No default loghost — a real, shipped installer must never phone home to an
 # internal fleet address by default. Remote syslog forwarding is OPT-IN ONLY
 # via ncz_diag_log=<host[:port]> on the boot cmdline; unset means no forward
@@ -425,7 +425,11 @@ i=0; while [ -z "$(current_ip)" ] && [ "$i" -lt 120 ]; do diag_net_up >/dev/null
 IP="$(current_ip)"
 say "==================================================================="
 say "NCZ installer diagnostics READY  (ncz_diag=$DIAG)  IP=${IP:-<none>}"
-say "  ssh:    ssh root@${IP:-<host>}            (password: $PW)"
+if [ "$PW_EXPLICIT" = 1 ]; then
+    say "  ssh:    ssh root@${IP:-<host>}            (password: set by ncz_diag_pw on the boot line)"
+else
+    say "  ssh:    ssh root@${IP:-<host>}            (default diagnostics password, see docs/DIAG.md)"
+fi
 say "  telnet: telnet ${IP:-<host>} ${TELNET_PORT}             (rich shell)"
 say "  pull:   wget http://${IP:-<host>}:${HTTP_PORT}/var/log/syslog"
 if [ -n "$LOGHOST" ]; then

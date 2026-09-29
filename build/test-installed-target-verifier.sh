@@ -39,6 +39,9 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     echo 'ln -sf $_d /dev/video-cixdec0' > "$r/usr/bin/load-modules.sh"
     printf 'xx h264_v4l2m2m xx' > "$r/usr/lib/aarch64-linux-gnu/libavcodec.so.62.1.100"
     printf 'Package: google-chrome-stable\nStatus: install ok installed\n\nPackage: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$r/var/lib/dpkg/status"
+    # sudo
+    printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
+    mkdir -p "$r/etc"; printf 'root:x:0:\nsudo:x:27:nczuser\n' > "$r/etc/group"
     # VA-API + mpv
     mkdir -p "$r/usr/share/cix/lib" "$r/etc/environment.d" "$r/etc/mpv"
     echo x > "$r/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so"
@@ -95,6 +98,8 @@ m_ss_oldidle()  { ln -s /usr/lib/systemd/user/ncz-idle-manager.service "$1/etc/s
 m_ss_schema()   { printf 'nothing' > "$1/usr/share/glib-2.0/schemas/gschemas.compiled"; }
 m_ss_launcher() { rm -f "$1/usr/bin/ncz-screensaver"; }
 m_ss_unrequested() { : > "$1/usr/local/lib/cix-installer/manifests/install-extra.pkgs"; m_ss_missing "$1"; }
+m_no_sudo()     { sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
+m_sudo_empty()  { printf 'root:x:0:\nsudo:x:27:\n' > "$1/etc/group"; }
 m_no_loader()   { rm -f "$1/usr/bin/load-modules.sh"; }
 
 run_case "healthy installed root passes"        0 ""
@@ -110,6 +115,8 @@ run_case "google-chrome-stable absent fails"    1 m_no_chrome
 run_case "chrome removed-not-purged fails"      1 m_half_chrome
 run_case "ffmpeg without v4l2m2m fails"         1 m_no_v4l2m2m
 run_case "no cixdec0 loader fails"              1 m_no_loader
+run_case "sudo not installed fails"             1 m_no_sudo
+run_case "empty sudo group fails"               1 m_sudo_empty
 run_case "no VA driver fails"                   1 m_no_vadrv
 run_case "no linlondp symlink fails"            1 m_no_vasym
 run_case "no matched libva runtime fails"       1 m_no_libva

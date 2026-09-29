@@ -151,11 +151,12 @@ AMD64_INSTALL_OPTIONS = (
     "auto=true priority=critical preseed/file=/cdrom/ncz-payload/preseed.cfg "
     "ipv6.disable=1 interface=auto "
     "netcfg/dhcp_timeout=120 locale=en_US.UTF-8 "
-    "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt console=tty0"
+    "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt "
+    "quiet loglevel=3 vt.global_cursor_default=0 consoleblank=0 console=tty0"
 )
 AMD64_EXPERT_OPTIONS = (
     "priority=low ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
-    "DEBIAN_FRONTEND=newt console=tty0"
+    "DEBIAN_FRONTEND=newt loglevel=4 vt.global_cursor_default=0 consoleblank=0 console=tty0"
 )
 AMD64_RESCUE_OPTIONS = (
     "rescue/enable=true ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
@@ -179,13 +180,21 @@ AMD64_RESCUE_OPTIONS = (
 SKY1_GFX_OPTIONS = (
     "console=tty0 efi=noruntime acpi=force "
     "arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused "
-    "panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+    "panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453,linlon_dp,trilin_dpsub"
 )
+# linlon_dp / trilin_dpsub are the Sky1 display-controller DRM drivers. The installer
+# kernel has no simpledrm (CONFIG_DRM_SIMPLEDRM is not set) and draws on the firmware
+# framebuffer (CONFIG_FB_EFI=y). Loading these modules mid-install (udev coldplug of the
+# ACPI device CIXH50C0, or hw-detect after anna adds components) makes DRM take the
+# display away from efifb: the panel is re-modeset and fbcon re-attaches, i.e. the screen
+# goes blank and d-i is redrawn. The installer needs no accelerated display, so keep the
+# firmware framebuffer for the whole install; the installed system's own boot entries
+# (70-bootloader.sh) are unaffected and load them normally.
 ARM64_INSTALL_OPTIONS = AMD64_INSTALL_OPTIONS.rsplit(" console=tty0", 1)[0] + " " + SKY1_GFX_OPTIONS
 ARM64_EXPERT_OPTIONS = AMD64_EXPERT_OPTIONS.rsplit(" console=tty0", 1)[0] + " " + SKY1_GFX_OPTIONS
 ARM64_RESCUE_OPTIONS = (
     "rescue/enable=true ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
-    "DEBIAN_FRONTEND=newt console=tty0 console=ttyAMA0,115200 "
+    "DEBIAN_FRONTEND=newt consoleblank=0 console=tty0 console=ttyAMA0,115200 "
     "efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 "
     "audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 "
     "nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
@@ -221,13 +230,13 @@ REFIND_CONF_TEXT_TEMPLATE = """\
 # under EFI/REFIND/ at install time on real hardware; we simply do not
 # ship that directory here.
 #
-# timeout 10: 10s before default boot (graphical install) if no key press.
+# timeout 3: 3s before default boot (graphical install) if no key press.
 # scanfor manual: ignore auto-scanned disks; use only the explicit entries.
 # textonly: keep output compatible with serial consoles and QEMU's default
 #           headless mode -- graphical banners add boot time we don't need.
 #
 
-timeout 10
+timeout 3
 textonly
 scanfor manual
 
