@@ -1,5 +1,16 @@
 # Sky1 7.3-rc5 advisory: implementation and verification (2026-09-29)
 
+> **Addendum (later on 2026-09-29).** Operator decisions superseded
+> "port only if the boot shows a problem". Native PCIe (the 0027 remainder
+> plus 0029), the 0089 runtime-PM gate and uncompressed modules are now built
+> as the test kernel **r279**. See
+> `docs/reports/2026-09-29-sky1-r279-build.md` and
+> `docs/SKY1-R279-SUPERVISED-BOOT-TEST.md`.
+>
+> **Correction:** "`cix_scmi_register_em()` has no caller" below is wrong.
+> The caller is the out-of-tree mali DKMS (`mali_kbase_devfreq.c:772`), and
+> the mali overlay imports the symbol.
+
 The operator accepted the orchestrator's Sky1 rc5 advisory. This report
 records what was implemented, what source verification showed, and where
 that verification contradicts the advisory. Nothing was booted, flashed, or
