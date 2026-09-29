@@ -197,7 +197,17 @@ fi
 
 # --- (vi) ncz-screensavers (only when this image is meant to ship it) ---------
 # The image records that intent in its own payload: manifests/install-extra.pkgs.
-if fetch /usr/local/lib/cix-installer/manifests/install-extra.pkgs "$TMP/extra.pkgs" && sed 's/#.*//' "$TMP/extra.pkgs" | awk 'NF {print $1}' | grep -qx ncz-screensavers; then
+# Intent, in order: VERIFY_EXPECT_SCREENSAVERS=1|0 from the caller (the gate sets it from the
+# checkout's manifests/install-extra.pkgs); else auto = the target's own manifest asks for it or
+# the package is already present in its dpkg database. A silent skip here once hid a missing
+# assertion, so "not requested" is only reachable when nothing points at the package.
+WANT_SS="${VERIFY_EXPECT_SCREENSAVERS:-auto}"
+if [ "$WANT_SS" = auto ]; then
+    WANT_SS=0
+    if fetch /usr/local/lib/cix-installer/manifests/install-extra.pkgs "$TMP/extra.pkgs" && sed 's/#.*//' "$TMP/extra.pkgs" | awk 'NF {print $1}' | grep -qx ncz-screensavers; then WANT_SS=1; fi
+    grep -q '^Package: ncz-screensavers$' "$TMP/dpkg-status" 2>/dev/null && WANT_SS=1
+fi
+if [ "$WANT_SS" = 1 ]; then
     echo "[verify-target] (vi) ncz-screensavers"
     SS_STATUS="$(awk 'BEGIN{RS="";FS="\n"} { pk=""; st=""; ver=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /) pk=substr($i,10); if($i ~ /^Status: /) st=substr($i,9); if($i ~ /^Version: /) ver=substr($i,10)} if(pk=="ncz-screensavers" && st=="install ok installed") print ver }' "$TMP/dpkg-status" 2>/dev/null)"
     if [ -z "$SS_STATUS" ]; then

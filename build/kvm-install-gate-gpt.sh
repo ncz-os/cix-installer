@@ -285,6 +285,15 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
                     fail "arm64 installed-target verifier not found/executable at $VERIFIER (refusing to ship an image with no accelerator coverage check)"
                 fi
                 echo "  arm64: verifying installed target accelerator artifacts"
+                # The verifier cannot tell from the target alone whether this image was meant to ship
+                # ncz-screensavers (the payload does not carry the seed manifest); ask the checkout.
+                if [ -z "${VERIFY_EXPECT_SCREENSAVERS:-}" ]; then
+                    if [ -s "$SCRIPT_DIR/../manifests/install-extra.pkgs" ] && sed 's/#.*//' "$SCRIPT_DIR/../manifests/install-extra.pkgs" | awk 'NF {print $1}' | grep -qx ncz-screensavers; then
+                        export VERIFY_EXPECT_SCREENSAVERS=1
+                    else
+                        export VERIFY_EXPECT_SCREENSAVERS=0
+                    fi
+                fi
                 rc_v=0
                 "$VERIFIER" "$EVIDENCE_ROOT" "$DEBUGFS" || rc_v=$?
                 if [ "$rc_v" -ne 0 ]; then

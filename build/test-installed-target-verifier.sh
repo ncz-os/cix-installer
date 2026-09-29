@@ -121,6 +121,7 @@ run_case "idled timer not enabled fails"        1 m_ss_noidled
 run_case "old idle-manager still enabled fails" 1 m_ss_oldidle
 run_case "schema not compiled fails"            1 m_ss_schema
 run_case "screensavers not requested is skipped" 0 m_ss_unrequested
+VERIFY_EXPECT_SCREENSAVERS=1 run_case "expected by the caller but absent fails even with no manifest" 1 m_ss_unrequested
 
 echo "verifier tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
