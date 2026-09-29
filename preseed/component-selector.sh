@@ -143,7 +143,7 @@ for line in $COMPONENTS; do
     [ -z "$_DEFAULT" ] && _DEFAULT="$code" || _DEFAULT="$_DEFAULT, $code"
     [ -z "$_OFFERED" ] && _OFFERED="$code" || _OFFERED="$_OFFERED, $code"
     [ -z "$_CHOICES_C" ] && _CHOICES_C="$desc" || _CHOICES_C="$_CHOICES_C, $desc"
-    _LONG="$_LONG  $code — $desc\\n"
+    _LONG="$_LONG  $code - $desc\\n"
 done
 IFS=$_oldifs
 
@@ -183,15 +183,15 @@ Type: multiselect
 Choices: ${_CHOICES_C}
 Choices-C: ${_OFFERED}
 Default: ${_DEFAULT}
-Description: NCZ-OS install — select which OPTIONAL COMPONENTS to install
+Description: NCZ-OS install - select which OPTIONAL COMPONENTS to install
  Untick to skip an optional component. Default (Enter OK) = all of the
  below installed, which is exactly what the previous installer shipped.
  .
-  desktop          — toggle the Singularity desktop GUI on/off (this is the
+  desktop          - toggle the Singularity desktop GUI on/off (this is the
                      full desktop overlay + desktop hooks, including browsers
                      and wallpaper rotator; OFF = console)
-  mgmt-container   — ncz-recovery nspawn container (rescue tier)
-  rescue-partition — 4 GiB NCZRESCUE partition (rescue rootfs + boot entry)
+  mgmt-container   - ncz-recovery nspawn container (rescue tier)
+  rescue-partition - 4 GiB NCZRESCUE partition (rescue rootfs + boot entry)
  .
 ${_LONG}
 TPL

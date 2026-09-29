@@ -439,7 +439,7 @@ if [ -z "$CHOSEN_LOCALE" ]; then
     for code in $LOCALES; do
         desc="$(derive_lang "$code") ($(derive_country "$code"))"
         [ -z "$CHOICES" ] && CHOICES="$code" || CHOICES="$CHOICES, $code"
-        LONG="$LONG  $code  —  $desc\\n"
+        LONG="$LONG  $code - $desc\\n"
     done
     IFS=$_oldifs
     cat > /tmp/ncz-locale.templates <<TPL
@@ -447,7 +447,7 @@ Template: ncz/locale
 Type: select
 Choices: ${CHOICES}
 Default: en_US.UTF-8
-Description: NCZ-OS install — select your LOCALE
+Description: NCZ-OS install - select your LOCALE
  Choose the language + region for the installed system.
  .
  ${LONG}
@@ -485,7 +485,7 @@ if [ -z "$CHOSEN_KEYMAP" ]; then
     for line in $KEYMAPS; do
         code=${line%%:*}; desc=${line#*:}
         [ -z "$CHOICES" ] && CHOICES="$code" || CHOICES="$CHOICES, $code"
-        LONG="$LONG  $code  —  $desc\\n"
+        LONG="$LONG  $code - $desc\\n"
     done
     IFS=$_oldifs
     cat > /tmp/ncz-keymap.templates <<TPL
@@ -493,7 +493,7 @@ Template: ncz/keymap
 Type: select
 Choices: ${CHOICES}
 Default: us
-Description: NCZ-OS install — select your KEYBOARD LAYOUT
+Description: NCZ-OS install - select your KEYBOARD LAYOUT
  Choose the keyboard layout for the installed system.
  .
  ${LONG}

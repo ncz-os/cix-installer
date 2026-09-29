@@ -195,14 +195,14 @@ else
     for d in $CANDIDATES; do
         desc="$(disk_model "$d") $(disk_size_h "$d")"
         [ -z "$CHOICES" ] && CHOICES="$d" || CHOICES="$CHOICES, $d"
-        LONG="$LONG  $d  —  $desc\\n"
+        LONG="$LONG  $d - $desc\\n"
     done
     _first=$(echo $CANDIDATES | awk '{print $1}')
     cat > /tmp/ncz-disk.templates <<TPL
 Template: ncz/target-disk
 Type: select
 Choices: ${CHOICES}
-Description: NCZ-OS install — select the TARGET DISK (it will be ERASED)
+Description: NCZ-OS install - select the TARGET DISK (it will be ERASED)
  The disk you choose will be COMPLETELY ERASED and NCZ-OS installed on it.
  .
  Detected disks:
@@ -250,11 +250,11 @@ Template: ncz/root-fs
 Type: select
 Choices: btrfs, ext4
 Default: btrfs
-Description: NCZ-OS install — root (/) filesystem
+Description: NCZ-OS install - root (/) filesystem
  Choose the filesystem for the root (/) partition.
  .
- btrfs — snapshots + transparent compression (NCZ default).
- ext4  — simple, maximally robust.
+ btrfs - snapshots + transparent compression (NCZ default).
+ ext4  - simple, maximally robust.
 TPL
     debconf-loadtemplate ncz /tmp/ncz-fs.templates 2>/dev/null \
         || abort "could not load root-fs template"
