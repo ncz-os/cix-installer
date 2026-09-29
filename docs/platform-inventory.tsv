@@ -346,3 +346,4 @@ build/test-base-stamp.sh	common	-	base.squashfs reuse stamp tests
 build/reap-images.sh	common	-	image reaping policy script
 build/test-reap-images.sh	common	-	reap-images fixture tests
 build/ship-image.sh	common	-	publish a gated image (ARGONAS + operator Mac) and reap superseded ones
+build/test-wallpaper-probe.sh	common	-	Bing helper offline probe test

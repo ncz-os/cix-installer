@@ -49,6 +49,7 @@ import os
 import random
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -76,6 +77,8 @@ STALE_SECONDS = 20 * 3600
 MIN_FREE_BYTES = 512 * 1024 * 1024
 WORKERS = 4
 EX_TEMPFAIL = 75
+PROBE_HOST = os.environ.get("NCZ_BING_PROBE_HOST", "www.bing.com")
+PROBE_PORT = int(os.environ.get("NCZ_BING_PROBE_PORT", "443"))
 CONSOLIDATED_ID = "consolidated"
 CONSOLIDATED_NAME = "Combined (All Markets)"
 MARKET_NAMES = (
@@ -250,6 +253,15 @@ def all_archived_markets():
     if not DATA_ROOT.is_dir():
         return []
     return sorted(p.name for p in DATA_ROOT.iterdir() if p.is_dir() and MARKET_RE.match(p.name))
+
+
+def reachable():
+    """quick TCP probe: an offline or blackholed network must exit 75 in seconds, not burn 30 s per request per market"""
+    try:
+        with socket.create_connection((PROBE_HOST, PROBE_PORT), timeout=4):
+            return True
+    except OSError:
+        return False
 
 
 def fetch_json(market, idx, n):
@@ -696,6 +708,9 @@ def cmd_fetch(_args):
         preferred = preferred_market()
         order = market_order(preferred, DEFAULT_MARKETS)
         index = local_index()
+        if not reachable():
+            log("network unreachable (connect probe)")
+            return EX_TEMPFAIL
         sync(order[:1], FIRST_BATCH, index)
         if not REACHED:
             log("network unreachable")
