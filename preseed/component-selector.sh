@@ -91,7 +91,23 @@ desktop:Full Singularity desktop (GUI labwc + greetd + branding)\
 |mgmt-container:ncz-recovery management container (nspawn)\
 |rescue-partition:4 GiB NCZRESCUE partition (rescue rootfs + kernel)"
 
-INTERNAL_COMPONENTS="desktop browsers mgmt-container rescue-partition wallpaper-rotator"
+# Optional NVIDIA driver + CUDA toolkit component. HIDDEN unless the installer
+# sees an NVIDIA display controller (PCI vendor 0x10de, class 0x03xx) in sysfs;
+# default ON when shown. It downloads from NVIDIA's apt repo (network needed;
+# post-install/54-gpu-accel.sh defers to first boot when offline), so it is not
+# baked into the ISO. Skipping it only skips the NVIDIA driver/CUDA; the machine
+# still boots and displays with nouveau.
+_HAS_NV=0
+for _d in /sys/bus/pci/devices/*; do
+    [ -r "$_d/vendor" ] && [ -r "$_d/class" ] || continue
+    case "$(cat "$_d/vendor" 2>/dev/null)" in 0x10de) ;; *) continue ;; esac
+    case "$(cat "$_d/class" 2>/dev/null)" in 0x03*) _HAS_NV=1; break ;; esac
+done
+if [ "$_HAS_NV" = 1 ]; then
+    COMPONENTS="$COMPONENTS|cuda:NVIDIA driver + CUDA toolkit (downloaded during install; needs network)"
+fi
+
+INTERNAL_COMPONENTS="desktop browsers mgmt-container rescue-partition wallpaper-rotator cuda"
 
 # Validate a token against the full internal set (posix sh + grep -qx).
 component_is_valid() {
@@ -305,6 +321,7 @@ has_component() {
 WANT_DESKTOP=0;           has_component desktop           && WANT_DESKTOP=1
 WANT_MGMT=0;              has_component mgmt-container    && WANT_MGMT=1
 WANT_RESCUE_PART=0;       has_component rescue-partition  && WANT_RESCUE_PART=1
+WANT_CUDA=0;              has_component cuda              && WANT_CUDA=1
 WANT_BROWSERS=$WANT_DESKTOP
 WANT_WALLPAPER=$WANT_DESKTOP
 
@@ -312,9 +329,10 @@ CHOSEN=""
 [ "$WANT_DESKTOP" = 1 ]     && CHOSEN="desktop,browsers,wallpaper-rotator"
 [ "$WANT_MGMT" = 1 ]        && { [ -z "$CHOSEN" ] && CHOSEN="mgmt-container" || CHOSEN="$CHOSEN,mgmt-container"; }
 [ "$WANT_RESCUE_PART" = 1 ] && { [ -z "$CHOSEN" ] && CHOSEN="rescue-partition" || CHOSEN="$CHOSEN,rescue-partition"; }
+[ "$WANT_CUDA" = 1 ]        && { [ -z "$CHOSEN" ] && CHOSEN="cuda" || CHOSEN="$CHOSEN,cuda"; }
 
 log "SELECTED COMPONENTS: $CHOSEN"
-log "  desktop=$WANT_DESKTOP  browsers=$WANT_BROWSERS  mgmt-container=$WANT_MGMT  rescue-partition=$WANT_RESCUE_PART  wallpaper-rotator=$WANT_WALLPAPER"
+log "  desktop=$WANT_DESKTOP  browsers=$WANT_BROWSERS  mgmt-container=$WANT_MGMT  rescue-partition=$WANT_RESCUE_PART  wallpaper-rotator=$WANT_WALLPAPER  cuda=$WANT_CUDA"
 
 # --- persist for the two consumers -----------------------------------------
 # 1. d-i env (consumed by disk-fs-chooser.sh and extract-rootfs.sh, both
@@ -340,7 +358,7 @@ ALT_DST_DIR=/target/var/lib/cix-components
 if [ -d "$COMP_DST_DIR" ] || [ -d "$ALT_DST_DIR" ]; then
     if [ -d "$COMP_DST_DIR" ]; then
         echo "$CHOSEN" > "$COMP_DST_DIR/COMPONENTS" 2>/dev/null || true
-        for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator; do
+        for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator cuda; do
             _v=0; has_component "$_bit" && _v=1
             echo "$_v" > "$COMP_DST_DIR/COMPONENTS_$_bit" 2>/dev/null || true
         done

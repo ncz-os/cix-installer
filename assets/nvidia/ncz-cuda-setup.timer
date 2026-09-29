@@ -1,0 +1,14 @@
+[Unit]
+Description=Retry the NCZ-OS NVIDIA driver + CUDA setup until it completes
+ConditionPathExists=!/var/lib/ncz/cuda-setup.done
+
+[Timer]
+# Never on the critical path of boot or login: first try 2 minutes after boot,
+# then every 10 minutes; ncz-cuda-setup applies its own exponential backoff
+# (5 min doubling to 6 h) and exits 0 when an attempt is not yet due.
+OnBootSec=2min
+OnUnitInactiveSec=10min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
