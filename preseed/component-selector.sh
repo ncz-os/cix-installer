@@ -141,14 +141,12 @@ done
 _DEFAULT=""
 _OFFERED=""
 _CHOICES_C=""
-_LONG=""
 _oldifs=$IFS; IFS='|'
 for line in $COMPONENTS; do
     code=${line%%:*}; desc=${line#*:}
     [ -z "$_DEFAULT" ] && _DEFAULT="$code" || _DEFAULT="$_DEFAULT, $code"
     [ -z "$_OFFERED" ] && _OFFERED="$code" || _OFFERED="$_OFFERED, $code"
     [ -z "$_CHOICES_C" ] && _CHOICES_C="$desc" || _CHOICES_C="$_CHOICES_C, $desc"
-    _LONG="$_LONG  $code - $desc\\n"
 done
 IFS=$_oldifs
 
@@ -189,16 +187,8 @@ Choices: ${_CHOICES_C}
 Choices-C: ${_OFFERED}
 Default: ${_DEFAULT}
 Description: $(ncz_ui_brand) - optional components
- Untick to skip an optional component. Default (Enter OK) = all of the
- below installed, which is exactly what the previous installer shipped.
- .
-  desktop          - toggle the Singularity desktop GUI on/off (this is the
-                     full desktop overlay + desktop hooks, including browsers
-                     and wallpaper rotator; OFF = console)
-  mgmt-container   - ncz-recovery nspawn container (rescue tier)
-  rescue-partition - 4 GiB NCZRESCUE partition (rescue rootfs + boot entry)
- .
-${_LONG}
+ Untick to skip an optional component. Enter accepts the defaults, which
+ install everything.
  .
  $(ncz_ui_id)
 TPL

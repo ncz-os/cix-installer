@@ -200,7 +200,8 @@ else
     for d in $CANDIDATES; do
         desc="$(disk_model "$d") $(disk_size_h "$d")"
         [ -z "$CHOICES" ] && CHOICES="$d" || CHOICES="$CHOICES, $d"
-        LONG="$LONG  $d - $desc\\n"
+        LONG="${LONG:+$LONG
+ }  $d - $desc"   # continuation lines need their leading space; no trailing newline (a blank line ends a template stanza)
     done
     _first=$(echo $CANDIDATES | awk '{print $1}')
     cat > /tmp/ncz-disk.templates <<TPL
