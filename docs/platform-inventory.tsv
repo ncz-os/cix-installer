@@ -213,6 +213,7 @@ packages/mnemos-cix-integration/	sky1	-	MNEMOS NPU embedder package
 packaging/	common	-	Singularity and gtk4-layer-shell packaging
 packaging/cix-npu-driver-dkms-6.2.0/	sky1	-	NPU DKMS packaging
 packaging/cix-npu-kmd/	sky1	-	NPU KMD packaging
+platform-tools/	common	-	source-to-view assembler and re-runnable split mover (stay at the repo root)
 post-install/05-time-sync.sh	common	-	clock fix before HTTPS; arch-neutral (no platform tokens)
 post-install/10-amd64-kernel.sh	amd64	-	installs staged amd64 kernel debs with dpkg; amd64 analogue of 10-our-kernel
 post-install/10-our-kernel.sh	sky1	-	apt-installs linux-image-cixmini; own guard exits when arch != arm64 (line ~56)
@@ -298,8 +299,8 @@ post-install/97-firstboot-report.sh	common	-	first-boot failed-unit report; arch
 post-install/99-diagnostics.sh	common	-	final diagnostics dump; generic
 post-install/apt-progress-shim	common	-	apt progress wrapper
 post-install/buildkite-ncz-apt-keyring.asc	common	-	NCZ apt repo key
-post-install/hooks.list.amd64	common	-	generated ordered hook list for platform amd64 (build/gen-hooks-lists.sh)
-post-install/hooks.list.sky1-arm64	common	-	generated ordered hook list for platform sky1-arm64 (build/gen-hooks-lists.sh)
+post-install/hooks.list.amd64	amd64	-	generated ordered hook list for platform amd64 (build/gen-hooks-lists.sh)
+post-install/hooks.list.sky1-arm64	sky1	-	generated ordered hook list for platform sky1-arm64 (build/gen-hooks-lists.sh)
 post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
 post-install/ncz-os-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/run-all.sh	common	-	hook orchestrator; platform selection via hooks.list

@@ -41,6 +41,8 @@ render() {  # $1 = platform
 rc=0
 for plat in $PLATFORMS; do
     out="$HOOKDIR/hooks.list.$plat"
+    # After the physical split each list is a source file of its own platform.
+    [ -d "$ROOT/platforms/$plat/post-install" ] && out="$ROOT/platforms/$plat/post-install/hooks.list.$plat"
     if [ "$MODE" = check ]; then
         if ! render "$plat" | diff -q "$out" - >/dev/null 2>&1; then
             echo "gen-hooks-lists: $out is out of date; run build/gen-hooks-lists.sh" >&2
