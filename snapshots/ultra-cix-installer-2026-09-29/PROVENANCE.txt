@@ -1,0 +1,22 @@
+host: ultra
+path: /home/jasonperlow/Projects/cix-installer
+base_commit: 7363f30a5c7502573e4bf6b2e9d2dde4ff3b365b
+origin:
+origin	https://gitlab.com/ncz-os/cix-installer.git (fetch)
+origin	https://gitlab.com/ncz-os/cix-installer.git (push)
+
+selected_files:
+  assets/kernel/t2gmux/PROVENANCE
+  assets/kernel/t2gmux/README.upstream.md
+  assets/kernel/t2gmux/dkms.conf
+  assets/kernel/t2gmux/src/Makefile
+  assets/kernel/t2gmux/src/t2gmux.c
+  assets/kernel/t2smp/PROVENANCE
+  assets/kernel/t2smp/dkms.conf
+  assets/kernel/t2smp/src/Makefile
+  assets/kernel/t2smp/src/t2smp.c
+  assets/kernel/t2thunderbolt/PROVENANCE
+  assets/kernel/t2thunderbolt/README.upstream.md
+  assets/kernel/t2thunderbolt/dkms.conf
+  assets/kernel/t2thunderbolt/src/Makefile
+  assets/kernel/t2thunderbolt/src/t2thunderbolt.c
