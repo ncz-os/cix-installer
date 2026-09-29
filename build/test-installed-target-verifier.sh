@@ -36,19 +36,15 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     echo "$KVER" > "$r/usr/local/lib/cix-installer/KVER_NEXT"
     printf 'x' > "$r/usr/lib/modules/7.3.0-rc3-sky1-ncz/modules.dep"   # older kernel must be ignored
     echo x > "$r/usr/sbin/dkms"; echo x > "$r/usr/bin/ffmpeg"
-    echo 'ln -sf $_d /dev/video-cixdec0' > "$r/usr/bin/load-modules.sh"
+    printf 'ln -sf $_d /dev/video-cixdec0\nln -sf $_e /dev/video-cixenc0\n' > "$r/usr/bin/load-modules.sh"
     printf 'xx h264_v4l2m2m xx' > "$r/usr/lib/aarch64-linux-gnu/libavcodec.so.62.1.100"
     printf 'Package: google-chrome-stable\nStatus: install ok installed\n\nPackage: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$r/var/lib/dpkg/status"
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/etc"; printf 'root:x:0:\nsudo:x:27:nczuser\n' > "$r/etc/group"
-    # VA-API + mpv
-    mkdir -p "$r/usr/share/cix/lib" "$r/etc/environment.d" "$r/etc/mpv"
-    echo x > "$r/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so"
-    ln -s libcix_va_drv_video.so "$r/usr/lib/aarch64-linux-gnu/dri/linlondp_drv_video.so"
-    echo x > "$r/usr/share/cix/lib/libva.so.2"
-    echo 'LIBVA_DRIVER_NAME=libcix_va' > "$r/etc/environment.d/60-ncz-vaapi.conf"
-    echo 'hwdec=vaapi' > "$r/etc/mpv/mpv.conf"
+    # media stack: no VA driver, mpv on V4L2
+    mkdir -p "$r/etc/mpv"
+    echo 'hwdec=v4l2m2m-copy' > "$r/etc/mpv/mpv.conf"
     # Sky1 audio autoswitch
     mkdir -p "$r/usr/local/bin" "$r/etc/systemd/user/graphical-session.target.wants"
     echo x > "$r/usr/local/bin/ncz-sky1-audio-autoswitch"
@@ -93,10 +89,10 @@ m_no_amvx()     { printf 'updates/dkms/aipu.ko.xz:\n' > "$1/usr/lib/modules/$KVE
 m_no_chrome()   { printf 'Package: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$1/var/lib/dpkg/status"; }
 m_half_chrome() { printf 'Package: google-chrome-stable\nStatus: deinstall ok config-files\n\nPackage: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$1/var/lib/dpkg/status"; }
 m_no_v4l2m2m()  { printf 'plain' > "$1/usr/lib/aarch64-linux-gnu/libavcodec.so.62.1.100"; }
-m_no_vadrv()    { rm -f "$1/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so"; }
-m_no_vasym()    { rm -f "$1/usr/lib/aarch64-linux-gnu/dri/linlondp_drv_video.so"; }
-m_no_libva()    { rm -f "$1/usr/share/cix/lib/libva.so.2"; }
+m_va_but_mpv_v4l2() { echo x > "$1/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so"; }
+m_no_encnode()  { echo 'ln -sf $_d /dev/video-cixdec0' > "$1/usr/bin/load-modules.sh"; }
 m_no_mpv()      { echo 'vo=gpu' > "$1/etc/mpv/mpv.conf"; }
+m_mpv_vaapi_no_driver() { echo 'hwdec=vaapi' > "$1/etc/mpv/mpv.conf"; }
 m_ss_missing()  { sed -i '/ncz-screensavers/,+3d' "$1/var/lib/dpkg/status"; }
 m_ss_hacks()    { rm -f "$1"/usr/lib/ncz-screensavers/hack1*_gles3; }
 m_ss_noidled()  { rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"; }
@@ -127,9 +123,9 @@ run_case "ffmpeg without v4l2m2m fails"         1 m_no_v4l2m2m
 run_case "no cixdec0 loader fails"              1 m_no_loader
 run_case "sudo not installed fails"             1 m_no_sudo
 run_case "empty sudo group fails"               1 m_sudo_empty
-run_case "no VA driver fails"                   1 m_no_vadrv
-run_case "no linlondp symlink fails"            1 m_no_vasym
-run_case "no matched libva runtime fails"       1 m_no_libva
+run_case "VA driver present but mpv on v4l2 fails" 1 m_va_but_mpv_v4l2
+run_case "no encode node helper fails"          1 m_no_encnode
+run_case "mpv vaapi without a VA driver fails"   1 m_mpv_vaapi_no_driver
 run_case "mpv without hwdec fails"              1 m_no_mpv
 run_case "screensavers requested but absent fails" 1 m_ss_missing
 run_case "screensavers with 74 of 84 hacks fails"  1 m_ss_hacks

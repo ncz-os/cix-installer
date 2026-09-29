@@ -184,10 +184,6 @@ case "$BUILD_VARIANT" in
                 cix-gpu-kmd-dkms_
                 panthor-cix-dkms_
                 cix-firmware_
-                cix-vaapi_
-                cix-libva2_
-                cix-libva-drm2_
-                cix-libcme_
             "
             for prefix in $NEED_PREFIXES; do
                 if compgen -G "$DEB_DIR/${prefix}*.deb" > /dev/null; then

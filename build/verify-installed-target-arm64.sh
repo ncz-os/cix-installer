@@ -201,14 +201,23 @@ else
     gate_miss sudo "sudo is not installed (user-setup could not resolve it from the media index)"
 fi
 
-# --- (v) VA-API + mpv ----------------------------------------------------------
-echo "[verify-target] (v) VA-API and mpv hardware decode wiring"
-exists /usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so || gate_miss vaapi "/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so (cix-vaapi not installed)"
-exists /usr/lib/aarch64-linux-gnu/dri/linlondp_drv_video.so || gate_miss vaapi "linlondp_drv_video.so compat symlink (84-vpu-vaapi did not run)"
-exists /usr/share/cix/lib/libva.so.2 || gate_miss vaapi "/usr/share/cix/lib/libva.so.2 (cix-libva2 runtime matching the driver ABI)"
-if fetch /etc/environment.d/60-ncz-vaapi.conf "$TMP/vaenv" && grep -q 'LIBVA_DRIVER_NAME=libcix_va' "$TMP/vaenv"; then :; else gate_miss vaapi "/etc/environment.d/60-ncz-vaapi.conf with LIBVA_DRIVER_NAME=libcix_va"; fi
+# --- (v) media stack: V4L2 on the amvx VPU (VA-API is optional) -------------------
+# VA-API is NOT the browser path: chromium-ncz-sky1 decodes and encodes through V4L2-M2M, and
+# stock Google Chrome on arm64 has no such patches. mpv follows what is installed.
+echo "[verify-target] (v) media stack (V4L2 on the VPU; VA-API optional)"
+if [ -s "$TMP/load-modules.sh" ] && grep -q 'video-cixenc0' "$TMP/load-modules.sh"; then
+    echo "[verify-target]     /usr/bin/load-modules.sh also creates /dev/video-cixenc0"
+else
+    gate_miss vpu "/usr/bin/load-modules.sh with the video-cixenc0 symlink logic (encode node)"
+fi
 if fetch /etc/mpv/mpv.conf "$TMP/mpv.conf" && grep -q '^hwdec=' "$TMP/mpv.conf"; then
-    echo "[verify-target]     mpv: $(grep -m1 '^hwdec=' "$TMP/mpv.conf")"
+    HW="$(grep -m1 '^hwdec=' "$TMP/mpv.conf")"
+    if exists /usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so; then
+        echo "$HW" | grep -q 'vaapi' || gate_miss vpu "mpv $HW although the CIX VA driver is installed"
+    else
+        echo "$HW" | grep -q 'v4l2m2m' || gate_miss vpu "mpv $HW but no VA driver is installed (mpv would silently fall back to software; expect hwdec=v4l2m2m-copy)"
+    fi
+    echo "[verify-target]     mpv: $HW"
 else
     gate_miss vpu "/etc/mpv/mpv.conf with a hwdec= line (84-vpu-mpv)"
 fi

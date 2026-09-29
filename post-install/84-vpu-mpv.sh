@@ -13,7 +13,7 @@
 # RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop / run-all.sh).
 set +e
 
-echo "[84] mpv HW video (hwdec=vaapi, zero-copy dmabuf — Sky1 amvx VPU)"
+echo "[84] mpv HW video (Sky1 amvx VPU)"
 
 VARIANT=desktop
 [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ] && \
@@ -38,15 +38,27 @@ esac
 # vo falls back gpu-next -> x11 if dmabuf-wayland is unavailable (e.g. a
 # non-Wayland session), and hwdec falls back to software per codec.
 install -d -m0755 /etc/mpv
-cat > /etc/mpv/mpv.conf <<'MPVCONF'
-# NCZ-OS 26.7 — HW video on CIX Sky1 (amvx VPU via the CIX VA-API driver).
-# Zero-copy: VPU decode -> dmabuf -> Wayland -> linlondp overlay plane.
-# Measured: 1080p30 H.264 at ~7% CPU (software decode: ~82%).
-hwdec=vaapi
-vo=dmabuf-wayland,gpu-next,x11
+# hwdec depends on what is really installed. vaapi + dmabuf-wayland is the zero-copy path but
+# it needs the CIX VA driver (cix-vaapi); libva otherwise guesses linlondp_drv_video.so, fails
+# with va_openDriver() = -1 and mpv drops to software. Without that driver use the V4L2
+# stateful M2M decoders of the amvx VPU (verified on O6N: h264/hevc decode+encode), which is
+# what the shipped Chromium 'Sky1 Edition' uses as well.
+if [ -f /usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so ]; then
+    _HWDEC=vaapi
+    _VO="dmabuf-wayland,gpu-next,x11"
+    _NOTE="CIX VA-API driver present: zero-copy VPU decode -> dmabuf -> Wayland overlay plane"
+else
+    _HWDEC=v4l2m2m-copy
+    _VO="gpu-next,x11"
+    _NOTE="no CIX VA-API driver: V4L2 stateful M2M decode on the amvx VPU, frames copied to the GLES path"
+fi
+cat > /etc/mpv/mpv.conf <<MPVCONF
+# NCZ-OS 26.7 -- HW video on CIX Sky1 (amvx VPU). $_NOTE.
+hwdec=$_HWDEC
+vo=$_VO
 gpu-api=opengl
 gpu-context=wayland
-# Fall back gracefully if the VPU decoder is unavailable for a given codec.
+# Fall back gracefully (per codec) to software decode when the VPU cannot take a stream.
 hwdec-codecs=all
 # Keep audio on the PipeWire/Pulse stack.
 ao=pipewire,pulse,alsa
@@ -72,4 +84,4 @@ video/quicktime=mpv.desktop
 MIMEV
 done
 
-echo "[84] /etc/mpv/mpv.conf written (hwdec=vaapi, zero-copy). Browser HW decode via VA-API — see 84-vpu-vaapi.sh."
+echo "[84] /etc/mpv/mpv.conf written (hwdec=$_HWDEC)"
