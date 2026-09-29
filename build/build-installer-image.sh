@@ -28,9 +28,12 @@ WORK_DIR=${WORK_DIR:-$HOME/build-tmp/cix-installer-$ARCH}
 # with an empty sha component (the 2026-09-28 arm64 stage-2 incident:
 # the operator got an unstamped artifact and the entire nightly ISO
 # pipeline stalled because nobody could tell which build was which).
+if [ -z "${BUILD_VERSION:-}" ] && [ -n "${BUILD_SHA:-}" ]; then
+    BUILD_VERSION="$(date -u +%Y.%m.%d)-${BUILD_SHA}"
+fi
 if [ -z "${BUILD_VERSION:-}" ]; then
     git config --global --add safe.directory '*' 2>/dev/null || true
-    if command -v git >/dev/null 2>&1 && [ -d "$ROOT/.git" ]; then
+    if command -v git >/dev/null 2>&1 && [ -e "$ROOT/.git" ]; then
         _sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || true)
         if [ -n "$_sha" ]; then
             BUILD_VERSION="$(date -u +%Y.%m.%d)-${_sha}"
