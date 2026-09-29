@@ -324,3 +324,7 @@ tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
 tools/verify-drivers.sh	sky1	-	Sky1 driver fidelity check
 build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
 build/boot-screens.py	common	-	installer console capture harness (qemu screendump + VT text over the diag telnet)
+preseed/ncz-ui.sh	common	-	shared d-i dialog look (brand, arch, build id)
+build/test-ncz-ui.sh	common	-	ncz-ui.sh tests
+build/check-installer-screens.py	common	-	console-screen content checker
+build/test-installer-screens.sh	common	-	console-screen checker tests

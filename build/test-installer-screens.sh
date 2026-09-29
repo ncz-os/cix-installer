@@ -22,9 +22,13 @@ mk $'  lqqqqqqqqqqqqqqu title tqqqqqqk\n  x hello x\n  mqqqqqqqqqqqqqqqqqqj'; ex
 rm -rf "$T/s"; mkdir "$T/s";                                  expect "empty capture fails"                     1 chk
 # templates that d-i draws with newt must be ASCII: the em dash rendered "<ERR>" and truncated the title on hardware
 ROOT="$(cd "$HERE/.." && pwd)"
-tpl_ascii() { local f; for f in "$ROOT"/preseed/component-selector.sh "$ROOT"/preseed/disk-fs-chooser.sh "$ROOT"/preseed/hostname-suggest.sh "$ROOT"/preseed/locale-keyboard-chooser.sh; do
+tpl_ascii() { local f; for f in "$ROOT"/preseed/component-selector.sh "$ROOT"/preseed/disk-fs-chooser.sh "$ROOT"/preseed/hostname-suggest.sh "$ROOT"/preseed/locale-keyboard-chooser.sh "$ROOT"/preseed/late.sh; do
     [ -f "$f" ] || continue
-    awk -v f="$f" '/<<[-]?[\047"]?[A-Z]*TPL/ {r=1; next} r && /^TPL$/ {r=0} r || /LONG=/ { if ($0 ~ /[^\001-\177]/) { print f ": non-ASCII in template text: " $0; bad=1 } } END{exit bad}' "$f" || return 1
+    awk -v f="$f" '
+        !r && match($0, /<<-?[\047"]?[A-Z]*TPL/) { w=substr($0, RSTART, RLENGTH); gsub(/[<\047"-]/, "", w); r=1; next }
+        r && $0 == w { r=0; next }
+        (r || /LONG=/) && /[^\001-\177]/ { print f ": non-ASCII in template text: " $0; bad=1 }
+        END { exit bad }' "$f" || return 1
 done; }
 expect "d-i template sources are ASCII" 0 tpl_ascii
 printf 'Template: x/y\nDescription: NCZ install \xe2\x80\x94 pick\n' > "$T/bad.sh"

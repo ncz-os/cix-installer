@@ -67,6 +67,11 @@
 set +e
 
 . /usr/share/debconf/confmodule 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
+# shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
+for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
+    [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
+done
+command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
 
 log() {
     echo "[ncz components] $*"
@@ -183,7 +188,7 @@ Type: multiselect
 Choices: ${_CHOICES_C}
 Choices-C: ${_OFFERED}
 Default: ${_DEFAULT}
-Description: NCZ-OS install - select which OPTIONAL COMPONENTS to install
+Description: $(ncz_ui_brand) - optional components
  Untick to skip an optional component. Default (Enter OK) = all of the
  below installed, which is exactly what the previous installer shipped.
  .
@@ -194,6 +199,8 @@ Description: NCZ-OS install - select which OPTIONAL COMPONENTS to install
   rescue-partition - 4 GiB NCZRESCUE partition (rescue rootfs + boot entry)
  .
 ${_LONG}
+ .
+ $(ncz_ui_id)
 TPL
     # ------------------------------------------------------------------
     # SYNCHRONOUS FOREGROUND prompt — 2026-08-24 root-cause fix for the

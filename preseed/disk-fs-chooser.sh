@@ -30,6 +30,11 @@
 set +e
 
 . /usr/share/debconf/confmodule 2>/dev/null || true
+# shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
+for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
+    [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
+done
+command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
 
 log() {
     echo "[ncz chooser] $*"
@@ -202,11 +207,13 @@ else
 Template: ncz/target-disk
 Type: select
 Choices: ${CHOICES}
-Description: NCZ-OS install - select the TARGET DISK (it will be ERASED)
+Description: $(ncz_ui_brand) - select the TARGET DISK (it will be ERASED)
  The disk you choose will be COMPLETELY ERASED and NCZ-OS installed on it.
  .
  Detected disks:
  ${LONG}
+ .
+ $(ncz_ui_id)
 TPL
     debconf-loadtemplate ncz /tmp/ncz-disk.templates 2>/dev/null \
         || abort "could not load disk-selection template (no auto-pick on a destructive choice)"
@@ -245,16 +252,18 @@ case "$OVR_FS" in
     *) abort "ncz_fs=$OVR_FS is not ext4 or btrfs" ;;
 esac
 if [ -z "$CHOSEN_FS" ]; then
-    cat > /tmp/ncz-fs.templates <<'TPL'
+    cat > /tmp/ncz-fs.templates <<TPL
 Template: ncz/root-fs
 Type: select
 Choices: btrfs, ext4
 Default: btrfs
-Description: NCZ-OS install - root (/) filesystem
+Description: $(ncz_ui_brand) - root (/) filesystem
  Choose the filesystem for the root (/) partition.
  .
  btrfs - snapshots + transparent compression (NCZ default).
  ext4  - simple, maximally robust.
+ .
+ $(ncz_ui_id)
 TPL
     debconf-loadtemplate ncz /tmp/ncz-fs.templates 2>/dev/null \
         || abort "could not load root-fs template"
