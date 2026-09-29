@@ -322,3 +322,5 @@ tools/	common	-	dev tools
 tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on cixmini
 tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
 tools/verify-drivers.sh	sky1	-	Sky1 driver fidelity check
+build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
+build/boot-screens.py	common	-	installer console capture harness (qemu screendump + VT text over the diag telnet)

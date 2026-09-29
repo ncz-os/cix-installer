@@ -325,13 +325,15 @@ def once(last_choice: str | None) -> str | None:
 
     kind, card, dev, sink, label = target_info
     known = sink_names()
-    if kind == "analog":
-        unmute_analog(card)
     if kind == "hdmi":
         target = ensure_sink(EldState(card, dev, "", label, 1), known)
     else:
         target = sink if sink in known else (find_hw_sink(card, dev) or (sink if load_sink(EldState(card, dev, "", label, 1), known, sink) else None))
     if target and current != target:
+        if kind == "analog":
+            # clear the codec mute once, when the analog sink BECOMES the default; never on later polls, so a mute
+            # the user applies afterwards is respected (zoder review of d0e6066, finding 1)
+            unmute_analog(card)
         set_default_sink(target)
         log(f"selected {target} ({label})")
         return target
