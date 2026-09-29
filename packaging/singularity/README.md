@@ -72,8 +72,9 @@ differ, so compare the symbol, not the hash.
 
 ## Artist Pack browser (2026-09-12)
 
-Two more patches carried on top of the layer-shell fix, both currently
-unmerged upstream:
+**RETIRED 2026-09-29:** the two patches below were deleted from
+`patches/` (stale, unreferenced; neither applies to current upstream). Kept
+as history. They were carried on top of the layer-shell fix:
 
 * `patches/0001-schema-artist-pack-apt-sources.patch` — singularity-desktop,
   adds the `artist-pack-apt-sources` (`as`) key to

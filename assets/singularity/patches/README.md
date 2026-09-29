@@ -77,8 +77,8 @@ logical width (up to 3 columns), not a fixed 1-or-2 split at one
 breakpoint; (2) `begin_detail_section()` applies the
 `sensors-resource-section` CSS class so each resource-pool section
 (CPU/GPU/VPU/Storage/...) reads as a distinct bordered card instead of
-one continuous list — the exact "outlined groups" behavior. Depends on
-`libsingularity#15` below for the CSS class to exist at all.
+one continuous list — the exact "outlined groups" behavior.  The CSS lives in the
+plugin's own provider, so it no longer needs a libsingularity patch.
 
 Delete this patch once PR #2 merges.
 
@@ -108,15 +108,13 @@ the real background; depends on `singularity-plugins#2`.
 
 Delete this patch once it lands upstream.
 
-## libsingularity — active
+## libsingularity — retired 2026-09-29
 
 **Upstream PR:** [singularityos-lab/libsingularity#15](https://github.com/singularityos-lab/libsingularity/pull/15)
-— open, not yet merged. Patch
-`0001-sensors-resource-section-outline.patch`. Adds the
-`.sensors-resource-section` CSS class (1px border, 8px radius, padding)
-that `singularity-plugins#2` above applies. CSS-only, 10 lines.
-
-Delete this patch once PR #15 merges.
+— **CLOSED** unmerged by the maintainer. Patch
+`0001-sensors-resource-section-outline.patch` deleted: the
+`.sensors-resource-section` style now lives in the plugin's own CSS provider
+(`singularity-plugins#2`, head `93a5bd56`).
 
 ## Previously landed
 
