@@ -61,6 +61,39 @@ UDEVRULES
 chmod 0644 /etc/udev/rules.d/93-ncz-unmanage-t2-ibridge.rules
 echo "[33-network] installed udev rule to unmanage the Apple T2 iBridge virtual ethernet"
 
+# BELT AND BRACES (2026-09-29). The udev rule above is NECESSARY BUT NOT
+# SUFFICIENT. It has to out-sort 90-netplan.rules, which sets
+# ENV{ID_NET_NAME}=="en*" NM_UNMANAGED="0" -- and that file is GENERATED INTO
+# /run/udev/rules.d DURING BOOT. At the moment the T2 NIC is first enumerated
+# the netplan rule may not exist yet, so the ordering a later `udevadm test`
+# reproduces is not the ordering that actually ran.
+#
+# MEASURED on CHIMERA 2026-09-29 (installed from 2026.09.29-0d04e75):
+#     udevadm test /sys/class/net/enxacde48001122   -> NM_UNMANAGED=1   (rule wins)
+#     udevadm info  /sys/class/net/enxacde48001122   -> NM_UNMANAGED=0   (live value)
+# NetworkManager therefore bound the wildcard `en*` netplan profile to the
+# T2 virtual NIC and sat in "connecting (getting IP configuration)" forever
+# on an interface attached to nothing, while the real 2.5G adapter
+# (enx00e04c684081) stayed "disconnected" with no profile at all. Knock-on:
+# NetworkManager-wait-online FAILED after 60s and systemd-time-wait-sync then
+# burned 3min36s, taking boot from 38s to 3min41s.
+#
+# A NetworkManager [device] section is evaluated by NM itself from its own
+# config, so it does not race udev rule-file generation at all. Match on the
+# MAC: ac:de:48:00:11:22 is a FIXED Apple placeholder, byte-identical on every
+# T2 Mac (verified on both CHIMERA and MEDUSA), not a per-unit address.
+install -d /etc/NetworkManager/conf.d
+cat > /etc/NetworkManager/conf.d/95-ncz-unmanage-t2-ibridge.conf <<'NMCONF'
+# The Apple T2 iBridge virtual ethernet is never a real link. Keep
+# NetworkManager off it entirely; see post-install/33-network.sh for why the
+# udev rule alone is not enough.
+[device-ncz-t2-ibridge]
+match-device=mac:ac:de:48:00:11:22
+managed=0
+NMCONF
+chmod 0644 /etc/NetworkManager/conf.d/95-ncz-unmanage-t2-ibridge.conf
+echo "[33-network] NetworkManager [device] rule: T2 iBridge NIC (mac ac:de:48:00:11:22) managed=0"
+
 # r8152 (Realtek USB 2.5G/1G ethernet, the chip inside most USB-C/Thunderbolt
 # docks -- confirmed on a Kensington dock on MEDUSA, 2026-09-21) drops off the
 # USB bus under Linux's default USB autosuspend policy and never resumes: it
