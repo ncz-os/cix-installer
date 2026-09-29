@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/of_platform.h>
 #include <linux/pagemap.h>
+#include <linux/version.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/sched/clock.h>
@@ -1780,9 +1781,21 @@ static void panthor_debugfs_init(struct drm_minor *minor)
  *       - adds drm_panthor_gpu_info::selected_coherency
  * - 1.8 - extends DEV_QUERY_TIMESTAMP_INFO with flags
  */
+/*
+ * DRIVER_GEM_GPUVA was removed in v7.3 (upstream 21fcb222f0d1 "drm: Remove
+ * DRIVER_GEM_GPUVA feature flag"). This DKMS tree also builds on the shipping
+ * 7.2.x kernels, where the flag still exists and panthor must set it (the
+ * gpuvas debugfs entry is gated on it there), so it is dropped only on 7.3+.
+ */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 3, 0)
+#define PANTHOR_DRIVER_GEM_GPUVA DRIVER_GEM_GPUVA
+#else
+#define PANTHOR_DRIVER_GEM_GPUVA 0
+#endif
+
 static const struct drm_driver panthor_drm_driver = {
 	.driver_features = DRIVER_RENDER | DRIVER_GEM | DRIVER_SYNCOBJ |
-			   DRIVER_SYNCOBJ_TIMELINE,
+			   DRIVER_SYNCOBJ_TIMELINE | PANTHOR_DRIVER_GEM_GPUVA,
 	.open = panthor_open,
 	.postclose = panthor_postclose,
 	.show_fdinfo = panthor_show_fdinfo,

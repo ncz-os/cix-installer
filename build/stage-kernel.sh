@@ -88,7 +88,7 @@ if [ -f "$PREV/modules-cixmini.tgz" ]; then
     for m in linlon-dp trilin-dpsub; do
         n=$(find "$W/image" -name "$m.ko*" | head -1); o=$(find /tmp/.prevmod -name "$m.ko*" | head -1)
         [ -n "$n" ] && [ -n "$o" ] || continue
-        nm=$(xz -dc "$n" | md5sum | cut -d' ' -f1); om=$(xz -dc "$o" | md5sum | cut -d' ' -f1)
+        nm=$(xz -dcf "$n" | md5sum | cut -d' ' -f1); om=$(xz -dcf "$o" | md5sum | cut -d' ' -f1)
         [ "$nm" != "$om" ] && { echo "module $m CHANGED"; MOD_CHANGED=1; } || echo "module $m unchanged"
     done
 else
@@ -143,4 +143,4 @@ else
     echo "=== packaging as $REV"
     cd "$REPO" && BUILD_REV="$REV" build/build-kernel-debs.sh
 fi
-ls -la "$REPO/build/kernel-debs/" | tail -4
+[ "$CHANNEL" = edge ] || ls -la "$REPO/build/kernel-debs/" | tail -4

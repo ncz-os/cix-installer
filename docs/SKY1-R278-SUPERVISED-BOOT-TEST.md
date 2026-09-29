@@ -1,5 +1,10 @@
 # Sky1 r278 (7.3.0-rc5) supervised boot test sheet: O6N
 
+> **Superseded by `docs/SKY1-R279-SUPERVISED-BOOT-TEST.md`.** The edge pointer
+> now names r279, which carries the linlon-dp re-aim, native PCIe, the
+> runtime-PM gate and uncompressed modules. Keep this sheet only to test r278
+> itself.
+
 Operator-only. Nothing here is automated, and no agent reboots, flashes, or
 repartitions the O6N (.3) or MS-R1 (.66). Run each step at the console with
 the serial console (`ttyAMA0`) attached and logging.
