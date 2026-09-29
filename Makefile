@@ -96,7 +96,26 @@ UPSTREAM_SHA_NAME := $(UPSTREAM_ISO)
 # see docs/ISO-REBAKE-TYDEUS-2026-08-21.md §"Verification".
 # Substrate rotated again 2026-09-25. The replacement below passed the native
 # arm64 build/kvm-install-gate.sh install-and-detached-boot gate on ULTRA.
+# Validated substrate pins. arm64 is pinned to the Debian weekly netinst with
+# installer build 20260921 (sha256 below): the substrate every arm64 image that
+# passed the KVM install gate was built on, including ncz-os-arm64-20260929-18e8a14.
+# Debian republishes the filename weekly and drops the old build, so a fresh
+# worktree (empty downloads/) used to float silently to whatever was current.
+# The pinned file is kept on ARGONAS (SUBSTRATE_CACHE_DIRS, one directory per
+# host spelling) and the download rule copies it from there and verifies the
+# sha256; if it cannot, it FAILS rather than floating. amd64 has no pin yet
+# (no validated hash recorded) and keeps the old behavior with a warning.
+# Adopting a newer installer is a deliberate act: build on it, run the KVM gate,
+# store the ISO in the cache directory as <name>-<yyyymmdd>-<sha8>.iso, then
+# change the pin below. Override on the command line for an experiment:
+#   make image SUBSTRATE_SHA=<sha256-of-the-new-iso>
+ifeq ($(ARCH),arm64)
+SUBSTRATE_SHA ?= bcdea12698a4c643fbbc68c69fb8be96a3f292bdfa1b5c41c8fdaeaae6944f67
+endif
 SUBSTRATE_SHA ?=
+SUBSTRATE_CACHE_DIRS ?= /mnt/argonas-projects/ncz-os-assets/substrate \
+                        /nfs-shared/ncz-os-assets/substrate \
+                        /mnt/argonas/datapool/projects/ncz-os-assets/substrate
 
 DOWNLOADS     := $(ROOT)/downloads
 BUILD         := $(ROOT)/build
@@ -136,28 +155,49 @@ help:
 download: $(DOWNLOADS)/$(UPSTREAM_ISO)
 
 $(DOWNLOADS)/$(UPSTREAM_ISO):
-	@echo "[download] $(UPSTREAM_URL)"
 	@mkdir -p $(DOWNLOADS)
-	@curl -fL -o $@.tmp $(UPSTREAM_URL)
-	@curl -fL -o $(DOWNLOADS)/SHA256SUMS $(UPSTREAM_SHA)
-	@expected=$$(grep '$(UPSTREAM_SHA_NAME)$$' $(DOWNLOADS)/SHA256SUMS | awk '{print $$1}'); \
+	@if [ -z "$(SUBSTRATE_SHA)" ]; then \
+	    echo "[download] WARNING: no substrate pin for $(ARCH); this floats to whatever Debian serves today (set SUBSTRATE_SHA)"; \
+	fi
+	@if [ -n "$(SUBSTRATE_SHA)" ]; then \
+	    short=$$(printf '%s' "$(SUBSTRATE_SHA)" | cut -c1-8); \
+	    for d in $(SUBSTRATE_CACHE_DIRS); do \
+	        for f in $$d/*-$$short.iso; do \
+	            [ -f "$$f" ] || continue; \
+	            actual=$$(sha256sum "$$f" | awk '{print $$1}'); \
+	            if [ "$$actual" = "$(SUBSTRATE_SHA)" ]; then \
+	                echo "[download] pinned substrate $(SUBSTRATE_SHA) from $$f"; \
+	                if cp "$$f" $@.tmp && mv $@.tmp $@; then break 2; fi; \
+	                echo "[download] WARNING: copying the pinned substrate from $$f failed; will not accept anything but the pin"; \
+	                rm -f $@.tmp; \
+	            fi; \
+	            echo "[download] WARNING: $$f does not match the pin (sha256 $$actual); ignoring it"; \
+	        done; \
+	    done; \
+	fi
+	@if [ ! -f $@ ]; then \
+	    echo "[download] $(UPSTREAM_URL)"; \
+	    curl -fL -o $@.tmp $(UPSTREAM_URL) && \
+	    curl -fL -o $(DOWNLOADS)/SHA256SUMS $(UPSTREAM_SHA) || { rm -f $@.tmp; exit 1; }; \
+	    expected=$$(grep '$(UPSTREAM_SHA_NAME)$$' $(DOWNLOADS)/SHA256SUMS | awk '{print $$1}'); \
 	    actual=$$(sha256sum $@.tmp | awk '{print $$1}'); \
 	    if [ "$$expected" != "$$actual" ]; then \
 	        echo "[download] SHA256 MISMATCH: expected=$$expected actual=$$actual"; \
-	        exit 1; \
-	    fi
-	@if [ -n "$(SUBSTRATE_SHA)" ]; then actual=$$(sha256sum $@.tmp | awk '{print $$1}'); \
-	    if [ "$$actual" != "$(SUBSTRATE_SHA)" ]; then \
+	        rm -f $@.tmp; exit 1; \
+	    fi; \
+	    if [ -n "$(SUBSTRATE_SHA)" ] && [ "$$actual" != "$(SUBSTRATE_SHA)" ]; then \
 	        echo "[download] SUBSTRATE ROTATED"; \
-	        echo "           expected (validated): $(SUBSTRATE_SHA)"; \
+	        echo "           pinned (validated)  : $(SUBSTRATE_SHA)"; \
 	        echo "           upstream now serves : $$actual"; \
-	        echo "           Upstream republishes this filename weekly. Adopting the new"; \
-	        echo "           installer is a deliberate act: build an ISO on it, run"; \
-	        echo "           build/e2e-install-test.sh, then update SUBSTRATE_SHA."; \
-	        rm -f $@.tmp; \
-	        exit 1; \
-	    fi; fi
-	@mv $@.tmp $@
+	        echo "           and the pinned ISO was not found in: $(SUBSTRATE_CACHE_DIRS)"; \
+	        echo "           Upstream republishes this filename weekly. Restore the pinned ISO"; \
+	        echo "           into one of those directories (name it <anything>-$$(printf '%s' $(SUBSTRATE_SHA) | cut -c1-8).iso),"; \
+	        echo "           or adopt the new installer deliberately: build an ISO on it, run"; \
+	        echo "           build/e2e-install-test.sh and the KVM gate, then update the pin."; \
+	        rm -f $@.tmp; exit 1; \
+	    fi; \
+	    mv $@.tmp $@; \
+	fi
 	@echo "[download] OK ($$(du -h $@ 2>/dev/null | cut -f1))"
 
 # -----------------------------------------------------------------------
@@ -395,6 +435,15 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(wildcard $(ASSETS)/sky1-firmware/*)
 	@echo "[image] verifying arm64 inputs (sky1-firmware, cix-debs, rescue-rootfs, mirror)"
 	@NCZ_TARGET_ARCH=$(ARCH) bash $(ROOT)/build/verify-arm64-inputs.sh --mirror
+	@if [ -n "$(SUBSTRATE_SHA)" ]; then \
+	    actual=$$(sha256sum $(DOWNLOADS)/$(UPSTREAM_ISO) | awk '{print $$1}'); \
+	    if [ "$$actual" != "$(SUBSTRATE_SHA)" ]; then \
+	        echo "[image] substrate $(DOWNLOADS)/$(UPSTREAM_ISO) is sha256 $$actual, not the pinned $(SUBSTRATE_SHA)"; \
+	        echo "[image] delete it and re-run (the pinned ISO is restored from $(SUBSTRATE_CACHE_DIRS)), or override SUBSTRATE_SHA deliberately"; \
+	        exit 1; \
+	    fi; \
+	    echo "[image] substrate matches the pin ($(SUBSTRATE_SHA))"; \
+	fi
 	@echo "[image] building $@ from $(DOWNLOADS)/$(UPSTREAM_ISO)"
 	@ARCH=$(ARCH) SUBSTRATE_ISO=$(DOWNLOADS)/$(UPSTREAM_ISO) \
 	  SUBSTRATE_URL=$(UPSTREAM_URL) OUTPUT=$@ \
