@@ -20,8 +20,24 @@ Build it, then move it into the **rootful** store (stage 2 needs
 
 Then stage 2:
 
+    # Probe the per-host ARGONAS yocto-shared spellings. ULTRA mounts it at
+    # /mnt/argonas-yocto-shared, TYDEUS at /nfs-shared, and other hosts
+    # (HYDRA/ACHILLES/PROTEUS) under /mnt/argonas/datapool/yocto-shared via
+    # autofs. assets/kernel/edge is an absolute symlink into
+    # /mnt/argonas-yocto-shared/kernel-staging/, so inside the container it
+    # DANGLES unless the staging tree is bind-mounted in too -- the kernel-
+    # debs target (Makefile, gated now on assets/kernel/edge/KVER freshness)
+    # dies with `no KVER for channel 'edge'` otherwise. Same probing
+    # convention build/stage-amd64-kernel.sh and build/preflight-freshness-
+    # gate.sh already use; do not hardcode one spelling.
+    KSTAGING=$(for c in /mnt/argonas-yocto-shared/kernel-staging \
+                          /nfs-shared/kernel-staging \
+                          /mnt/argonas/datapool/yocto-shared/kernel-staging; do \
+                   [ -d "$c" ] && { echo "$c"; break; }; \
+               done); \
+    [ -n "$KSTAGING" ] || { echo "ERROR: ARGONAS kernel-staging not mounted on this host" >&2; exit 1; }; \
     sudo podman run --rm --privileged --net=host \
-        -v "$PWD":/work/cix-installer -v /dev:/dev \
+        -v "$PWD":/work/cix-installer -v /dev:/dev -v "$KSTAGING":"$KSTAGING" \
         -w /work/cix-installer -e NCZ_TARGET_ARCH=arm64 -e HOME=/root \
         localhost/ncz-imagebuild:trixie bash -lc 'make image'
 
