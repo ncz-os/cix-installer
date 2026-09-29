@@ -362,7 +362,13 @@ if [ -n "$UPOWER_DEB" ] && ! dpkg-query -W -f='${Status}\n' upower 2>/dev/null |
     dpkg -i --force-depends "$UPOWER_DEB" || true
 fi
 SINTY_DEB=""
-for _d in /cdrom/pool/main /usr/local/lib/cix-installer/assets/cix-debs; do
+# Candidate order matters: the LAST directory that has a deb wins. The payload copy on the install
+# medium is built by the same make run as the image, so it goes last. The copy under
+# /usr/local/lib/cix-installer/assets/cix-debs is baked into base.squashfs and can be a build older
+# than the image (same 20260929+bk0 version string, different content): on 2026-09-29 that stale
+# deb was dpkg -i'd over the fresh hotfix layer and every singularity plugin patch was silently
+# lost (found by the gate: the Bing plugin lacked its patched Preferred market string).
+for _d in /cdrom/pool/main /usr/local/lib/cix-installer/assets/cix-debs /cdrom/ncz-payload/assets/cix-debs; do
     [ -d "$_d" ] || continue
     _c=$(find "$_d" -maxdepth 1 -type f -name 'ncz-singularity-desktop_*.deb' 2>/dev/null | sort -V | tail -1)
     [ -n "$_c" ] && SINTY_DEB="$_c"

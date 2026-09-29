@@ -1,0 +1,826 @@
+From 674cd65cc9534e5d6997d652f6967e64f33408c0 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 29 Sep 2026 11:48:08 -0400
+Subject: [PATCH] fix(sensors): keep text contrast against the real background
+
+The chip colored its markup from theme severity tokens regardless of
+what it rendered on, and the popover used dim-label opacity, so text
+went unreadable on light, translucent or mismatched panels.
+
+Sample the pixels around the chip and the popover content, composite
+them, and derive neutral, muted and severity colors that reach WCAG
+7:1 (4.5:1 minimum) by shifting lightness only. A translucent surface
+gets its own backing scrim. Warning and critical also differ by glyph
+and weight. Re-evaluated on theme, dark-preference and panel redraw
+signals. Contrast math lives in contrast.vala with a meson test.
+
+Assisted-by: Claude Code:claude-sonnet-5-5
+AI-Scope: Drafted the contrast math, sampling and CSS wiring from an operator description of the bug
+---
+ sensors/contrast.vala            | 228 ++++++++++++++++++++++
+ sensors/meson.build              |   8 +
+ sensors/sensors.vala             | 324 +++++++++++++++++++++++++------
+ sensors/tests/contrast-test.vala | 100 ++++++++++
+ 4 files changed, 601 insertions(+), 59 deletions(-)
+ create mode 100644 sensors/contrast.vala
+ create mode 100644 sensors/tests/contrast-test.vala
+
+diff --git a/sensors/contrast.vala b/sensors/contrast.vala
+new file mode 100644
+index 0000000..2f0481a
+--- /dev/null
++++ b/sensors/contrast.vala
+@@ -0,0 +1,228 @@
++namespace SensorsContrast {
++    public const double TARGET_PREFERRED = 7.0;
++    public const double TARGET_MINIMUM = 4.5;
++
++    public struct Color {
++        public double r;
++        public double g;
++        public double b;
++        public double a;
++
++        public Color(double r, double g, double b, double a = 1.0) {
++            this.r = r;
++            this.g = g;
++            this.b = b;
++            this.a = a;
++        }
++
++        public string to_hex() {
++            return "#%02x%02x%02x".printf(to_byte(r), to_byte(g), to_byte(b));
++        }
++    }
++
++    private uint to_byte(double v) {
++        return (uint) Math.round(v.clamp(0.0, 1.0) * 255.0);
++    }
++
++    private double linearize(double c) {
++        return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
++    }
++
++    public double relative_luminance(Color c) {
++        return 0.2126 * linearize(c.r) + 0.7152 * linearize(c.g) + 0.0722 * linearize(c.b);
++    }
++
++    public double contrast_ratio(Color a, Color b) {
++        double la = relative_luminance(a);
++        double lb = relative_luminance(b);
++        double hi = double.max(la, lb);
++        double lo = double.min(la, lb);
++        return (hi + 0.05) / (lo + 0.05);
++    }
++
++    public Color composite(Color fg, Color under) {
++        double a = fg.a.clamp(0.0, 1.0);
++        return Color(fg.r * a + under.r * (1.0 - a),
++                     fg.g * a + under.g * (1.0 - a),
++                     fg.b * a + under.b * (1.0 - a), 1.0);
++    }
++
++    public Color mix(Color from, Color to, double t) {
++        return Color(from.r + (to.r - from.r) * t,
++                     from.g + (to.g - from.g) * t,
++                     from.b + (to.b - from.b) * t, 1.0);
++    }
++
++    public Color near_black() {
++        return Color(0.08, 0.08, 0.08);
++    }
++
++    public Color near_white() {
++        return Color(0.96, 0.96, 0.96);
++    }
++
++    public Color scrim_for(Color theme_bg) {
++        bool dark = relative_luminance(theme_bg) < 0.4;
++        return dark ? Color(0.09, 0.09, 0.10) : Color(0.96, 0.96, 0.97);
++    }
++
++    public Color neutral_for(Color bg) {
++        Color dark = near_black();
++        Color light = near_white();
++        Color best = contrast_ratio(dark, bg) >= contrast_ratio(light, bg) ? dark : light;
++        if (contrast_ratio(best, bg) >= TARGET_PREFERRED) {
++            return best;
++        }
++        Color black = Color(0.0, 0.0, 0.0);
++        Color white = Color(1.0, 1.0, 1.0);
++        return contrast_ratio(black, bg) >= contrast_ratio(white, bg) ? black : white;
++    }
++
++    private void to_hsl(Color c, out double h, out double s, out double l) {
++        double mx = double.max(c.r, double.max(c.g, c.b));
++        double mn = double.min(c.r, double.min(c.g, c.b));
++        double d = mx - mn;
++        l = (mx + mn) / 2.0;
++        h = 0.0;
++        s = 0.0;
++        if (d < 1e-9) {
++            return;
++        }
++        s = d / (1.0 - Math.fabs(2.0 * l - 1.0));
++        if (mx == c.r) {
++            h = ((c.g - c.b) / d) % 6.0;
++        } else if (mx == c.g) {
++            h = (c.b - c.r) / d + 2.0;
++        } else {
++            h = (c.r - c.g) / d + 4.0;
++        }
++        h = h * 60.0;
++        if (h < 0.0) {
++            h += 360.0;
++        }
++    }
++
++    private Color from_hsl(double h, double s, double l) {
++        double c = (1.0 - Math.fabs(2.0 * l - 1.0)) * s;
++        double x = c * (1.0 - Math.fabs((h / 60.0) % 2.0 - 1.0));
++        double m = l - c / 2.0;
++        double r = 0.0, g = 0.0, b = 0.0;
++        if (h < 60.0)       { r = c; g = x; }
++        else if (h < 120.0) { r = x; g = c; }
++        else if (h < 180.0) { g = c; b = x; }
++        else if (h < 240.0) { g = x; b = c; }
++        else if (h < 300.0) { r = x; b = c; }
++        else                { r = c; b = x; }
++        return Color(r + m, g + m, b + m);
++    }
++
++    public Color ensure_contrast(Color fg, Color bg, double target) {
++        if (contrast_ratio(fg, bg) >= target) {
++            return Color(fg.r, fg.g, fg.b);
++        }
++        double h, s, l;
++        to_hsl(fg, out h, out s, out l);
++        double extreme = contrast_ratio(near_black(), bg) >= contrast_ratio(near_white(), bg)
++            ? 0.0 : 1.0;
++        if (contrast_ratio(from_hsl(h, s, extreme), bg) < target) {
++            return from_hsl(h, s, extreme);
++        }
++        double near = l;
++        double far = extreme;
++        for (int i = 0; i < 24; i++) {
++            double mid = (near + far) / 2.0;
++            if (contrast_ratio(from_hsl(h, s, mid), bg) >= target) {
++                far = mid;
++            } else {
++                near = mid;
++            }
++        }
++        return from_hsl(h, s, far);
++    }
++
++    public Color best_contrast(Color fg, Color bg) {
++        Color strong = ensure_contrast(fg, bg, TARGET_PREFERRED);
++        if (contrast_ratio(strong, bg) >= TARGET_PREFERRED) {
++            return strong;
++        }
++        return ensure_contrast(fg, bg, TARGET_MINIMUM);
++    }
++
++    public Color muted_for(Color neutral, Color bg) {
++        Color result = neutral;
++        for (int i = 1; i <= 20; i++) {
++            Color candidate = mix(neutral, bg, i / 40.0);
++            if (contrast_ratio(candidate, bg) < 5.0) {
++                break;
++            }
++            result = candidate;
++        }
++        return result;
++    }
++
++    public Color fallback_for(string role, bool dark_background) {
++        switch (role) {
++            case "error":
++                return dark_background ? Color(1.0, 0.45, 0.42) : Color(0.70, 0.06, 0.08);
++            case "warning":
++                return dark_background ? Color(1.0, 0.72, 0.25) : Color(0.60, 0.33, 0.0);
++            case "accent":
++                return dark_background ? Color(0.55, 0.75, 1.0) : Color(0.05, 0.30, 0.72);
++            default:
++                return dark_background ? Color(0.45, 0.90, 0.55) : Color(0.05, 0.42, 0.15);
++        }
++    }
++
++    public Color median_by_luminance(Color[] samples) {
++        if (samples.length == 0) {
++            return Color(0.5, 0.5, 0.5);
++        }
++        int n = samples.length;
++        double[] lum = new double[n];
++        int[] order = new int[n];
++        for (int i = 0; i < n; i++) {
++            lum[i] = relative_luminance(samples[i]);
++            order[i] = i;
++        }
++        for (int i = 1; i < n; i++) {
++            int key = order[i];
++            int j = i - 1;
++            while (j >= 0 && lum[order[j]] > lum[key]) {
++                order[j + 1] = order[j];
++                j--;
++            }
++            order[j + 1] = key;
++        }
++        return samples[order[n / 2]];
++    }
++
++    public class Palette : Object {
++        public Color bg;
++        public Color neutral;
++        public Color muted;
++        public Color ok;
++        public Color hot;
++        public Color crit;
++        public Color accent;
++
++        public Palette(Color bg, Color? theme_ok, Color? theme_hot, Color? theme_crit, Color? theme_accent) {
++            this.bg = bg;
++            bool dark = relative_luminance(bg) < 0.18;
++            neutral = neutral_for(bg);
++            muted = muted_for(neutral, bg);
++            ok = best_contrast(theme_ok ?? fallback_for("success", dark), bg);
++            hot = best_contrast(theme_hot ?? fallback_for("warning", dark), bg);
++            crit = best_contrast(theme_crit ?? fallback_for("error", dark), bg);
++            accent = best_contrast(theme_accent ?? fallback_for("accent", dark), bg);
++        }
++
++        public bool equals(Palette other) {
++            return bg.to_hex() == other.bg.to_hex()
++                && neutral.to_hex() == other.neutral.to_hex()
++                && ok.to_hex() == other.ok.to_hex()
++                && hot.to_hex() == other.hot.to_hex()
++                && crit.to_hex() == other.crit.to_hex()
++                && accent.to_hex() == other.accent.to_hex();
++        }
++    }
++}
+diff --git a/sensors/meson.build b/sensors/meson.build
+index 859cf03..492ff3e 100644
+--- a/sensors/meson.build
++++ b/sensors/meson.build
+@@ -1,5 +1,6 @@
+ shared_module('sensors',
+   'sensors.vala',
++  'contrast.vala',
+   dependencies: [dependency('gtk4'), libsingularity_dep, system_dep, dependency('libpeas-2'), meson.get_compiler('c').find_library('m')],
+   c_args: ['-DGETTEXT_PACKAGE="singularity-desktop"'],
+   install: true,
+@@ -13,3 +14,10 @@ configure_file(
+   install: true,
+   install_dir: get_option('libdir') / 'singularity/plugins/sensors'
+ )
++
++contrast_test = executable('sensors-contrast-test',
++  'contrast.vala', 'tests/contrast-test.vala',
++  dependencies: [dependency('glib-2.0'), dependency('gobject-2.0'), meson.get_compiler('c').find_library('m')],
++  install: false
++)
++test('sensors-contrast', contrast_test)
+diff --git a/sensors/sensors.vala b/sensors/sensors.vala
+index ddf1872..c33c1db 100644
+--- a/sensors/sensors.vala
++++ b/sensors/sensors.vala
+@@ -71,6 +71,15 @@ class SensorsIndicator : Gtk.Box {
+     private int detail_column_count = 1;
+     private int[] detail_column_rows;
+     private static Gtk.CssProvider? compact_rows_provider = null;
++    private Gtk.CssProvider? contrast_provider = null;
++    private SensorsContrast.Palette panel_palette;
++    private SensorsContrast.Palette popup_palette;
++    private uint contrast_source = 0;
++    private bool panel_backed = false;
++    private bool popup_backed = false;
++    private Gtk.WidgetPaintable? watched_paintable = null;
++    private ulong watched_handler = 0;
++    private ulong[] settings_handlers = {};
+     private SensorMonitor monitor;
+     private bool show_frequency = true;
+     private bool show_utilization = true;
+@@ -113,6 +122,8 @@ class SensorsIndicator : Gtk.Box {
+         // glance shows WHICH figure needs attention, not just that one
+         // does.
+         summary_label.use_markup = true;
++        panel_palette = build_palette(theme_background());
++        popup_palette = panel_palette;
+ 
+         button = new MenuButton();
+         button.add_css_class("flat");
+@@ -131,6 +142,7 @@ class SensorsIndicator : Gtk.Box {
+                 compact_rows_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
+         }
+         detail_box = new Box(Orientation.VERTICAL, 4);
++        detail_box.add_css_class("sensors-detail");
+         detail_box.margin_top = 10;
+         detail_box.margin_bottom = 10;
+         detail_box.margin_start = 12;
+@@ -190,8 +202,21 @@ class SensorsIndicator : Gtk.Box {
+             if (popover.visible) {
+                 configure_detail_layout();
+                 monitor.refresh();
++                schedule_contrast_refresh();
+             }
+         });
++        contrast_provider = new Gtk.CssProvider();
++        Gtk.StyleContext.add_provider_for_display(get_display(),
++            contrast_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
++        var gtk_settings = Gtk.Settings.get_default();
++        if (gtk_settings != null) {
++            settings_handlers += gtk_settings.notify["gtk-theme-name"].connect(schedule_contrast_refresh);
++            settings_handlers += gtk_settings.notify["gtk-application-prefer-dark-theme"].connect(schedule_contrast_refresh);
++            settings_handlers += gtk_settings.notify["gtk-interface-color-scheme"].connect(schedule_contrast_refresh);
++        }
++        map.connect(watch_panel_background);
++        unmap.connect(unwatch_panel_background);
++        apply_contrast_css();
+ 
+         monitor = new_sensor_monitor();
+         util = new UtilizationMonitor();
+@@ -282,6 +307,22 @@ class SensorsIndicator : Gtk.Box {
+     }
+ 
+     public override void dispose() {
++        var gtk_settings = Gtk.Settings.get_default();
++        if (gtk_settings != null) {
++            foreach (ulong id in settings_handlers) {
++                SignalHandler.disconnect(gtk_settings, id);
++            }
++        }
++        settings_handlers = {};
++        unwatch_panel_background();
++        if (contrast_source != 0) {
++            Source.remove(contrast_source);
++            contrast_source = 0;
++        }
++        if (contrast_provider != null) {
++            Gtk.StyleContext.remove_provider_for_display(get_display(), contrast_provider);
++            contrast_provider = null;
++        }
+         monitor.updated.disconnect(on_updated);
+         monitor.stop();
+         util.updated.disconnect(on_updated);
+@@ -376,40 +417,214 @@ class SensorsIndicator : Gtk.Box {
+         return show_utilization && util.memory_fraction >= 0.0;
+     }
+ 
+-    /**
+-     * Resolve a NAMED theme colour (e.g. "success_color") to a hex
+-     * string for Pango markup.
+-     *
+-     * Markup spans take a literal colour, not a CSS variable, so the
+-     * value has to be looked up at render time rather than written once
+-     * -- this is what keeps it honest across a light/dark theme switch
+-     * instead of baking in a colour that only happened to be right when
+-     * the code was written. Falls back to the theme's plain text colour
+-     * if the named token is ever missing, so a lookup failure degrades
+-     * to unstyled text rather than invalid markup.
+-     */
+-    private string theme_color_hex(string color_name) {
+-        // lookup_color lives on StyleContext, not on Widget directly
+-        // (deprecated since GTK 4.10, but still the working path -- no
+-        // non-deprecated replacement exists for resolving a NAMED CSS
+-        // colour at runtime, only get_color() for the resolved `color`
+-        // property itself).
++    private SensorsContrast.Color theme_background() {
+         var style = summary_label.get_style_context();
+         Gdk.RGBA rgba;
+-        if (!style.lookup_color(color_name, out rgba)) {
+-            if (!style.lookup_color("text_color", out rgba)) {
+-                return "#ffffff";
++        if (style.lookup_color("window_bg_color", out rgba)
++            || style.lookup_color("theme_bg_color", out rgba)) {
++            return SensorsContrast.Color(rgba.red, rgba.green, rgba.blue, 1.0);
++        }
++        var gtk_settings = Gtk.Settings.get_default();
++        bool dark = gtk_settings != null && gtk_settings.gtk_application_prefer_dark_theme;
++        return dark ? SensorsContrast.Color(0.14, 0.14, 0.14) : SensorsContrast.Color(0.96, 0.96, 0.96);
++    }
++
++    private SensorsContrast.Color? lookup_theme_color(string name) {
++        Gdk.RGBA rgba;
++        if (!summary_label.get_style_context().lookup_color(name, out rgba)) {
++            return null;
++        }
++        return SensorsContrast.Color(rgba.red, rgba.green, rgba.blue, 1.0);
++    }
++
++    private SensorsContrast.Palette build_palette(SensorsContrast.Color bg) {
++        return new SensorsContrast.Palette(bg, lookup_theme_color("success_color"),
++            lookup_theme_color("warning_color"), lookup_theme_color("error_color"),
++            lookup_theme_color("accent_color"));
++    }
++
++    private SensorsContrast.Color? sample_background(Gtk.Widget target, int pad, out bool translucent) {
++        translucent = false;
++        var native = target.get_native();
++        var native_widget = native as Gtk.Widget;
++        if (native == null || native_widget == null || !target.get_mapped()) {
++            return null;
++        }
++        Graphene.Rect inner;
++        if (!target.compute_bounds(native_widget, out inner)) {
++            return null;
++        }
++        var renderer = native.get_renderer();
++        if (renderer == null) {
++            return null;
++        }
++        float native_w = native_widget.get_width();
++        float native_h = native_widget.get_height();
++        float x0 = float.max(0.0f, inner.origin.x - pad);
++        float y0 = float.max(0.0f, inner.origin.y - pad);
++        float x1 = float.min(native_w, inner.origin.x + inner.size.width + pad);
++        float y1 = float.min(native_h, inner.origin.y + inner.size.height + pad);
++        if (x1 - x0 < 2.0f || y1 - y0 < 2.0f) {
++            return null;
++        }
++        var snapshot = new Gtk.Snapshot();
++        new Gtk.WidgetPaintable(native_widget).snapshot(snapshot, native_w, native_h);
++        Gsk.RenderNode? node = snapshot.free_to_node();
++        if (node == null) {
++            return null;
++        }
++        var viewport = Graphene.Rect().init(x0, y0, x1 - x0, y1 - y0);
++        Gdk.Texture texture = renderer.render_texture(node, viewport);
++        int tw = texture.get_width();
++        int th = texture.get_height();
++        var downloader = new Gdk.TextureDownloader(texture);
++        downloader.set_format(Gdk.MemoryFormat.R8G8B8A8);
++        size_t stride;
++        Bytes bytes = downloader.download_bytes(out stride);
++        unowned uint8[] data = bytes.get_data();
++        double sx = tw / (double) (x1 - x0);
++        double sy = th / (double) (y1 - y0);
++        int ix0 = (int) ((inner.origin.x - x0) * sx);
++        int iy0 = (int) ((inner.origin.y - y0) * sy);
++        int ix1 = (int) ((inner.origin.x + inner.size.width - x0) * sx);
++        int iy1 = (int) ((inner.origin.y + inner.size.height - y0) * sy);
++        var under = theme_background();
++        var samples = new SensorsContrast.Color[0];
++        double alpha_sum = 0.0;
++        int step = int.max(1, (tw * th) / 400);
++        for (int i = 0; i < tw * th; i += step) {
++            int px = i % tw;
++            int py = i / tw;
++            if (px >= ix0 && px < ix1 && py >= iy0 && py < iy1) {
++                continue;
+             }
++            size_t o = py * stride + px * 4;
++            if (o + 3 >= data.length) {
++                continue;
++            }
++            alpha_sum += data[o + 3] / 255.0;
++            samples += SensorsContrast.composite(
++                SensorsContrast.Color(data[o] / 255.0, data[o + 1] / 255.0,
++                                      data[o + 2] / 255.0, data[o + 3] / 255.0), under);
++        }
++        if (samples.length == 0) {
++            return null;
++        }
++        translucent = alpha_sum / samples.length < 0.95;
++        return SensorsContrast.median_by_luminance(samples);
++    }
++
++    private void schedule_contrast_refresh() {
++        if (contrast_source != 0) {
++            return;
++        }
++        contrast_source = Timeout.add(150, () => {
++            contrast_source = 0;
++            refresh_contrast();
++            return Source.REMOVE;
++        });
++    }
++
++    private SensorsContrast.Color resolve_surface(Gtk.Widget target, int pad, out bool scrim) {
++        var fallback = theme_background();
++        bool translucent;
++        var sampled = sample_background(target, pad, out translucent);
++        scrim = translucent;
++        if (translucent) {
++            return SensorsContrast.scrim_for(fallback);
++        }
++        return sampled ?? fallback;
++    }
++
++    private void refresh_contrast() {
++        bool panel_scrim;
++        var new_panel = build_palette(resolve_surface(button, 6, out panel_scrim));
++        var new_popup = new_panel;
++        bool popup_scrim = false;
++        Popover? popover = button.popover;
++        if (popover != null && popover.visible) {
++            new_popup = build_palette(resolve_surface(detail_box, 8, out popup_scrim));
++        } else {
++            new_popup = build_palette(theme_background());
++        }
++        bool changed = !new_panel.equals(panel_palette) || !new_popup.equals(popup_palette)
++            || panel_scrim != panel_backed || popup_scrim != popup_backed;
++        bool panel_changed = !new_panel.equals(panel_palette);
++        panel_palette = new_panel;
++        popup_palette = new_popup;
++        panel_backed = panel_scrim;
++        popup_backed = popup_scrim;
++        if (!changed) {
++            return;
++        }
++        apply_contrast_css();
++        if (panel_changed) {
++            on_updated();
++        } else if (popover != null && popover.visible) {
++            rebuild_details();
++        }
++    }
++
++    private static string scrim_css(SensorsContrast.Palette p) {
++        return "background-color: rgba(%d, %d, %d, 0.92); border-radius: 8px; ".printf(
++            (int) Math.round(p.bg.r * 255), (int) Math.round(p.bg.g * 255), (int) Math.round(p.bg.b * 255));
++    }
++
++    private void apply_contrast_css() {
++        if (contrast_provider == null) {
++            return;
++        }
++        var pn = panel_palette;
++        var pp = popup_palette;
++        contrast_provider.load_from_string(
++            ".sensors-summary { color: %s; opacity: 1; %s}\n".printf(
++                pn.neutral.to_hex(), panel_backed ? scrim_css(pn) + "padding: 2px 8px; " : "") +
++            ".sensors-detail { %s}\n".printf(popup_backed ? scrim_css(pp) : "") +
++            ".sensors-detail label { color: %s; opacity: 1; }\n".printf(pp.neutral.to_hex()) +
++            ".sensors-detail .sensors-muted, .sensors-detail .sensors-muted label { color: %s; opacity: 1; }\n".printf(pp.muted.to_hex()) +
++            ".sensors-detail label.sensors-hot { color: %s; font-weight: 600; opacity: 1; }\n".printf(pp.hot.to_hex()) +
++            ".sensors-detail label.sensors-crit { color: %s; font-weight: 800; opacity: 1; }\n".printf(pp.crit.to_hex()));
++    }
++
++    private void watch_panel_background() {
++        unwatch_panel_background();
++        var native = get_native() as Gtk.Widget;
++        if (native == null) {
++            return;
++        }
++        watched_paintable = new Gtk.WidgetPaintable(native);
++        watched_handler = watched_paintable.invalidate_contents.connect(schedule_contrast_refresh);
++        schedule_contrast_refresh();
++    }
++
++    private void unwatch_panel_background() {
++        if (watched_paintable != null && watched_handler != 0) {
++            watched_paintable.disconnect(watched_handler);
+         }
+-        return "#%02x%02x%02x".printf(
+-            (uint) Math.round(rgba.red * 255),
+-            (uint) Math.round(rgba.green * 255),
+-            (uint) Math.round(rgba.blue * 255));
++        watched_paintable = null;
++        watched_handler = 0;
+     }
+ 
+-    /** One coloured "dot value" segment for the compact chip. */
+-    private string markup_segment(string color_hex, string text) {
+-        return "<span color='%s'>\u25cf %s</span>".printf(color_hex, Markup.escape_text(text));
++    private string markup_segment(SensorsContrast.Color color, string glyph, string text, bool bold = false) {
++        string weight = bold ? " weight='bold'" : "";
++        return "<span color='%s'%s>%s %s</span>".printf(color.to_hex(), weight, glyph, Markup.escape_text(text));
++    }
++
++    private SensorsContrast.Color severity_color(Severity severity) {
++        switch (severity) {
++            case Severity.CRITICAL: return panel_palette.crit;
++            case Severity.HOT:      return panel_palette.hot;
++            case Severity.WARM:     return panel_palette.neutral;
++            default:                return panel_palette.ok;
++        }
++    }
++
++    private static string severity_glyph(Severity severity) {
++        switch (severity) {
++            case Severity.CRITICAL: return "\u25c6";
++            case Severity.HOT:      return "\u25b2";
++            default:                return "\u25cf";
++        }
+     }
+ 
+     private static int percent_of(double fraction) {
+@@ -536,15 +751,17 @@ class SensorsIndicator : Gtk.Box {
+ 
+         StringBuilder markup = new StringBuilder();
+         if (primary >= 0) {
+-            markup.append(markup_segment(theme_color_hex(severity_color_name(primary_severity)),
+-                                          format_celsius(primary)));
++            markup.append(markup_segment(severity_color(primary_severity),
++                                          severity_glyph(primary_severity),
++                                          format_celsius(primary),
++                                          primary_severity == Severity.CRITICAL));
+         }
+         if (show_frequency && monitor.cpu_khz > 0) {
+             if (markup.len > 0) markup.append("  ");
+             // Clock speed is informational, never an alarm colour --
+             // same reasoning as CPU below: running near the maximum is
+             // the CPU doing its job, not a problem to flag red.
+-            markup.append(markup_segment(theme_color_hex("accent_color"), format_clock(monitor.cpu_khz)));
++            markup.append(markup_segment(panel_palette.accent, "\u25cf", format_clock(monitor.cpu_khz)));
+         }
+         // Utilisation in the compact chip, not only in the popover.
+         //
+@@ -561,14 +778,16 @@ class SensorsIndicator : Gtk.Box {
+                 // user to ignore the colour that does mean something --
+                 // the same reasoning the popover's Clocks section and
+                 // capacity_severity() already document.
+-                markup.append(markup_segment(theme_color_hex("accent_color"),
++                markup.append(markup_segment(panel_palette.accent, "\u25cf",
+                                               _("CPU %d%%").printf(percent_of(util.cpu_fraction))));
+             }
+             if (util.memory_fraction >= 0.0) {
+                 if (markup.len > 0) markup.append("  ");
+                 Severity mem_severity = capacity_severity(util.memory_fraction);
+-                markup.append(markup_segment(theme_color_hex(severity_color_name(mem_severity)),
+-                                              _("MEM %d%%").printf(percent_of(util.memory_fraction))));
++                markup.append(markup_segment(severity_color(mem_severity),
++                                              severity_glyph(mem_severity),
++                                              _("MEM %d%%").printf(percent_of(util.memory_fraction)),
++                                              mem_severity == Severity.CRITICAL));
+             }
+         }
+         summary_label.label = markup.str;
+@@ -660,7 +879,7 @@ class SensorsIndicator : Gtk.Box {
+         Button toggle = new Button();
+         toggle.has_frame = false;
+         toggle.add_css_class("flat");
+-        toggle.add_css_class("dim-label");
++        toggle.add_css_class("sensors-muted");
+         toggle.label = sensors_grouped ? _("Grouped") : _("Ungrouped");
+         toggle.clicked.connect(() => {
+             sensors_grouped = !sensors_grouped;
+@@ -689,31 +908,12 @@ class SensorsIndicator : Gtk.Box {
+      * the first step of the ramp. Colour is spent only where it means
+      * something: dim, plain, amber, red.
+      */
+-    /**
+-     * Severity -> a named theme colour, for markup (not a CSS class).
+-     *
+-     * NORMAL reads as success (a calm "this is fine" green) rather than
+-     * plain text, matching the standard status-dashboard convention the
+-     * graphical chip is going for. WARM stays neutral -- the original
+-     * design's severity_css() below also treats WARM as not yet worth
+-     * flagging, and this mirrors that rather than inventing a new
+-     * threshold.
+-     */
+-    private string severity_color_name(Severity severity) {
+-        switch (severity) {
+-            case Severity.CRITICAL: return "error_color";
+-            case Severity.HOT:      return "warning_color";
+-            case Severity.WARM:     return "text_color";
+-            default:                return "success_color";
+-        }
+-    }
+-
+     private static string? severity_css(Severity severity) {
+         switch (severity) {
+-            case Severity.CRITICAL: return "error";
+-            case Severity.HOT:      return "warning";
++            case Severity.CRITICAL: return "sensors-crit";
++            case Severity.HOT:      return "sensors-hot";
+             case Severity.WARM:     return null;
+-            default:                return "dim-label";
++            default:                return "sensors-muted";
+         }
+     }
+ 
+@@ -763,7 +963,9 @@ class SensorsIndicator : Gtk.Box {
+             double fill_w = double.max(h, w * f);
+             double r, g, b;
+             heat_rgb(f, out r, out g, out b);
+-            cr.set_source_rgb(r, g, b);
++            var fill = SensorsContrast.ensure_contrast(SensorsContrast.Color(r, g, b),
++                                                       popup_palette.bg, 3.0);
++            cr.set_source_rgb(fill.r, fill.g, fill.b);
+             rounded_rect(cr, 0, 0, fill_w, h, radius);
+             cr.fill();
+         });
+@@ -803,7 +1005,11 @@ class SensorsIndicator : Gtk.Box {
+             row.append(make_heat_bar(heat));
+         }
+ 
+-        Label value_label = new Label(value);
++        string shown = value;
++        if (severity == Severity.CRITICAL || severity == Severity.HOT) {
++            shown = severity_glyph(severity) + " " + value;
++        }
++        Label value_label = new Label(shown);
+         value_label.halign = Align.END;
+         string? css = severity_css(severity);
+         if (css != null) {
+diff --git a/sensors/tests/contrast-test.vala b/sensors/tests/contrast-test.vala
+new file mode 100644
+index 0000000..ef3fd21
+--- /dev/null
++++ b/sensors/tests/contrast-test.vala
+@@ -0,0 +1,100 @@
++using SensorsContrast;
++
++Color[] backgrounds() {
++    return {
++        Color(1.0, 1.0, 1.0),
++        Color(0.0, 0.0, 0.0),
++        Color(0.96, 0.96, 0.96),
++        Color(0.12, 0.12, 0.14),
++        Color(0.30, 0.30, 0.30),
++        Color(0.50, 0.50, 0.50),
++        Color(0.20, 0.35, 0.75),
++        Color(1.0, 0.95, 0.6),
++        composite(Color(0.0, 0.0, 0.0, 0.3), Color(1.0, 1.0, 1.0)),
++        composite(Color(1.0, 1.0, 1.0, 0.4), Color(0.1, 0.1, 0.1))
++    };
++}
++
++double floor_for(Color bg) {
++    return TARGET_MINIMUM;
++}
++
++void test_math() {
++    assert(Math.fabs(relative_luminance(Color(0, 0, 0))) < 1e-9);
++    assert(Math.fabs(relative_luminance(Color(1, 1, 1)) - 1.0) < 1e-9);
++    assert(Math.fabs(contrast_ratio(Color(0, 0, 0), Color(1, 1, 1)) - 21.0) < 1e-6);
++    Color c = composite(Color(1, 0, 0, 0.5), Color(0, 0, 1));
++    assert(Math.fabs(c.r - 0.5) < 1e-9 && Math.fabs(c.b - 0.5) < 1e-9);
++}
++
++void test_neutral() {
++    foreach (Color bg in backgrounds()) {
++        assert(contrast_ratio(neutral_for(bg), bg) >= floor_for(bg));
++    }
++    assert(contrast_ratio(neutral_for(Color(1, 1, 1)), Color(1, 1, 1)) >= TARGET_PREFERRED);
++    assert(contrast_ratio(neutral_for(Color(0, 0, 0)), Color(0, 0, 0)) >= TARGET_PREFERRED);
++}
++
++void test_semantic() {
++    Color[] themes = {
++        Color(0.2, 0.82, 0.48), Color(0.96, 0.83, 0.18), Color(0.88, 0.1, 0.1),
++        Color(0.2, 0.5, 1.0), Color(1.0, 1.0, 1.0), Color(0.0, 0.0, 0.0)
++    };
++    foreach (Color bg in backgrounds()) {
++        foreach (Color t in themes) {
++            Color fixed = best_contrast(t, bg);
++            assert(contrast_ratio(fixed, bg) >= floor_for(bg));
++        }
++        foreach (string role in new string[] { "success", "warning", "error", "accent" }) {
++            bool dark = relative_luminance(bg) < 0.18;
++            assert(contrast_ratio(best_contrast(fallback_for(role, dark), bg), bg) >= floor_for(bg));
++        }
++    }
++}
++
++void test_extremes_reach_preferred() {
++    Color white = Color(1, 1, 1);
++    Color black = Color(0, 0, 0);
++    Color red = Color(0.88, 0.1, 0.1);
++    assert(contrast_ratio(best_contrast(red, white), white) >= TARGET_PREFERRED);
++    assert(contrast_ratio(best_contrast(red, black), black) >= TARGET_PREFERRED);
++}
++
++void test_severity_distinct() {
++    foreach (Color bg in backgrounds()) {
++        if (contrast_ratio(neutral_for(bg), bg) < TARGET_PREFERRED + 2.0) {
++            continue;
++        }
++        bool dark = relative_luminance(bg) < 0.18;
++        Color hot = best_contrast(fallback_for("warning", dark), bg);
++        Color crit = best_contrast(fallback_for("error", dark), bg);
++        Color ok = best_contrast(fallback_for("success", dark), bg);
++        assert(Math.fabs(hot.g - crit.g) > 0.08 || Math.fabs(hot.r - crit.r) > 0.08);
++        assert(Math.fabs(ok.r - crit.r) > 0.08 || Math.fabs(ok.g - crit.g) > 0.08);
++    }
++}
++
++void test_muted() {
++    foreach (Color bg in backgrounds()) {
++        Color n = neutral_for(bg);
++        Color m = muted_for(n, bg);
++        assert(contrast_ratio(m, bg) >= floor_for(bg));
++    }
++}
++
++void test_median() {
++    Color[] s = { Color(0, 0, 0), Color(1, 1, 1), Color(0.2, 0.2, 0.2), Color(0.21, 0.21, 0.21), Color(0.19, 0.19, 0.19) };
++    assert(Math.fabs(median_by_luminance(s).r - 0.2) < 1e-9);
++}
++
++void main(string[] args) {
++    Test.init(ref args);
++    Test.add_func("/sensors/contrast/math", test_math);
++    Test.add_func("/sensors/contrast/neutral", test_neutral);
++    Test.add_func("/sensors/contrast/semantic", test_semantic);
++    Test.add_func("/sensors/contrast/extremes", test_extremes_reach_preferred);
++    Test.add_func("/sensors/contrast/distinct", test_severity_distinct);
++    Test.add_func("/sensors/contrast/muted", test_muted);
++    Test.add_func("/sensors/contrast/median", test_median);
++    Test.run();
++}
+-- 
+2.55.0
+
