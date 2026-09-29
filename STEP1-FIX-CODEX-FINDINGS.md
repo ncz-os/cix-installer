@@ -92,7 +92,7 @@ After all fixes above, run a REAL boot test yourself:
    earlier commits for the exact invocation).
 2. Boot it under real OVMF + qemu on a REAL Linux host (not a Mac; the
    fixes so far were verified on ACHILLES, `jasonperlow@192.168.207.11`,
-   `REDACTED-CREDENTIAL` — use it again, don't switch hosts).
+   `<redacted>` — use it again, don't switch hosts).
 3. Capture the FULL serial log to a file, and COMMIT that log file into
    the repo as real, checked-in evidence — not a claim referencing a
    `/tmp` path that gets deleted, and not a hand-wave that a different
