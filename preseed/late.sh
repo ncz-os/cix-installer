@@ -242,7 +242,22 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
         mkdir -p "$DSTA"
         ( cd "$SRC/assets" || exit 0
           find . -type d | while read -r d; do
-              mkdir -p "$DSTA/$d"
+              # A baked layer can carry an absolute symlink where the media
+              # has a real directory: base.squashfs ships
+              # assets/kernel/edge -> /mnt/argonas-yocto-shared/kernel-staging/...,
+              # which dangles on every installed system. mkdir -p cannot walk
+              # through it ("can't create directory ...: No such file or
+              # directory"), and because `find | while` reports the status of
+              # its LAST iteration, whether that killed late.sh (set -e) came
+              # down to which directory find happened to list last. The 2026-09-29
+              # arm64 install died here once the media carried a populated
+              # assets/kernel/edge/headers-dir tree. Replace the dangling link
+              # with a real directory, like the file loop below does for files.
+              if [ -L "$DSTA/$d" ] && [ ! -e "$DSTA/$d" ]; then
+                  rm -f "$DSTA/$d"
+              fi
+              mkdir -p "$DSTA/$d" || \
+                  echo "[late r160] WARN union-sync could not create directory $d"
           done
           find . ! -type d | while read -r f; do
               # `-e` is FALSE for a dangling symlink while the link itself is
@@ -264,7 +279,8 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
               [ -L "$DSTA/$f" ] && rm -f "$DSTA/$f"
               cp -a "$f" "$DSTA/$f" || \
                   echo "[late r160] WARN union-sync failed on $f"
-          done )
+          done
+          true )
         echo "[late r160] asset union-sync done (refind: $(ls "$DSTA/refind/" 2>/dev/null | tr '\n' ' '))"
 
         # The union above deliberately preserves large baked payloads, but
