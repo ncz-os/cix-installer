@@ -22,6 +22,12 @@ ULTRA, only downloads/sstate/kernel staging are on ARGONAS.
      `panthor-cix-dkms`, `cix-firmware`. Source used on 2026-09-29:
      `~/Projects/cix-installer-arm64-build-2026-09-25/assets/cix-debs` plus
      `cix-vpu-driver-dkms` from `~/Projects/cix-iso-build-fresh`.
+   - VA-API: `cix-vaapi`, `cix-libva2`, `cix-libva-drm2`, `cix-libva-wayland2`, `cix-libva-x11-2`,
+     `cix-libva-glx2`, `cix-libcme` (versions 1.0.0 / 2.22.1-1). They are NOT in the older
+     checkouts; they come from the cix-mm SDK archive on ARGONAS
+     (`/mnt/argonas-projects/nclawzero-yocto/sdk/cix-mm-1.0.0.tar.gz`, `cix-mm/debian12/`,
+     built for Debian 12, `Depends: libc6 (>= 2.34)`, `libyuv0`). `verify-arm64-inputs.sh` requires
+     them; `25-cix-proprietary.sh` installs them and `84-vpu-vaapi.sh` wires the driver.
    - `assets/rescue/rescue-rootfs-arm64.tar.zst`, `assets/python311/`,
      `assets/npu/`, `assets/sinty-nm/`, `assets/wallpaper-debs/`.
    The 2026-09-27/28 images were built from a worktree that had 1 Cix deb and
@@ -30,14 +36,15 @@ ULTRA, only downloads/sstate/kernel staging are on ARGONAS.
    `r<N>-<kver>-sky1-ncz-<date>`. Directories with any other prefix inside
    `/mnt/argonas-yocto-shared/kernel-staging` fail preflight gate [3]
    (move them to `kernel-staging-archive/`, do not delete).
-4. The d-i substrate is NOT pinned by the Makefile: `downloads/debian-testing-arm64-netinst.iso`
-   is fetched from Debian's rolling weekly-builds when the file is absent, so a fresh
-   worktree silently moves to the newest weekly installer. The image in this record
-   used the 20260921 substrate (copied from `~/Projects/cix-installer/downloads` on
-   ULTRA, 1,019,523,072 bytes, sha256 starting bcdea12698a4c643fbbc). The 20260928
-   weekly was NOT the cause of the "Incorrect installation media" failure seen on
-   2026-09-29 (that was the early_command size, section 5), but it was also
-   never gated; pin or copy the substrate deliberately.
+4. The d-i substrate is pinned (Makefile `SUBSTRATE_SHA`, arm64): Debian weekly netinst,
+   installer build 20260921, sha256 `bcdea12698a4c643fbbc68c69fb8be96a3f292bdfa1b5c41c8fdaeaae6944f67`.
+   Debian republishes the filename weekly and drops old builds, so the pinned ISO is kept on
+   ARGONAS at `ncz-os-assets/substrate/debian-testing-arm64-netinst-20260921-bcdea126.iso`
+   (ULTRA: `/mnt/argonas-projects/ncz-os-assets/substrate`). An empty `downloads/` restores it
+   from there; if it cannot, the build refuses instead of floating, and `make image`
+   re-verifies the file. Adopting a newer installer is deliberate: build on it, run the KVM
+   gate, store the ISO in that directory as `<name>-<yyyymmdd>-<sha8>.iso`, change the pin.
+   amd64 has no pin yet and only warns.
 5. `ncz-imagebuild:trixie` in BOTH podman stores (rootless build, rootful run):
    `podman save localhost/ncz-imagebuild:trixie | sudo podman load`.
    A prune deletes it; rebuild from `build/containers/Containerfile.ncz-imagebuild`.
@@ -87,35 +94,29 @@ Reap `iso-patch/` under old gate workdirs afterwards.
 Both verifiers have negative tests: `build/test-arm64-gates.sh` and
 `build/test-installed-target-verifier.sh`.
 
-## 3. Adding or replacing `ncz-screensavers` (short path)
+## 3. Shipping `ncz-screensavers`
 
-Wiring lives on branch `feat/ncz-screensavers-pkg-wiring-2026-09-29` (not merged
-into the baseline image). It touches only: a `build/ncz-screensavers-out/` row in
-the desktop mirror's local-package table (and keeps local NCZ packages out of the
-closure prune), an optional `manifests/install-extra.pkgs` that seeds the install
-media's offline mirror WITHOUT baking the package into the layers, and
-`post-install/59-ncz-screensavers-pkg.sh`, which installs the package at install
-time when the mirror has a candidate (simulates first, refuses removals, no-op
-when absent). It does not edit `58-screensaver-chooser.sh` or the held
-`57-screensaver.sh`. Proven with a dummy package in a scratch worktree:
-desktop-mirror kept and indexed it, and forky-mirror grew 1805 -> 1806 packages.
+Merged on branch `release/arm64-final-2026-09-29` (from `feat/ncz-screensavers-pkg-wiring-2026-09-29`).
+The package is staged from `/mnt/argonas-projects/ncz-screensavers-debs/<highest version>/`
+(check `ls` for the highest `x.y.z` directory and its `SHA256SUMS` first), installed at install
+time by `post-install/59-ncz-screensavers-pkg.sh` (simulates first, refuses removals, no-op when
+the mirror has no candidate) and seeded into the offline mirror by `manifests/install-extra.pkgs`,
+so the layers do not change and stage 1 is not repeated. The package's postinst disables the
+older `ncz-idle-manager` user service; 59 runs after 58, so the old unit exists to be disabled.
 
 ```
-git merge feat/ncz-screensavers-pkg-wiring-2026-09-29                # once
-mkdir -p build/ncz-screensavers-out
-cp /path/to/ncz-screensavers_<ver>_arm64.deb build/ncz-screensavers-out/
-echo ncz-screensavers >> manifests/install-extra.pkgs
-rm -rf build/desktop-mirror                     # so the local deb is re-added to the pool
-# stage 0 again (about 8 minutes; verify-offline-mirror-seeds now sees the new seed and
-# rebuilds forky-mirror). Stage 1 is NOT needed: the package is not baked.
-# Then stage 2 (make image BUILD_SHA=...) and the gate exactly as above.
+V=0.3.2                                                     # highest dir under ncz-screensavers-debs
+mkdir -p build/ncz-screensavers-out && rm -f build/ncz-screensavers-out/*.deb
+cp /mnt/argonas-projects/ncz-screensavers-debs/$V/ncz-screensavers_${V}_arm64.deb build/ncz-screensavers-out/
+grep -qx ncz-screensavers manifests/install-extra.pkgs || echo ncz-screensavers >> manifests/install-extra.pkgs
+sudo rm -rf build/desktop-mirror                            # so the local deb is re-added to the pool
+# stage 0 (about 8 minutes), stage 2, gate: exactly as in sections 1 and 2.
 ```
 
-If the package has Depends outside what the desktop closure already carries,
-list those names in `manifests/install-extra.pkgs` too. Before stage 2 confirm
-`grep -c '^Package: ncz-screensavers$' build/forky-mirror/dists/*/main/binary-arm64/Packages`
-is 1. After the gate, the `[59-ncz-screensavers] installed ...` line in
-`target-logs/cix-installer-late.log` proves it landed.
+`verify-arm64-inputs.sh` refuses stage 2 if the deb is unstaged or missing from `forky-mirror`;
+the installed-target check asserts the package is installed with launcher, settings app, idled
+unit (enabled), `ncz-screensaver-run`, the compiled `dev.ncz.screensaver` schema and 84 hack
+binaries, and that `ncz-idle-manager` is not enabled next to it.
 
 ## 5. Two build-breaking limits found on 2026-09-29 (both now guarded)
 
