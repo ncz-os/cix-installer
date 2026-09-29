@@ -120,7 +120,25 @@ TimeoutStartSec=60
 [Install]
 WantedBy=sysinit.target
 UNIT
-systemctl enable cix-detect-display.service 2>&1 | tail -1
+# ARCH GATE (2026-09-29). This unit is "NCZ Sky1 connected-display
+# autodetect" and exists for Sky1's ASYNCHRONOUS linlondp probe (see this
+# hook's own header). Nothing gated it, so it also ran on amd64, where DRM
+# probing is synchronous and there is nothing to wait for.
+#
+# MEASURED on MEDUSA (MacBookPro16,1) 2026-09-29, systemd-analyze blame:
+#     7.428s cix-detect-display.service
+# -- the second-largest unit on the boot, ~19% of a 39.7s userspace boot, on
+# a machine the service cannot help. It was also visible doing nothing useful
+# on CHIMERA's 7.3-rc5 debug boot.
+_ncz_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_arch" ] || _ncz_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
+[ -n "$_ncz_arch" ] || _ncz_arch=$(dpkg --print-architecture 2>/dev/null || true)
+if [ "$_ncz_arch" = "arm64" ]; then
+    systemctl enable cix-detect-display.service 2>&1 | tail -1
+else
+    systemctl disable cix-detect-display.service >/dev/null 2>&1 || true
+    echo "[22] arch=$_ncz_arch -- cix-detect-display NOT enabled (Sky1 linlondp async probe only)"
+fi
 
 # Mask the CIX factory display watchdog. cix-debian-misc ships
 # cix-check-display.service -> /usr/bin/restart-display, hardcoded to
