@@ -32,6 +32,18 @@ set -uo pipefail
 # Origin: Jeff Hunter's r74 wireless-only install bug - 'Invalid
 # hostname ""' from netcfg blank, then downstream scripts crashed.
 ncz_default_hostname() {
+    # 2026-09-29: machine-id FIRST, to agree with preseed/extract-rootfs.sh,
+    # which is the generator that actually names machines at first boot. See
+    # the long rationale there: a MAC-derived name follows a swappable
+    # adapter and collided across two machines on 2026-09-29. The MAC passes
+    # below are kept as the fallback for a system with no machine-id.
+    local _mid6
+    _mid6=$(tr -cd "0-9a-f" < /etc/machine-id 2>/dev/null | sha256sum | cut -c1-6)
+    if [ -n "$_mid6" ] && [ "$_mid6" != "$(printf "" | sha256sum | cut -c1-6)" ]; then
+        printf "ncz-%s" "$_mid6"
+        return 0
+    fi
+
     # r75 Codex LOW fix - uniqueness + collision space.
     # Strategy ladder:
     #   1. First wired-ethernet MAC, last 8 hex chars (32-bit space, ~4 B)
