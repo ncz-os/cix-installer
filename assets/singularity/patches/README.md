@@ -69,12 +69,17 @@ one continuous list — the exact "outlined groups" behavior. Depends on
 Delete this patch once PR #2 merges.
 
 **Upstream PR:** [singularityos-lab/singularity-plugins#3](https://github.com/singularityos-lab/singularity-plugins/pull/3)
-— open, not yet merged. Patch
-`0002-bing-preferred-region-picker.patch`. Restores the preferred-market
-picker for the Bing wallpaper source that existed before the wallpaper
-plugin split.
+— open, not yet merged, and superseded by the two patches below (that PR
+wrote `~/.config/ncz-wallpaper/bing-markets`; these use a generic path and
+pass the choice to the helper). Patches
+`0002-wallpapers-bing-preferred-market.patch` (Preferred market row; the
+choice picks the language of titles and credits and lists that market's
+photos first while the feed stays combined) and
+`0004-wallpapers-bing-prefetch.patch` (the plugin fetches the feed on
+activation with network-aware retry). Both need the helper flags added in
+`assets/wallpaper/ncz-wallpaper-bing`; see `docs/WALLPAPER-BING-PREFETCH.md`.
 
-Delete this patch once PR #3 merges.
+Delete these patches once they merge upstream.
 
 ## libsingularity — active
 

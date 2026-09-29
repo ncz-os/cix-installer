@@ -1,0 +1,126 @@
+From e104e531ba86c03a4e88e43f8ee724c4851c2b5e Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 29 Sep 2026 11:27:41 -0400
+Subject: [PATCH 2/2] feat(wallpapers-bing): prefetch the feed on activation
+
+The feed was only fetched and thumbnailed when the user first opened
+the online source browser. On activation the plugin now runs the
+helper with fetch --if-stale --prefer <market> in the background:
+it waits for a network, skips metered links, retries after 30s doubling
+up to one hour when the helper fails, and re-checks daily. It is
+cancelled on deactivation.
+
+Assisted-by: Claude Code:claude-sonnet-5-5
+AI-Scope: Wrote the prefetch scheduler and NetworkMonitor handling from the operator brief; verified from a cleared cache through a real login on three desktops.
+---
+ wallpapers-bing/wallpapers_bing.vala | 62 +++++++++++++++++++++++++++-
+ 1 file changed, 60 insertions(+), 2 deletions(-)
+
+diff --git a/wallpapers-bing/wallpapers_bing.vala b/wallpapers-bing/wallpapers_bing.vala
+index 8a23b82..d82ab69 100644
+--- a/wallpapers-bing/wallpapers_bing.vala
++++ b/wallpapers-bing/wallpapers_bing.vala
+@@ -14,6 +14,8 @@ public void peas_register_types(TypeModule module) {
+ namespace WallpapersBing {
+ 
+     private const string AUTO = "auto";
++    private const uint REFRESH_SECONDS = 86400;
++    private const uint MAX_BACKOFF_SECONDS = 3600;
+ 
+     public class Setting : Object {
+         public static string file_path() {
+@@ -77,6 +79,12 @@ namespace WallpapersBing {
+         // and the browser refreshes the label once the helper has replied.
+         private bool combined = false;
+         private Gee.ArrayList<WallpaperProviderChoice> known_markets = new Gee.ArrayList<WallpaperProviderChoice>();
++        private bool prefetching = false;
++        private int failures = 0;
++        private uint refresh_source = 0;
++        private Cancellable cancel_all = new Cancellable();
++        private ulong network_handler = 0;
++
+         public string id { get { return WallpaperBing.PROVIDER_ID; } }
+         // Matches the collection label the rotator helper writes for the
+         // same de-duplicated view, so the online browser and the wallpaper
+@@ -133,15 +141,63 @@ namespace WallpapersBing {
+             throw new IOError.NOT_SUPPORTED("Bing wallpapers are already installed locally.");
+         }
+ 
++        public void start_prefetch() {
++            if (!is_available()) return;
++            cancel_all = new Cancellable();
++            var monitor = NetworkMonitor.get_default();
++            if (network_handler == 0)
++                network_handler = monitor.network_changed.connect(() => {
++                    if (failures > 0 || refresh_source == 0) prefetch();
++                });
++            prefetch();
++        }
++
++        public void stop_prefetch() {
++            cancel_all.cancel();
++            if (refresh_source != 0) Source.remove(refresh_source);
++            refresh_source = 0;
++            if (network_handler != 0) NetworkMonitor.get_default().disconnect(network_handler);
++            network_handler = 0;
++        }
++
+         public async void apply_market_change() {
+             try {
+-                if (known_markets.size == 0) yield load_markets(null);
+-                yield command({helper, "consolidate", "--prefer", Setting.resolve(known_markets)}, null, 120);
++                if (known_markets.size == 0) yield load_markets(cancel_all);
++                yield command({helper, "consolidate", "--prefer", Setting.resolve(known_markets)}, cancel_all, 120);
+             } catch (Error e) {
+                 warning("wallpapers-bing: consolidate failed: %s", e.message);
+             }
+         }
+ 
++        private void prefetch() {
++            var monitor = NetworkMonitor.get_default();
++            if (prefetching || cancel_all.is_cancelled() || !monitor.network_available || monitor.network_metered)
++                return;
++            prefetching = true;
++            run_prefetch.begin();
++        }
++
++        private async void run_prefetch() {
++            bool ok = false;
++            try {
++                if (known_markets.size == 0) yield load_markets(cancel_all);
++                yield command({helper, "fetch", "--if-stale", "--prefer", Setting.resolve(known_markets)},
++                    cancel_all, 900);
++                ok = true;
++            } catch (Error e) {
++                if (!cancel_all.is_cancelled()) warning("wallpapers-bing: prefetch failed: %s", e.message);
++            }
++            prefetching = false;
++            if (cancel_all.is_cancelled()) return;
++            failures = ok ? 0 : failures + 1;
++            uint delay = ok ? REFRESH_SECONDS : uint.min(30U << uint.min(failures - 1, 7U), MAX_BACKOFF_SECONDS);
++            if (refresh_source != 0) Source.remove(refresh_source);
++            refresh_source = Timeout.add_seconds(delay, () => {
++                refresh_source = 0;
++                prefetch();
++                return Source.REMOVE;
++            });
++        }
+     }
+ }
+ 
+@@ -153,10 +209,12 @@ public class WallpapersBingPlugin : Object, Singularity.Plugin {
+         this.context = ctx;
+         provider = new WallpapersBing.Provider();
+         context.add_wallpaper_provider(provider);
++        provider.start_prefetch();
+     }
+ 
+     public void deactivate() {
+         if (provider != null) {
++            provider.stop_prefetch();
+             context.remove_wallpaper_provider(provider);
+             provider = null;
+         }
+-- 
+2.47.3
+
