@@ -453,6 +453,10 @@ if [ -d "$KERNEL_STAGING_DIR" ]; then
             # classify instead of falling through unseen, same posture as
             # assets/refind/zz1-ncz-refind-refresh-amd64's classifier.
             r[0-9]*-*-sky1-ncz*) ;;
+            # Bisect trees are experiments by definition (a T2 bisect run keeps its per-step builds here);
+            # they are never staged into an image, so they are not orphans. Added 2026-09-29 after a live
+            # amd64-t2-bisect-* run failed every image build's freshness gate.
+            *-bisect-*) ;;
             # Anything else under the pool that LOOKS like a kernel
             # build (starts with amd64-, r<digit>-, or sky1-) is an
             # orphan. Plain top-level dirs (lost+found, etc.) are not.
