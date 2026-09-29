@@ -491,7 +491,7 @@ if true; then   # both architectures
         "")   fail "the first-boot report has no wallpaper-bing result (ncz-wallpaper-bing missing or the report script did not run it)" ;;
         *)    fail "ncz-wallpaper-bing fetch --if-stale exited $WP_RC in the guest (expected 0 or 75); see the guest's /var/log/ncz-wallpaper-smoke.log" ;;
     esac
-    FAILED_UNITS="$(grep -vE '^#|^[[:space:]]*$' "$FBR" | awk '{print $1}' | sed 's/^[^A-Za-z0-9_@.-]*//' | sort -u)"
+    FAILED_UNITS="$(grep -vE '^#|^[[:space:]]*$' "$FBR" | awk '{print $1}' | sed 's/^[^A-Za-z0-9_@.-]*//' | sort -u || true)"  # grep exits 1 when NO unit failed; under pipefail+set -e that ended the gate silently on amd64
     BAD=""
     for u in $FAILED_UNITS; do
         if [ -f "$ALLOW" ] && grep -vE '^#|^[[:space:]]*$' "$ALLOW" | awk '{print $1}' | grep -qxF "$u"; then
