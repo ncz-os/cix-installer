@@ -1,0 +1,9 @@
+host: hydra
+path: /home/jasonperlow/Projects/cix-amd64-final
+base_commit: bcdc68093c5b7eae8ec60691da270be6c0682433
+origin:
+origin	root@192.168.207.101:/mnt/datapool/git/cix-installer.git (fetch)
+origin	root@192.168.207.101:/mnt/datapool/git/cix-installer.git (push)
+
+selected_files:
+  RETIRE-BOOKWORM-BRIEF.md
