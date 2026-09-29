@@ -548,3 +548,5 @@ parity:
 	build/lint-no-software-render.sh
 	build/test-installer-screens.sh
 	build/test-ncz-ui.sh
+	build/test-base-stamp.sh
+	build/test-reap-images.sh

@@ -111,7 +111,7 @@ def pump():
             lastsnap = txt
             open(os.path.join(TS, f"{nsnap:04d}-{int(now - t0):04d}s.txt"), "w").write(f"# t={int(now - t0)}s\n{txt}\n"); nsnap += 1
         for i, (rx, keys) in enumerate(rules):
-            if i not in answered and txt and rx.search(txt) and now - changed > 1.0:
+            if i not in answered and txt and rx.search(txt) and now - changed > 3.5:
                 answered.add(i); sc.sendall(keys)
                 open(os.path.join(W, "answers.log"), "a").write(f"t={int(now - t0)}s rule {i} matched -> {keys!r}\n")
 threading.Thread(target=pump, daemon=True).start()

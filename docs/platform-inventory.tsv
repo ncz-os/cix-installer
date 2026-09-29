@@ -339,3 +339,6 @@ post-install/lib/cuda-select.sh	amd64	nvidia-cuda	NVIDIA GPU family -> driver br
 build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	CUDA dynamic-install gate tests (both directions)
 build/verify-cuda-assets.sh	amd64	nvidia-cuda	CUDA static asset gate (no CUDA in manifests or the mirror)
 build/verify-cuda-installed-target.sh	amd64	nvidia-cuda	CUDA installed-target gate
+build/test-base-stamp.sh	common	-	base.squashfs reuse stamp tests
+build/reap-images.sh	common	-	image reaping policy script
+build/test-reap-images.sh	common	-	reap-images fixture tests
