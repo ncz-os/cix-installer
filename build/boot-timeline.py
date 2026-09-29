@@ -20,6 +20,7 @@ ap.add_argument("image"); ap.add_argument("workdir")
 ap.add_argument("--max-secs", type=int, default=5400)
 ap.add_argument("--stop-at", default=None, help="regex; stop qemu once it appears in the serial log")
 ap.add_argument("--extra-opts", default="")
+ap.add_argument("--offline", action="store_true", help="restrict the user-mode network: the guest reaches nothing outside")
 ap.add_argument("--arch", default="arm64")
 ap.add_argument("--disk-gb", type=int, default=30)
 ap.add_argument("--mem", type=int, default=4096)
@@ -73,7 +74,7 @@ cmd = [qemu, "-M", machine, "-accel", "kvm", "-cpu", cpu, "-smp", str(a.smp), "-
        "-drive", f"file={disk},if=virtio,format=qcow2",
        "-drive", f"file={img},if=none,id=usbstick,format=raw" + (",readonly=on" if IS_ISO else ""),
        "-device", "qemu-xhci,id=xhci", "-device", "usb-storage,bus=xhci.0,drive=usbstick,bootindex=1",
-       "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,romfile=",
+       "-netdev", "user,id=n0" + (",restrict=yes" if a.offline else ""), "-device", "virtio-net-pci,netdev=n0,romfile=",
        "-object", "rng-random,filename=/dev/urandom,id=rng0", "-device", "virtio-rng-pci,rng=rng0",
        "-serial", f"file:{s0}", "-display", "none", "-no-reboot"] + gpu
 samples = []   # (t, size)
