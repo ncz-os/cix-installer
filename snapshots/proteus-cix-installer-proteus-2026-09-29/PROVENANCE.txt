@@ -1,0 +1,11 @@
+host: proteus
+path: /home/jasonperlow/Projects/cix-installer-proteus
+base_commit: 9ec1e87568d6317812a10364abf811659f7427c6
+origin:
+gitlab	https://gitlab.com/ncz-os/cix-installer.git (fetch)
+gitlab	https://gitlab.com/ncz-os/cix-installer.git (push)
+origin	root@192.168.207.101:/mnt/datapool/git/cix-installer.git (fetch)
+origin	root@192.168.207.101:/mnt/datapool/git/cix-installer.git (push)
+
+selected_files:
+  assets/kernel/amd64-stable/KVER

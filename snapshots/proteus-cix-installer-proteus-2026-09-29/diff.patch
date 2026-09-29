@@ -1,0 +1,7 @@
+diff --git a/assets/kernel/amd64-stable/KVER b/assets/kernel/amd64-stable/KVER
+index 4892eec..f5e9853 100644
+--- a/assets/kernel/amd64-stable/KVER
++++ b/assets/kernel/amd64-stable/KVER
+@@ -1 +1 @@
+-7.2.8-1-t2-trixie
++7.2.8-3-t2-trixie
