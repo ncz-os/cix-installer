@@ -174,8 +174,8 @@ else
     cat > /tmp/ncz-components.templates <<TPL
 Template: ncz/components
 Type: multiselect
-Choices: ${_OFFERED}
-Choices-C: ${_CHOICES_C}
+Choices: ${_CHOICES_C}
+Choices-C: ${_OFFERED}
 Default: ${_DEFAULT}
 Description: NCZ-OS install — select which OPTIONAL COMPONENTS to install
  Untick to skip an optional component. Default (Enter OK) = all of the
