@@ -250,6 +250,62 @@ network:
 YAML
 chmod 0600 "$NETPLAN_FILE"
 
+# PIN THE NIC THE INSTALLER ACTUALLY USED (2026-09-29).
+#
+# The profile above matches `en*`, which is a wildcard race on any machine
+# with more than one candidate. d-i already solved this problem minutes
+# earlier -- ethdetect/netcfg picked a working interface and pulled a DHCP
+# lease on it -- and then the installed system threw that answer away and
+# re-raced from scratch. Carry the answer forward instead.
+#
+# MEASURED 2026-09-29, three machines on the same image (2026.09.29-0d04e75):
+#   PEGASUS  (ASUSTeK, no T2)        -> wildcard landed correctly, .85
+#   CHIMERA  (T2, adapter on a dock) -> NM bound enxacde48001122 (the T2
+#                                       iBridge decoy), real NIC left
+#                                       "disconnected", no lease
+#   MEDUSA   (T2, SAME adapter model, direct-attached, no dock)
+#                                    -> same failure, machine unreachable
+# The installer got it right on all three. Only the installed system lost.
+# Same adapter model on CHIMERA and MEDUSA with different USB topology gave
+# different outcomes, which is the signature of a race, not a config error.
+#
+# Pinning is by MAC, in a higher-numbered netplan file so it wins the merge
+# without editing the wildcard profile (which stays as the fallback for a
+# machine whose NIC is later swapped).
+_ncz_pin_if=$(ip route show default 2>/dev/null | awk '/^default/ {for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
+if [ -n "$_ncz_pin_if" ] && [ -r "/sys/class/net/$_ncz_pin_if/address" ]; then
+    _ncz_pin_mac=$(cat "/sys/class/net/$_ncz_pin_if/address")
+    case "$_ncz_pin_mac" in
+        ac:de:48:00:11:22)
+            # The T2 iBridge decoy must never be pinned even if something
+            # upstream managed to route over it.
+            echo "[33-network] refusing to pin $_ncz_pin_if -- that is the T2 iBridge decoy"
+            _ncz_pin_mac="" ;;
+    esac
+    if [ -n "$_ncz_pin_mac" ]; then
+        cat > "$NETPLAN_DIR/02-ncz-installer-nic.yaml" <<PINYAML
+# Pinned by post-install/33-network.sh: this is the interface the INSTALLER
+# used and obtained a DHCP lease on ($_ncz_pin_if, $_ncz_pin_mac). Matching
+# by MAC removes the en* wildcard race on machines with several candidates
+# -- notably Apple T2, whose iBridge virtual NIC also matches en*.
+network:
+  version: 2
+  renderer: NetworkManager
+  ethernets:
+    ncz-wired-primary:
+      match:
+        macaddress: $_ncz_pin_mac
+      dhcp4: true
+      dhcp6: true
+      optional: true
+PINYAML
+        chmod 0600 "$NETPLAN_DIR/02-ncz-installer-nic.yaml"
+        echo "[33-network] pinned installer NIC $_ncz_pin_if ($_ncz_pin_mac) as ncz-wired-primary"
+    fi
+else
+    echo "[33-network] no default route in the installer env -- cannot pin a NIC; en* wildcard remains"
+fi
+
 # Remove cloud-init's generated 50-cloud-init.yaml and any other
 # competing netplan configs that would re-render to systemd-networkd.
 for stale in 50-cloud-init.yaml 99_cloud-init.yaml 00-installer-config.yaml; do
