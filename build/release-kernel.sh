@@ -181,7 +181,7 @@ NCZ_SKIP_PACKAGING=1 BUILD_REV="$REV" "$REPO/build/stage-kernel.sh" || die "stag
 # accidentally build against.
 if [ $SKIP_GPU = 0 ]; then
     step "4b/7 rebuild panthor-cix DKMS module against staged headers for $KVER"
-    HDRDIR="$(readlink -f "$REPO/assets/kernel/edge")/headers-dir/lib/modules/$KVER/build"
+    HDRDIR="$(readlink -f "$REPO/assets/kernel/mainline")/headers-dir/lib/modules/$KVER/build"
     [ -d "$HDRDIR" ] || die "no staged headers-dir at $HDRDIR -- did stage-kernel.sh run?"
     PANTHOR_VER="$(command -v dkms >/dev/null 2>&1 || PATH="$PATH:/usr/sbin"; dkms status 2>/dev/null | grep -oE '^panthor-cix/[0-9.]+' | head -1 | cut -d/ -f2)"
     [ -n "$PANTHOR_VER" ] || die "panthor-cix not registered in dkms -- nothing to rebuild"
@@ -227,7 +227,7 @@ cat <<DONE
 === release-kernel: COMPLETE
     rev      $REV
     kver     $KVER
-    assets   $(readlink "$REPO/assets/kernel/edge")
+    assets   $(readlink "$REPO/assets/kernel/mainline")
     debs     $REPO/build/kernel-debs/
     dkms     $REPO/build/dkms-debs/
 

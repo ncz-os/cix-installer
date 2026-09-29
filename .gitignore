@@ -13,6 +13,7 @@ assets/wallpaper-debs/*.deb
 assets/gpu/*.tar.gz
 assets/gpu/*.tar.zst
 assets/kernel/*.bin
+assets/kernel/mainline/
 assets/kernel/edge/
 assets/kernel/legacy/
 assets/kernel/retired-*/

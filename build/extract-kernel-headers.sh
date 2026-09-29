@@ -22,7 +22,7 @@
 # Usage:
 #   extract-kernel-headers.sh --kernel-src /path/to/cixmini-msr1-src/linux \
 #                              --kver 7.2.0-sky1-ncz \
-#                              --output assets/kernel/edge/headers-cixmini.tar.zst
+#                              --output assets/kernel/mainline/headers-cixmini.tar.zst
 set -euo pipefail
 
 KSRC=""

@@ -3,7 +3,8 @@
 #
 # Produces two .debs under build/kernel-debs/:
 #   cixmini-boot_<ver>_arm64.deb           — OTA-safe systemd-boot entry hook
-#   linux-image-cixmini_<KVER>_arm64.deb    — edge kernel, the only shipping channel
+#   linux-image-cixmini_<KVER>_arm64.deb    — mainline kernel (assets/kernel/mainline),
+#                                             the only PACKAGED Sky1 channel
 #   linux-headers-cixmini_<KVER>_arm64.deb  — matching headers for DKMS rebuilds
 #
 # These are the OTA-upgradable form of post-install/10-our-kernel.sh +
@@ -11,8 +12,11 @@
 # the ESP — it only adds/updates entries for currently-installed kernels,
 # matching the validated r97/r98 boot exactly.
 #
-# Operator 2026-08-21: legacy 7.0.12-cix-sky1-next channel retired; only edge
-# is packaged. linux-image-cixmini-legacy and linux-image-cixmini-lts are gone
+# Operator 2026-08-21: legacy 7.0.12-cix-sky1-next channel retired.
+# Operator 2026-09-29: the shipping channel is named "mainline" (7.2.x,
+# assets/kernel/mainline); "edge" (assets/kernel/edge) is the TEST-ONLY 7.3.x
+# line and is never packaged here -- it is installed raw, non-default, by
+# post-install/10-our-kernel.sh. Only mainline is packaged. linux-image-cixmini-legacy and linux-image-cixmini-lts are gone
 # from the build; the empty-transitional-package trick that used to depend on
 # the legacy channel is also gone.
 set -euo pipefail
@@ -98,14 +102,14 @@ OUT="$REPO/build/kernel-debs"
 # BUILD_REV override that is older than the staged directory.
 # Read the symlink TARGET STRING (no -f): resolving it needs the NFS staging tree mounted, and
 # an unreachable mount must not silently fall back to the stale constant.
-_EDGE_LINK="$(readlink "$REPO/assets/kernel/edge" 2>/dev/null || true)"
-_EDGE_DIR_NAME="$(basename "${_EDGE_LINK:-edge}")"
-_EDGE_REV=""
-case "$_EDGE_DIR_NAME" in r[0-9]*-*) _EDGE_REV="${_EDGE_DIR_NAME%%-*}" ;; esac
-case "${_EDGE_REV#r}" in *[!0-9]*) _EDGE_REV="" ;; esac
-BUILD_REV="${BUILD_REV:-${_EDGE_REV:-r258}}"
-if [ -n "$_EDGE_REV" ] && [ "${BUILD_REV#r}" -lt "${_EDGE_REV#r}" ] 2>/dev/null; then
-    echo "ERROR: BUILD_REV=$BUILD_REV is older than the staged kernel directory ($_EDGE_DIR_NAME); refusing to build a downgrade-labelled kernel deb" >&2
+_MAINLINE_LINK="$(readlink "$REPO/assets/kernel/mainline" 2>/dev/null || true)"
+_MAINLINE_DIR_NAME="$(basename "${_MAINLINE_LINK:-mainline}")"
+_MAINLINE_REV=""
+case "$_MAINLINE_DIR_NAME" in r[0-9]*-*) _MAINLINE_REV="${_MAINLINE_DIR_NAME%%-*}" ;; esac
+case "${_MAINLINE_REV#r}" in *[!0-9]*) _MAINLINE_REV="" ;; esac
+BUILD_REV="${BUILD_REV:-${_MAINLINE_REV:-r258}}"
+if [ -n "$_MAINLINE_REV" ] && [ "${BUILD_REV#r}" -lt "${_MAINLINE_REV#r}" ] 2>/dev/null; then
+    echo "ERROR: BUILD_REV=$BUILD_REV is older than the staged kernel directory ($_MAINLINE_DIR_NAME); refusing to build a downgrade-labelled kernel deb" >&2
     exit 1
 fi
 
@@ -135,7 +139,7 @@ MAINT="NCZ <nczero@nclawzero.dev>"
 # version string. Confirmed 2026-08-02 on the rc5 -> rc6 bump: it announced
 # "[edge] 7.2.0-rc5-sky1-ncz" against an rc6 Image and then died with a bare
 # "install: No such file or directory" when the rc5 config was gone.
-# assets/kernel/edge/KVER is written by the kernel build itself and is the
+# assets/kernel/mainline/KVER is written by the kernel build itself and is the
 # only source of truth here; the staging sidecar stays as a fallback.
 # Falling back to the staging sidecar is still allowed (a caller may package
 # from a tree with no built kernel assets), but it must never be SILENT --
@@ -176,11 +180,13 @@ resolve_kver() {   # <channel-dir> <sidecar-name> <default>
     echo "ERROR: no KVER for channel '$1' (neither $asset nor $sidecar)" >&2
     return 1
 }
-KVER_NEXT="${KVER_NEXT:-$(resolve_kver edge KVER_NEXT NEXT 7.2.0-sky1-ncz)}"
+# KVER_NEXT keeps its historical name: it is the sidecar installed systems
+# already carry. It now means "the mainline (shipping) channel KVER".
+KVER_NEXT="${KVER_NEXT:-$(resolve_kver mainline KVER_NEXT NEXT 7.2.0-sky1-ncz)}"
 KVER_NEXT=$(printf %s "$KVER_NEXT" | tr -d " \t\r\n")
 
 echo "== build-kernel-debs =="
-echo "   edge=$KVER_NEXT  rev=$BUILD_REV"
+echo "   mainline=$KVER_NEXT  rev=$BUILD_REV"
 echo "   out=$OUT"
 
 # Drift guard: verify the kernel/NPU manifest invariants before packaging the
@@ -495,9 +501,9 @@ EOF
 # linux-image-cixmini-<channel>
 # ----------------------------------------------------------------------
 build_kernel_deb() {
-    local channel="$1"   # edge (only supported channel)
+    local channel="$1"   # mainline (only packaged channel)
     local kver="$2"
-    local label="$3"     # asset subdir (edge)
+    local label="$3"     # asset subdir (mainline)
     local with_npu="$4"  # path to OOT npu .ko, or ""
 
     # ONE KERNEL, ONE NAME (operator 2026-08-11: "we do not use LTS or edge,
@@ -743,9 +749,9 @@ EOF
 # Full root cause + reproduction: docs/OTA-DKMS-HEADER-FIX-2026-08-21.md.
 # ----------------------------------------------------------------------
 build_headers_deb() {
-    local channel="$1"   # edge (only supported channel)
+    local channel="$1"   # mainline (only packaged channel)
     local kver="$2"
-    local label="$3"     # asset subdir (edge)
+    local label="$3"     # asset subdir (mainline)
     local pkg=linux-headers-cixmini
     local ver="$kver+$BUILD_REV"
     local src_tar="$ASSETS/$label/headers-cixmini.tar.zst"
@@ -1169,10 +1175,10 @@ EOF
 # builtin driver whose PCI match table collides with an ID Sky1 itself
 # presents. See build/kvm-kernel-gate.sh for why both halves are needed.
 # ---------------------------------------------------------------------------
-if [ -s "$ASSETS/edge/Image-cixmini.bin" ]; then
+if [ -s "$ASSETS/mainline/Image-cixmini.bin" ]; then
     echo ""
     echo "== kernel boot gate =="
-    "$REPO/build/kvm-kernel-gate.sh" "$ASSETS/edge/Image-cixmini.bin" \
+    "$REPO/build/kvm-kernel-gate.sh" "$ASSETS/mainline/Image-cixmini.bin" \
         || { echo "ERROR: kernel boot gate failed -- refusing to package this kernel." >&2; exit 1; }
     echo ""
 fi
@@ -1193,8 +1199,8 @@ build_cixmini_boot
 # matching build/ tree was the entire r246/r247 defect, and silently skipping
 # the headers .deb would reproduce it on the very next OTA. Set -e in this
 # script means a failed build_headers_deb aborts the build, which is correct.
-build_kernel_deb edge "$KVER_NEXT" edge   ""
-build_headers_deb edge "$KVER_NEXT" edge
+build_kernel_deb mainline "$KVER_NEXT" mainline ""
+build_headers_deb mainline "$KVER_NEXT" mainline
 
 # ----------------------------------------------------------------------
 # Transitional packages: linux-image-cixmini-{edge,lts,legacy}

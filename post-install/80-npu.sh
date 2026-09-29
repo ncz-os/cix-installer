@@ -68,7 +68,7 @@ fi
 
 # --- Fallback: fold in an out-of-band NCZ edge (7.2) kernel ---
 # The KVER_NEXT sidecar is authoritative and, on a normal install, carries
-# the edge kernel (assets/kernel/edge -> KVER_NEXT), so 7.2 gets the SSDT
+# the mainline kernel (assets/kernel/mainline -> KVER_NEXT), so 7.2 gets the SSDT
 # overlay through the normal edge path below. This fallback only covers the
 # case where a 7.2-class NCZ kernel is present on disk but NOT represented by
 # the sidecar (e.g. a hand-deployed 7.2 .deb, or sidecar drift): without it

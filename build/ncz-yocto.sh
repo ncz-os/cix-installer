@@ -54,7 +54,7 @@ fetch_layer() {
         if ! git clone "$url" "$dir"; then
             [ -n "$fallback" ] || return 1
             echo "[ncz-yocto] primary unavailable; trying fleet-auth fallback for $name"
-            GIT_SSH_COMMAND='sshpass -p "REDACTED-CREDENTIAL" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no' git clone "$fallback" "$dir"
+            GIT_SSH_COMMAND='sshpass -f "$HOME/.config/ncz/argonas.pass" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no' git clone "$fallback" "$dir"
         fi
     fi
     [ -w "$dir/.git/objects" ] || {
@@ -69,7 +69,7 @@ fetch_layer() {
     fi
     if ! git -C "$dir" cat-file -e "$revision^{commit}" 2>/dev/null && [ -n "$fallback" ]; then
         echo "[ncz-yocto] pinned object absent from primary; fetching fleet-auth fallback for $name"
-        GIT_SSH_COMMAND='sshpass -p "REDACTED-CREDENTIAL" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no' \
+        GIT_SSH_COMMAND='sshpass -f "$HOME/.config/ncz/argonas.pass" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no' \
             git -C "$dir" fetch "$fallback" '+refs/heads/*:refs/remotes/fleet/*'
     fi
     git -C "$dir" cat-file -e "$revision^{commit}" 2>/dev/null || {

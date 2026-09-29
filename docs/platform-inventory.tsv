@@ -103,6 +103,7 @@ build/build-vendor-mirror.sh	common	-	vendor mirror index regeneration
 build/build-wallpaper-contrib-deb.sh	common	-	wallpaper pack debs
 build/check-early-command-size.sh	common	-	preseed size gate
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
+build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
 build/check-preseed-mirror-sync.sh	common	-	preseed mirror vs release.conf gate
 build/component-prompt-gate.sh	common	-	interactive component prompt gate
 build/containers/	common	-	build container definitions
@@ -153,6 +154,7 @@ build/qemu-test-interactive-patch.sh	sky1	-	qemu-aarch64 interactive patch
 build/qemu-test.sh	sky1	-	qemu-aarch64 ISO test
 build/release-kernel.sh	sky1	-	Sky1 kernel release
 build/release-ota.sh	sky1	-	OTA release
+build/resolve-sky1-kernel-inputs.sh	sky1	-	dry-run of which Sky1 kernel each image input resolves
 build/secret-scan-gate.sh	common	-	secret scan gate
 build/server-mirror.gaps	common	-	server mirror gap notes
 build/singularity-nightly-track.sh	common	-	singularity nightly tracker
@@ -169,6 +171,7 @@ build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test
 build/test-dual-arch-parity.sh	common	-	fixture tests for the parity gates
 build/test-hostname-suggest.sh	common	-	hostname algorithm tests
 build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier test
+build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
 build/test-under-di-busybox.sh	common	-	d-i busybox runner
