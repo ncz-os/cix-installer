@@ -374,7 +374,7 @@ ncz_recover_components() {
         mkdir -p "$_d" 2>/dev/null || continue
         printf '%s\n' "$_ncz_comp" > "$_d/COMPONENTS" 2>/dev/null || true
     done
-    for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator; do
+    for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator cuda; do
         _v=0
         case ",$_ncz_comp," in *,"$_bit",*) _v=1 ;; esac
         printf '%s\n' "$_v" > "/target/etc/cix-installer/COMPONENTS_$_bit" 2>/dev/null || true
@@ -700,7 +700,7 @@ if [ -n "$_ncz_comp" ]; then
         mkdir -p "$_d" 2>/dev/null || continue
         printf '%s\n' "$_ncz_comp" > "$_d/COMPONENTS" 2>/dev/null || true
     done
-    for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator; do
+    for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator cuda; do
         _v=0
         case ",$_ncz_comp," in *,"$_bit",*) _v=1 ;; esac
         printf '%s\n' "$_v" > "/target/etc/cix-installer/COMPONENTS_$_bit" 2>/dev/null || true

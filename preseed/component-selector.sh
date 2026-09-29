@@ -103,7 +103,10 @@ desktop:Full Singularity desktop (GUI labwc + greetd + branding)\
 # baked into the ISO. Skipping it only skips the NVIDIA driver/CUDA; the machine
 # still boots and displays with nouveau.
 _HAS_NV=0
-for _d in /sys/bus/pci/devices/*; do
+# amd64 only: post-install/54-gpu-accel.sh (the only consumer) is amd64-only, so offering the option on an arm64
+# machine with an NVIDIA PCIe card would be a no-op the operator cannot see.
+case "${NCZ_UNAME_M:-$(uname -m 2>/dev/null)}" in x86_64|amd64) _NV_ARCH_OK=1 ;; *) _NV_ARCH_OK=0 ;; esac
+for _d in $([ "$_NV_ARCH_OK" = 1 ] && echo /sys/bus/pci/devices/*); do
     [ -r "$_d/vendor" ] && [ -r "$_d/class" ] || continue
     case "$(cat "$_d/vendor" 2>/dev/null)" in 0x10de) ;; *) continue ;; esac
     case "$(cat "$_d/class" 2>/dev/null)" in 0x03*) _HAS_NV=1; break ;; esac

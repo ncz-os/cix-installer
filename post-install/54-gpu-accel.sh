@@ -73,9 +73,19 @@ ncz_cuda_status() {
     echo "[54] CUDA: $1"
 }
 ncz_cuda_component_wanted() {
-    # The installer's component chooser records COMPONENTS_cuda (1/0). No
-    # record (older selector, headless run) means: install.
-    local f
+    # The comma-separated COMPONENTS list is the durable record (late.sh and extract-rootfs.sh persist it into the
+    # target; the selector's own early writes are destroyed when partman mounts the real root). A list that omits
+    # `cuda` means the operator declined it or gave an authoritative ncz_components= list without it. Only when no
+    # record exists at all (older selector, headless run) do we install. Verified 2026-09-29: late.sh used to persist
+    # the per-toggle COMPONENTS_<bit> files for the five old bits only, so a COMPONENTS_cuda check alone never saw a
+    # decline and installed CUDA anyway.
+    local f list
+    for f in /usr/local/lib/cix-installer/COMPONENTS /etc/cix-installer/COMPONENTS /var/lib/cix-components/COMPONENTS; do
+        if [ -r "$f" ]; then
+            list=$(tr -d ' \t\r\n' < "$f")
+            case ",$list," in *,cuda,*) return 0 ;; *) return 1 ;; esac
+        fi
+    done
     for f in /etc/cix-installer/COMPONENTS_cuda /usr/local/lib/cix-installer/COMPONENTS_cuda; do
         if [ -r "$f" ]; then [ "$(tr -d ' \t\r\n' < "$f")" = 1 ]; return; fi
     done
@@ -146,6 +156,12 @@ ncz_nvidia_dynamic_setup() {
                 /usr/share/apt/default-sequoia.config > /etc/crypto-policies/back-ends/apt-sequoia.config
         else
             echo "[54] WARN: /usr/share/apt/default-sequoia.config missing: cannot relax the SHA-1 policy for the NVIDIA debian12 key"
+        fi
+        # A no-op sed (the default policy's line format changed) would leave the NVIDIA repo unusable and the retry
+        # timer looping on a signature error: fail visibly instead.
+        if ! grep -q '^sha1.second_preimage_resistance = 2027-12-31' /etc/crypto-policies/back-ends/apt-sequoia.config 2>/dev/null; then
+            echo "[54] ERROR: the apt SHA-1 policy extension was not written; the NVIDIA debian12 repo would be rejected"
+            ncz_cuda_status "failed:sequoia-policy-not-applied"; return 0
         fi
     fi
     install -d -m0755 /etc/apt/preferences.d

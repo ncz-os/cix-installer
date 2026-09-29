@@ -199,7 +199,7 @@ extract54() {
     awk '/^# --- NVIDIA driver \+ CUDA: selected per GPU family/{f=1} /^echo "\[54\] AMD64 GPU\/accelerator vendor detection/{f=0} f' \
         "$ROOT/post-install/54-gpu-accel.sh" \
       | sed -e "s#/var/lib/ncz#$SB/var/lib/ncz#g" -e "s#/etc/ncz#$SB/etc/ncz#g" \
-            -e "s#/etc/cix-installer#$SB/etc/cix-installer#g" -e "s#/usr/local/lib/cix-installer/COMPONENTS#$SB/x/COMPONENTS#g" \
+            -e "s#/etc/cix-installer#$SB/etc/cix-installer#g" -e "s#/usr/local/lib/cix-installer/COMPONENTS#$SB/x/COMPONENTS#g" -e "s#/var/lib/cix-components#$SB/var/lib/cix-components#g" \
             -e "s#NCZ_NV_ASSETS=[^ ]*#NCZ_NV_ASSETS=$SB/assets#" \
             -e "s#/usr/local/sbin#$SB/usr/local/sbin#g" -e "s#/etc/systemd/system#$SB/etc/systemd/system#g" \
             -e "s#/etc/apt/preferences.d#$SB/etc/apt/preferences.d#g" -e "s#/etc/apt/sources.list.d#$SB/etc/apt/sources.list.d#g" \
@@ -260,6 +260,35 @@ got="$(run54w "$IGPU" 0)"; eq "54: no NVIDIA GPU is skipped" "$got" "skipped:no-
 got="$(run54w "$RTX" 0 0)"; eq "54: component chooser answer 0 skips" "$got" "skipped:component-not-selected"
 got="$(run54w "$RTX" 0 1)"; eq "54: component chooser answer 1 installs" "$got" "installed:13.4.92-1"
 got="$(run54w "$RTX" 0 none 1)"; eq "54: NCZ_SKIP_CUDA=1 skips" "$got" "skipped:operator-disabled"
+
+# --- the durable COMPONENTS list decides (a decline must survive late.sh's persistence, which never wrote COMPONENTS_cuda)
+run54l() {   # run54l "<comma list or NONE>" : COMPONENTS list persisted in the target, no COMPONENTS_cuda file
+    rm -rf "$SB/var" "$SB/etc" "$SB/usr" "$SB/x"; mkdir -p "$SB/etc/cix-installer" "$SB/x"
+    printf '%s\n' "$RTX" > "$SB/lspci"
+    [ "$1" != NONE ] && echo "$1" > "$SB/etc/cix-installer/COMPONENTS"
+    cat > "$SB/post-install/wrap.sh" <<EOF
+#!/bin/bash
+lspci() { cat "$SB/lspci"; }
+export -f lspci 2>/dev/null
+. "$SB/nvfunc.sh"
+ncz_nvidia_dynamic_setup
+EOF
+    PATH="$SB/bin:$PATH" STUB_SETUP_RC=0 NCZ_SKIP_CUDA=0 bash "$SB/post-install/wrap.sh" > "$SB/log" 2>&1
+    head -n1 "$SB/var/lib/ncz/cuda-toolkit.status" 2>/dev/null
+}
+got="$(run54l 'desktop,browsers,wallpaper-rotator,mgmt-container')"; eq "54: a COMPONENTS list WITHOUT cuda skips it (no COMPONENTS_cuda file needed)" "$got" "skipped:component-not-selected"
+[ ! -x "$SB/usr/local/sbin/ncz-cuda-setup" ] && ok "54: declined CUDA installs nothing" || nok "54: declined CUDA still installed the setup tool"
+got="$(run54l 'desktop,browsers,wallpaper-rotator,cuda')"; eq "54: a COMPONENTS list WITH cuda installs" "$got" "installed:13.4.92-1"
+got="$(run54l NONE)"; eq "54: no component record at all installs (legacy)" "$got" "installed:13.4.92-1"
+# persistence: every place that re-derives the per-toggle bits knows the cuda bit
+for f in preseed/late.sh preseed/extract-rootfs.sh; do
+    n=$(tr -d '\\\n' < "$ROOT/$f" | grep -o 'for _bit in [a-z -]*wallpaper-rotator[ a-z]*; do' | grep -vc 'cuda')
+    [ "$n" = 0 ] && ok "$f persists COMPONENTS_cuda with the other bits" || nok "$f has a component-bit loop without cuda ($n)"
+done
+# a sed that changed nothing must not leave the debian12 repo unusable and looping silently
+printf 'some.other.policy = 1\n' > "$SB/default-sequoia.config"
+got="$(run54w "$GTX" 0)"; eq "54: sequoia policy line not found is a visible failure" "$got" "failed:sequoia-policy-not-applied"
+printf 'sha1.second_preimage_resistance = 2026-02-01\n' > "$SB/default-sequoia.config"
 # a failure in the setup tool must not abort the caller
 ( PATH="$SB/bin:$PATH" STUB_SETUP_RC=1 bash "$SB/post-install/wrap.sh" >/dev/null 2>&1 ) && ok "54: a hard setup failure returns 0 (never aborts post-install)" || nok "54: hard failure aborted the hook"
 
@@ -352,7 +381,7 @@ mkpci() {   # mkpci DIR vendor class ...
 chooser_components() {   # prints the COMPONENTS string the selector would offer
     sed -n '/^COMPONENTS="\\$/,/^INTERNAL_COMPONENTS=/p' "$ROOT/preseed/component-selector.sh" \
       | sed "s#/sys/bus/pci/devices#$1#g" | sed '$d' > "$W/chooser.sh"
-    ( . "$W/chooser.sh"; printf '%s' "$COMPONENTS" )
+    ( NCZ_UNAME_M=x86_64; . "$W/chooser.sh"; printf '%s' "$COMPONENTS" )
 }
 mkpci "$W/pci1" 0x8086 0x030000 0x10de 0x030000
 case "$(chooser_components "$W/pci1")" in *"|cuda:"*) ok "chooser: cuda offered when an NVIDIA GPU is present";; *) nok "chooser: cuda not offered with an NVIDIA GPU";; esac
@@ -362,6 +391,9 @@ mkpci "$W/pci3" 0x10de 0x040300
 case "$(chooser_components "$W/pci3")" in *cuda*) nok "chooser: cuda offered for an NVIDIA audio function only";; *) ok "chooser: cuda hidden for an NVIDIA audio-only function";; esac
 mkpci "$W/pci4" 0x10de 0x030200
 case "$(chooser_components "$W/pci4")" in *"|cuda:"*) ok "chooser: cuda offered for an NVIDIA 3D controller (0302)";; *) nok "chooser: 3D controller not offered";; esac
+chooser_components_arch() { sed -n '/^COMPONENTS="\\$/,/^INTERNAL_COMPONENTS=/p' "$ROOT/preseed/component-selector.sh" | sed "s#/sys/bus/pci/devices#$1#g" | sed '$d' > "$W/chooser2.sh"; ( NCZ_UNAME_M="$2"; . "$W/chooser2.sh"; printf '%s' "$COMPONENTS" ); }
+case "$(chooser_components_arch "$W/pci1" aarch64)" in *cuda*) nok "chooser: cuda offered on an arm64 machine with an NVIDIA card";; *) ok "chooser: cuda is never offered on arm64 (54 is amd64-only)";; esac
+case "$(chooser_components_arch "$W/pci1" x86_64)" in *"|cuda:"*) ok "chooser: cuda offered on x86_64 with an NVIDIA GPU";; *) nok "chooser: cuda not offered on x86_64";; esac
 grep -q '^INTERNAL_COMPONENTS=.*cuda' "$ROOT/preseed/component-selector.sh" && ok "chooser: cuda is a valid ncz_components= token even when hidden" || nok "chooser: cuda not a valid token"
 grep -q 'cuda-selection\|COMPONENTS_\$_bit\|for _bit in .* cuda' "$ROOT/preseed/component-selector.sh" && ok "chooser: writes COMPONENTS_cuda for 54-gpu-accel.sh" || nok "chooser: COMPONENTS_cuda not written"
 

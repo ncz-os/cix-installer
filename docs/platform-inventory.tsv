@@ -335,3 +335,7 @@ build/test-no-software-render.sh	common	-	never-software-render fixture tests
 build/software-render-allowlist.tsv	common	-	software-render lint allowlist
 assets/singularity/patches/singularity-session/0001-session-no-software-fallback-with-gpu.patch	common	-	labwc-session: no software retry on a machine with a GPU
 
+post-install/lib/cuda-select.sh	amd64	nvidia-cuda	NVIDIA GPU family -> driver branch + CUDA toolkit selection
+build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	CUDA dynamic-install gate tests (both directions)
+build/verify-cuda-assets.sh	amd64	nvidia-cuda	CUDA static asset gate (no CUDA in manifests or the mirror)
+build/verify-cuda-installed-target.sh	amd64	nvidia-cuda	CUDA installed-target gate
