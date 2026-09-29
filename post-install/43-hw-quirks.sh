@@ -13,7 +13,7 @@
 #      correct vermagic) provide Realtek Bluetooth properly, so the out-of-tree
 #      one is redundant AND broken -> blacklist it.
 #
-#  (2) r8169 / RTL8125 EEE-off — the 2.5G NIC (enp1s0) negotiates
+#  (2) r8169 / RTL8125 AND atlantic / AQC113 EEE-off — the 2.5G NIC (enp1s0) negotiates
 #      2.5Gbps/Full then cycles Link Up<->Down. Energy-Efficient Ethernet on
 #      RTL8125 is a well-known cause of exactly this 2.5G link flap; disable EEE
 #      via ethtool when an r8169 NIC appears (r8169 is built into the kernel, so
@@ -25,7 +25,7 @@
 #      multipathd.service fails at every boot. Mask it.
 set -uo pipefail
 
-echo "[43] hw quirks: rtl_btusb blacklist + r8169 EEE-off + multipathd mask"
+echo "[43] hw quirks: rtl_btusb blacklist + r8169/atlantic EEE-off + multipathd mask"
 
 # (1) stale out-of-tree Realtek BT module -----------------------------------
 install -d /etc/modprobe.d
@@ -57,13 +57,33 @@ cat > /etc/udev/rules.d/70-r8169-eee-off.rules <<'UDEOF'
 ACTION=="add", SUBSYSTEM=="net", DRIVERS=="r8169", RUN+="/usr/local/sbin/ncz-nic-eee-off %k"
 UDEOF
 
+# Aquantia/Marvell AQC113 (atlantic) shows the SAME 2.5G flap signature.
+# Measured on MEDUSA (MacBookPro16,1) 2026-09-28, AQC113 [1d6a:04c0] rev 03
+# in a Thunderbolt enclosure, firmware ATL2FW 105002a:
+#     [16.763] atlantic 0000:0c:00.0 enp12s0: atlantic: link change old 0 new 2500
+#     [55.675] atlantic 0000:0c:00.0 enp12s0: atlantic: link change old 2500 new 0
+#     [55.906] atlantic 0000:0c:00.0 enp12s0: PTP RX filter restore failed in link change
+# Link negotiated 2.5G, held 39s, dropped to 0 and never renegotiated. No
+# pcieport/D3 event accompanied the drop and ACPI had already disabled ASPM
+# ("ACPI FADT declares the system doesn't support PCIe ASPM, so disable it"),
+# so this is the PHY/EEE flap, not a PCIe power transition. ethtool also
+# reported "Link partner advertised auto-negotiation: No", which makes the
+# 2.5G negotiation more fragile. Upstream has the same report against this
+# part: https://github.com/Aquantia/AQtion/issues/74 (AQC113 link drops from
+# 2500Mb/s to 0 on Linux, stable on Windows).
+cat > /etc/udev/rules.d/70-atlantic-eee-off.rules <<'UDEOF'
+ACTION=="add", SUBSYSTEM=="net", DRIVERS=="atlantic", RUN+="/usr/local/sbin/ncz-nic-eee-off %k"
+UDEOF
+
 # apply immediately to any already-present r8169 interface
 if command -v ethtool >/dev/null 2>&1; then
     for i in /sys/class/net/*; do
         [ -e "$i/device/driver" ] || continue
         case "$(readlink -f "$i/device/driver" 2>/dev/null)" in
-            *r8169*) /usr/local/sbin/ncz-nic-eee-off "$(basename "$i")"
-                     echo "  [43] EEE disabled on $(basename "$i") (r8169)";;
+            *r8169*|*atlantic*)
+                     _drv=$(basename "$(readlink -f "$i/device/driver")")
+                     /usr/local/sbin/ncz-nic-eee-off "$(basename "$i")"
+                     echo "  [43] EEE disabled on $(basename "$i") ($_drv)";;
         esac
     done
 else
