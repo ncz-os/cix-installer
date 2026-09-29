@@ -39,6 +39,7 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     printf 'ln -sf $_d /dev/video-cixdec0\nln -sf $_e /dev/video-cixenc0\n' > "$r/usr/bin/load-modules.sh"
     printf 'xx h264_v4l2m2m xx' > "$r/usr/lib/aarch64-linux-gnu/libavcodec.so.62.1.100"
     printf 'Package: google-chrome-stable\nStatus: install ok installed\n\nPackage: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$r/var/lib/dpkg/status"
+    echo ncz-acrab-1717 > "$r/etc/hostname"
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/etc"; printf 'root:x:0:\nsudo:x:27:nczuser\n' > "$r/etc/group"
@@ -106,6 +107,9 @@ m_aud_nodaemon() { rm -f "$1/usr/local/bin/ncz-sky1-audio-autoswitch"; }
 m_aud_nounit()   { rm -f "$1/etc/systemd/user/ncz-sky1-audio-autoswitch.service"; }
 m_aud_noenable() { rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-sky1-audio-autoswitch.service"; }
 m_aud_nopactl()  { rm -f "$1/usr/bin/pactl"; }
+m_hn_setup()    { echo ncz-setup > "$1/etc/hostname"; }
+m_hn_machex()   { echo ncz-20e7bc > "$1/etc/hostname"; }
+m_hn_upper()    { echo NCZ-Acrab-1717 > "$1/etc/hostname"; }
 m_no_loader()   { rm -f "$1/usr/bin/load-modules.sh"; }
 
 run_case "healthy installed root passes"        0 ""
@@ -121,6 +125,9 @@ run_case "google-chrome-stable absent fails"    1 m_no_chrome
 run_case "chrome removed-not-purged fails"      1 m_half_chrome
 run_case "ffmpeg without v4l2m2m fails"         1 m_no_v4l2m2m
 run_case "no cixdec0 loader fails"              1 m_no_loader
+run_case "placeholder hostname fails"           1 m_hn_setup
+run_case "MAC-hex fallback hostname fails"      1 m_hn_machex
+run_case "malformed generated hostname fails"   1 m_hn_upper
 run_case "sudo not installed fails"             1 m_no_sudo
 run_case "empty sudo group fails"               1 m_sudo_empty
 run_case "VA driver present but mpv on v4l2 fails" 1 m_va_but_mpv_v4l2

@@ -32,6 +32,15 @@ set -uo pipefail
 # Origin: Jeff Hunter's r74 wireless-only install bug - 'Invalid
 # hostname ""' from netcfg blank, then downstream scripts crashed.
 ncz_default_hostname() {
+    # ONE ALGORITHM: prefer the shared generator (IAU star name + 4-digit seed from a stable
+    # machine identity); the machine-id / MAC ladder below stays as the fallback.
+    local _g _gn
+    for _g in /usr/local/lib/cix-installer/assets/hostnames/ncz-hostname-gen.sh /usr/local/lib/cix-installer/ncz-hostname-gen.sh ; do
+        if [ -f "$_g" ]; then
+            _gn=$(sh "$_g" 2>/dev/null)
+            case "$_gn" in ncz-[a-z]*-[0-9][0-9][0-9][0-9]) printf "%s" "$_gn"; return 0 ;; esac
+        fi
+    done
     # 2026-09-29: machine-id FIRST, to agree with preseed/extract-rootfs.sh,
     # which is the generator that actually names machines at first boot. See
     # the long rationale there: a MAC-derived name follows a swappable

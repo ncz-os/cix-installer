@@ -3088,9 +3088,12 @@ cp "$ROOT/preseed/sshd-watcher.sh"    "$EXTRA/sshd-watcher.sh"
 cp "$ROOT/preseed/disk-fs-chooser.sh" "$EXTRA/disk-fs-chooser.sh"
 cp "$ROOT/preseed/component-selector.sh" "$EXTRA/component-selector.sh"
 cp "$ROOT/preseed/hostname-suggest.sh" "$EXTRA/hostname-suggest.sh"
+cp "$ROOT/preseed/ncz-hostname-gen.sh" "$EXTRA/ncz-hostname-gen.sh"
+# the installed system names itself from the same file on first boot
+mkdir -p "$EXTRA/assets/hostnames" && cp "$ROOT/preseed/ncz-hostname-gen.sh" "$EXTRA/assets/hostnames/ncz-hostname-gen.sh"
 # Root-hub rescan + video diagnostic, invoked from preseed early_command.
 cp "$ROOT/preseed/usb-rescan.sh"      "$EXTRA/usb-rescan.sh"
-chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh" "$EXTRA/disk-fs-chooser.sh" "$EXTRA/component-selector.sh" "$EXTRA/hostname-suggest.sh" "$EXTRA/usb-rescan.sh"
+chmod 0755 "$EXTRA/late.sh" "$EXTRA/extract-rootfs.sh" "$EXTRA/sshd-watcher.sh" "$EXTRA/disk-fs-chooser.sh" "$EXTRA/component-selector.sh" "$EXTRA/hostname-suggest.sh" "$EXTRA/ncz-hostname-gen.sh" "$EXTRA/usb-rescan.sh"
 
 # Remote-diagnostics module (single, removable). DIAG_ENABLE=0 ships clean:
 # the module is not staged and ncz_diag/DEBCONF_DEBUG are not added below.

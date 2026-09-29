@@ -201,6 +201,25 @@ else
     gate_miss sudo "sudo is not installed (user-setup could not resolve it from the media index)"
 fi
 
+# --- (iv-c) hostname: the generated IAU name, not a placeholder or a MAC-hex fallback ------
+# The unattended gate install must end with ncz-<star>-<4 digits> (preseed/ncz-hostname-gen.sh).
+# 18e8a14 on the O6N ended as ncz-20e7bc: the media preseed reload had reset netcfg/get_hostname to
+# ncz-setup and first boot fell back to a MAC-derived name. Set VERIFY_EXPECT_GENERATED_HOSTNAME=0
+# to skip when a run deliberately overrides the name.
+echo "[verify-target] (iv-c) hostname"
+if [ "${VERIFY_EXPECT_GENERATED_HOSTNAME:-1}" = 1 ]; then
+    if fetch /etc/hostname "$TMP/hostname"; then
+        HN="$(tr -d '[:space:]' < "$TMP/hostname")"
+        if printf '%s' "$HN" | grep -Eq '^ncz-[a-z]{1,8}-[0-9]{4}$'; then
+            echo "[verify-target]     hostname $HN"
+        else
+            gate_miss hostname "/etc/hostname is '$HN', expected ncz-<star>-<4 digits> (the installer's suggestion was lost)"
+        fi
+    else
+        gate_miss hostname "/etc/hostname unreadable"
+    fi
+fi
+
 # --- (v) media stack: V4L2 on the amvx VPU (VA-API is optional) -------------------
 # VA-API is NOT the browser path: chromium-ncz-sky1 decodes and encodes through V4L2-M2M, and
 # stock Google Chrome on arm64 has no such patches. mpv follows what is installed.
