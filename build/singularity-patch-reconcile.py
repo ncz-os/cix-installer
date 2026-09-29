@@ -20,7 +20,7 @@ and classified:
 
 Nothing but RETIRE changes the tree. The caller commits and pushes.
 
-Usage: build/singularity-patch-reconcile.py [--dry-run] [--upstream-cache DIR]
+Usage: build/singularity-patch-reconcile.py [--dry-run] [--upstream-cache DIR] [--repo-root DIR]
 Exit: 0 normally, 2 on a real error.
 """
 
@@ -264,13 +264,17 @@ def main(argv):
             Path.home() / ".cache" / "ncz-singularity-upstream"
         )
 
-    readme = PATCH_ROOT / "README.md"
+    repo_root = REPO_ROOT
+    if "--repo-root" in argv:
+        repo_root = Path(argv[argv.index("--repo-root") + 1]).resolve()
+    patch_root = repo_root / "assets" / "singularity" / "patches"
+    readme = patch_root / "README.md"
     if not readme.is_file():
         print(f"[reconcile] no {readme} -- nothing to reconcile")
         return 0
     try:
         results, retired = reconcile(
-            PATCH_ROOT,
+            patch_root,
             readme,
             gh_pr_state,
             lambda sub, p: reverse_applies(sub, p, cache),
@@ -286,7 +290,7 @@ def main(argv):
         verb = "would delete" if dry_run else "deleted"
         print(
             f"[reconcile] {verb} {len(retired)} file(s): "
-            + ", ".join(str(f.relative_to(REPO_ROOT)) for f in retired)
+            + ", ".join(str(f.relative_to(repo_root)) for f in retired)
         )
     else:
         print("[reconcile] nothing retired")
