@@ -1,4 +1,4 @@
-From ebed25ce0edcf6757c6d7016e2d9c4ed6b368578 Mon Sep 17 00:00:00 2001
+From 9d48f435bd5429a37dd04eb92e4baba8ddd75331 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Fri, 18 Sep 2026 14:54:07 -0400
 Subject: [PATCH 1/2] feat(sensors): DPI-aware column density, bordered
@@ -191,12 +191,12 @@ index 7003778..ddf1872 100644
 2.55.0
 
 
-From 93a5bd56fe72e5e20b1ab05cc570b54165be2f4c Mon Sep 17 00:00:00 2001
+From 05d6471f0ac27cbebe518523e4687092f9bec7a0 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 27 Sep 2026 10:45:37 -0400
 Subject: [PATCH 2/2] fix(sensors): use logical popover dimensions
 
-Assisted-by: Claude Code:gpt-5.6-sol
+Assisted-by: Codex:gpt-5.6-sol
 AI-Scope: Corrected responsive sensor columns and moved section styling into the plugin CSS provider.
 ---
  sensors/sensors.vala | 32 ++++++++------------------------
