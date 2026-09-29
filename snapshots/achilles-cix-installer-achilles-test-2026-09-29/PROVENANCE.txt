@@ -1,0 +1,11 @@
+host: achilles
+path: /home/jasonperlow/Projects/cix-installer-achilles-test
+base_commit: 85e8934b5dba6c9a40622e8926a6f2f6c9ac7308
+origin:
+gitlab	https://gitlab.com/ncz-os/cix-installer.git (fetch)
+gitlab	https://gitlab.com/ncz-os/cix-installer.git (push)
+origin	root@192.168.207.101:/mnt/datapool/git/cix-installer.git (fetch)
+origin	root@192.168.207.101:/mnt/datapool/git/cix-installer.git (push)
+
+selected_files:
+  build/build-singularity.sh

@@ -1,0 +1,13 @@
+diff --git a/build/build-singularity.sh b/build/build-singularity.sh
+index 7644441..3627897 100755
+--- a/build/build-singularity.sh
++++ b/build/build-singularity.sh
+@@ -288,7 +288,7 @@ f = "subprojects/singularity-shell/src/core/main.vala"
+ s = open(f, encoding="utf-8").read()
+ if "Close the launcher popup first" in s:
+     print("    shell: launcher-popup fix already present"); raise SystemExit(0)
+-anchor = "        if (!ensure_workspace_overview()) return;\n        workspace_overview.toggle();"
++anchor = "        if (!ensure_workspace_overview()) return;\n        if (workspace_overviews_visible()) {"
+ if anchor not in s:
+     raise SystemExit("ERROR: main.vala anchor gone -- upstream moved; rebase the NCZ launcher-popup fix")
+ add = ("        // Close the launcher popup first: the workspace chooser is a\n"
