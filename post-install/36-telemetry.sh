@@ -184,10 +184,30 @@ echo "[36] journald set persistent (Storage=persistent, ForwardToSyslog=${FWD_SY
 # ttyAMA0 (ARMH0011) is the UART that actually enumerates, so the getty binds
 # instantly and a serial login is still available for debugging.
 # ----------------------------------------------------------------------
+# ARCH GATE (2026-09-28). ttyAMA* is the ARM PL011 UART and does not exist on
+# x86. Measured on CHIMERA (MacBookPro16,1, amd64): this hook enabled
+# serial-getty@ttyAMA0, whose BindsTo dev-ttyAMA0.device never resolves, so
+# `systemctl list-jobs` showed dev-ttyAMA0.device start running with
+# getty.target -> multi-user.target -> graphical.target all queued behind it and
+# `systemd-analyze` reporting FinishTimestampMonotonic=0. That is exactly the
+# failure the r123 note above records for ttyAMA2 on Sky1, re-created on the
+# other architecture because nothing gated it. Telnet (:23, directive 8) and
+# tty1 remain the console fallback on x86; no serial getty is enabled there
+# speculatively, because enabling a getty for a device that may not enumerate
+# is the bug itself.
+_ncz_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_arch" ] || _ncz_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
+[ -n "$_ncz_arch" ] || _ncz_arch=$(dpkg --print-architecture 2>/dev/null || true)
 # Belt-and-braces: ensure a stale ttyAMA2 getty can never be pulled in.
 systemctl disable serial-getty@ttyAMA2.service 2>/dev/null || true
 systemctl mask serial-getty@ttyAMA2.service 2>/dev/null || true
-systemctl enable serial-getty@ttyAMA0.service 2>&1 | tail -1
-echo "[36] serial-getty@ttyAMA0 enabled (115200); ttyAMA2 getty masked"
+if [ "$_ncz_arch" = "arm64" ]; then
+    systemctl enable serial-getty@ttyAMA0.service 2>&1 | tail -1
+    echo "[36] serial-getty@ttyAMA0 enabled (115200); ttyAMA2 getty masked"
+else
+    systemctl disable serial-getty@ttyAMA0.service 2>/dev/null || true
+    systemctl mask serial-getty@ttyAMA0.service 2>/dev/null || true
+    echo "[36] arch=$_ncz_arch -- ttyAMA0/ttyAMA2 gettys masked (ARM-only UART)"
+fi
 
 echo "[36] DONE — telnet:23 + persistent journald (rsyslog→${LOGHOST} opt-in) + serial console"
