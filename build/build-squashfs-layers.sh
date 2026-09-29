@@ -234,6 +234,24 @@ log "arch=$(uname -m) native=$NATIVE ROOT=$ROOT WORK=$WORK OUT=$OUT"
 mkdir -p "$OUT" "$WORK"
 
 # machine-AGNOSTIC hooks safe to bake into base (NOT desktop-config)
+# Fingerprint of the small, hand-edited asset dirs and manifests that build_base copies into base.squashfs. The
+# `all` mode reuses an existing base.squashfs; that reuse used to ask only "does the file exist" (then, in a later
+# fix, "does it still carry the staged amd64 kernel"), so a change to assets/gpu, assets/audio, assets/refind ...
+# never reached the image: on 2026-09-29 an image shipped an audio daemon without the HDA analog fallback and no
+# ncz-gpu-hw-present because base.squashfs pre-dated both. The stamp is written into the layer and compared on reuse.
+BASE_STAMP_REL=usr/local/lib/cix-installer/BASE-ASSETS.sha256
+base_assets_stamp() {
+  ( cd "$ROOT" || exit 1
+    for a in gpu audio refind grub branding screensaver-chooser dracut regreet diag keys dev docs embedkit; do
+      [ -d "assets/$a" ] && find "assets/$a" \( -type f -o -type l \) -print
+    done
+    ls release.conf manifests/* 2>/dev/null
+  ) | LC_ALL=C sort | ( cd "$ROOT" && while IFS= read -r f; do [ -f "$f" ] && sha256sum "$f"; done ) | sha256sum | cut -d' ' -f1
+}
+base_stamp_in_layer() {   # layer -> stamp or empty
+  unsquashfs -cat "$1" "$BASE_STAMP_REL" 2>/dev/null | tr -d '[:space:]'
+}
+
 case "$NCZ_TARGET_ARCH" in
   amd64) BASE_HOOKS="10-amd64-kernel 19-sinty-nm" ;;
   *)     BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 19-sinty-nm" ;;
@@ -935,6 +953,7 @@ build_base(){
     log "  WARN: assets/sinty-nm/sinty-nmd ABSENT — base falls back to NetworkManager (build singularityos-lab/sinty-nm)"
   fi
   [ -f "$ROOT/assets/ncz-cli.sh" ] && sudo cp -a "$ROOT/assets/ncz-cli.sh" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
+  base_assets_stamp | sudo tee "$WORK/base/$BASE_STAMP_REL" >/dev/null   # see base_assets_stamp
   # prune dev-only junk from the staged asset tree (backup kernels, retired
   # channels) -- it otherwise ships inside base.squashfs as dead weight
   sudo rm -rf "$WORK/base/usr/local/lib/cix-installer/assets/kernel/"retired-* 2>/dev/null || true
@@ -1405,11 +1424,20 @@ case "$STAGE" in
            # embeds the same basenames" is a sharp predicate, not a
            # "staged 2, layer 2, off-by-one" ambiguity.
            if [ -s "$OUT/base.squashfs" ]; then
-             if NCZ_TARGET_ARCH="$NCZ_TARGET_ARCH" bash "$ROOT/build/verify-base-kernel-assets.sh" \
+             _want_stamp="$(base_assets_stamp)"; _have_stamp="$(base_stamp_in_layer "$OUT/base.squashfs")"
+             if [ "$_want_stamp" != "$_have_stamp" ]; then
+               log "BASE: asset inputs changed since base.squashfs was built (layer stamp '${_have_stamp:-none}' vs current '$_want_stamp'); rebuilding"
+               _kernel_ok=0
+             elif NCZ_TARGET_ARCH="$NCZ_TARGET_ARCH" bash "$ROOT/build/verify-base-kernel-assets.sh" \
                   --layer "$OUT/base.squashfs" --label base.squashfs; then
+               _kernel_ok=1
+             else
+               _kernel_ok=0
+             fi
+             if [ "$_kernel_ok" = 1 ]; then
                log "BASE: reusing existing $OUT/base.squashfs ($(du -h "$OUT/base.squashfs" | cut -f1))"
              else
-               log "BASE: STALE vs staged amd64 kernel assets; rebuilding"
+               log "BASE: STALE (asset stamp or staged kernel assets); rotating aside and rebuilding"
                _stale_ts="$(date -u +%Y%m%d-%H%M%S)"
                if sudo mv -f "$OUT/base.squashfs" "$OUT/base.squashfs.stale-${_stale_ts}" 2>/dev/null; then
                  :
