@@ -49,6 +49,12 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     echo x > "$r/usr/share/cix/lib/libva.so.2"
     echo 'LIBVA_DRIVER_NAME=libcix_va' > "$r/etc/environment.d/60-ncz-vaapi.conf"
     echo 'hwdec=vaapi' > "$r/etc/mpv/mpv.conf"
+    # Sky1 audio autoswitch
+    mkdir -p "$r/usr/local/bin" "$r/etc/systemd/user/graphical-session.target.wants"
+    echo x > "$r/usr/local/bin/ncz-sky1-audio-autoswitch"
+    echo x > "$r/etc/systemd/user/ncz-sky1-audio-autoswitch.service"
+    echo x > "$r/usr/bin/pactl"
+    ln -s /etc/systemd/user/ncz-sky1-audio-autoswitch.service "$r/etc/systemd/user/graphical-session.target.wants/ncz-sky1-audio-autoswitch.service"
     # ncz-screensavers
     mkdir -p "$r/usr/local/lib/cix-installer/manifests" "$r/usr/lib/ncz-screensavers" "$r/usr/libexec" "$r/usr/lib/systemd/user" \
              "$r/usr/share/glib-2.0/schemas" "$r/usr/share/ncz-screensavers" "$r/etc/systemd/user/graphical-session.target.wants"
@@ -100,6 +106,10 @@ m_ss_launcher() { rm -f "$1/usr/bin/ncz-screensaver"; }
 m_ss_unrequested() { : > "$1/usr/local/lib/cix-installer/manifests/install-extra.pkgs"; m_ss_missing "$1"; }
 m_no_sudo()     { sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
 m_sudo_empty()  { printf 'root:x:0:\nsudo:x:27:\n' > "$1/etc/group"; }
+m_aud_nodaemon() { rm -f "$1/usr/local/bin/ncz-sky1-audio-autoswitch"; }
+m_aud_nounit()   { rm -f "$1/etc/systemd/user/ncz-sky1-audio-autoswitch.service"; }
+m_aud_noenable() { rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-sky1-audio-autoswitch.service"; }
+m_aud_nopactl()  { rm -f "$1/usr/bin/pactl"; }
 m_no_loader()   { rm -f "$1/usr/bin/load-modules.sh"; }
 
 run_case "healthy installed root passes"        0 ""
@@ -127,6 +137,10 @@ run_case "screensavers without launcher fails"  1 m_ss_launcher
 run_case "idled timer not enabled fails"        1 m_ss_noidled
 run_case "old idle-manager still enabled fails" 1 m_ss_oldidle
 run_case "schema not compiled fails"            1 m_ss_schema
+run_case "no audio autoswitch daemon fails"     1 m_aud_nodaemon
+run_case "no audio autoswitch unit fails"       1 m_aud_nounit
+run_case "audio autoswitch not enabled fails"   1 m_aud_noenable
+run_case "no pactl fails"                       1 m_aud_nopactl
 run_case "screensavers not requested is skipped" 0 m_ss_unrequested
 VERIFY_EXPECT_SCREENSAVERS=1 run_case "expected by the caller but absent fails even with no manifest" 1 m_ss_unrequested
 
