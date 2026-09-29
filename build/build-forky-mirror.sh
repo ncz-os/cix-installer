@@ -83,8 +83,13 @@ echo "  refreshing signed Debian and pinned vendor indexes"
 apt-get "${APTOPTS[@]}" update >/dev/null
 
 SEED="$TMP/seed"
+# manifests/install-extra.pkgs: packages that must be on the install media's
+# offline mirror and are installed at install time by a post-install hook, NOT
+# baked into desktop.squashfs (so adding one needs no layer rebuild). Optional.
+EXTRA_SEED="${EXTRA_SEED:-$REPO/manifests/install-extra.pkgs}"
 {
     grep -hvE '^[[:space:]]*(#|$)' "$BASE_SEED" "$DESKTOP_SEED" "$FIRMWARE_SEED" | awk '{print $1}'
+    { [ -s "$EXTRA_SEED" ] && sed 's/#.*//' "$EXTRA_SEED" | awk 'NF {print $1}'; } || true
 } | sort -u > "$SEED"
 echo "  explicit seed: $(wc -l < "$SEED") packages"
 

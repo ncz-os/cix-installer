@@ -1,0 +1,9 @@
+# install-extra.pkgs -- extra packages for the offline install mirror only.
+#
+# Names listed here are resolved into build/forky-mirror (build-forky-mirror.sh)
+# and checked by verify-offline-mirror-seeds.sh, but are NOT installed into
+# base.squashfs or desktop.squashfs; a post-install hook installs them.
+# One package name per line. Leave empty for images that ship nothing extra.
+#
+# ncz-screensavers is added here when its .deb is staged in
+# build/ncz-screensavers-out/ (see docs/ARM64-IMAGE-BUILD.md).
