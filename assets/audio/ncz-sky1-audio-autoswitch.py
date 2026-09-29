@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
-"""Auto-route CIX Sky1 HDMI/DP audio to the connected ELD output.
+"""Auto-route CIX Sky1 audio: HDMI/DP with a live ELD, else the HDA analog out.
+
+Policy (board agnostic; O6N has only the 3 DP links, MS-R1 also has the
+cix-ipbloq-hda ALC269 analog/digital card):
+  1. a cix,sky1 DP/HDMI PCM whose ELD reports audio (sad_count > 0) wins;
+  2. else the analog PCM of a cix-ipbloq-hda card. WirePlumber marks its
+     profiles unavailable while the line-out jack reads unplugged, so it would
+     create no sink at all; we deliberately create one anyway (powered speakers
+     without jack sensing, or a plug inserted later, then just work). The
+     price is that an unplugged line-out is a silent default, not "no sink";
+  (several connected monitors: the lowest PCM index wins, kept while current)
+  3. else nothing: leave PipeWire's own default alone.
+`--decide [--proc-root DIR]` prints the decision without touching PipeWire.
 
 This is deliberately a user-session helper instead of a PipeWire static
 drop-in. If PipeWire Pulse rejects a module load, this process logs and keeps
@@ -20,6 +32,9 @@ from pathlib import Path
 
 POLL_SECONDS = 2.0
 SINK_PREFIX = "ncz_sky1_hdmi"
+ANALOG_PREFIX = "ncz_sky1_analog"
+PROC = Path(os.environ.get("NCZ_SKY1_PROC_ROOT", "/proc/asound"))
+OWN_PREFIXES = (SINK_PREFIX, ANALOG_PREFIX)
 
 
 @dataclass(frozen=True)
@@ -54,7 +69,7 @@ def log(message: str) -> None:
 
 
 def cix_cards() -> list[int]:
-    cards = Path("/proc/asound/cards")
+    cards = PROC / "cards"
     if not cards.exists():
         return []
 
@@ -68,6 +83,40 @@ def cix_cards() -> list[int]:
         if "cix,sky1" in text or "cix_sky1" in text or "cixsky1" in text:
             found.append(card)
     return found
+
+
+def hda_cards() -> list[int]:
+    cards = PROC / "cards"
+    if not cards.exists():
+        return []
+    found: list[int] = []
+    for line in cards.read_text(errors="replace").splitlines():
+        match = re.match(r"\s*(\d+)\s+\[[^]]+\]:\s+([^ ]+)\s+-\s+(.*)$", line)
+        if not match:
+            continue
+        text = f"{match.group(2)} {match.group(3)}".lower()
+        if "cix-ipbloq-hda" in text or "cixipbloqhda" in text:
+            found.append(int(match.group(1)))
+    return found
+
+
+def analog_device(card: int) -> int | None:
+    """Playback PCM index of the analog output: the first pcmNp whose info names it Analog, else None."""
+    devs = sorted(
+        int(m.group(1))
+        for m in (re.search(r"pcm(\d+)p$", str(p)) for p in glob.glob(f"{PROC}/card{card}/pcm*p"))
+        if m
+    )
+    if not devs:
+        return None
+    for dev in devs:
+        info = PROC / f"card{card}" / f"pcm{dev}p" / "info"
+        try:
+            if "analog" in info.read_text(errors="replace").lower():
+                return dev
+        except OSError:
+            pass
+    return None  # never guess: a non-analog first PCM may be digital/SPDIF
 
 
 def parse_eld(path: Path) -> EldState | None:
@@ -102,7 +151,7 @@ def parse_eld(path: Path) -> EldState | None:
 def read_eld_states(cards: list[int]) -> list[EldState]:
     states: list[EldState] = []
     for card in cards:
-        for name in sorted(glob.glob(f"/proc/asound/card{card}/eld#*")):
+        for name in sorted(glob.glob(f"{PROC}/card{card}/eld#*")):
             state = parse_eld(Path(name))
             if state:
                 states.append(state)
@@ -139,7 +188,7 @@ def first_non_ncz_sink() -> str | None:
         return None
     for line in result.stdout.splitlines():
         fields = line.split("\t")
-        if len(fields) >= 2 and not fields[1].startswith(SINK_PREFIX):
+        if len(fields) >= 2 and not fields[1].startswith(OWN_PREFIXES):
             return fields[1]
     return None
 
@@ -180,8 +229,9 @@ def find_hw_sink(card: int, device: int) -> str | None:
     return flush()
 
 
-def load_sink(state: EldState, known_sinks: set[str]) -> bool:
-    if state.sink_name in known_sinks:
+def load_sink(state: EldState, known_sinks: set[str], sink_name: str | None = None) -> bool:
+    sink_name = sink_name or state.sink_name
+    if sink_name in known_sinks:
         return True
 
     device = f"hw:{state.card},{state.device}"
@@ -190,16 +240,16 @@ def load_sink(state: EldState, known_sinks: set[str]) -> bool:
             "pactl",
             "load-module",
             "module-alsa-sink",
-            f"sink_name={state.sink_name}",
+            f"sink_name={sink_name}",
             f"device={device}",
             "namereg_fail=false",
         ]
     )
     if result.returncode == 0:
-        log(f"loaded {state.sink_name} for {device}")
+        log(f"loaded {sink_name} for {device}")
         return True
 
-    log(f"failed to load {state.sink_name} for {device}: {result.stderr.strip()}")
+    log(f"failed to load {sink_name} for {device}: {result.stderr.strip()}")
     return False
 
 
@@ -241,37 +291,68 @@ def choose_connected(states: list[EldState], current: str | None) -> EldState | 
     return connected[0]
 
 
-def once(last_choice: str | None) -> str | None:
-    cards = cix_cards()
-    if not cards:
-        return last_choice
-
-    states = read_eld_states(cards)
-    if not states:
-        return last_choice
-
-    current = current_default_sink()
+def decide(current: str | None) -> tuple[str, int, int, str, str] | None:
+    """Return (kind, card, device, sink_name, label) or None. Pure w.r.t. PipeWire."""
+    states = read_eld_states(cix_cards())
     choice = choose_connected(states, current)
-    if choice is None:
-        if current and current.startswith(SINK_PREFIX):
+    if choice is not None:
+        label = choice.monitor_name or choice.connection_type or f"pcm {choice.device}"
+        return ("hdmi", choice.card, choice.device, choice.sink_name, label)
+    for card in hda_cards():
+        dev = analog_device(card)
+        if dev is not None:
+            return ("analog", card, dev, f"{ANALOG_PREFIX}_{card}_{dev}", "HDA analog out")
+    return None
+
+
+def unmute_analog(card: int) -> None:
+    # Master is the HDA output stage; the Line Out jack rides on it. Never raise
+    # a level that is already set, only clear a mute.
+    run(["amixer", "-c", str(card), "-q", "sset", "Master", "unmute"])
+
+
+def once(last_choice: str | None) -> str | None:
+    current = current_default_sink()
+    target_info = decide(current)
+    if target_info is None:
+        if current and current.startswith(OWN_PREFIXES):
             fallback = first_non_ncz_sink()
             if fallback:
                 set_default_sink(fallback)
-                log(f"no connected display ELD; restored fallback sink {fallback}")
+                log(f"no audio output available; restored fallback sink {fallback}")
                 return fallback
         return last_choice
 
+    kind, card, dev, sink, label = target_info
     known = sink_names()
-    target = ensure_sink(choice, known)
+    if kind == "analog":
+        unmute_analog(card)
+    if kind == "hdmi":
+        target = ensure_sink(EldState(card, dev, "", label, 1), known)
+    else:
+        target = sink if sink in known else (find_hw_sink(card, dev) or (sink if load_sink(EldState(card, dev, "", label, 1), known, sink) else None))
     if target and current != target:
         set_default_sink(target)
-        label = choice.monitor_name or choice.connection_type or f"pcm {choice.device}"
         log(f"selected {target} ({label})")
         return target
     return last_choice
 
 
 def main() -> int:
+    if "--decide" in sys.argv:
+        global PROC
+        if "--proc-root" in sys.argv:
+            idx = sys.argv.index("--proc-root") + 1
+            if idx >= len(sys.argv):
+                log("--proc-root needs a directory")
+                return 2
+            PROC = Path(sys.argv[idx])
+            if not PROC.is_dir():
+                log(f"--proc-root {PROC} is not a directory")
+                return 2
+        result = decide(None)
+        print("none" if result is None else f"{result[0]} {result[3]} hw:{result[1]},{result[2]}")
+        return 0
     if not pactl_available():
         log("pactl not installed; install pulseaudio-utils")
         return 1

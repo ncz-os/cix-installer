@@ -67,7 +67,19 @@ The daemon is intentionally a user service. It talks to the active user's PipeWi
 - MS-R1: `meta-cix/conf/machine/cixmini.conf` identifies the target as `ms-r1`, but no MS-R1 DTS/DSDT audio source was found in this tree. MS-R1 appears to be ACPI-described.
 - Orange Pi 6 non-Plus: no separate non-Plus DTS was found in this tree. Do not infer Orange Pi 6 behavior from Orange Pi 6 Plus.
 
-No enabled analog headphone path was found in the checked DTS sound nodes. The fallback daemon therefore detects only digital-display ELD state and leaves any future analog sink exposed by ACP/UCM untouched when no display audio ELD is connected.
+## Analog fallback (2026-09-29, MS-R1)
+
+Boards with the ACPI HDA controller (CIXH6020, card `cix-ipbloq-hda`, ALC269VC
+Analog/Digital; MS-R1, Orion O6) get a second rule. WirePlumber marks the HDA
+profiles unavailable while the line-out jack reads unplugged, so it creates no
+sink. When no display ELD reports audio, the daemon loads `ncz_sky1_analog_C_D`
+on the PCM whose name contains "Analog", clears the Master mute and makes it the
+default. A display with audio always wins over analog. An unplugged line-out is
+therefore a silent default rather than "no sink" (deliberate). The Digital PCM
+is never chosen. The O6N has no HDA card and keeps the DP-only behavior.
+`ncz-sky1-audio-autoswitch --decide [--proc-root DIR]` prints the decision
+without touching PipeWire; `build/test-sky1-audio-policy.sh` tests it against
+fixture layouts.
 
 ## Validation Performed Off Target
 
