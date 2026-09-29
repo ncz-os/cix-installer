@@ -32,7 +32,7 @@ printf '10-ungated.sh\twhy\n99-gone.sh\twhy\n' > "$T/allow.tsv"
 expect "lint: a stale allowlist row fails" 1 lint
 expect "lint: the real tree passes" 0 "$HERE/lint-hook-arch-gates.sh"
 # ---- facts comparison
-good() { printf '[fact] arch=%s\n[fact] hostname_format_ok=1\n[fact] sudo_ok=1\n[fact] screensavers_version=%s\n[fact] bing_plugin_patched=1\n[fact] sensors_plugin_patched=1\n[fact] gpu_policy_ok=1\n[fact] ssh_password_ok=1\n[fact] release_version=26.7\n[fact] release_codename=Maximilian\n' "$1" "${2:-0.3.4}"; }
+good() { printf '[fact] arch=%s\n[fact] hostname_format_ok=1\n[fact] sudo_ok=1\n[fact] screensavers_version=%s\n[fact] screensaver_plugin_version=0.3.1\n[fact] bing_plugin_patched=1\n[fact] sensors_plugin_patched=1\n[fact] gpu_policy_ok=1\n[fact] ssh_password_ok=1\n[fact] release_version=26.7\n[fact] release_codename=Maximilian\n' "$1" "${2:-0.3.4}"; }
 good arm64 > "$T/a.txt"; good amd64 > "$T/b.txt"
 expect "facts: matching targets pass" 0 "$HERE/verify-dual-arch-parity.sh" --facts "$T/a.txt" "$T/b.txt"
 good amd64 0.3.3 > "$T/b2.txt"

@@ -382,11 +382,37 @@ if [ "$WANT_SS" = 1 ]; then
         gate_miss screensavers "ncz-screensavers is not installed (59-ncz-screensavers-pkg did not install it)"
     else
         echo "[verify-target]     ncz-screensavers $SS_STATUS installed"
-        for f in /usr/bin/ncz-screensaver /usr/bin/ncz-screensaver-settings /usr/libexec/ncz-screensaver-idled /usr/libexec/ncz-screensaver-run \
+        for f in /usr/bin/ncz-screensaver /usr/libexec/ncz-screensaver-idled /usr/libexec/ncz-screensaver-run \
                  /usr/lib/systemd/user/ncz-screensaver-idled.service /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml \
                  /usr/share/ncz-screensavers/hacks.tsv; do
             exists "$f" || gate_miss screensavers "$f"
         done
+        # 0.7: the engine ships NO settings app, desktop entry or icon -- the Singularity plugin is the only UX
+        if fetch /var/lib/dpkg/info/ncz-screensavers.list "$TMP/ss.list"; then
+            if grep -Eq 'ncz-screensaver-settings|\.desktop$|/icons/' "$TMP/ss.list"; then
+                gate_miss screensavers "ncz-screensavers still ships a settings app / desktop entry / icon: $(grep -E 'ncz-screensaver-settings|\.desktop$|/icons/' "$TMP/ss.list" | head -2 | tr '\n' ' ')"
+            fi
+        else
+            gate_miss screensavers "/var/lib/dpkg/info/ncz-screensavers.list (cannot prove the package has no settings app)"
+        fi
+        for f in /usr/bin/ncz-screensaver-settings /usr/share/applications/ncz-screensaver-settings.desktop; do
+            exists "$f" && gate_miss screensavers "$f exists (the plugin is the only screensaver UX)"
+        done
+        # the Singularity plugin: installed, files present, 'screensaver' enabled by default via the gschema override
+        SS_PLUGIN="$(awk 'BEGIN{RS="";FS="\n"} { pk=""; st=""; ver=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /) pk=substr($i,10); if($i ~ /^Status: /) st=substr($i,9); if($i ~ /^Version: /) ver=substr($i,10)} if(pk=="ncz-screensavers-plugin" && st=="install ok installed") print ver }' "$TMP/dpkg-status" 2>/dev/null)"
+        if [ -z "$SS_PLUGIN" ]; then
+            gate_miss screensavers "ncz-screensavers-plugin is not installed (59-ncz-screensavers-pkg did not install it)"
+        else
+            echo "[verify-target]     ncz-screensavers-plugin $SS_PLUGIN installed"
+            for f in /opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so /opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin; do
+                exists "$f" || gate_miss screensavers "$f"
+            done
+            if fetch /opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override "$TMP/ss-override" && grep -q "^enabled-plugins=.*'screensaver'" "$TMP/ss-override"; then :; else
+                gate_miss screensavers "the default enabled-plugins does not contain 'screensaver' (99-zz-ncz-screensaver-plugin.gschema.override missing or wrong)"
+            fi
+        fi
+        # the GTK4 reference app is for OTHER distros
+        grep -q '^Package: ncz-screensavers-gtk4-reference$' "$TMP/dpkg-status" 2>/dev/null && gate_miss screensavers "ncz-screensavers-gtk4-reference is installed on NCZ-OS (it must not be)"
         NHACK="$(lsnames /usr/lib/ncz-screensavers | grep -c '_gles3$')"
         [ "$NHACK" -ge 84 ] && echo "[verify-target]     hack binaries: $NHACK" || gate_miss screensavers "only $NHACK *_gles3 hack binaries in /usr/lib/ncz-screensavers (need 84)"
         # the schema must be compiled into gschemas.compiled or the settings UI and idle timer cannot read it
@@ -475,6 +501,7 @@ echo "[fact] ssh_password_ok=${SSH_PW_OK:-0}"
 echo "[fact] hostname_format_ok=$([ -n "${HN:-}" ] && printf '%s' "$HN" | grep -Eq '^ncz-[a-z]{1,8}-[0-9]{4}$' && echo 1 || echo 0)"
 echo "[fact] sudo_ok=$([ -n "${SUDO_MEMBERS:-}" ] && echo 1 || echo 0)"
 echo "[fact] screensavers_version=${SS_STATUS:-none}"
+echo "[fact] screensaver_plugin_version=${SS_PLUGIN:-none}"
 echo "[fact] bing_plugin_patched=${BING_PATCHED:-0}"
 echo "[fact] sensors_plugin_patched=${SENSORS_PATCHED:-0}"
 if [ "$FAIL" -ne 0 ]; then

@@ -24,21 +24,25 @@ case "$VARIANT" in
         ;;
 esac
 
-if dpkg -s ncz-screensavers 2>/dev/null | grep -q '^Status: install ok installed'; then
-    echo "[59-ncz-screensavers] already installed ($(dpkg-query -W -f='${Version}' ncz-screensavers))"
-    exit 0
-fi
+ss_installed() { dpkg -s "$1" 2>/dev/null | grep -q '^Status: install ok installed'; }
+WANT=""
+for _p in ncz-screensavers ncz-screensavers-plugin; do
+    if ss_installed "$_p"; then
+        echo "[59-ncz-screensavers] $_p already installed ($(dpkg-query -W -f='${Version}' "$_p"))"
+        continue
+    fi
+    cand="$(apt-cache policy "$_p" 2>/dev/null | sed -n 's/^  Candidate: //p')"
+    if [ -z "$cand" ] || [ "$cand" = "(none)" ]; then
+        echo "[59-ncz-screensavers] no candidate for $_p in the package sources; nothing to install for it"
+        continue
+    fi
+    WANT="$WANT $_p"
+done
+[ -n "$WANT" ] || { echo "[59-ncz-screensavers] nothing to install"; exit 0; }
+# ncz-screensavers-gtk4-reference is the GTK4 app for OTHER distros; it must never be pulled into NCZ-OS
+case " $WANT " in *" ncz-screensavers-gtk4-reference "*) echo "[59-ncz-screensavers] refusing ncz-screensavers-gtk4-reference" >&2; exit 1 ;; esac
 
-# Candidate must exist in the configured (offline) sources; otherwise this
-# image simply does not ship the package yet.
-cand="$(apt-cache policy ncz-screensavers 2>/dev/null | sed -n 's/^  Candidate: //p')"
-if [ -z "$cand" ] || [ "$cand" = "(none)" ]; then
-    echo "[59-ncz-screensavers] no candidate in the package sources; nothing to install"
-    exit 0
-fi
-
-# Simulate first: never let this install remove anything already on the system.
-sim="$(DEBIAN_FRONTEND=noninteractive apt-get install -s -y --no-install-recommends ncz-screensavers 2>&1)" || {
+sim="$(DEBIAN_FRONTEND=noninteractive apt-get install -s -y --no-install-recommends $WANT 2>&1)" || {
     echo "[59-ncz-screensavers] simulation failed; not installing:" >&2
     printf '%s\n' "$sim" | tail -15 >&2
     exit 1
@@ -48,17 +52,20 @@ if printf '%s\n' "$sim" | grep -q '^Remv '; then
     printf '%s\n' "$sim" | grep '^Remv ' >&2
     exit 1
 fi
+if printf '%s\n' "$sim" | grep -q '^Inst ncz-screensavers-gtk4-reference'; then
+    echo "[59-ncz-screensavers] simulation would install ncz-screensavers-gtk4-reference; refusing" >&2
+    exit 1
+fi
 
-echo "[59-ncz-screensavers] installing ncz-screensavers $cand"
-out="$(DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ncz-screensavers 2>&1)"
+echo "[59-ncz-screensavers] installing:$WANT"
+out="$(DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $WANT 2>&1)"
 rc=$?
 printf '%s\n' "$out" | tail -8
 if [ "$rc" -ne 0 ]; then
     echo "[59-ncz-screensavers] apt install failed rc=$rc" >&2
     exit 1
 fi
-if ! dpkg -s ncz-screensavers 2>/dev/null | grep -q '^Status: install ok installed'; then
-    echo "[59-ncz-screensavers] package is not in the installed state after apt" >&2
-    exit 1
-fi
-echo "[59-ncz-screensavers] installed ncz-screensavers $(dpkg-query -W -f='${Version}' ncz-screensavers)"
+for _p in $WANT; do
+    ss_installed "$_p" || { echo "[59-ncz-screensavers] $_p is not in the installed state after apt" >&2; exit 1; }
+    echo "[59-ncz-screensavers] installed $_p $(dpkg-query -W -f='${Version}' "$_p")"
+done

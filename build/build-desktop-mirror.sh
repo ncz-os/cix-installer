@@ -309,6 +309,7 @@ ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_${ARCH}.
 ncz-singularity-desktop|$REPO/assets/cix-debs/ncz-singularity-desktop_*_${ARCH}.deb|optional
 ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_all.deb|optional
 ncz-screensavers|$REPO/build/ncz-screensavers-out/ncz-screensavers_*_${ARCH}.deb|optional
+ncz-screensavers-plugin|$REPO/build/ncz-screensavers-out/ncz-screensavers-plugin_*_${ARCH}.deb|optional
 "
 if [ "$ARCH" = arm64 ]; then
 NCZ_LOCAL_DEBS+="

@@ -28,7 +28,7 @@ if [ "${1:-}" = "--facts" ]; then
         [ "$(fact "$A" $k)" = 1 ] || bad "arm64 fact $k is '$(fact "$A" $k)', expected 1"
         [ "$(fact "$B" $k)" = 1 ] || bad "amd64 fact $k is '$(fact "$B" $k)', expected 1"
     done
-    for k in screensavers_version release_version release_codename; do
+    for k in screensavers_version screensaver_plugin_version release_version release_codename; do
         a="$(fact "$A" $k)"; b="$(fact "$B" $k)"
         if [ -z "$a" ] || [ -z "$b" ] || [ "$a" = none ] || [ "$b" = none ]; then bad "fact $k missing (arm64='$a' amd64='$b')"
         elif [ "$a" != "$b" ]; then bad "fact $k differs: arm64=$a amd64=$b"
@@ -56,9 +56,13 @@ done
 
 # 2. ncz-screensavers debs ------------------------------------------------------------------------------
 DEBS=""
-for c in "${NCZ_SCREENSAVERS_DEBS:-}" /mnt/argonas-projects/ncz-screensavers-debs /mnt/argonas/datapool/projects/ncz-screensavers-debs /nfs-shared/ncz-screensavers-debs; do
-    [ -n "$c" ] && [ -d "$c" ] && { DEBS="$c"; break; }
-done
+if [ -n "${NCZ_SCREENSAVERS_DEBS+x}" ]; then   # explicitly set (tests use a nonexistent path to skip the check)
+    [ -d "$NCZ_SCREENSAVERS_DEBS" ] && DEBS="$NCZ_SCREENSAVERS_DEBS"
+else
+    for c in /mnt/argonas-projects/ncz-screensavers-debs /mnt/argonas/datapool/projects/ncz-screensavers-debs /nfs-shared/ncz-screensavers-debs; do
+        [ -d "$c" ] && { DEBS="$c"; break; }
+    done
+fi
 if [ -n "$DEBS" ]; then
     V="$(ls "$DEBS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
     if [ -z "$V" ]; then bad "no version directory under $DEBS"
@@ -67,6 +71,15 @@ if [ -n "$DEBS" ]; then
             [ -f "$DEBS/$V/ncz-screensavers_${V}_$arch.deb" ] || bad "ncz-screensavers $V has no $arch deb"
         done
         ( cd "$DEBS/$V" && sha256sum -c SHA256SUMS >/dev/null 2>&1 ) || bad "ncz-screensavers $V SHA256SUMS do not verify"
+        # the Singularity plugin ships in the same staged dir for both arches (0.7+); the GTK4 reference app must not be in any list
+        if ls "$DEBS/$V"/ncz-screensavers-plugin_*_arm64.deb >/dev/null 2>&1 || ls "$DEBS/$V"/ncz-screensavers-plugin_*_amd64.deb >/dev/null 2>&1; then
+            for arch in arm64 amd64; do
+                ls "$DEBS/$V"/ncz-screensavers-plugin_*_$arch.deb >/dev/null 2>&1 || bad "ncz-screensavers-plugin has no $arch deb in $V"
+            done
+            grep -qx ncz-screensavers-plugin "$ROOT/manifests/install-extra.pkgs" 2>/dev/null || bad "manifests/install-extra.pkgs does not seed ncz-screensavers-plugin"
+        fi
+        if grep -rqs 'ncz-screensavers-gtk4-reference' "$ROOT/manifests" 2>/dev/null; then bad "ncz-screensavers-gtk4-reference is listed in a manifest (it is for other distros)"; fi
+        ls "$ROOT"/build/ncz-screensavers-out/ncz-screensavers-gtk4-reference* >/dev/null 2>&1 && bad "ncz-screensavers-gtk4-reference is staged for the image build"
         [ -s "$DEBS/$V/BUILT-FROM.txt" ] || bad "ncz-screensavers $V has no BUILT-FROM.txt (one source commit for both arches)"
         [ "$FAIL" = 0 ] && echo "parity: ncz-screensavers $V has arm64+amd64 debs from '$(cat "$DEBS/$V/BUILT-FROM.txt")'"
     fi
