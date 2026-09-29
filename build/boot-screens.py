@@ -19,6 +19,8 @@ ap.add_argument("--interactive", action="store_true")
 ap.add_argument("--extra-opts", default="")
 ap.add_argument("--telnet-port", type=int, default=12323)
 ap.add_argument("--probe", default="")
+ap.add_argument("--enter-every", type=float, default=0, help="vt mode: press Enter every S seconds after --enter-after (the amd64 dialogs are not readable from the VT once partman runs them)")
+ap.add_argument("--enter-after", type=int, default=20)
 ap.add_argument("--console", choices=["auto","serial","vt"], default="auto", help="where d-i draws: serial (arm64 under KVM, auto=true picks the UART) or the fbcon VT (amd64): vt reads /dev/vcs1 over the diagnostic telnet and types via the qemu monitor")
 ap.add_argument("--ask-disk", action="store_true", help="do not preset ncz_disk/ncz_fs: the disk, filesystem and erase-confirmation dialogs appear")
 ap.add_argument("--answer", action="append", default=[], help="REGEX=KEYS: when the serial console screen matches REGEX send KEYS once (\\r = Enter)")
@@ -73,7 +75,7 @@ cmd = [qemu, "-M", machine, "-accel", "kvm", "-cpu", "host", "-smp", str(a.smp),
        "-netdev", "user,id=n0,hostfwd=tcp:127.0.0.1:%d-:23" % a.telnet_port, "-device", "virtio-net-pci,netdev=n0,romfile=",
        "-object", "rng-random,filename=/dev/urandom,id=rng0", "-device", "virtio-rng-pci,rng=rng0",
        "-serial", f"unix:{ser},server=on,wait=off", "-monitor", f"unix:{mon},server,nowait", "-display", "none", "-no-reboot"] + gpu
-p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=open(os.path.join(W, "qemu.err"), "wb"))
 t0 = time.monotonic()
 for _ in range(50):
     if os.path.exists(mon): break
@@ -172,6 +174,8 @@ def grab_vt(vt=1):
         while rows and not rows[-1]: rows.pop()
         return "\n".join(rows) + "\n"
     except Exception as e:
+        try: open(os.path.join(W, "vt-errors.log"), "a").write("%s grab_vt(%s): %r\n" % (time.strftime("%H:%M:%S"), vt, e))
+        except OSError: pass
         return "(telnet not ready: %s)\n" % e
 
 
@@ -188,6 +192,8 @@ def ppm_content_fraction(path):
         for i in range(0, len(px) - 2, step):
             k = px[i:i+3]; cnt[k] = cnt.get(k, 0) + 1
         tot = sum(cnt.values()); top = max(cnt.values())
+        import hashlib
+        open(os.path.join(W, "fb-frames.txt"), "a").write("%d %s\n" % (int(time.monotonic() - t0), hashlib.md5(px[::97]).hexdigest()[:12]))
         return 1.0 - top / tot
     except Exception:
         return None
@@ -207,7 +213,7 @@ try:
         # the UI is on the fbcon VT: poll the VT text back to back, record each change as a "screen", answer by rules
         last, nsnap, changed = None, 0, time.monotonic()
         answered_vt = set()
-        next_dump = 0; next_probe = 0; fb_hist = []; fb_last = None; nfb = 0
+        next_enter = 0; next_dump = 0; next_probe = 0; fb_hist = []; fb_last = None; nfb = 0
         while p.poll() is None and time.monotonic() - t0 < a.secs:
             t = int(time.monotonic() - t0)
             fbp = os.path.join(S, f"{n:04d}-{t:04d}s.ppm")
@@ -243,6 +249,9 @@ try:
                     open(os.path.join(TS, f"{nsnap:04d}-{int(now - t0):04d}s.txt"), "w").write(f"# t={int(now - t0)}s\n{txt}\n"); nsnap += 1
                     with lock: rawlog.write((f"\n--- t={int(now - t0)}s ---\n" + txt + "\n").encode()); rawlog.flush()
                 last, changed = txt, now
+            if a.enter_every and t >= a.enter_after and time.monotonic() >= next_enter:
+                send_keys_monitor(b"\r"); next_enter = time.monotonic() + a.enter_every
+                open(os.path.join(W, "answers.log"), "a").write(f"t={int(time.monotonic() - t0)}s Enter\n")
             for i, (rx, keys) in enumerate(rules):
                 if i not in answered_vt and txt and rx.search(txt) and now - changed > 3.5:
                     answered_vt.add(i); send_keys_monitor(keys)
