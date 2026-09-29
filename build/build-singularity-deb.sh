@@ -21,7 +21,16 @@ PKG="ncz-singularity-desktop"
 # the one that produced the tarball).
 ARCH="${NCZ_SINGULARITY_ARCH:-$(dpkg --print-architecture 2>/dev/null || uname -m)}"
 GIT_SHA="${NCZ_SINGULARITY_GIT_SHA:-}"
-VERSION="${NCZ_SINGULARITY_VERSION:-$(date -u +%Y%m%d)+bk${BUILDKITE_BUILD_NUMBER:-0}${GIT_SHA:+~g${GIT_SHA}}}"
+if [ -n "$GIT_SHA" ]; then
+    GIT_TAG="git${GIT_SHA:0:8}"
+elif [ -f "$TGZ" ]; then
+    # No upstream SHA supplied: tag with the tarball content hash so different
+    # content never reuses a version.
+    GIT_TAG="tgz$(sha256sum "$TGZ" | cut -c1-8)"
+else
+    GIT_TAG="tgz00000000"
+fi
+VERSION="${NCZ_SINGULARITY_VERSION:-$(date -u +%Y%m%d)+bk${BUILDKITE_BUILD_NUMBER:-0}+${GIT_TAG}}"
 OUT="${OUT:-$(cd "$(dirname "$TGZ")" && pwd)}"
 STAGE=""
 
@@ -63,7 +72,7 @@ Architecture: $ARCH
 Maintainer: Jason Perlow <jperlow@gmail.com>
 Section: x11
 Priority: optional
-Depends: libc6, libgtk-4-1, libadwaita-1-0, libgtk4-layer-shell0, libgee-0.8-2, libpeas-2-0, libjson-glib-1.0-0, libsoup-3.0-0, libvte-2.91-gtk4-0, libgtksourceview-5-0, libwebkitgtk-6.0-4, libgraphene-1.0-0, libupower-glib3, libdbusmenu-glib4, libsodium26 | libsodium23, upower, libtinysparql-3.0-0 | libtracker-sparql-3.0-0
+Depends: libc6, libgtk-4-1, libadwaita-1-0, libgtk4-layer-shell0, libgee-0.8-2, libpeas-2-0, libjson-glib-1.0-0, libsoup-3.0-0, libvte-2.91-gtk4-0, libgtksourceview-5-0, libwebkitgtk-6.0-4, libgraphene-1.0-0, libupower-glib3, libdbusmenu-glib4, libenchant-2-2, libsodium26 | libsodium23, upower, libtinysparql-3.0-0 | libtracker-sparql-3.0-0
 Description: NCZ-OS Singularity Desktop runtime payload
  Bundled /opt/singularity tree: singularity-shell, libsingularity,
  singularity-greeter, singularity-boot-splash, singularity-loginui,
