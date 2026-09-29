@@ -65,7 +65,7 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     echo 'hwdec=v4l2m2m-copy' > "$r/etc/mpv/mpv.conf"
     # Sky1 audio autoswitch
     mkdir -p "$r/usr/local/bin" "$r/etc/systemd/user/graphical-session.target.wants"
-    echo x > "$r/usr/local/bin/ncz-sky1-audio-autoswitch"
+    printf "def hda_cards():\n    pass\ndef analog_device(c):\n    pass\n" > "$r/usr/local/bin/ncz-sky1-audio-autoswitch"
     echo x > "$r/etc/systemd/user/ncz-sky1-audio-autoswitch.service"
     echo x > "$r/usr/bin/pactl"
     ln -s /etc/systemd/user/ncz-sky1-audio-autoswitch.service "$r/etc/systemd/user/graphical-session.target.wants/ncz-sky1-audio-autoswitch.service"
@@ -121,6 +121,7 @@ m_ss_unrequested() { : > "$1/usr/local/lib/cix-installer/manifests/install-extra
 m_no_sudo()     { sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
 m_sudo_empty()  { printf 'root:x:0:\nsudo:x:27:\n' > "$1/etc/group"; }
 m_aud_nodaemon() { rm -f "$1/usr/local/bin/ncz-sky1-audio-autoswitch"; }
+m_aud_dponly()   { printf "# ncz_sky1_analog only in a comment\n" > "$1/usr/local/bin/ncz-sky1-audio-autoswitch"; }
 m_aud_nounit()   { rm -f "$1/etc/systemd/user/ncz-sky1-audio-autoswitch.service"; }
 m_aud_noenable() { rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-sky1-audio-autoswitch.service"; }
 m_aud_nopactl()  { rm -f "$1/usr/bin/pactl"; }
@@ -196,6 +197,7 @@ run_case "idled timer not enabled fails"        1 m_ss_noidled
 run_case "old idle-manager still enabled fails" 1 m_ss_oldidle
 run_case "schema not compiled fails"            1 m_ss_schema
 run_case "no audio autoswitch daemon fails"     1 m_aud_nodaemon
+run_case "DP-only audio daemon (no analog fallback) fails" 1 m_aud_dponly
 run_case "no audio autoswitch unit fails"       1 m_aud_nounit
 run_case "audio autoswitch not enabled fails"   1 m_aud_noenable
 run_case "no pactl fails"                       1 m_aud_nopactl
