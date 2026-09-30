@@ -52,6 +52,152 @@ The first build-time gate that disagrees with a misdirected symlink is
 the new `build/verify-kernel-default-policy.sh` shipped by
 `feat/kernel-default-7.2.8-2026-09-30`.
 
+## Step 1 (read-only): shipped-image inspection
+
+Both shipped images were loop-mounted read-only on ARGONAS and inspected
+on 2026-09-30 to confirm exactly which kernel each defaults to, which
+.debs are staged, and (for arm64) why 7.3-rc5 became the default kernel.
+This is the evidence base for the build-time gates in the next section.
+
+### Image A: `ncz-os-arm64-20260929-4bd67b5f.img` (Sky1)
+
+Receipt: `ncz-os-arm64-20260929-4bd67b5f.img.receipt.json`
+
+- `arch=arm64`, `BUILD_HOST=fedora`, `BUILD_VERSION=2026.09.29-4bd67b5f`,
+  `BUILD_DATE=2026-09-29T23:53:19Z`, output sha256
+  `51afe69916cd73666794e2d7d35f6a240f0cba544fd74c196bcbcbbaa5b73d72`.
+- ESP partition (`/dev/loop98p1`): the `EFI/BOOT/refind.conf` shipped is
+  the **installer** rEFInd — the boot menu (`Install`, `Install (expert)`,
+  `Rescue mode`) loads `/linux` + `/initrd.gz`, both the d-i installer
+  kernel/initrd. The installed system's rEFInd menu is generated at first
+  boot by `post-install/70-bootloader.sh`, not from this image.
+- Data partition (`/dev/loop98p2`):
+  - `/ncz-payload/KVER_NEXT` = `7.3.0-rc5-sky1-ncz`
+  - `/ncz-payload/assets/kernel/` contains `edge/`, `mali/`, `mali-70012/`,
+    `modules-overlay/`, `npu/`, `panthor/`, `vpu/` — **no `mainline/`
+    directory at all**.
+  - `/ncz-payload/assets/kernel/edge/KVER` = `7.3.0-rc5-sky1-ncz` (with
+    full `Image-cixmini.bin`, `modules-cixmini.tgz`,
+    `config-7.3.0-rc5-sky1-ncz`, `headers-cixmini.tar.zst`,
+    `sky1-orion-o6.dtb`, `PROVENANCE.txt`, `overlays/`).
+  - `/ncz-payload/post-install/10-our-kernel.sh` (the hook that becomes
+    the runtime KVER installation) reads `KVER_NEXT` and installs that
+    version as the active kernel via `apt-get install
+    linux-image-cixmini` from the Buildkite apt source. With
+    `KVER_NEXT=7.3.0-rc5-sky1-ncz`, the install path bakes
+    7.3.0-rc5 as the default.
+
+**Result**: this shipped image installs **7.3.0-rc5-sky1-ncz** as the
+default kernel on .66 because the **only** kernel payload is the `edge/`
+tree (rc5), and the build's KVER_NEXT sidecar (`7.3.0-rc5-sky1-ncz`)
+copied into the image carries that same value. The build host (`fedora`)
+had the `assets/kernel/mainline` symlink either retargeted at the rc5
+tree or pointing into the staging pool at a tree that happened to be
+the rc5 one at the moment the build ran; the build scripts copied
+whichever tree the symlink resolved to, without any independent check.
+
+### Image B: `ncz-os-amd64-20260929-617e7303.img` (amd64)
+
+Receipt: `ncz-os-amd64-20260929-617e7303.img.receipt.json`
+
+- `arch=amd64`, `BUILD_HOST=hydra`, `BUILD_VERSION=2026.09.29-617e7303`,
+  `BUILD_DATE=2026-09-29T23:50:56Z`, output sha256
+  `c4325acb0c1c948260b666145bf584c563e2c39137d34fac599d7f5c2c417f05`.
+- ESP partition (`/dev/loop99p1`): `EFI/BOOT/refind.conf` shipped is the
+  installer rEFInd; menu comment line reads
+  `"NCZ-OS 26.7 Maximilian -- built 2026-09-29 -- stable 7.2.8-3-t2-trixie /
+  edge 7.3.0-rc5-1-t2-trixie"` (this label string is generated from the
+  manifest's per-arch KVERs at build time, so it was honest at build time).
+  The boot entries themselves (`Install`, `Install (expert)`,
+  `Rescue mode`) load the d-i installer kernel/initrd — the installed
+  system's rEFInd menu is generated at first boot by
+  `post-install/70-bootloader.sh` + the runtime classifier hook
+  (`assets/refind/zz1-ncz-refind-refresh-amd64`).
+- Data partition (`/dev/loop99p2`):
+  - `/ncz-payload/assets/kernel/` contains **both** `amd64-stable/` and
+    `amd64-edge/` (the latter was DELETED from the source tree by
+    commit 834dd7f4 on this branch; this shipped image pre-dates that
+    deletion).
+  - `/ncz-payload/assets/kernel/amd64-stable/KVER` = `7.2.8-3-t2-trixie`
+    (`linux-image-7.2.8-3-t2-trixie_7.2.8-3_amd64.deb` +
+    `linux-headers-7.2.8-3-t2-trixie_7.2.8-3_amd64.deb`).
+  - `/ncz-payload/assets/kernel/amd64-edge/KVER` = `7.3.0-rc5-1-t2-trixie`
+    (`linux-image-7.3.0-rc5-1-t2-trixie_7.3.0-rc5-1_amd64.deb` +
+    `linux-headers-7.3.0-rc5-1-t2-trixie_7.3.0-rc5-1_amd64.deb`).
+  - `/ncz-payload/post-install/10-amd64-kernel.sh` (the hook that becomes
+    the runtime KVER installation on amd64) has a stub
+    `install_one()` called for both `amd64-stable` and `amd64-edge`,
+    installing both .deb sets side by side, then writing both KVERs to
+    `/usr/local/lib/cix-installer/KVER_LIST_AMD64`. The
+    first-installed line is the stable one, but the hook does NOT
+    refuse to install the rc5 edge; the only fail-closed behaviour is
+    if zero kernels install.
+
+**Result**: this shipped image installs **both** `7.2.8-3-t2-trixie` and
+`7.3.0-rc5-1-t2-trixie` on the amd64 target; the runtime classifier
+(`assets/refind/zz1-ncz-refind-refresh-amd64`) at first-boot decides
+which becomes the rEFInd `default_selection` based on per-line install
+order and initrd presence. The operator directive 2026-09-30 ("amd64
+must have no 7.3-rc5 at all, not default, not edge") rejects BOTH
+states: the .deb was even present on the disk, and the runtime
+classifier was free to mark it edge and write it as a menu entry.
+Commit 834dd7f4 removes the directory from the source tree, commit
+c5f57fc6 makes the classifier refuse to enumerate edge on amd64 even
+if a stray rc kernel is detected, and commit f13febfa's verifier
+refuses any build that stages `assets/kernel/amd64-edge/KVER`. The
+post-install hook's own defence-in-depth (refuses to install if
+`amd64-edge/` is non-empty) was added in commit 834dd7f4.
+
+### Why 7.3-rc5 became the default on arm64 (.66), the chain
+
+1. `assets/kernel/mainline` symlink → pool tree (intended
+   `r277-7.2.8-sky1-ncz-20260927`).
+2. On `fedora` at image-build time, the symlink was misdirected (or the
+   pool had been rotated) so it resolved to the `r279-7.3.0-rc5-sky1-ncz-
+   20260929` tree.
+3. `build/build-squashfs-layers.sh` copied whatever tree the symlink
+   resolved to into `ncz-payload/assets/kernel/mainline/` ... but on
+   this build the source dir was already named `edge/` in the staging
+   pool, so the payload came out as `ncz-payload/assets/kernel/edge/`
+   only (no `mainline/` at all).
+4. `build/build-baked-rootfs.sh` then read `KVER_NEXT` from the
+   resolved tree (`7.3.0-rc5-sky1-ncz`) and wrote it into
+   `ncz-payload/KVER_NEXT` in the image.
+5. `post-install/10-our-kernel.sh` on the .66 install reads
+   `KVER_NEXT` and runs `apt-get install linux-image-cixmini` for that
+   version (the rc5 .deb is present in the Buildkite repo).
+6. `post-install/70-bootloader.sh` then stages the rEFInd menu using
+   `KVER_NEXT` as the default and an optional `KVER_EDGE` as a second
+   entry — but in this build `KVER_EDGE` is empty (the
+   `assets/kernel/edge` symlink was also unmapped to the SAME rc5
+   tree), so the rEFInd menu has only ONE entry — the rc5 — and that
+   one is the default.
+7. Result: .66 boots 7.3.0-rc5.
+
+### Order of operations: where the new gates plug in
+
+| Gate                            | Where             | Catches                                                       |
+| ------------------------------- | ----------------- | ------------------------------------------------------------- |
+| `verify-kernel-default-policy.sh` check 1 | build start | `assets/kernel/mainline/KVER` carries `-rcN` (rejects build)   |
+| `verify-kernel-default-policy.sh` check 2 | build start | mainline KVER ≠ manifest `variants.mainline.kver` (manifest drift) |
+| `verify-kernel-default-policy.sh` check 3 | build start | mainline payload missing files (Image, modules, config, headers) |
+| `verify-kernel-default-policy.sh` check 4 | build start | arm64 edge KVER == mainline KVER (the misdirection class)     |
+| `verify-kernel-default-policy.sh` check 5 | build start | amd64 `assets/kernel/amd64-edge/KVER` exists (banned payload)  |
+| `verify-kernel-default-policy.sh` check 6 | build start | amd64 `amd64-stable/KVER` carries `-rcN`                      |
+| `verify-kernel-default-policy.sh` check 7 | build start | `kernel-manifest.json` missing/invalid                       |
+| `verify-kernel-default-policy.sh` check 8 | build start | amd64 classifier + refresh regression (directive markers gone)|
+| `post-install/10-amd64-kernel.sh` defence | install time | non-empty `$ASSETS/amd64-edge` payload refuses install (exit 1) |
+| `assets/refind/zz1-ncz-refind-refresh-amd64` | runtime  | refuses to classify any `*-rc*` kernel as `edge` on amd64     |
+| `assets/refind/ncz-refind-refresh-amd64.sh` | runtime  | ignores any `KVER_EDGE` passed in (amd64 has no validated 7.3) |
+
+Any single check failing closes the gate. The build-time verifier
+(`verify-kernel-default-policy.sh`) is wired into three entry points:
+`build/build-installer-image.sh` (after substrate import),
+`build/build-squashfs-layers.sh` (top of `build_base()`), and
+`build/build-baked-rootfs.sh` (before the chroot opens). A misdirected
+symlink now exits the build at the very first stage rather than
+silently baking the wrong kernel.
+
 ## What changed
 
 ### Commit 1 (`f13febfa`): the verifier and the build-time gates
