@@ -2,6 +2,8 @@
 """check-installer-screens.py -- assert on what the operator SEES on the installer console.
 
   check-installer-screens.py SCREEN_DIR [--require-dialog TEXT ...] [--require-header REGEX]
+                              [--require-prompt-sequence REGEX ...]
+                              [--require-boot-progress PHASE ...]
 
 SCREEN_DIR is the serial-screens/ directory written by build/boot-screens.py: one text file per stable console
 state, reconstructed from the terminal stream by a VT100 emulator (the d-i newt UI owns that terminal).
@@ -11,6 +13,16 @@ Fails when any state
   * has text overwritten mid-line by another writer (a "[" tag glued to a non-space in the middle of a dialog row).
 --require-dialog TEXT: some state must contain TEXT (proves the dialog was actually reached, so an empty capture cannot pass).
 --require-header REGEX: every state that draws a dialog must also match REGEX somewhere (branded header).
+--require-prompt-sequence REGEX ...: every REGEX must appear, in the given order, in some captured console state. The
+  intent is to assert the operator's prompt sequence (e.g. components, region, username, password, hostname, disk+fs).
+  The same dialog title can satisfy multiple regexes (the hostname dialog also includes the machine name in the body),
+  so the sequence is matched greedily per regex: the i-th regex matches at or after the position of the (i-1)-th match,
+  but the position is in terms of the file order (sorted by capture time). This means dialogs that appear LATER in
+  capture order (because the prompt cycle takes longer for one than another) still satisfy the sequence.
+--require-boot-progress PHASE ...: every PHASE must appear, in the given order, in the boot-time console log
+  (the [NCZ HH:MM:SS +Ns] lines from preseed/boot-progress.sh that are visible on /dev/tty1 / /dev/console BEFORE
+  the newt UI takes over). The newt UI clears them off /dev/tty1 later, but they remain in the serial capture that
+  feeds serial-screens/, so this assertion catches the operator-reported "silent boot" regression.
 """
 import argparse, os, re, sys
 
@@ -23,6 +35,8 @@ ap.add_argument("--after-t", type=int, default=None, help="with --no-blank-after
 ap.add_argument("--allow-first-blank", action="store_true", help="with --no-blank-after: the first blank state is the kernel boot and is not a defect")
 ap.add_argument("--max-blank-secs", type=int, default=8, help="a blank console shorter than this is a redraw between steps, not a vanished UI (default 8; the defect was 14-25 s)")
 ap.add_argument("--no-blank-after", default=None, help="after the first state containing TEXT, no later state may be a blank console (only the screen tab bar): the UI must stay up until the install progress")
+ap.add_argument("--require-prompt-sequence", nargs="+", default=[], help="assert every REGEX appears in the given order across the captured screens (operator's interactive sequence)")
+ap.add_argument("--require-boot-progress", nargs="+", default=[], help="assert every PHASE appears in the given order in the boot-time serial log (the [NCZ HH:MM:SS +Ns] lines from preseed/boot-progress.sh)")
 a = ap.parse_args()
 
 BAD = [
@@ -80,6 +94,52 @@ for t, ok in seen.items():
     if not ok:
         bad += 1
         print("check-installer-screens: FAIL no console state contains the required dialog text %r" % t, file=sys.stderr)
+
+# --- --require-prompt-sequence ----------------------------------------------
+# Walk the captured states in file order (sorted by capture time, the prefix
+# is NNNN-<t>s.txt); the i-th regex must match at or after the file index of
+# the (i-1)-th match. This is greedy on the regex side and order-preserving
+# on the file side: a dialog that appears later in capture time (because the
+# operator spent longer on it) still satisfies "appears after the previous
+# one" as long as it is later in file order.
+if a.require_prompt_sequence:
+    seq = [re.compile(p) for p in a.require_prompt_sequence]
+    cur_file_idx = -1
+    for i, rx in enumerate(seq):
+        matched_at = -1
+        for fi, f in enumerate(files):
+            if fi <= cur_file_idx: continue
+            txt = open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read()
+            if rx.search(txt):
+                matched_at = fi
+                break
+        if matched_at < 0:
+            bad += 1
+            print("check-installer-screens: FAIL --require-prompt-sequence[%d] /%s/ never matched any console state (in order)" % (i, seq[i].pattern), file=sys.stderr)
+        else:
+            cur_file_idx = matched_at
+
+# --- --require-boot-progress ------------------------------------------------
+# Concatenate ALL captured states (newt clears the [NCZ ...] lines off /dev/tty1
+# after it takes over, but the serial capture that built serial-screens/ keeps
+# every line in order). The phases must appear in order; each phase is matched
+# against the joined text starting AFTER the previous match's character offset.
+if a.require_boot_progress:
+    all_text = ""
+    for f in files:
+        all_text += open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read() + "\n"
+    cur_off = 0
+    for i, phase in enumerate(a.require_boot_progress):
+        # The phase token appears between "[NCZ " and " +" (e.g. "[NCZ 14:22:31 +5s] Loading installer...")
+        # so match on the literal "[NCZ ... <phase> ..." with the descriptor optional.
+        pat = re.compile(r"\[NCZ [^\]]+\]\s+" + re.escape(phase) + r"\b")
+        m = pat.search(all_text, cur_off)
+        if not m:
+            bad += 1
+            print("check-installer-screens: FAIL --require-boot-progress[%d] %r never appeared in the boot-time serial log (operator-reported silent boot regression)" % (i, phase), file=sys.stderr)
+        else:
+            cur_off = m.end()
+
 if bad:
     sys.exit(1)
 print("check-installer-screens: OK (%d console states)" % len(files))
