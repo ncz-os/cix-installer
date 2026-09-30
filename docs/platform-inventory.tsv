@@ -20,6 +20,11 @@ assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
 assets/audio/	sky1	-	Sky1 audio autoswitch (ncz-sky1-audio-autoswitch)
 assets/branding/	common	-	logos, icon theme, wallpapers, quotes
+# 2026-09-30: Cygnus 26.10 branding tree (merged from feat/cygnus-26-10-2026-09-30) --
+# theme assets + generators + generated consumer files (gtk/plymouth/newt/css/screensaver
+# palette/terminal palettes/tokens.tsv). All platform-neutral; no sky1/cixmini/t2/nvidia
+# tokens inside.
+branding/cygnus/	common	-	Cygnus 26.10 branding tree (theme assets + generators + generated consumer files)
 assets/cix-c-shims/	sky1	-	CIX aipu ioctl shim source
 assets/cix-deb-repo.gpg	sky1	-	CIX vendor apt repo key
 assets/cix-debs/	sky1	-	CIX closed-source userspace debs
