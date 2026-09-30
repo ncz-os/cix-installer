@@ -68,11 +68,89 @@ mk6 "$DIALOG_REG" "$DIALOG_COMP" "$DIALOG_USR" "$DIALOG_HOST" "$DIALOG_DISK"
 expect "operator-required 6-step sequence fails when out of order" 1 chk --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" "name this computer" "TARGET DISK"
 mk6 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_HOST" "$DIALOG_DISK"
 expect "operator-required 6-step sequence fails when a prompt is missing" 1 chk --require-prompt-sequence "optional components" "select your REGION" "type the same PASSWORD" "name this computer" "TARGET DISK"
-# full boot-progress + prompt-sequence, single dialog state holds the boot lines
-# (newt clears /dev/tty1 later but the serial capture keeps them in order).
+# --- boot-progress regression: 6 phases + dialog fixture in ONE captured state ---
+# The operator-reported "silent boot" regression (an empty framebuffer from
+# ~14 s to ~27 s on arm64 KVM) is gated by --require-boot-progress asserting
+# that ALL 6 phases appear in order BEFORE the dialog. A regression that drops
+# the boot-progress helper (e.g. removes the `ncz_boot_msg` calls in
+# preseed.cfg's early_command) breaks the gate here at the build-host level
+# rather than on real hardware.
 DIALOG_TAIL=$'  [NCZ 14:22:30 +0s] Loading installer...\n  [NCZ 14:22:31 +1s] Detecting hardware...\n  [NCZ 14:22:33 +3s] Detecting storage/USB devices...\n  [NCZ 14:22:34 +4s] Starting network...\n  [NCZ 14:22:36 +6s] Preparing installer dialogs...\n  [NCZ 14:22:38 +8s] Ready: installer UI is loading...\n  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - optional components tqqqqqqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
 rm -rf "$T/s"; mkdir -p "$T/s"; printf '# t=20s\n%s\n' "$DIALOG_TAIL" > "$T/s/0000-0020s.txt"
 expect "full boot-progress (6 phases) + first dialog passes" 0 chk --require-boot-progress "Loading installer" "Detecting hardware" "Detecting storage/USB devices" "Starting network" "Preparing installer dialogs" "Ready: installer UI is loading" --require-dialog "optional components"
+# Negative cases for --require-boot-progress: a missing phase, an out-of-order
+# phase, and a phase embedded in d-i chatter (not in the [NCZ ...] prefix).
+DIALOG_BP_MISS=$'  [NCZ 14:22:30 +0s] Loading installer...\n  [NCZ 14:22:31 +1s] Detecting hardware...\n  [NCZ 14:22:33 +3s] Detecting storage/USB devices...\n  [NCZ 14:22:34 +4s] Starting network...\n  [NCZ 14:22:38 +8s] Ready: installer UI is loading...\n  lqqqqqqqqq [NCZ-OS install - optional components tqqqqqqqqq k'
+rm -rf "$T/s"; mkdir -p "$T/s"; printf '# t=20s\n%s\n' "$DIALOG_BP_MISS" > "$T/s/0000-0020s.txt"
+expect "boot-progress fails when one phase is missing" 1 chk --require-boot-progress "Loading installer" "Detecting hardware" "Detecting storage/USB devices" "Starting network" "Preparing installer dialogs" "Ready: installer UI is loading"
+DIALOG_BP_OOO=$'  [NCZ 14:22:30 +0s] Detecting hardware...\n  [NCZ 14:22:31 +1s] Loading installer...\n  [NCZ 14:22:33 +3s] Detecting storage/USB devices...\n  [NCZ 14:22:34 +4s] Starting network...\n  [NCZ 14:22:36 +6s] Preparing installer dialogs...\n  [NCZ 14:22:38 +8s] Ready: installer UI is loading...'
+rm -rf "$T/s"; mkdir -p "$T/s"; printf '# t=20s\n%s\n' "$DIALOG_BP_OOO" > "$T/s/0000-0020s.txt"
+expect "boot-progress fails when phases are out of order" 1 chk --require-boot-progress "Loading installer" "Detecting hardware" "Detecting storage/USB devices" "Starting network" "Preparing installer dialogs" "Ready: installer UI is loading"
+# --- source-level regression: only ONE --prompt invocation per interactive chooser ---
+# The orchestrator's directive: "(5) machine name: ONE step showing the
+# auto-generated name that the user accepts or overrides; remove the redundant
+# second hostname prompt." A regression that re-invokes any chooser with
+# --prompt (e.g. a duplicate early_command block that calls hostnam_sudo twice)
+# is caught at this gate by counting the occurrences in preseed.cfg.
+ROOT="$(cd "$HERE/.." && pwd)"
+PRCFG="$ROOT/preseed/preseed.cfg"
+expect_one_presource() {
+    local name="$1"; local file="$2"
+    local n
+    # Strip line continuations (lines ending with `\`) so a chooser invocation
+    # that spans multiple lines of the joined early_command counts once.
+    n=$(tr -d '\n\\' < "$file" | grep -oE "/tmp/${name}\\.sh[[:space:]]+--prompt" | wc -l)
+    [ "$n" = 1 ] || { echo "expected exactly 1 --prompt invocation of $name in $file, got $n" >&2; return 1; }
+    return 0
+}
+expect "preseed.cfg invokes component-selector.sh --prompt exactly once" 0 expect_one_presource component-selector "$PRCFG"
+expect "preseed.cfg invokes region-chooser.sh --prompt exactly once"   0 expect_one_presource region-chooser   "$PRCFG"
+expect "preseed.cfg invokes user-chooser.sh --prompt exactly once"      0 expect_one_presource user-chooser      "$PRCFG"
+expect "preseed.cfg invokes hostname-suggest.sh --prompt exactly once"  0 expect_one_presource hostname-suggest  "$PRCFG"
+# --- source-level regression: the dialog templates carry the operator's required phrases ---
+expect_template_phrase() {
+    local file="$1"; local phrase="$2"
+    grep -qF "$phrase" "$file" 2>/dev/null || { echo "missing operator phrase '$phrase' in $file" >&2; return 1; }
+    return 0
+}
+expect "region-chooser.sh template sets locale, country, tz, keyboard from one pick" 0 expect_template_phrase "$ROOT/preseed/region-chooser.sh" "select your REGION"
+expect "user-chooser.sh template asks for username, password, password-confirm" 0 expect_template_phrase "$ROOT/preseed/user-chooser.sh" "choose a USERNAME"
+expect "user-chooser.sh password prompt is present"                              0 expect_template_phrase "$ROOT/preseed/user-chooser.sh" "choose a PASSWORD for"
+expect "user-chooser.sh password-confirm prompt is present"                      0 expect_template_phrase "$ROOT/preseed/user-chooser.sh" "type the same PASSWORD again"
+expect "hostname-suggest.sh template shows auto-generated name"                   0 expect_template_phrase "$ROOT/preseed/hostname-suggest.sh" "name this computer"
+expect "disk-fs-chooser.sh template shows the disk-select prompt"                0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "select the TARGET DISK"
+expect "disk-fs-chooser.sh template shows the erase-confirm prompt"              0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "ERASE"
+# --- source-level regression: the disk-select prompt is NOT skipped on a single candidate ---
+# The orchestrator's directive: "if exactly one non-media candidate disk, show it
+# plainly in the filesystem/confirmation step (single explicit confirm is fine);
+# if more than one, the user must choose." A regression that re-introduces an
+# `NDISK==1` auto-pick branch is caught here by scanning for the forbidden
+# pattern in disk-fs-chooser.sh.
+expect_no_silent_autopick() {
+    local file="$1"
+    # Strip comments and heredoc bodies first; we are looking for an executable
+    # branch like `elif [ NDISK -eq 1 ]`, `if [ "$NDISK" -eq 1 ]`, or
+    # `[ NDISK == 1 ]`. Comment text mentioning "the old NDISK==1 branch" is fine.
+    awk '
+        /^[[:space:]]*#/ { next }
+        /^<<-?AUNCH\/.*TPL/,/^[[:space:]]*AUNCH\/.*TPL/ { next }
+        /^<<-?TPL/,/^TPL$/ { next }
+        { print }
+    ' "$file" | grep -nE 'NDISK[^A-Za-z0-9_]+-eq[[:space:]]*1|NDISK[^A-Za-z0-9_]+==[[:space:]]*1' >/dev/null 2>&1 \
+        && { echo "$file: a silent auto-pick on NDISK==1 was re-introduced (operator safety requirement)" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh never auto-picks on a single candidate" 0 expect_no_silent_autopick "$ROOT/preseed/disk-fs-chooser.sh"
+# --- source-level regression: boot-progress helper is sourced + 6 ncz_boot_msg calls are present ---
+expect_boot_progress() {
+    local cfg="$1"
+    grep -qE '\. /ncz/boot-progress\.sh|ncz_boot_msg' "$cfg" >/dev/null 2>&1 || { echo "$cfg: boot-progress helper is not sourced / no ncz_boot_msg call" >&2; return 1; }
+    local n
+    n=$(grep -cE 'ncz_boot_msg[[:space:]]+[a-z]+[[:space:]]+"' "$cfg" 2>/dev/null || echo 0)
+    [ "$n" = 6 ] || { echo "$cfg: expected 6 ncz_boot_msg calls (one per phase), got $n" >&2; return 1; }
+    return 0
+}
+expect "preseed.cfg sources boot-progress + calls ncz_boot_msg exactly 6 times" 0 expect_boot_progress "$PRCFG"
 rm -rf "$T/s"; mkdir "$T/s";                                  expect "empty capture fails"                     1 chk
 # templates that d-i draws with newt must be ASCII: the em dash rendered "<ERR>" and truncated the title on hardware
 ROOT="$(cd "$HERE/.." && pwd)"
