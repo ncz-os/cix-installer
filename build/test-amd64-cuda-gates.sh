@@ -70,10 +70,12 @@ eq "turing plan: open kernel modules" "$(plan turing-plus KMOD)" open
 eq "turing plan: toolkit"         "$(plan turing-plus TOOLKIT)" 13-4
 eq "turing plan: repo"            "$(plan turing-plus REPO)" debian13
 if [[ " $(plan turing-plus DRIVER_PKGS) " == *" nvidia-egl-icd "* ]] &&
-   [[ " $(plan turing-plus DRIVER_PKGS) " == *" libegl-nvidia0 "* ]]; then
-    ok "turing plan includes NVIDIA EGL ICD and library"
+   [[ " $(plan turing-plus DRIVER_PKGS) " == *" libegl-nvidia0 "* ]] &&
+   [[ " $(plan turing-plus DRIVER_PKGS) " == *" libnvidia-egl-wayland1 "* ]] &&
+   [[ " $(plan turing-plus DRIVER_PKGS) " == *" libnvidia-egl-gbm1 "* ]]; then
+    ok "turing plan includes NVIDIA EGL ICD, library, Wayland and GBM platforms"
 else
-    nok "turing plan lacks NVIDIA EGL ICD or library"
+    nok "turing plan lacks NVIDIA EGL runtime packages"
 fi
 eq "maxwell-volta plan: driver pin" "$(plan maxwell-volta DRIVER_PIN)" '580.*'
 eq "maxwell-volta plan: PROPRIETARY module (open is Turing+ only)" "$(plan maxwell-volta KMOD)" proprietary
@@ -154,6 +156,7 @@ mktarget() {   # mktarget DIR STATUS [kind: installed|pending|conf-only] [family
         printf 'Package: cuda-nvcc-%s\nStatus: install ok installed\n\nPackage: cuda-libraries-dev-%s\nStatus: install ok installed\n\n' "$tk" "$tk" > "$d/var/lib/dpkg/status"
         if [ "$family" = turing-plus ]; then
             printf 'Package: nvidia-egl-icd\nStatus: install ok installed\n\nPackage: libegl-nvidia0\nStatus: install ok installed\n\n' >> "$d/var/lib/dpkg/status"
+            printf 'Package: libnvidia-egl-wayland1\nStatus: install ok installed\n\nPackage: libnvidia-egl-gbm1\nStatus: install ok installed\n\n' >> "$d/var/lib/dpkg/status"
         fi
     fi
     if [ "$kind" = pending ]; then
@@ -168,6 +171,10 @@ mktarget "$T" "installed:13.4.92-1" installed; sed -i '/^Package: nvidia-egl-icd
                                                  expect_rc 1 "target: missing NVIDIA EGL ICD is rejected" "$TG" --root "$T" --expect installed
 mktarget "$T" "installed:13.4.92-1" installed; sed -i '/^Package: libegl-nvidia0$/,+2d' "$T/var/lib/dpkg/status"
                                                  expect_rc 1 "target: missing NVIDIA EGL library is rejected" "$TG" --root "$T" --expect installed
+mktarget "$T" "installed:13.4.92-1" installed; sed -i '/^Package: libnvidia-egl-wayland1$/,+2d' "$T/var/lib/dpkg/status"
+                                                 expect_rc 1 "target: missing Wayland EGL platform is rejected" "$TG" --root "$T" --expect installed
+mktarget "$T" "installed:13.4.92-1" installed; sed -i '/^Package: libnvidia-egl-gbm1$/,+2d' "$T/var/lib/dpkg/status"
+                                                 expect_rc 1 "target: missing GBM EGL platform is rejected" "$TG" --root "$T" --expect installed
 mktarget "$T" "installed:13.4.92-1" installed;   expect_rc 0 "target: auto derives installed" "$TG" --root "$T"
 mktarget "$T" "installed:12.9.86-1" installed maxwell-volta; expect_rc 0 "target: installed (Pascal, CUDA 12.9) passes" "$TG" --root "$T" --expect installed
 mktarget "$T" "installed:13.4.92-1" installed; rm "$T/usr/local/cuda-13.4/bin/nvcc"

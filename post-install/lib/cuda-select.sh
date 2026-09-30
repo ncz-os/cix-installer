@@ -91,7 +91,9 @@ FAMILY=turing-plus
 DRIVER_BRANCH=615
 DRIVER_PIN='615.*'
 KMOD=open
-DRIVER_PKGS='cuda-drivers libnvidia-encode1 libnvcuvid1 nvidia-egl-icd libegl-nvidia0'
+# PEGASUS RTX 2060 needed the ICD/library plus Wayland and GBM external
+# platforms before PRIME's GLES3 calibrator selected NVIDIA on Wayland.
+DRIVER_PKGS='cuda-drivers libnvidia-encode1 libnvcuvid1 nvidia-egl-icd libegl-nvidia0 libnvidia-egl-wayland1 libnvidia-egl-gbm1'
 TOOLKIT=13-4
 TOOLKIT_DIR=/usr/local/cuda-13.4
 TOOLKIT_PKGS='cuda-compiler-13-4 cuda-libraries-13-4 cuda-libraries-dev-13-4'

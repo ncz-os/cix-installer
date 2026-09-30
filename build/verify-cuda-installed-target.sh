@@ -81,6 +81,8 @@ case "$EXPECT" in
         if [ "$(conf FAMILY)" = turing-plus ]; then
             dpkg_has nvidia-egl-icd || bad "dpkg does not list nvidia-egl-icd (PRIME EGL vendor) as installed"
             dpkg_has libegl-nvidia0 || bad "dpkg does not list libegl-nvidia0 (NVIDIA EGL library) as installed"
+            dpkg_has libnvidia-egl-wayland1 || bad "dpkg does not list libnvidia-egl-wayland1 (Wayland EGL platform) as installed"
+            dpkg_has libnvidia-egl-gbm1 || bad "dpkg does not list libnvidia-egl-gbm1 (GBM EGL platform) as installed"
         fi
         ;;
     pending)
