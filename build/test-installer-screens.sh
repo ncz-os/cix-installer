@@ -565,11 +565,19 @@ expect "disk-fs-chooser.sh prompts for target disk, root fs AND erase confirmati
 # the expert_recipe and partman needs the disk pin before the wipe.
 expect_disk_db_input_order() {
     local f="$1"
-    local t_disk t_fs t_erase
-    t_disk=$(grep -nE '^[[:space:]]*db_input critical ncz/target-disk'   "$f" | head -1 | cut -d: -f1)
-    t_fs=$(  grep -nE '^[[:space:]]*db_input critical ncz/root-fs'      "$f" | head -1 | cut -d: -f1)
-    t_erase=$(grep -nE '^[[:space:]]*db_input critical ncz/confirm-erase' "$f" | head -1 | cut -d: -f1)
+    local t_disk t_fs t_erase n_disk n_fs n_erase
+    # Capture every db_input critical ncz/<key> line (not just head -1); the
+    # orchestrator MUST invoke each disk-stage template exactly once, and any
+    # duplicate or out-of-order call breaks the operator-required sequence.
+    t_disk=$(  grep -nE '^[[:space:]]*db_input critical ncz/target-disk'   "$f" | head -1 | cut -d: -f1)
+    t_fs=$(    grep -nE '^[[:space:]]*db_input critical ncz/root-fs'      "$f" | head -1 | cut -d: -f1)
+    t_erase=$( grep -nE '^[[:space:]]*db_input critical ncz/confirm-erase' "$f" | head -1 | cut -d: -f1)
+    n_disk=$(  grep -cE '^[[:space:]]*db_input critical ncz/target-disk'   "$f")
+    n_fs=$(    grep -cE '^[[:space:]]*db_input critical ncz/root-fs'      "$f")
+    n_erase=$( grep -cE '^[[:space:]]*db_input critical ncz/confirm-erase' "$f")
     [ -n "$t_disk" ] && [ -n "$t_fs" ] && [ -n "$t_erase" ] || { echo "$f: disk-stage db_input line numbers missing" >&2; return 1; }
+    [ "$n_disk"  = 1 ] && [ "$n_fs" = 1 ] && [ "$n_erase" = 1 ] \
+        || { echo "$f: each disk-stage db_input must be called exactly once (target-disk=$n_disk, root-fs=$n_fs, confirm-erase=$n_erase)" >&2; return 1; }
     [ "$t_disk" -lt "$t_fs" ] && [ "$t_fs" -lt "$t_erase" ] \
         || { echo "$f: disk-stage db_input calls are NOT in the required order (target-disk < root-fs < confirm-erase)" >&2; return 1; }
     return 0
@@ -585,7 +593,7 @@ expect "disk-fs-chooser.sh shows the 3 disk-stage prompts in order (target-disk 
 # inside the confirm-erase template body (not anywhere else in the file).
 expect_confirm_erase_default_false() {
     local f="$1"
-    awk '
+    awk -v f="$f" '
         /<<-?[\047"]?[A-Z]*TPL/ { in_tpl=1; next }
         in_tpl && /^[[:space:]]*[A-Z]*TPL[[:space:]]*$/ { in_tpl=0; next }
         in_tpl && /^Template:[[:space:]]+ncz\/confirm-erase/ { in_erase=1; next }
@@ -604,8 +612,13 @@ expect "disk-fs-chooser.sh confirm-erase template defaults to false (never auto-
 # regression that drops the db_set line cannot make the operator auto-erase.
 expect_confirm_erase_force_false() {
     local f="$1"
-    grep -nE '^[[:space:]]*db_set[[:space:]]+ncz/confirm-erase[[:space:]]+false' "$f" >/dev/null 2>&1 \
-        || { echo "$f: missing 'db_set ncz/confirm-erase false' before the db_input critical call (defence in depth against an auto-erase regression)" >&2; return 1; }
+    local t_dbset t_dbinput
+    t_dbset=$(  grep -nE '^[[:space:]]*db_set[[:space:]]+ncz/confirm-erase[[:space:]]+false' "$f" | head -1 | cut -d: -f1)
+    t_dbinput=$(grep -nE '^[[:space:]]*db_input critical ncz/confirm-erase' "$f" | head -1 | cut -d: -f1)
+    [ -n "$t_dbset" ] || { echo "$f: missing 'db_set ncz/confirm-erase false' (defence in depth against an auto-erase regression)" >&2; return 1; }
+    [ -n "$t_dbinput" ] || { echo "$f: missing 'db_input critical ncz/confirm-erase' (the gate the db_set must precede)" >&2; return 1; }
+    [ "$t_dbset" -lt "$t_dbinput" ] \
+        || { echo "$f: 'db_set ncz/confirm-erase false' (line $t_dbset) must appear BEFORE 'db_input critical ncz/confirm-erase' (line $t_dbinput) -- otherwise the operator sees the stale answer, not the forced-false one" >&2; return 1; }
     return 0
 }
 expect "disk-fs-chooser.sh forces ncz/confirm-erase=false before db_input (auto-erase defence in depth)" 0 expect_confirm_erase_force_false "$ROOT/preseed/disk-fs-chooser.sh"
