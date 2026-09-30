@@ -1,0 +1,42 @@
+{
+  "$comment": "Proposed 'cygnus' palette for the Black Hole and shader savers. Each pair is (hot, cool) for accretion/emissive ramps: magenta carries the hot side, cyan the cool side, over the violet-black field. Consumed by LEAD 20 / the ncz-screensavers owners; not applied from this repo.",
+  "cygnus": {
+    "field": "#0B0714",
+    "ramp": [
+      "#0B0714",
+      "#3A0B3A",
+      "#A0106A",
+      "#E8339A",
+      "#FF9BD0",
+      "#FFFFFF"
+    ],
+    "cool-ramp": [
+      "#0B0714",
+      "#074452",
+      "#0E8FA8",
+      "#2ED8F0",
+      "#8BEBF8",
+      "#FFFFFF"
+    ],
+    "pairs": [
+      [
+        "#E8339A",
+        "#2ED8F0"
+      ],
+      [
+        "#FF5CB4",
+        "#13B6D1"
+      ],
+      [
+        "#C2177E",
+        "#8BEBF8"
+      ],
+      [
+        "#FF9BD0",
+        "#0E8FA8"
+      ]
+    ],
+    "starfield-tint": "#CFC3E6",
+    "photon-ring": "#FFE6F4"
+  }
+}

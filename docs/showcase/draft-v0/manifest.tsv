@@ -1,0 +1,15 @@
+source	component	file	status	notes
+L20	blackhole-scenes	best-v2-director_t60.jpg	included	Director camera, main shot
+L20	blackhole-scenes	best-v2-merger_t53.6.jpg	included	Binary merger sequence
+L20	blackhole-scenes	best-v2-binary_t45.jpg	included	Binary pair close-up
+L20	blackhole-scenes	best-v2-three-body_t45.jpg	included	Three-body choreography
+L20	blackhole-scenes	clip.mp4	staged	Full scenes and director camera
+branding	wallpaper	ncz-wallpaper-06-cygnus-vacuum-decay-2k.jpg	wired	Primary wallpaper asset
+branding	wallpaper	ncz-wallpaper-07-maximilian-blackhole-2k.jpg	wired	Secondary blackhole theme
+branding	plymouth	cygnus-colors.script	wired	Boot theme colors and animation
+branding	refind	refind.conf.snippet	wired	Boot menu appearance
+branding	singularity	Cygnus	wired	Desktop theme and styling
+artist-pack	browser	singularity-artist-pack-inventory	wired	Artist pack browser integration
+artist-pack	policy	dev.sinty.desktop.artist-pack-install.policy	wired	Installation policy
+sizzle	reel	ncz-os-26.10-screensavers-sizzle.mp4	draft-v0	75s ambient + synthesized bed
+sizzle	reel	ncz-os-26.10-screensavers-sizzle.webm	draft-v0	WebM variant for compatibility

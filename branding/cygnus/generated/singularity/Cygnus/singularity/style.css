@@ -1,0 +1,29 @@
+/* Generated from branding/cygnus/tokens.json by tools/gen-cygnus.py. Do not edit. */
+/* Cygnus - Singularity theme, style.css. */
+/*
+ * Colors below are Cygnus tokens under their own cygnus_* names, plus
+ * the libsingularity base names. A note on the base names: libsingularity
+ * loads its palette at GTK_STYLE_PROVIDER_PRIORITY_USER (800) and user
+ * themes at APPLICATION+5/+6 (605/606), so a base name redefined here
+ * only wins once the theme is loaded above the base (proposed upstream
+ * fix: branding/cygnus/singularity/UPSTREAM-NOTE.md). Everything that
+ * uses cygnus_* names or derives from @accent_color works either way.
+ */
+@define-color cygnus_magenta #D6208C;
+@define-color cygnus_cyan #2ED8F0;
+@define-color cygnus_violet #0B0714;
+
+/* Focus is cyan so it never reads as a selected (magenta) state. */
+.singularity *:focus-visible {
+    outline: 2px solid alpha(@cygnus_focus, 0.95);
+    outline-offset: 2px;
+}
+.sidebar-item:selected { background-color: alpha(@accent_color, 0.26); }
+.singularity entry:focus-within { border-color: @cygnus_focus; }
+.singularity link, .singularity .link { color: @cygnus_link; }
+.singularity progressbar > trough > progress {
+    background-image: linear-gradient(to right, @accent_color, @cygnus_cyan);
+}
+.quick-setting-tile:checked { box-shadow: inset 0 0 0 1px alpha(@cygnus_cyan, 0.45); }
+.workspace-preview:selected { box-shadow: 0 0 0 2px @accent_color; }
+
