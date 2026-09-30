@@ -13,7 +13,7 @@
 #   2. per-platform views: scope=<p> equals the base tree restricted to inventory classes
 #      common, mixed and <p>; nothing of the other platform leaks in.
 #   3. `make -n ARCH=arm64 image` and `make -n ARCH=amd64 image` output is identical to the
-#      base tree's (paths normalized), i.e. no recipe or prerequisite changed except the
+#      release tree's (--release, default origin/release/dual-arch-2026-09-29) (paths normalized), i.e. no recipe or prerequisite changed except the
 #      quiet parse-time view assembly.
 #   4. build/lint-platform.sh and build/test-platform-lint.sh pass on the scope=all view.
 # The view is left assembled with scope=all on exit.
@@ -21,7 +21,14 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 cd "$REPO"
 BASE=""
-[ "${1:-}" = "--base" ] && BASE="${2:?rev}"
+REL="origin/release/dual-arch-2026-09-29"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --base) BASE="${2:?rev}"; shift 2 ;;
+        --release) REL="${2:?rev}"; shift 2 ;;
+        *) echo "usage: verify-split.sh [--base REV] [--release REV]" >&2; exit 2 ;;
+    esac
+done
 if [ -z "$BASE" ]; then
     m=$(git log --format=%H --grep='^platform-split: physical move' -1)
     [ -n "$m" ] || { echo "verify-split: cannot find the physical-move commit; pass --base REV" >&2; exit 2; }
@@ -84,8 +91,11 @@ check_scope sky1-arm64
 check_scope amd64
 python3 platform-tools/platform-assemble.py --scope all --quiet
 
-# 3. make -n identity against the base tree
-git worktree add -q --detach "$T/base" "$BASE" || { bad "cannot check out base"; exit 1; }
+# 3. make -n identity. The Makefile legitimately moves with the release branch, so compare
+# against the release commit merged into this branch (--release; falls back to the base).
+git rev-parse -q --verify "$REL" >/dev/null 2>&1 || REL="$BASE"
+echo "verify-split: make -n compared against $(git rev-parse --short "$REL")"
+git worktree add -q --detach "$T/base" "$REL" || { bad "cannot check out base"; exit 1; }
 for a in arm64 amd64; do
     # the image name embeds the short git sha of the tree being built: normalize it
     bsha=$(git -C "$T/base" rev-parse --short=8 HEAD); hsha=$(git rev-parse --short=8 HEAD)

@@ -92,7 +92,7 @@ moved by re-running `platform-tools/platform-split-move.py` (idempotent).
   list handling, positive and negative.
 * `make parity`: manifest divergence, `ncz-screensavers` debs, hook arch-gate heuristic
   (release-branch gates).
-* `platform-tools/verify-split.sh [--base REV]`: proves the split changed nothing a
+* `platform-tools/verify-split.sh [--base REV] [--release REV]` (needs ~1.5 GB of TMPDIR; set TMPDIR to a disk path if /tmp is tmpfs): proves the split changed nothing a
   builder can see. Scope `all`: every file the pre-split tree tracked is present at the
   same flat path with the same git blob id and mode. Scopes `sky1-arm64` and `amd64`:
   exactly the base files whose inventory class is common, mixed or that platform. Both
