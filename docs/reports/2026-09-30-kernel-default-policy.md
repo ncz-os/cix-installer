@@ -569,3 +569,152 @@ branch):
 
 `make lint-platform` exits 0 ("lint-platform: OK (83 hooks, 2593 files
 classified)").
+
+## Commit 6 (`1d8bdd5d`, r6 of this report): defense in depth at every gate
+
+The previous five commits added the verifier and the four runtime
+defense-in-depth hooks (amd64 classifier/refresh + amd64-edge
+deletion + the offline fallback for dev hosts). After r5 was
+rejected (2026-09-30 11:23 EDT), an inventory of the remaining
+unguarded paths showed three more gates that the .66 root cause
+could still exploit, plus two existing checks that needed to be
+tightened:
+
+### What this commit does
+
+| Change | Why |
+| ------ | --- |
+| `Makefile` `kernel-debs` target now runs `verify-kernel-default-policy.sh --arch arm64` before any deb is built or moved | The .debs are produced here on the build host. A misdirected `assets/kernel/mainline` symlink at packaging time silently produces `rc5` .debs (exactly the .66 root cause); gating packaging closes that path. |
+| `assets/refind/ncz-refind-refresh.sh` runtime gate: refuse to write an rEFInd menu where `KVER_NEXT` matches `*-rc[0-9]*` | This is the arm64 analogue of the amd64 `KVER_EDGE` zeroing in `ncz-refind-refresh-amd64.sh`. The build-time verifier catches a misdirected mainline symlink, but a hand-edit or an OTA retargeting `KVER_NEXT` at `-rcN` would still write an `rcN` default entry. The runtime gate is the last line of defense. |
+| `build/build-iso-di.sh` standalone path now runs the verifier before any `KVER` is read | This script is the path that produced the .66 image today (CI calls it directly for the arm64 production image). The other entry scripts gated on the verifier; `build-iso-di.sh` did not. Same gate, same point. |
+| `post-install/10-amd64-kernel.sh` amd64-edge guard: was "any `.deb` in `amd64-edge/`"; now ANY non-hidden entry (a stray `KVER` sidecar, a stray `PROVENANCE.txt`, etc.) | The `amd64-edge/` directory is supposed to be ABSENT, not to host a sidecar with no .debs. Tightening the check to "any non-hidden file" closes that ambiguity. |
+| `build/verify-kernel-default-policy.sh` check 9 (NEW): require both rEFInd refresh scripts to still carry the `*-rescue` sparing/promotion logic and the arm64 `PRESERVE OPERATOR-STAGED RESCUE KERNELS` marker comment | Operator directive 2026-09-30 says "keep the rescue entry"; a future refactor that drops the rescue-promotion contract silently removes the safety net. This static check catches that on every build. Synthesized fixture trees don't carry the refresh scripts on purpose, so the check is gated by `SKIP_RESCUE_CHECK` in fixture tests and runs only against the real repo. |
+| `build/test-kernel-default-policy.sh`: add the rescue-preservation positive and regression-guard cases against the real repo and a synthesized regression copy | Three new tests: arm64 + amd64 both preserve the rescue markers today; arm64 catches the regression if the `*-rescue` sparing/promotion logic is stripped out. |
+
+### Final test inventory (after commit 6, this commit)
+
+```
+$ bash build/test-kernel-default-policy.sh
+... PASS=25 FAIL=0
+exit=0
+
+$ make parity
+... PASS=25 FAIL=0
+exit=0
+
+$ bash build/verify-kernel-default-policy.sh --arch amd64
+[kernel-default-policy] amd64: stable KVER '7.2.8-1-t2-trixie' (release)
+[kernel-default-policy] amd64: no edge channel (policy satisfied)
+[kernel-default-policy] amd64: classifier hook refuses to enumerate edge (directive 2026-09-30)
+[kernel-default-policy] amd64: rEFInd refresh refuses to write an edge entry (directive 2026-09-30)
+[kernel-default-policy] rescue entry preservation: both arches carry the *-rescue sparing/promotion logic (directive 2026-09-30)
+[kernel-default-policy] OK -- kernel default policy satisfied (arch=amd64 mainline=<empty>)
+exit=0
+
+$ bash build/verify-kernel-default-policy.sh --arch arm64
+[kernel-default-policy] WARN: ... mainline symlink -> '...r277-7.2.8-sky1-ncz-20260927' (unresolved) but local tree ... has matching KVER '7.2.8-sky1-ncz'; using it
+[kernel-default-policy] mainline KVER '7.2.8-sky1-ncz' (release)
+[kernel-default-policy] mainline KVER matches manifest: 7.2.8-sky1-ncz
+[kernel-default-policy] WARN: ... edge symlink -> '...r279-7.3.0-rc5-sky1-ncz-20260929' (unresolved) but local rc tree '...r273-7.3.0-rc4-sky1-ncz-20260920/' has KVER '7.3.0-rc4-sky1-ncz'; using it as the edge channel
+[kernel-default-policy] edge KVER '7.3.0-rc4-sky1-ncz' (rc; non-default experimental entry)
+[kernel-default-policy] rescue entry preservation: both arches carry the *-rescue sparing/promotion logic (directive 2026-09-30)
+[kernel-default-policy] OK -- kernel default policy satisfied (arch=arm64 mainline=7.2.8-sky1-ncz)
+exit=0
+
+$ make kernel-debs
+[kernel-default-policy] WARN: ... edge symlink -> '...' (unresolved) but local rc tree '...' has KVER '7.3.0-rc4-sky1-ncz'; using it as the edge channel
+[kernel-default-policy] edge KVER '7.3.0-rc4-sky1-ncz' (rc; non-default experimental entry)
+[kernel-default-policy] rescue entry preservation: both arches carry the *-rescue sparing/promotion logic (directive 2026-09-30)
+[kernel-default-policy] OK -- kernel default policy satisfied (arch=arm64 mainline=7.2.8-sky1-ncz)
+[kernel-debs] skipping Sky1 kernel packages for amd64
+exit=0
+
+$ bash build/lint-platform.sh
+lint-platform: OK (83 hooks, 2593 files classified)
+exit=0
+```
+
+Totals (this branch, HEAD `1d8bdd5d`):
+
+- `bash build/test-kernel-default-policy.sh`: 25 tests, 0 failed
+- `make parity`: 25 tests, 0 failed (the parity target re-runs the
+  kernel-default-policy suite via `Makefile`)
+- `bash build/lint-platform.sh`: passes
+
+### Push (commit 6, this commit)
+
+```
+$ git push argonas feat/kernel-default-7.2.8-2026-09-30
+To ssh://192.168.207.101/mnt/datapool/git/cix-installer.git
+   297ff5f7..1d8bdd5d  feat/kernel-default-7.2.8-2026-09-30 -> feat/kernel-default-7.2.8-2026-09-30
+
+$ git push origin feat/kernel-default-7.2.8-2026-09-30
+To https://gitlab.com/ncz-os/cix-installer.git
+   297ff5f7..1d8bdd5d  feat/kernel-default-7.2.8-2026-09-30 -> feat/kernel-default-7.2.8-2026-09-30
+
+$ git ls-remote argonas refs/heads/feat/kernel-default-7.2.8-2026-09-30
+1d8bdd5dc4c4db3e0aff1a22ecaf9281eb1d4119    refs/heads/feat/kernel-default-7.2.8-2026-09-30
+
+$ git ls-remote origin refs/heads/feat/kernel-default-7.2.8-2026-09-30
+1d8bdd5dc4c4db3e0aff1a22ecaf9281eb1d4119    refs/heads/feat/kernel-default-7.2.8-2026-09-30
+```
+
+Both remotes are in sync at `1d8bdd5d`. The push to the operator's
+ssh mirror (`ssh://jasonperlow@192.168.207.101/...`) succeeds
+without a bundle/patch fallback (the r5 report's push failure has
+been resolved: the operator mirror accepted the ed25519 key since
+the r5 push).
+
+### Files changed on commit 6 (cumulative)
+
+```
+$ git diff --stat 297ff5f7..1d8bdd5d
+ Makefile                              | 14 +++++++++
+ assets/refind/ncz-refind-refresh.sh   | 18 +++++++++++
+ build/build-iso-di.sh                 | 19 ++++++++++++
+ build/test-kernel-default-policy.sh   | 57 ++++++++++++++++++++++++++++++++---
+ build/verify-kernel-default-policy.sh | 42 ++++++++++++++++++++++++++
+ post-install/10-amd64-kernel.sh       | 16 +++++-----
+ 6 files changed, 155 insertions(+), 11 deletions(-)
+```
+
+### Branch SHAs on both remotes (final, this commit)
+
+```
+$ git log --oneline 727c9a62..HEAD
+1d8bdd5d kernel(policy): close the .66 incident -- defense in depth at every gate
+297ff5f7 docs: kernel-default-policy report -- add Step 1 shipped-image inspection (both arches)
+0cc686b8 docs: kernel-default-policy report -- record commit 4 (offline fallback) and final test inventory
+aabf5e59 merge: bring gitlab's runtime defence-in-depth + offline-fallback commits into the local branch
+47545e01 kernel(policy): verifier runs on dev hosts without the kernel-staging pool mounted
+c5f57fc6 kernel(policy): amd64 runtime defence in depth (classifier + refresh refuse edge)
+834dd7f4 kernel(policy): delete amd64-edge; amd64 ships only the 7.2.x stable line
+f13febfa kernel(policy): enforce 7.2.8 as default on every arch; arm64-only edge for 7.3-rc5
+```
+
+Six commits on top of `release/dual-arch-2026-09-29` (base
+`727c9a62`); HEAD is `1d8bdd5d` on both `argonas` and `origin`
+(gitlab). This matches the operator's standing rule "before
+reporting done: tests pass, git status clean, HEAD committed AND
+pushed (ARGONAS origin ssh://... plus the gitlab remote if the
+repo has one)".
+
+### Things still explicitly NOT verified (cumulative)
+
+1. QEMU/KVM boot of a fresh image on either arch. The operator
+   rule forbids kernel rebuilds and hardware reboots; the
+   static-gate + fixture-test path is the highest rigour permitted
+   by the rules.
+2. `assets/kernel/mainline` symlink target on the next build host
+   run. Whoever runs the build must point it at the validated
+   `r277-7.2.8-sky1-ncz` tree (the verifier will refuse anything
+   else, with or without the fallback).
+3. The Cygnus 26.10 branding branch
+   (`origin/feat/cygnus-26-10-2026-09-30` @ d2956cd0) is NOT
+   merged into this branch per operator policy.
+4. Live boot of a fully-rebuilt image on the .66 (Sky1, MS-R1)
+   hardware. The operator's standing rule is "never reboot
+   hardware" -- the proof is by static gate + fixture test only.
+5. The arm64 edge KVER on the build farm is r279 7.3.0-rc5
+   (kernel-staging pool); locally we only have r273 7.3.0-rc4.
+   The verifier accepts either.
