@@ -58,6 +58,20 @@ if [ -z "$KVER_STABLE" ]; then
     exit 1
 fi
 
+# Operator directive 2026-09-30: amd64 ships NO 7.3-rc5 line at all (no
+# default, no edge). If a KVER_EDGE is somehow passed in (legacy hook
+# data, future operator-initiated staging of an experimental kernel),
+# REFUSE to write an edge menu entry here -- this is the runtime defence
+# in depth alongside build/verify-kernel-default-policy.sh (which refuses
+# to stage amd64-edge at build time) and the classify() function in
+# zz1-ncz-refind-refresh-amd64 (which refuses to enumerate edge from a
+# live /boot). The kernel itself may still be installed (operator apt
+# install), but the rEFInd menu cannot offer it as a bootable entry.
+if [ -n "$KVER_EDGE" ]; then
+    echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- amd64 has no validated 7.3 kernel (operator directive 2026-09-30)"
+    KVER_EDGE=""
+fi
+
 echo "  KVER_STABLE=$KVER_STABLE"
 echo "  KVER_EDGE=${KVER_EDGE:-<none>}"
 echo "  BUILD_VERSION=$BUILD_VERSION"

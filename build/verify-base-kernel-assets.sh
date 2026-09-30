@@ -71,18 +71,17 @@ command -v unsquashfs >/dev/null || { echo "verify-base-kernel-assets: ERROR: un
 SRC_BASE="$ROOT/assets/kernel"
 EMBED_BASE="usr/local/lib/cix-installer/assets/kernel"
 
-# The two amd64 kernel lines the install hook reads. arm64 has its own
+# The single amd64 kernel line the install hook reads. arm64 has its own
 # asset layout (assets/kernel/mainline/, KVER_NEXT, etc.) and a different
 # hook (10-our-kernel.sh) -- out of scope for this verifier.
 #
 # Bug 2 fix (2026-09-28, arm64 host). The verifier used to RUN on every
 # host that built a base.squashfs, including ULTRA (arm64/Sky1).
-# On an arm64 host assets/kernel/amd64-{stable,edge}/ hold only a KVER
-# stub -- there is no Image-cixmini.bin, no .deb pairs, nothing this
-# verifier knows how to compare -- so the per-line pair sanity check
-# reported empty channels and exited 1:
+# On an arm64 host assets/kernel/amd64-stable/ holds only a KVER stub --
+# there is no Image-cixmini.bin, no .deb pairs, nothing this verifier
+# knows how to compare -- so the per-line pair sanity check reported
+# empty channels and exited 1:
 #     ERROR: base.squashfs: amd64-stable holds 0 image(s) and 0 headers(s) (must be exactly 1 of each)
-#     ERROR: base.squashfs: amd64-edge holds 0 image(s) and 0 headers(s) (must be exactly 1 of each)
 # On ULTRA's 2026-09-28 arm64 build run the verifier aborted
 # base.squashfs reuse even though the kernel input it would have
 # checked (amd64 lines) was not relevant to that image at all. Gate the
@@ -91,6 +90,13 @@ EMBED_BASE="usr/local/lib/cix-installer/assets/kernel"
 # first, then the late.sh-stamped BUILD_ARCH sidecar, then
 # dpkg --print-architecture as a last-resort fallback. On arm64 it
 # skips cleanly; on amd64 it runs the existing comparison as before.
+#
+# Policy update (operator directive 2026-09-30, .66 incident): amd64 ships
+# NO edge kernel. The verifier previously checked amd64-{stable,edge};
+# the amd64-edge channel was removed from the tree (see
+# docs/reports/2026-09-30-kernel-default-policy.md), so LINES is now
+# amd64-stable only. The layer-embed filter is also restricted to that
+# single channel.
 ARCH="${NCZ_TARGET_ARCH:-}"
 if [ -z "$ARCH" ] && [ -r "$ROOT/build/iso-staging-di/ncz-payload/BUILD_ARCH" ]; then
     ARCH=$(tr -d '[:space:]' < "$ROOT/build/iso-staging-di/ncz-payload/BUILD_ARCH")
@@ -100,7 +106,7 @@ if [ "$ARCH" != "amd64" ]; then
     echo "verify-base-kernel-assets: skipped (NCZ_TARGET_ARCH=$ARCH -- amd64-only verifier; arm64/Sky1 uses assets/kernel/mainline + 10-our-kernel.sh, not the amd64 .deb-pair layout this verifier compares against)"
     exit 0
 fi
-LINES=(amd64-stable amd64-edge)
+LINES=(amd64-stable)
 
 EMBED_LIST="$(mktemp "${TMPDIR:-/tmp}/ncz-vbka-embed.XXXXXX")"
 SRC_LIST="$(mktemp "${TMPDIR:-/tmp}/ncz-vbka-src.XXXXXX")"
@@ -110,15 +116,15 @@ trap 'rm -f "$EMBED_LIST" "$SRC_LIST"' EXIT
 # (no /tmp write, no sudo). Lines start with "squashfs-root/" (a
 # synthetic prefix unsquashfs adds; not part of the archive) -- strip
 # it before matching, then filter to FILES (not directory entries)
-# under one of the amd64 kernel lines, and pull just the basenames.
-# The on-disk path inside the layer is a build detail; only the
-# filenames matter because that is what dpkg -i receives at install
-# time. KVER sidecars under amd64-{stable,edge} are also matched --
-# the staging script keeps one KVER per line, so that file IS part of
-# the embed contract (10-amd64-kernel.sh historically read it; the
-# filename derivation in the rewritten hook no longer depends on it,
-# but a future hook or operator inspection might).
-EMBED_LINES_RE='amd64-stable|amd64-edge'
+# under the amd64-stable channel, and pull just the basenames. The
+# on-disk path inside the layer is a build detail; only the filenames
+# matter because that is what dpkg -i receives at install time. KVER
+# sidecars under amd64-stable are also matched -- the staging script
+# keeps one KVER per line, so that file IS part of the embed contract
+# (10-amd64-kernel.sh historically read it; the filename derivation in
+# the rewritten hook no longer depends on it, but a future hook or
+# operator inspection might).
+EMBED_LINES_RE='amd64-stable'
 unsquashfs -l "$LAYER" 2>/dev/null \
     | sed -e 's#^squashfs-root/##' \
     | awk -v eb="$EMBED_BASE" -v lre="$EMBED_LINES_RE" '
@@ -139,6 +145,8 @@ unsquashfs -l "$LAYER" 2>/dev/null \
 # historically read it; the rewritten hook derives its expected kver
 # from the .deb filename now, but the sidecar is still committed and
 # still gets baked in, so it must remain consistent with the source).
+# Policy update (2026-09-30): only amd64-stable .debs are scanned; the
+# amd64-edge channel was removed.
 : > "$SRC_LIST"
 for line in "${LINES[@]}"; do
     d="$SRC_BASE/$line"

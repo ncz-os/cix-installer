@@ -38,9 +38,12 @@
 #      build fails partway through, not after.
 #
 #   3. The kernel-staging pool's newest dated directory for each line
-#      (amd64-stable, amd64-edge, and the single arm64/Sky1 line under the
+#      (amd64-stable, and the single arm64/Sky1 line under the
 #      r<N>-*-sky1-ncz-* namespace) is genuinely newer than or equal to
-#      whatever this checkout's own kernel-line pointer resolves to. This
+#      whatever this checkout's own kernel-line pointer resolves to. amd64
+#      no longer has an edge channel (operator directive 2026-09-30: no
+#      validated amd64 7.3 kernel exists); any amd64-edge-* build sitting
+#      in the pool now surfaces as an orphan and fails the gate. This
 #      does not replace stage-amd64-kernel.sh (or stage-kernel.sh); it
 #      exists to catch the window where a fresher kernel was JUST promoted
 #      to the shared pool but a concurrently-running or freshly-started
@@ -216,12 +219,13 @@ fi
 # Two parallel arms -- amd64 and arm64 (Sky1). Both consume the SAME
 # shared ARGONAS pool, but their packaging and naming differ:
 #
-#   amd64 has TWO namespaces (amd64-stable-*, amd64-edge-*); each line's
+#   amd64 has ONE namespace (amd64-stable-*); each line's
 #   payload is a .deb pair (linux-image-*.deb + linux-headers-*.deb) the
 #   installer dpkg-installs. Comparison: sha256 of the .deb in the pool
-#   vs the .deb in assets/kernel/<line>/. This is the "byte-for-byte
-#   unchanged" path -- the per-line body is now in check_amd64_line() but
-#   every line it prints is identical to what the old inline loop emitted.
+#   vs the .deb in assets/kernel/<line>/. The amd64-edge-* namespace
+#   was removed (operator directive 2026-09-30, .66 incident: no
+#   validated amd64 7.3 kernel exists); any leftover amd64-edge-* build
+#   in the pool now fails the orphan check at the bottom of this block.
 #
 #   arm64 (Sky1) has ONE namespace (r<N>-<kver>-sky1-ncz-<date>) with the
 #   -rc marker splitting the same set into a stable class and a
@@ -410,9 +414,15 @@ check_amd64_line() {
 if [ -d "$KERNEL_STAGING_DIR" ]; then
     case "$NCZ_SYSTEM_ARCH" in
         amd64)
-            for line in amd64-stable amd64-edge; do
-                check_amd64_line "$line"
-            done
+            # Operator policy 2026-09-30: amd64 ships ONLY the stable
+            # 7.2.x line. There is no validated amd64 7.3 kernel, so the
+            # previously-also-checked amd64-edge channel was removed. If
+            # an amd64-edge-* build is still sitting in the shared pool
+            # (a leftover from before the policy took effect, or an
+            # operator-run publish-amd64-kernel.sh call), it is now an
+            # orphan and will fail the orphan-prefix check below -- not a
+            # silent pass.
+            check_amd64_line amd64-stable
             ;;
         arm64)
             check_arm64_channel assets/kernel/mainline stable required
@@ -446,8 +456,11 @@ if [ -d "$KERNEL_STAGING_DIR" ]; then
     while IFS= read -r d; do
         [ -n "$d" ] || continue
         case "$(basename "$d")" in
-            # amd64: the two live lines.
-            amd64-stable-*|amd64-edge-*) ;;
+            # amd64: the single live line. Operator directive 2026-09-30
+            # removed the amd64-edge-* namespace; any leftover pool
+            # directory with that prefix is an orphan and must surface
+            # below rather than silently classify as "known".
+            amd64-stable-*) ;;
             # arm64: the single live namespace -- r<N>-<kver>-sky1-ncz-<date>.
             # The trailing * lets a future suffix (e.g. -xhcifix) still
             # classify instead of falling through unseen, same posture as
@@ -469,12 +482,14 @@ EOF
     if [ -n "$orphans" ]; then
         echo "[3] FAIL: kernel-staging holds build(s) under a prefix nothing consumes:"
         for o in $orphans; do echo "          $o"; done
-        echo "          The amd64 arm globs amd64-stable-* and amd64-edge-*;"
+        echo "          The amd64 arm globs amd64-stable-*;"
         echo "          the arm64 arm globs r<digit>*-*-sky1-ncz*. Anything else"
         echo "          will NEVER be staged into an image."
         echo "          Rename to the correct line prefix, or republish with"
-        echo "          build/publish-amd64-kernel.sh {stable|edge} <deb-dir> (amd64)"
-        echo "          or build/stage-kernel.sh (arm64)."
+        echo "          build/publish-amd64-kernel.sh stable <deb-dir> (amd64)"
+        echo "          or build/stage-kernel.sh (arm64). Note: amd64-edge-* is"
+        echo "          no longer a known prefix (operator policy 2026-09-30: amd64"
+        echo "          ships NO edge kernel -- no validated amd64 7.3 kernel exists)."
         FAIL=$((FAIL + 1))
     fi
 else

@@ -223,9 +223,12 @@ what is conceptually **two channels** (the kernel currently trusted as
 default, and whatever is being tested as edge). Every step above is a
 manual workaround for that. The real fix, matching how this project already
 separates "stable" and "edge" line concepts everywhere else
-(`build/stage-amd64-kernel.sh`'s `amd64-stable`/`amd64-edge`, the
-Sky1 dual-track O6N/cixmini kernel lines), is to give the Sky1 kernel the
-same treatment:
+(`build/stage-amd64-kernel.sh`'s `amd64-stable` channel -- the
+amd64-edge channel was removed by the operator directive 2026-09-30
+because no validated amd64 7.3 kernel exists, see
+`docs/reports/2026-09-30-kernel-default-policy.md` -- and the
+Sky1 dual-track O6N/cixmini kernel lines), is to give the Sky1 kernel
+the same treatment:
 
 - Package the kernel under test as a **separate package name**
   (`linux-image-cixmini-edge`, distinct from `linux-image-cixmini`), so
