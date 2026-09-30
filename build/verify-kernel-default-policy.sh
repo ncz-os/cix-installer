@@ -138,6 +138,32 @@ resolve_kver_file() {
     cd "$d" 2>/dev/null && pwd -P
 }
 
+# find_local_sibling: scan $ROOT/assets/kernel/r*/ (and adjacent top-level
+# dirs that look like kernel trees) for one whose KVER file matches
+# <wanted-kver>. Echoes the resolved directory path on success, or empty on
+# no match. Used as a fallback when the committed symlink at
+# assets/kernel/mainline (or edge) is dangling because the kernel-staging
+# pool (/mnt/argonas-yocto-shared) is not mounted on this build host.
+# The staging pool is the canonical source on the build farm; this fallback
+# exists only to keep the verifier runnable on dev hosts that have the
+# kernel tree vendored in-tree (assets/kernel/r277-... etc.) but no NFS
+# share mounted. The verifier always logs a WARN when the fallback fires.
+find_local_sibling() {
+    local wanted_kver="$1" dir kver
+    [ -n "$wanted_kver" ] || return 1
+    [ -d "$ROOT/assets/kernel" ] || return 1
+    for dir in "$ROOT"/assets/kernel/r*/; do
+        [ -d "$dir" ] || continue
+        [ -s "$dir/KVER" ] || continue
+        kver=$(tr -d '[:space:]' < "$dir/KVER")
+        if [ "$kver" = "$wanted_kver" ]; then
+            cd "$dir" 2>/dev/null && pwd -P
+            return 0
+        fi
+    done
+    return 1
+}
+
 # is_prerelease: classify a KVER string as release-candidate or not.
 is_prerelease() {
     case "$1" in *-rc[0-9]*) return 0 ;; *) return 1 ;; esac
@@ -181,6 +207,21 @@ fi
 MAINLINE_RESOLVED_DIR=$(resolve_kver_file "$ROOT/assets/kernel/mainline" 2>/dev/null) || true
 KVER_NEXT=""
 if [ "$ARCH" = arm64 ] || [ "$ARCH" = aarch64 ]; then
+    # If the committed mainline symlink is dangling (the kernel-staging pool
+    # at /mnt/argonas-yocto-shared is not mounted on this build host), look
+    # for a sibling tree vendored in assets/kernel/ whose KVER matches the
+    # manifest's variants.mainline.kver. This is a dev-host convenience: the
+    # build farm always has the pool mounted and uses the symlinked path.
+    case "$MAINLINE_RESOLVED_DIR" in
+        DANGLING_SYM:*)
+            _t=${MAINLINE_RESOLVED_DIR#DANGLING_SYM:}
+            _fallback=$(find_local_sibling "$MANIFEST_MAINLINE_KVER" 2>/dev/null || true)
+            if [ -n "$_fallback" ] && [ -d "$_fallback" ]; then
+                warn "assets/kernel/mainline symlink -> '$_t' (unresolved) but local tree '$_fallback' has matching KVER '$MANIFEST_MAINLINE_KVER'; using it (build farm uses the pool-mounted symlink)"
+                MAINLINE_RESOLVED_DIR="$_fallback"
+            fi
+            ;;
+    esac
     case "$MAINLINE_RESOLVED_DIR" in
         DANGLING_SYM:*|MISSING_DIR|"")
             if [ -L "$ROOT/assets/kernel/mainline" ]; then
@@ -206,11 +247,18 @@ if [ "$ARCH" = arm64 ] || [ "$ARCH" = aarch64 ]; then
                     fi
                     # Check 3: required files present.
                     for _f in "Image-cixmini.bin" "modules-cixmini.tgz" \
-                              "config-$KVER_NEXT" "headers-cixmini.tar.zst"; do
+                              "config-$KVER_NEXT"; do
                         if [ ! -s "$MAINLINE_RESOLVED_DIR/$_f" ]; then
                             err "assets/kernel/mainline/$_f missing or empty (mainline payload incomplete)"
                         fi
                     done
+                    # Headers: accept either the legacy generic filename
+                    # (headers-cixmini.tar.zst) or the per-KVER filename
+                    # (headers-<kver>.tar.zst) that newer trees use.
+                    if [ ! -s "$MAINLINE_RESOLVED_DIR/headers-cixmini.tar.zst" ] \
+                       && [ ! -s "$MAINLINE_RESOLVED_DIR/headers-$KVER_NEXT.tar.zst" ]; then
+                        err "assets/kernel/mainline/headers-* missing or empty (mainline payload incomplete)"
+                    fi
                 fi
             fi
             ;;
@@ -247,6 +295,24 @@ esac
 if [ "$ARCH" = arm64 ] || [ "$ARCH" = aarch64 ]; then
     EDGE_RESOLVED_DIR=$(resolve_kver_file "$ROOT/assets/kernel/edge" 2>/dev/null) || true
     KVER_EDGE=""
+    # Same fallback as mainline: if the edge symlink is dangling AND we have
+    # a local sibling tree, use it (with WARN). The edge kernel carries -rc,
+    # so the fallback is keyed on "any sibling tree with -rc KVER".
+    case "$EDGE_RESOLVED_DIR" in
+        DANGLING_SYM:*)
+            _t=${EDGE_RESOLVED_DIR#DANGLING_SYM:}
+            for _dir in "$ROOT"/assets/kernel/r*/; do
+                [ -d "$_dir" ] || continue
+                [ -s "$_dir/KVER" ] || continue
+                _kver=$(tr -d '[:space:]' < "$_dir/KVER")
+                if is_prerelease "$_kver"; then
+                    warn "assets/kernel/edge symlink -> '$_t' (unresolved) but local rc tree '$_dir' has KVER '$_kver'; using it as the edge channel (build farm uses the pool-mounted symlink)"
+                    EDGE_RESOLVED_DIR=$(cd "$_dir" 2>/dev/null && pwd -P)
+                    break
+                fi
+            done
+            ;;
+    esac
     case "$EDGE_RESOLVED_DIR" in
         DANGLING_SYM:*|MISSING_DIR|"")
             if [ -L "$ROOT/assets/kernel/edge" ]; then
@@ -276,11 +342,18 @@ if [ "$ARCH" = arm64 ] || [ "$ARCH" = aarch64 ]; then
                         log "edge KVER '$KVER_EDGE' (rc; non-default experimental entry)"
                     fi
                     for _f in "Image-cixmini.bin" "modules-cixmini.tgz" \
-                              "config-$KVER_EDGE" "headers-cixmini.tar.zst"; do
+                              "config-$KVER_EDGE"; do
                         if [ ! -s "$EDGE_RESOLVED_DIR/$_f" ]; then
                             warn "assets/kernel/edge/$_f missing or empty (edge payload incomplete; edge menu entry will be skipped at boot)"
                         fi
                     done
+                    # Headers: accept either the legacy generic filename
+                    # (headers-cixmini.tar.zst) or the per-KVER filename
+                    # (headers-<kver>.tar.zst) that newer trees use.
+                    if [ ! -s "$EDGE_RESOLVED_DIR/headers-cixmini.tar.zst" ] \
+                       && [ ! -s "$EDGE_RESOLVED_DIR/headers-$KVER_EDGE.tar.zst" ]; then
+                        warn "assets/kernel/edge/headers-* missing or empty (edge payload incomplete; edge menu entry will be skipped at boot)"
+                    fi
                 fi
             fi
             ;;
