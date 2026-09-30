@@ -241,3 +241,85 @@ written after the operator runs the re-built image on the box).
    intended behaviour (a silent pass would be the regression mode), but
    it does mean the next build on `fedora` may need a one-time
    pool-cleanup pass.
+
+## Commit 3 (this update): runtime defence in depth on amd64
+
+Commits 1 and 2 close the BUILD-time gaps (no edge channel staged, no
+edge in the manifest, no edge kernel .debs). But the operator directive
+("amd64 ships NO 7.3-rc5 line at all") also applies at RUNTIME: even if
+a stray 7.3-rc5 kernel were ever apt-installed on an amd64 box
+(out-of-band operator experiment, an unscheduled pool rehydration,
+etc.), the rEFInd menu must NOT surface it as a bootable edge entry.
+The classifier hook and the refresh script must therefore refuse to
+enumerate edge on amd64.
+
+This commit closes that runtime gap:
+
+| Component                                       | Change                                                    |
+| ----------------------------------------------- | --------------------------------------------------------- |
+| `assets/refind/zz1-ncz-refind-refresh-amd64`    | `classify()` now refuses to return `edge` on amd64. Any  |
+|                                                 | `*-t2-trixie` with `-rcN` is dropped (the kernel stays   |
+|                                                 | installed but no menu entry is written); the legacy      |
+|                                                 | `*-ncz-amd64-edge` glob is dead code (kept commented so  |
+|                                                 | future grep audits still surface it).                    |
+| `assets/refind/ncz-refind-refresh-amd64.sh`     | Even if a stray KVER_EDGE is passed in (legacy hook data,|
+|                                                 | future operator-initiated staging), the refresh script   |
+|                                                 | zeroes it and logs a WARN -- an edge menu entry is NEVER  |
+|                                                 | written on amd64. The stable line still boots by default.|
+| `build/verify-kernel-default-policy.sh`         | New check 8 (amd64-only): the runtime rEFInd refresh      |
+|                                                 | pipeline (classifier hook AND refresh script) MUST      |
+|                                                 | contain the directive-2026-09-30 markers. If either is   |
+|                                                 | rolled back, the build fails closed.                     |
+| `build/test-kernel-default-policy.sh`           | 3 new fixture tests: classifier rolled back -> FAIL;     |
+|                                                 | refresh script rolled back -> FAIL; both honoured ->     |
+|                                                 | PASS. (16 -> 19 tests total.)                            |
+| `build/test-amd64-kernel-classifier.sh`         | The pre-existing classifier test was rewritten: it now    |
+|                                                 | asserts the directive (amd64 has NO edge, regardless of  |
+|                                                 | what `*-rc` kernels are in /boot). REPO_ROOT env override|
+|                                                 | added so `make parity` can source from the working tree.  |
+| `Makefile`                                      | `make parity` now runs `test-amd64-kernel-classifier.sh`  |
+|                                                 | (with REPO_ROOT passed in).                              |
+
+### Why this gap was real
+
+The classifier rewrite in b85ac93 ("feat(amd64): apt-published
+kernels + postinst hook to keep rEFInd current") was motivated by an
+earlier symptom (the `-xhcifix` orphan) and DID correctly classify
+7.3-rc4-ncz-amd64-edge as edge on amd64. The test of that era
+asserted exactly that ("rc5 becomes EDGE, 7.2.8 stays STABLE"). After
+the 2026-09-30 directive, that behaviour is OUT OF POLICY. This commit
+flips the test to assert the directive and adds the static verifier
+check so a future contributor cannot silently roll it back.
+
+### What this commit DOES NOT do
+
+- It does NOT change the arm64/Sky1 path. arm64 still ships
+  `assets/kernel/edge` (rc5) and the rEFInd menu still offers it as a
+  console-only experimental entry. The classifier hook on arm64 is
+  unchanged.
+- It does NOT remove the 7.3.0-rc4-ncz-amd64-edge classification logic
+  from the script -- it is kept (in the legacy case branch) because
+  the verifier still grep-audits the directive markers, and a silent
+  grep audit passing is the regression mode the directive is designed
+  to ban.
+- It does NOT touch any pool-pruning or build-side payload changes --
+  those are commits 1+2.
+
+### Verification (after this commit)
+
+```
+$ ARCH=amd64 bash build/verify-kernel-default-policy.sh
+[kernel-default-policy] amd64: stable KVER '7.2.8-1-t2-trixie' (release)
+[kernel-default-policy] amd64: no edge channel (policy satisfied)
+[kernel-default-policy] amd64: classifier hook refuses to enumerate edge (directive 2026-09-30)
+[kernel-default-policy] amd64: rEFInd refresh refuses to write an edge entry (directive 2026-09-30)
+[kernel-default-policy] OK -- kernel default policy satisfied (arch=amd64 mainline=<empty>)
+```
+
+`make parity` exits 0. Test totals: 19 (parity) + 48 (no-software-render)
++ 17 (installer-screens) + 15 (ncz-ui) + 11 (base-stamp) + 16
+(reap-images) + 8 (amd64-kernel-classifier) + 19 (kernel-default-policy)
+= 153 individual tests, 0 failed.
+
+`make lint-platform` exits 0 ("lint-platform: OK (83 hooks, 2593 files
+classified)").

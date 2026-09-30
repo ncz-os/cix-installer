@@ -48,6 +48,12 @@
 #   6. On amd64: assets/kernel/amd64-stable/KVER MUST exist and MUST NOT
 #      carry an -rcN suffix.
 #   7. assets/kernel-manifest.json exists and is valid JSON.
+#   8. (amd64) The runtime rEFInd refresh pipeline (classifier hook
+#      assets/refind/zz1-ncz-refind-refresh-amd64 AND refresh script
+#      assets/refind/ncz-refind-refresh-amd64.sh) refuses to surface
+#      a 7.3-rc as EDGE. This is the runtime analogue of check 5 --
+#      even if a stray kernel is installed on the box, the rEFInd menu
+#      cannot offer it as a bootable entry.
 #
 # Usage:
 #   verify-kernel-default-policy.sh [--root <repo-root>] [--arch arm64|amd64]
@@ -313,6 +319,30 @@ if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
         err "amd64: assets/kernel/amd64-edge/KVER exists -- amd64 ships NO edge kernel by operator directive 2026-09-30 (no validated amd64 7.3 kernel exists)"
     else
         log "amd64: no edge channel (policy satisfied)"
+    fi
+
+    # Check 8 (amd64): the runtime rEFInd refresh pipeline must NOT
+    # enumerate a 7.3-rc5 as EDGE. This is the runtime analogue of
+    # check 5 -- the build-time gate refuses to stage amd64-edge, and
+    # the runtime scripts (classifier hook + refresh) must refuse to
+    # surface one even if a stray kernel is installed on the box. If
+    # the classifier still classifies any 7.3-rc as "edge", the build
+    # fails closed here.
+    _hook="$ROOT/assets/refind/zz1-ncz-refind-refresh-amd64"
+    _refresh="$ROOT/assets/refind/ncz-refind-refresh-amd64.sh"
+    if [ -f "$_hook" ]; then
+        if grep -q 'amd64 never ships edge' "$_hook" 2>/dev/null; then
+            log "amd64: classifier hook refuses to enumerate edge (directive 2026-09-30)"
+        else
+            err "amd64: classifier hook does not contain the 'amd64 never ships edge' directive-2026-09-30 marker; the classifier could surface a 7.3-rc as edge on a live amd64 box"
+        fi
+    fi
+    if [ -f "$_refresh" ]; then
+        if grep -q 'KVER_EDGE.*ignored.*amd64 has no validated 7.3 kernel' "$_refresh" 2>/dev/null; then
+            log "amd64: rEFInd refresh refuses to write an edge entry (directive 2026-09-30)"
+        else
+            err "amd64: rEFInd refresh $_refresh does not contain the 'KVER_EDGE ... ignored' directive-2026-09-30 marker; an edge menu entry could be written even when KVER_EDGE is passed in"
+        fi
     fi
 fi
 
