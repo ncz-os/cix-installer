@@ -227,6 +227,12 @@ BAKED_HELPERS = [
     "ncz-hostname-gen.sh",
     "ncz-ui.sh",
     "locale-keyboard-chooser.sh",
+    # 2026-09-30: 6-step interactive flow (components, region, username, password+confirm,
+    # hostname, disk+fs) plus boot-progress messages and the extracted ssh-keys helper.
+    "region-chooser.sh",
+    "user-chooser.sh",
+    "boot-progress.sh",
+    "ssh-keys.sh",
 ]
 
 REQUIRED_SSH_UDEBS = (
