@@ -45,7 +45,17 @@ DIALOG_PWD=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq 
 DIALOG_PWDC=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - type the same PASSWORD again tqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
 DIALOG_HOST=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - name this computer (hostname) tqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
 DIALOG_DISK=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - select the TARGET DISK tqqqqqqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
+DIALOG_ROOTFS=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - root (/) filesystem tqqqqqqqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
+# Note: the regex tokens passed to --require-prompt-sequence are Python
+# re patterns; "(" and ")" are regex metacharacters, so the dialog-title
+# regex for the root-fs prompt uses the unique substring "root" + "filesystem"
+# to avoid the metachar trap while still uniquely identifying the dialog.
 DIALOG_ERASE=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - ERASE /dev/sda and install? tqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
+# Orchestrator's required flow is 9 dialog states (step 4 = 2 password prompts,
+# step 6 = target-disk + root-fs + erase confirmation = 3 dialogs). The first
+# 8 of 9 are checked by the existing mk8 helper; the full 9-state flow is
+# checked separately by mk9 below so a regression that reorders the disk-stage
+# dialogs (target disk / root fs / erase confirmation) is caught here too.
 mk8() { rm -rf "$T/s"; mkdir -p "$T/s"
     printf '# t=15s\n%s\n' "$1" > "$T/s/0000-0015s.txt"
     printf '# t=20s\n%s\n' "$2" > "$T/s/0001-0020s.txt"
@@ -55,8 +65,23 @@ mk8() { rm -rf "$T/s"; mkdir -p "$T/s"
     printf '# t=33s\n%s\n' "$6" > "$T/s/0005-0033s.txt"
     printf '# t=37s\n%s\n' "$7" > "$T/s/0006-0037s.txt"
     printf '# t=41s\n%s\n' "$8" > "$T/s/0007-0041s.txt"; }
-mk8 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_HOST" "$DIALOG_DISK" "$DIALOG_ERASE"
-expect "operator-required full 8-dialog sequence (6 2x password ERASE) passes" 0 chk --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "name this computer" "TARGET DISK" "ERASE"
+mk8 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_HOST" "$DIALOG_DISK" "$DIALOG_ROOTFS"
+expect "operator-required 8-of-9 dialog sequence (components region user password password-confirm hostname target-disk root-fs) passes" 0 chk --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "name this computer" "TARGET DISK" "root \\(/\\) filesystem"
+mk9() { rm -rf "$T/s"; mkdir -p "$T/s"
+    printf '# t=15s\n%s\n' "$1" > "$T/s/0000-0015s.txt"
+    printf '# t=18s\n%s\n' "$2" > "$T/s/0001-0018s.txt"
+    printf '# t=21s\n%s\n' "$3" > "$T/s/0002-0021s.txt"
+    printf '# t=24s\n%s\n' "$4" > "$T/s/0003-0024s.txt"
+    printf '# t=27s\n%s\n' "$5" > "$T/s/0004-0027s.txt"
+    printf '# t=30s\n%s\n' "$6" > "$T/s/0005-0030s.txt"
+    printf '# t=33s\n%s\n' "$7" > "$T/s/0006-0033s.txt"
+    printf '# t=36s\n%s\n' "$8" > "$T/s/0007-0036s.txt"
+    printf '# t=40s\n%s\n' "$9" > "$T/s/0008-0040s.txt"; }
+mk9 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_HOST" "$DIALOG_DISK" "$DIALOG_ROOTFS" "$DIALOG_ERASE"
+expect "operator-required full 9-dialog sequence (6-step + 2x password + target/root-fs/erase) passes" 0 chk --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "name this computer" "TARGET DISK" "root \\(/\\) filesystem" "ERASE"
+# Negative: out-of-order swap of root-fs and erase-confirm must FAIL.
+mk9 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_HOST" "$DIALOG_DISK" "$DIALOG_ERASE" "$DIALOG_ROOTFS"
+expect "operator-required 9-step sequence fails when root-fs and ERASE are swapped" 1 chk --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "name this computer" "TARGET DISK" "root \\(/\\) filesystem" "ERASE"
 DIALOG_BAD=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - WRONG-ORDER dialog tqqqqqqqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
 mk6() { rm -rf "$T/s"; mkdir -p "$T/s"
     printf '# t=15s\n%s\n' "$1" > "$T/s/0000-0015s.txt"
@@ -119,6 +144,7 @@ expect "user-chooser.sh password prompt is present"                             
 expect "user-chooser.sh password-confirm prompt is present"                      0 expect_template_phrase "$ROOT/preseed/user-chooser.sh" "type the same PASSWORD again"
 expect "hostname-suggest.sh template shows auto-generated name"                   0 expect_template_phrase "$ROOT/preseed/hostname-suggest.sh" "name this computer"
 expect "disk-fs-chooser.sh template shows the disk-select prompt"                0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "select the TARGET DISK"
+expect "disk-fs-chooser.sh template shows the root-fs prompt"                     0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "root (/) filesystem"
 expect "disk-fs-chooser.sh template shows the erase-confirm prompt"              0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "ERASE"
 # --- source-level regression: the disk-select prompt is NOT skipped on a single candidate ---
 # The orchestrator's directive: "if exactly one non-media candidate disk, show it
