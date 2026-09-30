@@ -450,5 +450,26 @@ expect_erase_names_chosen_disk() {
     return 0
 }
 expect "disk-fs-chooser.sh ERASE confirmation names \${CHOSEN_DISK} (operator-safety guard against a templated placeholder)" 0 expect_erase_names_chosen_disk "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the filesystem step is NOT silently skipped (the earlier commit removed it) ---
+# The orchestrator's directive (2026-09-30): "(6) filesystem" is one of the
+# EXACTLY 6 operator-visible steps, and "never auto-erase silently" is the
+# hard rule. A regression that comments out either `db_input critical ncz/root-fs`
+# or `db_input critical ncz/confirm-erase` would silently skip the operator's
+# filesystem pick (or auto-confirm the wipe with the template's Default:false
+# still false -- a worse half-state). Pin all three disk-stage db_input calls
+# as present + uncommented. We grep for the LITERAL token on its own line
+# (not the word inside a comment); the regex anchors match an uncommented line.
+expect_disk_db_inputs_present() {
+    local f="$1"
+    local missing=0
+    for tok in 'db_input critical ncz/target-disk' 'db_input critical ncz/root-fs' 'db_input critical ncz/confirm-erase'; do
+        if ! grep -nE "^[[:space:]]*${tok}\b" "$f" >/dev/null 2>&1 ; then
+            echo "$f: missing the operator-visible interactive call '${tok}' (filesystem/erase step would be silently auto-dismissed)" >&2
+            missing=1
+        fi
+    done
+    return $missing
+}
+expect "disk-fs-chooser.sh prompts for target disk, root fs AND erase confirmation (no auto-erase regression)" 0 expect_disk_db_inputs_present "$ROOT/preseed/disk-fs-chooser.sh"
 echo "installer screen tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
