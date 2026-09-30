@@ -59,16 +59,33 @@ is_prerelease() {
     case "$1" in *-rc[0-9]*) return 0 ;; *) return 1 ;; esac
 }
 
+# Operator directive 2026-09-30 (amd64 part): amd64 ships NO 7.3-rc5 line
+# at all -- no edge kernel .debs, no edge menu entry, no edge KVER sidecar.
+# The classifier hook therefore never classifies a 7.3-rc5 as EDGE on
+# amd64. Even if a stray 7.3.0-rcN-t2-trixie kernel is installed (e.g. an
+# experimental apt install on an operator box), the rEFInd menu will not
+# surface it as a bootable entry. The verify-kernel-default-policy.sh
+# build-time gate refuses to stage amd64-edge at all; this hook is the
+# runtime analogue: refuse to enumerate edge from a live /boot on amd64.
 classify() {
     # classify <kver> -- echoes "stable", "edge", or nothing.
     case "$1" in
         *-rescue)          return ;;
-        *-ncz-amd64-edge)  echo edge; return ;;
+        *-ncz-amd64-edge)  return ;;     # amd64 never ships edge (directive 2026-09-30)
     esac
     # Trailing * so a variant suffix (e.g. -xhcifix) still classifies
-    # instead of falling through unseen.
+    # instead of falling through unseen. amd64: ONLY the stable line --
+    # any -rc kernel is dropped, not promoted to edge.
     case "$1" in
-        *-t2-trixie*) if is_prerelease "$1"; then echo edge; else echo stable; fi ;;
+        *-t2-trixie*) if is_prerelease "$1"; then
+                          # amd64 directive: refuse to surface 7.3-rc as edge.
+                          # The kernel stays installed in /boot (it was apt-installed
+                          # by the operator explicitly), but no menu entry is
+                          # written for it. The stable line still boots by default.
+                          return
+                      else
+                          echo stable
+                      fi ;;
     esac
 }
 

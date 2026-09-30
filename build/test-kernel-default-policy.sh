@@ -189,6 +189,76 @@ cat > "$r/assets/kernel-manifest.json" <<'JSON'
 JSON
 run "amd64: stable KVER is -rc" 1 --root "$r" --arch amd64
 
+echo "=== Negative: amd64 classifier hook still classifies rc as edge (regression) ==="
+# Builds an amd64 tree that satisfies the kernel payload checks but the
+# classifier hook has been rolled back to the pre-directive shape
+# (rc5 promoted to edge). The verifier refuses this so the regression
+# can't ship.
+r="$WORK/n9b"
+mkdir -p "$r/assets/kernel"
+: > "$r/release.conf"
+echo "NCZ_TARGET_ARCH=amd64" >> "$r/release.conf"
+mkdir -p "$r/assets/kernel/amd64-stable"
+printf '7.2.8-1-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.8-1-t2-trixie"}}}
+JSON
+# Classifier hook WITHOUT the directive marker (old shape, asserts rc -> edge)
+mkdir -p "$r/assets/refind"
+cat > "$r/assets/refind/zz1-ncz-refind-refresh-amd64" <<'SHIM'
+classify() {
+    case "$1" in
+        *-t2-trixie*) if is_prerelease "$1"; then echo edge; else echo stable; fi ;;
+    esac
+}
+SHIM
+run "amd64: classifier hook rolled back (no directive marker)" 1 --root "$r" --arch amd64
+
+echo "=== Negative: amd64 refresh script doesn't refuse KVER_EDGE (regression) ==="
+# Same shape but the refresh script is the pre-directive version
+# (writes an edge entry when KVER_EDGE is set).
+r="$WORK/n9c"
+mkdir -p "$r/assets/kernel"
+: > "$r/release.conf"
+echo "NCZ_TARGET_ARCH=amd64" >> "$r/release.conf"
+mkdir -p "$r/assets/kernel/amd64-stable"
+printf '7.2.8-1-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.8-1-t2-trixie"}}}
+JSON
+mkdir -p "$r/assets/refind"
+cat > "$r/assets/refind/zz1-ncz-refind-refresh-amd64" <<'SHIM'
+classify() { return; }
+SHIM
+# Pre-directive refresh script -- no KVER_EDGE refuse-to-write block.
+cat > "$r/assets/refind/ncz-refind-refresh-amd64.sh" <<'SHIM'
+#!/bin/bash
+echo "KVER_STABLE=$KVER_STABLE KVER_EDGE=$KVER_EDGE"
+SHIM
+run "amd64: refresh script rolled back (no KVER_EDGE refuse)" 1 --root "$r" --arch amd64
+
+echo "=== Positive: amd64 runtime pipeline honours the directive ==="
+r="$WORK/p9"
+mkdir -p "$r/assets/kernel"
+: > "$r/release.conf"
+echo "NCZ_TARGET_ARCH=amd64" >> "$r/release.conf"
+mkdir -p "$r/assets/kernel/amd64-stable"
+printf '7.2.8-1-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.8-1-t2-trixie"}}}
+JSON
+mkdir -p "$r/assets/refind"
+cat > "$r/assets/refind/zz1-ncz-refind-refresh-amd64" <<'SHIM'
+# amd64 never ships edge (directive 2026-09-30)
+classify() { return; }
+SHIM
+cat > "$r/assets/refind/ncz-refind-refresh-amd64.sh" <<'SHIM'
+#!/bin/bash
+# KVER_EDGE ignored -- amd64 has no validated 7.3 kernel (operator directive 2026-09-30)
+echo "ok"
+SHIM
+run "amd64: runtime pipeline honours directive" 0 --root "$r" --arch amd64
+
 echo "=== Negative: mainline missing required payload file (Image) ==="
 r="$WORK/n10" ; mkroot "$r" "7.2.8-sky1-ncz" "" "7.2.8-sky1-ncz"
 # Wipe Image-cixmini.bin
