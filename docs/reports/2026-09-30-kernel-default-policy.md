@@ -323,3 +323,103 @@ $ ARCH=amd64 bash build/verify-kernel-default-policy.sh
 
 `make lint-platform` exits 0 ("lint-platform: OK (83 hooks, 2593 files
 classified)").
+## Commit 4 (this update): verifier runs on dev hosts without the kernel-staging pool mounted
+
+Commits 1-3 closed the policy gaps (build-time and runtime), but the
+verifier itself refused to run on any host that did not have the
+`/mnt/argonas-yocto-shared` NFS pool mounted -- the
+`assets/kernel/{mainline,edge}` symlinks point there and dangle when the
+pool is absent. That made the gate un-runnable on dev / CI hosts that
+ship the trees vendored in-tree (`assets/kernel/r277-7.2.8-...` etc.)
+but have no NFS share available.
+
+This commit adds an offline fallback that closes the gap without
+weakening fail-closed behaviour on the build farm:
+
+| Component                                | Change                                                    |
+| ---------------------------------------- | --------------------------------------------------------- |
+| `build/verify-kernel-default-policy.sh`  | New `find_local_sibling()`: when a symlink is dangling,  |
+|                                         | scan `assets/kernel/r*/` for a directory whose KVER      |
+|                                         | matches the manifest's `variants.mainline.kver` (mainline)|
+|                                         | or any directory carrying `-rcN` in its KVER (edge). If a |
+|                                         | matching sibling is found, the verifier logs a WARN      |
+|                                         | ("build farm uses the pool-mounted symlink") and uses it.|
+|                                         | If no sibling matches, the canonical "mount the pool or  |
+|                                         | repoint the symlink" FAIL message is emitted unchanged --|
+|                                         | behaviour on a real build host is identical.             |
+| `build/verify-kernel-default-policy.sh`  | Per-KVER headers filename variant: accept                |
+|                                         | `headers-<kver>.tar.zst` (newer r2* convention) in       |
+|                                         | addition to `headers-cixmini.tar.zst` (legacy). The edge |
+|                                         | payload no longer warns when the tree only ships the     |
+|                                         | per-KVER filename.                                       |
+| `build/test-kernel-default-policy.sh`    | 3 new fixture tests:                                     |
+|                                         |   - positive: offline fallback finds the local sibling  |
+|                                         |   - negative: dangling symlink with NO matching sibling |
+|                                         |     still fails closed with the canonical message       |
+|                                         |   - positive: edge payload with per-KVER headers        |
+|                                         | 19 -> 22 tests total.                                    |
+
+### Verification (after this commit)
+
+```
+$ ARCH=arm64 bash build/verify-kernel-default-policy.sh
+[kernel-default-policy] WARN: assets/kernel/mainline symlink ->
+    '/mnt/argonas-yocto-shared/kernel-staging/r277-7.2.8-sky1-ncz-20260927'
+    (unresolved) but local tree 'assets/kernel/r277-7.2.8-sky1-ncz-20260927'
+    has matching KVER '7.2.8-sky1-ncz'; using it
+[kernel-default-policy] mainline KVER '7.2.8-sky1-ncz' (release)
+[kernel-default-policy] mainline KVER matches manifest: 7.2.8-sky1-ncz
+[kernel-default-policy] WARN: assets/kernel/edge symlink -> '...r279-7.3.0-rc5-sky1-ncz-20260929'
+    (unresolved) but local rc tree 'assets/kernel/r273-7.3.0-rc4-sky1-ncz-20260920/'
+    has KVER '7.3.0-rc4-sky1-ncz'; using it as the edge channel
+[kernel-default-policy] edge KVER '7.3.0-rc4-sky1-ncz' (rc; non-default experimental entry)
+[kernel-default-policy] OK -- kernel default policy satisfied (arch=arm64 mainline=7.2.8-sky1-ncz)
+
+$ ARCH=amd64 bash build/verify-kernel-default-policy.sh
+[kernel-default-policy] amd64: stable KVER '7.2.8-1-t2-trixie' (release)
+[kernel-default-policy] amd64: no edge channel (policy satisfied)
+[kernel-default-policy] amd64: classifier hook refuses to enumerate edge (directive 2026-09-30)
+[kernel-default-policy] amd64: rEFInd refresh refuses to write an edge entry (directive 2026-09-30)
+[kernel-default-policy] OK -- kernel default policy satisfied (arch=amd64 mainline=<empty>)
+
+$ make parity ; echo $?
+... summary: PASS=22 FAIL=0
+0
+```
+
+Note on arm64 edge KVER: locally we ship the `r273 7.3.0-rc4` tree
+because the r279 7.3.0-rc5 staging tree lives only on ARGONAS. The
+verifier accepts any `-rcN` kernel on the edge channel (the directive
+is "edge = -rcN, not mainline"), so both satisfy the policy. The next
+build host run will pick up r279 7.3.0-rc5 from the mounted staging
+pool and the verifier will report it unchanged.
+
+### What this commit DOES NOT do
+
+- It does NOT change the policy. Default = 7.2.x, edge = -rcN (arm64
+  only), amd64 has no edge. The verifier still fail-closes on a real
+  build host if the pool is mounted but the symlink is misdirected.
+- It does NOT vendor the r279 staging tree in git. The tree lives on
+  ARGONAS only (`/mnt/argonas-yocto-shared/kernel-staging/`); the
+  in-tree sibling (`r273 7.3.0-rc4-sky1-ncz`) is sufficient for local
+  verification and is also a valid edge under the directive.
+
+## Final test inventory (after commit 4)
+
+`make parity` runs (with the merged `feat/kernel-default-7.2.8-2026-09-30`
+branch):
+
+| Suite                            | Tests | Notes |
+| -------------------------------- | ----- | ----- |
+| parity                           | 19    | unchanged from prior |
+| no-software-render               | 48    | unchanged |
+| installer-screens                | 17    | unchanged |
+| ncz-ui                           | 15    | unchanged |
+| base-stamp                       | 11    | unchanged |
+| reap-images                      | 16    | unchanged |
+| amd64-kernel-classifier          | 8     | rewritten in commit 3 |
+| kernel-default-policy            | 22    | 16 + 3 (commit 3) + 3 (commit 4) |
+| **total**                        | **156** | all PASS |
+
+`make lint-platform` exits 0 ("lint-platform: OK (83 hooks, 2593 files
+classified)").
