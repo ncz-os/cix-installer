@@ -523,5 +523,58 @@ expect_disk_db_inputs_present() {
     return $missing
 }
 expect "disk-fs-chooser.sh prompts for target disk, root fs AND erase confirmation (no auto-erase regression)" 0 expect_disk_db_inputs_present "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the disk-stage prompts come in the required order ---
+# The orchestrator's filesystem step (step 6) is THREE prompts in a fixed
+# order: target disk -> root filesystem -> erase confirmation. A regression
+# that reorders them (e.g. asks for erase-confirm before root-fs, so the
+# operator could confirm an erasure against the WRONG fs pick) is caught
+# here. The order is operator-required because the root-fs answer affects
+# the expert_recipe and partman needs the disk pin before the wipe.
+expect_disk_db_input_order() {
+    local f="$1"
+    local t_disk t_fs t_erase
+    t_disk=$(grep -nE '^[[:space:]]*db_input critical ncz/target-disk'   "$f" | head -1 | cut -d: -f1)
+    t_fs=$(  grep -nE '^[[:space:]]*db_input critical ncz/root-fs'      "$f" | head -1 | cut -d: -f1)
+    t_erase=$(grep -nE '^[[:space:]]*db_input critical ncz/confirm-erase' "$f" | head -1 | cut -d: -f1)
+    [ -n "$t_disk" ] && [ -n "$t_fs" ] && [ -n "$t_erase" ] || { echo "$f: disk-stage db_input line numbers missing" >&2; return 1; }
+    [ "$t_disk" -lt "$t_fs" ] && [ "$t_fs" -lt "$t_erase" ] \
+        || { echo "$f: disk-stage db_input calls are NOT in the required order (target-disk < root-fs < confirm-erase)" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh shows the 3 disk-stage prompts in order (target-disk < root-fs < confirm-erase)" 0 expect_disk_db_input_order "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the confirm-erase template MUST default to false (never auto-erase) ---
+# Operator safety directive: "never auto-erase silently". The confirm-erase
+# template's Default: line MUST be false (so the prompt opens with No selected
+# and the operator must explicitly move to Yes to confirm the wipe). A regression
+# that flips Default: to true (or removes the Default line) makes the dialog
+# open with Yes selected -- an operator who hits Enter thinking "let me read
+# this" would silently confirm the wipe. Pin the literal `Default: false` line
+# inside the confirm-erase template body (not anywhere else in the file).
+expect_confirm_erase_default_false() {
+    local f="$1"
+    awk '
+        /<<-?[\047"]?[A-Z]*TPL/ { in_tpl=1; next }
+        in_tpl && /^[[:space:]]*[A-Z]*TPL[[:space:]]*$/ { in_tpl=0; next }
+        in_tpl && /^Template:[[:space:]]+ncz\/confirm-erase/ { in_erase=1; next }
+        in_erase && /^Default:[[:space:]]+false/ { ok=1; in_erase=0; next }
+        in_erase && /^Default:/ { bad=1; print f ": confirm-erase template Default is NOT false (operator would auto-confirm the wipe): " $0 > "/dev/stderr"; exit }
+        in_erase && /^Template:/ { in_erase=0; next }
+        END { exit !(ok && !bad) }
+    ' "$f" || { echo "$f: confirm-erase template is missing 'Default: false' (operator would auto-confirm the wipe by pressing Enter)" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh confirm-erase template defaults to false (never auto-erase)" 0 expect_confirm_erase_default_false "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the confirm-erase answer is forced to false before db_input ---
+# The defense in depth: even if a regression flips the template Default to
+# true, db_set ncz/confirm-erase false forces the current answer to false
+# right before db_input, so the operator sees No selected. Pin this so a
+# regression that drops the db_set line cannot make the operator auto-erase.
+expect_confirm_erase_force_false() {
+    local f="$1"
+    grep -nE '^[[:space:]]*db_set[[:space:]]+ncz/confirm-erase[[:space:]]+false' "$f" >/dev/null 2>&1 \
+        || { echo "$f: missing 'db_set ncz/confirm-erase false' before the db_input critical call (defence in depth against an auto-erase regression)" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh forces ncz/confirm-erase=false before db_input (auto-erase defence in depth)" 0 expect_confirm_erase_force_false "$ROOT/preseed/disk-fs-chooser.sh"
 echo "installer screen tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
