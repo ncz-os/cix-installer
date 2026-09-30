@@ -228,6 +228,8 @@ common/assets/gpu/*.tar.zst
 platforms/*/assets/gpu/*.tar.zst
 common/assets/kernel/*.bin
 platforms/*/assets/kernel/*.bin
+common/assets/kernel/mainline/
+platforms/*/assets/kernel/mainline/
 common/assets/kernel/edge/
 platforms/*/assets/kernel/edge/
 common/assets/kernel/legacy/
