@@ -21,6 +21,7 @@ ap.add_argument("--require-header", default=None)
 ap.add_argument("--start-at", default=None, help="ignore every state before the first one containing TEXT (the bootloader echoes the test kernel command line)")
 ap.add_argument("--after-t", type=int, default=None, help="with --no-blank-after: only judge states at or after this many seconds since boot (the states carry a # t=N header)")
 ap.add_argument("--allow-first-blank", action="store_true", help="with --no-blank-after: the first blank state is the kernel boot and is not a defect")
+ap.add_argument("--max-blank-secs", type=int, default=8, help="a blank console shorter than this is a redraw between steps, not a vanished UI (default 8; the defect was 14-25 s)")
 ap.add_argument("--no-blank-after", default=None, help="after the first state containing TEXT, no later state may be a blank console (only the screen tab bar): the UI must stay up until the install progress")
 a = ap.parse_args()
 
@@ -63,6 +64,14 @@ if a.no_blank_after:
         if not started: continue
         body = [l for l in txt.split("\n")[1:] if l.strip() and not re.match(r"^\[?\s*\(\d\*+\w+\)\s+2 shell", l.strip()) and "(1**installer)" not in l]
         if not body:
+            # duration of this blank state = until the next state file
+            ts = []
+            for g in files:
+                mt = re.match(r"# t=(\d+)s", open(os.path.join(a.dir, g), encoding="utf-8", errors="replace").read(20))
+                ts.append(int(mt.group(1)) if mt else 0)
+            idx = files.index(f)
+            dur = (ts[idx + 1] - ts[idx]) if idx + 1 < len(files) else 10**6
+            if dur < a.max_blank_secs: continue
             blank_seen += 1
             if a.allow_first_blank and blank_seen == 1: continue
             bad += 1
