@@ -189,6 +189,76 @@ cat > "$r/assets/kernel-manifest.json" <<'JSON'
 JSON
 run "amd64: stable KVER is -rc" 1 --root "$r" --arch amd64
 
+echo "=== Negative: amd64 classifier hook still classifies rc as edge (regression) ==="
+# Builds an amd64 tree that satisfies the kernel payload checks but the
+# classifier hook has been rolled back to the pre-directive shape
+# (rc5 promoted to edge). The verifier refuses this so the regression
+# can't ship.
+r="$WORK/n9b"
+mkdir -p "$r/assets/kernel"
+: > "$r/release.conf"
+echo "NCZ_TARGET_ARCH=amd64" >> "$r/release.conf"
+mkdir -p "$r/assets/kernel/amd64-stable"
+printf '7.2.8-1-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.8-1-t2-trixie"}}}
+JSON
+# Classifier hook WITHOUT the directive marker (old shape, asserts rc -> edge)
+mkdir -p "$r/assets/refind"
+cat > "$r/assets/refind/zz1-ncz-refind-refresh-amd64" <<'SHIM'
+classify() {
+    case "$1" in
+        *-t2-trixie*) if is_prerelease "$1"; then echo edge; else echo stable; fi ;;
+    esac
+}
+SHIM
+run "amd64: classifier hook rolled back (no directive marker)" 1 --root "$r" --arch amd64
+
+echo "=== Negative: amd64 refresh script doesn't refuse KVER_EDGE (regression) ==="
+# Same shape but the refresh script is the pre-directive version
+# (writes an edge entry when KVER_EDGE is set).
+r="$WORK/n9c"
+mkdir -p "$r/assets/kernel"
+: > "$r/release.conf"
+echo "NCZ_TARGET_ARCH=amd64" >> "$r/release.conf"
+mkdir -p "$r/assets/kernel/amd64-stable"
+printf '7.2.8-1-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.8-1-t2-trixie"}}}
+JSON
+mkdir -p "$r/assets/refind"
+cat > "$r/assets/refind/zz1-ncz-refind-refresh-amd64" <<'SHIM'
+classify() { return; }
+SHIM
+# Pre-directive refresh script -- no KVER_EDGE refuse-to-write block.
+cat > "$r/assets/refind/ncz-refind-refresh-amd64.sh" <<'SHIM'
+#!/bin/bash
+echo "KVER_STABLE=$KVER_STABLE KVER_EDGE=$KVER_EDGE"
+SHIM
+run "amd64: refresh script rolled back (no KVER_EDGE refuse)" 1 --root "$r" --arch amd64
+
+echo "=== Positive: amd64 runtime pipeline honours the directive ==="
+r="$WORK/p9"
+mkdir -p "$r/assets/kernel"
+: > "$r/release.conf"
+echo "NCZ_TARGET_ARCH=amd64" >> "$r/release.conf"
+mkdir -p "$r/assets/kernel/amd64-stable"
+printf '7.2.8-1-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.8-1-t2-trixie"}}}
+JSON
+mkdir -p "$r/assets/refind"
+cat > "$r/assets/refind/zz1-ncz-refind-refresh-amd64" <<'SHIM'
+# amd64 never ships edge (directive 2026-09-30)
+classify() { return; }
+SHIM
+cat > "$r/assets/refind/ncz-refind-refresh-amd64.sh" <<'SHIM'
+#!/bin/bash
+# KVER_EDGE ignored -- amd64 has no validated 7.3 kernel (operator directive 2026-09-30)
+echo "ok"
+SHIM
+run "amd64: runtime pipeline honours directive" 0 --root "$r" --arch amd64
+
 echo "=== Negative: mainline missing required payload file (Image) ==="
 r="$WORK/n10" ; mkroot "$r" "7.2.8-sky1-ncz" "" "7.2.8-sky1-ncz"
 # Wipe Image-cixmini.bin
@@ -233,6 +303,79 @@ case "$got" in
     2) printf '  PASS  unsupported --arch (exit=2 misuse)\n'; PASS=$((PASS+1)) ;;
     *) printf '  FAIL  unsupported --arch (expected exit=2, got=%d)\n' "$got"; FAIL=$((FAIL+1)) ;;
 esac
+
+echo "=== Positive: offline fallback -- local sibling tree matches manifest ==="
+# Symlinks at assets/kernel/{mainline,edge} are DANGLING (point to a path
+# that does not exist on this build host, e.g. because the kernel-staging
+# pool is not NFS-mounted). The verifier must fall back to the matching
+# tree vendored in assets/kernel/r*/ and PASS with WARNs.
+r="$WORK/offline-ok"
+mkdir -p "$r/assets/kernel/r277-7.2.8-sky1-ncz-20260927"
+printf '7.2.8-sky1-ncz\n' > "$r/assets/kernel/r277-7.2.8-sky1-ncz-20260927/KVER"
+printf 'fake\n' > "$r/assets/kernel/r277-7.2.8-sky1-ncz-20260927/Image-cixmini.bin"
+printf 'fake\n' > "$r/assets/kernel/r277-7.2.8-sky1-ncz-20260927/modules-cixmini.tgz"
+printf 'cfg\n' > "$r/assets/kernel/r277-7.2.8-sky1-ncz-20260927/config-7.2.8-sky1-ncz"
+printf 'fake\n' > "$r/assets/kernel/r277-7.2.8-sky1-ncz-20260927/headers-cixmini.tar.zst"
+mkdir -p "$r/assets/kernel/r273-7.3.0-rc4-sky1-ncz-20260920"
+printf '7.3.0-rc4-sky1-ncz\n' > "$r/assets/kernel/r273-7.3.0-rc4-sky1-ncz-20260920/KVER"
+printf 'fake\n' > "$r/assets/kernel/r273-7.3.0-rc4-sky1-ncz-20260920/Image-cixmini.bin"
+printf 'fake\n' > "$r/assets/kernel/r273-7.3.0-rc4-sky1-ncz-20260920/modules-cixmini.tgz"
+printf 'cfg\n' > "$r/assets/kernel/r273-7.3.0-rc4-sky1-ncz-20260920/config-7.3.0-rc4-sky1-ncz"
+printf 'fake\n' > "$r/assets/kernel/r273-7.3.0-rc4-sky1-ncz-20260920/headers-7.3.0-rc4-sky1-ncz.tar.zst"
+# Dangling symlinks (the committed state when the staging pool is unmounted)
+ln -s "/nonexistent/pool/r277-7.2.8-sky1-ncz-20260927" "$r/assets/kernel/mainline"
+ln -s "/nonexistent/pool/r273-7.3.0-rc4-sky1-ncz-20260920" "$r/assets/kernel/edge"
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/mainline","kver":"7.2.8-sky1-ncz"}}}
+JSON
+: > "$r/release.conf"
+echo "NCZ_TARGET_ARCH=arm64" >> "$r/release.conf"
+out=$("$VERIFIER" --root "$r" --arch arm64 2>&1); got=$?
+case "$got" in
+    0)
+        if echo "$out" | grep -q "using it (build farm uses the pool-mounted symlink)"; then
+            printf '  PASS  arm64: offline fallback finds local sibling tree (exit=0)\n'; PASS=$((PASS+1))
+        else
+            printf '  FAIL  arm64: offline fallback passed but did not log the fallback WARN\n'; FAIL=$((FAIL+1))
+        fi
+        ;;
+    *) printf '  FAIL  arm64: offline fallback (expected exit=0, got=%d)\n%s\n' "$got" "$out"; FAIL=$((FAIL+1)) ;;
+esac
+
+echo "=== Negative: offline fallback -- no sibling matches the manifest ==="
+# Symlinks are dangling AND no local r*/ tree matches the manifest's
+# variants.mainline.kver. Verifier must FAIL with the canonical message.
+r="$WORK/offline-miss"
+mkdir -p "$r/assets/kernel/r999-7.1.0-sky1-ncz-20260101"
+printf '7.1.0-sky1-ncz\n' > "$r/assets/kernel/r999-7.1.0-sky1-ncz-20260101/KVER"
+printf 'fake\n' > "$r/assets/kernel/r999-7.1.0-sky1-ncz-20260101/Image-cixmini.bin"
+printf 'fake\n' > "$r/assets/kernel/r999-7.1.0-sky1-ncz-20260101/modules-cixmini.tgz"
+printf 'cfg\n' > "$r/assets/kernel/r999-7.1.0-sky1-ncz-20260101/config-7.1.0-sky1-ncz"
+printf 'fake\n' > "$r/assets/kernel/r999-7.1.0-sky1-ncz-20260101/headers-cixmini.tar.zst"
+ln -s "/nonexistent/pool/r277-7.2.8-sky1-ncz-20260927" "$r/assets/kernel/mainline"
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/mainline","kver":"7.2.8-sky1-ncz"}}}
+JSON
+: > "$r/release.conf"
+echo "NCZ_TARGET_ARCH=arm64" >> "$r/release.conf"
+out=$("$VERIFIER" --root "$r" --arch arm64 2>&1); got=$?
+case "$got" in
+    1)
+        if echo "$out" | grep -q "Mount the kernel-staging pool or repoint the symlink"; then
+            printf '  PASS  arm64: dangling symlink, no matching sibling (exit=1, canonical message)\n'; PASS=$((PASS+1))
+        else
+            printf '  FAIL  arm64: dangling symlink, no sibling -- wrong error message\n%s\n' "$out"; FAIL=$((FAIL+1))
+        fi
+        ;;
+    *) printf '  FAIL  arm64: dangling symlink, no sibling (expected exit=1, got=%d)\n%s\n' "$got" "$out"; FAIL=$((FAIL+1)) ;;
+esac
+
+echo "=== Positive: payload filename variant -- per-KVER headers ==="
+# The edge tree uses headers-<kver>.tar.zst (newer convention) rather than
+# headers-cixmini.tar.zst (legacy). Verifier must accept either name.
+r="$WORK/p10" ; mkroot "$r" "7.2.8-sky1-ncz" "7.3.0-rc5-sky1-ncz" "7.2.8-sky1-ncz"
+mv "$r/assets/kernel/edge/headers-cixmini.tar.zst" "$r/assets/kernel/edge/headers-7.3.0-rc5-sky1-ncz.tar.zst"
+run "arm64: edge payload with per-KVER headers filename" 0 --root "$r" --arch arm64
 
 echo
 echo "=== summary: PASS=$PASS FAIL=$FAIL ==="
