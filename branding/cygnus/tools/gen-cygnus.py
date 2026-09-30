@@ -264,8 +264,122 @@ def tsv(t: dict) -> str:
     return "\n".join(rows) + "\n"
 
 
+# Singularity theme ---------------------------------------------------------
+# Shipped as /usr/share/themes/Cygnus/singularity/style*.css and selected
+# with dev.sinty.desktop singularity-theme='Cygnus' (the mechanism upstream
+# documents in singularity-themes/SingularityExample). The accent itself is
+# NOT hardcoded here: it comes from the accent-color setting, and every rule
+# derives from @accent_color, as the upstream template asks. Cygnus-specific
+# colors use their own cygnus_* names so they never collide with the base.
+
+SING_BASE_NAMES = {
+    # libsingularity base name -> Cygnus role
+    "window_bg": "bg",
+    "surface_bg": "surface-1",
+    "surface_dim": "bg",
+    "surface_mid": "surface-2",
+    "surface_raised": "surface-2",
+    "surface_alt": "surface-3",
+    "surface_bright": "border",
+    "toolbar_bg": "surface-1",
+    "titlebar_bg": "surface-1",
+    "dock_bg": "surface-1",
+    "panel_solid_bg": "bg",
+    "text_color": "text",
+    "link_color": "link",
+    "success_color": "success",
+    "warning_color": "warning",
+    "error_color": "error",
+}
+
+
+def singularity_style(t: dict, mode: str | None) -> str:
+    m = t["modes"][mode or "dark"]
+    name = "style.css" if mode is None else f"style-{mode}.css"
+    out = [
+        f"/* {HEADER} */",
+        f"/* Cygnus - Singularity theme, {name}. */",
+        "/*",
+        " * Colors below are Cygnus tokens under their own cygnus_* names, plus",
+        " * the libsingularity base names. A note on the base names: libsingularity",
+        " * loads its palette at GTK_STYLE_PROVIDER_PRIORITY_USER (800) and user",
+        " * themes at APPLICATION+5/+6 (605/606), so a base name redefined here",
+        " * only wins once the theme is loaded above the base (proposed upstream",
+        " * fix: branding/cygnus/singularity/UPSTREAM-NOTE.md). Everything that",
+        " * uses cygnus_* names or derives from @accent_color works either way.",
+        " */",
+    ]
+    if mode is None:
+        s = t["singularity"]
+        out.append(f"@define-color cygnus_magenta {s['custom-accent-color']};")
+        out.append(f"@define-color cygnus_cyan {t['modes']['dark']['secondary']};")
+        out.append(f"@define-color cygnus_violet {t['scales']['violet']['950']};")
+        out += [
+            "",
+            "/* Focus is cyan so it never reads as a selected (magenta) state. */",
+            ".singularity *:focus-visible {",
+            "    outline: 2px solid alpha(@cygnus_focus, 0.95);",
+            "    outline-offset: 2px;",
+            "}",
+            ".sidebar-item:selected { background-color: alpha(@accent_color, 0.26); }",
+            ".singularity entry:focus-within { border-color: @cygnus_focus; }",
+            ".singularity link, .singularity .link { color: @cygnus_link; }",
+            ".singularity progressbar > trough > progress {",
+            "    background-image: linear-gradient(to right, @accent_color, @cygnus_cyan);",
+            "}",
+            ".quick-setting-tile:checked { box-shadow: inset 0 0 0 1px alpha(@cygnus_cyan, 0.45); }",
+            ".workspace-preview:selected { box-shadow: 0 0 0 2px @accent_color; }",
+            "",
+        ]
+        return "\n".join(out) + "\n"
+    out.append(f"@define-color cygnus_focus {m['focus-ring']};")
+    out.append(f"@define-color cygnus_link {m['link']};")
+    out.append(f"@define-color cygnus_text {m['text']};")
+    out.append(f"@define-color cygnus_text_secondary {m['text-secondary']};")
+    for base, role in SING_BASE_NAMES.items():
+        out.append(f"@define-color {base} {m[role]};")
+    r, g, b = rgb(m["bg"])
+    out.append(f"@define-color panel_bg rgba({r}, {g}, {b}, 0.86);")
+    out.append(f"@define-color overview_bg rgba({r}, {g}, {b}, 0.78);")
+    return "\n".join(out) + "\n"
+
+
+def singularity_index_theme(t: dict) -> str:
+    return (
+        "[Desktop Entry]\nType=X-GNOME-Metatheme\nName=Cygnus\n"
+        "Comment=NCZ-OS 26.10 default: magenta and cyan on violet-black\n"
+        "Encoding=UTF-8\n\n[X-GNOME-Metatheme]\nGtkTheme=Cygnus\n"
+        "IconTheme=Singularity\n"
+    )
+
+
+def gschema_override(t: dict) -> str:
+    s = t["singularity"]
+    accents = ", ".join(f"'{c}'" for c in s["custom-accent-colors"])
+    return (
+        f"# {HEADER}\n"
+        "# PROPOSED keys for the [dev.sinty.desktop] group of NCZ's existing\n"
+        "# 99-ncz-defaults.gschema.override (written by post-install/20-desktop.sh).\n"
+        "# Not applied by this branch: see branding/cygnus/INTEGRATION.md.\n"
+        "[dev.sinty.desktop]\n"
+        f"accent-color='{s['accent-color']}'\n"
+        f"custom-accent-color='{s['custom-accent-color']}'\n"
+        f"custom-accent-colors=[{accents}]\n"
+        f"singularity-theme='{s['theme-name']}'\n"
+        f"theme-mode='{s['theme-mode']}'\n"
+        "dark-mode=true\n"
+    )
+
+
 def outputs(t: dict) -> dict[str, str]:
     return {
+        "singularity/Cygnus/index.theme": singularity_index_theme(t),
+        "singularity/Cygnus/singularity/style.css": singularity_style(t, None),
+        "singularity/Cygnus/singularity/style-dark.css": singularity_style(t, "dark"),
+        "singularity/Cygnus/singularity/style-light.css": singularity_style(t, "light"),
+        "singularity/Cygnus/gtk-4.0/gtk.css": gtk_named(t, "light"),
+        "singularity/Cygnus/gtk-4.0/gtk-dark.css": gtk_named(t, "dark"),
+        "singularity/99-ncz-cygnus.gschema.override.proposed": gschema_override(t),
         "css/cygnus.css": css_vars(t),
         "gtk/cygnus-dark.css": gtk_named(t, "dark"),
         "gtk/cygnus-light.css": gtk_named(t, "light"),

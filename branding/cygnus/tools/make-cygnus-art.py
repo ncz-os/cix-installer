@@ -51,35 +51,82 @@ def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
-def cover(
-    im: Image.Image, w: int, h: int, focus: tuple[float, float] = (0.5, 0.5)
-) -> Image.Image:
-    """Scale to cover w x h, then crop around the focal point."""
-    sw, sh = im.size
+# --- linear-light image pipeline -------------------------------------------
+# Renders are resampled only in linear light with an area (box) filter, never
+# Lanczos (ringing around the photon ring), and quantized back to 8 bits with
+# TPDF dither so dark gradients do not band.
+
+
+def srgb_to_linear(a: np.ndarray) -> np.ndarray:
+    return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+
+
+def linear_to_srgb(a: np.ndarray) -> np.ndarray:
+    a = np.clip(a, 0.0, 1.0)
+    return np.where(a <= 0.0031308, a * 12.92, 1.055 * np.power(a, 1 / 2.4) - 0.055)
+
+
+def load_linear(path: str) -> tuple[np.ndarray, bytes | None]:
+    im = Image.open(path)
+    icc = im.info.get("icc_profile")
+    arr = np.asarray(im.convert("RGB"), dtype=np.float32) / 255.0
+    return srgb_to_linear(arr), icc
+
+
+def resize_linear(lin: np.ndarray, w: int, h: int) -> np.ndarray:
+    chans = [
+        np.asarray(Image.fromarray(lin[..., c], "F").resize((w, h), Image.BOX))
+        for c in range(3)
+    ]
+    return np.dstack(chans)
+
+
+def cover_linear(
+    lin: np.ndarray, w: int, h: int, focus: tuple[float, float] = (0.5, 0.5)
+) -> np.ndarray:
+    """Scale (area filter, linear light) to cover w x h, crop at the focus."""
+    sh, sw = lin.shape[:2]
+    if (sw, sh) == (w, h):
+        return lin
     s = max(w / sw, h / sh)
     nw, nh = max(w, round(sw * s)), max(h, round(sh * s))
-    im = im.resize((nw, nh), Image.LANCZOS)
+    lin = resize_linear(lin, nw, nh)
     x = int(min(max(focus[0] * nw - w / 2, 0), nw - w))
     y = int(min(max(focus[1] * nh - h / 2, 0), nh - h))
-    return im.crop((x, y, x + w, y + h))
+    return lin[y : y + h, x : x + w]
 
 
-def scrim(
-    im: Image.Image,
-    band: tuple[float, float],
-    alpha: float,
-    color: str,
-    corner_px: int = 8,
-) -> Image.Image:
-    """Darken a horizontal band (fractions of height) with soft edges and
-    pin the top-left pixels to the scrim color.
+def to_8bit(lin: np.ndarray, seed: int = 26_10) -> Image.Image:
+    rng = np.random.default_rng(seed)
+    v = linear_to_srgb(lin) * 255.0
+    tpdf = rng.random(v.shape, dtype=np.float32) - rng.random(v.shape, dtype=np.float32)
+    return Image.fromarray(np.clip(np.round(v + tpdf), 0, 255).astype(np.uint8))
 
-    rEFInd takes its menu background pixel from the banner's top-left
-    pixel and picks white or black label text from its brightness, so that
-    corner must stay dark for white text."""
-    _, h = im.size
+
+def luma(lin: np.ndarray) -> np.ndarray:
+    return lin[..., 0] * 0.2126 + lin[..., 1] * 0.7152 + lin[..., 2] * 0.0722
+
+
+def menu_metrics(lin: np.ndarray) -> dict:
+    """rEFInd readability numbers: mean Y in the icon band (rows 35-62%)
+    and p95 Y of the left third (where long labels start)."""
+    h, w = lin.shape[:2]
+    y = luma(lin)
+    band = y[int(0.35 * h) : int(0.62 * h)]
+    return {
+        "band_mean_Y": float(band.mean()),
+        "left_third_p95_Y": float(np.percentile(y[:, : w // 3], 95)),
+        "corner_Y": float(y[:8, :8].mean()),
+    }
+
+
+def scrim_linear(
+    lin: np.ndarray, band: tuple[float, float], alpha: float, color: str
+) -> np.ndarray:
+    """Darken a feathered horizontal band toward the scrim color (linear light)."""
+    h = lin.shape[0]
     y0, y1 = band[0] * h, band[1] * h
-    feather = 0.10 * h
+    feather = 0.08 * h
     ys = np.arange(h, dtype=np.float32)
     a = (
         np.clip(
@@ -91,16 +138,23 @@ def scrim(
         )
         * alpha
     )
-    top = np.clip(1 - ys / (0.35 * h), 0, 1) * 0.35  # gentle top vignette
-    a = np.maximum(a, top)
-    arr = np.asarray(im.convert("RGB"), dtype=np.float32)
-    c = np.array(hexrgb(color), dtype=np.float32)
-    arr = arr * (1 - a[:, None, None]) + c * a[:, None, None]
-    out = Image.fromarray(arr.clip(0, 255).astype(np.uint8))
-    ImageDraw.Draw(out).rectangle(
-        (0, 0, corner_px - 1, corner_px - 1), fill=hexrgb(color)
-    )
+    c = srgb_to_linear(np.array(hexrgb(color), dtype=np.float32) / 255.0)
+    return lin * (1 - a[:, None, None]) + c * a[:, None, None]
+
+
+def pin_corner(lin: np.ndarray, color: str, px: int = 8) -> np.ndarray:
+    """rEFInd reads its menu background pixel from the banner's top-left
+    pixel (it fills any uncovered screen area and text boxes with it, and
+    picks white or black text from its brightness), so pin that corner to
+    the violet-black field."""
+    out = lin.copy()
+    out[:px, :px] = srgb_to_linear(np.array(hexrgb(color), dtype=np.float32) / 255.0)
     return out
+
+
+def cover(im: Image.Image, w: int, h: int, focus=(0.5, 0.5)) -> Image.Image:
+    arr = srgb_to_linear(np.asarray(im.convert("RGB"), dtype=np.float32) / 255.0)
+    return to_8bit(cover_linear(arr, w, h, focus))
 
 
 def ring(size: int, stroke: float, color: str, glow: str) -> Image.Image:
@@ -131,28 +185,71 @@ def ring(size: int, stroke: float, color: str, glow: str) -> Image.Image:
     return base.resize((size, size), Image.LANCZOS)
 
 
+REFIND_SIZES = ((1920, 1080), (2560, 1440), (3840, 2160))
+BAND_MAX_Y, LEFT_P95_MAX_Y = 0.04, 0.06
+
+
 def cmd_refind(a) -> None:
+    """Backgrounds for banner_scale noscale at each common ESP resolution.
+
+    Native renders are used as they are when one matches a size exactly;
+    otherwise the largest source is area-downscaled in linear light. The
+    menu scrim is applied only as far as needed to meet the readability
+    targets (band mean Y < 0.04, left third p95 Y < 0.06)."""
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    src = Image.open(a.src).convert("RGB")
     b = TOK["boot"]["refind"]
-    for w, h in ((1920, 1080), (2560, 1440), (3840, 2160)):
-        bg = scrim(
-            cover(src, w, h, (0.5, a.focus_y)),
-            (0.40, 0.74),
-            b["menu-scrim-alpha"],
-            b["menu-scrim"],
-        )
-        bg.save(out / f"background-{w}x{h}.png", optimize=True)
+    srcs = [load_linear(s) for s in a.src]
+    report = {}
+    for w, h in REFIND_SIZES:
+        native = [lin for lin, _ in srcs if lin.shape[1] == w and lin.shape[0] == h]
+        if native:
+            lin, how = native[0], "native"
+        else:
+            big = max((x for x, _ in srcs), key=lambda x: x.shape[0] * x.shape[1])
+            how = (
+                "area-downscaled"
+                if big.shape[1] >= w
+                else "UPSCALED (supply a native render)"
+            )
+            lin = cover_linear(big, w, h, (0.5, a.focus_y))
+        before = menu_metrics(lin)
+        alpha = 0.0
+        if a.scrim != "off":
+            # Only the icon band is scrimmed; the left-third target is a
+            # composition property of the render and is reported, not forced.
+            while alpha < 0.9 and menu_metrics(lin)["band_mean_Y"] >= BAND_MAX_Y:
+                lin = scrim_linear(lin, (0.35, 0.62), 0.1, b["menu-scrim"])
+                alpha += 0.1
+        lin = pin_corner(lin, b["menu-scrim"])
+        after = menu_metrics(lin)
+        name = f"background-{w}x{h}.png"
+        im = to_8bit(lin)
+        if a.wordmark:
+            # Product line under the menu, above rEFInd's two help lines
+            # (the same place the 26.7 banner carried its title).
+            wm = wordmark(int(w * 0.30), int(h * 0.085), a.wordmark)
+            im.paste(wm, ((w - wm.width) // 2, int(h * 0.80)), wm)
+        im.save(out / name, optimize=True)
+        report[name] = {
+            "source": how,
+            "scrim_steps": round(alpha, 1),
+            "before": before,
+            "after": after,
+            "meets_targets": after["band_mean_Y"] < BAND_MAX_Y
+            and after["left_third_p95_Y"] < LEFT_P95_MAX_Y,
+        }
     ring(144, 5, b["selection-ring"], b["selection-glow"]).save(
         out / "selection_big.png"
     )
     ring(64, 3, b["selection-ring"], b["selection-glow"]).save(
         out / "selection_small.png"
     )
+    (out / "metrics.json").write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report, indent=2))
 
 
-def wordmark(w: int, h: int, sub: str = "26.10  CYGNUS") -> Image.Image:
+def wordmark(w: int, h: int, sub: str = "26.10  \u00b7  CYGNUS") -> Image.Image:
     im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     f1, f2 = font(int(h * 0.46), True), font(int(h * 0.20))
@@ -168,11 +265,10 @@ def cmd_plymouth(a) -> None:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     p = TOK["boot"]["plymouth"]
-    src = Image.open(a.src).convert("RGB")
-    bg = cover(src, 1920, 1080, (0.5, a.focus_y))
-    arr = np.asarray(bg, dtype=np.float32) * 0.55  # boot splash stays calm
-    Image.fromarray(arr.astype(np.uint8)).save(out / "background.png", optimize=True)
-    wordmark(720, 200).save(out / "wordmark.png")
+    lin, _ = load_linear(a.src)
+    lin = cover_linear(lin, 1920, 1080, (0.5, a.focus_y)) * 0.30  # calm boot splash
+    to_8bit(lin).save(out / "background.png", optimize=True)
+    wordmark(720, 200, a.wordmark).save(out / "wordmark.png")
     W, H = 480, 6
     Image.new("RGBA", (W, H), hexrgb(p["progress-track"]) + (255,)).save(
         out / "progress-track.png"
@@ -201,19 +297,24 @@ def cmd_plymouth(a) -> None:
 
 
 def cmd_wallpaper(a) -> None:
+    """Desktop wallpapers: 3840x2160 and 2560x1440 JPEG, sRGB, ICC kept.
+    A native render of the target size is used unchanged apart from the
+    8-bit encode; other sizes are area-downscaled in linear light."""
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     for i, s in enumerate(a.src, 1):
-        im = Image.open(s).convert("RGB")
+        lin, icc = load_linear(s)
         stem = Path(s).stem if not a.names else a.names[i - 1]
         for w, h, tag in ((3840, 2160, "4k"), (2560, 1440, "2k")):
-            cover(im, w, h).save(
-                out / f"{stem}-{tag}.jpg",
-                quality=92,
-                subsampling=0,
-                optimize=True,
-                progressive=True,
-            )
+            kw = {
+                "quality": 92,
+                "subsampling": 0,
+                "optimize": True,
+                "progressive": True,
+            }
+            if icc:
+                kw["icc_profile"] = icc
+            to_8bit(cover_linear(lin, w, h)).save(out / f"{stem}-{tag}.jpg", **kw)
 
 
 def cmd_mockup(a) -> None:
@@ -349,7 +450,15 @@ def main() -> None:
     sp = ap.add_subparsers(dest="cmd", required=True)
     for name in ("refind", "plymouth"):
         s = sp.add_parser(name)
-        s.add_argument("--src", required=True)
+        s.add_argument(
+            "--src", required=True, action="append" if name == "refind" else "store"
+        )
+        s.add_argument("--scrim", choices=("auto", "off"), default="auto")
+        s.add_argument(
+            "--wordmark",
+            default="26.10  \u00b7  CYGNUS",
+            help="subtitle under NCZ-OS; empty string for none",
+        )
         s.add_argument("--out", required=True)
         s.add_argument("--focus-y", type=float, default=0.5)
     s = sp.add_parser("wallpaper")

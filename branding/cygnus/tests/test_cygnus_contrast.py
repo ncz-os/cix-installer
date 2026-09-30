@@ -114,6 +114,26 @@ def check_newt(t: dict) -> list[str]:
     return errs
 
 
+def _resolve(t: dict, ref: str) -> str:
+    if ref.startswith("#"):
+        return ref
+    if "." in ref:
+        mode, role = ref.split(".", 1)
+        return t["modes"][mode][role]
+    return t["singularity"][ref]
+
+
+def check_singularity(t: dict) -> list[str]:
+    """The one accent hex Singularity paints with white text on top."""
+    errs = []
+    for fg, bg, minimum in t["contrast"]["singularity-pairs"]:
+        a, b = _resolve(t, fg), _resolve(t, bg)
+        r = contrast(a, b)
+        if r + 1e-9 < minimum:
+            errs.append(f"singularity: {fg} {a} on {bg} {b} = {r:.2f} < {minimum}")
+    return errs
+
+
 def check_generated_fresh() -> list[str]:
     gen = ROOT / "tools" / "gen-cygnus.py"
     if not gen.exists():
@@ -145,13 +165,23 @@ def test_newt_contrast():
     assert not check_newt(load()), check_newt(load())
 
 
+def test_singularity_accent():
+    assert not check_singularity(load()), check_singularity(load())
+
+
 def test_generated_fresh():
     assert not check_generated_fresh(), check_generated_fresh()
 
 
 def main() -> int:
     t = load()
-    errs = check_modes(t) + check_console(t) + check_newt(t) + check_generated_fresh()
+    errs = (
+        check_modes(t)
+        + check_console(t)
+        + check_newt(t)
+        + check_singularity(t)
+        + check_generated_fresh()
+    )
     for mode, roles in t["modes"].items():
         for fg, bg, _ in t["contrast"]["mode-pairs"]:
             print(
