@@ -101,6 +101,24 @@ if [ -z "$KVER_NEXT" ]; then
     exit 1
 fi
 
+# Operator directive 2026-09-30 (the .66 incident): the default kernel on every
+# arch MUST be a release version (7.2.x-*) -- never -rcN. KVER_NEXT is the
+# sidecar file that becomes the default boot entry on this script's rEFInd
+# menu; the build-time verifier (build/verify-kernel-default-policy.sh)
+# catches a misdirected mainline symlink before the image ships, but this
+# runtime gate is the defence in depth: even if KVER_NEXT is somehow
+# retargeted at runtime (operator hand-edit, an OTA bringing an -rc kernel,
+# a hand-flashed sidecar), the rEFInd menu cannot offer it as the default.
+# This is the arm64 analogue of the amd64 KVER_EDGE zeroing in
+# assets/refind/ncz-refind-refresh-amd64.sh.
+case "$KVER_NEXT" in
+    *-rc[0-9]*)
+        echo "ERROR: KVER_NEXT='$KVER_NEXT' is a release-candidate (-rcN); mainline MUST be a release kernel (operator directive 2026-09-30)." >&2
+        echo "       Refusing to write an rEFInd menu that would boot -rc as the default." >&2
+        exit 1
+        ;;
+esac
+
 echo "  KVER_NEXT=$KVER_NEXT"
 echo "  KVER_EDGE=${KVER_EDGE:-<none>}"
 echo "  BUILD_VERSION=$BUILD_VERSION"

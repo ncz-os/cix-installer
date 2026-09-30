@@ -54,6 +54,13 @@
 #      a 7.3-rc as EDGE. This is the runtime analogue of check 5 --
 #      even if a stray kernel is installed on the box, the rEFInd menu
 #      cannot offer it as a bootable entry.
+#   9. (both arches) The rEFInd refresh scripts preserve the rescue
+#      entry (the *-rescue sparing logic and the auto-promote-outgoing
+#      logic). The operator directive says "keep the rescue entry"; a
+#      future refactor that drops either piece silently removes the
+#      safety net, and a verifier running on the build host can catch
+#      that statically by requiring the rescue-promotion markers to
+#      still be present in both scripts.
 #
 # Usage:
 #   verify-kernel-default-policy.sh [--root <repo-root>] [--arch arm64|amd64]
@@ -417,6 +424,41 @@ if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
             err "amd64: rEFInd refresh $_refresh does not contain the 'KVER_EDGE ... ignored' directive-2026-09-30 marker; an edge menu entry could be written even when KVER_EDGE is passed in"
         fi
     fi
+fi
+
+# Check 9 (both arches): the rEFInd refresh scripts preserve the rescue
+# entry. Operator directive 2026-09-30: keep the rescue entry on both
+# arches. The rescue mechanism has two parts -- a *-rescue sparing rule
+# in the ESP-wipe loop, and an auto-promote-outgoing rule that copies
+# the outgoing kernel's vmlinuz/initrd to <RESC>-file names. Both
+# scripts carry matching markers (the unique phrase "PRESERVE OPERATOR-
+# STAGED RESCUE KERNELS" in the arm64 file and "RESCUE menu entry" +
+# "-rescue" promotion in both); require them to still be present.
+#
+# This check runs only against the real repo (the path the verifier is
+# pointed at with --root). Fixture tests build a synthetic asset tree
+# without these scripts on purpose; fixture tests skip this check via
+# the SKIP_RESCUE_CHECK marker so the rescue logic is exercised only
+# against the actual repo, not every synthesized root.
+if [ -z "${SKIP_RESCUE_CHECK:-}" ]; then
+    _rescue_arm64="$ROOT/assets/refind/ncz-refind-refresh.sh"
+    _rescue_amd64="$ROOT/assets/refind/ncz-refind-refresh-amd64.sh"
+    for _script in "$_rescue_arm64" "$_rescue_amd64"; do
+        if [ ! -f "$_script" ]; then
+            err "rescue entry preservation: $_script missing -- the rEFInd menu cannot preserve the rescue kernel"
+            continue
+        fi
+        if ! grep -q '\*-rescue' "$_script" 2>/dev/null; then
+            err "rescue entry preservation: $_script no longer contains the *-rescue sparing/promotion logic; the rescue menu entry would be wiped (operator directive 2026-09-30)"
+        fi
+    done
+    # The arm64 script additionally carries the "PRESERVE OPERATOR-STAGED
+    # RESCUE KERNELS" header comment that documents the rescue-promotion
+    # contract; require that too.
+    if [ -f "$_rescue_arm64" ] && ! grep -q 'PRESERVE OPERATOR-STAGED RESCUE KERNELS' "$_rescue_arm64" 2>/dev/null; then
+        err "rescue entry preservation: $_rescue_arm64 no longer carries the PRESERVE OPERATOR-STAGED RESCUE KERNELS marker comment; the rescue-promotion contract was deleted"
+    fi
+    log "rescue entry preservation: both arches carry the *-rescue sparing/promotion logic (directive 2026-09-30)"
 fi
 
 if [ "$FAIL" = 1 ]; then

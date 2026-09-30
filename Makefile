@@ -274,7 +274,21 @@ iso: image
 #       and post-install/10-our-kernel.sh then aborted the whole base
 #       layer with "no kernel installed (edge failed)" because the
 #       vendor mirror had published rc5 while KVER said 7.2.8.
+#
+# Operator directive 2026-09-30 (the .66 incident): 7.2.8 must be the default
+# kernel on every arch. Gate the kernel-debs target with the kernel-default
+# policy verifier before doing anything else -- a misdirected
+# assets/kernel/mainline symlink (the .66 root cause) silently produces
+# wrong .debs here if this gate is skipped.
 kernel-debs:
+	@if [ ! -x "$(ROOT)/build/verify-kernel-default-policy.sh" ]; then \
+	    echo "[kernel-debs] FATAL: $(ROOT)/build/verify-kernel-default-policy.sh is missing or not executable" >&2; \
+	    exit 1; \
+	fi
+	@if ! bash $(ROOT)/build/verify-kernel-default-policy.sh --root $(ROOT) --arch arm64; then \
+	    echo "[kernel-debs] FATAL: kernel default policy failed -- refusing to package" >&2; \
+	    exit 1; \
+	fi
 	@if [ "$(ARCH)" != arm64 ]; then \
 	    echo "[kernel-debs] skipping Sky1 kernel packages for $(ARCH)"; \
 	elif ! ls $(BUILD)/kernel-debs/*.deb >/dev/null 2>&1; then \

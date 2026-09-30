@@ -84,7 +84,10 @@ JSON
 run() {
     local label="$1" expect="$2"; shift 2
     local got
-    "$VERIFIER" "$@" >/dev/null 2>&1
+    # Fixture tests build a synthetic asset tree without the rEFInd refresh
+    # scripts on purpose; the rescue-preservation check is exercised against
+    # the real repo only (see test_rescue_preservation below).
+    SKIP_RESCUE_CHECK=1 "$VERIFIER" "$@" >/dev/null 2>&1
     got=$?
     if [ "$got" = "$expect" ]; then
         printf '  PASS  %s (exit=%d)\n' "$label" "$got"
@@ -129,7 +132,7 @@ run "arm64: edge KVER equals mainline KVER" 1 --root "$r" --arch arm64
 echo "=== Negative: edge is a release version (warn-only, still passes) ==="
 r="$WORK/n3" ; mkroot "$r" "7.2.8-sky1-ncz" "7.2.7-sky1-ncz" "7.2.8-sky1-ncz"
 # Expect exit 0 (warn only). Capture stderr to verify WARN present.
-out=$("$VERIFIER" --root "$r" --arch arm64 2>&1)
+out=$(SKIP_RESCUE_CHECK=1 "$VERIFIER" --root "$r" --arch arm64 2>&1)
 got=$?
 case "$got" in
     0) if printf '%s' "$out" | grep -q 'WARN: edge KVER.*release version'; then
@@ -330,7 +333,7 @@ cat > "$r/assets/kernel-manifest.json" <<'JSON'
 JSON
 : > "$r/release.conf"
 echo "NCZ_TARGET_ARCH=arm64" >> "$r/release.conf"
-out=$("$VERIFIER" --root "$r" --arch arm64 2>&1); got=$?
+out=$(SKIP_RESCUE_CHECK=1 "$VERIFIER" --root "$r" --arch arm64 2>&1); got=$?
 case "$got" in
     0)
         if echo "$out" | grep -q "using it (build farm uses the pool-mounted symlink)"; then
@@ -358,7 +361,7 @@ cat > "$r/assets/kernel-manifest.json" <<'JSON'
 JSON
 : > "$r/release.conf"
 echo "NCZ_TARGET_ARCH=arm64" >> "$r/release.conf"
-out=$("$VERIFIER" --root "$r" --arch arm64 2>&1); got=$?
+out=$(SKIP_RESCUE_CHECK=1 "$VERIFIER" --root "$r" --arch arm64 2>&1); got=$?
 case "$got" in
     1)
         if echo "$out" | grep -q "Mount the kernel-staging pool or repoint the symlink"; then
@@ -376,6 +379,52 @@ echo "=== Positive: payload filename variant -- per-KVER headers ==="
 r="$WORK/p10" ; mkroot "$r" "7.2.8-sky1-ncz" "7.3.0-rc5-sky1-ncz" "7.2.8-sky1-ncz"
 mv "$r/assets/kernel/edge/headers-cixmini.tar.zst" "$r/assets/kernel/edge/headers-7.3.0-rc5-sky1-ncz.tar.zst"
 run "arm64: edge payload with per-KVER headers filename" 0 --root "$r" --arch arm64
+
+echo
+echo "=== Positive: rescue entry preservation (real repo, no SKIP) ==="
+# The rescue-preservation check runs against the REAL rEFInd refresh
+# scripts (it deliberately skips synthetic fixtures because they don't
+# carry these scripts). Run the verifier without SKIP_RESCUE_CHECK
+# against the repo root and assert it passes for both arches; then
+# prove the check catches a deleted rescue-marker by running against
+# a temporary copy with the *-rescue sparing stripped out.
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if "$VERIFIER" --root "$REPO_ROOT" --arch arm64 >/dev/null 2>&1; then
+    printf '  PASS  arm64: real repo preserves rescue markers (exit=0)\n'; PASS=$((PASS+1))
+else
+    printf '  FAIL  arm64: real repo lost its rescue-preservation markers\n'; FAIL=$((FAIL+1))
+fi
+if "$VERIFIER" --root "$REPO_ROOT" --arch amd64 >/dev/null 2>&1; then
+    printf '  PASS  amd64: real repo preserves rescue markers (exit=0)\n'; PASS=$((PASS+1))
+else
+    printf '  FAIL  amd64: real repo lost its rescue-preservation markers\n'; FAIL=$((FAIL+1))
+fi
+# Regression guard: a copy of the refresh script with the *-rescue
+# sparing stripped out MUST be flagged.
+_regression=$(mktemp -d)
+cp -a "$REPO_ROOT/assets/refind/ncz-refind-refresh.sh" "$_regression/ncz-refind-refresh.sh"
+cp -a "$REPO_ROOT/assets/refind/ncz-refind-refresh-amd64.sh" "$_regression/ncz-refind-refresh-amd64.sh"
+sed -i 's|\*-rescue|NO-RESCUE|g' "$_regression/ncz-refind-refresh.sh"
+mkdir -p "$_regression/root-fake/assets/kernel/mainline"
+: > "$_regression/root-fake/release.conf"
+echo "NCZ_TARGET_ARCH=arm64" >> "$_regression/root-fake/release.conf"
+mkdir -p "$_regression/root-fake/assets/refind"
+cp "$_regression/ncz-refind-refresh.sh" "$_regression/root-fake/assets/refind/ncz-refind-refresh.sh"
+cp "$_regression/ncz-refind-refresh-amd64.sh" "$_regression/root-fake/assets/refind/ncz-refind-refresh-amd64.sh"
+printf '7.2.8-sky1-ncz\n' > "$_regression/root-fake/assets/kernel/mainline/KVER"
+printf 'fakecontent\n' > "$_regression/root-fake/assets/kernel/mainline/Image-cixmini.bin"
+printf 'fakecontent\n' > "$_regression/root-fake/assets/kernel/mainline/modules-cixmini.tgz"
+printf 'fake\n' > "$_regression/root-fake/assets/kernel/mainline/config-7.2.8-sky1-ncz"
+printf 'fake\n' > "$_regression/root-fake/assets/kernel/mainline/headers-cixmini.tar.zst"
+cat > "$_regression/root-fake/assets/kernel-manifest.json" <<JSON
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/mainline","kver":"7.2.8-sky1-ncz"}}}
+JSON
+if "$VERIFIER" --root "$_regression/root-fake" --arch arm64 >/dev/null 2>&1; then
+    printf '  FAIL  arm64: rescue marker deletion not detected\n'; FAIL=$((FAIL+1))
+else
+    printf '  PASS  arm64: rescue marker deletion detected (exit=1)\n'; PASS=$((PASS+1))
+fi
+rm -rf "$_regression"
 
 echo
 echo "=== summary: PASS=$PASS FAIL=$FAIL ==="
