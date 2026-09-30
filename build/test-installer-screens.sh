@@ -315,5 +315,140 @@ expect "d-i template sources are ASCII" 0 tpl_ascii
 printf 'Template: x/y\nDescription: NCZ install \xe2\x80\x94 pick\n' > "$T/bad.sh"
 tpl_bad() { awk '/^Description/ { if ($0 ~ /[^\001-\177]/) bad=1 } END{exit !bad}' "$T/bad.sh"; }
 expect "a non-ASCII template line is detected" 0 tpl_bad
+# --- adversarial: each orchestrator-interactive chooser exposes the EXPECTED template TYPE ---
+# A regression that re-registers an interactive chooser as `Type: note` (which
+# auto-dismisses without operator input) would skip the operator's prompt for
+# that step. Pin the type so a regression is caught at this gate. The 5
+# orchestrator-interactive choosers each expose at least one interactive
+# template; the type MUST be one of: select (disk/fs/region/components),
+# string (username/hostname), password (password/password-confirm), boolean
+# (erase-confirm). Note/title/error/text are FORBIDDEN for the interactive
+# step (note auto-dismisses; text is non-interactive; error aborts but is
+# non-interactive).
+expect_chooser_type() {
+    local file="$1"; local interactive_type="$2"
+    # Pull the template TYPE lines out of any heredoc that defines a Template:
+    # of the form ncz/* or nclawzero/*. Skip the late.sh 'remove-media' note
+    # (post-install, not part of the 6-step interactive flow).
+    awk -v want="$interactive_type" -v f="$file" '
+        BEGIN { found=0; bad=0 }
+        /<<-?[\047"]?[A-Z]*TPL/ { in_tpl=1; next }
+        in_tpl && /^[[:space:]]*[A-Z]*TPL[[:space:]]*$/ { in_tpl=0; next }
+        in_tpl && /^Type:[[:space:]]+/ {
+            t = substr($0, index($0, ":")+1)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", t)
+            # text/template types are non-interactive (post-install progress
+            # bars and the bootloader banner). Only `note` is FORBIDDEN in
+            # an INTERACTIVE chooser (a note template auto-dismisses without
+            # operator input; text is fine for db_progress progress bars).
+            if (t == "select" || t == "string" || t == "password" || t == "boolean" || t == "multiselect") {
+                if (t == want) { found=1 }
+            } else if (t == "note") {
+                # A `note` template in an INTERACTIVE chooser is the regression
+                # we are guarding against -- the operator prompt would vanish.
+                bad=1
+                print f ": an interactive template was registered as Type: " t " (operator would never be asked)" > "/dev/stderr"
+            }
+        }
+        END { if (bad) exit 2; exit !found }
+    ' "$file"
+}
+expect "component-selector.sh exposes a Type: multiselect template (the operator's first interactive prompt)" 0 expect_chooser_type "$ROOT/preseed/component-selector.sh" multiselect
+expect "region-chooser.sh exposes a Type: select template (the operator's second interactive prompt)"   0 expect_chooser_type "$ROOT/preseed/region-chooser.sh"     select
+expect "user-chooser.sh exposes a Type: string template (username is the third interactive prompt)"     0 expect_chooser_type "$ROOT/preseed/user-chooser.sh"      string
+expect "user-chooser.sh exposes a Type: password template (the password + confirm step)"               0 expect_chooser_type "$ROOT/preseed/user-chooser.sh"      password
+expect "hostname-suggest.sh exposes a Type: string template (the fifth interactive prompt)"             0 expect_chooser_type "$ROOT/preseed/hostname-suggest.sh"  string
+expect "disk-fs-chooser.sh exposes a Type: select template (the sixth interactive prompt, target disk)" 0 expect_chooser_type "$ROOT/preseed/disk-fs-chooser.sh"   select
+expect "disk-fs-chooser.sh exposes a Type: boolean template (the sixth-step erase confirmation)"       0 expect_chooser_type "$ROOT/preseed/disk-fs-chooser.sh"   boolean
+# --- adversarial: user-chooser.sh has EXACTLY 3 interactive templates (username + password + password-confirm) ---
+# A regression that registers password-confirm as something other than a
+# Type: password (e.g. a Type: string) would let the confirm mismatch branch
+# be skipped (password retyped without `*` masking on screen) and would let
+# the operator's typo escape. Pin the count and the types.
+expect_user_chooser_3_templates() {
+    local f="$1"
+    # Count the Type: lines that are select/string/password/boolean (interactive)
+    local n
+    n=$(grep -cE '^Type:[[:space:]]+(select|string|password|boolean)$' "$f" 2>/dev/null || echo 0)
+    [ "$n" = 3 ] || { echo "$f: expected exactly 3 interactive templates in user-chooser.sh (username, password, password-confirm), got $n" >&2; return 1; }
+    # The three MUST be: string (username), password (password), password (password-confirm)
+    grep -qE '^Type:[[:space:]]+string$'   "$f" || { echo "$f: user-chooser.sh is missing the Type: string template (username)" >&2; return 1; }
+    local npw
+    npw=$(grep -cE '^Type:[[:space:]]+password$' "$f" 2>/dev/null || echo 0)
+    [ "$npw" = 2 ] || { echo "$f: expected 2 Type: password templates (password + password-confirm), got $npw" >&2; return 1; }
+    return 0
+}
+expect "user-chooser.sh has exactly 3 interactive templates (string username + 2x password)" 0 expect_user_chooser_3_templates "$ROOT/preseed/user-chooser.sh"
+# --- adversarial: no chooser calls db_go which would silently advance past a step ---
+# db_go is d-i's "advance past the current question without operator input"
+# helper. The orchestrator's directive is that every chooser step MUST require
+# the operator's input (db_input + db_go is the ONLY safe combination; raw
+# db_go without a prior db_input is the dangerous pattern).
+expect_no_unguarded_db_go() {
+    local f="$1"
+    # The pattern we forbid is a bare `db_go` line OUTSIDE an `if db_input` block.
+    # We accept `db_go` only as the conditional-branch body (preceded by
+    # `if db_input ... ; then ... db_go`). A bare `db_go` on its own line at
+    # column 0 is the regression.
+    grep -nE '^[[:space:]]*db_go[[:space:]]*$' "$f" 2>/dev/null \
+        && { echo "$f: bare db_go at column 0 (would silently advance past a step without operator input)" >&2; return 1; }
+    return 0
+}
+expect "component-selector.sh has no bare db_go (each step must require operator input)" 0 expect_no_unguarded_db_go "$ROOT/preseed/component-selector.sh"
+expect "region-chooser.sh has no bare db_go"   0 expect_no_unguarded_db_go "$ROOT/preseed/region-chooser.sh"
+expect "user-chooser.sh has no bare db_go"      0 expect_no_unguarded_db_go "$ROOT/preseed/user-chooser.sh"
+expect "hostname-suggest.sh has no bare db_go"  0 expect_no_unguarded_db_go "$ROOT/preseed/hostname-suggest.sh"
+expect "disk-fs-chooser.sh has no bare db_go"   0 expect_no_unguarded_db_go "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the partman/early_command block in preseed.cfg does NOT re-invoke hostname-suggest ---
+# The orchestrator's directive: "(5) machine name: ONE step showing the
+# auto-generated name". A regression that adds a SECOND /tmp/hostname-suggest.sh
+# --prompt invocation outside partman/early_command (e.g. in another
+# d-i early_command or in the late_command) would re-show the hostname dialog
+# after the operator already answered it. The expect_one_presource check above
+# catches ALL --prompt invocations, but this check verifies the SINGLE one is
+# inside partman/early_command (so the operator's answer cannot be silently
+# overwritten by a re-prompt in another hook).
+expect_hostname_only_in_partman_early_command() {
+    local cfg="$1"
+    # Extract ONLY the partman/early_command block.
+    local payload
+    payload=$(awk '
+            /d-i partman\/early_command string[[:space:]]*\\/    { in_block=1; print; next }
+            in_block && /^[[:space:]]*\\/                       { print; next }
+            in_block && /^d-i partman\/early_command seen true/  { print; in_block=0; next }
+            in_block                                              { print }
+        ' "$cfg")
+    # The orchestrator's hostname invocation MUST be inside this block (it is the
+    # one allowed invocation; expect_one_presource already pinned the global count
+    # to 1, so this is just the location check).
+    printf '%s' "$payload" | tr -d '\n\\' | grep -qE '/tmp/hostname-suggest\.sh[[:space:]]+--prompt' \
+        || { echo "$cfg: the hostname --prompt invocation is NOT inside partman/early_command" >&2; return 1; }
+    return 0
+}
+expect "hostname-suggest.sh --prompt is invoked inside partman/early_command (orchestrator-required single-prompt-per-step)" 0 expect_hostname_only_in_partman_early_command "$PRCFG"
+# --- adversarial: the disk-fs-chooser ERASE confirmation names the actual chosen disk (not a placeholder) ---
+# A regression that registered the ERASE confirm template with the literal
+# text "ERASE ${DISK}" without expanding ${CHOSEN_DISK} would show the same
+# template name regardless of the operator's disk choice -- making the
+# confirm dialog look like it had already been answered. Pin the expansion.
+expect_erase_names_chosen_disk() {
+    local f="$1"
+    # The Description: line of the confirm-erase template must include the
+    # chosen-disk interpolation (${CHOSEN_DISK}) and the word ERASE.
+    awk '
+        /<<-?[\047"]?[A-Z]*TPL/ { in_tpl=1; next }
+        in_tpl && /^[[:space:]]*[A-Z]*TPL[[:space:]]*$/ { in_tpl=0; next }
+        in_tpl && /^Template:[[:space:]]+ncz\/confirm-erase/ { in_erase=1; next }
+        in_erase && /^Description:[[:space:]]+/ {
+            desc = substr($0, index($0, ":")+1)
+            if (desc ~ /ERASE/ && desc ~ /\$\{?CHOSEN_DISK\}?/) { ok=1; exit }
+            in_erase=0
+        }
+        END { exit !ok }
+    ' "$f" >/dev/null 2>&1 \
+        || { echo "$f: confirm-erase template does not interpolate \${CHOSEN_DISK} (operator would not see which disk is about to be erased)" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh ERASE confirmation names \${CHOSEN_DISK} (operator-safety guard against a templated placeholder)" 0 expect_erase_names_chosen_disk "$ROOT/preseed/disk-fs-chooser.sh"
 echo "installer screen tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
