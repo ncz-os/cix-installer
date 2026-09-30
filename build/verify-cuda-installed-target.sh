@@ -78,6 +78,10 @@ case "$EXPECT" in
             dpkg_has "cuda-nvcc-$TVER" || bad "dpkg does not list cuda-nvcc-$TVER as installed"
             dpkg_has "cuda-libraries-dev-$TVER" || bad "dpkg does not list cuda-libraries-dev-$TVER (headers) as installed"
         fi
+        if [ "$(conf FAMILY)" = turing-plus ]; then
+            dpkg_has nvidia-egl-icd || bad "dpkg does not list nvidia-egl-icd (PRIME EGL vendor) as installed"
+            dpkg_has libegl-nvidia0 || bad "dpkg does not list libegl-nvidia0 (NVIDIA EGL library) as installed"
+        fi
         ;;
     pending)
         [ "$KIND" = pending ] || bad "expected a deferred CUDA install, status is '$STATUS'"
