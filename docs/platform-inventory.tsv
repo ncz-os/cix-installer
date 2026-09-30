@@ -74,6 +74,7 @@ assets/wallpaper/	common	-	wallpaper tooling
 build/70-bootloader.sh	sky1	-	legacy Sky1 bootloader copy with MS-R1 efi=noruntime gating
 build/arch-parity-allowlist.tsv	common	-	reviewed manifest divergence between platforms (canonical, dual-arch parity)
 build/boot-timeline.py	common	-	boot log timeline analysis
+build/build-accel-overlays.sh	sky1	-	rebuilds the four Sky1 accelerator overlays from their dkms.conf
 build/build-apt-repo.sh	common	-	apt repo assembly from release.conf
 build/build-baked-rootfs.sh	sky1	-	bakes generic hooks in an arm64 chroot (31 arm64 refs, 1 amd64)
 build/build-base-rootfs.sh	common	-	mmdebstrap base rootfs with ARCH parameter
@@ -103,6 +104,7 @@ build/build-vendor-mirror.sh	common	-	vendor mirror index regeneration
 build/build-wallpaper-contrib-deb.sh	common	-	wallpaper pack debs
 build/check-early-command-size.sh	common	-	preseed size gate
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
+build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
 build/check-preseed-mirror-sync.sh	common	-	preseed mirror vs release.conf gate
 build/component-prompt-gate.sh	common	-	interactive component prompt gate
 build/containers/	common	-	build container definitions
@@ -153,6 +155,7 @@ build/qemu-test-interactive-patch.sh	sky1	-	qemu-aarch64 interactive patch
 build/qemu-test.sh	sky1	-	qemu-aarch64 ISO test
 build/release-kernel.sh	sky1	-	Sky1 kernel release
 build/release-ota.sh	sky1	-	OTA release
+build/resolve-sky1-kernel-inputs.sh	sky1	-	dry-run of which Sky1 kernel each image input resolves
 build/secret-scan-gate.sh	common	-	secret scan gate
 build/server-mirror.gaps	common	-	server mirror gap notes
 build/singularity-nightly-track.sh	common	-	singularity nightly tracker
@@ -169,6 +172,7 @@ build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test
 build/test-dual-arch-parity.sh	common	-	fixture tests for the parity gates
 build/test-hostname-suggest.sh	common	-	hostname algorithm tests
 build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier test
+build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
 build/test-under-di-busybox.sh	common	-	d-i busybox runner
@@ -336,3 +340,14 @@ build/test-no-software-render.sh	common	-	never-software-render fixture tests
 build/software-render-allowlist.tsv	common	-	software-render lint allowlist
 assets/singularity/patches/singularity-session/0001-session-no-software-fallback-with-gpu.patch	common	-	labwc-session: no software retry on a machine with a GPU
 
+post-install/lib/cuda-select.sh	amd64	nvidia-cuda	NVIDIA GPU family -> driver branch + CUDA toolkit selection
+build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	CUDA dynamic-install gate tests (both directions)
+build/verify-cuda-assets.sh	amd64	nvidia-cuda	CUDA static asset gate (no CUDA in manifests or the mirror)
+build/verify-cuda-installed-target.sh	amd64	nvidia-cuda	CUDA installed-target gate
+build/test-base-stamp.sh	common	-	base.squashfs reuse stamp tests
+build/reap-images.sh	common	-	image reaping policy script
+build/test-reap-images.sh	common	-	reap-images fixture tests
+build/ship-image.sh	common	-	publish a gated image (ARGONAS + operator Mac) and reap superseded ones
+build/test-wallpaper-probe.sh	common	-	Bing helper offline probe test
+build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, chatter, blank screen)
+docs/installer-ux/	common	-	installer console before/after evidence

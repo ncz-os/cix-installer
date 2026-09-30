@@ -3,7 +3,7 @@
 
 The manifest (assets/kernel-manifest.json) is the contract between the BSP
 producer (Yocto / kernel build) and the Debian installer integration layer.
-It pins, per kernel variant (lts/edge):
+It pins, per kernel variant (mainline):
 
   * KVER                       (uname -r of the shipped kernel)
   * Image-cixmini.bin          sha256 + size
@@ -28,7 +28,9 @@ import sys, os, json, hashlib, subprocess, glob, datetime, tarfile, tempfile
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 MANIFEST = os.path.join(ROOT, "assets", "kernel-manifest.json")
-VARIANTS = {"edge": "assets/kernel/edge"}
+# Only the shipping channel is manifested. assets/kernel/edge is the
+# test-only 7.3.x line and is deliberately not a release input here.
+VARIANTS = {"mainline": "assets/kernel/mainline"}
 SCHEMA = 1
 
 # Prebuilt, vermagic-locked accelerator module overlays. Each is a directory of

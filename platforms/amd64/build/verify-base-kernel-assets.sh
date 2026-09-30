@@ -72,7 +72,7 @@ SRC_BASE="$ROOT/assets/kernel"
 EMBED_BASE="usr/local/lib/cix-installer/assets/kernel"
 
 # The two amd64 kernel lines the install hook reads. arm64 has its own
-# asset layout (assets/kernel/edge/, KVER_NEXT, etc.) and a different
+# asset layout (assets/kernel/mainline/, KVER_NEXT, etc.) and a different
 # hook (10-our-kernel.sh) -- out of scope for this verifier.
 #
 # Bug 2 fix (2026-09-28, arm64 host). The verifier used to RUN on every
@@ -97,7 +97,7 @@ if [ -z "$ARCH" ] && [ -r "$ROOT/build/iso-staging-di/ncz-payload/BUILD_ARCH" ];
 fi
 ARCH="${ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
 if [ "$ARCH" != "amd64" ]; then
-    echo "verify-base-kernel-assets: skipped (NCZ_TARGET_ARCH=$ARCH -- amd64-only verifier; arm64/Sky1 uses assets/kernel/edge + 10-our-kernel.sh, not the amd64 .deb-pair layout this verifier compares against)"
+    echo "verify-base-kernel-assets: skipped (NCZ_TARGET_ARCH=$ARCH -- amd64-only verifier; arm64/Sky1 uses assets/kernel/mainline + 10-our-kernel.sh, not the amd64 .deb-pair layout this verifier compares against)"
     exit 0
 fi
 LINES=(amd64-stable amd64-edge)

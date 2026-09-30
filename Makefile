@@ -220,7 +220,7 @@ iso: image
 # Bug 1 fix (2026-09-28, arm64/Sky1 freshness). The previous shape -- "reuse
 # whatever .debs already sit in $(BUILD)/kernel-debs/" -- silently shipped a
 # stale kernel when a previous build run had been started against a newer
-# assets/kernel/edge symlink target, the new run switched the symlink back
+# assets/kernel/mainline symlink target, the new run switched the symlink back
 # to an older one (the staged dated dir pool is rotated independently of
 # any in-flight ISO build), and the existing build/kernel-debs/ directory
 # still held the newer .debs. The vendor mirror therefore published the
@@ -233,7 +233,7 @@ iso: image
 # build/preflight-freshness-gate.sh -- mirror its shape here: compare the
 # version carried by the existing .debs (extracted from the .deb
 # filename -- the same key the post-install hook resolves) against
-# assets/kernel/edge/KVER (following the symlink, since edge IS a
+# assets/kernel/mainline/KVER (following the symlink, since mainline IS a
 # symlink), and rebuild -- rotating the stale set aside, never deleting
 # it, the same convention build-squashfs-layers.sh uses for stale
 # base.squashfs layers -- when they disagree. The freshness comparison
@@ -251,10 +251,18 @@ iso: image
 # for ARCH=arm64 hosts. For ARCH!=arm64 (i.e. amd64 build hosts, the
 # usual case), this target is a no-op as before.
 #
+# 2026-09-29: the freshness key is now the SHIPPING pointer
+# assets/kernel/mainline (was assets/kernel/edge), and reuse additionally
+# requires build/check-kernel-deb-pin.sh to pass. Before this the parser
+# compared "<KVER>+r<N>" (the filename version) with bare KVER, which never
+# matched, so every run rebuilt; fixing only the parser would have made a
+# stale +r258 build of 7.2.8 reusable while the pointer names r277. The pin
+# checks KVER, the revision floor, and one version per package.
+#
 # The four branches below, in order:
 #   (a) arch != arm64: skip (no-op on amd64 build hosts).
 #   (b) build/kernel-debs/*.deb absent: build from scratch.
-#   (c) assets/kernel/edge/KVER absent: edge symlink is dangling or the
+#   (c) assets/kernel/mainline/KVER absent: mainline symlink is dangling or the
 #       staged pool is empty -- build-kernel-debs.sh's resolve_kver will
 #       refuse to package against a stale sidecar, so we refuse too at
 #       the wrapper level rather than silently publishing a set whose
@@ -264,7 +272,7 @@ iso: image
 #       rebuild.
 #   (d) KVER present: compare what the existing linux-image-cixmini
 #       _arm64.deb carries (parsed from the filename, the same key the
-#       post-install hook resolves) against assets/kernel/edge/KVER.
+#       post-install hook resolves) against assets/kernel/mainline/KVER.
 #       If they match, REUSE (no rebuild). If they disagree, ROTATE
 #       THE STALE SET ASIDE and rebuild -- same shape as
 #       build-squashfs-layers.sh's base.squashfs staleness rotation,
@@ -283,8 +291,8 @@ kernel-debs:
 	elif ! ls $(BUILD)/kernel-debs/*.deb >/dev/null 2>&1; then \
 	    echo "[kernel-debs] no debs present; building local kernel packages"; \
 	    bash $(ROOT)/build/build-kernel-debs.sh; \
-	elif [ ! -f "$(ROOT)/assets/kernel/edge/KVER" ]; then \
-	    echo "[kernel-debs] assets/kernel/edge/KVER missing -- cannot verify freshness; rebuilding" >&2; \
+	elif [ ! -f "$(ROOT)/assets/kernel/mainline/KVER" ]; then \
+	    echo "[kernel-debs] assets/kernel/mainline/KVER missing -- cannot verify freshness; rebuilding" >&2; \
 	    _kdebs_ts="$$(date -u +%Y%m%d-%H%M%S)"; \
 	    if mv "$(BUILD)/kernel-debs" "$(BUILD)/kernel-debs.stale-$${_kdebs_ts}" 2>/dev/null; then \
 	        echo "[kernel-debs]   rotated stale set aside as $(BUILD)/kernel-debs.stale-$${_kdebs_ts}" >&2; \
@@ -293,18 +301,19 @@ kernel-debs:
 	    fi; \
 	    bash $(ROOT)/build/build-kernel-debs.sh; \
 	else \
-	    _want_kver="$$(tr -d '[:space:]' < "$(ROOT)/assets/kernel/edge/KVER")"; \
+	    _want_kver="$$(tr -d '[:space:]' < "$(ROOT)/assets/kernel/mainline/KVER")"; \
 	    _have_kver="$$(ls -1 $(BUILD)/kernel-debs/linux-image-cixmini_*_arm64.deb 2>/dev/null \
 	        | head -1 \
-	        | sed -nE 's/.*linux-image-cixmini_([^_]+)_arm64\.deb/\1/p')"; \
+	        | sed -nE 's/.*linux-image-cixmini_([^_+]+)(\+[^_]*)?_arm64\.deb/\1/p')"; \
 	    if [ -z "$$_have_kver" ]; then \
 	        echo "[kernel-debs] existing set carries no linux-image-cixmini_*_arm64.deb -- rebuilding"; \
 	        bash $(ROOT)/build/build-kernel-debs.sh; \
-	    elif [ "$$_have_kver" = "$$_want_kver" ]; then \
-	        echo "[kernel-debs] using existing debs from $(BUILD)/kernel-debs (KVER=$$_have_kver matches assets/kernel/edge/KVER)"; \
+	    elif [ "$$_have_kver" = "$$_want_kver" ] \
+	         && bash $(ROOT)/build/check-kernel-deb-pin.sh "$(ROOT)/assets/kernel/mainline/KVER" "$(BUILD)/kernel-debs"; then \
+	        echo "[kernel-debs] using existing debs from $(BUILD)/kernel-debs (KVER=$$_have_kver matches assets/kernel/mainline/KVER and passes the kernel pin)"; \
 	        find $(BUILD)/kernel-debs -maxdepth 1 -name '*.deb' -printf '  %f\n' | sort; \
 	    else \
-	        echo "[kernel-debs] STALE: existing debs KVER=$$_have_kver != assets/kernel/edge/KVER=$$_want_kver" >&2; \
+	        echo "[kernel-debs] STALE: existing debs (KVER=$$_have_kver) do not match assets/kernel/mainline (KVER=$$_want_kver, revision floor from the staged dir)" >&2; \
 	        _kdebs_ts="$$(date -u +%Y%m%d-%H%M%S)"; \
 	        if mv "$(BUILD)/kernel-debs" "$(BUILD)/kernel-debs.stale-$${_kdebs_ts}" 2>/dev/null; then \
 	            echo "[kernel-debs]   rotated stale set aside as $(BUILD)/kernel-debs.stale-$${_kdebs_ts}" >&2; \
@@ -565,3 +574,5 @@ parity:
 	build/lint-no-software-render.sh
 	build/test-installer-screens.sh
 	build/test-ncz-ui.sh
+	build/test-base-stamp.sh
+	build/test-reap-images.sh

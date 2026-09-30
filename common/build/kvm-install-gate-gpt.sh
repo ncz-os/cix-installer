@@ -507,6 +507,19 @@ if true; then   # both architectures
     echo "    no unexpected failed units on first boot ($(echo "$FAILED_UNITS" | grep -c . || true) allowed)"
 fi
 
+# Installer console UI: the dialogs the operator reads must be branded and clean, and the screen must never go blank
+# after the component dialog (build/kvm-installer-ui-check.sh; needs pyte). A regression here fails the image.
+echo
+echo "  installer console UI check ($ARCH)"
+if [ "${NCZ_SKIP_UI_CHECK:-0}" = 1 ]; then
+    echo "    SKIPPED by NCZ_SKIP_UI_CHECK=1 (not for shipping images)"
+elif [ -x "$SCRIPT_DIR/kvm-installer-ui-check.sh" ]; then
+    bash "$SCRIPT_DIR/kvm-installer-ui-check.sh" "$IMG" "$ARCH" "$WORK/ui-check" 2>&1 | sed 's/^/    /'
+    [ "${PIPESTATUS[0]}" = 0 ] || fail "the installer console UI check failed (see $WORK/ui-check): chatter over the dialogs, an unbranded dialog, or a blank screen after the component dialog"
+else
+    fail "build/kvm-installer-ui-check.sh is missing"
+fi
+
 echo
 echo "GATE PASS (phase 1+2): $(basename "$IMG") installs and boots"
 echo "WORK=$WORK DISK=$DISK VARS=$VARS CODE=$CODE"

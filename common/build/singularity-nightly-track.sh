@@ -43,7 +43,7 @@ echo "=== singularity-nightly-track: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 # shell on this exact host, because systemd user services don't carry an
 # ssh-agent. Force password auth for every git operation against ARGONAS
 # in this script, not just the final gitlab push.
-export GIT_SSH_COMMAND='sshpass -p "REDACTED-CREDENTIAL" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no'
+export GIT_SSH_COMMAND='sshpass -f "$HOME/.config/ncz/argonas.pass" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no'
 
 git fetch origin "$BRANCH" --quiet
 git checkout --quiet "$BRANCH"
@@ -69,7 +69,7 @@ git push origin "$BRANCH"
 # Same ARGONAS-first-then-gitlab convention as every other push in this
 # repo. Push FROM the bare repo on ARGONAS, not from this working copy,
 # per kernel-build-checklist.md §0d.
-sshpass -p 'REDACTED-CREDENTIAL' ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no root@192.168.207.101 \
+sshpass -f "$HOME/.config/ncz/argonas.pass" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no root@192.168.207.101 \
     "git -C /mnt/datapool/git/cix-installer.git push gitlab $BRANCH" \
     || echo "[nightly] WARN: gitlab push failed -- ARGONAS has the commit, retry gitlab push by hand"
 

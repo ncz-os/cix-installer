@@ -96,7 +96,26 @@ desktop:Full Singularity desktop (GUI labwc + greetd + branding)\
 |mgmt-container:ncz-recovery management container (nspawn)\
 |rescue-partition:4 GiB NCZRESCUE partition (rescue rootfs + kernel)"
 
-INTERNAL_COMPONENTS="desktop browsers mgmt-container rescue-partition wallpaper-rotator"
+# Optional NVIDIA driver + CUDA toolkit component. HIDDEN unless the installer
+# sees an NVIDIA display controller (PCI vendor 0x10de, class 0x03xx) in sysfs;
+# default ON when shown. It downloads from NVIDIA's apt repo (network needed;
+# post-install/54-gpu-accel.sh defers to first boot when offline), so it is not
+# baked into the ISO. Skipping it only skips the NVIDIA driver/CUDA; the machine
+# still boots and displays with nouveau.
+_HAS_NV=0
+# amd64 only: post-install/54-gpu-accel.sh (the only consumer) is amd64-only, so offering the option on an arm64
+# machine with an NVIDIA PCIe card would be a no-op the operator cannot see.
+case "${NCZ_UNAME_M:-$(uname -m 2>/dev/null)}" in x86_64|amd64) _NV_ARCH_OK=1 ;; *) _NV_ARCH_OK=0 ;; esac
+for _d in $([ "$_NV_ARCH_OK" = 1 ] && echo /sys/bus/pci/devices/*); do
+    [ -r "$_d/vendor" ] && [ -r "$_d/class" ] || continue
+    case "$(cat "$_d/vendor" 2>/dev/null)" in 0x10de) ;; *) continue ;; esac
+    case "$(cat "$_d/class" 2>/dev/null)" in 0x03*) _HAS_NV=1; break ;; esac
+done
+if [ "$_HAS_NV" = 1 ]; then
+    COMPONENTS="$COMPONENTS|cuda:NVIDIA driver + CUDA toolkit (downloaded during install; needs network)"
+fi
+
+INTERNAL_COMPONENTS="desktop browsers mgmt-container rescue-partition wallpaper-rotator cuda"
 
 # Validate a token against the full internal set (posix sh + grep -qx).
 component_is_valid() {
@@ -141,14 +160,12 @@ done
 _DEFAULT=""
 _OFFERED=""
 _CHOICES_C=""
-_LONG=""
 _oldifs=$IFS; IFS='|'
 for line in $COMPONENTS; do
     code=${line%%:*}; desc=${line#*:}
     [ -z "$_DEFAULT" ] && _DEFAULT="$code" || _DEFAULT="$_DEFAULT, $code"
     [ -z "$_OFFERED" ] && _OFFERED="$code" || _OFFERED="$_OFFERED, $code"
     [ -z "$_CHOICES_C" ] && _CHOICES_C="$desc" || _CHOICES_C="$_CHOICES_C, $desc"
-    _LONG="$_LONG  $code - $desc\\n"
 done
 IFS=$_oldifs
 
@@ -189,16 +206,8 @@ Choices: ${_CHOICES_C}
 Choices-C: ${_OFFERED}
 Default: ${_DEFAULT}
 Description: $(ncz_ui_brand) - optional components
- Untick to skip an optional component. Default (Enter OK) = all of the
- below installed, which is exactly what the previous installer shipped.
- .
-  desktop          - toggle the Singularity desktop GUI on/off (this is the
-                     full desktop overlay + desktop hooks, including browsers
-                     and wallpaper rotator; OFF = console)
-  mgmt-container   - ncz-recovery nspawn container (rescue tier)
-  rescue-partition - 4 GiB NCZRESCUE partition (rescue rootfs + boot entry)
- .
-${_LONG}
+ Untick to skip an optional component. Enter accepts the defaults, which
+ install everything.
  .
  $(ncz_ui_id)
 TPL
@@ -246,31 +255,40 @@ TPL
     # kernel cmdline (the KVM install gate already does), which skips
     # this prompt entirely.
     # ------------------------------------------------------------------
-    log "showing component prompt (synchronous; unattended runs preseed ncz_components= on the cmdline)"
-    _prompt_rc=99
-    if debconf-loadtemplate ncz /tmp/ncz-components.templates 2>/dev/null; then
-        db_set      ncz/components "$_DEFAULT" 2>/dev/null || true
-        db_fset     ncz/components seen false 2>/dev/null || true
-        db_settitle ncz/components 2>/dev/null || true
-        if db_input critical ncz/components && db_go; then
-            if db_get ncz/components; then
-                CHOSEN="$RET"
-                _prompt_rc=0
+    # The dialog is DEFERRED to just before partitioning (partman/early_command runs this script again with --prompt).
+    # Shown here, in the first early_command, it was followed by 15-20 s of silent d-i steps (cdrom-detect, the media
+    # preseed reload, localechooser, load-cdrom, ethdetect) with an empty blue console on both arches; now the
+    # questions come in one block right before the install progress bars start. Until then everything is enabled.
+    if [ "${1:-}" != "--prompt" ]; then
+        CHOSEN="$_DEFAULT"
+        log "interactive install: the component dialog is shown right before partitioning (all components enabled until then)"
+    else
+        log "showing component prompt (synchronous; unattended runs preseed ncz_components= on the cmdline)"
+        _prompt_rc=99
+        if debconf-loadtemplate ncz /tmp/ncz-components.templates 2>/dev/null; then
+            db_set      ncz/components "$_DEFAULT" 2>/dev/null || true
+            db_fset     ncz/components seen false 2>/dev/null || true
+            db_settitle ncz/components 2>/dev/null || true
+            if db_input critical ncz/components && db_go; then
+                if db_get ncz/components; then
+                    CHOSEN="$RET"
+                    _prompt_rc=0
+                fi
+            else
+                _prompt_rc=2
             fi
         else
-            _prompt_rc=2
+            _prompt_rc=3
         fi
-    else
-        _prompt_rc=3
-    fi
-    if [ "$_prompt_rc" = 0 ]; then
-        log "component prompt answered: $CHOSEN"
-    elif [ "$_prompt_rc" = 3 ]; then
-        log "WARNING: could not load component template — using default (all enabled)"
-        CHOSEN="$_DEFAULT"
-    else
-        log "WARNING: component prompt could not be shown/completed (rc=$_prompt_rc) — using default (all enabled)"
-        CHOSEN="$_DEFAULT"
+        if [ "$_prompt_rc" = 0 ]; then
+            log "component prompt answered: $CHOSEN"
+        elif [ "$_prompt_rc" = 3 ]; then
+            log "WARNING: could not load component template — using default (all enabled)"
+            CHOSEN="$_DEFAULT"
+        else
+            log "WARNING: component prompt could not be shown/completed (rc=$_prompt_rc) — using default (all enabled)"
+            CHOSEN="$_DEFAULT"
+        fi
     fi
 fi
 
@@ -312,6 +330,7 @@ has_component() {
 WANT_DESKTOP=0;           has_component desktop           && WANT_DESKTOP=1
 WANT_MGMT=0;              has_component mgmt-container    && WANT_MGMT=1
 WANT_RESCUE_PART=0;       has_component rescue-partition  && WANT_RESCUE_PART=1
+WANT_CUDA=0;              has_component cuda              && WANT_CUDA=1
 WANT_BROWSERS=$WANT_DESKTOP
 WANT_WALLPAPER=$WANT_DESKTOP
 
@@ -319,9 +338,10 @@ CHOSEN=""
 [ "$WANT_DESKTOP" = 1 ]     && CHOSEN="desktop,browsers,wallpaper-rotator"
 [ "$WANT_MGMT" = 1 ]        && { [ -z "$CHOSEN" ] && CHOSEN="mgmt-container" || CHOSEN="$CHOSEN,mgmt-container"; }
 [ "$WANT_RESCUE_PART" = 1 ] && { [ -z "$CHOSEN" ] && CHOSEN="rescue-partition" || CHOSEN="$CHOSEN,rescue-partition"; }
+[ "$WANT_CUDA" = 1 ]        && { [ -z "$CHOSEN" ] && CHOSEN="cuda" || CHOSEN="$CHOSEN,cuda"; }
 
 log "SELECTED COMPONENTS: $CHOSEN"
-log "  desktop=$WANT_DESKTOP  browsers=$WANT_BROWSERS  mgmt-container=$WANT_MGMT  rescue-partition=$WANT_RESCUE_PART  wallpaper-rotator=$WANT_WALLPAPER"
+log "  desktop=$WANT_DESKTOP  browsers=$WANT_BROWSERS  mgmt-container=$WANT_MGMT  rescue-partition=$WANT_RESCUE_PART  wallpaper-rotator=$WANT_WALLPAPER  cuda=$WANT_CUDA"
 
 # --- persist for the two consumers -----------------------------------------
 # 1. d-i env (consumed by disk-fs-chooser.sh and extract-rootfs.sh, both
@@ -347,7 +367,7 @@ ALT_DST_DIR=/target/var/lib/cix-components
 if [ -d "$COMP_DST_DIR" ] || [ -d "$ALT_DST_DIR" ]; then
     if [ -d "$COMP_DST_DIR" ]; then
         echo "$CHOSEN" > "$COMP_DST_DIR/COMPONENTS" 2>/dev/null || true
-        for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator; do
+        for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator cuda; do
             _v=0; has_component "$_bit" && _v=1
             echo "$_v" > "$COMP_DST_DIR/COMPONENTS_$_bit" 2>/dev/null || true
         done

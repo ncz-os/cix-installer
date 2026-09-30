@@ -111,8 +111,8 @@ PATCHED_UDEB=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["
 echo "[4/6] preparing architecture kernel/initrd"
 INITRD_ARGS=(--base-initrd "$SUBSTRATE_NODE/extract/d-i/initrd.gz" --arch "$ARCH")
 if [ "$ARCH" = arm64 ]; then
-  INITRD_ARGS+=(--kernel-image "$ROOT/assets/kernel/edge/Image-cixmini.bin"
-                --modules-tar "$ROOT/assets/kernel/edge/modules-cixmini.tgz")
+  INITRD_ARGS+=(--kernel-image "$ROOT/assets/kernel/mainline/Image-cixmini.bin"
+                --modules-tar "$ROOT/assets/kernel/mainline/modules-cixmini.tgz")
 else
   KERNEL_DEB=${KERNEL_DEB:-$(find "$ROOT/assets/kernel/amd64-stable" -maxdepth 1 -type f -name 'linux-image-*.deb' | sort -V | tail -1)}
   [ -f "$KERNEL_DEB" ] || { echo "FATAL: set KERNEL_DEB to the amd64 installer kernel package" >&2; exit 1; }

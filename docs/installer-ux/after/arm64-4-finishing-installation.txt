@@ -1,0 +1,16 @@
+# t=94s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                                                         │
+  │                                   14%                                   │
+  │                                                                         │
+  │ Preparing NCZ-OS 26.7 Maximilian install media and target               │
+  │ filesystem...                                                           │
+  └─────────────────────────────────────────────────────────────────────────┘

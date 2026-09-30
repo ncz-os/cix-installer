@@ -244,14 +244,14 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
           find . -type d | while read -r d; do
               # A baked layer can carry an absolute symlink where the media
               # has a real directory: base.squashfs ships
-              # assets/kernel/edge -> /mnt/argonas-yocto-shared/kernel-staging/...,
+              # assets/kernel/mainline -> /mnt/argonas-yocto-shared/kernel-staging/...,
               # which dangles on every installed system. mkdir -p cannot walk
               # through it ("can't create directory ...: No such file or
               # directory"), and because `find | while` reports the status of
               # its LAST iteration, whether that killed late.sh (set -e) came
               # down to which directory find happened to list last. The 2026-09-29
               # arm64 install died here once the media carried a populated
-              # assets/kernel/edge/headers-dir tree. Replace the dangling link
+              # assets/kernel/mainline/headers-dir tree. Replace the dangling link
               # with a real directory, like the file loop below does for files.
               if [ -L "$DSTA/$d" ] && [ ! -e "$DSTA/$d" ]; then
                   rm -f "$DSTA/$d"
@@ -374,7 +374,7 @@ ncz_recover_components() {
         mkdir -p "$_d" 2>/dev/null || continue
         printf '%s\n' "$_ncz_comp" > "$_d/COMPONENTS" 2>/dev/null || true
     done
-    for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator; do
+    for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator cuda; do
         _v=0
         case ",$_ncz_comp," in *,"$_bit",*) _v=1 ;; esac
         printf '%s\n' "$_v" > "/target/etc/cix-installer/COMPONENTS_$_bit" 2>/dev/null || true
@@ -700,7 +700,7 @@ if [ -n "$_ncz_comp" ]; then
         mkdir -p "$_d" 2>/dev/null || continue
         printf '%s\n' "$_ncz_comp" > "$_d/COMPONENTS" 2>/dev/null || true
     done
-    for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator; do
+    for _bit in desktop browsers mgmt-container rescue-partition wallpaper-rotator cuda; do
         _v=0
         case ",$_ncz_comp," in *,"$_bit",*) _v=1 ;; esac
         printf '%s\n' "$_v" > "/target/etc/cix-installer/COMPONENTS_$_bit" 2>/dev/null || true

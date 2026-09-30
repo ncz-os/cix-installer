@@ -19,7 +19,7 @@
 # sees the suggestion as the default and can type another name. Unattended installs never block.
 # ncz_hostname=<name> on the command line overrides the generated name.
 #
-# Test seams: NCZ_CONFMODULE, NCZ_HOSTNAME_GEN, NCZ_HOSTNAME_STATE, NCZ_CMDLINE, NCZ_EARLY_LOG.
+# Test seams: NCZ_CONFMODULE, NCZ_HOSTNAME_GEN, NCZ_HOSTNAME_STATE, NCZ_HOSTNAME_ASKED, NCZ_CMDLINE, NCZ_EARLY_LOG.
 . "${NCZ_CONFMODULE:-/usr/share/debconf/confmodule}" 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
 command -v db_set >/dev/null 2>&1 || exit 0
 # shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
@@ -29,6 +29,7 @@ done
 command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
 
 STATE="${NCZ_HOSTNAME_STATE:-/tmp/.ncz-hostname}"
+ASKED="${NCZ_HOSTNAME_ASKED:-/tmp/.ncz-hostname-asked}"
 LOG="${NCZ_EARLY_LOG:-/var/log/early_command.log}"
 CMDLINE="${NCZ_CMDLINE:-/proc/cmdline}"
 GEN="${NCZ_HOSTNAME_GEN:-}"
@@ -65,7 +66,14 @@ else
     _how="generated from $_src"
     if [ -n "$_override" ] && _ncz_valid "$_override" ; then
         NAME=$_override; _how="ncz_hostname= on the command line"
-    elif [ "$_unattended" = 0 ] ; then
+    fi
+    printf '%s\n' "$NAME" > "$STATE"
+fi
+
+# Interactive installs: the name dialog is shown by the --prompt run, right before partitioning (see the note in
+# component-selector.sh). The first run only generates and applies the suggestion.
+if [ "${1:-}" = "--prompt" ] && [ "$_unattended" = 0 ] && [ ! -e "$ASKED" ] && ! { [ -n "$_override" ] && _ncz_valid "$_override"; } ; then
+    : > "$ASKED"
         cat > /tmp/ncz-hostname.templates <<TPL
 Template: ncz/hostname
 Type: string
@@ -80,6 +88,7 @@ Description: $(ncz_ui_brand) - name this computer
 TPL
         if debconf-loadtemplate ncz /tmp/ncz-hostname.templates 2>/dev/null ; then
             db_set ncz/hostname "$NAME" 2>/dev/null || true
+            db_fset ncz/hostname seen false 2>/dev/null || true
             db_settitle ncz/hostname 2>/dev/null || true
             if db_input critical ncz/hostname && db_go ; then
                 if db_get ncz/hostname ; then
@@ -88,7 +97,6 @@ TPL
                 fi
             fi
         fi
-    fi
     printf '%s\n' "$NAME" > "$STATE"
 fi
 

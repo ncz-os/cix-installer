@@ -1,0 +1,16 @@
+# 7e1d9c2, arm64 KVM, serial console (the installer's terminal) -- "desktop <ERR>" and a title cut at the em dash
+  lqqqqqqqqqqqqqqqqqqqqqqqu [!!] NCZ-OS install  tqqqqqqqqqqqqqqqqqqqqqqqqqk
+  x                                                                         x
+  x Untick to skip an optional component. Default (Enter OK) = all of the   x
+  x below installed, which is exactly what the previous installer           x
+  x shipped.                                                                x
+  x                                                                         x
+  x  desktop           <ERR>                                                x
+  x                                                                         x
+  x       [*] Full Singularity desktop (GUI labwc + greetd + branding)      x
+  x       [*] ncz-recovery management container (nspawn)                    x
+  x       [*] 4 GiB NCZRESCUE partition (rescue rootfs + kernel)            x
+  x                                                                         x
+  x                               <Continue>                                x
+  x                                                                         x
+  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj

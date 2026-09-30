@@ -1,0 +1,25 @@
+# t=42s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+  ┌──────────┤ [!!] NCZ-OS 26.7 Maximilian - optional components ├──────────┐
+  │                                                                         │
+  │ Untick to skip an optional component. Enter accepts the defaults,       │
+  │ which install everything.                                               │
+  │                                                                         │
+  │ arm64 (Sky1) | build c6806798                                           │
+  │                                                                         │
+  │ NCZ-OS 26.7 Maximilian - optional components                            │
+  │                                                                         │
+  │       [*] Full Singularity desktop (GUI labwc + greetd + branding)      │
+  │       [*] ncz-recovery management container (nspawn)                    │
+  │       [*] 4 GiB NCZRESCUE partition (rescue rootfs + kernel)            │
+  │                                                                         │
+  │     <Go Back>                                            <Continue>     │
+  │                                                                         │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+
+
+<Tab> moves; <Space> selects; <Enter> activates buttons

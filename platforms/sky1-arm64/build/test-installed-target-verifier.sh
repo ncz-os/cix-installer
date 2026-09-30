@@ -90,14 +90,19 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
              "$r/usr/share/glib-2.0/schemas" "$r/usr/share/ncz-screensavers" "$r/etc/systemd/user/graphical-session.target.wants"
     echo ncz-screensavers > "$r/usr/local/lib/cix-installer/manifests/install-extra.pkgs"
     for n in $(seq 1 84); do echo x > "$r/usr/lib/ncz-screensavers/hack${n}_gles3"; done
-    echo x > "$r/usr/bin/ncz-screensaver"; echo x > "$r/usr/bin/ncz-screensaver-settings"
+    echo x > "$r/usr/bin/ncz-screensaver"
     echo x > "$r/usr/libexec/ncz-screensaver-idled"; echo x > "$r/usr/libexec/ncz-screensaver-run"
     echo x > "$r/usr/lib/systemd/user/ncz-screensaver-idled.service"
     echo x > "$r/usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml"
     echo x > "$r/usr/share/ncz-screensavers/hacks.tsv"
     printf 'GSettings dev.ncz.screensaver blob' > "$r/usr/share/glib-2.0/schemas/gschemas.compiled"
     ln -s /usr/lib/systemd/user/ncz-screensaver-idled.service "$r/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"
-    printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: 0.3.2\n\n' >> "$r/var/lib/dpkg/status"
+    printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: 0.7.1\n\n' >> "$r/var/lib/dpkg/status"
+    mkdir -p "$r/var/lib/dpkg/info" "$r/opt/singularity/lib/singularity/plugins/screensaver" "$r/opt/singularity/share/glib-2.0/schemas"
+    printf '/usr/bin/ncz-screensaver\n/usr/libexec/ncz-screensaver-idled\n' > "$r/var/lib/dpkg/info/ncz-screensavers.list"
+    echo x > "$r/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"; echo x > "$r/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
+    printf "[dev.sinty.desktop]\nenabled-plugins=['sensors', 'screensaver']\n" > "$r/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"
+    printf 'Package: ncz-screensavers-plugin\nStatus: install ok installed\nVersion: 0.3.1\n\n' >> "$r/var/lib/dpkg/status"
 }
 
 run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name or ""
@@ -127,11 +132,18 @@ m_va_but_mpv_v4l2() { echo x > "$1/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_v
 m_no_encnode()  { echo 'ln -sf $_d /dev/video-cixdec0' > "$1/usr/bin/load-modules.sh"; }
 m_no_mpv()      { echo 'vo=gpu' > "$1/etc/mpv/mpv.conf"; }
 m_mpv_vaapi_no_driver() { echo 'hwdec=vaapi' > "$1/etc/mpv/mpv.conf"; }
-m_ss_missing()  { sed -i '/ncz-screensavers/,+3d' "$1/var/lib/dpkg/status"; }
+m_ss_missing()  { sed -i '/^Package: ncz-screensavers$/,+3d' "$1/var/lib/dpkg/status"; }
 m_ss_hacks()    { rm -f "$1"/usr/lib/ncz-screensavers/hack1*_gles3; }
 m_ss_noidled()  { rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"; }
 m_ss_oldidle()  { ln -s /usr/lib/systemd/user/ncz-idle-manager.service "$1/etc/systemd/user/graphical-session.target.wants/ncz-idle-manager.service"; }
 m_ss_schema()   { printf 'nothing' > "$1/usr/share/glib-2.0/schemas/gschemas.compiled"; }
+m_ssp_missing() { sed -i '/^Package: ncz-screensavers-plugin$/,+3d' "$1/var/lib/dpkg/status"; }
+m_ssp_so()      { rm -f "$1/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"; }
+m_ssp_default() { printf "[dev.sinty.desktop]\nenabled-plugins=['sensors']\n" > "$1/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"; }
+m_ssp_nodefault() { rm -f "$1/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"; }
+m_ss_settings() { mkdir -p "$1/usr/bin"; echo x > "$1/usr/bin/ncz-screensaver-settings"; }
+m_ss_desktop()  { printf '/usr/bin/ncz-screensaver\n/usr/share/applications/ncz-screensavers.desktop\n' > "$1/var/lib/dpkg/info/ncz-screensavers.list"; }
+m_ss_ref()      { printf 'Package: ncz-screensavers-gtk4-reference\nStatus: install ok installed\nVersion: 0.7.1\n\n' >> "$1/var/lib/dpkg/status"; }
 m_ss_launcher() { rm -f "$1/usr/bin/ncz-screensaver"; }
 m_ss_unrequested() { : > "$1/usr/local/lib/cix-installer/manifests/install-extra.pkgs"; m_ss_missing "$1"; }
 m_no_sudo()     { sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
@@ -221,6 +233,13 @@ run_case "mpv without hwdec fails"              1 m_no_mpv
 run_case "screensavers requested but absent fails" 1 m_ss_missing
 run_case "screensavers with 74 of 84 hacks fails"  1 m_ss_hacks
 run_case "screensavers without launcher fails"  1 m_ss_launcher
+run_case "plugin not installed fails"            1 m_ssp_missing
+run_case "plugin library missing fails"          1 m_ssp_so
+run_case "plugin not enabled by default fails"   1 m_ssp_default
+run_case "plugin default override missing fails" 1 m_ssp_nodefault
+run_case "engine with a settings app fails"      1 m_ss_settings
+run_case "engine shipping a .desktop file fails" 1 m_ss_desktop
+run_case "gtk4-reference installed fails"        1 m_ss_ref
 run_case "idled timer not enabled fails"        1 m_ss_noidled
 run_case "old idle-manager still enabled fails" 1 m_ss_oldidle
 run_case "schema not compiled fails"            1 m_ss_schema

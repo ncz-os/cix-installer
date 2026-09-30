@@ -19,6 +19,11 @@ mk "$GOOD"$'\nPlease press Enter to activate this console.';   expect "askfirst 
 mk "$GOOD";                                                   expect "missing required dialog text fails"      1 chk --require-dialog "name this computer"
 mk "$GOOD";                                                   expect "header present passes"                   0 chk --require-header "NCZ-OS [0-9.]+ [A-Za-z]+ \\|"
 mk $'  lqqqqqqqqqqqqqqu title tqqqqqqk\n  x hello x\n  mqqqqqqqqqqqqqqqqqqj'; expect "dialog without header fails" 1 chk --require-header "NCZ-OS [0-9.]+"
+mk2() { rm -rf "$T/s"; mkdir -p "$T/s"; printf '# t=20s\n%s\n' "$1" > "$T/s/0000-0020s.txt"; printf '# t=30s\n%s\n' "$2" > "$T/s/0001-0030s.txt"; }
+BLANK=$'[                    (1**installer)  2 shell  3 shell  4- log'
+mk2 "$GOOD" "$BLANK";                                         expect "blank console after the dialog fails"     1 chk --no-blank-after "optional component"
+mk2 "$GOOD" "$GOOD";                                          expect "a dialog that stays up passes"            0 chk --no-blank-after "optional component"
+mk2 "$BLANK" "$BLANK";                                        expect "blank BEFORE the marker dialog is not judged" 0 chk --no-blank-after "optional component"
 rm -rf "$T/s"; mkdir "$T/s";                                  expect "empty capture fails"                     1 chk
 # templates that d-i draws with newt must be ASCII: the em dash rendered "<ERR>" and truncated the title on hardware
 ROOT="$(cd "$HERE/.." && pwd)"

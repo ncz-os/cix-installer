@@ -160,7 +160,7 @@ EMBED_MIRROR=1
 STAGE_ROOTFS=1
 PATCH_DEBOOTSTRAP_STUB=1
 STAGE_NEXT_KERNEL=1
-INSTALLER_KERNEL_FLAVOR=edge
+INSTALLER_KERNEL_FLAVOR=mainline
 BOOTSTRAP_POOL=0
 # 2026-05-08: ceiling set to 1GB so the netinstall ISO stays in the
 # easy-GitHub-release-distribution band (GitHub allows up to 2GB per
@@ -805,30 +805,32 @@ ensure_di_udeb_from_archive() {
 }
 
 # ----------------------------------------------------------------------
-# Kernel discovery — edge (7.2.0-sky1-ncz) is the only supported channel.
-#   $ROOT/assets/kernel/edge/Image-cixmini.bin
-#   $ROOT/assets/kernel/edge/modules-cixmini.tgz
-#   $ROOT/assets/kernel/edge/KVER
+# Kernel discovery — mainline (7.2.x-sky1-ncz, the shipping channel) is the
+# installer AND installed kernel. assets/kernel/edge (test-only 7.3.x) is
+# never used here.
+#   $ROOT/assets/kernel/mainline/Image-cixmini.bin
+#   $ROOT/assets/kernel/mainline/modules-cixmini.tgz
+#   $ROOT/assets/kernel/mainline/KVER
 # ----------------------------------------------------------------------
-NEXT_KERN="$ROOT/assets/kernel/edge/Image-cixmini.bin"
-NEXT_TGZ="$ROOT/assets/kernel/edge/modules-cixmini.tgz"
-NEXT_KVER_FILE="$ROOT/assets/kernel/edge/KVER"
+NEXT_KERN="$ROOT/assets/kernel/mainline/Image-cixmini.bin"
+NEXT_TGZ="$ROOT/assets/kernel/mainline/modules-cixmini.tgz"
+NEXT_KVER_FILE="$ROOT/assets/kernel/mainline/KVER"
 
 KVER_NEXT=""
 
 if [ -f "$NEXT_KVER_FILE" ] && [ -f "$NEXT_KERN" ] && [ -f "$NEXT_TGZ" ]; then
     KVER_NEXT=$(cat "$NEXT_KVER_FILE")
     [ -n "$KVER_NEXT" ] || { echo "ERROR: empty KVER file: $NEXT_KVER_FILE"; exit 1; }
-    echo "[info] edge kernel KVER: $KVER_NEXT"
-elif [ "$INSTALLER_KERNEL_FLAVOR" = "edge" ] || [ "$MODE" = "netinstall" ]; then
-    echo "ERROR: --mode netinstall requires assets/kernel/edge/{KVER,Image-cixmini.bin,modules-cixmini.tgz}" >&2
+    echo "[info] mainline kernel KVER: $KVER_NEXT"
+elif [ "$INSTALLER_KERNEL_FLAVOR" = "mainline" ] || [ "$MODE" = "netinstall" ]; then
+    echo "ERROR: --mode netinstall requires assets/kernel/mainline/{KVER,Image-cixmini.bin,modules-cixmini.tgz}" >&2
     exit 1
 fi
 
 INSTALLER_KERN="$NEXT_KERN"
 INSTALLER_TGZ="$NEXT_TGZ"
 KVER_INSTALLER="$KVER_NEXT"
-INSTALLER_KERNEL_LABEL="edge"
+INSTALLER_KERNEL_LABEL="mainline"
 
 # ----------------------------------------------------------------------
 # Step 1 — extract d-i substrate (bookworm or trixie netinst)
@@ -3315,12 +3317,12 @@ if [ "$NCZ_TARGET_ARCH" = amd64 ] && [ "$STAGE_NEXT_KERNEL" = "1" ]; then
         echo "    $_amd64_channel staged: $_amd64_debs packages ($(du -sh "$EXTRA/assets/kernel/$_amd64_channel" | cut -f1))"
     done
 elif [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
-    mkdir -p "$EXTRA/assets/kernel/edge"
-    cp -L "$NEXT_KERN" "$EXTRA/assets/kernel/edge/"
-    cp -L "$NEXT_TGZ"  "$EXTRA/assets/kernel/edge/"
-    if [ -f "$ROOT/assets/kernel/edge/headers-cixmini.tar.zst" ]; then
-        cp -L "$ROOT/assets/kernel/edge/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/edge/"
-        echo "    NEXT headers staged: $(du -h "$EXTRA/assets/kernel/edge/headers-cixmini.tar.zst" | cut -f1)"
+    mkdir -p "$EXTRA/assets/kernel/mainline"
+    cp -L "$NEXT_KERN" "$EXTRA/assets/kernel/mainline/"
+    cp -L "$NEXT_TGZ"  "$EXTRA/assets/kernel/mainline/"
+    if [ -f "$ROOT/assets/kernel/mainline/headers-cixmini.tar.zst" ]; then
+        cp -L "$ROOT/assets/kernel/mainline/headers-cixmini.tar.zst" "$EXTRA/assets/kernel/mainline/"
+        echo "    NEXT headers staged: $(du -h "$EXTRA/assets/kernel/mainline/headers-cixmini.tar.zst" | cut -f1)"
     else
         echo "    NEXT headers: NOT PRESENT — /lib/modules/$KVER_NEXT/build will be absent on"
         echo "                 the target, so DKMS cannot rebuild any CIX driver (every CIX"
@@ -3329,16 +3331,16 @@ elif [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
         echo "                   build/extract-kernel-headers.sh \\"
         echo "                     --kernel-src <linux-src-tree> \\"
         echo "                     --kver $KVER_NEXT \\"
-        echo "                     --output assets/kernel/edge/headers-cixmini.tar.zst"
+        echo "                     --output assets/kernel/mainline/headers-cixmini.tar.zst"
     fi
     # r98: archive the NEXT kernel .config (provenance / future OOT rebuilds).
-    if [ -n "$KVER_NEXT" ] && [ -f "$ROOT/assets/kernel/edge/config-$KVER_NEXT" ]; then
-        cp -L "$ROOT/assets/kernel/edge/config-$KVER_NEXT" "$EXTRA/assets/kernel/edge/"
+    if [ -n "$KVER_NEXT" ] && [ -f "$ROOT/assets/kernel/mainline/config-$KVER_NEXT" ]; then
+        cp -L "$ROOT/assets/kernel/mainline/config-$KVER_NEXT" "$EXTRA/assets/kernel/mainline/"
         echo "    NEXT config archived: config-$KVER_NEXT"
     fi
-    echo "    edge kernel staged: $KVER_NEXT  ($(du -h "$EXTRA/assets/kernel/edge/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/edge/modules-cixmini.tgz" | cut -f1) modules)"
+    echo "    mainline kernel staged: $KVER_NEXT  ($(du -h "$EXTRA/assets/kernel/mainline/Image-cixmini.bin" | cut -f1) image, $(du -h "$EXTRA/assets/kernel/mainline/modules-cixmini.tgz" | cut -f1) modules)"
 else
-    echo "    edge kernel: not present — installer will ship the d-i substrate kernel"
+    echo "    mainline kernel: not present — installer will ship the d-i substrate kernel"
 fi
 
 # Sky1 firmware assets: drop into /ncz-payload/assets/sky1-firmware/ exactly

@@ -1,0 +1,17 @@
+[Unit]
+Description=NCZ-OS NVIDIA driver + CUDA toolkit setup (deferred install)
+Documentation=man:ncz-cuda-setup(8)
+After=network-online.target nss-lookup.target
+Wants=network-online.target
+# Idempotent: once the stamp exists the service is a no-op and the timer stops.
+ConditionPathExists=!/var/lib/ncz/cuda-setup.done
+ConditionPathExists=/etc/ncz/cuda-selection.conf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ncz-cuda-setup run --scheduled
+# 75 (EX_TEMPFAIL) = network/download not ready: not a failure, the timer retries.
+SuccessExitStatus=75
+TimeoutStartSec=3h
+Nice=10
+IOSchedulingClass=idle

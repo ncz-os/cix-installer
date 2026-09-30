@@ -75,11 +75,14 @@ if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
 fi
 
 if [ -z "$KVER_NEXT" ]; then
-    echo "ERROR: no KVER_NEXT sidecar present (edge kernel is the only shipping channel)"
+    echo "ERROR: no KVER_NEXT sidecar present (the mainline kernel is the only shipping channel)"
     exit 1
 fi
 
-# KVER_EDGE (2026-09-15): optional SECOND, EXPERIMENTAL kernel line,
+# KVER_NEXT is the historical sidecar name; it carries the MAINLINE
+# (shipping) channel KVER, packaged as linux-image-cixmini.
+# KVER_EDGE (2026-09-15): optional SECOND, EXPERIMENTAL kernel line
+# (the test-only 7.3.x "edge" channel since 2026-09-29),
 # installed alongside KVER_NEXT (which this hook still treats as the
 # default/stable channel it always has). Not dpkg-tracked -- see the
 # install block below for why -- so absence is silently fine, not an
@@ -147,8 +150,11 @@ INSTALLED_KERNELS=0
 if [ -n "$KVER_NEXT" ]; then
     CIXBOOT_DEB=$(local_deb 'cixmini-boot_*.deb')
     USBRECOVERY_DEB=$(local_deb 'ncz-usb-recovery_*.deb')
-    HEADERS_DEB=$(local_deb 'linux-headers-cixmini_*.deb')
-    IMAGE_DEB=$(local_deb 'linux-image-cixmini_*.deb')
+    # Pinned to KVER_NEXT (the mainline sidecar), never "newest in the pool":
+    # local_deb() takes the sort -V maximum, so a leftover 7.3.0-rc5 deb in
+    # the pool would otherwise beat 7.2.8 (2026-09-28 vendor-mirror incident).
+    HEADERS_DEB=$(local_deb "linux-headers-cixmini_${KVER_NEXT}+*.deb")
+    IMAGE_DEB=$(local_deb "linux-image-cixmini_${KVER_NEXT}+*.deb")
     echo "  [edge] apt-get install linux-image-cixmini"
     # r203: --force-overwrite. Edge kernel packages can transiently ship
     # the SAME versioned /boot files (e.g. a baked edge at 7.2.0-sky1-ncz+rN
@@ -169,9 +175,19 @@ if [ -n "$KVER_NEXT" ]; then
         dpkg -i --force-overwrite --force-depends \
             "$USBRECOVERY_DEB" "$CIXBOOT_DEB" "$HEADERS_DEB" "$IMAGE_DEB"
     else
-        echo "    WARN: embedded kernel deb set incomplete — falling back to apt package name"
-        apt-get install -y --no-install-recommends \
-            -o Dpkg::Options::=--force-overwrite linux-image-cixmini
+        echo "    WARN: embedded kernel deb set incomplete — falling back to apt, pinned to $KVER_NEXT"
+        # Pinned like the embedded path: a bare package name would take the
+        # newest linux-image-cixmini any configured source offers, which is
+        # how a test rc kernel reaches a shipping install.
+        _pin_ver=$(apt-cache madison linux-image-cixmini 2>/dev/null \
+            | awk -F'|' '{gsub(/ /, "", $2); print $2}' \
+            | grep -F -- "${KVER_NEXT}+r" | sort -V | tail -1 || true)
+        if [ -n "$_pin_ver" ]; then
+            apt-get install -y --no-install-recommends \
+                -o Dpkg::Options::=--force-overwrite "linux-image-cixmini=$_pin_ver"
+        else
+            echo "    WARN: no linux-image-cixmini ${KVER_NEXT}+r* in any apt source — not installing an unpinned kernel"
+        fi
     fi
     edge_ok=1
     if [ ! -s "/boot/vmlinuz-$KVER_NEXT" ]; then
@@ -274,7 +290,8 @@ fi
 # Headers for DKMS (NPU/GPU/panthor drivers). There is still no
 # linux-headers-cixmini package on Buildkite, so the headers ship as a
 # tarball produced by build/extract-kernel-headers.sh:
-#   assets/kernel/edge/headers-cixmini.tar.zst    -> KVER_NEXT
+#   assets/kernel/mainline/headers-cixmini.tar.zst -> KVER_NEXT
+#   assets/kernel/edge/headers-cixmini.tar.zst     -> KVER_EDGE (test-only)
 # Each unpacks to lib/modules/$KVER/build/ (Makefile, scripts/, include/,
 # arch/arm64/include/, .config, Module.symvers), which is exactly what DKMS
 # needs. This is the same tar-into-/usr pattern the module tarball already
@@ -348,7 +365,7 @@ rebuild_host_tools() {
     fi
 }
 
-install_kernel_headers "$KVER_NEXT" edge   || true
+install_kernel_headers "$KVER_NEXT" mainline || true
 
 # --- KVER_EDGE: second, EXPERIMENTAL kernel line, installed side by side ----
 # with the stable/default kernel above (2026-09-15, operator directive: ship
@@ -364,9 +381,9 @@ install_kernel_headers "$KVER_NEXT" edge   || true
 # manual/experimental and never auto-upgraded, the same posture
 # post-install/10-amd64-kernel.sh already documents for ITS edge line.
 if [ -n "$KVER_EDGE" ]; then
-    EDGE_SRC="$INSTALLER_META/assets/kernel/edge-experimental"
+    EDGE_SRC="$INSTALLER_META/assets/kernel/edge"
     if [ -s "$EDGE_SRC/Image-cixmini.bin" ] && [ -s "$EDGE_SRC/modules-cixmini.tgz" ]; then
-        echo "  installing edge-experimental raw kernel $KVER_EDGE (non-dpkg-tracked)"
+        echo "  installing edge (test-only) raw kernel $KVER_EDGE (non-dpkg-tracked)"
         install -m 0644 "$EDGE_SRC/Image-cixmini.bin" "/boot/vmlinuz-$KVER_EDGE"
         [ -f "$EDGE_SRC/config-$KVER_EDGE" ] && \
             install -m 0644 "$EDGE_SRC/config-$KVER_EDGE" "/boot/config-$KVER_EDGE"
@@ -379,31 +396,31 @@ if [ -n "$KVER_EDGE" ]; then
             edge_modcount=$(find "/usr/lib/modules/$KVER_EDGE" \( -name '*.ko' -o -name '*.ko.xz' \) 2>/dev/null | wc -l)
             if [ "$edge_modcount" -ge 50 ]; then
                 depmod -a "$KVER_EDGE" 2>/dev/null || true
-                install_kernel_headers "$KVER_EDGE" edge-experimental || \
-                    echo "    WARN: edge-experimental kernel headers unavailable -- DKMS rebuild blocked for $KVER_EDGE"
+                install_kernel_headers "$KVER_EDGE" edge || \
+                    echo "    WARN: edge (test-only) kernel headers unavailable -- DKMS rebuild blocked for $KVER_EDGE"
                 if command -v dracut >/dev/null 2>&1; then
                     if dracut --force --kver "$KVER_EDGE" "/boot/initrd.img-$KVER_EDGE" 2>&1 | tail -10; then
-                        echo "    OK: edge-experimental /boot/vmlinuz-$KVER_EDGE + $edge_modcount .ko + initrd built"
+                        echo "    OK: edge (test-only) /boot/vmlinuz-$KVER_EDGE + $edge_modcount .ko + initrd built"
                     else
-                        echo "    WARN: edge-experimental dracut failed for $KVER_EDGE -- entry will be unbootable, dropping KVER_EDGE"
+                        echo "    WARN: edge (test-only) dracut failed for $KVER_EDGE -- entry will be unbootable, dropping KVER_EDGE"
                         rm -f "/boot/vmlinuz-$KVER_EDGE" "/boot/config-$KVER_EDGE"
                         KVER_EDGE=""
                     fi
                 else
-                    echo "    WARN: edge-experimental dracut missing -- cannot build initrd, dropping KVER_EDGE"
+                    echo "    WARN: edge (test-only) dracut missing -- cannot build initrd, dropping KVER_EDGE"
                     rm -f "/boot/vmlinuz-$KVER_EDGE" "/boot/config-$KVER_EDGE"
                     KVER_EDGE=""
                 fi
             else
-                echo "    WARN: edge-experimental modules dir suspiciously small (.ko=$edge_modcount) -- dropping KVER_EDGE"
+                echo "    WARN: edge (test-only) modules dir suspiciously small (.ko=$edge_modcount) -- dropping KVER_EDGE"
                 KVER_EDGE=""
             fi
         else
-            echo "    WARN: edge-experimental modules extraction produced no /usr/lib/modules/$KVER_EDGE -- dropping KVER_EDGE"
+            echo "    WARN: edge (test-only) modules extraction produced no /usr/lib/modules/$KVER_EDGE -- dropping KVER_EDGE"
             KVER_EDGE=""
         fi
     else
-        echo "  edge-experimental: KVER_EDGE=$KVER_EDGE set but Image/modules missing under $EDGE_SRC -- dropping KVER_EDGE"
+        echo "  edge (test-only): KVER_EDGE=$KVER_EDGE set but Image/modules missing under $EDGE_SRC -- dropping KVER_EDGE"
         KVER_EDGE=""
     fi
 fi
@@ -421,7 +438,7 @@ for kver in "$KVER_NEXT"; do
         echo "    WARN: no kernel headers for $kver (/lib/modules/$kver/build/Makefile absent)" \
              "— DKMS rebuild blocked on target." >&2
         echo "          Remediation: build/extract-kernel-headers.sh --kernel-src <tree> --kver $kver" \
-             "--output assets/kernel/edge/headers-cixmini.tar.zst, then rebuild the ISO." >&2
+             "--output assets/kernel/mainline/headers-cixmini.tar.zst, then rebuild the ISO." >&2
     fi
 done
 

@@ -18,6 +18,10 @@ ap = argparse.ArgumentParser()
 ap.add_argument("dir")
 ap.add_argument("--require-dialog", action="append", default=[])
 ap.add_argument("--require-header", default=None)
+ap.add_argument("--start-at", default=None, help="ignore every state before the first one containing TEXT (the bootloader echoes the test kernel command line)")
+ap.add_argument("--after-t", type=int, default=None, help="with --no-blank-after: only judge states at or after this many seconds since boot (the states carry a # t=N header)")
+ap.add_argument("--allow-first-blank", action="store_true", help="with --no-blank-after: the first blank state is the kernel boot and is not a defect")
+ap.add_argument("--no-blank-after", default=None, help="after the first state containing TEXT, no later state may be a blank console (only the screen tab bar): the UI must stay up until the install progress")
 a = ap.parse_args()
 
 BAD = [
@@ -32,8 +36,11 @@ if not files:
     sys.exit("check-installer-screens: FAIL no console states captured in %s" % a.dir)
 bad = 0; seen = {t: False for t in a.require_dialog}
 hdr = re.compile(a.require_header) if a.require_header else None
+started_chk = a.start_at is None
 for f in files:
     txt = open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read()
+    if not started_chk and a.start_at in txt: started_chk = True
+    if not started_chk: continue
     for t in seen:
         if t in txt: seen[t] = True
     for rx, why in BAD:
@@ -45,6 +52,21 @@ for f in files:
     if hdr and re.search(r"[lk]q{5,}|x .* x", txt) and not hdr.search(txt):
         bad += 1
         print("check-installer-screens: FAIL %s: dialog without the branded header /%s/" % (f, a.require_header), file=sys.stderr)
+if a.no_blank_after:
+    started = False
+    blank_seen = 0
+    for f in files:
+        txt = open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read()
+        m_t = re.match(r"# t=(\d+)s", txt)
+        if a.no_blank_after in txt: started = True
+        if a.after_t is not None and m_t and int(m_t.group(1)) >= a.after_t: started = True
+        if not started: continue
+        body = [l for l in txt.split("\n")[1:] if l.strip() and not re.match(r"^\[?\s*\(\d\*+\w+\)\s+2 shell", l.strip()) and "(1**installer)" not in l]
+        if not body:
+            blank_seen += 1
+            if a.allow_first_blank and blank_seen == 1: continue
+            bad += 1
+            print("check-installer-screens: FAIL %s: blank console after the %r dialog (the UI vanished; the operator sees an empty blue screen)" % (f, a.no_blank_after), file=sys.stderr)
 for t, ok in seen.items():
     if not ok:
         bad += 1

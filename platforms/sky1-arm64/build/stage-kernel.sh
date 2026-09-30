@@ -1,9 +1,10 @@
 #!/bin/bash
-# Stage a built kernel into its own dated asset dir, repoint assets/kernel/edge,
+# Stage a built kernel into its own dated asset dir, repoint a channel pointer
+# (assets/kernel/mainline for 7.2.x, assets/kernel/edge for test-only 7.3.x),
 # run the mandatory gates, and package. Idempotent: safe to re-run.
 #
 # Notes that cost time to learn, kept so the next run does not relearn them:
-#  - assets/kernel/edge is a SYMLINK to a dated dir. r262 gets its OWN dir so
+#  - assets/kernel/{mainline,edge} are SYMLINKS to dated dirs. r262 gets its OWN dir so
 #    r261 remains intact and rollback is a symlink flip.
 #  - r262's patches are all in drivers/gpu/drm/cix/*, which build as MODULES
 #    (linlon-dp, trilin-dpsub), NOT into vmlinuz. With SOURCE_DATE_EPOCH pinned
@@ -32,6 +33,14 @@ REPO="${NCZ_INSTALLER_DIR:-$HOME/isobuild/cix-installer}"
 # it) so a kernel built on one host is immediately usable by mkosi/ISO work on
 # another, without a manual copy step.
 STAGING_ROOT="${NCZ_KERNEL_STAGING_ROOT:-$REPO/assets/kernel}"
+# Which channel pointer this staging run repoints. The class is checked
+# against the KVER below: a -rc kernel may only be staged as edge and a
+# release kernel only as mainline, so a test kernel can never silently
+# become the shipping one again (2026-09-28: staging r278 rc5 repointed the
+# single shipping pointer; b63676d9 had to revert it by hand).
+CHANNEL="${NCZ_KERNEL_CHANNEL:-mainline}"
+case "$CHANNEL" in mainline|edge) ;; *) echo "FAIL: NCZ_KERNEL_CHANNEL=$CHANNEL (want mainline or edge)"; exit 1 ;; esac
+POINTER="$REPO/assets/kernel/$CHANNEL"
 mkdir -p "$STAGING_ROOT"
 # Derive the work dir from what was actually built instead of hardcoding a PV.
 # A version bump (7.2+ncz -> 7.2.3+ncz) otherwise silently stages the PREVIOUS
@@ -42,15 +51,20 @@ REV=${BUILD_REV:?set BUILD_REV, e.g. BUILD_REV=r263}
 STAMP=$(date +%Y%m%d)
 KVER=$(ls "$W/image/usr/lib/modules" 2>/dev/null | head -1)
 [ -n "$KVER" ] || { echo "FAIL: cannot determine KVER"; exit 1; }
+case "$CHANNEL:$KVER" in
+    mainline:*-rc[0-9]*) echo "FAIL: $KVER is a prerelease; stage it with NCZ_KERNEL_CHANNEL=edge"; exit 1 ;;
+    edge:*-rc[0-9]*) ;;
+    edge:*) echo "FAIL: $KVER is not a prerelease; the edge channel is 7.3.x -rc test kernels only"; exit 1 ;;
+esac
 DEST=$STAGING_ROOT/${REV}-${KVER}-${STAMP}
-# Compare against the previous RELEASE, not against whatever edge currently
-# points at. A re-run of this same REV has already repointed edge at its own
-# dir, so comparing to edge compares the build against ITSELF and the staleness
+# Compare against the previous RELEASE, not against whatever the channel
+# pointer currently points at. A re-run of this same REV has already repointed
+# it at its own dir, so comparing to it compares the build against ITSELF and the staleness
 # guard then reports "cached output reused" for a perfectly fresh build.
-PREV=$(readlink -f "$REPO/assets/kernel/edge" 2>/dev/null || true)
+PREV=$(readlink -f "$POINTER" 2>/dev/null || true)
 case "${PREV:+$(basename "$PREV")}" in
     "${REV}-"*)
-        echo "note: edge already points at a ${REV} staging ($(basename "$PREV")) -- re-run."
+        echo "note: $CHANNEL already points at a ${REV} staging ($(basename "$PREV")) -- re-run."
         # grep -v exits 1 when EVERY staged dir belongs to this REV (a
         # genuinely first build on a host with no prior release staged) --
         # under set -e that failure propagates through the command
@@ -61,7 +75,7 @@ case "${PREV:+$(basename "$PREV")}" in
         echo "      comparing against the release before it: ${PREV:-<none>}"
         ;;
 esac
-echo "KVER=$KVER  dest=$DEST  previous edge=$PREV"
+echo "KVER=$KVER  channel=$CHANNEL  dest=$DEST  previous=$PREV"
 
 IMG=$(find "$W" -name Image -path "*arch/arm64/boot*" | head -1)
 [ -n "$IMG" ] || { echo "FAIL: no Image built"; exit 1; }
@@ -74,7 +88,7 @@ if [ -f "$PREV/modules-cixmini.tgz" ]; then
     for m in linlon-dp trilin-dpsub; do
         n=$(find "$W/image" -name "$m.ko*" | head -1); o=$(find /tmp/.prevmod -name "$m.ko*" | head -1)
         [ -n "$n" ] && [ -n "$o" ] || continue
-        nm=$(xz -dc "$n" | md5sum | cut -d' ' -f1); om=$(xz -dc "$o" | md5sum | cut -d' ' -f1)
+        nm=$(xz -dcf "$n" | md5sum | cut -d' ' -f1); om=$(xz -dcf "$o" | md5sum | cut -d' ' -f1)
         [ "$nm" != "$om" ] && { echo "module $m CHANGED"; MOD_CHANGED=1; } || echo "module $m unchanged"
     done
 else
@@ -101,16 +115,16 @@ HDRDIR=$DEST/headers-dir
 rm -rf "$HDRDIR" && mkdir -p "$HDRDIR"
 tar -I zstd -xf "$DEST/headers-cixmini.tar.zst" -C "$HDRDIR"
 
-# A relative symlink only works when DEST is a sibling of edge (the old,
-# local-default layout). Once staging moves to the shared root, edge and DEST
+# A relative symlink only works when DEST is a sibling of the pointer (the old,
+# local-default layout). Once staging moves to the shared root, pointer and DEST
 # are in different directories entirely, so it must be absolute there -- but
-# an absolute symlink in the local-default case would tie assets/kernel/edge
+# an absolute symlink in the local-default case would tie assets/kernel/$CHANNEL
 # (a checked-in file) to one machine's home-directory path, breaking on any
 # other clone. Keep the old relative form exactly when nothing opted in.
 if [ "$STAGING_ROOT" = "$REPO/assets/kernel" ]; then
-    ln -sfn "$(basename "$DEST")" "$REPO/assets/kernel/edge"
+    ln -sfn "$(basename "$DEST")" "$POINTER"
 else
-    ln -sfn "$DEST" "$REPO/assets/kernel/edge"
+    ln -sfn "$DEST" "$POINTER"
 fi
 echo "=== staged:"; ls -la "$DEST" | head -8
 
@@ -121,10 +135,12 @@ echo "=== GATE 2: dkms ABI"
 # release-kernel.sh does packaging itself, in a Debian container, because this
 # host may have no dpkg-deb. Skip it here rather than failing the whole staging
 # run after the gates have already passed.
-if [ "${NCZ_SKIP_PACKAGING:-0}" = 1 ]; then
+if [ "$CHANNEL" = edge ]; then
+    echo "=== packaging: SKIPPED (edge is test-only; build-kernel-debs.sh packages mainline only)"
+elif [ "${NCZ_SKIP_PACKAGING:-0}" = 1 ]; then
     echo "=== packaging: SKIPPED (NCZ_SKIP_PACKAGING=1; caller packages)"
 else
     echo "=== packaging as $REV"
     cd "$REPO" && BUILD_REV="$REV" build/build-kernel-debs.sh
 fi
-ls -la "$REPO/build/kernel-debs/" | tail -4
+[ "$CHANNEL" = edge ] || ls -la "$REPO/build/kernel-debs/" | tail -4

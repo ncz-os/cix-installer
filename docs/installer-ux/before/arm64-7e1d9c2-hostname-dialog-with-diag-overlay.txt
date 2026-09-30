@@ -1,0 +1,24 @@
+# t=149s
+   x hyphens, at most 63 characters). It stays the same if you swap        x
+   x network adapters.                                                     x
+   x                                                                       x
+   x NCZ-OS install -- name this computer                                  x
+   x                                                                       x
+   x ncz-spica-5922[diag] sshd running pid=10377__________________________ x
+   x                                            [diag] sshd verified listening o
+n :22                             <Continue>                               x
+   x [diag] ===================================================================
+   mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj   [
+diag] NCZ installer diagnostics READY  (ncz_diag=1)  IP=10.0.2.15
+                                                                 [diag]   ssh:
+  ssh root@10.0.2.15            (password: set by ncz_diag_pw on the boot line)
+                                                                               [
+diag]   telnet: telnet 10.0.2.15 23             (rich shell)
+                                                            [diag]   pull:   wge
+t http://10.0.2.15:8080/var/log/syslog
+                                      [diag]   logs:   remote syslog DISABLED --
+ add ncz_diag_log=<host[:port]> to the
+                                      [diag]           boot cmdline (e.g. at the
+ rEFInd/GRUB menu) to enable it
+                               [diag] ==========================================
+=========================

@@ -131,7 +131,7 @@ else
     # the sshpass password-auth wrapper is the same fleet-standard fallback
     # every other network call in this repo already uses (kernel-build-
     # checklist.md §0f) -- don't rely on client SSH config alone here.
-    if timeout 20 env GIT_SSH_COMMAND='sshpass -p "REDACTED-CREDENTIAL" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o ConnectTimeout=10' \
+    if timeout 20 env GIT_SSH_COMMAND='sshpass -f "$HOME/.config/ncz/argonas.pass" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o ConnectTimeout=10' \
         git fetch origin "$BRANCH" --quiet 2>/dev/null; then
         LOCAL_SHA="$(git rev-parse HEAD)"
         REMOTE_SHA="$(git rev-parse "origin/$BRANCH" 2>/dev/null)"
@@ -226,41 +226,56 @@ fi
 #   arm64 (Sky1) has ONE namespace (r<N>-<kver>-sky1-ncz-<date>) with the
 #   -rc marker splitting the same set into a stable class and a
 #   prerelease class -- identical to how assets/refind/zz1-ncz-refind-
-#   refresh-amd64 classifies amd64 kernels. The local pointer is an
-#   absolute symlink (assets/kernel/edge -> <pool>/r<N>-...) whose
-#   payload is Image-cixmini.bin + modules-cixmini.tgz + ... -- NOT a
-#   .deb. Comparison: resolve the symlink, take its basename, compare to
-#   the newest pool dir of the same class (by mtime). Newer-but-other-
-#   class is WARN (deliberate-pin case), not FAIL.
+#   refresh-amd64 classifies amd64 kernels. Since 2026-09-29 there are
+#   TWO local pointers, one per class, mirroring amd64's two lines:
+#     assets/kernel/mainline -> <pool>/r<N>-7.2.x-...   (SHIPPING, stable)
+#     assets/kernel/edge     -> <pool>/r<N>-7.3.0-rcN-... (TEST-ONLY, prerelease)
+#   Each payload is Image-cixmini.bin + modules-cixmini.tgz + ... -- NOT a
+#   .deb. Comparison: resolve the symlink, take its basename, require the
+#   pointer's own class, and compare to the newest pool dir of that class
+#   (by mtime).
 #
 # Pool-mount discovery and the -rc classifier are both duplicated by
 # design from existing files (stage-amd64-kernel.sh and the rEFInd
 # helper respectively) rather than imported -- a build-host that lacks
 # the helper dir or has a renamed pool layout still gets a working gate.
 
-# arm64 arm -- one local pointer (assets/kernel/edge -> <pool>/r<N>-...).
-# Symlink target is the LIVE pin. Pool dirs carry the -rc marker that
-# classifies them into stable vs prerelease/edge (same as the amd64
-# rEFInd helper). FAIL vs WARN is decided by whether the newer pool dir
-# is the SAME class as the live pin:
-#   FAIL -- symlink is missing, points outside the pool, or points at a
-#           pool dir that is NOT the newest in its class (operator's
-#           claimed pin has been superseded by a same-class build).
-#   WARN -- a newer pool dir exists, but it is in the OTHER class
-#           (deliberate pin: pinned to stable r277 while prerelease
-#           r278 exists, or vice versa). Printed but not failed, so the
-#           operator can see the decision rather than guess at it.
-check_arm64_edge() {
-    local local_pointer="assets/kernel/edge"
+# arm64 arm -- one call per local channel pointer. The class of the pin is
+# part of the contract, not an observation:
+#   assets/kernel/mainline  MUST be stable class (no -rc). It is the only
+#                           kernel build-kernel-debs.sh packages and the
+#                           vendor mirror publishes, so a prerelease here
+#                           ships an rc. Required.
+#   assets/kernel/edge      MUST be prerelease class (-rc). It is the
+#                           test-only 7.3.x line (non-default boot entry).
+#                           Optional: absent is a WARN.
+# FAIL when the pointer is missing (required), not a symlink, dangling,
+# outside the pool, the WRONG class (the 2026-09-28 incident: the single
+# shipping pointer was repointed at r278 rc5, and a 7.2.8 kernel then sat
+# under "edge"), or not the newest build of its class.
+check_arm64_channel() {
+    local local_pointer="$1" want_class="$2" required="$3"
+    local label
+    label="$(basename "$local_pointer")"
+    if [ ! -L "$local_pointer" ] && [ ! -e "$local_pointer" ]; then
+        if [ "$required" = required ]; then
+            echo "[3] FAIL: arm64 $label -- $local_pointer is missing (the $label line is required)"
+            FAIL=$((FAIL + 1))
+        else
+            echo "[3] WARN: arm64 $label -- $local_pointer is absent; no $label line will be staged"
+            WARN=$((WARN + 1))
+        fi
+        return
+    fi
     if [ ! -L "$local_pointer" ]; then
-        echo "[3] FAIL: arm64 -- $local_pointer is not a symlink (Sky1 builds consume the pool via this absolute symlink)"
+        echo "[3] FAIL: arm64 $label -- $local_pointer is not a symlink (Sky1 builds consume the pool via an absolute symlink)"
         FAIL=$((FAIL + 1))
         return
     fi
     local target
     target="$(readlink "$local_pointer")"
     if [ ! -e "$target" ]; then
-        echo "[3] FAIL: arm64 -- $local_pointer is dangling (readlink -> $target)"
+        echo "[3] FAIL: arm64 $label -- $local_pointer is dangling (readlink -> $target)"
         echo "          the pool path this host sees is $(cd "$KERNEL_STAGING_DIR" 2>/dev/null && pwd || echo 'unknown')"
         echo "          but the symlink was made on a host where the pool mounts at a different path."
         echo "          repoint: ln -sfn \"$KERNEL_STAGING_DIR/<pool-dir>\" $local_pointer"
@@ -274,24 +289,29 @@ check_arm64_edge() {
     case "$abs_target" in
         "$KERNEL_STAGING_DIR"/*) ;;
         *)
-            echo "[3] FAIL: arm64 -- $local_pointer resolves to $abs_target"
+            echo "[3] FAIL: arm64 $label -- $local_pointer resolves to $abs_target"
             echo "          which is OUTSIDE the kernel-staging pool ($KERNEL_STAGING_DIR)."
             echo "          Nothing in the build reads from a path outside the pool."
             FAIL=$((FAIL + 1))
             return
             ;;
     esac
-    local pin_name
+    local pin_name pin_class
     pin_name="$(basename "$abs_target")"
-    local pin_class=""
     if is_prerelease "$pin_name"; then pin_class="prerelease"; else pin_class="stable"; fi
-    # Newest in each class, by mtime (lexical order is wrong for the same
-    # reason the amd64 loop sorts by mtime -- see its inline comment).
-    # %T@ gives fractional seconds (e.g. 1790570677.4776231330); strip
-    # everything past the decimal so `-gt` can compare integers.
-    local newest_stable="" newest_stable_mtime=-1
-    local newest_pre="" newest_pre_mtime=-1
-    local d name mt
+    if [ "$pin_class" != "$want_class" ]; then
+        echo "[3] FAIL: arm64 $label -- $local_pointer -> $pin_name is a $pin_class build;"
+        echo "          the $label line only takes $want_class builds (mainline = 7.2.x release,"
+        echo "          edge = 7.3.x -rc test kernel). Repoint the right channel instead."
+        FAIL=$((FAIL + 1))
+        return
+    fi
+    # Newest in the pointer's class, by mtime (lexical order is wrong for
+    # the same reason the amd64 loop sorts by mtime -- see its inline
+    # comment). %T@ gives fractional seconds (e.g. 1790570677.4776231330);
+    # strip everything past the decimal so `-gt` can compare integers.
+    local newest="" newest_mtime=-1
+    local d name mt line
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         d="${line#* }"
@@ -299,53 +319,22 @@ check_arm64_edge() {
         mt="${line%% *}"
         mt="${mt%%.*}"
         if is_prerelease "$name"; then
-            [ "$mt" -gt "$newest_pre_mtime" ] && { newest_pre_mtime="$mt"; newest_pre="$name"; }
+            [ "$want_class" = prerelease ] || continue
         else
-            [ "$mt" -gt "$newest_stable_mtime" ] && { newest_stable_mtime="$mt"; newest_stable="$name"; }
+            [ "$want_class" = stable ] || continue
         fi
+        [ "$mt" -gt "$newest_mtime" ] && { newest_mtime="$mt"; newest="$name"; }
     done <<EOF
 $(find "$KERNEL_STAGING_DIR" -maxdepth 1 -type d -name 'r[0-9]*-*' -printf '%T@ %p\n' 2>/dev/null)
 EOF
-    # If the live pin matches the newest in its class, that's the only
-    # condition under which we have nothing to say. Surface a WARN if a
-    # newer OTHER-class build exists (deliberate pin), FAIL if a newer
-    # SAME-class build exists (the operator's pin has been superseded).
-    case "$pin_class" in
-        stable)
-            if [ "$pin_name" = "$newest_stable" ]; then
-                if [ -n "$newest_pre" ]; then
-                    echo "[3] OK: arm64 -- $local_pointer -> $pin_name (newest stable, pinned while newer prerelease $newest_pre is published -- deliberate)"
-                    echo "[3] WARN: arm64 -- newer prerelease-class build exists: $newest_pre (pinning to stable $pin_name is a deliberate choice; not failing it)"
-                    WARN=$((WARN + 1))
-                else
-                    echo "[3] OK: arm64 -- $local_pointer -> $pin_name (newest stable, no prerelease-class build published)"
-                fi
-            else
-                echo "[3] FAIL: arm64 -- $local_pointer -> $pin_name (stable class) but the pool's newest stable build is $newest_stable"
-                echo "          Newer stable builds of the SAME class exist; the operator's pin is stale."
-                echo "          Newer prerelease (informational, not the failure): ${newest_pre:-<none>}"
-                echo "          Repoint to $newest_stable, or confirm the operator explicitly wants $pin_name."
-                FAIL=$((FAIL + 1))
-            fi
-            ;;
-        prerelease)
-            if [ "$pin_name" = "$newest_pre" ]; then
-                if [ -n "$newest_stable" ]; then
-                    echo "[3] OK: arm64 -- $local_pointer -> $pin_name (newest prerelease, pinned while newer stable $newest_stable is published -- deliberate)"
-                    echo "[3] WARN: arm64 -- newer stable-class build exists: $newest_stable (pinning to prerelease $pin_name is a deliberate choice; not failing it)"
-                    WARN=$((WARN + 1))
-                else
-                    echo "[3] OK: arm64 -- $local_pointer -> $pin_name (newest prerelease, no stable-class build published)"
-                fi
-            else
-                echo "[3] FAIL: arm64 -- $local_pointer -> $pin_name (prerelease class) but the pool's newest prerelease build is $newest_pre"
-                echo "          Newer prerelease builds of the SAME class exist; the operator's pin is stale."
-                echo "          Newer stable (informational, not the failure): ${newest_stable:-<none>}"
-                echo "          Repoint to $newest_pre, or confirm the operator explicitly wants $pin_name."
-                FAIL=$((FAIL + 1))
-            fi
-            ;;
-    esac
+    if [ "$pin_name" = "$newest" ]; then
+        echo "[3] OK: arm64 $label -- $local_pointer -> $pin_name (newest $want_class build)"
+    else
+        echo "[3] FAIL: arm64 $label -- $local_pointer -> $pin_name ($want_class class) but the pool's newest $want_class build is $newest"
+        echo "          Newer builds of the SAME class exist; the operator's pin is stale."
+        echo "          Repoint to $newest, or confirm the operator explicitly wants $pin_name."
+        FAIL=$((FAIL + 1))
+    fi
 }
 
 # amd64 arm -- one function per line, parameterised only by the line name
@@ -426,7 +415,8 @@ if [ -d "$KERNEL_STAGING_DIR" ]; then
             done
             ;;
         arm64)
-            check_arm64_edge
+            check_arm64_channel assets/kernel/mainline stable required
+            check_arm64_channel assets/kernel/edge prerelease optional
             ;;
         *)
             # An arch we don't recognise. Don't claim OK -- say we don't
@@ -463,6 +453,10 @@ if [ -d "$KERNEL_STAGING_DIR" ]; then
             # classify instead of falling through unseen, same posture as
             # assets/refind/zz1-ncz-refind-refresh-amd64's classifier.
             r[0-9]*-*-sky1-ncz*) ;;
+            # Bisect trees are experiments by definition (a T2 bisect run keeps its per-step builds here);
+            # they are never staged into an image, so they are not orphans. Added 2026-09-29 after a live
+            # amd64-t2-bisect-* run failed every image build's freshness gate.
+            *-bisect-*) ;;
             # Anything else under the pool that LOOKS like a kernel
             # build (starts with amd64-, r<digit>-, or sky1-) is an
             # orphan. Plain top-level dirs (lost+found, etc.) are not.

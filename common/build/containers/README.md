@@ -23,11 +23,11 @@ Then stage 2:
     # Probe the per-host ARGONAS yocto-shared spellings. ULTRA mounts it at
     # /mnt/argonas-yocto-shared, TYDEUS at /nfs-shared, and other hosts
     # (HYDRA/ACHILLES/PROTEUS) under /mnt/argonas/datapool/yocto-shared via
-    # autofs. assets/kernel/edge is an absolute symlink into
+    # autofs. assets/kernel/mainline is an absolute symlink into
     # /mnt/argonas-yocto-shared/kernel-staging/, so inside the container it
     # DANGLES unless the staging tree is bind-mounted in too -- the kernel-
-    # debs target (Makefile, gated now on assets/kernel/edge/KVER freshness)
-    # dies with `no KVER for channel 'edge'` otherwise. Same probing
+    # debs target (Makefile, gated now on assets/kernel/mainline/KVER freshness)
+    # dies with `no KVER for channel 'mainline'` otherwise. Same probing
     # convention build/stage-amd64-kernel.sh and build/preflight-freshness-
     # gate.sh already use; do not hardcode one spelling.
     KSTAGING=$(for c in /mnt/argonas-yocto-shared/kernel-staging \

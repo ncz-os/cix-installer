@@ -66,8 +66,11 @@ stack, and brand the system as NCZ.
 > | **Stable** | `7.2.7-sky1-ncz` (r274, 2026-09-22) | `7.2.7-2-t2-trixie` (2026-09-22) — Apple T2 + generic PCs, unified |
 > | **Edge** | `7.3.0-rc4-sky1-ncz` (r273, 2026-09-20) | `7.3.0-rc4-2-t2-trixie` (2026-09-23) — T2 patch set, KVM-gated, not yet hardware-boot-tested |
 >
-> The Sky1 "edge" line is what the image ships. The Sky1 "stable" line
-> is what boot-test gates pass against before a release. The AMD64
+> The Sky1 **mainline** line (7.2.x, `assets/kernel/mainline`) is what the
+> image ships and boots by default. The Sky1 **edge** line (7.3.x release
+> candidates, `assets/kernel/edge`) is test-only: it is installed as a
+> non-default experimental boot entry and is never published as the
+> `linux-image-cixmini` package. The AMD64
 > unified stable (T2 + PCs) is **hardware boot-tested on real T2 Macs**;
 > the AMD64 edge is staged but KVM-gated only.
 >
@@ -280,7 +283,7 @@ to change a ❌ to a ✅.**
 
 > **Which kernel is this table about?** NCZ-OS 26.7 ships **one** Sky1
 > kernel line: `linux-cix-sky1-ncz` (the version staged at image-build
-> time; the symlink `assets/kernel/edge` is the canonical pointer). The
+> time; the symlink `assets/kernel/mainline` is the canonical pointer). The
 > earlier `7.0.12-cix-sky1-next` channel has been **removed from the
 > image** — it is not a fallback and not a rescue kernel.
 >
@@ -466,7 +469,7 @@ make image-verified ARCH=amd64 \
   [`docs/AMD64-PACKAGE-AUDIT.md`](docs/AMD64-PACKAGE-AUDIT.md) for the
   Sky1 → AMD64 manifest diff and rationale.
 - **The kernel is downloaded from the staged `kernel-staging/` of the
-  build host**, not committed under `assets/kernel/edge` (the
+  build host**, not committed under `assets/kernel/mainline` (the
   Arm64 symlink) — for AMD64 the kernel is the
   `7.2.7-2-t2-trixie` (stable) or `7.3.0-rc4-2-t2-trixie` (edge)
   package on the build host, downloaded during the build via the
@@ -643,7 +646,7 @@ The ISO also ships:
   The same package set is **also** mirrored into the Buildkite `ncz-os/ncz`
   apt repo (31 packages, ~81 MB) so it can be re-pulled post-install without
   a reinstall — see [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources).
-- The kernel (`7.2.x-sky1-ncz`, the version staged under `assets/kernel/edge`
+- The kernel (`7.2.x-sky1-ncz`, the version staged under `assets/kernel/mainline`
   at build time) with its firmware. Earlier releases also carried an older
   `7.0.12-cix-sky1-next` channel on a dedicated rescue partition; that
   channel has since been **removed from the image**. For AMD64 / T2 the
@@ -763,7 +766,7 @@ library is for, how to route a workload across the four compute engines
 | Path | Source | Notes |
 |---|---|---|
 | `assets/cix-debs/` | Staged CIX proprietary `.deb`s (gitignored) | Also mirrored into Buildkite `ncz-os/ncz` (31 packages, see OTA channel section) |
-| `assets/kernel/{edge}/` | Yocto build of `meta-cix:linux-cix-sky1-ncz` (the `edge` symlink points at the staged kernel dir; older kernels live as dated sibling dirs e.g. `r264-7.2.4-sky1-ncz-20260907/`) — gitignored | `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER` per kernel; also has a `modules-overlay/$KVER/` subdir for validated fixup `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`, `82-mali-gpu.sh`) — the NCZRESCUE partition boots the same kernel, see `build/build-rescue-rootfs.sh` |
+| `assets/kernel/{mainline,edge}/` | Yocto build of `meta-cix:linux-cix-sky1-ncz` (the `mainline` symlink points at the shipping 7.2.x kernel dir, `edge` at the test-only 7.3.x one; older kernels live as dated sibling dirs e.g. `r264-7.2.4-sky1-ncz-20260907/`) — gitignored | `Image-cixmini.bin` + `modules-cixmini.tgz` + `KVER` per kernel; also has a `modules-overlay/$KVER/` subdir for validated fixup `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`, `82-mali-gpu.sh`) — the NCZRESCUE partition boots the same kernel, see `build/build-rescue-rootfs.sh` |
 | `kernel-staging/` (build-host side) | `argonas:/mnt/datapool/yocto-shared/kernel-staging/` | AMD64 kernel `.deb` staging — `amd64-stable-7.2.7-2-t2-trixie-20260922/` and `amd64-edge-7.3.0-rc4-2-t2-trixie-20260923/` are the current T2 line, downloaded at AMD64 ISO build time |
 | `assets/agent-stack/*` | This repo | systemd quadlets for zeroclaw/openclaw/hermes/portainer/mnemos/nemoclaw |
 | `assets/branding/*` | This repo | os-release, motd, wallpapers, rEFInd banner/icons |

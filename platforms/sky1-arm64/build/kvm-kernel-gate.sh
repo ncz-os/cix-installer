@@ -27,14 +27,14 @@
 #
 # Usage:
 #   build/kvm-kernel-gate.sh [IMAGE] [CONFIG]
-# Defaults to the staged edge kernel:
-#   assets/kernel/edge/Image-cixmini.bin + assets/kernel/edge/config-<KVER>
+# Defaults to the staged mainline (shipping) kernel:
+#   assets/kernel/mainline/Image-cixmini.bin + assets/kernel/mainline/config-<KVER>
 #
 # Exit 0 = PASS. Any nonzero = do NOT ship this kernel.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-IMAGE="${1:-$REPO/assets/kernel/edge/Image-cixmini.bin}"
+IMAGE="${1:-$REPO/assets/kernel/mainline/Image-cixmini.bin}"
 CONFIG="${2:-}"
 TIMEOUT="${GATE_TIMEOUT:-120}"
 LOG="$(mktemp "${TMPDIR:-/tmp}/kvm-kernel-gate.XXXXXX.log")"

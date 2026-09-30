@@ -52,6 +52,145 @@ if [ "$(dpkg --print-architecture 2>/dev/null)" != "amd64" ]; then
     exit 0
 fi
 
+# --- NVIDIA driver + CUDA: selected per GPU family, pulled dynamically --------
+# Operator directive 2026-09-29: do not bake CUDA into the ISO/offline mirror;
+# pull it from NVIDIA's apt repo at install time when an NVIDIA GPU is present
+# and the network is up, with a first-boot retry (ncz-cuda-setup.timer) when it
+# is not. The GPU family decides the driver branch and toolkit (see
+# post-install/lib/cuda-select.sh for the matrix and its evidence):
+#   Turing+       R615 open kernel modules + CUDA 13.4 (debian13 repo)
+#   Maxwell..Volta R580 proprietary module     + CUDA 12.9 (debian12 repo)
+#   Kepler/older  nothing usable: nouveau only, logged
+# The choice is recorded in /etc/ncz/cuda-selection.conf and pinned in apt so a
+# later `apt upgrade` cannot move a machine to a branch that drops its GPU.
+# Nothing here can abort post-install: every failure is logged and the deferred
+# unit finishes the job later.
+NCZ_NV_ASSETS=/usr/local/lib/cix-installer/assets/nvidia
+NCZ_CUDA_STATUS=/var/lib/ncz/cuda-toolkit.status
+ncz_cuda_status() {
+    mkdir -p "$(dirname "$NCZ_CUDA_STATUS")" 2>/dev/null
+    echo "$1" > "$NCZ_CUDA_STATUS" 2>/dev/null
+    echo "[54] CUDA: $1"
+}
+ncz_cuda_component_wanted() {
+    # The comma-separated COMPONENTS list is the durable record (late.sh and extract-rootfs.sh persist it into the
+    # target; the selector's own early writes are destroyed when partman mounts the real root). A list that omits
+    # `cuda` means the operator declined it or gave an authoritative ncz_components= list without it. Only when no
+    # record exists at all (older selector, headless run) do we install. Verified 2026-09-29: late.sh used to persist
+    # the per-toggle COMPONENTS_<bit> files for the five old bits only, so a COMPONENTS_cuda check alone never saw a
+    # decline and installed CUDA anyway.
+    local f list
+    for f in /usr/local/lib/cix-installer/COMPONENTS /etc/cix-installer/COMPONENTS /var/lib/cix-components/COMPONENTS; do
+        if [ -r "$f" ]; then
+            list=$(tr -d ' \t\r\n' < "$f")
+            case ",$list," in *,cuda,*) return 0 ;; *) return 1 ;; esac
+        fi
+    done
+    for f in /etc/cix-installer/COMPONENTS_cuda /usr/local/lib/cix-installer/COMPONENTS_cuda; do
+        if [ -r "$f" ]; then [ "$(tr -d ' \t\r\n' < "$f")" = 1 ]; return; fi
+    done
+    return 0
+}
+ncz_nvidia_dynamic_setup() {
+    local lib="$(dirname "$(readlink -f "$0")")/lib/cuda-select.sh"
+    if [ ! -r "$lib" ]; then
+        echo "[54] WARN: $lib missing: cannot select an NVIDIA driver/CUDA family"
+        ncz_cuda_status "failed:selection-lib-missing"; return 0
+    fi
+    # shellcheck disable=SC1090
+    . "$lib"
+    if [ "${NCZ_SKIP_CUDA:-0}" = 1 ]; then ncz_cuda_status "skipped:operator-disabled"; return 0; fi
+
+    local pick fam id
+    pick=$(ncz_cuda_pick_family) || { ncz_cuda_status "skipped:no-nvidia-gpu"; return 0; }
+    if ! ncz_cuda_component_wanted; then ncz_cuda_status "skipped:component-not-selected"; return 0; fi
+    fam=${pick%% *}; id=${pick##* }
+    echo "[54] NVIDIA GPU 10de:$id -> family $fam"
+    local plan; plan=$(ncz_cuda_plan "$fam") || { ncz_cuda_status "failed:no-plan-for-$fam"; return 0; }
+
+    install -d -m0755 /etc/ncz
+    {
+        echo "# Written by post-install/54-gpu-accel.sh; read by ncz-cuda-setup."
+        echo "GPU_PCI_ID=10de:$id"
+        echo "SELECTED_AT=$(date -u +%FT%TZ)"
+        echo "$plan"
+    } > /etc/ncz/cuda-selection.conf
+    eval "$plan"
+
+    if [ "$FAMILY" = kepler-older ]; then
+        echo "[54] NVIDIA: $REASON"
+        ncz_cuda_status "skipped:kepler-older-unsupported"
+        return 0
+    fi
+
+    # Repo key + source, driver-branch pin, tool and deferred units.
+    case "$REPO" in
+        debian13)
+            if [ -f "$NCZ_NV_ASSETS/$KEY_ASSET" ]; then
+                dpkg -i "$NCZ_NV_ASSETS/$KEY_ASSET" 2>&1 | tail -3
+            else
+                echo "[54] WARN: $NCZ_NV_ASSETS/$KEY_ASSET not staged (the deferred setup cannot add the repo)"
+                ncz_cuda_status "failed:keyring-not-staged"; return 0
+            fi ;;
+        debian12)
+            if [ -f "$NCZ_NV_ASSETS/$KEY_ASSET" ]; then
+                install -D -m0644 "$NCZ_NV_ASSETS/$KEY_ASSET" /usr/share/keyrings/ncz-cuda-debian12.gpg
+                install -d -m0755 /etc/apt/sources.list.d
+                echo "deb [signed-by=/usr/share/keyrings/ncz-cuda-debian12.gpg] https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/ /" \
+                    > /etc/apt/sources.list.d/ncz-cuda-debian12.list
+            else
+                echo "[54] WARN: $NCZ_NV_ASSETS/$KEY_ASSET not staged"
+                ncz_cuda_status "failed:keyring-not-staged"; return 0
+            fi ;;
+    esac
+    if [ "$SEQUOIA_RELAX" = 1 ]; then
+        # NVIDIA still signs the debian12 repo with its 2022 key, whose SHA-1
+        # self-signature Debian's apt-sequoia policy rejects (measured on
+        # forky: "Signing key ... is not bound ... SHA1 is not considered
+        # secure since 2026-02-01"). Extend that one policy date for this
+        # (legacy-GPU) machine only. This is machine-wide for apt: documented
+        # in docs and shown by `ncz-cuda-setup status`.
+        if [ -r /usr/share/apt/default-sequoia.config ]; then
+            install -d -m0755 /etc/crypto-policies/back-ends
+            sed 's/^sha1.second_preimage_resistance = .*/sha1.second_preimage_resistance = 2027-12-31    # NCZ: NVIDIA debian12 repo key/' \
+                /usr/share/apt/default-sequoia.config > /etc/crypto-policies/back-ends/apt-sequoia.config
+        else
+            echo "[54] WARN: /usr/share/apt/default-sequoia.config missing: cannot relax the SHA-1 policy for the NVIDIA debian12 key"
+        fi
+        # A no-op sed (the default policy's line format changed) would leave the NVIDIA repo unusable and the retry
+        # timer looping on a signature error: fail visibly instead.
+        if ! grep -q '^sha1.second_preimage_resistance = 2027-12-31' /etc/crypto-policies/back-ends/apt-sequoia.config 2>/dev/null; then
+            echo "[54] ERROR: the apt SHA-1 policy extension was not written; the NVIDIA debian12 repo would be rejected"
+            ncz_cuda_status "failed:sequoia-policy-not-applied"; return 0
+        fi
+    fi
+    # All three deferred-install assets must exist BEFORE anything is written: a partial refresh of the payload must
+    # not leave a pin and a selection behind with no tool to act on them.
+    for _a in ncz-cuda-setup ncz-cuda-setup.service ncz-cuda-setup.timer; do
+        [ -f "$NCZ_NV_ASSETS/$_a" ] || { echo "[54] WARN: $NCZ_NV_ASSETS/$_a not staged"; ncz_cuda_status "failed:deferred-asset-missing"; return 0; }
+    done
+    install -d -m0755 /etc/apt/preferences.d
+    ncz_cuda_pin_file "$fam" > /etc/apt/preferences.d/ncz-nvidia-cuda.pref
+    install -D -m0755 "$NCZ_NV_ASSETS/ncz-cuda-setup" /usr/local/sbin/ncz-cuda-setup
+    install -D -m0644 "$NCZ_NV_ASSETS/ncz-cuda-setup.service" /etc/systemd/system/ncz-cuda-setup.service
+    install -D -m0644 "$NCZ_NV_ASSETS/ncz-cuda-setup.timer" /etc/systemd/system/ncz-cuda-setup.timer
+    install -d -m0755 /etc/systemd/system/timers.target.wants
+    ln -sf ../ncz-cuda-setup.timer /etc/systemd/system/timers.target.wants/ncz-cuda-setup.timer
+    ncz_cuda_status "pending:install"
+
+    # Try now (network is normally up during install); a failure leaves the
+    # timer to finish it after boot.
+    local rc
+    timeout 5400 /usr/local/sbin/ncz-cuda-setup run 2>&1 | tail -20 | sed 's/^/[54]   /'
+    rc=${PIPESTATUS[0]}
+    if [ "$rc" = 0 ]; then
+        echo "[54] CUDA: installed now ($(cat "$NCZ_CUDA_STATUS" 2>/dev/null))"
+    else
+        echo "[54] CUDA: not finished at install time (rc=$rc, $(cat "$NCZ_CUDA_STATUS" 2>/dev/null)); ncz-cuda-setup.timer will retry after boot"
+    fi
+    return 0
+}
+
 echo "[54] AMD64 GPU/accelerator vendor detection + real driver-repo wiring"
 
 VARIANT=desktop
@@ -60,12 +199,14 @@ VARIANT=desktop
 case "$VARIANT" in
     server|headless)
         echo "[54] BUILD_VARIANT=$VARIANT — headless SKU; skipping GPU accelerator wiring"
+        ncz_cuda_status "skipped:headless-variant"
         exit 0
         ;;
 esac
 
 if ! command -v lspci >/dev/null 2>&1; then
     echo "[54] WARN: lspci absent (pciutils not staged?) — cannot detect GPU vendor, skipping"
+    ncz_cuda_status "skipped:lspci-absent"
     exit 0
 fi
 
@@ -85,6 +226,10 @@ echo "$DISPLAY_PCI" | grep -qi '\[10de:' && HAS_NVIDIA=1
 echo "$DISPLAY_PCI" | grep -qi '\[1002:' && HAS_AMD=1
 echo "$DISPLAY_PCI" | grep -qi '\[8086:' && HAS_INTEL=1
 
+if [ "$HAS_NVIDIA" = 0 ]; then
+    ncz_cuda_status "skipped:no-nvidia-gpu"
+fi
+
 if [ "$HAS_NVIDIA" = 0 ] && [ "$HAS_AMD" = 0 ] && [ "$HAS_INTEL" = 0 ]; then
     echo "[54] no NVIDIA/AMD/Intel display controller detected via lspci — nothing to wire"
     echo "[54] lspci display-class output was:"
@@ -94,100 +239,7 @@ fi
 
 # --- NVIDIA -------------------------------------------------------------
 if [ "$HAS_NVIDIA" = 1 ]; then
-    echo "[54] NVIDIA GPU detected — determining driver generation before wiring a repo"
-    # NVIDIA's proprietary driver is generation-tiered, not one package:
-    # Debian ships nvidia-driver (current), nvidia-legacy-470xx-driver
-    # (Kepler/some Maxwell), nvidia-legacy-390xx-driver (Fermi) -- and has
-    # NO working proprietary driver at all for pre-Fermi chips (nouveau
-    # only, no CUDA). Delegate the chip->branch mapping to Debian's own
-    # nvidia-detect tool rather than hand-rolling a PCI-ID table -- it
-    # already encodes this exact mapping. nvidia-detect lives in the
-    # contrib component, which this project's base sources do not enable
-    # by default (confirmed live on PROTEUS, 2026-09-20: only
-    # main+non-free-firmware enabled, `apt-cache show nvidia-detect` ->
-    # "No packages found") -- enable contrib+non-free just for this probe
-    # if not already present.
-    NV_CODENAME=$(. /etc/os-release 2>/dev/null; echo "$VERSION_CODENAME")
-    if [ -n "$NV_CODENAME" ] && ! grep -rqs 'contrib' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
-        cat > /etc/apt/sources.list.d/ncz-nvidia-detect.list <<EOF
-deb http://deb.debian.org/debian/ $NV_CODENAME contrib non-free
-EOF
-        apt-get update 2>&1 | tail -5
-    fi
-    apt-get install -y nvidia-detect >/tmp/ncz-nvidia-detect-install.log 2>&1
-
-    NV_ROUTE=current
-    NV_BRANCH_PKG=""
-    if command -v nvidia-detect >/dev/null 2>&1; then
-        NV_DETECT_OUT="$(nvidia-detect 2>&1)"
-        echo "[54] nvidia-detect: $(echo "$NV_DETECT_OUT" | tr '\n' ' ' | cut -c1-200)"
-        case "$NV_DETECT_OUT" in
-            *nvidia-legacy-390xx-driver*) NV_ROUTE=legacy; NV_BRANCH_PKG=nvidia-legacy-390xx-driver ;;
-            *nvidia-legacy-470xx-driver*) NV_ROUTE=legacy; NV_BRANCH_PKG=nvidia-legacy-470xx-driver ;;
-            *nvidia-driver*)              NV_ROUTE=current ;;
-            *)                            NV_ROUTE=unsupported ;;
-        esac
-    else
-        echo "[54] WARN: nvidia-detect unavailable (contrib unreachable or install failed, see /tmp/ncz-nvidia-detect-install.log) -- cannot do generation-aware routing, falling back to the current-branch (cuda-drivers) install unconditionally"
-    fi
-
-    if [ "$NV_ROUTE" = "unsupported" ]; then
-        # Only fall back to nouveau for hardware nvidia-detect itself says
-        # has no supported driver branch (pre-Fermi). Any card with a real
-        # proprietary branch -- even the old 390xx one -- is preferred over
-        # nouveau below, since nouveau cannot provide CUDA/compute at all,
-        # which is the entire point of this hook.
-        echo "[54] NVIDIA: nvidia-detect found no supported driver branch for this card (pre-Fermi or unrecognized) -- leaving nouveau (in-kernel default) as the only real option, no proprietary/CUDA path exists for this hardware. Logic-verified against NVIDIA/Debian's own branch documentation, NOT boot-tested -- no NVIDIA hardware of any generation exists in the fleet to validate this or any NVIDIA branch against (operator-confirmed 2026-09-20, oldest fleet machine is an Intel-graphics-only Mac Mini)."
-    elif [ "$NV_ROUTE" = "legacy" ]; then
-        # Legacy branches are Debian in-archive packages, NOT NVIDIA's own
-        # cuda-keyring repo -- that repo only tracks the current branch and
-        # carries no drivers for Kepler/Fermi-class chips.
-        echo "[54] NVIDIA: routing to legacy branch $NV_BRANCH_PKG (nvidia-detect recommendation)"
-        apt-get install -y "$NV_BRANCH_PKG" 2>&1 | tail -10
-        echo "[54] NVIDIA: legacy driver installed. NOTE: NVIDIA's CUDA toolkit repo (cuda-keyring) only supports the current driver branch -- a matching older CUDA toolkit version must be sourced separately for this branch if CUDA (not just display/video accel) is required. Logic-verified against NVIDIA/Debian's own branch documentation, NOT boot-tested (no Kepler/Fermi-class NVIDIA hardware exists in the fleet to validate against, 2026-09-20)."
-    else
-        echo "[54] NVIDIA: wiring real NVIDIA CUDA repo (current driver branch)"
-        NV_KEYRING_DEB=/usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb
-        if [ -f "$NV_KEYRING_DEB" ]; then
-            dpkg -i "$NV_KEYRING_DEB" 2>&1 | tail -5
-            apt-get update 2>&1 | tail -5
-            # cuda-drivers pulls the proprietary kernel driver + full CUDA
-            # toolkit in one metapackage. nvidia-open exists for Turing+ but
-            # cuda-drivers is the broadest-compatible real choice for an
-            # unknown-hardware-cohort install.
-            #
-            # CAVEAT (zoder review, 2026-09-14): nvidia-kernel-dkms builds its
-            # module against whatever kernel headers are visible RIGHT NOW —
-            # since this hook runs at real target-install time (not build-chroot
-            # baking, see the file header), that's the actual target kernel, so
-            # this is correct as long as the target's kernel headers package is
-            # already installed before this hook runs (verify hook ordering in
-            # run-all.sh puts the kernel/headers install before 54). If DKMS
-            # can't find headers it will fail loudly here rather than silently
-            # producing a module for the wrong kernel — that's the safe failure
-            # mode, but confirm the ordering rather than assuming it.
-            apt-get install -y cuda-drivers 2>&1 | tail -10
-            echo "[54] NVIDIA: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null || echo 'driver installed, nvidia-smi not yet loadable this session (module needs a reboot to bind)')"
-            # cuda-drivers does NOT pull libnvidia-encode1/libnvcuvid1 as
-            # dependencies (confirmed live on CERBERUS, 2026-09-15: driver+CUDA
-            # toolkit fully installed via cuda-drivers, but NVENC failed with
-            # "OpenEncodeSessionEx failed: unsupported device" because these two
-            # packages were simply never installed). Without them stock ffmpeg's
-            # h264_nvenc/hevc_nvenc/av1_nvenc encoders (already compiled into
-            # Debian's ffmpeg package as of trixie 7.1.5 -- no custom ffmpeg
-            # build needed) fail outright. Pin the same driver-version stream
-            # `cuda-drivers` just installed to avoid an ABI-mismatched pull.
-            NV_DRIVER_VER="$(dpkg-query -W -f='${Version}' nvidia-driver 2>/dev/null | cut -d- -f1)"
-            if [ -n "$NV_DRIVER_VER" ]; then
-                apt-get install -y "libnvidia-encode1=${NV_DRIVER_VER}-1" "libnvcuvid1=${NV_DRIVER_VER}-1" 2>&1 | tail -10
-            else
-                apt-get install -y libnvidia-encode1 libnvcuvid1 2>&1 | tail -10
-            fi
-        else
-            echo "[54] WARN: NVIDIA GPU present but $NV_KEYRING_DEB not staged — skipping NVIDIA stack"
-            echo "[54]       stage cuda-keyring_1.1-1_all.deb from developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/ under assets/nvidia/ to fix"
-        fi
-    fi
+    ncz_nvidia_dynamic_setup
 fi
 
 # --- AMD ------------------------------------------------------------------

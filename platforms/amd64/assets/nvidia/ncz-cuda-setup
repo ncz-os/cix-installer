@@ -1,0 +1,201 @@
+#!/bin/bash
+# ncz-cuda-setup -- install the NVIDIA driver + CUDA toolkit chosen for this
+# machine, from NVIDIA's apt repo, when the network is available.
+#
+#   ncz-cuda-setup run [--scheduled]   do the install (idempotent)
+#   ncz-cuda-setup retry               clear the backoff and run now
+#   ncz-cuda-setup status              selection, state, attempts, last log
+#
+# Called once by post-install/54-gpu-accel.sh at install time; when that cannot
+# finish (no network yet, download failed) ncz-cuda-setup.timer retries it after
+# every boot with exponential backoff until the stamp file exists. It never
+# blocks login: the timer fires 2 minutes after boot and the service is not part
+# of the boot transaction.
+#
+# Exit codes (systemd SuccessExitStatus=75 so a not-yet case is not "failed"):
+#   0   done (installed), skipped by design, or nothing to do / not due yet
+#   75  EX_TEMPFAIL: network or download problem, will retry
+#   1   hard failure (would remove packages, not installable, no nvcc): retried
+#       a few times, then parked as failed until `ncz-cuda-setup retry`
+set -u
+export LC_ALL=C DEBIAN_FRONTEND=noninteractive
+
+CONF=/etc/ncz/cuda-selection.conf
+STATE=/var/lib/ncz
+STAMP=$STATE/cuda-setup.done
+ATTEMPTS=$STATE/cuda-setup.attempts     # "<count> <next-allowed-epoch>"
+STATUS=$STATE/cuda-toolkit.status       # installed:<ver> | skipped:<why> | failed:<why>
+LOG=/var/log/ncz-cuda-setup.log
+LOCK=/run/ncz-cuda-setup.lock
+HOST=developer.download.nvidia.com
+MAX_HARD_FAILS=5
+mkdir -p "$STATE" /etc/ncz 2>/dev/null
+
+log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" | tee -a "$LOG" >&2; }
+set_status() { echo "$1" > "$STATUS"; log "status: $1"; }
+
+conf() { # conf KEY
+    sed -n "s/^$1=//p" "$CONF" 2>/dev/null | head -n1 | sed -e "s/^'//" -e "s/'\$//"
+}
+
+cmd_status() {
+    echo "ncz-cuda-setup status"
+    if [ -r "$CONF" ]; then
+        echo "-- $CONF"; sed 's/^/   /' "$CONF"
+    else
+        echo "-- no $CONF (no NVIDIA GPU was selected at install time)"
+    fi
+    echo "-- state"
+    echo "   result:   $(cat "$STATUS" 2>/dev/null || echo 'not recorded')"
+    echo "   stamp:    $([ -e "$STAMP" ] && echo "done ($(cat "$STAMP" 2>/dev/null))" || echo 'not done')"
+    if [ -r "$ATTEMPTS" ]; then
+        read -r n next < "$ATTEMPTS"
+        echo "   attempts: $n, next scheduled attempt not before $(date -u -d "@${next:-0}" +%FT%TZ 2>/dev/null)"
+    fi
+    local t_en t_act
+    t_en=$(systemctl is-enabled ncz-cuda-setup.timer 2>/dev/null); t_en=${t_en:-unknown}
+    t_act=$(systemctl is-active ncz-cuda-setup.timer 2>/dev/null); t_act=${t_act:-unknown}
+    echo "   timer:    $t_en / $t_act"
+    if [ -x "$(conf TOOLKIT_DIR 2>/dev/null)/bin/nvcc" ]; then
+        echo "   nvcc:     $("$(conf TOOLKIT_DIR)/bin/nvcc" --version 2>/dev/null | tail -n1)"
+    fi
+    echo "-- last log lines ($LOG)"
+    tail -n 8 "$LOG" 2>/dev/null | sed 's/^/   /'
+    return 0
+}
+
+net_up() {
+    getent hosts "$HOST" >/dev/null 2>&1 || return 1
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsI --max-time 15 "https://$HOST/compute/cuda/repos/" >/dev/null 2>&1
+    else
+        # no curl: prove the HTTPS port answers instead of assuming the network is up
+        timeout 15 bash -c "exec 3<>/dev/tcp/$HOST/443" >/dev/null 2>&1
+    fi
+}
+
+backoff_note() { # backoff_note <hard|soft>
+    local n=0 next
+    [ -r "$ATTEMPTS" ] && read -r n _ < "$ATTEMPTS"
+    n=$((n + 1))
+    # 5 min, 10, 20, 40 ... capped at 6 h
+    local delay=$((300 * (1 << (n > 7 ? 7 : n - 1))))
+    [ "$delay" -gt 21600 ] && delay=21600
+    next=$(( $(date +%s) + delay ))
+    echo "$n $next" > "$ATTEMPTS"
+    log "attempt $n failed ($1); next scheduled attempt in ${delay}s"
+    echo "$n"
+}
+
+apt_run() { apt-get -o DPkg::Lock::Timeout=900 -o Dpkg::Options::=--force-confold "$@"; }
+
+do_run() {
+    local scheduled=0
+    [ "${1:-}" = "--scheduled" ] && scheduled=1
+    exec 9>"$LOCK"; flock -n 9 || { log "another ncz-cuda-setup is running"; return 0; }
+
+    if [ -e "$STAMP" ]; then log "already done"; return 0; fi
+    if [ ! -r "$CONF" ]; then log "no $CONF: nothing to install"; return 0; fi
+
+    local family; family=$(conf FAMILY)
+    if [ "$family" = "kepler-older" ] || [ "$(conf TOOLKIT)" = "none" ]; then
+        set_status "skipped:$family-unsupported"
+        date -u +%FT%TZ > "$STAMP"; return 0
+    fi
+
+    if [ "$scheduled" = 1 ] && [ -r "$ATTEMPTS" ]; then
+        local n next; read -r n next < "$ATTEMPTS"
+        if [ "$(date +%s)" -lt "${next:-0}" ]; then return 0; fi
+        if [ "${n:-0}" -ge "$MAX_HARD_FAILS" ] && grep -q '^failed:' "$STATUS" 2>/dev/null; then
+            return 0   # parked until `ncz-cuda-setup retry`
+        fi
+    fi
+
+    if ! net_up; then
+        log "network to $HOST is not available yet"
+        set_status "pending:network"
+        backoff_note soft >/dev/null
+        return 75
+    fi
+
+    log "== run: family=$family driver=$(conf DRIVER_PKGS) toolkit=$(conf TOOLKIT_PKGS)"
+    # Sources, key and pin were staged by 54-gpu-accel.sh; refresh the indexes.
+    if ! apt_run update >>"$LOG" 2>&1; then
+        # A partial failure (one unreachable source) must not stop us if the
+        # NVIDIA index itself is usable; the simulation below is the real test.
+        log "apt-get update reported errors; continuing to the simulation"
+    fi
+
+    local drv pkgs sim
+    # NCZ_CUDA_DRIVER_PKGS overrides the driver list (test hook: lets a machine
+    # that already has its driver exercise only the toolkit path).
+    drv=${NCZ_CUDA_DRIVER_PKGS-$(conf DRIVER_PKGS)}; pkgs=$(conf TOOLKIT_PKGS)
+    # shellcheck disable=SC2086
+    sim=$(apt_run install -s -y --no-install-recommends --no-remove $drv $pkgs 2>&1); local rc=$?
+    if [ $rc -ne 0 ]; then
+        log "simulation failed (rc=$rc):"; echo "$sim" | tail -20 | sed 's/^/    /' | tee -a "$LOG" >&2
+        if echo "$sim" | grep -qE 'Unable to locate package|Temporary failure|Could not resolve|Failed to fetch'; then
+            set_status "pending:index-unavailable"; backoff_note soft >/dev/null; return 75
+        fi
+        set_status "failed:not-installable"; backoff_note hard >/dev/null; return 1
+    fi
+    if echo "$sim" | grep -q '^Remv '; then
+        log "REFUSING: installing would remove packages:"; echo "$sim" | grep '^Remv ' | sed 's/^/    /' | tee -a "$LOG" >&2
+        set_status "failed:would-remove-packages"; backoff_note hard >/dev/null; return 1
+    fi
+
+    # Driver first so a toolkit problem never costs the display driver.
+    # attempt_log prints only what THIS apt transaction appended to the log: an older "Failed to fetch" line must not
+    # turn a hard failure (dpkg/dkms/resolver) into an endless "pending:download" retry (zoder review, verified).
+    local logoff
+    attempt_log() { tail -c +"$((logoff + 1))" "$LOG" 2>/dev/null; }
+    logoff=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+    # shellcheck disable=SC2086
+    if ! apt_run install -y --no-install-recommends --no-remove $drv >>"$LOG" 2>&1; then
+        if attempt_log | grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect'; then
+            set_status "pending:download"; backoff_note soft >/dev/null; return 75
+        fi
+        set_status "failed:driver-install"; backoff_note hard >/dev/null; return 1
+    fi
+    logoff=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+    # shellcheck disable=SC2086
+    if ! apt_run install -y --no-install-recommends --no-remove $pkgs >>"$LOG" 2>&1; then
+        if attempt_log | grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect'; then
+            set_status "pending:download"; backoff_note soft >/dev/null; return 75
+        fi
+        set_status "failed:toolkit-install"; backoff_note hard >/dev/null; return 1
+    fi
+
+    ldconfig 2>/dev/null || true
+    local tdir; tdir=$(conf TOOLKIT_DIR)
+    if [ ! -x "$tdir/bin/nvcc" ]; then
+        set_status "failed:nvcc-missing"; backoff_note hard >/dev/null; return 1
+    fi
+    install -d -m0755 /etc/profile.d
+    cat > /etc/profile.d/ncz-cuda.sh <<'PROFEOF'
+# Written by ncz-cuda-setup. CUDA on PATH; runtime libraries are found through
+# /etc/ld.so.conf.d (no LD_LIBRARY_PATH needed).
+if [ -d /usr/local/cuda/bin ]; then
+    case ":$PATH:" in *:/usr/local/cuda/bin:*) ;; *) PATH="$PATH:/usr/local/cuda/bin" ;; esac
+    export PATH
+fi
+PROFEOF
+    chmod 0644 /etc/profile.d/ncz-cuda.sh
+
+    if [ "$(conf KMOD)" = proprietary ] && command -v dkms >/dev/null 2>&1; then
+        log "dkms: $(dkms status 2>/dev/null | tr '\n' ';')"
+    fi
+    set_status "installed:$(dpkg-query -W -f='${Version}' "cuda-nvcc-$(conf TOOLKIT)" 2>/dev/null)"
+    date -u +%FT%TZ > "$STAMP"
+    rm -f "$ATTEMPTS"
+    systemctl disable --now ncz-cuda-setup.timer >/dev/null 2>&1 || true
+    log "done: $("$tdir/bin/nvcc" --version 2>/dev/null | tail -n1)"
+    return 0
+}
+
+case "${1:-}" in
+    run)    shift; do_run "$@" ;;
+    retry)  rm -f "$ATTEMPTS"; rm -f "$STAMP"; do_run ;;
+    status) cmd_status ;;
+    *)      echo "usage: ncz-cuda-setup run [--scheduled] | retry | status" >&2; exit 2 ;;
+esac

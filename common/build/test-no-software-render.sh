@@ -39,7 +39,7 @@ st() {   # sysroot [VAR=val ...] -- run the check with stub probes; probe stubs 
 rm -f "$T/health.log" "$T/banner"
 expect "status: hardware GPU + hardware renderers passes"             0 st amd
 grep -q 'OK hardware GPU' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: health log records OK"; } || { FAILS=$((FAILS+1)); echo "FAIL status: health log has no OK line"; }
-EGL_B='echo renderer: llvmpipe (LLVM 21.1.8, 128 bits)' expect "status: GPU + llvmpipe in the BARE env FAILS"      1 st amd
+EGL_B='echo "renderer: llvmpipe (LLVM 21.1.8, 128 bits)"' expect "status: GPU + llvmpipe in the BARE env FAILS"      1 st amd
 grep -q 'EGL (bare environment) renders in SOFTWARE' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: log names the bare-env EGL probe"; } || { FAILS=$((FAILS+1)); echo "FAIL status: log does not name the bare-env probe"; }
 [ -s "$T/banner" ] && { PASS=$((PASS+1)); echo "ok   status: failure writes the console banner"; } || { FAILS=$((FAILS+1)); echo "FAIL status: no banner written"; }
 EGL_S='echo renderer: softpipe' expect "status: GPU + softpipe in the SESSION env FAILS"           1 st amd

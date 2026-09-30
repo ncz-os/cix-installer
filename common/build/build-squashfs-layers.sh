@@ -234,6 +234,29 @@ log "arch=$(uname -m) native=$NATIVE ROOT=$ROOT WORK=$WORK OUT=$OUT"
 mkdir -p "$OUT" "$WORK"
 
 # machine-AGNOSTIC hooks safe to bake into base (NOT desktop-config)
+# Fingerprint of the small, hand-edited asset dirs and manifests that build_base copies into base.squashfs. The
+# `all` mode reuses an existing base.squashfs; that reuse used to ask only "does the file exist" (then, in a later
+# fix, "does it still carry the staged amd64 kernel"), so a change to assets/gpu, assets/audio, assets/refind ...
+# never reached the image: on 2026-09-29 an image shipped an audio daemon without the HDA analog fallback and no
+# ncz-gpu-hw-present because base.squashfs pre-dated both. The stamp is written into the layer and compared on reuse.
+BASE_STAMP_REL=usr/local/lib/cix-installer/BASE-ASSETS.sha256
+base_assets_stamp() {
+  ( cd "$ROOT" || exit 1
+    for a in gpu audio refind grub branding screensaver-chooser dracut regreet diag keys dev docs embedkit; do
+      [ -d "assets/$a" ] && find "assets/$a" \( -type f -o -type l \) -print
+    done
+    ls release.conf manifests/installer-base*.pkgs 2>/dev/null   # what the base layer installs; other manifests are not base inputs
+  ) | LC_ALL=C sort | ( cd "$ROOT" && while IFS= read -r f; do [ -f "$f" ] && sha256sum "$f"; done
+      # kernel channel LAYOUT (directory names and symlink targets, not the multi-GB contents): a rename such as
+      # edge -> mainline must not be masked by a reused base layer that still carries the old names
+      echo "kernel-layout"
+      find assets/kernel -maxdepth 2 \( -type d -o -type l \) -printf '%p -> %l\n' 2>/dev/null | LC_ALL=C sort
+    ) | sha256sum | cut -d' ' -f1
+}
+base_stamp_in_layer() {   # layer -> stamp or empty
+  { unsquashfs -cat "$1" "$BASE_STAMP_REL" 2>/dev/null || true; } | tr -d '[:space:]'   # absent stamp (old layer) => empty => rebuild; must not trip set -e/pipefail
+}
+
 case "$NCZ_TARGET_ARCH" in
   amd64) BASE_HOOKS="10-amd64-kernel 19-sinty-nm" ;;
   *)     BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 19-sinty-nm" ;;
@@ -935,6 +958,7 @@ build_base(){
     log "  WARN: assets/sinty-nm/sinty-nmd ABSENT — base falls back to NetworkManager (build singularityos-lab/sinty-nm)"
   fi
   [ -f "$ROOT/assets/ncz-cli.sh" ] && sudo cp -a "$ROOT/assets/ncz-cli.sh" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
+  base_assets_stamp | sudo tee "$WORK/base/$BASE_STAMP_REL" >/dev/null   # see base_assets_stamp
   # prune dev-only junk from the staged asset tree (backup kernels, retired
   # channels) -- it otherwise ships inside base.squashfs as dead weight
   sudo rm -rf "$WORK/base/usr/local/lib/cix-installer/assets/kernel/"retired-* 2>/dev/null || true
@@ -948,8 +972,9 @@ build_base(){
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-vpu-test_*.deb \
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-npu-onnxruntime_*.deb 2>/dev/null || true
   # KVER sidecar that 10-our-kernel.sh + 70-bootloader.sh need to discover
-  # the shipped edge kernel's KVER at install time.
-  [ -f "$ROOT/assets/kernel/edge/KVER" ] && sudo cp "$ROOT/assets/kernel/edge/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
+  # the shipped (mainline) kernel's KVER at install time. The sidecar keeps
+  # its historical KVER_NEXT name because installed systems already carry it.
+  [ -f "$ROOT/assets/kernel/mainline/KVER" ] && sudo cp "$ROOT/assets/kernel/mainline/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
   # KVER_EDGE sidecar (2026-09-15): a second, EXPERIMENTAL kernel line
   # installed alongside the default (KVER_NEXT/stable). 10-our-kernel.sh
   # installs it as a non-dpkg-tracked raw copy (see that hook for why: the
@@ -957,7 +982,31 @@ build_base(){
   # cannot track two versions of it side by side without a package rename
   # this pass did not have time to do safely -- edge is explicitly manual/
   # non-OTA, same posture AMD64 already documents for ITS edge line).
-  [ -f "$ROOT/assets/kernel/edge-experimental/KVER" ] && sudo cp "$ROOT/assets/kernel/edge-experimental/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_EDGE"
+  #
+  # 2026-09-29: the experimental line is the "edge" channel
+  # (assets/kernel/edge, test-only 7.3.x). Unlike the retired
+  # edge-experimental link (relative, into a directory tracked in git), edge
+  # is an ABSOLUTE symlink into the shared kernel-staging pool, and the cp -a
+  # above copied it as a link that dangles on every installed system. Replace
+  # it in the base with a dereferenced copy of exactly the files
+  # 10-our-kernel.sh consumes. The mainline pointer is left alone: the
+  # shipping kernel is installed from the kernel debs, and late.sh repairs
+  # its dangling link from the install media.
+  _edge_dst="$WORK/base/usr/local/lib/cix-installer/assets/kernel/edge"
+  sudo rm -rf "$_edge_dst"
+  sudo rm -f "$WORK/base/usr/local/lib/cix-installer/KVER_EDGE"
+  if [ -s "$ROOT/assets/kernel/edge/KVER" ] && [ -s "$ROOT/assets/kernel/edge/Image-cixmini.bin" ] \
+     && [ -s "$ROOT/assets/kernel/edge/modules-cixmini.tgz" ]; then
+    _edge_kver=$(tr -d '[:space:]' < "$ROOT/assets/kernel/edge/KVER")
+    sudo mkdir -p "$_edge_dst"
+    for _ef in KVER Image-cixmini.bin modules-cixmini.tgz "config-$_edge_kver" headers-cixmini.tar.zst; do
+      [ -f "$ROOT/assets/kernel/edge/$_ef" ] && sudo cp -L "$ROOT/assets/kernel/edge/$_ef" "$_edge_dst/"
+    done
+    sudo cp -L "$ROOT/assets/kernel/edge/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_EDGE"
+    log "  staged edge (test-only) kernel $_edge_kver into BASE as a non-default entry"
+  else
+    log "  no complete assets/kernel/edge payload -- no experimental kernel entry"
+  fi
   # r160: stage the COMPLETE rEFInd asset set, falling back to build/refind-bin
   # for anything assets/refind didn't provide (on bigpi the NFS sync had only
   # build/refind-bin — assets/refind was absent, so r159's base shipped just the
@@ -1405,11 +1454,20 @@ case "$STAGE" in
            # embeds the same basenames" is a sharp predicate, not a
            # "staged 2, layer 2, off-by-one" ambiguity.
            if [ -s "$OUT/base.squashfs" ]; then
-             if NCZ_TARGET_ARCH="$NCZ_TARGET_ARCH" bash "$ROOT/build/verify-base-kernel-assets.sh" \
+             _want_stamp="$(base_assets_stamp)"; _have_stamp="$(base_stamp_in_layer "$OUT/base.squashfs")"
+             if [ "$_want_stamp" != "$_have_stamp" ]; then
+               log "BASE: asset inputs changed since base.squashfs was built (layer stamp '${_have_stamp:-none}' vs current '$_want_stamp'); rebuilding"
+               _kernel_ok=0
+             elif NCZ_TARGET_ARCH="$NCZ_TARGET_ARCH" bash "$ROOT/build/verify-base-kernel-assets.sh" \
                   --layer "$OUT/base.squashfs" --label base.squashfs; then
+               _kernel_ok=1
+             else
+               _kernel_ok=0
+             fi
+             if [ "$_kernel_ok" = 1 ]; then
                log "BASE: reusing existing $OUT/base.squashfs ($(du -h "$OUT/base.squashfs" | cut -f1))"
              else
-               log "BASE: STALE vs staged amd64 kernel assets; rebuilding"
+               log "BASE: STALE (asset stamp or staged kernel assets); rotating aside and rebuilding"
                _stale_ts="$(date -u +%Y%m%d-%H%M%S)"
                if sudo mv -f "$OUT/base.squashfs" "$OUT/base.squashfs.stale-${_stale_ts}" 2>/dev/null; then
                  :
