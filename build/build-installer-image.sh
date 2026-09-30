@@ -70,6 +70,26 @@ SUBSTRATE_NODE=$(sed -n -e 's/^node_dir: //p' -e 's/^node exists: //p' \
   "$WORK_DIR/import.log" | tail -1)
 [ -d "$SUBSTRATE_NODE/extract/d-i" ] || { echo "FATAL: imported substrate has no extract/d-i" >&2; exit 1; }
 
+# Kernel default policy gate (operator directive 2026-09-30). Refuses to
+# build an image whose payload would install 7.3-rc5 as the default kernel
+# on .66-class hardware, or whose amd64 payload carries an edge kernel at
+# all. The verifier is the single source of truth for "what kernel will
+# this image install by default" -- every earlier gate (build-kernel-debs.sh
+# revision floor, apt pin check) operates on a .deb whose KVER the build
+# itself produced, so a misdirected mainline symlink slipped past all of
+# them (real, shipped image 2026-09-29: KVER_NEXT=7.3.0-rc5-sky1-ncz).
+# See build/verify-kernel-default-policy.sh and
+# docs/reports/2026-09-30-kernel-default-policy.md for the full incident.
+if [ ! -x "$ROOT/build/verify-kernel-default-policy.sh" ]; then
+    echo "FATAL: $ROOT/build/verify-kernel-default-policy.sh is missing or not executable" >&2
+    exit 1
+fi
+if ! "$ROOT/build/verify-kernel-default-policy.sh" --root "$ROOT" --arch "$ARCH"; then
+    echo "FATAL: kernel default policy check failed -- refusing to build $ARCH image" >&2
+    echo "       (operator directive 2026-09-30: 7.2.8 must be the default kernel on every arch)" >&2
+    exit 1
+fi
+
 echo "[2/6] staging architecture-matched squashfs payload"
 run_capture "$WORK_DIR/payload.log" python3 "$ROOT/build/iso/stage-ncz-payload.py" --arch "$ARCH"
 PAYLOAD_NODE=$(sed -n -e 's/^node_dir: //p' -e 's/^node exists: //p' \

@@ -559,3 +559,4 @@ parity:
 	build/test-ncz-ui.sh
 	build/test-base-stamp.sh
 	build/test-reap-images.sh
+	build/test-kernel-default-policy.sh

@@ -26,6 +26,17 @@ OUT="${OUT:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64-baked.tar.zst}"
 CHROOT="$WORK/chroot"
 LOGDIR="$WORK/logs"
 
+# Kernel default policy gate (operator directive 2026-09-30). Mirrors the
+# gate at the top of build/build-installer-image.sh and build_base() in
+# build/build-squashfs-layers.sh; this script also bakes the chroot that
+# later carries the default-kernel sidecar at $CHROOT/usr/local/lib/cix-
+# installer/KVER_NEXT, so refusing here closes the chroot path too.
+case "$NCZ_TARGET_ARCH" in aarch64) NCZ_TARGET_ARCH=arm64 ;; x86_64) NCZ_TARGET_ARCH=amd64 ;; esac
+if [ -x "$ROOT/build/verify-kernel-default-policy.sh" ]; then
+    "$ROOT/build/verify-kernel-default-policy.sh" --root "$ROOT" --arch "$NCZ_TARGET_ARCH" \
+      || { echo "[build-baked-rootfs] FATAL: kernel default policy failed -- refusing to bake" >&2; exit 1; }
+fi
+
 # Hooks to BAKE at build time (generic: drivers, desktop, branding,
 # apt-config). Machine-specific hooks stay at install: 09-diag-account (user),
 # 33-network, 34-fstab (disk UUIDs), 37-failsafe, 38-recovery, 48-server-variant,
