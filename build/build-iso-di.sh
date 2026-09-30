@@ -3787,7 +3787,7 @@ echo "      ██║╚██╗██║ ██║        ███╔╝"
 echo "      ██║ ╚████║ ╚██████╗  ███████╗"
 echo "      ╚═╝  ╚═══╝  ╚═════╝  ╚══════╝"
 echo ""
-echo "      \"Now, $NCZ_RELEASE_CODENAME, calm down. Don't pick on small people.\""
+echo "      $NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION  $NCZ_RELEASE_CODENAME"
 echo ""
 echo "               N C Z   I N S T A L L E R"
 echo ""
@@ -3850,8 +3850,11 @@ EFI_IMG_REL="boot/grub/efi.img"
 # on arm64 EFI USB. Switching to bookworm's exact flag combination so the
 # hybrid GPT/MBR layout produces a proper EFI System Partition (type 0xef)
 # at GPT slot 2, which Sky1 UEFI is known to recognize (r6 worked).
+# ISO volume label from release.conf (was hardcoded NCZ_MAXIMILIAN through 26.7).
+# ISO 9660 volume ids: upper case, digits and underscore, at most 32 chars.
+ISO_VOLUME_ID="NCZ_$(printf %s "$NCZ_RELEASE_CODENAME" | tr "[:lower:]" "[:upper:]" | tr -c "A-Z0-9_" "_" | cut -c1-28)"
 xorriso -as mkisofs \
-    -r -V "NCZ_MAXIMILIAN" \
+    -r -V "$ISO_VOLUME_ID" \
     -J -joliet-long \
     -cache-inodes \
     -e "$EFI_IMG_REL" \
