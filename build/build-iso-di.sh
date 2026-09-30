@@ -204,6 +204,25 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
+# Operator directive 2026-09-30 (the .66 incident): 7.2.8 MUST be the default
+# kernel on every arch; arm64-only edge for 7.3-rc5; amd64 has no 7.3 at all.
+# This script is the canonical place where assets/kernel/mainline and
+# assets/kernel/amd64-stable get copied into the installer payload, so the
+# verifier has to gate HERE -- before any KVER is read -- or a misdirected
+# mainline symlink (the .66 root cause) silently ships 7.3-rc5 as default.
+# build/build-installer-image.sh and build/build-squashfs-layers.sh also
+# call the verifier; this closes the standalone-build-iso-di.sh path
+# (which builds the arm64 production image today and is the path that
+# produced the .66 image).
+if [ -x "$ROOT/build/verify-kernel-default-policy.sh" ]; then
+    _ncza=$(grep -E '^[[:space:]]*NCZ_TARGET_ARCH[[:space:]]*=' "$ROOT/release.conf" \
+            2>/dev/null | head -1 | sed -nE 's/.*=[[:space:]]*"?([^"]+)"?.*/\1/p')
+    [ -n "$_ncza" ] || _ncza=$(dpkg --print-architecture 2>/dev/null || uname -m)
+    case "$_ncza" in aarch64) _ncza=arm64 ;; x86_64) _ncza=amd64 ;; esac
+    "$ROOT/build/verify-kernel-default-policy.sh" --root "$ROOT" --arch "$_ncza" \
+        || { echo "[build-iso-di] FATAL: kernel default policy failed -- refusing to stage" >&2; exit 1; }
+fi
+
 if [ "$EMBED_MIRROR" = "1" ]; then
     # build-kernel-debs.sh packages and KVM-gates the arm64 Sky1 kernel.
     # AMD64 kernels are complete canonical asset trees staged directly below;

@@ -140,14 +140,16 @@ install_one(){
 : > /usr/local/lib/cix-installer/KVER_LIST_AMD64
 
 # Operator policy 2026-09-30: amd64 ships NO edge kernel. If the installer
-# payload was built with an amd64-edge channel present, refuse to install
-# it (the build should already have failed at the kernel-default-policy
-# gate, but a defense-in-depth check here prevents an edge .deb from being
-# installed on a target even if the gate was bypassed).
+# payload was built with an amd64-edge channel present -- ANY non-empty
+# amd64-edge/ (any file at all: a stray .deb, a stray KVER sidecar, a stray
+# PROVENANCE.txt) -- refuse to install it (the build should already have
+# failed at the kernel-default-policy gate, but a defense-in-depth check
+# here prevents an edge .deb from being installed on a target even if the
+# gate was bypassed).
 if [ -d "$ASSETS/amd64-edge" ]; then
-    amd64_edge_deb_count=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name '*.deb' 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$amd64_edge_deb_count" -ne 0 ]; then
-        echo "[10-amd64] ERROR: $ASSETS/amd64-edge is staged with $amd64_edge_deb_count .deb(s) (operator policy 2026-09-30: amd64 ships NO edge kernel; no validated amd64 7.3 kernel exists). Refusing to install." >&2
+    amd64_edge_payload=$(find "$ASSETS/amd64-edge" -mindepth 1 -maxdepth 1 ! -name '.*' 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$amd64_edge_payload" -ne 0 ]; then
+        echo "[10-amd64] ERROR: $ASSETS/amd64-edge is staged with $amd64_edge_payload non-hidden file(s) (operator policy 2026-09-30: amd64 ships NO edge kernel; no validated amd64 7.3 kernel exists). Refusing to install." >&2
         exit 1
     fi
 fi
