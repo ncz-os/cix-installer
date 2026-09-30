@@ -165,16 +165,16 @@ mktarget() {   # mktarget DIR STATUS [kind: installed|pending|conf-only] [family
     fi
 }
 T="$W/target"
-mktarget "$T" "installed:13.4.92-1" installed;   expect_rc 0 "target: installed (Turing, CUDA 13.4) passes" "$TG" --root "$T" --expect installed
-mktarget "$T" "installed:13.4.92-1" installed; sed -i '/^Package: nvidia-egl-icd$/,+2d' "$T/var/lib/dpkg/status"
+mktarget "$T" "installed:13.4.92-1" installed turing-plus; expect_rc 0 "target: installed (Turing, CUDA 13.4 + EGL runtime) passes" "$TG" --root "$T" --expect installed
+mktarget "$T" "installed:13.4.92-1" installed turing-plus; sed -i '/^Package: nvidia-egl-icd$/,+2d' "$T/var/lib/dpkg/status"
                                                  expect_rc 1 "target: missing NVIDIA EGL ICD is rejected" "$TG" --root "$T" --expect installed
-mktarget "$T" "installed:13.4.92-1" installed; sed -i '/^Package: libegl-nvidia0$/,+2d' "$T/var/lib/dpkg/status"
+mktarget "$T" "installed:13.4.92-1" installed turing-plus; sed -i '/^Package: libegl-nvidia0$/,+2d' "$T/var/lib/dpkg/status"
                                                  expect_rc 1 "target: missing NVIDIA EGL library is rejected" "$TG" --root "$T" --expect installed
-mktarget "$T" "installed:13.4.92-1" installed; sed -i '/^Package: libnvidia-egl-wayland1$/,+2d' "$T/var/lib/dpkg/status"
+mktarget "$T" "installed:13.4.92-1" installed turing-plus; sed -i '/^Package: libnvidia-egl-wayland1$/,+2d' "$T/var/lib/dpkg/status"
                                                  expect_rc 1 "target: missing Wayland EGL platform is rejected" "$TG" --root "$T" --expect installed
-mktarget "$T" "installed:13.4.92-1" installed; sed -i '/^Package: libnvidia-egl-gbm1$/,+2d' "$T/var/lib/dpkg/status"
+mktarget "$T" "installed:13.4.92-1" installed turing-plus; sed -i '/^Package: libnvidia-egl-gbm1$/,+2d' "$T/var/lib/dpkg/status"
                                                  expect_rc 1 "target: missing GBM EGL platform is rejected" "$TG" --root "$T" --expect installed
-mktarget "$T" "installed:13.4.92-1" installed;   expect_rc 0 "target: auto derives installed" "$TG" --root "$T"
+mktarget "$T" "installed:13.4.92-1" installed turing-plus; expect_rc 0 "target: auto derives installed" "$TG" --root "$T"
 mktarget "$T" "installed:12.9.86-1" installed maxwell-volta; expect_rc 0 "target: installed (Pascal, CUDA 12.9) passes" "$TG" --root "$T" --expect installed
 mktarget "$T" "installed:13.4.92-1" installed; rm "$T/usr/local/cuda-13.4/bin/nvcc"
                                                  expect_rc 1 "target: installed but nvcc missing is rejected" "$TG" --root "$T" --expect installed
