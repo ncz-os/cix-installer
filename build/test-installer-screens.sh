@@ -245,8 +245,15 @@ expect "user-chooser.sh leaves password UNSET on a confirm mismatch (operator UX
 # choice.
 expect_partman_pin_byte_compare() {
     local f="$1"
-    # The exact equality assertion
-    grep -qF 'byte-identical' "$f" || { echo "$f: missing the byte-identical compare (partman pin safety regression)" >&2; return 1; }
+    # The runtime equality assertion must be present and uncommented (a
+    # regression that drops or comments out the `[ "$_pinned_recipe" = "$RECIPE" ]`
+    # would let a stale pin pass and wipe a disk that was NOT the operator's
+    # choice). grep for the literal line on its own (column-0 anchor).
+    grep -nE '^[[:space:]]*\[[[:space:]]+"\$_pinned_recipe"[[:space:]]+=[[:space:]]+"\$RECIPE"[[:space:]]+\]' "$f" >/dev/null 2>&1 \
+        || { echo "$f: missing the runtime [ \"\$_pinned_recipe\" = \"\$RECIPE\" ] equality assertion (partman pin safety regression -- the literal token 'byte-identical' in a comment is NOT enough; the actual comparison must execute)" >&2; return 1; }
+    # The exact equality error path (the abort must be triggered if the pin
+    # does not match -- a regression that only logs the mismatch is also a defect).
+    grep -qF 'pinned expert_recipe is not byte-identical' "$f" || { echo "$f: missing the 'pinned expert_recipe is not byte-identical' abort path" >&2; return 1; }
     # The root-stanza-specific filesystem check (catches the old 'plain
     # substring test' defect where ext4 would falsely pass against the rescue
     # partition's filesystem{ ext4 } token)
