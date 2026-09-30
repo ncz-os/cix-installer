@@ -1,0 +1,11 @@
+# Generated from branding/cygnus/tokens.json by tools/gen-cygnus.py. Do not edit.
+# PROPOSED keys for the [dev.sinty.desktop] group of NCZ's existing
+# 99-ncz-defaults.gschema.override (written by post-install/20-desktop.sh).
+# Not applied by this branch: see branding/cygnus/INTEGRATION.md.
+[dev.sinty.desktop]
+accent-color='custom'
+custom-accent-color='#D6208C'
+custom-accent-colors=['#D6208C', '#2ED8F0', '#FF5CB4', '#13B6D1', '#A0106A']
+singularity-theme='Cygnus'
+theme-mode='dark'
+dark-mode=true

@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NCZ-OS Screensavers</title>
+<meta name="description" content="The NCZ-OS 26.10 Cygnus screensaver showcase: stills, loops, settings and randomization notes.">
+<style>
+/* Generated from branding/cygnus/tokens.json by tools/gen-cygnus.py. Do not edit. */
+/* NCZ-OS 26.10 Cygnus: CSS custom properties (web, docs, showcase). */
+
+:root {
+  --cygnus-violet-950: #0B0714;
+  --cygnus-violet-900: #150D24;
+  --cygnus-violet-850: #1E1433;
+  --cygnus-violet-800: #2A1D45;
+  --cygnus-violet-700: #3D2B5E;
+  --cygnus-violet-600: #5A4585;
+  --cygnus-violet-500: #7A68A3;
+  --cygnus-violet-400: #A596C2;
+  --cygnus-violet-300: #CFC3E6;
+  --cygnus-violet-200: #E7DEF6;
+  --cygnus-violet-100: #F2ECFB;
+  --cygnus-violet-50: #FBF8FF;
+  --cygnus-magenta-300: #FF9BD0;
+  --cygnus-magenta-400: #FF5CB4;
+  --cygnus-magenta-500: #E8339A;
+  --cygnus-magenta-600: #C2177E;
+  --cygnus-magenta-700: #A0106A;
+  --cygnus-magenta-800: #730B4C;
+  --cygnus-cyan-300: #8BEBF8;
+  --cygnus-cyan-400: #2ED8F0;
+  --cygnus-cyan-500: #13B6D1;
+  --cygnus-cyan-600: #0E8FA8;
+  --cygnus-cyan-700: #0A6477;
+  --cygnus-cyan-800: #074452;
+  --cygnus-status-success-dark: #3DDC97;
+  --cygnus-status-warning-dark: #FFC24B;
+  --cygnus-status-error-dark: #FF6A80;
+  --cygnus-status-success-light: #0B6E46;
+  --cygnus-status-warning-light: #7F5200;
+  --cygnus-status-error-light: #B3203A;
+  --cygnus-neutral-white: #FFFFFF;
+  --cygnus-neutral-ink: #1A1029;
+}
+:root, :root[data-theme="dark"] {
+  color-scheme: dark;
+  --cy-bg: #0B0714;
+  --cy-surface-1: #150D24;
+  --cy-surface-2: #1E1433;
+  --cy-surface-3: #2A1D45;
+  --cy-border: #3D2B5E;
+  --cy-border-strong: #7A68A3;
+  --cy-text: #F4EEFC;
+  --cy-text-secondary: #CFC3E6;
+  --cy-text-muted: #A596C2;
+  --cy-text-disabled: #6E6090;
+  --cy-accent: #FF5CB4;
+  --cy-accent-bg: #D6208C;
+  --cy-accent-fg: #FFFFFF;
+  --cy-secondary: #2ED8F0;
+  --cy-secondary-bg: #2ED8F0;
+  --cy-secondary-fg: #0B0714;
+  --cy-focus-ring: #2ED8F0;
+  --cy-selection-bg: #4A1742;
+  --cy-selection-fg: #FFFFFF;
+  --cy-link: #8BEBF8;
+  --cy-success: #3DDC97;
+  --cy-warning: #FFC24B;
+  --cy-error: #FF6A80;
+  --cy-on-status: #0B0714;
+  --cy-shadow: #000000;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --cy-bg: #FBF8FF;
+  --cy-surface-1: #FFFFFF;
+  --cy-surface-2: #F2ECFB;
+  --cy-surface-3: #E7DEF6;
+  --cy-border: #CDBFE6;
+  --cy-border-strong: #7A68A3;
+  --cy-text: #1A1029;
+  --cy-text-secondary: #463A5E;
+  --cy-text-muted: #5F5378;
+  --cy-text-disabled: #9A8DB3;
+  --cy-accent: #A0106A;
+  --cy-accent-bg: #B8157A;
+  --cy-accent-fg: #FFFFFF;
+  --cy-secondary: #0A6477;
+  --cy-secondary-bg: #0A6477;
+  --cy-secondary-fg: #FFFFFF;
+  --cy-focus-ring: #0E8FA8;
+  --cy-selection-bg: #F6C9E4;
+  --cy-selection-fg: #1A1029;
+  --cy-link: #0A6477;
+  --cy-success: #0B6E46;
+  --cy-warning: #7F5200;
+  --cy-error: #B3203A;
+  --cy-on-status: #FFFFFF;
+  --cy-shadow: #1A1029;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --cy-bg: #FBF8FF;
+    --cy-surface-1: #FFFFFF;
+    --cy-surface-2: #F2ECFB;
+    --cy-surface-3: #E7DEF6;
+    --cy-border: #CDBFE6;
+    --cy-border-strong: #7A68A3;
+    --cy-text: #1A1029;
+    --cy-text-secondary: #463A5E;
+    --cy-text-muted: #5F5378;
+    --cy-text-disabled: #9A8DB3;
+    --cy-accent: #A0106A;
+    --cy-accent-bg: #B8157A;
+    --cy-accent-fg: #FFFFFF;
+    --cy-secondary: #0A6477;
+    --cy-secondary-bg: #0A6477;
+    --cy-secondary-fg: #FFFFFF;
+    --cy-focus-ring: #0E8FA8;
+    --cy-selection-bg: #F6C9E4;
+    --cy-selection-fg: #1A1029;
+    --cy-link: #0A6477;
+    --cy-success: #0B6E46;
+    --cy-warning: #7F5200;
+    --cy-error: #B3203A;
+    --cy-on-status: #FFFFFF;
+    --cy-shadow: #1A1029;
+  }
+}
+
+body { margin: 0; background: var(--cy-bg); color: var(--cy-text);
+  font: 16px/1.55 "Noto Sans", "DejaVu Sans", system-ui, sans-serif; }
+header { padding: 56px 16px 24px; max-width: 1200px; margin: 0 auto; }
+header h1 { font-size: clamp(28px, 5vw, 48px); margin: 0 0 8px; letter-spacing: .01em; }
+header p { color: var(--cy-text-secondary); max-width: 70ch; margin: 0; }
+.rule { height: 3px; width: 220px; margin: 18px 0; background: linear-gradient(90deg, var(--cy-accent-bg), var(--cy-secondary)); }
+.sizzle { max-width: 1200px; margin: 0 auto 32px; padding: 0 16px; }
+.sizzle video { width: 100%; border-radius: 14px; background: #000; border: 1px solid var(--cy-border); }
+main { max-width: 1200px; margin: 0 auto; padding: 0 16px 64px; display: grid; gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); }
+.card { background: var(--cy-surface-1); border: 1px solid var(--cy-border); border-radius: 16px; overflow: hidden; }
+.vis { aspect-ratio: 16 / 9; background: #000; }
+.vis video, .vis img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.body { padding: 16px 18px 18px; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h2 { font-size: 20px; margin: 0; }
+.pill { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; border: 1.5px solid; white-space: nowrap; }
+.pill.ships { color: var(--cy-secondary); }
+.pill.approved { color: var(--cy-accent); }
+.pill.candidate { color: var(--cy-warning); }
+p { color: var(--cy-text-secondary); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 14px; margin: 0; }
+dt { color: var(--cy-text-muted); } dd { margin: 0; color: var(--cy-text); }
+.thumbs { display: flex; gap: 8px; margin-top: 12px; }
+.thumb { width: calc(50% - 4px); aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; }
+footer { max-width: 1200px; margin: 0 auto; padding: 0 16px 48px; color: var(--cy-text-muted); font-size: 14px; }
+a { color: var(--cy-link); }
+</style>
+</head>
+<body>
+<header>
+  <h1>NCZ-OS screensavers</h1>
+  <div class="rule"></div>
+  <p>Captured from the real screensavers running on NCZ-OS. Nothing here is a mock-up, a film still or a photograph.
+  <strong>Ships in 26.10</strong> means the saver is in the 84-saver set. <strong>Approved</strong> means it has been approved and is on its way into that set.
+  <strong>Candidate</strong> means it is shown for feedback and is not approved yet.</p>
+</header>
+<section class="sizzle" aria-label="Sizzle reel">
+  <video controls preload="metadata" poster="media/blackhole-1.webp">
+    <source src="media/ncz-os-26.10-screensavers-sizzle.webm" type="video/webm">
+    <source src="media/ncz-os-26.10-screensavers-sizzle.mp4" type="video/mp4">
+  </video>
+</section>
+<main>
+      <article class="card">
+        <div class="vis"><img src="media/blackhole-1.webp" alt="Black Hole screensaver still" loading="lazy"></div>
+        <div class="body">
+          <div class="head"><h2>Black Hole</h2>
+            <span class="pill ships">Ships in 26.10</span></div>
+          <p>A ray-traced black hole with a lensed accretion disk, photon ring, relativistic jets and a live star field. The default screensaver.</p>
+          <dl>
+            <dt>Engine</dt><dd>NCZ Black Hole engine (GLES3)</dd>
+            <dt>Settings</dt><dd>Palettes: stylized, kipthorne, faithful, singularity, slingshot, whitehole, eht (cygnus proposed). Presets such as Kerr, TON 618, Sagittarius A*, M87*.</dd>
+            <dt>Randomization</dt><dd>Each run draws a new seed: disk turbulence, camera path and star field differ every time. A fixed seed can be pinned for reproducible captures.</dd>
+          </dl>
+          <div class="thumbs"><img class="thumb" src="media/blackhole-2.webp" alt="" loading="lazy"><img class="thumb" src="media/blackhole-3.webp" alt="" loading="lazy"></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="vis"><img src="media/blackhole-scenes-1.webp" alt="Black Hole: scenes and director camera screensaver still" loading="lazy"></div>
+        <div class="body">
+          <div class="head"><h2>Black Hole: scenes and director camera</h2>
+            <span class="pill approved">Approved</span></div>
+          <p>Binary pairs, a merger, a tidal disruption event, a galaxy zoom and a three-body dance, framed by a director camera that eases between shots.</p>
+          <dl>
+            <dt>Engine</dt><dd>NCZ Black Hole engine (GLES3), enhanced style</dd>
+            <dt>Settings</dt><dd>--style=enhanced or per-option scene, director, tonemap, disk-structure, jet-duty. Classic look stays the default.</dd>
+            <dt>Randomization</dt><dd>The director picks scenes and off-center framings per shot, so long runs do not repeat one composition.</dd>
+          </dl>
+          <div class="thumbs"><img class="thumb" src="media/blackhole-scenes-2.webp" alt="" loading="lazy"><img class="thumb" src="media/blackhole-scenes-3.webp" alt="" loading="lazy"></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="vis"><video autoplay muted loop playsinline preload="metadata" poster="media/physarum-1.webp"><source src="media/physarum.webm" type="video/webm"><source src="media/physarum.mp4" type="video/mp4"></video></div>
+        <div class="body">
+          <div class="head"><h2>Physarum</h2>
+            <span class="pill approved">Approved</span></div>
+          <p>Pale strands drift and braid over deep blue, driven by a Physarum (slime-mold) trail simulation.</p>
+          <dl>
+            <dt>Engine</dt><dd>xshadertoy (original shader)</dd>
+            <dt>Settings</dt><dd>Mid GPU class and up.</dd>
+            <dt>Randomization</dt><dd>The xshadertoy engine hands every run a fresh random seed (iSeed), so each launch starts from a different state; how far a shader varies with it depends on the shader.</dd>
+          </dl>
+          
+        </div>
+      </article>
+      <article class="card">
+        <div class="vis"><video autoplay muted loop playsinline preload="metadata" poster="media/caustics-on-stone-1.webp"><source src="media/caustics-on-stone.webm" type="video/webm"><source src="media/caustics-on-stone.mp4" type="video/mp4"></video></div>
+        <div class="body">
+          <div class="head"><h2>Caustics on Stone</h2>
+            <span class="pill approved">Approved</span></div>
+          <p>A net of focused sunlight drifting across a pale stone floor.</p>
+          <dl>
+            <dt>Engine</dt><dd>xshadertoy (original shader, quiet materiality set)</dd>
+            <dt>Settings</dt><dd>Slow, calm motion.</dd>
+            <dt>Randomization</dt><dd>The xshadertoy engine hands every run a fresh random seed (iSeed), so each launch starts from a different state; how far a shader varies with it depends on the shader.</dd>
+          </dl>
+          
+        </div>
+      </article>
+      <article class="card">
+        <div class="vis"><video autoplay muted loop playsinline preload="metadata" poster="media/satin-wind-1.webp"><source src="media/satin-wind.webm" type="video/webm"><source src="media/satin-wind.mp4" type="video/mp4"></video></div>
+        <div class="body">
+          <div class="head"><h2>Satin Wind</h2>
+            <span class="pill approved">Approved</span></div>
+          <p>A cream satin curtain folding slowly in a breeze.</p>
+          <dl>
+            <dt>Engine</dt><dd>xshadertoy (original shader, quiet materiality set)</dd>
+            <dt>Settings</dt><dd>Slow, calm motion.</dd>
+            <dt>Randomization</dt><dd>The xshadertoy engine hands every run a fresh random seed (iSeed), so each launch starts from a different state; how far a shader varies with it depends on the shader.</dd>
+          </dl>
+          
+        </div>
+      </article>
+      <article class="card">
+        <div class="vis"><video autoplay muted loop playsinline preload="metadata" poster="media/hexlattice-1.webp"><source src="media/hexlattice.webm" type="video/webm"><source src="media/hexlattice.mp4" type="video/mp4"></video></div>
+        <div class="body">
+          <div class="head"><h2>Hex Lattice</h2>
+            <span class="pill approved">Approved</span></div>
+          <p>A glowing teal lattice of struts, slowly shifting.</p>
+          <dl>
+            <dt>Engine</dt><dd>xshadertoy (original shader)</dd>
+            <dt>Settings</dt><dd>Mid GPU class.</dd>
+            <dt>Randomization</dt><dd>The xshadertoy engine hands every run a fresh random seed (iSeed), so each launch starts from a different state; how far a shader varies with it depends on the shader.</dd>
+          </dl>
+          
+        </div>
+      </article>
+      <article class="card">
+        <div class="vis"><video autoplay muted loop playsinline preload="metadata" poster="media/caustics-1.webp"><source src="media/caustics.webm" type="video/webm"><source src="media/caustics.mp4" type="video/mp4"></video></div>
+        <div class="body">
+          <div class="head"><h2>Caustics</h2>
+            <span class="pill approved">Approved</span></div>
+          <p>Glinting flecks of light drifting through dark water.</p>
+          <dl>
+            <dt>Engine</dt><dd>xshadertoy (original shader)</dd>
+            <dt>Settings</dt><dd>Mid GPU class.</dd>
+            <dt>Randomization</dt><dd>The xshadertoy engine hands every run a fresh random seed (iSeed), so each launch starts from a different state; how far a shader varies with it depends on the shader.</dd>
+          </dl>
+          
+        </div>
+      </article>
+      <article class="card">
+        <div class="vis"><video autoplay muted loop playsinline preload="metadata" poster="media/marble-1.webp"><source src="media/marble.webm" type="video/webm"><source src="media/marble.mp4" type="video/mp4"></video></div>
+        <div class="body">
+          <div class="head"><h2>Marble</h2>
+            <span class="pill approved">Approved</span></div>
+          <p>Lilac marble with green veins that flow like slow ink.</p>
+          <dl>
+            <dt>Engine</dt><dd>xshadertoy (original shader)</dd>
+            <dt>Settings</dt><dd>Mid GPU class.</dd>
+            <dt>Randomization</dt><dd>The xshadertoy engine hands every run a fresh random seed (iSeed), so each launch starts from a different state; how far a shader varies with it depends on the shader.</dd>
+          </dl>
+          
+        </div>
+      </article>
+      <article class="card">
+        <div class="vis"><video autoplay muted loop playsinline preload="metadata" poster="media/neonspacewar-1.webp"><source src="media/neonspacewar.webm" type="video/webm"><source src="media/neonspacewar.mp4" type="video/mp4"></video></div>
+        <div class="body">
+          <div class="head"><h2>Neon Spacewar</h2>
+            <span class="pill candidate">Candidate</span></div>
+          <p>A self-playing 1980s-style vector space battle with neon glow. Version 2 (Melee: deterministic replays, framing camera, closing arena) is in progress.</p>
+          <dl>
+            <dt>Engine</dt><dd>NCZ original (GLES3 vector renderer)</dd>
+            <dt>Settings</dt><dd>Liked by the operator; not yet approved for shipping.</dd>
+            <dt>Randomization</dt><dd>Every engagement is a new randomized battle.</dd>
+          </dl>
+          
+        </div>
+      </article>
+      <article class="card">
+        <div class="vis"><video autoplay muted loop playsinline preload="metadata" poster="media/ephemeris-1.webp"><source src="media/ephemeris.webm" type="video/webm"><source src="media/ephemeris.mp4" type="video/mp4"></video></div>
+        <div class="body">
+          <div class="head"><h2>Ephemeris</h2>
+            <span class="pill candidate">Candidate</span></div>
+          <p>Temporary workers slowly work a durable surface they only partly see. Nothing persists: each run exists once. Under active iteration.</p>
+          <dl>
+            <dt>Engine</dt><dd>NCZ original (GLES3)</dd>
+            <dt>Settings</dt><dd>Weak GPU class friendly; matte pigment, no glow.</dd>
+            <dt>Randomization</dt><dd>Every run is unique by design and is never repeated.</dd>
+          </dl>
+          
+        </div>
+      </article>
+</main>
+<footer>NCZ-OS 26.10 "Cygnus". All imagery is rendered by NCZ-OS screensaver code. The sizzle soundtrack is an original ambient bed generated for this page.</footer>
+</body>
+</html>
