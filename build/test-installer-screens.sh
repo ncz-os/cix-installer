@@ -166,6 +166,58 @@ expect_boot_progress_ttys() {
     return 0
 }
 expect "boot-progress.sh writes to /dev/tty1 + /dev/tty3 + /dev/console (operator's 'invisible boot' regression guard)" 0 expect_boot_progress_ttys "$ROOT/preseed/boot-progress.sh"
+# --- source-level regression: the ncz_rev banner is NOT only on /dev/tty4 ---
+# Operator feedback 2026-09-30 ("the earlier commit put messages only on VT4,
+# verify that is not invisible to the user"). The "==== NCZ-OS INSTALLER ${rev}
+# ====" banner runs in a 2-second heartbeat loop from early_command. The
+# historical version wrote it ONLY to /dev/tty4 -- a non-displayed console.
+# A regression that returns to the VT4-only routing makes the banner
+# invisible to the operator and breaks the install-grep "NCZ-OS INSTALLER"
+# marker on serial-only captures (the gate grep's at least 4 KVM install
+# gates rely on that marker being in $ILOG). The loop MUST iterate over at
+# least /dev/tty1 (operator framebuffer), /dev/tty3 (Alt-F3 diag console)
+# and /dev/console (serial capture); a bare `for V in /dev/tty4` fails.
+expect_rev_banner_not_vt4_only() {
+    local f="$1"
+    # The "==== NCZ-OS INSTALLER ${rev} ====" banner must be present.
+    # The printf format string puts the rev token after the literal
+    # "NCZ-OS INSTALLER " (with intervening %s / ${NCZREV:-unknown}), so
+    # match on the literal alone -- the for-targets and the literal token
+    # are both required separately below.
+    grep -qE 'NCZ-OS INSTALLER' "$f" \
+        || { echo "$f: the NCZ-OS INSTALLER banner is missing entirely" >&2; return 1; }
+    # Find the banner's for-loop line. The banner is the only thing in
+    # preseed.cfg that contains the literal "NCZ-OS INSTALLER", so the
+    # first hit is the banner's own line. Strip the line-number prefix.
+    local banner_line
+    banner_line=$(grep -nE 'NCZ-OS INSTALLER' "$f" | head -1 | sed 's/^[0-9]*://')
+    # require /dev/tty1, /dev/tty3 and /dev/console all appear on the banner line
+    local miss=""
+    case "$banner_line" in
+        */dev/tty1*) : ;;
+        *) miss="$miss /dev/tty1" ;;
+    esac
+    case "$banner_line" in
+        */dev/tty3*) : ;;
+        *) miss="$miss /dev/tty3" ;;
+    esac
+    case "$banner_line" in
+        */dev/console*) : ;;
+        *) miss="$miss /dev/console" ;;
+    esac
+    [ -z "$miss" ] || { echo "$f: the NCZ-OS INSTALLER banner is missing target(s):$miss (operator's 'invisible boot' regression -- the prior commit put the banner on /dev/tty4 only)" >&2; return 1; }
+    # negative check: the VT4-only defect must not return. The banner's
+    # for-loop must not iterate ONLY /dev/tty4. (A banner that iterates
+    # /dev/tty4 + any of tty1/tty3/console is allowed -- the operator's
+    # complaint was VT4-only, not "VT4 must be excluded".)
+    local targets
+    targets=$(printf '%s\n' "$banner_line" | sed -nE 's/.*for[[:space:]]+V[[:space:]]+in[[:space:]]+([^;]+);.*/\1/p' | head -1)
+    case "$targets" in
+        "/dev/tty4"|"/dev/tty4 ") echo "$f: the NCZ-OS INSTALLER banner for-loop iterates ONLY /dev/tty4 (operator's 'invisible boot' regression, 2026-09-30)" >&2; return 1 ;;
+    esac
+    return 0
+}
+expect "preseed.cfg NCZ-OS INSTALLER banner is visible on /dev/tty1 + /dev/tty3 + /dev/console (NOT VT4-only, operator's invisible-boot regression guard)" 0 expect_rev_banner_not_vt4_only "$ROOT/preseed/preseed.cfg"
 # --- source-level regression: the password-confirm mismatch leaves the password UNSET (operator UX requirement) ---
 # Operator directive: "(4) default password with confirm (2x)". The confirm
 # mismatch is logged as a WARNING and the password is left UNSET (the operator
