@@ -204,6 +204,25 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
+# Operator directive 2026-09-30 (the .66 incident): 7.2.8 MUST be the default
+# kernel on every arch; arm64-only edge for 7.3-rc5; amd64 has no 7.3 at all.
+# This script is the canonical place where assets/kernel/mainline and
+# assets/kernel/amd64-stable get copied into the installer payload, so the
+# verifier has to gate HERE -- before any KVER is read -- or a misdirected
+# mainline symlink (the .66 root cause) silently ships 7.3-rc5 as default.
+# build/build-installer-image.sh and build/build-squashfs-layers.sh also
+# call the verifier; this closes the standalone-build-iso-di.sh path
+# (which builds the arm64 production image today and is the path that
+# produced the .66 image).
+if [ -x "$ROOT/build/verify-kernel-default-policy.sh" ]; then
+    _ncza=$(grep -E '^[[:space:]]*NCZ_TARGET_ARCH[[:space:]]*=' "$ROOT/release.conf" \
+            2>/dev/null | head -1 | sed -nE 's/.*=[[:space:]]*"?([^"]+)"?.*/\1/p')
+    [ -n "$_ncza" ] || _ncza=$(dpkg --print-architecture 2>/dev/null || uname -m)
+    case "$_ncza" in aarch64) _ncza=arm64 ;; x86_64) _ncza=amd64 ;; esac
+    "$ROOT/build/verify-kernel-default-policy.sh" --root "$ROOT" --arch "$_ncza" \
+        || { echo "[build-iso-di] FATAL: kernel default policy failed -- refusing to stage" >&2; exit 1; }
+fi
+
 if [ "$EMBED_MIRROR" = "1" ]; then
     # build-kernel-debs.sh packages and KVM-gates the arm64 Sky1 kernel.
     # AMD64 kernels are complete canonical asset trees staged directly below;
@@ -430,12 +449,20 @@ elif [ "$MODE" = "full" ]; then
     # block guards for arm64 don't apply. Confirm the AMD64-equivalent set
     # preflight-sbom-check.sh already verified is genuinely present rather
     # than silently trusting an earlier pass -- a real re-check, not a skip.
-    for f in "assets/kernel/amd64-stable" "assets/kernel/amd64-edge" "assets/rescue/rescue-rootfs-$NCZ_TARGET_ARCH.tar.zst"; do
+    for f in "assets/kernel/amd64-stable" "assets/rescue/rescue-rootfs-$NCZ_TARGET_ARCH.tar.zst"; do
         if [ ! -e "$ROOT/$f" ]; then
             echo "ERROR: $NCZ_TARGET_ARCH full ISO missing required asset: $f (expected already verified by preflight-sbom-check.sh)" >&2
             exit 1
         fi
     done
+    # Operator directive 2026-09-30: amd64 ships NO edge kernel. An
+    # assets/kernel/amd64-edge/ directory is a policy violation; refuse it
+    # here so the ISO build fails closed with a precise message instead of
+    # silently packaging an amd64-edge .deb pair into the installer media.
+    if [ -e "$ROOT/assets/kernel/amd64-edge" ]; then
+        echo "ERROR: $NCZ_TARGET_ARCH ISO staged with assets/kernel/amd64-edge/ (operator policy 2026-09-30: amd64 ships NO edge kernel)" >&2
+        exit 1
+    fi
     echo "[stage-canonical-assets] skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH -- arm64-only assets don't apply; AMD64 asset set re-confirmed present)"
 fi
 
@@ -3302,25 +3329,36 @@ if [ -d "$ROOT/assets" ]; then
 fi
 [ -f "$ROOT/assets/ncz-cli.sh" ] && cp -aL "$ROOT/assets/ncz-cli.sh" "$EXTRA/assets/" 2>/dev/null || true
 
-# Stage target kernel payloads. AMD64 ships both the stable T2+PC line and the
-# vanilla edge line as .debs consumed by post-install/10-amd64-kernel.sh.
-# arm64 retains its single Sky1 edge payload; netinstall uses the d-i kernel.
+# Stage target kernel payloads. amd64 ships ONLY the stable T2+PC line as
+# .debs consumed by post-install/10-amd64-kernel.sh; operator directive
+# 2026-09-30 removed the amd64-edge channel (no validated amd64 7.3 kernel
+# exists). arm64 retains its Sky1 edge payload (r279 7.3.0-rc5, non-default
+# menu entry); netinstall uses the d-i kernel.
 mkdir -p "$EXTRA/assets/kernel"
 if [ "$NCZ_TARGET_ARCH" = amd64 ] && [ "$STAGE_NEXT_KERNEL" = "1" ]; then
-    for _amd64_channel in amd64-stable amd64-edge; do
-        _amd64_src="$ROOT/assets/kernel/$_amd64_channel"
-        [ -d "$_amd64_src" ] || {
-            echo "ERROR: missing $_amd64_src -- both AMD64 kernel channels are required" >&2
-            exit 1
-        }
-        cp -aL "$_amd64_src" "$EXTRA/assets/kernel/"
-        _amd64_debs=$(find "$EXTRA/assets/kernel/$_amd64_channel" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')
-        [ "$_amd64_debs" -ge 2 ] || {
-            echo "ERROR: $_amd64_channel staged only $_amd64_debs .deb(s), expected image + headers" >&2
-            exit 1
-        }
-        echo "    $_amd64_channel staged: $_amd64_debs packages ($(du -sh "$EXTRA/assets/kernel/$_amd64_channel" | cut -f1))"
-    done
+    _amd64_src="$ROOT/assets/kernel/amd64-stable"
+    [ -d "$_amd64_src" ] || {
+        echo "ERROR: missing $_amd64_src -- the AMD64 stable kernel channel is required" >&2
+        exit 1
+    }
+    cp -aL "$_amd64_src" "$EXTRA/assets/kernel/"
+    _amd64_debs=$(find "$EXTRA/assets/kernel/amd64-stable" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')
+    [ "$_amd64_debs" -ge 2 ] || {
+        echo "ERROR: amd64-stable staged only $_amd64_debs .deb(s), expected image + headers" >&2
+        exit 1
+    }
+    # Defence-in-depth: refuse the presence of an amd64-edge channel in the
+    # staged tree. The kernel-default-policy verifier (build-installer-
+    # image.sh) also checks, but failing fast here, at the ISO staging
+    # step, surfaces the exact staged path so the operator can fix the
+    # source tree. The cp -aL above only stages amd64-stable, so reaching
+    # this point means the source tree was clean -- the check is here to
+    # catch future code that re-introduces amd64-edge by accident.
+    if [ -e "$EXTRA/assets/kernel/amd64-edge" ]; then
+        echo "ERROR: $EXTRA/assets/kernel/amd64-edge is staged (operator policy 2026-09-30: amd64 ships NO edge kernel)" >&2
+        exit 1
+    fi
+    echo "    amd64-stable staged: $_amd64_debs packages ($(du -sh "$EXTRA/assets/kernel/amd64-stable" | cut -f1))"
 elif [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
     mkdir -p "$EXTRA/assets/kernel/mainline"
     cp -L "$NEXT_KERN" "$EXTRA/assets/kernel/mainline/"

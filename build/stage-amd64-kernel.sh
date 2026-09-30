@@ -1,15 +1,22 @@
 #!/bin/bash
-# stage-amd64-kernel.sh -- pull the latest built amd64 kernel line(s) from the
-# shared ARGONAS kernel-staging pool into assets/kernel/amd64-{stable,edge}/.
+# stage-amd64-kernel.sh -- pull the latest built amd64 STABLE kernel line from
+# the shared ARGONAS kernel-staging pool into assets/kernel/amd64-stable/.
 #
 # Mirrors the arm64 side's stage-kernel.sh in spirit (kernel artifacts are
 # gitignored and live in a shared, dated staging area on ARGONAS, per
 # ~/.claude/rules/kernel-build-checklist.md's staging convention) but the
-# amd64 payload is just a linux-image/linux-headers .deb pair per line, so
-# this stays a plain copy rather than stage-kernel.sh's Image/modules/
-# headers/staleness-check ceremony (that machinery is Sky1/Yocto-specific).
+# amd64 payload is just a linux-image/linux-headers .deb pair, so this stays
+# a plain copy rather than stage-kernel.sh's Image/modules/headers/staleness-
+# check ceremony (that machinery is Sky1/Yocto-specific).
 #
-# Usage: build/stage-amd64-kernel.sh [stable|edge|all]  (default: all)
+# POLICY (operator directive 2026-09-30, .66 incident): amd64 ships ONLY the
+# 7.2.x stable line. There is no validated amd64 7.3 kernel; per the kernel
+# default policy, NO amd64-edge channel may be staged into this repo. The
+# "edge" argument is preserved as a hard-fail exit so any cron or operator
+# muscle-memory invocation surfaces the policy gap loudly instead of silently
+# re-creating the directory the verifier would then refuse.
+#
+# Usage: build/stage-amd64-kernel.sh [stable]  (default: stable)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WHAT="${1:-all}"
@@ -49,8 +56,14 @@ stage_line() {  # <line-name e.g. amd64-stable> <staging-dir-prefix e.g. amd64-s
 }
 
 case "$WHAT" in
-    stable) stage_line amd64-stable amd64-stable- ;;
-    edge)   stage_line amd64-edge   amd64-edge-   ;;
-    all)    stage_line amd64-stable amd64-stable-; stage_line amd64-edge amd64-edge- ;;
-    *) echo "usage: $0 {stable|edge|all}" >&2; exit 2 ;;
+    stable|"") stage_line amd64-stable amd64-stable- ;;
+    edge|all)
+        # Operator policy 2026-09-30: amd64 ships NO edge kernel. Refuse to
+        # stage one rather than silently re-introduce the directory the
+        # kernel-default-policy verifier would then refuse to build past.
+        echo "ERROR: amd64 ships NO edge kernel (operator directive 2026-09-30, .66 incident). 'edge' is reserved for arm64 only." >&2
+        echo "       To stage a 7.2.x stable line instead, run: build/stage-amd64-kernel.sh stable" >&2
+        exit 64
+        ;;
+    *) echo "usage: $0 [stable]" >&2; exit 2 ;;
 esac

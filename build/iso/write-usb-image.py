@@ -475,16 +475,16 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         if name == "kernel":
             channels = (("edge", "mali", "mali-70012", "modules-overlay",
                          "npu", "panthor", "vpu") if arch == "arm64"
-                        else ("amd64-stable", "amd64-edge"))
+                        else ("amd64-stable",))
             dst.mkdir(parents=True, exist_ok=True)
             for channel in channels:
                 child = src / channel
                 if not child.exists():
                     continue
                 if child.is_symlink():
-                    # Edge (and historically the amd64 lines) is itself a
-                    # symlink into the shared kernel-staging pool. Resolve
-                    # it explicitly: copying a symlink with shutil.copytree
+                    # Edge (a Sky1-only channel) is itself a symlink into
+                    # the shared kernel-staging pool. Resolve it
+                    # explicitly: copying a symlink with shutil.copytree
                     # would land the SYMLINK on the medium, which then
                     # breaks the installer's first read of KVER (a symlink
                     # whose target is a path inside the installer's
