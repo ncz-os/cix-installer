@@ -1,20 +1,23 @@
 #!/bin/bash
-# 10-amd64-kernel.sh — install BOTH AMD64 kernel lines (dpkg-tracked).
+# 10-amd64-kernel.sh — install the amd64 STABLE kernel line (dpkg-tracked).
 #
 # AMD64 analogue of 10-our-kernel.sh (arm64/Sky1). Differs in one
 # structural way: arm64 has exactly one shipping "edge" kernel, resolved
 # via apt from the Buildkite repo. AMD64 has no apt repo for its kernels
-# yet (both lines were built on PROTEUS/CERBERUS) — so this hook installs
-# the two staged .deb sets directly with dpkg, the same pattern
-# 10-our-kernel.sh already
-# uses for its *embedded-deb* fast path (local_deb()+dpkg -i), just
-# without an apt-repo fallback because none exists.
+# yet (the line was built on PROTEUS/CERBERUS) — so this hook installs
+# the single staged .deb set directly with dpkg, the same pattern
+# 10-our-kernel.sh already uses for its *embedded-deb* fast path
+# (local_deb()+dpkg -i), just without an apt-repo fallback because none
+# exists.
 #
-# Both kernels are installed side by side on purpose: T2-unified-stable
-# (7.2.6) as the DEFAULT, vanilla-edge (7.3-rc3) as the alternate GRUB
-# entry. Do not prune one the way 10-our-kernel.sh prunes "not KVER_NEXT"
-# — that pruning exists because arm64 ships exactly one kernel; here two
-# are the intended end state.
+# POLICY (operator directive 2026-09-30, .66 incident): amd64 ships ONLY
+# the 7.2.x release line. There is no validated amd64 7.3 kernel, so the
+# pre-fix hook's "install both lines side-by-side" path is closed — this
+# hook installs amd64-stable only. A non-empty /usr/local/lib/cix-
+# installer/assets/kernel/amd64-edge/ at install time is a policy
+# violation; the hook refuses to install it and exits non-zero so the
+# image fails closed (run-all.sh treats a non-zero exit from any REQUIRED
+# hook as fatal).
 # NCZ-PLATFORM-GUARD: amd64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
 # run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
 # undetectable arch does NOT skip (legacy behavior).
@@ -136,8 +139,20 @@ install_one(){
 
 : > /usr/local/lib/cix-installer/KVER_LIST_AMD64
 
+# Operator policy 2026-09-30: amd64 ships NO edge kernel. If the installer
+# payload was built with an amd64-edge channel present, refuse to install
+# it (the build should already have failed at the kernel-default-policy
+# gate, but a defense-in-depth check here prevents an edge .deb from being
+# installed on a target even if the gate was bypassed).
+if [ -d "$ASSETS/amd64-edge" ]; then
+    amd64_edge_deb_count=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name '*.deb' 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$amd64_edge_deb_count" -ne 0 ]; then
+        echo "[10-amd64] ERROR: $ASSETS/amd64-edge is staged with $amd64_edge_deb_count .deb(s) (operator policy 2026-09-30: amd64 ships NO edge kernel; no validated amd64 7.3 kernel exists). Refusing to install." >&2
+        exit 1
+    fi
+fi
+
 install_one "stable (T2-unified)" "$ASSETS/amd64-stable"
-install_one "edge (vanilla 7.3-rc3)" "$ASSETS/amd64-edge"
 
 if [ "$INSTALLED_KERNELS" -eq 0 ]; then
     echo "[10-amd64] ERROR: no AMD64 kernel installed — Phase 1 cannot continue." >&2

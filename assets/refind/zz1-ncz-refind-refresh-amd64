@@ -15,15 +15,18 @@
 # this hookpoint for free (its own postinst.d script called update-grub);
 # now that AMD64 boots rEFInd instead, this script is what replaces it.
 #
-# STABLE vs EDGE classification: the two kernel lines' own version strings
-# already encode which is which (stable: ...-t2-trixie; edge:
-# ...-ncz-amd64-edge), so classify by that suffix rather than by mtime
-# (arm64's ncz-refind-refresh mtime-based "newest wins" heuristic has a
-# documented real bug on same-transaction downgrades -- see that script's
-# own history -- and doesn't even apply here since AMD64 deliberately
-# keeps BOTH lines side by side, never pruning one). Each category
-# independently tracks its own newest-mtime kernel, so an edge-only
-# upgrade doesn't touch which stable kernel is staged and vice versa.
+# STABLE vs EDGE classification: amd64 ships ONLY the stable line as of
+# 2026-09-30 (operator directive, no validated amd64 7.3 kernel exists),
+# so under the current policy KVER_EDGE will always be empty here and
+# only one rEFInd menu entry will be written. The classifier itself is
+# still dual-line-aware so any operator-initiated staging of a
+# *-ncz-amd64-edge or *-t2-trixie*-rcN kernel will be picked up as edge
+# and surfaced in the menu (the rEFInd refresh is the system that adds
+# boot entries; refusing to enumerate a hypothetical edge here would
+# re-introduce the very defect the original classifier rewrite was
+# designed to close). Each category independently tracks its own
+# newest-mtime kernel, so an edge-only upgrade doesn't touch which
+# stable kernel is staged and vice versa.
 #
 # Called by dpkg/kernel postinst as: <this-script> <kernel-version>
 # <boot-image-path> (standard /etc/kernel/postinst.d/ contract). We only

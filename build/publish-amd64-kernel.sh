@@ -1,6 +1,7 @@
 #!/bin/bash
-# Publish a built amd64 kernel into the shared ARGONAS kernel-staging pool
-# under the name build/stage-amd64-kernel.sh actually looks for.
+# Publish a built amd64 STABLE kernel into the shared ARGONAS
+# kernel-staging pool under the name build/stage-amd64-kernel.sh actually
+# looks for.
 #
 # WHY THIS EXISTS (2026-09-28). There was no publisher: amd64 kernels were
 # staged by hand, so the naming contract lived only inside the CONSUMER's
@@ -14,26 +15,45 @@
 # newest in the shared pool" because it too only looks at its own prefix: a
 # guard cannot see what it does not glob.
 #
+# POLICY UPDATE (operator directive 2026-09-30, .66 incident): amd64 ships
+# ONLY the stable 7.2.x line. There is no validated amd64 7.3 kernel, so
+# the publisher is now stable-only -- the `edge` argument is preserved as
+# a hard-fail exit so any operator muscle-memory invocation surfaces the
+# policy gap loudly. The kernel-default-policy verifier would otherwise
+# refuse the build further downstream and the operator would have to
+# back-track to find why the directory re-appeared.
+#
 # Use this instead of mkdir+cp. It cannot produce a name the consumer will
-# miss, because it builds the name from the same two line identifiers.
+# miss, because it builds the name from the same line identifier.
 set -uo pipefail
 
 usage() {
     cat >&2 <<EOF
-usage: $0 <stable|edge> <deb-dir> [YYYYMMDD]
+usage: $0 <stable> <deb-dir> [YYYYMMDD]
 
   stable  the unified T2 line (v7.2.x + t2linux patches) -- serves BOTH T2
           Macs and regular PCs; the t2linux series is DMI/PCI-ID gated.
-  edge    the 7.3.x line.
+          amd64 ships ONLY this line (operator directive 2026-09-30).
 
   <deb-dir>  directory holding linux-image-*.deb and linux-headers-*.deb
              (and optionally config-*), as produced by the kernel build.
+
+Note: publishing an "edge" build is no longer supported here. amd64-edge-*
+builds sitting in the pool will fail preflight-freshness-gate.sh as
+orphans and block the build -- prune or rename them if you find any.
 EOF
 }
 
 LINE="${1:-}"; DEBDIR="${2:-}"; STAMP="${3:-$(date -u +%Y%m%d)}"
 case "$LINE" in
-    stable|edge) ;;
+    stable) ;;
+    edge)
+        # Operator policy 2026-09-30: amd64 ships NO edge kernel. Refuse
+        # to publish one rather than silently re-introduce the channel.
+        echo "ERROR: amd64 ships NO edge kernel (operator directive 2026-09-30, .66 incident). 'edge' is reserved for arm64 only." >&2
+        echo "       To publish a 7.2.x stable line instead, run: build/publish-amd64-kernel.sh stable <deb-dir>" >&2
+        exit 64
+        ;;
     *) usage; exit 2 ;;
 esac
 [ -d "${DEBDIR:-}" ] || { echo "ERROR: deb-dir not found: ${DEBDIR:-<unset>}" >&2; usage; exit 2; }

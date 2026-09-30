@@ -41,7 +41,6 @@ assets/install_ncz_agents.sh	common	-	agent stack installer
 assets/kernel-manifest.json	sky1	-	Sky1 kernel manifest
 assets/kernel/	sky1	-	Sky1 kernel staging, mali/panthor/vpu/npu overlays, patches (default for the tree)
 assets/kernel/.gitkeep	common	-	placeholder
-assets/kernel/amd64-edge/	amd64	-	amd64 edge kernel KVER stamp
 assets/kernel/amd64-stable/	amd64	-	amd64 stable kernel KVER stamp
 assets/kernel/t2gmux/	amd64	t2	T2 gmux DKMS source
 assets/kernel/t2smc/	amd64	t2	T2 SMC DKMS source

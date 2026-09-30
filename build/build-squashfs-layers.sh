@@ -841,11 +841,13 @@ ensure_base_tarball_fresh(){
 build_base(){
   # Kernel default policy gate (operator directive 2026-09-30). Refuses to
   # bake a base layer whose shipping kernel is -rcN, and refuses on amd64
-  # if any amd64-edge payload is staged. Same gate as
-  # build/build-installer-image.sh -- duplicated here because this script
-  # can also be invoked standalone (e.g. to rebuild just base.squashfs
-  # without rebuilding the whole image) and must refuse to ship a base
-  # layer that would, on next image build, install 7.3-rc5 as default.
+  # if any amd64-edge payload remains staged (the amd64-edge directory
+  # was removed from the repo; the check still fires if it is re-added).
+  # Same gate as build/build-installer-image.sh -- duplicated here because
+  # this script can also be invoked standalone (e.g. to rebuild just
+  # base.squashfs without rebuilding the whole image) and must refuse to
+  # ship a base layer that would, on next image build, install 7.3-rc5
+  # as default.
   if [ -x "$ROOT/build/verify-kernel-default-policy.sh" ]; then
     _ncza=$(grep -E '^[[:space:]]*NCZ_TARGET_ARCH[[:space:]]*=' "$ROOT/release.conf" \
             2>/dev/null | head -1 | sed -nE 's/.*=[[:space:]]*"?([^"]+)"?.*/\1/p')
