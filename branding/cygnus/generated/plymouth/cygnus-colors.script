@@ -1,0 +1,9 @@
+# Generated from branding/cygnus/tokens.json by tools/gen-cygnus.py. Do not edit.
+# Plymouth script color constants (0..1 floats).
+cygnus.background_top.r = 0.0431; cygnus.background_top.g = 0.0275; cygnus.background_top.b = 0.0784;
+cygnus.background_bottom.r = 0.0824; cygnus.background_bottom.g = 0.0510; cygnus.background_bottom.b = 0.1412;
+cygnus.progress_track.r = 0.1647; cygnus.progress_track.g = 0.1137; cygnus.progress_track.b = 0.2706;
+cygnus.progress_fill_start.r = 0.9098; cygnus.progress_fill_start.g = 0.2000; cygnus.progress_fill_start.b = 0.6039;
+cygnus.progress_fill_end.r = 0.1804; cygnus.progress_fill_end.g = 0.8471; cygnus.progress_fill_end.b = 0.9412;
+cygnus.text.r = 0.9569; cygnus.text.g = 0.9333; cygnus.text.b = 0.9882;
+cygnus.prompt_bg.r = 0.1176; cygnus.prompt_bg.g = 0.0784; cygnus.prompt_bg.b = 0.2000;
