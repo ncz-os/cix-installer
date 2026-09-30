@@ -151,6 +151,155 @@ expect_boot_progress() {
     return 0
 }
 expect "preseed.cfg sources boot-progress + calls ncz_boot_msg exactly 6 times" 0 expect_boot_progress "$PRCFG"
+# --- source-level regression: boot-progress messages go to tty1+tty3+console (operator's "verify that is not invisible" requirement) ---
+# The prior orchestrator handoff called out a defect where the previous worker
+# put boot messages only on VT4 (a non-displayed diagnostic console). The
+# fix here routes the messages to /dev/tty1 (the operator's framebuffer),
+# /dev/tty3 (the Alt-F3 diagnostic console), and /dev/console (the kernel's
+# preferred console that the installer's serial capture also reads). A
+# regression that drops any one of those TTYs fails this gate.
+expect_boot_progress_ttys() {
+    local f="$1"
+    # Find the printf loop (must iterate over multiple /dev/ttyN + /dev/console targets)
+    grep -qE 'for[[:space:]]+_V[[:space:]]+in[[:space:]]+/dev/tty1[[:space:]]+/dev/tty3[[:space:]]+/dev/console' "$f" \
+        || { echo "$f: boot-progress messages are not routed to /dev/tty1 + /dev/tty3 + /dev/console (operator 'invisible boot' regression)" >&2; return 1; }
+    return 0
+}
+expect "boot-progress.sh writes to /dev/tty1 + /dev/tty3 + /dev/console (operator's 'invisible boot' regression guard)" 0 expect_boot_progress_ttys "$ROOT/preseed/boot-progress.sh"
+# --- source-level regression: the password-confirm mismatch leaves the password UNSET (operator UX requirement) ---
+# Operator directive: "(4) default password with confirm (2x)". The confirm
+# mismatch is logged as a WARNING and the password is left UNSET (the operator
+# can set one from the live system). A regression that silently accepts a
+# mismatched confirm violates this contract.
+expect_password_confirm_mismatch() {
+    local f="$1"
+    grep -qF 'do not match' "$f" || { echo "$f: missing the 'password and confirm do not match' WARNING" >&2; return 1; }
+    # The mismatch branch must clear CHOSEN_PASS (the password is left UNSET)
+    awk '
+        /do not match/ { in_branch=1; next }
+        in_branch && /CHOSEN_PASS=""/ { ok=1; exit }
+        in_branch && /^fi$/           { in_branch=0 }
+        END { exit !ok }
+    ' "$f" >/dev/null 2>&1 || { echo "$f: the password-confirm mismatch branch does not clear CHOSEN_PASS (operator UX regression)" >&2; return 1; }
+    return 0
+}
+expect "user-chooser.sh leaves password UNSET on a confirm mismatch (operator UX guard)" 0 expect_password_confirm_mismatch "$ROOT/preseed/user-chooser.sh"
+# --- source-level regression: disk-fs-chooser.sh verifies the partman pins are byte-identical before wiping ---
+# Operator safety directive: "keep partman pin byte-compare". The chooser
+# sets partman-auto/disk + partman-auto/expert_recipe + partman-auto/choose_recipe
+# via db_set, then db_get + exact-string compare the pinned recipe to the one
+# WE set. A regression that drops the byte-identical compare would let a
+# stale/failed debconf pin pass and wipe a disk that was NOT the operator's
+# choice.
+expect_partman_pin_byte_compare() {
+    local f="$1"
+    # The exact equality assertion
+    grep -qF 'byte-identical' "$f" || { echo "$f: missing the byte-identical compare (partman pin safety regression)" >&2; return 1; }
+    # The root-stanza-specific filesystem check (catches the old 'plain
+    # substring test' defect where ext4 would falsely pass against the rescue
+    # partition's filesystem{ ext4 } token)
+    grep -qF 'mountpoint{ / }' "$f" || { echo "$f: missing the root-stanza filesystem check" >&2; return 1; }
+    # The disk pin
+    grep -qF 'partman-auto/disk did not pin' "$f" || { echo "$f: missing the partman-auto/disk pin verification" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh verifies partman pins are byte-identical before wiping (operator safety guard)" 0 expect_partman_pin_byte_compare "$ROOT/preseed/disk-fs-chooser.sh"
+# --- source-level regression: disk-fs-chooser.sh refuses a media-disk target (operator safety directive) ---
+# Operator safety directive: "keep ... media-disk protection". The install
+# media (Ventoy / dm / md / loop backing) must never be a candidate. The
+# guard resolves a candidate's parent via parent_disk_of_dev and rejects
+# any backing that does not resolve to a list-devices disk candidate.
+expect_media_disk_protection() {
+    local f="$1"
+    # The parent_disk_of_dev function MUST be DEFINED (so it can resolve a
+    # candidate's parent and reject Ventoy / dm / md / loop backing).
+    grep -qF 'parent_disk_of_dev()' "$f" || { echo "$f: parent_disk_of_dev() is not defined (operator safety regression)" >&2; return 1; }
+    # The parent_disk_of_dev function MUST be CALLED for every candidate
+    # (so a candidate whose parent does not resolve to a list-devices disk is
+    # rejected). Look for the call-site pattern.
+    grep -qE 'parent_disk_of_dev[[:space:]]+"?\$_?[A-Za-z0-9_]+' "$f" || { echo "$f: parent_disk_of_dev is not invoked on any candidate (operator safety regression)" >&2; return 1; }
+    # The list-devices disk canonicalisation (the parent_disk_of_dev call
+    # must resolve to one of these candidates).
+    grep -qE 'list-devices[[:space:]]+disk' "$f" || { echo "$f: missing the list-devices disk canonicalisation (operator safety regression)" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh enforces media-disk protection via parent_disk_of_dev + list-devices disk (operator safety guard)" 0 expect_media_disk_protection "$ROOT/preseed/disk-fs-chooser.sh"
+# --- source-level regression: the ncz_disk= / ncz_fs= cmdline overrides still work for unattended use ---
+# Operator safety directive: "ncz_disk=/ncz_fs= overrides stay for unattended
+# use". The override MUST canonicalize to one of the list-devices disk
+# whole-disk candidates (a misspelled / partition / install-medium value is
+# rejected).
+expect_cmdline_overrides() {
+    local f="$1"
+    grep -qF 'ncz_disk=' "$f" || { echo "$f: missing the ncz_disk= cmdline override (operator unattended-use regression)" >&2; return 1; }
+    grep -qF 'ncz_fs='   "$f" || { echo "$f: missing the ncz_fs= cmdline override (operator unattended-use regression)"   >&2; return 1; }
+    grep -qF 'not one of the whole-disk candidates' "$f" || { echo "$f: missing the canonicalisation rejection of the ncz_disk= override" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh honours ncz_disk= / ncz_fs= cmdline overrides with canonicalisation (unattended-use regression guard)" 0 expect_cmdline_overrides "$ROOT/preseed/disk-fs-chooser.sh"
+# --- source-level regression: the orchestrator-required 6-step sequence is the ONLY chooser order in preseed.cfg ---
+# A regression that re-orders the chooser invocations in preseed.cfg's
+# partman/early_command (e.g. swaps hostname with disk) violates the
+# orchestrator's directive. This test pins the EXACT order by joining the
+# line-continued early_command and asserting the chooser invocations appear
+# in the required sequence.
+expect_orchestrator_order() {
+    local cfg="$1"
+    # Extract ONLY the partman/early_command block (the orchestrator-required
+    # order check is for the chooser sequence IN partman/early_command, not
+    # for every mention of those names anywhere in the file -- disk-fs-chooser.sh
+    # appears earlier as a variable name in the debootstrap-stub guard).
+    local payload
+    payload=$(awk '
+            /d-i partman\/early_command string[[:space:]]*\\/    { in_block=1; print; next }
+            in_block && /^[[:space:]]*\\/                       { print; next }
+            in_block && /^d-i partman\/early_command seen true/  { print; in_block=0; next }
+            in_block                                              { print }
+        ' "$cfg")
+    [ -n "$payload" ] || { echo "$cfg: could not extract partman/early_command block" >&2; return 1; }
+    # Join line-continued invocations
+    local joined
+    joined=$(printf '%s' "$payload" | tr -d '\n\\')
+    # Order: component -> region -> user -> hostname -> disk (the operator-required
+    # partman/early_command order -- the password + password-confirm are inside
+    # user-chooser.sh so they count as a single chooser invocation here).
+    local a b c d e
+    a=$(printf '%s' "$joined" | grep -boE '/tmp/component-selector\.sh[[:space:]]+--prompt' | head -1 | cut -d: -f1)
+    b=$(printf '%s' "$joined" | grep -boE '/tmp/region-chooser\.sh[[:space:]]+--prompt'   | head -1 | cut -d: -f1)
+    c=$(printf '%s' "$joined" | grep -boE '/tmp/user-chooser\.sh[[:space:]]+--prompt'      | head -1 | cut -d: -f1)
+    d=$(printf '%s' "$joined" | grep -boE '/tmp/hostname-suggest\.sh[[:space:]]+--prompt'  | head -1 | cut -d: -f1)
+    # For disk-fs-chooser.sh we must skip the early guard references (the
+    # `if ! [ -f /cdrom/.../disk-fs-chooser.sh ]` tests) and pick the
+    # actual invocation, which uses the variable form `sh "$D/disk-fs-chooser.sh"`.
+    e=$(printf '%s' "$joined" | grep -boE 'sh[[:space:]]+"\$D/disk-fs-chooser\.sh"' | head -1 | cut -d: -f1)
+    [ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ -n "$d" ] && [ -n "$e" ] || { echo "$cfg: one of the 5 chooser invocations is missing from partman/early_command" >&2; return 1; }
+    # Order check (each must come strictly AFTER the previous)
+    [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ] && [ "$c" -lt "$d" ] && [ "$d" -lt "$e" ] \
+        || { echo "$cfg: chooser invocations are not in the orchestrator-required order (component -> region -> user -> hostname -> disk)" >&2; return 1; }
+    return 0
+}
+expect "preseed.cfg invokes component->region->user->hostname->disk in the orchestrator-required order (partman/early_command)" 0 expect_orchestrator_order "$PRCFG"
+# --- source-level regression: the 6 choosers each set a debconf question with seen=true on the orchestrator-required d-i questions ---
+# The orchestrator's directive: the choosers REPLACE d-i's native locale/
+# country/keymap/user/password/hostname questions. If a chooser stops
+# marking its d-i question seen=true, d-i will raise the native prompt
+# AGAIN after the chooser, blowing the single-prompt-per-step contract.
+expect_seen_true() {
+    local file="$1"; local dquestion="$2"; local n
+    # Count db_fset <dquestion> seen true (with optional quoting)
+    n=$(grep -cE "db_fset[[:space:]]+${dquestion}[[:space:]]+seen[[:space:]]+true" "$file" 2>/dev/null || echo 0)
+    [ "$n" -ge 1 ] || { echo "$file: db_fset ${dquestion} seen true is missing (d-i would re-prompt the operator after the chooser)" >&2; return 1; }
+    return 0
+}
+expect "region-chooser.sh marks debian-installer/locale seen true (d-i does not re-prompt)"  0 expect_seen_true "$ROOT/preseed/region-chooser.sh" "debian-installer/locale"
+expect "region-chooser.sh marks keyboard-configuration/xkb-keymap seen true"               0 expect_seen_true "$ROOT/preseed/region-chooser.sh" "keyboard-configuration/xkb-keymap"
+expect "region-chooser.sh marks time/zone seen true"                                        0 expect_seen_true "$ROOT/preseed/region-chooser.sh" "time/zone"
+expect "user-chooser.sh marks passwd/username seen true"                                     0 expect_seen_true "$ROOT/preseed/user-chooser.sh"  "passwd/username"
+expect "user-chooser.sh marks passwd/user-password seen true"                                0 expect_seen_true "$ROOT/preseed/user-chooser.sh"  "passwd/user-password"
+expect "user-chooser.sh marks passwd/user-password-again seen true"                          0 expect_seen_true "$ROOT/preseed/user-chooser.sh"  "passwd/user-password-again"
+expect "hostname-suggest.sh marks netcfg/get_hostname seen true"                             0 expect_seen_true "$ROOT/preseed/hostname-suggest.sh" "netcfg/get_hostname"
+expect "disk-fs-chooser.sh marks partman-auto/disk seen true"                                0 expect_seen_true "$ROOT/preseed/disk-fs-chooser.sh" "partman-auto/disk"
+expect "disk-fs-chooser.sh marks partman-auto/expert_recipe seen true"                       0 expect_seen_true "$ROOT/preseed/disk-fs-chooser.sh" "partman-auto/expert_recipe"
 rm -rf "$T/s"; mkdir "$T/s";                                  expect "empty capture fails"                     1 chk
 # templates that d-i draws with newt must be ASCII: the em dash rendered "<ERR>" and truncated the title on hardware
 ROOT="$(cd "$HERE/.." && pwd)"
