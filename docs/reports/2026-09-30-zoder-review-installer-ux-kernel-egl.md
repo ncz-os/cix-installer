@@ -69,3 +69,54 @@ After these changes, **all** tests stay green:
 **New branch SHA**: 7066cdaa320bd38656f8d127b988bdc9689ca8a6
 **Pushed to**: ARGONAS `file:///mnt/argonas_git/cix-installer.git` ✓
 **Pushed to**: GitLab `https://gitlab.com/ncz-os/cix-installer.git` ✓
+
+---
+
+# Update — 2026-10-01 r3 (commit e5e17e4e)
+
+Reviewer round 3 identified one missing rescue follow-up that the
+prior rounds (r1, r2) had missed: the platform-lint inventory row
+carry from the rescue's first-parent chain.
+
+The rescue branch `fix/amd64-nvidia-egl-icd-2026-09-30` includes
+five rescue commits:
+
+- `df240436` fix(cuda): require NVIDIA EGL for Turing installs
+- `fd82fe15` fix(cuda): include Wayland EGL platform libraries
+- `14147cba` docs(cuda): record PEGASUS PRIME validation
+- `aa43cab9` fix(platform-lint): add inventory rows for the EGL rescue files  ← MISSING IN r2
+
+The first three were carried as `c3f2b355` (r1) and the follow-up
+improvements landed as `7066cdaa` (r2). The platform-lint inventory
+follow-up (`aa43cab9`) was NOT carried in either r1 or r2.
+
+This commit carries `aa43cab9` onto the integration branch,
+amended to deduplicate the base's older simpler inventory rows
+that the rescue's version (built on a different base) had already
+removed. The carried rows give the rescue files sharper
+"EGL runtime"-specific descriptions and add a row for the new
+evidence report file:
+
+- `post-install/lib/cuda-select.sh` — sharper description
+- `build/test-amd64-cuda-gates.sh` — sharper description
+- `build/verify-cuda-assets.sh` — sharper description
+- `build/verify-cuda-installed-target.sh` — sharper description
+- `docs/reports/2026-09-30-pegasus-nvidia-egl-rescue.md` — new row (was previously classified via the `docs/reports/` sky1 prefix, which is the wrong platform for an AMD64 file)
+
+The carry is docs/inventory only (no source logic change). After
+deduplication the inventory has one row per file, classified
+correctly under the rescue's own class (amd64, nvidia-cuda).
+
+After this change, all gates stay green:
+
+- `lint-platform`: OK (83 hooks, 2670 files classified)
+- `test-platform-lint`: 37 passed, 0 failed
+- `test-amd64-cuda-gates.sh`: PASS=176 FAIL=0 (unchanged)
+- `make parity`, `make test-platform`: OK
+- `check-early-command-size.sh`: OK (1098 bytes, budget 13000)
+- `bash -n` on all three edited scripts: OK
+- `git diff --check`: OK
+
+**New branch SHA**: e5e17e4e30ec9bf000465f147367d44b94324959
+**Pushed to**: ARGONAS `/mnt/argonas/datapool/git/cix-installer.git` (direct NFS ref update) ✓
+**Pushed to**: GitLab `https://gitlab.com/ncz-os/cix-installer.git` (HTTPS) ✓
