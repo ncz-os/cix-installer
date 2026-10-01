@@ -171,6 +171,7 @@ build/stage-amd64-kernel.sh	amd64	-	stages amd64 kernels from ARGONAS
 build/stage-canonical-assets.sh	sky1	-	restages CIX-NCZ gitignored blobs (183 arm64/cix refs)
 build/stage-kernel.sh	sky1	-	stages a Sky1 kernel
 build/systemd/	common	-	singularity patch reconcile units
+build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	AMD64 dynamic NVIDIA driver + CUDA gate tests (Turing plan, R580 plan, Kepler skip, ncz-cuda-setup simulation, removals refused, status/retry/park/backoff, installed-target fixture, chooser)
 build/test-amd64-kernel-classifier.sh	amd64	-	amd64 kernel classifier test
 build/test-arm64-freshness-gate.sh	sky1	-	arm64 freshness gate test
 build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test
@@ -187,6 +188,8 @@ build/validate-accelerators.sh	sky1	-	GPU/NPU/VPU binding validation
 build/verify-arm64-inputs.sh	sky1	-	Sky1 input preflight
 build/verify-assets.sh	common	-	SBOM asset verifier
 build/verify-base-kernel-assets.sh	amd64	-	staged amd64 kernel asset verifier
+build/verify-cuda-assets.sh	amd64	nvidia-cuda	AMD64 NVIDIA/CUDA asset gate (keyring, keyring, no NVIDIA or CUDA packages in manifests or the offline pool)
+build/verify-cuda-installed-target.sh	amd64	nvidia-cuda	AMD64 installed-target CUDA gate (status file, selection conf, nvcc executable, dpkg, EGL ICD + Wayland/GBM platforms on Turing)
 build/verify-desktop-mirror-seeds.sh	common	-	desktop seed verifier
 build/verify-dkms-modules.sh	sky1	-	DKMS coverage verifier (20 arm64/cix refs)
 build/verify-dual-arch-parity.sh	common	-	dual-arch parity gate: manifests, screensaver debs, hook lint
@@ -207,6 +210,7 @@ docs/	common	-	documentation
 docs/platform-deny-exceptions.tsv	common	-	reviewed exceptions to the deny patterns
 docs/platform-inventory.tsv	common	-	this inventory
 docs/reports/	sky1	-	Sky1 kernel port reports
+docs/reports/2026-09-30-pegasus-nvidia-egl-rescue.md	amd64	nvidia-cuda	PEGASUS PRIME NVIDIA EGL rescue evidence (driver ICD, EGL library, Wayland/GBM external platforms)
 docs/upstream-patches/	sky1	-	chromium v4l2 and cix-vaapi patch series
 kernel-source/	sky1	-	corresponding source of the Sky1 kernel
 manifests/desktop-amd64.pkgs	amd64	t2,nvidia-cuda	full amd64 desktop closure (microcode, intel media, T2/GPU conditionals)
@@ -310,6 +314,7 @@ post-install/apt-progress-shim	common	-	apt progress wrapper
 post-install/buildkite-ncz-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/hooks.list.amd64	common	-	generated ordered hook list for platform amd64 (build/gen-hooks-lists.sh)
 post-install/hooks.list.sky1-arm64	common	-	generated ordered hook list for platform sky1-arm64 (build/gen-hooks-lists.sh)
+post-install/lib/cuda-select.sh	amd64	nvidia-cuda	AMD64 GPU-family -> driver branch + CUDA toolkit selector sourced by 54-gpu-accel.sh and tested by build/test-amd64-cuda-gates.sh
 post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
 post-install/ncz-os-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/run-all.sh	common	-	hook orchestrator; platform selection via hooks.list
@@ -345,10 +350,6 @@ build/test-no-software-render.sh	common	-	never-software-render fixture tests
 build/software-render-allowlist.tsv	common	-	software-render lint allowlist
 assets/singularity/patches/singularity-session/0001-session-no-software-fallback-with-gpu.patch	common	-	labwc-session: no software retry on a machine with a GPU
 
-post-install/lib/cuda-select.sh	amd64	nvidia-cuda	NVIDIA GPU family -> driver branch + CUDA toolkit selection
-build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	CUDA dynamic-install gate tests (both directions)
-build/verify-cuda-assets.sh	amd64	nvidia-cuda	CUDA static asset gate (no CUDA in manifests or the mirror)
-build/verify-cuda-installed-target.sh	amd64	nvidia-cuda	CUDA installed-target gate
 build/test-base-stamp.sh	common	-	base.squashfs reuse stamp tests
 build/reap-images.sh	common	-	image reaping policy script
 build/test-reap-images.sh	common	-	reap-images fixture tests
