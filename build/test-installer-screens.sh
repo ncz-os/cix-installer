@@ -45,7 +45,17 @@ DIALOG_PWD=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq 
 DIALOG_PWDC=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - type the same PASSWORD again tqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
 DIALOG_HOST=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - name this computer (hostname) tqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
 DIALOG_DISK=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - select the TARGET DISK tqqqqqqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
+DIALOG_ROOTFS=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - root (/) filesystem tqqqqqqqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
+# Note: the regex tokens passed to --require-prompt-sequence are Python
+# re patterns; "(" and ")" are regex metacharacters, so the dialog-title
+# regex for the root-fs prompt uses the unique substring "root" + "filesystem"
+# to avoid the metachar trap while still uniquely identifying the dialog.
 DIALOG_ERASE=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - ERASE /dev/sda and install? tqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
+# Orchestrator's required flow is 9 dialog states (step 4 = 2 password prompts,
+# step 6 = target-disk + root-fs + erase confirmation = 3 dialogs). The first
+# 8 of 9 are checked by the existing mk8 helper; the full 9-state flow is
+# checked separately by mk9 below so a regression that reorders the disk-stage
+# dialogs (target disk / root fs / erase confirmation) is caught here too.
 mk8() { rm -rf "$T/s"; mkdir -p "$T/s"
     printf '# t=15s\n%s\n' "$1" > "$T/s/0000-0015s.txt"
     printf '# t=20s\n%s\n' "$2" > "$T/s/0001-0020s.txt"
@@ -55,8 +65,23 @@ mk8() { rm -rf "$T/s"; mkdir -p "$T/s"
     printf '# t=33s\n%s\n' "$6" > "$T/s/0005-0033s.txt"
     printf '# t=37s\n%s\n' "$7" > "$T/s/0006-0037s.txt"
     printf '# t=41s\n%s\n' "$8" > "$T/s/0007-0041s.txt"; }
-mk8 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_HOST" "$DIALOG_DISK" "$DIALOG_ERASE"
-expect "operator-required full 8-dialog sequence (6 2x password ERASE) passes" 0 chk --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "name this computer" "TARGET DISK" "ERASE"
+mk8 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_HOST" "$DIALOG_DISK" "$DIALOG_ROOTFS"
+expect "operator-required 8-of-9 dialog sequence (components region user password password-confirm hostname target-disk root-fs) passes" 0 chk --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "name this computer" "TARGET DISK" "root \\(/\\) filesystem"
+mk9() { rm -rf "$T/s"; mkdir -p "$T/s"
+    printf '# t=15s\n%s\n' "$1" > "$T/s/0000-0015s.txt"
+    printf '# t=18s\n%s\n' "$2" > "$T/s/0001-0018s.txt"
+    printf '# t=21s\n%s\n' "$3" > "$T/s/0002-0021s.txt"
+    printf '# t=24s\n%s\n' "$4" > "$T/s/0003-0024s.txt"
+    printf '# t=27s\n%s\n' "$5" > "$T/s/0004-0027s.txt"
+    printf '# t=30s\n%s\n' "$6" > "$T/s/0005-0030s.txt"
+    printf '# t=33s\n%s\n' "$7" > "$T/s/0006-0033s.txt"
+    printf '# t=36s\n%s\n' "$8" > "$T/s/0007-0036s.txt"
+    printf '# t=40s\n%s\n' "$9" > "$T/s/0008-0040s.txt"; }
+mk9 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_HOST" "$DIALOG_DISK" "$DIALOG_ROOTFS" "$DIALOG_ERASE"
+expect "operator-required full 9-dialog sequence (6-step + 2x password + target/root-fs/erase) passes" 0 chk --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "name this computer" "TARGET DISK" "root \\(/\\) filesystem" "ERASE"
+# Negative: out-of-order swap of root-fs and erase-confirm must FAIL.
+mk9 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_HOST" "$DIALOG_DISK" "$DIALOG_ERASE" "$DIALOG_ROOTFS"
+expect "operator-required 9-step sequence fails when root-fs and ERASE are swapped" 1 chk --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "name this computer" "TARGET DISK" "root \\(/\\) filesystem" "ERASE"
 DIALOG_BAD=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - WRONG-ORDER dialog tqqqqqqqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
 mk6() { rm -rf "$T/s"; mkdir -p "$T/s"
     printf '# t=15s\n%s\n' "$1" > "$T/s/0000-0015s.txt"
@@ -119,6 +144,7 @@ expect "user-chooser.sh password prompt is present"                             
 expect "user-chooser.sh password-confirm prompt is present"                      0 expect_template_phrase "$ROOT/preseed/user-chooser.sh" "type the same PASSWORD again"
 expect "hostname-suggest.sh template shows auto-generated name"                   0 expect_template_phrase "$ROOT/preseed/hostname-suggest.sh" "name this computer"
 expect "disk-fs-chooser.sh template shows the disk-select prompt"                0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "select the TARGET DISK"
+expect "disk-fs-chooser.sh template shows the root-fs prompt"                     0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "root (/) filesystem"
 expect "disk-fs-chooser.sh template shows the erase-confirm prompt"              0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "ERASE"
 # --- source-level regression: the disk-select prompt is NOT skipped on a single candidate ---
 # The orchestrator's directive: "if exactly one non-media candidate disk, show it
@@ -166,6 +192,58 @@ expect_boot_progress_ttys() {
     return 0
 }
 expect "boot-progress.sh writes to /dev/tty1 + /dev/tty3 + /dev/console (operator's 'invisible boot' regression guard)" 0 expect_boot_progress_ttys "$ROOT/preseed/boot-progress.sh"
+# --- source-level regression: the ncz_rev banner is NOT only on /dev/tty4 ---
+# Operator feedback 2026-09-30 ("the earlier commit put messages only on VT4,
+# verify that is not invisible to the user"). The "==== NCZ-OS INSTALLER ${rev}
+# ====" banner runs in a 2-second heartbeat loop from early_command. The
+# historical version wrote it ONLY to /dev/tty4 -- a non-displayed console.
+# A regression that returns to the VT4-only routing makes the banner
+# invisible to the operator and breaks the install-grep "NCZ-OS INSTALLER"
+# marker on serial-only captures (the gate grep's at least 4 KVM install
+# gates rely on that marker being in $ILOG). The loop MUST iterate over at
+# least /dev/tty1 (operator framebuffer), /dev/tty3 (Alt-F3 diag console)
+# and /dev/console (serial capture); a bare `for V in /dev/tty4` fails.
+expect_rev_banner_not_vt4_only() {
+    local f="$1"
+    # The "==== NCZ-OS INSTALLER ${rev} ====" banner must be present.
+    # The printf format string puts the rev token after the literal
+    # "NCZ-OS INSTALLER " (with intervening %s / ${NCZREV:-unknown}), so
+    # match on the literal alone -- the for-targets and the literal token
+    # are both required separately below.
+    grep -qE 'NCZ-OS INSTALLER' "$f" \
+        || { echo "$f: the NCZ-OS INSTALLER banner is missing entirely" >&2; return 1; }
+    # Find the banner's for-loop line. The banner is the only thing in
+    # preseed.cfg that contains the literal "NCZ-OS INSTALLER", so the
+    # first hit is the banner's own line. Strip the line-number prefix.
+    local banner_line
+    banner_line=$(grep -nE 'NCZ-OS INSTALLER' "$f" | head -1 | sed 's/^[0-9]*://')
+    # require /dev/tty1, /dev/tty3 and /dev/console all appear on the banner line
+    local miss=""
+    case "$banner_line" in
+        */dev/tty1*) : ;;
+        *) miss="$miss /dev/tty1" ;;
+    esac
+    case "$banner_line" in
+        */dev/tty3*) : ;;
+        *) miss="$miss /dev/tty3" ;;
+    esac
+    case "$banner_line" in
+        */dev/console*) : ;;
+        *) miss="$miss /dev/console" ;;
+    esac
+    [ -z "$miss" ] || { echo "$f: the NCZ-OS INSTALLER banner is missing target(s):$miss (operator's 'invisible boot' regression -- the prior commit put the banner on /dev/tty4 only)" >&2; return 1; }
+    # negative check: the VT4-only defect must not return. The banner's
+    # for-loop must not iterate ONLY /dev/tty4. (A banner that iterates
+    # /dev/tty4 + any of tty1/tty3/console is allowed -- the operator's
+    # complaint was VT4-only, not "VT4 must be excluded".)
+    local targets
+    targets=$(printf '%s\n' "$banner_line" | sed -nE 's/.*for[[:space:]]+V[[:space:]]+in[[:space:]]+([^;]+);.*/\1/p' | head -1)
+    case "$targets" in
+        "/dev/tty4"|"/dev/tty4 ") echo "$f: the NCZ-OS INSTALLER banner for-loop iterates ONLY /dev/tty4 (operator's 'invisible boot' regression, 2026-09-30)" >&2; return 1 ;;
+    esac
+    return 0
+}
+expect "preseed.cfg NCZ-OS INSTALLER banner is visible on /dev/tty1 + /dev/tty3 + /dev/console (NOT VT4-only, operator's invisible-boot regression guard)" 0 expect_rev_banner_not_vt4_only "$ROOT/preseed/preseed.cfg"
 # --- source-level regression: the password-confirm mismatch leaves the password UNSET (operator UX requirement) ---
 # Operator directive: "(4) default password with confirm (2x)". The confirm
 # mismatch is logged as a WARNING and the password is left UNSET (the operator
@@ -193,8 +271,15 @@ expect "user-chooser.sh leaves password UNSET on a confirm mismatch (operator UX
 # choice.
 expect_partman_pin_byte_compare() {
     local f="$1"
-    # The exact equality assertion
-    grep -qF 'byte-identical' "$f" || { echo "$f: missing the byte-identical compare (partman pin safety regression)" >&2; return 1; }
+    # The runtime equality assertion must be present and uncommented (a
+    # regression that drops or comments out the `[ "$_pinned_recipe" = "$RECIPE" ]`
+    # would let a stale pin pass and wipe a disk that was NOT the operator's
+    # choice). grep for the literal line on its own (column-0 anchor).
+    grep -nE '^[[:space:]]*\[[[:space:]]+"\$_pinned_recipe"[[:space:]]+=[[:space:]]+"\$RECIPE"[[:space:]]+\]' "$f" >/dev/null 2>&1 \
+        || { echo "$f: missing the runtime [ \"\$_pinned_recipe\" = \"\$RECIPE\" ] equality assertion (partman pin safety regression -- the literal token 'byte-identical' in a comment is NOT enough; the actual comparison must execute)" >&2; return 1; }
+    # The exact equality error path (the abort must be triggered if the pin
+    # does not match -- a regression that only logs the mismatch is also a defect).
+    grep -qF 'pinned expert_recipe is not byte-identical' "$f" || { echo "$f: missing the 'pinned expert_recipe is not byte-identical' abort path" >&2; return 1; }
     # The root-stanza-specific filesystem check (catches the old 'plain
     # substring test' defect where ext4 would falsely pass against the rescue
     # partition's filesystem{ ext4 } token)
@@ -471,5 +556,182 @@ expect_disk_db_inputs_present() {
     return $missing
 }
 expect "disk-fs-chooser.sh prompts for target disk, root fs AND erase confirmation (no auto-erase regression)" 0 expect_disk_db_inputs_present "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the disk-stage prompts come in the required order ---
+# The orchestrator's filesystem step (step 6) is THREE prompts in a fixed
+# order: target disk -> root filesystem -> erase confirmation. A regression
+# that reorders them (e.g. asks for erase-confirm before root-fs, so the
+# operator could confirm an erasure against the WRONG fs pick) is caught
+# here. The order is operator-required because the root-fs answer affects
+# the expert_recipe and partman needs the disk pin before the wipe.
+expect_disk_db_input_order() {
+    local f="$1"
+    local t_disk t_fs t_erase n_disk n_fs n_erase
+    # Capture every db_input critical ncz/<key> line (not just head -1); the
+    # orchestrator MUST invoke each disk-stage template exactly once, and any
+    # duplicate or out-of-order call breaks the operator-required sequence.
+    t_disk=$(  grep -nE '^[[:space:]]*db_input critical ncz/target-disk'   "$f" | head -1 | cut -d: -f1)
+    t_fs=$(    grep -nE '^[[:space:]]*db_input critical ncz/root-fs'      "$f" | head -1 | cut -d: -f1)
+    t_erase=$( grep -nE '^[[:space:]]*db_input critical ncz/confirm-erase' "$f" | head -1 | cut -d: -f1)
+    n_disk=$(  grep -cE '^[[:space:]]*db_input critical ncz/target-disk'   "$f")
+    n_fs=$(    grep -cE '^[[:space:]]*db_input critical ncz/root-fs'      "$f")
+    n_erase=$( grep -cE '^[[:space:]]*db_input critical ncz/confirm-erase' "$f")
+    [ -n "$t_disk" ] && [ -n "$t_fs" ] && [ -n "$t_erase" ] || { echo "$f: disk-stage db_input line numbers missing" >&2; return 1; }
+    [ "$n_disk"  = 1 ] && [ "$n_fs" = 1 ] && [ "$n_erase" = 1 ] \
+        || { echo "$f: each disk-stage db_input must be called exactly once (target-disk=$n_disk, root-fs=$n_fs, confirm-erase=$n_erase)" >&2; return 1; }
+    [ "$t_disk" -lt "$t_fs" ] && [ "$t_fs" -lt "$t_erase" ] \
+        || { echo "$f: disk-stage db_input calls are NOT in the required order (target-disk < root-fs < confirm-erase)" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh shows the 3 disk-stage prompts in order (target-disk < root-fs < confirm-erase)" 0 expect_disk_db_input_order "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the confirm-erase template MUST default to false (never auto-erase) ---
+# Operator safety directive: "never auto-erase silently". The confirm-erase
+# template's Default: line MUST be false (so the prompt opens with No selected
+# and the operator must explicitly move to Yes to confirm the wipe). A regression
+# that flips Default: to true (or removes the Default line) makes the dialog
+# open with Yes selected -- an operator who hits Enter thinking "let me read
+# this" would silently confirm the wipe. Pin the literal `Default: false` line
+# inside the confirm-erase template body (not anywhere else in the file).
+expect_confirm_erase_default_false() {
+    local f="$1"
+    awk -v f="$f" '
+        /<<-?[\047"]?[A-Z]*TPL/ { in_tpl=1; next }
+        in_tpl && /^[[:space:]]*[A-Z]*TPL[[:space:]]*$/ { in_tpl=0; next }
+        in_tpl && /^Template:[[:space:]]+ncz\/confirm-erase/ { in_erase=1; next }
+        in_erase && /^Default:[[:space:]]+false/ { ok=1; in_erase=0; next }
+        in_erase && /^Default:/ { bad=1; print f ": confirm-erase template Default is NOT false (operator would auto-confirm the wipe): " $0 > "/dev/stderr"; exit }
+        in_erase && /^Template:/ { in_erase=0; next }
+        END { exit !(ok && !bad) }
+    ' "$f" || { echo "$f: confirm-erase template is missing 'Default: false' (operator would auto-confirm the wipe by pressing Enter)" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh confirm-erase template defaults to false (never auto-erase)" 0 expect_confirm_erase_default_false "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the confirm-erase answer is forced to false before db_input ---
+# The defense in depth: even if a regression flips the template Default to
+# true, db_set ncz/confirm-erase false forces the current answer to false
+# right before db_input, so the operator sees No selected. Pin this so a
+# regression that drops the db_set line cannot make the operator auto-erase.
+expect_confirm_erase_force_false() {
+    local f="$1"
+    local t_dbset t_dbinput
+    t_dbset=$(  grep -nE '^[[:space:]]*db_set[[:space:]]+ncz/confirm-erase[[:space:]]+false' "$f" | head -1 | cut -d: -f1)
+    t_dbinput=$(grep -nE '^[[:space:]]*db_input critical ncz/confirm-erase' "$f" | head -1 | cut -d: -f1)
+    [ -n "$t_dbset" ] || { echo "$f: missing 'db_set ncz/confirm-erase false' (defence in depth against an auto-erase regression)" >&2; return 1; }
+    [ -n "$t_dbinput" ] || { echo "$f: missing 'db_input critical ncz/confirm-erase' (the gate the db_set must precede)" >&2; return 1; }
+    [ "$t_dbset" -lt "$t_dbinput" ] \
+        || { echo "$f: 'db_set ncz/confirm-erase false' (line $t_dbset) must appear BEFORE 'db_input critical ncz/confirm-erase' (line $t_dbinput) -- otherwise the operator sees the stale answer, not the forced-false one" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh forces ncz/confirm-erase=false before db_input (auto-erase defence in depth)" 0 expect_confirm_erase_force_false "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the partman recipe's ROOT stanza uses $CHOSEN_FS (not a hardcoded fs) ---
+# A regression that hardcodes `filesystem{ ext4 }` or `filesystem{ btrfs }` in the
+# ROOT stanza would silently overwrite the operator's choice (the dialog shows
+# =  btrfs but the wipe uses ext4). The orchestrator's "the operator's choice
+# wins" contract requires the recipe to interpolate $CHOSEN_FS for the root
+# stanza specifically. Pin the column-anchored pattern; a comment-only match is
+# not enough because the gate below also requires the interpolation to be
+# inside the RECIPE (i.e. between the assignment and the first db_set).
+expect_recipe_uses_chosen_fs() {
+    local f="$1"
+    # Find the line range of the RECIPE assignment (the orchestrator pins this
+    # to a string that starts with "cixmini ::" and ends with the second
+    # trailing-quoted `.` separator). The simplest robust check: there must
+    # be at least one occurrence of `filesystem{ \$CHOSEN_FS }` between the
+    # `RECIPE=` line and the FIRST `db_set  partman-auto/expert_recipe` line.
+    awk '
+        /^[[:space:]]*RECIPE="/      { in_recipe=1; next }
+        in_recipe && /db_set[[:space:]]+partman-auto\/expert_recipe/ { in_recipe=0; in_pin=1; next }
+        in_recipe && /filesystem\{ \$CHOSEN_FS \}/ { ok=1; next }
+        END { exit !ok }
+    ' "$f" >/dev/null 2>&1 \
+        || { echo "$f: partman recipe's ROOT stanza does NOT interpolate \$CHOSEN_FS (operator's root-fs pick would be silently overwritten by a hardcoded fs)" >&2; return 1; }
+    # Adversarial: a regression that removes the column-anchored interpolation
+    # and replaces it with `filesystem{ ext4 }` or `filesystem{ btrfs }` MUST
+    # fail. Make the check stricter: the exact `filesystem{ $CHOSEN_FS }`
+    # token must appear (single-backslash escape in the regex because the
+    # recipe literally has `$CHOSEN_FS` -- bash expands `$CHOSEN_FS` when the
+    # recipe is built at runtime, NOT when the test grep runs).
+    grep -nE 'filesystem\{[[:space:]]+\$CHOSEN_FS[[:space:]]+\}' "$f" >/dev/null 2>&1 \
+        || { echo "$f: the partman recipe no longer interpolates \$CHOSEN_FS in the ROOT stanza filesystem{ ... } token (operator's root-fs pick would be silently overwritten)" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh partman recipe interpolates \$CHOSEN_FS for the ROOT stanza (operator's root-fs pick is honoured)" 0 expect_recipe_uses_chosen_fs "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the orchestrator-required 5 choosers are baked into the initrd ---
+# Each chooser must appear in BAKED_HELPERS (build/iso/patch-initrd-t2-kernel.py),
+# otherwise the orchestrator's required prompt is missing at runtime (the chooser
+# would silently fall through `[ -f /tmp/X.sh ] && sh ...` with no fallback).
+expect_baked_helpers_complete() {
+    local f="$1"
+    local missing=0
+    local _hname
+    for _hname in component-selector.sh region-chooser.sh user-chooser.sh hostname-suggest.sh ncz-hostname-gen.sh; do
+        if ! grep -qE "^[[:space:]]*\"${_hname}\"," "$f" ; then
+            echo "$f: BAKED_HELPERS is missing ${_hname} (orchestrator's required chooser would be absent from the initrd)" >&2
+            missing=1
+        fi
+    done
+    return $missing
+}
+expect "BAKED_HELPERS in patch-initrd-t2-kernel.py includes all 5 orchestrator-required choosers + ncz-hostname-gen" 0 expect_baked_helpers_complete "$ROOT/build/iso/patch-initrd-t2-kernel.py"
+# --- adversarial: only ONE hostname dialog at runtime (ncz/hostname is the prompt) ---
+# The orchestrator's directive is "machine name: ONE step showing the
+# auto-generated name". A regression that re-introduces a second hostname
+# prompt -- e.g. by adding a `db_input critical netcfg/get_hostname` call --
+# would show two hostname dialogs. Pin that the ONLY db_input critical for a
+# hostname-related template is `ncz/hostname` (the operator's one step). The
+# d-i native questions netcfg/get_hostname + netcfg/hostname are pinned
+# seen=true in hostname-suggest.sh so d-i does NOT raise them.
+expect_single_hostname_dialog() {
+    local f="$1"
+    # All db_input critical calls in the file. There MUST be exactly one
+    # hostname dialog (the ncz/hostname one), and zero netcfg/get_hostname
+    # db_input critical calls. The hostname-suggest.sh has it inside an
+    # `if db_input critical ncz/hostname && db_go ; then` conditional, so the
+    # `db_input critical ncz/hostname` token appears exactly once (column 0
+    # is `if`, the token is preceded by whitespace).
+    local n_hostname n_netcfg_get_hostname
+    n_hostname=$(grep -cE 'db_input critical ncz/hostname\b' "$f" 2>/dev/null); n_hostname=${n_hostname:-0}; n_hostname=$(printf '%d' "$n_hostname" 2>/dev/null || echo 0)
+    n_netcfg_get_hostname=$(grep -cE 'db_input critical netcfg/get_hostname\b' "$f" 2>/dev/null); n_netcfg_get_hostname=${n_netcfg_get_hostname:-0}; n_netcfg_get_hostname=$(printf '%d' "$n_netcfg_get_hostname" 2>/dev/null || echo 0)
+    [ "$n_hostname" = 1 ] || { echo "$f: expected exactly 1 'db_input critical ncz/hostname' (the operator's ONE hostname dialog), got $n_hostname" >&2; return 1; }
+    [ "$n_netcfg_get_hostname" = 0 ] || { echo "$f: a second hostname dialog 'db_input critical netcfg/get_hostname' was added (orchestrator requires ONE hostname step)" >&2; return 1; }
+    return 0
+}
+expect "hostname-suggest.sh shows exactly ONE hostname dialog (ncz/hostname only, no second netcfg prompt)" 0 expect_single_hostname_dialog "$ROOT/preseed/hostname-suggest.sh"
+# --- adversarial: user-chooser.sh writes CHOSEN_USER + CHOSEN_PASS to debconf ---
+# The orchestrator's directive: "(3) default username" + "(4) default password
+# with confirm (2x)". A regression that RETURNS EARLY before db_set passwd/...
+# would leave the operator's answer stuck inside CHOSEN_USER/CHOSEN_PASS
+# locals (which the rest of d-i does not read). Pin the db_set calls so a
+# regression that drops any one fails the gate.
+expect_user_chooser_writes_debconf() {
+    local f="$1"
+    # All three must be present: passwd/username, passwd/user-password,
+    # passwd/user-fullname.
+    local missing=0
+    for q in 'passwd/username' 'passwd/user-password' 'passwd/user-fullname'; do
+        if ! grep -nE "^[[:space:]]*db_set[[:space:]]+${q}\b" "$f" >/dev/null 2>&1 ; then
+            echo "$f: missing 'db_set ${q}' (operator's ${q} answer would NOT be persisted to debconf; d-i would raise its own ${q} question)" >&2
+            missing=1
+        fi
+    done
+    return $missing
+}
+expect "user-chooser.sh writes the operator's username + password to debconf (d-i does not re-prompt)" 0 expect_user_chooser_writes_debconf "$ROOT/preseed/user-chooser.sh"
+# --- adversarial: region-chooser.sh writes ALL FOUR derived values to debconf ---
+# The orchestrator's directive: "region (locale/country/timezone from one
+# choice, keyboard derived)". A regression that drops one of the four
+# db_set calls would leave d-i's native localechooser / keyboard-configuration
+# / clock-setup chain to fire (4-7 extra dialogs).
+expect_region_chooser_writes_all_four() {
+    local f="$1"
+    local missing=0
+    for q in 'debian-installer/locale' 'debian-installer/country' 'keyboard-configuration/xkb-keymap' 'time/zone'; do
+        if ! grep -nE "^[[:space:]]*db_set[[:space:]]+${q}\b" "$f" >/dev/null 2>&1 ; then
+            echo "$f: missing 'db_set ${q}' (the region's ${q} would NOT be persisted; d-i's native question chain would fire 4-7 extra dialogs)" >&2
+            missing=1
+        fi
+    done
+    return $missing
+}
+expect "region-chooser.sh writes all 4 derived values (locale, country, keymap, tz) to debconf" 0 expect_region_chooser_writes_all_four "$ROOT/preseed/region-chooser.sh"
 echo "installer screen tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
