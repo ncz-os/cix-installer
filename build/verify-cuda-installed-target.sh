@@ -78,6 +78,15 @@ case "$EXPECT" in
         if [ -n "$TVER" ]; then
             dpkg_has "cuda-nvcc-$TVER" || bad "dpkg does not list cuda-nvcc-$TVER as installed"
             dpkg_has "cuda-libraries-dev-$TVER" || bad "dpkg does not list cuda-libraries-dev-$TVER (headers) as installed"
+            # EGL runtime packages are only required for turing-plus and newer
+            # Extract FAMILY from the selection config
+            _family=$(awk -v p="FAMILY" '/^FAMILY=/{sub(/^FAMILY=/, ""); print $0}' "$TARGET/etc/ncz/cuda-selection.conf" 2>/dev/null || echo "")
+            if [ "_$_family" = "_turing-plus" ]; then
+                dpkg_has "nvidia-egl-icd" || bad "dpkg does not list nvidia-egl-icd as installed"
+                dpkg_has "libegl-nvidia0" || bad "dpkg does not list libegl-nvidia0 as installed"
+                dpkg_has "libnvidia-egl-wayland1" || bad "dpkg does not list libnvidia-egl-wayland1 as installed"
+                dpkg_has "libnvidia-egl-gbm1" || bad "dpkg does not list libnvidia-egl-gbm1 as installed"
+            fi
         fi
         ;;
     pending)

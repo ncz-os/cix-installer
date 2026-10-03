@@ -91,14 +91,14 @@ FAMILY=turing-plus
 DRIVER_BRANCH=615
 DRIVER_PIN='615.*'
 KMOD=open
-DRIVER_PKGS='cuda-drivers libnvidia-encode1 libnvcuvid1'
+DRIVER_PKGS='cuda-drivers libnvidia-encode1 libnvcuvid1 nvidia-egl-icd libegl-nvidia0 libnvidia-egl-wayland1 libnvidia-egl-gbm1'
 TOOLKIT=13-4
 TOOLKIT_DIR=/usr/local/cuda-13.4
 TOOLKIT_PKGS='cuda-compiler-13-4 cuda-libraries-13-4 cuda-libraries-dev-13-4'
 REPO=debian13
 KEY_ASSET=cuda-keyring_1.1-1_all.deb
 SEQUOIA_RELAX=0
-REASON='Turing or newer (sm_75+): R615 open kernel modules + CUDA 13.4'
+REASON='Turing or newer (sm_75+): R615 open kernel modules + CUDA 13.4 PEGASUS PRIME rescue: NVIDIA Wayland external platform packages required for Turing-or-newer'
 EOF
             ;;
         maxwell-volta)
