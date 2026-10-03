@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
   <schema id="dev.ncz.screensaver" path="/dev/ncz/screensaver/">
-    <key name="mode" type="s"><default>'off'</default><summary>Screensaver mode</summary></key>
-    <key name="hack-id" type="s"><default>'hyprsaver_aurora_gles3'</default><summary>Selected screensaver</summary></key>
+    <key name="mode" type="s"><choices><choice value="off"/><choice value="one"/><choice value="random"/></choices><default>'one'</default><summary>Screensaver mode: off, one specific hack, or random</summary></key>
+    <key name="hack-id" type="s"><default>'blackhole_gles3'</default><summary>Selected screensaver</summary></key>
     <key name="random-hacks" type="as"><default>[]</default><summary>Random rotation set</summary></key>
     <key name="hack-idle-delay" type="i"><range min="60" max="86400"/><default>300</default><summary>Idle delay</summary></key>
     <key name="cycle-delay" type="i"><range min="60" max="86400"/><default>600</default><summary>Rotation interval</summary></key>
