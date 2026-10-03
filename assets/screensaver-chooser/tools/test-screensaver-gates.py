@@ -72,11 +72,13 @@ def read_catalog():
 
 
 def in_ship_set(hack_id: str, rows_by_id) -> bool:
-    if hack_id == "blackhole_gles3":
+    if re.search(r"gl4es|_gl1\b|\bgl1$", hack_id):
+        return False  # never ship a GL1/gl4es build
+    if hack_id.startswith("blackhole"):
         return True
-    if hack_id.startswith("hyprsaver_") and hack_id.endswith("_gles3"):
+    if hack_id.startswith("hyprsaver_"):
         return True
-    if hack_id.startswith("xshadertoy_") and hack_id.endswith("_gles3"):
+    if hack_id.startswith("xshadertoy_"):
         return True
     if hack_id in CLASSIC_SHADER_PORTS:
         return True
