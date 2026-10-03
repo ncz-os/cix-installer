@@ -622,5 +622,116 @@ expect_confirm_erase_force_false() {
     return 0
 }
 expect "disk-fs-chooser.sh forces ncz/confirm-erase=false before db_input (auto-erase defence in depth)" 0 expect_confirm_erase_force_false "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the partman recipe's ROOT stanza uses $CHOSEN_FS (not a hardcoded fs) ---
+# A regression that hardcodes `filesystem{ ext4 }` or `filesystem{ btrfs }` in the
+# ROOT stanza would silently overwrite the operator's choice (the dialog shows
+# =  btrfs but the wipe uses ext4). The orchestrator's "the operator's choice
+# wins" contract requires the recipe to interpolate $CHOSEN_FS for the root
+# stanza specifically. Pin the column-anchored pattern; a comment-only match is
+# not enough because the gate below also requires the interpolation to be
+# inside the RECIPE (i.e. between the assignment and the first db_set).
+expect_recipe_uses_chosen_fs() {
+    local f="$1"
+    # Find the line range of the RECIPE assignment (the orchestrator pins this
+    # to a string that starts with "cixmini ::" and ends with the second
+    # trailing-quoted `.` separator). The simplest robust check: there must
+    # be at least one occurrence of `filesystem{ \$CHOSEN_FS }` between the
+    # `RECIPE=` line and the FIRST `db_set  partman-auto/expert_recipe` line.
+    awk '
+        /^[[:space:]]*RECIPE="/      { in_recipe=1; next }
+        in_recipe && /db_set[[:space:]]+partman-auto\/expert_recipe/ { in_recipe=0; in_pin=1; next }
+        in_recipe && /filesystem\{ \$CHOSEN_FS \}/ { ok=1; next }
+        END { exit !ok }
+    ' "$f" >/dev/null 2>&1 \
+        || { echo "$f: partman recipe's ROOT stanza does NOT interpolate \$CHOSEN_FS (operator's root-fs pick would be silently overwritten by a hardcoded fs)" >&2; return 1; }
+    # Adversarial: a regression that removes the column-anchored interpolation
+    # and replaces it with `filesystem{ ext4 }` or `filesystem{ btrfs }` MUST
+    # fail. Make the check stricter: the exact `filesystem{ $CHOSEN_FS }`
+    # token must appear (single-backslash escape in the regex because the
+    # recipe literally has `$CHOSEN_FS` -- bash expands `$CHOSEN_FS` when the
+    # recipe is built at runtime, NOT when the test grep runs).
+    grep -nE 'filesystem\{[[:space:]]+\$CHOSEN_FS[[:space:]]+\}' "$f" >/dev/null 2>&1 \
+        || { echo "$f: the partman recipe no longer interpolates \$CHOSEN_FS in the ROOT stanza filesystem{ ... } token (operator's root-fs pick would be silently overwritten)" >&2; return 1; }
+    return 0
+}
+expect "disk-fs-chooser.sh partman recipe interpolates \$CHOSEN_FS for the ROOT stanza (operator's root-fs pick is honoured)" 0 expect_recipe_uses_chosen_fs "$ROOT/preseed/disk-fs-chooser.sh"
+# --- adversarial: the orchestrator-required 5 choosers are baked into the initrd ---
+# Each chooser must appear in BAKED_HELPERS (build/iso/patch-initrd-t2-kernel.py),
+# otherwise the orchestrator's required prompt is missing at runtime (the chooser
+# would silently fall through `[ -f /tmp/X.sh ] && sh ...` with no fallback).
+expect_baked_helpers_complete() {
+    local f="$1"
+    local missing=0
+    local _hname
+    for _hname in component-selector.sh region-chooser.sh user-chooser.sh hostname-suggest.sh ncz-hostname-gen.sh; do
+        if ! grep -qE "^[[:space:]]*\"${_hname}\"," "$f" ; then
+            echo "$f: BAKED_HELPERS is missing ${_hname} (orchestrator's required chooser would be absent from the initrd)" >&2
+            missing=1
+        fi
+    done
+    return $missing
+}
+expect "BAKED_HELPERS in patch-initrd-t2-kernel.py includes all 5 orchestrator-required choosers + ncz-hostname-gen" 0 expect_baked_helpers_complete "$ROOT/build/iso/patch-initrd-t2-kernel.py"
+# --- adversarial: only ONE hostname dialog at runtime (ncz/hostname is the prompt) ---
+# The orchestrator's directive is "machine name: ONE step showing the
+# auto-generated name". A regression that re-introduces a second hostname
+# prompt -- e.g. by adding a `db_input critical netcfg/get_hostname` call --
+# would show two hostname dialogs. Pin that the ONLY db_input critical for a
+# hostname-related template is `ncz/hostname` (the operator's one step). The
+# d-i native questions netcfg/get_hostname + netcfg/hostname are pinned
+# seen=true in hostname-suggest.sh so d-i does NOT raise them.
+expect_single_hostname_dialog() {
+    local f="$1"
+    # All db_input critical calls in the file. There MUST be exactly one
+    # hostname dialog (the ncz/hostname one), and zero netcfg/get_hostname
+    # db_input critical calls. The hostname-suggest.sh has it inside an
+    # `if db_input critical ncz/hostname && db_go ; then` conditional, so the
+    # `db_input critical ncz/hostname` token appears exactly once (column 0
+    # is `if`, the token is preceded by whitespace).
+    local n_hostname n_netcfg_get_hostname
+    n_hostname=$(grep -cE 'db_input critical ncz/hostname\b' "$f" 2>/dev/null); n_hostname=${n_hostname:-0}; n_hostname=$(printf '%d' "$n_hostname" 2>/dev/null || echo 0)
+    n_netcfg_get_hostname=$(grep -cE 'db_input critical netcfg/get_hostname\b' "$f" 2>/dev/null); n_netcfg_get_hostname=${n_netcfg_get_hostname:-0}; n_netcfg_get_hostname=$(printf '%d' "$n_netcfg_get_hostname" 2>/dev/null || echo 0)
+    [ "$n_hostname" = 1 ] || { echo "$f: expected exactly 1 'db_input critical ncz/hostname' (the operator's ONE hostname dialog), got $n_hostname" >&2; return 1; }
+    [ "$n_netcfg_get_hostname" = 0 ] || { echo "$f: a second hostname dialog 'db_input critical netcfg/get_hostname' was added (orchestrator requires ONE hostname step)" >&2; return 1; }
+    return 0
+}
+expect "hostname-suggest.sh shows exactly ONE hostname dialog (ncz/hostname only, no second netcfg prompt)" 0 expect_single_hostname_dialog "$ROOT/preseed/hostname-suggest.sh"
+# --- adversarial: user-chooser.sh writes CHOSEN_USER + CHOSEN_PASS to debconf ---
+# The orchestrator's directive: "(3) default username" + "(4) default password
+# with confirm (2x)". A regression that RETURNS EARLY before db_set passwd/...
+# would leave the operator's answer stuck inside CHOSEN_USER/CHOSEN_PASS
+# locals (which the rest of d-i does not read). Pin the db_set calls so a
+# regression that drops any one fails the gate.
+expect_user_chooser_writes_debconf() {
+    local f="$1"
+    # All three must be present: passwd/username, passwd/user-password,
+    # passwd/user-fullname.
+    local missing=0
+    for q in 'passwd/username' 'passwd/user-password' 'passwd/user-fullname'; do
+        if ! grep -nE "^[[:space:]]*db_set[[:space:]]+${q}\b" "$f" >/dev/null 2>&1 ; then
+            echo "$f: missing 'db_set ${q}' (operator's ${q} answer would NOT be persisted to debconf; d-i would raise its own ${q} question)" >&2
+            missing=1
+        fi
+    done
+    return $missing
+}
+expect "user-chooser.sh writes the operator's username + password to debconf (d-i does not re-prompt)" 0 expect_user_chooser_writes_debconf "$ROOT/preseed/user-chooser.sh"
+# --- adversarial: region-chooser.sh writes ALL FOUR derived values to debconf ---
+# The orchestrator's directive: "region (locale/country/timezone from one
+# choice, keyboard derived)". A regression that drops one of the four
+# db_set calls would leave d-i's native localechooser / keyboard-configuration
+# / clock-setup chain to fire (4-7 extra dialogs).
+expect_region_chooser_writes_all_four() {
+    local f="$1"
+    local missing=0
+    for q in 'debian-installer/locale' 'debian-installer/country' 'keyboard-configuration/xkb-keymap' 'time/zone'; do
+        if ! grep -nE "^[[:space:]]*db_set[[:space:]]+${q}\b" "$f" >/dev/null 2>&1 ; then
+            echo "$f: missing 'db_set ${q}' (the region's ${q} would NOT be persisted; d-i's native question chain would fire 4-7 extra dialogs)" >&2
+            missing=1
+        fi
+    done
+    return $missing
+}
+expect "region-chooser.sh writes all 4 derived values (locale, country, keymap, tz) to debconf" 0 expect_region_chooser_writes_all_four "$ROOT/preseed/region-chooser.sh"
 echo "installer screen tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
