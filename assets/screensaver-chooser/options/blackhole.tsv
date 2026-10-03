@@ -1,0 +1,10 @@
+# blackhole.tsv -- option presets for the Black Hole screensaver (blackhole_gles3).
+#
+# The default Cygnus look is a *palette preset* consumed by the engine from the
+# generated token file, not a forked/duplicated saver binary:
+#   branding/cygnus/generated/screensaver/cygnus-palette.json
+# Regenerate the token file (do not hand-edit colours here) with the branding/cygnus
+# generator; this file only names which preset the default should request.
+#
+# Format: <option-name>\t<preset-id>\t<token-file>\t<summary>
+palette	cygnus	branding/cygnus/generated/screensaver/cygnus-palette.json	Cygnus palette (magenta hot / cyan cool over the violet-black field)

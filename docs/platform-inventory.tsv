@@ -182,6 +182,7 @@ build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
+build/test-screensaver-gates.sh	common	-	gates for the Cygnus screensaver defaults (mode/hack-id) and the approved 84-hack ship set
 build/test-under-di-busybox.sh	common	-	d-i busybox runner
 build/tests/	common	-	offline pool tests
 build/validate-accelerators.sh	sky1	-	GPU/NPU/VPU binding validation
