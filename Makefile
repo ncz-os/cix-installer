@@ -142,7 +142,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-boot-speed
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed
 
 all: image
 
@@ -490,6 +490,7 @@ gen-hooks-lists:
 
 test-platform:
 	@bash $(ROOT)/build/test-platform-lint.sh
+	@$(MAKE) --no-print-directory test-cygnus-branding
 
 # boot-speed regression tests (docs/BOOT-SPEED.md): no Type=oneshot unit may
 # sit in multi-user.target's critical chain just to poll for the network.
@@ -573,6 +574,16 @@ clean:
 distclean: clean
 	rm -rf $(DOWNLOADS)
 
+# Cygnus 26.10 branding: generator freshness + contrast gates, and the Singularity
+# theme/accent integration (generated override == tokens, schema-compiles, theme
+# install path, valid selectors, overlay patch still applies). The rEFInd theme
+# QEMU harness (branding/cygnus/tests/test-refind-theme.sh) needs a THEME_DIR/OUT_DIR
+# and qemu, so it stays a manual tool and is deliberately not wired here.
+test-cygnus-branding:
+	@echo "[cygnus] branding generator freshness + contrast gates"
+	@python3 $(ROOT)/branding/cygnus/tests/test_cygnus_contrast.py
+	@python3 $(ROOT)/branding/cygnus/tests/test_cygnus_singularity.py
+
 # static dual-architecture parity: manifest pairs, ncz-screensavers debs, hook arch-gate lint (docs/DUAL-ARCH-PARITY.md)
 parity:
 	build/test-dual-arch-parity.sh
@@ -592,3 +603,4 @@ parity:
 	build/test-kernel-purity-pin.sh
 	build/test-kernel-purity-guards.sh
 	build/test-no-debian-kernel.sh
+	$(MAKE) --no-print-directory test-cygnus-branding

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=Cygnus
+Comment=NCZ-OS 26.10 default: magenta and cyan on violet-black
+Encoding=UTF-8
+
+[X-GNOME-Metatheme]
+GtkTheme=Cygnus
+IconTheme=Singularity
