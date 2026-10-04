@@ -78,6 +78,7 @@ assets/wallpaper/	common	-	wallpaper tooling
 build/70-bootloader.sh	sky1	-	legacy Sky1 bootloader copy with MS-R1 efi=noruntime gating
 build/arch-parity-allowlist.tsv	common	-	reviewed manifest divergence between platforms (canonical, dual-arch parity)
 build/boot-timeline.py	common	-	boot log timeline analysis
+build/boot-speed-scan.py	common	-	static detector for boot-blocking systemd oneshots (docs/BOOT-SPEED.md item F)
 build/build-accel-overlays.sh	sky1	-	rebuilds the four Sky1 accelerator overlays from their dkms.conf
 build/build-apt-repo.sh	common	-	apt repo assembly from release.conf
 build/build-baked-rootfs.sh	sky1	-	bakes generic hooks in an arm64 chroot (31 arm64 refs, 1 amd64)
