@@ -51,12 +51,12 @@ if printf '%s\n' "$DRM" | grep -qE '^After=.*ncz-usb2-rescan\.service' \
    && printf '%s\n' "$DRM" | grep -qE '^Wants=.*ncz-usb2-rescan\.service'; then
     ok "greetd drop-in still orders After=/Wants= ncz-usb2-rescan.service (harmless when skipped)"
 else
-    bad "greetd drop-in still orders After=/Wants= ncz-usb2-rescan.service" "$DRM"
+    bad "greetd drop-in no longer orders After=/Wants= ncz-usb2-rescan.service" "$DRM"
 fi
 if grep -q 'ncz-wait-input-ready' "$GREETER"; then
     ok "bounded ncz-wait-input-ready probe survives in 55-greeter.sh"
 else
-    bad "bounded ncz-wait-input-ready probe survives in 55-greeter.sh"
+    bad "bounded ncz-wait-input-ready probe is missing from 55-greeter.sh"
 fi
 
 if command -v systemd-analyze >/dev/null 2>&1; then
