@@ -869,7 +869,7 @@ build_base(){
   # zero wallpaper-rotation matches. Same root cause likely blocks the
   # Artist Pack install flow too (its polkit backend scripts install fine,
   # but read from this same directory to list/install packs).
-  # Ship all four packs we own: ncz (required, has its own fail-loud gate
+  # Ship all five packs we own (cygnus-26.10 is the default): ncz (required, has its own fail-loud gate
   # in 45-wallpaper-rotator.sh), singularity (repackages the upstream
   # singularity-wallpapers set as an installable pack so ncz-wallpaper-rotate
   # picks it up, distinct from the copy that ships inside /opt/singularity),
@@ -879,7 +879,7 @@ build_base(){
   # assets/wallpaper-debs/ is gitignored and build-wallpaper-contrib-deb.sh
   # was never invoked for them.
   mkdir -p "$ROOT/assets/wallpaper-debs"
-  for pack in ncz singularity brandon-perlow alex-jay-brady; do
+  for pack in ncz cygnus-26.10 singularity brandon-perlow alex-jay-brady; do
     if ls "$ROOT/assets/wallpaper-debs/ncz-wallpapers-${pack}_"*.deb >/dev/null 2>&1; then
       continue
     fi
@@ -1329,7 +1329,7 @@ build_singularity_payload(){
 ensure_wallpaper_packs(){
   local pack
   mkdir -p "$ROOT/assets/wallpaper-debs"
-  for pack in ncz singularity brandon-perlow alex-jay-brady; do
+  for pack in ncz cygnus-26.10 singularity brandon-perlow alex-jay-brady; do
     if ls "$ROOT/assets/wallpaper-debs/ncz-wallpapers-${pack}_"*.deb >/dev/null 2>&1; then
       continue
     fi
