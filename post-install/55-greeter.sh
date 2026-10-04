@@ -175,6 +175,16 @@ install -d -m0755 /etc/greetd/singularity-labwc
 # five-second watchdog force-kills it and reveals a blank text VT.
 cat > /etc/greetd/singularity-labwc/autostart <<'LABAUTO'
 #!/bin/sh
+# Greeter output mode: never 4K. The login screen is a blurred 960 px backdrop and a
+# small card, so a 3840x2160 scanout buys nothing and is the heaviest path for the Mali
+# swapchain (operator decision 2026-10-04). Pick 1920x1080 at 60 Hz on every connected
+# output that offers it; outputs without it keep their own mode. Best effort: a failure
+# here must never block the greeter, so every path exits 0.
+command -v wlr-randr >/dev/null 2>&1 || exit 0
+for out in $(wlr-randr 2>/dev/null | awk '/^[A-Za-z]/ {print $1}'); do
+    wlr-randr --output "$out" --mode 1920x1080@60Hz >/dev/null 2>&1 \
+        || wlr-randr --output "$out" --mode 1920x1080 >/dev/null 2>&1 || true
+done
 exit 0
 LABAUTO
 chmod 0755 /etc/greetd/singularity-labwc/autostart
