@@ -10,11 +10,7 @@
 # not in the tarball), so `dpkg -V` goes red and the plugin/artist packs vanish.
 # This helper derives the restore set from the dpkg database
 # (var/lib/dpkg/info/*.list, what `dpkg -S` reads) and proves the result with
-# `dpkg -V` via build/verify-singularity-opt-owners.sh.
-#
-# Steps: validate the tarball; record package-owned files; back the tree up;
-# extract; restore those files; recompile the /opt/singularity schemas; run the
-# ownership gate (fails loudly); write a revert note. It NEVER restarts the
+# `dpkg -V` via build/verify-singularity-opt-owners.sh. It never restarts the
 # session and touches nothing outside /opt/singularity.
 #
 # USAGE: sudo tools/apply-singularity-payload.sh [PAYLOAD.tgz]

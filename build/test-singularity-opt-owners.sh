@@ -1,21 +1,9 @@
 #!/bin/bash
-# test-singularity-opt-owners.sh -- prove the payload-swap ownership gate in
-# BOTH directions. A guard is only trusted once it has failed on purpose.
-#
-# Fixture: a synthetic installed root with a real dpkg database
-# (var/lib/dpkg/status + info/*.list + info/*.md5sums), /opt/singularity, the
-# screensaver-plugin files and two wallpaper-pack collection files. We then:
-#
-#   * simulate the O6N 2026-10-04 raw swap (mv aside + tar extract) and assert
-#     build/verify-singularity-opt-owners.sh FAILS with `missing` (the bug);
-#   * run tools/apply-singularity-payload.sh over the same fixture and assert
-#     the gate PASSES and the package-owned files are back (the fix);
-#   * perturb one package-owned file's bytes and assert the gate FAILS again
-#     (content, not just existence);
-#   * assert --require-shipping fails when a shipping pack is absent.
-#
-# Runs as a normal user (both tools support --root); no root, no real dpkg
-# install needed.
+# test-singularity-opt-owners.sh -- prove the payload-swap ownership gate both
+# ways: a raw swap must FAIL it, the sanctioned helper must make it PASS.
+# Fixture: a synthetic root with a real dpkg database (status + info/*.list +
+# *.md5sums), /opt/singularity, the screensaver plugin and two wallpaper packs.
+# Runs unprivileged (both tools take --root).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
