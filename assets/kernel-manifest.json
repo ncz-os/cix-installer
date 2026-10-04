@@ -1,18 +1,18 @@
 {
-  "generated_utc": "2026-10-03T23:59:54Z",
+  "generated_utc": "2026-10-04T02:57:00Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.2+r280_arm64.deb",
-      "sha256": "7ad0838619befd28d1cdb2141411ea1c635aa9aed5c5a61951155c374c6fd583"
+      "file": "build/kernel-debs/cixmini-boot_1.2+r281_arm64.deb",
+      "sha256": "7a030d269e4bdd0dea160e3f95f52a4660f83e05a3d66eb4f970e6c43af74883"
     },
     {
-      "file": "build/kernel-debs/linux-headers-cixmini_7.2.9-sky1-ncz+r280_arm64.deb",
-      "sha256": "21f5bd47f57ae17405178b1efe8a8b88826b1d8e94eda447615aae17c7b5b813"
+      "file": "build/kernel-debs/linux-headers-cixmini_7.2.9-sky1-ncz+r281_arm64.deb",
+      "sha256": "f0250594725fea80b0bc22dfd8e0f1a5c79ff99abceeb41bc301bfeb8d4f3238"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini_7.2.9-sky1-ncz+r280_arm64.deb",
-      "sha256": "2fe9925808355596919b42f44ceb8096f78b62788ff6bb296c941cb9b50e66ab"
+      "file": "build/kernel-debs/linux-image-cixmini_7.2.9-sky1-ncz+r281_arm64.deb",
+      "sha256": "82dcd1b04214040933ca5d489778aa648885700c3a942d087fb1db8e56ee84fb"
     }
   ],
   "schema": 1,
