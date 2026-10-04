@@ -212,7 +212,8 @@ fi
 for leak in /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service \
             /etc/systemd/system/multi-user.target.wants/serial-getty@ttyAMA0.service \
             /etc/systemd/system/graphical.target.wants/ncz-performance-mode.service \
-            /etc/systemd/system/sysinit.target.wants/cix-detect-display.service; do
+            /etc/systemd/system/sysinit.target.wants/cix-detect-display.service \
+            /etc/dracut.conf.d/10-ncz-sky1.conf; do
     exists "$leak" && gate_miss sky1-leak "$leak is enabled on amd64 (Sky1 policy leaked onto x86)"
 done
 fi
