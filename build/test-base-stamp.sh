@@ -20,4 +20,14 @@ grep -q 'base_assets_stamp | sudo tee' "$SRC" && ok "build_base writes the stamp
 grep -q '_have_stamp="$(base_stamp_in_layer' "$SRC" && ok "the reuse check compares the layer's stamp" || no "reuse check does not compare"
 s4="$(stamp)"; echo x > "$R/manifests/nvidia-cuda-amd64.pkgs"; [ "$(stamp)" = "$s4" ] && ok "an unrelated manifest (cuda) does not force a base rebuild" || no "unrelated manifest changed the stamp"
 mkdir -p "$R/assets/kernel/edge"; k0="$(stamp)"; mv "$R/assets/kernel/edge" "$R/assets/kernel/mainline"; [ "$(stamp)" != "$k0" ] && ok "renaming a kernel channel directory changes the stamp" || no "kernel rename not noticed"
+# 2026-10-04 (item C.2): assets/dracut is Sky1-only and is not staged into an
+# amd64 base. The amd64 fingerprint must therefore exclude it (which also forces
+# an existing amd64 base that still carries the leaked config to rebuild).
+stamp_arch() { NCZ_TARGET_ARCH="$1" ROOT="$R" bash -c ". '$T/fn.sh'; base_assets_stamp"; }
+mkdir -p "$R/assets/dracut"; printf 'add_drivers+=" linlon-dp trilin-dpsub "\n' > "$R/assets/dracut/10-ncz-sky1.conf"
+a0="$(stamp_arch arm64)"; a1="$(stamp_arch amd64)"
+[ "$a0" != "$a1" ] && ok "arm64 and amd64 base stamps differ when assets/dracut is present" || no "amd64 stamp still folds in the Sky1 dracut dir"
+printf 'add_drivers+=" asix "\n' > "$R/assets/dracut/10-ncz-sky1.conf"
+[ "$(stamp_arch arm64)" != "$a0" ] && ok "editing the Sky1 dracut config changes the arm64 stamp" || no "arm64 stamp ignores assets/dracut"
+[ "$(stamp_arch amd64)" = "$a1" ] && ok "editing the Sky1 dracut config does NOT change the amd64 stamp" || no "amd64 stamp still tracks assets/dracut"
 echo "base stamp tests: $PASS passed, $FAILS failed"; [ "$FAILS" = 0 ]
