@@ -1011,11 +1011,51 @@ if [ -n "$DKMS_BIN" ] && [ -x "$DKMS_BIN" ]; then
     # install command's exit status (this can happen if a prior
     # postinst's build step landed the .ko but crashed before the
     # status record was updated, or after a manual recovery).
+    # Parse `dkms status` into unique `name/version` lines. dkms emits
+    # two shapes and the original `awk -F, ... | awk '{print $1}'`
+    # pipeline mishandled the registered-but-never-built one:
+    #   name/version: added                                 (registered, never built)
+    #   name/version, kver, arch: installed|built           (built for some kernel)
+    #   name/version, kver, arch: installed (Original modules exist)
+    # The `added` form has NO comma before the colon, so the pipeline
+    # never split on one and the trailing colon survived into `ver=`,
+    # making every dkms uninstall/build/install call below die with
+    # `The module/version combo: panthor-cix/7.2.0: is not located in
+    # the DKMS tree`. Reproduced on O6N upgrading 7.2.8 -> 7.2.9 on
+    # 2026-10-04; the whole postinst exited 1 and left headers+image
+    # half-configured. This function strips the status chunk correctly
+    # for both shapes and tolerates leading whitespace, the
+    # `(Original modules exist)` suffix, and blank lines.
+    # BEGIN ncz_dkms_registered_pkgvers
+    ncz_dkms_registered_pkgvers() {
+        awk '
+            {
+                # trim leading/trailing whitespace so leading-space garbage
+                # and trailing-space garbage never reach the parser
+                sub(/[ \t\r]+$/, "")
+                sub(/^[ \t]+/, "")
+                # the package/version chunk is everything before the first
+                # comma OR the first colon -- whichever comes first is the
+                # boundary between the `name/version` and the
+                # `, kver, arch: status` tail. This collapses both forms:
+                #   name/version: added                       -> name/version
+                #   name/version, kver, arch: installed      -> name/version
+                #   name/version, kver, arch: installed (...) -> name/version
+                if (match($0, /[,:]/)) {
+                    $0 = substr($0, 1, RSTART - 1)
+                }
+                if ($0 == "" || $0 !~ /\//) next
+                print
+            }
+        ' | sort -u
+    }
+    # END ncz_dkms_registered_pkgvers
+
     log "forcing DKMS rebuild for every already-registered package (KVER-invariant versioning defeats autoinstall's own staleness check)"
     DKMS_LOG=/var/log/ncz-dkms-autoinstall.log
     : > "$DKMS_LOG"
     dkms_force_failed=0
-    for pkgver in $("$DKMS_BIN" status 2>/dev/null | awk -F',' '{print $1}' | awk '{print $1}' | sort -u); do
+    for pkgver in $("$DKMS_BIN" status 2>/dev/null | ncz_dkms_registered_pkgvers); do
         pkg="${pkgver%%/*}"
         ver="${pkgver#*/}"
         [ -n "$pkg" ] && [ -n "$ver" ] || continue
