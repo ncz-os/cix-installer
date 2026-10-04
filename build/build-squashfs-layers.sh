@@ -912,6 +912,23 @@ build_base(){
   # interactive "Pending kernel upgrade" whiptail hang.
   sudo mkdir -p "$WORK/base/etc/needrestart/conf.d"
   printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$WORK/base/etc/needrestart/conf.d/99-squashfs-layer.conf" >/dev/null
+  # Kernel purity (operator directive 2026-10-04): pin Debian's kernels out of
+  # the base layer BEFORE any apt operation. The early installer-base.pkgs
+  # install below runs long before post-install/10-our-kernel.sh would write
+  # the pin, and a package that Depends/Recommends linux-image-* must not be
+  # able to pull the Debian kernel into the baked base rootfs. The preference
+  # text is the single source of truth in the repo lib (same text the install
+  # hooks write).
+  if [ -r "$ROOT/post-install/lib/kernel-purity.sh" ]; then
+    # shellcheck source=../post-install/lib/kernel-purity.sh
+    . "$ROOT/post-install/lib/kernel-purity.sh"
+    sudo install -d -m 0755 "$WORK/base/etc/apt/preferences.d"
+    ncz_kernel_purity_pin_text | sudo tee "$WORK/base/etc/apt/preferences.d/00-ncz-kernel-purity.pref" >/dev/null
+    sudo chmod 0644 "$WORK/base/etc/apt/preferences.d/00-ncz-kernel-purity.pref"
+    log "  installed /etc/apt/preferences.d/00-ncz-kernel-purity.pref in the base layer"
+  else
+    log "  WARN: $ROOT/post-install/lib/kernel-purity.sh missing -- base layer has no Debian-kernel pin"
+  fi
   # The base layer now consumes installer-base.pkgs explicitly.  If a pinned
   # offline mirror is present, use it; otherwise fall back to the rootfs' own
   # sources for local developer experiments.
