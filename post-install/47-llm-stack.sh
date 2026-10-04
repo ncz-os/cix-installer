@@ -7,8 +7,10 @@
 # glmark2. The Vulkan dev headers, glslang/glslc and spirv-tools that used to
 # be here were build substrate for workloads that no longer exist on-device —
 # llama.cpp ships CPU-only and the NPU embedder runs on NOE/libnoe. This hook
-# also removes mesa-vulkan-drivers, whose ICDs are all for other vendors' GPUs.
-# Together ~242MB. See docs/DRIVER_FIDELITY_72.md. Idempotent.
+# also removes the Vulkan dev/build packages (headers, glslang, spirv-tools,
+# validation layers), ~95MB. mesa-vulkan-drivers is KEPT on arm64: the Panthor
+# entry needs Mesa's PanVK, so only the Mali entry's VK_DRIVER_FILES pin keeps
+# the two ICDs apart. See docs/DRIVER_FIDELITY_72.md. Idempotent.
 #
 # Removal verified on O6N live hardware: desktop session untouched (greetd,
 # labwc, shell all still up), GLES still Mali-G720 at glmark2 7532, and the
@@ -53,21 +55,17 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     glmark2-wayland 2>&1 | tail -5 || \
     echo "[47] some Vulkan/OpenCL runtime packages unavailable — continuing (offline mirror may not have them all)"
 
-# mesa-vulkan-drivers is 147MB of Vulkan ICDs for hardware this SoC is not:
-# asahi (Apple), broadcom, freedreno (Adreno), gfxstream, intel, nouveau,
-# powervr, radeon, virtio, plus lavapipe (software) and panfrost. panfrost is
-# the Mesa Mali driver and cannot work here — mali_kbase exposes no DRM render
-# node, which is exactly why panthor was abandoned. Our real ICD is the blob's
-# /etc/vulkan/icd.d/mali.json.
+# Keep mesa-vulkan-drivers. On arm64 it carries PanVK, the only Vulkan driver
+# the Panthor entry (sky1.gpu=mesa) has: the switcher disables the blob's
+# /etc/vulkan/icd.d/mali.json there, so purging the package left Panthor with an
+# empty ICD directory (O6N 2026-10-04). The Mali entry pins
+# VK_DRIVER_FILES=/etc/vulkan/icd.d/mali.json, so the extra ICDs do not
+# interfere there. Only the Vulkan dev/build packages are purged.
 #
-# Removing them is not only size: with 11 ICDs enumerated the Vulkan loader can
-# select the wrong one, which is why ncz-gpu-env has to pin VK_DRIVER_FILES.
-# Fewer ICDs, less ambiguity.
 # The dev packages are BAKED INTO desktop.squashfs by an older layer build, so
 # dropping them from the install list above is not enough — they arrive with
-# the layer and have to be purged here. (mesa-vulkan-drivers is not in the
-# layer; it only ever came in as a dependency.) Verified on O6N: removing all
-# of these leaves the desktop, GLES and the blob Vulkan ICD working.
+# the layer and have to be purged here. Verified on O6N: removing them leaves
+# the desktop, GLES and the blob Vulkan ICD working.
 #
 # CIX-Sky1-ONLY. This entire "our real ICD is a vendor blob" premise is false
 # on amd64/x86_64: there is no vendor blob there, and mesa-vulkan-drivers
