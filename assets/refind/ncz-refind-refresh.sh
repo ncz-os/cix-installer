@@ -312,47 +312,126 @@ echo "  wiping stale ESP entries + kernel images..."
 # Only one rescue image is kept: the previous one is replaced, so the ESP does
 # not grow without bound. (2G ESP, ~65M per kernel+initrd pair, measured on
 # both O6N and MS-R1.)
-if [ -n "$KVER_NEXT" ]; then
-    for _esp_k in /boot/efi/vmlinuz-*; do
+# ---------------------------------------------------------------------------
+# RESCUE PROMOTION GUARD (item RRH, 2026-10-04). The amd64 incident: a staged
+# pre-release kernel (7.3.0-rc5-10-t2-trixie-revhid) was promoted to RESCUE and
+# the known-good stable rescue pair deleted. The same classification bug exists
+# here verbatim (the logic was copied), so the same three invariants apply:
+#   1. a pre-release (-rcN) kernel is NEVER promoted to the rescue slot;
+#   2. the candidate must be a stable-class release kernel;
+#   3. the existing rescue is deleted only AFTER a complete new pair has been
+#      copied to temp names, so a failed copy leaves it byte-identical; if no
+#      stable-class candidate exists, the existing rescue is kept as-is.
+# ---------------------------------------------------------------------------
+
+# A kernel is PRERELEASE if its version carries an -rcN component. Same test the
+# install-time classifier (11-fix-cixmini-boot.sh) uses to split the lines.
+is_prerelease() {
+    case "$1" in *-rc[0-9]*) return 0 ;; *) return 1 ;; esac
+}
+
+# arm64 stable-class: a release (non-prerelease) kernel that is not a
+# Debian-archive kernel. Only such a kernel may become the known-good RESCUE.
+is_stable_class() {
+    is_prerelease "$1" && return 1
+    case "$1" in
+        *-arm64|7.1.*|7.1-*) return 1 ;;
+    esac
+    return 0
+}
+
+# ncz_promote_outgoing_rescue <esp-dir> <primary-kver> [edge-kver]
+#
+# Promote the outgoing kernel already staged on the ESP to the single -rescue
+# slot before the wipe, but ONLY when it is a stable-class release kernel.
+# Extracted as a function so build/test-refind-rescue-promotion.sh can drive the
+# real code against a fixture ESP tree.
+ncz_promote_outgoing_rescue() {
+    local ESP="$1" PRIMARY="$2" EDGE_KVER="${3:-}"
+    local _esp_k _out_kver _tmp_v _tmp_i _r existing_rescue="" promoted=""
+
+    [ -n "$ESP" ] || return 0
+    [ -n "$PRIMARY" ] || return 0
+
+    # What rescue (if any) is currently staged?
+    for _r in "$ESP"/vmlinuz-*-rescue; do
+        [ -e "$_r" ] || continue
+        existing_rescue=${_r##*/vmlinuz-}
+        existing_rescue=${existing_rescue%-rescue}
+        break
+    done
+
+    for _esp_k in "$ESP"/vmlinuz-*; do
         [ -e "$_esp_k" ] || continue
         case "$_esp_k" in *-rescue) continue ;; esac
         _out_kver=${_esp_k##*/vmlinuz-}
-        # Never promote the kernel we are about to stage: that is not a
-        # fallback. BUG FIXED 2026-09-16 (real, metal-verified on O6N): this
-        # used to check ONLY against KVER_NEXT, never KVER_EDGE -- so on any
-        # regen where both lines were already staged, the loop's glob order
-        # (/boot/efi/vmlinuz-* sorts "7.2..." before "7.3...") meant the EDGE
-        # kernel (not matching KVER_NEXT) got promoted to -rescue. The
-        # resulting "RESCUE" menu entry then booted the edge kernel BINARY
-        # but with the Mali entry's OWN cmdline options (the rescue-entry
-        # generator below always uses $MALI_OPTIONS regardless of which
-        # kernel it's rescuing) -- i.e. requesting sky1.gpu=vendor on a
-        # kernel with no Mali/Panthor DKMS built for its own KVER (a known,
-        # separately-flagged gap for the edge line), which silently fell
-        # back to software-rendered Mesa instead of failing outright.
-        # Reported symptom: "7.3 is listed as a rescue kernel when it
-        # should not be" + "the rescue entry boots but GUI is software
-        # only" -- both explained by this one root cause.
+
+        # Never promote the kernel we are about to stage (the primary line) nor
+        # the edge line, nor a same-line variant of the primary: a variant would
+        # make the rescue entry point at the very kernel it replaces. BUG FIXED
+        # 2026-09-16 (real, metal-verified on O6N): this used to check ONLY
+        # against the primary, never the second (edge) line -- so on any regen
+        # where both lines were already staged, the edge kernel got promoted to
+        # -rescue, and the resulting "RESCUE" entry booted the edge binary with
+        # the Mali entry's own cmdline options.
         case "$_out_kver" in
-            "$KVER_NEXT") continue ;;
-            "$KVER_EDGE") [ -n "$KVER_EDGE" ] && continue ;;
+            "$PRIMARY")   continue ;;
+            "$PRIMARY"-*) continue ;;
+            "$EDGE_KVER") [ -n "$EDGE_KVER" ] && continue ;;
         esac
+
+        if is_prerelease "$_out_kver"; then
+            echo "  NOT promoting $_out_kver to rescue -- prerelease (-rcN) kernel, not stable-class"
+            continue
+        fi
+        if ! is_stable_class "$_out_kver"; then
+            echo "  NOT promoting $_out_kver to rescue -- not a stable-class kernel"
+            continue
+        fi
+
         [ -s "$_esp_k" ] || continue
-        [ -s "/boot/efi/initrd.img-$_out_kver" ] || {
+        [ -s "$ESP/initrd.img-$_out_kver" ] || {
             echo "  WARN: not promoting $_out_kver to rescue -- its initrd is missing on the ESP"
             continue
         }
-        rm -f /boot/efi/vmlinuz-*-rescue /boot/efi/initrd.img-*-rescue 2>/dev/null || true
-        if cp -f "$_esp_k" "/boot/efi/vmlinuz-$_out_kver-rescue" &&
-           cp -f "/boot/efi/initrd.img-$_out_kver" "/boot/efi/initrd.img-$_out_kver-rescue"; then
-            echo "  promoted outgoing kernel $_out_kver to rescue image"
+
+        # Copy to temporary names FIRST; only replace the current rescue once
+        # BOTH halves are complete, so a failed copy leaves the old rescue
+        # intact.
+        _tmp_v="$ESP/.vmlinuz-$_out_kver-rescue.new.$$"
+        _tmp_i="$ESP/.initrd.img-$_out_kver-rescue.new.$$"
+        rm -f "$_tmp_v" "$_tmp_i" 2>/dev/null || true
+        if cp -f "$_esp_k" "$_tmp_v" &&
+           cp -f "$ESP/initrd.img-$_out_kver" "$_tmp_i" &&
+           [ -s "$_tmp_v" ] && [ -s "$_tmp_i" ]; then
+            rm -f "$ESP"/vmlinuz-*-rescue "$ESP"/initrd.img-*-rescue 2>/dev/null || true
+            existing_rescue=""   # the old rescue is gone now; do not log it as kept
+            if mv -f "$_tmp_v" "$ESP/vmlinuz-$_out_kver-rescue" &&
+               mv -f "$_tmp_i" "$ESP/initrd.img-$_out_kver-rescue"; then
+                echo "  promoted outgoing stable kernel $_out_kver to rescue image"
+                promoted=1
+            else
+                rm -f "$_tmp_v" "$_tmp_i" 2>/dev/null || true
+                echo "  WARN: could not promote $_out_kver to a rescue image"
+            fi
         else
-            rm -f "/boot/efi/vmlinuz-$_out_kver-rescue" "/boot/efi/initrd.img-$_out_kver-rescue" 2>/dev/null || true
+            rm -f "$_tmp_v" "$_tmp_i" 2>/dev/null || true
             echo "  WARN: could not promote $_out_kver to a rescue image"
         fi
         break
     done
-fi
+
+    if [ -z "$promoted" ]; then
+        if [ -n "$existing_rescue" ]; then
+            echo "  kept existing rescue image $existing_rescue (no stable-class outgoing candidate)"
+        else
+            echo "  no rescue image staged (no stable-class outgoing candidate)"
+        fi
+    fi
+    return 0
+}
+
+ncz_promote_outgoing_rescue /boot/efi "$KVER_NEXT" "${KVER_EDGE:-}"
 
 for _esp_f in /boot/efi/vmlinuz-* /boot/efi/initrd.img-*; do
     [ -e "$_esp_f" ] || continue
