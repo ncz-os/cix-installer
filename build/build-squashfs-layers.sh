@@ -243,6 +243,13 @@ BASE_STAMP_REL=usr/local/lib/cix-installer/BASE-ASSETS.sha256
 base_assets_stamp() {
   ( cd "$ROOT" || exit 1
     for a in gpu audio refind grub branding screensaver-chooser dracut regreet diag keys dev docs embedkit; do
+      # assets/dracut is Sky1-only and is not staged into an amd64 base (see the
+      # staging loop below). Excluding it from the amd64 fingerprint changes the
+      # stamp, so an amd64 base.squashfs that still carries the leaked Sky1
+      # dracut config is rebuilt instead of reused.
+      case "$a" in
+        dracut) [ "${NCZ_TARGET_ARCH:-}" = amd64 ] && continue ;;
+      esac
       [ -d "assets/$a" ] && find "assets/$a" \( -type f -o -type l \) -print
     done
     ls release.conf manifests/installer-base*.pkgs 2>/dev/null   # what the base layer installs; other manifests are not base inputs
@@ -966,7 +973,18 @@ build_base(){
   # this allowlist, breaking the NCZ agent stack, EmbedKit LLM stack, the
   # regreet login theme, NPU assets, and Singularity Desktop's own asset
   # tree on every amd64 build since this loop was last updated.
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs screensaver-chooser sinty-nm agent-images agent-stack audio cix-c-shims cix-mm dev diag docs dracut embedkit keys npu regreet singularity; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs screensaver-chooser sinty-nm agent-images agent-stack audio cix-c-shims cix-mm dev diag docs dracut embedkit keys npu regreet singularity; do
+    # assets/dracut is Sky1-only (docs/platform-inventory.tsv): 10-ncz-sky1.conf
+    # is the linlon-dp/trilin-dpsub Sky1 display + USB-ethernet module set.
+    # 94-dracut-config refuses to apply it on amd64, but staging the file still
+    # leaves an arm64-only dracut config in the amd64 payload (and any future
+    # consumer would feed it to dracut, which logs "linlon_dp: module not
+    # found"). Never stage it into an amd64 base.
+    case "$a" in
+      dracut) [ "$NCZ_TARGET_ARCH" = amd64 ] && continue ;;
+    esac
+    [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
+  done
   # Standalone files at assets/ root -- same silent-drop bug, same fix.
   for f in install_ncz_agents.sh kernel-manifest.json README.md cix-deb-repo.gpg; do [ -f "$ROOT/assets/$f" ] && sudo cp -a "$ROOT/assets/$f" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
