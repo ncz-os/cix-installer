@@ -125,7 +125,7 @@ case "$KVER_NEXT" in
     # (e.g. 7.1.4-arm64) and its forky line is 7.1.x; the local classifier
     # (11-fix-cixmini-boot.sh) already refuses to select those, but this
     # generator can be invoked with an explicit KVER, so fail closed here too.
-    *-arm64|7.1*)
+    *-arm64|7.1.*|7.1-*)
         echo "ERROR: KVER_NEXT='$KVER_NEXT' names a Debian-archive kernel (arm64/7.1.x);" >&2
         echo "       mainline MUST be the NCZ 7.2.9 Sky1 kernel (directive 2026-10-04)." >&2
         echo "       Refusing to write an rEFInd menu that would boot Debian as the default." >&2
