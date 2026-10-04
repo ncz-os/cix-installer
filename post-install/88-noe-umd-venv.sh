@@ -230,7 +230,14 @@ ConditionPathExists=/opt/ncz/noe-venv/bin/python
 After=local-fs.target
 
 [Service]
-Type=oneshot
+# Type=simple, not oneshot (item F, 2026-10-04): on the first boot after a
+# cix-noe-umd upgrade the ExecStart does a `uv pip install` that can run for
+# minutes, and a oneshot in multi-user.target's wants holds that target (and
+# graphical.target behind it) until it exits. The script exits on every path,
+# so Type=simple lets multi-user complete while the venv re-syncs. This does
+# not lose the sync: ncz-npu-embed.service is Type=simple with
+# Restart=on-failure, so if it starts before the venv is ready it retries.
+Type=simple
 RemainAfterExit=no
 ExecStart=/usr/local/lib/cix-installer/sync-noe-venv.sh
 
