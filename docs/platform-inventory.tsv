@@ -362,3 +362,4 @@ build/ship-image.sh	common	-	publish a gated image (ARGONAS + operator Mac) and 
 build/test-wallpaper-probe.sh	common	-	Bing helper offline probe test
 build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, chatter, blank screen)
 docs/installer-ux/	common	-	installer console before/after evidence
+build/test-timesync-retry.sh	common	-	regression tests for the timesyncd fast-retry drop-in + no time-sync gating of the greeter (docs/BOOT-SPEED.md)

@@ -496,6 +496,11 @@ test-platform:
 test-boot-speed:
 	@bash $(ROOT)/build/test-boot-speed.sh
 
+# item G (docs/BOOT-SPEED.md section 8): the systemd-timesyncd fast-retry
+# drop-in must ship on both arches and time sync must never order the greeter.
+test-timesync-retry:
+	@bash $(ROOT)/build/test-timesync-retry.sh
+
 secretscan:
 	@bash $(ROOT)/build/secret-scan-gate.sh
 
@@ -576,6 +581,7 @@ parity:
 	build/lint-no-software-render.sh
 	build/test-installer-screens.sh
 	build/test-boot-speed.sh
+	build/test-timesync-retry.sh
 	build/test-ncz-ui.sh
 	build/test-release-identity.sh
 	build/test-base-stamp.sh
