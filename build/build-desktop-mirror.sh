@@ -299,20 +299,26 @@ fi
 # as a standalone Debian closure builder; required ones do not, because
 # their absence produces an ISO that fails partway through an install.
 #
-# Both rows here are optional. cixmini-boot Depends on ncz-usb-recovery, but the
-# pool that has to satisfy it offline is build/forky-vendor-mirror, not this one
-# -- see the note above the gate at the bottom of this block.
+# The common rows here are optional. cixmini-boot Depends on ncz-usb-recovery,
+# but the pool that has to satisfy it offline is build/forky-vendor-mirror, not
+# this one -- see the note above the gate at the bottom of this block.
+#
+# ncz-usb-recovery is deliberately in the arm64-only block below (item RS,
+# 2026-10-04): it is a Sky1-only workaround, and seeding the all-arch desktop
+# closure put it on amd64/T2 images where its unit then rebound the T2 root hub
+# every boot. The package is now Architecture: arm64 and its glob matches
+# _arm64.deb.
 #
 # Each row: <package name>|<glob of candidate .debs>|<required?>
 NCZ_LOCAL_DEBS="
 ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_${ARCH}.deb|optional
 ncz-singularity-desktop|$REPO/assets/cix-debs/ncz-singularity-desktop_*_${ARCH}.deb|optional
-ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_all.deb|optional
 ncz-screensavers|$REPO/build/ncz-screensavers-out/ncz-screensavers_*_${ARCH}.deb|optional
 ncz-screensavers-plugin|$REPO/build/ncz-screensavers-out/ncz-screensavers-plugin_*_${ARCH}.deb|optional
 "
 if [ "$ARCH" = arm64 ]; then
 NCZ_LOCAL_DEBS+="
+ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_arm64.deb|optional
 libdrm-common|$REPO/build/libdrm-debs/libdrm-common_2.4.134-3+ncz*_all.deb|required
 libdrm2|$REPO/build/libdrm-debs/libdrm2_2.4.134-3+ncz*_arm64.deb|required
 libdrm-amdgpu1|$REPO/build/libdrm-debs/libdrm-amdgpu1_2.4.134-3+ncz*_arm64.deb|required
