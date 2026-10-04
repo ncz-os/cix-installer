@@ -41,23 +41,23 @@ default_selection "NCZ-OS 26.10  -  7.2 Mali (Default)"
 
 menuentry "NCZ-OS 26.10  -  7.2 Mali (Default)" {
     loader  /vmlinuz-test
-    icon    /EFI/BOOT/icons/os_linux.png
+    icon    /EFI/BOOT/ncz.png
 }
 menuentry "NCZ-OS 26.10  -  7.2 Panthor (Experimental)" {
     loader  /vmlinuz-test
-    icon    /EFI/BOOT/icons/os_linux.png
+    icon    /EFI/BOOT/ncz.png
 }
 menuentry "NCZ-OS 26.10  -  Console" {
     loader  /vmlinuz-test
-    icon    /EFI/BOOT/icons/os_linux.png
+    icon    /EFI/BOOT/ncz.png
 }
 menuentry "Rescue Partition (Console)" {
     loader  /vmlinuz-test
-    icon    /EFI/BOOT/icons/os_linux.png
+    icon    /EFI/BOOT/ncz.png
 }
 menuentry "RESCUE  -  known-good kernel" {
     loader  /vmlinuz-test
-    icon    /EFI/BOOT/icons/os_linux.png
+    icon    /EFI/BOOT/ncz.png
 }
 
 EOF
@@ -76,6 +76,8 @@ run_one() { # arch W H
     mcopy -i "$img" "$efi" "::/EFI/BOOT/$bootname"
     mcopy -i "$img" -s "$ROOT/assets/refind/icons" ::/EFI/BOOT/
     mcopy -i "$img" "$ROOT/assets/refind/ncz-banner.png" ::/EFI/BOOT/ncz-banner.png
+    # entry icon exactly as the refresh scripts install it (Cygnus os_ncz.png -> ncz.png)
+    mcopy -i "$img" "$THEME/os_ncz.png" ::/EFI/BOOT/ncz.png
     # What pick-theme.sh does on a real install: select the background that
     # matches the screen. PICK=fallback keeps the 1920x1080 file everywhere.
     rm -rf "$WORK/cygnus"; cp -r "$THEME" "$WORK/cygnus"

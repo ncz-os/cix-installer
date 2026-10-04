@@ -509,7 +509,7 @@ fi
     if [ "$STABLE_AVAILABLE" = "1" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  Stable (Default)\" {"
         echo "    loader  /vmlinuz-$KVER_STABLE"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$STABLE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_STABLE"
         echo "    options \"$STABLE_OPTIONS\""
         echo "}"
@@ -517,7 +517,7 @@ fi
 
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  Stable Console\" {"
         echo "    loader  /vmlinuz-$KVER_STABLE"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$STABLE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_STABLE"
         echo "    options \"$STABLE_CONSOLE_OPTIONS\""
         echo "}"
@@ -526,7 +526,7 @@ fi
     if [ "$EDGE_AVAILABLE" = "1" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  Edge / Experimental Kernel (Console)\" {"
         echo "    loader  /vmlinuz-$KVER_EDGE"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
         echo "    options \"$EDGE_OPTIONS\""
         echo "}"
@@ -535,7 +535,7 @@ fi
     if [ -n "$RESCUEPART_OPTIONS" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  Rescue Partition (Console)\" {"
         echo "    loader  /vmlinuz-$KVER_STABLE"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$STABLE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_STABLE"
         echo "    options \"$RESCUEPART_OPTIONS\""
         echo "}"
@@ -551,7 +551,7 @@ fi
             | grep -vE '^(quiet|)$' | paste -sd' ' -)
         echo "menuentry \"RESCUE  -  $_rescue_tag known-good kernel\" {"
         echo "    loader  /$_rescue_file"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ -e "/boot/efi/initrd.img-$_rescue_tag-rescue" ] && \
             echo "    initrd  /initrd.img-$_rescue_tag-rescue"
         echo "    options \"$_rescue_options\""

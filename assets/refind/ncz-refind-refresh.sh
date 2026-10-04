@@ -792,7 +792,7 @@ fi
     if [ "$NEXT_AVAILABLE" = "1" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Mali (Default)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$MALI_OPTIONS\""
         echo "}"
@@ -821,7 +821,7 @@ fi
         # existing.
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Panthor (Experimental)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$PANTHOR_OPTIONS\""
         echo "}"
@@ -837,7 +837,7 @@ fi
 
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Console (All Accelerators, Mali)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$NEXT_CONSOLE_OPTIONS\""
         echo "}"
@@ -846,7 +846,7 @@ fi
     if [ "$EDGE_AVAILABLE" = "1" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Edge / Experimental Kernel (Console)\" {"
         echo "    loader  /vmlinuz-$KVER_EDGE"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
         echo "    options \"$EDGE_OPTIONS\""
         echo "}"
@@ -863,7 +863,7 @@ fi
         # exact-match slot. "Mali (Experimental)" is unique.
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Edge / Experimental Kernel (Mali, Experimental)\" {"
         echo "    loader  /vmlinuz-$KVER_EDGE"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
         echo "    options \"$EDGE_ACCEL_OPTIONS\""
         echo "}"
@@ -874,7 +874,7 @@ fi
         # sidecar this script accepts.
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Rescue Partition (Console)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$RESCUEPART_OPTIONS\""
         echo "}"
@@ -900,7 +900,7 @@ fi
             | grep -vE '^(oops=panic|panic=[0-9]+|quiet|)$' | paste -sd' ' -)
         echo "menuentry \"RESCUE  -  $_rescue_tag known-good kernel\" {"
         echo "    loader  /$_rescue_file"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ -e "/boot/efi/initrd.img-$_rescue_tag-rescue" ] && \
             echo "    initrd  /initrd.img-$_rescue_tag-rescue"
         echo "    options \"$_rescue_options\""
