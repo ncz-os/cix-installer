@@ -39,6 +39,10 @@
 # Usage: build/component-prompt-gate.sh <iso> [workdir]
 set -euo pipefail
 
+# Derive the ISO volume label from release.conf -- never hardcode a codename.
+# shellcheck source=lib/release-identity.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/release-identity.sh"
+
 ISO="${1:?usage: component-prompt-gate.sh <iso> [workdir]}"
 WORK="${2:-$(dirname "$ISO")/component-prompt-gate-work}"
 PROMPT_TIMEOUT_S="${PROMPT_TIMEOUT_S:-420}"
@@ -85,7 +89,7 @@ if grep -q "ncz_components=" "$CFG"; then
 fi
 
 echo "[2/5] repacking"
-xorriso -as mkisofs -r -V NCZ_MAXIMILIAN -J -joliet-long -cache-inodes \
+xorriso -as mkisofs -r -V "$NCZ_ISO_VOLUME_ID" -J -joliet-long -cache-inodes \
   -e boot/grub/efi.img -no-emul-boot \
   -append_partition 2 0xef "$STAGE/boot/grub/efi.img" \
   -appended_part_as_gpt -partition_cyl_align all \

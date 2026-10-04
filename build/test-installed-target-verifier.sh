@@ -5,6 +5,10 @@
 # debugfs, xz. A guard is only trusted once it has failed on purpose.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Identity fixtures track release.conf instead of pinning an old codename.
+ROOT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=../release.conf
+. "$ROOT/release.conf"
 VERIFIER="$HERE/verify-installed-target.sh"
 MKE2FS="$(command -v mke2fs || echo /usr/sbin/mke2fs)"
 DEBUGFS="$(command -v debugfs || echo /sbin/debugfs)"
@@ -53,8 +57,9 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     mkdir -p "$r/usr/local/lib/cix-installer" "$r/etc/systemd/system/ldconfig.service.d"
     echo "${TEST_ARCH:-arm64}" > "$r/usr/local/lib/cix-installer/BUILD_ARCH"
     echo "2026.09.29-abcdef0" > "$r/usr/local/lib/cix-installer/BUILD_VERSION"
-    printf 'NCZ_PRODUCT_NAME="NCZ-OS"\nNCZ_RELEASE_VERSION="26.7"\nNCZ_RELEASE_CODENAME="Maximilian"\n' > "$r/usr/local/lib/cix-installer/RELEASE"
-    printf 'NCZ-OS 26.7 Maximilian Desktop\n' > "$r/etc/issue"
+    printf 'NCZ_PRODUCT_NAME="%s"\nNCZ_RELEASE_VERSION="%s"\nNCZ_RELEASE_CODENAME="%s"\n' \
+        "$NCZ_PRODUCT_NAME" "$NCZ_RELEASE_VERSION" "$NCZ_RELEASE_CODENAME" > "$r/usr/local/lib/cix-installer/RELEASE"
+    printf '%s %s %s Desktop\n' "$NCZ_PRODUCT_NAME" "$NCZ_RELEASE_VERSION" "$NCZ_RELEASE_CODENAME" > "$r/etc/issue"
     printf '[Service]\nSuccessExitStatus=1\n' > "$r/etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf"
     echo x > "$r/etc/ld.so.cache"; echo x > "$r/etc/.updated"
     # sshd: Include first, password login in the fleet drop-in (as 35-ssh.sh / extract-rootfs.sh write it)

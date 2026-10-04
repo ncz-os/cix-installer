@@ -10,8 +10,10 @@
 # the desktop session, and accelerates on the CIX Mali GLES blob (libmali) via
 # ncz-gpu-env. NO regreet, NO GTK greeter, NO GTK_USE_PORTAL/dead-bus hacks.
 #
-# Branding: os-release carries LOGO=ncz, so the greeter (and boot-splash) look up
-# /usr/share/{pixmaps,icons/.../apps}/ncz.png for the OS mark; the login backdrop
+# Branding: os-release carries LOGO=ncz-os-<codename> (derived in 50-brand.sh),
+# so the greeter (and boot-splash) look up
+# /usr/share/{pixmaps,icons/.../apps}/ncz-os-<codename>.png for the OS mark (the
+# approved Cygnus wordmark as of 26.10); the login backdrop
 # is the Cygnus greeter backdrop dropped at the greeter fallback path
 # /usr/share/backgrounds/singularity/default.png. auth is standard Unix password
 # (the greeter only switches to PIN when os-release ID starts "sinty"; ours=ncz).
@@ -41,20 +43,39 @@ WALL_SRC=$ASSETS/greeter/cygnus/greeter-backdrop-1920x1080.png
 
 install -d -m0755 /etc/greetd
 
-# --- NCZ OS logo (os-release LOGO=ncz -> ncz.png in the icon search path) -----
+# The logo file NAME must match os-release LOGO (written by 50-brand.sh), which
+# is derived from the release codename.
+RELEASE_FILE=/usr/local/lib/cix-installer/RELEASE
+[ -s "$RELEASE_FILE" ] || RELEASE_FILE=/etc/cix-installer/RELEASE
+# shellcheck disable=SC1090
+[ -s "$RELEASE_FILE" ] && . "$RELEASE_FILE"
+LOGO_NAME="ncz-os-$(printf '%s' "${NCZ_RELEASE_CODENAME:-Cygnus}" | tr '[:upper:]' '[:lower:]')"
+
+# --- NCZ OS logo (os-release LOGO=$LOGO_NAME -> $LOGO_NAME.png search path) ---
 # singularity-greeter/boot-splash try_logo_file() search: pixmaps + hicolor apps.
-# Ship the committed 256px ncz.png; fall back to converting the lockup if absent.
-LOGO_PNG="$ASSETS/logo/ncz.png"
-if [ ! -f "$LOGO_PNG" ] && command -v magick >/dev/null 2>&1; then
+# Ship the approved Cygnus wordmark. Fall back (in order) to the legacy 256px
+# ncz.png, then to converting the lockup -- so a missing Cygnus asset installs
+# the older mark instead of aborting.
+CYGNUS_LOGO="$ASSETS/greeter/cygnus/ncz-os-cygnus-logo.png"
+LOGO_PNG=""
+if [ -f "$CYGNUS_LOGO" ]; then
+    LOGO_PNG="$CYGNUS_LOGO"
+elif [ -f "$ASSETS/logo/ncz.png" ]; then
+    LOGO_PNG="$ASSETS/logo/ncz.png"
+    echo "[55] WARN: Cygnus logo absent ($CYGNUS_LOGO) — falling back to ncz.png" >&2
+elif command -v magick >/dev/null 2>&1; then
     magick "$ASSETS/logo/ncz-icon.jpg" -resize 256x256 /tmp/ncz.png 2>/dev/null && LOGO_PNG=/tmp/ncz.png
-elif [ ! -f "$LOGO_PNG" ] && command -v convert >/dev/null 2>&1; then
+elif command -v convert >/dev/null 2>&1; then
     convert "$ASSETS/logo/ncz-icon.jpg" -resize 256x256 /tmp/ncz.png 2>/dev/null && LOGO_PNG=/tmp/ncz.png
 fi
-if [ -f "$LOGO_PNG" ]; then
+if [ -n "$LOGO_PNG" ] && [ -f "$LOGO_PNG" ]; then
     install -d -m0755 /usr/share/pixmaps /usr/share/icons/hicolor/256x256/apps
+    install -m0644 "$LOGO_PNG" "/usr/share/pixmaps/$LOGO_NAME.png"
+    install -m0644 "$LOGO_PNG" "/usr/share/icons/hicolor/256x256/apps/$LOGO_NAME.png"
+    # Also populate the legacy ncz.png name so anything still keyed to it resolves.
     install -m0644 "$LOGO_PNG" /usr/share/pixmaps/ncz.png
     install -m0644 "$LOGO_PNG" /usr/share/icons/hicolor/256x256/apps/ncz.png
-    echo "[55] NCZ OS logo installed (ncz.png -> pixmaps + hicolor/256x256/apps)"
+    echo "[55] NCZ OS logo installed ($LOGO_NAME.png -> pixmaps + hicolor/256x256/apps)"
 else
     echo "[55] WARN: ncz logo asset missing — greeter/boot-splash fall back to emblem-singularity" >&2
 fi
