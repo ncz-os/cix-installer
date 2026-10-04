@@ -365,3 +365,61 @@ boot-speed tests: 13 passed, 4 failed     (exit 1)
 # fixed: passes
 boot-speed tests: 20 passed, 0 failed     (exit 0)
 ```
+
+## 9. Item G -- NTP first-contact delay at boot (30 s)
+
+Measured on O6N (systemd 262), boot of 2026-10-04, monotonic journal:
+`systemd-timesyncd` started at **5.58 s**; "Network configuration changed,
+trying to establish connection" fired six times at **6.39-6.71 s** -- before
+the NIC existed; `enp1s0` reported `Link is Down` at **8.58 s** and
+`Link is Up 2.5Gbps` at **11.65 s**; the first "Contacted time server" landed
+at **36.92 s**, i.e. **6.4 s + 30.5 s**. systemd-timesyncd's default
+`ConnectionRetrySec=` is **30 s**, so the attempt that raced link-up was not
+retried until 30 s later. Runtime probes from the same host reach
+time.cloudflare.com / time.google.com over IPv4 and IPv6 in **5-30 ms**, with
+DNS in **6-120 ms**, so the network and the servers were healthy the whole
+time. LAN hosts (192.168.207.1/.10/.67/.101) do **not** answer NTP and DHCP
+option 42 is not available from every router, so nothing here depends on a
+router/DHCP-advertised source; if a link advertises one, timesyncd already
+prefers it and that needs no work.
+
+Fix: `post-install/37-ntp-hostname.sh` (the hook that already owns
+`/etc/systemd/timesyncd.conf.d`) now installs
+`/etc/systemd/timesyncd.conf.d/10-ncz-fast-retry.conf`, idempotently and
+mode 0644, on both arches (the hook is `common` and appears in both
+`post-install/hooks.list.*`):
+
+```
+[Time]
+# Retry quickly instead of the 30 s default so the first attempt does not race
+# NIC link-up and the first sync lands ~11-16 s after boot.
+ConnectionRetrySec=5
+```
+
+The `NTP=`/`FallbackNTP=` lists in `10-nclawzero.conf` are **unchanged**.
+
+* Expected effect: first successful sync at **~11-16 s** after boot instead of
+  **~37 s**. **No change to when the greeter appears (~8.5 s)**: time sync is
+  background work. Nothing in the repo orders greetd/`display-manager` after
+  `time-sync.target`, `systemd-time-wait-sync.service` or an NTP wait; the one
+  unit in a boot target that still waits on time sync is `ncz-rtc-sync.service`
+  (`post-install/44-rtc-sync.sh:116-117`, `WantedBy=multi-user.target`), which
+  item F owns and is fixing (finding F9). `UNMEASURED` end-to-end until the
+  orchestrator reboots O6N.
+* Test: `build/test-timesync-retry.sh` (new). It extracts the drop-in heredoc
+  and asserts `[Time]`, a comment, `1 <= ConnectionRetrySec <= 10`, and mode
+  0644; checks the server lists are byte-identical; checks the hook is in both
+  arch hook lists; and scans every unit the repo can ship (heredocs + plain
+  unit files) so no unit both references greetd/display-manager and is ordered
+  `After=` a time-sync wait. It self-checks the detector with a synthetic
+  greetd drop-in. Registered in `docs/platform-inventory.tsv` and run by
+  `make test-timesync-retry` and by `make parity`.
+* Before/after proof (run in this worktree):
+
+  ```
+  # before the 37-ntp-hostname.sh edit
+  FAIL: exactly one post-install hook installs .../10-ncz-fast-retry.conf (found 0)
+  timesync-retry tests: 3 passed, 1 failed      (exit 1)
+  # after
+  timesync-retry tests: 14 passed, 0 failed     (exit 0)
+  ```
