@@ -938,20 +938,63 @@ chmod 0755 /usr/local/bin/ncz-singularity-greeter
 echo "[20] ncz-singularity-greeter wrapper installed (native greeter on /opt/singularity labwc)"
 
 # ---------------------------------------------------------------------------
-# Packaged gschema defaults — red accent + dark mode + Cygnus default wallpaper.
-# The accent is written by StyleManager to the user gtk.css at runtime; setting
-# it in the schema DEFAULT makes red the out-of-box accent. Wallpaper points at
-# the Cygnus default wallpaper (default.jpg) (45-wallpaper-rotator installs the NCZ set + can
-# rotate). Compiled into the Singularity schema dir (on the session's
+# Cygnus 26.10 default theme + accent + wallpaper.
+#
+# Install the Cygnus Singularity theme into libsingularity's system theme search
+# path and write the packaged gschema defaults so the out-of-box accent is the
+# Cygnus magenta (#D6208C) via accent-color='custom' and the desktop theme is
+# Cygnus -- not the old Maximilian red. The accent is written by StyleManager to
+# the user gtk.css at runtime; setting it in the schema DEFAULT makes it the
+# out-of-box accent, and singularity-theme='Cygnus' makes the shell load the
+# theme below.
+#
+# The accent/theme keys are NOT hand-copied here: they come from
+# assets/branding/singularity-theme/99-ncz-cygnus.gschema.override, generated
+# from branding/cygnus/tokens.json by branding/cygnus/tools/gen-cygnus.py. The
+# installed 99-ncz-defaults.gschema.override STARTS from that generated block
+# and appends this build's non-Cygnus defaults into the same group, so a token
+# change flows through with no hex literal in this script.
+#
+# libsingularity's style_manager.vala find_theme_dir() searches
+# ~/.local/share/themes, ~/.themes, /usr/local/share/themes and
+# /usr/share/themes for <name>/singularity/style.css, so the theme is installed
+# to /usr/share/themes/Cygnus. Wallpaper points at the Cygnus default wallpaper
+# (default.jpg) (45-wallpaper-rotator installs the NCZ set + can rotate).
+# Compiled into the Singularity schema dir (on the session's
 # GSETTINGS_SCHEMA_DIR).
 # ---------------------------------------------------------------------------
+INSTALLER_META=/usr/local/lib/cix-installer
+CYGNUS_ASSETS="$INSTALLER_META/assets/branding/singularity-theme"
+CYGNUS_THEME_SRC="$CYGNUS_ASSETS/Cygnus"
+CYGNUS_GS_SRC="$CYGNUS_ASSETS/99-ncz-cygnus.gschema.override"
+
+# Idempotent: remove any previous copy before extracting, and restore the
+# standard theme modes (dirs 0755, files 0644) so a re-run or an upgrade can
+# never leave a stale or over-permissive file behind.
+if [ -d "$CYGNUS_THEME_SRC" ]; then
+    rm -rf /usr/share/themes/Cygnus
+    cp -r "$CYGNUS_THEME_SRC" /usr/share/themes/Cygnus
+    find /usr/share/themes/Cygnus -type d -exec chmod 0755 {} \;
+    find /usr/share/themes/Cygnus -type f -exec chmod 0644 {} \;
+    echo "[20] Cygnus theme installed at /usr/share/themes/Cygnus"
+else
+    echo "[20] WARN: Cygnus theme assets missing at $CYGNUS_THEME_SRC — theme not installed"
+fi
+
 SCHEMADIR=/opt/singularity/share/glib-2.0/schemas
 if [ -f "$SCHEMADIR/dev.sinty.desktop.gschema.xml" ]; then
-    cat > "$SCHEMADIR/99-ncz-defaults.gschema.override" <<'GSCHEMA'
-[dev.sinty.desktop]
-accent-color='red'
-dark-mode=true
-theme-mode='dark'
+    if [ -f "$CYGNUS_GS_SRC" ]; then
+        # Generated [dev.sinty.desktop] group: accent-color,
+        # custom-accent-color, custom-accent-colors, singularity-theme,
+        # theme-mode and dark-mode.
+        cp "$CYGNUS_GS_SRC" "$SCHEMADIR/99-ncz-defaults.gschema.override"
+    else
+        echo "[20] WARN: $CYGNUS_GS_SRC missing — Cygnus accent/theme defaults skipped (accent falls back to the schema default)"
+        # Keep the group header so the non-Cygnus keys appended below still land
+        # in [dev.sinty.desktop] instead of being dropped.
+        printf '[dev.sinty.desktop]\n' > "$SCHEMADIR/99-ncz-defaults.gschema.override"
+    fi
+    cat >> "$SCHEMADIR/99-ncz-defaults.gschema.override" <<'GSCHEMA'
 icon-theme='Singularity'
 background-picture-uri='file:///usr/share/backgrounds/ncz/default.jpg'
 recent-wallpapers=['file:///usr/share/backgrounds/ncz/default.jpg']
@@ -1002,7 +1045,7 @@ GSCHEMA
     fi
     glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
         echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
-    echo "[20] gschema override: accent=red, dark-mode, Cygnus wallpaper"
+    echo "[20] gschema override: Cygnus accent/theme, dark-mode, Cygnus wallpaper"
 else
     echo "[20] WARN: dev.sinty.desktop schema absent — accent/wallpaper defaults skipped"
 fi

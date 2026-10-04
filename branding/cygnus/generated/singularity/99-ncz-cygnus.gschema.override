@@ -1,0 +1,15 @@
+# Generated from branding/cygnus/tokens.json by tools/gen-cygnus.py. Do not edit.
+# Cygnus 26.10 default keys for the [dev.sinty.desktop] group. This is the
+# authoritative definition of the accent + theme defaults: post-install/
+# 20-desktop.sh consumes it as assets/branding/singularity-theme/
+# 99-ncz-cygnus.gschema.override, starts the installed
+# 99-ncz-defaults.gschema.override from it, and appends its non-Cygnus
+# defaults into the same group. A token change therefore flows through to
+# the installed override with no hand-copied hex anywhere.
+[dev.sinty.desktop]
+accent-color='custom'
+custom-accent-color='#D6208C'
+custom-accent-colors=['#D6208C', '#2ED8F0', '#FF5CB4', '#13B6D1', '#A0106A']
+singularity-theme='Cygnus'
+theme-mode='dark'
+dark-mode=true
