@@ -246,6 +246,15 @@ cat > "$SYS_SCHEMADIR/dev.ncz.screensaver.gschema.xml" <<'GSCHEMA'
 GSCHEMA
 glib-compile-schemas "$SYS_SCHEMADIR" 2>&1 | tail -1 || \
     echo "[57] WARN: glib-compile-schemas $SYS_SCHEMADIR failed (compiles on first session)"
+# The Singularity shell reads /opt/singularity (its session wrapper sets
+# GSETTINGS_SCHEMA_DIR there), so the compiled database under that prefix must
+# be refreshed on the same path. O6N 2026-10-04: a stale
+# /opt/singularity/share/glib-2.0/schemas/gschemas.compiled masked the Cygnus
+# defaults even though the XML/override inputs were correct.
+if [ -d /opt/singularity/share/glib-2.0/schemas ] && command -v glib-compile-schemas >/dev/null 2>&1; then
+    glib-compile-schemas /opt/singularity/share/glib-2.0/schemas 2>&1 | tail -1 || \
+        echo "[57] WARN: glib-compile-schemas /opt/singularity/share/glib-2.0/schemas failed (compiles on first session)"
+fi
 echo "[57] dev.ncz.screensaver schema installed (enabled/300s lock/360s display-off/lock-on-suspend)"
 
 # ---------------------------------------------------------------------------

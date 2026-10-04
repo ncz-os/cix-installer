@@ -426,6 +426,53 @@ if [ "$WANT_SS" = 1 ]; then
         done
         [ "$idled" = 1 ] || gate_miss screensavers "ncz-screensaver-idled.service is not enabled (no .wants symlink under /etc/systemd/user)"
         [ "$oldidle" = 0 ] || gate_miss screensavers "ncz-idle-manager.service is still enabled next to ncz-screensaver-idled"
+
+        # A (O6N 2026-10-04): /opt/singularity is also owned by the wallpaper
+        # packs. A payload swap with an opaque /opt/singularity overlay dropped
+        # their collection/artistpack files even though dpkg still listed the
+        # packages installed. Assert them explicitly; the dpkg -V ownership gate
+        # (build/verify-singularity-opt-owners.sh) covers the full set on a
+        # mounted root.
+        WCOL=/opt/singularity/share/singularity/wallpaper-collections
+        for pack in ncz cygnus-2610 singularity brandon-perlow alex-jay-brady; do
+            exists "$WCOL/$pack.collection" || gate_miss wallpaper "$WCOL/$pack.collection (payload swap dropped the pack)"
+            exists "$WCOL/$pack.artistpack/artist.json" || gate_miss wallpaper "$WCOL/$pack.artistpack/artist.json (payload swap dropped the pack)"
+            exists "$WCOL/$pack.artistpack/pack.json" || gate_miss wallpaper "$WCOL/$pack.artistpack/pack.json (payload swap dropped the pack)"
+        done
+
+        # B (O6N 2026-10-04): the shell sets GSETTINGS_SCHEMA_DIR to
+        # /opt/singularity/share/glib-2.0/schemas, so THAT gschemas.compiled is
+        # what it reads. Compare its effective dev.sinty.desktop defaults with a
+        # fresh compile of the same dumped inputs; a stale compiled file fails.
+        SSD=/opt/singularity/share/glib-2.0/schemas
+        if command -v glib-compile-schemas >/dev/null 2>&1 && command -v gsettings >/dev/null 2>&1; then
+            if exists "$SSD/gschemas.compiled"; then
+                SGT="$TMP/sinty-schemas"; mkdir -p "$SGT/installed" "$SGT/fresh"
+                fetch "$SSD/gschemas.compiled" "$SGT/installed/gschemas.compiled" || true
+                for n in $(lsnames "$SSD"); do
+                    case "$n" in
+                        *.gschema.xml|*.gschema.override) fetch "$SSD/$n" "$SGT/fresh/$n" || true ;;
+                    esac
+                done
+                if [ -s "$SGT/installed/gschemas.compiled" ]; then
+                    if glib-compile-schemas --strict "$SGT/fresh" >/dev/null 2>&1; then
+                        for k in pinned-apps enabled-plugins; do
+                            iv="$(GSETTINGS_SCHEMA_DIR="$SGT/installed" GSETTINGS_BACKEND=memory gsettings get dev.sinty.desktop "$k" 2>/dev/null)"
+                            fv="$(GSETTINGS_SCHEMA_DIR="$SGT/fresh" GSETTINGS_BACKEND=memory gsettings get dev.sinty.desktop "$k" 2>/dev/null)"
+                            if [ -n "$iv" ] && [ -n "$fv" ] && [ "$iv" != "$fv" ]; then
+                                gate_miss schemas "dev.sinty.desktop $k stale: installed=$iv fresh=$fv (gschemas.compiled under /opt/singularity predates its overrides)"
+                            fi
+                        done
+                    else
+                        gate_miss schemas "dumped /opt/singularity schema inputs do not compile --strict"
+                    fi
+                else
+                    gate_miss schemas "$SSD/gschemas.compiled could not be read (the shell reads this file)"
+                fi
+            else
+                gate_miss schemas "$SSD/gschemas.compiled missing (the shell reads this file, not /usr/share)"
+            fi
+        fi
     fi
 else
     echo "[verify-target] (vi) ncz-screensavers not requested by this image; skipped"

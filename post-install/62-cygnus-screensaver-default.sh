@@ -61,6 +61,13 @@ printf '%s\n' "$BODY" > "$OVERRIDE"
 chmod 0644 "$OVERRIDE"
 if [ -z "${NCZ_SS_SCHEMA_DIR:-}" ]; then
     glib-compile-schemas "$DIR" 2>&1 | sed 's/^/[62]   /' || true
+    # The Singularity shell reads /opt/singularity (its session wrapper points
+    # GSETTINGS_SCHEMA_DIR there), so compile that database on the same path.
+    # Without this, an override can be correct on disk and still invisible to
+    # the running shell (O6N 2026-10-04 stale-gschemas.compiled regression).
+    if [ -d /opt/singularity/share/glib-2.0/schemas ] && command -v glib-compile-schemas >/dev/null 2>&1; then
+        glib-compile-schemas /opt/singularity/share/glib-2.0/schemas 2>&1 | sed 's/^/[62]   /' || true
+    fi
 fi
 echo "[62]   default screensaver: blackhole_gles3, palette cygnus, mode one ($OVERRIDE)"
 exit 0

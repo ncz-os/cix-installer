@@ -47,5 +47,10 @@ EOF
 chmod 0755 /usr/local/bin/ncz-lock
 
 glib-compile-schemas /usr/share/glib-2.0/schemas
+# The Singularity shell reads /opt/singularity (GSETTINGS_SCHEMA_DIR); keep its
+# compiled database fresh on the same path too (O6N 2026-10-04 stale-cache).
+if [ -d /opt/singularity/share/glib-2.0/schemas ] && command -v glib-compile-schemas >/dev/null 2>&1; then
+    glib-compile-schemas /opt/singularity/share/glib-2.0/schemas 2>&1 | tail -1 || true
+fi
 systemctl --global enable ncz-idle-manager.service >/dev/null
 echo "[58] installed screensaver plugin and ext-idle-notify-v1 manager"

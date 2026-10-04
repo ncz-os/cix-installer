@@ -107,6 +107,30 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     printf '/usr/bin/ncz-screensaver\n/usr/libexec/ncz-screensaver-idled\n' > "$r/var/lib/dpkg/info/ncz-screensavers.list"
     echo x > "$r/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"; echo x > "$r/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
     printf "[dev.sinty.desktop]\nenabled-plugins=['sensors', 'screensaver']\n" > "$r/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"
+    # A (O6N 2026-10-04): every ncz-wallpapers-* pack drops files under
+    # /opt/singularity. The verifier now asserts them explicitly.
+    mkdir -p "$r/opt/singularity/share/singularity/wallpaper-collections"
+    for pack in ncz cygnus-2610 singularity brandon-perlow alex-jay-brady; do
+        echo c > "$r/opt/singularity/share/singularity/wallpaper-collections/$pack.collection"
+        mkdir -p "$r/opt/singularity/share/singularity/wallpaper-collections/$pack.artistpack"
+        echo a > "$r/opt/singularity/share/singularity/wallpaper-collections/$pack.artistpack/artist.json"
+        echo p > "$r/opt/singularity/share/singularity/wallpaper-collections/$pack.artistpack/pack.json"
+    done
+    # B (O6N 2026-10-04): the shell reads /opt/singularity schemas, so the
+    # verifier compares that compiled database with a fresh compile. Provide a
+    # real schema + override and compile it (skipped when glib tools absent).
+    cat > "$r/opt/singularity/share/glib-2.0/schemas/dev.sinty.desktop.gschema.xml" <<'SGX'
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="dev.sinty.desktop" path="/dev/sinty/desktop/">
+    <key name="pinned-apps" type="as"><default>[]</default><summary>p</summary></key>
+    <key name="enabled-plugins" type="as"><default>['mpris-dock']</default><summary>e</summary></key>
+  </schema>
+</schemalist>
+SGX
+    if command -v glib-compile-schemas >/dev/null 2>&1; then
+        glib-compile-schemas --strict "$r/opt/singularity/share/glib-2.0/schemas" 2>/dev/null || true
+    fi
     printf 'Package: ncz-screensavers-plugin\nStatus: install ok installed\nVersion: 0.3.1\n\n' >> "$r/var/lib/dpkg/status"
 }
 
@@ -207,6 +231,13 @@ m_gpu_session()  { echo x > "$1/opt/singularity/bin/singularity-labwc-session"; 
 m_gpu_egl()      { rm -f "$1/etc/glvnd/egl_vendor.d/10_cix.json"; }
 m_gpu_egl_leak() { m_amd64_strip "$1"; mkdir -p "$1/etc/glvnd/egl_vendor.d"; ln -s /x "$1/etc/glvnd/egl_vendor.d/10_cix.json"; }
 m_no_loader()   { rm -f "$1/usr/bin/load-modules.sh"; }
+m_wp_pack()     { rm -f "$1/opt/singularity/share/singularity/wallpaper-collections/cygnus-2610.collection"; }
+m_sinty_stale_schema() {   # compile the /opt/singularity schemas WITHOUT the override (the O6N staleness)
+    local d="$1/opt/singularity/share/glib-2.0/schemas" t
+    t="$(mktemp -d)"; cp "$d"/*.gschema.xml "$t"/ 2>/dev/null
+    glib-compile-schemas "$t" 2>/dev/null
+    cp "$t/gschemas.compiled" "$d/gschemas.compiled"; rm -rf "$t"
+}
 
 run_case "healthy installed root passes"        0 ""
 run_case "missing hevcenc.fwb fails"            1 m_no_fwb
@@ -250,6 +281,10 @@ run_case "gtk4-reference installed fails"        1 m_ss_ref
 run_case "idled timer not enabled fails"        1 m_ss_noidled
 run_case "old idle-manager still enabled fails" 1 m_ss_oldidle
 run_case "schema not compiled fails"            1 m_ss_schema
+run_case "payload dropped a wallpaper pack fails" 1 m_wp_pack
+if command -v glib-compile-schemas >/dev/null 2>&1 && command -v gsettings >/dev/null 2>&1; then
+    run_case "stale /opt/singularity gschemas.compiled fails" 1 m_sinty_stale_schema
+fi
 run_case "no audio autoswitch daemon fails"     1 m_aud_nodaemon
 run_case "DP-only audio daemon (no analog fallback) fails" 1 m_aud_dponly
 run_case "no audio autoswitch unit fails"       1 m_aud_nounit

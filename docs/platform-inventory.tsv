@@ -148,6 +148,7 @@ build/kvm-install-gate-gpt.sh	common	-	architecture-generic KVM gate for raw GPT
 build/kvm-install-gate.sh	sky1	-	arm64 ISO KVM install gate
 build/kvm-kernel-gate.sh	sky1	-	Sky1 kernel boot gate
 build/lib/release-identity.sh	common	-	shared release label + ISO volume-id derivation from release.conf
+build/lib/hotfix-overlay-manifest.sh	common	-	desktop-hotfix overlay manifest: file-level whiteouts, never opaque (preserves package-owned /opt/singularity files)
 build/lint-hook-arch-gates.sh	common	-	heuristic arch-gate lint for hooks (dual-arch parity)
 build/lint-platform.sh	common	-	platform-split lint (inventory, hook lists, deny patterns, guards, manifest divergence)
 build/logs/	sky1	-	Sky1 bitbake/KVM resume logs
@@ -211,10 +212,12 @@ build/verify-firmware-bom.sh	common	-	firmware BOM verifier
 build/verify-installed-target-arm64.sh	sky1	-	installed-target accelerator verifier
 build/verify-installed-target.sh	common	-	shared installed-target verifier for both arches
 build/verify-iso-offline-pool.py	common	-	offline pool verifier
+build/verify-gsettings-effective-defaults.sh	common	-	gate: installed /opt/singularity gschemas.compiled effective defaults must match a fresh compile
 build/verify-local-package-versions.sh	common	-	local package version gate
 build/verify-offline-mirror-seeds.sh	common	-	mirror seed verifier
 build/verify-overlays.py	sky1	-	module overlay verifier
 build/verify-packages.sh	common	-	package seed verifier
+build/verify-singularity-opt-owners.sh	common	-	dpkg -V gate: every package owning files under /opt/singularity must verify clean after a payload swap
 build/verify-udebs.sh	common	-	udeb verifier
 build/yocto-layers.conf	sky1	-	Yocto layer pins for the CIX stack
 build/yocto/	sky1	-	Yocto config templates
@@ -381,3 +384,6 @@ build/test-greeter-output-mode.sh	common	-	regression test: greeter labwc autost
 build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp) and the 61 hook (divert + install + idempotent)
 build/test-screensaver-default.sh	common	-	regression test for the Cygnus black hole screensaver default hook (validated override, idempotent, skips old schemas)
 build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor per-run logs, signal names and core-limit regression
+build/test-gsettings-effective-defaults.sh	common	-	fixture test: a stale compiled schema fails the effective-defaults gate, a fresh compile passes
+build/test-hotfix-whiteouts.sh	common	-	fixture test: the hotfix manifest whiteouts stale payload files and never package-owned ones
+build/test-singularity-opt-owners.sh	common	-	fixture test: a raw payload swap drops plugin/pack files (fails) and the sanctioned helper restores them (passes)

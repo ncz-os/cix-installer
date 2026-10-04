@@ -97,6 +97,8 @@ OUT="${OUT:-$ROOT/assets/squashfs}"
 # Keep every base-dependent default tied to release.conf.  Callers can still
 # override these for an explicitly isolated experiment, but a normal build can
 # no longer silently combine a Forky rootfs with a Resolute mirror.
+# shellcheck source=lib/hotfix-overlay-manifest.sh
+. "$ROOT/build/lib/hotfix-overlay-manifest.sh"
 if [ -r "$ROOT/release.conf" ]; then
   # shellcheck source=../release.conf
   . "$ROOT/release.conf"
@@ -687,6 +689,21 @@ $_found"
         esac
       fi
     done
+    # A2 gate: after the payload step, every package that owns files under
+    # /opt/singularity must verify clean. This is exactly where the desktop
+    # layer installs the wallpaper packs (45-wallpaper-rotator) on top of the
+    # payload (20-desktop); if a later payload re-application drops them, the
+    # layer must not be published. dpkg -V driven; no hand list.
+    if [ -x "$ROOT/build/verify-singularity-opt-owners.sh" ]; then
+      if ! "$ROOT/build/verify-singularity-opt-owners.sh" --root "$MG"; then
+        log "ERROR: package-owned files under /opt/singularity do not verify clean after the payload step; refusing to publish the layer"
+        apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
+        return 1
+      fi
+      log "  /opt/singularity package ownership gate PASSED"
+    else
+      log "  WARN: build/verify-singularity-opt-owners.sh missing -- payload ownership gate skipped"
+    fi
     # Belt-and-braces: whiteout any X11-session .desktop remnants so the MERGED
     # /target has NO X11 desktop session. FILE-only removal (no apt purge in the
     # overlay — the r166-r170 saga: a broad purge --auto-remove here ran ~80
@@ -1393,6 +1410,17 @@ build_hotfix(){
     exit 1
   fi
   HOTFIX_DEB_NAME="$(basename "$HOTFIX_DEB")"
+  # Capture the PREVIOUS hotfix payload's file list BEFORE mksquashfs
+  # overwrites it below. The previous hotfix carries only payload files (never
+  # files owned by other packages), so diffing against it is exactly how we
+  # compute which stale payload files to white out without touching
+  # package-owned ones. See the manifest block at the end of this function.
+  PREV_HOTFIX_LIST=""
+  if [ -s "$OUT/desktop-hotfix.squashfs" ] && command -v unsquashfs >/dev/null 2>&1; then
+    PREV_HOTFIX_LIST="$WORK/hotfix-prev.list"
+    hotfix_capture_prev_files "$OUT/desktop-hotfix.squashfs" "$PREV_HOTFIX_LIST"
+    log "HOTFIX: captured $(wc -l < "$PREV_HOTFIX_LIST") payload file(s) from the previous hotfix layer"
+  fi
   # A failed hotfix build leaves a dirty $WORK/hotfix dir. Wipe before staging
   # so a retry cannot accumulate partial state.
   sudo rm -rf "$WORK/hotfix"
@@ -1456,19 +1484,24 @@ build_hotfix(){
   sudo mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
   verify_squashfs "$OUT/desktop-hotfix.squashfs" "desktop-hotfix"
   # Write the overlay manifest. The install-time stub applies the manifest
-  # BEFORE unsquashfs extraction (see preseed/extract-rootfs.sh's
-  # `while IFS=$OVERLAY_TAB read -r kind rel` loop), so the opaque
-  # /opt/singularity entry wipes everything under /opt/singularity that
-  # the previous layer (desktop.squashfs) installed, and then the
-  # unsquashfs delta lays down the new tree. If the manifest is missing
-  # or wrong, the overlay semantics don't fire and stale files from the
-  # previous layer remain in /opt/singularity on the installed system --
-  # exactly the failure mode that hides a fix.
-  cat > "$OUT/desktop-hotfix.overlay-manifest" <<'HOTFIX_MANIFEST'
-# NCZ overlay manifest v1
-opaque	opt/singularity
-HOTFIX_MANIFEST
-  log "HOTFIX: wrote overlay manifest ($OUT/desktop-hotfix.overlay-manifest)"
+  # BEFORE unsquashfs extraction (preseed/extract-rootfs.sh).
+  #
+  # HISTORY / WHY NOT `opaque opt/singularity`: an opaque entry makes the
+  # installer `rm -rf /target/opt/singularity` before laying the new payload
+  # down. That removes EVERY file in the tree, including files owned by dpkg
+  # packages OTHER than the payload: ncz-screensavers-plugin's screensaver
+  # plugin and every ncz-wallpapers-* collection. They are not in the payload,
+  # so nothing puts them back; `dpkg -V` then reports them missing and the
+  # Settings plugin / artist packs vanish (O6N 2026-10-04). The install-time
+  # hooks re-install some of them, but relying on that is exactly the ordering
+  # trap this gate exists to close.
+  #
+  # Instead emit a `whiteout` for each file the PREVIOUS hotfix payload had and
+  # this payload does not. The previous hotfix contains only payload files, so
+  # this removes stale payload files WITHOUT touching package-owned files, and
+  # a non-opaque overlay leaves everything it does not mention in place.
+  hotfix_overlay_manifest "$PREV_HOTFIX_LIST" "$WORK/hotfix" "$OUT/desktop-hotfix.overlay-manifest"
+  log "HOTFIX: wrote overlay manifest ($OUT/desktop-hotfix.overlay-manifest; $(grep -c '^whiteout' "$OUT/desktop-hotfix.overlay-manifest" || true) whiteout(s))"
   # Provenance summary: log what the artifact was rebuilt from so a future
   # audit can answer "where did this hotfix come from?" without grepping
   # git history. The honest answer is "the latest committed

@@ -599,6 +599,9 @@ parity:
 	build/test-greeter-output-mode.sh
 	build/test-chromium-icon.sh
 	build/test-screensaver-default.sh
+	build/test-singularity-opt-owners.sh
+	build/test-gsettings-effective-defaults.sh
+	build/test-hotfix-whiteouts.sh
 	build/test-ncz-ui.sh
 	build/test-release-identity.sh
 	build/test-base-stamp.sh
