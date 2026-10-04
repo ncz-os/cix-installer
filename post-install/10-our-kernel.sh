@@ -45,6 +45,15 @@ set -euo pipefail
 INSTALLER_META=/usr/local/lib/cix-installer
 HERE="$(dirname "$0")"
 
+# Debian-kernel blocking policy (operator directive 2026-10-04). The apt
+# preferences pin MUST be installed before ANY apt operation -- including the
+# 24-apt-sources.sh call below, which runs `apt-get update` while the Debian
+# base repo is live. The `apt-get remove --purge` at the bottom stays as
+# belt-and-braces; this pin is the actual guarantee against apt re-pulling it.
+# shellcheck source=lib/kernel-purity.sh
+. "$HERE/lib/kernel-purity.sh"
+ncz_write_kernel_purity_pin
+
 # 2026-09-15: this hook had NO arch guard, the same bug class already
 # found and fixed on 10-amd64-kernel.sh's side (see that hook's own
 # header for the ARM64 mirror image of this incident). Being REQUIRED and
@@ -430,7 +439,7 @@ else
     rm -f "$INSTALLER_META/KVER_EDGE"
 fi
 
-for kver in "$KVER_NEXT"; do
+for kver in $KVER_NEXT; do
     [ -z "$kver" ] && continue
     if [ -f "/lib/modules/$kver/build/Makefile" ]; then
         echo "    headers OK for $kver (/lib/modules/$kver/build present — DKMS can rebuild)"
