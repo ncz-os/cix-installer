@@ -37,7 +37,7 @@ case "$VARIANT" in
 esac
 
 ASSETS=/usr/local/lib/cix-installer/assets/branding
-WALL_SRC=/usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg
+WALL_SRC=/usr/share/backgrounds/ncz/cygnus-26.10/cygnus-hero-edge-on.jpg
 
 install -d -m0755 /etc/greetd
 

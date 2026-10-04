@@ -328,10 +328,6 @@ if [ -z "$NCZ_DEB" ]; then
 fi
 echo "[45] installing required NCZ wallpaper pack: $(basename "$NCZ_DEB")"
 dpkg -i "$NCZ_DEB"
-# Default = the Maximilian backdrop (26.7 release wallpaper). Set after the
-# pack installs the image it points at.
-ln -sfn ncz-wallpaper-07-maximilian-blackhole-2k.jpg /usr/share/backgrounds/ncz/default.jpg
-
 CONTRIB_DEBS=$(compgen -G "$WALLPAPER_DEBS/*.deb" | grep -v "^$WALLPAPER_DEBS/ncz-wallpapers-ncz_" || true)
 if [ -n "$CONTRIB_DEBS" ]; then
     echo "[45] installing contributed Artist Pack(s):"
@@ -342,6 +338,18 @@ if [ -n "$CONTRIB_DEBS" ]; then
 else
     echo "[45] no contributed Artist Pack debs staged in $WALLPAPER_DEBS -- shipping NCZ + Bing + Singularity Default only"
 fi
+
+# Default = the Cygnus 26.10 hero (edge-on), from the Cygnus Artist Pack. The
+# pointer is set after the packs install the image it names, and a missing
+# image fails loudly: a 26.10 desktop without its release wallpaper is a defect.
+CYGNUS_DEFAULT=cygnus-26.10/cygnus-hero-edge-on.jpg
+if [ ! -f "/usr/share/backgrounds/ncz/$CYGNUS_DEFAULT" ]; then
+    echo "[45] ERROR: Cygnus default wallpaper /usr/share/backgrounds/ncz/$CYGNUS_DEFAULT missing -- ncz-wallpapers-cygnus-26.10_*.deb not staged/installed" >&2
+    echo "[45]        rebuild it: build/build-wallpaper-contrib-deb.sh cygnus-26.10" >&2
+    exit 1
+fi
+ln -sfn "$CYGNUS_DEFAULT" /usr/share/backgrounds/ncz/default.jpg
+echo "[45] default wallpaper -> $CYGNUS_DEFAULT"
 
 # Bing refresh. `fetch --if-stale` is cheap when the cache is fresh, so it runs
 # at every login and daily. It exits 75 while the network is down; the service
@@ -428,7 +436,11 @@ LEGACY_CONF="$CONFIG_HOME/ncz-wallpaper/collection"
 [ ! -r "$CONF" ] && CONF=$LEGACY_CONF
 COLLECTION=""
 [ -r "$CONF" ] && COLLECTION=$(tr -d " \t\r\n" < "$CONF" 2>/dev/null)
-[ -z "$COLLECTION" ] && COLLECTION=ncz
+# Default collection: the Cygnus Artist Pack (falls back to ncz if absent).
+if [ -z "$COLLECTION" ]; then
+    COLLECTION=ncz
+    /usr/local/bin/ncz-wallpaper-collections path cygnus-26.10 >/dev/null 2>&1 && COLLECTION=cygnus-26.10
+fi
 
 PIC=""
 PICK_STATUS=127

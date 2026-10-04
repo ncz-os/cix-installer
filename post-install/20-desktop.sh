@@ -953,8 +953,8 @@ accent-color='red'
 dark-mode=true
 theme-mode='dark'
 icon-theme='Singularity'
-background-picture-uri='file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg'
-recent-wallpapers=['file:///usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg']
+background-picture-uri='file:///usr/share/backgrounds/ncz/default.jpg'
+recent-wallpapers=['file:///usr/share/backgrounds/ncz/default.jpg']
 # Which apt source(s) the Desktop settings' Artist Pack browser trusts (see
 # post-install/49-artist-pack-browser.sh and packaging/singularity's
 # artist-pack-manager patch). This is the ONE place that list is set for
