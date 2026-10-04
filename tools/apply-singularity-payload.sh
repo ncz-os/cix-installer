@@ -1,51 +1,25 @@
 #!/bin/bash
 # apply-singularity-payload.sh -- sanctioned live-apply of a fresh
-# singularity-opt.tgz over /opt/singularity, WITHOUT dropping files that other
-# dpkg packages own.
+# singularity-opt.tgz over /opt/singularity WITHOUT dropping files other dpkg
+# packages own (O6N 2026-10-04).
 #
-# WHY THIS EXISTS (O6N, 2026-10-04)
-# ---------------------------------
-# The quick board recipe -- `mv /opt/singularity /opt/singularity.old && tar -C
-# / -xzf singularity-opt.tgz` -- is correct for payload FILES but wrong for the
-# tree: /opt/singularity is NOT owned solely by ncz-singularity-desktop.
-# ncz-screensavers-plugin owns lib/singularity/plugins/screensaver/{libscreensaver.so,
-# screensaver.plugin} and every ncz-wallpapers-* pack owns
-# share/singularity/wallpaper-collections/<pack>.{artistpack,collection}. A raw
-# swap deletes them (they are not in the tarball), so `dpkg -V` goes red, the
-# Settings "screensaver plugin" looks disabled and no artist packs appear.
-# Restoring them by hand from the backup worked, but a hand list is exactly the
-# thing that rots. This helper derives the restore set from the dpkg database
-# (`var/lib/dpkg/info/*.list`, the store `dpkg -S` reads) and then PROVES the
-# result with `dpkg -V` through build/verify-singularity-opt-owners.sh.
+# /opt/singularity is not owned solely by ncz-singularity-desktop:
+# ncz-screensavers-plugin owns lib/singularity/plugins/screensaver/* and every
+# ncz-wallpapers-* pack owns share/singularity/wallpaper-collections/. The raw
+# `mv /opt/singularity aside && tar -C / -xzf` recipe deletes those (they are
+# not in the tarball), so `dpkg -V` goes red and the plugin/artist packs vanish.
+# This helper derives the restore set from the dpkg database
+# (var/lib/dpkg/info/*.list, what `dpkg -S` reads) and proves the result with
+# `dpkg -V` via build/verify-singularity-opt-owners.sh.
 #
-# WHAT IT DOES
-#   1. tar-validates the payload (must carry opt/singularity/bin/singularity-desktop).
-#   2. records every file under /opt/singularity owned by a package OTHER than
-#      the payload package (ncz-singularity-desktop) -- database-driven.
-#   3. moves /opt/singularity aside to a timestamped backup (the revert target).
-#   4. extracts the payload.
-#   5. restores every recorded package-owned file from the backup.
-#   6. recompiles the /opt/singularity GSettings schemas (stale gschemas.compiled
-#      is the other half of the O6N regression).
-#   7. runs the ownership gate; FAILS LOUDLY (exit 1) if anything is missing.
-#   8. writes a revert note next to the backup.
+# Steps: validate the tarball; record package-owned files; back the tree up;
+# extract; restore those files; recompile the /opt/singularity schemas; run the
+# ownership gate (fails loudly); write a revert note. It NEVER restarts the
+# session and touches nothing outside /opt/singularity.
 #
-# It NEVER restarts the user's session/compositor (the O6N operator ran this over
-# a live session; the payload is read on next login). It also never touches
-# /lib, /usr, or any schema tree other than /opt/singularity.
-#
-# USAGE
-#   sudo tools/apply-singularity-payload.sh [PAYLOAD.tgz]
-#   sudo tools/apply-singularity-payload.sh --payload build/sinty-out/singularity-opt.tgz
-#
-#   --root DIR             apply under DIR instead of / (for tests/chroots)
-#   --payload FILE         payload tarball (default: build/sinty-out then assets/singularity)
-#   --require-shipping     also require the screensaver plugin + the five wallpaper packs
-#   --no-schema-compile    skip step 6 (tests only)
-#   --dry-run              validate + report, change nothing
-#   --yes                  do not prompt
-#
-# Exit 0 = payload applied and every package-owned file verifies clean.
+# USAGE: sudo tools/apply-singularity-payload.sh [PAYLOAD.tgz]
+#   --root DIR | --payload FILE | --require-shipping | --no-schema-compile
+#   --dry-run | --yes     Exit 0 = applied and every owner verifies clean.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -109,15 +83,11 @@ if ! tar tzf "$PAYLOAD" 2>/dev/null | grep -qx 'opt/singularity/bin/singularity-
     echo "[payload] FATAL: $PAYLOAD does not contain opt/singularity/bin/singularity-desktop -- refusing to apply" >&2
     exit 2
 fi
-echo "[payload] payload contains opt/singularity/bin/singularity-desktop"
-
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ncz-payload-apply.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
-# 2. package-owned restore set, straight from the dpkg database.
-#    Only files under /opt/singularity whose owning package is NOT the payload
-#    package. Paths are stored root-relative (opt/singularity/...).
+# 2. package-owned restore set from the dpkg database (not the payload pkg).
 OWNED_LIST="$WORK/package-owned.list"
 : > "$OWNED_LIST"
 if [ -d "$INFO" ]; then
@@ -141,8 +111,7 @@ if [ "$DRY" = 1 ]; then
     exit 0
 fi
 
-# 2b. interactive confirmation (skip with --yes). A live payload swap over a
-#     running session is operator-visible, so prompt unless explicitly told not to.
+# 2b. prompt unless --yes.
 if [ "$ASSUME_YES" != 1 ] && [ -t 0 ] && [ -t 1 ]; then
     printf '[payload] apply %s over %s? [y/N] ' "$PAYLOAD" "$TARGET"
     read -r _ans || _ans=""
@@ -189,8 +158,7 @@ if [ "$MISSING_IN_BACKUP" -gt 0 ]; then
     echo "[payload] WARN: $MISSING_IN_BACKUP recorded package-owned file(s) were already absent from the backup" >&2
 fi
 
-# 6. recompile the /opt/singularity schemas (stale gschemas.compiled was the
-#    second half of the O6N regression).
+# 6. recompile the /opt/singularity schemas (O6N stale cache).
 if [ "$DO_SCHEMA" = 1 ]; then
     SSD="$TARGET/share/glib-2.0/schemas"
     if [ -d "$SSD" ] && command -v glib-compile-schemas >/dev/null 2>&1; then
@@ -202,8 +170,7 @@ if [ "$DO_SCHEMA" = 1 ]; then
     fi
 fi
 
-# 6b. prove the compiled defaults are not stale (O6N: gschemas.compiled predated
-#     the overrides, so the shell read the stock dock/plugin list).
+# 6b. prove the compiled defaults are fresh.
 GATE="$REPO/build/verify-gsettings-effective-defaults.sh"
 if [ "$DO_SCHEMA" = 1 ] && [ -x "$GATE" ]; then
     if ! "$GATE" --schema-dir "$TARGET/share/glib-2.0/schemas"; then
@@ -224,19 +191,17 @@ fi
 # 8. revert note.
 RESTORE_NOTE="$BACKUP/REVERT.txt"
 cat > "$RESTORE_NOTE" <<REVERT
-apply-singularity-payload.sh -- revert note
-applied : $TS
-payload : $PAYLOAD
-backup  : $BACKUP
+apply-singularity-payload.sh -- revert note ($TS)
+payload: $PAYLOAD
+backup : $BACKUP
 
-To revert to the pre-apply /opt/singularity tree:
+Revert to the pre-apply tree:
     rm -rf '$TARGET'
     mv '$BACKUP' '$TARGET'
     glib-compile-schemas '$TARGET/share/glib-2.0/schemas'
 
-Package-owned files restored from the backup this run: $RESTORED
-The list is recorded at $BACKUP/NCZ-PACKAGE-OWNED-FILES.list.
+Restored $RESTORED package-owned file(s); list: $BACKUP/NCZ-PACKAGE-OWNED-FILES.list
 REVERT
 echo "[payload] revert note: $RESTORE_NOTE"
-echo "[payload] DONE: payload applied, ownership verified clean. The live session was NOT restarted -- log out/in to pick up the new shell."
+echo "[payload] DONE: ownership verified clean; session was NOT restarted (log out/in)."
 exit 0
