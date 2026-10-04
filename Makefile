@@ -142,7 +142,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-boot-speed
 
 all: image
 
@@ -491,6 +491,11 @@ gen-hooks-lists:
 test-platform:
 	@bash $(ROOT)/build/test-platform-lint.sh
 
+# boot-speed regression tests (docs/BOOT-SPEED.md): no Type=oneshot unit may
+# sit in multi-user.target's critical chain just to poll for the network.
+test-boot-speed:
+	@bash $(ROOT)/build/test-boot-speed.sh
+
 secretscan:
 	@bash $(ROOT)/build/secret-scan-gate.sh
 
@@ -570,6 +575,7 @@ parity:
 	build/test-no-software-render.sh
 	build/lint-no-software-render.sh
 	build/test-installer-screens.sh
+	build/test-boot-speed.sh
 	build/test-ncz-ui.sh
 	build/test-base-stamp.sh
 	build/test-reap-images.sh
