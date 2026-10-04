@@ -17,11 +17,11 @@
 #      rotator.
 #
 # Usage: build/build-wallpaper-contrib-deb.sh [pack-name]
-#        default pack: brandon-perlow
+#        default pack: cygnus-26.10
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PACK="${1:-brandon-perlow}"
+PACK="${1:-cygnus-26.10}"
 OUT="$ROOT/build/wallpaper-debs"
 ARTISTPACK_SOURCE_ROOT="${ARTISTPACK_SOURCE_ROOT:-${HOME:?}/Projects/artistpack/packs}"
 
@@ -56,10 +56,33 @@ case "$PACK" in
         CREDITS="  NCZ-OS: https://github.com/ncz-os"
         LONG=" The cosmic wallpaper set NCZ-OS ships by default: cinematic, interstellar
  gargantua, an M87 astrophotograph, a retro sci-fi poster, magnetar jets,
- Cygnus vacuum decay, and the Maximilian black hole backdrop.
+ and Cygnus vacuum decay.
  .
  Installing this package adds them to the NCZ wallpaper rotation. They are
  picked up automatically by ncz-wallpaper-rotate; no configuration is needed."
+        COPYRIGHT_BODY=" These images are original artwork produced for the NCZ-OS project.
+
+ The project:
+$CREDITS
+"
+        ;;
+    cygnus-26.10)
+        PKG="ncz-wallpapers-cygnus-26.10"
+        SRC="$ROOT/assets/branding/wallpaper/contrib/$PACK"
+        ARTISTPACK_SRC="$ARTISTPACK_SOURCE_ROOT/$PACK"
+        ART_SUBPATH="/$PACK"
+        AUTHOR="NCZ-OS Cygnus"
+        YEAR="2026"
+        BLURB="NCZ-OS 26.10 Cygnus wallpaper set (default)"
+        HOMEPAGE="https://gitlab.com/ncz-os/cix-installer"
+        CREDITS="  NCZ-OS: https://gitlab.com/ncz-os/cix-installer"
+        LONG=" Twelve 4K wallpapers of the NCZ-OS 26.10 Cygnus release: the edge-on
+ and reveal hero pieces plus ten black hole, merger, tidal disruption and
+ white hole studies rendered around the Cygnus theme.
+ .
+ This is the default Artist Pack: the desktop wallpaper and the wallpaper
+ rotator start from it. Installing it adds them to the NCZ wallpaper
+ rotation; no configuration is needed."
         COPYRIGHT_BODY=" These images are original artwork produced for the NCZ-OS project.
 
  The project:
@@ -195,7 +218,9 @@ for f in "$SRC"/*.jpg "$SRC"/*.png "$SRC"/*.svg; do
     # subdirectory for OTHER packs -- only the ncz-wallpaper-*.jpg files
     # belong in this pack.
     case "$PACK" in
-        ncz) [[ "$(basename "$f")" == ncz-wallpaper-*.jpg ]] || continue ;;
+        ncz) [[ "$(basename "$f")" == ncz-wallpaper-*.jpg ]] || continue
+             # 26.7 release art retired with the Cygnus rebrand.
+             [[ "$(basename "$f")" == ncz-wallpaper-07-maximilian-* ]] && continue ;;
     esac
     install -m 0644 "$f" "$ART_DIR/"
     count=$((count + 1))
