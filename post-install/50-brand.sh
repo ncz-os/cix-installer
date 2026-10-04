@@ -207,11 +207,21 @@ ISSUE_REFRESH
 cat > /etc/systemd/system/ncz-issue-refresh.service <<'ISSUE_UNIT'
 [Unit]
 Description=Fill in the real IP address on the login console banner
-After=network-online.target
-Wants=network-online.target
+# Type=simple ON PURPOSE, and no network-online ordering. This unit only
+# rewrites the cosmetic IP/SoC lines in /etc/issue, and ncz-issue-refresh
+# (installed just above) already polls for a real DHCP address itself (TRIES
+# 30 x 2 s). As a Type=oneshot wanted by multi-user.target it would hold
+# multi-user.target -- and therefore graphical.target, which is After= it --
+# until that poll gave up, i.e. up to ~60 s on a slow/absent DHCP server.
+# Type=simple lets the target complete while the banner refreshes in the
+# background, exactly as post-install/97-firstboot-report.sh does for its 30 s
+# sleep (see its [Unit] comment). Dropping the network-online dependency also
+# keeps the NetworkManager-wait-online budget off this unit's start.
+# It is safe because the helper is self-polling, not one-shot: if it runs
+# before DHCP it keeps retrying and fills the address in when the lease lands.
 
 [Service]
-Type=oneshot
+Type=simple
 ExecStart=/usr/local/bin/ncz-issue-refresh
 
 [Install]
