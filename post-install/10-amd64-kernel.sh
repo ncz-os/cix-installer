@@ -53,6 +53,15 @@ if [ "$NCZ_SYSTEM_ARCH" != "amd64" ]; then
     exit 0
 fi
 
+# Debian-kernel blocking policy (operator directive 2026-10-04). Installed
+# before ANY apt/dpkg dependency resolution so a package cannot drag the
+# Debian linux-image-amd64 meta back in. The `apt-get remove --purge` at the
+# bottom stays as belt-and-braces; this pin is the actual guarantee.
+HERE="$(dirname "$(readlink -f "$0")")"
+# shellcheck source=lib/kernel-purity.sh
+. "$HERE/lib/kernel-purity.sh"
+ncz_write_kernel_purity_pin
+
 ASSETS=/usr/local/lib/cix-installer/assets/kernel
 INSTALLED_KERNELS=0
 
