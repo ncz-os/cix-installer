@@ -589,22 +589,33 @@ chmod 0755 /usr/local/bin/ncz-wallpaper-daemon
 # wallpaper rotator was installed, correct, and had never once run.
 #
 # The session is systemd --user driven. The active user targets are basic,
-# default, paths, sockets and timers. graphical-session.target is NOT active,
-# and singularity-session.target -- which the session script tries to start --
-# does not exist as a unit at all. So default.target is the only reliable
-# anchor, and `systemctl --global enable` is what applies a user unit to every
-# account without needing a per-user enable at first login.
+# default, paths, sockets and timers. The .desktop file is still written: it
+# costs nothing and is the correct mechanism on desktops that DO honour it. It
+# is a fallback here, not the mechanism.
 #
-# The .desktop file is still written: it costs nothing and is the correct
-# mechanism on desktops that DO honour it. It is a fallback here, not the
-# mechanism.
+# RE-LOGIN BUG (item RRH, fixed 2026-10-04). The unit used to be
+# WantedBy=default.target with PartOf=graphical-session.target. A systemd --user
+# manager outlives a logout (lingering sessions keep it up), so default.target
+# stays active and its Wants are never re-pulled, while PartOf= only propagates
+# a STOP. Live on O6N: the unit was SIGTERMed at 16:08 when the first desktop
+# session ended and was NEVER started again -- the rotator was dead for 7h.
+# The session launcher
+# (/opt/singularity/bin/singularity-desktop-session; subprojects/
+# singularity-session) starts singularity-session.target on EVERY login and
+# stops it on logout, so that target is the anchor that actually fires per
+# login. 20-desktop.sh bridges /etc/systemd/user/singularity-session.target in
+# from the /opt payload (systemd --user does not search /opt). The unit is now
+# PartOf=/WantedBy= both singularity-session.target (the per-login caller) and
+# graphical-session.target (the standard anchor, so the unit still works under
+# other compositors whose session managers start that target themselves).
+# No polling, no ExecStartPre: the daemon's single-instance lock is unchanged.
 
 install -d /usr/lib/systemd/user
 cat > /usr/lib/systemd/user/ncz-wallpaper-rotator.service <<'UNIT'
 [Unit]
 Description=NCZ wallpaper rotator
-PartOf=graphical-session.target
-After=graphical-session.target
+PartOf=singularity-session.target graphical-session.target
+After=singularity-session.target graphical-session.target
 
 [Service]
 Type=simple
@@ -613,7 +624,8 @@ Restart=on-failure
 RestartSec=10
 
 [Install]
-WantedBy=default.target
+WantedBy=singularity-session.target
+WantedBy=graphical-session.target
 UNIT
 chmod 0644 /usr/lib/systemd/user/ncz-wallpaper-rotator.service
 

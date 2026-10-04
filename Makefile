@@ -594,6 +594,8 @@ parity:
 	build/test-panthor-vulkan.sh
 	build/test-installer-screens.sh
 	branding/cygnus/tests/test-refind-theme-config.sh
+	build/test-refind-rescue-promotion.sh
+	build/test-wallpaper-rotator-relogin.sh
 	build/test-boot-speed.sh
 	build/test-timesync-retry.sh
 	build/test-greeter-output-mode.sh
