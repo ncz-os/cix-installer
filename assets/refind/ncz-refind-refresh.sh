@@ -94,7 +94,9 @@ if [ ! -s "$RELEASE_FILE" ]; then
 fi
 # shellcheck disable=SC1090
 . "$RELEASE_FILE"
-NCZ_RELEASE_SHORT="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
+# Full release identity (product + version + codename) so the installed rEFInd
+# titles read "NCZ-OS 26.10 Cygnus" consistently with GRUB/.disk/info/motd.
+NCZ_RELEASE_SHORT="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
 
 if [ -z "$KVER_NEXT" ]; then
     echo "ERROR: no KVER_NEXT provided (edge kernel is the only supported channel)"

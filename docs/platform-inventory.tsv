@@ -141,6 +141,7 @@ build/kvm-install-gate-amd64.sh	amd64	-	amd64 KVM install gate
 build/kvm-install-gate-gpt.sh	common	-	architecture-generic KVM gate for raw GPT images
 build/kvm-install-gate.sh	sky1	-	arm64 ISO KVM install gate
 build/kvm-kernel-gate.sh	sky1	-	Sky1 kernel boot gate
+build/lib/release-identity.sh	common	-	shared release label + ISO volume-id derivation from release.conf
 build/lint-hook-arch-gates.sh	common	-	heuristic arch-gate lint for hooks (dual-arch parity)
 build/lint-platform.sh	common	-	platform-split lint (inventory, hook lists, deny patterns, guards, manifest divergence)
 build/logs/	sky1	-	Sky1 bitbake/KVM resume logs
@@ -183,6 +184,7 @@ build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
+build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test
 build/test-under-di-busybox.sh	common	-	d-i busybox runner
 build/tests/	common	-	offline pool tests
 build/validate-accelerators.sh	sky1	-	GPU/NPU/VPU binding validation

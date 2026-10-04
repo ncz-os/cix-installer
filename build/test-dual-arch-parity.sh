@@ -2,6 +2,11 @@
 # Fixture tests for build/lint-hook-arch-gates.sh and build/verify-dual-arch-parity.sh (both directions).
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# Fact fixtures carry the live release identity instead of a pinned old
+# codename, so the sample facts stay valid as release.conf evolves.
+ROOT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=../release.conf
+. "$ROOT/release.conf"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 PASS=0; FAILS=0
 expect() { # name want-rc cmd...
@@ -32,7 +37,7 @@ printf '10-ungated.sh\twhy\n99-gone.sh\twhy\n' > "$T/allow.tsv"
 expect "lint: a stale allowlist row fails" 1 lint
 expect "lint: the real tree passes" 0 "$HERE/lint-hook-arch-gates.sh"
 # ---- facts comparison
-good() { printf '[fact] arch=%s\n[fact] hostname_format_ok=1\n[fact] sudo_ok=1\n[fact] screensavers_version=%s\n[fact] screensaver_plugin_version=0.3.1\n[fact] bing_plugin_patched=1\n[fact] sensors_plugin_patched=1\n[fact] gpu_policy_ok=1\n[fact] ssh_password_ok=1\n[fact] release_version=26.7\n[fact] release_codename=Maximilian\n' "$1" "${2:-0.3.4}"; }
+good() { printf '[fact] arch=%s\n[fact] hostname_format_ok=1\n[fact] sudo_ok=1\n[fact] screensavers_version=%s\n[fact] screensaver_plugin_version=0.3.1\n[fact] bing_plugin_patched=1\n[fact] sensors_plugin_patched=1\n[fact] gpu_policy_ok=1\n[fact] ssh_password_ok=1\n[fact] release_version=%s\n[fact] release_codename=%s\n' "$1" "${2:-0.3.4}" "$NCZ_RELEASE_VERSION" "$NCZ_RELEASE_CODENAME"; }
 good arm64 > "$T/a.txt"; good amd64 > "$T/b.txt"
 expect "facts: matching targets pass" 0 "$HERE/verify-dual-arch-parity.sh" --facts "$T/a.txt" "$T/b.txt"
 good amd64 0.3.3 > "$T/b2.txt"
@@ -46,7 +51,7 @@ sed 's/gpu_policy_ok=1/gpu_policy_ok=0/' "$T/a.txt" > "$T/a7.txt"
 expect "facts: gpu policy not enforced on one arch fails" 1 "$HERE/verify-dual-arch-parity.sh" --facts "$T/a7.txt" "$T/b.txt"
 expect "facts: bad hostname fails" 1 "$HERE/verify-dual-arch-parity.sh" --facts "$T/a4.txt" "$T/b.txt"
 expect "facts: swapped arch files fail" 1 "$HERE/verify-dual-arch-parity.sh" --facts "$T/b.txt" "$T/a.txt"
-sed 's/release_codename=Maximilian/release_codename=Other/' "$T/b.txt" > "$T/b5.txt"
+sed "s/release_codename=$NCZ_RELEASE_CODENAME/release_codename=Other/" "$T/b.txt" > "$T/b5.txt"
 expect "facts: release codename drift fails" 1 "$HERE/verify-dual-arch-parity.sh" --facts "$T/a.txt" "$T/b5.txt"
 # ---- manifest parity fixtures
 R="$T/root"; mkdir -p "$R/manifests" "$R/build" "$R/post-install"
