@@ -575,3 +575,6 @@ parity:
 	build/test-reap-images.sh
 	REPO_ROOT=$(ROOT) bash build/test-amd64-kernel-classifier.sh
 	build/test-kernel-default-policy.sh
+	build/test-kernel-purity-pin.sh
+	build/test-kernel-purity-guards.sh
+	build/test-no-debian-kernel.sh

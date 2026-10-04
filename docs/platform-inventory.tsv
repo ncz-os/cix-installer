@@ -110,6 +110,8 @@ build/check-early-command-size.sh	common	-	preseed size gate
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
 build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
 build/verify-kernel-default-policy.sh	common	-	enforces the kernel default policy (default=7.2.8 release; arm64-only edge=7.3-rc5; amd64 has no edge)
+build/verify-no-debian-kernel.sh	common	-	fails closed if a Debian 7.1.x/linux-image-{arm64,amd64} kernel or a non-7.2.9 default is present in a rootfs/ESP/initrd/listing
+build/fixtures/	common	-	static fixture data for build gates
 build/check-preseed-mirror-sync.sh	common	-	preseed mirror vs release.conf gate
 build/component-prompt-gate.sh	common	-	interactive component prompt gate
 build/containers/	common	-	build container definitions
@@ -181,6 +183,9 @@ build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier t
 build/test-dkms-status-parse.sh	sky1	-	dkms status parser test for the kernel-debs headers postinst
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
+build/test-kernel-purity-pin.sh	common	-	apt simulation proving the Debian-kernel preferences pin blocks dependencies while NCZ's own kernel still installs
+build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debian-kernel guards + static test of the legacy amd64 installer-kernel swap
+build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kernel.sh (clean 7.2.9 trees pass; every Debian-kernel leak and wrong default fails)
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
 build/test-under-di-busybox.sh	common	-	d-i busybox runner
@@ -317,6 +322,7 @@ post-install/hooks.list.amd64	common	-	generated ordered hook list for platform 
 post-install/hooks.list.sky1-arm64	common	-	generated ordered hook list for platform sky1-arm64 (build/gen-hooks-lists.sh)
 post-install/lib/cuda-select.sh	amd64	nvidia-cuda	AMD64 GPU-family -> driver branch + CUDA toolkit selector sourced by 54-gpu-accel.sh and tested by build/test-amd64-cuda-gates.sh
 post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
+post-install/lib/kernel-purity.sh	common	-	shared Debian-kernel apt preferences pin sourced by both kernel install hooks
 post-install/ncz-os-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/run-all.sh	common	-	hook orchestrator; platform selection via hooks.list
 preseed/	common	-	installer helpers (hostname, disk chooser, diag console, rescan)

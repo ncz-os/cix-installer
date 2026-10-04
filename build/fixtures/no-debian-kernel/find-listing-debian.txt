@@ -1,0 +1,5 @@
+boot/vmlinuz-7.1.4-arm64
+boot/initrd.img-7.1.4-arm64
+boot/config-7.1.4-arm64
+lib/modules/7.1.4-arm64/modules.dep
+.
