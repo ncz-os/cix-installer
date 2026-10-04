@@ -180,6 +180,7 @@ build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test
 build/test-dual-arch-parity.sh	common	-	fixture tests for the parity gates
 build/test-hostname-suggest.sh	common	-	hostname algorithm tests
 build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier test
+build/test-dkms-status-parse.sh	sky1	-	dkms status parser test for the kernel-debs headers postinst
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
 build/test-late-union-sync.sh	common	-	late.sh union sync test
