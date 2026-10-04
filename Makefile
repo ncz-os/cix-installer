@@ -275,8 +275,8 @@ iso: image
 #       layer with "no kernel installed (edge failed)" because the
 #       vendor mirror had published rc5 while KVER said 7.2.8.
 #
-# Operator directive 2026-09-30 (the .66 incident): 7.2.8 must be the default
-# kernel on every arch. Gate the kernel-debs target with the kernel-default
+# Operator directive 2026-09-30 (the .66 incident), updated 2026-10-04: the 7.2.9
+# release kernel must be the default kernel on every arch. Gate the kernel-debs target with the kernel-default
 # policy verifier before doing anything else -- a misdirected
 # assets/kernel/mainline symlink (the .66 root cause) silently produces
 # wrong .debs here if this gate is skipped.

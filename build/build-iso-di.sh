@@ -204,7 +204,8 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
-# Operator directive 2026-09-30 (the .66 incident): 7.2.8 MUST be the default
+# Operator directive 2026-09-30 (the .66 incident), updated 2026-10-04: the 7.2.9
+# release kernel (amd64 7.2.9-2-t2-trixie, Sky1 7.2.9-sky1-ncz) MUST be the default
 # kernel on every arch; arm64-only edge for 7.3-rc5; amd64 has no 7.3 at all.
 # This script is the canonical place where assets/kernel/mainline and
 # assets/kernel/amd64-stable get copied into the installer payload, so the
