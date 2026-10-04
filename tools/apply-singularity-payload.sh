@@ -149,6 +149,7 @@ while IFS= read -r rel; do
     if [ -d "$src" ] && [ ! -L "$src" ]; then
         # dpkg .list files include directories. Recreate them; do NOT
         # recursively copy into an existing dir (cp -a src dst would nest).
+        [ -e "$dst" ] && [ ! -d "$dst" ] && rm -f "$dst"
         mkdir -p "$dst"
     elif [ -e "$src" ] || [ -L "$src" ]; then
         mkdir -p "$(dirname "$dst")"

@@ -36,7 +36,11 @@ hotfix_overlay_manifest() {
     local _stale _p
     {
         echo "# NCZ overlay manifest v1"
-        if [ -n "$prev_list" ] && [ -s "$prev_list" ]; then
+        if [ -n "$prev_list" ] && [ -s "$prev_list" ] && [ ! -d "$new_tree" ]; then
+            # Never diff against a missing tree: an empty "new" stream would
+            # mark every previous file stale and whiteout valid payload files.
+            echo "# new payload tree '$new_tree' missing; refusing to compute whiteouts"
+        elif [ -n "$prev_list" ] && [ -s "$prev_list" ]; then
             # previous-but-not-new = stale payload files. `|| true` matters:
             # callers run with `set -o pipefail` and grep exits 1 on no match.
             _stale="$(comm -23 "$prev_list" \

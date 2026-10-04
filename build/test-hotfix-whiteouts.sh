@@ -56,5 +56,9 @@ hotfix_overlay_manifest "" "$W/new" "$W/manifest-empty"
 grep -q '^whiteout' "$W/manifest-empty" && bad "empty: emitted a whiteout with no previous layer" || ok "empty: no whiteouts without a previous layer"
 grep -q '^# NCZ overlay manifest v1' "$W/manifest-empty" && ok "empty: header present" || bad "empty: header missing"
 
+# A missing new tree must NEVER be treated as "everything stale".
+hotfix_overlay_manifest "$PREV" "$W/does-not-exist" "$W/manifest-missing"
+grep -q '^whiteout' "$W/manifest-missing" && bad "missing tree: whiteouted valid files" || ok "missing tree: refuses to compute whiteouts"
+
 echo "hotfix-whiteout tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
