@@ -16,6 +16,11 @@
 # calls it the "install media parent disk"), the target is an NVMe namespace.
 set -uo pipefail
 
+# Derive the ISO volume label from release.conf -- never hardcode a codename
+# (this gate repacked the medium as NCZ_MAXIMILIAN through 26.7).
+# shellcheck source=lib/release-identity.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/release-identity.sh"
+
 ISO="${1:?usage: kvm-install-gate.sh /path/to.iso [workdir]}"
 WORK="${2:-/home/mini/cix-installer/build/kvm-install}"
 DISK_GB="${DISK_GB:-40}"
@@ -277,7 +282,7 @@ EFI_IMG_REL="boot/grub/efi.img"
 [ -f "$QEMU_STAGE/staging/$EFI_IMG_REL" ] || { echo "GATE FAIL: $EFI_IMG_REL missing from extracted ISO"; exit 2; }
 rm -f "$QEMU_ISO"
 xorriso -as mkisofs \
-    -r -V "NCZ_MAXIMILIAN" \
+    -r -V "$NCZ_ISO_VOLUME_ID" \
     -J -joliet-long \
     -cache-inodes \
     -e "$EFI_IMG_REL" \
