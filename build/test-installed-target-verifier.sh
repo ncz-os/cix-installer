@@ -170,6 +170,7 @@ m_ld_stamp()    { rm -f "$1/etc/.updated"; }
 m_leak_getty()  { mkdir -p "$1/etc/systemd/system/getty.target.wants"; ln -s /lib/systemd/system/serial-getty@.service "$1/etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service"; }
 m_leak_perf()   { mkdir -p "$1/etc/systemd/system/graphical.target.wants"; ln -s /etc/systemd/system/ncz-performance-mode.service "$1/etc/systemd/system/graphical.target.wants/ncz-performance-mode.service"; }
 m_leak_display() { mkdir -p "$1/etc/systemd/system/sysinit.target.wants"; ln -s /etc/systemd/system/cix-detect-display.service "$1/etc/systemd/system/sysinit.target.wants/cix-detect-display.service"; }
+m_leak_dracut()  { mkdir -p "$1/etc/dracut.conf.d"; printf 'add_drivers+=" linlon-dp trilin-dpsub "\n' > "$1/etc/dracut.conf.d/10-ncz-sky1.conf"; }
 m_amd64_strip() {   # what an x86 install does NOT have: everything Sky1
     rm -rf "$1/usr/lib/firmware" "$1/usr/src/aipu-6.2.0" "$1/usr/lib/aarch64-linux-gnu" "$1/usr/bin/load-modules.sh" \
            "$1/etc/mpv" "$1/usr/local/bin/ncz-sky1-audio-autoswitch" "$1/etc/systemd/user/ncz-sky1-audio-autoswitch.service"
@@ -181,6 +182,7 @@ m_id_arch_amd64() { m_amd64_strip "$1"; echo arm64 > "$1/usr/local/lib/cix-insta
 m_id_arch_arm()  { echo amd64 > "$1/usr/local/lib/cix-installer/BUILD_ARCH"; }
 m_amd64_leak_perf() { m_amd64_strip "$1"; m_leak_perf "$1"; }
 m_amd64_leak_display() { m_amd64_strip "$1"; m_leak_display "$1"; }
+m_amd64_leak_dracut() { m_amd64_strip "$1"; m_leak_dracut "$1"; }
 m_amd64_strip_leak() { m_amd64_strip "$1"; m_leak_getty "$1"; }
 m_amd64_strip_nohost() { m_amd64_strip "$1"; echo ncz-setup > "$1/etc/hostname"; }
 m_amd64_strip_nosudo() { m_amd64_strip "$1"; sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
@@ -264,6 +266,7 @@ run_case "amd64: no kernel module tree fails"                       1 m_amd64_st
 run_case "amd64: BUILD_ARCH of the other architecture fails"        1 m_id_arch_amd64
 run_case "amd64: ncz-performance-mode leak fails"                   1 m_amd64_leak_perf
 run_case "amd64: cix-detect-display leak fails"                     1 m_amd64_leak_display
+run_case "amd64: Sky1 dracut config leak fails"                     1 m_amd64_leak_dracut
 run_case "gpu: amd64 with a leaked Mali EGL entry fails"        1 m_gpu_egl_leak
 unset TEST_ARCH
 run_case "ssh: PasswordAuthentication no fails"                1 m_ssh_off
