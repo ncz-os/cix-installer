@@ -449,11 +449,12 @@ if [ "$WANT_SS" = 1 ]; then
             if exists "$SSD/gschemas.compiled"; then
                 SGT="$TMP/sinty-schemas"; mkdir -p "$SGT/installed" "$SGT/fresh"
                 fetch "$SSD/gschemas.compiled" "$SGT/installed/gschemas.compiled" || true
-                for n in $(lsnames "$SSD"); do
+                while IFS= read -r n; do
+                    [ -n "$n" ] || continue
                     case "$n" in
                         *.gschema.xml|*.gschema.override) fetch "$SSD/$n" "$SGT/fresh/$n" || true ;;
                     esac
-                done
+                done < <(lsnames "$SSD")
                 if [ -s "$SGT/installed/gschemas.compiled" ]; then
                     if glib-compile-schemas --strict "$SGT/fresh" >/dev/null 2>&1; then
                         for k in pinned-apps enabled-plugins; do

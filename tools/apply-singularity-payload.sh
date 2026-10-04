@@ -45,6 +45,10 @@ while [ $# -gt 0 ]; do
 done
 
 case "$ROOT" in /) : ;; *) ROOT="${ROOT%/}" ;; esac
+case "$ROOT" in
+    /*) : ;;
+    *) echo "apply-singularity-payload: --root must be an absolute path" >&2; exit 2 ;;
+esac
 [ -d "$ROOT" ] || { echo "apply-singularity-payload: root '$ROOT' does not exist" >&2; exit 2; }
 
 if [ -z "$PAYLOAD" ]; then
