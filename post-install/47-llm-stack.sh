@@ -82,21 +82,31 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # genuinely replaces it.
 TARGET_ARCH="$(dpkg --print-architecture 2>/dev/null || true)"
 if [ "$TARGET_ARCH" = "arm64" ]; then
-    echo "[47] architecture=$TARGET_ARCH: Sky1 Mali blob replaces Mesa Vulkan; purge is applicable"
+    # Keep mesa-vulkan-drivers. The Mali entry pins the vendor blob ICD with
+    # VK_DRIVER_FILES, so it does not interfere there, but the Panthor entry has
+    # no vendor Vulkan at all and needs Mesa's PanVK. Purging the package left
+    # Panthor with an empty ICD directory (O6N 2026-10-04); only the Vulkan
+    # build/dev packages (dev headers, shader compilers, validation layers) are
+    # removed. manifests/desktop.pkgs ships mesa-vulkan-drivers for exactly this.
+    echo "[47] architecture=$TARGET_ARCH: purging only the Vulkan build/dev stack (mesa-vulkan-drivers kept for PanVK)"
     NCZ_GPU_PURGE=""
-    for p in mesa-vulkan-drivers libvulkan-dev vulkan-validationlayers \
+    for p in libvulkan-dev vulkan-validationlayers \
              spirv-tools spirv-headers glslang-tools glslang-dev; do
         dpkg -l "$p" 2>/dev/null | grep -q "^ii" && NCZ_GPU_PURGE="$NCZ_GPU_PURGE $p"
     done
     if [ -n "$NCZ_GPU_PURGE" ]; then
-        echo "[47] purging GPU build stack (~242MB, unusable on this SoC):$NCZ_GPU_PURGE"
+        echo "[47] purging Vulkan build/dev stack (unusable on this SoC):$NCZ_GPU_PURGE"
         # shellcheck disable=SC2086
         DEBIAN_FRONTEND=noninteractive apt-get remove -y $NCZ_GPU_PURGE 2>&1 | tail -3 || \
             echo "[47] WARN: purge incomplete — continuing (non-fatal)"
         DEBIAN_FRONTEND=noninteractive apt-get autoremove -y 2>&1 | tail -2 || true
     else
-        echo "[47] GPU build stack already absent"
+        echo "[47] Vulkan build/dev stack already absent"
     fi
+    # Idempotent: guarantee the PanVK ICD is present even if the desktop layer
+    # did not install it, so the Panthor entry always has Vulkan.
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mesa-vulkan-drivers 2>&1 | tail -5 || \
+        echo "[47] WARN: mesa-vulkan-drivers install failed — continuing (non-fatal)"
 else
     echo "[47] architecture=${TARGET_ARCH:-unknown}: keeping mesa-vulkan-drivers; Mesa ICDs are required off arm64"
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mesa-vulkan-drivers 2>&1 | tail -5 || \

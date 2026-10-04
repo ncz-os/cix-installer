@@ -359,6 +359,7 @@ post-install/98-gpu-health.sh	common	-	never-software-render health check unit (
 assets/gpu/ncz-gpu-hw-present	common	-	shared hardware-GPU-present probe
 build/lint-no-software-render.sh	common	-	grep-deny for software-rendering settings
 build/test-no-software-render.sh	common	-	never-software-render fixture tests
+build/test-panthor-vulkan.sh	sky1	-	Panthor must keep the Mesa PanVK ICD (arm64 47-llm-stack purge regression)
 build/software-render-allowlist.tsv	common	-	software-render lint allowlist
 assets/singularity/patches/singularity-session/0001-session-no-software-fallback-with-gpu.patch	common	-	labwc-session: no software retry on a machine with a GPU
 
@@ -370,3 +371,4 @@ build/test-wallpaper-probe.sh	common	-	Bing helper offline probe test
 build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, chatter, blank screen)
 docs/installer-ux/	common	-	installer console before/after evidence
 build/test-timesync-retry.sh	common	-	regression tests for the timesyncd fast-retry drop-in + no time-sync gating of the greeter (docs/BOOT-SPEED.md)
+build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor per-run logs, signal names and core-limit regression
