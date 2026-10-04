@@ -416,7 +416,7 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 fi
 
-# NCZ-OS 26.7 GPU policy: 7.2 is the *only* graphical kernel.  It has two
+# NCZ-OS GPU policy: 7.2 is the *only* graphical kernel.  It has two
 # mutually exclusive DKMS driver choices.  The blacklist is part of each
 # boot contract, not a user-selectable modprobe accident:
 #   Mali DKMS       = blacklist Panthor
@@ -644,6 +644,26 @@ else
     echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
 fi
 
+# Cygnus 26.10 theme: per-resolution background (banner_scale noscale), selection
+# art and the Cygnus entry icon.  Staged under EFI/BOOT/themes/cygnus and pulled
+# in with an `include` line after the generated banner lines.  Optional: when
+# the asset dir is absent the generated NCZ banner/icon above stay in force.
+CYGNUS_SRC="$INSTALLER_META/assets/refind/cygnus"
+REFIND_THEME=""
+if [ -s "$CYGNUS_SRC/theme-1920x1080.conf" ] && [ -s "$CYGNUS_SRC/background-1920x1080.png" ]; then
+    rm -rf /boot/efi/EFI/BOOT/themes/cygnus
+    mkdir -p /boot/efi/EFI/BOOT/themes/cygnus
+    cp -r "$CYGNUS_SRC"/. /boot/efi/EFI/BOOT/themes/cygnus/
+    if [ -s "$CYGNUS_SRC/os_ncz.png" ]; then
+        install -m 0644 "$CYGNUS_SRC/os_ncz.png" /boot/efi/EFI/BOOT/ncz.png
+        REFIND_ICON="ncz.png"
+    fi
+    sh /boot/efi/EFI/BOOT/themes/cygnus/pick-theme.sh /boot/efi/EFI/BOOT/themes/cygnus \
+        || cp /boot/efi/EFI/BOOT/themes/cygnus/theme-1920x1080.conf /boot/efi/EFI/BOOT/themes/cygnus/theme.conf
+    REFIND_THEME="themes/cygnus/theme.conf"
+    echo "  rEFInd Cygnus theme installed → /boot/efi/EFI/BOOT/themes/cygnus"
+fi
+
 # Release policy: 7.2 Mali is the default graphical entry.  7.0.12 is always
 # an explicit console-only recovery choice; Panthor is an explicit experiment.
 if [ "$NEXT_AVAILABLE" = "1" ]; then
@@ -763,6 +783,7 @@ fi
     echo "resolution max"
     [ -n "$REFIND_BANNER" ] && echo "banner $REFIND_BANNER"
     [ -n "$REFIND_BANNER" ] && echo "banner_scale noscale"
+    [ -n "$REFIND_THEME" ] && echo "include $REFIND_THEME"
     echo "showtools shell,reboot,shutdown,firmware"
     echo "scanfor manual"
     echo "scan_all_linux_kernels false"

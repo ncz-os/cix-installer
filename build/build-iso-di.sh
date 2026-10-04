@@ -3523,6 +3523,10 @@ if [ -n "$_REFIND_BIN" ]; then
         _REFIND_ICONS="$ROOT/assets/refind/icons"
         echo "    refind: build/refind-bin/icons absent — using tracked assets/refind/icons"
     fi
+    if [ -d "$ROOT/assets/refind/cygnus" ]; then
+        cp -a "$ROOT/assets/refind/cygnus" "$EXTRA/assets/refind/"
+        echo "    refind: Cygnus theme staged ($(du -sh "$EXTRA/assets/refind/cygnus" | cut -f1))"
+    fi
     if [ -n "$_REFIND_ICONS" ]; then
         cp -a "$_REFIND_ICONS" "$EXTRA/assets/refind/"
         echo "    refind: icons/ staged ($(ls "$EXTRA/assets/refind/icons" | wc -l | tr -d ' ') files)"
