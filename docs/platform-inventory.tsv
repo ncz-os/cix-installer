@@ -357,4 +357,5 @@ build/ship-image.sh	common	-	publish a gated image (ARGONAS + operator Mac) and 
 build/test-wallpaper-probe.sh	common	-	Bing helper offline probe test
 build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, chatter, blank screen)
 docs/installer-ux/	common	-	installer console before/after evidence
-build/test-usb2-rescan-sky1-only.sh	common	-	regression tests: ncz-usb2-rescan is Sky1-only (hook lists, arm64-only package, unit Conditions, greetd drop-in)
+build/test-usb2-rescan-sky1-only.sh	common	-	regression tests: ncz-usb2-rescan is Sky1-only (hook lists, amd64 manifests, unit Conditions, arm64-only package)
+build/test-usb2-rescan-greetd.sh	common	-	regression tests: greetd drop-in tolerates an absent/condition-skipped ncz-usb2-rescan.service; bounded input probe stays
