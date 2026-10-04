@@ -364,7 +364,9 @@ sinty-out-sync:
 SINTY_DEBS_ARG := --debs-dir $(BUILD)/sinty-out
 
 usb-recovery-deb:
-	@if ! ls $(BUILD)/usb-recovery-deb/ncz-usb-recovery_*.deb >/dev/null 2>&1; then \
+	@if [ "$(ARCH)" != arm64 ]; then \
+		echo "[usb-recovery-deb] Sky1-only package; skipping on ARCH=$(ARCH)"; \
+	elif ! ls $(BUILD)/usb-recovery-deb/ncz-usb-recovery_*.deb >/dev/null 2>&1; then \
 		echo "[usb-recovery-deb] no package present; building it"; \
 		bash $(ROOT)/build/build-usb-recovery-deb.sh; \
 	else \
@@ -570,6 +572,7 @@ parity:
 	build/test-no-software-render.sh
 	build/lint-no-software-render.sh
 	build/test-installer-screens.sh
+	build/test-usb2-rescan-sky1-only.sh
 	build/test-ncz-ui.sh
 	build/test-base-stamp.sh
 	build/test-reap-images.sh

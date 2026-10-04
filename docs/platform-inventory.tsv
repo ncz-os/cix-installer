@@ -103,7 +103,7 @@ build/build-role-delta-mkosi.sh	common	-	mkosi role delta with ARCH parameter (a
 build/build-singularity-deb.sh	common	-	wraps the Singularity payload as a deb
 build/build-singularity.sh	mixed	-	Singularity payload build; arm64 default, amd64 container platform branch; TODO parametrize
 build/build-squashfs-layers.sh	common	-	shared layer builder; per-arch branches driven by ARCH (phase C: extract arch tables)
-build/build-usb-recovery-deb.sh	sky1	-	ncz-usb-recovery deb for the Sky1 USB2 bug
+build/build-usb-recovery-deb.sh	sky1	-	ncz-usb-recovery deb (Architecture: arm64) for the Sky1 USB2 bug; never published to amd64 mirrors
 build/build-vendor-mirror.sh	common	-	vendor mirror index regeneration
 build/build-wallpaper-contrib-deb.sh	common	-	wallpaper pack debs
 build/check-early-command-size.sh	common	-	preseed size gate
@@ -259,7 +259,7 @@ post-install/37-ntp-hostname.sh	common	-	hostname and timesyncd; generic
 post-install/38-recovery-container.sh	common	-	server nspawn recovery tier; generic
 post-install/39-usb-gpt-autofix.sh	common	-	GPT backup header heal on install media; generic
 post-install/40-claude-code.sh	common	-	npm CLI install; generic
-post-install/41-usb2-rescan.sh	sky1	-	Sky1 xhci USB2 companion bug workaround; installs ncz-usb-recovery; release branch self-gates it to arm64
+post-install/41-usb2-rescan.sh	sky1	-	Sky1 xhci USB2 companion bug workaround; installs ncz-usb-recovery; self-gates to arm64 and its unit carries ConditionArchitecture=arm64 + ConditionPathExistsGlob on the Sky1 xhci nodes
 post-install/43-hw-quirks.sh	mixed	-	rtl_btusb blacklist is Sky1 only; r8169/atlantic EEE-off and multipathd mask are generic; TODO split
 post-install/44-apple-vbt-spoof.sh	amd64	t2	rEFInd macOS spoof for Apple firmware VBT; Apple Macs only
 post-install/44-rtc-sync.sh	common	-	RTC localtime/hwclock sync; generic
@@ -357,3 +357,4 @@ build/ship-image.sh	common	-	publish a gated image (ARGONAS + operator Mac) and 
 build/test-wallpaper-probe.sh	common	-	Bing helper offline probe test
 build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, chatter, blank screen)
 docs/installer-ux/	common	-	installer console before/after evidence
+build/test-usb2-rescan-sky1-only.sh	common	-	regression tests: ncz-usb2-rescan is Sky1-only (hook lists, arm64-only package, unit Conditions, greetd drop-in)
