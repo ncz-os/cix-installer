@@ -60,6 +60,27 @@ if [ -z "$KVER_STABLE" ]; then
     exit 1
 fi
 
+# Operator directive 2026-10-04 (Cygnus 26.10 kernel purity): the default
+# rEFInd entry must load our 7.2.9 T2 kernel, never a Debian-archive kernel.
+# Reject the two shapes a Debian kernel can arrive in: an -rcN prerelease, and
+# a Debian-named/versioned kernel (versioned Debian kernels end in -amd64 and
+# the forky line is 7.1.x; NCZ's amd64 kernel ends in -t2-trixie). The
+# /etc/kernel/postinst.d classifier already filters /boot to *-t2-trixie*, but
+# this generator can be invoked with an explicit KVER, so fail closed here too.
+case "$KVER_STABLE" in
+    *-rc[0-9]*)
+        echo "ERROR: KVER_STABLE='$KVER_STABLE' is a release-candidate (-rcN); the amd64 stable line MUST be a release kernel (directive 2026-09-30)." >&2
+        echo "       Refusing to write an rEFInd menu that would boot -rc as the default." >&2
+        exit 1
+        ;;
+    *-amd64|7.1*)
+        echo "ERROR: KVER_STABLE='$KVER_STABLE' names a Debian-archive kernel (amd64/7.1.x);" >&2
+        echo "       the stable line MUST be the NCZ 7.2.9 T2 kernel (directive 2026-10-04)." >&2
+        echo "       Refusing to write an rEFInd menu that would boot Debian as the default." >&2
+        exit 1
+        ;;
+esac
+
 # Operator directive 2026-10-05: amd64 edge channel is pinned to 7.3.0-rc6,
 # the validated T2 kernel with the AER ANFE revert
 # (7.3.0-rc6-1-t2-edge-aerfix). A KVER_EDGE that is not that pinned line is
