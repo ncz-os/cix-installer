@@ -1,0 +1,5 @@
+boot/vmlinuz-7.2.9-2-t2-trixie
+boot/initrd.img-7.2.9-2-t2-trixie
+lib/modules/7.2.9-2-t2-trixie/modules.dep
+ncz-payload/assets/kernel/amd64-stable/linux-image-7.2.9-2-t2-trixie_7.2.9-2_amd64.deb
+ncz-payload/assets/kernel/amd64-stable/linux-headers-7.2.9-2-t2-trixie_7.2.9-2_amd64.deb
