@@ -5,9 +5,11 @@
     branding/cygnus/tools/gen-cygnus.py --check    # exit 1 if generated/ is stale
 
 tokens.json is the only file a person edits. Everything under generated/
-is derived here, so a palette change is one edit plus one run, and the
-contrast gate (tests/test_cygnus_contrast.py) runs --check to catch a
-forgotten regeneration.
+is derived here, plus the installable Singularity theme copy under
+assets/branding/singularity-theme/ that the ISO stages for the installer,
+so a palette change is one edit plus one run, and the contrast gate
+(tests/test_cygnus_contrast.py) runs --check to catch a forgotten
+regeneration.
 """
 
 from __future__ import annotations
@@ -19,6 +21,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "generated"
+# Installable copy of the Singularity theme/override. It lives under
+# assets/branding/ so both ISO build paths stage it wholesale into the
+# installer payload (build/build-squashfs-layers.sh and
+# build/build-iso-di.sh copy assets/branding/, directly or via their generic
+# assets loop) and post-install/20-desktop.sh installs it and writes the
+# override from it.
+ASSETS_OUT = ROOT.parents[1] / "assets" / "branding" / "singularity-theme"
 HEADER = (
     "Generated from branding/cygnus/tokens.json by tools/gen-cygnus.py. Do not edit."
 )
@@ -301,12 +310,15 @@ def singularity_style(t: dict, mode: str | None) -> str:
         f"/* Cygnus - Singularity theme, {name}. */",
         "/*",
         " * Colors below are Cygnus tokens under their own cygnus_* names, plus",
-        " * the libsingularity base names. A note on the base names: libsingularity",
-        " * loads its palette at GTK_STYLE_PROVIDER_PRIORITY_USER (800) and user",
-        " * themes at APPLICATION+5/+6 (605/606), so a base name redefined here",
-        " * only wins once the theme is loaded above the base (proposed upstream",
-        " * fix: branding/cygnus/singularity/UPSTREAM-NOTE.md). Everything that",
-        " * uses cygnus_* names or derives from @accent_color works either way.",
+        " * the libsingularity base names. libsingularity loads its palette at",
+        " * GTK_STYLE_PROVIDER_PRIORITY_USER (800) and, unpatched, user themes at",
+        " * APPLICATION+5/+6 (605/606) -- below the base, so a base name redefined",
+        " * here would only win with the NCZ overlay patch that raises the theme to",
+        " * USER+3/+4 (assets/singularity/patches/libsingularity/",
+        " * 0002-user-theme-loads-above-base.patch; proposed upstream to Mirko",
+        " * Brombin, not filed by this task -- branding/cygnus/singularity/",
+        " * UPSTREAM-NOTE.md). Everything that uses cygnus_* names or derives from",
+        " * @accent_color works with or without the patch.",
         " */",
     ]
     if mode is None:
@@ -321,14 +333,25 @@ def singularity_style(t: dict, mode: str | None) -> str:
             "    outline: 2px solid alpha(@cygnus_focus, 0.95);",
             "    outline-offset: 2px;",
             "}",
-            ".sidebar-item:selected { background-color: alpha(@accent_color, 0.26); }",
+            "/* Selected rows in the shell's navigation sidebars: the base styles",
+            " * .navigation-sidebar row:selected and .sidebar-row:selected; there is",
+            " * no .sidebar-item class in libsingularity/singularity-shell. */",
+            ".navigation-sidebar row:selected,",
+            ".sidebar-row:selected { background-color: alpha(@accent_color, 0.26); }",
             ".singularity entry:focus-within { border-color: @cygnus_focus; }",
-            ".singularity link, .singularity .link { color: @cygnus_link; }",
+            "/* GtkLinkButton renders the `link` node; there is no `.link` class. */",
+            ".singularity link { color: @cygnus_link; }",
             ".singularity progressbar > trough > progress {",
             "    background-image: linear-gradient(to right, @accent_color, @cygnus_cyan);",
             "}",
-            ".quick-setting-tile:checked { box-shadow: inset 0 0 0 1px alpha(@cygnus_cyan, 0.45); }",
-            ".workspace-preview:selected { box-shadow: 0 0 0 2px @accent_color; }",
+            "/* QuickSettingTile is a plain Button that marks its on state with the",
+            " * .active class (and .state-partial for the middle of a 3-state tile);",
+            " * it never sets :checked, which the base uses for GtkSwitch instead. */",
+            ".quick-setting-tile.active { box-shadow: inset 0 0 0 1px alpha(@cygnus_cyan, 0.45); }",
+            "/* Overview cards mark the current workspace with the .selected CLASS,",
+            " * not the :selected pseudo-class (see workspace_overview.vala); the",
+            " * base styles .workspace-preview.selected .workspace-clipper. */",
+            ".workspace-preview.selected { box-shadow: 0 0 0 2px @accent_color; }",
             "",
         ]
         return "\n".join(out) + "\n"
@@ -358,9 +381,13 @@ def gschema_override(t: dict) -> str:
     accents = ", ".join(f"'{c}'" for c in s["custom-accent-colors"])
     return (
         f"# {HEADER}\n"
-        "# PROPOSED keys for the [dev.sinty.desktop] group of NCZ's existing\n"
-        "# 99-ncz-defaults.gschema.override (written by post-install/20-desktop.sh).\n"
-        "# Not applied by this branch: see branding/cygnus/INTEGRATION.md.\n"
+        "# Cygnus 26.10 default keys for the [dev.sinty.desktop] group. This is the\n"
+        "# authoritative definition of the accent + theme defaults: post-install/\n"
+        "# 20-desktop.sh consumes it as assets/branding/singularity-theme/\n"
+        "# 99-ncz-cygnus.gschema.override, starts the installed\n"
+        "# 99-ncz-defaults.gschema.override from it, and appends its non-Cygnus\n"
+        "# defaults into the same group. A token change therefore flows through to\n"
+        "# the installed override with no hand-copied hex anywhere.\n"
         "[dev.sinty.desktop]\n"
         f"accent-color='{s['accent-color']}'\n"
         f"custom-accent-color='{s['custom-accent-color']}'\n"
@@ -371,15 +398,38 @@ def gschema_override(t: dict) -> str:
     )
 
 
+def singularity_theme_files(t: dict) -> dict[str, str]:
+    """The installable Cygnus Singularity theme tree, rooted at OUT."""
+    return {
+        "Cygnus/index.theme": singularity_index_theme(t),
+        "Cygnus/singularity/style.css": singularity_style(t, None),
+        "Cygnus/singularity/style-dark.css": singularity_style(t, "dark"),
+        "Cygnus/singularity/style-light.css": singularity_style(t, "light"),
+        "Cygnus/gtk-4.0/gtk.css": gtk_named(t, "light"),
+        "Cygnus/gtk-4.0/gtk-dark.css": gtk_named(t, "dark"),
+    }
+
+
+def installer_outputs(t: dict) -> dict[str, str]:
+    """Files staged under assets/branding/singularity-theme/ for the installer.
+
+    post-install/20-desktop.sh installs Cygnus/ to /usr/share/themes/Cygnus
+    (a libsingularity theme search dir) and uses the override as the base of
+    the packaged 99-ncz-defaults.gschema.override.
+    """
+    return {
+        **singularity_theme_files(t),
+        "99-ncz-cygnus.gschema.override": gschema_override(t),
+    }
+
+
 def outputs(t: dict) -> dict[str, str]:
     return {
-        "singularity/Cygnus/index.theme": singularity_index_theme(t),
-        "singularity/Cygnus/singularity/style.css": singularity_style(t, None),
-        "singularity/Cygnus/singularity/style-dark.css": singularity_style(t, "dark"),
-        "singularity/Cygnus/singularity/style-light.css": singularity_style(t, "light"),
-        "singularity/Cygnus/gtk-4.0/gtk.css": gtk_named(t, "light"),
-        "singularity/Cygnus/gtk-4.0/gtk-dark.css": gtk_named(t, "dark"),
-        "singularity/99-ncz-cygnus.gschema.override.proposed": gschema_override(t),
+        **{
+            f"singularity/{rel}": text
+            for rel, text in singularity_theme_files(t).items()
+        },
+        "singularity/99-ncz-cygnus.gschema.override": gschema_override(t),
         "css/cygnus.css": css_vars(t),
         "gtk/cygnus-dark.css": gtk_named(t, "dark"),
         "gtk/cygnus-light.css": gtk_named(t, "light"),
@@ -404,20 +454,27 @@ def main() -> int:
     ap.add_argument("--check", action="store_true", help="fail if generated/ differs")
     a = ap.parse_args()
     t = json.loads((ROOT / "tokens.json").read_text())
+    repo = ROOT.parents[1]
     stale = []
-    for rel, text in outputs(t).items():
-        p = OUT / rel
-        if a.check:
-            if not p.exists() or p.read_text() != text:
-                stale.append(rel)
-            continue
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(text)
+    written = 0
+    for root, mapping in ((OUT, outputs(t)), (ASSETS_OUT, installer_outputs(t))):
+        for rel, text in mapping.items():
+            p = root / rel
+            if a.check:
+                if not p.exists() or p.read_text() != text:
+                    stale.append(str(p.relative_to(repo)))
+                continue
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text)
+            written += 1
     if stale:
         print("stale:", *stale, sep="\n  ")
         return 1
     if not a.check:
-        print(f"wrote {len(outputs(t))} files under {OUT.relative_to(ROOT.parents[1])}")
+        print(
+            f"wrote {written} files under {OUT.relative_to(repo)} and "
+            f"{ASSETS_OUT.relative_to(repo)}"
+        )
     return 0
 
 

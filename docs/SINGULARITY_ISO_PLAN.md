@@ -47,7 +47,7 @@ Replaces the XFCE install with:
 1. Install Singularity runtime deps offline from `/cdrom` pool (as today, new package list).
 2. Extract `assets/singularity/singularity-opt.tgz` → `/opt/singularity`; fix perms; run `ldconfig`.
 3. Install `/usr/local/bin/ncz-gpu-env` (Mali branch: **no** `__EGL_VENDOR_LIBRARY_FILENAMES` pin — that regression blackened libmali; Panthor branch keeps mesa vendor), `/usr/local/bin/ncz-singularity` (sources ncz-gpu-env; `/opt/singularity` on PATH/XDG_DATA_DIRS/LD_LIBRARY_PATH; `TERMINAL=foot`), `/usr/share/wayland-sessions/singularity.desktop`.
-4. Singularity theme with the **corner-hint `opacity:0`** fix (kills the stuck "Overview Super+Space" pill) + **red accent** default (`dev.sinty.desktop accent-color=red`) as a packaged gschema override; NCZ **Maximilian** wallpaper default (`background-picture-uri` + swaybg autostart).
+4. Singularity theme with the **corner-hint `opacity:0`** fix (kills the stuck "Overview Super+Space" pill) + **Cygnus accent** default (`dev.sinty.desktop accent-color='custom'`, `custom-accent-color='#D6208C'`, `singularity-theme='Cygnus'`) as a packaged gschema override; the 26.7 line shipped a red accent (`accent-color='red'`) before the Cygnus 26.10 rebrand. NCZ **Maximilian** wallpaper default (`background-picture-uri` + swaybg autostart).
 5. **libexec fix** — portal/polkit backends live in `/opt/singularity/libexec`; ship the session-script/exec-path fix (upstream PR `10-pr-libexec-path`) so they resolve.
 6. NCZ app `.desktop` launchers rewritten `Exec=foot …` (not xterm); ensure NCZ `.desktop` dirs on the session `XDG_DATA_DIRS`; ship the NCZ hicolor icons.
 7. Install `foot` + `xsettingsd`.

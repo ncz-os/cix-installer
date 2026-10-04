@@ -2,12 +2,15 @@
 /* Cygnus - Singularity theme, style-dark.css. */
 /*
  * Colors below are Cygnus tokens under their own cygnus_* names, plus
- * the libsingularity base names. A note on the base names: libsingularity
- * loads its palette at GTK_STYLE_PROVIDER_PRIORITY_USER (800) and user
- * themes at APPLICATION+5/+6 (605/606), so a base name redefined here
- * only wins once the theme is loaded above the base (proposed upstream
- * fix: branding/cygnus/singularity/UPSTREAM-NOTE.md). Everything that
- * uses cygnus_* names or derives from @accent_color works either way.
+ * the libsingularity base names. libsingularity loads its palette at
+ * GTK_STYLE_PROVIDER_PRIORITY_USER (800) and, unpatched, user themes at
+ * APPLICATION+5/+6 (605/606) -- below the base, so a base name redefined
+ * here would only win with the NCZ overlay patch that raises the theme to
+ * USER+3/+4 (assets/singularity/patches/libsingularity/
+ * 0002-user-theme-loads-above-base.patch; proposed upstream to Mirko
+ * Brombin, not filed by this task -- branding/cygnus/singularity/
+ * UPSTREAM-NOTE.md). Everything that uses cygnus_* names or derives from
+ * @accent_color works with or without the patch.
  */
 @define-color cygnus_focus #2ED8F0;
 @define-color cygnus_link #8BEBF8;
