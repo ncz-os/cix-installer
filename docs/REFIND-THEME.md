@@ -1,0 +1,114 @@
+# NCZ-OS Cygnus rEFInd theme: one 1080p background, `banner_scale fillscreen`
+
+## The bug (O6N, 2026-10-04)
+
+The operator photo showed the installed rEFInd menu cropped/zoomed. O6N has a
+4K panel: the DRM connector `card0-DP-2` reports a `3840x2160` mode. The old
+theme ran `pick-theme.sh`, which read *that* mode and installed
+`background-3840x2160.png` with `banner_scale noscale`, while `refind.conf` said
+`resolution max`.
+
+`resolution max` selects the highest **firmware GOP** mode, not the DRM mode.
+On O6N the GOP mode rEFInd actually gets is ~1920 wide. A 3840x2160 image drawn
+`noscale` does not fit, so rEFInd keeps only part of it:
+
+- `refind/screen.c` `BltClearScreen()` calls `egCropImage(Banner, 0, 0, UGAWidth, UGAHeight)`
+  when a `noscale` banner is larger than the screen -- a **top-left crop**.
+- The OS cannot read the GOP mode rEFInd will use; probing `/sys/class/drm`
+  measures a different display pipeline, which is exactly how the two sizes got
+  out of sync.
+
+Measured in the QEMU harness: the shipped 4K background at a 1920x1080 GOP is
+the top-left crop (mean-absolute-difference ~1.0 from the crop, ~45 from a
+stretch), i.e. the menu is cut off. Decoding a 3840x2160 PNG in firmware is also
+slower than a 1920x1080 one, which matches the operator's "longer boot" report.
+
+## The design
+
+One background, `assets/refind/cygnus/background-1920x1080.png`, drawn with:
+
+```
+banner themes/cygnus/background-1920x1080.png
+banner_scale fillscreen
+```
+
+`banner_scale fillscreen` makes rEFInd scale the banner to the **exact** GOP
+size at boot:
+
+- `refind/screen.c` `BltClearScreen()` calls
+  `egScaleImage(Banner, UGAWidth, UGAHeight)` whenever the banner size differs
+  from the screen size.
+- `libeg/image.c` `egScaleImage()` writes every output pixel from a bilinear
+  sample of the source at `NewWidth x NewHeight` -- a true stretch to fill, with
+  **no crop** and no uncovered border, at any GOP mode.
+
+There is deliberately no `resolution` line in the theme. The generated
+`refind.conf` keeps `resolution max`, so rEFInd still picks the mode the
+firmware offers; the theme just covers whatever it gets.
+
+### Why not the alternatives
+
+- **`banner_scale noscale` + a single background** -- at a GOP mode smaller
+  than 1920x1080 (e.g. 1280x800) `noscale` crops the top-left corner (above).
+  It cannot be right at every mode.
+- **Pinning `resolution 1920 1080`** -- on a UEFI system where 1920x1080 is not
+  a GOP mode, `libeg/screen.c` `egSetScreenSize()` prints
+  `Error setting graphics mode 1920 x 1080; ... Available modes are:` and uses
+  the default mode. On a T2 Mac with only 16:10 modes that is boot-screen error
+  text. It is not correct at *any* GOP mode.
+
+### Accepted trade-off: aspect stretch on non-16:9 panels
+
+The single background is 16:9. `fillscreen` scales width and height
+independently, so on a 16:10 GOP (1280x800, 1920x1200, a T2 Mac at 16:10) the
+art is stretched vertically by ~11% and on a 5:4/4:3 panel by more. That is
+accepted explicitly: it is uniform, only affects the background art (selection
+art, icons and text keep their own proportions), and no menu content is ever cut
+off or hidden behind an error screen. Panels in the field are 16:9 or 16:10.
+
+## Assets
+
+`assets/refind/cygnus/` (and the mirrored source `branding/cygnus/refind/` for
+the configs) ships only what this design needs:
+
+| File | Role |
+|---|---|
+| `background-1920x1080.png` | the single 1920x1080 export (approved blob) |
+| `theme.conf` | `banner` + `banner_scale fillscreen` + selection art |
+| `refind.conf.snippet` | the `include themes/cygnus/theme.conf` line |
+| `selection_big.png` / `selection_small.png` | rEFInd selection tiles (144/64 px, unchanged) |
+| `os_ncz.png` | the NCZ entry icon (installed as `ncz.png`, unchanged) |
+
+`pick-theme.sh`, `theme-{1920x1080,2560x1440,3840x2160}.conf` and
+`background-{2560x1440,3840x2160}.png` were removed; the 2K/4K masters stay on
+ARGONAS. `branding/cygnus/tools/make-cygnus-art.py refind` now exports only
+1920x1080.
+
+Both `assets/refind/ncz-refind-refresh.sh` (arm64) and
+`assets/refind/ncz-refind-refresh-amd64.sh` copy the theme directory verbatim and
+add `include themes/cygnus/theme.conf` after the generated banner lines, so the
+theme overrides the fallback `banner ncz-banner.png` / `banner_scale noscale`
+pair. Every default/rescue/entry/icon path is unchanged.
+
+## Proof
+
+`branding/cygnus/tests/test-refind-theme.sh` boots the real shipped rEFInd
+binaries in QEMU and screenshots the menu at each resolution, then checks each
+frame against the 1080p background stretched to that size. A crop or a bright
+letterbox band fails the run.
+
+Static design assertions live in
+`branding/cygnus/tests/test-refind-theme-config.sh` (also run by `make parity`).
+
+QEMU results (2026-10-04, mean-absolute-difference over a 160x90 BOX downsample;
+correct render `<3.3`, top-left crop `>46`):
+
+| Mode | aa64 MAD (stretch) | x64 MAD (stretch) | MAD (top-left crop) |
+|---|---|---|---|
+| 1920x1080 | 1.23 | 1.42 | n/a (bg == screen) |
+| 2560x1440 | 2.91 | 3.24 | n/a (bg < screen) |
+| 1280x800 (16:10) | 2.78 | 3.07 | 46.2 / 46.4 |
+| 1920x1200 (16:10) | 1.42 | 1.59 | n/a (bg == screen height) |
+
+No crop, and the only distortion is the explicitly accepted uniform 16:9 -> 16:10
+stretch. Selection art and icons are unchanged.

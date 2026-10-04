@@ -579,7 +579,10 @@ parity:
 	build/verify-dual-arch-parity.sh
 	build/test-no-software-render.sh
 	build/lint-no-software-render.sh
+	build/test-singularity-supervisor-forensics.sh
+	build/test-panthor-vulkan.sh
 	build/test-installer-screens.sh
+	branding/cygnus/tests/test-refind-theme-config.sh
 	build/test-boot-speed.sh
 	build/test-timesync-retry.sh
 	build/test-ncz-ui.sh
