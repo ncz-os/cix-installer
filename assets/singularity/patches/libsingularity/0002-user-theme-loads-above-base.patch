@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 4 Oct 2026 12:00:00 -0400
+Subject: [PATCH] style: load user themes above the built-in base
+
+A user theme's singularity/style.css is loaded at
+GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 5 and its dark/light variant at
++ 6, which is BELOW the built-in libsingularity base palette at
+GTK_STYLE_PROVIDER_PRIORITY_USER (800). The theme template documents that
+"this file is loaded above the built-in libsingularity base, so any rule
+here overrides the default Singularity look", but at the current
+priorities a theme can only ADD properties and use its own named colors;
+it cannot override a base named color (@window_bg, @surface_bg,
+@text_color, ...) or any property the base already sets, because a named
+color resolves from the highest-priority provider that defines it.
+
+Load the user theme at USER + 3 and its variant at USER + 4, above the
+base/accent/recolor providers, so a theme can also opt into overriding
+named colors and base properties, as documented. Themes that only derive
+from @accent_color are unaffected (a higher priority does not change what
+a rule that already wins paints).
+
+Not filed upstream by this task: the same change is proposed to Mirko
+Brombin (upstream maintainer); carried here as an NCZ overlay patch until
+it lands upstream.
+---
+ src/style/style_manager.vala | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/style/style_manager.vala b/src/style/style_manager.vala
+index 0976170..5139330 100644
+--- a/src/style/style_manager.vala
++++ b/src/style/style_manager.vala
+@@ -766,9 +766,11 @@ namespace Singularity.Style {
+          *
+          * Searches standard theme directories for a directory named
+          * `theme_name` containing `singularity/style.css`.  The CSS is loaded
+-         * at priority 605 (above the built-in base at 600).  If the theme also
+-         * provides `singularity/style-light.css` it will be swapped in/out when
+-         * apply_color_scheme is called.
++         * at priority GTK_STYLE_PROVIDER_PRIORITY_USER + 3 (803), above the
++         * built-in base at USER (800), so the theme can override base named
++         * colours and properties as the theme template documents.  If the theme
++         * also provides `singularity/style-light.css` it will be swapped in/out
++         * when apply_color_scheme is called (at USER + 4).
+          *
+          * Pass an empty string to unload any previously loaded user theme and
+          * revert to the built-in default look.
+@@ -806,7 +808,7 @@ namespace Singularity.Style {
+                 StyleContext.add_provider_for_display(
+                     Gdk.Display.get_default(),
+                     user_theme_provider,
+-                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 5
++                    Gtk.STYLE_PROVIDER_PRIORITY_USER + 3
+                 );
+             } catch (Error e) {
+                 warning("StyleManager: failed to load user theme '%s': %s", theme_name, e.message);
+@@ -837,7 +839,7 @@ namespace Singularity.Style {
+                 StyleContext.add_provider_for_display(
+                     Gdk.Display.get_default(),
+                     user_theme_variant_provider,
+-                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 6
++                    Gtk.STYLE_PROVIDER_PRIORITY_USER + 4
+                 );
+             } catch (Error e) {
+                 warning("StyleManager: failed to load user theme variant: %s", e.message);
+-- 
+2.53.0
+

@@ -20,11 +20,14 @@ assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
 assets/audio/	sky1	-	Sky1 audio autoswitch (ncz-sky1-audio-autoswitch)
 assets/branding/	common	-	logos, icon theme, wallpapers, quotes
+assets/branding/singularity-theme/	common	-	installable Cygnus Singularity theme + generated gschema override (staged by both ISO build paths)
 # 2026-09-30: Cygnus 26.10 branding tree (merged from feat/cygnus-26-10-2026-09-30) --
 # theme assets + generators + generated consumer files (gtk/plymouth/newt/css/screensaver
 # palette/terminal palettes/tokens.tsv). All platform-neutral; no sky1/cixmini/t2/nvidia
 # tokens inside.
 branding/cygnus/	common	-	Cygnus 26.10 branding tree (theme assets + generators + generated consumer files)
+branding/cygnus/generated/singularity/99-ncz-cygnus.gschema.override	common	-	generated Cygnus accent/theme gschema block consumed by 20-desktop.sh
+branding/cygnus/tests/test_cygnus_singularity.py	common	-	Cygnus Singularity theme/accent integration gate
 assets/cix-c-shims/	sky1	-	CIX aipu ioctl shim source
 assets/cix-deb-repo.gpg	sky1	-	CIX vendor apt repo key
 assets/cix-debs/	sky1	-	CIX closed-source userspace debs
@@ -361,6 +364,7 @@ build/lint-no-software-render.sh	common	-	grep-deny for software-rendering setti
 build/test-no-software-render.sh	common	-	never-software-render fixture tests
 build/software-render-allowlist.tsv	common	-	software-render lint allowlist
 assets/singularity/patches/singularity-session/0001-session-no-software-fallback-with-gpu.patch	common	-	labwc-session: no software retry on a machine with a GPU
+assets/singularity/patches/libsingularity/0002-user-theme-loads-above-base.patch	common	-	NCZ overlay: load user themes above the base palette (proposed upstream, not filed)
 
 build/test-base-stamp.sh	common	-	base.squashfs reuse stamp tests
 build/reap-images.sh	common	-	image reaping policy script
