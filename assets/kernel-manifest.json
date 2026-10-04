@@ -1,38 +1,38 @@
 {
-  "generated_utc": "2026-09-28T04:45:01Z",
+  "generated_utc": "2026-10-03T23:59:54Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.2+r277_arm64.deb",
-      "sha256": "9c910eac12920807a70d613ae3b29d825afab8976c7dad1dc208b3e5400a463d"
+      "file": "build/kernel-debs/cixmini-boot_1.2+r280_arm64.deb",
+      "sha256": "7ad0838619befd28d1cdb2141411ea1c635aa9aed5c5a61951155c374c6fd583"
     },
     {
-      "file": "build/kernel-debs/linux-headers-cixmini_7.2.8-sky1-ncz+r277_arm64.deb",
-      "sha256": "b92dab2d6754fcc28b6199aad3acdec7f0822335b0484f6f058483daa288103f"
+      "file": "build/kernel-debs/linux-headers-cixmini_7.2.9-sky1-ncz+r280_arm64.deb",
+      "sha256": "21f5bd47f57ae17405178b1efe8a8b88826b1d8e94eda447615aae17c7b5b813"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini_7.2.8-sky1-ncz+r277_arm64.deb",
-      "sha256": "b4286f9efeb297d77184941463819fbb98e0e979aecf034886c91003f7829d71"
+      "file": "build/kernel-debs/linux-image-cixmini_7.2.9-sky1-ncz+r280_arm64.deb",
+      "sha256": "2fe9925808355596919b42f44ceb8096f78b62788ff6bb296c941cb9b50e66ab"
     }
   ],
   "schema": 1,
   "variants": {
     "mainline": {
       "config": {
-        "file": "assets/kernel/mainline/config-7.2.8-sky1-ncz",
-        "sha256": "b71c02c0522140f4a23ff7f03516d29b95cac38acf493dade4322eaac9bd4cd1"
+        "file": "assets/kernel/mainline/config-7.2.9-sky1-ncz",
+        "sha256": "8efae7fb7f083f8d7e496707444690a3c47b8d4d52ce5bd5461eb4361e864d69"
       },
       "dir": "assets/kernel/mainline",
       "image": {
         "file": "assets/kernel/mainline/Image-cixmini.bin",
-        "sha256": "59f7bbc9b0fc547146442d73da6aaea03e6041f3b6a27771cf6aa53cc556a16b",
+        "sha256": "7b7e8497574c0fe4d3f5b2de9bd74e8751b9f4727602043b5cd94e9ccdef14d4",
         "size": 47045120
       },
-      "kver": "7.2.8-sky1-ncz",
+      "kver": "7.2.9-sky1-ncz",
       "modules": {
         "file": "assets/kernel/mainline/modules-cixmini.tgz",
-        "sha256": "1e464c8f0e3d332f77c062223d426f200643ee61feaa34d6941981b38c05bb1a",
-        "size": 8072140
+        "sha256": "015afa029ae9c7bb2ee6238c43948668960559816e31905f14eb24753abe3820",
+        "size": 8070805
       },
       "npu": null
     }
