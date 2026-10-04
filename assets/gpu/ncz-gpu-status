@@ -60,30 +60,63 @@ if [ "$REQUIRE_HW" = 1 ]; then
     [ "${WLR_RENDERER:-}" = pixman ] && add "WLR_RENDERER=pixman is set in the environment"
     [ "${GSK_RENDERER:-}" = cairo ] && add "GSK_RENDERER=cairo is set in the environment"
     case "${GALLIUM_DRIVER:-}${MESA_LOADER_DRIVER_OVERRIDE:-}" in *llvmpipe*|*softpipe*|*swrast*) add "a Mesa software driver is forced (GALLIUM_DRIVER/MESA_LOADER_DRIVER_OVERRIDE)" ;; esac
+    # llvmpipe knobs (LP_*) and a software ICD selected through the Vulkan loader
+    # mean software was chosen just as much as a forced Mesa driver. EGL_PLATFORM
+    # set to surfaceless/device names Mesa's headless device enumeration, which on
+    # a mixed machine pins the software node; a real session never sets it.
+    for v in $(env 2>/dev/null | sed -n 's/^\(LP_[A-Za-z0-9_]*\)=.*/\1/p'); do
+        eval "val=\${$v:-}"; [ -n "$val" ] && add "$v=$val is set in the environment (llvmpipe)"
+    done
+    case "${VK_ICD_FILENAMES:-}${VK_DRIVER_FILES:-}${VK_LOADER_DRIVERS_SELECT:-}" in
+        *lvp*|*lavapipe*|*llvmpipe*|*swiftshader*) add "a software Vulkan ICD is forced (VK_ICD_FILENAMES/VK_DRIVER_FILES/VK_LOADER_DRIVERS_SELECT)" ;;
+    esac
+    case "${EGL_PLATFORM:-}" in
+        surfaceless|device) add "EGL_PLATFORM=$EGL_PLATFORM pins a headless/device EGL platform" ;;
+    esac
     for f in "${NCZ_SYSROOT:-}"/etc/environment "${NCZ_SYSROOT:-}"/etc/environment.d/*.conf; do
         [ -r "$f" ] || continue
-        if grep -Eq '^[[:space:]]*(LIBGL_ALWAYS_SOFTWARE|WLR_RENDERER_ALLOW_SOFTWARE)=[^0[:space:]]|^[[:space:]]*WLR_RENDERER=pixman|^[[:space:]]*GSK_RENDERER=cairo|GALLIUM_DRIVER=(llvmpipe|softpipe|swrast)' "$f"; then
+        if grep -Eq '^[[:space:]]*(LIBGL_ALWAYS_SOFTWARE|WLR_RENDERER_ALLOW_SOFTWARE)=[^0[:space:]]|^[[:space:]]*WLR_RENDERER=pixman|^[[:space:]]*GSK_RENDERER=cairo|GALLIUM_DRIVER=(llvmpipe|softpipe|swrast)|^[[:space:]]*LP_[A-Za-z0-9_]+=|^[[:space:]]*(VK_ICD_FILENAMES|VK_DRIVER_FILES)=.*(lvp|lavapipe|llvmpipe)|^[[:space:]]*EGL_PLATFORM=(surfaceless|device)' "$f"; then
             add "$f forces software rendering"
         fi
     done
 
     # 2. probes: EGL and Vulkan, session env and bare env
     #
-    # EGL is scanned PER PLATFORM. eglinfo enumerates every EGL platform. On Sky1
-    # with the vendor Mali stack only GBM/Wayland/X11 hand a renderer to a session
-    # or compositor; Mesa also exposes a Surfaceless and a Device platform that
-    # always come up as llvmpipe (Mesa's 50_mesa.json EGL vendor) and that no
-    # session here ever uses. Those two platform classes are IGNORED -- a healthy
-    # Mali desktop must not fail because an unused platform renders in software --
-    # and every ignored block is written to the health log with the reason so the
-    # decision stays auditable. A software renderer in ANY other platform a session
-    # can use (gbm, wayland, x11, ...), in Vulkan, or a forced-software variable
-    # still FAILS. Probe text without a platform header (test seams, old eglinfo)
-    # is treated as one platform, so those keep their original meaning.
-    EGL_IGNORE_PLATFORMS='surfaceless|device'
-    egl_scan() {   # name output: add a problem for software in a used-platform block
+    # Judge what a client would actually get, not everything the enumeration
+    # lists. eglinfo -B and vulkaninfo --summary both enumerate every device on
+    # the machine, so a healthy PRIME box that has mesa-vulkan-drivers/swrast
+    # installed always lists llvmpipe somewhere; that is not a software desktop.
+    #
+    # EGL is judged per platform block. Only GBM, Wayland and X11 are platforms a
+    # session/compositor uses, so a software renderer in one of those FAILS.
+    # Mesa's Surfaceless and Device blocks (the latter enumerates every /dev/dri
+    # node, including the software node) are enumeration artifacts no session
+    # uses and are IGNORED, each with a line in the health log saying why. Probe
+    # text with no platform header at all (test seams, very old eglinfo) is one
+    # platform and keeps the original meaning.
+    #
+    # Vulkan is judged by the FIRST device the loader lists, the device a client
+    # that does not choose gets: Intel first + RTX 2060 + llvmpipe later passes,
+    # llvmpipe first fails even though a GPU is listed later.
+    #
+    # Software forced by a variable still FAILS in every case (checked above).
+    EGL_SESSION_PLATFORMS='gbm|wayland|x11'
+    vk_scan() {   # name output: judge the first device the loader lists
         _name=$1; _out=$2
-        _scan=$(printf '%s\n' "$_out" | awk -v re="$SOFT_RE" -v ign="$EGL_IGNORE_PLATFORMS" '
+        _first=$(printf '%s\n' "$_out" | awk 'tolower($0) ~ /devicename/ { print; exit }')
+        if [ -n "$_first" ]; then
+            printf '%s\n' "$_first" | grep -Eiq "$SOFT_RE" && add "$_name first Vulkan device renders in SOFTWARE: $_first"
+            return 0
+        fi
+        printf '%s\n' "$_out" | grep -Eiq "$SOFT_RE" && add "$_name renders in SOFTWARE: $(printf '%s\n' "$_out" | grep -Ei "$SOFT_RE" | head -1)"
+    }
+    egl_scan() {   # name output: add a problem for software in a session-platform block
+        _name=$1; _out=$2
+        if ! printf '%s\n' "$_out" | grep -Eqi 'platform:'; then
+            printf '%s\n' "$_out" | grep -Eiq "$SOFT_RE" && add "$_name renders in SOFTWARE: $(printf '%s\n' "$_out" | grep -Ei "$SOFT_RE" | head -1)"
+            return 0
+        fi
+        _scan=$(printf '%s\n' "$_out" | awk -v re="$SOFT_RE" -v use="$EGL_SESSION_PLATFORMS" '
             {
                 l = tolower($0)
                 if (l ~ /platform:[[:space:]]*$/) {
@@ -92,8 +125,8 @@ if [ "$REQUIRE_HW" = 1 ]; then
                     next
                 }
                 if (l ~ re) {
-                    if (plat != "" && plat ~ ign) printf "IGNORE\t%s\t%s\n", plat, $0
-                    else printf "FAIL\t%s\t%s\n", (plat == "" ? "-" : plat), $0
+                    if (plat ~ use) printf "FAIL\t%s\t%s\n", plat, $0
+                    else printf "IGNORE\t%s\t%s\n", (plat == "" ? "unlabeled" : plat), $0
                 }
             }')
         [ -n "$_scan" ] || return 0
@@ -106,26 +139,29 @@ if [ "$REQUIRE_HW" = 1 ]; then
 $_scan
 EOF
     }
-    probe() {   # name seam-var default-command bare(0|1) platform-scan(0|1)
-        _name=$1; _seam=$2; _def=$3; _bare=$4; _pscan=${5:-0}
+    probe() {   # name seam-var default-command bare(0|1) scan(none|egl|vk)
+        _name=$1; _seam=$2; _def=$3; _bare=$4; _scan_mode=${5:-none}
         eval "_cmd=\${$_seam:-}"
         if [ -n "$_cmd" ]; then out=$(sh -c "$_cmd" 2>&1)                       # test seam: run as given
         elif [ -z "$_def" ]; then echo "$_name: probe tool not installed (skipped)" >> "$LOG.tmp" 2>/dev/null; return 0
         elif [ "$_bare" = 1 ]; then out=$(env -i HOME="${HOME:-/root}" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH=/usr/sbin:/usr/bin:/sbin:/bin sh -c "$_def" 2>&1)
         else out=$(sh -c "$_def" 2>&1); fi
         { echo "== $_name"; printf '%s\n' "$out" | head -40; } >> "$LOG.tmp" 2>/dev/null
-        if [ "$_pscan" = 1 ]; then egl_scan "$_name" "$out"
-        elif printf '%s\n' "$out" | grep -Eiq "$SOFT_RE"; then add "$_name renders in SOFTWARE: $(printf '%s\n' "$out" | grep -Ei "$SOFT_RE" | head -1)"; fi
+        case "$_scan_mode" in
+            egl) egl_scan "$_name" "$out" ;;
+            vk)  vk_scan "$_name" "$out" ;;
+            *)   printf '%s\n' "$out" | grep -Eiq "$SOFT_RE" && add "$_name renders in SOFTWARE: $(printf '%s\n' "$out" | grep -Ei "$SOFT_RE" | head -1)" ;;
+        esac
     }
     { : > "$LOG.tmp"; } 2>/dev/null
     EGLCMD=""; command -v eglinfo >/dev/null 2>&1 && EGLCMD="eglinfo -B 2>&1"
     VKCMD=""; command -v vulkaninfo >/dev/null 2>&1 && VKCMD="vulkaninfo --summary 2>&1 | grep -Ei 'deviceName|driverName'"
     SESSION_PRE=""
     [ -r /usr/local/bin/ncz-gpu-env ] && SESSION_PRE=". /usr/local/bin/ncz-gpu-env >/dev/null 2>&1; "
-    probe "EGL (session environment)"   NCZ_PROBE_EGL_SESSION "${EGLCMD:+$SESSION_PRE$EGLCMD}" 0 1
-    probe "EGL (bare environment)"      NCZ_PROBE_EGL_BARE    "$EGLCMD" 1 1
-    probe "Vulkan (session environment)" NCZ_PROBE_VK_SESSION "${VKCMD:+$SESSION_PRE$VKCMD}" 0
-    probe "Vulkan (bare environment)"   NCZ_PROBE_VK_BARE     "$VKCMD" 1
+    probe "EGL (session environment)"   NCZ_PROBE_EGL_SESSION "${EGLCMD:+$SESSION_PRE$EGLCMD}" 0 egl
+    probe "EGL (bare environment)"      NCZ_PROBE_EGL_BARE    "$EGLCMD" 1 egl
+    probe "Vulkan (session environment)" NCZ_PROBE_VK_SESSION "${VKCMD:+$SESSION_PRE$VKCMD}" 0 vk
+    probe "Vulkan (bare environment)"   NCZ_PROBE_VK_BARE     "$VKCMD" 1 vk
 
     mkdir -p "$(dirname "$LOG")" 2>/dev/null
     if [ -z "$problems" ]; then
