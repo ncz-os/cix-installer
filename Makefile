@@ -598,6 +598,7 @@ parity:
 	branding/cygnus/tests/test-refind-theme-config.sh
 	build/test-boot-speed.sh
 	build/test-usb2-rescan-sky1-only.sh
+	build/test-usb2-rescan-greetd.sh
 	build/test-timesync-retry.sh
 	build/test-greeter-output-mode.sh
 	build/test-chromium-icon.sh
