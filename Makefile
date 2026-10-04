@@ -593,9 +593,12 @@ parity:
 	build/test-amd64-intel-vaapi.sh
 	build/test-no-software-render.sh
 	build/lint-no-software-render.sh
+	build/test-singularity-supervisor-forensics.sh
+	build/test-panthor-vulkan.sh
 	build/test-installer-screens.sh
 	build/test-usb2-rescan-sky1-only.sh
 	build/test-usb2-rescan-greetd.sh
+	branding/cygnus/tests/test-refind-theme-config.sh
 	build/test-boot-speed.sh
 	build/test-timesync-retry.sh
 	build/test-greeter-output-mode.sh

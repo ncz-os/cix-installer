@@ -216,7 +216,18 @@ fi
 echo "libEGL.so.1   -> $(resolve libEGL.so.1)"
 echo "libGLESv2.so.2-> $(resolve libGLESv2.so.2)"
 echo "libOpenCL.so.1-> $(resolve libOpenCL.so.1)"
-echo "vulkan ICDs   : $(ls /etc/vulkan/icd.d/*.json /usr/share/vulkan/icd.d/*.json 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
+_vk_icds="$(ls /etc/vulkan/icd.d/*.json /usr/share/vulkan/icd.d/*.json 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
+echo "vulkan ICDs   : ${_vk_icds:-(none)}"
+# Be honest about a Panthor boot with no Vulkan ICD instead of printing a blank
+# line: PanVK comes from mesa-vulkan-drivers, which the Mali-stack purge used to
+# remove on arm64 (O6N 2026-10-04). This is informational -- it never fails the
+# --require-hardware health check.
+if [ -z "$_vk_icds" ]; then
+    case "$live" in
+        panthor*) echo "                no Vulkan on Panthor: install mesa-vulkan-drivers for the PanVK ICD" ;;
+        *)        echo "                no Vulkan ICD on this image" ;;
+    esac
+fi
 echo "blacklist file: $([ -e /etc/modprobe.d/ncz-gpu-drivers.conf ] && echo present || echo MISSING)"
 
 if [ "$live" != none ] && [ "$live" != "$sel" ]; then

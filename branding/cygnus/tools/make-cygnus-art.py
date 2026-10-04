@@ -185,17 +185,19 @@ def ring(size: int, stroke: float, color: str, glow: str) -> Image.Image:
     return base.resize((size, size), Image.LANCZOS)
 
 
-REFIND_SIZES = ((1920, 1080), (2560, 1440), (3840, 2160))
+# The shipped rEFInd theme is ONE 1920x1080 background drawn with
+# banner_scale fillscreen; rEFInd stretches it to the firmware GOP mode, so no
+# higher-resolution exports are shipped (the 2K/4K masters stay on ARGONAS).
+REFIND_SIZES = ((1920, 1080),)
 BAND_MAX_Y, LEFT_P95_MAX_Y = 0.04, 0.06
 
 
 def cmd_refind(a) -> None:
-    """Backgrounds for banner_scale noscale at each common ESP resolution.
+    """Background for the single rEFInd theme export (1920x1080, fillscreen).
 
-    Native renders are used as they are when one matches a size exactly;
-    otherwise the largest source is area-downscaled in linear light. The
-    menu scrim is applied only as far as needed to meet the readability
-    targets (band mean Y < 0.04, left third p95 Y < 0.06)."""
+    The largest source is area-downscaled in linear light. The menu scrim is
+    applied only as far as needed to meet the readability targets (band mean
+    Y < 0.04, left third p95 Y < 0.06)."""
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     b = TOK["boot"]["refind"]
