@@ -150,6 +150,26 @@ NTP=time.cloudflare.com time.google.com
 FallbackNTP=0.pool.ntp.org 1.pool.ntp.org 2.pool.ntp.org 3.pool.ntp.org
 EOF
 
+# 2026-10-04 (item G / Cygnus 26.10): systemd-timesyncd's default
+# ConnectionRetrySec= is 30 s. On O6N (2026-10-04, systemd 262) timesyncd
+# started at 5.58 s, the NIC link came up at 11.65 s, and the first
+# "Contacted time server" only landed at 36.92 s: the attempt that raced
+# link-up was retried 30 s later. The network and the NTP servers are healthy
+# (time.cloudflare.com/time.google.com answer in 5-30 ms, DNS in 6-120 ms), so
+# drop the retry interval to 5 s and let the first sync land in ~11-16 s. The
+# server lists live in 10-nclawzero.conf above and are deliberately unchanged;
+# a link/DHCP-advertised server is already preferred by timesyncd and needs no
+# work. Idempotent (overwrites), mode 0644, both arches (this hook is class
+# common; see docs/platform-inventory.tsv). Do not wait for time sync to start
+# the greeter -- time sync is background work.
+cat > /etc/systemd/timesyncd.conf.d/10-ncz-fast-retry.conf <<'EOF'
+[Time]
+# Retry quickly instead of the 30 s default so the first attempt does not race
+# NIC link-up and the first sync lands ~11-16 s after boot.
+ConnectionRetrySec=5
+EOF
+chmod 0644 /etc/systemd/timesyncd.conf.d/10-ncz-fast-retry.conf
+
 # 2026-08-02 (Debian forky): systemd-timesyncd is NOT part of systemd on Debian
 # — it is split into its own package (Ubuntu bundles it, which is why this hook
 # worked for two years and then silently stopped). Confirmed on O6N: this line

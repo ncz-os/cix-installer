@@ -373,3 +373,4 @@ build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, cha
 docs/installer-ux/	common	-	installer console before/after evidence
 build/test-usb2-rescan-sky1-only.sh	common	-	regression tests: ncz-usb2-rescan is Sky1-only (hook lists, amd64 manifests, unit Conditions, arm64-only package)
 build/test-usb2-rescan-greetd.sh	common	-	regression tests: greetd drop-in tolerates an absent/condition-skipped ncz-usb2-rescan.service; bounded input probe stays
+build/test-timesync-retry.sh	common	-	regression tests for the timesyncd fast-retry drop-in + no time-sync gating of the greeter (docs/BOOT-SPEED.md)
