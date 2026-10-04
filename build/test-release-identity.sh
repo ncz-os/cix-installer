@@ -1,0 +1,91 @@
+#!/bin/bash
+# test-release-identity.sh -- regression tests for the 26.10 Cygnus identity
+# sweep. Every check here failed before the sweep:
+#   * the ISO-repack gates stamped NCZ_MAXIMILIAN regardless of release.conf;
+#   * the recovery-container banner said "MAXIMILIAN";
+#   * the logo slot shipped LOGO=ncz / ncz.png, not the approved Cygnus mark;
+#   * the installed rEFInd titles omitted the codename;
+#   * the fixtures pinned 26.7/Maximilian.
+#
+# Run: bash build/test-release-identity.sh
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+PASS=0; FAILS=0
+ok()  { PASS=$((PASS+1)); echo "ok   $1"; }
+bad() { FAILS=$((FAILS+1)); echo "FAIL $1${2:+: $2}"; }
+check_eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "got '$2' want '$3'"; fi; }
+check_grep()   { if grep -qF -- "$2" "$1" 2>/dev/null; then ok "$3"; else bad "$3" "missing '$2' in $1"; fi; }
+check_nogrep() { if grep -qF -- "$2" "$1" 2>/dev/null; then bad "$3" "'$2' still present in $1"; else ok "$3"; fi; }
+# Comment-aware variant: history prose may still name 26.7/Maximilian, only a
+# LIVE (non-comment) hardcode is the regression.
+strip_comments() { sed -E 's/^[[:space:]]*#.*$//' "$1"; }
+check_nolive() { if strip_comments "$1" | grep -qF -- "$2"; then bad "$3" "'$2' is still a live hardcode in $1"; else ok "$3"; fi; }
+
+ROOT_RC="$ROOT/release.conf"
+[ -r "$ROOT_RC" ] || { echo "FATAL: missing $ROOT_RC" >&2; exit 2; }
+# shellcheck source=../release.conf
+. "$ROOT_RC"
+
+# ---- helper derives the live identity ---------------------------------------
+EXPECT_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
+EXPECT_VOL="NCZ_$(printf %s "$NCZ_RELEASE_CODENAME" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9_' '_' | cut -c1-28)"
+check_eq "helper derives NCZ_RELEASE_LABEL from release.conf" \
+    "$(bash -c ". '$ROOT/build/lib/release-identity.sh'; printf '%s' \"\$NCZ_RELEASE_LABEL\"")" "$EXPECT_LABEL"
+check_eq "helper derives NCZ_ISO_VOLUME_ID from release.conf" \
+    "$(bash -c ". '$ROOT/build/lib/release-identity.sh'; printf '%s' \"\$NCZ_ISO_VOLUME_ID\"")" "$EXPECT_VOL"
+
+# ---- helper tracks a CHANGED release.conf (not a hardcoded value) -----------
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+mkdir -p "$T/build/lib"
+cp "$ROOT/build/lib/release-identity.sh" "$T/build/lib/"
+printf 'NCZ_PRODUCT_NAME="NCZ-OS"\nNCZ_RELEASE_VERSION="99.1"\nNCZ_RELEASE_CODENAME="Testbird"\n' > "$T/release.conf"
+check_eq "helper tracks a synthetic release.conf (label)" \
+    "$(bash -c ". '$T/build/lib/release-identity.sh'; printf '%s' \"\$NCZ_RELEASE_LABEL\"")" "NCZ-OS 99.1 Testbird"
+check_eq "helper tracks a synthetic release.conf (volid)" \
+    "$(bash -c ". '$T/build/lib/release-identity.sh'; printf '%s' \"\$NCZ_ISO_VOLUME_ID\"")" "NCZ_TESTBIRD"
+
+# ---- no ISO-repack gate hardcodes a codename --------------------------------
+GATES=(
+    build/kvm-install-gate.sh
+    build/kvm-install-gate-amd64.sh
+    build/component-prompt-gate.sh
+    build/qemu-test-console-patch.sh
+    build/qemu-test-interactive-patch.sh
+)
+for g in "${GATES[@]}"; do
+    check_nolive "$ROOT/$g" "NCZ_MAXIMILIAN" "$g: no hardcoded NCZ_MAXIMILIAN label"
+    check_grep  "$ROOT/$g" "release-identity.sh" "$g: sources the shared identity helper"
+    check_grep  "$ROOT/$g" "NCZ_ISO_VOLUME_ID" "$g: uses the derived volume id"
+done
+
+# ---- recovery-container banner derives from release.conf --------------------
+check_nolive "$ROOT/build/build-mgmt-rootfs.sh" "MAXIMILIAN" "build-mgmt-rootfs.sh: banner no longer hardcodes MAXIMILIAN"
+check_grep  "$ROOT/build/build-mgmt-rootfs.sh" 'NCZ_MGMT_BANNER_LABEL SERVER RECOVERY CONTAINER' "build-mgmt-rootfs.sh: banner uses the derived label"
+
+# ---- Cygnus logo wired into the greeter slot --------------------------------
+LOGO="$ROOT/assets/branding/greeter/cygnus/ncz-os-cygnus-logo.png"
+if [ -f "$LOGO" ]; then ok "Cygnus logo tracked at assets/branding/greeter/cygnus/"; else bad "Cygnus logo tracked at assets/branding/greeter/cygnus/"; fi
+check_eq "Cygnus logo sha256 matches the approved pack" \
+    "$(sha256sum "$LOGO" 2>/dev/null | awk '{print $1}')" \
+    "dc949a357778993a6a509cb2f09e39902aa160bdd7ab2e542871aa31ffbc8890"
+check_grep "$ROOT/post-install/55-greeter.sh" 'ncz-os-cygnus-logo.png' "55-greeter.sh: references the Cygnus logo asset"
+check_grep "$ROOT/post-install/55-greeter.sh" '"/usr/share/pixmaps/$LOGO_NAME.png"' "55-greeter.sh: installs to the pixmaps path"
+check_grep "$ROOT/post-install/55-greeter.sh" '"/usr/share/icons/hicolor/256x256/apps/$LOGO_NAME.png"' "55-greeter.sh: installs to the hicolor apps path"
+check_grep "$ROOT/post-install/55-greeter.sh" "$(printf '%s' 'elif [ -f "$ASSETS/logo/ncz.png" ]; then')" "55-greeter.sh: keeps a missing-asset fallback"
+check_grep "$ROOT/post-install/50-brand.sh" 'LOGO=ncz-os-${SKU_LOWER}' "50-brand.sh: LOGO derives from the release codename"
+
+# ---- installed rEFInd titles carry the full label ---------------------------
+for r in assets/refind/ncz-refind-refresh.sh assets/refind/ncz-refind-refresh-amd64.sh; do
+    check_grep "$ROOT/$r" 'NCZ_RELEASE_SHORT="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"' \
+        "$r: rEFInd titles use product+version+codename"
+done
+
+# ---- fixtures derive the identity, no pinned old codename -------------------
+for f in build/test-ncz-ui.sh build/test-installed-target-verifier.sh build/test-dual-arch-parity.sh; do
+    check_nolive "$ROOT/$f" "Maximilian" "$f: fixture no longer pins Maximilian"
+    check_grep  "$ROOT/$f" "release.conf" "$f: fixture sources release.conf"
+done
+
+echo "release-identity tests: $PASS passed, $FAILS failed"
+[ "$FAILS" = 0 ]

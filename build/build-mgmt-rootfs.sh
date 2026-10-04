@@ -32,6 +32,10 @@ if [ -r "$ROOT/release.conf" ]; then
     . "$ROOT/release.conf"
 fi
 
+# Derive the recovery-container banner from the active release identity instead
+# of pinning a codename (this said "MAXIMILIAN" through 26.7).
+NCZ_MGMT_BANNER_LABEL="${NCZ_PRODUCT_NAME:-NCZ-OS}${NCZ_RELEASE_VERSION:+ ${NCZ_RELEASE_VERSION}}${NCZ_RELEASE_CODENAME:+ ${NCZ_RELEASE_CODENAME}}"
+
 CHROOT="${1:-$ROOT/build/mgmt-rootfs}"
 OUT="${2:-$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst}"
 SUITE="${3:-${NCZ_BASE_CODENAME:-resolute}}"
@@ -224,7 +228,7 @@ chmod 0755 "$CHROOT/usr/local/sbin/ncz-host-chroot"
 # MOTD
 cat > "$CHROOT/etc/motd" <<EOF
 
-  NCZ-OS MAXIMILIAN SERVER RECOVERY CONTAINER (systemd-nspawn)
+  $NCZ_MGMT_BANNER_LABEL SERVER RECOVERY CONTAINER (systemd-nspawn)
   ---------------------------------------------------
   This is the middle recovery tier. It has its OWN userland, so it stays
   reachable even if the host /usr/lib is wedged. The host root is bound

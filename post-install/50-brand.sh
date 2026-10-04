@@ -75,7 +75,7 @@ HOME_URL="https://gitlab.com/nclawzero"
 SUPPORT_URL="https://gitlab.com/nclawzero/cix-installer/-/issues"
 BUG_REPORT_URL="https://gitlab.com/nclawzero/cix-installer/-/issues"
 UBUNTU_CODENAME=${NCZ_BASE_CODENAME}
-LOGO=ncz
+LOGO=ncz-os-${SKU_LOWER}
 EOF_OS
 
 ln -sf /etc/os-release /usr/lib/os-release 2>/dev/null || true
