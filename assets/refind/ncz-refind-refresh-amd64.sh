@@ -71,7 +71,7 @@ case "$KVER_STABLE" in
         echo "       Refusing to write an rEFInd menu that would boot -rc as the default." >&2
         exit 1
         ;;
-    *-amd64|7.1*)
+    *-amd64|7.1.*|7.1-*)
         echo "ERROR: KVER_STABLE='$KVER_STABLE' names a Debian-archive kernel (amd64/7.1.x);" >&2
         echo "       the stable line MUST be the NCZ 7.2.9 T2 kernel (directive 2026-10-04)." >&2
         echo "       Refusing to write an rEFInd menu that would boot Debian as the default." >&2
