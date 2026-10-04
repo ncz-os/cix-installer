@@ -385,6 +385,26 @@ else
     echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
 fi
 
+# Cygnus 26.10 theme: per-resolution background (banner_scale noscale), selection
+# art and the Cygnus entry icon.  Staged under EFI/BOOT/themes/cygnus and pulled
+# in with an `include` line after the generated banner lines.  Optional: when
+# the asset dir is absent the generated NCZ banner/icon above stay in force.
+CYGNUS_SRC="$INSTALLER_META/assets/refind/cygnus"
+REFIND_THEME=""
+if [ -s "$CYGNUS_SRC/theme-1920x1080.conf" ] && [ -s "$CYGNUS_SRC/background-1920x1080.png" ]; then
+    rm -rf /boot/efi/EFI/BOOT/themes/cygnus
+    mkdir -p /boot/efi/EFI/BOOT/themes/cygnus
+    cp -r "$CYGNUS_SRC"/. /boot/efi/EFI/BOOT/themes/cygnus/
+    if [ -s "$CYGNUS_SRC/os_ncz.png" ]; then
+        install -m 0644 "$CYGNUS_SRC/os_ncz.png" /boot/efi/EFI/BOOT/ncz.png
+        REFIND_ICON="ncz.png"
+    fi
+    sh /boot/efi/EFI/BOOT/themes/cygnus/pick-theme.sh /boot/efi/EFI/BOOT/themes/cygnus \
+        || cp /boot/efi/EFI/BOOT/themes/cygnus/theme-1920x1080.conf /boot/efi/EFI/BOOT/themes/cygnus/theme.conf
+    REFIND_THEME="themes/cygnus/theme.conf"
+    echo "  rEFInd Cygnus theme installed → /boot/efi/EFI/BOOT/themes/cygnus"
+fi
+
 # Release policy: the stable kernel is the default graphical entry. Edge is
 # always an explicit console-only experiment.
 if [ "$STABLE_AVAILABLE" = "1" ]; then
@@ -474,6 +494,7 @@ fi
     echo "resolution max"
     [ -n "$REFIND_BANNER" ] && echo "banner $REFIND_BANNER"
     [ -n "$REFIND_BANNER" ] && echo "banner_scale noscale"
+    [ -n "$REFIND_THEME" ] && echo "include $REFIND_THEME"
     echo "showtools shell,reboot,shutdown,firmware"
     echo "scanfor manual"
     echo "scan_all_linux_kernels false"

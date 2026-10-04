@@ -1036,6 +1036,11 @@ build_base(){
   if [ ! -d "$WORK/base/usr/local/lib/cix-installer/assets/refind/icons" ] && [ -d "$ROOT/build/refind-bin/icons" ]; then
     sudo cp -r "$ROOT/build/refind-bin/icons" "$WORK/base/usr/local/lib/cix-installer/assets/refind/"
   fi
+  # Cygnus 26.10 rEFInd theme (tracked under assets/refind/cygnus); the refresh
+  # scripts stage it to the ESP when present.
+  if [ -d "$ROOT/assets/refind/cygnus" ]; then
+    sudo cp -a "$ROOT/assets/refind/cygnus" "$WORK/base/usr/local/lib/cix-installer/assets/refind/"
+  fi
   [ -f "$WORK/base/usr/local/lib/cix-installer/assets/refind/refind_aa64.efi" ] || log "  WARN: no refind_aa64.efi staged — 70-bootloader will fail at install"
   # policy-rc.d: block daemon starts in chroot
   echo -e '#!/bin/sh\nexit 101' | sudo tee "$WORK/base/usr/sbin/policy-rc.d" >/dev/null; sudo chmod +x "$WORK/base/usr/sbin/policy-rc.d"
