@@ -56,6 +56,7 @@
 59-ncz-screensavers-pkg.sh
 60-boot-splash.sh
 61-chromium-icon.sh
+62-cygnus-screensaver-default.sh
 70-bootloader.sh
 72-rescue-partition.sh
 79-dkms-prep.sh
