@@ -105,15 +105,24 @@ else
     echo "WARN: no kernel debs found in $KERNEL_DEBS; vendor mirror will only reindex existing pool" >&2
 fi
 
-if compgen -G "$USB_RECOVERY_DEBS/ncz-usb-recovery_*.deb" >/dev/null; then
-    echo "== publishing USB recovery debs from $USB_RECOVERY_DEBS =="
-    for deb in "$USB_RECOVERY_DEBS"/ncz-usb-recovery_*.deb; do
-        publish_deb "$deb"
-    done
-elif [ "$ARCH" = arm64 ] && compgen -G "$KERNEL_DEBS/cixmini-boot_*.deb" >/dev/null; then
-    echo "ERROR: cixmini-boot requires ncz-usb-recovery, but no package exists in $USB_RECOVERY_DEBS" >&2
-    echo "       run: build/build-usb-recovery-deb.sh" >&2
-    exit 1
+# ncz-usb-recovery is a Sky1-only package (item RS, 2026-10-04). Never publish
+# it into an amd64/T2 vendor mirror: the unit would be enabled on a machine
+# whose platform xhci the script cannot recover, adding a boot-time hub-rebind
+# stressor and a ~7 s greetd hold. The deb itself is Architecture: arm64, but
+# keeping it out of the x86 pool is the primary fix.
+if [ "$ARCH" = arm64 ]; then
+    if compgen -G "$USB_RECOVERY_DEBS/ncz-usb-recovery_*.deb" >/dev/null; then
+        echo "== publishing USB recovery debs from $USB_RECOVERY_DEBS =="
+        for deb in "$USB_RECOVERY_DEBS"/ncz-usb-recovery_*.deb; do
+            publish_deb "$deb"
+        done
+    elif compgen -G "$KERNEL_DEBS/cixmini-boot_*.deb" >/dev/null; then
+        echo "ERROR: cixmini-boot requires ncz-usb-recovery, but no package exists in $USB_RECOVERY_DEBS" >&2
+        echo "       run: build/build-usb-recovery-deb.sh" >&2
+        exit 1
+    fi
+else
+    echo "== skipping USB recovery debs: Sky1-only, ARCH=$ARCH =="
 fi
 
 if compgen -G "$SINTY_DEBS/ncz-singularity-desktop_*.deb" >/dev/null; then

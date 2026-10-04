@@ -23,7 +23,10 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$REPO/post-install/41-usb2-rescan.sh"
-OUT="$REPO/build/usb-recovery-deb"
+# OUT is overridable so build/test-usb2-rescan-sky1-only.sh can build the
+# package into a throwaway directory and inspect its control file / payload
+# without touching the real build tree.
+OUT="${NCZ_USB_RECOVERY_OUT:-$REPO/build/usb-recovery-deb}"
 PKG=ncz-usb-recovery
 VERSION="${NCZ_USB_RECOVERY_VERSION:-1.1}"
 
@@ -73,7 +76,15 @@ for stage in 'Fast path:' 'Widened path:' 'Last resort:'; do
     grep -q "$stage" "$WORK/usr/local/sbin/ncz-usb2-rescan" \
         || { echo "ERROR: recovery stage '$stage' missing from payload" >&2; exit 1; }
 done
-echo "  payload verified: 3 recovery stages, unit parses, script parses"
+# Item RS (2026-10-04): the unit must keep both defensive Conditions. Without
+# them a stray install on amd64/T2 rebinds the t2bce_vhci root hub every boot
+# and holds greetd ~7 s; the checks make that a build failure, not a boot bug.
+for cond in 'ConditionArchitecture=arm64' \
+            'ConditionPathExistsGlob=/sys/bus/platform/drivers/xhci-hcd/xhci-hcd.*.auto'; do
+    grep -qxF -- "$cond" "$WORK/etc/systemd/system/ncz-usb2-rescan.service" \
+        || { echo "ERROR: extracted unit is missing '$cond'" >&2; exit 1; }
+done
+echo "  payload verified: 3 recovery stages, unit parses, script parses, both arch conditions present"
 
 SIZE_KB=$(du -sk "$WORK/usr" "$WORK/etc" | awk '{s+=$1} END {print s}')
 
@@ -82,7 +93,7 @@ Package: $PKG
 Version: $VERSION
 Section: admin
 Priority: important
-Architecture: all
+Architecture: arm64
 Maintainer: NCZ <nczero@nclawzero.dev>
 Installed-Size: $SIZE_KB
 Depends: systemd, udev
@@ -123,7 +134,11 @@ Check which recovery stage fired:
 DOC
 
 install -d "$OUT"
-DEB="$OUT/${PKG}_${VERSION}_all.deb"
+# Architecture: arm64 on purpose (item RS): the deb must be refused by dpkg on
+# amd64/T2 images even if it is ever copied into an x86 pool. The filename
+# therefore ends _arm64.deb; every glob that stages this package must match
+# that (build/build-desktop-mirror.sh, gated to arm64).
+DEB="$OUT/${PKG}_${VERSION}_arm64.deb"
 dpkg-deb --build --root-owner-group "$WORK" "$DEB" >/dev/null
 echo "  built: $DEB ($(du -h "$DEB" | cut -f1))"
 dpkg-deb --contents "$DEB" | awk '{print "    " $NF}' | grep -vE '/$'
