@@ -68,7 +68,9 @@ Description: fixture
 
 STATUS
     # NOTE: dpkg md5sums paths are root-relative (/opt/...), never carrying $r.
-    printf '/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so\n' > "$d/info/ncz-screensavers-plugin.list"
+    # dpkg .list files also include DIRECTORY entries; the helper must recreate
+    # them without recursively copying into an existing directory (nesting bug).
+    printf '/opt/singularity/lib/singularity/plugins/screensaver/\n/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so\n' > "$d/info/ncz-screensavers-plugin.list"
     printf '%s  /opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so\n' \
         "$(md5sum "$r/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so" | awk '{print $1}')" > "$d/info/ncz-screensavers-plugin.md5sums"
     printf '/opt/singularity/share/singularity/wallpaper-collections/cygnus-2610.artistpack\n' > "$d/info/ncz-wallpapers-cygnus-2610.list"
@@ -81,7 +83,8 @@ STATUS
 
 mkpayload() { # $1=out.tgz
     local t="$W/pay"
-    rm -rf "$t"; mkdir -p "$t/opt/singularity/bin" "$t/opt/singularity/share/glib-2.0/schemas"
+    rm -rf "$t"; mkdir -p "$t/opt/singularity/bin" "$t/opt/singularity/share/glib-2.0/schemas" \
+        "$t/opt/singularity/lib/singularity/plugins/screensaver"
     printf '#!/bin/sh\necho new-shell\n' > "$t/opt/singularity/bin/singularity-desktop"
     chmod 0755 "$t/opt/singularity/bin/singularity-desktop"
     cat > "$t/opt/singularity/share/glib-2.0/schemas/dev.sinty.desktop.gschema.xml" <<'XML'
@@ -130,6 +133,10 @@ if grep -qx '#!/bin/sh' "$R/opt/singularity/bin/singularity-desktop" && grep -q 
 else
     bad "helper: payload file was not updated"
 fi
+# The package-owned DIRECTORY entry must not nest (cp -a dir into existing dir).
+[ ! -e "$R/opt/singularity/lib/singularity/plugins/screensaver/screensaver" ] \
+    && ok "helper: package-owned directory restored without nesting" \
+    || bad "helper: restoring a directory nested it (cp -a dir dst)"
 _revert=""
 for _n in "$R"/opt/singularity.ncz-backup-*/REVERT.txt; do [ -f "$_n" ] && _revert="$_n"; done
 [ -n "$_revert" ] && ok "helper: wrote a revert note" || bad "helper: no revert note"

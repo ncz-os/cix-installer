@@ -33,22 +33,20 @@ hotfix_capture_prev_files() {
 # hotfix_overlay_manifest <prev_list|""> <new_tree_dir> <out_manifest>
 hotfix_overlay_manifest() {
     local prev_list="${1:-}" new_tree="${2:?new tree}" out="${3:?out manifest}"
-    local _new_list _stale _p
+    local _stale _p
     {
         echo "# NCZ overlay manifest v1"
         if [ -n "$prev_list" ] && [ -s "$prev_list" ]; then
-            _new_list="$(mktemp "${TMPDIR:-/tmp}/hotfix-new.XXXXXX")"
-            ( cd "$new_tree" && find opt/singularity -mindepth 1 \( -type f -o -type l \) 2>/dev/null ) \
-                | LC_ALL=C sort -u > "$_new_list"
-            _stale="$(comm -23 "$prev_list" "$_new_list" | grep -E '^opt/singularity/.+' || true)"
+            # previous-but-not-new = stale payload files. `|| true` matters:
+            # callers run with `set -o pipefail` and grep exits 1 on no match.
+            _stale="$(comm -23 "$prev_list" \
+                <( cd "$new_tree" && find opt/singularity -mindepth 1 \( -type f -o -type l \) 2>/dev/null | LC_ALL=C sort -u ) \
+                | grep -E '^opt/singularity/.+' || true)"
             if [ -n "$_stale" ]; then
-                while IFS= read -r _p; do
-                    [ -n "$_p" ] && printf 'whiteout\t%s\n' "$_p"
-                done <<< "$_stale"
+                while IFS= read -r _p; do printf 'whiteout\t%s\n' "$_p"; done <<< "$_stale"
             else
                 echo "# no stale payload files removed by this rebuild"
             fi
-            rm -f "$_new_list"
         else
             echo "# no previous hotfix layer; nothing stale to white out"
         fi

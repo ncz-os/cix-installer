@@ -40,6 +40,7 @@
 #
 # SELF-TEST: build/test-gsettings-effective-defaults.sh proves both directions.
 set -uo pipefail
+shopt -s nullglob
 
 SCHEMA_DIR="/opt/singularity/share/glib-2.0/schemas"
 SCHEMA_ID="dev.sinty.desktop"

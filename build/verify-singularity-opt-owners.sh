@@ -44,6 +44,7 @@
 #
 # SELF-TEST: build/test-singularity-opt-owners.sh proves both directions.
 set -uo pipefail
+shopt -s nullglob
 
 ROOT="/"
 QUIET=0
@@ -105,7 +106,6 @@ for l in "$INFO"/*.list; do
         OWNERS+=("$pkg")
     fi
 done
-mapfile -t OWNERS < <(printf '%s\n' "${OWNERS[@]:-}" | sed '/^$/d' | LC_ALL=C sort -u)
 
 note "opt-owners: root=$ROOT owners=${#OWNERS[@]}"
 for pkg in "${OWNERS[@]:-}"; do

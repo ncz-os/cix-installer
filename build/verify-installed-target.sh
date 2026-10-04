@@ -459,8 +459,8 @@ if [ "$WANT_SS" = 1 ]; then
                         for k in pinned-apps enabled-plugins; do
                             iv="$(GSETTINGS_SCHEMA_DIR="$SGT/installed" GSETTINGS_BACKEND=memory gsettings get dev.sinty.desktop "$k" 2>/dev/null)"
                             fv="$(GSETTINGS_SCHEMA_DIR="$SGT/fresh" GSETTINGS_BACKEND=memory gsettings get dev.sinty.desktop "$k" 2>/dev/null)"
-                            if [ -n "$iv" ] && [ -n "$fv" ] && [ "$iv" != "$fv" ]; then
-                                gate_miss schemas "dev.sinty.desktop $k stale: installed=$iv fresh=$fv (gschemas.compiled under /opt/singularity predates its overrides)"
+                            if [ "$iv" != "$fv" ] && { [ -n "$iv" ] || [ -n "$fv" ]; }; then
+                                gate_miss schemas "dev.sinty.desktop $k stale: installed=${iv:-<absent>} fresh=${fv:-<absent>} (gschemas.compiled under /opt/singularity predates its overrides)"
                             fi
                         done
                     else
