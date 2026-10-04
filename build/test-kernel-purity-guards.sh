@@ -21,7 +21,8 @@ REPO="$(cd "$HERE/.." && pwd)"
 ARM64="$REPO/assets/refind/ncz-refind-refresh.sh"
 AMD64="$REPO/assets/refind/ncz-refind-refresh-amd64.sh"
 LEGACY="$REPO/build/build-iso-di.sh"
-for f in "$ARM64" "$AMD64" "$LEGACY"; do
+SQUASH="$REPO/build/build-squashfs-layers.sh"
+for f in "$ARM64" "$AMD64" "$LEGACY" "$SQUASH"; do
     [ -r "$f" ] || { echo "EXTRACT FAILED: cannot read $f" >&2; exit 2; }
 done
 
@@ -85,6 +86,20 @@ else
     bad "amd64 swap does not extract the staged amd64 kernel .deb"
 fi
 bash -n "$LEGACY" && ok "build-iso-di.sh parses" || bad "build-iso-di.sh has a syntax error"
+
+echo "=== base squashfs layer pins Debian kernels out before its apt install ==="
+pin_line="$(grep -n 'ncz_kernel_purity_pin_text' "$SQUASH" | head -1 | cut -d: -f1)"
+apt_line="$(grep -n 'apt-get install -y --no-install-recommends \$_base_pkgs' "$SQUASH" | head -1 | cut -d: -f1)"
+if [ -n "$pin_line" ] && grep -q '00-ncz-kernel-purity.pref' "$SQUASH"; then
+    ok "base layer stages the kernel-purity pin"
+else
+    bad "base layer does not stage the kernel-purity pin"
+fi
+if [ -n "$pin_line" ] && [ -n "$apt_line" ] && [ "$pin_line" -lt "$apt_line" ]; then
+    ok "the pin is written before the base installer-base.pkgs apt install (line $pin_line < $apt_line)"
+else
+    bad "the pin is not written before the base apt install (pin=$pin_line apt=$apt_line)"
+fi
 
 echo
 echo "=== summary: PASS=$PASS FAIL=$FAIL ==="
