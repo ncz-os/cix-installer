@@ -938,10 +938,10 @@ chmod 0755 /usr/local/bin/ncz-singularity-greeter
 echo "[20] ncz-singularity-greeter wrapper installed (native greeter on /opt/singularity labwc)"
 
 # ---------------------------------------------------------------------------
-# Packaged gschema defaults — red accent + dark mode + NCZ Maximilian wallpaper.
+# Packaged gschema defaults — red accent + dark mode + Cygnus default wallpaper.
 # The accent is written by StyleManager to the user gtk.css at runtime; setting
 # it in the schema DEFAULT makes red the out-of-box accent. Wallpaper points at
-# the NCZ Maximilian backdrop (45-wallpaper-rotator installs the NCZ set + can
+# the Cygnus default wallpaper (default.jpg) (45-wallpaper-rotator installs the NCZ set + can
 # rotate). Compiled into the Singularity schema dir (on the session's
 # GSETTINGS_SCHEMA_DIR).
 # ---------------------------------------------------------------------------
@@ -1002,7 +1002,7 @@ GSCHEMA
     fi
     glib-compile-schemas "$SCHEMADIR" 2>&1 | tail -1 || \
         echo "[20] WARN: glib-compile-schemas failed (schemas compile on first session)"
-    echo "[20] gschema override: accent=red, dark-mode, Maximilian wallpaper"
+    echo "[20] gschema override: accent=red, dark-mode, Cygnus wallpaper"
 else
     echo "[20] WARN: dev.sinty.desktop schema absent — accent/wallpaper defaults skipped"
 fi
@@ -1152,7 +1152,7 @@ echo "[20] NCZ .desktop launchers (foot) installed -> $APPDIR"
 # this hook installs the ncz-singularity-greeter wrapper above. Here we make
 # greetd the DM and put the _greetd user in the seat/GPU groups so labwc/wlroots
 # can open the DRM/seat. Singularity is the ONLY session.
-# VALIDATED (O6N/Mali): the native greeter renders (NCZ Maximilian backdrop,
+# VALIDATED (O6N/Mali): the native greeter renders (Cygnus greeter backdrop,
 # loginui clock, user picker, Password auth, Singularity session) and a real
 # login through greetd succeeds. Boot-path (splash->greeter) metal timing is
 # tangled with the Sky1 DP-link-training work — validate on-metal with that fix.

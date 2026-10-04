@@ -17,11 +17,11 @@
 #      rotator.
 #
 # Usage: build/build-wallpaper-contrib-deb.sh [pack-name]
-#        default pack: cygnus-26.10
+#        default pack: cygnus-2610
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PACK="${1:-cygnus-26.10}"
+PACK="${1:-cygnus-2610}"
 OUT="$ROOT/build/wallpaper-debs"
 ARTISTPACK_SOURCE_ROOT="${ARTISTPACK_SOURCE_ROOT:-${HOME:?}/Projects/artistpack/packs}"
 
@@ -66,8 +66,8 @@ case "$PACK" in
 $CREDITS
 "
         ;;
-    cygnus-26.10)
-        PKG="ncz-wallpapers-cygnus-26.10"
+    cygnus-2610)
+        PKG="ncz-wallpapers-cygnus-2610"
         SRC="$ROOT/assets/branding/wallpaper/contrib/$PACK"
         ARTISTPACK_SRC="$ARTISTPACK_SOURCE_ROOT/$PACK"
         ART_SUBPATH="/$PACK"
