@@ -375,7 +375,7 @@ echo "    build id: $VERSION  ($BUILD_DATE on $BUILD_HOST)"
 [ -d "$ROOT/assets/wallpaper" ] && cp -rL "$ROOT/assets/wallpaper" "$EXTRA/assets/"
 if [ -d "$ROOT/assets/branding" ]; then
     mkdir -p "$EXTRA/assets/branding"
-    for sub in logo plymouth gdm wallpaper; do
+    for sub in logo plymouth gdm wallpaper greeter; do
         if [ -d "$ROOT/assets/branding/$sub" ]; then
             cp -rL "$ROOT/assets/branding/$sub" "$EXTRA/assets/branding/"
         fi

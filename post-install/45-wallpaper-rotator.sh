@@ -342,10 +342,10 @@ fi
 # Default = the Cygnus 26.10 hero (edge-on), from the Cygnus Artist Pack. The
 # pointer is set after the packs install the image it names, and a missing
 # image fails loudly: a 26.10 desktop without its release wallpaper is a defect.
-CYGNUS_DEFAULT=cygnus-26.10/cygnus-hero-edge-on.jpg
+CYGNUS_DEFAULT=cygnus-2610/cygnus-hero-edge-on.jpg
 if [ ! -f "/usr/share/backgrounds/ncz/$CYGNUS_DEFAULT" ]; then
-    echo "[45] ERROR: Cygnus default wallpaper /usr/share/backgrounds/ncz/$CYGNUS_DEFAULT missing -- ncz-wallpapers-cygnus-26.10_*.deb not staged/installed" >&2
-    echo "[45]        rebuild it: build/build-wallpaper-contrib-deb.sh cygnus-26.10" >&2
+    echo "[45] ERROR: Cygnus default wallpaper /usr/share/backgrounds/ncz/$CYGNUS_DEFAULT missing -- ncz-wallpapers-cygnus-2610_*.deb not staged/installed" >&2
+    echo "[45]        rebuild it: build/build-wallpaper-contrib-deb.sh cygnus-2610" >&2
     exit 1
 fi
 ln -sfn "$CYGNUS_DEFAULT" /usr/share/backgrounds/ncz/default.jpg
@@ -439,7 +439,7 @@ COLLECTION=""
 # Default collection: the Cygnus Artist Pack (falls back to ncz if absent).
 if [ -z "$COLLECTION" ]; then
     COLLECTION=ncz
-    /usr/local/bin/ncz-wallpaper-collections path cygnus-26.10 >/dev/null 2>&1 && COLLECTION=cygnus-26.10
+    /usr/local/bin/ncz-wallpaper-collections path cygnus-2610 >/dev/null 2>&1 && COLLECTION=cygnus-2610
 fi
 
 PIC=""
@@ -635,9 +635,9 @@ StartupNotify=false
 Terminal=false
 AUTO
 
-echo "[45] Singularity wallpaper rotator + autostart written (default = Maximilian)"
+echo "[45] Singularity wallpaper rotator + autostart written (default = Cygnus 26.10)"
 
-# Greeter background = the static NCZ Maximilian wallpaper installed by 55-greeter
+# Greeter background = the Cygnus greeter backdrop installed by 55-greeter
 # at the native greeter's fallback path /usr/share/backgrounds/singularity/
 # default.png. The greeter is greetd + native singularity-greeter (Wayland/Mali,
 # Cairo/loginui), which reads that fallback file — no lightdm conf.d, no regreet.
