@@ -20,6 +20,9 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 THEME="$(cd "${1:?theme dir}" && pwd)"
 OUT="$(mkdir -p "${2:?out dir}" && cd "$2" && pwd)"
 ARCHES="${3:-both}"
+# Debian ships AAVMF_CODE.no-secboot.fd; Fedora ships AAVMF_CODE.fd.
+AAVMF_CODE=/usr/share/AAVMF/AAVMF_CODE.no-secboot.fd
+[ -r "$AAVMF_CODE" ] || AAVMF_CODE=/usr/share/AAVMF/AAVMF_CODE.fd
 WORK="$(mktemp -d "${TMPDIR:-$HOME/.cache}/refind-theme.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -95,7 +98,7 @@ run_one() { # arch W H
     else
         vars="$WORK/vars-aa64.fd"; cp /usr/share/AAVMF/AAVMF_VARS.fd "$vars"
         qemu=(qemu-system-aarch64 -machine virt -cpu cortex-a72 -m 1024
-              -drive if=pflash,format=raw,readonly=on,file=/usr/share/AAVMF/AAVMF_CODE.no-secboot.fd
+              -drive if=pflash,format=raw,readonly=on,file=$AAVMF_CODE
               -drive if=pflash,format=raw,file="$vars"
               -device "virtio-gpu-pci,xres=$W,yres=$H" -device qemu-xhci -device usb-kbd)
     fi
