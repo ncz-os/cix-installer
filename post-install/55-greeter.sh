@@ -12,7 +12,7 @@
 #
 # Branding: os-release carries LOGO=ncz, so the greeter (and boot-splash) look up
 # /usr/share/{pixmaps,icons/.../apps}/ncz.png for the OS mark; the login backdrop
-# is the NCZ Maximilian wallpaper dropped at the greeter fallback path
+# is the Cygnus greeter backdrop dropped at the greeter fallback path
 # /usr/share/backgrounds/singularity/default.png. auth is standard Unix password
 # (the greeter only switches to PIN when os-release ID starts "sinty"; ours=ncz).
 #
@@ -37,7 +37,7 @@ case "$VARIANT" in
 esac
 
 ASSETS=/usr/local/lib/cix-installer/assets/branding
-WALL_SRC=/usr/share/backgrounds/ncz/cygnus-26.10/cygnus-hero-edge-on.jpg
+WALL_SRC=$ASSETS/greeter/cygnus/greeter-backdrop-1920x1080.png
 
 install -d -m0755 /etc/greetd
 
@@ -59,17 +59,19 @@ else
     echo "[55] WARN: ncz logo asset missing — greeter/boot-splash fall back to emblem-singularity" >&2
 fi
 
-# --- greeter fallback background = NCZ Maximilian ----------------------------
+# --- greeter fallback background = Cygnus greeter backdrop ------------------
 # singularity-greeter background priority: per-user AccountsService Background ->
 # dev.sinty.desktop uri (current user only) -> fallback file. At the greeter no
-# real user is current, so the fallback file is the login backdrop.
+# real user is current, so the fallback file is the login backdrop. The greeter
+# downscales it to 960 px and box-blurs it twice, so this is a dedicated no-text
+# image darkened (branding/cygnus/tools/make-greeter-backdrop.py) to keep white
+# UI text >= 4.5:1 after that blur -- not a desktop wallpaper.
 if [ -f "$WALL_SRC" ]; then
     install -d -m0755 /usr/share/backgrounds/singularity
-    # loginui loads by content (gdk-pixbuf), not extension — jpg under .png is fine.
     cp -f "$WALL_SRC" /usr/share/backgrounds/singularity/default.png
-    echo "[55] greeter backdrop -> NCZ Maximilian (/usr/share/backgrounds/singularity/default.png)"
+    echo "[55] greeter backdrop -> Cygnus (/usr/share/backgrounds/singularity/default.png)"
 else
-    echo "[55] WARN: Maximilian wallpaper absent — greeter uses singularity default backdrop" >&2
+    echo "[55] WARN: Cygnus greeter backdrop absent ($WALL_SRC) — greeter uses singularity default backdrop" >&2
 fi
 
 # --- greetd: run the native greeter wrapper on the active graphical VT --------
@@ -238,4 +240,4 @@ if command -v pam-auth-update >/dev/null 2>&1; then
 else
     echo '[55] WARN: pam-auth-update not present — cannot verify/enable pam_systemd, greeter may black-screen'
 fi
-echo "[55] greetd + native singularity-greeter wired: /etc/greetd/{config.toml,singularity-labwc/}, NCZ logo + Maximilian backdrop, _greetd log dir"
+echo "[55] greetd + native singularity-greeter wired: /etc/greetd/{config.toml,singularity-labwc/}, NCZ logo + Cygnus backdrop, _greetd log dir"
