@@ -52,6 +52,61 @@ expect "status: LIBGL_ALWAYS_SOFTWARE=0 is not software"              0 st amd L
 mkdir -p "$T/amd/etc/environment.d"; echo 'LIBGL_ALWAYS_SOFTWARE=1' > "$T/amd/etc/environment.d/90-x.conf"
 expect "status: GPU + software forced in /etc/environment.d FAILS"    1 st amd
 rm -f "$T/amd/etc/environment.d/90-x.conf"
+# ---- EGL is scanned per platform (regression: O6N 2026-10-04 false positive).
+#      Mesa's Surfaceless/Device platforms always come up llvmpipe on Sky1 and no
+#      session uses them; a software renderer on gbm/wayland/x11 must still fail.
+cat > "$T/egl_mali_unused_soft.txt" <<'EOF'
+MESA: error: ZINK: failed to choose pdev
+GBM platform:
+EGL vendor string: ARM
+OpenGL ES profile renderer: Mali-G720-Immortalis
+
+Wayland platform:
+EGL vendor string: ARM
+OpenGL ES profile renderer: Mali-G720-Immortalis
+
+X11 platform:
+eglinfo: eglInitialize failed
+
+Surfaceless platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 128 bits)
+
+Device platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 128 bits)
+
+Platform Device platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 128 bits)
+EOF
+EGL_S="cat $T/egl_mali_unused_soft.txt" EGL_B="cat $T/egl_mali_unused_soft.txt" expect "status: Mali gbm/wayland + Surfaceless/Device llvmpipe PASSES" 0 st amd
+grep -q 'IGNORED surfaceless platform software renderer' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: log says why the Surfaceless block was ignored"; } || { FAILS=$((FAILS+1)); echo "FAIL status: Surfaceless block ignore not logged"; }
+grep -q 'IGNORED device platform software renderer' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: log says why the Device block was ignored"; } || { FAILS=$((FAILS+1)); echo "FAIL status: Device block ignore not logged"; }
+grep -q 'IGNORED platform device platform software renderer' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: log says why the Platform Device block was ignored"; } || { FAILS=$((FAILS+1)); echo "FAIL status: Platform Device ignore not logged"; }
+
+cat > "$T/egl_gbm_soft.txt" <<'EOF'
+GBM platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 128 bits)
+
+Wayland platform:
+EGL vendor string: ARM
+OpenGL ES profile renderer: Mali-G720-Immortalis
+EOF
+EGL_S="cat $T/egl_gbm_soft.txt" EGL_B="cat $T/egl_gbm_soft.txt" expect "status: llvmpipe on the GBM platform FAILS (policy kept)" 1 st amd
+grep -q 'EGL (session environment) renders in SOFTWARE (gbm platform)' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: the gbm failure names the platform"; } || { FAILS=$((FAILS+1)); echo "FAIL status: gbm failure not attributed to its platform"; }
+
+cat > "$T/egl_wayland_soft.txt" <<'EOF'
+GBM platform:
+EGL vendor string: ARM
+OpenGL ES profile renderer: Mali-G720-Immortalis
+
+Wayland platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 128 bits)
+EOF
+EGL_S="cat $T/egl_wayland_soft.txt" EGL_B="cat $T/egl_wayland_soft.txt" expect "status: llvmpipe on the Wayland platform FAILS (policy kept)" 1 st amd
 # no GPU: software is allowed, in every form
 rm -f "$T/banner"
 EGL_S='echo renderer: llvmpipe' EGL_B='echo renderer: llvmpipe' expect "status: NO GPU + llvmpipe passes (software allowed)"  0 st none
