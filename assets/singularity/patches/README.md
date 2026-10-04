@@ -91,6 +91,24 @@ that `singularity-plugins#2` above applies. CSS-only, 10 lines.
 
 Delete this patch once PR #15 merges.
 
+**Not yet filed upstream** (proposed to Mirko Brombin, the upstream
+maintainer, by this branch's operator brief; NOT filed by this task). Patch
+`0002-user-theme-loads-above-base.patch`. The theme template documents that
+a user theme's `singularity/style.css` "is loaded above the built-in
+libsingularity base", but at the current priorities it is loaded at
+`GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 5` / `+ 6` (605/606) -- BELOW the
+base palette at `GTK_STYLE_PROVIDER_PRIORITY_USER` (800), so a theme can
+only add properties and use its own named colours; it cannot override a base
+named colour (`@window_bg`, `@surface_bg`, `@text_color`, ...) or any
+property the base already sets. Raises the user theme to `USER + 3` and its
+variant to `USER + 4` so a theme can opt into overriding the base, as the
+template already promises. Small and general, not NCZ-specific: it is what
+makes the Cygnus violet-black surfaces apply.
+
+Deliberately has no `**Upstream PR:**` link, so
+`build/singularity-patch-reconcile.py` will not auto-retire it. When the
+change is filed and merged upstream, delete the patch and this block.
+
 ## Previously landed
 
 **Currently no OTHER patches carried.** Everything else previously tracked
