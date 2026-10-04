@@ -55,6 +55,7 @@
 59-desktop-curate.sh
 59-ncz-screensavers-pkg.sh
 60-boot-splash.sh
+61-chromium-icon.sh
 70-bootloader.sh
 72-rescue-partition.sh
 79-dkms-prep.sh
