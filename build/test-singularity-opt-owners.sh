@@ -116,15 +116,21 @@ for f in \
     "$R/opt/singularity/share/singularity/wallpaper-collections/ncz.artistpack"; do
     [ -e "$f" ] && ok "helper: restored ${f##*/}" || bad "helper: did not restore $f"
 done
-if grep -qx '#!/bin/sh' "$R/opt/singularity/bin/singularity-desktop" && grep -q 'new-shell' "$R/opt/singularity/bin/singularity-desktop"; then
+if grep -q '^#!/bin/sh' "$R/opt/singularity/bin/singularity-desktop" && grep -q 'new-shell' "$R/opt/singularity/bin/singularity-desktop"; then
     ok "helper: payload file is the NEW shell (swap actually happened)"
 else
     bad "helper: payload file was not updated"
 fi
 # The package-owned DIRECTORY entry must not nest (cp -a dir into existing dir).
-[ ! -e "$R/opt/singularity/lib/singularity/plugins/screensaver/screensaver" ] \
-    && ok "helper: package-owned directory restored without nesting" \
-    || bad "helper: restoring a directory nested it (cp -a dir dst)"
+# `cp -a src dst` on an existing dir nests as dst/<basename src>; both the
+# basename path and the alternative `opt/...` path are checked.
+if [ ! -e "$R/opt/singularity/lib/singularity/plugins/screensaver/screensaver" ] \
+   && [ ! -e "$R/opt/singularity/lib/singularity/plugins/screensaver/opt" ] \
+   && [ -f "$R/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so" ]; then
+    ok "helper: package-owned directory restored without nesting"
+else
+    bad "helper: restoring a directory nested it or lost its file (cp -a dir dst)"
+fi
 _revert=""
 for _n in "$R"/opt/singularity.ncz-backup-*/REVERT.txt; do [ -f "$_n" ] && _revert="$_n"; done
 [ -n "$_revert" ] && ok "helper: wrote a revert note" || bad "helper: no revert note"
