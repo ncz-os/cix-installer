@@ -598,6 +598,7 @@ parity:
 	build/test-usb2-rescan-greetd.sh
 	build/test-boot-speed.sh
 	build/test-timesync-retry.sh
+	build/test-greeter-output-mode.sh
 	build/test-ncz-ui.sh
 	build/test-release-identity.sh
 	build/test-base-stamp.sh
