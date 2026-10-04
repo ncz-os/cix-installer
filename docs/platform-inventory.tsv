@@ -300,6 +300,7 @@ post-install/58-screensaver-chooser.sh	common	-	screensaver chooser; generic
 post-install/59-desktop-curate.sh	mixed	-	launcher curation generic; amd64 branch at line ~100; TODO split
 post-install/59-ncz-screensavers-pkg.sh	common	-	installs ncz-screensavers if the mirror carries it
 post-install/60-boot-splash.sh	common	-	KMS boot splash; DRM-generic (panthor initramfs strip is a harmless sed)
+post-install/61-chromium-icon.sh	sky1	-	Cygnus-coloured NCZ Chromium icon (diverts the chromium-ncz-sky1 package icons); Sky1 only
 post-install/70-bootloader.sh	mixed	-	rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies
 post-install/72-rescue-partition.sh	mixed	-	rescue partition; explicit arm64 and amd64 kernel branches; TODO split
 post-install/79-dkms-prep.sh	sky1	-	makes Sky1 kernel headers DKMS-usable; installs aarch64 cross compiler
@@ -375,3 +376,4 @@ build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, cha
 docs/installer-ux/	common	-	installer console before/after evidence
 build/test-timesync-retry.sh	common	-	regression tests for the timesyncd fast-retry drop-in + no time-sync gating of the greeter (docs/BOOT-SPEED.md)
 build/test-greeter-output-mode.sh	common	-	regression test: greeter labwc autostart caps outputs at 1920x1080, never 4K
+build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp) and the 61 hook (divert + install + idempotent)
