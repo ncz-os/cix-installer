@@ -103,6 +103,7 @@ manifests/desktop-amd64.pkgs:systemd-zram-generator
 manifests/desktop-amd64.pkgs:mesa-utils
 manifests/desktop-amd64.pkgs:vulkan-tools
 manifests/desktop-amd64.pkgs:vainfo
+manifests/desktop-amd64.pkgs:intel-media-va-driver
 manifests/desktop-amd64.pkgs:mesa-vulkan-drivers
 manifests/desktop-amd64.pkgs:mesa-opencl-icd
 manifests/desktop-amd64.pkgs:libglu1-mesa
