@@ -29,7 +29,7 @@ set -uo pipefail
 
 usage() {
     cat >&2 <<EOF
-usage: $0 <stable> <deb-dir> [YYYYMMDD]
+usage: $0 <stable|edge> <deb-dir> [YYYYMMDD]
 
   stable  the unified T2 line (v7.2.x + t2linux patches) -- serves BOTH T2
           Macs and regular PCs; the t2linux series is DMI/PCI-ID gated.

@@ -463,7 +463,7 @@ elif [ "$MODE" = "full" ]; then
         _a64e_kver=$(tr -d '[:space:]' < "$ROOT/assets/kernel/amd64-edge/KVER" 2>/dev/null || true)
         case "$_a64e_kver" in
             7.3.0-rc6*-t2-edge-aerfix) ;;
-            *) echo "ERROR: $NCZ_TARGET_ARCH ISO staged with assets/kernel/amd64-edge/ KVER='${_a64e_kver:-<missing>}' -- not the pinned 7.3.0-rc6-*-t2-edge-aerfix (operator 2026-10-05)" >&2
+            *) echo "ERROR: $NCZ_TARGET_ARCH ISO staged with assets/kernel/amd64-edge/ KVER='${_a64e_kver:-<missing>}' -- not the pinned 7.3.0-rc6*-t2-edge-aerfix (operator 2026-10-05)" >&2
                exit 1 ;;
         esac
     fi
@@ -3359,7 +3359,7 @@ if [ "$NCZ_TARGET_ARCH" = amd64 ] && [ "$STAGE_NEXT_KERNEL" = "1" ]; then
         _amd64_edge_kver=$(tr -d '[:space:]' < "$_amd64_edge_src/KVER" 2>/dev/null || true)
         case "$_amd64_edge_kver" in
             7.3.0-rc6*-t2-edge-aerfix) ;;
-            *) echo "ERROR: amd64-edge KVER='${_amd64_edge_kver:-<missing>}' is not the pinned 7.3.0-rc6-*-t2-edge-aerfix (operator 2026-10-05)" >&2
+            *) echo "ERROR: amd64-edge KVER='${_amd64_edge_kver:-<missing>}' is not the pinned 7.3.0-rc6*-t2-edge-aerfix (operator 2026-10-05)" >&2
                exit 1 ;;
         esac
         cp -aL "$_amd64_edge_src" "$EXTRA/assets/kernel/"

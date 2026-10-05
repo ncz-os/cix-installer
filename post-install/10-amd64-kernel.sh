@@ -157,7 +157,7 @@ if [ -d "$ASSETS/amd64-edge" ]; then
             7.3.0-rc6*-t2-edge-aerfix)
                 install_one "edge (7.3.0-rc6 AER-revert, non-default)" "$ASSETS/amd64-edge" ;;
             *)
-                echo "[10-amd64] ERROR: $ASSETS/amd64-edge carries '$_edge_kver', not the pinned amd64 edge 7.3.0-rc6-*-t2-edge-aerfix (operator 2026-10-05). Refusing to install." >&2
+                echo "[10-amd64] ERROR: $ASSETS/amd64-edge carries '$_edge_kver', not the pinned amd64 edge 7.3.0-rc6*-t2-edge-aerfix (operator 2026-10-05). Refusing to install." >&2
                 exit 1 ;;
         esac
     fi
