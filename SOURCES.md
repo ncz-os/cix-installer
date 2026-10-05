@@ -34,10 +34,11 @@ The notes are drafted from the GitLab tip because the brief names that branch.
    latest deb from payload/apt (`Makefile` `LATEST_SINGULARITY_DEB`,
    `post-install/20-desktop.sh`). Confirm which deb the tagged image bundles.
 4. **Catalogue count conflict (74 vs 84).** ncz-screensavers 0.8.6 ships 74
-   (`debian/changelog`; catalogue 74 rows). cix-installer's legacy
-   `assets/screensaver-chooser/hacks.tsv` lists 84, and both
-   `post-install/58-screensaver-chooser.sh` and `post-install/59-ncz-screensavers-pkg.sh`
-   are enabled. Confirm the image exposes the 74-title package catalogue.
+   (`debian/changelog`; its `assets/screensaver-chooser/hacks.tsv` has 74 rows).
+   cix-installer's separate `assets/screensaver-chooser/hacks.tsv` (legacy chooser)
+   has 84 rows, and both `post-install/58-screensaver-chooser.sh` and
+   `post-install/59-ncz-screensavers-pkg.sh` are enabled. Confirm the image exposes
+   the 74-title package catalogue.
 5. **Screensaver plugin 0.3.15.** Built and published to a session directory; not
    confirmed in the apt repo/offline mirror. Notes describe the feature, not a
    plugin version.
@@ -66,20 +67,23 @@ The notes are drafted from the GitLab tip because the brief names that branch.
 - Singularity build `20261005+u20260925.g5c75e563d10e`, upstream
   `singularityos-lab/singularity-desktop` master
   `5c75e563d10e9c6142519f8a976f307742c34c32` (2026-09-25), amd64+arm64, 9 NCZ
-  patches + launcher-popup anchor fix: `~/Projects/oc-singularity-latest/report.md`
-  §2–§5. Patches in tree: `assets/singularity/patches/*`. Packaging:
-  `build/build-singularity.sh`, `build/build-singularity-deb.sh`; deb selection:
-  `Makefile`, `post-install/20-desktop.sh`.
+  patches + launcher-popup anchor fix. Patches in tree:
+  `assets/singularity/patches/*`. Packaging: `build/build-singularity.sh`,
+  `build/build-singularity-deb.sh`; deb selection: `Makefile`,
+  `post-install/20-desktop.sh`. The exact version string is from the 2026-10-05
+  external build record (OPEN QUESTION 3).
 - Native greeter: `post-install/55-greeter.sh`. Native KMS boot splash:
   `post-install/60-boot-splash.sh`. Screensaver Settings plugin:
-  `post-install/58-screensaver-chooser.sh`, `assets/screensaver-chooser/`;
-  plugin build record `~/Projects/oc-plugin-build/report.md` (v0.3.15).
+  `post-install/58-screensaver-chooser.sh`, `assets/screensaver-chooser/`, and the
+  ncz-screensavers `plugin/` sources; plugin package version 0.3.15 is set in
+  ncz-screensavers `tools/make-plugin-deb.sh` on `fix/plugin-build-20261005`
+  (OPEN QUESTION 5).
 
 ### Screensavers
 - Engine 0.8.6, history 0.7.0→0.8.6: ncz-screensavers `debian/changelog` at
   `d0e0948`.
-- Catalogue 74: `assets/screensaver-chooser/hacks.tsv` (74 rows) and
-  `categories.tsv` (74 rows; origin `ncz`=4, `ported`=70). Families: 30
+- Catalogue 74: ncz-screensavers `assets/screensaver-chooser/hacks.tsv` (74 rows)
+  and `categories.tsv` (74 rows; origin `ncz`=4, `ported`=70). Families: 30
   `hyprsaver_*`, 30 `xshadertoy_*`, 11 ported classics, 3 home-grown
   (`blackhole`, `fractasia`, `magmasimplex`).
 - Grouped settings UI/search/filter/favourites/Black Hole simple mode/still
