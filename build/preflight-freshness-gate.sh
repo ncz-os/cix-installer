@@ -506,8 +506,8 @@ EOF
     if [ -n "$orphans" ]; then
         echo "[3] FAIL: kernel-staging holds build(s) under a prefix nothing consumes:"
         for o in $orphans; do echo "          $o"; done
-        echo "          The amd64 arm globs amd64-stable-* and amd64-edge-*;"
-        echo "          the arm64 arm globs r<digit>*-*-sky1-ncz*. Anything else"
+        echo "          The amd64 branch globs amd64-stable-* and amd64-edge-*;"
+        echo "          the arm64 branch globs r<digit>*-*-sky1-ncz*. Anything else"
         echo "          will NEVER be staged into an image."
         echo "          Rename to the correct line prefix, or republish with"
         echo "          build/publish-amd64-kernel.sh stable|edge <deb-dir> (amd64)"
