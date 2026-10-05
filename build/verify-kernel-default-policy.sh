@@ -440,8 +440,8 @@ if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
                         _ebase=$(sed -nE 's/^EDGE_BASE=([^[:space:]#]+).*/\1/p' "$_policy" | head -1)
                         if [ -n "$_ebase" ]; then
                             case "$AMD64_EDGE_KVER" in
-                                "$_ebase"*-t2-edge-aerfix) log "amd64: edge KVER matches the pinned revert build ${_ebase}*-t2-edge-aerfix" ;;
-                                *) err "amd64: edge KVER '$AMD64_EDGE_KVER' is not the pinned ${_ebase}*-t2-edge-aerfix revert build (assets/kernel/KERNEL-POLICY, operator 2026-10-05)" ;;
+                                "$_ebase"-[0-9]*-t2-edge-aerfix) log "amd64: edge KVER matches the pinned revert build ${_ebase}-[0-9]*-t2-edge-aerfix" ;;
+                                *) err "amd64: edge KVER '$AMD64_EDGE_KVER' is not the pinned ${_ebase}-[0-9]*-t2-edge-aerfix revert build (assets/kernel/KERNEL-POLICY, operator 2026-10-05)" ;;
                             esac
                         fi
                     fi
