@@ -1,11 +1,18 @@
 #!/bin/bash
 # 62-cygnus-screensaver-default.sh -- make the black hole saver in the Cygnus palette the
-# default screensaver (operator decision 2026-10-04).
+# default screensaver and turn randomize=everything on (operator decisions 2026-10-04 and
+# 2026-10-05).
 #
-# The dev.ncz.screensaver schema is owned by the ncz-screensavers package. Its defaults are
+# The dev.ncz.screensaver schema is owned by the ncz-screensavers package. Older defaults are
 # mode='random' with the stylized palette; the `cygnus` palette exists from ncz-screensavers
 # 0.7.11 (blackhole-color-mode enum + `blackhole_gles3 --palette=cygnus`). This hook adds a
 # GSettings override (mode='one', hack-id='blackhole_gles3', blackhole-color-mode='cygnus').
+#
+# The randomize=everything default is added ONLY when the installed engine's
+# `blackhole_gles3 --dump-schema` lists the `randomize` option (ncz-screensavers with the
+# feature). An older engine would ignore hack-options.randomize, so the key is omitted there.
+# The Cygnus palette is pinned by the randomize roll because blackhole-color-mode is not
+# 'stylized'.
 #
 # SAFETY: an override that names an enum value the installed schema does not have makes
 # glib-compile-schemas fail for EVERY schema on the system. So the override is validated
@@ -13,7 +20,7 @@
 # only installed when it compiles; otherwise the hook warns and leaves the system untouched.
 #
 # Idempotent. Never fails the install (exit 0 on every path).
-# Test seam (build/test-screensaver-default.sh): NCZ_SS_SCHEMA_DIR.
+# Test seams (build/test-screensaver-default.sh): NCZ_SS_SCHEMA_DIR, NCZ_SS_BLACKHOLE_BIN.
 set -u
 
 DIR="${NCZ_SS_SCHEMA_DIR:-/usr/share/glib-2.0/schemas}"
@@ -36,10 +43,33 @@ if ! grep -q "nick=.cygnus." "$SCHEMA_XML"; then
     exit 0
 fi
 
+# Does the installed engine expose the randomize option? Guard exactly like the cygnus-enum
+# guard: ask the engine itself (--dump-schema, 10 tab-separated columns, name first).
+BH_BIN="${NCZ_SS_BLACKHOLE_BIN:-}"
+if [ -z "$BH_BIN" ]; then
+    for _c in blackhole_gles3 /usr/lib/ncz-screensavers/blackhole_gles3 /usr/libexec/ncz-screensavers/blackhole_gles3; do
+        if command -v "$_c" >/dev/null 2>&1; then BH_BIN=$(command -v "$_c"); break; fi
+        if [ -x "$_c" ]; then BH_BIN="$_c"; break; fi
+    done
+fi
+RANDOMIZE=0
+if [ -n "$BH_BIN" ] && [ -x "$BH_BIN" ]; then
+    if "$BH_BIN" --dump-schema 2>/dev/null | awk -F'\t' '$1 == "randomize" { found = 1 } END { exit !found }'; then
+        RANDOMIZE=1
+    fi
+fi
+
 BODY="[dev.ncz.screensaver]
 mode='one'
 hack-id='blackhole_gles3'
 blackhole-color-mode='cygnus'"
+if [ "$RANDOMIZE" = 1 ]; then
+    BODY="$BODY
+hack-options={'blackhole_gles3': {'randomize': 'everything'}}"
+    echo "[62]   engine exposes randomize: default randomize=everything (Cygnus palette pinned)"
+else
+    echo "[62]   engine has no randomize option; leaving the scene/look settings alone"
+fi
 
 # validate on a scratch copy before touching the real directory
 SCRATCH=$(mktemp -d)
