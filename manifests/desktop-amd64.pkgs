@@ -105,6 +105,18 @@ systemd-zram-generator
 mesa-utils
 vulkan-tools
 vainfo
+# Intel VA-API driver (iHD) for Gen8+ Intel iGPUs -- Broadwell and newer,
+# including the CoffeeLake UHD 630 in T2 Macs and the iGPU on generic Intel
+# desktops/laptops. Debian main package; provides
+# /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so, which libva selects for
+# i915/xe render nodes. The Mesa runtimes pulled in elsewhere (mesa-va-drivers)
+# only carry the non-Intel VA backends (radeonsi/nouveau/...), so an Intel-only
+# machine has no VA-API decode path at all without this package.
+# amd64 ONLY -- arm64/Sky1 decodes through the CIX VPU (V4L2/M2M), not VA-API.
+# Already claimed in build/arch-parity-allowlist.tsv (desktop/intel-media-va-driver,
+# amd64-only); pinned present by sbom/expected-packages-amd64.txt and
+# build/test-amd64-intel-vaapi.sh. Do not add to desktop.pkgs.
+intel-media-va-driver
 mesa-vulkan-drivers
 mesa-opencl-icd
 libglu1-mesa
