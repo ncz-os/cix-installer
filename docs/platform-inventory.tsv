@@ -47,6 +47,8 @@ assets/kernel-manifest.json	sky1	-	Sky1 kernel manifest
 assets/kernel/	sky1	-	Sky1 kernel staging, mali/panthor/vpu/npu overlays, patches (default for the tree)
 assets/kernel/.gitkeep	common	-	placeholder
 assets/kernel/amd64-stable/	amd64	-	amd64 stable kernel KVER stamp
+assets/kernel/amd64-edge/	amd64	-	amd64 pinned 7.3.0-rc6 AER-revert edge kernel KVER stamp
+assets/kernel/amd64-edge-manifest.json	amd64	-	amd64 edge kernel artifact manifest (sha256, provenance)
 assets/kernel/t2gmux/	amd64	t2	T2 gmux DKMS source
 assets/kernel/t2smc/	amd64	t2	T2 SMC DKMS source
 assets/kernel/t2smp/	amd64	t2	T2 SMP DKMS source
@@ -109,7 +111,7 @@ build/build-wallpaper-contrib-deb.sh	common	-	wallpaper pack debs
 build/check-early-command-size.sh	common	-	preseed size gate
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
 build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
-build/verify-kernel-default-policy.sh	common	-	enforces the kernel default policy (default=7.2.8 release; arm64-only edge=7.3-rc5; amd64 has no edge)
+build/verify-kernel-default-policy.sh	common	-	enforces the kernel default policy (default=stable release; edge=7.3.0-rc6 on both arches; amd64 edge pinned to the AER revert build)
 build/check-preseed-mirror-sync.sh	common	-	preseed mirror vs release.conf gate
 build/component-prompt-gate.sh	common	-	interactive component prompt gate
 build/containers/	common	-	build container definitions

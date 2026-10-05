@@ -58,19 +58,25 @@ if [ -z "$KVER_STABLE" ]; then
     exit 1
 fi
 
-# Operator directive 2026-09-30: amd64 ships NO 7.3-rc5 line at all (no
-# default, no edge). If a KVER_EDGE is somehow passed in (legacy hook
-# data, future operator-initiated staging of an experimental kernel),
-# REFUSE to write an edge menu entry here -- this is the runtime defence
-# in depth alongside build/verify-kernel-default-policy.sh (which refuses
-# to stage amd64-edge at build time) and the classify() function in
-# zz1-ncz-refind-refresh-amd64 (which refuses to enumerate edge from a
-# live /boot). The kernel itself may still be installed (operator apt
-# install), but the rEFInd menu cannot offer it as a bootable entry.
-if [ -n "$KVER_EDGE" ]; then
-    echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- amd64 has no validated 7.3 kernel (operator directive 2026-09-30)"
-    KVER_EDGE=""
-fi
+# Operator directive 2026-10-05: amd64 edge channel is pinned to 7.3.0-rc6,
+# the validated T2 kernel with the AER ANFE revert
+# (7.3.0-rc6-1-t2-edge-aerfix). A KVER_EDGE that is not that pinned line is
+# ignored (defence in depth alongside the build-time policy gate
+# build/verify-kernel-default-policy.sh and the classify() function in
+# zz1-ncz-refind-refresh-amd64, which only surfaces the pinned line). The
+# kernel itself may still be installed (operator apt install), but the
+# rEFInd menu must not offer an unpinned -rc as a bootable edge entry.
+case "$KVER_EDGE" in
+    "")
+        ;;
+    7.3.0-rc6*-t2-edge-aerfix)
+        echo "  KVER_EDGE='$KVER_EDGE' accepted (amd64 edge channel is pinned to 7.3.0-rc6, operator 2026-10-05)"
+        ;;
+    *)
+        echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- not the pinned amd64 edge 7.3.0-rc6-*-t2-edge-aerfix (operator 2026-10-05; amd64 edge channel is pinned to 7.3.0-rc6)"
+        KVER_EDGE=""
+        ;;
+esac
 
 echo "  KVER_STABLE=$KVER_STABLE"
 echo "  KVER_EDGE=${KVER_EDGE:-<none>}"

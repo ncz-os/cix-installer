@@ -173,12 +173,32 @@ echo "=== Negative: dangling symlink ==="
 r="$WORK/n7" ; mkroot "$r" "DANGLING"
 run "arm64: dangling mainline symlink" 1 --root "$r" --arch arm64
 
-echo "=== Negative: amd64 ships edge (policy violation) ==="
-r="$WORK/n8" ; mkroot "$r" "7.2.8-1-t2-trixie"
-# Now add an amd64-edge KVER (mkroot only does mainline/edge for arm64)
-mkdir -p "$r/assets/kernel/amd64-edge"
+echo "=== Negative: amd64 non-pinned edge is refused ==="
+# Operator directive 2026-10-05: amd64 may stage edge, but only the pinned
+# 7.3.0-rc6 revert build. A 7.3.0-rc5 edge beside a valid 7.2.9 stable is
+# refused by the KERNEL-POLICY pin (check 10).
+r="$WORK/n8"
+mkdir -p "$r/assets/kernel/amd64-stable" "$r/assets/kernel/amd64-edge"
+: > "$r/release.conf"; echo "NCZ_TARGET_ARCH=amd64" >> "$r/release.conf"
+printf '7.2.9-2-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
 printf '7.3.0-rc5-1-t2-trixie\n' > "$r/assets/kernel/amd64-edge/KVER"
-run "amd64: amd64-edge exists" 1 --root "$r" --arch amd64
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.9-2-t2-trixie"}}}
+JSON
+printf 'STABLE_BASE=7.2.9\nEDGE_BASE=7.3.0-rc6\n' > "$r/assets/kernel/KERNEL-POLICY"
+run "amd64: non-pinned edge rc5 refused" 1 --root "$r" --arch amd64
+
+echo "=== Positive: amd64 pinned edge rc6 revert is accepted ==="
+r="$WORK/n8p"
+mkdir -p "$r/assets/kernel/amd64-stable" "$r/assets/kernel/amd64-edge"
+: > "$r/release.conf"; echo "NCZ_TARGET_ARCH=amd64" >> "$r/release.conf"
+printf '7.2.9-2-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
+printf '7.3.0-rc6-1-t2-edge-aerfix\n' > "$r/assets/kernel/amd64-edge/KVER"
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.9-2-t2-trixie"}}}
+JSON
+printf 'STABLE_BASE=7.2.9\nEDGE_BASE=7.3.0-rc6\n' > "$r/assets/kernel/KERNEL-POLICY"
+run "amd64: pinned edge rc6 accepted" 0 --root "$r" --arch amd64
 
 echo "=== Negative: amd64 stable is rc (policy violation) ==="
 r="$WORK/n9"
@@ -206,7 +226,8 @@ printf '7.2.8-1-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
 cat > "$r/assets/kernel-manifest.json" <<'JSON'
 {"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.8-1-t2-trixie"}}}
 JSON
-# Classifier hook WITHOUT the directive marker (old shape, asserts rc -> edge)
+# Classifier hook WITHOUT the pinned-edge marker (old pre-2026-10-05 shape
+# that would promote an unpinned rc to edge). The verifier refuses it.
 mkdir -p "$r/assets/refind"
 cat > "$r/assets/refind/zz1-ncz-refind-refresh-amd64" <<'SHIM'
 classify() {
@@ -215,11 +236,11 @@ classify() {
     esac
 }
 SHIM
-run "amd64: classifier hook rolled back (no directive marker)" 1 --root "$r" --arch amd64
+run "amd64: classifier hook rolled back (no pinned-edge marker)" 1 --root "$r" --arch amd64
 
-echo "=== Negative: amd64 refresh script doesn't refuse KVER_EDGE (regression) ==="
-# Same shape but the refresh script is the pre-directive version
-# (writes an edge entry when KVER_EDGE is set).
+echo "=== Negative: amd64 refresh script has no pinned-edge marker (regression) ==="
+# Same shape but the refresh script is the pre-2026-10-05 version (would
+# write an edge entry for any KVER_EDGE).
 r="$WORK/n9c"
 mkdir -p "$r/assets/kernel"
 : > "$r/release.conf"
@@ -238,9 +259,9 @@ cat > "$r/assets/refind/ncz-refind-refresh-amd64.sh" <<'SHIM'
 #!/bin/bash
 echo "KVER_STABLE=$KVER_STABLE KVER_EDGE=$KVER_EDGE"
 SHIM
-run "amd64: refresh script rolled back (no KVER_EDGE refuse)" 1 --root "$r" --arch amd64
+run "amd64: refresh script rolled back (no pinned-edge marker)" 1 --root "$r" --arch amd64
 
-echo "=== Positive: amd64 runtime pipeline honours the directive ==="
+echo "=== Positive: amd64 runtime pipeline pins the edge ==="
 r="$WORK/p9"
 mkdir -p "$r/assets/kernel"
 : > "$r/release.conf"
@@ -252,15 +273,15 @@ cat > "$r/assets/kernel-manifest.json" <<'JSON'
 JSON
 mkdir -p "$r/assets/refind"
 cat > "$r/assets/refind/zz1-ncz-refind-refresh-amd64" <<'SHIM'
-# amd64 never ships edge (directive 2026-09-30)
+# amd64 edge channel is pinned to 7.3.0-rc6 (operator directive 2026-10-05)
 classify() { return; }
 SHIM
 cat > "$r/assets/refind/ncz-refind-refresh-amd64.sh" <<'SHIM'
 #!/bin/bash
-# KVER_EDGE ignored -- amd64 has no validated 7.3 kernel (operator directive 2026-09-30)
+# amd64 edge channel is pinned to 7.3.0-rc6 (operator directive 2026-10-05)
 echo "ok"
 SHIM
-run "amd64: runtime pipeline honours directive" 0 --root "$r" --arch amd64
+run "amd64: runtime pipeline honours pinned-edge directive" 0 --root "$r" --arch amd64
 
 echo "=== Negative: mainline missing required payload file (Image) ==="
 r="$WORK/n10" ; mkroot "$r" "7.2.8-sky1-ncz" "" "7.2.8-sky1-ncz"
@@ -403,6 +424,23 @@ run "pin: amd64 stable 7.2.9-2-t2-trixie" 0 --root "$r" --arch amd64
 printf '7.2.8-1-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
 sed -i.bak 's/7.2.9-2-t2-trixie/7.2.8-1-t2-trixie/' "$r/assets/kernel-manifest.json"; rm -f "$r/assets/kernel-manifest.json.bak"
 run "pin: amd64 stable 7.2.8 is refused" 1 --root "$r" --arch amd64
+# amd64 edge: pinned rc6 accepted; rc5 and a release edge refused.
+r="$WORK/k6"
+mkdir -p "$r/assets/kernel/amd64-stable" "$r/assets/kernel/amd64-edge"
+printf 'NCZ_TARGET_ARCH=amd64\n' > "$r/release.conf"
+printf '7.2.9-2-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
+printf '7.3.0-rc6-1-t2-edge-aerfix\n' > "$r/assets/kernel/amd64-edge/KVER"
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.9-2-t2-trixie"}}}
+JSON
+pin "$r"
+run "pin: amd64 7.2.9 default + pinned rc6 edge" 0 --root "$r" --arch amd64
+printf '7.3.0-rc5-1-t2-trixie\n' > "$r/assets/kernel/amd64-edge/KVER"
+run "pin: amd64 rc5 edge is refused" 1 --root "$r" --arch amd64
+printf '7.3.0-rc6-1-t2-edge-plain\n' > "$r/assets/kernel/amd64-edge/KVER"
+run "pin: amd64 unpinned rc6 variant is refused" 1 --root "$r" --arch amd64
+printf '7.2.8-1-t2-trixie\n' > "$r/assets/kernel/amd64-edge/KVER"
+run "pin: amd64 release edge is refused (not -rc)" 1 --root "$r" --arch amd64
 
 echo "=== Positive: rescue entry preservation (real repo, no SKIP) ==="
 # The rescue-preservation check runs against the REAL rEFInd refresh
