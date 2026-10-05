@@ -144,32 +144,48 @@ install_one "stable (T2-unified)" "$ASSETS/amd64-stable"
 # Operator directive 2026-10-05: amd64 edge is the pinned 7.3.0-rc6 T2
 # kernel with the AER ANFE revert (7.3.0-rc6-1-t2-edge-aerfix), installed
 # as a separate NON-default rEFInd entry. Install it only when the payload
-# is present; validate the KVER against the pin so an unpinned -rc cannot
-# be installed even if the build gate was bypassed (defence in depth).
-if [ -d "$ASSETS/amd64-edge" ]; then
-    _edge_icount=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-image-*.deb' | wc -l | tr -d ' ')
-    _edge_hcount=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-headers-*.deb' | wc -l | tr -d ' ')
-    if [ "$_edge_icount" -ne 0 ] || [ "$_edge_hcount" -ne 0 ]; then
-        # Exactly one image + one headers pair; a mixed directory could
-        # otherwise install a .deb whose KVER never passed the pin check.
-        if [ "$_edge_icount" -ne 1 ] || [ "$_edge_hcount" -ne 1 ]; then
-            echo "[10-amd64] ERROR: $ASSETS/amd64-edge has $_edge_icount image .deb(s) and $_edge_hcount headers .deb(s) (must be exactly 1 each). Refusing to install." >&2
-            exit 1
-        fi
-        _edge_img=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-image-*.deb')
-        _edge_kver="$(basename "$_edge_img")"
-        _edge_kver="${_edge_kver#linux-image-}"
-        _edge_kver="${_edge_kver%_amd64.deb}"
-        _edge_kver="${_edge_kver%_*}"
-        case "$_edge_kver" in
-            7.3.0-rc6-[0-9]-t2-edge-aerfix|7.3.0-rc6-[0-9][0-9]-t2-edge-aerfix)
-                install_one "edge (7.3.0-rc6 AER-revert, non-default)" "$ASSETS/amd64-edge" ;;
-            *)
-                echo "[10-amd64] ERROR: $ASSETS/amd64-edge carries '$_edge_kver', not the pinned amd64 edge 7.3.0-rc6-<N>-t2-edge-aerfix (operator 2026-10-05). Refusing to install." >&2
-                exit 1 ;;
-        esac
+# is present; validate the image and headers KVERs against the pin so an
+# unpinned -rc cannot be installed even if the build gate was bypassed
+# (defence in depth).
+install_edge() {
+    local icount hcount img kver hdr hver
+    [ -d "$ASSETS/amd64-edge" ] || return 0
+    icount=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-image-*.deb' | wc -l | tr -d ' ')
+    hcount=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-headers-*.deb' | wc -l | tr -d ' ')
+    [ "$icount" -eq 0 ] && [ "$hcount" -eq 0 ] && return 0
+    # Exactly one image + one headers pair; a mixed directory could
+    # otherwise install a .deb whose KVER never passed the pin check.
+    if [ "$icount" -ne 1 ] || [ "$hcount" -ne 1 ]; then
+        echo "[10-amd64] ERROR: $ASSETS/amd64-edge has $icount image .deb(s) and $hcount headers .deb(s) (must be exactly 1 each). Refusing to install." >&2
+        exit 1
     fi
-fi
+    img=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-image-*.deb')
+    kver="$(basename "$img")"
+    kver="${kver#linux-image-}"
+    kver="${kver%_amd64.deb}"
+    kver="${kver%_*}"
+    case "$kver" in
+        7.3.0-rc6-[0-9]-t2-edge-aerfix|7.3.0-rc6-[0-9][0-9]-t2-edge-aerfix) ;;
+        *)
+            echo "[10-amd64] ERROR: $ASSETS/amd64-edge carries '$kver', not the pinned amd64 edge 7.3.0-rc6-<N>-t2-edge-aerfix (operator 2026-10-05). Refusing to install." >&2
+            exit 1 ;;
+    esac
+    # The headers must carry the same KVER as the image; a mismatched
+    # headers package would otherwise be installed alongside the pinned
+    # image without ever passing the pin check.
+    hdr=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-headers-*.deb')
+    hver="$(basename "$hdr")"
+    hver="${hver#linux-headers-}"
+    hver="${hver%_amd64.deb}"
+    hver="${hver%_*}"
+    if [ "$hver" != "$kver" ]; then
+        echo "[10-amd64] ERROR: $ASSETS/amd64-edge headers KVER '$hver' != image KVER '$kver' (must match). Refusing to install." >&2
+        exit 1
+    fi
+    install_one "edge (7.3.0-rc6 AER-revert, non-default)" "$ASSETS/amd64-edge"
+}
+
+install_edge
 
 if [ "$INSTALLED_KERNELS" -eq 0 ]; then
     echo "[10-amd64] ERROR: no AMD64 kernel installed — Phase 1 cannot continue." >&2
