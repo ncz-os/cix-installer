@@ -381,6 +381,29 @@ mv "$r/assets/kernel/edge/headers-cixmini.tar.zst" "$r/assets/kernel/edge/header
 run "arm64: edge payload with per-KVER headers filename" 0 --root "$r" --arch arm64
 
 echo
+echo "=== KERNEL-POLICY pins (operator 2026-10-05: stable 7.2.9, edge 7.3.0-rc6) ==="
+pin() { printf 'STABLE_BASE=7.2.9\nEDGE_BASE=7.3.0-rc6\n' > "$1/assets/kernel/KERNEL-POLICY"; }
+r="$WORK/k1" ; mkroot "$r" "7.2.9-sky1-ncz" "7.3.0-rc6-sky1-ncz" "7.2.9-sky1-ncz"; pin "$r"
+run "pin: arm64 7.2.9 default + 7.3.0-rc6 edge" 0 --root "$r" --arch arm64
+r="$WORK/k2" ; mkroot "$r" "7.2.8-sky1-ncz" "7.3.0-rc6-sky1-ncz" "7.2.8-sky1-ncz"; pin "$r"
+run "pin: arm64 default 7.2.8 is refused" 1 --root "$r" --arch arm64
+r="$WORK/k3" ; mkroot "$r" "7.2.9-sky1-ncz" "7.3.0-rc5-sky1-ncz" "7.2.9-sky1-ncz"; pin "$r"
+run "pin: arm64 edge 7.3.0-rc5 is refused" 1 --root "$r" --arch arm64
+r="$WORK/k4" ; mkroot "$r" "7.2.9-sky1-ncz" "" "7.2.9-sky1-ncz"; pin "$r"
+run "pin: arm64 7.2.9 with no edge channel" 0 --root "$r" --arch arm64
+r="$WORK/k5"
+mkdir -p "$r/assets/kernel/amd64-stable"
+printf 'NCZ_TARGET_ARCH=amd64\n' > "$r/release.conf"
+printf '7.2.9-2-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
+cat > "$r/assets/kernel-manifest.json" <<'JSON'
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.9-2-t2-trixie"}}}
+JSON
+pin "$r"
+run "pin: amd64 stable 7.2.9-2-t2-trixie" 0 --root "$r" --arch amd64
+printf '7.2.8-1-t2-trixie\n' > "$r/assets/kernel/amd64-stable/KVER"
+sed -i.bak 's/7.2.9-2-t2-trixie/7.2.8-1-t2-trixie/' "$r/assets/kernel-manifest.json"; rm -f "$r/assets/kernel-manifest.json.bak"
+run "pin: amd64 stable 7.2.8 is refused" 1 --root "$r" --arch amd64
+
 echo "=== Positive: rescue entry preservation (real repo, no SKIP) ==="
 # The rescue-preservation check runs against the REAL rEFInd refresh
 # scripts (it deliberately skips synthetic fixtures because they don't
