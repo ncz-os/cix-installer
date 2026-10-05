@@ -59,11 +59,6 @@
 #      kernel. This is the runtime analogue of checks 5 and 10 -- a
 #      stray non-pinned kernel installed on the box cannot become a boot
 #      entry.
-#  10. (both arches) If assets/kernel/KERNEL-POLICY exists: the default kernel
-#      must be the pinned STABLE_BASE (7.2.9) and a staged edge kernel
-#      (arm64 edge, or the amd64 edge revert build) must be the pinned
-#      EDGE_BASE (7.3.0-rc6). See
-#      docs/reports/2026-10-05-kernel-channel-policy.md.
 #   9. (both arches) The rEFInd refresh scripts preserve the rescue
 #      entry (the *-rescue sparing logic and the auto-promote-outgoing
 #      logic). The operator directive says "keep the rescue entry"; a
@@ -71,6 +66,11 @@
 #      safety net, and a verifier running on the build host can catch
 #      that statically by requiring the rescue-promotion markers to
 #      still be present in both scripts.
+#  10. (both arches) If assets/kernel/KERNEL-POLICY exists: the default kernel
+#      must be the pinned STABLE_BASE (7.2.9) and a staged edge kernel
+#      (arm64 edge, or the amd64 edge revert build) must be the pinned
+#      EDGE_BASE (7.3.0-rc6). See
+#      docs/reports/2026-10-05-kernel-channel-policy.md.
 #
 # Usage:
 #   verify-kernel-default-policy.sh [--root <repo-root>] [--arch arm64|amd64]
@@ -440,8 +440,8 @@ if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
                         _ebase=$(sed -nE 's/^EDGE_BASE=([^[:space:]#]+).*/\1/p' "$_policy" | head -1)
                         if [ -n "$_ebase" ]; then
                             case "$AMD64_EDGE_KVER" in
-                                "$_ebase"-[0-9]*-t2-edge-aerfix) log "amd64: edge KVER matches the pinned revert build ${_ebase}-[0-9]*-t2-edge-aerfix" ;;
-                                *) err "amd64: edge KVER '$AMD64_EDGE_KVER' is not the pinned ${_ebase}-[0-9]*-t2-edge-aerfix revert build (assets/kernel/KERNEL-POLICY, operator 2026-10-05)" ;;
+                                "$_ebase"-[0-9]-t2-edge-aerfix|"$_ebase"-[0-9][0-9]-t2-edge-aerfix) log "amd64: edge KVER matches the pinned revert build ${_ebase}-<N>-t2-edge-aerfix" ;;
+                                *) err "amd64: edge KVER '$AMD64_EDGE_KVER' is not the pinned ${_ebase}-<N>-t2-edge-aerfix revert build (assets/kernel/KERNEL-POLICY, operator 2026-10-05)" ;;
                             esac
                         fi
                     fi

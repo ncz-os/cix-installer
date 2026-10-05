@@ -459,11 +459,11 @@ elif [ "$MODE" = "full" ]; then
     # edge kernel (supersedes the 2026-09-30 ban). If amd64-edge is staged,
     # its KVER must match the pin; the kernel-default-policy verifier
     # re-checks this downstream, but failing here names the staged path.
-    if [ -e "$ROOT/assets/kernel/amd64-edge" ]; then
-        _a64e_kver=$(tr -d '[:space:]' < "$ROOT/assets/kernel/amd64-edge/KVER" 2>/dev/null || true)
+    if [ -d "$ROOT/assets/kernel/amd64-edge" ]; then
+        _a64e_kver=$(head -n1 "$ROOT/assets/kernel/amd64-edge/KVER" 2>/dev/null | tr -d '[:space:]' || true)
         case "$_a64e_kver" in
-            7.3.0-rc6-[0-9]*-t2-edge-aerfix) ;;
-            *) echo "ERROR: $NCZ_TARGET_ARCH ISO staged with assets/kernel/amd64-edge/ KVER='${_a64e_kver:-<missing>}' -- not the pinned 7.3.0-rc6-[0-9]*-t2-edge-aerfix (operator 2026-10-05)" >&2
+            7.3.0-rc6-[0-9]-t2-edge-aerfix|7.3.0-rc6-[0-9][0-9]-t2-edge-aerfix) ;;
+            *) echo "ERROR: $NCZ_TARGET_ARCH ISO staged with assets/kernel/amd64-edge/ KVER='${_a64e_kver:-<missing>}' -- not the pinned 7.3.0-rc6-<N>-t2-edge-aerfix (operator 2026-10-05)" >&2
                exit 1 ;;
         esac
     fi
@@ -3356,10 +3356,10 @@ if [ "$NCZ_TARGET_ARCH" = amd64 ] && [ "$STAGE_NEXT_KERNEL" = "1" ]; then
     # an unpinned -rc cannot reach the installer media.
     _amd64_edge_src="$ROOT/assets/kernel/amd64-edge"
     if [ -d "$_amd64_edge_src" ]; then
-        _amd64_edge_kver=$(tr -d '[:space:]' < "$_amd64_edge_src/KVER" 2>/dev/null || true)
+        _amd64_edge_kver=$(head -n1 "$_amd64_edge_src/KVER" 2>/dev/null | tr -d '[:space:]' || true)
         case "$_amd64_edge_kver" in
-            7.3.0-rc6-[0-9]*-t2-edge-aerfix) ;;
-            *) echo "ERROR: amd64-edge KVER='${_amd64_edge_kver:-<missing>}' is not the pinned 7.3.0-rc6-[0-9]*-t2-edge-aerfix (operator 2026-10-05)" >&2
+            7.3.0-rc6-[0-9]-t2-edge-aerfix|7.3.0-rc6-[0-9][0-9]-t2-edge-aerfix) ;;
+            *) echo "ERROR: amd64-edge KVER='${_amd64_edge_kver:-<missing>}' is not the pinned 7.3.0-rc6-<N>-t2-edge-aerfix (operator 2026-10-05)" >&2
                exit 1 ;;
         esac
         cp -aL "$_amd64_edge_src" "$EXTRA/assets/kernel/"

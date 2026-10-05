@@ -123,14 +123,18 @@ trap 'rm -f "$EMBED_LIST" "$SRC_LIST"' EXIT
 # (10-amd64-kernel.sh historically read it; the filename derivation in
 # the rewritten hook no longer depends on it, but a future hook or
 # operator inspection might).
-EMBED_LINES_RE='amd64-(stable|edge)'
+# Space-separated channel prefixes; awk splits them and tests each with a
+# separate ERE (portable across awk implementations, no alternation).
+EMBED_LINES_RE='amd64-stable amd64-edge'
 unsquashfs -l "$LAYER" 2>/dev/null \
     | sed -e 's#^squashfs-root/##' \
     | awk -v eb="$EMBED_BASE" -v lre="$EMBED_LINES_RE" '
-          BEGIN { re = "^(" lre ")/[^/]+$" }
+          BEGIN { n = split(lre, p, " "); for (i = 1; i <= n; i++) re[i] = "^" p[i] "/[^/]+$" }
           index($0, eb "/") == 1 {
               sub("^" eb "/", "", $0)
-              if ($0 ~ re) {
+              hit = 0
+              for (i = 1; i <= n; i++) if ($0 ~ re[i]) hit = 1
+              if (hit) {
                   sub(".*/", "", $0)
                   print
               }
