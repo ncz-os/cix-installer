@@ -38,9 +38,11 @@ a user-selected quadrant.
 
 Delete this patch once PR #30 merges.
 
-**No upstream PR:** branch `feat/wallpaper-plain-contrast` (not pushed). Patch
-`0003-plain-contrast-live-quadrant-and-wrap.patch`. Plain auto-contrast
-attribution text, live quadrant update and two-line wrap. Depends on
+**No upstream PR:** prepared, not filed. Branch
+`upstream-ready/plain-contrast-20261005` on ARGONAS (`9f502f9`), rebased on
+the current `singularity-shell#30` tip per the rebase rule. Patch
+`0003-plain-contrast-live-quadrant-and-wrap.patch`: plain auto-contrast
+attribution text, live quadrant move and a two-line wrap. Depends on
 `singularity-shell#30` above; file it only after #30 merges.
 
 Delete this patch once it lands upstream.
@@ -57,10 +59,13 @@ to bottom-left, no existing behavior changes on its own.
 
 Delete this patch once PR #262 merges.
 
-**No upstream PR:** not filed. Patch
+**Upstream PR:** [singularityos-lab/singularity-desktop#267](https://github.com/singularityos-lab/singularity-desktop/pull/267)
+— open, not yet merged. Patch
 `0002-sensors-settings-keys-and-color-mode.patch`. Declares the sensors-*
-gschema keys plus `sensors-color-mode`; planned as a small schema PR once
-`singularity-plugins#2` and the contrast work settle.
+gschema keys. #267 covers the six `sensors-*` keys only; the patch's extra
+`sensors-color-mode` key is NOT in #267, so once #267 merges this patch will
+not reverse-apply and must be reduced to that one key by hand (the reconcile
+script reports MERGED-KEEP, not RETIRE).
 
 Delete this patch once the keys land upstream.
 
@@ -93,20 +98,47 @@ photos first while the feed stays combined) and
 activation with network-aware retry). Both need the helper flags added in
 `assets/wallpaper/ncz-wallpaper-bing`; see `docs/WALLPAPER-BING-PREFETCH.md`.
 
+Prepared branches on ARGONAS (not filed): `upstream-ready/bing-preferred-market-20261005`
+(`5c0b6fc`, clean upstream-main base) and `upstream-ready/bing-prefetch-20261005`
+(`2bae472`, on top of it). The prefetch patch has no PR of its own and also
+replaces the #3 approach, so #3 should be closed rather than merged.
+
 Delete these patches once they merge upstream.
 
 **Upstream PR:** [singularityos-lab/singularity-plugins#4](https://github.com/singularityos-lab/singularity-plugins/pull/4)
-— open, not yet merged. Patch
-`0003-ocs-fetch-index-and-fix-import-owner.patch`. `choices()` fetches its
-own index and the import finds its provider through `owner_id`.
+— open, not yet merged. The `owner_id` half is also open separately as
+[singularity-plugins#6](https://github.com/singularityos-lab/singularity-plugins/pull/6).
+Patch `0003-ocs-fetch-index-and-fix-import-owner.patch`: `choices()` fetches
+its own index and the import finds its provider through `owner_id`. This one
+patch therefore covers both #4 and #6.
 
-Delete this patch once PR #4 merges.
+Delete this patch once #4 and #6 have both merged.
 
-**No upstream PR:** not filed. Patch
-`0005-sensors-adaptive-contrast.patch`. Sensors text keeps contrast against
-the real background; depends on `singularity-plugins#2`.
+**Upstream PR:** [singularityos-lab/singularity-plugins#5](https://github.com/singularityos-lab/singularity-plugins/pull/5)
+— open, not yet merged. Patch `0005-sensors-adaptive-contrast.patch`. Sensors
+text keeps contrast against the real background; depends on
+`singularity-plugins#2`.
 
-Delete this patch once it lands upstream.
+Delete this patch once PR #5 merges.
+
+## Open upstream PRs deliberately NOT carried as patches (2026-10-05)
+
+These upstream PRs are open but the build does not carry a patch for them.
+They are new feature stacks that NCZ-OS does not need before they merge, and
+each drags in schema keys plus shell/plugin code that is still unreviewed:
+
+- `singularity-desktop#264` (wallpaper-effect keys), `#265` (wallpaper
+  history/favorites keys), `#266` (wallpaper rotation filter keys). Not
+  carried: nothing in the shipping desktop reads these keys yet without the
+  matching shell PRs below, and schema-only patches carry their own abort risk
+  (see the retired #251 note below).
+- `singularity-shell#32` (history/favorites), `#33` (+effects), `#34`
+  (+rotation filters). Not carried: feature stacks still under review; the
+  build deliberately tracks only the reviewed, NCZ-required set.
+
+`singularity-plugins#4` and `#6` ARE carried, indirectly: both are covered by
+the single `singularity-plugins/0003-ocs-fetch-index-and-fix-import-owner.patch`
+block above.
 
 ## libsingularity — retired 2026-09-29
 
