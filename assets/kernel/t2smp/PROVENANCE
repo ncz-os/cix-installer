@@ -1,0 +1,30 @@
+Module: t2smp (Apple T2 SMC-based CPU hotplug ordering)
+Source: https://github.com/kaiT2en/KaiT2en-Fedora
+Module path: modules/t2smp
+Upstream commit: 72841efd0b67188b2ba3e64407dbabca1ed5901b
+Upstream commit date: 2026-07-24T17:28:42+02:00
+Upstream subject: t2smp: order CPU hotplug with PM notifier priorities
+SPDX-License-Identifier: GPL-2.0
+Vendored: 2026-09-28
+
+Vendored layout:
+  upstream modules/t2smp/t2smp.c   -> src/t2smp.c
+  upstream modules/t2smp/Makefile  -> src/Makefile
+  upstream modules/t2smp/dkms.conf -> dkms.conf  (module root)
+
+Upstream-derived file hashes (sha256) as vendored:
+  src/t2smp.c  3ed660332e470dad3716449c10f8781f53b4f2824a74c0e0805e0db58bdf5f56  (pristine, matches upstream commit)
+  src/Makefile d5add7c3883a3b50624b7179d0d820addbedcb1309dc215c14c254682abecdd9  (pristine, matches upstream commit)
+  dkms.conf    d70be7687c218fd1005ff0d0ccffa9a62958f41f71ce3f68743ed475d0c626e1  (pristine, matches upstream commit)
+Source tree digest (sha256 of `find src -type f | sort | xargs sha256sum | sha256sum`):
+  450922c34d23cb44f7aca27e4317bdf14ddf36d07663cbacc86504eca1744d5d
+
+Local modifications: none (all vendored upstream files byte-identical to the commit).
+
+Re-sync:
+  git clone https://github.com/kaiT2en/KaiT2en-Fedora.git
+  git -C KaiT2en-Fedora checkout 72841efd0b67188b2ba3e64407dbabca1ed5901b
+  cp modules/t2smp/t2smp.c   assets/kernel/t2smp/src/t2smp.c
+  cp modules/t2smp/Makefile  assets/kernel/t2smp/src/Makefile
+  cp modules/t2smp/dkms.conf assets/kernel/t2smp/dkms.conf
+  # verify: build/test-t2-dkms-provenance.sh
