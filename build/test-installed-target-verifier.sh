@@ -180,6 +180,8 @@ m_amd64_strip() {   # what an x86 install does NOT have: everything Sky1
 m_id_arch_amd64() { m_amd64_strip "$1"; echo arm64 > "$1/usr/local/lib/cix-installer/BUILD_ARCH"; }
 m_id_arch_arm()  { echo amd64 > "$1/usr/local/lib/cix-installer/BUILD_ARCH"; }
 m_amd64_leak_perf() { m_amd64_strip "$1"; m_leak_perf "$1"; }
+m_leak_perf_dropin() { mkdir -p "$1/etc/systemd/system/greetd.service.d"; printf '[Service]\nExecStartPre=/usr/local/bin/ncz-performance-mode on\n' > "$1/etc/systemd/system/greetd.service.d/ncz-performance-mode.conf"; }
+m_amd64_leak_perf_dropin() { m_amd64_strip "$1"; m_leak_perf_dropin "$1"; }
 m_amd64_leak_display() { m_amd64_strip "$1"; m_leak_display "$1"; }
 m_amd64_strip_leak() { m_amd64_strip "$1"; m_leak_getty "$1"; }
 m_amd64_strip_nohost() { m_amd64_strip "$1"; echo ncz-setup > "$1/etc/hostname"; }
@@ -263,6 +265,7 @@ run_case "amd64: stale Bing plugin fails"                           1 m_amd64_st
 run_case "amd64: no kernel module tree fails"                       1 m_amd64_strip_nokernel
 run_case "amd64: BUILD_ARCH of the other architecture fails"        1 m_id_arch_amd64
 run_case "amd64: ncz-performance-mode leak fails"                   1 m_amd64_leak_perf
+run_case "amd64: greetd ncz-performance-mode drop-in leak fails"     1 m_amd64_leak_perf_dropin
 run_case "amd64: cix-detect-display leak fails"                     1 m_amd64_leak_display
 run_case "gpu: amd64 with a leaked Mali EGL entry fails"        1 m_gpu_egl_leak
 unset TEST_ARCH
