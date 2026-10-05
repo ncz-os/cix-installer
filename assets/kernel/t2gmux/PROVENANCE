@@ -1,0 +1,32 @@
+Module: t2gmux (Apple T2 GMUX: dGPU/GPU mux power control)
+Source: https://github.com/kaiT2en/KaiT2en-Fedora
+Module path: modules/t2gmux
+Upstream commit: 8760e41cd73fd736c3e5fb955ecc5fed49afee0d
+Upstream commit date: 2026-09-28T15:22:31+02:00
+Upstream subject: t2gmux: write gpu-active before sleep and power-off like AppleMuxControl2
+SPDX-License-Identifier: GPL-2.0-only
+Copyright: Canonical Ltd., Andreas Heider, Lukas Wunner, Orlando Chamberlain (src/t2gmux.c)
+Vendored: 2026-09-28
+
+Vendored layout:
+  upstream modules/t2gmux/t2gmux.c   -> src/t2gmux.c
+  upstream modules/t2gmux/Makefile  -> src/Makefile
+  upstream modules/t2gmux/dkms.conf -> dkms.conf  (module root)
+  upstream README.md is NOT vendored.
+
+Upstream-derived file hashes (sha256) as vendored:
+  src/t2gmux.c 5a6ee0acbf402347cdaa00c1af45a7c8ed90fd540531bad2f0328629a60fba47  (pristine, matches upstream commit)
+  src/Makefile 88a071776b940a643dd1c78ab46a307e11a39dce22e9c694f0993e7ef47ec044  (pristine, matches upstream commit)
+  dkms.conf    948b1930e18c6f1a290c3268b8239a26782a9ca6a281a5857ba20c8c13dd8fb0  (pristine, matches upstream commit)
+Source tree digest (sha256 of `find src -type f | sort | xargs sha256sum | sha256sum`):
+  646b481b8fc29193a7ba7fdad5c421b298a2dd41cd0be50064ccbf98ed085ac9
+
+Local modifications: none (all vendored upstream files byte-identical to the commit).
+
+Re-sync:
+  git clone https://github.com/kaiT2en/KaiT2en-Fedora.git
+  git -C KaiT2en-Fedora checkout 8760e41cd73fd736c3e5fb955ecc5fed49afee0d
+  cp modules/t2gmux/t2gmux.c   assets/kernel/t2gmux/src/t2gmux.c
+  cp modules/t2gmux/Makefile  assets/kernel/t2gmux/src/Makefile
+  cp modules/t2gmux/dkms.conf assets/kernel/t2gmux/dkms.conf
+  # verify: build/test-t2-dkms-provenance.sh

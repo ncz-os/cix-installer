@@ -75,6 +75,11 @@ for m in $MODULES; do
     mkdir -p "/usr/src/$m-$ver"
     cp -a "$src/dkms.conf" "/usr/src/$m-$ver/"
     [ -d "$src/src" ] && cp -a "$src/src/." "/usr/src/$m-$ver/"
+    # dkms applies PATCH[0] relative to the source root; carry the patches dir.
+    if [ -d "$src/patches" ]; then
+        mkdir -p "/usr/src/$m-$ver/patches"
+        cp -a "$src/patches/." "/usr/src/$m-$ver/patches/"
+    fi
     if dkms add -m "$m" -v "$ver" >/dev/null 2>&1 || true; then :; fi
     if dkms build -m "$m" -v "$ver" -k "$KVER" >/dev/null 2>&1 \
        && dkms install -m "$m" -v "$ver" -k "$KVER" --force >/dev/null 2>&1; then

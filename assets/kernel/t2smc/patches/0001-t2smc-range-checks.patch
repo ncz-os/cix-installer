@@ -1,0 +1,257 @@
+diff --git a/src/t2smc.c b/src/t2smc.c
+index 84a5fba..47dd66a 100644
+--- a/src/t2smc.c
++++ b/src/t2smc.c
+@@ -89,6 +89,8 @@ static const char *const fan_speed_fmt[] = {
+ };
+ #define FAN_MANUAL_FMT  "F%dMd"  /* T2 per-fan manual mode key */
+ 
++#include "t2smc_range.h"
++
+ #define INIT_TIMEOUT_MSECS  5000
+ #define INIT_WAIT_MSECS     50
+ 
+@@ -861,11 +863,8 @@ static int t2smc_write_fan_manual(struct t2smc_device *t2, int fan_idx,
+ }
+ 
+ /* -- hwmon interface -- */
+-#define T2SMC_FAN_OPT_ACTUAL  0
+-#define T2SMC_FAN_OPT_MIN     1
+-#define T2SMC_FAN_OPT_MAX     2
+-#define T2SMC_FAN_OPT_SAFE    3
+-#define T2SMC_FAN_OPT_TARGET  4
++/* T2SMC_FAN_OPT_* live in t2smc_range.h (included above) so the validator
++ * can be unit-tested from userspace. */
+ 
+ static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
+ 			     u32 attr, int channel, long *val)
+@@ -917,6 +916,13 @@ static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
+ 	}
+ }
+ 
++/* Adapt t2smc_read_fan() to the unit-testable validator in t2smc_range.h. */
++static int t2smc_read_fan_cb(void *ctx, int fan_idx, int option,
++			     unsigned int *speed)
++{
++	return t2smc_read_fan(ctx, fan_idx, option, speed);
++}
++
+ static int t2smc_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
+ 			      u32 attr, int channel, long val)
+ {
+@@ -931,11 +937,36 @@ static int t2smc_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
+ 			if (val < 0)
+ 				return -EINVAL;
+ 			speed = (unsigned int)val;
++			/*
++			 * Check against the fan's own F%dMn/F%dMx envelope and the
++			 * current target before touching the EC. An out-of-range
++			 * write can leave the SMC driving a fan outside its
++			 * mechanical range; reject it and warn once.
++			 */
++			ret = t2smc_fan_write_check(t2smc_read_fan_cb, t2,
++						    channel, speed, true);
++			if (ret) {
++				pr_warn_once("t2smc: rejecting fan%d min %u outside [F%dMn,F%dMx] or above the current target\n",
++					     channel, speed, channel, channel);
++				return ret;
++			}
+ 			return t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_MIN, speed);
+ 		case hwmon_fan_target:
+ 			if (val < 0)
+ 				return -EINVAL;
+ 			speed = (unsigned int)val;
++			/*
++			 * Validate before switching the fan to manual mode so a
++			 * rejected request cannot leave it in manual with a stale
++			 * target.
++			 */
++			ret = t2smc_fan_write_check(t2smc_read_fan_cb, t2,
++						    channel, speed, false);
++			if (ret) {
++				pr_warn_once("t2smc: rejecting fan%d target %u outside [F%dMn,F%dMx]\n",
++					     channel, speed, channel, channel);
++				return ret;
++			}
+ 			/* Enter manual mode before setting target speed */
+ 			ret = t2smc_write_fan_manual(t2, channel, 1);
+ 			if (ret)
+@@ -1037,7 +1068,11 @@ static int t2smc_get_charge_limit(struct t2smc_device *t2, u8 *val)
+ 
+ static int t2smc_set_charge_limit(struct t2smc_device *t2, u8 val)
+ {
+-	if (val > 100)
++	/*
++	 * Only accept limits the SMC can honour. CHWA-only hardware has no
++	 * variable percent: it is either the fixed 80% limit or off.
++	 */
++	if (!t2smc_charge_limit_valid(t2->has_chls, t2->has_chwa, val))
+ 		return -EINVAL;
+ 	if (t2smc_write_key(t2, T2SMC_CHARGE_LIMIT, &val, 1))
+ 		return -ENODEV;
+@@ -1395,6 +1430,15 @@ static int t2smc_write_rtc_key(struct t2smc_device *t2, const char *key, u64 val
+ {
+ 	u8 buf[T2SMC_RTC_BYTES];
+ 
++	/*
++	 * The SMC RTC keys are 48-bit registers (T2SMC_RTC_BYTES * 8). CLKO is
++	 * a signed offset in 1/32768 s units; a value outside the signed range
++	 * would be reinterpreted when the SMC loads it. Reject rather than
++	 * truncate so an out-of-range clock set cannot silently move the RTC.
++	 */
++	if (!t2smc_rtc_offset_valid((long long)val))
++		return -EINVAL;
++
+ 	memcpy(buf, &val, T2SMC_RTC_BYTES);
+ 	return t2smc_write_key(t2, key, buf, T2SMC_RTC_BYTES);
+ }
+@@ -1421,15 +1465,18 @@ static int t2smc_rtc_read_time(struct device *dev, struct rtc_time *tm)
+ static int t2smc_rtc_set_time(struct device *dev, struct rtc_time *tm)
+ {
+ 	struct t2smc_device *t2 = dev_get_drvdata(dev);
+-	u64 ctr, off;
++	u64 ctr;
++	s64 off;
+ 	int ret;
+ 
+ 	ret = t2smc_read_rtc_key(t2, T2SMC_RTC_COUNTER, &ctr);
+ 	if (ret)
+ 		return ret;
+ 
+-	off = ((u64)rtc_tm_to_time64(tm) << T2SMC_RTC_SEC_SHIFT) - ctr;
+-	return t2smc_write_rtc_key(t2, T2SMC_RTC_OFFSET, off);
++	/* Signed arithmetic: CLKO is a signed 48-bit offset, range-checked in
++	 * t2smc_write_rtc_key(). */
++	off = ((s64)rtc_tm_to_time64(tm) << T2SMC_RTC_SEC_SHIFT) - (s64)ctr;
++	return t2smc_write_rtc_key(t2, T2SMC_RTC_OFFSET, (u64)off);
+ }
+ 
+ static const struct rtc_class_ops t2smc_rtc_ops = {
+diff --git a/src/t2smc_range.h b/src/t2smc_range.h
+new file mode 100644
+index 0000000..6c79678
+--- /dev/null
++++ b/src/t2smc_range.h
+@@ -0,0 +1,122 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * t2smc_range.h - side-effect-free range validation for the t2smc driver.
++ *
++ * The SMC accepts user writes for fan minimum/target (F%dMn/F%dTg), the
++ * battery charge limit (BCLM/CHLS/CHWA) and the RTC offset (CLKO). None of
++ * these were range-checked against the SMC's own reported limits, so a bad
++ * userspace write could drive the EC outside its envelope or silently wrap a
++ * 48-bit register. The helpers below centralise that validation.
++ *
++ * They touch no kernel state: the caller reads the per-fan limits and passes
++ * them in. That keeps the boundary logic unit-testable from userspace (see
++ * tests/test_t2smc_range.c) without hardware.
++ */
++#ifndef _T2SMC_RANGE_H
++#define _T2SMC_RANGE_H
++
++#ifdef __KERNEL__
++#include <linux/errno.h>
++#include <linux/types.h>
++#else
++#include <errno.h>
++#include <stdbool.h>
++#endif
++
++/* Fan speed key indices into fan_speed_fmt[] (see t2smc.c). */
++#define T2SMC_FAN_OPT_ACTUAL  0
++#define T2SMC_FAN_OPT_MIN     1
++#define T2SMC_FAN_OPT_MAX     2
++#define T2SMC_FAN_OPT_SAFE    3
++#define T2SMC_FAN_OPT_TARGET  4
++
++#ifndef T2SMC_CHWA_FIXED_LIMIT
++#define T2SMC_CHWA_FIXED_LIMIT 80
++#endif
++#ifndef T2SMC_RTC_BITS
++#define T2SMC_RTC_BITS 48
++#endif
++
++/* Reader callback used by t2smc_fan_write_check(). In t2smc.c it wraps
++ * t2smc_read_fan(); the unit test supplies a table-backed stub. */
++typedef int (*t2smc_fan_read_fn)(void *ctx, int fan_idx, int option,
++				 unsigned int *speed);
++
++/*
++ * Accept a proposed fan speed only when it lies inside the fan's SMC
++ * envelope. @is_min is true for a fan_min write, in which case the new
++ * minimum also may not exceed the fan's current target.
++ */
++static inline bool t2smc_fan_speed_valid(unsigned int min, unsigned int max,
++					 unsigned int cur, unsigned int val,
++					 bool is_min)
++{
++	if (min > max)
++		return false;
++	if (val < min || val > max)
++		return false;
++	if (is_min && val > cur)
++		return false;
++	return true;
++}
++
++/*
++ * Read the per-fan min/max/current-target through @read and validate @val.
++ * Returns 0 when acceptable, -EINVAL when out of range, or the reader's
++ * error otherwise.
++ */
++static inline int t2smc_fan_write_check(t2smc_fan_read_fn read, void *ctx,
++					int fan_idx, unsigned int val,
++					bool is_min)
++{
++	unsigned int min, max, cur;
++	int ret;
++
++	ret = read(ctx, fan_idx, T2SMC_FAN_OPT_MIN, &min);
++	if (ret)
++		return ret;
++	ret = read(ctx, fan_idx, T2SMC_FAN_OPT_MAX, &max);
++	if (ret)
++		return ret;
++	ret = read(ctx, fan_idx, T2SMC_FAN_OPT_TARGET, &cur);
++	if (ret)
++		return ret;
++
++	if (!t2smc_fan_speed_valid(min, max, cur, val, is_min))
++		return -EINVAL;
++	return 0;
++}
++
++/*
++ * The charge limit is only meaningful for values the SMC can represent:
++ *   - CHLS present: 0 (off) and 1..99 (percent), or 100 (off/full).
++ *   - CHWA present (no CHLS): the EC only implements the fixed 80% limit,
++ *     so accept 80 or 100 (disable) and reject everything else instead of
++ *     silently coercing, e.g. 50%, to 80%.
++ *   - BCLM only: the SMC key takes the full 0..100 range.
++ */
++static inline bool t2smc_charge_limit_valid(bool has_chls, bool has_chwa,
++					    unsigned int val)
++{
++	if (val > 100)
++		return false;
++	if (has_chls)
++		return true;
++	if (has_chwa)
++		return val == T2SMC_CHWA_FIXED_LIMIT || val == 100;
++	return true;
++}
++
++/*
++ * CLKO is a signed 48-bit offset; anything outside [-2^47, 2^47-1] would be
++ * reinterpreted when the SMC loads the register.
++ */
++static inline bool t2smc_rtc_offset_valid(long long off)
++{
++	const long long lo = -(1LL << (T2SMC_RTC_BITS - 1));
++	const long long hi =  (1LL << (T2SMC_RTC_BITS - 1)) - 1;
++
++	return off >= lo && off <= hi;
++}
++
++#endif /* _T2SMC_RANGE_H */
