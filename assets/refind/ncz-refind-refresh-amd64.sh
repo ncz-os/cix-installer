@@ -73,7 +73,7 @@ case "$KVER_EDGE" in
         echo "  KVER_EDGE='$KVER_EDGE' accepted (amd64 edge channel is pinned to 7.3.0-rc6, operator 2026-10-05)"
         ;;
     *)
-        echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- not the pinned amd64 edge 7.3.0-rc6-*-t2-edge-aerfix (operator 2026-10-05; amd64 edge channel is pinned to 7.3.0-rc6)"
+        echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- not the pinned amd64 edge 7.3.0-rc6*-t2-edge-aerfix (operator 2026-10-05; amd64 edge channel is pinned to 7.3.0-rc6)"
         KVER_EDGE=""
         ;;
 esac
