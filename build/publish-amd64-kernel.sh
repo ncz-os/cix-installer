@@ -51,6 +51,10 @@ EOF
 
 LINE="${1:-}"; DEBDIR="${2:-}"; STAMP="${3:-$(date -u +%Y%m%d)}"
 case "$LINE" in
+    # stable: no version gate (any release 7.2.x line is publishable).
+    # edge: the KVER read from the .deb is validated against the committed
+    #       assets/kernel/amd64-edge/KVER pin below, before anything is
+    #       written to the pool.
     stable|edge) ;;
     *) usage; exit 2 ;;
 esac
