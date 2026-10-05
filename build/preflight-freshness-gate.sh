@@ -359,18 +359,17 @@ check_amd64_line() {
     # amd64-edge-* or a member of an amd64-t2-* build tree) whose KVER
     # sidecar matches the pin; fall back to mtime only when there is no pin.
     if [ "$line" = "amd64-edge" ] && [ -s "assets/kernel/amd64-edge/KVER" ]; then
-        local _pin _d
+        local _pin _d _cands
         _pin="$(tr -d '[:space:]' < assets/kernel/amd64-edge/KVER)"
-        while IFS= read -r _d; do
+        mapfile -t _cands < <(find "$KERNEL_STAGING_DIR" -maxdepth 2 -type d \( -name 'amd64-edge-*' -o -path '*/amd64-t2-*/*' \) 2>/dev/null)
+        for _d in "${_cands[@]}"; do
             [ -d "$_d" ] || continue
             [ -s "$_d/KVER" ] || continue
             if [ "$(tr -d '[:space:]' < "$_d/KVER")" = "$_pin" ]; then
                 newest="$_d"
                 break
             fi
-        done <<EOF
-$(find "$KERNEL_STAGING_DIR" -maxdepth 2 -type d \( -name 'amd64-edge-*' -o -path '*/amd64-t2-*/*' \) 2>/dev/null)
-EOF
+        done
     fi
     # Directory names are NOT lexically ordered by recency (e.g. an
     # "...-rc4-3-t2-xhcifix-DATE" variant sorts before a same-date
