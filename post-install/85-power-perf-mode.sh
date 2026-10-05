@@ -282,8 +282,22 @@ systemctl daemon-reload >/dev/null 2>&1 || true
 # once a real desktop session started. ExecStartPre/ExecStopPost below
 # covers greetd's entire runtime — greeter included — for as long as the
 # service itself is up, regardless of how many users log in/out of it.
-install -d -m0755 /etc/systemd/system/greetd.service.d
-cat > /etc/systemd/system/greetd.service.d/ncz-performance-mode.conf <<'DROPIN'
+#
+# ARCH GATE FOR THE DROP-IN TOO (2026-10-05). The enable/disable above only controls the
+# graphical.target unit; this ExecStartPre ran the script on every greetd start on EVERY
+# arch, so the gate above was defeated: MEDUSA and CHIMERA (MacBookPro16,1) still had
+# governor=performance, EPP=performance and 4.1-4.6 GHz at idle (package 65-75 C, fans at
+# 65-80%) with the service disabled. Sky1 only; on any other arch remove a leftover drop-in
+# so an in-place upgrade of an older amd64 install heals itself.
+_ncz_dropin=/etc/systemd/system/greetd.service.d/ncz-performance-mode.conf
+if [ "$_ncz_arch" = "arm64" ]; then
+    install -d -m0755 /etc/systemd/system/greetd.service.d
+    cat > "$_ncz_dropin" <<'DROPIN'
 [Service]
 ExecStartPre=/usr/local/bin/ncz-performance-mode on
 DROPIN
+else
+    rm -f "$_ncz_dropin"
+    echo "[85] arch=$_ncz_arch -- greetd ncz-performance-mode drop-in NOT installed (Sky1 only)"
+fi
+systemctl daemon-reload >/dev/null 2>&1 || true
