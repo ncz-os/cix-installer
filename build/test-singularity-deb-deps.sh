@@ -52,16 +52,22 @@ bare_pkg() {
 }
 
 # Is $1 one of the Depends alternatives (ignoring version constraints)?
+# Flag-based: never `return` from inside a loop, so it cannot be mistaken for a
+# subshell return and the exit status is computed once at the end.
 have() {
-    local want entry tok
+    local want entry tok found=0
     want="$(bare_pkg "$1")"
     while IFS= read -r entry; do
         [ -n "$entry" ] || continue
         while IFS= read -r tok; do
-            [ "$(bare_pkg "$tok")" = "$want" ] && return 0
+            if [ "$(bare_pkg "$tok")" = "$want" ]; then
+                found=1
+                break
+            fi
         done < <(printf '%s\n' "$entry" | tr '|' '\n')
+        [ "$found" -eq 1 ] && break
     done <<< "$deps"
-    return 1
+    [ "$found" -eq 1 ]
 }
 
 [ -f "$MAP" ] || fail "soname map missing: $MAP"
