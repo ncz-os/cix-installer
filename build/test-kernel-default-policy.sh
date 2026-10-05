@@ -412,16 +412,22 @@ echo "=== Positive: rescue entry preservation (real repo, no SKIP) ==="
 # prove the check catches a deleted rescue-marker by running against
 # a temporary copy with the *-rescue sparing stripped out.
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-if "$VERIFIER" --root "$REPO_ROOT" --arch arm64 >/dev/null 2>&1; then
-    printf '  PASS  arm64: real repo preserves rescue markers (exit=0)\n'; PASS=$((PASS+1))
-else
-    printf '  FAIL  arm64: real repo lost its rescue-preservation markers\n'; FAIL=$((FAIL+1))
-fi
-if "$VERIFIER" --root "$REPO_ROOT" --arch amd64 >/dev/null 2>&1; then
-    printf '  PASS  amd64: real repo preserves rescue markers (exit=0)\n'; PASS=$((PASS+1))
-else
-    printf '  FAIL  amd64: real repo lost its rescue-preservation markers\n'; FAIL=$((FAIL+1))
-fi
+# Judge ONLY check 9 (rescue preservation). The verifier as a whole also
+# gates the kernel staging pool and the pinned edge version, which depend on
+# the host (kernel-staging mount) and on what is staged, so its exit status
+# says nothing about the rescue markers.
+rescue_check() { # $1 = arch
+    local out
+    out="$("$VERIFIER" --root "$REPO_ROOT" --arch "$1" 2>&1 || true)"
+    if printf '%s\n' "$out" | grep -q 'rescue entry preservation: both arches carry' \
+        && ! printf '%s\n' "$out" | grep -q 'FAIL: rescue entry preservation'; then
+        printf '  PASS  %s: real repo preserves rescue markers\n' "$1"; PASS=$((PASS+1))
+    else
+        printf '  FAIL  %s: real repo lost its rescue-preservation markers\n' "$1"; FAIL=$((FAIL+1))
+    fi
+}
+rescue_check arm64
+rescue_check amd64
 # Regression guard: a copy of the refresh script with the *-rescue
 # sparing stripped out MUST be flagged.
 _regression=$(mktemp -d)

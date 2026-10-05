@@ -126,7 +126,9 @@ if command -v systemd-analyze >/dev/null 2>&1; then
     SYSTEMD_LOG_LEVEL=warning systemd-analyze verify \
         "$TMP/verify/ncz-usb2-rescan.service" >"$TMP/verify/out" 2>&1 || true
     # ExecStart is created at install time; accept only that benign line.
-    nonbenign="$(grep -vE ': Command /.* is not executable: No such file or directory$' "$TMP/verify/out" | sed '/^[[:space:]]*$/d')"
+    # verify also reports on unrelated units installed on the test host
+    # (/etc/systemd/system/*), so judge only lines about OUR unit.
+    nonbenign="$(grep -F 'ncz-usb2-rescan.service' "$TMP/verify/out" | grep -vE ': Command /.* is not executable: No such file or directory$' | sed '/^[[:space:]]*$/d')"
     [ -z "$nonbenign" ] \
         && ok "systemd-analyze verify parses the generated ncz-usb2-rescan.service" \
         || bad "systemd-analyze verify parses the generated ncz-usb2-rescan.service" "$(cat "$TMP/verify/out")"
