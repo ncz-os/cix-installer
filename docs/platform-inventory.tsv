@@ -182,6 +182,7 @@ build/stage-kernel.sh	sky1	-	stages a Sky1 kernel
 build/systemd/	common	-	singularity patch reconcile units
 build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	AMD64 dynamic NVIDIA driver + CUDA gate tests (Turing plan, R580 plan, Kepler skip, ncz-cuda-setup simulation, removals refused, status/retry/park/backoff, installed-target fixture, chooser)
 build/test-amd64-dracut-isolation.sh	amd64	-	amd64 base must not stage the Sky1 dracut config (static checks + the real staging loop)
+build/test-amd64-intel-vaapi.sh	amd64	-	amd64 desktop closure ships intel-media-va-driver (Intel VA-API gap, MEDUSA UHD 630)
 build/test-amd64-kernel-classifier.sh	amd64	-	amd64 kernel classifier test
 build/test-arm64-freshness-gate.sh	sky1	-	arm64 freshness gate test
 build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test
