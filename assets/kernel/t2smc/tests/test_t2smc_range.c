@@ -11,6 +11,7 @@
  *
  * Build/run: bash build/test-t2smc-range.sh
  */
+#include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
 
