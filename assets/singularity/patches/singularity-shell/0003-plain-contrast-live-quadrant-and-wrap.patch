@@ -25,8 +25,6 @@ Three real, live-confirmed issues in the attribution overlay on top of
    at 40 chars wide, ellipsized if still too long; justification follows
    the active quadrant's side.
 
-Assisted-by: Claude Code:claude-sonnet-5
-AI-Scope: Root-caused and fixed all three against real operator reports on live hardware.
 ---
  src/components/background/background.vala | 44 ++++++++++++++++-------
  1 file changed, 31 insertions(+), 13 deletions(-)

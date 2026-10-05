@@ -10,8 +10,6 @@ it waits for a network, skips metered links, retries after 30s doubling
 up to one hour when the helper fails, and re-checks daily. It is
 cancelled on deactivation.
 
-Assisted-by: Claude Code:claude-sonnet-5-5
-AI-Scope: Wrote the prefetch scheduler and NetworkMonitor handling from the operator brief; verified from a cleared cache through a real login on three desktops.
 ---
  wallpapers-bing/wallpapers_bing.vala | 62 +++++++++++++++++++++++++++-
  1 file changed, 60 insertions(+), 2 deletions(-)

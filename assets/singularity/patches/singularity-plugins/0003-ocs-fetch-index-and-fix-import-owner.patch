@@ -10,8 +10,6 @@ choices(); WallpaperOcs.categories() then fails to parse "" as JSON
 index from the helper directly, same pattern wallpapers-bing already
 uses for its own choices().
 
-Assisted-by: Claude Code:claude-sonnet-5
-AI-Scope: Root-caused and fixed choices() against the empty index string the refactored browser now always passes.
 ---
  wallpapers-ocs/wallpapers_ocs.vala | 4 +++-
  1 file changed, 3 insertions(+), 1 deletion(-)
@@ -54,8 +52,6 @@ Two real bugs confirmed live on real hardware:
    aggregate. import_card()'s provider_registry.lookup(item.owner_id)
    then fails "Wallpaper provider is not active" for every OCS import.
 
-Assisted-by: Claude Code:claude-sonnet-5
-AI-Scope: Root-caused and fixed both against a live desktop session; real amd64 build verified clean.
 ---
  wallpapers-ocs/wallpapers_ocs.vala | 5 +++++
  1 file changed, 5 insertions(+)

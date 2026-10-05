@@ -10,8 +10,6 @@ locale) or any market the helper advertises. The choice is stored in
 language of titles and credits and puts that market's photos first while
 the feed stays combined. The row is hidden when the helper is missing.
 
-Assisted-by: Claude Code:claude-sonnet-5-5
-AI-Scope: Wrote the settings row, locale mapping and helper arguments from the operator brief; built against installed libsingularity and checked on a live desktop.
 ---
  wallpapers-bing/wallpapers_bing.vala | 138 ++++++++++++++++++++++++++-
  1 file changed, 135 insertions(+), 3 deletions(-)

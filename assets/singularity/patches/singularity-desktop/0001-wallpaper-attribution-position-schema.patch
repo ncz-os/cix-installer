@@ -12,8 +12,6 @@ this is additive and changes no existing default behavior on its own.
 Companion PR against singularity-shell reads this key and adds the
 quadrant picker UI.
 
-Assisted-by: Claude Code:claude-sonnet-5
-AI-Scope: Extended the wallpaper-attribution-position schema key from left/right to 4 quadrants (top-left/top-right/bottom-left/bottom-right), ported from prior NCZ implementation.
 ---
  data/dev.sinty.desktop.gschema.xml | 9 +++++++++
  1 file changed, 9 insertions(+)
