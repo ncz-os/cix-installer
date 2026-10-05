@@ -95,6 +95,12 @@ stage_edge() {
         echo "       (publish it with build/publish-amd64-kernel.sh edge <deb-dir>, or set AMD64_EDGE_SRC)" >&2
         return 1
     }
+    # The pin is a hard contract even for an explicit AMD64_EDGE_SRC: a
+    # source tree whose KVER disagrees with the committed pin is refused.
+    if [ ! -s "$src/KVER" ] || [ "$(tr -d '[:space:]' < "$src/KVER")" != "$wanted" ]; then
+        echo "ERROR: $src/KVER does not match the pinned amd64 edge KVER '$wanted' -- refusing to stage" >&2
+        return 1
+    fi
     local dest="$ROOT/assets/kernel/amd64-edge"
     mkdir -p "$dest"
     prune_debs "$dest"

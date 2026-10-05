@@ -364,7 +364,7 @@ check_amd64_line() {
         _pinned=1
         local _pin _d _cands
         _pin="$(tr -d '[:space:]' < assets/kernel/amd64-edge/KVER)"
-        mapfile -t _cands < <(find "$KERNEL_STAGING_DIR" -maxdepth 2 -type d \( -name 'amd64-edge-*' -o -path '*/amd64-t2-*/*' \) 2>/dev/null)
+        mapfile -t _cands < <(find "$KERNEL_STAGING_DIR" -maxdepth 3 -type d \( -name 'amd64-edge-*' -o -path '*/amd64-t2-*/*' \) 2>/dev/null)
         for _d in "${_cands[@]}"; do
             [ -d "$_d" ] || continue
             [ -s "$_d/KVER" ] || continue
