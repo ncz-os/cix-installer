@@ -54,6 +54,10 @@
 #      a 7.3-rc as EDGE. This is the runtime analogue of check 5 --
 #      even if a stray kernel is installed on the box, the rEFInd menu
 #      cannot offer it as a bootable entry.
+#  10. (both arches) If assets/kernel/KERNEL-POLICY exists: the default kernel
+#      must be the pinned STABLE_BASE (7.2.9) and a staged arm64 edge kernel
+#      must be the pinned EDGE_BASE (7.3.0-rc6). See
+#      docs/reports/2026-10-05-kernel-channel-policy.md.
 #   9. (both arches) The rEFInd refresh scripts preserve the rescue
 #      entry (the *-rescue sparing logic and the auto-promote-outgoing
 #      logic). The operator directive says "keep the rescue entry"; a
@@ -423,6 +427,31 @@ if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
         else
             err "amd64: rEFInd refresh $_refresh does not contain the 'KVER_EDGE ... ignored' directive-2026-09-30 marker; an edge menu entry could be written even when KVER_EDGE is passed in"
         fi
+    fi
+fi
+
+# Check 10 (both arches): version pins from assets/kernel/KERNEL-POLICY
+# (operator 2026-10-05: stable 7.2.9, edge 7.3.0-rc6). Optional file: absent means
+# no pin is enforced, so older trees and fixtures behave as before.
+POLICY_FILE="$ROOT/assets/kernel/KERNEL-POLICY"
+if [ -s "$POLICY_FILE" ]; then
+    STABLE_BASE=$(sed -nE 's/^STABLE_BASE=([^[:space:]#]+).*/\1/p' "$POLICY_FILE" | head -1)
+    EDGE_BASE=$(sed -nE 's/^EDGE_BASE=([^[:space:]#]+).*/\1/p' "$POLICY_FILE" | head -1)
+    case "$ARCH" in
+        amd64|x86_64) _default_kver="${AMD64_STABLE_KVER:-}"; _edge_kver="" ;;
+        *)            _default_kver="${KVER_NEXT:-}";         _edge_kver="${KVER_EDGE:-}" ;;
+    esac
+    if [ -n "$STABLE_BASE" ] && [ -n "$_default_kver" ]; then
+        case "$_default_kver" in
+            "$STABLE_BASE"|"$STABLE_BASE"[-+]*) log "default kernel '$_default_kver' matches pinned stable $STABLE_BASE" ;;
+            *) err "default kernel '$_default_kver' is not the pinned stable $STABLE_BASE (assets/kernel/KERNEL-POLICY, operator 2026-10-05)" ;;
+        esac
+    fi
+    if [ -n "$EDGE_BASE" ] && [ -n "$_edge_kver" ]; then
+        case "$_edge_kver" in
+            "$EDGE_BASE"|"$EDGE_BASE"[-+]*) log "edge kernel '$_edge_kver' matches pinned edge $EDGE_BASE" ;;
+            *) err "edge kernel '$_edge_kver' is not the pinned edge $EDGE_BASE (assets/kernel/KERNEL-POLICY, operator 2026-10-05)" ;;
+        esac
     fi
 fi
 
