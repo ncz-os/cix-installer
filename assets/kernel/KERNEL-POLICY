@@ -1,0 +1,8 @@
+# NCZ-OS kernel channel policy, machine-readable (operator 2026-10-05).
+# Read by build/verify-kernel-default-policy.sh. KEY=value, no spaces.
+# Human text and rationale: docs/reports/2026-10-05-kernel-channel-policy.md
+#
+# stable = the DEFAULT boot kernel and the installer boot kernel, every arch.
+# edge   = a separate, bootable, NON-default entry, every arch, release candidate only.
+STABLE_BASE=7.2.9
+EDGE_BASE=7.3.0-rc6
