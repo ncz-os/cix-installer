@@ -151,7 +151,7 @@ driverName         = llvmpipe
 EOF
 VK_S="cat $T/vk_soft_only.txt" VK_B="cat $T/vk_soft_only.txt" \
     expect "status: (c) Vulkan llvmpipe only FAILS" 1 st amd
-EGL_S='echo renderer: llvmpipe (LLVM 21.1.8, 256 bits)' EGL_B='echo renderer: llvmpipe (LLVM 21.1.8, 256 bits)' \
+EGL_S='echo "renderer: llvmpipe (LLVM 21.1.8, 256 bits)"' EGL_B='echo "renderer: llvmpipe (LLVM 21.1.8, 256 bits)"' \
     expect "status: (c) EGL llvmpipe only FAILS" 1 st amd
 #      (d) the PEGASUS enumeration captured 2026-10-04: GBM/Wayland on Mesa Intel,
 #          Surfaceless/Device on the RTX 2060, the Device #3 node on llvmpipe.
