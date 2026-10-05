@@ -1,0 +1,10 @@
+NCZ-OS 26.10 "Cygnus" is available for CIX Sky1 (arm64) and AMD64 (including Apple T2 Macs).
+It ships 74 screensavers and updates the Singularity desktop, greeter, and boot splash.
+Both architectures default to the 7.2.9 stable kernel, which is also the installer boot kernel.
+Sky1 (arm64) adds a non-default 7.3.0-rc6 edge kernel; AMD64 ships the 7.2.9 default only.
+Installer, boot, clock, GPU-health, and Sky1 audio fixes are included.
+The release is based on Debian testing (Forky).
+Radxa Orion EFI 1.3.1 or newer is required on Sky1 boards.
+Not shipped: the AMD64 edge kernel and the full Cygnus visual theme.
+Known issue: on T2 Macs the internal keyboard is inactive during the installer; use a USB keyboard.
+Full notes: docs/RELEASE-NOTES-26.10-cygnus.md
