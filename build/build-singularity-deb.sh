@@ -56,6 +56,38 @@ tar -C "$STAGE" -xzf "$TGZ"
 test -x "$STAGE/opt/singularity/bin/singularity-desktop"
 test -x "$STAGE/opt/singularity/bin/singularity-labwc-session"
 
+# Depends: is the runtime soname closure of the payload, not a hand-kept list.
+# Item G (2026-10-05) found the previous hardcoded list omitted libraries the
+# payload links (libnm0, libpulse-mainloop-glib0, libgoa-1.0-0b, libinput10,
+# libliftoff0, libpoppler-glib8, libseat1, libxcb-*) so a clean
+# `apt-get install` left singularity-desktop unresolvable. The list is now
+# generated from the real payload by build/gen-singularity-deb-depends.sh
+# (run inside debian:forky -- release.conf NCZ_BASE_CODENAME -- with apt-file)
+# and checked in as:
+#   build/singularity-runtime-deps.tsv   soname<TAB>package evidence
+#   build/singularity-deb-depends.txt    sorted Depends: entries
+# build/test-singularity-deb-deps.sh asserts every mapped soname stays covered.
+DEPS_FILE="$REPO/build/singularity-deb-depends.txt"
+[ -f "$DEPS_FILE" ] || { echo "ERROR: Depends source missing: $DEPS_FILE" >&2; exit 1; }
+DEPENDS="$(grep -vE '^[[:space:]]*(#|$)' "$DEPS_FILE" | paste -sd, -)"
+[ -n "$DEPENDS" ] || { echo "ERROR: $DEPS_FILE has no entries" >&2; exit 1; }
+
+# Recommends: runtime modules the shell dlopens or reaches over D-Bus/GIO. They
+# are not DT_NEEDED, so the package still installs without them, but features
+# degrade. Evidence is the payload strings + session wrapper captured in the
+# Item Q3 report (singularity-deps evidence); per entry:
+#   - adwaita-icon-theme      desktop lists/applies the "Adwaita" icon theme
+#   - gsettings-desktop-schemas  shell reads org.gnome.desktop.* schemas
+#   - dconf-gsettings-backend the persistence backend for its GSettings use
+#   - glib-networking         GIO TLS backend for the https endpoints used by
+#                             singularity-store and the wallpaper plugins
+#   - ca-certificates         trust store for those TLS connections
+#   - xdg-desktop-portal      frontend for the shipped portal backend
+#                             (GTK_USE_PORTAL=1 + xdg-desktop-portal-singularity)
+#   - gstreamer1.0-gtk4       playbin sink for videos/music
+#   - gstreamer1.0-plugins-base/good, gstreamer1.0-libav  codecs/autodetect
+RECOMMENDS="adwaita-icon-theme, gsettings-desktop-schemas, dconf-gsettings-backend, glib-networking, ca-certificates, xdg-desktop-portal, gstreamer1.0-gtk4, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-libav"
+
 cat > "$STAGE/DEBIAN/control" <<CONTROL
 Package: $PKG
 Version: $VERSION
@@ -63,7 +95,8 @@ Architecture: $ARCH
 Maintainer: Jason Perlow <jperlow@gmail.com>
 Section: x11
 Priority: optional
-Depends: libc6, libgtk-4-1, libadwaita-1-0, libgtk4-layer-shell0, libgee-0.8-2, libpeas-2-0, libjson-glib-1.0-0, libsoup-3.0-0, libvte-2.91-gtk4-0, libgtksourceview-5-0, libwebkitgtk-6.0-4, libgraphene-1.0-0, libupower-glib3, libdbusmenu-glib4, libsodium26 | libsodium23, upower, libtinysparql-3.0-0 | libtracker-sparql-3.0-0
+Depends: $DEPENDS
+Recommends: $RECOMMENDS
 Description: NCZ-OS Singularity Desktop runtime payload
  Bundled /opt/singularity tree: singularity-shell, libsingularity,
  singularity-greeter, singularity-boot-splash, singularity-loginui,
