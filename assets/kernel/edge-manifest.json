@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "channel": "edge",
+  "arch": "arm64",
+  "kver": "7.3.0-rc6-sky1-ncz",
+  "build_rev": "r282",
+  "staged_utc": "2026-10-05",
+  "channel_pointer": "assets/kernel/edge",
+  "staging_dir": "/mnt/argonas-yocto-shared/kernel-staging/r282-7.3.0-rc6-sky1-ncz-20261004",
+  "policy": "assets/kernel/KERNEL-POLICY (STABLE_BASE=7.2.9, EDGE_BASE=7.3.0-rc6)",
+  "note": "Edge is a bootable NON-default entry. The Sky1 default/installer kernel remains 7.2.9 (assets/kernel/mainline). Overlay .ko are mirrored into the repo under assets/kernel/<drv>/7.3.0-rc6-sky1-ncz/.",
+  "source": {
+    "base_tag": "v7.3-rc6",
+    "base_peel": "a90ee4305c4a5df72c11b31dacfdc76e00fcf78a",
+    "port_branch": "kernel-73rc6-port",
+    "port_branch_tip": "c3e054c7d4ea349a2c2872dafa7df9bd38b24c39",
+    "port_patch": "sky1-ncz-v7.3-rc6-port.patch",
+    "port_patch_sha256": "9be6f5f31cad73144afbc488e7cd2ceaef0708fdff60e97838ca31e1958c6594",
+    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc6.bb (PR r1), commit d8e7da34c4c76476fd1c9d37bc1b3cc004c7a219",
+    "recipe_commit": "d8e7da34c4c76476fd1c9d37bc1b3cc004c7a219",
+    "vmlinux_gnu_build_id": "0b0ad10baeb0a71337cbf31aaab153255f6c5c34",
+    "config_sha256": "efb343f59baf607263d6697a43ac2c314f5846e7dee232319e28b27cc9d9d31f",
+    "image_sha256": "5eabb4b0978df0eadcdcdba076d1ea2fb984c4f5fe704949c94345f19ee8c226",
+    "raw_patch_replay": "178 applied / 27 failed (identical failure set to v7.3-rc5)",
+    "build_host": "ULTRA (Fedora Asahi aarch64), ncz-yocto-y6 container, TMPDIR /ybuild/tmp-rc6"
+  },
+  "artifacts": {
+    "Image-cixmini.bin": {
+      "sha256": "5eabb4b0978df0eadcdcdba076d1ea2fb984c4f5fe704949c94345f19ee8c226"
+    },
+    "modules-cixmini.tgz": {
+      "sha256": "06dd9187daf2500580ddeef097b60d2a5585653a0ebc025bb5949d2672757911"
+    },
+    "headers-cixmini.tar.zst": {
+      "sha256": "28338985be6b87f6eba0c85d8cc13d64f3b9f6870035ac5a1707e086d8ebaf40"
+    },
+    "config-7.3.0-rc6-sky1-ncz": {
+      "sha256": "efb343f59baf607263d6697a43ac2c314f5846e7dee232319e28b27cc9d9d31f"
+    },
+    "sky1-orion-o6.dtb": {
+      "sha256": "1aa102e7d699fc2cbdfc4cfdf44f88155e71972402eec4f4abe7d4e3d651873e"
+    },
+    "KVER": {
+      "sha256": "e106c3fba8b2e0b5e53a44540d493f1b09018d729f8e048c99aa93629497ed36"
+    },
+    "PROVENANCE.txt": {
+      "sha256": "b2f8377f44eddddf07bb0af915e28daa06e67af1db831ccce793721af183ae7b"
+    },
+    "OVERLAYS.txt": {
+      "sha256": "c35a6118fdf6e9264d41baead558a76d0f5b310fb35db71d8a9648f5de5c9b04"
+    },
+    "kvm-gate.log": {
+      "sha256": "76ae7af600b20ee568f2d27805dbc18ebea9742007fb26e2a76a1241e4593f41"
+    },
+    "dkms-abi-gate.log": {
+      "sha256": "051b71da2cdd8d75ef7b418d0b2914d036c249b43e8cc55f95065db43165dace"
+    },
+    "config-audit.log": {
+      "sha256": "35fdf96bb0723c3bb0276de771a486552b86dfdb6c86570c27b6bc5c96d59df6"
+    },
+    "debs/cixmini-boot_1.2+r282_arm64.deb": {
+      "sha256": "1d847bcbe4dcf30c61e3015d9549e93f2ab0eab3676138208b27fdeb8895f835"
+    },
+    "debs/linux-headers-cixmini_7.3.0-rc6-sky1-ncz+r282_arm64.deb": {
+      "sha256": "4f86e067181b378140097b3d9ac717407eefef11a4b6764ca14e96ae65f8c782"
+    },
+    "debs/linux-image-cixmini_7.3.0-rc6-sky1-ncz+r282_arm64.deb": {
+      "sha256": "ca0bf4adbfccdac6fdc963d2aab232cd60076645a4aefb21fc92440bde41ddb7"
+    },
+    "overlays/npu/7.3.0-rc6-sky1-ncz/aipu.ko": {
+      "sha256": "8bb87e5a863bcfe3ebe446396287329643ad4f6b6a41fcd61278cbba81ae5e7b"
+    },
+    "overlays/mali/7.3.0-rc6-sky1-ncz/mali_kbase.ko": {
+      "sha256": "0226666a98ae0b23c51a9e1f6066745ac5f27c5f497bfaefdc62d25511ca846b"
+    },
+    "overlays/mali/7.3.0-rc6-sky1-ncz/memory_group_manager.ko": {
+      "sha256": "028845dc845f65a2f321f08e1ecef57df802cd05c507808e5a9ddcd42e475a1b"
+    },
+    "overlays/mali/7.3.0-rc6-sky1-ncz/protected_memory_allocator.ko": {
+      "sha256": "cffd6964e7d99773d7bdd043d2f31b15bd7d04037e43d2626a6774e2302077b3"
+    },
+    "overlays/panthor/7.3.0-rc6-sky1-ncz/panthor.ko": {
+      "sha256": "559587d40770b11052f05b735e7638ac7dba8eb32d12c86b315ff29c1cb82cd0"
+    },
+    "overlays/vpu/7.3.0-rc6-sky1-ncz/amvx.ko": {
+      "sha256": "4ab2260c8ad6ac455c74376e53faa4eecf41e7771bfc754532bbc9404a26ab6d"
+    }
+  },
+  "overlays_mirrored": {
+    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/mali_kbase.ko": "0226666a98ae0b23c51a9e1f6066745ac5f27c5f497bfaefdc62d25511ca846b",
+    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/memory_group_manager.ko": "028845dc845f65a2f321f08e1ecef57df802cd05c507808e5a9ddcd42e475a1b",
+    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/protected_memory_allocator.ko": "cffd6964e7d99773d7bdd043d2f31b15bd7d04037e43d2626a6774e2302077b3",
+    "assets/kernel/npu/7.3.0-rc6-sky1-ncz/aipu.ko": "8bb87e5a863bcfe3ebe446396287329643ad4f6b6a41fcd61278cbba81ae5e7b",
+    "assets/kernel/panthor/7.3.0-rc6-sky1-ncz/panthor.ko": "559587d40770b11052f05b735e7638ac7dba8eb32d12c86b315ff29c1cb82cd0",
+    "assets/kernel/vpu/7.3.0-rc6-sky1-ncz/amvx.ko": "4ab2260c8ad6ac455c74376e53faa4eecf41e7771bfc754532bbc9404a26ab6d"
+  },
+  "gates": {
+    "kvm_kernel_gate": "PASS (build/kvm-kernel-gate.sh; PCI 17cd:0100 collision lint; reached root-mount under qemu kvm)",
+    "dkms_abi_gate": "PASS (builder identity oe-user@oe-host; binutils 2.46.1; CONFIG_MODVERSIONS=y)",
+    "config_audit": "MODULE_COMPRESS off; CONFIG_MODVERSIONS=y; CONFIG_ARM64_MPAM not set; 0 .ko.xz; 369 .ko"
+  }
+}
