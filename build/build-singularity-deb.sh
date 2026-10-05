@@ -85,7 +85,8 @@ DEPENDS="$(grep -vE '^[[:space:]]*(#|$)' "$DEPS_FILE" | paste -sd, - | sed 's/,/
 #   - xdg-desktop-portal      frontend for the shipped portal backend
 #                             (GTK_USE_PORTAL=1 + xdg-desktop-portal-singularity)
 #   - gstreamer1.0-gtk4       playbin sink for videos/music
-#   - gstreamer1.0-plugins-base/good, gstreamer1.0-libav  codecs/autodetect
+#   - gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-libav
+#                             codecs + autodetect for media playback
 RECOMMENDS="adwaita-icon-theme, gsettings-desktop-schemas, dconf-gsettings-backend, glib-networking, ca-certificates, xdg-desktop-portal, gstreamer1.0-gtk4, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-libav"
 
 cat > "$STAGE/DEBIAN/control" <<CONTROL
