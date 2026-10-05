@@ -567,6 +567,7 @@ distclean: clean
 parity:
 	build/test-dual-arch-parity.sh
 	build/verify-dual-arch-parity.sh
+	build/test-amd64-intel-vaapi.sh
 	build/test-no-software-render.sh
 	build/lint-no-software-render.sh
 	build/test-installer-screens.sh
