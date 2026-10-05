@@ -1,0 +1,5 @@
+boot/vmlinuz-7.2.9-sky1-ncz
+boot/initrd.img-7.2.9-sky1-ncz
+boot/config-7.2.9-sky1-ncz
+lib/modules/7.2.9-sky1-ncz/modules.dep
+boot/efi/EFI/BOOT/refind.conf

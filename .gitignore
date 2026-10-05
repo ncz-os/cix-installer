@@ -66,6 +66,8 @@ autoinstall/
 # Autoinstall scaffolding (work-in-progress, not r74-shippable)
 # baked into the ISO from there; rebuild instructions in assets/models/MODELS-README.md.
 # below (npu_embed_v2.py was ignored and untracked despite the ! rule).
+# staged ncz-screensavers .debs consumed by build-desktop-mirror.sh (binaries, never committed)
+build/ncz-screensavers-out/
 build/apt-repo/
 build/apt-repo/*.deb
 build/apt-repo/Packages.gz

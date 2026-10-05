@@ -204,7 +204,8 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
-# Operator directive 2026-09-30 (the .66 incident): 7.2.8 MUST be the default
+# Operator directive 2026-09-30 (the .66 incident), updated 2026-10-04: the 7.2.9
+# release kernel (amd64 7.2.9-2-t2-trixie, Sky1 7.2.9-sky1-ncz) MUST be the default
 # kernel on every arch; arm64-only edge for 7.3-rc5; amd64 has no 7.3 at all.
 # This script is the canonical place where assets/kernel/mainline and
 # assets/kernel/amd64-stable get copied into the installer payload, so the
@@ -2564,15 +2565,17 @@ esac
 echo "    .disk/info:    $(cat "$STAGING/.disk/info")"
 
 # 2026-09-15: Steps 2+3 (below, through the amber-phosphor palette patch)
-# replace the D-I INSTALLER ENVIRONMENT'S OWN boot kernel with our Sky1
-# edge kernel -- necessary on real Sky1 hardware (Radxa Orion O6/O6N,
-# MS-R1), where the stock arm64 d-i kernel has no working UART/ACPI/GPU
-# video console for that board, so the installer itself can't even boot
-# without our patched kernel. AMD64 has no such need: the stock forky
-# netinst's own vmlinuz+initrd already boot correctly on generic PC
-# hardware, and swapping in an ARM64 kernel binary would make the
-# installer itself unbootable on the x86_64 hardware it's meant to
-# install onto. Skip Steps 2+3 entirely for non-arm64.
+# replace the D-I INSTALLER ENVIRONMENT'S OWN boot kernel with ours --
+# necessary on real Sky1 hardware (Radxa Orion O6/O6N, MS-R1), where the
+# stock arm64 d-i kernel has no working UART/ACPI/GPU video console.
+#
+# 2026-10-04 (operator directive, Cygnus 26.10 kernel purity): the installer
+# MUST boot our 7.2.9 kernel on BOTH arches, never Debian's forky 7.1.x. The
+# old amd64 branch kept the substrate's own vmlinuz, which meant a Debian
+# kernel booted the installer on amd64 (the one live "Debian boots" path in
+# the tree). The amd64 branch below now swaps in the same 7.2.9-2-t2-trixie
+# kernel the installed system and the raw-GPT `make image` path use (arch-
+# matched: each branch swaps its own architecture's kernel binary).
 if [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
 # ----------------------------------------------------------------------
 # Step 2 — replace ${INSTALL_DIR}/vmlinuz with our Sky1 installer kernel
@@ -2743,8 +2746,66 @@ echo "    overlay cpio: $(du -h "$OVERLAY_GZ" | cut -f1)"
 # (which is the load-bearing path; binary patch was a fallback for older
 # libnewt versions). User-visible effect: install dialogs use libnewt's
 # default red/blue/grey on trixie d-i instead of amber phosphor. Cosmetic.
+elif [ "$NCZ_TARGET_ARCH" = "amd64" ]; then
+# ----------------------------------------------------------------------
+# Step 2 (amd64) — replace install.amd/vmlinuz with our 7.2.9 T2 kernel.
+# Operator directive 2026-10-04: the installer must boot our 7.2.9 kernel
+# on amd64 too, never the substrate's forky 7.1.x d-i kernel.
+# ----------------------------------------------------------------------
+echo "[2] swapping /${INSTALL_DIR}/vmlinuz to the NCZ amd64 kernel"
+_amd64_deb="$(find "$ROOT/assets/kernel/amd64-stable" -maxdepth 1 -type f -name 'linux-image-*.deb' 2>/dev/null | sort -V | tail -1)"
+if [ -z "$_amd64_deb" ]; then
+    echo "ERROR: no assets/kernel/amd64-stable/linux-image-*.deb to boot the amd64 installer." >&2
+    echo "       Refusing to fall back to Debian's forky 7.1.x kernel (kernel-purity directive 2026-10-04)." >&2
+    exit 1
+fi
+_amd64_kver="$(basename "$_amd64_deb")"
+_amd64_kver="${_amd64_kver#linux-image-}"
+_amd64_kver="${_amd64_kver%_amd64.deb}"
+_amd64_kver="${_amd64_kver%_*}"
+case "$_amd64_kver" in
+    ""|7.1*|*-rc[0-9]*)
+        echo "ERROR: amd64 installer kernel '$_amd64_kver' is not the release 7.2.x line." >&2
+        echo "       Refusing to boot the installer with a Debian/rc kernel (directive 2026-10-04)." >&2
+        exit 1 ;;
+esac
+[ -f "$STAGING/${INSTALL_DIR}/vmlinuz" ] || { echo "ERROR: substrate has no /${INSTALL_DIR}/vmlinuz"; exit 1; }
+AMD64_WORK="$STAGING/.installer-kernel-overlay-amd64"
+rm -rf "$AMD64_WORK"; mkdir -p "$AMD64_WORK"
+dpkg-deb -x "$_amd64_deb" "$AMD64_WORK"
+[ -f "$AMD64_WORK/boot/vmlinuz-$_amd64_kver" ] || \
+    { echo "ERROR: $_amd64_deb has no boot/vmlinuz-$_amd64_kver" >&2; exit 1; }
+cp -L "$AMD64_WORK/boot/vmlinuz-$_amd64_kver" "$STAGING/${INSTALL_DIR}/vmlinuz"
+echo "    replaced: $(du -h "$STAGING/${INSTALL_DIR}/vmlinuz" | cut -f1) (KVER=$_amd64_kver)"
+
+# ----------------------------------------------------------------------
+# Step 3 (amd64) — concat our modules cpio onto install.amd/initrd.gz
+# ----------------------------------------------------------------------
+[ -d "$AMD64_WORK/lib/modules/$_amd64_kver" ] || \
+    { echo "ERROR: $_amd64_deb has no lib/modules/$_amd64_kver" >&2; exit 1; }
+# d-i's kmod udeb cannot read xz-compressed modules (same landmine the arm64
+# branch documents); ship plain .ko in the installer initrd.
+_kxz_count=$(find "$AMD64_WORK/lib/modules/$_amd64_kver" -name '*.ko.xz' | wc -l)
+if [ "$_kxz_count" -gt 0 ]; then
+    find "$AMD64_WORK/lib/modules/$_amd64_kver" -name '*.ko.xz' -exec xz -d {} +
+    _kxz_left=$(find "$AMD64_WORK/lib/modules/$_amd64_kver" -name '*.ko.xz' | wc -l)
+    [ "$_kxz_left" -eq 0 ] || { echo "ERROR: $_kxz_left .ko.xz modules failed to decompress"; exit 1; }
+fi
+command -v depmod >/dev/null 2>&1 || { echo "ERROR: depmod not found -- cannot build amd64 installer modules.dep" >&2; exit 1; }
+depmod -a -b "$AMD64_WORK" "$_amd64_kver"
+[ -f "$AMD64_WORK/lib/modules/$_amd64_kver/modules.dep" ] || { echo "ERROR: depmod failed for the amd64 installer modules"; exit 1; }
+# -mindepth 1: never emit a bare top-level "lib" DIRECTORY entry (usr-merged
+# d-i initrds symlink lib -> usr/lib; a dir entry unlinks the symlink and the
+# kernel panics with "No working init found"). Same rule as the arm64 overlay.
+( cd "$AMD64_WORK" && find lib -mindepth 1 -print | cpio -o -H newc --quiet | gzip -9 -n ) \
+    > "$STAGING/.installer-kernel-overlay-amd64.cpio.gz"
+gzip -t "$STAGING/.installer-kernel-overlay-amd64.cpio.gz"
+# Concatenated gzipped cpio members: last-wins, so appending is sufficient.
+cat "$STAGING/.installer-kernel-overlay-amd64.cpio.gz" >> "$STAGING/${INSTALL_DIR}/initrd.gz"
+rm -rf "$AMD64_WORK" "$STAGING/.installer-kernel-overlay-amd64.cpio.gz"
+echo "    initrd.gz now: $(du -h "$STAGING/${INSTALL_DIR}/initrd.gz" | cut -f1)"
 else
-    echo "[2+3] skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH -- stock d-i kernel/initrd already boot correctly, no Sky1 kernel swap needed)"
+    echo "[2+3] skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH has no staged installer kernel)"
 fi
 if [ "$DI_CODENAME" != "bookworm" ]; then
     echo "[3.5] SKIP amber-phosphor binary patch on $DI_CODENAME (NEWT_COLORS env-var still applied below)"
@@ -3510,6 +3571,10 @@ if [ -n "$_REFIND_BIN" ]; then
     elif [ -d "$ROOT/assets/refind/icons" ]; then
         _REFIND_ICONS="$ROOT/assets/refind/icons"
         echo "    refind: build/refind-bin/icons absent — using tracked assets/refind/icons"
+    fi
+    if [ -d "$ROOT/assets/refind/cygnus" ]; then
+        cp -a "$ROOT/assets/refind/cygnus" "$EXTRA/assets/refind/"
+        echo "    refind: Cygnus theme staged ($(du -sh "$EXTRA/assets/refind/cygnus" | cut -f1))"
     fi
     if [ -n "$_REFIND_ICONS" ]; then
         cp -a "$_REFIND_ICONS" "$EXTRA/assets/refind/"

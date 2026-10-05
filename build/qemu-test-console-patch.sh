@@ -38,6 +38,10 @@
 
 set -euo pipefail
 
+# Derive the ISO volume label from release.conf -- never hardcode a codename.
+# shellcheck source=lib/release-identity.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/release-identity.sh"
+
 SRC_ISO="${1:-}"
 [ -z "$SRC_ISO" ] && { echo "usage: $0 <path/to/installer.iso>"; exit 1; }
 [ ! -f "$SRC_ISO" ] && { echo "ERROR: $SRC_ISO not found"; exit 1; }
@@ -103,7 +107,7 @@ EFI_IMG_REL="boot/grub/efi.img"
 [ -f "$WORK/staging/$EFI_IMG_REL" ] || { echo "ERROR: $EFI_IMG_REL missing from extracted ISO"; exit 1; }
 rm -f "$OUT_ISO"
 xorriso -as mkisofs \
-    -r -V "NCZ_MAXIMILIAN" \
+    -r -V "$NCZ_ISO_VOLUME_ID" \
     -J -joliet-long \
     -cache-inodes \
     -e "$EFI_IMG_REL" \

@@ -142,7 +142,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed
 
 all: image
 
@@ -275,8 +275,8 @@ iso: image
 #       layer with "no kernel installed (edge failed)" because the
 #       vendor mirror had published rc5 while KVER said 7.2.8.
 #
-# Operator directive 2026-09-30 (the .66 incident): 7.2.8 must be the default
-# kernel on every arch. Gate the kernel-debs target with the kernel-default
+# Operator directive 2026-09-30 (the .66 incident), updated 2026-10-04: the 7.2.9
+# release kernel must be the default kernel on every arch. Gate the kernel-debs target with the kernel-default
 # policy verifier before doing anything else -- a misdirected
 # assets/kernel/mainline symlink (the .66 root cause) silently produces
 # wrong .debs here if this gate is skipped.
@@ -492,6 +492,17 @@ gen-hooks-lists:
 
 test-platform:
 	@bash $(ROOT)/build/test-platform-lint.sh
+	@$(MAKE) --no-print-directory test-cygnus-branding
+
+# boot-speed regression tests (docs/BOOT-SPEED.md): no Type=oneshot unit may
+# sit in multi-user.target's critical chain just to poll for the network.
+test-boot-speed:
+	@bash $(ROOT)/build/test-boot-speed.sh
+
+# item G (docs/BOOT-SPEED.md section 8): the systemd-timesyncd fast-retry
+# drop-in must ship on both arches and time sync must never order the greeter.
+test-timesync-retry:
+	@bash $(ROOT)/build/test-timesync-retry.sh
 
 secretscan:
 	@bash $(ROOT)/build/secret-scan-gate.sh
@@ -565,6 +576,16 @@ clean:
 distclean: clean
 	rm -rf $(DOWNLOADS)
 
+# Cygnus 26.10 branding: generator freshness + contrast gates, and the Singularity
+# theme/accent integration (generated override == tokens, schema-compiles, theme
+# install path, valid selectors, overlay patch still applies). The rEFInd theme
+# QEMU harness (branding/cygnus/tests/test-refind-theme.sh) needs a THEME_DIR/OUT_DIR
+# and qemu, so it stays a manual tool and is deliberately not wired here.
+test-cygnus-branding:
+	@echo "[cygnus] branding generator freshness + contrast gates"
+	@python3 $(ROOT)/branding/cygnus/tests/test_cygnus_contrast.py
+	@python3 $(ROOT)/branding/cygnus/tests/test_cygnus_singularity.py
+
 # static dual-architecture parity: manifest pairs, ncz-screensavers debs, hook arch-gate lint (docs/DUAL-ARCH-PARITY.md)
 parity:
 	build/test-dual-arch-parity.sh
@@ -572,11 +593,27 @@ parity:
 	build/test-amd64-intel-vaapi.sh
 	build/test-no-software-render.sh
 	build/lint-no-software-render.sh
+	build/test-singularity-supervisor-forensics.sh
+	build/test-panthor-vulkan.sh
 	build/test-installer-screens.sh
 	build/test-usb2-rescan-sky1-only.sh
 	build/test-usb2-rescan-greetd.sh
+	branding/cygnus/tests/test-refind-theme-config.sh
+	build/test-refind-rescue-promotion.sh
+	build/test-wallpaper-rotator-relogin.sh
+	build/test-boot-speed.sh
+	build/test-timesync-retry.sh
+	build/test-greeter-output-mode.sh
+	build/test-chromium-icon.sh
+	build/test-screensaver-default.sh
 	build/test-ncz-ui.sh
+	build/test-release-identity.sh
 	build/test-base-stamp.sh
 	build/test-reap-images.sh
 	REPO_ROOT=$(ROOT) bash build/test-amd64-kernel-classifier.sh
+	build/test-amd64-dracut-isolation.sh
 	build/test-kernel-default-policy.sh
+	build/test-kernel-purity-pin.sh
+	build/test-kernel-purity-guards.sh
+	build/test-no-debian-kernel.sh
+	$(MAKE) --no-print-directory test-cygnus-branding

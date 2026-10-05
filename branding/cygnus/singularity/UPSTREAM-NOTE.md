@@ -1,8 +1,15 @@
 # Singularity theme priority: what Cygnus can and cannot set today
 
 **Status:** this comes from reading the code (upstream libsingularity, HEAD as
-of 2026-09-25). It has not yet been confirmed on a running session. Confirm it
-on a real host before raising it upstream.
+of 2026-09-25). As of item I of the Cygnus 26.10 integration the fix below is
+carried as an **NCZ overlay patch**,
+`assets/singularity/patches/libsingularity/0002-user-theme-loads-above-base.patch`,
+and its effect is exercised by
+`branding/cygnus/tests/test_cygnus_singularity.py`. The patch is proposed
+upstream to Mirko Brombin (the maintainer) but **not filed** by this task;
+once it lands upstream, delete the patch and the README entry. It has not yet
+been confirmed on a running session (the full payload build + on-device check
+is the orchestrator's).
 
 ## What upstream documents
 
@@ -38,13 +45,14 @@ that defines it. So a user theme:
 | Cyan focus ring, cyan links, magenta-to-cyan progress, selection tint (theme rules using `cygnus_*` names) | Yes, where the base does not already set the same property |
 | Violet-black surfaces (`window_bg`, `surface_*`, `panel_bg`, ...) redefined in `style-dark.css` | **No**, until the theme loads above the base |
 
-## Proposed upstream fix (for Mirko: not filed, not patched here)
+## Fix (proposed upstream to Mirko; not filed by this task; carried as NCZ overlay)
 
 Load the user theme providers above the base, as the template already
-documents: for example `PRIORITY_USER + 3` for `style.css` and `PRIORITY_USER
-+ 4` for the variant, so a theme can also override the accent providers only
-where it chooses to. This is a small, general fix that matches what the
-template promises, and it is not NCZ-specific. Following the contribution
-rules, it should be proposed upstream first. It should become an NCZ overlay
-patch (`assets/singularity/patches/libsingularity/`) only if the operator asks
-for that before upstream decides.
+documents: `PRIORITY_USER + 3` for `style.css` and `PRIORITY_USER + 4` for the
+variant, so a theme can also override the accent providers only where it
+chooses to. This is a small, general fix that matches what the template
+promises, and it is not NCZ-specific. Following the contribution rules it
+should be proposed upstream first; until it is filed/merged, NCZ carries it as
+`assets/singularity/patches/libsingularity/0002-user-theme-loads-above-base.patch`
+(see the patch README entry, which deliberately has no `Upstream PR:` link so
+`singularity-patch-reconcile.py` will not auto-retire it).

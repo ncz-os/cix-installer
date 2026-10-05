@@ -328,10 +328,6 @@ if [ -z "$NCZ_DEB" ]; then
 fi
 echo "[45] installing required NCZ wallpaper pack: $(basename "$NCZ_DEB")"
 dpkg -i "$NCZ_DEB"
-# Default = the Maximilian backdrop (26.7 release wallpaper). Set after the
-# pack installs the image it points at.
-ln -sfn ncz-wallpaper-07-maximilian-blackhole-2k.jpg /usr/share/backgrounds/ncz/default.jpg
-
 CONTRIB_DEBS=$(compgen -G "$WALLPAPER_DEBS/*.deb" | grep -v "^$WALLPAPER_DEBS/ncz-wallpapers-ncz_" || true)
 if [ -n "$CONTRIB_DEBS" ]; then
     echo "[45] installing contributed Artist Pack(s):"
@@ -342,6 +338,18 @@ if [ -n "$CONTRIB_DEBS" ]; then
 else
     echo "[45] no contributed Artist Pack debs staged in $WALLPAPER_DEBS -- shipping NCZ + Bing + Singularity Default only"
 fi
+
+# Default = the Cygnus 26.10 hero (edge-on), from the Cygnus Artist Pack. The
+# pointer is set after the packs install the image it names, and a missing
+# image fails loudly: a 26.10 desktop without its release wallpaper is a defect.
+CYGNUS_DEFAULT=cygnus-2610/cygnus-hero-edge-on.jpg
+if [ ! -f "/usr/share/backgrounds/ncz/$CYGNUS_DEFAULT" ]; then
+    echo "[45] ERROR: Cygnus default wallpaper /usr/share/backgrounds/ncz/$CYGNUS_DEFAULT missing -- ncz-wallpapers-cygnus-2610_*.deb not staged/installed" >&2
+    echo "[45]        rebuild it: build/build-wallpaper-contrib-deb.sh cygnus-2610" >&2
+    exit 1
+fi
+ln -sfn "$CYGNUS_DEFAULT" /usr/share/backgrounds/ncz/default.jpg
+echo "[45] default wallpaper -> $CYGNUS_DEFAULT"
 
 # Bing refresh. `fetch --if-stale` is cheap when the cache is fresh, so it runs
 # at every login and daily. It exits 75 while the network is down; the service
@@ -428,7 +436,11 @@ LEGACY_CONF="$CONFIG_HOME/ncz-wallpaper/collection"
 [ ! -r "$CONF" ] && CONF=$LEGACY_CONF
 COLLECTION=""
 [ -r "$CONF" ] && COLLECTION=$(tr -d " \t\r\n" < "$CONF" 2>/dev/null)
-[ -z "$COLLECTION" ] && COLLECTION=ncz
+# Default collection: the Cygnus Artist Pack (falls back to ncz if absent).
+if [ -z "$COLLECTION" ]; then
+    COLLECTION=ncz
+    /usr/local/bin/ncz-wallpaper-collections path cygnus-2610 >/dev/null 2>&1 && COLLECTION=cygnus-2610
+fi
 
 PIC=""
 PICK_STATUS=127
@@ -577,22 +589,33 @@ chmod 0755 /usr/local/bin/ncz-wallpaper-daemon
 # wallpaper rotator was installed, correct, and had never once run.
 #
 # The session is systemd --user driven. The active user targets are basic,
-# default, paths, sockets and timers. graphical-session.target is NOT active,
-# and singularity-session.target -- which the session script tries to start --
-# does not exist as a unit at all. So default.target is the only reliable
-# anchor, and `systemctl --global enable` is what applies a user unit to every
-# account without needing a per-user enable at first login.
+# default, paths, sockets and timers. The .desktop file is still written: it
+# costs nothing and is the correct mechanism on desktops that DO honour it. It
+# is a fallback here, not the mechanism.
 #
-# The .desktop file is still written: it costs nothing and is the correct
-# mechanism on desktops that DO honour it. It is a fallback here, not the
-# mechanism.
+# RE-LOGIN BUG (item RRH, fixed 2026-10-04). The unit used to be
+# WantedBy=default.target with PartOf=graphical-session.target. A systemd --user
+# manager outlives a logout (lingering sessions keep it up), so default.target
+# stays active and its Wants are never re-pulled, while PartOf= only propagates
+# a STOP. Live on O6N: the unit was SIGTERMed at 16:08 when the first desktop
+# session ended and was NEVER started again -- the rotator was dead for 7h.
+# The session launcher
+# (/opt/singularity/bin/singularity-desktop-session; subprojects/
+# singularity-session) starts singularity-session.target on EVERY login and
+# stops it on logout, so that target is the anchor that actually fires per
+# login. 20-desktop.sh bridges /etc/systemd/user/singularity-session.target in
+# from the /opt payload (systemd --user does not search /opt). The unit is now
+# PartOf=/WantedBy= both singularity-session.target (the per-login caller) and
+# graphical-session.target (the standard anchor, so the unit still works under
+# other compositors whose session managers start that target themselves).
+# No polling, no ExecStartPre: the daemon's single-instance lock is unchanged.
 
 install -d /usr/lib/systemd/user
 cat > /usr/lib/systemd/user/ncz-wallpaper-rotator.service <<'UNIT'
 [Unit]
 Description=NCZ wallpaper rotator
-PartOf=graphical-session.target
-After=graphical-session.target
+PartOf=singularity-session.target graphical-session.target
+After=singularity-session.target graphical-session.target
 
 [Service]
 Type=simple
@@ -601,7 +624,8 @@ Restart=on-failure
 RestartSec=10
 
 [Install]
-WantedBy=default.target
+WantedBy=singularity-session.target
+WantedBy=graphical-session.target
 UNIT
 chmod 0644 /usr/lib/systemd/user/ncz-wallpaper-rotator.service
 
@@ -623,9 +647,9 @@ StartupNotify=false
 Terminal=false
 AUTO
 
-echo "[45] Singularity wallpaper rotator + autostart written (default = Maximilian)"
+echo "[45] Singularity wallpaper rotator + autostart written (default = Cygnus 26.10)"
 
-# Greeter background = the static NCZ Maximilian wallpaper installed by 55-greeter
+# Greeter background = the Cygnus greeter backdrop installed by 55-greeter
 # at the native greeter's fallback path /usr/share/backgrounds/singularity/
 # default.png. The greeter is greetd + native singularity-greeter (Wayland/Mali,
 # Cairo/loginui), which reads that fallback file — no lightdm conf.d, no regreet.

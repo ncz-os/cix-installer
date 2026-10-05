@@ -94,7 +94,9 @@ if [ ! -s "$RELEASE_FILE" ]; then
 fi
 # shellcheck disable=SC1090
 . "$RELEASE_FILE"
-NCZ_RELEASE_SHORT="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
+# Full release identity (product + version + codename) so the installed rEFInd
+# titles read "NCZ-OS 26.10 Cygnus" consistently with GRUB/.disk/info/motd.
+NCZ_RELEASE_SHORT="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
 
 if [ -z "$KVER_NEXT" ]; then
     echo "ERROR: no KVER_NEXT provided (edge kernel is the only supported channel)"
@@ -115,6 +117,18 @@ case "$KVER_NEXT" in
     *-rc[0-9]*)
         echo "ERROR: KVER_NEXT='$KVER_NEXT' is a release-candidate (-rcN); mainline MUST be a release kernel (operator directive 2026-09-30)." >&2
         echo "       Refusing to write an rEFInd menu that would boot -rc as the default." >&2
+        exit 1
+        ;;
+    # Operator directive 2026-10-04 (Cygnus 26.10 kernel purity): the default
+    # rEFInd entry must load our 7.2.9 Sky1 kernel, never a Debian-archive
+    # kernel. Debian's versioned arm64 kernels are named <ver>-arm64
+    # (e.g. 7.1.4-arm64) and its forky line is 7.1.x; the local classifier
+    # (11-fix-cixmini-boot.sh) already refuses to select those, but this
+    # generator can be invoked with an explicit KVER, so fail closed here too.
+    *-arm64|7.1.*|7.1-*)
+        echo "ERROR: KVER_NEXT='$KVER_NEXT' names a Debian-archive kernel (arm64/7.1.x);" >&2
+        echo "       mainline MUST be the NCZ 7.2.9 Sky1 kernel (directive 2026-10-04)." >&2
+        echo "       Refusing to write an rEFInd menu that would boot Debian as the default." >&2
         exit 1
         ;;
 esac
@@ -298,47 +312,126 @@ echo "  wiping stale ESP entries + kernel images..."
 # Only one rescue image is kept: the previous one is replaced, so the ESP does
 # not grow without bound. (2G ESP, ~65M per kernel+initrd pair, measured on
 # both O6N and MS-R1.)
-if [ -n "$KVER_NEXT" ]; then
-    for _esp_k in /boot/efi/vmlinuz-*; do
+# ---------------------------------------------------------------------------
+# RESCUE PROMOTION GUARD (item RRH, 2026-10-04). The amd64 incident: a staged
+# pre-release kernel (7.3.0-rc5-10-t2-trixie-revhid) was promoted to RESCUE and
+# the known-good stable rescue pair deleted. The same classification bug exists
+# here verbatim (the logic was copied), so the same three invariants apply:
+#   1. a pre-release (-rcN) kernel is NEVER promoted to the rescue slot;
+#   2. the candidate must be a stable-class release kernel;
+#   3. the existing rescue is deleted only AFTER a complete new pair has been
+#      copied to temp names, so a failed copy leaves it byte-identical; if no
+#      stable-class candidate exists, the existing rescue is kept as-is.
+# ---------------------------------------------------------------------------
+
+# A kernel is PRERELEASE if its version carries an -rcN component. Same test the
+# install-time classifier (11-fix-cixmini-boot.sh) uses to split the lines.
+is_prerelease() {
+    case "$1" in *-rc[0-9]*) return 0 ;; *) return 1 ;; esac
+}
+
+# arm64 stable-class: a release (non-prerelease) kernel that is not a
+# Debian-archive kernel. Only such a kernel may become the known-good RESCUE.
+is_stable_class() {
+    is_prerelease "$1" && return 1
+    case "$1" in
+        *-arm64|7.1.*|7.1-*) return 1 ;;
+    esac
+    return 0
+}
+
+# ncz_promote_outgoing_rescue <esp-dir> <primary-kver> [edge-kver]
+#
+# Promote the outgoing kernel already staged on the ESP to the single -rescue
+# slot before the wipe, but ONLY when it is a stable-class release kernel.
+# Extracted as a function so build/test-refind-rescue-promotion.sh can drive the
+# real code against a fixture ESP tree.
+ncz_promote_outgoing_rescue() {
+    local ESP="$1" PRIMARY="$2" EDGE_KVER="${3:-}"
+    local _esp_k _out_kver _tmp_v _tmp_i _r existing_rescue="" promoted=""
+
+    [ -n "$ESP" ] || return 0
+    [ -n "$PRIMARY" ] || return 0
+
+    # What rescue (if any) is currently staged?
+    for _r in "$ESP"/vmlinuz-*-rescue; do
+        [ -e "$_r" ] || continue
+        existing_rescue=${_r##*/vmlinuz-}
+        existing_rescue=${existing_rescue%-rescue}
+        break
+    done
+
+    for _esp_k in "$ESP"/vmlinuz-*; do
         [ -e "$_esp_k" ] || continue
         case "$_esp_k" in *-rescue) continue ;; esac
         _out_kver=${_esp_k##*/vmlinuz-}
-        # Never promote the kernel we are about to stage: that is not a
-        # fallback. BUG FIXED 2026-09-16 (real, metal-verified on O6N): this
-        # used to check ONLY against KVER_NEXT, never KVER_EDGE -- so on any
-        # regen where both lines were already staged, the loop's glob order
-        # (/boot/efi/vmlinuz-* sorts "7.2..." before "7.3...") meant the EDGE
-        # kernel (not matching KVER_NEXT) got promoted to -rescue. The
-        # resulting "RESCUE" menu entry then booted the edge kernel BINARY
-        # but with the Mali entry's OWN cmdline options (the rescue-entry
-        # generator below always uses $MALI_OPTIONS regardless of which
-        # kernel it's rescuing) -- i.e. requesting sky1.gpu=vendor on a
-        # kernel with no Mali/Panthor DKMS built for its own KVER (a known,
-        # separately-flagged gap for the edge line), which silently fell
-        # back to software-rendered Mesa instead of failing outright.
-        # Reported symptom: "7.3 is listed as a rescue kernel when it
-        # should not be" + "the rescue entry boots but GUI is software
-        # only" -- both explained by this one root cause.
+
+        # Never promote the kernel we are about to stage (the primary line) nor
+        # the edge line, nor a same-line variant of the primary: a variant would
+        # make the rescue entry point at the very kernel it replaces. BUG FIXED
+        # 2026-09-16 (real, metal-verified on O6N): this used to check ONLY
+        # against the primary, never the second (edge) line -- so on any regen
+        # where both lines were already staged, the edge kernel got promoted to
+        # -rescue, and the resulting "RESCUE" entry booted the edge binary with
+        # the Mali entry's own cmdline options.
         case "$_out_kver" in
-            "$KVER_NEXT") continue ;;
-            "$KVER_EDGE") [ -n "$KVER_EDGE" ] && continue ;;
+            "$PRIMARY")   continue ;;
+            "$PRIMARY"-*) continue ;;
+            "$EDGE_KVER") [ -n "$EDGE_KVER" ] && continue ;;
         esac
+
+        if is_prerelease "$_out_kver"; then
+            echo "  NOT promoting $_out_kver to rescue -- prerelease (-rcN) kernel, not stable-class"
+            continue
+        fi
+        if ! is_stable_class "$_out_kver"; then
+            echo "  NOT promoting $_out_kver to rescue -- not a stable-class kernel"
+            continue
+        fi
+
         [ -s "$_esp_k" ] || continue
-        [ -s "/boot/efi/initrd.img-$_out_kver" ] || {
+        [ -s "$ESP/initrd.img-$_out_kver" ] || {
             echo "  WARN: not promoting $_out_kver to rescue -- its initrd is missing on the ESP"
             continue
         }
-        rm -f /boot/efi/vmlinuz-*-rescue /boot/efi/initrd.img-*-rescue 2>/dev/null || true
-        if cp -f "$_esp_k" "/boot/efi/vmlinuz-$_out_kver-rescue" &&
-           cp -f "/boot/efi/initrd.img-$_out_kver" "/boot/efi/initrd.img-$_out_kver-rescue"; then
-            echo "  promoted outgoing kernel $_out_kver to rescue image"
+
+        # Copy to temporary names FIRST; only replace the current rescue once
+        # BOTH halves are complete, so a failed copy leaves the old rescue
+        # intact.
+        _tmp_v="$ESP/.vmlinuz-$_out_kver-rescue.new.$$"
+        _tmp_i="$ESP/.initrd.img-$_out_kver-rescue.new.$$"
+        rm -f "$_tmp_v" "$_tmp_i" 2>/dev/null || true
+        if cp -f "$_esp_k" "$_tmp_v" &&
+           cp -f "$ESP/initrd.img-$_out_kver" "$_tmp_i" &&
+           [ -s "$_tmp_v" ] && [ -s "$_tmp_i" ]; then
+            rm -f "$ESP"/vmlinuz-*-rescue "$ESP"/initrd.img-*-rescue 2>/dev/null || true
+            existing_rescue=""   # the old rescue is gone now; do not log it as kept
+            if mv -f "$_tmp_v" "$ESP/vmlinuz-$_out_kver-rescue" &&
+               mv -f "$_tmp_i" "$ESP/initrd.img-$_out_kver-rescue"; then
+                echo "  promoted outgoing stable kernel $_out_kver to rescue image"
+                promoted=1
+            else
+                rm -f "$_tmp_v" "$_tmp_i" 2>/dev/null || true
+                echo "  WARN: could not promote $_out_kver to a rescue image"
+            fi
         else
-            rm -f "/boot/efi/vmlinuz-$_out_kver-rescue" "/boot/efi/initrd.img-$_out_kver-rescue" 2>/dev/null || true
+            rm -f "$_tmp_v" "$_tmp_i" 2>/dev/null || true
             echo "  WARN: could not promote $_out_kver to a rescue image"
         fi
         break
     done
-fi
+
+    if [ -z "$promoted" ]; then
+        if [ -n "$existing_rescue" ]; then
+            echo "  kept existing rescue image $existing_rescue (no stable-class outgoing candidate)"
+        else
+            echo "  no rescue image staged (no stable-class outgoing candidate)"
+        fi
+    fi
+    return 0
+}
+
+ncz_promote_outgoing_rescue /boot/efi "$KVER_NEXT" "${KVER_EDGE:-}"
 
 for _esp_f in /boot/efi/vmlinuz-* /boot/efi/initrd.img-*; do
     [ -e "$_esp_f" ] || continue
@@ -416,7 +509,7 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 fi
 
-# NCZ-OS 26.7 GPU policy: 7.2 is the *only* graphical kernel.  It has two
+# NCZ-OS GPU policy: 7.2 is the *only* graphical kernel.  It has two
 # mutually exclusive DKMS driver choices.  The blacklist is part of each
 # boot contract, not a user-selectable modprobe accident:
 #   Mali DKMS       = blacklist Panthor
@@ -644,6 +737,26 @@ else
     echo "  WARN: rEFInd icons/ asset absent ($ICONS_SRC) → menu will render TEXT-ONLY (no banner)"
 fi
 
+# Cygnus 26.10 theme: a single 1920x1080 background (banner_scale fillscreen),
+# selection art and the Cygnus entry icon.  Staged under EFI/BOOT/themes/cygnus
+# and pulled in with an `include` line after the generated banner lines.
+# The design is GOP-mode independent -- no panel probing, no per-resolution
+# files (see docs/REFIND-THEME.md).  Optional: when the asset dir is absent the
+# generated NCZ banner/icon above stay in force.
+CYGNUS_SRC="$INSTALLER_META/assets/refind/cygnus"
+REFIND_THEME=""
+if [ -s "$CYGNUS_SRC/theme.conf" ] && [ -s "$CYGNUS_SRC/background-1920x1080.png" ]; then
+    rm -rf /boot/efi/EFI/BOOT/themes/cygnus
+    mkdir -p /boot/efi/EFI/BOOT/themes/cygnus
+    cp -r "$CYGNUS_SRC"/. /boot/efi/EFI/BOOT/themes/cygnus/
+    if [ -s "$CYGNUS_SRC/os_ncz.png" ]; then
+        install -m 0644 "$CYGNUS_SRC/os_ncz.png" /boot/efi/EFI/BOOT/ncz.png
+        REFIND_ICON="ncz.png"
+    fi
+    REFIND_THEME="themes/cygnus/theme.conf"
+    echo "  rEFInd Cygnus theme installed → /boot/efi/EFI/BOOT/themes/cygnus"
+fi
+
 # Release policy: 7.2 Mali is the default graphical entry.  7.0.12 is always
 # an explicit console-only recovery choice; Panthor is an explicit experiment.
 if [ "$NEXT_AVAILABLE" = "1" ]; then
@@ -763,6 +876,7 @@ fi
     echo "resolution max"
     [ -n "$REFIND_BANNER" ] && echo "banner $REFIND_BANNER"
     [ -n "$REFIND_BANNER" ] && echo "banner_scale noscale"
+    [ -n "$REFIND_THEME" ] && echo "include $REFIND_THEME"
     echo "showtools shell,reboot,shutdown,firmware"
     echo "scanfor manual"
     echo "scan_all_linux_kernels false"
@@ -771,7 +885,7 @@ fi
     if [ "$NEXT_AVAILABLE" = "1" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Mali (Default)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$MALI_OPTIONS\""
         echo "}"
@@ -800,7 +914,7 @@ fi
         # existing.
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Panthor (Experimental)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$PANTHOR_OPTIONS\""
         echo "}"
@@ -816,7 +930,7 @@ fi
 
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Console (All Accelerators, Mali)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$NEXT_CONSOLE_OPTIONS\""
         echo "}"
@@ -825,7 +939,7 @@ fi
     if [ "$EDGE_AVAILABLE" = "1" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Edge / Experimental Kernel (Console)\" {"
         echo "    loader  /vmlinuz-$KVER_EDGE"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
         echo "    options \"$EDGE_OPTIONS\""
         echo "}"
@@ -842,7 +956,7 @@ fi
         # exact-match slot. "Mali (Experimental)" is unique.
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Edge / Experimental Kernel (Mali, Experimental)\" {"
         echo "    loader  /vmlinuz-$KVER_EDGE"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
         echo "    options \"$EDGE_ACCEL_OPTIONS\""
         echo "}"
@@ -853,7 +967,7 @@ fi
         # sidecar this script accepts.
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Rescue Partition (Console)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$RESCUEPART_OPTIONS\""
         echo "}"
@@ -879,7 +993,7 @@ fi
             | grep -vE '^(oops=panic|panic=[0-9]+|quiet|)$' | paste -sd' ' -)
         echo "menuentry \"RESCUE  -  $_rescue_tag known-good kernel\" {"
         echo "    loader  /$_rescue_file"
-        [ -n "$REFIND_ICON" ] && echo "    icon    $REFIND_ICON"
+        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ -e "/boot/efi/initrd.img-$_rescue_tag-rescue" ] && \
             echo "    initrd  /initrd.img-$_rescue_tag-rescue"
         echo "    options \"$_rescue_options\""

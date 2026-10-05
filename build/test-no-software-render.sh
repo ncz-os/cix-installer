@@ -52,6 +52,168 @@ expect "status: LIBGL_ALWAYS_SOFTWARE=0 is not software"              0 st amd L
 mkdir -p "$T/amd/etc/environment.d"; echo 'LIBGL_ALWAYS_SOFTWARE=1' > "$T/amd/etc/environment.d/90-x.conf"
 expect "status: GPU + software forced in /etc/environment.d FAILS"    1 st amd
 rm -f "$T/amd/etc/environment.d/90-x.conf"
+# ---- EGL is scanned per platform (regression: O6N 2026-10-04 false positive).
+#      Mesa's Surfaceless/Device platforms always come up llvmpipe on Sky1 and no
+#      session uses them; a software renderer on gbm/wayland/x11 must still fail.
+cat > "$T/egl_mali_unused_soft.txt" <<'EOF'
+MESA: error: ZINK: failed to choose pdev
+GBM platform:
+EGL vendor string: ARM
+OpenGL ES profile renderer: Mali-G720-Immortalis
+
+Wayland platform:
+EGL vendor string: ARM
+OpenGL ES profile renderer: Mali-G720-Immortalis
+
+X11 platform:
+eglinfo: eglInitialize failed
+
+Surfaceless platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 128 bits)
+
+Device platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 128 bits)
+
+Platform Device platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 128 bits)
+EOF
+EGL_S="cat $T/egl_mali_unused_soft.txt" EGL_B="cat $T/egl_mali_unused_soft.txt" expect "status: Mali gbm/wayland + Surfaceless/Device llvmpipe PASSES" 0 st amd
+grep -q 'IGNORED surfaceless platform software renderer' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: log says why the Surfaceless block was ignored"; } || { FAILS=$((FAILS+1)); echo "FAIL status: Surfaceless block ignore not logged"; }
+grep -q 'IGNORED device platform software renderer' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: log says why the Device block was ignored"; } || { FAILS=$((FAILS+1)); echo "FAIL status: Device block ignore not logged"; }
+grep -q 'IGNORED platform device platform software renderer' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: log says why the Platform Device block was ignored"; } || { FAILS=$((FAILS+1)); echo "FAIL status: Platform Device ignore not logged"; }
+
+cat > "$T/egl_gbm_soft.txt" <<'EOF'
+GBM platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 128 bits)
+
+Wayland platform:
+EGL vendor string: ARM
+OpenGL ES profile renderer: Mali-G720-Immortalis
+EOF
+EGL_S="cat $T/egl_gbm_soft.txt" EGL_B="cat $T/egl_gbm_soft.txt" expect "status: llvmpipe on the GBM platform FAILS (policy kept)" 1 st amd
+grep -q 'EGL (session environment) renders in SOFTWARE (gbm platform)' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: the gbm failure names the platform"; } || { FAILS=$((FAILS+1)); echo "FAIL status: gbm failure not attributed to its platform"; }
+
+cat > "$T/egl_wayland_soft.txt" <<'EOF'
+GBM platform:
+EGL vendor string: ARM
+OpenGL ES profile renderer: Mali-G720-Immortalis
+
+Wayland platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 128 bits)
+EOF
+EGL_S="cat $T/egl_wayland_soft.txt" EGL_B="cat $T/egl_wayland_soft.txt" expect "status: llvmpipe on the Wayland platform FAILS (policy kept)" 1 st amd
+
+# ---- Enumerated-but-unused llvmpipe must not fail (regression: PEGASUS 2026-10-04,
+#      Intel UHD + RTX 2060 + mesa-vulkan-drivers). Clients get the FIRST Vulkan
+#      device the loader lists and the GBM/Wayland/X11 EGL renderer; the Device
+#      platform enumeration is not a session platform. Fixtures (a)-(d) below.
+#      (a) real GPU first, llvmpipe listed later -> PASS
+cat > "$T/vk_gpu_first.txt" <<'EOF'
+deviceName         = NVIDIA GeForce RTX 2060
+driverName         = NVIDIA
+deviceName         = llvmpipe (LLVM 21.1.8, 256 bits)
+driverName         = llvmpipe
+EOF
+EGL_S='echo renderer: Mesa Intel(R) UHD Graphics (CML GT2)' EGL_B='echo renderer: Mesa Intel(R) UHD Graphics (CML GT2)' \
+    VK_S="cat $T/vk_gpu_first.txt" VK_B="cat $T/vk_gpu_first.txt" \
+    expect "status: (a) Vulkan GPU first + llvmpipe later PASSES" 0 st amd
+#      (b) llvmpipe first and a GPU listed later -> FAIL
+cat > "$T/vk_soft_first.txt" <<'EOF'
+deviceName         = llvmpipe (LLVM 21.1.8, 256 bits)
+driverName         = llvmpipe
+deviceName         = NVIDIA GeForce RTX 2060
+driverName         = NVIDIA
+EOF
+VK_S="cat $T/vk_soft_first.txt" VK_B="cat $T/vk_soft_first.txt" \
+    expect "status: (b) Vulkan llvmpipe first + GPU later FAILS" 1 st amd
+grep -q 'first Vulkan device renders in SOFTWARE' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: (b) failure is attributed to the first Vulkan device"; } || { FAILS=$((FAILS+1)); echo "FAIL status: (b) no first-device reason in the log"; }
+#      (b) EGL llvmpipe on the default GBM block, a GPU on Wayland later -> FAIL
+cat > "$T/egl_soft_first.txt" <<'EOF'
+GBM platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 256 bits)
+
+Wayland platform:
+EGL vendor string: NVIDIA
+OpenGL ES profile renderer: NVIDIA GeForce RTX 2060/PCIe/SSE2
+EOF
+EGL_S="cat $T/egl_soft_first.txt" EGL_B="cat $T/egl_soft_first.txt" \
+    expect "status: (b) EGL llvmpipe GBM + later GPU Wayland FAILS" 1 st amd
+#      (c) llvmpipe only -> FAIL (Vulkan and a headerless EGL probe)
+cat > "$T/vk_soft_only.txt" <<'EOF'
+deviceName         = llvmpipe (LLVM 21.1.8, 256 bits)
+driverName         = llvmpipe
+EOF
+VK_S="cat $T/vk_soft_only.txt" VK_B="cat $T/vk_soft_only.txt" \
+    expect "status: (c) Vulkan llvmpipe only FAILS" 1 st amd
+EGL_S='echo renderer: llvmpipe (LLVM 21.1.8, 256 bits)' EGL_B='echo renderer: llvmpipe (LLVM 21.1.8, 256 bits)' \
+    expect "status: (c) EGL llvmpipe only FAILS" 1 st amd
+#      (d) the PEGASUS enumeration captured 2026-10-04: GBM/Wayland on Mesa Intel,
+#          Surfaceless/Device on the RTX 2060, the Device #3 node on llvmpipe.
+#          Vulkan lists Intel first, then NVIDIA, then llvmpipe -> PASS.
+cat > "$T/egl_pegasus.txt" <<'EOF'
+GBM platform:
+EGL API version: 1.5
+EGL vendor string: Mesa Project
+EGL client APIs: OpenGL OpenGL_ES
+OpenGL core profile renderer: Mesa Intel(R) UHD Graphics (CML GT2)
+
+Wayland platform:
+EGL API version: 1.5
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: Mesa Intel(R) UHD Graphics (CML GT2)
+
+X11 platform:
+eglinfo: eglInitialize failed
+
+Surfaceless platform:
+EGL vendor string: NVIDIA
+OpenGL core profile renderer: NVIDIA GeForce RTX 2060/PCIe/SSE2
+
+Device platform:
+Device #0:
+
+Platform Device platform:
+EGL vendor string: NVIDIA
+OpenGL core profile renderer: NVIDIA GeForce RTX 2060/PCIe/SSE2
+
+Device #1:
+
+Platform Device platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: Mesa Intel(R) UHD Graphics (CML GT2)
+
+Device #3:
+
+Platform Device platform:
+EGL vendor string: Mesa Project
+OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 256 bits)
+EOF
+cat > "$T/vk_pegasus.txt" <<'EOF'
+deviceName         = Intel(R) UHD Graphics (CML GT2)
+driverName         = Intel open-source Mesa driver
+deviceName         = NVIDIA GeForce RTX 2060
+driverName         = NVIDIA
+deviceName         = llvmpipe (LLVM 21.1.8, 256 bits)
+driverName         = llvmpipe
+EOF
+: > "$T/health.log"
+EGL_S="cat $T/egl_pegasus.txt" EGL_B="cat $T/egl_pegasus.txt" \
+    VK_S="cat $T/vk_pegasus.txt" VK_B="cat $T/vk_pegasus.txt" \
+    expect "status: (d) exact PEGASUS Intel+NVIDIA+llvmpipe enumeration PASSES" 0 st amd
+grep -q 'IGNORED platform device platform software renderer (no session/compositor uses it): OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 256 bits)' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: (d) PEGASUS Device #3 llvmpipe is ignored, not failed"; } || { FAILS=$((FAILS+1)); echo "FAIL status: (d) PEGASUS Device #3 llvmpipe not logged as ignored"; }
+grep -q 'OK hardware GPU' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: (d) PEGASUS run records an OK verdict"; } || { FAILS=$((FAILS+1)); echo "FAIL status: (d) PEGASUS run has no OK line"; }
+#      forced software in the new variable forms still FAILS
+expect "status: GPU + LP_NUM_THREADS=4 (llvmpipe) FAILS"           1 st amd LP_NUM_THREADS=4
+expect "status: GPU + VK_ICD_FILENAMES=lvp ICD FAILS"              1 st amd VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+expect "status: GPU + EGL_PLATFORM=surfaceless FAILS"              1 st amd EGL_PLATFORM=surfaceless
+expect "status: GPU + EGL_PLATFORM=device FAILS"                   1 st amd EGL_PLATFORM=device
+
 # no GPU: software is allowed, in every form
 rm -f "$T/banner"
 EGL_S='echo renderer: llvmpipe' EGL_B='echo renderer: llvmpipe' expect "status: NO GPU + llvmpipe passes (software allowed)"  0 st none

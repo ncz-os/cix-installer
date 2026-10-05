@@ -93,32 +93,34 @@ fi
 # systemd's 11-minute-mode does update the RTC once an NTP client marks the
 # clock synchronised, but that is exactly what was NOT happening here, and a
 # board that is powered off before the first sync keeps the stale RTC. This
-# unit closes that gap explicitly and cheaply: it runs after
-# time-sync.target, so by then the clock is trustworthy.
+# unit closes that gap explicitly and cheaply.
+#
+# TYPE=SIMPLE, NO TIME-SYNC ORDERING (item F, 2026-10-04). This used to be
+# Type=oneshot + WantedBy=multi-user.target + After/Wants=
+# systemd-time-wait-sync.service time-sync.target. MEASURED on O6N (2026-10-04
+# 14:38Z): `graphical.target @32.644s` although its dependency chain finished
+# at 3.6s, because multi-user.target -- and therefore graphical.target -- sat
+# in this unit's start job, which sat behind systemd-time-wait-sync.service
+# until the first NTP sync landed (~30 s here, up to 120 s with no network).
+#
+# The loop below already polls for NTPSynchronized=yes itself, so the unit does
+# not need systemd-time-wait-sync/time-sync.target at all. As Type=simple,
+# multi-user.target completes as soon as the process is exec'd; the RTC is
+# still written after the first sync (the loop keeps running in the
+# background), and a boot with no NTP delivers the login screen immediately
+# instead of blocking the whole target on the 120 s poll.
 # ---------------------------------------------------------------------------
 cat > /etc/systemd/system/ncz-rtc-sync.service <<'UNIT'
 [Unit]
 Description=Write the synchronised system clock back to the RTC
 Documentation=man:hwclock(8)
-# WAIT FOR AN ACTUAL SYNC, NOT JUST FOR THE TARGET.
-#
-# time-sync.target is reached when the time subsystem is UP, which is NOT the
-# same as the clock having been corrected. MEASURED on a v12 install (O6N,
-# 2026-08-18): this unit ran at boot, found NTPSynchronized=no, skipped, and
-# exited 0 -- and because it is a oneshot it never ran again. NTP synced
-# seconds later, so the system clock was right while the RTC stayed at the
-# 2024 firmware default, which is the exact bug this hook exists to fix. The
-# journal shows it plainly: the unit's own log lines are stamped
-# "Jul 23 18:31:58" -- i.e. it ran while the clock was still wrong.
-#
-# systemd-time-wait-sync.service BLOCKS until the clock is actually
-# synchronised, so ordering after it means the check below can succeed.
-After=systemd-time-wait-sync.service time-sync.target systemd-timesyncd.service
-Wants=systemd-time-wait-sync.service time-sync.target
+# No After=/Wants= on systemd-time-wait-sync.service or time-sync.target: that
+# pulled a blocking oneshot onto multi-user.target's critical path. The
+# ExecStart loop is the retry/sync mechanism, so it needs no ordering.
 ConditionPathExists=/dev/rtc0
 
 [Service]
-Type=oneshot
+Type=simple
 RemainAfterExit=no
 # Only write when the clock is actually synchronised; otherwise this would
 # faithfully persist the wrong time. Retry rather than give up: on a board

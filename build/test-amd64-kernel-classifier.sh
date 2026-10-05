@@ -14,12 +14,15 @@
 # Those behaviours are now out of policy and the test has been rewritten
 # to assert the directive.
 #
-# Source path resolution: by default the test reads the script from
-# $HOME/Projects/cix-installer/assets/refind/zz1-ncz-refind-refresh-amd64
-# (operator's working clone on this build host). Set REPO_ROOT to override
-# (e.g. when running in CI against a different checkout) -- the test
-# then reads assets/refind/zz1-ncz-refind-refresh-amd64 from there.
-REPO_ROOT="${REPO_ROOT:-$HOME/Projects/cix-installer}"
+# Source path resolution: the test MUST read the classifier from the tree it
+# lives in. The old default hardcoded $HOME/Projects/cix-installer, the
+# operator's unrelated working clone. On a build host that clone is a
+# different, often stale branch, so the test validated a classifier this repo
+# does not ship and reported 5 spurious failures (b43e3e5 "Known, not caused
+# here", 2026-10-03) even though the shipped classifier passes every case.
+# Resolve to this repo by default; REPO_ROOT stays an explicit override for
+# CI runs against a different checkout.
+REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SRC="$REPO_ROOT/assets/refind/zz1-ncz-refind-refresh-amd64"
 if [ ! -f "$SRC" ]; then
     # Fallback to the directory this test script lives in.
@@ -98,6 +101,16 @@ echo "=== positive: pure-stable /boot -- only stable, no edge"
 export BOOTDIR=/tmp/b6
 mkboot $BOOTDIR 7.2.7-2-t2-trixie 7.2.8-1-t2-trixie
 check "amd64: pure-stable /boot" 7.2.8-1-t2-trixie ""
+
+echo "=== Cygnus 26.10 base: the shipping stable line is 7.2.9-2-t2-trixie"
+# The classifier must treat the 7.2.9 release naming exactly like every other
+# release: stable, not prerelease, and any 7.3-rc5 sitting beside it is still
+# refused as an amd64 edge entry. The fixtures above stop at 7.2.8, so the
+# shipping Cygnus naming (b43e3e5: amd64 stable = 7.2.9-2-t2-trixie) had no
+# coverage; this is the regression case for the 7.2.9 "-t2-trixie" naming.
+export BOOTDIR=/tmp/b7
+mkboot $BOOTDIR 7.2.8-1-t2-trixie 7.2.9-2-t2-trixie 7.3.0-rc5-1-t2-trixie
+check "amd64: 7.2.9-2-t2-trixie is stable; rc5 stays out of edge" 7.2.9-2-t2-trixie ""
 
 echo "=== REGRESSION PROOF: what the OLD globs did -- and why it's now banned"
 # The OLD globs (pre-rewrite AND pre-directive) would promote rc5 to

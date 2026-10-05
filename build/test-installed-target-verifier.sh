@@ -5,6 +5,10 @@
 # debugfs, xz. A guard is only trusted once it has failed on purpose.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Identity fixtures track release.conf instead of pinning an old codename.
+ROOT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=../release.conf
+. "$ROOT/release.conf"
 VERIFIER="$HERE/verify-installed-target.sh"
 MKE2FS="$(command -v mke2fs || echo /usr/sbin/mke2fs)"
 DEBUGFS="$(command -v debugfs || echo /sbin/debugfs)"
@@ -53,8 +57,9 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     mkdir -p "$r/usr/local/lib/cix-installer" "$r/etc/systemd/system/ldconfig.service.d"
     echo "${TEST_ARCH:-arm64}" > "$r/usr/local/lib/cix-installer/BUILD_ARCH"
     echo "2026.09.29-abcdef0" > "$r/usr/local/lib/cix-installer/BUILD_VERSION"
-    printf 'NCZ_PRODUCT_NAME="NCZ-OS"\nNCZ_RELEASE_VERSION="26.7"\nNCZ_RELEASE_CODENAME="Maximilian"\n' > "$r/usr/local/lib/cix-installer/RELEASE"
-    printf 'NCZ-OS 26.7 Maximilian Desktop\n' > "$r/etc/issue"
+    printf 'NCZ_PRODUCT_NAME="%s"\nNCZ_RELEASE_VERSION="%s"\nNCZ_RELEASE_CODENAME="%s"\n' \
+        "$NCZ_PRODUCT_NAME" "$NCZ_RELEASE_VERSION" "$NCZ_RELEASE_CODENAME" > "$r/usr/local/lib/cix-installer/RELEASE"
+    printf '%s %s %s Desktop\n' "$NCZ_PRODUCT_NAME" "$NCZ_RELEASE_VERSION" "$NCZ_RELEASE_CODENAME" > "$r/etc/issue"
     printf '[Service]\nSuccessExitStatus=1\n' > "$r/etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf"
     echo x > "$r/etc/ld.so.cache"; echo x > "$r/etc/.updated"
     # sshd: Include first, password login in the fleet drop-in (as 35-ssh.sh / extract-rootfs.sh write it)
@@ -170,6 +175,7 @@ m_ld_stamp()    { rm -f "$1/etc/.updated"; }
 m_leak_getty()  { mkdir -p "$1/etc/systemd/system/getty.target.wants"; ln -s /lib/systemd/system/serial-getty@.service "$1/etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service"; }
 m_leak_perf()   { mkdir -p "$1/etc/systemd/system/graphical.target.wants"; ln -s /etc/systemd/system/ncz-performance-mode.service "$1/etc/systemd/system/graphical.target.wants/ncz-performance-mode.service"; }
 m_leak_display() { mkdir -p "$1/etc/systemd/system/sysinit.target.wants"; ln -s /etc/systemd/system/cix-detect-display.service "$1/etc/systemd/system/sysinit.target.wants/cix-detect-display.service"; }
+m_leak_dracut()  { mkdir -p "$1/etc/dracut.conf.d"; printf 'add_drivers+=" linlon-dp trilin-dpsub "\n' > "$1/etc/dracut.conf.d/10-ncz-sky1.conf"; }
 m_amd64_strip() {   # what an x86 install does NOT have: everything Sky1
     rm -rf "$1/usr/lib/firmware" "$1/usr/src/aipu-6.2.0" "$1/usr/lib/aarch64-linux-gnu" "$1/usr/bin/load-modules.sh" \
            "$1/etc/mpv" "$1/usr/local/bin/ncz-sky1-audio-autoswitch" "$1/etc/systemd/user/ncz-sky1-audio-autoswitch.service"
@@ -183,6 +189,7 @@ m_amd64_leak_perf() { m_amd64_strip "$1"; m_leak_perf "$1"; }
 m_leak_perf_dropin() { mkdir -p "$1/etc/systemd/system/greetd.service.d"; printf '[Service]\nExecStartPre=/usr/local/bin/ncz-performance-mode on\n' > "$1/etc/systemd/system/greetd.service.d/ncz-performance-mode.conf"; }
 m_amd64_leak_perf_dropin() { m_amd64_strip "$1"; m_leak_perf_dropin "$1"; }
 m_amd64_leak_display() { m_amd64_strip "$1"; m_leak_display "$1"; }
+m_amd64_leak_dracut() { m_amd64_strip "$1"; m_leak_dracut "$1"; }
 m_amd64_strip_leak() { m_amd64_strip "$1"; m_leak_getty "$1"; }
 m_amd64_strip_nohost() { m_amd64_strip "$1"; echo ncz-setup > "$1/etc/hostname"; }
 m_amd64_strip_nosudo() { m_amd64_strip "$1"; sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
@@ -267,6 +274,7 @@ run_case "amd64: BUILD_ARCH of the other architecture fails"        1 m_id_arch_
 run_case "amd64: ncz-performance-mode leak fails"                   1 m_amd64_leak_perf
 run_case "amd64: greetd ncz-performance-mode drop-in leak fails"     1 m_amd64_leak_perf_dropin
 run_case "amd64: cix-detect-display leak fails"                     1 m_amd64_leak_display
+run_case "amd64: Sky1 dracut config leak fails"                     1 m_amd64_leak_dracut
 run_case "gpu: amd64 with a leaked Mali EGL entry fails"        1 m_gpu_egl_leak
 unset TEST_ARCH
 run_case "ssh: PasswordAuthentication no fails"                1 m_ssh_off

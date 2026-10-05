@@ -1,0 +1,4 @@
+linux-image-amd64 7.1.10-1
+linux-image-7.1.10-amd64 7.1.10-1
+linux-headers-amd64 7.1.10-1
+linux-headers-7.1.10-amd64 7.1.10-1

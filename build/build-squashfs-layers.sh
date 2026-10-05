@@ -243,6 +243,13 @@ BASE_STAMP_REL=usr/local/lib/cix-installer/BASE-ASSETS.sha256
 base_assets_stamp() {
   ( cd "$ROOT" || exit 1
     for a in gpu audio refind grub branding screensaver-chooser dracut regreet diag keys dev docs embedkit; do
+      # assets/dracut is Sky1-only and is not staged into an amd64 base (see the
+      # staging loop below). Excluding it from the amd64 fingerprint changes the
+      # stamp, so an amd64 base.squashfs that still carries the leaked Sky1
+      # dracut config is rebuilt instead of reused.
+      case "$a" in
+        dracut) [ "${NCZ_TARGET_ARCH:-}" = amd64 ] && continue ;;
+      esac
       [ -d "assets/$a" ] && find "assets/$a" \( -type f -o -type l \) -print
     done
     ls release.conf manifests/installer-base*.pkgs 2>/dev/null   # what the base layer installs; other manifests are not base inputs
@@ -869,7 +876,7 @@ build_base(){
   # zero wallpaper-rotation matches. Same root cause likely blocks the
   # Artist Pack install flow too (its polkit backend scripts install fine,
   # but read from this same directory to list/install packs).
-  # Ship all four packs we own: ncz (required, has its own fail-loud gate
+  # Ship all five packs we own (cygnus-2610 is the default): ncz (required, has its own fail-loud gate
   # in 45-wallpaper-rotator.sh), singularity (repackages the upstream
   # singularity-wallpapers set as an installable pack so ncz-wallpaper-rotate
   # picks it up, distinct from the copy that ships inside /opt/singularity),
@@ -879,7 +886,7 @@ build_base(){
   # assets/wallpaper-debs/ is gitignored and build-wallpaper-contrib-deb.sh
   # was never invoked for them.
   mkdir -p "$ROOT/assets/wallpaper-debs"
-  for pack in ncz singularity brandon-perlow alex-jay-brady; do
+  for pack in ncz cygnus-2610 singularity brandon-perlow alex-jay-brady; do
     if ls "$ROOT/assets/wallpaper-debs/ncz-wallpapers-${pack}_"*.deb >/dev/null 2>&1; then
       continue
     fi
@@ -912,6 +919,23 @@ build_base(){
   # interactive "Pending kernel upgrade" whiptail hang.
   sudo mkdir -p "$WORK/base/etc/needrestart/conf.d"
   printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$WORK/base/etc/needrestart/conf.d/99-squashfs-layer.conf" >/dev/null
+  # Kernel purity (operator directive 2026-10-04): pin Debian's kernels out of
+  # the base layer BEFORE any apt operation. The early installer-base.pkgs
+  # install below runs long before post-install/10-our-kernel.sh would write
+  # the pin, and a package that Depends/Recommends linux-image-* must not be
+  # able to pull the Debian kernel into the baked base rootfs. The preference
+  # text is the single source of truth in the repo lib (same text the install
+  # hooks write).
+  if [ -r "$ROOT/post-install/lib/kernel-purity.sh" ]; then
+    # shellcheck source=../post-install/lib/kernel-purity.sh
+    . "$ROOT/post-install/lib/kernel-purity.sh"
+    sudo install -d -m 0755 "$WORK/base/etc/apt/preferences.d"
+    ncz_kernel_purity_pin_text | sudo tee "$WORK/base/etc/apt/preferences.d/00-ncz-kernel-purity.pref" >/dev/null
+    sudo chmod 0644 "$WORK/base/etc/apt/preferences.d/00-ncz-kernel-purity.pref"
+    log "  installed /etc/apt/preferences.d/00-ncz-kernel-purity.pref in the base layer"
+  else
+    log "  WARN: $ROOT/post-install/lib/kernel-purity.sh missing -- base layer has no Debian-kernel pin"
+  fi
   # The base layer now consumes installer-base.pkgs explicitly.  If a pinned
   # offline mirror is present, use it; otherwise fall back to the rootfs' own
   # sources for local developer experiments.
@@ -966,7 +990,18 @@ build_base(){
   # this allowlist, breaking the NCZ agent stack, EmbedKit LLM stack, the
   # regreet login theme, NPU assets, and Singularity Desktop's own asset
   # tree on every amd64 build since this loop was last updated.
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs screensaver-chooser sinty-nm agent-images agent-stack audio cix-c-shims cix-mm dev diag docs dracut embedkit keys npu regreet singularity; do [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs screensaver-chooser sinty-nm agent-images agent-stack audio cix-c-shims cix-mm dev diag docs dracut embedkit keys npu regreet singularity; do
+    # assets/dracut is Sky1-only (docs/platform-inventory.tsv): 10-ncz-sky1.conf
+    # is the linlon-dp/trilin-dpsub Sky1 display + USB-ethernet module set.
+    # 94-dracut-config refuses to apply it on amd64, but staging the file still
+    # leaves an arm64-only dracut config in the amd64 payload (and any future
+    # consumer would feed it to dracut, which logs "linlon_dp: module not
+    # found"). Never stage it into an amd64 base.
+    case "$a" in
+      dracut) [ "$NCZ_TARGET_ARCH" = amd64 ] && continue ;;
+    esac
+    [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
+  done
   # Standalone files at assets/ root -- same silent-drop bug, same fix.
   for f in install_ncz_agents.sh kernel-manifest.json README.md cix-deb-repo.gpg; do [ -f "$ROOT/assets/$f" ] && sudo cp -a "$ROOT/assets/$f" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
@@ -1035,6 +1070,11 @@ build_base(){
   done
   if [ ! -d "$WORK/base/usr/local/lib/cix-installer/assets/refind/icons" ] && [ -d "$ROOT/build/refind-bin/icons" ]; then
     sudo cp -r "$ROOT/build/refind-bin/icons" "$WORK/base/usr/local/lib/cix-installer/assets/refind/"
+  fi
+  # Cygnus 26.10 rEFInd theme (tracked under assets/refind/cygnus); the refresh
+  # scripts stage it to the ESP when present.
+  if [ -d "$ROOT/assets/refind/cygnus" ]; then
+    sudo cp -a "$ROOT/assets/refind/cygnus" "$WORK/base/usr/local/lib/cix-installer/assets/refind/"
   fi
   [ -f "$WORK/base/usr/local/lib/cix-installer/assets/refind/refind_aa64.efi" ] || log "  WARN: no refind_aa64.efi staged — 70-bootloader will fail at install"
   # policy-rc.d: block daemon starts in chroot
@@ -1324,7 +1364,7 @@ build_singularity_payload(){
 ensure_wallpaper_packs(){
   local pack
   mkdir -p "$ROOT/assets/wallpaper-debs"
-  for pack in ncz singularity brandon-perlow alex-jay-brady; do
+  for pack in ncz cygnus-2610 singularity brandon-perlow alex-jay-brady; do
     if ls "$ROOT/assets/wallpaper-debs/ncz-wallpapers-${pack}_"*.deb >/dev/null 2>&1; then
       continue
     fi

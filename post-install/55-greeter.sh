@@ -10,9 +10,11 @@
 # the desktop session, and accelerates on the CIX Mali GLES blob (libmali) via
 # ncz-gpu-env. NO regreet, NO GTK greeter, NO GTK_USE_PORTAL/dead-bus hacks.
 #
-# Branding: os-release carries LOGO=ncz, so the greeter (and boot-splash) look up
-# /usr/share/{pixmaps,icons/.../apps}/ncz.png for the OS mark; the login backdrop
-# is the NCZ Maximilian wallpaper dropped at the greeter fallback path
+# Branding: os-release carries LOGO=ncz-os-<codename> (derived in 50-brand.sh),
+# so the greeter (and boot-splash) look up
+# /usr/share/{pixmaps,icons/.../apps}/ncz-os-<codename>.png for the OS mark (the
+# approved Cygnus wordmark as of 26.10); the login backdrop
+# is the Cygnus greeter backdrop dropped at the greeter fallback path
 # /usr/share/backgrounds/singularity/default.png. auth is standard Unix password
 # (the greeter only switches to PIN when os-release ID starts "sinty"; ours=ncz).
 #
@@ -37,39 +39,60 @@ case "$VARIANT" in
 esac
 
 ASSETS=/usr/local/lib/cix-installer/assets/branding
-WALL_SRC=/usr/share/backgrounds/ncz/ncz-wallpaper-07-maximilian-blackhole-2k.jpg
+WALL_SRC=$ASSETS/greeter/cygnus/greeter-backdrop-1920x1080.png
 
 install -d -m0755 /etc/greetd
 
-# --- NCZ OS logo (os-release LOGO=ncz -> ncz.png in the icon search path) -----
+# The logo file NAME must match os-release LOGO (written by 50-brand.sh), which
+# is derived from the release codename.
+RELEASE_FILE=/usr/local/lib/cix-installer/RELEASE
+[ -s "$RELEASE_FILE" ] || RELEASE_FILE=/etc/cix-installer/RELEASE
+# shellcheck disable=SC1090
+[ -s "$RELEASE_FILE" ] && . "$RELEASE_FILE"
+LOGO_NAME="ncz-os-$(printf '%s' "${NCZ_RELEASE_CODENAME:-Cygnus}" | tr '[:upper:]' '[:lower:]')"
+
+# --- NCZ OS logo (os-release LOGO=$LOGO_NAME -> $LOGO_NAME.png search path) ---
 # singularity-greeter/boot-splash try_logo_file() search: pixmaps + hicolor apps.
-# Ship the committed 256px ncz.png; fall back to converting the lockup if absent.
-LOGO_PNG="$ASSETS/logo/ncz.png"
-if [ ! -f "$LOGO_PNG" ] && command -v magick >/dev/null 2>&1; then
+# Ship the approved Cygnus wordmark. Fall back (in order) to the legacy 256px
+# ncz.png, then to converting the lockup -- so a missing Cygnus asset installs
+# the older mark instead of aborting.
+CYGNUS_LOGO="$ASSETS/greeter/cygnus/ncz-os-cygnus-logo.png"
+LOGO_PNG=""
+if [ -f "$CYGNUS_LOGO" ]; then
+    LOGO_PNG="$CYGNUS_LOGO"
+elif [ -f "$ASSETS/logo/ncz.png" ]; then
+    LOGO_PNG="$ASSETS/logo/ncz.png"
+    echo "[55] WARN: Cygnus logo absent ($CYGNUS_LOGO) — falling back to ncz.png" >&2
+elif command -v magick >/dev/null 2>&1; then
     magick "$ASSETS/logo/ncz-icon.jpg" -resize 256x256 /tmp/ncz.png 2>/dev/null && LOGO_PNG=/tmp/ncz.png
-elif [ ! -f "$LOGO_PNG" ] && command -v convert >/dev/null 2>&1; then
+elif command -v convert >/dev/null 2>&1; then
     convert "$ASSETS/logo/ncz-icon.jpg" -resize 256x256 /tmp/ncz.png 2>/dev/null && LOGO_PNG=/tmp/ncz.png
 fi
-if [ -f "$LOGO_PNG" ]; then
+if [ -n "$LOGO_PNG" ] && [ -f "$LOGO_PNG" ]; then
     install -d -m0755 /usr/share/pixmaps /usr/share/icons/hicolor/256x256/apps
+    install -m0644 "$LOGO_PNG" "/usr/share/pixmaps/$LOGO_NAME.png"
+    install -m0644 "$LOGO_PNG" "/usr/share/icons/hicolor/256x256/apps/$LOGO_NAME.png"
+    # Also populate the legacy ncz.png name so anything still keyed to it resolves.
     install -m0644 "$LOGO_PNG" /usr/share/pixmaps/ncz.png
     install -m0644 "$LOGO_PNG" /usr/share/icons/hicolor/256x256/apps/ncz.png
-    echo "[55] NCZ OS logo installed (ncz.png -> pixmaps + hicolor/256x256/apps)"
+    echo "[55] NCZ OS logo installed ($LOGO_NAME.png -> pixmaps + hicolor/256x256/apps)"
 else
     echo "[55] WARN: ncz logo asset missing — greeter/boot-splash fall back to emblem-singularity" >&2
 fi
 
-# --- greeter fallback background = NCZ Maximilian ----------------------------
+# --- greeter fallback background = Cygnus greeter backdrop ------------------
 # singularity-greeter background priority: per-user AccountsService Background ->
 # dev.sinty.desktop uri (current user only) -> fallback file. At the greeter no
-# real user is current, so the fallback file is the login backdrop.
+# real user is current, so the fallback file is the login backdrop. The greeter
+# downscales it to 960 px and box-blurs it twice, so this is a dedicated no-text
+# image darkened (branding/cygnus/tools/make-greeter-backdrop.py) to keep white
+# UI text >= 4.5:1 after that blur -- not a desktop wallpaper.
 if [ -f "$WALL_SRC" ]; then
     install -d -m0755 /usr/share/backgrounds/singularity
-    # loginui loads by content (gdk-pixbuf), not extension — jpg under .png is fine.
     cp -f "$WALL_SRC" /usr/share/backgrounds/singularity/default.png
-    echo "[55] greeter backdrop -> NCZ Maximilian (/usr/share/backgrounds/singularity/default.png)"
+    echo "[55] greeter backdrop -> Cygnus (/usr/share/backgrounds/singularity/default.png)"
 else
-    echo "[55] WARN: Maximilian wallpaper absent — greeter uses singularity default backdrop" >&2
+    echo "[55] WARN: Cygnus greeter backdrop absent ($WALL_SRC) — greeter uses singularity default backdrop" >&2
 fi
 
 # --- greetd: run the native greeter wrapper on the active graphical VT --------
@@ -152,6 +175,16 @@ install -d -m0755 /etc/greetd/singularity-labwc
 # five-second watchdog force-kills it and reveals a blank text VT.
 cat > /etc/greetd/singularity-labwc/autostart <<'LABAUTO'
 #!/bin/sh
+# Greeter output mode: never 4K. The login screen is a blurred 960 px backdrop and a
+# small card, so a 3840x2160 scanout buys nothing and is the heaviest path for the Mali
+# swapchain (operator decision 2026-10-04). Pick 1920x1080 at 60 Hz on every connected
+# output that offers it; outputs without it keep their own mode. Best effort: a failure
+# here must never block the greeter, so every path exits 0.
+command -v wlr-randr >/dev/null 2>&1 || exit 0
+for out in $(wlr-randr 2>/dev/null | awk '/^[A-Za-z]/ {print $1}'); do
+    wlr-randr --output "$out" --mode 1920x1080@60Hz >/dev/null 2>&1 \
+        || wlr-randr --output "$out" --mode 1920x1080 >/dev/null 2>&1 || true
+done
 exit 0
 LABAUTO
 chmod 0755 /etc/greetd/singularity-labwc/autostart
@@ -238,4 +271,4 @@ if command -v pam-auth-update >/dev/null 2>&1; then
 else
     echo '[55] WARN: pam-auth-update not present — cannot verify/enable pam_systemd, greeter may black-screen'
 fi
-echo "[55] greetd + native singularity-greeter wired: /etc/greetd/{config.toml,singularity-labwc/}, NCZ logo + Maximilian backdrop, _greetd log dir"
+echo "[55] greetd + native singularity-greeter wired: /etc/greetd/{config.toml,singularity-labwc/}, NCZ logo + Cygnus backdrop, _greetd log dir"

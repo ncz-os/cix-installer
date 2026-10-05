@@ -20,11 +20,14 @@ assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
 assets/audio/	sky1	-	Sky1 audio autoswitch (ncz-sky1-audio-autoswitch)
 assets/branding/	common	-	logos, icon theme, wallpapers, quotes
+assets/branding/singularity-theme/	common	-	installable Cygnus Singularity theme + generated gschema override (staged by both ISO build paths)
 # 2026-09-30: Cygnus 26.10 branding tree (merged from feat/cygnus-26-10-2026-09-30) --
 # theme assets + generators + generated consumer files (gtk/plymouth/newt/css/screensaver
 # palette/terminal palettes/tokens.tsv). All platform-neutral; no sky1/cixmini/t2/nvidia
 # tokens inside.
 branding/cygnus/	common	-	Cygnus 26.10 branding tree (theme assets + generators + generated consumer files)
+branding/cygnus/generated/singularity/99-ncz-cygnus.gschema.override	common	-	generated Cygnus accent/theme gschema block consumed by 20-desktop.sh
+branding/cygnus/tests/test_cygnus_singularity.py	common	-	Cygnus Singularity theme/accent integration gate
 assets/cix-c-shims/	sky1	-	CIX aipu ioctl shim source
 assets/cix-deb-repo.gpg	sky1	-	CIX vendor apt repo key
 assets/cix-debs/	sky1	-	CIX closed-source userspace debs
@@ -78,6 +81,7 @@ assets/wallpaper/	common	-	wallpaper tooling
 build/70-bootloader.sh	sky1	-	legacy Sky1 bootloader copy with MS-R1 efi=noruntime gating
 build/arch-parity-allowlist.tsv	common	-	reviewed manifest divergence between platforms (canonical, dual-arch parity)
 build/boot-timeline.py	common	-	boot log timeline analysis
+build/boot-speed-scan.py	common	-	static detector for boot-blocking systemd oneshots (docs/BOOT-SPEED.md item F)
 build/build-accel-overlays.sh	sky1	-	rebuilds the four Sky1 accelerator overlays from their dkms.conf
 build/build-apt-repo.sh	common	-	apt repo assembly from release.conf
 build/build-baked-rootfs.sh	sky1	-	bakes generic hooks in an arm64 chroot (31 arm64 refs, 1 amd64)
@@ -110,6 +114,8 @@ build/check-early-command-size.sh	common	-	preseed size gate
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
 build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
 build/verify-kernel-default-policy.sh	common	-	enforces the kernel default policy (default=7.2.8 release; arm64-only edge=7.3-rc5; amd64 has no edge)
+build/verify-no-debian-kernel.sh	common	-	fails closed if a Debian 7.1.x/linux-image-{arm64,amd64} kernel or a non-7.2.9 default is present in a rootfs/ESP/initrd/listing
+build/fixtures/	common	-	static fixture data for build gates
 build/check-preseed-mirror-sync.sh	common	-	preseed mirror vs release.conf gate
 build/component-prompt-gate.sh	common	-	interactive component prompt gate
 build/containers/	common	-	build container definitions
@@ -141,6 +147,7 @@ build/kvm-install-gate-amd64.sh	amd64	-	amd64 KVM install gate
 build/kvm-install-gate-gpt.sh	common	-	architecture-generic KVM gate for raw GPT images
 build/kvm-install-gate.sh	sky1	-	arm64 ISO KVM install gate
 build/kvm-kernel-gate.sh	sky1	-	Sky1 kernel boot gate
+build/lib/release-identity.sh	common	-	shared release label + ISO volume-id derivation from release.conf
 build/lint-hook-arch-gates.sh	common	-	heuristic arch-gate lint for hooks (dual-arch parity)
 build/lint-platform.sh	common	-	platform-split lint (inventory, hook lists, deny patterns, guards, manifest divergence)
 build/logs/	sky1	-	Sky1 bitbake/KVM resume logs
@@ -172,16 +179,23 @@ build/stage-canonical-assets.sh	sky1	-	restages CIX-NCZ gitignored blobs (183 ar
 build/stage-kernel.sh	sky1	-	stages a Sky1 kernel
 build/systemd/	common	-	singularity patch reconcile units
 build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	AMD64 dynamic NVIDIA driver + CUDA gate tests (Turing plan, R580 plan, Kepler skip, ncz-cuda-setup simulation, removals refused, status/retry/park/backoff, installed-target fixture, chooser)
+build/test-amd64-dracut-isolation.sh	amd64	-	amd64 base must not stage the Sky1 dracut config (static checks + the real staging loop)
 build/test-amd64-kernel-classifier.sh	amd64	-	amd64 kernel classifier test
 build/test-arm64-freshness-gate.sh	sky1	-	arm64 freshness gate test
 build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test
+build/test-boot-speed.sh	common	-	regression tests for boot-blocking systemd units (docs/BOOT-SPEED.md)
 build/test-dual-arch-parity.sh	common	-	fixture tests for the parity gates
 build/test-hostname-suggest.sh	common	-	hostname algorithm tests
 build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier test
+build/test-dkms-status-parse.sh	sky1	-	dkms status parser test for the kernel-debs headers postinst
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
+build/test-kernel-purity-pin.sh	common	-	apt simulation proving the Debian-kernel preferences pin blocks dependencies while NCZ's own kernel still installs
+build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debian-kernel guards + static test of the legacy amd64 installer-kernel swap
+build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kernel.sh (clean 7.2.9 trees pass; every Debian-kernel leak and wrong default fails)
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
+build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test
 build/test-under-di-busybox.sh	common	-	d-i busybox runner
 build/tests/	common	-	offline pool tests
 build/validate-accelerators.sh	sky1	-	GPU/NPU/VPU binding validation
@@ -286,6 +300,8 @@ post-install/58-screensaver-chooser.sh	common	-	screensaver chooser; generic
 post-install/59-desktop-curate.sh	mixed	-	launcher curation generic; amd64 branch at line ~100; TODO split
 post-install/59-ncz-screensavers-pkg.sh	common	-	installs ncz-screensavers if the mirror carries it
 post-install/60-boot-splash.sh	common	-	KMS boot splash; DRM-generic (panthor initramfs strip is a harmless sed)
+post-install/61-chromium-icon.sh	sky1	-	Cygnus-coloured NCZ Chromium icon (diverts the chromium-ncz-sky1 package icons); Sky1 only
+post-install/62-cygnus-screensaver-default.sh	common	-	default screensaver = black hole in the Cygnus palette; override validated against the installed schema before install
 post-install/70-bootloader.sh	mixed	-	rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies
 post-install/72-rescue-partition.sh	mixed	-	rescue partition; explicit arm64 and amd64 kernel branches; TODO split
 post-install/79-dkms-prep.sh	sky1	-	makes Sky1 kernel headers DKMS-usable; installs aarch64 cross compiler
@@ -316,6 +332,7 @@ post-install/hooks.list.amd64	common	-	generated ordered hook list for platform 
 post-install/hooks.list.sky1-arm64	common	-	generated ordered hook list for platform sky1-arm64 (build/gen-hooks-lists.sh)
 post-install/lib/cuda-select.sh	amd64	nvidia-cuda	AMD64 GPU-family -> driver branch + CUDA toolkit selector sourced by 54-gpu-accel.sh and tested by build/test-amd64-cuda-gates.sh
 post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
+post-install/lib/kernel-purity.sh	common	-	shared Debian-kernel apt preferences pin sourced by both kernel install hooks
 post-install/ncz-os-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/run-all.sh	common	-	hook orchestrator; platform selection via hooks.list
 preseed/	common	-	installer helpers (hostname, disk chooser, diag console, rescan)
@@ -347,8 +364,10 @@ post-install/98-gpu-health.sh	common	-	never-software-render health check unit (
 assets/gpu/ncz-gpu-hw-present	common	-	shared hardware-GPU-present probe
 build/lint-no-software-render.sh	common	-	grep-deny for software-rendering settings
 build/test-no-software-render.sh	common	-	never-software-render fixture tests
+build/test-panthor-vulkan.sh	sky1	-	Panthor must keep the Mesa PanVK ICD (arm64 47-llm-stack purge regression)
 build/software-render-allowlist.tsv	common	-	software-render lint allowlist
 assets/singularity/patches/singularity-session/0001-session-no-software-fallback-with-gpu.patch	common	-	labwc-session: no software retry on a machine with a GPU
+assets/singularity/patches/libsingularity/0002-user-theme-loads-above-base.patch	common	-	NCZ overlay: load user themes above the base palette (proposed upstream, not filed)
 
 build/test-base-stamp.sh	common	-	base.squashfs reuse stamp tests
 build/reap-images.sh	common	-	image reaping policy script
@@ -359,3 +378,10 @@ build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, cha
 docs/installer-ux/	common	-	installer console before/after evidence
 build/test-usb2-rescan-sky1-only.sh	common	-	regression tests: ncz-usb2-rescan is Sky1-only (hook lists, amd64 manifests, unit Conditions, arm64-only package)
 build/test-usb2-rescan-greetd.sh	common	-	regression tests: greetd drop-in tolerates an absent/condition-skipped ncz-usb2-rescan.service; bounded input probe stays
+build/test-timesync-retry.sh	common	-	regression tests for the timesyncd fast-retry drop-in + no time-sync gating of the greeter (docs/BOOT-SPEED.md)
+build/test-greeter-output-mode.sh	common	-	regression test: greeter labwc autostart caps outputs at 1920x1080, never 4K
+build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp) and the 61 hook (divert + install + idempotent)
+build/test-screensaver-default.sh	common	-	regression test for the Cygnus black hole screensaver default hook (validated override, idempotent, skips old schemas)
+build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor per-run logs, signal names and core-limit regression
+build/test-refind-rescue-promotion.sh	common	-	rEFInd rescue auto-promotion guard: rc/edge kernels are never promoted; existing rescue survives a failed copy (item RRH)
+build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service is wanted by the per-login session target (item RRH)
