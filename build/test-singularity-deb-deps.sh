@@ -43,25 +43,38 @@ else
     deps="$(printf '%s\n' "$dep_line" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 fi
 
-# Is $1 one of the Depends alternatives?
+# Bare package name from a Depends token, dropping any "(>= 1.2.3)" constraint
+# and surrounding whitespace. Exact matching must not be defeated by a
+# versioned entry such as "libfoo1 (>= 1.2.3)".
+bare_pkg() {
+    printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+        -e 's/(.*//' -e 's/[[:space:]]*$//'
+}
+
+# Is $1 one of the Depends alternatives (ignoring version constraints)?
 have() {
-    local want="$1" entry
+    local want entry tok
+    want="$(bare_pkg "$1")"
     while IFS= read -r entry; do
         [ -n "$entry" ] || continue
-        if printf '%s\n' "$entry" | tr '|' '\n' \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -qxF "$want"; then
-            return 0
-        fi
+        while IFS= read -r tok; do
+            [ "$(bare_pkg "$tok")" = "$want" ] && return 0
+        done < <(printf '%s\n' "$entry" | tr '|' '\n')
     done <<< "$deps"
     return 1
 }
 
 [ -f "$MAP" ] || fail "soname map missing: $MAP"
 
+# sonames from the map, comments/empties removed once (not per lookup)
+map_sonames="$(grep -vE '^[[:space:]]*(#|$)' "$MAP" | cut -f1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
 missing=0
 n=0
 while IFS=$'\t' read -r so pkg; do
-    case "$so" in \#*|'') continue ;; esac
+    so="$(printf '%s' "$so" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [ -n "$so" ] || continue
+    case "$so" in \#*) continue ;; esac
     [ -n "$pkg" ] || { echo "FAIL: $so has no package in $MAP" >&2; missing=1; continue; }
     if ! have "$pkg"; then
         echo "FAIL: $so -> $pkg is not covered by Depends in $DEB_SCRIPT" >&2
@@ -91,7 +104,7 @@ if [ -n "$PAYLOAD" ]; then
     m=0
     while IFS= read -r so; do
         [ -n "$so" ] || continue
-        if ! cut -f1 "$MAP" | grep -qxF "$so"; then
+        if ! printf '%s\n' "$map_sonames" | grep -qxF "$so"; then
             echo "FAIL: payload soname $so is not in $MAP (regenerate the deps)" >&2
             missing=1
         fi
