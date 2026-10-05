@@ -38,13 +38,13 @@
 #      build fails partway through, not after.
 #
 #   3. The kernel-staging pool's newest dated directory for each line
-#      (amd64-stable, and the single arm64/Sky1 line under the
+#      (amd64-stable, amd64-edge, and the single arm64/Sky1 line under the
 #      r<N>-*-sky1-ncz-* namespace) is genuinely newer than or equal to
-#      whatever this checkout's own kernel-line pointer resolves to. amd64
-#      no longer has an edge channel (operator directive 2026-09-30: no
-#      validated amd64 7.3 kernel exists); any amd64-edge-* build sitting
-#      in the pool now surfaces as an orphan and fails the gate. This
-#      does not replace stage-amd64-kernel.sh (or stage-kernel.sh); it
+#      whatever this checkout's own kernel-line pointer resolves to. Operator
+#      directive 2026-10-05 reinstated amd64-edge as the pinned 7.3.0-rc6
+#      AER-revert kernel; the edge line is matched to the committed
+#      assets/kernel/amd64-edge/KVER pin. This does not replace
+#      stage-amd64-kernel.sh (or stage-kernel.sh); it
 #      exists to catch the window where a fresher kernel was JUST promoted
 #      to the shared pool but a concurrently-running or freshly-started
 #      build hasn't picked it up, so the operator gets an explicit answer
@@ -219,13 +219,16 @@ fi
 # Two parallel arms -- amd64 and arm64 (Sky1). Both consume the SAME
 # shared ARGONAS pool, but their packaging and naming differ:
 #
-#   amd64 has ONE namespace (amd64-stable-*); each line's
-#   payload is a .deb pair (linux-image-*.deb + linux-headers-*.deb) the
-#   installer dpkg-installs. Comparison: sha256 of the .deb in the pool
-#   vs the .deb in assets/kernel/<line>/. The amd64-edge-* namespace
-#   was removed (operator directive 2026-09-30, .66 incident: no
-#   validated amd64 7.3 kernel exists); any leftover amd64-edge-* build
-#   in the pool now fails the orphan check at the bottom of this block.
+#   amd64 has TWO live namespaces (amd64-stable-* and amd64-edge-*); each
+#   line's payload is a .deb pair (linux-image-*.deb + linux-headers-*.deb)
+#   the installer dpkg-installs. Comparison: sha256 of the .deb in the pool
+#   vs the .deb in assets/kernel/<line>/. Operator directive 2026-10-05
+#   reinstated amd64-edge as the pinned 7.3.0-rc6 AER-revert kernel
+#   (7.3.0-rc6-1-t2-edge-aerfix); the edge line is selected by the committed
+#   assets/kernel/amd64-edge/KVER pin rather than by mtime, so a stale rc5
+#   build in the pool cannot masquerade as the shipping edge. The
+#   amd64-t2-* trees are multi-variant experiment/build trees (never staged
+#   wholesale); only the pinned member is consumed.
 #
 #   arm64 (Sky1) has ONE namespace (r<N>-<kver>-sky1-ncz-<date>) with the
 #   -rc marker splitting the same set into a stable class and a
@@ -349,7 +352,26 @@ EOF
 # an arm64 arm, NOT a rewrite.
 check_amd64_line() {
     local line="$1"
-    local newest
+    local newest=""
+    # The edge line is pinned, not newest-by-mtime: a stale amd64-edge-rc5
+    # build lingering in the pool must not be selected over the committed
+    # 7.3.0-rc6 revert build. Look for any pool directory (a published
+    # amd64-edge-* or a member of an amd64-t2-* build tree) whose KVER
+    # sidecar matches the pin; fall back to mtime only when there is no pin.
+    if [ "$line" = "amd64-edge" ] && [ -s "assets/kernel/amd64-edge/KVER" ]; then
+        local _pin _d
+        _pin="$(tr -d '[:space:]' < assets/kernel/amd64-edge/KVER)"
+        while IFS= read -r _d; do
+            [ -d "$_d" ] || continue
+            [ -s "$_d/KVER" ] || continue
+            if [ "$(tr -d '[:space:]' < "$_d/KVER")" = "$_pin" ]; then
+                newest="$_d"
+                break
+            fi
+        done <<EOF
+$(find "$KERNEL_STAGING_DIR" -maxdepth 2 -type d \( -name 'amd64-edge-*' -o -path '*/amd64-t2-*/*' \) 2>/dev/null)
+EOF
+    fi
     # Directory names are NOT lexically ordered by recency (e.g. an
     # "...-rc4-3-t2-xhcifix-DATE" variant sorts before a same-date
     # "...-rc4-t2-trixie-DATE" one because '3' < 't' lexically, even
@@ -358,7 +380,9 @@ check_amd64_line() {
     # check disagrees with what actually got staged. Found + fixed
     # 2026-09-23 after it produced a false FAIL against a genuinely
     # fresher local stage.
-    newest="$(find "$KERNEL_STAGING_DIR" -maxdepth 1 -type d -name "${line}-*" -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)"
+    if [ -z "$newest" ]; then
+        newest="$(find "$KERNEL_STAGING_DIR" -maxdepth 1 -type d -name "${line}-*" -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)"
+    fi
     if [ -z "$newest" ]; then
         echo "[3] WARN: no staged kernel found for line '$line' under $KERNEL_STAGING_DIR"
         WARN=$((WARN + 1))
@@ -414,15 +438,12 @@ check_amd64_line() {
 if [ -d "$KERNEL_STAGING_DIR" ]; then
     case "$NCZ_SYSTEM_ARCH" in
         amd64)
-            # Operator policy 2026-09-30: amd64 ships ONLY the stable
-            # 7.2.x line. There is no validated amd64 7.3 kernel, so the
-            # previously-also-checked amd64-edge channel was removed. If
-            # an amd64-edge-* build is still sitting in the shared pool
-            # (a leftover from before the policy took effect, or an
-            # operator-run publish-amd64-kernel.sh call), it is now an
-            # orphan and will fail the orphan-prefix check below -- not a
-            # silent pass.
+            # Operator directive 2026-10-05: amd64 ships the 7.2.9 stable
+            # line as the default plus the pinned 7.3.0-rc6 AER-revert edge
+            # line. Both are checked; the edge check selects the pool dir
+            # matching assets/kernel/amd64-edge/KVER, not newest-by-mtime.
             check_amd64_line amd64-stable
+            check_amd64_line amd64-edge
             ;;
         arm64)
             check_arm64_channel assets/kernel/mainline stable required
@@ -456,11 +477,10 @@ if [ -d "$KERNEL_STAGING_DIR" ]; then
     while IFS= read -r d; do
         [ -n "$d" ] || continue
         case "$(basename "$d")" in
-            # amd64: the single live line. Operator directive 2026-09-30
-            # removed the amd64-edge-* namespace; any leftover pool
-            # directory with that prefix is an orphan and must surface
-            # below rather than silently classify as "known".
-            amd64-stable-*) ;;
+            # amd64: the two live lines (operator directive 2026-10-05).
+            # amd64-stable-* is the default; amd64-edge-* is the pinned
+            # 7.3.0-rc6 AER-revert edge.
+            amd64-stable-*|amd64-edge-*) ;;
             # arm64: the single live namespace -- r<N>-<kver>-sky1-ncz-<date>.
             # The trailing * lets a future suffix (e.g. -xhcifix) still
             # classify instead of falling through unseen, same posture as
@@ -470,6 +490,11 @@ if [ -d "$KERNEL_STAGING_DIR" ]; then
             # they are never staged into an image, so they are not orphans. Added 2026-09-29 after a live
             # amd64-t2-bisect-* run failed every image build's freshness gate.
             *-bisect-*) ;;
+            # amd64-t2-* build trees hold several edge/APIC variants side by
+            # side; only the member matching assets/kernel/amd64-edge/KVER is
+            # staged (pin-aware, see check_amd64_line). The tree itself is an
+            # experiment pool, not an orphan namespace.
+            amd64-t2-*) ;;
             # Anything else under the pool that LOOKS like a kernel
             # build (starts with amd64-, r<digit>-, or sky1-) is an
             # orphan. Plain top-level dirs (lost+found, etc.) are not.
@@ -482,14 +507,12 @@ EOF
     if [ -n "$orphans" ]; then
         echo "[3] FAIL: kernel-staging holds build(s) under a prefix nothing consumes:"
         for o in $orphans; do echo "          $o"; done
-        echo "          The amd64 arm globs amd64-stable-*;"
+        echo "          The amd64 arm globs amd64-stable-* and amd64-edge-*;"
         echo "          the arm64 arm globs r<digit>*-*-sky1-ncz*. Anything else"
         echo "          will NEVER be staged into an image."
         echo "          Rename to the correct line prefix, or republish with"
-        echo "          build/publish-amd64-kernel.sh stable <deb-dir> (amd64)"
-        echo "          or build/stage-kernel.sh (arm64). Note: amd64-edge-* is"
-        echo "          no longer a known prefix (operator policy 2026-09-30: amd64"
-        echo "          ships NO edge kernel -- no validated amd64 7.3 kernel exists)."
+        echo "          build/publish-amd64-kernel.sh stable|edge <deb-dir> (amd64)"
+        echo "          or build/stage-kernel.sh (arm64)."
         FAIL=$((FAIL + 1))
     fi
 else

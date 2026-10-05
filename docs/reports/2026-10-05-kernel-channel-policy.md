@@ -38,10 +38,11 @@ Implemented in this change:
 
 - `assets/kernel/KERNEL-POLICY` pins `STABLE_BASE=7.2.9` and `EDGE_BASE=7.3.0-rc6`.
 - `build/verify-kernel-default-policy.sh` check 10: when the file is present, the default
-  kernel (arm64 mainline, amd64 stable) must start with `STABLE_BASE`, and a staged arm64
-  edge kernel must start with `EDGE_BASE`. Tests are in `build/test-kernel-default-policy.sh`.
+  kernel (arm64 mainline, amd64 stable) must start with `STABLE_BASE`, and a staged edge
+  kernel (arm64 edge, amd64 edge) must start with `EDGE_BASE`. Tests are in
+  `build/test-kernel-default-policy.sh`.
 
-Sky1 edge (arm64) is now staged:
+Sky1 edge (arm64) is staged:
 
 - `assets/kernel/edge` points at the rc6 build
   `kernel-staging/r282-7.3.0-rc6-sky1-ncz-20261004`, so check 10 sees the pinned
@@ -54,12 +55,20 @@ Sky1 edge (arm64) is now staged:
   the staging directory itself.
 - Evidence and reproduction: `docs/reports/2026-10-05-sky1-r282-rc6-staging.md`.
 
-Not yet implemented (needs a reviewed follow-up before an image ships amd64 edge):
+amd64 edge is now implemented (follow-up to the Sky1 staging):
 
-- `build/verify-kernel-default-policy.sh` checks 5 and 8, `build/stage-amd64-kernel.sh`,
-  `build/publish-amd64-kernel.sh`, `build/build-iso-di.sh` and `build/build-squashfs-layers.sh`
-  still refuse any amd64 edge payload.
-- The amd64 rEFInd classifier hook and refresh script still refuse to write an edge entry.
+- The amd64 edge kernel is the 7.3.0-rc6 T2 build with the AER ANFE revert
+  (`7.3.0-rc6-1-t2-edge-aerfix`). `assets/kernel/amd64-edge/KVER` and
+  `assets/kernel/amd64-edge-manifest.json` pin and record it.
+- `build/verify-kernel-default-policy.sh` checks 5, 8 and 10 accept the pinned amd64 edge
+  and refuse every other -rc; `build/stage-amd64-kernel.sh edge` and
+  `build/publish-amd64-kernel.sh edge` stage/publish it under the pinned KVER;
+  `build/build-iso-di.sh`, `build/iso/write-usb-image.py`,
+  `build/verify-base-kernel-assets.sh` and `build/preflight-freshness-gate.sh` carry it.
+- `post-install/10-amd64-kernel.sh` installs it as a second, non-default line, and the
+  amd64 rEFInd classifier hook and refresh script surface it as the edge entry while
+  refusing unpinned -rc kernels.
+- Evidence and reproduction: `docs/reports/2026-10-05-amd64-edge-rc6-revert.md`.
 
 The next image therefore ships 7.2.9 stable and the installer on 7.2.9 on both arches, plus
-the Sky1 arm64 7.3.0-rc6 edge entry. The amd64 edge entries wait for the follow-up.
+the Sky1 arm64 7.3.0-rc6 edge entry and the amd64 7.3.0-rc6 AER-revert edge entry.

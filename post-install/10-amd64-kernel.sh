@@ -10,14 +10,14 @@
 # (local_deb()+dpkg -i), just without an apt-repo fallback because none
 # exists.
 #
-# POLICY (operator directive 2026-09-30, .66 incident): amd64 ships ONLY
-# the 7.2.x release line. There is no validated amd64 7.3 kernel, so the
-# pre-fix hook's "install both lines side-by-side" path is closed — this
-# hook installs amd64-stable only. A non-empty /usr/local/lib/cix-
-# installer/assets/kernel/amd64-edge/ at install time is a policy
-# violation; the hook refuses to install it and exits non-zero so the
-# image fails closed (run-all.sh treats a non-zero exit from any REQUIRED
-# hook as fatal).
+# POLICY (operator directive 2026-10-05): amd64 ships the 7.2.9 stable line
+# as the default kernel plus, when staged, one pinned edge kernel — the
+# 7.3.0-rc6 T2 build with the AER ANFE revert
+# (7.3.0-rc6-1-t2-edge-aerfix) — as a separate NON-default rEFInd entry.
+# This hook installs amd64-stable and, if present, amd64-edge. An
+# amd64-edge payload whose KVER is not the pinned line is refused and the
+# hook exits non-zero so the image fails closed (run-all.sh treats a
+# non-zero exit from any REQUIRED hook as fatal).
 # NCZ-PLATFORM-GUARD: amd64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
 # run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
 # undetectable arch does NOT skip (legacy behavior).
@@ -139,22 +139,29 @@ install_one(){
 
 : > /usr/local/lib/cix-installer/KVER_LIST_AMD64
 
-# Operator policy 2026-09-30: amd64 ships NO edge kernel. If the installer
-# payload was built with an amd64-edge channel present -- ANY non-empty
-# amd64-edge/ (any file at all: a stray .deb, a stray KVER sidecar, a stray
-# PROVENANCE.txt) -- refuse to install it (the build should already have
-# failed at the kernel-default-policy gate, but a defense-in-depth check
-# here prevents an edge .deb from being installed on a target even if the
-# gate was bypassed).
+install_one "stable (T2-unified)" "$ASSETS/amd64-stable"
+
+# Operator directive 2026-10-05: amd64 edge is the pinned 7.3.0-rc6 T2
+# kernel with the AER ANFE revert (7.3.0-rc6-1-t2-edge-aerfix), installed
+# as a separate NON-default rEFInd entry. Install it only when the payload
+# is present; validate the KVER against the pin so an unpinned -rc cannot
+# be installed even if the build gate was bypassed (defence in depth).
 if [ -d "$ASSETS/amd64-edge" ]; then
-    amd64_edge_payload=$(find "$ASSETS/amd64-edge" -mindepth 1 -maxdepth 1 ! -name '.*' 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$amd64_edge_payload" -ne 0 ]; then
-        echo "[10-amd64] ERROR: $ASSETS/amd64-edge is staged with $amd64_edge_payload non-hidden file(s) (operator policy 2026-09-30: amd64 ships NO edge kernel; no validated amd64 7.3 kernel exists). Refusing to install." >&2
-        exit 1
+    _edge_img=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-image-*.deb' | head -1)
+    if [ -n "$_edge_img" ]; then
+        _edge_kver="$(basename "$_edge_img")"
+        _edge_kver="${_edge_kver#linux-image-}"
+        _edge_kver="${_edge_kver%_amd64.deb}"
+        _edge_kver="${_edge_kver%_*}"
+        case "$_edge_kver" in
+            7.3.0-rc6*-t2-edge-aerfix)
+                install_one "edge (7.3.0-rc6 AER-revert, non-default)" "$ASSETS/amd64-edge" ;;
+            *)
+                echo "[10-amd64] ERROR: $ASSETS/amd64-edge carries '$_edge_kver', not the pinned amd64 edge 7.3.0-rc6-*-t2-edge-aerfix (operator 2026-10-05). Refusing to install." >&2
+                exit 1 ;;
+        esac
     fi
 fi
-
-install_one "stable (T2-unified)" "$ASSETS/amd64-stable"
 
 if [ "$INSTALLED_KERNELS" -eq 0 ]; then
     echo "[10-amd64] ERROR: no AMD64 kernel installed — Phase 1 cannot continue." >&2

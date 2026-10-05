@@ -15,13 +15,13 @@
 # newest in the shared pool" because it too only looks at its own prefix: a
 # guard cannot see what it does not glob.
 #
-# POLICY UPDATE (operator directive 2026-09-30, .66 incident): amd64 ships
-# ONLY the stable 7.2.x line. There is no validated amd64 7.3 kernel, so
-# the publisher is now stable-only -- the `edge` argument is preserved as
-# a hard-fail exit so any operator muscle-memory invocation surfaces the
-# policy gap loudly. The kernel-default-policy verifier would otherwise
-# refuse the build further downstream and the operator would have to
-# back-track to find why the directory re-appeared.
+# POLICY UPDATE (operator directive 2026-10-05): amd64 ships the 7.2.x
+# stable line as the default plus one pinned EDGE kernel: the 7.3.0-rc6 T2
+# build carrying the AER ANFE revert (7.3.0-rc6-1-t2-edge-aerfix). The
+# publisher accepts `stable` and `edge`; an edge publication lands under the
+# amd64-edge- prefix that build/stage-amd64-kernel.sh and
+# build/preflight-freshness-gate.sh both glob. Publish the pin the repo
+# commits in assets/kernel/amd64-edge/KVER (any other -rc is refused).
 #
 # Use this instead of mkdir+cp. It cannot produce a name the consumer will
 # miss, because it builds the name from the same line identifier.
@@ -33,27 +33,25 @@ usage: $0 <stable> <deb-dir> [YYYYMMDD]
 
   stable  the unified T2 line (v7.2.x + t2linux patches) -- serves BOTH T2
           Macs and regular PCs; the t2linux series is DMI/PCI-ID gated.
-          amd64 ships ONLY this line (operator directive 2026-09-30).
+          This is the amd64 DEFAULT line.
+
+  edge    the pinned amd64 edge line (operator directive 2026-10-05): the
+          7.3.0-rc6 T2 build with the AER ANFE revert
+          (7.3.0-rc6-1-t2-edge-aerfix). Publish the KVER the repo commits
+          in assets/kernel/amd64-edge/KVER; any other -rc is out of policy.
 
   <deb-dir>  directory holding linux-image-*.deb and linux-headers-*.deb
              (and optionally config-*), as produced by the kernel build.
 
-Note: publishing an "edge" build is no longer supported here. amd64-edge-*
-builds sitting in the pool will fail preflight-freshness-gate.sh as
-orphans and block the build -- prune or rename them if you find any.
+The published directory name is amd64-<line>-<kver>-<stamp>; both
+build/stage-amd64-kernel.sh and build/preflight-freshness-gate.sh glob
+amd64-stable-* and amd64-edge-*.
 EOF
 }
 
 LINE="${1:-}"; DEBDIR="${2:-}"; STAMP="${3:-$(date -u +%Y%m%d)}"
 case "$LINE" in
-    stable) ;;
-    edge)
-        # Operator policy 2026-09-30: amd64 ships NO edge kernel. Refuse
-        # to publish one rather than silently re-introduce the channel.
-        echo "ERROR: amd64 ships NO edge kernel (operator directive 2026-09-30, .66 incident). 'edge' is reserved for arm64 only." >&2
-        echo "       To publish a 7.2.x stable line instead, run: build/publish-amd64-kernel.sh stable <deb-dir>" >&2
-        exit 64
-        ;;
+    stable|edge) ;;
     *) usage; exit 2 ;;
 esac
 [ -d "${DEBDIR:-}" ] || { echo "ERROR: deb-dir not found: ${DEBDIR:-<unset>}" >&2; usage; exit 2; }
@@ -74,6 +72,18 @@ HDR="$(find "$DEBDIR" -maxdepth 1 -iname 'linux-headers-*.deb' | sort -V | tail 
 # /lib/modules and the boot entry use.
 KVER="$(dpkg-deb -f "$IMG" Package 2>/dev/null | sed 's/^linux-image-//')"
 [ -n "$KVER" ] || { echo "ERROR: could not read KVER from $IMG" >&2; exit 1; }
+
+# Edge is pinned: publishing an -rc that is not the committed pin would
+# re-introduce the very drift stage-amd64-kernel.sh exists to prevent.
+if [ "$LINE" = edge ]; then
+    PIN_FILE="$ROOT/assets/kernel/amd64-edge/KVER"
+    [ -s "$PIN_FILE" ] || { echo "ERROR: $PIN_FILE missing -- commit the pinned amd64 edge KVER before publishing edge" >&2; exit 1; }
+    PINNED="$(tr -d '[:space:]' < "$PIN_FILE")"
+    case "$KVER" in
+        "$PINNED") ;;
+        *) echo "ERROR: built edge KVER '$KVER' does not match the committed pin '$PINNED' (operator directive 2026-10-05)" >&2; exit 1 ;;
+    esac
+fi
 
 DEST="$SHARED/amd64-${LINE}-${KVER}-${STAMP}"
 [ -e "$DEST" ] && { echo "ERROR: already published: $DEST" >&2; exit 1; }

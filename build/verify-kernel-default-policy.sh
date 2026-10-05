@@ -44,19 +44,25 @@
 #      tar.zst.
 #   4. On arm64: if assets/kernel/edge/KVER exists, it MUST be different
 #      from the mainline KVER, AND it MUST carry an -rcN suffix.
-#   5. On amd64: assets/kernel/amd64-edge/KVER MUST NOT exist.
+#   5. On amd64: assets/kernel/amd64-edge/KVER MAY exist (operator
+#      directive 2026-10-05 supersedes the 2026-09-30 ban: the validated
+#      amd64 7.3 edge kernel is the AER ANFE revert build). If it does
+#      exist, it MUST carry an -rcN suffix and MUST match the pinned
+#      EDGE_BASE (check 10). Any other -rc edge is refused.
 #   6. On amd64: assets/kernel/amd64-stable/KVER MUST exist and MUST NOT
 #      carry an -rcN suffix.
 #   7. assets/kernel-manifest.json exists and is valid JSON.
 #   8. (amd64) The runtime rEFInd refresh pipeline (classifier hook
 #      assets/refind/zz1-ncz-refind-refresh-amd64 AND refresh script
-#      assets/refind/ncz-refind-refresh-amd64.sh) refuses to surface
-#      a 7.3-rc as EDGE. This is the runtime analogue of check 5 --
-#      even if a stray kernel is installed on the box, the rEFInd menu
-#      cannot offer it as a bootable entry.
+#      assets/refind/ncz-refind-refresh-amd64.sh) only surfaces the
+#      pinned 7.3.0-rc6 revert edge as EDGE and refuses every other -rc
+#      kernel. This is the runtime analogue of checks 5 and 10 -- a
+#      stray non-pinned kernel installed on the box cannot become a boot
+#      entry.
 #  10. (both arches) If assets/kernel/KERNEL-POLICY exists: the default kernel
-#      must be the pinned STABLE_BASE (7.2.9) and a staged arm64 edge kernel
-#      must be the pinned EDGE_BASE (7.3.0-rc6). See
+#      must be the pinned STABLE_BASE (7.2.9) and a staged edge kernel
+#      (arm64 edge, or the amd64 edge revert build) must be the pinned
+#      EDGE_BASE (7.3.0-rc6). See
 #      docs/reports/2026-10-05-kernel-channel-policy.md.
 #   9. (both arches) The rEFInd refresh scripts preserve the rescue
 #      entry (the *-rescue sparing logic and the auto-promote-outgoing
@@ -372,7 +378,8 @@ if [ "$ARCH" = arm64 ] || [ "$ARCH" = aarch64 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Check 5+6: amd64 -- NO edge channel; amd64-stable must be release (not rc).
+# Check 5+6+8: amd64 -- optional pinned edge channel (2026-10-05) and a
+# mandatory release amd64-stable line; the rEFInd pipeline must pin edge.
 # ---------------------------------------------------------------------------
 if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
     AMD64_STABLE_RESOLVED_DIR=$(resolve_kver_file "$ROOT/assets/kernel/amd64-stable" 2>/dev/null) || true
@@ -398,34 +405,72 @@ if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
             fi
             ;;
     esac
-    AMD64_EDGE_KVER_FILE="$ROOT/assets/kernel/amd64-edge/KVER"
-    if [ -e "$AMD64_EDGE_KVER_FILE" ]; then
-        err "amd64: assets/kernel/amd64-edge/KVER exists -- amd64 ships NO edge kernel by operator directive 2026-09-30 (no validated amd64 7.3 kernel exists)"
-    else
-        log "amd64: no edge channel (policy satisfied)"
-    fi
+    # Check 5 (amd64, operator directive 2026-10-05): an edge channel MAY
+    # now be staged. If present it must be a release-candidate and must
+    # match the pinned EDGE_BASE (enforced by check 10). A non-rc edge is
+    # refused outright; an unpinned rc edge is refused by check 10.
+    AMD64_EDGE_RESOLVED_DIR=$(resolve_kver_file "$ROOT/assets/kernel/amd64-edge" 2>/dev/null) || true
+    AMD64_EDGE_KVER=""
+    case "$AMD64_EDGE_RESOLVED_DIR" in
+        DANGLING_SYM:*)
+            _t=${AMD64_EDGE_RESOLVED_DIR#DANGLING_SYM:}
+            err "amd64: assets/kernel/amd64-edge is a symlink to '$_t' that does not resolve on this build host"
+            ;;
+        MISSING_DIR|"")
+            log "amd64: no edge channel staged (single-kernel release permitted)"
+            ;;
+        *)
+            if [ ! -s "$AMD64_EDGE_RESOLVED_DIR/KVER" ]; then
+                err "amd64: assets/kernel/amd64-edge/KVER is missing or empty (edge payload incomplete)"
+            else
+                AMD64_EDGE_KVER=$(tr -d '[:space:]' < "$AMD64_EDGE_RESOLVED_DIR/KVER")
+                if [ -z "$AMD64_EDGE_KVER" ]; then
+                    err "amd64: assets/kernel/amd64-edge/KVER is blank"
+                elif ! is_prerelease "$AMD64_EDGE_KVER"; then
+                    err "amd64: edge KVER '$AMD64_EDGE_KVER' is not a release-candidate (edge must be -rcN)"
+                else
+                    log "amd64: edge KVER '$AMD64_EDGE_KVER' (rc; non-default experimental entry)"
+                    # amd64 edge is a SPECIFIC build, not just any rc base:
+                    # the pinned 7.3.0-rc6 T2 AER-revert kernel. Derive the
+                    # base from KERNEL-POLICY when present and require the
+                    # t2-edge-aerfix discriminator, so an unpinned rc6
+                    # variant (plain/rev/...) cannot be staged as edge.
+                    _policy="$ROOT/assets/kernel/KERNEL-POLICY"
+                    if [ -s "$_policy" ]; then
+                        _ebase=$(sed -nE 's/^EDGE_BASE=([^[:space:]#]+).*/\1/p' "$_policy" | head -1)
+                        if [ -n "$_ebase" ]; then
+                            case "$AMD64_EDGE_KVER" in
+                                "$_ebase"*-t2-edge-aerfix) log "amd64: edge KVER matches the pinned revert build ${_ebase}*-t2-edge-aerfix" ;;
+                                *) err "amd64: edge KVER '$AMD64_EDGE_KVER' is not the pinned ${_ebase}*-t2-edge-aerfix revert build (assets/kernel/KERNEL-POLICY, operator 2026-10-05)" ;;
+                            esac
+                        fi
+                    fi
+                fi
+            fi
+            ;;
+    esac
 
-    # Check 8 (amd64): the runtime rEFInd refresh pipeline must NOT
-    # enumerate a 7.3-rc5 as EDGE. This is the runtime analogue of
-    # check 5 -- the build-time gate refuses to stage amd64-edge, and
-    # the runtime scripts (classifier hook + refresh) must refuse to
-    # surface one even if a stray kernel is installed on the box. If
-    # the classifier still classifies any 7.3-rc as "edge", the build
-    # fails closed here.
+    # Check 8 (amd64): the runtime rEFInd refresh pipeline must only
+    # surface the pinned 7.3.0-rc6 revert edge as EDGE and must refuse
+    # every other -rc kernel. This is the runtime analogue of checks 5
+    # and 10 -- the build-time gate stages only the pinned edge, and the
+    # runtime scripts (classifier hook + refresh) must refuse to surface
+    # an unpinned rc even if a stray kernel is installed on the box. If
+    # the pinned-edge marker is absent, the build fails closed here.
     _hook="$ROOT/assets/refind/zz1-ncz-refind-refresh-amd64"
     _refresh="$ROOT/assets/refind/ncz-refind-refresh-amd64.sh"
     if [ -f "$_hook" ]; then
-        if grep -q 'amd64 never ships edge' "$_hook" 2>/dev/null; then
-            log "amd64: classifier hook refuses to enumerate edge (directive 2026-09-30)"
+        if grep -q 'amd64 edge channel is pinned to 7.3.0-rc6' "$_hook" 2>/dev/null; then
+            log "amd64: classifier hook pins the edge channel to 7.3.0-rc6 (directive 2026-10-05)"
         else
-            err "amd64: classifier hook does not contain the 'amd64 never ships edge' directive-2026-09-30 marker; the classifier could surface a 7.3-rc as edge on a live amd64 box"
+            err "amd64: classifier hook does not contain the 'amd64 edge channel is pinned to 7.3.0-rc6' directive-2026-10-05 marker; the classifier could surface an unpinned -rc kernel as edge on a live amd64 box"
         fi
     fi
     if [ -f "$_refresh" ]; then
-        if grep -q 'KVER_EDGE.*ignored.*amd64 has no validated 7.3 kernel' "$_refresh" 2>/dev/null; then
-            log "amd64: rEFInd refresh refuses to write an edge entry (directive 2026-09-30)"
+        if grep -q 'amd64 edge channel is pinned to 7.3.0-rc6' "$_refresh" 2>/dev/null; then
+            log "amd64: rEFInd refresh accepts only the pinned 7.3.0-rc6 edge (directive 2026-10-05)"
         else
-            err "amd64: rEFInd refresh $_refresh does not contain the 'KVER_EDGE ... ignored' directive-2026-09-30 marker; an edge menu entry could be written even when KVER_EDGE is passed in"
+            err "amd64: rEFInd refresh $_refresh does not contain the 'amd64 edge channel is pinned to 7.3.0-rc6' directive-2026-10-05 marker; an unpinned edge menu entry could be written even when KVER_EDGE is passed in"
         fi
     fi
 fi
@@ -438,7 +483,7 @@ if [ -s "$POLICY_FILE" ]; then
     STABLE_BASE=$(sed -nE 's/^STABLE_BASE=([^[:space:]#]+).*/\1/p' "$POLICY_FILE" | head -1)
     EDGE_BASE=$(sed -nE 's/^EDGE_BASE=([^[:space:]#]+).*/\1/p' "$POLICY_FILE" | head -1)
     case "$ARCH" in
-        amd64|x86_64) _default_kver="${AMD64_STABLE_KVER:-}"; _edge_kver="" ;;
+        amd64|x86_64) _default_kver="${AMD64_STABLE_KVER:-}"; _edge_kver="${AMD64_EDGE_KVER:-}" ;;
         *)            _default_kver="${KVER_NEXT:-}";         _edge_kver="${KVER_EDGE:-}" ;;
     esac
     if [ -n "$STABLE_BASE" ] && [ -n "$_default_kver" ]; then

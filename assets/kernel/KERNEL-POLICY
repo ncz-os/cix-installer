@@ -4,5 +4,9 @@
 #
 # stable = the DEFAULT boot kernel and the installer boot kernel, every arch.
 # edge   = a separate, bootable, NON-default entry, every arch, release candidate only.
+# amd64 edge = the 7.3.0-rc6 T2 kernel with the AER ANFE revert
+#              (7.3.0-rc6-1-t2-edge-aerfix; overlay patch 9010). The narrower
+#              9011 quirk build (7.3.0-rc6-2-t2-edge) is NOT shipped.
+# See docs/reports/2026-10-05-amd64-edge-rc6-revert.md.
 STABLE_BASE=7.2.9
 EDGE_BASE=7.3.0-rc6

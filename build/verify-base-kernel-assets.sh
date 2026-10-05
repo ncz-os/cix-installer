@@ -91,12 +91,10 @@ EMBED_BASE="usr/local/lib/cix-installer/assets/kernel"
 # dpkg --print-architecture as a last-resort fallback. On arm64 it
 # skips cleanly; on amd64 it runs the existing comparison as before.
 #
-# Policy update (operator directive 2026-09-30, .66 incident): amd64 ships
-# NO edge kernel. The verifier previously checked amd64-{stable,edge};
-# the amd64-edge channel was removed from the tree (see
-# docs/reports/2026-09-30-kernel-default-policy.md), so LINES is now
-# amd64-stable only. The layer-embed filter is also restricted to that
-# single channel.
+# Policy update (operator directive 2026-10-05): amd64 ships the 7.2.x
+# stable line as the default plus the pinned 7.3.0-rc6 AER-revert edge line
+# (7.3.0-rc6-1-t2-edge-aerfix). LINES now covers amd64-stable and, when that
+# channel is present, amd64-edge; the embed filter matches both.
 ARCH="${NCZ_TARGET_ARCH:-}"
 if [ -z "$ARCH" ] && [ -r "$ROOT/build/iso-staging-di/ncz-payload/BUILD_ARCH" ]; then
     ARCH=$(tr -d '[:space:]' < "$ROOT/build/iso-staging-di/ncz-payload/BUILD_ARCH")
@@ -107,6 +105,7 @@ if [ "$ARCH" != "amd64" ]; then
     exit 0
 fi
 LINES=(amd64-stable)
+[ -d "$ROOT/assets/kernel/amd64-edge" ] && LINES+=(amd64-edge)
 
 EMBED_LIST="$(mktemp "${TMPDIR:-/tmp}/ncz-vbka-embed.XXXXXX")"
 SRC_LIST="$(mktemp "${TMPDIR:-/tmp}/ncz-vbka-src.XXXXXX")"
@@ -124,7 +123,7 @@ trap 'rm -f "$EMBED_LIST" "$SRC_LIST"' EXIT
 # (10-amd64-kernel.sh historically read it; the filename derivation in
 # the rewritten hook no longer depends on it, but a future hook or
 # operator inspection might).
-EMBED_LINES_RE='amd64-stable'
+EMBED_LINES_RE='amd64-(stable|edge)'
 unsquashfs -l "$LAYER" 2>/dev/null \
     | sed -e 's#^squashfs-root/##' \
     | awk -v eb="$EMBED_BASE" -v lre="$EMBED_LINES_RE" '
@@ -145,8 +144,8 @@ unsquashfs -l "$LAYER" 2>/dev/null \
 # historically read it; the rewritten hook derives its expected kver
 # from the .deb filename now, but the sidecar is still committed and
 # still gets baked in, so it must remain consistent with the source).
-# Policy update (2026-09-30): only amd64-stable .debs are scanned; the
-# amd64-edge channel was removed.
+# Policy update (2026-10-05): amd64-stable and the pinned amd64-edge
+# channel are both scanned when amd64-edge is present in the tree.
 : > "$SRC_LIST"
 for line in "${LINES[@]}"; do
     d="$SRC_BASE/$line"

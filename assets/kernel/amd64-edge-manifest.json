@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "channel": "edge",
+  "arch": "amd64",
+  "kver": "7.3.0-rc6-1-t2-edge-aerfix",
+  "build_rev": "amd64-t2-rc6-20261004",
+  "staged_utc": "2026-10-05",
+  "channel_pointer": "assets/kernel/amd64-edge",
+  "staging_dir": "/mnt/argonas-yocto-shared/kernel-staging/amd64-t2-rc6-20261004/7.3.0-rc6-1-t2-edge-aerfix",
+  "policy": "assets/kernel/KERNEL-POLICY (STABLE_BASE=7.2.9, EDGE_BASE=7.3.0-rc6)",
+  "note": "Edge is a bootable NON-default rEFInd entry. The amd64 default/installer kernel remains 7.2.9-2-t2-trixie (assets/kernel/amd64-stable). This is the AER ANFE revert build: overlay patch 9010-Revert-PCI-AER-Support-Advisory-Non-Fatal-Errors.patch. It is NOT the 9011 keeper-quirk build (7.3.0-rc6-2-t2-edge), which is a future candidate only.",
+  "source": {
+    "base_tag": "v7.3-rc6",
+    "base_commit": "76596e0d50039fd90e6572088100aab42f78e272",
+    "t2_repo": "amd64-kernel-t2",
+    "t2_port_commit": "2b693f2c3c3b9c9905b8677af10fe36262719032",
+    "t2_revert_commit": "6d04bdc583edf35a8dddcc3b47f287b424611861",
+    "t2_revert_patch": "patches/9010-Revert-PCI-AER-Support-Advisory-Non-Fatal-Errors.patch",
+    "t2_revert_branch": "feat/t2-9010-aer-anfe-revert-20261005",
+    "kernel_ref": "t2base/rc6-aerfix",
+    "build_host": "container root@0ca77ca03d9a",
+    "built_utc": "2026-10-05T11:08:00Z"
+  },
+  "artifacts": {
+    "linux-image-7.3.0-rc6-1-t2-edge-aerfix_7.3.0-rc6-1_amd64.deb": {
+      "sha256": "e030d5a0597678043f18f6322d3869d7f4269bebc1bc467806c8a58e10a50778"
+    },
+    "linux-headers-7.3.0-rc6-1-t2-edge-aerfix_7.3.0-rc6-1_amd64.deb": {
+      "sha256": "f0ae68ebe36d505e834bc82d4bb69da656f6ce0998906c28db5104098d43ca4a"
+    },
+    "kernel_config_7.3.0-rc6-1-t2-edge-aerfix": {
+      "sha256": "4c77c43afafcbdf7337e2cf7f3e71b59913326f09004df7bca1b231ec67162bf"
+    },
+    "PROVENANCE-7.3.0-rc6-1-t2-edge-aerfix": {
+      "sha256": "cd5341e2e39ed6e2dd7b4e8a8a598df9aafa45d76c218dc7cc625bf7346c85b8"
+    }
+  },
+  "identity": {
+    "image_deb_package": "linux-image-7.3.0-rc6-1-t2-edge-aerfix",
+    "image_deb_version": "7.3.0-rc6-1",
+    "headers_deb_package": "linux-headers-7.3.0-rc6-1-t2-edge-aerfix",
+    "headers_deb_version": "7.3.0-rc6-1",
+    "kernel_release": "7.3.0-rc6-1-t2-edge-aerfix",
+    "module_vermagic": "7.3.0-rc6-1-t2-edge-aerfix SMP preempt mod_unload",
+    "config_identical_to_plain_rc6": true
+  },
+  "gates": {
+    "static_gate": "PASS (depmod -e: 0 unknown symbols; t2bce modules present; applesmc config unset; DKMS t2smc/t2gmux/t2smp/t2thunderbolt build against these headers)",
+    "kvm_gate": "PASS (qemu kvm boots the image to root; known t2bce_ave oops on the emulated T2 host)",
+    "revert_proof": "System.map diff vs the plain rc6 build: the revert removes __pci_print_aer, __pci_print_aer.cold, __pfx___pci_print_aer, __pfx_aer_get_uncor_info and aer_get_uncor_info, and adds pci_print_aer.cold. The 9011 quirk build (7.3.0-rc6-2-t2-edge) has a System.map identical to plain rc6. Configs of plain and aerfix are byte-identical."
+  },
+  "hardware_note": "Booted on MEDUSA (T2 MacBookPro16,1) without the 14-27 s power-off seen on un-reverted 7.3-rc kernels."
+}

@@ -455,13 +455,17 @@ elif [ "$MODE" = "full" ]; then
             exit 1
         fi
     done
-    # Operator directive 2026-09-30: amd64 ships NO edge kernel. An
-    # assets/kernel/amd64-edge/ directory is a policy violation; refuse it
-    # here so the ISO build fails closed with a precise message instead of
-    # silently packaging an amd64-edge .deb pair into the installer media.
+    # Operator directive 2026-10-05: amd64 may carry the pinned 7.3.0-rc6
+    # edge kernel (supersedes the 2026-09-30 ban). If amd64-edge is staged,
+    # its KVER must match the pin; the kernel-default-policy verifier
+    # re-checks this downstream, but failing here names the staged path.
     if [ -e "$ROOT/assets/kernel/amd64-edge" ]; then
-        echo "ERROR: $NCZ_TARGET_ARCH ISO staged with assets/kernel/amd64-edge/ (operator policy 2026-09-30: amd64 ships NO edge kernel)" >&2
-        exit 1
+        _a64e_kver=$(tr -d '[:space:]' < "$ROOT/assets/kernel/amd64-edge/KVER" 2>/dev/null || true)
+        case "$_a64e_kver" in
+            7.3.0-rc6*-t2-edge-aerfix) ;;
+            *) echo "ERROR: $NCZ_TARGET_ARCH ISO staged with assets/kernel/amd64-edge/ KVER='${_a64e_kver:-<missing>}' -- not the pinned 7.3.0-rc6-*-t2-edge-aerfix (operator 2026-10-05)" >&2
+               exit 1 ;;
+        esac
     fi
     echo "[stage-canonical-assets] skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH -- arm64-only assets don't apply; AMD64 asset set re-confirmed present)"
 fi
@@ -3329,11 +3333,11 @@ if [ -d "$ROOT/assets" ]; then
 fi
 [ -f "$ROOT/assets/ncz-cli.sh" ] && cp -aL "$ROOT/assets/ncz-cli.sh" "$EXTRA/assets/" 2>/dev/null || true
 
-# Stage target kernel payloads. amd64 ships ONLY the stable T2+PC line as
-# .debs consumed by post-install/10-amd64-kernel.sh; operator directive
-# 2026-09-30 removed the amd64-edge channel (no validated amd64 7.3 kernel
-# exists). arm64 retains its Sky1 edge payload (r279 7.3.0-rc5, non-default
-# menu entry); netinstall uses the d-i kernel.
+# Stage target kernel payloads. amd64 ships the stable T2+PC line as the
+# default plus (when staged) the pinned 7.3.0-rc6 AER-revert edge line, both
+# as .debs consumed by post-install/10-amd64-kernel.sh; operator directive
+# 2026-10-05 replaced the 2026-09-30 amd64-edge ban. arm64 retains its Sky1
+# edge payload; netinstall uses the d-i kernel.
 mkdir -p "$EXTRA/assets/kernel"
 if [ "$NCZ_TARGET_ARCH" = amd64 ] && [ "$STAGE_NEXT_KERNEL" = "1" ]; then
     _amd64_src="$ROOT/assets/kernel/amd64-stable"
@@ -3347,16 +3351,24 @@ if [ "$NCZ_TARGET_ARCH" = amd64 ] && [ "$STAGE_NEXT_KERNEL" = "1" ]; then
         echo "ERROR: amd64-stable staged only $_amd64_debs .deb(s), expected image + headers" >&2
         exit 1
     }
-    # Defence-in-depth: refuse the presence of an amd64-edge channel in the
-    # staged tree. The kernel-default-policy verifier (build-installer-
-    # image.sh) also checks, but failing fast here, at the ISO staging
-    # step, surfaces the exact staged path so the operator can fix the
-    # source tree. The cp -aL above only stages amd64-stable, so reaching
-    # this point means the source tree was clean -- the check is here to
-    # catch future code that re-introduces amd64-edge by accident.
-    if [ -e "$EXTRA/assets/kernel/amd64-edge" ]; then
-        echo "ERROR: $EXTRA/assets/kernel/amd64-edge is staged (operator policy 2026-09-30: amd64 ships NO edge kernel)" >&2
-        exit 1
+    # amd64 edge (operator directive 2026-10-05): optional, but if staged it
+    # must be the pinned 7.3.0-rc6 AER-revert build. Refuse any other KVER so
+    # an unpinned -rc cannot reach the installer media.
+    _amd64_edge_src="$ROOT/assets/kernel/amd64-edge"
+    if [ -d "$_amd64_edge_src" ]; then
+        _amd64_edge_kver=$(tr -d '[:space:]' < "$_amd64_edge_src/KVER" 2>/dev/null || true)
+        case "$_amd64_edge_kver" in
+            7.3.0-rc6*-t2-edge-aerfix) ;;
+            *) echo "ERROR: amd64-edge KVER='${_amd64_edge_kver:-<missing>}' is not the pinned 7.3.0-rc6-*-t2-edge-aerfix (operator 2026-10-05)" >&2
+               exit 1 ;;
+        esac
+        cp -aL "$_amd64_edge_src" "$EXTRA/assets/kernel/"
+        _amd64_edge_debs=$(find "$EXTRA/assets/kernel/amd64-edge" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')
+        [ "$_amd64_edge_debs" -ge 2 ] || {
+            echo "ERROR: amd64-edge staged only $_amd64_edge_debs .deb(s), expected image + headers" >&2
+            exit 1
+        }
+        echo "    amd64-edge staged: $_amd64_edge_debs packages (pinned $_amd64_edge_kver)"
     fi
     echo "    amd64-stable staged: $_amd64_debs packages ($(du -sh "$EXTRA/assets/kernel/amd64-stable" | cut -f1))"
 elif [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
