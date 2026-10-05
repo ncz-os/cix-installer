@@ -41,15 +41,25 @@ Implemented in this change:
   kernel (arm64 mainline, amd64 stable) must start with `STABLE_BASE`, and a staged arm64
   edge kernel must start with `EDGE_BASE`. Tests are in `build/test-kernel-default-policy.sh`.
 
+Sky1 edge (arm64) is now staged:
+
+- `assets/kernel/edge` points at the rc6 build
+  `kernel-staging/r282-7.3.0-rc6-sky1-ncz-20261004`, so check 10 sees the pinned
+  `EDGE_BASE=7.3.0-rc6` on the build farm (where the kernel-staging pool is mounted).
+- The four accelerator overlays for that KVER are mirrored in-tree under
+  `assets/kernel/{mali,npu,panthor,vpu}/7.3.0-rc6-sky1-ncz/`, which is what the
+  arm64 rEFInd refresh requires before it will emit the accelerated edge entry.
+- `assets/kernel/edge-manifest.json` records paths, sha256 and the source revision.
+  The full build evidence (PROVENANCE, SHA256SUMS, KVM and DKMS-ABI gate logs) is in
+  the staging directory itself.
+- Evidence and reproduction: `docs/reports/2026-10-05-sky1-r282-rc6-staging.md`.
+
 Not yet implemented (needs a reviewed follow-up before an image ships amd64 edge):
 
 - `build/verify-kernel-default-policy.sh` checks 5 and 8, `build/stage-amd64-kernel.sh`,
   `build/publish-amd64-kernel.sh`, `build/build-iso-di.sh` and `build/build-squashfs-layers.sh`
   still refuse any amd64 edge payload.
 - The amd64 rEFInd classifier hook and refresh script still refuse to write an edge entry.
-- A Sky1 7.3-rc6 kernel does not exist yet; the Sky1 edge channel stays rc5 until it is built
-  and passes the static, DKMS ABI and KVM gates. Until then an image has no Sky1 edge entry
-  rather than a rc5 one that contradicts this policy.
 
-The next image therefore ships 7.2.9 stable and the installer on 7.2.9 on both arches, and
-gains the edge entries only when the follow-up lands and the rc6 kernels are staged.
+The next image therefore ships 7.2.9 stable and the installer on 7.2.9 on both arches, plus
+the Sky1 arm64 7.3.0-rc6 edge entry. The amd64 edge entries wait for the follow-up.
