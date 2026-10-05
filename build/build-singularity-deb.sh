@@ -69,7 +69,7 @@ test -x "$STAGE/opt/singularity/bin/singularity-labwc-session"
 # build/test-singularity-deb-deps.sh asserts every mapped soname stays covered.
 DEPS_FILE="$REPO/build/singularity-deb-depends.txt"
 [ -f "$DEPS_FILE" ] || { echo "ERROR: Depends source missing: $DEPS_FILE" >&2; exit 1; }
-DEPENDS="$(grep -vE '^[[:space:]]*(#|$)' "$DEPS_FILE" | paste -sd, -)"
+DEPENDS="$(grep -vE '^[[:space:]]*(#|$)' "$DEPS_FILE" | paste -sd, - | sed 's/,/, /g')"
 [ -n "$DEPENDS" ] || { echo "ERROR: $DEPS_FILE has no entries" >&2; exit 1; }
 
 # Recommends: runtime modules the shell dlopens or reaches over D-Bus/GIO. They

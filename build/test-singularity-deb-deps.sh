@@ -71,7 +71,7 @@ map_sonames="$(grep -vE '^[[:space:]]*(#|$)' "$MAP" | cut -f1 | sed 's/^[[:space
 
 missing=0
 n=0
-while IFS=$'\t' read -r so pkg; do
+while IFS=$'\t' read -r so pkg _source; do
     so="$(printf '%s' "$so" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
     [ -n "$so" ] || continue
     case "$so" in \#*) continue ;; esac
