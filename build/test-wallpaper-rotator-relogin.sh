@@ -73,6 +73,7 @@ verify_unit() {
     printf '%s\n' "$body" > "$vdir/etc/systemd/system/$name"
     out="$(SYSTEMD_LOG_LEVEL=warning systemd-analyze verify \
         "$vdir/etc/systemd/system/$name" 2>&1 \
+        | grep -E "$name|$vdir" \
         | grep -vE 'is not executable|No such file or directory' || true)"
     rm -rf "$vdir"
     [ -z "$out" ] && return 0
