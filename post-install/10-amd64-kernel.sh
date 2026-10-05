@@ -147,8 +147,16 @@ install_one "stable (T2-unified)" "$ASSETS/amd64-stable"
 # is present; validate the KVER against the pin so an unpinned -rc cannot
 # be installed even if the build gate was bypassed (defence in depth).
 if [ -d "$ASSETS/amd64-edge" ]; then
-    _edge_img=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-image-*.deb' | head -1)
-    if [ -n "$_edge_img" ]; then
+    _edge_icount=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-image-*.deb' | wc -l | tr -d ' ')
+    _edge_hcount=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-headers-*.deb' | wc -l | tr -d ' ')
+    if [ "$_edge_icount" -ne 0 ] || [ "$_edge_hcount" -ne 0 ]; then
+        # Exactly one image + one headers pair; a mixed directory could
+        # otherwise install a .deb whose KVER never passed the pin check.
+        if [ "$_edge_icount" -ne 1 ] || [ "$_edge_hcount" -ne 1 ]; then
+            echo "[10-amd64] ERROR: $ASSETS/amd64-edge has $_edge_icount image .deb(s) and $_edge_hcount headers .deb(s) (must be exactly 1 each). Refusing to install." >&2
+            exit 1
+        fi
+        _edge_img=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-image-*.deb')
         _edge_kver="$(basename "$_edge_img")"
         _edge_kver="${_edge_kver#linux-image-}"
         _edge_kver="${_edge_kver%_amd64.deb}"
