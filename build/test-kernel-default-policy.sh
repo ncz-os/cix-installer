@@ -433,7 +433,7 @@ printf '7.3.0-rc6-1-t2-edge-aerfix\n' > "$r/assets/kernel/amd64-edge/KVER"
 cat > "$r/assets/kernel-manifest.json" <<'JSON'
 {"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"7.2.9-2-t2-trixie"}}}
 JSON
-pin "$r"
+printf 'STABLE_BASE=7.2.9\nEDGE_BASE=7.3.0-rc6\n' > "$r/assets/kernel/KERNEL-POLICY"
 run "pin: amd64 7.2.9 default + pinned rc6 edge" 0 --root "$r" --arch amd64
 printf '7.3.0-rc5-1-t2-trixie\n' > "$r/assets/kernel/amd64-edge/KVER"
 run "pin: amd64 rc5 edge is refused" 1 --root "$r" --arch amd64
