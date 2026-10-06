@@ -205,6 +205,7 @@ build/test-dkms-status-parse.sh	sky1	-	dkms status parser test for the kernel-de
 build/test-dkms-btf-toolchain.sh	common	-	base manifests ship dwarves (pahole) next to dkms
 build/test-fwupd-i2c-mask.sh	sky1	-	fwupd-i2c.conf mask test (25-cix-proprietary)
 build/test-apt-sources-offline-canary.sh	common	-	24-apt-sources offline live-update canary test
+build/test-dkms-prep-keep-going.sh	sky1	-	79-dkms-prep modules_prepare keep-going test
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
 build/test-rescue-kernel-channel.sh	common	-	proves 72-rescue-partition.sh stages the arm64 rescue kernel from assets/kernel/mainline, not the retired edge channel

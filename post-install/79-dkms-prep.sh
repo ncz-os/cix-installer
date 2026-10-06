@@ -155,13 +155,18 @@ if [ "$need_rebuild" = "1" ]; then
     if [ -f "$SEL" ]; then
         SELBAK="$(mktemp)"; cp -a "$SEL" "$SELBAK"; : > "$SEL"
     fi
-    # modules_prepare builds scripts/mod/modpost; it later fails on other
-    # generated sources the headers package omits (kernel/time/timeconst.bc),
-    # which does not matter -- modpost and fixdep are built by then.
+    # modules_prepare builds scripts/mod/modpost; it also fails on other
+    # generated sources the headers package omits (kernel/time/timeconst.bc)
+    # and, with CONFIG_DEBUG_INFO_BTF_MODULES kept (pahole installed), on
+    # tools/bpf/resolve_btfids (no tools/ sources: scripts/utilities.mak,
+    # linux/kasan-checks.h). Those do not matter for DKMS, but a failing job
+    # stops make from starting the rest, and under -j that left modpost unbuilt
+    # (2026-10-06: every DKMS build then died on "No rule to make target
+    # .../scripts/mod/modpost"). -k keeps going so modpost and fixdep get built.
     # Keep the log: this step failing is the difference between DKMS working and
     # not, and "somewhere in a discarded make run" is not a debuggable report.
     LOG=/var/log/ncz-dkms-prep.log
-    if ! make -C "$B" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare \
+    if ! make -k -C "$B" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare \
             >>"$LOG" 2>&1; then
         echo "[79] modules_prepare returned non-zero (expected: the headers omit" \
              "some generated sources); see $LOG"
