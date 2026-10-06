@@ -45,6 +45,11 @@ blackhole-color-mode='cygnus'"
 SCRATCH=$(mktemp -d)
 trap 'rm -rf "$SCRATCH"' EXIT
 cp "$DIR"/*.gschema.xml "$SCRATCH"/ 2>/dev/null
+# Enum/flags definitions live in separate *.enums.xml files; without them every
+# schema that uses one fails --strict (org.gnome.GWeather4: "<enum
+# id='org.gnome.GWeather4.GWeatherTemperatureUnit'> not (yet) defined") and the
+# override was refused on a correct system.
+cp "$DIR"/*.enums.xml "$SCRATCH"/ 2>/dev/null
 cp "$DIR"/*.gschema.override "$SCRATCH"/ 2>/dev/null
 printf '%s\n' "$BODY" > "$SCRATCH/99-ncz-cygnus-screensaver.gschema.override"
 if ! command -v glib-compile-schemas >/dev/null 2>&1; then

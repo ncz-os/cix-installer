@@ -108,6 +108,17 @@ if [ -n "$OVR_USER" ]; then
         log "WARNING: ncz_username=$OVR_USER is not a valid POSIX username -- falling back to prompt"
     fi
 fi
+# Unattended without ncz_username=: keep a username preseeded through the
+# standard d-i key (passwd/username= on the cmdline or in a preseed file)
+# instead of replacing it with the default. Replacing it also dropped the
+# preseeded password (below), d-i user-setup then failed on "No password has
+# been supplied" before adding the default groups, and the only account had
+# no sudo (2026-10-06 KVM gate: sudo_ok=0).
+if [ -z "$CHOSEN_USER" ] && [ "$_unattended" = 1 ] && db_get passwd/username 2>/dev/null \
+        && is_valid_username "$RET"; then
+    CHOSEN_USER="$RET"
+    log "unattended: keeping preseeded username=$CHOSEN_USER"
+fi
 if [ -z "$CHOSEN_USER" ] && [ "$NCZ_PROMPT" = "--prompt" ] && [ "$_unattended" = 0 ]; then
     cat > /tmp/ncz-username.templates <<TPL
 Template: ncz/username
@@ -155,6 +166,10 @@ CHOSEN_PASS=""
 if [ -n "$OVR_PASS" ]; then
     CHOSEN_PASS="$OVR_PASS"
     log "cmdline override: password set (not echoed); confirm prompt skipped for unattended"
+elif [ "$_unattended" = 1 ] && db_get passwd/user-password 2>/dev/null && [ -n "$RET" ]; then
+    # Same as the username: keep a password preseeded through passwd/user-password.
+    CHOSEN_PASS="$RET"
+    log "unattended: keeping preseeded password (not echoed)"
 elif [ "$NCZ_PROMPT" = "--prompt" ] && [ "$_unattended" = 0 ]; then
     # Newline-in-description is NOT supported for Type: password, so this
     # template only carries a single-line prompt title.
