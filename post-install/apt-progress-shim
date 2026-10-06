@@ -11,6 +11,8 @@ progress_write() {
   # GPU steps (post-install/lib/gpu-progress.sh) reserve part of the step for
   # the kernel-module build and hand apt a window "lo hi" of the step's
   # percent; scale into it so a package transaction cannot fill the whole step.
+  # A zero-width window (lo == hi) is deliberate: it holds the step at lo
+  # while a module build owns the bar.
   if [ -n "$percent" ] && [ -n "${NCZ_PROGRESS_WINDOW:-}" ] && [ -r "$NCZ_PROGRESS_WINDOW" ]; then
     local wlo whi
     read -r wlo whi < "$NCZ_PROGRESS_WINDOW" 2>/dev/null || true

@@ -110,7 +110,10 @@ ncz_gpu_nvidia_wanted() {
         fi
     done
     for f in /etc/cix-installer/COMPONENTS_cuda "$NCZ_GPU_META_DIR/COMPONENTS_cuda"; do
-        if [ -r "$f" ]; then [ "$(tr -d ' \t\r\n' < "$f")" = 1 ]; return; fi
+        if [ -r "$f" ]; then
+            [ "$(tr -d ' \t\r\n' < "$f")" = 1 ] && return 0
+            return 1
+        fi
     done
     return 0
 }
@@ -425,6 +428,9 @@ ncz_gpu_watch() {
     _g_emit 0 "${NCZ_GPU_LABEL:-$G_SHORT}"
     G_HOLD_UNTIL=$(( G_T0 + G_HOLD ))
     while :; do
+        # sleep in the background + wait: bash interrupts `wait` (not a
+        # foreground sleep) as soon as the TERM trap fires, so stop is prompt;
+        # the leftover sleep is then killed by exact PID.
         sleep "$G_POLL" & G_SLEEP=$!
         wait "$G_SLEEP" 2>/dev/null
         if [ "$_g_stop" = 1 ] || { [ -n "${NCZ_GPU_PARENT:-}" ] && ! kill -0 "$NCZ_GPU_PARENT" 2>/dev/null; }; then
@@ -464,6 +470,7 @@ ncz_gpu_watch() {
             esac
             el=$((now - G_B_START))
             eta=""
+            # done >= 10 also keeps the divisor below non-zero
             if [ "$G_B_EXP" -gt 0 ] && [ "$done" -lt "$G_B_EXP" ] && [ "$done" -ge 10 ] && [ "$el" -ge "$G_ETA_MIN" ]; then
                 rem=$(( (G_B_EXP - done) * el / done ))
                 if [ "$rem" -lt 60 ]; then eta=", under a minute left"
