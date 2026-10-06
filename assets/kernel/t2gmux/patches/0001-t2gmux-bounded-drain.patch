@@ -1,0 +1,53 @@
+diff --git a/t2gmux.c b/t2gmux.c
+index ddc651e..4c72fc6 100644
+--- a/t2gmux.c
++++ b/t2gmux.c
+@@ -1179,14 +1179,37 @@ static void gmux_interrupt_work(struct work_struct *work)
+ 	acpi_finish_gpe(NULL, gmux_data->gpe);
+ 
+ 	status = gmux_interrupt_get_status(gmux_data);
+-	while (status) {
+-		gmux_write8(gmux_data, GMUX_PORT_INTERRUPT_STATUS, status);
+-		gmux_interrupt_get_status(gmux_data);
+-		if (status & GMUX_INTERRUPT_STATUS_POWER)
+-			complete(&gmux_data->powerchange_done);
+-		if (status & GMUX_INTERRUPT_STATUS_FAILED)
+-			pr_warn("interrupt failed: status 0x%x\n", status);
+-		status = gmux_interrupt_get_status(gmux_data);
++	/*
++	 * Bound the acknowledge loop: a stuck interrupt that never
++	 * clears would otherwise hold power_lock forever, blocking
++	 * suspend/shutdown and unload.  32 is a defensive iteration
++	 * limit, not a measured hardware requirement.  After that,
++	 * disable the interrupt source so the system can recover and
++	 * bail out - the next legitimate interrupt (if any) will be
++	 * missed until the source is re-enabled from userspace.
++	 */
++	{
++		unsigned int drains = 0;
++
++		while (status && drains++ < 32) {
++			gmux_write8(gmux_data, GMUX_PORT_INTERRUPT_STATUS,
++				    status);
++			gmux_interrupt_get_status(gmux_data);
++			if (status & GMUX_INTERRUPT_STATUS_POWER)
++				complete(&gmux_data->powerchange_done);
++			if (status & GMUX_INTERRUPT_STATUS_FAILED)
++				pr_warn("interrupt failed: status 0x%x\n",
++					status);
++			status = gmux_interrupt_get_status(gmux_data);
++		}
++
++		if (status) {
++			gmux_stop_interrupts(gmux_data);
++			pr_err_ratelimited("interrupt status did not clear after %d drains (0x%x); interrupts disabled\n",
++					   drains, status);
++			mutex_unlock(&gmux_data->power_lock);
++			return;
++		}
+ 	}
+ 
+ 	gmux_enable_interrupts(gmux_data);
+-- 
+2.50.1 (Apple Git-155)
+
