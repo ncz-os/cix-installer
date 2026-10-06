@@ -178,8 +178,10 @@ build/release-ota.sh	sky1	-	OTA release
 build/resolve-sky1-kernel-inputs.sh	sky1	-	dry-run of which Sky1 kernel each image input resolves
 build/secret-scan-gate.sh	common	-	secret scan gate
 build/server-mirror.gaps	common	-	server mirror gap notes
+build/singularity-deb-depends.sh	common	-	derives the ncz-singularity-desktop Depends from the payload ELF closure (dpkg-shlibdeps + dpkg -S), per build
 build/singularity-nightly-track.sh	common	-	singularity nightly tracker
 build/singularity-patch-reconcile.py	common	-	singularity patch reconcile
+build/singularity-runtime-extra-deps.txt	common	-	non-ELF runtime Depends of ncz-singularity-desktop (upower, libadwaita-1-0, libglib2.0-bin)
 build/sqtools-amd64/	amd64	-	x86_64 unsquashfs toolchain
 build/sqtools/	sky1	-	aarch64 unsquashfs toolchain
 build/stage-amd64-kernel.sh	amd64	-	stages amd64 kernels from ARGONAS
@@ -402,6 +404,7 @@ build/test-screensavers-mandatory-install.sh	common	-	fail-before/pass-after for
 build/test-screensavers-mandatory-install-builders.sh	common	-	sections 3-7 of the screensaver mandatory-install regression: mirror builder, layer pre-flights, live-update source, verifier contract, hook 57 retirement
 build/verify-installed-target-screensavers.sh	common	-	section (vi) of verify-installed-target.sh: dpkg status, version floor, engine, catalogue (sourced; sets SS_STATUS)
 build/verify-installed-target-screensavers-default.sh	common	-	section (vi) continuation: schema default, Cygnus override, idle timer, gtk4-reference ban, plugin files when installed
+build/test-singularity-deb-depends.sh	common	-	hermetic fail-before/pass-after test for the derived Singularity deb Depends
 build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor per-run logs, signal names and core-limit regression
 build/test-refind-rescue-promotion.sh	common	-	rEFInd rescue auto-promotion guard: rc/edge kernels are never promoted; existing rescue survives a failed copy (item RRH)
 build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service is wanted by the per-login session target (item RRH)

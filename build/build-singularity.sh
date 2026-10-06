@@ -87,12 +87,16 @@ case "$ARCH" in
 esac
 
 mkdir -p "$OUT"
+# The Depends sidecar is regenerated with the tarball; never let a previous
+# run's sidecar sit next to a new tarball.
+rm -f "$OUT/singularity-opt.tgz.depends"
 echo "== build-singularity =="
 echo "   image  = $IMAGE"
 echo "   source = $SRC_REPO @ $SRC_REF"
 [ -z "$SRC_DIR" ] || echo "   local  = $SRC_DIR (explicit NCZ source override)"
 echo "   prefix = $PREFIX"
 echo "   out    = $OUT/singularity-opt.tgz"
+echo "           $OUT/singularity-opt.tgz.depends (Depends sidecar)"
 
 # ---- in-container build script ---------------------------------------------
 # Everything below runs inside the arm64 debian:<codename> container. The DESTDIR
@@ -451,6 +455,16 @@ test -x "/work/stage'"$PREFIX"'/bin/singularity-boot-splash"
 cd /work/stage
 tar -czf /out/singularity-opt.tgz opt/singularity
 echo "STAGED $(du -h /out/singularity-opt.tgz | cut -f1)"
+
+# Depends sidecar for build-singularity-deb.sh. Derived HERE because this
+# container is the one userland where every library the payload links is
+# installed, at exactly the versions it was linked against (dpkg-shlibdeps
+# reads their shlibs/symbols files). Bound to the tarball by sha256 so a
+# stale sidecar can never describe a different payload.
+bash /ncz-build/singularity-deb-depends.sh --direct \
+    --payload-sha256 "$(sha256sum /out/singularity-opt.tgz | cut -d" " -f1)" \
+    -o /out/singularity-opt.tgz.depends /work/stage
+grep "^Depends: " /out/singularity-opt.tgz.depends
 '
 
 # Pin the container platform explicitly. Without this, a locally-cached
@@ -470,6 +484,7 @@ esac
 
 echo "== running build in $IMAGE ($CE)${NCZ_CONTAINER_PLATFORM:+ platform=$NCZ_CONTAINER_PLATFORM} =="
 CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
+         -v "$REPO_ROOT/build":/ncz-build:ro \
          -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV")
 [ -n "$NCZ_CONTAINER_PLATFORM" ] && CE_ARGS+=(--platform "$NCZ_CONTAINER_PLATFORM")
 # On an SELinux-enforcing host the bind mount is unwritable from inside the

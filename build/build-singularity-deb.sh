@@ -50,7 +50,7 @@ mkdir -p "$OUT"
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/ncz-singularity-deb.XXXXXX")"
 cleanup() {
     rc=$?
-    [ -n "$STAGE" ] && rm -rf "$STAGE"
+    [ -n "$STAGE" ] && rm -rf "$STAGE" "$STAGE.depends"
     if [ "$rc" -ne 0 ]; then
         echo "ERROR: Singularity .deb build failed (exit $rc)" >&2
     fi
@@ -65,6 +65,69 @@ tar -C "$STAGE" -xzf "$TGZ"
 test -x "$STAGE/opt/singularity/bin/singularity-desktop"
 test -x "$STAGE/opt/singularity/bin/singularity-labwc-session"
 
+# Depends: is derived from THIS payload's ELF closure on every build, never a
+# hand-kept list. The old literal list (18 entries) omitted libraries the
+# payload links -- libseat1, libinput10, libliftoff0, libxcb-errors0,
+# libdisplay-info3, libpipewire-0.3-0t64, libpam0g, ... -- so a clean
+# `apt-get install` produced an unrunnable desktop. The vetted published
+# 20261005+...+deps1 package fixed that once by hand; this makes every head
+# build carry the equivalent automatically.
+#
+# Source, in order:
+#   1. $NCZ_SINGULARITY_DEPENDS_FILE, else "$TGZ.depends": the sidecar that
+#      build-singularity.sh writes from inside its debian:<codename> build
+#      container (build/singularity-deb-depends.sh --direct). Accepted only if
+#      it names this exact tarball (sha256) and this architecture.
+#   2. otherwise build/singularity-deb-depends.sh --container: the same
+#      analysis in a fresh debian:<codename> container for $ARCH (qemu-user
+#      for a foreign arch). Disable with NCZ_SINGULARITY_DEPENDS_CONTAINER=0,
+#      which turns a missing/stale sidecar into a hard error.
+# There is no built-in fallback list: a payload whose Depends cannot be
+# derived is not packaged.
+TGZ_SHA="$(sha256sum "$TGZ" | cut -d' ' -f1)"
+DEPS_SIDECAR="${NCZ_SINGULARITY_DEPENDS_FILE:-$TGZ.depends}"
+DEPS_SRC=""
+deps_field() { sed -n "s/^$1: //p" "$2" | head -n1; }
+if [ -s "$DEPS_SIDECAR" ]; then
+    _sc_sha="$(deps_field X-Payload-SHA256 "$DEPS_SIDECAR")"
+    _sc_arch="$(deps_field X-Architecture "$DEPS_SIDECAR")"
+    if [ "$_sc_sha" = "$TGZ_SHA" ] && [ "$_sc_arch" = "$ARCH" ]; then
+        DEPS_SRC="$DEPS_SIDECAR"
+    else
+        echo "WARN: ignoring $DEPS_SIDECAR: it describes sha256=${_sc_sha:-?} arch=${_sc_arch:-?}, not this payload (sha256=$TGZ_SHA arch=$ARCH)" >&2
+    fi
+fi
+if [ -z "$DEPS_SRC" ]; then
+    if [ "${NCZ_SINGULARITY_DEPENDS_CONTAINER:-1}" = 0 ]; then
+        echo "ERROR: no Depends sidecar matching $TGZ (sha256=$TGZ_SHA arch=$ARCH) and container derivation is disabled" >&2
+        echo "       build the payload with build/build-singularity.sh (it writes \$TGZ.depends), or run" >&2
+        echo "       build/singularity-deb-depends.sh --container --arch $ARCH -o $TGZ.depends $TGZ" >&2
+        exit 1
+    fi
+    echo "== deriving Depends in a debian container for $ARCH (no matching sidecar) =="
+    bash "$REPO/build/singularity-deb-depends.sh" --container --arch "$ARCH" \
+        --payload-sha256 "$TGZ_SHA" -o "$STAGE.depends" "$TGZ"
+    DEPS_SRC="$STAGE.depends"
+fi
+DEPENDS="$(deps_field Depends "$DEPS_SRC")"
+[ -n "$DEPENDS" ] || { echo "ERROR: $DEPS_SRC carries no Depends" >&2; exit 1; }
+echo "== Depends source: $DEPS_SRC ($(printf '%s\n' "$DEPENDS" | tr ',' '\n' | wc -l) entries) =="
+
+# Recommends: runtime modules the shell dlopens or reaches over D-Bus/GIO.
+# They are not DT_NEEDED, so they cannot be derived from the ELF closure; the
+# package installs without them but features degrade. Same set as the vetted
+# +deps1 package (Item Q3 evidence); build/test-singularity-deb-depends.sh
+# pins it so it cannot drift silently:
+#   adwaita-icon-theme         desktop lists/applies the "Adwaita" icon theme
+#   gsettings-desktop-schemas  shell reads org.gnome.desktop.* schemas
+#   dconf-gsettings-backend    persistence backend for its GSettings use
+#   glib-networking            GIO TLS backend (singularity-store, wallpapers)
+#   ca-certificates            trust store for those TLS connections
+#   xdg-desktop-portal         frontend for xdg-desktop-portal-singularity
+#   gstreamer1.0-gtk4          playbin sink for videos/music
+#   gstreamer1.0-plugins-base, -good, gstreamer1.0-libav  media playback
+RECOMMENDS="adwaita-icon-theme, gsettings-desktop-schemas, dconf-gsettings-backend, glib-networking, ca-certificates, xdg-desktop-portal, gstreamer1.0-gtk4, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-libav"
+
 cat > "$STAGE/DEBIAN/control" <<CONTROL
 Package: $PKG
 Version: $VERSION
@@ -72,7 +135,8 @@ Architecture: $ARCH
 Maintainer: Jason Perlow <jperlow@gmail.com>
 Section: x11
 Priority: optional
-Depends: libc6, libgtk-4-1, libadwaita-1-0, libgtk4-layer-shell0, libgee-0.8-2, libpeas-2-0, libjson-glib-1.0-0, libsoup-3.0-0, libvte-2.91-gtk4-0, libgtksourceview-5-0, libwebkitgtk-6.0-4, libgraphene-1.0-0, libupower-glib3, libdbusmenu-glib4, libenchant-2-2, libsodium26 | libsodium23, upower, libtinysparql-3.0-0 | libtracker-sparql-3.0-0
+Depends: $DEPENDS
+Recommends: $RECOMMENDS
 Description: NCZ-OS Singularity Desktop runtime payload
  Bundled /opt/singularity tree: singularity-shell, libsingularity,
  singularity-greeter, singularity-boot-splash, singularity-loginui,

@@ -252,3 +252,27 @@ Until both land, apply `patches/` in numeric order to the cloned
 patch inside `subprojects/singularity-shell` — before building. (PR #15,
 the layer-shell fix documented above, has already landed upstream; its
 patch file is retired from this directory.)
+
+## Package Depends (derived per build)
+
+`ncz-singularity-desktop`'s `Depends:` is computed from the payload being
+packaged, never kept by hand (the old 18-entry literal list missed libseat1,
+libinput10, libliftoff0, libxcb-errors0, libdisplay-info3, ... and left a clean
+install unrunnable; the published `+deps1` package fixed that once by hand).
+
+* `build/build-singularity.sh` runs `build/singularity-deb-depends.sh --direct`
+  inside its debian:<codename> build container, after the tarball is written.
+  It collects every payload ELF's `DT_NEEDED`, drops sonames the payload provides
+  itself, maps the rest to their installed owners (`dpkg -S`), and runs
+  `dpkg-shlibdeps` for versioned entries. The result is written next to the
+  tarball as `singularity-opt.tgz.depends`, bound to it by sha256.
+* `build/build-singularity-deb.sh` takes `Depends:` from that sidecar. If it is
+  missing or describes another tarball/arch, the same analysis runs in a fresh
+  debian:<codename> container for the target arch (`--container`; apt-file
+  finds the owning packages; qemu-user for a foreign arch).
+  `NCZ_SINGULARITY_DEPENDS_CONTAINER=0` turns that into a hard error.
+* Dependencies no ELF reveals live in `build/singularity-runtime-extra-deps.txt`
+  (one justified package per line). `Recommends:` is a fixed list in
+  `build-singularity-deb.sh`.
+* `build/test-singularity-deb-depends.sh` is the hermetic regression test
+  (fixture payload, no network).
