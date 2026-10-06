@@ -182,6 +182,15 @@ ncz_nvidia_dynamic_setup() {
     install -D -m0755 "$NCZ_NV_ASSETS/ncz-cuda-setup" /usr/local/sbin/ncz-cuda-setup
     install -D -m0644 "$NCZ_NV_ASSETS/ncz-cuda-setup.service" /etc/systemd/system/ncz-cuda-setup.service
     install -D -m0644 "$NCZ_NV_ASSETS/ncz-cuda-setup.timer" /etc/systemd/system/ncz-cuda-setup.timer
+    # Local DKMS patches for exact driver versions (assets/nvidia/dkms/<module>-<version>/); ncz-cuda-setup stages
+    # them into DKMS before every driver install. Optional: without them the stock driver source is built.
+    rm -rf /usr/local/lib/ncz/nvidia-dkms
+    if [ -d "$NCZ_NV_ASSETS/dkms" ]; then
+        install -d -m0755 /usr/local/lib/ncz
+        cp -R "$NCZ_NV_ASSETS/dkms" /usr/local/lib/ncz/nvidia-dkms && chmod -R u=rwX,go=rX /usr/local/lib/ncz/nvidia-dkms
+    else
+        echo "[54] NOTE: $NCZ_NV_ASSETS/dkms not staged: no local NVIDIA DKMS patches"
+    fi
     install -d -m0755 /etc/systemd/system/timers.target.wants
     ln -sf ../ncz-cuda-setup.timer /etc/systemd/system/timers.target.wants/ncz-cuda-setup.timer
     ncz_cuda_status "pending:install"

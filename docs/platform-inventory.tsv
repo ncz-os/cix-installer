@@ -172,7 +172,8 @@ build/stage-amd64-kernel.sh	amd64	-	stages amd64 kernels from ARGONAS
 build/stage-canonical-assets.sh	sky1	-	restages CIX-NCZ gitignored blobs (183 arm64/cix refs)
 build/stage-kernel.sh	sky1	-	stages a Sky1 kernel
 build/systemd/	common	-	singularity patch reconcile units
-build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	AMD64 dynamic NVIDIA driver + CUDA gate tests (Turing plan, R580 plan, Kepler skip, ncz-cuda-setup simulation, removals refused, status/retry/park/backoff, installed-target fixture, chooser)
+build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	AMD64 dynamic NVIDIA driver + CUDA gate tests (Turing plan, R580 plan, Kepler skip, ncz-cuda-setup simulation, removals refused, status/retry/park/backoff, DKMS compile-failure record and same-inputs back-off, local DKMS patch staging, installed-target fixture, chooser)
+build/test-nvidia-dkms-patch-build.sh	amd64	nvidia-cuda	Build-level test (container on a build host, SKIP without podman/docker or headers): stock NVIDIA DKMS source fails against CONFIG_CGROUP_DMEM=y 7.3 headers, the staged assets/nvidia/dkms patch builds all five modules
 build/test-amd64-dracut-isolation.sh	amd64	-	amd64 base must not stage the Sky1 dracut config (static checks + the real staging loop)
 build/test-amd64-intel-vaapi.sh	amd64	-	amd64 desktop closure ships intel-media-va-driver (Intel VA-API gap, MEDUSA UHD 630)
 build/test-amd64-kernel-classifier.sh	amd64	-	amd64 unified-7.3 kernel classifier test
