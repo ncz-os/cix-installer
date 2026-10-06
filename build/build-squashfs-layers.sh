@@ -547,6 +547,11 @@ build_layer(){ local role="$1" manifest="$2"
     sudo cp -a "$ROOT/manifests/." "$MG/usr/local/lib/cix-installer/manifests/" 2>/dev/null || true
     [ -s "$ROOT/release.conf" ] && \
       sudo install -m 0644 "$ROOT/release.conf" "$MG/usr/local/lib/cix-installer/RELEASE"
+    # Refresh the screensaver version floor in the desktop layer too (base may
+    # predate it): 59-ncz-screensavers-pkg reads it from the target at install
+    # time, and the desktop overlay is what the finished image carries.
+    sudo install -d -m 0755 "$MG/usr/local/lib/cix-installer/build"
+    sudo install -m 0644 "$ROOT/build/screensavers-version.env" "$MG/usr/local/lib/cix-installer/build/"
     # r166: stage the NCZ branding assets the brand hooks read. The base build
     # only staged cix-debs/kernel/mesa/gpu/firmware/refind/rescue — NOT branding —
     # so 45-wallpaper (needs assets/branding/wallpaper), 56-icon-theme (needs
@@ -1000,6 +1005,14 @@ build_base(){
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/manifests"
   sudo cp -a "$ROOT/manifests/." "$WORK/base/usr/local/lib/cix-installer/manifests/" 2>/dev/null || true
   sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
+  # The screensaver version floor must travel with the image:
+  # 59-ncz-screensavers-pkg sources it at install time from the target's own
+  # /usr/local/lib/cix-installer/build/ tree, which holds exactly what this
+  # staging puts there. Without this the mandatory-install hook FATALs on
+  # every real install (env not found) -- the floor is defined once in the
+  # repo and every consumer reads the same file.
+  sudo install -d -m 0755 "$WORK/base/usr/local/lib/cix-installer/build"
+  sudo install -m 0644 "$ROOT/build/screensavers-version.env" "$WORK/base/usr/local/lib/cix-installer/build/"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
   # Real, current assets/ subdirs meant to ship inside the target OS.
   # Deliberately excludes: assets/rootfs (base-tarball build cache),

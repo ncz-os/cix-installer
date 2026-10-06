@@ -3234,6 +3234,14 @@ done
 
 cp -a "$ROOT/post-install" "$EXTRA/post-install"
 
+# Stage the screensaver version floor so the installed target carries it at
+# /usr/local/lib/cix-installer/build/ (late.sh copies $SRC verbatim into the
+# target's cix-installer tree). 59-ncz-screensavers-pkg sources it at install
+# time to enforce NCZ_SCREENSAVERS_MIN_VERSION; without it the mandatory
+# install hook FATALs on every real install.
+mkdir -p "$EXTRA/build"
+cp "$ROOT/build/screensavers-version.env" "$EXTRA/build/screensavers-version.env"
+
 # r202: stage the mali_kbase GPU overlay into /ncz-payload so 82-mali-gpu can install
 # it at install time (NOT baked into base.squashfs; late.sh union-syncs /ncz-payload,
 # baked-wins). Without this /dev/mali0 is absent (panthor blacklisted in Mali mode).
