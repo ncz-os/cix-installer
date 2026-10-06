@@ -70,8 +70,8 @@ else
     printf '%s\n' "$NAME" > "$STATE"
 fi
 
-# Interactive installs: the name dialog is shown by the --prompt run, right before partitioning (see the note in
-# component-selector.sh). The first run only generates and applies the suggestion.
+# 2026-10-06 operator flow: the hostname is automatic. preseed.cfg no longer calls this with --prompt (partman/
+# early_command only re-applies the generated name); the dialog below stays for a manual `--prompt` run.
 if [ "${1:-}" = "--prompt" ] && [ "$_unattended" = 0 ] && [ ! -e "$ASKED" ] && ! { [ -n "$_override" ] && _ncz_valid "$_override"; } ; then
     : > "$ASKED"
         cat > /tmp/ncz-hostname.templates <<TPL

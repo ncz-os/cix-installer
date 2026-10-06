@@ -66,7 +66,11 @@
 # unattended pipeline runs without a human present.
 set +e
 
-. /usr/share/debconf/confmodule 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
+. "${NCZ_CONFMODULE:-/usr/share/debconf/confmodule}" 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
+# ONCE PER BOOT: a completed --prompt run leaves $NCZ_TMP/.ncz-components-done; any later run (partman restarted,
+# early_command replayed) keeps the saved $NCZ_TMP/ncz-components answer and never shows the dialog again.
+NCZ_TMP="${NCZ_TMP:-/tmp}"
+DONE="$NCZ_TMP/.ncz-components-done"
 # shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
 for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
     [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
@@ -124,7 +128,7 @@ component_is_valid() {
 }
 
 # --- read cmdline override --------------------------------------------------
-CMD=$(cat /proc/cmdline 2>/dev/null)
+CMD=$(cat "${NCZ_CMDLINE:-/proc/cmdline}" 2>/dev/null)
 OVR=""
 for tok in $CMD; do
     case "$tok" in
@@ -190,16 +194,21 @@ if [ -n "$OVR" ]; then
 fi
 
 CHOSEN=""
+_SAVED=""
+[ -e "$DONE" ] && _SAVED=$(cat "$NCZ_TMP/ncz-components" 2>/dev/null)
 if [ -n "$_OVR_FILTERED" ]; then
     CHOSEN="$_OVR_FILTERED"
     log "cmdline override: components = $CHOSEN"
+elif [ -n "$_SAVED" ]; then
+    CHOSEN="$_SAVED"
+    log "already answered this boot: keeping components = $CHOSEN (no dialog)"
 else
     if [ -n "$OVR" ]; then
         # override was present but resolved to empty (all tokens unknown) —
         # fall back to the prompt so the operator can recover
         log "cmdline ncz_components= had no valid tokens — falling back to prompt"
     fi
-    cat > /tmp/ncz-components.templates <<TPL
+    cat > "$NCZ_TMP/ncz-components.templates" <<TPL
 Template: ncz/components
 Type: multiselect
 Choices: ${_CHOICES_C}
@@ -265,7 +274,7 @@ TPL
     else
         log "showing component prompt (synchronous; unattended runs preseed ncz_components= on the cmdline)"
         _prompt_rc=99
-        if debconf-loadtemplate ncz /tmp/ncz-components.templates 2>/dev/null; then
+        if debconf-loadtemplate ncz "$NCZ_TMP/ncz-components.templates" 2>/dev/null; then
             db_set      ncz/components "$_DEFAULT" 2>/dev/null || true
             db_fset     ncz/components seen false 2>/dev/null || true
             db_settitle ncz/components 2>/dev/null || true
@@ -346,7 +355,8 @@ log "  desktop=$WANT_DESKTOP  browsers=$WANT_BROWSERS  mgmt-container=$WANT_MGMT
 # --- persist for the two consumers -----------------------------------------
 # 1. d-i env (consumed by disk-fs-chooser.sh and extract-rootfs.sh, both
 #    run in the installer environment, not the chroot).
-echo "$CHOSEN" > /tmp/ncz-components 2>/dev/null || true
+echo "$CHOSEN" > "$NCZ_TMP/ncz-components" 2>/dev/null || true
+[ "${1:-}" = "--prompt" ] && : > "$DONE"
 mkdir -p /var/lib/ncz-components 2>/dev/null || true
 echo "$CHOSEN" > /var/lib/ncz-components/COMPONENTS 2>/dev/null || true
 
