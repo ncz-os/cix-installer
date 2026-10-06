@@ -401,7 +401,8 @@ build/test-usb2-rescan-greetd.sh	common	-	regression tests: greetd drop-in toler
 build/test-timesync-retry.sh	common	-	regression tests for the timesyncd fast-retry drop-in + no time-sync gating of the greeter (docs/BOOT-SPEED.md)
 build/test-boot-sequence.sh	common	-	regression tests for installer NIC-wait/clock bounds, Sky1-only display pin, bounded NM-wait-online (docs/BOOT-SEQUENCE.md)
 build/test-greeter-output-mode.sh	common	-	regression test: greeter labwc autostart never scans out 4K, keeps the panel aspect via ncz-display-scale, falls back to the fixed 1080p loop
-build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp) and the 61 hook (divert + install + idempotent)
+build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp) and the 61 hook (divert + install + idempotent, package before/after/upgrade)
+build/test-run-all-baked-allowlist.sh	common	-	run-all.sh in baked mode against every hook on both hooks.list files: no ORPHAN, every listed hook runs
 build/test-screensaver-default.sh	common	-	regression test for the Cygnus black hole screensaver default hook (validated override, idempotent, skips old schemas)
 build/test-screensavers-mandatory-install.sh	common	-	fail-before/pass-after for the screensaver deb being apt-installed on every desktop image: mirror pre-flight and install hook (operator 2026-10-05; item S4; sources the builders sibling)
 build/test-screensavers-mandatory-install-builders.sh	common	-	sections 3-7 of the screensaver mandatory-install regression: mirror builder, layer pre-flights, live-update source, verifier contract, hook 57 retirement
