@@ -324,9 +324,9 @@ fi
 #
 # ncz-screensavers-plugin is intentionally NOT a row: there is no such published
 # package (Buildkite + R2 serve ncz-screensavers, ncz-singularity-desktop,
-# ncz-screensavers-gtk4-reference only). The Singularity screensaver plugin is
-# shipped INSIDE ncz-screensavers; seeding a separate, non-existent package
-# would silently fail the build.
+# ncz-screensavers-gtk4-reference only). The 0.8.9 engine deb ships no
+# plugin files -- the plugin is a separate ncz-screensavers-plugin package,
+# not yet published; seeding a non-existent package would fail the build.
 #
 # cixmini-boot Depends on ncz-usb-recovery, but the pool that has to satisfy
 # it offline is build/forky-vendor-mirror, not this one -- see the note above
