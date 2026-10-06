@@ -33,7 +33,7 @@ blacklist of accelerators"*.
     9010 revert (`7.3.0-rc6-1-t2-edge-aerfix`, the first pin of this policy)
     is kept only as a held fallback patch in amd64-kernel-t2. History and
     proof: `docs/reports/2026-10-05-amd64-edge-rc6-revert.md`.
-  - arm64/Sky1: `7.3.0-rc6-sky1-ncz` (r284) — `assets/kernel/mainline/KVER`
+  - arm64/Sky1: `7.3.0-rc6-sky1-ncz` (r285) — `assets/kernel/mainline/KVER`
     and `variants.mainline.kver` in `assets/kernel-manifest.json`.
 - The rescue entry is *redefined*, not removed: the "never delete a rescue
   entry" rule is satisfied by booting the same kernel with the accelerators
@@ -122,7 +122,7 @@ Implemented in this change:
   `build/verify-base-kernel-assets.sh`, `build/resolve-sky1-kernel-inputs.sh`
   and `build/preflight-freshness-gate.sh` carry the single 7.3 line only.
 - `assets/kernel/edge` (symlink) and `assets/kernel/amd64-edge/` are removed;
-  `assets/kernel/mainline` now points at the r284 7.3 build; the 7.2.9 overlay
+  `assets/kernel/mainline` now points at the r285 7.3 build; the 7.2.9 overlay
   `.ko` mirrors are retired (history in git). Manifests:
   `assets/kernel-manifest.json` (Sky1 mainline = 7.3.0-rc6-sky1-ncz),
   `assets/kernel/amd64-stable-manifest.json`, `assets/kernel/sky1-manifest.json`.
