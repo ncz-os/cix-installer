@@ -339,6 +339,24 @@ class Choose(unittest.TestCase):
             ).stdout.strip()
             self.assertEqual(out, "3072x1920")
 
+    def test_corrupt_jpeg_length_terminates(self):
+        with Sandbox() as sb:
+            bad = sb.tmp / "bad.jpg"
+            # SOI, then an APP0 whose length (0) is shorter than its own field
+            bad.write_bytes(b"\xff\xd8\xff\xe0\x00\x00" + b"\x00" * 64)
+            self.assertIsNone(fit.image_size(str(bad)))
+            sos = sb.tmp / "sos.jpg"
+            sos.write_bytes(b"\xff\xd8\xff\xda\x00\x08" + b"\x00" * 64)
+            self.assertIsNone(fit.image_size(str(sos)))
+
+    def test_zero_sizes_rejected(self):
+        with Sandbox() as sb:
+            a = str(sb.orig_dir / "a.jpg")
+            self.assertEqual(fit.choose(a, (3072, 0)), a)
+            sb.no_wlr()
+            sb.drm("card0-eDP-1", "connected", ["0x0"])
+            self.assertIsNone(fit.output_size())
+
     def test_cli_never_fails(self):
         with Sandbox() as sb:
             sb.no_wlr()

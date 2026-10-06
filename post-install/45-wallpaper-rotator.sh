@@ -621,6 +621,10 @@ LEGACY_CONF_DIR="$CONFIG_HOME/ncz-wallpaper"
 # or rotation change, and also re-fits an image chosen by the Singularity
 # shell's own rotator or the Settings wallpaper chooser (both write the
 # original 16:9 file). Rotation itself still happens once per interval.
+# Cost per tick: one gsettings read, one wlr-randr call and one short python3
+# run; GSettings is written only when the fitted file differs. A rotation
+# interval lowered below the time already elapsed rotates on the next tick,
+# the same as the old loop picking up a new interval after its sleep.
 TICK=15
 elapsed=0
 while true; do

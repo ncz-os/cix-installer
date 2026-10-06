@@ -245,14 +245,14 @@ for vdir in "$SRC"/*x*/; do
     vdest="/usr/share/ncz-wallpapers/aspect/$tag/$PACK"
     install -d "$WORK$vdest"
     vcount=0
-    for f in "$ART_DIR"/*; do
+    for f in "$ART_DIR"/*.jpg "$ART_DIR"/*.png "$ART_DIR"/*.svg; do
         [ -f "$f" ] || continue
         v="$vdir$(basename "$f")"
         [ -f "$v" ] || { echo "ERROR: $tag variant missing for $(basename "$f") in $vdir" >&2; exit 1; }
         install -m 0644 "$v" "$WORK$vdest/"
         vcount=$((vcount + 1))
     done
-    for v in "$vdir"*.jpg "$vdir"*.png; do
+    for v in "$vdir"*.jpg "$vdir"*.png "$vdir"*.svg; do
         [ -f "$v" ] || continue
         [ -f "$ART_DIR/$(basename "$v")" ] || { echo "ERROR: $tag variant $(basename "$v") has no original in $SRC" >&2; exit 1; }
     done
