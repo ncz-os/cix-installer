@@ -219,3 +219,113 @@ the commands and asserts that:
 - flat GPU stretches keep moving without leaving the step
 - the legacy owned range and every text-only fallback work
 - an unset `NCZ_PROGRESS_UNITS` never prints `bad number`
+
+## First boot
+
+The NVIDIA DKMS build already runs during the install, inside the GPU step
+above (`54-gpu-accel.sh` -> `ncz-cuda-setup` -> apt -> the
+`nvidia-kernel-open-dkms` postinst -> `dkms build`). It is not deferred on
+purpose. A DKMS package reaches first boot unconfigured only when that build
+did not finish: dpkg then leaves it `half-configured`, and the first-boot
+`dpkg --configure -a` in `ncz-firstboot` (ordered before the display
+manager) runs its postinst, and so the build, again.
+
+Measured on PEGASUS (r199, RTX 2060, kernel 7.3.0-rc6, 2026-10-06): the
+build failed at install with a compiler error after about 60 s
+(`os-interface.c:3031: error: passing argument 1 of
+'dmem_cgroup_register_region' makes pointer from integer without a cast`,
+NVIDIA 615.71.09 against the Linux 7.3 dmem cgroup API). First boot ran the
+identical build, which failed the identical way after about 60 s, and the
+login screen waited for it with nothing on screen. Nothing cut the build
+short: the unit has no start timeout and finished with `Result=success`.
+In r199 `ncz-cuda-setup.timer` then repeated the build in the background
+with backoff. Since fix/nvidia-dkms-73-20261006 it records the compiler
+error and rebuilds only when the kernel, its config, the driver or the local
+DKMS patches change, and the shipped dmem patch makes 615.71.09 build on 7.3.
+
+`post-install/lib/dkms-pending.sh` classifies each DKMS package dpkg left
+unconfigured:
+
+- `failed`: its `make.log` for this kernel holds a compiler `error:` line.
+  The same driver source, kernel headers and compiler produce the same error,
+  so first boot does not rerun it before the login screen.
+- `needed`: anything else (the build never ran, or stopped without a compiler
+  error). This build may succeed, so first boot runs it.
+
+### End of the install
+
+`preseed/late.sh` shows the `nclawzero/remove-media-gpu` variant of the last
+dialog (the remove-the-USB note) when there is a notice. Otherwise it shows
+the unchanged `nclawzero/remove-media`. The same text goes to the tty banner
+and the install log. Possible paragraphs:
+
+- needed: `First boot will finish setting up your GPU drivers (a DKMS build
+  of nvidia 615.71.09). The login screen may take several minutes to
+  appear. Do not power off.`
+- failed: `GPU driver build failed for this kernel (nvidia 615.71.09):
+  <first error line from make.log>. The desktop uses the open-source driver
+  for now; ncz-cuda-setup retries it automatically once the kernel or the
+  driver changes (status: ncz-cuda-setup status).` Without the NVIDIA retry
+  timer the last part reads `it is retried when the kernel or driver is
+  updated (or run: sudo dpkg --configure -a).`
+- the NVIDIA driver could not be downloaded at all (no network during the
+  install): `The NVIDIA driver could not be downloaded during the install.
+  It is downloaded and built in the background after first boot; restart
+  once it has finished (status: ncz-cuda-setup status).`
+
+For a DKMS module that is not a GPU driver (for example an Apple T2 or NPU
+module), the same lines say `drivers` / `Driver build failed ... The module
+is unavailable for now; ...` and make no claim about the desktop.
+
+The notice only names a duration of "several minutes". The full open-module
+build takes about 50 s on a 16-core build host and longer on a laptop CPU,
+and the initramfs refresh comes on top of that. It has not been timed end to
+end on target hardware.
+
+### During first boot
+
+`ncz-firstboot` runs `lib/firstboot-gpu.sh configure` in place of the bare
+`dpkg --configure -a`. If the helper is missing, it falls back to the bare
+command.
+
+- Nothing pending: `dpkg --configure -a`, no message.
+- failed: the failed DKMS packages are left out. Every other unconfigured
+  package is still configured, and dependents of a failed package stop at
+  once on a dependency error. The login screen is not held up. The status
+  line is `GPU driver build failed for this kernel (<module> <version>):
+  <error>. The desktop uses the open-source driver for now; ncz-cuda-setup
+  retries it automatically once the kernel or the driver changes (status:
+  ncz-cuda-setup status).`, the same sentence as at the end of the install.
+  For NVIDIA the package stays with ncz-cuda-setup, whose apt run
+  configures it again when its inputs change.
+- needed: the status line `Finishing GPU driver setup: DKMS build of
+  <module> <version>. The login screen appears when it is done (several
+  minutes). Do not power off.`, then live lines from `lib/gpu-progress.sh`'s
+  monitor (`GPU drivers: building nvidia 615.71.09 for kernel ... -
+  compiling 120/198 files, about 2 min left`), then either `GPU drivers
+  ready (...)` or the failure line. The login screen waits for this build on
+  purpose. On a machine whose only display GPU is the NVIDIA one, the
+  greeter would otherwise start without its driver. `ncz-firstboot.service`
+  has `TimeoutStartSec=infinity`, so the build is never cut short.
+
+After a successful first-boot build, an NVIDIA display device that no driver
+has claimed gets `modprobe nvidia-drm`, which is what udev would have done at
+boot if the module had existed. The status line then says `built and
+loaded`. If another driver already holds the device, the line says `It is
+used after the next restart.` Nothing reboots on its own.
+
+Where the lines go: `plymouth display-message` when `plymouth --ping`
+answers, otherwise `/dev/console`. Every line also goes to the journal
+(`journalctl -u ncz-firstboot`) and to `/var/log/ncz-firstboot-gpu.log`.
+amd64 images replace Plymouth with the native `singularity-boot-splash`.
+That splash has no message API and exits after at most about 22 s, so the
+console lines appear on the screen that would otherwise stay black. The
+helper repeats the current line every 15 s, so a line the splash painted
+over comes back.
+
+| file | role |
+|---|---|
+| `post-install/lib/dkms-pending.sh` | classification and install-end notice (POSIX sh; runs in d-i busybox against `/target`) |
+| `post-install/lib/firstboot-gpu.sh` | first-boot configure step, status relay, ready/failed line |
+| `preseed/extract-rootfs.sh`, `build/iso/patch-debootstrap-stub.py` | the two `ncz-firstboot` copies (the stub is the live one); both call the helper |
+| `build/test-firstboot-gpu.sh` | test (in `make parity`) |

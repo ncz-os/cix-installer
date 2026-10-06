@@ -204,6 +204,7 @@ build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debia
 build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kernel.sh (clean 7.3 trees pass; every Debian-kernel leak and wrong default fails)
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-late-npu-aipu.sh	common	-	late.sh NPU aipu overlay + modules-load test
+build/test-firstboot-gpu.sh	common	-	first-boot/install-end DKMS notice: needed vs failed classification, ASCII notice text, long fake build never cut with live console/plymouth status, failed build not rerun before login, twin wiring, late.sh dialog choice
 build/test-gpu-install-progress.sh	common	-	GPU/DKMS install-step feedback: step profiles, simulated growing DKMS make.log monitor, apt window scaling, late.sh weighted bar math and GPU screen line, run-all end to end
 build/test-progress-bar-drive.sh	common	-	late.sh drives finish-install's progress bar at runtime: stub debconf records PROGRESS, cdebconf model asserts forward-only to 100%, GPU weight, flat-stretch creep, text-only fallbacks, no bad number under sh/busybox/bash
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
@@ -341,7 +342,9 @@ post-install/buildkite-ncz-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/hooks.list.amd64	common	-	generated ordered hook list for platform amd64 (build/gen-hooks-lists.sh)
 post-install/hooks.list.sky1-arm64	common	-	generated ordered hook list for platform sky1-arm64 (build/gen-hooks-lists.sh)
 post-install/lib/bounded-run.sh	common	-	deadline runner that a D-state child cannot defeat (own session, output to a file, kill by PGID); used by run-all.sh for optional hooks and by 54-gpu-accel.sh
+post-install/lib/dkms-pending.sh	common	-	POSIX-sh classifier of DKMS packages dpkg left unconfigured (needed vs failed-with-compiler-error) and the install-end first-boot GPU notice; sourced by preseed/late.sh in d-i and by lib/firstboot-gpu.sh (docs/GPU-INSTALL-PROGRESS.md)
 post-install/lib/cuda-select.sh	amd64	nvidia-cuda	AMD64 GPU-family -> driver branch + CUDA toolkit selector sourced by 54-gpu-accel.sh and tested by build/test-amd64-cuda-gates.sh
+post-install/lib/firstboot-gpu.sh	common	-	ncz-firstboot package-configure step: live on-screen status for a needed first-boot DKMS build (reuses lib/gpu-progress.sh's monitor), skips builds that already failed with a compiler error at install, final ready/failed line (docs/GPU-INSTALL-PROGRESS.md)
 post-install/lib/gpu-progress.sh	mixed	-	GPU/DKMS install-step feedback for the d-i screen (named step, live DKMS build status, reserved bar weight); per-platform step profiles keyed on hook name + arch, the monitor itself is platform-neutral (docs/GPU-INSTALL-PROGRESS.md)
 post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
 post-install/lib/kernel-purity.sh	common	-	shared Debian-kernel apt preferences pin sourced by both kernel install hooks

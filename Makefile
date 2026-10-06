@@ -639,6 +639,7 @@ parity:
 	build/test-late-npu-aipu.sh
 	build/test-gpu-install-progress.sh
 	build/test-progress-bar-drive.sh
+	build/test-firstboot-gpu.sh
 	build/test-dkms-btf-toolchain.sh
 	build/test-fwupd-i2c-mask.sh
 	build/test-apt-sources-offline-canary.sh
