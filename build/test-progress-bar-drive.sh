@@ -210,6 +210,7 @@ $1 != "PROGRESS" { next }
     else { print "ERR unknown " c; next }
     if (!active) { print "ERR " c " with no bar"; next }
     if (cur > max) print "ERR overflow cur=" cur " max=" max
+    if (max <= min) { print "ERR empty range " min ".." max; next }
     f = int((cur - min) * 100000 / (max - min))
     if (f < settled) print "ERR regressed " settled " -> " f " at " tick
     pend = 0; settled = f
