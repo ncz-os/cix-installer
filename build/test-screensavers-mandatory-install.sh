@@ -145,18 +145,13 @@ if [ -r "$HOOK" ]; then
         bad "59-ncz-screensavers-pkg.sh does NOT enforce the version floor (FIX missing)"
     fi
 
-    # (d) the un-fixed branch was OK with ncz-screensavers-plugin; the fixed
-    #     branch must NOT require it (no such package is published).
-    if grep -q 'ncz-screensavers-plugin' "$HOOK" && grep -q 'NOT a separate published package' "$HOOK"; then
-        ok "59-ncz-screensavers-pkg.sh documents why ncz-screensavers-plugin is not required"
+    # (d) the hook must install EXACTLY ncz-screensavers -- the separate
+    #     ncz-screensavers-plugin package is not published yet, so the hook
+    #     must never apt-get install it (naming it in a comment is fine).
+    if grep -q '^PKG=ncz-screensavers$' "$HOOK" && ! grep -qE 'apt-get install .*ncz-screensavers-plugin' "$HOOK"; then
+        ok "59-ncz-screensavers-pkg.sh installs exactly ncz-screensavers (never the unpublished plugin package)"
     else
-        # the script does mention the package name in the "no candidate" loop
-        # historically; accept either absence OR a clear documentation comment
-        if grep -q 'ncz-screensavers-plugin' "$HOOK"; then
-            bad "59-ncz-screensavers-pkg.sh still requires ncz-screensavers-plugin (no such package)"
-        else
-            ok "59-ncz-screensavers-pkg.sh does not require ncz-screensavers-plugin"
-        fi
+        bad "59-ncz-screensavers-pkg.sh installs something other than exactly ncz-screensavers"
     fi
 
     # (e) headless / server variants still skip (regression check; the
@@ -234,27 +229,37 @@ done
 # ---------------------------------------------------------------------------
 S24="$ROOT/post-install/24-apt-sources.sh"
 if [ -r "$S24" ]; then
-    if grep -q 'NCZ-OS apt sources carry ncz-screensavers' "$S24"; then
-        ok "24-apt-sources.sh verifies NCZ-OS sources carry ncz-screensavers"
+    # The canary must distinguish an NCZ-OS *network* origin from the
+    # install-time /cdrom pool, otherwise it can pass while both live sources
+    # are dead (20-desktop.sh registers file:///cdrom before 24 runs).
+    if grep -q 'NCZ-OS apt sources carry ncz-screensavers' "$S24" \
+       && grep -q 'packages\.buildkite\.com/ncz-os/ncz' "$S24" \
+       && grep -q 'pub-d7b784e01679403d9c70fcd23fff5b96\.r2\.dev' "$S24" \
+       && grep -q 'only from the offline /cdrom pool' "$S24"; then
+        ok "24-apt-sources.sh proves the candidate comes from an NCZ-OS network source, not only /cdrom"
     else
-        bad "24-apt-sources.sh does NOT verify NCZ-OS sources carry ncz-screensavers"
+        bad "24-apt-sources.sh does NOT distinguish an NCZ-OS network origin from the offline /cdrom pool"
     fi
 fi
 
 # ---------------------------------------------------------------------------
 # (6) build/verify-installed-target.sh -- the post-install assertion. The
-#     fixed verifier looks for the engine + idle timer + shipped 74-row
-#     catalogue + Singularity plugin (sourced from inside ncz-screensavers)
-#     + idle daemon enabled + schema compiled + hack-id default =
-#     blackhole_gles3, AND does not require a separate ncz-screensavers-plugin
-#     package.
+#     fixed verifier asserts what the PUBLISHED 0.8.9 deb actually ships:
+#     the engine + idle timer + calibrator + schema + the shipped 74-title
+#     catalogue (each title backed by its binary) + idle daemon enabled +
+#     schema compiled + the operator "default saver = blackhole" rule
+#     (package schema default AND the effective Cygnus override), and treats
+#     the Singularity plugin files as required only when the separate
+#     (not-yet-published) ncz-screensavers-plugin package is installed.
 # ---------------------------------------------------------------------------
 VIT="$ROOT/build/verify-installed-target.sh"
 if [ -r "$VIT" ]; then
-    if grep -q 'ncz-screensavers-plugin is an UNPUBLISHED package' "$VIT"; then
-        ok "verify-installed-target.sh explicitly asserts no ncz-screensavers-plugin pkg"
+    # The plugin contract is CONDITIONAL: files are required only when the
+    # plugin package is installed (SS_PLUGIN non-empty), never unconditionally.
+    if grep -q 'if \[ -n "$SS_PLUGIN" \]' "$VIT" && ! grep -q 'shipped by ncz-screensavers' "$VIT"; then
+        ok "verify-installed-target.sh requires plugin files only when ncz-screensavers-plugin is installed"
     else
-        bad "verify-installed-target.sh still expects a ncz-screensavers-plugin pkg"
+        bad "verify-installed-target.sh still asserts plugin files unconditionally (the 0.8.9 engine deb ships none)"
     fi
 
     if grep -q 'need >= 74' "$VIT"; then
@@ -263,10 +268,35 @@ if [ -r "$VIT" ]; then
         bad "verify-installed-target.sh does NOT assert the 74-title catalogue"
     fi
 
-    if grep -q "must be blackhole\|default saver must be blackhole" "$VIT"; then
-        ok "verify-installed-target.sh asserts default saver == blackhole"
+    # every catalogue title must have its binary
+    if grep -q 'has no binary /usr/lib/ncz-screensavers/' "$VIT"; then
+        ok "verify-installed-target.sh asserts each catalogue title has its binary"
     else
-        bad "verify-installed-target.sh does NOT assert default saver == blackhole"
+        bad "verify-installed-target.sh does NOT check catalogue binaries exist"
+    fi
+
+    # the version floor is enforced from the single source of truth
+    if grep -q 'NCZ_SCREENSAVERS_MIN_VERSION' "$VIT" && grep -q 'compare-versions' "$VIT"; then
+        ok "verify-installed-target.sh enforces the version floor from screensavers-version.env"
+    else
+        bad "verify-installed-target.sh does NOT enforce the version floor"
+    fi
+
+    # both parity facts are emitted (screensaver_plugin_version was dropped by
+    # an earlier draft, breaking verify-dual-arch-parity.sh's fact comparison)
+    if grep -q '\[fact\] screensaver_plugin_version=' "$VIT"; then
+        ok "verify-installed-target.sh emits the screensaver_plugin_version fact"
+    else
+        bad "verify-installed-target.sh does NOT emit the screensaver_plugin_version fact (parity check breaks)"
+    fi
+
+    # the effective default: the package schema default is mode='off', so the
+    # Cygnus override (mode='one' + blackhole + cygnus palette) is what makes
+    # "default saver = blackhole" true end to end.
+    if grep -q "99-ncz-cygnus-screensaver.gschema.override" "$VIT" && grep -q "blackhole-color-mode='cygnus'" "$VIT"; then
+        ok "verify-installed-target.sh asserts the effective Cygnus blackhole default"
+    else
+        bad "verify-installed-target.sh does NOT assert the effective (Cygnus override) default saver"
     fi
 fi
 
