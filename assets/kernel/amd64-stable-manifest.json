@@ -21,7 +21,34 @@
     "applied_patch_count": 20,
     "kernel_ref": "t2base/rc6 (= v7.3-rc6)",
     "build_host": "ACHILLES, podman debian:trixie (container root@f565cd2049a0)",
-    "built_utc": "2026-10-06T03:11:32Z"
+    "built_utc": "2026-10-06T03:11:32Z",
+    "base_commit_note": "a90ee4305c4a = v7.3-rc6 (PROVENANCE source_commit). The rc6-1 manifest recorded 76596e0d, the t2base/rc6-aerfix branch commit (rc6 plus the committed 9010 revert); this build applies all patches from patches/ instead.",
+    "applied_patches": [
+      "1001",
+      "1002",
+      "1003",
+      "2008",
+      "2009",
+      "4001",
+      "4003",
+      "4004",
+      "5001",
+      "5002",
+      "6001",
+      "6002",
+      "7001",
+      "8001",
+      "8002",
+      "9001",
+      "9002",
+      "9011",
+      "9503",
+      "9504"
+    ],
+    "held_not_applied": [
+      "9010",
+      "9507"
+    ]
   },
   "artifacts": {
     "linux-image-7.3.0-rc6-3-t2-edge-aer9011_7.3.0-rc6-3_amd64.deb": {
@@ -57,5 +84,6 @@
     "initramfs_check": "PASS (dpkg -i + initramfs-tools: initrd modules only from this KVER, 839 modules byte-identical to the image deb)",
     "kvm_gate": "PASS x2 (OVMF EFI boot, efivarfs 21/21 read, pstore backend efi_pstore, T2 in-tree stack loads, DKMS t2smc/t2gmux load unsigned, a t2smc copy with one corrupted symbol CRC is refused, no oops (t2bce_ave now -EPROBE_DEFER via 1003); dpm watchdog N by default, Y with pm.dpm_watchdog_enabled=1)"
   },
-  "hardware_note": "Not yet booted on T2 hardware. The 9010 build (rc6-1) booted on MEDUSA without the power cut; a diagnostic kernel showed 106b:1802 ANFE masking alone kept MEDUSA up past 120 s. MEDUSA confirmation of this exact build is pending."
+  "hardware_note": "Not yet booted on T2 hardware. The 9010 build (rc6-1) booted on MEDUSA without the power cut; a diagnostic kernel showed 106b:1802 ANFE masking alone kept MEDUSA up past 120 s. MEDUSA confirmation of this exact build is pending.",
+  "build_rev_note": "build_rev names the rc6 build tree (staging parent dir created 2026-10-04 for the rc6 port); this revision was built and staged on 2026-10-06 in its own subdir."
 }
