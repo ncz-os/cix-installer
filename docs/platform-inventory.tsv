@@ -124,13 +124,13 @@ build/verify-no-debian-kernel.sh	common	-	fails closed if a Debian 7.1.x/linux-i
 build/fixtures/	common	-	static fixture data for build gates
 build/check-preseed-mirror-sync.sh	common	-	preseed mirror vs release.conf gate
 build/component-prompt-gate.sh	common	-	interactive component prompt gate
-build/components.py	common	-	components.tsv drift check / report / diff-published (pure Python 3 stdlib; NOT wired into CI; see docs/components-registry.md)
+build/components.py	common	-	components.tsv drift check / report / diff-published; phase 2 check --gate is wired into make parity and lint-platform
 build/containers/	common	-	build container definitions
 build/dkms-abi-gate.sh	sky1	-	staged headers vs Sky1 kernel gate
 build/e2e-install-test.sh	common	-	unattended install test driver
 build/extract-kernel-headers.sh	sky1	-	Sky1 kernel headers asset
 build/first-boot-failed-allowlist.txt	common	-	KVM gate first-boot allowlist
-build/gen-components-registry.py	common	-	deterministic generator for manifests/components.tsv (manifests + NCZ_LOCAL_DEBS + KERNEL-POLICY + t2 dkms.conf + sky1-manifest overlays; edge channel retired)
+build/gen-components-registry.py	common	-	deterministic generator for manifests/components.tsv (manifests + NCZ_LOCAL_DEBS + KERNEL-POLICY + sky1/amd64 manifests + t2 dkms.conf; edge channel retired)
 build/gen-branding-assets.py	common	-	branding art generator
 build/gen-hooks-lists.sh	common	-	generates post-install/hooks.list.<platform> from the inventory
 build/gen-maximilian-art.py	common	-	procedural art generator
@@ -199,6 +199,8 @@ build/test-arm64-freshness-gate.sh	sky1	-	arm64 unified-7.3 freshness gate test
 build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test (incl. overlay MODVERSIONS wiring)
 build/test-boot-speed.sh	common	-	regression tests for boot-blocking systemd units (docs/BOOT-SPEED.md)
 build/test-components.sh	common	-	hermetic fixture test for build/components.py check (pristine passes; injected drifts fail)
+build/test-components-gate.sh	common	-	hermetic fail-before/pass-after for components.py check --gate (phase 2)
+build/test-components-generate.sh	common	-	hermetic fail-before/pass-after for the phase 3 registry generators (seeds, NCZ_LOCAL_DEBS, allowlist)
 build/test-dual-arch-parity.sh	common	-	fixture tests for the parity gates
 build/test-hostname-suggest.sh	common	-	hostname algorithm tests
 build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier test

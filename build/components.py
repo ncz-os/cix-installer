@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""build/components.py — phase 1 component drift check / inventory / publish-diff.
+"""build/components.py — component drift check / inventory / publish-diff.
 
-Operator directive 2026-10-05 (Item C1, phase 1). Pure Python 3 stdlib;
-runs on STUDIO (macOS) and on the Linux build hosts; deterministic output
-(no timestamps, stable sort order). Phase 1: NOT wired into CI or any
-build.
+Operator directive 2026-10-05 (Item C1). Pure Python 3 stdlib; runs on
+STUDIO (macOS) and on the Linux build hosts; deterministic output (no
+timestamps, stable sort order). Phase 2 wires `check` into `make parity`
+and `make lint-platform`. The two seed-published findings that are
+documented pre-AC gaps (chromium-ncz-sky1, ncz-ffmpeg) are waived until
+the published-artifacts table lists them; every other error fails the gate.
 
 Usage:
   components.py [--root DIR] [--registry PATH] check [--report-out PATH] [--no-exit]
@@ -83,6 +85,22 @@ VALID_SOURCES_PREFIX = (
 VALID_ARCHES = {"all", "arm64", "amd64"}
 VALID_VARIANTS = {"desktop", "installer", "mgmt", "rescue", "server", "all"}
 VALID_REQUIRED = {"yes", "no"}
+
+# Phase 2 gate waivers. These are real findings, not silent drops: `check`
+# still prints them. `check --gate` (the parity / lint-platform entry) does
+# not fail the build on them, because the published-artifacts table is
+# incomplete and phase 2 must not invent a publication.
+#
+#   chromium-ncz-sky1, ncz-ffmpeg: seeded in desktop.pkgs, resolve from the
+#   live NCZ apt repo, absent from the item AC published-artifacts table
+#   (docs/components-registry.md open question 2). Proposed fix: add both
+#   names to that table. Not done here.
+#
+# ncz-screensavers-plugin is NOT waived and must not be a required row.
+GATE_WAIVED = {
+    ("seed-published", "chromium-ncz-sky1"),
+    ("seed-published", "ncz-ffmpeg"),
+}
 
 # Names in the NCZ-apt namespace (custom-built debs), same rule as the
 # generator: ncz-*, cix-*, or *-ncz-*.
@@ -611,7 +629,7 @@ def cmd_check(ctx, args):
     errors = [f for f in findings if f[0] == "error"]
     warnings = [f for f in findings if f[0] == "warn"]
     findings.sort(key=lambda f: (f[0], f[1], f[2]))
-    print("components.py check -- phase 1 (operator 2026-10-05)")
+    print("components.py check -- phases 1-3 (operator 2026-10-05)")
     print(f"root: {ctx.root}")
     print(f"registry: {ctx.registry}")
     print(f"rows: {len(rows)}")
@@ -647,7 +665,23 @@ def cmd_check(ctx, args):
                 fh.write("\n")
         print(f"\ndrift report written: {report_path}")
 
-    if errors and not args.no_exit:
+    blocking = errors
+    if getattr(args, "gate", False):
+        blocking = []
+        for sev, code, msg in errors:
+            waived = False
+            for wcode, wname in GATE_WAIVED:
+                if code == wcode and f"'{wname}'" in msg:
+                    waived = True
+                    break
+            if not waived:
+                blocking.append((sev, code, msg))
+        if blocking:
+            print(f"\ngate: {len(blocking)} unwaived error(s); refusing")
+        elif errors:
+            print(f"\ngate: {len(errors)} error(s), all in the documented "
+                  f"waiver set; not failing the build")
+    if blocking and not args.no_exit:
         raise SystemExit(1)
     return 0
 
@@ -715,6 +749,35 @@ def cmd_report(ctx, args):
 # ---------------------------------------------------------------------------
 
 
+def cmd_query(ctx, args):
+    """Print one field of the rows matching name/kind. For build scripts.
+
+    Exit 2 when nothing matches, so a caller that expected a row fails
+    closed. Multiple matches print one line each (stable registry order).
+    """
+    _, rows = ctx.load_registry()
+    want_kind = getattr(args, "kind", None)
+    field = args.field
+    if field not in HEADER:
+        print(f"error: unknown field {field!r}", file=sys.stderr)
+        raise SystemExit(2)
+    hits = []
+    for r in rows:
+        if r["name"] != args.name:
+            continue
+        if want_kind and r["kind"] != want_kind:
+            continue
+        hits.append(r[field])
+    if not hits:
+        print(f"error: no registry row for name={args.name!r}"
+              + (f" kind={want_kind!r}" if want_kind else ""),
+              file=sys.stderr)
+        raise SystemExit(2)
+    for hit in hits:
+        print(hit)
+    return 0
+
+
 def cmd_diff_published(ctx, args):
     _, rows = ctx.load_registry()
     degraded, published = ctx.published()
@@ -771,7 +834,7 @@ def cmd_diff_published(ctx, args):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(
-        description="NCZ-OS component registry tools (Item C1, phase 1)",
+        description="NCZ-OS component registry tools (Item C1, phases 1-3)",
     )
     ap.add_argument("--root", default=None,
                     help="repo root (default: parent of the build/ dir "
@@ -786,12 +849,24 @@ def main(argv=None):
                          help="also write the drift report to this path")
     p_check.add_argument("--no-exit", action="store_true",
                          help="do not exit non-zero on errors (still prints them)")
+    p_check.add_argument("--gate", action="store_true",
+                         help="phase 2 build gate: exit 0 when the only "
+                              "errors are the documented GATE_WAIVED findings")
     p_check.set_defaults(func=cmd_check)
 
     p_report = sub.add_parser("report", help="print image contents for arch/variant")
     p_report.add_argument("--arch", required=True, choices=sorted(VALID_ARCHES))
     p_report.add_argument("--variant", required=True)
     p_report.set_defaults(func=cmd_report)
+
+    p_query = sub.add_parser(
+        "query",
+        help="print one field of the row(s) matching --name [--kind]",
+    )
+    p_query.add_argument("--name", required=True)
+    p_query.add_argument("--kind", default=None, choices=sorted(VALID_KINDS))
+    p_query.add_argument("--field", required=True, choices=list(HEADER))
+    p_query.set_defaults(func=cmd_query)
 
     p_diff = sub.add_parser("diff-published",
                             help="compare ncz-apt rows against the item AC "
