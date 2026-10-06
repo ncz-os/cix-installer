@@ -6,8 +6,11 @@
 # ---------------
 # Tonight's 2026-08-26 0700-root incident audit identified a structural gap:
 # preseed/extract-rootfs.sh and the r159 layered-squashfs branch baked into
-# the /usr/sbin/debootstrap stub in build-iso-di.sh are TWO COPIES of the
-# same install-time extraction logic. They have already diverged three times
+# the /usr/sbin/debootstrap stub are TWO COPIES of the same install-time
+# extraction logic. The live stub is the R159_STUB_SCRIPT string in
+# build/iso/patch-debootstrap-stub.py, which the raw GPT image build
+# (build/build-installer-image.sh) stages into the debootstrap udeb; it was
+# copied from the heredoc of the retired monolithic d-i builder. They have already diverged three times
 # (round 1 fixed the dead twin and it shipped nowhere, round 3 fixed the live
 # twin and shipped). The ideal unification (one source, embedded at build
 # time) is structurally invasive: the stub's r159 branch is ~430 lines of
@@ -19,9 +22,9 @@
 # The CONSISTENCY GATE is the cheaper mechanical alternative: it does not
 # unify the two copies, but it FAILS THE BUILD whenever their logical
 # content has drifted, so a "fix made in extract-rootfs.sh and forgotten in
-# the stub" (round-1's failure mode) cannot reach a shipped ISO without a
-# loud build-time failure. See docs/ISO-BUILD-GUARDRAILS.md's "dead-code
-# twin" trap entry for the incident this closes.
+# the stub" (round-1's failure mode) cannot reach a shipped image without a
+# loud failure. See docs/ISO-BUILD-GUARDRAILS.md's "dead-code twin" trap
+# entry for the incident this closes.
 #
 # What "consistency" means
 # ------------------------
@@ -40,9 +43,11 @@
 # Usage
 # -----
 #   bash build/check-extract-rootfs-consistency.sh \
-#       --build-iso-di build/build-iso-di.sh \
-#       --extract-rootfs preseed/extract-rootfs.sh \
+#       [--stub build/iso/patch-debootstrap-stub.py] \
+#       [--extract-rootfs preseed/extract-rootfs.sh] \
 #       [--strict|--loose]
+#
+# Both paths default to the files shown (relative to the repo root).
 #
 # --strict (default): fail on any non-whitespace, non-comment diff after
 #                     normalization (including logging text differences).
@@ -53,12 +58,13 @@
 
 set -euo pipefail
 
-BUILD_ISO_DI=""
-EXTRACT_ROOTFS=""
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+STUB_SRC="$REPO/build/iso/patch-debootstrap-stub.py"
+EXTRACT_ROOTFS="$REPO/preseed/extract-rootfs.sh"
 STRICT=1
 while [ $# -gt 0 ]; do
     case "$1" in
-        --build-iso-di)    BUILD_ISO_DI="$2"; shift 2 ;;
+        --stub)            STUB_SRC="$2"; shift 2 ;;
         --extract-rootfs)  EXTRACT_ROOTFS="$2"; shift 2 ;;
         --strict)          STRICT=1; shift ;;
         --loose)           STRICT=0; shift ;;
@@ -70,24 +76,23 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[ -n "$BUILD_ISO_DI" ]    || { echo "ERROR: --build-iso-di required" >&2; exit 2; }
-[ -n "$EXTRACT_ROOTFS" ]  || { echo "ERROR: --extract-rootfs required" >&2; exit 2; }
-[ -f "$BUILD_ISO_DI" ]    || { echo "ERROR: $BUILD_ISO_DI not a file" >&2; exit 2; }
+[ -f "$STUB_SRC" ]        || { echo "ERROR: $STUB_SRC not a file" >&2; exit 2; }
 [ -f "$EXTRACT_ROOTFS" ]  || { echo "ERROR: $EXTRACT_ROOTFS not a file" >&2; exit 2; }
 
 # ---------------------------------------------------------------------------
-# Step 1: locate the r159 branch in build-iso-di.sh's stub heredoc.
-# The stub heredoc opens with `cat > $DEBOOTSTRAP_PATCH_DATA/usr/sbin/debootstrap <<'STUB'`
-# (or STUB_HEAD after the r190 refactor -- either marker identifies the
-# heredoc body), runs to the `STUB` / `STUB_TAIL` terminator. The r159 branch
-# inside is the `if [ -n "$SQDIR" ]` (or `$SQFS_DIR`) block, which we extract
-# by line range.
+# Step 1: locate the r159 branch in the live stub source.
+# The stub is the raw string that opens with `R159_STUB_SCRIPT = r"""` in
+# build/iso/patch-debootstrap-stub.py and runs to the first following line
+# that is exactly `"""`. The r159 branch inside is bounded by comment anchors.
 # ---------------------------------------------------------------------------
-echo "[consistency] locating r159 branch in $BUILD_ISO_DI"
-STUB_HEREDOC_START=$(grep -n "<<'STUB'\|<<'STUB_HEAD'" "$BUILD_ISO_DI" | head -1 | cut -d: -f1 || true)
-STUB_HEREDOC_END=$(grep -nE "^STUB$|^STUB_HEAD$" "$BUILD_ISO_DI" | head -1 | cut -d: -f1 || true)
+echo "[consistency] locating r159 branch in $STUB_SRC"
+STUB_HEREDOC_START=$(grep -n '^R159_STUB_SCRIPT = r"""' "$STUB_SRC" | head -1 | cut -d: -f1 || true)
+STUB_HEREDOC_END=""
+if [ -n "$STUB_HEREDOC_START" ]; then
+    STUB_HEREDOC_END=$(awk -v start="$STUB_HEREDOC_START" 'NR > start && /^"""$/ { print NR; exit }' "$STUB_SRC")
+fi
 if [ -z "$STUB_HEREDOC_START" ] || [ -z "$STUB_HEREDOC_END" ]; then
-    echo "ERROR: could not locate stub heredoc in $BUILD_ISO_DI" >&2
+    echo "ERROR: could not locate R159_STUB_SCRIPT in $STUB_SRC" >&2
     exit 2
 fi
 echo "  stub heredoc body: lines ${STUB_HEREDOC_START}..${STUB_HEREDOC_END}"
@@ -97,9 +102,9 @@ echo "  stub heredoc body: lines ${STUB_HEREDOC_START}..${STUB_HEREDOC_END}"
 # `# Find rootfs.tar.zst` legacy fallback. We use comment anchors so the
 # check survives cosmetic reformatting of the heredoc.
 STUB_R159_START=$(awk -v start="$STUB_HEREDOC_START" -v end="$STUB_HEREDOC_END" \
-    'NR >= start && NR <= end && /^# r159/ { print NR; exit }' "$BUILD_ISO_DI")
+    'NR >= start && NR <= end && /^# r159/ { print NR; exit }' "$STUB_SRC")
 STUB_R159_END=$(awk -v start="$STUB_HEREDOC_START" -v end="$STUB_HEREDOC_END" \
-    'NR >= start && NR <= end && /^# Find rootfs.tar.zst/ { print NR-1; exit }' "$BUILD_ISO_DI")
+    'NR >= start && NR <= end && /^# Find rootfs.tar.zst/ { print NR-1; exit }' "$STUB_SRC")
 if [ -z "$STUB_R159_START" ] || [ -z "$STUB_R159_END" ]; then
     echo "ERROR: could not bound r159 branch in stub heredoc (start=${STUB_R159_START:-?} end=${STUB_R159_END:-?})" >&2
     exit 2
@@ -146,7 +151,7 @@ trap "rm -f '$NORM_STUB' '$NORM_EXT'" EXIT
 #   - logging-prefix stripping (the literal "I: r159 stub: " / "W: r159 stub: "
 #     / "FATAL: r159 stub: " / "FATAL: rootmode stub: " prefixes that the stub
 #     uses; extract-rootfs.sh uses the equivalent "I: extract-rootfs.sh: " etc.)
-python3 - "$BUILD_ISO_DI" "$STUB_R159_START" "$STUB_R159_END" "$NORM_STUB" <<'PY'
+python3 - "$STUB_SRC" "$STUB_R159_START" "$STUB_R159_END" "$NORM_STUB" <<'PY'
 import re, sys
 path, start_s, end_s, out = sys.argv[1:5]
 start = int(start_s); end = int(end_s)
@@ -234,7 +239,7 @@ echo "================================================================"
 echo "  CONSISTENCY CHECK FAILED"
 echo "================================================================"
 echo
-echo "The r159 layered-squashfs branch in $BUILD_ISO_DI (the LIVE path"
+echo "The r159 layered-squashfs branch in $STUB_SRC (the LIVE path"
 echo "baked into the /usr/sbin/debootstrap stub) and the equivalent branch"
 echo "in $EXTRACT_ROOTFS (the dead twin) have drifted."
 echo
@@ -261,8 +266,9 @@ if [ "$STRICT" = "1" ]; then
     echo
     exit 1
 else
-    # Temporary 2026-08-26 escape hatch: build-iso-di.sh is wired to --loose
-    # because --strict exposed pre-existing drift that needs a reviewed sync.
+    # Temporary 2026-08-26 escape hatch: the (since retired) monolithic d-i
+    # builder called this gate with --loose because --strict exposed
+    # pre-existing drift that needs a reviewed sync.
     # Loose mode must still catch NEW drift, so it only permits the exact
     # current normalized diff body. Exclude the first two unified-diff header
     # lines because they contain mktemp paths and timestamps.
@@ -296,10 +302,20 @@ else
     # was backported into the LIVE stub in this pass -- doing so safely
     # needs a real boot-tested change to boot-critical code, which is
     # properly its own follow-up (recommended: port msg()/SER + the WARNING
-    # message into the stub, verified via build/kvm-install-gate.sh), not
+    # message into the stub, verified via build/kvm-install-gate-gpt.sh), not
     # something to bundle into a gate-unblocking pass. Once that lands,
     # this baseline should go back to empty and the gate tightened to
-    # --strict per build-iso-di.sh's own standing TODO comment.
+    # --strict.
+    #
+    # 2026-10-06: the gate now reads the live stub (R159_STUB_SCRIPT in
+    # build/iso/patch-debootstrap-stub.py) instead of the retired builder's
+    # heredoc, and nothing in the image build calls it; run it by hand. The
+    # baseline below was recorded against the retired heredoc and already
+    # failed against it on release/26.10-candidate-b2-20261006 (fingerprint
+    # 47097794...). Against the live stub the fingerprint is e44ab6b6...
+    # (the live stub also carries the raw-GPT /cdrom apt-source block that
+    # the dead twin lacks). The baseline is deliberately NOT moved: that
+    # needs the reviewed sync described above, not a mechanical re-anchor.
     KNOWN_LOOSE_DIFF_SHA256="e7fea7062bbf9fb44c305dcfe8226b649650ed0519cd6fc285ec3db1ea0798fd"
     LOOSE_DIFF_SHA256=$(tail -n +3 /tmp/ncz-consistency-diff.txt | sha256sum | awk '{print $1}')
     if [ "$LOOSE_DIFF_SHA256" = "$KNOWN_LOOSE_DIFF_SHA256" ]; then

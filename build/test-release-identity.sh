@@ -1,7 +1,8 @@
 #!/bin/bash
 # test-release-identity.sh -- regression tests for the 26.10 Cygnus identity
 # sweep. Every check here failed before the sweep:
-#   * the ISO-repack gates stamped NCZ_MAXIMILIAN regardless of release.conf;
+#   * the (since retired) ISO-repack gates stamped NCZ_MAXIMILIAN regardless
+#     of release.conf; the raw GPT image writers now carry that guard;
 #   * the recovery-container banner said "MAXIMILIAN";
 #   * the logo slot shipped LOGO=ncz / ncz.png, not the approved Cygnus mark;
 #   * the installed rEFInd titles omitted the codename;
@@ -45,19 +46,22 @@ check_eq "helper tracks a synthetic release.conf (label)" \
 check_eq "helper tracks a synthetic release.conf (volid)" \
     "$(bash -c ". '$T/build/lib/release-identity.sh'; printf '%s' \"\$NCZ_ISO_VOLUME_ID\"")" "NCZ_TESTBIRD"
 
-# ---- no ISO-repack gate hardcodes a codename --------------------------------
-GATES=(
-    build/kvm-install-gate.sh
-    build/kvm-install-gate-amd64.sh
-    build/component-prompt-gate.sh
-    build/qemu-test-console-patch.sh
-    build/qemu-test-interactive-patch.sh
+# ---- no raw GPT image writer or gate hardcodes a codename -------------------
+# The installer media is the raw GPT .img written by build-installer-image.sh;
+# its visible identity (the rEFInd boot menu) is derived from release.conf by
+# build-refind-esp.py. None of these may carry a stale literal codename.
+WRITERS=(
+    build/build-installer-image.sh
+    build/iso/build-refind-esp.py
+    build/iso/write-usb-image.py
+    build/kvm-install-gate-gpt.sh
 )
-for g in "${GATES[@]}"; do
+for g in "${WRITERS[@]}"; do
     check_nolive "$ROOT/$g" "NCZ_MAXIMILIAN" "$g: no hardcoded NCZ_MAXIMILIAN label"
-    check_grep  "$ROOT/$g" "release-identity.sh" "$g: sources the shared identity helper"
-    check_grep  "$ROOT/$g" "NCZ_ISO_VOLUME_ID" "$g: uses the derived volume id"
+    check_nolive "$ROOT/$g" "Maximilian" "$g: no hardcoded Maximilian codename"
 done
+check_grep "$ROOT/build/iso/build-refind-esp.py" 'REPO_ROOT / "release.conf"' "build-refind-esp.py: reads release.conf"
+check_grep "$ROOT/build/iso/build-refind-esp.py" 'rel.get("NCZ_RELEASE_CODENAME"' "build-refind-esp.py: boot menu derives the codename from release.conf"
 
 # ---- recovery-container banner derives from release.conf --------------------
 check_nolive "$ROOT/build/build-mgmt-rootfs.sh" "MAXIMILIAN" "build-mgmt-rootfs.sh: banner no longer hardcodes MAXIMILIAN"

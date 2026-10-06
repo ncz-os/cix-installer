@@ -29,13 +29,10 @@ describe() {   # label path
 
 cd "$ROOT" || exit 2
 
-# 1. build-iso-di.sh: installer + staged shipping kernel
-eval "$(grep -E '^(NEXT_KERN|NEXT_TGZ|NEXT_KVER_FILE)=' build/build-iso-di.sh)"
-describe "build-iso-di NEXT_KERN" "$NEXT_KERN"
-describe "build-iso-di NEXT_TGZ" "$NEXT_TGZ"
-say "build-iso-di KVER_NEXT" "$(cat "$NEXT_KVER_FILE" 2>/dev/null || echo MISSING)"
+# The retired monolithic d-i builder used to be consumer 1 here; it is gone
+# (2026-10-06). The installer kernel of the raw GPT image is consumer 4 below.
 
-# 2. build-kernel-debs.sh: package revision + KVER + gate image
+# 1. build-kernel-debs.sh: package revision + KVER + gate image
 rev_block="$(awk '/^_[A-Z]+_LINK="\$\(readlink/{f=1} f{print} /^BUILD_REV=/{exit}' build/build-kernel-debs.sh)"
 kver_fn="$(awk '/^resolve_kver\(\) \{/{f=1} f{print} f&&/^}/{exit}' build/build-kernel-debs.sh)"
 kver_line="$(grep -E '^KVER_NEXT="\$\{KVER_NEXT:-\$\(resolve_kver ' build/build-kernel-debs.sh)"
@@ -52,23 +49,23 @@ ASSETS="$ROOT/assets/kernel"
 eval "gate_img=$gate_img"
 describe "build-kernel-debs KVM-gated Image" "$gate_img"
 
-# 3. build-squashfs-layers.sh: the KVER_NEXT sidecar source (the unified 7.3
+# 2. build-squashfs-layers.sh: the KVER_NEXT sidecar source (the unified 7.3
 #    mainline pointer; the retired KVER_EDGE/edge channel is gone)
 side_src="$(grep -E 'sudo cp .*KVER_NEXT"' build/build-squashfs-layers.sh | grep -oE '"\$ROOT/assets/kernel/[a-z-]+/KVER"' | head -1)"
 eval "side_src=$side_src"
 say "squashfs KVER_NEXT sidecar source" "$side_src -> $(cat "$side_src" 2>/dev/null || echo MISSING)"
 
-# 4. Makefile kernel-debs freshness key
+# 3. Makefile kernel-debs freshness key
 mk_kver="$(grep -oE '"\$\(ROOT\)/assets/kernel/[a-z-]+/KVER"' Makefile | head -1 | sed 's/\$(ROOT)/$ROOT/')"
 eval "mk_kver=$mk_kver"
 say "Makefile kernel-debs freshness KVER" "$mk_kver -> $(cat "$mk_kver" 2>/dev/null || echo MISSING)"
 
-# 5. build-installer-image.sh (incremental assembler) kernel
+# 4. build-installer-image.sh (raw GPT image assembler) kernel
 inst_img="$(grep -oE '"\$ROOT/assets/kernel/[a-z-]+/Image-cixmini.bin"' build/build-installer-image.sh | head -1)"
 eval "inst_img=$inst_img"
 describe "build-installer-image kernel" "$inst_img"
 
-# 6. vendor-mirror pin (absent before 2026-09-29)
+# 5. vendor-mirror pin (absent before 2026-09-29)
 if grep -q 'check-kernel-deb-pin.sh' build/build-vendor-mirror.sh 2>/dev/null; then
     pin="$(grep -oE 'SKY1_KVER_FILE:-[^}]+' build/build-vendor-mirror.sh | head -1 | sed 's/^SKY1_KVER_FILE:-//; s/\$REPO/$ROOT/')"
     eval "pin=$pin"
