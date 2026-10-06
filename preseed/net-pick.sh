@@ -23,19 +23,32 @@
 #                     own "no network interfaces" error instead of anything here hanging.
 #
 # Ranking (unchanged from the inline scan it replaces): PCI wired 1 < USB wired 2 < other 3 < QEMU-style
-# ac:de:48:00:11:22 4; wireless 9 is never picked. A PCI NIC with carrier ends the scan at once; otherwise the
-# scan keeps polling for $SETTLE s (25 s when a PCI Ethernet controller exists, its autoneg can take 9-13 s;
-# 3 s when there is none) before settling for the best candidate seen, and gives up after $MAXWAIT s.
+# ac:de:48:00:11:22 4; wireless 9 is never picked. A PCI NIC with carrier ends the scan at once. Otherwise:
+#   * a real wired candidate (PCI or USB, rank <= 2) already has carrier -> settle after $CARRIER_SETTLE s
+#     (5 s). Before 2026-10-06 this waited the full PCI settle (25 s) for a cable-less onboard NIC that never
+#     came up: PEGASUS (USB NIC with carrier at 6.6 s kernel time, cable-less eno2) sat in early_command from
+#     14:17:59 to 14:18:26. Picking the USB NIC when the onboard NIC ALSO had a cable that was still
+#     negotiating costs nothing: both reach the same network.
+#   * only a weak candidate (rank 3/4, e.g. the T2 iBridge NCM link that always reports carrier) -> keep
+#     polling for $SETTLE s (25 s when a PCI Ethernet controller exists, its autoneg can take 9-13 s; 3 s when
+#     there is none) before settling for it.
+#   * no wired network adapter exists at all after $NOIF_WAIT s (10 s; O6N in DT PCIe mode saw only lo and the
+#     old loop printed "Waiting for a wired network link... (45s)") -> stop and say so, with the diagnostics
+#     hint, instead of counting to $MAXWAIT.
+#   * adapters exist but none has carrier -> give up after $MAXWAIT s (20 s, above the slowest measured
+#     autoneg). netcfg keeps its preseeded 60 s link wait afterwards, so a cable plugged in late still works.
 #
 # Test seams: NCZ_CONFMODULE, NCZ_SYS_NET, NCZ_SYS_PCI, NCZ_NET_STATE, NCZ_NET_TICK, NCZ_NET_MAXWAIT,
-# NCZ_NET_SETTLE, NCZ_NET_TTY, NCZ_IP, NCZ_IS_MAC.
+# NCZ_NET_SETTLE, NCZ_NET_CARRIER_SETTLE, NCZ_NET_NOIF_WAIT, NCZ_NET_TTY, NCZ_IP, NCZ_IS_MAC.
 . "${NCZ_CONFMODULE:-/usr/share/debconf/confmodule}" 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
 
 SYSNET="${NCZ_SYS_NET:-/sys/class/net}"
 SYSPCI="${NCZ_SYS_PCI:-/sys/bus/pci/devices}"
 STATE="${NCZ_NET_STATE:-/tmp/.ncz-picked-if}"
 TICK="${NCZ_NET_TICK:-1}"
-MAXWAIT="${NCZ_NET_MAXWAIT:-45}"
+MAXWAIT="${NCZ_NET_MAXWAIT:-20}"
+CARRIER_SETTLE="${NCZ_NET_CARRIER_SETTLE:-5}"
+NOIF_WAIT="${NCZ_NET_NOIF_WAIT:-10}"
 TTY="${NCZ_NET_TTY:-/dev/tty3}"
 IP="${NCZ_IP:-ip}"
 FAST_WAIT=10
@@ -56,13 +69,18 @@ if [ "${1:-}" = scan ] ; then
     SETTLE=25 ; [ "$_pci_eth" = 0 ] && SETTLE=3
     [ -n "${NCZ_NET_SETTLE:-}" ] && SETTLE=$NCZ_NET_SETTLE
     echo "early_command: PCI ethernet present=$_pci_eth -> USB-candidate settle ${SETTLE}s"
-    PICKED_IF="" ; PICKED_RANK=9 ; _i=0
+    PICKED_IF="" ; PICKED_RANK=9 ; _i=0 ; NOIF=0
     while [ "$_i" -lt "$MAXWAIT" ] ; do
         _i=$((_i + 1))
+        _wired=0
         for _if in "$SYSNET"/* ; do
             _ifn=${_if##*/} ; [ "$_ifn" = lo ] && continue ; [ -e "$_if" ] || continue
             "$IP" link set dev "$_ifn" up 2>/dev/null || true
+            [ "$(_rank "$_ifn")" -lt 9 ] && _wired=$((_wired + 1))
         done
+        if [ "$_wired" = 0 ] && [ "$_i" -ge "$NOIF_WAIT" ] ; then
+            NOIF=1 ; break
+        fi
         for _if in "$SYSNET"/* ; do
             _ifn=${_if##*/} ; [ "$_ifn" = lo ] && continue
             [ -f "$_if/carrier" ] || continue
@@ -74,13 +92,20 @@ if [ "${1:-}" = scan ] ; then
             fi
         done
         [ "$PICKED_RANK" -le 1 ] && break
+        [ "$PICKED_RANK" -le 2 ] && [ "$_i" -ge "$CARRIER_SETTLE" ] && break
         [ -n "$PICKED_IF" ] && [ "$_i" -ge "$SETTLE" ] && break
-        echo "[ncz] Waiting for a wired network link... (${_i}s)" > "$TTY" 2>/dev/null || true
+        echo "[ncz] Waiting for a wired network link... (${_i}s of at most ${MAXWAIT}s)" > "$TTY" 2>/dev/null || true
         sleep "$TICK"
     done
     if [ -n "$PICKED_IF" ] ; then
         echo "early_command: selected $PICKED_IF (rank $PICKED_RANK) after ${_i}s"
         printf '%s\n' "$PICKED_IF" > "$STATE"
+    elif [ "$NOIF" = 1 ] ; then
+        echo "early_command: no wired network adapter after ${_i}s (only lo/wireless in $SYSNET), leaving netcfg/choose_interface=auto"
+        : > "$STATE"
+        for V in /dev/tty1 "$TTY" ; do
+            echo "[ncz] No wired network adapter was detected (${_i}s). The installer downloads its components over a wired link: connect a supported Ethernet adapter and reboot. Diagnostics: Alt+F2 opens a shell, Alt+F4 shows the log; on Sky1 boards the serial console (ttyAMA0, 115200) has a root shell." > "$V" 2>/dev/null || true
+        done
     else
         echo "early_command: no wired carrier after ${_i}s, leaving netcfg/choose_interface=auto"
         : > "$STATE"
