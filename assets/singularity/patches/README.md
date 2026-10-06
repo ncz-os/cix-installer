@@ -3,9 +3,14 @@
 Patches carried against `singularityos-lab/singularity-desktop` (and its
 bundled `labwc` subproject) for NCZ-OS on CIX Sky1, applied automatically by
 `build/build-singularity.sh` from `assets/singularity/patches/<subproject>/`
-after the upstream tree is cloned and every submodule is re-pinned to its own
-tracked branch tip (see the comment in that script for why the re-pin step
-exists). A patch that fails to apply is a hard build failure, not a warning —
+after the upstream tree is cloned and every submodule is checked out at its
+pinned commit in `assets/singularity/upstream-pins.tsv` (since 2026-10-06;
+before that, every submodule was re-pinned to its tracked branch tip, and an
+upstream push broke the r199 respin the same day). `build/preflight-freshness-gate.sh`
+check [2] and `build/singularity-pins.sh check-patches` verify each queue
+against those pinned commits. A new or rebased patch must apply to the pinned
+commit; moving to newer upstream is a deliberate pin bump
+(`build/singularity-pins.sh propose`, then `check-patches`, then a build). A patch that fails to apply is a hard build failure, not a warning —
 see the script for why. **The one exception:** a patch directory named after
 the root `singularity-desktop` repo itself (not a subproject/submodule)
 applies at the top level instead of `subprojects/<name>/`.
@@ -23,7 +28,9 @@ deletes the patch file(s) and rewrites this section into a retired entry —
 same shape as the retired entries below. `build/singularity-nightly-track.sh`
 runs it nightly (systemd timer, `build/systemd/ncz-singularity-patch-*`,
 03:15, same cadence as ULTRA's existing `ncz-singularity-sync`) and
-commits+pushes if anything changed. A human editing this file by hand is
+commits+pushes if anything changed. It retires a merged PR's patch only once
+the pinned upstream commit contains the merge; until the pin is bumped past
+it, the patch stays (the pinned build still needs it) and the script says so. A human editing this file by hand is
 still fine — the script only ever removes, never re-adds — but the nightly
 run means a merged PR's patch won't sit stale for days between manual passes.
 
