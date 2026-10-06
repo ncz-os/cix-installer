@@ -142,9 +142,14 @@ BOOTSTRAP_MIRROR="${MIRROR/https:/http:}"
 # A pinned snapshot.debian.org mirror (release.conf's NCZ_BASE_MIRROR_SNAPSHOT)
 # carries a short-lived Valid-Until; mmdebstrap's internal apt would refuse it
 # as expired without this. No-op against the live deb.debian.org mirror.
-APTOPT_ARGS=()
+# mmdebstrap writes an --aptopt string verbatim into an apt.conf.d file, so it
+# must be apt.conf syntax (Key "value"), not the -o form Key=value: with
+# "Acquire::Check-Valid-Until=false" mmdebstrap 1.5.7 still fails with
+# "Release file ... is expired". The value is expanded into CONTAINER_CMD
+# below and re-parsed by the container's shell, so it carries its own quotes.
+APTOPT_ARG=""
 if [ -n "${NCZ_BASE_MIRROR_APT_OPTS:-}" ]; then
-    APTOPT_ARGS=(--aptopt='Acquire::Check-Valid-Until=false')
+    APTOPT_ARG="--aptopt='Acquire::Check-Valid-Until \"false\"'"
 fi
 
 echo "[base-rootfs] engine:  $CE"
@@ -160,7 +165,7 @@ mmdebstrap --arch=$ARCH --mode=root --format=tar \
     --variant=minbase \
     --include=ca-certificates,apt-utils \
     --components="$MM_COMPONENTS" \
-    ${APTOPT_ARGS[@]+"${APTOPT_ARGS[@]}"} \
+    $APTOPT_ARG \
     --customize-hook='chroot "\$1" /bin/sh -c "true > /etc/machine-id" 2>/dev/null || true' \
     --customize-hook='rm -f "\$1/etc/resolv.conf"' \
     "$SUITE" /out/$TAR_NAME "$BOOTSTRAP_MIRROR"
