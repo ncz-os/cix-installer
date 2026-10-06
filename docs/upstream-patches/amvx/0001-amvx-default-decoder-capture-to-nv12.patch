@@ -1,0 +1,40 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] amvx: default a decoder's capture queue to linear NV12
+
+At open the driver set BOTH queues to V4L2_PIX_FMT_YUV420_AFBC_8 ('Y0A8').
+A generic stateful-decoder client that keeps the driver's capture format
+after the source change -- GStreamer's v4l2h264dec / v4l2h265dec -- then
+aborts:
+
+  gstv4l2object.c: gst_v4l2_object_acquire_format: V4L2 format Y0A8 not supported
+  ERROR: pipeline doesn't want to preroll.
+
+so every GStreamer H.264/HEVC playback fails on Sky1 (measured 2026-10-06
+on O6N and MS-R1, 7.3.0-rc6-sky1-ncz, cix-vpu-driver 1.0.2-ncz1, GStreamer
+1.28.7). FFmpeg's *_v4l2m2m and Chromium's V4L2VideoDecoder are unaffected
+because they S_FMT NV12 themselves. AFBC stays fully available through
+S_FMT/ENUM_FMT; only the default changes, and only for decoders.
+
+Compile-checked against the r285 7.3.0-rc6-sky1-ncz headers (kernel CFLAGS,
+no warnings). NOT runtime-tested: the boards are read-only for module loads.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/driver/if/v4l2/mvx_v4l2_fops.c
++++ b/driver/if/v4l2/mvx_v4l2_fops.c
+@@ -85,6 +85,14 @@
+     (void)mvx_v4l2_vidioc_s_fmt_vid_out(file, NULL, &fmt);
+ 
+     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++    /*
++     * A decoder's capture queue defaults to linear NV12, not AFBC: generic
++     * V4L2 clients (GStreamer v4l2h264dec/v4l2h265dec) take the driver's
++     * format after the source change and abort with "V4L2 format Y0A8 not
++     * supported". Clients that want AFBC still select it with S_FMT.
++     */
++    if (!ctx->is_encoder && !ctx->is_jpeg)
++        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_NV12;
+     (void)mvx_v4l2_vidioc_s_fmt_vid_cap(file, NULL, &fmt);
+ 
+     if (!ctx->is_jpeg) {

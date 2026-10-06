@@ -81,6 +81,33 @@ is never chosen. The O6N has no HDA card and keeps the DP-only behavior.
 without touching PipeWire; `build/test-sky1-audio-policy.sh` tests it against
 fixture layouts.
 
+## hw_params guard, error-state sinks, silent fallback (2026-10-06)
+
+Measured on MS-R1 and O6N with 7.3.0-rc6 (details: `docs/SKY1-MEDIA-STATUS.md`): the
+I2S MCLK can read 0 Hz, so a DP/HDMI PCM with a perfectly good ELD answers
+`set_hw_params: Invalid argument`. The old daemon then reloaded the sink every 2 s
+forever (MS-R1), or left a default sink in PipeWire's `error` state that hangs every
+stream, Chromium's media clock included (O6N). Since this change:
+
+1. A DP/HDMI candidate is opened once with `aplay -D hw:C,D` (48 kHz S16 stereo, 50 ms
+   of silence) before a sink is made for it; "busy" counts as usable. A PCM this process
+   has already verified, whose sink is the default, is not re-opened every poll.
+2. A refusing PCM, or a selected sink that disappears or reaches the `error` state
+   (`pw-dump`), is parked with an exponential back-off (30 s doubling to 10 min; reset
+   when a different monitor appears), logged once, and our sink for it is unloaded. The
+   next candidate (another DP link, else HDA analog) is used.
+3. If WirePlumber creates its own sink for the analog PCM (its ACP profile became
+   available), that sink is used and the daemon's duplicate is unloaded.
+4. If no output works at all, a null sink `ncz_sky1_silent` becomes the default so
+   players keep running silently instead of hanging.
+
+DP/HDMI is still chosen whenever its PCM works and the monitor's ELD reports audio, so
+with a kernel whose I2S clocks are correct (Sky1 r285, `sky1-audss-clk` ACPI clock names)
+the MS-R1 returns to DP audio by itself. Runtime needs: `pactl` (pulseaudio-utils),
+`aplay` (alsa-utils), `pw-dump` (pipewire-bin).
+`build/test-sky1-audio-policy.sh` drives the real daemon loop against a stateful fake
+`pactl`/`aplay`/`pw-dump` (`build/testdata/sky1-audio/`).
+
 ## Validation Performed Off Target
 
 - Local PipeWire examples confirm the safe static factory syntax is `factory = adapter` with `factory.name = api.alsa.pcm.sink`; this is not used by the shipped fix.
