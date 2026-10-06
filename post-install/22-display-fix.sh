@@ -167,6 +167,9 @@ echo "[22] masked vendor cix-check-display.service (GNOME-only; we use lightdm+X
 
 # Run once during install -- Sky1 only. On amd64 the install-time run saw the INSTALLER's DRM
 # devices through the bind-mounted /sys and wrote a card pin for the installed system.
+# This guard uses the hook's target-arch answer ($_ncz_arch, above); the generated script uses
+# `uname -m` because it runs at every boot of the installed system, where this hook's variables
+# do not exist.
 case "$_ncz_arch" in
     arm64|aarch64) /usr/local/lib/cix-installer/detect-primary-display.sh ;;
 esac
