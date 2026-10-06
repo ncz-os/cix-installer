@@ -103,14 +103,28 @@ UPSTREAM_SHA_NAME := $(UPSTREAM_ISO)
 # worktree (empty downloads/) used to float silently to whatever was current.
 # The pinned file is kept on ARGONAS (SUBSTRATE_CACHE_DIRS, one directory per
 # host spelling) and the download rule copies it from there and verifies the
-# sha256; if it cannot, it FAILS rather than floating. amd64 has no pin yet
-# (no validated hash recorded) and keeps the old behavior with a warning.
+# sha256; if it cannot, it FAILS rather than floating.
 # Adopting a newer installer is a deliberate act: build on it, run the KVM gate,
 # store the ISO in the cache directory as <name>-<yyyymmdd>-<sha8>.iso, then
 # change the pin below. Override on the command line for an experiment:
 #   make image SUBSTRATE_SHA=<sha256-of-the-new-iso>
+#
+# amd64 pin added 2026-10-06 (KNOWN-ISSUES #11). The hash is the
+# debian-testing-amd64-netinst.iso that the r199 KVM gate actually validated,
+# re-measured on the shared cache rather than copied from the backlog:
+#   /mnt/argonas/datapool/projects/ncz-os-assets/substrate/
+#     debian-testing-amd64-netinst-20260926-c517f8ff.iso
+# Three independent checks agree on c517f8ff...: the sha256 of that file, the
+# 8-char tag in its own cached filename, and the value already recorded in
+# KNOWN-ISSUES-r199.md. Its Packages snapshot stamp is 20260921, matching the
+# forky mirror the r199 amd64 gate consumed (the other ISO on PROTEUS is the
+# older 20260914 weekly). NOTE: the substrate ISO does NOT float weekly for a
+# pinned arch any more -- the download rule fetches the pinned sha and fails if
+# the cache cannot supply it.
 ifeq ($(ARCH),arm64)
 SUBSTRATE_SHA ?= bcdea12698a4c643fbbc68c69fb8be96a3f292bdfa1b5c41c8fdaeaae6944f67
+else ifeq ($(ARCH),amd64)
+SUBSTRATE_SHA ?= c517f8fffadbaca4d3b07a4268591f4250fd35034988d3113623dc340ed635db
 endif
 SUBSTRATE_SHA ?=
 SUBSTRATE_CACHE_DIRS ?= /mnt/argonas-projects/ncz-os-assets/substrate \
