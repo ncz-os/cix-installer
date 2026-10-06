@@ -132,19 +132,31 @@ else
 fi
 STAGE="${1:-base}"                            # base | desktop | server | all | hotfix
 
-# Pre-flight (operator 2026-10-05 mandatory-install item): every mirror named
-# above must carry ncz-screensavers at the version floor in build/screensavers-
-# version.env. Run this BEFORE we touch the chroot, so a stale or misconfigured
-# mirror produces a one-line "missing package" failure instead of a 20-minute
-# run that dies partway through 59-ncz-screensavers-pkg.sh. desktop-mirror is
-# only present when the caller is building the desktop role, but the check is
-# safe regardless -- if the directory does not exist, the helper skips it.
-# server / base roles skip this: they have no screensaver consumer.
+# Pre-flight (operator 2026-10-05 mandatory-install item): the mirror the
+# desktop role delta actually installs from must carry ncz-screensavers at the
+# version floor in build/screensavers-version.env. Run this BEFORE we touch the
+# chroot, so a stale or misconfigured mirror produces a one-line "missing
+# package" failure instead of a 20-minute run that dies partway through
+# 59-ncz-screensavers-pkg.sh.
+#
+# Only the desktop and `all` stages build a desktop layer; base, server and
+# hotfix do not install the screensaver package set, so they skip this. The
+# mirror list must match build_layer() below: when the operator did not
+# override MIRROR_DIRS, the desktop layer selects desktop-mirror -- NOT the
+# default suite/vendor mirrors, which feed the base role and do not carry
+# ncz-screensavers. Checking the default list here would abort a healthy
+# desktop build and, worse, never check the mirror that actually ships the
+# package. A missing mirror directory means this host builds live (non-
+# reproducible); the install hook still enforces the package, so it is a note,
+# not an abort.
 case "$STAGE" in
-  base|server) : ;;
-  *)
+  desktop|all)
+    _ss_effective="$MIRROR_DIRS"
+    if [ "$MIRROR_DIRS_EXPLICIT" -eq 0 ]; then
+      _ss_effective="desktop-mirror"
+    fi
     _ss_mirrors=""
-    for m in $MIRROR_DIRS; do
+    for m in $_ss_effective; do
       [ -d "$ROOT/build/$m" ] || continue
       _ss_mirrors="$_ss_mirrors --mirror $ROOT/build/$m --label $m"
     done
@@ -156,8 +168,11 @@ case "$STAGE" in
         echo "[sqfs]        Rebuild the mirror with build/build-desktop-mirror.sh (now mandatory there too)." >&2
         exit 1
       fi
+    else
+      echo "[sqfs] NOTE: no populated offline mirror under build/ ($_ss_effective); this host builds live, and 59-ncz-screensavers-pkg still enforces the package at install time." >&2
     fi
     ;;
+  *) : ;;
 esac
 QEMU="/usr/bin/$QEMU_BIN"
 
