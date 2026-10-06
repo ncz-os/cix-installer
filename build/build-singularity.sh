@@ -60,8 +60,39 @@ case "$IMAGE" in
         ;;
 esac
 CONTAINER_NETWORK="${SINGULARITY_CONTAINER_NETWORK:-host}"
+# UPSTREAM PINS (2026-10-06). Every upstream repository this build clones --
+# the singularity-desktop superproject, each of its submodules, vetro and the
+# boot splash -- is checked out at the exact commit in
+# assets/singularity/upstream-pins.tsv, through build/singularity-pins.sh.
+# Until then the superproject was taken from master and every submodule was
+# re-pinned to its tracked branch head on every run, so a stage-1 rebuild of
+# a release was a build of whatever upstream had pushed that hour: the r199
+# respin broke the same day because libsingularity f3d0f49 (15:01Z) no longer
+# took our patch queue. A repository with no pin FAILS the build with its
+# path named; nothing falls back to a branch head.
+#
+# NCZ_SINGULARITY_TRACK_HEAD=1 is the explicit opt-in to the old behaviour
+# (superproject at SINGULARITY_REF, default master; submodules at their
+# tracked branch heads), for evaluating an upstream bump before pinning it.
+# Its output is not reproducible and says so.
+PINS_FILE="${NCZ_SINGULARITY_PINS:-$REPO_ROOT/assets/singularity/upstream-pins.tsv}"
+TRACK_HEAD="${NCZ_SINGULARITY_TRACK_HEAD:-0}"
 SRC_REPO="${SINGULARITY_REPO:-https://github.com/singularityos-lab/singularity-desktop}"
-SRC_REF="${SINGULARITY_REF:-master}"
+if [ "$TRACK_HEAD" = 1 ]; then
+    SRC_REF="${SINGULARITY_REF:-master}"
+else
+    if [ -n "${SINGULARITY_REF:-}" ]; then
+        echo "ERROR: SINGULARITY_REF=$SINGULARITY_REF is not honoured in a pinned build." >&2
+        echo "       Change the '.' row of $PINS_FILE, or set NCZ_SINGULARITY_TRACK_HEAD=1" >&2
+        echo "       for an explicitly unpinned evaluation build." >&2
+        exit 1
+    fi
+    NCZ_SINGULARITY_PINS="$PINS_FILE" bash "$REPO_ROOT/build/singularity-pins.sh" validate || {
+        echo "ERROR: Singularity upstream pins are missing or invalid -- refusing to build from moving branch heads" >&2
+        exit 1
+    }
+    SRC_REF="$(NCZ_SINGULARITY_PINS="$PINS_FILE" bash "$REPO_ROOT/build/singularity-pins.sh" sha .)" || exit 1
+fi
 # Optional checked-out superproject.  This is intentionally explicit: local
 # NCZ fixes must never be mistaken for an upstream main build.
 SRC_DIR="${SINGULARITY_SOURCE_DIR:-}"
@@ -89,14 +120,20 @@ esac
 mkdir -p "$OUT"
 # The Depends sidecar is regenerated with the tarball; never let a previous
 # run's sidecar sit next to a new tarball.
-rm -f "$OUT/singularity-opt.tgz.depends"
+rm -f "$OUT/singularity-opt.tgz.depends" "$OUT/singularity-opt.tgz.sources"
 echo "== build-singularity =="
 echo "   image  = $IMAGE"
 echo "   source = $SRC_REPO @ $SRC_REF"
+if [ "$TRACK_HEAD" = 1 ]; then
+    echo "   pins   = NONE (NCZ_SINGULARITY_TRACK_HEAD=1: branch heads, NOT reproducible)"
+else
+    echo "   pins   = $PINS_FILE"
+fi
 [ -z "$SRC_DIR" ] || echo "   local  = $SRC_DIR (explicit NCZ source override)"
 echo "   prefix = $PREFIX"
 echo "   out    = $OUT/singularity-opt.tgz"
 echo "           $OUT/singularity-opt.tgz.depends (Depends sidecar)"
+echo "           $OUT/singularity-opt.tgz.sources (upstream commit of every repo built)"
 
 # ---- in-container build script ---------------------------------------------
 # Everything below runs inside the arm64 debian:<codename> container. The DESTDIR
@@ -154,7 +191,11 @@ apt-get install -y --no-install-recommends \
 mkdir -p /work && cd /work
 
 # vetro host tool (UI .vetro -> .ui transpiler). Go 1.24+.
-git clone --depth 1 "'"$VETRO_REPO"'" vetro
+if [ "$NCZ_SINGULARITY_TRACK_HEAD" = 1 ]; then
+    git clone --depth 1 "'"$VETRO_REPO"'" vetro
+else
+    NCZ_SINGULARITY_URL_OVERRIDE="${VETRO_REPO_OVERRIDE:-}" bash /ncz-build/singularity-pins.sh clone vetro vetro
+fi
 ( cd vetro && go build -o /usr/local/bin/vetro . )
 vetro --version 2>/dev/null || true
 
@@ -164,8 +205,15 @@ vetro --version 2>/dev/null || true
 # workspace before any build writes occur.
 if [ -n "${SINGULARITY_SOURCE_DIR:-}" ]; then
     cp -a "$SINGULARITY_SOURCE_DIR" singularity-desktop
-else
+elif [ "$NCZ_SINGULARITY_TRACK_HEAD" = 1 ]; then
     git clone --recursive --branch "'"$SRC_REF"'" "'"$SRC_REPO"'" singularity-desktop
+else
+    # Superproject at its pin, then every submodule at ITS pin. checkout-tree
+    # fails, naming the path, if .gitmodules declares a submodule the pin file
+    # does not cover (or the pin file names one that no longer exists).
+    NCZ_SINGULARITY_URL_OVERRIDE="${SINGULARITY_REPO_OVERRIDE:-}" \
+        bash /ncz-build/singularity-pins.sh clone . singularity-desktop
+    bash /ncz-build/singularity-pins.sh checkout-tree singularity-desktop
 fi
 cd singularity-desktop
 
@@ -189,7 +237,13 @@ cd singularity-desktop
 # branch for, to one consistent all-current-upstream baseline -- this is the
 # same policy already used to build this tree (see fc29d68, make the tree
 # build again from upstream HEAD), not a new one.
-if [ -z "${SINGULARITY_SOURCE_DIR:-}" ]; then
+# Since 2026-10-06 this re-pin runs ONLY in an explicit
+# NCZ_SINGULARITY_TRACK_HEAD=1 evaluation build. A normal build already has
+# every submodule at its pinned commit (singularity-pins.sh checkout-tree
+# above), taken from one consistent upstream state, so the cross-coupling
+# problem described here cannot arise and upstream pushes cannot reach it.
+if [ -z "${SINGULARITY_SOURCE_DIR:-}" ] && [ "$NCZ_SINGULARITY_TRACK_HEAD" = 1 ]; then
+    echo "    WARNING: NCZ_SINGULARITY_TRACK_HEAD=1 -- re-pinning submodules to branch heads (not reproducible)"
     git config -f .gitmodules --get-regexp "branch$" | while read -r _key _branch; do
         case "$_key" in
             submodule.*.branch) ;;
@@ -443,8 +497,12 @@ done
 # the /opt/singularity payload alongside the greeter/lock/splash, all on the same
 # loginui pixels. Replaces plymouth (which never covered Sky1s late KMS).
 cd /work
-git clone --depth 1 --recurse-submodules \
-    https://github.com/singularityos-lab/singularity-boot-splash.git
+if [ "$NCZ_SINGULARITY_TRACK_HEAD" = 1 ]; then
+    git clone --depth 1 --recurse-submodules \
+        https://github.com/singularityos-lab/singularity-boot-splash.git
+else
+    bash /ncz-build/singularity-pins.sh clone singularity-boot-splash singularity-boot-splash
+fi
 cd singularity-boot-splash
 # The boot splash bundles its OWN copy of singularity-loginui (the Cairo
 # renderer that draws the logo and loading bar), so the loginui patches the
@@ -478,6 +536,21 @@ cd /work/stage
 tar -czf /out/singularity-opt.tgz opt/singularity
 echo "STAGED $(du -h /out/singularity-opt.tgz | cut -f1)"
 
+# Provenance sidecar: the upstream commit of every repository that went into
+# this tarball, bound to it by sha256. Recovering what r199 was built from
+# took a time-window argument over upstream history because nothing recorded
+# it; this is that record.
+_tgz_sha="$(sha256sum /out/singularity-opt.tgz | cut -d" " -f1)"
+[ -n "$_tgz_sha" ]
+{
+    echo "# singularity-opt.tgz sha256 $_tgz_sha"
+    if [ "$NCZ_SINGULARITY_TRACK_HEAD" = 1 ]; then echo "# mode track-head (NOT pinned)";
+    elif [ -n "${SINGULARITY_SOURCE_DIR:-}" ]; then echo "# mode local-source-dir (NOT pinned)";
+    else echo "# mode pinned"; fi
+    bash /ncz-build/singularity-pins.sh provenance /work/singularity-desktop /work/vetro /work/singularity-boot-splash
+} > /out/singularity-opt.tgz.sources
+echo "== upstream sources =="; cat /out/singularity-opt.tgz.sources
+
 # Depends sidecar for build-singularity-deb.sh. Derived HERE because this
 # container is the one userland where every library the payload links is
 # installed, at exactly the versions it was linked against (dpkg-shlibdeps
@@ -507,7 +580,15 @@ esac
 echo "== running build in $IMAGE ($CE)${NCZ_CONTAINER_PLATFORM:+ platform=$NCZ_CONTAINER_PLATFORM} =="
 CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
          -v "$REPO_ROOT/build":/ncz-build:ro \
-         -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV")
+         -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV" \
+         -e NCZ_SINGULARITY_TRACK_HEAD="$TRACK_HEAD")
+if [ "$TRACK_HEAD" != 1 ]; then
+    CE_ARGS+=(-v "$PINS_FILE":/ncz-pins.tsv:ro -e NCZ_SINGULARITY_PINS=/ncz-pins.tsv)
+    # An explicit SINGULARITY_REPO / VETRO_REPO (e.g. a local mirror) still
+    # supplies the bytes; the commit still comes from the pin file.
+    [ -n "${SINGULARITY_REPO:-}" ] && CE_ARGS+=(-e SINGULARITY_REPO_OVERRIDE="$SINGULARITY_REPO")
+    [ "$VETRO_REPO" != "https://github.com/singularityos-lab/vetro" ] && CE_ARGS+=(-e VETRO_REPO_OVERRIDE="$VETRO_REPO")
+fi
 [ -n "$NCZ_CONTAINER_PLATFORM" ] && CE_ARGS+=(--platform "$NCZ_CONTAINER_PLATFORM")
 # On an SELinux-enforcing host the bind mount is unwritable from inside the
 # container, and the build only discovers it at the very END -- every subproject

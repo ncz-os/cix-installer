@@ -646,6 +646,7 @@ parity:
 	bash build/test-hook-watchdog.sh
 	bash build/test-amd64-cuda-gates.sh
 	build/test-arm64-freshness-gate.sh
+	bash build/test-singularity-pins.sh
 	build/test-overlay-modversions.sh
 	build/test-amd64-dracut-isolation.sh
 	build/test-kernel-default-policy.sh

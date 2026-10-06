@@ -28,8 +28,9 @@
 #      since the checkout was last updated -- exactly the 68eb4cb incident.
 #
 #   2. Every downstream patch in assets/singularity/patches/<subproject>/
-#      still applies cleanly against that subproject's REAL current
-#      upstream default branch. A patch that no longer applies is either
+#      still applies cleanly against that subproject's PINNED upstream
+#      commit (assets/singularity/upstream-pins.tsv; before 2026-10-06 this
+#      was the subproject's REAL current upstream default branch). A patch that no longer applies is either
 #      (a) already merged upstream -- harmless but the entry is now
 #      misleading and should be deleted per that directory's own README
 #      convention -- or (b) genuinely broken by upstream drift, which is
@@ -161,58 +162,32 @@ else
     fi
 fi
 
-# --- 2. Downstream singularity patches still apply -------------------------
-PATCH_ROOT="assets/singularity/patches"
-if [ -d "$PATCH_ROOT" ]; then
-    for sub_dir in "$PATCH_ROOT"/*/; do
-        [ -d "$sub_dir" ] || continue
-        sub_name="$(basename "$sub_dir")"
-        patches=("$sub_dir"*.patch)
-        [ -e "${patches[0]}" ] || continue
-
-        case "$sub_name" in
-            singularity-shell) upstream_url="https://github.com/singularityos-lab/singularity-shell.git" ;;
-            singularity-desktop) upstream_url="https://github.com/singularityos-lab/singularity-desktop.git" ;;
-            singularity-plugins) upstream_url="https://github.com/singularityos-lab/singularity-plugins.git" ;;
-            libsingularity) upstream_url="https://github.com/singularityos-lab/libsingularity.git" ;;
-            labwc) upstream_url="https://github.com/singularityos-lab/labwc.git" ;;
-            singularity-loginui) upstream_url="https://github.com/singularityos-lab/singularity-loginui.git" ;;
-            *)
-                echo "[2] WARN: no known upstream URL for patch subproject '$sub_name' -- skipping its patch(es), add a case here if this is real"
-                WARN=$((WARN + 1))
-                continue
-                ;;
-        esac
-
-        tmp_clone="$(mktemp -d)"
-        trap 'rm -rf "$tmp_clone"' RETURN
-        if ! timeout 30 git clone --quiet --depth 50 "$upstream_url" "$tmp_clone" 2>/dev/null; then
-            echo "[2] WARN: could not clone $upstream_url to verify $sub_name patches -- no network, or a transient failure"
-            WARN=$((WARN + 1))
-            rm -rf "$tmp_clone"
-            continue
-        fi
-
-        # Apply for real (not --check) IN SEQUENCE, since later patches in a
-        # subproject commonly depend on earlier ones' changes already being
-        # present -- a dry-run --check against the unmodified base would
-        # falsely report every non-first patch as failing.
-        for p in "${patches[@]}"; do
-            if git -C "$tmp_clone" apply "$REPO_ROOT/$p" 2>/dev/null; then
-                echo "[2] OK: $sub_name/$(basename "$p") applies cleanly against real current upstream default branch"
-            else
-                echo "[2] FAIL: $sub_name/$(basename "$p") does NOT apply against real current upstream default branch"
-                echo "          Either it already merged (check the upstream PR; if merged, delete this"
-                echo "          patch file and its README entry per assets/singularity/patches/README.md's"
-                echo "          own convention) or upstream drifted and this patch needs a real rebase."
-                FAIL=$((FAIL + 1))
-            fi
-        done
-        rm -rf "$tmp_clone"
-        trap - RETURN
-    done
+# --- 2. Downstream singularity patches apply to the PINNED upstream --------
+# Since 2026-10-06 the payload is built from the exact upstream commits in
+# assets/singularity/upstream-pins.tsv, so that is what the patch queue must
+# apply to -- not whatever upstream's default branch says this hour. (The old
+# check applied each queue to a shallow clone of the default branch. It passed
+# at 14:55Z on 2026-10-06; upstream pushed libsingularity f3d0f49 at 15:01Z;
+# the stage-1 payload build that started minutes later failed on
+# libsingularity/0001. It also never checked singularity-session at all: no
+# URL case for it.) Pins come with their URLs, so every queue is covered.
+#   rc 0 -> OK, rc 1 -> FAIL (a patch does not apply, a pinned commit is gone,
+#   or a patch queue has no pin), rc 2 -> WARN (offline and not cached:
+#   build/singularity-pins.sh fetch-cache makes this check work offline).
+if [ -d assets/singularity/patches ] || [ -f assets/singularity/upstream-pins.tsv ]; then
+    bash "$REPO_ROOT/build/singularity-pins.sh" check-patches 2>&1 | sed 's/^\[pins\] /[2] /; s/^ERROR: /[2] FAIL: /'
+    pins_rc=${PIPESTATUS[0]}
+    case "$pins_rc" in
+        0) echo "[2] OK: every downstream Singularity patch applies to its pinned upstream commit" ;;
+        2) echo "[2] WARN: some Singularity patch queues could not be verified (see above)"
+           WARN=$((WARN + 1)) ;;
+        *) echo "[2] FAIL: the Singularity patch queue does not apply to the pinned upstream sources"
+           echo "          (assets/singularity/upstream-pins.tsv). Rebase the patch, or bump the pin"
+           echo "          deliberately with build/singularity-pins.sh propose + check-patches."
+           FAIL=$((FAIL + 1)) ;;
+    esac
 else
-    echo "[2] OK: no $PATCH_ROOT directory -- nothing to verify"
+    echo "[2] OK: no assets/singularity/patches directory -- nothing to verify"
 fi
 
 # --- 3. Kernel-staging pool freshness ---------------------------------------

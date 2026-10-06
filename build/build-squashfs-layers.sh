@@ -1367,8 +1367,14 @@ ExecStartPre=/usr/sbin/sshd -t
 # already handle themselves (native container platform + dpkg
 # --print-architecture-derived ARCH) -- this runs identically on the
 # arm64 (ULTRA) and amd64 (PROTEUS) build hosts.
+# PINNED SINCE 2026-10-06: "from source every run" still holds, but the
+# source is the exact upstream commits in assets/singularity/upstream-pins.tsv
+# (build-singularity.sh reads them through build/singularity-pins.sh), not the
+# branch heads of the hour. Rebuilding from heads let an upstream push at
+# 15:01Z on 2026-10-06 (libsingularity f3d0f49) break the r199 respin's stage
+# 1 the same afternoon. Moving forward is a deliberate pin bump.
 build_singularity_payload(){
-  log "SINGULARITY: rebuilding ncz-singularity-desktop from current upstream head"
+  log "SINGULARITY: rebuilding ncz-singularity-desktop from the pinned upstream sources (assets/singularity/upstream-pins.tsv)"
   local _sinty_out="$ROOT/build/sinty-out"
   local _tgz="$_sinty_out/singularity-opt.tgz"
   rm -f "$_tgz"
@@ -1398,7 +1404,7 @@ build_singularity_payload(){
   # built.
   rm -f "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb
   install -m 0644 "$_deb" "$ROOT/assets/cix-debs/"
-  log "SINGULARITY: staged $(basename "$_deb") -> assets/cix-debs/ (fresh, from head)"
+  log "SINGULARITY: staged $(basename "$_deb") -> assets/cix-debs/ (fresh, from the pinned sources)"
 }
 
 ensure_wallpaper_packs(){
