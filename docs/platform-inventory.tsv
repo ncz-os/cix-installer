@@ -185,6 +185,8 @@ build/test-components.sh	common	-	hermetic fixture test for build/components.py 
 build/test-components-gate.sh	common	-	hermetic fail-before/pass-after for components.py check --gate (phase 2)
 build/test-components-generate.sh	common	-	hermetic fail-before/pass-after for the phase 3 registry generators (seeds, NCZ_LOCAL_DEBS, allowlist)
 build/test-dual-arch-parity.sh	common	-	fixture tests for the parity gates
+build/test-gpu-probe-no-hang.sh	amd64	-	PEGASUS hang regressions: sysfs PCI probing, 54-gpu-accel.sh completes with a hanging lspci/rocminfo, T2 detection without lspci
+build/test-hook-watchdog.sh	common	-	bounded-run.sh deadline runner and the run-all.sh optional-hook watchdog (hung hook killed, install continues)
 build/test-hostname-suggest.sh	common	-	hostname algorithm tests
 build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier test
 build/test-dkms-status-parse.sh	sky1	-	dkms status parser test for the kernel-debs headers postinst
@@ -194,6 +196,7 @@ build/test-apt-sources-offline-canary.sh	common	-	24-apt-sources offline live-up
 build/test-dkms-prep-keep-going.sh	sky1	-	79-dkms-prep modules_prepare keep-going test
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
+build/test-nouveau-runpm.sh	amd64	-	amd64-only nouveau.runpm=0: installer entries, installed-system rEFInd entries, late.sh modprobe.d (arm64 untouched)
 build/test-rescue-kernel-channel.sh	common	-	proves 72-rescue-partition.sh stages the arm64 rescue kernel from assets/kernel/mainline, not the retired edge channel
 build/test-kernel-purity-pin.sh	common	-	apt simulation proving the Debian-kernel preferences pin blocks dependencies while NCZ's own kernel still installs
 build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debian-kernel guards + static test of the legacy amd64 installer-kernel swap
@@ -335,10 +338,12 @@ post-install/apt-progress-shim	common	-	apt progress wrapper
 post-install/buildkite-ncz-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/hooks.list.amd64	common	-	generated ordered hook list for platform amd64 (build/gen-hooks-lists.sh)
 post-install/hooks.list.sky1-arm64	common	-	generated ordered hook list for platform sky1-arm64 (build/gen-hooks-lists.sh)
+post-install/lib/bounded-run.sh	common	-	deadline runner that a D-state child cannot defeat (own session, output to a file, kill by PGID); used by run-all.sh for optional hooks and by 54-gpu-accel.sh
 post-install/lib/cuda-select.sh	amd64	nvidia-cuda	AMD64 GPU-family -> driver branch + CUDA toolkit selector sourced by 54-gpu-accel.sh and tested by build/test-amd64-cuda-gates.sh
 post-install/lib/gpu-progress.sh	mixed	-	GPU/DKMS install-step feedback for the d-i screen (named step, live DKMS build status, reserved bar weight); per-platform step profiles keyed on hook name + arch, the monitor itself is platform-neutral (docs/GPU-INSTALL-PROGRESS.md)
 post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
 post-install/lib/kernel-purity.sh	common	-	shared Debian-kernel apt preferences pin sourced by both kernel install hooks
+post-install/lib/pci-sysfs.sh	common	-	PCI enumeration from sysfs vendor/device/class (no lspci, no config-space reads) for install-time hooks
 post-install/ncz-os-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/run-all.sh	common	-	hook orchestrator; platform selection via hooks.list
 preseed/	common	-	installer helpers (hostname, disk chooser, diag console, rescan)

@@ -331,6 +331,57 @@ for f in BUILD_VERSION BUILD_DATE BUILD_HOST BUILD_ARCH KVER_LEGACY KVER_NEXT RE
     fi
 done
 
+# NCZ-NOUVEAU-RUNPM-BEGIN
+# amd64 only: keep nouveau's runtime PM off on the installed system, written
+# BEFORE run-all.sh so the first hook that touches the GPU, the initramfs that
+# 10-amd64-kernel.sh builds and the first boot all see it.
+#
+# Why (PEGASUS, ASUS GU502LV, RTX 2060 Mobile TU106 10de:1f15, 2026-10-06):
+# on 7.3-rc5+ nouveau_pmops_runtime_suspend() asks GSP-RM whether the GPU may
+# enter GCOFF (nvif_device_gcx_ready -> nvkm_udevice_gcx_ready ->
+# nvkm_gsp_gcx_ready). Without GSP-RM firmware the GSP subdev exists but
+# gsp->rm is NULL, so the runtime-PM worker oopses (NULL deref at 0x18), the
+# device stays in runtime_status "suspending" and every later PCI config read
+# (lspci, udev, power tools) blocks forever. Upstream fix: 4d0e27041185
+# "nouveau: check gsp->rm as well as gsp pointer before gcx ready"
+# (drm-misc-fixes; carried by amd64-kernel-t2 as 9012). runpm=0 keeps the
+# suspend path from running at all, whatever kernel is booted.
+#
+# Kept when the proprietary NVIDIA driver is installed (54-gpu-accel.sh /
+# ncz-cuda-setup): that driver blacklists nouveau, so the option is inert, and
+# if the NVIDIA DKMS build ever fails nouveau loads again and must not oops.
+# The cost is that an Optimus dGPU driven by nouveau stays powered.
+# 70-bootloader.sh adds nouveau.runpm=0 to the amd64 kernel command line too
+# (assets/refind/ncz-refind-refresh-amd64.sh), for an initramfs without this
+# file.
+_ncz_late_arch=""
+[ -r "$SRC/BUILD_ARCH" ] && _ncz_late_arch=$(tr -d '[:space:]' < "$SRC/BUILD_ARCH")
+[ -n "$_ncz_late_arch" ] || _ncz_late_arch=$(uname -m 2>/dev/null)
+case "$_ncz_late_arch" in
+    amd64|x86_64)
+        mkdir -p /target/etc/modprobe.d 2>/dev/null || true
+        if cat > /target/etc/modprobe.d/ncz-nouveau-runpm.conf <<'NCZ_NOUVEAU_RUNPM'
+# Written by the NCZ-OS installer (preseed/late.sh), amd64 only.
+# nouveau runtime suspend oopses in nvkm_gsp_gcx_ready() on Turing/Ampere
+# GPUs without GSP-RM firmware (7.3-rc5+, fixed upstream by 4d0e27041185);
+# the GPU then never leaves "suspending" and PCI config reads hang.
+# Inert when the proprietary NVIDIA driver is installed (nouveau is
+# blacklisted). Remove only on a kernel that carries the upstream fix.
+options nouveau runpm=0
+NCZ_NOUVEAU_RUNPM
+        then
+            echo "[late] wrote /etc/modprobe.d/ncz-nouveau-runpm.conf (options nouveau runpm=0)"
+        else
+            echo "[late] WARN: could not write /etc/modprobe.d/ncz-nouveau-runpm.conf; the kernel command line still carries nouveau.runpm=0"
+        fi
+        ;;
+    *)
+        echo "[late] arch=$_ncz_late_arch: no nouveau runpm override (amd64 only)"
+        ;;
+esac
+unset _ncz_late_arch
+# NCZ-NOUVEAU-RUNPM-END
+
 ncz_recover_components() {
     _ncz_comp=""
     if [ -r /tmp/ncz-components ]; then
