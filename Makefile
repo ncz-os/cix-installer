@@ -624,6 +624,7 @@ parity:
 	build/test-greeter-output-mode.sh
 	python3 build/test_display_scale.py
 	build/test-chromium-icon.sh
+	build/test-run-all-baked-allowlist.sh
 	build/test-screensaver-default.sh
 	build/test-screensavers-mandatory-install.sh
 	build/test-ncz-ui.sh
