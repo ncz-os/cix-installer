@@ -460,6 +460,8 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(wildcard $(ASSETS)/sky1-firmware/*)
 	@echo "[image] platform-split lint (inventory, hooks.list, deny patterns, guards, manifest divergence)"
 	@bash $(ROOT)/build/lint-platform.sh
+	@echo "[image] preseed early_command shape/size"
+	@bash $(ROOT)/build/check-early-command-size.sh $(PRESEED)/preseed.cfg
 	@echo "[image] verifying arm64 inputs (sky1-firmware, cix-debs, rescue-rootfs, mirror)"
 	@NCZ_TARGET_ARCH=$(ARCH) bash $(ROOT)/build/verify-arm64-inputs.sh --mirror
 	@if [ -n "$(SUBSTRATE_SHA)" ]; then \

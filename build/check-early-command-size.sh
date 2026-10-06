@@ -41,12 +41,23 @@ while True:
     else:
         parts.append(cur)
         break
+if cur.strip().startswith("#"):
+    # A comment line inside the continued value has no trailing backslash, so
+    # it ENDS the value: the shell sees the appended text as a comment and
+    # every command after it is silently dropped (2026-10-06: the medium
+    # mount never ran; d-i stopped at "Incorrect installation media detected").
+    print("COMMENT:line %d ends the value on a comment: %s" % (k + 1, cur.strip()[:80]))
+    sys.exit(0)
 print(len(" ".join(p.strip() for p in parts).encode("utf-8")))
 EOF
 )"
 
 case "$len" in
     ERR:*) echo "check-early-command-size: ${len#ERR:}" >&2; exit 2 ;;
+    COMMENT:*)
+        echo "check-early-command-size: FAIL: preseed/early_command ${len#COMMENT:}" >&2
+        echo "check-early-command-size:       everything after that line is dropped; move the comment above the d-i line." >&2
+        exit 1 ;;
 esac
 
 if [ "$len" -gt "$BUDGET" ]; then
