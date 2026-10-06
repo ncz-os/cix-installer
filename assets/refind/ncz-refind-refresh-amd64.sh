@@ -44,7 +44,7 @@ REFIND_SRC="$INSTALLER_META/assets/refind/refind_x64.efi"
 : "${KVER_EDGE:=}"
 : "${BUILD_VERSION:=(unknown)}"
 
-# Operator directive 2026-10-05: the amd64 T2 edge entry boots with
+# Operator directive 2026-10-05: the amd64 T2 EDGE entry boots with
 # pcie_ports=compat, the PCIe mode the T2 Linux community runs as its
 # baseline on T2 Macs, alongside the AER ANFE revert the edge kernel
 # already carries. compat leaves the firmware _OSC grant intact but makes
@@ -53,9 +53,36 @@ REFIND_SRC="$INSTALLER_META/assets/refind/refind_x64.efi"
 # registered (measured on MEDUSA: "pcie_portdrv_init returned -13" and an
 # empty /sys/bus/pci_express/devices). ACPI hotplug still works; native
 # Thunderbolt hotplug may behave differently. Applied to the amd64 EDGE
-# entry ONLY -- never the stable, stable-console or rescue entries.
-# See docs/reports/2026-10-05-amd64-edge-pcie-ports-compat.md.
-NCZ_T2_EDGE_EXTRA_CMDLINE="pcie_ports=compat"
+# entry ONLY, and ONLY on Apple T2 hardware -- never the stable,
+# stable-console or rescue entries. See
+# docs/reports/2026-10-05-amd64-edge-pcie-ports-compat.md.
+#
+# The x86 kernel is UNIFIED (one family for T2 Macs and generic PCs), so this
+# is decided here, on the target machine, via DMI (ncz_is_t2_hardware in
+# assets/refind/ncz-t2-detect.sh): a generic workstation/server must keep the
+# native AER/PME/hotplug port services. The detection helper is sourced from
+# the same staged assets tree, and if it is absent we fail closed to no token.
+#
+# Markers below let build/test-amd64-edge-compat.sh extract this block
+# byte-exactly instead of pattern-matching its shape.
+# NCZ-T2-CMDLINE-BEGIN
+NCZ_T2_DETECT_LIB="$INSTALLER_META/assets/refind/ncz-t2-detect.sh"
+if [ -r "$NCZ_T2_DETECT_LIB" ]; then
+    # shellcheck source=/dev/null
+    . "$NCZ_T2_DETECT_LIB"
+else
+    ncz_is_t2_hardware() { return 1; }
+    ncz_t2_detect_detail() { printf 'T2 detection helper missing at %s (fail closed)' "$NCZ_T2_DETECT_LIB"; }
+fi
+
+NCZ_T2_EDGE_EXTRA_CMDLINE=""
+if ncz_is_t2_hardware; then
+    NCZ_T2_EDGE_EXTRA_CMDLINE="pcie_ports=compat"
+    echo "  T2 hardware detected ($(ncz_t2_detect_detail)); amd64 edge entry gets pcie_ports=compat"
+else
+    echo "  not T2 hardware ($(ncz_t2_detect_detail)); amd64 edge entry keeps default PCIe services"
+fi
+# NCZ-T2-CMDLINE-END
 
 RELEASE_FILE=/etc/cix-installer/RELEASE
 [ -s "$RELEASE_FILE" ] || RELEASE_FILE="$INSTALLER_META/RELEASE"
@@ -345,6 +372,7 @@ if [ "$STABLE_AVAILABLE" = "0" ]; then
     exit 1
 fi
 
+# NCZ-EDGE-OPTIONS-BEGIN
 STABLE_OPTIONS=""
 if [ "$STABLE_AVAILABLE" = "1" ]; then
     STABLE_OPTIONS="$ROOT_OPTS $STABLE_CMDLINE_BASE"
@@ -371,16 +399,19 @@ if [ "$EDGE_AVAILABLE" = "1" ]; then
     # preserves every option already in EDGE_OPTIONS. It is deliberately
     # scoped to this one branch: the stable, stable-console and rescue
     # option strings above/below are untouched.
+    # NCZ-EDGE-GUARD-BEGIN
     if [ -n "$NCZ_T2_EDGE_EXTRA_CMDLINE" ]; then
         case " $EDGE_OPTIONS " in
             *" $NCZ_T2_EDGE_EXTRA_CMDLINE "*) ;;
             *) EDGE_OPTIONS="$EDGE_OPTIONS $NCZ_T2_EDGE_EXTRA_CMDLINE" ;;
         esac
     fi
+    # NCZ-EDGE-GUARD-END
 fi
 
 RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw console=ttyS0,115200 console=tty0 systemd.unit=multi-user.target"
 echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
+# NCZ-EDGE-OPTIONS-END
 
 install -d -m 0755 /boot/efi/EFI/BOOT
 install -m 0644 "$REFIND_SRC" /boot/efi/EFI/BOOT/BOOTX64.EFI

@@ -98,7 +98,11 @@ Operator directive 2026-10-05 (see the sibling note
 carries `pcie_ports=compat`, matching the T2 Linux community baseline, as defence in depth
 alongside the revert. It is applied to the edge entry only, via
 `NCZ_T2_EDGE_EXTRA_CMDLINE` in `assets/refind/ncz-refind-refresh-amd64.sh`; stable,
-stable-console and rescue entries are untouched. compat disables the native AER/PME/
+stable-console and rescue entries are untouched. Because the amd64 image ships one unified
+x86 kernel for T2 Macs and generic PCs, the token is set only when
+`ncz_is_t2_hardware` (in `assets/refind/ncz-t2-detect.sh`, sourced by the refresh script)
+identifies an Apple T2 Mac from DMI on the target machine: a generic workstation or server
+keeps its native AER/PME/hotplug port services. compat disables the native AER/PME/
 hotplug port services without blocking the firmware `_OSC` grant (MEDUSA: 30+ min up,
 `pcie_portdrv_init returned -13`). Whether compat alone avoids the power cut is untested,
 so the revert stays.
