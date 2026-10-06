@@ -142,7 +142,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-net-firmware
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry
 
 all: image
 
@@ -510,14 +510,15 @@ test-boot-speed:
 test-timesync-retry:
 	@bash $(ROOT)/build/test-timesync-retry.sh
 
+secretscan:
+	@bash $(ROOT)/build/secret-scan-gate.sh
+
 # NIC/Bluetooth firmware: baked into the d-i initrd (manifests/net-firmware.tsv)
 # and every mapped package seeded in the firmware BOM. NCZ_FIRMWARE_POOL=<pool>
 # additionally checks the real firmware-*.deb contents.
+.PHONY: test-net-firmware
 test-net-firmware:
 	@bash $(ROOT)/build/test-net-firmware.sh
-
-secretscan:
-	@bash $(ROOT)/build/secret-scan-gate.sh
 
 # Fast NPU SSDT asset check — same gate `make iso` will run in full-mode
 # preflight. Useful as a build-host validation step before kicking off a
