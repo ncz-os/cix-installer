@@ -496,10 +496,11 @@ echo "[fact] hostname_format_ok=$([ -n "${HN:-}" ] && printf '%s' "$HN" | grep -
 echo "[fact] sudo_ok=$([ -n "${SUDO_MEMBERS:-}" ] && echo 1 || echo 0)"
 echo "[fact] screensavers_version=${SS_STATUS:-none}"
 echo "[fact] screensaver_plugin_version=${SS_PLUGIN:-none}"
-# ncz-screensavers-plugin is a separate package (not published yet); the 0.8.9
-# engine deb ships no plugin files. Report the plugin package's version when it
-# is installed, "none" otherwise. Emitted as a fact either way because
-# build/verify-dual-arch-parity.sh compares this line across arches.
+# ncz-screensavers-plugin is a separate package (pinned deb on the install
+# medium, docs/SCREENSAVER-PLUGIN.md); the engine deb ships no plugin files.
+# Report the plugin package's version when it is installed, "none" otherwise.
+# Emitted as a fact either way because build/verify-dual-arch-parity.sh
+# compares this line across arches.
 echo "[fact] bing_plugin_patched=${BING_PATCHED:-0}"
 echo "[fact] sensors_plugin_patched=${SENSORS_PATCHED:-0}"
 if [ "$FAIL" -ne 0 ]; then

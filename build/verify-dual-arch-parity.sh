@@ -10,6 +10,7 @@
 #     twin but not the other must appear in build/arch-parity-allowlist.tsv (pkg, side, reason).
 #  2. ncz-screensavers: the highest staged version has BOTH an arm64 and an amd64 deb, from one source
 #     commit (BUILT-FROM.txt), and their SHA256SUMS verify.
+#  2b. the screensaver settings plugin pin covers both arches (post-install/lib/ncz-screensavers-plugin.lock).
 #  3. hook arch lint (build/lint-hook-arch-gates.sh).
 # --facts: both targets must report hostname_format_ok=1, sudo_ok=1, bing_plugin_patched=1,
 #  sensors_plugin_patched=1, gpu_policy_ok=1, ssh_password_ok=1, and identical screensavers_version, release_version and release_codename.
@@ -77,13 +78,7 @@ if [ -n "$DEBS" ]; then
             [ -f "$DEBS/$V/ncz-screensavers_${V}_$arch.deb" ] || bad "ncz-screensavers $V has no $arch deb"
         done
         ( cd "$DEBS/$V" && sha256sum -c SHA256SUMS >/dev/null 2>&1 ) || bad "ncz-screensavers $V SHA256SUMS do not verify"
-        # a ncz-screensavers-plugin deb (a separate package, not published yet), if ever staged, must exist for BOTH arches and be seeded; the GTK4 reference app must not be in any list
-        if ls "$DEBS/$V"/ncz-screensavers-plugin_*_arm64.deb >/dev/null 2>&1 || ls "$DEBS/$V"/ncz-screensavers-plugin_*_amd64.deb >/dev/null 2>&1; then
-            for arch in arm64 amd64; do
-                ls "$DEBS/$V"/ncz-screensavers-plugin_*_$arch.deb >/dev/null 2>&1 || bad "ncz-screensavers-plugin has no $arch deb in $V"
-            done
-            grep -qx ncz-screensavers-plugin "$ROOT/manifests/install-extra.pkgs" 2>/dev/null || bad "manifests/install-extra.pkgs does not seed ncz-screensavers-plugin"
-        fi
+        # the settings plugin is pinned separately (section 2b); the GTK4 reference app must not be in any list
         # package lines only (the manifests explain in comments why the reference app is excluded); no grep -q: under pipefail an early exit SIGPIPEs the loop
         if for m in "$ROOT"/manifests/*.pkgs; do pkgs_of "$m"; done | grep -x 'ncz-screensavers-gtk4-reference' >/dev/null; then bad "ncz-screensavers-gtk4-reference is listed in a manifest (it is for other distros)"; fi
         ls "$ROOT"/build/ncz-screensavers-out/ncz-screensavers-gtk4-reference* >/dev/null 2>&1 && bad "ncz-screensavers-gtk4-reference is staged for the image build"
@@ -92,6 +87,38 @@ if [ -n "$DEBS" ]; then
     fi
 else
     echo "parity: (skipped) ncz-screensavers staging directory not mounted here"
+fi
+
+# 2b. Singularity screensaver settings plugin (pinned medium deb, docs/SCREENSAVER-PLUGIN.md) -----------
+# The pin must name a deb + payload + libsingularity for BOTH arches from ONE source commit; when the
+# ARGONAS directory is mounted both debs must be there and match the pin; a deb staged in
+# build/ncz-screensavers-out/ for either arch must match the pin (a build host stages only its own
+# arch, so one staged arch is normal; the stage-2 gate requires the build's own arch).
+SSP_LOCK="$ROOT/post-install/lib/ncz-screensavers-plugin.lock"
+if [ -f "$SSP_LOCK" ]; then
+    ssp_val() { sed -n "s/^$1=//p" "$SSP_LOCK" | tail -1 | tr -d '"'; }
+    SSP_PKG="$(ssp_val NCZ_SSPLUGIN_PKG)"; SSP_VER="$(ssp_val NCZ_SSPLUGIN_VERSION)"; SSP_DIR="$(ssp_val NCZ_SSPLUGIN_ARGONAS_DIR)"
+    [ -n "$SSP_PKG" ] && [ -n "$SSP_VER" ] && [ -n "$SSP_DIR" ] && [ -n "$(ssp_val NCZ_SSPLUGIN_SOURCE)" ] || bad "plugin pin $SSP_LOCK lacks PKG/VERSION/ARGONAS_DIR/SOURCE"
+    for arch in arm64 amd64; do
+        for k in SHA256 PAYLOAD LIBSINGULARITY_SHA256; do
+            [ -n "$(ssp_val "NCZ_SSPLUGIN_${k}_$arch")" ] || bad "plugin pin has no NCZ_SSPLUGIN_${k}_$arch"
+        done
+        want="$(ssp_val "NCZ_SSPLUGIN_SHA256_$arch")"
+        st="$ROOT/build/ncz-screensavers-out/${SSP_PKG}_${SSP_VER}_$arch.deb"
+        if [ -f "$st" ]; then
+            [ "$(sha256sum "$st" | awk '{print $1}')" = "$want" ] || bad "staged $st does not match the $arch pin"
+        fi
+        # no grep -q on a pipe (pipefail + SIGPIPE, see section 2)
+        [ -n "$(ls "$ROOT/build/ncz-screensavers-out/${SSP_PKG}_"*"_$arch.deb" 2>/dev/null | grep -v "_${SSP_VER}_$arch.deb\$")" ] && bad "build/ncz-screensavers-out holds a $SSP_PKG $arch deb other than the pinned $SSP_VER"
+        if [ -n "$DEBS" ] && [ -d "$(dirname "$DEBS")/$SSP_DIR" ]; then
+            src="$(dirname "$DEBS")/$SSP_DIR/${SSP_PKG}_${SSP_VER}_$arch.deb"
+            if [ ! -f "$src" ]; then bad "plugin pin: $src missing on ARGONAS"
+            elif [ "$(sha256sum "$src" | awk '{print $1}')" != "$want" ]; then bad "plugin pin: $src does not match the $arch sha256"; fi
+        fi
+    done
+    [ "$FAIL" = 0 ] && echo "parity: screensaver plugin $SSP_PKG $SSP_VER pinned for arm64+amd64 from '$(ssp_val NCZ_SSPLUGIN_SOURCE)'"
+else
+    bad "plugin pin $SSP_LOCK missing (both images must ship the screensaver settings plugin)"
 fi
 
 # 3. hook arch lint ---------------------------------------------------------------------------------------
