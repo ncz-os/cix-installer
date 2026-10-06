@@ -2,11 +2,12 @@
 # 59-ncz-screensavers-pkg.sh -- install the ncz-screensavers package (launcher,
 # idle timer, ship-set hacks) from the offline mirror when it is present.
 #
-# This hook ONLY installs the package. It does not touch the existing chooser
-# stack (58-screensaver-chooser.sh) or the held legacy 57-screensaver.sh: the
-# package supersedes them on its own schedule, and the two must not be edited
-# from two branches at once. It is a strict no-op on images whose mirror does
-# not carry the package, so it is safe to ship before the package exists.
+# This hook installs the package. It replaces the retired legacy chooser stack
+# (58-screensaver-chooser.sh, removed 2026-10-05) and the held legacy
+# 57-screensaver.sh: the package owns the engine, the idle timer, the shipped
+# 74-title catalogue and the Singularity plugin. It is a strict no-op on images
+# whose mirror does not carry the package, so it is safe to ship before the
+# package exists.
 #
 # Arch-neutral: the same hook serves arm64 and amd64 images.
 set -uo pipefail
