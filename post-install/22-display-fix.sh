@@ -167,8 +167,8 @@ echo "[22] masked vendor cix-check-display.service (GNOME-only; we use lightdm+X
 
 # Run once during install -- Sky1 only. On amd64 the install-time run saw the INSTALLER's DRM
 # devices through the bind-mounted /sys and wrote a card pin for the installed system.
-if [ "$_ncz_arch" = "arm64" ]; then
-    /usr/local/lib/cix-installer/detect-primary-display.sh
-fi
+case "$_ncz_arch" in
+    arm64|aarch64) /usr/local/lib/cix-installer/detect-primary-display.sh ;;
+esac
 
 echo "[22] dynamic primary-display detector installed (retry loop + safe-on-fail)"

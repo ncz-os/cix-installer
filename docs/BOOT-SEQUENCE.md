@@ -253,7 +253,7 @@ ncz-cuda-setup, `post-install/lib/gpu-progress.sh`,
 ### Tests
 
 `build/test-boot-sequence.sh` runs the real scripts and generated heredocs
-against stubs. On HYDRA: **39 passed, 0 failed** under both `sh` and
+against stubs. On HYDRA: **40 passed, 0 failed** under both `sh` and
 `busybox sh`. Against the base commit `c8234581`, with the old files overlaid:
 **12 passed, 18 failed** (both shells): every assertion about the new behaviour fails without the change, and the 12 that pass check behaviour that was meant to stay the same.
 Existing suites still pass unchanged:
