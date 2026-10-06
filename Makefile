@@ -615,6 +615,7 @@ parity:
 	bash build/test-amd64-t2-detect.sh
 	bash build/test-amd64-t2-default-compat.sh
 	build/test-arm64-freshness-gate.sh
+	build/test-overlay-modversions.sh
 	build/test-amd64-dracut-isolation.sh
 	build/test-kernel-default-policy.sh
 	build/test-kernel-purity-pin.sh

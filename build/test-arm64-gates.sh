@@ -364,6 +364,21 @@ run_gate "arm64 -h shows help" \
     "NCZ_TARGET_ARCH=arm64 VERIFY_ROOT=$PASSING" \
     -h
 
+# Case B15: the overlay MODVERSIONS check (f) is wired in. A fixture tree
+# without assets/kernel/mainline has no pin and reports overlay_crc=skip; a
+# dangling pin (staging not mounted) fails with an overlay-modversions MISSING
+# line. The CRC comparison itself is covered by build/test-overlay-modversions.sh.
+run_gate "arm64 PASSING fixture without a kernel pin -> overlay_crc=skip" \
+    0 'verify-arm64-inputs: OK .*overlay_crc=skip' \
+    "NCZ_TARGET_ARCH=arm64 VERIFY_ROOT=$PASSING"
+DANGLING_PIN="$TMPROOT/dangling-pin"
+mkpassing_root "$DANGLING_PIN"
+mkdir -p "$DANGLING_PIN/assets/kernel"
+ln -s "$TMPROOT/no-such-staging-dir" "$DANGLING_PIN/assets/kernel/mainline"
+run_gate "arm64 dangling kernel pin -> overlay-modversions FAIL" \
+    1 'verify-arm64-inputs: MISSING: overlay-modversions' \
+    "NCZ_TARGET_ARCH=arm64 VERIFY_ROOT=$DANGLING_PIN"
+
 echo
 echo "=== arm64 gates test: PASS=$PASS FAIL=$FAIL ==="
 [ "$FAIL" -eq 0 ]

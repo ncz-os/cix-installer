@@ -277,6 +277,23 @@ if [ -s "$EXTRA_MANIFEST" ] && sed 's/#.*//' "$EXTRA_MANIFEST" | awk 'NF {print 
     fi
 fi
 
+# (f) overlay MODVERSIONS CRCs vs the pinned kernel -----------------------
+# The committed accelerator overlays (assets/kernel/{mali,vpu,npu,panthor}/
+# <kver>/*.ko) must carry the symbol CRCs of the kernel that assets/kernel/
+# mainline pins (its Module.symvers). Rebuilds keep the KVER and vermagic
+# (r282, r283, r284 are all 7.3.0-rc6-sky1-ncz), so only the CRCs tell a stale
+# overlay apart; the r282 overlays had 648 mismatches vs r284 and the loader
+# refuses them (no GPU/VPU/NPU). A tree without assets/kernel/mainline (test
+# fixtures) has no pin to check against and is skipped; a dangling pin fails.
+N_OVERLAY_CRC=skip
+if [ -e "$ROOT/assets/kernel/mainline" ] || [ -L "$ROOT/assets/kernel/mainline" ]; then
+    if python3 "$SCRIPT_DIR/verify-overlay-modversions.py" --root "$ROOT"; then
+        N_OVERLAY_CRC=ok
+    else
+        mark_miss "overlay-modversions" "$ROOT/assets/kernel/{mali,vpu,npu,panthor}/<kver>/*.ko vs the pinned kernel Module.symvers (see build/verify-overlay-modversions.py output above)"
+    fi
+fi
+
 # --- summary ------------------------------------------------------------
 if [ "$FAIL" -ne 0 ]; then
     cat <<'HINT' >&2
@@ -295,6 +312,9 @@ verify-arm64-inputs: one or more required inputs are absent.
                            *.deb under cix-debs/ -- a fresh clone is empty).
     - desktop-mirror/   : run `make offline-mirror` (this repo) to rebuild
                            it from the refreshed vendor mirror + libdrm-debs.
+    - overlay-modversions: copy the pinned staging dir's overlays/<dir>/<kver>/
+                           *.ko into assets/kernel/<dir>/<kver>/ (or rebuild them
+                           with build/build-accel-overlays.sh against its headers).
 
   Override: set NCZ_CIX_DEB_MIN=0 to build a deliberately GPU-less image
             (NOT recommended for arm64 Sky1 -- boot reaches a black screen).
@@ -303,5 +323,5 @@ HINT
 fi
 
 # Success summary line, kept compact so callers (Make, CI logs) can grep it.
-echo "verify-arm64-inputs: OK (fwb=$N_FWB other_fw=$N_OTHER_FW cix_debs=$N_DEBS rescue=$N_RESCUE mirror_debs=$N_MIRROR_DEBS mirror_index=$N_MIRROR_INDEX)"
+echo "verify-arm64-inputs: OK (fwb=$N_FWB other_fw=$N_OTHER_FW cix_debs=$N_DEBS rescue=$N_RESCUE mirror_debs=$N_MIRROR_DEBS mirror_index=$N_MIRROR_INDEX overlay_crc=$N_OVERLAY_CRC)"
 exit 0
