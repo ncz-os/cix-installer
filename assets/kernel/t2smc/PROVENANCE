@@ -44,11 +44,14 @@ Upstream services (not shipped here):
 
 Local modifications:
   - dkms.conf: adds PATCH[0]/PATCH_MATCH[0] to apply patches/0001-t2smc-range-checks.patch
-    during the DKMS build. The C source stays pristine so upstream re-syncs remain
-    byte-diffable.
+    during the DKMS build. DKMS 3.2.2 resolves the PATCH[] value below its patches/
+    directory, so the value is the bare file name (0001-t2smc-range-checks.patch).
+    The C source stays pristine so upstream re-syncs remain byte-diffable.
   - patches/0001-t2smc-range-checks.patch: local hardening (fan min/target range checks
     against F%dMn/F%dMx, battery charge-limit value validation, RTC offset range check).
-    Adds src/t2smc_range.h at build time only. Rebased onto a88f36f: the old
+    Adds t2smc_range.h at the DKMS module root at build time only (56-t2-dkms.sh
+    flattens src/ into /usr/src/t2smc-0.1/, so the patch is written with -p1
+    paths at the module root). Rebased onto a88f36f: the old
     t2smc_rtc_set_time hunk is gone (upstream now computes the offset in s64 and
     masks it), and the new t2smc_rtc_write_offset() path folds CLKO through
     t2smc_rtc_offset_normalize().
