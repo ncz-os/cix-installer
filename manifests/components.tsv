@@ -248,6 +248,7 @@ gnome-disk-utility	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-
 gnome-disk-utility	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 gnome-font-viewer	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 gnome-font-viewer	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+gnome-online-accounts	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 gnome-session-canberra	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 gnome-session-canberra	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 gnome-sound-recorder	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
