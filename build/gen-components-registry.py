@@ -1171,7 +1171,9 @@ def render_local_debs(existing_text, rows):
                 if not pending:
                     continue
                 pkg, glob, req = pending.pop(0)
-                # Keep trailing whitespace/comment if the original line had one.
+                # A data line is rewritten whole: a trailing comment on it is
+                # not carried over. The hand-written blocks have none, and
+                # --check reports the difference if one is ever added.
                 out.append(f"{pkg}|{glob}|{req}")
             else:
                 out.append(raw)
