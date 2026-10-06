@@ -2,37 +2,25 @@
 # Extract the classifier functions from the real script and exercise them
 # against synthetic /boot trees matching the live fleet hosts.
 #
-# Operator directive 2026-10-05 (amd64 part): amd64 ships the 7.2.9 stable
-# line as the default plus exactly one pinned edge kernel -- the 7.3.0-rc6
-# T2 build with the AER ANFE revert (7.3.0-rc6-1-t2-edge-aerfix). The
-# classifier surfaces ONLY that pinned line as EDGE; every other -rc kernel
-# (rc5, an unpinned rc6 variant, the old -ncz-amd64-edge builds) is dropped
-# and never becomes a bootable edge entry. This test asserts both
-# directions: pinned accepted, unpinned refused.
-#
-# History: the 2026-09-30 directive banned amd64 edge entirely and this test
-# asserted that no -rc kernel became EDGE. The 2026-10-05 directive replaced
-# that ban with the pinned-edge rule.
+# Operator directive 2026-10-05 (unified 7.3): amd64 ships ONE kernel, 7.3.
+# The classifier surfaces the newest 7.3 kernel in /boot as the DEFAULT; the
+# retired 7.2.x line and Debian-archive kernels are never surfaced. The exact
+# 7.3 pin is enforced at build time (build/verify-kernel-default-policy.sh),
+# not re-derived here.
 #
 # Source path resolution: the test MUST read the classifier from the tree it
-# lives in. The old default hardcoded $HOME/Projects/cix-installer, the
-# operator's unrelated working clone. On a build host that clone is a
-# different, often stale branch, so the test validated a classifier this repo
-# does not ship and reported 5 spurious failures (b43e3e5 "Known, not caused
-# here", 2026-10-03) even though the shipped classifier passes every case.
-# Resolve to this repo by default; REPO_ROOT stays an explicit override for
-# CI runs against a different checkout.
+# lives in. REPO_ROOT stays an explicit override for CI runs against a
+# different checkout.
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SRC="$REPO_ROOT/assets/refind/zz1-ncz-refind-refresh-amd64"
-if [ ! -f "$SRC" ]; then
-    # Fallback to the directory this test script lives in.
-    SRC="$(cd "$(dirname "$0")/.." && pwd)/assets/refind/zz1-ncz-refind-refresh-amd64"
-fi
 [ -f "$SRC" ] || { echo "EXTRACT FAILED: $SRC not found"; exit 2; }
-SHIM=/tmp/classifier-shim.sh
-awk '/^BOOTDIR=/,/^KVER_EDGE=\$\(find_newest edge\)$/' "$SRC" \
-  | sed '/^KVER_STABLE=\$(find_newest stable)$/d; /^KVER_EDGE=\$(find_newest edge)$/d' > "$SHIM"
-grep -q 'is_prerelease' "$SHIM" || { echo "EXTRACT FAILED"; exit 2; }
+SHIM="$(mktemp -t classifier-shim.XXXXXX.sh)"
+trap 'rm -f "$SHIM"' EXIT
+awk '/^BOOTDIR=/,/^KVER_STABLE=\$\(find_newest\)$/' "$SRC" \
+  | sed '/^KVER_STABLE=\$(find_newest)$/d' > "$SHIM"
+grep -q 'is_prerelease' "$SHIM" || { echo "EXTRACT FAILED: classifier functions missing"; exit 2; }
+grep -q '^classify()' "$SHIM" || { echo "EXTRACT FAILED: classify() missing"; exit 2; }
+# shellcheck source=/dev/null
 . "$SHIM"
 
 mkboot() { # mkboot <dir> <kver>...  (mtime increases in argument order)
@@ -43,106 +31,50 @@ mkboot() { # mkboot <dir> <kver>...  (mtime increases in argument order)
   done
 }
 PASS=0; FAIL=0
-check() { # check <label> <expect_stable> <expect_edge>
-  local got_s got_e
-  got_s=$(find_newest stable 2>/dev/null); got_e=$(find_newest edge 2>/dev/null)
-  if [ "$got_s" = "$2" ] && [ "$got_e" = "$3" ]; then
-    echo "  PASS  $1"; echo "          stable=$got_s edge=$got_e"; PASS=$((PASS+1))
+check() { # check <label> <expect_default>
+  local got
+  got=$(find_newest 2>/dev/null)
+  if [ "$got" = "$2" ]; then
+    echo "  PASS  $1"; echo "          default=$got"; PASS=$((PASS+1))
   else
-    echo "  FAIL  $1"; echo "          expected stable=$2 edge=$3"
-    echo "          got      stable=$got_s edge=$got_e"; FAIL=$((FAIL+1))
+    echo "  FAIL  $1"; echo "          expected default='$2' got='$got'"; FAIL=$((FAIL+1))
   fi
 }
 
-echo "=== PEGASUS, current (pre-rc5)"
-# Even though 7.3.0-rc4-2-t2-trixie and the old -ncz-amd64-edge build are
-# in /boot, they are NOT the pinned edge kernel and are never classified
-# as edge on amd64. Stable is still the newest release; edge is empty.
+echo "=== unified 7.3: newest 7.3 kernel is the default; 7.2.x is not ==="
 export BOOTDIR=/tmp/b1
-mkboot $BOOTDIR 7.2.6-2-t2-trixie 7.2.7-2-t2-trixie 7.3.0-rc4-ncz-amd64-edge 7.3.0-rc4-2-t2-trixie 7.2.8-1-t2-trixie 7.3.0-rc4-2-t2-trixie-rescue
-check "amd64: unpinned rc4 builds stay out of edge" 7.2.8-1-t2-trixie ""
+mkboot $BOOTDIR 7.2.7-2-t2-trixie 7.2.9-2-t2-trixie 7.3.0-rc5-1-t2-trixie 7.3.0-rc6-1-t2-edge-aerfix 7.2.4-2-t2-trixie-rescue
+check "amd64: newest 7.3 wins over the retired 7.2.9" 7.3.0-rc6-1-t2-edge-aerfix
 
-echo "=== PEGASUS + rc5"
-# Even with a fresh 7.3-rc5 installed, amd64 refuses to surface it as
-# edge (rc5 is retired; only the pinned 7.3.0-rc6 revert is edge).
-# Stable is 7.2.8 (the default), edge is empty.
+echo "=== a 7.2.x-only /boot is not surfaced (retired) ==="
 export BOOTDIR=/tmp/b2
-mkboot $BOOTDIR 7.2.6-2-t2-trixie 7.2.7-2-t2-trixie 7.3.0-rc4-ncz-amd64-edge 7.2.8-1-t2-trixie 7.3.0-rc5-1-t2-trixie
-check "amd64: rc5 stays out of edge" 7.2.8-1-t2-trixie ""
+mkboot $BOOTDIR 7.2.8-1-t2-trixie 7.2.9-2-t2-trixie
+check "amd64: pure-7.2.x /boot has no default" ""
 
-echo "=== MEDUSA + rc5 (the -xhcifix orphan)"
-# The -xhcifix orphan that prompted the original classifier rewrite is
-# also out of policy on amd64 now: it is installed, but the rEFInd menu
-# does not surface it (only the pinned rc6 revert is edge).
+echo "=== unpinned 7.3 rc variants are still 7.3 (build gate pins the exact one) ==="
 export BOOTDIR=/tmp/b3
-mkboot $BOOTDIR 7.2.7-2-t2-trixie 7.2.8-1-t2-trixie 7.3.0-rc4-3-t2-trixie-xhcifix 7.3.0-rc5-1-t2-trixie
-check "amd64: xhcifix + rc5 both stay out of edge" 7.2.8-1-t2-trixie ""
+mkboot $BOOTDIR 7.2.9-2-t2-trixie 7.3.0-rc6-1-t2-edge-plain
+check "amd64: a 7.3 rc6 variant classifies as default" 7.3.0-rc6-1-t2-edge-plain
 
-echo "=== MEDUSA without rc5: xhcifix must NOT be promoted to edge"
-# Under the pinned-edge rule, even an isolated 7.3-rc4-xhcifix is not
-# promoted to edge on amd64.
+echo "=== Debian-archive kernels are never surfaced ==="
 export BOOTDIR=/tmp/b4
-mkboot $BOOTDIR 7.2.7-2-t2-trixie 7.2.8-1-t2-trixie 7.3.0-rc4-3-t2-trixie-xhcifix
-check "amd64: isolated rc4-xhcifix stays out of edge" 7.2.8-1-t2-trixie ""
+mkboot $BOOTDIR 7.1.4-amd64 6.1.0-13-amd64
+check "amd64: Debian kernels are not the default" ""
 
-echo "=== negative: no initrd means not eligible (stable still picks up)"
-# Stable is still discovered; edge stays empty even though rc5 is
-# present (the pinned-edge rule, not the missing initrd, suppresses edge).
+echo "=== rescue images are skipped ==="
 export BOOTDIR=/tmp/b5
-mkboot $BOOTDIR 7.2.8-1-t2-trixie 7.3.0-rc5-1-t2-trixie
-rm -f $BOOTDIR/initrd.img-7.3.0-rc5-1-t2-trixie
-check "amd64: rc5 stays out of edge even with initrd missing" 7.2.8-1-t2-trixie ""
+mkboot $BOOTDIR 7.3.0-rc6-1-t2-edge-aerfix-rescue 7.3.0-rc6-1-t2-edge-aerfix
+check "amd64: the rescue image is skipped, the live 7.3 kernel is default" 7.3.0-rc6-1-t2-edge-aerfix
 
-echo "=== positive: pure-stable /boot -- only stable, no edge"
-# The fleet host that has only 7.2.x releases installed. No surprise:
-# stable is the newest, edge is empty.
+echo "=== missing initrd: newest 7.3 without an initrd is skipped ==="
 export BOOTDIR=/tmp/b6
-mkboot $BOOTDIR 7.2.7-2-t2-trixie 7.2.8-1-t2-trixie
-check "amd64: pure-stable /boot" 7.2.8-1-t2-trixie ""
+mkboot $BOOTDIR 7.3.0-rc5-1-t2-trixie 7.3.0-rc6-1-t2-edge-aerfix
+rm -f $BOOTDIR/initrd.img-7.3.0-rc6-1-t2-edge-aerfix
+check "amd64: the incomplete newer 7.3 kernel is skipped" 7.3.0-rc5-1-t2-trixie
 
-echo "=== positive: pinned rc6 AER-revert edge is surfaced (operator 2026-10-05)"
-# The validated amd64 edge kernel. Stable stays the default 7.2.9; the
-# revert build is the edge entry.
+echo "=== negative: no 7.3 at all -> empty ==="
 export BOOTDIR=/tmp/b7
-mkboot $BOOTDIR 7.2.9-2-t2-trixie 7.3.0-rc6-1-t2-edge-aerfix
-check "amd64: pinned rc6 revert edge surfaced, stable default preserved" 7.2.9-2-t2-trixie 7.3.0-rc6-1-t2-edge-aerfix
-
-echo "=== negative: unpinned rc6 variants + rc5 stay OUT of edge"
-# Same 7.3.0-rc6 generation but not the pinned build, plus the retired rc5.
-# Neither becomes edge; stable is untouched.
-export BOOTDIR=/tmp/b8
-mkboot $BOOTDIR 7.2.9-2-t2-trixie 7.3.0-rc6-1-t2-edge-plain 7.3.0-rc6-1-t2-edge-rev7920 7.3.0-rc5-1-t2-trixie
-check "amd64: unpinned rc6 variants and rc5 stay out of edge" 7.2.9-2-t2-trixie ""
-echo "=== Cygnus 26.10 base: the shipping stable line is 7.2.9-2-t2-trixie"
-# The classifier must treat the 7.2.9 release naming exactly like every other
-# release: stable, not prerelease, and any 7.3-rc5 sitting beside it is still
-# refused as an amd64 edge entry. The fixtures above stop at 7.2.8, so the
-# shipping Cygnus naming (b43e3e5: amd64 stable = 7.2.9-2-t2-trixie) had no
-# coverage; this is the regression case for the 7.2.9 "-t2-trixie" naming.
-export BOOTDIR=/tmp/b9
-mkboot $BOOTDIR 7.2.8-1-t2-trixie 7.2.9-2-t2-trixie 7.3.0-rc5-1-t2-trixie
-check "amd64: 7.2.9-2-t2-trixie is stable; rc5 stays out of edge" 7.2.9-2-t2-trixie ""
-
-echo "=== REGRESSION PROOF: what the OLD globs did -- and why it's now banned"
-# The OLD globs (pre-rewrite AND pre-directive) would promote rc5 to
-# Stable on amd64. That is the exact failure mode the operator directive
-# 2026-09-30 banned, and the 2026-10-05 pinned-edge rule keeps it banned.
-# Confirm the OLD logic still exhibits that failure (so we know what we
-# are guarding against), then confirm the NEW classifier refuses to
-# enumerate any unpinned edge.
-export BOOTDIR=/tmp/b2
-old_stable=""; old_edge=""; nm=-1
-for f in $BOOTDIR/vmlinuz-*; do k="${f##*/vmlinuz-}"
-  case "$k" in *-rescue) continue;; *-t2-trixie) m=$(stat -c %Y "$f"); [ "$m" -gt "$nm" ] && { nm=$m; old_stable="$k"; };; esac; done
-for f in $BOOTDIR/vmlinuz-*; do k="${f##*/vmlinuz-}"; case "$k" in *-ncz-amd64-edge) old_edge="$k";; esac; done
-echo "  OLD: stable=$old_stable edge=$old_edge"
-[ "$old_stable" = "7.3.0-rc5-1-t2-trixie" ] \
-  && { echo "  CONFIRMED: old logic promotes rc5 to Stable (Default) on amd64 -- exactly the failure mode banned by directive 2026-09-30 and still out of policy under the 2026-10-05 pinned-edge rule"; PASS=$((PASS+1)); } \
-  || { echo "  regression proof did not reproduce"; FAIL=$((FAIL+1)); }
-# And the new pinned-edge contract: no unpinned edge on amd64.
-got_e=$(find_newest edge 2>/dev/null)
-[ -z "$got_e" ] \
-  && { echo "  CONFIRMED: new classifier enumerates NO unpinned edge on amd64 (directive 2026-10-05)"; PASS=$((PASS+1)); } \
-  || { echo "  FAIL: new classifier unexpectedly promoted '$got_e' to edge"; FAIL=$((FAIL+1)); }
+mkboot $BOOTDIR 6.1.0-13-amd64
+check "amd64: no 7.3 -> no default" ""
 
 echo; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

@@ -78,6 +78,7 @@ ncz_is_t2_hardware() {
 ncz_t2_pci_bridge_present() {
     local root="${NCZ_PCI_DEVICES_ROOT:-/sys/bus/pci/devices}"
     local d v dev
+    [ -d "$root" ] || return 1
     for d in "$root"/*; do
         [ -r "$d/vendor" ] || continue
         v="$(cat "$d/vendor" 2>/dev/null)"; v="${v#0x}"

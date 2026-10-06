@@ -1,5 +1,11 @@
 # amd64 7.3.0-rc6 edge kernel: the AER ANFE revert (7.3.0-rc6-1-t2-edge-aerfix)
 
+> **SUPERSEDED (operator 2026-10-05, same day):** the separate amd64 "edge" entry was
+> retired. This same `7.3.0-rc6-1-t2-edge-aerfix` build is now the amd64 DEFAULT and
+> installer kernel under the unified 7.3 policy; see
+> `docs/reports/2026-10-05-kernel-channel-policy.md`. This report is kept as history
+> for the AER revert proof.
+
 Operator policy of 2026-10-05: stable 7.2.9 is the default and installer boot kernel on
 both arches; amd64 (T2 Macs and generic PCs) additionally carries a bootable, non-default
 7.3.0-rc6 edge entry. This records the edge build that fills the amd64 channel, how it was

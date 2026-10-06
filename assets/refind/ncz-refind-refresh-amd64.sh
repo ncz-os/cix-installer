@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # ncz-refind-refresh-amd64.sh — (re)generate the rEFInd ESP menu for the
-# AMD64/x86_64 target (T2 Macs + generic PC UEFI hardware, unified stable
-# kernel line + a separate experimental edge line).
+# AMD64/x86_64 target (T2 Macs + generic PC UEFI hardware). Unified 7.3
+# policy (operator 2026-10-05): ONE kernel, no edge line; the rescue entry
+# boots that same kernel with the accelerators blacklisted.
 #
 # Standardized on rEFInd to match arm64/Sky1 rather than diverging on GRUB
 # (operator directive, 2026-09-16: "standardize on rEFInd on amd64, we
@@ -23,13 +24,10 @@
 #   - console=ttyS0,115200 (standard PC/T2 UART) instead of ttyAMA0.
 #   - NO MS-R1 efi=noruntime DMI workaround -- that is a specific Sky1
 #     board's firmware bug, meaningless on generic x86/T2 hardware.
-#   - NO Mali-vs-Panthor GPU-driver menu split, no sky1.gpu=, no
-#     accelerator module_blacklist juggling -- amd64 has no Sky1-style
-#     DKMS GPU choice; i915/amdgpu/nvidia are in-tree kernel drivers,
-#     selected by the hardware itself, not a boot-menu decision. The
-#     Stable-vs-Edge KERNEL LINE choice takes that split's place instead
-#     (see 70-bootloader.sh's run_refind_amd64()), matching what
-#     run_grub_amd64() already did before this file replaced it.
+#   - NO Mali-vs-Panthor GPU-driver menu split, no sky1.gpu=. The single
+#     7.3 kernel is the default; the redefined rescue entry blacklists the
+#     accelerator stacks (target-aware: amdgpu is kept on T2 Macs because
+#     the internal panel is on the AMD dGPU).
 #   - Rescue-kernel auto-promotion, operator timeout/default-selection
 #     preference learning, banner/icon staging, and the NVRAM
 #     firmware-fallback path are all KEPT verbatim -- none of that is
@@ -43,27 +41,26 @@ REFIND_SRC="$INSTALLER_META/assets/refind/refind_x64.efi"
 : "${KVER_STABLE:=}"
 : "${KVER_EDGE:=}"
 : "${BUILD_VERSION:=(unknown)}"
+# NCZ-UNIFIED-KERNEL-73: ONE kernel (7.3) is the default, the installer kernel
+# and the rescue kernel. KVER_STABLE carries that single pin; any KVER_EDGE is
+# ignored (the edge channel was retired 2026-10-05).
 
-# Operator directive 2026-10-05: the amd64 T2 EDGE entry boots with
-# pcie_ports=compat, the PCIe mode the T2 Linux community runs as its
-# baseline on T2 Macs, alongside the AER ANFE revert the edge kernel
-# already carries. compat leaves the firmware _OSC grant intact but makes
-# the OS assume control of the PCIe port services without the port driver
-# claiming them: no AER handler, no PME, no native hotplug service is
-# registered (measured on MEDUSA: "pcie_portdrv_init returned -13" and an
-# empty /sys/bus/pci_express/devices). ACPI hotplug still works; native
-# Thunderbolt hotplug may behave differently. Applied to the amd64 EDGE
-# entry ONLY, and ONLY on Apple T2 hardware -- never the stable,
-# stable-console or rescue entries. See
-# docs/reports/2026-10-05-amd64-edge-pcie-ports-compat.md.
+# Operator directive 2026-10-05: the amd64 DEFAULT 7.3 entry boots with
+# pcie_ports=compat, the PCIe mode the T2 Linux community runs as its baseline
+# on T2 Macs, alongside the AER ANFE revert the 7.3 kernel already carries.
+# compat leaves the firmware _OSC grant intact but makes the OS assume control
+# of the PCIe port services without the port driver claiming them: no AER
+# handler, no PME, no native hotplug service is registered. Applied to the
+# amd64 DEFAULT entry ONLY, and ONLY on Apple T2 hardware -- never the console
+# or rescue entries, and never a generic PC (including non-T2 Intel Macs, VMs
+# and servers). See docs/reports/2026-10-05-amd64-edge-pcie-ports-compat.md.
 #
 # The x86 kernel is UNIFIED (one family for T2 Macs and generic PCs), so this
 # is decided here, on the target machine, via DMI (ncz_is_t2_hardware in
-# assets/refind/ncz-t2-detect.sh): a generic workstation/server must keep the
-# native AER/PME/hotplug port services. The detection helper is sourced from
-# the same staged assets tree, and if it is absent we fail closed to no token.
+# assets/refind/ncz-t2-detect.sh). The detection helper is sourced from the
+# same staged assets tree, and if it is absent we fail closed to no token.
 #
-# Markers below let build/test-amd64-edge-compat.sh extract this block
+# Markers below let build/test-amd64-t2-detect.sh extract this block
 # byte-exactly instead of pattern-matching its shape.
 # NCZ-T2-CMDLINE-BEGIN
 NCZ_T2_DETECT_LIB="$INSTALLER_META/assets/refind/ncz-t2-detect.sh"
@@ -75,12 +72,12 @@ else
     ncz_t2_detect_detail() { printf 'T2 detection helper missing at %s (fail closed)' "$NCZ_T2_DETECT_LIB"; }
 fi
 
-NCZ_T2_EDGE_EXTRA_CMDLINE=""
+NCZ_T2_DEFAULT_EXTRA_CMDLINE=""
 if ncz_is_t2_hardware; then
-    NCZ_T2_EDGE_EXTRA_CMDLINE="pcie_ports=compat"
-    echo "  T2 hardware detected ($(ncz_t2_detect_detail)); amd64 edge entry gets the T2 compat cmdline"
+    NCZ_T2_DEFAULT_EXTRA_CMDLINE="pcie_ports=compat"
+    echo "  T2 hardware detected ($(ncz_t2_detect_detail)); amd64 default entry gets the T2 compat cmdline"
 else
-    echo "  not T2 hardware ($(ncz_t2_detect_detail)); amd64 edge entry keeps default PCIe services"
+    echo "  not T2 hardware ($(ncz_t2_detect_detail)); amd64 default entry keeps default PCIe services"
 fi
 # NCZ-T2-CMDLINE-END
 
@@ -101,46 +98,31 @@ if [ -z "$KVER_STABLE" ]; then
     exit 1
 fi
 
-# Operator directive 2026-10-04 (Cygnus 26.10 kernel purity): the default
-# rEFInd entry must load our 7.2.9 T2 kernel, never a Debian-archive kernel.
-# Reject the two shapes a Debian kernel can arrive in: an -rcN prerelease, and
-# a Debian-named/versioned kernel (versioned Debian kernels end in -amd64 and
-# the forky line is 7.1.x; NCZ's amd64 kernel ends in -t2-trixie). The
-# /etc/kernel/postinst.d classifier already filters /boot to *-t2-trixie*, but
-# this generator can be invoked with an explicit KVER, so fail closed here too.
+# Operator directive 2026-10-04 (Cygnus 26.10 kernel purity), updated
+# 2026-10-05: the default rEFInd entry must load our NCZ 7.3 kernel, never a
+# Debian-archive kernel. An -rcN is permitted as the default while the unified
+# policy allows it (RC_DEFAULT_ALLOWED=1; 7.3.0 final removes it), so only the
+# Debian shapes are refused here. Versioned Debian kernels end in -amd64 and
+# the forky line is 7.1.x; the /etc/kernel/postinst.d classifier already
+# filters /boot, but this generator can be invoked with an explicit KVER, so
+# fail closed here too. The build-time gate build/verify-kernel-default-policy.sh
+# enforces the 7.3 series and the rc-allowance rules.
 case "$KVER_STABLE" in
-    *-rc[0-9]*)
-        echo "ERROR: KVER_STABLE='$KVER_STABLE' is a release-candidate (-rcN); the amd64 stable line MUST be a release kernel (directive 2026-09-30)." >&2
-        echo "       Refusing to write an rEFInd menu that would boot -rc as the default." >&2
-        exit 1
-        ;;
     *-amd64|7.1.*|7.1-*)
         echo "ERROR: KVER_STABLE='$KVER_STABLE' names a Debian-archive kernel (amd64/7.1.x);" >&2
-        echo "       the stable line MUST be the NCZ 7.2.9 T2 kernel (directive 2026-10-04)." >&2
+        echo "       the default MUST be the NCZ 7.3 T2 kernel (directive 2026-10-05)." >&2
         echo "       Refusing to write an rEFInd menu that would boot Debian as the default." >&2
         exit 1
         ;;
 esac
 
-# Operator directive 2026-10-05: amd64 edge channel is pinned to 7.3.0-rc6,
-# the validated T2 kernel with the AER ANFE revert
-# (7.3.0-rc6-1-t2-edge-aerfix). A KVER_EDGE that is not that pinned line is
-# ignored (defence in depth alongside the build-time policy gate
-# build/verify-kernel-default-policy.sh and the classify() function in
-# zz1-ncz-refind-refresh-amd64, which only surfaces the pinned line). The
-# kernel itself may still be installed (operator apt install), but the
-# rEFInd menu must not offer an unpinned -rc as a bootable edge entry.
-case "$KVER_EDGE" in
-    "")
-        ;;
-    7.3.0-rc6-[0-9]-t2-edge-aerfix|7.3.0-rc6-[0-9][0-9]-t2-edge-aerfix)
-        echo "  KVER_EDGE='$KVER_EDGE' accepted (amd64 edge channel is pinned to 7.3.0-rc6, operator 2026-10-05)"
-        ;;
-    *)
-        echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- not the pinned amd64 edge 7.3.0-rc6-<N>-t2-edge-aerfix (operator 2026-10-05; amd64 edge channel is pinned to 7.3.0-rc6)"
-        KVER_EDGE=""
-        ;;
-esac
+# The edge channel was retired in the unified 7.3 policy: any KVER_EDGE passed
+# in (legacy hook data, an operator apt install) is ignored and never gets a
+# menu entry. Only the single default KVER is bootable here.
+if [ -n "${KVER_EDGE:-}" ]; then
+    echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- the edge channel was retired (unified 7.3 policy, operator 2026-10-05)"
+    KVER_EDGE=""
+fi
 
 echo "  KVER_STABLE=$KVER_STABLE"
 echo "  KVER_EDGE=${KVER_EDGE:-<none>}"
@@ -467,35 +449,27 @@ if [ -n "$KVER_STABLE" ] && [ -s "/boot/vmlinuz-$KVER_STABLE" ]; then
     STABLE_INITRD_AVAILABLE=1
 fi
 
-# EDGE — the second, experimental kernel line (v7.3-rc3). Absence is not
-# fatal, only the stable line is required above.
-EDGE_AVAILABLE=0
-EDGE_INITRD_AVAILABLE=0
-if [ -n "${KVER_EDGE:-}" ] && [ -s "/boot/vmlinuz-$KVER_EDGE" ]; then
-    if [ ! -s "/boot/initrd.img-$KVER_EDGE" ]; then
-        echo "  WARN: /boot/vmlinuz-$KVER_EDGE exists but /boot/initrd.img-$KVER_EDGE is missing -- edge entry SKIPPED"
-    else
-        install -m 0644 "/boot/vmlinuz-$KVER_EDGE" "/boot/efi/vmlinuz-$KVER_EDGE"
-        echo "  staged /boot/efi/vmlinuz-$KVER_EDGE"
-        EDGE_AVAILABLE=1
-        install -m 0644 "/boot/initrd.img-$KVER_EDGE" "/boot/efi/initrd.img-$KVER_EDGE"
-        echo "  staged /boot/efi/initrd.img-$KVER_EDGE"
-        EDGE_INITRD_AVAILABLE=1
-    fi
-elif [ -n "${KVER_EDGE:-}" ]; then
-    echo "  WARN: /boot/vmlinuz-$KVER_EDGE missing — edge entry will be SKIPPED"
-fi
-
 if [ "$STABLE_AVAILABLE" = "0" ]; then
-    echo "ERROR: stable kernel not installed — system is unbootable."
+    echo "ERROR: default kernel not installed — system is unbootable."
     exit 1
 fi
 
-# NCZ-EDGE-OPTIONS-BEGIN
+# NCZ-DEFAULT-OPTIONS-BEGIN
 STABLE_OPTIONS=""
 if [ "$STABLE_AVAILABLE" = "1" ]; then
     STABLE_OPTIONS="$ROOT_OPTS $STABLE_CMDLINE_BASE"
     [ -n "$SPLASH" ] && STABLE_OPTIONS="$STABLE_OPTIONS $SPLASH"
+    # Operator directive 2026-10-05: append the T2 default-entry extra cmdline
+    # (pcie_ports=compat). Scoped to the DEFAULT (graphical) entry only; the
+    # console and rescue entries below never get it. Idempotent guard.
+    # NCZ-DEFAULT-GUARD-BEGIN
+    if [ -n "$NCZ_T2_DEFAULT_EXTRA_CMDLINE" ]; then
+        case " $STABLE_OPTIONS " in
+            *" $NCZ_T2_DEFAULT_EXTRA_CMDLINE "*) ;;
+            *) STABLE_OPTIONS="$STABLE_OPTIONS $NCZ_T2_DEFAULT_EXTRA_CMDLINE" ;;
+        esac
+    fi
+    # NCZ-DEFAULT-GUARD-END
 fi
 
 # Console entry — reach a networked multi-user shell on the SHIPPING kernel
@@ -506,31 +480,29 @@ if [ "$STABLE_AVAILABLE" = "1" ]; then
     STABLE_CONSOLE_OPTIONS="$ROOT_OPTS $STABLE_CMDLINE_BASE systemd.unit=multi-user.target"
 fi
 
-# EDGE — v7.3-rc3, EXPERIMENTAL kernel, CONSOLE-ONLY. Exists to prove the
-# kernel/initrd itself boots on real hardware; not a graphical-default
-# choice. Same treatment as arm64's edge entry.
-EDGE_OPTIONS=""
-if [ "$EDGE_AVAILABLE" = "1" ]; then
-    EDGE_OPTIONS="$ROOT_OPTS console=ttyS0,115200 console=tty0 systemd.unit=multi-user.target"
-    # Operator directive 2026-10-05: append the T2 edge extra cmdline
-    # (pcie_ports=compat). The guard keeps this idempotent -- if the token
-    # is already present it is never added a second time -- and appending
-    # preserves every option already in EDGE_OPTIONS. It is deliberately
-    # scoped to this one branch: the stable, stable-console and rescue
-    # option strings above/below are untouched.
-    # NCZ-EDGE-GUARD-BEGIN
-    if [ -n "$NCZ_T2_EDGE_EXTRA_CMDLINE" ]; then
-        case " $EDGE_OPTIONS " in
-            *" $NCZ_T2_EDGE_EXTRA_CMDLINE "*) ;;
-            *) EDGE_OPTIONS="$EDGE_OPTIONS $NCZ_T2_EDGE_EXTRA_CMDLINE" ;;
-        esac
-    fi
-    # NCZ-EDGE-GUARD-END
+# RESCUE, redefined under the unified 7.3 policy (operator 2026-10-05): the
+# SAME default kernel with the accelerator drivers blacklisted, not an old
+# known-good kernel. The list is target-aware because the amd64 kernel is
+# unified for T2 Macs and generic PCs:
+#   - on a T2 Mac the internal panel is wired to the AMD dGPU, so amdgpu is
+#     KEPT (blacklisting it would be a black screen) and only the other
+#     GPU/compute stacks are dropped;
+#   - on a generic PC all discrete GPU stacks are dropped and the console
+#     stays up via simpledrm/efifb/fbdev (or an unblacklisted iGPU).
+# is_t2_hardware() is defined by the sourced ncz-t2-detect.sh above (fails
+# closed to non-T2 when the helper is absent).
+# NCZ-RESCUE-ACCEL-BEGIN
+RESCUE_ACCEL_BLACKLIST="amdgpu,radeon,nouveau,nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm"
+if ncz_is_t2_hardware; then
+    RESCUE_ACCEL_BLACKLIST="nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm,nouveau,radeon"
 fi
+# NCZ-RESCUE-ACCEL-END
+RESCUE_CMDLINE_BASE="console=ttyS0,115200 console=tty0 systemd.condition_first_boot=false audit_backlog_limit=8192"
+RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_BASE module_blacklist=$RESCUE_ACCEL_BLACKLIST systemd.unit=multi-user.target"
 
-RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw console=ttyS0,115200 console=tty0 systemd.unit=multi-user.target"
-echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
-# NCZ-EDGE-OPTIONS-END
+RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw console=ttyS0,115200 console=tty0 module_blacklist=$RESCUE_ACCEL_BLACKLIST systemd.unit=multi-user.target"
+echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — same 7.3 kernel, accelerators blacklisted ($RESCUE_ACCEL_BLACKLIST)"
+# NCZ-DEFAULT-OPTIONS-END
 
 install -d -m 0755 /boot/efi/EFI/BOOT
 install -m 0644 "$REFIND_SRC" /boot/efi/EFI/BOOT/BOOTX64.EFI
@@ -587,16 +559,15 @@ if [ -s "$CYGNUS_SRC/theme.conf" ] && [ -s "$CYGNUS_SRC/background-1920x1080.png
     echo "  rEFInd Cygnus theme installed → /boot/efi/EFI/BOOT/themes/cygnus"
 fi
 
-# Release policy: the stable kernel is the default graphical entry. Edge is
-# always an explicit console-only experiment.
+# Release policy (unified 7.3, operator 2026-10-05): the single 7.3 kernel is
+# the default graphical entry. There is no edge entry.
 if [ "$STABLE_AVAILABLE" = "1" ]; then
     # Must be UNIQUE across menu titles -- rEFInd matches default_selection
-    # as a substring, same trap arm64's own comment documents. "Stable
-    # (Default)" appears in exactly one title; keep it that way when adding
-    # entries.
-    DEFAULT_TOKEN="Stable (Default)"
+    # as a substring, same trap arm64's own comment documents. "7.3 (Default)"
+    # appears in exactly one title; keep it that way when adding entries.
+    DEFAULT_TOKEN="7.3 (Default)"
 else
-    DEFAULT_TOKEN="edge"
+    DEFAULT_TOKEN="7.3"
 fi
 DESKTOP_COMPONENT_DISABLED=0
 if [ "$STABLE_AVAILABLE" = "1" ]; then
@@ -612,7 +583,7 @@ if [ "$STABLE_AVAILABLE" = "1" ]; then
             *",desktop,"*) : ;;
             *)
                 DESKTOP_COMPONENT_DISABLED=1
-                DEFAULT_TOKEN="Stable Console"
+                DEFAULT_TOKEN="7.3 Console"
                 echo "  desktop component disabled; defaulting rEFInd to console entry"
                 ;;
         esac
@@ -683,7 +654,7 @@ fi
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$STABLE_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  Stable (Default)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 (Default)\" {"
         echo "    loader  /vmlinuz-$KVER_STABLE"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$STABLE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_STABLE"
@@ -691,20 +662,22 @@ fi
         echo "}"
         echo
 
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  Stable Console\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Console\" {"
         echo "    loader  /vmlinuz-$KVER_STABLE"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$STABLE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_STABLE"
         echo "    options \"$STABLE_CONSOLE_OPTIONS\""
         echo "}"
         echo
-    fi
-    if [ "$EDGE_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  Edge / Experimental Kernel (Console)\" {"
-        echo "    loader  /vmlinuz-$KVER_EDGE"
+
+        # REDEFINED RESCUE (operator 2026-10-05): the SAME 7.3 kernel with the
+        # accelerator drivers blacklisted. This replaces the old
+        # "rescue = an older known-good kernel" definition.
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Rescue / No Accelerators (Console)\" {"
+        echo "    loader  /vmlinuz-$KVER_STABLE"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
-        [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
-        echo "    options \"$EDGE_OPTIONS\""
+        [ "$STABLE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_STABLE"
+        echo "    options \"$RESCUE_OPTIONS\""
         echo "}"
         echo
     fi
@@ -717,13 +690,14 @@ fi
         echo "}"
         echo
     fi
-    # OPERATOR-STAGED RESCUE KERNELS. Preserved by the wipe above.
+    # OPERATOR-STAGED RESCUE KERNELS. Preserved by the wipe above. Under the
+    # unified policy these also boot with the accelerators blacklisted.
     for _rescue_img in /boot/efi/vmlinuz-*-rescue; do
         [ -e "$_rescue_img" ] || continue
         _rescue_file=${_rescue_img##*/}
         _rescue_tag=${_rescue_file#vmlinuz-}
         _rescue_tag=${_rescue_tag%-rescue}
-        _rescue_options=$(printf '%s\n' "$STABLE_OPTIONS" | tr ' ' '\n' \
+        _rescue_options=$(printf '%s\n' "$RESCUE_OPTIONS" | tr ' ' '\n' \
             | grep -vE '^(quiet|)$' | paste -sd' ' -)
         echo "menuentry \"RESCUE  -  $_rescue_tag known-good kernel\" {"
         echo "    loader  /$_rescue_file"

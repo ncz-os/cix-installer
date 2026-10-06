@@ -115,7 +115,7 @@ cmdline_for() { # cmdline_for <dmi-root> -> token or ""
     ( NCZ_DMI_ROOT="$1"; INSTALLER_META="$REPO"
       # shellcheck disable=SC1090
       . "$W/cmdline.sh" >/dev/null
-      printf '%s' "$NCZ_T2_EDGE_EXTRA_CMDLINE" )
+      printf '%s' "$NCZ_T2_DEFAULT_EXTRA_CMDLINE" )
 }
 eq "T2 Mac sets the token"       "$(cmdline_for "$W/dmi/mbp16")"   "$TOKEN"
 eq "generic PC leaves it empty"  "$(cmdline_for "$W/dmi/asus")"    ""
@@ -127,8 +127,8 @@ eq "absent helper fails closed" \
    "$( NCZ_DMI_ROOT="$W/dmi/mbp16" INSTALLER_META="$W/no-such-meta"
       # shellcheck disable=SC1090
       . "$W/cmdline.sh" >/dev/null
-      printf '%s' "$NCZ_T2_EDGE_EXTRA_CMDLINE" )" ""
+      printf '%s' "$NCZ_T2_DEFAULT_EXTRA_CMDLINE" )" ""
 
 echo
 echo "=== amd64 T2 detect test: PASS=$PASS FAIL=$FAIL ==="
-[ "$FAIL" -eq 0 ]
+[ "$FAIL" -eq 0 ] || exit 1

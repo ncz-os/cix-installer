@@ -86,7 +86,7 @@ if [ ! -x "$ROOT/build/verify-kernel-default-policy.sh" ]; then
 fi
 if ! "$ROOT/build/verify-kernel-default-policy.sh" --root "$ROOT" --arch "$ARCH"; then
     echo "FATAL: kernel default policy check failed -- refusing to build $ARCH image" >&2
-    echo "       (operator directive 2026-09-30, updated 2026-10-04: the 7.2.9 release kernel must be the default on every arch)" >&2
+    echo "       (operator directive 2026-10-05: the unified 7.3 kernel must be the default on every arch)" >&2
     exit 1
 fi
 

@@ -1,61 +1,42 @@
 #!/bin/bash
-# Publish a built amd64 STABLE kernel into the shared ARGONAS
-# kernel-staging pool under the name build/stage-amd64-kernel.sh actually
-# looks for.
+# Publish a built amd64 kernel into the shared ARGONAS kernel-staging pool
+# under the name build/stage-amd64-kernel.sh actually looks for.
 #
 # WHY THIS EXISTS (2026-09-28). There was no publisher: amd64 kernels were
 # staged by hand, so the naming contract lived only inside the CONSUMER's
-# glob (stage_line's "amd64-stable-" / "amd64-edge-" prefixes). Two real
-# kernels built 2026-09-27 were published as
-#     amd64-t2-7.2.8-1-t2-trixie-20260927
-#     amd64-t2-7.3.0-rc5-1-t2-trixie-20260927
-# which match NEITHER prefix, so stage-amd64-kernel.sh never saw them and a
-# gate-passing image kept shipping the older 7.2.7. Worse, the freshness
-# preflight reported "amd64-stable -- locally staged kernel matches the
-# newest in the shared pool" because it too only looks at its own prefix: a
-# guard cannot see what it does not glob.
+# glob. Use this instead of mkdir+cp; it cannot produce a name the consumer
+# will miss, because it builds the name from the same line identifier.
 #
-# POLICY UPDATE (operator directive 2026-10-05): amd64 ships the 7.2.x
-# stable line as the default plus one pinned EDGE kernel: the 7.3.0-rc6 T2
-# build carrying the AER ANFE revert (7.3.0-rc6-1-t2-edge-aerfix). The
-# publisher accepts `stable` and `edge`; an edge publication lands under the
-# amd64-edge- prefix that build/stage-amd64-kernel.sh and
-# build/preflight-freshness-gate.sh both glob. Publish the pin the repo
-# commits in assets/kernel/amd64-edge/KVER (any other -rc is refused).
-#
-# Use this instead of mkdir+cp. It cannot produce a name the consumer will
-# miss, because it builds the name from the same line identifier.
+# POLICY UPDATE (operator directive 2026-10-05, unified): amd64 ships ONE
+# kernel, 7.3, as the default and the installer boot kernel. The retired
+# 7.2.x line and the separate edge channel are gone. The publisher accepts
+# `default` (alias `stable`) and validates the built KVER against the
+# committed assets/kernel/amd64-stable/KVER pin and the 7.3 series before
+# writing anything to the pool.
 set -uo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 usage() {
     cat >&2 <<EOF
-usage: $0 <stable|edge> <deb-dir> [YYYYMMDD]
+usage: $0 <default|stable> <deb-dir> [YYYYMMDD]
 
-  stable  the unified T2 line (v7.2.x + t2linux patches) -- serves BOTH T2
-          Macs and regular PCs; the t2linux series is DMI/PCI-ID gated.
-          This is the amd64 DEFAULT line.
-
-  edge    the pinned amd64 edge line (operator directive 2026-10-05): the
-          7.3.0-rc6 T2 build with the AER ANFE revert
-          (7.3.0-rc6-1-t2-edge-aerfix). Publish the KVER the repo commits
-          in assets/kernel/amd64-edge/KVER; any other -rc is out of policy.
+  default the unified 7.3 T2-capable line (v7.3 + t2linux patches) that
+          serves BOTH T2 Macs and regular PCs; the t2linux series is
+          DMI/PCI-ID gated. This is the amd64 DEFAULT and installer kernel.
+          (alias: stable)
 
   <deb-dir>  directory holding linux-image-*.deb and linux-headers-*.deb
              (and optionally config-*), as produced by the kernel build.
 
-The published directory name is amd64-<line>-<kver>-<stamp>; both
-build/stage-amd64-kernel.sh and build/preflight-freshness-gate.sh glob
-amd64-stable-* and amd64-edge-*.
+The published directory name is amd64-stable-<kver>-<stamp>;
+build/stage-amd64-kernel.sh globs amd64-stable-* and amd64-t2-*/*/.
 EOF
 }
 
 LINE="${1:-}"; DEBDIR="${2:-}"; STAMP="${3:-$(date -u +%Y%m%d)}"
 case "$LINE" in
-    # stable: no version gate (any release 7.2.x line is publishable).
-    # edge: the KVER read from the .deb is validated against the committed
-    #       assets/kernel/amd64-edge/KVER pin below, before anything is
-    #       written to the pool.
-    stable|edge) ;;
+    default|stable) LINE="stable" ;;
+    edge) echo "ERROR: the amd64 edge channel was retired (unified 7.3 policy, operator 2026-10-05)" >&2; usage; exit 2 ;;
     *) usage; exit 2 ;;
 esac
 [ -d "${DEBDIR:-}" ] || { echo "ERROR: deb-dir not found: ${DEBDIR:-<unset>}" >&2; usage; exit 2; }
@@ -77,16 +58,20 @@ HDR="$(find "$DEBDIR" -maxdepth 1 -iname 'linux-headers-*.deb' | sort -V | tail 
 KVER="$(dpkg-deb -f "$IMG" Package 2>/dev/null | sed 's/^linux-image-//')"
 [ -n "$KVER" ] || { echo "ERROR: could not read KVER from $IMG" >&2; exit 1; }
 
-# Edge is pinned: publishing an -rc that is not the committed pin would
-# re-introduce the very drift stage-amd64-kernel.sh exists to prevent.
-if [ "$LINE" = edge ]; then
-    PIN_FILE="$ROOT/assets/kernel/amd64-edge/KVER"
-    [ -s "$PIN_FILE" ] || { echo "ERROR: $PIN_FILE missing -- commit the pinned amd64 edge KVER before publishing edge" >&2; exit 1; }
-    PINNED="$(tr -d '[:space:]' < "$PIN_FILE")"
-    case "$KVER" in
-        "$PINNED") ;;
-        *) echo "ERROR: built edge KVER '$KVER' does not match the committed pin '$PINNED' (operator directive 2026-10-05)" >&2; exit 1 ;;
-    esac
+case "$KVER" in
+    7.3.*|7.3-*) ;;
+    *) echo "ERROR: built KVER '$KVER' is not the unified 7.3 series (operator 2026-10-05)" >&2; exit 1 ;;
+esac
+
+# The publication is pinned: publishing something other than the committed
+# KVER would re-introduce the very drift stage-amd64-kernel.sh exists to
+# prevent.
+PIN_FILE="$ROOT/assets/kernel/amd64-stable/KVER"
+[ -s "$PIN_FILE" ] || { echo "ERROR: $PIN_FILE missing -- commit the pinned amd64 7.3 KVER before publishing" >&2; exit 1; }
+PINNED="$(tr -d '[:space:]' < "$PIN_FILE")"
+if [ "$KVER" != "$PINNED" ]; then
+    echo "ERROR: built KVER '$KVER' does not match the committed pin '$PINNED' (operator directive 2026-10-05)" >&2
+    exit 1
 fi
 
 DEST="$SHARED/amd64-${LINE}-${KVER}-${STAMP}"
@@ -100,13 +85,13 @@ printf '%s\n' "$KVER" > "$DEST/KVER"
 
 echo "[publish-amd64-kernel] published: $(basename "$DEST")"
 echo "[publish-amd64-kernel] KVER=$KVER"
-echo "[publish-amd64-kernel] stage it with: build/stage-amd64-kernel.sh $LINE"
+echo "[publish-amd64-kernel] stage it with: build/stage-amd64-kernel.sh default"
 
 # Prove the consumer can actually see it, rather than assuming the name is
 # right -- this is the exact failure this script exists to prevent.
 newest="$(ls -dt "$SHARED"/amd64-${LINE}-* 2>/dev/null | head -1)"
 if [ "$newest" != "$DEST" ]; then
-    echo "WARNING: $(basename "$newest") is newer by mtime; stage-amd64-kernel.sh will pick THAT, not what was just published" >&2
+    echo "WARNING: $(basename "$newest") is newer by mtime; stage-amd64-kernel.sh may pick THAT, not what was just published" >&2
 else
-    echo "[publish-amd64-kernel] verified: stage-amd64-kernel.sh $LINE will select this build"
+    echo "[publish-amd64-kernel] verified: stage-amd64-kernel.sh will select this build"
 fi
