@@ -72,7 +72,7 @@ assets/refind/ncz-refind-refresh.sh	sky1	-	rEFInd refresh for Sky1 kernels (Imag
 assets/refind/refind_aa64.efi	sky1	-	rEFInd arm64 binary
 assets/refind/refind_x64.efi	amd64	-	rEFInd x86_64 binary
 assets/refind/zz1-ncz-refind-refresh-amd64	amd64	-	kernel postinst hook for amd64 rEFInd refresh
-assets/refind/ncz-t2-detect.sh	amd64	t2	DMI-based Apple T2 detection sourced by the amd64 rEFInd refresh (gates pcie_ports=compat and the rescue blacklist)
+assets/refind/ncz-t2-detect.sh	amd64	t2	DMI-based Apple T2 detection helper (ncz_is_t2_hardware / ncz_t2_pci_bridge_present / ncz_t2_detect_detail); sourced by the amd64 rEFInd refresh (gates pcie_ports=compat and the rescue blacklist) and by post-install/56-t2-dkms.sh; single source of truth for the T2 model list
 assets/regreet/	common	-	notes
 assets/rescue/	common	-	rescue notes
 assets/singularity/	common	-	Singularity patch series
@@ -301,7 +301,7 @@ post-install/54-gpu-accel.sh	amd64	nvidia-cuda	AMD64 GPU/accelerator stack (ROCm
 post-install/55-greeter.sh	common	-	greetd plus singularity-greeter; generic
 post-install/55-t2-firmware.sh	amd64	t2	Apple T2 WiFi/BT firmware and audio; guard exits when arch != amd64
 post-install/56-icon-theme.sh	common	-	icon theme; generic
-post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux/t2smp DKMS on Apple hardware; t2thunderbolt is opt-in (NCZ_T2_DKMS_EXTRA) and blacklisted by default
+post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux DKMS on Apple T2 hardware only (DMI gate via ncz_is_t2_hardware); t2smp is dropped (in-kernel 9001 owns CPU offline) and blacklisted; t2thunderbolt is opt-in (NCZ_T2_DKMS_EXTRA) and blacklisted by default; apple_gmux (in-kernel) is blacklisted on T2 hardware only; KVERs come from KVER_LIST_AMD64, never -rc-skipped, never --fallback to /lib/modules or uname -r; -rc kernel trees still build t2smc/t2gmux; missing KVER_LIST on T2 is fatal
 post-install/57-qotd.sh	common	-	quote of the day; generic
 post-install/57-screensaver.sh	common	-	legacy idle-lock screensaver stack; generic
 post-install/58-boot-hygiene.sh	mixed	-	generic unit hygiene plus cix_resume unit masking (Sky1); TODO split
@@ -395,4 +395,4 @@ build/test-refind-rescue-promotion.sh	common	-	rEFInd rescue auto-promotion guar
 build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service is wanted by the per-login session target (item RRH)
 build/test-t2-dkms-provenance.sh	amd64	t2	proves every vendored T2 DKMS module has a PROVENANCE file pinned to a 40-hex upstream commit and a licence line
 build/test-t2smc-range.sh	amd64	t2	userspace unit test of the t2smc range checks (fan min/target, charge limit, RTC offset) and the patch applying cleanly
-build/test-t2-dkms-hook.sh	amd64	t2	proves 56-t2-dkms.sh skips t2thunderbolt by default, blacklists it, removes stale DKMS registrations and honours the opt-in
+build/test-t2-dkms-hook.sh	amd64	t2	proves 56-t2-dkms.sh builds t2smc/t2gmux only (t2smp dropped), blacklists t2smp + apple_gmux on T2 DMI only, leaves t2gmux alone on non-T2 hardware, removes stale DKMS registrations on upgrade, honours NCZ_T2_DKMS_EXTRA=t2thunderbolt opt-in, fails loudly on missing KVER_LIST_AMD64 on T2, builds against -rc KVERs (7.3.0-rc6-1-t2-edge-aerfix), and is idempotent

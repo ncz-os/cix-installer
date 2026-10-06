@@ -48,12 +48,29 @@ unset _ncz_pg_arch
 set -uo pipefail
 
 ASSETS="${NCZ_ASSETS_KERNEL:-/usr/local/lib/cix-installer/assets/kernel}"
-DMI_ROOT="${NCZ_DMI_ROOT:-/sys/class/dmi/id}"
 USRSRC="${NCZ_USRSRC:-/usr/src}"
 MODPROBE_D="${NCZ_MODPROBE_D:-/etc/modprobe.d}"
 LIBMODULES="${NCZ_LIB_MODULES:-/lib/modules}"
-# Default set. t2thunderbolt is opt-in only (see header).
-MODULES="t2smc t2gmux t2smp"
+INSTALLER_META="${NCZ_INSTALLER_META:-/usr/local/lib/cix-installer}"
+# Source the shared DMI helper. NCZ_T2_DETECT lets the test override the
+# path without copying the file (operator 2026-10-05: do not duplicate the
+# model list).
+T2_DETECT="${NCZ_T2_DETECT:-$INSTALLER_META/assets/refind/ncz-t2-detect.sh}"
+if [ -r "$T2_DETECT" ]; then
+    # shellcheck disable=SC1090
+    . "$T2_DETECT"
+else
+    echo "[56] WARN: T2 detection helper $T2_DETECT not readable; the hook is inert" >&2
+    exit 0
+fi
+# Default set. t2thunderbolt is opt-in only (see header). t2smp is
+# permanently DROPPED: in-kernel patch 9001 owns Apple T2 CPU-hotplug
+# ordering on amd64 (operator 2026-10-05; the vendored t2smp DKMS is a
+# byte-for-byte duplicate of 9001 -- same notifier priority, same
+# 106b:1801 gate, same uninitialised-mask defect under
+# CONFIG_CPUMASK_OFFSTACK=y). The vendored source stays under assets/kernel/t2smp/
+# for review but is never built here.
+MODULES="t2smc t2gmux"
 _optin=0
 for _x in ${NCZ_T2_DKMS_EXTRA:-}; do
     case "$_x" in
@@ -62,11 +79,13 @@ for _x in ${NCZ_T2_DKMS_EXTRA:-}; do
     esac
 done
 
-_vendor=$(cat "$DMI_ROOT/sys_vendor" 2>/dev/null || true)
-case "$_vendor" in
-    *Apple*) ;;
-    *) echo "[56] sys_vendor='$_vendor' is not Apple -- skipping T2 DKMS modules"; exit 0 ;;
-esac
+# T2 hardware gate (DMI: Apple vendor AND known T2 product_name). Non-T2
+# Macs and every PC/VM exit 0 here -- the hook never builds, never writes
+# a modprobe.d file, never touches dkms.
+if ! ncz_is_t2_hardware; then
+    echo "[56] $(ncz_t2_detect_detail 2>/dev/null || echo 'not a T2 Mac'); skipping"
+    exit 0
+fi
 
 if ! command -v dkms >/dev/null 2>&1 && [ ! -x /usr/sbin/dkms ]; then
     echo "[56] WARN: dkms not present -- cannot install T2 modules; fans will not be controllable" >&2
@@ -74,9 +93,53 @@ if ! command -v dkms >/dev/null 2>&1 && [ ! -x /usr/sbin/dkms ]; then
 fi
 PATH="$PATH:/usr/sbin"   # dkms lives in /usr/sbin and is absent from some PATHs
 
-KVER=$(ls -1 "$LIBMODULES" 2>/dev/null | grep -v -- '-rc' | sort -V | tail -1)
-[ -n "$KVER" ] || KVER=$(uname -r)
-echo "[56] installing T2 DKMS modules against $KVER"
+# KVER selection: read KVER_LIST_AMD64 (the kernels the image actually
+# shipped via post-install/10-amd64-kernel.sh). Never read /lib/modules
+# (could include a Debian default kernel) and never exclude an -rc KVER
+# (the 7.3.0-rc6-1-t2-edge-aerfix amd64 edge is the canonical example).
+# Missing or empty KVER_LIST on T2 hardware is fatal (exit 1): no
+# fallback to uname -r or to /lib/modules scan.
+KVER_LIST="${NCZ_KVER_LIST:-/usr/local/lib/cix-installer/KVER_LIST_AMD64}"
+TARGET_KVERS=()
+if [ -s "$KVER_LIST" ]; then
+    while IFS= read -r kver; do
+        case "$kver" in
+            ""|\#*) continue ;;
+        esac
+        if [ -d "$LIBMODULES/$kver" ]; then
+            TARGET_KVERS+=("$kver")
+        else
+            echo "[56] WARN: KVER $kver from $KVER_LIST has no $LIBMODULES/$kver; skipping" >&2
+        fi
+    done < "$KVER_LIST"
+fi
+if [ "${#TARGET_KVERS[@]}" -eq 0 ]; then
+    echo "[56] ERROR: T2 hardware detected but no usable KVER found in $KVER_LIST (each entry must have $LIBMODULES/<kver>). Refusing to fall back to /lib/modules or uname -r (operator 2026-10-05)." >&2
+    exit 1
+fi
+echo "[56] building t2smc/t2gmux against ${#TARGET_KVERS[@]} KVER(s) from $KVER_LIST"
+
+# t2smp: ALWAYS blacklisted. In-kernel patch 9001 is the canonical owner.
+# Run BEFORE the t2thunderbolt block so a single hook pass cleans both stale
+# registrations. /usr/src/t2smp-* is also cleared so a future kernel does
+# not see a stale dkms.conf.
+mkdir -p "$MODPROBE_D"
+cat > "$MODPROBE_D/ncz-t2smp.conf" <<'EOC'
+# NCZ-OS: t2smp is not loaded. In-kernel patch 9001 (CPU offline) is the
+# canonical owner of Apple T2 CPU-hotplug ordering on amd64 (operator
+# 2026-10-05). The vendored t2smp DKMS duplicates 9001 (same notifier
+# priority, same 106b:1801 gate, uninitialised-cpumask bug under
+# CONFIG_CPUMASK_OFFSTACK=y). To re-enable t2smp (NOT supported), remove
+# this file, revert 9001 in the running kernel, and re-run this hook
+# without the implicit blacklist.
+blacklist t2smp
+install t2smp /bin/false
+EOC
+if dkms status 2>/dev/null | grep -q '^t2smp'; then
+    dkms remove -m t2smp --all >/dev/null 2>&1 || true
+    echo "[56] removed stale DKMS registration of t2smp"
+fi
+rm -rf "$USRSRC"/t2smp-* 2>/dev/null || true
 
 # t2thunderbolt: never loaded unless explicitly opted in. Keep a modprobe.d file so it cannot
 # autoload even if some earlier install or a manual dkms build left the module on disk, and
@@ -84,7 +147,6 @@ echo "[56] installing T2 DKMS modules against $KVER"
 if [ "$_optin" = 1 ]; then
     rm -f "$MODPROBE_D/ncz-t2thunderbolt.conf"
 else
-    mkdir -p "$MODPROBE_D"
     cat > "$MODPROBE_D/ncz-t2thunderbolt.conf" <<'EOC'
 # NCZ-OS: t2thunderbolt is not loaded by default (suspend/resume ordering quirk for Thunderbolt
 # controllers on T2 Macs; the T2 community treats Thunderbolt on T2 as unsafe for now).
@@ -99,40 +161,64 @@ EOC
     rm -rf "$USRSRC"/t2thunderbolt-* 2>/dev/null || true
 fi
 
+# t2gmux owns APP000B on T2 hardware (operator 2026-10-05). Blacklist the
+# in-kernel apple_gmux so the DKMS t2gmux is the sole owner. This file is
+# only ever written on T2 hardware (we already gated above); non-T2 Macs
+# and PCs are NEVER touched.
+cat > "$MODPROBE_D/ncz-t2-gmux.conf" <<'EOC'
+# NCZ-OS: apple_gmux (in-kernel) is not loaded on Apple T2 hardware.
+# t2gmux (DKMS) is the canonical owner of APP000B on T2 Macs (operator
+# 2026-10-05). The in-kernel driver does not handle the T2 gmux. This
+# file is written by post-install/56-t2-dkms.sh on T2 hardware only --
+# it is NEVER installed on non-T2 Macs or non-Apple machines.
+blacklist apple_gmux
+install apple_gmux /bin/false
+EOC
+
 _ok=""; _fail=""
-for m in $MODULES; do
-    src="$ASSETS/$m"
-    if [ ! -f "$src/dkms.conf" ]; then
-        echo "[56]   $m: no dkms.conf in $src -- skipping"; _fail="$_fail $m"; continue
-    fi
-    ver=$(sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' "$src/dkms.conf" | head -1)
-    [ -n "$ver" ] || ver=0
-    rm -rf "$USRSRC/$m-$ver"
-    mkdir -p "$USRSRC/$m-$ver"
-    cp -a "$src/dkms.conf" "$USRSRC/$m-$ver/"
-    [ -d "$src/src" ] && cp -a "$src/src/." "$USRSRC/$m-$ver/"
-    # dkms applies PATCH[0] relative to the source root; carry the patches dir.
-    if [ -d "$src/patches" ]; then
-        mkdir -p "$USRSRC/$m-$ver/patches"
-        cp -a "$src/patches/." "$USRSRC/$m-$ver/patches/"
-    fi
-    if dkms add -m "$m" -v "$ver" >/dev/null 2>&1 || true; then :; fi
-    if dkms build -m "$m" -v "$ver" -k "$KVER" >/dev/null 2>&1 \
-       && dkms install -m "$m" -v "$ver" -k "$KVER" --force >/dev/null 2>&1; then
-        _ok="$_ok $m/$ver"
-    else
-        echo "[56]   $m/$ver FAILED to build against $KVER" >&2
-        _fail="$_fail $m"
-    fi
+for KVER in "${TARGET_KVERS[@]}"; do
+    echo "[56] installing T2 DKMS modules against $KVER"
+    _okk=""
+    _failk=""
+    for m in $MODULES; do
+        src="$ASSETS/$m"
+        if [ ! -f "$src/dkms.conf" ]; then
+            echo "[56]   $m: no dkms.conf in $src -- skipping"; _failk="$_failk $m"; continue
+        fi
+        ver=$(sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' "$src/dkms.conf" | head -1)
+        [ -n "$ver" ] || ver=0
+        rm -rf "$USRSRC/$m-$ver"
+        mkdir -p "$USRSRC/$m-$ver"
+        cp -a "$src/dkms.conf" "$USRSRC/$m-$ver/"
+        [ -d "$src/src" ] && cp -a "$src/src/." "$USRSRC/$m-$ver/"
+        # dkms applies PATCH[0] relative to the source root; carry the patches dir.
+        if [ -d "$src/patches" ]; then
+            mkdir -p "$USRSRC/$m-$ver/patches"
+            cp -a "$src/patches/." "$USRSRC/$m-$ver/patches/"
+        fi
+        if dkms add -m "$m" -v "$ver" >/dev/null 2>&1 || true; then :; fi
+        if dkms build -m "$m" -v "$ver" -k "$KVER" >/dev/null 2>&1 \
+           && dkms install -m "$m" -v "$ver" -k "$KVER" --force >/dev/null 2>&1; then
+            _okk="$_okk $m/$ver"
+        else
+            echo "[56]   $m/$ver FAILED to build against $KVER" >&2
+            _failk="$_failk $m"
+        fi
+    done
+    _ok="$_ok [$KVER: $_okk]"
+    _fail="$_fail [$KVER: $_failk]"
+
+    [ -n "$_okk" ]   && echo "[56] installed for $KVER:$_okk"
+    [ -n "$_failk" ] && echo "[56] WARN: NOT installed for $KVER:$_failk" >&2
+
+    # t2smc is the one that matters for thermal safety -- say so loudly if absent.
+    case " $_failk " in
+        *" t2smc "*)
+            echo "[56] WARN: t2smc is MISSING for $KVER -- the two chassis fans cannot be driven" >&2
+            echo "[56]       and the machine will heat until it thermal-throttles." >&2 ;;
+    esac
 done
 
-[ -n "$_ok" ]   && echo "[56] installed:$_ok"
-[ -n "$_fail" ] && echo "[56] WARN: NOT installed:$_fail" >&2
-
-# t2smc is the one that matters for thermal safety -- say so loudly if absent.
-case " $_fail " in
-    *" t2smc "*)
-        echo "[56] WARN: t2smc is MISSING -- the two chassis fans cannot be driven" >&2
-        echo "[56]       and the machine will heat until it thermal-throttles." >&2 ;;
-esac
+[ -n "$_ok" ]   && echo "[56] installed total:$_ok"
+[ -n "$_fail" ] && echo "[56] WARN: NOT installed total:$_fail" >&2
 echo "[56] DONE"
