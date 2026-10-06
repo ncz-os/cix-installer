@@ -1,8 +1,8 @@
 diff --git a/src/t2smc.c b/src/t2smc.c
-index 84a5fba..47dd66a 100644
+index 5108030..52f518a 100644
 --- a/src/t2smc.c
 +++ b/src/t2smc.c
-@@ -89,6 +89,8 @@ static const char *const fan_speed_fmt[] = {
+@@ -99,6 +99,8 @@ static const char *const fan_speed_fmt[] = {
  };
  #define FAN_MANUAL_FMT  "F%dMd"  /* T2 per-fan manual mode key */
  
@@ -11,7 +11,7 @@ index 84a5fba..47dd66a 100644
  #define INIT_TIMEOUT_MSECS  5000
  #define INIT_WAIT_MSECS     50
  
-@@ -861,11 +863,8 @@ static int t2smc_write_fan_manual(struct t2smc_device *t2, int fan_idx,
+@@ -874,11 +876,8 @@ static int t2smc_write_fan_manual(struct t2smc_device *t2, int fan_idx,
  }
  
  /* -- hwmon interface -- */
@@ -25,7 +25,7 @@ index 84a5fba..47dd66a 100644
  
  static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
  			     u32 attr, int channel, long *val)
-@@ -917,6 +916,13 @@ static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
+@@ -930,6 +929,13 @@ static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
  	}
  }
  
@@ -39,7 +39,7 @@ index 84a5fba..47dd66a 100644
  static int t2smc_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
  			      u32 attr, int channel, long val)
  {
-@@ -931,11 +937,36 @@ static int t2smc_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
+@@ -944,11 +950,36 @@ static int t2smc_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
  			if (val < 0)
  				return -EINVAL;
  			speed = (unsigned int)val;
@@ -76,7 +76,7 @@ index 84a5fba..47dd66a 100644
  			/* Enter manual mode before setting target speed */
  			ret = t2smc_write_fan_manual(t2, channel, 1);
  			if (ret)
-@@ -1037,7 +1068,11 @@ static int t2smc_get_charge_limit(struct t2smc_device *t2, u8 *val)
+@@ -1050,7 +1081,11 @@ static int t2smc_get_charge_limit(struct t2smc_device *t2, u8 *val)
  
  static int t2smc_set_charge_limit(struct t2smc_device *t2, u8 val)
  {
@@ -89,7 +89,7 @@ index 84a5fba..47dd66a 100644
  		return -EINVAL;
  	if (t2smc_write_key(t2, T2SMC_CHARGE_LIMIT, &val, 1))
  		return -ENODEV;
-@@ -1395,6 +1430,15 @@ static int t2smc_write_rtc_key(struct t2smc_device *t2, const char *key, u64 val
+@@ -1408,6 +1443,15 @@ static int t2smc_write_rtc_key(struct t2smc_device *t2, const char *key, u64 val
  {
  	u8 buf[T2SMC_RTC_BYTES];
  
@@ -105,34 +105,21 @@ index 84a5fba..47dd66a 100644
  	memcpy(buf, &val, T2SMC_RTC_BYTES);
  	return t2smc_write_key(t2, key, buf, T2SMC_RTC_BYTES);
  }
-@@ -1421,15 +1465,18 @@ static int t2smc_rtc_read_time(struct device *dev, struct rtc_time *tm)
- static int t2smc_rtc_set_time(struct device *dev, struct rtc_time *tm)
+@@ -1500,7 +1544,7 @@ static int t2smc_rtc_write_offset(struct t2smc_device *t2, s64 off,
  {
- 	struct t2smc_device *t2 = dev_get_drvdata(dev);
--	u64 ctr, off;
-+	u64 ctr;
-+	s64 off;
  	int ret;
  
- 	ret = t2smc_read_rtc_key(t2, T2SMC_RTC_COUNTER, &ctr);
- 	if (ret)
- 		return ret;
+-	off = sign_extend64((u64)off & T2SMC_RTC_MASK, T2SMC_RTC_BITS - 1);
++	off = t2smc_rtc_offset_normalize(off);
+ 	if (abs(off - READ_ONCE(t2->rtc_offset)) < tolerance)
+ 		return 0;
  
--	off = ((u64)rtc_tm_to_time64(tm) << T2SMC_RTC_SEC_SHIFT) - ctr;
--	return t2smc_write_rtc_key(t2, T2SMC_RTC_OFFSET, off);
-+	/* Signed arithmetic: CLKO is a signed 48-bit offset, range-checked in
-+	 * t2smc_write_rtc_key(). */
-+	off = ((s64)rtc_tm_to_time64(tm) << T2SMC_RTC_SEC_SHIFT) - (s64)ctr;
-+	return t2smc_write_rtc_key(t2, T2SMC_RTC_OFFSET, (u64)off);
- }
- 
- static const struct rtc_class_ops t2smc_rtc_ops = {
 diff --git a/src/t2smc_range.h b/src/t2smc_range.h
 new file mode 100644
-index 0000000..53d4e49
+index 0000000..e12c48f
 --- /dev/null
 +++ b/src/t2smc_range.h
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,117 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
 + * t2smc_range.h - side-effect-free range validation for t2smc.
@@ -233,6 +220,20 @@ index 0000000..53d4e49
 +	const long long hi =  (1LL << (T2SMC_RTC_BITS - 1)) - 1;
 +
 +	return off >= lo && off <= hi;
++}
++
++/* Fold @off into the signed 48-bit CLKO register the SMC expects: keep the
++ * low T2SMC_RTC_BITS bits and sign-extend from bit 47. The new RTC write path
++ * (t2smc_rtc_write_offset) normalizes with this before handing the value to
++ * the shared writer, so the writer only ever sees an in-range offset. */
++static inline long long t2smc_rtc_offset_normalize(long long off)
++{
++	const unsigned long long mask = (1ULL << T2SMC_RTC_BITS) - 1;
++	unsigned long long raw = (unsigned long long)off & mask;
++
++	if (raw & (1ULL << (T2SMC_RTC_BITS - 1)))
++		raw |= ~mask;
++	return (long long)raw;
 +}
 +
 +#endif /* _T2SMC_RANGE_H */

@@ -7,12 +7,13 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#define T2SMC_VERSION "0.0.1"
+#define T2SMC_VERSION "0.0.2"
 
 #include <linux/delay.h>
 #include <linux/acpi.h>
 #include <linux/kernel.h>
 #include <linux/bitops.h>
+#include <linux/math64.h>
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -53,7 +54,9 @@
 #define FANS_COUNT      "FNum"  /* r-o ui8  */
 #define FANS_MANUAL     "FS! "  /* r-w ui16 (legacy) */
 #define T2SMC_RTC_COUNTER  "CLKM"  /* r-o 48-bit 32768 Hz counter */
+#define T2SMC_RTC_LATCH    "CLKL"  /* r-w latched 48-bit counter */
 #define T2SMC_RTC_OFFSET   "CLKO"  /* r-w 48-bit offset */
+#define T2SMC_RTC_RATE     "CLKR"  /* r-o 32-bit ticks per second */
 #define T2SMC_CHARGE_LIMIT "BCLM"
 #define T2SMC_CHARGE_LIMIT_SW  "CHLS"
 #define T2SMC_CHARGE_LIMIT_80  "CHWA"
@@ -75,6 +78,13 @@
 #define T2SMC_RTC_BYTES      6
 #define T2SMC_RTC_BITS       (8 * T2SMC_RTC_BYTES)
 #define T2SMC_RTC_SEC_SHIFT  15
+#define T2SMC_RTC_DEFAULT_RATE  BIT(T2SMC_RTC_SEC_SHIFT)
+#define T2SMC_RTC_MASK       GENMASK_ULL(T2SMC_RTC_BITS - 1, 0)
+#define T2SMC_RTC_LATCH_OUTER_RETRIES  4
+#define T2SMC_RTC_LATCH_WRITE_RETRIES  40
+#define T2SMC_RTC_LATCH_READ_RETRIES   20
+/* Sampling the system clock and latching the counter are a few ms apart */
+#define T2SMC_RTC_SYNC_TOLERANCE_MS    50
 #define T2SMC_CHLS_START_OFFSET  5
 #define T2SMC_CHWA_FIXED_LIMIT   80
 #define T2SMC_CHWA_DISABLE_AT    95
@@ -121,6 +131,9 @@ struct t2smc_device {
 	char (*temp_keys)[5]; /* [temp_count] dynamically allocated */
 	char (*power_keys)[5]; /* [power_count] dynamically allocated */
 	struct rtc_device *rtc_dev;
+	bool has_rtc_latch;
+	s64 rtc_offset;
+	u32 rtc_rate;
 	struct device *hwmon_dev;
 	bool has_chls;
 	bool has_chwa;
@@ -1399,37 +1412,151 @@ static int t2smc_write_rtc_key(struct t2smc_device *t2, const char *key, u64 val
 	return t2smc_write_key(t2, key, buf, T2SMC_RTC_BYTES);
 }
 
+/*
+ * CLKL is Apple's asynchronous snapshot path for the PMU up-counter.  A
+ * six-byte all-ones write requests a latch, after which the result is polled.
+ * The complete exchange must be atomic with respect to other SMC commands.
+ */
+static int t2smc_read_latched_counter(struct t2smc_device *t2, u64 *val)
+{
+	u8 request[T2SMC_RTC_BYTES];
+	u8 response[T2SMC_RTC_BYTES];
+	u64 ticks;
+	int outer, retry, ret = -EIO;
+
+	if (!t2->has_rtc_latch)
+		return -EOPNOTSUPP;
+
+	memset(request, 0xff, sizeof(request));
+
+	mutex_lock(&t2->mutex);
+	for (outer = 0; outer < T2SMC_RTC_LATCH_OUTER_RETRIES; outer++) {
+		for (retry = 0; retry < T2SMC_RTC_LATCH_WRITE_RETRIES; retry++) {
+			ret = write_smc(t2, T2SMC_RTC_LATCH, request,
+					T2SMC_RTC_BYTES);
+			if (!ret)
+				break;
+			usleep_range(1000, 2000);
+		}
+		if (ret)
+			continue;
+
+		msleep(20);
+
+		for (retry = 0; retry < T2SMC_RTC_LATCH_READ_RETRIES; retry++) {
+			ret = read_smc(t2, T2SMC_RTC_LATCH, response,
+				       T2SMC_RTC_BYTES);
+			if (!ret) {
+				ticks = 0;
+				memcpy(&ticks, response, T2SMC_RTC_BYTES);
+				if ((ticks & 0x7fff) == 5 ||
+				    (ticks & 0x7fff) == 6) {
+					ret = -EAGAIN;
+					break;
+				}
+				if (ticks != T2SMC_RTC_MASK) {
+					*val = ticks;
+					goto out;
+				}
+				ret = -EAGAIN;
+			}
+			usleep_range(1000, 2000);
+		}
+	}
+
+out:
+	mutex_unlock(&t2->mutex);
+	return ret;
+}
+
+static int t2smc_read_rtc_counter(struct t2smc_device *t2, u64 *val)
+{
+	if (t2->has_rtc_latch)
+		return t2smc_read_latched_counter(t2, val);
+	return t2smc_read_rtc_key(t2, T2SMC_RTC_COUNTER, val);
+}
+
 static int t2smc_rtc_read_time(struct device *dev, struct rtc_time *tm)
 {
 	struct t2smc_device *t2 = dev_get_drvdata(dev);
-	u64 ctr, off;
+	s64 ticks;
+	u64 ctr;
 	time64_t now;
 	int ret;
 
-	ret = t2smc_read_rtc_key(t2, T2SMC_RTC_COUNTER, &ctr);
-	if (ret)
-		return ret;
-	ret = t2smc_read_rtc_key(t2, T2SMC_RTC_OFFSET, &off);
+	ret = t2smc_read_rtc_counter(t2, &ctr);
 	if (ret)
 		return ret;
 
-	now = sign_extend64(ctr + off, T2SMC_RTC_BITS - 1) >> T2SMC_RTC_SEC_SHIFT;
+	ticks = (s64)ctr + READ_ONCE(t2->rtc_offset);
+	now = div_s64(ticks, t2->rtc_rate);
 	rtc_time64_to_tm(now, tm);
 	return 0;
+}
+
+/* Like AppleSMCRTC, only write CLKO when the offset changed. */
+static int t2smc_rtc_write_offset(struct t2smc_device *t2, s64 off,
+				  s64 tolerance)
+{
+	int ret;
+
+	off = sign_extend64((u64)off & T2SMC_RTC_MASK, T2SMC_RTC_BITS - 1);
+	if (abs(off - READ_ONCE(t2->rtc_offset)) < tolerance)
+		return 0;
+
+	ret = t2smc_write_rtc_key(t2, T2SMC_RTC_OFFSET, (u64)off);
+	if (!ret)
+		WRITE_ONCE(t2->rtc_offset, off);
+	return ret;
 }
 
 static int t2smc_rtc_set_time(struct device *dev, struct rtc_time *tm)
 {
 	struct t2smc_device *t2 = dev_get_drvdata(dev);
-	u64 ctr, off;
+	u64 ctr;
 	int ret;
 
-	ret = t2smc_read_rtc_key(t2, T2SMC_RTC_COUNTER, &ctr);
+	ret = t2smc_read_rtc_counter(t2, &ctr);
 	if (ret)
 		return ret;
 
-	off = ((u64)rtc_tm_to_time64(tm) << T2SMC_RTC_SEC_SHIFT) - ctr;
-	return t2smc_write_rtc_key(t2, T2SMC_RTC_OFFSET, off);
+	/*
+	 * The time comes in whole seconds and the counter keeps running
+	 * until it is latched, so tolerate a quarter second.
+	 */
+	return t2smc_rtc_write_offset(t2,
+			rtc_tm_to_time64(tm) * (s64)t2->rtc_rate - (s64)ctr,
+			t2->rtc_rate / 4);
+}
+
+/*
+ * Synchronize CLKO with the system clock. macOS does this automatically
+ * before power transitions, and the T2 derives its own clock from the SMC
+ * RTC while the host sleeps or is off. The kernel's NTP sync never reaches
+ * this RTC on x86 because it stops at the legacy CMOS clock.
+ */
+static void t2smc_rtc_sync_from_system(struct t2smc_device *t2)
+{
+	struct timespec64 now;
+	s64 ticks;
+	u64 ctr;
+	int ret;
+
+	if (!t2->rtc_dev)
+		return;
+
+	ktime_get_real_ts64(&now);
+	ret = t2smc_read_rtc_counter(t2, &ctr);
+	if (!ret) {
+		ticks = now.tv_sec * (s64)t2->rtc_rate +
+			div_u64((u64)now.tv_nsec * t2->rtc_rate, NSEC_PER_SEC);
+		ret = t2smc_rtc_write_offset(t2, ticks - (s64)ctr,
+				div_u64((u64)t2->rtc_rate *
+					T2SMC_RTC_SYNC_TOLERANCE_MS,
+					MSEC_PER_SEC));
+	}
+	if (ret)
+		dev_warn(t2->dev, "failed to synchronize the RTC: %d\n", ret);
 }
 
 static const struct rtc_class_ops t2smc_rtc_ops = {
@@ -1440,7 +1567,10 @@ static const struct rtc_class_ops t2smc_rtc_ops = {
 static int t2smc_register_rtc(struct t2smc_device *t2)
 {
 	struct device *dev = t2->dev;
+	struct t2smc_entry *entry;
 	bool has_counter, has_offset;
+	u64 raw;
+	u32 rate;
 	int ret;
 
 	ret = t2smc_has_key(t2, T2SMC_RTC_COUNTER, &has_counter);
@@ -1455,21 +1585,46 @@ static int t2smc_register_rtc(struct t2smc_device *t2)
 		return 0;
 	}
 
+	ret = t2smc_read_rtc_key(t2, T2SMC_RTC_OFFSET, &raw);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to read CLKO\n");
+	t2->rtc_offset = sign_extend64(raw, T2SMC_RTC_BITS - 1);
+
+	t2->rtc_rate = T2SMC_RTC_DEFAULT_RATE;
+	entry = t2smc_get_entry_by_key(t2, T2SMC_RTC_RATE);
+	if (!IS_ERR(entry) && entry->len == sizeof(rate)) {
+		ret = t2smc_read_key(t2, T2SMC_RTC_RATE, (u8 *)&rate,
+				     sizeof(rate));
+		if (!ret && rate != U32_MAX && rate != 0)
+			t2->rtc_rate = rate;
+	} else if (IS_ERR(entry) && PTR_ERR(entry) != -ENOENT) {
+		return PTR_ERR(entry);
+	}
+
+	/* Apple enables the asynchronous path only if the initial read works. */
+	entry = t2smc_get_entry_by_key(t2, T2SMC_RTC_LATCH);
+	if (!IS_ERR(entry) && entry->len == T2SMC_RTC_BYTES &&
+	    !t2smc_read_rtc_key(t2, T2SMC_RTC_LATCH, &raw))
+		t2->has_rtc_latch = true;
+	else if (IS_ERR(entry) && PTR_ERR(entry) != -ENOENT)
+		return PTR_ERR(entry);
+
 	t2->rtc_dev = devm_rtc_allocate_device(dev);
 	if (IS_ERR(t2->rtc_dev))
 		return PTR_ERR(t2->rtc_dev);
 
 	t2->rtc_dev->ops = &t2smc_rtc_ops;
 	t2->rtc_dev->range_min =
-		S64_MIN >> (T2SMC_RTC_SEC_SHIFT + (64 - T2SMC_RTC_BITS));
+		div_s64(-(s64)BIT_ULL(T2SMC_RTC_BITS - 1), t2->rtc_rate);
 	t2->rtc_dev->range_max =
-		S64_MAX >> (T2SMC_RTC_SEC_SHIFT + (64 - T2SMC_RTC_BITS));
+		div_s64(BIT_ULL(T2SMC_RTC_BITS - 1) - 1, t2->rtc_rate);
 
 	ret = devm_rtc_register_device(t2->rtc_dev);
 	if (ret)
 		return ret;
 
-	dev_info(t2->dev, "RTC registered\n");
+	dev_info(t2->dev, "RTC registered (rate=%u Hz, CLKL=%s)\n",
+		 t2->rtc_rate, t2->has_rtc_latch ? "enabled" : "unavailable");
 	return 0;
 }
 
@@ -1699,11 +1854,26 @@ static const struct acpi_device_id t2smc_ids[] = {
 };
 MODULE_DEVICE_TABLE(acpi, t2smc_ids);
 
+static int t2smc_suspend(struct device *dev)
+{
+	t2smc_rtc_sync_from_system(dev_get_drvdata(dev));
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(t2smc_pm_ops, t2smc_suspend, NULL);
+
+static void t2smc_shutdown(struct platform_device *pdev)
+{
+	t2smc_rtc_sync_from_system(platform_get_drvdata(pdev));
+}
+
 static struct platform_driver t2smc_driver = {
 	.probe = t2smc_probe,
+	.shutdown = t2smc_shutdown,
 	.driver = {
 		.name = "t2smc",
 		.acpi_match_table = t2smc_ids,
+		.pm = pm_sleep_ptr(&t2smc_pm_ops),
 	},
 };
 

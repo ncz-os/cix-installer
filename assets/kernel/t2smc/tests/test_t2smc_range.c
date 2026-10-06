@@ -96,6 +96,31 @@ static void test_rtc_offset_valid(void)
 	CHECK(!t2smc_rtc_offset_valid(lo - 1), "rtc min-1 rejected");
 }
 
+static void test_rtc_offset_normalize(void)
+{
+	const long long hi = (1LL << 47) - 1;
+	const long long lo = -(1LL << 47);
+	long long v;
+
+	CHECK(t2smc_rtc_offset_normalize(0) == 0, "normalize 0");
+	CHECK(t2smc_rtc_offset_normalize(hi) == hi, "normalize max stays max");
+	CHECK(t2smc_rtc_offset_normalize(lo) == lo, "normalize min stays min");
+	/* The new write path folds any s64 into the 48-bit register. */
+	CHECK(t2smc_rtc_offset_normalize(1LL << 47) == lo,
+	      "normalize 2^47 wraps to min");
+	CHECK(t2smc_rtc_offset_normalize((1LL << 48) - 1) == -1,
+	      "normalize all-ones -> -1");
+	CHECK(t2smc_rtc_offset_normalize(-(1LL << 48)) == 0,
+	      "normalize -2^48 -> 0");
+
+	/* Whatever comes in, the result is a valid signed 48-bit offset. */
+	for (v = -4; v <= 4; v++) {
+		long long n = t2smc_rtc_offset_normalize((1LL << 47) + v);
+		CHECK(t2smc_rtc_offset_valid(n),
+		      "normalized 2^47%+lld stays in range", v);
+	}
+}
+
 static void test_fan_write_check(void)
 {
 	struct stub s = { 0 };
@@ -128,6 +153,7 @@ int main(void)
 	test_fan_speed_valid();
 	test_charge_limit_valid();
 	test_rtc_offset_valid();
+	test_rtc_offset_normalize();
 	test_fan_write_check();
 
 	if (failures) {
