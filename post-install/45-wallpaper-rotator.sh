@@ -626,7 +626,7 @@ LEGACY_CONF_DIR="$CONFIG_HOME/ncz-wallpaper"
 # interval lowered below the time already elapsed rotates on the next tick,
 # the same as the old loop picking up a new interval after its sleep.
 TICK=15
-elapsed=0
+last_rotate=$(date +%s)
 while true; do
     interval=""
     INTERVAL_CONF="$CONF_DIR/rotate-interval"
@@ -640,10 +640,12 @@ while true; do
     [ "$interval" -lt 30 ] && interval=30
 
     sleep "$TICK"
-    elapsed=$((elapsed + TICK))
     /usr/local/bin/ncz-wallpaper-rotate --refit
-    [ "$elapsed" -lt "$interval" ] && continue
-    elapsed=0
+    # Wall-clock time since the last rotation, so the refit's own run time
+    # does not stretch the interval.
+    now=$(date +%s)
+    [ $((now - last_rotate)) -lt "$interval" ] && continue
+    last_rotate=$now
 
     enabled=""
     ENABLED_CONF="$CONF_DIR/rotate-enabled"

@@ -481,7 +481,8 @@ class Rotator(unittest.TestCase):
         loop = daemon[daemon.index("while true; do") :]
         self.assertIn("/usr/local/bin/ncz-wallpaper-rotate --refit", loop)
         self.assertLess(
-            loop.index("--refit"), loop.index('[ "$elapsed" -lt "$interval" ]')
+            loop.index("--refit"),
+            loop.index('[ $((now - last_rotate)) -lt "$interval" ]'),
         )
         self.assertRegex(daemon, r"\nTICK=\d+\n")
         self.assertIn('sleep "$TICK"', loop)
