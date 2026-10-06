@@ -57,6 +57,7 @@ expect "facts: release codename drift fails" 1 "$HERE/verify-dual-arch-parity.sh
 R="$T/root"; mkdir -p "$R/manifests" "$R/build" "$R/post-install"
 for m in desktop installer-base rescue; do printf 'a\nb\n' > "$R/manifests/$m.pkgs"; printf 'a\nb\n' > "$R/manifests/$m-amd64.pkgs"; done
 cp "$HERE/lint-hook-arch-gates.sh" "$R/build/"; cp "$HERE/verify-dual-arch-parity.sh" "$R/build/"; : > "$R/build/arch-parity-allowlist.tsv"
+mkdir -p "$R/post-install/lib"; cp "$ROOT/post-install/lib/ncz-screensavers-plugin.lock" "$R/post-install/lib/"
 mp() { NCZ_SCREENSAVERS_DEBS=/nonexistent PARITY_ROOT="$R" "$R/build/verify-dual-arch-parity.sh"; }
 expect "manifests: identical pairs pass" 0 mp
 echo "arm-only-pkg" >> "$R/manifests/desktop.pkgs"
@@ -67,5 +68,25 @@ echo "x86-only-pkg" >> "$R/manifests/rescue-amd64.pkgs"
 expect "manifests: an unlisted amd64-only package fails" 1 mp
 printf 'desktop\tarm-only-pkg\tarm64-only\treason\nrescue\tx86-only-pkg\tarm64-only\twrong side\n' > "$R/build/arch-parity-allowlist.tsv"
 expect "manifests: allowlist side must match" 1 mp
+# ---- screensaver settings plugin pin (section 2b)
+printf 'desktop\tarm-only-pkg\tarm64-only\treason\n' > "$R/build/arch-parity-allowlist.tsv"
+sed -i '/x86-only-pkg/d' "$R/manifests/rescue-amd64.pkgs"
+expect "plugin: the real pin covers both arches" 0 mp
+L="$R/post-install/lib/ncz-screensavers-plugin.lock"; cp "$L" "$T/lock.orig"
+sed -i '/^NCZ_SSPLUGIN_PAYLOAD_amd64=/d' "$L"
+expect "plugin: a pin without the amd64 payload fails" 1 mp
+cp "$T/lock.orig" "$L"; sed -i '/^NCZ_SSPLUGIN_SHA256_arm64=/d' "$L"
+expect "plugin: a pin without the arm64 sha256 fails" 1 mp
+cp "$T/lock.orig" "$L"
+mkdir -p "$R/build/ncz-screensavers-out"; V="$(sed -n 's/^NCZ_SSPLUGIN_VERSION=//p' "$L")"
+echo notthedeb > "$R/build/ncz-screensavers-out/ncz-screensavers-plugin_${V}_arm64.deb"
+expect "plugin: a staged deb that does not match the pin fails" 1 mp
+rm -f "$R/build/ncz-screensavers-out/"*
+echo old > "$R/build/ncz-screensavers-out/ncz-screensavers-plugin_0.0.1_amd64.deb"
+expect "plugin: a staged deb at another version fails" 1 mp
+rm -f "$R/build/ncz-screensavers-out/"*
+rm -f "$L"
+expect "plugin: no pin at all fails" 1 mp
+cp "$T/lock.orig" "$L"
 echo "parity tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]

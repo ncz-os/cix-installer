@@ -294,6 +294,15 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
                         export VERIFY_EXPECT_SCREENSAVERS=0
                     fi
                 fi
+                # Same for the Singularity screensaver settings plugin: the checkout's pin
+                # (post-install/lib/ncz-screensavers-plugin.lock) means this image ships it.
+                if [ -z "${VERIFY_EXPECT_SS_PLUGIN:-}" ]; then
+                    if [ -s "$SCRIPT_DIR/../post-install/lib/ncz-screensavers-plugin.lock" ] && [ "${VERIFY_EXPECT_SCREENSAVERS:-0}" = 1 ]; then
+                        export VERIFY_EXPECT_SS_PLUGIN=1
+                    else
+                        export VERIFY_EXPECT_SS_PLUGIN=0
+                    fi
+                fi
                 rc_v=0
                 "$VERIFIER" "$EVIDENCE_ROOT" "$DEBUGFS" "$ARCH" || rc_v=$?
                 if [ "$rc_v" -ne 0 ]; then
