@@ -69,6 +69,10 @@ int main(int argc, char **argv) {
     bbox(s, 0, split, &lx0, &ly0, &lx1, &ly1);
     bbox(s, split, h, &bx0, &by0, &bx1, &by1);
     int lw = lx1 >= lx0 ? lx1 - lx0 + 1 : 0;
+    /* Lit pixels in the first or last column (or row of the logo band) mean
+     * the logo runs into the frame edge, i.e. it continues past it: the
+     * unpatched renderer lights every column from 0 to w-1. A logo that fits
+     * always leaves a black margin. No logo at all (lx1 < 0) also fails. */
     int clipped = lx1 < 0 || lx0 <= 0 || lx1 >= w - 1 || ly0 <= 0 || ly1 >= split - 1;
     int over60 = lw > (int)(w * 0.60) + 2;  /* 2 px of antialiased edge */
     printf("res=%dx%d logo_bbox=%d,%d,%d,%d logo_w_pct=%.1f bar_bbox=%d,%d,%d,%d clipped=%d over60=%d\n",
