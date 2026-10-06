@@ -140,26 +140,32 @@ nftables
 systemd-zram-generator
 
 # --- native Wayland screensaver chooser / idle-lock --------------------------
-# HOLD 2026-08-21 (operator): the screensaver subsystem doesn't ship until
-# its own GLES3 migration passes full verification. Update 2026-09-30: the
-# set is now 84 native GLES3 hacks (Black Hole, hyprsaver, xshadertoy, the
+# LIFTED 2026-09-30 (operator): the screensaver subsystem now ships; the
+# package ships 84 native GLES3 hacks (Black Hole, hyprsaver, xshadertoy, the
 # twelve classics) with no OpenGL 1 or gl4es code left in the ncz-screensavers
-# package; 59-ncz-screensavers-pkg installs the shipped 74-title catalogue. 57-screensaver.sh is removed from build-squashfs-layers.sh
-# and build-baked-rootfs.sh's hook loops AND from run-all.sh's hook regexes.
+# package; 59-ncz-screensavers-pkg installs the shipped 74-title catalogue.
+# 57-screensaver.sh was a Wayland idle-lock fallback that post-install/59
+# fully supersedes on desktop variants: the package owns the engine
+# (ncz-screensaver), the idle timer (ncz-screensaver-idled.service), the
+# dev.ncz.screensaver GSettings schema and the shipped 74-title catalogue.
+# Verified against the published 0.8.9 .deb: it ships NO Singularity plugin
+# files, NO GTK4 settings app and NO launcher entry -- the plugin is a
+# separate ncz-screensavers-plugin package, not yet published (the deb's own
+# Description says it is "installed by the NCZ-OS image"). 57-screensaver.sh was already removed from
+# build-squashfs-layers.sh / build-baked-rootfs.sh hook loops and from
+# run-all.sh's MACHINE_HOOKS_RE regex; this item (fix/screensavers-mandatory
+# -install-20261006, operator 2026-10-05: "If we are distributing screensavers
+# as Deb they need to be apt installed during installation.") finally removes
+# the hook from the platform-inventory + both generated hook lists.
 # swayidle, swaylock, wlopm, and the GObject-introspection packages below
-# are removed from this manifest for the same reason -- they have no other
-# consumer (verified by grep against post-install/ + preseed/ on 2026-08-21).
-# When the hold lifts: restore these four packages AND 57-screensaver.sh
-# Build dependencies are used in the image assembly chroot for the NCZ Vala UI.
+# remain removed -- they have no other consumer (verified by grep against
+# post-install/ + preseed/ on 2026-08-21).
+# Build dependencies stay for the image assembly chroot for the NCZ Vala UI.
 valac
 meson
 ninja-build
 libgtk-4-dev
 libgee-0.8-dev
-swayidle
-swaylock
-# in the two build scripts and the two run-all.sh regexes (MACHINE_HOOKS_RE,
-# _SKIP_DESKTOP_RE) in the SAME COMMIT as the e2e audit evidence.
 
 # --- GPU / GL tooling (Mali GLES; Vulkan tools for diagnostics) -------------
 mesa-utils

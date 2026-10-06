@@ -130,8 +130,51 @@ else
   MIRROR_DIRS_EXPLICIT=0
   MIRROR_DIRS="$NCZ_BASE_CODENAME-mirror $NCZ_BASE_CODENAME-vendor-mirror"
 fi
+STAGE="${1:-base}"                            # base | desktop | server | all | hotfix
+
+# Pre-flight (operator 2026-10-05 mandatory-install item): the mirror the
+# desktop role delta actually installs from must carry ncz-screensavers at the
+# version floor in build/screensavers-version.env. Run this BEFORE we touch the
+# chroot, so a stale or misconfigured mirror produces a one-line "missing
+# package" failure instead of a 20-minute run that dies partway through
+# 59-ncz-screensavers-pkg.sh.
+#
+# Only the desktop and `all` stages build a desktop layer; base, server and
+# hotfix do not install the screensaver package set, so they skip this. The
+# mirror list must match build_layer() below: when the operator did not
+# override MIRROR_DIRS, the desktop layer selects desktop-mirror -- NOT the
+# default suite/vendor mirrors, which feed the base role and do not carry
+# ncz-screensavers. Checking the default list here would abort a healthy
+# desktop build and, worse, never check the mirror that actually ships the
+# package. A missing mirror directory means this host builds live (non-
+# reproducible); the install hook still enforces the package, so it is a note,
+# not an abort.
+case "$STAGE" in
+  desktop|all)
+    _ss_effective="$MIRROR_DIRS"
+    if [ "$MIRROR_DIRS_EXPLICIT" -eq 0 ]; then
+      _ss_effective="desktop-mirror"
+    fi
+    _ss_mirrors=""
+    for m in $_ss_effective; do
+      [ -d "$ROOT/build/$m" ] || continue
+      _ss_mirrors="$_ss_mirrors --mirror $ROOT/build/$m --label $m"
+    done
+    if [ -n "$_ss_mirrors" ]; then
+      # shellcheck disable=SC2086
+      if ! "$ROOT/build/assert-mirror-has-screensavers.sh" $_ss_mirrors --arch "$NCZ_TARGET_ARCH"; then
+        echo "[sqfs] ABORT: offline mirror does not carry ncz-screensavers at the required version floor." >&2
+        echo "[sqfs]        (operator 2026-10-05: 'If we are distributing screensavers as Deb they need to be apt installed during installation.')" >&2
+        echo "[sqfs]        Rebuild the mirror with build/build-desktop-mirror.sh (now mandatory there too)." >&2
+        exit 1
+      fi
+    else
+      echo "[sqfs] NOTE: no populated offline mirror under build/ ($_ss_effective); this host builds live, and 59-ncz-screensavers-pkg still enforces the package at install time." >&2
+    fi
+    ;;
+  *) : ;;
+esac
 QEMU="/usr/bin/$QEMU_BIN"
-STAGE="${1:-base}"                            # base | desktop | server | all
 
 log(){ echo "[sqfs $(date -u +%H:%M:%S)] $*"; }
 need(){ command -v "$1" >/dev/null || { echo "MISSING: $1"; exit 1; }; }
@@ -519,6 +562,11 @@ build_layer(){ local role="$1" manifest="$2"
     sudo cp -a "$ROOT/manifests/." "$MG/usr/local/lib/cix-installer/manifests/" 2>/dev/null || true
     [ -s "$ROOT/release.conf" ] && \
       sudo install -m 0644 "$ROOT/release.conf" "$MG/usr/local/lib/cix-installer/RELEASE"
+    # Refresh the screensaver version floor in the desktop layer too (base may
+    # predate it): 59-ncz-screensavers-pkg reads it from the target at install
+    # time, and the desktop overlay is what the finished image carries.
+    sudo install -d -m 0755 "$MG/usr/local/lib/cix-installer/build"
+    sudo install -m 0644 "$ROOT/build/screensavers-version.env" "$MG/usr/local/lib/cix-installer/build/"
     # r166: stage the NCZ branding assets the brand hooks read. The base build
     # only staged cix-debs/kernel/mesa/gpu/firmware/refind/rescue — NOT branding —
     # so 45-wallpaper (needs assets/branding/wallpaper), 56-icon-theme (needs
@@ -661,7 +709,9 @@ $_found"
     # (extracts /opt/singularity, curates sessions, purges XFCE/Xorg) — runs
     # FIRST so the Wayland desktop exists before the cosmetic hooks. 84-vpu-mpv
     # writes /etc/mpv HW-decode. 59-ncz-screensavers-pkg installs the shipped
-    # screensaver engine, idle timer and Singularity plugin. 59-desktop-curate
+    # screensaver engine, idle timer and 74-title catalogue (the 0.8.9 deb ships
+    # no plugin files; the Singularity plugin is a separate, not-yet-published
+    # package). 59-desktop-curate
     # LAST of the app hooks (after 20/52-vivaldi/46-ncz-cli) so it sees
     # every app-creating hook's output when it curates the launcher.
     for bh in 20-desktop 22-display-fix 23-locale-env 50-brand 52-vivaldi 53-chrome 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 84-vpu-vaapi 57-qotd 46-ncz-cli 59-desktop-curate 60-boot-splash; do
@@ -972,6 +1022,14 @@ build_base(){
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/manifests"
   sudo cp -a "$ROOT/manifests/." "$WORK/base/usr/local/lib/cix-installer/manifests/" 2>/dev/null || true
   sudo install -m 0644 "$ROOT/release.conf" "$WORK/base/usr/local/lib/cix-installer/RELEASE"
+  # The screensaver version floor must travel with the image:
+  # 59-ncz-screensavers-pkg sources it at install time from the target's own
+  # /usr/local/lib/cix-installer/build/ tree, which holds exactly what this
+  # staging puts there. Without this the mandatory-install hook FATALs on
+  # every real install (env not found) -- the floor is defined once in the
+  # repo and every consumer reads the same file.
+  sudo install -d -m 0755 "$WORK/base/usr/local/lib/cix-installer/build"
+  sudo install -m 0644 "$ROOT/build/screensavers-version.env" "$WORK/base/usr/local/lib/cix-installer/build/"
   sudo mkdir -p "$WORK/base/usr/local/lib/cix-installer/assets"
   # Real, current assets/ subdirs meant to ship inside the target OS.
   # Deliberately excludes: assets/rootfs (base-tarball build cache),

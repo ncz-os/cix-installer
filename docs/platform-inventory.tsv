@@ -303,10 +303,9 @@ post-install/55-t2-firmware.sh	amd64	t2	Apple T2 WiFi/BT firmware and audio; gua
 post-install/56-icon-theme.sh	common	-	icon theme; generic
 post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux DKMS on Apple T2 hardware only (DMI gate via ncz_is_t2_hardware); t2smp is dropped (in-kernel 9001 owns CPU offline) and blacklisted; t2thunderbolt is opt-in (NCZ_T2_DKMS_EXTRA) and blacklisted by default; apple_gmux (in-kernel) is blacklisted on T2 hardware only; KVERs come from KVER_LIST_AMD64, never -rc-skipped, never --fallback to /lib/modules or uname -r; -rc kernel trees still build t2smc/t2gmux; missing KVER_LIST on T2 is fatal
 post-install/57-qotd.sh	common	-	quote of the day; generic
-post-install/57-screensaver.sh	common	-	legacy idle-lock screensaver stack; generic
 post-install/58-boot-hygiene.sh	mixed	-	generic unit hygiene plus cix_resume unit masking (Sky1); TODO split
 post-install/59-desktop-curate.sh	mixed	-	launcher curation generic; amd64 branch at line ~100; TODO split
-post-install/59-ncz-screensavers-pkg.sh	common	-	installs ncz-screensavers if the mirror carries it
+post-install/59-ncz-screensavers-pkg.sh	common	-	mandatory install of the ncz-screensavers package on desktop variants (operator 2026-10-05; version floor from build/screensavers-version.env; the 0.8.9 .deb ships engine + idle timer + calibrator + gschema + 74-title catalogue, no Singularity plugin files -- those are a separate unpublished ncz-screensavers-plugin package)
 post-install/60-boot-splash.sh	common	-	KMS boot splash; DRM-generic (panthor initramfs strip is a harmless sed)
 post-install/61-chromium-icon.sh	sky1	-	Cygnus-coloured NCZ Chromium icon (diverts the chromium-ncz-sky1 package icons); Sky1 only
 post-install/62-cygnus-screensaver-default.sh	common	-	default screensaver = black hole in the Cygnus palette; override validated against the installed schema before install
@@ -381,6 +380,8 @@ build/test-base-stamp.sh	common	-	base.squashfs reuse stamp tests
 build/reap-images.sh	common	-	image reaping policy script
 build/test-reap-images.sh	common	-	reap-images fixture tests
 build/ship-image.sh	common	-	publish a gated image (ARGONAS + operator Mac) and reap superseded ones
+build/assert-mirror-has-screensavers.sh	common	-	pre-flight: every desktop mirror must carry ncz-screensavers >= the floor in build/screensavers-version.env (item S4)
+build/screensavers-version.env	common	-	single source of truth for the ncz-screensavers version floor + operator-mandated error message (item S4; shared with the install hook, the mirror builder, the squashfs/role-delta pre-flights and the post-install verifier)
 build/test-wallpaper-probe.sh	common	-	Bing helper offline probe test
 build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, chatter, blank screen)
 docs/installer-ux/	common	-	installer console before/after evidence
@@ -390,6 +391,10 @@ build/test-timesync-retry.sh	common	-	regression tests for the timesyncd fast-re
 build/test-greeter-output-mode.sh	common	-	regression test: greeter labwc autostart caps outputs at 1920x1080, never 4K
 build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp) and the 61 hook (divert + install + idempotent)
 build/test-screensaver-default.sh	common	-	regression test for the Cygnus black hole screensaver default hook (validated override, idempotent, skips old schemas)
+build/test-screensavers-mandatory-install.sh	common	-	fail-before/pass-after for the screensaver deb being apt-installed on every desktop image: mirror pre-flight and install hook (operator 2026-10-05; item S4; sources the builders sibling)
+build/test-screensavers-mandatory-install-builders.sh	common	-	sections 3-7 of the screensaver mandatory-install regression: mirror builder, layer pre-flights, live-update source, verifier contract, hook 57 retirement
+build/verify-installed-target-screensavers.sh	common	-	section (vi) of verify-installed-target.sh: dpkg status, version floor, engine, catalogue (sourced; sets SS_STATUS)
+build/verify-installed-target-screensavers-default.sh	common	-	section (vi) continuation: schema default, Cygnus override, idle timer, gtk4-reference ban, plugin files when installed
 build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor per-run logs, signal names and core-limit regression
 build/test-refind-rescue-promotion.sh	common	-	rEFInd rescue auto-promotion guard: rc/edge kernels are never promoted; existing rescue survives a failed copy (item RRH)
 build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service is wanted by the per-login session target (item RRH)

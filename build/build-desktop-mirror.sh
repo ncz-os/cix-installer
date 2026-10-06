@@ -52,6 +52,19 @@ fi
 export LC_ALL=C
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Single source of truth for the ncz-screensavers version floor (operator
+# 2026-10-05 mandatory-install item). Sourced once here; the `required`
+# ncz-screensavers row in NCZ_LOCAL_DEBS below reads NCZ_SCREENSAVERS_MIN_VERSION
+# and the standard error messages from it.
+SCREENSAVERS_VERSION_ENV="$REPO/build/screensavers-version.env"
+if [ ! -r "$SCREENSAVERS_VERSION_ENV" ]; then
+    echo "ERROR: $SCREENSAVERS_VERSION_ENV not readable -- refusing to build a desktop mirror without a screensaver version floor" >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$SCREENSAVERS_VERSION_ENV"
+
 SRC="$REPO/build/$NCZ_BASE_CODENAME-mirror"
 OUT="$REPO/build/desktop-mirror"
 GAPS="$REPO/build/desktop-mirror.gaps"
@@ -299,9 +312,25 @@ fi
 # as a standalone Debian closure builder; required ones do not, because
 # their absence produces an ISO that fails partway through an install.
 #
-# The common rows here are optional. cixmini-boot Depends on ncz-usb-recovery,
-# but the pool that has to satisfy it offline is build/forky-vendor-mirror, not
-# this one -- see the note above the gate at the bottom of this block.
+# The common rows here are optional EXCEPT ncz-screensavers: operator
+# 2026-10-05 ("If we are distributing screensavers as Deb they need to be apt
+# installed during installation.") makes ncz-screensavers a hard build-time
+# requirement on desktop variants. The hook (post-install/59-ncz-screensavers
+# -pkg.sh) hard-fails when it has no candidate; a mirror that lacks the
+# package would build cleanly, install cleanly, and silently ship no
+# screensavers -- the failure class the operator flagged. Marking it required
+# here causes this script to exit with a precise "missing package" error
+# instead.
+#
+# ncz-screensavers-plugin is intentionally NOT a row: there is no such published
+# package (Buildkite + R2 serve ncz-screensavers, ncz-singularity-desktop,
+# ncz-screensavers-gtk4-reference only). The 0.8.9 engine deb ships no
+# plugin files -- the plugin is a separate ncz-screensavers-plugin package,
+# not yet published; seeding a non-existent package would fail the build.
+#
+# cixmini-boot Depends on ncz-usb-recovery, but the pool that has to satisfy
+# it offline is build/forky-vendor-mirror, not this one -- see the note above
+# the gate at the bottom of this block.
 #
 # ncz-usb-recovery is deliberately in the arm64-only block below (item RS,
 # 2026-10-04): it is a Sky1-only workaround, and seeding the all-arch desktop
@@ -313,8 +342,7 @@ fi
 NCZ_LOCAL_DEBS="
 ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_${ARCH}.deb|optional
 ncz-singularity-desktop|$REPO/assets/cix-debs/ncz-singularity-desktop_*_${ARCH}.deb|optional
-ncz-screensavers|$REPO/build/ncz-screensavers-out/ncz-screensavers_*_${ARCH}.deb|optional
-ncz-screensavers-plugin|$REPO/build/ncz-screensavers-out/ncz-screensavers-plugin_*_${ARCH}.deb|optional
+ncz-screensavers|$REPO/build/ncz-screensavers-out/ncz-screensavers_*_${ARCH}.deb|required
 "
 if [ "$ARCH" = arm64 ]; then
 NCZ_LOCAL_DEBS+="
@@ -341,12 +369,35 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
     if [ -z "$candidates" ]; then
         if [ "$req" = required ]; then
             echo "  ERROR: no $pkg .deb at $glob" >&2
-            echo "  ERROR: required local package missing; build the artifact first." >&2
-            echo "  ERROR: for patched libdrm, run: build/build-libdrm-debs.sh" >&2
+            if [ "$pkg" = ncz-screensavers ]; then
+                echo "  ERROR: $pkg is mandatory on desktop variants; the offline mirror MUST carry it." >&2
+                echo "  ERROR:   ($NCZ_SCREENSAVERS_MISSING_MSG)" >&2
+                echo "  ERROR:   rebuild with build/build-screensavers-deb.sh and re-run." >&2
+            else
+                echo "  ERROR: required local package missing; build the artifact first." >&2
+                echo "  ERROR: for patched libdrm, run: build/build-libdrm-debs.sh" >&2
+            fi
             exit 1
         fi
         echo "  WARN: no $pkg .deb at $glob — continuing without it"
         continue
+    fi
+
+    # ncz-screensavers has a minimum-version floor in build/screensavers-version.env.
+    # Enforce it here so a stale .deb (left behind from a previous publish) cannot
+    # shadow the newer one in $candidates: the version-sort above picks the
+    # newest deb in the glob, but if THAT newest deb is itself older than the
+    # floor (publish bot broken, mirror not refreshed) the build must fail loudly,
+    # not silently ship a too-old catalogue.
+    if [ "$pkg" = ncz-screensavers ]; then
+        ss_deb="$(printf '%s\n' "$candidates" | tail -1)"
+        ss_ver="$(dpkg-deb -f "$ss_deb" Version 2>/dev/null || echo unknown)"
+        if [ "$ss_ver" = unknown ] || ! dpkg --compare-versions "$ss_ver" ge "$NCZ_SCREENSAVERS_MIN_VERSION"; then
+            echo "  ERROR: newest ncz-screensavers .deb at $ss_deb is version '$ss_ver', BELOW the required floor $NCZ_SCREENSAVERS_MIN_VERSION" >&2
+            echo "  ERROR:   ($NCZ_SCREENSAVERS_TOO_OLD_MSG)" >&2
+            exit 1
+        fi
+        echo "  ncz-screensavers floor OK: $ss_ver >= $NCZ_SCREENSAVERS_MIN_VERSION"
     fi
 
     deb="$(printf '%s\n' "$candidates" | tail -1)"

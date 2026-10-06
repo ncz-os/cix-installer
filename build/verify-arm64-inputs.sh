@@ -260,7 +260,8 @@ if [ -s "$EXTRA_MANIFEST" ] && sed 's/#.*//' "$EXTRA_MANIFEST" | awk 'NF {print 
             mark_miss "ncz-screensavers.mirror" "$FM/pool (no ncz-screensavers_*_arm64.deb; re-run stage 0)"
         fi
     fi
-    # 0.7+: the Singularity plugin is the only screensaver UX and ships as a second package
+    # the Singularity plugin (chooser/settings UI) is a separate package, not
+    # published yet; require its deb only when the manifest actually lists it
     if sed 's/#.*//' "$EXTRA_MANIFEST" | awk 'NF {print $1}' | grep -qx ncz-screensavers-plugin; then
         ls "$ROOT"/build/ncz-screensavers-out/ncz-screensavers-plugin_*_arm64.deb >/dev/null 2>&1 || mark_miss "ncz-screensavers-plugin.deb" "$ROOT/build/ncz-screensavers-out/ncz-screensavers-plugin_*_arm64.deb"
         if [ "$CHECK_MIRROR" = 1 ]; then

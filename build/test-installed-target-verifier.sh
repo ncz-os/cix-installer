@@ -92,22 +92,45 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     ln -s /etc/systemd/user/ncz-sky1-audio-autoswitch.service "$r/etc/systemd/user/graphical-session.target.wants/ncz-sky1-audio-autoswitch.service"
     # ncz-screensavers
     mkdir -p "$r/usr/local/lib/cix-installer/manifests" "$r/usr/lib/ncz-screensavers" "$r/usr/libexec" "$r/usr/lib/systemd/user" \
-             "$r/usr/share/glib-2.0/schemas" "$r/usr/share/ncz-screensavers" "$r/etc/systemd/user/graphical-session.target.wants"
+             "$r/usr/share/glib-2.0/schemas" "$r/usr/share/ncz-screensavers" "$r/etc/systemd/user/graphical-session.target.wants" \
+             "$r/usr/share/applications" "$r/usr/bin"
     echo ncz-screensavers > "$r/usr/local/lib/cix-installer/manifests/install-extra.pkgs"
     for n in $(seq 1 84); do echo x > "$r/usr/lib/ncz-screensavers/hack${n}_gles3"; done
     echo x > "$r/usr/bin/ncz-screensaver"
     echo x > "$r/usr/libexec/ncz-screensaver-idled"; echo x > "$r/usr/libexec/ncz-screensaver-run"
+    mkdir -p "$r/usr/libexec/ncz-screensavers"; echo x > "$r/usr/libexec/ncz-screensavers/ncz-screensaver-calibrate"
     echo x > "$r/usr/lib/systemd/user/ncz-screensaver-idled.service"
-    echo x > "$r/usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml"
-    echo x > "$r/usr/share/ncz-screensavers/hacks.tsv"
+    # Real-shape schema with the operator-mandated default saver (blackhole_gles3).
+    # 84 hack binaries (the ship set) but only 74 catalogue rows: the catalogue is
+    # the operator-visible set; the binaries also include helpers (smoke, transition).
+    cat > "$r/usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml" <<'GSCHEMA'
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="dev.ncz.screensaver" path="/dev/ncz/screensaver/">
+    <key name="mode" type="s">
+      <default>'one'</default>
+    </key>
+    <key name="hack-id" type="s">
+      <default>'blackhole_gles3'</default>
+    </key>
+  </schema>
+</schemalist>
+GSCHEMA
+    # 74-row catalogue: tab-separated, 3 fields per row, Title always set.
+    : > "$r/usr/share/ncz-screensavers/hacks.tsv"
+    for n in $(seq 1 74); do
+        printf 'hack%s_gles3\tTitle %s\tshort\n' "$n" "$n" >> "$r/usr/share/ncz-screensavers/hacks.tsv"
+    done
     printf 'GSettings dev.ncz.screensaver blob' > "$r/usr/share/glib-2.0/schemas/gschemas.compiled"
+    # The effective-default override 62-cygnus-screensaver-default.sh writes at
+    # install time (the package schema default is mode='off' -- no animated
+    # saver -- so this is what makes "default saver = blackhole" true).
+    printf "[dev.ncz.screensaver]\nmode='one'\nhack-id='blackhole_gles3'\nblackhole-color-mode='cygnus'\n" \
+        > "$r/usr/share/glib-2.0/schemas/99-ncz-cygnus-screensaver.gschema.override"
     ln -s /usr/lib/systemd/user/ncz-screensaver-idled.service "$r/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"
-    printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: 0.7.1\n\n' >> "$r/var/lib/dpkg/status"
-    mkdir -p "$r/var/lib/dpkg/info" "$r/opt/singularity/lib/singularity/plugins/screensaver" "$r/opt/singularity/share/glib-2.0/schemas"
+    printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: 0.8.9\n\n' >> "$r/var/lib/dpkg/status"
+    mkdir -p "$r/var/lib/dpkg/info"
     printf '/usr/bin/ncz-screensaver\n/usr/libexec/ncz-screensaver-idled\n' > "$r/var/lib/dpkg/info/ncz-screensavers.list"
-    echo x > "$r/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"; echo x > "$r/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
-    printf "[dev.sinty.desktop]\nenabled-plugins=['sensors', 'screensaver']\n" > "$r/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"
-    printf 'Package: ncz-screensavers-plugin\nStatus: install ok installed\nVersion: 0.3.1\n\n' >> "$r/var/lib/dpkg/status"
 }
 
 run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name or ""
@@ -142,15 +165,47 @@ m_ss_hacks()    { rm -f "$1"/usr/lib/ncz-screensavers/hack1*_gles3; }
 m_ss_noidled()  { rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"; }
 m_ss_oldidle()  { ln -s /usr/lib/systemd/user/ncz-idle-manager.service "$1/etc/systemd/user/graphical-session.target.wants/ncz-idle-manager.service"; }
 m_ss_schema()   { printf 'nothing' > "$1/usr/share/glib-2.0/schemas/gschemas.compiled"; }
-m_ssp_missing() { sed -i '/^Package: ncz-screensavers-plugin$/,+3d' "$1/var/lib/dpkg/status"; }
-m_ssp_so()      { rm -f "$1/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"; }
-m_ssp_default() { printf "[dev.sinty.desktop]\nenabled-plugins=['sensors']\n" > "$1/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"; }
-m_ssp_nodefault() { rm -f "$1/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"; }
-m_ss_settings() { mkdir -p "$1/usr/bin"; echo x > "$1/usr/bin/ncz-screensaver-settings"; }
-m_ss_desktop()  { printf '/usr/bin/ncz-screensaver\n/usr/share/applications/ncz-screensavers.desktop\n' > "$1/var/lib/dpkg/info/ncz-screensavers.list"; }
+# The Singularity plugin ships in a SEPARATE package (ncz-screensavers-plugin)
+# that is not published yet; the 0.8.9 engine deb ships no plugin files. The
+# verifier requires the plugin files only when the plugin package is installed.
+m_ssp_installed_no_so()       { m_ssp_pkg "$1"; rm -f "$1/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"; }
+m_ssp_installed_no_pluginfile() { m_ssp_pkg "$1"; rm -f "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"; }
+m_ssp_installed_nofiles()     { m_ssp_pkg "$1"; rm -f "$1"/opt/singularity/lib/singularity/plugins/screensaver/*; }
 m_ss_ref()      { printf 'Package: ncz-screensavers-gtk4-reference\nStatus: install ok installed\nVersion: 0.7.1\n\n' >> "$1/var/lib/dpkg/status"; }
 m_ss_launcher() { rm -f "$1/usr/bin/ncz-screensaver"; }
 m_ss_unrequested() { : > "$1/usr/local/lib/cix-installer/manifests/install-extra.pkgs"; m_ss_missing "$1"; }
+# catalogue rows below the 74-title floor
+m_ss_short_catalogue() { : > "$1/usr/share/ncz-screensavers/hacks.tsv"; for n in 1 2 3 4 5; do printf 'hack%s_gles3\tTitle %s\tshort\n' "$n" "$n" >> "$1/usr/share/ncz-screensavers/hacks.tsv"; done; }
+# installed version below the floor in build/screensavers-version.env
+m_ss_tooold()      { sed -i 's/^Version: 0.8.9$/Version: 0.8.8/' "$1/var/lib/dpkg/status"; }
+# 62-cygnus-screensaver-default did not write the effective-default override
+m_ss_no_override() { rm -f "$1/usr/share/glib-2.0/schemas/99-ncz-cygnus-screensaver.gschema.override"; }
+# hack-id default != blackhole_gles3 (operator rule "default saver = blackhole")
+m_ss_no_blackhole_default() {
+    cat > "$1/usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml" <<'GSCHEMA'
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="dev.ncz.screensaver" path="/dev/ncz/screensaver/">
+    <key name="mode" type="s">
+      <default>'one'</default>
+    </key>
+    <key name="hack-id" type="s">
+      <default>'hyprsaver_donut_gles3'</default>
+    </key>
+  </schema>
+</schemalist>
+GSCHEMA
+}
+# a published ncz-screensavers-plugin package (first publish not yet out the
+# door; when it ships, the .so + .plugin + default-enabled override come
+# together) -- builds the complete plugin-installed state on the fixture.
+m_ssp_pkg() {
+    printf 'Package: ncz-screensavers-plugin\nStatus: install ok installed\nVersion: 0.3.1\n\n' >> "$1/var/lib/dpkg/status"
+    mkdir -p "$1/opt/singularity/lib/singularity/plugins/screensaver" "$1/opt/singularity/share/glib-2.0/schemas"
+    echo x > "$1/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"
+    echo x > "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
+    printf "enabled-plugins='screensaver'\n" > "$1/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"
+}
 m_no_sudo()     { sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
 m_sudo_empty()  { printf 'root:x:0:\nsudo:x:27:\n' > "$1/etc/group"; }
 m_aud_nodaemon() { rm -f "$1/usr/local/bin/ncz-sky1-audio-autoswitch"; }
@@ -242,16 +297,18 @@ run_case "mpv without hwdec fails"              1 m_no_mpv
 run_case "screensavers requested but absent fails" 1 m_ss_missing
 run_case "screensavers with 74 of 84 hacks fails"  1 m_ss_hacks
 run_case "screensavers without launcher fails"  1 m_ss_launcher
-run_case "plugin not installed fails"            1 m_ssp_missing
-run_case "plugin library missing fails"          1 m_ssp_so
-run_case "plugin not enabled by default fails"   1 m_ssp_default
-run_case "plugin default override missing fails" 1 m_ssp_nodefault
-run_case "engine with a settings app fails"      1 m_ss_settings
-run_case "engine shipping a .desktop file fails" 1 m_ss_desktop
+run_case "plugin pkg installed but .so missing fails" 1 m_ssp_installed_no_so
+run_case "plugin pkg installed but .plugin manifest missing fails" 1 m_ssp_installed_no_pluginfile
+run_case "plugin pkg installed but no plugin files fails" 1 m_ssp_installed_nofiles
+run_case "plugin pkg installed with files present passes" 0 m_ssp_pkg
 run_case "gtk4-reference installed fails"        1 m_ss_ref
 run_case "idled timer not enabled fails"        1 m_ss_noidled
 run_case "old idle-manager still enabled fails" 1 m_ss_oldidle
 run_case "schema not compiled fails"            1 m_ss_schema
+run_case "catalogue under 74 rows fails"        1 m_ss_short_catalogue
+run_case "default saver is not blackhole fails" 1 m_ss_no_blackhole_default
+run_case "version below the floor fails"        1 m_ss_tooold
+run_case "Cygnus effective-default override missing fails" 1 m_ss_no_override
 run_case "no audio autoswitch daemon fails"     1 m_aud_nodaemon
 run_case "DP-only audio daemon (no analog fallback) fails" 1 m_aud_dponly
 run_case "no audio autoswitch unit fails"       1 m_aud_nounit
