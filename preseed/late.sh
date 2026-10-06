@@ -913,7 +913,8 @@ ncz_bar_to() {
     _t="$1"
     case "$_t" in ''|*[!0-9]*) return 0 ;; esac
     [ "$BAR_MODE" = text ] && return 0
-    [ "$_t" -gt "$NCZ_PROGRESS_UNITS" ] && _t=$NCZ_PROGRESS_UNITS
+    hb_last_units=${hb_last_units:-0}
+    [ "$_t" -gt "${NCZ_PROGRESS_UNITS:-0}" ] && _t=${NCZ_PROGRESS_UNITS:-0}
     [ "$_t" -gt "$hb_last_units" ] || return 0
     _t_rc=0
     if [ "$BAR_MODE" = rescale ]; then
@@ -1012,6 +1013,7 @@ hb_tick() {
     fi
     [ "$BAR_MODE" != text ] && [ "${NCZ_PROGRESS_UNITS:-0}" -gt 0 ] \
         && [ "$hb_total" -gt 0 ] || return 0
+    hb_last_units=${hb_last_units:-0}
     hb_target_units=$(hb_units_for "$hb_event" "$hb_idx" "$hb_total" "$hb_pct" \
         "$PROGRESS_PLAN" "$NCZ_PROGRESS_UNITS")
     case "$hb_target_units" in ''|*[!0-9]*) hb_target_units=0 ;; esac
