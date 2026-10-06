@@ -30,8 +30,9 @@ exec >"$LOG" 2>&1
 # the main "Finishing the installation" bar parks (testers reported a "stuck at
 # 14%" hang) for the entire multi-minute OFFLINE base + desktop + driver install
 # while this script runs silently into its log. The main screen now shows the
-# authoritative run-all state as changing status text without modifying
-# finish-install's parent progress accounting; this tty3 mirror remains the detail view
+# authoritative run-all state as changing status text and moves finish-install's
+# own bar through post-install (NCZ-BAR block below; finish-install's accounting
+# still ends at exactly 100%); this tty3 mirror remains the detail view
 # (Alt+F3) and as the fallback if the debconf channel is unavailable. Best-
 # effort; never fatal.
 TTY=/dev/tty3
@@ -87,8 +88,8 @@ export NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME NCZ_RELEASE_LAB
 
 # Initialize debconf before source discovery and asset staging so even the
 # pre-hook portion of late_command has visible main-screen status. We inherit
-# finish-install's frontend fds, but it owns the progress bar: use INFO only,
-# never START/STOP/SET/STEP.
+# finish-install's frontend fds and its progress bar: INFO here; the bar is
+# only moved by the NCZ-BAR block (START/SET/STEP, never STOP).
 DEBCONF_OK=0
 db_try() { [ "$DEBCONF_OK" = 1 ] || return 0; "$@" 2>/dev/null || true; }
 # Report EACH precondition separately. This gate has four independent
@@ -115,7 +116,7 @@ Template: nclawzero/install-progress
 Type: text
 Description: Installing ${NCZ_RELEASE_LABEL} - please be patient (several minutes)
  The full desktop, GPU/NPU drivers, kernels and agents are being installed.
- The parent bar may remain in one position while the status below it changes.
+ The status line below the bar names the step running now.
  Press Alt+F3 at any time for live, per-step detail.
 
 Template: nclawzero/install-step
@@ -760,51 +761,19 @@ if [ -n "$_ncz_comp" ]; then
 fi
 
 # Render the authoritative state written atomically by run-all.sh and the apt
-# shim. This intentionally uses db_progress INFO only: finish-install owns the
-# parent bar and will advance it after 07preseed/late_command returns.
+# shim on finish-install's progress screen: the status line (db_progress INFO)
+# on every heartbeat and, when a debconf channel exists, the bar itself
+# (NCZ-BAR block below, docs/GPU-INSTALL-PROGRESS.md "Progress bar").
 PROGRESS_STATE=/target/var/log/cix-install/progress.state
-case "${NCZ_PROGRESS_UNITS:-0}" in
+# NCZ_PROGRESS_UNITS: bar units late.sh owns. Only a patched finish-install
+# (the legacy ISO builder) exports it; on the raw-image path ncz_bar_begin
+# computes it at runtime. Normalise it HERE so every later test sees a number:
+# the old `case "${NCZ_PROGRESS_UNITS:-0}"` guard left an UNSET variable unset
+# (the default made it match nothing), and `[ "$NCZ_PROGRESS_UNITS" -gt 0 ]`
+# then printed `sh: bad number` on every heartbeat of the r199 install.
+case "${NCZ_PROGRESS_UNITS:-}" in
     ''|*[!0-9]*) NCZ_PROGRESS_UNITS=0 ;;
 esac
-
-# --- NCZ PROGRESS DIAGNOSTICS -------------------------------------------
-# The parent bar advances only when ALL THREE of these hold:
-#   DEBCONF_OK = 1, NCZ_PROGRESS_UNITS > 0, hb_total > 0
-# When the bar sat frozen through an entire install (reported 2026-08-14),
-# none of the three could be recovered afterwards, because nothing logged
-# them -- progress.state proved hb_total was 53, and that was the only one of
-# the three that left any trace. The finish-install patch that exports
-# NCZ_PROGRESS_UNITS was verified present in the shipped pool udeb (3 hits)
-# and absent from the initrd (which carries no finish-install at all), so the
-# patched copy is the one that runs and the variable SHOULD arrive here.
-# Log all of it, once, so the next frozen bar names its own cause.
-#
-# NO PIPE, and specifically NOT `tee`. MEASURED on the r243 KVM install: this
-# block was piped through `tee -a "$LOG" >&2`, and d-i busybox has no tee
-# applet --
-#     /cdrom/ncz-payload/late.sh: line 550: tee: not found
-# -- so the ONE diagnostic written to answer "why is the bar frozen" silently
-# produced nothing, and the trailing `|| true` hid the failure. The bar stayed
-# frozen and the log still could not say why.
-#
-# It also did not need a pipe in the first place. Line 25 already does
-# `exec >"$LOG" 2>&1`, so this block writing to plain stdout lands in exactly
-# the same file; `tee -a "$LOG" >&2` would have written every line TWICE, once
-# through the append and once through a stderr that is the same file.
-{
-    echo "[late/progress] DEBCONF_OK=${DEBCONF_OK:-unset}"
-    echo "[late/progress] NCZ_PROGRESS_UNITS=${NCZ_PROGRESS_UNITS:-unset}"
-    echo "[late/progress] NCZ_PROGRESS_CONSUMED_FILE=${NCZ_PROGRESS_CONSUMED_FILE:-unset}"
-    echo "[late/progress] partsdir 07preseed: $(ls -l /usr/lib/finish-install.d/07preseed 2>&1 | head -1)"
-    if [ "${NCZ_PROGRESS_UNITS:-0}" -gt 0 ] 2>/dev/null && [ "${DEBCONF_OK:-0}" = 1 ]; then
-        echo "[late/progress] bar WILL advance"
-    else
-        echo "[late/progress] bar will NOT advance -- text-only degraded mode"
-    fi
-} 2>&1                               # $LOG is /target/var/log/... (line 23);
-                                     # the bare /var/log path is the d-i ramdisk
-                                     # and is DISCARDED at reboot -- that is why the
-                                     # first KVM run produced no diagnostics at all.
 late_progress_state() {
     _event="$1"; _phase="$2"; _hook="$3"; _detail="$4"
     _now=$(date +%s 2>/dev/null || echo 0)
@@ -877,7 +846,288 @@ hb_gpu_status() {
 # --- NCZ-HB-UNITS-END ------------------------------------------------------
 PROGRESS_PLAN=/target/var/log/cix-install/progress.plan
 
+# --- NCZ-BAR-BEGIN (extracted by build/test-progress-bar-drive.sh) --------
+# Drive finish-install's OWN progress bar through the debconf channel late.sh
+# already holds (DEBCONF_OK=1: late_command runs as finish-install.d/07preseed,
+# a child of finish-install.postinst, and inherits its confmodule fds).
+#
+# finish-install.postinst does `db_progress START 0 <N>` (N = entries in
+# finish-install.d), runs each script, and does `db_progress STEP 1` after it.
+# 07preseed is one of those N slots, so without help the bar parks at k/N for
+# the whole post-install (k = scripts before 07preseed; 4/27 = 14% on the r199
+# image). The legacy ISO builder patched the postinst to hand late.sh 100
+# units (NCZ_PROGRESS_UNITS); the raw-image d-i loads the stock finish-install
+# udeb, so nothing exports it any more.
+#
+# Runtime replacement, no installer patch: re-scale the same bar.
+#   S = 40 * R (at least 800), R = N - k = STEP 1 calls finish-install still
+#       makes (07preseed's own and every later script's); the later scripts
+#       (initramfs refresh, log save, unmount) keep 1/40 of the bar
+#   START 0 S with finish-install's own title, then SET B = ceil(k*S/N), the
+#       point finish-install had reached (ceil: never lower)
+#   late.sh owns B .. E = S - R (NCZ_PROGRESS_UNITS = E - B) and ends at E
+#   finish-install's R remaining STEP 1 calls then land exactly on S (100%)
+# cdebconf does not range-check SET/STEP and START only resets min/max/cur
+# (cdebconf src/frontend.c, newt.c), so finish-install's accounting stays
+# whole. Never STOP: that pops finish-install's bar (r130.8 defect B).
+# The START redraw shows an empty bar for one frame before the SET that
+# follows it at once; every value the bar settles on only moves forward.
+#
+# No channel (the KVM gate's unattended run, a manual late_command, a
+# finish-install without 07preseed) leaves BAR_MODE=text: INFO text only.
+NCZ_FINISH_PARTSDIR="${NCZ_FINISH_PARTSDIR:-/usr/lib/finish-install.d}"
+NCZ_PROC_ROOT="${NCZ_PROC_ROOT:-/proc}"
+BAR_MODE=text; BAR_SCALE=0; BAR_BASE=0; BAR_END=0
+hb_last_units=0
+
+# ncz_bar_in_finish_install [pid]
+# 0 when <pid> (default: this shell) or an ancestor is finish-install's
+# 07preseed, i.e. finish-install's bar is the one on screen.
+ncz_bar_in_finish_install() {
+    _f_pid="${1:-$$}"; _f_n=0
+    while [ "$_f_n" -lt 16 ]; do
+        case "$_f_pid" in ''|0|*[!0-9]*) return 1 ;; esac
+        if [ -r "$NCZ_PROC_ROOT/$_f_pid/cmdline" ]; then
+            _f_cmd=$(tr '\000' ' ' < "$NCZ_PROC_ROOT/$_f_pid/cmdline" 2>/dev/null)
+            case "$_f_cmd" in *finish-install.d/07preseed*) return 0 ;; esac
+        fi
+        _f_pid=$(sed -n 's/^PPid:[[:space:]]*//p' "$NCZ_PROC_ROOT/$_f_pid/status" 2>/dev/null)
+        _f_n=$((_f_n + 1))
+    done
+    return 1
+}
+
+# ncz_bar_geometry <finish-install.d> -> "S B E" (see above); 1 = unusable.
+# Counts and orders entries exactly as finish-install.postinst does (its
+# `ls | wc -l` count, its "$partsdir"/* loop order).
+ncz_bar_geometry() {
+    _g_dir="$1"; _g_n=0; _g_k=-1
+    for _g_s in "$_g_dir"/*; do
+        [ -e "$_g_s" ] || continue
+        [ "$_g_s" = "$_g_dir/07preseed" ] && _g_k=$_g_n
+        _g_n=$((_g_n + 1))
+    done
+    [ "$_g_n" -gt 0 ] || return 1          # divisor below
+    [ "$_g_k" -ge 0 ] || return 1          # no 07preseed slot
+    _g_r=$((_g_n - _g_k))
+    _g_s=$((_g_r * 40)); [ "$_g_s" -lt 800 ] && _g_s=800
+    _g_b=$(( (_g_k * _g_s + _g_n - 1) / _g_n ))
+    _g_e=$((_g_s - _g_r))
+    [ "$_g_e" -gt "$_g_b" ] || return 1
+    echo "$_g_s $_g_b $_g_e"
+}
+
+# ncz_bar_begin: choose the bar mode once, before the heartbeat starts.
+#   owned   a patched finish-install exported NCZ_PROGRESS_UNITS (STEP deltas)
+#   rescale the runtime re-scale above (absolute SET)
+#   text    no channel: INFO text only, the bar is not touched
+ncz_bar_begin() {
+    BAR_MODE=text
+    case "${NCZ_PROGRESS_UNITS:-}" in ''|*[!0-9]*) NCZ_PROGRESS_UNITS=0 ;; esac
+    if [ "${DEBCONF_OK:-0}" != 1 ]; then
+        echo "[late/progress] bar: no debconf channel -- text-only"
+        return 0
+    fi
+    if [ "${NCZ_PROGRESS_UNITS:-0}" -gt 0 ]; then
+        BAR_MODE=owned
+        echo "[late/progress] bar: finish-install allocated $NCZ_PROGRESS_UNITS units (owned)"
+        return 0
+    fi
+    if ! ncz_bar_in_finish_install; then
+        echo "[late/progress] bar: not running under finish-install.d/07preseed -- text-only"
+        return 0
+    fi
+    if ! _b_geo=$(ncz_bar_geometry "$NCZ_FINISH_PARTSDIR"); then
+        echo "[late/progress] bar: no 07preseed slot in $NCZ_FINISH_PARTSDIR -- text-only"
+        return 0
+    fi
+    set -- $_b_geo
+    _b_rc=0
+    db_progress START 0 "$1" finish-install/progress/title 2>/dev/null \
+        || db_progress START 0 "$1" nclawzero/install-progress 2>/dev/null \
+        || _b_rc=$?
+    if [ "$_b_rc" != 0 ]; then
+        echo "[late/progress] bar: START rejected (rc=$_b_rc) -- text-only"
+        return 0
+    fi
+    BAR_SCALE=$1; BAR_BASE=$2; BAR_END=$3
+    db_progress SET "$BAR_BASE" 2>/dev/null || true
+    db_progress INFO nclawzero/install-step 2>/dev/null || true
+    NCZ_PROGRESS_UNITS=$((BAR_END - BAR_BASE))
+    BAR_MODE=rescale
+    echo "[late/progress] bar: rescaled finish-install bar to 0..$BAR_SCALE, late.sh owns $BAR_BASE..$BAR_END ($NCZ_PROGRESS_UNITS units)"
+}
+
+# ncz_bar_to <units>: move the bar to <units> of the owned range. Forward
+# only; clamps to the range; a no-op in text mode.
+ncz_bar_to() {
+    _t="$1"
+    case "$_t" in ''|*[!0-9]*) return 0 ;; esac
+    [ "$BAR_MODE" = text ] && return 0
+    hb_last_units=${hb_last_units:-0}
+    [ "$_t" -gt "${NCZ_PROGRESS_UNITS:-0}" ] && _t=${NCZ_PROGRESS_UNITS:-0}
+    [ "$_t" -gt "$hb_last_units" ] || return 0
+    _t_rc=0
+    if [ "$BAR_MODE" = rescale ]; then
+        db_progress SET "$((BAR_BASE + _t))" 2>/dev/null || _t_rc=$?
+    else
+        db_progress STEP "$((_t - hb_last_units))" 2>/dev/null || _t_rc=$?
+    fi
+    if [ "${hb_step_diag_n:-0}" -lt 3 ]; then
+        hb_step_diag_n=$(( ${hb_step_diag_n:-0} + 1 ))
+        echo "[late/progress] bar#$hb_step_diag_n mode=$BAR_MODE units=$_t/$NCZ_PROGRESS_UNITS rc=$_t_rc"
+    fi
+    hb_last_units=$_t
+    if [ "$BAR_MODE" = owned ] && [ -n "${NCZ_PROGRESS_CONSUMED_FILE:-}" ]; then
+        printf '%s\n' "$hb_last_units" > "$NCZ_PROGRESS_CONSUMED_FILE" 2>/dev/null || true
+    fi
+    return 0
+}
+
+# hb_creep <last> <real> <step-end> -> next bar position while a step's own
+# signal is not moving (one large file compiling, modpost, an initramfs
+# rebuild, a slow download). Moves 1/24 of the way (at least one unit) toward
+# a cap two thirds of the way from the real position to the end of the
+# CURRENT step, so it never reaches the next step's share and real progress
+# always has room left to show.
+hb_creep() {
+    _c_last="$1"; _c_real="$2"; _c_end="$3"
+    case "$_c_last" in ''|*[!0-9]*) _c_last=0 ;; esac
+    case "$_c_real" in ''|*[!0-9]*) _c_real=0 ;; esac
+    case "$_c_end" in ''|*[!0-9]*) _c_end=0 ;; esac
+    _c_cap=$(( _c_real + (_c_end - _c_real) * 2 / 3 ))
+    if [ "$_c_end" -le "$_c_real" ] || [ "$_c_last" -ge "$_c_cap" ]; then
+        echo "$_c_last"; return 0
+    fi
+    echo $(( _c_last + (_c_cap - _c_last + 23) / 24 ))
+}
+
+# hb_tick <heartbeat-number>: one heartbeat. Reads progress.state, refreshes
+# the status line and moves the bar. The number drives the moving marker on
+# the GPU line. Returns 0 always (no record yet is not an error).
+hb_tick() {
+    hb_tick_n="${1:-0}"
+    [ -r "$PROGRESS_STATE" ] || return 0
+    IFS='|' read -r hb_started hb_updated hb_event hb_phase hb_idx hb_total \
+        hb_hook hb_pct hb_rc hb_detail < "$PROGRESS_STATE" || return 0
+    [ -n "$hb_hook" ] || return 0
+    case "$hb_idx" in ''|*[!0-9]*) hb_idx=0 ;; esac
+    case "$hb_total" in ''|*[!0-9]*) hb_total=0 ;; esac
+    case "$hb_started" in ''|*[!0-9]*) hb_started=0 ;; esac
+    hb_now=$(date +%s 2>/dev/null || echo "$hb_updated")
+    case "$hb_now" in ''|*[!0-9]*) hb_now=$hb_started ;; esac
+    hb_elapsed=$((hb_now - hb_started))
+    [ "$hb_elapsed" -ge 0 ] 2>/dev/null || hb_elapsed=0
+    hb_label=${hb_hook%.sh}
+    hb_label=$(printf '%s' "$hb_label" | sed 's/^[0-9][0-9]-//; s/-/ /g')
+    case "$hb_event" in
+        APT)
+            hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total, ${hb_elapsed}s) - packages ${hb_pct:-0}%: $hb_detail"
+            ;;
+        WARN)
+            hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total) - warning: $hb_detail"
+            ;;
+        FAIL)
+            hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total) - FAILED: $hb_detail"
+            ;;
+        GPU)
+            hb_status=$(hb_gpu_status "$hb_detail" "$hb_elapsed" "$hb_tick_n")
+            ;;
+        COMPLETE)
+            hb_status="$hb_detail"
+            ;;
+        FINALIZE)
+            hb_status="Finalizing NCZ-OS: $hb_label (${hb_elapsed}s) - $hb_detail"
+            ;;
+        *)
+            hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total, ${hb_elapsed}s) - $hb_detail"
+            ;;
+    esac
+    hb_status=$(printf '%s' "$hb_status" | cut -c1-150)
+    hb_key="$hb_event|$hb_phase|$hb_idx|$hb_hook|$hb_pct|$hb_detail"
+    # GPU records name a new build/stage every few seconds; the tty3 mirror
+    # follows the record (not the per-tick clock) so it stays readable.
+    if [ "$hb_key" != "${hb_last_key:-}" ]; then
+        ttymsg "  → $hb_status"
+        hb_last_key="$hb_key"
+    fi
+    # Return codes of the first few updates go to the log: db_try would hide
+    # a dead channel (r249 showed ZERO heartbeat updates while progress.state
+    # was correct), and "rejected" vs "accepted but not drawn" need different
+    # fixes.
+    hb_subst_rc=0; hb_info_rc=0
+    if [ "${DEBCONF_OK:-0}" = 1 ]; then
+        db_subst nclawzero/install-step STEP "$hb_status" 2>/dev/null || hb_subst_rc=$?
+        db_progress INFO nclawzero/install-step 2>/dev/null || hb_info_rc=$?
+    fi
+    if [ "${hb_diag_n:-0}" -lt 3 ]; then
+        hb_diag_n=$(( ${hb_diag_n:-0} + 1 ))
+        echo "[late/progress] hb#$hb_diag_n subst_rc=$hb_subst_rc info_rc=$hb_info_rc event=$hb_event idx=$hb_idx/$hb_total hook=$hb_hook"
+    fi
+    [ "$BAR_MODE" != text ] && [ "${NCZ_PROGRESS_UNITS:-0}" -gt 0 ] \
+        && [ "$hb_total" -gt 0 ] || return 0
+    hb_last_units=${hb_last_units:-0}
+    hb_target_units=$(hb_units_for "$hb_event" "$hb_idx" "$hb_total" "$hb_pct" \
+        "$PROGRESS_PLAN" "$NCZ_PROGRESS_UNITS")
+    case "$hb_target_units" in ''|*[!0-9]*) hb_target_units=0 ;; esac
+    if [ "$hb_target_units" -gt "$hb_last_units" ]; then
+        ncz_bar_to "$hb_target_units"
+    else
+        # Real signal flat (or behind a creep): creep inside this step only.
+        # A later record with a lower in-step percent (a new apt transaction)
+        # holds the bar; nothing here ever moves it back.
+        hb_step_end=$(hb_units_for DONE "$hb_idx" "$hb_total" 100 \
+            "$PROGRESS_PLAN" "$NCZ_PROGRESS_UNITS")
+        ncz_bar_to "$(hb_creep "$hb_last_units" "$hb_target_units" "$hb_step_end")"
+    fi
+    return 0
+}
+
+# ncz_bar_finish: run-all has exited; fill the owned range so
+# finish-install's remaining STEP 1 calls finish the bar at 100%.
+ncz_bar_finish() {
+    ncz_bar_to "${NCZ_PROGRESS_UNITS:-0}"
+}
+# --- NCZ-BAR-END -----------------------------------------------------------
+
 set +e
+ncz_bar_begin
+# --- NCZ PROGRESS DIAGNOSTICS -------------------------------------------
+# The bar advances only when ALL of these hold: DEBCONF_OK = 1, a bar mode
+# other than text (NCZ-BAR block: a patched finish-install exported
+# NCZ_PROGRESS_UNITS, or ncz_bar_begin re-scaled finish-install's bar), and
+# hb_total > 0. A frozen bar on 2026-08-14 left only hb_total behind, and the
+# r199 raw-image install logged NCZ_PROGRESS_UNITS=unset (the finish-install
+# patch went away with the ISO builder in f40a8061).
+# Log all of it, once, so the next frozen bar names its own cause.
+#
+# NO PIPE, and specifically NOT `tee`. MEASURED on the r243 KVM install: this
+# block was piped through `tee -a "$LOG" >&2`, and d-i busybox has no tee
+# applet --
+#     /cdrom/ncz-payload/late.sh: line 550: tee: not found
+# -- so the ONE diagnostic written to answer "why is the bar frozen" silently
+# produced nothing, and the trailing `|| true` hid the failure. The bar stayed
+# frozen and the log still could not say why.
+#
+# It also did not need a pipe in the first place. Line 25 already does
+# `exec >"$LOG" 2>&1`, so this block writing to plain stdout lands in exactly
+# the same file; `tee -a "$LOG" >&2` would have written every line TWICE, once
+# through the append and once through a stderr that is the same file.
+{
+    echo "[late/progress] DEBCONF_OK=${DEBCONF_OK:-unset}"
+    echo "[late/progress] NCZ_PROGRESS_UNITS=${NCZ_PROGRESS_UNITS:-unset}"
+    echo "[late/progress] NCZ_PROGRESS_CONSUMED_FILE=${NCZ_PROGRESS_CONSUMED_FILE:-unset}"
+    echo "[late/progress] partsdir 07preseed: $(ls -l /usr/lib/finish-install.d/07preseed 2>&1 | head -1)"
+    echo "[late/progress] BAR_MODE=$BAR_MODE scale=$BAR_SCALE base=$BAR_BASE end=$BAR_END"
+    if [ "$BAR_MODE" != text ] && [ "${NCZ_PROGRESS_UNITS:-0}" -gt 0 ]; then
+        echo "[late/progress] bar WILL advance"
+    else
+        echo "[late/progress] bar will NOT advance -- text-only degraded mode"
+    fi
+} 2>&1                               # $LOG is /target/var/log/... (line 23);
+                                     # the bare /var/log path is the d-i ramdisk
+                                     # and is DISCARDED at reboot -- that is why the
+                                     # first KVM run produced no diagnostics at all.
 # Do not background `in-target` here. in-target intentionally configures the
 # target command to use d-i debconf passthrough on fd 0/fd 3; if it runs while
 # this parent heartbeat also calls db_*, both process trees share one
@@ -942,121 +1192,21 @@ RUNALL_PID=$!
 # request/response protocol over shared fds; no child may share those fds while
 # this loop calls db_subst/db_progress.
 hb_last_key=""
-  hb_last_units=0
-  hb_iter=0
-  # r250 measured the writer and the reader separately and they disagree: the
-  # writer emitted 573 progress records with valid hooks and totals (1/57 ..
-  # 57/57 over 332s, see /var/log/cix-install/progress.tsv on the target),
-  # while this loop logged NOTHING -- not one iteration reached the body. So
-  # the bar does not stall because of the debconf gate (DEBCONF_OK=1,
-  # NCZ_PROGRESS_UNITS=100, "bar WILL advance" are all present); it stalls
-  # because this consumer never runs.
-  #
-  # Report, once, what the loop actually sees BEFORE any guard can skip it:
-  # the path, whether it is readable, and whether the hook field parses. One of
-  # those three is the answer, and without this every attempt costs a full
-  # ISO + KVM cycle to get back to this point.
-  echo "[late/progress] hb loop start: PROGRESS_STATE=${PROGRESS_STATE:-<unset>}"
-  while [ ! -s "$RUNALL_RC_FILE" ] && kill -0 "$RUNALL_PID" 2>/dev/null; do
-      sleep 4
-      hb_iter=$((hb_iter + 1))
-      if [ "$hb_iter" -le 3 ] || [ "$hb_iter" = 10 ] || [ "$hb_iter" = 30 ]; then
-          echo "[late/progress] hb iter=$hb_iter readable=$([ -r "$PROGRESS_STATE" ] && echo yes || echo no) exists=$([ -e "$PROGRESS_STATE" ] && echo yes || echo no)"
-      fi
-      [ -r "$PROGRESS_STATE" ] || continue
-      IFS='|' read -r hb_started hb_updated hb_event hb_phase hb_idx hb_total \
-          hb_hook hb_pct hb_rc hb_detail < "$PROGRESS_STATE" || continue
-      [ -n "$hb_hook" ] || continue
-      case "$hb_idx" in ''|*[!0-9]*) hb_idx=0 ;; esac
-      case "$hb_total" in ''|*[!0-9]*) hb_total=0 ;; esac
-      hb_now=$(date +%s 2>/dev/null || echo "$hb_updated")
-      hb_elapsed=$((hb_now - hb_started))
-      [ "$hb_elapsed" -ge 0 ] 2>/dev/null || hb_elapsed=0
-      hb_label=${hb_hook%.sh}
-      hb_label=$(printf '%s' "$hb_label" | sed 's/^[0-9][0-9]-//; s/-/ /g')
-      case "$hb_event" in
-          APT)
-              hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total, ${hb_elapsed}s) - packages ${hb_pct:-0}%: $hb_detail"
-              ;;
-          WARN)
-              hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total) - warning: $hb_detail"
-              ;;
-          FAIL)
-              hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total) - FAILED: $hb_detail"
-              ;;
-          GPU)
-              hb_status=$(hb_gpu_status "$hb_detail" "$hb_elapsed" "$hb_iter")
-              ;;
-          COMPLETE)
-              hb_status="$hb_detail"
-              ;;
-          FINALIZE)
-              hb_status="Finalizing NCZ-OS: $hb_label (${hb_elapsed}s) - $hb_detail"
-              ;;
-          *)
-              hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total, ${hb_elapsed}s) - $hb_detail"
-              ;;
-      esac
-      hb_status=$(printf '%s' "$hb_status" | cut -c1-150)
-      hb_key="$hb_event|$hb_phase|$hb_idx|$hb_hook|$hb_pct|$hb_detail"
-      # GPU records name a new build/stage every few seconds; the tty3 mirror
-      # follows the record (not the per-tick clock) so it stays readable.
-      if [ "$hb_key" != "$hb_last_key" ]; then
-          ttymsg "  → $hb_status"
-          hb_last_key="$hb_key"
-      fi
-      # db_try swallows every error (`"$@" 2>/dev/null || true`), which is what
-      # makes a dead heartbeat invisible. Measured on the r249 install: the two
-      # FOREGROUND messages ("Preparing NCZ-OS ...", "Starting NCZ-OS
-      # post-install plan...") both reached the console exactly once, while the
-      # heartbeat produced ZERO updates -- even though progress.state was being
-      # written correctly and reached 57/57. So the state feed works and the
-      # display path needs direct return-code diagnostics.
-      #
-      # Log the actual return codes for the first few iterations. Bounded, so a
-      # long install cannot spam the log, and enough to distinguish "debconf
-      # rejects writes from a background subshell" from "the calls succeed but
-      # nothing renders" -- which need completely different fixes.
-      hb_subst_rc=0; hb_info_rc=0
-      db_subst nclawzero/install-step STEP "$hb_status" 2>/dev/null || hb_subst_rc=$?
-      db_progress INFO nclawzero/install-step 2>/dev/null || hb_info_rc=$?
-      if [ "${hb_diag_n:-0}" -lt 3 ]; then
-          hb_diag_n=$(( ${hb_diag_n:-0} + 1 ))
-          echo "[late/progress] hb#$hb_diag_n subst_rc=$hb_subst_rc info_rc=$hb_info_rc event=$hb_event idx=$hb_idx/$hb_total hook=$hb_hook"
-      fi
-
-      # New ISOs patch finish-install itself to allocate exactly
-      # NCZ_PROGRESS_UNITS units to 07preseed. Advance only inside that owned
-      # range. On older/unpatched installers the variable is absent and this
-      # safely degrades to changing INFO text without touching the parent bar.
-      if [ "$DEBCONF_OK" = 1 ] && [ "$NCZ_PROGRESS_UNITS" -gt 0 ] \
-         && [ "${hb_total:-0}" -gt 0 ] 2>/dev/null; then
-          hb_target_units=$(hb_units_for "$hb_event" "$hb_idx" "$hb_total" "$hb_pct" \
-              "$PROGRESS_PLAN" "$NCZ_PROGRESS_UNITS")
-          case "$hb_target_units" in ''|*[!0-9]*) hb_target_units=0 ;; esac
-          # Only ever forward: a later step record with a lower in-step
-          # percent (a new apt transaction) holds the bar, never rewinds it.
-          if [ "$hb_target_units" -gt "$hb_last_units" ]; then
-              hb_delta=$((hb_target_units - hb_last_units))
-              hb_step_rc=0
-              db_progress STEP "$hb_delta" 2>/dev/null || hb_step_rc=$?
-              if [ "${hb_step_diag_n:-0}" -lt 3 ]; then
-                  hb_step_diag_n=$(( ${hb_step_diag_n:-0} + 1 ))
-                  echo "[late/progress] hb STEP#$hb_step_diag_n delta=$hb_delta rc=$hb_step_rc units=$hb_target_units/$NCZ_PROGRESS_UNITS"
-              fi
-              hb_last_units="$hb_target_units"
-              if [ -n "${NCZ_PROGRESS_CONSUMED_FILE:-}" ]; then
-                  printf '%s\n' "$hb_last_units" > "$NCZ_PROGRESS_CONSUMED_FILE" 2>/dev/null || true
-              fi
-          fi
-      fi
-  done
-  # r252 final drain: run-all has exited; push the bar to 100% of its owned
-  # range before the finalize text replaces it, then reap run-all's real rc.
-  if [ "$DEBCONF_OK" = 1 ] && [ "${NCZ_PROGRESS_UNITS:-0}" -gt "$hb_last_units" ]; then
-      db_progress STEP "$((NCZ_PROGRESS_UNITS - hb_last_units))" 2>/dev/null || true
-      hb_last_units="$NCZ_PROGRESS_UNITS"
-  fi
+hb_iter=0
+# r250: the writer emitted 573 valid records while this loop logged nothing,
+# so report, once, what the loop sees before any guard can skip it.
+echo "[late/progress] hb loop start: PROGRESS_STATE=${PROGRESS_STATE:-<unset>} bar=$BAR_MODE"
+while [ ! -s "$RUNALL_RC_FILE" ] && kill -0 "$RUNALL_PID" 2>/dev/null; do
+    sleep 4
+    hb_iter=$((hb_iter + 1))
+    if [ "$hb_iter" -le 3 ] || [ "$hb_iter" = 10 ] || [ "$hb_iter" = 30 ]; then
+        echo "[late/progress] hb iter=$hb_iter readable=$([ -r "$PROGRESS_STATE" ] && echo yes || echo no) exists=$([ -e "$PROGRESS_STATE" ] && echo yes || echo no) bar=$hb_last_units/$NCZ_PROGRESS_UNITS"
+    fi
+    hb_tick "$hb_iter"
+done
+# r252 final drain: run-all has exited; fill the owned bar range before the
+# finalize text replaces it, then reap run-all's real rc.
+ncz_bar_finish
 wait "$RUNALL_PID"
 WAIT_RET=$?
 if [ -r "$RUNALL_RC_FILE" ]; then
@@ -1398,10 +1548,11 @@ if [ "$_ncz_root_mode_final" != "drwxr-xr-x" ]; then
     fi
 fi
 
-# r130.8 (defect B): do NOT call db_progress STOP/SET. We never START our own
-# bar now, so STOP would pop finish-install's OWN progress bar - on the success
-# path that corrupted finish-install's accounting and bounced d-i back to the
-# preseed/menu instead of showing the "Installation complete" conclusion screen.
+# r130.8 (defect B): do NOT call db_progress STOP. The bar on screen is
+# finish-install's own (ncz_bar_begin only re-scaled it), so STOP would pop it -
+# on the success path that corrupted finish-install's accounting and bounced
+# d-i back to the preseed/menu instead of the "Installation complete" screen.
+# ncz_bar_finish already left the bar at the end of late.sh's range.
 db_try db_subst nclawzero/install-step STEP "nclawzero post-install complete - finalizing..."
 db_try db_progress INFO nclawzero/install-step
 ttymsg "post-install hooks finished (rc=$RUNALL_RET); finalizing apt sources + bootloader."
