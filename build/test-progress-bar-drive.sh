@@ -60,7 +60,7 @@ L="$W/late-fns.sh"
 check "late.sh carries the extractable NCZ-BAR block" \
     grep -q '^ncz_bar_begin()' "$L"
 check "late.sh calls ncz_bar_begin, hb_tick and ncz_bar_finish" \
-    sh -c 'grep -q "^ncz_bar_begin$" "$1" && grep -qE "^[[:space:]]+hb_tick$" "$1" && grep -q "^ncz_bar_finish$" "$1"' _ "$LATE"
+    sh -c 'grep -q "^ncz_bar_begin$" "$1" && grep -qE "^[[:space:]]+hb_tick \"\\\$hb_iter\"$" "$1" && grep -q "^ncz_bar_finish$" "$1"' _ "$LATE"
 for s in $SHELLS; do
     check "late.sh parses under $s" run_sh "$s" -n "$LATE"
 done
@@ -166,7 +166,7 @@ while read -r _ev _idx _pct _ticks; do
             1000 1000 "$_ev" "$_idx" "$_idx" "$_pct" > "$STATE"
         hb_iter=$((hb_iter + 1))
         echo "TICK $_ev $_idx $_pct" >> "$REC_OUT"
-        hb_tick
+        hb_tick "$hb_iter"
         _n=$((_n + 1))
     done
 done < "$FEED"
