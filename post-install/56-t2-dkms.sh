@@ -177,39 +177,49 @@ install apple_gmux /bin/false
 EOC
 
 _ok=""; _fail=""
-for m in $MODULES; do
-    src="$ASSETS/$m"
-    if [ ! -f "$src/dkms.conf" ]; then
-        echo "[56]   $m: no dkms.conf in $src -- skipping"; _fail="$_fail $m"; continue
-    fi
-    ver=$(sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' "$src/dkms.conf" | head -1)
-    [ -n "$ver" ] || ver=0
-    rm -rf "$USRSRC/$m-$ver"
-    mkdir -p "$USRSRC/$m-$ver"
-    cp -a "$src/dkms.conf" "$USRSRC/$m-$ver/"
-    [ -d "$src/src" ] && cp -a "$src/src/." "$USRSRC/$m-$ver/"
-    # dkms applies PATCH[0] relative to the source root; carry the patches dir.
-    if [ -d "$src/patches" ]; then
-        mkdir -p "$USRSRC/$m-$ver/patches"
-        cp -a "$src/patches/." "$USRSRC/$m-$ver/patches/"
-    fi
-    if dkms add -m "$m" -v "$ver" >/dev/null 2>&1 || true; then :; fi
-    if dkms build -m "$m" -v "$ver" -k "$KVER" >/dev/null 2>&1 \
-       && dkms install -m "$m" -v "$ver" -k "$KVER" --force >/dev/null 2>&1; then
-        _ok="$_ok $m/$ver"
-    else
-        echo "[56]   $m/$ver FAILED to build against $KVER" >&2
-        _fail="$_fail $m"
-    fi
+for KVER in "${TARGET_KVERS[@]}"; do
+    echo "[56] installing T2 DKMS modules against $KVER"
+    _okk=""
+    _failk=""
+    for m in $MODULES; do
+        src="$ASSETS/$m"
+        if [ ! -f "$src/dkms.conf" ]; then
+            echo "[56]   $m: no dkms.conf in $src -- skipping"; _failk="$_failk $m"; continue
+        fi
+        ver=$(sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' "$src/dkms.conf" | head -1)
+        [ -n "$ver" ] || ver=0
+        rm -rf "$USRSRC/$m-$ver"
+        mkdir -p "$USRSRC/$m-$ver"
+        cp -a "$src/dkms.conf" "$USRSRC/$m-$ver/"
+        [ -d "$src/src" ] && cp -a "$src/src/." "$USRSRC/$m-$ver/"
+        # dkms applies PATCH[0] relative to the source root; carry the patches dir.
+        if [ -d "$src/patches" ]; then
+            mkdir -p "$USRSRC/$m-$ver/patches"
+            cp -a "$src/patches/." "$USRSRC/$m-$ver/patches/"
+        fi
+        if dkms add -m "$m" -v "$ver" >/dev/null 2>&1 || true; then :; fi
+        if dkms build -m "$m" -v "$ver" -k "$KVER" >/dev/null 2>&1 \
+           && dkms install -m "$m" -v "$ver" -k "$KVER" --force >/dev/null 2>&1; then
+            _okk="$_okk $m/$ver"
+        else
+            echo "[56]   $m/$ver FAILED to build against $KVER" >&2
+            _failk="$_failk $m"
+        fi
+    done
+    _ok="$_ok [$_KVER: $_okk]"
+    _fail="$_fail [$_KVER: $_failk]"
+
+    [ -n "$_okk" ]   && echo "[56] installed for $KVER:$_okk"
+    [ -n "$_failk" ] && echo "[56] WARN: NOT installed for $KVER:$_failk" >&2
+
+    # t2smc is the one that matters for thermal safety -- say so loudly if absent.
+    case " $_failk " in
+        *" t2smc "*)
+            echo "[56] WARN: t2smc is MISSING for $KVER -- the two chassis fans cannot be driven" >&2
+            echo "[56]       and the machine will heat until it thermal-throttles." >&2 ;;
+    esac
 done
 
-[ -n "$_ok" ]   && echo "[56] installed:$_ok"
-[ -n "$_fail" ] && echo "[56] WARN: NOT installed:$_fail" >&2
-
-# t2smc is the one that matters for thermal safety -- say so loudly if absent.
-case " $_fail " in
-    *" t2smc "*)
-        echo "[56] WARN: t2smc is MISSING -- the two chassis fans cannot be driven" >&2
-        echo "[56]       and the machine will heat until it thermal-throttles." >&2 ;;
-esac
+[ -n "$_ok" ]   && echo "[56] installed total:$_ok"
+[ -n "$_fail" ] && echo "[56] WARN: NOT installed total:$_fail" >&2
 echo "[56] DONE"
