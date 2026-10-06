@@ -11,7 +11,7 @@
 # exists.
 #
 # POLICY (operator directive 2026-10-05, unified): amd64 ships ONE kernel,
-# 7.3 (7.3.0-rc6-1-t2-edge-aerfix, the T2 build with the AER ANFE revert;
+# 7.3 (7.3.0-rc6-3-t2-edge-aer9011, the T2 build with the 9011 Apple T2 Secure Enclave AER quirk;
 # replaced by the 7.3.0 final build later). It is the default and the
 # installer boot kernel. The retired 7.2.9 default and the separate
 # amd64-edge channel are gone. This hook installs amd64-stable only, and
