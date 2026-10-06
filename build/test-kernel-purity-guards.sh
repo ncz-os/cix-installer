@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-kernel-purity-guards.sh -- regression test for the runtime/legacy
+# test-kernel-purity-guards.sh -- regression test for the runtime/image-build
 # kernel-purity guards added by the Cygnus 26.10 directive (2026-10-04):
 #
 #  1. assets/refind/ncz-refind-refresh.sh (arm64) and
@@ -10,11 +10,13 @@
 #     refuses -rcN; the series enforcement is the build-time verifier's job.
 #     The guard `case` block is extracted verbatim from the shipped script and
 #     executed against sample KVERs, so this tests the real code, not a copy.
-#  2. build/build-iso-di.sh (the legacy d-i assembly path) must boot the
-#     installer with our staged 7.3 amd64 kernel, not the substrate's Debian
-#     forky 7.1.x kernel. This is checked structurally (the amd64 branch exists
-#     and extracts a linux-image-*.deb from assets/kernel/amd64-stable) because
-#     assembling a real ISO is not a unit test.
+#  2. The raw GPT image build (build/build-installer-image.sh, which drives
+#     build/iso/patch-initrd-t2-kernel.py) must boot the installer with our
+#     staged amd64 kernel, not the substrate's Debian forky 7.1.x kernel.
+#     This is checked structurally (the amd64 branch selects a linux-image-*.deb
+#     from assets/kernel/amd64-stable and hands it to the initrd patcher, which
+#     extracts boot/vmlinuz-<kver> from that .deb) because assembling a real
+#     image is not a unit test.
 #
 # Usage: build/test-kernel-purity-guards.sh
 set -uo pipefail
@@ -23,9 +25,10 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 ARM64="$REPO/assets/refind/ncz-refind-refresh.sh"
 AMD64="$REPO/assets/refind/ncz-refind-refresh-amd64.sh"
-LEGACY="$REPO/build/build-iso-di.sh"
+IMGBUILD="$REPO/build/build-installer-image.sh"
+INITRD_PATCHER="$REPO/build/iso/patch-initrd-t2-kernel.py"
 SQUASH="$REPO/build/build-squashfs-layers.sh"
-for f in "$ARM64" "$AMD64" "$LEGACY" "$SQUASH"; do
+for f in "$ARM64" "$AMD64" "$IMGBUILD" "$INITRD_PATCHER" "$SQUASH"; do
     [ -r "$f" ] || { echo "EXTRACT FAILED: cannot read $f" >&2; exit 2; }
 done
 
@@ -66,27 +69,35 @@ snippet="$(extract_guard "$AMD64" KVER_STABLE)"
 [ "$(run_guard "$AMD64" KVER_STABLE 7.3.0-rc6-3-t2-edge-aer9011)" = 0 ] && ok "accepts the NCZ 7.3.0-rc6 T2 KVER (rc default allowed)" || bad "rejected the NCZ 7.3.0-rc6 T2 KVER"
 [ "$(run_guard "$AMD64" KVER_STABLE 7.1.10-1-amd64)" != 0 ] && ok "rejects Debian 7.1.10-1-amd64" || bad "accepted Debian 7.1.10-1-amd64"
 
-echo "=== legacy build-iso-di.sh: amd64 installer boots our kernel, not Debian's ==="
-if grep -qE '^elif \[ "\$NCZ_TARGET_ARCH" = "amd64" \]; then' "$LEGACY"; then
-    ok "an amd64 branch exists in the kernel swap"
+echo "=== raw GPT image build: amd64 installer boots our kernel, not Debian's ==="
+# The kernel/initrd step must have an explicit arm64 branch and an else
+# (amd64) branch; without the amd64 branch the substrate's Debian kernel
+# would boot the installer.
+if grep -qE '^if \[ "\$ARCH" = arm64 \]; then' "$IMGBUILD" \
+   && awk '/^if \[ "\$ARCH" = arm64 \]; then/{f=1} f&&/^else$/{print "else"; exit}' "$IMGBUILD" | grep -q else; then
+    ok "build-installer-image.sh has an amd64 branch in the kernel/initrd step"
 else
-    bad "no amd64 kernel-swap branch (the substrate Debian kernel would boot the installer)"
+    bad "no amd64 kernel/initrd branch in build-installer-image.sh (the substrate Debian kernel would boot the installer)"
 fi
-# The old arm64-only gate must be gone: the swap must no longer be reachable
-# only for arm64.
-if grep -q 'stock d-i kernel/initrd already boot correctly, no Sky1 kernel swap needed' "$LEGACY"; then
-    bad "stale 'amd64 needs no swap' message still present"
+if grep -q 'assets/kernel/amd64-stable' "$IMGBUILD" \
+   && grep -qE "KERNEL_DEB=.*-name 'linux-image-\*\.deb'" "$IMGBUILD" \
+   && grep -q 'INITRD_ARGS+=(--kernel-deb "\$KERNEL_DEB")' "$IMGBUILD"; then
+    ok "amd64 branch passes the staged amd64-stable linux-image .deb to the initrd patcher"
 else
-    ok "the old 'amd64 needs no Sky1 swap' justification is gone"
+    bad "amd64 branch does not pass the staged amd64-stable kernel .deb to the initrd patcher"
 fi
-if grep -q "assets/kernel/amd64-stable" "$LEGACY" \
-   && grep -q 'dpkg-deb -x "\$_amd64_deb"' "$LEGACY" \
-   && grep -q 'boot/vmlinuz-\$_amd64_kver' "$LEGACY"; then
-    ok "amd64 swap extracts vmlinuz from the staged amd64-stable .deb"
+if grep -q 'build/iso/patch-initrd-t2-kernel.py" "\${INITRD_ARGS\[@\]}"' "$IMGBUILD"; then
+    ok "build-installer-image.sh runs patch-initrd-t2-kernel.py with those arguments"
 else
-    bad "amd64 swap does not extract the staged amd64 kernel .deb"
+    bad "build-installer-image.sh does not run patch-initrd-t2-kernel.py with INITRD_ARGS"
 fi
-bash -n "$LEGACY" && ok "build-iso-di.sh parses" || bad "build-iso-di.sh has a syntax error"
+if grep -q '"dpkg-deb", "-x", str(kernel_deb)' "$INITRD_PATCHER" \
+   && grep -q 'glob(f"vmlinuz-{kver}")' "$INITRD_PATCHER"; then
+    ok "initrd patcher extracts boot/vmlinuz-<kver> from the staged .deb"
+else
+    bad "initrd patcher does not extract vmlinuz from the staged kernel .deb"
+fi
+bash -n "$IMGBUILD" && ok "build-installer-image.sh parses" || bad "build-installer-image.sh has a syntax error"
 
 echo "=== base squashfs layer pins Debian kernels out before its apt install ==="
 pin_line="$(grep -n 'ncz_kernel_purity_pin_text' "$SQUASH" | head -1 | cut -d: -f1)"

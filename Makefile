@@ -135,7 +135,7 @@ BUILD_DATE    := $(shell date -u +%Y%m%d)
 # BUILD_SHA explicitly on the make command line. The check is a real shell
 # exit, not a $(if) test, so `make` itself stops with a clear diagnostic.
 BUILD_SHA     := $(shell git rev-parse --short HEAD 2>/dev/null)
-ifneq ($(filter image image-verified iso iso-verified all,$(or $(MAKECMDGOALS),all)),)
+ifneq ($(filter image image-verified all,$(or $(MAKECMDGOALS),all)),)
 ifeq ($(strip $(BUILD_SHA)),)
 $(error BUILD_SHA is empty: git rev-parse failed (dubious-ownership, missing git, or detached HEAD?). Run `git config --global --add safe.directory '*'` and retry, or set BUILD_SHA=<sha> on the make command line. An unstamped `ncz-os-<arch>-<date>-.img` is not a valid artifact.)
 endif
@@ -204,7 +204,11 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 # Step 2 — build the customized ISO via the staged build script.
 # -----------------------------------------------------------------------
 image: $(OUTPUT_IMAGE)
-iso: image
+
+# There is no ISO target. The deliverable is the raw GPT disk image above;
+# the retired `iso` / `iso-verified` names fail loudly instead of aliasing.
+iso iso-verified:
+	@echo "make $@: there is no ISO build. The deliverable is a raw GPT .img: use 'make image' or 'make image-verified'." >&2; exit 2
 
 # Bug 1 fix (2026-09-28, arm64/Sky1 freshness). The previous shape -- "reuse
 # whatever .debs already sit in $(BUILD)/kernel-debs/" -- silently shipped a
@@ -440,7 +444,6 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(ROOT)/assets/squashfs/desktop-hotfix.squashfs \
 	               $(ROOT)/assets/python311/uv \
 	               $(ROOT)/build/build-installer-image.sh \
-	               $(ROOT)/build/build-iso-di.sh \
 	               $(ROOT)/build/verify-arm64-inputs.sh \
 	               $(ROOT)/build/iso/import-substrate.py \
 	               $(ROOT)/build/iso/stage-ncz-payload.py \
@@ -539,7 +542,7 @@ verify: $(OUTPUT_IMAGE)
 # override with KVM_INSTALL_WORKDIR=/path on the make command line to relocate
 # (the gate creates it if missing). See build/kvm-install-gate.sh for full
 # timeout/accel/mem knobs.
-image-verified iso-verified: $(OUTPUT_IMAGE)
+image-verified: $(OUTPUT_IMAGE)
 	@echo "[image-verified] running kvm-install-gate-gpt.sh against $(OUTPUT_IMAGE)"
 	@if [ ! -x "$(ROOT)/build/kvm-install-gate-gpt.sh" ]; then \
 	    echo "[image-verified] FATAL: build/kvm-install-gate-gpt.sh missing or not executable" >&2; \
@@ -555,7 +558,7 @@ image-verified iso-verified: $(OUTPUT_IMAGE)
 	    rc=$$?; \
 	    echo "" >&2; \
 	    echo "[image-verified] GATE FAILED (rc=$$rc): $(OUTPUT_IMAGE) is NOT safe to ship to hardware." >&2; \
-	    echo "[iso-verified] See $$WORK/install.log and $$WORK/boot.log for the failure evidence." >&2; \
+	    echo "[image-verified] See $$WORK/install.log and $$WORK/boot.log for the failure evidence." >&2; \
 	    exit $$rc; \
 	fi
 	@echo "[image-verified] PASS: $(OUTPUT_IMAGE) is safe to ship to hardware"
