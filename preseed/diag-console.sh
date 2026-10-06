@@ -46,6 +46,11 @@ say "start $(date -u +%FT%TZ) pid=$$"
 # ---- parse kernel cmdline ---------------------------------------------------
 CMDLINE=$(cat /proc/cmdline 2>/dev/null)
 kv() { for t in $CMDLINE; do case "$t" in "$1"=*) echo "${t#*=}"; return;; esac; done; }
+# Pidfile liveness. Defined here, before the first serial_tick call: the O6N installer log of
+# 2026-10-06 shows "diag-console.sh: line 238: alive: not found" from start_serial_kmsg /
+# start_serial_getty, because alive() used to be defined ~150 lines after serial_tick first ran,
+# so those idempotence guards never worked on the first pass.
+alive() { p=$(cat "$1" 2>/dev/null); [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
 
 DIAG=$(kv ncz_diag);     DIAG=${DIAG:-1}
 case "$DIAG" in
@@ -384,7 +389,7 @@ diag_net_up() {
 diag_net_up || say "no DHCP lease yet (no carrier or no server); will keep retrying"
 
 # ---- daemon helpers (idempotent via pidfiles) -------------------------------
-alive() { p=$(cat "$1" 2>/dev/null); [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
+# alive() is defined near the top (after kv): serial_tick runs before this point.
 listening() {
     _port="$1"
     "$BB" netstat -ltn 2>/dev/null | grep -E "[.:]${_port}[[:space:]]" >/dev/null 2>&1
