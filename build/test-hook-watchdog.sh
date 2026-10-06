@@ -54,6 +54,18 @@ out=$(NCZ_BOUNDED_STREAM=1 ncz_bounded_run 2 "t" "$W/b4.out" bash -c 'echo strea
 dt=$(( $(date +%s) - t0 ))
 printf '%s\n' "$out" | grep -q streamed && ok "stream mode copies output to stdout" || nok "stream mode lost output"
 [ "$dt" -le 6 ] && ok "stream mode returns on the deadline too (${dt}s)" || nok "stream mode took ${dt}s"
+# no-setsid path: the started PID shares the caller's process group, so a
+# group kill would hit the caller; only the PID and its descendants may die
+sleep 305 &
+sib=$!
+t0=$(date +%s)
+NCZ_BOUNDED_SETSID=0 ncz_bounded_run 2 "t" "$W/b5.out" bash -c 'sleep 303 & sleep 303' 2>/dev/null
+rc=$?; dt=$(( $(date +%s) - t0 ))
+[ "$rc" = 124 ] && [ "$dt" -le 6 ] && ok "no-setsid path also times out (${dt}s, rc 124)" || nok "no-setsid path rc=$rc after ${dt}s"
+sleep 1
+[ "$(mine sleep 303)" = 0 ] && ok "no-setsid path killed the command and its child" || nok "no-setsid path left $(mine sleep 303) 'sleep 303'"
+kill -0 "$sib" 2>/dev/null && ok "a sibling in the caller's process group survived (no group kill)" || nok "the caller's process group was signalled"
+kill "$sib" 2>/dev/null; wait "$sib" 2>/dev/null
 else
     nok "post-install/lib/bounded-run.sh missing"
 fi
