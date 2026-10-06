@@ -91,6 +91,25 @@ eq "Apple unlisted model"    "$(detect "$W/dmi/unlist")"    "no"
 eq "missing DMI files"       "$(detect "$W/dmi/missing")"   "no"
 eq "empty product_name"      "$(detect "$W/dmi/emptyprod")" "no"
 
+echo "=== advisory PCI bridge probe accepts either sysfs form ==="
+# Advisory only (never a gate), but proven: Linux sysfs reports "0x106b", so
+# the probe strips an optional 0x prefix.
+mkpci() { local r="$W/pci/$1/0000:00:00.0"; mkdir -p "$r"; printf '%s\n' "$2" > "$r/vendor"; printf '%s\n' "$3" > "$r/device"; }
+pci() { ( NCZ_PCI_DEVICES_ROOT="$1"
+          # shellcheck source=/dev/null
+          . "$HELPER"
+          if ncz_t2_pci_bridge_present; then printf 'yes'; else printf 'no'; fi ); }
+mkpci bridge "0x106b" "0x1801"
+mkpci nhi    "0x106b" "0x2005"
+mkpci bare   "106b"   "1801"
+mkpci other  "0x8086" "0x1234"
+mkdir -p "$W/pci/empty"
+eq "T2 bridge (0x form)"    "$(pci "$W/pci/bridge")" "yes"
+eq "T2 NHI (0x form)"       "$(pci "$W/pci/nhi")"    "yes"
+eq "T2 bridge (bare form)"  "$(pci "$W/pci/bare")"   "yes"
+eq "other vendor -> no"     "$(pci "$W/pci/other")"  "no"
+eq "empty tree -> no"       "$(pci "$W/pci/empty")"  "no"
+
 echo "=== shipped cmdline block gates the token on detection ==="
 cmdline_for() { # cmdline_for <dmi-root> -> token or ""
     ( NCZ_DMI_ROOT="$1"; INSTALLER_META="$REPO"
