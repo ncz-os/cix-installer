@@ -1,0 +1,86 @@
+diff --git a/t2smc.c b/t2smc.c
+index f6da5fe..3f93861 100644
+--- a/t2smc.c
++++ b/t2smc.c
+@@ -148,6 +148,14 @@ struct t2smc_device {
+ 	struct mutex battery_lock;
+ 	struct power_supply *battery;
+ 
++	/*
++	 * Serializes the multi-command BCLM + CHLS/CHWA charge transaction
++	 * so concurrent setters cannot leave BCLM describing one request and
++	 * CHLS/CHWA another.  The SMC mailbox mutex is still taken per
++	 * command inside t2smc_write_key().
++	 */
++	struct mutex charge_lock;
++
+ 	struct notifier_block power_supply_nb;
+ 	struct work_struct power_event_work;
+ 	bool power_notifier_registered;
+@@ -1178,18 +1186,45 @@ static int t2smc_write_charge_limit_method(struct t2smc_device *t2, u8 val)
+ 
+ static int t2smc_get_charge_limit(struct t2smc_device *t2, u8 *val)
+ {
+-	if (t2smc_read_key(t2, T2SMC_CHARGE_LIMIT, val, 1))
++	int ret;
++
++	/*
++	 * Take the same transaction lock as the setter so a read cannot
++	 * observe BCLM between another setter's two writes.
++	 */
++	mutex_lock(&t2->charge_lock);
++	ret = t2smc_read_key(t2, T2SMC_CHARGE_LIMIT, val, 1);
++	mutex_unlock(&t2->charge_lock);
++	if (ret)
+ 		return -ENODEV;
+ 	return 0;
+ }
+ 
+ static int t2smc_set_charge_limit(struct t2smc_device *t2, u8 val)
+ {
+-	if (val > 100)
++	int ret;
++
++	/*
++	 * Validate before the first write.  CHWA-only hardware only
++	 * implements a fixed limit (or off), so reject the other values
++	 * rather than silently mapping them to the binary flag.
++	 */
++	if (!t2smc_charge_limit_valid(t2->has_chls, t2->has_chwa, val))
+ 		return -EINVAL;
+-	if (t2smc_write_key(t2, T2SMC_CHARGE_LIMIT, &val, 1))
+-		return -ENODEV;
+-	if (t2smc_write_charge_limit_method(t2, val))
++
++	/*
++	 * Serialize the complete BCLM + CHLS/CHWA transaction under
++	 * charge_lock so another setter cannot interleave between the two
++	 * writes.  charge_lock is a transaction lock, not the SMC mailbox
++	 * mutex: t2smc_write_key() still takes the mailbox mutex per
++	 * command, so this cannot self-deadlock.
++	 */
++	mutex_lock(&t2->charge_lock);
++	ret = t2smc_write_key(t2, T2SMC_CHARGE_LIMIT, &val, 1);
++	if (!ret)
++		ret = t2smc_write_charge_limit_method(t2, val);
++	mutex_unlock(&t2->charge_lock);
++	if (ret)
+ 		return -ENODEV;
+ 
+ 	dev_dbg(t2->dev, "charge limit set to %u%%\n", val);
+@@ -1868,6 +1903,7 @@ static void t2smc_devm_cleanup(void *data)
+ 		iounmap(t2->iomem);
+ 	mutex_destroy(&t2->mutex);
+ 	mutex_destroy(&t2->battery_lock);
++	mutex_destroy(&t2->charge_lock);
+ 	kfree(t2->cache);
+ 	kfree(t2->temp_keys);
+ 	kfree(t2->power_keys);
+@@ -1904,6 +1940,7 @@ static int t2smc_probe(struct platform_device *pdev)
+ 	t2->dev = &pdev->dev;
+ 	mutex_init(&t2->mutex);
+ 	mutex_init(&t2->battery_lock);
++	mutex_init(&t2->charge_lock);
+ 	INIT_WORK(&t2->power_event_work, t2smc_power_event_work);
+ 	atomic64_set(&t2->power_event_count, 0);
+ 	t2->power_supply_nb.notifier_call = t2smc_power_supply_event;
