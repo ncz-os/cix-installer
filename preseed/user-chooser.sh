@@ -131,7 +131,7 @@ if [ "$NCZ_PROMPT" != "--prompt" ]; then
         log "seed: already answered this boot, leaving passwd/* as set"
         exit 0
     fi
-    _seedf="$NCZ_TMP/ncz-user.seed"; : > "$_seedf"; chmod 0600 "$_seedf"
+    _seedf="$NCZ_TMP/ncz-user.seed"; ( umask 077; : > "$_seedf" )   # may carry ncz_password=: never world-readable
     _su=ncz; [ -n "$OVR_USER" ] && is_valid_username "$OVR_USER" && _su="$OVR_USER"
     _seed_keep_or_add passwd/username string "$_su"
     _seed_keep_or_add passwd/user-fullname string "$_su"
