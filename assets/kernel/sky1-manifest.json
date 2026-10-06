@@ -3,12 +3,12 @@
   "channel": "default",
   "arch": "arm64",
   "kver": "7.3.0-rc6-sky1-ncz",
-  "build_rev": "r282",
-  "staged_utc": "2026-10-05",
+  "build_rev": "r284",
+  "staged_utc": "2026-10-06",
   "channel_pointer": "assets/kernel/mainline",
-  "staging_dir": "/mnt/argonas-yocto-shared/kernel-staging/r282-7.3.0-rc6-sky1-ncz-20261004",
+  "staging_dir": "/mnt/argonas-yocto-shared/kernel-staging/r284-7.3.0-rc6-sky1-ncz-20261006",
   "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
-  "note": "This is the Sky1 arm64 DEFAULT and installer boot kernel under the unified 7.3 policy (operator 2026-10-05): assets/kernel/edge is gone and assets/kernel/mainline points at this r282 build. The retired 7.2.9 default is not shipped. Overlay .ko are mirrored into the repo under assets/kernel/<drv>/7.3.0-rc6-sky1-ncz/. Replaced by the 7.3.0 final build later.",
+  "note": "This is the Sky1 arm64 DEFAULT and installer boot kernel under the unified 7.3 policy (operator 2026-10-05): there is no edge channel and assets/kernel/mainline points at this r284 build. r284 = r283 (r282 source + config changes: module BTF, DMABUF_DEBUG off, DRM_PANIC kmsg, SQUASHFS_ZSTD, MT7921U/MT7925U/RTW89_8922DE) plus the four r279 Sky1 patches (trilin-dp panel fix, native PCIe restore + sky1-pcie-cix rename with native mode OFF by default via sky1_pcie_native=off, CIX early-boot runtime-PM gate). The rescue entry boots this same kernel with the arm64 accelerator blacklist. Overlay .ko are mirrored into the repo under assets/kernel/<drv>/7.3.0-rc6-sky1-ncz/ (built with the kernel's own OE GCC 15.3 toolchain; the r282 mirrors were built with Debian GCC 14.2 and are replaced). Replaced by the 7.3.0 final build later.",
   "source": {
     "base_tag": "v7.3-rc6",
     "base_peel": "a90ee4305c4a5df72c11b31dacfdc76e00fcf78a",
@@ -16,26 +16,43 @@
     "port_branch_tip": "c3e054c7d4ea349a2c2872dafa7df9bd38b24c39",
     "port_patch": "sky1-ncz-v7.3-rc6-port.patch",
     "port_patch_sha256": "9be6f5f31cad73144afbc488e7cd2ceaef0708fdff60e97838ca31e1958c6594",
-    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc6.bb (PR r1), commit d8e7da34c4c76476fd1c9d37bc1b3cc004c7a219",
-    "recipe_commit": "d8e7da34c4c76476fd1c9d37bc1b3cc004c7a219",
-    "vmlinux_gnu_build_id": "0b0ad10baeb0a71337cbf31aaab153255f6c5c34",
-    "config_sha256": "efb343f59baf607263d6697a43ac2c314f5846e7dee232319e28b27cc9d9d31f",
-    "image_sha256": "5eabb4b0978df0eadcdcdba076d1ea2fb984c4f5fe704949c94345f19ee8c226",
-    "raw_patch_replay": "178 applied / 27 failed (identical failure set to v7.3-rc5)",
-    "build_host": "ULTRA (Fedora Asahi aarch64), ncz-yocto-y6 container, TMPDIR /ybuild/tmp-rc6"
+    "r284_patches": {
+      "0001-drm-cix-trilin-dp-drop-fwnode_drm_find_panel-use-cou.patch": {
+        "sha256": "3cfec76ceaf5ab642b4d6474bad8a1132b0c0e4a29265d210b3cd18707443dff"
+      },
+      "0002-PCI-cadence-sky1-cix-restore-ACPI-native-mode-on-v7.3.patch": {
+        "sha256": "d3d43212bbbf86a62576c1d19b386fed27d856f3fa5ce5c63657a429b1870afc"
+      },
+      "0003-PM-runtime-restore-the-CIX-Sky1-early-boot-runtime-P.patch": {
+        "sha256": "40b1f3ecdffa2ac0540aa8b3c6f070d134c979e52c761b6d467cc5703c9339cf"
+      },
+      "0004-PCI-cadence-sky1-cix-native-mode-review-fixes-clocks.patch": {
+        "sha256": "7aff6af1d3175abec30cca0b1b7cce8006b2c482e6f383344603fa08923c4b44"
+      }
+    },
+    "r284_patch_origin": "meta-cix 3014e78f + c6203a8b (r279, linux-cix feat/sky1-rc5-advisory-2026-09-29 ac358595495b 4cf94b2fd097 24dc015b0c01 02e001301435); diff bodies byte-identical",
+    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc6.bb (PR r3), commit c950e2988021a1368363ad34f50449d2465faf01, branch feat/sky1-r284-20261006",
+    "recipe_commit": "c950e2988021a1368363ad34f50449d2465faf01",
+    "recipe_parent": "739b2f340bb1f7362a778c357b1fa0391c20fb9a",
+    "defconfig_sha256": "5235c98ca50b33b81072c2951996d37acb09fb019c7ac49ebed94a00c01b30f7",
+    "vmlinux_gnu_build_id": "96f4aa53ae08af0b61bd976cfae2eb7c2d3cd9b2",
+    "config_sha256": "1d1be7475215a64cdb789556538788d6a2466683038c25ef366587549b3ac805",
+    "image_sha256": "0eed40497d1fed2208633db11e36162d873e56f1da560cbf3592ea42ee85057c",
+    "config_changes_vs_r283": [],
+    "build_host": "ULTRA (Fedora Asahi aarch64), ncz-yocto-y6 container, clean TMPDIR /r284/ybuild/tmp-r284 (~/Projects/oc-sky1-r284)"
   },
   "artifacts": {
     "Image-cixmini.bin": {
-      "sha256": "5eabb4b0978df0eadcdcdba076d1ea2fb984c4f5fe704949c94345f19ee8c226"
+      "sha256": "0eed40497d1fed2208633db11e36162d873e56f1da560cbf3592ea42ee85057c"
     },
     "modules-cixmini.tgz": {
-      "sha256": "06dd9187daf2500580ddeef097b60d2a5585653a0ebc025bb5949d2672757911"
+      "sha256": "77aacdcdd27eaf830f6ed72b5cdf18ff87e29afaa923ae1e877512ed48ae5c21"
     },
     "headers-cixmini.tar.zst": {
-      "sha256": "28338985be6b87f6eba0c85d8cc13d64f3b9f6870035ac5a1707e086d8ebaf40"
+      "sha256": "c95a4a542e33afae84a685d9465f9a3c57114275e5ef53dc197dbeda8509ea3c"
     },
     "config-7.3.0-rc6-sky1-ncz": {
-      "sha256": "efb343f59baf607263d6697a43ac2c314f5846e7dee232319e28b27cc9d9d31f"
+      "sha256": "1d1be7475215a64cdb789556538788d6a2466683038c25ef366587549b3ac805"
     },
     "sky1-orion-o6.dtb": {
       "sha256": "1aa102e7d699fc2cbdfc4cfdf44f88155e71972402eec4f4abe7d4e3d651873e"
@@ -44,59 +61,71 @@
       "sha256": "e106c3fba8b2e0b5e53a44540d493f1b09018d729f8e048c99aa93629497ed36"
     },
     "PROVENANCE.txt": {
-      "sha256": "b2f8377f44eddddf07bb0af915e28daa06e67af1db831ccce793721af183ae7b"
+      "sha256": "88fd278ad6e41a5111f274c8b4bae3907f8f5d40f5209880b46d1e2db7f60b1a"
     },
     "OVERLAYS.txt": {
-      "sha256": "c35a6118fdf6e9264d41baead558a76d0f5b310fb35db71d8a9648f5de5c9b04"
+      "sha256": "b56b8a8e0ba426ed43b4aefab28926b0deebc27d0a703b25a564f2c93a0ce895"
     },
     "kvm-gate.log": {
-      "sha256": "76ae7af600b20ee568f2d27805dbc18ebea9742007fb26e2a76a1241e4593f41"
+      "sha256": "84e58179c7d31afb3e3189d00dc460b3a2a2f6563501ebc5e33b26ed2e043ec0"
+    },
+    "kvm-boot.log": {
+      "sha256": "2953831e4e6b6238c2f872deae43be4b93dbaae4e91ec0cbf3f3ae23adea02d6"
     },
     "dkms-abi-gate.log": {
       "sha256": "051b71da2cdd8d75ef7b418d0b2914d036c249b43e8cc55f95065db43165dace"
     },
     "config-audit.log": {
-      "sha256": "35fdf96bb0723c3bb0276de771a486552b86dfdb6c86570c27b6bc5c96d59df6"
+      "sha256": "fa8156a4265e15c44e8d942ec5106898c9c85753e842b674976295542e5419f1"
     },
-    "debs/cixmini-boot_1.2+r282_arm64.deb": {
-      "sha256": "1d847bcbe4dcf30c61e3015d9549e93f2ab0eab3676138208b27fdeb8895f835"
+    "kvm-abi-test.log": {
+      "sha256": "63cdf33030cd26b8388b649a19bc3c3d7a8904157fd17024caccd5043af9c8a5"
     },
-    "debs/linux-headers-cixmini_7.3.0-rc6-sky1-ncz+r282_arm64.deb": {
-      "sha256": "4f86e067181b378140097b3d9ac717407eefef11a4b6764ca14e96ae65f8c782"
+    "kvm-abi-test.sh": {
+      "sha256": "b57056e354c3488eb49bce822ee27d14654fa54deea4621e18f5151d2e98e59b"
     },
-    "debs/linux-image-cixmini_7.3.0-rc6-sky1-ncz+r282_arm64.deb": {
-      "sha256": "ca0bf4adbfccdac6fdc963d2aab232cd60076645a4aefb21fc92440bde41ddb7"
+    "debs/cixmini-boot_1.2+r284_arm64.deb": {
+      "sha256": "e2d3336bd86ae0de15a717eb34aaebe6c729d91dfbedef362e2df63773ee26c0"
     },
-    "overlays/npu/7.3.0-rc6-sky1-ncz/aipu.ko": {
-      "sha256": "8bb87e5a863bcfe3ebe446396287329643ad4f6b6a41fcd61278cbba81ae5e7b"
+    "debs/linux-headers-cixmini_7.3.0-rc6-sky1-ncz+r284_arm64.deb": {
+      "sha256": "47a6314ce69b2662a5b0fced42ea8f60a299e00734ccda41989647a751128d20"
+    },
+    "debs/linux-image-cixmini_7.3.0-rc6-sky1-ncz+r284_arm64.deb": {
+      "sha256": "2ee2dc7ff3a9db8205ca6a7e271611f632183a91b735a9ecc27db7269969af81"
     },
     "overlays/mali/7.3.0-rc6-sky1-ncz/mali_kbase.ko": {
-      "sha256": "0226666a98ae0b23c51a9e1f6066745ac5f27c5f497bfaefdc62d25511ca846b"
+      "sha256": "777e43894e4d5aed5a9bcd5d3d87a218a4313b2caa178c28dcf7fba6477a9e81"
     },
     "overlays/mali/7.3.0-rc6-sky1-ncz/memory_group_manager.ko": {
-      "sha256": "028845dc845f65a2f321f08e1ecef57df802cd05c507808e5a9ddcd42e475a1b"
+      "sha256": "54a13bf141d23855d2200e77c939a6488b962cbff34992813cd039012a0c7cd7"
     },
     "overlays/mali/7.3.0-rc6-sky1-ncz/protected_memory_allocator.ko": {
-      "sha256": "cffd6964e7d99773d7bdd043d2f31b15bd7d04037e43d2626a6774e2302077b3"
+      "sha256": "768e556ef92d5338553a3b087bf9c05836b71ddfb3b88fe7f67bc422a378dc35"
+    },
+    "overlays/npu/7.3.0-rc6-sky1-ncz/aipu.ko": {
+      "sha256": "7e29aadee765355d77c330fb035738fb7c687512fe06921e90929524b4edbeff"
     },
     "overlays/panthor/7.3.0-rc6-sky1-ncz/panthor.ko": {
-      "sha256": "559587d40770b11052f05b735e7638ac7dba8eb32d12c86b315ff29c1cb82cd0"
+      "sha256": "791ef3002c1ce4d8151211bddb7fdef3942b4fb77c0265bbc2e174f748e55113"
     },
     "overlays/vpu/7.3.0-rc6-sky1-ncz/amvx.ko": {
-      "sha256": "4ab2260c8ad6ac455c74376e53faa4eecf41e7771bfc754532bbc9404a26ab6d"
+      "sha256": "af45258031fae4f84e392345312febed8627c2a1a63b40424f2b4a9e4cf500d2"
     }
   },
   "overlays_mirrored": {
-    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/mali_kbase.ko": "0226666a98ae0b23c51a9e1f6066745ac5f27c5f497bfaefdc62d25511ca846b",
-    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/memory_group_manager.ko": "028845dc845f65a2f321f08e1ecef57df802cd05c507808e5a9ddcd42e475a1b",
-    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/protected_memory_allocator.ko": "cffd6964e7d99773d7bdd043d2f31b15bd7d04037e43d2626a6774e2302077b3",
-    "assets/kernel/npu/7.3.0-rc6-sky1-ncz/aipu.ko": "8bb87e5a863bcfe3ebe446396287329643ad4f6b6a41fcd61278cbba81ae5e7b",
-    "assets/kernel/panthor/7.3.0-rc6-sky1-ncz/panthor.ko": "559587d40770b11052f05b735e7638ac7dba8eb32d12c86b315ff29c1cb82cd0",
-    "assets/kernel/vpu/7.3.0-rc6-sky1-ncz/amvx.ko": "4ab2260c8ad6ac455c74376e53faa4eecf41e7771bfc754532bbc9404a26ab6d"
+    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/mali_kbase.ko": "777e43894e4d5aed5a9bcd5d3d87a218a4313b2caa178c28dcf7fba6477a9e81",
+    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/memory_group_manager.ko": "54a13bf141d23855d2200e77c939a6488b962cbff34992813cd039012a0c7cd7",
+    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/protected_memory_allocator.ko": "768e556ef92d5338553a3b087bf9c05836b71ddfb3b88fe7f67bc422a378dc35",
+    "assets/kernel/npu/7.3.0-rc6-sky1-ncz/aipu.ko": "7e29aadee765355d77c330fb035738fb7c687512fe06921e90929524b4edbeff",
+    "assets/kernel/panthor/7.3.0-rc6-sky1-ncz/panthor.ko": "791ef3002c1ce4d8151211bddb7fdef3942b4fb77c0265bbc2e174f748e55113",
+    "assets/kernel/vpu/7.3.0-rc6-sky1-ncz/amvx.ko": "af45258031fae4f84e392345312febed8627c2a1a63b40424f2b4a9e4cf500d2"
   },
   "gates": {
-    "kvm_kernel_gate": "PASS (build/kvm-kernel-gate.sh; PCI 17cd:0100 collision lint; reached root-mount under qemu kvm)",
+    "kvm_kernel_gate": "PASS (build/kvm-kernel-gate.sh @ cix-installer b43e3e5; PCI 17cd:0100 collision lint; reached root-mount under qemu kvm; boot log has 'cix_pm: system ready', no 'already registered')",
+    "kvm_abi_test": "PASS (6 overlays + mt7921u/mt7925u/rtw89_8922de/squashfs load under KVM with module BTF, zstd squashfs mounts; 'cix_pm: system ready' in dmesg, no 'already registered')",
     "dkms_abi_gate": "PASS (builder identity oe-user@oe-host; binutils 2.46.1; CONFIG_MODVERSIONS=y)",
-    "config_audit": "MODULE_COMPRESS off; CONFIG_MODVERSIONS=y; CONFIG_ARM64_MPAM not set; 0 .ko.xz; 369 .ko"
+    "dkms_target_sim": "PASS (headers tarball + modules_prepare as in the headers postinst (expected bounds.s stop; fixdep/modpost rebuilt), Debian gcc 14.2, no pahole: all 4 drivers / 6 modules build; BTF skipped as expected)",
+    "config_audit": "config identical to r283; MODULE_COMPRESS off; MODVERSIONS=y; 375 .ko, 0 .debug_info, 375 .BTF + build-id",
+    "debs": "build-kernel-debs.sh @ b43e3e5 BUILD_REV=r284; vmlinuz in linux-image deb byte-identical to Image-cixmini.bin"
   }
 }
