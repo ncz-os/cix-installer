@@ -187,6 +187,7 @@ build/test-components-gate.sh	common	-	hermetic fail-before/pass-after for compo
 build/test-components-generate.sh	common	-	hermetic fail-before/pass-after for the phase 3 registry generators (seeds, NCZ_LOCAL_DEBS, allowlist)
 build/test-dual-arch-parity.sh	common	-	fixture tests for the parity gates
 build/test-gpu-probe-no-hang.sh	amd64	-	PEGASUS hang regressions: sysfs PCI probing, 54-gpu-accel.sh completes with a hanging lspci/rocminfo, T2 detection without lspci
+build/test-net-firmware.sh	common	-	regression test: NIC/BT firmware baked into the d-i initrd and every net-firmware.tsv package seeded in the firmware BOM
 build/test-hook-watchdog.sh	common	-	bounded-run.sh deadline runner and the run-all.sh optional-hook watchdog (hung hook killed, install continues)
 build/test-hostname-suggest.sh	common	-	hostname algorithm tests
 build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier test
@@ -244,6 +245,7 @@ manifests/desktop-amd64.pkgs	amd64	t2,nvidia-cuda	full amd64 desktop closure (mi
 manifests/desktop.pkgs	sky1	-	full arm64/Sky1 desktop closure (chromium-ncz-sky1, ncz-ffmpeg, singularity); phase C: split into common plus delta
 manifests/firmware-bom.allow	common	-	firmware BOM exclusions
 manifests/firmware.pkgs	common	-	architecture-neutral firmware BOM
+manifests/net-firmware.tsv	common	-	network device -> driver -> firmware package -> initrd/target map (d-i initrd firmware bake, net-fw verifier gate)
 manifests/install-extra.pkgs	common	-	extra installer packages; arch-neutral
 manifests/installer-base-amd64.pkgs	amd64	t2	amd64 installer base (bolt for T2 Thunderbolt docks)
 manifests/installer-base.pkgs	sky1	-	arm64 installer base (cixmini-boot, linux-image-cixmini, cross gcc)

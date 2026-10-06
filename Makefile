@@ -142,7 +142,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-net-firmware
 
 all: image
 
@@ -449,6 +449,7 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(ROOT)/build/iso/stage-ncz-payload.py \
 	               $(ROOT)/build/iso/patch-debootstrap-stub.py \
 	               $(ROOT)/build/iso/patch-initrd-t2-kernel.py \
+	               $(ROOT)/manifests/net-firmware.tsv \
 	               $(ROOT)/build/iso/build-refind-esp.py \
 	               $(ROOT)/build/iso/write-usb-image.py \
 	               $(PRESEED)/preseed.cfg \
@@ -508,6 +509,12 @@ test-boot-speed:
 # drop-in must ship on both arches and time sync must never order the greeter.
 test-timesync-retry:
 	@bash $(ROOT)/build/test-timesync-retry.sh
+
+# NIC/Bluetooth firmware: baked into the d-i initrd (manifests/net-firmware.tsv)
+# and every mapped package seeded in the firmware BOM. NCZ_FIRMWARE_POOL=<pool>
+# additionally checks the real firmware-*.deb contents.
+test-net-firmware:
+	@bash $(ROOT)/build/test-net-firmware.sh
 
 secretscan:
 	@bash $(ROOT)/build/secret-scan-gate.sh

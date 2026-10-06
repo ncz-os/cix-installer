@@ -46,6 +46,11 @@ Architecture (same as the arm64 precedent, adapted):
 Usage:
     patch-initrd-t2-kernel.py --base-initrd PATH --kernel-deb PATH
         --arch {amd64,arm64} [--cache-root DIR] [--force]
+        [--firmware-pool POOL [--net-firmware-table TSV]]
+
+  --firmware-pool bakes the NIC/Bluetooth blobs that manifests/net-firmware.tsv
+  scopes "initrd+target" (rtl_nic/*, MT79xx BT) into the overlay at
+  /lib/firmware, extracted from the offline mirror's firmware-*.deb.
 
 Output: <cache-root>/ncz-initrd-t2kernel/<node_key>/{linux,initrd.gz}
         + receipt.json
@@ -209,6 +214,121 @@ def _stat(path: Path) -> dict:
     return {"present": True, "sha256": sha256_file(path), "size": s.st_size}
 
 
+DEFAULT_NET_FIRMWARE_TABLE = REPO_ROOT / "manifests" / "net-firmware.tsv"
+
+
+def load_net_firmware_table(path: Path) -> list[dict]:
+    """Parse manifests/net-firmware.tsv into row dicts.
+
+    Fails closed on a malformed row: a silently skipped row is exactly a NIC
+    that boots the installer without its blob.
+    """
+    rows = []
+    for lineno, line in enumerate(path.read_text().splitlines(), 1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        cols = line.split("\t")
+        if len(cols) != 5 or not all(c.strip() for c in cols):
+            raise RuntimeError(
+                f"FATAL: {path}:{lineno}: expected 5 non-empty TAB-separated "
+                f"columns (device driver package firmware where), got {len(cols)}"
+            )
+        device, driver, package, firmware, where = (c.strip() for c in cols)
+        if where not in ("initrd+target", "target"):
+            raise RuntimeError(
+                f"FATAL: {path}:{lineno}: where={where!r} must be "
+                f"'initrd+target' or 'target'"
+            )
+        globs = firmware.split()
+        for g in globs:
+            if g.startswith("/") or ".." in Path(g).parts:
+                raise RuntimeError(
+                    f"FATAL: {path}:{lineno}: firmware glob {g!r} must be "
+                    f"relative to /usr/lib/firmware"
+                )
+        rows.append({"device": device, "driver": driver, "package": package,
+                     "globs": globs, "initrd": where == "initrd+target"})
+    if not rows:
+        raise RuntimeError(f"FATAL: {path} has no firmware rows")
+    return rows
+
+
+def _deb_version_key(deb: Path) -> str:
+    return deb.name.split("_")[1] if deb.name.count("_") >= 2 else ""
+
+
+def find_pool_deb(pool: Path, package: str) -> Path:
+    """Newest <package>_*.deb anywhere under an apt pool (flat or hashed)."""
+    debs = sorted(pool.rglob(f"{package}_*.deb"))
+    if not debs:
+        raise RuntimeError(
+            f"FATAL: {package} not found under {pool} -- the offline mirror "
+            f"must carry it (manifests/firmware.pkgs) before the installer "
+            f"initrd can be built"
+        )
+    best = debs[0]
+    for cand in debs[1:]:
+        newer = subprocess.run(
+            ["dpkg", "--compare-versions", _deb_version_key(cand), "gt",
+             _deb_version_key(best)],
+            check=False,
+        ).returncode == 0
+        if newer:
+            best = cand
+    return best
+
+
+def stage_initrd_firmware(rows: list[dict], pool: Path, dest_root: Path,
+                          scratch: Path,
+                          debs: dict[str, Path] | None = None) -> list[dict]:
+    """Copy every initrd-scoped firmware glob out of its pool .deb.
+
+    Files land at <dest_root>/lib/firmware/<path relative to
+    /usr/lib/firmware>.  Returns [{path, size, package}] sorted by path.
+    Every glob must match at least one regular file, so a package that
+    renames or drops a blob breaks the build instead of shipping an
+    installer that silently lacks it.
+    """
+    if not pool.is_dir():
+        raise RuntimeError(f"FATAL: firmware pool not found: {pool}")
+    staged: dict[str, dict] = {}
+    extracted: dict[str, Path] = {}
+    for row in rows:
+        if not row["initrd"]:
+            continue
+        pkg = row["package"]
+        if pkg not in extracted:
+            deb = (debs or {}).get(pkg) or find_pool_deb(pool, pkg)
+            out = scratch / pkg
+            out.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["dpkg-deb", "-x", str(deb), str(out)], check=True)
+            fw_root = out / "usr" / "lib" / "firmware"
+            if not fw_root.is_dir():
+                fw_root = out / "lib" / "firmware"
+            if not fw_root.is_dir():
+                raise RuntimeError(f"FATAL: {deb} ships no /usr/lib/firmware tree")
+            extracted[pkg] = fw_root
+        fw_root = extracted[pkg]
+        for g in row["globs"]:
+            matches = [m for m in sorted(fw_root.glob(g)) if m.is_file()]
+            if not matches:
+                raise RuntimeError(
+                    f"FATAL: {pkg} has no firmware matching {g!r} "
+                    f"(row: {row['device']})"
+                )
+            for m in matches:
+                rel = m.relative_to(fw_root).as_posix()
+                dst = dest_root / "lib" / "firmware" / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                # copyfile follows symlinks: the initrd gets real bytes even
+                # where the package ships a compatibility symlink.
+                shutil.copyfile(m, dst)
+                dst.chmod(0o644)
+                staged[rel] = {"path": rel, "size": dst.stat().st_size,
+                               "package": pkg}
+    return [staged[k] for k in sorted(staged)]
+
+
 # Helpers preseed.cfg's early_command needs. They were copied off the mounted
 # medium, but early_command runs at S33preseed_early_command -- right after
 # S30initrd-preseed loads the baked /preseed.cfg and long before anything has
@@ -255,6 +375,8 @@ def patch_t2_kernel(
     ssh_udeb_dir: Path | None = None,
     kernel_image: Path | None = None,
     modules_tar: Path | None = None,
+    firmware_pool: Path | None = None,
+    net_firmware_table: Path | None = DEFAULT_NET_FIRMWARE_TABLE,
 ) -> tuple[Path, Path]:
     if not base_initrd.is_file():
         raise RuntimeError(f"FATAL: no base initrd at {base_initrd}")
@@ -316,8 +438,23 @@ def patch_t2_kernel(
                 f"{ssh_udeb_dir}; missing {missing_ssh_udebs}"
             )
 
+    fw_rows: list[dict] = []
+    fw_debs: dict[str, Path] = {}
+    if firmware_pool is not None:
+        if net_firmware_table is None or not net_firmware_table.is_file():
+            raise RuntimeError(
+                f"FATAL: --firmware-pool given but net firmware table missing: "
+                f"{net_firmware_table}"
+            )
+        if not firmware_pool.is_dir():
+            raise RuntimeError(f"FATAL: firmware pool not found: {firmware_pool}")
+        fw_rows = load_net_firmware_table(net_firmware_table)
+        for row in fw_rows:
+            if row["initrd"] and row["package"] not in fw_debs:
+                fw_debs[row["package"]] = find_pool_deb(firmware_pool, row["package"])
+
     canonical = canonical_encode({
-        "schema_version": "ncz-initrd-t2kernel/v4",
+        "schema_version": "ncz-initrd-t2kernel/v5",
         "arch": arch,
         "base_initrd": _stat(base_initrd),
         "kernel_deb": _stat(kernel_deb) if kernel_deb else {"present": False},
@@ -328,6 +465,9 @@ def patch_t2_kernel(
         "helpers": {p.name: _stat(p) for p in helpers},
         "diag_busybox": _stat(diag_busybox) if diag_busybox is not None else {"present": False},
         "ssh_udebs": sorted(u.name for u in ssh_udebs),
+        "net_firmware_table": (_stat(net_firmware_table)
+                               if fw_rows else {"present": False}),
+        "net_firmware_debs": {k: _stat(v) for k, v in sorted(fw_debs.items())},
     })
 # Content-addressed cache nodes are created EMPTY and filled afterwards, and
 # every reader treats "the directory exists" as "the build succeeded". An
@@ -420,6 +560,23 @@ def patch_t2_kernel(
             ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", str(overlay_root)],
             check=True,
         )
+
+        # --- network firmware into the overlay's /lib/firmware -----------
+        # d-i ships no non-free firmware. r8169 is built into the Sky1 kernel
+        # and asks for rtl_nic/* at ndo_open; btusb/btmtk asks for the MT79xx
+        # BT blob at probe and, when it is missing, resets the USB device and
+        # retries every ~0.4 s for the whole install. The kernel firmware
+        # loader waits for the initramfs to be unpacked before searching
+        # /lib/firmware, so blobs placed here are visible to built-in drivers
+        # too. lib/firmware goes through the same `find lib -mindepth 1` walk
+        # as lib/modules, so no bare top-level "lib" entry is emitted.
+        net_fw: list[dict] = []
+        if fw_rows:
+            net_fw = stage_initrd_firmware(fw_rows, firmware_pool, overlay_root,
+                                           tmp / "net-firmware", fw_debs)
+            log(f"    baked {len(net_fw)} network firmware files "
+                f"({sum(f['size'] for f in net_fw)} bytes) -> initrd "
+                f"/lib/firmware from {sorted(fw_debs)}")
 
         # --- bake preseed.cfg into the initrd ROOT -----------------------
         # Real root cause (confirmed on metal 2026-09-24, not a QEMU
@@ -610,6 +767,8 @@ def patch_t2_kernel(
             "baked_helpers": [h.name for h in helpers],
             "baked_diag_busybox": str(diag_busybox) if diag_busybox else None,
             "baked_ssh_udebs": [u.name for u in ssh_udebs],
+            "net_firmware_debs": {k: str(v) for k, v in sorted(fw_debs.items())},
+            "baked_net_firmware": net_fw,
         },
         "outputs": {
             "linux": str(out_linux),
@@ -663,7 +822,20 @@ def main() -> int:
                           "component does that), so remote diagnostics need "
                           "this to exist at all. Defaults to "
                           "assets/ssh-udebs/<arch> if present.")
+    ap.add_argument("--firmware-pool", type=Path, default=None,
+                     help="apt pool (the offline mirror's pool/) holding the "
+                          "firmware-*.deb packages named in "
+                          "--net-firmware-table; rows scoped initrd+target "
+                          "are baked into the initrd at /lib/firmware. "
+                          "build-installer-image.sh always passes it.")
+    ap.add_argument("--net-firmware-table", type=Path,
+                     default=DEFAULT_NET_FIRMWARE_TABLE,
+                     help="device -> driver -> package -> firmware map "
+                          "(default manifests/net-firmware.tsv)")
     args = ap.parse_args()
+    if args.firmware_pool is None:
+        log("WARNING: no --firmware-pool -- the installer initrd will carry NO "
+            "NIC/Bluetooth firmware (rtl_nic/*, MT79xx BT)")
     preseed_cfg = args.preseed_cfg if str(args.preseed_cfg) else None
     if preseed_cfg is not None and not preseed_cfg.is_file():
         preseed_cfg = None
@@ -699,6 +871,7 @@ def main() -> int:
             args.cache_root, args.force, preseed_cfg,
             helper_dir, diag_busybox, ssh_udeb_dir,
             args.kernel_image, args.modules_tar,
+            args.firmware_pool, args.net_firmware_table,
         )
     except RuntimeError as e:
         log(str(e))
