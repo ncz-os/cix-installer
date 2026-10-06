@@ -113,6 +113,21 @@ if [ -z "$EXPECT_KVER" ]; then
     if [ -s "$_kfile" ]; then
         EXPECT_KVER="$(tr -d '[:space:]' < "$_kfile")"
     fi
+    # Fallback: the committed manifest carries the same mainline KVER, so a
+    # dev/build host where the mainline symlink target is not mounted can
+    # still resolve the expected default (the symlink is an absolute path
+    # into the shared pool, which differs per host).
+    if [ -z "$EXPECT_KVER" ] && [ "$ARCH" = arm64 ] && [ -s "$REPO/assets/kernel-manifest.json" ] \
+       && command -v python3 >/dev/null 2>&1; then
+        EXPECT_KVER="$(python3 -c '
+import json,sys
+try:
+    m=json.load(open(sys.argv[1]))
+    print((m.get("variants",{}).get("mainline",{}) or {}).get("kver",""))
+except Exception:
+    pass
+' "$REPO/assets/kernel-manifest.json" 2>/dev/null)"
+    fi
 fi
 if [ -z "$EXPECT_KVER" ]; then
     echo "[no-debian-kernel] ERROR: no expected default KVER (pass --expect-kver, or stage $REPO/assets/kernel/{mainline,amd64-stable}/KVER)" >&2

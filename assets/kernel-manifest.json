@@ -25,12 +25,14 @@
       "dir": "assets/kernel/mainline",
       "image": {
         "file": "assets/kernel/mainline/Image-cixmini.bin",
-        "sha256": "5eabb4b0978df0eadcdcdba076d1ea2fb984c4f5fe704949c94345f19ee8c226"
+        "sha256": "5eabb4b0978df0eadcdcdba076d1ea2fb984c4f5fe704949c94345f19ee8c226",
+        "size": 49986048
       },
       "kver": "7.3.0-rc6-sky1-ncz",
       "modules": {
         "file": "assets/kernel/mainline/modules-cixmini.tgz",
-        "sha256": "06dd9187daf2500580ddeef097b60d2a5585653a0ebc025bb5949d2672757911"
+        "sha256": "06dd9187daf2500580ddeef097b60d2a5585653a0ebc025bb5949d2672757911",
+        "size": 12047547
       },
       "npu": null
     }

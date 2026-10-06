@@ -150,4 +150,4 @@ eq "exactly one menuentry renders \$STABLE_OPTIONS" \
 
 echo
 echo "=== amd64 T2 default-compat test: PASS=$PASS FAIL=$FAIL ==="
-[ "$FAIL" -eq 0 ]
+[ "$FAIL" -eq 0 ] || exit 1
