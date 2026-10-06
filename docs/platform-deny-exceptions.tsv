@@ -8,7 +8,6 @@
 37-ntp-hostname.sh	sky1-soc	warning text about Sky1 boards lacking an RTC; the logic is generic
 55-greeter.sh	sky1-soc	After=cix-detect-display.service ordering; harmless when the unit is absent (amd64)
 55-greeter.sh	sky1-accel	echo text mentioning Mali; the greeter itself is GPU-neutral wlr-layer-shell
-57-screensaver.sh	sky1-accel	message text only
 60-boot-splash.sh	sky1-soc	After=cix-detect-display.service ordering; harmless when the unit is absent (amd64)
 60-boot-splash.sh	sky1-accel	sed that strips linlondp/panthor from initramfs modules; a no-op where they are absent
 93-zram-swap.sh	sky1-soc	message text citing the Sky1 kernel config as the audit source
