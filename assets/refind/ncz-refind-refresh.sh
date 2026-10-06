@@ -60,8 +60,13 @@ ncz_efi_rt_workaround() {
     echo ""
 }
 EFI_RT_WORKAROUND="$(ncz_efi_rt_workaround)"
+# NCZ-UNIFIED-KERNEL-73 (operator 2026-10-05): ONE kernel, 7.3, is the default,
+# the installer kernel and the rescue kernel. There is no edge channel any more
+# and no 7.2.x line. The rescue entry boots the SAME 7.3 kernel with the
+# accelerator drivers blacklisted.
+#
 # ncz-refind-refresh — (re)generate the rEFInd ESP menu for whatever
-# edge kernel is currently on disk.
+# 7.3 kernel is currently on disk.
 #
 # Shared by two callers, which differ only in HOW they determine which
 # kernel version to stage:
@@ -99,35 +104,21 @@ fi
 NCZ_RELEASE_SHORT="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
 
 if [ -z "$KVER_NEXT" ]; then
-    echo "ERROR: no KVER_NEXT provided (edge kernel is the only supported channel)"
+    echo "ERROR: no KVER_NEXT provided (the unified 7.3 kernel is the only supported channel)"
     exit 1
 fi
 
-# Operator directive 2026-09-30 (the .66 incident): the default kernel on every
-# arch MUST be a release version (7.2.x-*) -- never -rcN. KVER_NEXT is the
-# sidecar file that becomes the default boot entry on this script's rEFInd
-# menu; the build-time verifier (build/verify-kernel-default-policy.sh)
-# catches a misdirected mainline symlink before the image ships, but this
-# runtime gate is the defence in depth: even if KVER_NEXT is somehow
-# retargeted at runtime (operator hand-edit, an OTA bringing an -rc kernel,
-# a hand-flashed sidecar), the rEFInd menu cannot offer it as the default.
-# This is the arm64 analogue of the amd64 KVER_EDGE zeroing in
-# assets/refind/ncz-refind-refresh-amd64.sh.
+# Operator directive 2026-10-05 (unified 7.3): an -rcN default IS permitted
+# while the build-time policy allows it (KERNEL-POLICY RC_DEFAULT_ALLOWED=1,
+# cleared when 7.3.0 final lands), so this runtime gate no longer refuses -rcN.
+# It still refuses a Debian-archive kernel: Debian's versioned arm64 kernels
+# are named <ver>-arm64 (e.g. 7.1.4-arm64) and its forky line is 7.1.x; the
+# local classifier (11-fix-cixmini-boot.sh) already refuses those, but this
+# generator can be invoked with an explicit KVER, so fail closed here too.
 case "$KVER_NEXT" in
-    *-rc[0-9]*)
-        echo "ERROR: KVER_NEXT='$KVER_NEXT' is a release-candidate (-rcN); mainline MUST be a release kernel (operator directive 2026-09-30)." >&2
-        echo "       Refusing to write an rEFInd menu that would boot -rc as the default." >&2
-        exit 1
-        ;;
-    # Operator directive 2026-10-04 (Cygnus 26.10 kernel purity): the default
-    # rEFInd entry must load our 7.2.9 Sky1 kernel, never a Debian-archive
-    # kernel. Debian's versioned arm64 kernels are named <ver>-arm64
-    # (e.g. 7.1.4-arm64) and its forky line is 7.1.x; the local classifier
-    # (11-fix-cixmini-boot.sh) already refuses to select those, but this
-    # generator can be invoked with an explicit KVER, so fail closed here too.
     *-arm64|7.1.*|7.1-*)
         echo "ERROR: KVER_NEXT='$KVER_NEXT' names a Debian-archive kernel (arm64/7.1.x);" >&2
-        echo "       mainline MUST be the NCZ 7.2.9 Sky1 kernel (directive 2026-10-04)." >&2
+        echo "       the default MUST be the NCZ 7.3 Sky1 kernel (directive 2026-10-05)." >&2
         echo "       Refusing to write an rEFInd menu that would boot Debian as the default." >&2
         exit 1
         ;;
@@ -475,31 +466,18 @@ if [ -n "$KVER_NEXT" ] && [ -s "/boot/vmlinuz-$KVER_NEXT" ]; then
     NEXT_INITRD_AVAILABLE=1
 
 elif [ -n "$KVER_NEXT" ]; then
-    echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — edge entry will be SKIPPED"
+    echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — default entry will be SKIPPED"
 fi
 
-# EDGE_AVAILABLE (2026-09-15): the SECOND, EXPERIMENTAL kernel line (see
-# post-install/10-our-kernel.sh). Absence is not fatal -- single-kernel
-# ISOs still build -- only KVER_NEXT (stable/default) is required above.
-EDGE_AVAILABLE=0
-EDGE_INITRD_AVAILABLE=0
-if [ -n "${KVER_EDGE:-}" ] && [ -s "/boot/vmlinuz-$KVER_EDGE" ]; then
-    if [ ! -s "/boot/initrd.img-$KVER_EDGE" ]; then
-        echo "  WARN: /boot/vmlinuz-$KVER_EDGE exists but /boot/initrd.img-$KVER_EDGE is missing -- edge entry SKIPPED"
-    else
-        install -m 0644 "/boot/vmlinuz-$KVER_EDGE" "/boot/efi/vmlinuz-$KVER_EDGE"
-        echo "  staged /boot/efi/vmlinuz-$KVER_EDGE"
-        EDGE_AVAILABLE=1
-        install -m 0644 "/boot/initrd.img-$KVER_EDGE" "/boot/efi/initrd.img-$KVER_EDGE"
-        echo "  staged /boot/efi/initrd.img-$KVER_EDGE"
-        EDGE_INITRD_AVAILABLE=1
-    fi
-elif [ -n "${KVER_EDGE:-}" ]; then
-    echo "  WARN: /boot/vmlinuz-$KVER_EDGE missing — edge entry will be SKIPPED"
+# Unified 7.3 (operator 2026-10-05): the edge channel was retired, so any
+# KVER_EDGE passed in is ignored and never staged or given a menu entry.
+if [ -n "${KVER_EDGE:-}" ]; then
+    echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- the edge channel was retired (unified 7.3 policy, operator 2026-10-05)"
+    KVER_EDGE=""
 fi
 
 if [ "$NEXT_AVAILABLE" = "0" ]; then
-    echo "ERROR: edge kernel not installed — system is unbootable."
+    echo "ERROR: default 7.3 kernel not installed — system is unbootable."
     exit 1
 fi
 
@@ -552,15 +530,18 @@ fi
 # NPU = aipu. linlondp is the DISPLAY controller and is NEVER blacklisted -- it
 # is the only video console on O6N, and disabling it is a permanent black screen.
 CONSOLE_GPU_BLACKLIST="panthor,panfrost"
-ALL_ACCEL_BLACKLIST="panthor,panfrost,mali_kbase,memory_group_manager,protected_memory_allocator,amvx,aipu"
-# The rescue-partition fallback stays all-accelerators-off: it exists to
-# get a shell on a machine whose drivers are suspect, so it deliberately
-# loads nothing optional.
-CONSOLE_EXTRA_BLACKLIST="$CONSOLE_GPU_BLACKLIST,armchina_npu,amvx,cix_vpu,linlon_vpu"
+# NCZ-RESCUE-ACCEL-BEGIN
+# RESCUE reuses the SAME 7.3 kernel as the default and blacklists every CIX
+# accelerator (GPU mali/panthor, VPU, NPU and their aliases); linlondp is the
+# display controller and is NEVER blacklisted (it is the only video console on
+# Sky1). The typec rts5453 modules already present in NEXT_CMDLINE_BASE are
+# merged in below so a single module_blacklist= token carries both.
+RESCUE_ACCEL_BLACKLIST="panthor,panfrost,mali_kbase,memory_group_manager,protected_memory_allocator,amvx,aipu,armchina_npu,cix_vpu,linlon_vpu"
+# NCZ-RESCUE-ACCEL-END
 
 # (legacy 7.0.12 fallback entry removed 2026-08-21 — single-kernel release)
 
-# 7.2 CONSOLE — reach a networked multi-user shell on the SHIPPING kernel
+# 7.3 CONSOLE — reach a networked multi-user shell on the SHIPPING kernel
 # when the graphical handoff fails (greeter/DKMS/Mesa).  No splash: this
 # entry must stay verbose so a boot failure is diagnosable on ttyAMA0/tty0.
 NEXT_CONSOLE_OPTIONS=""
@@ -575,102 +556,11 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_CONSOLE_OPTIONS="$ROOT_OPTS $NEXT_CONSOLE_CMDLINE systemd.unit=multi-user.target"
 fi
 
-# EDGE (2026-09-15) — 7.3.0-rc3, EXPERIMENTAL kernel, CONSOLE-ONLY. Accelerator
-# DKMS (mali/panthor/vpu/npu) was NOT wired for this kernel line in this pass
-# -- the prebuilt .ko caches exist under assets/kernel/{mali,panthor,vpu,npu}/
-# 7.3.0-rc3-sky1-ncz/, but installing them safely needs per-hook multi-KVER
-# support (82-mali-gpu.sh, 83-panthor-gpu.sh and their VPU/NPU equivalents are
-# all single-KVER, keyed off KVER_NEXT only) -- real, separate follow-up work,
-# not done here. So this entry boots the SAME way the RESCUE entry does:
-# every accelerator blacklisted, GPU off, straight to a networked multi-user
-# console. It exists to prove the kernel/initrd itself boots on real
-# hardware; graphical/accelerated edge support is a known, flagged gap.
-EDGE_OPTIONS=""
-if [ "$EDGE_AVAILABLE" = "1" ]; then
-    # BUG FIXED 2026-09-16 (real, metal-verified on O6N via the persistent
-    # serial logger on PROTEUS): this entry was missing $NEXT_CMDLINE_EXTRA
-    # (pcie_aspm=off sky1_pcie_native=off pcie_pnp_en acpi_scmi_en=off +
-    # the ramoops/panic knobs) -- exactly the class of bug this script's
-    # OWN comment on NEXT_CMDLINE_EXTRA already documents by name: "the 7.2
-    # forward-port was only ever metal-validated with these (r195 shipped
-    # edge WITHOUT them and the board hung at boot)". Same board, same
-    # missing quirks, same symptom recurred on the 7.3.0-rc3 edge line:
-    # captured serial trace showed the kernel boot clean through early
-    # init, then a HARD RESET (full BL2/BL31/SE_FW cold-boot firmware
-    # sequence on the very next line) right at "xhci-hcd ... new USB bus
-    # registered" -- no panic/oops printed (ramoops was also empty,
-    # because ramoops itself wasn't enabled on this cmdline either). USB
-    # was coincidental to where it hung, not necessarily the actual
-    # trigger -- the PCIe/SCMI knobs are the ones this board has already
-    # been proven to need. Reuse $NEXT_CMDLINE_EXTRA verbatim instead of
-    # duplicating the string, so a future change to those quirks (e.g. if
-    # they're ever tuned again) can't silently drift between the two
-    # entries the way this one did.
-    EDGE_OPTIONS="$ROOT_OPTS console=ttyAMA0,115200 console=tty0 module_blacklist=$ALL_ACCEL_BLACKLIST $NEXT_CMDLINE_EXTRA sky1.gpu=none systemd.unit=multi-user.target"
-fi
-
-# EDGE_ACCEL_OPTIONS (2026-09-22): the SECOND edge entry, with the Mali vendor
-# stack wired in -- mirrors MALI_OPTIONS construction above but on the edge
-# cmdline ($NEXT_CMDLINE_BASE which already embeds $NEXT_CMDLINE_EXTRA, NOT
-# just $NEXT_CMDLINE_EXTRA like the console entry). Until tonight the edge
-# line only had a console entry; this is what closes the gap between "we
-# built and staged 7.3.0-rc4-sky1-ncz overlays" and "a board can actually
-# boot them".
-#
-# Gating (all three required, no exceptions):
-#   1. $EDGE_AVAILABLE=1 -- the edge kernel payload is staged to /boot/efi
-#      (same as the existing console entry; saves us emitting a menu entry
-#      pointing at a kernel/initrd that doesn't exist).
-#   2. $KVER_EDGE is non-empty.
-#   3. The mali overlay for $KVER_EDGE actually exists under
-#      $INSTALLER_META/assets/kernel/mali/$KVER_EDGE/ AND has at least one
-#      .ko in it -- same provenance check build-kernel-debs.sh does at line
-#      524. Without this check, an unaccelerated edge (overlay absent, only
-#      the kernel staged) would offer a boot entry that would silently
-#      fall back to software rendering -- exactly the failure mode
-#      assets/kernel/mali/README.md warns against ("a mismatched vermagic is
-#      refused outright by the kernel, not silently degraded").
-#
-# Does NOT change DEFAULT_TOKEN or otherwise promote the edge line to
-# default: edge stays experimental, the stable Mali entry keeps that role.
-EDGE_ACCEL_OPTIONS=""
-EDGE_ACCEL_AVAILABLE=0
-if [ "$EDGE_AVAILABLE" = "1" ] && [ -n "${KVER_EDGE:-}" ] \
-   && [ -d "$INSTALLER_META/assets/kernel/mali/$KVER_EDGE" ]; then
-    # Count .ko files under the edge-kver mali dir without invoking `ls` on a
-    # glob -- shellcheck SC2012, and `ls *.ko` is fragile if any filename has
-    # a space (the staged files don't, but a hand-staged overlay might).
-    _ncz_mali_kos=$(find "$INSTALLER_META/assets/kernel/mali/$KVER_EDGE" \
-        -maxdepth 1 -type f -name '*.ko' 2>/dev/null | wc -l)
-    if [ "$_ncz_mali_kos" -gt 0 ]; then
-    # Same blacklist as the stable MALI_OPTIONS: blacklist panthor so the
-    # vendor Mali kbase + mgm + pma trio (all staged under
-    # assets/kernel/mali/$KVER_EDGE/) wins the GPU. Panthor DKMS is also
-    # staged at assets/kernel/panthor/$KVER_EDGE/ but is NOT used by THIS
-    # entry -- it has no current cmdline cmdline-token-wired menu entry of
-    # its own on the edge line (per the EDGE line's own experimental scope,
-    # the same single-entry-or-nothing design that the stable line used
-    # before r194).
-    EDGE_ACCEL_GPU_BLACKLIST="panthor"
-    # $NEXT_CMDLINE_BASE already concatenates $NEXT_CMDLINE_EXTRA (see line 214:
-    # NEXT_CMDLINE_BASE="$NEXT_CMDLINE_BASE $NEXT_CMDLINE_EXTRA"), so reusing
-    # NEXT_CMDLINE_BASE here gives the same PCIe/SCMI/ramoops knobs the stable
-    # Mali entry gets without duplicating the string. Don't append
-    # $NEXT_CMDLINE_EXTRA again -- the 2026-09-16 O6N edge hang was caused by
-    # exactly that kind of drift between cmdline copies.
-    EDGE_ACCEL_CMDLINE="$ROOT_OPTS $NEXT_CMDLINE_BASE"
-    [ -n "$SPLASH" ] && EDGE_ACCEL_CMDLINE="$EDGE_ACCEL_CMDLINE $SPLASH"
-    EDGE_ACCEL_OPTIONS="$(merge_module_blacklist "$EDGE_ACCEL_CMDLINE" "$EDGE_ACCEL_GPU_BLACKLIST") sky1.gpu=vendor"
-    EDGE_ACCEL_AVAILABLE=1
-    fi
-fi
-
-
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
 RESCUEPART_OPTIONS=""
-# Edge-only release (operator 2026-08-21): the rescue-partition entry boots
-# the rescue rootfs with the edge kernel (the ONLY shipping kernel), so
-# the precondition is just the rescue marker + the edge kernel.
+# Unified 7.3 (operator 2026-10-05): the rescue-partition entry boots the
+# rescue rootfs with the SAME 7.3 kernel as the default (the only shipping
+# kernel), so the precondition is just the rescue marker + that kernel.
 if [ -f "$RESCUE_READY" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
     RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
     if [ -n "$RESCUEPART_PARTUUID" ]; then
@@ -678,21 +568,21 @@ if [ -f "$RESCUE_READY" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
         # actually appears, which is the correct mechanism and costs nothing
         # once it has; rootdelay=90 was an unconditional 90s sleep paid on
         # every rescue boot even when the disk was ready immediately.
-        # Operator 2026-08-16: RESCUE runs with EVERY accelerator disabled --
-        # GPU, VPU and NPU -- because it exists to recover a board those very
-        # drivers may have wedged. It can no longer share the console cmdline,
-        # which now deliberately keeps the accelerators.
+        # Operator 2026-08-16 / unified 2026-10-05: RESCUE runs with EVERY
+        # accelerator blacklisted -- GPU, VPU and NPU -- because it exists to
+        # recover a board those very drivers may have wedged.
         #
         # linlondp is NOT in the list: it is the display controller and the only
         # video console on O6N. Blacklisting it is a permanent black screen.
         #
         # sky1.gpu=none stops ncz-gpu-switcher trying to load a driver the
         # cmdline forbids, which would fail the unit on the one entry that must
-        # never look broken.
+        # never look broken. The typec rts5453 modules from NEXT_CMDLINE_BASE
+        # are merged into the single blacklist token below.
         RESCUE_CMDLINE_NOBL=$(printf '%s\n' "$NEXT_CONSOLE_CMDLINE_NOBL" | tr ' ' '\n' | grep -vE '^(sky1\.gpu=|$)' | paste -sd' ' -)
-        [ -n "$NEXT_CONSOLE_EXISTING_BL" ] && RESCUE_BL="$NEXT_CONSOLE_EXISTING_BL,$ALL_ACCEL_BLACKLIST" || RESCUE_BL="$ALL_ACCEL_BLACKLIST"
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $RESCUE_CMDLINE_NOBL module_blacklist=$RESCUE_BL sky1.gpu=none systemd.unit=multi-user.target"
-        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — adding console-only rEFInd rescue-partition entry"
+        [ -n "$NEXT_CONSOLE_EXISTING_BL" ] && RESCUE_ACCEL_BLACKLIST="$NEXT_CONSOLE_EXISTING_BL,$RESCUE_ACCEL_BLACKLIST"
+        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $RESCUE_CMDLINE_NOBL module_blacklist=$RESCUE_ACCEL_BLACKLIST sky1.gpu=none systemd.unit=multi-user.target"
+        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — same 7.3 kernel, accelerators blacklisted"
     else
         echo "ERROR: rescue-partition marker has no PARTUUID — refusing to ship without recovery"
         exit 1
@@ -700,6 +590,13 @@ if [ -f "$RESCUE_READY" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
 else
     echo "ERROR: rescue partition is required but marker $RESCUE_READY or the shipping kernel is absent"
     exit 1
+fi
+
+# Same-kernel rescue entry (main root): the same 7.3 kernel as the default with
+# the accelerator blacklist merged into the single module_blacklist token.
+NEXT_RESCUE_OPTIONS=""
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    NEXT_RESCUE_OPTIONS="$(merge_module_blacklist "$NEXT_OPTIONS" "$RESCUE_ACCEL_BLACKLIST") sky1.gpu=none systemd.unit=multi-user.target"
 fi
 
 install -d -m 0755 /boot/efi/EFI/BOOT
@@ -757,17 +654,18 @@ if [ -s "$CYGNUS_SRC/theme.conf" ] && [ -s "$CYGNUS_SRC/background-1920x1080.png
     echo "  rEFInd Cygnus theme installed → /boot/efi/EFI/BOOT/themes/cygnus"
 fi
 
-# Release policy: 7.2 Mali is the default graphical entry.  7.0.12 is always
-# an explicit console-only recovery choice; Panthor is an explicit experiment.
+# Release policy (unified 7.3, operator 2026-10-05): the single 7.3 kernel is
+# the default graphical entry (Mali is the validated shipping driver); Panthor
+# is an explicit experiment and the Rescue entries blacklist the accelerators.
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     # Must be UNIQUE across menu titles. rEFInd matches default_selection as a
     # substring -- a bare "Mali" would also match the Console entry's title
     # ("... Console (All Accelerators, Mali)"), leaving the default decided by
-    # menu order rather than by intent. "Mali (Default)" appears in exactly
+    # menu order rather than by intent. "7.3 Mali (Default)" appears in exactly
     # one title. Keep it that way when adding entries.
-    DEFAULT_TOKEN="Mali (Default)"
+    DEFAULT_TOKEN="7.3 Mali (Default)"
 else
-    DEFAULT_TOKEN="edge"
+    DEFAULT_TOKEN="7.3"
 fi
 DESKTOP_COMPONENT_DISABLED=0
 if [ "$NEXT_AVAILABLE" = "1" ]; then
@@ -783,7 +681,7 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
             *",desktop,"*) : ;;
             *)
                 DESKTOP_COMPONENT_DISABLED=1
-                DEFAULT_TOKEN="Console (All Accelerators, Mali)"
+                DEFAULT_TOKEN="7.3 Console (All Accelerators, Mali)"
                 echo "  desktop component disabled; defaulting rEFInd to console entry"
                 ;;
         esac
@@ -883,7 +781,7 @@ fi
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$NEXT_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Mali (Default)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Mali (Default)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -912,7 +810,7 @@ fi
         # against it. Making it default is a separate, deliberate change to
         # DEFAULT_TOKEN -- do not flip it as a side effect of this entry
         # existing.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Panthor (Experimental)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Panthor (Experimental)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -928,44 +826,28 @@ fi
         # builtin -- only the standalone menu entry is gone. The RESCUE
         # entries below cover the same no-initrd boot path when needed.
 
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Console (All Accelerators, Mali)\" {"
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Console (All Accelerators, Mali)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
         echo "    options \"$NEXT_CONSOLE_OPTIONS\""
         echo "}"
         echo
-    fi
-    if [ "$EDGE_AVAILABLE" = "1" ]; then
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Edge / Experimental Kernel (Console)\" {"
-        echo "    loader  /vmlinuz-$KVER_EDGE"
+
+        # REDEFINED RESCUE (operator 2026-10-05): the SAME 7.3 kernel with
+        # every accelerator blacklisted, booting the normal root. This is the
+        # arm64 counterpart of the amd64 same-kernel rescue entry.
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Rescue / No Accelerators (Console)\" {"
+        echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
-        [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
-        echo "    options \"$EDGE_OPTIONS\""
-        echo "}"
-        echo
-    fi
-    if [ "$EDGE_ACCEL_AVAILABLE" = "1" ]; then
-        # Parallel entry to the (Console) one above: same edge kernel, but the
-        # vendor Mali/Panthor DKMS modules are wired in. Only emitted when the
-        # accelerated staging (gate above) actually verified the mali overlay
-        # .ko files exist for $KVER_EDGE -- never as a best-effort guess.
-        # Must NOT match DEFAULT_TOKEN exactly: rEFInd matches default_selection
-        # as a substring (see DEFAULT_TOKEN comment above), so a literal
-        # "Mali (Default)" suffix on the stable entry already reserves the
-        # exact-match slot. "Mali (Experimental)" is unique.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Edge / Experimental Kernel (Mali, Experimental)\" {"
-        echo "    loader  /vmlinuz-$KVER_EDGE"
-        [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
-        [ "$EDGE_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_EDGE"
-        echo "    options \"$EDGE_ACCEL_OPTIONS\""
+        [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
+        echo "    options \"$NEXT_RESCUE_OPTIONS\""
         echo "}"
         echo
     fi
     if [ -n "$RESCUEPART_OPTIONS" ]; then
-        # Boots the SHIPPING (edge) kernel. KVER_NEXT is the only kernel
-        # sidecar this script accepts.
-        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.2 Rescue Partition (Console)\" {"
+        # Boots the SAME 7.3 kernel with the accelerators blacklisted.
+        echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Rescue Partition (Console)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
@@ -989,7 +871,9 @@ fi
         _rescue_file=${_rescue_img##*/}
         _rescue_tag=${_rescue_file#vmlinuz-}
         _rescue_tag=${_rescue_tag%-rescue}
-        _rescue_options=$(printf '%s\n' "$MALI_OPTIONS" | tr ' ' '\n' \
+        # Same-kernel rescue semantics (operator 2026-10-05): use the rescue
+        # option string, which carries the accelerator blacklist.
+        _rescue_options=$(printf '%s\n' "$NEXT_RESCUE_OPTIONS" | tr ' ' '\n' \
             | grep -vE '^(oops=panic|panic=[0-9]+|quiet|)$' | paste -sd' ' -)
         echo "menuentry \"RESCUE  -  $_rescue_tag known-good kernel\" {"
         echo "    loader  /$_rescue_file"

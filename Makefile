@@ -611,6 +611,9 @@ parity:
 	build/test-base-stamp.sh
 	build/test-reap-images.sh
 	REPO_ROOT=$(ROOT) bash build/test-amd64-kernel-classifier.sh
+	bash build/test-amd64-t2-detect.sh
+	bash build/test-amd64-t2-default-compat.sh
+	build/test-arm64-freshness-gate.sh
 	build/test-amd64-dracut-isolation.sh
 	build/test-kernel-default-policy.sh
 	build/test-kernel-purity-pin.sh

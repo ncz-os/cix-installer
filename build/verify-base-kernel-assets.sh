@@ -91,10 +91,10 @@ EMBED_BASE="usr/local/lib/cix-installer/assets/kernel"
 # dpkg --print-architecture as a last-resort fallback. On arm64 it
 # skips cleanly; on amd64 it runs the existing comparison as before.
 #
-# Policy update (operator directive 2026-10-05): amd64 ships the 7.2.x
-# stable line as the default plus the pinned 7.3.0-rc6 AER-revert edge line
-# (7.3.0-rc6-1-t2-edge-aerfix). LINES now covers amd64-stable and, when that
-# channel is present, amd64-edge; the embed filter matches both.
+# Policy update (operator directive 2026-10-05, unified): amd64 ships ONE
+# 7.3 kernel under assets/kernel/amd64-stable. The former second "edge"
+# channel (amd64-edge) was retired, so LINES covers amd64-stable only and the
+# embed filter matches that one line.
 ARCH="${NCZ_TARGET_ARCH:-}"
 if [ -z "$ARCH" ] && [ -r "$ROOT/build/iso-staging-di/ncz-payload/BUILD_ARCH" ]; then
     ARCH=$(tr -d '[:space:]' < "$ROOT/build/iso-staging-di/ncz-payload/BUILD_ARCH")
@@ -105,7 +105,6 @@ if [ "$ARCH" != "amd64" ]; then
     exit 0
 fi
 LINES=(amd64-stable)
-[ -d "$ROOT/assets/kernel/amd64-edge" ] && LINES+=(amd64-edge)
 
 EMBED_LIST="$(mktemp "${TMPDIR:-/tmp}/ncz-vbka-embed.XXXXXX")"
 SRC_LIST="$(mktemp "${TMPDIR:-/tmp}/ncz-vbka-src.XXXXXX")"
@@ -125,7 +124,7 @@ trap 'rm -f "$EMBED_LIST" "$SRC_LIST"' EXIT
 # operator inspection might).
 # Space-separated channel prefixes; awk splits them and tests each with a
 # separate ERE (portable across awk implementations, no alternation).
-EMBED_LINES_RE='amd64-stable amd64-edge'
+EMBED_LINES_RE='amd64-stable'
 unsquashfs -l "$LAYER" 2>/dev/null \
     | sed -e 's#^squashfs-root/##' \
     | awk -v eb="$EMBED_BASE" -v lre="$EMBED_LINES_RE" '
@@ -148,8 +147,7 @@ unsquashfs -l "$LAYER" 2>/dev/null \
 # historically read it; the rewritten hook derives its expected kver
 # from the .deb filename now, but the sidecar is still committed and
 # still gets baked in, so it must remain consistent with the source).
-# Policy update (2026-10-05): amd64-stable and the pinned amd64-edge
-# channel are both scanned when amd64-edge is present in the tree.
+# Policy update (2026-10-05, unified): only amd64-stable is scanned.
 : > "$SRC_LIST"
 for line in "${LINES[@]}"; do
     d="$SRC_BASE/$line"

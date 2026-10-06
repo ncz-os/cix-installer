@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "channel": "edge",
+  "channel": "default",
   "arch": "arm64",
   "kver": "7.3.0-rc6-sky1-ncz",
   "build_rev": "r282",
   "staged_utc": "2026-10-05",
-  "channel_pointer": "assets/kernel/edge",
+  "channel_pointer": "assets/kernel/mainline",
   "staging_dir": "/mnt/argonas-yocto-shared/kernel-staging/r282-7.3.0-rc6-sky1-ncz-20261004",
-  "policy": "assets/kernel/KERNEL-POLICY (STABLE_BASE=7.2.9, EDGE_BASE=7.3.0-rc6)",
-  "note": "Edge is a bootable NON-default entry. The Sky1 default/installer kernel remains 7.2.9 (assets/kernel/mainline). Overlay .ko are mirrored into the repo under assets/kernel/<drv>/7.3.0-rc6-sky1-ncz/.",
+  "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
+  "note": "This is the Sky1 arm64 DEFAULT and installer boot kernel under the unified 7.3 policy (operator 2026-10-05): assets/kernel/edge is gone and assets/kernel/mainline points at this r282 build. The retired 7.2.9 default is not shipped. Overlay .ko are mirrored into the repo under assets/kernel/<drv>/7.3.0-rc6-sky1-ncz/. Replaced by the 7.3.0 final build later.",
   "source": {
     "base_tag": "v7.3-rc6",
     "base_peel": "a90ee4305c4a5df72c11b31dacfdc76e00fcf78a",

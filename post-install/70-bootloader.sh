@@ -72,13 +72,12 @@ run_refind_arm64() {
     KVER_NEXT=""
     [ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
     if [ -z "$KVER_NEXT" ]; then
-        echo "ERROR: KVER_NEXT sidecar missing (edge kernel is the only supported channel)"
+        echo "ERROR: KVER_NEXT sidecar missing (the unified 7.3 kernel is the only supported channel)"
         exit 1
     fi
-    # KVER_EDGE (2026-09-15): optional second, EXPERIMENTAL kernel line --
-    # see post-install/10-our-kernel.sh for how it gets installed. Absence
-    # is fine (single-kernel ISOs still build); ncz-refind-refresh.sh only
-    # emits the 5th menu entry when this is non-empty.
+    # Unified 7.3 (operator 2026-10-05): one kernel. There is no second
+    # experimental edge line; a stale KVER_EDGE sidecar is ignored by
+    # ncz-refind-refresh.sh.
     KVER_EDGE=""
     [ -f "$INSTALLER_META/KVER_EDGE" ] && KVER_EDGE=$(cat "$INSTALLER_META/KVER_EDGE" 2>/dev/null || true)
 

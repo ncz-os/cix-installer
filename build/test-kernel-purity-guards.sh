@@ -4,11 +4,14 @@
 #
 #  1. assets/refind/ncz-refind-refresh.sh (arm64) and
 #     assets/refind/ncz-refind-refresh-amd64.sh must each REJECT a
-#     Debian-named (7.1.x / *-arm64 / *-amd64) or -rcN kernel as the default.
+#     Debian-named (7.1.x / *-arm64 / *-amd64) kernel as the default. Under the
+#     unified 7.3 policy (operator 2026-10-05) an -rcN IS a permitted default
+#     while KERNEL-POLICY RC_DEFAULT_ALLOWED=1, so the runtime guard no longer
+#     refuses -rcN; the series enforcement is the build-time verifier's job.
 #     The guard `case` block is extracted verbatim from the shipped script and
 #     executed against sample KVERs, so this tests the real code, not a copy.
 #  2. build/build-iso-di.sh (the legacy d-i assembly path) must boot the
-#     installer with our staged 7.2.9 amd64 kernel, not the substrate's Debian
+#     installer with our staged 7.3 amd64 kernel, not the substrate's Debian
 #     forky 7.1.x kernel. This is checked structurally (the amd64 branch exists
 #     and extracts a linux-image-*.deb from assets/kernel/amd64-stable) because
 #     assembling a real ISO is not a unit test.
@@ -52,18 +55,16 @@ run_guard() {
 echo "=== arm64 refresh script guard (ncz-refind-refresh.sh) ==="
 snippet="$(extract_guard "$ARM64" KVER_NEXT)"
 [ -n "$snippet" ] && ok "KVER_NEXT guard block present" || bad "no KVER_NEXT guard block found"
-run_guard "$ARM64" KVER_NEXT "7.2.9-sky1-ncz" >/dev/null
-[ "$(run_guard "$ARM64" KVER_NEXT 7.2.9-sky1-ncz)" = 0 ] && ok "accepts the NCZ 7.2.9 Sky1 KVER" || bad "rejected the NCZ 7.2.9 Sky1 KVER"
+run_guard "$ARM64" KVER_NEXT "7.3.0-rc6-sky1-ncz" >/dev/null
+[ "$(run_guard "$ARM64" KVER_NEXT 7.3.0-rc6-sky1-ncz)" = 0 ] && ok "accepts the NCZ 7.3.0-rc6 Sky1 KVER (rc default allowed)" || bad "rejected the NCZ 7.3.0-rc6 Sky1 KVER"
 [ "$(run_guard "$ARM64" KVER_NEXT 7.1.4-arm64)" != 0 ] && ok "rejects Debian 7.1.4-arm64" || bad "accepted Debian 7.1.4-arm64"
 [ "$(run_guard "$ARM64" KVER_NEXT 6.1.0-13-arm64)" != 0 ] && ok "rejects Debian 6.1.0-13-arm64" || bad "accepted Debian 6.1.0-13-arm64"
-[ "$(run_guard "$ARM64" KVER_NEXT 7.3.0-rc5-sky1-ncz)" != 0 ] && ok "rejects a -rcN prerelease" || bad "accepted a -rcN prerelease"
 
 echo "=== amd64 refresh script guard (ncz-refind-refresh-amd64.sh) ==="
 snippet="$(extract_guard "$AMD64" KVER_STABLE)"
 [ -n "$snippet" ] && ok "KVER_STABLE guard block present" || bad "no KVER_STABLE guard block found"
-[ "$(run_guard "$AMD64" KVER_STABLE 7.2.9-2-t2-trixie)" = 0 ] && ok "accepts the NCZ 7.2.9 T2 KVER" || bad "rejected the NCZ 7.2.9 T2 KVER"
+[ "$(run_guard "$AMD64" KVER_STABLE 7.3.0-rc6-1-t2-edge-aerfix)" = 0 ] && ok "accepts the NCZ 7.3.0-rc6 T2 KVER (rc default allowed)" || bad "rejected the NCZ 7.3.0-rc6 T2 KVER"
 [ "$(run_guard "$AMD64" KVER_STABLE 7.1.10-1-amd64)" != 0 ] && ok "rejects Debian 7.1.10-1-amd64" || bad "accepted Debian 7.1.10-1-amd64"
-[ "$(run_guard "$AMD64" KVER_STABLE 7.3.0-rc5-1-t2-trixie)" != 0 ] && ok "rejects a -rcN prerelease" || bad "accepted a -rcN prerelease"
 
 echo "=== legacy build-iso-di.sh: amd64 installer boots our kernel, not Debian's ==="
 if grep -qE '^elif \[ "\$NCZ_TARGET_ARCH" = "amd64" \]; then' "$LEGACY"; then

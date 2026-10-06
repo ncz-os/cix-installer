@@ -1,5 +1,10 @@
 # Kernel default policy — operator directive 2026-09-30
 
+> **SUPERSEDED (operator 2026-10-05):** NCZ-OS now ships ONE unified 7.3 kernel on
+> every arch. 7.2.9 is retired and there is no edge channel. See
+> `docs/reports/2026-10-05-kernel-channel-policy.md`. This report is kept as
+> history.
+
 ## TL;DR
 
 - The DEFAULT kernel on every NCZ-OS architecture is **7.2.8 (or 7.2.x-*)** —
