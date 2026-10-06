@@ -1,0 +1,126 @@
+diff --git a/t2smc.c b/t2smc.c
+index 3f93861..c4decb3 100644
+--- a/t2smc.c
++++ b/t2smc.c
+@@ -509,18 +509,45 @@ static int t2smc_read_scaled(struct t2smc_device *t2, const char *key,
+ 			return ret;
+ 
+ 		memcpy(&raw, buf, sizeof(raw));
++		/*
++		 * IEEE 754 special values (zero/exponent all-zeros,
++		 * infinity/exponent all-ones) yield an undefined
++		 * decode; clamp them to the appropriate extreme here
++		 * rather than letting the shift-and-multiply path
++		 * produce a meaningless sentinel.
++		 */
+ 		magnitude = (raw & GENMASK(22, 0)) | BIT(23);
+ 		exponent = ((raw >> 23) & 0xff) - 127 - 23;
++
++		/*
++		 * Exponent >= 63 will overflow a long after the scale
++		 * multiply and shift; saturate to the signed extreme.
++		 */
++		if (exponent >= 63) {
++			*val = raw & BIT(31) ? LONG_MIN : LONG_MAX;
++			return 0;
++		}
++
+ 		magnitude *= scale;
+ 
++		/*
++		 * After multiplying by @scale, magnitude may have grown
++		 * large enough that the subsequent left shift would
++		 * overflow u64.  Saturate so the final signed result is
++		 * always in range rather than silently wrapping.
++		 */
++		if (exponent > 0 &&
++		    (magnitude >> (64 - exponent)) != 0) {
++			*val = raw & BIT(31) ? LONG_MIN : LONG_MAX;
++			return 0;
++		}
++
+ 		if (exponent < -63)
+ 			magnitude = 0;
+ 		else if (exponent < 0)
+ 			magnitude >>= -exponent;
+-		else if (exponent < 63)
+-			magnitude <<= exponent;
+ 		else
+-			magnitude = LONG_MAX;
++			magnitude <<= exponent;
+ 
+ 		*val = min_t(u64, magnitude, LONG_MAX);
+ 		if (raw & BIT(31))
+@@ -1416,52 +1443,70 @@ static ssize_t t2smc_power_show(struct device *dev,
+ 		return sysfs_emit(buf, "%u\n", READ_ONCE(t2->power_status));
+ 	case T2SMC_POWER_CAPACITY:
+ 		ret = t2smc_read_be16(t2, T2SMC_BATTERY_CAPACITY, &value16);
++		if (ret)
++			return ret;
+ 		val = value16;
+ 		break;
+ 	case T2SMC_POWER_BATTERY_VOLTAGE:
+ 		ret = t2smc_read_be16(t2, T2SMC_BATTERY_VOLTAGE, &value16);
++		if (ret)
++			return ret;
+ 		val = (long)value16 * 1000;
+ 		break;
+ 	case T2SMC_POWER_BATTERY_CURRENT:
+ 		ret = t2smc_read_be16_signed(t2, T2SMC_BATTERY_CURRENT,
+ 					     &signed16);
++		if (ret)
++			return ret;
+ 		val = (long)signed16 * 1000;
+ 		break;
+ 	case T2SMC_POWER_BATTERY_POWER:
+ 		ret = t2smc_read_scaled(t2, T2SMC_BATTERY_POWER, 1000000, &val);
++		if (ret)
++			return ret;
+ 		break;
+ 	case T2SMC_POWER_CHARGE_FULL:
+ 		ret = t2smc_read_be16(t2, T2SMC_BATTERY_FULL, &value16);
++		if (ret)
++			return ret;
+ 		val = (long)value16 * 1000;
+ 		break;
+ 	case T2SMC_POWER_CHARGE_NOW:
+ 		ret = t2smc_read_be16(t2, T2SMC_BATTERY_REMAINING, &value16);
++		if (ret)
++			return ret;
+ 		val = (long)value16 * 1000;
+ 		break;
+ 	case T2SMC_POWER_CYCLE_COUNT:
+ 		ret = t2smc_read_be16(t2, T2SMC_BATTERY_CYCLES, &value16);
++		if (ret)
++			return ret;
+ 		val = value16;
+ 		break;
+ 	case T2SMC_POWER_ADAPTER_VOLTAGE:
+ 		ret = t2smc_read_scaled(t2, T2SMC_ADAPTER_VOLTAGE,
+ 					1000000, &val);
++		if (ret)
++			return ret;
+ 		break;
+ 	case T2SMC_POWER_ADAPTER_CURRENT:
+ 		ret = t2smc_read_scaled(t2, T2SMC_ADAPTER_CURRENT,
+ 					1000000, &val);
++		if (ret)
++			return ret;
+ 		break;
+ 	case T2SMC_POWER_ADAPTER_POWER:
+ 		key = !IS_ERR(t2smc_get_entry_by_key(t2,
+ 						     T2SMC_ADAPTER_POWER_OLD)) ?
+ 			T2SMC_ADAPTER_POWER_OLD : T2SMC_ADAPTER_POWER;
+ 		ret = t2smc_read_scaled(t2, key, 1000000, &val);
++		if (ret)
++			return ret;
+ 		break;
+ 	default:
+ 		return -EINVAL;
+ 	}
+ 
+-	if (ret)
+-		return ret;
+ 	return sysfs_emit(buf, "%ld\n", val);
+ }
+ 

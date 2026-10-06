@@ -1,0 +1,138 @@
+diff --git a/t2gmux.c b/t2gmux.c
+index ddc651e..ff31a8e 100644
+--- a/t2gmux.c
++++ b/t2gmux.c
+@@ -72,6 +72,15 @@ struct apple_gmux_data {
+ 	acpi_handle dhandle;
+ 	int gpe;
+ 	bool gpe_enabled;
++	/*
++	 * Records the last mailbox access failure observed by the MMIO
++	 * accessors: -EBUSY when the mailbox was still busy at entry,
++	 * -ETIMEDOUT when a command did not complete.  Plain callers
++	 * still receive the historical busy-value sentinel for
++	 * back-compat; explicit callers (the power-state path) inspect
++	 * this and bail out instead of caching a fake reading.
++	 */
++	int last_mmio_error;
+ 	/*
+ 	 * Serializes complete power transitions including the wait for the gmux
+ 	 * power interrupt, like the AGC command gate that sleeps on it.
+@@ -556,18 +565,25 @@ static u32 gmux_mmio_read(struct apple_gmux_data *gmux_data, int port,
+ 	u32 val = GMUX_MMIO_BUSY_VALUE;
+ 
+ 	mutex_lock(&gmux_data->index_lock);
+-	if (!gmux_mmio_busy(gmux_data)) {
+-		iowrite8(port & 0xff, gmux_data->iomem_base + GMUX_MMIO_PORT_SELECT);
+-		iowrite8(GMUX_MMIO_READ | size,
+-			 gmux_data->iomem_base + GMUX_MMIO_COMMAND_SEND);
+-		if (gmux_mmio_busy(gmux_data))
+-			pr_warn_ratelimited("read command timeout on port 0x%x\n",
+-					    port);
++	if (gmux_mmio_busy(gmux_data)) {
++		gmux_data->last_mmio_error = -EBUSY;
++		goto out;
++	}
++	iowrite8(port & 0xff, gmux_data->iomem_base + GMUX_MMIO_PORT_SELECT);
++	iowrite8(GMUX_MMIO_READ | size,
++		 gmux_data->iomem_base + GMUX_MMIO_COMMAND_SEND);
++	if (gmux_mmio_busy(gmux_data)) {
++		gmux_data->last_mmio_error = -ETIMEDOUT;
++		pr_warn_ratelimited("read command timeout on port 0x%x\n",
++				    port);
++	} else {
++		gmux_data->last_mmio_error = 0;
+ 		if (size == 4)
+ 			val = ioread32be(gmux_data->iomem_base);
+ 		else
+ 			val = ioread8(gmux_data->iomem_base);
+ 	}
++out:
+ 	mutex_unlock(&gmux_data->index_lock);
+ 
+ 	return val;
+@@ -577,18 +593,25 @@ static void gmux_mmio_write(struct apple_gmux_data *gmux_data, int port,
+ 			    u32 val, int size)
+ {
+ 	mutex_lock(&gmux_data->index_lock);
+-	if (!gmux_mmio_busy(gmux_data)) {
+-		if (size == 4)
+-			iowrite32be(val, gmux_data->iomem_base);
+-		else
+-			iowrite8(val, gmux_data->iomem_base);
+-		iowrite8(port & 0xff, gmux_data->iomem_base + GMUX_MMIO_PORT_SELECT);
+-		iowrite8(GMUX_MMIO_WRITE | size,
+-			 gmux_data->iomem_base + GMUX_MMIO_COMMAND_SEND);
+-		if (gmux_mmio_busy(gmux_data))
+-			pr_warn_ratelimited("write command timeout on port 0x%x\n",
+-					    port);
++	if (gmux_mmio_busy(gmux_data)) {
++		gmux_data->last_mmio_error = -EBUSY;
++		goto out;
++	}
++	if (size == 4)
++		iowrite32be(val, gmux_data->iomem_base);
++	else
++		iowrite8(val, gmux_data->iomem_base);
++	iowrite8(port & 0xff, gmux_data->iomem_base + GMUX_MMIO_PORT_SELECT);
++	iowrite8(GMUX_MMIO_WRITE | size,
++		 gmux_data->iomem_base + GMUX_MMIO_COMMAND_SEND);
++	if (gmux_mmio_busy(gmux_data)) {
++		gmux_data->last_mmio_error = -ETIMEDOUT;
++		pr_warn_ratelimited("write command timeout on port 0x%x\n",
++				    port);
++	} else {
++		gmux_data->last_mmio_error = 0;
+ 	}
++out:
+ 	mutex_unlock(&gmux_data->index_lock);
+ }
+ 
+@@ -849,6 +872,7 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
+ 
+ 	mutex_lock(&gmux_data->power_lock);
+ 	reinit_completion(&gmux_data->powerchange_done);
++	gmux_data->last_mmio_error = 0;
+ 
+ 	if (state == VGA_SWITCHEROO_ON) {
+ 		if (gmux_data->use_pwrd_power_sequence &&
+@@ -950,6 +974,19 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
+ 	}
+ 
+ 	gmux_data->power_state = state;
++	/*
++	 * If the mailbox reported a busy-or-timed-out access during the
++	 * power transition, do not advertise the new state as confirmed.
++	 * The interrupt worker (or another caller) may have raced with our
++	 * writes; keep power_state set so we do not loop, but report the
++	 * failure to the caller so userspace can react.
++	 */
++	if (gmux_data->last_mmio_error) {
++		pr_warn("mmio mailbox error during power %s: %d\n",
++			state == VGA_SWITCHEROO_ON ? "up" : "down",
++			gmux_data->last_mmio_error);
++		ret = gmux_data->last_mmio_error;
++	}
+ 	mutex_unlock(&gmux_data->power_lock);
+ 
+ 	pr_debug("power: waiting for gmux completion\n");
+@@ -963,7 +1000,7 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
+ 	gmux_dump_power(gmux_data, state == VGA_SWITCHEROO_ON ?
+ 			"power up: done" : "power down: done", false);
+ 
+-	return 0;
++	return ret;
+ 
+ out_unlock:
+ 	gmux_unlock_dgpu_cfg(&cfg_locks);
+@@ -1475,6 +1512,7 @@ get_version:
+ 	mutex_init(&gmux_data->transition_lock);
+ 	mutex_init(&gmux_data->power_lock);
+ 	INIT_WORK(&gmux_data->interrupt_work, gmux_interrupt_work);
++	gmux_data->last_mmio_error = 0;
+ 	gmux_disable_interrupts(gmux_data);
+ 
+ 	status = acpi_evaluate_integer(gmux_data->dhandle, "GMGP", NULL, &gpe);
+-- 
+2.50.1 (Apple Git-155)
+

@@ -1,0 +1,31 @@
+diff --git a/t2smc.c b/t2smc.c
+index 60674c2..e68c8b0 100644
+--- a/t2smc.c
++++ b/t2smc.c
+@@ -689,8 +689,17 @@ static int t2smc_init_keycache(struct t2smc_device *t2)
+ 
+ 		if (t2->temp_count) {
+ 			unsigned int idx = 0;
++			unsigned int alloc_count =
++				t2smc_temp_alloc_count(temp_begin, temp_end);
+ 
+-			t2->temp_keys = kcalloc(t2->temp_count,
++			/*
++			 * Allocate the whole T..U candidate range, not the
++			 * pass-one success count: a key that transiently
++			 * failed pass one can still succeed on pass two and
++			 * would otherwise write beyond a pass-one-sized
++			 * array.  The final populated count is stored back.
++			 */
++			t2->temp_keys = kcalloc(alloc_count,
+ 						sizeof(t2->temp_keys[0]),
+ 						GFP_KERNEL);
+ 			if (!t2->temp_keys) {
+@@ -710,6 +719,7 @@ static int t2smc_init_keycache(struct t2smc_device *t2)
+ 					t2->temp_keys[idx][4] = '\0';
+ 					idx++;
+ 				}
++				t2->temp_count = idx;
+ 			}
+ 		}
+ 	}

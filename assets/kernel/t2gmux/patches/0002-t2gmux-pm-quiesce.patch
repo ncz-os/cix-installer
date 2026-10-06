@@ -1,0 +1,86 @@
+diff --git a/t2gmux.c b/t2gmux.c
+index ddc651e..3683ca8 100644
+--- a/t2gmux.c
++++ b/t2gmux.c
+@@ -72,6 +72,13 @@ struct apple_gmux_data {
+ 	acpi_handle dhandle;
+ 	int gpe;
+ 	bool gpe_enabled;
++	/*
++	 * Set by suspend/shutdown before gmux_stop_interrupts() so the
++	 * interrupt worker can refuse to touch the mailbox once we begin
++	 * quiescing.  Read under power_lock; the suspend path
++	 * cancel_work_sync()s the worker after setting it.
++	 */
++	bool quiescing;
+ 	/*
+ 	 * Serializes complete power transitions including the wait for the gmux
+ 	 * power interrupt, like the AGC command gate that sleeps on it.
+@@ -1161,6 +1168,18 @@ static void gmux_interrupt_work(struct work_struct *work)
+ 	u8 status;
+ 
+ 	mutex_lock(&gmux_data->power_lock);
++	/*
++	 * The PM path may have set quiescing and is waiting for us to
++	 * drain; if so, refuse to touch the mailbox - the suspend path
++	 * will re-enable interrupts (or fail gracefully) when it
++	 * resumes.
++	 */
++	if (gmux_data->quiescing) {
++		acpi_finish_gpe(NULL, gmux_data->gpe);
++		mutex_unlock(&gmux_data->power_lock);
++		return;
++	}
++
+ 	status = gmux_interrupt_get_status(gmux_data);
+ 	pr_debug("Interrupt: status %d\n", status);
+ 	if (!status) {
+@@ -1301,7 +1320,20 @@ static int gmux_suspend(struct device *dev)
+ 	struct pnp_dev *pnp = to_pnp_dev(dev);
+ 	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
+ 
++	/*
++	 * Mark the worker quiescing and stop interrupts, then drain any
++	 * work that was already scheduled.  Without this, a worker that
++	 * queued before gmux_stop_interrupts() could subsequently access
++	 * the mailbox and even re-enable gmux interrupts after the
++	 * suspend path marked them disabled.
++	 */
++	mutex_lock(&gmux_data->power_lock);
++	gmux_data->quiescing = true;
++	mutex_unlock(&gmux_data->power_lock);
++
+ 	gmux_stop_interrupts(gmux_data);
++	if (gmux_data->gpe >= 0)
++		cancel_work_sync(&gmux_data->interrupt_work);
+ 	gmux_write_gpu_active(gmux_data);
+ 	return 0;
+ }
+@@ -1310,7 +1342,13 @@ static void gmux_shutdown(struct pnp_dev *pnp)
+ {
+ 	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
+ 
++	mutex_lock(&gmux_data->power_lock);
++	gmux_data->quiescing = true;
++	mutex_unlock(&gmux_data->power_lock);
++
+ 	gmux_stop_interrupts(gmux_data);
++	if (gmux_data->gpe >= 0)
++		cancel_work_sync(&gmux_data->interrupt_work);
+ 	gmux_write_gpu_active(gmux_data);
+ }
+ 
+@@ -1319,6 +1357,10 @@ static int gmux_resume(struct device *dev)
+ 	struct pnp_dev *pnp = to_pnp_dev(dev);
+ 	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
+ 
++	mutex_lock(&gmux_data->power_lock);
++	gmux_data->quiescing = false;
++	mutex_unlock(&gmux_data->power_lock);
++
+ 	gmux_write8(gmux_data, GMUX_PORT_INTERRUPT_STATUS, 0xff);
+ 	gmux_enable_interrupts(gmux_data);
+ 	gmux_start_interrupts(gmux_data);
+-- 
+2.50.1 (Apple Git-155)
+
