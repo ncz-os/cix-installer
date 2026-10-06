@@ -241,6 +241,7 @@ extract54() {
             -e "s#/etc/cix-installer#$SB/etc/cix-installer#g" -e "s#/usr/local/lib/cix-installer/COMPONENTS#$SB/x/COMPONENTS#g" -e "s#/var/lib/cix-components#$SB/var/lib/cix-components#g" \
             -e "s#NCZ_NV_ASSETS=[^ ]*#NCZ_NV_ASSETS=$SB/assets#" \
             -e "s#/usr/local/sbin#$SB/usr/local/sbin#g" -e "s#/etc/systemd/system#$SB/etc/systemd/system#g" \
+            -e "s#/usr/local/lib/ncz#$SB/usr/local/lib/ncz#g" \
             -e "s#/etc/apt/preferences.d#$SB/etc/apt/preferences.d#g" -e "s#/etc/apt/sources.list.d#$SB/etc/apt/sources.list.d#g" \
             -e "s#/usr/share/keyrings#$SB/usr/share/keyrings#g" -e "s#/etc/crypto-policies#$SB/etc/crypto-policies#g" \
             -e "s#/usr/share/apt/default-sequoia.config#$SB/default-sequoia.config#g" \
@@ -276,6 +277,20 @@ RTX='01:00.0 VGA compatible controller [0300]: NVIDIA Corporation TU106M [GeForc
 GTX='01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP106 [GeForce GTX 1060] [10de:1c03]'
 GTX680='01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GK104 [GeForce GTX 680] [10de:1180]'
 got="$(run54w "$RTX" 0)";  eq "54: Turing GPU, install succeeds now" "$got" "installed:13.4.92-1"
+if grep -qF "$SB/usr/local/lib/ncz/nvidia-dkms" "$SB/nvfunc.sh" && ! grep -oE '[^ "=]*/usr/local/lib/ncz' "$SB/nvfunc.sh" | grep -qv "^$SB"; then
+    ok "54: extracted block is sandboxed (/usr/local/lib/ncz)"
+else nok "54: extracted block writes the real /usr/local/lib/ncz (or does not install the DKMS patches at all)"; fi
+grep -q 'dkms not staged: no local NVIDIA DKMS patches' "$SB/log" && ok "54: missing DKMS patch assets are a note, not a failure" || nok "54: no note for missing DKMS patch assets"
+mkdir -p "$SB/assets/dkms/nvidia-615.71.09"; printf 'p\n' > "$SB/assets/dkms/nvidia-615.71.09/ncz-0001-x.patch"
+got="$(run54w "$RTX" 0)";  eq "54: with DKMS patch assets the install still succeeds" "$got" "installed:13.4.92-1"
+[ -f "$SB/usr/local/lib/ncz/nvidia-dkms/nvidia-615.71.09/ncz-0001-x.patch" ] && ok "54: DKMS patch assets installed for ncz-cuda-setup" || nok "54: DKMS patch assets not installed"
+rm -rf "$SB/assets/dkms"
+[ -d "$ROOT/assets/nvidia/dkms/nvidia-615.71.09" ] && ls "$ROOT/assets/nvidia/dkms/nvidia-615.71.09/"*.patch >/dev/null 2>&1 \
+    && ok "assets: the 615.71.09 dmem (Linux 7.3) DKMS patch is shipped" || nok "assets: 615.71.09 DKMS patch missing"
+grep -q '^+.*dmem_cgroup_register_region(&init, "%s", name);' "$ROOT/assets/nvidia/dkms/nvidia-615.71.09/"*.patch 2>/dev/null \
+    && ok "assets: the patch passes the name through \"%s\"" || nok "assets: patch does not use the 7.3 init struct with \"%s\""
+grep -q 'NV_DMEM_CGROUP_INIT_PRESENT' "$ROOT/assets/nvidia/dkms/nvidia-615.71.09/"*.patch 2>/dev/null \
+    && ok "assets: the patch is conftest-guarded (builds on pre-7.3 kernels too)" || nok "assets: patch is not conftest-guarded"
 grep -q '^FAMILY=turing-plus' "$SB/etc/ncz/cuda-selection.conf" && ok "54: cuda-selection.conf records the family" || nok "54: conf missing family"
 grep -q '^GPU_PCI_ID=10de:1f15' "$SB/etc/ncz/cuda-selection.conf" && ok "54: cuda-selection.conf records the GPU id" || nok "54: conf missing GPU id"
 grep -q 'Pin: version 615' "$SB/etc/apt/preferences.d/ncz-nvidia-cuda.pref" && ok "54: driver-branch pin written (615.*)" || nok "54: pin missing"
@@ -437,6 +452,122 @@ csconf maxwell-volta; eq "setup: status works and shows the family" "$(cs status
 grep -q 'FAMILY=maxwell-volta' "$CS/out" && ok "setup: status prints the selection (family)" || nok "setup: status lacks the family"
 grep -q 'KMOD=proprietary' "$CS/out" && ok "setup: status prints the kernel module kind" || nok "setup: status lacks KMOD"
 eq "setup: bad usage exits 2" "$(cs bogus)" 2
+
+# ------------------------- ncz-cuda-setup: DKMS build failure, back-off, local DKMS patches
+# STUB_APT=dkmsfail: the driver transaction runs the module postinst, whose DKMS
+# build writes a make.log with a compiler error (as on PEGASUS, 2026-10-06).
+export NCZ_NV_DKMS_PATCHES="$CS/patches" NCZ_DKMS_ETC="$CS/etc/dkms" NCZ_DKMS_TREE="$CS/dkms" \
+       NCZ_SRC_ROOT="$CS/usr/src" NCZ_MODULES_ROOT="$CS/modules"
+KV_A=7.3.0-rc6-3-t2-edge-aer9011; KV_B=7.3.0-rc6-4-t2-edge-aer9011
+printf '#!/bin/bash\n[ "$1" = -r ] && { echo "${STUB_KVER:-%s}"; exit 0; }\nexec /bin/uname "$@"\n' "$KV_A" > "$CS/bin/uname"
+printf '#!/bin/bash\necho "nvidia-kernel-open-dkms:"; echo "  Installed: (none)"; echo "  Candidate: ${STUB_NVVER:-615.71.09}-2"\n' > "$CS/bin/apt-cache"
+cat > "$CS/bin/apt-get-dkms" <<EOF
+#!/bin/bash
+# wraps the stub apt-get: a driver transaction records whether the local patch
+# conf was in place when the postinst would run, then fails the DKMS build
+case "\$*" in
+  *" -s "*|*install\ -s*|*update*) exec "$CS/bin/apt-get.real" "\$@" ;;
+esac
+case "\$*" in *cuda-drivers*)
+  [ -f "$CS/etc/dkms/nvidia-615.71.09.conf" ] && echo yes > "$CS/conf-at-postinst" || echo no > "$CS/conf-at-postinst"
+  if [ "\${STUB_APT:-ok}" = dkmsfail ]; then
+    v=\${STUB_NVVER:-615.71.09}; mkdir -p "$CS/dkms/nvidia/\$v/build"
+    { echo "DKMS (dkms-3.2.2) make.log for nvidia/\$v for kernel \${STUB_KVER:-$KV_A} (x86_64)"
+      echo "  CC [M]  nvidia/os-interface.o"
+      echo "nvidia/os-interface.c:3031:48: error: passing argument 1 of 'dmem_cgroup_register_region' makes pointer from integer without a cast [-Wint-conversion]"
+      echo "nvidia/other.c:1:1: error: a later error"; } > "$CS/dkms/nvidia/\$v/build/make.log"
+    echo "Building module(s)......(bad exit status: 2)"; echo "E: Sub-process /usr/bin/dpkg returned an error code (1)" >&2; exit 100
+  fi ;;
+esac
+exec "$CS/bin/apt-get.real" "\$@"
+EOF
+mv "$CS/bin/apt-get" "$CS/bin/apt-get.real"; mv "$CS/bin/apt-get-dkms" "$CS/bin/apt-get"; chmod +x "$CS/bin/"*
+dkconf() {   # fresh selection + a shipped local patch set for 615.71.09 + headers for both kernels
+    csconf turing-plus; rm -rf "$CS/dkms" "$CS/patches" "$CS/usr" "$CS/modules" "$CS/conf-at-postinst"
+    mkdir -p "$CS/patches/nvidia-615.71.09" "$CS/modules/$KV_A/build/include/generated" "$CS/modules/$KV_B/build/include/generated"
+    printf -- '--- a/x\n+++ b/x\n' > "$CS/patches/nvidia-615.71.09/ncz-0001-dmem.patch"
+    printf 'kernel-open/nvidia/os-interface.c\nstruct dmem_cgroup_init\n' > "$CS/patches/nvidia-615.71.09/fixed-upstream"
+    echo '#define CONFIG_CGROUP_DMEM 1' > "$CS/modules/$KV_A/build/include/generated/autoconf.h"
+    echo '#define CONFIG_X 1' > "$CS/modules/$KV_B/build/include/generated/autoconf.h"
+}
+dkconf
+eq "dkms: a DKMS compile failure is a hard failure (rc 1)" "$(STUB_APT=dkmsfail cs run)" 1
+eq "dkms: ... recorded as failed:dkms-build" "$(st)" "failed:dkms-build"
+grep -q "os-interface.c:3031:48: error: passing argument 1 of 'dmem_cgroup_register_region'" "$CS/setup.log" \
+    && ok "dkms: the FIRST compiler error is logged" || nok "dkms: first compiler error not logged"
+grep -q "a later error" "$CS/setup.log" && nok "dkms: later compiler errors are logged too (only the first should be)" || ok "dkms: only the first compiler error is logged"
+grep -q "for kernel $KV_A" "$CS/setup.log" && ok "dkms: log names the kernel the build failed for" || nok "dkms: log does not name the kernel"
+[ -s "$CS/var/lib/ncz/cuda-setup.dkms-failed" ] && ok "dkms: failure recorded with its inputs" || nok "dkms: no failure record"
+eq "dkms: the local patch conf existed before the postinst ran" "$(cat "$CS/conf-at-postinst" 2>/dev/null)" yes
+# literal line (single quotes, fixed-string match): DKMS evaluates the index itself when it sources the conf
+want_line='PATCH[${#PATCH[@]}]="ncz-0001-dmem.patch"'
+grep -qxF -- "$want_line" "$CS/etc/dkms/nvidia-615.71.09.conf" \
+    && ok "dkms: /etc/dkms/nvidia-615.71.09.conf lists the patch" || nok "dkms: conf lacks the PATCH entry: $(cat "$CS/etc/dkms/nvidia-615.71.09.conf" 2>/dev/null)"
+[ -f "$CS/usr/src/nvidia-615.71.09/patches/ncz-0001-dmem.patch" ] && ok "dkms: patch staged in the DKMS source dir" || nok "dkms: patch not staged"
+ls "$CS/etc/dkms/" | grep -v '^nvidia-615.71.09.conf$' | grep -q . && nok "dkms: a conf was written for another version" || ok "dkms: only the exact version gets a conf"
+( set +u; unset PATCH; . "$CS/etc/dkms/nvidia-615.71.09.conf"; [ "${PATCH[0]:-}" = ncz-0001-dmem.patch ] ) \
+    && ok "dkms: the conf sources as bash and sets PATCH[0] when dkms.conf has no patches" || nok "dkms: conf does not source to PATCH[0]"
+# the index is evaluated by DKMS when it sources the conf (after dkms.conf): it must append, never overwrite
+( set +u; PATCH=(vendor.patch); . "$CS/etc/dkms/nvidia-615.71.09.conf"; [ "${PATCH[0]}|${PATCH[1]:-}" = "vendor.patch|ncz-0001-dmem.patch" ] ) \
+    && ok "dkms: the conf appends after a dkms.conf PATCH[0]" || nok "dkms: the conf overwrote an existing PATCH[0]"
+cs status >/dev/null; grep -q 'dkms:.*build failed for' "$CS/out" && ok "dkms: status shows the DKMS failure" || nok "dkms: status lacks the DKMS failure"
+# back-off: same kernel, config, driver and patches -> no rebuild, even when the backoff elapsed and not parked
+echo "1 0" > "$CS/var/lib/ncz/cuda-setup.attempts"; rm -f "$CS/apt.calls" "$CS/conf-at-postinst"
+eq "dkms: scheduled run with identical inputs is a quiet no-op (rc 0)" "$(STUB_APT=dkmsfail cs run --scheduled)" 0
+[ ! -e "$CS/conf-at-postinst" ] && ok "dkms: identical inputs never re-run the driver install (no rebuild)" || nok "dkms: rebuilt with identical inputs"
+eq "dkms: status stays failed:dkms-build" "$(st)" "failed:dkms-build"
+for i in 1 2 3; do STUB_APT=dkmsfail cs run --scheduled >/dev/null; done
+[ ! -e "$CS/conf-at-postinst" ] && ok "dkms: repeated timer runs stay quiet (no spin)" || nok "dkms: timer runs rebuilt"
+# a new kernel booted -> retried now, ignoring the backoff
+echo "1 9999999999" > "$CS/var/lib/ncz/cuda-setup.attempts"
+eq "dkms: new running kernel -> retried and installs (rc 0)" "$(STUB_KVER=$KV_B STUB_APT=ok cs run --scheduled)" 0
+grep -q 'changed since the failed DKMS build; retrying now' "$CS/setup.log" && ok "dkms: retry reason logged" || nok "dkms: retry reason not logged"
+[ ! -e "$CS/var/lib/ncz/cuda-setup.dkms-failed" ] && ok "dkms: success clears the failure record" || nok "dkms: failure record survives success"
+# a new driver point release -> retried
+dkconf; STUB_APT=dkmsfail cs run >/dev/null; rm -f "$CS/conf-at-postinst"
+eq "dkms: new driver version -> retried (rc 1 again, same stub)" "$(STUB_NVVER=615.80.01 STUB_APT=dkmsfail cs run --scheduled)" 1
+[ -e "$CS/conf-at-postinst" ] && ok "dkms: new driver version re-ran the install" || nok "dkms: new driver version did not retry"
+# same kernel release, rebuilt headers with another config -> retried
+dkconf; STUB_APT=dkmsfail cs run >/dev/null; rm -f "$CS/conf-at-postinst"
+echo '/* CONFIG_CGROUP_DMEM is not set */' > "$CS/modules/$KV_A/build/include/generated/autoconf.h"
+STUB_APT=dkmsfail cs run --scheduled >/dev/null
+[ -e "$CS/conf-at-postinst" ] && ok "dkms: changed kernel config (same release) re-ran the install" || nok "dkms: changed config did not retry"
+# a changed local patch -> retried
+dkconf; STUB_APT=dkmsfail cs run >/dev/null; rm -f "$CS/conf-at-postinst"
+echo '+fix v2' >> "$CS/patches/nvidia-615.71.09/ncz-0001-dmem.patch"
+STUB_APT=dkmsfail cs run --scheduled >/dev/null
+[ -e "$CS/conf-at-postinst" ] && ok "dkms: changed local patch re-ran the install" || nok "dkms: changed patch did not retry"
+# explicit retry clears it
+dkconf; STUB_APT=dkmsfail cs run >/dev/null
+eq "dkms: explicit retry rebuilds and installs (rc 0)" "$(STUB_APT=ok cs retry)" 0
+[ ! -e "$CS/var/lib/ncz/cuda-setup.dkms-failed" ] && ok "dkms: retry clears the failure record" || nok "dkms: retry left the record"
+# a stale make.log from an older attempt must not turn a generic dpkg failure into failed:dkms-build
+dkconf; mkdir -p "$CS/dkms/nvidia/615.71.09/build"
+printf 'DKMS make.log for nvidia/615.71.09 for kernel old (x86_64)\nx.c:1:1: error: stale\n' > "$CS/dkms/nvidia/615.71.09/build/make.log"
+touch -d '2026-01-01 00:00:00' "$CS/dkms/nvidia/615.71.09/build/make.log"
+eq "dkms: generic driver failure with a stale make.log (rc 1)" "$(STUB_APT=drvfail cs run)" 1
+eq "dkms: ... is failed:driver-install, not failed:dkms-build" "$(st)" "failed:driver-install"
+[ ! -e "$CS/var/lib/ncz/cuda-setup.dkms-failed" ] && ok "dkms: no DKMS record from a stale log" || nok "dkms: stale log recorded as a DKMS failure"
+# the driver source already carries the fix -> the local patch is withdrawn, nothing applied
+dkconf; mkdir -p "$CS/usr/src/nvidia-615.71.09/kernel-open/nvidia"; : > "$CS/usr/src/nvidia-615.71.09/dkms.conf"
+echo 'struct dmem_cgroup_init init = { .size = size };' > "$CS/usr/src/nvidia-615.71.09/kernel-open/nvidia/os-interface.c"
+mkdir -p "$CS/etc/dkms"; printf '# Written by ncz-cuda-setup (NCZ-OS): old\nPATCH[0]="ncz-0001-dmem.patch"\n' > "$CS/etc/dkms/nvidia-615.71.09.conf"
+eq "dkms: install with an already-fixed source (rc 0)" "$(STUB_APT=ok cs run)" 0
+[ ! -e "$CS/etc/dkms/nvidia-615.71.09.conf" ] && ok "dkms: local patch conf withdrawn when the source has the fix" || nok "dkms: conf kept although the source has the fix"
+[ ! -e "$CS/usr/src/nvidia-615.71.09/patches/ncz-0001-dmem.patch" ] && ok "dkms: staged patch removed when the source has the fix" || nok "dkms: staged patch left behind"
+# a patch-set directory without patches writes no conf; an unsafe marker path is ignored (patches still staged)
+dkconf; rm -f "$CS/patches/nvidia-615.71.09/"*.patch
+eq "dkms: empty patch set -> plain install (rc 0)" "$(STUB_APT=ok cs run)" 0
+[ ! -e "$CS/etc/dkms/nvidia-615.71.09.conf" ] && ok "dkms: empty patch set writes no conf" || nok "dkms: conf written for an empty patch set"
+dkconf; printf '../../etc/passwd\nroot\n' > "$CS/patches/nvidia-615.71.09/fixed-upstream"
+eq "dkms: unsafe fixed-upstream path -> install (rc 0)" "$(STUB_APT=ok cs run)" 0
+grep -q "ignoring unsafe fixed-upstream path" "$CS/setup.log" && ok "dkms: unsafe fixed-upstream path is ignored and logged" || nok "dkms: unsafe marker path not rejected"
+[ -f "$CS/etc/dkms/nvidia-615.71.09.conf" ] && ok "dkms: ... the patches are still staged" || nok "dkms: unsafe marker withdrew the patches"
+# no shipped patches -> no conf, install unaffected
+csconf turing-plus; rm -rf "$CS/patches" "$CS/etc/dkms" "$CS/usr"
+eq "dkms: no local patch sets -> plain install (rc 0)" "$(STUB_APT=ok cs run)" 0
+[ ! -d "$CS/etc/dkms" ] && ok "dkms: no patch sets -> /etc/dkms untouched" || nok "dkms: /etc/dkms written without patch sets"
+unset NCZ_NV_DKMS_PATCHES NCZ_DKMS_ETC NCZ_DKMS_TREE NCZ_SRC_ROOT NCZ_MODULES_ROOT
 
 # ------------------------------------------- component chooser: "cuda" visibility
 # Run the real detection block of preseed/component-selector.sh against a fake
