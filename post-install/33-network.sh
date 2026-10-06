@@ -373,11 +373,32 @@ systemctl enable NetworkManager 2>&1 | tail -3 || true
 # which silently neutralises every "After=network-online.target"
 # ordering: timer/oneshot units (e.g. nclawzero-load-agent-images)
 # then fire before DHCP/link is up and fail at boot. Unmask + enable
-# so network-online.target actually waits for NM. This is bounded by
-# NM_ONLINE_TIMEOUT (~30s) and never blocks login/ssh, which are gated
-# on network.target (link present), not network-online.target.
+# so network-online.target actually waits for NM. It never blocks
+# login/ssh, which are gated on network.target (link present), not
+# network-online.target.
 systemctl unmask NetworkManager-wait-online.service 2>/dev/null || true
 systemctl enable NetworkManager-wait-online.service 2>&1 | tail -2 || true
+
+# (d3) Bound it at 15 s (2026-10-06). The stock unit sets
+# NM_ONLINE_TIMEOUT=60 (the comment above used to claim ~30 s), and
+# `nm-online -s` waits for NetworkManager's "startup complete", which also
+# waits for cable-less NICs and the first Wi-Fi scan. MEASURED (systemd
+# blame): 8.08 s on CHIMERA, 5.55 s on PEGASUS, both on a healthy DHCP LAN;
+# CHIMERA had its lease at 8.33 s and "startup complete" only at 16.04 s.
+# graphical.target waits for it through multi-user.target -> inetd.service
+# (After=network-online.target). The greeter does not, so this changes when
+# boot is "finished", not when the login screen appears. With no DHCP server
+# the wait was up to 60 s; 15 s is ~2x the measured healthy case. Units that
+# need the network for real keep their own ordering and retries
+# (ncz-cuda-setup.timer fires 2 min after boot; ncz-issue-refresh polls).
+install -d -m0755 /etc/systemd/system/NetworkManager-wait-online.service.d
+cat > /etc/systemd/system/NetworkManager-wait-online.service.d/10-ncz-bounded.conf <<'NMWAIT'
+[Service]
+# NCZ-OS: cap network-online at 15 s (post-install/33-network.sh, docs/BOOT-SEQUENCE.md).
+Environment=NM_ONLINE_TIMEOUT=15
+NMWAIT
+chmod 0644 /etc/systemd/system/NetworkManager-wait-online.service.d/10-ncz-bounded.conf
+echo "[33-network] NetworkManager-wait-online bounded at NM_ONLINE_TIMEOUT=15"
 # Don't try to start NM in the chroot — the host has no live network
 # stack to manage. First boot will pick it up via the enable.
 

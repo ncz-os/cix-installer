@@ -235,6 +235,8 @@ BAKED_HELPERS = [
     "ssh-keys.sh",
     # 2026-10-06: NIC carrier scan + netcfg pin, re-applied after the media preseed reload.
     "net-pick.sh",
+    # 2026-10-06: bounded background SNTP / HTTP-Date clock correction (clock-setup/ntp=false).
+    "clock-sync.sh",
 ]
 
 REQUIRED_SSH_UDEBS = (

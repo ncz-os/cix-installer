@@ -53,6 +53,20 @@ fi
 
 echo "  connected: $CONN_CARD ($CONN_OUTPUT)"
 
+# Sky1 only from here on (2026-10-06). The unit is disabled on amd64, but greetd's drop-in
+# (55-greeter.sh) Wants= it, so it still ran there every boot and pinned the Sky1 layout on PC
+# hardware: MEASURED on CHIMERA (MacBookPro16,1, i915 card0 + amdgpu card1) and PEGASUS (ASUS
+# GU502, i915 card0 + NVIDIA) -- both had /etc/udev/rules.d/73-cixmini-primary-display.rules
+# stripping master-of-seat from every other card (on PEGASUS that is the NVIDIA GPU, which drives
+# the HDMI port) plus an Xorg kmsdev pin. The rule is written after coldplug, so it applies at the
+# NEXT boot to whatever card numbering that boot gets. On PC hardware keep only the bounded wait
+# above: greetd's ExecCondition (ncz-has-drm-output) checks once, and amdgpu on CHIMERA publishes
+# its eDP connector ~7 s into userspace, so this wait is what keeps the greeter from being skipped.
+case "$(uname -m)" in
+    aarch64|arm64) ;;
+    *) echo "  $(uname -m): connected-output wait only; no Sky1 card pin written"; exit 0 ;;
+esac
+
 mkdir -p /etc/X11/xorg.conf.d
 cat > /etc/X11/xorg.conf.d/10-cixmini-primary-display.conf <<XCONF
 Section "ServerLayout"
@@ -151,7 +165,13 @@ fi
 ln -sf /dev/null /etc/systemd/system/cix-check-display.service
 echo "[22] masked vendor cix-check-display.service (GNOME-only; we use lightdm+XFCE)"
 
-# Run once during install
-/usr/local/lib/cix-installer/detect-primary-display.sh
+# Run once during install -- Sky1 only. On amd64 the install-time run saw the INSTALLER's DRM
+# devices through the bind-mounted /sys and wrote a card pin for the installed system.
+# This guard uses the hook's target-arch answer ($_ncz_arch, above); the generated script uses
+# `uname -m` because it runs at every boot of the installed system, where this hook's variables
+# do not exist.
+case "$_ncz_arch" in
+    arm64|aarch64) /usr/local/lib/cix-installer/detect-primary-display.sh ;;
+esac
 
 echo "[22] dynamic primary-display detector installed (retry loop + safe-on-fail)"
