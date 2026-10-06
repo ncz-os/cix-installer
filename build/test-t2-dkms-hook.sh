@@ -53,6 +53,11 @@ set_kver_list() {
 }
 
 # Run the hook with the sandbox as the source of truth. Extra env via $@.
+# NOTE: callers that set NCZ_T2_DKMS_EXTRA on the run_hook call must also
+# pass it explicitly in the args ("$@") -- env -i clears the function-level
+# env, so the right-hand side of the VAR=value run_hook \$B assignment is
+# not visible to env. Mirroring NCZ_T2_DKMS_EXTRA here covers the
+# 'NCZ_T2_DKMS_EXTRA=t2evil' call pattern below.
 run_hook() {
     local b="$1"; shift
     env -i \
@@ -66,6 +71,7 @@ run_hook() {
         NCZ_KVER_LIST="$b/meta/KVER_LIST_AMD64" \
         NCZ_INSTALLER_META="$b/meta" \
         NCZ_T2_DETECT="$T2_DETECT" \
+        NCZ_T2_DKMS_EXTRA="${NCZ_T2_DKMS_EXTRA:-}" \
         "$@" \
         bash "$HOOK" >"$b/out" 2>&1
 }
