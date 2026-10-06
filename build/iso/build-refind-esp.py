@@ -203,24 +203,30 @@ AMD64_RESCUE_OPTIONS = (
 # and with keep_bootcon it is an unproven change to the O6N boot path (its
 # UART is the ARMH0011 SBSA device; no SPCR line appears in the captured logs).
 #
-# fw_devlink=permissive (2026-10-06, O6N r199 on 7.3.0-rc6-sky1-ncz, serial
-# capture saved from PROTEUS): only sky1-pcie-cix.1 (NVMe, bus 90) probed.
-# All twelve ACPI PRP0001 reg-fixed-voltage regulators fail at ~0.2386s
-# ("probe with driver reg-fixed-voltage failed with error -12"), and at 11.7s
-# "platform sky1-pcie-cix.2.auto: deferred probe pending: platform: supplier
-# PRP0001:11 not ready" (cix.3: supplier PRP0001:10), so neither controller
-# carrying the RTL8125 NICs ever probes and d-i sees only lo.  The same -12
-# failures are in the 7.3.0-rc3-sky1-ncz boot of 2026-09-13 where enp1s0 came
-# up, so the new part is fw_devlink holding the consumer on a supplier that
-# never binds.  permissive keeps the device links for ordering but stops them
-# from blocking the probe.  This is an EXPERIMENT still to be confirmed on the
-# hardware; the controllers already log "no vcc-pcie regulator found" and run
-# without one on the controller that does probe.
-SKY1_FW_DEVLINK = "fw_devlink=permissive"
+# sky1_pcie_native=off pcie_pnp_en (2026-10-06, O6N r199 on 7.3.0-rc6-sky1-ncz,
+# serial capture saved from PROTEUS): only sky1-pcie-cix.1 (NVMe, bus 90)
+# probed.  All twelve ACPI PRP0001 fixed regulators fail at ~0.2386s ("probe
+# with driver reg-fixed-voltage failed with error -12") because the 7.3 port
+# dropped CIX patch 0028 "regulator: add acpi support", so
+# reg_fixed_voltage_probe() returns -ENOMEM (fixed.c: if (!config) return
+# -ENOMEM).  The native Sky1 PCIe devices then wait on them forever: "platform
+# sky1-pcie-cix.2.auto: deferred probe pending: platform: supplier PRP0001:11
+# not ready" (cix.3: PRP0001:10), so neither controller carrying the RTL8125
+# NICs probes and d-i sees only lo.  fw_devlink=permissive would not help: the
+# links are explicit device_link_add() calls from the Sky1 ACPI resource
+# lookup, which the supplier check honours regardless of fw_devlink.  The real
+# fix is a kernel rebuild (meta-cix fix/sky1-pcie-reg-fixed-defer-20261006).
+# Until then the installer uses the installed system's own PCIe mode
+# (assets/refind/ncz-refind-refresh.sh NEXT_CMDLINE_EXTRA, the mode the 7.2.6
+# installed boots with a working NIC used): with sky1_pcie_native=off the
+# native Sky1 PCIe platform devices are not created, so the firmware-created
+# links have nothing to hold back and the standard ACPI PCIe host path takes
+# over.  EXPERIMENT, unproven on 7.3.0-rc6 metal: confirm on the O6N.
+SKY1_PCIE_ACPI_MODE = "sky1_pcie_native=off pcie_pnp_en"
 SKY1_GFX_OPTIONS = (
     "console=tty0 efi=noruntime acpi=force "
     "arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused "
-    "panic=30 nmi_watchdog=0 " + SKY1_FW_DEVLINK + " "
+    "panic=30 nmi_watchdog=0 " + SKY1_PCIE_ACPI_MODE + " "
     "module_blacklist=typec_rts5453,rts5453,linlon_dp,trilin_dpsub"
 )
 # linlon_dp / trilin_dpsub are the Sky1 display-controller DRM drivers. The installer
@@ -238,7 +244,7 @@ ARM64_RESCUE_OPTIONS = (
     "DEBIAN_FRONTEND=newt consoleblank=0 console=tty0 console=ttyAMA0,115200 "
     "efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 "
     "audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 "
-    "nmi_watchdog=0 " + SKY1_FW_DEVLINK + " module_blacklist=typec_rts5453,rts5453"
+    "nmi_watchdog=0 " + SKY1_PCIE_ACPI_MODE + " module_blacklist=typec_rts5453,rts5453"
 )
 
 

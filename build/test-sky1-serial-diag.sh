@@ -1,6 +1,7 @@
 #!/bin/bash
-# test-sky1-serial-diag.sh -- Sky1 installer serial diagnostics and the
-# fw_devlink=permissive experiment, arm64 only; amd64 must not change.
+# test-sky1-serial-diag.sh -- Sky1 installer serial diagnostics and the ACPI
+# PCIe host-mode experiment (sky1_pcie_native=off pcie_pnp_en on the installer
+# entries), arm64 only; amd64 must not change.
 #
 # Provenance (O6N, r199 installer, 7.3.0-rc6-sky1-ncz, 2026-10-06): d-i saw
 # only lo, and with console=tty0 on the on-screen entries nothing reached the
@@ -9,18 +10,20 @@
 # the UART on real hardware (0871d09f/65c91e3e, 91060aca, root cause 4f262f4c).
 # The serial side therefore lives in preseed/diag-console.sh (kmsg mirror,
 # getty, no-interface dump), and the NIC controllers' deferred probe
-# ("supplier PRP0001:11 not ready") is answered with fw_devlink=permissive.
+# ("supplier PRP0001:11 not ready") is side-stepped by booting the installer in
+# the installed system's ACPI PCIe mode (sky1_pcie_native=off pcie_pnp_en).
 #
 # Proves:
 #   1. every arm64 installer rEFInd entry (Install, expert, Rescue) carries
-#      fw_devlink=permissive exactly once; the on-screen arm64 entries still
+#      sky1_pcie_native=off and pcie_pnp_en exactly once and no fw_devlink
+#      override (proven not to help); the on-screen arm64 entries still
 #      name no serial console (console=tty0 only, so reopen-console keeps d-i
 #      on the monitor); the Rescue entry keeps console=ttyAMA0,115200;
 #   2. the amd64 installer entries are byte-identical to before this change
-#      and name neither fw_devlink nor ttyAMA;
-#   3. the installed arm64 cmdline base (ncz-refind-refresh.sh) carries
-#      fw_devlink=permissive with console=ttyAMA0,115200 before console=tty0;
-#      the amd64 refresh script carries no fw_devlink;
+#      and name none of those tokens nor ttyAMA;
+#   3. the installed arm64 cmdline (ncz-refind-refresh.sh) keeps
+#      console=ttyAMA0,115200 before console=tty0 and the same ACPI PCIe mode
+#      tokens the installer now uses; the amd64 refresh script has neither;
 #   4. 36-telemetry.sh enables serial-getty@ttyAMA0 only on arm64;
 #   5. diag-console.sh's serial block, run in a sandbox: on arm64 it starts a
 #      getty on ttyAMA0 and mirrors /dev/kmsg there; it does neither when d-i
@@ -60,14 +63,17 @@ fails = []
 def check(cond, msg):
     if not cond:
         fails.append(msg)
-TOKEN = "fw_devlink=permissive"
+TOKENS = ("sky1_pcie_native=off", "pcie_pnp_en")
 arm = {"install": m.ARM64_INSTALL_OPTIONS, "expert": m.ARM64_EXPERT_OPTIONS,
        "rescue": m.ARM64_RESCUE_OPTIONS}
 for name, opts in arm.items():
     toks = opts.split()
-    check(toks.count(TOKEN) == 1, f"arm64 {name}: {TOKEN} count {toks.count(TOKEN)} != 1")
-    check(not any(t.startswith("fw_devlink=") and t != TOKEN for t in toks),
-          f"arm64 {name}: conflicting fw_devlink token")
+    for tok in TOKENS:
+        check(toks.count(tok) == 1, f"arm64 {name}: {tok} count {toks.count(tok)} != 1")
+    check(not any(t.startswith("sky1_pcie_native=") and t != TOKENS[0] for t in toks),
+          f"arm64 {name}: conflicting sky1_pcie_native token")
+    check(not any(t.startswith("fw_devlink=") for t in toks),
+          f"arm64 {name}: fw_devlink override (does not release explicit device_link_add links)")
 for name in ("install", "expert"):
     cons = [t for t in arm[name].split() if t.startswith("console=")]
     check(cons == ["console=tty0"],
@@ -80,7 +86,8 @@ conf = m.REFIND_CONF_TEXT_ARM64_TEMPLATE.format(
     expert_options=m.ARM64_EXPERT_OPTIONS, rescue_options=m.ARM64_RESCUE_OPTIONS)
 opts_lines = [l for l in conf.splitlines() if l.strip().startswith("options ")]
 check(len(opts_lines) == 3, f"arm64 refind.conf has {len(opts_lines)} options lines, want 3")
-check(all(TOKEN in l for l in opts_lines), "arm64 refind.conf: an entry lacks fw_devlink=permissive")
+check(all(all(t in l.split() or t + '"' in l.split() for t in TOKENS) for l in opts_lines),
+      "arm64 refind.conf: an entry lacks sky1_pcie_native=off pcie_pnp_en")
 # amd64: pinned to the values before this change.
 AMD64 = {
     "install": "auto=true priority=critical preseed/file=/cdrom/ncz-payload/preseed.cfg "
@@ -96,29 +103,29 @@ got = {"install": m.AMD64_INSTALL_OPTIONS, "expert": m.AMD64_EXPERT_OPTIONS,
        "rescue": m.AMD64_RESCUE_OPTIONS}
 for k in AMD64:
     check(got[k] == AMD64[k], f"amd64 {k} options changed: {got[k]!r}")
-    check("fw_devlink" not in got[k] and "ttyAMA" not in got[k], f"amd64 {k} carries a Sky1 token")
+    check(all(t not in got[k] for t in ("fw_devlink", "ttyAMA", "sky1_pcie", "pcie_pnp_en")),
+          f"amd64 {k} carries a Sky1 token")
 check(m.REFIND_CONF_TEXT_AMD64_FULL_TEMPLATE == m.REFIND_CONF_TEXT_TEMPLATE, "amd64 full template diverged")
 print("\n".join(fails) if fails else "OK")
 PY
 )
-if [ "$out" = OK ]; then ok "installer rEFInd entries: arm64 fw_devlink on all three, no UART console on screen entries, amd64 unchanged"
+if [ "$out" = OK ]; then ok "installer rEFInd entries: arm64 ACPI PCIe mode on all three, no UART console on screen entries, amd64 unchanged"
 else bad "installer rEFInd entries" "$out"; fi
 
 # ---- 3: installed boot entries ------------------------------------------------
 base=$(sed -n 's/^NEXT_CMDLINE_BASE="\(console=[^"]*\)"$/\1/p' "$REFRESH" | head -1)
-if [ -z "$base" ]; then
-    bad "installed arm64 cmdline: NEXT_CMDLINE_BASE assignment not found"
+extra=$(sed -n 's/^NEXT_CMDLINE_EXTRA="\([^"]*\)"$/\1/p' "$REFRESH" | head -1)
+cons=$(printf '%s\n' $base | grep '^console=' | paste -sd' ' -)
+if [ "$cons" = "console=ttyAMA0,115200 console=tty0" ] \
+    && printf '%s\n' $extra | grep -qx 'sky1_pcie_native=off' \
+    && printf '%s\n' $extra | grep -qx 'pcie_pnp_en' \
+    && grep -q '^NEXT_CMDLINE_BASE="\$NEXT_CMDLINE_BASE \$NEXT_CMDLINE_EXTRA"$' "$REFRESH"; then
+    ok "installed arm64 cmdline: serial console with tty0 last, ACPI PCIe mode on every entry"
 else
-    cons=$(printf '%s\n' $base | grep '^console=' | paste -sd' ' -)
-    if printf '%s\n' $base | grep -qx 'fw_devlink=permissive' \
-        && [ "$cons" = "console=ttyAMA0,115200 console=tty0" ]; then
-        ok "installed arm64 cmdline: fw_devlink=permissive, serial console with tty0 last"
-    else
-        bad "installed arm64 cmdline" "base=$base"
-    fi
+    bad "installed arm64 cmdline" "base=$base extra=$extra"
 fi
-if grep -q 'fw_devlink' "$REFRESH_AMD64"; then bad "amd64 refresh script mentions fw_devlink"
-else ok "amd64 installed cmdline carries no fw_devlink"; fi
+if grep -qE 'fw_devlink|sky1_pcie_native|pcie_pnp_en' "$REFRESH_AMD64"; then bad "amd64 refresh script carries a Sky1 PCIe token"
+else ok "amd64 installed cmdline carries no Sky1 PCIe token"; fi
 
 # ---- 4: installed serial getty --------------------------------------------------
 if awk '/^if \[ "\$_ncz_arch" = "arm64" \]; then/{a=1} a&&/systemctl enable serial-getty@ttyAMA0.service/{print "y"; exit} /^else/{a=0}' "$TELEMETRY" | grep -q y; then
@@ -237,7 +244,7 @@ sb="$SB_TOP/arm64-noiface"
 n=$(grep -c 'NO NETWORK INTERFACE' "$sb/serial" 2>/dev/null || true)
 if [ "${n:-0}" -eq 1 ] \
     && grep -q '^\[ncz-noiface\] 0000:90:00.0 0x1e0f:0x0009 0x010802 <no driver>' "$sb/noiface.txt" \
-    && grep -q "dmesg | grep -E 'deferred probe|reg-fixed|sky1-pcie'" "$sb/noiface.txt" \
+    && grep -q "dmesg | grep -E 'deferred probe|reg-fixed|sky1-pcie|r8169'" "$sb/noiface.txt" \
     && grep -q '^\[ncz-noiface\] \[   11.742673\] platform sky1-pcie-cix.2.auto: deferred probe pending' "$sb/noiface.txt" \
     && grep -q "dmesg | grep -i -E 'pcie|r8169|eth'" "$sb/noiface.txt"; then
     ok "arm64, only lo: one no-interface summary (PCI list + both dmesg greps) on the UART and in the log"

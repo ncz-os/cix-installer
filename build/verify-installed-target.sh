@@ -203,12 +203,12 @@ else
     gate_miss vpu "$avc without the h264_v4l2m2m codec"
 fi
 
-# --- (v-c) Sky1 serial diagnostics on the installed system ---------------------
+# --- (v-c) Sky1 serial login + installed boot cmdline ------------------------
 # 36-telemetry enables the ttyAMA0 login (the O6N's only remote way in when the
-# NIC does not come up), and the installed rEFInd entries come from
-# /usr/local/sbin/ncz-refind-refresh, which must carry the same
-# fw_devlink=permissive token as the installer (sky1-pcie-cix.2/.3 deferred
-# probe on 7.3.0-rc6, see build/iso/build-refind-esp.py SKY1_FW_DEVLINK).
+# NIC does not come up). The installed rEFInd entries come from
+# /usr/local/sbin/ncz-refind-refresh: they must keep the serial console with
+# tty0 last, and the ACPI PCIe host mode (sky1_pcie_native=off pcie_pnp_en) the
+# installer entries now share (build/iso/build-refind-esp.py SKY1_PCIE_ACPI_MODE).
 echo "[verify-target] (v-c) Sky1 serial login + installed boot cmdline"
 if exists /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service; then
     echo "[verify-target]     serial-getty@ttyAMA0 enabled (getty.target.wants)"
@@ -216,10 +216,11 @@ else
     gate_miss serial "serial-getty@ttyAMA0 not enabled under getty.target.wants"
 fi
 if fetch /usr/local/sbin/ncz-refind-refresh "$TMP/ncz-refind-refresh" \
-    && grep -q '^NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 .*fw_devlink=permissive' "$TMP/ncz-refind-refresh"; then
-    echo "[verify-target]     installed boot entries: console=ttyAMA0,115200 console=tty0 + fw_devlink=permissive"
+    && grep -q '^NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 ' "$TMP/ncz-refind-refresh" \
+    && grep -q '^NEXT_CMDLINE_EXTRA=".*sky1_pcie_native=off pcie_pnp_en' "$TMP/ncz-refind-refresh"; then
+    echo "[verify-target]     installed boot entries: console=ttyAMA0,115200 console=tty0 + sky1_pcie_native=off pcie_pnp_en"
 else
-    gate_miss serial "/usr/local/sbin/ncz-refind-refresh lacks console=ttyAMA0,115200 console=tty0 ... fw_devlink=permissive"
+    gate_miss serial "/usr/local/sbin/ncz-refind-refresh lacks console=ttyAMA0,115200 console=tty0 or sky1_pcie_native=off pcie_pnp_en"
 fi
 
 else

@@ -285,8 +285,8 @@ noiface_report() {
     done
     echo "[ncz-noiface] --- dmesg | grep -i -E 'pcie|r8169|eth'"
     "$BB" dmesg 2>/dev/null | grep -i -E 'pcie|r8169|eth' | tail -n 60 | sed 's/^/[ncz-noiface] /'
-    echo "[ncz-noiface] --- dmesg | grep -E 'deferred probe|reg-fixed|sky1-pcie'"
-    "$BB" dmesg 2>/dev/null | grep -E 'deferred probe|reg-fixed|sky1-pcie' | tail -n 60 | sed 's/^/[ncz-noiface] /'
+    echo "[ncz-noiface] --- dmesg | grep -E 'deferred probe|reg-fixed|sky1-pcie|r8169'"
+    "$BB" dmesg 2>/dev/null | grep -E 'deferred probe|reg-fixed|sky1-pcie|r8169' | tail -n 60 | sed 's/^/[ncz-noiface] /'
     echo "[ncz-noiface] --- end (full copy: $NCZ_NOIFACE_LOG; shell: log in on this port)"
 }
 check_noiface() {

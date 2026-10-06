@@ -360,7 +360,7 @@ tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on cixmini
 tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
 tools/verify-drivers.sh	sky1	-	Sky1 driver fidelity check
 build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
-build/test-sky1-serial-diag.sh	sky1	-	Sky1 installer serial diagnostics (diag-console kmsg mirror/getty/no-iface dump) + fw_devlink=permissive on arm64 entries; amd64 entries pinned unchanged
+build/test-sky1-serial-diag.sh	sky1	-	Sky1 installer serial diagnostics (diag-console kmsg mirror/getty/no-iface dump) + ACPI PCIe mode (sky1_pcie_native=off pcie_pnp_en) on arm64 installer entries; amd64 entries pinned unchanged
 build/boot-screens.py	common	-	installer console capture harness (qemu screendump + VT text over the diag telnet)
 preseed/ncz-ui.sh	common	-	shared d-i dialog look (brand, arch, build id)
 build/test-ncz-ui.sh	common	-	ncz-ui.sh tests

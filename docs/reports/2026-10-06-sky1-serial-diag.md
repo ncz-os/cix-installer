@@ -1,4 +1,4 @@
-# Sky1 installer serial diagnostics and fw_devlink=permissive (2026-10-06)
+# Sky1 installer serial diagnostics and ACPI PCIe mode (2026-10-06)
 
 Branch `feat/sky1-serial-diag-20261006`, arm64 (Sky1 / Orion O6N) only. amd64
 installer entries, refresh script and runtime behaviour are unchanged (pinned by
@@ -25,19 +25,26 @@ and at 11.7 s the two NIC controllers are still parked:
     platform sky1-pcie-cix.2.auto: deferred probe pending: platform: supplier PRP0001:11 not ready
     platform sky1-pcie-cix.3.auto: deferred probe pending: platform: supplier PRP0001:10 not ready
 
-The same `-12` failures are present in the 7.3.0-rc3-sky1-ncz boot of
-2026-09-13, where `r8169 0000:01:00.0 enp1s0` came up, so the `-12` is old; what
-changed is that fw_devlink now holds the consumer on a supplier that never
-binds. The controller that does probe logs `no vcc-pcie regulator found` and
-works without one.
+The 7.3 port dropped CIX patch 0028 "regulator: add acpi support", so
+`reg_fixed_voltage_probe()` returns `-ENOMEM` (`fixed.c`: `if (!config) return
+-ENOMEM`) for every ACPI regulator. The supplier links are explicit
+`device_link_add()` calls from the Sky1 ACPI resource lookup; the supplier
+check honours them regardless of `fw_devlink`, so `fw_devlink=permissive` would
+not release the controllers (an earlier commit on this branch added it; it is
+removed). The kernel fix is meta-cix `fix/sky1-pcie-reg-fixed-defer-20261006`
+(patch 0005) and needs an r285 kernel rebuild, outside this change.
 
-**Experiment:** `fw_devlink=permissive` on every arm64 installer entry
-(Install, Install (expert), Rescue) and on every installed boot entry
-(`assets/refind/ncz-refind-refresh.sh` `NEXT_CMDLINE_BASE`, from which the
-default, Mali, Panthor, console, rescue and rescue-partition entries derive).
-Permissive keeps the device links for ordering but stops them blocking probe.
-To be confirmed on the O6N: `sky1-pcie-cix.2`/`.3` should reach
-`sky1_pcie_really_probe end!` and `enp1s0`/`enP*` should appear.
+**Experiment:** boot the installer in the installed system's own PCIe mode,
+`sky1_pcie_native=off pcie_pnp_en`, on every arm64 installer entry (Install,
+Install (expert), Rescue). The installed entries already carry it
+(`assets/refind/ncz-refind-refresh.sh` `NEXT_CMDLINE_EXTRA`, appended to every
+installed entry), and the 7.2.6 installed boots that had a working NIC used
+this mode. With native mode off the Sky1 native PCIe platform devices are not
+created, so the firmware-created links have nothing to hold back and the
+standard ACPI PCIe host path takes over. Both parameters are present in the
+r284 `Image-cixmini.bin`. Unproven on 7.3.0-rc6 metal: on the O6N, look for
+the NIC functions in the `[ncz-noiface]` PCI list (or, better, no such block)
+and `enp1s0`/`enP*` in d-i.
 
 ## Why the serial side is not `console=ttyAMA0`
 
@@ -69,7 +76,7 @@ kept alive by the module's respawn loop:
    the UART and to `/var/log/ncz-noiface.txt`: kernel and cmdline, every PCI
    function (`bdf vendor:device class driver`),
    `dmesg | grep -i -E 'pcie|r8169|eth'` and
-   `dmesg | grep -E 'deferred probe|reg-fixed|sky1-pcie'`.
+   `dmesg | grep -E 'deferred probe|reg-fixed|sky1-pcie|r8169'`.
 
 None of it runs when `reopen-console` gave `ttyAMA0` to d-i (the Rescue entry,
 which names the UART, or a QEMU boot whose firmware makes it the preferred
@@ -83,9 +90,9 @@ disables only the serial part.
 `post-install/36-telemetry.sh` already enables `serial-getty@ttyAMA0` on arm64
 only, and the installed entries already carry
 `console=ttyAMA0,115200 console=tty0` (tty0 last, so plymouth and the greeter
-keep `/dev/console`). Both are now asserted on the installed root by
-`build/verify-installed-target.sh` (section v-c), with negative cases in
-`build/test-installed-target-verifier.sh`.
+keep `/dev/console`) plus `sky1_pcie_native=off pcie_pnp_en`. All three are now
+asserted on the installed root by `build/verify-installed-target.sh` (section
+v-c), with negative cases in `build/test-installed-target-verifier.sh`.
 
 ## Using it on the bench
 
