@@ -298,7 +298,7 @@ post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux/t2smp/t2thunderbolt DKMS
 post-install/57-qotd.sh	common	-	quote of the day; generic
 post-install/58-boot-hygiene.sh	mixed	-	generic unit hygiene plus cix_resume unit masking (Sky1); TODO split
 post-install/59-desktop-curate.sh	mixed	-	launcher curation generic; amd64 branch at line ~100; TODO split
-post-install/59-ncz-screensavers-pkg.sh	common	-	mandatory install of the ncz-screensavers package on desktop variants (operator 2026-10-05; the engine + idle timer + Singularity plugin + shipped 74-title catalogue all ship INSIDE this one .deb)
+post-install/59-ncz-screensavers-pkg.sh	common	-	mandatory install of the ncz-screensavers package on desktop variants (operator 2026-10-05; version floor from build/screensavers-version.env; the 0.8.9 .deb ships engine + idle timer + calibrator + gschema + 74-title catalogue, no Singularity plugin files -- those are a separate unpublished ncz-screensavers-plugin package)
 post-install/60-boot-splash.sh	common	-	KMS boot splash; DRM-generic (panthor initramfs strip is a harmless sed)
 post-install/61-chromium-icon.sh	sky1	-	Cygnus-coloured NCZ Chromium icon (diverts the chromium-ncz-sky1 package icons); Sky1 only
 post-install/62-cygnus-screensaver-default.sh	common	-	default screensaver = black hole in the Cygnus palette; override validated against the installed schema before install

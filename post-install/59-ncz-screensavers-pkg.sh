@@ -1,7 +1,7 @@
 #!/bin/bash
 # 59-ncz-screensavers-pkg.sh -- install the ncz-screensavers package (engine,
-# idle timer, Singularity plugin, shipped 74-title catalogue) on desktop
-# images. Hard-fails when no candidate is available or the install fails.
+# idle timer, shipped 74-title catalogue) on desktop images. Hard-fails when
+# no candidate is available or the install fails.
 #
 # Operator 2026-10-05: "If we are distributing screensavers as Deb they need to
 # be apt installed during installation." This hook IS that mechanism on desktop
@@ -17,12 +17,17 @@
 #   * post-install dpkg query says NOT installed -> exit 1
 #
 # Note on the package set: this hook requires ncz-screensavers (the published
-# package, amd64+arm64, that bundles the engine, idle daemon, gschema, the
-# Singularity plugin .so + .plugin, AND the shipped 74-title catalogue).
-# ncz-screensavers-plugin is NOT a separate published package -- the plugin
-# lives inside ncz-screensavers itself. 62-cygnus-screensaver-default.sh
-# (override validated against the compiled schema) sits downstream of this hook
-# and pins the default saver to blackhole_gles3 / palette cygnus.
+# package, amd64+arm64). The 0.8.9 .deb verified by hand bundles the engine,
+# the idle daemon, the calibrator, the gschema and the shipped 74-title
+# catalogue -- and NOTHING else: no Singularity plugin .so/.plugin, no GTK4
+# settings app, no launcher .desktop entry. The Singularity screensaver
+# plugin ships in a SEPARATE ncz-screensavers-plugin package that is not
+# published yet (the deb's own Description: "The settings UI ... is the
+# Singularity plugin (ncz-screensavers-plugin, installed by the NCZ-OS
+# image)"); nothing in this hook may depend on it existing.
+# 62-cygnus-screensaver-default.sh (override validated against the compiled
+# schema) sits downstream of this hook and pins the default saver to
+# blackhole_gles3 / palette cygnus.
 #
 # Idempotent: re-running on a system that already has ncz-screensavers installed
 # is a no-op (only install the package when dpkg says it is absent).
@@ -126,6 +131,7 @@ echo "[59-ncz-screensavers] installed $PKG $INSTALLED_VER"
 for f in /usr/bin/ncz-screensaver \
          /usr/libexec/ncz-screensaver-idled \
          /usr/libexec/ncz-screensaver-run \
+         /usr/libexec/ncz-screensavers/ncz-screensaver-calibrate \
          /usr/lib/systemd/user/ncz-screensaver-idled.service \
          /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml \
          /usr/share/ncz-screensavers/hacks.tsv; do
