@@ -56,6 +56,8 @@ j=0
 while [ "$j" -lt "$RDATE_WAIT" ] && ! command -v "$RDATE" >/dev/null 2>&1 ; do
     j=$((j + 1)) ; sleep "$TICK"
 done
+# rdate just appeared: give anna one more tick to finish unpacking it before it is executed.
+[ "$j" -gt 0 ] && sleep "$TICK"
 
 synced=0
 if command -v "$RDATE" >/dev/null 2>&1 ; then
@@ -67,7 +69,9 @@ if command -v "$RDATE" >/dev/null 2>&1 ; then
         kill "$pid" 2>/dev/null ; sleep 1 ; kill -9 "$pid" 2>/dev/null
     fi
     # The exit status decides, not which branch above ran: rdate may exit 0 in the instant between the
-    # liveness check and the kill, and then the clock WAS set.
+    # liveness check and the kill, and then the clock WAS set (a reaped-later zombie keeps status 0).
+    # If rdate is killed after it stepped the clock but before it exited, only the log line below is
+    # wrong ("no answer"); the HTTP fallback then sees a plausible year and does not step again.
     wait "$pid" 2>/dev/null ; rc=$?
     if [ "$rc" = 0 ] ; then
         synced=1
