@@ -255,14 +255,14 @@ upstream blobs were excluded because they are upstream content and exceed the pe
 limit. This report was split into three theme-sized files for the review snapshot only; the
 deliverable is the single file above.
 
-- Round 1 (`nvidia/nemotron-3-ultra-550b-a55b`): `request_changes`, 2 findings. One was a
-  false positive — the reviewer misread the *diff of the patch file* as a hunk-header/function
-  mismatch; the applied patch is correct (the DKMS build and the unit test both prove it). The
-  other was a fair doc nitpick (`sign-extend from bit 47`), fixed in `38aa027`.
-- Round 2 (`nvidia/nemotron-3-ultra-550b-a55b`): HTTP 429, 0/1 reviewers completed, no output.
-- Round 2 retry (`MiniMax-M3`): `request_changes` with 5 findings, **all** "unparseable review
-  (fail-closed)" — the model returned prose thinking instead of structured JSON (each body
-  truncated at 8000 chars). No actionable finding.
+- Round 1 (primary free route): `request_changes`, 2 findings. One was a false positive — the
+  reviewer misread the *diff of the patch file* as a hunk-header/function mismatch; the applied
+  patch is correct (the DKMS build and the unit test both prove it). The other was a fair doc
+  nitpick (`sign-extend from bit 47`), fixed in `38aa027`.
+- Round 2 (same route): HTTP 429, 0/1 reviewers completed, no output.
+- Round 2 retry (alternate free route): `request_changes` with 5 findings, **all** "unparseable
+  review (fail-closed)" — the reviewer returned prose thinking instead of structured JSON (each
+  body truncated at 8000 chars). No actionable finding.
 
 Stopped there per the review budget: only a fixed nitpick and unparseable/truncated reviewer
 output remain.
