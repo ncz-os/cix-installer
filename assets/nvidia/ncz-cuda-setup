@@ -17,6 +17,21 @@
 #   75  EX_TEMPFAIL: network or download problem, will retry
 #   1   hard failure (would remove packages, not installable, no nvcc): retried
 #       a few times, then parked as failed until `ncz-cuda-setup retry`
+#
+# A driver install that fails because the NVIDIA DKMS module does not compile
+# (status failed:dkms-build) logs the first compiler error from DKMS's make.log
+# and is NOT retried by the timer while the inputs are the same: running
+# kernel, kernel config (autoconf.h), driver version apt would install, and
+# the NCZ DKMS patches staged for it. Rebuilding identical inputs fails
+# identically and costs minutes of CPU per attempt. Any change (new kernel
+# booted, new driver point release, new patch) triggers the next attempt.
+#
+# Local DKMS patches: for each $NV_DKMS_PATCHES/<module>-<version>/ directory
+# shipped by the installer, the patches are staged into
+# /usr/src/<module>-<version>/patches/ and listed in
+# /etc/dkms/<module>-<version>.conf BEFORE apt runs the package postinst, so
+# DKMS applies them on every build of exactly that driver version (and on any
+# later rebuild, e.g. for a new kernel). Other versions are never touched.
 set -u
 export LC_ALL=C DEBIAN_FRONTEND=noninteractive
 
@@ -29,6 +44,12 @@ LOG=/var/log/ncz-cuda-setup.log
 LOCK=/run/ncz-cuda-setup.lock
 HOST=developer.download.nvidia.com
 MAX_HARD_FAILS=5
+DKMS_FAIL=$STATE/cuda-setup.dkms-failed  # key line, pkg/module line, first compiler error
+NV_DKMS_PATCHES=${NCZ_NV_DKMS_PATCHES:-/usr/local/lib/ncz/nvidia-dkms}
+DKMS_ETC=${NCZ_DKMS_ETC:-/etc/dkms}
+DKMS_TREE=${NCZ_DKMS_TREE:-/var/lib/dkms}
+SRC_ROOT=${NCZ_SRC_ROOT:-/usr/src}
+MODULES_ROOT=${NCZ_MODULES_ROOT:-/lib/modules}
 mkdir -p "$STATE" /etc/ncz 2>/dev/null
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" | tee -a "$LOG" >&2; }
@@ -51,6 +72,11 @@ cmd_status() {
     if [ -r "$ATTEMPTS" ]; then
         read -r n next < "$ATTEMPTS"
         echo "   attempts: $n, next scheduled attempt not before $(date -u -d "@${next:-0}" +%FT%TZ 2>/dev/null)"
+    fi
+    if [ -r "$DKMS_FAIL" ]; then
+        echo "   dkms:     build failed for $(sed -n 1p "$DKMS_FAIL" | cut -d'|' -f1-3 | tr '|' ' ')"
+        echo "             $(sed -n 3p "$DKMS_FAIL")"
+        echo "             retried automatically when the kernel, its config, the driver or the local patches change"
     fi
     local t_en t_act
     t_en=$(systemctl is-enabled ncz-cuda-setup.timer 2>/dev/null); t_en=${t_en:-unknown}
@@ -89,6 +115,108 @@ backoff_note() { # backoff_note <hard|soft>
 
 apt_run() { apt-get -o DPkg::Lock::Timeout=900 -o Dpkg::Options::=--force-confold "$@"; }
 
+sum_of() { # sum_of FILE... -> one cksum over the files' contents, "none" when there are none
+    local f any=0
+    for f in "$@"; do [ -r "$f" ] && any=1; done
+    [ "$any" = 1 ] || { echo none; return 0; }
+    cat "$@" 2>/dev/null | cksum | awk '{print $1 "-" $2}'
+}
+
+# stage_dkms_patches: copy each shipped <module>-<version> patch set into the
+# DKMS source dir and list it in /etc/dkms/<module>-<version>.conf, so the
+# package's own postinst build (and every later DKMS rebuild) applies it. A
+# patch set whose "fixed-upstream" marker (line 1: path in the source, line 2:
+# fixed string) is already present in an unpacked source is withdrawn instead.
+stage_dkms_patches() {
+    local d mv conf p n src_file marker f patches
+    for d in "$NV_DKMS_PATCHES"/*-*/; do
+        [ -d "$d" ] || continue
+        mv=$(basename "$d"); conf="$DKMS_ETC/$mv.conf"
+        patches=""
+        for p in "$d"*.patch; do [ -f "$p" ] && patches="$patches $(basename "$p")"; done
+        src_file=""; marker=""
+        if [ -r "$d/fixed-upstream" ]; then
+            src_file=$(sed -n 1p "$d/fixed-upstream"); marker=$(sed -n 2p "$d/fixed-upstream")
+            case "$src_file" in /*|*..*|-*) log "dkms: $mv: ignoring unsafe fixed-upstream path '$src_file'"; src_file=""; marker="" ;; esac
+        fi
+        if [ -z "$patches" ] || { [ -n "$src_file" ] && [ -n "$marker" ] && [ -r "$SRC_ROOT/$mv/dkms.conf" ] \
+                && grep -qF -- "$marker" "$SRC_ROOT/$mv/$src_file" 2>/dev/null; }; then
+            # nothing to apply, or the driver source already carries the fix: withdraw our files
+            if grep -q '^# Written by ncz-cuda-setup' "$conf" 2>/dev/null; then
+                rm -f "$conf"; log "dkms: local patches for $mv withdrawn (${patches:+source already has the fix: $src_file}${patches:-no patches shipped})"
+            fi
+            for f in "$d"*.patch; do [ -e "$f" ] && rm -f "$SRC_ROOT/$mv/patches/$(basename "$f")"; done
+            continue
+        fi
+        install -d -m0755 "$SRC_ROOT/$mv/patches" "$DKMS_ETC" || { log "dkms: cannot stage patches for $mv"; continue; }
+        n=0
+        {
+            echo "# Written by ncz-cuda-setup (NCZ-OS): local patches for $mv only;"
+            echo "# sources in $d. Removed when the driver source carries the fix."
+            for p in $patches; do
+                install -m0644 "$d$p" "$SRC_ROOT/$mv/patches/$p" || { log "dkms: cannot stage $p for $mv"; continue; }
+                echo "PATCH[\${#PATCH[@]}]=\"$p\""
+                n=$((n + 1))
+            done
+        } > "$conf.ncz-tmp" && mv -f "$conf.ncz-tmp" "$conf"
+        log "dkms: staged $n local patch(es) for $mv ($conf)"
+    done
+}
+
+# dkms_first_error: newest NVIDIA DKMS make.log written during this driver
+# install attempt (newer than $DRV_MARK) that holds a compiler error ->
+# "<kernel>|<module>|<version>|<first error line>"; rc 1 when there is none.
+DRV_MARK=$STATE/.cuda-setup.driver-attempt
+dkms_first_error() {
+    local log_f newest="" k e m v
+    for log_f in "$DKMS_TREE"/nvidia*/*/build/make.log; do
+        [ -r "$log_f" ] || continue
+        [ "$log_f" -nt "$DRV_MARK" ] || continue
+        if [ -z "$newest" ] || [ "$log_f" -nt "$newest" ]; then newest=$log_f; fi
+    done
+    [ -n "$newest" ] || return 1
+    e=$(grep -m1 -E '(^|[[:space:]:])error:' "$newest" 2>/dev/null) || return 1
+    k=$(head -n1 "$newest" | sed -n 's/.* for kernel \([^ ]*\).*/\1/p')
+    v=$(basename "$(dirname "$(dirname "$newest")")"); m=$(basename "$(dirname "$(dirname "$(dirname "$newest")")")")
+    printf '%s|%s|%s|%s\n' "${k:-unknown}" "$m" "$v" "$(printf '%s' "$e" | tr -d '\r' | cut -c1-300)"
+}
+
+# dkms_pkg: the NVIDIA *-dkms package dpkg has (installed or half-configured).
+dkms_pkg() {
+    dpkg-query -W -f='${Package} ${db:Status-Abbrev}\n' 'nvidia*dkms' 2>/dev/null \
+        | awk '$2 ~ /^[ih]/ && $2 !~ /^.n/ {print $1; exit}'
+}
+
+# dkms_key KERNEL MODULE VERSION -> the inputs that decide a DKMS build result.
+dkms_key() {
+    printf '%s|%s|%s|%s|%s\n' "$1" "$2" "$3" \
+        "$(sum_of "$MODULES_ROOT/$1/build/include/generated/autoconf.h")" \
+        "$(sum_of "$NV_DKMS_PATCHES/$2-$3"/*.patch)"
+}
+
+# dkms_key_now PKG MODULE: the key a build attempted now would have.
+dkms_key_now() {
+    local ver
+    ver=$(apt-cache policy "$1" 2>/dev/null | sed -n 's/^ *Candidate: //p' | head -n1)
+    case "$ver" in ""|"(none)") ver=$(dpkg-query -W -f='${Version}' "$1" 2>/dev/null) ;; esac
+    ver=${ver#*:}; ver=${ver%-*}
+    dkms_key "$(uname -r)" "$2" "$ver"
+}
+
+# record_dkms_failure: after a failed driver install; rc 0 when it was a DKMS
+# compile error (logged, recorded with its key), 1 otherwise.
+record_dkms_failure() {
+    local fe k m v e pkg
+    fe=$(dkms_first_error) || return 1
+    k=${fe%%|*}; fe=${fe#*|}; m=${fe%%|*}; fe=${fe#*|}; v=${fe%%|*}; e=${fe#*|}
+    pkg=$(dkms_pkg); pkg=${pkg:-nvidia-kernel-open-dkms}
+    log "DKMS build of $m $v for kernel $k failed; first compiler error:"
+    log "    $e"
+    log "not retrying until the kernel, its config, the driver version or the local patches change (or: ncz-cuda-setup retry)"
+    { dkms_key "$k" "$m" "$v"; echo "pkg=$pkg module=$m"; echo "$e"; } > "$DKMS_FAIL"
+    return 0
+}
+
 do_run() {
     local scheduled=0
     [ "${1:-}" = "--scheduled" ] && scheduled=1
@@ -101,6 +229,17 @@ do_run() {
     if [ "$family" = "kepler-older" ] || [ "$(conf TOOLKIT)" = "none" ]; then
         set_status "skipped:$family-unsupported"
         date -u +%FT%TZ > "$STAMP"; return 0
+    fi
+
+    if [ "$scheduled" = 1 ] && [ -r "$DKMS_FAIL" ]; then
+        local fpkg fmod
+        fpkg=$(sed -n 2p "$DKMS_FAIL" | sed -n 's/.*pkg=\([^ ]*\).*/\1/p')
+        fmod=$(sed -n 2p "$DKMS_FAIL" | sed -n 's/.*module=\([^ ]*\).*/\1/p')
+        if [ "$(dkms_key_now "${fpkg:-nvidia-kernel-open-dkms}" "${fmod:-nvidia}")" = "$(sed -n 1p "$DKMS_FAIL")" ]; then
+            return 0   # same inputs as the failed build: it would fail the same way
+        fi
+        log "kernel, config, driver or local patches changed since the failed DKMS build; retrying now"
+        rm -f "$DKMS_FAIL" "$ATTEMPTS"
     fi
 
     if [ "$scheduled" = 1 ] && [ -r "$ATTEMPTS" ]; then
@@ -144,16 +283,23 @@ do_run() {
         set_status "failed:would-remove-packages"; backoff_note hard >/dev/null; return 1
     fi
 
+    # Local DKMS patches must be in place before dpkg runs the module postinst.
+    stage_dkms_patches
+
     # Driver first so a toolkit problem never costs the display driver.
     # attempt_log prints only what THIS apt transaction appended to the log: an older "Failed to fetch" line must not
     # turn a hard failure (dpkg/dkms/resolver) into an endless "pending:download" retry (zoder review, verified).
     local logoff
     attempt_log() { tail -c +"$((logoff + 1))" "$LOG" 2>/dev/null; }
     logoff=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+    touch "$DRV_MARK" 2>/dev/null
     # shellcheck disable=SC2086
     if ! apt_run install -y --no-install-recommends --no-remove $drv >>"$LOG" 2>&1; then
         if attempt_log | grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect'; then
             set_status "pending:download"; backoff_note soft >/dev/null; return 75
+        fi
+        if record_dkms_failure; then
+            set_status "failed:dkms-build"; backoff_note hard >/dev/null; return 1
         fi
         set_status "failed:driver-install"; backoff_note hard >/dev/null; return 1
     fi
@@ -187,7 +333,7 @@ PROFEOF
     fi
     set_status "installed:$(dpkg-query -W -f='${Version}' "cuda-nvcc-$(conf TOOLKIT)" 2>/dev/null)"
     date -u +%FT%TZ > "$STAMP"
-    rm -f "$ATTEMPTS"
+    rm -f "$ATTEMPTS" "$DKMS_FAIL"
     systemctl disable --now ncz-cuda-setup.timer >/dev/null 2>&1 || true
     log "done: $("$tdir/bin/nvcc" --version 2>/dev/null | tail -n1)"
     return 0
@@ -195,7 +341,7 @@ PROFEOF
 
 case "${1:-}" in
     run)    shift; do_run "$@" ;;
-    retry)  rm -f "$ATTEMPTS"; rm -f "$STAMP"; do_run ;;
+    retry)  rm -f "$ATTEMPTS" "$DKMS_FAIL"; rm -f "$STAMP"; do_run ;;
     status) cmd_status ;;
     *)      echo "usage: ncz-cuda-setup run [--scheduled] | retry | status" >&2; exit 2 ;;
 esac

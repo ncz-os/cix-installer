@@ -1,0 +1,71 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] kernel-open: handle the Linux 7.3 dmem_cgroup_register_region() API
+
+Linux 7.3 (commit e11640b9cea4, "cgroup/dmem: Introduce struct
+dmem_cgroup_init for region initialization") changed the first argument of
+dmem_cgroup_register_region() from a u64 size to a
+const struct dmem_cgroup_init *. On a kernel with CONFIG_CGROUP_DMEM=y,
+NV_DMEM_CGROUP_PRESENT is defined and os-interface.c fails to build:
+
+  nvidia/os-interface.c:3031:48: error: passing argument 1 of
+  'dmem_cgroup_register_region' makes pointer from integer without a cast
+  [-Wint-conversion]
+
+Add a conftest probe for struct dmem_cgroup_init and pass the size through
+it when present. The name goes through "%s" since the argument is a
+printf-style format. Same change as NVIDIA/open-gpu-kernel-modules PR #1330,
+with a conftest probe instead of a LINUX_VERSION_CODE check.
+
+Applied by NCZ-OS ncz-cuda-setup via /etc/dkms/nvidia-615.71.09.conf, to
+NVIDIA 615.71.09 only.
+---
+--- a/kernel-open/conftest.sh
++++ b/kernel-open/conftest.sh
+@@ -5387,6 +5387,22 @@
+             compile_check_conftest "$CODE" "NV_DMEM_CGROUP_PRESENT" "" "types"
+         ;;
+ 
++        dmem_cgroup_init)
++            #
++            # Determine if dmem_cgroup_register_region() takes a
++            # struct dmem_cgroup_init pointer instead of a u64 size.
++            #
++            # Changed by commit e11640b9cea4 ("cgroup/dmem: Introduce struct
++            # dmem_cgroup_init for region initialization") in v7.3.
++            #
++            CODE="
++            #include <linux/cgroup_dmem.h>
++            struct dmem_cgroup_init conftest_dmem_cgroup_init = { .size = 0 };
++            "
++
++            compile_check_conftest "$CODE" "NV_DMEM_CGROUP_INIT_PRESENT" "" "types"
++        ;;
++
+         misc_cgrp_id)
+             #
+             # Check to see if the misc cgroup type is available
+--- a/kernel-open/nvidia/nvidia.Kbuild
++++ b/kernel-open/nvidia/nvidia.Kbuild
+@@ -264,6 +264,7 @@
+ NV_CONFTEST_TYPE_COMPILE_TESTS += nr_kernel_misc_reclaimable
+ NV_CONFTEST_TYPE_COMPILE_TESTS += pci_resize_resource_has_exclude_bars_arg
+ NV_CONFTEST_TYPE_COMPILE_TESTS += dmem_cgrp_id
++NV_CONFTEST_TYPE_COMPILE_TESTS += dmem_cgroup_init
+ NV_CONFTEST_TYPE_COMPILE_TESTS += misc_cgrp_id
+ NV_CONFTEST_TYPE_COMPILE_TESTS += is_vma_write_locked_has_mm_lock_seq_arg
+ NV_CONFTEST_TYPE_COMPILE_TESTS += percpu_mm_counter
+--- a/kernel-open/nvidia/os-interface.c
++++ b/kernel-open/nvidia/os-interface.c
+@@ -3028,7 +3028,12 @@
+ #if defined(NV_DMEM_CGROUP_PRESENT)
+ void* NV_API_CALL os_dmem_cgroup_register_region(const char *name, NvU64 size, NvU64 precharge, void **prechargePool)
+ {
++#if defined(NV_DMEM_CGROUP_INIT_PRESENT)
++    struct dmem_cgroup_init init = { .size = size };
++    void *region = dmem_cgroup_register_region(&init, "%s", name);
++#else
+     void *region = dmem_cgroup_register_region(size, name);
++#endif
+     if (IS_ERR(region))
+     {
+         return NULL;
