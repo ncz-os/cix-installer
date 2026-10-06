@@ -34,7 +34,7 @@ mkbox() {
 echo "\$*" >> "$b/dkms.calls"
 case "\$1" in
     status) cat "$b/dkms.status" ;;
-    remove) m=""; while [ \$\# -gt 0 ]; do [ "\$1" = -m ] && m="\$2"; shift; done; grep -v "^\$m" "$b/dkms.status" > "$b/dkms.status.n"; mv "$b/dkms.status.n" "$b/dkms.status" ;;
+    remove) m=""; while [ \$# -gt 0 ]; do [ "\$1" = -m ] && m="\$2"; shift; done; grep -v "^\$m" "$b/dkms.status" > "$b/dkms.status.n"; mv "$b/dkms.status.n" "$b/dkms.status" ;;
 esac
 exit 0
 SH
@@ -99,6 +99,7 @@ cmp -s "$T/conf.1" "$B/modprobe.d/ncz-t2thunderbolt.conf" && ok "idempotent: bla
 # 3. stale registration from an earlier install is removed
 B="$T/b"; mkbox "$B" "Apple Inc." "MacBookPro16,1"; set_kver_list "$B" "7.2.9-test"; echo "t2thunderbolt/0.1, 7.2.9-test: installed" > "$B/dkms.status"; mkdir -p "$B/usrsrc/t2thunderbolt-0.1"; run_hook "$B"
 grep -q -E "^remove -m t2thunderbolt " "$B/dkms.calls" && ok "stale: dkms remove t2thunderbolt called" || bad "stale: dkms remove not called"
+grep -q '^t2thunderbolt' "$B/dkms.status" && bad "stale: t2thunderbolt still listed in dkms status" || ok "stale: t2thunderbolt dropped from dkms status"
 [ ! -d "$B/usrsrc/t2thunderbolt-0.1" ] && ok "stale: old source tree removed" || bad "stale: old source tree left"
 
 # 4. explicit opt-in
@@ -222,11 +223,13 @@ cmp -s "$T/ncz-t2smp.conf.1" "$B/modprobe.d/ncz-t2smp.conf" \
 # 14. Stale t2smp registration is removed on every run.
 # ===========================================================================
 B="$T/stale-smp"; mkbox "$B" "Apple Inc." "MacBookPro16,1"; set_kver_list "$B" "7.2.9-ncz-t2"
-echo "t2smp/0.1, 7.2.9-ncz-t2: installed" > "$B/dkms.status"
+printf '%s\n' "t2smp/0.1, 7.2.9-ncz-t2: installed" "t2smc/0.1, 7.2.9-ncz-t2: installed" > "$B/dkms.status"
 mkdir -p "$B/usrsrc/t2smp-0.1"
 echo "/* stale source */" > "$B/usrsrc/t2smp-0.1/main.c"
 run_hook "$B"
 grep -q -E "^remove -m t2smp " "$B/dkms.calls" && ok "stale-smp: t2smp DKMS registration removed" || bad "stale-smp: t2smp registration not removed"
+grep -q '^t2smp' "$B/dkms.status" && bad "stale-smp: t2smp still listed in dkms status" || ok "stale-smp: t2smp dropped from dkms status"
+grep -q '^t2smc' "$B/dkms.status" && ok "stale-smp: unrelated dkms status left intact" || bad "stale-smp: fake dkms remove wiped unrelated status"
 [ ! -d "$B/usrsrc/t2smp-0.1" ] && ok "stale-smp: t2smp source tree removed" || bad "stale-smp: t2smp source tree left"
 
 # ===========================================================================
