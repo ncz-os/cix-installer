@@ -134,6 +134,15 @@ case "$ROLE" in
       _ss_mirrors="$_ss_mirrors --mirror $ROOT/build/$m --label $m"
     done
     if [ -n "$_ss_mirrors" ]; then
+      # Phase 2: required-ness and the version floor come from the registry.
+      _ss_reg_req="$(python3 "$ROOT/build/components.py" --root "$ROOT" query --name ncz-screensavers --kind staged-deb --field required 2>/dev/null || true)"
+      _ss_reg_floor="$(python3 "$ROOT/build/components.py" --root "$ROOT" query --name ncz-screensavers --kind staged-deb --field version_floor 2>/dev/null || true)"
+      # shellcheck disable=SC1090
+      . "$ROOT/build/screensavers-version.env"
+      if [ "$_ss_reg_req" != yes ] || [ "$_ss_reg_floor" != "${NCZ_SCREENSAVERS_MIN_VERSION:-}" ]; then
+        echo "[role-delta] ABORT: registry ncz-screensavers staged-deb required='${_ss_reg_req}' floor='${_ss_reg_floor}' disagrees with screensavers-version.env (${NCZ_SCREENSAVERS_MIN_VERSION:-empty})." >&2
+        exit 1
+      fi
       # shellcheck disable=SC2086
       if ! "$ROOT/build/assert-mirror-has-screensavers.sh" $_ss_mirrors --arch "$ARCH"; then
         echo "[role-delta] ABORT: offline mirror does not carry ncz-screensavers at the required version floor." >&2

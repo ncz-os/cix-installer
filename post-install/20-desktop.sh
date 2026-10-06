@@ -378,7 +378,10 @@ if [ -n "$SINTY_DEB" ]; then
     echo "[20] using embedded payload deb: $(basename "$SINTY_DEB")"
     dpkg -i "$SINTY_DEB"
 elif ! DEBIAN_FRONTEND=noninteractive apt-get install -y ncz-singularity-desktop; then
-    echo "[20] FATAL: ncz-singularity-desktop not installable from the NCZ-OS apt repo — desktop cannot install" >&2
+    # The registry ncz-apt row is required=yes on arm64 desktop. This FATAL
+    # is that row, enforced at install time (phase 2). The staged-deb path
+    # above is optional and already won if a payload deb was present.
+    echo "[20] FATAL: ncz-singularity-desktop not installable from the NCZ-OS apt repo — desktop cannot install (registry: ncz-apt required=yes)" >&2
     echo "[20]        check post-install/24-apt-sources.sh wired the repo, and that the package was published (build/build-singularity-deb.sh)" >&2
     exit 1
 fi
