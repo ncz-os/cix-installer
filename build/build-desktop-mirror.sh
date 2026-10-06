@@ -143,8 +143,15 @@ mkdir -p "$T/etc/apt/preferences.d" "$T/etc/apt/apt.conf.d" "$T/etc/apt/keyrings
 : > "$T/var/lib/dpkg/status"
 
 echo "  source: Debian ($PORTS_URL, $SUITE) — authoritative desktop closure"
+# A pinned snapshot.debian.org Release carries a short Valid-Until; release.conf
+# sets NCZ_BASE_MIRROR_APT_OPTS=check-valid-until=no only while pinned, and every
+# consumer must pass it (build-forky-mirror.sh, build-squashfs-layers.sh and
+# build-base-rootfs.sh already do). Without it apt refuses the expired Release
+# and the closure cannot be resolved.
+DEBIAN_DEB_OPTS="arch=$ARCH trusted=yes"
+[ -n "${NCZ_BASE_MIRROR_APT_OPTS:-}" ] && DEBIAN_DEB_OPTS="$DEBIAN_DEB_OPTS $NCZ_BASE_MIRROR_APT_OPTS"
 cat > "$T/etc/apt/sources.list" <<EOF
-deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE $NCZ_BASE_COMPONENTS
+deb [$DEBIAN_DEB_OPTS] $PORTS_URL $SUITE $NCZ_BASE_COMPONENTS
 EOF
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
@@ -199,7 +206,11 @@ APTOPTS=(
 )
 
 echo "  apt-get update (desktop package sources)..."
-apt-get "${APTOPTS[@]}" update >/dev/null 2>&1
+if ! apt-get "${APTOPTS[@]}" update >"$T/apt-update.log" 2>&1; then
+    echo "ERROR: apt-get update failed for the desktop package sources:" >&2
+    grep -E "^(E|W):" "$T/apt-update.log" >&2 || cat "$T/apt-update.log" >&2
+    exit 1
+fi
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
     # Whatever Google currently ships as stable — no pin (operator 2026-08-12).
