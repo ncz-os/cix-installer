@@ -27,6 +27,11 @@
 #        is printed as "GATE: missing [class]: what"), 2 bad invocation.
 set -uo pipefail
 
+# This script's own checkout root (the build/ directory it lives in). The
+# caller may be a test harness that defines its own ROOT in a separate
+# process -- never assume the caller's environment here (set -u).
+HERE_VT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 EVIDENCE_ROOT="${1:?usage: verify-installed-target.sh EVIDENCE_ROOT_RAW DEBUGFS [arm64|amd64]}"
 DEBUGFS="${2:?usage: verify-installed-target.sh EVIDENCE_ROOT_RAW DEBUGFS [arm64|amd64]}"
 ARCH="${3:-${NCZ_TARGET_ARCH:-arm64}}"
@@ -365,58 +370,84 @@ else
     gate_miss sensors "$SSO (plugin missing)"
 fi
 
-# --- (vi) ncz-screensavers (only when this image is meant to ship it) ---------
-# The image records that intent in its own payload: manifests/install-extra.pkgs.
-# Intent, in order: VERIFY_EXPECT_SCREENSAVERS=1|0 from the caller (the gate sets it from the
-# checkout's manifests/install-extra.pkgs); else auto = the target's own manifest asks for it or
-# the package is already present in its dpkg database. A silent skip here once hid a missing
-# assertion, so "not requested" is only reachable when nothing points at the package.
+# --- (vi) ncz-screensavers (mandatory on desktop images; operator 2026-10-05) ---------
+# Intent, in order: VERIFY_EXPECT_SCREENSAVERS=1|0 from the caller (the gate sets it
+# from the checkout's manifests/install-extra.pkgs); else auto = the target's own
+# manifest asks for it or the package is already present in its dpkg database. A
+# silent skip here once hid a missing assertion, so "not requested" is only
+# reachable when nothing points at the package.
 #
-# Operator 2026-10-05 ("If we are distributing screensavers as Deb they need to be apt installed
-# during installation.") makes ncz-screensavers MANDATORY on desktop images. This block
-# therefore asserts a HARD set of files (engine binary, idle timer, schema, shipped catalogue,
-# Singularity plugin .so + .plugin, compiled schema, idle daemon enabled) plus the operator's
-# "default saver = blackhole" rule (gsettings hack-id == blackhole_gles3, asserted below via
-# the compiled gschemas.compiled).
+# What the PUBLISHED package (ncz-screensavers 0.8.9+, amd64+arm64) ships --
+# verified against the actual 0.8.9 .deb, not against its Description:
+#   * the engine            /usr/bin/ncz-screensaver
+#   * the idle daemon       /usr/libexec/ncz-screensaver-idled (+ -run, user unit)
+#   * the calibrator        /usr/libexec/ncz-screensavers/ncz-screensaver-calibrate
+#   * the gschema           /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml
+#   * the 74-title catalogue /usr/share/ncz-screensavers/hacks.tsv, one binary
+#     per title under /usr/lib/ncz-screensavers/<hack-id>
+# It does NOT ship the Singularity plugin (libscreensaver.so +
+# screensaver.plugin), the GTK4 settings app, or a launcher .desktop entry.
+# The plugin ships in a separate ncz-screensavers-plugin package that is not
+# published yet (the deb's own Description: "The settings UI ... is the
+# Singularity plugin (ncz-screensavers-plugin, installed by the NCZ-OS
+# image)"). We therefore assert exactly the 0.8.9 contents above, and treat
+# the plugin files as required ONLY when that package is installed. An
+# earlier draft asserted the plugin files unconditionally and asserted a
+# settings app + .desktop entry the package never shipped -- both would have
+# failed every healthy install.
 #
-# Historical context (2026-10-05): there is NO `ncz-screensavers-plugin` package. The
-# Singularity screensaver plugin is shipped INSIDE ncz-screensavers (plugin/screensaver/*.vala
-# is built into libscreensaver.so and installed at /opt/singularity/lib/singularity/plugins/
-# screensaver/). Asserting a separate `ncz-screensavers-plugin` package (as an older draft
-# did) would silently fail every install because no such package is published. The previous
-# draft also asserted the engine ships NO settings app / .desktop entry / icon -- that was
-# true in an earlier 0.7-era draft but the now-published 0.8.9 ships the GTK4 settings app
-# + the .desktop launcher entry as part of the engine package. Asserting absence would
-# silently fail every install; both file groups are now EXPECTED and asserted to exist.
+# The operator rule "default saver = blackhole" has TWO parts: the package
+# schema default (hack-id='blackhole_gles3') and the Cygnus override that
+# 62-cygnus-screensaver-default.sh writes at install time (mode='one' +
+# blackhole-color-mode='cygnus'). The package schema default alone is
+# mode='off' -- no animated saver -- so both are asserted; checking the
+# schema default by itself is a tautology that could never fail.
 WANT_SS="${VERIFY_EXPECT_SCREENSAVERS:-auto}"
 if [ "$WANT_SS" = auto ]; then
     WANT_SS=0
     if fetch /usr/local/lib/cix-installer/manifests/install-extra.pkgs "$TMP/extra.pkgs" && sed 's/#.*//' "$TMP/extra.pkgs" | awk 'NF {print $1}' | grep -qx ncz-screensavers; then WANT_SS=1; fi
     grep -q '^Package: ncz-screensavers$' "$TMP/dpkg-status" 2>/dev/null && WANT_SS=1
 fi
+SS_STATUS=""; SS_PLUGIN=""
 if [ "$WANT_SS" = 1 ]; then
     echo "[verify-target] (vi) ncz-screensavers"
     SS_STATUS="$(awk 'BEGIN{RS="";FS="\n"} { pk=""; st=""; ver=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /) pk=substr($i,10); if($i ~ /^Status: /) st=substr($i,9); if($i ~ /^Version: /) ver=substr($i,10)} if(pk=="ncz-screensavers" && st=="install ok installed") print ver }' "$TMP/dpkg-status" 2>/dev/null)"
+    SS_PLUGIN="$(awk 'BEGIN{RS="";FS="\n"} { pk=""; st=""; ver=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /) pk=substr($i,10); if($i ~ /^Status: /) st=substr($i,9); if($i ~ /^Version: /) ver=substr($i,10)} if(pk=="ncz-screensavers-plugin" && st=="install ok installed") print ver }' "$TMP/dpkg-status" 2>/dev/null)"
     if [ -z "$SS_STATUS" ]; then
         gate_miss screensavers "ncz-screensavers is not installed (59-ncz-screensavers-pkg did not install it)"
     else
         echo "[verify-target]     ncz-screensavers $SS_STATUS installed"
-        # (a) the engine binary, the idle timer, the shipped catalogue, the schema, the
-        #     gtk4 settings app + launcher entry. All of these come from ncz-screensavers
-        #     itself -- none from a separate plugin package.
+        # (a) version floor: single source of truth, same file the install
+        #     hook, the mirror builders and the pre-flights source. It sits
+        #     next to this script (build/); if a copy of the verifier is run
+        #     without it, the floor check is skipped (the install hook already
+        #     enforced it at install time).
+        NCZ_SS_FLOOR=""
+        if [ -r "$HERE_VT/screensavers-version.env" ]; then
+            # shellcheck disable=SC1090
+            . "$HERE_VT/screensavers-version.env"
+            NCZ_SS_FLOOR="${NCZ_SCREENSAVERS_MIN_VERSION:-}"
+        fi
+        if [ -n "$NCZ_SS_FLOOR" ] && ! dpkg --compare-versions "$SS_STATUS" ge "$NCZ_SS_FLOOR"; then
+            gate_miss screensavers "ncz-screensavers $SS_STATUS is below the required floor $NCZ_SS_FLOOR (build/screensavers-version.env)"
+        elif [ -n "$NCZ_SS_FLOOR" ]; then
+            echo "[verify-target]     ncz-screensavers $SS_STATUS >= floor $NCZ_SS_FLOOR"
+        fi
+        # (b) exactly the files the published package ships -- no more, no
+        #     less (a settings app / .desktop entry / plugin files are NOT
+        #     in 0.8.9 and must not be asserted).
         for f in /usr/bin/ncz-screensaver \
                  /usr/libexec/ncz-screensaver-idled \
                  /usr/libexec/ncz-screensaver-run \
+                 /usr/libexec/ncz-screensavers/ncz-screensaver-calibrate \
                  /usr/lib/systemd/user/ncz-screensaver-idled.service \
                  /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml \
-                 /usr/share/ncz-screensavers/hacks.tsv \
-                 /usr/bin/ncz-screensaver-settings \
-                 /usr/share/applications/dev.ncz.screensaver.desktop; do
+                 /usr/share/ncz-screensavers/hacks.tsv; do
             exists "$f" || gate_miss screensavers "$f"
         done
-        # (b) shipped 74-title catalogue: the package ships a tsv where every non-comment
-        #     row is a Title. A row with no Title field (empty stub) would inflate the
-        #     count without shipping rows.
+        # (c) shipped 74-title catalogue: every non-comment row is a Title
+        #     (a row with no Title field is an empty stub), and EVERY title
+        #     must have its binary under /usr/lib/ncz-screensavers/.
         if fetch /usr/share/ncz-screensavers/hacks.tsv "$TMP/hacks.tsv"; then
             NCZ_UTENS="$(awk -F'\t' '!/^#/ && NF >= 3 && $2 != "" {n++} END{print n+0}' "$TMP/hacks.tsv")"
             if [ "$NCZ_UTENS" -lt 74 ]; then
@@ -424,47 +455,33 @@ if [ "$WANT_SS" = 1 ]; then
             else
                 echo "[verify-target]     shipped catalogue rows: $NCZ_UTENS (>= 74)"
             fi
+            if lsnames /usr/lib/ncz-screensavers > "$TMP/hackbins" 2>/dev/null; then
+                while IFS= read -r _ncz_hid; do
+                    [ -n "$_ncz_hid" ] || continue
+                    grep -qx "$_ncz_hid" "$TMP/hackbins" || gate_miss screensavers "catalogue title '$_ncz_hid' has no binary /usr/lib/ncz-screensavers/$_ncz_hid"
+                done < <(awk -F'\t' '!/^#/ && NF >= 3 && $2 != "" {print $1}' "$TMP/hacks.tsv")
+            else
+                gate_miss screensavers "/usr/lib/ncz-screensavers unreadable (hack binaries)"
+            fi
         else
             gate_miss screensavers "hacks.tsv present but unreadable"
         fi
-        # (c) Singularity plugin: ships INSIDE ncz-screensavers (no separate plugin pkg).
-        for f in /opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so \
-                 /opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin; do
-            exists "$f" || gate_miss screensavers "$f (Singularity screensaver plugin, shipped by ncz-screensavers)"
-        done
-        # (d) the schema must be compiled into gschemas.compiled or the settings UI and
-        #     idle timer cannot read it
+        # (d) the schema must be compiled into gschemas.compiled or the settings
+        #     UI and the idle timer cannot read it
         if fetch /usr/share/glib-2.0/schemas/gschemas.compiled "$TMP/gschemas.compiled" && grep -aq 'dev.ncz.screensaver' "$TMP/gschemas.compiled"; then
             :;
         else
             gate_miss screensavers "dev.ncz.screensaver missing from gschemas.compiled (glib-compile-schemas did not run)"
         fi
-        # (e) operator rule "default saver = blackhole": the package ships with
-        #     hack-id='blackhole_gles3' as the schema default. If a downstream
-        #     override changes that to something else, flag it -- a non-blackhole
-        #     default on the shipped image is exactly what the operator flagged as
-        #     wrong. The override is in /usr/share/glib-2.0/schemas/ and is what the
-        #     runtime reads; the schema .xml default is what 62-cygnus-screensaver-
-        #     default.sh reads to validate it. Both are checked below.
-        # operator rule "default saver = blackhole": the package ships with
-        # hack-id='blackhole_gles3' as the schema default. Find the hack-id key
-        # (a multiline match: name= + type= on one line, <default>...</default>
-        # on a later line, possibly separated by indentation) and assert the
-        # default value. Plain grep -E cannot span lines, so the matching is
-        # split into two passes: first the key header, then its default value
-        # inside that key's block. awk with RS="" would also work, but reading
-        # the schema into a here-doc and running them separately is simpler and
-        # keeps the assertion human-readable in the failure message.
+        # (e) operator rule "default saver = blackhole", part 1: the PACKAGE
+        #     schema default. Multiline match: the key header on one line, the
+        #     <default> on a later line inside the same <key> block.
         ss_default_ok=0
         if fetch /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml "$TMP/ss.schema.xml"; then
-            # Locate the start line of the hack-id key, then read forward to
-            # find its <default>...</default>. Operator 2026-10-05 requires the
-            # default to be the literal 'blackhole_gles3'.
             ss_default="$(awk '
                 /<key name="hack-id"/ { found = 1; next }
                 found && /<\/key>/      { found = 0 }
                 found && /<default>/    {
-                    # Capture the value between <default> and </default>
                     v = $0
                     sub(/^[[:space:]]*<default>/, "", v)
                     sub(/<\/default>.*$/, "", v)
@@ -474,15 +491,31 @@ if [ "$WANT_SS" = 1 ]; then
             ' "$TMP/ss.schema.xml")"
             if [ "$ss_default" = "'blackhole_gles3'" ]; then
                 ss_default_ok=1
-                echo "[verify-target]     default saver: blackhole_gles3 (schema)"
+                echo "[verify-target]     package schema default hack-id: blackhole_gles3"
             else
-                gate_miss screensavers "schema default hack-id is '$ss_default', expected ''\''blackhole_gles3'\'''' (operator 2026-10-05: default saver must be blackhole)"
+                gate_miss screensavers "package schema default hack-id is '$ss_default', expected 'blackhole_gles3' (operator 2026-10-05: default saver must be blackhole)"
             fi
         else
             gate_miss screensavers "schema dev.ncz.screensaver.gschema.xml not present"
         fi
-        # (f) the idle timer is enabled, and the older swayidle idle manager is NOT (they
-        #     would both lock the session)
+        # (e2) operator rule, part 2: the EFFECTIVE default. The package schema
+        #     ships mode='off' (no animated saver), so without the Cygnus
+        #     override the system's default is "off", not blackhole. The
+        #     override is written by 62-cygnus-screensaver-default.sh at
+        #     install time (it self-validates with glib-compile-schemas
+        #     --dry-run before installing and never fails the install -- so a
+        #     missing override is real information: 62 skipped or validation
+        #     refused).
+        if fetch /usr/share/glib-2.0/schemas/99-ncz-cygnus-screensaver.gschema.override "$TMP/ss.cygnus-override" \
+           && grep -q "^mode='one'" "$TMP/ss.cygnus-override" \
+           && grep -q "^hack-id='blackhole_gles3'" "$TMP/ss.cygnus-override" \
+           && grep -q "^blackhole-color-mode='cygnus'" "$TMP/ss.cygnus-override"; then
+            echo "[verify-target]     effective default: blackhole_gles3 / cygnus palette (override present)"
+        else
+            gate_miss screensavers "Cygnus screensaver override missing or incomplete (99-ncz-cygnus-screensaver.gschema.override needs mode='one' + hack-id='blackhole_gles3' + blackhole-color-mode='cygnus'; the package default alone is mode='off')"
+        fi
+        # (f) the idle timer is enabled, and the older swayidle idle manager is NOT
+        #     (they would both lock the session)
         idled=0; oldidle=0
         for w in $(lsnames /etc/systemd/user | grep '\.wants$'); do
             lsnames "/etc/systemd/user/$w" | grep -qx 'ncz-screensaver-idled.service' && idled=1
@@ -492,9 +525,23 @@ if [ "$WANT_SS" = 1 ]; then
         [ "$oldidle" = 0 ] || gate_miss screensavers "ncz-idle-manager.service is still enabled next to ncz-screensaver-idled (legacy hook 57 left running)"
         # (g) the GTK4 reference app is for OTHER distros
         grep -q '^Package: ncz-screensavers-gtk4-reference$' "$TMP/dpkg-status" 2>/dev/null && gate_miss screensavers "ncz-screensavers-gtk4-reference is installed on NCZ-OS (it must not be)"
-        # (h) no separate plugin package can ever have been published; assert that
-        #     explicitly so a future accidental package split does not silently slip in
-        grep -q '^Package: ncz-screensavers-plugin$' "$TMP/dpkg-status" 2>/dev/null && gate_miss screensavers "ncz-screensavers-plugin is an UNPUBLISHED package (the plugin lives inside ncz-screensavers)"
+        # (h) the Singularity plugin: a separate package, not published yet.
+        #     When its package IS installed the files and the default-enabled
+        #     gschema override are mandatory; when it is not installed (the
+        #     current published set) the files are simply absent and that is
+        #     expected, not a failure.
+        if [ -n "$SS_PLUGIN" ]; then
+            echo "[verify-target]     ncz-screensavers-plugin $SS_PLUGIN installed"
+            for f in /opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so \
+                     /opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin; do
+                exists "$f" || gate_miss screensavers "$f (Singularity screensaver plugin)"
+            done
+            if fetch /opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override "$TMP/ss.plugin-override" && grep -q "^enabled-plugins=.*'screensaver'" "$TMP/ss.plugin-override"; then :; else
+                gate_miss screensavers "the default enabled-plugins does not contain 'screensaver' (99-zz-ncz-screensaver-plugin.gschema.override missing or wrong)"
+            fi
+        else
+            echo "[verify-target]     ncz-screensavers-plugin: not installed (not yet published; the 0.8.9 engine deb ships no plugin files)"
+        fi
     fi
 else
     echo "[verify-target] (vi) ncz-screensavers not requested by this image; skipped"
@@ -571,6 +618,7 @@ echo "[fact] ssh_password_ok=${SSH_PW_OK:-0}"
 echo "[fact] hostname_format_ok=$([ -n "${HN:-}" ] && printf '%s' "$HN" | grep -Eq '^ncz-[a-z]{1,8}-[0-9]{4}$' && echo 1 || echo 0)"
 echo "[fact] sudo_ok=$([ -n "${SUDO_MEMBERS:-}" ] && echo 1 || echo 0)"
 echo "[fact] screensavers_version=${SS_STATUS:-none}"
+echo "[fact] screensaver_plugin_version=${SS_PLUGIN:-none}"
 # Singularity screensaver plugin version == ncz-screensavers version (the plugin
 # is shipped INSIDE the engine package since 0.7.7); reporting a separate
 # "plugin_version" line would imply a separate plugin package, which never
