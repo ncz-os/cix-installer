@@ -18,6 +18,7 @@ desktop	amd64-microcode	amd64-only	x86 CPU microcode
 desktop	intel-microcode	amd64-only	x86 CPU microcode
 desktop	intel-gpu-tools	amd64-only	Intel GPU diagnostics (T2 Macs)
 desktop	intel-media-va-driver	amd64-only	Intel VA-API; on x86 VA-API is the browser decode path (Sky1 uses V4L2)
+desktop	gnome-online-accounts	amd64-only	Online Accounts backend; published for amd64 only (absent from the arm64 index), and 20-desktop.sh only needs it where the Online Accounts UI ships
 installer-base	cixmini-boot	arm64-only	cixmini bootloader glue
 installer-base	gcc-aarch64-linux-gnu	arm64-only	cross toolchain for Sky1 kernel module builds
 installer-base	linux-image-cixmini	arm64-only	cixmini kernel
