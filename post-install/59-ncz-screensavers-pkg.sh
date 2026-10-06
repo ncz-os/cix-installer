@@ -63,6 +63,14 @@ if [ -z "$SCREENSAVERS_VERSION_ENV" ]; then
 fi
 # shellcheck disable=SC1090
 . "$SCREENSAVERS_VERSION_ENV"
+# set -u only catches unset names; a present-but-empty floor would make every
+# dpkg --compare-versions below meaningless, so require non-empty values.
+for v in NCZ_SCREENSAVERS_MIN_VERSION NCZ_SCREENSAVERS_MISSING_MSG NCZ_SCREENSAVERS_TOO_OLD_MSG; do
+    if [ -z "${!v:-}" ]; then
+        echo "[59-ncz-screensavers] FATAL: $v is empty or missing in $SCREENSAVERS_VERSION_ENV -- refusing to install without a version floor" >&2
+        exit 1
+    fi
+done
 
 # --- candidate lookup ---------------------------------------------------------
 ss_installed() { dpkg -s "$1" 2>/dev/null | grep -q '^Status: install ok installed'; }
