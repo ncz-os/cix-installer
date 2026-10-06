@@ -98,7 +98,7 @@ cmd_validate() {
             echo "ERROR: $PINS: row has $n TAB-separated fields, want 4: $line" >&2
             bad=1; continue
         fi
-        if ! printf '%s' "$sha" | grep -qE '^[0-9a-f]{40}$'; then
+        if ! grep -qE '^[0-9a-f]{40}$' <<<"$sha"; then
             echo "ERROR: $PINS: '$path' pin '$sha' is not a full 40-hex commit" >&2
             bad=1
         fi
@@ -107,6 +107,9 @@ cmd_validate() {
             *) echo "ERROR: $PINS: '$path' url '$url' is not a clone URL" >&2; bad=1 ;;
         esac
         [ -n "$branch" ] || { echo "ERROR: $PINS: '$path' has an empty branch column (use - for none)" >&2; bad=1; }
+        case "$path" in
+            *[[:space:]]*|"") echo "ERROR: $PINS: path '$path' is empty or contains whitespace" >&2; bad=1 ;;
+        esac
         case " $seen " in
             *" $path "*) echo "ERROR: $PINS: '$path' is pinned twice" >&2; bad=1 ;;
         esac
@@ -175,6 +178,11 @@ cmd_checkout_tree() {
     top="$(git -C "$dir" rev-parse HEAD)" || die "cannot read HEAD of $dir"
     [ "$top" = "$want" ] || die "superproject $dir is at $top but the pin for '.' is $want"
     subs="$(git -C "$dir" config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null | awk '{print $2}')"
+    # Paths are word-split below; upstream has never used whitespace in one,
+    # and a path that has some must stop the build rather than mis-split.
+    if git -C "$dir" config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null | awk 'NF != 2 { bad=1 } END { exit !bad }'; then
+        die "singularity-desktop $top has a submodule path containing whitespace; singularity-pins.sh cannot pin it"
+    fi
     # Coverage, both ways, before touching anything.
     for p in $subs; do
         field "$p" 4 >/dev/null || {
@@ -186,7 +194,9 @@ cmd_checkout_tree() {
     done
     while IFS=$'\t' read -r p _ _ _; do
         case "$p" in subprojects/*) ;; *) continue ;; esac
-        printf '%s\n' "$subs" | grep -qxF "$p" || {
+        # Here-string, not a pipe: under pipefail a grep -q that exits early
+        # can SIGPIPE the producer and report a false "stale pin".
+        grep -qxF "$p" <<<"$subs" || {
             echo "ERROR: $PINS pins '$p' but singularity-desktop $top has no such submodule (stale pin)" >&2
             bad=1
         }
@@ -286,9 +296,15 @@ apply_queue() {  # apply_queue <label> <tree> <patch>...
 
 cmd_check_patches() {
     cmd_validate >/dev/null || return 1
-    local work fail=0 warn=0 d sub path url sha patches tree rc bs_sha bs_url lg
+    local work rc
     work="$(mktemp -d "${TMPDIR:-/tmp}/ncz-pin-check.XXXXXX")" || return 2
-    trap 'rm -rf "$work"' RETURN
+    check_patches_in "$work"; rc=$?
+    rm -rf "$work"
+    return "$rc"
+}
+
+check_patches_in() {
+    local work="$1" fail=0 warn=0 d sub path url sha patches tree rc bs_sha bs_url lg
     for d in "$PATCH_ROOT"/*/; do
         [ -d "$d" ] || continue
         patches=("$d"*.patch)
@@ -340,9 +356,12 @@ cmd_check_patches() {
 }
 
 cmd_propose() {
-    local work path url branch sha head gl
-    work="$(mktemp -d "${TMPDIR:-/tmp}/ncz-pin-propose.XXXXXX")" || exit 1
-    trap 'rm -rf "$work"' EXIT
+    local path url branch sha head gl unresolved=0
+    # Global, not local: the EXIT trap runs after this function's locals are
+    # gone, and under set -u a local name there is an unbound-variable error.
+    PROPOSE_WORK="$(mktemp -d "${TMPDIR:-/tmp}/ncz-pin-propose.XXXXXX")" || exit 1
+    trap 'rm -rf "$PROPOSE_WORK"' EXIT
+    local work="$PROPOSE_WORK"
     url="$(pin_url .)"; branch="$(field . 3)"
     head="$(tgit ls-remote "$url" "refs/heads/$branch" | awk '{print $1}')"
     [ -n "$head" ] || die "cannot resolve $url $branch"
@@ -359,13 +378,19 @@ cmd_propose() {
         else
             sha="$(tgit ls-remote "$url" "refs/heads/$branch" | awk '{print $1}')"
         fi
+        [ -n "$sha" ] || unresolved=1
         printf '%s\t%s\t%s\t%s\n' "$path" "$url" "$branch" "${sha:-UNRESOLVED}"
     done < <(git -C "$work/sd" config -f .gitmodules --get-regexp '^submodule\..*\.path$')
     for path in vetro singularity-boot-splash; do
         url="$(pin_url "$path")"; branch="$(field "$path" 3)"
         sha="$(tgit ls-remote "$url" "refs/heads/$branch" | awk '{print $1}')"
+        [ -n "$sha" ] || unresolved=1
         printf '%s\t%s\t%s\t%s\n' "$path" "$url" "$branch" "${sha:-UNRESOLVED}"
     done
+    if [ "$unresolved" = 1 ]; then
+        echo "ERROR: some rows are UNRESOLVED (branch missing or unreachable); do not commit this proposal" >&2
+        return 1
+    fi
 }
 
 cmd="${1:-}"; shift || true

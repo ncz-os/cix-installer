@@ -178,6 +178,9 @@ rm -rf "$P/orphan"
 grep -v '^vetro' "$T/pins.tsv" > "$T/p3" && mv "$T/p3" "$T/pins.tsv"
 out="$(pins validate 2>&1)"; rc=$?
 [ "$rc" != 0 ] && grep -q "no upstream pin for 'vetro'" <<<"$out" && ok "missing vetro pin -> refused" || nok "missing vetro pin accepted (rc=$rc)"
+printf 'sub projects/y\tfile:///y\tmain\t%s\n' "$LIB1" >> "$T/pins.tsv"
+out="$(pins validate 2>&1)"; rc=$?
+[ "$rc" != 0 ] && grep -q 'empty or contains whitespace' <<<"$out" && ok "path with whitespace -> refused" || nok "whitespace path accepted (rc=$rc)"
 printf 'subprojects/x\tfile:///x\tmain\tabc123\n' >> "$T/pins.tsv"
 out="$(pins validate 2>&1)"; rc=$?
 [ "$rc" != 0 ] && grep -q 'not a full 40-hex commit' <<<"$out" && ok "abbreviated sha -> refused" || nok "abbreviated sha accepted (rc=$rc)"
