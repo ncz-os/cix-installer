@@ -65,7 +65,13 @@ else
 fi
 if [ -n "$DEBS" ]; then
     V="$(ls "$DEBS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+    # The image floor (build/screensavers-version.env) decides which staged version can reach an image.
+    # A staging dir whose newest version is below that floor is not an image input, so parity over it
+    # proves nothing: say so and skip, instead of judging today's manifests against an old package set.
+    SS_FLOOR="$(sed -n 's/^NCZ_SCREENSAVERS_MIN_VERSION=//p' "$ROOT/build/screensavers-version.env" 2>/dev/null | tail -1)"
     if [ -z "$V" ]; then bad "no version directory under $DEBS"
+    elif [ -n "$SS_FLOOR" ] && [ "$V" != "$SS_FLOOR" ] && [ "$(printf '%s\n%s\n' "$V" "$SS_FLOOR" | sort -V | head -1)" = "$V" ]; then
+        echo "parity: (skipped) newest staged ncz-screensavers under $DEBS is $V, below the image floor $SS_FLOOR (build/screensavers-version.env); stage >= $SS_FLOOR there to re-enable this check"
     else
         for arch in arm64 amd64; do
             [ -f "$DEBS/$V/ncz-screensavers_${V}_$arch.deb" ] || bad "ncz-screensavers $V has no $arch deb"
@@ -78,7 +84,8 @@ if [ -n "$DEBS" ]; then
             done
             grep -qx ncz-screensavers-plugin "$ROOT/manifests/install-extra.pkgs" 2>/dev/null || bad "manifests/install-extra.pkgs does not seed ncz-screensavers-plugin"
         fi
-        if grep -rqs 'ncz-screensavers-gtk4-reference' "$ROOT/manifests" 2>/dev/null; then bad "ncz-screensavers-gtk4-reference is listed in a manifest (it is for other distros)"; fi
+        # package lines only (the manifests explain in comments why the reference app is excluded); no grep -q: under pipefail an early exit SIGPIPEs the loop
+        if for m in "$ROOT"/manifests/*.pkgs; do pkgs_of "$m"; done | grep -x 'ncz-screensavers-gtk4-reference' >/dev/null; then bad "ncz-screensavers-gtk4-reference is listed in a manifest (it is for other distros)"; fi
         ls "$ROOT"/build/ncz-screensavers-out/ncz-screensavers-gtk4-reference* >/dev/null 2>&1 && bad "ncz-screensavers-gtk4-reference is staged for the image build"
         [ -s "$DEBS/$V/BUILT-FROM.txt" ] || bad "ncz-screensavers $V has no BUILT-FROM.txt (one source commit for both arches)"
         [ "$FAIL" = 0 ] && echo "parity: ncz-screensavers $V has arm64+amd64 debs from '$(cat "$DEBS/$V/BUILT-FROM.txt")'"
