@@ -90,15 +90,15 @@ def build_info_line(arch: str) -> str:
     build_date = datetime.date.today().isoformat()
 
     kver_bits = []
-    # The staged channel directory names are arch-specific: arm64 carries
-    # assets/kernel/mainline (default) + assets/kernel/edge; amd64 carries
-    # assets/kernel/amd64-stable and no edge (directive 2026-09-30). The old
-    # f"{arch}-{line}" form looked for arm64-stable/arm64-edge, which never
-    # exist, so the arm64 info line always read "kernel line unknown".
+    # The staged channel directory names are arch-specific. Unified 7.3
+    # (operator 2026-10-05) retired the edge channel on both arches: arm64
+    # carries assets/kernel/mainline only, amd64 carries
+    # assets/kernel/amd64-stable only. The old f"{arch}-{line}" form looked
+    # for arm64-stable/arm64-edge, which never exist.
     if arch == "amd64":
         channels = (("stable", "amd64-stable"),)
     else:
-        channels = (("mainline", "mainline"), ("edge", "edge"))
+        channels = (("mainline", "mainline"),)
     for label, dirname in channels:
         kver_path = REPO_ROOT / "assets" / "kernel" / dirname / "KVER"
         if kver_path.is_file():

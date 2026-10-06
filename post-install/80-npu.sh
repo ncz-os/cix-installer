@@ -61,7 +61,7 @@ KERNEL_VERS=()
 if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
     KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null | tr -d ' \t\r\n')
     if [ -n "$KVER_NEXT" ]; then
-        KERNEL_LABELS+=("edge")
+        KERNEL_LABELS+=("mainline")
         KERNEL_VERS+=("$KVER_NEXT")
     fi
 fi
@@ -83,7 +83,7 @@ for _mk in /lib/modules/*7.2*-ncz /usr/lib/modules/*7.2*-ncz; do
     for _k in "${KERNEL_VERS[@]}"; do [ "$_k" = "$_kv" ] && { _known=1; break; }; done
     [ "$_known" = "1" ] && continue
     echo "[80] fallback: NCZ edge kernel $_kv present but not in KVER_NEXT sidecar — folding in for NPU SSDT"
-    KERNEL_LABELS+=("edge")
+    KERNEL_LABELS+=("mainline")
     KERNEL_VERS+=("$_kv")
 done
 

@@ -130,7 +130,7 @@ build/dkms-abi-gate.sh	sky1	-	staged headers vs Sky1 kernel gate
 build/e2e-install-test.sh	common	-	unattended install test driver
 build/extract-kernel-headers.sh	sky1	-	Sky1 kernel headers asset
 build/first-boot-failed-allowlist.txt	common	-	KVM gate first-boot allowlist
-build/gen-components-registry.py	common	-	deterministic generator for manifests/components.tsv (manifests + NCZ_LOCAL_DEBS + KERNEL-POLICY + t2 dkms.conf + edge overlays)
+build/gen-components-registry.py	common	-	deterministic generator for manifests/components.tsv (manifests + NCZ_LOCAL_DEBS + KERNEL-POLICY + t2 dkms.conf + sky1-manifest overlays; edge channel retired)
 build/gen-branding-assets.py	common	-	branding art generator
 build/gen-hooks-lists.sh	common	-	generates post-install/hooks.list.<platform> from the inventory
 build/gen-maximilian-art.py	common	-	procedural art generator
@@ -202,6 +202,7 @@ build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier t
 build/test-dkms-status-parse.sh	sky1	-	dkms status parser test for the kernel-debs headers postinst
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
+build/test-rescue-kernel-channel.sh	common	-	proves 72-rescue-partition.sh stages the arm64 rescue kernel from assets/kernel/mainline, not the retired edge channel
 build/test-kernel-purity-pin.sh	common	-	apt simulation proving the Debian-kernel preferences pin blocks dependencies while NCZ's own kernel still installs
 build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debian-kernel guards + static test of the legacy amd64 installer-kernel swap
 build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kernel.sh (clean 7.3 trees pass; every Debian-kernel leak and wrong default fails)
@@ -259,7 +260,7 @@ packaging/cix-npu-kmd/	sky1	-	NPU KMD packaging
 post-install/05-time-sync.sh	common	-	clock fix before HTTPS; arch-neutral (no platform tokens)
 post-install/10-amd64-kernel.sh	amd64	-	installs staged amd64 kernel debs with dpkg; amd64 analogue of 10-our-kernel
 post-install/10-our-kernel.sh	sky1	-	apt-installs linux-image-cixmini; own guard exits when arch != arm64 (line ~56)
-post-install/11-fix-cixmini-boot.sh	sky1	-	redirects cixmini-boot kernel postinst to rEFInd; no-op unless /usr/lib/cixmini exists
+post-install/11-fix-cixmini-boot.sh	sky1	-	redirects cixmini-boot kernel postinst to rEFInd; picks the newest installed NCZ kernel (no edge bucket); no-op unless /usr/lib/cixmini exists
 post-install/12-sky1-firmware.sh	sky1	-	copies Sky1 SoC blobs (mali_csffw, dsp_fw, *.fwb) to /lib/firmware; own arch guard
 post-install/13-firmware-bom.sh	common	-	installs manifests/firmware.pkgs, an architecture-neutral BOM
 post-install/15-mesa-sky1-pin.sh	sky1	-	apt pin for 1sky1 Mesa builds; only meaningful on Sky1 archive
@@ -316,7 +317,7 @@ post-install/60-boot-splash.sh	common	-	KMS boot splash; DRM-generic (panthor in
 post-install/61-chromium-icon.sh	sky1	-	Cygnus-coloured NCZ Chromium icon (diverts the chromium-ncz-sky1 package icons); Sky1 only
 post-install/62-cygnus-screensaver-default.sh	common	-	default screensaver = black hole in the Cygnus palette; override validated against the installed schema before install
 post-install/70-bootloader.sh	mixed	-	rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies
-post-install/72-rescue-partition.sh	mixed	-	rescue partition; explicit arm64 and amd64 kernel branches; TODO split
+post-install/72-rescue-partition.sh	mixed	-	rescue partition; arm64 stages assets/kernel/mainline, amd64 copies the installed amd64-stable kernel; TODO split
 post-install/79-dkms-prep.sh	sky1	-	makes Sky1 kernel headers DKMS-usable; installs aarch64 cross compiler
 post-install/80-npu.sh	sky1	-	Zhouyi/aipu NPU driver and SSDT; own arch guard
 post-install/81-vpu.sh	sky1	-	amvx VPU module overlay; own arch guard

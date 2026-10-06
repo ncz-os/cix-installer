@@ -104,19 +104,20 @@ run_refind_arm64() {
 }
 
 # ----------------------------------------------------------------------------
-# AMD64: rEFInd, two real kernel lines (stable + edge), standardized to
-# match arm64 2026-09-16 (was GRUB via run_grub_amd64()/
-# assets/grub/ncz-grub-refresh.sh until this change -- that script and the
-# grub-install/grub-efi-amd64/grub-pc-bin dependencies it needed are now
-# dead, flagged for removal rather than left stranded).
+# AMD64: rEFInd, one kernel (amd64-stable). The edge line was retired with
+# the unified 7.3 policy (operator 2026-10-05). Was GRUB via
+# run_grub_amd64()/assets/grub/ncz-grub-refresh.sh until 2026-09-16.
 run_refind_amd64() {
     KVER_LIST="$INSTALLER_META/KVER_LIST_AMD64"
     if [ ! -s "$KVER_LIST" ]; then
         echo "ERROR: $KVER_LIST missing (post-install/10-amd64-kernel.sh should have written it)"
         exit 1
     fi
+    # Line 1 is the installed amd64-stable KVER. A second line used to be
+    # the retired edge channel; do not read it. ncz-refind-refresh-amd64.sh
+    # ignores KVER_EDGE, and passing one only emits a warning.
     KVER_STABLE="$(sed -n '1p' "$KVER_LIST")"
-    KVER_EDGE="$(sed -n '2p' "$KVER_LIST")"
+    KVER_EDGE=""
     if [ -z "$KVER_STABLE" ]; then
         echo "ERROR: no stable KVER in $KVER_LIST"
         exit 1

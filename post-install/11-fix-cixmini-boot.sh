@@ -102,47 +102,19 @@ _newest_of() {
     printf '%s' "$_best"
 }
 
-# BUG FIXED 2026-09-16 (real, metal-verified on O6N): this used to lump
-# EVERY installed kernel into one pool and hand the single newest-mtime one
-# to ncz-refind-refresh as KVER_NEXT -- with no KVER_EDGE at all. That was
-# fine back when this distro shipped exactly one kernel line ("Single
-# shipping kernel", operator 2026-08-21), but the dual-track stable+edge
-# model (operator 2026-09-13) means a live `apt install` of the EDGE line
-# (e.g. 7.3.0-rc3) now has a newer mtime than the already-installed STABLE
-# line (7.2.6) -- so the edge kernel silently became "KVER_NEXT" and
-# ncz-refind-refresh regenerated every "7.2 Mali/Panthor/Console" primary
-# menu entry to boot the 7.3-rc edge kernel under a "7.2" label. Reproduced
-# live: `apt install`-ing the edge kernel alone flipped default_selection
-# to boot 7.3.0-rc3 despite every visible label still saying "7.2".
-#
-# Fix: bucket candidates by whether their kver contains an "-rcN-" segment
-# (this project's own edge-kernel naming convention, e.g.
-# 7.3.0-rc3-sky1-ncz) and pick the newest-mtime kernel WITHIN each bucket
-# independently, so an edge install can never displace the stable slot (or
-# vice versa). A host with only one line still works exactly as before:
-# the sole kernel lands in its own bucket and gets promoted to KVER_NEXT if
-# the stable bucket is empty (preserves single-kernel-release behavior).
-_stable_kvers=""
-_edge_kvers=""
-for _k in $NCZ_KVERS; do
-    case "$_k" in
-        *-rc[0-9]*-*) _edge_kvers="$_edge_kvers $_k" ;;
-        *)            _stable_kvers="$_stable_kvers $_k" ;;
-    esac
-done
-KVER_NEXT="$(_newest_of "$_stable_kvers")"
-KVER_EDGE="$(_newest_of "$_edge_kvers")"
+# Unified 7.3 (operator 2026-10-05): one shipping kernel. The 2026-09-16
+# fix bucketed *-rcN-* kernels into KVER_EDGE so an apt install of the
+# then-test edge line could not displace the 7.2 stable default. That
+# bucket is now wrong: the shipping kernel IS 7.3.0-rc6-sky1-ncz, and
+# ncz-refind-refresh.sh ignores KVER_EDGE. Leaving the bucket in place
+# puts the only installed kernel in KVER_EDGE, then the fallback below
+# promotes it -- which works only while no non-rc kernel is also installed.
+# Pick the newest installed NCZ kernel directly. KVER_EDGE stays empty so
+# the refresh script does not warn about a retired second channel.
+KVER_NEXT="$(_newest_of "$NCZ_KVERS")"
+KVER_EDGE=""
 
-# No stable kernel on this host (edge-only release, or a fresh edge install
-# with no stable line yet) -- fall back to promoting the edge kernel into
-# the KVER_NEXT slot, same as the old single-channel behavior, and leave
-# KVER_EDGE empty so ncz-refind-refresh doesn't generate a duplicate entry.
-if [ -z "$KVER_NEXT" ] && [ -n "$KVER_EDGE" ]; then
-    KVER_NEXT="$KVER_EDGE"
-    KVER_EDGE=""
-fi
-
-echo "cixmini-update-bootloader: stable=${KVER_NEXT:-<none>} edge=${KVER_EDGE:-<none>}"
+echo "cixmini-update-bootloader: shipping=${KVER_NEXT:-<none>}"
 
 if [ -z "$KVER_NEXT" ]; then
     echo "cixmini-update-bootloader: no shipping kernel with a ready initrd found, skipping"

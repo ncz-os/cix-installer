@@ -40,8 +40,8 @@ echo "[72] rescue partition population"
 
 # --- preconditions ---
 # arm64 stages a raw Image + modules archive and records KVER_NEXT on the ISO.
-# AMD64 installs its stable and edge .debs in 10-amd64-kernel.sh and records
-# the successfully installed versions in KVER_LIST_AMD64.  This hook used to
+# AMD64 installs its stable .deb in 10-amd64-kernel.sh and records
+# the successfully installed version in KVER_LIST_AMD64.  This hook used to
 # understand only the arm64 contract, so every AMD64 run failed here before it
 # could write RESCUE_READY; ncz-refind-refresh-amd64 then (correctly) refused
 # to ship without recovery and returned bootloader rc=1.
@@ -71,8 +71,11 @@ case "$NCZ_SYSTEM_ARCH" in
             echo "[72] ERROR: no KVER_NEXT sidecar — cannot build an arm64 rescue partition" >&2
             exit 1
         fi
-        if [ ! -f "$ASSETS_KERNEL/edge/Image-cixmini.bin" ] || [ ! -f "$ASSETS_KERNEL/edge/modules-cixmini.tgz" ]; then
-            echo "[72] ERROR: shipping kernel assets missing under $ASSETS_KERNEL/edge" >&2
+        # Unified 7.3 policy retired assets/kernel/edge. The shipping kernel
+        # is assets/kernel/mainline, and build-squashfs-layers.sh deletes any
+        # leftover edge directory from the payload before this hook runs.
+        if [ ! -f "$ASSETS_KERNEL/mainline/Image-cixmini.bin" ] || [ ! -f "$ASSETS_KERNEL/mainline/modules-cixmini.tgz" ]; then
+            echo "[72] ERROR: shipping kernel assets missing under $ASSETS_KERNEL/mainline" >&2
             exit 1
         fi
         ;;
@@ -333,12 +336,12 @@ if [ "$NCZ_SYSTEM_ARCH" = "amd64" ] || [ "$NCZ_SYSTEM_ARCH" = "x86_64" ]; then
         exit 1
     }
 else
-    install -D -m 0644 "$ASSETS_KERNEL/edge/Image-cixmini.bin" "$MNT/boot/vmlinuz-$KVER_RESCUE" || {
+    install -D -m 0644 "$ASSETS_KERNEL/mainline/Image-cixmini.bin" "$MNT/boot/vmlinuz-$KVER_RESCUE" || {
         echo "[72] ERROR: failed to copy arm64 rescue kernel" >&2
         umount "$MNT" 2>/dev/null || true
         exit 1
     }
-    tar xzf "$ASSETS_KERNEL/edge/modules-cixmini.tgz" -C "$MNT/usr" --strip-components=0 --keep-directory-symlink || {
+    tar xzf "$ASSETS_KERNEL/mainline/modules-cixmini.tgz" -C "$MNT/usr" --strip-components=0 --keep-directory-symlink || {
         echo "[72] ERROR: failed to extract arm64 rescue modules" >&2
         umount "$MNT" 2>/dev/null || true
         exit 1
@@ -353,7 +356,7 @@ else
     depmod -b "$MNT" "$KVER_RESCUE" 2>/dev/null || echo "[72] WARN: depmod returned non-zero"
 fi
 
-# initrd: reuse the main system's edge initrd (generic; mounts root=PARTUUID).
+# initrd: reuse the main system's shipping initrd (generic; mounts root=PARTUUID).
 # 70-bootloader.sh stages the ESP copy; this in-rootfs copy is for completeness.
 if [ -s "/boot/initrd.img-$KVER_RESCUE" ]; then
     install -D -m 0644 "/boot/initrd.img-$KVER_RESCUE" "$MNT/boot/initrd.img-$KVER_RESCUE"
