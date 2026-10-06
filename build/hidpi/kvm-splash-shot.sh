@@ -64,6 +64,9 @@ time.sleep(0.5)
 s.close()
 PY
     fi
+    # The guest powers itself off about 60 s after boot; if the splash never
+    # reported running there is nothing to capture, so stop QEMU now.
+    [ "$ok" = 1 ] || kill "$qpid" 2>/dev/null || true
     wait "$qpid" 2>/dev/null || true
     grep -E "${LOGGREP:-NCZ-SPLASH|boot-splash}" "$log" | sed "s/^/[$res] /" || true
     if [ -s "$run/shot.ppm" ]; then
