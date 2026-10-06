@@ -155,7 +155,7 @@ if command -v apt-cache >/dev/null 2>&1; then
     # nothing about `apt upgrade`.
     if printf '%s\n' "$_ncz_ss_pol" | grep -qE 'packages\.buildkite\.com/ncz-os/ncz|pub-d7b784e01679403d9c70fcd23fff5b96\.r2\.dev'; then
         echo "[24] OK: NCZ-OS apt sources carry ncz-screensavers (Candidate: $_ncz_ss_cand)"
-    elif printf '%s\n' "$_ncz_ss_pol" | grep -q 'file:///cdrom'; then
+    elif printf '%s\n' "$_ncz_ss_pol" | grep -qE 'file:/+cdrom'; then
         echo "[24] WARN: ncz-screensavers resolves only from the offline /cdrom pool; no NCZ-OS network source offered it during this install (index not refreshed, or both sources unreachable). The live-update path is unproven, but the sources above are wired and will serve the package once reachable." >&2
     else
         echo "[24] FATAL: ncz-screensavers candidate $_ncz_ss_cand is not offered by an NCZ-OS apt source -- the live image will NEVER receive updates via 'apt upgrade'" >&2
