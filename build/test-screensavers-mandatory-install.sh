@@ -54,16 +54,24 @@ trap 'rm -rf "$T"' EXIT
 # ---------------------------------------------------------------------------
 make_mirror() {   # $1: pkg_version_or_EMPTY
     local m="$T/mirror-$RANDOM"
-    mkdir -p "$m/dists/forky/main/binary-arm64"
+    local arch
+    # Mirror the arch-detection logic in assert-mirror-has-screensavers.sh:
+    # dpkg --print-architecture when available, otherwise uname -m mapping.
+    if command -v dpkg >/dev/null 2>&1; then
+        arch="$(dpkg --print-architecture)"
+    else
+        arch="$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')"
+    fi
+    mkdir -p "$m/dists/forky/main/binary-$arch"
     if [ -n "$1" ]; then
-        cat > "$m/dists/forky/main/binary-arm64/Packages" <<EOF
+        cat > "$m/dists/forky/main/binary-$arch/Packages" <<EOF
 Package: ncz-screensavers
 Version: $1
-Architecture: arm64
+Architecture: $arch
 Maintainer: $NCZ_SCREENSAVERS_REQUIRED_MAINTAINER
 EOF
     else
-        : > "$m/dists/forky/main/binary-arm64/Packages"
+        : > "$m/dists/forky/main/binary-$arch/Packages"
     fi
     printf '%s' "$m"
 }
