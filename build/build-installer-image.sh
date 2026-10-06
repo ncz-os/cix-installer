@@ -130,6 +130,14 @@ PATCHED_UDEB=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["
 
 echo "[4/6] preparing architecture kernel/initrd"
 INITRD_ARGS=(--base-initrd "$SUBSTRATE_NODE/extract/d-i/initrd.gz" --arch "$ARCH")
+# d-i ships no non-free firmware: bake the NIC/Bluetooth blobs named in
+# manifests/net-firmware.tsv (rtl_nic/*, MT79xx BT) into the initrd from the
+# same offline mirror the medium carries. Without them every Realtek NIC runs
+# the installer unpatched and the MT7922 BT reset loop floods the ring buffer.
+FW_SUITE=$(sed -n 's/^NCZ_BASE_CODENAME=//p' "$ROOT/release.conf" | tr -d "\"' " | head -1)
+FW_POOL="$ROOT/build/${FW_SUITE:-forky}-mirror/pool"
+[ -d "$FW_POOL" ] || { echo "FATAL: offline mirror pool $FW_POOL missing (run make offline-mirror); the installer initrd needs its firmware-*.deb" >&2; exit 1; }
+INITRD_ARGS+=(--firmware-pool "$FW_POOL" --net-firmware-table "$ROOT/manifests/net-firmware.tsv")
 if [ "$ARCH" = arm64 ]; then
   INITRD_ARGS+=(--kernel-image "$ROOT/assets/kernel/mainline/Image-cixmini.bin"
                 --modules-tar "$ROOT/assets/kernel/mainline/modules-cixmini.tgz")

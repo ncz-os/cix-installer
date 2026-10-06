@@ -99,6 +99,32 @@ echo "[verify-target] (ld) ldconfig"
 exists /etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf || gate_miss ldconfig "ldconfig.service tolerate-race drop-in (late.sh final ldconfig block did not run)"
 exists /etc/ld.so.cache || gate_miss ldconfig "/etc/ld.so.cache"
 exists /etc/.updated || gate_miss ldconfig "/etc/.updated stamp (late.sh)"
+
+# --- (net-fw) NIC / WiFi / Bluetooth firmware packages, same on both architectures ---------------------
+# manifests/net-firmware.tsv maps each network driver we ship to the firmware
+# package that carries its blobs; post-install/13-firmware-bom.sh installs the
+# whole BOM. Assert every package in that map really landed: a missing one is a
+# dead NIC/WiFi/BT radio on the installed system (MS-R1 MT7922, O6N RTL8125B,
+# T2/PEGASUS iwlwifi), which nothing else on this list would notice.
+echo "[verify-target] (net-fw) network firmware packages"
+NETFW_TSV="$HERE_VT/../manifests/net-firmware.tsv"
+if [ ! -f "$NETFW_TSV" ]; then
+    gate_miss net-firmware "verifier checkout has no manifests/net-firmware.tsv"
+elif ! fetch /var/lib/dpkg/status "$TMP/netfw-status"; then
+    gate_miss net-firmware "/var/lib/dpkg/status"
+else
+    # One pass over dpkg status: every "install ok installed" package name,
+    # whatever order the fields of its stanza are in.
+    awk '/^Package:/ {p=$2} /^Status:/ {s=$0} /^$/ {if (s ~ /install ok installed/) print p; p=""; s=""}
+         END {if (s ~ /install ok installed/) print p}' "$TMP/netfw-status" | sort -u > "$TMP/netfw-installed"
+    while IFS= read -r _p; do
+        if grep -qxF -- "$_p" "$TMP/netfw-installed"; then
+            echo "[fact] net_firmware_${_p}=installed"
+        else
+            gate_miss net-firmware "$_p not installed (manifests/net-firmware.tsv; post-install/13-firmware-bom.sh)"
+        fi
+    done < <(awk -F'\t' '!/^[[:space:]]*(#|$)/ && NF==5 {print $3}' "$NETFW_TSV" | sort -u)
+fi
 if [ "$ARCH" = arm64 ]; then
 # --- (i) firmware ---------------------------------------------------------
 FW=/usr/lib/firmware

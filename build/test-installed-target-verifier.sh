@@ -84,6 +84,10 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     fi
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
+    # network firmware packages named in manifests/net-firmware.tsv (13-firmware-bom)
+    while IFS= read -r f; do
+        printf 'Package: %s\nArchitecture: all\nStatus: install ok installed\n\n' "$f" >> "$r/var/lib/dpkg/status"
+    done < <(awk -F'\t' '!/^[[:space:]]*(#|$)/ && NF==5 {print $3}' "$ROOT/manifests/net-firmware.tsv" | sort -u)
     mkdir -p "$r/etc"; printf 'root:x:0:\nsudo:x:27:nczuser\n' > "$r/etc/group"
     # media stack: no VA driver, mpv on V4L2
     mkdir -p "$r/etc/mpv"
@@ -213,6 +217,11 @@ m_ssp_pkg() {
     echo x > "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
     printf "enabled-plugins='screensaver'\n" > "$1/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"
 }
+# Stanza-scoped edits: from the Package line up to the blank line ending it,
+# so the mutation holds whatever fields sit between Package and Status.
+m_no_fw_mediatek() { sed -i '/^Package: firmware-mediatek$/,/^$/d' "$1/var/lib/dpkg/status"; }
+m_half_fw_realtek() { sed -i '/^Package: firmware-realtek$/,/^$/s/install ok installed/deinstall ok config-files/' "$1/var/lib/dpkg/status"; }
+m_amd64_strip_no_iwlwifi() { m_amd64_strip "$1"; sed -i '/^Package: firmware-iwlwifi$/,/^$/d' "$1/var/lib/dpkg/status"; }
 m_no_sudo()     { sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
 m_sudo_empty()  { printf 'root:x:0:\nsudo:x:27:\n' > "$1/etc/group"; }
 m_aud_nodaemon() { rm -f "$1/usr/local/bin/ncz-sky1-audio-autoswitch"; }
@@ -299,6 +308,8 @@ run_case "missing wallpapers-bing plugin fails" 1 m_wp_noplugin
 run_case "stale sensors plugin fails"           1 m_sens_stale
 run_case "missing sensors plugin fails"         1 m_sens_missing
 run_case "sudo not installed fails"             1 m_no_sudo
+run_case "firmware-mediatek (MT7922 WiFi/BT) absent fails" 1 m_no_fw_mediatek
+run_case "firmware-realtek removed-not-purged fails" 1 m_half_fw_realtek
 run_case "empty sudo group fails"               1 m_sudo_empty
 run_case "VA driver present but mpv on v4l2 fails" 1 m_va_but_mpv_v4l2
 run_case "no encode node helper fails"          1 m_no_encnode
@@ -334,6 +345,7 @@ run_case "amd64: a healthy x86 target passes with no Sky1 content"  0 m_amd64_st
 run_case "amd64: serial-getty@ttyAMA0 leak fails"                   1 m_amd64_strip_leak
 run_case "amd64: placeholder hostname fails"                        1 m_amd64_strip_nohost
 run_case "amd64: sudo missing fails"                                1 m_amd64_strip_nosudo
+run_case "amd64: firmware-iwlwifi missing fails"                    1 m_amd64_strip_no_iwlwifi
 run_case "amd64: google-chrome-stable missing fails"                1 m_amd64_strip_nochrome
 run_case "amd64: stale Bing plugin fails"                           1 m_amd64_strip_stale_bing
 run_case "amd64: no kernel module tree fails"                       1 m_amd64_strip_nokernel
