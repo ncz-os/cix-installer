@@ -1,8 +1,13 @@
 #!/bin/sh
 # region-chooser.sh -- NCZ installer interactive REGION selection.
-# Invoked from partman/early_command (see preseed.cfg), in the exact position
-# the operator requires (after components / before user / before hostname / before
-# disk+fs).
+# Invoked from partman/early_command (see preseed.cfg) as the FIRST NCZ dialog
+# the operator sees (operator 2026-10-06: "the region should be chosen along
+# with the first question asked"): region, then username + password, then
+# components, then disk + fs. The hostname is generated, never asked.
+#
+# ONCE PER BOOT: a completed run leaves $NCZ_TMP/.ncz-region-done; any later
+# --prompt run (partman restarted, early_command replayed) re-applies the saved
+# answer from $NCZ_TMP/ncz-region and never shows the dialog again.
 #
 # ONE PROMPT - FOUR d-i answers. The user picks a country; the script derives
 # locale (lang_COUNTRY.UTF-8), country code (TZ country code), timezone (the
@@ -43,7 +48,9 @@
 
 set +e
 
-. /usr/share/debconf/confmodule 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
+. "${NCZ_CONFMODULE:-/usr/share/debconf/confmodule}" 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
+NCZ_TMP="${NCZ_TMP:-/tmp}"
+DONE="$NCZ_TMP/.ncz-region-done"
 
 # shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
 for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
@@ -65,7 +72,14 @@ log() {
 }
 
 # --- curated REGIONS table ---------------------------------------------------
-# Format: <code>:<locale>:<country>:<timezone>:<keymap>
+# Format: <code>:<locale>:<country>:<timezone>:<keymap>:<label shown in the list>
+# ONE ENTRY PER LINE (real newlines). r199 joined the entries with
+# backslash-newline inside the double quotes, which the shell removes, so the
+# table was ONE line: the dialog listed only "us", ncz_region=<anything but us>
+# was rejected, and the "us" row's keymap field read "us ca" (PEGASUS
+# 2026-10-06: "REGION = en_US.UTF-8 ... keymap=us ca" pushed into
+# keyboard-configuration/xkb-keymap). Labels must not contain a comma (cdebconf
+# splits Choices on ", ").
 #
 # Operator feedback 2026-09-30: the operator requires ONE choice to set
 # locale, country, timezone AND derive keyboard. Every entry below is
@@ -80,26 +94,25 @@ log() {
 #
 # Add an entry here and the dialog offers it automatically (the multi-select
 # code rebuilds the Choices: line from this list at runtime).
-REGIONS="\
-us:en_US.UTF-8:US:America/New_York:us\
- ca:en_US.UTF-8:CA:America/Toronto:us\
- mx:es_MX.UTF-8:MX:America/Mexico_City:us\
- br:pt_BR.UTF-8:BR:America/Sao_Paulo:br\
- uk:en_GB.UTF-8:GB:Europe/London:gb\
- ie:en_IE.UTF-8:IE:Europe/Dublin:gb\
- de:de_DE.UTF-8:DE:Europe/Berlin:de\
- fr:fr_FR.UTF-8:FR:Europe/Paris:fr\
- es:es_ES.UTF-8:ES:Europe/Madrid:es\
- it:it_IT.UTF-8:IT:Europe/Rome:it\
- nl:nl_NL.UTF-8:NL:Europe/Amsterdam:nl\
- se:sv_SE.UTF-8:SE:Europe/Stockholm:se\
- pl:pl_PL.UTF-8:PL:Europe/Warsaw:pl\
- ru:ru_RU.UTF-8:RU:Europe/Moscow:ru\
- jp:ja_JP.UTF-8:JP:Asia/Tokyo:jp\
- cn:zh_CN.UTF-8:CN:Asia/Shanghai:cn\
- kr:ko_KR.UTF-8:KR:Asia/Seoul:kr\
- in:hi_IN.UTF-8:IN:Asia/Kolkata:us\
- au:en_US.UTF-8:AU:Australia/Sydney:us"
+REGIONS="us:en_US.UTF-8:US:America/New_York:us:United States
+ca:en_US.UTF-8:CA:America/Toronto:us:Canada
+mx:es_MX.UTF-8:MX:America/Mexico_City:us:Mexico
+br:pt_BR.UTF-8:BR:America/Sao_Paulo:br:Brazil
+uk:en_GB.UTF-8:GB:Europe/London:gb:United Kingdom
+ie:en_IE.UTF-8:IE:Europe/Dublin:gb:Ireland
+de:de_DE.UTF-8:DE:Europe/Berlin:de:Germany
+fr:fr_FR.UTF-8:FR:Europe/Paris:fr:France
+es:es_ES.UTF-8:ES:Europe/Madrid:es:Spain
+it:it_IT.UTF-8:IT:Europe/Rome:it:Italy
+nl:nl_NL.UTF-8:NL:Europe/Amsterdam:nl:Netherlands
+se:sv_SE.UTF-8:SE:Europe/Stockholm:se:Sweden
+pl:pl_PL.UTF-8:PL:Europe/Warsaw:pl:Poland
+ru:ru_RU.UTF-8:RU:Europe/Moscow:ru:Russia
+jp:ja_JP.UTF-8:JP:Asia/Tokyo:jp:Japan
+cn:zh_CN.UTF-8:CN:Asia/Shanghai:cn:China
+kr:ko_KR.UTF-8:KR:Asia/Seoul:kr:South Korea
+in:hi_IN.UTF-8:IN:Asia/Kolkata:us:India
+au:en_US.UTF-8:AU:Australia/Sydney:us:Australia"
 
 region_in_table() {
     _want="$1"
@@ -110,7 +123,7 @@ region_field() {   # code field -> value
 }
 
 # --- read cmdline overrides --------------------------------------------------
-CMD=$(cat /proc/cmdline 2>/dev/null)
+CMD=$(cat "${NCZ_CMDLINE:-/proc/cmdline}" 2>/dev/null)
 OVR_REGION=""; OVR_KEYMAP=""
 _unattended=0
 for tok in $CMD; do
@@ -167,37 +180,35 @@ if [ "$NCZ_PROMPT" != "--prompt" ]; then
     db_fset keyboard-configuration/layoutcode seen true        2>/dev/null || true
     db_set  time/zone "$CHOSEN_TZ"                   2>/dev/null || true
     db_fset time/zone seen true                      2>/dev/null || true
-    log "interactive install: the region dialog is shown right before partitioning (defaulting to en_US for now)"
+    log "interactive install: the region dialog is the first NCZ dialog, shown in partman/early_command (en_US until then)"
     exit 0
 fi
 
+# Already answered this boot: re-apply the saved answer, never ask again.
+if [ -z "$CHOSEN_LOCALE" ] && [ -e "$DONE" ] && [ -s "$NCZ_TMP/ncz-region" ]; then
+    { read -r CHOSEN_LOCALE; read -r CHOSEN_COUNTRY; read -r CHOSEN_TZ; read -r CHOSEN_KEYMAP; } < "$NCZ_TMP/ncz-region"
+    log "already answered this boot: re-applying region locale=$CHOSEN_LOCALE (no dialog)"
+fi
+
 if [ -z "$CHOSEN_LOCALE" ] && [ "$NCZ_PROMPT" = "--prompt" ] && [ "$_unattended" = 0 ]; then
-    CHOICES=""
-    LONG=""
-    _oldifs=$IFS; IFS='
-'
-    for line in $REGIONS; do
-        code=${line%%:*}
-        # Capitalise for human display (us -> US, uk -> UK).
-        country=$(printf '%s' "$code" | tr 'a-z' 'A-Z')
-        [ -z "$CHOICES" ] && CHOICES="$code" || CHOICES="$CHOICES, $code"
-        LONG="$LONG  $code - $country\\n"
-    done
-    IFS=$_oldifs
-    cat > /tmp/ncz-region.templates <<TPL
+    # Choices-C carries the region codes (what db_get returns and Default names);
+    # Choices carries the country names the operator reads. Default us = Enter
+    # accepts United States / en_US / us keyboard.
+    CHOICES_C=$(printf '%s\n' "$REGIONS" | awk -F: 'NF>=6 {printf "%s%s", (n++ ? ", " : ""), $1}')
+    CHOICES=$(printf '%s\n' "$REGIONS" | awk -F: 'NF>=6 {printf "%s%s", (n++ ? ", " : ""), $6}')
+    cat > "$NCZ_TMP/ncz-region.templates" <<TPL
 Template: ncz/region
 Type: select
+Choices-C: ${CHOICES_C}
 Choices: ${CHOICES}
 Default: us
 Description: $(ncz_ui_brand) - select your REGION
- Pick your country. NCZ-OS will use it to set the language, country,
- timezone and keyboard layout in one step.
- .
- ${LONG}
+ Pick your country. NCZ-OS uses it to set the language, timezone and
+ keyboard layout in one step. Press Enter to accept United States.
  .
  $(ncz_ui_id)
 TPL
-    if debconf-loadtemplate ncz /tmp/ncz-region.templates 2>/dev/null; then
+    if debconf-loadtemplate ncz "$NCZ_TMP/ncz-region.templates" 2>/dev/null; then
         db_set     ncz/region us 2>/dev/null || true
         db_fset    ncz/region seen false     || true
         db_settitle ncz/region 2>/dev/null
@@ -257,11 +268,14 @@ db_fset time/zone seen true                      2>/dev/null || true
 # stash for post-install hooks / diagnostics (same convention as
 # /tmp/ncz-target-disk, /tmp/ncz-root-fs in disk-fs-chooser.sh and
 # /tmp/ncz-locale in the retired locale-keyboard-chooser.sh)
-cat > /tmp/ncz-region <<REGION
+cat > "$NCZ_TMP/ncz-region" <<REGION
 ${CHOSEN_LOCALE}
 ${CHOSEN_COUNTRY}
 ${CHOSEN_TZ}
 ${CHOSEN_KEYMAP}
 REGION
+# A --prompt run (dialog answered, override applied, or unattended default)
+# completes the region step for this boot.
+[ "$NCZ_PROMPT" = "--prompt" ] && : > "$DONE"
 log "chooser complete: locale=$CHOSEN_LOCALE country=$CHOSEN_COUNTRY tz=$CHOSEN_TZ keymap=$CHOSEN_KEYMAP"
 exit 0
