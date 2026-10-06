@@ -134,6 +134,20 @@ Description: ${NCZ_RELEASE_LABEL} install complete - REMOVE THE USB STICK NOW
  When you select Continue the system reboots into your new ${NCZ_RELEASE_LABEL}
  desktop. If the USB stick is left inserted, the machine may boot back
  into the installer instead of your new system.
+
+Template: nclawzero/remove-media-gpu
+Type: note
+Description: ${NCZ_RELEASE_LABEL} install complete - REMOVE THE USB STICK NOW
+ The installation finished successfully.
+ .
+ IMPORTANT: physically remove the USB installation stick NOW, before you
+ continue.
+ .
+ \${GPUNOTE}
+ .
+ When you select Continue the system reboots into your new ${NCZ_RELEASE_LABEL}
+ desktop. If the USB stick is left inserted, the machine may boot back
+ into the installer instead of your new system.
 NCZTPL
     if . /usr/share/debconf/confmodule 2>/dev/null; then
         if debconf-loadtemplate nclawzero /tmp/ncz-progress.templates 2>/dev/null; then
@@ -1687,11 +1701,30 @@ fi
 # r56: loud REMOVE-USB banner so user sees it on every TTY before d-i reboots.
 # d-i preseed (reboot_in_progress no longer set to note) will then prompt the
 # user to dismiss before the actual reboot fires.
+# First-boot GPU notice (docs/GPU-INSTALL-PROGRESS.md, "First boot"): when a
+# DKMS kernel-module build is still outstanding (dpkg left a *-dkms package
+# unconfigured), say on the last screen what first boot will do with it: run
+# it before the login screen (a build that may succeed), or skip it because
+# it already failed here with a compiler error (the reason line from
+# make.log, and what retries it). Empty for every
+# machine with nothing to build, which then sees the unchanged dialog.
+NCZ_GPU_NOTE=""
+_ncz_dp=/target/usr/local/lib/cix-installer/post-install/lib/dkms-pending.sh
+if [ -r "$_ncz_dp" ]; then
+    NCZ_GPU_NOTE=$( . "$_ncz_dp" 2>/dev/null && ncz_firstboot_gpu_notice /target 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g; s/ *$//' )
+fi
+if [ -n "$NCZ_GPU_NOTE" ]; then
+    echo "[late] first-boot GPU notice: $NCZ_GPU_NOTE"
+    ttymsg "GPU: $NCZ_GPU_NOTE" 2>/dev/null || true
+else
+    echo "[late] first-boot GPU notice: none (no DKMS build outstanding)"
+fi
 if [ "$FINALIZE_OK" = "1" ]; then
     BANNER="\n\n  ============================================================\n  \n    ${NCZ_RELEASE_LABEL} INSTALL COMPLETE\n    \n    >>> REMOVE THE USB STICK NOW <<<\n    \n    Then press Enter on the next dialog to reboot.\n    \n    If you forget, the system will boot back into the\n    installer (USB has higher boot priority than NVMe).\n  \n  ============================================================\n"
     for tty in /dev/tty1 /dev/tty2 /dev/tty3 /dev/tty4 /dev/tty5 /dev/console; do
         if [ -w "$tty" ]; then
             printf '%b' "$BANNER" >> "$tty" 2>/dev/null || true
+            [ -n "$NCZ_GPU_NOTE" ] && printf '  %s\n\n' "$NCZ_GPU_NOTE" >> "$tty" 2>/dev/null
         fi
     done
     # r135: BLOCKING graphical dialog so the user removes the USB before the
@@ -1726,8 +1759,13 @@ if [ "$FINALIZE_OK" = "1" ]; then
         # prompt, and the TTY banner above is only visible on Alt+F3. This pops a
         # note on the same frontend d-i uses and WAITS for Continue.
         if [ "$DEBCONF_OK" = 1 ]; then
-            db_try db_fset nclawzero/remove-media seen false
-            db_try db_input critical nclawzero/remove-media
+            _ncz_rm_tpl=nclawzero/remove-media
+            if [ -n "$NCZ_GPU_NOTE" ]; then
+                _ncz_rm_tpl=nclawzero/remove-media-gpu
+                db_try db_subst "$_ncz_rm_tpl" GPUNOTE "$NCZ_GPU_NOTE"
+            fi
+            db_try db_fset "$_ncz_rm_tpl" seen false
+            db_try db_input critical "$_ncz_rm_tpl"
             db_try db_go
         else
             # no debconf channel — the TTY banner above is the only notice; give
