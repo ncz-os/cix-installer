@@ -280,7 +280,7 @@ post-install/54-gpu-accel.sh	amd64	nvidia-cuda	AMD64 GPU/accelerator stack (ROCm
 post-install/55-greeter.sh	common	-	greetd plus singularity-greeter; generic
 post-install/55-t2-firmware.sh	amd64	t2	Apple T2 WiFi/BT firmware and audio; guard exits when arch != amd64
 post-install/56-icon-theme.sh	common	-	icon theme; generic
-post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux/t2smp/t2thunderbolt DKMS on T2 Macs
+post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux/t2smp DKMS on Apple hardware; t2thunderbolt is opt-in (NCZ_T2_DKMS_EXTRA) and blacklisted by default
 post-install/57-qotd.sh	common	-	quote of the day; generic
 post-install/57-screensaver.sh	common	-	legacy idle-lock screensaver stack; generic
 post-install/58-boot-hygiene.sh	mixed	-	generic unit hygiene plus cix_resume unit masking (Sky1); TODO split
