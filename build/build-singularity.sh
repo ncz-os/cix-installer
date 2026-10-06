@@ -540,8 +540,10 @@ echo "STAGED $(du -h /out/singularity-opt.tgz | cut -f1)"
 # this tarball, bound to it by sha256. Recovering what r199 was built from
 # took a time-window argument over upstream history because nothing recorded
 # it; this is that record.
+_tgz_sha="$(sha256sum /out/singularity-opt.tgz | cut -d" " -f1)"
+[ -n "$_tgz_sha" ]
 {
-    echo "# singularity-opt.tgz sha256 $(sha256sum /out/singularity-opt.tgz | cut -d" " -f1)"
+    echo "# singularity-opt.tgz sha256 $_tgz_sha"
     if [ "$NCZ_SINGULARITY_TRACK_HEAD" = 1 ]; then echo "# mode track-head (NOT pinned)";
     elif [ -n "${SINGULARITY_SOURCE_DIR:-}" ]; then echo "# mode local-source-dir (NOT pinned)";
     else echo "# mode pinned"; fi
