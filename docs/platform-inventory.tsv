@@ -361,4 +361,8 @@ build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, cha
 docs/installer-ux/	common	-	installer console before/after evidence
 build/test-usb2-rescan-sky1-only.sh	common	-	regression tests: ncz-usb2-rescan is Sky1-only (hook lists, amd64 manifests, unit Conditions, arm64-only package)
 build/test-usb2-rescan-greetd.sh	common	-	regression tests: greetd drop-in tolerates an absent/condition-skipped ncz-usb2-rescan.service; bounded input probe stays
+build/test-amd64-intel-vaapi.sh	amd64	-	proves the amd64 desktop closure ships intel-media-va-driver (manifest, sbom pin, hook)
+build/test-dkms-status-parse.sh	amd64	t2	fixture tests for parsing dkms status output in the T2 debug staging/bootcheck path
+build/test-t2-dkms-provenance.sh	amd64	t2	proves every vendored T2 DKMS module has a PROVENANCE file pinned to a 40-hex upstream commit and a licence line
+build/test-t2smc-range.sh	amd64	t2	userspace unit test of the t2smc range checks (fan min/target, charge limit, RTC offset) and the patch applying cleanly
 build/test-t2-dkms-hook.sh	amd64	t2	proves 56-t2-dkms.sh skips t2thunderbolt by default, blacklists it, removes stale DKMS registrations and honours the opt-in
