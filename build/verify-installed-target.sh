@@ -113,14 +113,17 @@ if [ ! -f "$NETFW_TSV" ]; then
 elif ! fetch /var/lib/dpkg/status "$TMP/netfw-status"; then
     gate_miss net-firmware "/var/lib/dpkg/status"
 else
-    for _p in $(awk -F'\t' '!/^[[:space:]]*(#|$)/ && NF==5 {print $3}' "$NETFW_TSV" | sort -u); do
-        if awk -v p="$_p" '$0=="Package: "p {f=1; next} f && /^Status:/ {print; exit} /^$/ {f=0}' \
-               "$TMP/netfw-status" | grep -q 'install ok installed'; then
+    # One pass over dpkg status: every "install ok installed" package name,
+    # whatever order the fields of its stanza are in.
+    awk '/^Package:/ {p=$2} /^Status:/ {s=$0} /^$/ {if (s ~ /install ok installed/) print p; p=""; s=""}
+         END {if (s ~ /install ok installed/) print p}' "$TMP/netfw-status" | sort -u > "$TMP/netfw-installed"
+    while IFS= read -r _p; do
+        if grep -qxF -- "$_p" "$TMP/netfw-installed"; then
             echo "[fact] net_firmware_${_p}=installed"
         else
             gate_miss net-firmware "$_p not installed (manifests/net-firmware.tsv; post-install/13-firmware-bom.sh)"
         fi
-    done
+    done < <(awk -F'\t' '!/^[[:space:]]*(#|$)/ && NF==5 {print $3}' "$NETFW_TSV" | sort -u)
 fi
 if [ "$ARCH" = arm64 ]; then
 # --- (i) firmware ---------------------------------------------------------
