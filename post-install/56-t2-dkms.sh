@@ -64,8 +64,14 @@ else
     echo "[56] WARN: T2 detection helper $T2_DETECT not readable; the hook is inert" >&2
     exit 0
 fi
-# Default set. t2thunderbolt is opt-in only (see header).
-MODULES="t2smc t2gmux t2smp"
+# Default set. t2thunderbolt is opt-in only (see header). t2smp is
+# permanently DROPPED: in-kernel patch 9001 owns Apple T2 CPU-hotplug
+# ordering on amd64 (operator 2026-10-05; the vendored t2smp DKMS is a
+# byte-for-byte duplicate of 9001 -- same notifier priority, same
+# 106b:1801 gate, same uninitialised-mask defect under
+# CONFIG_CPUMASK_OFFSTACK=y). The vendored source stays under assets/kernel/t2smp/
+# for review but is never built here.
+MODULES="t2smc t2gmux"
 _optin=0
 for _x in ${NCZ_T2_DKMS_EXTRA:-}; do
     case "$_x" in
@@ -92,13 +98,34 @@ KVER=$(ls -1 "$LIBMODULES" 2>/dev/null | grep -v -- '-rc' | sort -V | tail -1)
 [ -n "$KVER" ] || KVER=$(uname -r)
 echo "[56] installing T2 DKMS modules against $KVER"
 
+# t2smp: ALWAYS blacklisted. In-kernel patch 9001 is the canonical owner.
+# Run BEFORE the t2thunderbolt block so a single hook pass cleans both stale
+# registrations. /usr/src/t2smp-* is also cleared so a future kernel does
+# not see a stale dkms.conf.
+mkdir -p "$MODPROBE_D"
+cat > "$MODPROBE_D/ncz-t2smp.conf" <<'EOC'
+# NCZ-OS: t2smp is not loaded. In-kernel patch 9001 (CPU offline) is the
+# canonical owner of Apple T2 CPU-hotplug ordering on amd64 (operator
+# 2026-10-05). The vendored t2smp DKMS duplicates 9001 (same notifier
+# priority, same 106b:1801 gate, uninitialised-cpumask bug under
+# CONFIG_CPUMASK_OFFSTACK=y). To re-enable t2smp (NOT supported), remove
+# this file, revert 9001 in the running kernel, and re-run this hook
+# without the implicit blacklist.
+blacklist t2smp
+install t2smp /bin/false
+EOC
+if dkms status 2>/dev/null | grep -q '^t2smp'; then
+    dkms remove -m t2smp --all >/dev/null 2>&1 || true
+    echo "[56] removed stale DKMS registration of t2smp"
+fi
+rm -rf "$USRSRC"/t2smp-* 2>/dev/null || true
+
 # t2thunderbolt: never loaded unless explicitly opted in. Keep a modprobe.d file so it cannot
 # autoload even if some earlier install or a manual dkms build left the module on disk, and
 # drop a stale DKMS registration so new kernels do not rebuild it.
 if [ "$_optin" = 1 ]; then
     rm -f "$MODPROBE_D/ncz-t2thunderbolt.conf"
 else
-    mkdir -p "$MODPROBE_D"
     cat > "$MODPROBE_D/ncz-t2thunderbolt.conf" <<'EOC'
 # NCZ-OS: t2thunderbolt is not loaded by default (suspend/resume ordering quirk for Thunderbolt
 # controllers on T2 Macs; the T2 community treats Thunderbolt on T2 as unsafe for now).
