@@ -1,0 +1,66 @@
+# Singularity Desktop upstream source pins -- the exact upstream commits the
+# NCZ-OS payload (ncz-singularity-desktop) is built from, and the commits the
+# downstream patch queue in assets/singularity/patches/ is verified against.
+#
+# Read by build/singularity-pins.sh (build/build-singularity.sh and
+# build/preflight-freshness-gate.sh both go through it). A build that would
+# clone a repository with no row here FAILS with the missing path named; it
+# never falls back to a moving branch head.
+#
+# Columns (TAB-separated):
+#   path    "." = the singularity-desktop superproject; subprojects/<name> =
+#           a superproject submodule (every path in the pinned superproject's
+#           .gitmodules must have a row); vetro and singularity-boot-splash =
+#           the two standalone repositories build-singularity.sh clones.
+#   url     upstream clone URL
+#   branch  the branch the pin was taken from ("-" = no tracked branch: the
+#           superproject's own gitlink is authoritative and must match)
+#   sha     full 40-hex upstream commit
+#
+# Derivation (2026-10-06): the r199 images (tag v26.10-r199, d7ab4948) built
+# their payload from the superproject's master head with every submodule
+# re-pinned to its tracked branch head, at about 08:00-09:00Z on 2026-10-06.
+# These rows are those heads: the superproject 5c75e563d10e is the "g5c75e563d10e"
+# in the earlier +deps1 package version, every tracked branch's newest
+# first-parent commit before 2026-10-06T12:00Z is dated 2026-09-25 or older,
+# and the next commit on any of them is the upstream feature drop of
+# 2026-10-06 13:26-15:51Z (libsingularity f3d0f49, singularity-shell 1da3224,
+# labwc 4653655f..2da90c41, ...) that broke the patch queue. So the r199 build
+# time inside that window does not change the answer.
+#
+# Bump deliberately: build/singularity-pins.sh propose prints the current
+# upstream heads in this format; review, run build/singularity-pins.sh
+# check-patches, rebuild, then commit.
+.	https://github.com/singularityos-lab/singularity-desktop.git	master	5c75e563d10e9c6142519f8a976f307742c34c32
+subprojects/libsingularity	https://github.com/singularityos-lab/libsingularity.git	main	b454931607437b4761c916c39d17283b30393509
+subprojects/singularity-files	https://github.com/singularityos-lab/singularity-files.git	main	6c389803716a906db560bae5b7e2433ef7af1fef
+subprojects/singularity-leafs	https://github.com/singularityos-lab/singularity-leafs.git	main	707c78d30a7fac413e888b300e6644ed3f9425a8
+subprojects/singularity-polkit-agent	https://github.com/singularityos-lab/singularity-polkit-agent.git	main	5e7478ef581e9221847915f43e2b38f1fe6c1020
+subprojects/singularity-calculator	https://github.com/singularityos-lab/singularity-calculator.git	main	b465f1e78893e765010f097aa926ceff1949fc46
+subprojects/xdg-desktop-portal-singularity	https://github.com/singularityos-lab/xdg-desktop-portal-singularity.git	main	9701c7144d061f83d0a1f40bd60ea390ef3fc398
+subprojects/labwc	https://github.com/singularityos-lab/labwc.git	singularity	6fe073cb94dde9eefa2039671671139839ea5c91
+subprojects/singularity-calendar	https://github.com/singularityos-lab/singularity-calendar.git	main	47fe84817ee10d22800798b6a1c29de0e4dcce4e
+subprojects/singularity-demo	https://github.com/singularityos-lab/singularity-demo.git	main	d6cf1155dc3056eeb256039d209b75fed13c2c00
+subprojects/singularity-edit	https://github.com/singularityos-lab/singularity-edit.git	main	fa524b56715dd665ebb7e72d262c451e84a45889
+subprojects/singularity-git	https://github.com/singularityos-lab/singularity-git.git	main	da268970316351292af7f78c02e91948505aa971
+subprojects/singularity-keyring	https://github.com/singularityos-lab/singularity-keyring.git	main	dfbb8a5d9609293c27aeab1f7c1acff222950cd4
+subprojects/singularity-monitor	https://github.com/singularityos-lab/singularity-monitor.git	main	c7b9d036fda80c9ad86be9a9803255092088ae40
+subprojects/singularity-music	https://github.com/singularityos-lab/singularity-music.git	main	c7ef19572316c4f728dd996ca2409ae2fbdba1a3
+subprojects/singularity-photos	https://github.com/singularityos-lab/singularity-photos.git	main	f9badf8064c7a6c3817d1ace4cc0e16cf6485013
+subprojects/singularity-store	https://github.com/singularityos-lab/singularity-store.git	main	8782c14125214a60bd62199e6d693168450d75b4
+subprojects/singularity-videos	https://github.com/singularityos-lab/singularity-videos.git	main	1c507831e2aea837632607f4fd5c7a61226e5fba
+subprojects/singularity-write	https://github.com/singularityos-lab/singularity-write.git	main	3ed2a8334d012e40c6b020b5b8b6553733b88bd7
+subprojects/singularity-greeter	https://github.com/singularityos-lab/singularity-greeter.git	main	bf4fadb8c9f64d7f467fbbb910ff8b26f1b3bc5e
+subprojects/singularity-wallpapers	https://github.com/singularityos-lab/singularity-wallpapers.git	main	422f24176489f97192c0552230020390a4e33a32
+subprojects/singularity-themes	https://github.com/singularityos-lab/singularity-themes.git	main	a6f2d42550c4cc6b7c51a1d2053929728222d6c2
+subprojects/singularity-plugins	https://github.com/singularityos-lab/singularity-plugins.git	main	d255d47163dc24c9201c5bfa8455cbd01b7a2654
+subprojects/singularity-widgets	https://github.com/singularityos-lab/singularity-widgets.git	main	d0eed022cfbcbb77d1bec90fa764da4a230e57f4
+subprojects/singularity-session	https://github.com/singularityos-lab/singularity-session.git	main	45c7d54c43dff2c1e7f447fe53d8d65b97e7d219
+subprojects/singularity-shell	https://github.com/singularityos-lab/singularity-shell.git	main	3b72f26fc254940670aa28cb78c5c31a672e75f0
+subprojects/singularity-loginui	https://github.com/singularityos-lab/singularity-loginui.git	-	e43182abdf77493d31c2a0f303fd61182dcc16d2
+subprojects/singularity-installer	https://github.com/singularityos-lab/singularity-installer.git	-	540b58f7050fbddcdce8cc27bfe6555cd03c3294
+subprojects/singularity-gestures	https://github.com/singularityos-lab/singularity-gestures.git	main	c524945f57c3a973c3971891dd392ce285c4fd59
+subprojects/libinput	https://github.com/singularityos-lab/libinput.git	singularity	d20219b4a7350434fc058dcf00dec3f8cf13db47
+subprojects/singularity-clock	https://github.com/singularityos-lab/singularity-clock.git	-	dd92d96537a3954da84ea6dc2b2941b8f5f11b8b
+vetro	https://github.com/singularityos-lab/vetro	main	bb1013b407b2ef32dbe475a670f30a27510a9b6a
+singularity-boot-splash	https://github.com/singularityos-lab/singularity-boot-splash.git	main	bab3cee8c995ec206239bba1d8259038e02de1b2

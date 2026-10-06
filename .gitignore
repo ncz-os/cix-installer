@@ -193,3 +193,5 @@ build/iso-cache/v1/nodes/*
 build/iso-cache/v1/*/
 !build/iso-cache/v1/blobs/
 !build/iso-cache/v1/nodes/
+# Bare mirrors of the pinned Singularity upstream repos (build/singularity-pins.sh fetch-cache)
+build/.singularity-pin-cache/
