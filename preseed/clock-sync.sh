@@ -65,14 +65,18 @@ if command -v "$RDATE" >/dev/null 2>&1 ; then
     while kill -0 "$pid" 2>/dev/null && [ "$n" -lt "$BOUND" ] ; do n=$((n + 1)) ; sleep 1 ; done
     if kill -0 "$pid" 2>/dev/null ; then
         kill "$pid" 2>/dev/null ; sleep 1 ; kill -9 "$pid" 2>/dev/null
-        wait "$pid" 2>/dev/null
-        log "SNTP $SERVER gave no answer within ${BOUND}s (UDP/123 filtered?); stopped it"
-    elif wait "$pid" ; then
+    fi
+    # The exit status decides, not which branch above ran: rdate may exit 0 in the instant between the
+    # liveness check and the kill, and then the clock WAS set.
+    wait "$pid" 2>/dev/null ; rc=$?
+    if [ "$rc" = 0 ] ; then
         synced=1
         log "SNTP $SERVER set the clock: $(date -u +%FT%TZ)"
         echo "[ncz-clock] synced $(date -u +%FT%TZ)" > "$TTY" 2>/dev/null || true
+    elif [ "$rc" -gt 128 ] ; then
+        log "SNTP $SERVER gave no answer within ${BOUND}s (UDP/123 filtered?); stopped it"
     else
-        log "SNTP $SERVER failed; clock left at $(date -u +%FT%TZ)"
+        log "SNTP $SERVER failed (rc=$rc); clock left at $(date -u +%FT%TZ)"
     fi
 else
     log "rdate not available after $((RDATE_WAIT * TICK))s; skipping SNTP"

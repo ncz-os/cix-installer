@@ -129,6 +129,9 @@ if [ -f "$PRE/clock-sync.sh" ]; then
 
     clk b3 NCZ_RDATE="$W/cbin/rdate-ok" NCZ_CLOCK_YEAR=2026
     grep -q 'set the clock' "$W/clog.b3" && ok "answering NTP server: clock set" || bad "answering NTP server: not logged as set"
+    printf '#!/bin/sh\necho "rdate: Unable to get a reasonable time estimate" >&2\nexit 1\n' > "$W/cbin/rdate-fail"; chmod +x "$W/cbin/rdate-fail"
+    clk b3f NCZ_RDATE="$W/cbin/rdate-fail" NCZ_CLOCK_YEAR=2026
+    grep -q 'failed (rc=1)' "$W/clog.b3f" && ok "refusing NTP server: logged as failed, not as a timeout" || bad "refusing NTP server: not logged as failed (rc=1)"
 
     rm -f "$W/date-set"
     clk b4 NCZ_CLOCK_RDATE_WAIT=2 NCZ_RDATE="$W/cbin/no-such-rdate" NCZ_CLOCK_YEAR=1970
@@ -169,17 +172,25 @@ for l in lines:
     if l.startswith("cat > /usr/local/lib/cix-installer/detect-primary-display.sh <<"): body = True; continue
     if body and l == "DET": body = False; continue
     if not body: out.append(l)
-depth_arm, ok = 0, True
-calls = 0
-for l in out:
-    s = l.strip()
-    if re.match(r'if \[ "\$_ncz_arch" = "arm64" \]', s): depth_arm += 1
-    elif s == "fi" and depth_arm: depth_arm -= 1
-    elif s in ("else",) and depth_arm: depth_arm -= 1
-    if s == "/usr/local/lib/cix-installer/detect-primary-display.sh":
-        calls += 1
-        ok = ok and depth_arm > 0
-sys.exit(0 if ok and calls == 1 else 1)
+CALL = "/usr/local/lib/cix-installer/detect-primary-display.sh"
+calls = [i for i, l in enumerate(out) if re.search(r"(^|\)\s*)" + re.escape(CALL) + r"(\s*;;)?$", l.strip())]
+ok = len(calls) == 1
+for i in calls:
+    s = out[i].strip()
+    if re.match(r"(arm64\|aarch64|aarch64\|arm64|arm64)\)\s", s):
+        # case arm: the enclosing case must switch on $_ncz_arch
+        k = i
+        while k > 0 and not out[k].strip().startswith("case "): k -= 1
+        ok = ok and '"$_ncz_arch"' in out[k]
+    else:
+        # plain line: must sit inside if [ "$_ncz_arch" = "arm64" ]; then ... (no else before it)
+        k, inside = i, False
+        while k > 0:
+            k -= 1; t = out[k].strip()
+            if t in ("fi", "else"): break
+            if re.match(r'if \[ "\$_ncz_arch" = "arm64" \]', t): inside = True; break
+        ok = ok and inside
+sys.exit(0 if ok else 1)
 PY
 
 # ---------------------------------------------------------------- D. wait-online ------------------------------------
