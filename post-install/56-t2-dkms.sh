@@ -52,6 +52,18 @@ DMI_ROOT="${NCZ_DMI_ROOT:-/sys/class/dmi/id}"
 USRSRC="${NCZ_USRSRC:-/usr/src}"
 MODPROBE_D="${NCZ_MODPROBE_D:-/etc/modprobe.d}"
 LIBMODULES="${NCZ_LIB_MODULES:-/lib/modules}"
+INSTALLER_META="${NCZ_INSTALLER_META:-/usr/local/lib/cix-installer}"
+# Source the shared DMI helper. NCZ_T2_DETECT lets the test override the
+# path without copying the file (operator 2026-10-05: do not duplicate the
+# model list).
+T2_DETECT="${NCZ_T2_DETECT:-$INSTALLER_META/assets/refind/ncz-t2-detect.sh}"
+if [ -r "$T2_DETECT" ]; then
+    # shellcheck disable=SC1090
+    . "$T2_DETECT"
+else
+    echo "[56] WARN: T2 detection helper $T2_DETECT not readable; the hook is inert" >&2
+    exit 0
+fi
 # Default set. t2thunderbolt is opt-in only (see header).
 MODULES="t2smc t2gmux t2smp"
 _optin=0
@@ -62,11 +74,13 @@ for _x in ${NCZ_T2_DKMS_EXTRA:-}; do
     esac
 done
 
-_vendor=$(cat "$DMI_ROOT/sys_vendor" 2>/dev/null || true)
-case "$_vendor" in
-    *Apple*) ;;
-    *) echo "[56] sys_vendor='$_vendor' is not Apple -- skipping T2 DKMS modules"; exit 0 ;;
-esac
+# T2 hardware gate (DMI: Apple vendor AND known T2 product_name). Non-T2
+# Macs and every PC/VM exit 0 here -- the hook never builds, never writes
+# a modprobe.d file, never touches dkms.
+if ! ncz_is_t2_hardware; then
+    echo "[56] $(ncz_t2_detect_detail 2>/dev/null || echo 'not a T2 Mac'); skipping"
+    exit 0
+fi
 
 if ! command -v dkms >/dev/null 2>&1 && [ ! -x /usr/sbin/dkms ]; then
     echo "[56] WARN: dkms not present -- cannot install T2 modules; fans will not be controllable" >&2
