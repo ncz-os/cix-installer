@@ -31,7 +31,7 @@ LATE="$ROOT/preseed/late.sh"
 EXT="$ROOT/preseed/extract-rootfs.sh"
 STUB="$ROOT/build/iso/patch-debootstrap-stub.py"
 SH="${TEST_SH:-sh}"
-KV=7.3.0-rc6-3-t2-edge-aer9011
+KV=7.3.0-rc6-4-t2-edge-aer9010
 
 W="$(mktemp -d "${TMPDIR:-/var/tmp}/firstboot-gpu-test.XXXXXX")"
 cleanup() { rm -rf "$W"; }

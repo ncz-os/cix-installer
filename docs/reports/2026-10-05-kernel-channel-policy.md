@@ -26,13 +26,16 @@ blacklist of accelerators"*.
   `RESCUE_BASE`/`EDGE_BASE` series of its own.
 - Today the pins are the release-candidate builds, replaced by 7.3.0 final
   builds later:
-  - amd64: `7.3.0-rc6-3-t2-edge-aer9011` (the T2 kernel with the narrow
-    9011 AER quirk: Advisory Non-Fatal Errors stay masked only on the Apple
-    T2 Secure Enclave, PCI `106b:1802`) — `assets/kernel/amd64-stable/KVER`.
-    Operator decision 2026-10-05: 9011 is the shipped default; the broad
-    9010 revert (`7.3.0-rc6-1-t2-edge-aerfix`, the first pin of this policy)
-    is kept only as a held fallback patch in amd64-kernel-t2. History and
-    proof: `docs/reports/2026-10-05-amd64-edge-rc6-revert.md`.
+  - amd64: `7.3.0-rc6-4-t2-edge-aer9010` (the T2 kernel with the plain
+    revert of `eddba19b8b5f`, "PCI/AER: Support Advisory Non-Fatal Errors",
+    and no Apple-only quirk; `CGROUP_DMEM` off; nouveau fix 9012) —
+    `assets/kernel/amd64-stable/KVER`. Operator decision 2026-10-06, after
+    Alex Deucher reported on LKML that the commit breaks non-Apple boards
+    too: revert it, and remove the other T2 power-cut mitigations (the 9011
+    quirk build `7.3.0-rc6-3-t2-edge-aer9011` and `pcie_ports=compat`).
+    The verifier refuses an `aer9011` pin. Details:
+    `docs/reports/2026-10-06-amd64-rc6-4-aer9010.md`; earlier history:
+    `docs/reports/2026-10-05-amd64-edge-rc6-revert.md`.
   - arm64/Sky1: `7.3.0-rc6-sky1-ncz` (r284) — `assets/kernel/mainline/KVER`
     and `variants.mainline.kver` in `assets/kernel-manifest.json`.
 - The rescue entry is *redefined*, not removed: the "never delete a rescue

@@ -1,5 +1,11 @@
 # amd64 7.3.0-rc6 kernel: the 9011 AER quirk (7.3.0-rc6-3-t2-edge-aer9011)
 
+> **Superseded 2026-10-06** by `7.3.0-rc6-4-t2-edge-aer9010`: the 9011 quirk is
+> removed and the kernel carries the plain revert of `eddba19b8b5f` again
+> (operator decision after Alex Deucher's LKML report that the commit breaks
+> non-Apple boards too). See `docs/reports/2026-10-06-amd64-rc6-4-aer9010.md`.
+> This report is kept as history.
+
 > File name kept for link stability. Until 2026-10-06 this report described the
 > 9010 revert build `7.3.0-rc6-1-t2-edge-aerfix`; that history is preserved
 > verbatim below ("History").
