@@ -43,7 +43,7 @@ exit 0
 FAKE
 chmod +x "$T/bin/wlr-randr"
 
-run() { : > "$T/calls"; CALLS="$T/calls" BEHAVIOUR="$1" NCZ_DISPLAY_SCALE="$T/absent" PATH="$T/bin:/usr/bin:/bin" sh "$T/autostart" >/dev/null 2>&1; echo $?; }
+run() { : > "$T/calls"; CALLS="$T/calls" BEHAVIOUR="$1" NCZ_DISPLAY_SCALE_HELPER="$T/absent" PATH="$T/bin:/usr/bin:/bin" sh "$T/autostart" >/dev/null 2>&1; echo $?; }
 
 rc=$(run ok)
 if [ "$rc" = 0 ]; then ok "exit 0 when modes apply"; else bad "exit $rc when modes apply"; fi
@@ -82,7 +82,7 @@ cat > "$T/fourk.json" <<'J'
   "modes": [{"width": 3840, "height": 2160, "refresh": 59.997, "preferred": true, "current": true},
             {"width": 1920, "height": 1080, "refresh": 60.0, "preferred": false, "current": false}]}]
 J
-runh() { : > "$T/calls"; JSON="$2" CALLS="$T/calls" BEHAVIOUR="$1" NCZ_DISPLAY_SCALE="$HELPER" PATH="$T/bin:/usr/bin:/bin" sh "$T/autostart" >/dev/null 2>&1; echo $?; }
+runh() { : > "$T/calls"; JSON="$2" CALLS="$T/calls" BEHAVIOUR="$1" NCZ_DISPLAY_SCALE_HELPER="$HELPER" PATH="$T/bin:/usr/bin:/bin" sh "$T/autostart" >/dev/null 2>&1; echo $?; }
 
 rc=$(runh ok "$T/chimera.json")
 if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --mode 1920x1200@60.000000Hz --scale 1" "$T/calls"; then
@@ -106,7 +106,7 @@ else
     bad "no legacy fallback when the helper fails (rc=$rc)"
 fi
 
-rc=$(: > "$T/calls"; CALLS="$T/calls" BEHAVIOUR=ok NCZ_DISPLAY_SCALE="$T/absent" PATH="$T/bin:/usr/bin:/bin" sh "$T/autostart" >/dev/null 2>&1; echo $?)
+rc=$(: > "$T/calls"; CALLS="$T/calls" BEHAVIOUR=ok NCZ_DISPLAY_SCALE_HELPER="$T/absent" PATH="$T/bin:/usr/bin:/bin" sh "$T/autostart" >/dev/null 2>&1; echo $?)
 if [ "$rc" = 0 ] && grep -q -- "--output DP-2 --mode 1920x1080@60Hz" "$T/calls"; then
     ok "helper not installed -> legacy 1080p loop runs"
 else

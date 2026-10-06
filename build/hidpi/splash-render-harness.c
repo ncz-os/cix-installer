@@ -19,9 +19,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 
 static int lit(const unsigned char *row, int x) {
-    uint32_t px = ((const uint32_t *)row)[x];
+    uint32_t px;
+    memcpy(&px, row + (size_t)x * 4, sizeof px);  /* no type-punned load */
     /* splash background is opaque black; anything brighter is drawn content */
     return ((px >> 16) & 0xff) > 24 || ((px >> 8) & 0xff) > 24 || (px & 0xff) > 24;
 }

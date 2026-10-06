@@ -187,7 +187,7 @@ cat > /etc/greetd/singularity-labwc/autostart <<'LABAUTO'
 # policy scale for that mode. The fixed 1080p loop below is the fallback when the
 # helper is missing or fails.
 command -v wlr-randr >/dev/null 2>&1 || exit 0
-_scale=${NCZ_DISPLAY_SCALE:-/usr/local/bin/ncz-display-scale}
+_scale=${NCZ_DISPLAY_SCALE_HELPER:-/usr/local/bin/ncz-display-scale}
 if [ -x "$_scale" ] && "$_scale" greeter; then
     exit 0
 fi
