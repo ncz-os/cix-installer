@@ -587,7 +587,10 @@ test-cygnus-branding:
 	@python3 $(ROOT)/branding/cygnus/tests/test_cygnus_singularity.py
 
 # static dual-architecture parity: manifest pairs, ncz-screensavers debs, hook arch-gate lint (docs/DUAL-ARCH-PARITY.md)
+# components.py check --gate is the phase 2 registry enforcement entry.
 parity:
+	python3 build/components.py check --gate
+	python3 build/gen-components-registry.py --render-seeds --render-local-debs --render-allowlist --check
 	build/test-dual-arch-parity.sh
 	build/verify-dual-arch-parity.sh
 	build/test-amd64-intel-vaapi.sh

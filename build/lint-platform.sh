@@ -184,4 +184,20 @@ if [ "$FINDINGS" -gt 0 ]; then
     echo "lint-platform: $FINDINGS finding(s)" >&2
     exit 1
 fi
+
+# Phase 2: the component registry is enforcing. Skip when the checker is
+# absent (unit tests point NCZ_LINT_ROOT at a fixture that has no registry).
+if [ -f "$ROOT/build/components.py" ] && [ -f "$ROOT/manifests/components.tsv" ]; then
+    python3 "$ROOT/build/components.py" --root "$ROOT" check --gate \
+        || { echo "lint-platform: components.py check --gate failed" >&2; exit 1; }
+fi
+# Phase 3: the seed files, the NCZ_LOCAL_DEBS block and the parity allowlist
+# must still match the registry. A hand-edit that the generator would reject
+# fails the lint. Skip when the generator is absent (unit-test fixtures).
+if [ -f "$ROOT/build/gen-components-registry.py" ] && [ -f "$ROOT/manifests/components.tsv" ]; then
+    python3 "$ROOT/build/gen-components-registry.py" --root "$ROOT" \
+        --render-seeds --render-local-debs --render-allowlist --check \
+        || { echo "lint-platform: registry generators drifted" >&2; exit 1; }
+fi
+
 echo "lint-platform: OK ($(printf '%s\n' "$HOOKS" | grep -c .) hooks, $(printf '%s\n' "$FILES" | grep -c .) files classified)"
