@@ -51,6 +51,8 @@ fi
 # pair is guaranteed consistent.
 export LC_ALL=C
 
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+
 # Single source of truth for the ncz-screensavers version floor (operator
 # 2026-10-05 mandatory-install item). Sourced once here; the `required`
 # ncz-screensavers row in NCZ_LOCAL_DEBS below reads NCZ_SCREENSAVERS_MIN_VERSION
@@ -63,7 +65,6 @@ fi
 # shellcheck disable=SC1090
 . "$SCREENSAVERS_VERSION_ENV"
 
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$REPO/build/$NCZ_BASE_CODENAME-mirror"
 OUT="$REPO/build/desktop-mirror"
 GAPS="$REPO/build/desktop-mirror.gaps"
