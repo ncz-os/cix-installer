@@ -1,5 +1,12 @@
 # amd64 T2 default entry: `pcie_ports=compat`
 
+> **Removed 2026-10-06.** `pcie_ports=compat` was a T2 power-cut mitigation
+> added on top of the AER revert. Operator decision 2026-10-06: the kernel
+> carries the plain revert of `eddba19b8b5f` and every other mitigation added
+> 2026-10-04..06 is removed, so no amd64 entry carries this parameter any more
+> (`build/test-amd64-t2-detect.sh` guards it). Kept as history; see
+> `docs/reports/2026-10-06-amd64-rc6-4-aer9010.md`.
+
 Operator directive 2026-10-05: the amd64 T2 **default** boot entry runs with
 `pcie_ports=compat`, the PCIe mode the T2 Linux community (T2 Discord) uses as its
 baseline on T2 Macs. It is defence in depth, added on top of the AER ANFE revert in
