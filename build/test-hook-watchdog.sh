@@ -33,6 +33,15 @@ mine() {
         | awk -v a="$1" -v b="$2" '{ n = split($1, p, "/") } p[n] == a && $2 == b && NF == 2' \
         | wc -l | tr -d ' '
 }
+# wait up to 5 s for the kernel to reap killed processes before counting
+settle() {
+    local tries=25
+    while [ "$tries" -gt 0 ]; do
+        [ "$(mine "$1" "$2")" = 0 ] && return 0
+        sleep 0.2
+        tries=$((tries - 1))
+    done
+}
 extract_between() { awk -v b="$2" -v e="$3" '$0 ~ b {f=1; next} $0 ~ e {f=0} f' "$1"; }
 
 echo "=== 1. lib/bounded-run.sh ==="
@@ -46,7 +55,7 @@ rc=$?; dt=$(( $(date +%s) - t0 ))
 [ "$dt" -le 6 ] && ok "returned within the deadline (${dt}s for a 2s limit)" || nok "took ${dt}s for a 2s limit"
 grep -q 'timed out after 2s' "$W/b1.err" && ok "logs 'timed out ... continuing'" || nok "no timeout log line"
 grep -q started "$W/b1.out" && ok "output captured to the file" || nok "output not captured"
-sleep 1
+settle sleep 301
 left=$(mine sleep 301)
 [ "$left" = 0 ] && ok "the whole process group was killed (no 'sleep 301' left)" || nok "$left 'sleep 301' processes survived"
 ncz_bounded_run 5 "t" "$W/b2.out" bash -c 'echo hi; exit 7'
@@ -68,7 +77,7 @@ t0=$(date +%s)
 NCZ_BOUNDED_SETSID=0 ncz_bounded_run 2 "t" "$W/b5.out" bash -c 'sleep 303 & sleep 303' 2>/dev/null
 rc=$?; dt=$(( $(date +%s) - t0 ))
 [ "$rc" = 124 ] && [ "$dt" -le 6 ] && ok "no-setsid path also times out (${dt}s, rc 124)" || nok "no-setsid path rc=$rc after ${dt}s"
-sleep 1
+settle sleep 303
 [ "$(mine sleep 303)" = 0 ] && ok "no-setsid path killed the command and its child" || nok "no-setsid path left $(mine sleep 303) 'sleep 303'"
 kill -0 "$sib" 2>/dev/null && ok "a sibling in the caller's process group survived (no group kill)" || nok "the caller's process group was signalled"
 kill "$sib" 2>/dev/null; wait "$sib" 2>/dev/null
@@ -95,7 +104,7 @@ grep -q '54-gpu-accel.sh timed out after 3s, continuing' "$RA/out" && ok "consol
 grep -q 'timed out after 3s, continuing' "$RA/log/54-gpu-accel.log" && ok "the hook's own log records the timeout" || nok "hook log lacks the timeout"
 grep -q 'gpu hook starts' "$RA/out" && ok "hook output still streamed to the console" || nok "hook output not streamed"
 grep -q 'some optional hooks failed: *54-gpu-accel.sh' "$RA/out" && ok "timed-out hook is counted as failed" || nok "timed-out hook not in FAILED_HOOKS"
-sleep 1
+settle sleep 3603; settle sleep 302
 left=$(( $(mine sleep 3603) + $(mine sleep 302) ))
 [ "$left" = 0 ] && ok "no hook processes left behind" || nok "$left hook processes left behind"
 
