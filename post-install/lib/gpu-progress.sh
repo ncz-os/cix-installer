@@ -253,7 +253,9 @@ ncz_gpu_watch_end() {
 # ---------------------------------------------------------------- monitor
 _g_fmt_dur() { local s="${1:-0}"; [ "$s" -ge 0 ] 2>/dev/null || s=0; printf '%dm%02ds' $((s / 60)) $((s % 60)); }
 _g_mtime() { stat -c %Y "$1" 2>/dev/null || echo 0; }
-_g_clean() { printf '%s' "$*" | tr '|\t\r\n' '    ' | tr -cd '\040-\176' | cut -c1-"${2:-150}"; }
+# _g_clean <text> [max-columns]: ONE text argument; the second is the column
+# limit for cut and must never end up in the text ("$*" appended it).
+_g_clean() { printf '%s' "$1" | tr '|\t\r\n' '    ' | tr -cd '\040-\176' | cut -c1-"${2:-150}"; }
 
 _g_log() {   # timestamped line into gpu-progress.log (+ tty3)
     local line
