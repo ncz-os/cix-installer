@@ -22,7 +22,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PACK="${1:-cygnus-2610}"
-OUT="$ROOT/build/wallpaper-debs"
+OUT="${WALLPAPER_DEB_OUT:-$ROOT/build/wallpaper-debs}"
 ARTISTPACK_SOURCE_ROOT="${ARTISTPACK_SOURCE_ROOT:-${HOME:?}/Projects/artistpack/packs}"
 
 # Pack metadata, and where its source images and installed images live.
@@ -228,6 +228,38 @@ done
 [ "$count" -gt 0 ] || { echo "ERROR: no .jpg/.png/.svg files in $SRC" >&2; exit 1; }
 echo "  packaging $count image(s) from $PACK into /usr/share/backgrounds/ncz$ART_SUBPATH"
 
+# ASPECT VARIANTS (docs/WALLPAPER-SAFE-AREA.md). A <W>x<H>/ subdirectory of the
+# pack source (e.g. 16x10/) holds pre-composed variants with the SAME basenames
+# as the originals. They install OUTSIDE the collection Dir, under
+# /usr/share/ncz-wallpapers/aspect/<W>x<H>/<pack>/: the Singularity shell's
+# rotator and gallery scan a collection Dir recursively and would otherwise
+# list every image twice. The .collection file names them under [Variants];
+# ncz-wallpaper-fit picks the one whose aspect ratio fits the output. A variant
+# without an original, or an original missing its variant, fails the build:
+# a half set would silently show the cropped 16:9 file on some images only.
+VARIANT_LINES=""
+for vdir in "$SRC"/*x*/; do
+    [ -d "$vdir" ] || continue
+    tag="$(basename "$vdir")"
+    [[ "$tag" =~ ^[0-9]+x[0-9]+$ ]] || continue
+    vdest="/usr/share/ncz-wallpapers/aspect/$tag/$PACK"
+    install -d "$WORK$vdest"
+    vcount=0
+    for f in "$ART_DIR"/*.jpg "$ART_DIR"/*.png "$ART_DIR"/*.svg; do
+        [ -f "$f" ] || continue
+        v="$vdir$(basename "$f")"
+        [ -f "$v" ] || { echo "ERROR: $tag variant missing for $(basename "$f") in $vdir" >&2; exit 1; }
+        install -m 0644 "$v" "$WORK$vdest/"
+        vcount=$((vcount + 1))
+    done
+    for v in "$vdir"*.jpg "$vdir"*.png "$vdir"*.svg; do
+        [ -f "$v" ] || continue
+        [ -f "$ART_DIR/$(basename "$v")" ] || { echo "ERROR: $tag variant $(basename "$v") has no original in $SRC" >&2; exit 1; }
+    done
+    VARIANT_LINES="$VARIANT_LINES$tag=$vdest"$'\n'
+    echo "  packaging $vcount $tag variant(s) into $vdest"
+done
+
 cat > "$COLLECTIONS_DIR/$PACK.collection" <<COLLECTION
 [Collection]
 Id=$PACK
@@ -238,6 +270,9 @@ Homepage=$HOMEPAGE
 Type=static
 Dir=/usr/share/backgrounds/ncz$ART_SUBPATH
 COLLECTION
+if [ -n "$VARIANT_LINES" ]; then
+    printf '\n[Variants]\n%s' "$VARIANT_LINES" >> "$COLLECTIONS_DIR/$PACK.collection"
+fi
 echo "  collection: $PACK ($AUTHOR)"
 
 ARTISTPACK_DIR="$COLLECTIONS_DIR/$PACK.artistpack"

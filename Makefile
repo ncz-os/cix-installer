@@ -612,6 +612,7 @@ parity:
 	branding/cygnus/tests/test-refind-theme-config.sh
 	build/test-refind-rescue-promotion.sh
 	build/test-wallpaper-rotator-relogin.sh
+	python3 build/test_wallpaper_fit.py
 	build/test-boot-speed.sh
 	build/test-timesync-retry.sh
 	build/test-greeter-output-mode.sh

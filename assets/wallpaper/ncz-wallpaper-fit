@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+"""ncz-wallpaper-fit -- pick the aspect-ratio variant of a wallpaper that fits
+the primary output best (docs/WALLPAPER-SAFE-AREA.md).
+
+The desktop draws its wallpaper with cover/zoom scaling (GTK ContentFit.COVER
+in the Singularity shell; picture-options 'zoom' under GNOME). A 16:9 image on
+a 16:10 panel therefore loses 5% of its width on each side, which is where the
+Cygnus pack's baked-in "CYGNUS . NCZ-OS 26.10" mark sits. A pack can ship
+pre-composed variants for other aspect ratios and declare them in its
+.collection file:
+
+    [Collection]
+    Dir=/usr/share/backgrounds/ncz/cygnus-2610
+    ...
+    [Variants]
+    16x10=/usr/share/ncz-wallpapers/aspect/16x10/cygnus-2610
+
+A variant has the same basename as its original. Variant directories live
+OUTSIDE every collection Dir on purpose: the Singularity shell's own rotator
+and gallery scan a collection Dir recursively, so a subdirectory would show
+every image twice.
+
+Subcommands:
+
+  output-size
+      Print WxH of the primary output, rotation applied. Sources, first that
+      answers: `wlr-randr --json` (the output Singularity's displays.json names
+      as shell_monitor, else the first enabled one), then
+      ~/.config/singularity/displays.json, then the connected DRM connectors in
+      sysfs (internal panel first). Exit 1 when none answers.
+
+  choose PATH [--size WxH]
+      Print the file to show for PATH: its own original or a declared variant,
+      whichever aspect ratio is closest to the output (log distance; a tie
+      keeps the original). PATH may itself be a variant. Prints PATH unchanged
+      when the output size is unknown, PATH belongs to no collection with
+      variants, or anything fails. Always exits 0.
+
+  choose-uri URI [--size WxH]
+      The same for a file:// URI (as stored in GSettings); any other URI is
+      printed unchanged.
+
+Environment, for tests: NCZ_WALLPAPER_COLLECTION_DIRS (colon-separated
+collection directories, replaces the default search path),
+NCZ_WALLPAPER_DRM_ROOT (default /sys/class/drm).
+"""
+
+from __future__ import annotations
+
+import configparser
+import json
+import math
+import os
+import struct
+import subprocess
+import sys
+from pathlib import Path
+from urllib.parse import quote, unquote, urlparse
+
+SYS_COLLECTION_DIRS = [
+    "/opt/singularity/share/singularity/wallpaper-collections",
+    "/usr/share/singularity/wallpaper-collections",
+    "/etc/singularity/wallpaper-collections",
+    "/usr/share/ncz-wallpapers/collections",
+    "/etc/ncz-wallpapers/collections",
+]
+INTERNAL_CONNECTORS = ("eDP", "LVDS", "DSI")
+ROTATED = {"90", "270", "flipped-90", "flipped-270", 1, 3, 5, 7}
+
+
+def log(msg: str) -> None:
+    print(f"ncz-wallpaper-fit: {msg}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------- outputs --
+
+
+def _config_home() -> Path:
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+
+
+def _displays_json() -> dict:
+    try:
+        with open(
+            _config_home() / "singularity" / "displays.json", encoding="utf-8"
+        ) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _oriented(w: int, h: int, transform) -> tuple[int, int]:
+    return (h, w) if transform in ROTATED else (w, h)
+
+
+def _from_wlr_randr(shell_monitor: str | None) -> tuple[int, int] | None:
+    try:
+        res = subprocess.run(
+            ["wlr-randr", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        outputs = json.loads(res.stdout) if res.returncode == 0 else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    if not isinstance(outputs, list):
+        return None
+    sized = []
+    for out in outputs:
+        if not isinstance(out, dict) or out.get("enabled") is False:
+            continue
+        cur = next(
+            (
+                m
+                for m in out.get("modes") or []
+                if isinstance(m, dict) and m.get("current")
+            ),
+            None,
+        )
+        if not cur or not cur.get("width") or not cur.get("height"):
+            continue
+        sized.append(
+            (
+                out.get("name"),
+                _oriented(int(cur["width"]), int(cur["height"]), out.get("transform")),
+            )
+        )
+    for name, size in sized:
+        if shell_monitor and name == shell_monitor:
+            return size
+    return sized[0][1] if sized else None
+
+
+def _from_displays_json(data: dict) -> tuple[int, int] | None:
+    mons = [
+        m
+        for m in data.get("monitors") or []
+        if isinstance(m, dict) and m.get("enabled", True)
+    ]
+    shell = data.get("shell_monitor")
+    mons.sort(key=lambda m: m.get("name") != shell)
+    for m in mons:
+        try:
+            w, h = int(m["mode_w"]), int(m["mode_h"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if w > 0 and h > 0:
+            return _oriented(w, h, m.get("transform"))
+    return None
+
+
+def _from_sysfs() -> tuple[int, int] | None:
+    root = Path(os.environ.get("NCZ_WALLPAPER_DRM_ROOT", "/sys/class/drm"))
+    found = []
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        return None
+    for conn in entries:
+        try:
+            if (conn / "status").read_text().strip() != "connected":
+                continue
+            first = (conn / "modes").read_text().split("\n", 1)[0].strip()
+            w, h = (int(v) for v in first.split("x", 1)[0:2])
+        except (OSError, ValueError):
+            continue
+        if w <= 0 or h <= 0:
+            continue
+        internal = any(f"-{p}-" in conn.name + "-" for p in INTERNAL_CONNECTORS)
+        found.append((not internal, conn.name, (w, h)))
+    return min(found)[2] if found else None
+
+
+def output_size() -> tuple[int, int] | None:
+    data = _displays_json()
+    return (
+        _from_wlr_randr(data.get("shell_monitor"))
+        or _from_displays_json(data)
+        or _from_sysfs()
+    )
+
+
+def parse_size(text: str) -> tuple[int, int] | None:
+    try:
+        w, h = (int(v) for v in text.lower().split("x"))
+    except ValueError:
+        return None
+    return (w, h) if w > 0 and h > 0 else None
+
+
+# ------------------------------------------------------------- image size --
+
+
+def image_size(path: str) -> tuple[int, int] | None:
+    """Width and height from a JPEG or PNG header (no image library needed)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(26)
+            if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+                w, h = struct.unpack(">II", head[16:24])
+                return (w, h) if w and h else None
+            if head[:2] != b"\xff\xd8":
+                return None
+            f.seek(2)
+            while True:
+                b = f.read(1)
+                while b and b != b"\xff":
+                    b = f.read(1)
+                while b == b"\xff":
+                    b = f.read(1)
+                if not b:
+                    return None
+                marker = b[0]
+                if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+                    continue  # standalone markers carry no length
+                if marker in (0xD9, 0xDA):
+                    return None  # end of image / start of scan before any SOF
+                seg = f.read(2)
+                if len(seg) < 2:
+                    return None
+                length = struct.unpack(">H", seg)[0]
+                if length < 2:
+                    return None  # corrupt: a length counts its own two bytes
+                if marker in (
+                    0xC0,
+                    0xC1,
+                    0xC2,
+                    0xC3,
+                    0xC5,
+                    0xC6,
+                    0xC7,
+                    0xC9,
+                    0xCA,
+                    0xCB,
+                    0xCD,
+                    0xCE,
+                    0xCF,
+                ):
+                    data = f.read(5)
+                    h, w = struct.unpack(">HH", data[1:5])
+                    return (w, h) if w and h else None
+                f.seek(length - 2, os.SEEK_CUR)
+    except (OSError, struct.error):
+        return None
+
+
+# ------------------------------------------------------------ collections --
+
+
+def collection_dirs() -> list[Path]:
+    env = os.environ.get("NCZ_WALLPAPER_COLLECTION_DIRS")
+    if env is not None:
+        return [Path(p) for p in env.split(":") if p]
+    data_home = Path(
+        os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share"
+    )
+    return [
+        data_home / "singularity" / "wallpaper-collections",
+        data_home / "ncz-wallpapers" / "collections",
+    ] + [Path(p) for p in SYS_COLLECTION_DIRS]
+
+
+def _real(p: str) -> str:
+    return os.path.realpath(p)
+
+
+def collections_with_variants() -> list[tuple[str, dict[str, str]]]:
+    """[(real Dir, {aspect-tag: real variant dir})] for every collection that
+    declares [Variants]. The first file found for an id wins, matching
+    ncz-wallpaper-collections (user directories first)."""
+    seen, out = set(), []
+    for d in collection_dirs():
+        try:
+            files = sorted(d.glob("*.collection"))
+        except OSError:
+            continue
+        for f in files:
+            cp = configparser.ConfigParser(interpolation=None, strict=False)
+            cp.optionxform = str
+            try:
+                cp.read(f, encoding="utf-8")
+            except (configparser.Error, UnicodeDecodeError, OSError):
+                continue
+            cid = cp.get("Collection", "Id", fallback=f.stem).strip() or f.stem
+            if cid in seen:
+                continue
+            seen.add(cid)
+            cdir = cp.get("Collection", "Dir", fallback="").strip()
+            if not cdir or not cp.has_section("Variants"):
+                continue
+            variants = {
+                k.strip(): _real(v.strip())
+                for k, v in cp.items("Variants")
+                if v.strip()
+            }
+            if variants:
+                out.append((_real(cdir), variants))
+    return out
+
+
+def candidates(path: str) -> list[str]:
+    """The original of PATH first, then each existing declared variant."""
+    real = _real(path)
+    folder, name = os.path.dirname(real), os.path.basename(real)
+    for cdir, variants in collections_with_variants():
+        if folder == cdir:
+            base = real
+        elif folder in variants.values():
+            base = os.path.join(cdir, name)
+        else:
+            continue
+        found = [base] if os.path.isfile(base) else []
+        found += [
+            os.path.join(v, name)
+            for v in variants.values()
+            if os.path.isfile(os.path.join(v, name))
+        ]
+        return found or [real]
+    return [real]
+
+
+def choose(path: str, size: tuple[int, int] | None) -> str:
+    if size is None or size[0] <= 0 or size[1] <= 0:
+        return path
+    cands = candidates(path)
+    if len(cands) < 2 and _real(path) in cands:
+        return path
+    target = math.log(size[0] / size[1])
+    best, best_d = None, None
+    for i, c in enumerate(cands):
+        dims = image_size(c)
+        if not dims:
+            if i == 0:
+                return path  # original unreadable: do not guess
+            continue
+        d = abs(math.log(dims[0] / dims[1]) - target)
+        if best is None or d < best_d - 1e-9:
+            best, best_d = c, d
+    if best is None:
+        return path
+    # Report the caller's own spelling when nothing changes.
+    return path if best == _real(path) else best
+
+
+def choose_uri(uri: str, size: tuple[int, int] | None) -> str:
+    u = urlparse(uri)
+    if u.scheme != "file" or u.netloc not in ("", "localhost"):
+        return uri
+    path = unquote(u.path)
+    picked = choose(path, size)
+    return (
+        uri if picked == path else "file://" + quote(picked, safe="/-._~!$&'()*+,;=:@")
+    )
+
+
+# ------------------------------------------------------------------- main --
+
+
+def _size_arg(argv: list[str]) -> tuple[int, int] | None:
+    if "--size" in argv:
+        i = argv.index("--size")
+        if i + 1 < len(argv):
+            return parse_size(argv[i + 1])
+        return None
+    return output_size()
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0 if argv else 2
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "output-size":
+        size = output_size()
+        if not size:
+            log("no output size from wlr-randr, displays.json or sysfs")
+            return 1
+        print(f"{size[0]}x{size[1]}")
+        return 0
+    if cmd in ("choose", "choose-uri") and rest:
+        target = rest[0]
+        try:
+            size = _size_arg(rest[1:])
+            print(choose(target, size) if cmd == "choose" else choose_uri(target, size))
+        except Exception as e:  # noqa: BLE001 -- never break the rotator: fall back to the input
+            log(f"{cmd} failed ({e}); keeping {target}")
+            print(target)
+        return 0
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

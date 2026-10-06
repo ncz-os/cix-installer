@@ -1,0 +1,165 @@
+{
+ "aspect": "16x10",
+ "files": {
+  "cygnus-binary-cyg.jpg": {
+   "crop": [
+    192,
+    0,
+    3648,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "dc5bc7968d8e595b694de6b2c698a8e737abc5f0654fb152df0c4678e4e818e8",
+   "source": "binary-cyg-s1-006-3840x2160.png"
+  },
+  "cygnus-galaxy-cyg.jpg": {
+   "crop": [
+    192,
+    0,
+    3648,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "46d10bfb28ed1db76fe6babb94841cfea4540017c50b02aa7abedb9ba32c397d",
+   "source": "galaxy-cyg-s3-003-3840x2160.png"
+  },
+  "cygnus-hero-edge-on.jpg": {
+   "crop": [
+    192,
+    0,
+    3648,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "50a53b663a78bc17c9fea29aea69508d21fe644341277dc37382544a0ad5b19a",
+   "source": "hero-edge-on-3840x2160.png"
+  },
+  "cygnus-hero-reveal-64ss.jpg": {
+   "crop": [
+    384,
+    0,
+    3840,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "cc9bb3506de73d9f24a38e7407427cb94acf05e9b491fc65941706cf5449ed1b",
+   "source": "hero-reveal-64ss-3840x2160.png"
+  },
+  "cygnus-merger-cyg.jpg": {
+   "crop": [
+    192,
+    0,
+    3648,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "11b92850025421b95a3644abb0b9340222554bb4338b6d4a928930a1896a29fa",
+   "source": "merger-cyg-s2-008-3840x2160.png"
+  },
+  "cygnus-single-cyg.jpg": {
+   "crop": [
+    192,
+    0,
+    3648,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "07cc81231fd2290559c908687bf86fdbdf506eb6e4726d53b732475ef08c007a",
+   "source": "single-cyg-s1-L2.2-002-3840x2160.png"
+  },
+  "cygnus-single-eht.jpg": {
+   "crop": [
+    384,
+    0,
+    3840,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "bcdfb7acbf5d5e093a473c63e590492efbbf56ba9cc8ef6320b38888f1220aee",
+   "source": "single-eht-s2-002-3840x2160.png"
+  },
+  "cygnus-single-kipthorne.jpg": {
+   "crop": [
+    192,
+    0,
+    3648,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "c1537a5e8f5de281363da4d206259df9b75b610786081907442c84aa08a99a92",
+   "source": "single-kipthorne-s3-009-3840x2160.png"
+  },
+  "cygnus-single-singularity.jpg": {
+   "crop": [
+    192,
+    0,
+    3648,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "bc5c168f845c5eefe01690c77f0aef7f6e2c4add1a17eeb1394166de61043819",
+   "source": "single-singularity-s4-003-3840x2160.png"
+  },
+  "cygnus-single-whitehole.jpg": {
+   "crop": [
+    192,
+    0,
+    3648,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "e3950908daaa022659368f5afcbe335cebeb319624947c2aefebc25df6eb77d9",
+   "source": "single-whitehole-s3-004-3840x2160.png"
+  },
+  "cygnus-tde-cyg.jpg": {
+   "crop": [
+    192,
+    0,
+    3648,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "e1ce471b5243e849c453c7e300fcccbd49401f669c8673d94538a9cf5b94d73c",
+   "source": "tde-cyg-s3-002-3840x2160.png"
+  },
+  "cygnus-three-cyg.jpg": {
+   "crop": [
+    192,
+    0,
+    3648,
+    2160
+   ],
+   "mark_bottom": 213,
+   "mark_right": 130,
+   "quality": 88,
+   "sha256": "32438cbd88c44400db6f51ed259cc788ec414d30e9433e0beca1dafb6335e151",
+   "source": "three-cyg-s5-007-3840x2160.png"
+  }
+ },
+ "size": [
+  3456,
+  2160
+ ]
+}
