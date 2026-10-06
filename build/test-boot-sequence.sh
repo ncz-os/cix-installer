@@ -123,7 +123,8 @@ if [ -f "$PRE/clock-sync.sh" ]; then
     echo "default via 192.168.207.1 dev enp1s0" > "$W/route"
     t0=$(date +%s); clk b2 NCZ_CLOCK_BOUND=2 NCZ_RDATE="$W/cbin/rdate-hang" NCZ_CLOCK_YEAR=2026; rc=$?; t1=$(date +%s)
     check "silent NTP server: exits 0" "$rc" 0
-    [ $((t1 - t0)) -le 6 ] && ok "silent NTP server: stopped by the bound ($((t1 - t0)) s for a 2 s bound)" || bad "silent NTP server took $((t1 - t0)) s"
+    # 2 s bound + 1 s TERM grace = 3-4 s by the second clock; a helper that ignored the bound would take the stub's 30 s.
+[ $((t1 - t0)) -le 5 ] && ok "silent NTP server: stopped by the bound ($((t1 - t0)) s for a 2 s bound)" || bad "silent NTP server took $((t1 - t0)) s (want <= 5)"
     grep -q 'no answer within 2s' "$W/clog.b2" && ok "silent NTP server: logged" || bad "silent NTP server: not logged"
     p=$(cat "$W/rdate.pid" 2>/dev/null); if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then bad "silent NTP server: rdate $p still running"; kill -9 "$p" 2>/dev/null; else ok "silent NTP server: rdate was killed"; fi
 
