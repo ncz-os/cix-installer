@@ -530,7 +530,6 @@ if [ "$PUSH_ARGONAS" = 1 ]; then
 fi
 
 echo ""
-echo "Next: stage into the repo for the ISO build:"
+echo "Next: stage into the repo for the image build:"
 echo "  cp $OUT/singularity-opt.tgz assets/singularity/singularity-opt.tgz"
-echo "(the blob is gitignored — build-squashfs-layers.sh bakes it into desktop.squashfs;"
-echo " build-iso-di.sh also stages it to /ncz-payload/assets/singularity for install-time.)"
+echo "(the blob is gitignored — build-squashfs-layers.sh bakes it into desktop.squashfs.)"

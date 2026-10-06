@@ -107,7 +107,6 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 ASSETS="$REPO/assets"
 STRICT=0
-OLD_ISO_REF="${OLD_ISO_REF:-/home/jasonperlow/old-2026.08.20-v1.iso}"
 SRC_NPU_SDK_TGZ="/mnt/argonas-models/cix-vendor-sdk/2026q2/cix_noe_sdk_26_q2_release.tar.gz"
 SRC_NPU_SDK_SHA="999cf475268d193bc2aa3afc59931c30f0a405baf0866978462bffa30b765c41"
 SRC_FIRMWARE_DIR="/mnt/argonas-models/cix-installer-sky1-firmware-20260728"
@@ -169,8 +168,6 @@ fi
 
 # ----------------------------------------------------------------------
 # 2. mgmt rootfs -- defer to build-mgmt-rootfs.sh; needs sudo (mount/chroot).
-# Fallback: extract the validated rootfs from $OLD_ISO_REF (operator's
-# known-good ISO reference).
 # ----------------------------------------------------------------------
 log "[2/3] mgmt: staging assets/mgmt/ncz-mgmt-rootfs.tar.zst"
 if [ -f "$ASSETS/mgmt/ncz-mgmt-rootfs.tar.zst" ]; then
@@ -182,30 +179,8 @@ else
         warn "no sudo / not root -- build-mgmt-rootfs.sh requires root (mount/chroot/tar)"
         warn "  remediation: sudo bash build/build-mgmt-rootfs.sh, then re-run this script"
         warn "  or set up passwordless sudo (see docs/ISO-REBAKE-TYDEUS-2026-08-21.md §6.1)"
-        warn "  fallback: extract from $OLD_ISO_REF"
-        if [ -r "$OLD_ISO_REF" ] && command -v xorriso >/dev/null 2>&1; then
-            mkdir -p "$ASSETS/mgmt"
-            log "    extracting /cixmini/assets/mgmt/ncz-mgmt-rootfs.tar.zst from $OLD_ISO_REF"
-            if xorriso -osirrox on -indev "$OLD_ISO_REF" \
-                -extract /cixmini/assets/mgmt/ncz-mgmt-rootfs.tar.zst \
-                "$ASSETS/mgmt/ncz-mgmt-rootfs.tar.zst" 2>&1 | sed 's/^/      /'; then
-                if [ -f "$ASSETS/mgmt/ncz-mgmt-rootfs.tar.zst" ]; then
-                    sz=$(du -h "$ASSETS/mgmt/ncz-mgmt-rootfs.tar.zst" | cut -f1)
-                    log "    mgmt rootfs staged from OLD_ISO_REF: $sz"
-                    reached=$((reached+1))
-                else
-                    warn "    xorriso extract produced no file"
-                    missing=$((missing+1))
-                fi
-            else
-                warn "    xorriso extract failed"
-                missing=$((missing+1))
-            fi
-        else
-            warn "    OLD_ISO_REF not readable (=$OLD_ISO_REF) or xorriso missing"
-            warn "    manual remediation: copy ncz-mgmt-rootfs.tar.zst from any known-good ISO"
-            missing=$((missing+1))
-        fi
+        warn "  or copy ncz-mgmt-rootfs.tar.zst into $ASSETS/mgmt/ from a known-good build host"
+        missing=$((missing+1))
     else
         if [ -x "$REPO/build/build-mgmt-rootfs.sh" ]; then
             log "  delegating to build/build-mgmt-rootfs.sh"
@@ -431,12 +406,8 @@ fi
 #
 # This requires libgtk-4-dev natively installed (make-deb.sh is a meson/ninja
 # build that does NOT currently support a sysroot). On hosts that lack
-# libgtk-4-dev + sudo, fall back to extracting the validated +ncz deb from a
-# known-good reference ISO -- the build host's $REPO/assets/cix-debs/ tree
-# may carry one if a previous bake shipped it, or the operator-provided
-# $OLD_ISO_REF path (default: the operator-known-good ISO this script's
-# session was bootstrapped against) does.
-OLD_ISO_REF="${OLD_ISO_REF:-/home/jasonperlow/old-2026.08.20-v1.iso}"
+# libgtk-4-dev, the build host's $REPO/assets/cix-debs/ tree may already carry
+# the validated +ncz deb from a previous bake; otherwise it is reported missing.
 if ls "$ASSETS/cix-debs"/libgtk4-layer-shell0_1.3.0-1+ncz*_arm64.deb >/dev/null 2>&1; then
     log "  libgtk4-layer-shell0 (ncz) already present -- skipping"
     reached=$((reached+1))
@@ -448,41 +419,15 @@ else
             | sed 's/^/    /'; then
             reached=$((reached+1))
         else
-            warn "libgtk4-layer-shell0 build failed -- falling back to OLD_ISO_REF"
+            warn "libgtk4-layer-shell0 build failed -- check output above"
         fi
     else
-        log "  libgtk4-layer-shell0: build prereqs (libgtk-4-dev) unavailable -- trying OLD_ISO_REF"
+        log "  libgtk4-layer-shell0: build prereqs (libgtk-4-dev) unavailable"
     fi
-    # Fallback: extract the +ncz deb from the operator-provided reference ISO
-    # (matches the version the OLD ISO shipped -- 1.3.0-1+ncz20260817 -- so the
-    # forky vendor mirror's apt preference over the stock 1.3.0-1+b1 holds).
     if ! ls "$ASSETS/cix-debs"/libgtk4-layer-shell0_1.3.0-1+ncz*_arm64.deb >/dev/null 2>&1; then
-        if [ -r "$OLD_ISO_REF" ] && command -v xorriso >/dev/null 2>&1; then
-            # xorriso -extract wants an EXACT source path + exact destination
-            # path (no shell glob). The +ncz deb name is fixed in the OLD ISO
-            # (libgtk4-layer-shell0_1.3.0-1+ncz20260817_arm64.deb) and we ship
-            # exactly that filename into assets/cix-debs/ so the forky vendor
-            # mirror's apt preference over the stock 1.3.0-1+b1 holds.
-            REF_DEB="/cixmini/assets/cix-debs/libgtk4-layer-shell0_1.3.0-1+ncz20260817_arm64.deb"
-            DST_DEB="$ASSETS/cix-debs/libgtk4-layer-shell0_1.3.0-1+ncz20260817_arm64.deb"
-            log "    extracting $REF_DEB from $OLD_ISO_REF"
-            if xorriso -osirrox on -indev "$OLD_ISO_REF" \
-                -extract "$REF_DEB" "$DST_DEB" 2>&1 | sed 's/^/      /'; then
-                if [ -f "$DST_DEB" ]; then
-                    reached=$((reached+1))
-                else
-                    warn "    xorriso extract produced no file at $DST_DEB"
-                    missing=$((missing+1))
-                fi
-            else
-                warn "    xorriso extract failed -- libgtk4-layer-shell0 +ncz still missing"
-                missing=$((missing+1))
-            fi
-        else
-            warn "    OLD_ISO_REF not readable (=$OLD_ISO_REF) or xorriso missing"
-            warn "    fallback path: copy the +ncz deb manually from any known-good ISO"
-            missing=$((missing+1))
-        fi
+        warn "    libgtk4-layer-shell0 +ncz deb still missing: build it on a host with libgtk-4-dev"
+        warn "    (packaging/gtk4-layer-shell/make-deb.sh) or copy it into $ASSETS/cix-debs/"
+        missing=$((missing+1))
     fi
 fi
 
