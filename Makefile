@@ -449,6 +449,7 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(ROOT)/build/iso/stage-ncz-payload.py \
 	               $(ROOT)/build/iso/patch-debootstrap-stub.py \
 	               $(ROOT)/build/iso/patch-initrd-t2-kernel.py \
+	               $(ROOT)/manifests/net-firmware.tsv \
 	               $(ROOT)/build/iso/build-refind-esp.py \
 	               $(ROOT)/build/iso/write-usb-image.py \
 	               $(PRESEED)/preseed.cfg \
@@ -516,6 +517,13 @@ test-boot-sequence:
 
 secretscan:
 	@bash $(ROOT)/build/secret-scan-gate.sh
+
+# NIC/Bluetooth firmware: baked into the d-i initrd (manifests/net-firmware.tsv)
+# and every mapped package seeded in the firmware BOM. NCZ_FIRMWARE_POOL=<pool>
+# additionally checks the real firmware-*.deb contents.
+.PHONY: test-net-firmware
+test-net-firmware:
+	@bash $(ROOT)/build/test-net-firmware.sh
 
 # Fast NPU SSDT asset check — same gate `make iso` will run in full-mode
 # preflight. Useful as a build-host validation step before kicking off a
