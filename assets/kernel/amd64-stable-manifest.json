@@ -2,53 +2,88 @@
   "schema": 1,
   "channel": "default",
   "arch": "amd64",
-  "kver": "7.3.0-rc6-1-t2-edge-aerfix",
+  "kver": "7.3.0-rc6-3-t2-edge-aer9011",
   "build_rev": "amd64-t2-rc6-20261004",
-  "staged_utc": "2026-10-05",
+  "staged_utc": "2026-10-06",
   "channel_pointer": "assets/kernel/amd64-stable",
-  "staging_pool_relative": "kernel-staging/amd64-t2-rc6-20261004/7.3.0-rc6-1-t2-edge-aerfix",
-  "staging_pool_note": "Path is relative to the shared ARGONAS yocto-shared export; the mount root differs per build host (HYDRA: /mnt/argonas/datapool/yocto-shared, ULTRA: /mnt/argonas-yocto-shared).",
+  "staging_pool_relative": "kernel-staging/amd64-t2-rc6-20261004/7.3.0-rc6-3-t2-edge-aer9011",
+  "staging_pool_note": "Path is relative to the shared ARGONAS yocto-shared export; the mount root differs per build host (HYDRA/ACHILLES: /mnt/argonas/datapool/yocto-shared, ULTRA: /mnt/argonas-yocto-shared).",
   "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
-  "note": "This is the amd64 DEFAULT and installer boot kernel under the unified 7.3 policy (operator 2026-10-05). The old 7.2.9-2-t2-trixie default and the separate amd64 edge channel are retired. This is the AER ANFE revert build: overlay patch 9010-Revert-PCI-AER-Support-Advisory-Non-Fatal-Errors.patch. It is NOT the 9011 keeper-quirk build (7.3.0-rc6-2-t2-edge), which is a future candidate only. Replaced by the 7.3.0 final build later.",
+  "note": "amd64 DEFAULT, installer and rescue kernel under the unified 7.3 policy (operator 2026-10-05). AER: the narrow 9011 quirk (PCI/AER: keep ANFE masked on the Apple T2 Secure Enclave, 106b:1802) is the shipped default per operator decision 2026-10-05; the broad 9010 revert is held in amd64-kernel-t2 held/ as a fallback only and is NOT in this build. Supersedes 7.3.0-rc6-1-t2-edge-aerfix (9010 revert) and 7.3.0-rc6-2-t2-edge-aerfix (a 9011 build with a misleading name); the 'aerfix' flavour is retired. Replaced by the 7.3.0 final build later.",
   "source": {
     "base_tag": "v7.3-rc6",
-    "base_commit": "76596e0d50039fd90e6572088100aab42f78e272",
+    "base_commit": "a90ee4305c4a5df72c11b31dacfdc76e00fcf78a",
     "t2_repo": "amd64-kernel-t2",
-    "t2_port_commit": "2b693f2c3c3b9c9905b8677af10fe36262719032",
-    "t2_revert_commit": "6d04bdc583edf35a8dddcc3b47f287b424611861",
-    "t2_revert_patch": "patches/9010-Revert-PCI-AER-Support-Advisory-Non-Fatal-Errors.patch",
-    "t2_revert_branch": "feat/t2-9010-aer-anfe-revert-20261005",
-    "kernel_ref": "t2base/rc6-aerfix",
-    "build_host": "container root@0ca77ca03d9a",
-    "built_utc": "2026-10-05T11:08:00Z"
+    "t2_branch": "feat/t2-7.3-unified-20261006",
+    "t2_repo_commit": "23e85e5d5b9d1310acd19cabb1ff6885f4738bcc",
+    "t2_aer_patch": "patches/9011-PCI-AER-keep-ANFE-masked-on-Apple-T2-Secure-Enclave.patch",
+    "t2_aer_fallback_held": "held/9010-Revert-PCI-AER-Support-Advisory-Non-Fatal-Errors.patch (not applied)",
+    "applied_patch_count": 20,
+    "kernel_ref": "t2base/rc6 (= v7.3-rc6)",
+    "build_host": "ACHILLES, podman debian:trixie (container root@f565cd2049a0)",
+    "built_utc": "2026-10-06T03:11:32Z",
+    "base_commit_note": "a90ee4305c4a = v7.3-rc6 (PROVENANCE source_commit). The rc6-1 manifest recorded 76596e0d, the t2base/rc6-aerfix branch commit (rc6 plus the committed 9010 revert); this build applies all patches from patches/ instead.",
+    "applied_patches": [
+      "1001",
+      "1002",
+      "1003",
+      "2008",
+      "2009",
+      "4001",
+      "4003",
+      "4004",
+      "5001",
+      "5002",
+      "6001",
+      "6002",
+      "7001",
+      "8001",
+      "8002",
+      "9001",
+      "9002",
+      "9011",
+      "9503",
+      "9504"
+    ],
+    "held_not_applied": [
+      "9010",
+      "9507"
+    ]
   },
   "artifacts": {
-    "linux-image-7.3.0-rc6-1-t2-edge-aerfix_7.3.0-rc6-1_amd64.deb": {
-      "sha256": "e030d5a0597678043f18f6322d3869d7f4269bebc1bc467806c8a58e10a50778"
+    "linux-image-7.3.0-rc6-3-t2-edge-aer9011_7.3.0-rc6-3_amd64.deb": {
+      "sha256": "6ac6b170cfe07265ab4439e9d3fc296fe0a0a09e2ccab6081a94316565836ed4",
+      "size": 127013956
     },
-    "linux-headers-7.3.0-rc6-1-t2-edge-aerfix_7.3.0-rc6-1_amd64.deb": {
-      "sha256": "f0ae68ebe36d505e834bc82d4bb69da656f6ce0998906c28db5104098d43ca4a"
+    "linux-headers-7.3.0-rc6-3-t2-edge-aer9011_7.3.0-rc6-3_amd64.deb": {
+      "sha256": "fd8760ea314683210a56873b98039202a10d6be8a1e54f246845b018b82156da",
+      "size": 10972988
     },
-    "kernel_config_7.3.0-rc6-1-t2-edge-aerfix": {
-      "sha256": "4c77c43afafcbdf7337e2cf7f3e71b59913326f09004df7bca1b231ec67162bf"
+    "kernel_config_7.3.0-rc6-3-t2-edge-aer9011": {
+      "sha256": "df84b2f18841d1c965f1d13c148e6ed4db698cbd59b311b9a04569dd37ec99dc",
+      "size": 299678
     },
-    "PROVENANCE-7.3.0-rc6-1-t2-edge-aerfix": {
-      "sha256": "cd5341e2e39ed6e2dd7b4e8a8a598df9aafa45d76c218dc7cc625bf7346c85b8"
+    "PROVENANCE-7.3.0-rc6-3-t2-edge-aer9011": {
+      "sha256": "6234ebff3954d1df4d052ec6e9534f604cd4e9ce834a7461ea1746de456409ef",
+      "size": 2961
     }
   },
   "identity": {
-    "image_deb_package": "linux-image-7.3.0-rc6-1-t2-edge-aerfix",
-    "image_deb_version": "7.3.0-rc6-1",
-    "headers_deb_package": "linux-headers-7.3.0-rc6-1-t2-edge-aerfix",
-    "headers_deb_version": "7.3.0-rc6-1",
-    "kernel_release": "7.3.0-rc6-1-t2-edge-aerfix",
-    "module_vermagic": "7.3.0-rc6-1-t2-edge-aerfix SMP preempt mod_unload",
-    "config_identical_to_plain_rc6": true
+    "image_deb_package": "linux-image-7.3.0-rc6-3-t2-edge-aer9011",
+    "image_deb_version": "7.3.0-rc6-3",
+    "headers_deb_package": "linux-headers-7.3.0-rc6-3-t2-edge-aer9011",
+    "headers_deb_version": "7.3.0-rc6-3",
+    "kernel_release": "7.3.0-rc6-3-t2-edge-aer9011",
+    "module_vermagic": "7.3.0-rc6-3-t2-edge-aer9011 SMP preempt mod_unload modversions",
+    "vmlinux_build_id": "fb19b87c82be75359a5bb31fbb893447659638cc",
+    "vmlinuz_sha256": "e4e40c412688a27b5bbdc8b213e3ae64f413f231b231615e485f12ee5210e91b",
+    "config_reference": "amd64-kernel-t2 reference/shipping/config-7.3.0-rc6-3-t2-edge-aer9011 (built config byte-identical)"
   },
   "gates": {
-    "static_gate": "PASS (depmod -e: 0 unknown symbols; t2bce modules present; applesmc config unset; DKMS t2smc/t2gmux/t2smp/t2thunderbolt build against these headers)",
-    "kvm_gate": "PASS (qemu kvm boots the image to root; known t2bce_ave oops on the emulated T2 host)",
-    "revert_proof": "System.map diff vs the plain rc6 build: the revert removes __pci_print_aer, __pci_print_aer.cold, __pfx___pci_print_aer, __pfx_aer_get_uncor_info and aer_get_uncor_info, and adds pci_print_aer.cold. The 9011 quirk build (7.3.0-rc6-2-t2-edge) has a System.map identical to plain rc6. Configs of plain and aerfix are byte-identical."
+    "static_gate": "PASS (20 patches incl. 9011+9001, no 9010/9507; built config == reference; headers auto.conf == image config; headers Module.symvers CRCs == built vmlinux __crc_* 12027/12027; depmod -e 0 unknown symbols with firing self-test; applesmc absent; every .ko.xz Kbuild-compressed (CRC32); DKMS t2smc and t2gmux build rc=0 W=1 with 0 warnings and modversions vermagic)",
+    "initramfs_check": "PASS (dpkg -i + initramfs-tools: initrd modules only from this KVER, 839 modules byte-identical to the image deb)",
+    "kvm_gate": "PASS x2 (OVMF EFI boot, efivarfs 21/21 read, pstore backend efi_pstore, T2 in-tree stack loads, DKMS t2smc/t2gmux load unsigned, a t2smc copy with one corrupted symbol CRC is refused, no oops (t2bce_ave now -EPROBE_DEFER via 1003); dpm watchdog N by default, Y with pm.dpm_watchdog_enabled=1)"
   },
-  "hardware_note": "Booted on MEDUSA (T2 MacBookPro16,1) without the 14-27 s power-off seen on un-reverted 7.3-rc kernels."
+  "hardware_note": "Not yet booted on T2 hardware. The 9010 build (rc6-1) booted on MEDUSA without the power cut; a diagnostic kernel showed 106b:1802 ANFE masking alone kept MEDUSA up past 120 s. MEDUSA confirmation of this exact build is pending.",
+  "build_rev_note": "build_rev names the rc6 build tree (staging parent dir created 2026-10-04 for the rc6 port); this revision was built and staged on 2026-10-06 in its own subdir."
 }

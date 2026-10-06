@@ -34,8 +34,16 @@ firmware's `_OSC` handshake.
 
 ## MEDUSA evidence (MacBookPro16,1)
 
-The amd64 kernel `7.3.0-rc6-1-t2-edge-aerfix` (which already carries the AER
-ANFE revert) was booted with `pcie_ports=compat`:
+The amd64 kernel `7.3.0-rc6-1-t2-edge-aerfix` (which carries the broad 9010
+AER ANFE revert) was booted with `pcie_ports=compat`. The shipped default is
+now `7.3.0-rc6-3-t2-edge-aer9011` (narrow 9011 quirk); this evidence predates
+it and has not yet been repeated on the 9011 build. `compat` does not
+neutralise the ANFE change on these Macs: in v7.3-rc6 `negotiate_os_control()`
+(`drivers/acpi/pci_root.c`) takes every `_OSC` control except PME on any
+`x86_apple_machine` without calling `_OSC`, before the `pcie_ports=compat`
+check, so `native_aer` stays set and `pci_aer_init()` (`drivers/pci/probe.c`)
+still unmasks ANFE during enumeration. That is why the grant line below still
+appears, and why 9011 is required with or without `compat`.
 
 - Stayed up 30+ minutes with all four DKMS modules loaded (`t2smc`, `t2gmux`,
   `t2smp`, `t2thunderbolt`); screen and hwmon working.

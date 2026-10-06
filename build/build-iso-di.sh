@@ -206,7 +206,7 @@ ROOT="$(cd "$ROOT" && pwd)"
 
 # Operator directive 2026-10-05 (unified kernel): ONE 7.3 kernel is the
 # default, installer and rescue kernel on every arch (amd64
-# 7.3.0-rc6-1-t2-edge-aerfix, Sky1 7.3.0-rc6-sky1-ncz). 7.2.x is retired and
+# 7.3.0-rc6-3-t2-edge-aer9011, Sky1 7.3.0-rc6-sky1-ncz). 7.2.x is retired and
 # there is no edge channel.
 # This script is the canonical place where assets/kernel/mainline and
 # assets/kernel/amd64-stable get copied into the installer payload, so the

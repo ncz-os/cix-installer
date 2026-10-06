@@ -26,8 +26,13 @@ blacklist of accelerators"*.
   `RESCUE_BASE`/`EDGE_BASE` series of its own.
 - Today the pins are the release-candidate builds, replaced by 7.3.0 final
   builds later:
-  - amd64: `7.3.0-rc6-1-t2-edge-aerfix` (the T2 kernel with the AER ANFE
-    revert, overlay patch 9010) — `assets/kernel/amd64-stable/KVER`.
+  - amd64: `7.3.0-rc6-3-t2-edge-aer9011` (the T2 kernel with the narrow
+    9011 AER quirk: Advisory Non-Fatal Errors stay masked only on the Apple
+    T2 Secure Enclave, PCI `106b:1802`) — `assets/kernel/amd64-stable/KVER`.
+    Operator decision 2026-10-05: 9011 is the shipped default; the broad
+    9010 revert (`7.3.0-rc6-1-t2-edge-aerfix`, the first pin of this policy)
+    is kept only as a held fallback patch in amd64-kernel-t2. History and
+    proof: `docs/reports/2026-10-05-amd64-edge-rc6-revert.md`.
   - arm64/Sky1: `7.3.0-rc6-sky1-ncz` (r282) — `assets/kernel/mainline/KVER`
     and `variants.mainline.kver` in `assets/kernel-manifest.json`.
 - The rescue entry is *redefined*, not removed: the "never delete a rescue
@@ -81,7 +86,8 @@ rescue entry is now the same-7.3-with-blacklist entry above.
 ## amd64: `pcie_ports=compat` moves to the DEFAULT entry (T2 only)
 
 Operator directive 2026-10-05 (compat branch): the T2 PCIe mode
-`pcie_ports=compat` (defence in depth on top of the AER revert) now applies to
+`pcie_ports=compat` (defence in depth on top of the AER fix, now the 9011
+quirk) now applies to
 the **default** 7.3 entry on Apple T2 hardware only — never on generic PCs, and
 never on non-T2 Intel Macs, VMs or servers (where it would needlessly disable
 AER/PME/native hotplug). It is gated at entry-generation time by the DMI
@@ -123,7 +129,8 @@ Implemented in this change:
 
 ## When 7.3.0 final lands (checklist)
 
-1. Item K1 rebuilds the amd64 kernel on 7.3.0 final (AER revert carried); Sky1
+1. Rebuild the amd64 kernel on 7.3.0 final (9011 AER quirk carried, unless
+   upstream fixes ANFE on 106b:1802 first; 9010 stays held); Sky1
    7.3.0 final rebuild lands separately.
 2. Repin `assets/kernel/amd64-stable/KVER` and `assets/kernel/mainline` (+
    `assets/kernel-manifest.json` / `sky1-manifest.json` /
