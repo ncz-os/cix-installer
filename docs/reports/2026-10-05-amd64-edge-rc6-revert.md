@@ -1,10 +1,83 @@
-# amd64 7.3.0-rc6 edge kernel: the AER ANFE revert (7.3.0-rc6-1-t2-edge-aerfix)
+# amd64 7.3.0-rc6 kernel: the 9011 AER quirk (7.3.0-rc6-3-t2-edge-aer9011)
 
-> **SUPERSEDED (operator 2026-10-05, same day):** the separate amd64 "edge" entry was
-> retired. This same `7.3.0-rc6-1-t2-edge-aerfix` build is now the amd64 DEFAULT and
-> installer kernel under the unified 7.3 policy; see
-> `docs/reports/2026-10-05-kernel-channel-policy.md`. This report is kept as history
-> for the AER revert proof.
+> File name kept for link stability. Until 2026-10-06 this report described the
+> 9010 revert build `7.3.0-rc6-1-t2-edge-aerfix`; that history is preserved
+> verbatim below ("History").
+
+Operator decision 2026-10-05: the amd64 unified 7.3 kernel ships the **narrow
+9011 quirk** as its default AER fix. The broad **9010 revert** is kept only as a
+held fallback patch in amd64-kernel-t2 (`held/`), not built and not shipped.
+The rescue entry boots this same kernel with the accelerator blacklist
+(`assets/kernel/KERNEL-POLICY`).
+
+## Artifact
+
+- Staging directory (ARGONAS kernel-staging, new revision dir):
+  `kernel-staging/amd64-t2-rc6-20261004/7.3.0-rc6-3-t2-edge-aer9011`
+  (HYDRA/ACHILLES `/mnt/argonas/datapool/yocto-shared/...`, ULTRA
+  `/mnt/argonas-yocto-shared/...`).
+- KVER `7.3.0-rc6-3-t2-edge-aer9011`; Debian version `7.3.0-rc6-3`; vermagic
+  `7.3.0-rc6-3-t2-edge-aer9011 SMP preempt mod_unload modversions`.
+- Source: v7.3-rc6 `a90ee4305c4a5df72c11b31dacfdc76e00fcf78a` + amd64-kernel-t2
+  `feat/t2-7.3-unified-20261006` at `23e85e5` (20 patches, 0 fuzz).
+- sha256 (also `assets/kernel/amd64-stable-manifest.json` and `SHA256SUMS` in
+  the staging dir):
+  - image deb `6ac6b170cfe07265ab4439e9d3fc296fe0a0a09e2ccab6081a94316565836ed4`
+  - headers deb `fd8760ea314683210a56873b98039202a10d6be8a1e54f246845b018b82156da`
+  - kernel_config `df84b2f18841d1c965f1d13c148e6ed4db698cbd59b311b9a04569dd37ec99dc`
+  - PROVENANCE `6234ebff3954d1df4d052ec6e9534f604cd4e9ce834a7461ea1746de456409ef`
+
+## Why 9011 and not the revert
+
+`eddba19b8b5f` ("PCI/AER: Support Advisory Non-Fatal Errors", new in v7.3-rc1)
+unmasks Advisory Non-Fatal Errors (Correctable Error Mask bit 13) in
+`pci_aer_init()`. On a MacBookPro16,1 that cuts power 14-27 s after boot with no
+oops and no log line. The revert (9010) removed ANFE support for every PCIe
+device on every machine. A diagnostic kernel then isolated the trigger to one
+function, the Apple T2 Secure Enclave (PCI `106b:1802`): with only that
+function's ANFE bit left masked the machine stayed up past 120 s, with it
+unmasked power was cut at 14 s; the other three T2 functions and the Navi 14
+switch port were fine unmasked. 9011 masks ANFE on exactly `106b:1802` and
+keeps upstream behaviour everywhere else, so generic PCs keep ANFE reporting and
+the change is a candidate for upstream. Upstream `aer.c` is unchanged since
+`eddba19b8b5f` through rc6 (not fixed upstream).
+
+The previous `aerfix` name was used for the 9010 build (rc6-1) and for a 9011
+build (rc6-2), so it is retired; amd64-kernel-t2 `build.sh` and
+`build/verify-kernel-default-policy.sh` here both refuse it.
+
+## What else is in this build (beyond rc6-1)
+
+- 9001 corrected (zero-initialized ownership mask, `device_hotplug_lock`,
+  restore on the `PM_SUSPEND_PREPARE` rollback path); it owns CPU offline on T2.
+- 9507 (HDA direct-complete) held, not applied.
+- 1003 t2bce_ave ERR_PTR fix (no more `t2bce_ave_init()` oops without a T2) and
+  5002 appletbdrm suspend/resume.
+- Config: `MODVERSIONS=y`, `DPM_WATCHDOG=y` (off unless
+  `pm.dpm_watchdog_enabled=1`), `EFI_VARS_PSTORE=y`, `DRM_PANIC_SCREEN="kmsg"`,
+  `RTW89_8922DE=m`, `NTFS_FS_WOF_COMPRESSION=y`, `CGROUP_DMEM=y`. Module
+  signing/lockdown and the early framebuffer (efifb) are unchanged.
+
+## Verification (2026-10-06, ACHILLES)
+
+- Static gate PASS: 20 patches (9011, 9001 yes; 9010, 9507 no); built config
+  byte-identical to amd64-kernel-t2 `reference/shipping/config-7.3.0-rc6-3-t2-edge-aer9011`;
+  headers `auto.conf` == image config; headers `Module.symvers` CRCs equal the
+  built vmlinux `__crc_*` values for all 12027 exports (same-build pairing);
+  `depmod -e` 0 unknown symbols (self-test fires); applesmc absent; all 4220
+  modules Kbuild-compressed (xz CRC32); t2smc and t2gmux (three source revisions)
+  build `rc=0`, `W=1`, 0 warnings, `modversions` vermagic.
+- initramfs check PASS: installed with `dpkg -i`; the generated initrd holds only
+  this KVER's modules, 839 of them byte-identical to the image deb's.
+- KVM gate PASS twice (OVMF EFI): efivarfs 21/21 variables read, pstore backend
+  `efi_pstore`, T2 in-tree stack loads, unsigned DKMS t2smc and t2gmux load
+  (taint E/O/C, not refused), a t2smc copy with one corrupted symbol CRC is
+  refused (`disagrees about version of symbol`), no oops; DPM watchdog `N` by
+  default and `Y` with `pm.dpm_watchdog_enabled=1`.
+- Not covered by any gate: T2 hardware. qemu has no `106b:1801/1802`, so the
+  9011 and 9001 Apple paths never run there. MEDUSA confirmation is pending.
+
+## History (2026-10-05): the 9010 revert build `7.3.0-rc6-1-t2-edge-aerfix`
 
 Operator policy of 2026-10-05: stable 7.2.9 is the default and installer boot kernel on
 both arches; amd64 (T2 Macs and generic PCs) additionally carries a bootable, non-default
@@ -12,7 +85,7 @@ both arches; amd64 (T2 Macs and generic PCs) additionally carries a bootable, no
 verified, and the installer change that stages it. Supersedes the 2026-09-30 "amd64 ships
 no edge" rule (no validated amd64 7.3 kernel existed then; one does now).
 
-## Artifact
+### Artifact
 
 - Staging directory:
   `/mnt/argonas-yocto-shared/kernel-staging/amd64-t2-rc6-20261004/7.3.0-rc6-1-t2-edge-aerfix`
@@ -25,7 +98,7 @@ no edge" rule (no validated amd64 7.3 kernel existed then; one does now).
 - `assets/kernel/amd64-edge/KVER` pins the channel; `assets/kernel/amd64-edge-manifest.json`
   mirrors the artifact paths, sha256 and source revisions.
 
-## The revert, and why it (not the quirk) is the edge kernel
+### The revert, and why it (not the quirk) is the edge kernel
 
 The T2 power-off is caused by upstream commit `eddba19b8b5f` "PCI/AER: Support Advisory
 Non-Fatal Errors", which unmasked Advisory Non-Fatal Errors on device enumeration and routed
@@ -43,7 +116,7 @@ The operator decision is to ship the revert. It is the build proven on hardware:
 (T2 MacBookPro16,1) ran the edge kernel with the full desktop and no power-off. The 9011
 quirk build is kept only as a future candidate and is **not** shipped.
 
-## Verification performed (2026-10-05)
+### Verification performed (2026-10-05)
 
 `sha256sum -c SHA256SUMS` in the staging directory: all four entries OK (image deb, headers
 deb, config, provenance). The image/headers/config sha256 are recorded in
@@ -70,7 +143,7 @@ brcmfmac/thunderbolt modules present; `CONFIG_SENSORS_APPLESMC` unset; DKMS `t2s
 (qemu KVM boots the image to root; the only modprobe failure is the known `t2bce_ave` oops
 on the emulated T2 host).
 
-## Installer assets change
+### Installer assets change
 
 - `assets/kernel/amd64-edge/KVER` (`7.3.0-rc6-1-t2-edge-aerfix`) and
   `assets/kernel/amd64-edge-manifest.json` added. The amd64 `.deb`s themselves are
@@ -97,7 +170,7 @@ The amd64 default boot entry and `default_selection` are unchanged, so 7.2.9 rem
 default on both arches; the edge entry is console-only and non-default, matching the arm64
 Sky1 edge entry.
 
-## Open
+### Open
 
 - Operator-supervised hardware re-confirmation of the rc6 edge entry on the amd64 installer
   image (MEDUSA already ran the kernel directly).
