@@ -115,5 +115,60 @@ B="$T/e"; mkbox "$B" "ASUSTeK COMPUTER INC." "ROG STRIX X670E-A GAMING WIFI"; se
 run_hook "$B"
 if [ ! -s "$B/dkms.calls" ] && [ ! -e "$B/modprobe.d/ncz-t2thunderbolt.conf" ]; then ok "non-Apple: hook is inert (no dkms calls, no modprobe.d file)"; else bad "non-Apple: hook acted"; fi
 
+# ===========================================================================
+# 7. apple_gmux blacklist: written on T2 DMI, NOT written on pre-T2 Mac /
+#    ASUS / QEMU fixtures.
+# ===========================================================================
+B="$T/gmux-t2"; mkbox "$B" "Apple Inc." "MacBookPro16,1"; set_kver_list "$B" "7.2.9-ncz-t2"
+run_hook "$B"
+[ -f "$B/modprobe.d/ncz-t2-gmux.conf" ] \
+    && ok "apple_gmux blacklist: written on T2 (MacBookPro16,1)" \
+    || bad "apple_gmux blacklist: missing on T2 (MacBookPro16,1)"
+
+B="$T/gmux-oldmac"; mkbox "$B" "Apple Inc." "MacBookPro14,1"; set_kver_list "$B" "7.2.9-ncz-t2"
+run_hook "$B"
+[ ! -f "$B/modprobe.d/ncz-t2-gmux.conf" ] \
+    && [ ! -f "$B/modprobe.d/ncz-t2smp.conf" ] \
+    && [ ! -f "$B/modprobe.d/ncz-t2thunderbolt.conf" ] \
+    && ok "apple_gmux blacklist: NOT written on pre-T2 Mac (MacBookPro14,1)" \
+    || bad "apple_gmux blacklist: leaked onto pre-T2 Mac"
+
+B="$T/gmux-asus"; mkbox "$B" "ASUSTeK COMPUTER INC." "ROG STRIX X670E-A GAMING WIFI"; set_kver_list "$B" "6.6.0-debian"
+run_hook "$B"
+[ ! -s "$B/dkms.calls" ] \
+    && [ ! -e "$B/modprobe.d/ncz-t2-gmux.conf" ] \
+    && [ ! -e "$B/modprobe.d/ncz-t2smp.conf" ] \
+    && [ ! -e "$B/modprobe.d/ncz-t2thunderbolt.conf" ] \
+    && ok "apple_gmux blacklist: NOT written on ASUS (hook inert)" \
+    || bad "apple_gmux blacklist: hook acted on non-Apple hardware"
+
+B="$T/gmux-vm"; mkbox "$B" "QEMU" "Standard PC (Q35 + ICH9, 2009)"; set_kver_list "$B" "6.6.0-debian"
+run_hook "$B"
+[ ! -s "$B/dkms.calls" ] && [ ! -e "$B/modprobe.d/ncz-t2-gmux.conf" ] \
+    && ok "apple_gmux blacklist: NOT written on QEMU (hook inert)" \
+    || bad "apple_gmux blacklist: hook acted on VM/generic"
+
+# ===========================================================================
+# 8. t2smp drop: t2smp is NEVER built, regardless of any opt-in.
+# ===========================================================================
+B="$T/smp"; mkbox "$B" "Apple Inc." "MacBookPro16,1"; set_kver_list "$B" "7.2.9-ncz-t2"
+run_hook "$B"
+[ "$(built "$B" t2smp)" = 0 ] && ok "t2smp drop: t2smp never built (default)" || bad "t2smp drop: t2smp was built"
+[ -f "$B/modprobe.d/ncz-t2smp.conf" ] && grep -qx 'blacklist t2smp' "$B/modprobe.d/ncz-t2smp.conf" \
+    && grep -qx 'install t2smp /bin/false' "$B/modprobe.d/ncz-t2smp.conf" \
+    && ok "t2smp drop: ncz-t2smp.conf written with blacklist + install-false" \
+    || bad "t2smp drop: ncz-t2smp.conf missing or incomplete"
+
+# ===========================================================================
+# 9. rc-only kernel tree (7.3.0-rc6-1-t2-edge-aerfix alone) still builds.
+# ===========================================================================
+B="$T/rc-only"; mkbox "$B" "Apple Inc." "MacBookPro16,1"; set_kver_list "$B" "7.3.0-rc6-1-t2-edge-aerfix"
+run_hook "$B"
+grep -qE "^build -m t2smc -v 0.1 -k 7.3.0-rc6-1-t2-edge-aerfix(\$| )" "$B/dkms.calls" \
+    && grep -qE "^build -m t2gmux -v 0.1 -k 7.3.0-rc6-1-t2-edge-aerfix(\$| )" "$B/dkms.calls" \
+    && ok "rc-only tree: t2smc + t2gmux built for 7.3.0-rc6 KVER" \
+    || bad "rc-only tree: modules not built against the rc KVER"
+[ "$(built "$B" t2smp)" = 0 ] && ok "rc-only tree: t2smp still not built" || bad "rc-only tree: t2smp was built"
+
 echo "t2-dkms-hook tests: $pass passed, $fail failed"
 [ "$fail" = 0 ]
