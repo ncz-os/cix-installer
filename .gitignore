@@ -76,6 +76,12 @@ build/build-iso-di.sh.bak-*
 # (build/build-singularity.sh also folds it into the /opt/singularity payload;
 build/cix-repo.squashfs
 build/desktop-mirror/
+# Build outputs written by build-vendor-mirror.sh (Chrome .deb cache) and
+# build-wallpaper-contrib-deb.sh (Artist Pack debs, copied to assets/wallpaper-debs/).
+# lint-platform enumerates untracked, non-ignored files, so leaving these out
+# made make image fail LINT-COVER in any tree that built them.
+build/chrome-deb-cache/
+build/wallpaper-debs/
 build/desktop-mirror.gaps
 build/*.fd
 build/*.img
