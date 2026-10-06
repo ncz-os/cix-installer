@@ -6,15 +6,10 @@
 .codex-review.out	common	-	audit artifact
 .gitignore	common	-	repo config
 .gitlab-ci.yml	common	-	CI
-CODEX_FINDINGS_r145.md	common	-	audit artifact
 LICENSE	common	-	license
 Makefile	mixed	-	ARCH-selected build front end
 README.md	common	-	readme
 README.zh-CN.md	common	-	readme
-STEP1-CONTINUATION-BRIEF.md	common	-	brief
-STEP1-FIX-CODEX-FINDINGS.md	common	-	brief
-STEP1-XORRISO-WRITER-BRIEF.md	common	-	brief
-STEP2-CIXMINI-PAYLOAD-BRIEF.md	common	-	brief
 assets/README.md	common	-	asset tree notes
 assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
@@ -98,8 +93,6 @@ build/build-dkms-debs.sh	sky1	-	packages CIX accelerator DKMS sources
 build/build-forky-mirror.sh	common	-	profile-matched forky offline closure
 build/build-gst-cix.sh	sky1	-	CIX GStreamer plugins out of tree
 build/build-installer-image.sh	common	-	shared raw-GPT image orchestration for amd64 and arm64
-build/build-iso-di.sh	mixed	-	deprecated d-i ISO builder; both arch paths (241 arm64 refs, 57 amd64)
-build/build-iso.sh	sky1	-	stale Ubuntu-era arm64 ISO builder
 build/build-kernel-debs.sh	sky1	-	debianizes the cixmini kernel
 build/build-libdrm-debs.sh	sky1	-	libdrm with NCZ ACPI platform fix for Sky1 GPU
 build/build-mgmt-rootfs.sh	sky1	-	server management rootfs from arm64 mgmt.pkgs
@@ -123,11 +116,9 @@ build/verify-kernel-default-policy.sh	common	-	enforces the unified kernel polic
 build/verify-no-debian-kernel.sh	common	-	fails closed if a Debian 7.1.x/linux-image-{arm64,amd64} kernel or a non-7.3 default is present in a rootfs/ESP/initrd/listing
 build/fixtures/	common	-	static fixture data for build gates
 build/check-preseed-mirror-sync.sh	common	-	preseed mirror vs release.conf gate
-build/component-prompt-gate.sh	common	-	interactive component prompt gate
 build/components.py	common	-	components.tsv drift check / report / diff-published; phase 2 check --gate is wired into make parity and lint-platform
 build/containers/	common	-	build container definitions
 build/dkms-abi-gate.sh	sky1	-	staged headers vs Sky1 kernel gate
-build/e2e-install-test.sh	common	-	unattended install test driver
 build/extract-kernel-headers.sh	sky1	-	Sky1 kernel headers asset
 build/first-boot-failed-allowlist.txt	common	-	KVM gate first-boot allowlist
 build/gen-components-registry.py	common	-	deterministic generator for manifests/components.tsv (manifests + NCZ_LOCAL_DEBS + KERNEL-POLICY + sky1/amd64 manifests + t2 dkms.conf; edge channel retired)
@@ -137,7 +128,6 @@ build/gen-maximilian-art.py	common	-	procedural art generator
 build/google-chrome-apt-keyring.asc	common	-	Google apt key
 build/hook-arch-allowlist.tsv	common	-	hooks exempt from the heuristic arch-gate lint
 build/interactive-install.py	common	-	interactive d-i QEMU driver
-build/iso-cache/	amd64	-	syslinux isohdpfx.bin for x86 hybrid ISO
 build/iso/build-refind-esp.py	common	-	rEFInd ESP builder (both arches)
 build/iso/import-substrate.py	common	-	substrate import
 build/iso/patch-debootstrap-stub.py	sky1	-	r159 debootstrap stub patch (16 arm64 refs, 2 amd64)
@@ -146,14 +136,10 @@ build/iso/patch-initrd-t2-kernel.py	amd64	t2	T2 kernel initrd patch
 build/iso/stage-ncz-payload.py	common	-	shared payload stager
 build/iso/tests/	common	-	ISO writer tests
 build/iso/tests/prove-arm64-stage2-fixes.py	sky1	-	arm64 stage-2 proof
-build/iso/verify-image.py	common	-	image verifier
-build/iso/write-image.py	common	-	image writer
 build/iso/write-usb-image.py	common	-	USB image writer
 build/kernel-manifest.py	sky1	-	Sky1 accelerator module overlay manifest
 build/kernel-port-watch.sh	sky1	-	Sky1 kernel forward-port watcher
-build/kvm-install-gate-amd64.sh	amd64	-	amd64 KVM install gate
 build/kvm-install-gate-gpt.sh	common	-	architecture-generic KVM gate for raw GPT images
-build/kvm-install-gate.sh	sky1	-	arm64 ISO KVM install gate
 build/kvm-kernel-gate.sh	sky1	-	Sky1 kernel boot gate
 build/lib/release-identity.sh	common	-	shared release label + ISO volume-id derivation from release.conf
 build/lib/mirror-apt-opts.sh	common	-	sources.list options and apt-get update failure helper for a pinned snapshot mirror
@@ -171,9 +157,6 @@ build/port-series.sh	sky1	-	Sky1 kernel patch series replay
 build/preflight-freshness-gate.sh	mixed	-	freshness gate with arm64 and amd64 checks (41/36 refs); TODO split per platform
 build/preflight-sbom-check.sh	common	-	arch-scoped SBOM preflight
 build/publish-amd64-kernel.sh	amd64	-	publishes amd64 kernels to ARGONAS staging
-build/qemu-test-console-patch.sh	sky1	-	qemu-aarch64 console patch
-build/qemu-test-interactive-patch.sh	sky1	-	qemu-aarch64 interactive patch
-build/qemu-test.sh	sky1	-	qemu-aarch64 ISO test
 build/release-kernel.sh	sky1	-	Sky1 kernel release
 build/release-ota.sh	sky1	-	OTA release
 build/resolve-sky1-kernel-inputs.sh	sky1	-	dry-run of which Sky1 kernel each image input resolves
@@ -220,8 +203,6 @@ build/test-late-npu-aipu.sh	common	-	late.sh NPU aipu overlay + modules-load tes
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
 build/test-overlay-modversions.sh	sky1	-	fixture tests for verify-overlay-modversions.py (stale CRC, unresolved, no __versions, vermagic, missing set fail)
 build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test
-build/test-under-di-busybox.sh	common	-	d-i busybox runner
-build/tests/	common	-	offline pool tests
 build/validate-accelerators.sh	sky1	-	GPU/NPU/VPU binding validation
 build/verify-arm64-inputs.sh	sky1	-	Sky1 input preflight (firmware, cix-debs, rescue, mirror, overlay MODVERSIONS CRCs)
 build/verify-assets.sh	common	-	SBOM asset verifier
@@ -234,7 +215,6 @@ build/verify-dual-arch-parity.sh	common	-	dual-arch parity gate: manifests, scre
 build/verify-firmware-bom.sh	common	-	firmware BOM verifier
 build/verify-installed-target-arm64.sh	sky1	-	installed-target accelerator verifier
 build/verify-installed-target.sh	common	-	shared installed-target verifier for both arches
-build/verify-iso-offline-pool.py	common	-	offline pool verifier
 build/verify-local-package-versions.sh	common	-	local package version gate
 build/verify-offline-mirror-seeds.sh	common	-	mirror seed verifier
 build/verify-overlays.py	sky1	-	module overlay verifier

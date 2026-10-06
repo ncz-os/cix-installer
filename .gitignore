@@ -77,7 +77,6 @@ build/apt-repo/
 build/apt-repo/*.deb
 build/apt-repo/Packages.gz
 build/*.bak-*
-build/build-iso-di.sh.bak-*
 # (build/build-singularity.sh also folds it into the /opt/singularity payload;
 build/cix-repo.squashfs
 build/desktop-mirror/
@@ -85,13 +84,6 @@ build/desktop-mirror.gaps
 build/*.fd
 build/*.img
 build/*.img.receipt.json
-build/*.iso.receipt.json
-build/*.iso.verify.json
-build/*.iso
-build/.iso-*-done
-build/*.iso.*-part*
-build/iso-staging/
-build/iso-staging-di/
 build/kernel-debs/
 build/dkms-debs/
 build/libdrm-debs/

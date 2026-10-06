@@ -85,9 +85,11 @@ bb()   { ( cd "$YOCTO" && "$RUNNER" "bitbake ${EXTRA_CONF:+-R $EXTRA_CONF }$*" )
 # Debian packaging needs a Debian userspace. ULTRA is Fedora Asahi and has no
 # dpkg-deb -- that is exactly how a kernel got "packaged" into nothing once,
 # with build-kernel-debs.sh dying on "dpkg-deb: command not found" AFTER the
-# gates had already passed. Run those steps in the isobuild container when the
-# host cannot do it, instead of letting the caller find out at packaging time.
-DEB_IMAGE="${NCZ_DEB_IMAGE:-localhost/ncz-isobuild:trixie}"
+# gates had already passed. Run those steps in the image-build container
+# (build/containers/Containerfile.ncz-imagebuild, a Debian trixie userland with
+# dpkg-dev) when the host cannot do it, instead of letting the caller find out
+# at packaging time.
+DEB_IMAGE="${NCZ_DEB_IMAGE:-localhost/ncz-imagebuild:trixie}"
 deb_run() {  # deb_run <shell command, cwd = repo root>
     if command -v dpkg-deb >/dev/null 2>&1; then
         ( cd "$REPO" && bash -c "$1" )
