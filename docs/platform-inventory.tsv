@@ -67,7 +67,7 @@ assets/refind/ncz-refind-refresh.sh	sky1	-	rEFInd refresh for Sky1 kernels (Imag
 assets/refind/refind_aa64.efi	sky1	-	rEFInd arm64 binary
 assets/refind/refind_x64.efi	amd64	-	rEFInd x86_64 binary
 assets/refind/zz1-ncz-refind-refresh-amd64	amd64	-	kernel postinst hook for amd64 rEFInd refresh
-assets/refind/ncz-t2-detect.sh	amd64	t2	DMI-based Apple T2 detection helper (ncz_is_t2_hardware / ncz_t2_pci_bridge_present / ncz_t2_detect_detail); sourced by the amd64 rEFInd refresh (gates pcie_ports=compat and the rescue blacklist) and by post-install/56-t2-dkms.sh; single source of truth for the T2 model list
+assets/refind/ncz-t2-detect.sh	amd64	t2	DMI-based Apple T2 detection helper (ncz_is_t2_hardware / ncz_t2_pci_bridge_present / ncz_t2_detect_detail); sourced by the amd64 rEFInd refresh (gates the rescue blacklist; pcie_ports=compat removed 2026-10-06) and by post-install/56-t2-dkms.sh; single source of truth for the T2 model list
 assets/regreet/	common	-	notes
 assets/rescue/	common	-	rescue notes
 assets/singularity/	common	-	Singularity patch series
@@ -177,8 +177,7 @@ build/test-nvidia-dkms-patch-build.sh	amd64	nvidia-cuda	Build-level test (contai
 build/test-amd64-dracut-isolation.sh	amd64	-	amd64 base must not stage the Sky1 dracut config (static checks + the real staging loop)
 build/test-amd64-intel-vaapi.sh	amd64	-	amd64 desktop closure ships intel-media-va-driver (Intel VA-API gap, MEDUSA UHD 630)
 build/test-amd64-kernel-classifier.sh	amd64	-	amd64 unified-7.3 kernel classifier test
-build/test-amd64-t2-detect.sh	amd64	t2	T2 DMI detection + pcie_ports=compat gating test
-build/test-amd64-t2-default-compat.sh	amd64	t2	amd64 default-entry T2 pcie_ports=compat test (token only on the default entry)
+build/test-amd64-t2-detect.sh	amd64	t2	T2 DMI detection test; guards that no amd64 boot path carries pcie_ports=compat (removed 2026-10-06)
 build/test-arm64-freshness-gate.sh	sky1	-	arm64 unified-7.3 freshness gate test
 build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test (incl. overlay MODVERSIONS wiring)
 build/test-boot-speed.sh	common	-	regression tests for boot-blocking systemd units (docs/BOOT-SPEED.md)

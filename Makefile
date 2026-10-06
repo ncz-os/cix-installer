@@ -626,7 +626,6 @@ parity:
 	build/test-reap-images.sh
 	REPO_ROOT=$(ROOT) bash build/test-amd64-kernel-classifier.sh
 	bash build/test-amd64-t2-detect.sh
-	bash build/test-amd64-t2-default-compat.sh
 	bash build/test-nouveau-runpm.sh
 	bash build/test-gpu-probe-no-hang.sh
 	bash build/test-hook-watchdog.sh

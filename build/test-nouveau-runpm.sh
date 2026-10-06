@@ -45,7 +45,6 @@ if [ -s "$W/nv.sh" ] && [ -s "$W/region.sh" ]; then
     # shellcheck disable=SC2034  # inputs of the sourced option-assembly region
     out=$(
         STABLE_AVAILABLE=1 ROOT_OPTS="root=PARTUUID=x rw" SPLASH="quiet" RESCUEPART_PARTUUID=y
-        NCZ_T2_DEFAULT_EXTRA_CMDLINE=""
         ncz_is_t2_hardware() { return 1; }
         STABLE_CMDLINE_BASE="console=ttyS0,115200 console=tty0 systemd.condition_first_boot=false audit_backlog_limit=8192"
         . "$W/nv.sh"; . "$W/nv.sh"; . "$W/nv.sh"   # idempotent
