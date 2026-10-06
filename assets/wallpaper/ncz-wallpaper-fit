@@ -167,6 +167,8 @@ def _from_sysfs() -> tuple[int, int] | None:
             w, h = (int(v) for v in first.split("x", 1)[0:2])
         except (OSError, ValueError):
             continue
+        if w <= 0 or h <= 0:
+            continue
         internal = any(f"-{p}-" in conn.name + "-" for p in INTERNAL_CONNECTORS)
         found.append((not internal, conn.name, (w, h)))
     return min(found)[2] if found else None
@@ -198,7 +200,8 @@ def image_size(path: str) -> tuple[int, int] | None:
         with open(path, "rb") as f:
             head = f.read(26)
             if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
-                return struct.unpack(">II", head[16:24])
+                w, h = struct.unpack(">II", head[16:24])
+                return (w, h) if w and h else None
             if head[:2] != b"\xff\xd8":
                 return None
             f.seek(2)
@@ -212,11 +215,15 @@ def image_size(path: str) -> tuple[int, int] | None:
                     return None
                 marker = b[0]
                 if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
-                    continue
+                    continue  # standalone markers carry no length
+                if marker in (0xD9, 0xDA):
+                    return None  # end of image / start of scan before any SOF
                 seg = f.read(2)
                 if len(seg) < 2:
                     return None
                 length = struct.unpack(">H", seg)[0]
+                if length < 2:
+                    return None  # corrupt: a length counts its own two bytes
                 if marker in (
                     0xC0,
                     0xC1,
@@ -316,7 +323,7 @@ def candidates(path: str) -> list[str]:
 
 
 def choose(path: str, size: tuple[int, int] | None) -> str:
-    if size is None:
+    if size is None or size[0] <= 0 or size[1] <= 0:
         return path
     cands = candidates(path)
     if len(cands) < 2 and _real(path) in cands:

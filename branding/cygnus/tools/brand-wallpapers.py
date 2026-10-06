@@ -122,7 +122,11 @@ def variant_offset(im):
         return centre
     if right - left > V_W:
         return centre
-    return min(max(right - V_W, 0), left, im.width - V_W)
+    # Move only as far as needed: left edge to the core's left when it sticks
+    # out on the left, right edge to the core's right when it sticks out on
+    # the right, clamped to the frame.
+    x0 = left if left < centre else right - V_W
+    return min(max(x0, 0), im.width - V_W)
 
 
 def main_variants(src, out):
