@@ -19,8 +19,14 @@ if [ "$ARCH" = amd64 ]; then
     "$PY" "$HERE/boot-screens.py" "$IMG" "$WORK" --arch "$ARCH" --interactive --secs "$SECS" --enter-every 6 --enter-after 25 \
         > "$WORK/harness.log" 2>&1 || { echo "UI CHECK FAIL: the capture harness failed (see $WORK/harness.log)" >&2; tail -5 "$WORK/harness.log" >&2; exit 1; }
 else
+    # The operator-required chooser order (preseed.cfg partman/early_command, ef2e90be): components, region,
+    # username, password, password confirm, hostname; the disk dialogs stay preset (ncz_disk/ncz_fs). Answer each
+    # one, otherwise the capture stalls on the first unanswered dialog (REGION) and the later ones never appear.
+    # Rule 0 must stay the component dialog (T_ANS below). The password is a throwaway for this capture only.
     "$PY" "$HERE/boot-screens.py" "$IMG" "$WORK" --arch "$ARCH" --interactive --secs "$SECS" --every 30 \
-        --answer 'name this computer=\r' --answer 'optional components=\r' > "$WORK/harness.log" 2>&1 \
+        --answer 'optional components=\r' --answer 'select your REGION=\r' --answer 'choose a USERNAME=\r' \
+        --answer 'choose a PASSWORD=nczuicheck\r' --answer 'type the same PASSWORD=nczuicheck\r' \
+        --answer 'name this computer=\r' > "$WORK/harness.log" 2>&1 \
         || { echo "UI CHECK FAIL: the capture harness failed (see $WORK/harness.log)" >&2; tail -5 "$WORK/harness.log" >&2; exit 1; }
 fi
 CHK=("$PY" "$HERE/check-installer-screens.py")
@@ -32,12 +38,15 @@ if [ "$ARCH" = amd64 ]; then
     ndist=$(awk '{print $2}' "$WORK/fb-frames.txt" 2>/dev/null | sort -u | wc -l | tr -d ' ')
     [ "${ndist:-0}" -ge 8 ] || { echo "check-installer-screens: FAIL only ${ndist:-0} distinct framebuffer frames captured (dialogs and progress bars expected)" >&2; rc=1; }
 else
-    "${CHK[@]}" "$WORK/serial-screens" --start-at "name this computer" \
-        --require-dialog "name this computer" --require-dialog "optional components" \
+    "${CHK[@]}" "$WORK/serial-screens" --start-at "optional components" \
+        --require-dialog "optional components" --require-dialog "select your REGION" \
+        --require-dialog "choose a USERNAME" --require-dialog "name this computer" \
+        --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" \
+            "choose a PASSWORD" "type the same PASSWORD" "name this computer" \
         --require-header "NCZ-OS [0-9.]+ [A-Za-z]+" || rc=1
-    T_ANS="$(sed -n 's/^t=\([0-9]*\)s rule 1 .*/\1/p' "$WORK/answers.log" | head -1)"
+    T_ANS="$(sed -n 's/^t=\([0-9]*\)s rule 0 .*/\1/p' "$WORK/answers.log" | head -1)"
     [ -n "$T_ANS" ] || { echo "UI CHECK FAIL: the component dialog was never reached/answered" >&2; exit 1; }
-    "${CHK[@]}" "$WORK/serial-screens" --start-at "name this computer" --no-blank-after "optional components" || rc=1
+    "${CHK[@]}" "$WORK/serial-screens" --start-at "optional components" --no-blank-after "optional components" || rc=1
 fi
 [ $rc = 0 ] && echo "UI CHECK PASS ($ARCH): dialogs branded, no chatter, no blank console after the component dialog" || echo "UI CHECK FAIL ($ARCH)" >&2
 exit $rc
