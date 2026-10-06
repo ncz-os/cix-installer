@@ -1,3 +1,42 @@
-Source: https://github.com/kaiT2en/KaiT2en-Fedora  modules/t2smc
+Module: t2smc (Apple T2 SMC: fans, temperatures, power rails, battery charge limit, RTC)
+Source: https://github.com/kaiT2en/KaiT2en-Fedora
+Module path: modules/t2smc
+Upstream commit: 6715ce61c5397a72d3463d86f13909b322af4603
+Upstream commit date: 2026-09-05T00:23:45+02:00
+Upstream subject: t2smc: expose the battery charge limit as charge_control_end_threshold
+SPDX-License-Identifier: GPL-2.0-only
+Copyright: 2026 Andre Eikmeyer <andre.eikmeyer@kait2en.org> (src/t2smc.c)
 Vendored: 2026-09-28
-Upstream commit: tarball of refs/heads/main
+
+Vendored layout:
+  upstream modules/t2smc/t2smc.c    -> src/t2smc.c
+  upstream modules/t2smc/Makefile   -> src/Makefile
+  upstream modules/t2smc/README.md  -> README.upstream.md
+  upstream modules/t2smc/dkms.conf  -> dkms.conf  (module root)
+  upstream tools/t2smc-rtc-client.c and other tools/ are NOT vendored.
+
+Upstream-derived file hashes (sha256) as vendored (pre-local-edit):
+  src/t2smc.c  d44ebc4e018b0378858e0449ce1b55e710c6aff3f984e03b886efa26ab904274  (pristine, matches upstream commit)
+  src/Makefile 82bb2ec00f86022f953980e7f010298e2e5f713b88fcdaefd81dc21ddc67c685  (pristine, matches upstream commit)
+  dkms.conf    a6aef06ec86e8ab2eeb09976ad455399c86cda4ba3766f3dba1d72ecc7291ff7  (upstream; locally extended, see below)
+Source tree digest (sha256 of `find src -type f | sort | xargs sha256sum | sha256sum`):
+  f9dd492f405cfe750cc5064a2d10caa65da09502b8e16110520e1ad099fe16ff
+
+Local modifications:
+  - dkms.conf: adds PATCH[0]/PATCH_MATCH[0] to apply patches/0001-t2smc-range-checks.patch
+    during the DKMS build. The C source stays pristine so upstream re-syncs remain
+    byte-diffable.
+  - patches/0001-t2smc-range-checks.patch: local hardening (fan min/target range checks
+    against F%dMn/F%dMx, battery charge-limit value validation, RTC offset range check).
+    Adds src/t2smc_range.h at build time only.
+  - PROVENANCE, README.upstream.md: packaging metadata, not upstream files.
+
+Re-sync:
+  git clone https://github.com/kaiT2en/KaiT2en-Fedora.git
+  git -C KaiT2en-Fedora checkout 6715ce61c5397a72d3463d86f13909b322af4603
+  cp modules/t2smc/t2smc.c    assets/kernel/t2smc/src/t2smc.c
+  cp modules/t2smc/Makefile   assets/kernel/t2smc/src/Makefile
+  cp modules/t2smc/README.md  assets/kernel/t2smc/README.upstream.md
+  git show <newsha>:modules/t2smc/dkms.conf > assets/kernel/t2smc/dkms.conf
+  # then re-add the PATCH[0]/PATCH_MATCH[0] lines and keep patches/*.patch
+  # verify: build/test-t2-dkms-provenance.sh

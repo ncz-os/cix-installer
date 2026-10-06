@@ -1,0 +1,35 @@
+Module: t2thunderbolt (Apple T2 Thunderbolt controller bring-up)
+Source: https://github.com/kaiT2en/KaiT2en-Fedora
+Module path: modules/t2thunderbolt
+Upstream commit: b1855a0a6cc6956f4d0545cb23a69da6d5611cbb
+Upstream commit date: 2026-08-31T11:05:57+02:00
+Upstream subject: make module author email adress consistent
+SPDX-License-Identifier: GPL-2.0
+Vendored: 2026-09-28
+
+NOTE: upstream and t2linux both flag this module as not ready ("thunderbolt needs a
+lot of work. unsafe now"). It is vendored for provenance/completeness only; see the
+SMC fallback note in amd64-kernel-t2 docs/SMC-FALLBACK.md before enabling.
+
+Vendored layout:
+  upstream modules/t2thunderbolt/t2thunderbolt.c -> src/t2thunderbolt.c
+  upstream modules/t2thunderbolt/Makefile        -> src/Makefile
+  upstream modules/t2thunderbolt/dkms.conf       -> dkms.conf  (module root)
+  upstream README.md / mbp15-1-thunderbolt-baseline.md are NOT vendored.
+
+Upstream-derived file hashes (sha256) as vendored:
+  src/t2thunderbolt.c 2d14120ff5d1dc337863ae2b4af2784d8bc5c2c7daef6066b9e272a0c874aefb  (pristine, matches upstream commit)
+  src/Makefile        18d849a3e9460e8c0b509bedbf801c0b52a19fed53e3027048143adc0039fd36  (pristine, matches upstream commit)
+  dkms.conf           c4314bca96f81e5a08d8e777f67f74048f8c9f89c0b8c8e2d0405042f0e5c8da  (pristine, matches upstream commit)
+Source tree digest (sha256 of `find src -type f | sort | xargs sha256sum | sha256sum`):
+  b71585f17f8184231dacc0d174d1ff2824431f744e8d118d992643226561a9d3
+
+Local modifications: none (all vendored upstream files byte-identical to the commit).
+
+Re-sync:
+  git clone https://github.com/kaiT2en/KaiT2en-Fedora.git
+  git -C KaiT2en-Fedora checkout b1855a0a6cc6956f4d0545cb23a69da6d5611cbb
+  cp modules/t2thunderbolt/t2thunderbolt.c assets/kernel/t2thunderbolt/src/t2thunderbolt.c
+  cp modules/t2thunderbolt/Makefile        assets/kernel/t2thunderbolt/src/Makefile
+  cp modules/t2thunderbolt/dkms.conf       assets/kernel/t2thunderbolt/dkms.conf
+  # verify: build/test-t2-dkms-provenance.sh
