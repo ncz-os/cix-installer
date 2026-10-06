@@ -204,7 +204,8 @@ class StageInitrdFirmwareTest(unittest.TestCase):
         )
         dest, _ = self.stage()
         self.assertEqual(
-            (dest / "lib/firmware/rtl_nic/rtl8127a-1.fw").read_bytes(), b"8127a"
+            (dest / "lib" / "firmware" / "rtl_nic" / "rtl8127a-1.fw").read_bytes(),
+            b"8127a",
         )
 
     def test_glob_with_no_match_fails(self):

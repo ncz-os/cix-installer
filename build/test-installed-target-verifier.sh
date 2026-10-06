@@ -85,9 +85,9 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
     # network firmware packages named in manifests/net-firmware.tsv (13-firmware-bom)
-    for f in $(awk -F'\t' '!/^[[:space:]]*(#|$)/ && NF==5 {print $3}' "$ROOT/manifests/net-firmware.tsv" | sort -u); do
-        printf 'Package: %s\nStatus: install ok installed\n\n' "$f" >> "$r/var/lib/dpkg/status"
-    done
+    while IFS= read -r f; do
+        printf 'Package: %s\nArchitecture: all\nStatus: install ok installed\n\n' "$f" >> "$r/var/lib/dpkg/status"
+    done < <(awk -F'\t' '!/^[[:space:]]*(#|$)/ && NF==5 {print $3}' "$ROOT/manifests/net-firmware.tsv" | sort -u)
     mkdir -p "$r/etc"; printf 'root:x:0:\nsudo:x:27:nczuser\n' > "$r/etc/group"
     # media stack: no VA driver, mpv on V4L2
     mkdir -p "$r/etc/mpv"
@@ -217,9 +217,11 @@ m_ssp_pkg() {
     echo x > "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
     printf "enabled-plugins='screensaver'\n" > "$1/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"
 }
-m_no_fw_mediatek() { sed -i '/^Package: firmware-mediatek$/,+2d' "$1/var/lib/dpkg/status"; }
-m_half_fw_realtek() { sed -i '/^Package: firmware-realtek$/{n;s/install ok installed/deinstall ok config-files/}' "$1/var/lib/dpkg/status"; }
-m_amd64_strip_no_iwlwifi() { m_amd64_strip "$1"; sed -i '/^Package: firmware-iwlwifi$/,+2d' "$1/var/lib/dpkg/status"; }
+# Stanza-scoped edits: from the Package line up to the blank line ending it,
+# so the mutation holds whatever fields sit between Package and Status.
+m_no_fw_mediatek() { sed -i '/^Package: firmware-mediatek$/,/^$/d' "$1/var/lib/dpkg/status"; }
+m_half_fw_realtek() { sed -i '/^Package: firmware-realtek$/,/^$/s/install ok installed/deinstall ok config-files/' "$1/var/lib/dpkg/status"; }
+m_amd64_strip_no_iwlwifi() { m_amd64_strip "$1"; sed -i '/^Package: firmware-iwlwifi$/,/^$/d' "$1/var/lib/dpkg/status"; }
 m_no_sudo()     { sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
 m_sudo_empty()  { printf 'root:x:0:\nsudo:x:27:\n' > "$1/etc/group"; }
 m_aud_nodaemon() { rm -f "$1/usr/local/bin/ncz-sky1-audio-autoswitch"; }

@@ -58,6 +58,7 @@ Output: <cache-root>/ncz-initrd-t2kernel/<node_key>/{linux,initrd.gz}
 from __future__ import annotations
 
 import argparse
+import functools
 import gzip
 import hashlib
 import json
@@ -259,23 +260,26 @@ def _deb_version_key(deb: Path) -> str:
 
 def find_pool_deb(pool: Path, package: str) -> Path:
     """Newest <package>_*.deb anywhere under an apt pool (flat or hashed)."""
-    debs = sorted(pool.rglob(f"{package}_*.deb"))
+    debs = list(pool.rglob(f"{package}_*.deb"))
     if not debs:
         raise RuntimeError(
             f"FATAL: {package} not found under {pool} -- the offline mirror "
             f"must carry it (manifests/firmware.pkgs) before the installer "
             f"initrd can be built"
         )
-    best = debs[0]
-    for cand in debs[1:]:
-        newer = subprocess.run(
-            ["dpkg", "--compare-versions", _deb_version_key(cand), "gt",
-             _deb_version_key(best)],
-            check=False,
-        ).returncode == 0
-        if newer:
-            best = cand
-    return best
+    if len(debs) == 1:
+        return debs[0]
+
+    def _cmp(a: Path, b: Path) -> int:
+        va, vb = _deb_version_key(a), _deb_version_key(b)
+        if va == vb:
+            return 0
+        gt = subprocess.run(["dpkg", "--compare-versions", va, "gt", vb],
+                            check=False).returncode == 0
+        return 1 if gt else -1
+
+    # Debian version order (dpkg), never filename order.
+    return max(debs, key=functools.cmp_to_key(_cmp))
 
 
 def stage_initrd_firmware(rows: list[dict], pool: Path, dest_root: Path,
