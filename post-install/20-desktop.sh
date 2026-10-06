@@ -200,6 +200,47 @@ else
     echo "[20] WARN: Sky1 HDMI/DP audio autoswitch assets not found under /cdrom/ncz-payload or /usr/local/lib/cix-installer; the desktop will have a Dummy Output sink only" >&2
 fi
 
+# HiDPI output scale (docs/HIDPI-SCALING.md). ncz-display-scale holds the NCZ
+# density policy (>= 192 ppi -> 2, >= 144 ppi -> 1.5, else 1; no or implausible
+# EDID size -> 1). 55-greeter.sh calls it to pick the greeter mode and scale.
+# The per-login user unit is a first-login safety net only: the Singularity
+# shell derives its own default for an output with no saved setting, and the
+# helper raises an output only when it is still at 1.0 after the shell settled,
+# never once ~/.config/singularity/displays.json exists, and once per display.
+_display_root=""
+for _r in /cdrom/ncz-payload /usr/local/lib/cix-installer; do
+    if [ -f "$_r/assets/display/ncz-display-scale" ]; then
+        _display_root="$_r"
+        break
+    fi
+done
+if [ -n "$_display_root" ]; then
+    install -m 0755 "$_display_root/assets/display/ncz-display-scale" /usr/local/bin/ncz-display-scale
+    install -d -m 0755 /usr/lib/systemd/user
+    cat > /usr/lib/systemd/user/ncz-display-scale.service <<'DISPLAYSCALE'
+[Unit]
+Description=NCZ first-login HiDPI output scale (docs/HIDPI-SCALING.md)
+PartOf=singularity-session.target graphical-session.target
+After=singularity-session.target graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ncz-display-scale session
+TimeoutStartSec=60
+
+[Install]
+WantedBy=singularity-session.target
+DISPLAYSCALE
+    chmod 0644 /usr/lib/systemd/user/ncz-display-scale.service
+    if systemctl --global enable ncz-display-scale.service >/dev/null 2>&1; then
+        echo "[20] ncz-display-scale installed; first-login scale unit enabled for all users"
+    else
+        echo "[20] WARN: could not globally enable ncz-display-scale.service" >&2
+    fi
+else
+    echo "[20] WARN: assets/display/ncz-display-scale not found under /cdrom/ncz-payload or /usr/local/lib/cix-installer; greeter keeps its fixed 1080p mode and no first-login scale safety net" >&2
+fi
+
 # Removable media + bluetooth. (NO network-manager-gnome — the base-layer
 # sinty-nm daemon replaces NetworkManager.)
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
