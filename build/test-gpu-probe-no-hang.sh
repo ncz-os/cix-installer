@@ -22,7 +22,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="${NCZ_TEST_ROOT:-$(cd "$HERE/.." && pwd)}"
-W="$(mktemp -d)"
+W="$(mktemp -d)" && [ -d "$W" ] || { echo "cannot create a scratch dir"; exit 2; }
 trap 'rm -rf "$W"' EXIT
 PASS=0; FAIL=0
 ok()  { echo "  PASS  $1"; PASS=$((PASS + 1)); }

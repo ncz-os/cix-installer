@@ -340,6 +340,13 @@ _dt=$(( $(date +%s) - _t0 ))
 eq "54: hung setup leaves the deferred install pending" "$got" "pending:install"
 grep -q 'timed out after 2s' "$SB/log" && ok "54: the CUDA timeout is logged" || nok "54: CUDA timeout not logged"
 grep -q 'will retry after boot' "$SB/log" && ok "54: hung setup logs that the timer will retry" || nok "54: hung setup retry not logged"
+_left=0
+for _i in 1 2 3 4 5 6 7 8 9 10; do
+    _left=$(ps -u "$(id -u)" -o args= | awk '$1 ~ /(^|\/)sleep$/ && $2 == "3604" && NF == 2' | wc -l | tr -d ' ')
+    [ "$_left" = 0 ] && break
+    sleep 0.5
+done
+[ "$_left" = 0 ] && ok "54: the hung setup's whole process group was killed (no 'sleep 3604' left)" || nok "54: $_left hung-setup processes survived"
 mv -f "$SB/assets/ncz-cuda-setup.real" "$SB/assets/ncz-cuda-setup"
 [ ! -e "$SB/lspci.called" ] && ok "54: lspci was never called by the NVIDIA path" || nok "54: the NVIDIA path called lspci"
 
