@@ -118,6 +118,7 @@ build/verify-kernel-default-policy.sh	common	-	enforces the unified kernel polic
 build/verify-no-debian-kernel.sh	common	-	fails closed if a Debian 7.1.x/linux-image-{arm64,amd64} kernel or a non-7.3 default is present in a rootfs/ESP/initrd/listing
 build/fixtures/	common	-	static fixture data for build gates
 build/check-preseed-mirror-sync.sh	common	-	preseed mirror vs release.conf gate
+build/check-ssplugin-abi.sh	common	-	stage-2 gate: staged screensaver settings plugin deb == pin, and the image Singularity payload is the one it was linked against (version or byte-identical libsingularity); docs/SCREENSAVER-PLUGIN.md
 build/components.py	common	-	components.tsv drift check / report / diff-published; phase 2 check --gate is wired into make parity and lint-platform
 build/containers/	common	-	build container definitions
 build/dkms-abi-gate.sh	sky1	-	staged headers vs Sky1 kernel gate
@@ -173,6 +174,7 @@ build/sqtools/	sky1	-	aarch64 unsquashfs toolchain
 build/stage-amd64-kernel.sh	amd64	-	stages amd64 kernels from ARGONAS
 build/stage-canonical-assets.sh	sky1	-	restages CIX-NCZ gitignored blobs (183 arm64/cix refs)
 build/stage-kernel.sh	sky1	-	stages a Sky1 kernel
+build/stage-screensaver-plugin.sh	common	-	copies the pinned ncz-screensavers-plugin deb from ARGONAS into build/ncz-screensavers-out (sha256 + control fields checked); make ssplugin-stage
 build/systemd/	common	-	singularity patch reconcile units
 build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	AMD64 dynamic NVIDIA driver + CUDA gate tests (Turing plan, R580 plan, Kepler skip, ncz-cuda-setup simulation, removals refused, status/retry/park/backoff, DKMS compile-failure record and same-inputs back-off, local DKMS patch staging, installed-target fixture, chooser)
 build/test-nvidia-dkms-patch-build.sh	amd64	nvidia-cuda	Build-level test (container on a build host, SKIP without podman/docker or headers): stock NVIDIA DKMS source fails against CONFIG_CGROUP_DMEM=y 7.3 headers, the staged assets/nvidia/dkms patch builds all five modules
@@ -352,6 +354,8 @@ post-install/lib/gpu-progress.sh	mixed	-	GPU/DKMS install-step feedback for the 
 post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
 post-install/lib/kernel-purity.sh	common	-	shared Debian-kernel apt preferences pin sourced by both kernel install hooks
 post-install/lib/pci-sysfs.sh	common	-	PCI enumeration from sysfs vendor/device/class (no lspci, no config-space reads) for install-time hooks
+post-install/lib/ncz-screensavers-plugin.lock	common	-	pin of the Singularity screensaver settings plugin (version, ARGONAS dir, sha256 + payload + libsingularity sha256 per arch); read by the stage script, the stage-2 gate, the medium writer, hook 59, the verifier, parity and the registry
+post-install/lib/ncz-ssplugin-install.sh	common	-	pin loader, the plugin ABI rule and the offline plugin install sourced by 59-ncz-screensavers-pkg.sh (and by the build gate for the same rule)
 post-install/ncz-os-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/run-all.sh	common	-	hook orchestrator; platform selection via hooks.list
 preseed/	common	-	installer helpers (hostname, disk chooser, diag console, rescan)
@@ -409,6 +413,7 @@ build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp
 build/test-run-all-baked-allowlist.sh	common	-	run-all.sh in baked mode against every hook on both hooks.list files: no ORPHAN, every listed hook runs
 build/test-screensaver-default.sh	common	-	regression test for the Cygnus black hole screensaver default hook (validated override, idempotent, skips old schemas)
 build/test-screensavers-mandatory-install.sh	common	-	fail-before/pass-after for the screensaver deb being apt-installed on every desktop image: mirror pre-flight and install hook (operator 2026-10-05; item S4; sources the builders sibling)
+build/test-ssplugin-supply-chain.sh	common	-	fail-before/pass-after for the screensaver settings plugin supply chain (pin, staging, ABI gate, medium, offline install, registry, baked allowlist)
 build/test-screensavers-mandatory-install-builders.sh	common	-	sections 3-7 of the screensaver mandatory-install regression: mirror builder, layer pre-flights, live-update source, verifier contract, hook 57 retirement
 build/verify-installed-target-screensavers.sh	common	-	section (vi) of verify-installed-target.sh: dpkg status, version floor, engine, catalogue (sourced; sets SS_STATUS)
 build/verify-installed-target-screensavers-default.sh	common	-	section (vi) continuation: schema default, Cygnus override, idle timer, gtk4-reference ban, plugin files when installed

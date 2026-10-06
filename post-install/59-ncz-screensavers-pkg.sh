@@ -16,21 +16,28 @@
 #   * apt install rc != 0                   -> exit 1
 #   * post-install dpkg query says NOT installed -> exit 1
 #
-# Note on the package set: this hook requires ncz-screensavers (the published
-# package, amd64+arm64). The 0.8.9 .deb verified by hand bundles the engine,
-# the idle daemon, the calibrator, the gschema and the shipped 74-title
-# catalogue -- and NOTHING else: no Singularity plugin .so/.plugin, no GTK4
-# settings app, no launcher .desktop entry. The Singularity screensaver
-# plugin ships in a SEPARATE ncz-screensavers-plugin package that is not
-# published yet (the deb's own Description: "The settings UI ... is the
-# Singularity plugin (ncz-screensavers-plugin, installed by the NCZ-OS
-# image)"); nothing in this hook may depend on it existing.
+# Note on the package set: ncz-screensavers (the published package,
+# amd64+arm64) bundles the engine, the idle daemon, the calibrator, the gschema
+# and the shipped 74-title catalogue -- and NOTHING else: no Singularity plugin
+# .so/.plugin, no GTK4 settings app, no launcher .desktop entry. The settings
+# UI is the Singularity "Screensaver and Lockscreen" plugin, the SEPARATE
+# package ncz-screensavers-plugin. It is not published to the NCZ apt repo; the
+# image carries a pinned deb on the install medium
+# (ncz-payload/assets/ncz-screensavers-plugin/, pin in
+# post-install/lib/ncz-screensavers-plugin.lock) and this hook installs it
+# right after the engine through post-install/lib/ncz-ssplugin-install.sh:
+# sha256 against the pin, ABI against the installed Singularity payload, apt
+# simulate-first with no removals, then the .so/.plugin and the
+# default-enabled override asserted. A missing or mismatched plugin is a
+# FATAL (exit 1): the engine stays installed, the installed-target verifier
+# fails the image gate. Supply chain: docs/SCREENSAVER-PLUGIN.md.
 # 62-cygnus-screensaver-default.sh (override validated against the compiled
 # schema) sits downstream of this hook and pins the default saver to
 # blackhole_gles3 / palette cygnus.
 #
-# Idempotent: re-running on a system that already has ncz-screensavers installed
-# is a no-op (only install the package when dpkg says it is absent).
+# Idempotent: re-running on a system that already has ncz-screensavers (and the
+# pinned plugin) installed only re-asserts (installs happen when dpkg says the
+# package is absent).
 set -uo pipefail
 
 echo "[59-ncz-screensavers] enforcing ncz-screensavers install on desktop variants"
@@ -51,6 +58,9 @@ esac
 # offline-mirror builders, the test, the post-install verifier). Update once,
 # in one commit; everywhere reads it through the same helper.
 HERE_CI="$(cd "$(dirname "$0")" && pwd)"
+# The plugin step (pin + ABI rule + offline install); see the header.
+# shellcheck source=./lib/ncz-ssplugin-install.sh
+. "$HERE_CI/lib/ncz-ssplugin-install.sh"
 SCREENSAVERS_VERSION_ENV=""
 for p in \
     "$HERE_CI/../build/screensavers-version.env" \
@@ -81,7 +91,7 @@ if ss_installed "$PKG"; then
     echo "[59-ncz-screensavers] $PKG already installed ($INSTALLED_VER); checking floor >= ${NCZ_SCREENSAVERS_MIN_VERSION}"
     if dpkg --compare-versions "$INSTALLED_VER" ge "$NCZ_SCREENSAVERS_MIN_VERSION"; then
         echo "[59-ncz-screensavers] OK: $PKG $INSTALLED_VER >= $NCZ_SCREENSAVERS_MIN_VERSION"
-        exit 0
+        ncz_ssplugin_install; exit $?
     fi
     echo "[59-ncz-screensavers] $PKG $INSTALLED_VER is BELOW the required floor $NCZ_SCREENSAVERS_MIN_VERSION; will attempt to upgrade" >&2
 fi
@@ -165,4 +175,5 @@ ROWS=$(wc -l < /usr/share/ncz-screensavers/hacks.tsv 2>/dev/null | tr -d ' ')
 echo "[59-ncz-screensavers] shipped catalogue rows: ${ROWS:-0}"
 
 echo "[59-ncz-screensavers] OK: $PKG $INSTALLED_VER installed and asserted"
-exit 0
+# The settings plugin needs the engine (Depends: ncz-screensavers), so it comes last.
+ncz_ssplugin_install; exit $?
