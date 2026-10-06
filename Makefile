@@ -616,4 +616,6 @@ parity:
 	build/test-kernel-purity-pin.sh
 	build/test-kernel-purity-guards.sh
 	build/test-no-debian-kernel.sh
+	build/test-amd64-edge-compat.sh
+	build/test-amd64-t2-detect.sh
 	$(MAKE) --no-print-directory test-cygnus-branding

@@ -49,7 +49,11 @@
 # narrows to the known T2-generation `product_name` values (the same
 # model list an upstream "Add Apple T2 NHI device links" patch series
 # checks product-name against): MacBookPro15,1-16,4; MacBookAir8,1/8,2/9,1;
-# Macmini8,1; MacPro7,1; iMac20,1/20,2; iMacPro1,1.
+# Macmini8,1; MacPro7,1; iMac19,1/19,2; iMac20,1/20,2; iMacPro1,1. The
+# iMac19,x pair was added 2026-10-05 to match the T2 Linux wiki model list
+# (https://wiki.t2linux.org/, linking Apple support HT208862) and
+# assets/refind/ncz-t2-detect.sh, which is the same set used for the amd64
+# edge pcie_ports=compat decision; the previous list omitted them.
 #
 #   Verified against REAL T2 hardware 2026-09-15 (same MEDUSA oracle check):
 #   /sys/class/dmi/id/sys_vendor = "Apple Inc.",
@@ -87,7 +91,7 @@ is_t2_hardware() {
     esac
 
     case "$product" in
-        MacBookPro15,[1-4]|MacBookPro16,[1-4]|MacBookAir8,[12]|MacBookAir9,1|Macmini8,1|MacPro7,1|iMac20,[12]|iMacPro1,1)
+        MacBookPro15,[1-4]|MacBookPro16,[1-4]|MacBookAir8,[12]|MacBookAir9,1|Macmini8,1|MacPro7,1|iMac19,[12]|iMac20,[12]|iMacPro1,1)
             return 0
             ;;
     esac
