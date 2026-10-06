@@ -401,3 +401,5 @@ build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service i
 build/test-t2-dkms-provenance.sh	amd64	t2	proves every vendored T2 DKMS module has a PROVENANCE file pinned to a 40-hex upstream commit and a licence line
 build/test-t2smc-range.sh	amd64	t2	userspace unit test of the t2smc range checks (fan min/target, charge limit, RTC offset) and the patch applying cleanly
 build/test-t2-dkms-hook.sh	amd64	t2	proves 56-t2-dkms.sh builds t2smc/t2gmux only (t2smp dropped), blacklists t2smp + apple_gmux on T2 DMI only, leaves t2gmux alone on non-T2 hardware, removes stale DKMS registrations on upgrade, honours NCZ_T2_DKMS_EXTRA=t2thunderbolt opt-in, fails loudly on missing KVER_LIST_AMD64 on T2, builds against -rc KVERs (7.3.0-rc6-1-t2-edge-aerfix), and is idempotent
+build/test-splash-logo-fit.sh	common	-	manual harness: renders the loginui splash at several resolutions and checks the logo is uncropped and <= 60% wide
+build/hidpi/	common	-	manual KVM/render proof tools for the boot-splash scaling fix (docs/HIDPI-SCALING.md)

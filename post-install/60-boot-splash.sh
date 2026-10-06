@@ -13,6 +13,12 @@
 # the /opt/singularity payload (build-singularity.sh builds it into the tarball);
 # a separately-staged asset is a fallback if the payload predates it.
 #
+# Logo and loading-bar SIZE are decided by the loginui renderer inside that
+# binary, not here: the NCZ patch in assets/singularity/patches/
+# singularity-loginui/ fits the logo inside 60 % of the framebuffer width and
+# scales the bar (docs/HIDPI-SCALING.md). The logo file itself is the
+# os-release LOGO image installed by 55-greeter.sh.
+#
 # This hook: (1) ensure the binary is present, (2) install + enable the systemd
 # unit that paints from early boot to the greeter, (3) PURGE plymouth entirely.
 #
