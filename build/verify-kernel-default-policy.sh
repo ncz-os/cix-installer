@@ -306,8 +306,15 @@ if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
                     # 'aerfix' named both the broad 9010 AER revert build
                     # (rc6-1) and a 9011 quirk build (rc6-2); the name is
                     # retired so the pin always says which AER change ships
-                    # (default: 9011, '-aer9011').
-                    err "amd64: default KVER '$AMD64_STABLE_KVER' uses the retired, ambiguous 'aerfix' flavour; pin the 9011 build (*-aer9011)"
+                    # (default: the 9010 revert, '-aer9010').
+                    err "amd64: default KVER '$AMD64_STABLE_KVER' uses the retired, ambiguous 'aerfix' flavour; pin the 9010 revert build (*-aer9010)"
+                elif [[ "$AMD64_STABLE_KVER" == *aer9011* ]]; then
+                    # '-aer9011' builds (rc6-3) carry the narrow Apple-only
+                    # 9011 AER quirk, removed 2026-10-06 in favour of the
+                    # plain revert of eddba19b8b5f (operator, after Alex
+                    # Deucher's LKML report that the commit breaks non-Apple
+                    # boards too). They must not be pinned again.
+                    err "amd64: default KVER '$AMD64_STABLE_KVER' is a 9011-quirk build (removed 2026-10-06); pin the 9010 revert build (*-aer9010)"
                 else
                     log "amd64: default KVER '$AMD64_STABLE_KVER'"
                 fi

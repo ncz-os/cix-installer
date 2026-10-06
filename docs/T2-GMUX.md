@@ -29,9 +29,8 @@ held 9502 (`drivers/platform/x86/apple-gmux.c`) covers only
   in-kernel driver cannot autoload even if it is left on disk.
 - The file is written ONLY when `ncz_is_t2_hardware` (DMI: Apple vendor AND
   known T2 product_name) returns 0. Detection is the same helper
-  `assets/refind/ncz-refind-refresh-amd64.sh` uses to enable
-  `pcie_ports=compat` at entry generation —
-  `assets/refind/ncz-t2-detect.sh`. One model list, no duplication
+  `assets/refind/ncz-refind-refresh-amd64.sh` uses for the rescue
+  blacklist at entry generation — `assets/refind/ncz-t2-detect.sh`. One model list, no duplication
   (operator 2026-10-05).
 - The blacklist file is NOT removed by a future non-T2 install — DMI does
   not change at runtime, so the only way to leave the blacklist is to

@@ -3,13 +3,13 @@
 # refresh script.
 #
 # SOURCE this file, do not execute it: assets/refind/ncz-refind-refresh-amd64.sh
-# sources it from $INSTALLER_META/assets/refind/ so the amd64 EDGE boot entry
-# can enable pcie_ports=compat on real T2 Macs ONLY (operator directive
-# 2026-10-05). The amd64 image ships ONE unified x86 kernel family for T2 Macs
-# and ordinary PCs, so this decision must be made ON THE TARGET MACHINE at
-# entry-generation time. An image-build-time constant is not acceptable: the
-# same ISO installs onto a generic workstation/server, where pcie_ports=compat
-# would needlessly switch off the native AER / PME / PCIe-hotplug port services.
+# sources it from $INSTALLER_META/assets/refind/ to pick the RESCUE accelerator
+# blacklist (amdgpu kept on a T2 Mac), and post-install/56-t2-dkms.sh uses it
+# to gate the T2 DKMS modules. The amd64 image ships ONE unified x86 kernel
+# family for T2 Macs and ordinary PCs, so these decisions must be made ON THE
+# TARGET MACHINE; an image-build-time constant is not acceptable. (It also
+# gated pcie_ports=compat on the T2 default entry from 2026-10-05 until that
+# power-cut mitigation was removed on 2026-10-06.)
 #
 # Detection is DMI-based and fails CLOSED (undeterminable => not T2):
 #   sys_vendor is "Apple Inc." (or the legacy "Apple Computer, Inc.")

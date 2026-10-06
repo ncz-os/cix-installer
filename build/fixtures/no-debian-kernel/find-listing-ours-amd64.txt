@@ -1,5 +1,5 @@
-boot/vmlinuz-7.3.0-rc6-3-t2-edge-aer9011
-boot/initrd.img-7.3.0-rc6-3-t2-edge-aer9011
-lib/modules/7.3.0-rc6-3-t2-edge-aer9011/modules.dep
-ncz-payload/assets/kernel/amd64-stable/linux-image-7.3.0-rc6-3-t2-edge-aer9011_7.3.0-rc6-3_amd64.deb
-ncz-payload/assets/kernel/amd64-stable/linux-headers-7.3.0-rc6-3-t2-edge-aer9011_7.3.0-rc6-3_amd64.deb
+boot/vmlinuz-7.3.0-rc6-4-t2-edge-aer9010
+boot/initrd.img-7.3.0-rc6-4-t2-edge-aer9010
+lib/modules/7.3.0-rc6-4-t2-edge-aer9010/modules.dep
+ncz-payload/assets/kernel/amd64-stable/linux-image-7.3.0-rc6-4-t2-edge-aer9010_7.3.0-rc6-4_amd64.deb
+ncz-payload/assets/kernel/amd64-stable/linux-headers-7.3.0-rc6-4-t2-edge-aer9010_7.3.0-rc6-4_amd64.deb

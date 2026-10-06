@@ -52,8 +52,8 @@
 # Macmini8,1; MacPro7,1; iMac19,1/19,2; iMac20,1/20,2; iMacPro1,1. The
 # iMac19,x pair was added 2026-10-05 to match the T2 Linux wiki model list
 # (https://wiki.t2linux.org/, linking Apple support HT208862) and
-# assets/refind/ncz-t2-detect.sh, which is the same set used for the amd64
-# default-entry pcie_ports=compat decision; the previous list omitted them.
+# assets/refind/ncz-t2-detect.sh, which is the same set the amd64 rescue
+# blacklist and the t2-dkms hook use; the previous list omitted them.
 #
 #   Verified against REAL T2 hardware 2026-09-15 (same MEDUSA oracle check):
 #   /sys/class/dmi/id/sys_vendor = "Apple Inc.",
