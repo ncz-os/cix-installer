@@ -130,6 +130,34 @@ else
   MIRROR_DIRS_EXPLICIT=0
   MIRROR_DIRS="$NCZ_BASE_CODENAME-mirror $NCZ_BASE_CODENAME-vendor-mirror"
 fi
+
+# Pre-flight (operator 2026-10-05 mandatory-install item): every mirror named
+# above must carry ncz-screensavers at the version floor in build/screensavers-
+# version.env. Run this BEFORE we touch the chroot, so a stale or misconfigured
+# mirror produces a one-line "missing package" failure instead of a 20-minute
+# run that dies partway through 59-ncz-screensavers-pkg.sh. desktop-mirror is
+# only present when the caller is building the desktop role, but the check is
+# safe regardless -- if the directory does not exist, the helper skips it.
+# server / base roles skip this: they have no screensaver consumer.
+case "$STAGE" in
+  base|server) : ;;
+  *)
+    _ss_mirrors=""
+    for m in $MIRROR_DIRS; do
+      [ -d "$ROOT/build/$m" ] || continue
+      _ss_mirrors="$_ss_mirrors --mirror $ROOT/build/$m --label $m"
+    done
+    if [ -n "$_ss_mirrors" ]; then
+      # shellcheck disable=SC2086
+      if ! "$ROOT/build/assert-mirror-has-screensavers.sh" $_ss_mirrors --arch "$NCZ_TARGET_ARCH"; then
+        echo "[sqfs] ABORT: offline mirror does not carry ncz-screensavers at the required version floor." >&2
+        echo "[sqfs]        (operator 2026-10-05: 'If we are distributing screensavers as Deb they need to be apt installed during installation.')" >&2
+        echo "[sqfs]        Rebuild the mirror with build/build-desktop-mirror.sh (now mandatory there too)." >&2
+        exit 1
+      fi
+    fi
+    ;;
+esac
 QEMU="/usr/bin/$QEMU_BIN"
 STAGE="${1:-base}"                            # base | desktop | server | all
 

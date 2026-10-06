@@ -120,6 +120,31 @@ if [ -z "${MIRROR_DIRS+x}" ]; then
     esac
 fi
 
+# Pre-flight (operator 2026-10-05 mandatory-install item): the desktop-mirror
+# this script consumes MUST carry ncz-screensavers at the version floor in
+# build/screensavers-version.env. Run BEFORE we touch the mkosi sandbox so a
+# stale mirror produces a one-line "missing package" failure instead of a
+# containerised run that dies partway through 59-ncz-screensavers-pkg.sh.
+# server / base roles skip this: they have no screensaver consumer.
+case "$ROLE" in
+  desktop)
+    _ss_mirrors=""
+    for m in $MIRROR_DIRS; do
+      [ -d "$ROOT/build/$m" ] || continue
+      _ss_mirrors="$_ss_mirrors --mirror $ROOT/build/$m --label $m"
+    done
+    if [ -n "$_ss_mirrors" ]; then
+      # shellcheck disable=SC2086
+      if ! "$ROOT/build/assert-mirror-has-screensavers.sh" $_ss_mirrors --arch "${NCZ_TARGET_ARCH:-$(dpkg --print-architecture 2>/dev/null)}"; then
+        echo "[role-delta] ABORT: offline mirror does not carry ncz-screensavers at the required version floor." >&2
+        echo "[role-delta]        (operator 2026-10-05: 'If we are distributing screensavers as Deb they need to be apt installed during installation.')" >&2
+        exit 1
+      fi
+    fi
+    ;;
+  *) : ;;
+esac
+
 # Pinned exact mkosi package version, per GRAEAE consult hardening ask
 # (2026-09-14, winning synthesis openai/gpt-5.6-sol): a floating "latest"
 # mkosi is a live drift surface -- the container image's own apt snapshot
