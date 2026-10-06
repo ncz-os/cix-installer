@@ -223,7 +223,7 @@ index 0000000..e12c48f
 +}
 +
 +/* Fold @off into the signed 48-bit CLKO register the SMC expects: keep the
-+ * low T2SMC_RTC_BITS bits and sign-extend from bit 47. The new RTC write path
++ * low T2SMC_RTC_BITS bits and sign-extend from bit T2SMC_RTC_BITS - 1. The new RTC write path
 + * (t2smc_rtc_write_offset) normalizes with this before handing the value to
 + * the shared writer, so the writer only ever sees an in-range offset. */
 +static inline long long t2smc_rtc_offset_normalize(long long off)
