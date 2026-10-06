@@ -1,7 +1,7 @@
-diff --git a/src/t2smc.c b/src/t2smc.c
+diff --git a/t2smc.c b/t2smc.c
 index 5108030..52f518a 100644
---- a/src/t2smc.c
-+++ b/src/t2smc.c
+--- a/t2smc.c
++++ b/t2smc.c
 @@ -99,6 +99,8 @@ static const char *const fan_speed_fmt[] = {
  };
  #define FAN_MANUAL_FMT  "F%dMd"  /* T2 per-fan manual mode key */
@@ -52,7 +52,7 @@ index 5108030..52f518a 100644
 +			ret = t2smc_fan_write_check(t2smc_read_fan_cb, t2,
 +						    channel, speed, true);
 +			if (ret) {
-+				pr_warn_once("t2smc: rejecting fan%d min %u outside [F%dMn,F%dMx] or above the current target\n",
++				pr_warn_once("rejecting fan%d min %u outside [F%dMn,F%dMx] or above the current target\n",
 +					     channel, speed, channel, channel);
 +				return ret;
 +			}
@@ -69,7 +69,7 @@ index 5108030..52f518a 100644
 +			ret = t2smc_fan_write_check(t2smc_read_fan_cb, t2,
 +						    channel, speed, false);
 +			if (ret) {
-+				pr_warn_once("t2smc: rejecting fan%d target %u outside [F%dMn,F%dMx]\n",
++				pr_warn_once("rejecting fan%d target %u outside [F%dMn,F%dMx]\n",
 +					     channel, speed, channel, channel);
 +				return ret;
 +			}
@@ -114,11 +114,11 @@ index 5108030..52f518a 100644
  	if (abs(off - READ_ONCE(t2->rtc_offset)) < tolerance)
  		return 0;
  
-diff --git a/src/t2smc_range.h b/src/t2smc_range.h
+diff --git a/t2smc_range.h b/t2smc_range.h
 new file mode 100644
 index 0000000..e12c48f
 --- /dev/null
-+++ b/src/t2smc_range.h
++++ b/t2smc_range.h
 @@ -0,0 +1,117 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
