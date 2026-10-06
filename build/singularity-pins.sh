@@ -159,7 +159,7 @@ cmd_clone() {
     url="${NCZ_SINGULARITY_URL_OVERRIDE:-$(pin_url "$path")}" || exit 1
     [ ! -e "$dest" ] || die "clone destination already exists: $dest"
     git init -q "$dest" || die "git init $dest failed"
-    git -C "$dest" remote add origin "$url"
+    git -C "$dest" remote add origin "$url" || die "cannot add remote $url in $dest"
     ensure_commit "$dest" "$url" "$sha" \
         || die "pinned upstream commit $sha for '$path' was not found at $url
        (force-pushed away, wrong URL, or no network). Fix the pin in $PINS."
@@ -237,9 +237,10 @@ cmd_provenance() {
     return 0
 }
 
-cache_dir_for() {  # one bare mirror per clone URL
-    local name
-    name="$(basename "${1%.git}")"
+cache_dir_for() {  # one bare mirror per clone URL (host and path, not just the basename)
+    local name="${1%.git}"
+    name="${name#*://}"
+    name="$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_')"
     echo "$CACHE/$name.git"
 }
 
