@@ -1,8 +1,23 @@
 #!/bin/sh
 # user-chooser.sh -- NCZ installer interactive USERNAME + PASSWORD (with confirm)
-# selection. Invoked from partman/early_command (see preseed.cfg), in the
-# exact position the operator requires (after region / before hostname / before
-# disk+fs).
+# selection. Invoked from partman/early_command (see preseed.cfg) with
+# --prompt, right after the region dialog (operator flow 2026-10-06: region,
+# username, password + confirm, components, disk + fs; hostname automatic).
+#
+# WITHOUT --prompt (preseed/early_command, both runs) it only SEEDS d-i's own
+# passwd/* questions so user-setup-udeb -- a main-menu step that runs BEFORE
+# partitioning -- does not ask them: PEGASUS 2026-10-06 spent 14:20:05-14:20:31
+# in user-setup-udeb (full name, username, password, verify: user-setup-ask
+# asks all four at critical priority when they are unseen) and then this
+# script asked username and password again. The seed never replaces a value
+# that is already there (kernel-cmdline passwd/username=... from the KVM gates
+# wins), and parks a locked placeholder in passwd/user-password-crypted only
+# when no password is known yet, which is what makes user-setup-ask skip its
+# password + verify questions; the --prompt run clears it once it has a real
+# password.
+#
+# ONCE PER BOOT: a completed --prompt run leaves $NCZ_TMP/.ncz-user-done; a
+# later --prompt run re-applies $NCZ_TMP/ncz-user and never asks again.
 #
 # The operator requires EXACTLY ONE USERNAME PROMPT, followed by EXACTLY ONE
 # PASSWORD PROMPT WITH CONFIRM (so two prompt appearances for password:
@@ -38,7 +53,12 @@
 
 set +e
 
-. /usr/share/debconf/confmodule 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
+. "${NCZ_CONFMODULE:-/usr/share/debconf/confmodule}" 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
+NCZ_TMP="${NCZ_TMP:-/tmp}"
+DONE="$NCZ_TMP/.ncz-user-done"
+# user-setup-apply uses passwd/user-password-crypted whenever it is non-empty; "!" is a locked password.
+PW_PLACEHOLDER='!'
+
 
 # shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
 for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
@@ -60,7 +80,7 @@ log() {
 }
 
 # --- read cmdline overrides --------------------------------------------------
-CMD=$(cat /proc/cmdline 2>/dev/null)
+CMD=$(cat "${NCZ_CMDLINE:-/proc/cmdline}" 2>/dev/null)
 OVR_USER=""; OVR_PASS=""
 _unattended=0
 for tok in $CMD; do
@@ -71,11 +91,9 @@ for tok in $CMD; do
     esac
 done
 
-# Defer the dialog until partman/early_command (see component-selector.sh for
-# the same pattern). When called WITHOUT --prompt (i.e. from the first
-# early_command), we still register the default username but never prompt
-# the operator. This keeps the boot-time silent stretch free of any
-# operator-blocking dialog.
+# The dialogs are shown only by the --prompt run in partman/early_command.
+# Without --prompt (preseed/early_command) the script only seeds d-i's passwd/*
+# questions (below) and never prompts.
 NCZ_PROMPT="${1:-}"
 
 # validation (POSIX sh, no grep -P, no extended regex for portability with the
@@ -95,12 +113,63 @@ is_valid_username() {
     return 0
 }
 
+# --- seed mode (no --prompt): stop user-setup-udeb from asking ---------------
+# The first early_command runs before anna has loaded user-setup-udeb, so its passwd/* templates may not exist
+# yet and db_set would fail. A missing question is seeded with debconf-set-selections, the same call d-i's own
+# file-preseed (and the kernel-cmdline passwd/username=...) uses: it creates the question on a placeholder
+# template, marks it seen, and the value survives when user-setup-udeb loads the real template.
+_seed_keep_or_add() {   # question type value -> keep a non-empty value (mark seen), else queue the seed line
+    if db_get "$1" 2>/dev/null && [ -n "$RET" ]; then
+        db_fset "$1" seen true 2>/dev/null || true
+        return 1
+    fi
+    printf 'd-i %s %s %s\n' "$1" "$2" "$3" >> "$_seedf"
+}
+if [ "$NCZ_PROMPT" != "--prompt" ]; then
+    command -v db_get >/dev/null 2>&1 || exit 0
+    if [ -e "$DONE" ]; then
+        log "seed: already answered this boot, leaving passwd/* as set"
+        exit 0
+    fi
+    _seedf="$NCZ_TMP/ncz-user.seed"; ( umask 077; : > "$_seedf" )   # may carry ncz_password=: never world-readable
+    _su=ncz; [ -n "$OVR_USER" ] && is_valid_username "$OVR_USER" && _su="$OVR_USER"
+    _seed_keep_or_add passwd/username string "$_su"
+    _seed_keep_or_add passwd/user-fullname string "$_su"
+    if [ -n "$OVR_PASS" ]; then
+        _seed_keep_or_add passwd/user-password password "$OVR_PASS"
+        _seed_keep_or_add passwd/user-password-again password "$OVR_PASS"
+    elif ! { db_get passwd/user-password 2>/dev/null && [ -n "$RET" ]; }; then
+        # no password known yet: a locked placeholder makes user-setup-ask skip password + verify
+        _seed_keep_or_add passwd/user-password-crypted password "$PW_PLACEHOLDER"
+    fi
+    if [ -s "$_seedf" ]; then
+        if "${NCZ_SET_SELECTIONS:-debconf-set-selections}" "$_seedf" 2>/dev/null; then
+            log "seed: passwd/* preseeded + seen so user-setup-udeb does not ask (the NCZ dialogs ask right before partitioning)"
+        else
+            log "WARNING: seed: debconf-set-selections failed -- d-i user-setup may ask for the account itself"
+        fi
+    else
+        log "seed: passwd/* already preseeded, marked seen"
+    fi
+    rm -f "$_seedf"
+    exit 0
+fi
+
+# --- already answered this boot: re-apply, never ask again ------------------
+CHOSEN_USER=""
+CHOSEN_PASS=""
+_reapplied=0
+if [ -e "$DONE" ] && [ -s "$NCZ_TMP/ncz-user" ]; then
+    { read -r CHOSEN_USER; read -r CHOSEN_PASS; } < "$NCZ_TMP/ncz-user"
+    is_valid_username "$CHOSEN_USER" && _reapplied=1
+    log "already answered this boot: re-applying username=$CHOSEN_USER (no dialog)"
+fi
+
 # --- username --------------------------------------------------------------
 # Skip the interactive prompt when this run is unattended (KVM gates pass
 # ncz_components= or ncz_unattended=1 on the kernel cmdline; mirroring
 # hostname-suggest.sh's pattern so the gate does not stall on the prompt).
-CHOSEN_USER=""
-if [ -n "$OVR_USER" ]; then
+if [ "$_reapplied" = 0 ] && [ -n "$OVR_USER" ]; then
     if is_valid_username "$OVR_USER"; then
         CHOSEN_USER="$OVR_USER"
         log "cmdline override: username=$CHOSEN_USER"
@@ -120,7 +189,7 @@ if [ -z "$CHOSEN_USER" ] && [ "$_unattended" = 1 ] && db_get passwd/username 2>/
     log "unattended: keeping preseeded username=$CHOSEN_USER"
 fi
 if [ -z "$CHOSEN_USER" ] && [ "$NCZ_PROMPT" = "--prompt" ] && [ "$_unattended" = 0 ]; then
-    cat > /tmp/ncz-username.templates <<TPL
+    cat > "$NCZ_TMP/ncz-username.templates" <<TPL
 Template: ncz/username
 Type: string
 Default: ncz
@@ -134,7 +203,7 @@ Description: $(ncz_ui_brand) - choose a USERNAME
  .
  $(ncz_ui_id)
 TPL
-    if debconf-loadtemplate ncz /tmp/ncz-username.templates 2>/dev/null; then
+    if debconf-loadtemplate ncz "$NCZ_TMP/ncz-username.templates" 2>/dev/null; then
         db_set     ncz/username ncz 2>/dev/null || true
         db_fset    ncz/username seen false 2>/dev/null || true
         db_settitle ncz/username 2>/dev/null
@@ -162,8 +231,9 @@ is_valid_username "$CHOSEN_USER" || CHOSEN_USER="ncz"
 # and not required to type the same thing twice; the KVM install gate's
 # ncz_password= takes this path. Same for the password prompt itself when
 # the run is unattended (KVM gates), per hostname-suggest.sh's pattern.
-CHOSEN_PASS=""
-if [ -n "$OVR_PASS" ]; then
+if [ "$_reapplied" = 1 ]; then
+    :
+elif [ -n "$OVR_PASS" ]; then
     CHOSEN_PASS="$OVR_PASS"
     log "cmdline override: password set (not echoed); confirm prompt skipped for unattended"
 elif [ "$_unattended" = 1 ] && db_get passwd/user-password 2>/dev/null && [ -n "$RET" ]; then
@@ -173,7 +243,7 @@ elif [ "$_unattended" = 1 ] && db_get passwd/user-password 2>/dev/null && [ -n "
 elif [ "$NCZ_PROMPT" = "--prompt" ] && [ "$_unattended" = 0 ]; then
     # Newline-in-description is NOT supported for Type: password, so this
     # template only carries a single-line prompt title.
-    cat > /tmp/ncz-password.templates <<TPL
+    cat > "$NCZ_TMP/ncz-password.templates" <<TPL
 Template: ncz/password
 Type: password
 Description: $(ncz_ui_brand) - choose a PASSWORD for ${CHOSEN_USER} (will be asked again to confirm)
@@ -182,7 +252,7 @@ Template: ncz/password-confirm
 Type: password
 Description: $(ncz_ui_brand) - type the same PASSWORD again for ${CHOSEN_USER} (confirm)
 TPL
-    if debconf-loadtemplate ncz /tmp/ncz-password.templates 2>/dev/null; then
+    if debconf-loadtemplate ncz "$NCZ_TMP/ncz-password.templates" 2>/dev/null; then
         db_fset    ncz/password seen false 2>/dev/null || true
         db_settitle ncz/password 2>/dev/null
         if db_input critical ncz/password && db_go; then
@@ -225,6 +295,11 @@ db_set  passwd/user-password "$CHOSEN_PASS"        2>/dev/null || true
 db_fset passwd/user-password seen true             2>/dev/null || true
 db_set  passwd/user-password-again "$CHOSEN_PASS"  2>/dev/null || true
 db_fset passwd/user-password-again seen true       2>/dev/null || true
+# The seed's locked placeholder must not outrank the real password (user-setup-apply prefers -crypted). With no
+# password at all it stays: the account is created locked instead of user-setup failing on an empty password.
+if [ -n "$CHOSEN_PASS" ] && db_get passwd/user-password-crypted 2>/dev/null && [ "$RET" = "$PW_PLACEHOLDER" ]; then
+    db_set passwd/user-password-crypted "" 2>/dev/null || true
+fi
 db_set  passwd/user-default-groups "audio cdrom video plugdev netdev sudo dialout" 2>/dev/null || true
 db_fset passwd/user-default-groups seen true       2>/dev/null || true
 db_set  user-setup/allow-password-weak true        2>/dev/null || true
@@ -233,10 +308,12 @@ db_set  user-setup/encrypt-home false              2>/dev/null || true
 db_fset user-setup/encrypt-home seen true         2>/dev/null || true
 
 # stash for post-install hooks / diagnostics
-cat > /tmp/ncz-user <<USER
+( umask 077; cat > "$NCZ_TMP/ncz-user" <<USER
 ${CHOSEN_USER}
 ${CHOSEN_PASS}
 USER
-chmod 0600 /tmp/ncz-user
+)
+chmod 0600 "$NCZ_TMP/ncz-user"
+: > "$DONE"
 log "chooser complete: username=$CHOSEN_USER password=$([ -n "$CHOSEN_PASS" ] && echo set || echo UNSET)"
 exit 0

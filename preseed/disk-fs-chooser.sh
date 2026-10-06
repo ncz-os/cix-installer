@@ -27,9 +27,18 @@
 # optionally `ncz_fs=<ext4|btrfs>`, the disk prompt is skipped — but the override
 # MUST canonicalize to one of the `list-devices disk` whole-disk candidates
 # (partitions / arbitrary nodes / the install medium are rejected).
+#
+# ONCE PER BOOT: a completed run leaves $NCZ_TMP/.ncz-disk-done next to
+# /tmp/ncz-target-disk + /tmp/ncz-root-fs. A later run (partman restarted,
+# partman/early_command replayed) treats the saved, already-confirmed answers
+# exactly like ncz_disk=/ncz_fs= presets: no dialog, but the same candidate
+# validation, pin verification and wipe of that same disk. An aborted run
+# leaves no marker, so backing out of the disk dialog still asks again.
 set +e
+NCZ_TMP="${NCZ_TMP:-/tmp}"
+DONE="$NCZ_TMP/.ncz-disk-done"
 
-. /usr/share/debconf/confmodule 2>/dev/null || true
+. "${NCZ_CONFMODULE:-/usr/share/debconf/confmodule}" 2>/dev/null || true
 # shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
 for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
     [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
@@ -82,7 +91,7 @@ parent_disk_of_dev() {
 }
 
 # --- read cmdline overrides -------------------------------------------------
-CMD=$(cat /proc/cmdline 2>/dev/null)
+CMD=$(cat "${NCZ_CMDLINE:-/proc/cmdline}" 2>/dev/null)
 OVR_DISK=""; OVR_FS=""
 for tok in $CMD; do
     case "$tok" in
@@ -90,6 +99,11 @@ for tok in $CMD; do
         ncz_fs=*)   OVR_FS="${tok#ncz_fs=}" ;;
     esac
 done
+REAPPLY=0
+if [ -e "$DONE" ] && [ -s "$NCZ_TMP/ncz-target-disk" ] && [ -s "$NCZ_TMP/ncz-root-fs" ]; then
+    OVR_DISK=$(cat "$NCZ_TMP/ncz-target-disk"); OVR_FS=$(cat "$NCZ_TMP/ncz-root-fs"); REAPPLY=1
+    log "already answered this boot: re-applying disk=$OVR_DISK root-fs=$OVR_FS (no dialog)"
+fi
 
 # --- enumerate candidate disks ---------------------------------------------
 # list-devices disk yields whole disks only: /dev/nvme0n1, /dev/sda, ...
@@ -310,6 +324,8 @@ TPL
     db_get ncz/confirm-erase || abort "db_get confirm-erase failed"
     [ "$RET" = true ] || abort "the operator did not confirm erasing $CHOSEN_DISK"
     log "operator CONFIRMED erasing $CHOSEN_DISK"
+elif [ "$REAPPLY" = 1 ]; then
+    log "re-run: erasing $CHOSEN_DISK again (confirmed by the operator earlier this boot)"
 else
     log "unattended: erasing $CHOSEN_DISK (ncz_disk=/ncz_fs= preset)"
 fi
@@ -424,9 +440,10 @@ ncz_step 3 "$CHOSEN_DISK erased; the installer continues"
 [ "$_ncz_prog" = 1 ] && db_progress STOP 2>/dev/null
 
 # stash the choices for later hooks / diagnostics
-echo "$CHOSEN_DISK" > /tmp/ncz-target-disk 2>/dev/null || true
-echo "$CHOSEN_FS"   > /tmp/ncz-root-fs 2>/dev/null || true
-echo "$WANT_RESCUE_PART" > /tmp/ncz-want-rescue-partition 2>/dev/null || true
+echo "$CHOSEN_DISK" > "$NCZ_TMP/ncz-target-disk" 2>/dev/null || true
+echo "$CHOSEN_FS"   > "$NCZ_TMP/ncz-root-fs" 2>/dev/null || true
+echo "$WANT_RESCUE_PART" > "$NCZ_TMP/ncz-want-rescue-partition" 2>/dev/null || true
+: > "$DONE"
 mkdir -p /target 2>/dev/null || true
 log "chooser complete: disk=$CHOSEN_DISK root-fs=$CHOSEN_FS rescue-partition=$WANT_RESCUE_PART"
 exit 0
