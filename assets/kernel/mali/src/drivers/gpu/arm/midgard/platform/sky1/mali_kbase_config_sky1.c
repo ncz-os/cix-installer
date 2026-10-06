@@ -180,6 +180,18 @@ static int sky1_gpu_detach_pd(struct kbase_device *kbdev)
 #endif
 	if (!has_acpi_companion(kbdev->dev)) {
 		dev_pm_domain_detach(kbdev->sky1_power_dev, "pd_gpu");
+	} else if (kbdev->sky1_power_dev) {
+		/*
+		 * Undo what sky1_gpu_attach_pd() did to the ACPI power-supply
+		 * device (CIXH5001, \_SB.GPUP): it enabled runtime PM there and
+		 * took a reference via bus_find_device_by_fwnode(). Without this,
+		 * every unbind/rebind of mali (ncz-gpu-switcher reloads it once
+		 * per boot) logs "platform CIXH5001:00: Unbalanced
+		 * pm_runtime_enable!" and leaks a device reference.
+		 */
+		pm_runtime_disable(kbdev->sky1_power_dev);
+		put_device(kbdev->sky1_power_dev);
+		kbdev->sky1_power_dev = NULL;
 	}
 
 	return 0;
