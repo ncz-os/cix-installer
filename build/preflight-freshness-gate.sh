@@ -176,6 +176,7 @@ if [ -d "$PATCH_ROOT" ]; then
             singularity-plugins) upstream_url="https://github.com/singularityos-lab/singularity-plugins.git" ;;
             libsingularity) upstream_url="https://github.com/singularityos-lab/libsingularity.git" ;;
             labwc) upstream_url="https://github.com/singularityos-lab/labwc.git" ;;
+            singularity-loginui) upstream_url="https://github.com/singularityos-lab/singularity-loginui.git" ;;
             *)
                 echo "[2] WARN: no known upstream URL for patch subproject '$sub_name' -- skipping its patch(es), add a case here if this is real"
                 WARN=$((WARN + 1))
