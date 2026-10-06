@@ -630,6 +630,7 @@ parity:
 	build/test-kernel-default-policy.sh
 	build/test-rescue-kernel-channel.sh
 	build/test-late-npu-aipu.sh
+	build/test-gpu-install-progress.sh
 	build/test-dkms-btf-toolchain.sh
 	build/test-fwupd-i2c-mask.sh
 	build/test-apt-sources-offline-canary.sh

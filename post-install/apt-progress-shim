@@ -8,6 +8,19 @@ APT_LOG=${NCZ_APT_LOG:-/var/log/cix-install/apt.log}
 progress_write() {
   local event="$1" percent="$2" detail="$3" now tmp record
   [ -n "${NCZ_PROGRESS_FILE:-}" ] || return 0
+  # GPU steps (post-install/lib/gpu-progress.sh) reserve part of the step for
+  # the kernel-module build and hand apt a window "lo hi" of the step's
+  # percent; scale into it so a package transaction cannot fill the whole step.
+  if [ -n "$percent" ] && [ -n "${NCZ_PROGRESS_WINDOW:-}" ] && [ -r "$NCZ_PROGRESS_WINDOW" ]; then
+    local wlo whi
+    read -r wlo whi < "$NCZ_PROGRESS_WINDOW" 2>/dev/null || true
+    case "$wlo$whi" in ''|*[!0-9]*) ;; *)
+      case "$percent" in *[!0-9]*) ;; *)
+        [ "$percent" -gt 100 ] && percent=100
+        [ "$whi" -ge "$wlo" ] && percent=$((wlo + percent * (whi - wlo) / 100)) ;;
+      esac ;;
+    esac
+  fi
   now=$(date +%s)
   detail=$(printf '%s' "$detail" | tr '|\t\r\n' '     ' | cut -c1-180)
   record="${NCZ_PROGRESS_STARTED:-$now}|$now|$event|${NCZ_PROGRESS_PHASE:-packages}|${NCZ_PROGRESS_INDEX:-0}|${NCZ_PROGRESS_TOTAL:-0}|${NCZ_PROGRESS_HOOK:-apt-get}|$percent||$detail"
