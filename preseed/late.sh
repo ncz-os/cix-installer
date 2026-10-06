@@ -951,9 +951,11 @@ hb_creep() {
     echo $(( _c_last + (_c_cap - _c_last + 23) / 24 ))
 }
 
-# hb_tick: one heartbeat. Reads progress.state, refreshes the status line and
-# moves the bar. Returns 0 always (no record yet is not an error).
+# hb_tick <heartbeat-number>: one heartbeat. Reads progress.state, refreshes
+# the status line and moves the bar. The number drives the moving marker on
+# the GPU line. Returns 0 always (no record yet is not an error).
 hb_tick() {
+    hb_tick_n="${1:-0}"
     [ -r "$PROGRESS_STATE" ] || return 0
     IFS='|' read -r hb_started hb_updated hb_event hb_phase hb_idx hb_total \
         hb_hook hb_pct hb_rc hb_detail < "$PROGRESS_STATE" || return 0
@@ -978,7 +980,7 @@ hb_tick() {
             hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total) - FAILED: $hb_detail"
             ;;
         GPU)
-            hb_status=$(hb_gpu_status "$hb_detail" "$hb_elapsed" "${hb_iter:-0}")
+            hb_status=$(hb_gpu_status "$hb_detail" "$hb_elapsed" "$hb_tick_n")
             ;;
         COMPLETE)
             hb_status="$hb_detail"
@@ -1149,7 +1151,7 @@ while [ ! -s "$RUNALL_RC_FILE" ] && kill -0 "$RUNALL_PID" 2>/dev/null; do
     if [ "$hb_iter" -le 3 ] || [ "$hb_iter" = 10 ] || [ "$hb_iter" = 30 ]; then
         echo "[late/progress] hb iter=$hb_iter readable=$([ -r "$PROGRESS_STATE" ] && echo yes || echo no) exists=$([ -e "$PROGRESS_STATE" ] && echo yes || echo no) bar=$hb_last_units/$NCZ_PROGRESS_UNITS"
     fi
-    hb_tick
+    hb_tick "$hb_iter"
 done
 # r252 final drain: run-all has exited; fill the owned bar range before the
 # finalize text replaces it, then reap run-all's real rc.
