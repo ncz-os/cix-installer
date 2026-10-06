@@ -475,7 +475,9 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         if not src.exists():
             continue
         if name == "kernel":
-            channels = (("mali", "mali-70012", "modules-overlay",
+            # mainline is the single Sky1 kernel channel (unified 7.3 policy,
+            # 2026-10-05); it replaced edge, which used to be listed here.
+            channels = (("mainline", "mali", "mali-70012", "modules-overlay",
                          "npu", "panthor", "vpu") if arch == "arm64"
                         else ("amd64-stable",))
             dst.mkdir(parents=True, exist_ok=True)
@@ -532,12 +534,20 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     if ncz_cli.is_file():
         shutil.copy2(ncz_cli, assets_dst / ncz_cli.name)
     if arch == "arm64":
-        edge = assets_dst / "kernel" / "edge"
-        required_edge = ("Image-cixmini.bin", "modules-cixmini.tgz", "KVER")
-        missing_edge = [n for n in required_edge if not (edge / n).is_file()]
-        if missing_edge:
-            raise RuntimeError(f"FATAL: arm64 Sky1 edge payload incomplete: {missing_edge}")
-        shutil.copy2(edge / "KVER", ncz_payload_dst / "KVER_NEXT")
+        # The unified 7.3 policy retired assets/kernel/edge; the one shipping
+        # Sky1 kernel is assets/kernel/mainline. Its KVER is still published
+        # under the historical sidecar name KVER_NEXT, which late.sh copies to
+        # /etc/cix-installer and post-install/10-our-kernel.sh requires;
+        # install_kernel_headers() reads headers-cixmini.tar.zst from
+        # /cdrom/ncz-payload/assets/kernel/mainline.
+        mainline = assets_dst / "kernel" / "mainline"
+        required = ("Image-cixmini.bin", "modules-cixmini.tgz", "KVER",
+                    "headers-cixmini.tar.zst")
+        missing = [n for n in required if not (mainline / n).is_file()]
+        if missing:
+            raise RuntimeError(
+                f"FATAL: arm64 Sky1 mainline kernel payload incomplete: {missing}")
+        shutil.copy2(mainline / "KVER", ncz_payload_dst / "KVER_NEXT")
     receipt["architecture_assets_staged"] = copied_assets
     log(f"    architecture assets staged ({arch}): {copied_assets}")
 
