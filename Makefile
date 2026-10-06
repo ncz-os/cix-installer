@@ -142,7 +142,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence
 
 all: image
 
@@ -509,6 +509,12 @@ test-boot-speed:
 test-timesync-retry:
 	@bash $(ROOT)/build/test-timesync-retry.sh
 
+# docs/BOOT-SEQUENCE.md (2026-10-06): installer NIC-wait / clock bounds, Sky1-only
+# display pin, bounded NetworkManager-wait-online, diag-console alive() order.
+test-boot-sequence:
+	@bash $(ROOT)/build/test-boot-sequence.sh
+	@NCZ_TEST_SH="busybox sh" bash $(ROOT)/build/test-boot-sequence.sh
+
 secretscan:
 	@bash $(ROOT)/build/secret-scan-gate.sh
 
@@ -615,6 +621,7 @@ parity:
 	python3 build/test_wallpaper_fit.py
 	build/test-boot-speed.sh
 	build/test-timesync-retry.sh
+	build/test-boot-sequence.sh
 	build/test-greeter-output-mode.sh
 	python3 build/test_display_scale.py
 	build/test-chromium-icon.sh
