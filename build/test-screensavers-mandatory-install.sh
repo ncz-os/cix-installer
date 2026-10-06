@@ -145,13 +145,16 @@ if [ -r "$HOOK" ]; then
         bad "59-ncz-screensavers-pkg.sh does NOT enforce the version floor (FIX missing)"
     fi
 
-    # (d) the hook must install EXACTLY ncz-screensavers -- the separate
-    #     ncz-screensavers-plugin package is not published yet, so the hook
-    #     must never apt-get install it (naming it in a comment is fine).
-    if grep -q '^PKG=ncz-screensavers$' "$HOOK" && ! grep -qE 'apt-get install .*ncz-screensavers-plugin' "$HOOK"; then
-        ok "59-ncz-screensavers-pkg.sh installs exactly ncz-screensavers (never the unpublished plugin package)"
+    # (d) the apt candidate is EXACTLY ncz-screensavers; the settings plugin is
+    #     never an apt-repo name (it is unpublished): it is installed from the
+    #     pinned deb on the medium through lib/ncz-ssplugin-install.sh, after
+    #     the engine, on both exit paths (fresh install and already-installed).
+    if grep -q '^PKG=ncz-screensavers$' "$HOOK" && ! grep -qE 'apt-get install .*ncz-screensavers-plugin' "$HOOK" \
+       && [ "$(grep -c '^[[:space:]]*ncz_ssplugin_install; exit \$?$' "$HOOK")" = 2 ] \
+       && grep -q 'lib/ncz-ssplugin-install.sh' "$HOOK"; then
+        ok "59-ncz-screensavers-pkg.sh installs ncz-screensavers from apt, then the pinned plugin deb on both exit paths"
     else
-        bad "59-ncz-screensavers-pkg.sh installs something other than exactly ncz-screensavers"
+        bad "59-ncz-screensavers-pkg.sh does not install exactly ncz-screensavers + the pinned plugin on both exit paths"
     fi
 
     # (e) headless / server variants still skip (regression check; the

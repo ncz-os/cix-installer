@@ -22,14 +22,14 @@
 #     per title under /usr/lib/ncz-screensavers/<hack-id>
 # It does NOT ship the Singularity plugin (libscreensaver.so +
 # screensaver.plugin), the GTK4 settings app, or a launcher .desktop entry.
-# The plugin ships in a separate ncz-screensavers-plugin package that is not
-# published yet (the deb's own Description: "The settings UI ... is the
-# Singularity plugin (ncz-screensavers-plugin, installed by the NCZ-OS
-# image)"). We therefore assert exactly the 0.8.9 contents above, and treat
-# the plugin files as required ONLY when that package is installed. An
-# earlier draft asserted the plugin files unconditionally and asserted a
-# settings app + .desktop entry the package never shipped -- both would have
-# failed every healthy install.
+# The plugin is the SEPARATE package ncz-screensavers-plugin; the image ships a
+# pinned deb on its install medium (post-install/lib/ncz-screensavers-plugin.lock,
+# docs/SCREENSAVER-PLUGIN.md) and hook 59 installs it. Plugin intent:
+# VERIFY_EXPECT_SS_PLUGIN=1|0 from the caller (the gate sets it from the
+# checkout's pin file); else auto = the target carries the pin in its installer
+# tree (late.sh copies the medium's post-install/ there) or the package is
+# already in its dpkg database. When expected, the package (at the pinned
+# version), its two files and the default-enabled override are mandatory.
 #
 # The operator rule "default saver = blackhole" has TWO parts: the package
 # schema default (hack-id='blackhole_gles3') and the Cygnus override that
@@ -49,6 +49,18 @@ if [ "$WANT_SS" = 1 ]; then
     SS_STATUS="$(awk 'BEGIN{RS="";FS="\n"} { pk=""; st=""; ver=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /) pk=substr($i,10); if($i ~ /^Status: /) st=substr($i,9); if($i ~ /^Version: /) ver=substr($i,10)} if(pk=="ncz-screensavers" && st=="install ok installed") print ver }' "$TMP/dpkg-status" 2>/dev/null)"
     # shellcheck disable=SC2034  # read by the caller and the default sibling
     SS_PLUGIN="$(awk 'BEGIN{RS="";FS="\n"} { pk=""; st=""; ver=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /) pk=substr($i,10); if($i ~ /^Status: /) st=substr($i,9); if($i ~ /^Version: /) ver=substr($i,10)} if(pk=="ncz-screensavers-plugin" && st=="install ok installed") print ver }' "$TMP/dpkg-status" 2>/dev/null)"
+    # Plugin intent (see the header) and the pinned version, when known.
+    WANT_SSP="${VERIFY_EXPECT_SS_PLUGIN:-auto}"; SSP_PIN_VER=""
+    if fetch /usr/local/lib/cix-installer/post-install/lib/ncz-screensavers-plugin.lock "$TMP/ssp.lock"; then
+        SSP_PIN_VER="$(sed -n 's/^NCZ_SSPLUGIN_VERSION=//p' "$TMP/ssp.lock" | tail -1 | tr -d '"')"
+        [ "$WANT_SSP" = auto ] && WANT_SSP=1
+    fi
+    if [ -z "$SSP_PIN_VER" ] && [ -r "$HERE_VT/../post-install/lib/ncz-screensavers-plugin.lock" ]; then
+        SSP_PIN_VER="$(sed -n 's/^NCZ_SSPLUGIN_VERSION=//p' "$HERE_VT/../post-install/lib/ncz-screensavers-plugin.lock" | tail -1 | tr -d '"')"
+    fi
+    if [ "$WANT_SSP" = auto ]; then
+        WANT_SSP=0; [ -n "$SS_PLUGIN" ] && WANT_SSP=1
+    fi
     if [ -z "$SS_STATUS" ]; then
         gate_miss screensavers "ncz-screensavers is not installed (59-ncz-screensavers-pkg did not install it)"
     else

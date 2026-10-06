@@ -310,6 +310,57 @@ def _copytree_dangling_symlink_safe(src: Path, dst: Path, *,
                     ignore=ignore, dirs_exist_ok=dirs_exist_ok)
 
 
+SSPLUGIN_LOCK = REPO_ROOT / "post-install" / "lib" / "ncz-screensavers-plugin.lock"
+SSPLUGIN_STAGED = REPO_ROOT / "build" / "ncz-screensavers-out"
+
+
+def read_ssplugin_lock(lock: Path) -> dict:
+    """KEY=VALUE pairs of post-install/lib/ncz-screensavers-plugin.lock."""
+    out = {}
+    for raw in lock.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip()] = v.strip().strip('"')
+    return out
+
+
+def stage_ssplugin_deb(assets_dst: Path, arch: str,
+                       lock: Path = SSPLUGIN_LOCK,
+                       staged_dir: Path = SSPLUGIN_STAGED) -> str | None:
+    """Put the pinned Singularity screensaver plugin deb on the medium.
+
+    post-install/59-ncz-screensavers-pkg.sh installs it from
+    /cdrom/ncz-payload/assets/ncz-screensavers-plugin/ (late.sh also
+    union-syncs it into /usr/local/lib/cix-installer/assets/). It is NOT in
+    the offline apt pool: it is ABI-coupled to the Singularity payload that
+    stage 1 rebuilds, so it travels with the payload, after stage 1, instead
+    of with the stage-0 mirror. The pin (sha256 per arch) is the lock file;
+    a missing or different staged deb is fatal, since the installed-target
+    gate would fail later on every install. Returns the staged name, or None
+    when the tree carries no pin (a checkout before the plugin was wired).
+    """
+    if not lock.is_file():
+        return None
+    pin = read_ssplugin_lock(lock)
+    name = f"{pin['NCZ_SSPLUGIN_PKG']}_{pin['NCZ_SSPLUGIN_VERSION']}_{arch}.deb"
+    want = pin.get(f"NCZ_SSPLUGIN_SHA256_{arch}", "")
+    src = staged_dir / name
+    if not src.is_file():
+        raise RuntimeError(
+            f"FATAL: {src} missing; run build/stage-screensaver-plugin.sh {arch} "
+            f"on the build host (pin: {lock})")
+    got = sha256_file(src)
+    if not want or got != want:
+        raise RuntimeError(
+            f"FATAL: {src} sha256 {got} != pinned {want or '<none>'} ({lock})")
+    dst = assets_dst / "ncz-screensavers-plugin"
+    dst.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst / name)
+    return name
+
+
 def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
                            patched_udeb: Path | None, preseed_dir: Path | None,
                            allow_missing_stub: bool = False,
@@ -557,6 +608,10 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
             raise RuntimeError(
                 f"FATAL: arm64 Sky1 mainline kernel payload incomplete: {missing}")
         shutil.copy2(mainline / "KVER", ncz_payload_dst / "KVER_NEXT")
+    ssplugin = stage_ssplugin_deb(assets_dst, arch)
+    if ssplugin:
+        copied_assets.append("ncz-screensavers-plugin")
+        log(f"    screensaver settings plugin staged: {ssplugin}")
     receipt["architecture_assets_staged"] = copied_assets
     log(f"    architecture assets staged ({arch}): {copied_assets}")
 

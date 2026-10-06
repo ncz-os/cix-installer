@@ -156,7 +156,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage
 
 all: image
 
@@ -471,6 +471,9 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(PRESEED)/extract-rootfs.sh \
 	               $(PRESEED)/sshd-watcher.sh \
 	               $(wildcard $(POST)/*.sh) \
+	               $(ROOT)/post-install/lib/ncz-screensavers-plugin.lock \
+	               $(wildcard $(POST)/lib/*.sh) \
+	               $(wildcard $(BUILD)/ncz-screensavers-out/ncz-screensavers-plugin_*.deb) \
 	               $(wildcard $(ASSETS)/agent-stack/*) \
 	               $(wildcard $(ASSETS)/branding/*) \
 	               $(wildcard $(ASSETS)/kernel/*/*) \
@@ -482,6 +485,8 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	@bash $(ROOT)/build/check-early-command-size.sh $(PRESEED)/preseed.cfg
 	@echo "[image] verifying arm64 inputs (sky1-firmware, cix-debs, rescue-rootfs, mirror)"
 	@NCZ_TARGET_ARCH=$(ARCH) bash $(ROOT)/build/verify-arm64-inputs.sh --mirror
+	@echo "[image] screensaver settings plugin: staged deb == pin, ABI == the Singularity payload (docs/SCREENSAVER-PLUGIN.md)"
+	@bash $(ROOT)/build/check-ssplugin-abi.sh --arch $(ARCH)
 	@if [ -n "$(SUBSTRATE_SHA)" ]; then \
 	    actual=$$(sha256sum $(DOWNLOADS)/$(UPSTREAM_ISO) | awk '{print $$1}'); \
 	    if [ "$$actual" != "$(SUBSTRATE_SHA)" ]; then \
@@ -500,6 +505,13 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	@echo "[image] scanning the built artifact for credentials"
 	@bash $(ROOT)/build/secret-scan-gate.sh $@
 	@echo "[image] DONE — $@ ($$(du -h $@ 2>/dev/null | cut -f1))"
+
+# Singularity screensaver settings plugin (docs/SCREENSAVER-PLUGIN.md): copy
+# the pinned deb from ARGONAS into build/ncz-screensavers-out/. Run on the
+# build HOST (needs the ARGONAS mount) before `make image`; the image recipe
+# only verifies (build/check-ssplugin-abi.sh), it never fetches.
+ssplugin-stage:
+	@bash $(ROOT)/build/stage-screensaver-plugin.sh $(ARCH)
 
 # Platform split (docs/PLATFORM-SPLIT-DESIGN.md): the inventory in
 # docs/platform-inventory.tsv is the source of truth; post-install/hooks.list.*
@@ -651,6 +663,7 @@ parity:
 	build/test-sky1-media-defaults.sh
 	build/test-screensaver-default.sh
 	build/test-screensavers-mandatory-install.sh
+	build/test-ssplugin-supply-chain.sh
 	build/test-ncz-ui.sh
 	build/test-release-identity.sh
 	build/test-base-stamp.sh
