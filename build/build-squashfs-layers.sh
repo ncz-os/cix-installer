@@ -901,11 +901,12 @@ build_base(){
   # ship a base layer that would, on next image build, install 7.3-rc5
   # as default.
   if [ -x "$ROOT/build/verify-kernel-default-policy.sh" ]; then
-    _ncza=$(grep -E '^[[:space:]]*NCZ_TARGET_ARCH[[:space:]]*=' "$ROOT/release.conf" \
-            2>/dev/null | head -1 | sed -nE 's/.*=[[:space:]]*"?([^"]+)"?.*/\1/p')
-    [ -n "$_ncza" ] || _ncza=$(dpkg --print-architecture 2>/dev/null || uname -m)
-    case "$_ncza" in aarch64) _ncza=arm64 ;; x86_64) _ncza=amd64 ;; esac
-    "$ROOT/build/verify-kernel-default-policy.sh" --root "$ROOT" --arch "$_ncza" \
+    # Gate the arch this run builds: NCZ_TARGET_ARCH is resolved and checked
+    # (arm64|amd64) at the top of this script. Re-deriving it from release.conf
+    # killed the build: release.conf has no NCZ_TARGET_ARCH line, so the grep
+    # exits 1 and set -euo pipefail ends the script with no message, the first
+    # time build_base runs in a tree without a reusable base.squashfs.
+    "$ROOT/build/verify-kernel-default-policy.sh" --root "$ROOT" --arch "$NCZ_TARGET_ARCH" \
       || { echo "[build-squashfs-layers] FATAL: kernel default policy failed" >&2; return 1; }
   fi
   log "BASE: extract $APT_SUITE base"
