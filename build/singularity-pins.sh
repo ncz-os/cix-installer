@@ -66,7 +66,8 @@ rows() {
 
 field() {  # field <path> <column 2..4>
     local want="$1" col="$2"
-    rows | awk -F'\t' -v p="$want" -v c="$col" '$1 == p { print $c; found=1 } END { exit !found }'
+    # First match only; duplicate rows are a validate error, never two answers.
+    rows | awk -F'\t' -v p="$want" -v c="$col" '$1 == p && !found { print $c; found=1 } END { exit !found }'
 }
 
 pin_sha() {
