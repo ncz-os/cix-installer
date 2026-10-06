@@ -70,6 +70,13 @@ sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer"
 sudo cp -a "$ROOT/post-install" "$CHROOT/usr/local/lib/cix-installer/"
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/manifests"
 sudo cp -a "$ROOT/manifests/." "$CHROOT/usr/local/lib/cix-installer/manifests/" 2>/dev/null || true
+# Screensaver version floor: 59-ncz-screensavers-pkg sources it from the
+# target's own tree at install time. This script has no set -e, so guard
+# explicitly -- a checkout missing the floor file is a broken checkout and
+# must not silently bake an image whose mandatory-install hook FATALs later.
+[ -f "$ROOT/build/screensavers-version.env" ] || { log "FATAL: $ROOT/build/screensavers-version.env missing (screensaver version floor)"; exit 1; }
+sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/build"
+sudo cp "$ROOT/build/screensavers-version.env" "$CHROOT/usr/local/lib/cix-installer/build/"
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets"
 for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu wallpaper; do
   [ -d "$ROOT/assets/$_d" ] && sudo cp -a "$ROOT/assets/$_d" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
