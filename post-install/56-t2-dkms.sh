@@ -48,7 +48,6 @@ unset _ncz_pg_arch
 set -uo pipefail
 
 ASSETS="${NCZ_ASSETS_KERNEL:-/usr/local/lib/cix-installer/assets/kernel}"
-DMI_ROOT="${NCZ_DMI_ROOT:-/sys/class/dmi/id}"
 USRSRC="${NCZ_USRSRC:-/usr/src}"
 MODPROBE_D="${NCZ_MODPROBE_D:-/etc/modprobe.d}"
 LIBMODULES="${NCZ_LIB_MODULES:-/lib/modules}"
