@@ -43,6 +43,20 @@ REFIND_SRC="$INSTALLER_META/assets/refind/refind_x64.efi"
 : "${KVER_STABLE:=}"
 : "${KVER_EDGE:=}"
 : "${BUILD_VERSION:=(unknown)}"
+
+# Operator directive 2026-10-05: the amd64 T2 edge entry boots with
+# pcie_ports=compat, the PCIe mode the T2 Linux community runs as its
+# baseline on T2 Macs, alongside the AER ANFE revert the edge kernel
+# already carries. compat leaves the firmware _OSC grant intact but makes
+# the OS assume control of the PCIe port services without the port driver
+# claiming them: no AER handler, no PME, no native hotplug service is
+# registered (measured on MEDUSA: "pcie_portdrv_init returned -13" and an
+# empty /sys/bus/pci_express/devices). ACPI hotplug still works; native
+# Thunderbolt hotplug may behave differently. Applied to the amd64 EDGE
+# entry ONLY -- never the stable, stable-console or rescue entries.
+# See docs/reports/2026-10-05-amd64-edge-pcie-ports-compat.md.
+NCZ_T2_EDGE_EXTRA_CMDLINE="pcie_ports=compat"
+
 RELEASE_FILE=/etc/cix-installer/RELEASE
 [ -s "$RELEASE_FILE" ] || RELEASE_FILE="$INSTALLER_META/RELEASE"
 if [ ! -s "$RELEASE_FILE" ]; then
@@ -351,6 +365,18 @@ fi
 EDGE_OPTIONS=""
 if [ "$EDGE_AVAILABLE" = "1" ]; then
     EDGE_OPTIONS="$ROOT_OPTS console=ttyS0,115200 console=tty0 systemd.unit=multi-user.target"
+    # Operator directive 2026-10-05: append the T2 edge extra cmdline
+    # (pcie_ports=compat). The guard keeps this idempotent -- if the token
+    # is already present it is never added a second time -- and appending
+    # preserves every option already in EDGE_OPTIONS. It is deliberately
+    # scoped to this one branch: the stable, stable-console and rescue
+    # option strings above/below are untouched.
+    if [ -n "$NCZ_T2_EDGE_EXTRA_CMDLINE" ]; then
+        case " $EDGE_OPTIONS " in
+            *" $NCZ_T2_EDGE_EXTRA_CMDLINE "*) ;;
+            *) EDGE_OPTIONS="$EDGE_OPTIONS $NCZ_T2_EDGE_EXTRA_CMDLINE" ;;
+        esac
+    fi
 fi
 
 RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw console=ttyS0,115200 console=tty0 systemd.unit=multi-user.target"
