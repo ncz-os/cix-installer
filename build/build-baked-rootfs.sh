@@ -16,6 +16,8 @@ _RC="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/release.conf"
 if [ -r "$_RC" ]; then . "$_RC"; else
   echo "ERROR: $_RC not readable -- refusing to guess the base distro" >&2; exit 1
 fi
+# shellcheck source=lib/mirror-apt-opts.sh
+. "$ROOT/build/lib/mirror-apt-opts.sh"
 : "${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
 
 BASE="${BASE:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64.tar.zst}"
@@ -103,11 +105,19 @@ sudo mount -t tmpfs tmpfs "$CHROOT/run"
 # Set up apt sources (ports.ubuntu.com) + update BEFORE the hooks so the first
 # hook (10-our-kernel) can apt-get install initramfs-tools etc. The base rootfs
 # ships no usable sources; 20-desktop set them up itself but runs after kernel.
-log "configure apt sources in chroot (ports.ubuntu.com) + update"
-sudo chroot "$CHROOT" /bin/bash -c 'cat > /etc/apt/sources.list <<APT
-deb ${NCZ_BASE_MIRROR} ${NCZ_BASE_CODENAME} ${NCZ_BASE_COMPONENTS}
-APT
-DEBIAN_FRONTEND=noninteractive apt-get update' > "$LOGDIR/00-apt-setup.log" 2>&1 || log "  WARN apt-get update issues (see 00-apt-setup.log)"
+log "configure apt sources in chroot ($NCZ_BASE_MIRROR) + update"
+# The base tarball ships no usable sources. A pinned snapshot Release is
+# expired once Valid-Until passes, so the deb line must carry
+# NCZ_BASE_MIRROR_APT_OPTS (empty when unpinned). Write the file from this
+# shell rather than an inner heredoc, and surface apt-get update failures
+# (E:/W: lines) instead of a WARN that lets later hooks fail with no cause.
+sudo mkdir -p "$CHROOT/etc/apt"
+ncz_mirror_sources_list "$NCZ_BASE_MIRROR" "$NCZ_BASE_CODENAME" "$NCZ_BASE_COMPONENTS" "" "" "" \
+    | sudo tee "$CHROOT/etc/apt/sources.list" >/dev/null
+# ncz_apt_update_or_die prints the E:/W: lines and exits 1. The previous
+# form only WARNed, and the hooks then failed with no cause.
+ncz_apt_update_or_die "$LOGDIR/00-apt-setup.log" "bake chroot" \
+    sudo chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
 
 # codex: block daemon starts during bake (postinst scripts try systemctl start)
 printf '#!/bin/sh\nexit 101\n' | sudo tee "$CHROOT/usr/sbin/policy-rc.d" >/dev/null
