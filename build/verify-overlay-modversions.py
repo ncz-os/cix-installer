@@ -193,7 +193,11 @@ def main():
     if not os.path.isfile(symvers):
         print(f"{tag}: ERROR: Module.symvers not found: {symvers}", file=sys.stderr)
         return 2
-    kcrc = load_symvers(symvers)
+    try:
+        kcrc = load_symvers(symvers)
+    except OSError as exc:
+        print(f"{tag}: ERROR: cannot read {symvers}: {exc}", file=sys.stderr)
+        return 2
     if not kcrc:
         print(
             f"{tag}: ERROR: no CRC rows in {symvers} (kernel without MODVERSIONS?)",
