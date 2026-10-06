@@ -298,7 +298,7 @@ post-install/54-gpu-accel.sh	amd64	nvidia-cuda	AMD64 GPU/accelerator stack (ROCm
 post-install/55-greeter.sh	common	-	greetd plus singularity-greeter; generic
 post-install/55-t2-firmware.sh	amd64	t2	Apple T2 WiFi/BT firmware and audio; guard exits when arch != amd64
 post-install/56-icon-theme.sh	common	-	icon theme; generic
-post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux/t2smp/t2thunderbolt DKMS on T2 Macs
+post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux/t2smp DKMS on Apple hardware; t2thunderbolt is opt-in (NCZ_T2_DKMS_EXTRA) and blacklisted by default
 post-install/57-qotd.sh	common	-	quote of the day; generic
 post-install/57-screensaver.sh	common	-	legacy idle-lock screensaver stack; generic
 post-install/58-boot-hygiene.sh	mixed	-	generic unit hygiene plus cix_resume unit masking (Sky1); TODO split
@@ -390,3 +390,6 @@ build/test-screensaver-default.sh	common	-	regression test for the Cygnus black 
 build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor per-run logs, signal names and core-limit regression
 build/test-refind-rescue-promotion.sh	common	-	rEFInd rescue auto-promotion guard: rc/edge kernels are never promoted; existing rescue survives a failed copy (item RRH)
 build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service is wanted by the per-login session target (item RRH)
+build/test-t2-dkms-provenance.sh	amd64	t2	proves every vendored T2 DKMS module has a PROVENANCE file pinned to a 40-hex upstream commit and a licence line
+build/test-t2smc-range.sh	amd64	t2	userspace unit test of the t2smc range checks (fan min/target, charge limit, RTC offset) and the patch applying cleanly
+build/test-t2-dkms-hook.sh	amd64	t2	proves 56-t2-dkms.sh skips t2thunderbolt by default, blacklists it, removes stale DKMS registrations and honours the opt-in
