@@ -856,7 +856,8 @@ ncz_bar_geometry() {
         [ "$_g_s" = "$_g_dir/07preseed" ] && _g_k=$_g_n
         _g_n=$((_g_n + 1))
     done
-    [ "$_g_k" -ge 0 ] && [ "$_g_n" -gt 0 ] || return 1
+    [ "$_g_n" -gt 0 ] || return 1          # divisor below
+    [ "$_g_k" -ge 0 ] || return 1          # no 07preseed slot
     _g_r=$((_g_n - _g_k))
     _g_s=$((_g_r * 40)); [ "$_g_s" -lt 800 ] && _g_s=800
     _g_b=$(( (_g_k * _g_s + _g_n - 1) / _g_n ))
