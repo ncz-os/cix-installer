@@ -241,7 +241,8 @@ strict_through_build() {
     for v in "$@"; do
         i=$((i + 1))
         [ "$v" -ge "$prev" ] || { echo "  regressed at tick $i: $walk"; return 1; }
-        # ticks 4..12 are GPU build records: every one must move the bar
+        # ticks 5..12 are GPU build records after the first: each must move
+        # the bar (strictly). Tick 4 (GPU 25 after APT 25) may hold.
         if [ "$i" -ge 5 ] && [ "$i" -le 12 ] && [ "$v" -le "$prev" ]; then echo "  stalled at tick $i: $walk"; return 1; fi
         prev=$v
     done
