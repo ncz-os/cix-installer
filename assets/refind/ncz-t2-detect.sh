@@ -33,11 +33,14 @@
 #
 # ncz_t2_pci_bridge_present() is a belt-and-braces secondary probe: it scans
 # /sys/bus/pci/devices for the Apple T2 bridge [106b:1801] or the T2 NHI
-# [106b:2005] using pure sysfs reads (no lspci, no pciutils). It is ADVISORY
-# only -- used in the human-readable detail log, never as a gate -- because a
-# genuine DMI T2 identity must never be suppressed by an early-boot PCI scan
-# that has not enumerated the bridge yet, and a stray device must never promote
-# a non-T2 machine.
+# [106b:2005] using pure sysfs reads (no lspci, no pciutils). Linux sysfs
+# reports these as "0x106b" / "0x1801" (verified on HYDRA 2026-10-05), but the
+# function strips an optional 0x prefix so it is correct for either form. It is
+# ADVISORY only -- used in the human-readable detail log, never as a gate --
+# because a genuine DMI T2 identity must never be suppressed by an early-boot
+# PCI scan that has not enumerated the bridge yet, and a stray device must
+# never promote a non-T2 machine. NCZ_PCI_DEVICES_ROOT overrides the sysfs root
+# for tests.
 
 # ncz_dmi_read <root> <file> -- echo the trimmed value, or return 1 if the
 # file is missing/empty/unreadable (so the caller fails closed).
@@ -73,11 +76,14 @@ ncz_is_t2_hardware() {
 
 # ncz_t2_pci_bridge_present -- advisory: 0 if a T2 PCI bridge/NHI is visible.
 ncz_t2_pci_bridge_present() {
-    local d
-    for d in /sys/bus/pci/devices/*; do
+    local root="${NCZ_PCI_DEVICES_ROOT:-/sys/bus/pci/devices}"
+    local d v dev
+    for d in "$root"/*; do
         [ -r "$d/vendor" ] || continue
-        case "$(cat "$d/vendor" 2>/dev/null):$(cat "$d/device" 2>/dev/null)" in
-            0x106b:0x1801|0x106b:0x2005) return 0 ;;
+        v="$(cat "$d/vendor" 2>/dev/null)"; v="${v#0x}"
+        dev="$(cat "$d/device" 2>/dev/null)"; dev="${dev#0x}"
+        case "$v:$dev" in
+            106b:1801|106b:2005) return 0 ;;
         esac
     done
     return 1
