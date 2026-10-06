@@ -156,21 +156,35 @@ def find_refind_extract(arch: str) -> Path:
 # because d-i's single-console preseeding path can select a firmware UART and
 # make the installer disappear from the local display.  Rescue is not an
 # automatic/preseeded install either.
-AMD64_INSTALL_OPTIONS = (
+_PC_INSTALL_OPTIONS = (
     "auto=true priority=critical preseed/file=/cdrom/ncz-payload/preseed.cfg "
     "ipv6.disable=1 interface=auto "
     "netcfg/dhcp_timeout=120 locale=en_US.UTF-8 "
     "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt "
     "quiet loglevel=3 vt.global_cursor_default=0 consoleblank=0 console=tty0"
 )
-AMD64_EXPERT_OPTIONS = (
+_PC_EXPERT_OPTIONS = (
     "priority=low ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
     "DEBIAN_FRONTEND=newt loglevel=4 vt.global_cursor_default=0 consoleblank=0 console=tty0"
 )
-AMD64_RESCUE_OPTIONS = (
+_PC_RESCUE_OPTIONS = (
     "rescue/enable=true ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
     "DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
 )
+
+# amd64 only: nouveau.runpm=0 on every installer entry. On 7.3-rc5+ the
+# installer kernel binds nouveau to Turing/Ampere dGPUs with no GSP-RM
+# firmware; its runtime suspend then oopses in nvkm_gsp_gcx_ready() (NULL
+# gsp->rm), the GPU stays in runtime_status "suspending", and any PCI config
+# read blocks forever -- measured 2026-10-06 on PEGASUS (ASUS GU502LV, RTX
+# 2060 Mobile 10de:1f15), where `lspci` in post-install/54-gpu-accel.sh hung
+# the install for 30+ minutes. Upstream fix: 4d0e27041185 (drm-misc-fixes).
+# Appended after the shared strings so the arm64 entries, which are derived
+# from the shared strings below, never carry it.
+AMD64_NOUVEAU_OPTIONS = "nouveau.runpm=0"
+AMD64_INSTALL_OPTIONS = f"{_PC_INSTALL_OPTIONS} {AMD64_NOUVEAU_OPTIONS}"
+AMD64_EXPERT_OPTIONS = f"{_PC_EXPERT_OPTIONS} {AMD64_NOUVEAU_OPTIONS}"
+AMD64_RESCUE_OPTIONS = f"{_PC_RESCUE_OPTIONS} {AMD64_NOUVEAU_OPTIONS}"
 
 # The on-screen arm64 entries offer NO serial console at all.  Root-caused
 # live on real O6N hardware via SSH into a broken boot (see the commit
@@ -199,8 +213,8 @@ SKY1_GFX_OPTIONS = (
 # goes blank and d-i is redrawn. The installer needs no accelerated display, so keep the
 # firmware framebuffer for the whole install; the installed system's own boot entries
 # (70-bootloader.sh) are unaffected and load them normally.
-ARM64_INSTALL_OPTIONS = AMD64_INSTALL_OPTIONS.rsplit(" console=tty0", 1)[0] + " " + SKY1_GFX_OPTIONS
-ARM64_EXPERT_OPTIONS = AMD64_EXPERT_OPTIONS.rsplit(" console=tty0", 1)[0] + " " + SKY1_GFX_OPTIONS
+ARM64_INSTALL_OPTIONS = _PC_INSTALL_OPTIONS.rsplit(" console=tty0", 1)[0] + " " + SKY1_GFX_OPTIONS
+ARM64_EXPERT_OPTIONS = _PC_EXPERT_OPTIONS.rsplit(" console=tty0", 1)[0] + " " + SKY1_GFX_OPTIONS
 ARM64_RESCUE_OPTIONS = (
     "rescue/enable=true ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
     "DEBIAN_FRONTEND=newt consoleblank=0 console=tty0 console=ttyAMA0,115200 "

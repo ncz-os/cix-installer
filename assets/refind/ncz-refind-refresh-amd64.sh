@@ -240,6 +240,23 @@ echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol
 # a serial-getty for lockout recovery (doctrine: serial console must work,
 # same as arm64).
 STABLE_CMDLINE_BASE="console=ttyS0,115200 console=tty0 systemd.condition_first_boot=false audit_backlog_limit=8192"
+# NCZ-NOUVEAU-RUNPM-BEGIN
+# nouveau.runpm=0 on the default and console entries (the rescue entries
+# blacklist nouveau outright). On 7.3-rc5+ nouveau's runtime suspend oopses in
+# nvkm_gsp_gcx_ready() on Turing/Ampere GPUs without GSP-RM firmware (NULL
+# gsp->rm; PEGASUS, RTX 2060 Mobile, 2026-10-06), leaving the dGPU stuck in
+# "suspending" so every later PCI config read (lspci, udev) hangs. Fixed
+# upstream by 4d0e27041185 (drm-misc-fixes), carried as amd64-kernel-t2 9012.
+# preseed/late.sh writes the same option to /etc/modprobe.d; this copy covers
+# an initramfs that loads nouveau before /etc is read. Inert when the
+# proprietary NVIDIA driver is in use (nouveau is then blacklisted), so it is
+# kept: if that driver's DKMS build ever fails, nouveau must not oops.
+NCZ_NOUVEAU_CMDLINE="nouveau.runpm=0"
+case " $STABLE_CMDLINE_BASE " in
+    *" $NCZ_NOUVEAU_CMDLINE "*) ;;
+    *) STABLE_CMDLINE_BASE="$STABLE_CMDLINE_BASE $NCZ_NOUVEAU_CMDLINE" ;;
+esac
+# NCZ-NOUVEAU-RUNPM-END
 
 merge_module_blacklist() {
     _cmdline=$1
