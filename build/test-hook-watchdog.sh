@@ -25,8 +25,14 @@ trap 'rm -rf "$W"' EXIT
 PASS=0; FAIL=0
 ok()  { echo "  PASS  $1"; PASS=$((PASS + 1)); }
 nok() { echo "  FAIL  $1"; FAIL=$((FAIL + 1)); }
-# count this user's processes whose argv is exactly "<a> <b>"
-mine() { ps -u "$(id -u)" -o args= | awk -v a="$1" -v b="$2" '$1==a && $2==b && NF==2' | wc -l | tr -d ' '; }
+# count this user's processes whose argv is exactly "<a> <b>" (argv[0] may
+# carry a path: /bin/sleep matches sleep). The durations used here (301-305,
+# 3603) are unique to this test, so the exact match cannot see other work.
+mine() {
+    ps -u "$(id -u)" -o args= \
+        | awk -v a="$1" -v b="$2" '{ n = split($1, p, "/") } p[n] == a && $2 == b && NF == 2' \
+        | wc -l | tr -d ' '
+}
 extract_between() { awk -v b="$2" -v e="$3" '$0 ~ b {f=1; next} $0 ~ e {f=0} f' "$1"; }
 
 echo "=== 1. lib/bounded-run.sh ==="
