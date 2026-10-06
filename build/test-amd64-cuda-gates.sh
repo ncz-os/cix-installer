@@ -458,7 +458,7 @@ eq "setup: bad usage exits 2" "$(cs bogus)" 2
 # build writes a make.log with a compiler error (as on PEGASUS, 2026-10-06).
 export NCZ_NV_DKMS_PATCHES="$CS/patches" NCZ_DKMS_ETC="$CS/etc/dkms" NCZ_DKMS_TREE="$CS/dkms" \
        NCZ_SRC_ROOT="$CS/usr/src" NCZ_MODULES_ROOT="$CS/modules"
-KV_A=7.3.0-rc6-3-t2-edge-aer9011; KV_B=7.3.0-rc6-4-t2-edge-aer9011
+KV_A=7.3.0-rc6-3-t2-edge-aer9011; KV_B=7.3.0-rc6-4-t2-edge-aer9010
 printf '#!/bin/bash\n[ "$1" = -r ] && { echo "${STUB_KVER:-%s}"; exit 0; }\nexec /bin/uname "$@"\n' "$KV_A" > "$CS/bin/uname"
 printf '#!/bin/bash\necho "nvidia-kernel-open-dkms:"; echo "  Installed: (none)"; echo "  Candidate: ${STUB_NVVER:-615.71.09}-2"\n' > "$CS/bin/apt-cache"
 cat > "$CS/bin/apt-get-dkms" <<EOF

@@ -226,8 +226,9 @@ fi
 #   vs the .deb in assets/kernel/<line>/. Operator directive 2026-10-05
 #   reinstated amd64-edge as the pinned 7.3.0-rc6 AER-revert kernel
 #   (7.3.0-rc6-1-t2-edge-aerfix). That build has since been superseded by
-#   the unified default 7.3.0-rc6-3-t2-edge-aer9011, the 9011 AER quirk
-#   build. The edge line was selected by the committed
+#   the unified default, now 7.3.0-rc6-4-t2-edge-aer9010 (the plain
+#   revert of eddba19b8b5f; the rc6-3 9011-quirk build is superseded).
+#   The edge line was selected by the committed
 #   assets/kernel/amd64-edge/KVER pin rather than by mtime, so a stale rc5
 #   build in the pool cannot masquerade as the shipping edge. The
 #   amd64-t2-* trees are multi-variant experiment/build trees (never staged

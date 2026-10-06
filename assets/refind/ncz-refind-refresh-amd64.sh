@@ -45,20 +45,17 @@ REFIND_SRC="$INSTALLER_META/assets/refind/refind_x64.efi"
 # and the rescue kernel. KVER_STABLE carries that single pin; any KVER_EDGE is
 # ignored (the edge channel was retired 2026-10-05).
 
-# Operator directive 2026-10-05: the amd64 DEFAULT 7.3 entry boots with
-# pcie_ports=compat, the PCIe mode the T2 Linux community runs as its baseline
-# on T2 Macs, alongside the AER ANFE revert the 7.3 kernel already carries.
-# compat leaves the firmware _OSC grant intact but makes the OS assume control
-# of the PCIe port services without the port driver claiming them: no AER
-# handler, no PME, no native hotplug service is registered. Applied to the
-# amd64 DEFAULT entry ONLY, and ONLY on Apple T2 hardware -- never the console
-# or rescue entries, and never a generic PC (including non-T2 Intel Macs, VMs
-# and servers). See docs/reports/2026-10-05-amd64-edge-pcie-ports-compat.md.
+# Target-machine Apple T2 detection (DMI, assets/refind/ncz-t2-detect.sh). The
+# x86 kernel is unified for T2 Macs and generic PCs, so anything T2-specific in
+# the boot menu is decided here, on the target. Today that is only the RESCUE
+# accelerator blacklist below (amdgpu kept on a T2 Mac). If the helper is
+# absent we fail closed to "not T2".
 #
-# The x86 kernel is UNIFIED (one family for T2 Macs and generic PCs), so this
-# is decided here, on the target machine, via DMI (ncz_is_t2_hardware in
-# assets/refind/ncz-t2-detect.sh). The detection helper is sourced from the
-# same staged assets tree, and if it is absent we fail closed to no token.
+# No T2-only kernel parameter is added to any entry. The earlier
+# pcie_ports=compat on the T2 default entry (2026-10-05, defence in depth
+# against the 7.3 T2 power cut) was removed on 2026-10-06: the kernel now
+# carries the plain upstream revert of eddba19b8b5f and nothing else for it
+# (docs/reports/2026-10-06-amd64-rc6-4-aer9010.md).
 #
 # Markers below let build/test-amd64-t2-detect.sh extract this block
 # byte-exactly instead of pattern-matching its shape.
@@ -71,13 +68,10 @@ else
     ncz_is_t2_hardware() { return 1; }
     ncz_t2_detect_detail() { printf 'T2 detection helper missing at %s (fail closed)' "$NCZ_T2_DETECT_LIB"; }
 fi
-
-NCZ_T2_DEFAULT_EXTRA_CMDLINE=""
 if ncz_is_t2_hardware; then
-    NCZ_T2_DEFAULT_EXTRA_CMDLINE="pcie_ports=compat"
-    echo "  T2 hardware detected ($(ncz_t2_detect_detail)); amd64 default entry gets the T2 compat cmdline"
+    echo "  T2 hardware detected ($(ncz_t2_detect_detail)); rescue entry keeps amdgpu"
 else
-    echo "  not T2 hardware ($(ncz_t2_detect_detail)); amd64 default entry keeps default PCIe services"
+    echo "  not T2 hardware ($(ncz_t2_detect_detail))"
 fi
 # NCZ-T2-CMDLINE-END
 
@@ -476,17 +470,6 @@ STABLE_OPTIONS=""
 if [ "$STABLE_AVAILABLE" = "1" ]; then
     STABLE_OPTIONS="$ROOT_OPTS $STABLE_CMDLINE_BASE"
     [ -n "$SPLASH" ] && STABLE_OPTIONS="$STABLE_OPTIONS $SPLASH"
-    # Operator directive 2026-10-05: append the T2 default-entry extra cmdline
-    # (pcie_ports=compat). Scoped to the DEFAULT (graphical) entry only; the
-    # console and rescue entries below never get it. Idempotent guard.
-    # NCZ-DEFAULT-GUARD-BEGIN
-    if [ -n "$NCZ_T2_DEFAULT_EXTRA_CMDLINE" ]; then
-        case " $STABLE_OPTIONS " in
-            *" $NCZ_T2_DEFAULT_EXTRA_CMDLINE "*) ;;
-            *) STABLE_OPTIONS="$STABLE_OPTIONS $NCZ_T2_DEFAULT_EXTRA_CMDLINE" ;;
-        esac
-    fi
-    # NCZ-DEFAULT-GUARD-END
 fi
 
 # Console entry — reach a networked multi-user shell on the SHIPPING kernel

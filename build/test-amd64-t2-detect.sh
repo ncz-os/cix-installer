@@ -1,9 +1,13 @@
 #!/bin/bash
-# test-amd64-t2-detect.sh -- prove the amd64 edge pcie_ports=compat decision
-# is gated on Apple T2 hardware at entry-generation time (operator directive
-# 2026-10-05). The amd64 image ships ONE unified x86 kernel for T2 Macs and
-# ordinary PCs, so the token must only reach the edge entry on a real T2 Mac:
-# on a generic machine it would needlessly switch off AER/PME/native hotplug.
+# test-amd64-t2-detect.sh -- prove the target-machine Apple T2 detection the
+# amd64 rEFInd refresh script uses (the rescue accelerator blacklist keeps
+# amdgpu on a T2 Mac only) and the t2-dkms hook shares. The amd64 image ships
+# ONE unified x86 kernel for T2 Macs and ordinary PCs, so the decision is made
+# on the target and must fail closed everywhere else.
+#
+# It also guards the 2026-10-06 removal of pcie_ports=compat (a T2 power-cut
+# mitigation, replaced by the plain kernel revert of eddba19b8b5f): no boot
+# entry may carry it again.
 #
 # This exercises the SHIPPED code, not a copy: assets/refind/ncz-t2-detect.sh
 # is sourced directly with NCZ_DMI_ROOT pointed at fake /sys/class/dmi/id
@@ -15,8 +19,9 @@
 #   * the known T2 models are detected; a pre-T2 Intel Mac, a non-Apple
 #     desktop, a QEMU/KVM VM, an Apple machine with an unlisted product and a
 #     tree with missing DMI files all fail closed (no parameter);
-#   * the shipped cmdline block sets pcie_ports=compat only when T2 is
-#     detected, and fails closed when the helper itself is absent.
+#   * the shipped detection block sources the helper, fails closed when the
+#     helper is absent, and sets no kernel parameter; no amd64 boot path
+#     carries pcie_ports=compat.
 #
 # Exit 0 = all checks pass; 1 = one or more failed; 2 = extraction failure.
 set -uo pipefail
@@ -35,7 +40,7 @@ ok()  { echo "  PASS  $1"; PASS=$((PASS+1)); }
 nok() { echo "  FAIL  $1"; FAIL=$((FAIL+1)); }
 eq()  { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else nok "$1: got '$2' want '$3'"; fi; }
 
-TOKEN="pcie_ports=compat"
+TOKEN="pcie_ports=compat"   # removed 2026-10-06; must never come back
 
 # The T2-cmdline block carries BEGIN/END markers, so extraction is byte-exact.
 awk -v b='NCZ-T2-CMDLINE-BEGIN' -v e='NCZ-T2-CMDLINE-END' \
@@ -110,24 +115,26 @@ eq "T2 bridge (bare form)"  "$(pci "$W/pci/bare")"   "yes"
 eq "other vendor -> no"     "$(pci "$W/pci/other")"  "no"
 eq "empty tree -> no"       "$(pci "$W/pci/empty")"  "no"
 
-echo "=== shipped cmdline block gates the token on detection ==="
-cmdline_for() { # cmdline_for <dmi-root> -> token or ""
-    ( NCZ_DMI_ROOT="$1"; INSTALLER_META="$REPO"
+echo "=== shipped detection block: helper sourced, no kernel parameter ==="
+block_is_t2() { # block_is_t2 <dmi-root> <installer-meta> -> yes|no
+    ( NCZ_DMI_ROOT="$1"; INSTALLER_META="$2"
       # shellcheck disable=SC1090
       . "$W/cmdline.sh" >/dev/null
-      printf '%s' "$NCZ_T2_DEFAULT_EXTRA_CMDLINE" )
+      if ncz_is_t2_hardware; then printf 'yes'; else printf 'no'; fi )
 }
-eq "T2 Mac sets the token"       "$(cmdline_for "$W/dmi/mbp16")"   "$TOKEN"
-eq "generic PC leaves it empty"  "$(cmdline_for "$W/dmi/asus")"    ""
-eq "pre-T2 Mac leaves it empty"  "$(cmdline_for "$W/dmi/mbp11")"   ""
-eq "QEMU leaves it empty"        "$(cmdline_for "$W/dmi/qemu")"    ""
-eq "missing DMI leaves it empty" "$(cmdline_for "$W/dmi/missing")" ""
-# Fail closed if the helper is not present in the staged tree at all.
-eq "absent helper fails closed" \
-   "$( NCZ_DMI_ROOT="$W/dmi/mbp16" INSTALLER_META="$W/no-such-meta"
-      # shellcheck disable=SC1090
-      . "$W/cmdline.sh" >/dev/null
-      printf '%s' "$NCZ_T2_DEFAULT_EXTRA_CMDLINE" )" ""
+eq "T2 Mac is detected through the shipped block" "$(block_is_t2 "$W/dmi/mbp16" "$REPO")" "yes"
+eq "generic PC is not"                            "$(block_is_t2 "$W/dmi/asus" "$REPO")"  "no"
+eq "absent helper fails closed"                   "$(block_is_t2 "$W/dmi/mbp16" "$W/no-such-meta")" "no"
+eq "the block assigns no extra-cmdline variable" \
+   "$(grep -cE '^[^#]*(EXTRA_CMDLINE|_OPTIONS)=' "$W/cmdline.sh" | tr -d ' ')" "0"
+
+echo "=== pcie_ports=compat stays removed (2026-10-06) ==="
+for f in "$SRC" "$REPO/assets/refind/ncz-refind-refresh.sh" "$REPO/build/iso/build-refind-esp.py" \
+         "$REPO/preseed/late.sh" "$REPO/preseed/preseed.cfg"; do
+    [ -f "$f" ] || continue
+    eq "no live $TOKEN in ${f#"$REPO"/}" \
+       "$(grep -nE "^[^#]*$TOKEN" "$f" | wc -l | tr -d ' ')" "0"
+done
 
 echo
 echo "=== amd64 T2 detect test: PASS=$PASS FAIL=$FAIL ==="

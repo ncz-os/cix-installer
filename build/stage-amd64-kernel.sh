@@ -11,7 +11,7 @@
 #
 # POLICY (operator directive 2026-10-05, unified): amd64 ships ONE kernel,
 # 7.3, as the DEFAULT and the installer boot kernel (today
-# 7.3.0-rc6-3-t2-edge-aer9011, the T2 build with the 9011 Apple T2 Secure Enclave AER quirk; the
+# 7.3.0-rc6-4-t2-edge-aer9010, the T2 build with the plain revert of eddba19b8b5f (PCI/AER ANFE); the
 # 7.3.0 final build later). The committed assets/kernel/amd64-stable/KVER is
 # the pin; a pool build whose KVER disagrees with it is never staged, so a
 # different series (7.2.x) or an unpinned build cannot slip in. There is no
@@ -61,7 +61,7 @@ stage_default() {
     else
         # Search the pool for a directory whose KVER sidecar matches the pin.
         # Covers the multi-variant amd64-t2-* build trees (e.g.
-        # amd64-t2-rc6-20261004/7.3.0-rc6-3-t2-edge-aer9011) and the generic
+        # amd64-t2-rc6-20261004/7.3.0-rc6-4-t2-edge-aer9010) and the generic
         # amd64-stable-<date> namespace.
         for d in "$SHARED"/amd64-t2-*/*/ "$SHARED"/amd64-stable-*/; do
             [ -d "$d" ] || continue
