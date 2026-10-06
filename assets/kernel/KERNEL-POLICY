@@ -1,12 +1,44 @@
-# NCZ-OS kernel channel policy, machine-readable (operator 2026-10-05).
+# NCZ-OS unified kernel policy, machine-readable (operator 2026-10-05).
 # Read by build/verify-kernel-default-policy.sh. KEY=value, no spaces.
 # Human text and rationale: docs/reports/2026-10-05-kernel-channel-policy.md
 #
-# stable = the DEFAULT boot kernel and the installer boot kernel, every arch.
-# edge   = a separate, bootable, NON-default entry, every arch, release candidate only.
-# amd64 edge = the 7.3.0-rc6 T2 kernel with the AER ANFE revert
-#              (7.3.0-rc6-1-t2-edge-aerfix; overlay patch 9010). The narrower
-#              9011 quirk build (7.3.0-rc6-2-t2-edge) is NOT shipped.
-# See docs/reports/2026-10-05-amd64-edge-rc6-revert.md.
-STABLE_BASE=7.2.9
-EDGE_BASE=7.3.0-rc6
+# ONE kernel: 7.3, the SAME pinned build on every architecture. It is the
+# DEFAULT boot kernel, the installer boot kernel, and the kernel the RESCUE
+# entry boots. 7.2.x (including 7.2.9) is retired everywhere: no default, no
+# rescue, no edge, no installer. There is no EDGE channel any more.
+#
+# The exact pinned version lives in the per-arch sidecars/manifests, not here:
+#   arm64: assets/kernel/mainline/KVER  (manifest variants.mainline.kver)
+#   amd64: assets/kernel/amd64-stable/KVER
+# Today both are 7.3.0-rc6 builds, replaced by 7.3.0 final builds later.
+DEFAULT_BASE=7.3
+
+# An -rcN default is permitted ONLY while the pinned 7.3 version is still an
+# -rcN and RC_DEFAULT_ALLOWED=1. The verifier fails if a 7.3 default is an
+# -rcN while this is 0, and also fails if this is 1 but the pinned version is
+# no longer an -rcN (a stale allowance). Clear it when 7.3.0 final lands:
+# RC_DEFAULT_EXPIRY_NOTE=replace by 7.3.0 final
+RC_DEFAULT_ALLOWED=1
+RC_DEFAULT_EXPIRY_NOTE=replace by 7.3.0 final
+
+# RESCUE = the SAME pinned kernel as DEFAULT, not a separate series and not an
+# older kernel. Its whole difference is the accelerator drivers blacklisted on
+# the kernel command line (module_blacklist=...). RESCUE_SAME_KERNEL=1 means the
+# verifier requires the rescue entry to load the default KVER and to carry the
+# per-arch blacklist markers below.
+RESCUE_SAME_KERNEL=1
+# amd64 rescue blacklist when the target is an Apple T2 Mac: the panel is wired
+# to the AMD dGPU on these machines, so amdgpu is KEPT (blacklisting it would be
+# a black screen); only the other GPU/compute stacks are dropped.
+RESCUE_AMD64_BLACKLIST_T2=nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm,nouveau,radeon
+# amd64 rescue blacklist on a generic (non-T2) PC: the panel is driven by
+# amdgpu/radeon/i915/xe, so all discrete GPU stacks are dropped and the console
+# stays on by simpledrm/efifb/fbdev. The decision is made on the target via
+# assets/refind/ncz-t2-detect.sh.
+RESCUE_AMD64_BLACKLIST_GENERIC=amdgpu,radeon,nouveau,nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm
+# arm64/Sky1 rescue blacklist: every CIX accelerator (GPU mali/panthor, VPU,
+# NPU and their aliases), never the display controller (linlondp).
+RESCUE_ARM64_BLACKLIST=panthor,panfrost,mali_kbase,memory_group_manager,protected_memory_allocator,amvx,aipu,armchina_npu,cix_vpu,linlon_vpu
+
+# No EDGE channel any more (operator 2026-10-05).
+EDGE_ENABLED=0

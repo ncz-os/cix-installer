@@ -53,7 +53,7 @@
 # iMac19,x pair was added 2026-10-05 to match the T2 Linux wiki model list
 # (https://wiki.t2linux.org/, linking Apple support HT208862) and
 # assets/refind/ncz-t2-detect.sh, which is the same set used for the amd64
-# edge pcie_ports=compat decision; the previous list omitted them.
+# default-entry pcie_ports=compat decision; the previous list omitted them.
 #
 #   Verified against REAL T2 hardware 2026-09-15 (same MEDUSA oracle check):
 #   /sys/class/dmi/id/sys_vendor = "Apple Inc.",

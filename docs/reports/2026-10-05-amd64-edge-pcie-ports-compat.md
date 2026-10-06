@@ -1,11 +1,13 @@
-# amd64 T2 edge entry: `pcie_ports=compat`
+# amd64 T2 default entry: `pcie_ports=compat`
 
-Operator directive 2026-10-05: the amd64 T2 edge boot entry runs with
+Operator directive 2026-10-05: the amd64 T2 **default** boot entry runs with
 `pcie_ports=compat`, the PCIe mode the T2 Linux community (T2 Discord) uses as its
-baseline on T2 Macs. It is defence in depth, added on top of the AER ANFE revert,
-and it applies to the amd64 EDGE entry ONLY, and ONLY on Apple T2 hardware. The stable
-(`7.2.9-2-t2-trixie`), stable-console and rescue entries are unchanged, and so is
-every generic PC (including non-T2 Intel Macs, VMs and servers).
+baseline on T2 Macs. It is defence in depth, added on top of the AER ANFE revert in
+the unified 7.3 kernel. It applies to the amd64 DEFAULT entry ONLY, and ONLY on
+Apple T2 hardware. Under the unified 7.3 policy (operator 2026-10-05, same day) the
+separate edge entry was retired, so the token moved from the old edge entry onto the
+default entry; the console and rescue entries are unchanged, and so is every generic
+PC (including non-T2 Intel Macs, VMs and servers).
 
 The x86 kernel is UNIFIED: the same image installs onto T2 Macs and ordinary PCs, so the
 parameter cannot be an image-build-time constant. It is decided on the target machine at
@@ -32,7 +34,7 @@ firmware's `_OSC` handshake.
 
 ## MEDUSA evidence (MacBookPro16,1)
 
-The amd64 edge kernel `7.3.0-rc6-1-t2-edge-aerfix` (which already carries the AER
+The amd64 kernel `7.3.0-rc6-1-t2-edge-aerfix` (which already carries the AER
 ANFE revert) was booted with `pcie_ports=compat`:
 
 - Stayed up 30+ minutes with all four DKMS modules loaded (`t2smc`, `t2gmux`,
@@ -48,8 +50,8 @@ Whether `pcie_ports=compat` **alone** (without the AER ANFE revert) avoids the
 original T2 power cut is untested. The revert therefore stays. compat is added only
 as defence in depth and to match the community baseline, not as a replacement.
 
-Stable + compat has not been tested on hardware either; that is a separate item and
-the stable entry is deliberately untouched here.
+Default-7.3 + compat has been booted on MEDUSA (above); the kernel geometry is the
+same as the edge build this token was originally validated on.
 
 ## Implementation
 
@@ -60,24 +62,26 @@ the stable entry is deliberately untouched here.
   `NCZ_DMI_ROOT` overridable for tests. It also defines an advisory
   `ncz_t2_pci_bridge_present()` ([106b:1801]/[106b:2005] via sysfs, no tools), used only in
   the diagnostic log. Detection fails closed: missing/unreadable DMI or an unknown model is
-  "not T2".
+  "not T2". The same helper also drives the amd64 rescue accelerator blacklist.
 - `assets/refind/ncz-refind-refresh-amd64.sh` sources that helper from its staged
   `assets/refind/` location (a missing helper also fails closed) and sets
-  `NCZ_T2_EDGE_EXTRA_CMDLINE="pcie_ports=compat"` only when `ncz_is_t2_hardware` returns 0.
-- The token is appended to `EDGE_OPTIONS` only, guarded so it is never duplicated and so
-  any options already present are preserved. The script regenerates `refind.conf`
-  from scratch on every run, so repeated refreshes cannot accumulate the token.
-- The stable, stable-console and rescue option strings are not touched.
+  `NCZ_T2_DEFAULT_EXTRA_CMDLINE="pcie_ports=compat"` only when `ncz_is_t2_hardware`
+  returns 0.
+- The token is appended to `STABLE_OPTIONS` (the DEFAULT entry) only, guarded so it is
+  never duplicated and any options already present are preserved. The script regenerates
+  `refind.conf` from scratch on every run, so repeated refreshes cannot accumulate the
+  token.
+- The console and rescue option strings are not touched.
 - The runtime classifier hook `assets/refind/zz1-ncz-refind-refresh-amd64` needs no
-  change: it only derives `KVER_STABLE`/`KVER_EDGE` and delegates to the refresh
+  command-line change: it derives the single default KVER and delegates to the refresh
   script, which owns the command line.
-- Test: `build/test-amd64-edge-compat.sh` (registered in the Makefile `parity` target).
-  It drives the shipped DMI detector with fake `/sys/class/dmi/id` trees: MacBookPro16,1
-  and the other T2 models -> yes; MacBookPro11,1 (pre-T2), an ASUS desktop, QEMU/KVM, an
-  unlisted Apple model and missing DMI files -> no. It then runs the shipped T2-cmdline and
-  option-assembly blocks: token exactly once on the edge entry after one and after three
-  refreshes on T2, never on stable/console/rescue, never on a generic PC, operator options
-  preserved, and never on arm64.
+- Tests: `build/test-amd64-t2-detect.sh` and `build/test-amd64-t2-default-compat.sh`
+  (registered in the Makefile `parity` target). They drive the shipped DMI detector with
+  fake `/sys/class/dmi/id` trees: MacBookPro16,1 and the other T2 models -> yes;
+  MacBookPro11,1 (pre-T2), an ASUS desktop, QEMU/KVM, an unlisted Apple model and missing
+  DMI files -> no. They then run the shipped T2-cmdline and option-assembly blocks: token
+  exactly once on the DEFAULT entry after one and after three refreshes on T2, never on
+  console/rescue, never on a generic PC, operator options preserved, and never on arm64.
 
 ## T2 debug staging tool (out of scope)
 

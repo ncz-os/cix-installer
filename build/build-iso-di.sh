@@ -204,9 +204,10 @@ ROOT="$(cd "$ROOT" && pwd)"
 [ -n "$VERSION" ]      || { echo "ERROR: --version required"; exit 1; }
 [ -n "$OUTPUT" ]       || { echo "ERROR: --output required"; exit 1; }
 
-# Operator directive 2026-09-30 (the .66 incident), updated 2026-10-04: the 7.2.9
-# release kernel (amd64 7.2.9-2-t2-trixie, Sky1 7.2.9-sky1-ncz) MUST be the default
-# kernel on every arch; arm64-only edge for 7.3-rc5; amd64 has no 7.3 at all.
+# Operator directive 2026-10-05 (unified kernel): ONE 7.3 kernel is the
+# default, installer and rescue kernel on every arch (amd64
+# 7.3.0-rc6-1-t2-edge-aerfix, Sky1 7.3.0-rc6-sky1-ncz). 7.2.x is retired and
+# there is no edge channel.
 # This script is the canonical place where assets/kernel/mainline and
 # assets/kernel/amd64-stable get copied into the installer payload, so the
 # verifier has to gate HERE -- before any KVER is read -- or a misdirected
@@ -456,18 +457,9 @@ elif [ "$MODE" = "full" ]; then
             exit 1
         fi
     done
-    # Operator directive 2026-10-05: amd64 may carry the pinned 7.3.0-rc6
-    # edge kernel (supersedes the 2026-09-30 ban). If amd64-edge is staged,
-    # its KVER must match the pin; the kernel-default-policy verifier
-    # re-checks this downstream, but failing here names the staged path.
-    if [ -d "$ROOT/assets/kernel/amd64-edge" ]; then
-        _a64e_kver=$(head -n1 "$ROOT/assets/kernel/amd64-edge/KVER" 2>/dev/null | tr -d '[:space:]' || true)
-        case "$_a64e_kver" in
-            7.3.0-rc6-[0-9]-t2-edge-aerfix|7.3.0-rc6-[0-9][0-9]-t2-edge-aerfix) ;;
-            *) echo "ERROR: $NCZ_TARGET_ARCH ISO staged with assets/kernel/amd64-edge/ KVER='${_a64e_kver:-<missing>}' -- not the pinned 7.3.0-rc6-<N>-t2-edge-aerfix (operator 2026-10-05)" >&2
-               exit 1 ;;
-        esac
-    fi
+    # Unified 7.3 (operator 2026-10-05): amd64 carries the single 7.3
+    # default line under assets/kernel/amd64-stable. The separate amd64-edge
+    # channel is retired, so there is no second KVER to validate here.
     echo "[stage-canonical-assets] skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH -- arm64-only assets don't apply; AMD64 asset set re-confirmed present)"
 fi
 
@@ -837,9 +829,8 @@ ensure_di_udeb_from_archive() {
 }
 
 # ----------------------------------------------------------------------
-# Kernel discovery — mainline (7.2.x-sky1-ncz, the shipping channel) is the
-# installer AND installed kernel. assets/kernel/edge (test-only 7.3.x) is
-# never used here.
+# Kernel discovery — mainline (the unified 7.3 sky1-ncz kernel) is the
+# installer AND installed kernel. There is no second channel.
 #   $ROOT/assets/kernel/mainline/Image-cixmini.bin
 #   $ROOT/assets/kernel/mainline/modules-cixmini.tgz
 #   $ROOT/assets/kernel/mainline/KVER
@@ -950,7 +941,7 @@ if [ "$EMBED_MIRROR" = "1" ]; then
     # AMD64 that check always compares arm64 .debs against an amd64 pool
     # and always fails, even though AMD64's kernel packages never go
     # through this offline-apt-closure mechanism at all (they're dpkg -i'd
-    # directly from assets/kernel/amd64-{stable,edge}/ by
+    # directly from assets/kernel/amd64-stable/ by
     # post-install/10-amd64-kernel.sh). Only run it for arm64, where the
     # comparison is actually meaningful.
     if [ ! -d "$MIRROR_DIR/pool" ] || [ ! -d "$MIRROR_DIR/dists" ] || \
@@ -2573,13 +2564,13 @@ echo "    .disk/info:    $(cat "$STAGING/.disk/info")"
 # necessary on real Sky1 hardware (Radxa Orion O6/O6N, MS-R1), where the
 # stock arm64 d-i kernel has no working UART/ACPI/GPU video console.
 #
-# 2026-10-04 (operator directive, Cygnus 26.10 kernel purity): the installer
-# MUST boot our 7.2.9 kernel on BOTH arches, never Debian's forky 7.1.x. The
-# old amd64 branch kept the substrate's own vmlinuz, which meant a Debian
-# kernel booted the installer on amd64 (the one live "Debian boots" path in
-# the tree). The amd64 branch below now swaps in the same 7.2.9-2-t2-trixie
-# kernel the installed system and the raw-GPT `make image` path use (arch-
-# matched: each branch swaps its own architecture's kernel binary).
+# 2026-10-04 / 2026-10-05 (operator directives, Cygnus 26.10 kernel purity /
+# unified 7.3): the installer MUST boot our 7.3 kernel on BOTH arches, never
+# Debian's forky 7.1.x. The old amd64 branch kept the substrate's own vmlinuz,
+# which meant a Debian kernel booted the installer on amd64 (the one live
+# "Debian boots" path in the tree). The amd64 branch below swaps in the same
+# unified 7.3 kernel the installed system and the raw-GPT `make image` path
+# use (arch-matched: each branch swaps its own architecture's kernel binary).
 if [ "$NCZ_TARGET_ARCH" = "arm64" ]; then
 # ----------------------------------------------------------------------
 # Step 2 — replace ${INSTALL_DIR}/vmlinuz with our Sky1 installer kernel
@@ -2752,9 +2743,9 @@ echo "    overlay cpio: $(du -h "$OVERLAY_GZ" | cut -f1)"
 # default red/blue/grey on trixie d-i instead of amber phosphor. Cosmetic.
 elif [ "$NCZ_TARGET_ARCH" = "amd64" ]; then
 # ----------------------------------------------------------------------
-# Step 2 (amd64) — replace install.amd/vmlinuz with our 7.2.9 T2 kernel.
-# Operator directive 2026-10-04: the installer must boot our 7.2.9 kernel
-# on amd64 too, never the substrate's forky 7.1.x d-i kernel.
+# Step 2 (amd64) — replace install.amd/vmlinuz with our unified 7.3 T2 kernel.
+# Operator directive 2026-10-05: the installer must boot our 7.3 kernel on
+# amd64 too, never the substrate's forky 7.1.x d-i kernel.
 # ----------------------------------------------------------------------
 echo "[2] swapping /${INSTALL_DIR}/vmlinuz to the NCZ amd64 kernel"
 _amd64_deb="$(find "$ROOT/assets/kernel/amd64-stable" -maxdepth 1 -type f -name 'linux-image-*.deb' 2>/dev/null | sort -V | tail -1)"
@@ -3394,16 +3385,16 @@ if [ -d "$ROOT/assets" ]; then
 fi
 [ -f "$ROOT/assets/ncz-cli.sh" ] && cp -aL "$ROOT/assets/ncz-cli.sh" "$EXTRA/assets/" 2>/dev/null || true
 
-# Stage target kernel payloads. amd64 ships the stable T2+PC line as the
-# default plus (when staged) the pinned 7.3.0-rc6 AER-revert edge line, both
-# as .debs consumed by post-install/10-amd64-kernel.sh; operator directive
-# 2026-10-05 replaced the 2026-09-30 amd64-edge ban. arm64 retains its Sky1
-# edge payload; netinstall uses the d-i kernel.
+# Stage target kernel payloads. Unified 7.3 (operator 2026-10-05): amd64
+# ships ONE 7.3 kernel (.debs consumed by post-install/10-amd64-kernel.sh)
+# under assets/kernel/amd64-stable; the separate amd64-edge channel is
+# retired. arm64 stages its single 7.3 Sky1 payload; netinstall uses the d-i
+# kernel.
 mkdir -p "$EXTRA/assets/kernel"
 if [ "$NCZ_TARGET_ARCH" = amd64 ] && [ "$STAGE_NEXT_KERNEL" = "1" ]; then
     _amd64_src="$ROOT/assets/kernel/amd64-stable"
     [ -d "$_amd64_src" ] || {
-        echo "ERROR: missing $_amd64_src -- the AMD64 stable kernel channel is required" >&2
+        echo "ERROR: missing $_amd64_src -- the AMD64 7.3 kernel channel is required" >&2
         exit 1
     }
     cp -aL "$_amd64_src" "$EXTRA/assets/kernel/"
@@ -3412,25 +3403,6 @@ if [ "$NCZ_TARGET_ARCH" = amd64 ] && [ "$STAGE_NEXT_KERNEL" = "1" ]; then
         echo "ERROR: amd64-stable staged only $_amd64_debs .deb(s), expected image + headers" >&2
         exit 1
     }
-    # amd64 edge (operator directive 2026-10-05): optional, but if staged it
-    # must be the pinned 7.3.0-rc6 AER-revert build. Refuse any other KVER so
-    # an unpinned -rc cannot reach the installer media.
-    _amd64_edge_src="$ROOT/assets/kernel/amd64-edge"
-    if [ -d "$_amd64_edge_src" ]; then
-        _amd64_edge_kver=$(head -n1 "$_amd64_edge_src/KVER" 2>/dev/null | tr -d '[:space:]' || true)
-        case "$_amd64_edge_kver" in
-            7.3.0-rc6-[0-9]-t2-edge-aerfix|7.3.0-rc6-[0-9][0-9]-t2-edge-aerfix) ;;
-            *) echo "ERROR: amd64-edge KVER='${_amd64_edge_kver:-<missing>}' is not the pinned 7.3.0-rc6-<N>-t2-edge-aerfix (operator 2026-10-05)" >&2
-               exit 1 ;;
-        esac
-        cp -aL "$_amd64_edge_src" "$EXTRA/assets/kernel/"
-        _amd64_edge_debs=$(find "$EXTRA/assets/kernel/amd64-edge" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')
-        [ "$_amd64_edge_debs" -ge 2 ] || {
-            echo "ERROR: amd64-edge staged only $_amd64_edge_debs .deb(s), expected image + headers" >&2
-            exit 1
-        }
-        echo "    amd64-edge staged: $_amd64_edge_debs packages (pinned $_amd64_edge_kver)"
-    fi
     echo "    amd64-stable staged: $_amd64_debs packages ($(du -sh "$EXTRA/assets/kernel/amd64-stable" | cut -f1))"
 elif [ "$STAGE_NEXT_KERNEL" = "1" ] && [ -n "$KVER_NEXT" ]; then
     mkdir -p "$EXTRA/assets/kernel/mainline"

@@ -10,14 +10,14 @@
 # (local_deb()+dpkg -i), just without an apt-repo fallback because none
 # exists.
 #
-# POLICY (operator directive 2026-10-05): amd64 ships the 7.2.9 stable line
-# as the default kernel plus, when staged, one pinned edge kernel — the
-# 7.3.0-rc6 T2 build with the AER ANFE revert
-# (7.3.0-rc6-1-t2-edge-aerfix) — as a separate NON-default rEFInd entry.
-# This hook installs amd64-stable and, if present, amd64-edge. An
-# amd64-edge payload whose KVER is not the pinned line is refused and the
-# hook exits non-zero so the image fails closed (run-all.sh treats a
-# non-zero exit from any REQUIRED hook as fatal).
+# POLICY (operator directive 2026-10-05, unified): amd64 ships ONE kernel,
+# 7.3 (7.3.0-rc6-1-t2-edge-aerfix, the T2 build with the AER ANFE revert;
+# replaced by the 7.3.0 final build later). It is the default and the
+# installer boot kernel. The retired 7.2.9 default and the separate
+# amd64-edge channel are gone. This hook installs amd64-stable only, and
+# refuses a payload whose KVER is not the 7.3 series so the image fails
+# closed (run-all.sh treats a non-zero exit from any REQUIRED hook as
+# fatal).
 # NCZ-PLATFORM-GUARD: amd64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
 # run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
 # undetectable arch does NOT skip (legacy behavior).
@@ -103,6 +103,17 @@ install_one(){
         echo "[10-amd64] WARN: $label incomplete (could not derive kver from '$(basename "$img" 2>/dev/null)') — skipping"
         return 0
     fi
+    # Unified 7.3 policy (operator 2026-10-05): only the 7.3 series may be
+    # installed. A staged 7.2.x (or Debian) kernel is refused; with nothing
+    # installed the hook's final guard exits non-zero.
+    case "$kver" in
+        7.3.*|7.3-*) ;;
+        *)
+            echo "[10-amd64] ERROR: $label kernel '$kver' is not the unified 7.3 series (operator 2026-10-05). Refusing to install." >&2
+            # Non-zero so `set -e` aborts the hook immediately; a rejected
+            # series must not continue as if the line had installed.
+            return 1 ;;
+    esac
     echo "[10-amd64] installing $label kernel $kver"
     echo "    $(basename "$img")"
     echo "    $(basename "$hdr")"
@@ -148,53 +159,7 @@ install_one(){
 
 : > /usr/local/lib/cix-installer/KVER_LIST_AMD64
 
-install_one "stable (T2-unified)" "$ASSETS/amd64-stable"
-
-# Operator directive 2026-10-05: amd64 edge is the pinned 7.3.0-rc6 T2
-# kernel with the AER ANFE revert (7.3.0-rc6-1-t2-edge-aerfix), installed
-# as a separate NON-default rEFInd entry. Install it only when the payload
-# is present; validate the image and headers KVERs against the pin so an
-# unpinned -rc cannot be installed even if the build gate was bypassed
-# (defence in depth).
-install_edge() {
-    local icount hcount img kver hdr hver
-    [ -d "$ASSETS/amd64-edge" ] || return 0
-    icount=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-image-*.deb' | wc -l | tr -d ' ')
-    hcount=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-headers-*.deb' | wc -l | tr -d ' ')
-    [ "$icount" -eq 0 ] && [ "$hcount" -eq 0 ] && return 0
-    # Exactly one image + one headers pair; a mixed directory could
-    # otherwise install a .deb whose KVER never passed the pin check.
-    if [ "$icount" -ne 1 ] || [ "$hcount" -ne 1 ]; then
-        echo "[10-amd64] ERROR: $ASSETS/amd64-edge has $icount image .deb(s) and $hcount headers .deb(s) (must be exactly 1 each). Refusing to install." >&2
-        exit 1
-    fi
-    img=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-image-*.deb')
-    kver="$(basename "$img")"
-    kver="${kver#linux-image-}"
-    kver="${kver%_amd64.deb}"
-    kver="${kver%_*}"
-    case "$kver" in
-        7.3.0-rc6-[0-9]-t2-edge-aerfix|7.3.0-rc6-[0-9][0-9]-t2-edge-aerfix) ;;
-        *)
-            echo "[10-amd64] ERROR: $ASSETS/amd64-edge carries '$kver', not the pinned amd64 edge 7.3.0-rc6-<N>-t2-edge-aerfix (operator 2026-10-05). Refusing to install." >&2
-            exit 1 ;;
-    esac
-    # The headers must carry the same KVER as the image; a mismatched
-    # headers package would otherwise be installed alongside the pinned
-    # image without ever passing the pin check.
-    hdr=$(find "$ASSETS/amd64-edge" -maxdepth 1 -name 'linux-headers-*.deb')
-    hver="$(basename "$hdr")"
-    hver="${hver#linux-headers-}"
-    hver="${hver%_amd64.deb}"
-    hver="${hver%_*}"
-    if [ "$hver" != "$kver" ]; then
-        echo "[10-amd64] ERROR: $ASSETS/amd64-edge headers KVER '$hver' != image KVER '$kver' (must match). Refusing to install." >&2
-        exit 1
-    fi
-    install_one "edge (7.3.0-rc6 AER-revert, non-default)" "$ASSETS/amd64-edge"
-}
-
-install_edge
+install_one "default (7.3 T2-unified)" "$ASSETS/amd64-stable"
 
 if [ "$INSTALLED_KERNELS" -eq 0 ]; then
     echo "[10-amd64] ERROR: no AMD64 kernel installed — Phase 1 cannot continue." >&2

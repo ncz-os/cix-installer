@@ -3,6 +3,12 @@
 # the rEFInd menu whenever a linux-image-* package is installed/upgraded
 # via apt.
 #
+# NCZ-UNIFIED-KERNEL-73 (operator 2026-10-05): ONE kernel, 7.3, is the
+# default on every arch. There is no edge channel any more and no 7.2.x
+# line. This hook derives the single default KVER from /boot and delegates
+# to ncz-refind-refresh-amd64, which owns the command line (the redefined
+# rescue entry blacklists the accelerators).
+#
 # Real gap this closes (flagged in the commit that standardized AMD64 on
 # rEFInd, 2026-09-16): arm64 has a dedicated hook
 # (post-install/11-fix-cixmini-boot.sh) that redirects the Sky1-specific
@@ -10,25 +16,13 @@
 # has no cixmini-boot equivalent and no such special-case package -- it
 # just needs the STANDARD Debian kernel-postinst mechanism
 # (/etc/kernel/postinst.d/, run by every linux-image-* package's own
-# postinst via run-parts), which is simpler here than arm64's
-# redirect-and-self-heal dance. grub-efi-amd64 used to provide exactly
-# this hookpoint for free (its own postinst.d script called update-grub);
-# now that AMD64 boots rEFInd instead, this script is what replaces it.
-#
-# STABLE vs EDGE classification: operator directive 2026-10-05 replaced
-# the 2026-09-30 "amd64 ships no edge" ban. Stable is the release
-# *-t2-trixie line; edge is exactly one pinned build, the 7.3.0-rc6 T2
-# kernel with the AER ANFE revert (7.3.0-rc6-1-t2-edge-aerfix). Every
-# other -rc kernel is dropped, not promoted to edge, even if it is
-# installed in /boot. Each category independently tracks its own
-# newest-mtime kernel, so an edge-only upgrade doesn't touch which
-# stable kernel is staged and vice versa.
+# postinst via run-parts).
 #
 # Called by dpkg/kernel postinst as: <this-script> <kernel-version>
 # <boot-image-path> (standard /etc/kernel/postinst.d/ contract). We only
-# use it as a trigger -- the real KVER_STABLE/KVER_EDGE are re-derived
-# from a live /boot scan, not from $1, since a single apt transaction can
-# touch either or both lines and only a fresh scan is authoritative.
+# use it as a trigger -- the real KVER_STABLE is re-derived from a live
+# /boot scan, not from $1, since a single apt transaction can touch the
+# line and only a fresh scan is authoritative.
 set -uo pipefail
 
 REFRESH=/usr/local/sbin/ncz-refind-refresh-amd64
@@ -36,73 +30,44 @@ REFRESH=/usr/local/sbin/ncz-refind-refresh-amd64
 
 BOOTDIR="${BOOTDIR:-/boot}"
 
-# A kernel is PRERELEASE if its version carries an -rcN component.
-#
-# The suffix alone cannot separate the two lines. Both are built from the
-# same t2 patch series and both land as "...-t2-trixie", so the old
-# '*-t2-trixie' stable glob matched release AND release-candidate kernels
-# and took whichever was newest. Measured 2026-09-28: PEGASUS was booting
-# 7.3.0-rc4-2-t2-trixie under a menu entry labelled "Stable (Default)".
-# Staging rc5 would have repeated it and demoted 7.2.8 on both boxes.
-#
-# The old edge glob had the mirror-image hole: it matched ONLY
-# '*-ncz-amd64-edge', so MEDUSA's 7.3.0-rc4-3-t2-trixie-xhcifix matched
-# neither pattern, fell through both and was dropped from the ESP while
-# still installed in /boot.
-#
-# Classify on the -rc marker, which is what actually separates them.
+# A kernel is PRERELEASE if its version carries an -rcN component. Under the
+# unified policy an -rcN is still a valid DEFAULT (while the build-time policy
+# allows it: KERNEL-POLICY RC_DEFAULT_ALLOWED=1), so prerelease is NO LONGER
+# used to separate channels -- it only informs the log.
 is_prerelease() {
     case "$1" in *-rc[0-9]*) return 0 ;; *) return 1 ;; esac
 }
 
-# Operator directive 2026-10-05: amd64 edge channel is pinned to 7.3.0-rc6,
-# the validated T2 kernel with the AER ANFE revert
-# (7.3.0-rc6-1-t2-edge-aerfix). Only that build is surfaced as EDGE. Any
-# other -rc kernel is dropped rather than promoted to edge. The kernel may
-# still be installed in /boot (operator apt install), but the rEFInd menu
-# will not offer an unpinned -rc as a bootable edge entry. The build-time
-# gate (build/verify-kernel-default-policy.sh checks 5/8/10) stages only
-# the pinned edge; this hook is the runtime analogue.
-amd64_edge_is_pinned() {
-    # Only the validated rc6 revert build is the amd64 edge kernel.
+# The unified default is the NCZ 7.3 kernel line. A Debian-archive kernel
+# (<ver>-amd64, forky 7.1.x) is never staged. classify() drops everything
+# that is not 7.3.
+is_debian_kernel() {
     case "$1" in
-        7.3.0-rc6-[0-9]-t2-edge-aerfix|7.3.0-rc6-[0-9][0-9]-t2-edge-aerfix) return 0 ;;
+        *-amd64|7.1.*|7.1-*) return 0 ;;
     esac
     return 1
 }
 
 classify() {
-    # classify <kver> -- echoes "stable", "edge", or nothing.
+    # classify <kver> -- echoes "default", or nothing.
     case "$1" in
-        *-rescue)          return ;;
+        *-rescue) return ;;
     esac
-    if amd64_edge_is_pinned "$1"; then
-        echo edge
-        return
-    fi
-    # Trailing * so a variant suffix (e.g. -xhcifix) still classifies
-    # instead of falling through unseen. amd64 stable is the release
-    # *-t2-trixie line; any -rc kernel that is not the pinned edge
-    # (e.g. 7.3.0-rc5-*-t2-trixie, 7.3.0-rc6-*-t2-edge-plain) is dropped
-    # rather than promoted to edge.
+    is_debian_kernel "$1" && return
     case "$1" in
-        *-t2-trixie*) if is_prerelease "$1"; then
-                          return
-                      else
-                          echo stable
-                      fi ;;
+        7.3.*|7.3-*) echo default ;;
     esac
 }
 
 find_newest() {
-    # find_newest <stable|edge> -- echoes the kernel version string of the
-    # $BOOTDIR/vmlinuz-* in that class with the newest mtime, or nothing.
-    local want="$1" newest="" newest_mtime=-1 kver cls mt
+    # find_newest -- echoes the version string of the $BOOTDIR/vmlinuz-* that
+    # classifies as the unified default with the newest mtime, or nothing.
+    local newest="" newest_mtime=-1 kver cls mt
     for f in "$BOOTDIR"/vmlinuz-*; do
         [ -e "$f" ] || continue
         kver="${f##*/vmlinuz-}"
         cls=$(classify "$kver")
-        [ "$cls" = "$want" ] || continue
+        [ "$cls" = "default" ] || continue
         [ -s "$BOOTDIR/initrd.img-$kver" ] || {
             echo "zz1-ncz-refind-refresh-amd64: $kver matches but has no initrd yet (mid-transaction?), skipping" >&2
             continue
@@ -116,11 +81,11 @@ find_newest() {
     echo "$newest"
 }
 
-KVER_STABLE=$(find_newest stable)
-KVER_EDGE=$(find_newest edge)
+KVER_STABLE=$(find_newest)
+KVER_EDGE=""
 
 if [ -z "$KVER_STABLE" ]; then
-    echo "zz1-ncz-refind-refresh-amd64: no stable (non-rc *-t2-trixie) kernel with a ready initrd found, skipping"
+    echo "zz1-ncz-refind-refresh-amd64: no 7.3 default kernel with a ready initrd found, skipping"
     exit 0
 fi
 
@@ -128,5 +93,5 @@ BUILD_VERSION="(unknown)"
 [ -f /usr/local/lib/cix-installer/BUILD_VERSION ] && \
     BUILD_VERSION=$(cat /usr/local/lib/cix-installer/BUILD_VERSION 2>/dev/null || true)
 
-echo "zz1-ncz-refind-refresh-amd64: KVER_STABLE=$KVER_STABLE KVER_EDGE=${KVER_EDGE:-<none>}"
+echo "zz1-ncz-refind-refresh-amd64: KVER_STABLE=$KVER_STABLE (unified 7.3; no edge channel)"
 KVER_STABLE="$KVER_STABLE" KVER_EDGE="$KVER_EDGE" BUILD_VERSION="$BUILD_VERSION" "$REFRESH"

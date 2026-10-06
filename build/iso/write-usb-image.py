@@ -460,10 +460,10 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # arm64 assembler placed under /ncz-payload/assets/.  In particular this
     # is what carries Sky1's Image/modules/headers/config set, Mali/Panthor,
     # NPU/VPU DKMS sources and prebuilt overlays, MPAM/NPU data and firmware.
-    # AMD64 uses the identical loop but naturally has amd64-stable (default)
-    # and amd64-edge (the pinned 7.3.0-rc6 AER-revert build, operator
-    # directive 2026-10-05) kernel package directories instead of the Sky1
-    # edge tarball shape.
+    # AMD64 uses the identical loop but naturally has the single
+    # amd64-stable 7.3 kernel package directory (operator directive
+    # 2026-10-05, unified; the amd64-edge channel is retired) instead of the
+    # Sky1 tarball shape.
     asset_names = (
         "agent-stack", "branding", "cix-debs", "diag", "firmware",
         "kernel", "npu", "python311", "sky1-firmware", "mgmt",
@@ -475,17 +475,17 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         if not src.exists():
             continue
         if name == "kernel":
-            channels = (("edge", "mali", "mali-70012", "modules-overlay",
+            channels = (("mali", "mali-70012", "modules-overlay",
                          "npu", "panthor", "vpu") if arch == "arm64"
-                        else ("amd64-stable", "amd64-edge"))
+                        else ("amd64-stable",))
             dst.mkdir(parents=True, exist_ok=True)
             for channel in channels:
                 child = src / channel
                 if not child.exists():
                     continue
                 if child.is_symlink():
-                    # Edge (a Sky1-only channel) is itself a symlink into
-                    # the shared kernel-staging pool. Resolve it
+                    # mainline (the Sky1 kernel pointer) is itself a symlink
+                    # into the shared kernel-staging pool. Resolve it
                     # explicitly: copying a symlink with shutil.copytree
                     # would land the SYMLINK on the medium, which then
                     # breaks the installer's first read of KVER (a symlink

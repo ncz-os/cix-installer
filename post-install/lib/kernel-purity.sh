@@ -5,7 +5,7 @@
 # post-install/10-amd64-kernel.sh (amd64) BEFORE either hook touches apt.
 #
 # Why this exists (operator directive 2026-10-04, Cygnus 26.10):
-#   NCZ-OS ships its own 7.2.9 kernel -- linux-image-cixmini (arm64) /
+#   NCZ-OS ships its own unified 7.3 kernel -- linux-image-cixmini (arm64) /
 #   linux-image-<ver>-t2-trixie (amd64). Until now the ONLY guarantee that
 #   Debian's default kernel (forky's 7.1.x linux-image-arm64 / linux-image-amd64
 #   meta or a versioned linux-image-7.1*) could not be installed was a
