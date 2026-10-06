@@ -1,13 +1,13 @@
 #!/bin/sh
-# See docs/ISO-BUILD-GUARDRAILS.md before changing this file --
-# these are ISO build MECHANICS, stable across builds by design.
+# See docs/IMAGE-BUILD-GUARDRAILS.md before changing this file --
+# these are image build MECHANICS, stable across builds by design.
 #
 # STATUS (2026-08-26): this file is the DEAD-CODE TWIN of the r159
-# layered-squashfs branch baked into the /usr/sbin/debootstrap stub by
-# build/build-iso-di.sh. partman/late_command is NOT a real d-i hook
-# (only partman/early_command exists), so this script never runs in
-# production. The live install-time extraction happens via the stub
-# heredoc in build-iso-di.sh.
+# layered-squashfs branch baked into the /usr/sbin/debootstrap stub
+# (R159_STUB_SCRIPT in build/iso/patch-debootstrap-stub.py). partman/
+# late_command is NOT a real d-i hook (only partman/early_command exists),
+# so this script never runs in production. The live install-time
+# extraction happens via that stub.
 #
 # The trap this creates: a fix made here is forgotten in the stub (round 1
 # of the 2026-08-26 0700-root incident -- the gate landed here and shipped
@@ -15,14 +15,15 @@
 # real fix shipped and this file kept drifting). To close the trap
 # without doing the larger unification refactor, see
 # build/check-extract-rootfs-consistency.sh: it diffs the r159 branches
-# of this file and the stub and FAILS THE BUILD on any drift after
-# normalization. Any change to the extraction logic in either file must
-# be mirrored in the other (or the check will refuse to ship).
+# of this file and the stub and fails on any drift after normalization
+# (a manual check since the retired ISO builder that ran it is gone). Any
+# change to the extraction logic in either file must be mirrored in the
+# other.
 #
 # THE LONG-PROMISED UNIFICATION (making this file the single source of
-# truth and embedding it into the stub heredoc at build time, so the two
+# truth and embedding it into the stub at build time, so the two
 # copies become one) is deferred pending its own reviewed look -- see
-# docs/ISO-BUILD-GUARDRAILS.md's "dead-code twin" trap entry for the
+# docs/IMAGE-BUILD-GUARDRAILS.md's "dead-code twin" trap entry for the
 # history and the reason this file still carries the same logic shape
 # as the stub.
 #
@@ -284,7 +285,7 @@ if [ -n "$SQFS_DIR" ]; then
         fi
     fi
     # 2026-08-26 ROOT-MODE GATE — post-full-layer-stack hard verification
-    # (docs/ISO-BUILD-GUARDRAILS.md). Root cause of the 0700-root incident,
+    # (docs/IMAGE-BUILD-GUARDRAILS.md). Root cause of the 0700-root incident,
     # found+proven 2026-08-26: `unsquashfs -f -d /target` re-stamps /target's
     # OWN mode from EACH layer's root entry (verified with the bundled sqtools
     # unsquashfs AND squashfs-tools 4.6.1: an existing 755 dir became 700
@@ -557,7 +558,7 @@ case "$_cur" in
 esac
 
 # 2026-08-26 first-boot root-mode belt (0700-root incident; see
-# docs/ISO-BUILD-GUARDRAILS.md). Runs AFTER dpkg --configure -a above (package
+# docs/IMAGE-BUILD-GUARDRAILS.md). Runs AFTER dpkg --configure -a above (package
 # postinsts are the last code to run before a login screen) and before
 # display-manager.service (unit ordering), so a bad / mode is corrected before
 # greetd would hit EACCES traversing /. Always emits a NCZ-ROOTMODE marker to

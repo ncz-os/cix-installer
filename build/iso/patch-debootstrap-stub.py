@@ -34,7 +34,7 @@ syntax-checked at build time):
     ``kind`` is ``whiteout`` or ``opaque``) — this reproduces overlayfs
     upperdir semantics without a kernel overlay mount;
   * asserts ``/``'s mode is 0755 after extraction (the 2026-08-26
-    root-mode gate, documented in ``docs/ISO-BUILD-GUARDRAILS.md``);
+    root-mode gate, documented in ``docs/IMAGE-BUILD-GUARDRAILS.md``);
   * exits 0 so base-installer believes debootstrap succeeded and d-i's
     later steps proceed normally against the now-populated ``$TARGET``.
 
@@ -360,7 +360,7 @@ if [ -n "$SQDIR" ]; then
     elif [ "$_applied_role" = "base" ]; then
         echo "I: r159 stub: role=base (component-selector desktop OFF); skipping desktop overlay" >&2
     fi
-    # 2026-08-26 ROOT-MODE GATE — THE LIVE PATH (docs/ISO-BUILD-GUARDRAILS.md).
+    # 2026-08-26 ROOT-MODE GATE — THE LIVE PATH (docs/IMAGE-BUILD-GUARDRAILS.md).
     # Root cause of the 0700-root incident, found+proven 2026-08-26:
     # `unsquashfs -f -d $TARGET` re-stamps $TARGET's OWN mode from EACH
     # layer's root entry (verified with the bundled sqtools unsquashfs AND
@@ -602,7 +602,7 @@ case "$_cur" in
 esac
 
 # 2026-08-26 first-boot root-mode belt (0700-root incident; see
-# docs/ISO-BUILD-GUARDRAILS.md). Runs AFTER dpkg --configure -a above (package
+# docs/IMAGE-BUILD-GUARDRAILS.md). Runs AFTER dpkg --configure -a above (package
 # postinsts are the last code to run before a login screen) and before
 # display-manager.service (unit ordering), so a bad / mode is corrected before
 # greetd would hit EACCES traversing /. Always emits a NCZ-ROOTMODE marker to

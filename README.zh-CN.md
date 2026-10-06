@@ -9,11 +9,14 @@
 
 > **🌐 语言：** [English](README.md) · 简体中文
 >
-> **📚 从这里开始：** [设计理据 —— 为什么这样构建](docs/DESIGN-RATIONALE.md) · [AI/ML 技术栈参考](docs/AI-ML-STACK.zh-CN.md) · [源码发布](docs/SOURCE-RELEASES.zh-CN.md) · [下载 ISO](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
+> **📚 从这里开始：** [设计理据 —— 为什么这样构建](docs/DESIGN-RATIONALE.md) · [AI/ML 技术栈参考](docs/AI-ML-STACK.zh-CN.md) · [源码发布](docs/SOURCE-RELEASES.zh-CN.md) · [下载镜像](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
 
-**为 NCZ Linux 发行版定制的 debian-installer ISO 构建器。**
+**为 NCZ Linux 发行版定制的 debian-installer 原始 GPT 磁盘镜像构建器。**
 
-它生成一张完全无人值守、可 UEFI 启动的安装 ISO，覆盖**两个一等目标架构**，共享同一条构建
+交付物是原始 GPT 磁盘镜像 `ncz-os-<arch>-<YYYYMMDD>-<sha>.img`，原样写入 U 盘即可。
+没有 ISO 交付物；上游 Debian netinst ISO 只是构建的*输入*（d-i 基底），不是产品。
+
+它生成一张完全无人值守、可 UEFI 启动的安装镜像，覆盖**两个一等目标架构**，共享同一条构建
 流水线与同一套用户态：
 
 - **Arm64 — CIX Sky1**（Radxa Orion O6/O6N、Minisforum MS-R1）。原生 Mali-G720 GLES 与
@@ -88,7 +91,7 @@ NCZ **在设计与意图上都是厂商中立的**。目标是：在能取得样
   `9001-ACPI-x86-Apple-T2-systems-need-early-CPU-offlining.patch` 源文件）。在 T2 Mac 上，
   NCZ-OS 把 `apple-bce`、`applesmc`、HID 与 APFS 接入内核树（我们自己的 `v7.2.6+T2` 内核），
   并在首次启动时从 AdityaGarg8 的真实、已签名 `t2-ubuntu-repo` 拉取 Apple 固件与音频配置。
-- **AMD64 — 通用 x86-64 PC** —— 同一份构建、同一套用户态，无 CIX 栈。同一张 ISO
+- **AMD64 — 通用 x86-64 PC** —— 同一份构建、同一套用户态，无 CIX 栈。同一张镜像
   能在普通 Intel/AMD 台式机或服务器上启动；与具体硬件绑定的加速器仓库（NVIDIA CUDA、
   AMD ROCm、Intel OpenVINO）由 `post-install/54-gpu-accel.sh` 中的 `lspci -nn`
   PCI 类自动检测并接入。没有独立显卡的机器会静默跳过，这是正常行为。
@@ -159,16 +162,16 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
 
 ## 快速开始（在硬件上安装）
 
-**先校验，再写入。** 每个版本都在 ISO 旁附带 `.md5`：
+**先校验，再写入。** 每个版本都在镜像旁附带 `.sha256`：
 
 ```bash
-md5sum -c nclawzero-installer-cixmini-<版本>.iso.md5
+sha256sum -c ncz-os-<arch>-<date>-<sha>.img.sha256
 ```
 
-该 ISO 是混合镜像，请写入**整块设备**（`/dev/sdX`），而不是某个分区（`/dev/sdX1`）：
+这是原始 GPT 磁盘镜像，请写入**整块设备**（`/dev/sdX`），而不是某个分区（`/dev/sdX1`）：
 
 ```bash
-sudo dd if=nclawzero-installer-cixmini-<版本>.iso of=/dev/sdX \
+sudo dd if=ncz-os-<arch>-<date>-<sha>.img of=/dev/sdX \
      bs=4M status=progress oflag=direct conv=fsync
 sync
 ```
@@ -191,7 +194,7 @@ sync
 
 ### 在 AMD64 / T2 Mac 上安装
 
-如果你构建的是 AMD64 ISO，步骤 1、3–5 与上面完全一致；第 2 步替换为：将 USB 插入 T2 Mac，
+如果你构建的是 AMD64 镜像，步骤 1、3–5 与上面完全一致；第 2 步替换为：将 USB 插入 T2 Mac，
 开机时**按住 Option（⌥）键**进入启动盘选择界面，选 USB 设备。通用 x86-64 PC 按 F 键进入
 UEFI 启动菜单，与 Arm64 Sky1 板相同。T2 Mac 的 Apple 固件与音频配置由
 `post-install/55-t2-firmware.sh` 在首次启动时从 AdityaGarg8 的 `t2-ubuntu-repo`
@@ -199,7 +202,7 @@ UEFI 启动菜单，与 Arm64 Sky1 板相同。T2 Mac 的 Apple 固件与音频�
 
 ## 嵌入模型
 
-模型**不在 ISO 上**——每个动辄数百 MB，而多数安装并不需要。安装完成后
+模型**不在镜像上**——每个动辄数百 MB，而多数安装并不需要。安装完成后
 `/opt/ncz/models` 是空的。
 
 当你需要 NPU 推理时，从 apt 仓库安装其一：
@@ -224,24 +227,19 @@ AMD64 / T2 平台的内核是 `7.2.7-2-t2-trixie`（稳定版）或 `7.3.0-rc4-2
 对应源码见 [`kernel-source/`](kernel-source/SOURCE.md)，其中包含实际用于构建所发布
 二进制的展开 `.config`。
 
-## 构建 AMD64（T2 / 通用 x86-64）ISO
+## 构建 AMD64（T2 / 通用 x86-64）镜像
 
-英文 [README](README.md#building-an-amd64-t2--generic-x86-64-iso) 中有完整的逐步说明，
-此处只给出一句话摘要：**顶层 `Makefile` 当前尚未提供 `make iso-amd64` 目标**；AMD64 入口
-是同一个 `build/build-iso-di.sh` 脚本，附以正确的环境变量：
+英文 [README](README.md#building-an-amd64-t2--generic-x86-64-image) 中有完整的逐步说明，
+此处只给出一句话摘要：AMD64 与 Arm64 使用同一个 `make image` 目标
+（`build/build-installer-image.sh`），只需改变架构与基底：
 
 ```bash
-sudo NCZ_TARGET_ARCH=amd64 \
-     bash build/build-iso-di.sh \
-       --bookworm-iso downloads/debian-testing-amd64-netinst.iso \
-       --root . \
-       --version $(date -u +%Y.%m.%d) \
-       --output build/nclawzero-installer-cixmini-${VERSION}-amd64.iso \
-       --mode full \
-       --variant desktop
+make image-verified ARCH=amd64 \
+  UPSTREAM_ISO=debian-testing-amd64-netinst.iso
 ```
 
-构建脚本在第 95 行对 `NCZ_TARGET_ARCH ∈ {arm64, amd64}` 做了校验。AMD64 与 Arm64 的真正
+`UPSTREAM_ISO` 指的是上游 Debian netinst 基底（构建输入），不是产物。
+`build/build-installer-image.sh` 只接受 `ARCH ∈ {arm64, amd64}`。AMD64 与 Arm64 的真正
 差别是：内核来自构建主机的 `kernel-staging/` 而非提交到 `assets/kernel/edge` 的；
 四个 CIX DKMS 加速器模块不会被安装（`80-npu.sh` / `81-vpu.sh` / `82-mali-gpu.sh` /
 `83-panthor-gpu.sh` 在 AMD64 上是空操作，按 `dpkg --print-architecture` 判定，行为
@@ -358,7 +356,7 @@ Asahi 衍生的工具，T2 固件钩子在调用它；没有它 T2 路径根本�
 *本文档为英文 [README.md](README.md) 的中文版本。若两者出现分歧，以英文版为准。*
 
 *关于本次双架构更新的同步状态：标题、引言、"设计上厂商中立"、"硬件支持与测试状态"、
-"快速开始"中 AMD64 / T2 安装小节、"内核"小节、"构建 AMD64 ISO"小节、"致谢"
+"快速开始"中 AMD64 / T2 安装小节、"内核"小节、"构建 AMD64 镜像"小节、"致谢"
 都已更新到与英文版同步的 2026-09-23 双架构内容。*
 *英文版中以下小节在本次会话中尚未翻译为中文——若您希望阅读最新版，请直接查阅
 [README.md](README.md)：架构（"## Architecture"）、"Inputs"、"OTA channel
@@ -366,5 +364,5 @@ Asahi 衍生的工具，T2 固件钩子在调用它；没有它 T2 路径根本�
 "AI/ML stack & project history"、"The `ncz` utility"及其 `ncz install mnemos`、
 "Live recovery: the `ncz-recovery` container"、"Releases"、"Sister projects"、
 "Build infrastructure & partners"、以及英文版较长的"Quick start (build the
-ISO)"与"NPU SSDT wiring"小节。这是一份有意保留的中英文分头翻译状态，不是疏忽；
+installer image)"与"NPU SSDT wiring"小节。这是一份有意保留的中英文分头翻译状态，不是疏忽；
 英文版始终是规范版本。*

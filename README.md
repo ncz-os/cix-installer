@@ -22,19 +22,23 @@ frozen-in-time legacy distro.
 
 > **🌐 Language:** English · [简体中文](README.zh-CN.md)
 >
-> **📚 Start here:** [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the ISO](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
+> **📚 Start here:** [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the image](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
 
-**Stock-debian-installer ISO assembly for the NCZ Linux distribution.**
+**Stock-debian-installer raw GPT image assembly for the NCZ Linux distribution.**
+
+The deliverable is a raw GPT disk image, `ncz-os-<arch>-<YYYYMMDD>-<sha>.img`,
+written to a USB stick as-is. There is no ISO. The upstream Debian netinst ISO
+is an *input* to the build (the d-i substrate), not a product.
 
 The installer uses the **upstream Debian Installer (d-i) unmodified** as
 the runtime that drives the install — NCZ-specific customisations are
 applied at the **assembly layer** (squashfs payload + small set of
-grafted udebs + ncz-payload on the ISO media + rEFInd ESP), not by
-hand-patching d-i itself. See the [Architecture](#architecture) section
-below and `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
-for what "assembly layer" means concretely.
+grafted udebs + ncz-payload on the image's data partition + rEFInd ESP),
+not by hand-patching d-i itself. See the [Architecture](#architecture)
+section below and `docs/IMAGE-BUILD-GUARDRAILS.md` for what "assembly
+layer" means concretely.
 
-Produces a fully-unattended UEFI-bootable installer ISO for **two first-class
+Produces a fully-unattended UEFI-bootable installer image for **two first-class
 target architectures** that share one build pipeline and one userland:
 
 - **Arm64 -- CIX Sky1** (Radxa Orion O6/O6N, Minisforum MS-R1). Native
@@ -48,10 +52,10 @@ target architectures** that share one build pipeline and one userland:
   AdityaGarg8 `t2-ubuntu-repo`.
 
 Both partition the target disk and install a **Debian Testing (Forky)**
-base on disk (the d-i substrate ISO itself is the real Debian netinst;
-for amd64 it is Bookworm netboot pinned by content hash, for arm64/Sky1
-it is the Forky-testing netinst -- see `release.conf`'s
-`NCZ_BASE_CODENAME=forky` and `docs/NEXT_ISO.md` for the substrate pin),
+base on disk (the d-i substrate is the real Debian netinst, an input to
+the build: the Forky-testing netinst, pinned by content hash for
+arm64/Sky1 -- see `release.conf`'s `NCZ_BASE_CODENAME=forky` and
+`SUBSTRATE_SHA` in the `Makefile` for the substrate pin),
 then layer the same hardware-appropriate kernel + vendor userspace
 runtimes + Singularity desktop + Claude Code + the (opt-in) NCZ agent
 stack, and brand the system as NCZ.
@@ -151,7 +155,7 @@ shared desktop, shared agent stack):**
   (our own `v7.2.6+T2` kernel) and pulls Apple firmware + audio config
   from AdityaGarg8's real, signed `t2-ubuntu-repo` at first boot.
 - **AMD64 — generic x86-64 PC** — same build, same userland, no CIX
-  stack. The same ISO boots a normal Intel/AMD desktop or server; the
+  stack. The same image boots a normal Intel/AMD desktop or server; the
   vendor-specific accelerator repos (NVIDIA CUDA, AMD ROCm, Intel
   OpenVINO) wire automatically based on `lspci -nn` PCI-class detection
   in `post-install/54-gpu-accel.sh`. A machine with no discrete GPU is
@@ -164,8 +168,8 @@ shared desktop, shared agent stack):**
   (kit-only, not OS), and any Arm SoC shipping in volume that we can
   sample.
 - **x86 roadmap**: keep AMD64 as a real first-class architecture; no
-  arch-guards or fast paths that assume Arm64. The build script's
-  `NCZ_TARGET_ARCH` validator (`build/build-iso-di.sh` line 95) accepts
+  arch-guards or fast paths that assume Arm64. The image build's
+  `ARCH` validator (`build/build-installer-image.sh`) accepts
   both `arm64` and `amd64`; the AMD64 package manifests
   (`manifests/installer-base-amd64.pkgs`, `desktop-amd64.pkgs`,
   `rescue-amd64.pkgs`) are committed alongside the Arm64 originals
@@ -193,14 +197,12 @@ The current build path is a **two-stage pipeline**, not a single script:
    which uses mkosi under the hood for the layered-overlay semantics.
    This is the Cix Sky1 implementation; the architecture is the
    reusable scaffold.
-2. **Assembly (bootable ISO writer)** — `build/build-iso-di.sh` (the
-   Sky1/arm64 orchestration script) and the new
-   `build/iso/{import-substrate,build-refind-esp,stage-ncz-payload,patch-debootstrap-stub,write-image,verify-image}.py`
-   xorriso-based writer (the amd64 cold/warm path that supersedes the old
-   monolithic pipeline — see
-   `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`
-   for why this split exists) assemble those layers plus a stock Debian
-   Installer substrate into the final bootable ISO.
+2. **Assembly (raw GPT image writer)** — `make image`
+   (`build/build-installer-image.sh`, shared by both architectures) runs
+   `build/iso/{import-substrate,stage-ncz-payload,patch-debootstrap-stub,patch-initrd-t2-kernel,build-refind-esp,write-usb-image}.py`
+   to assemble those layers plus a stock Debian Installer substrate into
+   the final bootable `.img` (rEFInd ESP + ext4 `NCZDATA` payload
+   partition).
 
 The NCZ-specific installer customisations now live at the assembly layer
 on top of an **unmodified stock d-i** — d-i itself is stock; the only
@@ -209,12 +211,6 @@ patched `debootstrap-udeb` stub that drives the install-time branch,
 plus the cixmini boot assets and NCZ hardware-initrd overlays — all
 shipped as ordinary udeb files in the substrate pool, not as a patched
 d-i source tree).
-
-> **Note on `build/build-iso.sh`:** the file still exists in the tree but
-> is **STALE / ABANDONED** — its own header now flags this. It describes
-> an unrelated 2026-05-03 Ubuntu-Server subiquity pivot and is not part
-> of the current build path. See its own header for the warning and the
-> pointer to the current pipeline.
 
 ## Hardware support & testing status
 
@@ -314,7 +310,7 @@ kernel line.
 | **Audio (SoC)** | `snd-soc-sky1-sound-card` + Cadence I2S + `snd-soc-sof-cix` | `=m` | ✅ | ✅ | ✅ | Patch `2014`. SOF (`CONFIG_SND_SOC_SOF_CIX_TOPLEVEL=y`, `CONFIG_SND_SOC_SOF_CIX_SKY1=m`) is built but not observed loaded on real hardware — the machine driver (`snd-soc-sky1-sound-card`) handles audio directly; SOF appears to be a dormant/fallback path, not confirmed active. |
 | **GPU (Mali-G720)** | `mali_kbase` (default) **and** `panthor`, both DKMS; `drm-cix` + `drm-trilin-dp-cix` (DisplayPort) | DKMS | ✅ | ✅ | ✅ | **Both drivers ship**, both blacklisted, one selected via `ncz-gpu-select`. Default `mali_kbase` measured on O6N: Mali-G720-Immortalis, 10 cores, **OpenGL ES 3.2 / EGL 1.5**, desktop accelerated. `panthor` is the mainline/Vulkan path. Display: `trilin_dpsub` + `linlon_dp` confirmed, DP up to 4K60. |
 | **VPU (Linlon MVX)** | `amvx` via `cix-vpu-driver` (DKMS) | DKMS | ✅ | ✅ | ✅ | Measured on O6N: **Linlon v5276, 4 cores**. Decode H.263/H.264/HEVC/MPEG-2/MPEG-4/VP8/VP9/AV1; hardware encode H.264/HEVC/VP8/VP9 confirmed via `ffmpeg` V4L2 mem2mem. Requires the 16 `*.fwb` codec blobs staged by `post-install/12-sky1-firmware.sh`. |
-| **NPU (Zhouyi V3)** | `aipu` via `cix-npu-driver-dkms` 6.2.0 | DKMS (`CONFIG_ARMCHINA_NPU=n`) | ✅ | ✅ | ✅ | Measured on **both** O6N and MS-R1: `nomic-embed-text-v1.5_256.cix` at **95.5 ms** per 256-token embed, deterministic across runs, `aipu` IRQ count advancing. The in-tree `armchina-npu` driver is superseded by the 26Q2-SDK DKMS driver. Requires a model package (`ncz-model-nomic-embed`); models are not on the ISO. |
+| **NPU (Zhouyi V3)** | `aipu` via `cix-npu-driver-dkms` 6.2.0 | DKMS (`CONFIG_ARMCHINA_NPU=n`) | ✅ | ✅ | ✅ | Measured on **both** O6N and MS-R1: `nomic-embed-text-v1.5_256.cix` at **95.5 ms** per 256-token embed, deterministic across runs, `aipu` IRQ count advancing. The in-tree `armchina-npu` driver is superseded by the 26Q2-SDK DKMS driver. Requires a model package (`ncz-model-nomic-embed`); models are not on the image. |
 | **Ethernet** | `r8169` (RTL8125/8126/8169) | `=y` | ✅ | ✅ | ✅ | `rtl_nic` firmware shipped in installer + installed system. `CONFIG_R8169=y` (built-in, not a module). |
 | **Wi-Fi** | `mt7921e` (MediaTek MT7921/MT7922) | `=m` | ✅ | ✅ | ✅ | M.2 Key-E slot; confirmed loaded on real hardware (MS-R1). |
 | **Wi-Fi (alt)** | `rtw88`/`rtw89` firmware | `=m` | ✅ | ✅ | ✅ | If equipped (`rtw8852b`, `rtw8822`, etc. firmware shipped). |
@@ -415,22 +411,19 @@ make image ARCH=amd64 \
 `make image-verified` builds the same artifact and runs the shared raw-GPT
 install-and-detached-boot gate (`build/kvm-install-gate-gpt.sh`).
 
-> **`build/build-iso.sh` is STALE/ABANDONED** — it describes an unrelated
-> 2026-05-03 Ubuntu-subiquity live-ISO repack and is not invoked by
-> anything in the current pipeline. Its own header now flags this. Do
-> not run it; do not be misled by its name.
-
 ### Build-host prerequisites
 
-The `make iso` (and `make download`) targets need a Linux host with at least:
+The `make image` (and `make download`) targets need a Linux host with at least
+(or run them in the `build/containers/Containerfile.ncz-imagebuild` container):
 
 - Debian 13+ (or Ubuntu 24.04+) — `bash`, GNU coreutils, GNU `find` (with
-  `-print0`), GNU `cpio`, GNU `xorriso` (>= 1.5), `python3`, `dpkg-dev`
+  `-print0`), GNU `cpio`, GNU `xorriso` (>= 1.5, only to extract the upstream
+  netinst substrate), `python3`, `dpkg-dev`
 - `acpica-tools` — provides `iasl`, which compiles `assets/npu/ssdt-npucre.asl`
   into the early-initramfs SSDT CPIO that fixes the Minisforum MS-R1's missing
   `_HID="CIXH4010"` on the NPU compute cores. Without it, the build fails
-  loudly (see `build/npu-ssdt-gate.sh`, called from `build/build-iso-di.sh`'s
-  full-mode preflight). On Debian / Ubuntu:
+  loudly (see `build/npu-ssdt-gate.sh`; run it with `make npu-ssdt-check`).
+  On Debian / Ubuntu:
 
   ```bash
   sudo apt install -y acpica-tools
@@ -499,7 +492,7 @@ the next-iteration preview.
 
 A fast standalone check that the assets/npu/ tree is consistent (the .asl
 source compiles, the .cpio is present, the CPIO is in uncompressed newc
-format, the inner AML is a valid SSDT) — no full ISO build required:
+format, the inner AML is a valid SSDT) — no full image build required:
 
 ```bash
 # Regenerate the CPIO from the committed .asl if it is missing or stale,
@@ -522,10 +515,9 @@ make npu-ssdt-selftest        # self-test the gate (6 isolated cases)
 
 The gate exits 0 on PASS and 1 on FAIL with an explicit remediation per
 failure mode (missing .asl, missing .cpio, bad magic, missing entry,
-unrecognised inner AML signature, or missing iasl). It is the same gate
-`build-iso-di.sh` invokes in its full-mode preflight, so a PASS here
-guarantees a clean `make iso` run. (AMD64 builds skip this gate — there
-is no MS-R1 NPU on x86 hardware.)
+unrecognised inner AML signature, or missing iasl). `make image` does not
+run it for you; run `make npu-ssdt-check` before an arm64 image build.
+(AMD64 builds skip this gate — there is no MS-R1 NPU on x86 hardware.)
 
 ## Quick start (install on hardware)
 
@@ -571,7 +563,7 @@ is no MS-R1 NPU on x86 hardware.)
    > destroys that disk.
 
 2. Plug the USB into the target (Sky1 board — Radxa Orion O6/O6N, MS-R1 —
-   **or any T2 Mac / generic x86-64 PC if you built the AMD64 ISO**), power on,
+   **or any T2 Mac / generic x86-64 PC if you built the AMD64 image**), power on,
    and hit the F-key for the UEFI boot menu to pick the USB device. On a T2
    Mac, hold Option (⌥) at boot instead.
 
@@ -605,26 +597,27 @@ The build pipeline is split into **two distinct stages**:
 | Stage | Output | Where it lives |
 |---|---|---|
 | **Content producer** — mkosi-based squashfs layers | `base.squashfs`, `desktop.squashfs`, `hotfix.squashfs`, etc. | `build/build-squashfs-layers.sh` (the shell front-end) + `build/build-role-delta-mkosi.sh` (the mkosi delta producer) + `build/build-squashfs-layers.sh`'s `build_layer()` shell wrapper that drives the actual `mksquashfs` invocation. Manifest-driven; `manifests/installer-base.pkgs` (arm64) / `manifests/installer-base-amd64.pkgs` (amd64) + `manifests/desktop.pkgs` etc. name every package. |
-| **Assembly writer** — xorriso-based ISO writer | Bootable UEFI ISO + rEFInd ESP + ncz-payload + d-i substrate | `build/build-iso-di.sh` (the arm64/Sky1 orchestration; invokes d-i's BusyBox init, grafts udebs, swaps the installer kernel) and the new `build/iso/{import-substrate,build-refind-esp,stage-ncz-payload,patch-debootstrap-stub,write-image,verify-image}.py` (the amd64 path that supersedes the monolithic pipeline — see `docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md`). |
+| **Assembly writer** — raw GPT image writer | Bootable UEFI raw GPT `.img`: rEFInd ESP + ext4 `NCZDATA` partition carrying ncz-payload + the d-i substrate pool | `make image` → `build/build-installer-image.sh` (both architectures) → `build/iso/import-substrate.py` (extracts the pinned upstream netinst), `stage-ncz-payload.py`, `patch-debootstrap-stub.py` (grafts the debootstrap stub udeb), `patch-initrd-t2-kernel.py` (swaps the installer kernel), `build-refind-esp.py`, `write-usb-image.py`. |
 
 The NCZ-specific installer customisations live at the **assembly layer**
 on top of an **unmodified stock Debian Installer** — there is no
 hand-patched d-i source tree in this repo. d-i itself is stock (the
-substrate is the real Debian Installer netinst/mini ISO, pinned by
-content hash per architecture — Bookworm for amd64, Forky for the
-arm64/Sky1 production path). The NCZ delta ships as:
+substrate is the real Debian Installer netinst, an input pinned by
+content hash (`SUBSTRATE_SHA`; arm64/Sky1 is pinned, amd64 is not yet).
+The NCZ delta ships as:
 
 - the layered squashfs payload that the install-time stub extracts to
   disk;
 - a small set of **grafted** udebs in the d-i initrd (the `debootstrap-udeb`
   stub the install-time branch runs, plus cixmini boot assets);
-- the ncz-payload directory staged into the ISO tree;
+- the ncz-payload directory staged onto the image's `NCZDATA` partition
+  (mounted by d-i at `/cdrom` during the install);
 - the rEFInd ESP image that boots the chosen kernel/initrd pair.
 
 This is intentionally **not** a d-i replacement: d-i's BusyBox init,
 its hardware-detection, its partman, and its udeb resolver are all the
 real, upstream ones. The assembly layer composes them with our payload.
-See `docs/ISO-BUILD-GUARDRAILS.md` for the constraints this split
+See `docs/IMAGE-BUILD-GUARDRAILS.md` for the constraints this split
 imposes (e.g. why `preseed/extract-rootfs.sh` is the historical
 dead-code twin of the live stub baked into the patched `debootstrap-udeb`).
 
@@ -639,7 +632,7 @@ This replaced a two-variant model (Reinhardt/desktop, Magnetar/server) that
 cost a full apt closure and a second squashfs on every build for a difference
 that amounts to one systemd target.
 
-The ISO also ships:
+The image also ships:
 - CIX proprietary userspace `.deb`s, staged offline in `assets/cix-debs/`
   (~30 packages after excluding internal test/validation builds that are
   never actually installed) — dpkg-installed by `post-install/25-cix-proprietary.sh`.
@@ -680,7 +673,7 @@ via `ncz` after install.
 > `docs/AI-ML-STACK.md` reference covers the full kit; this section
 > covers the Sky1 wiring that ships with the image.
 
-The ISO ships a working **NPU embedding stack** so a freshly-installed
+The image ships a working **NPU embedding stack** so a freshly-installed
 appliance does semantic memory at NPU latency, offline, with no setup. This is
 the load-bearing AI workload for MNEMOS (the memory layer) and it is wired to be
 **automatic** — the operator never picks a model or an accelerator.
@@ -804,9 +797,9 @@ us out and failures are captured even with nobody watching.
 | **Remote syslog** | 5514/udp | every installer log line (plus `DEBCONF_DEBUG=5` verbose d-i output) shipped to a collector host so you get the failure without logging in |
 
 **Toggle / removal (two independent switches).**
-1. **Build switch** — `DIAG_ENABLE=0 build/build-iso-di.sh …` produces a
-   **ship-clean** image: the module is not staged and `ncz_diag`/`DEBCONF_DEBUG`
-   are not added to the kernel cmdline. (Default `DIAG_ENABLE=1` during bring-up.)
+1. **Build switch** — the retired ISO builder honoured `DIAG_ENABLE=0` to
+   leave the module out entirely. The raw GPT image build has no such
+   switch today: it always stages `assets/diag/`, so use the boot variable.
 2. **Boot variable** — `ncz_diag=0|off` on the kernel cmdline disables the
    module even if staged; `ncz_diag=1` enables it. Flip it right at the rEFInd menu.
 
@@ -816,7 +809,7 @@ us out and failures are captured even with nobody watching.
   build's internal dev collector on port `5514`). Point it at your own box.
 
 **How it works.** A static arm64 busybox (`assets/diag/busybox-arm64`, with
-`telnetd`/`httpd`/`syslogd`/`klogd`/`chpasswd` compiled in) ships on the CD;
+`telnetd`/`httpd`/`syslogd`/`klogd`/`chpasswd` compiled in) ships on the installer media;
 `preseed/early_command` launches `preseed/diag-console.sh` in the background. The
 script self-gates on `ncz_diag`, installs a full applet farm for the rich shell,
 sets the root password, replaces d-i's syslogd with one that **also forwards to
@@ -836,8 +829,8 @@ On the **installed system**, full SSH (scp/sftp), telnet on :23
 consoles vanish with the d-i ramdisk.
 
 > **Security:** the default password `diags`, unauthenticated-ish telnet root
-> shell, and world-readable httpd are **LAN-only / TESTING ONLY**. Ship with
-> `DIAG_ENABLE=0` (or `ncz_diag=0`) to strip the whole module in one switch.
+> shell, and world-readable httpd are **LAN-only / TESTING ONLY**. Boot with
+> `ncz_diag=0` to disable the whole module in one switch.
 
 ### Installed-system access posture (defaults)
 
@@ -1078,7 +1071,7 @@ curl -s localhost:8081/v1/embeddings \
      -d '{"input":"hello"}' | head -c 120
 ```
 
-**Models are not on the ISO.** They are installed from apt
+**Models are not on the image.** They are installed from apt
 (`ncz-model-nomic-embed`) or fetched with `ncz models pull`, which keeps the
 image small and the model licensing separable. If no `.cix` graph is present the
 service stays disabled and says so rather than failing at query time.
@@ -1150,7 +1143,7 @@ posture and how to harden it.
 Current and past release notes live in **[`docs/releases/`](docs/releases/)**.
 The latest is **[2026.08.18-v13](docs/releases/2026.08.18-v13.md)**.
 
-Per-ISO history for earlier builds is archived in
+Per-build history for earlier (ISO-era) builds is archived in
 [`docs/RELEASE-HISTORY.md`](docs/RELEASE-HISTORY.md).
 
 ## Acknowledgements

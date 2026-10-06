@@ -1,6 +1,6 @@
 #!/bin/sh
-# See docs/ISO-BUILD-GUARDRAILS.md before changing this file —
-# these are ISO build MECHANICS, stable across builds by design.
+# See docs/IMAGE-BUILD-GUARDRAILS.md before changing this file —
+# these are image build MECHANICS, stable across builds by design.
 # late.sh — run from preseed late_command in the d-i runtime context.
 #
 # d-i's late_command runs after base install + apt config + bootloader

@@ -23,7 +23,7 @@
 # unify the two copies, but it FAILS THE BUILD whenever their logical
 # content has drifted, so a "fix made in extract-rootfs.sh and forgotten in
 # the stub" (round-1's failure mode) cannot reach a shipped image without a
-# loud failure. See docs/ISO-BUILD-GUARDRAILS.md's "dead-code twin" trap
+# loud failure. See docs/IMAGE-BUILD-GUARDRAILS.md's "dead-code twin" trap
 # entry for the incident this closes.
 #
 # What "consistency" means

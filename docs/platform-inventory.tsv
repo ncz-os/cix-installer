@@ -15,7 +15,7 @@ assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
 assets/audio/	sky1	-	Sky1 audio autoswitch (ncz-sky1-audio-autoswitch)
 assets/branding/	common	-	logos, icon theme, wallpapers, quotes
-assets/branding/singularity-theme/	common	-	installable Cygnus Singularity theme + generated gschema override (staged by both ISO build paths)
+assets/branding/singularity-theme/	common	-	installable Cygnus Singularity theme + generated gschema override (staged by the raw GPT image build)
 # 2026-09-30: Cygnus 26.10 branding tree (merged from feat/cygnus-26-10-2026-09-30) --
 # theme assets + generators + generated consumer files (gtk/plymouth/newt/css/screensaver
 # palette/terminal palettes/tokens.tsv). All platform-neutral; no sky1/cixmini/t2/nvidia
@@ -129,19 +129,19 @@ build/google-chrome-apt-keyring.asc	common	-	Google apt key
 build/hook-arch-allowlist.tsv	common	-	hooks exempt from the heuristic arch-gate lint
 build/interactive-install.py	common	-	interactive d-i QEMU driver
 build/iso/build-refind-esp.py	common	-	rEFInd ESP builder (both arches)
-build/iso/import-substrate.py	common	-	substrate import
+build/iso/import-substrate.py	common	-	upstream Debian netinst substrate import (xorriso extract of an input)
 build/iso/patch-debootstrap-stub.py	sky1	-	r159 debootstrap stub patch (16 arm64 refs, 2 amd64)
 build/iso/patch-initrd-firmware.py	common	-	initrd firmware patch (both arches)
 build/iso/patch-initrd-t2-kernel.py	amd64	t2	T2 kernel initrd patch
 build/iso/stage-ncz-payload.py	common	-	shared payload stager
-build/iso/tests/	common	-	ISO writer tests
+build/iso/tests/	common	-	image-build stage tests (initrd patcher, arm64 stage-2 proof)
 build/iso/tests/prove-arm64-stage2-fixes.py	sky1	-	arm64 stage-2 proof
-build/iso/write-usb-image.py	common	-	USB image writer
+build/iso/write-usb-image.py	common	-	raw GPT image writer
 build/kernel-manifest.py	sky1	-	Sky1 accelerator module overlay manifest
 build/kernel-port-watch.sh	sky1	-	Sky1 kernel forward-port watcher
 build/kvm-install-gate-gpt.sh	common	-	architecture-generic KVM gate for raw GPT images
 build/kvm-kernel-gate.sh	sky1	-	Sky1 kernel boot gate
-build/lib/release-identity.sh	common	-	shared release label + ISO volume-id derivation from release.conf
+build/lib/release-identity.sh	common	-	shared release label + volume-label derivation from release.conf
 build/lint-hook-arch-gates.sh	common	-	heuristic arch-gate lint for hooks (dual-arch parity)
 build/lint-platform.sh	common	-	platform-split lint (inventory, hook lists, deny patterns, guards, manifest divergence)
 build/logs/	sky1	-	Sky1 bitbake/KVM resume logs

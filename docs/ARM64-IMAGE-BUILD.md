@@ -40,12 +40,12 @@ ULTRA, only downloads/sstate/kernel staging are on ARGONAS.
    (move them to `kernel-staging-archive/`, do not delete).
 4. The d-i substrate is pinned (Makefile `SUBSTRATE_SHA`, arm64): Debian weekly netinst,
    installer build 20260921, sha256 `bcdea12698a4c643fbbc68c69fb8be96a3f292bdfa1b5c41c8fdaeaae6944f67`.
-   Debian republishes the filename weekly and drops old builds, so the pinned ISO is kept on
+   Debian republishes the filename weekly and drops old builds, so the pinned netinst (the substrate input) is kept on
    ARGONAS at `ncz-os-assets/substrate/debian-testing-arm64-netinst-20260921-bcdea126.iso`
    (ULTRA: `/mnt/argonas-projects/ncz-os-assets/substrate`). An empty `downloads/` restores it
    from there; if it cannot, the build refuses instead of floating, and `make image`
    re-verifies the file. Adopting a newer installer is deliberate: build on it, run the KVM
-   gate, store the ISO in that directory as `<name>-<yyyymmdd>-<sha8>.iso`, change the pin.
+   gate, store the upstream netinst in that directory as `<name>-<yyyymmdd>-<sha8>.iso`, change the pin.
    amd64 has no pin yet and only warns.
 5. `ncz-imagebuild:trixie` in BOTH podman stores (rootless build, rootful run):
    `podman save localhost/ncz-imagebuild:trixie | sudo podman load`.
@@ -91,7 +91,7 @@ reads the installed root with debugfs and asserts firmware, aipu 6.2.0 built
 for the Sky1 kernel (not 5.11.0), amvx, the `/dev/video-cixdec0` helper, an
 ffmpeg with `*_v4l2m2m`, and both browsers; phase 2 exits `rc=124` with an
 EMPTY boot.log, which is the PASS signal (the guest booted and stayed up).
-Reap `iso-patch/` under old gate workdirs afterwards.
+Reap leftover `iso-patch/` dirs (from the retired ISO-era gate) under old gate workdirs afterwards.
 
 Both verifiers have negative tests: `build/test-arm64-gates.sh` and
 `build/test-installed-target-verifier.sh`.
@@ -124,7 +124,8 @@ binaries, and that `ncz-idle-manager` is not enabled next to it.
 ## 5. Two build-breaking limits found on 2026-09-29 (both now guarded)
 
 - `preseed/early_command`, joined, must stay under 13,000 bytes
-  (`build/check-early-command-size.sh`, run by `build-iso-di.sh`). At 15,634 bytes
+  (`build/check-early-command-size.sh`; it ran inside the retired ISO builder and
+  is not wired into `make image`, so run it by hand). At 15,634 bytes
   `/bin/preseed_command` dies in confmodule (`return: line 88: Illegal number`),
   early_command never mounts the ext4 medium and d-i stops at "Incorrect
   installation media detected". Put logic in a helper under `preseed/` and add it

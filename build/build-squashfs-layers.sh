@@ -1,6 +1,6 @@
 #!/bin/bash
-# See docs/ISO-BUILD-GUARDRAILS.md before changing this file —
-# these are ISO build MECHANICS, stable across builds by design.
+# See docs/IMAGE-BUILD-GUARDRAILS.md before changing this file —
+# these are image build MECHANICS, stable across builds by design.
 # build-squashfs-layers.sh — NCZ-OS layered squashfs installer images.
 #
 # Produces (under assets/squashfs/):
@@ -1290,7 +1290,7 @@ ExecStartPre=/usr/sbin/sshd -t
 # shipped to hardware. That mode of operation is exactly what this
 # function prevents: it stages into an explicit `install -d -m 0755`
 # root, mksquashfs packs it with -comp zstd, and verify_squashfs catches
-# silent archive corruption before publish. See docs/ISO-BUILD-GUARDRAILS.md
+# silent archive corruption before publish. See docs/IMAGE-BUILD-GUARDRAILS.md
 # "desktop-hotfix.squashfs has no committed builder" for the original
 # audit finding.
 #
