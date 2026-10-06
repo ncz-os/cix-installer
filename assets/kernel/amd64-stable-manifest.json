@@ -2,26 +2,25 @@
   "schema": 1,
   "channel": "default",
   "arch": "amd64",
-  "kver": "7.3.0-rc6-3-t2-edge-aer9011",
+  "kver": "7.3.0-rc6-4-t2-edge-aer9010",
   "build_rev": "amd64-t2-rc6-20261004",
   "staged_utc": "2026-10-06",
   "channel_pointer": "assets/kernel/amd64-stable",
-  "staging_pool_relative": "kernel-staging/amd64-t2-rc6-20261004/7.3.0-rc6-3-t2-edge-aer9011",
+  "staging_pool_relative": "kernel-staging/amd64-t2-rc6-20261004/7.3.0-rc6-4-t2-edge-aer9010",
   "staging_pool_note": "Path is relative to the shared ARGONAS yocto-shared export; the mount root differs per build host (HYDRA/ACHILLES: /mnt/argonas/datapool/yocto-shared, ULTRA: /mnt/argonas-yocto-shared).",
   "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
-  "note": "amd64 DEFAULT, installer and rescue kernel under the unified 7.3 policy (operator 2026-10-05). AER: the narrow 9011 quirk (PCI/AER: keep ANFE masked on the Apple T2 Secure Enclave, 106b:1802) is the shipped default per operator decision 2026-10-05; the broad 9010 revert is held in amd64-kernel-t2 held/ as a fallback only and is NOT in this build. Supersedes 7.3.0-rc6-1-t2-edge-aerfix (9010 revert) and 7.3.0-rc6-2-t2-edge-aerfix (a 9011 build with a misleading name); the 'aerfix' flavour is retired. Replaced by the 7.3.0 final build later.",
+  "note": "amd64 DEFAULT, installer and rescue kernel under the unified 7.3 policy (operator 2026-10-05). AER: the plain revert of eddba19b8b5f (\"PCI/AER: Support Advisory Non-Fatal Errors\", amd64-kernel-t2 patch 9010) and no Apple-only quirk, per operator decision 2026-10-06 after Alex Deucher reported on LKML that the commit breaks non-Apple boards too and a revert fixes them; drop 9010 once upstream fixes or reverts eddba19b8b5f. Also CONFIG_CGROUP_DMEM off (NVIDIA open 615.71.09 builds unpatched) and 9012 (upstream nouveau gcx_ready NULL gsp->rm fix, 4d0e27041185). Supersedes 7.3.0-rc6-3-t2-edge-aer9011 (narrow 9011 quirk, CGROUP_DMEM=y), which the verifier now refuses; the 'aerfix' flavour stays retired. Replaced by the 7.3.0 final build later.",
   "source": {
     "base_tag": "v7.3-rc6",
     "base_commit": "a90ee4305c4a5df72c11b31dacfdc76e00fcf78a",
     "t2_repo": "amd64-kernel-t2",
-    "t2_branch": "feat/t2-7.3-unified-20261006",
-    "t2_repo_commit": "23e85e5d5b9d1310acd19cabb1ff6885f4738bcc",
-    "t2_aer_patch": "patches/9011-PCI-AER-keep-ANFE-masked-on-Apple-T2-Secure-Enclave.patch",
-    "t2_aer_fallback_held": "held/9010-Revert-PCI-AER-Support-Advisory-Non-Fatal-Errors.patch (not applied)",
-    "applied_patch_count": 20,
+    "t2_branch": "feat/t2-7.3-respin-20261006",
+    "t2_repo_commit": "e6df9b2a2106d19dbab429e2a18906f959b738e9",
+    "t2_aer_patch": "patches/9010-Revert-PCI-AER-Support-Advisory-Non-Fatal-Errors.patch",
+    "applied_patch_count": 21,
     "kernel_ref": "t2base/rc6 (= v7.3-rc6)",
-    "build_host": "ACHILLES, podman debian:trixie (container root@f565cd2049a0)",
-    "built_utc": "2026-10-06T03:11:32Z",
+    "build_host": "PROTEUS, podman debian:trixie (container root@a403723d7680)",
+    "built_utc": "2026-10-06T17:31:58Z",
     "base_commit_note": "a90ee4305c4a = v7.3-rc6 (PROVENANCE source_commit). The rc6-1 manifest recorded 76596e0d, the t2base/rc6-aerfix branch commit (rc6 plus the committed 9010 revert); this build applies all patches from patches/ instead.",
     "applied_patches": [
       "1001",
@@ -41,49 +40,51 @@
       "8002",
       "9001",
       "9002",
-      "9011",
+      "9010",
+      "9012",
       "9503",
       "9504"
     ],
     "held_not_applied": [
-      "9010",
       "9507"
-    ]
+    ],
+    "t2_aer_removed": "patches/9011-PCI-AER-keep-ANFE-masked-on-Apple-T2-Secure-Enclave.patch (removed 2026-10-06, not held)"
   },
   "artifacts": {
-    "linux-image-7.3.0-rc6-3-t2-edge-aer9011_7.3.0-rc6-3_amd64.deb": {
-      "sha256": "6ac6b170cfe07265ab4439e9d3fc296fe0a0a09e2ccab6081a94316565836ed4",
-      "size": 127013956
+    "linux-image-7.3.0-rc6-4-t2-edge-aer9010_7.3.0-rc6-4_amd64.deb": {
+      "sha256": "77f5ff01b3e54d98259a2bdd96c780da448e65149b218afd8eff18ff9c460a5a",
+      "size": 127021044
     },
-    "linux-headers-7.3.0-rc6-3-t2-edge-aer9011_7.3.0-rc6-3_amd64.deb": {
-      "sha256": "fd8760ea314683210a56873b98039202a10d6be8a1e54f246845b018b82156da",
-      "size": 10972988
+    "linux-headers-7.3.0-rc6-4-t2-edge-aer9010_7.3.0-rc6-4_amd64.deb": {
+      "sha256": "f164eba6913eb57306d186386c461f67f8f7a796383ef03aa7327d81493e80c5",
+      "size": 10973564
     },
-    "kernel_config_7.3.0-rc6-3-t2-edge-aer9011": {
-      "sha256": "df84b2f18841d1c965f1d13c148e6ed4db698cbd59b311b9a04569dd37ec99dc",
-      "size": 299678
+    "kernel_config_7.3.0-rc6-4-t2-edge-aer9010": {
+      "sha256": "1c848ebe5ea21d57b1fc2b934725fe2cac30cc55735b1e0bc178634193fe293b",
+      "size": 299689
     },
-    "PROVENANCE-7.3.0-rc6-3-t2-edge-aer9011": {
-      "sha256": "6234ebff3954d1df4d052ec6e9534f604cd4e9ce834a7461ea1746de456409ef",
-      "size": 2961
+    "PROVENANCE-7.3.0-rc6-4-t2-edge-aer9010": {
+      "sha256": "07424846bcff02e985bbd785e308595571a4550ddad177d8593400db71bb845e",
+      "size": 3098
     }
   },
   "identity": {
-    "image_deb_package": "linux-image-7.3.0-rc6-3-t2-edge-aer9011",
-    "image_deb_version": "7.3.0-rc6-3",
-    "headers_deb_package": "linux-headers-7.3.0-rc6-3-t2-edge-aer9011",
-    "headers_deb_version": "7.3.0-rc6-3",
-    "kernel_release": "7.3.0-rc6-3-t2-edge-aer9011",
-    "module_vermagic": "7.3.0-rc6-3-t2-edge-aer9011 SMP preempt mod_unload modversions",
-    "vmlinux_build_id": "fb19b87c82be75359a5bb31fbb893447659638cc",
-    "vmlinuz_sha256": "e4e40c412688a27b5bbdc8b213e3ae64f413f231b231615e485f12ee5210e91b",
-    "config_reference": "amd64-kernel-t2 reference/shipping/config-7.3.0-rc6-3-t2-edge-aer9011 (built config byte-identical)"
+    "image_deb_package": "linux-image-7.3.0-rc6-4-t2-edge-aer9010",
+    "image_deb_version": "7.3.0-rc6-4",
+    "headers_deb_package": "linux-headers-7.3.0-rc6-4-t2-edge-aer9010",
+    "headers_deb_version": "7.3.0-rc6-4",
+    "kernel_release": "7.3.0-rc6-4-t2-edge-aer9010",
+    "module_vermagic": "7.3.0-rc6-4-t2-edge-aer9010 SMP preempt mod_unload modversions",
+    "vmlinux_build_id": "245579e938a8b3cdadc75d2daf1294a8a805ed25",
+    "vmlinuz_sha256": "a73104245414c1413291d73fcf31fa72a26b7848eee650da86def5633e0bbaf0",
+    "config_reference": "amd64-kernel-t2 reference/shipping/config-7.3.0-rc6-4-t2-edge-aer9010 (built config byte-identical)"
   },
   "gates": {
-    "static_gate": "PASS (20 patches incl. 9011+9001, no 9010/9507; built config == reference; headers auto.conf == image config; headers Module.symvers CRCs == built vmlinux __crc_* 12027/12027; depmod -e 0 unknown symbols with firing self-test; applesmc absent; every .ko.xz Kbuild-compressed (CRC32); DKMS t2smc and t2gmux build rc=0 W=1 with 0 warnings and modversions vermagic)",
+    "static_gate": "PASS (21 patches incl. 9010+9012+9001, no 9011/9507; patch hashes == repo; built config == reference; no CGROUP_DMEM in config, auto.conf, autoconf.h, Module.symvers or System.map; no 9011/anfe symbols; headers auto.conf == image config; headers Module.symvers CRCs == built vmlinux __crc_* 12016/12016; depmod -e 0 unknown symbols with firing self-test; applesmc absent; all 4220 .ko.xz Kbuild-compressed (CRC32); DKMS t2smc and t2gmux (base and shipped+patches) build rc=0 W=1 with 0 warnings and modversions vermagic)",
     "initramfs_check": "PASS (dpkg -i + initramfs-tools: initrd modules only from this KVER, 839 modules byte-identical to the image deb)",
-    "kvm_gate": "PASS x2 (OVMF EFI boot, efivarfs 21/21 read, pstore backend efi_pstore, T2 in-tree stack loads, DKMS t2smc/t2gmux load unsigned, a t2smc copy with one corrupted symbol CRC is refused, no oops (t2bce_ave now -EPROBE_DEFER via 1003); dpm watchdog N by default, Y with pm.dpm_watchdog_enabled=1)"
+    "kvm_gate": "PASS x2 (OVMF EFI boot, efivarfs 20/20 read, pstore backend efi_pstore, T2 in-tree stack loads, DKMS t2smc/t2gmux load unsigned, a t2smc copy with one corrupted symbol CRC is refused, full dmesg captured with no oops/BUG/WARNING; dpm watchdog N by default, Y with pm.dpm_watchdog_enabled=1)",
+    "nvidia_dkms": "PASS (nvidia-kernel-open-dkms 615.71.09-2 in debian:forky against these headers: nvidia, nvidia-modeset, nvidia-drm, nvidia-uvm, nvidia-peermem build unpatched (dkms rc=0) and with ncz-0001; vermagic matches)"
   },
-  "hardware_note": "Not yet booted on T2 hardware. The 9010 build (rc6-1) booted on MEDUSA without the power cut; a diagnostic kernel showed 106b:1802 ANFE masking alone kept MEDUSA up past 120 s. MEDUSA confirmation of this exact build is pending.",
+  "hardware_note": "Not yet booted on hardware. The same 9010 revert (rc6-1) booted on MEDUSA without the power cut; 9012 and CGROUP_DMEM off are not yet confirmed on PEGASUS (RTX 2060). qemu cannot exercise the T2, nouveau runtime PM or the AER path.",
   "build_rev_note": "build_rev names the rc6 build tree (staging parent dir created 2026-10-04 for the rc6 port); this revision was built and staged on 2026-10-06 in its own subdir."
 }

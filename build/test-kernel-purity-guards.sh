@@ -66,7 +66,7 @@ run_guard "$ARM64" KVER_NEXT "7.3.0-rc6-sky1-ncz" >/dev/null
 echo "=== amd64 refresh script guard (ncz-refind-refresh-amd64.sh) ==="
 snippet="$(extract_guard "$AMD64" KVER_STABLE)"
 [ -n "$snippet" ] && ok "KVER_STABLE guard block present" || bad "no KVER_STABLE guard block found"
-[ "$(run_guard "$AMD64" KVER_STABLE 7.3.0-rc6-3-t2-edge-aer9011)" = 0 ] && ok "accepts the NCZ 7.3.0-rc6 T2 KVER (rc default allowed)" || bad "rejected the NCZ 7.3.0-rc6 T2 KVER"
+[ "$(run_guard "$AMD64" KVER_STABLE 7.3.0-rc6-4-t2-edge-aer9010)" = 0 ] && ok "accepts the NCZ 7.3.0-rc6 T2 KVER (rc default allowed)" || bad "rejected the NCZ 7.3.0-rc6 T2 KVER"
 [ "$(run_guard "$AMD64" KVER_STABLE 7.1.10-1-amd64)" != 0 ] && ok "rejects Debian 7.1.10-1-amd64" || bad "accepted Debian 7.1.10-1-amd64"
 
 echo "=== raw GPT image build: amd64 installer boots our kernel, not Debian's ==="
