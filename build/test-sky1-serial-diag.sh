@@ -208,6 +208,10 @@ if grep -q '^\[    0.238630\] reg-fixed-voltage PRP0001:11' "$sb/serial" \
     && ! grep -q 'SUBSYSTEM=' "$sb/serial"; then
     ok "arm64, d-i on tty1: /dev/kmsg replayed onto the UART with kernel timestamps"
 else bad "arm64, d-i on tty1: kmsg mirror" "$(cat "$sb/serial")"; fi
+if grep -q '^export PATH=/tmp/diagbin:' "$sb/root/.profile" 2>/dev/null; then ok "arm64: login shell profile puts the diag applet farm on PATH"
+else bad "arm64: login shell profile missing"; fi
+if grep -q "awk -F: '\$1 == \"root\" { print \$6; exit }' /etc/passwd" "$DIAG"; then ok "profile path follows root's passwd home (d-i root has HOME=/)"
+else bad "profile path is not derived from root's passwd home"; fi
 if grep -q '115200' "$sb/stty.args" 2>/dev/null; then ok "arm64: UART line set to 115200 before writing"
 else bad "arm64: stty 115200 not issued"; fi
 if [ ! -e "$sb/noiface.txt" ]; then ok "arm64 with a NIC: no no-interface summary"

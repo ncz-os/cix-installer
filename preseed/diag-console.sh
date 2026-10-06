@@ -203,7 +203,10 @@ NCZ_SYS_NET=${NCZ_SYS_NET:-/sys/class/net}
 NCZ_SYS_PCI=${NCZ_SYS_PCI:-/sys/bus/pci/devices}
 NCZ_NOIFACE_LOG=${NCZ_NOIFACE_LOG:-/var/log/ncz-noiface.txt}
 NCZ_NOIFACE_AFTER=${NCZ_NOIFACE_AFTER:-120}
-NCZ_ROOT_PROFILE=${NCZ_ROOT_PROFILE:-/root/.profile}
+# d-i's root has HOME=/ (passwd "root:...:0:0:root:/:/bin/sh"), so the login
+# shell reads /.profile, not /root/.profile (measured in the QEMU proof boot).
+_ncz_root_home=$(awk -F: '$1 == "root" { print $6; exit }' /etc/passwd 2>/dev/null)
+NCZ_ROOT_PROFILE=${NCZ_ROOT_PROFILE:-${_ncz_root_home%/}/.profile}
 
 serial_diag_enabled() {
     [ "$BB_ARCH" = arm64 ] || return 1
@@ -253,8 +256,8 @@ start_serial_getty() {
         return 0
     fi
     alive "$RUN/serial-getty.pid" && return 0
-    # Login shells read ~/.profile: give the serial (and telnet) root shell the
-    # full applet farm, as the telnet 'rich shell' has.
+    # Login shells read $HOME/.profile: give the serial (and telnet) root shell
+    # the full applet farm on PATH.
     mkdir -p "${NCZ_ROOT_PROFILE%/*}" 2>/dev/null
     [ -s "$NCZ_ROOT_PROFILE" ] || printf 'export PATH=%s:/usr/bin:/bin:/usr/sbin:/sbin\nexport PS1='"'"'ncz-diag:\\w# '"'"'\n' "$BIN" > "$NCZ_ROOT_PROFILE"
     "$BB" getty -L -l "$BIN/login" 115200 "$NCZ_SERIAL_NAME" vt100 </dev/null >/dev/null 2>&1 &
