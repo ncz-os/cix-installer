@@ -64,6 +64,15 @@ if [ "$WANT_SS" = 1 ]; then
             . "$HERE_VT/screensavers-version.env"
             NCZ_SS_FLOOR="${NCZ_SCREENSAVERS_MIN_VERSION:-}"
         fi
+        # Phase 2: the registry floor must agree with the env file. The
+        # installed version is still compared against the env floor, so a
+        # target that passed before this change still passes.
+        if [ -f "$HERE_VT/components.py" ] && [ -n "$NCZ_SS_FLOOR" ]; then
+            _ss_reg_floor="$(python3 "$HERE_VT/components.py" --root "$(cd "$HERE_VT/.." && pwd)" query --name ncz-screensavers --kind staged-deb --field version_floor 2>/dev/null || true)"
+            if [ -n "$_ss_reg_floor" ] && [ "$_ss_reg_floor" != "$NCZ_SS_FLOOR" ]; then
+                gate_miss screensavers "registry floor ${_ss_reg_floor} disagrees with screensavers-version.env floor $NCZ_SS_FLOOR"
+            fi
+        fi
         if [ -n "$NCZ_SS_FLOOR" ] && ! dpkg --compare-versions "$SS_STATUS" ge "$NCZ_SS_FLOOR"; then
             gate_miss screensavers "ncz-screensavers $SS_STATUS is below the required floor $NCZ_SS_FLOOR (build/screensavers-version.env)"
         elif [ -n "$NCZ_SS_FLOOR" ]; then

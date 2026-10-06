@@ -72,6 +72,29 @@ for _ssv in NCZ_SCREENSAVERS_MIN_VERSION NCZ_SCREENSAVERS_MISSING_MSG NCZ_SCREEN
         exit 1
     fi
 done
+# Phase 2: the registry is the required-ness and floor authority for NCZ
+# packages. The env file remains the value; the registry must agree with it,
+# and the staged pool row must be required. A disagreement fails the build
+# before any download. The literal NCZ_LOCAL_DEBS rows below stay, so the
+# existing seed grep (ncz-screensavers|...|required) still matches.
+_ss_reg_req="$(python3 "$REPO/build/components.py" --root "$REPO" query --name ncz-screensavers --kind staged-deb --field required)" \
+    || { echo "ERROR: registry has no staged-deb row for ncz-screensavers" >&2; exit 1; }
+_ss_reg_floor="$(python3 "$REPO/build/components.py" --root "$REPO" query --name ncz-screensavers --kind staged-deb --field version_floor)" \
+    || { echo "ERROR: registry has no staged-deb floor for ncz-screensavers" >&2; exit 1; }
+if [ "$_ss_reg_req" != yes ]; then
+    echo "ERROR: registry marks ncz-screensavers staged-deb required=${_ss_reg_req}, want yes" >&2
+    exit 1
+fi
+if [ "$_ss_reg_floor" != "$NCZ_SCREENSAVERS_MIN_VERSION" ]; then
+    echo "ERROR: registry floor '${_ss_reg_floor}' disagrees with NCZ_SCREENSAVERS_MIN_VERSION=${NCZ_SCREENSAVERS_MIN_VERSION}" >&2
+    exit 1
+fi
+if python3 "$REPO/build/components.py" --root "$REPO" query --name ncz-screensavers-plugin --field required >/dev/null 2>&1; then
+    _plug_req="$(python3 "$REPO/build/components.py" --root "$REPO" query --name ncz-screensavers-plugin --field required)"
+    case "$_plug_req" in
+        *yes*) echo "ERROR: registry marks ncz-screensavers-plugin required; that package is not published and must not be required" >&2; exit 1 ;;
+    esac
+fi
 
 SRC="$REPO/build/$NCZ_BASE_CODENAME-mirror"
 OUT="$REPO/build/desktop-mirror"

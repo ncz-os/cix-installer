@@ -24,10 +24,12 @@ The registry has three parts:
   manifests, hooks, mirror script, allowlist, dkms assets and published
   report. The real registry is never touched. bash 3.2 compatible.
 
-Phase 1 ships the registry + check + drift report. **Phases 2 and 3 are NOT
-started here** — they follow items S1 (merge r2) and S4 (mandatory screensaver
-install) per the operator directive. The phase plan is at the bottom of this
-file.
+Phase 1 shipped the registry, the checker and the drift report. Phase 2
+enforces `required`, `version_floor` and `arch` (`components.py check --gate`,
+wired into `make parity` and `build/lint-platform.sh`). Phase 3 generates the
+seed files, the `NCZ_LOCAL_DEBS` block and confirms the parity allowlist from
+the registry (`build/gen-components-registry.py --render-*`). The phase plan
+at the bottom of this file records what each phase does.
 
 ## Format
 
@@ -169,6 +171,8 @@ wrong.
 
 ```sh
 python3 build/components.py check                        # exit 1 on drift
+python3 build/components.py check --gate                 # phase 2 enforcement entry
+python3 build/gen-components-registry.py --render-seeds --render-local-debs --render-allowlist --check
 python3 build/components.py check --report-out PATH      # also write the drift report
 python3 build/components.py report --arch amd64 --variant desktop
 python3 build/components.py diff-published
@@ -316,12 +320,21 @@ Per the operator directive, three phases land across three merge windows:
   the running arch. Lives behind a feature flag
   (`NCZ_REGISTRY_ENFORCE=1`) so S1 / S4 failures can be diagnosed without
   the registry failing them first.
-- **Phase 3** — generate `manifests/*.pkgs` and the `NCZ_LOCAL_DEBS`
-  mirror rows from the registry. After S1 + S4, the closure resolver
-  itself reads `manifests/components.tsv` instead of the per-arch
-  `manifests/*.pkgs` files, and `build-desktop-mirror.sh` derives its
-  optional / required rows from the registry's `required` column. The
-  per-arch `*.pkgs` files are kept as a human-readable diff against the
-  registry.
+- **Phase 3 (this item)** — generate `manifests/*.pkgs`, the
+  `NCZ_LOCAL_DEBS` block and confirm `build/arch-parity-allowlist.tsv`
+  from the registry. The hand-written files stay the byte-identity
+  target: comment headers, inline-comment padding and the order of the
+  data lines are preserved, so a regen of an unchanged tree rewrites
+  nothing. A hand-edit that the registry does not cite fails
+  `--check`. The edit path is: edit `manifests/components.tsv` (or the
+  curated lists in `build/gen-components-registry.py`), run
+  `python3 build/gen-components-registry.py` to refresh the registry,
+  then `python3 build/gen-components-registry.py --render-seeds
+  --render-local-debs --render-allowlist` and commit both. Do not edit
+  a `*.pkgs` package line or an `NCZ_LOCAL_DEBS` data line by hand; the
+  generator will reject it.
+  `build/test-components-generate.sh` is the hermetic fail-before /
+  pass-after proof. `make parity` and `build/lint-platform.sh` run the
+  `--check` form, so a drifted seed fails the build.
 
 Author: Jason Perlow <jperlow@gmail.com>. Operator directive 2026-10-05.
