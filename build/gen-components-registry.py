@@ -12,8 +12,8 @@ Ground truth sources (parsed from this tree):
   - manifests/*.pkgs (per-arch seed manifests + install-extra + firmware BOM)
   - NCZ_LOCAL_DEBS rows in build/build-desktop-mirror.sh (optional/required)
   - build/arch-parity-allowlist.tsv (reviewed arm64/amd64 manifest divergence)
-  - assets/kernel/KERNEL-POLICY (STABLE_BASE / EDGE_BASE),
-    assets/kernel/amd64-stable/KVER, assets/kernel/edge-manifest.json
+  - assets/kernel/KERNEL-POLICY (DEFAULT_BASE; EDGE_BASE is retired),
+    assets/kernel/amd64-stable/KVER, assets/kernel/sky1-manifest.json
   - assets/kernel/t2{smc,gmux,smp,thunderbolt}/{dkms.conf,PROVENANCE}
   - post-install/*.sh install commands + hooks.list.{amd64,sky1-arm64}
     (hook-only installs that no manifest seeds)
@@ -237,17 +237,20 @@ def parse_t2_dkms_modules(kernel_root):
 
 
 def parse_kernel_entries(kernel_root):
-    """Kernel rows from KERNEL-POLICY + amd64-stable/KVER + edge-manifest.json."""
+    """Kernel rows from KERNEL-POLICY + amd64-stable/KVER + sky1-manifest.json.
+
+    The edge channel (assets/kernel/edge, assets/kernel/amd64-edge, EDGE_BASE,
+    edge-manifest.json) was retired by the unified 7.3 policy. A leftover
+    edge-manifest.json is not a live channel and must not grow a registry row.
+    """
     rows = []
-    stable_base = edge_base = ""
+    stable_base = ""
     policy_path = kernel_root / "KERNEL-POLICY"
     if policy_path.exists():
         for raw in policy_path.read_text(encoding="utf-8").splitlines():
             line = raw.strip()
-            if line.startswith("STABLE_BASE="):
+            if line.startswith("STABLE_BASE=") or line.startswith("DEFAULT_BASE="):
                 stable_base = line.split("=", 1)[1].strip()
-            elif line.startswith("EDGE_BASE="):
-                edge_base = line.split("=", 1)[1].strip()
 
     kver_path = kernel_root / "amd64-stable" / "KVER"
     if kver_path.exists():
@@ -269,11 +272,16 @@ def parse_kernel_entries(kernel_root):
             ),
         })
 
-    edge_manifest = kernel_root / "edge-manifest.json"
+    # Shipping Sky1 manifest. Prefer sky1-manifest.json (the post-policy
+    # name). Fall back to edge-manifest.json only as a data file for overlay
+    # rows if a tree has not been renamed yet; never emit an edge kernel row
+    # from it.
+    manifest_path = kernel_root / "sky1-manifest.json"
+    if not manifest_path.exists():
+        manifest_path = kernel_root / "edge-manifest.json"
     edge_data = {}
-    if edge_manifest.exists():
-        edge_data = json.loads(edge_manifest.read_text(encoding="utf-8"))
-    edge_kver = edge_data.get("kver", "")
+    if manifest_path.exists():
+        edge_data = json.loads(manifest_path.read_text(encoding="utf-8"))
     mainline_path = kernel_root / "mainline"
     if mainline_path.exists() or stable_base:
         rows.append({
@@ -295,52 +303,11 @@ def parse_kernel_entries(kernel_root):
                 "lives outside the repo (/mnt/argonas-yocto-shared/kernel-staging)."
             ),
         })
-    if edge_data.get("channel") == "edge" and (edge_kver or edge_base):
-        floor = edge_kver or f"{edge_base}-sky1-ncz"
-        rows.append({
-            "name": "sky1-edge-kernel",
-            "kind": "kernel",
-            "source": "vendored:assets/kernel/edge",
-            "arch": "arm64",
-            "variant": "desktop,mgmt,rescue,server",
-            "required": "no",
-            "version_floor": floor,
-            "installed_by": "post-install/10-our-kernel.sh (non-default entry)",
-            "verified_by": "build/verify-base-kernel-assets.sh,build/verify-kernel-default-policy.sh",
-            "provenance": (
-                f"assets/kernel/edge-manifest.json (kver={floor}, "
-                f"build_rev={edge_data.get('build_rev', '?')}, staging "
-                f"{edge_data.get('staging_dir', '?')}); assets/kernel/KERNEL-POLICY (EDGE_BASE)"
-            ),
-            "notes": "Bootable NON-default entry on Sky1/arm64 (kernel-channel policy 2026-10-05).",
-        })
-    if edge_base:
-        rows.append({
-            "name": "amd64-edge-kernel",
-            "kind": "kernel",
-            "source": "vendored:assets/kernel/amd64-edge",
-            "arch": "amd64",
-            "variant": "desktop,mgmt,rescue,server",
-            "required": "no",
-            "version_floor": f"{edge_base}-1-t2-edge-aerfix",
-            "installed_by": "post-install/10-amd64-kernel.sh (non-default entry)",
-            "verified_by": "build/verify-base-kernel-assets.sh,build/verify-kernel-default-policy.sh",
-            "provenance": (
-                "assets/kernel/KERNEL-POLICY (EDGE_BASE; amd64 edge = "
-                "-1-t2-edge-aerfix, overlay patch 9010); "
-                "docs/reports/2026-10-05-amd64-edge-rc6-revert.md"
-            ),
-            "notes": (
-                "Bootable NON-default entry on amd64. assets/kernel/amd64-edge/ "
-                "stamp dir not yet in the repo (stamps in T2 staging only); "
-                "row exists so phase 2 enforcement can detect a missing edge install."
-            ),
-        })
     return rows, edge_data
 
 
 def parse_overlay_rows(kernel_root, edge_data):
-    """Overlay .ko rows from edge-manifest.json overlays_mirrored only.
+    """Overlay .ko rows from sky1-manifest.json overlays_mirrored only.
 
     Keys are 'assets/kernel/<drv>/<kver>/<ko>'. (The artifacts section also
     holds 'overlays/<drv>/<kver>/<ko>' sha256 entries; those are the same
@@ -370,10 +337,10 @@ def parse_overlay_rows(kernel_root, edge_data):
             "version_floor": row_kver,
             "installed_by": installed_by.get(drv, "post-install/86-cix-dkms-register.sh"),
             "verified_by": "build/verify-overlays.py",
-            "provenance": f"assets/kernel/edge-manifest.json (overlays_mirrored: {key})",
+            "provenance": f"assets/kernel/sky1-manifest.json (overlays_mirrored: {key})",
             "notes": (
-                f"Edge-kernel overlay for {drv}; mainline kernel uses the same "
-                "sources built against the mainline tree."
+                f"Shipping-kernel overlay for {drv}, built against the "
+                "mainline tree."
             ),
         })
     return rows, kver
@@ -548,7 +515,7 @@ VENDOR_DEB_ROWS = [
         "required": "yes", "version_floor": "",
         "installed_by": "manifest (installer-base.pkgs) resolved via build/build-vendor-mirror.sh pool",
         "verified_by": "build/verify-offline-mirror-seeds.sh",
-        "provenance": "manifests/installer-base.pkgs; build/build-vendor-mirror.sh (KERNEL_DEBS publish); assets/kernel/edge-manifest.json (debs/cixmini-boot)",
+        "provenance": "manifests/installer-base.pkgs; build/build-vendor-mirror.sh (KERNEL_DEBS publish); assets/kernel/sky1-manifest.json (debs/cixmini-boot)",
         "notes": "cixmini bootloader glue; built per kernel release; Depends: ncz-usb-recovery.",
     },
     {
@@ -559,7 +526,7 @@ VENDOR_DEB_ROWS = [
         "required": "yes", "version_floor": "",
         "installed_by": "manifest (installer-base.pkgs) resolved via build/build-vendor-mirror.sh pool",
         "verified_by": "build/verify-offline-mirror-seeds.sh",
-        "provenance": "manifests/installer-base.pkgs; build/build-vendor-mirror.sh (KERNEL_DEBS publish); assets/kernel/edge-manifest.json (debs/linux-image-cixmini)",
+        "provenance": "manifests/installer-base.pkgs; build/build-vendor-mirror.sh (KERNEL_DEBS publish); assets/kernel/sky1-manifest.json (debs/linux-image-cixmini)",
         "notes": "cixmini kernel image deb; the sky1-mainline-kernel row carries the version floor.",
     },
 ]
@@ -771,7 +738,7 @@ def main(argv=None):
     # 5. T2 DKMS modules.
     all_rows.extend(parse_t2_dkms_modules(root / "assets" / "kernel"))
 
-    # 6. Kernel entries + overlays (edge-manifest.json).
+    # 6. Kernel entries + overlays (sky1-manifest.json).
     kernel_rows, edge_data = parse_kernel_entries(root / "assets" / "kernel")
     all_rows.extend(kernel_rows)
     overlay_rows, _ = parse_overlay_rows(root / "assets" / "kernel", edge_data)
@@ -836,7 +803,7 @@ def main(argv=None):
         f.write("#\n")
         f.write("# Operator directive 2026-10-05. TSV; one component per row. Generated by\n")
         f.write("# build/gen-components-registry.py from manifests/*.pkgs + NCZ_LOCAL_DEBS\n")
-        f.write("# + KERNEL-POLICY + assets/kernel/t2*/dkms.conf + edge-manifest.json +\n")
+        f.write("# + KERNEL-POLICY + assets/kernel/t2*/dkms.conf + sky1-manifest.json +\n")
         f.write("# post-install hook installs; audited by `build/components.py check`.\n")
         f.write("#\n")
         f.write("# Columns:\n")
