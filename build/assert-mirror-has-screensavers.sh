@@ -104,8 +104,8 @@ for MIRROR in "${MIRRORS[@]}"; do
     [ -n "$MIRROR" ] || continue
     [ -d "$MIRROR" ] || { echo "ERROR: --mirror $MIRROR not a directory" >&2; FAIL=1; continue; }
 
-    SUITE_DIR="$(find "$MIRROR" -mindepth 1 -maxdepth 1 -type d -name '*-mirror' -o -name '*-vendor-mirror' -o -name 'desktop-mirror' 2>/dev/null | head -1)"
     SUITE=""
+    PKG_INDEX=""
 
     # Pick the best dists/<suite> path. desktop-mirror uses $NCZ_BASE_CODENAME,
     # others use the codename in their filename.
@@ -117,7 +117,7 @@ for MIRROR in "${MIRRORS[@]}"; do
         fi
     done
 
-    if [ -z "${PKG_INDEX:-}" ] || [ ! -f "$PKG_INDEX" ]; then
+    if [ -z "$PKG_INDEX" ] || [ ! -f "$PKG_INDEX" ]; then
         echo "assert-mirror-has-screensavers: ERROR: $LABEL mirror $MIRROR has no Packages index (suite=$SUITE, arch=$ARCH)" >&2
         FAIL=1
         continue
