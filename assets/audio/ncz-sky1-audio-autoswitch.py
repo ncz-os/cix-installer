@@ -199,7 +199,7 @@ def current_default_sink() -> str | None:
     return value or None
 
 
-def first_non_ncz_sink(avoid: set[str] = frozenset()) -> str | None:
+def first_non_ncz_sink(avoid: frozenset[str] | set[str] = frozenset()) -> str | None:
     result = run(["pactl", "list", "short", "sinks"])
     if result.returncode != 0:
         return None
