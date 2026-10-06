@@ -69,6 +69,10 @@ autoinstall/
 # staged ncz-screensavers .debs consumed by build-desktop-mirror.sh (binaries, never committed)
 build/ncz-screensavers-out/
 build/wallpaper-debs/
+# Build outputs written by build-vendor-mirror.sh (Chrome .deb cache): lint-platform
+# enumerates untracked, non-ignored files, so leaving this out made make image fail
+# LINT-COVER in any tree that had built the vendor mirror (found by the amd64 image build).
+build/chrome-deb-cache/
 build/apt-repo/
 build/apt-repo/*.deb
 build/apt-repo/Packages.gz
