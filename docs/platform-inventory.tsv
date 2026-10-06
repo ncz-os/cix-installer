@@ -201,6 +201,7 @@ build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kerne
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-late-npu-aipu.sh	common	-	late.sh NPU aipu overlay + modules-load test
 build/test-gpu-install-progress.sh	common	-	GPU/DKMS install-step feedback: step profiles, simulated growing DKMS make.log monitor, apt window scaling, late.sh weighted bar math and GPU screen line, run-all end to end
+build/test-progress-bar-drive.sh	common	-	late.sh drives finish-install's progress bar at runtime: stub debconf records PROGRESS, cdebconf model asserts forward-only to 100%, GPU weight, flat-stretch creep, text-only fallbacks, no bad number under sh/busybox/bash
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
 build/test-overlay-modversions.sh	sky1	-	fixture tests for verify-overlay-modversions.py (stale CRC, unresolved, no __versions, vermagic, missing set fail)
 build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test
