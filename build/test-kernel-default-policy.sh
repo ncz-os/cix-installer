@@ -159,13 +159,13 @@ run "arm64: manifest missing refused" 1 --root "$r" --arch arm64
 
 echo "=== Positive: offline fallback -- local sibling tree matches manifest ==="
 r="$WORK/offline-ok"
-mkdir -p "$r/assets/kernel/r282-7.3.0-rc6-sky1-ncz-20261004"
-printf '7.3.0-rc6-sky1-ncz\n' > "$r/assets/kernel/r282-7.3.0-rc6-sky1-ncz-20261004/KVER"
-printf 'fake\n' > "$r/assets/kernel/r282-7.3.0-rc6-sky1-ncz-20261004/Image-cixmini.bin"
-printf 'fake\n' > "$r/assets/kernel/r282-7.3.0-rc6-sky1-ncz-20261004/modules-cixmini.tgz"
-printf 'cfg\n' > "$r/assets/kernel/r282-7.3.0-rc6-sky1-ncz-20261004/config-7.3.0-rc6-sky1-ncz"
-printf 'fake\n' > "$r/assets/kernel/r282-7.3.0-rc6-sky1-ncz-20261004/headers-cixmini.tar.zst"
-ln -s "/nonexistent/pool/r282-7.3.0-rc6-sky1-ncz-20261004" "$r/assets/kernel/mainline"
+mkdir -p "$r/assets/kernel/r284-7.3.0-rc6-sky1-ncz-20261006"
+printf '7.3.0-rc6-sky1-ncz\n' > "$r/assets/kernel/r284-7.3.0-rc6-sky1-ncz-20261006/KVER"
+printf 'fake\n' > "$r/assets/kernel/r284-7.3.0-rc6-sky1-ncz-20261006/Image-cixmini.bin"
+printf 'fake\n' > "$r/assets/kernel/r284-7.3.0-rc6-sky1-ncz-20261006/modules-cixmini.tgz"
+printf 'cfg\n' > "$r/assets/kernel/r284-7.3.0-rc6-sky1-ncz-20261006/config-7.3.0-rc6-sky1-ncz"
+printf 'fake\n' > "$r/assets/kernel/r284-7.3.0-rc6-sky1-ncz-20261006/headers-cixmini.tar.zst"
+ln -s "/nonexistent/pool/r284-7.3.0-rc6-sky1-ncz-20261006" "$r/assets/kernel/mainline"
 cat > "$r/assets/kernel-manifest.json" <<'JSON'
 {"schema":1,"variants":{"mainline":{"dir":"assets/kernel/mainline","kver":"7.3.0-rc6-sky1-ncz"}}}
 JSON
