@@ -130,6 +130,7 @@ else
   MIRROR_DIRS_EXPLICIT=0
   MIRROR_DIRS="$NCZ_BASE_CODENAME-mirror $NCZ_BASE_CODENAME-vendor-mirror"
 fi
+STAGE="${1:-base}"                            # base | desktop | server | all | hotfix
 
 # Pre-flight (operator 2026-10-05 mandatory-install item): every mirror named
 # above must carry ncz-screensavers at the version floor in build/screensavers-
@@ -159,7 +160,6 @@ case "$STAGE" in
     ;;
 esac
 QEMU="/usr/bin/$QEMU_BIN"
-STAGE="${1:-base}"                            # base | desktop | server | all
 
 log(){ echo "[sqfs $(date -u +%H:%M:%S)] $*"; }
 need(){ command -v "$1" >/dev/null || { echo "MISSING: $1"; exit 1; }; }
