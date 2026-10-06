@@ -31,6 +31,8 @@ if [ -r "$ROOT/release.conf" ]; then
     # shellcheck source=../release.conf
     . "$ROOT/release.conf"
 fi
+# shellcheck source=lib/mirror-apt-opts.sh
+. "$ROOT/build/lib/mirror-apt-opts.sh"
 
 # Derive the recovery-container banner from the active release identity instead
 # of pinning a codename (this said "MAXIMILIAN" through 26.7).
@@ -78,7 +80,9 @@ for t in debootstrap chroot zstd tar awk sed grep mountpoint; do
 done
 [ -f "$PKG_MANIFEST" ] || { echo "ERROR: manifest not found: $PKG_MANIFEST" >&2; exit 1; }
 
-PKGS=$(grep -vE '^\s*(#|$)' "$PKG_MANIFEST" | sed 's/#.*//' | awk '{print $1}' | grep . | sort -u | tr '\n' ' ')
+# grep . under pipefail exits 1 on an empty manifest and kills the script
+# with no message. ncz_pkgs_from_manifest reports that case explicitly.
+PKGS=$(ncz_pkgs_from_manifest "$PKG_MANIFEST")
 echo "[mgmt-rootfs] chroot:   $CHROOT"
 echo "[mgmt-rootfs] out:      $OUT"
 echo "[mgmt-rootfs] suite:    $SUITE   arch: $ARCH"
@@ -103,11 +107,17 @@ DEBOOTSTRAP_ARGS=(--arch="$ARCH" --variant=minbase --include=ca-certificates,apt
 [ -n "$DEBOOTSTRAP_KEYRING" ] && DEBOOTSTRAP_ARGS+=(--keyring "$DEBOOTSTRAP_KEYRING")
 debootstrap "${DEBOOTSTRAP_ARGS[@]}" "$SUITE" "$CHROOT" "$MIRROR"
 
-cat > "$CHROOT/etc/apt/sources.list" <<EOF
-deb $MIRROR $SUITE $COMPONENTS
-deb $MIRROR $SUITE-updates $COMPONENTS
-deb $SECURITY_URI $SUITE-security $COMPONENTS
-EOF
+# debootstrap writes its own sources.list with no deb options. A pinned
+# snapshot Release is expired once Valid-Until passes, so rewrite every line
+# with NCZ_BASE_MIRROR_APT_OPTS (empty when unpinned: a live mirror keeps
+# normal expiry checks). $SUITE-updates is on the same snapshot and gets the
+# same options. $SUITE-security is not served by a snapshot.debian.org
+# debian-archive timestamp (it lives on archive/debian-security, and the
+# forky-security Packages files there are empty); the line is still emitted,
+# with the same options, so a missing Release fails in the open instead of
+# the base suite failing as an expired pin.
+ncz_mirror_sources_list "$MIRROR" "$SUITE" "$COMPONENTS" updates "$SECURITY_URI" "$SUITE-security" \
+    > "$CHROOT/etc/apt/sources.list"
 
 # ----------------------------------------------------------------------
 # Stage 2 - bind mounts + apt install of the management toolset.
@@ -123,8 +133,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Surface apt-get update failures (E:/W: lines) instead of letting a later
+# install hide an expired snapshot Release behind a bare non-zero exit.
+MGMT_APT_UPDATE_LOG="$CHROOT/tmp/ncz-apt-update.log"
+mkdir -p "$CHROOT/tmp"
+ncz_apt_update_or_die "$MGMT_APT_UPDATE_LOG" "management chroot" \
+    chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp apt-get update
 if ! chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp bash -eu <<CHROOT_APT
-apt-get update
 apt-get install -y --no-install-recommends $PKGS
 apt-get clean
 CHROOT_APT

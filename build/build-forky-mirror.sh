@@ -6,6 +6,8 @@ export LC_ALL=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=../release.conf
 . "$REPO/release.conf"
+# shellcheck source=lib/mirror-apt-opts.sh
+. "$REPO/build/lib/mirror-apt-opts.sh"
 
 SUITE="${SUITE:-$NCZ_BASE_CODENAME}"
 # 2026-09-15: was hardcoded "arm64" regardless of caller -- an AMD64 build
@@ -170,7 +172,10 @@ gzip -9n -c "$OUT/dists/$SUITE/main/binary-$ARCH/Packages" \
     -o "APT::FTPArchive::Release::Architectures=$ARCH" \
     release "dists/$SUITE" > "dists/$SUITE/Release")
 
-COUNT="$(grep -c '^Package: ' "$OUT/dists/$SUITE/main/binary-$ARCH/Packages")"
+# grep -c exits 1 when the count is 0, which under pipefail kills the
+# script with no message. An empty index is a bug and must say so; a
+# non-empty index keeps the same count.
+COUNT="$(ncz_package_record_count "$OUT/dists/$SUITE/main/binary-$ARCH/Packages")"
 echo "  verified offline mirror: $COUNT package records, $(du -sh "$OUT/pool" | cut -f1) pool"
 
 # Provenance record for SBOM/audit -- which exact archive state this ISO's
