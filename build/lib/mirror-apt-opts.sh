@@ -1,4 +1,5 @@
 # mirror-apt-opts.sh — shared helpers for consumers of a pinned snapshot mirror.
+# shellcheck shell=bash
 #
 # release.conf sets NCZ_BASE_MIRROR_APT_OPTS=check-valid-until=no only while
 # NCZ_BASE_MIRROR_SNAPSHOT is set. A snapshot Release carries a short
