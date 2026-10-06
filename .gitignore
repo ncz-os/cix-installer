@@ -68,6 +68,7 @@ autoinstall/
 # below (npu_embed_v2.py was ignored and untracked despite the ! rule).
 # staged ncz-screensavers .debs consumed by build-desktop-mirror.sh (binaries, never committed)
 build/ncz-screensavers-out/
+build/wallpaper-debs/
 build/apt-repo/
 build/apt-repo/*.deb
 build/apt-repo/Packages.gz
