@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+"""ncz-display-scale -- NCZ-OS output-scale policy for wlroots/labwc sessions.
+
+Policy (docs/HIDPI-SCALING.md): the pixel density of an output, from its EDID
+physical size and the mode in use, picks the scale.
+
+    >= 192 ppi  -> 2.0     (2 x the 96 dpi baseline: Retina laptops, 4K 15")
+    >= 144 ppi  -> 1.5     (QHD 13-14" laptops, 4K 27")
+    otherwise   -> 1.0
+    physical size missing or implausible -> 1.0  (projectors, TVs, KVMs,
+                                                  EDIDs that only encode an
+                                                  aspect ratio)
+
+Subcommands:
+
+  policy --mode WxH --phys WxH
+      Print the scale for one output and the reason. Pure; used by tests.
+
+  greeter [--dry-run]
+      Greeter (greetd labwc) outputs: never scan out above 1920x1200 (the
+      operator's "never 4K at the login screen" rule), but pick a mode with
+      the SAME aspect ratio as the panel so a 16:10 panel is not letterboxed
+      by a forced 16:9 mode, then apply the policy scale for that mode.
+
+  session [--settle SECONDS] [--dry-run]
+      Desktop session, first login only. The Singularity shell already
+      derives a default scale for an output with no saved setting; this is
+      the NCZ safety net for when it does not (older payloads, or a shell
+      that could not read the physical size). It never overrides a choice:
+        * if ~/.config/singularity/displays.json exists (the shell writes it
+          only when the user saves display settings), it does nothing;
+        * each output is handled once, keyed by make/model/serial/connector,
+          and remembered under $XDG_STATE_HOME/ncz/display-scale/;
+        * it only raises an output that is still at 1.0 after the shell has
+          settled; any other current scale is kept.
+
+Reads `wlr-randr --json`. `session` exits 0 on every failure path so a login
+never ends with a failed unit; `greeter` exits 1 when it could not read the
+outputs, which makes the greeter autostart fall back to its fixed 1080p loop.
+Neither can block a login.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+PPI_2X = 192.0
+PPI_1_5X = 144.0
+GREETER_MAX_W = 1920
+GREETER_MAX_H = 1200
+MIN_DIAG_MM = 150.0  # below ~6 in: no real desktop panel; EDID garbage
+MAX_ASPECT_SKEW = 1.20  # physical vs pixel aspect may differ this much
+
+
+def log(msg: str) -> None:
+    print(f"ncz-display-scale: {msg}", file=sys.stderr)
+
+
+def policy_scale(px_w: int, px_h: int, mm_w: int, mm_h: int) -> tuple[float, str]:
+    """Return (scale, reason) for a mode of px_w x px_h on an mm_w x mm_h panel."""
+    if px_w <= 0 or px_h <= 0:
+        return 1.0, "no mode"
+    if mm_w <= 0 or mm_h <= 0:
+        return 1.0, "no physical size"
+    diag_mm = math.hypot(mm_w, mm_h)
+    if diag_mm < MIN_DIAG_MM:
+        return 1.0, f"implausible physical size {mm_w}x{mm_h} mm"
+    skew = (px_w / px_h) / (mm_w / mm_h)
+    if skew > MAX_ASPECT_SKEW or skew < 1.0 / MAX_ASPECT_SKEW:
+        return 1.0, f"physical size {mm_w}x{mm_h} mm does not match {px_w}x{px_h}"
+    ppi = math.hypot(px_w, px_h) / (diag_mm / 25.4)
+    if ppi >= PPI_2X:
+        return 2.0, f"{ppi:.0f} ppi"
+    if ppi >= PPI_1_5X:
+        return 1.5, f"{ppi:.0f} ppi"
+    return 1.0, f"{ppi:.0f} ppi"
+
+
+def parse_wh(text: str) -> tuple[int, int]:
+    m = re.fullmatch(r"\s*(\d+)\s*x\s*(\d+)\s*", text)
+    if not m:
+        raise argparse.ArgumentTypeError(f"expected WxH, got {text!r}")
+    return int(m.group(1)), int(m.group(2))
+
+
+def read_outputs(runner=subprocess.run) -> list[dict]:
+    try:
+        res = runner(
+            ["wlr-randr", "--json"], capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f"wlr-randr unavailable: {exc}")
+        return []
+    if res.returncode != 0:
+        log(f"wlr-randr --json failed: {res.stderr.strip()}")
+        return []
+    try:
+        data = json.loads(res.stdout)
+    except ValueError:
+        log("wlr-randr --json returned no JSON")
+        return []
+    return [o for o in data if isinstance(o, dict) and o.get("name")]
+
+
+def phys_mm(out: dict) -> tuple[int, int]:
+    ps = out.get("physical_size") or {}
+    try:
+        return int(ps.get("width") or 0), int(ps.get("height") or 0)
+    except (TypeError, ValueError):
+        return 0, 0
+
+
+def modes(out: dict) -> list[dict]:
+    return [m for m in out.get("modes") or [] if m.get("width") and m.get("height")]
+
+
+def mode_flag(out: dict, flag: str) -> dict | None:
+    for m in modes(out):
+        if m.get(flag):
+            return m
+    return None
+
+
+def current_scale(out: dict) -> float:
+    try:
+        return float(out.get("scale") or 1.0)
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def greeter_mode(out: dict) -> dict | None:
+    """The mode the greeter should scan out on this output."""
+    pref = mode_flag(out, "preferred") or mode_flag(out, "current")
+    all_modes = modes(out)
+    if not pref or not all_modes:
+        return None
+
+    def near60(m: dict) -> float:
+        return abs(float(m.get("refresh") or 60.0) - 60.0)
+
+    if pref["width"] <= GREETER_MAX_W and pref["height"] <= GREETER_MAX_H:
+        return pref
+    aspect = pref["width"] / pref["height"]
+    same = [
+        m
+        for m in all_modes
+        if m["width"] <= GREETER_MAX_W
+        and m["height"] <= GREETER_MAX_H
+        and abs(m["width"] / m["height"] - aspect) / aspect < 0.02
+    ]
+    if same:
+        return max(same, key=lambda m: (m["width"] * m["height"], -near60(m)))
+    hd = [m for m in all_modes if m["width"] == 1920 and m["height"] == 1080]
+    if hd:
+        return min(hd, key=near60)
+    return None
+
+
+def run_wlr(args: list[str], dry_run: bool, runner=subprocess.run) -> bool:
+    if dry_run:
+        print("wlr-randr " + " ".join(args))
+        return True
+    try:
+        return (
+            runner(
+                ["wlr-randr", *args], capture_output=True, text=True, timeout=10
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def cmd_greeter(dry_run: bool, runner=subprocess.run) -> int:
+    outputs = read_outputs(runner)
+    if not outputs:
+        return 1  # let the greeter autostart fall back to its fixed 1080p loop
+    for out in outputs:
+        if out.get("enabled") is False:
+            continue
+        name = out["name"]
+        mode = greeter_mode(out)
+        if mode is None:
+            log(f"{name}: no usable mode; leaving it alone")
+            continue
+        mm_w, mm_h = phys_mm(out)
+        scale, why = policy_scale(mode["width"], mode["height"], mm_w, mm_h)
+        size = f"{mode['width']}x{mode['height']}"
+        refresh = mode.get("refresh")
+        tail = ["--scale", f"{scale:g}"]
+        done = False
+        if refresh:
+            done = run_wlr(
+                ["--output", name, "--mode", f"{size}@{float(refresh):.6f}Hz", *tail],
+                dry_run,
+                runner,
+            )
+        if not done:
+            done = run_wlr(["--output", name, "--mode", size, *tail], dry_run, runner)
+        log(
+            f"{name}: greeter mode {size} scale {scale:g} ({why}){'' if done else ' FAILED'}"
+        )
+    return 0
+
+
+def state_dir() -> Path:
+    base = os.environ.get("XDG_STATE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".local", "state"
+    )
+    return Path(base) / "ncz" / "display-scale"
+
+
+def saved_config() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config"
+    )
+    return Path(base) / "singularity" / "displays.json"
+
+
+def output_key(out: dict) -> str:
+    ident = "|".join(str(out.get(k) or "") for k in ("make", "model", "serial", "name"))
+    return hashlib.sha256(ident.encode()).hexdigest()[:16]
+
+
+def cmd_session(
+    settle: float, dry_run: bool, runner=subprocess.run, sleep=time.sleep
+) -> int:
+    if saved_config().exists():
+        log(f"{saved_config()} exists: display settings were saved, nothing to do")
+        return 0
+    sleep(settle)  # let the shell apply its own default first
+    if saved_config().exists():
+        return 0
+    sdir = state_dir()
+    for out in read_outputs(runner):
+        if out.get("enabled") is False:
+            continue
+        name = out["name"]
+        stamp = sdir / f"{output_key(out)}.json"
+        if stamp.exists():
+            continue
+        cur = mode_flag(out, "current")
+        if cur is None:
+            continue
+        mm_w, mm_h = phys_mm(out)
+        want, why = policy_scale(cur["width"], cur["height"], mm_w, mm_h)
+        have = current_scale(out)
+        action = "kept"
+        if abs(have - 1.0) < 0.01 and want > 1.0:
+            ok = run_wlr(["--output", name, "--scale", f"{want:g}"], dry_run, runner)
+            action = "applied" if ok else "failed"
+        log(
+            f"{name}: {cur['width']}x{cur['height']} {mm_w}x{mm_h} mm, {why}: policy {want:g}, was {have:g}, {action}"
+        )
+        if dry_run or action == "failed":
+            continue
+        try:
+            sdir.mkdir(parents=True, exist_ok=True)
+            stamp.write_text(
+                json.dumps(
+                    {
+                        "output": name,
+                        "make": out.get("make"),
+                        "model": out.get("model"),
+                        "mode": f"{cur['width']}x{cur['height']}",
+                        "physical_mm": [mm_w, mm_h],
+                        "policy": want,
+                        "found": have,
+                        "action": action,
+                        "time": int(time.time()),
+                    }
+                )
+                + "\n"
+            )
+        except OSError as exc:
+            log(f"cannot record {stamp}: {exc}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(
+        prog="ncz-display-scale", description=__doc__.split("\n")[0]
+    )
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("policy")
+    p.add_argument("--mode", type=parse_wh, required=True)
+    p.add_argument("--phys", type=parse_wh, required=True)
+    g = sub.add_parser("greeter")
+    g.add_argument("--dry-run", action="store_true")
+    s = sub.add_parser("session")
+    s.add_argument("--settle", type=float, default=8.0)
+    s.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args(argv)
+    if a.cmd == "policy":
+        scale, why = policy_scale(*a.mode, *a.phys)
+        print(f"{scale:g} {why}")
+        return 0
+    if a.cmd == "greeter":
+        return cmd_greeter(a.dry_run)
+    return cmd_session(a.settle, a.dry_run)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as exc:  # noqa: BLE001 -- never block a login
+        log(f"unexpected error: {exc}")
+        sys.exit(0 if sys.argv[1:2] == ["session"] else 1)

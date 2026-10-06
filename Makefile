@@ -614,6 +614,7 @@ parity:
 	build/test-boot-speed.sh
 	build/test-timesync-retry.sh
 	build/test-greeter-output-mode.sh
+	python3 build/test_display_scale.py
 	build/test-chromium-icon.sh
 	build/test-screensaver-default.sh
 	build/test-screensavers-mandatory-install.sh

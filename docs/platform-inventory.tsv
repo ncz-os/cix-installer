@@ -385,7 +385,7 @@ docs/installer-ux/	common	-	installer console before/after evidence
 build/test-usb2-rescan-sky1-only.sh	common	-	regression tests: ncz-usb2-rescan is Sky1-only (hook lists, amd64 manifests, unit Conditions, arm64-only package)
 build/test-usb2-rescan-greetd.sh	common	-	regression tests: greetd drop-in tolerates an absent/condition-skipped ncz-usb2-rescan.service; bounded input probe stays
 build/test-timesync-retry.sh	common	-	regression tests for the timesyncd fast-retry drop-in + no time-sync gating of the greeter (docs/BOOT-SPEED.md)
-build/test-greeter-output-mode.sh	common	-	regression test: greeter labwc autostart caps outputs at 1920x1080, never 4K
+build/test-greeter-output-mode.sh	common	-	regression test: greeter labwc autostart never scans out 4K, keeps the panel aspect via ncz-display-scale, falls back to the fixed 1080p loop
 build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp) and the 61 hook (divert + install + idempotent)
 build/test-screensaver-default.sh	common	-	regression test for the Cygnus black hole screensaver default hook (validated override, idempotent, skips old schemas)
 build/test-screensavers-mandatory-install.sh	common	-	fail-before/pass-after for the screensaver deb being apt-installed on every desktop image: mirror pre-flight and install hook (operator 2026-10-05; item S4; sources the builders sibling)
@@ -401,5 +401,7 @@ build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service i
 build/test-t2-dkms-provenance.sh	amd64	t2	proves every vendored T2 DKMS module has a PROVENANCE file pinned to a 40-hex upstream commit and a licence line
 build/test-t2smc-range.sh	amd64	t2	userspace unit test of the t2smc range checks (fan min/target, charge limit, RTC offset) and the patch applying cleanly
 build/test-t2-dkms-hook.sh	amd64	t2	proves 56-t2-dkms.sh builds t2smc/t2gmux only (t2smp dropped), blacklists t2smp + apple_gmux on T2 DMI only, leaves t2gmux alone on non-T2 hardware, removes stale DKMS registrations on upgrade, honours NCZ_T2_DKMS_EXTRA=t2thunderbolt opt-in, fails loudly on missing KVER_LIST_AMD64 on T2, builds against -rc KVERs (7.3.0-rc6-1-t2-edge-aerfix), and is idempotent
+assets/display/	common	-	NCZ output-scale policy helper (ncz-display-scale): greeter mode/scale and first-login HiDPI safety net (docs/HIDPI-SCALING.md)
+build/test_display_scale.py	common	-	unit tests for ncz-display-scale: density policy, greeter mode choice, first-login session rules
 build/test-splash-logo-fit.sh	common	-	manual harness: renders the loginui splash at several resolutions and checks the logo is uncropped and <= 60% wide
 build/hidpi/	common	-	manual KVM/render proof tools for the boot-splash scaling fix (docs/HIDPI-SCALING.md)
