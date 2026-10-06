@@ -96,7 +96,8 @@ VALID_REQUIRED = {"yes", "no"}
 #   (docs/components-registry.md open question 2). Proposed fix: add both
 #   names to that table. Not done here.
 #
-# ncz-screensavers-plugin is NOT waived and must not be a required row.
+# ncz-screensavers-plugin is a required staged-deb row (pinned medium deb,
+# post-install/lib/ncz-screensavers-plugin.lock); it is not an apt seed.
 GATE_WAIVED = {
     ("seed-published", "chromium-ncz-sky1"),
     ("seed-published", "ncz-ffmpeg"),

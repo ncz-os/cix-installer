@@ -1,0 +1,39 @@
+# ncz-screensavers-plugin.lock -- the pinned Singularity "Screensaver and
+# Lockscreen" settings plugin that every desktop image ships (operator
+# 2026-10-06: "make sure the screensaver plugin UX is in the next set of image
+# builds"). Shell-sourceable KEY=VALUE, no command substitution.
+#
+# One file, read by every consumer, so the pin cannot drift between them:
+#   build/stage-screensaver-plugin.sh   copies the deb from ARGONAS into
+#                                       build/ncz-screensavers-out/ (sha256 checked)
+#   build/check-ssplugin-abi.sh         stage-2 gate: staged deb == pin, and the
+#                                       image's Singularity payload is the one the
+#                                       plugin was linked against (ABI guard)
+#   build/iso/write-usb-image.py        puts the pinned deb on the install medium
+#                                       (ncz-payload/assets/ncz-screensavers-plugin/)
+#   post-install/lib/ncz-ssplugin-install.sh (from hook 59) installs it offline
+#   build/verify-installed-target-screensavers*.sh  installed-target gate
+#   build/verify-dual-arch-parity.sh    both arches pinned, one source commit
+#   build/gen-components-registry.py    the registry row
+# Supply chain, rebuild commands and hosts: docs/SCREENSAVER-PLUGIN.md.
+#
+# The plugin links libsingularity.so.0 from the Singularity payload
+# (ncz-singularity-desktop). A plugin is only installed on top of a payload
+# whose version equals NCZ_SSPLUGIN_PAYLOAD_<arch>, or whose libsingularity
+# (the only Singularity library the plugin links) is byte-identical to
+# NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_<arch>. Anything else means: rebuild the
+# plugin against the new payload, restage it on ARGONAS, update this file.
+NCZ_SSPLUGIN_PKG=ncz-screensavers-plugin
+NCZ_SSPLUGIN_VERSION=0.3.16
+NCZ_SSPLUGIN_MAINTAINER="Jason Perlow <jperlow@gmail.com>"
+# Directory under the ARGONAS projects root (/mnt/datapool/projects on ARGONAS,
+# /mnt/argonas/datapool/projects on HYDRA/PROTEUS, /mnt/argonas-projects on ULTRA).
+NCZ_SSPLUGIN_ARGONAS_DIR=ncz-screensavers-debs/plugin-0.3.16-20261006
+NCZ_SSPLUGIN_SOURCE="ncz-screensavers fix/plugin-package-20261006 4612aa6e556a9398082a3f78529d8996e5f2ae6f"
+NCZ_SSPLUGIN_SHA256_amd64=81cdf7235ecd8fb4d874ae290ebea7820100f1919bbd7abaf8ea4d079023e942
+NCZ_SSPLUGIN_SHA256_arm64=882a39ce45a0a681e98c0f0fb8f054f54424dc902f2eae0c8f3c2eedbab59d6e
+NCZ_SSPLUGIN_PAYLOAD_amd64=20261006+bk0+tgz181476b7
+NCZ_SSPLUGIN_PAYLOAD_arm64=20261006+bk0+tgz5fa6f59c
+NCZ_SSPLUGIN_ABI_LIB=/opt/singularity/lib/libsingularity.so.0
+NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_amd64=8364a2609579b5bb980d727d66c0d72ee9cd64ceb6f1f83dade05491661e746c
+NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_arm64=70bc3ae4e5e5979d17c025a5353518b0fca77503eca373169734ff2f10849b4f

@@ -15,11 +15,10 @@
 # build/build-role-delta-mkosi.sh pre-flight it via build/assert-mirror-
 # has-screensavers.sh. A mirror that lacks this package will not build.
 #
-# ncz-screensavers-plugin is intentionally NOT listed: there is no such
-# published package (Buildkite + R2 serve ncz-screensavers, ncz-singularity-
-# desktop, ncz-screensavers-gtk4-reference only). The Singularity screensaver
-# plugin is a separate ncz-screensavers-plugin package, not yet published
-# (the 0.8.9 engine deb ships no plugin files).
+# ncz-screensavers-plugin is intentionally NOT listed: it is not published to
+# the NCZ apt repo and it is ABI-coupled to the Singularity payload, so the
+# image carries a pinned deb on the install medium and hook 59 installs it
+# (post-install/lib/ncz-screensavers-plugin.lock, docs/SCREENSAVER-PLUGIN.md).
 ncz-screensavers
 #
 # The installer's user-setup step runs `apt-get install sudo` in the target, and
