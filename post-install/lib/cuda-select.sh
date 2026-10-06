@@ -55,11 +55,20 @@ ncz_cuda_family_of_id() {
 }
 
 # ncz_cuda_nvidia_ids [FILE] -> prints the 4-hex device id of every NVIDIA
-# display-class ([0300]/[0302]/[0380]) controller from `lspci -nn` (or FILE).
+# display-class ([0300]/[0302]/[0380]) controller, from FILE (`lspci -nn`
+# line shape) or, by default, from sysfs via lib/pci-sysfs.sh. Never runs
+# lspci: a config-space read of a GPU stuck in runtime suspend blocks forever
+# (PEGASUS, 2026-10-06; see pci-sysfs.sh).
 ncz_cuda_nvidia_ids() {
     local out
     if [ -n "${1:-}" ]; then out=$(cat "$1" 2>/dev/null) || return 1
-    else command -v lspci >/dev/null 2>&1 || return 1; out=$(lspci -nn 2>/dev/null) || return 1; fi
+    else
+        if ! command -v ncz_pci_lspci_nn >/dev/null 2>&1; then
+            # shellcheck source=post-install/lib/pci-sysfs.sh
+            . "$(dirname "${BASH_SOURCE[0]}")/pci-sysfs.sh" 2>/dev/null || return 1
+        fi
+        out=$(ncz_pci_lspci_nn) || return 1
+    fi
     printf '%s\n' "$out" | grep -E '\[03(00|02|80)\]:' | grep -oiE '\[10de:[0-9a-f]{4}\]' \
         | sed -E 's/^\[10de:([0-9a-fA-F]{4})\]$/\1/' | tr 'A-F' 'a-f'
 }

@@ -175,7 +175,7 @@ tty_msg() {
     printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" >"$TTY" 2>/dev/null || true
 }
 # r141: install the per-package apt-get progress shim ahead of PATH.
-NCZ_SHIM=/tmp/ncz-apt-shim; mkdir -p "$NCZ_SHIM" "$LOGDIR" 2>/dev/null || true
+NCZ_SHIM=${NCZ_APT_SHIM_DIR:-/tmp/ncz-apt-shim}; mkdir -p "$NCZ_SHIM" "$LOGDIR" 2>/dev/null || true
 SHIMSRC="$(dirname "$0")/apt-progress-shim"
 if [ "${NCZ_DISABLE_APT_SHIM:-0}" != 1 ] && [ -f "$SHIMSRC" ]; then
     cp "$SHIMSRC" "$NCZ_SHIM/apt-get"
@@ -689,7 +689,26 @@ done
 REQUIRED_PHASE_OK=1
 
 # Phase 2: optional hooks. Failures logged but don't abort.
+#
+# Watchdog (2026-10-06, PEGASUS): an optional hook that hangs must not hang
+# the install. 54-gpu-accel.sh sat for 30+ minutes with `lspci` in D state
+# on a GPU whose runtime suspend had oopsed; with `bash hook | tee` nothing
+# could ever end it. Each optional hook now runs under ncz_bounded_run
+# (lib/bounded-run.sh): own session, output to its log file (streamed to this
+# console), and after NCZ_OPT_HOOK_TIMEOUT seconds (default 7200, above the
+# longest legitimate hook: 54's CUDA install is itself bounded at 5400 s) it
+# is killed by exact PGID, logged as "timed out, continuing", and counted as
+# a failed hook (rc 124) -- ship-critical hooks still fail the install after
+# the bootloader and diagnostics run. Phase 0/1 and the EXIT-trap hooks are
+# unchanged: a required hook must finish.
 set +e
+NCZ_HOOK_WATCHDOG=0
+if [ -r "$HOOK_DIR/lib/bounded-run.sh" ]; then
+    # shellcheck source=post-install/lib/bounded-run.sh
+    . "$HOOK_DIR/lib/bounded-run.sh" && NCZ_HOOK_WATCHDOG=1
+fi
+[ "$NCZ_HOOK_WATCHDOG" = 1 ] || echo "[cix-installer] WARN: lib/bounded-run.sh missing; optional hooks run without a watchdog"
+NCZ_OPT_HOOK_TIMEOUT=${NCZ_OPT_HOOK_TIMEOUT:-7200}
 tty_msg "Phase 2: optional hooks (desktop + brand + ssh + ...)"
 if [ "$NCZ_BAKED" = 1 ]; then
     tty_msg "Phase 2: baked image — running only machine-specific hooks: $OPT_HOOKS"
@@ -712,14 +731,23 @@ for hook in $OPT_HOOKS; do
     [ "$_gpu_step" = 1 ] && echo "[cix-installer] GPU step: $_gpu_label (live status: $LOGDIR/gpu-progress.log)"
     echo "============================================================"
     [ "$_gpu_step" = 1 ] && ncz_gpu_watch_begin "$hook" "$LOGDIR"
-    bash ./"$hook" 2>&1 | tee "$LOG"
-    rc=${PIPESTATUS[0]}
+    if [ "$NCZ_HOOK_WATCHDOG" = 1 ]; then
+        NCZ_BOUNDED_STREAM=1 ncz_bounded_run "$NCZ_OPT_HOOK_TIMEOUT" "cix-installer $hook" "$LOG" bash ./"$hook"
+        rc=$?
+    else
+        bash ./"$hook" 2>&1 | tee "$LOG"
+        rc=${PIPESTATUS[0]}
+    fi
     HOOK_DUR=$(( $(date +%s) - HOOK_START ))
     _gpu_summary=""
     if [ "$_gpu_step" = 1 ]; then
         _gpu_summary=$(ncz_gpu_watch_end "$hook" "$LOGDIR")
         echo "[cix-installer] GPU step $hook rc=$rc after ${HOOK_DUR}s${_gpu_summary:+: $_gpu_summary}"
         [ -n "$_gpu_summary" ] && tty_msg "    $_gpu_short: $_gpu_summary"
+    fi
+    if [ "$NCZ_HOOK_WATCHDOG" = 1 ] && [ "${NCZ_BOUNDED_TIMED_OUT:-0}" = 1 ]; then
+        echo "[cix-installer] $hook timed out after ${NCZ_OPT_HOOK_TIMEOUT}s, continuing" | tee -a "$LOG"
+        tty_msg "  ✗ [$IDX/$TOTAL_OPT] $hook timed out after ${NCZ_OPT_HOOK_TIMEOUT}s — continuing"
     fi
     if [ "$rc" -ne 0 ]; then
         progress_finish WARN "Optional component warning (${HOOK_DUR}s)${_gpu_summary:+ - $_gpu_summary}" "$rc"
