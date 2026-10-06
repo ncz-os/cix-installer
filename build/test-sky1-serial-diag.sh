@@ -19,7 +19,8 @@
 #      override (proven not to help); the on-screen arm64 entries still
 #      name no serial console (console=tty0 only, so reopen-console keeps d-i
 #      on the monitor); the Rescue entry keeps console=ttyAMA0,115200;
-#   2. the amd64 installer entries are byte-identical to before this change
+#   2. the amd64 installer entries are unchanged by this work (apart from the
+#      separate nouveau.runpm=0 workaround)
 #      and name none of those tokens nor ttyAMA;
 #   3. the installed arm64 cmdline (ncz-refind-refresh.sh) keeps
 #      console=ttyAMA0,115200 before console=tty0 and the same ACPI PCIe mode
@@ -102,7 +103,11 @@ AMD64 = {
 got = {"install": m.AMD64_INSTALL_OPTIONS, "expert": m.AMD64_EXPERT_OPTIONS,
        "rescue": m.AMD64_RESCUE_OPTIONS}
 for k in AMD64:
-    check(got[k] == AMD64[k], f"amd64 {k} options changed: {got[k]!r}")
+    # The amd64 entries may differ from the pre-change baseline ONLY by the
+    # nouveau.runpm=0 workaround (fix/nouveau-runpm-hang-20261006); any other
+    # drift, or any Sky1 token, is still a failure.
+    check(got[k].replace(" nouveau.runpm=0", "") == AMD64[k],
+          f"amd64 {k} options changed: {got[k]!r}")
     check(all(t not in got[k] for t in ("fw_devlink", "ttyAMA", "sky1_pcie", "pcie_pnp_en")),
           f"amd64 {k} carries a Sky1 token")
 check(m.REFIND_CONF_TEXT_AMD64_FULL_TEMPLATE == m.REFIND_CONF_TEXT_TEMPLATE, "amd64 full template diverged")
