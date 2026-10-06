@@ -33,6 +33,14 @@ if [ ! -r "$SCREENSAVERS_VERSION_ENV" ]; then
 fi
 # shellcheck disable=SC1090
 . "$SCREENSAVERS_VERSION_ENV"
+# set -u only catches unset names; dpkg --compare-versions X ge "" returns 0,
+# so an empty floor would accept any version. Require non-empty values.
+for _ssv in NCZ_SCREENSAVERS_MIN_VERSION NCZ_SCREENSAVERS_MISSING_MSG NCZ_SCREENSAVERS_TOO_OLD_MSG; do
+    if [ -z "${!_ssv:-}" ]; then
+        echo "assert-mirror-has-screensavers: FATAL: $_ssv is empty or missing in $SCREENSAVERS_VERSION_ENV -- refusing to run without a version floor" >&2
+        exit 1
+    fi
+done
 
 # Version comparison: prefer dpkg --compare-versions; fall back to a shell-
 # side compare if dpkg is missing. The fallback handles the dotted-numeric
