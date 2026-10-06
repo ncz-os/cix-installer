@@ -1,0 +1,9 @@
+name	kind	source	arch	variant	required	version_floor	installed_by	verified_by	provenance	notes
+gimp	debian	debian-forky	all	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	Base image seed.
+htop	debian	debian-forky	all	server	yes		manifest	build/verify-packages.sh	manifests/server.pkgs	Server seed.
+ncz-widget	ncz-apt	buildkite-packages	all	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs; NCZ apt repo	Published (fixture).
+ncz-widget	staged-deb	staged:pool/ncz-widget_*_all.deb	all	desktop	no		post-install/20-extra.sh	build/verify-packages.sh	build/build-desktop-mirror.sh	NCZ_LOCAL_DEBS: optional.
+ncz-core	staged-deb	staged:pool/ncz-core_*_all.deb	all	all	yes		post-install/10-base.sh	build/verify-packages.sh	build/build-desktop-mirror.sh	NCZ_LOCAL_DEBS: required.
+ncz-gadget	ncz-apt	r2	amd64	desktop	no		manifest	build/verify-packages.sh	build/arch-parity-allowlist.tsv	amd64-only per allowlist.
+t2smc	dkms	vendored:assets/kernel/t2smc	all	all	yes	0.1	post-install/10-base.sh	build/verify-packages.sh	assets/kernel/t2smc/dkms.conf	Fixture dkms module (has PROVENANCE).
+t2gmux	dkms	vendored:assets/kernel/t2gmux	all	all	no	0.8	post-install/10-base.sh	build/verify-packages.sh	assets/kernel/t2gmux/dkms.conf	No PROVENANCE file (warning expected).
