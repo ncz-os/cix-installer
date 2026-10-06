@@ -183,6 +183,19 @@ if [ "${NCZ_DISABLE_APT_SHIM:-0}" != 1 ] && [ -f "$SHIMSRC" ]; then
     export PATH="$NCZ_SHIM:$PATH"
     tty_msg "per-package apt progress shim active (Alt+F3)"
 fi
+# GPU / DKMS driver steps get a named label, a live sub-status fed from the
+# DKMS build log, and a reserved progress-bar weight
+# (lib/gpu-progress.sh, docs/GPU-INSTALL-PROGRESS.md). An older payload
+# without the library keeps the previous behavior.
+if [ -r "$HOOK_DIR/lib/gpu-progress.sh" ]; then
+    # shellcheck source=lib/gpu-progress.sh
+    . "$HOOK_DIR/lib/gpu-progress.sh"
+else
+    ncz_gpu_step_profile() { return 1; }
+    ncz_gpu_hook_weight() { echo 1; }
+    ncz_gpu_watch_begin() { NCZ_GPU_MON_PID=""; }
+    ncz_gpu_watch_end() { :; }
+fi
 
 # Build the execution plan once. This is the authoritative list used both for
 # execution and progress reporting; late.sh must not try to reconstruct it from
@@ -473,6 +486,21 @@ progress_start() {
 progress_finish() {
     progress_emit "${1:-DONE}" "${2:-}" "" "${3:-0}"
 }
+# Plan weights for the bar: one row per scheduled step, in execution order
+# (index|hook|weight). late.sh spreads its owned bar units by weight instead
+# of one equal slot per hook, so a 15-minute driver build gets room to tick.
+# Missing or inconsistent plan -> late.sh falls back to equal slots.
+PROGRESS_PLAN="$LOGDIR/progress.plan"
+{
+    _pi=0
+    for _ph in $PHASE0_HOOKS $REQUIRED_HOOKS $OPT_HOOKS; do
+        _pi=$((_pi + 1)); printf '%s|%s|%s\n' "$_pi" "$_ph" "$(_NCZ_SYSTEM_ARCH="$_NCZ_SYSTEM_ARCH" ncz_gpu_hook_weight "$_ph")"
+    done
+    for _ph in 70-bootloader.sh 99-diagnostics.sh; do
+        [ -f "$_ph" ] || continue
+        _pi=$((_pi + 1)); printf '%s|%s|1\n' "$_pi" "$_ph"
+    done
+} > "$PROGRESS_PLAN.tmp.$$" 2>/dev/null && mv -f "$PROGRESS_PLAN.tmp.$$" "$PROGRESS_PLAN" 2>/dev/null || true
 progress_emit PLAN "Post-install plan: $TOTAL_HOOKS scheduled steps"
 
 tty_msg "==== run-all.sh: post-install hooks starting ===="
@@ -671,17 +699,30 @@ for hook in $OPT_HOOKS; do
     IDX=$((IDX + 1))
     LOG="$LOGDIR/${hook%.sh}.log"
     HOOK_START=$(date +%s)
-    progress_start optional "$hook" "Installing optional component: ${hook%.sh}"
+    _gpu_step=0; _gpu_label=""; _gpu_short=""; _gpu_watch=0
+    if ncz_gpu_step_profile "$hook" 2>/dev/null; then
+        _gpu_step=1; _gpu_label="$NCZ_GPU_LABEL"; _gpu_short="$NCZ_GPU_SHORT"; _gpu_watch="$NCZ_GPU_WATCH"
+    fi
+    progress_start optional "$hook" "${_gpu_label:-Installing optional component: ${hook%.sh}}"
     tty_msg "  → [$IDX/$TOTAL_OPT] $hook"
+    [ "$_gpu_step" = 1 ] && tty_msg "    $_gpu_label"
     echo ""
     echo "============================================================"
     echo "[cix-installer] [OPTIONAL $IDX/$TOTAL_OPT] running $hook → $LOG"
+    [ "$_gpu_step" = 1 ] && echo "[cix-installer] GPU step: $_gpu_label (live status: $LOGDIR/gpu-progress.log)"
     echo "============================================================"
+    [ "$_gpu_step" = 1 ] && ncz_gpu_watch_begin "$hook" "$LOGDIR"
     bash ./"$hook" 2>&1 | tee "$LOG"
     rc=${PIPESTATUS[0]}
     HOOK_DUR=$(( $(date +%s) - HOOK_START ))
+    _gpu_summary=""
+    if [ "$_gpu_step" = 1 ]; then
+        _gpu_summary=$(ncz_gpu_watch_end "$hook" "$LOGDIR")
+        echo "[cix-installer] GPU step $hook rc=$rc after ${HOOK_DUR}s${_gpu_summary:+: $_gpu_summary}"
+        [ -n "$_gpu_summary" ] && tty_msg "    $_gpu_short: $_gpu_summary"
+    fi
     if [ "$rc" -ne 0 ]; then
-        progress_finish WARN "Optional component warning (${HOOK_DUR}s)" "$rc"
+        progress_finish WARN "Optional component warning (${HOOK_DUR}s)${_gpu_summary:+ - $_gpu_summary}" "$rc"
         tty_msg "  ✗ [$IDX/$TOTAL_OPT] $hook FAILED rc=$rc (${HOOK_DUR}s) — continuing"
         echo "[cix-installer] $hook FAILED rc=$rc — continuing (bootloader still writes)"
         FAILED_HOOKS="$FAILED_HOOKS $hook"
@@ -690,7 +731,13 @@ for hook in $OPT_HOOKS; do
             echo "[cix-installer] $hook is ship-critical; d-i will fail after bootloader + diagnostics"
         fi
     else
-        progress_finish DONE "Optional component complete (${HOOK_DUR}s)" 0
+        if [ "$_gpu_step" = 1 ] && [ "$_gpu_watch" != 1 ]; then
+            progress_finish DONE "$_gpu_label" 0
+        elif [ "$_gpu_step" = 1 ]; then
+            progress_finish DONE "$_gpu_short: done in ${HOOK_DUR}s${_gpu_summary:+ - $_gpu_summary}" 0
+        else
+            progress_finish DONE "Optional component complete (${HOOK_DUR}s)" 0
+        fi
         tty_msg "  ✓ [$IDX/$TOTAL_OPT] $hook done (${HOOK_DUR}s)"
     fi
 done
