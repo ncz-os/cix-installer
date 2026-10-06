@@ -89,12 +89,6 @@ if [ "$_ss_reg_floor" != "$NCZ_SCREENSAVERS_MIN_VERSION" ]; then
     echo "ERROR: registry floor '${_ss_reg_floor}' disagrees with NCZ_SCREENSAVERS_MIN_VERSION=${NCZ_SCREENSAVERS_MIN_VERSION}" >&2
     exit 1
 fi
-if python3 "$REPO/build/components.py" --root "$REPO" query --name ncz-screensavers-plugin --field required >/dev/null 2>&1; then
-    _plug_req="$(python3 "$REPO/build/components.py" --root "$REPO" query --name ncz-screensavers-plugin --field required)"
-    case "$_plug_req" in
-        *yes*) echo "ERROR: registry marks ncz-screensavers-plugin required; that package is not published and must not be required" >&2; exit 1 ;;
-    esac
-fi
 
 SRC="$REPO/build/$NCZ_BASE_CODENAME-mirror"
 OUT="$REPO/build/desktop-mirror"
@@ -364,11 +358,11 @@ fi
 # here causes this script to exit with a precise "missing package" error
 # instead.
 #
-# ncz-screensavers-plugin is intentionally NOT a row: there is no such published
-# package (Buildkite + R2 serve ncz-screensavers, ncz-singularity-desktop,
-# ncz-screensavers-gtk4-reference only). The 0.8.9 engine deb ships no
-# plugin files -- the plugin is a separate ncz-screensavers-plugin package,
-# not yet published; seeding a non-existent package would fail the build.
+# ncz-screensavers-plugin (the Singularity settings page) is intentionally NOT
+# a row: it is unpublished and ABI-coupled to the Singularity payload that
+# stage 1 rebuilds AFTER this stage-0 mirror, so it travels on the install
+# medium next to the payload instead (pinned in
+# post-install/lib/ncz-screensavers-plugin.lock, docs/SCREENSAVER-PLUGIN.md).
 #
 # cixmini-boot Depends on ncz-usb-recovery, but the pool that has to satisfy
 # it offline is build/forky-vendor-mirror, not this one -- see the note above

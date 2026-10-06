@@ -74,11 +74,25 @@ AC_PUBLISHED = {
     "ncz-screensavers-gtk4-reference",
 }
 
-# Seeds whose NCZ-apt publication is explicitly deferred; the staged .deb
-# (NCZ_LOCAL_DEBS) is their only install path today. AC report open question
-# 5: "Screensaver Settings plugin 0.3.16 is explicitly out of scope
-# (orchestrator publishes later)".
-KNOWN_UNPUBLISHED_SEEDS = {"ncz-screensavers-plugin"}
+# The Singularity screensaver settings plugin is NOT an apt seed and not in
+# NCZ_LOCAL_DEBS: it is unpublished (AC report open question 5) and
+# ABI-coupled to the Singularity payload stage 1 rebuilds, so the image ships
+# a pinned deb on the install medium. Its row comes from the pin file.
+SSPLUGIN_LOCK_REL = "post-install/lib/ncz-screensavers-plugin.lock"
+
+
+def parse_ssplugin_lock(path):
+    """KEY=VALUE pairs of the plugin pin, or {} when the file is absent."""
+    out = {}
+    if not path.exists():
+        return out
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip()] = v.strip().strip('"')
+    return out
 
 # install-extra.pkgs rows that are plain Debian packages, not NCZ-apt.
 # (The manifest's own comment: the installer's user-setup step runs
@@ -709,11 +723,6 @@ def main(argv=None):
         pkgs = parse_pkgs(path)
         for pkg in pkgs:
             ncz = is_ncz_name(pkg)
-            if ncz and pkg in KNOWN_UNPUBLISHED_SEEDS:
-                # Staged-deb row (NCZ_LOCAL_DEBS) is the authoritative row;
-                # the seed presence is noted there. Skip to avoid a phantom
-                # buildkite-packages row for an unpublished name.
-                continue
             if not ncz and pkg in ncz_deb_names:
                 # libdrm-*: the NCZ_LOCAL_DEBS staged pool is the resolution
                 # source (NCZ-patched 2.4.134-3+ncz, not forky); the pool
@@ -784,12 +793,7 @@ def main(argv=None):
             "ncz-screensavers": (
                 "59-ncz-screensavers-pkg.sh; mandatory on desktop variants "
                 "(operator 2026-10-05). Floor is NCZ_SCREENSAVERS_MIN_VERSION. "
-                "ncz-screensavers-plugin is not a row and must not be required."
-            ),
-            "ncz-screensavers-plugin": (
-                "59-ncz-screensavers-pkg.sh. Seed in install-extra.pkgs but NOT "
-                "published to the NCZ apt set (item AC open question 5); the "
-                "staged .deb is the only offline path -- drift, feeds S4."
+                "The settings plugin is its own row (pinned medium deb)."
             ),
             "ncz-usb-recovery": (
                 "41-usb2-rescan.sh (apt from the offline vendor-mirror pool); "
@@ -809,7 +813,6 @@ def main(argv=None):
         installed_by = {
             "ncz-singularity-desktop": "post-install/20-desktop.sh",
             "ncz-screensavers": "post-install/59-ncz-screensavers-pkg.sh",
-            "ncz-screensavers-plugin": "post-install/59-ncz-screensavers-pkg.sh",
             "ncz-usb-recovery": "post-install/41-usb2-rescan.sh",
         }.get(name, "build/build-desktop-mirror.sh (pool staging; apt resolver installs)")
         verified_by = {
@@ -833,6 +836,32 @@ def main(argv=None):
             "verified_by": verified_by,
             "provenance": provenance,
             "notes": notes,
+        })
+
+    # 2b. The Singularity screensaver settings plugin (pinned medium deb).
+    pin = parse_ssplugin_lock(root / SSPLUGIN_LOCK_REL)
+    if pin:
+        all_rows.append({
+            "name": pin["NCZ_SSPLUGIN_PKG"],
+            "kind": "staged-deb",
+            "source": (f"staged:build/ncz-screensavers-out/"
+                       f"{pin['NCZ_SSPLUGIN_PKG']}_*_${{ARCH}}.deb"),
+            "arch": "all",
+            "variant": "desktop",
+            "required": "yes",
+            "version_floor": pin["NCZ_SSPLUGIN_VERSION"],
+            "installed_by": "post-install/59-ncz-screensavers-pkg.sh",
+            "verified_by": "build/check-ssplugin-abi.sh,build/verify-installed-target-screensavers-default.sh",
+            "provenance": (f"{SSPLUGIN_LOCK_REL} (ARGONAS "
+                           f"{pin['NCZ_SSPLUGIN_ARGONAS_DIR']}); "
+                           "build/stage-screensaver-plugin.sh; docs/SCREENSAVER-PLUGIN.md"),
+            "notes": (
+                "Singularity Screensaver and Lockscreen settings page. Not published "
+                "to the NCZ apt set (item AC open question 5); pinned sha256 per arch, "
+                "carried on the install medium (ncz-payload/assets/ncz-screensavers-plugin), "
+                "installed only over the Singularity payload it was linked against "
+                "(version or byte-identical libsingularity)."
+            ),
         })
 
     # 3. Vendor staged .debs (not in NCZ_LOCAL_DEBS, not seeded).

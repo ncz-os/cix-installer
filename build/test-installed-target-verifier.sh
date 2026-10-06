@@ -176,9 +176,10 @@ m_ss_hacks()    { rm -f "$1"/usr/lib/ncz-screensavers/hack1*_gles3; }
 m_ss_noidled()  { rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"; }
 m_ss_oldidle()  { ln -s /usr/lib/systemd/user/ncz-idle-manager.service "$1/etc/systemd/user/graphical-session.target.wants/ncz-idle-manager.service"; }
 m_ss_schema()   { printf 'nothing' > "$1/usr/share/glib-2.0/schemas/gschemas.compiled"; }
-# The Singularity plugin ships in a SEPARATE package (ncz-screensavers-plugin)
-# that is not published yet; the 0.8.9 engine deb ships no plugin files. The
-# verifier requires the plugin files only when the plugin package is installed.
+# The Singularity plugin ships in a SEPARATE package (ncz-screensavers-plugin):
+# a pinned deb on the install medium (post-install/lib/ncz-screensavers-plugin.lock).
+# The verifier requires it when the image pins it (the pin in the target's
+# installer tree, or VERIFY_EXPECT_SS_PLUGIN=1) or when it is installed.
 m_ssp_installed_no_so()       { m_ssp_pkg "$1"; rm -f "$1/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"; }
 m_ssp_installed_no_pluginfile() { m_ssp_pkg "$1"; rm -f "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"; }
 m_ssp_installed_nofiles()     { m_ssp_pkg "$1"; rm -f "$1"/opt/singularity/lib/singularity/plugins/screensaver/*; }
@@ -207,11 +208,19 @@ m_ss_no_blackhole_default() {
 </schemalist>
 GSCHEMA
 }
-# a published ncz-screensavers-plugin package (first publish not yet out the
-# door; when it ships, the .so + .plugin + default-enabled override come
-# together) -- builds the complete plugin-installed state on the fixture.
+# the pinned ncz-screensavers-plugin installed by hook 59 (.so + .plugin +
+# default-enabled override come together) -- the complete plugin state.
+SSP_PIN_VER="$(sed -n 's/^NCZ_SSPLUGIN_VERSION=//p' "$ROOT/post-install/lib/ncz-screensavers-plugin.lock")"
+m_ssp_pin()  { mkdir -p "$1/usr/local/lib/cix-installer/post-install/lib"; cp "$ROOT/post-install/lib/ncz-screensavers-plugin.lock" "$1/usr/local/lib/cix-installer/post-install/lib/"; }
+m_ssp_pinned_missing()     { m_ssp_pin "$1"; }
+m_ssp_pinned_ok()          { m_ssp_pin "$1"; m_ssp_pkg "$1"; }
+m_ssp_pinned_wrongver()    { m_ssp_pin "$1"; m_ssp_pkg "$1"; sed -i "s/^Version: $SSP_PIN_VER\$/Version: 0.3.1/" "$1/var/lib/dpkg/status"; }
+m_ssp_pinned_no_override() { m_ssp_pin "$1"; m_ssp_pkg "$1"; rm -f "$1/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"; }
+m_ssp_pinned_no_ss_entry() { m_ssp_pin "$1"; m_ssp_pkg "$1"; printf "enabled-plugins=['sensors']\n" > "$1/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"; }
+m_amd64_ssp_pinned_ok()    { m_amd64_strip "$1"; m_ssp_pinned_ok "$1"; }
+m_amd64_ssp_pinned_missing() { m_amd64_strip "$1"; m_ssp_pin "$1"; }
 m_ssp_pkg() {
-    printf 'Package: ncz-screensavers-plugin\nStatus: install ok installed\nVersion: 0.3.1\n\n' >> "$1/var/lib/dpkg/status"
+    printf 'Package: ncz-screensavers-plugin\nStatus: install ok installed\nVersion: %s\n\n' "$SSP_PIN_VER" >> "$1/var/lib/dpkg/status"
     mkdir -p "$1/opt/singularity/lib/singularity/plugins/screensaver" "$1/opt/singularity/share/glib-2.0/schemas"
     echo x > "$1/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"
     echo x > "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
@@ -322,6 +331,13 @@ run_case "plugin pkg installed but .so missing fails" 1 m_ssp_installed_no_so
 run_case "plugin pkg installed but .plugin manifest missing fails" 1 m_ssp_installed_no_pluginfile
 run_case "plugin pkg installed but no plugin files fails" 1 m_ssp_installed_nofiles
 run_case "plugin pkg installed with files present passes" 0 m_ssp_pkg
+run_case "plugin pinned by the image but not installed fails" 1 m_ssp_pinned_missing
+run_case "plugin pinned and installed passes"            0 m_ssp_pinned_ok
+run_case "plugin installed at another version than the pin fails" 1 m_ssp_pinned_wrongver
+run_case "plugin pinned, default-enabled override missing fails" 1 m_ssp_pinned_no_override
+run_case "plugin pinned, override without 'screensaver' fails" 1 m_ssp_pinned_no_ss_entry
+VERIFY_EXPECT_SS_PLUGIN=1 run_case "plugin expected by the caller but absent fails" 1 ""
+VERIFY_EXPECT_SS_PLUGIN=0 run_case "plugin not expected by the caller (pin present) is skipped" 0 m_ssp_pinned_missing
 run_case "gtk4-reference installed fails"        1 m_ss_ref
 run_case "idled timer not enabled fails"        1 m_ss_noidled
 run_case "old idle-manager still enabled fails" 1 m_ss_oldidle
@@ -342,6 +358,8 @@ VERIFY_EXPECT_SCREENSAVERS=1 run_case "expected by the caller but absent fails e
 # ---- arm64-only checks must not run on amd64 and Sky1 policy must not leak onto it -----------------
 export TEST_ARCH=amd64
 run_case "amd64: a healthy x86 target passes with no Sky1 content"  0 m_amd64_strip
+run_case "amd64: plugin pinned and installed passes"                0 m_amd64_ssp_pinned_ok
+run_case "amd64: plugin pinned but not installed fails"             1 m_amd64_ssp_pinned_missing
 run_case "amd64: serial-getty@ttyAMA0 leak fails"                   1 m_amd64_strip_leak
 run_case "amd64: placeholder hostname fails"                        1 m_amd64_strip_nohost
 run_case "amd64: sudo missing fails"                                1 m_amd64_strip_nosudo
