@@ -1,12 +1,12 @@
 Module: t2gmux (Apple T2 GMUX: dGPU/GPU mux power control)
 Source: https://github.com/kaiT2en/KaiT2en-Fedora
 Module path: modules/t2gmux
-Upstream commit: 8760e41cd73fd736c3e5fb955ecc5fed49afee0d
-Upstream commit date: 2026-09-28T15:22:31+02:00
-Upstream subject: t2gmux: write gpu-active before sleep and power-off like AppleMuxControl2
+Upstream commit: a88f36f452676bdcf840a5d958478e49d221c384
+Upstream commit date: 2026-10-06T00:38:31+02:00
+Upstream subject: Merge pull request #93 from turannul/patch-1
 SPDX-License-Identifier: GPL-2.0-only
 Copyright: Canonical Ltd., Andreas Heider, Lukas Wunner, Orlando Chamberlain (src/t2gmux.c)
-Vendored: 2026-09-28
+Vendored: 2026-10-05
 
 Vendored layout:
   upstream modules/t2gmux/t2gmux.c   -> src/t2gmux.c
@@ -15,17 +15,32 @@ Vendored layout:
   upstream README.md is NOT vendored.
 
 Upstream-derived file hashes (sha256) as vendored:
-  src/t2gmux.c 5a6ee0acbf402347cdaa00c1af45a7c8ed90fd540531bad2f0328629a60fba47  (pristine, matches upstream commit)
+  src/t2gmux.c 3a810bc1f9b44c69209ac9931765e8d3763c72d60a0af929f568beb17630375f  (pristine, matches upstream commit)
   src/Makefile 88a071776b940a643dd1c78ab46a307e11a39dce22e9c694f0993e7ef47ec044  (pristine, matches upstream commit)
   dkms.conf    948b1930e18c6f1a290c3268b8239a26782a9ca6a281a5857ba20c8c13dd8fb0  (pristine, matches upstream commit)
 Source tree digest (sha256 of `find src -type f | sort | xargs sha256sum | sha256sum`):
-  646b481b8fc29193a7ba7fdad5c421b298a2dd41cd0be50064ccbf98ed085ac9
+  823bdc6295231b878586af63160689669b0a670434ab920d7f8e6a957ad6e76b
+
+What changed since the previously vendored commit (8760e41..a88f36f; six safety and
+power-sequencing fixes, no new module parameters and no new sysfs interface):
+  65af65f  t2gmux, gpu-runtime-pm: follow macOS for 16,x dGPU power-up, gmux
+           interrupts and the inactive eDP (2026-09-29)
+  952a2ee  t2gmux: on resume only power down a dGPU that is powered, like
+           AppleMuxControl2 (2026-09-29)
+  60686dd  t2gmux: wait for the T2 mailbox and skip busy accesses like
+           AppleMuxControl2 (2026-09-29)
+  398dd08  t2gmux: keep the pci core from suspending the bridges when running on
+           ports=native (pci_d3cold_disable on the dGPU) (2026-10-01)
+  8f32b9c  t2gmux: block user config access across PWRD transitions, check PWRD
+           result (2026-10-01)
+  26fa944  t2gmux: add transition lock (2026-10-05)
+  Log: https://github.com/kaiT2en/KaiT2en-Fedora/compare/8760e41...a88f36f
 
 Local modifications: none (all vendored upstream files byte-identical to the commit).
 
 Re-sync:
   git clone https://github.com/kaiT2en/KaiT2en-Fedora.git
-  git -C KaiT2en-Fedora checkout 8760e41cd73fd736c3e5fb955ecc5fed49afee0d
+  git -C KaiT2en-Fedora checkout a88f36f452676bdcf840a5d958478e49d221c384
   cp modules/t2gmux/t2gmux.c   assets/kernel/t2gmux/src/t2gmux.c
   cp modules/t2gmux/Makefile  assets/kernel/t2gmux/src/Makefile
   cp modules/t2gmux/dkms.conf assets/kernel/t2gmux/dkms.conf

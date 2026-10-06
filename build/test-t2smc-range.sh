@@ -3,8 +3,10 @@
 # t2smc range validators.
 #
 # The validators are added by assets/kernel/t2smc/patches/0001-t2smc-range-checks.patch
-# (as src/t2smc_range.h). To test exactly what DKMS builds, apply the patch to
-# a scratch copy of the vendored source and compile the test against that.
+# (as t2smc_range.h). To test exactly what DKMS builds, reproduce the DKMS tree:
+# post-install/56-t2-dkms.sh flattens assets/kernel/t2smc/src/ into /usr/src/t2smc-0.1/,
+# so the patch applies with -p1 at the module root (no src/ prefix). Apply it to a
+# scratch copy of the flattened vendored source and compile the test against that.
 #
 # No kernel, no hardware, no module load.
 #
@@ -23,19 +25,18 @@ SCRATCH="$(mktemp -d "$ROOT/.t2smc-range-test.XXXXXX")" || exit 2
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
-mkdir -p "$SCRATCH/src"
-cp "$MOD/src/t2smc.c" "$MOD/src/Makefile" "$SCRATCH/src/"
+cp "$MOD/src/t2smc.c" "$MOD/src/Makefile" "$SCRATCH/"
 if ! ( cd "$SCRATCH" && patch -p1 --silent < "$PATCH" ); then
     echo "FAIL: could not apply $PATCH to a pristine copy" >&2
     exit 2
 fi
 
-if [ ! -f "$SCRATCH/src/t2smc_range.h" ]; then
-    echo "FAIL: patch did not add src/t2smc_range.h" >&2
+if [ ! -f "$SCRATCH/t2smc_range.h" ]; then
+    echo "FAIL: patch did not add t2smc_range.h" >&2
     exit 2
 fi
 
-if ! "$CC" -std=c11 -Wall -Wextra -Werror -I "$SCRATCH/src" \
+if ! "$CC" -std=c11 -Wall -Wextra -Werror -I "$SCRATCH" \
         "$TESTC" -o "$SCRATCH/test_t2smc_range"; then
     echo "FAIL: test compile failed" >&2
     exit 2

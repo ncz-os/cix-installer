@@ -1,12 +1,12 @@
 Module: t2smc (Apple T2 SMC: fans, temperatures, power rails, battery charge limit, RTC)
 Source: https://github.com/kaiT2en/KaiT2en-Fedora
 Module path: modules/t2smc
-Upstream commit: 6715ce61c5397a72d3463d86f13909b322af4603
-Upstream commit date: 2026-09-05T00:23:45+02:00
-Upstream subject: t2smc: expose the battery charge limit as charge_control_end_threshold
+Upstream commit: a88f36f452676bdcf840a5d958478e49d221c384
+Upstream commit date: 2026-10-06T00:38:31+02:00
+Upstream subject: Merge pull request #93 from turannul/patch-1
 SPDX-License-Identifier: GPL-2.0-only
 Copyright: 2026 Andre Eikmeyer <andre.eikmeyer@kait2en.org> (src/t2smc.c)
-Vendored: 2026-09-28
+Vendored: 2026-10-05
 
 Vendored layout:
   upstream modules/t2smc/t2smc.c    -> src/t2smc.c
@@ -14,29 +14,55 @@ Vendored layout:
   upstream modules/t2smc/README.md  -> README.upstream.md
   upstream modules/t2smc/dkms.conf  -> dkms.conf  (module root)
   upstream tools/t2smc-rtc-client.c and other tools/ are NOT vendored.
+  upstream scripts/fedora/install-rtc-sync.sh (chrony integration) is NOT vendored
+  and is NOT installed by post-install/56-t2-dkms.sh; see "Upstream services" below.
 
 Upstream-derived file hashes (sha256) as vendored (pre-local-edit):
-  src/t2smc.c  d44ebc4e018b0378858e0449ce1b55e710c6aff3f984e03b886efa26ab904274  (pristine, matches upstream commit)
+  src/t2smc.c  9342e75f4db5d29a6649b60f37bfdc8f951edede0a66c008c583fa3eba39d3c5  (pristine, matches upstream commit)
   src/Makefile 82bb2ec00f86022f953980e7f010298e2e5f713b88fcdaefd81dc21ddc67c685  (pristine, matches upstream commit)
+  README.upstream.md 5b33c6316dc0f3a5072545ad91388680b3783aa8a13b6e1d425d67b1d921b6ce  (pristine copy of upstream README.md)
   dkms.conf    a6aef06ec86e8ab2eeb09976ad455399c86cda4ba3766f3dba1d72ecc7291ff7  (upstream; locally extended, see below)
 Source tree digest (sha256 of `find src -type f | sort | xargs sha256sum | sha256sum`):
-  f9dd492f405cfe750cc5064a2d10caa65da09502b8e16110520e1ad099fe16ff
+  bc94f5766a371a470112483251af4bb742e350a8618218ae44043979690edbfd
+
+What changed since the previously vendored commit (6715ce6..a88f36f; RTC rework only,
+all 2026-10-05):
+  a299672  t2smc: read the RTC through the CLKL latch and CLKR rate like AppleSMCRTC
+  ef538f9  t2smc: only write CLKO when the RTC offset changed like AppleSMCRTC
+  0137d29  t2smc: synchronize CLKO with the system clock before sleep and at shutdown
+  3772fcc  rtc-sync: let chrony maintain the SMC RTC with rtcfile and rtcautotrim
+  598fe57  rtc-sync: restore the boot-time hwclock sync, chrony rtcfile needs RTC interrupts
+  Also: T2SMC_VERSION 0.0.1 -> 0.0.2, new CLKL/CLKR keys, new suspend/shutdown PM
+  ops, README and tools/t2smc-rtc-client.c additions. No fan or charge-limit changes.
+  Log: https://github.com/kaiT2en/KaiT2en-Fedora/compare/6715ce6...a88f36f
+
+Upstream services (not shipped here):
+  scripts/fedora/install-rtc-sync.sh is a Fedora-only installer that writes a
+  systemd unit running `chronyc waitsync 180 && hwclock --systohc --utc` against
+  the t2smc RTC. It is not part of the DKMS module and is not installed by our
+  image.
 
 Local modifications:
   - dkms.conf: adds PATCH[0]/PATCH_MATCH[0] to apply patches/0001-t2smc-range-checks.patch
-    during the DKMS build. The C source stays pristine so upstream re-syncs remain
-    byte-diffable.
+    during the DKMS build. DKMS 3.2.2 resolves the PATCH[] value below its patches/
+    directory, so the value is the bare file name (0001-t2smc-range-checks.patch).
+    The C source stays pristine so upstream re-syncs remain byte-diffable.
   - patches/0001-t2smc-range-checks.patch: local hardening (fan min/target range checks
     against F%dMn/F%dMx, battery charge-limit value validation, RTC offset range check).
-    Adds src/t2smc_range.h at build time only.
-  - PROVENANCE, README.upstream.md: packaging metadata, not upstream files.
+    Adds t2smc_range.h at the DKMS module root at build time only (56-t2-dkms.sh
+    flattens src/ into /usr/src/t2smc-0.1/, so the patch is written with -p1
+    paths at the module root). Rebased onto a88f36f: the old
+    t2smc_rtc_set_time hunk is gone (upstream now computes the offset in s64 and
+    masks it), and the new t2smc_rtc_write_offset() path folds CLKO through
+    t2smc_rtc_offset_normalize().
+  - PROVENANCE: packaging metadata, not an upstream file.
 
 Re-sync:
   git clone https://github.com/kaiT2en/KaiT2en-Fedora.git
-  git -C KaiT2en-Fedora checkout 6715ce61c5397a72d3463d86f13909b322af4603
+  git -C KaiT2en-Fedora checkout a88f36f452676bdcf840a5d958478e49d221c384
   cp modules/t2smc/t2smc.c    assets/kernel/t2smc/src/t2smc.c
   cp modules/t2smc/Makefile   assets/kernel/t2smc/src/Makefile
   cp modules/t2smc/README.md  assets/kernel/t2smc/README.upstream.md
-  git show <newsha>:modules/t2smc/dkms.conf > assets/kernel/t2smc/dkms.conf
+  git show a88f36f452676bdcf840a5d958478e49d221c384:modules/t2smc/dkms.conf > assets/kernel/t2smc/dkms.conf
   # then re-add the PATCH[0]/PATCH_MATCH[0] lines and keep patches/*.patch
-  # verify: build/test-t2-dkms-provenance.sh
+  # verify: build/test-t2-dkms-provenance.sh and build/test-t2smc-range.sh
