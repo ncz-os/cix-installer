@@ -206,8 +206,8 @@ for KVER in "${TARGET_KVERS[@]}"; do
             _failk="$_failk $m"
         fi
     done
-    _ok="$_ok [$_KVER: $_okk]"
-    _fail="$_fail [$_KVER: $_failk]"
+    _ok="$_ok [$KVER: $_okk]"
+    _fail="$_fail [$KVER: $_failk]"
 
     [ -n "$_okk" ]   && echo "[56] installed for $KVER:$_okk"
     [ -n "$_failk" ] && echo "[56] WARN: NOT installed for $KVER:$_failk" >&2
