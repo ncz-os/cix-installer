@@ -709,7 +709,9 @@ $_found"
     # (extracts /opt/singularity, curates sessions, purges XFCE/Xorg) — runs
     # FIRST so the Wayland desktop exists before the cosmetic hooks. 84-vpu-mpv
     # writes /etc/mpv HW-decode. 59-ncz-screensavers-pkg installs the shipped
-    # screensaver engine, idle timer and Singularity plugin. 59-desktop-curate
+    # screensaver engine, idle timer and 74-title catalogue (the 0.8.9 deb ships
+    # no plugin files; the Singularity plugin is a separate, not-yet-published
+    # package). 59-desktop-curate
     # LAST of the app hooks (after 20/52-vivaldi/46-ncz-cli) so it sees
     # every app-creating hook's output when it curates the launcher.
     for bh in 20-desktop 22-display-fix 23-locale-env 50-brand 52-vivaldi 53-chrome 56-icon-theme 45-wallpaper-rotator 55-greeter 84-vpu-mpv 84-vpu-vaapi 57-qotd 46-ncz-cli 59-desktop-curate 60-boot-splash; do
