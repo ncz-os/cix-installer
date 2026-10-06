@@ -62,5 +62,40 @@ class MissingFirmwarePatchTest(unittest.TestCase):
             MODULE.patch_check_missing_firmware("get_fresh_dmesg() { dmesg; }")
 
 
+class NicFirmwareTest(unittest.TestCase):
+    def test_stages_under_lib_firmware_rtl_nic(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "rtl_nic"
+            src.mkdir()
+            (src / "rtl8125b-2.fw").write_bytes(b"fw-b2")
+            (src / "rtl8127a-1.fw").write_bytes(b"fw-a1")
+            (src / "README").write_text("not firmware")
+            overlay = root / "overlay"
+            overlay.mkdir()
+
+            names = MODULE.stage_nic_firmware(src, overlay)
+
+            self.assertEqual(names, ["rtl8125b-2.fw", "rtl8127a-1.fw"])
+            dest = overlay / "lib" / "firmware" / "rtl_nic"
+            self.assertEqual((dest / "rtl8125b-2.fw").read_bytes(), b"fw-b2")
+            self.assertFalse((dest / "README").exists())
+            # never a bare top-level lib entry beyond the firmware subtree
+            self.assertEqual(sorted(p.name for p in (overlay / "lib").iterdir()),
+                             ["firmware"])
+
+    def test_fails_closed_on_empty_source(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "rtl_nic").mkdir()
+            with self.assertRaisesRegex(RuntimeError, "no \\*.fw files"):
+                MODULE.stage_nic_firmware(root / "rtl_nic", root / "overlay")
+
+    def test_repo_ships_the_o6n_firmware(self):
+        repo_fw = Path(__file__).parents[3] / "assets" / "firmware" / "rtl_nic"
+        self.assertTrue((repo_fw / "rtl8125b-2.fw").is_file(),
+                        "assets/firmware/rtl_nic/rtl8125b-2.fw is what the O6N RTL8125B requests")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -237,6 +237,36 @@ BAKED_HELPERS = [
     "net-pick.sh",
 ]
 
+# Firmware the d-i runtime itself needs. CONFIG_R8169=y on Sky1, so the
+# RTL8125B on the Orion O6/O6N asks for rtl_nic/rtl8125b-2.fw when netcfg
+# brings the link up. Debian's stock d-i initrd carries no non-free firmware,
+# so every arm64 install logged "r8169 ...: Unable to load firmware
+# rtl_nic/rtl8125b-2.fw (-2)" and ran the PHY without its patch. The installed
+# system is fine (firmware-realtek is seeded and the device opens after the
+# root mount); only the installer environment was missing it.
+NIC_FIRMWARE_SUBDIR = "rtl_nic"
+
+
+def stage_nic_firmware(src_dir: Path, overlay_root: Path) -> list[str]:
+    """Copy the vendored rtl_nic/*.fw into overlay lib/firmware/rtl_nic/.
+
+    Under lib/ on purpose: the overlay cpio is emitted with
+    `find lib -mindepth 1`, so lib/firmware is created through the base
+    initrd's lib -> usr/lib symlink and never as a bare top-level lib entry.
+    Fails closed on an empty source so a missing asset cannot silently ship
+    an installer without the firmware again.
+    """
+    files = sorted(f for f in src_dir.glob("*.fw") if f.is_file())
+    if not files:
+        raise RuntimeError(f"FATAL: no *.fw files in NIC firmware dir {src_dir}")
+    dest = overlay_root / "lib" / "firmware" / NIC_FIRMWARE_SUBDIR
+    dest.mkdir(parents=True, exist_ok=True)
+    for f in files:
+        shutil.copy2(f, dest / f.name)
+        (dest / f.name).chmod(0o644)
+    return [f.name for f in files]
+
+
 REQUIRED_SSH_UDEBS = (
     "libc6-udeb", "zlib1g-udeb", "libcrypt1-udeb", "libcrypto3-udeb",
     "openssh-client-udeb", "openssh-server-udeb",
@@ -255,6 +285,7 @@ def patch_t2_kernel(
     ssh_udeb_dir: Path | None = None,
     kernel_image: Path | None = None,
     modules_tar: Path | None = None,
+    nic_firmware_dir: Path | None = None,
 ) -> tuple[Path, Path]:
     if not base_initrd.is_file():
         raise RuntimeError(f"FATAL: no base initrd at {base_initrd}")
@@ -270,6 +301,13 @@ def patch_t2_kernel(
         raise RuntimeError("FATAL: --kernel-deb and --kernel-image/--modules-tar are mutually exclusive")
     if preseed_cfg is not None and not preseed_cfg.is_file():
         raise RuntimeError(f"FATAL: preseed.cfg not found: {preseed_cfg}")
+    nic_firmware: list[Path] = []
+    if nic_firmware_dir is not None:
+        if not nic_firmware_dir.is_dir():
+            raise RuntimeError(f"FATAL: --nic-firmware-dir not found: {nic_firmware_dir}")
+        nic_firmware = sorted(f for f in nic_firmware_dir.glob("*.fw") if f.is_file())
+        if not nic_firmware:
+            raise RuntimeError(f"FATAL: no *.fw files in {nic_firmware_dir}")
 
     # The moment preseed.cfg goes into the initrd it is what every install
     # reads, so this is the last place a snapshot drift can still be cheap.
@@ -317,7 +355,7 @@ def patch_t2_kernel(
             )
 
     canonical = canonical_encode({
-        "schema_version": "ncz-initrd-t2kernel/v4",
+        "schema_version": "ncz-initrd-t2kernel/v5",
         "arch": arch,
         "base_initrd": _stat(base_initrd),
         "kernel_deb": _stat(kernel_deb) if kernel_deb else {"present": False},
@@ -328,6 +366,7 @@ def patch_t2_kernel(
         "helpers": {p.name: _stat(p) for p in helpers},
         "diag_busybox": _stat(diag_busybox) if diag_busybox is not None else {"present": False},
         "ssh_udebs": sorted(u.name for u in ssh_udebs),
+        "nic_firmware": {f.name: _stat(f) for f in nic_firmware},
     })
 # Content-addressed cache nodes are created EMPTY and filled afterwards, and
 # every reader treats "the directory exists" as "the build succeeded". An
@@ -420,6 +459,12 @@ def patch_t2_kernel(
             ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", str(overlay_root)],
             check=True,
         )
+
+        nic_fw_names: list[str] = []
+        if nic_firmware_dir is not None:
+            nic_fw_names = stage_nic_firmware(nic_firmware_dir, overlay_root)
+            log(f"    baked {len(nic_fw_names)} NIC firmware files -> initrd "
+                f"/lib/firmware/{NIC_FIRMWARE_SUBDIR}/")
 
         # --- bake preseed.cfg into the initrd ROOT -----------------------
         # Real root cause (confirmed on metal 2026-09-24, not a QEMU
@@ -610,6 +655,7 @@ def patch_t2_kernel(
             "baked_helpers": [h.name for h in helpers],
             "baked_diag_busybox": str(diag_busybox) if diag_busybox else None,
             "baked_ssh_udebs": [u.name for u in ssh_udebs],
+            "baked_nic_firmware": nic_fw_names,
         },
         "outputs": {
             "linux": str(out_linux),
@@ -663,6 +709,14 @@ def main() -> int:
                           "component does that), so remote diagnostics need "
                           "this to exist at all. Defaults to "
                           "assets/ssh-udebs/<arch> if present.")
+    # str, not Path: Path("") is Path("."), so "--nic-firmware-dir=" could
+    # never mean "skip" with type=Path.
+    ap.add_argument("--nic-firmware-dir", type=str, default=None,
+                     help="Directory of rtl_nic/*.fw baked into the initrd at "
+                          "/lib/firmware/rtl_nic/ (r8169 is built into the "
+                          "Sky1 kernel and requests it at link-up). Defaults "
+                          "to assets/firmware/rtl_nic on arm64. Pass "
+                          "--nic-firmware-dir= (empty) to skip.")
     args = ap.parse_args()
     preseed_cfg = args.preseed_cfg if str(args.preseed_cfg) else None
     if preseed_cfg is not None and not preseed_cfg.is_file():
@@ -693,12 +747,22 @@ def main() -> int:
                 f"available during install (d-i never starts sshd on its "
                 f"own in auto=true unattended mode)")
 
+    if args.nic_firmware_dir is None:
+        cand = REPO_ROOT / "assets" / "firmware" / NIC_FIRMWARE_SUBDIR
+        nic_firmware_dir = cand if (args.arch == "arm64" and cand.is_dir()) else None
+        if args.arch == "arm64" and nic_firmware_dir is None:
+            log(f"WARNING: no {cand} -- the arm64 installer will log "
+                f"'Unable to load firmware rtl_nic/...' at link-up")
+    else:
+        nic_firmware_dir = Path(args.nic_firmware_dir) if args.nic_firmware_dir else None
+
     try:
         linux_out, initrd_out = patch_t2_kernel(
             args.base_initrd, args.kernel_deb, args.arch,
             args.cache_root, args.force, preseed_cfg,
             helper_dir, diag_busybox, ssh_udeb_dir,
             args.kernel_image, args.modules_tar,
+            nic_firmware_dir,
         )
     except RuntimeError as e:
         log(str(e))
