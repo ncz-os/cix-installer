@@ -54,9 +54,9 @@ if [ -s "$W/nv.sh" ] && [ -s "$W/region.sh" ]; then
     )
     s=$(printf '%s\n' "$out" | sed -n 's/^S=//p'); c=$(printf '%s\n' "$out" | sed -n 's/^C=//p')
     r=$(printf '%s\n' "$out" | sed -n 's/^R=//p')
-    n=$(printf '%s\n' $s | grep -cx 'nouveau.runpm=0')
+    n=$(printf '%s\n' "$s" | tr ' ' '\n' | grep -cx 'nouveau.runpm=0')
     [ "$n" = 1 ] && ok "default entry carries nouveau.runpm=0 exactly once after 3 refreshes" || nok "default entry has it $n times: $s"
-    n=$(printf '%s\n' $c | grep -cx 'nouveau.runpm=0')
+    n=$(printf '%s\n' "$c" | tr ' ' '\n' | grep -cx 'nouveau.runpm=0')
     [ "$n" = 1 ] && ok "console entry carries nouveau.runpm=0 exactly once" || nok "console entry has it $n times: $c"
     case " $r " in *" module_blacklist="*nouveau*) ok "rescue entry blacklists nouveau outright" ;; *) nok "rescue entry lost its nouveau blacklist: $r" ;; esac
     # the block runs before any entry is assembled
