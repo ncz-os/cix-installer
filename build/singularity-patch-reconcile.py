@@ -32,8 +32,17 @@ of what was retired, or 2 on a real error (gh not authed, README
 unparseable). Never touches git itself -- the caller commits/pushes,
 same separation of concerns as the freshness gate.
 
+PINNED UPSTREAM (2026-10-06): the payload is built from the exact commits in
+assets/singularity/upstream-pins.tsv, not from upstream heads. A PR that
+merged upstream AFTER the pinned commit is not in the build, so deleting its
+patch would silently drop the feature. A MERGED PR is therefore retired only
+once its merge commit is contained in the pinned commit (GitHub compare API,
+pin "ahead" of or "identical" to the merge); otherwise the patch is kept and
+the script says why. Unknown (API error, no pin) also keeps the patch.
+
 Usage: build/singularity-patch-reconcile.py [--dry-run]
 """
+
 import json
 import re
 import subprocess
@@ -49,18 +58,72 @@ PR_BLOCK_RE = re.compile(
 )
 PATCH_NAME_RE = re.compile(r"`([0-9]{4}-[A-Za-z0-9._-]+\.patch)`")
 SECTION_RE = re.compile(r"^## (.+?)(?:\s+[-—]+\s+active)?\s*$")
+PINS = REPO_ROOT / "assets" / "singularity" / "upstream-pins.tsv"
+GITHUB_URL_RE = re.compile(r"^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$")
+
+
+def pinned_row(sub_name: str) -> tuple[str, str] | None:
+    """(url, sha) pinned for a patch directory, or None when not pinned."""
+    if not PINS.is_file():
+        return None
+    want = "." if sub_name == "singularity-desktop" else f"subprojects/{sub_name}"
+    for line in PINS.read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        cols = line.split("\t")
+        if len(cols) == 4 and cols[0] == want:
+            return cols[1], cols[3]
+    return None
+
+
+def pin_contains(sub_name: str, merge_sha: str) -> tuple[bool, str]:
+    """Is the merge commit an ancestor of (or equal to) the pinned commit?"""
+    row = pinned_row(sub_name)
+    if row is None:
+        return False, f"no upstream pin for {sub_name}"
+    url, pin = row
+    m = GITHUB_URL_RE.match(url)
+    if not m or not re.fullmatch(r"[0-9a-f]{40}", merge_sha or ""):
+        return False, f"cannot compare {merge_sha} with pin {pin[:12]} ({url})"
+    out = subprocess.run(
+        [
+            "gh",
+            "api",
+            f"repos/{m.group(1)}/{m.group(2)}/compare/{merge_sha}...{pin}",
+            "--jq",
+            ".status",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    status = out.stdout.strip()
+    if out.returncode != 0 or not status:
+        return (
+            False,
+            f"compare {merge_sha[:12]}...{pin[:12]} failed: {out.stderr.strip()}",
+        )
+    if status in ("ahead", "identical"):
+        return True, f"pin {pin[:12]} contains merge {merge_sha[:12]}"
+    return False, f"pin {pin[:12]} is {status} relative to merge {merge_sha[:12]}"
 
 
 def gh_pr_state(url: str) -> dict:
     out = subprocess.run(
         ["gh", "pr", "view", url, "--json", "state,mergedAt,mergeCommit"],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
     )
     if out.returncode != 0:
         raise RuntimeError(f"gh pr view {url} failed: {out.stderr.strip()}")
     data = json.loads(out.stdout)
     mc = data.get("mergeCommit") or {}
-    data["mergeCommitOid"] = mc.get("oid", "unknown") if isinstance(mc, dict) else "unknown"
+    data["mergeCommitOid"] = (
+        mc.get("oid", "unknown") if isinstance(mc, dict) else "unknown"
+    )
     return data
 
 
@@ -136,25 +199,43 @@ def main() -> int:
 
             patch_names = PATCH_NAME_RE.findall(block)
             if not patch_names:
-                print(f"[reconcile] WARN: {pr_label} is MERGED but no patch filename found in its block -- skipping, check README.md by hand")
+                print(
+                    f"[reconcile] WARN: {pr_label} is MERGED but no patch filename found in its block -- skipping, check README.md by hand"
+                )
                 continue
 
             merge_sha = (state.get("mergeCommitOid") or "unknown")[:40]
             merged_at = (state.get("mergedAt") or "unknown-date")[:10]
 
+            contained, why = pin_contains(sub_name, merge_sha)
+            if not contained:
+                print(
+                    f"[reconcile] KEEP: {pr_label} MERGED ({merge_sha}, {merged_at}) but not in the pinned "
+                    f"upstream build ({why}) -- retire it in the same commit that bumps the pin past it"
+                )
+                continue
+
             found_all = True
             for pname in patch_names:
-                candidates = list((PATCH_ROOT / sub_name).glob(pname)) if (PATCH_ROOT / sub_name).is_dir() else []
+                candidates = (
+                    list((PATCH_ROOT / sub_name).glob(pname))
+                    if (PATCH_ROOT / sub_name).is_dir()
+                    else []
+                )
                 if not candidates:
                     # root-repo exception dirs (e.g. singularity-desktop
                     # patch applying at top level) still live under their
                     # own subdir name in this tree -- same glob covers it.
-                    print(f"[reconcile] WARN: {pr_label} is MERGED but patch file {pname} not found under {PATCH_ROOT / sub_name} -- skipping")
+                    print(
+                        f"[reconcile] WARN: {pr_label} is MERGED but patch file {pname} not found under {PATCH_ROOT / sub_name} -- skipping"
+                    )
                     found_all = False
                     continue
                 for c in candidates:
                     if dry_run:
-                        print(f"[reconcile] DRY-RUN: would delete {c.relative_to(REPO_ROOT)}")
+                        print(
+                            f"[reconcile] DRY-RUN: would delete {c.relative_to(REPO_ROOT)}"
+                        )
                     else:
                         c.unlink()
                     deleted_files.append(str(c.relative_to(REPO_ROOT)))
@@ -162,7 +243,9 @@ def main() -> int:
             if not found_all:
                 continue
 
-            print(f"[reconcile] RETIRE: {pr_label} MERGED ({merge_sha}, {merged_at}) -- removing {', '.join(patch_names)}")
+            print(
+                f"[reconcile] RETIRE: {pr_label} MERGED ({merge_sha}, {merged_at}) -- removing {', '.join(patch_names)}"
+            )
             removed_line_ranges.append((block_start, block_end))
             retired_notes.append(
                 f"## {sub_name} — retired {merged_at}\n\n"
@@ -177,7 +260,9 @@ def main() -> int:
         return 0
 
     if dry_run:
-        print(f"[reconcile] DRY-RUN: would retire {len(retired_notes)} patch(es), README.md left untouched")
+        print(
+            f"[reconcile] DRY-RUN: would retire {len(retired_notes)} patch(es), README.md left untouched"
+        )
         return 0
 
     # Remove retired blocks from the file (highest line first so earlier
@@ -189,19 +274,21 @@ def main() -> int:
 
     new_text = "\n".join(new_lines)
     # Strip any section that is now empty (just a header with no blocks left).
-    new_text = re.sub(
-        r"## ([^\n]+?) — active\n+(?=## |\Z)", "", new_text
-    )
+    new_text = re.sub(r"## ([^\n]+?) — active\n+(?=## |\Z)", "", new_text)
 
     insertion_marker = "## Previously landed"
     note_block = "\n" + "\n".join(retired_notes)
     if insertion_marker in new_text:
-        new_text = new_text.replace(insertion_marker, note_block.strip("\n") + "\n\n" + insertion_marker, 1)
+        new_text = new_text.replace(
+            insertion_marker, note_block.strip("\n") + "\n\n" + insertion_marker, 1
+        )
     else:
         new_text = new_text.rstrip("\n") + "\n\n" + note_block.strip("\n") + "\n"
 
     README.write_text(new_text)
-    print(f"[reconcile] retired {len(retired_notes)} patch(es), deleted {len(deleted_files)} file(s): {', '.join(deleted_files)}")
+    print(
+        f"[reconcile] retired {len(retired_notes)} patch(es), deleted {len(deleted_files)} file(s): {', '.join(deleted_files)}"
+    )
     return 0
 
 

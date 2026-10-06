@@ -112,6 +112,8 @@ build/build-wallpaper-contrib-deb.sh	common	-	wallpaper pack debs
 build/check-early-command-size.sh	common	-	preseed size gate
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
 build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
+build/singularity-pins.sh	common	-	Singularity upstream pin reader: validate, pinned clone/checkout, patch-queue check against pins
+build/test-singularity-pins.sh	common	-	offline test for the Singularity upstream pins and their build/preflight wiring
 build/verify-kernel-default-policy.sh	common	-	enforces the unified kernel policy (one 7.3 default per arch; rescue = same kernel + accelerator blacklist; no edge; rc default only while allowed)
 build/verify-no-debian-kernel.sh	common	-	fails closed if a Debian 7.1.x/linux-image-{arm64,amd64} kernel or a non-7.3 default is present in a rootfs/ESP/initrd/listing
 build/fixtures/	common	-	static fixture data for build gates
