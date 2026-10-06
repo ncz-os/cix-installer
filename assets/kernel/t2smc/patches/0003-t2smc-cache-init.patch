@@ -1,0 +1,13 @@
+diff --git a/t2smc.c b/t2smc.c
+index e68c8b0..f6da5fe 100644
+--- a/t2smc.c
++++ b/t2smc.c
+@@ -305,7 +305,7 @@ static struct t2smc_entry *t2smc_get_entry_by_index(struct t2smc_device *t2,
+ {
+ 	struct t2smc_entry *cache = &t2->cache[index];
+ 	char key[4];
+-	int ret;
++	int ret = 0;
+ 
+ 	if (cache->valid)
+ 		return cache;
