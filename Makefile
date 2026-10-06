@@ -192,8 +192,8 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 	        echo "           and the pinned ISO was not found in: $(SUBSTRATE_CACHE_DIRS)"; \
 	        echo "           Upstream republishes this filename weekly. Restore the pinned ISO"; \
 	        echo "           into one of those directories (name it <anything>-$$(printf '%s' $(SUBSTRATE_SHA) | cut -c1-8).iso),"; \
-	        echo "           or adopt the new installer deliberately: build an ISO on it, run"; \
-	        echo "           build/e2e-install-test.sh and the KVM gate, then update the pin."; \
+	        echo "           or adopt the new installer deliberately: build an image on it, run"; \
+	        echo "           make image-verified (build/kvm-install-gate-gpt.sh), then update the pin."; \
 	        rm -f $@.tmp; exit 1; \
 	    fi; \
 	    mv $@.tmp $@; \
@@ -575,6 +575,8 @@ qemu: $(OUTPUT_IMAGE)
 # -----------------------------------------------------------------------
 # Cleanup
 # -----------------------------------------------------------------------
+# iso-staging*/ and *.iso are leftovers of the retired ISO builder on old build
+# hosts; nothing writes them now, clean still sweeps them.
 clean:
 	rm -rf $(BUILD)/iso-staging $(BUILD)/iso-staging-di $(BUILD)/*.iso $(BUILD)/*.img $(BUILD)/*.sha256
 

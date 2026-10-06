@@ -9,7 +9,7 @@ drift apart with nothing able to detect it. They had.
 | file | image | role |
 |---|---|---|
 | `Containerfile.yocto` | `ncz-yocto-y6:trixie` | Yocto kernel builds (`bitbake linux-cix-sky1-ncz`) |
-| `Containerfile.isobuild` | `ncz-isobuild:trixie` | ISO builds (`make iso`) |
+| `../build/containers/Containerfile.ncz-imagebuild` | `ncz-imagebuild:trixie` | raw GPT image builds (`make image`); see `build/containers/README.md` |
 
 Two images because they do two different jobs. Parity does not mean one image;
 it means **every build host builds and runs both, from these files, and gets
@@ -66,8 +66,9 @@ old image.
 
 ## Why these files exist at all
 
-The ISO container's package list grew by trial and error: each `make iso`
-failed on one more missing tool, which was added by hand to a file that lived
+The old ISO-build container's package list (`Containerfile.isobuild`, since
+removed; its packages live on in `Containerfile.ncz-imagebuild`) grew by trial
+and error: each build failed on one more missing tool, which was added by hand to a file that lived
 only on ULTRA. Nine tools accumulated that way (qemu-system-arm,
 qemu-efi-aarch64, p7zip-full, kmod, dosfstools, mtools, fakechroot, gcc,
 build-essential) and none of it was recoverable from the repo.

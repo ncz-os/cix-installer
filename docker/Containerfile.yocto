@@ -2,8 +2,10 @@
 #
 # Runs `bitbake linux-cix-sky1-ncz` for the CIX Sky1 kernel.
 #
-# BASE CHANGED 2026-08-28: ubuntu:22.04 -> debian:trixie, to match
-# Containerfile.isobuild so both build roles share one base distribution.
+# BASE CHANGED 2026-08-28: ubuntu:22.04 -> debian:trixie, to match the
+# image-build container (build/containers/Containerfile.ncz-imagebuild; it
+# replaced the old Containerfile.isobuild) so both build roles share one base
+# distribution.
 # The previous Ubuntu base was never a deliberate choice, it was just what the
 # image happened to be built from, and it meant the two build hosts ran
 # different userlands for different halves of the same pipeline.
