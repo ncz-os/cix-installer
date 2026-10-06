@@ -32,7 +32,7 @@
 #   2.  (arm64) assets/kernel/mainline/KVER matches the manifest's
 #       variants.mainline.kver (manifest drift).
 #   6.  amd64: assets/kernel/amd64-stable/KVER exists; the default is not a
-#       Debian-archive kernel.
+#       Debian-archive kernel and does not use the retired 'aerfix' flavour.
 #   8.  (both arches) the runtime rEFInd pipeline was refactored to the unified
 #       7.3 policy: the amd64 classifier hook + refresh script carry the unified
 #       marker and no longer pin an "edge" channel; the arm64 refresh carries
@@ -302,6 +302,12 @@ if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
                 AMD64_STABLE_KVER=$(tr -d '[:space:]' < "$AMD64_STABLE_KVER_FILE")
                 if is_debian_kernel "$AMD64_STABLE_KVER"; then
                     err "amd64: default KVER '$AMD64_STABLE_KVER' names a Debian-archive kernel; must be the NCZ 7.3 kernel"
+                elif [[ "$AMD64_STABLE_KVER" == *aerfix* ]]; then
+                    # 'aerfix' named both the broad 9010 AER revert build
+                    # (rc6-1) and a 9011 quirk build (rc6-2); the name is
+                    # retired so the pin always says which AER change ships
+                    # (default: 9011, '-aer9011').
+                    err "amd64: default KVER '$AMD64_STABLE_KVER' uses the retired, ambiguous 'aerfix' flavour; pin the 9011 build (*-aer9011)"
                 else
                     log "amd64: default KVER '$AMD64_STABLE_KVER'"
                 fi
