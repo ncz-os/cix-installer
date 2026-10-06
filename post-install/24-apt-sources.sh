@@ -125,3 +125,25 @@ if apt-get update -o Acquire::Check-Date=false 2>&1 | tail -10; then
 else
     echo "[24] WARN: apt-get update had errors (network unavailable during chroot install, or one source down -- the other source's index may still be usable) -- later hooks may still be able to use cached/offline sources"
 fi
+
+# --- live-update canary (operator 2026-10-05) ----------------------------------
+# Offline install gets ncz-screensavers from the baked offline mirror (no apt
+# source needed at install time). Live `apt upgrade` on the running image does
+# NOT have the offline mirror -- it pulls new screensaver debs from one of the
+# NCZ-OS apt sources wired above. If neither source resolves ncz-screensavers,
+# an installed image will never receive a newer screensaver package and the
+# hook-driven install will look fine but the runtime update path will silently
+# never advance. Verify now, while we still know which source was wired.
+echo "[24] verifying NCZ-OS apt sources carry ncz-screensavers for live `apt upgrade`"
+if command -v apt-cache >/dev/null 2>&1; then
+    _ncz_ss_cand="$(apt-cache policy ncz-screensavers 2>/dev/null | sed -n 's/^  Candidate: //p')"
+    if [ -z "$_ncz_ss_cand" ] || [ "$_ncz_ss_cand" = "(none)" ]; then
+        echo "[24] FATAL: neither the Buildkite Packages nor the Cloudflare R2 NCZ-OS apt source carries ncz-screensavers -- the live image can install it offline but will NEVER receive updates via `apt upgrade`" >&2
+        echo "[24]        (operator 2026-10-05: 'If we are distributing screensavers as Deb they need to be apt installed during installation.' Same logic applies to keeping them current.)" >&2
+        echo "[24]        Check both repos serve the package; if the package was unpublished, run oc-apt-publish first." >&2
+        exit 1
+    fi
+    echo "[24] OK: NCZ-OS apt sources carry ncz-screensavers (Candidate: $_ncz_ss_cand)"
+else
+    echo "[24] WARN: apt-cache not on PATH; cannot prove live-update path. Continuing (offline install path is unaffected)."
+fi
