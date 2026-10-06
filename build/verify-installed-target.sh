@@ -446,11 +446,40 @@ if [ "$WANT_SS" = 1 ]; then
         #     wrong. The override is in /usr/share/glib-2.0/schemas/ and is what the
         #     runtime reads; the schema .xml default is what 62-cygnus-screensaver-
         #     default.sh reads to validate it. Both are checked below.
-        if fetch /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml "$TMP/ss.schema.xml" \
-           && grep -qE "name=\"hack-id\"[[:space:]]+type=\"s\"[[:space:]]*>[[:space:]]*<default>'blackhole_gles3'" "$TMP/ss.schema.xml"; then
-            echo "[verify-target]     default saver: blackhole_gles3 (schema)"
+        # operator rule "default saver = blackhole": the package ships with
+        # hack-id='blackhole_gles3' as the schema default. Find the hack-id key
+        # (a multiline match: name= + type= on one line, <default>...</default>
+        # on a later line, possibly separated by indentation) and assert the
+        # default value. Plain grep -E cannot span lines, so the matching is
+        # split into two passes: first the key header, then its default value
+        # inside that key's block. awk with RS="" would also work, but reading
+        # the schema into a here-doc and running them separately is simpler and
+        # keeps the assertion human-readable in the failure message.
+        ss_default_ok=0
+        if fetch /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml "$TMP/ss.schema.xml"; then
+            # Locate the start line of the hack-id key, then read forward to
+            # find its <default>...</default>. Operator 2026-10-05 requires the
+            # default to be the literal 'blackhole_gles3'.
+            ss_default="$(awk '
+                /<key name="hack-id"/ { found = 1; next }
+                found && /<\/key>/      { found = 0 }
+                found && /<default>/    {
+                    # Capture the value between <default> and </default>
+                    v = $0
+                    sub(/^[[:space:]]*<default>/, "", v)
+                    sub(/<\/default>.*$/, "", v)
+                    gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+                    print v
+                }
+            ' "$TMP/ss.schema.xml")"
+            if [ "$ss_default" = "'blackhole_gles3'" ]; then
+                ss_default_ok=1
+                echo "[verify-target]     default saver: blackhole_gles3 (schema)"
+            else
+                gate_miss screensavers "schema default hack-id is '$ss_default', expected ''\''blackhole_gles3'\'''' (operator 2026-10-05: default saver must be blackhole)"
+            fi
         else
-            gate_miss screensavers "schema default hack-id is NOT 'blackhole_gles3' (operator 2026-10-05: default saver must be blackhole)"
+            gate_miss screensavers "schema dev.ncz.screensaver.gschema.xml not present"
         fi
         # (f) the idle timer is enabled, and the older swayidle idle manager is NOT (they
         #     would both lock the session)
