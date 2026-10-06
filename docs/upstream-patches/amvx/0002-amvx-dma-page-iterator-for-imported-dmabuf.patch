@@ -1,0 +1,63 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] amvx: walk imported dma-bufs with the DMA page iterator
+
+get_sg_table_npages() and append_sg_table() walked an imported dma-buf's
+sg_table with for_each_sg_page() bounded by sgt->nents (the DMA-mapped
+entry count) while reading DMA addresses through a cast of the CPU
+sg_page_iter to sg_dma_page_iter. That mixes the CPU view (sg->length,
+orig_nents) with the DMA view (sg_dma_len, nents). It is harmless only
+while the two views coincide, i.e. the VPU sits behind no IOMMU (true on
+Sky1 today: CIXH3010:00 has no iommu_group). Behind an IOMMU that merges
+segments, nents < orig_nents and the walk maps too few VPU pages (firmware
+MMU ABORT); under CONFIG_DMABUF_DEBUG the exporter's mangled CPU view is
+what is read. for_each_sgtable_dma_page() + sg_page_iter_dma_address() is
+the documented importer API and gives the same result when there is no
+IOMMU.
+
+Compile-checked against the r285 7.3.0-rc6-sky1-ncz headers (kernel CFLAGS,
+no warnings). NOT runtime-tested (no module loads on the test boards); on
+current Sky1 hardware it is behaviour-neutral by construction.
+
+Upstream-Status: Pending
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+--- a/driver/if/mvx_mmu.c
++++ b/driver/if/mvx_mmu.c
+@@ -400,10 +400,11 @@
+  */
+ static size_t get_sg_table_npages(struct sg_table *sgt)
+ {
+-    struct sg_page_iter piter;
++    struct sg_dma_page_iter diter;
+     size_t count = 0;
+ 
+-    for_each_sg_page(sgt->sgl, &piter, sgt->nents, 0) {
++    /* DMA segments (nents / sg_dma_len), the same view append_sg_table() maps */
++    for_each_sgtable_dma_page(sgt, &diter, 0) {
+         count++;
+     }
+ 
+@@ -421,7 +422,7 @@
+                struct sg_table *sgt)
+ {
+     size_t count;
+-    struct sg_page_iter piter;
++    struct sg_dma_page_iter diter;
+ 
+     count = get_sg_table_npages(sgt) * MVX_PAGES_PER_PAGE;
+ 
+@@ -432,12 +433,11 @@
+         return -ENOMEM;
+     }
+ 
+-    for_each_sg_page(sgt->sgl, &piter, sgt->nents, 0) {
++    for_each_sgtable_dma_page(sgt, &diter, 0) {
+         int j;
+         phys_addr_t base;
+ 
+-        base = (phys_addr_t)sg_page_iter_dma_address((struct sg_dma_page_iter *)(&piter)) &
+-               PAGE_MASK;
++        base = (phys_addr_t)sg_page_iter_dma_address(&diter) & PAGE_MASK;
+ 
+         for (j = 0; j < MVX_PAGES_PER_PAGE; ++j)
+             pages->pages[pages->count++] =
