@@ -573,6 +573,26 @@ if [ -f /usr/lib/modules-load.d/pkcs8.conf ]; then
     echo "[25] removed stale pkcs8_key_parser modules-load request"
 fi
 
+# --- ncz:fwupd-i2c-mask begin ---
+# fwupd ships /usr/lib/modules-load.d/fwupd-i2c.conf (i2c_dev). The Sky1
+# kernel is built without CONFIG_I2C_CHARDEV, so systemd-modules-load failed on
+# every boot ("Failed to find module 'i2c_dev'"; 2026-10-06 KVM gate). Mask
+# the request with a same-named /dev/null link in /etc only while no installed
+# kernel provides i2c-dev (module or built-in); a kernel that gains it later
+# just needs the link removed.
+ncz_i2c_dev_available() {
+    for _k in /usr/lib/modules/*/; do
+        grep -qs '/i2c-dev\.ko' "${_k}modules.dep" "${_k}modules.builtin" && return 0
+    done
+    return 1
+}
+if [ -f /usr/lib/modules-load.d/fwupd-i2c.conf ] && ! ncz_i2c_dev_available; then
+    mkdir -p /etc/modules-load.d
+    ln -sfn /dev/null /etc/modules-load.d/fwupd-i2c.conf
+    echo "[25] masked fwupd-i2c.conf: no installed kernel provides i2c_dev"
+fi
+# --- ncz:fwupd-i2c-mask end ---
+
 # Always exit 0 — Cix postinst quirks should not halt the installer.
 # If something is genuinely broken, surfaces during agent runtime
 # rather than killing the install before branding/bootloader land.
