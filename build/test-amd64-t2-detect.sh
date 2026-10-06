@@ -131,4 +131,4 @@ eq "absent helper fails closed" \
 
 echo
 echo "=== amd64 T2 detect test: PASS=$PASS FAIL=$FAIL ==="
-[ "$FAIL" -eq 0 ]
+[ "$FAIL" -eq 0 ] || exit 1

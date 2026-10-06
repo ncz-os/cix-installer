@@ -20,6 +20,7 @@ GATE="$SCRIPT_DIR/preflight-freshness-gate.sh"
 
 SHIM="$(mktemp -t arm64-freshness-shim.XXXXXX.sh)"
 TMPROOT="$(mktemp -d -t arm64-freshness-root.XXXXXX)"
+export TMPROOT
 trap 'rm -rf "$TMPROOT" "$SHIM"' EXIT
 awk '
     /^is_prerelease\(\) \{/        { capture=1; in_body=1; depth=0 }

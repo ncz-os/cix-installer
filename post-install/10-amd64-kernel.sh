@@ -110,7 +110,9 @@ install_one(){
         7.3.*|7.3-*) ;;
         *)
             echo "[10-amd64] ERROR: $label kernel '$kver' is not the unified 7.3 series (operator 2026-10-05). Refusing to install." >&2
-            return 0 ;;
+            # Non-zero so `set -e` aborts the hook immediately; a rejected
+            # series must not continue as if the line had installed.
+            return 1 ;;
     esac
     echo "[10-amd64] installing $label kernel $kver"
     echo "    $(basename "$img")"
