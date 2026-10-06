@@ -209,6 +209,7 @@ build/test-kernel-purity-pin.sh	common	-	apt simulation proving the Debian-kerne
 build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debian-kernel guards + static test of the legacy amd64 installer-kernel swap
 build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kernel.sh (clean 7.3 trees pass; every Debian-kernel leak and wrong default fails)
 build/test-late-union-sync.sh	common	-	late.sh union sync test
+build/test-late-npu-aipu.sh	common	-	late.sh NPU aipu overlay + modules-load test
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
 build/test-overlay-modversions.sh	sky1	-	fixture tests for verify-overlay-modversions.py (stale CRC, unresolved, no __versions, vermagic, missing set fail)
 build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test
