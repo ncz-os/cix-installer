@@ -8,9 +8,10 @@
 # each GPU vendor's appropriate package source. AMD uses Debian's native ROCm
 # packages because AMD does not publish a Debian suite.
 #
-# Detects installed GPU(s) via `lspci -nn` PCI class + vendor ID matching
-# (class 0300/0302/0380 = VGA/3D/display controller) and wires ONLY the
-# matching vendor stack(s) — additive per vendor found, since a machine can
+# Detects installed GPU(s) by PCI class + vendor ID read from sysfs
+# (lib/pci-sysfs.sh; class 0300/0302/0380 = VGA/3D/display controller) and
+# wires ONLY the
+# matching vendor stack(s) -- additive per vendor found, since a machine can
 # have more than one (e.g. Intel iGPU + NVIDIA dGPU is common on laptops).
 # A machine with no discrete/matched GPU is a normal, silent no-op — same
 # graceful-absence handling as 53-chrome.sh.
@@ -99,6 +100,13 @@ ncz_nvidia_dynamic_setup() {
     fi
     # shellcheck disable=SC1090
     . "$lib"
+    if ! command -v ncz_bounded_run >/dev/null 2>&1; then
+        # shellcheck source=post-install/lib/bounded-run.sh
+        . "$(dirname "$lib")/bounded-run.sh" 2>/dev/null || {
+            echo "[54] WARN: lib/bounded-run.sh missing: cannot bound the CUDA install, deferring it to ncz-cuda-setup.timer"
+            ncz_bounded_run() { return 124; }
+        }
+    fi
     if [ "${NCZ_SKIP_CUDA:-0}" = 1 ]; then ncz_cuda_status "skipped:operator-disabled"; return 0; fi
 
     local pick fam id
@@ -179,10 +187,14 @@ ncz_nvidia_dynamic_setup() {
     ncz_cuda_status "pending:install"
 
     # Try now (network is normally up during install); a failure leaves the
-    # timer to finish it after boot.
-    local rc
-    timeout 5400 /usr/local/sbin/ncz-cuda-setup run 2>&1 | tail -20 | sed 's/^/[54]   /'
-    rc=${PIPESTATUS[0]}
+    # timer to finish it after boot. Bounded by ncz_bounded_run, not
+    # `timeout ... | tail`: a stuck grandchild would hold that pipe open and
+    # hang the install (lib/bounded-run.sh).
+    local rc out="/var/log/ncz-cuda-setup-install.out"
+    ncz_bounded_run "${NCZ_CUDA_SETUP_TIMEOUT:-5400}" "54 ncz-cuda-setup" "$out" \
+        /usr/local/sbin/ncz-cuda-setup run
+    rc=$?
+    tail -20 "$out" 2>/dev/null | sed 's/^/[54]   /'
     if [ "$rc" = 0 ]; then
         echo "[54] CUDA: installed now ($(cat "$NCZ_CUDA_STATUS" 2>/dev/null))"
     else
@@ -204,19 +216,43 @@ case "$VARIANT" in
         ;;
 esac
 
-if ! command -v lspci >/dev/null 2>&1; then
-    echo "[54] WARN: lspci absent (pciutils not staged?) — cannot detect GPU vendor, skipping"
-    ncz_cuda_status "skipped:lspci-absent"
+# Hardware probing rules for this hook (2026-10-06, PEGASUS hang):
+#   - NEVER run lspci or read a device's sysfs `config` here. Both read PCI
+#     config space; on an Optimus laptop whose dGPU runtime suspend oopsed in
+#     nouveau, that read blocked in D state forever and the whole install sat
+#     in this hook for 30+ minutes. The PCI list comes from sysfs vendor/
+#     device/class (cached by the PCI core, never touches the device).
+#   - Every external tool that talks to a GPU (rocminfo, the CUDA installer)
+#     runs under ncz_bounded_run with a deadline; on timeout it is logged,
+#     killed by exact PGID and the hook continues.
+NCZ_HOOK_LIB="$(dirname "$(readlink -f "$0")")/lib"
+for _l in pci-sysfs.sh bounded-run.sh; do
+    if [ -r "$NCZ_HOOK_LIB/$_l" ]; then
+        # shellcheck disable=SC1090
+        . "$NCZ_HOOK_LIB/$_l"
+    else
+        echo "[54] WARN: $NCZ_HOOK_LIB/$_l missing: cannot probe hardware safely, skipping GPU wiring"
+        ncz_cuda_status "skipped:hook-lib-missing"
+        exit 0
+    fi
+done
+unset _l
+NCZ_PROBE_OUT=/var/log/cix-install
+mkdir -p "$NCZ_PROBE_OUT" 2>/dev/null || NCZ_PROBE_OUT=$(mktemp -d 2>/dev/null || echo /var/tmp)
+
+if ! ncz_pci_available; then
+    echo "[54] WARN: no PCI devices under ${NCZ_PCI_DEVICES_ROOT:-/sys/bus/pci/devices} (sysfs not mounted in the target chroot?) -- cannot detect GPU vendor, skipping"
+    ncz_cuda_status "skipped:no-pci-sysfs"
     exit 0
 fi
+ALL_PCI=$(ncz_pci_lspci_nn)
 
 # PCI display-class controllers only (0300=VGA, 0302=3D, 0380=other display).
-# zoder review (2026-09-14) caught: `lspci -d "::0300"` is NOT valid class
-# filtering — pciutils' -d only parses [vendor]:[device], so a third field
-# is silently misparsed and this always matched nothing. Real fix: grep the
-# bracketed class code that lspci -nn prints on every line
-# ("00:02.0 VGA compatible controller [0300]: ...").
-DISPLAY_PCI=$(lspci -nn | grep -E '\[03(00|02|80)\]:')
+# ncz_pci_lspci_nn prints the `lspci -nn` line shape
+# ("0000:00:02.0 Class [0300]: Device [8086:3e9b]"), so match the bracketed
+# class code and IDs (zoder review 2026-09-14: `lspci -d "::0300"` never
+# filtered by class; grep the bracketed class instead).
+DISPLAY_PCI=$(printf '%s\n' "$ALL_PCI" | grep -E '\[03(00|02|80)\]:')
 
 HAS_NVIDIA=0; HAS_AMD=0; HAS_INTEL=0
 echo "$DISPLAY_PCI" | grep -qi '\[10de:' && HAS_NVIDIA=1
@@ -231,8 +267,8 @@ if [ "$HAS_NVIDIA" = 0 ]; then
 fi
 
 if [ "$HAS_NVIDIA" = 0 ] && [ "$HAS_AMD" = 0 ] && [ "$HAS_INTEL" = 0 ]; then
-    echo "[54] no NVIDIA/AMD/Intel display controller detected via lspci — nothing to wire"
-    echo "[54] lspci display-class output was:"
+    echo "[54] no NVIDIA/AMD/Intel display controller detected in sysfs -- nothing to wire"
+    echo "[54] sysfs display-class devices were:"
     echo "$DISPLAY_PCI" | sed 's/^/[54]   /'
     exit 0
 fi
@@ -259,10 +295,14 @@ if [ "$HAS_AMD" = 1 ]; then
     else
         echo "[54] WARN: Debian-native ROCm package installation was incomplete"
     fi
-    if GFX_NAME=$(rocminfo 2>/dev/null | grep -m1 -oE 'gfx[0-9a-f]+'); then
+    # rocminfo opens /dev/kfd and talks to the GPU: bounded, never fatal.
+    if ! command -v rocminfo >/dev/null 2>&1; then
+        echo "[54] AMD: rocminfo not installed; no OpenCL support claim is made"
+    elif ncz_bounded_run "${NCZ_GPU_PROBE_TIMEOUT:-60}" "54 rocminfo" "$NCZ_PROBE_OUT/54-rocminfo.out" rocminfo \
+            && GFX_NAME=$(grep -m1 -oE 'gfx[0-9a-f]+' "$NCZ_PROBE_OUT/54-rocminfo.out"); then
         echo "[54] AMD: rocminfo detected $GFX_NAME; workload support still depends on the GPU generation"
     else
-        echo "[54] AMD: rocminfo did not enumerate a GPU in the installer session; no OpenCL support claim is made"
+        echo "[54] AMD: rocminfo did not enumerate a GPU in the installer session (or timed out); no OpenCL support claim is made"
     fi
 fi
 
@@ -282,11 +322,16 @@ fi
 #          "Signal processing controller [1180]: ... AMD IPU Device
 #          [1022:1502]"). Class 1180 alone is NOT vendor-specific (Intel
 #          also uses it for non-NPU devices), so AMD's NPU match requires
-#          BOTH class 1180 AND vendor 1022 AND the "IPU" name substring.
-NPU_PCI=$(lspci -nn)
+#          BOTH class 1180 AND vendor 1022 AND a known XDNA device ID. The
+#          sysfs list has no names, so the old "IPU" name match became an ID
+#          list: exactly the IDs the upstream amdxdna driver binds in
+#          v7.3-rc6 (drivers/accel/amdxdna/amdxdna_pci_drv.c): 1502
+#          (Phoenix/Hawk Point, the HYDRA/ACHILLES device above), 17f0,
+#          17f2, 17f3, 1b0b, 1b0c.
+NPU_PCI=$ALL_PCI
 HAS_INTEL_NPU=0; HAS_AMD_NPU=0
 echo "$NPU_PCI" | grep -qi '\[1200\]:.*\[8086:' && HAS_INTEL_NPU=1
-echo "$NPU_PCI" | grep -i '\[1180\]:.*\[1022:' | grep -qi 'ipu' && HAS_AMD_NPU=1
+echo "$NPU_PCI" | grep -qiE '\[1180\]:.*\[1022:(1502|17f0|17f2|17f3|1b0b|1b0c)\]' && HAS_AMD_NPU=1
 
 if [ "$HAS_INTEL_NPU" = 1 ]; then
     echo "[54] Intel NPU detected — installing OpenVINO NPU runtime"
