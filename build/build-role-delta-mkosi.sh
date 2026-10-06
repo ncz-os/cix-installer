@@ -135,7 +135,7 @@ case "$ROLE" in
     done
     if [ -n "$_ss_mirrors" ]; then
       # shellcheck disable=SC2086
-      if ! "$ROOT/build/assert-mirror-has-screensavers.sh" $_ss_mirrors --arch "${NCZ_TARGET_ARCH:-$(dpkg --print-architecture 2>/dev/null)}"; then
+      if ! "$ROOT/build/assert-mirror-has-screensavers.sh" $_ss_mirrors --arch "$ARCH"; then
         echo "[role-delta] ABORT: offline mirror does not carry ncz-screensavers at the required version floor." >&2
         echo "[role-delta]        (operator 2026-10-05: 'If we are distributing screensavers as Deb they need to be apt installed during installation.')" >&2
         exit 1

@@ -241,10 +241,11 @@ fi
 RD="$ROOT/build/build-role-delta-mkosi.sh"
 if [ -r "$RD" ]; then
     if grep -q 'assert-mirror-has-screensavers.sh' "$RD" \
-       && grep -q 'desktop) MIRROR_DIRS="desktop-mirror"' "$RD"; then
-        ok "build-role-delta-mkosi.sh pre-flights desktop-mirror for ncz-screensavers"
+       && grep -q 'desktop) MIRROR_DIRS="desktop-mirror"' "$RD" \
+       && grep -q 'assert-mirror-has-screensavers.sh" \$_ss_mirrors --arch "\$ARCH"' "$RD"; then
+        ok "build-role-delta-mkosi.sh pre-flights desktop-mirror for ncz-screensavers (target arch)"
     else
-        bad "build-role-delta-mkosi.sh does NOT pre-flight desktop-mirror"
+        bad "build-role-delta-mkosi.sh does NOT pre-flight desktop-mirror with the target arch"
     fi
 else
     bad "build-role-delta-mkosi.sh missing"
