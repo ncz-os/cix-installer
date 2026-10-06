@@ -180,7 +180,17 @@ cat > /etc/greetd/singularity-labwc/autostart <<'LABAUTO'
 # swapchain (operator decision 2026-10-04). Pick 1920x1080 at 60 Hz on every connected
 # output that offers it; outputs without it keep their own mode. Best effort: a failure
 # here must never block the greeter, so every path exits 0.
+#
+# HiDPI (docs/HIDPI-SCALING.md): ncz-display-scale keeps the same never-above-1920x1200
+# cap but chooses a mode with the panel's own aspect ratio (a 3072x1920 16:10 laptop
+# panel gets 1920x1200, not a letterboxed 1920x1080) and applies the NCZ density
+# policy scale for that mode. The fixed 1080p loop below is the fallback when the
+# helper is missing or fails.
 command -v wlr-randr >/dev/null 2>&1 || exit 0
+_scale=${NCZ_DISPLAY_SCALE_HELPER:-/usr/local/bin/ncz-display-scale}
+if [ -x "$_scale" ] && "$_scale" greeter; then
+    exit 0
+fi
 for out in $(wlr-randr 2>/dev/null | awk '/^[A-Za-z]/ {print $1}'); do
     wlr-randr --output "$out" --mode 1920x1080@60Hz >/dev/null 2>&1 \
         || wlr-randr --output "$out" --mode 1920x1080 >/dev/null 2>&1 || true

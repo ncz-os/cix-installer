@@ -109,6 +109,31 @@ Deliberately has no `**Upstream PR:**` link, so
 `build/singularity-patch-reconcile.py` will not auto-retire it. When the
 change is filed and merged upstream, delete the patch and this block.
 
+## singularity-loginui — active
+
+**Not yet filed upstream.** Patch
+`0001-splash-fit-logo-to-surface-and-scale-loading-bar.patch`.
+`loginui_render_splash()` sized the logo from the surface height alone
+(16 %), so the 696x52 Cygnus wordmark came out about 2.1x the screen height
+wide and was cropped on every landscape display (about 4100 px wide on the
+3072x1920 MacBookPro16,1 panel, about 2300 px on 1920x1080), and the loading
+bar was a fixed 220x4 px. The patch fits the logo inside 60 % of the width
+and 16 % of the height and grows the bar with the surface height. Square
+emblem logos are unchanged.
+
+This one patch reaches two binaries: the session splash, through the
+desktop tree's `subprojects/singularity-loginui` (the generic loop in
+`build/build-singularity.sh`), and the native KMS boot splash, whose separate
+repository bundles its own loginui copy (the dedicated loop in the
+boot-splash section of the same script). Policy and render evidence:
+`docs/HIDPI-SCALING.md`.
+
+Deliberately has no `**Upstream PR:**` link, so
+`build/singularity-patch-reconcile.py` will not auto-retire it. Filing it
+upstream needs the singularityos-lab AI-disclosure trailers that the
+project's CI enforces. When it merges upstream, delete the patch and this
+block.
+
 ## Previously landed
 
 **Currently no OTHER patches carried.** Everything else previously tracked
