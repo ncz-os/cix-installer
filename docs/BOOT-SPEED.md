@@ -366,7 +366,7 @@ boot-speed tests: 13 passed, 4 failed     (exit 1)
 boot-speed tests: 20 passed, 0 failed     (exit 0)
 ```
 
-## 8. Item G -- NTP first-contact delay at boot (30 s)
+## 9. Item G -- NTP first-contact delay at boot (30 s)
 
 Measured on O6N (systemd 262), boot of 2026-10-04, monotonic journal:
 `systemd-timesyncd` started at **5.58 s**; "Network configuration changed,
